@@ -10,6 +10,21 @@ class UserCreate(BaseModel):
     email: Optional[str] = None
     role: Literal["admin", "advisor", "readonly"] = "advisor"
 
+    @field_validator('username', 'full_name')
+    @classmethod
+    def validate_required_text(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError('value must not be empty')
+        return normalized
+
+    @field_validator('password')
+    @classmethod
+    def validate_password(cls, value: str) -> str:
+        if len(value) < 10:
+            raise ValueError('password must be at least 10 characters long')
+        return value
+
 
 class UserUpdate(BaseModel):
     full_name: Optional[str] = None

@@ -40,11 +40,12 @@ def list_clients(
     if not has_global_client_access(current_user):
         q = q.filter(Client.advisor_id == current_user.id)
     if search:
-        like = f"%{search}%"
+        safe = search.replace('%', r'\%').replace('_', r'\_')
+        like = f"%{safe}%"
         q = q.filter(
-            (Client.first_name.ilike(like)) |
-            (Client.last_name.ilike(like)) |
-            (Client.client_number.ilike(like))
+            (Client.first_name.ilike(like, escape='\\')) |
+            (Client.last_name.ilike(like, escape='\\')) |
+            (Client.client_number.ilike(like, escape='\\'))
         )
     if advisor_id:
         q = q.filter(Client.advisor_id == advisor_id)
