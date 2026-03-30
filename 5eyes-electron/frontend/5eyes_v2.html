@@ -1856,6 +1856,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 const API = {
   _token: null,
   _baseUrl: null,
+  _handling401: false,
   async baseUrl() {
     if (!this._baseUrl) {
       if (window.FiveEyesAPI && typeof window.FiveEyesAPI.resolveBaseUrl === 'function') {
@@ -1904,8 +1905,12 @@ const API = {
     const res = await fetch(base+path, {...options, headers});
     const retryAfter = Number.parseInt(res.headers.get('Retry-After') || '0', 10) || null;
     if (res.status === 401 && token && !path.startsWith('/auth/login') && !path.startsWith('/auth/bootstrap')) {
-      await API.setToken(null);
-      showLogin('Sitzung abgelaufen. Bitte erneut anmelden.');
+      if (!API._handling401) {
+        API._handling401 = true;
+        await API.setToken(null);
+        showLogin('Sitzung abgelaufen. Bitte erneut anmelden.');
+        setTimeout(function(){ API._handling401 = false; }, 2000);
+      }
     }
     if (!res.ok) {
       const txt = await res.text();
@@ -2070,13 +2075,15 @@ async function checkBootstrapStatus() {
     bootstrapStatusCache = await API.get('/auth/bootstrap-status');
   } catch(e) {
     bootstrapStatusCache = { setup_required: false, can_create_admin: false, backend_unreachable: true };
+    const loginErr = document.getElementById('login-error');
+    if (loginErr) { loginErr.textContent = 'Backend nicht erreichbar. Bitte App neu starten.'; loginErr.style.display = 'block'; }
   }
   updateBootstrapHint();
   return bootstrapStatusCache;
 }
 
 async function doLogout() {
-  try { await API.post('/auth/logout', {}); } catch(e) {}
+  try { await API.post('/auth/logout', {}); } catch(e) { console.error('[5eyes] logout:', e); }
   await API.setToken(null);
   currentUser = null;
   const label = document.getElementById('current-user-label');
@@ -4492,9 +4499,9 @@ async function createNewMandate() {
     div.className = 'client active';
     div.dataset.pid = cid;
     div.dataset.cid = cid;
-    div.innerHTML = '<div class="client-n">' + firstName + ' ' + lastName + '</div>' +
-      '<div class="client-m">' + clientNum + ' &middot; ' + mType +
-      (warnLabel ? ' <span style="color:var(--warn);font-size:9px;margin-left:4px">' + warnLabel + '</span>' : '') +
+    div.innerHTML = '<div class="client-n">' + escapeHtml(firstName) + ' ' + escapeHtml(lastName) + '</div>' +
+      '<div class="client-m">' + escapeHtml(clientNum) + ' &middot; ' + escapeHtml(mType) +
+      (warnLabel ? ' <span style="color:var(--warn);font-size:9px;margin-left:4px">' + escapeHtml(warnLabel) + '</span>' : '') +
       '</div><div class="client-tags"><span class="ctag ct-b">Neu</span></div>';
     div.onclick = function() { selC(div); showNewClientScreen(firstName, lastName, mType); };
     sbl.insertBefore(div, sbl.firstChild);
@@ -4591,8 +4598,8 @@ function showNewClientScreen(firstName, lastName, mType, meta) {
 
   var hg = document.getElementById('hh-grid');
   if (hg) hg.innerHTML =
-    '<div><div class="psk">Hauptperson</div><div class="psv">' + firstName + ' ' + lastName + '</div></div>' +
-    '<div><div class="psk">Mandat-Typ</div><div class="psv">' + mType + '</div></div>' +
+    '<div><div class="psk">Hauptperson</div><div class="psv">' + escapeHtml(firstName) + ' ' + escapeHtml(lastName) + '</div></div>' +
+    '<div><div class="psk">Mandat-Typ</div><div class="psv">' + escapeHtml(mType) + '</div></div>' +
     '<div><div class="psk">Status</div><div class="psv" style="color:var(--pos)">Aktiv &mdash; neu angelegt</div></div>' +
     '<div><div class="psk">N&auml;chster Schritt</div><div class="psv">Risikoprofilierung ausf&uuml;llen</div></div>';
 
