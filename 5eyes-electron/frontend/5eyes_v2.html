@@ -5863,14 +5863,14 @@ function bindAllocationPreferenceControls(){
     '#aa-liquidity-reserve-target'
   ];
   document.querySelectorAll(selectors.join(',')).forEach(function(el){
-    el.addEventListener('change',function(){persistAllocationPreferences();markStrategyDirty('MandatsprÃ¤ferenzen aktualisiert: Strategie neu berechnen.');});
-    el.addEventListener('input',function(){persistAllocationPreferences();markStrategyDirty('MandatsprÃ¤ferenzen aktualisiert: Strategie neu berechnen.');});
+    el.addEventListener('change',function(){persistAllocationPreferences();markStrategyDirty('Mandatspräferenzen aktualisiert: Strategie neu berechnen.');});
+    el.addEventListener('input',function(){persistAllocationPreferences();markStrategyDirty('Mandatspräferenzen aktualisiert: Strategie neu berechnen.');});
   });
   [
     'aa-equities-geo','aa-bonds-duration','aa-realestate-market','aa-liquidity-instrument'
   ].forEach(function(name){
     document.querySelectorAll('input[name="'+name+'"]').forEach(function(el){
-      el.addEventListener('change',function(){persistAllocationPreferences();markStrategyDirty('MandatsprÃ¤ferenzen aktualisiert: Strategie neu berechnen.');});
+      el.addEventListener('change',function(){persistAllocationPreferences();markStrategyDirty('Mandatspräferenzen aktualisiert: Strategie neu berechnen.');});
     });
   });
 }
@@ -6512,7 +6512,7 @@ async function refreshStrategyData(force,includeRecommendation,retriedAfterBandR
           return true;
         }
         var currentPrefs=collectAllocationPreferencesFromUI();
-        var currentDepotBank=getInputValue('recipe-depot-bank')||'UBS AG ZÃ¼rich';
+        var currentDepotBank=getInputValue('recipe-depot-bank')||'UBS AG Zürich';
         var hydratedRecommendation=await API.post('/mandates/'+mid+'/recommendations/generate',{preferences:currentPrefs,target_allocation_id:currentAllocation.target_allocation.id,run_type:'Optimizer',depot_bank:currentDepotBank});
         applyRecommendationEngineResult(hydratedRecommendation);
         strategyState.lastGeneratedAt=Date.now();
@@ -6617,7 +6617,6 @@ function normalizeFrequencyValue(value){
   var raw=String(value||'').trim();
   var norm=raw.toLowerCase()
     .replace(/ä/g,'ae').replace(/ö/g,'oe').replace(/ü/g,'ue')
-    .replace(/Ã¤/g,'ae').replace(/Ã¶/g,'oe').replace(/Ã¼/g,'ue')
     .replace(/\?/g,'')
     .replace(/\s+/g,'');
   var map={
@@ -6651,7 +6650,6 @@ function cashflowFrequencyKey(value){
   return String(normalizeFrequencyValue(value)||'')
     .toLowerCase()
     .replace(/ä/g,'ae').replace(/ö/g,'oe').replace(/ü/g,'ue')
-    .replace(/Ã¤/g,'ae').replace(/Ã¶/g,'oe').replace(/Ã¼/g,'ue')
     .replace(/\?/g,'')
     .replace(/-/g,'')
     .replace(/\s+/g,'');
