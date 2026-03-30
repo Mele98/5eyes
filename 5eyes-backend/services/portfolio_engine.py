@@ -1,0 +1,3210 @@
+import json
+import hashlib
+import math
+import random
+from collections import defaultdict
+from dataclasses import dataclass
+from datetime import date, datetime, timezone
+
+from sqlalchemy.orm import Session
+
+from database import new_uuid
+from models.allocation import (
+    BuildingBlock,
+    CapitalMarketAssumption,
+    HouseMatrix,
+    OptimizerPolicy,
+    TargetAllocation,
+)
+from models.mandates import Mandate
+from models.profiling import RiskAssessment
+from models.review import (
+    PriceHistory,
+    Product,
+    ProductSuitability,
+    RecommendationHolding,
+    RecommendationPosition,
+    RecommendationRun,
+)
+from models.wealth import Cashflow, Goal, WealthPosition
+from price_updater import latest_price_snapshot, parse_iso_date, summarize_price_quality
+from services.cashflow_timeline import (
+    future_value_with_cashflow_series,
+    net_cashflow_series,
+    normalize_frequency,
+    totals_for_year,
+)
+from services.product_market_data import resolve_market_profile, validate_default_product_market_coverage
+
+
+BUCKET_FIELDS = ("equities", "bonds", "real_estate", "alternatives", "liquidity")
+BUCKET_LABELS = {
+    "equities": "Aktien",
+    "bonds": "Obligationen",
+    "real_estate": "Immobilien",
+    "alternatives": "Alternative",
+    "liquidity": "Liquiditaet",
+}
+LABEL_TO_BUCKET = {value: key for key, value in BUCKET_LABELS.items()}
+GOAL_WEIGHT_BY_RANK = {
+    1: 10000,
+    2: 5000,
+    3: 2500,
+    4: 1250,
+    5: 625,
+}
+DEFAULT_POLICY_NAME = "5Eyes V1 Standard"
+DEFAULT_CMA_NAME = "5Eyes V1 Hausmeinung"
+ALLOWED_HOUSE_MATRIX_PROFILES = ("Kapitalschutz", "Defensiv", "Ausgewogen", "Wachstum", "Dynamisch", "Aktien")
+ALLOWED_PRODUCT_TYPES = (
+    "ETF",
+    "Fonds",
+    "Einzeltitel",
+    "Strukturiertes Produkt",
+    "Anleihe",
+    "Cash",
+    "Immobilienfonds",
+    "Alternative Anlage",
+    "Sonstiges",
+)
+ALLOWED_PRODUCT_ASSET_CLASSES = ("Aktien", "Obligationen", "Immobilien", "Alternative", "Liquidität")
+
+DEFAULT_ASSET_RISKY_WEIGHTS_BPS = {
+    "equities": 7900,
+    "bonds": 2450,
+    "real_estate": 5000,
+    "alternatives": 6000,
+    "liquidity": 0,
+}
+ASSET_LIQUIDITY_PROFILES = {
+    "equities": "T+2 liquide",
+    "bonds": "liquide bis mittel",
+    "real_estate": "teil- bis illiquide",
+    "alternatives": "heterogen / teils illiquide",
+    "liquidity": "taeglich verfuegbar",
+}
+DEFAULT_SIMULATION_HORIZON_YEARS = 10
+DEFAULT_SIMULATION_STRESS_MULTIPLIER = 1.0
+DEFAULT_MONTE_CARLO_SIMULATIONS = 750
+ALLOWED_SIMULATION_REBALANCE_MODES = ("bands", "calendar", "none")
+
+
+@dataclass
+class PortfolioSummary:
+    amounts_rappen: dict[str, int]
+    total_rappen: int
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+
+
+def _today() -> str:
+    return date.today().isoformat()
+
+
+def _parse_bps_percent(value) -> int | None:
+    if value in (None, "", False):
+        return None
+    raw = str(value).replace("%", "").replace("'", "").replace(" ", "").replace(",", ".").strip()
+    if not raw:
+        return None
+    try:
+        return int(round(float(raw) * 100))
+    except (TypeError, ValueError):
+        return None
+
+
+def _parse_rappen(value) -> int | None:
+    if value in (None, "", False):
+        return None
+    raw = str(value).replace("CHF", "").replace("'", "").replace(" ", "").replace(",", ".").strip()
+    if not raw:
+        return None
+    try:
+        return int(round(float(raw) * 100))
+    except (TypeError, ValueError):
+        return None
+
+
+def _norm_text(value) -> str:
+    return (
+        str(value or "")
+        .replace("\xe4", "ae")
+        .replace("\xf6", "oe")
+        .replace("\xfc", "ue")
+        .replace("\xc4", "Ae")
+        .replace("\xd6", "Oe")
+        .replace("\xdc", "Ue")
+        .replace("\xdf", "ss")
+    )
+
+
+def _normalize_preferences(preferences: dict | None) -> dict:
+    prefs = preferences or {}
+    return {
+        "policy": prefs.get("policy") or {},
+        "tilts": prefs.get("tilts") or {},
+        "product": prefs.get("product") or {},
+        "limits": prefs.get("limits") or {},
+        "geo": prefs.get("geo") or {},
+        "assetClasses": prefs.get("assetClasses") or {},
+        "bands": prefs.get("bands") or {},
+        "simulation": prefs.get("simulation") or {},
+    }
+
+
+def _bucket_key(value: str | None) -> str | None:
+    raw = _norm_text(value)
+    aliases = {
+        "Aktien": "equities",
+        "Obligationen": "bonds",
+        "Immobilien": "real_estate",
+        "Alternative": "alternatives",
+        "Liquiditaet": "liquidity",
+        "equities": "equities",
+        "bonds": "bonds",
+        "real_estate": "real_estate",
+        "alternatives": "alternatives",
+        "liquidity": "liquidity",
+    }
+    return aliases.get(raw)
+
+
+def _coerce_band_bps(value) -> int | None:
+    if value in (None, "", False):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(round(value if abs(value) > 100 else value * 100))
+    raw = str(value).replace("'", "").replace(" ", "").strip()
+    if not raw:
+        return None
+    if "%" in raw:
+        return _parse_bps_percent(raw)
+    try:
+        numeric = float(raw.replace(",", "."))
+    except ValueError:
+        return None
+    return int(round(numeric if abs(numeric) > 100 else numeric * 100))
+
+
+def _risk_score_bucket(assessment: RiskAssessment) -> int:
+    score_x10 = assessment.override_score_x10 if assessment.is_overridden and assessment.override_score_x10 else assessment.final_score_x10
+    return max(1, min(10, int(round((score_x10 or 10) / 10))))
+
+
+def _default_weights_for_position(position: WealthPosition) -> dict[str, int]:
+    total = (
+        int(position.alloc_equities_bps or 0)
+        + int(position.alloc_bonds_bps or 0)
+        + int(position.alloc_real_estate_bps or 0)
+        + int(position.alloc_alternatives_bps or 0)
+        + int(position.alloc_liquidity_bps or 0)
+    )
+    if total == 10000:
+        return {
+            "equities": int(position.alloc_equities_bps or 0),
+            "bonds": int(position.alloc_bonds_bps or 0),
+            "real_estate": int(position.alloc_real_estate_bps or 0),
+            "alternatives": int(position.alloc_alternatives_bps or 0),
+            "liquidity": int(position.alloc_liquidity_bps or 0),
+        }
+
+    mapping = {
+        "Depot": {"equities": 6000, "bonds": 2500, "real_estate": 0, "alternatives": 500, "liquidity": 1000},
+        "Liquiditaet": {"equities": 0, "bonds": 0, "real_estate": 0, "alternatives": 0, "liquidity": 10000},
+        "Immobilien": {"equities": 0, "bonds": 0, "real_estate": 10000, "alternatives": 0, "liquidity": 0},
+        "Vorsorge": {"equities": 4500, "bonds": 4500, "real_estate": 0, "alternatives": 0, "liquidity": 1000},
+        "Alternative": {"equities": 0, "bonds": 0, "real_estate": 0, "alternatives": 10000, "liquidity": 0},
+        "Hypothek": {"equities": 0, "bonds": 0, "real_estate": 0, "alternatives": 0, "liquidity": 0},
+        "Custom": {"equities": 5000, "bonds": 2000, "real_estate": 1000, "alternatives": 500, "liquidity": 1500},
+    }
+    return mapping.get(_norm_text(position.position_type), mapping["Custom"]).copy()
+
+
+def _summarize_positions(positions: list[WealthPosition]) -> PortfolioSummary:
+    amounts = {key: 0 for key in BUCKET_FIELDS}
+    total_rappen = 0
+    for pos in positions:
+        value_rappen = int(pos.current_value_rappen or 0)
+        if value_rappen <= 0:
+            continue
+        weights = _default_weights_for_position(pos)
+        total_rappen += value_rappen
+        for key in BUCKET_FIELDS:
+            amounts[key] += int(round(value_rappen * weights[key] / 10000))
+    return PortfolioSummary(amounts_rappen=amounts, total_rappen=total_rappen)
+
+
+def _bps(amount_rappen: int, total_rappen: int) -> int:
+    if total_rappen <= 0:
+        return 0
+    return int(round(amount_rappen / total_rappen * 10000))
+
+
+def _amount_from_weight_bps(total_rappen: int, weight_bps: int) -> int:
+    if total_rappen <= 0 or weight_bps <= 0:
+        return 0
+    return int(round(total_rappen * weight_bps / 10000))
+
+
+def _current_recommendation_run(db: Session, mandate_id: str) -> RecommendationRun | None:
+    current = db.query(RecommendationRun).filter(
+        RecommendationRun.mandate_id == mandate_id,
+        RecommendationRun.result_status == "Final",
+    ).order_by(RecommendationRun.created_at.desc()).first()
+    if current:
+        return current
+    return db.query(RecommendationRun).filter(
+        RecommendationRun.mandate_id == mandate_id,
+    ).order_by(RecommendationRun.created_at.desc()).first()
+
+
+def _reference_price_snapshot_for_run(
+    db: Session,
+    product_ids: list[str],
+    run_created_at: str | None,
+) -> dict[str, PriceHistory]:
+    if not product_ids:
+        return {}
+    run_anchor = str(run_created_at or "")[:10]
+    rows = db.query(PriceHistory).filter(
+        PriceHistory.product_id.in_(product_ids),
+    ).order_by(
+        PriceHistory.product_id.asc(),
+        PriceHistory.price_date.desc(),
+        PriceHistory.fetched_at.desc(),
+    ).all()
+    snapshots: dict[str, PriceHistory] = {}
+    for row in rows:
+        if row.product_id in snapshots:
+            continue
+        if not run_anchor:
+            snapshots[row.product_id] = row
+            continue
+        same_or_before_day = str(row.price_date or "") <= run_anchor
+        same_or_before_fetch = str(row.fetched_at or "") <= str(run_created_at or "")
+        if str(row.price_date or "") < run_anchor or (str(row.price_date or "") == run_anchor and same_or_before_fetch):
+            snapshots[row.product_id] = row
+            continue
+        if not same_or_before_day:
+            continue
+    return snapshots
+
+
+def _holdings_snapshot_for_run(
+    db: Session,
+    run_id: str,
+    position_ids: list[str],
+) -> dict[str, RecommendationHolding]:
+    if not position_ids:
+        return {}
+    rows = db.query(RecommendationHolding).filter(
+        RecommendationHolding.run_id == run_id,
+        RecommendationHolding.recommendation_position_id.in_(position_ids),
+    ).order_by(
+        RecommendationHolding.recommendation_position_id.asc(),
+        RecommendationHolding.updated_at.desc(),
+    ).all()
+    holdings: dict[str, RecommendationHolding] = {}
+    seen: set[str] = set()
+    for row in rows:
+        if row.recommendation_position_id in seen:
+            continue
+        seen.add(row.recommendation_position_id)
+        if row.deleted_at is None:
+            holdings[row.recommendation_position_id] = row
+    return holdings
+
+
+def _latest_holdings_by_product_for_mandate(
+    db: Session,
+    mandate_id: str,
+) -> dict[str, RecommendationHolding]:
+    rows = db.query(RecommendationHolding).join(
+        RecommendationRun,
+        RecommendationRun.id == RecommendationHolding.run_id,
+    ).filter(
+        RecommendationRun.mandate_id == mandate_id,
+    ).order_by(
+        RecommendationHolding.product_id.asc(),
+        RecommendationHolding.updated_at.desc(),
+    ).all()
+    holdings: dict[str, RecommendationHolding] = {}
+    seen: set[str] = set()
+    for row in rows:
+        if row.product_id in seen:
+            continue
+        seen.add(row.product_id)
+        if row.deleted_at is None:
+            holdings[row.product_id] = row
+    return holdings
+
+
+def _units_milli_from_amount(amount_rappen: int, reference_price_rappen: int | None) -> int | None:
+    if amount_rappen <= 0 or not reference_price_rappen or reference_price_rappen <= 0:
+        return None
+    return int(round(amount_rappen * 1000 / reference_price_rappen))
+
+
+def _value_from_units_milli(units_milli: int | None, price_rappen: int | None, fallback_amount_rappen: int = 0) -> int:
+    if not units_milli or not price_rappen or price_rappen <= 0:
+        return max(0, int(fallback_amount_rappen or 0))
+    return max(0, int(round(units_milli * price_rappen / 1000)))
+
+
+def _canonical_asset_class_label(value: str | None) -> str:
+    key = _bucket_key(value)
+    return BUCKET_LABELS.get(key or "", str(value or "Unbekannt"))
+
+
+def _rebalancing_action(delta_weight_bps: int, rebalance_amount_rappen: int, price_available: bool) -> str:
+    if not price_available:
+        return "Preis fehlt"
+    if abs(delta_weight_bps) < 25 and abs(rebalance_amount_rappen) < 5000:
+        return "Im Soll"
+    if rebalance_amount_rappen > 0:
+        return "Aufbauen"
+    if rebalance_amount_rappen < 0:
+        return "Reduzieren"
+    return "Beobachten"
+
+
+def _aligned_reference_price(
+    reference_price: PriceHistory | None,
+    latest_price: PriceHistory | None,
+    lookup_mode: str | None,
+) -> tuple[PriceHistory | None, bool]:
+    if not latest_price:
+        return reference_price, False
+    if not reference_price:
+        return latest_price, latest_price is not None
+
+    reference_rappen = int(reference_price.price_rappen or 0)
+    latest_rappen = int(latest_price.price_rappen or 0)
+    if reference_rappen <= 0 or latest_rappen <= 0:
+        return latest_price, True
+
+    ratio = max(reference_rappen, latest_rappen) / max(1, min(reference_rappen, latest_rappen))
+    recalibration_threshold = 1.5 if str(lookup_mode or "").strip() in {"proxy", "synthetic_par"} else 3
+    if ratio < recalibration_threshold:
+        return reference_price, False
+
+    reference_source = str(reference_price.source or "").strip()
+    latest_source = str(latest_price.source or "").strip()
+    if str(lookup_mode or "").strip() in {"proxy", "synthetic_par"}:
+        return latest_price, True
+    if reference_source and latest_source and reference_source != latest_source:
+        return latest_price, True
+    return reference_price, False
+
+
+def build_live_rebalancing_payload(
+    db: Session,
+    allocation: TargetAllocation,
+    run: RecommendationRun,
+    advisory_wealth_rappen: int,
+    positions: list[RecommendationPosition] | None = None,
+) -> dict | None:
+    recommendation_positions = positions or db.query(RecommendationPosition).filter(
+        RecommendationPosition.run_id == run.id,
+    ).order_by(RecommendationPosition.target_weight_bps.desc()).all()
+    if not recommendation_positions:
+        return None
+
+    product_ids = [position.product_id for position in recommendation_positions if position.product_id]
+    position_ids = [position.id for position in recommendation_positions if position.id]
+    if not product_ids:
+        return None
+
+    products_by_id = {
+        product.id: product
+        for product in db.query(Product).filter(Product.id.in_(product_ids)).all()
+    }
+    latest_prices = latest_price_snapshot(db, product_ids)
+    reference_prices = _reference_price_snapshot_for_run(db, product_ids, run.created_at)
+    holdings_by_position_id = _holdings_snapshot_for_run(db, run.id, position_ids)
+    holdings_by_product_id = _latest_holdings_by_product_for_mandate(db, run.mandate_id)
+    market_data_quality = summarize_price_quality(db, product_ids)
+    stale_after_days = int(market_data_quality.get("stale_after_days") or 5)
+    today = date.today()
+
+    entries: list[dict] = []
+    current_total_value_rappen = 0
+    missing_prices_count = 0
+    stale_positions_count = 0
+    priced_positions_count = 0
+    as_of_dates: list[str] = []
+    recalibrated_positions_count = 0
+    holding_positions_count = 0
+    implied_positions_count = 0
+
+    for position in recommendation_positions:
+        product = products_by_id.get(position.product_id)
+        if not product:
+            continue
+        market_profile = resolve_market_profile(product)
+        target_weight_bps = int(position.target_weight_bps or 0)
+        target_amount_rappen = int(position.target_amount_rappen or 0)
+        if target_amount_rappen <= 0:
+            target_amount_rappen = _amount_from_weight_bps(advisory_wealth_rappen, target_weight_bps)
+        holding = holdings_by_position_id.get(position.id) or holdings_by_product_id.get(position.product_id)
+        latest_price = latest_prices.get(product.id)
+        reference_price, reference_recalibrated = _aligned_reference_price(
+            reference_prices.get(product.id),
+            latest_price,
+            market_profile.get("lookup_mode"),
+        )
+        latest_price_rappen = int(latest_price.price_rappen or 0) if latest_price else None
+        reference_price_date = reference_price.price_date if reference_price else None
+        reference_price_rappen = int(reference_price.price_rappen or 0) if reference_price else None
+        holding_present = False
+        holding_source = None
+        holding_as_of_date = None
+        holding_units_milli = None
+        holding_market_value_rappen = None
+        holding_avg_cost_price_rappen = None
+        holding_depot_bank = None
+        holding_custody_account_number = None
+        holding_notes = None
+        valuation_basis = "implied_from_target"
+        current_units_milli = None
+        if holding:
+            raw_units = int(holding.units_milli or 0)
+            raw_market_value = int(holding.market_value_rappen or 0)
+            holding_present = raw_units > 0 or raw_market_value > 0
+            if holding_present:
+                holding_source = str(holding.source or "").strip() or "manual"
+                holding_as_of_date = str(holding.as_of_date or "").strip() or None
+                holding_units_milli = raw_units if raw_units > 0 else None
+                holding_market_value_rappen = raw_market_value if raw_market_value > 0 else None
+                holding_avg_cost_price_rappen = int(holding.avg_cost_price_rappen or 0) or None
+                holding_depot_bank = str(holding.depot_bank or "").strip() or None
+                holding_custody_account_number = str(holding.custody_account_number or "").strip() or None
+                holding_notes = str(holding.notes or "").strip() or None
+                if holding_avg_cost_price_rappen:
+                    reference_price_rappen = holding_avg_cost_price_rappen
+                    reference_price_date = holding_as_of_date or reference_price_date
+                    reference_recalibrated = False
+                if holding_units_milli:
+                    current_units_milli = holding_units_milli
+                    valuation_basis = "actual_holding_units"
+                else:
+                    current_units_milli = _units_milli_from_amount(
+                        holding_market_value_rappen or 0,
+                        latest_price_rappen or reference_price_rappen,
+                    )
+                    valuation_basis = "actual_holding_market_value"
+        if reference_recalibrated:
+            recalibrated_positions_count += 1
+        implied_units_milli = _units_milli_from_amount(target_amount_rappen, reference_price_rappen)
+        if holding_present:
+            holding_positions_count += 1
+        else:
+            implied_positions_count += 1
+        if not current_units_milli:
+            current_units_milli = implied_units_milli
+            if not holding_present:
+                valuation_basis = "implied_from_target"
+        reference_value_rappen = _value_from_units_milli(current_units_milli, reference_price_rappen, target_amount_rappen)
+        current_market_value_rappen = _value_from_units_milli(
+            current_units_milli,
+            latest_price_rappen or reference_price_rappen,
+            holding_market_value_rappen or reference_value_rappen or target_amount_rappen,
+        )
+        current_total_value_rappen += current_market_value_rappen
+
+        price_date = parse_iso_date(latest_price.price_date) if latest_price else None
+        price_age_days = (today - price_date).days if price_date else None
+        price_is_fresh = bool(price_age_days is not None and price_age_days <= stale_after_days)
+        if latest_price:
+            priced_positions_count += 1
+            as_of_dates.append(latest_price.price_date)
+            if not price_is_fresh:
+                stale_positions_count += 1
+        else:
+            missing_prices_count += 1
+        price_change_bps = None
+        if latest_price_rappen and reference_price_rappen and reference_price_rappen > 0:
+            price_change_bps = int(round((latest_price_rappen / reference_price_rappen - 1) * 10000))
+        entries.append(
+            {
+                "id": position.id,
+                "product_id": product.id,
+                "product_name": product.product_name,
+                "asset_class": _canonical_asset_class_label(product.asset_class),
+                "sub_asset_class": product.sub_asset_class,
+                "target_weight_bps": target_weight_bps,
+                "target_amount_rappen": target_amount_rappen,
+                "reference_price_date": reference_price_date,
+                "reference_price_rappen": reference_price_rappen,
+                "reference_recalibrated": reference_recalibrated,
+                "latest_price_date": latest_price.price_date if latest_price else None,
+                "latest_price_rappen": latest_price_rappen,
+                "price_age_days": price_age_days,
+                "price_is_fresh": price_is_fresh if latest_price else None,
+                "holding_present": holding_present,
+                "holding_source": holding_source,
+                "holding_as_of_date": holding_as_of_date,
+                "holding_units_milli": holding_units_milli,
+                "current_units_milli": current_units_milli,
+                "holding_market_value_rappen": holding_market_value_rappen,
+                "holding_avg_cost_price_rappen": holding_avg_cost_price_rappen,
+                "holding_depot_bank": holding_depot_bank,
+                "holding_custody_account_number": holding_custody_account_number,
+                "holding_notes": holding_notes,
+                "valuation_basis": valuation_basis,
+                "implied_units_milli": implied_units_milli,
+                "current_market_value_rappen": current_market_value_rappen,
+                "price_change_bps": price_change_bps,
+            }
+        )
+
+    live_total_value_rappen = current_total_value_rappen or max(
+        advisory_wealth_rappen,
+        sum(int(item["target_amount_rappen"] or 0) for item in entries),
+    )
+    if live_total_value_rappen <= 0:
+        return None
+
+    bucket_targets = {
+        "Aktien": {
+            "target_weight_bps": int(allocation.target_equities_bps or 0),
+            "band_min_bps": int(allocation.band_equities_min_bps or 0),
+            "band_max_bps": int(allocation.band_equities_max_bps or 0),
+        },
+        "Obligationen": {
+            "target_weight_bps": int(allocation.target_bonds_bps or 0),
+            "band_min_bps": int(allocation.band_bonds_min_bps or 0),
+            "band_max_bps": int(allocation.band_bonds_max_bps or 0),
+        },
+        "Immobilien": {
+            "target_weight_bps": int(allocation.target_real_estate_bps or 0),
+            "band_min_bps": int(allocation.band_real_estate_min_bps or 0),
+            "band_max_bps": int(allocation.band_real_estate_max_bps or 0),
+        },
+        "Alternative": {
+            "target_weight_bps": int(allocation.target_alternatives_bps or 0),
+            "band_min_bps": int(allocation.band_alternatives_min_bps or 0),
+            "band_max_bps": int(allocation.band_alternatives_max_bps or 0),
+        },
+        "Liquiditaet": {
+            "target_weight_bps": int(allocation.target_liquidity_bps or 0),
+            "band_min_bps": int(allocation.band_liquidity_min_bps or 0),
+            "band_max_bps": int(allocation.band_liquidity_max_bps or 0),
+        },
+    }
+    bucket_current_values: defaultdict[str, int] = defaultdict(int)
+    for entry in entries:
+        bucket_current_values[str(entry["asset_class"])] += int(entry["current_market_value_rappen"] or 0)
+
+    bucket_drifts = []
+    breached_asset_classes = []
+    total_rebalance_abs_rappen = 0
+    for asset_class in ("Aktien", "Obligationen", "Immobilien", "Alternative", "Liquiditaet"):
+        config = bucket_targets[asset_class]
+        current_value_rappen = int(bucket_current_values.get(asset_class) or 0)
+        current_weight_bps = _bps(current_value_rappen, live_total_value_rappen)
+        target_weight_bps = int(config["target_weight_bps"])
+        target_market_value_rappen = _amount_from_weight_bps(live_total_value_rappen, target_weight_bps)
+        rebalance_amount_rappen = target_market_value_rappen - current_value_rappen
+        delta_weight_bps = current_weight_bps - target_weight_bps
+        min_weight = int(config["band_min_bps"])
+        max_weight = int(config["band_max_bps"])
+        breach_bps = 0
+        if current_weight_bps < min_weight:
+            breach_bps = min_weight - current_weight_bps
+        elif current_weight_bps > max_weight:
+            breach_bps = current_weight_bps - max_weight
+        breached = breach_bps > 0
+        if breached:
+            breached_asset_classes.append(asset_class)
+        total_rebalance_abs_rappen += abs(rebalance_amount_rappen)
+        bucket_drifts.append(
+            {
+                "asset_class": asset_class,
+                "current_weight_bps": current_weight_bps,
+                "target_weight_bps": target_weight_bps,
+                "band_min_bps": min_weight,
+                "band_max_bps": max_weight,
+                "current_market_value_rappen": current_value_rappen,
+                "target_market_value_rappen": target_market_value_rappen,
+                "delta_weight_bps": delta_weight_bps,
+                "rebalance_amount_rappen": rebalance_amount_rappen,
+                "breached": breached,
+                "breach_bps": breach_bps,
+            }
+        )
+
+    position_drifts = []
+    for entry in entries:
+        current_weight_bps = _bps(int(entry["current_market_value_rappen"] or 0), live_total_value_rappen)
+        rebalance_amount_rappen = _amount_from_weight_bps(live_total_value_rappen, int(entry["target_weight_bps"] or 0)) - int(entry["current_market_value_rappen"] or 0)
+        delta_weight_bps = current_weight_bps - int(entry["target_weight_bps"] or 0)
+        latest_price_available = entry["latest_price_rappen"] is not None or entry["reference_price_rappen"] is not None
+        position_drifts.append(
+            {
+                **entry,
+                "current_weight_bps": current_weight_bps,
+                "delta_weight_bps": delta_weight_bps,
+                "rebalance_amount_rappen": rebalance_amount_rappen,
+                "rebalance_action": _rebalancing_action(delta_weight_bps, rebalance_amount_rappen, latest_price_available),
+            }
+        )
+
+    action_summary = []
+    for bucket in sorted(bucket_drifts, key=lambda item: abs(int(item["rebalance_amount_rappen"] or 0)), reverse=True):
+        if abs(int(bucket["rebalance_amount_rappen"] or 0)) < 5000:
+            continue
+        direction = "aufbauen" if int(bucket["rebalance_amount_rappen"]) > 0 else "reduzieren"
+        amount_chf = int(round(abs(int(bucket["rebalance_amount_rappen"])) / 100))
+        band_note = " / Band verletzt" if bucket["breached"] else ""
+        action_summary.append(
+            f"{bucket['asset_class']} {direction}: ca. CHF {amount_chf:,.0f}{band_note}".replace(",", "'")
+        )
+    if not action_summary:
+        action_summary.append("Live-Bewertung liegt aktuell innerhalb der strategischen Zielbandbreiten.")
+
+    return {
+        "as_of_date": max(as_of_dates) if as_of_dates else None,
+        "reference_anchor_date": str(run.created_at or "")[:10] or None,
+        "methodology": (
+            f"Echte Bestandsbasis fuer {holding_positions_count} Position(en); "
+            f"{implied_positions_count} Position(en) weiterhin implizit aus Zielbetrag und Referenzpreis zum Run-Zeitpunkt. "
+            "Live-Werte aus dem letzten verfuegbaren Preis-Snapshot."
+        ) + (" Referenzanker wurden fuer einzelne Proxy-/Synthetic-Positionen auf das aktuelle Preisregime rekalibriert." if recalibrated_positions_count else ""),
+        "live_total_value_rappen": live_total_value_rappen,
+        "priced_positions_count": priced_positions_count,
+        "stale_positions_count": stale_positions_count,
+        "missing_prices_count": missing_prices_count,
+        "holding_positions_count": holding_positions_count,
+        "implied_positions_count": implied_positions_count,
+        "turnover_required_rappen": int(round(total_rebalance_abs_rappen / 2)),
+        "breached_asset_classes": breached_asset_classes,
+        "action_summary": action_summary,
+        "market_data_quality": market_data_quality,
+        "recalibrated_positions_count": recalibrated_positions_count,
+        "bucket_drifts": bucket_drifts,
+        "position_drifts": sorted(position_drifts, key=lambda item: abs(int(item["rebalance_amount_rappen"] or 0)), reverse=True),
+    }
+
+
+def _building_block_risky_map(db: Session, policy_id: str) -> dict[tuple[str, str], int]:
+    rows = db.query(BuildingBlock).filter(
+        BuildingBlock.policy_id == policy_id,
+        BuildingBlock.is_active == 1,
+    ).all()
+    return {
+        (_norm_text(row.asset_class), _norm_text(row.sub_asset_class)): int(row.risky_fraction_bps or 0)
+        for row in rows
+    }
+
+
+def _asset_risky_weight_fallbacks() -> dict[str, int]:
+    return DEFAULT_ASSET_RISKY_WEIGHTS_BPS.copy()
+
+
+def _apply_band_preferences(
+    bands: dict | None,
+    targets: dict[str, int],
+    minimums: dict[str, int],
+    maximums: dict[str, int],
+    reasoning: list[str],
+) -> None:
+    if not bands:
+        return
+    applied = []
+    for raw_key, override in bands.items():
+        bucket = _bucket_key(raw_key)
+        if not bucket or not isinstance(override, dict):
+            continue
+        minimum = _coerce_band_bps(override.get("min_bps"))
+        target = _coerce_band_bps(override.get("target_bps"))
+        maximum = _coerce_band_bps(override.get("max_bps"))
+        if minimum is not None:
+            minimums[bucket] = minimum
+        if target is not None:
+            targets[bucket] = target
+        if maximum is not None:
+            maximums[bucket] = maximum
+        applied.append(BUCKET_LABELS[bucket])
+    if not applied:
+        return
+    for key in BUCKET_FIELDS:
+        values = (minimums[key], targets[key], maximums[key])
+        if min(values) < 0 or max(values) > 10000:
+            raise ValueError(f"Bandbreiten fuer {BUCKET_LABELS[key]} muessen zwischen 0% und 100% liegen.")
+        if not (minimums[key] <= targets[key] <= maximums[key]):
+            raise ValueError(
+                f"Bandbreiten fuer {BUCKET_LABELS[key]} sind inkonsistent: Min {minimums[key]} / Ziel {targets[key]} / Max {maximums[key]}."
+            )
+    total = sum(int(targets[key]) for key in BUCKET_FIELDS)
+    if total != 10000:
+        raise ValueError(f"Mandatsspezifische Zielquoten muessen 100% ergeben (aktuell {total / 100:.2f}%).")
+    reasoning.append("Mandatsspezifische Soll-Quoten und Bandbreiten werden als Simulations-Constraint beruecksichtigt.")
+
+
+def _has_manual_target_overrides(bands: dict | None) -> bool:
+    if not isinstance(bands, dict):
+        return False
+    return any(
+        isinstance(override, dict) and _coerce_band_bps(override.get("target_bps")) is not None
+        for override in bands.values()
+    )
+
+
+def _rebalance_to_total(targets: dict[str, int], minimums: dict[str, int], maximums: dict[str, int]) -> dict[str, int]:
+    adjusted = {key: int(targets[key]) for key in BUCKET_FIELDS}
+    for key in BUCKET_FIELDS:
+        adjusted[key] = max(minimums[key], min(maximums[key], adjusted[key]))
+
+    def _room_up(name: str) -> int:
+        return maximums[name] - adjusted[name]
+
+    def _room_down(name: str) -> int:
+        return adjusted[name] - minimums[name]
+
+    current_total = sum(adjusted.values())
+    delta = 10000 - current_total
+    if delta > 0:
+        for key in ("bonds", "liquidity", "equities", "real_estate", "alternatives"):
+            if delta <= 0:
+                break
+            step = min(delta, _room_up(key))
+            if step > 0:
+                adjusted[key] += step
+                delta -= step
+    elif delta < 0:
+        delta = abs(delta)
+        for key in ("equities", "alternatives", "real_estate", "bonds", "liquidity"):
+            if delta <= 0:
+                break
+            step = min(delta, _room_down(key))
+            if step > 0:
+                adjusted[key] -= step
+                delta -= step
+    return adjusted
+
+
+def _enrich_sub_allocations_with_risk(
+    sub_allocations: list[dict],
+    risky_map: dict[tuple[str, str], int],
+) -> tuple[list[dict], dict[str, int], int]:
+    enriched: list[dict] = []
+    weighted_totals = {key: 0 for key in BUCKET_FIELDS}
+    weight_totals = {key: 0 for key in BUCKET_FIELDS}
+    total_risky_fraction_bps = 0
+    for sub in sub_allocations:
+        bucket = _bucket_key(sub.get("asset_class"))
+        if not bucket:
+            continue
+        risky_fraction_bps = risky_map.get(
+            (_norm_text(sub.get("asset_class")), _norm_text(sub.get("sub_asset_class"))),
+            _asset_risky_weight_fallbacks().get(bucket, 0),
+        )
+        weight = int(sub.get("target_weight_bps") or 0)
+        weighted_totals[bucket] += int(round(weight * risky_fraction_bps))
+        weight_totals[bucket] += weight
+        total_risky_fraction_bps += int(round(weight * risky_fraction_bps / 10000))
+        enriched.append({**sub, "risky_fraction_bps": int(risky_fraction_bps)})
+    asset_risky_weights = _asset_risky_weight_fallbacks()
+    for bucket in BUCKET_FIELDS:
+        if weight_totals[bucket] > 0:
+            asset_risky_weights[bucket] = int(round(weighted_totals[bucket] / weight_totals[bucket]))
+    return enriched, asset_risky_weights, total_risky_fraction_bps
+
+
+def _risk_budget_from_targets(targets: dict[str, int], asset_risky_weights: dict[str, int]) -> int:
+    return int(round(sum(int(targets[key]) * int(asset_risky_weights.get(key, 0)) for key in BUCKET_FIELDS) / 10000))
+
+
+def _enforce_risk_budget(
+    targets: dict[str, int],
+    minimums: dict[str, int],
+    maximums: dict[str, int],
+    asset_risky_weights: dict[str, int],
+    risk_budget_bps: int,
+) -> tuple[dict[str, int], int]:
+    adjusted = {key: int(targets[key]) for key in BUCKET_FIELDS}
+    current_risk = _risk_budget_from_targets(adjusted, asset_risky_weights)
+    loops = 0
+    while current_risk > risk_budget_bps and loops < 400:
+        loops += 1
+        receiver = "bonds" if adjusted["bonds"] < maximums["bonds"] else ("liquidity" if adjusted["liquidity"] < maximums["liquidity"] else None)
+        if not receiver:
+            break
+        receiver_room = maximums[receiver] - adjusted[receiver]
+        if receiver_room <= 0:
+            break
+        donors = [
+            key for key in ("equities", "alternatives", "real_estate", "bonds")
+            if adjusted[key] > minimums[key] and asset_risky_weights.get(key, 0) > asset_risky_weights.get(receiver, 0)
+        ]
+        if not donors:
+            break
+        donor = sorted(
+            donors,
+            key=lambda key: (asset_risky_weights.get(key, 0), adjusted[key] - minimums[key]),
+            reverse=True,
+        )[0]
+        step = min(100, adjusted[donor] - minimums[donor], receiver_room)
+        if step <= 0:
+            break
+        adjusted[donor] -= step
+        adjusted[receiver] += step
+        current_risk = _risk_budget_from_targets(adjusted, asset_risky_weights)
+    return adjusted, current_risk
+
+
+def _asset_class_expected_metrics(cma: CapitalMarketAssumption) -> tuple[dict[str, int], dict[str, int]]:
+    returns = {
+        "equities": int(round(((cma.equity_ch_return_bps or 500) + (cma.equity_intl_return_bps or 650)) / 2)),
+        "bonds": int(round(((cma.bonds_chf_ig_return_bps or 180) + (cma.bonds_fx_hedged_return_bps or 220)) / 2)),
+        "real_estate": int(cma.real_estate_ch_return_bps or 350),
+        "alternatives": int(cma.alternatives_gold_return_bps or 300),
+        "liquidity": int(cma.liquidity_return_bps or 80),
+    }
+    vols = {
+        "equities": int(round(((cma.equity_ch_vol_bps or 1200) + (cma.equity_intl_vol_bps or 1450)) / 2)),
+        "bonds": int(round(((cma.bonds_chf_ig_vol_bps or 350) + (cma.bonds_fx_hedged_vol_bps or 450)) / 2)),
+        "real_estate": int(cma.real_estate_ch_vol_bps or 700),
+        "alternatives": int(cma.alternatives_gold_vol_bps or 950),
+        "liquidity": int(cma.liquidity_vol_bps or 20),
+    }
+    return returns, vols
+
+
+def _expected_metrics(targets: dict[str, int], cma: CapitalMarketAssumption) -> dict[str, int]:
+    returns, vols = _asset_class_expected_metrics(cma)
+    return {
+        "expected_return_bps": int(round(sum(targets[key] * returns[key] for key in BUCKET_FIELDS) / 10000)),
+        "expected_volatility_bps": int(round(sum(targets[key] * vols[key] for key in BUCKET_FIELDS) / 10000)),
+    }
+
+
+def _simulation_horizon_years(simulation_prefs: dict | None, goals: list[Goal]) -> int:
+    raw = (simulation_prefs or {}).get("horizonYears")
+    try:
+        requested = int(str(raw).strip()) if raw not in (None, "", False) else DEFAULT_SIMULATION_HORIZON_YEARS
+    except (TypeError, ValueError):
+        requested = DEFAULT_SIMULATION_HORIZON_YEARS
+    goal_horizon = max((int(goal.horizon_years or 0) for goal in goals), default=0)
+    return max(7, requested, goal_horizon)
+
+
+def _simulation_stress_multiplier(simulation_prefs: dict | None) -> float:
+    raw = (simulation_prefs or {}).get("stressMultiplier")
+    try:
+        value = float(str(raw).strip()) if raw not in (None, "", False) else DEFAULT_SIMULATION_STRESS_MULTIPLIER
+    except (TypeError, ValueError):
+        value = DEFAULT_SIMULATION_STRESS_MULTIPLIER
+    return max(0.25, min(2.5, value))
+
+
+def _simulation_rebalance_mode(simulation_prefs: dict | None) -> str:
+    raw = str((simulation_prefs or {}).get("rebalanceMode") or "bands").strip().lower()
+    aliases = {
+        "band": "bands",
+        "bands": "bands",
+        "calendar": "calendar",
+        "jaehrlich": "calendar",
+        "none": "none",
+        "off": "none",
+        "aus": "none",
+    }
+    mode = aliases.get(raw, "bands")
+    return mode if mode in ALLOWED_SIMULATION_REBALANCE_MODES else "bands"
+
+
+def _target_bucket_values(total_rappen: int, weights_bps: dict[str, int]) -> dict[str, int]:
+    values = {key: 0 for key in BUCKET_FIELDS}
+    remaining = int(total_rappen or 0)
+    for idx, key in enumerate(BUCKET_FIELDS):
+        if idx == len(BUCKET_FIELDS) - 1:
+            values[key] = remaining
+            break
+        amount = int(round(total_rappen * int(weights_bps.get(key, 0)) / 10000))
+        values[key] = amount
+        remaining -= amount
+    return values
+
+
+def _weights_from_bucket_values(values: dict[str, int]) -> dict[str, int]:
+    total = sum(max(0, int(values.get(key, 0))) for key in BUCKET_FIELDS)
+    if total <= 0:
+        return {key: 0 for key in BUCKET_FIELDS}
+    return {
+        key: _bps(max(0, int(values.get(key, 0))), total)
+        for key in BUCKET_FIELDS
+    }
+
+
+def _apply_cashflow_to_bucket_values(values: dict[str, int], cashflow_rappen: int) -> None:
+    amount = int(cashflow_rappen or 0)
+    if amount >= 0:
+        values["liquidity"] = int(values.get("liquidity", 0)) + amount
+        return
+    remaining = abs(amount)
+    for key in ("liquidity", "bonds", "equities", "alternatives", "real_estate"):
+        available = max(0, int(values.get(key, 0)))
+        if available <= 0:
+            continue
+        used = min(available, remaining)
+        values[key] = available - used
+        remaining -= used
+        if remaining <= 0:
+            break
+
+
+def _rebalance_bucket_values_to_targets(values: dict[str, int], targets: dict[str, int]) -> tuple[dict[str, int], int]:
+    total = sum(max(0, int(values.get(key, 0))) for key in BUCKET_FIELDS)
+    target_values = _target_bucket_values(total, targets)
+    turnover = int(round(sum(abs(int(target_values[key]) - int(values.get(key, 0))) for key in BUCKET_FIELDS) / 2))
+    return target_values, turnover
+
+
+def _inflation_path_series(cma: CapitalMarketAssumption, years: int, start_year: int) -> list[int]:
+    try:
+        raw_path = json.loads(cma.inflation_path_json or "{}")
+    except json.JSONDecodeError:
+        raw_path = {}
+    normalized: dict[int, int] = {}
+    for raw_year, raw_value in (raw_path or {}).items():
+        try:
+            year = int(str(raw_year).strip())
+            value = int(raw_value)
+        except (TypeError, ValueError):
+            continue
+        normalized[year] = value
+    fallback = normalized[max(normalized)] if normalized else 70
+    series: list[int] = []
+    for offset in range(max(0, years)):
+        year = start_year + offset
+        if year in normalized:
+            fallback = normalized[year]
+        series.append(int(fallback))
+    return series
+
+
+def _real_series_from_nominal(series_rappen: list[int], inflation_series_bps: list[int]) -> list[int]:
+    if not series_rappen:
+        return []
+    real = [int(series_rappen[0])]
+    inflation_factor = 1.0
+    for idx in range(1, len(series_rappen)):
+        inflation_bps = inflation_series_bps[idx - 1] if idx - 1 < len(inflation_series_bps) else (
+            inflation_series_bps[-1] if inflation_series_bps else 0
+        )
+        inflation_factor *= 1 + (inflation_bps / 10000)
+        real.append(int(round(series_rappen[idx] / max(inflation_factor, 0.0001))))
+    return real
+
+
+def _simulate_bucket_path(
+    *,
+    start_values: dict[str, int],
+    returns_by_asset: dict[str, int],
+    cashflow_series_rappen: list[int],
+    targets: dict[str, int],
+    minimums: dict[str, int],
+    maximums: dict[str, int],
+    start_year: int,
+    rebalance_mode: str,
+) -> tuple[list[int], list[dict]]:
+    values = {key: max(0, int(start_values.get(key, 0))) for key in BUCKET_FIELDS}
+    totals = [sum(values.values())]
+    events: list[dict] = []
+    for offset, contribution in enumerate(cashflow_series_rappen):
+        year = start_year + offset
+        for key in BUCKET_FIELDS:
+            values[key] = int(round(max(0, values[key]) * (1 + (int(returns_by_asset.get(key, 0)) / 10000))))
+        _apply_cashflow_to_bucket_values(values, int(contribution or 0))
+        weights = _weights_from_bucket_values(values)
+        breached = [
+            BUCKET_LABELS[key]
+            for key in BUCKET_FIELDS
+            if weights[key] < int(minimums.get(key, 0)) or weights[key] > int(maximums.get(key, 0))
+        ]
+        should_rebalance = False
+        note = ""
+        if rebalance_mode == "calendar":
+            should_rebalance = sum(values.values()) > 0
+            note = "Kalender-Rebalancing auf strategische Sollgewichte."
+        elif rebalance_mode == "bands" and breached:
+            should_rebalance = True
+            note = "Bandbreiten-Rebalancing wegen Drift ausserhalb der Zielbaender."
+        if should_rebalance:
+            values, turnover = _rebalance_bucket_values_to_targets(values, targets)
+            if turnover > 0 or breached:
+                events.append(
+                    {
+                        "year": year,
+                        "mode": rebalance_mode,
+                        "breached_buckets": breached,
+                        "turnover_rappen": turnover,
+                        "notes": note,
+                    }
+                )
+        totals.append(sum(max(0, int(values.get(key, 0))) for key in BUCKET_FIELDS))
+    return totals, events
+
+
+def _build_asset_class_assumptions(
+    *,
+    current_amounts: dict[str, int],
+    advisory_wealth_rappen: int,
+    targets: dict[str, int],
+    asset_risky_weights: dict[str, int],
+    cma: CapitalMarketAssumption,
+) -> list[dict]:
+    returns, vols = _asset_class_expected_metrics(cma)
+    assumptions = []
+    for key in BUCKET_FIELDS:
+        assumptions.append(
+            {
+                "asset_class": BUCKET_LABELS[key],
+                "current_weight_bps": _bps(int(current_amounts.get(key, 0)), advisory_wealth_rappen),
+                "target_weight_bps": int(targets.get(key, 0)),
+                "risky_fraction_bps": int(asset_risky_weights.get(key, 0)),
+                "expected_return_bps": int(returns.get(key, 0)),
+                "expected_volatility_bps": int(vols.get(key, 0)),
+                "liquidity_profile": ASSET_LIQUIDITY_PROFILES.get(key, "n/a"),
+                "market_data_role": "Live-Preise fuer Drift / Bewertung, manuelle CMA fuer Strategie",
+            }
+        )
+    return assumptions
+
+
+def _build_simulation_payload(
+    *,
+    advisory_summary: PortfolioSummary,
+    cashflow_projection_series_rappen: list[int],
+    cma: CapitalMarketAssumption,
+    targets: dict[str, int],
+    minimums: dict[str, int],
+    maximums: dict[str, int],
+    start_year: int,
+    simulation_prefs: dict | None,
+) -> dict:
+    horizon_years = max(1, len(cashflow_projection_series_rappen))
+    stress_multiplier = _simulation_stress_multiplier(simulation_prefs)
+    rebalance_mode = _simulation_rebalance_mode(simulation_prefs)
+    returns, vols = _asset_class_expected_metrics(cma)
+    target_values = _target_bucket_values(advisory_summary.total_rappen, targets)
+    downside_returns = {
+        key: int(max(-9500, round(returns[key] - vols[key] * stress_multiplier)))
+        for key in BUCKET_FIELDS
+    }
+    upside_returns = {
+        key: int(round(returns[key] + vols[key] * stress_multiplier))
+        for key in BUCKET_FIELDS
+    }
+    current_series, _ = _simulate_bucket_path(
+        start_values=advisory_summary.amounts_rappen,
+        returns_by_asset=returns,
+        cashflow_series_rappen=cashflow_projection_series_rappen,
+        targets=targets,
+        minimums=minimums,
+        maximums=maximums,
+        start_year=start_year,
+        rebalance_mode="none",
+    )
+    target_series, rebalance_events = _simulate_bucket_path(
+        start_values=target_values,
+        returns_by_asset=returns,
+        cashflow_series_rappen=cashflow_projection_series_rappen,
+        targets=targets,
+        minimums=minimums,
+        maximums=maximums,
+        start_year=start_year,
+        rebalance_mode=rebalance_mode,
+    )
+    downside_series, _ = _simulate_bucket_path(
+        start_values=target_values,
+        returns_by_asset=downside_returns,
+        cashflow_series_rappen=cashflow_projection_series_rappen,
+        targets=targets,
+        minimums=minimums,
+        maximums=maximums,
+        start_year=start_year,
+        rebalance_mode=rebalance_mode,
+    )
+    upside_series, _ = _simulate_bucket_path(
+        start_values=target_values,
+        returns_by_asset=upside_returns,
+        cashflow_series_rappen=cashflow_projection_series_rappen,
+        targets=targets,
+        minimums=minimums,
+        maximums=maximums,
+        start_year=start_year,
+        rebalance_mode=rebalance_mode,
+    )
+    inflation_series_bps = _inflation_path_series(cma, horizon_years, start_year)
+    return {
+        "horizon_years": horizon_years,
+        "start_year": start_year,
+        "year_labels": [start_year + offset for offset in range(horizon_years + 1)],
+        "rebalance_mode": rebalance_mode,
+        "stress_multiplier": stress_multiplier,
+        "current_mix_series_rappen": current_series,
+        "target_mix_series_rappen": target_series,
+        "downside_series_rappen": downside_series,
+        "upside_series_rappen": upside_series,
+        "real_target_series_rappen": _real_series_from_nominal(target_series, inflation_series_bps),
+        "inflation_series_bps": inflation_series_bps,
+        "rebalancing_events": rebalance_events,
+    }
+
+
+def _goal_weight(goal: Goal) -> int:
+    if goal.weight_bps:
+        return int(goal.weight_bps)
+    return GOAL_WEIGHT_BY_RANK.get(int(goal.rank or 5), 312)
+
+
+def _parse_iso_date(value) -> date | None:
+    raw = str(value or "").strip()[:10]
+    if not raw:
+        return None
+    try:
+        return date.fromisoformat(raw)
+    except ValueError:
+        return None
+
+
+def _goal_projection_years(goal: Goal) -> int:
+    target_date = _parse_iso_date(goal.target_date)
+    start_date = _parse_iso_date(goal.start_date)
+    anchor = target_date or (
+        start_date if _norm_text(goal.goal_type) in ("Wiederkehrende_Ausgabe", "Pensionsausgabe") else None
+    )
+    if anchor:
+        delta_days = (anchor - date.today()).days
+        if delta_days <= 0:
+            return 1
+        return max(1, int((delta_days + 364) // 365))
+    return max(1, int(goal.horizon_years or 1))
+
+
+def _annualize_goal_amount(goal: Goal) -> int:
+    amount = int(goal.target_amount_rappen or 0)
+    frequency = normalize_frequency(goal.frequency)
+    if frequency == "monatlich":
+        return amount * 12
+    if frequency == "quartalsweise":
+        return amount * 4
+    if frequency in ("halbjaehrlich", "halbjährlich"):
+        return amount * 2
+    return amount
+
+
+def _goal_timing_label(goal: Goal, years: int) -> str:
+    goal_type = _norm_text(goal.goal_type)
+    if goal_type in ("Wiederkehrende_Ausgabe", "Pensionsausgabe"):
+        parts = []
+        if goal.frequency:
+            parts.append(normalize_frequency(goal.frequency))
+        if goal.start_date:
+            parts.append(f"ab {goal.start_date}")
+        if goal.is_ongoing:
+            parts.append("laufend")
+        elif goal.target_date:
+            parts.append(f"bis {goal.target_date}")
+        elif years:
+            parts.append(f"Horizont {years} J.")
+        return " | ".join(parts) if parts else f"Horizont {years} J."
+    if goal.goal_type == "Einmalige_Ausgabe" and goal.start_date:
+        return f"am {goal.start_date}"
+    if goal.target_date:
+        return f"bis {goal.target_date}"
+    return f"Horizont {years} J."
+
+
+def _build_goal_analysis(
+    goals: list[Goal],
+    advisory_wealth_rappen: int,
+    total_wealth_rappen: int,
+    cashflow_projection_series_rappen: list[int],
+    expected_return_bps: int,
+    reserve_needed_rappen: int,
+    policy: OptimizerPolicy,
+) -> list[dict]:
+    analysis = []
+    for goal in sorted(goals, key=lambda g: (int(g.rank or 999), g.label or "")):
+        years = _goal_projection_years(goal)
+        investable_base = advisory_wealth_rappen
+        if _norm_text(goal.goal_scope) == "Gesamtvermoegen" and policy.allow_other_assets_for_goals:
+            investable_base = max(advisory_wealth_rappen, total_wealth_rappen)
+        projection_years = max(1, years or 1)
+        contribution_series = list(cashflow_projection_series_rappen[:projection_years])
+        if len(contribution_series) < projection_years:
+            contribution_series.extend([0] * (projection_years - len(contribution_series)))
+        projected_rappen = future_value_with_cashflow_series(
+            investable_base,
+            contribution_series,
+            expected_return_bps,
+        )
+        target_rappen = 0
+        goal_type = _norm_text(goal.goal_type)
+        if goal_type == "Renditeziel":
+            target_rappen = projected_rappen
+            denominator = max(1, int(goal.target_return_bps or 1))
+            score = int(round(min(100, max(0, expected_return_bps / denominator * 100))))
+        elif goal_type in ("Kapitalerhalt", "Vermoegensziel"):
+            target_rappen = int(goal.target_wealth_rappen or 0)
+            denominator = max(1, target_rappen)
+            score = int(round(min(100, max(0, projected_rappen / denominator * 100))))
+        else:
+            target_rappen = _annualize_goal_amount(goal) if goal_type in ("Wiederkehrende_Ausgabe", "Pensionsausgabe") else int(goal.target_amount_rappen or 0)
+            available = reserve_needed_rappen if years <= 3 else projected_rappen
+            denominator = max(1, target_rappen)
+            score = int(round(min(100, max(0, available / denominator * 100))))
+        status = "On Track" if score >= 70 else ("Pruefen" if score >= 45 else "Gefaehrdet")
+        analysis.append(
+            {
+                "goal_id": goal.id,
+                "label": goal.label,
+                "goal_type": goal.goal_type,
+                "goal_scope": goal.goal_scope,
+                "rank": int(goal.rank or 0),
+                "weight_bps": _goal_weight(goal),
+                "target_amount_rappen": target_rappen,
+                "target_wealth_rappen": int(goal.target_wealth_rappen) if goal.target_wealth_rappen is not None else None,
+                "target_return_bps": int(goal.target_return_bps) if goal.target_return_bps is not None else None,
+                "projected_value_rappen": projected_rappen,
+                "achievement_score": score,
+                "status": status,
+                "start_date": goal.start_date,
+                "target_date": goal.target_date,
+                "horizon_years": years,
+                "is_ongoing": int(goal.is_ongoing or 0),
+                "frequency": goal.frequency,
+                "timing_label": _goal_timing_label(goal, years),
+            }
+        )
+    return analysis
+
+
+def _monte_carlo_simulations(simulation_prefs: dict | None) -> int:
+    raw = (simulation_prefs or {}).get("monteCarloRuns")
+    try:
+        value = int(str(raw).strip()) if raw not in (None, "", False) else DEFAULT_MONTE_CARLO_SIMULATIONS
+    except (TypeError, ValueError):
+        value = DEFAULT_MONTE_CARLO_SIMULATIONS
+    return max(250, min(2500, value))
+
+
+def _monte_carlo_seed(*parts) -> int:
+    payload = "|".join(str(part or "") for part in parts)
+    digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+    return int(digest[:16], 16)
+
+
+def _percentile(values: list[int | float], quantile: float) -> int:
+    if not values:
+        return 0
+    ordered = sorted(float(value) for value in values)
+    if len(ordered) == 1:
+        return int(round(ordered[0]))
+    q = max(0.0, min(1.0, float(quantile)))
+    index = q * (len(ordered) - 1)
+    lower = int(math.floor(index))
+    upper = int(math.ceil(index))
+    if lower == upper:
+        return int(round(ordered[lower]))
+    weight = index - lower
+    value = ordered[lower] * (1 - weight) + ordered[upper] * weight
+    return int(round(value))
+
+
+def _annualized_return_bps(start_value: int, end_value: int, years: int) -> int:
+    if years <= 0 or start_value <= 0 or end_value <= 0:
+        return 0
+    return int(round((math.pow(end_value / start_value, 1 / years) - 1) * 10000))
+
+
+def _return_bps(start_value: int, end_value: int) -> int:
+    if start_value <= 0 or end_value <= 0:
+        return -10000 if end_value <= 0 else 0
+    return int(round((end_value / start_value - 1) * 10000))
+
+
+def _loss_bps(start_value: int, end_value: int) -> int:
+    return max(0, -_return_bps(start_value, end_value))
+
+
+def _conditional_percentile_average(values: list[int | float], quantile: float, *, upper_tail: bool = False) -> int:
+    if not values:
+        return 0
+    threshold = _percentile(values, quantile)
+    if upper_tail:
+        tail = [float(value) for value in values if float(value) >= float(threshold)]
+    else:
+        tail = [float(value) for value in values if float(value) <= float(threshold)]
+    if not tail:
+        return int(threshold)
+    return int(round(sum(tail) / len(tail)))
+
+
+def _max_drawdown_bps(path_values: list[int]) -> int:
+    peak = 0
+    max_drawdown = 0
+    for raw_value in path_values:
+        value = max(0, int(raw_value or 0))
+        peak = max(peak, value)
+        if peak <= 0:
+            continue
+        drawdown = int(round((peak - value) / peak * 10000))
+        if drawdown > max_drawdown:
+            max_drawdown = drawdown
+    return max_drawdown
+
+
+def _year_index_for_goal(goal: Goal, start_year: int, horizon_years: int) -> int:
+    years = _goal_projection_years(goal)
+    return max(1, min(int(years or 1), int(horizon_years)))
+
+
+def _goal_duration_years(goal: Goal, start_year: int, horizon_years: int) -> int:
+    start_date = _parse_iso_date(goal.start_date)
+    target_date = _parse_iso_date(goal.target_date)
+    if start_date and target_date and target_date >= start_date:
+        return max(1, target_date.year - start_date.year + 1)
+    if int(goal.is_ongoing or 0):
+        anchor = max(start_year, start_date.year if start_date else start_year)
+        return max(1, horizon_years - (anchor - start_year))
+    return 1
+
+
+def _goal_base_scale(goal: Goal, advisory_wealth_rappen: int, total_wealth_rappen: int, policy: OptimizerPolicy) -> float:
+    if advisory_wealth_rappen <= 0:
+        return 1.0
+    if _norm_text(goal.goal_scope) == "Gesamtvermoegen" and int(policy.allow_other_assets_for_goals or 0) == 1:
+        return max(advisory_wealth_rappen, total_wealth_rappen) / advisory_wealth_rappen
+    return 1.0
+
+
+def _cashflow_goal_score(success_rate_pct: int, coverage_pct: int, undercoverage_pct: int) -> int:
+    return int(round(0.5 * success_rate_pct + 0.3 * coverage_pct + 0.2 * undercoverage_pct))
+
+
+def _return_goal_score(success_rate_pct: int, undercoverage_pct: int) -> int:
+    return int(round(0.6 * success_rate_pct + 0.4 * undercoverage_pct))
+
+
+def _monte_carlo_goal_summary(
+    goal: Goal,
+    *,
+    path_values_by_year: list[list[int]],
+    annualized_return_samples_bps: list[int],
+    advisory_wealth_rappen: int,
+    total_wealth_rappen: int,
+    start_year: int,
+    horizon_years: int,
+    policy: OptimizerPolicy,
+) -> dict:
+    index = _year_index_for_goal(goal, start_year, horizon_years)
+    scale = _goal_base_scale(goal, advisory_wealth_rappen, total_wealth_rappen, policy)
+    scaled_values = [int(round(path_value * scale)) for path_value in path_values_by_year[index]]
+    p10 = _percentile(scaled_values, 0.10)
+    p50 = _percentile(scaled_values, 0.50)
+    p90 = _percentile(scaled_values, 0.90)
+    goal_type = _norm_text(goal.goal_type)
+
+    if goal_type == "Renditeziel":
+        target = int(goal.target_return_bps or 0)
+        success_rate_pct = int(round(sum(1 for sample in annualized_return_samples_bps if sample >= target) / max(1, len(annualized_return_samples_bps)) * 100))
+        funded_ratio_p50 = float(p50 / max(1, advisory_wealth_rappen))
+        undercoverage_pct = 100 if target <= 0 else max(0, min(100, int(round(100 - max(0, target - _percentile(annualized_return_samples_bps, 0.50)) / target * 100))))
+        score = _return_goal_score(success_rate_pct, undercoverage_pct)
+    elif goal_type in ("Einmalige_Ausgabe", "Wiederkehrende_Ausgabe", "Pensionsausgabe"):
+        target = _annualize_goal_amount(goal)
+        if goal_type in ("Wiederkehrende_Ausgabe", "Pensionsausgabe"):
+            target *= _goal_duration_years(goal, start_year, horizon_years)
+        target = max(1, int(target))
+        success_rate_pct = int(round(sum(1 for value in scaled_values if value >= target) / max(1, len(scaled_values)) * 100))
+        funded_ratio_p50 = round(p50 / target, 4)
+        coverage_pct = max(0, min(100, int(round(funded_ratio_p50 * 100))))
+        undercoverage_pct = 100 if p50 >= target else max(0, min(100, int(round(100 - (target - p50) / target * 100))))
+        score = _cashflow_goal_score(success_rate_pct, coverage_pct, undercoverage_pct)
+    elif goal_type in ("Kapitalerhalt", "Vermoegensziel"):
+        target = max(1, int(goal.target_wealth_rappen or 0))
+        success_rate_pct = int(round(sum(1 for value in scaled_values if value >= target) / max(1, len(scaled_values)) * 100))
+        funded_ratio_p50 = round(p50 / target, 4)
+        score = int(round(0.7 * success_rate_pct + 0.3 * max(0, min(100, int(round(funded_ratio_p50 * 100))))))
+    elif goal_type == "Maximierung":
+        target = max(1, advisory_wealth_rappen)
+        success_rate_pct = 100
+        funded_ratio_p50 = round(p50 / target, 4)
+        score = 100
+    else:
+        target = max(1, advisory_wealth_rappen)
+        success_rate_pct = 100
+        funded_ratio_p50 = round(p50 / target, 4)
+        score = max(0, min(100, int(round((_percentile(annualized_return_samples_bps, 0.50) / 100))))) if annualized_return_samples_bps else 50
+
+    return {
+        "goal_id": goal.id,
+        "label": goal.label,
+        "years": index,
+        "success_rate_pct": success_rate_pct,
+        "funded_ratio_p50": funded_ratio_p50,
+        "projected_value_p10_rappen": p10,
+        "projected_value_p50_rappen": p50,
+        "projected_value_p90_rappen": p90,
+        "score": max(0, min(100, score)),
+    }
+
+
+def _run_allocation_monte_carlo(
+    *,
+    advisory_summary: PortfolioSummary,
+    cashflow_projection_series_rappen: list[int],
+    targets: dict[str, int],
+    minimums: dict[str, int],
+    maximums: dict[str, int],
+    cma: CapitalMarketAssumption,
+    goals: list[Goal],
+    advisory_wealth_rappen: int,
+    total_wealth_rappen: int,
+    policy: OptimizerPolicy,
+    mandate_id: str,
+    simulation_prefs: dict | None,
+    start_year: int,
+) -> dict:
+    horizon_years = max(1, len(cashflow_projection_series_rappen))
+    simulations = _monte_carlo_simulations(simulation_prefs)
+    stress_multiplier = _simulation_stress_multiplier(simulation_prefs)
+    rebalance_mode = _simulation_rebalance_mode(simulation_prefs)
+    returns, vols = _asset_class_expected_metrics(cma)
+    target_start_values = _target_bucket_values(advisory_summary.total_rappen, targets)
+    seed = _monte_carlo_seed(mandate_id, cma.id, horizon_years, simulations, stress_multiplier, rebalance_mode, json.dumps(targets, sort_keys=True))
+    rng = random.Random(seed)
+
+    current_by_year: list[list[int]] = [[] for _ in range(horizon_years + 1)]
+    target_by_year: list[list[int]] = [[] for _ in range(horizon_years + 1)]
+    current_annualized_returns: list[int] = []
+    target_annualized_returns: list[int] = []
+    target_year_one_returns: list[int] = []
+    target_year_one_losses: list[int] = []
+    target_max_drawdowns: list[int] = []
+
+    for _ in range(simulations):
+        current_values = {key: max(0, int(advisory_summary.amounts_rappen.get(key, 0))) for key in BUCKET_FIELDS}
+        target_values = {key: max(0, int(target_start_values.get(key, 0))) for key in BUCKET_FIELDS}
+        current_by_year[0].append(sum(current_values.values()))
+        target_by_year[0].append(sum(target_values.values()))
+
+        current_start = max(1, sum(current_values.values()))
+        target_start = max(1, sum(target_values.values()))
+
+        for year_index, contribution in enumerate(cashflow_projection_series_rappen, start=1):
+            yearly_returns: dict[str, int] = {}
+            for key in BUCKET_FIELDS:
+                draw = rng.gauss(0.0, 1.0)
+                raw_return = int(round(returns[key] + vols[key] * stress_multiplier * draw))
+                yearly_returns[key] = max(-9500, raw_return)
+
+            for key in BUCKET_FIELDS:
+                current_values[key] = int(round(max(0, current_values[key]) * (1 + yearly_returns[key] / 10000)))
+                target_values[key] = int(round(max(0, target_values[key]) * (1 + yearly_returns[key] / 10000)))
+
+            _apply_cashflow_to_bucket_values(current_values, int(contribution or 0))
+            _apply_cashflow_to_bucket_values(target_values, int(contribution or 0))
+
+            if rebalance_mode in ("bands", "calendar"):
+                target_weights = _weights_from_bucket_values(target_values)
+                breached = [
+                    key for key in BUCKET_FIELDS
+                    if target_weights[key] < int(minimums.get(key, 0)) or target_weights[key] > int(maximums.get(key, 0))
+                ]
+                if rebalance_mode == "calendar" or breached:
+                    target_values, _ = _rebalance_bucket_values_to_targets(target_values, targets)
+
+            current_by_year[year_index].append(sum(current_values.values()))
+            target_by_year[year_index].append(sum(target_values.values()))
+
+        current_annualized_returns.append(_annualized_return_bps(current_start, current_by_year[-1][-1], horizon_years))
+        target_annualized_returns.append(_annualized_return_bps(target_start, target_by_year[-1][-1], horizon_years))
+        if len(target_by_year) > 1 and target_by_year[1]:
+            year_one_return = _return_bps(target_start, target_by_year[1][-1])
+            target_year_one_returns.append(year_one_return)
+            target_year_one_losses.append(_loss_bps(target_start, target_by_year[1][-1]))
+        target_path = [values[-1] for values in target_by_year if values]
+        target_max_drawdowns.append(_max_drawdown_bps(target_path))
+
+    goal_summaries = [
+        _monte_carlo_goal_summary(
+            goal,
+            path_values_by_year=target_by_year,
+            annualized_return_samples_bps=target_annualized_returns,
+            advisory_wealth_rappen=advisory_wealth_rappen,
+            total_wealth_rappen=total_wealth_rappen,
+            start_year=start_year,
+            horizon_years=horizon_years,
+            policy=policy,
+        )
+        for goal in goals
+    ]
+
+    target_terminal_values = target_by_year[-1]
+    downside_probability_pct = int(round(sum(1 for value in target_terminal_values if value < advisory_summary.total_rappen) / max(1, len(target_terminal_values)) * 100))
+
+    return {
+        "simulations": simulations,
+        "seed": seed,
+        "horizon_years": horizon_years,
+        "start_year": start_year,
+        "year_labels": [start_year + offset for offset in range(horizon_years + 1)],
+        "current_p10_series_rappen": [_percentile(values, 0.10) for values in current_by_year],
+        "current_p50_series_rappen": [_percentile(values, 0.50) for values in current_by_year],
+        "current_p90_series_rappen": [_percentile(values, 0.90) for values in current_by_year],
+        "target_p10_series_rappen": [_percentile(values, 0.10) for values in target_by_year],
+        "target_p50_series_rappen": [_percentile(values, 0.50) for values in target_by_year],
+        "target_p90_series_rappen": [_percentile(values, 0.90) for values in target_by_year],
+        "current_annualized_return_p50_bps": _percentile(current_annualized_returns, 0.50),
+        "target_annualized_return_p50_bps": _percentile(target_annualized_returns, 0.50),
+        "target_var_95_1y_bps": _percentile(target_year_one_losses, 0.95),
+        "target_cvar_95_1y_bps": _conditional_percentile_average(target_year_one_losses, 0.95, upper_tail=True),
+        "target_loss_probability_1y_pct": int(round(sum(1 for value in target_year_one_returns if value < 0) / max(1, len(target_year_one_returns)) * 100)),
+        "target_max_drawdown_p50_bps": _percentile(target_max_drawdowns, 0.50),
+        "target_max_drawdown_p95_bps": _percentile(target_max_drawdowns, 0.95),
+        "target_downside_probability_pct": downside_probability_pct,
+        "goal_summaries": goal_summaries,
+    }
+
+
+def _merge_goal_analysis_with_monte_carlo(goal_analysis: list[dict], monte_carlo: dict | None) -> list[dict]:
+    if not monte_carlo:
+        return goal_analysis
+    summaries = {
+        item["goal_id"]: item
+        for item in (monte_carlo.get("goal_summaries") or [])
+        if item.get("goal_id")
+    }
+    merged = []
+    for item in goal_analysis:
+        summary = summaries.get(item.get("goal_id"))
+        if not summary:
+            merged.append(item)
+            continue
+        merged.append(
+            {
+                **item,
+                "achievement_score": int(summary.get("score", item.get("achievement_score") or 0)),
+                "status": "On Track" if int(summary.get("score", 0)) >= 70 else ("Pruefen" if int(summary.get("score", 0)) >= 45 else "Gefaehrdet"),
+                "path_success_rate_pct": int(summary.get("success_rate_pct") or 0),
+                "funded_ratio_p50": float(summary.get("funded_ratio_p50") or 0),
+                "projected_value_p10_rappen": int(summary.get("projected_value_p10_rappen") or 0),
+                "projected_value_p50_rappen": int(summary.get("projected_value_p50_rappen") or 0),
+                "projected_value_p90_rappen": int(summary.get("projected_value_p90_rappen") or 0),
+                "projected_value_rappen": int(summary.get("projected_value_p50_rappen") or item.get("projected_value_rappen") or 0),
+            }
+        )
+    return merged
+
+
+def _build_sub_allocations(targets: dict[str, int], preferences: dict) -> list[dict]:
+    prefs = _normalize_preferences(preferences)
+    asset_prefs = prefs["assetClasses"]
+    geo_prefs = prefs["geo"]
+    tilts = prefs["tilts"]
+    sub_allocations: list[dict] = []
+
+    def _append_split(asset_class: str, bucket_weight: int, splits: list[tuple[str, int, str]]):
+        if bucket_weight <= 0 or not splits:
+            return
+        remaining = bucket_weight
+        for idx, (label, split_bps, rationale) in enumerate(splits):
+            if idx == len(splits) - 1:
+                weight = remaining
+            else:
+                weight = int(round(bucket_weight * split_bps / 10000))
+                remaining -= weight
+            if weight <= 0:
+                continue
+            sub_allocations.append(
+                {
+                    "asset_class": asset_class,
+                    "sub_asset_class": label,
+                    "target_weight_bps": weight,
+                    "rationale": rationale,
+                }
+            )
+
+    equities_geo = asset_prefs.get("equitiesGeo") or "Schweiz Fokus"
+    if equities_geo == "Global":
+        eq_splits = [("Aktien Global", 6500, "Globaler Kernbaustein"), ("Aktien Schweiz", 1500, "Heimmarkt-Anker"), ("Aktien Europa", 1000, "Europa-Diversifikation"), ("Aktien Schwellenlaender", 1000, "Wachstumsbaustein")]
+    elif equities_geo == "Europa":
+        eq_splits = [("Aktien Europa", 4000, "Europa-Fokus gemaess Mandat"), ("Aktien Global", 2500, "Globaler Kernbaustein"), ("Aktien Schweiz", 2500, "Heimmarkt-Anker"), ("Aktien Schwellenlaender", 1000, "Wachstumsbaustein")]
+    elif equities_geo == "Schwellenlaender":
+        eq_splits = [("Aktien Global", 4000, "Globaler Kernbaustein"), ("Aktien Schweiz", 2000, "Heimmarkt-Anker"), ("Aktien Europa", 1500, "Europa-Diversifikation"), ("Aktien Schwellenlaender", 2500, "Mandatierter EM-Fokus")]
+    else:
+        eq_splits = [("Aktien Schweiz", 4500, "Mandatierter Schweiz-Fokus"), ("Aktien Global", 4000, "Globaler Kernbaustein"), ("Aktien Europa", 1000, "Europa-Diversifikation"), ("Aktien Schwellenlaender", 500, "Wachstumsbaustein")]
+    if geo_prefs.get("noEm"):
+        remainder = 0
+        filtered = []
+        for label, split_bps, rationale in eq_splits:
+            if label == "Aktien Schwellenlaender":
+                remainder += split_bps
+            else:
+                filtered.append((label, split_bps, rationale))
+        if filtered and remainder:
+            label, split_bps, rationale = filtered[0]
+            filtered[0] = (label, split_bps + remainder, rationale + "; EM ausgeschlossen")
+        eq_splits = filtered
+    if asset_prefs.get("equitiesSmid"):
+        for idx, item in enumerate(eq_splits):
+            if item[0] == "Aktien Schweiz":
+                eq_splits[idx] = (item[0], max(0, item[1] - 1000), item[2])
+                eq_splits.append(("Aktien Schweiz Small/Mid", 1000, "Mandatierter Small-/Mid-Cap-Baustein"))
+                break
+
+    overweight_tilts = [key for key, value in tilts.items() if value == "overweight"]
+    if overweight_tilts and targets["equities"] > 0:
+        theme_map = {
+            "defense": "Thema Verteidigung",
+            "fossil": "Thema Fossile Energie",
+            "tobacco": "Thema Tabak",
+            "alcohol": "Thema Alkohol",
+            "gaming": "Thema Gluecksspiel",
+            "nuclear": "Thema Kernenergie",
+        }
+        theme_total = min(int(round(targets["equities"] * 0.15)), 1200)
+        if theme_total > 0:
+            slice_per_theme = max(100, int(round(theme_total / len(overweight_tilts))))
+            for idx, item in enumerate(eq_splits):
+                if item[0] == "Aktien Global":
+                    reduction = min(item[1], slice_per_theme * len(overweight_tilts))
+                    eq_splits[idx] = (item[0], item[1] - reduction, item[2] + "; Kernbaustein zugunsten thematischer Tilts reduziert")
+                    break
+            for tilt in overweight_tilts:
+                label = theme_map.get(tilt)
+                if label:
+                    eq_splits.append((label, slice_per_theme, "Positiver Tilt gemaess Mandatsvorgabe"))
+
+    _append_split("Aktien", targets["equities"], eq_splits)
+
+    bonds_duration = asset_prefs.get("bondsDuration") or "Langfristig"
+    if bonds_duration == "Kurzfristig":
+        bond_splits = [("Obligationen CHF IG", 7000, "Kurzfristige CHF-Qualitaet"), ("Obligationen Global Hedged", 2500, "Ergaenzende Diversifikation"), ("Obligationen High Yield", 300, "Renditebeimischung"), ("Obligationen Emerging", 200, "Diversifikation")]
+    elif bonds_duration == "Gemischt":
+        bond_splits = [("Obligationen CHF IG", 6000, "Gemischter CHF-Kern"), ("Obligationen Global Hedged", 3000, "Globale Diversifikation"), ("Obligationen High Yield", 500, "Renditebeimischung"), ("Obligationen Emerging", 500, "Diversifikation")]
+    else:
+        bond_splits = [("Obligationen CHF IG", 5500, "Langfristiger CHF-Kern"), ("Obligationen Global Hedged", 3500, "Globale Diversifikation"), ("Obligationen High Yield", 500, "Renditebeimischung"), ("Obligationen Emerging", 500, "Diversifikation")]
+    if not asset_prefs.get("bondsHighYield"):
+        bond_splits = [item for item in bond_splits if item[0] != "Obligationen High Yield"]
+    if not asset_prefs.get("bondsEmerging") or geo_prefs.get("noEm"):
+        bond_splits = [item for item in bond_splits if item[0] != "Obligationen Emerging"]
+    _append_split("Obligationen", targets["bonds"], bond_splits)
+
+    realestate_market = asset_prefs.get("realestateMarket") or "Schweiz"
+    if realestate_market == "Ausland":
+        re_splits = [("Immobilien Global", 7000, "Auslandsfokus fuer Immobilien"), ("Immobilien Schweiz", 3000, "Heimmarkt-Stabilisator")]
+    elif realestate_market == "Gemischt":
+        re_splits = [("Immobilien Schweiz", 5000, "Gemischter Immobilienbaustein"), ("Immobilien Global", 5000, "Gemischter Immobilienbaustein")]
+    else:
+        re_splits = [("Immobilien Schweiz", 8000, "Schweizer Immobilienfokus"), ("Immobilien Global", 2000, "Ergaenzende Diversifikation")]
+    _append_split("Immobilien", targets["real_estate"], re_splits)
+
+    alt_splits = []
+    if asset_prefs.get("altsGold"):
+        alt_splits.append(("Gold / Rohstoffe", 4000, "Stabilisierender Sachwertbaustein"))
+    if asset_prefs.get("altsLiquidAlts"):
+        alt_splits.append(("Liquid Alternatives", 2000, "Diversifizierende Alternative"))
+    if asset_prefs.get("altsHedge"):
+        alt_splits.append(("Hedge Funds", 1500, "Alternative Renditequelle"))
+    if asset_prefs.get("altsPe"):
+        alt_splits.append(("Private Equity", 1500, "Illiquider Wachstumsbaustein"))
+    if asset_prefs.get("altsCrypto"):
+        alt_splits.append(("Krypto", 1000, "Satellit gemaess Mandatsvorgabe"))
+    if not alt_splits:
+        alt_splits.append(("Gold / Rohstoffe", 10000, "Standardbaustein fuer Alternative Anlagen"))
+    _append_split("Alternative", targets["alternatives"], alt_splits)
+
+    liquidity_label = asset_prefs.get("liquidityInstrument") or "Geldmarktfonds"
+    _append_split("Liquiditaet", targets["liquidity"], [(liquidity_label, 10000, "Liquiditaetsreserve gemaess Mandatsvorgabe")])
+    return sub_allocations
+
+
+def _house_matrix_or_default(db: Session, policy: OptimizerPolicy, score_bucket: int) -> HouseMatrix:
+    hm = db.query(HouseMatrix).filter(
+        HouseMatrix.policy_id == policy.id,
+        HouseMatrix.score_from <= score_bucket,
+        HouseMatrix.score_to >= score_bucket,
+        HouseMatrix.is_active == 1,
+    ).first()
+    if hm:
+        return hm
+    raise ValueError(f"Keine House-Matrix fuer Score {score_bucket} vorhanden")
+
+
+def _validate_house_matrix_defaults(defaults: list[tuple]) -> None:
+    covered_scores: list[int] = []
+    for entry in defaults:
+        (
+            score_from,
+            score_to,
+            profile_name,
+            liq_min,
+            liq_target,
+            liq_max,
+            bonds_min,
+            bonds_target,
+            bonds_max,
+            eq_min,
+            eq_target,
+            eq_max,
+            re_min,
+            re_target,
+            re_max,
+            alt_min,
+            alt_target,
+            alt_max,
+            risky,
+            equity_floor,
+        ) = entry
+        if profile_name not in ALLOWED_HOUSE_MATRIX_PROFILES:
+            raise ValueError(f"Unzulaessiger House-Matrix-Profilname: {profile_name}.")
+        if score_from > score_to:
+            raise ValueError(f"Ungueltige Score-Range fuer {profile_name}: {score_from}-{score_to}.")
+        covered_scores.extend(range(score_from, score_to + 1))
+        target_total = liq_target + bonds_target + eq_target + re_target + alt_target
+        if target_total != 10000:
+            raise ValueError(f"House-Matrix-Targets fuer {profile_name} ({score_from}-{score_to}) summieren sich auf {target_total} statt 10000 Bps.")
+        if not 0 <= risky <= 10000:
+            raise ValueError(
+                f"House-Matrix-Risky-Fraction fuer {profile_name} ({score_from}-{score_to}) liegt ausserhalb von 0-10000 Bps."
+            )
+        bounds = (
+            ("Liquiditaet", liq_min, liq_target, liq_max),
+            ("Obligationen", bonds_min, bonds_target, bonds_max),
+            ("Aktien", eq_min, eq_target, eq_max),
+            ("Immobilien", re_min, re_target, re_max),
+            ("Alternative", alt_min, alt_target, alt_max),
+        )
+        for label, minimum, target, maximum in bounds:
+            if not minimum <= target <= maximum:
+                raise ValueError(
+                    f"House-Matrix-Band verletzt fuer {profile_name} ({score_from}-{score_to}) in {label}: {minimum}/{target}/{maximum}."
+                )
+        if equity_floor and not (eq_min <= equity_floor <= eq_max):
+            raise ValueError(
+                f"House-Matrix-Aktienminimum fuer {profile_name} ({score_from}-{score_to}) ist ausserhalb des Bandes: {equity_floor}."
+            )
+    if sorted(covered_scores) != list(range(1, 11)):
+        raise ValueError("House-Matrix-Defaults muessen jeden Score von 1 bis 10 genau einmal abdecken.")
+
+
+def _normalize_house_matrix_defaults(defaults: list[tuple]) -> list[tuple]:
+    normalized: list[tuple] = []
+    for entry in defaults:
+        values = list(entry)
+        target_indexes = {
+            "liquidity": 4,
+            "bonds": 7,
+            "equities": 10,
+            "real_estate": 13,
+            "alternatives": 16,
+        }
+        max_indexes = {
+            "liquidity": 5,
+            "bonds": 8,
+            "equities": 11,
+            "real_estate": 14,
+            "alternatives": 17,
+        }
+        total = sum(int(values[index]) for index in target_indexes.values())
+        delta = 10000 - total
+        if delta != 0:
+            # Fachtabellen koennen gerundete Prozentsaetze enthalten; die Runtime braucht dennoch exakt 100%.
+            for bucket in ("liquidity", "bonds", "alternatives", "real_estate", "equities"):
+                target_idx = target_indexes[bucket]
+                max_idx = max_indexes[bucket]
+                room = int(values[max_idx]) - int(values[target_idx])
+                if delta > 0 and room <= 0:
+                    continue
+                if delta < 0 and int(values[target_idx]) <= 0:
+                    continue
+                step = delta
+                if delta > 0:
+                    step = min(delta, room)
+                else:
+                    step = max(delta, -int(values[target_idx]))
+                if step == 0:
+                    continue
+                values[target_idx] = int(values[target_idx]) + int(step)
+                delta -= int(step)
+                if delta == 0:
+                    break
+        if delta != 0:
+            raise ValueError(
+                f"House-Matrix-Defaults fuer {values[2]} ({values[0]}-{values[1]}) koennen nicht auf 10000 Bps normalisiert werden."
+            )
+        normalized.append(tuple(values))
+    return normalized
+
+
+def _seed_house_matrix_rows(db: Session, policy_id: str, defaults: list[tuple], now: str) -> None:
+    for (
+        score_from,
+        score_to,
+        profile_name,
+        liq_min,
+        liq_target,
+        liq_max,
+        bonds_min,
+        bonds_target,
+        bonds_max,
+        eq_min,
+        eq_target,
+        eq_max,
+        re_min,
+        re_target,
+        re_max,
+        alt_min,
+        alt_target,
+        alt_max,
+        risky,
+        equity_floor,
+    ) in defaults:
+        db.add(
+            HouseMatrix(
+                id=new_uuid(),
+                policy_id=policy_id,
+                score_from=score_from,
+                score_to=score_to,
+                profile_name=profile_name,
+                liq_min_bps=liq_min,
+                liq_target_bps=liq_target,
+                liq_max_bps=liq_max,
+                bonds_min_bps=bonds_min,
+                bonds_target_bps=bonds_target,
+                bonds_max_bps=bonds_max,
+                equity_min_bps=eq_min,
+                equity_target_bps=eq_target,
+                equity_max_bps=eq_max,
+                real_estate_min_bps=re_min,
+                real_estate_target_bps=re_target,
+                real_estate_max_bps=re_max,
+                alt_min_bps=alt_min,
+                alt_target_bps=alt_target,
+                alt_max_bps=alt_max,
+                equity_minimum_bps=equity_floor,
+                max_risky_fraction_bps=risky,
+                is_active=1,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+
+
+def _seed_building_blocks(db: Session, policy_id: str, building_blocks: list[tuple], now: str) -> None:
+    for asset_class, sub_asset_class, risky_fraction in building_blocks:
+        db.add(
+            BuildingBlock(
+                id=new_uuid(),
+                policy_id=policy_id,
+                asset_class=asset_class,
+                sub_asset_class=sub_asset_class,
+                universe="Standard",
+                advisory=1,
+                risky_fraction_bps=risky_fraction,
+                contribution_standard_bps=risky_fraction,
+                contribution_alternative_bps=risky_fraction,
+                is_active=1,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+
+
+def _validate_default_products(defaults: list[tuple]) -> None:
+    for name, provider, product_type, asset_class, sub_asset_class, currency, ter_bps, sfdr_class, esg_rating in defaults:
+        if product_type not in ALLOWED_PRODUCT_TYPES:
+            raise ValueError(f"Unzulaessiger Produkt-Typ fuer {name}: {product_type}.")
+        if asset_class not in ALLOWED_PRODUCT_ASSET_CLASSES:
+            raise ValueError(f"Unzulaessige Asset-Klasse fuer {name}: {asset_class}.")
+        if currency and len(str(currency)) != 3:
+            raise ValueError(f"Unzulaessige Waehrung fuer {name}: {currency}.")
+        if sfdr_class and sfdr_class not in ("6", "8", "9"):
+            raise ValueError(f"Unzulaessige SFDR-Klasse fuer {name}: {sfdr_class}.")
+        if ter_bps is not None and int(ter_bps) < 0:
+            raise ValueError(f"Negativer TER fuer {name}: {ter_bps}.")
+
+
+def ensure_runtime_reference_data(db: Session, user_id: str) -> tuple[OptimizerPolicy, CapitalMarketAssumption]:
+    now = _now()
+    today = _today()
+    defaults = _normalize_house_matrix_defaults([
+        (1, 2, "Kapitalschutz", 0, 300, 800, 6500, 7500, 8500, 500, 1200, 2000, 0, 500, 1000, 0, 500, 500, 2000, 0),
+        (3, 4, "Defensiv", 0, 200, 500, 5000, 6000, 7000, 1500, 2500, 3000, 500, 1000, 1500, 0, 300, 800, 4000, 0),
+        (5, 6, "Ausgewogen", 0, 200, 300, 2500, 3500, 4500, 4000, 4800, 5500, 500, 1000, 1500, 300, 500, 800, 6000, 0),
+        (7, 8, "Wachstum", 0, 150, 200, 1000, 1600, 2500, 6000, 6800, 7500, 500, 800, 1200, 300, 600, 1000, 8000, 6000),
+        (9, 9, "Dynamisch", 0, 100, 200, 500, 800, 1500, 7500, 8000, 8500, 300, 700, 1000, 200, 400, 600, 9000, 7500),
+        (10, 10, "Aktien", 0, 100, 200, 0, 200, 500, 8500, 9000, 9500, 200, 500, 800, 0, 200, 500, 10000, 8500),
+    ])
+    building_blocks = [
+        ("Aktien", "Aktien Schweiz", 7000),
+        ("Aktien", "Aktien Schweiz Small/Mid", 8000),
+        ("Aktien", "Aktien Global", 8000),
+        ("Aktien", "Aktien Europa", 8000),
+        ("Aktien", "Aktien Schwellenlaender", 10000),
+        ("Aktien", "Thema Verteidigung", 9000),
+        ("Aktien", "Thema Fossile Energie", 9000),
+        ("Aktien", "Thema Tabak", 9000),
+        ("Aktien", "Thema Alkohol", 9000),
+        ("Aktien", "Thema Gluecksspiel", 9000),
+        ("Aktien", "Thema Kernenergie", 9000),
+        ("Obligationen", "Obligationen CHF IG", 2000),
+        ("Obligationen", "Obligationen Global Hedged", 2500),
+        ("Obligationen", "Obligationen High Yield", 5000),
+        ("Obligationen", "Obligationen Emerging", 4000),
+        ("Immobilien", "Immobilien Schweiz", 5000),
+        ("Immobilien", "Immobilien Global", 7000),
+        ("Alternative", "Gold / Rohstoffe", 8000),
+        ("Alternative", "Liquid Alternatives", 4000),
+        ("Alternative", "Hedge Funds", 6000),
+        ("Alternative", "Private Equity", 10000),
+        ("Alternative", "Krypto", 10000),
+        ("Liquiditaet", "Geldmarktfonds", 0),
+        ("Liquiditaet", "Kontoguthaben", 0),
+        ("Liquiditaet", "Festgeld", 0),
+    ]
+    _validate_house_matrix_defaults(defaults)
+    policy = db.query(OptimizerPolicy).filter(OptimizerPolicy.is_current == 1).first()
+    if not policy:
+        policy = OptimizerPolicy(
+            id=new_uuid(),
+            policy_name=DEFAULT_POLICY_NAME,
+            version=1,
+            is_current=1,
+            valid_from=today,
+            optimizer_engine="goal_based_v1",
+            max_real_estate_bps=2000,
+            max_alternatives_bps=1000,
+            min_liquidity_bps=0,
+            allow_other_assets_for_goals=1,
+            fee_model_json=json.dumps({"default_advisory_fee_bps": 75}),
+            notes="Automatisch erzeugte V1-Standard-Policy",
+            created_by=user_id,
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(policy)
+        db.flush()
+        _validate_house_matrix_defaults(defaults)
+        _seed_house_matrix_rows(db, policy.id, defaults, now)
+        _seed_building_blocks(db, policy.id, building_blocks, now)
+    elif policy.policy_name == DEFAULT_POLICY_NAME or "Automatisch erzeugte" in str(policy.notes or ""):
+        policy.max_real_estate_bps = 2000
+        policy.max_alternatives_bps = 1000
+        policy.min_liquidity_bps = 0
+        policy.allow_other_assets_for_goals = 1
+        policy.optimizer_engine = "goal_based_v1"
+        policy.updated_at = now
+        db.query(HouseMatrix).filter(HouseMatrix.policy_id == policy.id).delete(synchronize_session=False)
+        _seed_house_matrix_rows(db, policy.id, defaults, now)
+        db.query(BuildingBlock).filter(BuildingBlock.policy_id == policy.id).delete(synchronize_session=False)
+        _seed_building_blocks(db, policy.id, building_blocks, now)
+
+    cma = db.query(CapitalMarketAssumption).filter(
+        CapitalMarketAssumption.is_current == 1,
+        CapitalMarketAssumption.deleted_at.is_(None),
+    ).first()
+    if not cma:
+        cma = CapitalMarketAssumption(
+            id=new_uuid(),
+            assumption_set_name=DEFAULT_CMA_NAME,
+            version=1,
+            valid_from=today,
+            is_current=1,
+            bonds_chf_ig_return_bps=170,
+            bonds_chf_ig_vol_bps=350,
+            bonds_fx_hedged_return_bps=220,
+            bonds_fx_hedged_vol_bps=430,
+            bonds_hy_return_bps=420,
+            bonds_hy_vol_bps=950,
+            equity_ch_return_bps=620,
+            equity_ch_vol_bps=1450,
+            equity_intl_return_bps=690,
+            equity_intl_vol_bps=1600,
+            equity_em_return_bps=760,
+            equity_em_vol_bps=1900,
+            real_estate_ch_return_bps=330,
+            real_estate_ch_vol_bps=820,
+            alternatives_gold_return_bps=300,
+            alternatives_gold_vol_bps=1200,
+            liquidity_return_bps=80,
+            liquidity_vol_bps=15,
+            inflation_path_json=json.dumps({
+                "2026": 50,
+                "2027": 70,
+                "2028": 60,
+                "2029": 50,
+                "2030": 60,
+                "2031": 70,
+                "2032": 70,
+                "2033": 70,
+                "2034": 70,
+                "2035": 70,
+                "2036": 70,
+                "2037": 80,
+                "2038": 90,
+                "2039": 100,
+                "2040": 110,
+            }),
+            source="5Eyes Default Runtime",
+            notes="Automatisch erzeugte Default-CMA fuer V1-Engine",
+            created_by=user_id,
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(cma)
+    elif cma.assumption_set_name == DEFAULT_CMA_NAME or str(cma.source or "") == "5Eyes Default Runtime":
+        cma.assumption_set_name = DEFAULT_CMA_NAME
+        cma.valid_from = today
+        cma.is_current = 1
+        cma.bonds_chf_ig_return_bps = 170
+        cma.bonds_chf_ig_vol_bps = 350
+        cma.bonds_fx_hedged_return_bps = 220
+        cma.bonds_fx_hedged_vol_bps = 430
+        cma.bonds_hy_return_bps = 420
+        cma.bonds_hy_vol_bps = 950
+        cma.equity_ch_return_bps = 620
+        cma.equity_ch_vol_bps = 1450
+        cma.equity_intl_return_bps = 690
+        cma.equity_intl_vol_bps = 1600
+        cma.equity_em_return_bps = 760
+        cma.equity_em_vol_bps = 1900
+        cma.real_estate_ch_return_bps = 330
+        cma.real_estate_ch_vol_bps = 820
+        cma.alternatives_gold_return_bps = 300
+        cma.alternatives_gold_vol_bps = 1200
+        cma.liquidity_return_bps = 80
+        cma.liquidity_vol_bps = 15
+        cma.inflation_path_json = json.dumps({
+            "2026": 50,
+            "2027": 70,
+            "2028": 60,
+            "2029": 50,
+            "2030": 60,
+            "2031": 70,
+            "2032": 70,
+            "2033": 70,
+            "2034": 70,
+            "2035": 70,
+            "2036": 70,
+            "2037": 80,
+            "2038": 90,
+            "2039": 100,
+            "2040": 110,
+        })
+        cma.source = "5Eyes Default Runtime"
+        cma.notes = "Automatisch erzeugte Default-CMA fuer V1-Engine"
+        cma.updated_at = now
+
+    db.flush()
+    return policy, cma
+
+
+def ensure_default_products(db: Session) -> None:
+    active_products = db.query(Product).filter(Product.is_active == 1, Product.deleted_at.is_(None)).count()
+    if active_products:
+        return
+    now = _now()
+    defaults = [
+        ("iShares Core SPI ETF", "BlackRock", "ETF", "Aktien", "Aktien Schweiz", "CHF", 10, "8", "A"),
+        ("SPDR Swiss Small Cap ETF", "State Street", "ETF", "Aktien", "Aktien Schweiz Small/Mid", "CHF", 35, "8", "BBB"),
+        ("iShares Core MSCI World UCITS ETF", "BlackRock", "ETF", "Aktien", "Aktien Global", "USD", 20, "8", "A"),
+        ("Vanguard FTSE Developed Europe ETF", "Vanguard", "ETF", "Aktien", "Aktien Europa", "EUR", 12, "8", "A"),
+        ("iShares Core MSCI EM IMI ETF", "BlackRock", "ETF", "Aktien", "Aktien Schwellenlaender", "USD", 18, "8", "BBB"),
+        ("VanEck Defense UCITS ETF", "VanEck", "ETF", "Aktien", "Thema Verteidigung", "USD", 55, "6", "BBB"),
+        ("Energy Select Sector ETF", "State Street", "ETF", "Aktien", "Thema Fossile Energie", "USD", 45, "6", "BBB"),
+        ("Consumer Staples Tobacco Tilt ETF", "WisdomTree", "ETF", "Aktien", "Thema Tabak", "USD", 58, "6", "BBB"),
+        ("Global Beverage Leaders ETF", "Amundi", "ETF", "Aktien", "Thema Alkohol", "EUR", 42, "6", "BBB"),
+        ("Roundhill Sports Betting ETF", "Roundhill", "ETF", "Aktien", "Thema Gluecksspiel", "USD", 75, "6", "BB"),
+        ("VanEck Uranium and Nuclear ETF", "VanEck", "ETF", "Aktien", "Thema Kernenergie", "USD", 61, "6", "BBB"),
+        ("Swisscanto Bond CHF", "Swisscanto", "Fonds", "Obligationen", "Obligationen CHF IG", "CHF", 32, "8", "A"),
+        ("iShares Global Aggregate Bond CHF Hedged", "BlackRock", "ETF", "Obligationen", "Obligationen Global Hedged", "CHF", 10, "8", "A"),
+        ("PIMCO High Yield Fund", "PIMCO", "Fonds", "Obligationen", "Obligationen High Yield", "CHF", 55, "6", "BBB"),
+        ("EM Local Bond Opportunities", "JPMorgan", "Fonds", "Obligationen", "Obligationen Emerging", "USD", 62, "6", "BBB"),
+        ("Swisscanto Real Estate Fund", "Swisscanto", "Immobilienfonds", "Immobilien", "Immobilien Schweiz", "CHF", 52, "8", "A"),
+        ("iShares Developed Markets Property Yield", "BlackRock", "ETF", "Immobilien", "Immobilien Global", "USD", 38, "8", "BBB"),
+        ("ZKB Gold ETF", "ZKB", "ETF", "Alternative", "Gold / Rohstoffe", "CHF", 40, "8", "A"),
+        ("JPM Global Macro Opportunities", "JPMorgan", "Fonds", "Alternative", "Liquid Alternatives", "CHF", 90, "8", "BBB"),
+        ("Man AHL TargetRisk", "Man Group", "Fonds", "Alternative", "Hedge Funds", "USD", 145, "6", "BB"),
+        ("Partners Group Listed PE", "Partners Group", "Fonds", "Alternative", "Private Equity", "CHF", 165, "6", "BB"),
+        ("21Shares Core Bitcoin ETP", "21Shares", "ETF", "Alternative", "Krypto", "USD", 125, "6", "BB"),
+        ("UBS Geldmarktfonds CHF", "UBS", "Fonds", "Liquidität", "Geldmarktfonds", "CHF", 8, "8", "A"),
+        ("Kontoguthaben CHF", "Hausbank", "Cash", "Liquidität", "Kontoguthaben", "CHF", 0, None, None),
+        ("Festgeld CHF 12M", "Hausbank", "Cash", "Liquidität", "Festgeld", "CHF", 0, None, None),
+    ]
+    _validate_default_products(defaults)
+    validate_default_product_market_coverage([name for name, *_ in defaults])
+    created = []
+    for name, provider, product_type, asset_class, sub_asset_class, currency, ter_bps, sfdr_class, esg_rating in defaults:
+        product = Product(
+            id=new_uuid(),
+            product_name=name,
+            provider=provider,
+            product_type=product_type,
+            asset_class=asset_class,
+            sub_asset_class=sub_asset_class,
+            currency=currency,
+            ter_bps=ter_bps,
+            sfdr_class=sfdr_class,
+            esg_rating=esg_rating,
+            is_active=1,
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(product)
+        created.append(product)
+    db.flush()
+    for product in created:
+        risk_band = (1, 10)
+        if product.sub_asset_class in ("Aktien Schwellenlaender", "Thema Verteidigung", "Thema Fossile Energie", "Thema Tabak", "Thema Alkohol", "Thema Gluecksspiel", "Thema Kernenergie"):
+            risk_band = (6, 10)
+        elif product.sub_asset_class in ("Private Equity", "Krypto", "Hedge Funds"):
+            risk_band = (7, 10)
+        elif product.asset_class == "Aktien":
+            risk_band = (4, 10)
+        elif product.asset_class == "Immobilien":
+            risk_band = (4, 10)
+        elif product.sub_asset_class == "Obligationen Emerging":
+            risk_band = (5, 10)
+        db.add(
+            ProductSuitability(
+                id=new_uuid(),
+                product_id=product.id,
+                profile_from=risk_band[0],
+                profile_to=risk_band[1],
+                advisory_allowed=1,
+                discretionary_allowed=1,
+                requires_appropriateness=0,
+                requires_override=0,
+                max_position_bps=2500 if product.asset_class == "Aktien" else 4000,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+    db.flush()
+
+
+def generate_target_allocation(
+    db: Session,
+    mandate: Mandate,
+    user_id: str,
+    preferences: dict | None,
+) -> dict:
+    now = _now()
+    policy, cma = ensure_runtime_reference_data(db, user_id)
+    assessment = db.query(RiskAssessment).filter(
+        RiskAssessment.mandate_id == mandate.id,
+        RiskAssessment.is_current == 1,
+        RiskAssessment.deleted_at.is_(None),
+    ).first()
+    if not assessment:
+        raise ValueError("Bitte zuerst ein aktuelles Risikoprofil speichern.")
+
+    prefs = _normalize_preferences(preferences)
+    score_bucket = _risk_score_bucket(assessment)
+    house_matrix = _house_matrix_or_default(db, policy, score_bucket)
+    manual_target_override = _has_manual_target_overrides(prefs["bands"])
+
+    all_positions = db.query(WealthPosition).filter(
+        WealthPosition.client_id == mandate.client_id,
+        WealthPosition.deleted_at.is_(None),
+        WealthPosition.is_active == 1,
+    ).all()
+    advisory_positions = [pos for pos in all_positions if _norm_text(pos.assignment) == "Beratungsvermoegen"]
+    asset_positions_total = [pos for pos in all_positions if _norm_text(pos.assignment) != "Verbindlichkeit"]
+    liability_positions = [pos for pos in all_positions if _norm_text(pos.assignment) == "Verbindlichkeit"]
+    advisory_summary = _summarize_positions(advisory_positions)
+    total_summary = _summarize_positions(asset_positions_total)
+    advisory_wealth_rappen = advisory_summary.total_rappen
+    total_wealth_rappen = max(0, total_summary.total_rappen - sum(int(pos.current_value_rappen or 0) for pos in liability_positions))
+
+    cashflows = db.query(Cashflow).filter(
+        Cashflow.client_id == mandate.client_id,
+        Cashflow.deleted_at.is_(None),
+        Cashflow.is_active == 1,
+    ).all()
+
+    goals = db.query(Goal).filter(
+        Goal.mandate_id == mandate.id,
+        Goal.deleted_at.is_(None),
+        Goal.is_active == 1,
+    ).order_by(Goal.rank.asc()).all()
+    score_bucket = _risk_score_bucket(assessment)
+    house_matrix = _house_matrix_or_default(db, policy, score_bucket)
+    cashflow_totals = totals_for_year(cashflows)
+    annual_inflows = cashflow_totals["income_rappen"]
+    annual_outflows = cashflow_totals["expense_rappen"]
+    annual_net_cashflow_rappen = cashflow_totals["net_rappen"]
+    projection_years = _simulation_horizon_years(prefs["simulation"], goals)
+    cashflow_projection_series_rappen = net_cashflow_series(
+        cashflows,
+        projection_years,
+        start_year=cashflow_totals["year"],
+    )
+
+    targets = {
+        "equities": int(house_matrix.equity_target_bps),
+        "bonds": int(house_matrix.bonds_target_bps),
+        "real_estate": int(house_matrix.real_estate_target_bps),
+        "alternatives": int(house_matrix.alt_target_bps),
+        "liquidity": int(house_matrix.liq_target_bps),
+    }
+    minimums = {
+        "equities": max(int(house_matrix.equity_min_bps), int(house_matrix.equity_minimum_bps or 0)),
+        "bonds": int(house_matrix.bonds_min_bps),
+        "real_estate": int(house_matrix.real_estate_min_bps),
+        "alternatives": int(house_matrix.alt_min_bps),
+        "liquidity": max(int(house_matrix.liq_min_bps), int(policy.min_liquidity_bps or 0)),
+    }
+    maximums = {
+        "equities": int(house_matrix.equity_max_bps),
+        "bonds": int(house_matrix.bonds_max_bps),
+        "real_estate": min(int(house_matrix.real_estate_max_bps), int(policy.max_real_estate_bps or 10000)),
+        "alternatives": min(int(house_matrix.alt_max_bps), int(policy.max_alternatives_bps or 10000)),
+        "liquidity": int(house_matrix.liq_max_bps),
+    }
+    reasoning = [
+        f"Ausgangspunkt ist die House Matrix fuer Score {score_bucket} ({house_matrix.profile_name}).",
+        f"Das Risikoprofil deckelt die Risky Fraction auf {house_matrix.max_risky_fraction_bps / 100:.0f}%.",
+    ]
+    if len(set(cashflow_projection_series_rappen[:min(len(cashflow_projection_series_rappen), 7)])) > 1:
+        reasoning.append("Zeitlich datierte Cashflows werden jahresgenau in die Liquiditaets- und Zielprojektion einbezogen.")
+    _apply_band_preferences(prefs["bands"], targets, minimums, maximums, reasoning)
+    if manual_target_override:
+        reasoning.append("Explizit gesetzte Soll-Quoten uebersteuern automatische Exposure-Tilts; harte Risiko- und Liquiditaetsregeln bleiben aktiv.")
+
+    if not manual_target_override:
+        external_real_estate_bps = _bps(total_summary.amounts_rappen["real_estate"], max(1, total_summary.total_rappen))
+        if external_real_estate_bps > 3000:
+            reduction = min(500, int(round((external_real_estate_bps - 3000) * 0.25)))
+            targets["real_estate"] = max(minimums["real_estate"], targets["real_estate"] - reduction)
+            reasoning.append("Das hohe Immobilien-Exposure im Gesamtvermoegen reduziert den Immobilienanteil im Beratungsvermoegen.")
+
+        external_equity_bps = _bps(total_summary.amounts_rappen["equities"], max(1, total_summary.total_rappen))
+        if external_equity_bps > 5000:
+            reduction = min(400, int(round((external_equity_bps - 5000) * 0.2)))
+            targets["equities"] = max(int(house_matrix.equity_minimum_bps or minimums["equities"]), targets["equities"] - reduction)
+            targets["bonds"] += reduction
+            reasoning.append("Bereits bestehende Aktienexposures im Gesamtvermoegen werden auf die Advisory-Strategie angerechnet.")
+
+    reserve_candidates = [0]
+    manual_reserve = _parse_rappen(prefs["limits"].get("minReserve"))
+    liquidity_target = _parse_rappen(prefs["assetClasses"].get("liquidityReserveTarget"))
+    if manual_reserve:
+        reserve_candidates.append(manual_reserve)
+    if liquidity_target:
+        reserve_candidates.append(liquidity_target)
+    if annual_net_cashflow_rappen < 0:
+        reserve_candidates.append(abs(annual_net_cashflow_rappen) * 3)
+        reasoning.append("Negativer Netto-Cashflow erhoeht die erforderliche Liquiditaetsreserve.")
+    for goal in goals:
+        years = _goal_projection_years(goal)
+        goal_type = _norm_text(goal.goal_type)
+        if goal_type in ("Einmalige_Ausgabe", "Wiederkehrende_Ausgabe", "Pensionsausgabe"):
+            target_amount = _annualize_goal_amount(goal) if goal_type in ("Wiederkehrende_Ausgabe", "Pensionsausgabe") else int(goal.target_amount_rappen or 0)
+            if years <= 3:
+                reserve_candidates.append(target_amount)
+                reasoning.append(f"Das Ziel '{goal.label}' wird als kurzfristiger Liquiditaetsbedarf beruecksichtigt.")
+            elif years <= 7:
+                reserve_candidates.append(int(round(target_amount * 0.5)))
+        elif goal_type in ("Kapitalerhalt", "Vermoegensziel") and years <= 5:
+            targets["equities"] -= 200
+            targets["liquidity"] += 100
+            targets["bonds"] += 100
+            reasoning.append(f"Das Vermoegensziel '{goal.label}' mit kurzem Horizont reduziert den Aktienanteil leicht.")
+
+    reserve_needed_rappen = max(reserve_candidates)
+    if advisory_wealth_rappen > 0 and reserve_needed_rappen > 0:
+        required_liquidity_bps = _bps(reserve_needed_rappen, advisory_wealth_rappen)
+        if required_liquidity_bps > targets["liquidity"]:
+            if required_liquidity_bps > maximums["liquidity"]:
+                maximums["liquidity"] = required_liquidity_bps
+                minimums["equities"] = 0
+                minimums["bonds"] = 0
+                minimums["real_estate"] = 0
+                minimums["alternatives"] = 0
+                minimums["liquidity"] = max(minimums["liquidity"], required_liquidity_bps)
+                reasoning.append("Kurzfristige Reserve- und Zielbedarfe duerfen die House-Matrix temporaer zugunsten von Liquiditaet uebersteuern.")
+            shift = required_liquidity_bps - targets["liquidity"]
+            remaining = max(0, shift)
+            for donor in ("bonds", "equities", "alternatives", "real_estate"):
+                if remaining <= 0:
+                    break
+                donor_floor = minimums[donor]
+                available = max(0, targets[donor] - donor_floor)
+                step = min(remaining, available)
+                if step <= 0:
+                    continue
+                targets[donor] -= step
+                remaining -= step
+            funded = shift - remaining
+            if funded > 0:
+                targets["liquidity"] += funded
+                reasoning.append("Die Liquiditaetsquote wird fuer Reserve- und Zielbedarfe explizit aus der Zielallokation finanziert.")
+
+    growth_goals = [goal for goal in goals if _norm_text(goal.goal_type) in ("Vermoegensziel", "Maximierung", "Renditeziel")]
+    if not manual_target_override and annual_net_cashflow_rappen > 0 and growth_goals and score_bucket >= 7 and reserve_needed_rappen == 0:
+        targets["equities"] += 150
+        targets["bonds"] -= 100
+        targets["liquidity"] -= 50
+        reasoning.append("Positiver Cashflow und langfristige Wachstumsziele ermoeglichen einen moderaten Equity-Tilt.")
+
+    max_illiquid_bps = _parse_bps_percent(prefs["limits"].get("maxIlliquid"))
+    if max_illiquid_bps is not None:
+        maximums["alternatives"] = min(maximums["alternatives"], max_illiquid_bps)
+        if targets["alternatives"] > maximums["alternatives"]:
+            overflow = targets["alternatives"] - maximums["alternatives"]
+            targets["alternatives"] = maximums["alternatives"]
+            targets["bonds"] += int(round(overflow * 0.6))
+            targets["liquidity"] += overflow - int(round(overflow * 0.6))
+            reasoning.append("Die Mandatsgrenze fuer illiquide Anlagen deckelt den Alternatives-Anteil.")
+
+    targets = _rebalance_to_total(targets, minimums, maximums)
+    risky_map = _building_block_risky_map(db, policy.id)
+    sub_allocations = _build_sub_allocations(targets, prefs)
+    sub_allocations, asset_risky_weights, risky_fraction_total_bps = _enrich_sub_allocations_with_risk(sub_allocations, risky_map)
+    if risky_fraction_total_bps > int(house_matrix.max_risky_fraction_bps):
+        targets, risky_fraction_total_bps = _enforce_risk_budget(
+            targets=targets,
+            minimums=minimums,
+            maximums=maximums,
+            asset_risky_weights=asset_risky_weights,
+            risk_budget_bps=int(house_matrix.max_risky_fraction_bps),
+        )
+        targets = _rebalance_to_total(targets, minimums, maximums)
+        sub_allocations = _build_sub_allocations(targets, prefs)
+        sub_allocations, asset_risky_weights, risky_fraction_total_bps = _enrich_sub_allocations_with_risk(sub_allocations, risky_map)
+        reasoning.append("Die Risky Fraction wird subanlagenbasiert gegen das Risikobudget des Profils ausgerichtet.")
+    metrics = _expected_metrics(targets, cma)
+    goal_analysis = _build_goal_analysis(
+        goals=goals,
+        advisory_wealth_rappen=advisory_wealth_rappen,
+        total_wealth_rappen=total_wealth_rappen,
+        cashflow_projection_series_rappen=cashflow_projection_series_rappen,
+        expected_return_bps=metrics["expected_return_bps"],
+        reserve_needed_rappen=reserve_needed_rappen,
+        policy=policy,
+    )
+    asset_class_assumptions = _build_asset_class_assumptions(
+        current_amounts=advisory_summary.amounts_rappen,
+        advisory_wealth_rappen=advisory_wealth_rappen,
+        targets=targets,
+        asset_risky_weights=asset_risky_weights,
+        cma=cma,
+    )
+    simulation = _build_simulation_payload(
+        advisory_summary=advisory_summary,
+        cashflow_projection_series_rappen=cashflow_projection_series_rappen,
+        cma=cma,
+        targets=targets,
+        minimums=minimums,
+        maximums=maximums,
+        start_year=cashflow_totals["year"],
+        simulation_prefs=prefs["simulation"],
+    )
+    monte_carlo = _run_allocation_monte_carlo(
+        advisory_summary=advisory_summary,
+        cashflow_projection_series_rappen=cashflow_projection_series_rappen,
+        targets=targets,
+        minimums=minimums,
+        maximums=maximums,
+        cma=cma,
+        goals=goals,
+        advisory_wealth_rappen=advisory_wealth_rappen,
+        total_wealth_rappen=total_wealth_rappen,
+        policy=policy,
+        mandate_id=mandate.id,
+        simulation_prefs=prefs["simulation"],
+        start_year=cashflow_totals["year"],
+    )
+    goal_analysis = _merge_goal_analysis_with_monte_carlo(goal_analysis, monte_carlo)
+    reasoning.append("Eine Pfadsimulation mit normalverteilten Jahresrenditen quantifiziert Zielwahrscheinlichkeit, Verlustband und Rebalancing-Risiko.")
+
+    previous_current = db.query(TargetAllocation).filter(
+        TargetAllocation.mandate_id == mandate.id,
+        TargetAllocation.is_current == 1,
+        TargetAllocation.deleted_at.is_(None),
+    ).first()
+    previous_version = 0
+    if previous_current:
+        previous_current.is_current = 0
+        previous_version = int(previous_current.version or 0)
+
+    target_allocation = TargetAllocation(
+        id=new_uuid(),
+        mandate_id=mandate.id,
+        version=previous_version + 1,
+        is_current=1,
+        target_equities_bps=targets["equities"],
+        target_bonds_bps=targets["bonds"],
+        target_real_estate_bps=targets["real_estate"],
+        target_alternatives_bps=targets["alternatives"],
+        target_liquidity_bps=targets["liquidity"],
+        band_equities_min_bps=minimums["equities"],
+        band_equities_max_bps=maximums["equities"],
+        band_bonds_min_bps=minimums["bonds"],
+        band_bonds_max_bps=maximums["bonds"],
+        band_real_estate_min_bps=minimums["real_estate"],
+        band_real_estate_max_bps=maximums["real_estate"],
+        band_alternatives_min_bps=minimums["alternatives"],
+        band_alternatives_max_bps=maximums["alternatives"],
+        band_liquidity_min_bps=minimums["liquidity"],
+        band_liquidity_max_bps=maximums["liquidity"],
+        risky_fraction_bps=risky_fraction_total_bps,
+        based_on_assessment_id=assessment.id,
+        policy_id=policy.id,
+        set_by=user_id,
+        set_at=now,
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(target_allocation)
+    db.flush()
+
+    current_amounts = advisory_summary.amounts_rappen
+    bucket_response = []
+    label_map = {
+        "equities": (BUCKET_LABELS["equities"], target_allocation.target_equities_bps, target_allocation.band_equities_min_bps, target_allocation.band_equities_max_bps),
+        "bonds": (BUCKET_LABELS["bonds"], target_allocation.target_bonds_bps, target_allocation.band_bonds_min_bps, target_allocation.band_bonds_max_bps),
+        "real_estate": (BUCKET_LABELS["real_estate"], target_allocation.target_real_estate_bps, target_allocation.band_real_estate_min_bps, target_allocation.band_real_estate_max_bps),
+        "alternatives": (BUCKET_LABELS["alternatives"], target_allocation.target_alternatives_bps, target_allocation.band_alternatives_min_bps, target_allocation.band_alternatives_max_bps),
+        "liquidity": (BUCKET_LABELS["liquidity"], target_allocation.target_liquidity_bps, target_allocation.band_liquidity_min_bps, target_allocation.band_liquidity_max_bps),
+    }
+    for key in BUCKET_FIELDS:
+        label, target_bps, min_bps, max_bps = label_map[key]
+        current_amount = current_amounts[key]
+        current_bps = _bps(current_amount, advisory_wealth_rappen)
+        bucket_response.append(
+            {
+                "asset_class": label,
+                "current_weight_bps": current_bps,
+                "current_amount_rappen": current_amount,
+                "target_weight_bps": int(target_bps),
+                "target_amount_rappen": int(round(advisory_wealth_rappen * target_bps / 10000)) if advisory_wealth_rappen else 0,
+                "delta_weight_bps": int(target_bps) - current_bps,
+                "band_min_bps": int(min_bps),
+                "band_max_bps": int(max_bps),
+            }
+        )
+
+    return {
+        "target_allocation": target_allocation,
+        "policy": policy,
+        "capital_market_assumptions": cma,
+        "risk_assessment": assessment,
+        "house_matrix_profile": house_matrix.profile_name,
+        "score_bucket": score_bucket,
+        "advisory_wealth_rappen": advisory_wealth_rappen,
+        "total_wealth_rappen": total_wealth_rappen,
+        "annual_net_cashflow_rappen": annual_net_cashflow_rappen,
+        "cashflow_projection_series_rappen": cashflow_projection_series_rappen,
+        "reserve_needed_rappen": reserve_needed_rappen,
+        "risk_budget_bps": int(house_matrix.max_risky_fraction_bps),
+        "risky_fraction_total_bps": risky_fraction_total_bps,
+        "risky_fraction_headroom_bps": int(house_matrix.max_risky_fraction_bps) - int(risky_fraction_total_bps),
+        "asset_class_risky_weights_bps": asset_risky_weights,
+        "expected_return_bps": metrics["expected_return_bps"],
+        "expected_volatility_bps": metrics["expected_volatility_bps"],
+        "capital_market_assumption_set": cma.assumption_set_name,
+        "capital_market_source": cma.source,
+        "reasoning": reasoning,
+        "buckets": bucket_response,
+        "sub_allocations": sub_allocations,
+        "asset_class_assumptions": asset_class_assumptions,
+        "simulation": simulation,
+        "monte_carlo": monte_carlo,
+        "goal_analysis": goal_analysis,
+    }
+
+
+def build_target_payload_from_allocation(
+    db: Session,
+    mandate: Mandate,
+    allocation: TargetAllocation,
+    policy: OptimizerPolicy,
+    cma: CapitalMarketAssumption,
+    assessment: RiskAssessment,
+    preferences: dict | None,
+) -> dict:
+    prefs = _normalize_preferences(preferences)
+    score_bucket = _risk_score_bucket(assessment)
+    house_matrix = _house_matrix_or_default(db, policy, score_bucket)
+    all_positions = db.query(WealthPosition).filter(
+        WealthPosition.client_id == mandate.client_id,
+        WealthPosition.deleted_at.is_(None),
+        WealthPosition.is_active == 1,
+    ).all()
+    advisory_positions = [pos for pos in all_positions if _norm_text(pos.assignment) == "Beratungsvermoegen"]
+    asset_positions_total = [pos for pos in all_positions if _norm_text(pos.assignment) != "Verbindlichkeit"]
+    liability_positions = [pos for pos in all_positions if _norm_text(pos.assignment) == "Verbindlichkeit"]
+    advisory_summary = _summarize_positions(advisory_positions)
+    total_summary = _summarize_positions(asset_positions_total)
+    advisory_wealth_rappen = advisory_summary.total_rappen
+    total_wealth_rappen = max(0, total_summary.total_rappen - sum(int(pos.current_value_rappen or 0) for pos in liability_positions))
+
+    cashflows = db.query(Cashflow).filter(
+        Cashflow.client_id == mandate.client_id,
+        Cashflow.deleted_at.is_(None),
+        Cashflow.is_active == 1,
+    ).all()
+
+    goals = db.query(Goal).filter(
+        Goal.mandate_id == mandate.id,
+        Goal.deleted_at.is_(None),
+        Goal.is_active == 1,
+    ).order_by(Goal.rank.asc()).all()
+    cashflow_totals = totals_for_year(cashflows)
+    annual_net_cashflow_rappen = cashflow_totals["net_rappen"]
+    projection_years = _simulation_horizon_years(prefs["simulation"], goals)
+    cashflow_projection_series_rappen = net_cashflow_series(
+        cashflows,
+        projection_years,
+        start_year=cashflow_totals["year"],
+    )
+
+    targets = {
+        "equities": int(allocation.target_equities_bps),
+        "bonds": int(allocation.target_bonds_bps),
+        "real_estate": int(allocation.target_real_estate_bps),
+        "alternatives": int(allocation.target_alternatives_bps),
+        "liquidity": int(allocation.target_liquidity_bps),
+    }
+    risky_map = _building_block_risky_map(db, policy.id)
+    sub_allocations = _build_sub_allocations(targets, prefs)
+    sub_allocations, asset_risky_weights, risky_fraction_total_bps = _enrich_sub_allocations_with_risk(sub_allocations, risky_map)
+    metrics = _expected_metrics(targets, cma)
+    reserve_needed_rappen = max(_parse_rappen(prefs["limits"].get("minReserve")) or 0, _parse_rappen(prefs["assetClasses"].get("liquidityReserveTarget")) or 0)
+    goal_analysis = _build_goal_analysis(
+        goals=goals,
+        advisory_wealth_rappen=advisory_wealth_rappen,
+        total_wealth_rappen=total_wealth_rappen,
+        cashflow_projection_series_rappen=cashflow_projection_series_rappen,
+        expected_return_bps=metrics["expected_return_bps"],
+        reserve_needed_rappen=reserve_needed_rappen,
+        policy=policy,
+    )
+    minimums = {
+        "equities": int(allocation.band_equities_min_bps or 0),
+        "bonds": int(allocation.band_bonds_min_bps or 0),
+        "real_estate": int(allocation.band_real_estate_min_bps or 0),
+        "alternatives": int(allocation.band_alternatives_min_bps or 0),
+        "liquidity": int(allocation.band_liquidity_min_bps or 0),
+    }
+    maximums = {
+        "equities": int(allocation.band_equities_max_bps or 0),
+        "bonds": int(allocation.band_bonds_max_bps or 0),
+        "real_estate": int(allocation.band_real_estate_max_bps or 0),
+        "alternatives": int(allocation.band_alternatives_max_bps or 0),
+        "liquidity": int(allocation.band_liquidity_max_bps or 0),
+    }
+    asset_class_assumptions = _build_asset_class_assumptions(
+        current_amounts=advisory_summary.amounts_rappen,
+        advisory_wealth_rappen=advisory_wealth_rappen,
+        targets=targets,
+        asset_risky_weights=asset_risky_weights,
+        cma=cma,
+    )
+    simulation = _build_simulation_payload(
+        advisory_summary=advisory_summary,
+        cashflow_projection_series_rappen=cashflow_projection_series_rappen,
+        cma=cma,
+        targets=targets,
+        minimums=minimums,
+        maximums=maximums,
+        start_year=cashflow_totals["year"],
+        simulation_prefs=prefs["simulation"],
+    )
+    monte_carlo = _run_allocation_monte_carlo(
+        advisory_summary=advisory_summary,
+        cashflow_projection_series_rappen=cashflow_projection_series_rappen,
+        targets=targets,
+        minimums=minimums,
+        maximums=maximums,
+        cma=cma,
+        goals=goals,
+        advisory_wealth_rappen=advisory_wealth_rappen,
+        total_wealth_rappen=total_wealth_rappen,
+        policy=policy,
+        mandate_id=mandate.id,
+        simulation_prefs=prefs["simulation"],
+        start_year=cashflow_totals["year"],
+    )
+    goal_analysis = _merge_goal_analysis_with_monte_carlo(goal_analysis, monte_carlo)
+    bucket_response = []
+    current_amounts = advisory_summary.amounts_rappen
+    label_map = {
+        "equities": ("Aktien", allocation.target_equities_bps, allocation.band_equities_min_bps, allocation.band_equities_max_bps),
+        "bonds": ("Obligationen", allocation.target_bonds_bps, allocation.band_bonds_min_bps, allocation.band_bonds_max_bps),
+        "real_estate": ("Immobilien", allocation.target_real_estate_bps, allocation.band_real_estate_min_bps, allocation.band_real_estate_max_bps),
+        "alternatives": ("Alternative", allocation.target_alternatives_bps, allocation.band_alternatives_min_bps, allocation.band_alternatives_max_bps),
+        "liquidity": ("Liquiditaet", allocation.target_liquidity_bps, allocation.band_liquidity_min_bps, allocation.band_liquidity_max_bps),
+    }
+    for key in BUCKET_FIELDS:
+        label, target_bps, min_bps, max_bps = label_map[key]
+        current_amount = current_amounts[key]
+        current_bps = _bps(current_amount, advisory_wealth_rappen)
+        bucket_response.append(
+            {
+                "asset_class": label,
+                "current_weight_bps": current_bps,
+                "current_amount_rappen": current_amount,
+                "target_weight_bps": int(target_bps),
+                "target_amount_rappen": int(round(advisory_wealth_rappen * target_bps / 10000)) if advisory_wealth_rappen else 0,
+                "delta_weight_bps": int(target_bps) - current_bps,
+                "band_min_bps": int(min_bps),
+                "band_max_bps": int(max_bps),
+            }
+        )
+    live_rebalancing = None
+    current_run = _current_recommendation_run(db, mandate.id)
+    if current_run:
+        live_rebalancing = build_live_rebalancing_payload(
+            db=db,
+            allocation=allocation,
+            run=current_run,
+            advisory_wealth_rappen=advisory_wealth_rappen,
+        )
+    return {
+        "target_allocation": allocation,
+        "policy": policy,
+        "capital_market_assumptions": cma,
+        "risk_assessment": assessment,
+        "house_matrix_profile": house_matrix.profile_name,
+        "score_bucket": score_bucket,
+        "advisory_wealth_rappen": advisory_wealth_rappen,
+        "total_wealth_rappen": total_wealth_rappen,
+        "annual_net_cashflow_rappen": annual_net_cashflow_rappen,
+        "cashflow_projection_series_rappen": cashflow_projection_series_rappen,
+        "reserve_needed_rappen": reserve_needed_rappen,
+        "risk_budget_bps": int(house_matrix.max_risky_fraction_bps or 0),
+        "risky_fraction_total_bps": risky_fraction_total_bps,
+        "risky_fraction_headroom_bps": int(house_matrix.max_risky_fraction_bps or 0) - int(risky_fraction_total_bps),
+        "asset_class_risky_weights_bps": asset_risky_weights,
+        "expected_return_bps": metrics["expected_return_bps"],
+        "expected_volatility_bps": metrics["expected_volatility_bps"],
+        "capital_market_assumption_set": cma.assumption_set_name,
+        "capital_market_source": cma.source,
+        "reasoning": [
+            "Verwendet die bestehende aktuelle Soll-Allokation.",
+            "Die Projektion wird zusaetzlich ueber normalverteilte Jahresrenditen als Pfadsimulation verdichtet.",
+        ],
+        "buckets": bucket_response,
+        "sub_allocations": sub_allocations,
+        "asset_class_assumptions": asset_class_assumptions,
+        "simulation": simulation,
+        "monte_carlo": monte_carlo,
+        "goal_analysis": goal_analysis,
+        "live_rebalancing": live_rebalancing,
+    }
+
+
+def build_recommendation_payload_from_run(
+    db: Session,
+    mandate: Mandate,
+    run: RecommendationRun,
+    user_id: str,
+    preferences: dict | None,
+) -> dict:
+    policy, cma = ensure_runtime_reference_data(db, user_id)
+    assessment = db.query(RiskAssessment).filter(
+        RiskAssessment.mandate_id == mandate.id,
+        RiskAssessment.is_current == 1,
+        RiskAssessment.deleted_at.is_(None),
+    ).first()
+    if not assessment:
+        raise ValueError("Bitte zuerst ein aktuelles Risikoprofil speichern.")
+
+    allocation = None
+    if run.target_allocation_id:
+        allocation = db.query(TargetAllocation).filter(
+            TargetAllocation.id == run.target_allocation_id,
+            TargetAllocation.mandate_id == mandate.id,
+            TargetAllocation.deleted_at.is_(None),
+        ).first()
+    if not allocation:
+        allocation = db.query(TargetAllocation).filter(
+            TargetAllocation.mandate_id == mandate.id,
+            TargetAllocation.is_current == 1,
+            TargetAllocation.deleted_at.is_(None),
+        ).first()
+    if not allocation:
+        raise ValueError("Keine aktuelle Soll-Allokation fuer dieses Mandat gefunden.")
+
+    target_payload = build_target_payload_from_allocation(
+        db=db,
+        mandate=mandate,
+        allocation=allocation,
+        policy=policy,
+        cma=cma,
+        assessment=assessment,
+        preferences=preferences,
+    )
+    advisory_wealth_rappen = int(target_payload["advisory_wealth_rappen"] or 0)
+    positions = db.query(RecommendationPosition).filter(
+        RecommendationPosition.run_id == run.id,
+    ).order_by(RecommendationPosition.target_weight_bps.desc()).all()
+    product_ids = [position.product_id for position in positions if position.product_id]
+    latest_prices = latest_price_snapshot(db, product_ids)
+    market_data_quality = summarize_price_quality(db, product_ids)
+    live_rebalancing = build_live_rebalancing_payload(
+        db=db,
+        allocation=allocation,
+        run=run,
+        advisory_wealth_rappen=advisory_wealth_rappen,
+        positions=positions,
+    )
+    live_positions_by_id = {
+        item["id"]: item for item in ((live_rebalancing or {}).get("position_drifts") or [])
+    }
+    today = date.today()
+    products_by_id = {}
+    if product_ids:
+        products_by_id = {
+            product.id: product
+            for product in db.query(Product).filter(Product.id.in_(product_ids)).all()
+        }
+
+    warnings: list[str] = []
+    positions_payload = []
+    for position in positions:
+        product = products_by_id.get(position.product_id)
+        if not product:
+            warnings.append(f"Produkt {position.product_id} fuer die gespeicherte Empfehlung ist nicht mehr verfuegbar.")
+            continue
+        market_profile = resolve_market_profile(product)
+        latest_price = latest_prices.get(product.id)
+        price_date = parse_iso_date(latest_price.price_date) if latest_price else None
+        price_age_days = (today - price_date).days if price_date else None
+        price_is_fresh = bool(price_age_days is not None and price_age_days <= int(market_data_quality.get("stale_after_days") or 5))
+        live_position = live_positions_by_id.get(position.id) or {}
+        positions_payload.append(
+            {
+                "id": position.id,
+                "run_id": run.id,
+                "product_id": product.id,
+                "product_name": product.product_name,
+                "provider": product.provider,
+                "isin": product.isin or market_profile.get("isin"),
+                "symbol": product.symbol or market_profile.get("symbol"),
+                "figi": product.figi,
+                "exchange_code": product.exchange_code,
+                "mapping_provider": product.mapping_provider,
+                "mapping_resolved_at": product.mapping_resolved_at,
+                "reference_data_provider": product.reference_data_provider,
+                "reference_data_refreshed_at": product.reference_data_refreshed_at,
+                "lookup_symbol": market_profile.get("lookup_symbol"),
+                "lookup_mode": market_profile.get("lookup_mode"),
+                "pricing_note": market_profile.get("pricing_note"),
+                "product_type": product.product_type,
+                "asset_class": product.asset_class,
+                "sub_asset_class": product.sub_asset_class,
+                "source_sub_asset_classes": [],
+                "currency": product.currency,
+                "ter_bps": product.ter_bps,
+                "target_weight_bps": int(position.target_weight_bps or 0),
+                "target_amount_rappen": int(position.target_amount_rappen or 0),
+                "rationale": position.rationale,
+                "reference_price_date": live_position.get("reference_price_date"),
+                "reference_price_rappen": live_position.get("reference_price_rappen"),
+                "reference_recalibrated": live_position.get("reference_recalibrated"),
+                "latest_price_date": latest_price.price_date if latest_price else None,
+                "latest_price_rappen": int(latest_price.price_rappen or 0) if latest_price else None,
+                "price_source": latest_price.source if latest_price else None,
+                "price_age_days": price_age_days,
+                "price_is_fresh": price_is_fresh if latest_price else None,
+                "holding_present": bool(live_position.get("holding_present")),
+                "holding_source": live_position.get("holding_source"),
+                "holding_as_of_date": live_position.get("holding_as_of_date"),
+                "holding_units_milli": live_position.get("holding_units_milli"),
+                "current_units_milli": live_position.get("current_units_milli"),
+                "holding_market_value_rappen": live_position.get("holding_market_value_rappen"),
+                "holding_avg_cost_price_rappen": live_position.get("holding_avg_cost_price_rappen"),
+                "holding_depot_bank": live_position.get("holding_depot_bank"),
+                "holding_custody_account_number": live_position.get("holding_custody_account_number"),
+                "holding_notes": live_position.get("holding_notes"),
+                "valuation_basis": live_position.get("valuation_basis"),
+                "implied_units_milli": live_position.get("implied_units_milli"),
+                "current_market_value_rappen": live_position.get("current_market_value_rappen"),
+                "current_weight_bps": live_position.get("current_weight_bps"),
+                "delta_weight_bps": live_position.get("delta_weight_bps"),
+                "rebalance_amount_rappen": live_position.get("rebalance_amount_rappen"),
+                "price_change_bps": live_position.get("price_change_bps"),
+                "rebalance_action": live_position.get("rebalance_action"),
+            }
+        )
+
+    avg_ter_bps = int(
+        round(sum((item["ter_bps"] or 0) * item["target_weight_bps"] for item in positions_payload) / 10000)
+    ) if positions_payload else 0
+    return {
+        "run": run,
+        "positions": positions_payload,
+        "warnings": warnings,
+        "implementation_steps": _implementation_steps(target_payload["buckets"], advisory_wealth_rappen),
+        "advisory_wealth_rappen": advisory_wealth_rappen,
+        "expected_return_bps": int(target_payload["expected_return_bps"]),
+        "expected_volatility_bps": int(target_payload["expected_volatility_bps"]),
+        "average_ter_bps": avg_ter_bps,
+        "target_allocation_id": allocation.id,
+        "market_data_quality": market_data_quality,
+        "live_rebalancing": live_rebalancing,
+    }
+
+
+def _product_matches_constraints(product: Product, prefs: dict, score_bucket: int) -> bool:
+    product_prefs = prefs["product"]
+    geo_prefs = prefs["geo"]
+    policy_prefs = prefs["policy"]
+    asset_class = _norm_text(product.asset_class)
+    if product_prefs.get("fundsOnly") and asset_class != "Liquiditaet" and product.product_type not in ("ETF", "Fonds", "Immobilienfonds"):
+        return False
+    if product_prefs.get("listedOnly") and asset_class != "Liquiditaet" and product.product_type not in ("ETF", "Einzeltitel", "Anleihe"):
+        return False
+    if geo_prefs.get("chfOnly") and product.currency != "CHF":
+        return False
+    if geo_prefs.get("noUsd") and product.currency == "USD":
+        return False
+    if policy_prefs.get("esg") in ("best_in_class", "impact", "net_zero") and asset_class != "Liquiditaet":
+        if str(product.sfdr_class or "") not in ("8", "9"):
+            return False
+    if product.suitability:
+        allowed = [
+            rule for rule in product.suitability
+            if int(rule.profile_from or 1) <= score_bucket <= int(rule.profile_to or 10) and int(rule.advisory_allowed or 0) == 1
+        ]
+        return bool(allowed)
+    return True
+
+
+def _product_score(product: Product, sub_asset_class: str, prefs: dict) -> int:
+    score = 1000
+    score -= int(product.ter_bps or 0)
+    if product.currency == "CHF":
+        score += 40
+    if product.sub_asset_class == sub_asset_class:
+        score += 200
+    elif _norm_text(product.asset_class) in ("Aktien", "Obligationen", "Immobilien", "Alternative", "Liquiditaet"):
+        score += 50
+    policy_prefs = prefs["policy"]
+    geo_prefs = prefs["geo"]
+    tilts = prefs["tilts"]
+    if policy_prefs.get("homeBias") == "ch_focus" and ("Schweiz" in (product.sub_asset_class or "") or product.currency == "CHF"):
+        score += 35
+    if geo_prefs.get("hedgingRequired") and "Hedged" in str(product.sub_asset_class or ""):
+        score += 20
+    if str(product.sfdr_class or "") in ("8", "9"):
+        score += 25
+    thematic_map = {
+        "Thema Fossile Energie": "fossil",
+        "Thema Verteidigung": "defense",
+        "Thema Tabak": "tobacco",
+        "Thema Alkohol": "alcohol",
+        "Thema Gluecksspiel": "gaming",
+        "Thema Kernenergie": "nuclear",
+    }
+    thematic_key = thematic_map.get(sub_asset_class)
+    if thematic_key:
+        tilt_mode = tilts.get(thematic_key)
+        if tilt_mode == "exclude":
+            return -10000
+        if tilt_mode == "underweight":
+            score -= 150
+        if tilt_mode == "overweight":
+            score += 250
+    return score
+
+
+def _implementation_steps(buckets: list[dict], target_total_rappen: int) -> list[str]:
+    steps = []
+    for bucket in sorted(buckets, key=lambda item: abs(item["delta_weight_bps"]), reverse=True):
+        if abs(int(bucket["delta_weight_bps"])) < 100:
+            continue
+        amount = int(round(target_total_rappen * abs(bucket["delta_weight_bps"]) / 10000 / 100))
+        direction = "aufbauen" if bucket["delta_weight_bps"] > 0 else "reduzieren"
+        steps.append(f"{bucket['asset_class']} {direction}: ca. CHF {amount:,.0f}".replace(",", "'"))
+    if not steps:
+        steps.append("Aktuelle Allokation liegt bereits weitgehend in den Zielbandbreiten.")
+    return steps
+
+
+def generate_recommendation_run(
+    db: Session,
+    mandate: Mandate,
+    user_id: str,
+    preferences: dict | None,
+    target_allocation_id: str | None = None,
+    run_type: str = "Optimizer",
+    depot_bank: str | None = None,
+) -> dict:
+    ensure_default_products(db)
+    prefs = _normalize_preferences(preferences)
+    policy, cma = ensure_runtime_reference_data(db, user_id)
+    assessment = db.query(RiskAssessment).filter(
+        RiskAssessment.mandate_id == mandate.id,
+        RiskAssessment.is_current == 1,
+        RiskAssessment.deleted_at.is_(None),
+    ).first()
+    if not assessment:
+        raise ValueError("Bitte zuerst ein aktuelles Risikoprofil speichern.")
+
+    allocation = None
+    if target_allocation_id:
+        allocation = db.query(TargetAllocation).filter(
+            TargetAllocation.id == target_allocation_id,
+            TargetAllocation.mandate_id == mandate.id,
+            TargetAllocation.deleted_at.is_(None),
+        ).first()
+    if not allocation:
+        allocation = db.query(TargetAllocation).filter(
+            TargetAllocation.mandate_id == mandate.id,
+            TargetAllocation.is_current == 1,
+            TargetAllocation.deleted_at.is_(None),
+        ).first()
+    if allocation:
+        target_payload = build_target_payload_from_allocation(
+            db=db,
+            mandate=mandate,
+            allocation=allocation,
+            policy=policy,
+            cma=cma,
+            assessment=assessment,
+            preferences=preferences,
+        )
+    else:
+        target_payload = generate_target_allocation(db=db, mandate=mandate, user_id=user_id, preferences=preferences)
+        allocation = target_payload["target_allocation"]
+
+    previous_holdings_by_product = _latest_holdings_by_product_for_mandate(db, mandate.id)
+    db.query(RecommendationRun).filter(
+        RecommendationRun.mandate_id == mandate.id,
+        RecommendationRun.result_status == "Final",
+    ).update({"result_status": "Superseded"})
+
+    now = _now()
+    run = RecommendationRun(
+        id=new_uuid(),
+        mandate_id=mandate.id,
+        client_id=mandate.client_id,
+        assessment_id=assessment.id,
+        target_allocation_id=allocation.id,
+        policy_id=policy.id,
+        capital_market_assumptions_id=cma.id,
+        run_type=run_type,
+        objective_summary="TBI V1 - strategische Soll-Allokation mit produktiver Titelselektion",
+        optimizer_version=policy.optimizer_engine,
+        weighting_regime="Ranked-Weight",
+        fee_assumptions_json=policy.fee_model_json,
+        other_assets_included=1,
+        result_status="Final",
+        created_by=user_id,
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(run)
+    db.flush()
+
+    score_bucket = _risk_score_bucket(assessment)
+    products = db.query(Product).filter(Product.deleted_at.is_(None), Product.is_active == 1).all()
+    sub_allocations = target_payload["sub_allocations"]
+    advisory_wealth_rappen = int(target_payload["advisory_wealth_rappen"] or 0)
+    warnings = []
+    positions_payload = []
+    aggregated_positions: dict[str, dict] = {}
+
+    for sub in sub_allocations:
+        matching = [product for product in products if _product_matches_constraints(product, prefs, score_bucket)]
+        exact = [product for product in matching if str(product.sub_asset_class or "") == str(sub["sub_asset_class"])]
+        used_fallback = False
+        candidates = exact
+        if not candidates:
+            candidates = [product for product in matching if _norm_text(product.asset_class) == _norm_text(sub["asset_class"])]
+            used_fallback = bool(candidates)
+        if not candidates:
+            warnings.append(f"Kein passendes Produkt fuer {sub['sub_asset_class']} gefunden.")
+            continue
+        ranked = sorted(candidates, key=lambda product: _product_score(product, sub["sub_asset_class"], prefs), reverse=True)
+        best = ranked[0]
+        target_amount = int(round(advisory_wealth_rappen * int(sub["target_weight_bps"]) / 10000))
+        rationale = sub["rationale"]
+        if used_fallback:
+            rationale = rationale + f"; Fallback aus {sub['sub_asset_class']}, da keine geeignete exakte Produktabdeckung verfuegbar war"
+            warnings.append(f"{sub['sub_asset_class']}: exakte Produktumsetzung nicht moeglich, Core-Fallback verwendet.")
+        if depot_bank:
+            rationale = rationale + f"; Umsetzung ueber {depot_bank}"
+        existing = aggregated_positions.get(best.id)
+        if existing:
+            existing["target_weight_bps"] += int(sub["target_weight_bps"])
+            existing["target_amount_rappen"] += target_amount
+            if sub["sub_asset_class"] not in existing["source_sub_asset_classes"]:
+                existing["source_sub_asset_classes"].append(sub["sub_asset_class"])
+            if rationale not in existing["rationales"]:
+                existing["rationales"].append(rationale)
+        else:
+            aggregated_positions[best.id] = {
+                "product": best,
+                "target_weight_bps": int(sub["target_weight_bps"]),
+                "target_amount_rappen": target_amount,
+                "source_sub_asset_classes": [sub["sub_asset_class"]],
+                "rationales": [rationale],
+            }
+
+    latest_prices = latest_price_snapshot(db, list(aggregated_positions.keys()))
+    market_data_quality = summarize_price_quality(db, list(aggregated_positions.keys()))
+    today = date.today()
+
+    for entry in aggregated_positions.values():
+        best = entry["product"]
+        source_subs = [label for label in entry["source_sub_asset_classes"] if label]
+        rationale = " | ".join(entry["rationales"])
+        position = RecommendationPosition(
+            id=new_uuid(),
+            run_id=run.id,
+            product_id=best.id,
+            target_weight_bps=int(entry["target_weight_bps"]),
+            target_amount_rappen=int(entry["target_amount_rappen"]),
+            rationale=rationale,
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(position)
+        db.flush()
+        carried_holding = previous_holdings_by_product.get(best.id)
+        if carried_holding:
+            db.add(
+                RecommendationHolding(
+                    id=new_uuid(),
+                    run_id=run.id,
+                    recommendation_position_id=position.id,
+                    product_id=best.id,
+                    depot_bank=carried_holding.depot_bank,
+                    custody_account_number=carried_holding.custody_account_number,
+                    as_of_date=carried_holding.as_of_date,
+                    units_milli=carried_holding.units_milli,
+                    market_value_rappen=carried_holding.market_value_rappen,
+                    avg_cost_price_rappen=carried_holding.avg_cost_price_rappen,
+                    source=carried_holding.source,
+                    notes=carried_holding.notes,
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+        latest_price = latest_prices.get(best.id)
+        market_profile = resolve_market_profile(best)
+        price_date = parse_iso_date(latest_price.price_date) if latest_price else None
+        price_age_days = (today - price_date).days if price_date else None
+        price_is_fresh = bool(price_age_days is not None and price_age_days <= int(market_data_quality.get("stale_after_days") or 5))
+        positions_payload.append(
+            {
+                "id": position.id,
+                "run_id": run.id,
+                "product_id": best.id,
+                "product_name": best.product_name,
+                "provider": best.provider,
+                "isin": best.isin or market_profile.get("isin"),
+                "symbol": best.symbol or market_profile.get("symbol"),
+                "figi": best.figi,
+                "exchange_code": best.exchange_code,
+                "mapping_provider": best.mapping_provider,
+                "mapping_resolved_at": best.mapping_resolved_at,
+                "reference_data_provider": best.reference_data_provider,
+                "reference_data_refreshed_at": best.reference_data_refreshed_at,
+                "lookup_symbol": market_profile.get("lookup_symbol"),
+                "lookup_mode": market_profile.get("lookup_mode"),
+                "pricing_note": market_profile.get("pricing_note"),
+                "product_type": best.product_type,
+                "asset_class": best.asset_class,
+                "sub_asset_class": best.sub_asset_class,
+                "source_sub_asset_classes": source_subs,
+                "currency": best.currency,
+                "ter_bps": best.ter_bps,
+                "target_weight_bps": position.target_weight_bps,
+                "target_amount_rappen": position.target_amount_rappen,
+                "rationale": position.rationale,
+                "reference_price_date": None,
+                "reference_price_rappen": None,
+                "reference_recalibrated": None,
+                "latest_price_date": latest_price.price_date if latest_price else None,
+                "latest_price_rappen": int(latest_price.price_rappen or 0) if latest_price else None,
+                "price_source": latest_price.source if latest_price else None,
+                "price_age_days": price_age_days,
+                "price_is_fresh": price_is_fresh if latest_price else None,
+                "holding_present": False,
+                "holding_source": None,
+                "holding_as_of_date": None,
+                "holding_units_milli": None,
+                "current_units_milli": None,
+                "holding_market_value_rappen": None,
+                "holding_avg_cost_price_rappen": None,
+                "holding_depot_bank": None,
+                "holding_custody_account_number": None,
+                "holding_notes": None,
+                "valuation_basis": None,
+                "implied_units_milli": None,
+                "current_market_value_rappen": None,
+                "current_weight_bps": None,
+                "delta_weight_bps": None,
+                "rebalance_amount_rappen": None,
+                "price_change_bps": None,
+                "rebalance_action": None,
+            }
+        )
+
+    live_rebalancing = build_live_rebalancing_payload(
+        db=db,
+        allocation=allocation,
+        run=run,
+        advisory_wealth_rappen=advisory_wealth_rappen,
+    )
+    live_positions_by_id = {
+        item["id"]: item for item in ((live_rebalancing or {}).get("position_drifts") or [])
+    }
+    for item in positions_payload:
+        live_position = live_positions_by_id.get(item["id"]) or {}
+        if not live_position:
+            continue
+        item["reference_price_date"] = live_position.get("reference_price_date")
+        item["reference_price_rappen"] = live_position.get("reference_price_rappen")
+        item["reference_recalibrated"] = live_position.get("reference_recalibrated")
+        item["holding_present"] = bool(live_position.get("holding_present"))
+        item["holding_source"] = live_position.get("holding_source")
+        item["holding_as_of_date"] = live_position.get("holding_as_of_date")
+        item["holding_units_milli"] = live_position.get("holding_units_milli")
+        item["current_units_milli"] = live_position.get("current_units_milli")
+        item["holding_market_value_rappen"] = live_position.get("holding_market_value_rappen")
+        item["holding_avg_cost_price_rappen"] = live_position.get("holding_avg_cost_price_rappen")
+        item["holding_depot_bank"] = live_position.get("holding_depot_bank")
+        item["holding_custody_account_number"] = live_position.get("holding_custody_account_number")
+        item["holding_notes"] = live_position.get("holding_notes")
+        item["valuation_basis"] = live_position.get("valuation_basis")
+        item["implied_units_milli"] = live_position.get("implied_units_milli")
+        item["current_market_value_rappen"] = live_position.get("current_market_value_rappen")
+        item["current_weight_bps"] = live_position.get("current_weight_bps")
+        item["delta_weight_bps"] = live_position.get("delta_weight_bps")
+        item["rebalance_amount_rappen"] = live_position.get("rebalance_amount_rappen")
+        item["price_change_bps"] = live_position.get("price_change_bps")
+        item["rebalance_action"] = live_position.get("rebalance_action")
+
+    avg_ter_bps = int(round(sum((item["ter_bps"] or 0) * item["target_weight_bps"] for item in positions_payload) / 10000)) if positions_payload else 0
+    return {
+        "run": run,
+        "positions": positions_payload,
+        "warnings": warnings,
+        "implementation_steps": _implementation_steps(target_payload["buckets"], advisory_wealth_rappen),
+        "advisory_wealth_rappen": advisory_wealth_rappen,
+        "expected_return_bps": int(target_payload["expected_return_bps"]),
+        "expected_volatility_bps": int(target_payload["expected_volatility_bps"]),
+        "average_ter_bps": avg_ter_bps,
+        "target_allocation_id": allocation.id,
+        "market_data_quality": market_data_quality,
+        "live_rebalancing": live_rebalancing,
+    }

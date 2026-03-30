@@ -1,0 +1,257 @@
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
+from datetime import date, datetime, timezone
+from database import get_db, new_uuid
+from models.users import User
+from models.mandates import Mandate
+from models.allocation import TargetAllocation, OptimizerPolicy, CapitalMarketAssumption, HouseMatrix, BuildingBlock
+from models.profiling import RiskAssessment
+from schemas.allocation import (
+    TargetAllocationCreate, TargetAllocationResponse,
+    HouseMatrixResponse,
+    CapitalMarketAssumptionCreate, CapitalMarketAssumptionResponse,
+    TargetAllocationGenerateRequest, TargetAllocationGenerateResponse,
+    BuildingBlockResponse,
+)
+from services.auth import get_current_user, get_mandate_for_user_or_404, require_advisor, require_admin
+from services.audit import log
+from services.portfolio_engine import (
+    build_target_payload_from_allocation,
+    ensure_runtime_reference_data,
+    generate_target_allocation,
+)
+from services.review_engine import refresh_system_review_triggers
+
+router = APIRouter(tags=["Allokation"])
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+
+
+def _get_mandate_or_404(mandate_id: str, db: Session, current_user: User) -> Mandate:
+    return get_mandate_for_user_or_404(mandate_id, db, current_user)
+
+
+@router.get("/mandates/{mandate_id}/target-allocation/current",
+            response_model=TargetAllocationResponse)
+def get_current_allocation(
+    mandate_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    _get_mandate_or_404(mandate_id, db, current_user)
+    ta = db.query(TargetAllocation).filter(
+        TargetAllocation.mandate_id == mandate_id,
+        TargetAllocation.is_current == 1,
+        TargetAllocation.deleted_at.is_(None)
+    ).first()
+    if not ta:
+        raise HTTPException(status_code=404, detail="Keine Soll-Allokation gefunden")
+    return ta
+
+
+@router.get("/mandates/{mandate_id}/target-allocation/current/payload",
+            response_model=TargetAllocationGenerateResponse)
+def get_current_allocation_payload(
+    mandate_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    ta = db.query(TargetAllocation).filter(
+        TargetAllocation.mandate_id == mandate_id,
+        TargetAllocation.is_current == 1,
+        TargetAllocation.deleted_at.is_(None)
+    ).first()
+    if not ta:
+        raise HTTPException(status_code=404, detail="Keine Soll-Allokation gefunden")
+    assessment = db.query(RiskAssessment).filter(
+        RiskAssessment.mandate_id == mandate_id,
+        RiskAssessment.is_current == 1,
+        RiskAssessment.deleted_at.is_(None),
+    ).first()
+    if not assessment:
+        raise HTTPException(status_code=409, detail="Bitte zuerst ein aktuelles Risikoprofil speichern.")
+    policy, cma = ensure_runtime_reference_data(db, current_user.id)
+    return build_target_payload_from_allocation(
+        db=db,
+        mandate=mandate,
+        allocation=ta,
+        policy=policy,
+        cma=cma,
+        assessment=assessment,
+        preferences=None,
+    )
+
+
+@router.post("/mandates/{mandate_id}/target-allocation",
+             response_model=TargetAllocationResponse, status_code=201)
+def create_target_allocation(
+    mandate_id: str,
+    body: TargetAllocationCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_advisor)
+):
+    mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    # Validate policy exists
+    policy = db.query(OptimizerPolicy).filter(
+        OptimizerPolicy.id == body.policy_id
+    ).first()
+    if not policy:
+        raise HTTPException(status_code=404, detail="Optimizer Policy nicht gefunden")
+    now = _now()
+    # Supersede previous
+    prev = db.query(TargetAllocation).filter(
+        TargetAllocation.mandate_id == mandate_id,
+        TargetAllocation.is_current == 1,
+        TargetAllocation.deleted_at.is_(None)
+    ).first()
+    prev_version = 0
+    if prev:
+        prev.is_current = 0
+        prev_version = prev.version
+    ta = TargetAllocation(
+        id=new_uuid(),
+        mandate_id=mandate_id,
+        version=prev_version + 1,
+        is_current=1,
+        set_by=current_user.id,
+        set_at=now,
+        created_at=now,
+        updated_at=now,
+        **body.model_dump()
+    )
+    db.add(ta)
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="target_allocations", record_id=ta.id, action="CREATE",
+        mandate_id=mandate_id, client_id=mandate.client_id)
+    db.commit()
+    db.refresh(ta)
+    return ta
+
+
+@router.get("/house-matrix/{score}", response_model=HouseMatrixResponse)
+def get_house_matrix_for_score(
+    score: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get house matrix band for a given risk score (1–10)."""
+    if not 1 <= score <= 10:
+        raise HTTPException(status_code=400, detail="Score muss zwischen 1 und 10 liegen")
+    # Get current policy
+    policy = db.query(OptimizerPolicy).filter(OptimizerPolicy.is_current == 1).first()
+    if not policy:
+        raise HTTPException(status_code=404, detail="Keine aktive Optimizer Policy gefunden")
+    hm = db.query(HouseMatrix).filter(
+        HouseMatrix.policy_id == policy.id,
+        HouseMatrix.score_from <= score,
+        HouseMatrix.score_to >= score,
+        HouseMatrix.is_active == 1
+    ).first()
+    if not hm:
+        raise HTTPException(status_code=404, detail=f"Kein House Matrix Eintrag für Score {score}")
+    return hm
+
+
+@router.get("/optimizer-policies/current")
+def get_current_policy(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    policy = db.query(OptimizerPolicy).filter(OptimizerPolicy.is_current == 1).first()
+    if not policy:
+        raise HTTPException(status_code=404, detail="Keine aktive Optimizer Policy gefunden")
+    return policy
+
+
+@router.get("/building-blocks/current", response_model=list[BuildingBlockResponse])
+def get_current_building_blocks(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    policy = db.query(OptimizerPolicy).filter(OptimizerPolicy.is_current == 1).first()
+    if not policy:
+        raise HTTPException(status_code=404, detail="Keine aktive Optimizer Policy gefunden")
+    return db.query(BuildingBlock).filter(
+        BuildingBlock.policy_id == policy.id,
+        BuildingBlock.is_active == 1,
+    ).order_by(BuildingBlock.asset_class.asc(), BuildingBlock.sub_asset_class.asc()).all()
+
+
+@router.get("/capital-market-assumptions/current",
+            response_model=CapitalMarketAssumptionResponse)
+def get_current_cma(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    cma = db.query(CapitalMarketAssumption).filter(
+        CapitalMarketAssumption.is_current == 1,
+        CapitalMarketAssumption.deleted_at.is_(None)
+    ).first()
+    if not cma:
+        raise HTTPException(status_code=404, detail="Keine Kapitalmarktannahmen gefunden")
+    return cma
+
+
+@router.put("/capital-market-assumptions",
+            response_model=CapitalMarketAssumptionResponse)
+def update_cma(
+    body: CapitalMarketAssumptionCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    """Admin only — update capital market assumptions (creates new version)."""
+    now = _now()
+    # Archive previous
+    prev = db.query(CapitalMarketAssumption).filter(
+        CapitalMarketAssumption.is_current == 1,
+        CapitalMarketAssumption.deleted_at.is_(None)
+    ).first()
+    prev_version = 0
+    if prev:
+        prev.is_current = 0
+        prev_version = prev.version
+    cma = CapitalMarketAssumption(
+        id=new_uuid(),
+        version=prev_version + 1,
+        is_current=1,
+        created_by=current_user.id,
+        created_at=now,
+        updated_at=now,
+        **body.model_dump()
+    )
+    db.add(cma)
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="capital_market_assumptions", record_id=cma.id, action="CREATE")
+    db.commit()
+    db.refresh(cma)
+    return cma
+
+
+@router.post("/mandates/{mandate_id}/target-allocation/generate",
+             response_model=TargetAllocationGenerateResponse)
+def generate_target_allocation_endpoint(
+    mandate_id: str,
+    body: TargetAllocationGenerateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_advisor)
+):
+    mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    try:
+        result = generate_target_allocation(
+            db=db,
+            mandate=mandate,
+            user_id=current_user.id,
+            preferences=body.preferences.model_dump() if body.preferences else None,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    refresh_system_review_triggers(db, mandate, current_user.id)
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="target_allocations", record_id=result["target_allocation"].id, action="CREATE",
+        mandate_id=mandate_id, client_id=mandate.client_id)
+    db.commit()
+    db.refresh(result["target_allocation"])
+    return result

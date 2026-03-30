@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+*.spec
+
+# Node / Electron
+node_modules/
+5eyes-electron/dist/
+5eyes-electron/bundle/backend/
+
+# Logs
+*.log
+*.err.log
+
+# Database files (may contain sensitive data)
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Environment / Secrets
+.env
+!.env.example
+
+# Temporary debug scripts
+tmp_*
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini

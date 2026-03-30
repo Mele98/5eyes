@@ -1,0 +1,89 @@
+{
+  "name": "5eyes-wealtharchitekten-desktop",
+  "version": "0.4.0",
+  "description": "Local Electron shell for the 5Eyes WealthArchitekten advisory app",
+  "main": "main.js",
+  "author": "OpenAI build skeleton",
+  "license": "UNLICENSED",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron .",
+    "build:backend": "node scripts/build-backend.js",
+    "pack": "npm run preflight:release && npm run build:backend && electron-builder --dir",
+    "dist:win": "npm run preflight:release && npm run build:backend && electron-builder --win nsis",
+    "preflight:release": "node scripts/release-check.js",
+    "dist:win:portable": "npm run preflight:release && npm run build:backend && electron-builder --win portable"
+  },
+  "devDependencies": {
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "ch.5eyes.wealtharchitekten",
+    "productName": "5Eyes WealthArchitekten",
+    "directories": {
+      "output": "dist",
+      "buildResources": "assets"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "frontend/**/*",
+      "assets/icons/app.png",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "bundle/backend",
+        "to": "backend",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "5Eyes-${version}-${arch}.${ext}",
+      "icon": "assets/icons/app.ico",
+      "requestedExecutionLevel": "asInvoker"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "shortcutName": "5Eyes WealthArchitekten",
+      "uninstallDisplayName": "5Eyes WealthArchitekten",
+      "deleteAppDataOnUninstall": false,
+      "displayLanguageSelector": false,
+      "installerIcon": "assets/icons/installer-icon.ico",
+      "uninstallerIcon": "assets/icons/uninstaller-icon.ico",
+      "installerHeaderIcon": "assets/icons/app.ico",
+      "artifactName": "5Eyes-Setup-${version}-${arch}.${ext}"
+    },
+    "asar": true,
+    "publish": [
+      {
+        "provider": "generic",
+        "url": "https://updates.example.invalid/5eyes/windows"
+      }
+    ]
+  },
+  "dependencies": {
+    "electron-updater": "^6.3.9"
+  }
+}

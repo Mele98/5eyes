@@ -1,0 +1,142 @@
+﻿#!/usr/bin/env python3
+"""
+5Eyes WealthArchitekten â€” Ersteinrichtung
+=========================================
+Dieses Script lÃ¤uft einmalig beim ersten Start.
+Es erstellt die Datenbank, lÃ¤dt das Schema, und legt den ersten Admin-Benutzer an.
+
+Verwendung:
+    cd 5eyes-backend
+    python setup.py
+
+    oder mit eigenen Werten:
+    python setup.py --username admin --password MeinPasswort123 --name "Hans Muster"
+"""
+import argparse
+import os
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+script_dir = Path(__file__).parent
+os.chdir(script_dir)
+
+
+def utc_now():
+    return datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
+
+
+def main():
+    parser = argparse.ArgumentParser(description='5Eyes Ersteinrichtung')
+    parser.add_argument('--username', default='admin', help='Benutzername (default: admin)')
+    parser.add_argument('--password', default=None, help='Passwort (wird abgefragt wenn nicht angegeben)')
+    parser.add_argument('--name', default='Administrator', help='VollstÃ¤ndiger Name')
+    parser.add_argument('--email', default=None, help='E-Mail Adresse (optional)')
+    args = parser.parse_args()
+
+    print('=' * 60)
+    print('  5Eyes WealthArchitekten â€” Ersteinrichtung')
+    print('=' * 60)
+    print()
+
+    try:
+        from config import settings
+        from database import SessionLocal, bootstrap_sqlite_schema, init_db, new_uuid
+        import models.allocation
+import models.clients
+import models.mandates
+import models.profiling
+import models.review
+import models.users
+import models.wealth
+import models.allocation
+import models.clients
+import models.mandates
+import models.profiling
+import models.review
+import models.users
+import models.wealth
+from models.users import User
+        from services.auth import hash_password
+    except ImportError as e:
+        print(f'âœ— Import fehlgeschlagen: {e}')
+        print('  Bitte sicherstellen dass alle Pakete installiert sind:')
+        print('  pip install -r requirements.txt')
+        sys.exit(1)
+
+    password = args.password
+    if not password:
+        import getpass
+
+        print(f'Admin-Benutzer: {args.username}')
+        password = getpass.getpass('Passwort eingeben: ')
+        password_confirm = getpass.getpass('Passwort bestÃ¤tigen: ')
+        if password != password_confirm:
+            print('âœ— PasswÃ¶rter stimmen nicht Ã¼berein.')
+            sys.exit(1)
+        if len(password) < 8:
+            print('âœ— Passwort muss mindestens 8 Zeichen lang sein.')
+            sys.exit(1)
+
+    print(f'\nDatenbank: {settings.db_path}')
+    try:
+        bootstrap_sqlite_schema(db_key=getattr(settings, 'db_key', None))
+        init_db()
+        print('âœ“ Datenbank initialisiert')
+    except Exception as e:
+        print(f'âœ— Datenbank-Initialisierung fehlgeschlagen: {e}')
+        sys.exit(1)
+
+    with SessionLocal() as db:
+        existing = db.query(User).filter(User.username == args.username, User.deleted_at.is_(None)).first()
+
+        if existing:
+            print(f"\nâš   Benutzer '{args.username}' existiert bereits.")
+            answer = input('Passwort aktualisieren? [j/N]: ').strip().lower()
+            if answer == 'j':
+                existing.password_hash = hash_password(password)
+                existing.updated_at = utc_now()
+                db.commit()
+                print(f"âœ“ Passwort fÃ¼r '{args.username}' aktualisiert.")
+            else:
+                print('  Keine Ã„nderungen vorgenommen.')
+        else:
+            now = utc_now()
+            admin = User(
+                id=new_uuid(),
+                username=args.username,
+                password_hash=hash_password(password),
+                full_name=args.name,
+                email=args.email,
+                role='admin',
+                is_active=1,
+                created_at=now,
+                updated_at=now,
+            )
+            db.add(admin)
+            db.commit()
+            print('\nâœ“ Admin-Benutzer angelegt:')
+            print(f'   Benutzername : {args.username}')
+            print(f'   Name         : {args.name}')
+            print('   Rolle        : admin')
+
+    print('\n' + '=' * 60)
+    print('  Einrichtung abgeschlossen.')
+    print()
+    print('  NÃ¤chste Schritte:')
+    print('  1. Backend starten:')
+    print('     python main.py')
+    print()
+    print('  2. API-Dokumentation:')
+    print('     http://localhost:8000/docs')
+    print()
+    print('  3. Frontend Ã¶ffnen:')
+    print('     5eyes-electron/frontend/5eyes_v2.html im Browser')
+    print('     (oder via Electron: npm start im 5eyes-electron Ordner)')
+    print('=' * 60)
+
+
+if __name__ == '__main__':
+    main()
+
+
