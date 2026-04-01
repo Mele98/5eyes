@@ -3839,45 +3839,6 @@ function formatAdminPriceRefresh(payload) {
   return lines.join('\n');
 }
 
-function formatAdminMarketSummary(priceStatus, productStatus) {
-  var providerRoles = priceStatus && priceStatus.provider_roles || {};
-  var priceRole = providerRoles.market_prices || {};
-  var refRole = providerRoles.reference_data || {};
-  var mapRole = providerRoles.id_mapping || {};
-  var quality = productStatus && productStatus.price_quality || priceStatus && priceStatus.quality || {};
-  var lines = [
-    'Marktdaten & Produktstamm',
-    'Aktive Produkte: ' + String(productStatus && productStatus.active_products || quality.active_products_count || 0),
-    'Preisruntime: ' + adminProviderName(priceRole.current && priceRole.current.primary) + ' -> Ziel ' + adminProviderName(priceRole.target && priceRole.target.primary),
-    'Referenzdaten: ' + adminProviderName(refRole.current && refRole.current.primary) + ' -> Ziel ' + adminProviderName(refRole.target && refRole.target.primary),
-    'Identifier-Mapping: ' + adminProviderName(mapRole.current && mapRole.current.primary) + ' -> Ziel ' + adminProviderName(mapRole.target && mapRole.target.primary),
-    'Lookup-Overrides: ' + String(productStatus && productStatus.lookup_mode_override_count || 0),
-    'Preisabdeckung: ' + String(quality.coverage_pct || 0) + '% frisch ' + String(quality.fresh_coverage_pct || 0) + '%',
-    'Symbol direkt: ' + String(quality.direct_symbol_lookup_products_count || 0) + ' · nur ISIN: ' + String(quality.direct_isin_lookup_products_count || 0) + ' · Proxy: ' + String(quality.proxy_lookup_products_count || 0),
-    'OpenFIGI gemappt: ' + String(productStatus && productStatus.openfigi_mapped_count || 0) + ' · offen: ' + String(productStatus && productStatus.openfigi_pending_count || 0),
-    'Referenzdaten synchronisiert: ' + String(productStatus && productStatus.reference_synced_count || 0) + ' · offen: ' + String(productStatus && productStatus.reference_pending_count || 0),
-    'Fehlende Marktprofile: ' + String(quality.mapping_gap_count || 0) + ' · fehlende Preise: ' + String(quality.missing_price_count || 0)
-  ];
-  var samples = productStatus && productStatus.samples || {};
-  var openfigiSamples = Array.isArray(samples.openfigi_pending) ? samples.openfigi_pending.slice(0, 3) : [];
-  var referenceSamples = Array.isArray(samples.reference_pending) ? samples.reference_pending.slice(0, 3) : [];
-  if (openfigiSamples.length) {
-    lines.push('');
-    lines.push('OpenFIGI offen:');
-    openfigiSamples.forEach(function(item){
-      lines.push('- ' + String(item.product_name || item.product_id || '?') + ' · ' + String(item.isin || 'ohne ISIN'));
-    });
-  }
-  if (referenceSamples.length) {
-    lines.push('');
-    lines.push('Referenzdaten offen:');
-    referenceSamples.forEach(function(item){
-      lines.push('- ' + String(item.product_name || item.product_id || '?') + ' · ' + [item.symbol, item.isin].filter(Boolean).join(' / '));
-    });
-  }
-  return lines.join('\n');
-}
-
 function formatAdminPriceRefresh(payload) {
   var setup = payload && payload.setup || {};
   var lines = [
