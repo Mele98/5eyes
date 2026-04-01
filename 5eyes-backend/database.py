@@ -169,6 +169,8 @@ def ensure_runtime_columns() -> None:
             ('correlation_matrix_json', 'TEXT'),
         ],
         'products': [
+            ('lookup_mode_override', 'TEXT'),
+            ('lookup_symbol_override', 'TEXT'),
             ('figi', 'TEXT'),
             ('composite_figi', 'TEXT'),
             ('share_class_figi', 'TEXT'),

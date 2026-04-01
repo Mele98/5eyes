@@ -223,6 +223,7 @@ def test_runtime_routes_expose_frontend_contracts():
     assert ("/products/openfigi/resolve", ("POST",)) in route_map
     assert ("/products/openfigi/apply", ("POST",)) in route_map
     assert ("/products/openfigi/auto-apply", ("POST",)) in route_map
+    assert ("/products/{product_id}/market-override", ("PUT",)) in route_map
     assert ("/products/market-data/status", ("GET",)) in route_map
     assert ("/products/eodhd/resolve", ("POST",)) in route_map
     assert ("/products/eodhd/apply", ("POST",)) in route_map

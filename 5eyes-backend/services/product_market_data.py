@@ -260,7 +260,7 @@ def provider_lookup_symbol(raw_symbol: str | None, exchange_code: Any, provider_
     provider = str(provider_name or "").strip().lower()
     normalized_exchange = normalize_exchange_code(exchange_code)
     if _has_explicit_market_suffix(symbol):
-        return symbol.lower() if provider == "stooq" else symbol
+        return symbol
 
     if provider == "yfinance":
         if not normalized_exchange or normalized_exchange in US_EXCHANGE_CODES:
@@ -327,6 +327,45 @@ def resolve_market_profile(product: Any) -> dict[str, Any]:
     raw_isin = str(getattr(product, "isin", "") or "").strip() or None
     raw_currency = str(getattr(product, "currency", "") or "").strip() or None
     raw_exchange_code = normalize_exchange_code(getattr(product, "exchange_code", None))
+
+    mode_override = str(getattr(product, "lookup_mode_override", "") or "").strip() or None
+    symbol_override = str(getattr(product, "lookup_symbol_override", "") or "").strip() or None
+    if mode_override or symbol_override:
+        if mode_override == "synthetic_par":
+            return {
+                "product_name": product_name,
+                "symbol": symbol_override or raw_symbol,
+                "isin": raw_isin,
+                "currency": raw_currency,
+                "exchange_code": raw_exchange_code,
+                "lookup_mode": "synthetic_par",
+                "lookup_symbol": None,
+                "lookup_symbols": {},
+                "synthetic_price_rappen": 100,
+                "identifier_basis": "override",
+                "pricing_note": "Synthetischer Par-Wert (manueller Override).",
+            }
+        effective_symbol = symbol_override or raw_symbol
+        effective_mode = mode_override or ("direct" if effective_symbol else "unmapped")
+        lookup_symbols = {
+            "yfinance": provider_lookup_symbol(effective_symbol, raw_exchange_code, "yfinance") if effective_symbol else None,
+            "stooq": provider_lookup_symbol(effective_symbol, raw_exchange_code, "stooq") if effective_symbol else None,
+            "twelvedata": provider_lookup_symbol(effective_symbol, raw_exchange_code, "twelvedata") if effective_symbol else None,
+        }
+        return {
+            "product_name": product_name,
+            "symbol": effective_symbol,
+            "isin": raw_isin,
+            "currency": raw_currency,
+            "exchange_code": raw_exchange_code,
+            "lookup_mode": effective_mode,
+            "lookup_symbol": effective_symbol,
+            "lookup_symbols": lookup_symbols,
+            "synthetic_price_rappen": None,
+            "identifier_basis": "override",
+            "pricing_note": f"Manueller Override: Modus={effective_mode}, Symbol={effective_symbol or '-'}",
+        }
+
     catalog = default_market_entry(product_name)
 
     if raw_symbol or raw_isin:

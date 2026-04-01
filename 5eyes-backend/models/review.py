@@ -107,6 +107,8 @@ class Product(Base):
     id = Column(String, primary_key=True)
     isin = Column(String)
     symbol = Column(String)
+    lookup_mode_override = Column(String)
+    lookup_symbol_override = Column(String)
     figi = Column(String)
     composite_figi = Column(String)
     share_class_figi = Column(String)

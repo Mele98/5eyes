@@ -18,6 +18,7 @@ from schemas.review import (
     ContractDocumentCreate, ContractDocumentSign, ContractDocumentResponse,
     ConflictDisclosureCreate, ConflictDisclosureResponse,
     ProductCreate, ProductResponse,
+    ProductMarketOverrideRequest, ProductMarketOverrideResponse,
     ProductIdMappingPreviewRequest, ProductIdMappingPreviewResponse,
     ProductIdMappingApplyRequest, ProductIdMappingApplyResponse,
     ProductIdMappingBatchApplyRequest, ProductIdMappingBatchApplyResponse,
@@ -35,6 +36,7 @@ from services.audit import log
 from services.eodhd_client import preview_eodhd_reference
 from services.openfigi_client import preview_openfigi_mapping
 from services.portfolio_engine import build_recommendation_payload_from_run, generate_recommendation_run
+from services.product_market_data import resolve_market_profile
 from services.review_engine import refresh_system_review_triggers
 
 router = APIRouter(tags=["Review & Dokumente"])
@@ -125,11 +127,14 @@ def _collect_product_market_data_status(db: Session) -> dict:
     reference_pending = []
     openfigi_mapped_count = 0
     reference_synced_count = 0
+    lookup_mode_override_count = 0
     symbol_count = 0
     isin_only_count = 0
     for product in products:
         has_symbol = not _is_blank(product.symbol)
         has_isin = not _is_blank(product.isin)
+        if not _is_blank(product.lookup_mode_override):
+            lookup_mode_override_count += 1
         if has_symbol:
             symbol_count += 1
         elif has_isin:
@@ -161,6 +166,7 @@ def _collect_product_market_data_status(db: Session) -> dict:
         "active_products": len(products),
         "symbol_count": symbol_count,
         "isin_only_count": isin_only_count,
+        "lookup_mode_override_count": lookup_mode_override_count,
         "openfigi_mapped_count": openfigi_mapped_count,
         "reference_synced_count": reference_synced_count,
         "openfigi_pending_count": len(openfigi_pending),
@@ -490,6 +496,43 @@ def create_product(
     db.commit()
     db.refresh(product)
     return product
+
+
+@products_router.put("/{product_id}/market-override", response_model=ProductMarketOverrideResponse)
+def set_product_market_override(
+    product_id: str,
+    body: ProductMarketOverrideRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    product = db.query(Product).filter(
+        Product.id == product_id,
+        Product.deleted_at.is_(None),
+    ).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Produkt nicht gefunden")
+    product.lookup_mode_override = body.lookup_mode_override or None
+    product.lookup_symbol_override = body.lookup_symbol_override.strip() if body.lookup_symbol_override else None
+    product.updated_at = _now()
+    log(
+        db,
+        user_id=current_user.id,
+        user_name=current_user.full_name,
+        table_name="products",
+        record_id=product.id,
+        action="UPDATE",
+        field_name="market_override",
+        new_value=(product.lookup_mode_override or "") + "|" + (product.lookup_symbol_override or ""),
+    )
+    db.commit()
+    db.refresh(product)
+    return ProductMarketOverrideResponse(
+        id=product.id,
+        product_name=product.product_name,
+        lookup_mode_override=product.lookup_mode_override,
+        lookup_symbol_override=product.lookup_symbol_override,
+        resolved_market_profile=resolve_market_profile(product),
+    )
 
 
 @products_router.get("/market-data/status")

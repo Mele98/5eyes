@@ -284,6 +284,7 @@ def test_market_data_status_endpoint_exposes_mapping_and_reference_counts(sessio
     assert response.status_code == 200
     payload = response.json()
     assert payload["active_products"] == 2
+    assert payload["lookup_mode_override_count"] == 0
     assert payload["openfigi_mapped_count"] == 1
     assert payload["reference_synced_count"] == 1
     assert payload["openfigi_pending_count"] == 1

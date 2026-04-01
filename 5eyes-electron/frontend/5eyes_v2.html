@@ -3718,6 +3718,78 @@ function readAdminMappingFlags() {
   };
 }
 
+function setAdminOverrideError(message) {
+  var errEl = document.getElementById('admin-override-error');
+  if (!errEl) return;
+  if (!message) {
+    errEl.style.display = 'none';
+    errEl.textContent = '';
+    return;
+  }
+  errEl.textContent = message;
+  errEl.style.display = 'block';
+}
+
+function renderAdminOverrideBadge(payload) {
+  var badge = document.getElementById('admin-override-badge');
+  if (!badge) return;
+  if (!payload) {
+    badge.style.display = 'none';
+    badge.textContent = '';
+    return;
+  }
+  var mode = String(payload.lookup_mode_override || '').trim();
+  var symbol = String(payload.lookup_symbol_override || '').trim();
+  var active = !!(mode || symbol);
+  badge.style.display = 'inline-block';
+  badge.style.background = active ? 'var(--warn-lt)' : 'var(--bg2)';
+  badge.style.borderColor = active ? 'rgba(122,82,0,0.2)' : 'var(--b1)';
+  badge.style.color = active ? 'var(--warn)' : 'var(--n6)';
+  badge.textContent = active
+    ? ('Aktiver Override: ' + (mode || 'Standard-Modus') + ' / ' + (symbol || 'Standard-Symbol'))
+    : 'Aktiver Override: Standard';
+}
+
+function normalizeAdminProductReference(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function findAdminProductByReference(products, productRef) {
+  var normalized = normalizeAdminProductReference(productRef);
+  if (!normalized || !Array.isArray(products)) return null;
+  return products.find(function(item) {
+    return normalizeAdminProductReference(item && item.id) === normalized
+      || normalizeAdminProductReference(item && item.product_name) === normalized;
+  }) || null;
+}
+
+async function adminLoadProductOverrideContext() {
+  var productRef = getInputValue('admin-override-product').trim();
+  if (!productRef) {
+    setAdminOverrideError('');
+    renderAdminOverrideBadge(null);
+    return null;
+  }
+  try {
+    var products = await API.get('/products');
+    var match = findAdminProductByReference(products, productRef);
+    if (!match) {
+      renderAdminOverrideBadge(null);
+      setAdminOverrideError('Produkt nicht gefunden: ' + productRef);
+      return null;
+    }
+    setInputValue('admin-override-mode', match.lookup_mode_override || '');
+    setInputValue('admin-override-symbol', match.lookup_symbol_override || '');
+    renderAdminOverrideBadge(match);
+    setAdminOverrideError('');
+    return match;
+  } catch (e) {
+    setAdminOverrideError(parseApiError(e, 'Produkt-Kontext konnte nicht geladen werden.'));
+    renderAdminOverrideBadge(null);
+    return null;
+  }
+}
+
 function adminProviderName(meta) {
   if (!meta) return 'n/a';
   var label = String(meta.label || meta.name || 'n/a');
@@ -3779,6 +3851,7 @@ function formatAdminMarketSummary(priceStatus, productStatus) {
     'Preisruntime: ' + adminProviderName(priceRole.current && priceRole.current.primary) + ' -> Ziel ' + adminProviderName(priceRole.target && priceRole.target.primary),
     'Referenzdaten: ' + adminProviderName(refRole.current && refRole.current.primary) + ' -> Ziel ' + adminProviderName(refRole.target && refRole.target.primary),
     'Identifier-Mapping: ' + adminProviderName(mapRole.current && mapRole.current.primary) + ' -> Ziel ' + adminProviderName(mapRole.target && mapRole.target.primary),
+    'Lookup-Overrides: ' + String(productStatus && productStatus.lookup_mode_override_count || 0),
     'Preisabdeckung: ' + String(quality.coverage_pct || 0) + '% frisch ' + String(quality.fresh_coverage_pct || 0) + '%',
     'Symbol direkt: ' + String(quality.direct_symbol_lookup_products_count || 0) + ' · nur ISIN: ' + String(quality.direct_isin_lookup_products_count || 0) + ' · Proxy: ' + String(quality.proxy_lookup_products_count || 0),
     'OpenFIGI gemappt: ' + String(productStatus && productStatus.openfigi_mapped_count || 0) + ' · offen: ' + String(productStatus && productStatus.openfigi_pending_count || 0),
@@ -3853,6 +3926,7 @@ function formatAdminMarketSummary(priceStatus, productStatus) {
     'Preisruntime: ' + adminProviderName(priceRole.current && priceRole.current.primary) + ' -> Ziel ' + adminProviderName(priceRole.target && priceRole.target.primary),
     'Referenzdaten: ' + adminProviderName(refRole.current && refRole.current.primary) + ' -> Ziel ' + adminProviderName(refRole.target && refRole.target.primary),
     'Identifier-Mapping: ' + adminProviderName(mapRole.current && mapRole.current.primary) + ' -> Ziel ' + adminProviderName(mapRole.target && mapRole.target.primary),
+    'Lookup-Overrides: ' + String(productStatus && productStatus.lookup_mode_override_count || 0),
     'Preisabdeckung: ' + String(quality.coverage_pct || 0) + '% frisch ' + String(quality.fresh_coverage_pct || 0) + '%',
     'Symbol direkt: ' + String(quality.direct_symbol_lookup_products_count || 0) + ' | nur ISIN: ' + String(quality.direct_isin_lookup_products_count || 0) + ' | Proxy: ' + String(quality.proxy_lookup_products_count || 0),
     'OpenFIGI gemappt: ' + String(productStatus && productStatus.openfigi_mapped_count || 0) + ' | offen: ' + String(productStatus && productStatus.openfigi_pending_count || 0),
@@ -3983,6 +4057,55 @@ async function adminRunEodhdAutoApply(dryRun) {
     showAdminResult('✗ ' + parseApiError(e, 'EODHD-Workflow fehlgeschlagen.'), true);
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = dryRun ? 'EODHD Dry Run' : 'EODHD anwenden'; }
+  }
+}
+
+async function adminSetProductOverride() {
+  var btn = document.getElementById('btn-admin-override-save');
+  var productRef = getInputValue('admin-override-product').trim();
+  var mode = getInputValue('admin-override-mode') || '';
+  var symbol = getInputValue('admin-override-symbol').trim();
+  setAdminOverrideError('');
+  if (!productRef) {
+    setAdminOverrideError('Produkt-ID oder Name ist Pflicht.');
+    return;
+  }
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Speichert...';
+  }
+  try {
+    var products = await API.get('/products');
+    var match = findAdminProductByReference(products, productRef);
+    if (!match) {
+      setAdminOverrideError('Produkt nicht gefunden: ' + productRef);
+      renderAdminOverrideBadge(null);
+      return;
+    }
+    var payload = await API.put('/products/' + match.id + '/market-override', {
+      lookup_mode_override: mode || null,
+      lookup_symbol_override: symbol || null
+    });
+    setInputValue('admin-override-mode', payload.lookup_mode_override || '');
+    setInputValue('admin-override-symbol', payload.lookup_symbol_override || '');
+    renderAdminOverrideBadge(payload);
+    showAdminResult(
+      'Override gesetzt: ' + match.product_name + '\n'
+      + 'Modus: ' + (payload.lookup_mode_override || '- Standard') + '\n'
+      + 'Symbol: ' + (payload.lookup_symbol_override || '- Standard') + '\n'
+      + 'Effektiv: ' + JSON.stringify(payload.resolved_market_profile, null, 2),
+      false
+    );
+    await adminRefreshMarketStatus(false);
+  } catch (e) {
+    var msg = parseApiError(e, 'Override fehlgeschlagen.');
+    setAdminOverrideError('x ' + msg);
+    showAdminResult('x ' + msg, true);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = 'Override speichern';
+    }
   }
 }
 
@@ -7702,6 +7825,33 @@ function openStammdatenModal(){
             <button class="btn-p" style="background:var(--g4);color:#fff" onclick="adminRunOpenfigiAutoApply(false)" id="btn-admin-openfigi-apply">OpenFIGI anwenden</button>
             <button class="btn-p" style="background:var(--bg2);color:var(--n6)" onclick="adminRunEodhdAutoApply(true)" id="btn-admin-eodhd-preview">EODHD Dry Run</button>
             <button class="btn-p" style="background:var(--g4);color:#fff" onclick="adminRunEodhdAutoApply(false)" id="btn-admin-eodhd-apply">EODHD anwenden</button>
+          </div>
+          <div style="border-top:1px solid var(--b1);padding-top:10px;display:grid;gap:8px;">
+            <div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4)">Produkt Lookup-Override</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 120px;gap:8px;align-items:end;">
+              <div>
+                <label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Produkt-ID oder Name</label>
+                <input class="fi" id="admin-override-product" placeholder="Produkt-ID oder exakter Name" style="font-size:11px" onchange="adminLoadProductOverrideContext()" onblur="adminLoadProductOverrideContext()">
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+                <div>
+                  <label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Modus</label>
+                  <select class="fsel" id="admin-override-mode" style="font-size:11px">
+                    <option value="">- Standard</option>
+                    <option value="direct">direct</option>
+                    <option value="proxy">proxy</option>
+                    <option value="synthetic_par">synthetic_par</option>
+                  </select>
+                </div>
+                <div>
+                  <label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Symbol</label>
+                  <input class="fi" id="admin-override-symbol" placeholder="z.B. GLD" style="font-size:11px">
+                </div>
+              </div>
+              <button class="btn-p" style="background:var(--bg2);color:var(--n6)" onclick="adminSetProductOverride()" id="btn-admin-override-save">Override speichern</button>
+            </div>
+            <div id="admin-override-badge" style="display:none;align-self:start;padding:4px 8px;border-radius:var(--r);font-size:10px;background:var(--bg2);color:var(--n6);border:1px solid var(--b1)"></div>
+            <div id="admin-override-error" style="display:none;color:var(--neg);font-size:10px"></div>
           </div>
         </div>
         <div id="admin-result" style="background:var(--bg2);border-radius:6px;padding:10px;font-size:11px;font-family:monospace;min-height:80px;white-space:pre-wrap;color:var(--g4);display:none"></div>

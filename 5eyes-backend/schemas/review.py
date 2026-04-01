@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field, model_validator
-from typing import Optional, Literal
+from typing import Any, Optional, Literal
 from schemas.common import BaseResponse
 from schemas.allocation import AllocationPreferencesPayload, LiveRebalancingResponse
 
@@ -170,6 +170,8 @@ class ProductResponse(BaseResponse):
     id: str
     isin: Optional[str]
     symbol: Optional[str]
+    lookup_mode_override: Optional[str] = None
+    lookup_symbol_override: Optional[str] = None
     figi: Optional[str] = None
     composite_figi: Optional[str] = None
     share_class_figi: Optional[str] = None
@@ -210,6 +212,19 @@ class ProductIdMappingPreviewRequest(BaseModel):
         if self.exchange_code and self.mic_code:
             raise ValueError("exchange_code und mic_code koennen nicht gleichzeitig gesetzt werden")
         return self
+
+
+class ProductMarketOverrideRequest(BaseModel):
+    lookup_mode_override: Optional[Literal["direct", "proxy", "synthetic_par"]] = None
+    lookup_symbol_override: Optional[str] = None
+
+
+class ProductMarketOverrideResponse(BaseModel):
+    id: str
+    product_name: str
+    lookup_mode_override: Optional[str] = None
+    lookup_symbol_override: Optional[str] = None
+    resolved_market_profile: dict[str, Any]
 
 
 class ProductIdMappingCandidate(BaseModel):
