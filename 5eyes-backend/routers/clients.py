@@ -58,7 +58,10 @@ def create_client(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor)
 ):
-    existing = db.query(Client).filter(Client.client_number == body.client_number).first()
+    existing = db.query(Client).filter(
+        Client.client_number == body.client_number,
+        Client.deleted_at.is_(None)
+    ).first()
     if existing:
         raise HTTPException(status_code=409, detail="Kundennummer bereits vergeben")
     now = _now()

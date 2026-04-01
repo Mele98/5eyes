@@ -92,6 +92,7 @@ class CapitalMarketAssumption(Base):
     liquidity_return_bps = Column(Integer)
     liquidity_vol_bps = Column(Integer)
     inflation_path_json = Column(String)
+    correlation_matrix_json = Column(String)
     source = Column(String, default="Portfolio Management intern")
     notes = Column(String)
     created_by = Column(String, ForeignKey("users.id"), nullable=False)

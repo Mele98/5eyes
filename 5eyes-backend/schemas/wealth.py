@@ -1,4 +1,4 @@
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
 from typing import Optional, Literal
 from schemas.common import BaseResponse
 
@@ -18,11 +18,11 @@ class WealthPositionCreate(BaseModel):
     # Depot
     depot_bank: Optional[str] = None
     depot_account_number: Optional[str] = None
-    alloc_equities_bps: int = 0
-    alloc_bonds_bps: int = 0
-    alloc_real_estate_bps: int = 0
-    alloc_liquidity_bps: int = 0
-    alloc_alternatives_bps: int = 0
+    alloc_equities_bps: int = Field(default=0, ge=0)
+    alloc_bonds_bps: int = Field(default=0, ge=0)
+    alloc_real_estate_bps: int = Field(default=0, ge=0)
+    alloc_liquidity_bps: int = Field(default=0, ge=0)
+    alloc_alternatives_bps: int = Field(default=0, ge=0)
     # Immobilien
     property_address: Optional[str] = None
     property_zip_city: Optional[str] = None
@@ -235,7 +235,7 @@ class GoalCreate(BaseModel):
         "Renditeziel", "Maximierung"
     ]
     label: str
-    rank: int
+    rank: int = Field(ge=1)
     weight_bps: Optional[int] = None
     goal_scope: Literal["Beratungsvermögen", "Gesamtvermögen"] = "Beratungsvermögen"
     value_mode: Literal["nominal", "real"] = "nominal"

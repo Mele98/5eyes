@@ -41,6 +41,8 @@ class TargetAllocationCreate(BaseModel):
             (self.band_liquidity_min_bps, self.target_liquidity_bps, self.band_liquidity_max_bps, "Liquidität"),
         ]
         for lo, target, hi, name in checks:
+            if lo > hi:
+                raise ValueError(f"{name}: Bandbreite ungültig – Min {lo} BP ist grösser als Max {hi} BP")
             if not (lo <= target <= hi):
                 raise ValueError(f"{name}: Ziel {target} muss zwischen Min {lo} und Max {hi} liegen")
         return self
@@ -125,6 +127,7 @@ class CapitalMarketAssumptionCreate(BaseModel):
     liquidity_return_bps: Optional[int] = None
     liquidity_vol_bps: Optional[int] = None
     inflation_path_json: Optional[str] = None
+    correlation_matrix_json: Optional[str] = None
     source: Optional[str] = "Portfolio Management intern"
     notes: Optional[str] = None
 
@@ -155,6 +158,7 @@ class CapitalMarketAssumptionResponse(BaseResponse):
     liquidity_return_bps: Optional[int]
     liquidity_vol_bps: Optional[int]
     inflation_path_json: Optional[str]
+    correlation_matrix_json: Optional[str]
     source: Optional[str]
     notes: Optional[str]
     created_at: str

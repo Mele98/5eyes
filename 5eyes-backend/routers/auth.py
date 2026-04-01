@@ -142,7 +142,10 @@ def create_user(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin)
 ):
-    existing = db.query(User).filter(User.username == body.username).first()
+    existing = db.query(User).filter(
+        User.username == body.username,
+        User.deleted_at.is_(None)
+    ).first()
     if existing:
         raise HTTPException(status_code=409, detail="Benutzername bereits vergeben")
     now = _now()

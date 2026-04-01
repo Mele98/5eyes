@@ -1248,65 +1248,6 @@ def dashboard_summary(
         "active_alerts": trigger_count,
         "total_clients": len(clients),
     }
-    if has_global_client_access(current_user):
-        rows = db.execute(text("SELECT * FROM v_client_wealth_summary ORDER BY client_name")).fetchall()
-        trigger_count = db.execute(
-            text("SELECT COUNT(*) FROM v_active_triggers WHERE status = 'AusgelÃ¶st'")
-        ).scalar()
-        clients = [dict(r._mapping) for r in rows]
-        for c in clients:
-            c["net_worth_chf"] = c["net_worth_rappen"] / 100
-            c["advisory_wealth_chf"] = c["advisory_wealth_rappen"] / 100
-        return {
-            "clients": clients,
-            "active_alerts": trigger_count,
-            "total_clients": len(clients),
-        }
-
-    client_ids = get_accessible_client_ids(db, current_user)
-    mandate_ids = get_accessible_mandate_ids(db, current_user)
-    if not client_ids:
-        return {
-            "clients": [],
-            "active_alerts": 0,
-            "total_clients": 0,
-        }
-    summary_stmt = text(
-        "SELECT * FROM v_client_wealth_summary WHERE client_id IN :client_ids ORDER BY client_name"
-    ).bindparams(bindparam("client_ids", expanding=True))
-    rows = db.execute(summary_stmt, {"client_ids": client_ids}).fetchall()
-    if mandate_ids:
-        trigger_stmt = text(
-            "SELECT COUNT(*) FROM v_active_triggers WHERE status = 'AusgelÃ¶st' AND mandate_id IN :mandate_ids"
-        ).bindparams(bindparam("mandate_ids", expanding=True))
-        trigger_count = db.execute(trigger_stmt, {"mandate_ids": mandate_ids}).scalar()
-    else:
-        trigger_count = 0
-    clients = [dict(r._mapping) for r in rows]
-    for c in clients:
-        c["net_worth_chf"] = c["net_worth_rappen"] / 100
-        c["advisory_wealth_chf"] = c["advisory_wealth_rappen"] / 100
-    return {
-        "clients": clients,
-        "active_alerts": trigger_count,
-        "total_clients": len(clients),
-    }
-    rows = db.execute(text("SELECT * FROM v_client_wealth_summary ORDER BY client_name")).fetchall()
-    clients = [dict(r._mapping) for r in rows]
-    # Add CHF display values
-    for c in clients:
-        c["net_worth_chf"] = c["net_worth_rappen"] / 100
-        c["advisory_wealth_chf"] = c["advisory_wealth_rappen"] / 100
-
-    trigger_count = db.execute(
-        text("SELECT COUNT(*) FROM v_active_triggers WHERE status = 'Ausgelöst'")
-    ).scalar()
-
-    return {
-        "clients": clients,
-        "active_alerts": trigger_count,
-        "total_clients": len(clients),
-    }
 
 
 @dashboard_router.get("/active-triggers")
@@ -1324,6 +1265,4 @@ def active_triggers(
         "SELECT * FROM v_active_triggers WHERE mandate_id IN :mandate_ids"
     ).bindparams(bindparam("mandate_ids", expanding=True))
     rows = db.execute(stmt, {"mandate_ids": mandate_ids}).fetchall()
-    return [dict(r._mapping) for r in rows]
-    rows = db.execute(text("SELECT * FROM v_active_triggers")).fetchall()
     return [dict(r._mapping) for r in rows]

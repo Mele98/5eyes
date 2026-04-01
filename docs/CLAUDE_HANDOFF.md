@@ -1,5 +1,11 @@
 # Claude handoff / review request
 
+Aktueller Standard fuer neue Arbeitsbloecke:
+- Spezifikationen liegen jetzt in [docs/planning](C:/5eyes/5eyes_stage9_release_ready/docs/planning)
+- neue Claude-Specs bitte aus [CLAUDE_SPEC_TEMPLATE.md](C:/5eyes/5eyes_stage9_release_ready/docs/planning/CLAUDE_SPEC_TEMPLATE.md) ableiten
+- Codex startet Umsetzungsbranches ueber [start_codex_branch.ps1](C:/5eyes/5eyes_stage9_release_ready/scripts/start_codex_branch.ps1)
+- Review bitte gegen [REVIEW_CHECKLIST.md](C:/5eyes/5eyes_stage9_release_ready/docs/planning/REVIEW_CHECKLIST.md) ausrichten
+
 ## Bereits umgesetzt
 
 ### Backend

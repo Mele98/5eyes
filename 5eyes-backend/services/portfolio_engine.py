@@ -87,6 +87,9 @@ DEFAULT_SIMULATION_HORIZON_YEARS = 10
 DEFAULT_SIMULATION_STRESS_MULTIPLIER = 1.0
 DEFAULT_MONTE_CARLO_SIMULATIONS = 750
 ALLOWED_SIMULATION_REBALANCE_MODES = ("bands", "calendar", "none")
+# One-sided transaction cost applied on rebalancing turnover (bid-ask + commission).
+# 15 bps is a conservative Swiss institutional blended estimate across all asset classes.
+DEFAULT_REBALANCE_TRANSACTION_COST_BPS = 15
 
 
 @dataclass
@@ -858,6 +861,45 @@ def _enforce_risk_budget(
     return adjusted, current_risk
 
 
+_DEFAULT_CORRELATION_MATRIX: list[list[float]] = [
+    # equities  bonds  real_estate  alternatives  liquidity
+    [1.00, -0.20,  0.35,  0.20,  0.05],  # equities
+    [-0.20,  1.00,  0.10, -0.05,  0.10],  # bonds
+    [0.35,  0.10,  1.00,  0.15,  0.05],  # real_estate
+    [0.20, -0.05,  0.15,  1.00,  0.00],  # alternatives
+    [0.05,  0.10,  0.05,  0.00,  1.00],  # liquidity
+]
+
+
+def _cholesky(matrix: list[list[float]]) -> list[list[float]]:
+    """Lower-triangular Cholesky decomposition of a positive-definite matrix.
+    Returns L such that L @ L^T == matrix."""
+    n = len(matrix)
+    L = [[0.0] * n for _ in range(n)]
+    for i in range(n):
+        for j in range(i + 1):
+            s = sum(L[i][k] * L[j][k] for k in range(j))
+            if i == j:
+                L[i][j] = math.sqrt(max(0.0, matrix[i][i] - s))
+            else:
+                L[i][j] = (matrix[i][j] - s) / L[j][j] if L[j][j] > 1e-12 else 0.0
+    return L
+
+
+def _build_cholesky_from_cma(cma: CapitalMarketAssumption) -> list[list[float]]:
+    """Return lower-triangular Cholesky matrix for the 5 asset classes.
+    Uses CMA's correlation_matrix_json when available, else Swiss-market defaults."""
+    matrix = _DEFAULT_CORRELATION_MATRIX
+    if cma.correlation_matrix_json:
+        try:
+            parsed = json.loads(cma.correlation_matrix_json)
+            if isinstance(parsed, list) and len(parsed) == 5 and all(len(row) == 5 for row in parsed):
+                matrix = [[float(v) for v in row] for row in parsed]
+        except (ValueError, TypeError, KeyError):
+            pass
+    return _cholesky(matrix)
+
+
 def _asset_class_expected_metrics(cma: CapitalMarketAssumption) -> tuple[dict[str, int], dict[str, int]]:
     returns = {
         "equities": int(round(((cma.equity_ch_return_bps or 500) + (cma.equity_intl_return_bps or 650)) / 2)),
@@ -901,6 +943,15 @@ def _simulation_stress_multiplier(simulation_prefs: dict | None) -> float:
     except (TypeError, ValueError):
         value = DEFAULT_SIMULATION_STRESS_MULTIPLIER
     return max(0.25, min(2.5, value))
+
+
+def _simulation_transaction_cost_bps(simulation_prefs: dict | None) -> int:
+    raw = (simulation_prefs or {}).get("transactionCostBps")
+    try:
+        value = int(str(raw).strip()) if raw not in (None, "", False) else DEFAULT_REBALANCE_TRANSACTION_COST_BPS
+    except (TypeError, ValueError):
+        value = DEFAULT_REBALANCE_TRANSACTION_COST_BPS
+    return max(0, min(200, value))
 
 
 def _simulation_rebalance_mode(simulation_prefs: dict | None) -> str:
@@ -1479,6 +1530,9 @@ def _run_allocation_monte_carlo(
     stress_multiplier = _simulation_stress_multiplier(simulation_prefs)
     rebalance_mode = _simulation_rebalance_mode(simulation_prefs)
     returns, vols = _asset_class_expected_metrics(cma)
+    chol = _build_cholesky_from_cma(cma)
+    n_assets = len(BUCKET_FIELDS)
+    transaction_cost_bps = _simulation_transaction_cost_bps(simulation_prefs)
     target_start_values = _target_bucket_values(advisory_summary.total_rappen, targets)
     seed = _monte_carlo_seed(mandate_id, cma.id, horizon_years, simulations, stress_multiplier, rebalance_mode, json.dumps(targets, sort_keys=True))
     rng = random.Random(seed)
@@ -1501,15 +1555,16 @@ def _run_allocation_monte_carlo(
         target_start = max(1, sum(target_values.values()))
 
         for year_index, contribution in enumerate(cashflow_projection_series_rappen, start=1):
-            yearly_returns: dict[str, int] = {}
-            for key in BUCKET_FIELDS:
-                draw = rng.gauss(0.0, 1.0)
-                raw_return = int(round(returns[key] + vols[key] * stress_multiplier * draw))
-                yearly_returns[key] = max(-9500, raw_return)
-
-            for key in BUCKET_FIELDS:
-                current_values[key] = int(round(max(0, current_values[key]) * (1 + yearly_returns[key] / 10000)))
-                target_values[key] = int(round(max(0, target_values[key]) * (1 + yearly_returns[key] / 10000)))
+            # Draw n_assets independent standard normals, then correlate via Cholesky: Z = L * W
+            indep = [rng.gauss(0.0, 1.0) for _ in range(n_assets)]
+            corr = [sum(chol[i][j] * indep[j] for j in range(i + 1)) for i in range(n_assets)]
+            for idx, key in enumerate(BUCKET_FIELDS):
+                mu = returns[key] / 10000
+                sigma = vols[key] / 10000 * stress_multiplier
+                mu_ln = mu - 0.5 * sigma * sigma  # Itô correction: E[exp(X)] = exp(mu) preserves arithmetic mean
+                growth_factor = math.exp(mu_ln + sigma * corr[idx])
+                current_values[key] = int(round(max(0, current_values[key]) * growth_factor))
+                target_values[key] = int(round(max(0, target_values[key]) * growth_factor))
 
             _apply_cashflow_to_bucket_values(current_values, int(contribution or 0))
             _apply_cashflow_to_bucket_values(target_values, int(contribution or 0))
@@ -1521,7 +1576,15 @@ def _run_allocation_monte_carlo(
                     if target_weights[key] < int(minimums.get(key, 0)) or target_weights[key] > int(maximums.get(key, 0))
                 ]
                 if rebalance_mode == "calendar" or breached:
-                    target_values, _ = _rebalance_bucket_values_to_targets(target_values, targets)
+                    target_values, rebal_turnover = _rebalance_bucket_values_to_targets(target_values, targets)
+                    if transaction_cost_bps > 0 and rebal_turnover > 0:
+                        # Deduct transaction cost from portfolio proportionally across all buckets
+                        cost_rappen = int(round(rebal_turnover * transaction_cost_bps / 10000))
+                        total_after = max(1, sum(target_values.values()))
+                        for key in BUCKET_FIELDS:
+                            target_values[key] = max(0, int(round(
+                                target_values[key] * (1 - cost_rappen / total_after)
+                            )))
 
             current_by_year[year_index].append(sum(current_values.values()))
             target_by_year[year_index].append(sum(target_values.values()))
@@ -2239,8 +2302,6 @@ def generate_target_allocation(
         Goal.deleted_at.is_(None),
         Goal.is_active == 1,
     ).order_by(Goal.rank.asc()).all()
-    score_bucket = _risk_score_bucket(assessment)
-    house_matrix = _house_matrix_or_default(db, policy, score_bucket)
     cashflow_totals = totals_for_year(cashflows)
     annual_inflows = cashflow_totals["income_rappen"]
     annual_outflows = cashflow_totals["expense_rappen"]

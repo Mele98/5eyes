@@ -165,6 +165,9 @@ def ensure_runtime_columns() -> None:
             ('tax_amount_rappen', 'INTEGER'),
             ('timing_precision', 'TEXT'),
         ],
+        'capital_market_assumptions': [
+            ('correlation_matrix_json', 'TEXT'),
+        ],
         'products': [
             ('figi', 'TEXT'),
             ('composite_figi', 'TEXT'),

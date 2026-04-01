@@ -40,7 +40,10 @@ def create_mandate(
     current_user: User = Depends(require_advisor)
 ):
     client = get_client_for_user_or_404(client_id, db, current_user)
-    existing = db.query(Mandate).filter(Mandate.mandate_number == body.mandate_number).first()
+    existing = db.query(Mandate).filter(
+        Mandate.mandate_number == body.mandate_number,
+        Mandate.deleted_at.is_(None)
+    ).first()
     if existing:
         raise HTTPException(status_code=409, detail="Mandatsnummer bereits vergeben")
     now = _now()
