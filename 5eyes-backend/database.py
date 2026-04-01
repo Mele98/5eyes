@@ -195,9 +195,53 @@ def ensure_runtime_columns() -> None:
                 existing.add(column_name)
 
 
+def ensure_audit_log_actions(target_engine: Engine = engine) -> None:
+    inspector = inspect(target_engine)
+    if not inspector.has_table('audit_log'):
+        return
+
+    with target_engine.begin() as conn:
+        ddl = conn.execute(
+            text("SELECT sql FROM sqlite_master WHERE type='table' AND name='audit_log'")
+        ).scalar()
+        ddl_text = str(ddl or '').upper()
+        if 'PASSWORD_RESET' in ddl_text:
+            return
+
+        conn.execute(text('ALTER TABLE audit_log RENAME TO audit_log__old'))
+        conn.execute(text("""
+            CREATE TABLE audit_log (
+                id TEXT PRIMARY KEY,
+                user_id TEXT,
+                user_name TEXT NOT NULL,
+                table_name TEXT NOT NULL,
+                record_id TEXT NOT NULL,
+                action TEXT NOT NULL CHECK(action IN ('CREATE','UPDATE','DELETE','LOGIN','EXPORT','PASSWORD_RESET')),
+                field_name TEXT,
+                old_value TEXT,
+                new_value TEXT,
+                mandate_id TEXT,
+                client_id TEXT,
+                created_at TEXT NOT NULL
+            )
+        """))
+        conn.execute(text("""
+            INSERT INTO audit_log (
+                id, user_id, user_name, table_name, record_id, action,
+                field_name, old_value, new_value, mandate_id, client_id, created_at
+            )
+            SELECT
+                id, user_id, user_name, table_name, record_id, action,
+                field_name, old_value, new_value, mandate_id, client_id, created_at
+            FROM audit_log__old
+        """))
+        conn.execute(text('DROP TABLE audit_log__old'))
+
+
 def init_db() -> None:
     if settings.db_bootstrap_schema_on_startup:
         bootstrap_sqlite_schema(db_path=settings.db_path, db_key=getattr(settings, 'db_key', None))
 
     Base.metadata.create_all(bind=engine)
     ensure_runtime_columns()
+    ensure_audit_log_actions()

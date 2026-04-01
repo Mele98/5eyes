@@ -4089,7 +4089,8 @@ async function openAdminModal() {
   try {
     await Promise.allSettled([
       adminRefreshMarketStatus(false),
-      adminUpdateStatus()
+      adminUpdateStatus(),
+      loadAdminUserList()
     ]);
   } catch(e) {}
 }
@@ -4704,6 +4705,125 @@ function showNewClientScreen(firstName, lastName, mType, meta) {
   go('sd');
 }
 
+// ADMIN USER MANAGEMENT
+async function loadAdminUserList() {
+  var container = document.getElementById('ul-list');
+  if (!container) return;
+  container.textContent = 'Wird geladen…';
+  var currentUserId = (currentUser && currentUser.id) || null;
+  try {
+    var users = await API.get('/users');
+    if (!users || !users.length) {
+      container.textContent = 'Keine Benutzer gefunden.';
+      return;
+    }
+    container.innerHTML = '';
+    users.forEach(function(u) {
+      var safeId = escapeHtml(u.id);
+      var safeName = escapeHtml(u.full_name);
+      var safeUsername = escapeHtml(u.username || '');
+      var safeEmail = escapeHtml(u.email || '');
+      var safeRole = escapeHtml(u.role || '');
+      var isSelf = String(u.id) === String(currentUserId);
+      var row = document.createElement('div');
+      row.dataset.userId = u.id;
+      row.style.cssText = 'border:1px solid var(--b1);border-radius:6px;padding:8px 10px;margin-bottom:6px;background:var(--bg2)';
+      var activeLabel = u.is_active ? '<span style="color:var(--pos)">aktiv</span>' : '<span style="color:var(--neg)">inaktiv</span>';
+      row.innerHTML = '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">'
+        + '<span style="font-size:11px">' + safeName + ' · <em style="color:var(--n4)">' + safeUsername + '</em> · <em style="color:var(--n4)">' + safeRole + '</em> · ' + activeLabel + '</span>'
+        + '<button class="btn-p" style="font-size:10px;padding:3px 8px" onclick="toggleAdminUserEdit(\'' + safeId + '\')">Bearbeiten</button>'
+        + '</div>'
+        + '<div id="ul-edit-' + safeId + '" style="display:none;margin-top:8px">'
+        + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px">'
+        + '<div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Name</label><input class="fi" id="ul-name-' + safeId + '" value="' + safeName + '" style="font-size:11px"></div>'
+        + '<div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">E-Mail</label><input class="fi" id="ul-email-' + safeId + '" value="' + safeEmail + '" style="font-size:11px"></div>'
+        + '<div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Rolle</label><select class="fsel" id="ul-role-' + safeId + '" style="font-size:11px"' + (isSelf ? ' disabled title="Eigene Rolle kann nicht geändert werden"' : '') + '>'
+        + '<option value="advisor"' + (u.role==='advisor'?' selected':'') + '>Berater</option>'
+        + '<option value="readonly"' + (u.role==='readonly'?' selected':'') + '>Lesend</option>'
+        + '<option value="admin"' + (u.role==='admin'?' selected':'') + '>Admin</option>'
+        + '</select></div>'
+        + '<div style="display:flex;align-items:flex-end;gap:6px"><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Aktiv</label>'
+        + '<input type="checkbox" id="ul-active-' + safeId + '"' + (u.is_active ? ' checked' : '') + (isSelf ? ' disabled title="Eigenes Konto kann nicht deaktiviert werden"' : '') + ' style="margin-bottom:4px"></div>'
+        + '</div>'
+        + '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">'
+        + '<button class="btn-p" style="font-size:10px;padding:3px 10px" onclick="saveAdminUser(\'' + safeId + '\')">Speichern</button>'
+        + '<button class="btn" style="font-size:10px;padding:3px 10px" onclick="toggleAdminPasswordReset(\'' + safeId + '\')">Passwort zurücksetzen</button>'
+        + '</div>'
+        + '<div id="ul-pw-' + safeId + '" style="display:none;margin-top:6px;gap:6px;align-items:center">'
+        + '<input class="fi" id="ul-newpw-' + safeId + '" type="password" placeholder="Neues Passwort (min. 10)" style="font-size:11px;flex:1">'
+        + '<button class="btn-p" style="font-size:10px;padding:3px 10px" onclick="doAdminPasswordReset(\'' + safeId + '\')">Setzen</button>'
+        + '</div>'
+        + '<div id="ul-error-' + safeId + '" style="color:var(--neg);font-size:10px;margin-top:4px;display:none"></div>'
+        + '</div>';
+      container.appendChild(row);
+    });
+  } catch(e) {
+    container.textContent = 'Fehler beim Laden: ' + parseApiError(e, 'Benutzerliste konnte nicht geladen werden.');
+  }
+}
+
+function toggleAdminUserEdit(userId) {
+  var panel = document.getElementById('ul-edit-' + userId);
+  if (!panel) return;
+  panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+}
+
+function toggleAdminPasswordReset(userId) {
+  var panel = document.getElementById('ul-pw-' + userId);
+  if (!panel) return;
+  panel.style.display = panel.style.display === 'none' ? 'flex' : 'none';
+}
+
+async function saveAdminUser(userId) {
+  var nameEl = document.getElementById('ul-name-' + userId);
+  var emailEl = document.getElementById('ul-email-' + userId);
+  var roleEl = document.getElementById('ul-role-' + userId);
+  var activeEl = document.getElementById('ul-active-' + userId);
+  var errEl = document.getElementById('ul-error-' + userId);
+  if (errEl) {
+    errEl.style.display = 'none';
+    errEl.textContent = '';
+  }
+  var body = {};
+  if (nameEl) body.full_name = nameEl.value.trim() || undefined;
+  if (emailEl) body.email = emailEl.value.trim() || null;
+  if (roleEl && !roleEl.disabled) body.role = roleEl.value;
+  if (activeEl && !activeEl.disabled) body.is_active = activeEl.checked;
+  try {
+    await API.put('/users/' + userId, body);
+    showAdminResult('✓ Benutzer gespeichert', false);
+    await loadAdminUserList();
+  } catch(e) {
+    if (errEl) {
+      errEl.textContent = parseApiError(e, 'Benutzer konnte nicht gespeichert werden.');
+      errEl.style.display = 'block';
+    }
+  }
+}
+
+async function doAdminPasswordReset(userId) {
+  var pwEl = document.getElementById('ul-newpw-' + userId);
+  var errEl = document.getElementById('ul-error-' + userId);
+  if (errEl) {
+    errEl.style.display = 'none';
+    errEl.textContent = '';
+  }
+  var newPassword = pwEl ? pwEl.value : '';
+  try {
+    await API.put('/users/' + userId + '/password', { new_password: newPassword });
+    if (pwEl) pwEl.value = '';
+    var panel = document.getElementById('ul-pw-' + userId);
+    if (panel) panel.style.display = 'none';
+    showAdminResult('✓ Passwort zurückgesetzt', false);
+    await loadAdminUserList();
+  } catch(e) {
+    if (errEl) {
+      errEl.textContent = parseApiError(e, 'Passwort konnte nicht zurückgesetzt werden.');
+      errEl.style.display = 'block';
+    }
+  }
+}
+
 // Neuer Benutzer anlegen (Admin)
 async function createNewUser() {
   var fullName = (document.getElementById('nu-fullname')||{value:''}).value.trim();
@@ -4737,6 +4857,7 @@ async function createNewUser() {
     ['nu-fullname','nu-username','nu-password','nu-email'].forEach(function(id){
       var el=document.getElementById(id); if(el)el.value='';
     });
+    await loadAdminUserList();
     if (btn) { btn.disabled=false; btn.textContent='Benutzer anlegen'; }
   } catch(e) {
     var msg = e.detail || e.message || String(e);
@@ -7827,6 +7948,10 @@ function openStammdatenModal(){
       </div>
     </div>
     <div class="mfooter">
+      <div style="border-top:1px solid var(--b1);margin-top:12px;padding-top:12px">
+        <div style="font-size:10px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:var(--n5);margin-bottom:8px">Benutzerverwaltung</div>
+        <div id="ul-list" style="font-size:11px;color:var(--n4)">Wird geladen…</div>
+      </div>
       <div style="border-top:1px solid var(--b1);margin-top:12px;padding-top:12px">
         <div style="font-size:10px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:var(--n5);margin-bottom:8px">Neuer Benutzer anlegen</div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">

@@ -1146,7 +1146,7 @@ CREATE TABLE IF NOT EXISTS audit_log (
     user_name   TEXT NOT NULL,
     table_name  TEXT NOT NULL,
     record_id   TEXT NOT NULL,
-    action      TEXT NOT NULL CHECK(action IN ('CREATE','UPDATE','DELETE','LOGIN','EXPORT')),
+    action      TEXT NOT NULL CHECK(action IN ('CREATE','UPDATE','DELETE','LOGIN','EXPORT','PASSWORD_RESET')),
     field_name  TEXT,
     old_value   TEXT,
     new_value   TEXT,
@@ -1317,4 +1317,3 @@ CREATE TABLE IF NOT EXISTS price_history (
 
 CREATE INDEX IF NOT EXISTS ix_price_history_product_date
     ON price_history(product_id, price_date);
-

@@ -218,6 +218,7 @@ def test_runtime_routes_expose_frontend_contracts():
     assert ("/mandates/{mandate_id}/target-allocation/current/payload", ("GET",)) in route_map
     assert ("/mandates/{mandate_id}/recommendations/current/payload", ("GET",)) in route_map
     assert ("/mandates/{mandate_id}/recommendations/{run_id}/holdings", ("GET",)) in route_map
+    assert ("/users/{user_id}/password", ("PUT",)) in route_map
     assert ("/mandates/{mandate_id}/recommendations/{run_id}/positions/{position_id}/holding", ("PUT",)) in route_map
     assert ("/mandates/{mandate_id}/recommendations/{run_id}/positions/{position_id}/holding", ("DELETE",)) in route_map
     assert ("/products/openfigi/resolve", ("POST",)) in route_map

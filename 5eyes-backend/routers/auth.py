@@ -7,8 +7,8 @@ from database import get_db, new_uuid
 from models.users import User, AdviserRegistration
 from schemas.users import (
     AdviserRegistrationCreate, AdviserRegistrationResponse, BootstrapAdminRequest,
-    BootstrapStatusResponse, LoginRequest, TokenResponse, UserCreate, UserUpdate,
-    UserResponse,
+    BootstrapStatusResponse, LoginRequest, TokenResponse, UserCreate, UserPasswordReset,
+    UserUpdate, UserResponse,
 )
 from services.auth import (
     hash_password, verify_password, create_access_token,
@@ -102,7 +102,7 @@ def login(body: LoginRequest, request: Request, db: Session = Depends(get_db)):
         headers = {"Retry-After": str(failure.retry_after_seconds)} if failure.retry_after_seconds else None
         raise HTTPException(status_code=401, detail="Benutzername oder Passwort falsch", headers=headers)
     if not user.is_active:
-        raise HTTPException(status_code=403, detail="Konto deaktiviert")
+        raise HTTPException(status_code=401, detail="Konto deaktiviert")
 
     login_attempt_guard.register_success(body.username)
     user.last_login_at = _now()
@@ -178,6 +178,11 @@ def update_user(
     user = db.query(User).filter(User.id == user_id, User.deleted_at.is_(None)).first()
     if not user:
         raise HTTPException(status_code=404, detail="Benutzer nicht gefunden")
+    if user_id == current_user.id:
+        if body.is_active is not None and not body.is_active:
+            raise HTTPException(status_code=400, detail="Eigenes Konto kann nicht deaktiviert werden")
+        if body.role is not None:
+            raise HTTPException(status_code=400, detail="Eigene Rolle kann nicht geändert werden")
     for field, value in body.model_dump(exclude_none=True).items():
         if field == "is_active":
             setattr(user, field, 1 if value else 0)
@@ -185,6 +190,31 @@ def update_user(
             setattr(user, field, value)
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="users", record_id=user_id, action="UPDATE")
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+@users_router.put("/{user_id}/password", response_model=UserResponse)
+def reset_user_password(
+    user_id: str,
+    body: UserPasswordReset,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    user = db.query(User).filter(User.id == user_id, User.deleted_at.is_(None)).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Benutzer nicht gefunden")
+    user.password_hash = hash_password(body.new_password)
+    user.updated_at = _now()
+    log(
+        db,
+        user_id=current_user.id,
+        user_name=current_user.full_name,
+        table_name="users",
+        record_id=user_id,
+        action="PASSWORD_RESET",
+    )
     db.commit()
     db.refresh(user)
     return user

@@ -104,6 +104,17 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class UserPasswordReset(BaseModel):
+    new_password: str
+
+    @field_validator('new_password')
+    @classmethod
+    def validate_password(cls, value: str) -> str:
+        if len(value) < 10:
+            raise ValueError('password must be at least 10 characters long')
+        return value
+
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
