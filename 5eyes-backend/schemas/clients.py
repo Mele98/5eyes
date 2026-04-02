@@ -142,3 +142,16 @@ class CashflowSummaryResponse(BaseModel):
     total_income_chf: float
     total_expense_chf: float
     surplus_chf: float
+
+
+class CashflowYearRow(BaseModel):
+    year: int
+    income_rappen: int
+    expense_rappen: int
+    net_rappen: int
+
+
+class CashflowProjectionResponse(BaseModel):
+    client_id: str
+    start_year: int
+    years: list[CashflowYearRow]

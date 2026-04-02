@@ -10,7 +10,8 @@ from schemas.clients import (
     ClientCreate, ClientUpdate, ClientResponse,
     NationalityCreate, NationalityResponse,
     OptHistoryCreate, OptHistoryResponse,
-    WealthSummaryResponse, CashflowSummaryResponse
+    WealthSummaryResponse, CashflowSummaryResponse,
+    CashflowYearRow, CashflowProjectionResponse,
 )
 from services.auth import get_client_for_user_or_404, get_current_user, has_global_client_access, require_advisor
 from services.audit import log
@@ -263,4 +264,36 @@ def cashflow_summary(
         total_income_chf=totals["income_rappen"] / 100,
         total_expense_chf=totals["expense_rappen"] / 100,
         surplus_chf=totals["net_rappen"] / 100,
+    )
+
+
+@router.get("/{client_id}/cashflow-projection", response_model=CashflowProjectionResponse)
+def cashflow_projection(
+    client_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from datetime import date as _date
+
+    _get_client_or_404(client_id, db, current_user)
+    cashflows = db.query(Cashflow).filter(
+        Cashflow.client_id == client_id,
+        Cashflow.deleted_at.is_(None),
+        Cashflow.is_active == 1,
+    ).all()
+    start_year = _date.today().year
+    rows = []
+    for offset in range(5):
+        yr = start_year + offset
+        t = totals_for_year(cashflows, yr)
+        rows.append(CashflowYearRow(
+            year=yr,
+            income_rappen=t["income_rappen"],
+            expense_rappen=t["expense_rappen"],
+            net_rappen=t["net_rappen"],
+        ))
+    return CashflowProjectionResponse(
+        client_id=client_id,
+        start_year=start_year,
+        years=rows,
     )

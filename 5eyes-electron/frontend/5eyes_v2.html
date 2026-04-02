@@ -815,6 +815,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
                 <div class="cf-row"><div class="cfi" style="background:var(--neg-lt)">ðŸ“‹</div><div class="cfn"><div class="cfna">SÃ¤ule 3a Einzahlung</div><div class="cfnd">CHF 7'258/J.</div></div><div class="cfa co" id="a-3a">âˆ’CHF 7'000</div><div class="idx-col" style="display:none;align-items:center;gap:3px"><input type="number" class="idx-inp" value="0.0" min="0" max="10" step="0.1" onchange="recalcIdx()" style="width:40px;text-align:right;border:1px solid var(--b1);border-radius:2px;padding:2px 4px;font-family:var(--f-s);font-size:10px;background:var(--bg);outline:none"><span style="font-size:9px;color:var(--n4)">%</span></div><div><button class="btn-ico e" onclick="om('m-acf')">âœŽ</button><button class="btn-ico" onclick="dcf(this)">âœ•</button></div></div>
                 <div class="cft"><div><div style="font-size:11px;font-weight:600">Netto-Cashflow Investition p.a.</div><div style="font-size:9px;color:var(--n4)">337k âˆ’ 335k + 68k KapitalertrÃ¤ge</div></div><span style="font-family:var(--f-d);font-size:18px;color:var(--pos)">+CHF 155'000</span></div>
               </div>
+              <div id="cf-projection" style="padding:10px 12px;display:none"></div>
             </div>
             <div class="card">
               <div class="chd"><span class="cht">Ziele &amp; Zielerreichung</span><div class="chr"><span style="font-size:9px;color:var(--n4)">Drag = PrioritÃ¤t</span><button class="btn-p btn-sm" onclick="om('m-nz')">+ Ziel</button></div></div>
@@ -7304,6 +7305,47 @@ async function refreshCashflowsUI(cid){
     var kCF=document.getElementById('kpi-cashflow');
     if(kCF)kCF.textContent=(net>=0?'+':'âˆ’')+'CHF '+Math.abs(Math.round(net/100)).toLocaleString('de-CH');
   }catch(e){console.warn('refreshCashflowsUI:',e);}
+  try{
+    var proj=await API.get('/clients/'+cid+'/cashflow-projection');
+    renderCashflowProjection(proj);
+  }catch(e2){renderCashflowProjection(null);}
+}
+function renderCashflowProjection(data) {
+  var el = document.getElementById('cf-projection');
+  if (!el) return;
+  if (!data || !Array.isArray(data.years) || !data.years.length) {
+    el.style.display = 'none';
+    return;
+  }
+  var maxAbs = data.years.reduce(function(m, r) {
+    return Math.max(m, Math.abs(r.net_rappen));
+  }, 1);
+  var fmt = function(r) {
+    var chf = Math.round(Math.abs(r) / 100);
+    var sign = r < 0 ? '\u2212' : '+';
+    if (chf >= 1000000) return sign + 'CHF\u00a0' + (chf/1000000).toFixed(1).replace('.0','') + '\u00a0Mio.';
+    if (chf >= 1000)    return sign + 'CHF\u00a0' + Math.round(chf/1000) + 'k';
+    return sign + 'CHF\u00a0' + chf;
+  };
+  var html = '<div style="font-size:10px;font-weight:600;letter-spacing:0.06em;'
+    + 'text-transform:uppercase;color:var(--n4);margin-bottom:8px">'
+    + 'Netto-Cashflow Projektion (5 Jahre)</div>';
+  data.years.forEach(function(row) {
+    var pct = Math.round(Math.abs(row.net_rappen) / maxAbs * 100);
+    var pos = row.net_rappen >= 0;
+    var color = pos ? 'var(--pos)' : 'var(--neg)';
+    html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">'
+      + '<span style="font-size:10px;color:var(--n4);width:32px;flex-shrink:0">'
+      + escapeHtml(String(row.year)) + '</span>'
+      + '<div style="flex:1;background:var(--b1);border-radius:2px;height:8px;overflow:hidden">'
+      + '<div style="width:' + pct + '%;height:100%;background:' + color + ';border-radius:2px"></div>'
+      + '</div>'
+      + '<span style="font-size:10px;color:' + color + ';width:74px;text-align:right;flex-shrink:0">'
+      + escapeHtml(fmt(row.net_rappen)) + '</span>'
+      + '</div>';
+  });
+  el.innerHTML = html;
+  el.style.display = '';
 }
 async function saveGoal(){
   var label=(document.getElementById('nz-label')||{value:''}).value.trim();
