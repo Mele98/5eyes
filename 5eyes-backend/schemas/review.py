@@ -561,3 +561,27 @@ class RecommendationGenerateResponse(BaseModel):
     target_allocation_id: str
     market_data_quality: dict = Field(default_factory=dict)
     live_rebalancing: Optional[LiveRebalancingResponse] = None
+
+
+class AuditLogEntry(BaseModel):
+    id: str
+    user_id: Optional[str] = None
+    user_name: str
+    table_name: str
+    record_id: str
+    action: str
+    field_name: Optional[str] = None
+    old_value: Optional[str] = None
+    new_value: Optional[str] = None
+    mandate_id: Optional[str] = None
+    client_id: Optional[str] = None
+    created_at: str
+
+    model_config = {"from_attributes": True}
+
+
+class AuditLogPage(BaseModel):
+    total: int
+    limit: int
+    offset: int
+    entries: list[AuditLogEntry]

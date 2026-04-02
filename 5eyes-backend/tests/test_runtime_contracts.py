@@ -215,6 +215,7 @@ def test_runtime_routes_expose_frontend_contracts():
     assert ("/mandates/{mandate_id}/triggers/system-refresh", ("POST",)) in route_map
     assert ("/building-blocks/current", ("GET",)) in route_map
     assert ("/admin/system/foundation-example", ("POST",)) in route_map
+    assert ("/admin/system/audit-log", ("GET",)) in route_map
     assert ("/mandates/{mandate_id}/target-allocation/current/payload", ("GET",)) in route_map
     assert ("/mandates/{mandate_id}/recommendations/current/payload", ("GET",)) in route_map
     assert ("/mandates/{mandate_id}/recommendations/{run_id}/holdings", ("GET",)) in route_map

@@ -4828,6 +4828,98 @@ async function doAdminPasswordReset(userId) {
   }
 }
 
+// ADMIN AUDIT LOG
+var _auditLogOffset = 0;
+var _auditLogTotal = 0;
+var _auditLogLimit = 50;
+
+async function loadAdminAuditLog(offset) {
+  var btn = document.getElementById('btn-al-load');
+  var tableEl = document.getElementById('al-table');
+  var paginationEl = document.getElementById('al-pagination');
+  var errEl = document.getElementById('al-error');
+  if (errEl) { errEl.style.display = 'none'; errEl.textContent = ''; }
+  if (btn) { btn.disabled = true; btn.textContent = 'Lädt…'; }
+  if (tableEl) tableEl.textContent = '';
+  if (paginationEl) paginationEl.textContent = '';
+
+  var action = (document.getElementById('al-action-filter') || {}).value || '';
+  var q = ((document.getElementById('al-q-filter') || {}).value || '').trim();
+
+  var nextOffset = Number(offset || 0);
+  if (!isFinite(nextOffset) || nextOffset < 0) nextOffset = 0;
+  var params = 'limit=' + _auditLogLimit + '&offset=' + nextOffset;
+  if (action) params += '&action=' + encodeURIComponent(action);
+  if (q) params += '&q=' + encodeURIComponent(q);
+
+  try {
+    var data = await API.get('/admin/system/audit-log?' + params);
+    _auditLogOffset = data.offset || 0;
+    _auditLogTotal = data.total || 0;
+    _auditLogLimit = data.limit || 50;
+    renderAuditLogTable(data.entries || [], tableEl);
+    renderAuditLogPagination(paginationEl);
+  } catch(e) {
+    if (errEl) {
+      errEl.textContent = parseApiError(e, 'Audit-Log konnte nicht geladen werden.');
+      errEl.style.display = 'block';
+    }
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Laden'; }
+  }
+}
+
+function renderAuditLogTable(entries, container) {
+  if (!container) return;
+  if (!entries.length) {
+    container.textContent = 'Keine Einträge.';
+    return;
+  }
+  var html = '<table style="width:100%;border-collapse:collapse;font-size:10px">'
+    + '<thead><tr style="border-bottom:1px solid var(--b2);color:var(--n4)">'
+    + '<th style="text-align:left;padding:3px 6px;font-weight:500">Zeitpunkt</th>'
+    + '<th style="text-align:left;padding:3px 6px;font-weight:500">Benutzer</th>'
+    + '<th style="text-align:left;padding:3px 6px;font-weight:500">Tabelle</th>'
+    + '<th style="text-align:left;padding:3px 6px;font-weight:500">Aktion</th>'
+    + '<th style="text-align:left;padding:3px 6px;font-weight:500">ID</th>'
+    + '<th style="text-align:left;padding:3px 6px;font-weight:500">Feld / Wert</th>'
+    + '</tr></thead><tbody>';
+  entries.forEach(function(entry) {
+    var rawTs = String(entry.created_at || '');
+    var ts = rawTs ? (typeof formatIsoLocal === 'function' ? formatIsoLocal(rawTs) : rawTs.slice(0, 16).replace('T', ' ')) : '—';
+    var rawId = String(entry.record_id || '');
+    var shortId = escapeHtml(rawId.slice(0, 8)) + (rawId.length > 8 ? '…' : '');
+    var fieldVal = entry.field_name
+      ? escapeHtml(String(entry.field_name)) + (entry.new_value ? ' → ' + escapeHtml(String(entry.new_value).slice(0, 30)) : '')
+      : '';
+    var actionColor = {CREATE:'var(--pos)',UPDATE:'var(--warn)',DELETE:'var(--neg)',LOGIN:'var(--g4)',PASSWORD_RESET:'var(--warn)',EXPORT:'var(--n6)'}[entry.action] || 'var(--n6)';
+    html += '<tr style="border-bottom:1px solid var(--b1)">'
+      + '<td style="padding:3px 6px;color:var(--n5)">' + escapeHtml(ts) + '</td>'
+      + '<td style="padding:3px 6px">' + escapeHtml(entry.user_name || '—') + '</td>'
+      + '<td style="padding:3px 6px;color:var(--n4)">' + escapeHtml(entry.table_name || '—') + '</td>'
+      + '<td style="padding:3px 6px;font-weight:500;color:' + actionColor + '">' + escapeHtml(entry.action || '—') + '</td>'
+      + '<td style="padding:3px 6px;color:var(--n4);font-family:monospace">' + shortId + '</td>'
+      + '<td style="padding:3px 6px;color:var(--n4)">' + fieldVal + '</td>'
+      + '</tr>';
+  });
+  html += '</tbody></table>';
+  container.innerHTML = html;
+}
+
+function renderAuditLogPagination(container) {
+  if (!container) return;
+  var from = _auditLogTotal > 0 ? (_auditLogOffset + 1) : 0;
+  var to = _auditLogTotal > 0 ? Math.min(_auditLogOffset + _auditLogLimit, _auditLogTotal) : 0;
+  var label = _auditLogTotal > 0
+    ? ('Einträge ' + from + '–' + to + ' von ' + _auditLogTotal)
+    : 'Keine Einträge';
+  var prevDisabled = _auditLogOffset <= 0;
+  var nextDisabled = (_auditLogOffset + _auditLogLimit) >= _auditLogTotal;
+  container.innerHTML = '<button class="btn" style="font-size:10px;padding:2px 8px"' + (prevDisabled ? ' disabled' : '') + ' onclick="loadAdminAuditLog(' + Math.max(0, _auditLogOffset - _auditLogLimit) + ')">&larr; Zurück</button>'
+    + '<span style="padding:0 6px">' + escapeHtml(label) + '</span>'
+    + '<button class="btn" style="font-size:10px;padding:2px 8px"' + (nextDisabled ? ' disabled' : '') + ' onclick="loadAdminAuditLog(' + (_auditLogOffset + _auditLogLimit) + ')">Weiter &rarr;</button>';
+}
+
 // Neuer Benutzer anlegen (Admin)
 async function createNewUser() {
   var fullName = (document.getElementById('nu-fullname')||{value:''}).value.trim();
@@ -7880,6 +7972,25 @@ function openStammdatenModal(){
     </div>
     <div class="mbody">
       <div style="display:grid;gap:12px;">
+        <div style="border-bottom:1px solid var(--b1);padding-bottom:12px;margin-bottom:12px">
+          <div style="font-size:10px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:var(--n5);margin-bottom:8px">Audit-Log</div>
+          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+            <select id="al-action-filter" class="fsel" style="font-size:11px;padding:3px 6px">
+              <option value="">Alle Aktionen</option>
+              <option value="CREATE">CREATE</option>
+              <option value="UPDATE">UPDATE</option>
+              <option value="DELETE">DELETE</option>
+              <option value="LOGIN">LOGIN</option>
+              <option value="PASSWORD_RESET">PASSWORD_RESET</option>
+              <option value="EXPORT">EXPORT</option>
+            </select>
+            <input id="al-q-filter" class="fi" placeholder="Benutzer oder Tabelle" style="font-size:11px;width:160px">
+            <button class="btn-p" id="btn-al-load" onclick="loadAdminAuditLog(0)" style="font-size:10px;padding:3px 10px">Laden</button>
+          </div>
+          <div id="al-error" style="color:var(--neg);font-size:10px;margin-bottom:6px;display:none"></div>
+          <div id="al-table" style="font-size:10px;overflow-x:auto"></div>
+          <div id="al-pagination" style="display:flex;gap:8px;align-items:center;margin-top:6px;font-size:10px;color:var(--n4)"></div>
+        </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
           <button class="btn-p" onclick="adminBackup()" id="btn-admin-backup">Backup erstellen</button>
           <button class="btn-p" style="background:var(--bg2);color:var(--n6)" onclick="adminIntegrity()" id="btn-admin-integrity">Integrity Check</button>

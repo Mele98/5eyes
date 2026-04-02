@@ -1,8 +1,13 @@
+from typing import Optional
+
 from fastapi import APIRouter, Depends, Query
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from database import get_db
+from models.review import AuditLog
 from models.users import User
+from schemas.review import AuditLogEntry, AuditLogPage
 from services.auth import require_admin
 from services.foundation_example import upsert_foundation_example_case
 from services.maintenance import (
@@ -17,6 +22,9 @@ from services.maintenance import (
 )
 
 router = APIRouter(prefix="/admin/system", tags=["System"])
+AUDIT_LOG_VALID_ACTIONS = frozenset(
+    {'CREATE', 'UPDATE', 'DELETE', 'LOGIN', 'EXPORT', 'PASSWORD_RESET'}
+)
 
 
 @router.get('/paths')
@@ -35,6 +43,56 @@ def get_recent_logs(
     current_user: User = Depends(require_admin),
 ):
     return tail_app_log(lines=lines)
+
+
+@router.get('/audit-log', response_model=AuditLogPage)
+def get_audit_log(
+    limit: int = 50,
+    offset: int = 0,
+    action: Optional[str] = None,
+    q: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    _ = current_user
+    if limit < 1:
+        limit = 1
+    if limit > 200:
+        limit = 200
+    if offset < 0:
+        offset = 0
+
+    query = db.query(AuditLog)
+
+    normalized_action = str(action or '').strip().upper()
+    if normalized_action in AUDIT_LOG_VALID_ACTIONS:
+        query = query.filter(AuditLog.action == normalized_action)
+
+    query_text = str(q or '').strip()
+    if query_text:
+        pattern = f"%{query_text}%"
+        query = query.filter(
+            or_(
+                AuditLog.user_name.ilike(pattern),
+                AuditLog.table_name.ilike(pattern),
+            )
+        )
+
+    total = query.count()
+    entries = (
+        query
+        .order_by(AuditLog.created_at.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+
+    return AuditLogPage(
+        total=total,
+        limit=limit,
+        offset=offset,
+        entries=entries,
+    )
 
 
 @router.get('/db/integrity')
