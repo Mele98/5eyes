@@ -2,7 +2,7 @@
 Risk Scoring Service
 Implements the 5Eyes / 3rd-eyes risk profiling logic (Fachlogik v1.6).
 
-Risikofähigkeit (max 32 Punkte) → Score 0–10 via horizon × capacity matrix
+Risikofähigkeit (max 28 Punkte im FE-Pfad / generisch bis 32) → Score 0–10 via horizon × capacity matrix
 Risikobereitschaft (max 12 Punkte) → Score 0–10
 Final Score = MIN(capacity_score, willingness_score)
 Final Score → Profile name
@@ -71,6 +71,23 @@ HORIZON_CAPACITY_MATRIX: dict[tuple[int, int], int] = {
     (9, 1): 20,  (9, 2): 50,  (9, 3): 60,  (9, 4): 65,  (9, 5): 70,
     (15, 1): 30, (15, 2): 50, (15, 3): 60, (15, 4): 75, (15, 5): 100,
 }
+
+
+def map_surplus_points(income_chf: float, obligations_chf: float) -> int:
+    income = max(0.0, float(income_chf or 0))
+    obligations = max(0.0, float(obligations_chf or 0))
+    if income <= 0:
+        return 0
+    surplus_ratio = (income - obligations) / income
+    if surplus_ratio < 0:
+        return 0
+    if surplus_ratio < 0.10:
+        return 1
+    if surplus_ratio < 0.25:
+        return 2
+    if surplus_ratio < 0.45:
+        return 3
+    return 4
 
 
 def _profile_from_score(score_x10: int) -> str:
@@ -143,11 +160,8 @@ def compute_scores(
     willingness_total = (
         q_investment_goal_points + q_risk_preference_points + q_risk_behavior_points
     )
-    # Score = 10 × (sum / 12), then bucket to {30, 50, 70, 90}
-    raw_will_score = int(round(10 * (willingness_total / 12) * 10))  # x10
-    # Round to nearest standard bucket
-    buckets = [30, 50, 70, 100]
-    will_score_x10 = min(buckets, key=lambda b: abs(b - raw_will_score))
+    raw_will_score = int(round(((willingness_total - 3) / 9) * 90 + 10))
+    will_score_x10 = max(10, min(100, raw_will_score))
     will_profile = _willingness_profile(will_score_x10)
 
     # ── Final ──────────────────────────────────────────────────────────────────

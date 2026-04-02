@@ -683,11 +683,11 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
                   <div class="qsec">
                     <div class="ql"><span class="qnum">7</span><span>Monatlicher Sparbetrag</span></div>
                     <div class="qopts">
-                      <div class="qopt" onclick="sq(this,'q6')"><div class="qrad"></div><span class="qtxt">Unter CHF 250 <em style="color:var(--n4)">(0 Punkte)</em></span></div>
-                      <div class="qopt" onclick="sq(this,'q6')"><div class="qrad"></div><span class="qtxt">CHF 250 bis CHF 499 <em style="color:var(--n4)">(3 Punkte)</em></span></div>
-                      <div class="qopt sel" onclick="sq(this,'q6')"><div class="qrad"></div><span class="qtxt">CHF 500 bis CHF 749 <em style="color:var(--n4)">(6 Punkte)</em></span></div>
-                      <div class="qopt" onclick="sq(this,'q6')"><div class="qrad"></div><span class="qtxt">CHF 750 bis CHF 1'000 <em style="color:var(--n4)">(9 Punkte)</em></span></div>
-                      <div class="qopt" onclick="sq(this,'q6')"><div class="qrad"></div><span class="qtxt">Über CHF 1'000 <em style="color:var(--n4)">(12 Punkte)</em></span></div>
+                      <div class="qopt" onclick="sq(this,'q6')"><div class="qrad"></div><span class="qtxt">Unter CHF 500 <em style="color:var(--n4)">(0 Punkte)</em></span></div>
+                      <div class="qopt" onclick="sq(this,'q6')"><div class="qrad"></div><span class="qtxt">CHF 500 bis CHF 999 <em style="color:var(--n4)">(3 Punkte)</em></span></div>
+                      <div class="qopt sel" onclick="sq(this,'q6')"><div class="qrad"></div><span class="qtxt">CHF 1'000 bis CHF 2'499 <em style="color:var(--n4)">(6 Punkte)</em></span></div>
+                      <div class="qopt" onclick="sq(this,'q6')"><div class="qrad"></div><span class="qtxt">CHF 2'500 bis CHF 4'999 <em style="color:var(--n4)">(9 Punkte)</em></span></div>
+                      <div class="qopt" onclick="sq(this,'q6')"><div class="qrad"></div><span class="qtxt">CHF 5'000 und mehr <em style="color:var(--n4)">(12 Punkte)</em></span></div>
                     </div>
                   </div>
                   <div class="qsec">
@@ -2252,9 +2252,11 @@ async function loadClientById(clientId) {
       currentPersona = c;
       currentClientId = c.id;
       currentMandateId = null;
+      currentMandateData = null;
       if (mandatesRes.status === 'fulfilled' && Array.isArray(mandatesRes.value) && mandatesRes.value.length > 0) {
         var activeMandate = mandatesRes.value.find(function(m){ return m && m.status === 'Aktiv'; }) || mandatesRes.value[0];
         currentMandateId = activeMandate ? activeMandate.id : null;
+        currentMandateData = activeMandate || null;
       }
       strategyState={allocation:null,recommendation:null,activeMandateId:currentMandateId,lastGeneratedAt:0,loading:false,dirty:true,risk:null,buildingBlocks:[],marketRuntime:null};
       renderEngineRuntimePanels(null);
@@ -2783,6 +2785,7 @@ function fmtCHF(n){if(n===null||n===undefined)return '–';return 'CHF '+Math.ro
     currentPersona=p;
     currentClientId=null;
     currentMandateId=p.mandate_id||null;
+    currentMandateData=(p.mandate_id||p.mandate_type)?{id:p.mandate_id||null, mandate_type:p.mandate_type||null}:null;
     strategyState={allocation:null,recommendation:null,activeMandateId:currentMandateId,lastGeneratedAt:0,loading:false,dirty:true,risk:null,buildingBlocks:[],marketRuntime:null};
     renderEngineRuntimePanels(null);
     currentWealthPositions=[];
@@ -4221,6 +4224,7 @@ async function adminInstallDownloadedUpdate() {
 // ============================================================
 var _riskScoreResult = null;
 var currentMandateId = null;
+var currentMandateData = null;
 var currentClientId = null;
 
 var RISK_HORIZON_OPTIONS = [
@@ -4248,8 +4252,6 @@ var RISK_SAVINGS_POINTS = [0, 3, 6, 9, 12];
 var RISK_RESERVE_POINTS = [0, 3, 6, 9];
 var RISK_FREE_WEALTH_POINTS = [0, 3, 6, 9];
 var RISK_RHYTHM_POINTS = [10, 5, 0];
-var RISK_WILLINGNESS_BUCKETS = [30, 50, 70, 100];
-
 function riskScoreRounded(scoreX10){
   return Math.floor((Number(scoreX10 || 0) / 10) + 0.5);
 }
@@ -4294,20 +4296,16 @@ function findRiskCapacityBand(total){
   return RISK_CAPACITY_BANDS[0];
 }
 
-function mapMonthlyIncomePoints(monthlyIncomeChf){
-  if(monthlyIncomeChf < 4000) return 0;
-  if(monthlyIncomeChf <= 6000) return 1;
-  if(monthlyIncomeChf <= 8000) return 2;
-  if(monthlyIncomeChf <= 10000) return 3;
+function mapSurplusPoints(monthlyIncomeChf, monthlyObligationsChf){
+  var income = Math.max(0, Number(monthlyIncomeChf || 0));
+  var obligations = Math.max(0, Number(monthlyObligationsChf || 0));
+  if(income <= 0) return 0;
+  var surplusRatio = (income - obligations) / income;
+  if(surplusRatio < 0) return 0;
+  if(surplusRatio < 0.10) return 1;
+  if(surplusRatio < 0.25) return 2;
+  if(surplusRatio < 0.45) return 3;
   return 4;
-}
-
-function mapMonthlyObligationPoints(monthlyObligationsChf){
-  if(monthlyObligationsChf < 2000) return 4;
-  if(monthlyObligationsChf <= 4000) return 3;
-  if(monthlyObligationsChf <= 6000) return 2;
-  if(monthlyObligationsChf <= 8000) return 1;
-  return 0;
 }
 
 function normalizeRiskPoints(rawPoints, rawMax, scaledMax){
@@ -4352,15 +4350,15 @@ function buildRiskAssessmentPayloadFromUI(){
   var horizon = RISK_HORIZON_OPTIONS[horizonIdx];
   var monthlyIncomeChf = (incomeAnnualRappen / 100) / 12;
   var monthlyObligationsChf = (obligationsAnnualRappen / 100) / 12;
-  var incomePoints = mapMonthlyIncomePoints(monthlyIncomeChf);
-  var obligationPoints = mapMonthlyObligationPoints(monthlyObligationsChf);
+  var surplusPoints = mapSurplusPoints(monthlyIncomeChf, monthlyObligationsChf);
+  var obligationPoints = 0;
   var rhythmPoints = RISK_RHYTHM_POINTS[Math.max(0, Math.min(RISK_RHYTHM_POINTS.length - 1, rhythmIdx))];
   var savingsAmountPoints = RISK_SAVINGS_POINTS[Math.max(0, Math.min(RISK_SAVINGS_POINTS.length - 1, savingsIdx))];
   var reservePoints = RISK_RESERVE_POINTS[Math.max(0, Math.min(RISK_RESERVE_POINTS.length - 1, reserveIdx))];
   var freeWealthPoints = RISK_FREE_WEALTH_POINTS[Math.max(0, Math.min(RISK_FREE_WEALTH_POINTS.length - 1, freeWealthIdx))];
   var savingsPoints = normalizeRiskPoints(rhythmPoints + savingsAmountPoints, 22, 12);
   var wealthPoints = normalizeRiskPoints(reservePoints + freeWealthPoints, 18, 12);
-  var capacityTotal = incomePoints + obligationPoints + savingsPoints + wealthPoints;
+  var capacityTotal = surplusPoints + obligationPoints + savingsPoints + wealthPoints;
   var capacityBand = findRiskCapacityBand(capacityTotal);
   var capScore = RISK_CAPACITY_MATRIX[horizon.years + ',' + capacityBand.band];
 
@@ -4379,16 +4377,18 @@ function buildRiskAssessmentPayloadFromUI(){
   var prefLabelText = (rbSections[1] && rbSections[1].querySelectorAll('.qopt')[prefIdx]) ? rbSections[1].querySelectorAll('.qopt')[prefIdx].textContent.trim() : '';
   var behavLabelText = (rbSections[2] && rbSections[2].querySelectorAll('.qopt')[behavIdx]) ? rbSections[2].querySelectorAll('.qopt')[behavIdx].textContent.trim() : '';
   var willingnessTotal = goalPoints + prefPoints + behavPoints;
-  var rawWillScore = Math.round(10 * (willingnessTotal / 12) * 10);
-  var willScore = RISK_WILLINGNESS_BUCKETS.reduce(function(best, bucket){
-    return Math.abs(bucket - rawWillScore) < Math.abs(best - rawWillScore) ? bucket : best;
-  }, RISK_WILLINGNESS_BUCKETS[0]);
+  var rawWillScore = Math.round(((willingnessTotal - 3) / 9) * 90 + 10);
+  var willScore = Math.max(10, Math.min(100, rawWillScore));
   var finalScore = Math.min(capScore, willScore);
+  var mandateType = (currentMandateData && currentMandateData.mandate_type) || (currentPersona && currentPersona.mandate_type) || null;
+  if(mandateType === 'FZK') finalScore = Math.min(finalScore, 75);
   var finalProfile = riskScoreToProfile(finalScore);
+  var surplusRatio = monthlyIncomeChf > 0 ? ((monthlyIncomeChf - monthlyObligationsChf) / monthlyIncomeChf) : -1;
+  var surplusLabel = surplusRatio >= 0 ? Math.round(surplusRatio * 100) + '%' : 'n/a';
 
   return {
     payload:{
-      q_income_points: incomePoints,
+      q_income_points: surplusPoints,
       q_obligations_points: obligationPoints,
       q_savings_points: savingsPoints,
       q_wealth_points: wealthPoints,
@@ -4427,8 +4427,10 @@ function buildRiskAssessmentPayloadFromUI(){
       behavIdx:behavIdx,
       monthlyIncomeChf:monthlyIncomeChf,
       monthlyObligationsChf:monthlyObligationsChf,
+      surplusRatio:surplusRatio,
       capacityTotal:capacityTotal,
       rhythmPoints:rhythmPoints,
+      surplusPoints:surplusPoints,
       savingsAmountPoints:savingsAmountPoints,
       reservePoints:reservePoints,
       freeWealthPoints:freeWealthPoints,
@@ -4640,6 +4642,7 @@ async function createNewMandate() {
       advisory_language: 'DE'
     });
     currentMandateId = mandateData.id;
+    currentMandateData = mandateData;
   } catch(me) {
     if (isNetworkDown(me)) {
       // Client wurde angelegt, Mandat nicht — ehrlich kommunizieren
@@ -4677,6 +4680,7 @@ function showNewClientScreen(firstName, lastName, mType, meta) {
     household: meta.household || null,
     language: 'DE'
   };
+  currentMandateData = {id: currentMandateId || null, mandate_type: mType};
 
   var phS = document.querySelector('#page-sd .ph-s');
   if (phS) phS.textContent = firstName + ' ' + lastName + ' \u00b7 ' + mType + ' \u00b7 Neu angelegt';

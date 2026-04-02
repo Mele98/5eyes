@@ -719,7 +719,7 @@ def upsert_foundation_example_case(db: Session, user: User) -> dict:
         investment_horizon_label="Mehr als 12 Jahre",
         q_investment_goal_points=3,
         q_risk_preference_points=3,
-        q_risk_behavior_points=2,
+        q_risk_behavior_points=3,
     )
     assessment = RiskAssessment(
         id=new_uuid(),
@@ -738,7 +738,7 @@ def upsert_foundation_example_case(db: Session, user: User) -> dict:
         risk_capacity_score_x10=scoring.risk_capacity_score_x10,
         q_investment_goal_points=3,
         q_risk_preference_points=3,
-        q_risk_behavior_points=2,
+        q_risk_behavior_points=3,
         risk_willingness_total=scoring.risk_willingness_total,
         risk_willingness_profile=scoring.risk_willingness_profile,
         risk_willingness_score_x10=scoring.risk_willingness_score_x10,
@@ -760,7 +760,7 @@ def upsert_foundation_example_case(db: Session, user: User) -> dict:
         ("Risikof\u00e4higkeit", 4, "Substanzielles Gesamtvermoegen", 12),
         ("Risikobereitschaft", 5, "Wachstum mit klaren Leitplanken", 3),
         ("Risikobereitschaft", 6, "Zeitweise Schwankungen akzeptiert", 3),
-        ("Risikobereitschaft", 7, "Verhaelt sich in Rueckgaengen diszipliniert", 2),
+        ("Risikobereitschaft", 7, "Verhaelt sich in Rueckgaengen diszipliniert", 3),
     ]
     for section, number, label, points in answers:
         db.add(
