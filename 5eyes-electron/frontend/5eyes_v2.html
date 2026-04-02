@@ -902,7 +902,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
             </div>
           </div>
           <div class="card">
-            <div class="chd"><span class="cht">Handlungsempfehlungen</span></div>
+                <div class="chd"><span class="cht">Handlungsempfehlungen</span><button class="btn" id="btn-tl" style="font-size:10px;padding:3px 8px;margin-left:auto;display:none" onclick="openTradeList()">Handelsliste</button></div>
             <div class="cbody">
               <div id="aa-action-list" style="display:flex;flex-direction:column;gap:7px">
                 <div style="border:1px solid var(--b1);border-radius:var(--r);padding:8px 10px"><div style="display:flex;justify-content:space-between;margin-bottom:3px"><span style="font-size:11px;font-weight:500">Aktienquote via ZuflÃ¼sse reduzieren</span><span class="tag tr2">Hoch</span></div><div style="font-size:10px;color:var(--n6);line-height:1.5">Drift +8%. CHF 155k ZuflÃ¼sse in Anleihen &amp; LiquiditÃ¤t.</div></div>
@@ -3395,7 +3395,18 @@ protokolliereEreignis=runtimeProtokolliereEreignis;
       <button class="btn-g" onclick="applyOv()">Override bestÃ¤tigen & protokollieren</button>
     </div>
   </div>
-</div><script>
+</div>
+<div class="overlay" id="m-tl">
+  <div class="modal" style="width:820px;max-height:80vh;overflow-y:auto">
+    <div class="mhd"><div class="mtitle">Handelsliste</div><button class="mx" onclick="cm('m-tl')">&#x2715;</button></div>
+    <div class="mbody" id="m-tl-body"></div>
+    <div class="mfooter">
+      <button class="btn" onclick="cm('m-tl')">Schliessen</button>
+      <button class="btn-g" onclick="window.print()">Drucken / PDF</button>
+    </div>
+  </div>
+</div>
+<script>
 // Subclass total calculator
 function calcSCTotal(){
   var t=0;
@@ -6362,6 +6373,66 @@ function updateProjectionChartsFromSimulation(result){
     charts.ist.update();
   }
 }
+function upgradeFanChartWithMonteCarlo(result){
+  if(!charts.opt||!charts.opt.data)return;
+  var mc=monteCarloPayload(result);
+  if(!mc)return;
+  var labels=(mc.year_labels||[]).map(function(y){return String(y);});
+  var p90=simulationSeriesK(mc.target_p90_series_rappen);
+  var p50=simulationSeriesK(mc.target_p50_series_rappen);
+  var p10=simulationSeriesK(mc.target_p10_series_rappen);
+  var cur=simulationSeriesK(mc.current_p50_series_rappen);
+  if(!p90.length||!p50.length||!p10.length)return;
+  charts.opt.data.labels=labels;
+  charts.opt.data.datasets=[
+    {
+      label:'P90',
+      data:p90,
+      borderColor:'rgba(22,101,52,0.30)',
+      backgroundColor:'rgba(22,101,52,0.10)',
+      borderWidth:1,
+      borderDash:[3,3],
+      pointRadius:0,
+      fill:'+1',
+      tension:0.4
+    },
+    {
+      label:'P50 (Median)',
+      data:p50,
+      borderColor:'rgb(22,101,52)',
+      backgroundColor:'rgba(22,101,52,0.10)',
+      borderWidth:2,
+      pointRadius:0,
+      fill:'+1',
+      tension:0.4
+    },
+    {
+      label:'P10',
+      data:p10,
+      borderColor:'rgba(22,101,52,0.30)',
+      backgroundColor:'transparent',
+      borderWidth:1,
+      borderDash:[3,3],
+      pointRadius:0,
+      fill:false,
+      tension:0.4
+    },
+    {
+      label:'IST-Prognose',
+      data:cur,
+      borderColor:'rgba(146,64,14,0.65)',
+      backgroundColor:'transparent',
+      borderWidth:1.5,
+      borderDash:[3,3],
+      pointRadius:0,
+      fill:false,
+      tension:0.4
+    }
+  ];
+  charts.opt.options.plugins.legend.display=true;
+  charts.opt.options.plugins.legend.labels={font:{size:9},boxWidth:9,padding:7};
+  charts.opt.update();
+}
 function simulationCagrBps(series){
   var values=Array.isArray(series)?series:[];
   if(values.length<2)return 0;
@@ -6754,6 +6825,7 @@ function applyAllocationEngineResult(result){
     charts.dn.update();
   }
   updateProjectionChartsFromSimulation(result);
+  upgradeFanChartWithMonteCarlo(result);
   var projectedRappen=simulationTerminalRappen(result,'target_mix_series_rappen',7);
   var currentProjectedRappen=simulationTerminalRappen(result,'current_mix_series_rappen',7);
   var sim=simulationPayload(result);
@@ -6821,7 +6893,81 @@ function applyRecommendationEngineResult(result){
     );
     renderEngineRuntimePanels(strategyState.allocation);
   }
+  var btnTl=document.getElementById('btn-tl');
+  if(btnTl){
+    var hasTrades=live&&(live.position_drifts||[]).some(function(p){return p.rebalance_action!=='HOLD';});
+    btnTl.style.display=hasTrades?'':'none';
+  }
   renderStrategySummary();
+}
+function openTradeList(){
+  var result=strategyState.recommendation;
+  var live=liveRebalancingPayload(result);
+  var body=document.getElementById('m-tl-body');
+  if(!body)return;
+  if(!live||!Array.isArray(live.position_drifts)||!live.position_drifts.length){
+    body.innerHTML='<div style="font-size:11px;color:var(--n5);padding:12px">Keine Live-Rebalancing-Daten verfügbar.</div>';
+    om('m-tl');
+    return;
+  }
+  var totalWealth=live.live_total_value_rappen||0;
+  var minThreshold=Math.round(totalWealth*0.005);
+  var trades=live.position_drifts.filter(function(p){
+    return Math.abs(p.rebalance_amount_rappen||0)>=minThreshold;
+  }).slice().sort(function(a,b){
+    return Math.abs(b.rebalance_amount_rappen||0)-Math.abs(a.rebalance_amount_rappen||0);
+  });
+  var totalBuy=0,totalSell=0;
+  trades.forEach(function(p){
+    var amt=p.rebalance_amount_rappen||0;
+    if(p.rebalance_action==='BUY')totalBuy+=amt;
+    else if(p.rebalance_action==='SELL')totalSell+=amt;
+  });
+  var actionColor=function(action){
+    if(action==='BUY')return 'var(--pos)';
+    if(action==='SELL')return 'var(--neg)';
+    return 'var(--n5)';
+  };
+  var fmtDelta=function(rappen){
+    var chf=Math.round(Math.abs(rappen||0)/100);
+    var sign=(rappen||0)<0?'\u2212':'+';
+    if(chf>=1000000)return sign+'CHF\u00a0'+(chf/1000000).toFixed(2).replace('.',"'")+'\u00a0Mio.';
+    if(chf>=1000)return sign+'CHF\u00a0'+Math.round(chf/1000)+'k';
+    return sign+'CHF\u00a0'+chf;
+  };
+  var rows=trades.map(function(p){
+    var color=actionColor(p.rebalance_action);
+    return '<tr style="border-bottom:1px solid var(--b1)">'
+      +'<td style="padding:6px 8px;font-size:11px;font-weight:500">'+escapeHtml(p.product_name||'')+'</td>'
+      +'<td style="padding:6px 8px;font-size:10px;color:var(--n5)">'+escapeHtml(p.sub_asset_class||p.asset_class||'')+'</td>'
+      +'<td style="padding:6px 8px;font-size:10px;font-weight:700;color:'+color+'">'+escapeHtml(p.rebalance_action||'')+'</td>'
+      +'<td style="padding:6px 8px;font-size:10px;text-align:right">'+escapeHtml(formatRappen(p.current_market_value_rappen))+'</td>'
+      +'<td style="padding:6px 8px;font-size:10px;text-align:right">'+escapeHtml(formatRappen(p.target_amount_rappen))+'</td>'
+      +'<td style="padding:6px 8px;font-size:10px;text-align:right;font-weight:600;color:'+color+'">'+escapeHtml(fmtDelta(p.rebalance_amount_rappen))+'</td>'
+      +'<td style="padding:6px 8px;font-size:10px;text-align:right">'+escapeHtml(formatBpsPercent(p.target_weight_bps))+'</td>'
+      +'</tr>';
+  }).join('');
+  var thS='padding:6px 8px;text-align:left;font-size:9px;font-weight:600;letter-spacing:0.07em;text-transform:uppercase;color:var(--n4);border-bottom:2px solid var(--b1)';
+  var thR=thS+';text-align:right';
+  var html='<div style="margin-bottom:10px;font-size:11px;color:var(--n5)">'
+    +escapeHtml(String(trades.length))+' Positionen'
+    +' &middot; Kaufvolumen: <span style="color:var(--pos)">'+escapeHtml(formatRappen(totalBuy))+'</span>'
+    +' &middot; Verkaufsvolumen: <span style="color:var(--neg)">'+escapeHtml(formatRappen(totalSell))+'</span>'
+    +'</div>'
+    +'<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">'
+    +'<thead><tr>'
+    +'<th style="'+thS+'">Wertpapier</th>'
+    +'<th style="'+thS+'">Anlageklasse</th>'
+    +'<th style="'+thS+'">Aktion</th>'
+    +'<th style="'+thR+'">IST-Wert</th>'
+    +'<th style="'+thR+'">SOLL-Wert</th>'
+    +'<th style="'+thR+'">Delta</th>'
+    +'<th style="'+thR+'">Soll-%</th>'
+    +'</tr></thead>'
+    +'<tbody>'+rows+'</tbody>'
+    +'</table></div>';
+  body.innerHTML=html;
+  om('m-tl');
 }
 async function loadCurrentAllocationResult(mid){
   var riskPromise=API.get('/mandates/'+mid+'/risk-assessments/current');
