@@ -90,7 +90,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 .ph-t{font-family:var(--f-d);font-size:21px;font-weight:500;color:var(--n8);margin-bottom:2px;}
 .ph-s{font-size:10px;color:var(--n4);}
 .ph-r{display:flex;gap:7px;}
-.pad{padding:16px 24px;}
+.pad{padding:18px 26px 22px;}
 .mb{margin-bottom:12px;}
 .g2{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;}
 .g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px;}
@@ -115,20 +115,20 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 .ss{font-size:10px;color:var(--n5);}
 
 /* CARD */
-.card{background:var(--surface);border:1px solid var(--b1);border-radius:var(--r3);overflow:hidden;margin-bottom:12px;}
+.card{background:var(--surface);border:1px solid var(--b1);border-radius:var(--r3);overflow:hidden;margin-bottom:12px;box-shadow:0 14px 36px rgba(15,30,52,0.04);}
 .card:last-child{margin-bottom:0;}
 .chd{padding:10px 16px 8px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--b1);background:var(--n0);}
 .cht{font-size:10px;font-weight:600;color:var(--n7);letter-spacing:0.05em;text-transform:uppercase;}
 .chr{display:flex;gap:6px;align-items:center;}
-.cbody{padding:12px 16px;}
+.cbody{padding:16px 18px;}
 
 /* KPI */
-.kpir{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:12px;}
+.kpir{display:grid;grid-template-columns:repeat(auto-fit,minmax(165px,1fr));gap:12px;margin-bottom:14px;}
 .kpi{background:var(--surface);border:1px solid var(--b1);border-radius:var(--r2);padding:12px 14px;cursor:pointer;transition:all 0.12s;border-top:2px solid transparent;}
 .kpi:hover{border-top-color:var(--g4);box-shadow:0 2px 10px rgba(15,30,52,0.08);}
 .kl{font-size:9px;font-weight:500;letter-spacing:0.09em;text-transform:uppercase;color:var(--n4);margin-bottom:5px;}
-.kv{font-family:var(--f-d);font-size:18px;color:var(--n8);margin-bottom:2px;}
-.ks{font-size:10px;color:var(--n4);}
+.kv{font-family:var(--f-d);font-size:21px;color:var(--n8);margin-bottom:2px;}
+.ks{font-size:10px;color:var(--n4);line-height:1.45;}
 .g{color:var(--pos);font-weight:500;}
 .r{color:var(--neg);font-weight:500;}
 .a{color:var(--warn);font-weight:500;}
@@ -261,10 +261,28 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 .fpv-v{font-size:11px;font-weight:500;color:var(--n8);}
 
 /* DONUT */
-.donut-wrap{position:relative;width:150px;height:150px;margin:0 auto;}
+.donut-wrap{position:relative;width:220px;height:220px;margin:0 auto;}
 .dc{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none;}
-.dcv{font-family:var(--f-d);font-size:14px;color:var(--n8);text-align:center;line-height:1.2;}
-.dcl{font-size:8px;color:var(--n4);letter-spacing:0.05em;text-transform:uppercase;}
+.dcv{font-family:var(--f-d);font-size:20px;color:var(--n8);text-align:center;line-height:1.08;}
+.dcl{font-size:10px;color:var(--n4);letter-spacing:0.07em;text-transform:uppercase;}
+.alloc-top-grid{display:grid;grid-template-columns:minmax(290px,340px) minmax(0,1fr);gap:16px;margin-bottom:16px;align-items:start;}
+.alloc-donut-card{display:flex;flex-direction:column;align-items:center;padding:16px 18px;}
+.alloc-donut-card .section-kicker{font-size:9px;font-weight:600;letter-spacing:0.09em;text-transform:uppercase;color:var(--n4);margin-bottom:12px;text-align:center;}
+.alloc-donut-subline{margin-top:10px;font-size:10px;color:var(--n5);line-height:1.55;text-align:center;max-width:240px;}
+.alloc-legend{margin-top:12px;width:100%;display:grid;gap:7px;}
+.alloc-legend-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 10px;border:1px solid var(--b1);border-radius:var(--r);background:var(--bg);}
+.alloc-legend-left{display:flex;align-items:center;gap:8px;min-width:0;}
+.alloc-legend-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;}
+.alloc-legend-name{font-size:10px;color:var(--n7);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.alloc-legend-values{display:flex;align-items:center;gap:10px;flex-shrink:0;}
+.alloc-legend-pct{font-size:10px;font-weight:600;color:var(--n8);}
+.alloc-legend-amt{font-size:10px;color:var(--n4);min-width:66px;text-align:right;}
+.alloc-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(132px,1fr));gap:10px;padding-top:10px;border-top:1px solid var(--b1);margin-top:12px;}
+.market-runtime-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px;}
+.market-runtime-card{padding:10px 11px;border:1px solid var(--b1);border-radius:var(--r);background:var(--bg);}
+.market-runtime-k{font-size:9px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:var(--n4);margin-bottom:4px;}
+.market-runtime-v{font-size:11px;font-weight:600;color:var(--n8);line-height:1.45;}
+.market-runtime-s{font-size:10px;color:var(--n5);line-height:1.5;margin-top:3px;}
 
 /* ALLOC TABLE */
 .ar{display:grid;grid-template-columns:8px 1fr 50px 68px 50px 68px 52px;gap:0;align-items:center;padding:6px 0;border-bottom:1px solid var(--b1);}
@@ -313,8 +331,8 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 .logdesc{font-size:10px;color:var(--n6);line-height:1.5;}
 
 /* CHARTS */
-.chart{height:160px;position:relative;}
-.chart-lg{height:210px;position:relative;}
+.chart{height:238px;position:relative;}
+.chart-lg{height:308px;position:relative;}
 
 /* MODAL */
 .overlay{position:fixed;inset:0;background:rgba(9,17,31,0.55);display:none;align-items:center;justify-content:center;z-index:500;}
@@ -419,6 +437,15 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
   .card{break-inside:avoid;border:1px solid #ccc;}
   @page{margin:15mm;size:A4;}
 }
+@media (max-width: 1180px){
+  .alloc-top-grid{grid-template-columns:1fr;}
+}
+@media (max-width: 1100px){
+  #page-ub .g2,#page-al .g2{grid-template-columns:1fr;}
+}
+#page-ub .g2,#page-al .g2{grid-template-columns:minmax(0,1.22fr) minmax(320px,0.88fr);gap:16px;align-items:start;}
+#page-ub .chart,#page-al .chart{height:260px;}
+#page-ub .chart-lg,#page-al .chart-lg{height:320px;}
 
 /* buildQT classes */
 .qtr{display:grid;grid-template-columns:8px 1fr 42px 64px 64px 64px;gap:0;align-items:center;padding:5px 0;border-bottom:1px solid var(--b1);}
@@ -833,7 +860,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
               <div class="chd"><span class="cht">IST-Prognose</span></div>
               <div class="cbody">
                 <div style="font-size:10px;color:var(--warn);background:var(--warn-lt);border:1px solid rgba(146,64,14,0.12);border-radius:var(--r);padding:5px 8px;margin-bottom:8px">âš  IST ohne Optimierung â€“ optimiert folgt in Schritt 5</div>
-                <div class="chart"><canvas id="ch-ist"></canvas></div>
+                <div class="chart-lg"><canvas id="ch-ist"></canvas></div>
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:7px;padding-top:8px;border-top:1px solid var(--b1);margin-top:9px">
                   <div><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:1px">Prognose 2033</div><div style="font-family:var(--f-d);font-size:14px;color:var(--warn)">CHF 5.4 Mio</div></div>
                   <div><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:1px">CAGR IST</div><div style="font-family:var(--f-d);font-size:14px">3.8%</div></div>
@@ -862,11 +889,12 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
     <div id="page-al" class="page">
       <div class="ph"><div><div class="ph-t">Asset Allokation</div><div class="ph-s">Ist vs. Soll Â· Optimierte Prognose</div></div><div class="ph-r"><button class="btn-g" id="btn-aa-calc" onclick="calculateInvestmentStrategy()">Anlagestrategie berechnen</button><button class="btn" onclick="openAllocationEngineModal()">Soll-Quoten</button><button class="btn-p" onclick="go('po')">Portfolio â†’</button></div></div>
       <div class="pad">
-        <div style="display:grid;grid-template-columns:170px 1fr;gap:12px;margin-bottom:12px">
-          <div class="card" style="display:flex;flex-direction:column;align-items:center;padding:12px">
-            <div style="font-size:9px;font-weight:500;letter-spacing:0.08em;text-transform:uppercase;color:var(--n4);margin-bottom:9px;text-align:center">IST-Allokation</div>
+        <div class="alloc-top-grid">
+          <div class="card alloc-donut-card">
+            <div class="section-kicker">IST-Allokation</div>
             <div class="donut-wrap"><canvas id="ch-dn"></canvas><div class="dc"><div class="dcv">CHF<br>2.85M</div><div class="dcl">Beratung</div></div></div>
-            <div id="dnleg" style="margin-top:9px;width:100%"></div>
+            <div id="dnleg" class="alloc-legend"></div>
+            <div class="alloc-donut-subline">Das Beratungsvermögen wird hier bewusst als heutiger Kunden-Mix gezeigt. Soll-Gewichte, Bandbreiten und Handlungsvorschläge stehen rechts daneben.</div>
           </div>
           <div class="card">
             <div class="chd"><span class="cht">Ist vs. Soll</span></div>
@@ -887,9 +915,9 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
           <div class="card">
             <div class="chd"><span class="cht">Optimierte Prognose</span></div>
             <div class="cbody">
-              <div style="font-size:10px;color:var(--pos);background:var(--pos-lt);border:1px solid rgba(22,101,52,0.12);border-radius:var(--r);padding:5px 8px;margin-bottom:8px">âœ“ Nach Umsetzung Soll-Allokation</div>
-              <div class="chart"><canvas id="ch-opt"></canvas></div>
-              <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:7px;padding-top:8px;border-top:1px solid var(--b1);margin-top:9px">
+              <div style="font-size:10px;color:var(--pos);background:var(--pos-lt);border:1px solid rgba(22,101,52,0.12);border-radius:var(--r);padding:7px 10px;margin-bottom:10px;line-height:1.5">âœ“ Nach Umsetzung Soll-Allokation â€” inklusive Risikobudget, Cashflows, Ziele und Monte-Carlo-Pfaden.</div>
+              <div class="chart-lg"><canvas id="ch-opt"></canvas></div>
+              <div class="alloc-metrics">
                 <div><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:1px">Prognose 2033</div><div id="aa-proj-wealth" style="font-family:var(--f-d);font-size:14px;color:var(--pos)">CHF 6.1 Mio</div></div>
                 <div><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:1px">Gewinn vs. IST</div><div id="aa-proj-delta" style="font-family:var(--f-d);font-size:14px;color:var(--pos)">+CHF 700k</div></div>
                 <div><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:1px">CAGR</div><div id="aa-proj-cagr" style="font-family:var(--f-d);font-size:14px">4.5%</div></div>
@@ -921,7 +949,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
           <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px">
             <div>
               <div style="font-size:8px;font-weight:600;letter-spacing:0.1em;text-transform:uppercase;color:var(--n4);margin-bottom:5px">Policy</div>
-              <div style="display:flex;flex-direction:column;gap:7px">
+                <div style="display:flex;flex-direction:column;gap:9px">
                 <div><label style="font-size:9px;color:var(--n4)">ESG-Orientierung</label><select class="fsel" id="aa-policy-esg" style="font-size:10px"><option value="none">Keine ESG-PrÃ¤ferenz</option><option value="esg_integration" selected>ESG-Integration</option><option value="best_in_class">Best-in-Class</option><option value="negative_screening">Negativ-Screening</option><option value="impact">Impact Investing</option><option value="net_zero">Paris-aligned / Net Zero</option></select></div>
                 <div><label style="font-size:9px;color:var(--n4)">Anlageuniversum</label><select class="fsel" id="aa-policy-universe" style="font-size:10px"><option value="standard" selected>Standard (BÃ¶rse)</option><option value="extended">Erweitert (inkl. Alternative)</option><option value="funds_only">Nur Fonds / ETFs</option><option value="listed_only">Nur kotierte Instrumente</option></select></div>
                 <div><label style="font-size:9px;color:var(--n4)">Heimmarkt-PrÃ¤ferenz</label><select class="fsel" id="aa-policy-home-bias" style="font-size:10px"><option value="none">Kein Heimmarkt-Bias</option><option value="ch_focus" selected>CH-Fokus bevorzugt</option><option value="europe_focus">Europa-Fokus</option><option value="global">Global neutral</option></select></div>
@@ -1014,7 +1042,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
             </div>
             <div style="border:1px solid var(--b1);border-radius:var(--r2);padding:9px 10px;background:var(--bg)">
               <div style="font-size:8px;font-weight:600;letter-spacing:0.1em;text-transform:uppercase;color:var(--n4);margin-bottom:4px">Marktdaten-Setup</div>
-              <div style="font-size:10px;color:var(--n6);line-height:1.5">Live-Preise werden fuer Drift, Bewertung und Rebalancing-Checks verwendet. Strategische Rendite- und Volatilitaetsannahmen bleiben in V1 manuell versioniert.</div>
+              <div style="font-size:10px;color:var(--n6);line-height:1.55">Produktive Runtime: Preise via Twelve Data, Referenzdaten via EODHD, Identifier-Mapping via OpenFIGI. Live-Preise dienen fuer Drift, Bewertung und Rebalancing; strategische CMA bleiben in V1 bewusst versioniert und nicht Google-Finance-basiert.</div>
             </div>
           </div>
         </div>
@@ -2624,7 +2652,7 @@ function renderEngineRuntimePanels(result){
     return '<div style="font-size:10px;color:var(--n6);line-height:1.6;padding:7px 9px;background:var(--bg);border:1px solid var(--b1);border-radius:var(--r)">- '+escapeHtml(item)+'</div>';
   }).join('')||'<div style="font-size:10px;color:var(--n4)">Keine Reasoning-Punkte vorhanden.</div>';
   function summarizeProviderRole(role){
-    if(!role||typeof role!=='object')return '';
+    if(!role||typeof role!=='object')return null;
     var current=role.current||{};
     var target=role.target||{};
     function entryLabel(entry){
@@ -2645,18 +2673,25 @@ function renderEngineRuntimePanels(result){
     if(currentFallback)currentBits.push('Fallback '+currentFallback);
     if(targetPrimary)targetBits.push(targetPrimary);
     if(targetFallback)targetBits.push('Fallback '+targetFallback);
-    if(!currentBits.length&&!targetBits.length)return '';
-    return String(role.label||'Provider')
-      +': '
-      +(currentBits.length?('heute '+currentBits.join(' / ')):'')
-      +(currentBits.length&&targetBits.length?' / ':'')
-      +(targetBits.length?('ziel '+targetBits.join(' / ')+(target.wired===false?' (noch nicht verdrahtet)':'')):'');
+    if(!currentBits.length&&!targetBits.length)return null;
+    return {
+      label:String(role.label||'Provider'),
+      value:currentBits.length?currentBits.join(' / '):'Noch nicht aktiv',
+      sub:targetBits.length?('Ziel: '+targetBits.join(' / ')+(target.wired===false?' (noch nicht verdrahtet)':'')):'Kein Zielprovider hinterlegt'
+    };
+  }
+  function runtimeCard(label,value,sub){
+    return '<div class="market-runtime-card">'
+      +'<div class="market-runtime-k">'+escapeHtml(label||'Info')+'</div>'
+      +'<div class="market-runtime-v">'+escapeHtml(value||'n/a')+'</div>'
+      +(sub?('<div class="market-runtime-s">'+escapeHtml(sub)+'</div>'):'')
+      +'</div>';
   }
   var runtime=strategyState.marketRuntime&&strategyState.marketRuntime.prices?strategyState.marketRuntime.prices:null;
   var refresh=runtime&&runtime.last_refresh_summary?runtime.last_refresh_summary:null;
   var quality=runtime&&runtime.quality?runtime.quality:null;
   var providerRoles=runtime&&runtime.provider_roles?runtime.provider_roles:null;
-  var providerRoleLines=providerRoles?[
+  var providerRoleCards=providerRoles?[
     summarizeProviderRole(providerRoles.market_prices),
     summarizeProviderRole(providerRoles.reference_data),
     summarizeProviderRole(providerRoles.id_mapping),
@@ -2664,24 +2699,36 @@ function renderEngineRuntimePanels(result){
     summarizeProviderRole(providerRoles.macro_switzerland),
     summarizeProviderRole(providerRoles.enterprise_reference)
   ].filter(Boolean):[];
-  var marketItems=[
-    'Kapitalmarktannahmen: '+(result.capital_market_assumption_set||'n/a')+' ('+(result.capital_market_source||'unbekannt')+')',
-    runtime?('Preis-Scheduler: '+((runtime.scheduler_enabled&&runtime.scheduler_running)?'aktiv':'inaktiv')+' / Provider: '+String(runtime.provider||'n/a')+' / Naechster Lauf: '+(runtime.next_run_at?formatIsoLocal(runtime.next_run_at):'nicht geplant')):'Preis-Scheduler-Status nicht verfuegbar',
-    refresh?('Letzter Preis-Refresh: '+formatIsoLocal(refresh.finished_at||refresh.started_at)+' / verarbeitet '+String(refresh.processed||0)+' / aktualisiert '+String((refresh.inserted||0)+(refresh.updated||0))+' / wiederverwendet '+String(refresh.reused_fresh||0)+' / Fehler '+String(refresh.failed||0)):'Noch kein Preis-Refresh protokolliert',
-    'Wichtig: Live-Marktdaten dienen aktuell Bewertung, Drift und Rebalancing-Checks. Kapitalmarktannahmen bleiben in V1 manuell versioniert.'
+  var marketCards=[
+    runtimeCard(
+      'Preisruntime',
+      runtime?(((runtime.scheduler_enabled&&runtime.scheduler_running)?'Aktiv':'Inaktiv')+' · '+String(runtime.provider||'n/a')):'Nicht verfuegbar',
+      refresh?('Letzter Refresh '+formatIsoLocal(refresh.finished_at||refresh.started_at)+' · '+String(refresh.processed||0)+' verarbeitet · '+String(refresh.failed||0)+' Fehler'):'Noch kein Preis-Refresh protokolliert'
+    ),
+    runtimeCard(
+      'Kapitalmarktannahmen',
+      (result.capital_market_assumption_set||'n/a')+' / '+(result.capital_market_source||'unbekannt'),
+      'Live-Preise werden fuer Bewertung, Drift und Rebalancing genutzt; strategische Rendite- und Volatilitaetsannahmen bleiben bewusst separat versioniert.'
+    )
   ];
-  if(providerRoleLines.length){
-    marketItems=marketItems.slice(0,2).concat(providerRoleLines,marketItems.slice(2));
-  }
+  providerRoleCards.forEach(function(card){
+    marketCards.push(runtimeCard(card.label,card.value,card.sub));
+  });
   if(quality){
-    marketItems.splice(2+providerRoleLines.length,0,
-      'Preisqualitaet: fresh '+String(quality.fresh_products_count||0)+' / '+String(quality.active_products_count||0)+' ('+String(quality.fresh_coverage_pct||0)+'%) / stale '+String(quality.stale_products_count||0)+' / ohne Preis '+String(quality.missing_price_count||0),
-      'Lookup-Qualitaet: Symbol '+String(quality.direct_symbol_lookup_products_count||0)+' / nur ISIN '+String(quality.direct_isin_lookup_products_count||0)+' / proxy '+String(quality.proxy_lookup_products_count||0)+' / synthetisch '+String(quality.synthetic_lookup_products_count||0)+' / Luecken '+String(quality.mapping_gap_count||0)+(quality.latest_price_date?(' / Letztes Preisdatum '+String(quality.latest_price_date)):'')
+    marketCards.push(
+      runtimeCard(
+        'Preisqualitaet',
+        String(quality.fresh_coverage_pct||0)+'% fresh',
+        'Aktiv '+String(quality.active_products_count||0)+' · stale '+String(quality.stale_products_count||0)+' · ohne Preis '+String(quality.missing_price_count||0)
+      ),
+      runtimeCard(
+        'Lookup & Mapping',
+        'Direkt '+String(quality.direct_symbol_lookup_products_count||0)+' · Proxy '+String(quality.proxy_lookup_products_count||0),
+        'Nur ISIN '+String(quality.direct_isin_lookup_products_count||0)+' · synthetisch '+String(quality.synthetic_lookup_products_count||0)+' · Luecken '+String(quality.mapping_gap_count||0)+(quality.latest_price_date?(' · letztes Preisdatum '+String(quality.latest_price_date)):'')
+      )
     );
   }
-  market.innerHTML=marketItems.map(function(item){
-    return '<div style="font-size:10px;color:var(--n6);line-height:1.6;padding:7px 9px;background:var(--bg);border:1px solid var(--b1);border-radius:var(--r)">'+escapeHtml(item)+'</div>';
-  }).join('');
+  market.innerHTML='<div class="market-runtime-grid">'+marketCards.join('')+'</div>';
   liveSummary.innerHTML=live
     ? [
       'Stand: '+String(live.as_of_date||'n/a')+' / Referenzanker '+String(live.reference_anchor_date||'n/a'),
@@ -2747,7 +2794,8 @@ function buildAT(){
 
 function buildDLegend(){
   const el=document.getElementById('dnleg');if(!el)return;
-  el.innerHTML=alloc.map(r=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:2px 0;"><div style="display:flex;align-items:center;gap:4px;"><div style="width:6px;height:6px;border-radius:50%;background:${r.c};flex-shrink:0;"></div><span style="font-size:9px;color:var(--n6)">${r.n}</span></div><span style="font-size:9px;font-weight:500">${r.ist}%</span></div>`).join('');
+  el.className='alloc-legend';
+  el.innerHTML=alloc.map(r=>`<div class="alloc-legend-row"><div class="alloc-legend-left"><div class="alloc-legend-dot" style="background:${r.c};"></div><span class="alloc-legend-name">${escapeHtml(String(r.n||''))}</span></div><div class="alloc-legend-values"><span class="alloc-legend-pct">${escapeHtml(Number(r.ist||0).toFixed(1)+'%')}</span><span class="alloc-legend-amt">${escapeHtml(formatCompactCHF(Number(r.chf||0)))}</span></div></div>`).join('');
 }
 
 let charts={};
@@ -2765,7 +2813,7 @@ function initCharts(){
   // ch-fp removed (page-fp removed)
   if(!charts.dn){
     const el=document.getElementById('ch-dn');
-    if(el){charts.dn=new Chart(el.getContext('2d'),{type:'doughnut',data:{labels:alloc.map(r=>r.n),datasets:[{data:alloc.map(r=>r.ist),backgroundColor:alloc.map(r=>r.c),borderWidth:2,borderColor:'#fff'}]},options:{responsive:true,maintainAspectRatio:true,cutout:'68%',plugins:{legend:{display:false}}}});buildDLegend();}
+    if(el){charts.dn=new Chart(el.getContext('2d'),{type:'doughnut',data:{labels:alloc.map(r=>r.n),datasets:[{data:alloc.map(r=>r.ist),backgroundColor:alloc.map(r=>r.c),borderWidth:3,borderColor:'#fff'}]},options:{responsive:true,maintainAspectRatio:false,cutout:'72%',plugins:{legend:{display:false}}}});buildDLegend();}
   }
   ensureAllocationRuntimePanels();
   buildAT();buildQT('qt-modal');renderEngineRuntimePanels(null);buildBudget();setupDrag();
@@ -3710,12 +3758,13 @@ function showAdminResult(msg, isError) {
   el.textContent = msg;
 }
 
-function adminMarketStatusBox(message, isError) {
+function adminMarketStatusBox(message, isError, allowHtml) {
   var el = document.getElementById('admin-market-summary');
   if (!el) return;
   el.style.display = 'block';
   el.style.color = isError ? 'var(--neg)' : 'var(--g4)';
-  el.textContent = message;
+  if (allowHtml && !isError) el.innerHTML = message;
+  else el.textContent = message;
 }
 
 function readAdminMappingLimit() {
@@ -3895,54 +3944,53 @@ function formatAdminMarketSummary(priceStatus, productStatus) {
   var refRole = providerRoles.reference_data || {};
   var mapRole = providerRoles.id_mapping || {};
   var quality = productStatus && productStatus.price_quality || priceStatus && priceStatus.quality || {};
-  var lines = [
-    'Marktdaten & Produktstamm',
-    'Aktive Produkte: ' + String(productStatus && productStatus.active_products || quality.active_products_count || 0),
-    'Backend-.env: ' + (setup.env_file_exists ? 'vorhanden' : 'fehlt'),
-    'Preisruntime: ' + adminProviderName(priceRole.current && priceRole.current.primary) + ' -> Ziel ' + adminProviderName(priceRole.target && priceRole.target.primary),
-    'Referenzdaten: ' + adminProviderName(refRole.current && refRole.current.primary) + ' -> Ziel ' + adminProviderName(refRole.target && refRole.target.primary),
-    'Identifier-Mapping: ' + adminProviderName(mapRole.current && mapRole.current.primary) + ' -> Ziel ' + adminProviderName(mapRole.target && mapRole.target.primary),
-    'Lookup-Overrides: ' + String(productStatus && productStatus.lookup_mode_override_count || 0),
-    'Preisabdeckung: ' + String(quality.coverage_pct || 0) + '% frisch ' + String(quality.fresh_coverage_pct || 0) + '%',
-    'Symbol direkt: ' + String(quality.direct_symbol_lookup_products_count || 0) + ' | nur ISIN: ' + String(quality.direct_isin_lookup_products_count || 0) + ' | Proxy: ' + String(quality.proxy_lookup_products_count || 0),
-    'OpenFIGI gemappt: ' + String(productStatus && productStatus.openfigi_mapped_count || 0) + ' | offen: ' + String(productStatus && productStatus.openfigi_pending_count || 0),
-    'Referenzdaten synchronisiert: ' + String(productStatus && productStatus.reference_synced_count || 0) + ' | offen: ' + String(productStatus && productStatus.reference_pending_count || 0),
-    'Fehlende Marktprofile: ' + String(quality.mapping_gap_count || 0) + ' | fehlende Preise: ' + String(quality.missing_price_count || 0)
+  function statusCard(label, value, sub) {
+    return '<div class="market-runtime-card">'
+      + '<div class="market-runtime-k">' + escapeHtml(label) + '</div>'
+      + '<div class="market-runtime-v">' + escapeHtml(value) + '</div>'
+      + (sub ? '<div class="market-runtime-s">' + escapeHtml(sub) + '</div>' : '')
+      + '</div>';
+  }
+  var cards = [
+    statusCard('Aktive Produkte', String(productStatus && productStatus.active_products || quality.active_products_count || 0), 'Backend-.env: ' + (setup.env_file_exists ? 'vorhanden' : 'fehlt')),
+    statusCard('Preisruntime', adminProviderName(priceRole.current && priceRole.current.primary), 'Ziel: ' + adminProviderName(priceRole.target && priceRole.target.primary)),
+    statusCard('Referenzdaten', adminProviderName(refRole.current && refRole.current.primary), 'Ziel: ' + adminProviderName(refRole.target && refRole.target.primary)),
+    statusCard('Identifier-Mapping', adminProviderName(mapRole.current && mapRole.current.primary), 'Ziel: ' + adminProviderName(mapRole.target && mapRole.target.primary)),
+    statusCard('Preisqualität', String(quality.coverage_pct || 0) + '% Abdeckung / ' + String(quality.fresh_coverage_pct || 0) + '% fresh', 'Fehlende Preise: ' + String(quality.missing_price_count || 0) + ' · Marktprofil-Lücken: ' + String(quality.mapping_gap_count || 0)),
+    statusCard('OpenFIGI & EODHD', 'Mapping ' + String(productStatus && productStatus.openfigi_mapped_count || 0) + ' / Sync ' + String(productStatus && productStatus.reference_synced_count || 0), 'Offen: OpenFIGI ' + String(productStatus && productStatus.openfigi_pending_count || 0) + ' · EODHD ' + String(productStatus && productStatus.reference_pending_count || 0)),
+    statusCard('Lookup-Overrides', String(productStatus && productStatus.lookup_mode_override_count || 0), 'Direkt ' + String(quality.direct_symbol_lookup_products_count || 0) + ' · ISIN ' + String(quality.direct_isin_lookup_products_count || 0) + ' · Proxy ' + String(quality.proxy_lookup_products_count || 0)),
+    statusCard('Provider-Strategie', 'Twelve Data · EODHD · OpenFIGI', 'Produktive API-Runtime statt Google-Finance-/Sheets-Scrapes.')
   ];
   var samples = productStatus && productStatus.samples || {};
   var openfigiSamples = Array.isArray(samples.openfigi_pending) ? samples.openfigi_pending.slice(0, 3) : [];
   var referenceSamples = Array.isArray(samples.reference_pending) ? samples.reference_pending.slice(0, 3) : [];
+  var sections = [];
   if (openfigiSamples.length) {
-    lines.push('');
-    lines.push('OpenFIGI offen:');
-    openfigiSamples.forEach(function(item){
-      lines.push('- ' + String(item.product_name || item.product_id || '?') + ' | ' + String(item.isin || 'ohne ISIN'));
-    });
+    sections.push('<div><div class="market-runtime-k" style="margin-bottom:6px">OpenFIGI offen</div><div style="display:grid;gap:6px">' + openfigiSamples.map(function(item){
+      return '<div class="market-runtime-card"><div class="market-runtime-v">' + escapeHtml(String(item.product_name || item.product_id || '?')) + '</div><div class="market-runtime-s">' + escapeHtml(String(item.isin || 'ohne ISIN')) + '</div></div>';
+    }).join('') + '</div></div>');
   }
   if (referenceSamples.length) {
-    lines.push('');
-    lines.push('Referenzdaten offen:');
-    referenceSamples.forEach(function(item){
-      lines.push('- ' + String(item.product_name || item.product_id || '?') + ' | ' + [item.symbol, item.isin].filter(Boolean).join(' / '));
-    });
+    sections.push('<div><div class="market-runtime-k" style="margin-bottom:6px">Referenzdaten offen</div><div style="display:grid;gap:6px">' + referenceSamples.map(function(item){
+      return '<div class="market-runtime-card"><div class="market-runtime-v">' + escapeHtml(String(item.product_name || item.product_id || '?')) + '</div><div class="market-runtime-s">' + escapeHtml([item.symbol, item.isin].filter(Boolean).join(' / ')) + '</div></div>';
+    }).join('') + '</div></div>');
   }
   var targetMissing = Array.isArray(setup.target_missing_requirements) ? setup.target_missing_requirements.slice(0, 5) : [];
   if (targetMissing.length) {
-    lines.push('');
-    lines.push('Ziel-Provider noch nicht bereit:');
-    targetMissing.forEach(function(item){
-      lines.push('- ' + String(item.role_label || item.role || '?') + ': ' + String(item.provider_label || item.provider || '?') + ' (' + String(item.issue || 'offen') + ')');
-    });
+    sections.push('<div><div class="market-runtime-k" style="margin-bottom:6px">Zielprovider noch offen</div><div style="display:grid;gap:6px">' + targetMissing.map(function(item){
+      return '<div class="market-runtime-card"><div class="market-runtime-v">' + escapeHtml(String(item.role_label || item.role || '?')) + '</div><div class="market-runtime-s">' + escapeHtml(String(item.provider_label || item.provider || '?') + ' (' + String(item.issue || 'offen') + ')') + '</div></div>';
+    }).join('') + '</div></div>');
   }
   var warnings = Array.isArray(setup.warnings) ? setup.warnings.slice(0, 4) : [];
   if (warnings.length) {
-    lines.push('');
-    lines.push('Betriebshinweise:');
-    warnings.forEach(function(item){
-      lines.push('- ' + String(item || '?'));
-    });
+    sections.push('<div><div class="market-runtime-k" style="margin-bottom:6px">Betriebshinweise</div><div style="display:grid;gap:6px">' + warnings.map(function(item){
+      return '<div class="market-runtime-card"><div class="market-runtime-s" style="margin-top:0">' + escapeHtml(String(item || '?')) + '</div></div>';
+    }).join('') + '</div></div>');
   }
-  return lines.join('\n');
+  return '<div style="display:grid;gap:12px">'
+    + '<div class="market-runtime-grid">' + cards.join('') + '</div>'
+    + (sections.length ? sections.join('') : '')
+    + '</div>';
 }
 
 function setAdminMarketActionState(buttonId, enabled, enabledLabel, blockedLabel, titleText) {
@@ -3983,7 +4031,7 @@ async function adminRefreshMarketStatus(showLog) {
     var priceStatus = results[0];
     var productStatus = results[1];
     applyAdminMarketControls(priceStatus);
-    adminMarketStatusBox(formatAdminMarketSummary(priceStatus, productStatus), false);
+    adminMarketStatusBox(formatAdminMarketSummary(priceStatus, productStatus), false, true);
     if (showLog) showAdminResult('âœ“ Marktstatus aktualisiert', false);
     return { priceStatus: priceStatus, productStatus: productStatus };
   } catch(e) {
@@ -8275,7 +8323,7 @@ function openStammdatenModal(){
         </div>
         <div style="border-top:1px solid var(--b1);padding-top:12px;display:grid;gap:10px;">
           <div style="font-size:11px;color:var(--g3);">Marktdaten &amp; Produktstamm</div>
-          <div id="admin-market-summary" style="background:var(--bg2);border-radius:6px;padding:10px;font-size:11px;font-family:monospace;min-height:120px;white-space:pre-wrap;color:var(--g4);display:block">Status wird geladenâ€¦</div>
+          <div id="admin-market-summary" style="background:var(--bg2);border-radius:6px;padding:10px;font-size:11px;min-height:120px;color:var(--g4);display:block">Status wird geladenâ€¦</div>
           <div style="display:grid;grid-template-columns:110px 1fr;gap:10px;align-items:start;">
             <div>
               <label style="font-size:9px;color:var(--n4);display:block;margin-bottom:4px">Batch-Limit</label>
