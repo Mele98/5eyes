@@ -454,6 +454,21 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
   .card{break-inside:avoid;border:1px solid #ccc;}
   @page{margin:15mm;size:A4;}
 }
+@media print {
+  body.sr-print-mode .topbar,
+  body.sr-print-mode .sidebar,
+  body.sr-print-mode .overlay{display:none!important;}
+  body.sr-print-mode .layout{margin-top:0!important;height:auto!important;display:block!important;}
+  body.sr-print-mode .content{overflow:visible!important;}
+  body.sr-print-mode .page:not(#page-sr){display:none!important;}
+  body.sr-print-mode .ph,
+  body.sr-print-mode .cnav,
+  body.sr-print-mode button{display:none!important;}
+  body.sr-print-mode #sr-signature-block{display:grid!important;}
+  body.sr-print-mode{background:#fff!important;}
+  body.sr-print-mode #page-sr{display:block!important;max-width:none;padding:15mm;margin:0;background:#fff!important;box-shadow:none!important;border:none!important;}
+  body.sr-print-mode #page-sr .pad{padding:0!important;}
+}
 @media (max-width: 1180px){
   .alloc-top-grid{grid-template-columns:1fr;}
 }
@@ -1474,6 +1489,13 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
             <div style="margin-top:12px;padding:10px;background:var(--bg);border-radius:var(--r2);border:1px solid var(--b1);display:flex;justify-content:space-between;align-items:center">
               <span style="font-size:11px;color:var(--n6)">Beratungsprotokoll erstellt: <strong>14.09.2025</strong> · Berater: <strong>M. Berger</strong></span>
               <button class="btn-g" onclick="window.print()">Rezept & Protokoll drucken</button>
+            </div>
+            <div style="margin-top:16px;display:flex;justify-content:flex-end">
+              <button id="sr-summary-print-inline" onclick="printSummaryPage()" style="margin-top:16px;background:var(--n6);color:#fff;border:none;border-radius:var(--r);font-size:10px;padding:7px 12px;cursor:pointer;font-family:var(--f-s)">Drucken / PDF</button>
+            </div>
+            <div id="sr-signature-block" style="display:none;grid-template-columns:1fr 1fr;gap:40px;margin-top:48px">
+              <div>Berater: ________________<br>Datum: ________________<br>Ort: ________________</div>
+              <div>Klient/in: ________________<br>Datum: ________________<br>Ort: ________________</div>
             </div>
           </div>
         </div>
@@ -3523,6 +3545,29 @@ function printReport(options){
   var title='5eyes Report - '+reportClientLabel()+' - '+new Date().toLocaleDateString('de-CH');
   openPrintableReportWindow(pageKeys,title);
 }
+function printSummaryPage(){
+  var body=document.body;
+  if(!body){
+    window.print();
+    return;
+  }
+  var cleaned=false;
+  function cleanupSummaryPrintMode(){
+    if(cleaned)return;
+    cleaned=true;
+    body.classList.remove('sr-print-mode');
+    window.removeEventListener('afterprint',cleanupSummaryPrintMode);
+  }
+  body.classList.add('sr-print-mode');
+  window.addEventListener('afterprint',cleanupSummaryPrintMode);
+  setTimeout(function(){
+    try{
+      window.print();
+    }finally{
+      setTimeout(cleanupSummaryPrintMode,600);
+    }
+  },20);
+}
 
 function openPortfolioPositionHelper(){
   var recommendation=strategyState&&strategyState.recommendation;
@@ -3737,9 +3782,9 @@ function bindHonestUiActions(){
   var rvFooterPrint=document.querySelector('#page-rv .cnav .btn-g');
   if(rvFooterPrint)rvFooterPrint.setAttribute('onclick',"printReport({pages:['rv']})");
   var srHeaderPrint=document.querySelector('#page-sr .ph-r .btn');
-  if(srHeaderPrint)srHeaderPrint.setAttribute('onclick',"printReport({pages:['sr']})");
+  if(srHeaderPrint)srHeaderPrint.setAttribute('onclick',"printSummaryPage()");
   var srFooterPrint=document.querySelector('#page-sr .cnav .btn-g');
-  if(srFooterPrint)srFooterPrint.setAttribute('onclick',"printReport({pages:['sr']})");
+  if(srFooterPrint)srFooterPrint.setAttribute('onclick',"printSummaryPage()");
   var summaryRecipePrint=document.querySelector('#page-sr .btn-g');
   if(summaryRecipePrint)summaryRecipePrint.setAttribute('onclick',"printReport({pages:['al','po','rv','sr']})");
   var docCards=document.querySelectorAll('#rv-doc-grid > div');
