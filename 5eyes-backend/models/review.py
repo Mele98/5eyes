@@ -64,6 +64,8 @@ class AdvisoryLog(Base):
     description = Column(String)
     decision = Column(String)
     trigger_id = Column(String)
+    recommendation_run_id = Column(String, ForeignKey("recommendation_runs.id"), nullable=True)
+    status = Column(String, nullable=False, default="Empfohlen")
     advisor_id = Column(String, ForeignKey("users.id"), nullable=False)
     client_signed = Column(Integer, nullable=False, default=0)
     client_signed_at = Column(String)
@@ -74,6 +76,7 @@ class AdvisoryLog(Base):
 
     mandate = relationship("Mandate", back_populates="advisory_log")
     advisor = relationship("User")
+    recommendation_run = relationship("RecommendationRun")
 
 
 class ConflictOfInterestDisclosure(Base):

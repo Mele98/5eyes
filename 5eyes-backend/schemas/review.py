@@ -54,6 +54,8 @@ class AdvisoryLogCreate(BaseModel):
         "Kein Handlungsbedarf",
     ]] = None
     trigger_id: Optional[str] = None
+    recommendation_run_id: Optional[str] = None
+    status: Optional[str] = "Empfohlen"
     client_signed: bool = False
     client_signed_at: Optional[str] = None
     document_id: Optional[str] = None
@@ -66,6 +68,17 @@ class AdvisoryLogCreate(BaseModel):
         return self
 
 
+class AdvisoryLogUpdate(BaseModel):
+    recommendation_run_id: Optional[str] = None
+    status: Optional[str] = None
+
+    @model_validator(mode="after")
+    def validate_partial_update(self):
+        if not self.model_fields_set:
+            raise ValueError("Mindestens ein Feld muss uebergeben werden")
+        return self
+
+
 class AdvisoryLogResponse(BaseResponse):
     id: str
     mandate_id: str
@@ -74,6 +87,8 @@ class AdvisoryLogResponse(BaseResponse):
     description: Optional[str]
     decision: Optional[str]
     trigger_id: Optional[str]
+    recommendation_run_id: Optional[str]
+    status: str
     advisor_id: str
     client_signed: int
     client_signed_at: Optional[str]

@@ -183,6 +183,10 @@ def ensure_runtime_columns() -> None:
             ('reference_data_provider', 'TEXT'),
             ('reference_data_refreshed_at', 'TEXT'),
         ],
+        'advisory_log': [
+            ('recommendation_run_id', 'TEXT'),
+            ('status', "TEXT NOT NULL DEFAULT 'Empfohlen'"),
+        ],
     }
     inspector = inspect(engine)
     with engine.begin() as conn:

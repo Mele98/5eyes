@@ -14,7 +14,7 @@ from models.review import (
 from models.allocation import OptimizerPolicy
 from schemas.review import (
     ReviewTriggerCreate, ReviewTriggerResolve, ReviewTriggerResponse,
-    AdvisoryLogCreate, AdvisoryLogResponse,
+    AdvisoryLogCreate, AdvisoryLogUpdate, AdvisoryLogResponse,
     ContractDocumentCreate, ContractDocumentSign, ContractDocumentResponse,
     ConflictDisclosureCreate, ConflictDisclosureResponse,
     ProductCreate, ProductResponse,
@@ -350,6 +350,38 @@ def create_advisory_log_entry(
 
 
 # ── Contract Documents ─────────────────────────────────────────────────────────
+
+@router.put("/advisory-log/{entry_id}", response_model=AdvisoryLogResponse)
+def update_advisory_log_entry(
+    entry_id: str,
+    body: AdvisoryLogUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_advisor)
+):
+    entry = db.query(AdvisoryLog).filter(AdvisoryLog.id == entry_id).first()
+    if not entry:
+        raise HTTPException(status_code=404, detail="Beratungsentscheid nicht gefunden")
+
+    _get_mandate_or_404(entry.mandate_id, db, current_user)
+    payload = body.model_dump(exclude_unset=True)
+
+    run_id = payload.get("recommendation_run_id")
+    if run_id:
+        run = db.query(RecommendationRun).filter(
+            RecommendationRun.id == run_id,
+            RecommendationRun.mandate_id == entry.mandate_id,
+        ).first()
+        if not run:
+            raise HTTPException(status_code=404, detail="Empfehlung nicht gefunden")
+
+    for field_name, value in payload.items():
+        setattr(entry, field_name, value)
+
+    entry.updated_at = _now()
+    db.commit()
+    db.refresh(entry)
+    return entry
+
 
 @router.get("/mandates/{mandate_id}/documents", response_model=list[ContractDocumentResponse])
 def list_documents(
