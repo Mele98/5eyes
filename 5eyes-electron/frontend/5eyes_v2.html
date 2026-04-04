@@ -2648,22 +2648,22 @@ function applyClaudeUxMidTermStructure(){
   var wealthSlot=vgPage.querySelector('[data-slot="wealth"]');
   if(wealthCard&&wealthSlot&&wealthCard.parentNode!==wealthSlot)wealthSlot.appendChild(wealthCard);
 
-  var ubPad=cfTemplate.querySelector('.pad');
-  var ubGrid=ubPad?ubPad.querySelector('div[style*="grid-template-columns:1fr 340px"]'):null;
-  var ubLeft=ubGrid?ubGrid.firstElementChild:null;
+  var templatePad=cfTemplate.querySelector('.pad');
+  var templateGrid=templatePad?templatePad.querySelector('div[style*="grid-template-columns:1fr 340px"]'):null;
+  var templateLeft=templateGrid?templateGrid.firstElementChild:null;
   var cfSlot=cfPage.querySelector('[data-slot="cashflows"]');
   var combinedSlot=document.getElementById('cf-goals-projection')||cfPage.querySelector('[data-slot="goals-projection"]');
-  if(ubLeft&&cfSlot){
-    Array.prototype.slice.call(ubLeft.children,0,2).forEach(function(card){
+  if(templateLeft&&cfSlot){
+    Array.prototype.slice.call(templateLeft.children,0,2).forEach(function(card){
       if(card&&card.classList&&card.classList.contains('card')&&card.parentNode!==cfSlot)cfSlot.appendChild(card);
     });
   }
-  var ubKpis=ubPad?ubPad.querySelector('.kpir'):null;
+  var templateKpis=templatePad?templatePad.querySelector('.kpir'):null;
   var cfRiskSummary=document.getElementById('cf-risk-context-summary');
   if(combinedSlot){
-    if(ubGrid)ubGrid.classList.add('projection-grid');
-    if(ubKpis&&ubKpis.parentNode!==combinedSlot)combinedSlot.appendChild(ubKpis);
-    if(ubGrid&&ubGrid.parentNode!==combinedSlot)combinedSlot.appendChild(ubGrid);
+    if(templateGrid)templateGrid.classList.add('projection-grid');
+    if(templateKpis&&templateKpis.parentNode!==combinedSlot)combinedSlot.appendChild(templateKpis);
+    if(templateGrid&&templateGrid.parentNode!==combinedSlot)combinedSlot.appendChild(templateGrid);
     if(cfRiskSummary&&cfRiskSummary.parentNode!==combinedSlot)combinedSlot.appendChild(cfRiskSummary);
   }
 
@@ -2681,10 +2681,10 @@ function applyClaudeUxMidTermStructure(){
   var sdNavNext=sdPage.querySelector('.cnav .btn-p');
   if(sdNavNext){sdNavNext.textContent='Vermögen →';sdNavNext.setAttribute('onclick',"go('vg')");}
 
-  var ubStep=document.querySelector('.tnav .tstep[data-page="ub"]');
-  if(ubStep){
-    ubStep.style.display='none';
-    var prevSep=ubStep.previousElementSibling;
+  var hiddenGoalsStep=document.querySelector('.tnav .tstep[data-page="ub"]');
+  if(hiddenGoalsStep){
+    hiddenGoalsStep.style.display='none';
+    var prevSep=hiddenGoalsStep.previousElementSibling;
     if(prevSep&&prevSep.classList&&prevSep.classList.contains('tsep'))prevSep.style.display='none';
   }
   var cfStep=document.querySelector('.tnav .tstep[data-page="cf"]');

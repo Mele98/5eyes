@@ -43,7 +43,7 @@ def test_combined_cashflow_projection_has_own_root_and_responsive_grid():
     assert 'id="page-ub"' not in html
     assert 'id="ub-review-strip"' not in html
     assert "#cf-goals-projection .projection-grid" in html
-    assert "if(ubGrid)ubGrid.classList.add('projection-grid');" in html
+    assert "if(templateGrid)templateGrid.classList.add('projection-grid');" in html
 
 
 def test_active_combined_step_logic_no_longer_uses_old_ub_runtime_hooks():
