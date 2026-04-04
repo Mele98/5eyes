@@ -160,6 +160,10 @@ def database_healthcheck(db: Session) -> dict[str, str]:
 
 def ensure_runtime_columns() -> None:
     additive_columns: dict[str, list[tuple[str, str]]] = {
+        'clients': [
+            ('investment_horizon_start', 'TEXT'),
+            ('investment_horizon_end', 'TEXT'),
+        ],
         'cashflows': [
             ('gross_amount_rappen', 'INTEGER'),
             ('tax_amount_rappen', 'INTEGER'),

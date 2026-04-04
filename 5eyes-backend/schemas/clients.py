@@ -9,6 +9,8 @@ class ClientCreate(BaseModel):
     first_name: str
     last_name: str
     date_of_birth: Optional[str] = None
+    investment_horizon_start: Optional[str] = None
+    investment_horizon_end: Optional[str] = None
     country_of_residence: str = "CH"
     canton: Optional[str] = None
     civil_status: Optional[str] = None
@@ -35,6 +37,8 @@ class ClientUpdate(BaseModel):
     first_name: Optional[str] = None
     last_name: Optional[str] = None
     date_of_birth: Optional[str] = None
+    investment_horizon_start: Optional[str] = None
+    investment_horizon_end: Optional[str] = None
     country_of_residence: Optional[str] = None
     canton: Optional[str] = None
     civil_status: Optional[str] = None
@@ -61,6 +65,8 @@ class ClientResponse(BaseResponse):
     first_name: str
     last_name: str
     date_of_birth: Optional[str]
+    investment_horizon_start: Optional[str]
+    investment_horizon_end: Optional[str]
     country_of_residence: str
     canton: Optional[str]
     civil_status: Optional[str]

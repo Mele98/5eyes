@@ -94,6 +94,8 @@ CREATE TABLE IF NOT EXISTS clients (
     first_name              TEXT NOT NULL,
     last_name               TEXT NOT NULL,
     date_of_birth           TEXT,
+    investment_horizon_start TEXT,
+    investment_horizon_end   TEXT,
     country_of_residence    TEXT NOT NULL DEFAULT 'CH' CHECK(length(country_of_residence) = 2),
     canton                  TEXT,
     civil_status            TEXT CHECK(civil_status IN (

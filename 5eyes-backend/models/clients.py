@@ -12,6 +12,8 @@ class Client(Base):
     first_name = Column(String, nullable=False)
     last_name = Column(String, nullable=False)
     date_of_birth = Column(String)
+    investment_horizon_start = Column(String)
+    investment_horizon_end = Column(String)
     country_of_residence = Column(String, nullable=False, default="CH")
     canton = Column(String)
     civil_status = Column(String)

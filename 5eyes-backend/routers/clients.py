@@ -99,7 +99,7 @@ def update_client(
     current_user: User = Depends(require_advisor)
 ):
     client = _get_client_or_404(client_id, db, current_user)
-    updates = body.model_dump(exclude_none=True)
+    updates = body.model_dump(exclude_unset=True)
     if "advisor_id" in updates and not has_global_client_access(current_user):
         if updates["advisor_id"] != current_user.id:
             raise HTTPException(status_code=403, detail="Berater duerfen Kunden nicht einem anderen Berater zuweisen")
