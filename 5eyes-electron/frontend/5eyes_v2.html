@@ -1345,7 +1345,8 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
             </div>
           </div>
         </div>
-        <div class="card"><div class="chd"><span class="cht">Entscheidungen &amp; Advisory-Log</span><button class="btn btn-sm" onclick="om('m-ne')">+ Eintrag</button></div><div class="cbody" id="rv-log-list"><div class="logi"><div class="logh"><div class="logt">Jahres-Review – Strategie bestätigt</div><div class="logm"><span class="logd">14.09.2025</span><span class="tag tg">Keine Transakt.</span></div></div><div class="logdesc">Strategie bestätigt. Aktien-Übergewichtung 6 Monate toleriert.</div></div><div class="logi"><div class="logh"><div class="logt">Quartals-Check Q1 2025</div><div class="logm"><span class="logd">12.03.2025</span><span class="tag tg">Keine Transakt.</span></div></div><div class="logdesc">Drift noch ±5%. PE zurückgestellt.</div></div><div class="logi"><div class="logh"><div class="logt">Event: Immobilienkauf Tochter</div><div class="logm"><span class="logd">08.11.2024</span><span class="tag ta">Anleihen +120k</span></div></div><div class="logdesc">Liquiditätsplanung 2027 initiiert. Anleihen CHF 120k umgeschichtet.</div></div></div></div>
+      <div class="card"><div class="chd"><span class="cht">Entscheidungen &amp; Advisory-Log</span><button class="btn btn-sm" onclick="om('m-ne')">+ Eintrag</button></div><div class="cbody" id="rv-log-list"><div class="logi"><div class="logh"><div class="logt">Jahres-Review – Strategie bestätigt</div><div class="logm"><span class="logd">14.09.2025</span><span class="tag tg">Keine Transakt.</span></div></div><div class="logdesc">Strategie bestätigt. Aktien-Übergewichtung 6 Monate toleriert.</div></div><div class="logi"><div class="logh"><div class="logt">Quartals-Check Q1 2025</div><div class="logm"><span class="logd">12.03.2025</span><span class="tag tg">Keine Transakt.</span></div></div><div class="logdesc">Drift noch ±5%. PE zurückgestellt.</div></div><div class="logi"><div class="logh"><div class="logt">Event: Immobilienkauf Tochter</div><div class="logm"><span class="logd">08.11.2024</span><span class="tag ta">Anleihen +120k</span></div></div><div class="logdesc">Liquiditätsplanung 2027 initiiert. Anleihen CHF 120k umgeschichtet.</div></div></div></div>
+      <div class="card" style="margin:0 24px 16px"><div class="chd"><span class="cht">Interessenkonflikte & Offenlegung</span><span style="font-size:9px;color:var(--n4);margin-left:8px">FIDLEG-nahe Governance vor Druck und Signatur</span></div><div class="cbody" id="rv-conflict-panel"><div style="font-size:10px;color:var(--n4);line-height:1.6">Keine Interessenkonflikte dokumentiert. Falls relevant, bitte Offenlegung vor Druck der finalen Unterlagen erfassen.</div></div></div>
       </div>
             <!-- VERTRÄGE & DOKUMENTE -->
       <div class="card" style="margin:0 24px 16px">
@@ -2582,6 +2583,8 @@ function go(p,b){
   }
   if(p==='al')setTimeout(function(){refreshStrategyData(false,false);},120);
   if(p==='po')setTimeout(function(){refreshStrategyData(false,true);},140);
+  if(p==='rv')setTimeout(function(){if(currentMandateId)refreshReviewUI(currentMandateId);},120);
+  if(p==='sr')setTimeout(function(){if(currentMandateId&&!isDemoMandateId(currentMandateId))refreshReviewUI(currentMandateId).catch(function(e){console.warn('sr-rv-sync:',e);});},80);
   if(p==='sr')setTimeout(function(){loadSrPage();},140);
   setTimeout(function(){normalizeVisibleMojibake(pg||document.body);},30);
 }
@@ -6835,7 +6838,7 @@ function joinNotes(parts){
     }
   }
   var currentWealthEditId=null;
-  var currentReviewState={triggers:[],logs:[],documents:[]};
+  var currentReviewState={triggers:[],logs:[],documents:[],conflicts:[]};
   var currentDecisionChoice='option_a';
   function formatDateSwiss(value){
     if(!value)return '—';
@@ -8728,7 +8731,7 @@ async function calculateInvestmentStrategy(){
     }
   }
 }
-function renderActionCards(buckets,reasoning,totalRappen,liveRebalancing){
+function renderActionCards(reasoning){
   var el=document.getElementById('aa-action-list');
   if(!el)return;
   var items=Array.isArray(reasoning)&&reasoning.length
@@ -8897,7 +8900,7 @@ function renderStrategySummary(){
   if(srProjValue&&srProjValue.previousElementSibling){
     srProjValue.previousElementSibling.textContent='Prognose '+String((sim&&sim.year_labels&&sim.year_labels[sim.year_labels.length-1])||'2033');
   }
-  setText('sr-strategy-name',risk&&risk.final_profile?('TBI / '+risk.final_profile):'TBI V1');
+  setText('sr-strategy-name',risk&&risk.final_profile?risk.final_profile:'Nicht definiert');
   setText('sr-horizon',risk&&risk.investment_horizon_years?(risk.investment_horizon_years+' Jahre'):'Langfristig');
   var bars=document.getElementById('sr-allocation-bars');
   if(bars){
@@ -8917,13 +8920,15 @@ function renderStrategySummary(){
 function renderSrImplementationDecision(entry){
   var steps=document.getElementById('sr-implementation-steps');
   if(!steps)return;
-  if(!entry){
+  var activeEntry=entry||((currentReviewState&&Array.isArray(currentReviewState.logs)&&currentReviewState.logs.length)?currentReviewState.logs[0]:null);
+  if(!activeEntry){
     steps.innerHTML='<div style="grid-column:1/-1;font-size:11px;color:var(--n5);line-height:1.6"><em>Noch kein Beratungsentscheid erfasst. Bitte auf der Review-Seite einen Entscheid dokumentieren.</em></div>';
     return;
   }
-  var when=formatDateSwiss(entry.entry_date||entry.created_at||'');
-  var notes=String(entry.description||'').trim();
-  steps.innerHTML='<div style="grid-column:1/-1;border:1px solid var(--b1);border-radius:var(--r2);padding:12px;background:var(--bg)"><div style="font-size:11px;color:var(--n8);line-height:1.7"><strong>'+escapeHtml(String(entry.entry_type||'Beratungsentscheid'))+' vom '+escapeHtml(when)+'</strong><br>Entscheid: '+escapeHtml(String(entry.decision||'Nicht definiert'))+(notes?'<br>'+escapeHtml(notes):'')+'</div></div>';
+  var when=formatDateSwiss(activeEntry.entry_date||activeEntry.created_at||'');
+  var notes=String(activeEntry.description||'').trim();
+  var status=String(activeEntry.status||'Empfohlen');
+  steps.innerHTML='<div style="grid-column:1/-1;border:1px solid var(--b1);border-radius:var(--r2);padding:12px;background:var(--bg)"><div style="font-size:11px;color:var(--n8);line-height:1.7"><strong>'+escapeHtml(String(activeEntry.entry_type||'Beratungsentscheid'))+' vom '+escapeHtml(when)+'</strong><br>Status: '+escapeHtml(status)+'<br>Entscheid: '+escapeHtml(String(activeEntry.decision||'Nicht definiert'))+(notes?'<br>'+escapeHtml(notes):'')+'</div></div>';
 }
 function renderSrApiSummary(risk,allocation,recommendation,cashflow,triggers){
   var activeAllocation=allocation||strategyState.allocation||null;
@@ -8963,11 +8968,7 @@ function renderSrApiSummary(risk,allocation,recommendation,cashflow,triggers){
   if(srProjValue&&srProjValue.previousElementSibling){
     srProjValue.previousElementSibling.textContent='Prognose '+String((sim&&sim.year_labels&&sim.year_labels[sim.year_labels.length-1])||'2033');
   }
-  var strategyName=(activeAllocation.house_matrix_profile||'Aktuelle Soll-Allokation');
-  if(activeRecommendation&&activeRecommendation.run&&activeRecommendation.run.run_type){
-    strategyName+=' · '+String(activeRecommendation.run.run_type);
-  }
-  setText('sr-strategy-name',strategyName);
+  setText('sr-strategy-name',activeRisk&&activeRisk.final_profile?activeRisk.final_profile:'Nicht definiert');
   setText('sr-horizon',activeRisk&&activeRisk.investment_horizon_years?(activeRisk.investment_horizon_years+' Jahre'):(sim&&sim.horizon_years?(sim.horizon_years+' Jahre'):'Langfristig'));
   var bars=document.getElementById('sr-allocation-bars');
   if(bars){
@@ -9020,20 +9021,18 @@ async function loadSrPage(){
       API.get('/mandates/'+mid+'/target-allocation/current/payload').catch(function(){return null;}),
       API.get('/mandates/'+mid+'/recommendations/current/payload').catch(function(){return null;}),
       API.get('/clients/'+cid+'/cashflow-summary').catch(function(){return null;}),
-      API.get('/mandates/'+mid+'/triggers').catch(function(){return [];}),
-      API.get('/mandates/'+mid+'/advisory-log').catch(function(){return [];})
+      API.get('/mandates/'+mid+'/triggers').catch(function(){return [];})
     ]);
     var risk=results[0];
     var allocation=results[1];
     var recommendation=results[2];
     var cashflow=results[3];
     var triggers=results[4];
-    var logs=results[5];
     if(risk)strategyState.risk=risk;
     if(allocation)strategyState.allocation=allocation;
     if(recommendation)strategyState.recommendation=recommendation;
     renderSrApiSummary(risk,allocation,recommendation,cashflow,triggers);
-    renderSrImplementationDecision(Array.isArray(logs)&&logs.length?logs[0]:null);
+    renderSrImplementationDecision(null);
   }catch(e){
     console.warn('loadSrPage summary:',e);
     if(strategyState.allocation)renderStrategySummary();
@@ -9112,7 +9111,7 @@ function applyAllocationEngineResultLegacy__unused(result){
   setText('aa-proj-cvar95',formatRiskLossBps(mc&&mc.target_cvar_95_1y_bps));
   setText('aa-proj-drawdown',formatRiskLossBps(mc&&mc.target_max_drawdown_p50_bps));
   setText('aa-proj-lossprob',formatProbabilityPct(mc&&mc.target_loss_probability_1y_pct));
-  renderActionCards(result.buckets,result.reasoning,result.advisory_wealth_rappen,liveRebalancingPayload(result));
+  renderActionCards(result.reasoning);
   renderEngineRuntimePanels(result);
   renderStrategySummary();
 }
@@ -9175,7 +9174,7 @@ function applyAllocationEngineResult(result){
   setText('aa-proj-cvar95',formatRiskLossBps(mc&&mc.target_cvar_95_1y_bps));
   setText('aa-proj-drawdown',formatRiskLossBps(mc&&mc.target_max_drawdown_p50_bps));
   setText('aa-proj-lossprob',formatProbabilityPct(mc&&mc.target_loss_probability_1y_pct));
-  renderActionCards(result.buckets,result.reasoning,result.advisory_wealth_rappen,liveRebalancingPayload(result));
+  renderActionCards(result.reasoning);
   renderEngineRuntimePanels(result);
   renderStrategySummary();
   normalizeVisibleMojibake(document.getElementById('page-al')||document.body);
@@ -9200,12 +9199,7 @@ function applyRecommendationEngineResult(result){
   var pageSubtitle=document.querySelector('#page-po .ph .ph-s');
   if(pageSubtitle)pageSubtitle.textContent='Produkt · Anlageklasse · Marktwert · Gewicht · Handlung';
   if(strategyState.allocation){
-    renderActionCards(
-      strategyState.allocation.buckets||[],
-      strategyState.allocation.reasoning||[],
-      strategyState.allocation.advisory_wealth_rappen||result.advisory_wealth_rappen||0,
-      live
-    );
+    renderActionCards(strategyState.allocation.reasoning||[]);
     renderEngineRuntimePanels(strategyState.allocation);
   }
   renderStrategySummary();
@@ -10248,7 +10242,7 @@ function renderTriggerBucket(targetId,triggers){
     return '<div class="trig '+(critical?'al':'')+'" style="padding:10px 14px;border-bottom:1px solid var(--b1)"><div class="trigh"><span class="trign">'+escapeHtml(trigger.trigger_name||'Trigger')+'</span><span class="tag '+tagClass+'">'+escapeHtml(tagLabel)+'</span></div><div class="trigd">'+escapeHtml(detail)+'</div>'+actions+'</div>';
   }).join('');
 }
-function renderAdvisoryLogList(logs){
+function renderAdvisoryLogListLegacy__unused(logs){
   var root=document.getElementById('rv-log-list');
   if(!root)return;
   var items=Array.isArray(logs)?logs:[];
@@ -10260,6 +10254,61 @@ function renderAdvisoryLogList(logs){
     var decision=entry.decision||entry.entry_type||'Dokumentiert';
     var tagClass=/keine/i.test(decision)?'tg':(/kauf|verkauf|umschichtung/i.test(decision)?'ta':'tn');
     return '<div class="logi"><div class="logh"><div class="logt">'+escapeHtml(entry.title||'Advisory-Eintrag')+'</div><div class="logm"><span class="logd">'+escapeHtml(formatDateSwiss(entry.entry_date))+'</span><span class="tag '+tagClass+'">'+escapeHtml(decision)+'</span></div></div><div class="logdesc">'+escapeHtml(entry.description||'Ohne Zusatzbegründung dokumentiert.')+'</div></div>';
+  }).join('');
+}
+function renderAdvisoryLogList(logs){
+  var root=document.getElementById('rv-log-list');
+  if(!root)return;
+  var items=Array.isArray(logs)?logs:[];
+  if(!items.length){
+    root.innerHTML='<div style="font-size:10px;color:var(--n4)">Noch keine Advisory-EintrÃ¤ge dokumentiert.</div>';
+    return;
+  }
+  root.innerHTML=items.map(function(entry){
+    var decision=entry.decision||entry.entry_type||'Dokumentiert';
+    var decisionClass=/keine/i.test(decision)?'tg':(/transaktion|kauf|verkauf|umschichtung/i.test(decision)?'ta':'tn');
+    var status=String(entry.status||'Empfohlen');
+    var statusClass=status==='Umgesetzt'?'tg':(status==='Beschlossen'?'tb':'ta');
+    var nextStatus=status==='Empfohlen'?'Beschlossen':(status==='Beschlossen'?'Umgesetzt':null);
+    var triggerMeta=entry.trigger_id?('Trigger: '+String(entry.trigger_id)):'Ohne Trigger-VerknÃ¼pfung';
+    var runMeta=entry.recommendation_run_id?('Run: '+String(entry.recommendation_run_id).slice(0,8)):'Kein Strategy-Run verknÃ¼pft';
+    var actions=nextStatus
+      ? '<button class="btn" type="button" onclick="advanceAdvisoryLogStatus(\''+escapeHtml(entry.id||'')+'\',\''+escapeHtml(nextStatus)+'\')" style="padding:4px 8px;font-size:10px">'+escapeHtml(nextStatus)+' setzen</button>'
+      : '<span style="font-size:10px;color:var(--pos);font-weight:500">Status abgeschlossen</span>';
+    return '<div class="logi" style="padding:10px 0"><div class="logh"><div class="logt">'+escapeHtml(entry.title||'Advisory-Eintrag')+'</div><div class="logm"><span class="logd">'+escapeHtml(formatDateSwiss(entry.entry_date||entry.created_at||''))+'</span><span class="tag '+decisionClass+'">'+escapeHtml(decision)+'</span><span class="tag '+statusClass+'">'+escapeHtml(status)+'</span></div></div><div class="logdesc">'+escapeHtml(entry.description||'Ohne ZusatzbegrÃ¼ndung dokumentiert.')+'</div><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap"><div style="font-size:9px;color:var(--n4)">'+escapeHtml(triggerMeta)+' · '+escapeHtml(runMeta)+'</div>'+actions+'</div></div>';
+  }).join('');
+}
+async function advanceAdvisoryLogStatus(logId,newStatus){
+  if(!logId||!newStatus)return;
+  var mid=getActiveMandateId();
+  if(!mid||isDemoMandateId(mid)){
+    currentReviewState.logs=(currentReviewState.logs||[]).map(function(entry){
+      if(String(entry.id||'')!==String(logId))return entry;
+      return Object.assign({},entry,{status:newStatus});
+    });
+    renderReviewState(currentReviewState);
+    return;
+  }
+  try{
+    await API.put('/mandates/'+mid+'/advisory-log/'+logId,{status:newStatus});
+    await refreshReviewUI(mid);
+    renderSrImplementationDecision(null);
+  }catch(e){
+    console.warn('advanceAdvisoryLogStatus:',e);
+  }
+}
+function renderConflictDisclosurePanel(conflicts){
+  var root=document.getElementById('rv-conflict-panel');
+  if(!root)return;
+  var items=Array.isArray(conflicts)?conflicts:[];
+  if(!items.length){
+    root.innerHTML='<div style="font-size:10px;color:var(--n4);line-height:1.6">Keine Interessenkonflikte dokumentiert. Falls relevant, bitte Offenlegung vor Druck der finalen Unterlagen erfassen.</div>';
+    return;
+  }
+  root.innerHTML=items.map(function(conflict){
+    var provider=conflict.inducement_provider?(' · '+String(conflict.inducement_provider)):'';
+    var mitigation=String(conflict.mitigation_action||'Keine Mitigation hinterlegt').trim();
+    return '<div style="padding:9px 0;border-bottom:1px solid var(--b1)"><div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start"><div style="font-size:11px;font-weight:500;color:var(--n8)">'+escapeHtml(conflict.conflict_type||'Interessenkonflikt')+escapeHtml(provider)+'</div><span class="tag '+(Number(conflict.disclosed_to_client||0)?'tg':'ta')+'">'+(Number(conflict.disclosed_to_client||0)?'Offengelegt':'Offen')+'</span></div><div style="font-size:10px;color:var(--n6);line-height:1.55;margin-top:4px">'+escapeHtml(conflict.description||'')+'</div><div style="font-size:9px;color:var(--n4);margin-top:6px">Mitigation: '+escapeHtml(mitigation)+'</div></div>';
   }).join('');
 }
 function renderDocumentGrid(documents){
@@ -10289,6 +10338,7 @@ function renderDocumentGrid(documents){
 }
 function renderReviewState(state){
   var triggers=(state&&state.triggers)||[];
+  var conflicts=(state&&state.conflicts)||[];
   var time=triggers.filter(function(item){return item.trigger_type==='Zeit';});
   var market=triggers.filter(function(item){return item.trigger_type==='Markt';});
   var event=triggers.filter(function(item){return item.trigger_type==='Ereignis';});
@@ -10299,6 +10349,7 @@ function renderReviewState(state){
   renderTriggerBucket('rv-trigger-market',market);
   renderTriggerBucket('rv-trigger-event',event);
   renderAdvisoryLogList((state&&state.logs)||[]);
+  renderConflictDisclosurePanel(conflicts);
   renderDocumentGrid((state&&state.documents)||[]);
   var counter=document.getElementById('trigger-count');
   if(counter)counter.textContent=String(triggers.filter(function(item){return String(item.status||'')!=='Erledigt';}).length)+' Trigger';
@@ -10313,8 +10364,9 @@ function buildDemoReviewState(){
       {id:'demo-trigger-event',trigger_type:'Ereignis',trigger_name:'Lebensevent / Zieländerung',status:'Aktiv',next_due_at:null}
     ],
     logs:[
-      {id:'demo-log-1',title:'Demo-Review für '+personaName,entry_date:baseDate,decision:'Keine Transaktion',description:'Demo-Modus: Review- und Governance-Daten werden nicht persistent gespeichert.',entry_type:'Sonstiges'}
+      {id:'demo-log-1',title:'Demo-Review für '+personaName,entry_date:baseDate,decision:'Keine Transaktion',description:'Demo-Modus: Review- und Governance-Daten werden nicht persistent gespeichert.',entry_type:'Sonstiges',status:'Empfohlen'}
     ],
+    conflicts:[],
     documents:[
       {id:'demo-doc-1',document_type:'Anlagestrategie',title:'Anlagestrategie (Demo)',status:'Entwurf',signed_by_advisor:0}
     ]
@@ -10338,14 +10390,19 @@ async function refreshReviewUI(mid){
     var results=await Promise.allSettled([
       API.get('/mandates/'+mid+'/triggers'),
       API.get('/mandates/'+mid+'/advisory-log'),
-      API.get('/mandates/'+mid+'/documents')
+      API.get('/mandates/'+mid+'/documents'),
+      API.get('/mandates/'+mid+'/conflict-disclosures').catch(function(){return API.get('/mandates/'+mid+'/conflicts');})
     ]);
     currentReviewState={
       triggers:results[0].status==='fulfilled'&&Array.isArray(results[0].value)?results[0].value:[],
       logs:results[1].status==='fulfilled'&&Array.isArray(results[1].value)?results[1].value:[],
-      documents:results[2].status==='fulfilled'&&Array.isArray(results[2].value)?results[2].value:[]
+      documents:results[2].status==='fulfilled'&&Array.isArray(results[2].value)?results[2].value:[],
+      conflicts:results[3].status==='fulfilled'&&Array.isArray(results[3].value)?results[3].value:[]
     };
     renderReviewState(currentReviewState);
+    if(document.getElementById('page-sr')&&document.getElementById('page-sr').classList.contains('active')){
+      renderSrImplementationDecision(null);
+    }
     normalizeVisibleMojibake(document.getElementById('page-rv')||document.body);
   }catch(e){
     console.warn('refreshReviewUI:',e);
@@ -10361,6 +10418,8 @@ async function saveAdvisoryLogEntry(){
   var btn=document.getElementById('btn-ne-save');
   var mid=getActiveMandateId();
   if(!title){showModalFeedback('ne-error',btn,'Bitte Anlass / Titel eingeben.',true);return;}
+  var currentRunId=(strategyState&&strategyState.recommendation&&strategyState.recommendation.run
+    ?strategyState.recommendation.run.id:null)||null;
   var descriptionText=description;
   if(decisionRaw&&decisionRaw!==decision){
     descriptionText=joinNotes(['Operative Ausprägung: '+decisionRaw,description]);
@@ -10371,21 +10430,36 @@ async function saveAdvisoryLogEntry(){
     description:descriptionText||null,
     decision:decision,
     trigger_id:triggerId,
-    entry_date:entryDate
+    entry_date:entryDate,
+    recommendation_run_id:currentRunId
   };
   if(btn){btn.disabled=true;btn.textContent='Speichern...';}
   if(mid&&!isDemoMandateId(mid)){
     try{
       await API.post('/mandates/'+mid+'/advisory-log',payload);
+      if(payload.trigger_id){
+        try{
+          await API.put('/mandates/'+mid+'/triggers/'+payload.trigger_id+'/resolve',
+            {decision:payload.decision||'Kein Handlungsbedarf',triggered_notes:payload.title});
+        }catch(e){console.warn('Trigger-Resolve:',e);}
+      }
       showModalFeedback('ne-error',btn,'✓ Protokolleintrag gespeichert',false);
       await refreshReviewUI(mid);
+      renderSrImplementationDecision(null);
       setTimeout(function(){cm('m-ne');},500);
     }catch(e){
       showModalFeedback('ne-error',btn,'Fehler: '+(e.detail||e.message||'?'),true);
     }
   } else {
-    currentReviewState.logs=[Object.assign({id:'demo-log-'+Date.now()},payload)].concat(currentReviewState.logs||[]);
+    currentReviewState.logs=[Object.assign({id:'demo-log-'+Date.now(),status:'Empfohlen'},payload)].concat(currentReviewState.logs||[]);
+    if(payload.trigger_id){
+      currentReviewState.triggers=(currentReviewState.triggers||[]).map(function(trigger){
+        if(String(trigger.id||'')!==String(payload.trigger_id))return trigger;
+        return Object.assign({},trigger,{status:'Erledigt',triggered_notes:payload.title});
+      });
+    }
     renderReviewState(currentReviewState);
+    renderSrImplementationDecision(currentReviewState.logs[0]||null);
     showModalFeedback('ne-error',btn,'✓ Demo-Modus: Eintrag ergänzt',false);
     setTimeout(function(){cm('m-ne');},700);
   }

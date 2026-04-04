@@ -645,6 +645,8 @@ def sign_document(
 
 # ── Conflicts of Interest ──────────────────────────────────────────────────────
 
+@router.get("/mandates/{mandate_id}/conflict-disclosures",
+            response_model=list[ConflictDisclosureResponse])
 @router.get("/mandates/{mandate_id}/conflicts",
             response_model=list[ConflictDisclosureResponse])
 def list_conflicts(
