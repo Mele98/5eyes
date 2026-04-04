@@ -12,20 +12,21 @@ SUPPORTED_FREQUENCIES = {
     "einmalig",
 }
 
+_TOKEN_FIXUPS = {
+    "ä": "ae",
+    "ö": "oe",
+    "ü": "ue",
+    "Ã¤": "ae",
+    "Ã¶": "oe",
+    "Ã¼": "ue",
+}
+
 
 def _normalize_token(value: str | None) -> str:
-    return (
-        str(value or "").strip().lower()
-        .replace("ä", "ae")
-        .replace("ö", "oe")
-        .replace("ü", "ue")
-        .replace("Ã¤", "ae")
-        .replace("Ã¶", "oe")
-        .replace("Ã¼", "ue")
-        .replace("?", "")
-        .replace(" ", "")
-        .replace("-", "")
-    )
+    normalized = str(value or "").strip().lower()
+    for source, target in _TOKEN_FIXUPS.items():
+        normalized = normalized.replace(source, target)
+    return normalized.replace("?", "").replace(" ", "").replace("-", "")
 
 
 def _parse_date(value: str | None) -> date | None:

@@ -19,6 +19,10 @@ from services.auth import get_current_user
 import uuid, datetime
 
 
+def _utc_now_iso() -> str:
+    return datetime.datetime.now(datetime.UTC).isoformat().replace("+00:00", "Z")
+
+
 @pytest.fixture()
 def session_factory(tmp_path):
     engine = create_engine(
@@ -58,7 +62,7 @@ def auth_client(session_factory, advisor_user):
 
 def _make_client(session_factory, advisor_id: str) -> str:
     cid = str(uuid.uuid4())
-    now = datetime.datetime.utcnow().isoformat() + "Z"
+    now = _utc_now_iso()
     with session_factory() as s:
         s.add(Client(
             id=cid, client_number="CF-001", first_name="Hans", last_name="Muster",
@@ -70,7 +74,7 @@ def _make_client(session_factory, advisor_id: str) -> str:
 
 def _add_cashflow(session_factory, client_id: str, amount_rappen: int,
                   cf_type: str = "Income", frequency: str = "Jährlich") -> None:
-    now = datetime.datetime.utcnow().isoformat() + "Z"
+    now = _utc_now_iso()
     with session_factory() as s:
         s.add(Cashflow(
             id=str(uuid.uuid4()), client_id=client_id,

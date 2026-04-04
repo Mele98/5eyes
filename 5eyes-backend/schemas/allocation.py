@@ -128,6 +128,7 @@ class CapitalMarketAssumptionCreate(BaseModel):
     liquidity_vol_bps: Optional[int] = None
     inflation_path_json: Optional[str] = None
     correlation_matrix_json: Optional[str] = None
+    sub_asset_class_assumptions_json: Optional[str] = None
     source: Optional[str] = "Portfolio Management intern"
     notes: Optional[str] = None
 
@@ -159,9 +160,18 @@ class CapitalMarketAssumptionResponse(BaseResponse):
     liquidity_vol_bps: Optional[int]
     inflation_path_json: Optional[str]
     correlation_matrix_json: Optional[str]
+    sub_asset_class_assumptions_json: Optional[str]
     source: Optional[str]
     notes: Optional[str]
     created_at: str
+
+
+class SubAssetClassAssumptionResponse(BaseModel):
+    asset_class: str
+    sub_asset_class: str
+    expected_return_bps: int
+    expected_volatility_bps: int
+    source: str
 
 
 class AllocationBandOverridePayload(BaseModel):
@@ -403,6 +413,7 @@ class TargetAllocationGenerateResponse(BaseModel):
     buckets: list[AllocationBucketResponse]
     sub_allocations: list[AllocationSubBucketResponse]
     asset_class_assumptions: list[AssetClassAssumptionResponse]
+    sub_asset_class_assumptions_reference: list[SubAssetClassAssumptionResponse]
     simulation: AllocationSimulationResponse
     monte_carlo: MonteCarloResponse
     goal_analysis: list[GoalAnalysisResponse]

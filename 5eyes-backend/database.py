@@ -171,6 +171,7 @@ def ensure_runtime_columns() -> None:
         ],
         'capital_market_assumptions': [
             ('correlation_matrix_json', 'TEXT'),
+            ('sub_asset_class_assumptions_json', 'TEXT'),
         ],
         'products': [
             ('lookup_mode_override', 'TEXT'),
