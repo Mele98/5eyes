@@ -39,6 +39,8 @@ def test_combined_cashflow_projection_has_own_root_and_responsive_grid():
 
     assert 'id="cf-goals-projection"' in html
     assert 'id="cf-risk-context-summary"' in html
+    assert 'id="cf-combined-template"' in html
+    assert 'id="page-ub"' not in html
     assert 'id="ub-review-strip"' not in html
     assert "#cf-goals-projection .projection-grid" in html
     assert "if(ubGrid)ubGrid.classList.add('projection-grid');" in html
@@ -51,5 +53,7 @@ def test_active_combined_step_logic_no_longer_uses_old_ub_runtime_hooks():
     assert "updateUbRiskContextSummary" not in html
     assert "function applyAllocationEngineResultLegacy(" not in html
     assert "normalizeVisibleMojibake(document.getElementById('page-cf')||document.body);" in html
+    assert "getElementById('page-ub')" not in html
+    assert "querySelector('#page-ub" not in html
     assert "#page-ub .g2,#page-al .g2" not in html
     assert "#page-ub .chart,#page-al .chart" not in html

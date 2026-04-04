@@ -858,8 +858,8 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 
 
 
-    <!-- PAGE: ZIELE & PROGNOSE -->
-    <div id="page-ub" class="page" style="display:none">
+    <!-- TEMPLATE: CASHFLOWS & ZIELE LEGACY CONTENT -->
+    <div id="cf-combined-template" style="display:none">
       <div class="ph"><div><div class="ph-t">Ziele &amp; Prognose</div><div class="ph-s">Zielarchitektur / Vermögensentwicklung / Zielpfad</div></div><div class="ph-r"><button class="btn" onclick="om('m-rep')">Report</button><button class="btn-p" onclick="go('rp')">Risikoprofil</button></div></div>
       <div class="pad">
         <div class="kpir">
@@ -2624,8 +2624,6 @@ function normalizeVisibleMojibake(root){
 let priv=false;
 function toggleP(){priv=!priv;document.getElementById('sbl').classList.toggle('blurred',priv);document.getElementById('pb').textContent=priv?'Einblenden':'Ausblenden';}
 function applyClaudeUxQuickWins(){
-  var ubSubtitle=document.querySelector('#page-ub .ph-s');
-  if(ubSubtitle)ubSubtitle.textContent='Zielarchitektur / Vermögensentwicklung / Zielpfad';
   var prefSummary=document.getElementById('sd-pref-summary');
   if(prefSummary){
     var prefBody=prefSummary.parentElement;
@@ -2635,8 +2633,6 @@ function applyClaudeUxQuickWins(){
     var prefCopy=prefSummary.nextElementSibling;
     if(prefCopy)prefCopy.textContent='ESG, Ausschlüsse, Währung, Tilts und Bandbreiten werden in der Asset Allocation fachlich definiert. Von hier aus gehst du direkt in den nächsten Schritt.';
   }
-  var ubStrip=document.querySelector('#page-ub .strip');
-  if(ubStrip)ubStrip.style.display='none';
 }
 
 function applyClaudeUxMidTermStructure(){
@@ -2644,15 +2640,15 @@ function applyClaudeUxMidTermStructure(){
   var sdPage=document.getElementById('page-sd');
   var vgPage=document.getElementById('page-vg');
   var cfPage=document.getElementById('page-cf');
-  var ubPage=document.getElementById('page-ub');
+  var cfTemplate=document.getElementById('cf-combined-template');
   var rpPage=document.getElementById('page-rp');
-  if(!content||!sdPage||!vgPage||!cfPage||!ubPage||!rpPage)return;
+  if(!content||!sdPage||!vgPage||!cfPage||!cfTemplate||!rpPage)return;
 
   var wealthCard=sdPage.querySelector('.pad > .card.mb');
   var wealthSlot=vgPage.querySelector('[data-slot="wealth"]');
   if(wealthCard&&wealthSlot&&wealthCard.parentNode!==wealthSlot)wealthSlot.appendChild(wealthCard);
 
-  var ubPad=ubPage.querySelector('.pad');
+  var ubPad=cfTemplate.querySelector('.pad');
   var ubGrid=ubPad?ubPad.querySelector('div[style*="grid-template-columns:1fr 340px"]'):null;
   var ubLeft=ubGrid?ubGrid.firstElementChild:null;
   var cfSlot=cfPage.querySelector('[data-slot="cashflows"]');
@@ -2685,28 +2681,17 @@ function applyClaudeUxMidTermStructure(){
   var sdNavNext=sdPage.querySelector('.cnav .btn-p');
   if(sdNavNext){sdNavNext.textContent='Vermögen →';sdNavNext.setAttribute('onclick',"go('vg')");}
 
-  var ubHeaderTitle=ubPage.querySelector('.ph-t');
-  if(ubHeaderTitle)ubHeaderTitle.textContent='Ziele & Prognose';
-  var ubHeaderSubtitle=ubPage.querySelector('.ph-s');
-  if(ubHeaderSubtitle)ubHeaderSubtitle.textContent='Zielarchitektur · Vermögensentwicklung · Zielpfad';
-  var ubHeaderNext=ubPage.querySelector('.ph-r .btn-p');
-  if(ubHeaderNext){ubHeaderNext.textContent='Risikoprofil';ubHeaderNext.setAttribute('onclick',"go('rp')");}
-  var ubNavBack=ubPage.querySelector('.cnav .btn');
-  if(ubNavBack)ubNavBack.setAttribute('onclick',"go('cf')");
   var ubStep=document.querySelector('.tnav .tstep[data-page="ub"]');
   if(ubStep){
     ubStep.style.display='none';
     var prevSep=ubStep.previousElementSibling;
     if(prevSep&&prevSep.classList&&prevSep.classList.contains('tsep'))prevSep.style.display='none';
   }
-  ubPage.style.display='none';
   var cfStep=document.querySelector('.tnav .tstep[data-page="cf"]');
   if(cfStep){
     var cfLabel=cfStep.childNodes[1];
     if(cfLabel&&cfLabel.nodeType===Node.TEXT_NODE)cfLabel.nodeValue='Cashflows & Ziele';
   }
-  var ubNavNext=ubPage.querySelector('.cnav .btn-p');
-  if(ubNavNext){ubNavNext.textContent='Risikoprofil →';ubNavNext.setAttribute('onclick',"go('rp')");}
 
   var rpHeaderNext=rpPage.querySelector('.ph-r .btn-p');
   if(rpHeaderNext){rpHeaderNext.textContent='Asset Allokation →';rpHeaderNext.setAttribute('onclick',"go('al')");}
@@ -9098,7 +9083,7 @@ function applyAllocationEngineResultLegacy__unused(result){
     targetCagrBps:cagrBps,
     horizonLabel:String((sim&&sim.year_labels&&sim.year_labels[sim.year_labels.length-1])||'2033')
   });
-  var overviewIstKpi=document.querySelector('#page-ub .kpir .kpi:last-child');
+  var overviewIstKpi=document.querySelector('#cf-goals-projection .kpir .kpi:last-child');
   if(overviewIstKpi){
     var overviewLabel=overviewIstKpi.querySelector('.kl');
     var overviewValue=overviewIstKpi.querySelector('.kv');
