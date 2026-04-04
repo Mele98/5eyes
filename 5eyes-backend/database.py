@@ -188,10 +188,6 @@ def ensure_runtime_columns() -> None:
             ('reference_data_provider', 'TEXT'),
             ('reference_data_refreshed_at', 'TEXT'),
         ],
-        'advisory_log': [
-            ('recommendation_run_id', 'TEXT'),
-            ('status', "TEXT NOT NULL DEFAULT 'Empfohlen'"),
-        ],
     }
     inspector = inspect(engine)
     with engine.begin() as conn:
@@ -202,6 +198,25 @@ def ensure_runtime_columns() -> None:
                     continue
                 conn.execute(text(f'ALTER TABLE {table_name} ADD COLUMN {column_name} {sql_type}'))
                 existing.add(column_name)
+
+
+def run_advisory_log_migration(target_engine: Engine = engine) -> None:
+    inspector = inspect(target_engine)
+    if not inspector.has_table('advisory_log'):
+        return
+
+    with target_engine.connect() as conn:
+        result = conn.execute(text("PRAGMA table_info(advisory_log)"))
+        existing = {row[1] for row in result.fetchall()}
+        if "recommendation_run_id" not in existing:
+            conn.execute(text(
+                "ALTER TABLE advisory_log ADD COLUMN recommendation_run_id TEXT"
+            ))
+        if "status" not in existing:
+            conn.execute(text(
+                "ALTER TABLE advisory_log ADD COLUMN status TEXT NOT NULL DEFAULT 'Empfohlen'"
+            ))
+        conn.commit()
 
 
 def ensure_audit_log_actions(target_engine: Engine = engine) -> None:
@@ -253,4 +268,5 @@ def init_db() -> None:
 
     Base.metadata.create_all(bind=engine)
     ensure_runtime_columns()
+    run_advisory_log_migration(engine)
     ensure_audit_log_actions()

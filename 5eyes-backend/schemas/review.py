@@ -55,7 +55,7 @@ class AdvisoryLogCreate(BaseModel):
     ]] = None
     trigger_id: Optional[str] = None
     recommendation_run_id: Optional[str] = None
-    status: Optional[str] = "Empfohlen"
+    status: Optional[Literal["Empfohlen", "Beschlossen", "Umgesetzt"]] = None
     client_signed: bool = False
     client_signed_at: Optional[str] = None
     document_id: Optional[str] = None
@@ -69,13 +69,14 @@ class AdvisoryLogCreate(BaseModel):
 
 
 class AdvisoryLogUpdate(BaseModel):
+    status: Optional[Literal["Empfohlen", "Beschlossen", "Umgesetzt"]] = None
     recommendation_run_id: Optional[str] = None
-    status: Optional[str] = None
+    description: Optional[str] = None
 
     @model_validator(mode="after")
-    def validate_partial_update(self):
-        if not self.model_fields_set:
-            raise ValueError("Mindestens ein Feld muss uebergeben werden")
+    def at_least_one_field(self):
+        if self.status is None and self.recommendation_run_id is None and self.description is None:
+            raise ValueError("Mindestens ein Feld muss angegeben werden")
         return self
 
 

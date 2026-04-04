@@ -177,7 +177,7 @@ def test_advisory_log_status_transition_empfohlen_to_beschlossen(session_factory
     entry_id = create_response.json()["id"]
 
     response = auth_client.put(
-        f"/advisory-log/{entry_id}",
+        f"/mandates/{mandate_id}/advisory-log/{entry_id}",
         json={"status": "Beschlossen"},
     )
 
@@ -201,7 +201,7 @@ def test_advisory_log_status_transition_beschlossen_to_umgesetzt(session_factory
     entry_id = create_response.json()["id"]
 
     response = auth_client.put(
-        f"/advisory-log/{entry_id}",
+        f"/mandates/{mandate_id}/advisory-log/{entry_id}",
         json={"status": "Umgesetzt"},
     )
 

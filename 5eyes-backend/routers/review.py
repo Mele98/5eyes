@@ -487,14 +487,18 @@ def create_advisory_log_entry(
 ):
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
     now = _now()
+    if body.recommendation_run_id:
+        _get_recommendation_run_or_404(mandate_id, body.recommendation_run_id, db, current_user)
+    excluded = {"client_signed", "entry_date", "status"}
     entry = AdvisoryLog(
         id=new_uuid(), mandate_id=mandate_id,
         advisor_id=current_user.id,
         entry_date=body.entry_date or date.today().isoformat(),
         client_signed=1 if body.client_signed else 0,
+        status=body.status or "Empfohlen",
         created_at=now, updated_at=now,
         **{k: v for k, v in body.model_dump().items()
-           if k not in ("client_signed", "entry_date")}
+           if k not in excluded}
     )
     db.add(entry)
     log(db, user_id=current_user.id, user_name=current_user.full_name,
@@ -513,33 +517,62 @@ def create_advisory_log_entry(
 
 # ── Contract Documents ─────────────────────────────────────────────────────────
 
-@router.put("/advisory-log/{entry_id}", response_model=AdvisoryLogResponse)
+_STATUS_TRANSITIONS = {
+    "Empfohlen": {"Beschlossen"},
+    "Beschlossen": {"Umgesetzt"},
+    "Umgesetzt": set(),
+}
+
+
+@router.put("/mandates/{mandate_id}/advisory-log/{log_id}", response_model=AdvisoryLogResponse)
 def update_advisory_log_entry(
-    entry_id: str,
+    mandate_id: str,
+    log_id: str,
     body: AdvisoryLogUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor)
 ):
-    entry = db.query(AdvisoryLog).filter(AdvisoryLog.id == entry_id).first()
+    _get_mandate_or_404(mandate_id, db, current_user)
+    entry = db.query(AdvisoryLog).filter(
+        AdvisoryLog.id == log_id,
+        AdvisoryLog.mandate_id == mandate_id,
+    ).first()
     if not entry:
-        raise HTTPException(status_code=404, detail="Beratungsentscheid nicht gefunden")
+        raise HTTPException(status_code=404, detail="Advisory-Log-Eintrag nicht gefunden")
 
-    _get_mandate_or_404(entry.mandate_id, db, current_user)
-    payload = body.model_dump(exclude_unset=True)
+    now = _now()
+    if body.status is not None:
+        current_status = entry.status or "Empfohlen"
+        allowed = _STATUS_TRANSITIONS.get(current_status, set())
+        if body.status not in allowed:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"Übergang '{current_status}'→'{body.status}' nicht erlaubt. "
+                    f"Erlaubt: {sorted(allowed) or ['keine weiteren']}"
+                ),
+            )
+        log(
+            db,
+            user_id=current_user.id,
+            user_name=current_user.full_name,
+            table_name="advisory_log",
+            record_id=log_id,
+            action="UPDATE",
+            field_name="status",
+            old_value=entry.status,
+            new_value=body.status,
+            mandate_id=mandate_id,
+        )
+        entry.status = body.status
+    if body.recommendation_run_id is not None:
+        if body.recommendation_run_id:
+            _get_recommendation_run_or_404(mandate_id, body.recommendation_run_id, db, current_user)
+        entry.recommendation_run_id = body.recommendation_run_id
+    if body.description is not None:
+        entry.description = body.description
 
-    run_id = payload.get("recommendation_run_id")
-    if run_id:
-        run = db.query(RecommendationRun).filter(
-            RecommendationRun.id == run_id,
-            RecommendationRun.mandate_id == entry.mandate_id,
-        ).first()
-        if not run:
-            raise HTTPException(status_code=404, detail="Empfehlung nicht gefunden")
-
-    for field_name, value in payload.items():
-        setattr(entry, field_name, value)
-
-    entry.updated_at = _now()
+    entry.updated_at = now
     db.commit()
     db.refresh(entry)
     return entry
