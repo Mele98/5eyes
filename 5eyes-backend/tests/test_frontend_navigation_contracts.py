@@ -25,3 +25,10 @@ def test_frontend_navigation_keeps_nine_step_page_sequence():
     html = HTML_PATH.read_text(encoding="utf-8")
 
     assert "const pages={sd:0,vg:1,cf:2,ub:3,rp:4,al:5,po:6,rv:7,sr:8};" in html
+
+
+def test_summary_recipe_print_binding_uses_explicit_button_id():
+    html = HTML_PATH.read_text(encoding="utf-8")
+
+    assert 'id="sr-recipe-print"' in html
+    assert "var summaryRecipePrint=document.getElementById('sr-recipe-print');" in html
