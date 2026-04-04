@@ -32,3 +32,22 @@ def test_summary_recipe_print_binding_uses_explicit_button_id():
 
     assert 'id="sr-recipe-print"' in html
     assert "var summaryRecipePrint=document.getElementById('sr-recipe-print');" in html
+
+
+def test_combined_cashflow_projection_has_own_root_and_responsive_grid():
+    html = HTML_PATH.read_text(encoding="utf-8")
+
+    assert 'id="cf-goals-projection"' in html
+    assert "#cf-goals-projection .projection-grid" in html
+    assert "if(ubGrid)ubGrid.classList.add('projection-grid');" in html
+
+
+def test_active_combined_step_logic_no_longer_uses_old_ub_runtime_hooks():
+    html = HTML_PATH.read_text(encoding="utf-8")
+
+    assert "updateCfRiskContextSummary" in html
+    assert "updateUbRiskContextSummary" not in html
+    assert "function applyAllocationEngineResultLegacy(" not in html
+    assert "normalizeVisibleMojibake(document.getElementById('page-cf')||document.body);" in html
+    assert "#page-ub .g2,#page-al .g2" not in html
+    assert "#page-ub .chart,#page-al .chart" not in html
