@@ -83,6 +83,15 @@ class RiskAssessmentOverride(BaseModel):
     override_warning_document_id: Optional[str] = None
 
 
+class RiskAssessmentAnswerResponse(BaseResponse):
+    id: str
+    question_number: int
+    question_section: str
+    answer_label: str
+    answer_points: int
+    created_at: str
+
+
 class RiskAssessmentResponse(BaseResponse):
     id: str
     mandate_id: str
@@ -90,12 +99,19 @@ class RiskAssessmentResponse(BaseResponse):
     is_current: int
     valid_from: str
     # Risikofähigkeit
+    q_income_points: int
+    q_obligations_points: int
+    q_savings_points: int
+    q_wealth_points: int
     risk_capacity_total: int
     risk_capacity_profile: str
     investment_horizon_years: int
     investment_horizon_label: str
     risk_capacity_score_x10: int
     # Risikobereitschaft
+    q_investment_goal_points: int
+    q_risk_preference_points: int
+    q_risk_behavior_points: int
     risk_willingness_total: int
     risk_willingness_profile: str
     risk_willingness_score_x10: int
@@ -113,6 +129,7 @@ class RiskAssessmentResponse(BaseResponse):
     assessed_at: str
     assessed_by: str
     created_at: str
+    answers: list[RiskAssessmentAnswerResponse] = []
 
 
 # ── Suitability Check ──────────────────────────────────────────────────────────

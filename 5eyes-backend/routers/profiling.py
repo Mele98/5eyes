@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from datetime import date, datetime, timezone
 from database import get_db, new_uuid
 from models.users import User
@@ -106,7 +106,9 @@ def list_risk_assessments(
     current_user: User = Depends(get_current_user)
 ):
     _get_mandate_or_404(mandate_id, db, current_user)
-    return db.query(RiskAssessment).filter(
+    return db.query(RiskAssessment).options(
+        selectinload(RiskAssessment.answers)
+    ).filter(
         RiskAssessment.mandate_id == mandate_id,
         RiskAssessment.deleted_at.is_(None)
     ).order_by(RiskAssessment.assessed_at.desc()).all()
@@ -119,7 +121,9 @@ def get_current_risk_assessment(
     current_user: User = Depends(get_current_user)
 ):
     _get_mandate_or_404(mandate_id, db, current_user)
-    ra = db.query(RiskAssessment).filter(
+    ra = db.query(RiskAssessment).options(
+        selectinload(RiskAssessment.answers)
+    ).filter(
         RiskAssessment.mandate_id == mandate_id,
         RiskAssessment.is_current == 1,
         RiskAssessment.deleted_at.is_(None)
@@ -218,8 +222,9 @@ def create_risk_assessment(
         table_name="risk_assessments", record_id=ra.id, action="CREATE",
         mandate_id=mandate_id, client_id=mandate.client_id)
     db.commit()
-    db.refresh(ra)
-    return ra
+    return db.query(RiskAssessment).options(
+        selectinload(RiskAssessment.answers)
+    ).filter(RiskAssessment.id == ra.id).one()
 
 
 @router.post("/mandates/{mandate_id}/risk-assessments/{ra_id}/override",

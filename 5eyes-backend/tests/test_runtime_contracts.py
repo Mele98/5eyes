@@ -29,7 +29,7 @@ from models.wealth import Cashflow, Goal, WealthPosition
 from price_updater import fetch_latest_price, refresh_all_prices, summarize_price_quality
 from routers.auth import get_adviser_registration
 from routers.clients import cashflow_summary
-from routers.profiling import create_risk_assessment
+from routers.profiling import create_risk_assessment, get_current_risk_assessment
 from routers.review import active_triggers, create_advisory_log_entry, create_trigger, dashboard_summary
 from routers.review import auto_apply_product_id_mappings, auto_apply_product_reference_data
 from routers.wealth import create_cashflow, create_goal, create_wealth_position, delete_cashflow
@@ -622,6 +622,60 @@ def test_risk_assessment_runtime_endpoint_logic_returns_scored_payload(session_f
     assert result.risk_willingness_score_x10 == 100
     assert result.final_score_x10 == 100
     assert result.final_profile == "Aktien"
+
+
+def test_risk_assessment_current_includes_raw_points_and_answers(session_factory, advisor_user):
+    _, mandate_id = seed_client_and_mandate(session_factory, advisor_user)
+
+    payload = RiskAssessmentCreate(
+        q_income_points=3,
+        q_obligations_points=0,
+        q_savings_points=9,
+        q_wealth_points=6,
+        investment_horizon_label="8 bis 11 Jahre",
+        investment_horizon_years=9,
+        q_investment_goal_points=3,
+        q_risk_preference_points=3,
+        q_risk_behavior_points=4,
+        answers=[
+            {
+                "question_number": 1,
+                "question_section": "Kenntnisse & Erfahrungen",
+                "answer_label": "Aktien, Anlagefonds",
+                "answer_points": 2,
+            },
+            {
+                "question_number": 12,
+                "question_section": "Risikobereitschaft",
+                "answer_label": "Langfristig investiert, eventuell nachkaufen",
+                "answer_points": 4,
+            },
+        ],
+    )
+
+    with session_factory() as session:
+        create_risk_assessment(
+            mandate_id=mandate_id,
+            body=payload,
+            db=session,
+            current_user=advisor_user,
+        )
+        current = get_current_risk_assessment(
+            mandate_id=mandate_id,
+            db=session,
+            current_user=advisor_user,
+        )
+
+    assert current.q_income_points == 3
+    assert current.q_obligations_points == 0
+    assert current.q_savings_points == 9
+    assert current.q_wealth_points == 6
+    assert current.q_investment_goal_points == 3
+    assert current.q_risk_preference_points == 3
+    assert current.q_risk_behavior_points == 4
+    assert [answer.question_number for answer in current.answers] == [1, 12]
+    assert current.answers[0].answer_label == "Aktien, Anlagefonds"
+    assert current.answers[1].answer_points == 4
 
 
 def test_foundation_example_case_is_generation_ready_and_idempotent(session_factory, advisor_user):

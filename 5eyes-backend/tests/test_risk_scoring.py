@@ -127,3 +127,96 @@ def test_fzk_horizon_labels_map_cleanly_into_scoring_matrix():
     assert result.risk_capacity_total == 24
     assert result.risk_capacity_profile == "Dynamisch"
     assert result.risk_capacity_score_x10 == 60
+
+
+def test_willingness_questions_are_monotonic_across_all_four_answers():
+    scores = []
+    for goal_points in (1, 2, 3, 4):
+        result = compute_scores(
+            q_income_points=4,
+            q_obligations_points=0,
+            q_savings_points=12,
+            q_wealth_points=12,
+            investment_horizon_label="Mehr als 12 Jahre",
+            q_investment_goal_points=goal_points,
+            q_risk_preference_points=1,
+            q_risk_behavior_points=1,
+        )
+        scores.append(result.risk_willingness_score_x10)
+
+    assert scores == [10, 20, 30, 40]
+
+
+def test_capacity_horizon_is_binding_even_when_willingness_is_maximal():
+    short_horizon = compute_scores(
+        q_income_points=4,
+        q_obligations_points=0,
+        q_savings_points=12,
+        q_wealth_points=12,
+        investment_horizon_label="0 bis 4 Jahre",
+        q_investment_goal_points=4,
+        q_risk_preference_points=4,
+        q_risk_behavior_points=4,
+    )
+    long_horizon = compute_scores(
+        q_income_points=4,
+        q_obligations_points=0,
+        q_savings_points=12,
+        q_wealth_points=12,
+        investment_horizon_label="12 Jahre und mehr",
+        q_investment_goal_points=4,
+        q_risk_preference_points=4,
+        q_risk_behavior_points=4,
+    )
+
+    assert short_horizon.risk_willingness_score_x10 == 100
+    assert long_horizon.risk_willingness_score_x10 == 100
+    assert short_horizon.risk_capacity_score_x10 < long_horizon.risk_capacity_score_x10
+    assert short_horizon.final_score_x10 < long_horizon.final_score_x10
+
+
+def test_final_score_stays_flat_when_non_binding_side_changes_only():
+    capacity_bound = compute_scores(
+        q_income_points=1,
+        q_obligations_points=0,
+        q_savings_points=3,
+        q_wealth_points=3,
+        investment_horizon_label="8 bis 11 Jahre",
+        q_investment_goal_points=4,
+        q_risk_preference_points=4,
+        q_risk_behavior_points=4,
+    )
+    willingness_changed_only = compute_scores(
+        q_income_points=1,
+        q_obligations_points=0,
+        q_savings_points=3,
+        q_wealth_points=3,
+        investment_horizon_label="8 bis 11 Jahre",
+        q_investment_goal_points=2,
+        q_risk_preference_points=4,
+        q_risk_behavior_points=4,
+    )
+    capacity_improved = compute_scores(
+        q_income_points=4,
+        q_obligations_points=0,
+        q_savings_points=12,
+        q_wealth_points=12,
+        investment_horizon_label="8 bis 11 Jahre",
+        q_investment_goal_points=4,
+        q_risk_preference_points=4,
+        q_risk_behavior_points=4,
+    )
+
+    assert capacity_bound.final_score_x10 == capacity_bound.risk_capacity_score_x10
+    assert willingness_changed_only.risk_willingness_score_x10 < capacity_bound.risk_willingness_score_x10
+    assert willingness_changed_only.final_score_x10 == capacity_bound.final_score_x10
+    assert capacity_improved.risk_capacity_score_x10 > capacity_bound.risk_capacity_score_x10
+    assert capacity_improved.final_score_x10 > capacity_bound.final_score_x10
+
+
+def test_surplus_thresholds_cover_all_bands():
+    assert map_surplus_points(1000, 1100) == 0
+    assert map_surplus_points(1000, 950) == 1
+    assert map_surplus_points(1000, 850) == 2
+    assert map_surplus_points(1000, 700) == 3
+    assert map_surplus_points(1000, 500) == 4
