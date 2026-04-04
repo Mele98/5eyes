@@ -2555,7 +2555,7 @@ async function initApp() {
 // ─── LIVE PRICES (Yahoo Finance via allorigins proxy) ───
 // ─── PRINT / PDF REPORT ───
 // NAV
-const pages={sd:0,vg:1,cf:2,ub:2,rp:3,al:4,po:5,rv:6,sr:7};
+const pages={sd:0,vg:1,cf:2,ub:3,rp:4,al:5,po:6,rv:7,sr:8};
 function go(p,b){
   if(p==='ub')p='cf';
   Object.keys(pages).forEach(k=>{const el=document.getElementById('page-'+k);if(el)el.classList.remove('active');});
@@ -3933,7 +3933,7 @@ async function runtimeProtokolliereEreignis(){
       setTimeout(function(){
         cm('m-ev');
         if(action==='risk')go('rp');
-        if(action==='goals')go('uz');
+        if(action==='goals')go('cf');
       },500);
     }catch(e){
       showModalFeedback('ev-error',btn,'Fehler: '+(e.detail||e.message||'?'),true);
@@ -3958,7 +3958,7 @@ async function runtimeProtokolliereEreignis(){
     setTimeout(function(){
       cm('m-ev');
       if(action==='risk')go('rp');
-      if(action==='goals')go('uz');
+      if(action==='goals')go('cf');
     },700);
   }
 }
