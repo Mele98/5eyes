@@ -43,7 +43,23 @@ router = APIRouter(tags=["Review & Dokumente"])
 products_router = APIRouter(prefix="/products", tags=["Produkte"])
 recommendations_router = APIRouter(tags=["Empfehlungen"])
 dashboard_router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
-ACTIVE_TRIGGER_STATUS_VALUES = ("Ausgelöst", "Ausgeloest", "AusgelÃ¶st", "AusgelÃƒÂ¶st")
+
+
+def _legacy_text_variants(value: str) -> tuple[str, ...]:
+    variants = {value}
+    variants.add(
+        value.replace("ä", "ae").replace("ö", "oe").replace("ü", "ue")
+    )
+    try:
+        latin1_variant = value.encode("utf-8").decode("latin1")
+        variants.add(latin1_variant)
+        variants.add(latin1_variant.encode("utf-8").decode("latin1"))
+    except UnicodeError:
+        pass
+    return tuple(item for item in variants if item)
+
+
+ACTIVE_TRIGGER_STATUS_VALUES = _legacy_text_variants("Ausgelöst")
 
 
 def _now() -> str:
@@ -70,6 +86,42 @@ def _get_recommendation_run_or_404(
     return run
 
 
+def _get_product_or_404(product_id: str, db: Session) -> Product:
+    product = db.query(Product).filter(
+        Product.id == product_id,
+        Product.deleted_at.is_(None),
+    ).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Produkt nicht gefunden")
+    return product
+
+
+def _active_products_query(db: Session):
+    return db.query(Product).filter(Product.deleted_at.is_(None), Product.is_active == 1)
+
+
+def _get_trigger_or_404(mandate_id: str, trigger_id: str, db: Session) -> ReviewTrigger:
+    trigger = db.query(ReviewTrigger).filter(
+        ReviewTrigger.id == trigger_id,
+        ReviewTrigger.mandate_id == mandate_id,
+        ReviewTrigger.deleted_at.is_(None),
+    ).first()
+    if not trigger:
+        raise HTTPException(status_code=404, detail="Trigger nicht gefunden")
+    return trigger
+
+
+def _get_document_or_404(mandate_id: str, doc_id: str, db: Session) -> ContractDocument:
+    document = db.query(ContractDocument).filter(
+        ContractDocument.id == doc_id,
+        ContractDocument.mandate_id == mandate_id,
+        ContractDocument.deleted_at.is_(None),
+    ).first()
+    if not document:
+        raise HTTPException(status_code=404, detail="Dokument nicht gefunden")
+    return document
+
+
 def _normalize_holding_date(value: str | None) -> str | None:
     raw = str(value or "").strip()[:10]
     return raw or None
@@ -87,6 +139,22 @@ def _reference_context(product: Product) -> dict[str, str | None]:
         "symbol": product.symbol,
         "exchange_code": product.exchange_code,
         "currency": product.currency,
+    }
+
+
+def _openfigi_context(
+    product: Product | None,
+    *,
+    isin: str | None,
+    symbol: str | None,
+    currency: str | None,
+) -> dict[str, str | None]:
+    return {
+        "product_id": product.id if product else None,
+        "product_name": product.product_name if product else None,
+        "isin": isin or (product.isin if product else None),
+        "symbol": symbol or (product.symbol if product else None),
+        "currency": currency or (product.currency if product else None),
     }
 
 
@@ -116,10 +184,110 @@ def _apply_reference_candidate(
     product.updated_at = now
 
 
+def _apply_openfigi_candidate(
+    *,
+    product: Product,
+    candidate: dict,
+    now: str,
+    overwrite_symbol: bool,
+) -> None:
+    product.figi = candidate.get("figi")
+    product.composite_figi = candidate.get("composite_figi")
+    product.share_class_figi = candidate.get("share_class_figi")
+    product.exchange_code = candidate.get("exch_code")
+    product.market_sector = candidate.get("market_sector")
+    product.security_type = candidate.get("security_type")
+    product.security_type2 = candidate.get("security_type2")
+    product.mapping_provider = "openfigi"
+    product.mapping_resolved_at = now
+    if (not product.symbol or overwrite_symbol) and candidate.get("ticker"):
+        product.symbol = candidate.get("ticker")
+    product.updated_at = now
+
+
+def _preview_openfigi_or_raise(
+    *,
+    product: Product | None,
+    isin: str | None,
+    symbol: str | None,
+    exchange_code: str | None,
+    mic_code: str | None,
+    currency: str | None,
+) -> dict:
+    try:
+        return preview_openfigi_mapping(
+            isin=isin or (product.isin if product else None),
+            symbol=symbol or (product.symbol if product else None),
+            exchange_code=exchange_code or (product.exchange_code if product else None),
+            mic_code=mic_code,
+            currency=currency or (product.currency if product else None),
+            context=_openfigi_context(
+                product,
+                isin=isin,
+                symbol=symbol,
+                currency=currency,
+            ),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+
+
+def _preview_eodhd_or_raise(
+    *,
+    product: Product | None,
+    isin: str | None,
+    symbol: str | None,
+    product_name: str | None,
+    exchange_code: str | None,
+    currency: str | None,
+) -> dict:
+    context = _reference_context(product) if product else {
+        "isin": isin,
+        "symbol": symbol,
+        "product_name": product_name,
+        "exchange_code": exchange_code,
+        "currency": currency,
+    }
+    try:
+        return preview_eodhd_reference(
+            isin=isin or (product.isin if product else None),
+            symbol=symbol or (product.symbol if product else None),
+            product_name=product_name or (product.product_name if product else None),
+            exchange_code=exchange_code or (product.exchange_code if product else None),
+            currency=currency or (product.currency if product else None),
+            context=context,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+
+
+def _select_preview_candidate(
+    *,
+    preview: dict,
+    candidate_index: int,
+    preferred_figi: str | None = None,
+    empty_detail: str,
+) -> dict:
+    candidates = list(preview.get("candidates") or [])
+    if not candidates:
+        raise HTTPException(status_code=409, detail=preview.get("warning") or preview.get("error") or empty_detail)
+    if preferred_figi:
+        selected = next((item for item in candidates if item.get("figi") == preferred_figi), None)
+        if selected is None:
+            raise HTTPException(status_code=409, detail="Bevorzugter FIGI-Kandidat nicht gefunden")
+        return selected
+    if candidate_index >= len(candidates):
+        raise HTTPException(status_code=409, detail="candidate_index ausserhalb der gefundenen Kandidaten")
+    return candidates[candidate_index]
+
+
 def _collect_product_market_data_status(db: Session) -> dict:
     products = (
-        db.query(Product)
-        .filter(Product.deleted_at.is_(None), Product.is_active == 1)
+        _active_products_query(db)
         .order_by(Product.product_name.asc())
         .all()
     )
@@ -282,13 +450,7 @@ def resolve_trigger(
     current_user: User = Depends(require_advisor)
 ):
     _get_mandate_or_404(mandate_id, db, current_user)
-    trigger = db.query(ReviewTrigger).filter(
-        ReviewTrigger.id == trigger_id,
-        ReviewTrigger.mandate_id == mandate_id,
-        ReviewTrigger.deleted_at.is_(None)
-    ).first()
-    if not trigger:
-        raise HTTPException(status_code=404, detail="Trigger nicht gefunden")
+    trigger = _get_trigger_or_404(mandate_id, trigger_id, db)
     now = _now()
     trigger.status = "Erledigt"
     trigger.last_triggered_at = now
@@ -432,13 +594,7 @@ def sign_document(
     current_user: User = Depends(require_advisor)
 ):
     _get_mandate_or_404(mandate_id, db, current_user)
-    doc = db.query(ContractDocument).filter(
-        ContractDocument.id == doc_id,
-        ContractDocument.mandate_id == mandate_id,
-        ContractDocument.deleted_at.is_(None)
-    ).first()
-    if not doc:
-        raise HTTPException(status_code=404, detail="Dokument nicht gefunden")
+    doc = _get_document_or_404(mandate_id, doc_id, db)
     now = _now()
     if body.signed_by_advisor:
         doc.signed_by_advisor = 1
@@ -504,7 +660,7 @@ def list_products(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    q = db.query(Product).filter(Product.deleted_at.is_(None), Product.is_active == 1)
+    q = _active_products_query(db)
     if asset_class:
         q = q.filter(Product.asset_class == asset_class)
     return q.order_by(Product.asset_class, Product.product_name).all()
@@ -537,12 +693,7 @@ def set_product_market_override(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    product = db.query(Product).filter(
-        Product.id == product_id,
-        Product.deleted_at.is_(None),
-    ).first()
-    if not product:
-        raise HTTPException(status_code=404, detail="Produkt nicht gefunden")
+    product = _get_product_or_404(product_id, db)
     product.lookup_mode_override = body.lookup_mode_override or None
     product.lookup_symbol_override = body.lookup_symbol_override.strip() if body.lookup_symbol_override else None
     product.updated_at = _now()
@@ -581,30 +732,15 @@ def resolve_product_id_mapping(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    product = None
-    if body.product_id:
-        product = db.query(Product).filter(Product.id == body.product_id).first()
-        if not product:
-            raise HTTPException(status_code=404, detail="Produkt nicht gefunden")
-    try:
-        return preview_openfigi_mapping(
-            isin=body.isin or (product.isin if product else None),
-            symbol=body.symbol or (product.symbol if product else None),
-            exchange_code=body.exchange_code,
-            mic_code=body.mic_code,
-            currency=body.currency or (product.currency if product else None),
-            context={
-                "product_id": product.id if product else None,
-                "product_name": product.product_name if product else None,
-                "isin": body.isin or (product.isin if product else None),
-                "symbol": body.symbol or (product.symbol if product else None),
-                "currency": body.currency or (product.currency if product else None),
-            },
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
-    except RuntimeError as exc:
-        raise HTTPException(status_code=502, detail=str(exc))
+    product = _get_product_or_404(body.product_id, db) if body.product_id else None
+    return _preview_openfigi_or_raise(
+        product=product,
+        isin=body.isin,
+        symbol=body.symbol,
+        exchange_code=body.exchange_code,
+        mic_code=body.mic_code,
+        currency=body.currency,
+    )
 
 
 @products_router.post("/openfigi/apply", response_model=ProductIdMappingApplyResponse)
@@ -613,56 +749,28 @@ def apply_product_id_mapping(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    product = db.query(Product).filter(Product.id == body.product_id).first()
-    if not product:
-        raise HTTPException(status_code=404, detail="Produkt nicht gefunden")
-    try:
-        preview = preview_openfigi_mapping(
-            isin=body.isin or product.isin,
-            symbol=body.symbol or product.symbol,
-            exchange_code=body.exchange_code or product.exchange_code,
-            mic_code=body.mic_code,
-            currency=body.currency or product.currency,
-            context={
-                "product_id": product.id,
-                "product_name": product.product_name,
-                "isin": body.isin or product.isin,
-                "symbol": body.symbol or product.symbol,
-                "currency": body.currency or product.currency,
-            },
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
-    except RuntimeError as exc:
-        raise HTTPException(status_code=502, detail=str(exc))
-
-    candidates = list(preview.get("candidates") or [])
-    if not candidates:
-        raise HTTPException(status_code=409, detail=preview.get("warning") or preview.get("error") or "Kein Mapping-Kandidat gefunden")
-
-    selected = None
-    if body.preferred_figi:
-        selected = next((item for item in candidates if item.get("figi") == body.preferred_figi), None)
-        if selected is None:
-            raise HTTPException(status_code=409, detail="Bevorzugter FIGI-Kandidat nicht gefunden")
-    elif body.candidate_index >= len(candidates):
-        raise HTTPException(status_code=409, detail="candidate_index ausserhalb der gefundenen Kandidaten")
-    else:
-        selected = candidates[body.candidate_index]
-
+    product = _get_product_or_404(body.product_id, db)
+    preview = _preview_openfigi_or_raise(
+        product=product,
+        isin=body.isin,
+        symbol=body.symbol,
+        exchange_code=body.exchange_code,
+        mic_code=body.mic_code,
+        currency=body.currency,
+    )
+    selected = _select_preview_candidate(
+        preview=preview,
+        candidate_index=body.candidate_index,
+        preferred_figi=body.preferred_figi,
+        empty_detail="Kein Mapping-Kandidat gefunden",
+    )
     now = _now()
-    product.figi = selected.get("figi")
-    product.composite_figi = selected.get("composite_figi")
-    product.share_class_figi = selected.get("share_class_figi")
-    product.exchange_code = selected.get("exch_code")
-    product.market_sector = selected.get("market_sector")
-    product.security_type = selected.get("security_type")
-    product.security_type2 = selected.get("security_type2")
-    product.mapping_provider = "openfigi"
-    product.mapping_resolved_at = now
-    product.updated_at = now
-    if (not product.symbol or body.overwrite_symbol) and selected.get("ticker"):
-        product.symbol = selected.get("ticker")
+    _apply_openfigi_candidate(
+        product=product,
+        candidate=selected,
+        now=now,
+        overwrite_symbol=body.overwrite_symbol,
+    )
     log(
         db,
         user_id=current_user.id,
@@ -689,10 +797,8 @@ def auto_apply_product_id_mappings(
     current_user: User = Depends(require_admin),
 ):
     products = (
-        db.query(Product)
+        _active_products_query(db)
         .filter(
-            Product.deleted_at.is_(None),
-            Product.is_active == 1,
             Product.isin.is_not(None),
             (Product.symbol.is_(None) | (Product.symbol == "")),
         )
@@ -706,17 +812,13 @@ def auto_apply_product_id_mappings(
     failed_count = 0
     for product in products:
         try:
-            preview = preview_openfigi_mapping(
+            preview = _preview_openfigi_or_raise(
+                product=product,
                 isin=product.isin,
                 symbol=None,
                 exchange_code=product.exchange_code,
+                mic_code=None,
                 currency=product.currency,
-                context={
-                    "product_id": product.id,
-                    "product_name": product.product_name,
-                    "isin": product.isin,
-                    "currency": product.currency,
-                },
             )
         except Exception as exc:
             failed_count += 1
@@ -761,18 +863,12 @@ def auto_apply_product_id_mappings(
             continue
 
         now = _now()
-        product.figi = selected.get("figi")
-        product.composite_figi = selected.get("composite_figi")
-        product.share_class_figi = selected.get("share_class_figi")
-        product.exchange_code = selected.get("exch_code")
-        product.market_sector = selected.get("market_sector")
-        product.security_type = selected.get("security_type")
-        product.security_type2 = selected.get("security_type2")
-        product.mapping_provider = "openfigi"
-        product.mapping_resolved_at = now
-        if (not product.symbol or body.overwrite_symbol) and selected.get("ticker"):
-            product.symbol = selected.get("ticker")
-        product.updated_at = now
+        _apply_openfigi_candidate(
+            product=product,
+            candidate=selected,
+            now=now,
+            overwrite_symbol=body.overwrite_symbol,
+        )
         applied_count += 1
         items.append(
             {
@@ -811,30 +907,15 @@ def resolve_product_reference_data(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    product = None
-    if body.product_id:
-        product = db.query(Product).filter(Product.id == body.product_id).first()
-        if not product:
-            raise HTTPException(status_code=404, detail="Produkt nicht gefunden")
-    try:
-        return preview_eodhd_reference(
-            isin=body.isin or (product.isin if product else None),
-            symbol=body.symbol or (product.symbol if product else None),
-            product_name=body.product_name or (product.product_name if product else None),
-            exchange_code=body.exchange_code or (product.exchange_code if product else None),
-            currency=body.currency or (product.currency if product else None),
-            context=_reference_context(product) if product else {
-                "isin": body.isin,
-                "symbol": body.symbol,
-                "product_name": body.product_name,
-                "exchange_code": body.exchange_code,
-                "currency": body.currency,
-            },
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
-    except RuntimeError as exc:
-        raise HTTPException(status_code=502, detail=str(exc))
+    product = _get_product_or_404(body.product_id, db) if body.product_id else None
+    return _preview_eodhd_or_raise(
+        product=product,
+        isin=body.isin,
+        symbol=body.symbol,
+        product_name=body.product_name,
+        exchange_code=body.exchange_code,
+        currency=body.currency,
+    )
 
 
 @products_router.post("/eodhd/apply", response_model=ProductReferenceApplyResponse)
@@ -843,29 +924,20 @@ def apply_product_reference_data(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    product = db.query(Product).filter(Product.id == body.product_id).first()
-    if not product:
-        raise HTTPException(status_code=404, detail="Produkt nicht gefunden")
-    try:
-        preview = preview_eodhd_reference(
-            isin=body.isin or product.isin,
-            symbol=body.symbol or product.symbol,
-            product_name=body.product_name or product.product_name,
-            exchange_code=body.exchange_code or product.exchange_code,
-            currency=body.currency or product.currency,
-            context=_reference_context(product),
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
-    except RuntimeError as exc:
-        raise HTTPException(status_code=502, detail=str(exc))
-
-    candidates = list(preview.get("candidates") or [])
-    if not candidates:
-        raise HTTPException(status_code=409, detail=preview.get("warning") or "Kein Referenzdaten-Kandidat gefunden")
-    if body.candidate_index >= len(candidates):
-        raise HTTPException(status_code=409, detail="candidate_index ausserhalb der gefundenen Kandidaten")
-    selected = candidates[body.candidate_index]
+    product = _get_product_or_404(body.product_id, db)
+    preview = _preview_eodhd_or_raise(
+        product=product,
+        isin=body.isin,
+        symbol=body.symbol,
+        product_name=body.product_name,
+        exchange_code=body.exchange_code,
+        currency=body.currency,
+    )
+    selected = _select_preview_candidate(
+        preview=preview,
+        candidate_index=body.candidate_index,
+        empty_detail="Kein Referenzdaten-Kandidat gefunden",
+    )
     now = _now()
     _apply_reference_candidate(
         product=product,
@@ -901,10 +973,8 @@ def auto_apply_product_reference_data(
     current_user: User = Depends(require_admin),
 ):
     products = (
-        db.query(Product)
+        _active_products_query(db)
         .filter(
-            Product.deleted_at.is_(None),
-            Product.is_active == 1,
             (Product.reference_data_provider.is_(None) | (Product.reference_data_provider == "")),
         )
         .order_by(Product.updated_at.asc(), Product.product_name.asc())
@@ -917,13 +987,13 @@ def auto_apply_product_reference_data(
     failed_count = 0
     for product in products:
         try:
-            preview = preview_eodhd_reference(
+            preview = _preview_eodhd_or_raise(
+                product=product,
                 isin=product.isin,
                 symbol=product.symbol,
                 product_name=product.product_name,
                 exchange_code=product.exchange_code,
                 currency=product.currency,
-                context=_reference_context(product),
             )
         except Exception as exc:
             failed_count += 1
@@ -1162,9 +1232,7 @@ def add_position(
     run = _get_recommendation_run_or_404(mandate_id, run_id, db, current_user)
     if run.result_status == "Final":
         raise HTTPException(status_code=400, detail="Finalisierte Runs können nicht mehr geändert werden")
-    product = db.query(Product).filter(Product.id == body.product_id).first()
-    if not product:
-        raise HTTPException(status_code=404, detail="Produkt nicht gefunden")
+    product = _get_product_or_404(body.product_id, db)
     now = _now()
     pos = RecommendationPosition(
         id=new_uuid(), run_id=run_id,
