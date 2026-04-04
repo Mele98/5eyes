@@ -1396,6 +1396,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
             <div style="font-size:9px;font-weight:500;letter-spacing:0.09em;text-transform:uppercase;color:var(--n4);margin-bottom:6px">Prognose 2033</div>
             <div id="sr-proj-wealth" style="font-family:var(--f-d);font-size:22px;font-weight:500;color:var(--pos)">CHF 6.1 Mio</div>
             <div id="sr-proj-sub" style="font-size:11px;color:var(--n5);margin-top:2px">Nach Umsetzung Soll</div>
+            <div id="sr-next-review" style="font-size:10px;color:var(--n4);margin-top:5px">Nächster Review: offen</div>
           </div>
         </div>
 
@@ -8894,20 +8895,118 @@ function renderSrImplementationDecision(entry){
   var notes=String(entry.description||'').trim();
   steps.innerHTML='<div style="grid-column:1/-1;border:1px solid var(--b1);border-radius:var(--r2);padding:12px;background:var(--bg)"><div style="font-size:11px;color:var(--n8);line-height:1.7"><strong>'+escapeHtml(String(entry.entry_type||'Beratungsentscheid'))+' vom '+escapeHtml(when)+'</strong><br>Entscheid: '+escapeHtml(String(entry.decision||'Nicht definiert'))+(notes?'<br>'+escapeHtml(notes):'')+'</div></div>';
 }
+function renderSrApiSummary(risk,allocation,recommendation,cashflow,triggers){
+  var activeAllocation=allocation||strategyState.allocation||null;
+  var activeRisk=risk||strategyState.risk||null;
+  var activeRecommendation=recommendation||strategyState.recommendation||null;
+  if(!activeAllocation){
+    renderStrategySummary();
+    return;
+  }
+  var advisoryChf=Math.round(Number(activeAllocation.advisory_wealth_rappen||0)/100);
+  var totalChf=Math.round(Number(activeAllocation.total_wealth_rappen||0)/100);
+  var sim=simulationPayload(activeAllocation);
+  var projectedRappen=simulationTerminalRappen(activeAllocation,'target_mix_series_rappen',7);
+  var scoredGoals=Array.isArray(activeAllocation.goal_analysis)?activeAllocation.goal_analysis:[];
+  var scoreWeightTotal=scoredGoals.reduce(function(sum,item){return sum+Math.max(1,Number(item.weight_bps||0));},0);
+  var avgGoalScore=scoreWeightTotal
+    ? Math.round(scoredGoals.reduce(function(sum,item){return sum+(Math.max(1,Number(item.weight_bps||0))*Number(item.achievement_score||0));},0)/scoreWeightTotal)
+    : 0;
+  var endangered=scoredGoals.filter(function(item){return Number(item.achievement_score||0)<45;}).length;
+  var goalSubParts=[];
+  if(cashflow&&cashflow.surplus_rappen!=null)goalSubParts.push('Netto-Cashflow '+formatRappen(cashflow.surplus_rappen)+' p.a.');
+  if(endangered)goalSubParts.push(String(endangered)+' Ziel(e) gefährdet');
+  if(!goalSubParts.length)goalSubParts.push('Noch keine belastbare Zielauswertung');
+  if(activeRisk){
+    setText('sr-risk-score',Math.round(Number(activeRisk.final_score_x10||0)/10)+' / 10');
+    setText('sr-risk-profile',activeRisk.final_profile||'Nicht definiert');
+    var ovr=document.getElementById('sr-ovr-badge');
+    if(ovr)ovr.style.display=Number(activeRisk.is_overridden||0)?'block':'none';
+  }
+  setText('sr-wealth',formatCompactCHF(advisoryChf));
+  setText('sr-wealth-share',totalChf?Math.round(advisoryChf/Math.max(1,totalChf)*100)+'% des Reinvermögens':'Kein Gesamtvermögen verfügbar');
+  setText('sr-goal-score',avgGoalScore+'%');
+  setText('sr-goal-sub',goalSubParts.join(' · '));
+  setText('sr-proj-wealth',formatCompactCHF(projectedRappen/100));
+  setText('sr-proj-sub',sim?('Terminal Value bis '+String((sim.year_labels&&sim.year_labels[sim.year_labels.length-1])||'')):'Aktuelle Soll-Allokation');
+  var srProjValue=document.getElementById('sr-proj-wealth');
+  if(srProjValue&&srProjValue.previousElementSibling){
+    srProjValue.previousElementSibling.textContent='Prognose '+String((sim&&sim.year_labels&&sim.year_labels[sim.year_labels.length-1])||'2033');
+  }
+  var strategyName=(activeAllocation.house_matrix_profile||'Aktuelle Soll-Allokation');
+  if(activeRecommendation&&activeRecommendation.run&&activeRecommendation.run.run_type){
+    strategyName+=' · '+String(activeRecommendation.run.run_type);
+  }
+  setText('sr-strategy-name',strategyName);
+  setText('sr-horizon',activeRisk&&activeRisk.investment_horizon_years?(activeRisk.investment_horizon_years+' Jahre'):(sim&&sim.horizon_years?(sim.horizon_years+' Jahre'):'Langfristig'));
+  var bars=document.getElementById('sr-allocation-bars');
+  if(bars){
+    bars.innerHTML=(activeAllocation.buckets||[]).map(function(bucket){
+      var pct=Math.max(0,Math.min(100,Math.round(Number(bucket.target_weight_bps||0)/100)));
+      var targetValue=formatRappen(Number(bucket.target_amount_rappen||0));
+      return '<div style="display:grid;grid-template-columns:90px 1fr 54px 86px;gap:6px;align-items:center">'
+        +'<span style="font-size:10px;color:var(--n6)">'+escapeHtml(assetDisplayName(bucket.asset_class))+'</span>'
+        +'<div style="height:6px;background:var(--bg2);border-radius:3px"><div style="width:'+pct+'%;height:100%;background:var(--n5);border-radius:3px"></div></div>'
+        +'<span style="font-size:10px;font-weight:500;color:var(--n7);text-align:right">'+formatBpsPercent(bucket.target_weight_bps)+'</span>'
+        +'<span style="font-size:10px;color:var(--n5);text-align:right">'+escapeHtml(targetValue)+'</span>'
+        +'</div>';
+    }).join('');
+  }
+  var goals=document.getElementById('sr-goal-priority-list');
+  if(goals){
+    goals.innerHTML=scoredGoals.slice(0,3).map(function(goal){
+      var color=Number(goal.achievement_score||0)>=70?'var(--pos)':(Number(goal.achievement_score||0)>=45?'var(--warn)':'var(--neg)');
+      return '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:8px;background:var(--bg);border-radius:var(--r);border:1px solid var(--b1)"><div><span style="font-size:9px;font-weight:600;color:var(--n5);margin-right:6px">RANG '+escapeHtml(goal.rank)+'</span><span style="font-size:11px;color:var(--n8)">'+escapeHtml(goal.label||'Ziel')+'</span></div><div style="text-align:right"><div style="font-size:10px;font-weight:600;color:'+color+'">'+escapeHtml(String(goal.achievement_score||0))+'%</div><div style="font-size:10px;color:var(--n5);margin-top:4px">'+escapeHtml(strategyGoalTargetText(goal))+'</div></div></div>';
+    }).join('');
+  }
+  var nextReviewEl=document.getElementById('sr-next-review');
+  if(nextReviewEl){
+    var nextReview=(Array.isArray(triggers)?triggers:[]).filter(function(trigger){
+      return String(trigger.trigger_type||'')==='Zeit' && String(trigger.status||'')!=='Erledigt';
+    }).sort(function(a,b){
+      return String(a.next_due_at||'9999-12-31').localeCompare(String(b.next_due_at||'9999-12-31'));
+    })[0]||null;
+    nextReviewEl.textContent=nextReview&&nextReview.next_due_at
+      ? ('Nächster Review: '+formatDateSwiss(nextReview.next_due_at))
+      : 'Nächster Review: noch nicht geplant';
+  }
+}
 async function loadSrPage(){
-  if(strategyState.allocation)renderStrategySummary();
   var steps=document.getElementById('sr-implementation-steps');
-  if(!steps)return;
   var mid=getActiveMandateId();
-  if(!mid||isDemoMandateId(mid)){
+  var cid=getActiveClientId();
+  if(!steps){
+    if(strategyState.allocation)renderStrategySummary();
+    return;
+  }
+  if(!mid||!cid||isDemoMandateId(mid)||isDemoClientId(cid)){
+    if(strategyState.allocation)renderStrategySummary();
     renderSrImplementationDecision(null);
     return;
   }
   try{
-    var logs=await API.get('/mandates/'+mid+'/advisory-log');
+    var results=await Promise.all([
+      API.get('/mandates/'+mid+'/risk-assessments/current').catch(function(){return null;}),
+      API.get('/mandates/'+mid+'/target-allocation/current/payload').catch(function(){return null;}),
+      API.get('/mandates/'+mid+'/recommendations/current/payload').catch(function(){return null;}),
+      API.get('/clients/'+cid+'/cashflow-summary').catch(function(){return null;}),
+      API.get('/mandates/'+mid+'/triggers').catch(function(){return [];}),
+      API.get('/mandates/'+mid+'/advisory-log').catch(function(){return [];})
+    ]);
+    var risk=results[0];
+    var allocation=results[1];
+    var recommendation=results[2];
+    var cashflow=results[3];
+    var triggers=results[4];
+    var logs=results[5];
+    if(risk)strategyState.risk=risk;
+    if(allocation)strategyState.allocation=allocation;
+    if(recommendation)strategyState.recommendation=recommendation;
+    renderSrApiSummary(risk,allocation,recommendation,cashflow,triggers);
     renderSrImplementationDecision(Array.isArray(logs)&&logs.length?logs[0]:null);
   }catch(e){
-    console.warn('loadSrPage advisory log:',e);
+    console.warn('loadSrPage summary:',e);
+    if(strategyState.allocation)renderStrategySummary();
     renderSrImplementationDecision(null);
   }
 }
