@@ -861,7 +861,6 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
     <!-- PAGE: ZIELE & PROGNOSE -->
     <div id="page-ub" class="page" style="display:none">
       <div class="ph"><div><div class="ph-t">Ziele &amp; Prognose</div><div class="ph-s">Zielarchitektur / Vermögensentwicklung / Zielpfad</div></div><div class="ph-r"><button class="btn" onclick="om('m-rep')">Report</button><button class="btn-p" onclick="go('rp')">Risikoprofil</button></div></div>
-      <div class="strip strip-e" id="ub-review-strip" style="display:none"><div><div class="st">2 Review-Trigger aktiv</div><div class="ss">Drift +8.2% seit 14. Nov / Jahres-Review 42 Tage überfällig</div></div><button class="btn-p" onclick="go('rv')">Im Review beurteilen</button></div>
       <div class="pad">
         <div class="kpir">
           <div class="kpi" onclick="go('vg')" title="Zu Vermögen" style="cursor:pointer"><div class="kl">Reinvermögen</div><div class="kv" id="kpi-reinvermoegen">CHF 3.9 Mio</div><div class="ks"><span class="g">+340k</span> seit Review</div></div>
@@ -935,7 +934,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
           </div>
         </div>
       </div>
-      <div id="ub-risk-context-summary" style="margin:0 24px 12px;padding:10px 14px;background:var(--bg);border:1px solid var(--b1);border-radius:var(--r2);font-size:10px;color:var(--n5);line-height:1.6">
+      <div id="cf-risk-context-summary" style="margin:0 24px 12px;padding:10px 14px;background:var(--bg);border:1px solid var(--b1);border-radius:var(--r2);font-size:10px;color:var(--n5);line-height:1.6">
         <!-- wird dynamisch befüllt -->
       </div>
       <div class="cnav"><button class="btn" onclick="go('cf')">← Zurück</button><button class="btn-p" onclick="go('rp')">Risikoprofil →</button></div>
@@ -2664,12 +2663,12 @@ function applyClaudeUxMidTermStructure(){
     });
   }
   var ubKpis=ubPad?ubPad.querySelector('.kpir'):null;
-  var ubRiskSummary=document.getElementById('ub-risk-context-summary');
+  var cfRiskSummary=document.getElementById('cf-risk-context-summary');
   if(combinedSlot){
     if(ubGrid)ubGrid.classList.add('projection-grid');
     if(ubKpis&&ubKpis.parentNode!==combinedSlot)combinedSlot.appendChild(ubKpis);
     if(ubGrid&&ubGrid.parentNode!==combinedSlot)combinedSlot.appendChild(ubGrid);
-    if(ubRiskSummary&&ubRiskSummary.parentNode!==combinedSlot)combinedSlot.appendChild(ubRiskSummary);
+    if(cfRiskSummary&&cfRiskSummary.parentNode!==combinedSlot)combinedSlot.appendChild(cfRiskSummary);
   }
 
   var cfHeaderTitle=cfPage.querySelector('.ph-t');
@@ -5720,7 +5719,7 @@ function markGoalHorizonBasis(sourceLabel){
 }
 
 function updateCfRiskContextSummary(){
-  var el=document.getElementById('ub-risk-context-summary');
+  var el=document.getElementById('cf-risk-context-summary');
   if(!el)return;
   var derived=inferGoalBasedRiskHorizon();
   var horizonText=derived?(derived.label+' ('+derived.sourceLabel+')'):'Noch nicht ableitbar';

@@ -38,6 +38,8 @@ def test_combined_cashflow_projection_has_own_root_and_responsive_grid():
     html = HTML_PATH.read_text(encoding="utf-8")
 
     assert 'id="cf-goals-projection"' in html
+    assert 'id="cf-risk-context-summary"' in html
+    assert 'id="ub-review-strip"' not in html
     assert "#cf-goals-projection .projection-grid" in html
     assert "if(ubGrid)ubGrid.classList.add('projection-grid');" in html
 
