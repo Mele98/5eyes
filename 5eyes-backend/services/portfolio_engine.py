@@ -1429,6 +1429,14 @@ def _goal_duration_years(goal: Goal, start_year: int, horizon_years: int) -> int
     return 1
 
 
+def _goal_duration_years_within_horizon(goal: Goal, start_year: int, horizon_years: int) -> int:
+    full_duration = _goal_duration_years(goal, start_year, horizon_years)
+    start_date = _parse_iso_date(goal.start_date)
+    anchor_year = max(int(start_year), start_date.year if start_date else int(start_year))
+    available_years = max(1, int(horizon_years) - max(0, anchor_year - int(start_year)))
+    return max(1, min(full_duration, available_years))
+
+
 def _goal_base_scale(goal: Goal, advisory_wealth_rappen: int, total_wealth_rappen: int, policy: OptimizerPolicy) -> float:
     if advisory_wealth_rappen <= 0:
         return 1.0
@@ -1473,7 +1481,7 @@ def _monte_carlo_goal_summary(
     elif goal_type in ("Einmalige_Ausgabe", "Wiederkehrende_Ausgabe", "Pensionsausgabe"):
         target = _annualize_goal_amount(goal)
         if goal_type in ("Wiederkehrende_Ausgabe", "Pensionsausgabe"):
-            target *= _goal_duration_years(goal, start_year, horizon_years)
+            target *= _goal_duration_years_within_horizon(goal, start_year, horizon_years)
         target = max(1, int(target))
         success_rate_pct = int(round(sum(1 for value in scaled_values if value >= target) / max(1, len(scaled_values)) * 100))
         funded_ratio_p50 = round(p50 / target, 4)
