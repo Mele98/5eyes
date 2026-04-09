@@ -1,3 +1,4 @@
+import re
 import sqlite3
 import sys
 import uuid
@@ -190,6 +191,12 @@ def ensure_runtime_columns() -> None:
             for column_name, sql_type in columns:
                 if column_name in existing:
                     continue
+                if not re.match(r'^[a-z][a-z0-9_]*$', table_name):
+                    raise ValueError(f"Ungültiger Tabellenname: {table_name!r}")
+                if not re.match(r'^[a-z][a-z0-9_]*$', column_name):
+                    raise ValueError(f"Ungültiger Spaltenname: {column_name!r}")
+                if not re.match(r'^[A-Z]+$', sql_type):
+                    raise ValueError(f"Ungültiger SQL-Typ: {sql_type!r}")
                 conn.execute(text(f'ALTER TABLE {table_name} ADD COLUMN {column_name} {sql_type}'))
                 existing.add(column_name)
 
