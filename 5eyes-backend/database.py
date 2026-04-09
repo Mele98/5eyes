@@ -134,8 +134,7 @@ def bootstrap_sqlite_schema(
                 'Installiere sqlcipher3-binary oder sqlcipher3.'
             )
         with sqlcipher3.connect(str(db_file)) as conn:
-            _key = (db_key or settings.db_key or '').replace("'", "''")
-            conn.execute(f"PRAGMA key = '{_key}'")
+            conn.execute("PRAGMA key = ?", [db_key or settings.db_key or ''])
             conn.execute('PRAGMA cipher_page_size = 4096')
             conn.execute('PRAGMA kdf_iter = 256000')
             conn.execute('PRAGMA cipher_hmac_algorithm = HMAC_SHA512')
