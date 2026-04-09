@@ -189,7 +189,9 @@ function readStoredToken() {
     if (safeStorage.isEncryptionAvailable()) {
       return safeStorage.decryptString(raw);
     }
-    return raw.toString('utf8');
+    logLine('WARNING: safeStorage encryption not available; ignoring stored auth token and requiring re-login.');
+    clearStoredToken();
+    return null;
   } catch (error) {
     logLine(`Failed to read stored token: ${error.message || error}`);
     return null;
@@ -198,10 +200,13 @@ function readStoredToken() {
 
 function writeStoredToken(token) {
   try {
+    if (!safeStorage.isEncryptionAvailable()) {
+      logLine('WARNING: safeStorage encryption not available; auth token will not be persisted.');
+      clearStoredToken();
+      return false;
+    }
     fs.mkdirSync(path.dirname(AUTH_TOKEN_STORE_FILE), { recursive: true });
-    const payload = safeStorage.isEncryptionAvailable()
-      ? safeStorage.encryptString(String(token || ''))
-      : Buffer.from(String(token || ''), 'utf8');
+    const payload = safeStorage.encryptString(String(token || ''));
     fs.writeFileSync(AUTH_TOKEN_STORE_FILE, payload);
     return true;
   } catch (error) {
