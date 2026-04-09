@@ -7,7 +7,7 @@ class UserCreate(BaseModel):
     username: str
     password: str
     full_name: str
-    email: Optional[str] = None
+    email: Optional[EmailStr] = None
     role: Literal["admin", "advisor", "readonly"] = "advisor"
 
     @field_validator('username', 'full_name')
@@ -28,7 +28,7 @@ class UserCreate(BaseModel):
 
 class UserUpdate(BaseModel):
     full_name: Optional[str] = None
-    email: Optional[str] = None
+    email: Optional[EmailStr] = None
     role: Optional[Literal["admin", "advisor", "readonly"]] = None
     is_active: Optional[bool] = None
 
