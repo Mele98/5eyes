@@ -183,7 +183,10 @@ def update_user(
             raise HTTPException(status_code=400, detail="Eigenes Konto kann nicht deaktiviert werden")
         if body.role is not None:
             raise HTTPException(status_code=400, detail="Eigene Rolle kann nicht geändert werden")
+    _ALLOWED_USER_UPDATE_FIELDS = {"full_name", "email", "role", "is_active"}
     for field, value in body.model_dump(exclude_none=True).items():
+        if field not in _ALLOWED_USER_UPDATE_FIELDS:
+            continue
         if field == "is_active":
             setattr(user, field, 1 if value else 0)
         else:
