@@ -468,7 +468,7 @@ async function createMainWindow() {
     const localEntry = `file://${resolveFrontendPath().replace(/\\/g, '/')}`;
     if (url !== localEntry) {
       event.preventDefault();
-      if (/^https?:/i.test(url)) {
+      if (isSafeExternalUrl(url)) {
         shell.openExternal(url);
       }
     }
