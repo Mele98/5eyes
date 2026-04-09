@@ -6,6 +6,18 @@ const http = require('http');
 const net = require('net');
 const path = require('path');
 
+function isSafeExternalUrl(url) {
+  try {
+    const parsed = new URL(url);
+    return (
+      parsed.protocol === 'https:' ||
+      (parsed.protocol === 'http:' && parsed.hostname === 'localhost')
+    );
+  } catch {
+    return false;
+  }
+}
+
 function loadEnvIntoProcess() {
   const candidates = [
     path.join(process.cwd(), '.env'),
@@ -441,7 +453,9 @@ async function createMainWindow() {
   });
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
+    if (isSafeExternalUrl(url)) {
+      shell.openExternal(url);
+    }
     return { action: 'deny' };
   });
 
@@ -491,6 +505,9 @@ ipcMain.handle('backend:get-base-url', () => backendRuntime.baseUrl);
 ipcMain.handle('backend:get-runtime', () => ({ ...backendRuntime }));
 ipcMain.handle('backend:health', async () => probeBackend(backendRuntime.host, backendRuntime.port));
 ipcMain.handle('shell:open-external', async (_event, targetUrl) => {
+  if (!isSafeExternalUrl(targetUrl)) {
+    return false;
+  }
   await shell.openExternal(targetUrl);
   return true;
 });
