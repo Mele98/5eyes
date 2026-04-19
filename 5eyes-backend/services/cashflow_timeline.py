@@ -142,10 +142,18 @@ def contribution_for_year(
     return amount * occurrences
 
 
+def _is_one_off_flow(frequency: str | None, nature: str | None) -> bool:
+    frequency_value = normalize_frequency(frequency)
+    nature_value = normalize_nature(nature, frequency_value)
+    return frequency_value == "einmalig" or nature_value == "einmalig"
+
+
 def totals_for_year(cashflows: list, year: int | None = None) -> dict[str, int]:
     target_year = int(year or date.today().year)
-    income = 0
-    expense = 0
+    recurring_income = 0
+    capital_inflow = 0
+    recurring_expense = 0
+    capital_outflow = 0
     for cf in cashflows:
         amount = contribution_for_year(
             amount_rappen=int(getattr(cf, "amount_rappen", 0) or 0),
@@ -155,13 +163,31 @@ def totals_for_year(cashflows: list, year: int | None = None) -> dict[str, int]:
             valid_until=getattr(cf, "valid_until", None),
             year=target_year,
         )
+        if amount == 0:
+            continue
+        one_off = _is_one_off_flow(
+            frequency=getattr(cf, "frequency", None),
+            nature=getattr(cf, "nature", None),
+        )
         if str(getattr(cf, "cashflow_type", "")) == "Income":
-            income += amount
+            if one_off:
+                capital_inflow += amount
+            else:
+                recurring_income += amount
         elif str(getattr(cf, "cashflow_type", "")) == "Expense":
-            expense += amount
+            if one_off:
+                capital_outflow += amount
+            else:
+                recurring_expense += amount
+    income = recurring_income + capital_inflow
+    expense = recurring_expense + capital_outflow
     return {
         "year": target_year,
+        "recurring_income_rappen": recurring_income,
+        "capital_inflow_rappen": capital_inflow,
         "income_rappen": income,
+        "recurring_expense_rappen": recurring_expense,
+        "capital_outflow_rappen": capital_outflow,
         "expense_rappen": expense,
         "net_rappen": income - expense,
     }
@@ -170,6 +196,15 @@ def totals_for_year(cashflows: list, year: int | None = None) -> dict[str, int]:
 def net_cashflow_series(cashflows: list, years: int, start_year: int | None = None) -> list[int]:
     base_year = int(start_year or date.today().year)
     return [totals_for_year(cashflows, base_year + offset)["net_rappen"] for offset in range(max(0, years))]
+
+
+def recurring_net_cashflow_series(cashflows: list, years: int, start_year: int | None = None) -> list[int]:
+    base_year = int(start_year or date.today().year)
+    return [
+        totals_for_year(cashflows, base_year + offset)["recurring_income_rappen"]
+        - totals_for_year(cashflows, base_year + offset)["recurring_expense_rappen"]
+        for offset in range(max(0, years))
+    ]
 
 
 def future_value_with_cashflow_series(

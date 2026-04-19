@@ -142,8 +142,14 @@ class CashflowSummaryResponse(BaseModel):
     client_id: str
     client_name: str
     summary_year: int
+    recurring_income_rappen: int = 0
+    capital_inflow_rappen: int = 0
     total_income_rappen: int
+    recurring_expense_rappen: int = 0
+    capital_outflow_rappen: int = 0
     total_expense_rappen: int
+    recurring_net_rappen: int = 0
+    capital_net_rappen: int = 0
     surplus_rappen: int
     total_income_chf: float
     total_expense_chf: float
@@ -152,7 +158,11 @@ class CashflowSummaryResponse(BaseModel):
 
 class CashflowYearRow(BaseModel):
     year: int
+    recurring_income_rappen: int = 0
+    capital_inflow_rappen: int = 0
     income_rappen: int
+    recurring_expense_rappen: int = 0
+    capital_outflow_rappen: int = 0
     expense_rappen: int
     net_rappen: int
 

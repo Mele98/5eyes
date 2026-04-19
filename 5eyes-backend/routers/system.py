@@ -1,11 +1,14 @@
+from datetime import datetime
 from typing import Optional
+from uuid import uuid4
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from database import get_db
 from models.review import AuditLog
+from models.snapshots import AssetClassAnnualReturn
 from models.users import User
 from schemas.review import AuditLogEntry, AuditLogPage
 from services.auth import require_admin
@@ -116,6 +119,61 @@ def create_support_bundle_endpoint(current_user: User = Depends(require_admin)):
 @router.get('/compliance')
 def get_compliance_status(current_user: User = Depends(require_admin)):
     return build_compliance_status()
+
+
+_VALID_ASSET_CLASSES = {'Aktien', 'Obligationen', 'Immobilien', 'Liquiditaet', 'Alternative'}
+
+
+@router.get('/annual-returns')
+def get_annual_returns(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    rows = (
+        db.query(AssetClassAnnualReturn)
+        .order_by(AssetClassAnnualReturn.year, AssetClassAnnualReturn.asset_class)
+        .all()
+    )
+    result: dict = {}
+    for row in rows:
+        result.setdefault(str(row.year), {})[row.asset_class] = {
+            'return_bps': row.return_bps,
+            'source': row.source or '',
+        }
+    return result
+
+
+@router.put('/annual-returns/{year}/{asset_class}')
+def upsert_annual_return(
+    year: int,
+    asset_class: str,
+    body: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    if asset_class not in _VALID_ASSET_CLASSES:
+        raise HTTPException(status_code=400, detail=f"Ungültige Anlageklasse: {asset_class}")
+    if 'return_bps' not in body:
+        raise HTTPException(status_code=400, detail="return_bps erforderlich")
+    return_bps = int(body['return_bps'])
+    source = str(body.get('source') or 'admin')
+    now = datetime.utcnow().isoformat()
+    existing = (
+        db.query(AssetClassAnnualReturn)
+        .filter_by(year=year, asset_class=asset_class)
+        .first()
+    )
+    if existing:
+        existing.return_bps = return_bps
+        existing.source = source
+        existing.updated_at = now
+    else:
+        db.add(AssetClassAnnualReturn(
+            id=str(uuid4()), year=year, asset_class=asset_class,
+            return_bps=return_bps, source=source, created_at=now, updated_at=now,
+        ))
+    db.commit()
+    return {'year': year, 'asset_class': asset_class, 'return_bps': return_bps}
 
 
 @router.post('/db/optimize')

@@ -41,7 +41,7 @@ def list_clients(
     if not has_global_client_access(current_user):
         q = q.filter(Client.advisor_id == current_user.id)
     if search:
-        safe = search.replace('%', r'\%').replace('_', r'\_')
+        safe = search.replace('\\', '\\\\').replace('%', r'\%').replace('_', r'\_')
         like = f"%{safe}%"
         q = q.filter(
             (Client.first_name.ilike(like, escape='\\')) |
@@ -137,7 +137,10 @@ def list_nationalities(
     current_user: User = Depends(get_current_user)
 ):
     _get_client_or_404(client_id, db, current_user)
-    return db.query(ClientNationality).filter(ClientNationality.client_id == client_id).all()
+    return db.query(ClientNationality).filter(
+        ClientNationality.client_id == client_id,
+        ClientNationality.deleted_at.is_(None)
+    ).all()
 
 
 @router.post("/{client_id}/nationalities", response_model=NationalityResponse, status_code=201)
@@ -258,8 +261,14 @@ def cashflow_summary(
         client_id=client_id,
         client_name=client_name,
         summary_year=totals["year"],
+        recurring_income_rappen=totals["recurring_income_rappen"],
+        capital_inflow_rappen=totals["capital_inflow_rappen"],
         total_income_rappen=totals["income_rappen"],
+        recurring_expense_rappen=totals["recurring_expense_rappen"],
+        capital_outflow_rappen=totals["capital_outflow_rappen"],
         total_expense_rappen=totals["expense_rappen"],
+        recurring_net_rappen=totals["recurring_income_rappen"] - totals["recurring_expense_rappen"],
+        capital_net_rappen=totals["capital_inflow_rappen"] - totals["capital_outflow_rappen"],
         surplus_rappen=totals["net_rappen"],
         total_income_chf=totals["income_rappen"] / 100,
         total_expense_chf=totals["expense_rappen"] / 100,
@@ -270,6 +279,7 @@ def cashflow_summary(
 @router.get("/{client_id}/cashflow-projection", response_model=CashflowProjectionResponse)
 def cashflow_projection(
     client_id: str,
+    horizon_years: int = Query(default=40, ge=1, le=60),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -283,12 +293,16 @@ def cashflow_projection(
     ).all()
     start_year = _date.today().year
     rows = []
-    for offset in range(5):
+    for offset in range(int(horizon_years or 40)):
         yr = start_year + offset
         t = totals_for_year(cashflows, yr)
         rows.append(CashflowYearRow(
             year=yr,
+            recurring_income_rappen=t["recurring_income_rappen"],
+            capital_inflow_rappen=t["capital_inflow_rappen"],
             income_rappen=t["income_rappen"],
+            recurring_expense_rappen=t["recurring_expense_rappen"],
+            capital_outflow_rappen=t["capital_outflow_rappen"],
             expense_rappen=t["expense_rappen"],
             net_rappen=t["net_rappen"],
         ))

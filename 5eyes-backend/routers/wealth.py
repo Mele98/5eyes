@@ -366,6 +366,7 @@ def update_cashflow(
         if isinstance(value, bool):
             value = 1 if value else 0
         setattr(cf, field, value)
+    cf.updated_at = _now()
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="cashflows", record_id=cf_id, action="UPDATE",
         client_id=client_id)
@@ -509,6 +510,76 @@ def get_planning_assumptions(
     if not pa:
         raise HTTPException(status_code=404, detail="Keine Planungsannahmen gefunden")
     return pa
+
+
+@router.get("/mandates/{mandate_id}/planning-assumptions")
+def get_planning_assumptions_ui(
+    mandate_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    _get_mandate_or_404(mandate_id, db, current_user)
+    pa = db.query(PlanningAssumption).filter(
+        PlanningAssumption.mandate_id == mandate_id,
+        PlanningAssumption.is_current == 1,
+        PlanningAssumption.deleted_at.is_(None)
+    ).order_by(PlanningAssumption.version.desc()).first()
+    if not pa:
+        return {"inflation_assumption_bps": None}
+    return {
+        "id": pa.id,
+        "inflation_assumption_bps": pa.inflation_assumption_bps,
+        "retirement_age_primary": pa.retirement_age_primary,
+        "retirement_age_partner": pa.retirement_age_partner,
+        "life_expectancy_primary": pa.life_expectancy_primary,
+        "life_expectancy_partner": pa.life_expectancy_partner,
+        "notes": pa.notes,
+    }
+
+
+@router.put("/mandates/{mandate_id}/planning-assumptions")
+def upsert_planning_assumptions(
+    mandate_id: str,
+    body: PlanningAssumptionCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_advisor)
+):
+    mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    now = _now()
+    payload = body.model_dump(exclude_unset=True)
+    existing = db.query(PlanningAssumption).filter(
+        PlanningAssumption.mandate_id == mandate_id,
+        PlanningAssumption.is_current == 1,
+        PlanningAssumption.deleted_at.is_(None)
+    ).order_by(PlanningAssumption.version.desc()).first()
+    if existing:
+        for key, value in payload.items():
+            setattr(existing, key, value)
+        existing.updated_at = now
+        log(db, user_id=current_user.id, user_name=current_user.full_name,
+            table_name="planning_assumptions", record_id=existing.id, action="UPDATE",
+            mandate_id=mandate_id, client_id=mandate.client_id)
+        db.commit()
+        return {"ok": True, "inflation_assumption_bps": existing.inflation_assumption_bps}
+
+    today = date.today().isoformat()
+    pa = PlanningAssumption(
+        id=new_uuid(),
+        mandate_id=mandate_id,
+        client_id=mandate.client_id,
+        version=1,
+        is_current=1,
+        valid_from=today,
+        created_at=now,
+        updated_at=now,
+        **payload,
+    )
+    db.add(pa)
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="planning_assumptions", record_id=pa.id, action="CREATE",
+        mandate_id=mandate_id, client_id=mandate.client_id)
+    db.commit()
+    return {"ok": True, "inflation_assumption_bps": pa.inflation_assumption_bps}
 
 
 @router.post("/mandates/{mandate_id}/planning-assumptions",

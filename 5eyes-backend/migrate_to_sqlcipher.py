@@ -49,6 +49,7 @@ def main():
         print(f'\n2. Daten nach SQLCipher migrieren → {encrypted_path}')
         plain_conn = sqlite3.connect(str(db_path))
         cipher_conn = sqlcipher3.connect(str(encrypted_path))
+        # sqlcipher3 PRAGMA key is issued as an escaped string literal in this helper.
         cipher_conn.execute(f"PRAGMA key = '{escaped_key}'")
         cipher_conn.execute('PRAGMA cipher_page_size = 4096')
         cipher_conn.execute('PRAGMA kdf_iter = 256000')
@@ -99,6 +100,7 @@ def main():
     print('\n3. Verschlüsselte DB verifizieren...')
     try:
         verify_conn = sqlcipher3.connect(str(encrypted_path))
+        # sqlcipher3 PRAGMA key is issued as an escaped string literal in this helper.
         verify_conn.execute(f"PRAGMA key = '{escaped_key}'")
         verify_conn.execute('SELECT 1')
         verify_tables = verify_conn.execute(

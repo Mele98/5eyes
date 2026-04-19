@@ -89,6 +89,7 @@ def update_mandate(
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
     for field, value in body.model_dump(exclude_none=True).items():
         setattr(mandate, field, value)
+    mandate.updated_at = _now()
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="mandates", record_id=mandate_id, action="UPDATE",
         client_id=mandate.client_id)

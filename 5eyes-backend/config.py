@@ -71,7 +71,7 @@ class Settings(BaseSettings):
             'app://.',
         ]
     )
-    cors_allow_origin_regex: str | None = r'^(null|file://.*)$'
+    cors_allow_origin_regex: str | None = r'^null$'
 
     # Price refresh
     price_scheduler_enabled: bool = True

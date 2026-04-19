@@ -1,4 +1,4 @@
-from services.risk_scoring import compute_scores, map_surplus_points
+from services.risk_scoring import canonicalize_horizon_label, compute_scores, map_surplus_points
 
 
 def test_short_horizon_forces_capacity_score_to_zero():
@@ -173,6 +173,12 @@ def test_capacity_horizon_is_binding_even_when_willingness_is_maximal():
     assert long_horizon.risk_willingness_score_x10 == 100
     assert short_horizon.risk_capacity_score_x10 < long_horizon.risk_capacity_score_x10
     assert short_horizon.final_score_x10 < long_horizon.final_score_x10
+
+
+def test_new_frontend_horizon_labels_are_canonicalized_for_persistence():
+    assert canonicalize_horizon_label("12 Jahre und mehr") == "Mehr als 12 Jahre"
+    assert canonicalize_horizon_label("5 bis 7 Jahre") == "6 bis 7 Jahre"
+    assert canonicalize_horizon_label("0 bis 4 Jahre") == "2 bis 3 Jahre"
 
 
 def test_final_score_stays_flat_when_non_binding_side_changes_only():

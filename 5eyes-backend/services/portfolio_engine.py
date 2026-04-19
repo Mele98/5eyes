@@ -1,10 +1,13 @@
 import json
 import hashlib
+import logging
 import math
 import random
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
+
+logger = logging.getLogger(__name__)
 
 from sqlalchemy.orm import Session
 
@@ -26,12 +29,13 @@ from models.review import (
     RecommendationPosition,
     RecommendationRun,
 )
-from models.wealth import Cashflow, Goal, WealthPosition
+from models.wealth import Cashflow, Goal, PlanningAssumption, WealthPosition
 from price_updater import latest_price_snapshot, parse_iso_date, summarize_price_quality
 from services.cashflow_timeline import (
     future_value_with_cashflow_series,
     net_cashflow_series,
     normalize_frequency,
+    recurring_net_cashflow_series,
     totals_for_year,
 )
 from services.product_market_data import resolve_market_profile, validate_default_product_market_coverage
@@ -45,6 +49,8 @@ BUCKET_LABELS = {
     "alternatives": "Alternative",
     "liquidity": "Liquiditaet",
 }
+# Maximale strategische Liquiditaetsquote im SAA. Alles darueber wird extern empfohlen.
+_SAA_LIQUIDITY_HARD_CAP_BPS: int = 300  # 3% absolutes Maximum
 LABEL_TO_BUCKET = {value: key for key, value in BUCKET_LABELS.items()}
 GOAL_WEIGHT_BY_RANK = {
     1: 10000,
@@ -55,7 +61,7 @@ GOAL_WEIGHT_BY_RANK = {
 }
 DEFAULT_POLICY_NAME = "5Eyes V1 Standard"
 DEFAULT_CMA_NAME = "5Eyes V1 Hausmeinung"
-ALLOWED_HOUSE_MATRIX_PROFILES = ("Kapitalschutz", "Defensiv", "Ausgewogen", "Wachstum", "Dynamisch", "Aktien")
+ALLOWED_HOUSE_MATRIX_PROFILES = ("Kapitalschutz", "Defensiv", "Ausgewogen", "Wachstumsorientiert", "Dynamisch", "Aktien")
 ALLOWED_PRODUCT_TYPES = (
     "ETF",
     "Fonds",
@@ -864,6 +870,12 @@ def _rebalance_to_total(targets: dict[str, int], minimums: dict[str, int], maxim
             if step > 0:
                 adjusted[key] -= step
                 delta -= step
+    final_total = sum(adjusted.values())
+    if final_total != 10000:
+        raise ValueError(
+            f"Target allocation cannot be normalized to 10000 bps within min/max bounds "
+            f"(total={final_total}, targets={adjusted})."
+        )
     return adjusted
 
 
@@ -934,6 +946,14 @@ def _enforce_risk_budget(
         adjusted[donor] -= step
         adjusted[receiver] += step
         current_risk = _risk_budget_from_targets(adjusted, asset_risky_weights)
+    if current_risk > risk_budget_bps:
+        overshoot_bps = current_risk - risk_budget_bps
+        raise ValueError(
+            f"Risikobudget konnte nicht eingehalten werden: "
+            f"Ist={current_risk} bps, Limit={risk_budget_bps} bps, "
+            f"Überschreitung={overshoot_bps} bps. "
+            f"Bitte Mindestquoten der Anlageklassen prüfen oder Kundenprofil korrigieren."
+        )
     return adjusted, current_risk
 
 
@@ -949,7 +969,7 @@ _DEFAULT_CORRELATION_MATRIX: list[list[float]] = [
 _DEFAULT_SUB_ASSET_CLASS_ASSUMPTIONS: dict[str, dict[str, object]] = {
     "Aktien Schweiz": {"asset_class": "Aktien", "expected_return_bps": 620, "expected_volatility_bps": 1450},
     "Aktien Schweiz Small/Mid": {"asset_class": "Aktien", "expected_return_bps": 670, "expected_volatility_bps": 1650},
-    "Aktien Global": {"asset_class": "Aktien", "expected_return_bps": 690, "expected_volatility_bps": 1600},
+    "Aktien Global": {"asset_class": "Aktien", "expected_return_bps": 700, "expected_volatility_bps": 1600},
     "Aktien Europa": {"asset_class": "Aktien", "expected_return_bps": 640, "expected_volatility_bps": 1550},
     "Aktien Schwellenlaender": {"asset_class": "Aktien", "expected_return_bps": 760, "expected_volatility_bps": 1900},
     "Thema Verteidigung": {"asset_class": "Aktien", "expected_return_bps": 700, "expected_volatility_bps": 1650},
@@ -958,11 +978,11 @@ _DEFAULT_SUB_ASSET_CLASS_ASSUMPTIONS: dict[str, dict[str, object]] = {
     "Thema Alkohol": {"asset_class": "Aktien", "expected_return_bps": 650, "expected_volatility_bps": 1450},
     "Thema Gluecksspiel": {"asset_class": "Aktien", "expected_return_bps": 720, "expected_volatility_bps": 1850},
     "Thema Kernenergie": {"asset_class": "Aktien", "expected_return_bps": 680, "expected_volatility_bps": 1600},
-    "Obligationen CHF IG": {"asset_class": "Obligationen", "expected_return_bps": 170, "expected_volatility_bps": 350},
+    "Obligationen CHF IG": {"asset_class": "Obligationen", "expected_return_bps": 220, "expected_volatility_bps": 350},
     "Obligationen Global Hedged": {"asset_class": "Obligationen", "expected_return_bps": 220, "expected_volatility_bps": 430},
     "Obligationen High Yield": {"asset_class": "Obligationen", "expected_return_bps": 420, "expected_volatility_bps": 950},
-    "Obligationen Emerging": {"asset_class": "Obligationen", "expected_return_bps": 480, "expected_volatility_bps": 1100},
-    "Immobilien Schweiz": {"asset_class": "Immobilien", "expected_return_bps": 330, "expected_volatility_bps": 820},
+    "Obligationen Emerging": {"asset_class": "Obligationen", "expected_return_bps": 400, "expected_volatility_bps": 1100},
+    "Immobilien Schweiz": {"asset_class": "Immobilien", "expected_return_bps": 450, "expected_volatility_bps": 820},
     "Immobilien Global": {"asset_class": "Immobilien", "expected_return_bps": 410, "expected_volatility_bps": 980},
     "Gold / Rohstoffe": {"asset_class": "Alternative", "expected_return_bps": 300, "expected_volatility_bps": 1200},
     "Liquid Alternatives": {"asset_class": "Alternative", "expected_return_bps": 320, "expected_volatility_bps": 700},
@@ -997,18 +1017,53 @@ def _cholesky(matrix: list[list[float]]) -> list[list[float]]:
     return L
 
 
+def _is_valid_cholesky(L: list[list[float]]) -> bool:
+    """Return True if all diagonal entries of L are above numerical threshold.
+    A zero diagonal means the input matrix was not positive-definite and the
+    decomposition silently zeroed that row/column, producing wrong correlations."""
+    return all(L[i][i] > 1e-10 for i in range(len(L)))
+
+
+def _identity_cholesky(n: int) -> list[list[float]]:
+    """Return identity matrix of size n (= uncorrelated assets)."""
+    return [[1.0 if i == j else 0.0 for j in range(n)] for i in range(n)]
+
+
 def _build_cholesky_from_cma(cma: CapitalMarketAssumption) -> list[list[float]]:
     """Return lower-triangular Cholesky matrix for the 5 asset classes.
-    Uses CMA's correlation_matrix_json when available, else Swiss-market defaults."""
+    Uses CMA's correlation_matrix_json when available, else Swiss-market defaults.
+
+    Falls back gracefully if the custom matrix is not positive-definite:
+    custom → default Swiss-market → identity (uncorrelated).
+    """
     matrix = _DEFAULT_CORRELATION_MATRIX
+    used_custom = False
     if cma.correlation_matrix_json:
         try:
             parsed = json.loads(cma.correlation_matrix_json)
             if isinstance(parsed, list) and len(parsed) == 5 and all(len(row) == 5 for row in parsed):
                 matrix = [[float(v) for v in row] for row in parsed]
+                used_custom = True
         except (ValueError, TypeError, KeyError):
             pass
-    return _cholesky(matrix)
+
+    L = _cholesky(matrix)
+
+    if not _is_valid_cholesky(L):
+        if used_custom:
+            logger.warning(
+                "Custom correlation matrix is not positive-definite; "
+                "falling back to default Swiss-market correlation matrix."
+            )
+            L = _cholesky(_DEFAULT_CORRELATION_MATRIX)
+        if not _is_valid_cholesky(L):
+            logger.warning(
+                "Default correlation matrix is also degenerate; "
+                "using identity matrix (uncorrelated assets) for Monte Carlo."
+            )
+            L = _identity_cholesky(len(_DEFAULT_CORRELATION_MATRIX))
+
+    return L
 
 
 def _sub_asset_class_assumption_map(cma: CapitalMarketAssumption) -> dict[str, dict[str, int | str]]:
@@ -1230,6 +1285,7 @@ def _simulate_bucket_path(
     maximums: dict[str, int],
     start_year: int,
     rebalance_mode: str,
+    transaction_cost_bps: int = 0,
 ) -> tuple[list[int], list[dict]]:
     values = {key: max(0, int(start_values.get(key, 0))) for key in BUCKET_FIELDS}
     totals = [sum(values.values())]
@@ -1255,6 +1311,13 @@ def _simulate_bucket_path(
             note = "Bandbreiten-Rebalancing wegen Drift ausserhalb der Zielbaender."
         if should_rebalance:
             values, turnover = _rebalance_bucket_values_to_targets(values, targets)
+            if transaction_cost_bps > 0 and turnover > 0:
+                cost_rappen = int(round(turnover * transaction_cost_bps / 10000))
+                total_after = max(1, sum(values.values()))
+                for key in BUCKET_FIELDS:
+                    values[key] = max(0, int(round(
+                        values[key] * (1 - cost_rappen / total_after)
+                    )))
             if turnover > 0 or breached:
                 events.append(
                     {
@@ -1300,6 +1363,7 @@ def _build_sub_asset_class_assumption_reference(
     cma: CapitalMarketAssumption,
 ) -> list[dict]:
     returns, vols = _asset_class_expected_metrics(cma)
+    assumption_map = _sub_asset_class_assumption_map(cma)
     seen: set[tuple[str, str]] = set()
     items: list[dict] = []
     for item in sub_allocations:
@@ -1324,7 +1388,7 @@ def _build_sub_asset_class_assumption_reference(
                 "sub_asset_class": sub_asset_class,
                 "expected_return_bps": expected_return_bps,
                 "expected_volatility_bps": expected_volatility_bps,
-                "source": "CMA Sub-Asset-Class" if sub_asset_class in _sub_asset_class_assumption_map(cma) else "Asset-Class fallback",
+                "source": "CMA Sub-Asset-Class" if sub_asset_class in assumption_map else "Asset-Class fallback",
             }
         )
     return items
@@ -1344,6 +1408,7 @@ def _build_simulation_payload(
     horizon_years = max(1, len(cashflow_projection_series_rappen))
     stress_multiplier = _simulation_stress_multiplier(simulation_prefs)
     rebalance_mode = _simulation_rebalance_mode(simulation_prefs)
+    transaction_cost_bps = _simulation_transaction_cost_bps(simulation_prefs)
     returns, vols = _asset_class_expected_metrics(cma)
     target_values = _target_bucket_values(advisory_summary.total_rappen, targets)
     downside_returns = {
@@ -1363,6 +1428,7 @@ def _build_simulation_payload(
         maximums=maximums,
         start_year=start_year,
         rebalance_mode="none",
+        transaction_cost_bps=0,
     )
     target_series, rebalance_events = _simulate_bucket_path(
         start_values=target_values,
@@ -1373,6 +1439,7 @@ def _build_simulation_payload(
         maximums=maximums,
         start_year=start_year,
         rebalance_mode=rebalance_mode,
+        transaction_cost_bps=transaction_cost_bps,
     )
     downside_series, _ = _simulate_bucket_path(
         start_values=target_values,
@@ -1383,6 +1450,7 @@ def _build_simulation_payload(
         maximums=maximums,
         start_year=start_year,
         rebalance_mode=rebalance_mode,
+        transaction_cost_bps=transaction_cost_bps,
     )
     upside_series, _ = _simulate_bucket_path(
         start_values=target_values,
@@ -1393,6 +1461,7 @@ def _build_simulation_payload(
         maximums=maximums,
         start_year=start_year,
         rebalance_mode=rebalance_mode,
+        transaction_cost_bps=transaction_cost_bps,
     )
     inflation_series_bps = _inflation_path_series(cma, horizon_years, start_year)
     return {
@@ -1411,10 +1480,81 @@ def _build_simulation_payload(
     }
 
 
+_GOAL_HARDNESS_MULTIPLIER_BPS = {
+    "hart": 20000,
+    "primaer": 10000,
+    "opportunistisch": 4000,
+}
+
+
+def _goal_hardness_key(goal: Goal | None) -> str:
+    raw = _norm_text(getattr(goal, "hardness", None) or "Primaer").strip().lower()
+    if raw == "hart":
+        return "hart"
+    if raw == "opportunistisch":
+        return "opportunistisch"
+    return "primaer"
+
+
 def _goal_weight(goal: Goal) -> int:
-    if goal.weight_bps:
-        return int(goal.weight_bps)
-    return GOAL_WEIGHT_BY_RANK.get(int(goal.rank or 5), 312)
+    base = int(goal.weight_bps) if goal.weight_bps else GOAL_WEIGHT_BY_RANK.get(int(goal.rank or 5), 312)
+    multiplier = _GOAL_HARDNESS_MULTIPLIER_BPS.get(_goal_hardness_key(goal), 10000)
+    return int(round(base * multiplier / 10000))
+
+
+def _goal_inflation_series_bps(
+    cma: CapitalMarketAssumption,
+    horizon_years: int,
+    start_year: int,
+    planning_inflation_bps: int | None = None,
+) -> list[int]:
+    years = max(1, int(horizon_years or 1))
+    if planning_inflation_bps is not None:
+        return [int(planning_inflation_bps)] * years
+    return _inflation_path_series(cma, years, start_year)
+
+
+def _inflate_real_goal_target_rappen(target_rappen: int, years: int, inflation_series_bps: list[int] | None) -> int:
+    target = max(1, int(target_rappen or 0))
+    factor = 1.0
+    series = list(inflation_series_bps or [150])
+    last_bps = int(series[-1] if series else 150)
+    for idx in range(max(0, int(years or 0))):
+        infl_bps = int(series[idx]) if idx < len(series) else last_bps
+        factor *= 1 + (infl_bps / 10000)
+    return int(round(target * factor))
+
+
+def _goal_target_wealth_rappen(goal: Goal, years: int, inflation_series_bps: list[int] | None) -> int:
+    nominal_target = max(1, int(goal.target_wealth_rappen or 0))
+    if str(getattr(goal, "value_mode", "nominal") or "nominal").strip().lower() != "real":
+        return nominal_target
+    return _inflate_real_goal_target_rappen(nominal_target, years, inflation_series_bps)
+
+
+def _growth_goals_for_equity_tilt(goals: list[Goal]) -> list[Goal]:
+    has_hard_protection_goal = any(
+        _goal_hardness_key(goal) == "hart"
+        and _norm_text(goal.goal_type) in (
+            "Kapitalerhalt",
+            "Vermoegensziel",
+            "Pensionsausgabe",
+            "Wiederkehrende_Ausgabe",
+        )
+        for goal in goals
+    )
+    eligible = []
+    for goal in goals:
+        goal_type = _norm_text(goal.goal_type)
+        hardness_key = _goal_hardness_key(goal)
+        if hardness_key == "opportunistisch":
+            continue
+        if goal_type in ("Vermoegensziel", "Maximierung"):
+            eligible.append(goal)
+            continue
+        if goal_type == "Renditeziel" and not has_hard_protection_goal:
+            eligible.append(goal)
+    return eligible
 
 
 def _parse_iso_date(value) -> date | None:
@@ -1480,6 +1620,7 @@ def _build_goal_analysis(
     advisory_wealth_rappen: int,
     total_wealth_rappen: int,
     cashflow_projection_series_rappen: list[int],
+    inflation_series_bps: list[int],
     expected_return_bps: int,
     reserve_needed_rappen: int,
     policy: OptimizerPolicy,
@@ -1506,7 +1647,7 @@ def _build_goal_analysis(
             denominator = max(1, int(goal.target_return_bps or 1))
             score = int(round(min(100, max(0, expected_return_bps / denominator * 100))))
         elif goal_type in ("Kapitalerhalt", "Vermoegensziel"):
-            target_rappen = int(goal.target_wealth_rappen or 0)
+            target_rappen = _goal_target_wealth_rappen(goal, years, inflation_series_bps)
             denominator = max(1, target_rappen)
             score = int(round(min(100, max(0, projected_rappen / denominator * 100))))
         else:
@@ -1521,6 +1662,8 @@ def _build_goal_analysis(
                 "label": goal.label,
                 "goal_type": goal.goal_type,
                 "goal_scope": goal.goal_scope,
+                "value_mode": getattr(goal, "value_mode", "nominal") or "nominal",
+                "hardness": getattr(goal, "hardness", None),
                 "rank": int(goal.rank or 0),
                 "weight_bps": _goal_weight(goal),
                 "target_amount_rappen": target_rappen,
@@ -1620,11 +1763,22 @@ def _year_index_for_goal(goal: Goal, start_year: int, horizon_years: int) -> int
     return max(1, min(int(years or 1), int(horizon_years)))
 
 
-def _goal_duration_years(goal: Goal, start_year: int, horizon_years: int) -> int:
+def _full_goal_duration_years(goal: Goal) -> int:
     start_date = _parse_iso_date(goal.start_date)
     target_date = _parse_iso_date(goal.target_date)
     if start_date and target_date and target_date >= start_date:
         return max(1, target_date.year - start_date.year + 1)
+    return 1
+
+
+def _goal_duration_years(goal: Goal, start_year: int, horizon_years: int) -> int:
+    start_date = _parse_iso_date(goal.start_date)
+    target_date = _parse_iso_date(goal.target_date)
+    if start_date and target_date and target_date >= start_date:
+        sim_end_year = int(start_year) + int(horizon_years)
+        overlap_start = max(start_date.year, int(start_year))
+        overlap_end = min(target_date.year, sim_end_year)
+        return max(0, overlap_end - overlap_start + 1)
     if int(goal.is_ongoing or 0):
         anchor = max(start_year, start_date.year if start_date else start_year)
         return max(1, horizon_years - (anchor - start_year))
@@ -1652,6 +1806,7 @@ def _monte_carlo_goal_summary(
     *,
     path_values_by_year: list[list[int]],
     annualized_return_samples_bps: list[int],
+    inflation_series_bps: list[int],
     advisory_wealth_rappen: int,
     total_wealth_rappen: int,
     start_year: int,
@@ -1665,6 +1820,7 @@ def _monte_carlo_goal_summary(
     p50 = _percentile(scaled_values, 0.50)
     p90 = _percentile(scaled_values, 0.90)
     goal_type = _norm_text(goal.goal_type)
+    evaluation_note = None
 
     if goal_type == "Renditeziel":
         target = int(goal.target_return_bps or 0)
@@ -1675,15 +1831,35 @@ def _monte_carlo_goal_summary(
     elif goal_type in ("Einmalige_Ausgabe", "Wiederkehrende_Ausgabe", "Pensionsausgabe"):
         target = _annualize_goal_amount(goal)
         if goal_type in ("Wiederkehrende_Ausgabe", "Pensionsausgabe"):
-            target *= _goal_duration_years(goal, start_year, horizon_years)
-        target = max(1, int(target))
-        success_rate_pct = int(round(sum(1 for value in scaled_values if value >= target) / max(1, len(scaled_values)) * 100))
-        funded_ratio_p50 = round(p50 / target, 4)
-        coverage_pct = max(0, min(100, int(round(funded_ratio_p50 * 100))))
-        undercoverage_pct = 100 if p50 >= target else max(0, min(100, int(round(100 - (target - p50) / target * 100))))
-        score = _cashflow_goal_score(success_rate_pct, coverage_pct, undercoverage_pct)
+            full_duration = _full_goal_duration_years(goal)
+            duration = _goal_duration_years(goal, start_year, horizon_years)
+            if duration <= 0:
+                target = max(1, int(target))
+                success_rate_pct = 0
+                funded_ratio_p50 = 0.0
+                coverage_pct = 0
+                undercoverage_pct = 0
+                score = 0
+                evaluation_note = f"Ziel liegt ausserhalb des aktuellen Simulationshorizonts (Horizont: {horizon_years} Jahre)."
+            else:
+                target *= duration
+                target = max(1, int(target))
+                success_rate_pct = int(round(sum(1 for value in scaled_values if value >= target) / max(1, len(scaled_values)) * 100))
+                funded_ratio_p50 = round(p50 / target, 4)
+                coverage_pct = max(0, min(100, int(round(funded_ratio_p50 * 100))))
+                undercoverage_pct = 100 if p50 >= target else max(0, min(100, int(round(100 - (target - p50) / target * 100))))
+                score = _cashflow_goal_score(success_rate_pct, coverage_pct, undercoverage_pct)
+                if duration < full_duration:
+                    evaluation_note = f"Bewertet fuer {duration} von {full_duration} Jahren (Simulationshorizont: {horizon_years} Jahre)."
+        else:
+            target = max(1, int(target))
+            success_rate_pct = int(round(sum(1 for value in scaled_values if value >= target) / max(1, len(scaled_values)) * 100))
+            funded_ratio_p50 = round(p50 / target, 4)
+            coverage_pct = max(0, min(100, int(round(funded_ratio_p50 * 100))))
+            undercoverage_pct = 100 if p50 >= target else max(0, min(100, int(round(100 - (target - p50) / target * 100))))
+            score = _cashflow_goal_score(success_rate_pct, coverage_pct, undercoverage_pct)
     elif goal_type in ("Kapitalerhalt", "Vermoegensziel"):
-        target = max(1, int(goal.target_wealth_rappen or 0))
+        target = _goal_target_wealth_rappen(goal, index, inflation_series_bps)
         success_rate_pct = int(round(sum(1 for value in scaled_values if value >= target) / max(1, len(scaled_values)) * 100))
         funded_ratio_p50 = round(p50 / target, 4)
         score = int(round(0.7 * success_rate_pct + 0.3 * max(0, min(100, int(round(funded_ratio_p50 * 100))))))
@@ -1708,6 +1884,7 @@ def _monte_carlo_goal_summary(
         "projected_value_p50_rappen": p50,
         "projected_value_p90_rappen": p90,
         "score": max(0, min(100, score)),
+        "evaluation_note": evaluation_note,
     }
 
 
@@ -1715,6 +1892,7 @@ def _run_allocation_monte_carlo(
     *,
     advisory_summary: PortfolioSummary,
     cashflow_projection_series_rappen: list[int],
+    goal_inflation_series_bps: list[int],
     targets: dict[str, int],
     minimums: dict[str, int],
     maximums: dict[str, int],
@@ -1805,6 +1983,7 @@ def _run_allocation_monte_carlo(
             goal,
             path_values_by_year=target_by_year,
             annualized_return_samples_bps=target_annualized_returns,
+            inflation_series_bps=goal_inflation_series_bps,
             advisory_wealth_rappen=advisory_wealth_rappen,
             total_wealth_rappen=total_wealth_rappen,
             start_year=start_year,
@@ -1866,6 +2045,7 @@ def _merge_goal_analysis_with_monte_carlo(goal_analysis: list[dict], monte_carlo
                 "projected_value_p50_rappen": int(summary.get("projected_value_p50_rappen") or 0),
                 "projected_value_p90_rappen": int(summary.get("projected_value_p90_rappen") or 0),
                 "projected_value_rappen": int(summary.get("projected_value_p50_rappen") or item.get("projected_value_rappen") or 0),
+                "evaluation_note": summary.get("evaluation_note") or item.get("evaluation_note"),
             }
         )
     return merged
@@ -2207,7 +2387,7 @@ def ensure_runtime_reference_data(db: Session, user_id: str) -> tuple[OptimizerP
         (1, 2, "Kapitalschutz", 0, 300, 800, 6500, 7500, 8500, 500, 1200, 2000, 0, 500, 1000, 0, 500, 500, 2000, 0),
         (3, 4, "Defensiv", 0, 200, 500, 5000, 6000, 7000, 1500, 2500, 3000, 500, 1000, 1500, 0, 300, 800, 4000, 0),
         (5, 6, "Ausgewogen", 0, 200, 300, 2500, 3500, 4500, 4000, 4800, 5500, 500, 1000, 1500, 300, 500, 800, 6000, 0),
-        (7, 8, "Wachstum", 0, 150, 200, 1000, 1600, 2500, 6000, 6800, 7500, 500, 800, 1200, 300, 600, 1000, 8000, 6000),
+        (7, 8, "Wachstumsorientiert", 0, 150, 200, 1000, 1600, 2500, 6000, 6800, 7500, 500, 800, 1200, 300, 600, 1000, 8000, 6000),
         (9, 9, "Dynamisch", 0, 100, 200, 500, 800, 1500, 7500, 8000, 8500, 300, 700, 1000, 200, 400, 600, 9000, 7500),
         (10, 10, "Aktien", 0, 100, 200, 0, 200, 500, 8500, 9000, 9500, 200, 500, 800, 0, 200, 500, 10000, 8500),
     ])
@@ -2263,17 +2443,6 @@ def ensure_runtime_reference_data(db: Session, user_id: str) -> tuple[OptimizerP
         _validate_house_matrix_defaults(defaults)
         _seed_house_matrix_rows(db, policy.id, defaults, now)
         _seed_building_blocks(db, policy.id, building_blocks, now)
-    elif policy.policy_name == DEFAULT_POLICY_NAME or "Automatisch erzeugte" in str(policy.notes or ""):
-        policy.max_real_estate_bps = 2000
-        policy.max_alternatives_bps = 1000
-        policy.min_liquidity_bps = 0
-        policy.allow_other_assets_for_goals = 1
-        policy.optimizer_engine = "goal_based_v1"
-        policy.updated_at = now
-        db.query(HouseMatrix).filter(HouseMatrix.policy_id == policy.id).delete(synchronize_session=False)
-        _seed_house_matrix_rows(db, policy.id, defaults, now)
-        db.query(BuildingBlock).filter(BuildingBlock.policy_id == policy.id).delete(synchronize_session=False)
-        _seed_building_blocks(db, policy.id, building_blocks, now)
 
     cma = db.query(CapitalMarketAssumption).filter(
         CapitalMarketAssumption.is_current == 1,
@@ -2286,7 +2455,7 @@ def ensure_runtime_reference_data(db: Session, user_id: str) -> tuple[OptimizerP
             version=1,
             valid_from=today,
             is_current=1,
-            bonds_chf_ig_return_bps=170,
+            bonds_chf_ig_return_bps=220,
             bonds_chf_ig_vol_bps=350,
             bonds_fx_hedged_return_bps=220,
             bonds_fx_hedged_vol_bps=430,
@@ -2294,11 +2463,11 @@ def ensure_runtime_reference_data(db: Session, user_id: str) -> tuple[OptimizerP
             bonds_hy_vol_bps=950,
             equity_ch_return_bps=620,
             equity_ch_vol_bps=1450,
-            equity_intl_return_bps=690,
+            equity_intl_return_bps=700,
             equity_intl_vol_bps=1600,
             equity_em_return_bps=760,
             equity_em_vol_bps=1900,
-            real_estate_ch_return_bps=330,
+            real_estate_ch_return_bps=450,
             real_estate_ch_vol_bps=820,
             alternatives_gold_return_bps=300,
             alternatives_gold_vol_bps=1200,
@@ -2329,49 +2498,6 @@ def ensure_runtime_reference_data(db: Session, user_id: str) -> tuple[OptimizerP
             updated_at=now,
         )
         db.add(cma)
-    elif cma.assumption_set_name == DEFAULT_CMA_NAME or str(cma.source or "") == "5Eyes Default Runtime":
-        cma.assumption_set_name = DEFAULT_CMA_NAME
-        cma.valid_from = today
-        cma.is_current = 1
-        cma.bonds_chf_ig_return_bps = 170
-        cma.bonds_chf_ig_vol_bps = 350
-        cma.bonds_fx_hedged_return_bps = 220
-        cma.bonds_fx_hedged_vol_bps = 430
-        cma.bonds_hy_return_bps = 420
-        cma.bonds_hy_vol_bps = 950
-        cma.equity_ch_return_bps = 620
-        cma.equity_ch_vol_bps = 1450
-        cma.equity_intl_return_bps = 690
-        cma.equity_intl_vol_bps = 1600
-        cma.equity_em_return_bps = 760
-        cma.equity_em_vol_bps = 1900
-        cma.real_estate_ch_return_bps = 330
-        cma.real_estate_ch_vol_bps = 820
-        cma.alternatives_gold_return_bps = 300
-        cma.alternatives_gold_vol_bps = 1200
-        cma.liquidity_return_bps = 80
-        cma.liquidity_vol_bps = 15
-        cma.inflation_path_json = json.dumps({
-            "2026": 50,
-            "2027": 70,
-            "2028": 60,
-            "2029": 50,
-            "2030": 60,
-            "2031": 70,
-            "2032": 70,
-            "2033": 70,
-            "2034": 70,
-            "2035": 70,
-            "2036": 70,
-            "2037": 80,
-            "2038": 90,
-            "2039": 100,
-            "2040": 110,
-        })
-        cma.sub_asset_class_assumptions_json = json.dumps(_DEFAULT_SUB_ASSET_CLASS_ASSUMPTIONS)
-        cma.source = "5Eyes Default Runtime"
-        cma.notes = "Automatisch erzeugte Default-CMA fuer V1-Engine"
-        cma.updated_at = now
 
     db.flush()
     return policy, cma
@@ -2492,6 +2618,11 @@ def _load_allocation_inputs(db: Session, mandate: Mandate, simulation_prefs: dic
         projection_years,
         start_year=cashflow_totals["year"],
     )
+    recurring_cashflow_projection_series_rappen = recurring_net_cashflow_series(
+        cashflows,
+        projection_years,
+        start_year=cashflow_totals["year"],
+    )
     return {
         "advisory_summary": advisory_summary,
         "total_summary": total_summary,
@@ -2502,8 +2633,15 @@ def _load_allocation_inputs(db: Session, mandate: Mandate, simulation_prefs: dic
         "cashflow_totals": cashflow_totals,
         "annual_inflows": cashflow_totals["income_rappen"],
         "annual_outflows": cashflow_totals["expense_rappen"],
+        "recurring_income_rappen": cashflow_totals["recurring_income_rappen"],
+        "recurring_expense_rappen": cashflow_totals["recurring_expense_rappen"],
+        "capital_inflow_rappen": cashflow_totals["capital_inflow_rappen"],
+        "capital_outflow_rappen": cashflow_totals["capital_outflow_rappen"],
+        "recurring_net_cashflow_rappen": cashflow_totals["recurring_income_rappen"] - cashflow_totals["recurring_expense_rappen"],
+        "capital_net_cashflow_rappen": cashflow_totals["capital_inflow_rappen"] - cashflow_totals["capital_outflow_rappen"],
         "annual_net_cashflow_rappen": cashflow_totals["net_rappen"],
         "cashflow_projection_series_rappen": cashflow_projection_series_rappen,
+        "recurring_cashflow_projection_series_rappen": recurring_cashflow_projection_series_rappen,
     }
 
 
@@ -2532,6 +2670,22 @@ def _baseline_target_bands(house_matrix: HouseMatrix, policy: OptimizerPolicy) -
     return targets, minimums, maximums
 
 
+def _current_planning_inflation_bps(db: Session, mandate: Mandate) -> int | None:
+    planning = (
+        db.query(PlanningAssumption)
+        .filter(
+            PlanningAssumption.mandate_id == mandate.id,
+            PlanningAssumption.deleted_at.is_(None),
+            PlanningAssumption.is_current == 1,
+        )
+        .order_by(PlanningAssumption.valid_from.desc(), PlanningAssumption.created_at.desc())
+        .first()
+    )
+    if planning and planning.inflation_assumption_bps is not None:
+        return int(planning.inflation_assumption_bps)
+    return None
+
+
 def _apply_external_exposure_tilts(
     targets: dict,
     minimums: dict,
@@ -2553,7 +2707,7 @@ def _apply_external_exposure_tilts(
     if external_equity_bps > 5000:
         reduction = min(400, int(round((external_equity_bps - 5000) * 0.2)))
         targets["equities"] = max(int(house_matrix.equity_minimum_bps or minimums["equities"]), targets["equities"] - reduction)
-        targets["bonds"] += reduction
+        targets["bonds"] = min(int(house_matrix.bonds_max_bps), targets["bonds"] + reduction)
         reasoning.append("Bereits bestehende Aktienexposures im Gesamtvermoegen werden auf die Advisory-Strategie angerechnet.")
 
 
@@ -2564,10 +2718,11 @@ def _apply_goal_and_reserve_tilts(
     goals: list[Goal],
     limits_prefs: dict,
     asset_class_prefs: dict,
-    annual_net_cashflow_rappen: int,
+    recurring_net_cashflow_rappen: int,
+    recurring_cashflow_projection_series_rappen: list[int],
     advisory_wealth_rappen: int,
     reasoning: list[str],
-) -> int:
+) -> tuple[int, int]:
     reserve_candidates = [0]
     manual_reserve = _parse_rappen(limits_prefs.get("minReserve"))
     liquidity_target = _parse_rappen(asset_class_prefs.get("liquidityReserveTarget"))
@@ -2575,9 +2730,14 @@ def _apply_goal_and_reserve_tilts(
         reserve_candidates.append(manual_reserve)
     if liquidity_target:
         reserve_candidates.append(liquidity_target)
-    if annual_net_cashflow_rappen < 0:
-        reserve_candidates.append(abs(annual_net_cashflow_rappen) * 3)
-        reasoning.append("Negativer Netto-Cashflow erhoeht die erforderliche Liquiditaetsreserve.")
+    near_term_cashflow_series = [int(value or 0) for value in (recurring_cashflow_projection_series_rappen or [])[:3]]
+    near_term_shortfall_rappen = max(0, -sum(near_term_cashflow_series))
+    if near_term_shortfall_rappen > 0:
+        reserve_candidates.append(near_term_shortfall_rappen)
+        reasoning.append("Zeitlich datierte Netto-Cashflows erhoehen die erforderliche Liquiditaetsreserve fuer die naechsten Jahre.")
+    elif recurring_net_cashflow_rappen < 0:
+        reserve_candidates.append(abs(recurring_net_cashflow_rappen) * 3)
+        reasoning.append("Negativer laufender Netto-Cashflow erhoeht die erforderliche Liquiditaetsreserve.")
 
     for goal in goals:
         years = _goal_projection_years(goal)
@@ -2590,29 +2750,38 @@ def _apply_goal_and_reserve_tilts(
             elif years <= 7:
                 reserve_candidates.append(int(round(target_amount * 0.5)))
         elif goal_type in ("Kapitalerhalt", "Vermoegensziel") and years <= 5:
-            targets["equities"] -= 200
-            targets["liquidity"] += 100
-            targets["bonds"] += 100
-            reasoning.append(f"Das Vermoegensziel '{goal.label}' mit kurzem Horizont reduziert den Aktienanteil leicht.")
+            eq_reduction = min(200, max(0, targets["equities"] - minimums["equities"]))
+            if eq_reduction > 0:
+                targets["equities"] -= eq_reduction
+                targets["liquidity"] += eq_reduction // 2
+                targets["bonds"] += eq_reduction - eq_reduction // 2
+                reasoning.append(f"Das Vermoegensziel '{goal.label}' mit kurzem Horizont reduziert den Aktienanteil leicht.")
 
     reserve_needed_rappen = max(reserve_candidates)
     if advisory_wealth_rappen <= 0 or reserve_needed_rappen <= 0:
-        return reserve_needed_rappen
+        return reserve_needed_rappen, 0
 
-    required_liquidity_bps = _bps(reserve_needed_rappen, advisory_wealth_rappen)
-    if required_liquidity_bps <= targets["liquidity"]:
-        return reserve_needed_rappen
+    # Strategische Liquiditaet im Portfolio bleibt strikt gedeckelt.
+    # Alles darueber wird als externe Reserve ausserhalb des Mandats empfohlen.
+    saa_liq_ceiling_bps: int = min(int(maximums["liquidity"]), _SAA_LIQUIDITY_HARD_CAP_BPS)
 
-    if required_liquidity_bps > maximums["liquidity"]:
-        maximums["liquidity"] = required_liquidity_bps
-        minimums["equities"] = 0
-        minimums["bonds"] = 0
-        minimums["real_estate"] = 0
-        minimums["alternatives"] = 0
-        minimums["liquidity"] = max(minimums["liquidity"], required_liquidity_bps)
-        reasoning.append("Kurzfristige Reserve- und Zielbedarfe duerfen die House-Matrix temporaer zugunsten von Liquiditaet uebersteuern.")
+    uncapped_required_liquidity_bps = _bps(reserve_needed_rappen, advisory_wealth_rappen)
+    saa_required_bps = min(uncapped_required_liquidity_bps, saa_liq_ceiling_bps)
 
-    shift = required_liquidity_bps - targets["liquidity"]
+    external_reserve_rappen: int = 0
+    if uncapped_required_liquidity_bps > saa_liq_ceiling_bps and advisory_wealth_rappen > 0:
+        saa_reserve_rappen = int(round(saa_liq_ceiling_bps * advisory_wealth_rappen / 10000))
+        external_reserve_rappen = max(0, reserve_needed_rappen - saa_reserve_rappen)
+        chf_external = external_reserve_rappen // 100
+        reasoning.append(
+            f"Ein Liquiditaetsbedarf von CHF {chf_external:,} wird als externe Reserve ausserhalb "
+            f"des Beratungsmandats empfohlen. Die SAA-Liquiditaet bleibt auf {saa_liq_ceiling_bps / 100:.1f}%."
+        )
+
+    if saa_required_bps <= targets["liquidity"]:
+        return reserve_needed_rappen, external_reserve_rappen
+
+    shift = saa_required_bps - targets["liquidity"]
     remaining = max(0, shift)
     for donor in ("bonds", "equities", "alternatives", "real_estate"):
         if remaining <= 0:
@@ -2628,8 +2797,8 @@ def _apply_goal_and_reserve_tilts(
     funded = shift - remaining
     if funded > 0:
         targets["liquidity"] += funded
-        reasoning.append("Die Liquiditaetsquote wird fuer Reserve- und Zielbedarfe explizit aus der Zielallokation finanziert.")
-    return reserve_needed_rappen
+        reasoning.append("Die strategische Liquiditaetsquote wird aus der Zielallokation finanziert.")
+    return reserve_needed_rappen, external_reserve_rappen
 
 
 def _build_bucket_response(target_allocation: TargetAllocation, current_amounts: dict, advisory_wealth_rappen: int) -> list[dict]:
@@ -2690,8 +2859,15 @@ def generate_target_allocation(
     cashflow_totals = inputs["cashflow_totals"]
     annual_inflows = inputs["annual_inflows"]
     annual_outflows = inputs["annual_outflows"]
+    recurring_income_rappen = inputs["recurring_income_rappen"]
+    recurring_expense_rappen = inputs["recurring_expense_rappen"]
+    capital_inflow_rappen = inputs["capital_inflow_rappen"]
+    capital_outflow_rappen = inputs["capital_outflow_rappen"]
+    recurring_net_cashflow_rappen = inputs["recurring_net_cashflow_rappen"]
+    capital_net_cashflow_rappen = inputs["capital_net_cashflow_rappen"]
     annual_net_cashflow_rappen = inputs["annual_net_cashflow_rappen"]
     cashflow_projection_series_rappen = inputs["cashflow_projection_series_rappen"]
+    recurring_cashflow_projection_series_rappen = inputs["recurring_cashflow_projection_series_rappen"]
     targets, minimums, maximums = _baseline_target_bands(house_matrix, policy)
     reasoning = [
         f"Ausgangspunkt ist die House Matrix fuer Score {score_bucket} ({house_matrix.profile_name}).",
@@ -2703,24 +2879,39 @@ def generate_target_allocation(
     if manual_target_override:
         reasoning.append("Explizit gesetzte Soll-Quoten uebersteuern automatische Exposure-Tilts; harte Risiko- und Liquiditaetsregeln bleiben aktiv.")
     _apply_external_exposure_tilts(targets, minimums, total_summary, house_matrix, manual_target_override, reasoning)
-    reserve_needed_rappen = _apply_goal_and_reserve_tilts(
+    reserve_needed_rappen, external_reserve_rappen = _apply_goal_and_reserve_tilts(
         targets=targets,
         minimums=minimums,
         maximums=maximums,
         goals=goals,
         limits_prefs=prefs["limits"],
         asset_class_prefs=prefs["assetClasses"],
-        annual_net_cashflow_rappen=annual_net_cashflow_rappen,
+        recurring_net_cashflow_rappen=recurring_net_cashflow_rappen,
+        recurring_cashflow_projection_series_rappen=recurring_cashflow_projection_series_rappen,
         advisory_wealth_rappen=advisory_wealth_rappen,
         reasoning=reasoning,
     )
 
-    growth_goals = [goal for goal in goals if _norm_text(goal.goal_type) in ("Vermoegensziel", "Maximierung", "Renditeziel")]
-    if not manual_target_override and annual_net_cashflow_rappen > 0 and growth_goals and score_bucket >= 7 and reserve_needed_rappen == 0:
+    goal_inflation_series_bps = _goal_inflation_series_bps(
+        cma,
+        len(cashflow_projection_series_rappen),
+        cashflow_totals["year"],
+        planning_inflation_bps=_current_planning_inflation_bps(db, mandate),
+    )
+    growth_goals = _growth_goals_for_equity_tilt(goals)
+    if (
+        not manual_target_override
+        and recurring_net_cashflow_rappen > 0
+        and growth_goals
+        and score_bucket >= 7
+        and reserve_needed_rappen == 0
+        and targets["bonds"] - minimums["bonds"] >= 100
+        and targets["liquidity"] - minimums["liquidity"] >= 50
+    ):
         targets["equities"] += 150
         targets["bonds"] -= 100
         targets["liquidity"] -= 50
-        reasoning.append("Positiver Cashflow und langfristige Wachstumsziele ermoeglichen einen moderaten Equity-Tilt.")
+        reasoning.append("Positiver laufender Cashflow und langfristige Wachstumsziele ermoeglichen einen moderaten Equity-Tilt.")
 
     max_illiquid_bps = _parse_bps_percent(prefs["limits"].get("maxIlliquid"))
     if max_illiquid_bps is not None:
@@ -2754,6 +2945,7 @@ def generate_target_allocation(
         advisory_wealth_rappen=advisory_wealth_rappen,
         total_wealth_rappen=total_wealth_rappen,
         cashflow_projection_series_rappen=cashflow_projection_series_rappen,
+        inflation_series_bps=goal_inflation_series_bps,
         expected_return_bps=metrics["expected_return_bps"],
         reserve_needed_rappen=reserve_needed_rappen,
         policy=policy,
@@ -2782,6 +2974,7 @@ def generate_target_allocation(
     monte_carlo = _run_allocation_monte_carlo(
         advisory_summary=advisory_summary,
         cashflow_projection_series_rappen=cashflow_projection_series_rappen,
+        goal_inflation_series_bps=goal_inflation_series_bps,
         targets=targets,
         minimums=minimums,
         maximums=maximums,
@@ -2850,9 +3043,17 @@ def generate_target_allocation(
         "score_bucket": score_bucket,
         "advisory_wealth_rappen": advisory_wealth_rappen,
         "total_wealth_rappen": total_wealth_rappen,
+        "recurring_income_rappen": recurring_income_rappen,
+        "recurring_expense_rappen": recurring_expense_rappen,
+        "capital_inflow_rappen": capital_inflow_rappen,
+        "capital_outflow_rappen": capital_outflow_rappen,
+        "recurring_net_cashflow_rappen": recurring_net_cashflow_rappen,
+        "capital_net_cashflow_rappen": capital_net_cashflow_rappen,
         "annual_net_cashflow_rappen": annual_net_cashflow_rappen,
         "cashflow_projection_series_rappen": cashflow_projection_series_rappen,
+        "recurring_cashflow_projection_series_rappen": recurring_cashflow_projection_series_rappen,
         "reserve_needed_rappen": reserve_needed_rappen,
+        "external_reserve_rappen": external_reserve_rappen,
         "risk_budget_bps": int(house_matrix.max_risky_fraction_bps),
         "risky_fraction_total_bps": risky_fraction_total_bps,
         "risky_fraction_headroom_bps": int(house_matrix.max_risky_fraction_bps) - int(risky_fraction_total_bps),
@@ -2909,6 +3110,12 @@ def build_target_payload_from_allocation(
         Goal.is_active == 1,
     ).order_by(Goal.rank.asc()).all()
     cashflow_totals = totals_for_year(cashflows)
+    recurring_income_rappen = cashflow_totals["recurring_income_rappen"]
+    recurring_expense_rappen = cashflow_totals["recurring_expense_rappen"]
+    capital_inflow_rappen = cashflow_totals["capital_inflow_rappen"]
+    capital_outflow_rappen = cashflow_totals["capital_outflow_rappen"]
+    recurring_net_cashflow_rappen = recurring_income_rappen - recurring_expense_rappen
+    capital_net_cashflow_rappen = capital_inflow_rappen - capital_outflow_rappen
     annual_net_cashflow_rappen = cashflow_totals["net_rappen"]
     projection_years = _simulation_horizon_years(prefs["simulation"], goals)
     cashflow_projection_series_rappen = net_cashflow_series(
@@ -2916,28 +3123,12 @@ def build_target_payload_from_allocation(
         projection_years,
         start_year=cashflow_totals["year"],
     )
-
-    targets = {
-        "equities": int(allocation.target_equities_bps),
-        "bonds": int(allocation.target_bonds_bps),
-        "real_estate": int(allocation.target_real_estate_bps),
-        "alternatives": int(allocation.target_alternatives_bps),
-        "liquidity": int(allocation.target_liquidity_bps),
-    }
-    risky_map = _building_block_risky_map(db, policy.id)
-    sub_allocations = _build_sub_allocations(targets, prefs)
-    sub_allocations, asset_risky_weights, risky_fraction_total_bps = _enrich_sub_allocations_with_risk(sub_allocations, risky_map)
-    metrics = _expected_metrics(targets, cma)
-    reserve_needed_rappen = max(_parse_rappen(prefs["limits"].get("minReserve")) or 0, _parse_rappen(prefs["assetClasses"].get("liquidityReserveTarget")) or 0)
-    goal_analysis = _build_goal_analysis(
-        goals=goals,
-        advisory_wealth_rappen=advisory_wealth_rappen,
-        total_wealth_rappen=total_wealth_rappen,
-        cashflow_projection_series_rappen=cashflow_projection_series_rappen,
-        expected_return_bps=metrics["expected_return_bps"],
-        reserve_needed_rappen=reserve_needed_rappen,
-        policy=policy,
+    recurring_cashflow_projection_series_rappen = recurring_net_cashflow_series(
+        cashflows,
+        projection_years,
+        start_year=cashflow_totals["year"],
     )
+
     minimums = {
         "equities": int(allocation.band_equities_min_bps or 0),
         "bonds": int(allocation.band_bonds_min_bps or 0),
@@ -2952,6 +3143,74 @@ def build_target_payload_from_allocation(
         "alternatives": int(allocation.band_alternatives_max_bps or 0),
         "liquidity": int(allocation.band_liquidity_max_bps or 0),
     }
+    targets = {
+        "equities": int(allocation.target_equities_bps),
+        "bonds": int(allocation.target_bonds_bps),
+        "real_estate": int(allocation.target_real_estate_bps),
+        "alternatives": int(allocation.target_alternatives_bps),
+        "liquidity": int(allocation.target_liquidity_bps),
+    }
+    normalized_legacy_liquidity = False
+    saa_liq_ceil_bps = min(
+        int(maximums["liquidity"] or house_matrix.liq_max_bps or _SAA_LIQUIDITY_HARD_CAP_BPS),
+        _SAA_LIQUIDITY_HARD_CAP_BPS,
+    )
+    if targets["liquidity"] > saa_liq_ceil_bps:
+        normalized_legacy_liquidity = True
+        minimums["liquidity"] = min(int(minimums["liquidity"]), saa_liq_ceil_bps)
+        targets["liquidity"] = saa_liq_ceil_bps
+        maximums["liquidity"] = saa_liq_ceil_bps
+        targets = _rebalance_to_total(targets, minimums, maximums)
+
+    risky_map = _building_block_risky_map(db, policy.id)
+    sub_allocations = _build_sub_allocations(targets, prefs)
+    sub_allocations, asset_risky_weights, risky_fraction_total_bps = _enrich_sub_allocations_with_risk(sub_allocations, risky_map)
+    metrics = _expected_metrics(targets, cma)
+    _manual_reserve = _parse_rappen(prefs["limits"].get("minReserve")) or 0
+    _liq_target = _parse_rappen(prefs["assetClasses"].get("liquidityReserveTarget")) or 0
+    _reserve_candidates = [0, _manual_reserve, _liq_target]
+    _near_term = [int(v or 0) for v in (recurring_cashflow_projection_series_rappen or [])[:3]]
+    _near_term_shortfall = max(0, -sum(_near_term))
+    if _near_term_shortfall > 0:
+        _reserve_candidates.append(_near_term_shortfall)
+    elif recurring_net_cashflow_rappen < 0:
+        _reserve_candidates.append(abs(recurring_net_cashflow_rappen) * 3)
+    for goal in goals:
+        years = _goal_projection_years(goal)
+        goal_type = _norm_text(goal.goal_type)
+        if goal_type in ("Einmalige_Ausgabe", "Wiederkehrende_Ausgabe", "Pensionsausgabe"):
+            target_amount = (
+                _annualize_goal_amount(goal)
+                if goal_type in ("Wiederkehrende_Ausgabe", "Pensionsausgabe")
+                else int(goal.target_amount_rappen or 0)
+            )
+            if years <= 3:
+                _reserve_candidates.append(target_amount)
+            elif years <= 7:
+                _reserve_candidates.append(int(round(target_amount * 0.5)))
+    reserve_needed_rappen = max(_reserve_candidates)
+    external_reserve_rappen: int = 0
+    if reserve_needed_rappen > 0 and advisory_wealth_rappen > 0:
+        _uncapped_bps = _bps(reserve_needed_rappen, advisory_wealth_rappen)
+        if _uncapped_bps > saa_liq_ceil_bps:
+            _saa_r = int(round(saa_liq_ceil_bps * advisory_wealth_rappen / 10000))
+            external_reserve_rappen = max(0, reserve_needed_rappen - _saa_r)
+    goal_inflation_series_bps = _goal_inflation_series_bps(
+        cma,
+        len(cashflow_projection_series_rappen),
+        cashflow_totals["year"],
+        planning_inflation_bps=_current_planning_inflation_bps(db, mandate),
+    )
+    goal_analysis = _build_goal_analysis(
+        goals=goals,
+        advisory_wealth_rappen=advisory_wealth_rappen,
+        total_wealth_rappen=total_wealth_rappen,
+        cashflow_projection_series_rappen=cashflow_projection_series_rappen,
+        inflation_series_bps=goal_inflation_series_bps,
+        expected_return_bps=metrics["expected_return_bps"],
+        reserve_needed_rappen=reserve_needed_rappen,
+        policy=policy,
+    )
     asset_class_assumptions = _build_asset_class_assumptions(
         current_amounts=advisory_summary.amounts_rappen,
         advisory_wealth_rappen=advisory_wealth_rappen,
@@ -2976,6 +3235,7 @@ def build_target_payload_from_allocation(
     monte_carlo = _run_allocation_monte_carlo(
         advisory_summary=advisory_summary,
         cashflow_projection_series_rappen=cashflow_projection_series_rappen,
+        goal_inflation_series_bps=goal_inflation_series_bps,
         targets=targets,
         minimums=minimums,
         maximums=maximums,
@@ -2992,11 +3252,11 @@ def build_target_payload_from_allocation(
     bucket_response = []
     current_amounts = advisory_summary.amounts_rappen
     label_map = {
-        "equities": ("Aktien", allocation.target_equities_bps, allocation.band_equities_min_bps, allocation.band_equities_max_bps),
-        "bonds": ("Obligationen", allocation.target_bonds_bps, allocation.band_bonds_min_bps, allocation.band_bonds_max_bps),
-        "real_estate": ("Immobilien", allocation.target_real_estate_bps, allocation.band_real_estate_min_bps, allocation.band_real_estate_max_bps),
-        "alternatives": ("Alternative", allocation.target_alternatives_bps, allocation.band_alternatives_min_bps, allocation.band_alternatives_max_bps),
-        "liquidity": ("Liquiditaet", allocation.target_liquidity_bps, allocation.band_liquidity_min_bps, allocation.band_liquidity_max_bps),
+        "equities": ("Aktien", targets["equities"], minimums["equities"], maximums["equities"]),
+        "bonds": ("Obligationen", targets["bonds"], minimums["bonds"], maximums["bonds"]),
+        "real_estate": ("Immobilien", targets["real_estate"], minimums["real_estate"], maximums["real_estate"]),
+        "alternatives": ("Alternative", targets["alternatives"], minimums["alternatives"], maximums["alternatives"]),
+        "liquidity": ("Liquiditaet", targets["liquidity"], minimums["liquidity"], maximums["liquidity"]),
     }
     for key in BUCKET_FIELDS:
         label, target_bps, min_bps, max_bps = label_map[key]
@@ -3016,7 +3276,7 @@ def build_target_payload_from_allocation(
         )
     live_rebalancing = None
     current_run = _current_recommendation_run(db, mandate.id)
-    if current_run:
+    if current_run and not normalized_legacy_liquidity:
         live_rebalancing = build_live_rebalancing_payload(
             db=db,
             allocation=allocation,
@@ -3032,9 +3292,17 @@ def build_target_payload_from_allocation(
         "score_bucket": score_bucket,
         "advisory_wealth_rappen": advisory_wealth_rappen,
         "total_wealth_rappen": total_wealth_rappen,
+        "recurring_income_rappen": recurring_income_rappen,
+        "recurring_expense_rappen": recurring_expense_rappen,
+        "capital_inflow_rappen": capital_inflow_rappen,
+        "capital_outflow_rappen": capital_outflow_rappen,
+        "recurring_net_cashflow_rappen": recurring_net_cashflow_rappen,
+        "capital_net_cashflow_rappen": capital_net_cashflow_rappen,
         "annual_net_cashflow_rappen": annual_net_cashflow_rappen,
         "cashflow_projection_series_rappen": cashflow_projection_series_rappen,
+        "recurring_cashflow_projection_series_rappen": recurring_cashflow_projection_series_rappen,
         "reserve_needed_rappen": reserve_needed_rappen,
+        "external_reserve_rappen": external_reserve_rappen,
         "risk_budget_bps": int(house_matrix.max_risky_fraction_bps or 0),
         "risky_fraction_total_bps": risky_fraction_total_bps,
         "risky_fraction_headroom_bps": int(house_matrix.max_risky_fraction_bps or 0) - int(risky_fraction_total_bps),
@@ -3043,10 +3311,19 @@ def build_target_payload_from_allocation(
         "expected_volatility_bps": metrics["expected_volatility_bps"],
         "capital_market_assumption_set": cma.assumption_set_name,
         "capital_market_source": cma.source,
-        "reasoning": [
-            "Verwendet die bestehende aktuelle Soll-Allokation.",
-            "Die Projektion wird zusaetzlich ueber normalverteilte Jahresrenditen als Pfadsimulation verdichtet.",
-        ],
+        "reasoning": (
+            [
+                "Verwendet die bestehende aktuelle Soll-Allokation.",
+                "Die Projektion wird zusaetzlich ueber normalverteilte Jahresrenditen als Pfadsimulation verdichtet.",
+            ]
+            + (
+                [
+                    "Eine fruehere hohe Liquiditaetsquote wird nach heutiger Policy als externe Reserve interpretiert und fuer die Anzeige auf die strategische SAA-Liquiditaet gekappt."
+                ]
+                if normalized_legacy_liquidity
+                else []
+            )
+        ),
         "buckets": bucket_response,
         "sub_allocations": sub_allocations,
         "asset_class_assumptions": asset_class_assumptions,
@@ -3106,13 +3383,30 @@ def build_recommendation_payload_from_run(
     product_ids = [position.product_id for position in positions if position.product_id]
     latest_prices = latest_price_snapshot(db, product_ids)
     market_data_quality = summarize_price_quality(db, product_ids)
-    live_rebalancing = build_live_rebalancing_payload(
-        db=db,
-        allocation=allocation,
-        run=run,
-        advisory_wealth_rappen=advisory_wealth_rappen,
-        positions=positions,
+    payload_target_map = {
+        str(item.get("asset_class") or ""): int(item.get("target_weight_bps") or 0)
+        for item in (target_payload.get("buckets") or [])
+    }
+    raw_target_map = {
+        BUCKET_LABELS["equities"]: int(allocation.target_equities_bps or 0),
+        BUCKET_LABELS["bonds"]: int(allocation.target_bonds_bps or 0),
+        BUCKET_LABELS["real_estate"]: int(allocation.target_real_estate_bps or 0),
+        BUCKET_LABELS["alternatives"]: int(allocation.target_alternatives_bps or 0),
+        BUCKET_LABELS["liquidity"]: int(allocation.target_liquidity_bps or 0),
+    }
+    stale_recommendation_targets = any(
+        int(payload_target_map.get(label, raw_target)) != int(raw_target)
+        for label, raw_target in raw_target_map.items()
     )
+    live_rebalancing = None
+    if not stale_recommendation_targets:
+        live_rebalancing = build_live_rebalancing_payload(
+            db=db,
+            allocation=allocation,
+            run=run,
+            advisory_wealth_rappen=advisory_wealth_rappen,
+            positions=positions,
+        )
     live_positions_by_id = {
         item["id"]: item for item in ((live_rebalancing or {}).get("position_drifts") or [])
     }
@@ -3125,6 +3419,11 @@ def build_recommendation_payload_from_run(
         }
 
     warnings: list[str] = []
+    if stale_recommendation_targets:
+        warnings.append(
+            "Die gespeicherte Empfehlung basiert auf einer frueheren Soll-Allokation. "
+            "Bitte Empfehlung neu berechnen, bevor Umsetzung oder Rebalancing beurteilt werden."
+        )
     positions_payload = []
     for position in positions:
         product = products_by_id.get(position.product_id)

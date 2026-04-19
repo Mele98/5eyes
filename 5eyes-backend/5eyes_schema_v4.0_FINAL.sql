@@ -325,8 +325,8 @@ CREATE INDEX IF NOT EXISTS idx_risk_override_by ON risk_assessments(override_by)
 CREATE TABLE IF NOT EXISTS risk_assessment_answers (
     id                  TEXT PRIMARY KEY,
     assessment_id       TEXT NOT NULL REFERENCES risk_assessments(id) ON UPDATE CASCADE,
-    question_number     INTEGER NOT NULL CHECK(question_number BETWEEN 1 AND 9),
-    question_section    TEXT NOT NULL CHECK(question_section IN ('Risikofähigkeit','Risikobereitschaft')),
+    question_number     INTEGER NOT NULL CHECK(question_number BETWEEN 1 AND 11),
+    question_section    TEXT NOT NULL CHECK(question_section IN ('Kenntnisse & Erfahrungen','Risikofähigkeit','Risikobereitschaft')),
     answer_label        TEXT NOT NULL,
     answer_points       INTEGER NOT NULL,
     created_at          TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),

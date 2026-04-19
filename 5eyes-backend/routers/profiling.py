@@ -15,13 +15,23 @@ from schemas.profiling import (
 )
 from services.auth import get_client_for_user_or_404, get_current_user, get_mandate_for_user_or_404, require_advisor
 from services.audit import log
-from services.risk_scoring import compute_scores
+from services.risk_scoring import canonicalize_horizon_label, compute_scores
 
 router = APIRouter(tags=["Risikoprofilierung"])
 
 
 def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+
+
+def _canonical_risk_answer_section(question_number: int | None, question_section: str | None) -> str:
+    section = str(question_section or "").strip()
+    if section in {"Risikofähigkeit", "Risikobereitschaft"}:
+        return section
+    qn = int(question_number or 0)
+    if qn in (9, 10, 11, 12):
+        return "Risikobereitschaft"
+    return "Risikofähigkeit"
 
 
 def _get_mandate_or_404(mandate_id: str, db: Session, current_user: User) -> Mandate:
@@ -143,6 +153,7 @@ def create_risk_assessment(
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
     now = _now()
     today = date.today().isoformat()
+    horizon_label = canonicalize_horizon_label(body.investment_horizon_label)
 
     # Compute scores from Fachlogik
     scores = compute_scores(
@@ -150,7 +161,7 @@ def create_risk_assessment(
         q_obligations_points=body.q_obligations_points,
         q_savings_points=body.q_savings_points,
         q_wealth_points=body.q_wealth_points,
-        investment_horizon_label=body.investment_horizon_label,
+        investment_horizon_label=horizon_label,
         q_investment_goal_points=body.q_investment_goal_points,
         q_risk_preference_points=body.q_risk_preference_points,
         q_risk_behavior_points=body.q_risk_behavior_points,
@@ -185,7 +196,7 @@ def create_risk_assessment(
         risk_capacity_total=scores.risk_capacity_total,
         risk_capacity_profile=scores.risk_capacity_profile,
         investment_horizon_years=body.investment_horizon_years,
-        investment_horizon_label=body.investment_horizon_label,
+        investment_horizon_label=horizon_label,
         risk_capacity_score_x10=scores.risk_capacity_score_x10,
         # Risikobereitschaft
         q_investment_goal_points=body.q_investment_goal_points,
@@ -212,7 +223,10 @@ def create_risk_assessment(
                 id=new_uuid(),
                 assessment_id=ra.id,
                 question_number=ans.get("question_number"),
-                question_section=ans.get("question_section"),
+                question_section=_canonical_risk_answer_section(
+                    ans.get("question_number"),
+                    ans.get("question_section"),
+                ),
                 answer_label=ans.get("answer_label"),
                 answer_points=ans.get("answer_points"),
                 created_at=now,

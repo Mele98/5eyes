@@ -32,13 +32,23 @@ from routers.clients import cashflow_summary
 from routers.profiling import create_risk_assessment, get_current_risk_assessment
 from routers.review import active_triggers, create_advisory_log_entry, create_trigger, dashboard_summary
 from routers.review import auto_apply_product_id_mappings, auto_apply_product_reference_data
-from routers.wealth import create_cashflow, create_goal, create_wealth_position, delete_cashflow
+from routers.wealth import (
+    create_cashflow,
+    create_goal,
+    create_wealth_position,
+    delete_cashflow,
+    get_planning_assumptions_ui,
+    upsert_planning_assumptions,
+)
 from services.auth import get_client_for_user_or_404, get_mandate_for_user_or_404
 from services.eodhd_client import preview_eodhd_reference
 from services.foundation_example import FOUNDATION_CLIENT_NUMBER, FOUNDATION_MANDATE_NUMBER, upsert_foundation_example_case
 from services.openfigi_client import preview_openfigi_mapping
 from services.portfolio_engine import (
     _aligned_reference_price,
+    _goal_weight,
+    _growth_goals_for_equity_tilt,
+    _inflate_real_goal_target_rappen,
     ALLOWED_HOUSE_MATRIX_PROFILES,
     ALLOWED_PRODUCT_ASSET_CLASSES,
     ALLOWED_PRODUCT_TYPES,
@@ -61,6 +71,7 @@ from schemas.allocation import TargetAllocationGenerateResponse
 from schemas.review import AdvisoryLogCreate, ReviewTriggerCreate
 from schemas.review import ProductIdMappingBatchApplyRequest, ProductReferenceBatchApplyRequest
 from schemas.wealth import CashflowCreate, GoalCreate, WealthPositionCreate
+from schemas.wealth import PlanningAssumptionCreate
 
 
 @pytest.fixture()
@@ -578,7 +589,7 @@ def test_runtime_reference_data_matches_fachlogik_tables(session_factory, adviso
         }
         inflation_path = json.loads(cma.inflation_path_json or "{}")
 
-    assert growth.profile_name == "Wachstum"
+    assert growth.profile_name == "Wachstumsorientiert"
     assert int(growth.equity_target_bps) == 6800
     assert int(growth.equity_minimum_bps) == 6000
     assert int(growth.max_risky_fraction_bps) == 8000
@@ -718,7 +729,7 @@ def test_foundation_example_case_is_generation_ready_and_idempotent(session_fact
     assert first["risk_profile"] == "Wachstumsorientiert"
     assert first["advisory_wealth_rappen"] < first["total_wealth_rappen"]
     assert first["annual_net_cashflow_rappen"] > 0
-    assert first["house_matrix_profile"] == "Wachstum"
+    assert first["house_matrix_profile"] == "Wachstumsorientiert"
     assert first["monte_carlo_simulations"] >= 250
     assert 0 <= first["target_downside_probability_pct"] <= 100
     assert first["target_terminal_p50_rappen"] > 0
@@ -1303,6 +1314,34 @@ def test_create_goal_derives_horizon_and_frequency_from_timing_fields(session_fa
     assert result.horizon_years == 5
 
 
+def test_planning_assumptions_ui_get_and_put_support_inflation_bps(session_factory, advisor_user):
+    _, mandate_id = seed_client_and_mandate(session_factory, advisor_user)
+
+    with session_factory() as session:
+        empty = get_planning_assumptions_ui(
+            mandate_id=mandate_id,
+            db=session,
+            current_user=advisor_user,
+        )
+        assert empty["inflation_assumption_bps"] is None
+
+        saved = upsert_planning_assumptions(
+            mandate_id=mandate_id,
+            body=PlanningAssumptionCreate(inflation_assumption_bps=150),
+            db=session,
+            current_user=advisor_user,
+        )
+        assert saved["ok"] is True
+        assert saved["inflation_assumption_bps"] == 150
+
+        loaded = get_planning_assumptions_ui(
+            mandate_id=mandate_id,
+            db=session,
+            current_user=advisor_user,
+        )
+        assert loaded["inflation_assumption_bps"] == 150
+
+
 def test_create_goal_uses_target_date_for_one_off_goal(session_factory, advisor_user):
     _, mandate_id = seed_client_and_mandate(session_factory, advisor_user)
     current_year = date.today().year
@@ -1523,8 +1562,14 @@ def test_generate_target_allocation_reflects_cashflow_and_goal_constraints(sessi
     assert result["target_allocation"].mandate_id == mandate_id
     assert result["reserve_needed_rappen"] >= 15000000
     liquidity_bucket = next(bucket for bucket in result["buckets"] if bucket["asset_class"] == "Liquiditaet")
-    assert liquidity_bucket["target_weight_bps"] >= liquidity_bucket["current_weight_bps"]
-    assert any("Liquiditaetsbedarf" in reason or "Liquiditaetsquote" in reason for reason in result["reasoning"])
+    assert liquidity_bucket["target_weight_bps"] <= 300
+    assert result["external_reserve_rappen"] > 0
+    assert any(
+        "Liquiditaetsbedarf" in reason
+        or "Liquiditaetsquote" in reason
+        or "externe Reserve ausserhalb des Mandats empfohlen" in reason
+        for reason in result["reasoning"]
+    )
 
 
 def test_generate_target_allocation_respects_manual_band_overrides(session_factory, advisor_user):
@@ -2012,6 +2057,32 @@ def test_generate_target_allocation_goal_analysis_exposes_timing_and_return_targ
     assert analysis["Renditeziel"]["target_wealth_rappen"] is None
     assert analysis["Renditeziel"]["timing_label"] == "bis 2034-12-31"
     assert analysis["Renditeziel"]["funded_ratio_p50"] is not None
+
+
+def test_inflate_real_goal_target_rappen_compounds_inflation():
+    expected = int(round(50_000_000 * ((1 + 150 / 10000) ** 10)))
+    assert _inflate_real_goal_target_rappen(50_000_000, 10, [150] * 10) == expected
+
+
+def test_goal_weight_respects_hardness_multiplier():
+    primary = Goal(rank=2, hardness="Primär")
+    hard = Goal(rank=2, hardness="Hart")
+    opportunistic = Goal(rank=2, hardness="Opportunistisch")
+
+    assert _goal_weight(hard) == _goal_weight(primary) * 2
+    assert _goal_weight(opportunistic) < _goal_weight(primary)
+
+
+def test_growth_goals_for_equity_tilt_respects_hard_protection_goals():
+    goals = [
+        Goal(goal_type="Kapitalerhalt", hardness="Hart"),
+        Goal(goal_type="Renditeziel", hardness="Opportunistisch"),
+        Goal(goal_type="Vermoegensziel", hardness="Primär"),
+    ]
+
+    eligible = _growth_goals_for_equity_tilt(goals)
+
+    assert [goal.goal_type for goal in eligible] == ["Vermoegensziel"]
 
 
 def test_generate_target_allocation_clamps_monte_carlo_runs(session_factory, advisor_user):

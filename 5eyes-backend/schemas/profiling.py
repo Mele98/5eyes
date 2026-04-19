@@ -49,7 +49,8 @@ class RiskAssessmentCreate(BaseModel):
     investment_horizon_label: Literal[
         "Bis 2 Jahre", "2 bis 3 Jahre", "4 bis 5 Jahre",
         "6 bis 7 Jahre", "8 bis 11 Jahre", "Mehr als 12 Jahre",
-        "0 bis 4 Jahre", "5 bis 7 Jahre", "12 Jahre und mehr"
+        "0 bis 4 Jahre", "5 bis 7 Jahre", "12 Jahre und mehr",
+        "1 bis 3 Jahre", "3 bis 5 Jahre", "5 bis 10 Jahre", "10 Jahre und mehr"
     ]
     investment_horizon_years: int
     # Risikobereitschaft
@@ -58,6 +59,10 @@ class RiskAssessmentCreate(BaseModel):
     q_risk_behavior_points: int     # 1–4
     # Answers for full documentation
     answers: Optional[list[dict]] = None
+    # Kenntnisse & Erfahrungen (SwissLife W305.03 Seite 1) - optional, kein Score
+    knowledge_services_json: Optional[str] = None
+    knowledge_instruments_json: Optional[str] = None
+    income_sources_json: Optional[str] = None
 
     @model_validator(mode="after")
     def validate_points(self):
@@ -81,6 +86,12 @@ class RiskAssessmentOverride(BaseModel):
     override_client_confirmed: bool = False
     override_warning_delivered: bool = False
     override_warning_document_id: Optional[str] = None
+
+    @model_validator(mode="after")
+    def validate_override_score(self):
+        assert 10 <= self.override_score_x10 <= 100, \
+            "override_score_x10 muss zwischen 10 (Score 1) und 100 (Score 10) liegen"
+        return self
 
 
 class RiskAssessmentAnswerResponse(BaseResponse):
@@ -130,6 +141,9 @@ class RiskAssessmentResponse(BaseResponse):
     assessed_by: str
     created_at: str
     answers: list[RiskAssessmentAnswerResponse] = []
+    knowledge_services_json: Optional[str] = None
+    knowledge_instruments_json: Optional[str] = None
+    income_sources_json: Optional[str] = None
 
 
 # ── Suitability Check ──────────────────────────────────────────────────────────

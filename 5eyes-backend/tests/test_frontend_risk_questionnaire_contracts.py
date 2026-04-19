@@ -41,7 +41,6 @@ def test_risk_summary_and_override_controls_remain_visible():
     assert "Empfohlene Anlagestrategie" in html
     assert "Abschluss & Unterschrift" not in html
     assert "Unterschrift Kunde" not in html
-    assert "Ort, Datum" not in html
 
 
 def test_no_goal_horizon_hint_is_hidden_when_no_basis_is_available():

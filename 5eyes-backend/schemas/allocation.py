@@ -268,6 +268,8 @@ class GoalAnalysisResponse(BaseModel):
     label: str
     goal_type: str
     goal_scope: str
+    value_mode: Optional[str] = None
+    hardness: Optional[str] = None
     rank: int
     weight_bps: int
     target_amount_rappen: int
@@ -284,6 +286,7 @@ class GoalAnalysisResponse(BaseModel):
     timing_label: Optional[str] = None
     path_success_rate_pct: Optional[int] = None
     funded_ratio_p50: Optional[float] = None
+    evaluation_note: Optional[str] = None
     projected_value_p10_rappen: Optional[int] = None
     projected_value_p50_rappen: Optional[int] = None
     projected_value_p90_rappen: Optional[int] = None
@@ -299,6 +302,7 @@ class MonteCarloGoalSummaryResponse(BaseModel):
     projected_value_p50_rappen: int
     projected_value_p90_rappen: int
     score: int
+    evaluation_note: Optional[str] = None
 
 
 class MonteCarloResponse(BaseModel):
@@ -398,9 +402,17 @@ class TargetAllocationGenerateResponse(BaseModel):
     score_bucket: int
     advisory_wealth_rappen: int
     total_wealth_rappen: int
+    recurring_income_rappen: int = 0
+    recurring_expense_rappen: int = 0
+    capital_inflow_rappen: int = 0
+    capital_outflow_rappen: int = 0
+    recurring_net_cashflow_rappen: int = 0
+    capital_net_cashflow_rappen: int = 0
     annual_net_cashflow_rappen: int
     cashflow_projection_series_rappen: list[int]
+    recurring_cashflow_projection_series_rappen: list[int] = Field(default_factory=list)
     reserve_needed_rappen: int
+    external_reserve_rappen: int = 0
     risk_budget_bps: int
     risky_fraction_total_bps: int
     risky_fraction_headroom_bps: int

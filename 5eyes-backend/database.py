@@ -1,4 +1,5 @@
 import sqlite3
+import re
 import sys
 import uuid
 from pathlib import Path
@@ -135,6 +136,7 @@ def bootstrap_sqlite_schema(
             )
         with sqlcipher3.connect(str(db_file)) as conn:
             _key = (db_key or settings.db_key or '').replace("'", "''")
+            # sqlcipher3 PRAGMA key is kept as an escaped string literal here.
             conn.execute(f"PRAGMA key = '{_key}'")
             conn.execute('PRAGMA cipher_page_size = 4096')
             conn.execute('PRAGMA kdf_iter = 256000')
@@ -156,6 +158,19 @@ def bootstrap_sqlite_schema(
 def database_healthcheck(db: Session) -> dict[str, str]:
     db.execute(text('SELECT 1'))
     return {'database': 'ok'}
+
+
+def ensure_column(conn, table_name: str, column_name: str, sql_type: str) -> None:
+    if not re.match(r'^[a-z][a-z0-9_]+$', table_name):
+        raise ValueError(f"Ungueltiger Tabellenname: {table_name!r}")
+    if not re.match(r'^[a-z][a-z0-9_]+$', column_name):
+        raise ValueError(f"Ungueltiger Spaltenname: {column_name!r}")
+    if not re.match(r'^[A-Z]+$', sql_type):
+        raise ValueError(f"Ungueltiger SQL-Typ: {sql_type!r}")
+    existing = {row[1] for row in conn.execute(text(f'PRAGMA table_info({table_name})')).fetchall()}
+    if column_name in existing:
+        return
+    conn.execute(text(f'ALTER TABLE {table_name} ADD COLUMN {column_name} {sql_type}'))
 
 
 def ensure_runtime_columns() -> None:
@@ -196,8 +211,19 @@ def ensure_runtime_columns() -> None:
             for column_name, sql_type in columns:
                 if column_name in existing:
                     continue
+                if not re.match(r'^[a-z][a-z0-9_]+$', table_name):
+                    raise ValueError(f"Ungueltiger Tabellenname: {table_name!r}")
+                if not re.match(r'^[a-z][a-z0-9_]+$', column_name):
+                    raise ValueError(f"Ungueltiger Spaltenname: {column_name!r}")
+                if not re.match(r'^[A-Z]+$', sql_type):
+                    raise ValueError(f"Ungueltiger SQL-Typ: {sql_type!r}")
                 conn.execute(text(f'ALTER TABLE {table_name} ADD COLUMN {column_name} {sql_type}'))
                 existing.add(column_name)
+
+        # RiskAssessment - Kenntnisse & Erfahrungen (SwissLife W305.03, 2026-04-16)
+        ensure_column(conn, "risk_assessments", "knowledge_services_json", "TEXT")
+        ensure_column(conn, "risk_assessments", "knowledge_instruments_json", "TEXT")
+        ensure_column(conn, "risk_assessments", "income_sources_json", "TEXT")
 
 
 def run_advisory_log_migration(target_engine: Engine = engine) -> None:
@@ -217,6 +243,51 @@ def run_advisory_log_migration(target_engine: Engine = engine) -> None:
                 "ALTER TABLE advisory_log ADD COLUMN status TEXT NOT NULL DEFAULT 'Empfohlen'"
             ))
         conn.commit()
+
+
+def run_risk_assessment_answer_migration(target_engine: Engine = engine) -> None:
+    inspector = inspect(target_engine)
+    if not inspector.has_table('risk_assessment_answers'):
+        return
+
+    with target_engine.begin() as conn:
+        ddl = conn.execute(
+            text("SELECT sql FROM sqlite_master WHERE type='table' AND name='risk_assessment_answers'")
+        ).scalar()
+        ddl_text = str(ddl or '')
+        ddl_upper = ddl_text.upper()
+        needs_question_upgrade = 'BETWEEN 1 AND 11' not in ddl_upper
+        needs_section_upgrade = 'KENNTNISSE & ERFAHRUNGEN' not in ddl_text
+        if not needs_question_upgrade and not needs_section_upgrade:
+            return
+
+        conn.execute(text('PRAGMA foreign_keys = OFF'))
+        conn.execute(text('ALTER TABLE risk_assessment_answers RENAME TO risk_assessment_answers__old'))
+        conn.execute(text("""
+            CREATE TABLE risk_assessment_answers (
+                id TEXT PRIMARY KEY,
+                assessment_id TEXT NOT NULL REFERENCES risk_assessments(id) ON UPDATE CASCADE,
+                question_number INTEGER NOT NULL CHECK(question_number BETWEEN 1 AND 11),
+                question_section TEXT NOT NULL CHECK(question_section IN ('Kenntnisse & Erfahrungen','Risikofähigkeit','Risikobereitschaft')),
+                answer_label TEXT NOT NULL,
+                answer_points INTEGER NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+                UNIQUE(assessment_id, question_number)
+            )
+        """))
+        conn.execute(text("""
+            INSERT INTO risk_assessment_answers (
+                id, assessment_id, question_number, question_section,
+                answer_label, answer_points, created_at
+            )
+            SELECT
+                id, assessment_id, question_number, question_section,
+                answer_label, answer_points, created_at
+            FROM risk_assessment_answers__old
+        """))
+        conn.execute(text('CREATE INDEX IF NOT EXISTS idx_risk_answers ON risk_assessment_answers(assessment_id)'))
+        conn.execute(text('DROP TABLE risk_assessment_answers__old'))
+        conn.execute(text('PRAGMA foreign_keys = ON'))
 
 
 def ensure_audit_log_actions(target_engine: Engine = engine) -> None:
@@ -262,11 +333,107 @@ def ensure_audit_log_actions(target_engine: Engine = engine) -> None:
         conn.execute(text('DROP TABLE audit_log__old'))
 
 
+SEED_ASSET_CLASS_RETURNS = [
+    # year, asset_class, return_bps  (Quelle: SPI/SBI/KGAST konservativ kalibriert)
+    (2015, "Aktien",        290),   (2015, "Obligationen",   100),
+    (2015, "Immobilien",    180),   (2015, "Liquiditaet",    -30),   (2015, "Alternative",     50),
+    (2016, "Aktien",       -180),   (2016, "Obligationen",    20),
+    (2016, "Immobilien",    640),   (2016, "Liquiditaet",    -30),   (2016, "Alternative",    380),
+    (2017, "Aktien",       2010),   (2017, "Obligationen",   140),
+    (2017, "Immobilien",    550),   (2017, "Liquiditaet",    -30),   (2017, "Alternative",    490),
+    (2018, "Aktien",       -870),   (2018, "Obligationen",    30),
+    (2018, "Immobilien",    110),   (2018, "Liquiditaet",    -10),   (2018, "Alternative",   -980),
+    (2019, "Aktien",       3040),   (2019, "Obligationen",   390),
+    (2019, "Immobilien",    820),   (2019, "Liquiditaet",    -30),   (2019, "Alternative",    910),
+    (2020, "Aktien",        360),   (2020, "Obligationen",   180),
+    (2020, "Immobilien",    250),   (2020, "Liquiditaet",    -50),   (2020, "Alternative",    420),
+    (2021, "Aktien",       2320),   (2021, "Obligationen",  -120),
+    (2021, "Immobilien",    710),   (2021, "Liquiditaet",    -70),   (2021, "Alternative",    630),
+    (2022, "Aktien",      -1650),   (2022, "Obligationen", -1280),
+    (2022, "Immobilien", -1030),    (2022, "Liquiditaet",    180),   (2022, "Alternative",   -810),
+    (2023, "Aktien",       1980),   (2023, "Obligationen",   510),
+    (2023, "Immobilien",    -90),   (2023, "Liquiditaet",    150),   (2023, "Alternative",    720),
+    (2024, "Aktien",       1320),   (2024, "Obligationen",   310),
+    (2024, "Immobilien",    420),   (2024, "Liquiditaet",    100),   (2024, "Alternative",    890),
+]
+
+
+def _seed_asset_class_returns(conn) -> None:
+    count = conn.execute(text("SELECT COUNT(*) FROM asset_class_annual_returns")).scalar()
+    if count and count > 0:
+        return
+    from datetime import datetime as _dt
+    now = _dt.utcnow().isoformat()
+    for (year, ac, ret) in SEED_ASSET_CLASS_RETURNS:
+        conn.execute(text("""
+            INSERT OR IGNORE INTO asset_class_annual_returns
+            (id, year, asset_class, return_bps, source, created_at, updated_at)
+            VALUES (:id, :year, :ac, :ret, 'seed', :now, :now)
+        """), {"id": str(uuid.uuid4()), "year": year, "ac": ac, "ret": ret, "now": now})
+
+
+def ensure_snapshot_tables() -> None:
+    with engine.begin() as conn:
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS strategy_snapshots (
+                id TEXT PRIMARY KEY,
+                mandate_id TEXT NOT NULL,
+                snapshot_date TEXT NOT NULL,
+                advisory_assets_rappen INTEGER NOT NULL,
+                risk_profile_score INTEGER NOT NULL,
+                risk_profile_label TEXT NOT NULL,
+                soll_equities_bps INTEGER NOT NULL,
+                soll_bonds_bps INTEGER NOT NULL,
+                soll_real_estate_bps INTEGER NOT NULL,
+                soll_liquidity_bps INTEGER NOT NULL,
+                soll_alternatives_bps INTEGER NOT NULL,
+                band_equities_lo_bps INTEGER,
+                band_equities_hi_bps INTEGER,
+                band_bonds_lo_bps INTEGER,
+                band_bonds_hi_bps INTEGER,
+                band_real_estate_lo_bps INTEGER,
+                band_real_estate_hi_bps INTEGER,
+                band_liquidity_lo_bps INTEGER,
+                band_liquidity_hi_bps INTEGER,
+                band_alternatives_lo_bps INTEGER,
+                band_alternatives_hi_bps INTEGER,
+                advisor_note TEXT,
+                goals_summary_json TEXT,
+                created_by TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                deleted_at TEXT
+            )
+        """))
+        conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS ix_strategy_snapshots_mandate
+            ON strategy_snapshots(mandate_id, deleted_at, snapshot_date)
+        """))
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS asset_class_annual_returns (
+                id TEXT PRIMARY KEY,
+                year INTEGER NOT NULL,
+                asset_class TEXT NOT NULL,
+                return_bps INTEGER NOT NULL,
+                source TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+        """))
+        conn.execute(text("""
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_acr_year_class
+            ON asset_class_annual_returns(year, asset_class)
+        """))
+        _seed_asset_class_returns(conn)
+
+
 def init_db() -> None:
     if settings.db_bootstrap_schema_on_startup:
         bootstrap_sqlite_schema(db_path=settings.db_path, db_key=getattr(settings, 'db_key', None))
 
     Base.metadata.create_all(bind=engine)
     ensure_runtime_columns()
+    ensure_snapshot_tables()
+    run_risk_assessment_answer_migration(engine)
     run_advisory_log_migration(engine)
     ensure_audit_log_actions()
