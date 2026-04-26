@@ -46,6 +46,18 @@ def test_combined_cashflow_projection_has_own_root_and_responsive_grid():
     assert "if(templateGrid)templateGrid.classList.add('projection-grid');" in html
 
 
+def test_cashflow_projection_renders_compact_hud_not_component_wall():
+    html = HTML_PATH.read_text(encoding="utf-8")
+    block = html.split("function renderCashflowProjection(data) {", 1)[1].split("function buildWealthPositionPayload", 1)[0]
+
+    assert "Cashflow-HUD" in block
+    assert "Einnahmen" in block
+    assert "Ausgaben" in block
+    assert "Sparquote" in block
+    assert "Verm\\u00f6gensverzehr" in block
+    assert "Cashflow-Projektion nach Komponenten" not in html
+
+
 def test_active_combined_step_logic_no_longer_uses_old_ub_runtime_hooks():
     html = HTML_PATH.read_text(encoding="utf-8")
 

@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="de">
 <head>
 <meta charset="UTF-8">
@@ -12924,45 +12924,41 @@ function renderCashflowProjection(data) {
     el.style.display = 'none';
     return;
   }
-  var maxAbs = data.years.reduce(function(m, r) {
-    return Math.max(m, Math.abs(cashflowProjectionComponents(r).netCashflowRappen));
-  }, 1);
-  var fmt = function(r) {
-    var chf = Math.round(Math.abs(r) / 100);
-    var sign = r < 0 ? '\u2212' : '+';
-    if (chf >= 1000000) return sign + 'CHF\u00a0' + (chf/1000000).toFixed(1).replace('.0','') + '\u00a0Mio.';
-    if (chf >= 1000)    return sign + 'CHF\u00a0' + Math.round(chf/1000) + 'k';
-    return sign + 'CHF\u00a0' + chf;
+  var currentRow = data.years[0];
+  var currentParts = cashflowProjectionComponents(currentRow);
+  var currentIncome = Math.max(0, Number(currentParts.recurringIncomeRappen || 0));
+  var currentExpense = Math.max(0, Number(currentParts.recurringExpenseRappen || 0));
+  var currentNet = currentIncome - currentExpense;
+  var fmtHud = function(rappen) {
+    var chf = Math.round(Math.abs(Number(rappen || 0)) / 100);
+    return 'CHF\u00a0' + chf.toLocaleString('de-CH');
   };
-  var line = function(label, value, tone) {
-    return '<div style="display:flex;justify-content:space-between;gap:12px;font-size:10px;line-height:1.5">'
-      + '<span style="color:var(--n5)">' + escapeHtml(label) + '</span>'
-      + '<span style="color:' + tone + ';font-weight:600">' + escapeHtml(fmt(value)) + '</span>'
+  var statusLabel = currentNet > 0 ? 'Sparquote' : (currentNet < 0 ? 'Verm\u00f6gensverzehr' : 'Ausgeglichen');
+  var statusTone = currentNet > 0 ? 'var(--pos)' : (currentNet < 0 ? 'var(--neg)' : 'var(--n6)');
+  var savingsRate = currentIncome > 0 && currentNet > 0 ? Math.round(currentNet / currentIncome * 100) : null;
+  var statusValue = currentNet > 0 && savingsRate !== null ? savingsRate + '%' : fmtHud(currentNet);
+  var statusHint = currentNet > 0
+    ? fmtHud(currentNet) + ' p.a. bleibt verfuegbar.'
+    : (currentNet < 0 ? fmtHud(currentNet) + ' p.a. aus Verm\u00f6gen decken.' : 'Einnahmen und Ausgaben sind ausgeglichen.');
+  var hudTile = function(label, value, tone, hint) {
+    return '<div style="border:1px solid var(--b1);border-radius:14px;padding:12px 13px;background:#fff;min-width:0">'
+      + '<div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--n4);font-weight:700;margin-bottom:5px">' + escapeHtml(label) + '</div>'
+      + '<div style="font-size:18px;line-height:1.15;font-weight:800;color:' + tone + '">' + escapeHtml(value) + '</div>'
+      + '<div style="font-size:11px;color:var(--n5);margin-top:5px;line-height:1.35">' + escapeHtml(hint || 'laufend p.a.') + '</div>'
       + '</div>';
   };
-  var html = '<div style="font-size:10px;font-weight:600;letter-spacing:0.06em;'
-    + 'text-transform:uppercase;color:var(--n4);margin-bottom:8px">'
-    + 'Cashflow-Projektion nach Komponenten</div>';
-  data.years.forEach(function(row) {
-    var parts = cashflowProjectionComponents(row);
-    var pct = Math.round(Math.abs(parts.netCashflowRappen) / maxAbs * 100);
-    var pos = parts.netCashflowRappen >= 0;
-    var color = pos ? 'var(--pos)' : 'var(--neg)';
-    html += '<div style="border:1px solid var(--b1);border-radius:var(--r);padding:9px 10px;background:#fff;margin-bottom:6px">'
-      + '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:7px">'
-      + '<span style="font-size:10px;font-weight:700;color:var(--n7)">' + escapeHtml(String(row.year)) + '</span>'
-      + '<span style="font-size:10px;color:' + color + ';font-weight:700">Netto ' + escapeHtml(fmt(parts.netCashflowRappen)) + '</span>'
-      + '</div>'
-      + line('Laufende Einnahmen', parts.recurringIncomeRappen, 'var(--pos)')
-      + (parts.capitalInflowsRappen ? line('Kapitalzuflüsse', parts.capitalInflowsRappen, 'var(--pos)') : '')
-      + line('Laufende Ausgaben', -parts.recurringExpenseRappen, 'var(--neg)')
-      + (parts.capitalOutflowsRappen ? line('Einmalige Ausgaben', -parts.capitalOutflowsRappen, 'var(--neg)') : '')
-      + '<div style="margin-top:7px;background:var(--b1);border-radius:2px;height:8px;overflow:hidden">'
-      + '<div style="width:' + pct + '%;height:100%;background:' + color + ';border-radius:2px"></div>'
-      + '</div>'
-      + '</div>';
-  });
-  el.innerHTML = html;
+  el.innerHTML = '<div style="border:1px solid var(--b1);border-radius:18px;padding:14px;background:linear-gradient(135deg,#ffffff 0%,#f7faf7 100%);box-shadow:0 10px 26px rgba(15,23,42,.05)">'
+    + '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px">'
+    + '<div><div style="font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--n4)">Cashflow-HUD</div>'
+    + '<div style="font-size:12px;color:var(--n5);margin-top:3px">Aktuelle laufende Situation ' + escapeHtml(String(currentRow.year || '')) + '</div></div>'
+    + '<div style="font-size:11px;font-weight:800;color:' + statusTone + ';background:#fff;border:1px solid var(--b1);border-radius:999px;padding:6px 9px;white-space:nowrap">' + escapeHtml(statusLabel) + '</div>'
+    + '</div>'
+    + '<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px">'
+    + hudTile('Einnahmen', fmtHud(currentIncome), 'var(--pos)', 'laufend p.a.')
+    + hudTile('Ausgaben', fmtHud(currentExpense), 'var(--neg)', 'laufend p.a.')
+    + hudTile(statusLabel, statusValue, statusTone, statusHint)
+    + '</div>'
+    + '</div>';
   el.style.display = '';
   normalizeCashflowProjectionLabels();
 }
