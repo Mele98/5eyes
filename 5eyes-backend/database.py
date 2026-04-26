@@ -175,6 +175,9 @@ def ensure_column(conn, table_name: str, column_name: str, sql_type: str) -> Non
 
 def ensure_runtime_columns() -> None:
     additive_columns: dict[str, list[tuple[str, str]]] = {
+        'target_allocations': [
+            ('capital_market_assumptions_id', 'TEXT'),
+        ],
         'clients': [
             ('investment_horizon_start', 'TEXT'),
             ('investment_horizon_end', 'TEXT'),

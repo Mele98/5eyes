@@ -2835,7 +2835,17 @@ def _apply_goal_and_reserve_tilts(
     return reserve_needed_rappen, external_reserve_rappen
 
 
-def _build_bucket_response(target_allocation: TargetAllocation, current_amounts: dict, advisory_wealth_rappen: int) -> list[dict]:
+def _investable_advisory_wealth_rappen(advisory_wealth_rappen: int, external_reserve_rappen: int) -> int:
+    return max(0, int(advisory_wealth_rappen or 0) - max(0, int(external_reserve_rappen or 0)))
+
+
+def _build_bucket_response(
+    target_allocation: TargetAllocation,
+    current_amounts: dict,
+    advisory_wealth_rappen: int,
+    target_total_rappen: int | None = None,
+) -> list[dict]:
+    target_base_rappen = int(target_total_rappen if target_total_rappen is not None else advisory_wealth_rappen)
     label_map = {
         "equities": (BUCKET_LABELS["equities"], target_allocation.target_equities_bps, target_allocation.band_equities_min_bps, target_allocation.band_equities_max_bps),
         "bonds": (BUCKET_LABELS["bonds"], target_allocation.target_bonds_bps, target_allocation.band_bonds_min_bps, target_allocation.band_bonds_max_bps),
@@ -2854,7 +2864,7 @@ def _build_bucket_response(target_allocation: TargetAllocation, current_amounts:
                 "current_weight_bps": current_bps,
                 "current_amount_rappen": current_amount,
                 "target_weight_bps": int(target_bps),
-                "target_amount_rappen": int(round(advisory_wealth_rappen * target_bps / 10000)) if advisory_wealth_rappen else 0,
+                "target_amount_rappen": int(round(target_base_rappen * target_bps / 10000)) if target_base_rappen else 0,
                 "delta_weight_bps": int(target_bps) - current_bps,
                 "band_min_bps": int(min_bps),
                 "band_max_bps": int(max_bps),
@@ -3059,6 +3069,7 @@ def generate_target_allocation(
         band_liquidity_max_bps=maximums["liquidity"],
         risky_fraction_bps=risky_fraction_total_bps,
         based_on_assessment_id=assessment.id,
+        capital_market_assumptions_id=cma.id,
         policy_id=policy.id,
         set_by=user_id,
         set_at=now,
@@ -3365,6 +3376,13 @@ def build_target_payload_from_allocation(
                     "Hinweis: Diese Soll-Allokation basiert auf einem frueheren Risikoprofil. Bitte Strategie neu berechnen, bevor sie umgesetzt wird."
                 ]
                 if (allocation.based_on_assessment_id and allocation.based_on_assessment_id != assessment.id)
+                else []
+            )
+            + (
+                [
+                    "Hinweis: Die Kapitalmarktannahmen (CMA) haben sich seit Erstellung dieser Soll-Allokation geaendert. Erwartete Rendite, Volatilitaet und Pfadsimulation nutzen die aktuelle CMA - die gespeicherten Bandbreiten basieren auf der frueheren. Bitte Strategie neu berechnen."
+                ]
+                if (allocation.capital_market_assumptions_id and allocation.capital_market_assumptions_id != cma.id)
                 else []
             )
         ),

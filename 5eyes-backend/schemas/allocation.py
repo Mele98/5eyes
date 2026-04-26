@@ -70,6 +70,7 @@ class TargetAllocationResponse(BaseResponse):
     band_liquidity_max_bps: int
     risky_fraction_bps: Optional[int]
     based_on_assessment_id: Optional[str]
+    capital_market_assumptions_id: Optional[str] = None
     policy_id: str
     set_by: str
     set_at: str

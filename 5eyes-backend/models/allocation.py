@@ -51,6 +51,7 @@ class TargetAllocation(Base):
     band_liquidity_max_bps = Column(Integer, nullable=False)
     risky_fraction_bps = Column(Integer)
     based_on_assessment_id = Column(String)
+    capital_market_assumptions_id = Column(String, ForeignKey("capital_market_assumptions.id"))
     policy_id = Column(String, ForeignKey("optimizer_policies.id"), nullable=False)
     set_by = Column(String, ForeignKey("users.id"), nullable=False)
     set_at = Column(String, nullable=False)
