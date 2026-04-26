@@ -149,6 +149,40 @@ def _norm_text(value) -> str:
     )
 
 
+_REQUIRED_RISK_QUESTION_NUMBERS_FOR_STRATEGY = frozenset((3, 5, 6, 7, 8, 9, 10, 11))
+
+
+def risk_assessment_ready_for_strategy(assessment: RiskAssessment | None) -> bool:
+    if not assessment:
+        return False
+    if assessment.final_score_x10 is None and assessment.override_score_x10 is None:
+        return False
+    if assessment.is_overridden and assessment.override_score_x10 is not None:
+        return True
+    answers = getattr(assessment, "answers", None) or []
+    answered_numbers = {
+        int(getattr(answer, "question_number", 0) or 0)
+        for answer in answers
+        if getattr(answer, "answer_label", None)
+    }
+    return _REQUIRED_RISK_QUESTION_NUMBERS_FOR_STRATEGY.issubset(answered_numbers)
+
+
+def require_strategy_ready_assessment(db: Session, mandate_id: str) -> RiskAssessment:
+    assessment = db.query(RiskAssessment).filter(
+        RiskAssessment.mandate_id == mandate_id,
+        RiskAssessment.is_current == 1,
+        RiskAssessment.deleted_at.is_(None),
+    ).first()
+    if not assessment:
+        raise ValueError("Bitte zuerst ein aktuelles Risikoprofil speichern.")
+    if not risk_assessment_ready_for_strategy(assessment):
+        raise ValueError(
+            "Risikoprofil unvollstaendig. Bitte Fragebogen vollstaendig ausfuellen und erneut speichern."
+        )
+    return assessment
+
+
 def _normalize_preferences(preferences: dict | None) -> dict:
     prefs = preferences or {}
     return {
@@ -1608,7 +1642,7 @@ def _goal_timing_label(goal: Goal, years: int) -> str:
         elif years:
             parts.append(f"Horizont {years} J.")
         return " | ".join(parts) if parts else f"Horizont {years} J."
-    if goal.goal_type == "Einmalige_Ausgabe" and goal.start_date:
+    if goal_type == "Einmalige_Ausgabe" and goal.start_date:
         return f"am {goal.start_date}"
     if goal.target_date:
         return f"bis {goal.target_date}"
@@ -3324,6 +3358,13 @@ def build_target_payload_from_allocation(
                     "Eine fruehere hohe Liquiditaetsquote wird nach heutiger Policy als externe Reserve interpretiert und fuer die Anzeige auf die strategische SAA-Liquiditaet gekappt."
                 ]
                 if normalized_legacy_liquidity
+                else []
+            )
+            + (
+                [
+                    "Hinweis: Diese Soll-Allokation basiert auf einem frueheren Risikoprofil. Bitte Strategie neu berechnen, bevor sie umgesetzt wird."
+                ]
+                if (allocation.based_on_assessment_id and allocation.based_on_assessment_id != assessment.id)
                 else []
             )
         ),

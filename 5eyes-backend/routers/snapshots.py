@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from services.auth import get_current_user, get_mandate_for_user_or_404, require_advisor
+from services.audit import log
 from models.snapshots import StrategySnapshot, AssetClassAnnualReturn
 from models.mandates import Mandate
 from schemas.snapshots import StrategySnapshotCreate, StrategySnapshotResponse, DriftResult
@@ -122,6 +123,15 @@ def create_snapshot(
         updated_at=now,
     )
     db.add(snap)
+    log(
+        db,
+        user_id=current_user.id,
+        user_name=current_user.full_name,
+        table_name="strategy_snapshots",
+        record_id=snap.id,
+        action="CREATE",
+        mandate_id=mandate_id,
+    )
     db.commit()
     db.refresh(snap)
     return snap

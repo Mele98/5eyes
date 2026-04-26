@@ -19,6 +19,7 @@ from services.portfolio_engine import (
     build_target_payload_from_allocation,
     ensure_runtime_reference_data,
     generate_target_allocation,
+    require_strategy_ready_assessment,
 )
 from services.review_engine import refresh_system_review_triggers
 
@@ -94,17 +95,12 @@ def create_target_allocation(
     current_user: User = Depends(require_advisor)
 ):
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
-    # C2: Hard-Gate auf strategie-fertiges Risikoprofil. Direkter POST darf
-    # FIDLEG-/Eignungspflicht nicht umgehen.
-    assessment = db.query(RiskAssessment).filter(
-        RiskAssessment.mandate_id == mandate_id,
-        RiskAssessment.is_current == 1,
-        RiskAssessment.deleted_at.is_(None),
-    ).first()
-    if not assessment:
-        raise HTTPException(status_code=409, detail="Bitte zuerst ein aktuelles Risikoprofil speichern.")
-    if assessment.final_score_x10 is None and assessment.override_score_x10 is None:
-        raise HTTPException(status_code=409, detail="Risikoprofil unvollstaendig. Bitte Fragebogen vollstaendig ausfuellen.")
+    # FIDLEG: jede gespeicherte Soll-Allokation muss auf einer strategie-fertigen
+    # Risikoprofilierung beruhen. Direktes POST darf das nicht umgehen.
+    try:
+        assessment = require_strategy_ready_assessment(db, mandate_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
     if body.based_on_assessment_id and body.based_on_assessment_id != assessment.id:
         raise HTTPException(status_code=422, detail=(
             "based_on_assessment_id muss auf das aktuelle Risikoprofil zeigen "
