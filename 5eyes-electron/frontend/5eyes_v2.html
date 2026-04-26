@@ -12153,38 +12153,6 @@ function renderGroupedCashflowRows(items,isIncome,renderRow){
   });
   return html;
 }
-function cashflowBreakdownForYear(items,summaryYear){
-  var year=Number(summaryYear||new Date().getFullYear());
-  var result={
-    recurringIncomeRappen:0,
-    capitalInflowsRappen:0,
-    recurringExpenseRappen:0,
-    capitalOutflowsRappen:0,
-    totalInflowRappen:0,
-    totalExpenseRappen:0,
-    netCashflowRappen:0
-  };
-  (Array.isArray(items)?items:[]).forEach(function(item){
-    if(!item)return;
-    var amount=Number(item.amount_rappen||0);
-    if(!amount)return;
-    var isOneOff=!!(isOneOffCashflow(item.frequency)||String(item.nature||'').toLowerCase()==='einmalig');
-    var start=normalizeCashflowDateValue(item.valid_from)||normalizeCashflowDateValue(item.valid_until);
-    var flowYear=start?parseInt(String(start).slice(0,4),10):year;
-    if(isOneOff&&isFinite(flowYear)&&flowYear!==year)return;
-    if(String(item.cashflow_type||'')==='Income'){
-      if(isOneOff)result.capitalInflowsRappen+=amount;
-      else result.recurringIncomeRappen+=amount;
-    }else if(String(item.cashflow_type||'')==='Expense'){
-      if(isOneOff)result.capitalOutflowsRappen+=amount;
-      else result.recurringExpenseRappen+=amount;
-    }
-  });
-  result.totalInflowRappen=result.recurringIncomeRappen+result.capitalInflowsRappen;
-  result.totalExpenseRappen=result.recurringExpenseRappen+result.capitalOutflowsRappen;
-  result.netCashflowRappen=result.totalInflowRappen-result.totalExpenseRappen;
-  return result;
-}
 function normalizeAllocationLayout(){
   var page=document.getElementById('page-al');
   if(!page)return;
@@ -12396,10 +12364,20 @@ function allocationTimelineRangeLabel(item){
   return 'laufend';
 }
 function allocationTimelineSubLabel(item){
-  var amount=formatRappen(Math.abs(Number(item&&item.amount_rappen||0)));
+  var amountRappen=Math.abs(Number(item&&item.amount_rappen||0));
+  var amount=formatRappen(amountRappen);
   var prefix=String(item&&item.cashflow_type||'')==='Income'?'+':'-';
-  var frequencyLabel=allocationTimelineIsOneOff(item)?'einmalig':cashflowDisplayFrequency(item&&item.frequency||'jaehrlich');
-  return prefix+amount+' | '+frequencyLabel+' | '+allocationTimelineRangeLabel(item);
+  var oneOff=allocationTimelineIsOneOff(item);
+  var frequencyLabel=oneOff?'einmalig':cashflowDisplayFrequency(item&&item.frequency||'jaehrlich');
+  var annualSuffix='';
+  if(!oneOff){
+    var annualChf=annualizedCashflowAmountChf(item);
+    var perPeriodChf=Math.round(amountRappen/100);
+    if(annualChf>0&&Math.round(annualChf)!==perPeriodChf){
+      annualSuffix=' (CHF '+Math.round(annualChf).toLocaleString('de-CH')+' p.a.)';
+    }
+  }
+  return prefix+amount+annualSuffix+' | '+frequencyLabel+' | '+allocationTimelineRangeLabel(item);
 }
 function allocationTimelineHoverLabel(item){
   var label=String(item&&item.label||'Cashflow');
@@ -12807,7 +12785,15 @@ async function refreshCashflowsUI(cid){
     var inc=items.filter(function(c){return c.cashflow_type==='Income';});
     var exp=items.filter(function(c){return c.cashflow_type==='Expense';});
     var summaryYear=Number(summary.summary_year||new Date().getFullYear());
-    var breakdown=cashflowBreakdownForYear(items,summaryYear);
+    var breakdown={
+      recurringIncomeRappen:Number(summary&&summary.recurring_income_rappen||0),
+      capitalInflowsRappen:Number(summary&&summary.capital_inflow_rappen||0),
+      recurringExpenseRappen:Number(summary&&summary.recurring_expense_rappen||0),
+      capitalOutflowsRappen:Number(summary&&summary.capital_outflow_rappen||0),
+      totalInflowRappen:Number(summary&&summary.total_income_rappen||0),
+      totalExpenseRappen:Number(summary&&summary.total_expense_rappen||0),
+      netCashflowRappen:summaryTotalNetCashflowRappen(summary)
+    };
     var renderRow=function(c,isIncome){
       return '<div class="cf-row" data-cfid="'+escapeHtml(c.id||'')+'">'+cashflowDirectionBadge(isIncome)+
         '<div class="cfn"><div class="cfna">'+escapeHtml(c.label||'Cashflow')+'</div><div class="cfnd">'+escapeHtml(cashflowTimingLabel(c))+'</div></div>'+
