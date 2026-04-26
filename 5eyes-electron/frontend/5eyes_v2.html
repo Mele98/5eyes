@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="de">
 <head>
 <meta charset="UTF-8">
@@ -3074,7 +3074,9 @@ function wealthScopePositions(scope){
   if(scope==='advisory'){
     return items.filter(function(pos){return String(pos.assignment||'')==='Beratungsvermögen';});
   }
-  return items.filter(function(pos){return String(pos.assignment||'')!=='Verbindlichkeit';});
+  // scope='total' = Reinvermoegen (Brutto inkl. Verbindlichkeiten als
+  // negative Beitraege). wealthProjectionInputs subtrahiert sie.
+  return items;
 }
 
 function inferPositionBucketMixBps(pos){
@@ -3100,6 +3102,24 @@ function inferPositionBucketMixBps(pos){
   return {equities:eq,bonds:bo,realEstate:re,liquidity:li,alternatives:al};
 }
 
+function inferPositionExpectedReturnBps(pos, returnMap){
+  // H2: Selbstgenutzte / Ferien- / gemischt genutzte Liegenschaften liefern
+  // keinen verfuegbaren Cashflow-Return. Nur Renditeobjekte werden mit dem
+  // CMA-Real-Estate-Return projiziert.
+  if(String(pos&&pos.position_type||'')==='Immobilien'){
+    var usage=String(pos&&pos.property_usage||'').trim();
+    if(usage!=='Renditeobjekt')return 0;
+  }
+  var mix=inferPositionBucketMixBps(pos);
+  // weighted return (bps * bps / 10000 -> bps)
+  return Math.round((
+    Number(mix.equities||0)*returnMap.equities+
+    Number(mix.bonds||0)*returnMap.bonds+
+    Number(mix.realEstate||0)*returnMap.realEstate+
+    Number(mix.liquidity||0)*returnMap.liquidity+
+    Number(mix.alternatives||0)*returnMap.alternatives
+  )/10000);
+}
 function wealthProjectionInputs(scope){
   var positions=wealthScopePositions(scope);
   var totalRappen=0;
@@ -3115,17 +3135,33 @@ function wealthProjectionInputs(scope){
       if(ac&&ac.asset_class)_acaMap[ac.asset_class]=ac;
     });
   }
+  // H3: Equity-Return als gewichteter CH/INTL/EM-Mix (50/40/10) statt
+  // einseitig equity_intl. Konservativer Schweizer Berater-Standard und
+  // benutzt alle drei CMA-Quellen.
+  var eqCh=Number(ADMIN_CMA_DEFAULTS.equity_ch_return_bps||620);
+  var eqIntl=Number(_acaMap['Aktien']&&_acaMap['Aktien'].expected_return_bps||ADMIN_CMA_DEFAULTS.equity_intl_return_bps||690);
+  var eqEm=Number(ADMIN_CMA_DEFAULTS.equity_em_return_bps||760);
+  var equitiesMixBps=Math.round(0.5*eqCh + 0.4*eqIntl + 0.1*eqEm);
   var returnMap={
-    equities:Number(_acaMap['Aktien']&&_acaMap['Aktien'].expected_return_bps||ADMIN_CMA_DEFAULTS.equity_intl_return_bps||690),
+    equities:equitiesMixBps,
     bonds:Number(_acaMap['Obligationen']&&_acaMap['Obligationen'].expected_return_bps||ADMIN_CMA_DEFAULTS.bonds_fx_hedged_return_bps||220),
     realEstate:Number(_acaMap['Immobilien']&&_acaMap['Immobilien'].expected_return_bps||ADMIN_CMA_DEFAULTS.real_estate_ch_return_bps||330),
     liquidity:Number(_acaMap['Liquiditaet']&&_acaMap['Liquiditaet'].expected_return_bps||ADMIN_CMA_DEFAULTS.liquidity_return_bps||80),
     alternatives:Number(_acaMap['Alternative']&&_acaMap['Alternative'].expected_return_bps||ADMIN_CMA_DEFAULTS.alternatives_gold_return_bps||300)
   };
-  var weightedReturnRappenBps=0;
+  var weightedReturnAbsBps=0;  // sum(value * return_bps)
   positions.forEach(function(pos){
-    var value=Math.max(0,Math.round(Number(pos&&pos.current_value_rappen||0)));
-    if(!value)return;
+    var rawValue=Math.round(Number(pos&&pos.current_value_rappen||0));
+    if(!rawValue)return;
+    var isLiability=(String(pos&&pos.assignment||'')==='Verbindlichkeit');
+    if(isLiability){
+      // H1: Verbindlichkeiten reduzieren das Reinvermoegen, beeinflussen
+      // aber nicht den Asset-Return-Mix (Hypothek-Zinsen kommen ueber
+      // recurring Cashflows ins Modell).
+      totalRappen-=rawValue;
+      return;
+    }
+    var value=Math.max(0,rawValue);
     var mix=inferPositionBucketMixBps(pos);
     totalRappen+=value;
     bucketRappen.equities+=Math.round(value*Number(mix.equities||0)/10000);
@@ -3133,27 +3169,27 @@ function wealthProjectionInputs(scope){
     bucketRappen.realEstate+=Math.round(value*Number(mix.realEstate||0)/10000);
     bucketRappen.liquidity+=Math.round(value*Number(mix.liquidity||0)/10000);
     bucketRappen.alternatives+=Math.round(value*Number(mix.alternatives||0)/10000);
-    weightedReturnRappenBps+=Math.round(value*(
-      Number(mix.equities||0)*returnMap.equities+
-      Number(mix.bonds||0)*returnMap.bonds+
-      Number(mix.realEstate||0)*returnMap.realEstate+
-      Number(mix.liquidity||0)*returnMap.liquidity+
-      Number(mix.alternatives||0)*returnMap.alternatives
-    )/10000);
+    var posReturnBps=inferPositionExpectedReturnBps(pos, returnMap);
+    weightedReturnAbsBps+=value*posReturnBps;
   });
+  // expectedReturnBps wird auf Brutto-Asset-Wert (ohne Liability-Abzug) bezogen,
+  // weil nur Assets Returns generieren. Der Liability-Anteil lebt in startRappen.
+  var grossAssetsRappen=Object.keys(bucketRappen).reduce(function(s,k){return s+bucketRappen[k];},0);
+  var expectedReturnBps=grossAssetsRappen>0?Math.round(weightedReturnAbsBps/grossAssetsRappen):0;
+  var nonZeroBucketBase=grossAssetsRappen>0?grossAssetsRappen:1;
   return {
     scope:scope,
     startRappen:totalRappen,
     recurringNetCashflowRappen:recurringNetCashflowRappen,
     capitalNetCashflowRappen:capitalNetCashflowRappen,
     annualNetCashflowRappen:annualNetCashflowRappen,
-    expectedReturnBps:totalRappen>0?Math.round(weightedReturnRappenBps/totalRappen):0,
+    expectedReturnBps:expectedReturnBps,
     bucketWeightsBps:{
-      equities:totalRappen>0?Math.round(bucketRappen.equities/totalRappen*10000):0,
-      bonds:totalRappen>0?Math.round(bucketRappen.bonds/totalRappen*10000):0,
-      realEstate:totalRappen>0?Math.round(bucketRappen.realEstate/totalRappen*10000):0,
-      liquidity:totalRappen>0?Math.round(bucketRappen.liquidity/totalRappen*10000):0,
-      alternatives:totalRappen>0?Math.round(bucketRappen.alternatives/totalRappen*10000):0
+      equities:Math.round(bucketRappen.equities/nonZeroBucketBase*10000),
+      bonds:Math.round(bucketRappen.bonds/nonZeroBucketBase*10000),
+      realEstate:Math.round(bucketRappen.realEstate/nonZeroBucketBase*10000),
+      liquidity:Math.round(bucketRappen.liquidity/nonZeroBucketBase*10000),
+      alternatives:Math.round(bucketRappen.alternatives/nonZeroBucketBase*10000)
     }
   };
 }
@@ -10076,16 +10112,22 @@ function buildBaselineProjectionFromComponentSeries(startRappen,componentSeries,
   });
   var years=rows.length;
   var labels=projectionYearLabels(null,years,preferredLabels);
-  var invested=Math.max(0,Math.round(Number(startRappen||0)));
+  // H1/H5: startRappen kann negativ sein (Verbindlichkeiten ueberwiegen),
+  // daher KEIN Math.max(0,...) auf den Start. Defizit wird sichtbar.
+  var invested=Math.round(Number(startRappen||0));
   var rate=Number(expectedReturnBps||0)/10000;
   var seriesRappen=[invested];
   for(var idx=0;idx<years;idx++){
     var recurringNet=Number(rows[idx]&&rows[idx].recurringNetRappen||0);
     var capitalNet=Number(rows[idx]&&rows[idx].capitalNetRappen||0);
-    invested=Math.round(Math.max(0,invested)*(1+rate));
-    invested=Math.max(0,Math.round(invested+recurringNet));
-    invested=Math.max(0,Math.round(invested+capitalNet));
-    seriesRappen.push(Math.max(0,Math.round(invested)));
+    // H4: Mid-Year-Convention - laufende Cashflows + einmalige Kapitalereignisse
+    // bekommen den halben Jahres-Return im selben Jahr. Asset-Stand wird voll
+    // verzinst.
+    var assetGrowth=invested*rate;
+    var midYearFlow=(recurringNet+capitalNet)*(1+rate/2);
+    invested=Math.round(invested+assetGrowth+midYearFlow);
+    // H5: KEIN max(0,invested) - negative Werte sind die Lebensluecke.
+    seriesRappen.push(invested);
   }
   return {
     years:years,
@@ -11909,6 +11951,25 @@ async function refreshStrategyData(force,includeRecommendation,retriedAfterBandR
   }
 }
 async function openAllocationEngineModal(){
+  var mid=getActiveMandateId();
+  var persistedRisk=currentPersistedRiskForMandate(mid);
+  if(!persistedRisk&&mid&&!isDemoMandateId(mid)){
+    try{
+      persistedRisk=await loadCurrentRiskAssessment(mid,false);
+    }catch(e){
+      if(!(e&&String(e.status||'')==='404'))throw e;
+    }
+  }
+  if(!riskBelongsToMandate(persistedRisk,mid)){
+    strategyState.risk=null;
+    if(!hasVisibleStrategyOutputs())invalidateStrategyOutputs();
+    buildQT('qt-modal');
+    renderEngineRuntimePanels(null);
+    updateStrategyStatus('Aktuelles Risikoprofil fehlt. Bitte zuerst den Risikofragebogen ausfuellen und speichern.',true);
+    om('m-eq');
+    return false;
+  }
+  strategyState.risk=persistedRisk;
   if(!strategyState.allocation&&!strategyState.dirty){
     await refreshStrategyData(false,false);
   }else{
@@ -11916,6 +11977,7 @@ async function openAllocationEngineModal(){
     renderEngineRuntimePanels(strategyState.allocation||null);
   }
   om('m-eq');
+  return true;
 }
 async function openImplementationRecipe(){
   await refreshStrategyData(true,true);
