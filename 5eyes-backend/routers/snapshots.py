@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from database import get_db
-from services.auth import get_current_user
+from services.auth import get_current_user, get_mandate_for_user_or_404, require_advisor
 from models.snapshots import StrategySnapshot, AssetClassAnnualReturn
 from models.mandates import Mandate
 from schemas.snapshots import StrategySnapshotCreate, StrategySnapshotResponse, DriftResult
@@ -43,14 +43,8 @@ def _now() -> str:
     return datetime.utcnow().isoformat()
 
 
-def _get_mandate(mandate_id: str, db: Session) -> Mandate:
-    mandate = db.query(Mandate).filter(
-        Mandate.id == mandate_id,
-        Mandate.deleted_at.is_(None),
-    ).first()
-    if not mandate:
-        raise HTTPException(status_code=404, detail="Mandat nicht gefunden")
-    return mandate
+def _get_mandate(mandate_id: str, db: Session, current_user) -> Mandate:
+    return get_mandate_for_user_or_404(mandate_id, db, current_user)
 
 
 def _classify_status(ac: str, drifted_bps: dict, original_bps: dict, snapshot: StrategySnapshot) -> str:
@@ -95,9 +89,9 @@ def create_snapshot(
     mandate_id: str,
     body: StrategySnapshotCreate,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_advisor),
 ):
-    _get_mandate(mandate_id, db)
+    _get_mandate(mandate_id, db, current_user)
     now = _now()
     snap = StrategySnapshot(
         id=str(uuid4()),
@@ -139,7 +133,7 @@ def list_snapshots(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    _get_mandate(mandate_id, db)
+    _get_mandate(mandate_id, db, current_user)
     return (
         db.query(StrategySnapshot)
         .filter(
@@ -157,7 +151,7 @@ def get_drift(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    _get_mandate(mandate_id, db)
+    _get_mandate(mandate_id, db, current_user)
 
     snapshot = (
         db.query(StrategySnapshot)

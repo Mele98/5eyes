@@ -433,7 +433,7 @@ def create_trigger(
 def refresh_system_triggers(
     mandate_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_advisor)
 ):
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
     triggers = refresh_system_review_triggers(db, mandate, current_user.id)

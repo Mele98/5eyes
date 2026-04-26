@@ -73,11 +73,14 @@ def get_audit_log(
 
     query_text = str(q or '').strip()
     if query_text:
-        pattern = f"%{query_text}%"
+        # LIKE-Wildcards (% und _) im User-Input escapen, damit eine Suche nach '%'
+        # nicht alle Datensaetze matched, sondern nur Eintraege mit literalem %.
+        escaped = query_text.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+        pattern = f"%{escaped}%"
         query = query.filter(
             or_(
-                AuditLog.user_name.ilike(pattern),
-                AuditLog.table_name.ilike(pattern),
+                AuditLog.user_name.ilike(pattern, escape='\\'),
+                AuditLog.table_name.ilike(pattern, escape='\\'),
             )
         )
 
