@@ -1144,6 +1144,16 @@ def _sub_asset_class_metrics(
 
 
 def _asset_class_expected_metrics(cma: CapitalMarketAssumption) -> tuple[dict[str, int], dict[str, int]]:
+    """Reine CMA-Bucket-Defaults. KEIN Mischen mit Sub-Asset-Class-Annahmen.
+
+    C3: Vor dem Fix wurden die Bucket-Returns mit dem ungewichteten Mittel
+    aller Sub-Asset-Class-Annahmen ueberschrieben. Damit fuehrte das blosse
+    Vorhandensein einer EM-Annahme im CMA-JSON dazu, dass die Equity-Rendite
+    insgesamt nach oben gezogen wurde - selbst wenn die tatsaechliche
+    Sub-Allocation 0% EM enthielt. Diese Funktion liefert nun nur die
+    CMA-Bucket-Felder; tatsaechliche Bucket-Metriken aus Sub-Allocation
+    werden ueber _weighted_bucket_metrics() berechnet.
+    """
     returns = {
         "equities": int(round(((cma.equity_ch_return_bps or 500) + (cma.equity_intl_return_bps or 650)) / 2)),
         "bonds": int(round(((cma.bonds_chf_ig_return_bps or 180) + (cma.bonds_fx_hedged_return_bps or 220)) / 2)),
@@ -1158,24 +1168,63 @@ def _asset_class_expected_metrics(cma: CapitalMarketAssumption) -> tuple[dict[st
         "alternatives": int(cma.alternatives_gold_vol_bps or 950),
         "liquidity": int(cma.liquidity_vol_bps or 20),
     }
-    grouped_returns: dict[str, list[int]] = {key: [] for key in returns}
-    grouped_vols: dict[str, list[int]] = {key: [] for key in vols}
-    for item in _sub_asset_class_assumption_map(cma).values():
-        bucket = _ASSET_CLASS_LABEL_TO_BUCKET.get(str(item["asset_class"]))
-        if not bucket:
-            continue
-        grouped_returns[bucket].append(int(item["expected_return_bps"]))
-        grouped_vols[bucket].append(int(item["expected_volatility_bps"]))
-    for bucket in returns:
-        if grouped_returns[bucket]:
-            returns[bucket] = int(round(sum(grouped_returns[bucket]) / len(grouped_returns[bucket])))
-        if grouped_vols[bucket]:
-            vols[bucket] = int(round(sum(grouped_vols[bucket]) / len(grouped_vols[bucket])))
     return returns, vols
 
 
-def _expected_metrics(targets: dict[str, int], cma: CapitalMarketAssumption) -> dict[str, int]:
-    returns, vols = _asset_class_expected_metrics(cma)
+def _weighted_bucket_metrics(
+    cma: CapitalMarketAssumption,
+    sub_allocations: list[dict] | None,
+) -> tuple[dict[str, int], dict[str, int]]:
+    """Bucket-Return/Vol gewichtet aus tatsaechlichen Sub-Allocations.
+
+    C3: Pro Bucket wird der gewichtete Mittelwert aus Sub-Asset-Class-
+    target_weight_bps und Sub-Asset-Class-CMA-Annahmen gebildet.
+    Ohne Sub-Allocations oder fuer einen Bucket ohne Sub-Eintrag wird
+    auf die CMA-Bucket-Defaults aus _asset_class_expected_metrics()
+    zurueckgegriffen.
+    """
+    fallback_returns, fallback_vols = _asset_class_expected_metrics(cma)
+    if not sub_allocations:
+        return fallback_returns, fallback_vols
+
+    assumptions = _sub_asset_class_assumption_map(cma)
+    weighted_ret_bps: dict[str, int] = {key: 0 for key in fallback_returns}
+    weighted_vol_bps: dict[str, int] = {key: 0 for key in fallback_vols}
+    weight_sum: dict[str, int] = {key: 0 for key in fallback_returns}
+
+    for item in sub_allocations:
+        asset_class_label = str(item.get("asset_class") or "")
+        sub_label = str(item.get("sub_asset_class") or "")
+        weight = max(0, int(item.get("target_weight_bps") or 0))
+        bucket = _ASSET_CLASS_LABEL_TO_BUCKET.get(asset_class_label)
+        if not bucket or weight <= 0:
+            continue
+        sub = assumptions.get(sub_label)
+        if sub:
+            ret_bps = int(sub.get("expected_return_bps") or 0)
+            vol_bps = int(sub.get("expected_volatility_bps") or 0)
+        else:
+            ret_bps = fallback_returns[bucket]
+            vol_bps = fallback_vols[bucket]
+        weighted_ret_bps[bucket] += ret_bps * weight
+        weighted_vol_bps[bucket] += vol_bps * weight
+        weight_sum[bucket] += weight
+
+    returns = dict(fallback_returns)
+    vols = dict(fallback_vols)
+    for bucket in fallback_returns:
+        if weight_sum[bucket] > 0:
+            returns[bucket] = int(round(weighted_ret_bps[bucket] / weight_sum[bucket]))
+            vols[bucket] = int(round(weighted_vol_bps[bucket] / weight_sum[bucket]))
+    return returns, vols
+
+
+def _expected_metrics(
+    targets: dict[str, int],
+    cma: CapitalMarketAssumption,
+    sub_allocations: list[dict] | None = None,
+) -> dict[str, int]:
+    returns, vols = _weighted_bucket_metrics(cma, sub_allocations)
     return {
         "expected_return_bps": int(round(sum(targets[key] * returns[key] for key in BUCKET_FIELDS) / 10000)),
         "expected_volatility_bps": int(round(sum(targets[key] * vols[key] for key in BUCKET_FIELDS) / 10000)),
@@ -1373,8 +1422,11 @@ def _build_asset_class_assumptions(
     targets: dict[str, int],
     asset_risky_weights: dict[str, int],
     cma: CapitalMarketAssumption,
+    sub_allocations: list[dict] | None = None,
 ) -> list[dict]:
-    returns, vols = _asset_class_expected_metrics(cma)
+    # C3: Bucket-Metriken aus tatsaechlicher Sub-Allocation-Gewichtung,
+    # nicht aus ungewichtetem Sub-Annahmen-Mittel.
+    returns, vols = _weighted_bucket_metrics(cma, sub_allocations)
     assumptions = []
     for key in BUCKET_FIELDS:
         assumptions.append(
@@ -1438,12 +1490,14 @@ def _build_simulation_payload(
     maximums: dict[str, int],
     start_year: int,
     simulation_prefs: dict | None,
+    sub_allocations: list[dict] | None = None,
 ) -> dict:
     horizon_years = max(1, len(cashflow_projection_series_rappen))
     stress_multiplier = _simulation_stress_multiplier(simulation_prefs)
     rebalance_mode = _simulation_rebalance_mode(simulation_prefs)
     transaction_cost_bps = _simulation_transaction_cost_bps(simulation_prefs)
-    returns, vols = _asset_class_expected_metrics(cma)
+    # C3: gewichtete Bucket-Metriken aus Sub-Allocation, falls vorhanden.
+    returns, vols = _weighted_bucket_metrics(cma, sub_allocations)
     target_values = _target_bucket_values(advisory_summary.total_rappen, targets)
     downside_returns = {
         key: int(max(-9500, round(returns[key] - vols[key] * stress_multiplier)))
@@ -1968,17 +2022,35 @@ def _run_allocation_monte_carlo(
     mandate_id: str,
     simulation_prefs: dict | None,
     start_year: int,
+    sub_allocations: list[dict] | None = None,
 ) -> dict:
     horizon_years = max(1, len(cashflow_projection_series_rappen))
     simulations = _monte_carlo_simulations(simulation_prefs)
     stress_multiplier = _simulation_stress_multiplier(simulation_prefs)
     rebalance_mode = _simulation_rebalance_mode(simulation_prefs)
-    returns, vols = _asset_class_expected_metrics(cma)
+    # C3: gewichtete Bucket-Metriken aus Sub-Allocation.
+    returns, vols = _weighted_bucket_metrics(cma, sub_allocations)
     chol = _build_cholesky_from_cma(cma)
     n_assets = len(BUCKET_FIELDS)
     transaction_cost_bps = _simulation_transaction_cost_bps(simulation_prefs)
     target_start_values = _target_bucket_values(advisory_summary.total_rappen, targets)
-    seed = _monte_carlo_seed(mandate_id, cma.id, horizon_years, simulations, stress_multiplier, rebalance_mode, json.dumps(targets, sort_keys=True))
+    # C3: Sub-Allocation in den MC-Seed aufnehmen, damit Aenderungen der
+    # tatsaechlichen Sub-Verteilung (z.B. EM-Tilt aktiviert) zu einer
+    # neuen, deterministisch reproduzierbaren Pfadschar fuehren.
+    sub_alloc_signature = json.dumps(
+        sorted(
+            [
+                (
+                    str(item.get("asset_class") or ""),
+                    str(item.get("sub_asset_class") or ""),
+                    int(item.get("target_weight_bps") or 0),
+                )
+                for item in (sub_allocations or [])
+            ]
+        ),
+        sort_keys=True,
+    )
+    seed = _monte_carlo_seed(mandate_id, cma.id, horizon_years, simulations, stress_multiplier, rebalance_mode, json.dumps(targets, sort_keys=True), sub_alloc_signature)
     rng = random.Random(seed)
 
     current_by_year: list[list[int]] = [[] for _ in range(horizon_years + 1)]
@@ -3047,7 +3119,9 @@ def generate_target_allocation(
         sub_allocations = _build_sub_allocations(targets, prefs)
         sub_allocations, asset_risky_weights, risky_fraction_total_bps = _enrich_sub_allocations_with_risk(sub_allocations, risky_map)
         reasoning.append("Die Risky Fraction wird subanlagenbasiert gegen das Risikobudget des Profils ausgerichtet.")
-    metrics = _expected_metrics(targets, cma)
+    # C3: gewichtete Bucket-Metriken aus Sub-Allocation in alle nachgelagerten
+    # Berechnungen weiterreichen.
+    metrics = _expected_metrics(targets, cma, sub_allocations)
     goal_analysis = _build_goal_analysis(
         goals=goals,
         advisory_wealth_rappen=advisory_wealth_rappen,
@@ -3064,6 +3138,7 @@ def generate_target_allocation(
         targets=targets,
         asset_risky_weights=asset_risky_weights,
         cma=cma,
+        sub_allocations=sub_allocations,
     )
     sub_asset_class_assumptions_reference = _build_sub_asset_class_assumption_reference(
         sub_allocations,
@@ -3078,6 +3153,7 @@ def generate_target_allocation(
         maximums=maximums,
         start_year=cashflow_totals["year"],
         simulation_prefs=prefs["simulation"],
+        sub_allocations=sub_allocations,
     )
     monte_carlo = _run_allocation_monte_carlo(
         advisory_summary=advisory_summary,
@@ -3094,6 +3170,7 @@ def generate_target_allocation(
         mandate_id=mandate.id,
         simulation_prefs=prefs["simulation"],
         start_year=cashflow_totals["year"],
+        sub_allocations=sub_allocations,
     )
     goal_analysis = _merge_goal_analysis_with_monte_carlo(goal_analysis, monte_carlo)
     reasoning.append("Eine Pfadsimulation mit normalverteilten Jahresrenditen quantifiziert Zielwahrscheinlichkeit, Verlustband und Rebalancing-Risiko.")
@@ -3277,7 +3354,8 @@ def build_target_payload_from_allocation(
     risky_map = _building_block_risky_map(db, policy.id)
     sub_allocations = _build_sub_allocations(targets, prefs)
     sub_allocations, asset_risky_weights, risky_fraction_total_bps = _enrich_sub_allocations_with_risk(sub_allocations, risky_map)
-    metrics = _expected_metrics(targets, cma)
+    # C3: gewichtete Bucket-Metriken aus Sub-Allocation.
+    metrics = _expected_metrics(targets, cma, sub_allocations)
     _manual_reserve = _parse_rappen(prefs["limits"].get("minReserve")) or 0
     _liq_target = _parse_rappen(prefs["assetClasses"].get("liquidityReserveTarget")) or 0
     _reserve_candidates = [0, _manual_reserve, _liq_target]
@@ -3329,6 +3407,7 @@ def build_target_payload_from_allocation(
         targets=targets,
         asset_risky_weights=asset_risky_weights,
         cma=cma,
+        sub_allocations=sub_allocations,
     )
     sub_asset_class_assumptions_reference = _build_sub_asset_class_assumption_reference(
         sub_allocations,
@@ -3343,6 +3422,7 @@ def build_target_payload_from_allocation(
         maximums=maximums,
         start_year=cashflow_totals["year"],
         simulation_prefs=prefs["simulation"],
+        sub_allocations=sub_allocations,
     )
     monte_carlo = _run_allocation_monte_carlo(
         advisory_summary=advisory_summary,
@@ -3359,6 +3439,7 @@ def build_target_payload_from_allocation(
         mandate_id=mandate.id,
         simulation_prefs=prefs["simulation"],
         start_year=cashflow_totals["year"],
+        sub_allocations=sub_allocations,
     )
     goal_analysis = _merge_goal_analysis_with_monte_carlo(goal_analysis, monte_carlo)
     bucket_response = []
