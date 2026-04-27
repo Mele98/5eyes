@@ -362,6 +362,8 @@ class LiveRebalancingPositionResponse(BaseModel):
     price_age_days: Optional[int] = None
     price_is_fresh: Optional[bool] = None
     rebalance_action: str
+    rebalance_action_code: str
+    rebalance_action_label: str
 
 
 class LiveRebalancingBucketResponse(BaseModel):
@@ -402,6 +404,10 @@ class TargetAllocationGenerateResponse(BaseModel):
     house_matrix_profile: str
     score_bucket: int
     advisory_wealth_rappen: int
+    investable_advisory_wealth_rappen: Optional[int] = None
+    # C6: explizit benannte Basis fuer Target-/Sim-/MC-Berechnung
+    # (= Beratungsvermoegen abzueglich externer Reserve).
+    strategy_base_rappen: Optional[int] = None
     total_wealth_rappen: int
     recurring_income_rappen: int = 0
     recurring_expense_rappen: int = 0
