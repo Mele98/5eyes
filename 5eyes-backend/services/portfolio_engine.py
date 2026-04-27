@@ -1649,6 +1649,33 @@ def _goal_timing_label(goal: Goal, years: int) -> str:
     return f"Horizont {years} J."
 
 
+def _goal_reserve_for_goal(goal: Goal) -> int:
+    """Zielbezogene Liquiditaetsreserve fuer Spending-Goals.
+
+    C5: Vor dem Fix wurde im Goal-Scoring der globale reserve_needed_rappen
+    (Maximum aller reserve_candidates) als 'available' verwendet, wodurch
+    ein grosses Ziel kleinere automatisch auf 'On Track' hob. Hier
+    spiegeln wir die ohnehin schon in _apply_goal_and_reserve_tilts
+    angewandte zielbezogene Logik (years<=3: 100%, 4-7: 50%, >7: 0%)
+    zentral wider, damit das Scoring konsistent zur Reserve-Empfehlung
+    bleibt.
+    """
+    goal_type = _norm_text(goal.goal_type)
+    if goal_type not in ("Einmalige_Ausgabe", "Wiederkehrende_Ausgabe", "Pensionsausgabe"):
+        return 0
+    target_amount = (
+        _annualize_goal_amount(goal)
+        if goal_type in ("Wiederkehrende_Ausgabe", "Pensionsausgabe")
+        else int(goal.target_amount_rappen or 0)
+    )
+    years = _goal_projection_years(goal)
+    if years <= 3:
+        return target_amount
+    if years <= 7:
+        return int(round(target_amount * 0.5))
+    return 0
+
+
 def _build_goal_analysis(
     goals: list[Goal],
     advisory_wealth_rappen: int,
@@ -1686,7 +1713,10 @@ def _build_goal_analysis(
             score = int(round(min(100, max(0, projected_rappen / denominator * 100))))
         else:
             target_rappen = _annualize_goal_amount(goal) if goal_type in ("Wiederkehrende_Ausgabe", "Pensionsausgabe") else int(goal.target_amount_rappen or 0)
-            available = reserve_needed_rappen if years <= 3 else projected_rappen
+            # C5: zielbezogene Reserve statt globaler reserve_needed_rappen,
+            # damit ein grosses Ziel kleinere Ziele nicht unbeabsichtigt
+            # auf 'On Track' hebt.
+            available = _goal_reserve_for_goal(goal) if years <= 3 else projected_rappen
             denominator = max(1, target_rappen)
             score = int(round(min(100, max(0, available / denominator * 100))))
         status = "On Track" if score >= 70 else ("Pruefen" if score >= 45 else "Gefaehrdet")
