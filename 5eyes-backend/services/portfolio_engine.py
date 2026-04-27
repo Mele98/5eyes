@@ -2115,6 +2115,36 @@ def _merge_goal_analysis_with_monte_carlo(goal_analysis: list[dict], monte_carlo
     return merged
 
 
+def _normalize_splits(
+    splits: list[tuple[str, int, str]],
+) -> list[tuple[str, int, str]]:
+    """Skaliert Sub-Asset-Class-Splits proportional auf Summe 10000.
+
+    C4: Vor dem Fix wurde nach Filterung (z.B. !bondsHighYield, !noEm)
+    der Rest dem letzten Eintrag zugeschlagen ('letzter bekommt
+    remainder'), was diesen unbeabsichtigt uebergewichtete. Hier
+    skalieren wir proportional, der Rundungsrest geht an den
+    groessten Eintrag (stabil und reproduzierbar).
+    """
+    if not splits:
+        return []
+    total = sum(int(bps) for _, bps, _ in splits)
+    if total == 10000 or total <= 0:
+        return list(splits)
+    scaled: list[tuple[str, int, str]] = []
+    accumulated = 0
+    for label, bps, rationale in splits:
+        new_bps = int(round(int(bps) * 10000 / total))
+        scaled.append((label, new_bps, rationale))
+        accumulated += new_bps
+    delta = 10000 - accumulated
+    if delta != 0 and scaled:
+        idx_max = max(range(len(scaled)), key=lambda i: scaled[i][1])
+        label, bps, rationale = scaled[idx_max]
+        scaled[idx_max] = (label, bps + delta, rationale)
+    return scaled
+
+
 def _build_sub_allocations(targets: dict[str, int], preferences: dict) -> list[dict]:
     prefs = _normalize_preferences(preferences)
     asset_prefs = prefs["assetClasses"]
@@ -2125,9 +2155,13 @@ def _build_sub_allocations(targets: dict[str, int], preferences: dict) -> list[d
     def _append_split(asset_class: str, bucket_weight: int, splits: list[tuple[str, int, str]]):
         if bucket_weight <= 0 or not splits:
             return
+        # C4: Splits auf Summe 10000 normalisieren bevor verteilt wird,
+        # damit Filter (HY/EM raus etc.) keine Uebergewichtung des
+        # letzten Eintrags erzeugen.
+        normalized = _normalize_splits(splits)
         remaining = bucket_weight
-        for idx, (label, split_bps, rationale) in enumerate(splits):
-            if idx == len(splits) - 1:
+        for idx, (label, split_bps, rationale) in enumerate(normalized):
+            if idx == len(normalized) - 1:
                 weight = remaining
             else:
                 weight = int(round(bucket_weight * split_bps / 10000))
