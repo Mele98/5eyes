@@ -52,6 +52,13 @@ class TargetAllocation(Base):
     risky_fraction_bps = Column(Integer)
     based_on_assessment_id = Column(String)
     capital_market_assumptions_id = Column(String, ForeignKey("capital_market_assumptions.id"))
+    # C8: Audit-Anker fuer Reproduzierbarkeit / Drift-Erkennung.
+    preferences_json = Column(String)
+    input_snapshot_hash = Column(String)
+    advisory_wealth_at_generation_rappen = Column(Integer)
+    total_wealth_at_generation_rappen = Column(Integer)
+    reserve_needed_at_generation_rappen = Column(Integer)
+    external_reserve_at_generation_rappen = Column(Integer)
     policy_id = Column(String, ForeignKey("optimizer_policies.id"), nullable=False)
     set_by = Column(String, ForeignKey("users.id"), nullable=False)
     set_at = Column(String, nullable=False)

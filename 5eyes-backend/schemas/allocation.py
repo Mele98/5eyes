@@ -71,6 +71,13 @@ class TargetAllocationResponse(BaseResponse):
     risky_fraction_bps: Optional[int]
     based_on_assessment_id: Optional[str]
     capital_market_assumptions_id: Optional[str] = None
+    # C8 audit anchors
+    preferences_json: Optional[str] = None
+    input_snapshot_hash: Optional[str] = None
+    advisory_wealth_at_generation_rappen: Optional[int] = None
+    total_wealth_at_generation_rappen: Optional[int] = None
+    reserve_needed_at_generation_rappen: Optional[int] = None
+    external_reserve_at_generation_rappen: Optional[int] = None
     policy_id: str
     set_by: str
     set_at: str

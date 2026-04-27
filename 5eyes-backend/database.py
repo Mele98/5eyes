@@ -177,6 +177,20 @@ def ensure_runtime_columns() -> None:
     additive_columns: dict[str, list[tuple[str, str]]] = {
         'target_allocations': [
             ('capital_market_assumptions_id', 'TEXT'),
+            # C8 audit anchors fuer Reproduzierbarkeit / Drift-Erkennung
+            ('preferences_json', 'TEXT'),
+            ('input_snapshot_hash', 'TEXT'),
+            ('advisory_wealth_at_generation_rappen', 'INTEGER'),
+            ('total_wealth_at_generation_rappen', 'INTEGER'),
+            ('reserve_needed_at_generation_rappen', 'INTEGER'),
+            ('external_reserve_at_generation_rappen', 'INTEGER'),
+        ],
+        'recommendation_positions': [
+            ('reference_price_rappen', 'INTEGER'),
+            ('reference_price_date', 'TEXT'),
+            ('reference_price_source', 'TEXT'),
+            ('reference_lookup_mode', 'TEXT'),
+            ('reference_price_fetched_at', 'TEXT'),
         ],
         'clients': [
             ('investment_horizon_start', 'TEXT'),
