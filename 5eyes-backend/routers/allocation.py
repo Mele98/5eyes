@@ -94,12 +94,29 @@ def create_target_allocation(
     current_user: User = Depends(require_advisor)
 ):
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
-    # Validate policy exists
+    # C2: Hard-Gate auf strategie-fertiges Risikoprofil. Direkter POST darf
+    # FIDLEG-/Eignungspflicht nicht umgehen.
+    assessment = db.query(RiskAssessment).filter(
+        RiskAssessment.mandate_id == mandate_id,
+        RiskAssessment.is_current == 1,
+        RiskAssessment.deleted_at.is_(None),
+    ).first()
+    if not assessment:
+        raise HTTPException(status_code=409, detail="Bitte zuerst ein aktuelles Risikoprofil speichern.")
+    if assessment.final_score_x10 is None and assessment.override_score_x10 is None:
+        raise HTTPException(status_code=409, detail="Risikoprofil unvollstaendig. Bitte Fragebogen vollstaendig ausfuellen.")
+    if body.based_on_assessment_id and body.based_on_assessment_id != assessment.id:
+        raise HTTPException(status_code=422, detail=(
+            "based_on_assessment_id muss auf das aktuelle Risikoprofil zeigen "
+            f"(erwartet {assessment.id})."
+        ))
+    # Policy: nur aktuelle akzeptieren.
     policy = db.query(OptimizerPolicy).filter(
-        OptimizerPolicy.id == body.policy_id
+        OptimizerPolicy.id == body.policy_id,
+        OptimizerPolicy.is_current == 1,
     ).first()
     if not policy:
-        raise HTTPException(status_code=404, detail="Optimizer Policy nicht gefunden")
+        raise HTTPException(status_code=404, detail="Optimizer Policy nicht gefunden oder nicht aktuell")
     now = _now()
     # Supersede previous
     prev = db.query(TargetAllocation).filter(
@@ -111,6 +128,9 @@ def create_target_allocation(
     if prev:
         prev.is_current = 0
         prev_version = prev.version
+    payload = body.model_dump()
+    if not payload.get("based_on_assessment_id"):
+        payload["based_on_assessment_id"] = assessment.id
     ta = TargetAllocation(
         id=new_uuid(),
         mandate_id=mandate_id,
@@ -120,7 +140,7 @@ def create_target_allocation(
         set_at=now,
         created_at=now,
         updated_at=now,
-        **body.model_dump()
+        **payload
     )
     db.add(ta)
     log(db, user_id=current_user.id, user_name=current_user.full_name,

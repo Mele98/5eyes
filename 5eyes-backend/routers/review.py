@@ -11,7 +11,8 @@ from models.review import (
     ConflictOfInterestDisclosure, Product, ProductSuitability,
     RecommendationRun, RecommendationPosition, RecommendationHolding, AuditLog
 )
-from models.allocation import OptimizerPolicy
+from models.allocation import CapitalMarketAssumption, OptimizerPolicy, TargetAllocation
+from models.profiling import RiskAssessment
 from schemas.review import (
     ReviewTriggerCreate, ReviewTriggerResolve, ReviewTriggerResponse,
     AdvisoryLogCreate, AdvisoryLogUpdate, AdvisoryLogResponse,
@@ -1139,11 +1140,56 @@ def create_recommendation_run(
     current_user: User = Depends(require_advisor)
 ):
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    # C1: Hard-Gate. Auch der direkte Draft-Create muss auf einem aktuellen,
+    # strategie-fertigen Risikoprofil + aktueller Policy + aktueller CMA basieren
+    # und darf keine fremden / stale TargetAllocation referenzieren.
+    assessment = db.query(RiskAssessment).filter(
+        RiskAssessment.mandate_id == mandate_id,
+        RiskAssessment.is_current == 1,
+        RiskAssessment.deleted_at.is_(None),
+    ).first()
+    if not assessment:
+        raise HTTPException(status_code=409, detail="Bitte zuerst ein aktuelles Risikoprofil speichern.")
+    if assessment.final_score_x10 is None and assessment.override_score_x10 is None:
+        raise HTTPException(status_code=409, detail="Risikoprofil unvollstaendig. Bitte Fragebogen vollstaendig ausfuellen.")
+    if body.assessment_id and body.assessment_id != assessment.id:
+        raise HTTPException(status_code=422, detail=(
+            "assessment_id muss auf das aktuelle Risikoprofil zeigen "
+            f"(erwartet {assessment.id})."
+        ))
     policy = db.query(OptimizerPolicy).filter(
-        OptimizerPolicy.id == body.policy_id
+        OptimizerPolicy.id == body.policy_id,
+        OptimizerPolicy.is_current == 1,
     ).first()
     if not policy:
-        raise HTTPException(status_code=404, detail="Optimizer Policy nicht gefunden")
+        raise HTTPException(status_code=404, detail="Optimizer Policy nicht gefunden oder nicht aktuell")
+    cma = db.query(CapitalMarketAssumption).filter(
+        CapitalMarketAssumption.is_current == 1,
+        CapitalMarketAssumption.deleted_at.is_(None),
+    ).first()
+    if not cma:
+        raise HTTPException(status_code=409, detail="Keine aktuellen Kapitalmarktannahmen.")
+    if body.capital_market_assumptions_id and body.capital_market_assumptions_id != cma.id:
+        raise HTTPException(status_code=422, detail=(
+            "capital_market_assumptions_id muss auf die aktuellen CMA zeigen "
+            f"(erwartet {cma.id})."
+        ))
+    if body.target_allocation_id:
+        ta = db.query(TargetAllocation).filter(
+            TargetAllocation.id == body.target_allocation_id,
+            TargetAllocation.mandate_id == mandate_id,
+            TargetAllocation.deleted_at.is_(None),
+        ).first()
+        if not ta:
+            raise HTTPException(status_code=409, detail=(
+                "target_allocation_id gehoert nicht zu diesem Mandat oder ist gelöscht."
+            ))
+    payload = body.model_dump()
+    payload.pop("other_assets_included", None)
+    if not payload.get("assessment_id"):
+        payload["assessment_id"] = assessment.id
+    if not payload.get("capital_market_assumptions_id"):
+        payload["capital_market_assumptions_id"] = cma.id
     now = _now()
     run = RecommendationRun(
         id=new_uuid(),
@@ -1153,7 +1199,7 @@ def create_recommendation_run(
         other_assets_included=1 if body.other_assets_included else 0,
         created_by=current_user.id,
         created_at=now, updated_at=now,
-        **{k: v for k, v in body.model_dump().items() if k != "other_assets_included"}
+        **payload,
     )
     db.add(run)
     log(db, user_id=current_user.id, user_name=current_user.full_name,
