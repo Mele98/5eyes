@@ -593,12 +593,12 @@ def create_planning_assumptions(
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
     now = _now()
     today = date.today().isoformat()
-    # Supersede previous
+    # Supersede previous (Race-Hardening, siehe profiling.py).
     prev = db.query(PlanningAssumption).filter(
         PlanningAssumption.mandate_id == mandate_id,
         PlanningAssumption.is_current == 1,
         PlanningAssumption.deleted_at.is_(None)
-    ).first()
+    ).with_for_update().first()
     prev_version = 0
     prev_id = None
     if prev:

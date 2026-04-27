@@ -65,11 +65,14 @@ def create_knowledge(
     today = date.today().isoformat()
 
     # Supersede previous current
+    # Race-Hardening: pessimistic Lock auf den Anchor-Record. Auf Postgres
+    # serialisiert das parallele "is_current=0; insert is_current=1"-Wechsel.
+    # SQLite ignoriert FOR UPDATE (Single-Writer ohnehin serialisiert).
     prev = db.query(ClientKnowledge).filter(
         ClientKnowledge.client_id == client_id,
         ClientKnowledge.is_current == 1,
         ClientKnowledge.deleted_at.is_(None)
-    ).first()
+    ).with_for_update().first()
     prev_id = None
     prev_version = 0
     if prev:
@@ -167,12 +170,12 @@ def create_risk_assessment(
         q_risk_behavior_points=body.q_risk_behavior_points,
     )
 
-    # Supersede previous
+    # Supersede previous (Race-Hardening, siehe ClientKnowledge oben).
     prev = db.query(RiskAssessment).filter(
         RiskAssessment.mandate_id == mandate_id,
         RiskAssessment.is_current == 1,
         RiskAssessment.deleted_at.is_(None)
-    ).first()
+    ).with_for_update().first()
     prev_id = None
     prev_version = 0
     if prev:

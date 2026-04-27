@@ -2990,11 +2990,14 @@ def generate_target_allocation(
     goal_analysis = _merge_goal_analysis_with_monte_carlo(goal_analysis, monte_carlo)
     reasoning.append("Eine Pfadsimulation mit normalverteilten Jahresrenditen quantifiziert Zielwahrscheinlichkeit, Verlustband und Rebalancing-Risiko.")
 
+    # Race-Hardening: pessimistic Lock, damit parallele
+    # generate_target_allocation-Calls keine doppelten is_current=1 Records
+    # produzieren (postgres-ready; SQLite serialisiert eh).
     previous_current = db.query(TargetAllocation).filter(
         TargetAllocation.mandate_id == mandate.id,
         TargetAllocation.is_current == 1,
         TargetAllocation.deleted_at.is_(None),
-    ).first()
+    ).with_for_update().first()
     previous_version = 0
     if previous_current:
         previous_current.is_current = 0
