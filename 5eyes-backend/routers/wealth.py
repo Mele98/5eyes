@@ -1,3 +1,4 @@
+import re
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from datetime import date, datetime, timezone
@@ -180,6 +181,62 @@ def _get_mandate_or_404(mandate_id: str, db: Session, current_user: User) -> Man
     return get_mandate_for_user_or_404(mandate_id, db, current_user)
 
 
+_AMORTIZATION_LABEL_RE = re.compile(r"\b(tilgung|amortisation|amortization)\b", re.IGNORECASE)
+
+
+def _is_amortization_label(label) -> bool:
+    if not label:
+        return False
+    return bool(_AMORTIZATION_LABEL_RE.search(str(label)))
+
+
+def _has_active_mortgage_liability(client_id: str, db: Session) -> bool:
+    return db.query(WealthPosition).filter(
+        WealthPosition.client_id == client_id,
+        WealthPosition.assignment == "Verbindlichkeit",
+        WealthPosition.position_type == "Hypothek",
+        WealthPosition.is_active == 1,
+        WealthPosition.deleted_at.is_(None),
+    ).first() is not None
+
+
+def _validate_no_mortgage_amortization_double_count(
+    client_id: str, payload: dict, db: Session, existing: Cashflow | None = None,
+) -> None:
+    """B3: Hypothek-Tilgung darf nicht als Cashflow erfasst werden, wenn fuer
+    denselben Kunden eine aktive Hypothek-Liability existiert.
+
+    Bilanziell ist Tilgung eine Reklassifikation (Vermoegen sinkt, Liability
+    sinkt um denselben Betrag) - kein Aufwand. Wenn als Expense-Cashflow
+    erfasst, sinkt das Vermoegen scheinbar doppelt -> falsche Reserve, falsche
+    Asset-Allokation.
+
+    Quellen: Swiss GAAP FER 16 §28-32, ASIP Standard 2.3, OR 957a.
+    """
+    cashflow_type = payload.get("cashflow_type")
+    if cashflow_type is None and existing is not None:
+        cashflow_type = existing.cashflow_type
+    if str(cashflow_type or "") != "Expense":
+        return
+    label = payload.get("label")
+    if label is None and existing is not None:
+        label = existing.label
+    if not _is_amortization_label(label):
+        return
+    if not _has_active_mortgage_liability(client_id, db):
+        return
+    raise HTTPException(
+        status_code=422,
+        detail=(
+            "Hypothek-Tilgung darf nicht als Cashflow erfasst werden. "
+            "Tilgung ist bilanziell eine Reklassifikation (Vermoegen und Liability "
+            "sinken um denselben Betrag), kein Aufwand. Bitte nur Hypothek-Zinsen "
+            "als Cashflow erfassen; die Tilgung wird ueber die Liability-Position "
+            "verfolgt."
+        ),
+    )
+
+
 def _validate_mortgage_link(client_id: str, data: dict, db: Session) -> None:
     linked_property_id = data.get("mortgage_linked_property_id")
     if not linked_property_id:
@@ -357,6 +414,7 @@ def create_cashflow(
     client = get_client_for_user_or_404(client_id, db, current_user)
     now = _now()
     data = _normalize_cashflow_payload(body.model_dump())
+    _validate_no_mortgage_amortization_double_count(client_id, data, db)
     cf = Cashflow(
         id=new_uuid(), client_id=client_id,
         is_active=1, created_at=now, updated_at=now,
@@ -410,6 +468,7 @@ def update_cashflow(
     if not cf:
         raise HTTPException(status_code=404, detail="Cashflow nicht gefunden")
     updates = _normalize_cashflow_payload(body.model_dump(exclude_unset=True), cf)
+    _validate_no_mortgage_amortization_double_count(client_id, updates, db, existing=cf)
     for field, value in updates.items():
         if isinstance(value, bool):
             value = 1 if value else 0
