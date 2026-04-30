@@ -231,3 +231,159 @@ def test_w2_4_payload_current_mix_series_negative_when_lifegap(session_factory):
     # Bei 200k Start und 100k/Jahr Ausgaben (ohne Einkommen, ohne Wachstum)
     # geht das Vermoegen nach 2-3 Jahren in die Luecke. Horizon ist 10J standardmaessig.
     assert series[-1] < 0, f"Lebensluecke erwartet, series[-1]={series[-1]}"
+
+
+# ============================================================================
+# Phase 2 - Total-Vermoegens-Pfad mit Liabilities
+# ============================================================================
+
+def _seed_total_with_liabilities(session_factory):
+    """200k Beratungsdepot + 800k Eigenheim + 600k Hypothek -> Reinvermoegen 400k.
+    Positiver recurring Cashflow (Saving 30k/J)."""
+    advisor_id = "user-z8-2"
+    cid = str(uuid.uuid4())
+    mid = str(uuid.uuid4())
+    aid = str(uuid.uuid4())
+    now = _now()
+    with session_factory() as s:
+        s.add(User(id=advisor_id, username="adv", password_hash="h",
+                   full_name="Adv", role="advisor", is_active=1,
+                   created_at=now, updated_at=now))
+        s.add(Client(id=cid, client_number=f"C-{cid[:6]}",
+                     first_name="T", last_name="X",
+                     advisor_id=advisor_id, created_at=now, updated_at=now))
+        s.add(Mandate(id=mid, client_id=cid, mandate_number=f"M-{mid[:6]}",
+                      mandate_type="Anlageberatung", opened_at=now,
+                      created_at=now, updated_at=now))
+        s.add(WealthPosition(
+            id="pos-z8-2-depot", client_id=cid,
+            label="Depot", position_type="Depot", assignment="Beratungsvermögen",
+            current_value_rappen=200_000_00, currency="CHF",
+            alloc_equities_bps=4000, alloc_bonds_bps=3000,
+            alloc_real_estate_bps=0, alloc_liquidity_bps=2000,
+            alloc_alternatives_bps=1000,
+            is_active=1, created_at=now, updated_at=now,
+        ))
+        s.add(WealthPosition(
+            id="pos-z8-2-haus", client_id=cid,
+            label="Eigenheim", position_type="Liegenschaft", assignment="Gesamtvermögen",
+            current_value_rappen=800_000_00, currency="CHF",
+            alloc_real_estate_bps=10000,
+            is_active=1, created_at=now, updated_at=now,
+        ))
+        s.add(WealthPosition(
+            id="pos-z8-2-hypo", client_id=cid,
+            label="Hypothek", position_type="Hypothek", assignment="Verbindlichkeit",
+            current_value_rappen=600_000_00, currency="CHF",
+            is_active=1, created_at=now, updated_at=now,
+        ))
+        s.add(Cashflow(
+            id="cf-z8-2-savings", client_id=cid, label="Sparplan",
+            cashflow_type="Income", amount_rappen=30_000_00,
+            currency="CHF", frequency="jährlich", nature="wiederkehrend",
+            is_active=1, created_at=now, updated_at=now,
+        ))
+        s.add(RiskAssessment(
+            id=aid, mandate_id=mid, version=1, is_current=1, valid_from=now[:10],
+            q_income_points=2, q_obligations_points=3,
+            q_savings_points=6, q_wealth_points=6,
+            risk_capacity_total=17, risk_capacity_profile="Wachstumsorientiert",
+            risk_capacity_score_x10=60,
+            investment_horizon_years=10, investment_horizon_label="8 bis 11 Jahre",
+            q_investment_goal_points=3, q_risk_preference_points=3, q_risk_behavior_points=3,
+            risk_willingness_total=9, risk_willingness_profile="Ausgewogen",
+            risk_willingness_score_x10=60,
+            final_score_x10=60, final_profile="Ausgewogen",
+            is_overridden=0,
+            assessed_at=now, assessed_by=advisor_id,
+            created_at=now, updated_at=now,
+        ))
+        for q in (3, 5, 6, 7, 8, 9, 10, 11):
+            s.add(RiskAssessmentAnswer(
+                id=str(uuid.uuid4()), assessment_id=aid,
+                question_number=q, question_section="Risikoprofil",
+                answer_label=f"A{q}", answer_points=2,
+                created_at=now,
+            ))
+        s.commit()
+        ensure_runtime_reference_data(s, advisor_id)
+        s.commit()
+    return advisor_id, cid, mid, aid
+
+
+def test_w2_phase2_total_mix_current_series_starts_at_net_wealth(session_factory):
+    """simulation.total_mix_current_series_rappen[0] == total_assets - liabilities."""
+    advisor_id, cid, mid, aid = _seed_total_with_liabilities(session_factory)
+    with session_factory() as s:
+        mandate = s.query(Mandate).filter(Mandate.id == mid).first()
+        result = generate_target_allocation(s, mandate, advisor_id, preferences=None)
+    sim = result.get("simulation") or {}
+    series = sim.get("total_mix_current_series_rappen") or []
+    assert series, "total_mix_current_series_rappen muss vorhanden sein"
+    # 200k Depot + 800k Haus = 1000k Assets, - 600k Hypothek = 400k Reinvermoegen
+    assert series[0] == 400_000_00, f"Reinvermoegen-Start erwartet 400k, got {series[0]}"
+
+
+def test_w2_phase2_total_mix_target_series_starts_at_net_wealth(session_factory):
+    """simulation.total_mix_target_series_rappen[0] == total_assets - liabilities."""
+    advisor_id, cid, mid, aid = _seed_total_with_liabilities(session_factory)
+    with session_factory() as s:
+        mandate = s.query(Mandate).filter(Mandate.id == mid).first()
+        result = generate_target_allocation(s, mandate, advisor_id, preferences=None)
+    sim = result.get("simulation") or {}
+    target_series = sim.get("total_mix_target_series_rappen") or []
+    assert target_series, "total_mix_target_series_rappen muss vorhanden sein"
+    # SOLL-Pfad startet ebenfalls bei Reinvermoegen 400k
+    assert target_series[0] == 400_000_00
+
+
+def test_w2_phase2_total_series_growth_with_positive_savings(session_factory):
+    """Mit 30k/J Sparen sollte Total-IST-Pfad wachsen, nicht schrumpfen."""
+    advisor_id, cid, mid, aid = _seed_total_with_liabilities(session_factory)
+    with session_factory() as s:
+        mandate = s.query(Mandate).filter(Mandate.id == mid).first()
+        result = generate_target_allocation(s, mandate, advisor_id, preferences=None)
+    sim = result.get("simulation") or {}
+    series = sim.get("total_mix_current_series_rappen") or []
+    assert series, "Series muss vorhanden sein"
+    # 400k Reinvermoegen + 30k/J Sparen ueber 10 Jahre -> mind. 400k + 10*30k = 700k
+    assert series[-1] >= 700_000_00, f"Wachstum erwartet >= 700k, got {series[-1]}"
+
+
+def test_w2_phase2_no_total_summary_returns_empty_series(session_factory):
+    """Backwards-compat: _build_simulation_payload ohne total_summary -> leere total Series."""
+    from services.portfolio_engine import _build_simulation_payload, PortfolioSummary
+    advisor_id = "user-z8-3"
+    now = _now()
+    with session_factory() as s:
+        s.add(User(id=advisor_id, username="adv", password_hash="h",
+                   full_name="Adv", role="advisor", is_active=1,
+                   created_at=now, updated_at=now))
+        s.commit()
+        _, cma = ensure_runtime_reference_data(s, advisor_id)
+        s.commit()
+        advisory_summary = PortfolioSummary(
+            amounts_rappen={"equities": 100_000_00, "bonds": 0, "real_estate": 0,
+                             "liquidity": 0, "alternatives": 0},
+            total_rappen=100_000_00,
+        )
+        targets = {"equities": 5000, "bonds": 3000, "real_estate": 1000,
+                   "liquidity": 500, "alternatives": 500}
+        minimums = {k: 0 for k in targets}
+        maximums = {k: 10000 for k in targets}
+        payload = _build_simulation_payload(
+            advisory_summary=advisory_summary,
+            cashflow_projection_series_rappen=[10_000_00] * 5,
+            cma=cma,
+            targets=targets,
+            minimums=minimums,
+            maximums=maximums,
+            start_year=2026,
+            simulation_prefs=None,
+        )
+    # Ohne total_summary muessen Felder existieren, aber leer sein
+    assert payload.get("total_mix_current_series_rappen") == []
+    assert payload.get("total_mix_target_series_rappen") == []
+    # Advisory-Series existiert wie zuvor
+    assert payload["current_mix_series_rappen"]
+    assert payload["target_mix_series_rappen"]

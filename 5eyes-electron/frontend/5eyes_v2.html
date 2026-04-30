@@ -1369,7 +1369,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 
     <!-- PAGE: REVIEW -->
     <div id="page-rv" class="page">
-      <div class="ph"><div><div class="ph-t">Review</div><div class="ph-s">IST vs. SOLL · Trigger · Entscheid</div></div><div class="ph-r"><button class="btn" onclick="om('m-nt')">+ Trigger</button><button class="btn-p" onclick="om('m-ne')">Entscheid protokollieren</button><button class="btn" onclick="printReport()">PDF</button><button class="btn-g" onclick="printAnlagestrategie()">Anlagestrategie ↓</button></div></div>
+      <div class="ph"><div><div class="ph-t">Kunden-Review</div><div class="ph-s">Status · wichtigste Punkte · Entscheid</div></div><div class="ph-r"><button class="btn-p" onclick="om('m-ne')">Entscheid protokollieren</button><button class="btn" onclick="printReport()">PDF</button><button class="btn-g" onclick="printAnlagestrategie()">Anlagestrategie ↓</button></div></div>
       <div class="strip" id="rv-alert-strip" style="display:none"></div>
       <div id="rv-decision-strip" style="display:none"></div>
       <div class="pad">
@@ -1424,13 +1424,13 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 
         <!-- ② PORTFOLIO-CHECK — IST vs. SOLL, Cashflow, Ziel — Kern jedes Reviews -->
         <div class="card" style="margin-bottom:10px">
-          <div class="chd"><span class="cht">Portfolio-Check</span><span style="font-size:9px;color:var(--n4);margin-left:8px">IST vs. SOLL · Allokation · Zielerreichung</span></div>
+          <div class="chd"><span class="cht">Heute wichtig</span><span style="font-size:9px;color:var(--n4);margin-left:8px">Nur die Punkte, die im Gespraech zaehlen</span></div>
           <div class="cbody" id="rv-strategy-compare"><div style="font-size:10px;color:var(--n4)">Strategie laden, um den Vergleich anzuzeigen.</div></div>
         </div>
 
         <!-- ③ TRIGGER — sortiert nach Dringlichkeit, alle Typen in einer Card -->
         <div class="card" style="margin-bottom:10px">
-          <div class="chd"><span class="cht">Trigger</span><span style="font-size:9px;color:var(--n4);margin-left:8px">Zeit · Markt · Ereignis</span><div class="chr"><button class="btn btn-sm" onclick="om('m-nt')">+ Trigger</button><button class="btn btn-sm" onclick="om('m-ev')">Ereignis</button></div></div>
+          <div class="chd"><span class="cht">Offene Punkte</span><span style="font-size:9px;color:var(--n4);margin-left:8px">Faelligkeiten, Abweichungen und Ereignisse</span><div class="chr"><button class="btn btn-sm" onclick="om('m-nt')">+ Trigger</button><button class="btn btn-sm" onclick="om('m-ev')">Ereignis</button></div></div>
           <div id="rv-trigger-time" style="padding:0"></div>
           <div id="rv-trigger-market" style="border-top:1px solid var(--b1)"></div>
           <div id="rv-trigger-event" style="border-top:1px solid var(--b1)"></div>
@@ -1458,8 +1458,14 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
     </div>
     <!-- PAGE: ZUSAMMENFASSUNG -->
     <div id="page-sr" class="page">
-      <div class="ph"><div><div class="ph-t">Ihr Strategiebild</div><div class="ph-s">Risikoprofil · Soll-Allokation · Ziele · Heutiger Entscheid</div></div><div class="ph-r"><button id="sr-summary-print-inline" onclick="printSummaryPage()" class="btn">Protokoll PDF</button><button class="btn-g" onclick="printAnlagestrategie()">Anlagestrategie ↓</button></div></div>
+      <div class="ph"><div><div class="ph-t">Kunden-Zusammenfassung</div><div class="ph-s">Strategie · Zielbild · naechster Schritt</div></div><div class="ph-r"><button id="sr-summary-print-inline" onclick="printSummaryPage()" class="btn">Protokoll PDF</button><button class="btn-g" onclick="printAnlagestrategie()">Anlagestrategie ↓</button></div></div>
       <div class="pad">
+
+        <div id="sr-client-summary" style="background:linear-gradient(135deg,#f8f4ea,#ffffff);border:1px solid rgba(120,96,26,0.18);border-radius:var(--r2);padding:16px 18px;margin-bottom:14px">
+          <div style="font-size:9px;font-weight:800;letter-spacing:0.12em;text-transform:uppercase;color:var(--n4);margin-bottom:6px">Kurzfassung fuer das Gespraech</div>
+          <div style="font-size:17px;font-weight:800;color:var(--n8);line-height:1.35;margin-bottom:5px">Noch keine Strategie geladen</div>
+          <div style="font-size:11px;color:var(--n6);line-height:1.65">Sobald Risikoprofil, Vermoegen und Strategie vorliegen, erscheint hier die einfache Kundenzusammenfassung.</div>
+        </div>
 
         <!-- 4 KPI tiles — JS füllt alle Werte, keine Dummy-Daten -->
         <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px">
@@ -1519,7 +1525,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
         <div class="card" style="margin-bottom:14px">
           <div class="chd"><span class="cht">Heutiger Entscheid</span><span style="font-size:9px;color:var(--n4);margin-left:8px">Massnahmen aus dem Review</span><div class="chr"><button id="sr-recipe-print" class="btn-g" onclick="window.print()">Protokoll drucken</button></div></div>
           <div class="cbody">
-            <div id="sr-implementation-steps" style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:10px"><div style="grid-column:1/-1;font-size:10px;color:var(--n4)">Noch kein Advisory-Entscheid dokumentiert. Bitte zuerst ein Review durchführen.</div></div>
+            <div id="sr-implementation-steps" style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:10px"><div style="grid-column:1/-1;font-size:10px;color:var(--n4)">Noch kein Advisory-Entscheid dokumentiert. Bitte zuerst ein Review durchfuehren.</div></div>
             <div style="display:flex;justify-content:space-between;align-items:center;padding-top:8px;border-top:1px solid var(--b1)">
               <span id="sr-decision-meta" style="font-size:10px;color:var(--n6)">Beratungsprotokoll — heutiger Review</span>
               <div style="display:flex;gap:6px;align-items:center">
@@ -3470,12 +3476,32 @@ function projectionSeriesDiffer(a,b){
   return false;
 }
 
-function buildCurrentWealthProjection(scope,preferredYears,preferredLabels){
-  var years=projectionHorizonYears(null,preferredYears);
-  var labels=projectionYearLabels(null,years,preferredLabels);
+function buildCurrentWealthProjection(scope,preferredYears,preferredLabels,result){
+  var years=projectionHorizonYears(result||null,preferredYears);
+  var labels=projectionYearLabels(result||null,years,preferredLabels);
   var inputs=wealthProjectionInputs(scope);
   var componentSeries=currentCashflowProjectionComponentSeries(years,labels,inputs.recurringNetCashflowRappen,inputs.capitalNetCashflowRappen);
-  var projection=buildBaselineProjectionFromComponentSeries(inputs.startRappen,componentSeries,inputs.expectedReturnBps,labels);
+  // Z8-W2 Phase 2: scope='total' nutzt Backend-Series total_mix_current_series_rappen
+  // wenn ein Strategy-Run vorliegt. Sonst FE-Fallback mit H1-H5 Annahmen.
+  var sim=result?simulationPayload(result):null;
+  var backendKey=scope==='total'?'total_mix_current_series_rappen':null;
+  var backendSeries=sim&&backendKey&&Array.isArray(sim[backendKey])?sim[backendKey]:null;
+  var sameLength=backendSeries&&backendSeries.length===years+1;
+  var projection;
+  if(sameLength){
+    var seriesRappen=backendSeries.map(function(v){return Math.round(Number(v||0));});
+    projection={
+      years:years,
+      labels:labels,
+      expectedReturnBps:Number(inputs.expectedReturnBps||0),
+      seriesRappen:seriesRappen,
+      seriesK:seriesRappen.map(function(v){return Math.round(v/100000);}),
+      projectedRappen:Number(seriesRappen[seriesRappen.length-1]||0),
+      cagrBps:projectionSeriesCagrBps(seriesRappen)
+    };
+  } else {
+    projection=buildBaselineProjectionFromComponentSeries(inputs.startRappen,componentSeries,inputs.expectedReturnBps,labels);
+  }
   projection.scope=scope;
   projection.recurringNetCashflowRappen=Number(inputs.recurringNetCashflowRappen||0);
   projection.capitalNetCashflowRappen=Number(inputs.capitalNetCashflowRappen||0);
@@ -3484,6 +3510,7 @@ function buildCurrentWealthProjection(scope,preferredYears,preferredLabels){
   projection.cashflowComponentSeries=componentSeries.slice();
   projection.expectedReturnBps=Number(inputs.expectedReturnBps||0);
   projection.startRappen=Number(inputs.startRappen||0);
+  projection.source=sameLength?'backend':'fallback';
   return projection;
 }
 
@@ -10184,9 +10211,27 @@ function buildCurrentBaselineProjection(result,preferredYears,preferredLabels){
   return projection;
 }
 function buildImprovedTotalProjectionFromStrategy(result,preferredYears,preferredLabels){
-  var totalProjection=buildCurrentWealthProjection('total',preferredYears,preferredLabels);
-  var advisoryProjection=buildCurrentBaselineProjection(result,preferredYears,preferredLabels);
+  var totalProjection=buildCurrentWealthProjection('total',preferredYears,preferredLabels,result);
+  // Z8-W2 Phase 2: Wenn Backend total_mix_target_series_rappen liefert, ist das
+  // der authoritative SOLL-Total-Pfad - keine FE-Mischformel mehr noetig.
   var sim=simulationPayload(result);
+  var backendTotalTarget=sim&&Array.isArray(sim.total_mix_target_series_rappen)?sim.total_mix_target_series_rappen:null;
+  if(backendTotalTarget&&backendTotalTarget.length){
+    var seriesRappen=backendTotalTarget.map(function(v){return Math.round(Number(v||0));});
+    return {
+      years:Math.max(0,seriesRappen.length-1),
+      labels:(totalProjection.labels||[]).slice(0,seriesRappen.length),
+      seriesRappen:seriesRappen,
+      seriesK:seriesRappen.map(function(v){return Math.round(v/100000);}),
+      projectedRappen:Number(seriesRappen[seriesRappen.length-1]||0),
+      cagrBps:projectionSeriesCagrBps(seriesRappen),
+      annualNetCashflowRappen:Number(totalProjection.annualNetCashflowRappen||0),
+      expectedReturnBps:Number(totalProjection.expectedReturnBps||0),
+      source:'backend'
+    };
+  }
+  // Fallback: Mischformel fuer Pre-C9 Allocations / Backend ohne total Series
+  var advisoryProjection=buildCurrentBaselineProjection(result,preferredYears,preferredLabels);
   var targetSeries=sim&&Array.isArray(sim.target_mix_series_rappen)
     ? sim.target_mix_series_rappen.map(function(value){return Number(value||0);})
     : advisoryProjection.seriesRappen.slice();
@@ -10211,7 +10256,8 @@ function buildImprovedTotalProjectionFromStrategy(result,preferredYears,preferre
     projectedRappen:Number(improvedSeries[length-1]||0),
     cagrBps:projectionSeriesCagrBps(improvedSeries),
     annualNetCashflowRappen:Number(totalProjection.annualNetCashflowRappen||0),
-    expectedReturnBps:Number(totalProjection.expectedReturnBps||0)
+    expectedReturnBps:Number(totalProjection.expectedReturnBps||0),
+    source:'fallback'
   };
 }
 function renderCurrentWealthOnlyProjectionSummary(projection){
@@ -10359,7 +10405,7 @@ function updateProjectionChartsFromSimulation(result){
   var targetSeries=simulationSeriesK(sim.target_mix_series_rappen);
   var advisoryBaselineProjection=buildCurrentBaselineProjection(result,labels.length?labels.length-1:null,labels);
   var advisoryCurrentSeries=advisoryBaselineProjection.seriesK;
-  var totalBaselineProjection=buildCurrentWealthProjection('total',labels.length?labels.length-1:null,labels);
+  var totalBaselineProjection=buildCurrentWealthProjection('total',labels.length?labels.length-1:null,labels,result);
   var totalCurrentSeries=totalBaselineProjection.seriesK;
   if(charts.opt&&charts.opt.data){
     charts.opt.data.labels=labels;
@@ -11365,6 +11411,7 @@ function renderStrategySummary(){
     ? Math.round(goalsWithPath.reduce(function(sum,item){return sum+(Math.max(1,Number(item.weight_bps||0))*Number(item.path_success_rate_pct||0));},0)/pathWeightTotal)
     : null;
   var endangered=allocation.goal_analysis?allocation.goal_analysis.filter(function(item){return Number(item.achievement_score||0)<45;}).length:0;
+  updateSrClientSummary(risk,allocation,avgGoalScore,endangered,activeClientCashflowSummary(),currentReviewState&&currentReviewState.triggers);
   if(risk){
     setText('sr-risk-score',Math.round(Number(risk.final_score_x10||0)/10)+' / 10');
     setText('sr-risk-profile',risk.final_profile||'Nicht definiert');
@@ -11419,12 +11466,12 @@ function renderSrImplementationDecision(entry){
   var hasTradeList=!!(live&&Array.isArray(live.position_drifts)&&live.position_drifts.some(function(row){return rebalanceActionCode(row)!=='HOLD';}));
   var cards=[];
   if(driftItems.length){
-    driftItems.slice(0,3).forEach(function(item,idx){
+    driftItems.slice(0,2).forEach(function(item,idx){
       var verb=Number(item.deltaWeightBps||0)>0?'Reduzieren':'Aufstocken';
       cards.push('<div style="border:1px solid var(--b1);border-radius:var(--r2);padding:10px">'
         +'<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px"><div style="width:20px;height:20px;border-radius:50%;background:'+item.meta.tone+';color:#fff;font-size:10px;font-weight:600;display:flex;align-items:center;justify-content:center">'+String(idx+1)+'</div><span style="font-size:11px;font-weight:500;color:var(--n8)">'+escapeHtml(verb)+'</span></div>'
         +'<div style="font-size:10px;color:var(--n8);font-weight:500;margin-bottom:3px">'+escapeHtml(item.assetClass)+'</div>'
-        +'<div style="font-size:10px;color:var(--n6)">IST '+escapeHtml(formatBpsPercent(item.currentWeightBps))+' → SOLL '+escapeHtml(formatBpsPercent(item.targetWeightBps))+' · Delta '+escapeHtml(formatSignedBpsPercent(item.deltaWeightBps))+'</div>'
+        +'<div style="font-size:10px;color:var(--n6);line-height:1.5">Heute '+escapeHtml(item.meta.action.toLowerCase())+'. Zielquote '+escapeHtml(formatBpsPercent(item.targetWeightBps))+'.</div>'
         +'<div style="margin-top:5px"><span class="tag '+item.meta.tagClass+'">'+escapeHtml(item.meta.label)+'</span></div>'
         +'</div>');
     });
@@ -11438,6 +11485,40 @@ function renderSrImplementationDecision(entry){
     var when=activeEntry?formatDateSwiss(activeEntry.entry_date||activeEntry.created_at||''):'—';
     meta.innerHTML='Beratungsprotokoll vom <strong>'+escapeHtml(when)+'</strong>'+(hasTradeList?' · <button class="btn btn-sm" onclick="openTradeList()" style="vertical-align:middle;margin-left:6px">Handelsliste</button>':'');
   }
+}
+function updateSrClientSummary(risk,allocation,avgGoalScore,endangered,cashflow,triggers){
+  var root=document.getElementById('sr-client-summary');
+  if(!root)return;
+  var profile=risk&&risk.final_profile?String(risk.final_profile):'noch nicht definiert';
+  var hasAllocation=!!allocation;
+  var advisoryChf=Math.round(Number(allocation&&allocation.advisory_wealth_rappen||0)/100);
+  var strategyName=profile==='noch nicht definiert'?'Strategie noch offen':('Strategie '+profile);
+  var goalText=endangered>0
+    ? String(endangered)+' Ziel(e) brauchen Aufmerksamkeit.'
+    : (avgGoalScore>0?'Die Ziele liegen aktuell mehrheitlich im Plan.':'Ziele noch priorisieren.');
+  var cashflowText='';
+  if(cashflow&&cashflow.recurring_net_rappen!=null){
+    var recurring=Number(cashflow.recurring_net_rappen||0);
+    cashflowText=recurring>=0
+      ? 'Laufend bleibt eine Sparquote von '+formatRappen(recurring)+' p.a.'
+      : 'Laufend wird Vermoegen von '+formatRappen(Math.abs(recurring))+' p.a. verbraucht.';
+  }
+  var nextReview=(Array.isArray(triggers)?triggers:[]).filter(function(trigger){
+    return String(trigger.trigger_type||'')==='Zeit'&&String(trigger.status||'')!=='Erledigt'&&trigger.next_due_at;
+  }).sort(function(a,b){return String(a.next_due_at).localeCompare(String(b.next_due_at));})[0]||null;
+  var nextText=nextReview?('Naechster Review: '+formatDateSwiss(nextReview.next_due_at)+'.'):'Naechster Review noch nicht terminiert.';
+  if(!hasAllocation){
+    root.innerHTML='<div style="font-size:9px;font-weight:800;letter-spacing:0.12em;text-transform:uppercase;color:var(--n4);margin-bottom:6px">Kurzfassung fuer das Gespraech</div>'
+      +'<div style="font-size:17px;font-weight:800;color:var(--n8);line-height:1.35;margin-bottom:5px">Strategie noch nicht bereit</div>'
+      +'<div style="font-size:11px;color:var(--n6);line-height:1.65">Bitte zuerst Risikoprofil, Vermoegen und Asset Allocation abschliessen.</div>';
+    return;
+  }
+  root.innerHTML='<div style="display:flex;justify-content:space-between;gap:16px;align-items:flex-start">'
+    +'<div style="min-width:0"><div style="font-size:9px;font-weight:800;letter-spacing:0.12em;text-transform:uppercase;color:var(--n4);margin-bottom:6px">Kurzfassung fuer das Gespraech</div>'
+    +'<div style="font-size:18px;font-weight:800;color:var(--n8);line-height:1.35;margin-bottom:6px">'+escapeHtml(strategyName)+' fuer '+escapeHtml(formatCompactCHF(advisoryChf))+'</div>'
+    +'<div style="font-size:11px;color:var(--n6);line-height:1.65">'+escapeHtml(goalText)+' '+escapeHtml(cashflowText||'Cashflow ist fuer die Strategie beruecksichtigt.')+' '+escapeHtml(nextText)+'</div></div>'
+    +'<div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;max-width:250px"><span class="tag tg">'+escapeHtml(profile)+'</span><span class="tag '+(endangered?'ta':'tg')+'">'+escapeHtml(avgGoalScore?String(avgGoalScore)+'% Zielbild':'Ziele offen')+'</span></div>'
+    +'</div>';
 }
 function renderSrApiSummary(risk,allocation,recommendation,cashflow,triggers){
   var activeAllocation=allocation||strategyState.allocation||null;
@@ -11461,6 +11542,7 @@ function renderSrApiSummary(risk,allocation,recommendation,cashflow,triggers){
 if(cashflow&&cashflow.recurring_net_rappen!=null)goalSubParts.push('Laufend '+formatRappen(cashflow.recurring_net_rappen)+' p.a.');
   if(endangered)goalSubParts.push(String(endangered)+' Ziel(e) gefährdet');
   if(!goalSubParts.length)goalSubParts.push('Noch keine belastbare Zielauswertung');
+  updateSrClientSummary(activeRisk,activeAllocation,avgGoalScore,endangered,cashflow,triggers);
   if(activeRisk){
     setText('sr-risk-score',Math.round(Number(activeRisk.final_score_x10||0)/10)+' / 10');
     setText('sr-risk-profile',activeRisk.final_profile||'Nicht definiert');
@@ -11599,7 +11681,7 @@ function applyAllocationEngineResult(result){
   var sim=simulationPayload(result);
   var mc=monteCarloPayload(result);
   var advisoryBaselineProjection=buildCurrentBaselineProjection(result,sim&&sim.year_labels?sim.year_labels.length-1:null,sim&&sim.year_labels);
-  var totalBaselineProjection=buildCurrentWealthProjection('total',sim&&sim.year_labels?sim.year_labels.length-1:null,sim&&sim.year_labels);
+  var totalBaselineProjection=buildCurrentWealthProjection('total',sim&&sim.year_labels?sim.year_labels.length-1:null,sim&&sim.year_labels,result);
   var totalImprovedProjection=buildImprovedTotalProjectionFromStrategy(result,sim&&sim.year_labels?sim.year_labels.length-1:null,sim&&sim.year_labels);
   var advisoryCurrentProjectedRappen=advisoryBaselineProjection.projectedRappen;
   var advisoryCurrentAnnualNetRappen=advisoryBaselineProjection.annualNetCashflowRappen;
@@ -13427,21 +13509,18 @@ function normalizeReviewLayout(){
   conflictCard=conflictCard?conflictCard.closest('.card'):null;
   var docsCard=document.getElementById('rv-doc-grid');
   docsCard=docsCard?docsCard.closest('.card'):null;
-  function rvSectionHeader(id,num,title,sub){
+  ['rv-sh1','rv-sh2','rv-sh3','rv-sh4'].forEach(function(id){
     var el=document.getElementById(id);
-    if(!el){el=document.createElement('div');el.id=id;}
-    el.style.cssText='display:flex;align-items:center;gap:12px;padding:14px 0 8px;border-top:2px solid var(--b1);margin-top:4px';
-    el.innerHTML='<div style="width:26px;height:26px;border-radius:50%;background:var(--n8);color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0">'+num+'</div>'
-      +'<div><div style="font-size:12px;font-weight:700;color:var(--n8);letter-spacing:0.01em">'+title+'</div>'
-      +'<div style="font-size:9px;color:var(--n4);margin-top:2px">'+sub+'</div></div>';
-    return el;
-  }
-  var h1=rvSectionHeader('rv-sh1','1','So steht Ihr Portfolio','Vergleich IST mit dem vereinbarten Sollbild — Cashflow, Reichweite und Zielerreichung');
-  var h2=rvSectionHeader('rv-sh2','2','Was heute Ihre Aufmerksamkeit braucht','Zeit-, Markt- und Ereignis-Trigger — Abweichungen und Fristen im Überblick');
-  var h3=rvSectionHeader('rv-sh3','3','Unsere Empfehlung — und Ihr Entscheid','Handlungsempfehlung aus der Analyse · Eignungsprüfung FIDLEG · Entscheid protokollieren');
-  var h4=rvSectionHeader('rv-sh4','4','Meeting abschliessen','Interessenkonflikte · Governance-Checkliste · Dokumente und Ausgabe');
+    if(el&&el.parentNode)el.parentNode.removeChild(el);
+  });
+  [utility.actionCard,utility.readinessCard,suitabilityCard,conflictCard,docsCard].forEach(function(node){
+    if(node)node.style.display='none';
+  });
+  if(strategyCard)strategyCard.style.marginBottom='10px';
+  if(triggerGrid)triggerGrid.style.marginBottom='10px';
+  if(logCard)logCard.style.marginBottom='14px';
   var cnav=pad.querySelector('.cnav');
-  [h1,strategyCard,h2,triggerGrid,h3,utility.actionCard,suitabilityCard,logCard,h4,conflictCard,utility.readinessCard,docsCard].forEach(function(node){
+  [strategyCard,triggerGrid,logCard].forEach(function(node){
     if(node)pad.appendChild(node);
   });
   if(cnav)pad.appendChild(cnav);
@@ -13595,10 +13674,10 @@ function renderTriggerBucket(targetId,triggers,state){
   if(!root)return;
   var items=Array.isArray(triggers)?triggers:[];
   if(!items.length){
-    root.innerHTML='<div style="padding:12px 14px;font-size:10px;color:var(--n4)">Keine Trigger in dieser Kategorie definiert.</div>';
+    root.innerHTML='<div style="padding:12px 14px;font-size:11px;color:var(--n5);line-height:1.55">Keine offenen Punkte. Naechsten Review-Termin bei Bedarf definieren.</div>';
     return;
   }
-  root.innerHTML=items.map(function(trigger){
+  root.innerHTML=items.slice(0,4).map(function(trigger){
     var critical=isCriticalReviewTrigger(trigger);
     var status=String(trigger.status||'Aktiv');
     var liveDrift=trigger.trigger_type==='Markt'?reviewFindLiveBucketDrift(state,trigger):null;
@@ -13607,19 +13686,21 @@ function renderTriggerBucket(targetId,triggers,state){
       ? 'Erledigt'
       : liveDrift
         ? (formatSignedBpsPercent(liveDrift.delta_weight_bps||0)+' '+(liveDrift.breached?'VERLETZT':'IM BAND'))
-        : (trigger.threshold_bps!=null?formatInputPercent(trigger.threshold_bps)+'%':'Aktiv');
+        : (critical?'Jetzt pruefen':'Offen');
     var detail=trigger.trigger_type==='Zeit'
-      ? ((trigger.next_due_at?'Nächster Termin '+formatDateSwiss(trigger.next_due_at):'Kein Termin gesetzt')+(trigger.frequency?' / '+trigger.frequency:''))
+      ? ((trigger.next_due_at?'Faellig '+formatDateSwiss(trigger.next_due_at):'Kein Termin gesetzt')+(trigger.frequency?' / '+trigger.frequency:''))
       : trigger.trigger_type==='Markt'
         ? ((trigger.threshold_bps!=null?'Schwelle +/-'+formatInputPercent(trigger.threshold_bps)+'%':'Markt-Trigger')+(trigger.triggered_notes?' / '+trigger.triggered_notes:''))
         : (trigger.next_due_at?'Review bis '+formatDateSwiss(trigger.next_due_at):'Event-basierter Review-Trigger');
     if(trigger.trigger_type==='Markt'&&liveDrift){
-      detail=formatBpsPercent(liveDrift.current_weight_bps||0)+' Ist vs. '+formatBpsPercent(liveDrift.target_weight_bps||0)+' Soll / Band '+formatBpsPercent(liveDrift.band_min_bps||0)+' bis '+formatBpsPercent(liveDrift.band_max_bps||0);
+      detail='Ist '+formatBpsPercent(liveDrift.current_weight_bps||0)+' / Soll '+formatBpsPercent(liveDrift.target_weight_bps||0);
     }
     var actions=status==='Erledigt'
       ? ''
-      : '<div style="display:flex;gap:5px;margin-top:6px"><button onclick="openAdvisoryLogModal(\''+escapeHtml(trigger.id||'')+'\')" style="font-size:9px;padding:3px 8px;background:'+(critical?'var(--neg)':'none')+';color:'+(critical?'#fff':'var(--n5)')+';border:'+(critical?'none':'1px solid var(--b2)')+';border-radius:var(--r);cursor:pointer;font-family:var(--f-s)">Review protokollieren</button>'+(trigger.trigger_type==='Markt'?'<button onclick="openDecisionTemplateModal(\''+escapeHtml(trigger.id||'')+'\')" style="font-size:9px;padding:3px 8px;background:none;border:1px solid var(--b2);border-radius:var(--r);cursor:pointer;color:var(--n5);font-family:var(--f-s)">Vorlage öffnen</button>':'')+'</div>';
-    return '<div class="trig '+(critical?'al':'')+'" style="padding:10px 14px;border-bottom:1px solid var(--b1)"><div class="trigh"><span class="trign">'+escapeHtml(trigger.trigger_name||'Trigger')+'</span><span class="tag '+tagClass+'">'+escapeHtml(tagLabel)+'</span></div><div class="trigd">'+escapeHtml(detail)+'</div>'+actions+'</div>';
+      : '<button class="btn btn-sm" onclick="openAdvisoryLogModal(\''+escapeHtml(trigger.id||'')+'\')" style="font-size:9px;padding:4px 9px">'+(critical?'Jetzt dokumentieren':'Protokollieren')+'</button>';
+    return '<div class="trig '+(critical?'al':'')+'" style="display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;padding:10px 14px;border-bottom:1px solid var(--b1)">'
+      +'<div><div style="display:flex;gap:7px;align-items:center;margin-bottom:3px"><span class="tag '+tagClass+'">'+escapeHtml(tagLabel)+'</span><span style="font-size:11px;font-weight:600;color:var(--n8)">'+escapeHtml(trigger.trigger_name||'Trigger')+'</span></div><div style="font-size:10px;color:var(--n5);line-height:1.45">'+escapeHtml(detail)+'</div></div>'
+      +'<div>'+actions+'</div></div>';
   }).join('');
 }
 function renderAdvisoryLogList(logs){
@@ -13627,10 +13708,10 @@ function renderAdvisoryLogList(logs){
   if(!root)return;
   var items=Array.isArray(logs)?logs:[];
   if(!items.length){
-    root.innerHTML='<div style="font-size:10px;color:var(--n4)">Noch keine Advisory-Einträge dokumentiert.</div>';
+    root.innerHTML='<div style="font-size:11px;color:var(--n5);line-height:1.55">Noch kein Entscheid dokumentiert. Nach dem Gespraech kurz protokollieren, damit Review und Zusammenfassung sauber sind.</div>';
     return;
   }
-  root.innerHTML=items.map(function(entry){
+  root.innerHTML=items.slice(0,3).map(function(entry){
     var decision=entry.decision||entry.entry_type||'Dokumentiert';
     var decisionClass=/keine/i.test(decision)?'tg':(/transaktion|kauf|verkauf|umschichtung/i.test(decision)?'ta':'tn');
     var status=String(entry.status||'Empfohlen');
@@ -13641,7 +13722,9 @@ function renderAdvisoryLogList(logs){
     var actions=nextStatus
       ? '<button class="btn" type="button" onclick="advanceAdvisoryLogStatus(\''+escapeHtml(entry.id||'')+'\',\''+escapeHtml(nextStatus)+'\')" style="padding:4px 8px;font-size:10px">'+escapeHtml(nextStatus)+' setzen</button>'
       : '<span style="font-size:10px;color:var(--pos);font-weight:500">Status abgeschlossen</span>';
-    return '<div class="logi" style="padding:10px 0"><div class="logh"><div class="logt">'+escapeHtml(entry.title||'Advisory-Eintrag')+'</div><div class="logm"><span class="logd">'+escapeHtml(formatDateSwiss(entry.entry_date||entry.created_at||''))+'</span><span class="tag '+decisionClass+'">'+escapeHtml(decision)+'</span><span class="tag '+statusClass+'">'+escapeHtml(status)+'</span></div></div><div class="logdesc">'+escapeHtml(entry.description||'Ohne Zusatzbegründung dokumentiert.')+'</div><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap"><div style="font-size:9px;color:var(--n4)">'+escapeHtml(triggerMeta)+' · '+escapeHtml(runMeta)+'</div>'+actions+'</div></div>';
+    var desc=String(entry.description||'Ohne Zusatzbegruendung dokumentiert.');
+    if(desc.length>120)desc=desc.slice(0,117)+'...';
+    return '<div class="logi" style="padding:10px 0"><div class="logh"><div class="logt">'+escapeHtml(entry.title||'Advisory-Eintrag')+'</div><div class="logm"><span class="logd">'+escapeHtml(formatDateSwiss(entry.entry_date||entry.created_at||''))+'</span><span class="tag '+decisionClass+'">'+escapeHtml(decision)+'</span><span class="tag '+statusClass+'">'+escapeHtml(status)+'</span></div></div><div class="logdesc">'+escapeHtml(desc)+'</div><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap"><div style="font-size:9px;color:var(--n4)">'+escapeHtml(runMeta)+'</div>'+actions+'</div></div>';
   }).join('');
 }
 async function advanceAdvisoryLogStatus(logId,newStatus){
@@ -13880,18 +13963,23 @@ function renderReviewHero(state){
 function renderReviewState(state){
   var triggers=(state&&state.triggers)||[];
   var conflicts=(state&&state.conflicts)||[];
-  var time=triggers.filter(function(item){return item.trigger_type==='Zeit';});
-  var market=triggers.filter(function(item){return item.trigger_type==='Markt';});
-  var event=triggers.filter(function(item){return item.trigger_type==='Ereignis';});
+  var triggerBrief=triggers.slice().sort(function(a,b){
+    var aCritical=isCriticalReviewTrigger(a)?0:1;
+    var bCritical=isCriticalReviewTrigger(b)?0:1;
+    if(aCritical!==bCritical)return aCritical-bCritical;
+    return String(a.next_due_at||'9999-12-31').localeCompare(String(b.next_due_at||'9999-12-31'));
+  });
   renderReviewHero(state||{});
   normalizeReviewLayout();
   renderReviewAlertStrip(triggers);
   renderReviewDecisionStrip(state||{});
   renderReviewSummaryGrid(triggers);
   renderReviewStrategyComparison(state||{});
-  renderTriggerBucket('rv-trigger-time',time,state||{});
-  renderTriggerBucket('rv-trigger-market',market,state||{});
-  renderTriggerBucket('rv-trigger-event',event,state||{});
+  renderTriggerBucket('rv-trigger-time',triggerBrief,state||{});
+  ['rv-trigger-market','rv-trigger-event'].forEach(function(id){
+    var el=document.getElementById(id);
+    if(el){el.innerHTML='';el.style.display='none';}
+  });
   renderSuitabilityPreflight(state||{});
   renderAdvisoryLogList((state&&state.logs)||[]);
   renderReviewActionSummary(state||{});
@@ -15680,60 +15768,17 @@ var _rvSpiegelLoadToken=0;
 
 async function loadReviewSpiegel(mandateId){
   var card=document.getElementById('rv-spiegel-card');
-  var noDataEl=document.getElementById('rv-spiegel-no-data');
   var tableEl=document.getElementById('rv-drift-table');
   if(!card)return;
-  if(!mandateId||isDemoMandateId(mandateId)){
-    card.style.display='none';
-    if(_rvSpiegelChart){
-      try{_rvSpiegelChart.destroy();}catch(e){}
-      _rvSpiegelChart=null;
-    }
-    if(tableEl)tableEl.innerHTML='';
-    return;
+  // Clean Review: keep the theoretical performance mirror out of the
+  // customer-facing default view. Detailed strategy history remains a data
+  // capability, but not part of the main conversation screen.
+  card.style.display='none';
+  if(_rvSpiegelChart){
+    try{_rvSpiegelChart.destroy();}catch(e){}
+    _rvSpiegelChart=null;
   }
-  var token=++_rvSpiegelLoadToken;
-  var data;
-  try{
-    data=await API.get('/mandates/'+mandateId+'/strategy-snapshots/latest/drift');
-  }catch(e){
-    if(token!==_rvSpiegelLoadToken)return;
-    card.style.display='none';
-    if(_rvSpiegelChart){
-      try{_rvSpiegelChart.destroy();}catch(err){}
-      _rvSpiegelChart=null;
-    }
-    if(tableEl)tableEl.innerHTML='';
-    return;
-  }
-  if(token!==_rvSpiegelLoadToken||String(getActiveMandateId()||'')!==String(mandateId||''))return;
-  if(!data){
-    card.style.display='none';
-    return;
-  }
-  card.style.display='';
-  setText('rv-spiegel-date',data.snapshot_date?'Festgelegt am '+data.snapshot_date:'');
-  setText('rv-kpi-snap-date',data.snapshot_date||'');
-  var stratSeries=Array.isArray(data.chart_strategy)?data.chart_strategy:[];
-  var spiSeries=Array.isArray(data.chart_spi_proxy)?data.chart_spi_proxy:[];
-  var stratLast=stratSeries.length?Number(stratSeries[stratSeries.length-1]||100):100;
-  var spiLast=spiSeries.length?Number(spiSeries[spiSeries.length-1]||100):100;
-  var stratRetPct=((stratLast/100)-1)*100;
-  var spiRetPct=((spiLast/100)-1)*100;
-  var deltaVsSpi=stratRetPct-spiRetPct;
-  var fmtDelta=function(v){return (v>=0?'+':'')+v.toFixed(1)+'%';};
-  setText('rv-kpi-strategy',fmtDelta(stratRetPct));
-  setText('rv-kpi-profile',data.risk_profile_label||'—');
-  var stratEl=document.getElementById('rv-kpi-strategy');
-  if(stratEl)stratEl.style.color=stratRetPct>=0?'var(--pos)':'var(--neg)';
-  var deltaEl=document.getElementById('rv-kpi-delta');
-  if(deltaEl){
-    deltaEl.textContent=fmtDelta(deltaVsSpi);
-    deltaEl.style.color=deltaVsSpi>=0?'var(--pos)':'var(--neg)';
-  }
-  if(noDataEl)noDataEl.style.display=data.has_drift_data?'none':'';
-  renderDriftTable(data);
-  renderSpiegelChart(data);
+  if(tableEl)tableEl.innerHTML='';
 }
 
 function renderSpiegelChart(data){
@@ -15887,6 +15932,50 @@ function renderReviewStrategyComparison(state){
   var hasTradeList=!!(live&&Array.isArray(live.position_drifts)&&live.position_drifts.some(function(row){
     return rebalanceActionCode(row)!=='HOLD';
   }));
+  var focusRows=rows.map(function(item){
+    item.meta=reviewBandStateMeta({
+      current_weight_bps:item.currentWeightBps,
+      target_weight_bps:item.targetWeightBps,
+      band_min_bps:item.bandMinBps,
+      band_max_bps:item.bandMaxBps
+    });
+    return item;
+  }).filter(function(item){
+    return item.meta.tagClass!=='tg'||Math.abs(Number(item.deltaWeightBps||0))>=200;
+  }).sort(function(a,b){
+    return Math.abs(Number(b.deltaWeightBps||0))-Math.abs(Number(a.deltaWeightBps||0));
+  });
+  var hasBandBreak=focusRows.some(function(item){return item.meta.tagClass==='tr2';});
+  var hasWatch=focusRows.some(function(item){return item.meta.tagClass==='ta';});
+  var portfolioLine=hasBandBreak
+    ? 'Mindestens eine Anlageklasse liegt ausserhalb der vereinbarten Bandbreite. Bitte Entscheid und Umsetzung dokumentieren.'
+    : (hasWatch
+      ? 'Das Portfolio liegt noch im Rahmen, einzelne Punkte sollten heute bewusst besprochen werden.'
+      : 'Das Portfolio liegt im vereinbarten Rahmen. Heute genuegen Governance, Protokoll und naechster Review-Termin.');
+  var primaryAction=focusRows.length
+    ? focusRows.slice(0,3).map(function(item){
+        return '<div style="border:1px solid var(--b1);border-radius:var(--r);padding:9px 10px;background:var(--surface)">'
+          +'<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:4px"><span style="font-size:11px;font-weight:700;color:var(--n8)">'+escapeHtml(item.assetClass)+'</span><span class="tag '+item.meta.tagClass+'">'+escapeHtml(item.meta.label)+'</span></div>'
+          +'<div style="font-size:10px;color:var(--n6);line-height:1.5">'+escapeHtml(item.meta.action)+' · Delta '+escapeHtml(formatSignedBpsPercent(item.deltaWeightBps))+'</div>'
+          +'</div>';
+      }).join('')
+    : '<div style="border:1px solid rgba(14,107,65,0.18);border-radius:var(--r);padding:10px;background:var(--pos-lt)"><div style="font-size:11px;font-weight:700;color:var(--n8);margin-bottom:3px">Kein Rebalancing notwendig</div><div style="font-size:10px;color:var(--n6);line-height:1.5">Alle Hauptanlageklassen liegen im Band. Der Review kann kurz und ruhig dokumentiert werden.</div></div>';
+  var goalHtml=primaryGoal
+    ? '<div style="border:1px solid var(--b1);border-radius:var(--r);padding:10px;background:var(--bg)"><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.08em;color:var(--n4);margin-bottom:4px">Wichtigstes Ziel</div><div style="font-size:12px;font-weight:700;color:var(--n8);margin-bottom:4px">'+escapeHtml(primaryGoal.label||'Ziel')+'</div><div style="font-size:10px;color:var(--n6);line-height:1.5">'+escapeHtml(primaryGoalLabel)+'</div></div>'
+    : '<div style="border:1px solid var(--b1);border-radius:var(--r);padding:10px;background:var(--bg)"><div style="font-size:11px;font-weight:700;color:var(--n8);margin-bottom:3px">Noch kein Ziel priorisiert</div><div style="font-size:10px;color:var(--n6);line-height:1.5">Fuer die Beratung sollte mindestens ein Ziel priorisiert werden.</div></div>';
+  var runwayHtml='<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:10px">'
+    +'<div style="border:1px solid var(--b1);border-radius:var(--r);padding:9px 10px;background:var(--bg)"><div style="font-size:9px;color:var(--n4);text-transform:uppercase;letter-spacing:0.08em">Soll-Strategie</div><div style="font-size:15px;font-weight:800;color:var(--n8);margin-top:3px">'+escapeHtml(targetRunway)+'</div></div>'
+    +'<div style="border:1px solid var(--b1);border-radius:var(--r);padding:9px 10px;background:var(--bg)"><div style="font-size:9px;color:var(--n4);text-transform:uppercase;letter-spacing:0.08em">Heute weiter</div><div style="font-size:15px;font-weight:800;color:var(--n8);margin-top:3px">'+escapeHtml(currentRunway)+'</div></div>'
+    +'<div style="border:1px solid var(--b1);border-radius:var(--r);padding:9px 10px;background:var(--bg)"><div style="font-size:9px;color:var(--n4);text-transform:uppercase;letter-spacing:0.08em">Cashflow</div><div style="font-size:15px;font-weight:800;color:'+(cashflowInfo.netRappen>=0?'var(--pos)':'var(--warn)')+';margin-top:3px">'+escapeHtml(formatRappen(cashflowInfo.netRappen))+'</div></div>'
+    +'</div>';
+  root.innerHTML='<div style="font-size:12px;color:var(--n7);line-height:1.65;margin-bottom:10px">'+escapeHtml(portfolioLine)+'</div>'
+    +runwayHtml
+    +'<div style="display:grid;grid-template-columns:1.1fr 0.9fr;gap:10px;align-items:stretch;margin-bottom:10px">'
+    +reviewAllocationPortraitHtml(rows).replace('margin-bottom:14px','margin-bottom:0')
+    +'<div style="display:flex;flex-direction:column;gap:8px">'+goalHtml+primaryAction+'</div>'
+    +'</div>'
+    +(hasTradeList?'<div style="display:flex;justify-content:flex-end"><button class="btn btn-sm" onclick="openTradeList()">Handelsliste oeffnen</button></div>':'');
+  return;
   var tableHtml='<div style="border:1px solid var(--b1);border-radius:var(--r2);overflow:hidden;background:var(--surface)">'
     +'<div style="display:grid;grid-template-columns:1.45fr 72px 72px 72px 1.15fr 92px 128px;gap:8px;align-items:center;padding:8px 10px;background:var(--bg);border-bottom:1px solid var(--b1);font-size:9px;color:var(--n4);text-transform:uppercase;letter-spacing:0.06em"><div>Anlageklasse</div><div style="text-align:right">Ist</div><div style="text-align:right">Soll</div><div style="text-align:right">Delta</div><div>Band</div><div style="text-align:right">Status</div><div style="text-align:right">Massnahme</div></div>'
     +rows.map(function(item){

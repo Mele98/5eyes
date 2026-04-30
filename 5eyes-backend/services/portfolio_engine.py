@@ -1412,9 +1412,14 @@ def _simulate_bucket_path(
     start_year: int,
     rebalance_mode: str,
     transaction_cost_bps: int = 0,
+    initial_deficit_rappen: int = 0,
 ) -> tuple[list[int], list[dict]]:
     values = {key: max(0, int(start_values.get(key, 0))) for key in BUCKET_FIELDS}
-    accumulated_deficit = 0  # Z8-W2: Lebensluecke wird als positiver Schuldenstand mitgefuehrt
+    # Z8-W2: Lebensluecke wird als positiver Schuldenstand mitgefuehrt.
+    # initial_deficit_rappen erlaubt es, externe Verbindlichkeiten (Hypothek etc.)
+    # in die Total-Pfad-Simulation einzubringen; sie wachsen nicht mit, weil
+    # Schuldzinsen ohnehin als recurring expense in cashflow_series_rappen liegen.
+    accumulated_deficit = max(0, int(initial_deficit_rappen or 0))
     totals = [sum(values.values()) - accumulated_deficit]
     events: list[dict] = []
     for offset, contribution in enumerate(cashflow_series_rappen):
@@ -1539,6 +1544,8 @@ def _build_simulation_payload(
     simulation_prefs: dict | None,
     sub_allocations: list[dict] | None = None,
     target_total_rappen: int | None = None,
+    total_summary: PortfolioSummary | None = None,
+    total_liabilities_rappen: int = 0,
 ) -> dict:
     horizon_years = max(1, len(cashflow_projection_series_rappen))
     stress_multiplier = _simulation_stress_multiplier(simulation_prefs)
@@ -1548,6 +1555,10 @@ def _build_simulation_payload(
     returns, vols = _weighted_bucket_metrics(cma, sub_allocations)
     target_start_total = int(target_total_rappen if target_total_rappen is not None else advisory_summary.total_rappen)
     target_values = _target_bucket_values(target_start_total, targets)
+    # Z8-W2 Phase 2: Total-Pfad nutzt Asset-Buckets aus Gesamtvermoegen,
+    # Liabilities werden als initial_deficit eingebracht. Schuldzinsen
+    # liegen ohnehin als recurring expense im cashflow_series.
+    total_liabilities_rappen = max(0, int(total_liabilities_rappen or 0))
     downside_returns = {
         key: int(max(-9500, round(returns[key] - vols[key] * stress_multiplier)))
         for key in BUCKET_FIELDS
@@ -1600,6 +1611,40 @@ def _build_simulation_payload(
         rebalance_mode=rebalance_mode,
         transaction_cost_bps=transaction_cost_bps,
     )
+    # Z8-W2 Phase 2: Total-Vermoegens-Pfad. IST = Total-Asset-Buckets ohne Rebalancing,
+    # SOLL = Total-Buckets so verteilt wie Strategie es vorschreibt. Beide tragen
+    # initial_deficit (Liabilities) als Schuldenstand mit, sodass die Series das
+    # echte Reinvermoegen zeigt.
+    if total_summary is not None:
+        total_target_start = max(0, int(total_summary.total_rappen) - total_liabilities_rappen)
+        total_target_values = _target_bucket_values(total_target_start, targets)
+        total_current_series, _ = _simulate_bucket_path(
+            start_values=total_summary.amounts_rappen,
+            returns_by_asset=returns,
+            cashflow_series_rappen=cashflow_projection_series_rappen,
+            targets=targets,
+            minimums=minimums,
+            maximums=maximums,
+            start_year=start_year,
+            rebalance_mode="none",
+            transaction_cost_bps=0,
+            initial_deficit_rappen=total_liabilities_rappen,
+        )
+        total_target_series, _ = _simulate_bucket_path(
+            start_values=total_target_values,
+            returns_by_asset=returns,
+            cashflow_series_rappen=cashflow_projection_series_rappen,
+            targets=targets,
+            minimums=minimums,
+            maximums=maximums,
+            start_year=start_year,
+            rebalance_mode=rebalance_mode,
+            transaction_cost_bps=transaction_cost_bps,
+            initial_deficit_rappen=0,  # Liabilities werden bereits in target_start abgezogen
+        )
+    else:
+        total_current_series = []
+        total_target_series = []
     inflation_series_bps = _inflation_path_series(cma, horizon_years, start_year)
     return {
         "horizon_years": horizon_years,
@@ -1609,6 +1654,8 @@ def _build_simulation_payload(
         "stress_multiplier": stress_multiplier,
         "current_mix_series_rappen": current_series,
         "target_mix_series_rappen": target_series,
+        "total_mix_current_series_rappen": total_current_series,
+        "total_mix_target_series_rappen": total_target_series,
         "downside_series_rappen": downside_series,
         "upside_series_rappen": upside_series,
         "real_target_series_rappen": _real_series_from_nominal(target_series, inflation_series_bps),
@@ -2831,7 +2878,8 @@ def _load_allocation_inputs(db: Session, mandate: Mandate, simulation_prefs: dic
     advisory_summary = _summarize_positions(advisory_positions)
     total_summary = _summarize_positions(asset_positions_total)
     advisory_wealth_rappen = advisory_summary.total_rappen
-    total_wealth_rappen = max(0, total_summary.total_rappen - sum(int(pos.current_value_rappen or 0) for pos in liability_positions))
+    total_liabilities_rappen = sum(int(pos.current_value_rappen or 0) for pos in liability_positions)
+    total_wealth_rappen = max(0, total_summary.total_rappen - total_liabilities_rappen)
 
     cashflows = db.query(Cashflow).filter(
         Cashflow.client_id == mandate.client_id,
@@ -2860,6 +2908,7 @@ def _load_allocation_inputs(db: Session, mandate: Mandate, simulation_prefs: dic
         "total_summary": total_summary,
         "advisory_wealth_rappen": advisory_wealth_rappen,
         "total_wealth_rappen": total_wealth_rappen,
+        "total_liabilities_rappen": total_liabilities_rappen,
         # C8: rohe Listen fuer input_snapshot_hash
         "advisory_positions": advisory_positions,
         "asset_positions_total": asset_positions_total,
@@ -3292,6 +3341,7 @@ def generate_target_allocation(
     total_summary = inputs["total_summary"]
     advisory_wealth_rappen = inputs["advisory_wealth_rappen"]
     total_wealth_rappen = inputs["total_wealth_rappen"]
+    total_liabilities_rappen = inputs["total_liabilities_rappen"]
     cashflows = inputs["cashflows"]
     goals = inputs["goals"]
     cashflow_totals = inputs["cashflow_totals"]
@@ -3414,6 +3464,8 @@ def generate_target_allocation(
         simulation_prefs=prefs["simulation"],
         sub_allocations=sub_allocations,
         target_total_rappen=investable_advisory_wealth_rappen,
+        total_summary=total_summary,
+        total_liabilities_rappen=total_liabilities_rappen,
     )
     monte_carlo = _run_allocation_monte_carlo(
         advisory_summary=advisory_summary,
@@ -3570,7 +3622,8 @@ def build_target_payload_from_allocation(
     advisory_summary = _summarize_positions(advisory_positions)
     total_summary = _summarize_positions(asset_positions_total)
     advisory_wealth_rappen = advisory_summary.total_rappen
-    total_wealth_rappen = max(0, total_summary.total_rappen - sum(int(pos.current_value_rappen or 0) for pos in liability_positions))
+    total_liabilities_rappen = sum(int(pos.current_value_rappen or 0) for pos in liability_positions)
+    total_wealth_rappen = max(0, total_summary.total_rappen - total_liabilities_rappen)
 
     cashflows = db.query(Cashflow).filter(
         Cashflow.client_id == mandate.client_id,
@@ -3693,6 +3746,8 @@ def build_target_payload_from_allocation(
         simulation_prefs=prefs["simulation"],
         sub_allocations=sub_allocations,
         target_total_rappen=investable_advisory_wealth_rappen,
+        total_summary=total_summary,
+        total_liabilities_rappen=total_liabilities_rappen,
     )
     monte_carlo = _run_allocation_monte_carlo(
         advisory_summary=advisory_summary,
