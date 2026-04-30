@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import uuid4
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -41,7 +41,7 @@ CONSERVATIVE_PROXY = {"Aktien": 0.20, "Obligationen": 0.55, "Immobilien": 0.15, 
 
 
 def _now() -> str:
-    return datetime.utcnow().isoformat()
+    return datetime.now(timezone.utc).isoformat()
 
 
 def _get_mandate(mandate_id: str, db: Session, current_user) -> Mandate:
@@ -176,7 +176,7 @@ def get_drift(
         raise HTTPException(status_code=404, detail="Kein Snapshot vorhanden")
 
     snapshot_year = int(snapshot.snapshot_date[:4])
-    current_year = datetime.utcnow().year
+    current_year = datetime.now(timezone.utc).year
 
     returns_rows = (
         db.query(AssetClassAnnualReturn)
