@@ -1331,11 +1331,19 @@ def _weights_from_bucket_values(values: dict[str, int]) -> dict[str, int]:
     }
 
 
-def _apply_cashflow_to_bucket_values(values: dict[str, int], cashflow_rappen: int) -> None:
+def _apply_cashflow_to_bucket_values(values: dict[str, int], cashflow_rappen: int) -> int:
+    """Applies cashflow to bucket values. Returns deficit remainder if buckets are exhausted.
+
+    Positive cashflow lands in liquidity. Negative cashflow draws from buckets in order
+    (liquidity, bonds, equities, alternatives, real_estate). If all buckets are zero and
+    negative remainder still exists, returns it as positive int so the caller can
+    accumulate it as a separate deficit (Lebensluecke). For non-negative input or fully
+    funded outflow, returns 0.
+    """
     amount = int(cashflow_rappen or 0)
     if amount >= 0:
         values["liquidity"] = int(values.get("liquidity", 0)) + amount
-        return
+        return 0
     remaining = abs(amount)
     for key in ("liquidity", "bonds", "equities", "alternatives", "real_estate"):
         available = max(0, int(values.get(key, 0)))
@@ -1346,6 +1354,7 @@ def _apply_cashflow_to_bucket_values(values: dict[str, int], cashflow_rappen: in
         remaining -= used
         if remaining <= 0:
             break
+    return remaining
 
 
 def _rebalance_bucket_values_to_targets(values: dict[str, int], targets: dict[str, int]) -> tuple[dict[str, int], int]:
@@ -1405,13 +1414,15 @@ def _simulate_bucket_path(
     transaction_cost_bps: int = 0,
 ) -> tuple[list[int], list[dict]]:
     values = {key: max(0, int(start_values.get(key, 0))) for key in BUCKET_FIELDS}
-    totals = [sum(values.values())]
+    accumulated_deficit = 0  # Z8-W2: Lebensluecke wird als positiver Schuldenstand mitgefuehrt
+    totals = [sum(values.values()) - accumulated_deficit]
     events: list[dict] = []
     for offset, contribution in enumerate(cashflow_series_rappen):
         year = start_year + offset
         for key in BUCKET_FIELDS:
             values[key] = int(round(max(0, values[key]) * (1 + (int(returns_by_asset.get(key, 0)) / 10000))))
-        _apply_cashflow_to_bucket_values(values, int(contribution or 0))
+        deficit_rest = _apply_cashflow_to_bucket_values(values, int(contribution or 0))
+        accumulated_deficit += deficit_rest
         weights = _weights_from_bucket_values(values)
         breached = [
             BUCKET_LABELS[key]
@@ -1445,7 +1456,9 @@ def _simulate_bucket_path(
                         "notes": note,
                     }
                 )
-        totals.append(sum(max(0, int(values.get(key, 0))) for key in BUCKET_FIELDS))
+        # Z8-W2: Asset-Buckets bleiben physisch >= 0; akkumulierter Defizit
+        # (Lebensluecke) macht totals negativ wenn Vermoegen aufgezehrt ist.
+        totals.append(sum(max(0, int(values.get(key, 0))) for key in BUCKET_FIELDS) - accumulated_deficit)
     return totals, events
 
 

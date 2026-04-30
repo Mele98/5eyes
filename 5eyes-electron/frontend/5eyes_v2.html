@@ -10148,18 +10148,39 @@ function buildCurrentBaselineProjection(result,preferredYears,preferredLabels){
   var labels=projectionYearLabels(result,years,preferredLabels);
   var componentSeries=resultCashflowProjectionComponentSeries(result,years,labels);
   var expectedReturnBps=currentMixExpectedReturnBps(result);
-  var projection=buildBaselineProjectionFromComponentSeries(
-    Number(result&&result.advisory_wealth_rappen||0),
-    componentSeries,
-    expectedReturnBps,
-    labels
-  );
+  // Z8-W2: Wenn Backend simulation.current_mix_series_rappen liefert, ist sie
+  // Single-Source-of-Truth fuer den IST-Pfad (Bucket-weise Compound + Lebensluecke).
+  // FE-Compound nur als Fallback (Legacy ohne C8-Anchors / Pre-Run / Mandat ohne Strategie).
+  var sim=simulationPayload(result);
+  var backendSeries=sim&&Array.isArray(sim.current_mix_series_rappen)?sim.current_mix_series_rappen:null;
+  var sameLength=backendSeries&&backendSeries.length===years+1;
+  var projection;
+  if(sameLength){
+    var seriesRappen=backendSeries.map(function(v){return Math.round(Number(v||0));});
+    projection={
+      years:years,
+      labels:labels,
+      expectedReturnBps:Number(expectedReturnBps||0),
+      seriesRappen:seriesRappen,
+      seriesK:seriesRappen.map(function(v){return Math.round(v/100000);}),
+      projectedRappen:Number(seriesRappen[seriesRappen.length-1]||0),
+      cagrBps:projectionSeriesCagrBps(seriesRappen)
+    };
+  } else {
+    projection=buildBaselineProjectionFromComponentSeries(
+      Number(result&&result.advisory_wealth_rappen||0),
+      componentSeries,
+      expectedReturnBps,
+      labels
+    );
+  }
   projection.recurringNetCashflowRappen=currentRecurringNetCashflowRappen(result);
   projection.capitalNetCashflowRappen=currentCapitalNetCashflowRappen(result);
   projection.annualNetCashflowRappen=currentAnnualNetCashflowRappen(result);
   projection.netCashflowSeriesRappen=componentSeries.map(function(item){return Number(item&&item.netCashflowRappen||0);});
   projection.cashflowComponentSeries=componentSeries.slice();
   projection.expectedReturnBps=expectedReturnBps;
+  projection.source=sameLength?'backend':'fallback';
   return projection;
 }
 function buildImprovedTotalProjectionFromStrategy(result,preferredYears,preferredLabels){
