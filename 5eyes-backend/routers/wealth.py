@@ -24,13 +24,24 @@ def _now() -> str:
 
 
 def _normalize_cashflow_date(value) -> str | None:
+    """C10.3: Normalisiert YYYY-MM nach YYYY-MM-01, erlaubt YYYY-MM-DD,
+    leeren String -> None. Alles andere -> 422."""
     raw = str(value or "").strip()
     if not raw:
         return None
-    if len(raw) >= 7 and raw[4:5] == "-" and len(raw[:7]) == 7 and raw[:7].count("-") == 1 and len(raw) == 7:
-        return raw[:7] + "-01"
-    raw = raw[:10]
-    return raw or None
+    # YYYY-MM (Monat-Praezision) -> ersten Tag des Monats
+    if len(raw) == 7 and raw[4:5] == "-" and raw[:4].isdigit() and raw[5:7].isdigit():
+        candidate = raw + "-01"
+    else:
+        candidate = raw[:10]
+    try:
+        date.fromisoformat(candidate)
+    except (TypeError, ValueError):
+        raise HTTPException(
+            status_code=422,
+            detail=f"Ungueltiges Datumsformat: {value!r} (erwartet YYYY-MM-DD oder YYYY-MM)",
+        )
+    return candidate
 
 
 def _normalize_cashflow_timing_precision(value) -> str | None:
@@ -192,14 +203,20 @@ def _validate_mortgage_link(client_id: str, data: dict, db: Session) -> None:
 @router.get("/clients/{client_id}/wealth-positions", response_model=list[WealthPositionResponse])
 def list_wealth_positions(
     client_id: str,
+    include_inactive: bool = False,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    """C10.1: Standardmaessig nur aktive Positionen. include_inactive=true
+    fuer Admin-/Audit-Sicht."""
     get_client_for_user_or_404(client_id, db, current_user)
-    return db.query(WealthPosition).filter(
+    query = db.query(WealthPosition).filter(
         WealthPosition.client_id == client_id,
         WealthPosition.deleted_at.is_(None)
-    ).order_by(WealthPosition.assignment, WealthPosition.position_type).all()
+    )
+    if not include_inactive:
+        query = query.filter(WealthPosition.is_active == 1)
+    return query.order_by(WealthPosition.assignment, WealthPosition.position_type).all()
 
 
 @router.post("/clients/{client_id}/wealth-positions",
@@ -232,6 +249,12 @@ def create_wealth_position(
     return wp
 
 
+_ALLOC_FIELDS = (
+    "alloc_equities_bps", "alloc_bonds_bps", "alloc_real_estate_bps",
+    "alloc_liquidity_bps", "alloc_alternatives_bps",
+)
+
+
 @router.put("/clients/{client_id}/wealth-positions/{wp_id}",
             response_model=WealthPositionResponse)
 def update_wealth_position(
@@ -248,12 +271,31 @@ def update_wealth_position(
     ).first()
     if not wp:
         raise HTTPException(status_code=404, detail="Vermögensposition nicht gefunden")
-    updates = body.model_dump(exclude_none=True)
+    # C10.2: exclude_unset erlaubt explizites Null-Setzen ("clear"). exclude_none
+    # haette ein None-Update verschluckt und keine Felder gecleared.
+    updates = body.model_dump(exclude_unset=True)
+    # C10.2: Wenn alloc_*-Felder im Update sind, muss die GEMERGTE Verteilung
+    # eine konsistente Summe ergeben (entweder alle 0 = Default-Mix wird genutzt
+    # oder Summe = 10000). Partial-Updates duerfen keine 7000-Summe erzeugen.
+    if any(f in updates for f in _ALLOC_FIELDS):
+        merged = {f: int(updates.get(f, getattr(wp, f, 0)) or 0) for f in _ALLOC_FIELDS}
+        total = sum(merged.values())
+        if total != 0 and total != 10000:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"Allokation muss zusammen 10000 bps oder alle 0 ergeben "
+                    f"(aktuelle Summe: {total}). Bitte alle alloc_*-Felder zusammen "
+                    f"updaten oder auf 0 zuruecksetzen."
+                ),
+            )
     _validate_mortgage_link(client_id, updates, db)
     for field, value in updates.items():
         if isinstance(value, bool):
             value = 1 if value else 0
         setattr(wp, field, value)
+    # C10.2: updated_at darf nach Update nicht stale bleiben.
+    wp.updated_at = _now()
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="wealth_positions", record_id=wp_id, action="UPDATE",
         client_id=client_id)
@@ -288,14 +330,20 @@ def delete_wealth_position(
 @router.get("/clients/{client_id}/cashflows", response_model=list[CashflowResponse])
 def list_cashflows(
     client_id: str,
+    include_inactive: bool = False,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    """C10.1: Standardmaessig nur aktive Cashflows. include_inactive=true
+    fuer Admin-/Audit-Sicht."""
     get_client_for_user_or_404(client_id, db, current_user)
-    return db.query(Cashflow).filter(
+    query = db.query(Cashflow).filter(
         Cashflow.client_id == client_id,
         Cashflow.deleted_at.is_(None)
-    ).order_by(Cashflow.cashflow_type, Cashflow.label).all()
+    )
+    if not include_inactive:
+        query = query.filter(Cashflow.is_active == 1)
+    return query.order_by(Cashflow.cashflow_type, Cashflow.label).all()
 
 
 @router.post("/clients/{client_id}/cashflows",
