@@ -97,6 +97,63 @@ def _get_product_or_404(product_id: str, db: Session) -> Product:
     return product
 
 
+def _validate_recommendation_for_finalization(db: Session, mandate: Mandate, run: RecommendationRun) -> tuple[list[str], list[str]]:
+    errors: list[str] = []
+    warnings: list[str] = []
+    if run.result_status != "Draft":
+        errors.append("Nur Draft-Empfehlungen koennen finalisiert werden.")
+    assessment = db.query(RiskAssessment).filter(
+        RiskAssessment.id == run.assessment_id,
+        RiskAssessment.mandate_id == mandate.id,
+        RiskAssessment.deleted_at.is_(None),
+    ).first() if run.assessment_id else None
+    if not assessment:
+        errors.append("Empfehlung hat kein gueltiges Risikoprofil.")
+    elif not assessment.is_current:
+        errors.append("Empfehlung basiert nicht auf dem aktuellen Risikoprofil.")
+    allocation = db.query(TargetAllocation).filter(
+        TargetAllocation.id == run.target_allocation_id,
+        TargetAllocation.mandate_id == mandate.id,
+        TargetAllocation.deleted_at.is_(None),
+    ).first() if run.target_allocation_id else None
+    if not allocation:
+        errors.append("Empfehlung hat keine gueltige Soll-Allokation.")
+    elif assessment and allocation.based_on_assessment_id and allocation.based_on_assessment_id != assessment.id:
+        errors.append("Soll-Allokation und Risikoprofil der Empfehlung passen nicht zusammen.")
+    if not run.policy_id or not db.query(OptimizerPolicy).filter(OptimizerPolicy.id == run.policy_id).first():
+        errors.append("Empfehlung hat keine gueltige Policy-Version.")
+    if not run.capital_market_assumptions_id or not db.query(CapitalMarketAssumption).filter(
+        CapitalMarketAssumption.id == run.capital_market_assumptions_id,
+        CapitalMarketAssumption.deleted_at.is_(None),
+    ).first():
+        errors.append("Empfehlung hat keine gueltige CMA-Version.")
+    positions = db.query(RecommendationPosition).filter(RecommendationPosition.run_id == run.id).all()
+    if not positions:
+        errors.append("Empfehlung enthaelt keine Positionen.")
+        return errors, warnings
+    total_weight = sum(int(position.target_weight_bps or 0) for position in positions)
+    if total_weight < 9900 or total_weight > 10100:
+        errors.append(f"Positionsgewichte summieren auf {total_weight} bps statt ca. 10000 bps.")
+    product_ids = [position.product_id for position in positions if position.product_id]
+    products = {product.id: product for product in db.query(Product).filter(Product.id.in_(product_ids)).all()} if product_ids else {}
+    for position in positions:
+        product = products.get(position.product_id)
+        if not product or product.deleted_at is not None or int(product.is_active or 0) != 1:
+            errors.append(f"Produkt {position.product_id} ist nicht aktiv oder nicht verfuegbar.")
+            continue
+        if product.ter_bps is None:
+            warnings.append(f"TER fehlt fuer {product.product_name}.")
+        profile = resolve_market_profile(product)
+        if not (profile.get("lookup_symbol") or profile.get("isin")):
+            warnings.append(f"Marktdaten-Mapping fehlt fuer {product.product_name}.")
+    quality = summarize_price_quality(db, product_ids)
+    if int(quality.get("missing_prices_count") or 0):
+        warnings.append("Mindestens eine Position hat keinen aktuellen Marktpreis.")
+    if int(quality.get("stale_positions_count") or 0):
+        warnings.append("Mindestens ein Marktpreis ist veraltet.")
+    return errors, warnings
+
+
 def _active_products_query(db: Session):
     return db.query(Product).filter(Product.deleted_at.is_(None), Product.is_active == 1)
 
@@ -1253,7 +1310,33 @@ def get_current_recommendation_payload(
     ).order_by(RecommendationRun.created_at.desc()).all()
     if not runs:
         raise HTTPException(status_code=404, detail="Keine Empfehlung gefunden")
-    run = next((item for item in runs if item.result_status == "Final"), None) or runs[0]
+    run = (
+        next((item for item in runs if item.result_status == "Final"), None)
+        or next((item for item in runs if item.result_status == "Draft"), None)
+        or runs[0]
+    )
+    try:
+        return build_recommendation_payload_from_run(
+            db=db,
+            mandate=mandate,
+            run=run,
+            user_id=current_user.id,
+            preferences=None,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+
+@recommendations_router.get("/mandates/{mandate_id}/recommendations/{run_id}/payload",
+                            response_model=RecommendationGenerateResponse)
+def get_recommendation_payload_by_id(
+    mandate_id: str,
+    run_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    run = _get_recommendation_run_or_404(mandate_id, run_id, db, current_user)
     try:
         return build_recommendation_payload_from_run(
             db=db,
@@ -1273,17 +1356,23 @@ def finalize_recommendation(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor)
 ):
+    mandate = _get_mandate_or_404(mandate_id, db, current_user)
     run = _get_recommendation_run_or_404(mandate_id, run_id, db, current_user)
-    # Supersede previous final runs
+    errors, warnings = _validate_recommendation_for_finalization(db, mandate, run)
+    if errors:
+        raise HTTPException(status_code=422, detail="; ".join(errors))
     db.query(RecommendationRun).filter(
         RecommendationRun.mandate_id == mandate_id,
         RecommendationRun.result_status == "Final",
         RecommendationRun.id != run_id
     ).update({"result_status": "Superseded"})
     run.result_status = "Final"
+    run.updated_at = _now()
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="recommendation_runs", record_id=run_id, action="UPDATE",
-        field_name="result_status", new_value="Final", mandate_id=mandate_id)
+        field_name="result_status",
+        new_value=("Final; Warnungen: " + " | ".join(warnings)) if warnings else "Final",
+        mandate_id=mandate_id)
     db.commit()
     db.refresh(run)
     return run

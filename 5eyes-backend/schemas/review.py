@@ -457,6 +457,11 @@ class RecommendationPositionResponse(BaseResponse):
     product_id: str
     target_weight_bps: int
     target_amount_rappen: Optional[int]
+    reference_price_rappen: Optional[int] = None
+    reference_price_date: Optional[str] = None
+    reference_price_source: Optional[str] = None
+    reference_lookup_mode: Optional[str] = None
+    reference_price_fetched_at: Optional[str] = None
     rationale: Optional[str]
     created_at: str
     updated_at: str
@@ -539,6 +544,9 @@ class RecommendationPositionDetailResponse(BaseModel):
     source_sub_asset_classes: list[str] = []
     reference_price_date: Optional[str] = None
     reference_price_rappen: Optional[int] = None
+    reference_price_source: Optional[str] = None
+    reference_lookup_mode: Optional[str] = None
+    reference_price_fetched_at: Optional[str] = None
     reference_recalibrated: Optional[bool] = None
     latest_price_date: Optional[str] = None
     latest_price_rappen: Optional[int] = None
@@ -563,6 +571,8 @@ class RecommendationPositionDetailResponse(BaseModel):
     rebalance_amount_rappen: Optional[int] = None
     price_change_bps: Optional[int] = None
     rebalance_action: Optional[str] = None
+    rebalance_action_code: Optional[str] = None
+    rebalance_action_label: Optional[str] = None
 
 
 class RecommendationGenerateResponse(BaseModel):
@@ -571,10 +581,14 @@ class RecommendationGenerateResponse(BaseModel):
     warnings: list[str]
     implementation_steps: list[str]
     advisory_wealth_rappen: int
+    investable_advisory_wealth_rappen: Optional[int] = None
     expected_return_bps: int
     expected_volatility_bps: int
     average_ter_bps: int
+    average_ter_coverage_bps: int = 0
+    missing_ter_positions_count: int = 0
     target_allocation_id: str
+    context_status: str = "current"
     market_data_quality: dict = Field(default_factory=dict)
     live_rebalancing: Optional[LiveRebalancingResponse] = None
 

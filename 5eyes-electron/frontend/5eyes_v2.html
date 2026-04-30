@@ -3940,7 +3940,9 @@ function buildDLegend(){
       +'.</div>';
   }else{
     el.innerHTML=alloc.map(function(r){
-      return '<div class="alloc-legend-row"><div class="alloc-legend-left"><div class="alloc-legend-dot" style="background:'+r.c+';"></div><span class="alloc-legend-name">'+escapeHtml(String(r.n||''))+'</span></div><div class="alloc-legend-values"><span class="alloc-legend-pct">'+escapeHtml(Number(r.soll||0).toFixed(1)+'%')+'</span><span class="alloc-legend-amt">'+escapeHtml(formatCompactCHF(Math.round(TOTAL*Number(r.soll||0)/100)))+'</span></div></div>';
+      var targetChf=Number(r.chfTarget||0);
+      if(!(targetChf>0))targetChf=Math.round(TOTAL*Number(r.soll||0)/100);
+      return '<div class="alloc-legend-row"><div class="alloc-legend-left"><div class="alloc-legend-dot" style="background:'+r.c+';"></div><span class="alloc-legend-name">'+escapeHtml(String(r.n||''))+'</span></div><div class="alloc-legend-values"><span class="alloc-legend-pct">'+escapeHtml(Number(r.soll||0).toFixed(1)+'%')+'</span><span class="alloc-legend-amt">'+escapeHtml(formatCompactCHF(targetChf))+'</span></div></div>';
     }).join('');
   }
   var dcv=document.querySelector('.dcv');
@@ -4860,7 +4862,8 @@ async function savePortfolioHolding(){
       notes:getInputValue('ap-notes').trim()||null
     });
     cm('m-ap');
-    await refreshStrategyData(true,true);
+    var refreshed=await loadRecommendationRunPayload(mid,runId);
+    if(refreshed)applyRecommendationEngineResult(refreshed);
     updateStrategyStatus('Bestand gespeichert und Live-Drift neu bewertet.',false);
   }catch(e){
     setPortfolioHoldingError(parseApiError(e,'Bestand konnte nicht gespeichert werden.'));
@@ -4883,7 +4886,8 @@ async function deletePortfolioHolding(){
   try{
     await API.del('/mandates/'+mid+'/recommendations/'+runId+'/positions/'+positionId+'/holding');
     cm('m-ap');
-    await refreshStrategyData(true,true);
+    var refreshed=await loadRecommendationRunPayload(mid,runId);
+    if(refreshed)applyRecommendationEngineResult(refreshed);
     updateStrategyStatus('Bestand entfernt. Live-Drift nutzt wieder die Rezept-Rekonstruktion.',false);
   }catch(e){
     setPortfolioHoldingError(parseApiError(e,'Bestand konnte nicht gelöscht werden.'));
@@ -10571,7 +10575,7 @@ function renderLiveRebalancingPositions(live){
   var rows=live&&Array.isArray(live.position_drifts)?live.position_drifts.slice(0,5):[];
   if(!rows.length)return '<div style="font-size:10px;color:var(--n4)">Titel-Hotspots erscheinen, sobald ein Live-Rezept mit Preisen vorliegt.</div>';
   return rows.map(function(item){
-    return '<div style="display:grid;grid-template-columns:1.2fr 62px 78px;gap:8px;align-items:center;padding:8px 9px;background:#fff;border:1px solid var(--b1);border-radius:var(--r)"><div><div style="font-size:11px;font-weight:500;color:var(--n8)">'+escapeHtml(item.product_name||'Titel')+'</div><div style="font-size:9px;color:var(--n5);margin-top:3px">'+escapeHtml(item.sub_asset_class||item.asset_class||'')+' / Ref. '+(item.reference_price_date?escapeHtml(item.reference_price_date):'n/a')+' / Live '+(item.latest_price_date?escapeHtml(item.latest_price_date):'n/a')+'</div></div><div style="font-size:10px;color:var(--n7);text-align:right">'+formatSignedBpsPercent(item.delta_weight_bps||0)+'</div><div style="text-align:right"><div style="font-size:10px;font-weight:600;color:var(--n7)">'+formatSignedRappen(item.rebalance_amount_rappen||0)+'</div><div style="font-size:9px;color:var(--n5);margin-top:3px">'+escapeHtml(item.rebalance_action||'Beobachten')+'</div></div></div>';
+    return '<div style="display:grid;grid-template-columns:1.2fr 62px 78px;gap:8px;align-items:center;padding:8px 9px;background:#fff;border:1px solid var(--b1);border-radius:var(--r)"><div><div style="font-size:11px;font-weight:500;color:var(--n8)">'+escapeHtml(item.product_name||'Titel')+'</div><div style="font-size:9px;color:var(--n5);margin-top:3px">'+escapeHtml(item.sub_asset_class||item.asset_class||'')+' / Ref. '+(item.reference_price_date?escapeHtml(item.reference_price_date):'n/a')+' / Live '+(item.latest_price_date?escapeHtml(item.latest_price_date):'n/a')+'</div></div><div style="font-size:10px;color:var(--n7);text-align:right">'+formatSignedBpsPercent(item.delta_weight_bps||0)+'</div><div style="text-align:right"><div style="font-size:10px;font-weight:600;color:var(--n7)">'+formatSignedRappen(item.rebalance_amount_rappen||0)+'</div><div style="font-size:9px;color:var(--n5);margin-top:3px">'+escapeHtml(rebalanceActionLabel(item))+'</div></div></div>';
   }).join('');
 }
 function portfolioMarketValueRappen(row){
@@ -10590,12 +10594,26 @@ function portfolioDriftWeightBps(row,totalRappen){
   if(row&&row.delta_weight_bps!==null&&row.delta_weight_bps!==undefined)return Number(row.delta_weight_bps||0);
   return portfolioCurrentWeightBps(row,totalRappen)-Number(row&&row.target_weight_bps||0);
 }
+function rebalanceActionCode(row){
+  var code=String(row&&row.rebalance_action_code||'').toUpperCase();
+  if(code)return code;
+  var legacy=String(row&&row.rebalance_action||'').toUpperCase();
+  if(legacy==='AUFBAUEN'||legacy==='BUY')return 'BUY';
+  if(legacy==='REDUZIEREN'||legacy==='SELL')return 'SELL';
+  if(legacy==='IM SOLL'||legacy==='HOLD')return 'HOLD';
+  if(legacy==='PREIS FEHLT'||legacy==='MISSING_PRICE')return 'MISSING_PRICE';
+  if(legacy==='BEOBACHTEN'||legacy==='CHECK')return 'CHECK';
+  return legacy||'CHECK';
+}
+function rebalanceActionLabel(row){
+  return String(row&&row.rebalance_action_label||row&&row.rebalance_action||'Beobachten');
+}
 function portfolioStatusMeta(row,totalRappen){
   var driftBps=portfolioDriftWeightBps(row,totalRappen);
-  var action=String(row&&row.rebalance_action||'').toUpperCase();
+  var action=rebalanceActionCode(row);
   var hasPrice=!!(row&&(row.latest_price_date||row.reference_price_date||row.reference_price_rappen!==null&&row.reference_price_rappen!==undefined||row.latest_price_rappen!==null&&row.latest_price_rappen!==undefined));
   var staleKnown=!!(row&&row.price_age_days!==null&&row.price_age_days!==undefined&&!row.price_is_fresh);
-  if(!hasPrice||staleKnown||action==='CHECK'||action==='REVIEW'){
+  if(!hasPrice||staleKnown||action==='MISSING_PRICE'||action==='CHECK'||action==='REVIEW'){
     return {
       label:'PRÜFEN',
       className:'pstatus-review',
@@ -11377,7 +11395,7 @@ function renderSrImplementationDecision(entry){
   }).filter(function(item){return item.meta.tagClass!=='tg'||Math.abs(Number(item.deltaWeightBps||0))>=200;})
     .sort(function(a,b){return Math.abs(Number(b.deltaWeightBps||0))-Math.abs(Number(a.deltaWeightBps||0))});
   var live=liveRebalancingPayload(allocation)||liveRebalancingPayload(recommendation);
-  var hasTradeList=!!(live&&Array.isArray(live.position_drifts)&&live.position_drifts.some(function(row){return String(row&&row.rebalance_action||'').toUpperCase()!=='HOLD';}));
+  var hasTradeList=!!(live&&Array.isArray(live.position_drifts)&&live.position_drifts.some(function(row){return rebalanceActionCode(row)!=='HOLD';}));
   var cards=[];
   if(driftItems.length){
     driftItems.slice(0,3).forEach(function(item,idx){
@@ -11546,7 +11564,7 @@ function applyAllocationEngineResult(result){
   var colors={Aktien:'#1e4b8f',Obligationen:'#78601a',Immobilien:'#2c5080',Alternative:'#4a6080',Liquiditaet:'#166534'};
   alloc=(result.buckets||[]).map(function(bucket){
     var key=String(bucket.asset_class||'');
-    return {n:assetDisplayName(key),c:colors[key]||'#5a6878',ist:Number(bucket.current_weight_bps||0)/100,soll:Number(bucket.target_weight_bps||0)/100,chf:Math.round((Number(bucket.current_amount_rappen||0))/100)};
+    return {n:assetDisplayName(key),c:colors[key]||'#5a6878',ist:Number(bucket.current_weight_bps||0)/100,soll:Number(bucket.target_weight_bps||0)/100,chf:Math.round((Number(bucket.current_amount_rappen||0))/100),chfTarget:Math.round((Number(bucket.target_amount_rappen||0))/100)};
   });
   quoten=(result.buckets||[]).map(function(bucket){
     var key=String(bucket.asset_class||'');
@@ -11660,8 +11678,9 @@ function openTradeList(){
   var totalBuy=0,totalSell=0;
   trades.forEach(function(p){
     var amt=p.rebalance_amount_rappen||0;
-    if(p.rebalance_action==='BUY')totalBuy+=amt;
-    else if(p.rebalance_action==='SELL')totalSell+=amt;
+    var action=rebalanceActionCode(p);
+    if(action==='BUY')totalBuy+=amt;
+    else if(action==='SELL')totalSell+=Math.abs(amt);
   });
   var actionColor=function(action){
     if(action==='BUY')return 'var(--pos)';
@@ -11676,11 +11695,12 @@ function openTradeList(){
     return sign+'CHF\u00a0'+chf;
   };
   var rows=trades.map(function(p){
-    var color=actionColor(p.rebalance_action);
+    var action=rebalanceActionCode(p);
+    var color=actionColor(action);
     return '<tr style="border-bottom:1px solid var(--b1)">'
       +'<td style="padding:6px 8px;font-size:11px;font-weight:500">'+escapeHtml(p.product_name||'')+'</td>'
       +'<td style="padding:6px 8px;font-size:10px;color:var(--n5)">'+escapeHtml(p.sub_asset_class||p.asset_class||'')+'</td>'
-      +'<td style="padding:6px 8px;font-size:10px;font-weight:700;color:'+color+'">'+escapeHtml(p.rebalance_action||'')+'</td>'
+      +'<td style="padding:6px 8px;font-size:10px;font-weight:700;color:'+color+'">'+escapeHtml(rebalanceActionLabel(p))+'</td>'
       +'<td style="padding:6px 8px;font-size:10px;text-align:right">'+escapeHtml(formatRappen(p.current_market_value_rappen))+'</td>'
       +'<td style="padding:6px 8px;font-size:10px;text-align:right">'+escapeHtml(formatRappen(p.target_amount_rappen))+'</td>'
       +'<td style="padding:6px 8px;font-size:10px;text-align:right;font-weight:600;color:'+color+'">'+escapeHtml(fmtDelta(p.rebalance_amount_rappen))+'</td>'
@@ -11779,6 +11799,15 @@ async function loadCurrentAllocationResult(mid){
 async function loadCurrentRecommendationResult(mid){
   try{
     return await API.get('/mandates/'+mid+'/recommendations/current/payload');
+  }catch(e){
+    if(e&&e.status===404)return null;
+    throw e;
+  }
+}
+async function loadRecommendationRunPayload(mid,runId){
+  if(!mid||!runId)return null;
+  try{
+    return await API.get('/mandates/'+mid+'/recommendations/'+runId+'/payload');
   }catch(e){
     if(e&&e.status===404)return null;
     throw e;
@@ -11980,12 +12009,16 @@ async function openAllocationEngineModal(){
   return true;
 }
 async function openImplementationRecipe(){
-  await refreshStrategyData(true,true);
+  if(!strategyState.recommendation){
+    await refreshStrategyData(true,true);
+  }
   om('m-ums');
 }
 async function confirmImplementationRecipe(){
-  var ok=await refreshStrategyData(true,true);
-  if(!ok)return;
+  if(!strategyState.recommendation){
+    var ok=await refreshStrategyData(true,true);
+    if(!ok)return;
+  }
   var mid=getActiveMandateId();
   var runId=strategyState&&strategyState.recommendation&&strategyState.recommendation.run?strategyState.recommendation.run.id:null;
   try{
@@ -13462,7 +13495,7 @@ function renderReviewActionSummary(state){
   }).slice(0,3);
   var live=liveRebalancingPayload(allocation)||liveRebalancingPayload(recommendation);
   var hasTradeList=!!(live&&Array.isArray(live.position_drifts)&&live.position_drifts.some(function(row){
-    return String(row&&row.rebalance_action||'').toUpperCase()!=='HOLD';
+    return rebalanceActionCode(row)!=='HOLD';
   }));
   if(!items.length){
     root.innerHTML='<div style="background:var(--pos-lt);border:1px solid rgba(14,107,65,0.2);border-radius:var(--r2);padding:12px"><div style="font-size:10px;font-weight:600;color:var(--n8);margin-bottom:4px">Empfehlung heute</div><div style="font-size:11px;color:var(--n7);margin-bottom:8px">Alle Hauptanlageklassen liegen im vereinbarten Band. Heute steht vor allem Governance, Eignung und Dokumentation im Fokus.</div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" onclick="om(\'m-ne\')">Protokoll erfassen</button>'+(hasTradeList?'<button class="btn" onclick="openTradeList()">Handelsliste oeffnen</button>':'')+'</div></div>';
@@ -13788,7 +13821,7 @@ function renderReviewHero(state){
     headline=violated.length===1?'Bandverletzung bei '+top.assetClass:String(violated.length)+' Bandverletzungen — Rebalancing erforderlich';
     summary=top.assetClass+': IST '+formatBpsPercent(top.currentWeightBps)+' / SOLL '+formatBpsPercent(top.targetWeightBps)+' — ausserhalb der vereinbarten Bandbreite. '+top.meta.action+'.';
     var live=liveRebalancingPayload(allocation);
-    var hasTradeList=!!(live&&Array.isArray(live.position_drifts)&&live.position_drifts.some(function(r){return String(r&&r.rebalance_action||'').toUpperCase()!=='HOLD';}));
+    var hasTradeList=!!(live&&Array.isArray(live.position_drifts)&&live.position_drifts.some(function(r){return rebalanceActionCode(r)!=='HOLD';}));
     ctaHtml='<button class="btn-p btn-sm" onclick="openDecisionTemplateModal(\'\')">Entscheidungsvorlage</button>'+(hasTradeList?'<button class="btn btn-sm" onclick="openTradeList()">Handelsliste</button>':'');
   } else if(tight.length>0||violated.length===0&&triggers.some(isCriticalReviewTrigger)){
     statusKey='yellow';bg='var(--warn-lt)';borderColor='rgba(122,82,0,0.2)';dotColor='var(--warn)';
@@ -15831,7 +15864,7 @@ function renderReviewStrategyComparison(state){
     : 'Noch kein Ziel priorisiert';
   var live=liveRebalancingPayload(allocation)||liveRebalancingPayload(recommendation);
   var hasTradeList=!!(live&&Array.isArray(live.position_drifts)&&live.position_drifts.some(function(row){
-    return String(row&&row.rebalance_action||'').toUpperCase()!=='HOLD';
+    return rebalanceActionCode(row)!=='HOLD';
   }));
   var tableHtml='<div style="border:1px solid var(--b1);border-radius:var(--r2);overflow:hidden;background:var(--surface)">'
     +'<div style="display:grid;grid-template-columns:1.45fr 72px 72px 72px 1.15fr 92px 128px;gap:8px;align-items:center;padding:8px 10px;background:var(--bg);border-bottom:1px solid var(--b1);font-size:9px;color:var(--n4);text-transform:uppercase;letter-spacing:0.06em"><div>Anlageklasse</div><div style="text-align:right">Ist</div><div style="text-align:right">Soll</div><div style="text-align:right">Delta</div><div>Band</div><div style="text-align:right">Status</div><div style="text-align:right">Massnahme</div></div>'
