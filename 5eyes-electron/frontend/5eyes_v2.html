@@ -170,6 +170,17 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 .ci{color:var(--pos);}
 .co{color:var(--neg);}
 .cft{display:flex;justify-content:space-between;align-items:center;padding:8px 0 0;border-top:2px solid var(--b2);margin-top:3px;}
+.cf-workbench{display:grid;grid-template-columns:minmax(0,1.9fr) minmax(330px,0.95fr);gap:16px;align-items:start;}
+.cf-left-stack{display:flex;flex-direction:column;gap:12px;min-width:0;}
+.cf-right-panel{display:flex;flex-direction:column;gap:12px;min-width:0;position:sticky;top:64px;}
+.cf-page-note{font-size:11px;color:var(--n5);line-height:1.6;margin-bottom:12px;padding:10px 12px;background:linear-gradient(135deg,#fff,var(--bg));border:1px solid var(--b1);border-radius:var(--r2);}
+.cf-flow-card .chd,.cf-goal-card .chd,.cf-chart-card .chd{padding:11px 14px;}
+.cf-flow-card .cbody,.cf-goal-card .cbody,.cf-chart-card .cbody{padding:12px 14px;}
+.cf-chart-card{overflow:hidden;}
+.cf-chart-card .chart-lg{height:390px;}
+.cf-row-actions{display:flex;gap:4px;align-items:center;}
+.cf-row-actions .btn-ico{opacity:.72;}
+.cf-row:hover .cf-row-actions .btn-ico,.goal:hover .btn-ico{opacity:1;}
 
 /* BUDGET */
 .bgsec{margin-bottom:8px;}
@@ -517,6 +528,8 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 }
 @media (max-width: 1100px){
   #cf-goals-projection .projection-grid,#page-al .g2{grid-template-columns:1fr;}
+  .cf-workbench{grid-template-columns:1fr;}
+  .cf-right-panel{position:static;}
 }
 #aa-proj-compare,#aa-proj-chart-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;}
 @media (max-width: 900px){
@@ -528,6 +541,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 #cf-goals-projection .projection-grid,#page-al .g2{grid-template-columns:minmax(0,1.22fr) minmax(320px,0.88fr);gap:16px;align-items:start;}
 #cf-goals-projection .chart,#page-al .chart{height:260px;}
 #cf-goals-projection .chart-lg{height:430px;}
+#cf-goals-projection .cf-chart-card .chart-lg{height:390px;}
 #page-al .chart-lg{height:390px;}
 
 /* buildQT classes */
@@ -730,9 +744,13 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
     <div id="page-cf" class="page">
       <div class="ph"><div><div class="ph-t">Cashflows &amp; Ziele</div><div class="ph-s">Zufl&uuml;sse &middot; Ausgaben &middot; Ziele &middot; aktueller Verm&ouml;genspfad</div></div><div class="ph-r"><button class="btn" onclick="om('m-acf')">Cashflow erfassen</button><button class="btn-p" onclick="go('rp')">Risikoprofil &rarr;</button></div></div>
       <div class="pad">
-        <div style="font-size:11px;color:var(--n5);line-height:1.6;margin-bottom:12px;padding:10px 12px;background:var(--bg);border:1px solid var(--b1);border-radius:var(--r2)">Hier wird sichtbar, was laufend hinein- und hinausfliesst, welche Ziele priorisiert sind und wie sich der heutige Verm&ouml;genspfad aus den effektiven Daten entwickelt. Der Vergleich zur optimierten Strategie bleibt bewusst in der Asset Allokation.</div>
-        <div class="g2" data-slot="cashflows"></div>
-        <div id="cf-goals-projection" data-slot="goals-projection" style="display:flex;flex-direction:column;gap:12px;margin-top:12px"></div>
+        <div class="cf-page-note">Links pflegst du die aktuelle Kundensituation: zuerst Einnahmen, dann Ausgaben, danach Ziele. Rechts bleibt die Wirkung auf den Vermoegenspfad sichtbar, ohne die Erfassung zu ueberladen.</div>
+        <div id="cf-workbench" class="cf-workbench">
+          <div id="cf-left-stack" class="cf-left-stack" data-slot="cashflows"></div>
+          <div id="cf-right-panel" class="cf-right-panel">
+            <div id="cf-goals-projection" data-slot="goals-projection" style="display:flex;flex-direction:column;gap:12px"></div>
+          </div>
+        </div>
         <div id="cf-save-status" style="display:none;margin-top:12px;padding:10px 12px;border:1px solid var(--b1);border-radius:var(--r2);background:var(--bg);font-size:11px;color:var(--n6)"></div>
       </div>
       <div class="cnav"><button class="btn" onclick="go('vg')">&larr; Zur&uuml;ck</button><div style="display:flex;gap:8px;align-items:center"><button class="btn-g" id="btn-cf-save-state" onclick="saveCashflowsAndRefreshCurrentPath()">Speichern</button><button class="btn-p" onclick="go('rp')">Risikoprofil &rarr;</button></div></div>
@@ -964,7 +982,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
             </div>
           </div>
           <div>
-            <div class="card mb">
+            <div class="card mb cf-flow-card">
               <div class="chd"><span class="cht">Auswertung</span></div>
               <div class="cbody">
                 <div class="rdg">
@@ -998,7 +1016,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
           <div class="kpi" onclick="go('cf')" title="Zu Cashflows &amp; Ziele" style="cursor:pointer"><div class="kl">Nächstes Ziel</div><div class="kv" id="kpi-goal-progress">2030</div><div class="ks"><span class="a">Fälligkeit prüfen</span></div></div>
           <div class="kpi" onclick="go('cf')" title="Zu Cashflows" style="cursor:pointer"><div class="kl">Laufender Netto-Cashflow p.a.</div><div class="kv" id="kpi-cashflow">+155k</div><div class="ks"><span class="g">Planmässig</span></div></div>
         </div>
-        <div style="display:grid;grid-template-columns:1fr 340px;gap:12px">
+        <div id="cf-template-grid" style="display:grid;grid-template-columns:1fr 340px;gap:12px">
           <div>
             <div class="card mb">
               <div class="chd"><span class="cht">Vermögenszuflüsse</span><div class="chr"><button class="btn-p btn-sm" onclick="om('m-acf')">+ Zufluss</button></div></div>
@@ -2815,21 +2833,25 @@ function initDomLayout(){
   if(wealthCard&&wealthSlot&&wealthCard.parentNode!==wealthSlot)wealthSlot.appendChild(wealthCard);
 
   var templatePad=cfTemplate.querySelector('.pad');
-  var templateGrid=templatePad?templatePad.querySelector('div[style*="grid-template-columns:1fr 340px"]'):null;
+  var templateGrid=templatePad?templatePad.querySelector('#cf-template-grid')||templatePad.querySelector('div[style*="grid-template-columns:1fr 340px"]'):null;
   var templateLeft=templateGrid?templateGrid.firstElementChild:null;
+  var templateRight=templateGrid?templateGrid.lastElementChild:null;
   var cfSlot=cfPage.querySelector('[data-slot="cashflows"]');
   var combinedSlot=document.getElementById('cf-goals-projection')||cfPage.querySelector('[data-slot="goals-projection"]');
   if(templateLeft&&cfSlot){
-    Array.prototype.slice.call(templateLeft.children,0,2).forEach(function(card){
+    Array.prototype.slice.call(templateLeft.children).forEach(function(card){
       if(card&&card.classList&&card.classList.contains('card')&&card.parentNode!==cfSlot)cfSlot.appendChild(card);
     });
   }
   var templateKpis=templatePad?templatePad.querySelector('.kpir'):null;
   var cfRiskSummary=document.getElementById('cf-risk-context-summary');
   if(combinedSlot){
-    if(templateGrid)templateGrid.classList.add('projection-grid');
-    if(templateKpis&&templateKpis.parentNode!==combinedSlot)combinedSlot.appendChild(templateKpis);
-    if(templateGrid&&templateGrid.parentNode!==combinedSlot)combinedSlot.appendChild(templateGrid);
+    if(templateKpis)templateKpis.style.display='none';
+    if(templateRight){
+      Array.prototype.slice.call(templateRight.children).forEach(function(card){
+        if(card&&card.classList&&card.classList.contains('card')&&card.parentNode!==combinedSlot)combinedSlot.appendChild(card);
+      });
+    }
     if(cfRiskSummary&&cfRiskSummary.parentNode!==combinedSlot)combinedSlot.appendChild(cfRiskSummary);
   }
 
@@ -9981,33 +10003,6 @@ function formatCompactCHF(chf){
   if(n>=1000)return 'CHF '+Math.round(n).toLocaleString('de-CH');
   return 'CHF '+Math.round(n).toLocaleString('de-CH');
 }
-function projectionContributionAt(contributionInput,index){
-  if(Array.isArray(contributionInput)){
-    if(index<contributionInput.length)return Number(contributionInput[index]||0);
-    return contributionInput.length?Number(contributionInput[contributionInput.length-1]||0):0;
-  }
-  return Number(contributionInput||0);
-}
-function scaleProjectionContribution(contributionInput,factor){
-  if(Array.isArray(contributionInput)){
-    return contributionInput.map(function(value){return Math.round(Number(value||0)*factor);});
-  }
-  return Math.round(Number(contributionInput||0)*factor);
-}
-function projectionValueRappen(principalRappen,annualContributionRappen,returnBps,years){
-  var future=Number(principalRappen||0);
-  var rate=(Number(returnBps||0)/10000);
-  for(var i=0;i<years;i++)future=future*(1+rate)+projectionContributionAt(annualContributionRappen,i);
-  return Math.round(future);
-}
-function buildProjectionSeriesK(startRappen,annualContributionRappen,returnBps,years){
-  var values=[];
-  for(var i=0;i<=years;i++){
-    var val=i===0?Number(startRappen||0):projectionValueRappen(startRappen,annualContributionRappen,returnBps,i);
-    values.push(Math.round(val/100000));
-  }
-  return values;
-}
 function projectionSeriesCagrBps(seriesRappen){
   var points=Array.isArray(seriesRappen)?seriesRappen:[];
   var years=Math.max(0,points.length-1);
@@ -10302,15 +10297,12 @@ function simulationSeriesK(series){
   });
 }
 function simulationTerminalRappen(result,key,fallbackYears){
+  // Z8-W2-B4: Wenn Backend keine Series liefert, kein FE-Compound mehr -
+  // statt zu raten zeigen wir den aktuellen Wert (Status quo).
   var sim=simulationPayload(result);
   var series=sim&&Array.isArray(sim[key])?sim[key]:null;
   if(series&&series.length)return Number(series[series.length-1]||0);
-  return projectionValueRappen(
-    result&&result.advisory_wealth_rappen,
-    result&&((result.cashflow_projection_series_rappen)||result.annual_net_cashflow_rappen),
-    result&&result.expected_return_bps,
-    fallbackYears||7
-  );
+  return Number(result&&result.advisory_wealth_rappen||0);
 }
 function renderOverviewProjectionSummary(config){
   var currentProjectedRappen=Number(config&&config.currentProjectedRappen||0);
