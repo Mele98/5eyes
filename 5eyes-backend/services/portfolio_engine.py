@@ -1686,6 +1686,37 @@ def _goal_weight(goal: Goal) -> int:
     return int(round(base * multiplier / 10000))
 
 
+# B5: Hardness-abhaengige Gewichtung von Wahrscheinlichkeit vs. Magnitude.
+# Hart: success_rate dominiert (Mindestleistung muss eingehalten werden).
+# Opportunistisch: funded_ratio dominiert (Magnitude wichtiger als Schwellwert).
+# Primaer: balanciert.
+# Quellen: Brunel (2003), Das/Markowitz/Scheid/Statman (2010), Vanguard 2015.
+_GOAL_SCORE_ALPHA = {
+    "hart": 0.8,
+    "primaer": 0.5,
+    "opportunistisch": 0.2,
+}
+
+
+def _compute_goal_score(
+    *,
+    success_rate_pct: int,
+    funded_ratio_pct: int,
+    hardness_key: str,
+) -> int:
+    """B5 zentrale Score-Formel:
+    score = alpha * success_rate_pct + (1 - alpha) * funded_ratio_pct
+    mit alpha aus _GOAL_SCORE_ALPHA[hardness_key], default primaer.
+
+    Beide Inputs werden auf [0, 100] geclampt; Ergebnis liegt damit in [0, 100].
+    """
+    alpha = _GOAL_SCORE_ALPHA.get(hardness_key, _GOAL_SCORE_ALPHA["primaer"])
+    sr = max(0, min(100, int(success_rate_pct)))
+    fr = max(0, min(100, int(funded_ratio_pct)))
+    raw = alpha * sr + (1.0 - alpha) * fr
+    return int(round(max(0.0, min(100.0, raw))))
+
+
 def _goal_inflation_series_bps(
     cma: CapitalMarketAssumption,
     horizon_years: int,
@@ -1857,14 +1888,30 @@ def _build_goal_analysis(
         )
         target_rappen = 0
         goal_type = _norm_text(goal.goal_type)
+        hardness_key = _goal_hardness_key(goal)
+        # B5: Score = alpha * success_rate_pct + (1-alpha) * funded_ratio_pct
+        # Deterministisch ist success_rate binaer (entweder erreicht oder nicht).
+        # MC liefert echte success_rate via _monte_carlo_goal_summary.
         if goal_type == "Renditeziel":
             target_rappen = projected_rappen
-            denominator = max(1, int(goal.target_return_bps or 1))
-            score = int(round(min(100, max(0, expected_return_bps / denominator * 100))))
+            target_return = max(1, int(goal.target_return_bps or 1))
+            funded_ratio_pct = int(round(min(200, max(-100, expected_return_bps / target_return * 100))))
+            success_rate_pct = 100 if expected_return_bps >= int(goal.target_return_bps or 0) else 0
+            score = _compute_goal_score(
+                success_rate_pct=success_rate_pct,
+                funded_ratio_pct=funded_ratio_pct,
+                hardness_key=hardness_key,
+            )
         elif goal_type in ("Kapitalerhalt", "Vermoegensziel"):
             target_rappen = _goal_target_wealth_rappen(goal, years, inflation_series_bps)
             denominator = max(1, target_rappen)
-            score = int(round(min(100, max(0, projected_rappen / denominator * 100))))
+            funded_ratio_pct = int(round(min(200, max(-100, projected_rappen / denominator * 100))))
+            success_rate_pct = 100 if projected_rappen >= target_rappen else 0
+            score = _compute_goal_score(
+                success_rate_pct=success_rate_pct,
+                funded_ratio_pct=funded_ratio_pct,
+                hardness_key=hardness_key,
+            )
         else:
             target_rappen = _annualize_goal_amount(goal) if goal_type in ("Wiederkehrende_Ausgabe", "Pensionsausgabe") else int(goal.target_amount_rappen or 0)
             # C5: zielbezogene Reserve statt globaler reserve_needed_rappen,
@@ -1872,7 +1919,13 @@ def _build_goal_analysis(
             # auf 'On Track' hebt.
             available = _goal_reserve_for_goal(goal) if years <= 3 else projected_rappen
             denominator = max(1, target_rappen)
-            score = int(round(min(100, max(0, available / denominator * 100))))
+            funded_ratio_pct = int(round(min(200, max(-100, available / denominator * 100))))
+            success_rate_pct = 100 if available >= target_rappen else 0
+            score = _compute_goal_score(
+                success_rate_pct=success_rate_pct,
+                funded_ratio_pct=funded_ratio_pct,
+                hardness_key=hardness_key,
+            )
         status = "On Track" if score >= 70 else ("Pruefen" if score >= 45 else "Gefaehrdet")
         analysis.append(
             {
@@ -2003,14 +2056,6 @@ def _goal_duration_years(goal: Goal, start_year: int, horizon_years: int) -> int
     return 1
 
 
-def _cashflow_goal_score(success_rate_pct: int, coverage_pct: int, undercoverage_pct: int) -> int:
-    return int(round(0.5 * success_rate_pct + 0.3 * coverage_pct + 0.2 * undercoverage_pct))
-
-
-def _return_goal_score(success_rate_pct: int, undercoverage_pct: int) -> int:
-    return int(round(0.6 * success_rate_pct + 0.4 * undercoverage_pct))
-
-
 def _monte_carlo_goal_summary(
     goal: Goal,
     *,
@@ -2033,14 +2078,23 @@ def _monte_carlo_goal_summary(
     p50 = _percentile(scaled_values, 0.50)
     p90 = _percentile(scaled_values, 0.90)
     goal_type = _norm_text(goal.goal_type)
+    hardness_key = _goal_hardness_key(goal)
     evaluation_note = None
 
+    # B5: Score = alpha * success_rate_pct + (1-alpha) * funded_ratio_pct
+    # Pro Goal-Typ: success_rate_pct (binaer/MC) und funded_ratio_pct als
+    # einheitliche Inputs in _compute_goal_score.
     if goal_type == "Renditeziel":
         target = int(goal.target_return_bps or 0)
         success_rate_pct = int(round(sum(1 for sample in annualized_return_samples_bps if sample >= target) / max(1, len(annualized_return_samples_bps)) * 100))
         funded_ratio_p50 = float(p50 / max(1, advisory_wealth_rappen))
-        undercoverage_pct = 100 if target <= 0 else max(0, min(100, int(round(100 - max(0, target - _percentile(annualized_return_samples_bps, 0.50)) / target * 100))))
-        score = _return_goal_score(success_rate_pct, undercoverage_pct)
+        median_return = _percentile(annualized_return_samples_bps, 0.50) if annualized_return_samples_bps else 0
+        funded_ratio_pct = 100 if target <= 0 else max(0, min(200, int(round(median_return / target * 100))))
+        score = _compute_goal_score(
+            success_rate_pct=success_rate_pct,
+            funded_ratio_pct=funded_ratio_pct,
+            hardness_key=hardness_key,
+        )
     elif goal_type in ("Einmalige_Ausgabe", "Wiederkehrende_Ausgabe", "Pensionsausgabe"):
         target = _annualize_goal_amount(goal)
         if goal_type in ("Wiederkehrende_Ausgabe", "Pensionsausgabe"):
@@ -2050,8 +2104,6 @@ def _monte_carlo_goal_summary(
                 target = max(1, int(target))
                 success_rate_pct = 0
                 funded_ratio_p50 = 0.0
-                coverage_pct = 0
-                undercoverage_pct = 0
                 score = 0
                 evaluation_note = f"Ziel liegt ausserhalb des aktuellen Simulationshorizonts (Horizont: {horizon_years} Jahre)."
             else:
@@ -2059,23 +2111,34 @@ def _monte_carlo_goal_summary(
                 target = max(1, int(target))
                 success_rate_pct = int(round(sum(1 for value in scaled_values if value >= target) / max(1, len(scaled_values)) * 100))
                 funded_ratio_p50 = round(p50 / target, 4)
-                coverage_pct = max(0, min(100, int(round(funded_ratio_p50 * 100))))
-                undercoverage_pct = 100 if p50 >= target else max(0, min(100, int(round(100 - (target - p50) / target * 100))))
-                score = _cashflow_goal_score(success_rate_pct, coverage_pct, undercoverage_pct)
+                funded_ratio_pct = max(0, min(200, int(round(funded_ratio_p50 * 100))))
+                score = _compute_goal_score(
+                    success_rate_pct=success_rate_pct,
+                    funded_ratio_pct=funded_ratio_pct,
+                    hardness_key=hardness_key,
+                )
                 if duration < full_duration:
                     evaluation_note = f"Bewertet fuer {duration} von {full_duration} Jahren (Simulationshorizont: {horizon_years} Jahre)."
         else:
             target = max(1, int(target))
             success_rate_pct = int(round(sum(1 for value in scaled_values if value >= target) / max(1, len(scaled_values)) * 100))
             funded_ratio_p50 = round(p50 / target, 4)
-            coverage_pct = max(0, min(100, int(round(funded_ratio_p50 * 100))))
-            undercoverage_pct = 100 if p50 >= target else max(0, min(100, int(round(100 - (target - p50) / target * 100))))
-            score = _cashflow_goal_score(success_rate_pct, coverage_pct, undercoverage_pct)
+            funded_ratio_pct = max(0, min(200, int(round(funded_ratio_p50 * 100))))
+            score = _compute_goal_score(
+                success_rate_pct=success_rate_pct,
+                funded_ratio_pct=funded_ratio_pct,
+                hardness_key=hardness_key,
+            )
     elif goal_type in ("Kapitalerhalt", "Vermoegensziel"):
         target = _goal_target_wealth_rappen(goal, index, inflation_series_bps)
         success_rate_pct = int(round(sum(1 for value in scaled_values if value >= target) / max(1, len(scaled_values)) * 100))
         funded_ratio_p50 = round(p50 / target, 4)
-        score = int(round(0.7 * success_rate_pct + 0.3 * max(0, min(100, int(round(funded_ratio_p50 * 100))))))
+        funded_ratio_pct = max(0, min(200, int(round(funded_ratio_p50 * 100))))
+        score = _compute_goal_score(
+            success_rate_pct=success_rate_pct,
+            funded_ratio_pct=funded_ratio_pct,
+            hardness_key=hardness_key,
+        )
     elif goal_type == "Maximierung":
         target = max(1, advisory_wealth_rappen)
         success_rate_pct = 100
