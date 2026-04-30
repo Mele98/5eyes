@@ -1839,9 +1839,13 @@ def _build_goal_analysis(
     analysis = []
     for goal in sorted(goals, key=lambda g: (int(g.rank or 999), g.label or "")):
         years = _goal_projection_years(goal)
+        # B4: Goals werden IMMER gegen advisory_wealth bewertet, weil die
+        # Strategie nur das Beratungsvermoegen optimiert. External Assets
+        # (Eigenheim etc.) werden nicht hochgerechnet, weil ihre Wachstums-
+        # annahme fragil und nicht strategie-relevant ist (PK-konsistent,
+        # ASIP §3.2). Bisheriger Skalierungs-Pfad mit allow_other_assets_for_goals
+        # erzeugte Drift zwischen deterministischer und MC-Bewertung.
         investable_base = advisory_wealth_rappen
-        if _norm_text(goal.goal_scope) == "Gesamtvermoegen" and policy.allow_other_assets_for_goals:
-            investable_base = max(advisory_wealth_rappen, total_wealth_rappen)
         projection_years = max(1, years or 1)
         contribution_series = list(cashflow_projection_series_rappen[:projection_years])
         if len(contribution_series) < projection_years:
@@ -1999,14 +2003,6 @@ def _goal_duration_years(goal: Goal, start_year: int, horizon_years: int) -> int
     return 1
 
 
-def _goal_base_scale(goal: Goal, advisory_wealth_rappen: int, total_wealth_rappen: int, policy: OptimizerPolicy) -> float:
-    if advisory_wealth_rappen <= 0:
-        return 1.0
-    if _norm_text(goal.goal_scope) == "Gesamtvermoegen" and int(policy.allow_other_assets_for_goals or 0) == 1:
-        return max(advisory_wealth_rappen, total_wealth_rappen) / advisory_wealth_rappen
-    return 1.0
-
-
 def _cashflow_goal_score(success_rate_pct: int, coverage_pct: int, undercoverage_pct: int) -> int:
     return int(round(0.5 * success_rate_pct + 0.3 * coverage_pct + 0.2 * undercoverage_pct))
 
@@ -2028,8 +2024,11 @@ def _monte_carlo_goal_summary(
     policy: OptimizerPolicy,
 ) -> dict:
     index = _year_index_for_goal(goal, start_year, horizon_years)
-    scale = _goal_base_scale(goal, advisory_wealth_rappen, total_wealth_rappen, policy)
-    scaled_values = [int(round(path_value * scale)) for path_value in path_values_by_year[index]]
+    # B4: MC-Pfade sind advisory-only. Keine Skalierung mehr (frueher
+    # _goal_base_scale x total/advisory) - das war methodisch falsch,
+    # weil External Assets nicht wie Aktien wachsen. Goal wird gegen
+    # advisory_path bewertet, konsistent zu _build_goal_analysis.
+    scaled_values = list(path_values_by_year[index])
     p10 = _percentile(scaled_values, 0.10)
     p50 = _percentile(scaled_values, 0.50)
     p90 = _percentile(scaled_values, 0.90)
