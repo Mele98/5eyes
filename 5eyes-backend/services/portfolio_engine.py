@@ -2934,6 +2934,81 @@ def _apply_external_exposure_tilts(
         reasoning.append("Bereits bestehende Aktienexposures im Gesamtvermoegen werden auf die Advisory-Strategie angerechnet.")
 
 
+def _compute_reserve_for_inputs(
+    *,
+    goals: list[Goal],
+    limits_prefs: dict,
+    asset_class_prefs: dict,
+    recurring_net_cashflow_rappen: int,
+    recurring_cashflow_projection_series_rappen: list[int],
+    advisory_wealth_rappen: int,
+    saa_liquidity_ceiling_bps: int,
+    reasoning: list[str] | None = None,
+) -> tuple[int, int]:
+    """C7 StrategyContext: Single Source of Truth fuer Reserve-Berechnung.
+
+    Wird sowohl von ``_apply_goal_and_reserve_tilts`` (generate-Pfad)
+    als auch von ``build_target_payload_from_allocation`` (rebuild-Pfad)
+    aufgerufen, damit Reserve-Logik nicht zwischen Generierung und
+    Wiederaufbau driften kann. Liefert (reserve_needed, external_reserve).
+
+    ``reasoning`` ist optional: wenn vorhanden, werden Erklaerungstexte
+    fuer den Berater angehaengt; sonst nur Zahlen berechnet.
+    """
+    reserve_candidates: list[int] = [0]
+    manual_reserve = _parse_rappen(limits_prefs.get("minReserve"))
+    liquidity_target = _parse_rappen(asset_class_prefs.get("liquidityReserveTarget"))
+    if manual_reserve:
+        reserve_candidates.append(manual_reserve)
+    if liquidity_target:
+        reserve_candidates.append(liquidity_target)
+
+    near_term_cashflow_series = [int(value or 0) for value in (recurring_cashflow_projection_series_rappen or [])[:3]]
+    near_term_shortfall_rappen = max(0, -sum(near_term_cashflow_series))
+    if near_term_shortfall_rappen > 0:
+        reserve_candidates.append(near_term_shortfall_rappen)
+        if reasoning is not None:
+            reasoning.append("Zeitlich datierte Netto-Cashflows erhoehen die erforderliche Liquiditaetsreserve fuer die naechsten Jahre.")
+    elif recurring_net_cashflow_rappen < 0:
+        reserve_candidates.append(abs(recurring_net_cashflow_rappen) * 3)
+        if reasoning is not None:
+            reasoning.append("Negativer laufender Netto-Cashflow erhoeht die erforderliche Liquiditaetsreserve.")
+
+    for goal in goals:
+        years = _goal_projection_years(goal)
+        goal_type = _norm_text(goal.goal_type)
+        if goal_type in ("Einmalige_Ausgabe", "Wiederkehrende_Ausgabe", "Pensionsausgabe"):
+            target_amount = (
+                _annualize_goal_amount(goal)
+                if goal_type in ("Wiederkehrende_Ausgabe", "Pensionsausgabe")
+                else int(goal.target_amount_rappen or 0)
+            )
+            if years <= 3:
+                reserve_candidates.append(target_amount)
+                if reasoning is not None:
+                    reasoning.append(f"Das Ziel '{goal.label}' wird als kurzfristiger Liquiditaetsbedarf beruecksichtigt.")
+            elif years <= 7:
+                reserve_candidates.append(int(round(target_amount * 0.5)))
+
+    reserve_needed_rappen = max(reserve_candidates)
+    external_reserve_rappen = 0
+    if reserve_needed_rappen <= 0 or advisory_wealth_rappen <= 0:
+        return reserve_needed_rappen, 0
+
+    uncapped_required_liquidity_bps = _bps(reserve_needed_rappen, advisory_wealth_rappen)
+    if uncapped_required_liquidity_bps > saa_liquidity_ceiling_bps:
+        saa_reserve_rappen = int(round(saa_liquidity_ceiling_bps * advisory_wealth_rappen / 10000))
+        external_reserve_rappen = max(0, reserve_needed_rappen - saa_reserve_rappen)
+        if reasoning is not None and external_reserve_rappen > 0:
+            chf_external = external_reserve_rappen // 100
+            reasoning.append(
+                f"Ein Liquiditaetsbedarf von CHF {chf_external:,} wird als externe Reserve ausserhalb "
+                f"des Beratungsmandats empfohlen. Die SAA-Liquiditaet bleibt auf {saa_liquidity_ceiling_bps / 100:.1f}%."
+            )
+
+    return reserve_needed_rappen, external_reserve_rappen
+
+
 def _apply_goal_and_reserve_tilts(
     targets: dict,
     minimums: dict,
@@ -2946,33 +3021,24 @@ def _apply_goal_and_reserve_tilts(
     advisory_wealth_rappen: int,
     reasoning: list[str],
 ) -> tuple[int, int]:
-    reserve_candidates = [0]
-    manual_reserve = _parse_rappen(limits_prefs.get("minReserve"))
-    liquidity_target = _parse_rappen(asset_class_prefs.get("liquidityReserveTarget"))
-    if manual_reserve:
-        reserve_candidates.append(manual_reserve)
-    if liquidity_target:
-        reserve_candidates.append(liquidity_target)
-    near_term_cashflow_series = [int(value or 0) for value in (recurring_cashflow_projection_series_rappen or [])[:3]]
-    near_term_shortfall_rappen = max(0, -sum(near_term_cashflow_series))
-    if near_term_shortfall_rappen > 0:
-        reserve_candidates.append(near_term_shortfall_rappen)
-        reasoning.append("Zeitlich datierte Netto-Cashflows erhoehen die erforderliche Liquiditaetsreserve fuer die naechsten Jahre.")
-    elif recurring_net_cashflow_rappen < 0:
-        reserve_candidates.append(abs(recurring_net_cashflow_rappen) * 3)
-        reasoning.append("Negativer laufender Netto-Cashflow erhoeht die erforderliche Liquiditaetsreserve.")
-
+    # C7: Reserve-Berechnung wird zentral in _compute_reserve_for_inputs gehandelt
+    # (StrategyContext-Konsolidierung), Goal-Tilts auf Bandbreiten passieren hier.
+    saa_liq_ceiling_bps: int = min(int(maximums["liquidity"]), _SAA_LIQUIDITY_HARD_CAP_BPS)
+    reserve_needed_rappen, external_reserve_rappen = _compute_reserve_for_inputs(
+        goals=goals,
+        limits_prefs=limits_prefs,
+        asset_class_prefs=asset_class_prefs,
+        recurring_net_cashflow_rappen=recurring_net_cashflow_rappen,
+        recurring_cashflow_projection_series_rappen=recurring_cashflow_projection_series_rappen,
+        advisory_wealth_rappen=advisory_wealth_rappen,
+        saa_liquidity_ceiling_bps=saa_liq_ceiling_bps,
+        reasoning=reasoning,
+    )
+    # Goal-spezifische Bandbreiten-Tilts (Reduktion Aktien fuer kurze Vermoegensziele)
     for goal in goals:
         years = _goal_projection_years(goal)
         goal_type = _norm_text(goal.goal_type)
-        if goal_type in ("Einmalige_Ausgabe", "Wiederkehrende_Ausgabe", "Pensionsausgabe"):
-            target_amount = _annualize_goal_amount(goal) if goal_type in ("Wiederkehrende_Ausgabe", "Pensionsausgabe") else int(goal.target_amount_rappen or 0)
-            if years <= 3:
-                reserve_candidates.append(target_amount)
-                reasoning.append(f"Das Ziel '{goal.label}' wird als kurzfristiger Liquiditaetsbedarf beruecksichtigt.")
-            elif years <= 7:
-                reserve_candidates.append(int(round(target_amount * 0.5)))
-        elif goal_type in ("Kapitalerhalt", "Vermoegensziel") and years <= 5:
+        if goal_type in ("Kapitalerhalt", "Vermoegensziel") and years <= 5:
             eq_reduction = min(200, max(0, targets["equities"] - minimums["equities"]))
             if eq_reduction > 0:
                 targets["equities"] -= eq_reduction
@@ -2980,26 +3046,12 @@ def _apply_goal_and_reserve_tilts(
                 targets["bonds"] += eq_reduction - eq_reduction // 2
                 reasoning.append(f"Das Vermoegensziel '{goal.label}' mit kurzem Horizont reduziert den Aktienanteil leicht.")
 
-    reserve_needed_rappen = max(reserve_candidates)
     if advisory_wealth_rappen <= 0 or reserve_needed_rappen <= 0:
         return reserve_needed_rappen, 0
 
-    # Strategische Liquiditaet im Portfolio bleibt strikt gedeckelt.
-    # Alles darueber wird als externe Reserve ausserhalb des Mandats empfohlen.
-    saa_liq_ceiling_bps: int = min(int(maximums["liquidity"]), _SAA_LIQUIDITY_HARD_CAP_BPS)
-
+    # Auch fuer Tilt-Logik: capped_bps berechnen
     uncapped_required_liquidity_bps = _bps(reserve_needed_rappen, advisory_wealth_rappen)
     saa_required_bps = min(uncapped_required_liquidity_bps, saa_liq_ceiling_bps)
-
-    external_reserve_rappen: int = 0
-    if uncapped_required_liquidity_bps > saa_liq_ceiling_bps and advisory_wealth_rappen > 0:
-        saa_reserve_rappen = int(round(saa_liq_ceiling_bps * advisory_wealth_rappen / 10000))
-        external_reserve_rappen = max(0, reserve_needed_rappen - saa_reserve_rappen)
-        chf_external = external_reserve_rappen // 100
-        reasoning.append(
-            f"Ein Liquiditaetsbedarf von CHF {chf_external:,} wird als externe Reserve ausserhalb "
-            f"des Beratungsmandats empfohlen. Die SAA-Liquiditaet bleibt auf {saa_liq_ceiling_bps / 100:.1f}%."
-        )
 
     if saa_required_bps <= targets["liquidity"]:
         return reserve_needed_rappen, external_reserve_rappen
@@ -3576,35 +3628,18 @@ def build_target_payload_from_allocation(
     sub_allocations, asset_risky_weights, risky_fraction_total_bps = _enrich_sub_allocations_with_risk(sub_allocations, risky_map)
     # C3: gewichtete Bucket-Metriken aus Sub-Allocation.
     metrics = _expected_metrics(targets, cma, sub_allocations)
-    _manual_reserve = _parse_rappen(prefs["limits"].get("minReserve")) or 0
-    _liq_target = _parse_rappen(prefs["assetClasses"].get("liquidityReserveTarget")) or 0
-    _reserve_candidates = [0, _manual_reserve, _liq_target]
-    _near_term = [int(v or 0) for v in (recurring_cashflow_projection_series_rappen or [])[:3]]
-    _near_term_shortfall = max(0, -sum(_near_term))
-    if _near_term_shortfall > 0:
-        _reserve_candidates.append(_near_term_shortfall)
-    elif recurring_net_cashflow_rappen < 0:
-        _reserve_candidates.append(abs(recurring_net_cashflow_rappen) * 3)
-    for goal in goals:
-        years = _goal_projection_years(goal)
-        goal_type = _norm_text(goal.goal_type)
-        if goal_type in ("Einmalige_Ausgabe", "Wiederkehrende_Ausgabe", "Pensionsausgabe"):
-            target_amount = (
-                _annualize_goal_amount(goal)
-                if goal_type in ("Wiederkehrende_Ausgabe", "Pensionsausgabe")
-                else int(goal.target_amount_rappen or 0)
-            )
-            if years <= 3:
-                _reserve_candidates.append(target_amount)
-            elif years <= 7:
-                _reserve_candidates.append(int(round(target_amount * 0.5)))
-    reserve_needed_rappen = max(_reserve_candidates)
-    external_reserve_rappen: int = 0
-    if reserve_needed_rappen > 0 and advisory_wealth_rappen > 0:
-        _uncapped_bps = _bps(reserve_needed_rappen, advisory_wealth_rappen)
-        if _uncapped_bps > saa_liq_ceil_bps:
-            _saa_r = int(round(saa_liq_ceil_bps * advisory_wealth_rappen / 10000))
-            external_reserve_rappen = max(0, reserve_needed_rappen - _saa_r)
+    # C7: Reserve-Berechnung zentral via _compute_reserve_for_inputs - identisch
+    # zum generate-Pfad, damit Reserve nicht zwischen Generieren und Wiederaufbau driftet.
+    reserve_needed_rappen, external_reserve_rappen = _compute_reserve_for_inputs(
+        goals=goals,
+        limits_prefs=prefs["limits"],
+        asset_class_prefs=prefs["assetClasses"],
+        recurring_net_cashflow_rappen=recurring_net_cashflow_rappen,
+        recurring_cashflow_projection_series_rappen=recurring_cashflow_projection_series_rappen,
+        advisory_wealth_rappen=advisory_wealth_rappen,
+        saa_liquidity_ceiling_bps=saa_liq_ceil_bps,
+        reasoning=None,
+    )
     investable_advisory_wealth_rappen = _investable_advisory_wealth_rappen(advisory_wealth_rappen, external_reserve_rappen)
     goal_inflation_series_bps = _goal_inflation_series_bps(
         cma,
