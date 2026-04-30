@@ -1698,6 +1698,68 @@ _GOAL_SCORE_ALPHA = {
 }
 
 
+def _build_mandate_score(goal_analysis: list[dict]) -> dict:
+    """B6: Mandate-Aggregation aus goal_analysis.
+
+    Liefert ZWEI Aggregate (PK-konsistent, ASIP §3.2):
+    - weighted_score: gewichteter Mittelwert aller goal_scores nach
+      weight_bps * hardness_multiplier_bps. Strategie-Sicht. None wenn
+      keine Goals.
+    - weakest_hard_score: min(score) ueber Goals mit hardness=Hart.
+      Compliance-Sicht. None wenn keine harten Goals.
+
+    Methodisch: Mandate haben oft heterogene Goals (PK-Pflicht vs.
+    ueberobligatorisch vs. Reisefonds). Pure Aggregation maskiert harte
+    Verfehlungen; daher beide Sichten parallel.
+    """
+    if not goal_analysis:
+        return {
+            "weighted_score": None,
+            "weakest_hard_score": None,
+            "weakest_hard_goal_id": None,
+            "method": "weighted_avg + weakest_hard_min",
+        }
+
+    # weighted: weight_bps * hardness multiplier
+    weighted_sum = 0.0
+    weight_sum = 0.0
+    for item in goal_analysis:
+        score = float(item.get("achievement_score") or 0)
+        base_weight = max(0, int(item.get("weight_bps") or 0))
+        hardness_raw = str(item.get("hardness") or "Primaer").strip().lower()
+        if hardness_raw == "hart":
+            hardness_key = "hart"
+        elif hardness_raw == "opportunistisch":
+            hardness_key = "opportunistisch"
+        else:
+            hardness_key = "primaer"
+        multiplier = _GOAL_HARDNESS_MULTIPLIER_BPS.get(hardness_key, 10000)
+        effective_weight = base_weight * multiplier
+        weighted_sum += score * effective_weight
+        weight_sum += effective_weight
+    weighted_score = int(round(weighted_sum / weight_sum)) if weight_sum > 0 else None
+
+    # weakest hard
+    hard_goals = [
+        item for item in goal_analysis
+        if str(item.get("hardness") or "").strip().lower() == "hart"
+    ]
+    if hard_goals:
+        worst = min(hard_goals, key=lambda x: int(x.get("achievement_score") or 0))
+        weakest_hard_score = int(worst.get("achievement_score") or 0)
+        weakest_hard_goal_id = worst.get("goal_id")
+    else:
+        weakest_hard_score = None
+        weakest_hard_goal_id = None
+
+    return {
+        "weighted_score": weighted_score,
+        "weakest_hard_score": weakest_hard_score,
+        "weakest_hard_goal_id": weakest_hard_goal_id,
+        "method": "weighted_avg + weakest_hard_min",
+    }
+
+
 def _compute_goal_score(
     *,
     success_rate_pct: int,
@@ -3671,6 +3733,7 @@ def generate_target_allocation(
         "simulation": simulation,
         "monte_carlo": monte_carlo,
         "goal_analysis": goal_analysis,
+        "mandate_score": _build_mandate_score(goal_analysis),
     }
 
 
