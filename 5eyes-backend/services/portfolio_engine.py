@@ -2866,7 +2866,12 @@ def ensure_default_products(db: Session) -> None:
     db.flush()
 
 
-def _load_allocation_inputs(db: Session, mandate: Mandate, simulation_prefs: dict) -> dict:
+def _load_allocation_inputs(
+    db: Session,
+    mandate: Mandate,
+    simulation_prefs: dict,
+    cma: CapitalMarketAssumption | None = None,
+) -> dict:
     all_positions = db.query(WealthPosition).filter(
         WealthPosition.client_id == mandate.client_id,
         WealthPosition.deleted_at.is_(None),
@@ -2893,15 +2898,23 @@ def _load_allocation_inputs(db: Session, mandate: Mandate, simulation_prefs: dic
     ).order_by(Goal.rank.asc()).all()
     cashflow_totals = totals_for_year(cashflows)
     projection_years = _simulation_horizon_years(simulation_prefs, goals)
+    # B1: Cashflow-Series respektieren is_inflation_linked + CMA-Inflations-Pfad.
+    # AHV/Lohn/Miete (linked=1) wachsen jaehrlich; Bonus/Erbschaft (linked=0) bleiben nominal.
+    cf_inflation_series_bps = (
+        _inflation_path_series(cma, projection_years, cashflow_totals["year"])
+        if cma is not None else None
+    )
     cashflow_projection_series_rappen = net_cashflow_series(
         cashflows,
         projection_years,
         start_year=cashflow_totals["year"],
+        inflation_series_bps=cf_inflation_series_bps,
     )
     recurring_cashflow_projection_series_rappen = recurring_net_cashflow_series(
         cashflows,
         projection_years,
         start_year=cashflow_totals["year"],
+        inflation_series_bps=cf_inflation_series_bps,
     )
     return {
         "advisory_summary": advisory_summary,
@@ -3336,7 +3349,7 @@ def generate_target_allocation(
     score_bucket = _risk_score_bucket(assessment)
     house_matrix = _house_matrix_or_default(db, policy, score_bucket)
     manual_target_override = _has_manual_target_overrides(prefs["bands"])
-    inputs = _load_allocation_inputs(db, mandate, prefs["simulation"])
+    inputs = _load_allocation_inputs(db, mandate, prefs["simulation"], cma=cma)
     advisory_summary = inputs["advisory_summary"]
     total_summary = inputs["total_summary"]
     advisory_wealth_rappen = inputs["advisory_wealth_rappen"]
@@ -3645,15 +3658,19 @@ def build_target_payload_from_allocation(
     capital_net_cashflow_rappen = capital_inflow_rappen - capital_outflow_rappen
     annual_net_cashflow_rappen = cashflow_totals["net_rappen"]
     projection_years = _simulation_horizon_years(prefs["simulation"], goals)
+    # B1: Cashflow-Series mit CMA-Inflations-Pfad (siehe _load_allocation_inputs).
+    cf_inflation_series_bps = _inflation_path_series(cma, projection_years, cashflow_totals["year"])
     cashflow_projection_series_rappen = net_cashflow_series(
         cashflows,
         projection_years,
         start_year=cashflow_totals["year"],
+        inflation_series_bps=cf_inflation_series_bps,
     )
     recurring_cashflow_projection_series_rappen = recurring_net_cashflow_series(
         cashflows,
         projection_years,
         start_year=cashflow_totals["year"],
+        inflation_series_bps=cf_inflation_series_bps,
     )
 
     minimums = {
