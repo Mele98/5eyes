@@ -38,10 +38,20 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run pytest
+      - name: Run pytest with coverage
         working-directory: 5eyes-backend
         run: |
-          python -m pytest tests/ -v --tb=short --maxfail=5
+          python -m pytest tests/ -v --tb=short --maxfail=5 \
+            --cov=services --cov=routers --cov=schemas --cov=models \
+            --cov-report=term-missing --cov-report=xml
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.python-version }}
+          path: 5eyes-backend/coverage.xml
+          retention-days: 14
 
       - name: Upload pytest log on failure
         if: failure()
