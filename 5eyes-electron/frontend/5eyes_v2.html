@@ -180,7 +180,9 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 .cf-chart-card .chart-lg{height:390px;}
 .cf-row-actions{display:flex;gap:4px;align-items:center;}
 .cf-row-actions .btn-ico{opacity:.72;}
-.cf-row:hover .cf-row-actions .btn-ico,.goal:hover .btn-ico{opacity:1;}
+#page-cf .cf-row>div:last-child,#page-cf .goal>div:last-child{display:flex;gap:4px;align-items:center;}
+#page-cf .cf-row>div:last-child .btn-ico,#page-cf .goal>div:last-child .btn-ico{opacity:.72;}
+.cf-row:hover .cf-row-actions .btn-ico,.goal:hover .btn-ico,#page-cf .cf-row:hover>div:last-child .btn-ico,#page-cf .goal:hover>div:last-child .btn-ico{opacity:1;}
 
 /* BUDGET */
 .bgsec{margin-bottom:8px;}
@@ -982,7 +984,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
             </div>
           </div>
           <div>
-            <div class="card mb cf-flow-card">
+            <div class="card mb">
               <div class="chd"><span class="cht">Auswertung</span></div>
               <div class="cbody">
                 <div class="rdg">
@@ -2846,6 +2848,7 @@ function initDomLayout(){
   var templateKpis=templatePad?templatePad.querySelector('.kpir'):null;
   var cfRiskSummary=document.getElementById('cf-risk-context-summary');
   if(combinedSlot){
+    if(templateGrid)templateGrid.classList.add('projection-grid');
     if(templateKpis)templateKpis.style.display='none';
     if(templateRight){
       Array.prototype.slice.call(templateRight.children).forEach(function(card){
@@ -2895,10 +2898,35 @@ function initDomLayout(){
     goalProgressCard.setAttribute('onclick',"go('cf')");
     goalProgressCard.setAttribute('title','Zu Cashflows, Zielen und Prognose');
   }
+  var incomeCard=document.getElementById('zufluss-rows');
+  incomeCard=incomeCard&&incomeCard.closest?incomeCard.closest('.card'):null;
+  if(incomeCard){
+    incomeCard.classList.add('cf-flow-card');
+    var incomeTitle=incomeCard.querySelector('.cht');
+    var incomeBtn=incomeCard.querySelector('.chr .btn-p');
+    if(incomeTitle)incomeTitle.textContent='Einnahmen';
+    if(incomeBtn)incomeBtn.textContent='+ Einnahme';
+  }
+  var expenseCard=document.getElementById('abfluss-rows');
+  expenseCard=expenseCard&&expenseCard.closest?expenseCard.closest('.card'):null;
+  if(expenseCard){
+    expenseCard.classList.add('cf-flow-card');
+    var expenseTitle=expenseCard.querySelector('.cht');
+    var expenseBtn=expenseCard.querySelector('.chr .btn-p');
+    if(expenseTitle)expenseTitle.textContent='Ausgaben';
+    if(expenseBtn)expenseBtn.textContent='+ Ausgabe';
+  }
+  var goalsCard=document.getElementById('zl');
+  goalsCard=goalsCard&&goalsCard.closest?goalsCard.closest('.card'):null;
+  if(goalsCard){
+    goalsCard.classList.add('cf-goal-card');
+    var goalsTitle=goalsCard.querySelector('.cht');
+    var goalsHint=goalsCard.querySelector('.chr span');
+    if(goalsTitle)goalsTitle.textContent='Ziele';
+    if(goalsHint)goalsHint.textContent='Prioritaet per Drag';
+  }
   var projectionHeader=combinedSlot?combinedSlot.querySelector('.card.mb .cht'):null;
   var projectionHeaderMeta=projectionHeader?projectionHeader.nextElementSibling:null;
-  if(projectionHeader)projectionHeader.textContent='Aktueller Vermögenspfad';
-if(projectionHeaderMeta&&projectionHeaderMeta.textContent)projectionHeaderMeta.textContent='heutiger Mix mit laufenden Cashflows und separat beruecksichtigten Kapitalereignissen';
   if(combinedSlot){
     Array.prototype.forEach.call(combinedSlot.querySelectorAll('.cht'),function(node){
       var text=String(node.textContent||'').trim();
@@ -2909,9 +2937,26 @@ if(projectionHeaderMeta&&projectionHeaderMeta.textContent)projectionHeaderMeta.t
       }
     });
   }
+  if(projectionHeader)projectionHeader.textContent='Vermoegenspfad';
+  if(projectionHeaderMeta&&projectionHeaderMeta.textContent)projectionHeaderMeta.textContent='aktuelle Ist-Situation';
   var projectionCanvas=combinedSlot?combinedSlot.querySelector('#ch-ist'):null;
   var projectionBody=projectionCanvas&&projectionCanvas.closest('.cbody');
-  var projectionStats=projectionBody&&projectionBody.children&&projectionBody.children[2]?projectionBody.children[2]:null;
+  var projectionCard=projectionCanvas&&projectionCanvas.closest?projectionCanvas.closest('.card'):null;
+  if(projectionCard)projectionCard.classList.add('cf-chart-card');
+  var cashflowHud=document.getElementById('cf-projection');
+  if(projectionBody&&cashflowHud&&cashflowHud.parentNode!==projectionBody){
+    projectionBody.insertBefore(cashflowHud,projectionBody.firstChild||null);
+    cashflowHud.style.padding='0';
+    cashflowHud.style.marginBottom='10px';
+  }
+  var projectionNote=document.getElementById('ub-projection-note');
+  if(projectionNote){
+    projectionNote.textContent='Ist-Situation mit heutigen Vermoegenswerten und erfassten Cashflows. Die optimierte Strategie kommt bewusst erst in der Asset Allocation.';
+    projectionNote.style.color='var(--n6)';
+    projectionNote.style.background='var(--bg)';
+    projectionNote.style.borderColor='rgba(90,104,120,0.12)';
+  }
+  var projectionStats=projectionBody?projectionBody.querySelector('div[style*="grid-template-columns:repeat(5,1fr)"]'):null;
   if(projectionStats&&projectionStats.children&&projectionStats.children.length>=5){
     projectionStats.style.gridTemplateColumns='repeat(2,minmax(0,1fr))';
     if(projectionStats.children[0]&&projectionStats.children[0].children&&projectionStats.children[0].children[0])projectionStats.children[0].children[0].textContent='Aktuelle Prognose';
