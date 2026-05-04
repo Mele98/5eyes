@@ -16,6 +16,9 @@ class OptimizerPolicy(Base):
     max_real_estate_bps = Column(Integer, nullable=False, default=2000)
     max_alternatives_bps = Column(Integer, nullable=False, default=1000)
     min_liquidity_bps = Column(Integer, nullable=False, default=0)
+    # Deprecated since audit-B4 (2026-05-01): goals are always evaluated against
+    # advisory_wealth (ASIP §3.2). Field is retained for schema compatibility but
+    # has no effect on scoring. Do not read or write from new code.
     allow_other_assets_for_goals = Column(Integer, nullable=False, default=1)
     fee_model_json = Column(String)
     notes = Column(String)
