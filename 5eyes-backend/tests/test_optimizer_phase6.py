@@ -560,6 +560,62 @@ def test_sensitivity_endpoint_writes_audit_log(
     assert entry.new_value == "-10"
 
 
+def test_sensitivity_works_for_goal_with_only_target_wealth(
+    session_factory, monkeypatch,
+):
+    """Edge-Case: ein Vermoegensziel hat nur target_wealth_rappen (kein _amount).
+    Helper muss trotzdem den korrekten Wert um delta_pct skalieren."""
+    monkeypatch.setattr(pe.settings, "optimizer_mode", "stochastic")
+    advisor_id, _cid, mid, _aid, _gid = _seed_mandate(session_factory)
+    # Wealth-Goal ID anhand des suffix patterns aus _seed_mandate
+    with session_factory() as s:
+        wealth_goal = s.query(Goal).filter(
+            Goal.mandate_id == mid,
+            Goal.goal_type == "Vermoegensziel",
+        ).first()
+        assert wealth_goal is not None
+        assert wealth_goal.target_wealth_rappen == 300_000_00
+        assert (wealth_goal.target_amount_rappen or 0) == 0
+        wgid = wealth_goal.id
+
+    with session_factory() as s:
+        mandate = s.query(Mandate).filter(Mandate.id == mid).first()
+        out = evaluate_goal_sensitivity(
+            db=s, mandate=mandate, user_id=advisor_id,
+            goal_id=wgid, target_delta_pct=20,
+        )
+    # +20% auf 300'000 -> 360'000 CHF
+    assert out["target_amount_rappen_baseline"] == 300_000_00
+    assert out["target_amount_rappen_new"] == 360_000_00
+
+
+def test_sensitivity_multiple_calls_create_separate_audit_entries(
+    session_factory, monkeypatch, cleanup_overrides,
+):
+    """Edge-Case: drei Sensitivity-Calls hintereinander -> drei separate
+    AuditLog-Eintraege mit unterschiedlichen new_values."""
+    from models.review import AuditLog
+    monkeypatch.setattr(pe.settings, "optimizer_mode", "stochastic")
+    advisor_id, _cid, mid, _aid, gid = _seed_mandate(session_factory)
+    with session_factory() as s:
+        advisor = s.query(User).filter(User.id == advisor_id).first()
+    client = _client_with_user(session_factory, advisor)
+    for delta in (-20, -10, 10):
+        resp = client.post(
+            f"/mandates/{mid}/target-allocation/sensitivity",
+            json={"goal_id": gid, "target_delta_pct": delta},
+        )
+        assert resp.status_code == 200, (delta, resp.text)
+    with session_factory() as s:
+        entries = s.query(AuditLog).filter(
+            AuditLog.action == "SENSITIVITY",
+            AuditLog.record_id == gid,
+        ).order_by(AuditLog.created_at.asc()).all()
+    assert len(entries) == 3
+    deltas = [int(e.new_value) for e in entries]
+    assert deltas == [-20, -10, 10]
+
+
 def test_sensitivity_endpoint_no_audit_on_404(
     session_factory, monkeypatch, cleanup_overrides,
 ):
