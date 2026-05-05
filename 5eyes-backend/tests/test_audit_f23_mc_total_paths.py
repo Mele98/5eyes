@@ -281,3 +281,179 @@ def test_f23_total_p10_below_p90_with_volatility(monkeypatch):
     p50 = result["total_target_p50_series_rappen"][-1]
     p90 = result["total_target_p90_series_rappen"][-1]
     assert p10 <= p50 <= p90, f"Order broken: p10={p10}, p50={p50}, p90={p90}"
+
+
+# ============================================================================
+# Integration Tests: F23 durch generate_target_allocation()
+# ============================================================================
+# Sichert dass die total_*_series Felder von _run_allocation_monte_carlo
+# tatsaechlich im monte_carlo dict ankommen, wenn der Aufrufer total_summary
+# durchschickt. Schuetzt die Wiring vom Aufrufer (_collect_portfolio_summaries)
+# bis zum API-Schema gegen Refactoring-Drift.
+
+import datetime
+import uuid
+
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+from models.clients import Client
+from models.mandates import Mandate
+from models.profiling import RiskAssessment, RiskAssessmentAnswer
+from models.users import User
+from models.wealth import Cashflow, WealthPosition
+from services.portfolio_engine import (
+    ensure_runtime_reference_data,
+    generate_target_allocation,
+)
+
+
+def _now() -> str:
+    return datetime.datetime.now(datetime.UTC).isoformat().replace("+00:00", "Z")
+
+
+@pytest.fixture()
+def session_factory(tmp_path):
+    engine = create_engine(
+        f"sqlite:///{tmp_path / 'audit_f23_int.db'}",
+        connect_args={"check_same_thread": False},
+    )
+    SF = sessionmaker(autocommit=False, autoflush=False, expire_on_commit=False, bind=engine)
+    Base.metadata.create_all(bind=engine)
+    try:
+        yield SF
+    finally:
+        Base.metadata.drop_all(bind=engine)
+        engine.dispose()
+
+
+def _seed_mandate_with_total_wealth(session_factory):
+    """Beratungsdepot 200k + Eigenheim 800k - Hypothek 600k = Reinvermoegen 400k."""
+    advisor_id = "user-f23-int"
+    cid = str(uuid.uuid4())
+    mid = str(uuid.uuid4())
+    aid = str(uuid.uuid4())
+    now = _now()
+    with session_factory() as s:
+        s.add(User(id=advisor_id, username="adv-f23", password_hash="h",
+                   full_name="Adv F23", role="advisor", is_active=1,
+                   created_at=now, updated_at=now))
+        s.add(Client(id=cid, client_number=f"C-{cid[:6]}",
+                     first_name="Int", last_name="F23",
+                     advisor_id=advisor_id, created_at=now, updated_at=now))
+        s.add(Mandate(id=mid, client_id=cid, mandate_number=f"M-{mid[:6]}",
+                      mandate_type="Anlageberatung", opened_at=now,
+                      created_at=now, updated_at=now))
+        s.add(WealthPosition(
+            id="pos-f23-depot", client_id=cid,
+            label="Depot", position_type="Depot", assignment="Beratungsvermögen",
+            current_value_rappen=200_000_00, currency="CHF",
+            alloc_equities_bps=4000, alloc_bonds_bps=3000,
+            alloc_real_estate_bps=0, alloc_liquidity_bps=2000,
+            alloc_alternatives_bps=1000,
+            is_active=1, created_at=now, updated_at=now,
+        ))
+        s.add(WealthPosition(
+            id="pos-f23-haus", client_id=cid,
+            label="Eigenheim", position_type="Liegenschaft", assignment="Gesamtvermögen",
+            current_value_rappen=800_000_00, currency="CHF",
+            alloc_real_estate_bps=10000,
+            is_active=1, created_at=now, updated_at=now,
+        ))
+        s.add(WealthPosition(
+            id="pos-f23-hypo", client_id=cid,
+            label="Hypothek", position_type="Hypothek", assignment="Verbindlichkeit",
+            current_value_rappen=600_000_00, currency="CHF",
+            is_active=1, created_at=now, updated_at=now,
+        ))
+        s.add(Cashflow(
+            id="cf-f23-savings", client_id=cid, label="Sparplan",
+            cashflow_type="Income", amount_rappen=30_000_00,
+            currency="CHF", frequency="jährlich", nature="wiederkehrend",
+            is_active=1, created_at=now, updated_at=now,
+        ))
+        s.add(RiskAssessment(
+            id=aid, mandate_id=mid, version=1, is_current=1, valid_from=now[:10],
+            q_income_points=2, q_obligations_points=3,
+            q_savings_points=6, q_wealth_points=6,
+            risk_capacity_total=17, risk_capacity_profile="Wachstumsorientiert",
+            risk_capacity_score_x10=60,
+            investment_horizon_years=10, investment_horizon_label="8 bis 11 Jahre",
+            q_investment_goal_points=3, q_risk_preference_points=3, q_risk_behavior_points=3,
+            risk_willingness_total=9, risk_willingness_profile="Ausgewogen",
+            risk_willingness_score_x10=60,
+            final_score_x10=60, final_profile="Ausgewogen",
+            is_overridden=0,
+            assessed_at=now, assessed_by=advisor_id,
+            created_at=now, updated_at=now,
+        ))
+        for q in (3, 5, 6, 7, 8, 9, 10, 11):
+            s.add(RiskAssessmentAnswer(
+                id=str(uuid.uuid4()), assessment_id=aid,
+                question_number=q, question_section="Risikoprofil",
+                answer_label=f"A{q}", answer_points=2,
+                created_at=now,
+            ))
+        s.commit()
+        ensure_runtime_reference_data(s, advisor_id)
+        s.commit()
+    return advisor_id, cid, mid, aid
+
+
+def test_f23_integration_total_p50_starts_at_net_wealth(session_factory):
+    """generate_target_allocation -> monte_carlo.total_current_p50_series_rappen[0]
+    gleich dem deterministischen total_mix_current_series_rappen[0]."""
+    advisor_id, cid, mid, aid = _seed_mandate_with_total_wealth(session_factory)
+    with session_factory() as s:
+        mandate = s.query(Mandate).filter(Mandate.id == mid).first()
+        result = generate_target_allocation(s, mandate, advisor_id, preferences=None)
+
+    mc = result.get("monte_carlo") or {}
+    sim = result.get("simulation") or {}
+
+    mc_total_current = mc.get("total_current_p50_series_rappen") or []
+    sim_total_current = sim.get("total_mix_current_series_rappen") or []
+
+    assert mc_total_current, "monte_carlo.total_current_p50_series_rappen muss gefuellt sein"
+    assert sim_total_current, "simulation.total_mix_current_series_rappen muss gefuellt sein"
+    # Beide starten beim Reinvermoegen 400k
+    assert mc_total_current[0] == sim_total_current[0]
+    assert mc_total_current[0] == 400_000_00
+
+
+def test_f23_integration_all_six_total_series_present_when_total_wealth_exists(session_factory):
+    """Wenn der Mandant Gesamtvermoegen != Beratungsvermoegen hat, kommen
+    alle 6 total_*_series gefuellt im monte_carlo dict an."""
+    advisor_id, cid, mid, aid = _seed_mandate_with_total_wealth(session_factory)
+    with session_factory() as s:
+        mandate = s.query(Mandate).filter(Mandate.id == mid).first()
+        result = generate_target_allocation(s, mandate, advisor_id, preferences=None)
+
+    mc = result.get("monte_carlo") or {}
+    expected_len = len(mc.get("target_p50_series_rappen") or [])
+    for key in (
+        "total_current_p10_series_rappen",
+        "total_current_p50_series_rappen",
+        "total_current_p90_series_rappen",
+        "total_target_p10_series_rappen",
+        "total_target_p50_series_rappen",
+        "total_target_p90_series_rappen",
+    ):
+        series = mc.get(key) or []
+        assert len(series) == expected_len, f"{key} length {len(series)} != advisory {expected_len}"
+
+
+def test_f23_integration_total_p10_below_p90_per_year(session_factory):
+    """Pro Jahr muss total_p10 <= total_p50 <= total_p90 (Quantil-Ordnung)."""
+    advisor_id, cid, mid, aid = _seed_mandate_with_total_wealth(session_factory)
+    with session_factory() as s:
+        mandate = s.query(Mandate).filter(Mandate.id == mid).first()
+        result = generate_target_allocation(s, mandate, advisor_id, preferences=None)
+
+    mc = result.get("monte_carlo") or {}
+    p10s = mc.get("total_target_p10_series_rappen") or []
+    p50s = mc.get("total_target_p50_series_rappen") or []
+    p90s = mc.get("total_target_p90_series_rappen") or []
+    assert p10s and p50s and p90s
+    for idx, (p10, p50, p90) in enumerate(zip(p10s, p50s, p90s)):
+        assert p10 <= p50 <= p90, f"Year {idx}: order broken p10={p10} p50={p50} p90={p90}"
