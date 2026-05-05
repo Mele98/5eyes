@@ -184,6 +184,13 @@ def ensure_runtime_columns() -> None:
             ('total_wealth_at_generation_rappen', 'INTEGER'),
             ('reserve_needed_at_generation_rappen', 'INTEGER'),
             ('external_reserve_at_generation_rappen', 'INTEGER'),
+            # Optimizer-Audit-Anchor (Spec 2026-05-05). NULL fuer pre-Optimizer-
+            # Allocations - bedeutet "via House-Matrix-Default berechnet".
+            ('optimization_method', 'TEXT'),
+            ('optimization_objective_value_milli', 'INTEGER'),
+            ('optimization_iterations', 'INTEGER'),
+            ('optimization_seed', 'INTEGER'),
+            ('optimization_status', 'TEXT'),
         ],
         'recommendation_positions': [
             ('reference_price_rappen', 'INTEGER'),
@@ -204,6 +211,19 @@ def ensure_runtime_columns() -> None:
         'capital_market_assumptions': [
             ('correlation_matrix_json', 'TEXT'),
             ('sub_asset_class_assumptions_json', 'TEXT'),
+            # Optimizer-Phase 1: Skewness + Excess-Kurtosis pro Bucket fuer
+            # Cornish-Fisher fat-tail Sampling. NULL/0 -> Normal-Verteilung
+            # (backwards-compat). Werte in bps (z.B. -5000 = -0.5 skew).
+            ('equities_skewness_bps', 'INTEGER'),
+            ('equities_excess_kurt_bps', 'INTEGER'),
+            ('bonds_skewness_bps', 'INTEGER'),
+            ('bonds_excess_kurt_bps', 'INTEGER'),
+            ('real_estate_skewness_bps', 'INTEGER'),
+            ('real_estate_excess_kurt_bps', 'INTEGER'),
+            ('alternatives_skewness_bps', 'INTEGER'),
+            ('alternatives_excess_kurt_bps', 'INTEGER'),
+            ('liquidity_skewness_bps', 'INTEGER'),
+            ('liquidity_excess_kurt_bps', 'INTEGER'),
         ],
         'products': [
             ('lookup_mode_override', 'TEXT'),

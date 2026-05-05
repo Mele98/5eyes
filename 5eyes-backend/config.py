@@ -104,6 +104,14 @@ class Settings(BaseSettings):
     recent_log_lines_default: int = 120
     recent_log_lines_max: int = 500
 
+    # Optimizer (siehe docs/planning/2026-05-05-stochastic-optimizer-spec.md)
+    # Gueltige Werte: 'house_matrix' (default, heutiges Verhalten),
+    # 'iterative' (Soft-Optimization mit Tilts in Schleife),
+    # 'stochastic' (voller Mulvey/Ziemba-light Solver).
+    # Aktuell ist nur 'house_matrix' vollstaendig implementiert; die anderen
+    # Modi liefern Fallback auf house_matrix bis Phase 3-4 fertig sind.
+    optimizer_mode: str = 'house_matrix'
+
     @field_validator('app_env')
     @classmethod
     def validate_app_env(cls, value: str) -> str:
@@ -120,6 +128,15 @@ class Settings(BaseSettings):
         allowed = {'CRITICAL', 'ERROR', 'WARNING', 'INFO', 'DEBUG'}
         if normalized not in allowed:
             raise ValueError(f"log_level must be one of: {', '.join(sorted(allowed))}")
+        return normalized
+
+    @field_validator('optimizer_mode')
+    @classmethod
+    def validate_optimizer_mode(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        allowed = {'house_matrix', 'iterative', 'stochastic'}
+        if normalized not in allowed:
+            raise ValueError(f"optimizer_mode must be one of: {', '.join(sorted(allowed))}")
         return normalized
 
     @field_validator(

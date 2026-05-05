@@ -78,3 +78,33 @@ def test_recent_log_default_must_not_exceed_max():
             recent_log_lines_default=600,
             recent_log_lines_max=500,
         )
+
+
+def test_optimizer_mode_defaults_to_house_matrix():
+    """Default optimizer_mode soll house_matrix sein (kein Verhaltens-Change)."""
+    settings = Settings(
+        app_env='development',
+        secret_key=DEFAULT_SECRET_KEY,
+    )
+    assert settings.optimizer_mode == 'house_matrix'
+
+
+def test_optimizer_mode_accepts_iterative_and_stochastic():
+    """Erlaubte Werte fuer optimizer_mode."""
+    for mode in ('house_matrix', 'iterative', 'stochastic'):
+        settings = Settings(
+            app_env='development',
+            secret_key=DEFAULT_SECRET_KEY,
+            optimizer_mode=mode,
+        )
+        assert settings.optimizer_mode == mode
+
+
+def test_optimizer_mode_rejects_unknown_value():
+    """Unbekanntes optimizer_mode -> Validation-Fehler."""
+    with pytest.raises(ValueError, match='optimizer_mode'):
+        Settings(
+            app_env='development',
+            secret_key=DEFAULT_SECRET_KEY,
+            optimizer_mode='quantum_ai_solver',
+        )

@@ -67,6 +67,13 @@ class TargetAllocation(Base):
     set_at = Column(String, nullable=False)
     approved_by = Column(String, ForeignKey("users.id"))
     approved_at = Column(String)
+    # Optimizer-Audit-Anchor (Spec 2026-05-05). Wenn None: Allocation
+    # kommt aus House-Matrix-Default (vor-Optimizer Baseline).
+    optimization_method = Column(String)  # 'house_matrix' | 'iterative' | 'stochastic'
+    optimization_objective_value_milli = Column(Integer)  # objective in milli (Praezision)
+    optimization_iterations = Column(Integer)
+    optimization_seed = Column(Integer)
+    optimization_status = Column(String)  # 'converged' | 'diverged' | 'timeout' | 'fallback_house_matrix'
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
     deleted_at = Column(String)
@@ -105,6 +112,20 @@ class CapitalMarketAssumption(Base):
     inflation_path_json = Column(String)
     correlation_matrix_json = Column(String)
     sub_asset_class_assumptions_json = Column(String)
+    # Optimizer-Phase 1 (Spec 2026-05-05): Skewness und Excess-Kurtosis pro
+    # Bucket. Default None bzw. 0 -> Cornish-Fisher faellt auf Normal zurueck
+    # (backwards-compat, kein Verhaltens-Change ohne SLAM-Daten). Werte in bps
+    # (z.B. equities_skewness_bps=-5000 = -0.5 skew, excess_kurt_bps=25000 = 2.5).
+    equities_skewness_bps = Column(Integer)
+    equities_excess_kurt_bps = Column(Integer)
+    bonds_skewness_bps = Column(Integer)
+    bonds_excess_kurt_bps = Column(Integer)
+    real_estate_skewness_bps = Column(Integer)
+    real_estate_excess_kurt_bps = Column(Integer)
+    alternatives_skewness_bps = Column(Integer)
+    alternatives_excess_kurt_bps = Column(Integer)
+    liquidity_skewness_bps = Column(Integer)
+    liquidity_excess_kurt_bps = Column(Integer)
     source = Column(String, default="Portfolio Management intern")
     notes = Column(String)
     created_by = Column(String, ForeignKey("users.id"), nullable=False)
