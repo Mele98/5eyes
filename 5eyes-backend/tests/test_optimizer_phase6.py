@@ -348,3 +348,107 @@ def test_endpoint_house_matrix_mode_returns_409(session_factory, monkeypatch, cl
     )
     assert resp.status_code == 409
     assert "stochastic" in resp.json()["detail"].lower()
+
+
+# ============================================================================
+# Phase 6.1: stress_evaluations Persistenz (target_allocations.stress_evaluations_json)
+# ============================================================================
+
+
+def test_stress_evaluations_persisted_to_db_column(session_factory, monkeypatch):
+    """Phase 6.1: stress_evaluations_json wird in der DB-Spalte abgelegt
+    (JSON-String, deserialisierbar als dict). Nur fuer stochastic-Modus.
+    """
+    import json
+
+    from models.allocation import TargetAllocation
+    monkeypatch.setattr(pe.settings, "optimizer_mode", "stochastic")
+    advisor_id, _cid, mid, _aid, _gid = _seed_mandate(session_factory)
+    with session_factory() as s:
+        mandate = s.query(Mandate).filter(Mandate.id == mid).first()
+        result = generate_target_allocation(s, mandate, advisor_id, preferences=None)
+        s.commit()
+        ta_id = result["target_allocation"].id
+        # Reload from DB to verify the column is actually persisted.
+        ta = s.query(TargetAllocation).filter(TargetAllocation.id == ta_id).first()
+        # Wenn der Solver konvergierte und Stress-Eval lief: Spalte ist gesetzt.
+        # Bei Fallback kann sie None sein - dann ueberspringen.
+        if result.get("stress_evaluations") is not None:
+            assert ta.stress_evaluations_json is not None
+            parsed = json.loads(ta.stress_evaluations_json)
+            assert isinstance(parsed, dict)
+            assert parsed == result["stress_evaluations"]
+
+
+def test_stress_evaluations_column_null_in_house_matrix(session_factory, monkeypatch):
+    """Phase 6.1: house_matrix-Modus -> stress_evaluations_json bleibt NULL."""
+    from models.allocation import TargetAllocation
+    monkeypatch.setattr(pe.settings, "optimizer_mode", "house_matrix")
+    advisor_id, _cid, mid, _aid, _gid = _seed_mandate(session_factory)
+    with session_factory() as s:
+        mandate = s.query(Mandate).filter(Mandate.id == mid).first()
+        result = generate_target_allocation(s, mandate, advisor_id, preferences=None)
+        s.commit()
+        ta_id = result["target_allocation"].id
+        ta = s.query(TargetAllocation).filter(TargetAllocation.id == ta_id).first()
+        assert ta.stress_evaluations_json is None
+
+
+def test_payload_endpoint_returns_persisted_stress_evaluations(
+    session_factory, monkeypatch, cleanup_overrides,
+):
+    """Phase 6.1: GET /target-allocation/current/payload liefert stress_evaluations
+    aus der DB ohne erneuten Solver-Lauf - das ist der Nutzen der Persistenz."""
+    monkeypatch.setattr(pe.settings, "optimizer_mode", "stochastic")
+    advisor_id, _cid, mid, _aid, _gid = _seed_mandate(session_factory)
+    # 1. Allocation erzeugen (persistiert stress_evaluations_json in DB)
+    with session_factory() as s:
+        mandate = s.query(Mandate).filter(Mandate.id == mid).first()
+        result = generate_target_allocation(s, mandate, advisor_id, preferences=None)
+        s.commit()
+        had_stress = result.get("stress_evaluations") is not None
+    if not had_stress:
+        pytest.skip("Solver fiel auf fallback_house_matrix - kein Stress-Eval persistiert")
+
+    # 2. /current/payload aufrufen (anderer Codepfad: build_target_payload_from_allocation)
+    with session_factory() as s:
+        advisor = s.query(User).filter(User.id == advisor_id).first()
+    client = _client_with_user(session_factory, advisor)
+    resp = client.get(f"/mandates/{mid}/target-allocation/current/payload")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    stress = body.get("stress_evaluations")
+    assert stress is not None
+    assert isinstance(stress, dict)
+    assert len(stress) >= 1
+    for _name, payload in stress.items():
+        assert "end_wealth_rappen" in payload
+        assert "max_drawdown_bps" in payload
+
+
+def test_payload_endpoint_handles_corrupted_stress_json_gracefully(
+    session_factory, monkeypatch, cleanup_overrides,
+):
+    """Phase 6.1: Defekter JSON in der DB-Spalte fuehrt zu stress_evaluations=None
+    und keinem Crash - Robustheit beim Deserialisieren ist Pflicht."""
+    from models.allocation import TargetAllocation
+    monkeypatch.setattr(pe.settings, "optimizer_mode", "house_matrix")
+    advisor_id, _cid, mid, _aid, _gid = _seed_mandate(session_factory)
+    with session_factory() as s:
+        mandate = s.query(Mandate).filter(Mandate.id == mid).first()
+        generate_target_allocation(s, mandate, advisor_id, preferences=None)
+        s.commit()
+        # Sabotiere das persistierte JSON.
+        ta = s.query(TargetAllocation).filter(
+            TargetAllocation.mandate_id == mid,
+            TargetAllocation.is_current == 1,
+        ).first()
+        ta.stress_evaluations_json = "{not-valid-json"
+        s.commit()
+
+    with session_factory() as s:
+        advisor = s.query(User).filter(User.id == advisor_id).first()
+    client = _client_with_user(session_factory, advisor)
+    resp = client.get(f"/mandates/{mid}/target-allocation/current/payload")
+    assert resp.status_code == 200, resp.text
+    assert resp.json().get("stress_evaluations") is None

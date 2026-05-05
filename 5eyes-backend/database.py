@@ -191,6 +191,9 @@ def ensure_runtime_columns() -> None:
             ('optimization_iterations', 'INTEGER'),
             ('optimization_seed', 'INTEGER'),
             ('optimization_status', 'TEXT'),
+            # Phase 6: persistierte Stress-Auswertungen (Phase 5.2) als JSON-String.
+            # NULL bei house_matrix-Modus oder Pre-Optimizer-Allocations.
+            ('stress_evaluations_json', 'TEXT'),
         ],
         'recommendation_positions': [
             ('reference_price_rappen', 'INTEGER'),

@@ -74,6 +74,11 @@ class TargetAllocation(Base):
     optimization_iterations = Column(Integer)
     optimization_seed = Column(Integer)
     optimization_status = Column(String)  # 'converged' | 'diverged' | 'timeout' | 'fallback_house_matrix'
+    # Phase 6: persistierte Stress-Auswertungen aus dem Solver (Phase 5.2),
+    # JSON-serialisiertes dict[scenario_name, dict]. NULL bei house_matrix-Modus.
+    # Damit kann das FE-Optimizer-Panel auch beim Reload (GET-Endpoint) die
+    # Stress-Tabelle ohne erneuten Solver-Lauf rendern.
+    stress_evaluations_json = Column(String)
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
     deleted_at = Column(String)

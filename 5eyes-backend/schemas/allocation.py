@@ -78,6 +78,9 @@ class TargetAllocationResponse(BaseResponse):
     total_wealth_at_generation_rappen: Optional[int] = None
     reserve_needed_at_generation_rappen: Optional[int] = None
     external_reserve_at_generation_rappen: Optional[int] = None
+    # Phase 6: persistierte Stress-Auswertungen als JSON-String. None bei
+    # house_matrix-Modus. FE deserialisiert clientseitig.
+    stress_evaluations_json: Optional[str] = None
     policy_id: str
     set_by: str
     set_at: str

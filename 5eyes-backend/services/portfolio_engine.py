@@ -3905,6 +3905,19 @@ def generate_target_allocation(
     )
 
     optimizer_audit = _optimizer_audit_fields(optimizer_result)
+    # Phase 6: Stress-Eval als JSON persistieren, damit /current/payload sie
+    # ohne erneuten Solver-Lauf liefern kann.
+    stress_evaluations_json: str | None = None
+    if optimizer_result is not None and optimizer_result.stress_evaluations:
+        try:
+            stress_evaluations_json = json.dumps(
+                optimizer_result.stress_evaluations,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+        except (TypeError, ValueError) as exc:
+            logger.warning("Stress-eval JSON-serialization failed: %s", exc)
+            stress_evaluations_json = None
     target_allocation = TargetAllocation(
         id=new_uuid(),
         mandate_id=mandate.id,
@@ -3941,6 +3954,7 @@ def generate_target_allocation(
         optimization_iterations=optimizer_audit.get("optimization_iterations"),
         optimization_seed=optimizer_audit.get("optimization_seed"),
         optimization_status=optimizer_audit.get("optimization_status"),
+        stress_evaluations_json=stress_evaluations_json,
         policy_id=policy.id,
         set_by=user_id,
         set_at=now,
@@ -4393,6 +4407,20 @@ def build_target_payload_from_allocation(
         current_advisory_wealth_rappen=advisory_wealth_rappen,
         current_external_reserve_rappen=external_reserve_rappen,
     )
+    # Phase 6: persistierte Stress-Auswertungen aus der Allocation deserialisieren.
+    # NULL bei pre-Optimizer-Allocations oder house_matrix-Modus.
+    stress_evaluations: dict | None = None
+    raw_stress = getattr(allocation, "stress_evaluations_json", None)
+    if raw_stress:
+        try:
+            parsed = json.loads(raw_stress)
+            if isinstance(parsed, dict):
+                stress_evaluations = parsed
+        except (TypeError, ValueError) as exc:
+            logger.warning(
+                "Stored stress_evaluations_json invalid for allocation %s: %s",
+                getattr(allocation, "id", "?"), exc,
+            )
     return {
         "target_allocation": allocation,
         "policy": policy,
@@ -4447,6 +4475,7 @@ def build_target_payload_from_allocation(
         "monte_carlo": monte_carlo,
         "goal_analysis": goal_analysis,
         "live_rebalancing": live_rebalancing,
+        "stress_evaluations": stress_evaluations,
     }
 
 
