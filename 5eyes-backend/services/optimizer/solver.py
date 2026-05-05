@@ -59,6 +59,8 @@ class OptimizerResult:
     """Allocation + Audit-Trace aus dem Optimizer.
 
     weights_bps: Bucket-Gewichte in bps (summe ~ 10000), in BUCKET_ORDER-Reihenfolge.
+    stress_evaluations: optional dict[scenario_name, StressResult-dict] aus
+        Phase 5.2 Stress-Audit. None bei fallback-Modus.
     """
     weights_bps: dict[str, int]
     objective_value: float
@@ -70,6 +72,7 @@ class OptimizerResult:
     reasoning: list[str] = field(default_factory=list)
     n_paths: int = 0
     n_starts_attempted: int = 0
+    stress_evaluations: dict[str, dict] | None = None
 
 
 # ============================================================================
@@ -352,6 +355,32 @@ def run_solver(
         reasoning.append("Constraint-Verletzungen am Optimum:")
         reasoning.extend(f"  - {r}" for r in violation_reasons)
 
+    # Phase 5.2: Stress-Szenarien als Audit-Erweiterung. Berechnet die End-
+    # Wealth in 3 historischen Krisen-Pfaden, damit der Berater sehen kann
+    # wie die Allocation in 1929/2008/2020 abgeschnitten haette.
+    stress_evals: dict[str, dict] | None = None
+    try:
+        from .stress_scenarios import (
+            evaluate_stress_scenarios,
+            stress_results_to_dict,
+        )
+        stress_results = evaluate_stress_scenarios(
+            weights=final_w,
+            initial_wealth_rappen=advisory_wealth_rappen,
+            cashflow_series_rappen=list(cashflow_series_rappen),
+            liability_path_rappen=aggregated_liability,
+            horizon_years=horizon_years,
+        )
+        stress_evals = stress_results_to_dict(stress_results)
+        for name, r in stress_results.items():
+            reasoning.append(
+                f"Stress '{name}': End-Vermoegen {r.end_wealth_rappen // 100:,} CHF, "
+                f"Max Drawdown {r.max_drawdown_bps / 100:.1f}%."
+            )
+    except Exception as exc:  # noqa: BLE001
+        # Stress-Eval ist nice-to-have - kein Solver-Crash deswegen
+        reasoning.append(f"Stress-Auswertung fehlgeschlagen: {type(exc).__name__}")
+
     return OptimizerResult(
         weights_bps=weights_bps,
         objective_value=best_obj,
@@ -363,6 +392,7 @@ def run_solver(
         reasoning=reasoning,
         n_paths=n_paths,
         n_starts_attempted=len(initials),
+        stress_evaluations=stress_evals,
     )
 
 
