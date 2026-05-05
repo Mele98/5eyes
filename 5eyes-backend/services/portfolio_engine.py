@@ -224,12 +224,23 @@ def _bucket_key(value: str | None) -> str | None:
 
 
 def _coerce_band_bps(value) -> int | None:
+    """3-Magnituden-Heuristik fuer Berater-Eingaben:
+    |x| < 1   → fraction (0.05 → 500 bps)
+    1 ≤|x|<100→ percent  (50 → 5000 bps)
+    |x| ≥ 100 → bps direct (500 → 500)
+    int wird immer als bps direkt interpretiert.
+    """
     if value in (None, "", False):
         return None
     if isinstance(value, int):
         return value
     if isinstance(value, float):
-        return int(round(value if abs(value) > 100 else value * 100))
+        abs_v = abs(value)
+        if abs_v < 1:
+            return int(round(value * 10000))
+        if abs_v < 100:
+            return int(round(value * 100))
+        return int(round(value))
     raw = str(value).replace("'", "").replace(" ", "").strip()
     if not raw:
         return None
@@ -239,7 +250,12 @@ def _coerce_band_bps(value) -> int | None:
         numeric = float(raw.replace(",", "."))
     except ValueError:
         return None
-    return int(round(numeric if abs(numeric) > 100 else numeric * 100))
+    abs_v = abs(numeric)
+    if abs_v < 1:
+        return int(round(numeric * 10000))
+    if abs_v < 100:
+        return int(round(numeric * 100))
+    return int(round(numeric))
 
 
 def _risk_score_bucket(assessment: RiskAssessment) -> int:
@@ -553,7 +569,9 @@ def _build_live_rebalancing_entry(
                     holding_market_value_rappen or 0,
                     latest_price_rappen or reference_price_rappen,
                 )
-                valuation_basis = "actual_holding_market_value"
+                # rp-ueberarbeitung: semantisch klarer — die units sind IMPLIED
+                # vom market_value (nicht direkt vom Holding), daher 'implied_'.
+                valuation_basis = "implied_from_holding_market_value"
 
     implied_units_milli = _units_milli_from_amount(target_amount_rappen, reference_price_rappen)
     if not current_units_milli:
@@ -675,7 +693,10 @@ def _build_live_bucket_drifts(
         min_weight = int(config["band_min_bps"])
         max_weight = int(config["band_max_bps"])
         breach_bps = 0
-        if current_weight_bps < min_weight:
+        # Zero bands = "no constraint" (Bucket nicht aktiv konfiguriert).
+        if min_weight == 0 and max_weight == 0:
+            breach_bps = 0
+        elif current_weight_bps < min_weight:
             breach_bps = min_weight - current_weight_bps
         elif current_weight_bps > max_weight:
             breach_bps = current_weight_bps - max_weight
@@ -1295,8 +1316,13 @@ def _simulation_stress_multiplier(simulation_prefs: dict | None) -> float:
 
 def _simulation_transaction_cost_bps(simulation_prefs: dict | None) -> int:
     raw = (simulation_prefs or {}).get("transactionCostBps")
+    # Cave: `0 in (None, "", False)` ist True (0 == False in Python).
+    # Daher explizit auf None/leer pruefen, damit ein User-Input 0 NICHT zum
+    # Default-Fallback fuehrt.
+    if raw is None or raw == "" or raw is False:
+        return DEFAULT_REBALANCE_TRANSACTION_COST_BPS
     try:
-        value = int(str(raw).strip()) if raw not in (None, "", False) else DEFAULT_REBALANCE_TRANSACTION_COST_BPS
+        value = int(str(raw).strip())
     except (TypeError, ValueError):
         value = DEFAULT_REBALANCE_TRANSACTION_COST_BPS
     return max(0, min(200, value))
@@ -1422,6 +1448,7 @@ def _simulate_bucket_path(
     rebalance_mode: str,
     transaction_cost_bps: int = 0,
     initial_deficit_rappen: int = 0,
+    vols_by_asset: dict[str, int] | None = None,  # rp-ueberarbeitung: Itô-Korrektur
 ) -> tuple[list[int], list[dict]]:
     values = {key: max(0, int(start_values.get(key, 0))) for key in BUCKET_FIELDS}
     # Z8-W2: Lebensluecke wird als positiver Schuldenstand mitgefuehrt.
@@ -1434,15 +1461,26 @@ def _simulate_bucket_path(
     for offset, contribution in enumerate(cashflow_series_rappen):
         year = start_year + offset
         for key in BUCKET_FIELDS:
-            values[key] = int(round(max(0, values[key]) * (1 + (int(returns_by_asset.get(key, 0)) / 10000))))
+            r = int(returns_by_asset.get(key, 0)) / 10000
+            if vols_by_asset:
+                # rp-ueberarbeitung: Itô-Korrektur (geometric brownian motion mean)
+                sigma = int(vols_by_asset.get(key, 0)) / 10000
+                growth = math.exp(r - 0.5 * sigma * sigma)
+            else:
+                growth = 1 + r
+            values[key] = int(round(max(0, values[key]) * growth))
         deficit_rest = _apply_cashflow_to_bucket_values(values, int(contribution or 0))
         accumulated_deficit += deficit_rest
         weights = _weights_from_bucket_values(values)
-        breached = [
-            BUCKET_LABELS[key]
-            for key in BUCKET_FIELDS
-            if weights[key] < int(minimums.get(key, 0)) or weights[key] > int(maximums.get(key, 0))
-        ]
+        breached = []
+        for key in BUCKET_FIELDS:
+            mn = int(minimums.get(key, 0))
+            mx = int(maximums.get(key, 0))
+            # Zero bands = Bucket nicht aktiv konfiguriert -> keine Breach-Pruefung.
+            if mn == 0 and mx == 0:
+                continue
+            if weights[key] < mn or weights[key] > mx:
+                breached.append(BUCKET_LABELS[key])
         should_rebalance = False
         note = ""
         if rebalance_mode == "calendar":
@@ -1553,9 +1591,12 @@ def _build_simulation_payload(
     simulation_prefs: dict | None,
     sub_allocations: list[dict] | None = None,
     target_total_rappen: int | None = None,
+    target_start_value_rappen: int | None = None,  # alias from rp-ueberarbeitung
     total_summary: PortfolioSummary | None = None,
     total_liabilities_rappen: int = 0,
 ) -> dict:
+    if target_start_value_rappen is not None and target_total_rappen is None:
+        target_total_rappen = target_start_value_rappen
     horizon_years = max(1, len(cashflow_projection_series_rappen))
     stress_multiplier = _simulation_stress_multiplier(simulation_prefs)
     rebalance_mode = _simulation_rebalance_mode(simulation_prefs)
@@ -1880,7 +1921,7 @@ def _annualize_goal_amount(goal: Goal) -> int:
 
 
 def _goal_timing_label(goal: Goal, years: int) -> str:
-    goal_type = _norm_text(goal.goal_type)
+    goal_type = _norm_text(goal.goal_type).strip()
     if goal_type in ("Wiederkehrende_Ausgabe", "Pensionsausgabe"):
         parts = []
         if goal.frequency:
@@ -2253,9 +2294,12 @@ def _run_allocation_monte_carlo(
     start_year: int,
     sub_allocations: list[dict] | None = None,
     target_total_rappen: int | None = None,
+    target_start_value_rappen: int | None = None,  # alias from rp-ueberarbeitung
     total_summary: "PortfolioSummary | None" = None,
     total_liabilities_rappen: int = 0,
 ) -> dict:
+    if target_start_value_rappen is not None and target_total_rappen is None:
+        target_total_rappen = target_start_value_rappen
     horizon_years = max(1, len(cashflow_projection_series_rappen))
     simulations = _monte_carlo_simulations(simulation_prefs)
     stress_multiplier = _simulation_stress_multiplier(simulation_prefs)
@@ -3721,7 +3765,10 @@ def _build_bucket_response(
     current_amounts: dict,
     advisory_wealth_rappen: int,
     target_total_rappen: int | None = None,
+    target_base_rappen: int | None = None,  # alias from rp-ueberarbeitung
 ) -> list[dict]:
+    if target_base_rappen is not None and target_total_rappen is None:
+        target_total_rappen = target_base_rappen
     target_base_rappen = int(target_total_rappen if target_total_rappen is not None else advisory_wealth_rappen)
     label_map = {
         "equities": (BUCKET_LABELS["equities"], target_allocation.target_equities_bps, target_allocation.band_equities_min_bps, target_allocation.band_equities_max_bps),
@@ -3758,13 +3805,10 @@ def generate_target_allocation(
 ) -> dict:
     now = _now()
     policy, cma = ensure_runtime_reference_data(db, user_id)
-    assessment = db.query(RiskAssessment).filter(
-        RiskAssessment.mandate_id == mandate.id,
-        RiskAssessment.is_current == 1,
-        RiskAssessment.deleted_at.is_(None),
-    ).first()
-    if not assessment:
-        raise ValueError("Bitte zuerst ein aktuelles Risikoprofil speichern.")
+    # rp-ueberarbeitung: Strategie-Readiness-Gate (Knowledge-/Erfahrungs-Antworten
+    # vollstaendig). Audit-Master hatte den Check nur in den Routern; durch das
+    # Aufrufen hier ist er auch fuer direkte Service-Aufrufe wirksam.
+    assessment = require_strategy_ready_assessment(db, mandate.id)
 
     prefs = _normalize_preferences(preferences)
     score_bucket = _risk_score_bucket(assessment)

@@ -174,19 +174,6 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 .ci{color:var(--pos);}
 .co{color:var(--neg);}
 .cft{display:flex;justify-content:space-between;align-items:center;padding:8px 0 0;border-top:2px solid var(--b2);margin-top:3px;}
-.cf-workbench{display:grid;grid-template-columns:minmax(0,1.9fr) minmax(330px,0.95fr);gap:16px;align-items:start;}
-.cf-left-stack{display:flex;flex-direction:column;gap:12px;min-width:0;}
-.cf-right-panel{display:flex;flex-direction:column;gap:12px;min-width:0;position:sticky;top:64px;}
-.cf-page-note{font-size:11px;color:var(--n5);line-height:1.6;margin-bottom:12px;padding:10px 12px;background:linear-gradient(135deg,#fff,var(--bg));border:1px solid var(--b1);border-radius:var(--r2);}
-.cf-flow-card .chd,.cf-goal-card .chd,.cf-chart-card .chd{padding:11px 14px;}
-.cf-flow-card .cbody,.cf-goal-card .cbody,.cf-chart-card .cbody{padding:12px 14px;}
-.cf-chart-card{overflow:hidden;}
-.cf-chart-card .chart-lg{height:390px;}
-.cf-row-actions{display:flex;gap:4px;align-items:center;}
-.cf-row-actions .btn-ico{opacity:.72;}
-#page-cf .cf-row>div:last-child,#page-cf .goal>div:last-child{display:flex;gap:4px;align-items:center;}
-#page-cf .cf-row>div:last-child .btn-ico,#page-cf .goal>div:last-child .btn-ico{opacity:.72;}
-.cf-row:hover .cf-row-actions .btn-ico,.goal:hover .btn-ico,#page-cf .cf-row:hover>div:last-child .btn-ico,#page-cf .goal:hover>div:last-child .btn-ico{opacity:1;}
 
 
 /* CI/UX component layer: semantic, frontend-only */
@@ -394,6 +381,65 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 .market-runtime-k{font-size:9px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:var(--n4);margin-bottom:4px;}
 .market-runtime-v{font-size:11px;font-weight:600;color:var(--n8);line-height:1.45;}
 .market-runtime-s{font-size:10px;color:var(--n5);line-height:1.5;margin-top:3px;}
+.admin-health-hero{display:grid;grid-template-columns:1fr;gap:10px;align-items:stretch;}
+.admin-health-panel{border:1px solid var(--b1);border-radius:8px;background:var(--bg);padding:13px 14px;}
+.admin-health-title{font-size:15px;font-weight:700;color:var(--n8);line-height:1.3;}
+.admin-health-sub{font-size:10px;color:var(--n5);line-height:1.55;margin-top:3px;}
+.admin-health-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px;}
+.admin-health-card{border:1px solid var(--b1);border-radius:8px;background:var(--bg);padding:10px 11px;min-height:70px;display:grid;align-content:start;gap:4px;}
+.admin-health-card.ok,.admin-health-card.warn,.admin-health-card.danger{background:var(--bg);}
+.admin-health-card.ok{border-color:rgba(36,128,82,.22);}
+.admin-health-card.warn{border-color:rgba(170,112,20,.25);}
+.admin-health-card.danger{border-color:rgba(170,56,56,.25);}
+.admin-health-card.ok .admin-health-v{color:var(--pos);}
+.admin-health-card.warn .admin-health-v{color:var(--warn);}
+.admin-health-card.danger .admin-health-v{color:var(--neg);}
+.admin-health-k{font-size:9px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--n4);}
+.admin-health-v{font-size:16px;font-weight:700;color:var(--n8);line-height:1.15;}
+.admin-health-s{font-size:10px;color:var(--n5);line-height:1.45;}
+.admin-health-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;}
+.admin-risk-note{border:1px solid var(--b1);border-radius:8px;background:var(--bg);padding:8px 10px;font-size:10px;color:var(--n5);line-height:1.5;}
+.admin-risk-note strong{display:block;font-size:10px;color:var(--n7);margin-bottom:3px;}
+.admin-risk-note.warn{border-left:3px solid var(--warn);background:var(--bg);}
+.admin-risk-note.danger{border-left:3px solid var(--neg);background:var(--bg);}
+.admin-worklist{display:grid;gap:0;border:1px solid var(--b1);border-radius:8px;overflow:hidden;background:var(--bg);}
+.admin-workitem{border:0;border-bottom:1px solid var(--b1);border-radius:0;background:transparent;padding:9px 10px;font-size:10px;color:var(--n5);line-height:1.45;}
+.admin-workitem:last-child{border-bottom:0;}
+.admin-workitem-title{font-size:11px;font-weight:650;color:var(--n8);margin-bottom:2px;}
+.admin-pill{display:inline-flex;align-items:center;gap:4px;border-radius:999px;padding:2px 7px;font-size:9px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;border:1px solid var(--b1);color:var(--n5);background:var(--bg);}
+.admin-pill.ok{color:var(--pos);border-color:rgba(36,128,82,.22);}
+.admin-pill.warn{color:var(--warn);border-color:rgba(170,112,20,.25);}
+.admin-pill.danger{color:var(--neg);border-color:rgba(170,56,56,.25);}
+.admin-action-list{display:grid;gap:0;border:1px solid var(--b1);border-radius:8px;overflow:hidden;background:var(--bg);}
+.admin-action-row{border:0;border-bottom:1px solid var(--b1);border-radius:0;background:transparent;padding:10px 12px;display:grid;grid-template-columns:9px minmax(0,1fr) auto;gap:10px;align-items:center;font-size:10px;color:var(--n5);line-height:1.45;}
+.admin-action-row:last-child{border-bottom:0;}
+.admin-action-row:before{content:'';width:6px;height:6px;border-radius:50%;background:var(--n3);display:block;}
+.admin-action-row.ok:before{background:var(--pos);}
+.admin-action-row.warn:before{background:var(--warn);}
+.admin-action-row.danger:before{background:var(--neg);}
+.admin-action-title{font-size:11px;font-weight:650;color:var(--n8);margin-bottom:1px;}
+.admin-action-meta{font-size:10px;color:var(--n5);line-height:1.45;}
+.admin-link-btn{background:transparent;border:0;color:var(--g4);font-size:10px;font-weight:700;padding:2px 0;cursor:pointer;white-space:nowrap;}
+.admin-audit-summary{display:grid;gap:8px;}
+.admin-sidebar{width:196px;flex-shrink:0;border-right:1px solid var(--b1);overflow-y:auto;background:var(--bg2);padding:10px 8px;}
+.admin-content{flex:1;overflow-y:auto;padding:18px 22px;background:var(--bg);}
+.admin-nav-label{padding:13px 8px 5px;font-size:9px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--n4);}
+.admin-nav-label:first-child{padding-top:2px;}
+.admin-sec-btn{display:block!important;width:100%!important;text-align:left!important;padding:7px 9px!important;background:transparent!important;color:var(--n6)!important;border:0!important;border-radius:7px!important;font-size:11px!important;font-weight:500!important;line-height:1.25!important;cursor:pointer!important;margin:1px 0!important;}
+.admin-sec-btn:hover{background:rgba(0,0,0,.035)!important;color:var(--n8)!important;}
+.admin-sec-btn.admin-active{background:var(--bg)!important;color:var(--n8)!important;font-weight:650!important;box-shadow:inset 0 0 0 1px var(--b1);}
+.admin-sec-panel{max-width:760px;}
+.admin-modal .mhd{background:var(--bg);padding:15px 18px 12px;}
+.admin-modal .mtitle{font-family:var(--f-s);font-size:15px;font-weight:700;letter-spacing:0;color:var(--n8);}
+.admin-modal .mfooter{background:var(--bg);padding:10px 18px;}
+.admin-modal .btn,.admin-modal .btn-p,.admin-modal .btn-g{border-radius:7px!important;font-size:11px!important;font-weight:600!important;padding:5px 11px!important;box-shadow:none!important;}
+.admin-modal .btn-p,.admin-modal .btn-g{background:var(--bg2)!important;color:var(--n7)!important;border:1px solid var(--b1)!important;}
+.admin-modal .btn-p:hover,.admin-modal .btn-g:hover{background:var(--bg)!important;color:var(--n8)!important;}
+.admin-modal .admin-primary-btn{background:var(--n8)!important;color:#fff!important;border:1px solid var(--n8)!important;border-radius:7px!important;}
+.admin-modal .admin-primary-btn:hover{background:var(--n7)!important;color:#fff!important;}
+.admin-modal .fi,.admin-modal .fsel,.admin-modal textarea{border-radius:7px!important;background:var(--bg2)!important;border-color:var(--b1)!important;}
+.admin-modal #admin-result{background:var(--bg)!important;color:var(--n6)!important;font-size:10px!important;line-height:1.5!important;}
+@media(max-width:900px){.admin-sidebar{width:176px}.admin-content{padding:16px}.admin-health-grid{grid-template-columns:1fr 1fr}.admin-action-row{grid-template-columns:9px minmax(0,1fr)}.admin-link-btn{justify-self:start}}
 
 /* ALLOC TABLE */
 .ar{display:grid;grid-template-columns:8px 1fr 50px 68px 50px 68px 52px;gap:0;align-items:center;padding:6px 0;border-bottom:1px solid var(--b1);}
@@ -598,8 +644,6 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 }
 @media (max-width: 1100px){
   #cf-goals-projection .projection-grid,#page-al .g2{grid-template-columns:1fr;}
-  .cf-workbench{grid-template-columns:1fr;}
-  .cf-right-panel{position:static;}
 }
 #aa-proj-compare,#aa-proj-chart-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;}
 @media (max-width: 900px){
@@ -611,7 +655,6 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 #cf-goals-projection .projection-grid,#page-al .g2{grid-template-columns:minmax(0,1.22fr) minmax(320px,0.88fr);gap:16px;align-items:start;}
 #cf-goals-projection .chart,#page-al .chart{height:260px;}
 #cf-goals-projection .chart-lg{height:430px;}
-#cf-goals-projection .cf-chart-card .chart-lg{height:390px;}
 #page-al .chart-lg{height:390px;}
 
 /* buildQT classes */
@@ -814,13 +857,9 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
     <div id="page-cf" class="page">
       <div class="ph"><div><div class="ph-t">Cashflows &amp; Ziele</div><div class="ph-s">Zufl&uuml;sse &middot; Ausgaben &middot; Ziele &middot; aktueller Verm&ouml;genspfad</div></div><div class="ph-r"><button class="btn" onclick="om('m-acf')">Cashflow erfassen</button><button class="btn-p" onclick="go('rp')">Risikoprofil &rarr;</button></div></div>
       <div class="pad">
-        <div class="cf-page-note">Links pflegst du die aktuelle Kundensituation: zuerst Einnahmen, dann Ausgaben, danach Ziele. Rechts bleibt die Wirkung auf den Vermoegenspfad sichtbar, ohne die Erfassung zu ueberladen.</div>
-        <div id="cf-workbench" class="cf-workbench">
-          <div id="cf-left-stack" class="cf-left-stack" data-slot="cashflows"></div>
-          <div id="cf-right-panel" class="cf-right-panel">
-            <div id="cf-goals-projection" data-slot="goals-projection" style="display:flex;flex-direction:column;gap:12px"></div>
-          </div>
-        </div>
+        <div style="font-size:11px;color:var(--n5);line-height:1.6;margin-bottom:12px;padding:10px 12px;background:var(--bg);border:1px solid var(--b1);border-radius:var(--r2)">Hier wird sichtbar, was laufend hinein- und hinausfliesst, welche Ziele priorisiert sind und wie sich der heutige Verm&ouml;genspfad aus den effektiven Daten entwickelt. Der Vergleich zur optimierten Strategie bleibt bewusst in der Asset Allokation.</div>
+        <div class="g2" data-slot="cashflows"></div>
+        <div id="cf-goals-projection" data-slot="goals-projection" style="display:flex;flex-direction:column;gap:12px;margin-top:12px"></div>
         <div id="cf-save-status" style="display:none;margin-top:12px;padding:10px 12px;border:1px solid var(--b1);border-radius:var(--r2);background:var(--bg);font-size:11px;color:var(--n6)"></div>
       </div>
       <div class="cnav"><button class="btn" onclick="go('vg')">&larr; Zur&uuml;ck</button><div style="display:flex;gap:8px;align-items:center"><button class="btn-g" id="btn-cf-save-state" onclick="saveCashflowsAndRefreshCurrentPath()">Speichern</button><button class="btn-p" onclick="go('rp')">Risikoprofil &rarr;</button></div></div>
@@ -1086,7 +1125,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
           <div class="kpi" onclick="go('cf')" title="Zu Cashflows &amp; Ziele" style="cursor:pointer"><div class="kl">Nächstes Ziel</div><div class="kv" id="kpi-goal-progress">2030</div><div class="ks"><span class="a">Fälligkeit prüfen</span></div></div>
           <div class="kpi" onclick="go('cf')" title="Zu Cashflows" style="cursor:pointer"><div class="kl">Laufender Netto-Cashflow p.a.</div><div class="kv" id="kpi-cashflow">+155k</div><div class="ks"><span class="g">Planmässig</span></div></div>
         </div>
-        <div id="cf-template-grid" style="display:grid;grid-template-columns:1fr 340px;gap:12px">
+        <div style="display:grid;grid-template-columns:1fr 340px;gap:12px">
           <div>
             <div class="card mb">
               <div class="chd"><span class="cht">Vermögenszuflüsse</span><div class="chr"><button class="btn-p btn-sm" onclick="om('m-acf')">+ Zufluss</button></div></div>
@@ -1233,6 +1272,39 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
                 <div style="border:1px solid var(--b1);border-radius:var(--r);padding:8px 10px"><div style="display:flex;justify-content:space-between;margin-bottom:3px"><span style="font-size:11px;font-weight:500">House View &amp; Leitplanken</span><span class="tag ta">Relevant</span></div><div style="font-size:10px;color:var(--n6);line-height:1.5">Bandbreiten, Restriktionen und Kapitalmarktannahmen begrenzen die Strategie bewusst und machen sie nachvollziehbar.</div></div>
                 <div style="border:1px solid var(--b1);border-radius:var(--r);padding:8px 10px"><div style="display:flex;justify-content:space-between;margin-bottom:3px"><span style="font-size:11px;font-weight:500">Nächster Schritt</span><span class="tag tn">Einordnung</span></div><div style="font-size:10px;color:var(--n6);line-height:1.5">Vergleiche zur Umsetzung, Entscheidungen und die eigentliche Dokumentation erfolgen anschliessend im Review.</div></div>
               </div>
+            </div>
+          </div>
+          <!-- Phase 6: Optimizer-Panel -->
+          <div class="card" id="al-optimizer-panel" style="display:none">
+            <div class="chd">
+              <span class="cht">Stochastischer Optimizer</span>
+              <span class="opt-pill" id="opt-status-pill" style="margin-left:auto;font-size:10px;padding:2px 8px;border-radius:10px;display:inline-flex;align-items:center;gap:4px"></span>
+            </div>
+            <div class="cbody" style="display:grid;gap:12px">
+              <div id="opt-fallback-banner" style="display:none;background:var(--warn-lt);border:1px solid rgba(122,82,0,0.25);border-radius:var(--r);padding:8px 10px;font-size:10px;color:var(--n6);line-height:1.4"></div>
+              <details id="opt-reasoning-block" open>
+                <summary style="font-size:11px;font-weight:500;cursor:pointer;color:var(--n6)">Reasoning-Trace</summary>
+                <ul id="opt-reasoning-list" style="margin:6px 0 0 18px;padding:0;font-size:10px;color:var(--n6);line-height:1.5"></ul>
+              </details>
+              <details id="opt-stress-block">
+                <summary style="font-size:11px;font-weight:500;cursor:pointer;color:var(--n6)">Stress-Tests (historisch)</summary>
+                <table class="stress-table" id="opt-stress-table" style="margin-top:6px;width:100%;border-collapse:collapse;font-size:10px">
+                  <thead>
+                    <tr style="background:var(--bg);border-bottom:1px solid var(--b1)">
+                      <th style="padding:5px 8px;text-align:left">Szenario</th>
+                      <th style="padding:5px 8px;text-align:right">End-Vermögen</th>
+                      <th style="padding:5px 8px;text-align:right">Min-Vermögen</th>
+                      <th style="padding:5px 8px;text-align:right">Max DD</th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </details>
+              <details id="opt-sensitivity-block">
+                <summary style="font-size:11px;font-weight:500;cursor:pointer;color:var(--n6)">Sensitivity-Analyse</summary>
+                <div id="opt-sensitivity-list" style="margin-top:8px;display:flex;flex-direction:column;gap:8px"></div>
+              </details>
+              <div id="opt-audit-footer" style="font-size:9px;color:var(--n4);font-family:var(--f-d);border-top:1px dashed var(--b1);padding-top:6px"></div>
             </div>
           </div>
           <div class="card" id="al-planning-card">
@@ -1457,7 +1529,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 
     <!-- PAGE: REVIEW -->
     <div id="page-rv" class="page">
-      <div class="ph"><div><div class="ph-t">Kunden-Review</div><div class="ph-s">Status · wichtigste Punkte · Entscheid</div></div><div class="ph-r"><button class="btn-p" onclick="om('m-ne')">Entscheid protokollieren</button><button class="btn" onclick="printReport()">PDF</button><button class="btn-g" onclick="printAnlagestrategie()">Anlagestrategie ↓</button></div></div>
+      <div class="ph"><div><div class="ph-t">Review</div><div class="ph-s">IST vs. SOLL · Trigger · Entscheid</div></div><div class="ph-r"><button class="btn" onclick="om('m-nt')">+ Trigger</button><button class="btn-p" onclick="om('m-ne')">Entscheid protokollieren</button><button class="btn" onclick="printReport()">PDF</button><button class="btn-g" onclick="printAnlagestrategie()">Anlagestrategie ↓</button></div></div>
       <div class="strip" id="rv-alert-strip" style="display:none"></div>
       <div id="rv-decision-strip" style="display:none"></div>
       <div class="pad">
@@ -1512,13 +1584,13 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 
         <!-- ② PORTFOLIO-CHECK — IST vs. SOLL, Cashflow, Ziel — Kern jedes Reviews -->
         <div class="card" style="margin-bottom:10px">
-          <div class="chd"><span class="cht">Heute wichtig</span><span style="font-size:9px;color:var(--n4);margin-left:8px">Nur die Punkte, die im Gespraech zaehlen</span></div>
+          <div class="chd"><span class="cht">Portfolio-Check</span><span style="font-size:9px;color:var(--n4);margin-left:8px">IST vs. SOLL · Allokation · Zielerreichung</span></div>
           <div class="cbody" id="rv-strategy-compare"><div style="font-size:10px;color:var(--n4)">Strategie laden, um den Vergleich anzuzeigen.</div></div>
         </div>
 
         <!-- ③ TRIGGER — sortiert nach Dringlichkeit, alle Typen in einer Card -->
         <div class="card" style="margin-bottom:10px">
-          <div class="chd"><span class="cht">Offene Punkte</span><span style="font-size:9px;color:var(--n4);margin-left:8px">Faelligkeiten, Abweichungen und Ereignisse</span><div class="chr"><button class="btn btn-sm" onclick="om('m-nt')">+ Trigger</button><button class="btn btn-sm" onclick="om('m-ev')">Ereignis</button></div></div>
+          <div class="chd"><span class="cht">Trigger</span><span style="font-size:9px;color:var(--n4);margin-left:8px">Zeit · Markt · Ereignis</span><div class="chr"><button class="btn btn-sm" onclick="om('m-nt')">+ Trigger</button><button class="btn btn-sm" onclick="om('m-ev')">Ereignis</button></div></div>
           <div id="rv-trigger-time" style="padding:0"></div>
           <div id="rv-trigger-market" style="border-top:1px solid var(--b1)"></div>
           <div id="rv-trigger-event" style="border-top:1px solid var(--b1)"></div>
@@ -1546,14 +1618,8 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
     </div>
     <!-- PAGE: ZUSAMMENFASSUNG -->
     <div id="page-sr" class="page">
-      <div class="ph"><div><div class="ph-t">Kunden-Zusammenfassung</div><div class="ph-s">Strategie · Zielbild · naechster Schritt</div></div><div class="ph-r"><button id="sr-summary-print-inline" onclick="printSummaryPage()" class="btn">Protokoll PDF</button><button class="btn-g" onclick="printAnlagestrategie()">Anlagestrategie ↓</button></div></div>
+      <div class="ph"><div><div class="ph-t">Ihr Strategiebild</div><div class="ph-s">Risikoprofil · Soll-Allokation · Ziele · Heutiger Entscheid</div></div><div class="ph-r"><button id="sr-summary-print-inline" onclick="printSummaryPage()" class="btn">Protokoll PDF</button><button class="btn-g" onclick="printAnlagestrategie()">Anlagestrategie ↓</button></div></div>
       <div class="pad">
-
-        <div id="sr-client-summary" style="background:linear-gradient(135deg,#f8f4ea,#ffffff);border:1px solid rgba(120,96,26,0.18);border-radius:var(--r2);padding:16px 18px;margin-bottom:14px">
-          <div style="font-size:9px;font-weight:800;letter-spacing:0.12em;text-transform:uppercase;color:var(--n4);margin-bottom:6px">Kurzfassung fuer das Gespraech</div>
-          <div style="font-size:17px;font-weight:800;color:var(--n8);line-height:1.35;margin-bottom:5px">Noch keine Strategie geladen</div>
-          <div style="font-size:11px;color:var(--n6);line-height:1.65">Sobald Risikoprofil, Vermoegen und Strategie vorliegen, erscheint hier die einfache Kundenzusammenfassung.</div>
-        </div>
 
         <!-- 4 KPI tiles — JS füllt alle Werte, keine Dummy-Daten -->
         <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px">
@@ -1613,7 +1679,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
         <div class="card" style="margin-bottom:14px">
           <div class="chd"><span class="cht">Heutiger Entscheid</span><span style="font-size:9px;color:var(--n4);margin-left:8px">Massnahmen aus dem Review</span><div class="chr"><button id="sr-recipe-print" class="btn-g" onclick="window.print()">Protokoll drucken</button></div></div>
           <div class="cbody">
-            <div id="sr-implementation-steps" style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:10px"><div style="grid-column:1/-1;font-size:10px;color:var(--n4)">Noch kein Advisory-Entscheid dokumentiert. Bitte zuerst ein Review durchfuehren.</div></div>
+            <div id="sr-implementation-steps" style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:10px"><div style="grid-column:1/-1;font-size:10px;color:var(--n4)">Noch kein Advisory-Entscheid dokumentiert. Bitte zuerst ein Review durchführen.</div></div>
             <div style="display:flex;justify-content:space-between;align-items:center;padding-top:8px;border-top:1px solid var(--b1)">
               <span id="sr-decision-meta" style="font-size:10px;color:var(--n6)">Beratungsprotokoll — heutiger Review</span>
               <div style="display:flex;gap:6px;align-items:center">
@@ -2230,7 +2296,23 @@ const API = {
     const base = await this.baseUrl();
     const token = await this.getToken();
     const headers = {'Content-Type':'application/json', ...(token?{'Authorization':'Bearer '+token}:{}), ...(options.headers||{})};
-    const res = await fetch(base+path, {...options, headers});
+    const timeoutMs = Number(options.timeoutMs || 30000);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(function(){ controller.abort(); }, timeoutMs);
+    let res;
+    try {
+      res = await fetch(base+path, {...options, headers, signal: controller.signal});
+    } catch (err) {
+      if (err && err.name === 'AbortError') {
+        const timeoutError = new Error('Zeitüberschreitung — bitte versuche es erneut.');
+        timeoutError.status = 408;
+        timeoutError.detail = 'Zeitüberschreitung — bitte versuche es erneut.';
+        throw timeoutError;
+      }
+      throw err;
+    } finally {
+      clearTimeout(timeoutId);
+    }
     const retryAfter = Number.parseInt(res.headers.get('Retry-After') || '0', 10) || null;
     if (res.status === 401 && token && !path.startsWith('/auth/login') && !path.startsWith('/auth/bootstrap')) {
       if (!API._handling401) {
@@ -2687,6 +2769,10 @@ function applyUpdateState(state) {
   const checkBtn = document.getElementById('btn-check-updates');
   const installBtn = document.getElementById('btn-install-update');
   if (!state || !section) return;
+  if (typeof adminSystemState !== 'undefined' && adminSystemState) {
+    adminSystemState.update = state;
+    renderAdminDashboard();
+  }
   if (!state.enabled) { section.style.display = 'none'; return; }
   section.style.display = 'block';
   if (state.checking) {
@@ -2721,6 +2807,7 @@ async function adminCheckUpdates() {
 }
 
 async function adminInstallUpdate() {
+  if (!adminConfirmRisk('Update installieren?', 'Die App kann neu starten oder sich kurz beenden. Erstelle vorher ein Backup, wenn gerade fachliche Daten geaendert wurden.')) return;
   try {
     if (window.FiveEyesAPI && window.FiveEyesAPI.updates) {
       await window.FiveEyesAPI.updates.install();
@@ -2765,14 +2852,15 @@ async function initApp() {
 const pages={sd:0,vg:1,cf:2,ub:3,rp:4,al:5,po:6,rv:7,sr:8};
 async function ensureRiskProfileBeforeAllocationNavigation(targetPage){
   if(targetPage!=='al')return true;
-  if(activePageKey()!=='rp')return true;
-  if(riskAssessmentUiDirty){
-    var saved=!!(await saveRiskProfile());
-    if(!saved)return false;
+  var riskState=null;
+  try{
+    riskState=await ensureStrategyReadyRiskForMandate(getActiveMandateId());
+  }catch(e){
+    showRiskSaveFeedback('Risikoprofil konnte nicht geladen werden: '+(e&&e.detail?e.detail:(e&&e.message?e.message:'?')), true);
+    return false;
   }
-  var hasPersistedRisk=!!currentPersistedRiskForMandate(getActiveMandateId());
-  if(!hasPersistedRisk){
-    showRiskSaveFeedback('Bitte zuerst ein aktuelles Risikoprofil speichern.', true);
+  if(!riskState.risk){
+    showRiskSaveFeedback(riskState.message||'Bitte zuerst ein aktuelles Risikoprofil speichern.', true);
     return false;
   }
   return true;
@@ -2903,9 +2991,10 @@ function initDomLayout(){
   if(wealthCard&&wealthSlot&&wealthCard.parentNode!==wealthSlot)wealthSlot.appendChild(wealthCard);
 
   var templatePad=cfTemplate.querySelector('.pad');
-  var templateGrid=templatePad?templatePad.querySelector('#cf-template-grid')||templatePad.querySelector('div[style*="grid-template-columns:1fr 340px"]'):null;
+  var templateGrid=templatePad?templatePad.querySelector('div[style*="grid-template-columns:1fr 340px"]'):null;
   var templateLeft=templateGrid?templateGrid.firstElementChild:null;
-  var templateRight=templateGrid?templateGrid.lastElementChild:null;
+  var cfPad=cfPage.querySelector('.pad');
+  var cfIntro=cfPad?cfPad.firstElementChild:null;
   var cfSlot=cfPage.querySelector('[data-slot="cashflows"]');
   var combinedSlot=document.getElementById('cf-goals-projection')||cfPage.querySelector('[data-slot="goals-projection"]');
   if(cfPad)cfPad.classList.add('cashflow-client-layout');
@@ -2922,12 +3011,8 @@ function initDomLayout(){
   var cfRiskSummary=document.getElementById('cf-risk-context-summary');
   if(combinedSlot){
     if(templateGrid)templateGrid.classList.add('projection-grid');
-    if(templateKpis)templateKpis.style.display='none';
-    if(templateRight){
-      Array.prototype.slice.call(templateRight.children).forEach(function(card){
-        if(card&&card.classList&&card.classList.contains('card')&&card.parentNode!==combinedSlot)combinedSlot.appendChild(card);
-      });
-    }
+    if(templateKpis&&templateKpis.parentNode!==combinedSlot)combinedSlot.appendChild(templateKpis);
+    if(templateGrid&&templateGrid.parentNode!==combinedSlot)combinedSlot.appendChild(templateGrid);
     if(cfRiskSummary&&cfRiskSummary.parentNode!==combinedSlot)combinedSlot.appendChild(cfRiskSummary);
   }
 
@@ -2971,35 +3056,10 @@ function initDomLayout(){
     goalProgressCard.setAttribute('onclick',"go('cf')");
     goalProgressCard.setAttribute('title','Zu Cashflows, Zielen und Prognose');
   }
-  var incomeCard=document.getElementById('zufluss-rows');
-  incomeCard=incomeCard&&incomeCard.closest?incomeCard.closest('.card'):null;
-  if(incomeCard){
-    incomeCard.classList.add('cf-flow-card');
-    var incomeTitle=incomeCard.querySelector('.cht');
-    var incomeBtn=incomeCard.querySelector('.chr .btn-p');
-    if(incomeTitle)incomeTitle.textContent='Einnahmen';
-    if(incomeBtn)incomeBtn.textContent='+ Einnahme';
-  }
-  var expenseCard=document.getElementById('abfluss-rows');
-  expenseCard=expenseCard&&expenseCard.closest?expenseCard.closest('.card'):null;
-  if(expenseCard){
-    expenseCard.classList.add('cf-flow-card');
-    var expenseTitle=expenseCard.querySelector('.cht');
-    var expenseBtn=expenseCard.querySelector('.chr .btn-p');
-    if(expenseTitle)expenseTitle.textContent='Ausgaben';
-    if(expenseBtn)expenseBtn.textContent='+ Ausgabe';
-  }
-  var goalsCard=document.getElementById('zl');
-  goalsCard=goalsCard&&goalsCard.closest?goalsCard.closest('.card'):null;
-  if(goalsCard){
-    goalsCard.classList.add('cf-goal-card');
-    var goalsTitle=goalsCard.querySelector('.cht');
-    var goalsHint=goalsCard.querySelector('.chr span');
-    if(goalsTitle)goalsTitle.textContent='Ziele';
-    if(goalsHint)goalsHint.textContent='Prioritaet per Drag';
-  }
   var projectionHeader=combinedSlot?combinedSlot.querySelector('.card.mb .cht'):null;
   var projectionHeaderMeta=projectionHeader?projectionHeader.nextElementSibling:null;
+  if(projectionHeader)projectionHeader.textContent='Aktueller Vermögenspfad';
+if(projectionHeaderMeta&&projectionHeaderMeta.textContent)projectionHeaderMeta.textContent='heutiger Mix mit laufenden Cashflows und separat beruecksichtigten Kapitalereignissen';
   if(combinedSlot){
     Array.prototype.forEach.call(combinedSlot.querySelectorAll('.cht'),function(node){
       var text=String(node.textContent||'').trim();
@@ -3010,26 +3070,9 @@ function initDomLayout(){
       }
     });
   }
-  if(projectionHeader)projectionHeader.textContent='Vermoegenspfad';
-  if(projectionHeaderMeta&&projectionHeaderMeta.textContent)projectionHeaderMeta.textContent='aktuelle Ist-Situation';
   var projectionCanvas=combinedSlot?combinedSlot.querySelector('#ch-ist'):null;
   var projectionBody=projectionCanvas&&projectionCanvas.closest('.cbody');
-  var projectionCard=projectionCanvas&&projectionCanvas.closest?projectionCanvas.closest('.card'):null;
-  if(projectionCard)projectionCard.classList.add('cf-chart-card');
-  var cashflowHud=document.getElementById('cf-projection');
-  if(projectionBody&&cashflowHud&&cashflowHud.parentNode!==projectionBody){
-    projectionBody.insertBefore(cashflowHud,projectionBody.firstChild||null);
-    cashflowHud.style.padding='0';
-    cashflowHud.style.marginBottom='10px';
-  }
-  var projectionNote=document.getElementById('ub-projection-note');
-  if(projectionNote){
-    projectionNote.textContent='Ist-Situation mit heutigen Vermoegenswerten und erfassten Cashflows. Die optimierte Strategie kommt bewusst erst in der Asset Allocation.';
-    projectionNote.style.color='var(--n6)';
-    projectionNote.style.background='var(--bg)';
-    projectionNote.style.borderColor='rgba(90,104,120,0.12)';
-  }
-  var projectionStats=projectionBody?projectionBody.querySelector('div[style*="grid-template-columns:repeat(5,1fr)"]'):null;
+  var projectionStats=projectionBody&&projectionBody.children&&projectionBody.children[2]?projectionBody.children[2]:null;
   if(projectionStats&&projectionStats.children&&projectionStats.children.length>=5){
     projectionStats.style.gridTemplateColumns='repeat(2,minmax(0,1fr))';
     if(projectionStats.children[0]&&projectionStats.children[0].children&&projectionStats.children[0].children[0])projectionStats.children[0].children[0].textContent='Aktuelle Prognose';
@@ -3220,9 +3263,7 @@ function wealthScopePositions(scope){
   if(scope==='advisory'){
     return items.filter(function(pos){return String(pos.assignment||'')==='Beratungsvermögen';});
   }
-  // scope='total' = Reinvermoegen (Brutto inkl. Verbindlichkeiten als
-  // negative Beitraege). wealthProjectionInputs subtrahiert sie.
-  return items;
+  return items.filter(function(pos){return String(pos.assignment||'')!=='Verbindlichkeit';});
 }
 
 function inferPositionBucketMixBps(pos){
@@ -3248,24 +3289,6 @@ function inferPositionBucketMixBps(pos){
   return {equities:eq,bonds:bo,realEstate:re,liquidity:li,alternatives:al};
 }
 
-function inferPositionExpectedReturnBps(pos, returnMap){
-  // H2: Selbstgenutzte / Ferien- / gemischt genutzte Liegenschaften liefern
-  // keinen verfuegbaren Cashflow-Return. Nur Renditeobjekte werden mit dem
-  // CMA-Real-Estate-Return projiziert.
-  if(String(pos&&pos.position_type||'')==='Immobilien'){
-    var usage=String(pos&&pos.property_usage||'').trim();
-    if(usage!=='Renditeobjekt')return 0;
-  }
-  var mix=inferPositionBucketMixBps(pos);
-  // weighted return (bps * bps / 10000 -> bps)
-  return Math.round((
-    Number(mix.equities||0)*returnMap.equities+
-    Number(mix.bonds||0)*returnMap.bonds+
-    Number(mix.realEstate||0)*returnMap.realEstate+
-    Number(mix.liquidity||0)*returnMap.liquidity+
-    Number(mix.alternatives||0)*returnMap.alternatives
-  )/10000);
-}
 function wealthProjectionInputs(scope){
   var positions=wealthScopePositions(scope);
   var totalRappen=0;
@@ -3281,33 +3304,17 @@ function wealthProjectionInputs(scope){
       if(ac&&ac.asset_class)_acaMap[ac.asset_class]=ac;
     });
   }
-  // H3: Equity-Return als gewichteter CH/INTL/EM-Mix (50/40/10) statt
-  // einseitig equity_intl. Konservativer Schweizer Berater-Standard und
-  // benutzt alle drei CMA-Quellen.
-  var eqCh=Number(ADMIN_CMA_DEFAULTS.equity_ch_return_bps||620);
-  var eqIntl=Number(_acaMap['Aktien']&&_acaMap['Aktien'].expected_return_bps||ADMIN_CMA_DEFAULTS.equity_intl_return_bps||690);
-  var eqEm=Number(ADMIN_CMA_DEFAULTS.equity_em_return_bps||760);
-  var equitiesMixBps=Math.round(0.5*eqCh + 0.4*eqIntl + 0.1*eqEm);
   var returnMap={
-    equities:equitiesMixBps,
+    equities:Number(_acaMap['Aktien']&&_acaMap['Aktien'].expected_return_bps||ADMIN_CMA_DEFAULTS.equity_intl_return_bps||690),
     bonds:Number(_acaMap['Obligationen']&&_acaMap['Obligationen'].expected_return_bps||ADMIN_CMA_DEFAULTS.bonds_fx_hedged_return_bps||220),
     realEstate:Number(_acaMap['Immobilien']&&_acaMap['Immobilien'].expected_return_bps||ADMIN_CMA_DEFAULTS.real_estate_ch_return_bps||330),
     liquidity:Number(_acaMap['Liquiditaet']&&_acaMap['Liquiditaet'].expected_return_bps||ADMIN_CMA_DEFAULTS.liquidity_return_bps||80),
     alternatives:Number(_acaMap['Alternative']&&_acaMap['Alternative'].expected_return_bps||ADMIN_CMA_DEFAULTS.alternatives_gold_return_bps||300)
   };
-  var weightedReturnAbsBps=0;  // sum(value * return_bps)
+  var weightedReturnRappenBps=0;
   positions.forEach(function(pos){
-    var rawValue=Math.round(Number(pos&&pos.current_value_rappen||0));
-    if(!rawValue)return;
-    var isLiability=(String(pos&&pos.assignment||'')==='Verbindlichkeit');
-    if(isLiability){
-      // H1: Verbindlichkeiten reduzieren das Reinvermoegen, beeinflussen
-      // aber nicht den Asset-Return-Mix (Hypothek-Zinsen kommen ueber
-      // recurring Cashflows ins Modell).
-      totalRappen-=rawValue;
-      return;
-    }
-    var value=Math.max(0,rawValue);
+    var value=Math.max(0,Math.round(Number(pos&&pos.current_value_rappen||0)));
+    if(!value)return;
     var mix=inferPositionBucketMixBps(pos);
     totalRappen+=value;
     bucketRappen.equities+=Math.round(value*Number(mix.equities||0)/10000);
@@ -3315,27 +3322,27 @@ function wealthProjectionInputs(scope){
     bucketRappen.realEstate+=Math.round(value*Number(mix.realEstate||0)/10000);
     bucketRappen.liquidity+=Math.round(value*Number(mix.liquidity||0)/10000);
     bucketRappen.alternatives+=Math.round(value*Number(mix.alternatives||0)/10000);
-    var posReturnBps=inferPositionExpectedReturnBps(pos, returnMap);
-    weightedReturnAbsBps+=value*posReturnBps;
+    weightedReturnRappenBps+=Math.round(value*(
+      Number(mix.equities||0)*returnMap.equities+
+      Number(mix.bonds||0)*returnMap.bonds+
+      Number(mix.realEstate||0)*returnMap.realEstate+
+      Number(mix.liquidity||0)*returnMap.liquidity+
+      Number(mix.alternatives||0)*returnMap.alternatives
+    )/10000);
   });
-  // expectedReturnBps wird auf Brutto-Asset-Wert (ohne Liability-Abzug) bezogen,
-  // weil nur Assets Returns generieren. Der Liability-Anteil lebt in startRappen.
-  var grossAssetsRappen=Object.keys(bucketRappen).reduce(function(s,k){return s+bucketRappen[k];},0);
-  var expectedReturnBps=grossAssetsRappen>0?Math.round(weightedReturnAbsBps/grossAssetsRappen):0;
-  var nonZeroBucketBase=grossAssetsRappen>0?grossAssetsRappen:1;
   return {
     scope:scope,
     startRappen:totalRappen,
     recurringNetCashflowRappen:recurringNetCashflowRappen,
     capitalNetCashflowRappen:capitalNetCashflowRappen,
     annualNetCashflowRappen:annualNetCashflowRappen,
-    expectedReturnBps:expectedReturnBps,
+    expectedReturnBps:totalRappen>0?Math.round(weightedReturnRappenBps/totalRappen):0,
     bucketWeightsBps:{
-      equities:Math.round(bucketRappen.equities/nonZeroBucketBase*10000),
-      bonds:Math.round(bucketRappen.bonds/nonZeroBucketBase*10000),
-      realEstate:Math.round(bucketRappen.realEstate/nonZeroBucketBase*10000),
-      liquidity:Math.round(bucketRappen.liquidity/nonZeroBucketBase*10000),
-      alternatives:Math.round(bucketRappen.alternatives/nonZeroBucketBase*10000)
+      equities:totalRappen>0?Math.round(bucketRappen.equities/totalRappen*10000):0,
+      bonds:totalRappen>0?Math.round(bucketRappen.bonds/totalRappen*10000):0,
+      realEstate:totalRappen>0?Math.round(bucketRappen.realEstate/totalRappen*10000):0,
+      liquidity:totalRappen>0?Math.round(bucketRappen.liquidity/totalRappen*10000):0,
+      alternatives:totalRappen>0?Math.round(bucketRappen.alternatives/totalRappen*10000):0
     }
   };
 }
@@ -3616,32 +3623,12 @@ function projectionSeriesDiffer(a,b){
   return false;
 }
 
-function buildCurrentWealthProjection(scope,preferredYears,preferredLabels,result){
-  var years=projectionHorizonYears(result||null,preferredYears);
-  var labels=projectionYearLabels(result||null,years,preferredLabels);
+function buildCurrentWealthProjection(scope,preferredYears,preferredLabels){
+  var years=projectionHorizonYears(null,preferredYears);
+  var labels=projectionYearLabels(null,years,preferredLabels);
   var inputs=wealthProjectionInputs(scope);
   var componentSeries=currentCashflowProjectionComponentSeries(years,labels,inputs.recurringNetCashflowRappen,inputs.capitalNetCashflowRappen);
-  // Z8-W2 Phase 2: scope='total' nutzt Backend-Series total_mix_current_series_rappen
-  // wenn ein Strategy-Run vorliegt. Sonst FE-Fallback mit H1-H5 Annahmen.
-  var sim=result?simulationPayload(result):null;
-  var backendKey=scope==='total'?'total_mix_current_series_rappen':null;
-  var backendSeries=sim&&backendKey&&Array.isArray(sim[backendKey])?sim[backendKey]:null;
-  var sameLength=backendSeries&&backendSeries.length===years+1;
-  var projection;
-  if(sameLength){
-    var seriesRappen=backendSeries.map(function(v){return Math.round(Number(v||0));});
-    projection={
-      years:years,
-      labels:labels,
-      expectedReturnBps:Number(inputs.expectedReturnBps||0),
-      seriesRappen:seriesRappen,
-      seriesK:seriesRappen.map(function(v){return Math.round(v/100000);}),
-      projectedRappen:Number(seriesRappen[seriesRappen.length-1]||0),
-      cagrBps:projectionSeriesCagrBps(seriesRappen)
-    };
-  } else {
-    projection=buildBaselineProjectionFromComponentSeries(inputs.startRappen,componentSeries,inputs.expectedReturnBps,labels);
-  }
+  var projection=buildBaselineProjectionFromComponentSeries(inputs.startRappen,componentSeries,inputs.expectedReturnBps,labels);
   projection.scope=scope;
   projection.recurringNetCashflowRappen=Number(inputs.recurringNetCashflowRappen||0);
   projection.capitalNetCashflowRappen=Number(inputs.capitalNetCashflowRappen||0);
@@ -3650,7 +3637,6 @@ function buildCurrentWealthProjection(scope,preferredYears,preferredLabels,resul
   projection.cashflowComponentSeries=componentSeries.slice();
   projection.expectedReturnBps=Number(inputs.expectedReturnBps||0);
   projection.startRappen=Number(inputs.startRappen||0);
-  projection.source=sameLength?'backend':'fallback';
   return projection;
 }
 
@@ -5080,8 +5066,7 @@ async function savePortfolioHolding(){
       notes:getInputValue('ap-notes').trim()||null
     });
     cm('m-ap');
-    var refreshed=await loadRecommendationRunPayload(mid,runId);
-    if(refreshed)applyRecommendationEngineResult(refreshed);
+    await refreshStrategyData(true,true);
     updateStrategyStatus('Bestand gespeichert und Live-Drift neu bewertet.',false);
   }catch(e){
     setPortfolioHoldingError(parseApiError(e,'Bestand konnte nicht gespeichert werden.'));
@@ -5104,8 +5089,7 @@ async function deletePortfolioHolding(){
   try{
     await API.del('/mandates/'+mid+'/recommendations/'+runId+'/positions/'+positionId+'/holding');
     cm('m-ap');
-    var refreshed=await loadRecommendationRunPayload(mid,runId);
-    if(refreshed)applyRecommendationEngineResult(refreshed);
+    await refreshStrategyData(true,true);
     updateStrategyStatus('Bestand entfernt. Live-Drift nutzt wieder die Rezept-Rekonstruktion.',false);
   }catch(e){
     setPortfolioHoldingError(parseApiError(e,'Bestand konnte nicht gelöscht werden.'));
@@ -5544,6 +5528,10 @@ async function applyOv(){
     cm('m-overr');
   }catch(e){
     if(btn){btn.disabled=false;btn.textContent='Override bestätigen & protokollieren';}
+    if(errEl){
+      errEl.style.display='block';
+      errEl.textContent=parseApiError(e,'Override konnte nicht gespeichert werden.');
+    }
     console.error('applyOv:',e);
   }
 }
@@ -5833,6 +5821,275 @@ function adminMarketStatusBox(message, isError, allowHtml) {
   else el.textContent = message;
 }
 
+var adminSystemState = {
+  priceStatus: null,
+  productStatus: null,
+  mappingGaps: null,
+  cma: null,
+  users: null,
+  compliance: null,
+  backups: null,
+  paths: null,
+  update: null,
+  audit: null,
+  integrity: null,
+  lastLoadedAt: null
+};
+
+function adminAsNumber(value, fallback) {
+  var num = Number(value);
+  return Number.isFinite(num) ? num : (fallback == null ? 0 : fallback);
+}
+
+function adminFormatCount(value) {
+  return String(adminAsNumber(value, 0).toLocaleString('de-CH'));
+}
+
+function adminFormatDateTime(value) {
+  if (!value) return 'nicht bekannt';
+  return typeof formatIsoLocal === 'function' ? formatIsoLocal(value) : String(value);
+}
+
+function adminPill(label, tone) {
+  return '<span class="admin-pill ' + escapeHtml(tone || '') + '">' + escapeHtml(label || '') + '</span>';
+}
+
+function adminHealthCard(label, value, sub, tone) {
+  return '<div class="admin-health-card ' + escapeHtml(tone || '') + '">'
+    + '<div class="admin-health-k">' + escapeHtml(label || '') + '</div>'
+    + '<div class="admin-health-v">' + escapeHtml(value || 'n/a') + '</div>'
+    + '<div class="admin-health-s">' + escapeHtml(sub || '') + '</div>'
+    + '</div>';
+}
+
+function adminRiskNotice(title, body, tone) {
+  return '<div class="admin-risk-note ' + escapeHtml(tone || '') + '"><strong>' + escapeHtml(title || 'Wirkung') + '</strong>' + escapeHtml(body || '') + '</div>';
+}
+
+function adminConfirmRisk(title, body) {
+  return window.confirm(String(title || 'Aktion bestaetigen') + '\n\n' + String(body || 'Diese Aktion veraendert systemweite Daten.'));
+}
+
+function adminDaysSince(value) {
+  if (!value) return null;
+  var date = new Date(value);
+  if (isNaN(date.getTime())) return null;
+  return Math.floor((Date.now() - date.getTime()) / 86400000);
+}
+
+function adminDashboardActionHtml(item) {
+  item = item || {};
+  var tone = item.tone || '';
+  var section = String(item.section || 'sec-health').replace(/[^a-z0-9_-]/gi, '');
+  var onclick = item.onclick || ("adminShowSection('" + section + "')");
+  var label = item.action || 'Oeffnen';
+  return '<div class="admin-action-row ' + escapeHtml(tone) + '">'
+    + '<div><div class="admin-action-title">' + escapeHtml(item.title || '') + '</div>'
+    + '<div class="admin-action-meta">' + escapeHtml(item.body || '') + '</div></div>'
+    + '<button class="admin-link-btn" onclick="' + escapeHtml(onclick) + '">' + escapeHtml(label) + ' &rsaquo;</button>'
+    + '</div>';
+}
+function adminBuildActionPlan(ctx) {
+  var items = [];
+  function push(tone, title, body, section, action, onclick) {
+    items.push({ tone: tone, title: title, body: body, section: section, action: action, onclick: onclick });
+  }
+  ctx = ctx || {};
+  if ((ctx.complianceWarnings || []).length) {
+    push('danger', 'Compliance-Hinweise pruefen', ctx.complianceWarnings[0], 'sec-db', 'Wartung oeffnen');
+  }
+  if (ctx.missingPrices > 0) {
+    push('warn', 'Fehlende Kurse nachziehen', ctx.missingPrices + ' Produkte haben keinen aktuellen Preis. Marktwerte und Drift koennen dadurch unvollstaendig sein.', 'sec-markt', 'Kurse pruefen');
+  }
+  if (ctx.mappingGapCount > 0) {
+    push('warn', 'Mapping-Luecken schliessen', ctx.mappingGapCount + ' Produkte brauchen ISIN/Symbol/Provider-Kontext fuer verlaessliche Kurs- und Referenzdaten.', 'sec-markt', 'Arbeitskorb');
+  }
+  if (ctx.freshPct > 0 && ctx.freshPct < 80) {
+    push('warn', 'Preisfrische verbessern', 'Nur ' + ctx.freshPct + '% der Preisbasis ist frisch. Vor Reviews oder Rebalancing zuerst Preise aktualisieren.', 'sec-markt', 'Preise');
+  }
+  if (!ctx.cma || !ctx.cma.version) {
+    push('warn', 'House View laden', 'Ohne aktive Kapitalmarktannahmen fehlen nachvollziehbare Grundlagen fuer Simulationen und Strategievorschlaege.', 'sec-cma', 'Annahmen');
+  }
+  if (ctx.admins < 2) {
+    push('warn', 'Zweiten Admin sicherstellen', 'Mindestens zwei aktive Admins reduzieren Aussperr- und Stellvertretungsrisiko.', 'sec-users', 'Benutzer');
+  }
+  var backupAge = adminDaysSince(ctx.latestBackup && (ctx.latestBackup.modified_at || ctx.latestBackup.created_at));
+  if (!ctx.latestBackup) {
+    push('warn', 'Backup-Status offen', 'Vor groesseren System- oder Datenqualitaetsaktionen sollte ein aktuelles Backup vorhanden sein.', 'sec-db', 'Backup');
+  } else if (backupAge != null && backupAge > 7) {
+    push('warn', 'Backup auffrischen', 'Das letzte Backup ist etwa ' + backupAge + ' Tage alt. Vor Wartung oder Updates besser neu sichern.', 'sec-db', 'Backup');
+  }
+  if (ctx.update && ctx.update.downloaded) {
+    push('danger', 'Update bereit', 'Ein heruntergeladenes Update wartet auf Installation. Vorher offene Arbeit abschliessen.', 'sec-update', 'Update');
+  } else if (ctx.update && ctx.update.available) {
+    push('warn', 'Update verfuegbar', 'Ein Software-Update ist verfuegbar oder wird vorbereitet.', 'sec-update', 'Update');
+  }
+  if (ctx.integrity && ctx.integrity.status === 'warning') {
+    push('warn', 'Integritaet nachpruefen', 'Der letzte Datenbankcheck meldet Hinweise. Details in Backups & Wartung ansehen.', 'sec-db', 'DB-Check');
+  }
+  if (!items.length) {
+    push('ok', 'Keine dringende Aktion', 'Die geladenen Admin-Signale zeigen aktuell keinen unmittelbaren Handlungsbedarf.', 'sec-health', 'Aktualisieren', 'adminLoadSystemHealth(true)');
+  }
+  return items.slice(0, 4);
+}
+
+function renderAdminDashboard() {
+  var box = document.getElementById('admin-health-dashboard');
+  if (!box) return;
+  var priceStatus = adminSystemState.priceStatus || {};
+  var productStatus = adminSystemState.productStatus || {};
+  var quality = productStatus.price_quality || priceStatus.quality || {};
+  var mappingGapCount = adminSystemState.mappingGaps && adminSystemState.mappingGaps.count != null
+    ? adminSystemState.mappingGaps.count
+    : adminAsNumber(quality.mapping_gap_count, 0);
+  var missingPrices = adminAsNumber(quality.missing_price_count, 0);
+  var freshPct = adminAsNumber(quality.fresh_coverage_pct, 0);
+  var coveragePct = adminAsNumber(quality.coverage_pct, 0);
+  var priceTone = (missingPrices > 0 || mappingGapCount > 0 || freshPct < 80) ? 'warn' : 'ok';
+
+  var cma = adminSystemState.cma || adminCurrentCapitalMarketAssumptions || {};
+  var users = Array.isArray(adminSystemState.users) ? adminSystemState.users : [];
+  var admins = users.filter(function(u){ return String(u && u.role || '') === 'admin' && Number(u && u.is_active) === 1; }).length;
+  var inactiveUsers = users.filter(function(u){ return Number(u && u.is_active) !== 1; }).length;
+  var userTone = admins >= 2 ? 'ok' : (admins === 1 ? 'warn' : 'danger');
+
+  var compliance = adminSystemState.compliance || {};
+  var complianceWarnings = Array.isArray(compliance.warnings) ? compliance.warnings : [];
+  var backupsPayload = adminSystemState.backups || {};
+  var backups = Array.isArray(backupsPayload.backups) ? backupsPayload.backups : [];
+  var latestBackup = backups[0] || adminSystemState.lastBackup || null;
+  var backupAge = adminDaysSince(latestBackup && (latestBackup.modified_at || latestBackup.created_at));
+  var backupLabel = latestBackup ? (backupAge != null ? (backupAge + ' Tage') : 'vorhanden') : 'offen';
+  var backupSub = latestBackup
+    ? ('Backup: ' + adminFormatDateTime(latestBackup.modified_at || latestBackup.created_at))
+    : 'Noch kein Backup-Status geladen.';
+  var backupTone = latestBackup ? (backupAge != null && backupAge > 7 ? 'warn' : 'ok') : 'warn';
+
+  var update = adminSystemState.update || {};
+  var updateTone = update.error ? 'danger' : (update.available || update.downloaded ? 'warn' : (update.enabled === false ? 'warn' : 'ok'));
+  var updateValue = update.currentVersion ? ('v' + update.currentVersion) : 'n/a';
+  var updateSub = update.enabled === false
+    ? 'Auto-Update in diesem Modus nicht aktiv.'
+    : (update.downloaded ? 'Update bereit.' : (update.available ? 'Update verfuegbar.' : 'Keine Aktion offen.'));
+
+  var audit = adminSystemState.audit || {};
+  var integrity = adminSystemState.integrity || {};
+  var systemTone = complianceWarnings.length || integrity.status === 'warning' ? 'warn' : (updateTone === 'danger' ? 'danger' : updateTone);
+  var systemSub = complianceWarnings[0] || (integrity.status ? ('DB ' + integrity.status) : updateSub);
+  var actionItems = adminBuildActionPlan({
+    missingPrices: missingPrices,
+    mappingGapCount: mappingGapCount,
+    freshPct: freshPct,
+    cma: cma,
+    admins: admins,
+    latestBackup: latestBackup,
+    update: update,
+    integrity: integrity,
+    complianceWarnings: complianceWarnings
+  });
+  var loadedLabel = adminSystemState.lastLoadedAt ? ('Aktualisiert: ' + adminFormatDateTime(adminSystemState.lastLoadedAt)) : 'Status wird geladen';
+
+  box.innerHTML =
+    '<div class="admin-health-panel">'
+    + '<div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap">'
+    + '<div><div class="admin-health-title">Systemzustand</div>'
+    + '<div class="admin-health-sub">' + escapeHtml(loadedLabel) + '</div></div>'
+    + '<div class="admin-health-actions" style="margin-top:0">'
+    + '<button class="btn-p" style="background:var(--bg2);color:var(--n6)" onclick="adminLoadSystemHealth(true)">Aktualisieren</button>'
+    + '<button class="btn-p" style="background:var(--bg2);color:var(--n6)" onclick="adminShowSection(\'sec-markt\')">Daten</button>'
+    + '<button class="btn-p" style="background:var(--bg2);color:var(--n6)" onclick="adminShowSection(\'sec-db\')">Wartung</button>'
+    + '</div></div>'
+    + '</div>'
+    + '<div style="margin-top:10px"><div class="admin-health-k" style="margin-bottom:6px">Naechste Schritte</div>'
+    + '<div class="admin-action-list">' + actionItems.map(adminDashboardActionHtml).join('') + '</div></div>'
+    + '<div class="admin-health-grid" style="margin-top:10px">'
+    + adminHealthCard('Daten', coveragePct + '%', freshPct + '% frisch. ' + missingPrices + ' ohne Preis, ' + mappingGapCount + ' Mapping-Luecken.', priceTone)
+    + adminHealthCard('House View', cma.version ? ('v' + cma.version) : 'n/a', cma.assumption_set_name || 'Keine Annahmen geladen.', cma.version ? 'ok' : 'warn')
+    + adminHealthCard('Backup', backupLabel, backupSub, backupTone)
+    + adminHealthCard('Benutzer', users.length ? String(users.length) : 'n/a', admins + ' Admins, ' + inactiveUsers + ' inaktiv.', userTone)
+    + adminHealthCard('System', updateValue, systemSub, systemTone)
+    + adminHealthCard('Audit', audit.total != null ? adminFormatCount(audit.total) : 'n/a', audit.total != null ? 'Eintraege geladen.' : 'Wird beim Oeffnen geladen.', audit.total != null ? 'ok' : '')
+    + '</div>';
+  normalizeVisibleMojibake(box);
+}
+function renderAdminMappingGaps(payload) {
+  var box = document.getElementById('admin-mapping-gaps');
+  if (!box) return;
+  var items = payload && Array.isArray(payload.items) ? payload.items : [];
+  if (!items.length) {
+    box.innerHTML = '<div class="admin-risk-note">Alle aktiven Produkte haben aktuell ein verwertbares Marktprofil.</div>';
+    return;
+  }
+  box.innerHTML = '<div class="admin-worklist">' + items.slice(0, 8).map(function(item){
+    var title = item.product_name || item.product_id || 'Produkt';
+    var meta = [item.isin, item.lookup_mode, item.currency, item.pricing_note].filter(Boolean).join(' / ');
+    return '<div class="admin-workitem"><div class="admin-workitem-title">' + escapeHtml(title) + '</div>' + escapeHtml(meta || 'Kein Mapping-Kontext vorhanden.') + '</div>';
+  }).join('') + (items.length > 8 ? '<div class="admin-health-s">+' + String(items.length - 8) + ' weitere Produkte</div>' : '') + '</div>';
+}
+
+async function adminLoadMappingGaps(showLog) {
+  try {
+    var payload = await API.get('/admin/prices/mapping-gaps');
+    adminSystemState.mappingGaps = payload;
+    renderAdminMappingGaps(payload);
+    renderAdminDashboard();
+    if (showLog) showAdminResult('OK: Mapping-Arbeitskorb aktualisiert', false);
+    return payload;
+  } catch (e) {
+    var msg = parseApiError(e, 'Mapping-Luecken konnten nicht geladen werden.');
+    var box = document.getElementById('admin-mapping-gaps');
+    if (box) box.innerHTML = '<div class="admin-risk-note danger">' + escapeHtml(msg) + '</div>';
+    if (showLog) showAdminResult('Warnung: ' + msg, true);
+    return null;
+  }
+}
+
+function renderAdminDbStatus() {
+  var box = document.getElementById('admin-db-status');
+  if (!box) return;
+  var compliance = adminSystemState.compliance || {};
+  var warnings = Array.isArray(compliance.warnings) ? compliance.warnings : [];
+  var backupsPayload = adminSystemState.backups || {};
+  var backups = Array.isArray(backupsPayload.backups) ? backupsPayload.backups : [];
+  var latestBackup = backups[0] || adminSystemState.lastBackup || null;
+  var backupAge = adminDaysSince(latestBackup && (latestBackup.modified_at || latestBackup.created_at));
+  var paths = adminSystemState.paths || {};
+  var controls = compliance.controls || {};
+  var maintenanceItems = [
+    { tone: latestBackup ? (backupAge != null && backupAge > 7 ? 'warn' : 'ok') : 'warn', title: '1. Backup erstellen', body: latestBackup ? ('Letztes Backup: ' + adminFormatDateTime(latestBackup.modified_at || latestBackup.created_at)) : 'Vor Wartung, Updates oder Datenmigration zuerst sichern.', section: 'sec-db', action: 'Backup', onclick: 'adminBackup()' },
+    { tone: adminSystemState.integrity && adminSystemState.integrity.status === 'ok' ? 'ok' : 'warn', title: '2. Integritaet pruefen', body: adminSystemState.integrity && adminSystemState.integrity.status ? ('Letzter Check: ' + adminSystemState.integrity.status) : 'Nach Sicherung Datenbankintegritaet kontrollieren.', section: 'sec-db', action: 'Check', onclick: 'adminIntegrity()' },
+    { tone: 'ok', title: '3. Speicher optimieren', body: 'Nach erfolgreichen Checks kann die Datenbank kompaktiert werden.', section: 'sec-db', action: 'Optimieren', onclick: 'adminOptimize()' },
+    { tone: 'ok', title: '4. Support-Bundle bei Bedarf', body: 'Nur fuer Diagnosefaelle. Enthalten sind redaktierte Logs und Statusdaten.', section: 'sec-db', action: 'Bundle', onclick: 'adminSupportBundle()' }
+  ];
+  box.innerHTML =
+    '<div class="admin-health-grid">'
+    + adminHealthCard('Compliance', warnings.length ? 'Hinweise' : (compliance.status || 'n/a'), warnings[0] || 'Kontrollen ohne offene Warnung.', warnings.length ? 'warn' : (compliance.status ? 'ok' : ''))
+    + adminHealthCard('Backups', backupsPayload.count != null ? String(backupsPayload.count) : String(backups.length), latestBackup ? ('Letztes Backup: ' + adminFormatDateTime(latestBackup.modified_at || latestBackup.created_at)) : 'Noch keine Backup-Historie geladen.', latestBackup ? (backupAge != null && backupAge > 7 ? 'warn' : 'ok') : 'warn')
+    + adminHealthCard('DB-Schutz', controls.db_encryption_enabled ? 'aktiv' : 'offen', controls.sqlcipher_available ? 'SQLCipher verfuegbar' : 'SQLCipher nicht bestaetigt', controls.db_encryption_enabled ? 'ok' : 'warn')
+    + '</div>'
+    + '<div style="margin-top:10px"><div class="admin-health-k" style="margin-bottom:6px">Empfohlene Wartungsfolge</div><div class="admin-action-list">' + maintenanceItems.map(adminDashboardActionHtml).join('') + '</div></div>'
+    + '<div class="admin-risk-note" style="margin-top:10px"><strong>Speicherorte</strong>'
+    + 'DB: ' + escapeHtml(paths.db_file || 'n/a') + '<br>Backups: ' + escapeHtml(paths.backup_dir || 'n/a') + '<br>Logs: ' + escapeHtml(paths.log_file || 'n/a')
+    + '</div>';
+  normalizeVisibleMojibake(box);
+}
+async function adminLoadSystemHealth(showLog) {
+  var results = await Promise.allSettled([
+    API.get('/admin/system/compliance'),
+    API.get('/admin/system/backups'),
+    API.get('/admin/system/paths'),
+    (window.FiveEyesAPI && window.FiveEyesAPI.updates ? window.FiveEyesAPI.updates.getState() : Promise.resolve({ enabled: false }))
+  ]);
+  if (results[0].status === 'fulfilled') adminSystemState.compliance = results[0].value;
+  if (results[1].status === 'fulfilled') adminSystemState.backups = results[1].value;
+  if (results[2].status === 'fulfilled') adminSystemState.paths = results[2].value;
+  if (results[3].status === 'fulfilled') adminSystemState.update = results[3].value;
+  adminSystemState.lastLoadedAt = new Date().toISOString();
+  renderAdminDbStatus();
+  renderAdminDashboard();
+  if (showLog) showAdminResult('OK: Systemzustand aktualisiert', false);
+  return adminSystemState;
+}
 function readAdminMappingLimit() {
   var raw = parseInt(getInputValue('admin-mapping-limit'), 10);
   if (!isFinite(raw) || raw < 1) return 20;
@@ -6077,8 +6334,14 @@ async function adminRefreshMarketStatus(showLog) {
     ]);
     var priceStatus = results[0];
     var productStatus = results[1];
+    adminSystemState.priceStatus = priceStatus;
+    adminSystemState.productStatus = productStatus;
+    adminSystemState.lastLoadedAt = new Date().toISOString();
     applyAdminMarketControls(priceStatus);
     adminMarketStatusBox(formatAdminMarketSummary(priceStatus, productStatus), false, true);
+    renderAdminDashboard();
+    adminLoadMappingGaps(false);
+    if (showLog) showAdminResult('OK: Marktstatus aktualisiert', false);
     if (showLog) showAdminResult('✓ Marktstatus aktualisiert', false);
     return { priceStatus: priceStatus, productStatus: productStatus };
   } catch(e) {
@@ -6435,6 +6698,8 @@ function renderAdminCapitalMarketAssumptionsSummary(cma) {
 }
 function applyAdminCapitalMarketAssumptions(cma) {
   adminCurrentCapitalMarketAssumptions = cma || null;
+  adminSystemState.cma = cma || null;
+  renderAdminDashboard();
   setInputValue('admin-cma-name', cma.assumption_set_name || 'Standard');
   setInputValue('admin-cma-valid-from', String(cma.valid_from || '').slice(0, 10));
   setInputValue('admin-cma-valid-until', cma.valid_until ? String(cma.valid_until).slice(0, 10) : '');
@@ -6665,6 +6930,10 @@ async function saveAdminCapitalMarketAssumptions() {
   if (btn) { btn.disabled = true; btn.textContent = 'Speichert...'; }
   try {
     var payload = collectAdminCapitalMarketAssumptionsPayload();
+    if (!adminConfirmRisk(
+      'Kapitalmarktannahmen speichern?',
+      'Diese Version beeinflusst kuenftige Strategien, Simulationen, erwartete Renditen und Risikoauswertungen. Bitte nur speichern, wenn Quelle und Notiz sauber gepflegt sind.'
+    )) return;
     var saved = await API.put('/capital-market-assumptions', payload);
     applyAdminCapitalMarketAssumptions(saved);
     previewAdminCapitalMarketAssumptions();
@@ -6683,6 +6952,10 @@ async function adminRunOpenfigiAutoApply(dryRun) {
   var btnId = dryRun ? 'btn-admin-openfigi-preview' : 'btn-admin-openfigi-apply';
   var btn = document.getElementById(btnId);
   var flags = readAdminMappingFlags();
+  if (!dryRun && !adminConfirmRisk(
+    'OpenFIGI-Mapping anwenden?',
+    'Diese Aktion veraendert Produkt-Stammdaten und kann kuenftige Preisabrufe, Bewertungen und Drift-Anzeigen beeinflussen. Dry Run vorher pruefen.'
+  )) return;
   if (btn) { btn.disabled = true; btn.textContent = dryRun ? 'Prueft...' : 'Mapped...'; }
   try {
     var payload = await API.post('/products/openfigi/auto-apply', {
@@ -6703,6 +6976,10 @@ async function adminRunEodhdAutoApply(dryRun) {
   var btnId = dryRun ? 'btn-admin-eodhd-preview' : 'btn-admin-eodhd-apply';
   var btn = document.getElementById(btnId);
   var flags = readAdminMappingFlags();
+  if (!dryRun && !adminConfirmRisk(
+    'EODHD-Referenzdaten anwenden?',
+    'Diese Aktion kann Symbol, Produktname oder Waehrung aktualisieren. Bei aktivierten Ueberschreibungen bitte besonders auf betroffene Produkte achten.'
+  )) return;
   if (btn) { btn.disabled = true; btn.textContent = dryRun ? 'Prueft...' : 'Sync...'; }
   try {
     var payload = await API.post('/products/eodhd/auto-apply', {
@@ -6731,6 +7008,10 @@ async function adminSetProductOverride() {
     setAdminOverrideError('Produkt-ID oder Name ist Pflicht.');
     return;
   }
+  if (!adminConfirmRisk(
+    'Produkt-Override speichern?',
+    'Overrides haben Vorrang vor automatischem Mapping und beeinflussen alle kuenftigen Preisabrufe fuer dieses Produkt. Bitte Symbol und Modus vorher pruefen.'
+  )) return;
   if (btn) {
     btn.disabled = true;
     btn.textContent = 'Speichert...';
@@ -6789,20 +7070,16 @@ function adminShowSection(secId) {
     p.style.display = 'none';
   });
   document.querySelectorAll('.admin-sec-btn').forEach(function(b) {
-    b.style.background = 'none';
-    b.style.color = 'var(--n6)';
-    b.style.borderLeftColor = 'transparent';
-    b.style.fontWeight = '500';
+    b.classList.remove('admin-active');
+    b.removeAttribute('aria-current');
   });
   var panel = document.getElementById(secId);
   if (panel) panel.style.display = 'grid';
   var key = secId.replace('sec-', '');
   var btn = document.getElementById('asec-' + key);
   if (btn) {
-    btn.style.background = 'var(--g3)';
-    btn.style.color = '#fff';
-    btn.style.borderLeftColor = 'var(--g3)';
-    btn.style.fontWeight = '600';
+    btn.classList.add('admin-active');
+    btn.setAttribute('aria-current', 'page');
   }
 }
 function adminSwitchTab(tabId) { adminShowSection(tabId.replace('tab-', 'sec-')); }
@@ -6847,6 +7124,10 @@ async function loadAdminAnnualReturns() {
 async function saveAdminAnnualReturns() {
   var btn = document.getElementById('btn-admin-ar-save');
   var errEl = document.getElementById('admin-ar-error');
+  if (!adminConfirmRisk(
+    'Historische Jahresrenditen speichern?',
+    'Diese Werte veraendern die theoretische Drift seit Strategie-Snapshot und koennen historische Review-Ampeln rueckwirkend beeinflussen.'
+  )) return;
   if (btn) { btn.disabled = true; btn.textContent = 'Speichert…'; }
   if (errEl) errEl.style.display = 'none';
   var inputs = document.querySelectorAll('[data-ar-year][data-ar-ac]');
@@ -6877,18 +7158,20 @@ async function saveAdminAnnualReturns() {
 
 async function openAdminModal() {
   om('m-admin');
-  adminShowSection('sec-audit');
+  adminShowSection('sec-health');
   ensureAdminCapitalMarketBindings();
   if (!getInputValue('admin-cma-name').trim()) loadAdminCapitalMarketAssumptionDefaults(true);
   try {
     await Promise.allSettled([
       adminRefreshMarketStatus(false),
+      adminLoadSystemHealth(false),
       adminUpdateStatus(),
       loadAdminUserList(),
       loadAdminCapitalMarketAssumptions(false),
       loadAdminAnnualReturns(),
       loadAdminAuditLog(0)
     ]);
+    renderAdminDashboard();
   } catch(e) {}
   normalizeVisibleMojibake(document.getElementById('m-admin')||document.body);
 }
@@ -6898,6 +7181,8 @@ async function adminBackup() {
   if (btn) { btn.disabled = true; btn.textContent = 'Laeuft...'; }
   try {
     const r = await API.post('/admin/system/db/backup', {});
+    adminSystemState.lastBackup = r;
+    await adminLoadSystemHealth(false);
     showAdminResult('OK: Backup erstellt\n' + (r.backup_file||'') + '\nSHA256: ' + (r.sha256||'').slice(0,16) + '...', false);
   } catch(e) {
     showAdminResult('Warnung: ' + (e.message||e), true);
@@ -6911,6 +7196,9 @@ async function adminIntegrity() {
   if (btn) { btn.disabled = true; btn.textContent = 'Prueft...'; }
   try {
     const r = await API.get('/admin/system/db/integrity');
+    adminSystemState.integrity = r;
+    renderAdminDashboard();
+    renderAdminDbStatus();
     const ok = r.status === 'ok';
     showAdminResult((ok ? 'OK: ' : 'Warnung: ') + 'Quick: ' + r.quick_check + '\nIntegrity: ' + (r.integrity_check||[]).join(', '), !ok);
   } catch(e) {
@@ -6959,6 +7247,8 @@ async function adminSupportBundle() {
 async function adminUpdateStatus() {
   try {
     const state = window.FiveEyesAPI && window.FiveEyesAPI.updates ? await window.FiveEyesAPI.updates.getState() : { enabled:false };
+    adminSystemState.update = state;
+    renderAdminDashboard();
     const lines = [
       'Auto-Update aktiv: ' + (state.enabled ? 'Ja' : 'Nein'),
       'Pruefung laeuft: ' + (state.checking ? 'Ja' : 'Nein'),
@@ -6992,6 +7282,7 @@ async function adminCheckForUpdates() {
 }
 
 async function adminInstallDownloadedUpdate() {
+  if (!adminConfirmRisk('Heruntergeladenes Update installieren?', 'Die App beendet sich fuer die Installation. Nicht gespeicherte Arbeit sollte vorher abgeschlossen sein.')) return;
   const btn = document.getElementById('btn-admin-update-install');
   if (btn) { btn.disabled = true; btn.textContent = 'Installiert...'; }
   try {
@@ -7069,6 +7360,7 @@ var RISK_CAPACITY_BANDS = [
   {min:14, max:32, label:'Dynamisch', band:5}
 ];
 var RISK_CAPACITY_MATRIX = {
+  // SYNC WITH: services/risk_scoring.py:HORIZON_CAPACITY_MATRIX
   '1,1':0,   '1,2':0,   '1,3':0,   '1,4':0,   '1,5':0,
   '2,1':10,  '2,2':10,  '2,3':20,  '2,4':20,  '2,5':20,
   '4,1':10,  '4,2':40,  '4,3':45,  '4,4':50,  '4,5':50,
@@ -7116,10 +7408,13 @@ function riskScoreToProfile(scoreX10){
 }
 
 function riskWillingnessProfile(scoreX10){
-  if(scoreX10 <= 30) return 'Sicherheitsorientiert';
-  if(scoreX10 <= 50) return 'Ausgewogen';
-  if(scoreX10 <= 70) return 'Wachstumsorientiert';
-  return 'Dynamisch';
+  // SYNC WITH: services/risk_scoring.py:_willingness_profile()
+  if(scoreX10 <= 24) return 'Kapitalschutz';
+  if(scoreX10 <= 44) return 'Defensiv';
+  if(scoreX10 <= 64) return 'Ausgewogen';
+  if(scoreX10 <= 84) return 'Wachstumsorientiert';
+  if(scoreX10 <= 94) return 'Dynamisch';
+  return 'Aktien';
 }
 
 function riskScoreDots(scoreX10){
@@ -7322,6 +7617,7 @@ function annualizedCashflowAmountChf(cashflow){
   if(String(cashflow&&cashflow.nature||'').toLowerCase()==='einmalig'||freqKey==='einmalig')return 0;
   var factorMap={
     monatlich:12,
+    quartalsweise:4,
     vierteljaehrlich:4,
     halbjaehrlich:2,
     jaehrlich:1,
@@ -7471,6 +7767,7 @@ function applyMandateHorizonToSimulationFields(){
 }
 
 function mapSurplusPoints(monthlyIncomeChf, monthlyObligationsChf){
+  // SYNC WITH: services/risk_scoring.py:map_surplus_points()
   var income = Math.max(0, Number(monthlyIncomeChf || 0));
   var obligations = Math.max(0, Number(monthlyObligationsChf || 0));
   if(income <= 0) return 0;
@@ -7842,6 +8139,7 @@ function buildRiskAssessmentPayloadFromUI(){
   var savingsPoints    = RISK_SAVINGS_POINTS[Math.max(0,Math.min(RISK_SAVINGS_POINTS.length-1,   state.savingsIdx))];
 
   var horizon=RISK_HORIZON_OPTIONS[state.horizonIdx];
+  if(!horizon) return null;
   var horizonStorageLabel=canonicalRiskHorizonLabel(horizon.label);
   var capacityTotal=incomePoints+obligationPoints+wealthPoints+savingsPoints;
   var capacityBand=findRiskCapacityBand(capacityTotal);
@@ -7851,6 +8149,7 @@ function buildRiskAssessmentPayloadFromUI(){
   var prefPoints  = Math.max(1,state.prefIdx+1);
   var behavPoints = Math.max(1,state.behavIdx+1);
   var willingnessTotal=goalPoints+prefPoints+behavPoints;
+  // SYNC WITH: services/risk_scoring.py:compute_scores() willingness formula
   var rawWillScore=Math.round(((willingnessTotal-3)/9)*90+10);
   var willScore=Math.max(10,Math.min(100,rawWillScore));
 
@@ -8163,14 +8462,47 @@ async function saveRiskProfile() {
   return true;
 }
 
-async function goFromRiskProfileToAllocation(){
-  if(riskAssessmentUiDirty){
-    var ok=await saveRiskProfile();
-    if(!ok)return;
+function currentRiskAssessmentUiRequirementMessage(){
+  return 'Aktuelles Risikoprofil ist unvollständig dokumentiert. ' + formatRiskAssessmentIssues(collectRiskAssessmentUiIssues());
+}
+
+async function ensureStrategyReadyRiskForMandate(mandateId){
+  var requestedMandateId=mandateId!=null?String(mandateId):String(getActiveMandateId()||'');
+  if(!requestedMandateId || isDemoMandateId(requestedMandateId)){
+    return {risk:null,message:'Bitte zuerst ein aktuelles Risikoprofil speichern.'};
   }
-  var hasPersistedRisk=!!currentPersistedRiskForMandate(getActiveMandateId());
-  if(!hasPersistedRisk){
-    showRiskSaveFeedback('Bitte zuerst ein aktuelles Risikoprofil speichern.', true);
+  if(riskAssessmentUiDirty){
+    var saved=!!(await saveRiskProfile());
+    if(!saved){
+      return {risk:null,message:currentRiskAssessmentUiRequirementMessage()};
+    }
+  }else{
+    var uiIssues=collectRiskAssessmentUiIssues();
+    if(uiIssues.length){
+      try{
+        await loadCurrentRiskAssessment(requestedMandateId,true);
+      }catch(e){
+        if(!e || String(e.status||'')!=='404')throw e;
+      }
+      uiIssues=collectRiskAssessmentUiIssues();
+      if(uiIssues.length){
+        return {risk:null,message:currentRiskAssessmentUiRequirementMessage()};
+      }
+    }
+  }
+  return await resolveStrategyRiskForMandate(requestedMandateId);
+}
+
+async function goFromRiskProfileToAllocation(){
+  var riskState=null;
+  try{
+    riskState=await ensureStrategyReadyRiskForMandate(getActiveMandateId());
+  }catch(e){
+    showRiskSaveFeedback('Risikoprofil konnte nicht geladen werden: '+(e&&e.detail?e.detail:(e&&e.message?e.message:'?')), true);
+    return;
+  }
+  if(!riskState.risk){
+    showRiskSaveFeedback(riskState.message||'Bitte zuerst ein aktuelles Risikoprofil speichern.', true);
     return;
   }
   go('al');
@@ -8366,6 +8698,9 @@ async function loadAdminUserList() {
   var currentUserId = (currentUser && currentUser.id) || null;
   try {
     var users = await API.get('/users');
+    adminSystemState.users = Array.isArray(users) ? users : [];
+    renderAdminDashboard();
+    renderAdminUserSummary(adminSystemState.users);
     if (!users || !users.length) {
       container.textContent = 'Keine Benutzer gefunden.';
       return;
@@ -8377,6 +8712,7 @@ async function loadAdminUserList() {
       var safeUsername = escapeHtml(u.username || '');
       var safeEmail = escapeHtml(u.email || '');
       var safeRole = escapeHtml(u.role || '');
+      var safeLastLogin = u.last_login_at ? escapeHtml(adminFormatDateTime(u.last_login_at)) : 'nie eingeloggt';
       var isSelf = String(u.id) === String(currentUserId);
       var row = document.createElement('div');
       row.dataset.userId = u.id;
@@ -8442,6 +8778,8 @@ async function saveAdminUser(userId) {
   if (emailEl) body.email = emailEl.value.trim() || null;
   if (roleEl && !roleEl.disabled) body.role = roleEl.value;
   if (activeEl && !activeEl.disabled) body.is_active = activeEl.checked;
+  if (body.role === 'admin' && !adminConfirmRisk('Admin-Rolle vergeben?', 'Administratorinnen und Administratoren sehen alle Kunden und koennen System- sowie Beratungsannahmen aendern.')) return;
+  if (body.is_active === false && !adminConfirmRisk('Benutzer deaktivieren?', 'Deaktivierte Benutzer koennen sich nicht mehr anmelden. Bestehende Audit-Eintraege bleiben erhalten.')) return;
   try {
     await API.put('/users/' + userId, body);
     showAdminResult('✓ Benutzer gespeichert', false);
@@ -8477,11 +8815,59 @@ async function doAdminPasswordReset(userId) {
   }
 }
 
+function renderAdminUserSummary(users) {
+  var box = document.getElementById('admin-user-summary');
+  if (!box) return;
+  var rows = Array.isArray(users) ? users : [];
+  var admins = rows.filter(function(u){ return String(u.role || '') === 'admin' && Number(u.is_active) === 1; }).length;
+  var advisors = rows.filter(function(u){ return String(u.role || '') === 'advisor' && Number(u.is_active) === 1; }).length;
+  var readonly = rows.filter(function(u){ return String(u.role || '') === 'readonly' && Number(u.is_active) === 1; }).length;
+  var inactive = rows.filter(function(u){ return Number(u.is_active) !== 1; }).length;
+  box.innerHTML = '<div class="admin-health-grid">'
+    + adminHealthCard('Admins', String(admins), admins >= 2 ? 'Mindestens zwei aktive Admins vorhanden.' : 'Ein zweiter Admin reduziert Aussperr-Risiko.', admins >= 2 ? 'ok' : 'warn')
+    + adminHealthCard('Berater', String(advisors), 'Aktive Schreibnutzer fuer Beratung.', 'ok')
+    + adminHealthCard('Lesend', String(readonly), 'Nutzer ohne Schreibrechte.', '')
+    + adminHealthCard('Inaktiv', String(inactive), 'Gesperrte oder ehemalige Benutzer.', inactive ? 'warn' : 'ok')
+    + '</div>';
+}
 // ADMIN AUDIT LOG
 var _auditLogOffset = 0;
 var _auditLogTotal = 0;
 var _auditLogLimit = 50;
 
+function adminSetAuditAction(action) {
+  var sel = document.getElementById('al-action-filter');
+  if (sel) sel.value = action || '';
+  loadAdminAuditLog(0);
+}
+
+function renderAdminAuditSummary(data) {
+  var box = document.getElementById('admin-audit-summary');
+  if (!box) return;
+  data = data || {};
+  var entries = Array.isArray(data.entries) ? data.entries : [];
+  var counts = {};
+  entries.forEach(function(entry) {
+    var action = String(entry.action || 'UNKNOWN');
+    counts[action] = (counts[action] || 0) + 1;
+  });
+  var latest = entries[0] || null;
+  box.innerHTML =
+    '<div class="admin-health-panel">'
+    + '<div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap">'
+    + '<div><div class="admin-health-k">Audit</div>'
+    + '<div class="admin-health-v">' + escapeHtml(data.total != null ? adminFormatCount(data.total) : 'n/a') + '</div>'
+    + '<div class="admin-health-sub">' + escapeHtml(latest ? ('Letzter Eintrag: ' + adminFormatDateTime(latest.created_at)) : 'Noch keine Eintraege geladen.') + '</div></div>'
+    + '<div class="admin-health-actions" style="margin-top:0">'
+    + '<button class="admin-link-btn" onclick="adminSetAuditAction(\'\')">Alle</button>'
+    + '<button class="admin-link-btn" onclick="adminSetAuditAction(\'UPDATE\')">Aenderungen</button>'
+    + '<button class="admin-link-btn" onclick="adminSetAuditAction(\'DELETE\')">Loeschungen</button>'
+    + '<button class="admin-link-btn" onclick="adminSetAuditAction(\'LOGIN\')">Logins</button>'
+    + '</div></div>'
+    + '<div class="admin-health-sub">Diese Seite: CREATE ' + String(counts.CREATE || 0) + ', UPDATE ' + String(counts.UPDATE || 0) + ', DELETE ' + String(counts.DELETE || 0) + '.</div>'
+    + '</div>';
+  normalizeVisibleMojibake(box);
+}
 async function loadAdminAuditLog(offset) {
   var btn = document.getElementById('btn-al-load');
   var tableEl = document.getElementById('al-table');
@@ -8503,9 +8889,12 @@ async function loadAdminAuditLog(offset) {
 
   try {
     var data = await API.get('/admin/system/audit-log?' + params);
+    adminSystemState.audit = data || null;
+    renderAdminDashboard();
     _auditLogOffset = data.offset || 0;
     _auditLogTotal = data.total || 0;
     _auditLogLimit = data.limit || 50;
+    renderAdminAuditSummary(data);
     renderAuditLogTable(data.entries || [], tableEl);
     renderAuditLogPagination(paginationEl);
   } catch(e) {
@@ -8587,6 +8976,7 @@ async function createNewUser() {
     if (errEl) { errEl.textContent = 'Passwort muss mindestens 10 Zeichen lang sein.'; errEl.style.display='block'; }
     return;
   }
+  if (role === 'admin' && !adminConfirmRisk('Neuen Administrator anlegen?', 'Diese Rolle hat globale Kundensicht und darf Systemdaten, Benutzer und Beratungsannahmen verwalten.')) return;
   if (errEl) errEl.style.display = 'none';
   if (btn) { btn.disabled = true; btn.textContent = 'Wird angelegt...'; }
 
@@ -8655,6 +9045,16 @@ function escapeHtml(value){
     .replace(/>/g,'&gt;')
     .replace(/"/g,'&quot;')
     .replace(/'/g,'&#39;');
+}
+function bindClickHandlers(root, selector, handler){
+  if(!root||!selector||typeof handler!=='function')return;
+  Array.prototype.forEach.call(root.querySelectorAll(selector), function(el){
+    el.removeAttribute('onclick');
+    el.onclick=function(ev){
+      if(ev)ev.preventDefault();
+      handler(el, ev);
+    };
+  });
 }
 function getInputValue(id){
   var el=document.getElementById(id);
@@ -9354,6 +9754,17 @@ function resetAdvisoryLogModal(){
         '<div><button class="btn-ico e" onclick="openWealthPositionEditor(\''+escapeHtml(pos.id||'')+'\')" title="Bearbeiten">✎</button><button class="btn-ico" onclick="deleteWealthPositionById(\''+escapeHtml(pos.id||'')+'\')" title="Löschen">✕</button></div></div>';
     }).join('');
   };
+  var renderRowsSafe=function(list,tagClass,tagLabel,isLiability){
+    if(!list.length)return '<div style="font-size:10px;color:var(--n4);padding:4px 0 8px">Noch keine Positionen erfasst.</div>';
+    return list.map(function(pos){
+      var amountText=(isLiability?'−':'')+fmtCHF(Math.abs(chfFromRappen(pos.current_value_rappen)));
+      return '<div class="wr" data-posid="'+escapeHtml(pos.id||'')+'">'+
+        '<div class="wn"><div class="wna">'+escapeHtml(pos.label||'Position')+'</div><div class="wnd">'+escapeHtml(describeWealthPosition(pos))+'</div></div>'+
+        '<div class="wa"'+(isLiability?' style="color:var(--neg)"':'')+'>'+amountText+'</div>'+
+        '<div class="wt"><span class="tag '+tagClass+'">'+tagLabel+'</span></div>'+
+        '<div><button class="btn-ico e" type="button" title="Bearbeiten">✎</button><button class="btn-ico d" type="button" title="Löschen">✕</button></div></div>';
+    }).join('');
+  };
   var advisoryTotal=totalChf(advisory);
   var otherTotal=totalChf(other)-totalChf(liabilities);
   var netWorth=advisoryTotal+otherTotal;
@@ -9362,13 +9773,13 @@ function resetAdvisoryLogModal(){
   av.innerHTML=
     '<div style="margin-bottom:10px">'+
       '<div style="font-size:9px;font-weight:600;letter-spacing:0.07em;text-transform:uppercase;color:var(--n6);margin-bottom:5px;padding-bottom:3px;border-bottom:1px solid var(--b1)">Beratungsvermögen</div>'+
-      renderRows(advisory,'tb','Beratung',false)+
+      renderRowsSafe(advisory,'tb','Beratung',false)+
       '<div style="display:flex;justify-content:space-between;padding:6px 0 0;border-top:1px solid var(--b1);margin-top:2px"><span style="font-size:11px;font-weight:600">Total Beratungsvermögen</span><span style="font-family:var(--f-d);font-size:15px;color:var(--pos)">'+fmtCHF(advisoryTotal)+'</span></div>'+
     '</div>'+
     '<div>'+
       '<div style="font-size:9px;font-weight:600;letter-spacing:0.07em;text-transform:uppercase;color:var(--n4);margin-bottom:5px;padding-bottom:3px;border-bottom:1px solid var(--b1)">Anderes Vermögen (holistischer Überblick)</div>'+
-      renderRows(other,'tn','Andere',false)+
-      renderRows(liabilities,'tr2','Verbindl.',true)+
+      renderRowsSafe(other,'tn','Andere',false)+
+      renderRowsSafe(liabilities,'tr2','Verbindl.',true)+
       '<div style="display:flex;justify-content:space-between;padding:6px 0 0;border-top:1px solid var(--b1);margin-top:2px"><span style="font-size:11px;font-weight:600">Total Anderes (netto)</span><span style="font-family:var(--f-d);font-size:15px;color:var(--n8)">'+fmtCHF(otherTotal)+'</span></div>'+
     '</div>'+
     '<div style="display:flex;justify-content:space-between;padding:9px 0 0;border-top:2px solid var(--n8);margin-top:7px">'+
@@ -10172,6 +10583,33 @@ function formatCompactCHF(chf){
   if(n>=1000)return 'CHF '+Math.round(n).toLocaleString('de-CH');
   return 'CHF '+Math.round(n).toLocaleString('de-CH');
 }
+function projectionContributionAt(contributionInput,index){
+  if(Array.isArray(contributionInput)){
+    if(index<contributionInput.length)return Number(contributionInput[index]||0);
+    return contributionInput.length?Number(contributionInput[contributionInput.length-1]||0):0;
+  }
+  return Number(contributionInput||0);
+}
+function scaleProjectionContribution(contributionInput,factor){
+  if(Array.isArray(contributionInput)){
+    return contributionInput.map(function(value){return Math.round(Number(value||0)*factor);});
+  }
+  return Math.round(Number(contributionInput||0)*factor);
+}
+function projectionValueRappen(principalRappen,annualContributionRappen,returnBps,years){
+  var future=Number(principalRappen||0);
+  var rate=(Number(returnBps||0)/10000);
+  for(var i=0;i<years;i++)future=future*(1+rate)+projectionContributionAt(annualContributionRappen,i);
+  return Math.round(future);
+}
+function buildProjectionSeriesK(startRappen,annualContributionRappen,returnBps,years){
+  var values=[];
+  for(var i=0;i<=years;i++){
+    var val=i===0?Number(startRappen||0):projectionValueRappen(startRappen,annualContributionRappen,returnBps,i);
+    values.push(Math.round(val/100000));
+  }
+  return values;
+}
 function projectionSeriesCagrBps(seriesRappen){
   var points=Array.isArray(seriesRappen)?seriesRappen:[];
   var years=Math.max(0,points.length-1);
@@ -10307,22 +10745,16 @@ function buildBaselineProjectionFromComponentSeries(startRappen,componentSeries,
   });
   var years=rows.length;
   var labels=projectionYearLabels(null,years,preferredLabels);
-  // H1/H5: startRappen kann negativ sein (Verbindlichkeiten ueberwiegen),
-  // daher KEIN Math.max(0,...) auf den Start. Defizit wird sichtbar.
-  var invested=Math.round(Number(startRappen||0));
+  var invested=Math.max(0,Math.round(Number(startRappen||0)));
   var rate=Number(expectedReturnBps||0)/10000;
   var seriesRappen=[invested];
   for(var idx=0;idx<years;idx++){
     var recurringNet=Number(rows[idx]&&rows[idx].recurringNetRappen||0);
     var capitalNet=Number(rows[idx]&&rows[idx].capitalNetRappen||0);
-    // H4: Mid-Year-Convention - laufende Cashflows + einmalige Kapitalereignisse
-    // bekommen den halben Jahres-Return im selben Jahr. Asset-Stand wird voll
-    // verzinst.
-    var assetGrowth=invested*rate;
-    var midYearFlow=(recurringNet+capitalNet)*(1+rate/2);
-    invested=Math.round(invested+assetGrowth+midYearFlow);
-    // H5: KEIN max(0,invested) - negative Werte sind die Lebensluecke.
-    seriesRappen.push(invested);
+    invested=Math.round(Math.max(0,invested)*(1+rate));
+    invested=Math.max(0,Math.round(invested+recurringNet));
+    invested=Math.max(0,Math.round(invested+capitalNet));
+    seriesRappen.push(Math.max(0,Math.round(invested)));
   }
   return {
     years:years,
@@ -10339,63 +10771,24 @@ function buildCurrentBaselineProjection(result,preferredYears,preferredLabels){
   var labels=projectionYearLabels(result,years,preferredLabels);
   var componentSeries=resultCashflowProjectionComponentSeries(result,years,labels);
   var expectedReturnBps=currentMixExpectedReturnBps(result);
-  // Z8-W2: Wenn Backend simulation.current_mix_series_rappen liefert, ist sie
-  // Single-Source-of-Truth fuer den IST-Pfad (Bucket-weise Compound + Lebensluecke).
-  // FE-Compound nur als Fallback (Legacy ohne C8-Anchors / Pre-Run / Mandat ohne Strategie).
-  var sim=simulationPayload(result);
-  var backendSeries=sim&&Array.isArray(sim.current_mix_series_rappen)?sim.current_mix_series_rappen:null;
-  var sameLength=backendSeries&&backendSeries.length===years+1;
-  var projection;
-  if(sameLength){
-    var seriesRappen=backendSeries.map(function(v){return Math.round(Number(v||0));});
-    projection={
-      years:years,
-      labels:labels,
-      expectedReturnBps:Number(expectedReturnBps||0),
-      seriesRappen:seriesRappen,
-      seriesK:seriesRappen.map(function(v){return Math.round(v/100000);}),
-      projectedRappen:Number(seriesRappen[seriesRappen.length-1]||0),
-      cagrBps:projectionSeriesCagrBps(seriesRappen)
-    };
-  } else {
-    projection=buildBaselineProjectionFromComponentSeries(
-      Number(result&&result.advisory_wealth_rappen||0),
-      componentSeries,
-      expectedReturnBps,
-      labels
-    );
-  }
+  var projection=buildBaselineProjectionFromComponentSeries(
+    Number(result&&result.advisory_wealth_rappen||0),
+    componentSeries,
+    expectedReturnBps,
+    labels
+  );
   projection.recurringNetCashflowRappen=currentRecurringNetCashflowRappen(result);
   projection.capitalNetCashflowRappen=currentCapitalNetCashflowRappen(result);
   projection.annualNetCashflowRappen=currentAnnualNetCashflowRappen(result);
   projection.netCashflowSeriesRappen=componentSeries.map(function(item){return Number(item&&item.netCashflowRappen||0);});
   projection.cashflowComponentSeries=componentSeries.slice();
   projection.expectedReturnBps=expectedReturnBps;
-  projection.source=sameLength?'backend':'fallback';
   return projection;
 }
 function buildImprovedTotalProjectionFromStrategy(result,preferredYears,preferredLabels){
-  var totalProjection=buildCurrentWealthProjection('total',preferredYears,preferredLabels,result);
-  // Z8-W2 Phase 2: Wenn Backend total_mix_target_series_rappen liefert, ist das
-  // der authoritative SOLL-Total-Pfad - keine FE-Mischformel mehr noetig.
-  var sim=simulationPayload(result);
-  var backendTotalTarget=sim&&Array.isArray(sim.total_mix_target_series_rappen)?sim.total_mix_target_series_rappen:null;
-  if(backendTotalTarget&&backendTotalTarget.length){
-    var seriesRappen=backendTotalTarget.map(function(v){return Math.round(Number(v||0));});
-    return {
-      years:Math.max(0,seriesRappen.length-1),
-      labels:(totalProjection.labels||[]).slice(0,seriesRappen.length),
-      seriesRappen:seriesRappen,
-      seriesK:seriesRappen.map(function(v){return Math.round(v/100000);}),
-      projectedRappen:Number(seriesRappen[seriesRappen.length-1]||0),
-      cagrBps:projectionSeriesCagrBps(seriesRappen),
-      annualNetCashflowRappen:Number(totalProjection.annualNetCashflowRappen||0),
-      expectedReturnBps:Number(totalProjection.expectedReturnBps||0),
-      source:'backend'
-    };
-  }
-  // Fallback: Mischformel fuer Pre-C9 Allocations / Backend ohne total Series
+  var totalProjection=buildCurrentWealthProjection('total',preferredYears,preferredLabels);
   var advisoryProjection=buildCurrentBaselineProjection(result,preferredYears,preferredLabels);
+  var sim=simulationPayload(result);
   var targetSeries=sim&&Array.isArray(sim.target_mix_series_rappen)
     ? sim.target_mix_series_rappen.map(function(value){return Number(value||0);})
     : advisoryProjection.seriesRappen.slice();
@@ -10420,8 +10813,7 @@ function buildImprovedTotalProjectionFromStrategy(result,preferredYears,preferre
     projectedRappen:Number(improvedSeries[length-1]||0),
     cagrBps:projectionSeriesCagrBps(improvedSeries),
     annualNetCashflowRappen:Number(totalProjection.annualNetCashflowRappen||0),
-    expectedReturnBps:Number(totalProjection.expectedReturnBps||0),
-    source:'fallback'
+    expectedReturnBps:Number(totalProjection.expectedReturnBps||0)
   };
 }
 function renderCurrentWealthOnlyProjectionSummary(projection){
@@ -10466,12 +10858,15 @@ function simulationSeriesK(series){
   });
 }
 function simulationTerminalRappen(result,key,fallbackYears){
-  // Z8-W2-B4: Wenn Backend keine Series liefert, kein FE-Compound mehr -
-  // statt zu raten zeigen wir den aktuellen Wert (Status quo).
   var sim=simulationPayload(result);
   var series=sim&&Array.isArray(sim[key])?sim[key]:null;
   if(series&&series.length)return Number(series[series.length-1]||0);
-  return Number(result&&result.advisory_wealth_rappen||0);
+  return projectionValueRappen(
+    result&&result.advisory_wealth_rappen,
+    result&&((result.cashflow_projection_series_rappen)||result.annual_net_cashflow_rappen),
+    result&&result.expected_return_bps,
+    fallbackYears||7
+  );
 }
 function renderOverviewProjectionSummary(config){
   var currentProjectedRappen=Number(config&&config.currentProjectedRappen||0);
@@ -10566,7 +10961,7 @@ function updateProjectionChartsFromSimulation(result){
   var targetSeries=simulationSeriesK(sim.target_mix_series_rappen);
   var advisoryBaselineProjection=buildCurrentBaselineProjection(result,labels.length?labels.length-1:null,labels);
   var advisoryCurrentSeries=advisoryBaselineProjection.seriesK;
-  var totalBaselineProjection=buildCurrentWealthProjection('total',labels.length?labels.length-1:null,labels,result);
+  var totalBaselineProjection=buildCurrentWealthProjection('total',labels.length?labels.length-1:null,labels);
   var totalCurrentSeries=totalBaselineProjection.seriesK;
   if(charts.opt&&charts.opt.data){
     charts.opt.data.labels=labels;
@@ -10803,7 +11198,7 @@ function renderLiveRebalancingPositions(live){
   var rows=live&&Array.isArray(live.position_drifts)?live.position_drifts.slice(0,5):[];
   if(!rows.length)return '<div style="font-size:10px;color:var(--n4)">Titel-Hotspots erscheinen, sobald ein Live-Rezept mit Preisen vorliegt.</div>';
   return rows.map(function(item){
-    return '<div style="display:grid;grid-template-columns:1.2fr 62px 78px;gap:8px;align-items:center;padding:8px 9px;background:#fff;border:1px solid var(--b1);border-radius:var(--r)"><div><div style="font-size:11px;font-weight:500;color:var(--n8)">'+escapeHtml(item.product_name||'Titel')+'</div><div style="font-size:9px;color:var(--n5);margin-top:3px">'+escapeHtml(item.sub_asset_class||item.asset_class||'')+' / Ref. '+(item.reference_price_date?escapeHtml(item.reference_price_date):'n/a')+' / Live '+(item.latest_price_date?escapeHtml(item.latest_price_date):'n/a')+'</div></div><div style="font-size:10px;color:var(--n7);text-align:right">'+formatSignedBpsPercent(item.delta_weight_bps||0)+'</div><div style="text-align:right"><div style="font-size:10px;font-weight:600;color:var(--n7)">'+formatSignedRappen(item.rebalance_amount_rappen||0)+'</div><div style="font-size:9px;color:var(--n5);margin-top:3px">'+escapeHtml(rebalanceActionLabel(item))+'</div></div></div>';
+    return '<div style="display:grid;grid-template-columns:1.2fr 62px 78px;gap:8px;align-items:center;padding:8px 9px;background:#fff;border:1px solid var(--b1);border-radius:var(--r)"><div><div style="font-size:11px;font-weight:500;color:var(--n8)">'+escapeHtml(item.product_name||'Titel')+'</div><div style="font-size:9px;color:var(--n5);margin-top:3px">'+escapeHtml(item.sub_asset_class||item.asset_class||'')+' / Ref. '+(item.reference_price_date?escapeHtml(item.reference_price_date):'n/a')+' / Live '+(item.latest_price_date?escapeHtml(item.latest_price_date):'n/a')+'</div></div><div style="font-size:10px;color:var(--n7);text-align:right">'+formatSignedBpsPercent(item.delta_weight_bps||0)+'</div><div style="text-align:right"><div style="font-size:10px;font-weight:600;color:var(--n7)">'+formatSignedRappen(item.rebalance_amount_rappen||0)+'</div><div style="font-size:9px;color:var(--n5);margin-top:3px">'+escapeHtml(item.rebalance_action||'Beobachten')+'</div></div></div>';
   }).join('');
 }
 function portfolioMarketValueRappen(row){
@@ -10822,26 +11217,12 @@ function portfolioDriftWeightBps(row,totalRappen){
   if(row&&row.delta_weight_bps!==null&&row.delta_weight_bps!==undefined)return Number(row.delta_weight_bps||0);
   return portfolioCurrentWeightBps(row,totalRappen)-Number(row&&row.target_weight_bps||0);
 }
-function rebalanceActionCode(row){
-  var code=String(row&&row.rebalance_action_code||'').toUpperCase();
-  if(code)return code;
-  var legacy=String(row&&row.rebalance_action||'').toUpperCase();
-  if(legacy==='AUFBAUEN'||legacy==='BUY')return 'BUY';
-  if(legacy==='REDUZIEREN'||legacy==='SELL')return 'SELL';
-  if(legacy==='IM SOLL'||legacy==='HOLD')return 'HOLD';
-  if(legacy==='PREIS FEHLT'||legacy==='MISSING_PRICE')return 'MISSING_PRICE';
-  if(legacy==='BEOBACHTEN'||legacy==='CHECK')return 'CHECK';
-  return legacy||'CHECK';
-}
-function rebalanceActionLabel(row){
-  return String(row&&row.rebalance_action_label||row&&row.rebalance_action||'Beobachten');
-}
 function portfolioStatusMeta(row,totalRappen){
   var driftBps=portfolioDriftWeightBps(row,totalRappen);
-  var action=rebalanceActionCode(row);
+  var action=String(row&&row.rebalance_action||'').toUpperCase();
   var hasPrice=!!(row&&(row.latest_price_date||row.reference_price_date||row.reference_price_rappen!==null&&row.reference_price_rappen!==undefined||row.latest_price_rappen!==null&&row.latest_price_rappen!==undefined));
   var staleKnown=!!(row&&row.price_age_days!==null&&row.price_age_days!==undefined&&!row.price_is_fresh);
-  if(!hasPrice||staleKnown||action==='MISSING_PRICE'||action==='CHECK'||action==='REVIEW'){
+  if(!hasPrice||staleKnown||action==='CHECK'||action==='REVIEW'){
     return {
       label:'PRÜFEN',
       className:'pstatus-review',
@@ -11327,6 +11708,12 @@ async function refreshPortfolioFromStoredState(){
   setPortfolioRefreshButtonState('loading');
   try{
     strategyState.loading=true;
+    var riskState=await ensureStrategyReadyRiskForMandate(mid);
+    if(!riskState.risk){
+      updateStrategyStatus(riskState.message||'Aktuelles Risikoprofil fehlt. Bitte zuerst auf der Seite Risikoprofil speichern.',true);
+      return false;
+    }
+    strategyState.risk=riskState.risk;
     updateStrategyStatus(hadPendingChanges
       ? 'Gespeichertes Portfolio wird aktualisiert. Offene Aenderungen bleiben ausstehend.'
       : 'Portfolio wird aus dem gespeicherten Stand aktualisiert.',false);
@@ -11344,7 +11731,7 @@ async function refreshPortfolioFromStoredState(){
     }else{
       strategyState.recommendation=null;
       renderPortfolioRebalancingSummary(null,null,[]);
-      renderRecommendationWarnings([],{},null,[]);
+      renderRecommendationWarnings(allocation.warnings||[],{},null,[]);
       renderPortfolioSections([]);
       setText('po-price-quality','Ausstehend');
       setText('po-price-quality-sub','Keine gespeicherte Portfolio-Empfehlung');
@@ -11535,7 +11922,6 @@ function renderStrategySummary(){
     ? Math.round(goalsWithPath.reduce(function(sum,item){return sum+(Math.max(1,Number(item.weight_bps||0))*Number(item.path_success_rate_pct||0));},0)/pathWeightTotal)
     : null;
   var endangered=allocation.goal_analysis?allocation.goal_analysis.filter(function(item){return Number(item.achievement_score||0)<45;}).length:0;
-  updateSrClientSummary(risk,allocation,avgGoalScore,endangered,activeClientCashflowSummary(),currentReviewState&&currentReviewState.triggers);
   if(risk){
     setText('sr-risk-score',Math.round(Number(risk.final_score_x10||0)/10)+' / 10');
     setText('sr-risk-profile',risk.final_profile||'Nicht definiert');
@@ -11587,15 +11973,15 @@ function renderSrImplementationDecision(entry){
   }).filter(function(item){return item.meta.tagClass!=='tg'||Math.abs(Number(item.deltaWeightBps||0))>=200;})
     .sort(function(a,b){return Math.abs(Number(b.deltaWeightBps||0))-Math.abs(Number(a.deltaWeightBps||0))});
   var live=liveRebalancingPayload(allocation)||liveRebalancingPayload(recommendation);
-  var hasTradeList=!!(live&&Array.isArray(live.position_drifts)&&live.position_drifts.some(function(row){return rebalanceActionCode(row)!=='HOLD';}));
+  var hasTradeList=!!(live&&Array.isArray(live.position_drifts)&&live.position_drifts.some(function(row){return String(row&&row.rebalance_action||'').toUpperCase()!=='HOLD';}));
   var cards=[];
   if(driftItems.length){
-    driftItems.slice(0,2).forEach(function(item,idx){
+    driftItems.slice(0,3).forEach(function(item,idx){
       var verb=Number(item.deltaWeightBps||0)>0?'Reduzieren':'Aufstocken';
       cards.push('<div style="border:1px solid var(--b1);border-radius:var(--r2);padding:10px">'
         +'<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px"><div style="width:20px;height:20px;border-radius:50%;background:'+item.meta.tone+';color:#fff;font-size:10px;font-weight:600;display:flex;align-items:center;justify-content:center">'+String(idx+1)+'</div><span style="font-size:11px;font-weight:500;color:var(--n8)">'+escapeHtml(verb)+'</span></div>'
         +'<div style="font-size:10px;color:var(--n8);font-weight:500;margin-bottom:3px">'+escapeHtml(item.assetClass)+'</div>'
-        +'<div style="font-size:10px;color:var(--n6);line-height:1.5">Heute '+escapeHtml(item.meta.action.toLowerCase())+'. Zielquote '+escapeHtml(formatBpsPercent(item.targetWeightBps))+'.</div>'
+        +'<div style="font-size:10px;color:var(--n6)">IST '+escapeHtml(formatBpsPercent(item.currentWeightBps))+' → SOLL '+escapeHtml(formatBpsPercent(item.targetWeightBps))+' · Delta '+escapeHtml(formatSignedBpsPercent(item.deltaWeightBps))+'</div>'
         +'<div style="margin-top:5px"><span class="tag '+item.meta.tagClass+'">'+escapeHtml(item.meta.label)+'</span></div>'
         +'</div>');
     });
@@ -11610,43 +11996,9 @@ function renderSrImplementationDecision(entry){
     meta.innerHTML='Beratungsprotokoll vom <strong>'+escapeHtml(when)+'</strong>'+(hasTradeList?' · <button class="btn btn-sm" onclick="openTradeList()" style="vertical-align:middle;margin-left:6px">Handelsliste</button>':'');
   }
 }
-function updateSrClientSummary(risk,allocation,avgGoalScore,endangered,cashflow,triggers){
-  var root=document.getElementById('sr-client-summary');
-  if(!root)return;
-  var profile=risk&&risk.final_profile?String(risk.final_profile):'noch nicht definiert';
-  var hasAllocation=!!allocation;
-  var advisoryChf=Math.round(Number(allocation&&allocation.advisory_wealth_rappen||0)/100);
-  var strategyName=profile==='noch nicht definiert'?'Strategie noch offen':('Strategie '+profile);
-  var goalText=endangered>0
-    ? String(endangered)+' Ziel(e) brauchen Aufmerksamkeit.'
-    : (avgGoalScore>0?'Die Ziele liegen aktuell mehrheitlich im Plan.':'Ziele noch priorisieren.');
-  var cashflowText='';
-  if(cashflow&&cashflow.recurring_net_rappen!=null){
-    var recurring=Number(cashflow.recurring_net_rappen||0);
-    cashflowText=recurring>=0
-      ? 'Laufend bleibt eine Sparquote von '+formatRappen(recurring)+' p.a.'
-      : 'Laufend wird Vermoegen von '+formatRappen(Math.abs(recurring))+' p.a. verbraucht.';
-  }
-  var nextReview=(Array.isArray(triggers)?triggers:[]).filter(function(trigger){
-    return String(trigger.trigger_type||'')==='Zeit'&&String(trigger.status||'')!=='Erledigt'&&trigger.next_due_at;
-  }).sort(function(a,b){return String(a.next_due_at).localeCompare(String(b.next_due_at));})[0]||null;
-  var nextText=nextReview?('Naechster Review: '+formatDateSwiss(nextReview.next_due_at)+'.'):'Naechster Review noch nicht terminiert.';
-  if(!hasAllocation){
-    root.innerHTML='<div style="font-size:9px;font-weight:800;letter-spacing:0.12em;text-transform:uppercase;color:var(--n4);margin-bottom:6px">Kurzfassung fuer das Gespraech</div>'
-      +'<div style="font-size:17px;font-weight:800;color:var(--n8);line-height:1.35;margin-bottom:5px">Strategie noch nicht bereit</div>'
-      +'<div style="font-size:11px;color:var(--n6);line-height:1.65">Bitte zuerst Risikoprofil, Vermoegen und Asset Allocation abschliessen.</div>';
-    return;
-  }
-  root.innerHTML='<div style="display:flex;justify-content:space-between;gap:16px;align-items:flex-start">'
-    +'<div style="min-width:0"><div style="font-size:9px;font-weight:800;letter-spacing:0.12em;text-transform:uppercase;color:var(--n4);margin-bottom:6px">Kurzfassung fuer das Gespraech</div>'
-    +'<div style="font-size:18px;font-weight:800;color:var(--n8);line-height:1.35;margin-bottom:6px">'+escapeHtml(strategyName)+' fuer '+escapeHtml(formatCompactCHF(advisoryChf))+'</div>'
-    +'<div style="font-size:11px;color:var(--n6);line-height:1.65">'+escapeHtml(goalText)+' '+escapeHtml(cashflowText||'Cashflow ist fuer die Strategie beruecksichtigt.')+' '+escapeHtml(nextText)+'</div></div>'
-    +'<div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;max-width:250px"><span class="tag tg">'+escapeHtml(profile)+'</span><span class="tag '+(endangered?'ta':'tg')+'">'+escapeHtml(avgGoalScore?String(avgGoalScore)+'% Zielbild':'Ziele offen')+'</span></div>'
-    +'</div>';
-}
 function renderSrApiSummary(risk,allocation,recommendation,cashflow,triggers){
   var activeAllocation=allocation||strategyState.allocation||null;
-  var activeRisk=riskBelongsToMandate(risk,getActiveMandateId())?risk:currentPersistedRiskForMandate(getActiveMandateId());
+  var activeRisk=riskAssessmentReadyForStrategy(risk,getActiveMandateId())?risk:currentPersistedRiskForMandate(getActiveMandateId());
   var activeRecommendation=recommendation||strategyState.recommendation||null;
   if(!activeAllocation){
     renderStrategySummary();
@@ -11666,7 +12018,6 @@ function renderSrApiSummary(risk,allocation,recommendation,cashflow,triggers){
 if(cashflow&&cashflow.recurring_net_rappen!=null)goalSubParts.push('Laufend '+formatRappen(cashflow.recurring_net_rappen)+' p.a.');
   if(endangered)goalSubParts.push(String(endangered)+' Ziel(e) gefährdet');
   if(!goalSubParts.length)goalSubParts.push('Noch keine belastbare Zielauswertung');
-  updateSrClientSummary(activeRisk,activeAllocation,avgGoalScore,endangered,cashflow,triggers);
   if(activeRisk){
     setText('sr-risk-score',Math.round(Number(activeRisk.final_score_x10||0)/10)+' / 10');
     setText('sr-risk-profile',activeRisk.final_profile||'Nicht definiert');
@@ -11768,7 +12119,8 @@ async function loadSrPage(){
       renderSrImplementationDecision(null);
       return;
     }
-    if(risk)strategyState.risk=risk;
+    if(riskAssessmentReadyForStrategy(risk,mid))strategyState.risk=risk;
+    else if(riskBelongsToMandate(risk,mid))strategyState.risk=null;
     if(allocation&&!strategyState.dirty)strategyState.allocation=allocation;
     if(recommendation&&!strategyState.dirty)strategyState.recommendation=recommendation;
     renderSrApiSummary(risk,allocation,recommendation,cashflow,triggers);
@@ -11805,7 +12157,7 @@ function applyAllocationEngineResult(result){
   var sim=simulationPayload(result);
   var mc=monteCarloPayload(result);
   var advisoryBaselineProjection=buildCurrentBaselineProjection(result,sim&&sim.year_labels?sim.year_labels.length-1:null,sim&&sim.year_labels);
-  var totalBaselineProjection=buildCurrentWealthProjection('total',sim&&sim.year_labels?sim.year_labels.length-1:null,sim&&sim.year_labels,result);
+  var totalBaselineProjection=buildCurrentWealthProjection('total',sim&&sim.year_labels?sim.year_labels.length-1:null,sim&&sim.year_labels);
   var totalImprovedProjection=buildImprovedTotalProjectionFromStrategy(result,sim&&sim.year_labels?sim.year_labels.length-1:null,sim&&sim.year_labels);
   var advisoryCurrentProjectedRappen=advisoryBaselineProjection.projectedRappen;
   var advisoryCurrentAnnualNetRappen=advisoryBaselineProjection.annualNetCashflowRappen;
@@ -11851,6 +12203,7 @@ function applyAllocationEngineResult(result){
   setText('aa-proj-drawdown',formatRiskLossBps(mc&&mc.target_max_drawdown_p50_bps));
   setText('aa-proj-lossprob',formatProbabilityPct(mc&&mc.target_loss_probability_1y_pct));
   renderAllocationCashflowTimeline(result);
+  renderOptimizerPanel(result);
   renderActionCards(result.reasoning);
   renderEngineRuntimePanels(result);
   renderStrategySummary();
@@ -11873,7 +12226,8 @@ function applyRecommendationEngineResult(result){
   var priceQualityEl=document.getElementById('po-price-quality');
   if(priceQualityEl)priceQualityEl.style.color=priceQuality.color||'#d4b06a';
   renderPortfolioRebalancingSummary(live,result,result.positions||[]);
-  renderRecommendationWarnings(result.warnings||[],result.market_data_quality||{},live,result.positions||[]);
+  var allocationWarnings=strategyState.allocation&&Array.isArray(strategyState.allocation.warnings)?strategyState.allocation.warnings:[];
+  renderRecommendationWarnings((result.warnings||[]).concat(allocationWarnings),result.market_data_quality||{},live,result.positions||[]);
   renderPortfolioSections(result.positions||[]);
   var pageSubtitle=document.querySelector('#page-po .ph .ph-s');
   if(pageSubtitle)pageSubtitle.textContent='Produkt · Anlageklasse · Marktwert · Gewicht · Handlung';
@@ -11905,9 +12259,8 @@ function openTradeList(){
   var totalBuy=0,totalSell=0;
   trades.forEach(function(p){
     var amt=p.rebalance_amount_rappen||0;
-    var action=rebalanceActionCode(p);
-    if(action==='BUY')totalBuy+=amt;
-    else if(action==='SELL')totalSell+=Math.abs(amt);
+    if(p.rebalance_action==='BUY')totalBuy+=amt;
+    else if(p.rebalance_action==='SELL')totalSell+=amt;
   });
   var actionColor=function(action){
     if(action==='BUY')return 'var(--pos)';
@@ -11922,12 +12275,11 @@ function openTradeList(){
     return sign+'CHF\u00a0'+chf;
   };
   var rows=trades.map(function(p){
-    var action=rebalanceActionCode(p);
-    var color=actionColor(action);
+    var color=actionColor(p.rebalance_action);
     return '<tr style="border-bottom:1px solid var(--b1)">'
       +'<td style="padding:6px 8px;font-size:11px;font-weight:500">'+escapeHtml(p.product_name||'')+'</td>'
       +'<td style="padding:6px 8px;font-size:10px;color:var(--n5)">'+escapeHtml(p.sub_asset_class||p.asset_class||'')+'</td>'
-      +'<td style="padding:6px 8px;font-size:10px;font-weight:700;color:'+color+'">'+escapeHtml(rebalanceActionLabel(p))+'</td>'
+      +'<td style="padding:6px 8px;font-size:10px;font-weight:700;color:'+color+'">'+escapeHtml(p.rebalance_action||'')+'</td>'
       +'<td style="padding:6px 8px;font-size:10px;text-align:right">'+escapeHtml(formatRappen(p.current_market_value_rappen))+'</td>'
       +'<td style="padding:6px 8px;font-size:10px;text-align:right">'+escapeHtml(formatRappen(p.target_amount_rappen))+'</td>'
       +'<td style="padding:6px 8px;font-size:10px;text-align:right;font-weight:600;color:'+color+'">'+escapeHtml(fmtDelta(p.rebalance_amount_rappen))+'</td>'
@@ -11972,13 +12324,19 @@ async function loadCurrentRiskAssessment(mid, renderUi){
   }
   try{
     var risk = await API.get('/mandates/'+mid+'/risk-assessments/current');
+    var readyRisk=riskAssessmentReadyForStrategy(risk || null, requestedMandateId||getActiveMandateId());
     if(!requestedMandateId||String(getActiveMandateId()||'')===requestedMandateId){
-      strategyState.risk = risk || null;
+      strategyState.risk = readyRisk ? (risk || null) : null;
     }
     if(renderUi){
       if(requestedMandateId&&String(getActiveMandateId()||'')!==requestedMandateId)return risk || null;
       hydrateRiskQuestionnaire(risk || null);
-      renderRiskSummary(risk || null);
+      renderRiskSummary(readyRisk ? (risk || null) : null);
+      if(readyRisk){
+        clearRiskSaveFeedback();
+      }else if(riskBelongsToMandate(risk || null, requestedMandateId||getActiveMandateId())){
+        showRiskSaveFeedback(riskAssessmentRequirementMessage(risk || null, requestedMandateId||getActiveMandateId()), true);
+      }
     }
     return risk || null;
   }catch(e){
@@ -12015,7 +12373,7 @@ async function loadCurrentAllocationResult(mid){
     console.warn('stale allocation payload ignored', {requested:mid, active:activeMandateId, payload:payloadMandateId});
     return null;
   }
-  strategyState.risk=results[1];
+  strategyState.risk=riskAssessmentReadyForStrategy(results[1], mid)?results[1]:null;
   var metaResults=results[2]||[];
   strategyState.buildingBlocks=metaResults[0]&&metaResults[0].status==='fulfilled'?metaResults[0].value:[];
   strategyState.marketRuntime=metaResults[1]&&metaResults[1].status==='fulfilled'?metaResults[1].value:null;
@@ -12031,15 +12389,6 @@ async function loadCurrentRecommendationResult(mid){
     throw e;
   }
 }
-async function loadRecommendationRunPayload(mid,runId){
-  if(!mid||!runId)return null;
-  try{
-    return await API.get('/mandates/'+mid+'/recommendations/'+runId+'/payload');
-  }catch(e){
-    if(e&&e.status===404)return null;
-    throw e;
-  }
-}
 async function refreshStrategyData(force,includeRecommendation,retriedAfterBandReset){
   var mid=getActiveMandateId();
   var page=activePageKey();
@@ -12050,18 +12399,11 @@ async function refreshStrategyData(force,includeRecommendation,retriedAfterBandR
   }
   if(strategyState.loading)return false;
   syncStrategyCalcProgress(0,'Mandat, Vermögen und bestehende Exposures werden geprüft...','Wir lesen zuerst die aktuelle Datengrundlage, damit die neue Strategie wirklich auf dem heutigen Gesprächsstand basiert.','Grundlage prüfen',14);
-  var persistedRisk=currentPersistedRiskForMandate(mid);
-  if(!persistedRisk){
-    try{
-      persistedRisk=await loadCurrentRiskAssessment(mid,false);
-    }catch(riskErr){
-      if(!(riskErr&&String(riskErr.status||'')==='404'))throw riskErr;
-    }
-  }
-  if(!riskBelongsToMandate(persistedRisk,mid))persistedRisk=null;
+  var riskState=await ensureStrategyReadyRiskForMandate(mid);
+  var persistedRisk=riskState.risk;
   if(!persistedRisk){
     if(!hasVisibleStrategyOutputs())invalidateStrategyOutputs();
-    updateStrategyStatus('Aktuelles Risikoprofil fehlt. Bitte zuerst auf der Seite Risikoprofil speichern.',true);
+    updateStrategyStatus(riskState.message||'Aktuelles Risikoprofil fehlt. Bitte zuerst auf der Seite Risikoprofil speichern.',true);
     return false;
   }
   strategyState.risk=persistedRisk;
@@ -12162,7 +12504,7 @@ async function refreshStrategyData(force,includeRecommendation,retriedAfterBandR
       return false;
     }
     var allocationResult=results[0];
-    strategyState.risk=results[1];
+    strategyState.risk=riskAssessmentReadyForStrategy(results[1], mid)?results[1]:null;
     var metaResults=results[2]||[];
     strategyState.buildingBlocks=metaResults[0]&&metaResults[0].status==='fulfilled'?metaResults[0].value:[];
     strategyState.marketRuntime=metaResults[1]&&metaResults[1].status==='fulfilled'?metaResults[1].value:null;
@@ -12207,25 +12549,6 @@ async function refreshStrategyData(force,includeRecommendation,retriedAfterBandR
   }
 }
 async function openAllocationEngineModal(){
-  var mid=getActiveMandateId();
-  var persistedRisk=currentPersistedRiskForMandate(mid);
-  if(!persistedRisk&&mid&&!isDemoMandateId(mid)){
-    try{
-      persistedRisk=await loadCurrentRiskAssessment(mid,false);
-    }catch(e){
-      if(!(e&&String(e.status||'')==='404'))throw e;
-    }
-  }
-  if(!riskBelongsToMandate(persistedRisk,mid)){
-    strategyState.risk=null;
-    if(!hasVisibleStrategyOutputs())invalidateStrategyOutputs();
-    buildQT('qt-modal');
-    renderEngineRuntimePanels(null);
-    updateStrategyStatus('Aktuelles Risikoprofil fehlt. Bitte zuerst den Risikofragebogen ausfuellen und speichern.',true);
-    om('m-eq');
-    return false;
-  }
-  strategyState.risk=persistedRisk;
   if(!strategyState.allocation&&!strategyState.dirty){
     await refreshStrategyData(false,false);
   }else{
@@ -12233,19 +12556,14 @@ async function openAllocationEngineModal(){
     renderEngineRuntimePanels(strategyState.allocation||null);
   }
   om('m-eq');
-  return true;
 }
 async function openImplementationRecipe(){
-  if(!strategyState.recommendation){
-    await refreshStrategyData(true,true);
-  }
+  await refreshStrategyData(true,true);
   om('m-ums');
 }
 async function confirmImplementationRecipe(){
-  if(!strategyState.recommendation){
-    var ok=await refreshStrategyData(true,true);
-    if(!ok)return;
-  }
+  var ok=await refreshStrategyData(true,true);
+  if(!ok)return;
   var mid=getActiveMandateId();
   var runId=strategyState&&strategyState.recommendation&&strategyState.recommendation.run?strategyState.recommendation.run.id:null;
   try{
@@ -12278,9 +12596,45 @@ function riskBelongsToMandate(risk, mandateId){
   if(risk.final_score_x10==null&&risk.override_score_x10==null)return false;
   return String(risk.mandate_id)===String(activeMandateId);
 }
+function riskAssessmentHasRequiredAnswers(risk){
+  var required={3:true,5:true,6:true,7:true,8:true,9:true,10:true,11:true};
+  var answered={};
+  var answers=Array.isArray(risk&&risk.answers)?risk.answers:[];
+  answers.forEach(function(item){
+    var questionNumber=Number(item&&item.question_number||0);
+    var answerLabel=String(item&&item.answer_label||'').trim();
+    if(required[questionNumber]&&answerLabel)answered[questionNumber]=true;
+  });
+  return Object.keys(required).every(function(key){return !!answered[key];});
+}
+function riskAssessmentReadyForStrategy(risk, mandateId){
+  return riskBelongsToMandate(risk, mandateId)&&riskAssessmentHasRequiredAnswers(risk);
+}
+function riskAssessmentRequirementMessage(risk, mandateId){
+  if(!riskBelongsToMandate(risk, mandateId))return 'Bitte zuerst ein aktuelles Risikoprofil speichern.';
+  if(!riskAssessmentHasRequiredAnswers(risk))return 'Aktuelles Risikoprofil ist unvollstaendig dokumentiert. Bitte Fragebogen vollstaendig ausfuellen und erneut speichern.';
+  return '';
+}
 function currentPersistedRiskForMandate(mandateId){
   var risk=strategyState&&strategyState.risk?strategyState.risk:null;
-  return riskBelongsToMandate(risk, mandateId)?risk:null;
+  return riskAssessmentReadyForStrategy(risk, mandateId)?risk:null;
+}
+async function resolveStrategyRiskForMandate(mandateId){
+  var readyRisk=currentPersistedRiskForMandate(mandateId);
+  if(readyRisk)return {risk:readyRisk,message:''};
+  var loadedRisk=null;
+  try{
+    loadedRisk=await loadCurrentRiskAssessment(mandateId,false);
+  }catch(e){
+    if(e&&String(e.status||'')==='404'){
+      return {risk:null,message:'Bitte zuerst ein aktuelles Risikoprofil speichern.'};
+    }
+    throw e;
+  }
+  return {
+    risk:riskAssessmentReadyForStrategy(loadedRisk, mandateId)?loadedRisk:null,
+    message:riskAssessmentRequirementMessage(loadedRisk, mandateId)
+  };
 }
 function allocationPayloadMandateId(result){
   return result&&result.target_allocation&&result.target_allocation.mandate_id
@@ -12474,6 +12828,38 @@ function renderGroupedCashflowRows(items,isIncome,renderRow){
     html+=renderRow(item,isIncome);
   });
   return html;
+}
+function cashflowBreakdownForYear(items,summaryYear){
+  var year=Number(summaryYear||new Date().getFullYear());
+  var result={
+    recurringIncomeRappen:0,
+    capitalInflowsRappen:0,
+    recurringExpenseRappen:0,
+    capitalOutflowsRappen:0,
+    totalInflowRappen:0,
+    totalExpenseRappen:0,
+    netCashflowRappen:0
+  };
+  (Array.isArray(items)?items:[]).forEach(function(item){
+    if(!item)return;
+    var amount=Number(item.amount_rappen||0);
+    if(!amount)return;
+    var isOneOff=!!(isOneOffCashflow(item.frequency)||String(item.nature||'').toLowerCase()==='einmalig');
+    var start=normalizeCashflowDateValue(item.valid_from)||normalizeCashflowDateValue(item.valid_until);
+    var flowYear=start?parseInt(String(start).slice(0,4),10):year;
+    if(isOneOff&&isFinite(flowYear)&&flowYear!==year)return;
+    if(String(item.cashflow_type||'')==='Income'){
+      if(isOneOff)result.capitalInflowsRappen+=amount;
+      else result.recurringIncomeRappen+=amount;
+    }else if(String(item.cashflow_type||'')==='Expense'){
+      if(isOneOff)result.capitalOutflowsRappen+=amount;
+      else result.recurringExpenseRappen+=amount;
+    }
+  });
+  result.totalInflowRappen=result.recurringIncomeRappen+result.capitalInflowsRappen;
+  result.totalExpenseRappen=result.recurringExpenseRappen+result.capitalOutflowsRappen;
+  result.netCashflowRappen=result.totalInflowRappen-result.totalExpenseRappen;
+  return result;
 }
 function normalizeAllocationLayout(){
   var page=document.getElementById('page-al');
@@ -12686,20 +13072,10 @@ function allocationTimelineRangeLabel(item){
   return 'laufend';
 }
 function allocationTimelineSubLabel(item){
-  var amountRappen=Math.abs(Number(item&&item.amount_rappen||0));
-  var amount=formatRappen(amountRappen);
+  var amount=formatRappen(Math.abs(Number(item&&item.amount_rappen||0)));
   var prefix=String(item&&item.cashflow_type||'')==='Income'?'+':'-';
-  var oneOff=allocationTimelineIsOneOff(item);
-  var frequencyLabel=oneOff?'einmalig':cashflowDisplayFrequency(item&&item.frequency||'jaehrlich');
-  var annualSuffix='';
-  if(!oneOff){
-    var annualChf=annualizedCashflowAmountChf(item);
-    var perPeriodChf=Math.round(amountRappen/100);
-    if(annualChf>0&&Math.round(annualChf)!==perPeriodChf){
-      annualSuffix=' (CHF '+Math.round(annualChf).toLocaleString('de-CH')+' p.a.)';
-    }
-  }
-  return prefix+amount+annualSuffix+' | '+frequencyLabel+' | '+allocationTimelineRangeLabel(item);
+  var frequencyLabel=allocationTimelineIsOneOff(item)?'einmalig':cashflowDisplayFrequency(item&&item.frequency||'jaehrlich');
+  return prefix+amount+' | '+frequencyLabel+' | '+allocationTimelineRangeLabel(item);
 }
 function allocationTimelineHoverLabel(item){
   var label=String(item&&item.label||'Cashflow');
@@ -13103,20 +13479,12 @@ async function refreshCashflowsUI(cid){
     var inc=items.filter(function(c){return c.cashflow_type==='Income';});
     var exp=items.filter(function(c){return c.cashflow_type==='Expense';});
     var summaryYear=Number(summary.summary_year||new Date().getFullYear());
-    var breakdown={
-      recurringIncomeRappen:Number(summary&&summary.recurring_income_rappen||0),
-      capitalInflowsRappen:Number(summary&&summary.capital_inflow_rappen||0),
-      recurringExpenseRappen:Number(summary&&summary.recurring_expense_rappen||0),
-      capitalOutflowsRappen:Number(summary&&summary.capital_outflow_rappen||0),
-      totalInflowRappen:Number(summary&&summary.total_income_rappen||0),
-      totalExpenseRappen:Number(summary&&summary.total_expense_rappen||0),
-      netCashflowRappen:summaryTotalNetCashflowRappen(summary)
-    };
+    var breakdown=cashflowBreakdownForYear(items,summaryYear);
     var renderRow=function(c,isIncome){
       return '<div class="cf-row" data-cfid="'+escapeHtml(c.id||'')+'">'+cashflowDirectionBadge(isIncome)+
         '<div class="cfn"><div class="cfna">'+escapeHtml(c.label||'Cashflow')+'</div><div class="cfnd">'+escapeHtml(cashflowTimingLabel(c))+'</div></div>'+
         '<div class="cfa '+(isIncome?'ci':'co')+'">'+(isIncome?'+':'−')+fmt(c.amount_rappen||0)+'</div>'+
-        '<div><button class="btn-ico e" onclick="openCashflowEditor(\''+escapeHtml(c.id||'')+'\')">&#9998;</button><button class="btn-ico" onclick="dcf(this)">&#10005;</button></div></div>';
+        '<div><button class="btn-ico e" type="button">&#9998;</button><button class="btn-ico d" type="button">&#10005;</button></div></div>';
     };
     var zf=document.getElementById('zufluss-rows');
     if(zf)zf.innerHTML=
@@ -13126,6 +13494,23 @@ async function refreshCashflowsUI(cid){
       '<div style="display:flex;justify-content:space-between;gap:12px"><span style="font-size:11px;font-weight:600;color:var(--n6)">Total Kapitalzuflüsse '+summaryYear+'</span><span style="font-family:var(--f-d);font-size:15px;color:var(--pos)">+'+fmt(breakdown.capitalInflowsRappen)+'</span></div>'+
       '<div style="display:flex;justify-content:space-between;gap:12px;padding-top:6px;border-top:1px solid var(--b1)"><span style="font-size:11px;font-weight:600">Total Zuflüsse '+summaryYear+'</span><span style="font-family:var(--f-d);font-size:17px;color:var(--pos)">+'+fmt(breakdown.totalInflowRappen)+'</span></div>'+
       '</div>';
+    Array.prototype.forEach.call((zf||document.createElement('div')).querySelectorAll('.cf-row[data-cfid] .btn-ico'),function(btn){
+      var row=btn.closest('.cf-row[data-cfid]');
+      if(!row)return;
+      var cashflowId=row.getAttribute('data-cfid')||'';
+      btn.removeAttribute('onclick');
+      if(btn.classList.contains('e')){
+        btn.onclick=function(ev){
+          if(ev)ev.preventDefault();
+          openCashflowEditor(cashflowId);
+        };
+      }else{
+        btn.onclick=function(ev){
+          if(ev)ev.preventDefault();
+          dcf(btn);
+        };
+      }
+    });
     var af=document.getElementById('abfluss-rows');
     var recurringNetRappen=Number(breakdown.recurringIncomeRappen||0)-Number(breakdown.recurringExpenseRappen||0);
     var capitalNetRappen=Number(breakdown.capitalInflowsRappen||0)-Number(breakdown.capitalOutflowsRappen||0);
@@ -13140,6 +13525,23 @@ async function refreshCashflowsUI(cid){
       '<div style="display:flex;justify-content:space-between;gap:12px"><span style="font-size:11px;font-weight:600;color:var(--n6)">Kapitalereignisse netto '+summaryYear+'</span><span style="font-family:var(--f-d);font-size:15px;color:'+(capitalNetRappen>=0?'var(--pos)':'var(--neg)')+'">'+(capitalNetRappen>=0?'+':'-')+fmt(Math.abs(capitalNetRappen))+'</span></div>'+
       '<div style="display:flex;justify-content:space-between;gap:12px"><span style="font-size:11px;font-weight:600">Gesamtsaldo inkl. Kapitalereignisse '+summaryYear+'</span><span style="font-family:var(--f-d);font-size:18px;color:'+(totalNetRappen>=0?'var(--pos)':'var(--neg)')+'">'+(totalNetRappen>=0?'+':'-')+fmt(Math.abs(totalNetRappen))+'</span></div>'+
       '</div>';
+    Array.prototype.forEach.call((af||document.createElement('div')).querySelectorAll('.cf-row[data-cfid] .btn-ico'),function(btn){
+      var row=btn.closest('.cf-row[data-cfid]');
+      if(!row)return;
+      var cashflowId=row.getAttribute('data-cfid')||'';
+      btn.removeAttribute('onclick');
+      if(btn.classList.contains('e')){
+        btn.onclick=function(ev){
+          if(ev)ev.preventDefault();
+          openCashflowEditor(cashflowId);
+        };
+      }else{
+        btn.onclick=function(ev){
+          if(ev)ev.preventDefault();
+          dcf(btn);
+        };
+      }
+    });
     updateCashflowsAndGoalsKpis(summary);
     normalizeConversationLabels();
     normalizeCashflowTotalsLabels(summaryYear,breakdown);
@@ -13249,7 +13651,7 @@ function renderCashflowProjection(data) {
   var currentNet = currentIncome - currentExpense;
   var fmtHud = function(rappen) {
     var chf = Math.round(Math.abs(Number(rappen || 0)) / 100);
-    return 'CHF\u00a0' + chf.toLocaleString('de-CH');
+    return 'CHF ' + chf.toLocaleString('de-CH');
   };
   var statusLabel = currentNet > 0 ? 'Sparquote' : (currentNet < 0 ? 'Verm\u00f6gensverzehr' : 'Ausgeglichen');
   var statusTone = currentNet > 0 ? 'var(--pos)' : (currentNet < 0 ? 'var(--neg)' : 'var(--n6)');
@@ -13257,7 +13659,7 @@ function renderCashflowProjection(data) {
   var statusValue = currentNet > 0 && savingsRate !== null ? savingsRate + '%' : fmtHud(currentNet);
   var statusHint = currentNet > 0
     ? fmtHud(currentNet) + ' p.a. bleibt verfuegbar.'
-    : (currentNet < 0 ? fmtHud(currentNet) + ' p.a. aus Verm\u00f6gen decken.' : 'Einnahmen und Ausgaben sind ausgeglichen.');
+    : (currentNet < 0 ? fmtHud(currentNet) + ' p.a. aus Vermögen decken.' : 'Einnahmen und Ausgaben sind ausgeglichen.');
   var hudTile = function(label, value, tone, hint) {
     return '<div style="border:1px solid var(--b1);border-radius:14px;padding:12px 13px;background:#fff;min-width:0">'
       + '<div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--n4);font-weight:700;margin-bottom:5px">' + escapeHtml(label) + '</div>'
@@ -13523,10 +13925,16 @@ function renderReviewAlertStrip(triggers){
   strip.className='strip strip-e';
   strip.style.background='';
   var first=critical[0];
-  var action=first.trigger_type==='Markt'
-    ?'openDecisionTemplateModal(\''+escapeHtml(first.id||'')+'\')'
-    :'openAdvisoryLogModal(\''+escapeHtml(first.id||'')+'\')';
-  strip.innerHTML='<div><div class="st">'+escapeHtml(String(critical.length)+' kritische Trigger gleichzeitig offen')+'</div><div class="ss">'+escapeHtml((first.trigger_name||'Trigger')+' und '+String(critical.length-1)+' weitere')+'</div></div><button class="btn-p" onclick="'+action+'">'+escapeHtml(first.trigger_type==='Markt'?'Entscheidungsvorlage':'Review protokollieren')+'</button>';
+  strip.innerHTML='<div><div class="st">'+escapeHtml(String(critical.length)+' kritische Trigger gleichzeitig offen')+'</div><div class="ss">'+escapeHtml((first.trigger_name||'Trigger')+' und '+String(critical.length-1)+' weitere')+'</div></div><button class="btn-p" type="button">'+escapeHtml(first.trigger_type==='Markt'?'Entscheidungsvorlage':'Review protokollieren')+'</button>';
+  var stripButton=strip.querySelector('.btn-p');
+  if(stripButton){
+    stripButton.removeAttribute('onclick');
+    stripButton.onclick=function(ev){
+      if(ev)ev.preventDefault();
+      if(first.trigger_type==='Markt')openDecisionTemplateModal(first.id||'');
+      else openAdvisoryLogModal(first.id||'');
+    };
+  }
   normalizeVisibleMojibake(strip);
 }
 function renderReviewDecisionStrip(state){
@@ -13629,18 +14037,21 @@ function normalizeReviewLayout(){
   conflictCard=conflictCard?conflictCard.closest('.card'):null;
   var docsCard=document.getElementById('rv-doc-grid');
   docsCard=docsCard?docsCard.closest('.card'):null;
-  ['rv-sh1','rv-sh2','rv-sh3','rv-sh4'].forEach(function(id){
+  function rvSectionHeader(id,num,title,sub){
     var el=document.getElementById(id);
-    if(el&&el.parentNode)el.parentNode.removeChild(el);
-  });
-  [utility.actionCard,utility.readinessCard,suitabilityCard,conflictCard,docsCard].forEach(function(node){
-    if(node)node.style.display='none';
-  });
-  if(strategyCard)strategyCard.style.marginBottom='10px';
-  if(triggerGrid)triggerGrid.style.marginBottom='10px';
-  if(logCard)logCard.style.marginBottom='14px';
+    if(!el){el=document.createElement('div');el.id=id;}
+    el.style.cssText='display:flex;align-items:center;gap:12px;padding:14px 0 8px;border-top:2px solid var(--b1);margin-top:4px';
+    el.innerHTML='<div style="width:26px;height:26px;border-radius:50%;background:var(--n8);color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0">'+num+'</div>'
+      +'<div><div style="font-size:12px;font-weight:700;color:var(--n8);letter-spacing:0.01em">'+title+'</div>'
+      +'<div style="font-size:9px;color:var(--n4);margin-top:2px">'+sub+'</div></div>';
+    return el;
+  }
+  var h1=rvSectionHeader('rv-sh1','1','So steht Ihr Portfolio','Vergleich IST mit dem vereinbarten Sollbild — Cashflow, Reichweite und Zielerreichung');
+  var h2=rvSectionHeader('rv-sh2','2','Was heute Ihre Aufmerksamkeit braucht','Zeit-, Markt- und Ereignis-Trigger — Abweichungen und Fristen im Überblick');
+  var h3=rvSectionHeader('rv-sh3','3','Unsere Empfehlung — und Ihr Entscheid','Handlungsempfehlung aus der Analyse · Eignungsprüfung FIDLEG · Entscheid protokollieren');
+  var h4=rvSectionHeader('rv-sh4','4','Meeting abschliessen','Interessenkonflikte · Governance-Checkliste · Dokumente und Ausgabe');
   var cnav=pad.querySelector('.cnav');
-  [strategyCard,triggerGrid,logCard].forEach(function(node){
+  [h1,strategyCard,h2,triggerGrid,h3,utility.actionCard,suitabilityCard,logCard,h4,conflictCard,utility.readinessCard,docsCard].forEach(function(node){
     if(node)pad.appendChild(node);
   });
   if(cnav)pad.appendChild(cnav);
@@ -13715,7 +14126,7 @@ function renderReviewActionSummary(state){
   }).slice(0,3);
   var live=liveRebalancingPayload(allocation)||liveRebalancingPayload(recommendation);
   var hasTradeList=!!(live&&Array.isArray(live.position_drifts)&&live.position_drifts.some(function(row){
-    return rebalanceActionCode(row)!=='HOLD';
+    return String(row&&row.rebalance_action||'').toUpperCase()!=='HOLD';
   }));
   if(!items.length){
     root.innerHTML='<div style="background:var(--pos-lt);border:1px solid rgba(14,107,65,0.2);border-radius:var(--r2);padding:12px"><div style="font-size:10px;font-weight:600;color:var(--n8);margin-bottom:4px">Empfehlung heute</div><div style="font-size:11px;color:var(--n7);margin-bottom:8px">Alle Hauptanlageklassen liegen im vereinbarten Band. Heute steht vor allem Governance, Eignung und Dokumentation im Fokus.</div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" onclick="om(\'m-ne\')">Protokoll erfassen</button>'+(hasTradeList?'<button class="btn" onclick="openTradeList()">Handelsliste oeffnen</button>':'')+'</div></div>';
@@ -13794,10 +14205,10 @@ function renderTriggerBucket(targetId,triggers,state){
   if(!root)return;
   var items=Array.isArray(triggers)?triggers:[];
   if(!items.length){
-    root.innerHTML='<div style="padding:12px 14px;font-size:11px;color:var(--n5);line-height:1.55">Keine offenen Punkte. Naechsten Review-Termin bei Bedarf definieren.</div>';
+    root.innerHTML='<div style="padding:12px 14px;font-size:10px;color:var(--n4)">Keine Trigger in dieser Kategorie definiert.</div>';
     return;
   }
-  root.innerHTML=items.slice(0,4).map(function(trigger){
+  root.innerHTML=items.map(function(trigger){
     var critical=isCriticalReviewTrigger(trigger);
     var status=String(trigger.status||'Aktiv');
     var liveDrift=trigger.trigger_type==='Markt'?reviewFindLiveBucketDrift(state,trigger):null;
@@ -13806,32 +14217,51 @@ function renderTriggerBucket(targetId,triggers,state){
       ? 'Erledigt'
       : liveDrift
         ? (formatSignedBpsPercent(liveDrift.delta_weight_bps||0)+' '+(liveDrift.breached?'VERLETZT':'IM BAND'))
-        : (critical?'Jetzt pruefen':'Offen');
+        : (trigger.threshold_bps!=null?formatInputPercent(trigger.threshold_bps)+'%':'Aktiv');
     var detail=trigger.trigger_type==='Zeit'
-      ? ((trigger.next_due_at?'Faellig '+formatDateSwiss(trigger.next_due_at):'Kein Termin gesetzt')+(trigger.frequency?' / '+trigger.frequency:''))
+      ? ((trigger.next_due_at?'Nächster Termin '+formatDateSwiss(trigger.next_due_at):'Kein Termin gesetzt')+(trigger.frequency?' / '+trigger.frequency:''))
       : trigger.trigger_type==='Markt'
         ? ((trigger.threshold_bps!=null?'Schwelle +/-'+formatInputPercent(trigger.threshold_bps)+'%':'Markt-Trigger')+(trigger.triggered_notes?' / '+trigger.triggered_notes:''))
         : (trigger.next_due_at?'Review bis '+formatDateSwiss(trigger.next_due_at):'Event-basierter Review-Trigger');
     if(trigger.trigger_type==='Markt'&&liveDrift){
-      detail='Ist '+formatBpsPercent(liveDrift.current_weight_bps||0)+' / Soll '+formatBpsPercent(liveDrift.target_weight_bps||0);
+      detail=formatBpsPercent(liveDrift.current_weight_bps||0)+' Ist vs. '+formatBpsPercent(liveDrift.target_weight_bps||0)+' Soll / Band '+formatBpsPercent(liveDrift.band_min_bps||0)+' bis '+formatBpsPercent(liveDrift.band_max_bps||0);
     }
     var actions=status==='Erledigt'
       ? ''
-      : '<button class="btn btn-sm" onclick="openAdvisoryLogModal(\''+escapeHtml(trigger.id||'')+'\')" style="font-size:9px;padding:4px 9px">'+(critical?'Jetzt dokumentieren':'Protokollieren')+'</button>';
-    return '<div class="trig '+(critical?'al':'')+'" style="display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;padding:10px 14px;border-bottom:1px solid var(--b1)">'
-      +'<div><div style="display:flex;gap:7px;align-items:center;margin-bottom:3px"><span class="tag '+tagClass+'">'+escapeHtml(tagLabel)+'</span><span style="font-size:11px;font-weight:600;color:var(--n8)">'+escapeHtml(trigger.trigger_name||'Trigger')+'</span></div><div style="font-size:10px;color:var(--n5);line-height:1.45">'+escapeHtml(detail)+'</div></div>'
-      +'<div>'+actions+'</div></div>';
+      : '<div style="display:flex;gap:5px;margin-top:6px"><button onclick="openAdvisoryLogModal(\''+escapeHtml(trigger.id||'')+'\')" style="font-size:9px;padding:3px 8px;background:'+(critical?'var(--neg)':'none')+';color:'+(critical?'#fff':'var(--n5)')+';border:'+(critical?'none':'1px solid var(--b2)')+';border-radius:var(--r);cursor:pointer;font-family:var(--f-s)">Review protokollieren</button>'+(trigger.trigger_type==='Markt'?'<button onclick="openDecisionTemplateModal(\''+escapeHtml(trigger.id||'')+'\')" style="font-size:9px;padding:3px 8px;background:none;border:1px solid var(--b2);border-radius:var(--r);cursor:pointer;color:var(--n5);font-family:var(--f-s)">Vorlage öffnen</button>':'')+'</div>';
+    if(status!=='Erledigt'){
+      actions='<div style="display:flex;gap:5px;margin-top:6px"><button type="button" data-trigger-action="review" style="font-size:9px;padding:3px 8px;background:'+(critical?'var(--neg)':'none')+';color:'+(critical?'#fff':'var(--n5)')+';border:'+(critical?'none':'1px solid var(--b2)')+';border-radius:var(--r);cursor:pointer;font-family:var(--f-s)">Review protokollieren</button>'+(trigger.trigger_type==='Markt'?'<button type="button" data-trigger-action="template" style="font-size:9px;padding:3px 8px;background:none;border:1px solid var(--b2);border-radius:var(--r);cursor:pointer;color:var(--n5);font-family:var(--f-s)">Vorlage öffnen</button>':'')+'</div>';
+    }
+    return '<div class="trig '+(critical?'al':'')+'" style="padding:10px 14px;border-bottom:1px solid var(--b1)"><div class="trigh"><span class="trign">'+escapeHtml(trigger.trigger_name||'Trigger')+'</span><span class="tag '+tagClass+'">'+escapeHtml(tagLabel)+'</span></div><div class="trigd">'+escapeHtml(detail)+'</div>'+actions+'</div>';
   }).join('');
+  Array.prototype.forEach.call(root.querySelectorAll('.trig'),function(card,idx){
+    var trigger=items[idx];
+    if(!trigger)return;
+    Array.prototype.forEach.call(card.querySelectorAll('button'),function(btn){
+      var action=btn.getAttribute('data-trigger-action');
+      if(action==='template'){
+        btn.onclick=function(ev){
+          if(ev)ev.preventDefault();
+          openDecisionTemplateModal(trigger.id||'');
+        };
+      }else if(action==='review'){
+        btn.onclick=function(ev){
+          if(ev)ev.preventDefault();
+          openAdvisoryLogModal(trigger.id||'');
+        };
+      }
+    });
+  });
 }
 function renderAdvisoryLogList(logs){
   var root=document.getElementById('rv-log-list');
   if(!root)return;
   var items=Array.isArray(logs)?logs:[];
   if(!items.length){
-    root.innerHTML='<div style="font-size:11px;color:var(--n5);line-height:1.55">Noch kein Entscheid dokumentiert. Nach dem Gespraech kurz protokollieren, damit Review und Zusammenfassung sauber sind.</div>';
+    root.innerHTML='<div style="font-size:10px;color:var(--n4)">Noch keine Advisory-Einträge dokumentiert.</div>';
     return;
   }
-  root.innerHTML=items.slice(0,3).map(function(entry){
+  root.innerHTML=items.map(function(entry){
     var decision=entry.decision||entry.entry_type||'Dokumentiert';
     var decisionClass=/keine/i.test(decision)?'tg':(/transaktion|kauf|verkauf|umschichtung/i.test(decision)?'ta':'tn');
     var status=String(entry.status||'Empfohlen');
@@ -13840,12 +14270,23 @@ function renderAdvisoryLogList(logs){
     var triggerMeta=entry.trigger_id?('Trigger: '+String(entry.trigger_id)):'Ohne Trigger-Verknüpfung';
     var runMeta=entry.recommendation_run_id?('Run: '+String(entry.recommendation_run_id).slice(0,8)):'Kein Strategy-Run verknüpft';
     var actions=nextStatus
-      ? '<button class="btn" type="button" onclick="advanceAdvisoryLogStatus(\''+escapeHtml(entry.id||'')+'\',\''+escapeHtml(nextStatus)+'\')" style="padding:4px 8px;font-size:10px">'+escapeHtml(nextStatus)+' setzen</button>'
+      ? '<button class="btn" type="button" style="padding:4px 8px;font-size:10px">'+escapeHtml(nextStatus)+' setzen</button>'
       : '<span style="font-size:10px;color:var(--pos);font-weight:500">Status abgeschlossen</span>';
-    var desc=String(entry.description||'Ohne Zusatzbegruendung dokumentiert.');
-    if(desc.length>120)desc=desc.slice(0,117)+'...';
-    return '<div class="logi" style="padding:10px 0"><div class="logh"><div class="logt">'+escapeHtml(entry.title||'Advisory-Eintrag')+'</div><div class="logm"><span class="logd">'+escapeHtml(formatDateSwiss(entry.entry_date||entry.created_at||''))+'</span><span class="tag '+decisionClass+'">'+escapeHtml(decision)+'</span><span class="tag '+statusClass+'">'+escapeHtml(status)+'</span></div></div><div class="logdesc">'+escapeHtml(desc)+'</div><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap"><div style="font-size:9px;color:var(--n4)">'+escapeHtml(runMeta)+'</div>'+actions+'</div></div>';
+    return '<div class="logi" style="padding:10px 0"><div class="logh"><div class="logt">'+escapeHtml(entry.title||'Advisory-Eintrag')+'</div><div class="logm"><span class="logd">'+escapeHtml(formatDateSwiss(entry.entry_date||entry.created_at||''))+'</span><span class="tag '+decisionClass+'">'+escapeHtml(decision)+'</span><span class="tag '+statusClass+'">'+escapeHtml(status)+'</span></div></div><div class="logdesc">'+escapeHtml(entry.description||'Ohne Zusatzbegründung dokumentiert.')+'</div><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap"><div style="font-size:9px;color:var(--n4)">'+escapeHtml(triggerMeta)+' · '+escapeHtml(runMeta)+'</div>'+actions+'</div></div>';
   }).join('');
+  Array.prototype.forEach.call(root.querySelectorAll('.logi'),function(card,idx){
+    var entry=items[idx];
+    if(!entry)return;
+    var nextStatus=entry.status==='Empfohlen'?'Beschlossen':(entry.status==='Beschlossen'?'Umgesetzt':null);
+    if(!nextStatus)return;
+    var btn=card.querySelector('button.btn');
+    if(!btn)return;
+    btn.removeAttribute('onclick');
+    btn.onclick=function(ev){
+      if(ev)ev.preventDefault();
+      advanceAdvisoryLogStatus(entry.id||'', nextStatus);
+    };
+  });
 }
 async function advanceAdvisoryLogStatus(logId,newStatus){
   if(!logId||!newStatus)return;
@@ -13993,17 +14434,29 @@ function renderDocumentGrid(documents){
   }
   grid.innerHTML=createCard+docs.map(function(doc){
     var signedAdvisor=Number(doc.signed_by_advisor||0)===1;
-    var printAction='printDocumentTypeReport(\''+escapeHtml(doc.document_type||'Dokument')+'\')';
     var action=signedAdvisor
       ? '<div style="font-size:9px;color:var(--pos);margin-top:6px">Berater unterzeichnet</div>'
-      : '<button onclick="signDocumentAsAdvisor(\''+escapeHtml(doc.id||'')+'\')" style="background:none;border:1px solid var(--b2);color:var(--n5);border-radius:var(--r);font-size:10px;padding:5px 8px;cursor:pointer;font-family:var(--f-s);margin-top:6px;width:100%">Berater signieren</button>';
-    return '<div style="border:1px solid var(--b1);border-radius:var(--r2);padding:12px;text-align:center"><div style="font-size:12px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--n4);margin-bottom:6px">Dok</div><div style="font-size:11px;font-weight:500;color:var(--n8);margin-bottom:3px">'+escapeHtml(doc.title||doc.document_type||'Dokument')+'</div><div style="font-size:9px;color:var(--n5);margin-bottom:10px">'+escapeHtml((doc.document_type||'Dokument')+' / '+(doc.status||'Entwurf'))+'</div><button onclick="printReport()" style="background:var(--n6);color:#fff;border:none;border-radius:var(--r);font-size:10px;padding:5px 12px;cursor:pointer;font-family:var(--f-s);width:100%">Seite drucken</button>'+action+'</div>';
+      : '<button type="button" data-doc-action="sign" style="background:none;border:1px solid var(--b2);color:var(--n5);border-radius:var(--r);font-size:10px;padding:5px 8px;cursor:pointer;font-family:var(--f-s);margin-top:6px;width:100%">Berater signieren</button>';
+    return '<div class="doc-card" data-docid="'+escapeHtml(doc.id||'')+'" style="border:1px solid var(--b1);border-radius:var(--r2);padding:12px;text-align:center"><div style="font-size:12px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--n4);margin-bottom:6px">Dok</div><div style="font-size:11px;font-weight:500;color:var(--n8);margin-bottom:3px">'+escapeHtml(doc.title||doc.document_type||'Dokument')+'</div><div style="font-size:9px;color:var(--n5);margin-bottom:10px">'+escapeHtml((doc.document_type||'Dokument')+' / '+(doc.status||'Entwurf'))+'</div><button type="button" data-doc-action="print" style="background:var(--n6);color:#fff;border:none;border-radius:var(--r);font-size:10px;padding:5px 12px;cursor:pointer;font-family:var(--f-s);width:100%">Seite drucken</button>'+action+'</div>';
   }).join('');
-  Array.prototype.forEach.call(grid.querySelectorAll('button[onclick="printReport()"]'),function(btn,idx){
+  Array.prototype.forEach.call(grid.querySelectorAll('.doc-card'),function(card,idx){
     var doc=docs[idx];
     if(!doc)return;
-    btn.textContent='Kapitel drucken';
-    btn.setAttribute('onclick',"printDocumentTypeReport('"+String(doc.document_type||'Dokument').replace(/'/g,"\\'")+"')");
+    var printBtn=card.querySelector('button[data-doc-action="print"]');
+    if(printBtn){
+      printBtn.textContent='Kapitel drucken';
+      printBtn.onclick=function(ev){
+        if(ev)ev.preventDefault();
+        printDocumentTypeReport(String(doc.document_type||'Dokument'));
+      };
+    }
+    var signBtn=card.querySelector('button[data-doc-action="sign"]');
+    if(signBtn){
+      signBtn.onclick=function(ev){
+        if(ev)ev.preventDefault();
+        signDocumentAsAdvisor(doc.id||'');
+      };
+    }
   });
   normalizeVisibleMojibake(grid);
 }
@@ -14045,7 +14498,7 @@ function renderReviewHero(state){
     headline=violated.length===1?'Bandverletzung bei '+top.assetClass:String(violated.length)+' Bandverletzungen — Rebalancing erforderlich';
     summary=top.assetClass+': IST '+formatBpsPercent(top.currentWeightBps)+' / SOLL '+formatBpsPercent(top.targetWeightBps)+' — ausserhalb der vereinbarten Bandbreite. '+top.meta.action+'.';
     var live=liveRebalancingPayload(allocation);
-    var hasTradeList=!!(live&&Array.isArray(live.position_drifts)&&live.position_drifts.some(function(r){return rebalanceActionCode(r)!=='HOLD';}));
+    var hasTradeList=!!(live&&Array.isArray(live.position_drifts)&&live.position_drifts.some(function(r){return String(r&&r.rebalance_action||'').toUpperCase()!=='HOLD';}));
     ctaHtml='<button class="btn-p btn-sm" onclick="openDecisionTemplateModal(\'\')">Entscheidungsvorlage</button>'+(hasTradeList?'<button class="btn btn-sm" onclick="openTradeList()">Handelsliste</button>':'');
   } else if(tight.length>0||violated.length===0&&triggers.some(isCriticalReviewTrigger)){
     statusKey='yellow';bg='var(--warn-lt)';borderColor='rgba(122,82,0,0.2)';dotColor='var(--warn)';
@@ -14083,23 +14536,18 @@ function renderReviewHero(state){
 function renderReviewState(state){
   var triggers=(state&&state.triggers)||[];
   var conflicts=(state&&state.conflicts)||[];
-  var triggerBrief=triggers.slice().sort(function(a,b){
-    var aCritical=isCriticalReviewTrigger(a)?0:1;
-    var bCritical=isCriticalReviewTrigger(b)?0:1;
-    if(aCritical!==bCritical)return aCritical-bCritical;
-    return String(a.next_due_at||'9999-12-31').localeCompare(String(b.next_due_at||'9999-12-31'));
-  });
+  var time=triggers.filter(function(item){return item.trigger_type==='Zeit';});
+  var market=triggers.filter(function(item){return item.trigger_type==='Markt';});
+  var event=triggers.filter(function(item){return item.trigger_type==='Ereignis';});
   renderReviewHero(state||{});
   normalizeReviewLayout();
   renderReviewAlertStrip(triggers);
   renderReviewDecisionStrip(state||{});
   renderReviewSummaryGrid(triggers);
   renderReviewStrategyComparison(state||{});
-  renderTriggerBucket('rv-trigger-time',triggerBrief,state||{});
-  ['rv-trigger-market','rv-trigger-event'].forEach(function(id){
-    var el=document.getElementById(id);
-    if(el){el.innerHTML='';el.style.display='none';}
-  });
+  renderTriggerBucket('rv-trigger-time',time,state||{});
+  renderTriggerBucket('rv-trigger-market',market,state||{});
+  renderTriggerBucket('rv-trigger-event',event,state||{});
   renderSuitabilityPreflight(state||{});
   renderAdvisoryLogList((state&&state.logs)||[]);
   renderReviewActionSummary(state||{});
@@ -14775,9 +15223,9 @@ function openStammdatenModal(){
   </div>
 </div>
 <div id="m-admin" class="overlay">
-  <div class="modal" style="width:860px;max-height:90vh;display:flex;flex-direction:column;overflow:hidden;">
+  <div class="modal admin-modal" style="width:900px;max-height:92vh;display:flex;flex-direction:column;overflow:hidden;border-radius:10px;">
     <div class="mhd" style="flex-shrink:0;">
-      <div class="mtitle">System-Administration</div>
+      <div class="mtitle">Administration</div>
       <button class="mx" onclick="cm('m-admin')">✕</button>
     </div>
 
@@ -14785,37 +15233,50 @@ function openStammdatenModal(){
     <div style="flex:1;display:flex;overflow:hidden;">
 
       <!-- ─── SIDEBAR ─── -->
-      <div style="width:168px;flex-shrink:0;border-right:1px solid var(--b1);overflow-y:auto;background:var(--bg2);padding:8px 0;">
+      <div class="admin-sidebar">
 
-        <div style="padding:4px 12px 2px;font-size:9px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:var(--n4)">Protokoll</div>
-        <button id="asec-audit" onclick="adminShowSection('sec-audit')" class="admin-sec-btn" style="display:block;width:100%;text-align:left;padding:7px 14px;background:var(--g3);color:#fff;border:none;border-left:3px solid var(--g3);font-size:11px;font-weight:500;cursor:pointer;">Audit-Log</button>
+        <div class="admin-nav-label">Status</div>
+        <button id="asec-health" onclick="adminShowSection('sec-health')" class="admin-sec-btn admin-active">Uebersicht</button>
 
-        <div style="padding:10px 12px 2px;font-size:9px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:var(--n4)">Marktdaten</div>
-        <button id="asec-markt" onclick="adminShowSection('sec-markt')" class="admin-sec-btn" style="display:block;width:100%;text-align:left;padding:7px 14px;background:none;color:var(--n6);border:none;border-left:3px solid transparent;font-size:11px;font-weight:500;cursor:pointer;">Markt &amp; Preise</button>
-        <button id="asec-override" onclick="adminShowSection('sec-override')" class="admin-sec-btn" style="display:block;width:100%;text-align:left;padding:7px 14px;background:none;color:var(--n6);border:none;border-left:3px solid transparent;font-size:11px;font-weight:500;cursor:pointer;">Produkt Override</button>
-        <button id="asec-returns" onclick="adminShowSection('sec-returns')" class="admin-sec-btn" style="display:block;width:100%;text-align:left;padding:7px 14px;background:none;color:var(--n6);border:none;border-left:3px solid transparent;font-size:11px;font-weight:500;cursor:pointer;">Jahresrenditen</button>
+        <div class="admin-nav-label">Audit</div>
+        <button id="asec-audit" onclick="adminShowSection('sec-audit')" class="admin-sec-btn">Protokoll</button>
 
-        <div style="padding:10px 12px 2px;font-size:9px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:var(--n4)">CMA</div>
-        <button id="asec-cma" onclick="adminShowSection('sec-cma')" class="admin-sec-btn" style="display:block;width:100%;text-align:left;padding:7px 14px;background:none;color:var(--n6);border:none;border-left:3px solid transparent;font-size:11px;font-weight:500;cursor:pointer;">Annahmen</button>
-        <button id="asec-cma-rv" onclick="adminShowSection('sec-cma-rv')" class="admin-sec-btn" style="display:block;width:100%;text-align:left;padding:7px 14px;background:none;color:var(--n6);border:none;border-left:3px solid transparent;font-size:11px;font-weight:500;cursor:pointer;">Rendite &amp; Vol.</button>
-        <button id="asec-cma-inf" onclick="adminShowSection('sec-cma-inf')" class="admin-sec-btn" style="display:block;width:100%;text-align:left;padding:7px 14px;background:none;color:var(--n6);border:none;border-left:3px solid transparent;font-size:11px;font-weight:500;cursor:pointer;">Inflation &amp; Korr.</button>
-        <button id="asec-cma-sub" onclick="adminShowSection('sec-cma-sub')" class="admin-sec-btn" style="display:block;width:100%;text-align:left;padding:7px 14px;background:none;color:var(--n6);border:none;border-left:3px solid transparent;font-size:11px;font-weight:500;cursor:pointer;">Sub-Anlageklassen</button>
+        <div class="admin-nav-label">Daten</div>
+        <button id="asec-markt" onclick="adminShowSection('sec-markt')" class="admin-sec-btn">Kurse &amp; Mapping</button>
+        <button id="asec-override" onclick="adminShowSection('sec-override')" class="admin-sec-btn">Override</button>
+        <button id="asec-returns" onclick="adminShowSection('sec-returns')" class="admin-sec-btn">Jahresrenditen</button>
 
-        <div style="padding:10px 12px 2px;font-size:9px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:var(--n4)">Benutzer</div>
-        <button id="asec-users" onclick="adminShowSection('sec-users')" class="admin-sec-btn" style="display:block;width:100%;text-align:left;padding:7px 14px;background:none;color:var(--n6);border:none;border-left:3px solid transparent;font-size:11px;font-weight:500;cursor:pointer;">Benutzerliste</button>
-        <button id="asec-newuser" onclick="adminShowSection('sec-newuser')" class="admin-sec-btn" style="display:block;width:100%;text-align:left;padding:7px 14px;background:none;color:var(--n6);border:none;border-left:3px solid transparent;font-size:11px;font-weight:500;cursor:pointer;">Neuer Benutzer</button>
+        <div class="admin-nav-label">Annahmen</div>
+        <button id="asec-cma" onclick="adminShowSection('sec-cma')" class="admin-sec-btn">Annahmen</button>
+        <button id="asec-cma-rv" onclick="adminShowSection('sec-cma-rv')" class="admin-sec-btn">Rendite &amp; Vol.</button>
+        <button id="asec-cma-inf" onclick="adminShowSection('sec-cma-inf')" class="admin-sec-btn">Inflation &amp; Korr.</button>
+        <button id="asec-cma-sub" onclick="adminShowSection('sec-cma-sub')" class="admin-sec-btn">Sub-Anlageklassen</button>
 
-        <div style="padding:10px 12px 2px;font-size:9px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:var(--n4)">System</div>
-        <button id="asec-db" onclick="adminShowSection('sec-db')" class="admin-sec-btn" style="display:block;width:100%;text-align:left;padding:7px 14px;background:none;color:var(--n6);border:none;border-left:3px solid transparent;font-size:11px;font-weight:500;cursor:pointer;">Datenbank</button>
-        <button id="asec-update" onclick="adminShowSection('sec-update')" class="admin-sec-btn" style="display:block;width:100%;text-align:left;padding:7px 14px;background:none;color:var(--n6);border:none;border-left:3px solid transparent;font-size:11px;font-weight:500;cursor:pointer;">Software-Update</button>
+        <div class="admin-nav-label">Zugriff</div>
+        <button id="asec-users" onclick="adminShowSection('sec-users')" class="admin-sec-btn">Benutzerliste</button>
+        <button id="asec-newuser" onclick="adminShowSection('sec-newuser')" class="admin-sec-btn">Neuer Benutzer</button>
+
+        <div class="admin-nav-label">Wartung</div>
+        <button id="asec-db" onclick="adminShowSection('sec-db')" class="admin-sec-btn">Backups</button>
+        <button id="asec-update" onclick="adminShowSection('sec-update')" class="admin-sec-btn">Update</button>
       </div>
 
       <!-- ─── CONTENT ─── -->
-      <div style="flex:1;overflow-y:auto;padding:20px;">
+      <div class="admin-content">
 
-        <!-- ══ SEC: AUDIT-LOG ══ -->
-        <div id="sec-audit" class="admin-sec-panel" style="display:grid;gap:12px;">
+        <!-- SEC: ADMIN-STATUS -->
+        <!-- SEC: SYSTEMZUSTAND -->
+        <div id="sec-health" class="admin-sec-panel" style="display:grid;gap:14px;">
+          <div id="admin-health-dashboard">
+            <div class="admin-risk-note">Systemzustand wird geladen...</div>
+          </div>
+          <div class="admin-risk-note"><strong>Hinweis</strong>Kritische Aktionen fragen vor dem Speichern nach Bestaetigung.</div>
+        </div>
+
+        <!-- SEC: AUDIT-LOG -->
+        <div id="sec-audit" class="admin-sec-panel" style="display:none;gap:12px;">
           <div style="font-size:13px;font-weight:600;color:var(--g3);margin-bottom:2px;">Audit-Log</div>
+          <div id="admin-audit-summary" class="admin-audit-summary"><div class="admin-risk-note">Audit-Uebersicht wird geladen...</div></div>
           <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
             <select id="al-action-filter" class="fsel" style="font-size:11px;padding:3px 6px">
               <option value="">Alle Aktionen</option>
@@ -14837,12 +15298,17 @@ function openStammdatenModal(){
         <!-- ══ SEC: MARKT & PREISE ══ -->
         <div id="sec-markt" class="admin-sec-panel" style="display:none;gap:14px;">
           <div style="font-size:13px;font-weight:600;color:var(--g3);margin-bottom:2px;">Markt &amp; Preise</div>
-          <div style="font-size:10px;color:var(--n4);line-height:1.5">Kurse abrufen, FIGI- und EODHD-Mapping auf den Produktstamm anwenden.</div>
+          <div style="font-size:10px;color:var(--n4);line-height:1.5">Kurse abrufen, Mapping-Luecken pruefen und Referenzdaten kontrolliert auf den Produktstamm anwenden.</div>
+          <div class="admin-risk-note warn"><strong>Wirkung</strong>Preisrefresh veraendert Marktwerte. Mapping-Apply veraendert Produkt-Stammdaten und kann kuenftige Bewertungen, Drift und Rebalancing beeinflussen.</div>
           <div style="display:flex;gap:6px;flex-wrap:wrap;">
             <button class="btn-p" style="background:var(--bg2);color:var(--n6)" onclick="adminRefreshMarketStatus(true)" id="btn-admin-market-status">Status laden</button>
             <button class="btn-p" style="background:var(--bg2);color:var(--n6)" onclick="adminRefreshPricesNow()" id="btn-admin-price-refresh">Preise aktualisieren</button>
           </div>
           <div id="admin-market-summary" style="background:var(--bg2);border-radius:6px;padding:10px;font-size:11px;min-height:100px;color:var(--g4);">Status wird geladen…</div>
+          <div>
+            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--n5);margin-bottom:6px">Arbeitskorb Mapping-Luecken</div>
+            <div id="admin-mapping-gaps" class="admin-worklist"><div class="admin-risk-note">Mapping-Arbeitskorb wird geladen...</div></div>
+          </div>
           <div style="border-top:1px solid var(--b1);padding-top:12px;display:grid;grid-template-columns:110px 1fr;gap:10px;align-items:start;">
             <div>
               <label style="font-size:9px;color:var(--n4);display:block;margin-bottom:4px">Batch-Limit</label>
@@ -14856,16 +15322,17 @@ function openStammdatenModal(){
           </div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
             <button class="btn-p" style="background:var(--bg2);color:var(--n6)" onclick="adminRunOpenfigiAutoApply(true)" id="btn-admin-openfigi-preview">OpenFIGI Dry Run</button>
-            <button class="btn-p" style="background:var(--g4);color:#fff" onclick="adminRunOpenfigiAutoApply(false)" id="btn-admin-openfigi-apply">OpenFIGI anwenden</button>
+            <button class="btn-p admin-primary-btn" onclick="adminRunOpenfigiAutoApply(false)" id="btn-admin-openfigi-apply">OpenFIGI anwenden</button>
             <button class="btn-p" style="background:var(--bg2);color:var(--n6)" onclick="adminRunEodhdAutoApply(true)" id="btn-admin-eodhd-preview">EODHD Dry Run</button>
-            <button class="btn-p" style="background:var(--g4);color:#fff" onclick="adminRunEodhdAutoApply(false)" id="btn-admin-eodhd-apply">EODHD anwenden</button>
+            <button class="btn-p admin-primary-btn" onclick="adminRunEodhdAutoApply(false)" id="btn-admin-eodhd-apply">EODHD anwenden</button>
           </div>
         </div>
 
         <!-- ══ SEC: PRODUKT OVERRIDE ══ -->
         <div id="sec-override" class="admin-sec-panel" style="display:none;gap:14px;">
           <div style="font-size:13px;font-weight:600;color:var(--g3);margin-bottom:2px;">Produkt Lookup-Override</div>
-          <div style="font-size:10px;color:var(--n4);line-height:1.5">Einzelnes Produkt manuell auf ein bestimmtes Lookup-Modus und Symbol setzen.</div>
+          <div style="font-size:10px;color:var(--n4);line-height:1.5">Einzelnes Produkt manuell auf einen Lookup-Modus und ein Symbol setzen.</div>
+          <div class="admin-risk-note danger"><strong>Hohe Wirkung</strong>Ein Override hat Vorrang vor automatischem Mapping. Er sollte einen fachlichen Grund haben und nach Korrektur der Stammdaten wieder entfernt werden.</div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;align-items:end;">
             <div>
               <label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Produkt-ID oder Name</label>
@@ -14897,11 +15364,12 @@ function openStammdatenModal(){
           <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;">
             <div>
               <div style="font-size:13px;font-weight:600;color:var(--g3);margin-bottom:2px;">Historische Jahresrenditen</div>
-              <div style="font-size:10px;color:var(--n4);line-height:1.5">Renditen pro Anlageklasse und Jahr (BPS, 100 BPS = 1%). Basis für Strategie-Drift im Portfolio-Spiegel.</div>
+              <div class="admin-risk-note warn" style="margin-top:8px"><strong>Rueckwirkende Wirkung</strong> Aenderungen koennen Drift-Auswertungen seit alten Strategie-Snapshots veraendern. Datenquelle und Jahr bitte vor dem Speichern pruefen.</div>
+              <div style="font-size:10px;color:var(--n4);line-height:1.5">Renditen pro Anlageklasse und Jahr (BPS, 100 BPS = 1%). Basis fuer Strategie-Drift im Portfolio-Spiegel.</div>
             </div>
             <div style="display:flex;gap:6px;">
               <button class="btn-p" style="background:var(--bg2);color:var(--n6)" onclick="loadAdminAnnualReturns()" id="btn-admin-ar-load">Laden</button>
-              <button class="btn-p" style="background:var(--g4);color:#fff" onclick="saveAdminAnnualReturns()" id="btn-admin-ar-save">Speichern</button>
+              <button class="btn-p admin-primary-btn" onclick="saveAdminAnnualReturns()" id="btn-admin-ar-save">Speichern</button>
             </div>
           </div>
           <div id="admin-ar-grid" style="overflow-x:auto;font-size:11px;"></div>
@@ -14913,13 +15381,14 @@ function openStammdatenModal(){
           <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;">
             <div>
               <div style="font-size:13px;font-weight:600;color:var(--g3);margin-bottom:2px;">Kapitalmarktannahmen</div>
-              <div style="font-size:10px;color:var(--n4);line-height:1.5">House View für Rendite, Volatilität, Inflation und Sub-Anlageklassen.</div>
+              <div class="admin-risk-note warn" style="margin-top:8px"><strong>Fachliche Wirkung</strong> Neue Annahmen beeinflussen kuenftige Strategien, Simulationen und Kundenausgaben. Bestehende Strategien sollten danach neu berechnet werden.</div>
+              <div style="font-size:10px;color:var(--n4);line-height:1.5">House View fuer Rendite, Volatilitaet, Inflation und Sub-Anlageklassen.</div>
             </div>
             <div style="display:flex;gap:6px;flex-wrap:wrap">
               <button class="btn-p" style="background:var(--bg2);color:var(--n6)" onclick="loadAdminCapitalMarketAssumptions(true)" id="btn-admin-cma-refresh">Laden</button>
               <button class="btn-p" style="background:var(--bg2);color:var(--n6)" onclick="loadAdminCapitalMarketAssumptionDefaults()">Standardwerte</button>
               <button class="btn-p" style="background:var(--bg2);color:var(--n6)" onclick="previewAdminCapitalMarketAssumptions()">Vorschau</button>
-              <button class="btn-p" style="background:var(--g4);color:#fff" onclick="saveAdminCapitalMarketAssumptions()" id="btn-admin-cma-save">Speichern</button>
+              <button class="btn-p admin-primary-btn" onclick="saveAdminCapitalMarketAssumptions()" id="btn-admin-cma-save">Speichern</button>
             </div>
           </div>
           <div id="admin-cma-summary" style="background:var(--bg2);border-radius:6px;padding:12px;font-size:11px;min-height:80px;color:var(--g4);">Annahmen werden geladen…</div>
@@ -14966,7 +15435,7 @@ function openStammdatenModal(){
           </div>
           <div style="display:flex;justify-content:flex-end;gap:8px;padding-top:4px;border-top:1px solid var(--b1);">
             <button class="btn-p" style="background:var(--bg2);color:var(--n6)" onclick="previewAdminCapitalMarketAssumptions()">Vorschau</button>
-            <button class="btn-p" style="background:var(--g4);color:#fff" onclick="saveAdminCapitalMarketAssumptions()">Speichern</button>
+            <button class="btn-p admin-primary-btn" onclick="saveAdminCapitalMarketAssumptions()">Speichern</button>
           </div>
         </div>
 
@@ -14993,7 +15462,7 @@ function openStammdatenModal(){
             </div>
           </div>
           <div style="display:flex;justify-content:flex-end;gap:8px;padding-top:4px;border-top:1px solid var(--b1);">
-            <button class="btn-p" style="background:var(--g4);color:#fff" onclick="saveAdminCapitalMarketAssumptions()">Speichern</button>
+            <button class="btn-p admin-primary-btn" onclick="saveAdminCapitalMarketAssumptions()">Speichern</button>
           </div>
         </div>
 
@@ -15014,14 +15483,16 @@ function openStammdatenModal(){
             </div>
           </details>
           <div style="display:flex;justify-content:flex-end;gap:8px;padding-top:4px;border-top:1px solid var(--b1);">
-            <button class="btn-p" style="background:var(--g4);color:#fff" onclick="saveAdminCapitalMarketAssumptions()">Speichern</button>
+            <button class="btn-p admin-primary-btn" onclick="saveAdminCapitalMarketAssumptions()">Speichern</button>
           </div>
         </div>
 
         <!-- ══ SEC: BENUTZERLISTE ══ -->
         <div id="sec-users" class="admin-sec-panel" style="display:none;gap:12px;">
           <div style="font-size:13px;font-weight:600;color:var(--g3);margin-bottom:2px;">Benutzerliste</div>
-          <div id="ul-list" style="font-size:11px;color:var(--n4)">Wird geladen…</div>
+          <div class="admin-risk-note warn"><strong>Zugriffswirkung</strong> Admin-Rollen haben globale Kundensicht und duerfen Systemdaten sowie Beratungsannahmen aendern.</div>
+          <div id="admin-user-summary"></div>
+          <div id="ul-list" style="font-size:11px;color:var(--n4)">Wird geladen...</div>
         </div>
 
         <!-- ══ SEC: NEUER BENUTZER ══ -->
@@ -15054,6 +15525,8 @@ function openStammdatenModal(){
             <div style="font-size:13px;font-weight:600;color:var(--g3);margin-bottom:2px;">Datenbank &amp; Wartung</div>
             <div style="font-size:10px;color:var(--n4);line-height:1.5">Backup erstellen, Datenbankintegrität prüfen und Speicher optimieren.</div>
           </div>
+          <div id="admin-db-status"><div class="admin-risk-note">Wartungsstatus wird geladen...</div></div>
+          <div class="admin-risk-note"><strong>Support-Bundle</strong> Enthaelt redaktierte Logs und technische Statusdaten, keine rohen Tokens oder API-Keys.</div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
             <button class="btn-p" onclick="adminBackup()" id="btn-admin-backup">Backup erstellen</button>
             <button class="btn-p" style="background:var(--bg2);color:var(--n6)" onclick="adminIntegrity()" id="btn-admin-integrity">Integrity Check</button>
@@ -15067,12 +15540,13 @@ function openStammdatenModal(){
         <div id="sec-update" class="admin-sec-panel" style="display:none;gap:14px;">
           <div>
             <div style="font-size:13px;font-weight:600;color:var(--g3);margin-bottom:2px;">Software-Update</div>
-            <div style="font-size:10px;color:var(--n4);line-height:1.5">Verfügbare Updates prüfen und installieren.</div>
+            <div class="admin-risk-note warn" style="margin-top:8px"><strong>Vor Installation</strong> Offene Arbeit abschliessen und bei groesseren Datenveraenderungen zuerst ein Backup erstellen. Auto-Updates sind nur in installierten Releases aktiv.</div>
+            <div style="font-size:10px;color:var(--n4);line-height:1.5">Verfuegbare Updates pruefen und installieren.</div>
           </div>
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
             <span id="update-status-label" style="font-size:11px;color:var(--g4);">—</span>
             <button class="btn-p" style="background:var(--bg2);color:var(--n6)" onclick="adminCheckUpdates()" id="btn-check-updates">Auf Updates prüfen</button>
-            <button class="btn-p" style="background:var(--g4);color:#fff;display:none" onclick="adminInstallUpdate()" id="btn-install-update">Update installieren</button>
+            <button class="btn-p admin-primary-btn" style="display:none" onclick="adminInstallUpdate()" id="btn-install-update">Update installieren</button>
           </div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
             <button class="btn-p" style="background:var(--bg2);color:var(--n6)" onclick="adminUpdateStatus()">Update-Status</button>
@@ -15088,7 +15562,7 @@ function openStammdatenModal(){
     </div><!-- end body row -->
 
     <!-- Result Bar -->
-    <div id="admin-result" style="flex-shrink:0;background:var(--bg2);border-top:1px solid var(--b1);padding:8px 16px;font-size:11px;font-family:monospace;white-space:pre-wrap;color:var(--g4);display:none;max-height:90px;overflow-y:auto;"></div>
+    <div id="admin-result" style="flex-shrink:0;background:var(--bg2);border-top:1px solid var(--b1);padding:8px 16px;font-size:11px;white-space:pre-wrap;color:var(--g4);display:none;max-height:90px;overflow-y:auto;"></div>
 
     <div class="mfooter" style="flex-shrink:0;">
       <button class="btn" onclick="cm('m-admin')">Schliessen</button>
@@ -15342,8 +15816,23 @@ function renderGoalList(items,isDemo){
       '<div class="gi"><div class="gn" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span>'+escapeHtml(goal.label||'Ziel')+'</span>'+badges+'</div><div class="gd">'+escapeHtml(meta.filter(Boolean).join(' \u00b7 '))+'</div>'+goalEvaluationNoteHtml(goal,true)+'</div>'+
       '<span class="tag '+tagTone+'">'+tagLabel+'</span>'+
       '<div class="gbw"><div class="gp">'+(scored?Math.round(pct)+' %':'—')+'</div><div class="gb"><div class="gf '+tone+'" style="width:'+Math.max(0,Math.min(100,scored?Math.round(pct):0))+'%"></div></div></div>'+
-      '<div><button class="btn-ico e" onclick="openGoalEditor(\''+escapeHtml(goal.id||'')+'\')">\u270e</button><button class="btn-ico" onclick="dg(this)">\u2715</button></div></div>';
+      '<div><button class="btn-ico e" type="button">\u270e</button><button class="btn-ico d" type="button">\u2715</button></div></div>';
   }).join('');
+  Array.prototype.forEach.call(zl.querySelectorAll('.goal[data-goalid] .btn-ico'),function(btn){
+    var card=btn.closest('.goal[data-goalid]');
+    if(!card)return;
+    if(btn.classList.contains('e')){
+      btn.onclick=function(ev){
+        if(ev)ev.preventDefault();
+        openGoalEditor(card.getAttribute('data-goalid')||'');
+      };
+    }else if(btn.classList.contains('d')){
+      btn.onclick=function(ev){
+        if(ev)ev.preventDefault();
+        dg(btn);
+      };
+    }
+  });
   setupDrag();
   updateCashflowsAndGoalsKpis(currentCashflowSummary||{});
   applyGoalDerivedRiskHorizon(false);
@@ -15653,6 +16142,171 @@ function decumulationCapitalBridgeRows(limit){
       };
     });
 }
+// ============================================================================
+// Phase 6: Optimizer-Panel (Status, Reasoning, Stress-Tests, Sensitivity)
+// ============================================================================
+function renderOptimizerPanel(result){
+  var panel=document.getElementById('al-optimizer-panel');
+  if(!panel)return;
+  var ta=(result&&result.target_allocation)||{};
+  var method=ta.optimization_method||null;
+  var status=ta.optimization_status||null;
+  if(!method){
+    panel.style.display='none';
+    return;
+  }
+  panel.style.display='';
+  var pill=document.getElementById('opt-status-pill');
+  if(pill){
+    pill.textContent='';
+    pill.style.background='';
+    pill.style.color='';
+    var pillMap={
+      converged:{txt:'🟢 Konvergiert',bg:'rgba(22,101,52,0.12)',fg:'var(--pos)'},
+      diverged_infeasible:{txt:'🟡 Divergiert',bg:'rgba(122,82,0,0.15)',fg:'var(--warn)'},
+      diverged:{txt:'🟡 Divergiert',bg:'rgba(122,82,0,0.15)',fg:'var(--warn)'},
+      fallback_house_matrix:{txt:'⚙ Fallback House-Matrix',bg:'var(--bg2)',fg:'var(--n5)'}
+    };
+    var p=pillMap[status]||{txt:status||'—',bg:'var(--bg2)',fg:'var(--n5)'};
+    pill.textContent=p.txt;
+    pill.style.background=p.bg;
+    pill.style.color=p.fg;
+  }
+  var banner=document.getElementById('opt-fallback-banner');
+  if(banner){
+    if(status==='fallback_house_matrix'||status==='diverged'||status==='diverged_infeasible'){
+      banner.style.display='';
+      banner.textContent='Solver konvergierte nicht — House-Matrix-Default verwendet. Reasoning unten erklaert warum.';
+    }else{
+      banner.style.display='none';
+    }
+  }
+  var rlist=document.getElementById('opt-reasoning-list');
+  if(rlist){
+    var allReasoning=Array.isArray(result.reasoning)?result.reasoning:[];
+    var solverLines=allReasoning.filter(function(line){
+      var s=String(line||'');
+      return /Solver|Stochastic|SLSQP|Best objective|iterations|Stress '|Multi-Start|Optimizer/i.test(s);
+    });
+    if(!solverLines.length)solverLines=allReasoning.slice(0,5);
+    rlist.innerHTML=solverLines.map(function(line){
+      return '<li style="margin-bottom:3px">'+escapeHtml(String(line))+'</li>';
+    }).join('');
+  }
+  renderStressTable(result.stress_evaluations||null);
+  renderSensitivitySlidersForResult(result);
+  var footer=document.getElementById('opt-audit-footer');
+  if(footer){
+    var seed=ta.optimization_seed!=null?String(ta.optimization_seed):'—';
+    var iter=ta.optimization_iterations!=null?String(ta.optimization_iterations):'—';
+    var obj=ta.optimization_objective_value_milli!=null?(Number(ta.optimization_objective_value_milli)/1000).toExponential(3):'—';
+    footer.textContent='Method: '+method+' | Status: '+(status||'—')+' | Seed: '+seed+' | Iter: '+iter+' | L(w*): '+obj;
+  }
+}
+function renderStressTable(stressEvals){
+  var block=document.getElementById('opt-stress-block');
+  var tbody=document.querySelector('#opt-stress-table tbody');
+  if(!block||!tbody){return;}
+  tbody.innerHTML='';
+  if(!stressEvals||typeof stressEvals!=='object'){
+    block.style.display='none';
+    return;
+  }
+  var nameMap={
+    great_depression_1929:'Grosse Depression 1929',
+    financial_crisis_2008:'Finanzkrise 2008',
+    covid_inflation_2020_2022:'Covid + Inflation 2020/22'
+  };
+  var keys=Object.keys(stressEvals);
+  if(!keys.length){
+    block.style.display='none';
+    return;
+  }
+  block.style.display='';
+  keys.forEach(function(name){
+    var entry=stressEvals[name]||{};
+    var endR=Number(entry.end_wealth_rappen||0);
+    var minR=Number(entry.min_year_wealth_rappen||0);
+    var ddBps=Number(entry.max_drawdown_bps||0);
+    var rowHighlight=ddBps>5000?'background:rgba(220,53,69,0.08);':'';
+    var endChf=Math.round(endR/100);
+    var minChf=Math.round(minR/100);
+    var ddPct=(ddBps/100).toFixed(1);
+    var label=nameMap[name]||String(name);
+    var tr=document.createElement('tr');
+    tr.style.cssText='border-bottom:1px solid var(--b1);'+rowHighlight;
+    tr.innerHTML=''
+      +'<td style="padding:5px 8px">'+escapeHtml(label)+'</td>'
+      +'<td style="padding:5px 8px;text-align:right;font-family:var(--f-d)">'+endChf.toLocaleString('de-CH')+'</td>'
+      +'<td style="padding:5px 8px;text-align:right;font-family:var(--f-d)">'+minChf.toLocaleString('de-CH')+'</td>'
+      +'<td style="padding:5px 8px;text-align:right;font-family:var(--f-d)">-'+ddPct+'%</td>';
+    tbody.appendChild(tr);
+  });
+}
+function renderSensitivitySlidersForResult(result){
+  var wrap=document.getElementById('opt-sensitivity-list');
+  var block=document.getElementById('opt-sensitivity-block');
+  if(!wrap||!block){return;}
+  wrap.innerHTML='';
+  var goals=Array.isArray(result.goal_analysis)?result.goal_analysis:[];
+  var mandateId=allocationPayloadMandateId(result);
+  if(!goals.length||!mandateId){
+    block.style.display='none';
+    return;
+  }
+  block.style.display='';
+  goals.forEach(function(g){
+    var gid=g&&g.goal_id;
+    var label=String(g&&(g.label||g.goal_type)||'Ziel');
+    if(!gid)return;
+    var row=document.createElement('div');
+    row.style.cssText='border:1px solid var(--b1);border-radius:var(--r);padding:8px 10px;display:grid;gap:6px';
+    row.innerHTML=''
+      +'<div style="display:flex;justify-content:space-between;align-items:center">'
+      +  '<span style="font-size:11px;font-weight:500">'+escapeHtml(label)+'</span>'
+      +  '<span class="tag tn" style="font-size:9px">Was-wenn</span>'
+      +'</div>'
+      +'<div style="display:flex;gap:4px;flex-wrap:wrap">'
+      +  ['-20','-10','0','10','20'].map(function(d){
+           return '<button class="btn-p sens-btn" data-goal="'+escapeHtml(gid)+'" data-delta="'+d+'" data-mandate="'+escapeHtml(String(mandateId))+'" style="font-size:10px;padding:4px 10px;background:var(--bg2);color:var(--n6);min-width:0">'+(Number(d)>=0?'+':'')+d+'%</button>';
+         }).join('')
+      +'</div>'
+      +'<div class="sens-result" style="font-size:10px;color:var(--n6);min-height:14px;font-family:var(--f-d)">—</div>';
+    wrap.appendChild(row);
+  });
+  wrap.querySelectorAll('.sens-btn').forEach(function(btn){
+    btn.addEventListener('click',function(){
+      runSensitivityCall(btn);
+    });
+  });
+}
+function runSensitivityCall(btn){
+  var gid=btn.getAttribute('data-goal');
+  var delta=parseInt(btn.getAttribute('data-delta'),10);
+  var mid=btn.getAttribute('data-mandate');
+  var resEl=btn.parentElement&&btn.parentElement.parentElement&&btn.parentElement.parentElement.querySelector('.sens-result');
+  if(!gid||!mid||isNaN(delta))return;
+  if(resEl)resEl.textContent='Berechne…';
+  var siblings=btn.parentElement?btn.parentElement.querySelectorAll('button'):[];
+  siblings.forEach(function(b){b.disabled=true;});
+  var url='/mandates/'+encodeURIComponent(mid)+'/target-allocation/sensitivity';
+  API.post(url,{goal_id:gid,target_delta_pct:delta}).then(function(body){
+    if(!resEl){return;}
+    var dPct=body.delta_objective_pct;
+    var newAmt=Math.round(Number(body.target_amount_rappen_new||0)/100);
+    var msg='Neuer Zielwert: CHF '+newAmt.toLocaleString('de-CH');
+    if(dPct!=null){
+      var sign=Number(dPct)>=0?'+':'';
+      var direction=Number(dPct)<0?' (besser erreichbar)':(Number(dPct)>0?' (schwerer erreichbar)':'');
+      msg+=' | Objective '+sign+Number(dPct).toFixed(1)+'%'+direction;
+    }
+    resEl.textContent=msg;
+  }).catch(function(err){
+    if(resEl)resEl.textContent='Fehler: '+(err&&err.message||'unbekannt');
+  }).finally(function(){
+    siblings.forEach(function(b){b.disabled=false;});
+  });
+}
 function renderActionCards(reasoning){
   var el=document.getElementById('aa-action-list');
   if(!el)return;
@@ -15880,17 +16534,60 @@ var _rvSpiegelLoadToken=0;
 
 async function loadReviewSpiegel(mandateId){
   var card=document.getElementById('rv-spiegel-card');
+  var noDataEl=document.getElementById('rv-spiegel-no-data');
   var tableEl=document.getElementById('rv-drift-table');
   if(!card)return;
-  // Clean Review: keep the theoretical performance mirror out of the
-  // customer-facing default view. Detailed strategy history remains a data
-  // capability, but not part of the main conversation screen.
-  card.style.display='none';
-  if(_rvSpiegelChart){
-    try{_rvSpiegelChart.destroy();}catch(e){}
-    _rvSpiegelChart=null;
+  if(!mandateId||isDemoMandateId(mandateId)){
+    card.style.display='none';
+    if(_rvSpiegelChart){
+      try{_rvSpiegelChart.destroy();}catch(e){}
+      _rvSpiegelChart=null;
+    }
+    if(tableEl)tableEl.innerHTML='';
+    return;
   }
-  if(tableEl)tableEl.innerHTML='';
+  var token=++_rvSpiegelLoadToken;
+  var data;
+  try{
+    data=await API.get('/mandates/'+mandateId+'/strategy-snapshots/latest/drift');
+  }catch(e){
+    if(token!==_rvSpiegelLoadToken)return;
+    card.style.display='none';
+    if(_rvSpiegelChart){
+      try{_rvSpiegelChart.destroy();}catch(err){}
+      _rvSpiegelChart=null;
+    }
+    if(tableEl)tableEl.innerHTML='';
+    return;
+  }
+  if(token!==_rvSpiegelLoadToken||String(getActiveMandateId()||'')!==String(mandateId||''))return;
+  if(!data){
+    card.style.display='none';
+    return;
+  }
+  card.style.display='';
+  setText('rv-spiegel-date',data.snapshot_date?'Festgelegt am '+data.snapshot_date:'');
+  setText('rv-kpi-snap-date',data.snapshot_date||'');
+  var stratSeries=Array.isArray(data.chart_strategy)?data.chart_strategy:[];
+  var spiSeries=Array.isArray(data.chart_spi_proxy)?data.chart_spi_proxy:[];
+  var stratLast=stratSeries.length?Number(stratSeries[stratSeries.length-1]||100):100;
+  var spiLast=spiSeries.length?Number(spiSeries[spiSeries.length-1]||100):100;
+  var stratRetPct=((stratLast/100)-1)*100;
+  var spiRetPct=((spiLast/100)-1)*100;
+  var deltaVsSpi=stratRetPct-spiRetPct;
+  var fmtDelta=function(v){return (v>=0?'+':'')+v.toFixed(1)+'%';};
+  setText('rv-kpi-strategy',fmtDelta(stratRetPct));
+  setText('rv-kpi-profile',data.risk_profile_label||'—');
+  var stratEl=document.getElementById('rv-kpi-strategy');
+  if(stratEl)stratEl.style.color=stratRetPct>=0?'var(--pos)':'var(--neg)';
+  var deltaEl=document.getElementById('rv-kpi-delta');
+  if(deltaEl){
+    deltaEl.textContent=fmtDelta(deltaVsSpi);
+    deltaEl.style.color=deltaVsSpi>=0?'var(--pos)':'var(--neg)';
+  }
+  if(noDataEl)noDataEl.style.display=data.has_drift_data?'none':'';
+  renderDriftTable(data);
+  renderSpiegelChart(data);
 }
 
 function renderSpiegelChart(data){
@@ -16042,52 +16739,8 @@ function renderReviewStrategyComparison(state){
     : 'Noch kein Ziel priorisiert';
   var live=liveRebalancingPayload(allocation)||liveRebalancingPayload(recommendation);
   var hasTradeList=!!(live&&Array.isArray(live.position_drifts)&&live.position_drifts.some(function(row){
-    return rebalanceActionCode(row)!=='HOLD';
+    return String(row&&row.rebalance_action||'').toUpperCase()!=='HOLD';
   }));
-  var focusRows=rows.map(function(item){
-    item.meta=reviewBandStateMeta({
-      current_weight_bps:item.currentWeightBps,
-      target_weight_bps:item.targetWeightBps,
-      band_min_bps:item.bandMinBps,
-      band_max_bps:item.bandMaxBps
-    });
-    return item;
-  }).filter(function(item){
-    return item.meta.tagClass!=='tg'||Math.abs(Number(item.deltaWeightBps||0))>=200;
-  }).sort(function(a,b){
-    return Math.abs(Number(b.deltaWeightBps||0))-Math.abs(Number(a.deltaWeightBps||0));
-  });
-  var hasBandBreak=focusRows.some(function(item){return item.meta.tagClass==='tr2';});
-  var hasWatch=focusRows.some(function(item){return item.meta.tagClass==='ta';});
-  var portfolioLine=hasBandBreak
-    ? 'Mindestens eine Anlageklasse liegt ausserhalb der vereinbarten Bandbreite. Bitte Entscheid und Umsetzung dokumentieren.'
-    : (hasWatch
-      ? 'Das Portfolio liegt noch im Rahmen, einzelne Punkte sollten heute bewusst besprochen werden.'
-      : 'Das Portfolio liegt im vereinbarten Rahmen. Heute genuegen Governance, Protokoll und naechster Review-Termin.');
-  var primaryAction=focusRows.length
-    ? focusRows.slice(0,3).map(function(item){
-        return '<div style="border:1px solid var(--b1);border-radius:var(--r);padding:9px 10px;background:var(--surface)">'
-          +'<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:4px"><span style="font-size:11px;font-weight:700;color:var(--n8)">'+escapeHtml(item.assetClass)+'</span><span class="tag '+item.meta.tagClass+'">'+escapeHtml(item.meta.label)+'</span></div>'
-          +'<div style="font-size:10px;color:var(--n6);line-height:1.5">'+escapeHtml(item.meta.action)+' · Delta '+escapeHtml(formatSignedBpsPercent(item.deltaWeightBps))+'</div>'
-          +'</div>';
-      }).join('')
-    : '<div style="border:1px solid rgba(14,107,65,0.18);border-radius:var(--r);padding:10px;background:var(--pos-lt)"><div style="font-size:11px;font-weight:700;color:var(--n8);margin-bottom:3px">Kein Rebalancing notwendig</div><div style="font-size:10px;color:var(--n6);line-height:1.5">Alle Hauptanlageklassen liegen im Band. Der Review kann kurz und ruhig dokumentiert werden.</div></div>';
-  var goalHtml=primaryGoal
-    ? '<div style="border:1px solid var(--b1);border-radius:var(--r);padding:10px;background:var(--bg)"><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.08em;color:var(--n4);margin-bottom:4px">Wichtigstes Ziel</div><div style="font-size:12px;font-weight:700;color:var(--n8);margin-bottom:4px">'+escapeHtml(primaryGoal.label||'Ziel')+'</div><div style="font-size:10px;color:var(--n6);line-height:1.5">'+escapeHtml(primaryGoalLabel)+'</div></div>'
-    : '<div style="border:1px solid var(--b1);border-radius:var(--r);padding:10px;background:var(--bg)"><div style="font-size:11px;font-weight:700;color:var(--n8);margin-bottom:3px">Noch kein Ziel priorisiert</div><div style="font-size:10px;color:var(--n6);line-height:1.5">Fuer die Beratung sollte mindestens ein Ziel priorisiert werden.</div></div>';
-  var runwayHtml='<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:10px">'
-    +'<div style="border:1px solid var(--b1);border-radius:var(--r);padding:9px 10px;background:var(--bg)"><div style="font-size:9px;color:var(--n4);text-transform:uppercase;letter-spacing:0.08em">Soll-Strategie</div><div style="font-size:15px;font-weight:800;color:var(--n8);margin-top:3px">'+escapeHtml(targetRunway)+'</div></div>'
-    +'<div style="border:1px solid var(--b1);border-radius:var(--r);padding:9px 10px;background:var(--bg)"><div style="font-size:9px;color:var(--n4);text-transform:uppercase;letter-spacing:0.08em">Heute weiter</div><div style="font-size:15px;font-weight:800;color:var(--n8);margin-top:3px">'+escapeHtml(currentRunway)+'</div></div>'
-    +'<div style="border:1px solid var(--b1);border-radius:var(--r);padding:9px 10px;background:var(--bg)"><div style="font-size:9px;color:var(--n4);text-transform:uppercase;letter-spacing:0.08em">Cashflow</div><div style="font-size:15px;font-weight:800;color:'+(cashflowInfo.netRappen>=0?'var(--pos)':'var(--warn)')+';margin-top:3px">'+escapeHtml(formatRappen(cashflowInfo.netRappen))+'</div></div>'
-    +'</div>';
-  root.innerHTML='<div style="font-size:12px;color:var(--n7);line-height:1.65;margin-bottom:10px">'+escapeHtml(portfolioLine)+'</div>'
-    +runwayHtml
-    +'<div style="display:grid;grid-template-columns:1.1fr 0.9fr;gap:10px;align-items:stretch;margin-bottom:10px">'
-    +reviewAllocationPortraitHtml(rows).replace('margin-bottom:14px','margin-bottom:0')
-    +'<div style="display:flex;flex-direction:column;gap:8px">'+goalHtml+primaryAction+'</div>'
-    +'</div>'
-    +(hasTradeList?'<div style="display:flex;justify-content:flex-end"><button class="btn btn-sm" onclick="openTradeList()">Handelsliste oeffnen</button></div>':'');
-  return;
   var tableHtml='<div style="border:1px solid var(--b1);border-radius:var(--r2);overflow:hidden;background:var(--surface)">'
     +'<div style="display:grid;grid-template-columns:1.45fr 72px 72px 72px 1.15fr 92px 128px;gap:8px;align-items:center;padding:8px 10px;background:var(--bg);border-bottom:1px solid var(--b1);font-size:9px;color:var(--n4);text-transform:uppercase;letter-spacing:0.06em"><div>Anlageklasse</div><div style="text-align:right">Ist</div><div style="text-align:right">Soll</div><div style="text-align:right">Delta</div><div>Band</div><div style="text-align:right">Status</div><div style="text-align:right">Massnahme</div></div>'
     +rows.map(function(item){

@@ -69,6 +69,17 @@ def get_current_allocation_payload(
     ).first()
     if not ta:
         raise HTTPException(status_code=404, detail="Keine Soll-Allokation gefunden")
+    # rp-ueberarbeitung: pruefe ob die referenzierte Policy noch aktuell ist,
+    # BEVOR ensure_runtime_reference_data eine neue Policy/CMA erstellt. Eine
+    # Allocation auf einer archivierten Policy soll 404 zurueckgeben.
+    ta_policy = db.query(OptimizerPolicy).filter(
+        OptimizerPolicy.id == ta.policy_id,
+    ).first()
+    if not ta_policy or ta_policy.is_current != 1:
+        raise HTTPException(
+            status_code=404,
+            detail="Soll-Allokation referenziert eine nicht-aktuelle Optimizer Policy."
+        )
     assessment = db.query(RiskAssessment).filter(
         RiskAssessment.mandate_id == mandate_id,
         RiskAssessment.is_current == 1,
@@ -97,6 +108,15 @@ def create_target_allocation(
     current_user: User = Depends(require_advisor)
 ):
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    # rp-ueberarbeitung: zuerst Policy pruefen (404 fuer archivierte/fehlende),
+    # dann FIDLEG-Risikoprofil-Gate (409 fuer fehlende Risikoprofilierung).
+    # Damit ist die Fehlermeldung bei archivierter Policy eindeutig 404.
+    policy = db.query(OptimizerPolicy).filter(
+        OptimizerPolicy.id == body.policy_id,
+        OptimizerPolicy.is_current == 1,
+    ).first()
+    if not policy:
+        raise HTTPException(status_code=404, detail="Optimizer Policy nicht gefunden oder nicht aktuell")
     # FIDLEG: jede gespeicherte Soll-Allokation muss auf einer strategie-fertigen
     # Risikoprofilierung beruhen. Direktes POST darf das nicht umgehen.
     try:
@@ -108,13 +128,6 @@ def create_target_allocation(
             "based_on_assessment_id muss auf das aktuelle Risikoprofil zeigen "
             f"(erwartet {assessment.id})."
         ))
-    # Policy: nur aktuelle akzeptieren.
-    policy = db.query(OptimizerPolicy).filter(
-        OptimizerPolicy.id == body.policy_id,
-        OptimizerPolicy.is_current == 1,
-    ).first()
-    if not policy:
-        raise HTTPException(status_code=404, detail="Optimizer Policy nicht gefunden oder nicht aktuell")
     now = _now()
     # Supersede previous
     prev = db.query(TargetAllocation).filter(
@@ -220,17 +233,27 @@ def update_cma(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin)
 ):
-    """Admin only — update capital market assumptions (creates new version)."""
+    """Admin only — update capital market assumptions (creates new version).
+
+    rp-ueberarbeitung: nicht im Body gesetzte Felder werden von der vorigen
+    Version uebernommen, damit ein partial-Update keine zuvor gepflegten
+    sub_asset_class/correlation/etc. Werte unbeabsichtigt loescht.
+    """
     now = _now()
+    payload = body.model_dump(exclude_unset=True)
     # Archive previous
     prev = db.query(CapitalMarketAssumption).filter(
         CapitalMarketAssumption.is_current == 1,
         CapitalMarketAssumption.deleted_at.is_(None)
     ).first()
+    prev_dict: dict = {}
     prev_version = 0
     if prev:
+        for field_name in CapitalMarketAssumptionCreate.model_fields:
+            prev_dict[field_name] = getattr(prev, field_name, None)
         prev.is_current = 0
         prev_version = prev.version
+    merged = {**prev_dict, **payload}
     cma = CapitalMarketAssumption(
         id=new_uuid(),
         version=prev_version + 1,
@@ -238,7 +261,7 @@ def update_cma(
         created_by=current_user.id,
         created_at=now,
         updated_at=now,
-        **body.model_dump()
+        **merged
     )
     db.add(cma)
     log(db, user_id=current_user.id, user_name=current_user.full_name,

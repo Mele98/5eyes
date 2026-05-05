@@ -653,6 +653,7 @@ def upsert_planning_assumptions(
 ):
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
     now = _now()
+    today = date.today().isoformat()
     payload = body.model_dump(exclude_unset=True)
     existing = db.query(PlanningAssumption).filter(
         PlanningAssumption.mandate_id == mandate_id,
@@ -660,16 +661,36 @@ def upsert_planning_assumptions(
         PlanningAssumption.deleted_at.is_(None)
     ).order_by(PlanningAssumption.version.desc()).first()
     if existing:
-        for key, value in payload.items():
-            setattr(existing, key, value)
-        existing.updated_at = now
+        # rp-ueberarbeitung: Upsert legt eine NEUE Version an (versioning), nicht
+        # eine UPDATE in-place. Felder die im neuen Body nicht gesetzt sind,
+        # werden aus der vorigen Version uebernommen.
+        full: dict = {}
+        for field_name in PlanningAssumptionCreate.model_fields:
+            full[field_name] = getattr(existing, field_name, None)
+        full.update(payload)
+        prev_id = existing.id
+        prev_version = int(existing.version or 0)
+        existing.is_current = 0
+        existing.valid_to = today
+        pa = PlanningAssumption(
+            id=new_uuid(),
+            mandate_id=mandate_id,
+            client_id=mandate.client_id,
+            version=prev_version + 1,
+            is_current=1,
+            valid_from=today,
+            supersedes_id=prev_id,
+            created_at=now,
+            updated_at=now,
+            **full,
+        )
+        db.add(pa)
         log(db, user_id=current_user.id, user_name=current_user.full_name,
-            table_name="planning_assumptions", record_id=existing.id, action="UPDATE",
+            table_name="planning_assumptions", record_id=pa.id, action="CREATE",
             mandate_id=mandate_id, client_id=mandate.client_id)
         db.commit()
-        return {"ok": True, "inflation_assumption_bps": existing.inflation_assumption_bps}
+        return {"ok": True, "inflation_assumption_bps": pa.inflation_assumption_bps}
 
-    today = date.today().isoformat()
     pa = PlanningAssumption(
         id=new_uuid(),
         mandate_id=mandate_id,
