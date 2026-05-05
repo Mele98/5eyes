@@ -43,7 +43,25 @@ def test_combined_cashflow_projection_has_own_root_and_responsive_grid():
     assert 'id="page-ub"' not in html
     assert 'id="ub-review-strip"' not in html
     assert "#cf-goals-projection .projection-grid" in html
+
+
+def test_cashflow_projection_defaults_to_compact_client_view():
+    html = HTML_PATH.read_text(encoding="utf-8")
+    block = html.split("function renderCashflowProjection(data) {", 1)[1].split("function buildWealthPositionPayload", 1)[0]
+
+    assert "Cashflow-Ausblick" in block
+    assert "Jahresdetails anzeigen" in block
+    assert "Cashflow-Projektion nach Komponenten" not in block
     assert "if(templateGrid)templateGrid.classList.add('projection-grid');" in html
+
+
+def test_allocation_donut_legend_uses_bucket_target_amounts():
+    html = HTML_PATH.read_text(encoding="utf-8")
+    apply_block = html.split("function applyAllocationEngineResult(result){", 1)[1].split("function renderAllocationWarnings", 1)[0]
+    legend_block = html.split("function buildDLegend(){", 1)[1].split("function syncAllocationDonutFromStrategyState", 1)[0]
+
+    assert "chfTarget:Math.round((Number(bucket.target_amount_rappen||0))/100)" in apply_block
+    assert "r.chfTarget!=null?Number(r.chfTarget||0):Math.round(TOTAL*Number(r.soll||0)/100)" in legend_block
 
 
 def test_active_combined_step_logic_no_longer_uses_old_ub_runtime_hooks():

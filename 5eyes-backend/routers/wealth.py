@@ -28,8 +28,12 @@ def _normalize_cashflow_date(value) -> str | None:
     if not raw:
         return None
     if len(raw) >= 7 and raw[4:5] == "-" and len(raw[:7]) == 7 and raw[:7].count("-") == 1 and len(raw) == 7:
-        return raw[:7] + "-01"
+        raw = raw[:7] + "-01"
     raw = raw[:10]
+    try:
+        date.fromisoformat(raw)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"Ungueltiges Datum: {raw}") from exc
     return raw or None
 
 
@@ -160,6 +164,8 @@ def _normalize_goal_payload(data: dict, existing: Goal | None = None) -> dict:
     payload["horizon_years"] = int(raw_horizon) if raw_horizon not in (None, "") else derived_horizon
     if payload["horizon_years"] is None:
         payload["horizon_years"] = 10
+    if int(payload["horizon_years"] or 0) < 1:
+        raise HTTPException(status_code=400, detail="horizon_years muss >= 1 sein")
     payload["start_date"] = start_date
     payload["target_date"] = target_date
     return payload
@@ -198,6 +204,7 @@ def list_wealth_positions(
     get_client_for_user_or_404(client_id, db, current_user)
     return db.query(WealthPosition).filter(
         WealthPosition.client_id == client_id,
+        WealthPosition.is_active == 1,
         WealthPosition.deleted_at.is_(None)
     ).order_by(WealthPosition.assignment, WealthPosition.position_type).all()
 
@@ -248,7 +255,7 @@ def update_wealth_position(
     ).first()
     if not wp:
         raise HTTPException(status_code=404, detail="Vermögensposition nicht gefunden")
-    updates = body.model_dump(exclude_none=True)
+    updates = body.model_dump(exclude_unset=True)
     _validate_mortgage_link(client_id, updates, db)
     for field, value in updates.items():
         if isinstance(value, bool):
@@ -546,6 +553,7 @@ def upsert_planning_assumptions(
 ):
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
     now = _now()
+    today = date.today().isoformat()
     payload = body.model_dump(exclude_unset=True)
     existing = db.query(PlanningAssumption).filter(
         PlanningAssumption.mandate_id == mandate_id,
@@ -553,16 +561,37 @@ def upsert_planning_assumptions(
         PlanningAssumption.deleted_at.is_(None)
     ).order_by(PlanningAssumption.version.desc()).first()
     if existing:
-        for key, value in payload.items():
-            setattr(existing, key, value)
-        existing.updated_at = now
+        existing.is_current = 0
+        existing.valid_to = today
+        record_payload = {
+            "retirement_age_primary": existing.retirement_age_primary,
+            "retirement_age_partner": existing.retirement_age_partner,
+            "life_expectancy_primary": existing.life_expectancy_primary,
+            "life_expectancy_partner": existing.life_expectancy_partner,
+            "inflation_assumption_bps": existing.inflation_assumption_bps,
+            "pension_indexation_bps": existing.pension_indexation_bps,
+            "notes": existing.notes,
+        }
+        record_payload.update(payload)
+        pa = PlanningAssumption(
+            id=new_uuid(),
+            mandate_id=mandate_id,
+            client_id=mandate.client_id,
+            version=int(existing.version or 0) + 1,
+            is_current=1,
+            valid_from=today,
+            supersedes_id=existing.id,
+            created_at=now,
+            updated_at=now,
+            **record_payload,
+        )
+        db.add(pa)
         log(db, user_id=current_user.id, user_name=current_user.full_name,
-            table_name="planning_assumptions", record_id=existing.id, action="UPDATE",
+            table_name="planning_assumptions", record_id=pa.id, action="CREATE",
             mandate_id=mandate_id, client_id=mandate.client_id)
         db.commit()
-        return {"ok": True, "inflation_assumption_bps": existing.inflation_assumption_bps}
+        return {"ok": True, "inflation_assumption_bps": pa.inflation_assumption_bps}
 
-    today = date.today().isoformat()
     pa = PlanningAssumption(
         id=new_uuid(),
         mandate_id=mandate_id,

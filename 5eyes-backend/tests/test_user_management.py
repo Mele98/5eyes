@@ -13,11 +13,12 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from database import Base, bootstrap_sqlite_schema, ensure_audit_log_actions, get_db
+from database import Base, bootstrap_sqlite_schema, build_connect_args, ensure_audit_log_actions, get_db
 from main import app
 from models.review import AuditLog  # noqa: F401
 from models.users import User
 from services.auth import hash_password
+from services.login_guard import login_attempt_guard
 
 
 @pytest.fixture()
@@ -75,6 +76,11 @@ def login_headers(client: TestClient, username: str, password: str) -> dict[str,
     assert response.status_code == 200
     token = response.json()["access_token"]
     return {"Authorization": f"Bearer {token}"}
+
+
+def reset_login_guard_state() -> None:
+    login_attempt_guard._failures.clear()
+    login_attempt_guard._locked_until.clear()
 
 
 def test_admin_can_reset_password(session_factory, client):
@@ -271,6 +277,34 @@ def test_deactivated_user_cannot_login(session_factory, client):
     assert login_response.json()["detail"] == "Konto deaktiviert"
 
 
+def test_login_rate_limit_blocks_after_repeated_failures_from_same_ip(monkeypatch, client):
+    from config import settings
+
+    reset_login_guard_state()
+    monkeypatch.setattr(settings, "login_rate_limit_enabled", True)
+    monkeypatch.setattr(settings, "login_max_attempts", 5)
+    monkeypatch.setattr(settings, "login_window_seconds", 60)
+    monkeypatch.setattr(settings, "login_lockout_seconds", 60)
+
+    try:
+        for idx in range(5):
+            response = client.post(
+                "/auth/login",
+                json={"username": f"ghost-{idx}", "password": "wrong"},
+            )
+            assert response.status_code == 401
+
+        blocked = client.post(
+            "/auth/login",
+            json={"username": "ghost-locked", "password": "wrong"},
+        )
+
+        assert blocked.status_code == 429
+        assert "Retry-After" in blocked.headers
+    finally:
+        reset_login_guard_state()
+
+
 def test_runtime_migration_allows_password_reset_action_on_bootstrap_schema(tmp_path):
     db_path = tmp_path / "bootstrap_user_management.db"
     bootstrap_sqlite_schema(db_path=db_path)
@@ -290,6 +324,14 @@ def test_runtime_migration_allows_password_reset_action_on_bootstrap_schema(tmp_
                 )
             )
             action = conn.execute(text("SELECT action FROM audit_log WHERE id='audit-1'")).scalar()
+            integrity_hash_column = conn.execute(
+                text("SELECT COUNT(*) FROM pragma_table_info('audit_log') WHERE name='integrity_hash'")
+            ).scalar()
         assert action == "PASSWORD_RESET"
+        assert integrity_hash_column == 1
     finally:
         temp_engine.dispose()
+
+
+def test_build_connect_args_include_sqlite_timeout():
+    assert build_connect_args()["timeout"] == 30

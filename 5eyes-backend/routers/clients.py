@@ -106,6 +106,7 @@ def update_client(
         updates["advisor_id"] = current_user.id
     for field, value in updates.items():
         setattr(client, field, value)
+    client.updated_at = _now()
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="clients", record_id=client_id, action="UPDATE",
         client_id=client_id)

@@ -276,6 +276,19 @@ def test_market_data_status_endpoint_exposes_mapping_and_reference_counts(sessio
                     created_at="2026-03-28T00:00:00.000Z",
                     updated_at="2026-03-28T00:00:00.000Z",
                 ),
+                Product(
+                    id="prod-cash-no-market-id",
+                    isin=None,
+                    symbol=None,
+                    product_name="Cash Konto",
+                    provider="Bank",
+                    product_type="Cash",
+                    asset_class="Liquidität",
+                    currency="CHF",
+                    is_active=1,
+                    created_at="2026-03-28T00:00:00.000Z",
+                    updated_at="2026-03-28T00:00:00.000Z",
+                ),
             ]
         )
         session.commit()
@@ -283,13 +296,13 @@ def test_market_data_status_endpoint_exposes_mapping_and_reference_counts(sessio
     response = client.get("/products/market-data/status")
     assert response.status_code == 200
     payload = response.json()
-    assert payload["active_products"] == 2
+    assert payload["active_products"] == 3
     assert payload["lookup_mode_override_count"] == 0
     assert payload["openfigi_mapped_count"] == 1
     assert payload["reference_synced_count"] == 1
     assert payload["openfigi_pending_count"] == 1
-    assert payload["reference_pending_count"] >= 1
-    assert payload["price_quality"]["active_products_count"] == 2
+    assert payload["reference_pending_count"] == 1
+    assert payload["price_quality"]["active_products_count"] == 3
 
 
 def test_fetch_latest_prices_batch_uses_twelvedata_when_configured(monkeypatch):

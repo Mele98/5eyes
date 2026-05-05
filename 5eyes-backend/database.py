@@ -61,7 +61,7 @@ def build_database_url(db_path: str | Path | None = None, db_key: str | None = N
 
 def build_connect_args(db_key: str | None = None) -> dict[str, Any]:
     _ = db_key
-    return {'check_same_thread': False}
+    return {'check_same_thread': False, 'timeout': 30}
 
 
 def attach_sqlite_pragmas(target_engine: Engine, db_key: str | None = None) -> None:
@@ -88,6 +88,7 @@ def create_app_engine(
     kwargs: dict[str, Any] = {
         'connect_args': build_connect_args(db_key=db_key),
         'echo': settings.db_echo if echo is None else echo,
+        'pool_timeout': 30,
     }
     if _sqlcipher_enabled(db_key=db_key):
         kwargs['module'] = sqlcipher3
@@ -188,6 +189,10 @@ def ensure_runtime_columns() -> None:
             ('correlation_matrix_json', 'TEXT'),
             ('sub_asset_class_assumptions_json', 'TEXT'),
         ],
+        'target_allocations': [
+            ('external_reserve_at_generation_rappen', 'INTEGER'),
+            ('capital_market_assumptions_id', 'TEXT'),
+        ],
         'products': [
             ('lookup_mode_override', 'TEXT'),
             ('lookup_symbol_override', 'TEXT'),
@@ -256,7 +261,7 @@ def run_risk_assessment_answer_migration(target_engine: Engine = engine) -> None
         ).scalar()
         ddl_text = str(ddl or '')
         ddl_upper = ddl_text.upper()
-        needs_question_upgrade = 'BETWEEN 1 AND 11' not in ddl_upper
+        needs_question_upgrade = 'BETWEEN 1 AND 12' not in ddl_upper
         needs_section_upgrade = 'KENNTNISSE & ERFAHRUNGEN' not in ddl_text
         if not needs_question_upgrade and not needs_section_upgrade:
             return
@@ -267,7 +272,7 @@ def run_risk_assessment_answer_migration(target_engine: Engine = engine) -> None
             CREATE TABLE risk_assessment_answers (
                 id TEXT PRIMARY KEY,
                 assessment_id TEXT NOT NULL REFERENCES risk_assessments(id) ON UPDATE CASCADE,
-                question_number INTEGER NOT NULL CHECK(question_number BETWEEN 1 AND 11),
+                question_number INTEGER NOT NULL CHECK(question_number BETWEEN 1 AND 12),
                 question_section TEXT NOT NULL CHECK(question_section IN ('Kenntnisse & Erfahrungen','Risikofähigkeit','Risikobereitschaft')),
                 answer_label TEXT NOT NULL,
                 answer_points INTEGER NOT NULL,
@@ -300,7 +305,9 @@ def ensure_audit_log_actions(target_engine: Engine = engine) -> None:
             text("SELECT sql FROM sqlite_master WHERE type='table' AND name='audit_log'")
         ).scalar()
         ddl_text = str(ddl or '').upper()
-        if 'PASSWORD_RESET' in ddl_text:
+        has_password_reset = 'PASSWORD_RESET' in ddl_text
+        has_integrity_hash = 'INTEGRITY_HASH' in ddl_text
+        if has_password_reset and has_integrity_hash:
             return
 
         conn.execute(text('ALTER TABLE audit_log RENAME TO audit_log__old'))
@@ -317,17 +324,20 @@ def ensure_audit_log_actions(target_engine: Engine = engine) -> None:
                 new_value TEXT,
                 mandate_id TEXT,
                 client_id TEXT,
+                integrity_hash TEXT,
                 created_at TEXT NOT NULL
             )
         """))
         conn.execute(text("""
             INSERT INTO audit_log (
                 id, user_id, user_name, table_name, record_id, action,
-                field_name, old_value, new_value, mandate_id, client_id, created_at
+                field_name, old_value, new_value, mandate_id, client_id, integrity_hash, created_at
             )
             SELECT
                 id, user_id, user_name, table_name, record_id, action,
-                field_name, old_value, new_value, mandate_id, client_id, created_at
+                field_name, old_value, new_value, mandate_id, client_id,
+                NULL AS integrity_hash,
+                created_at
             FROM audit_log__old
         """))
         conn.execute(text('DROP TABLE audit_log__old'))

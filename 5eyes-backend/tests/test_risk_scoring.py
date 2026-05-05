@@ -1,4 +1,5 @@
 from services.risk_scoring import canonicalize_horizon_label, compute_scores, map_surplus_points
+import pytest
 
 
 def test_short_horizon_forces_capacity_score_to_zero():
@@ -226,3 +227,17 @@ def test_surplus_thresholds_cover_all_bands():
     assert map_surplus_points(1000, 850) == 2
     assert map_surplus_points(1000, 700) == 3
     assert map_surplus_points(1000, 500) == 4
+
+
+def test_compute_scores_rejects_out_of_range_inputs():
+    with pytest.raises(ValueError, match="q_investment_goal_points"):
+        compute_scores(
+            q_income_points=4,
+            q_obligations_points=4,
+            q_savings_points=12,
+            q_wealth_points=12,
+            investment_horizon_label="Mehr als 12 Jahre",
+            q_investment_goal_points=5,
+            q_risk_preference_points=4,
+            q_risk_behavior_points=4,
+        )

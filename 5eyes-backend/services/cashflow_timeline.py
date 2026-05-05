@@ -200,11 +200,11 @@ def net_cashflow_series(cashflows: list, years: int, start_year: int | None = No
 
 def recurring_net_cashflow_series(cashflows: list, years: int, start_year: int | None = None) -> list[int]:
     base_year = int(start_year or date.today().year)
-    return [
-        totals_for_year(cashflows, base_year + offset)["recurring_income_rappen"]
-        - totals_for_year(cashflows, base_year + offset)["recurring_expense_rappen"]
-        for offset in range(max(0, years))
-    ]
+    series: list[int] = []
+    for offset in range(max(0, years)):
+        totals = totals_for_year(cashflows, base_year + offset)
+        series.append(totals["recurring_income_rappen"] - totals["recurring_expense_rappen"])
+    return series
 
 
 def future_value_with_cashflow_series(

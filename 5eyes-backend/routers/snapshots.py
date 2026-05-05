@@ -1,12 +1,14 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import uuid4
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from database import get_db
-from services.auth import get_current_user
+from services.audit import log
+from services.auth import get_current_user, get_mandate_for_user_or_404
 from models.snapshots import StrategySnapshot, AssetClassAnnualReturn
 from models.mandates import Mandate
+from models.users import User
 from schemas.snapshots import StrategySnapshotCreate, StrategySnapshotResponse, DriftResult
 
 router = APIRouter(prefix="/mandates/{mandate_id}/strategy-snapshots", tags=["snapshots"])
@@ -40,17 +42,11 @@ CONSERVATIVE_PROXY = {"Aktien": 0.20, "Obligationen": 0.55, "Immobilien": 0.15, 
 
 
 def _now() -> str:
-    return datetime.utcnow().isoformat()
+    return datetime.now(timezone.utc).isoformat()
 
 
-def _get_mandate(mandate_id: str, db: Session) -> Mandate:
-    mandate = db.query(Mandate).filter(
-        Mandate.id == mandate_id,
-        Mandate.deleted_at.is_(None),
-    ).first()
-    if not mandate:
-        raise HTTPException(status_code=404, detail="Mandat nicht gefunden")
-    return mandate
+def _get_mandate(mandate_id: str, db: Session, current_user: User) -> Mandate:
+    return get_mandate_for_user_or_404(mandate_id, db, current_user)
 
 
 def _classify_status(ac: str, drifted_bps: dict, original_bps: dict, snapshot: StrategySnapshot) -> str:
@@ -73,31 +69,14 @@ def _classify_status(ac: str, drifted_bps: dict, original_bps: dict, snapshot: S
     return "red"
 
 
-def _compute_cumulative(weights: dict, returns_by_year: dict, years: list) -> list:
-    """Berechnet kumulierten Portfolio-Return normiert auf 100."""
-    w = dict(weights)
-    result = [100.0]
-    for year in years:
-        year_returns = returns_by_year.get(year, {})
-        new_w = {}
-        for ac in ASSET_CLASSES:
-            r = year_returns.get(ac, 0) / 10000.0
-            new_w[ac] = w.get(ac, 0.0) * (1 + r)
-        total = sum(new_w.values())
-        if total > 0:
-            w = {ac: v / total for ac, v in new_w.items()}
-        result.append(round(result[-1] * (total if total > 0 else 1.0), 4))
-    return result
-
-
 @router.post("", response_model=StrategySnapshotResponse, status_code=201)
 def create_snapshot(
     mandate_id: str,
     body: StrategySnapshotCreate,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
-    _get_mandate(mandate_id, db)
+    mandate = _get_mandate(mandate_id, db, current_user)
     now = _now()
     snap = StrategySnapshot(
         id=str(uuid4()),
@@ -128,6 +107,16 @@ def create_snapshot(
         updated_at=now,
     )
     db.add(snap)
+    log(
+        db,
+        user_id=current_user.id,
+        user_name=current_user.full_name,
+        table_name="strategy_snapshots",
+        record_id=snap.id,
+        action="CREATE",
+        mandate_id=mandate_id,
+        client_id=mandate.client_id,
+    )
     db.commit()
     db.refresh(snap)
     return snap
@@ -137,9 +126,9 @@ def create_snapshot(
 def list_snapshots(
     mandate_id: str,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
-    _get_mandate(mandate_id, db)
+    _get_mandate(mandate_id, db, current_user)
     return (
         db.query(StrategySnapshot)
         .filter(
@@ -155,9 +144,9 @@ def list_snapshots(
 def get_drift(
     mandate_id: str,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
-    _get_mandate(mandate_id, db)
+    _get_mandate(mandate_id, db, current_user)
 
     snapshot = (
         db.query(StrategySnapshot)
@@ -172,7 +161,7 @@ def get_drift(
         raise HTTPException(status_code=404, detail="Kein Snapshot vorhanden")
 
     snapshot_year = int(snapshot.snapshot_date[:4])
-    current_year = datetime.utcnow().year
+    current_year = datetime.now(timezone.utc).year
 
     returns_rows = (
         db.query(AssetClassAnnualReturn)

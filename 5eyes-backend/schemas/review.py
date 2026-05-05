@@ -55,7 +55,7 @@ class AdvisoryLogCreate(BaseModel):
     ]] = None
     trigger_id: Optional[str] = None
     recommendation_run_id: Optional[str] = None
-    status: Optional[Literal["Empfohlen", "Beschlossen", "Umgesetzt"]] = None
+    status: Optional[Literal["Empfohlen", "Beschlossen", "Umgesetzt", "Abgelehnt", "Überarbeitung nötig"]] = None
     client_signed: bool = False
     client_signed_at: Optional[str] = None
     document_id: Optional[str] = None
@@ -69,7 +69,7 @@ class AdvisoryLogCreate(BaseModel):
 
 
 class AdvisoryLogUpdate(BaseModel):
-    status: Optional[Literal["Empfohlen", "Beschlossen", "Umgesetzt"]] = None
+    status: Optional[Literal["Empfohlen", "Beschlossen", "Umgesetzt", "Abgelehnt", "Überarbeitung nötig"]] = None
     recommendation_run_id: Optional[str] = None
     description: Optional[str] = None
 
@@ -591,6 +591,7 @@ class AuditLogEntry(BaseModel):
     new_value: Optional[str] = None
     mandate_id: Optional[str] = None
     client_id: Optional[str] = None
+    integrity_hash: Optional[str] = None
     created_at: str
 
     model_config = {"from_attributes": True}

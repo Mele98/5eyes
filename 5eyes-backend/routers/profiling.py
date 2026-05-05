@@ -15,7 +15,7 @@ from schemas.profiling import (
 )
 from services.auth import get_client_for_user_or_404, get_current_user, get_mandate_for_user_or_404, require_advisor
 from services.audit import log
-from services.risk_scoring import canonicalize_horizon_label, compute_scores
+from services.risk_scoring import canonicalize_horizon_label, compute_scores, profile_for_score_x10
 
 router = APIRouter(tags=["Risikoprofilierung"])
 
@@ -166,6 +166,11 @@ def create_risk_assessment(
         q_risk_preference_points=body.q_risk_preference_points,
         q_risk_behavior_points=body.q_risk_behavior_points,
     )
+    final_score_x10 = int(scores.final_score_x10)
+    final_profile = str(scores.final_profile)
+    if str(mandate.mandate_type or "").strip().upper() == "FZK" and final_score_x10 > 75:
+        final_score_x10 = 75
+        final_profile = profile_for_score_x10(final_score_x10)
 
     # Supersede previous
     prev = db.query(RiskAssessment).filter(
@@ -206,8 +211,8 @@ def create_risk_assessment(
         risk_willingness_profile=scores.risk_willingness_profile,
         risk_willingness_score_x10=scores.risk_willingness_score_x10,
         # Final
-        final_score_x10=scores.final_score_x10,
-        final_profile=scores.final_profile,
+        final_score_x10=final_score_x10,
+        final_profile=final_profile,
         is_overridden=0,
         assessed_at=now,
         assessed_by=current_user.id,
@@ -258,6 +263,11 @@ def override_risk_assessment(
     ).first()
     if not ra:
         raise HTTPException(status_code=404, detail="Risikoprofilierung nicht gefunden")
+    if str(mandate.mandate_type or "").strip().upper() == "FZK" and int(body.override_score_x10 or 0) > 75:
+        raise HTTPException(
+            status_code=422,
+            detail="FZK-Mandat: Override-Score darf 75 nicht überschreiten (FIDLEG)",
+        )
 
     ra.is_overridden = 1
     ra.override_score_x10 = body.override_score_x10

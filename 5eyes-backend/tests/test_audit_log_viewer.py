@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import sys
 from pathlib import Path
 
@@ -19,6 +20,7 @@ from main import app
 from models.review import AuditLog
 from models.users import User
 from services.auth import require_admin
+from services.audit import _audit_integrity_payload, log
 
 
 @pytest.fixture()
@@ -159,3 +161,83 @@ def test_audit_log_requires_admin(session_factory, forbidden_client):
 
     assert response.status_code == 403
     assert response.json()["detail"] == "Nur für Administratoren"
+
+
+def test_audit_log_entries_receive_integrity_hash_chain(session_factory):
+    with session_factory() as session:
+        log(
+            session,
+            user_id="admin-audit-1",
+            user_name="Admin User",
+            table_name="users",
+            record_id="record-1",
+            action="CREATE",
+        )
+        log(
+            session,
+            user_id="admin-audit-1",
+            user_name="Admin User",
+            table_name="users",
+            record_id="record-2",
+            action="UPDATE",
+        )
+        session.commit()
+        entries = session.query(AuditLog).order_by(AuditLog.created_at.asc(), AuditLog.id.asc()).all()
+
+    assert len(entries) == 2
+    assert entries[0].integrity_hash
+    assert entries[1].integrity_hash
+    assert entries[0].integrity_hash != entries[1].integrity_hash
+
+
+def test_audit_log_integrity_hash_covers_content_fields(session_factory):
+    with session_factory() as session:
+        log(
+            session,
+            user_id="admin-audit-1",
+            user_name="Admin User",
+            table_name="clients",
+            record_id="client-1",
+            action="UPDATE",
+            field_name="name",
+            old_value="Alt",
+            new_value="Neu",
+            mandate_id="mandate-1",
+            client_id="client-1",
+        )
+        session.commit()
+        entry = session.query(AuditLog).one()
+
+    expected_payload = _audit_integrity_payload(
+        entry_id=entry.id,
+        user_id=entry.user_id,
+        user_name=entry.user_name,
+        table_name=entry.table_name,
+        record_id=entry.record_id,
+        action=entry.action,
+        field_name=entry.field_name,
+        old_value=entry.old_value,
+        new_value=entry.new_value,
+        mandate_id=entry.mandate_id,
+        client_id=entry.client_id,
+        created_at=entry.created_at,
+        previous_hash="",
+    )
+    tampered_payload = _audit_integrity_payload(
+        entry_id=entry.id,
+        user_id=entry.user_id,
+        user_name=entry.user_name,
+        table_name=entry.table_name,
+        record_id=entry.record_id,
+        action=entry.action,
+        field_name=entry.field_name,
+        old_value=entry.old_value,
+        new_value="Manipuliert",
+        mandate_id=entry.mandate_id,
+        client_id=entry.client_id,
+        created_at=entry.created_at,
+        previous_hash="",
+    )
+
+    assert entry.integrity_hash == hashlib.sha256(expected_payload.encode("utf-8")).hexdigest()
+    assert entry.integrity_hash != hashlib.sha256(tampered_payload.encode("utf-8")).hexdigest()

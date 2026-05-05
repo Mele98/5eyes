@@ -132,6 +132,8 @@ def test_update_client_allows_explicit_null_partner_fields(session_factory, auth
 
 def test_update_client_persists_salutation_and_employer(session_factory, auth_client, advisor_user):
     cid = _make_client(session_factory, advisor_user.id)
+    with session_factory() as s:
+        before = s.query(Client).filter(Client.id == cid).one().updated_at
 
     resp = auth_client.put(
         f"/clients/{cid}",
@@ -147,3 +149,7 @@ def test_update_client_persists_salutation_and_employer(session_factory, auth_cl
     assert data["salutation"] == "Divers"
     assert data["employer"] == "Neue Arbeit AG"
     assert data["profession"] == "Unternehmer"
+
+    with session_factory() as s:
+        client = s.query(Client).filter(Client.id == cid).one()
+        assert client.updated_at != before

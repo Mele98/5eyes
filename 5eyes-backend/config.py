@@ -57,7 +57,7 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 480
     login_rate_limit_enabled: bool = True
     login_max_attempts: int = 5
-    login_window_seconds: int = 300
+    login_window_seconds: int = 60
     login_lockout_seconds: int = 600
 
     # CORS / Electron

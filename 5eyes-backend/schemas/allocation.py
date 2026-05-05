@@ -69,7 +69,9 @@ class TargetAllocationResponse(BaseResponse):
     band_liquidity_min_bps: int
     band_liquidity_max_bps: int
     risky_fraction_bps: Optional[int]
+    external_reserve_at_generation_rappen: Optional[int] = None
     based_on_assessment_id: Optional[str]
+    capital_market_assumptions_id: Optional[str] = None
     policy_id: str
     set_by: str
     set_at: str
@@ -401,6 +403,7 @@ class TargetAllocationGenerateResponse(BaseModel):
     house_matrix_profile: str
     score_bucket: int
     advisory_wealth_rappen: int
+    investable_advisory_wealth_rappen: int = 0
     total_wealth_rappen: int
     recurring_income_rappen: int = 0
     recurring_expense_rappen: int = 0
@@ -421,6 +424,7 @@ class TargetAllocationGenerateResponse(BaseModel):
     expected_volatility_bps: int
     capital_market_assumption_set: Optional[str] = None
     capital_market_source: Optional[str] = None
+    warnings: list[str] = Field(default_factory=list)
     reasoning: list[str]
     buckets: list[AllocationBucketResponse]
     sub_allocations: list[AllocationSubBucketResponse]

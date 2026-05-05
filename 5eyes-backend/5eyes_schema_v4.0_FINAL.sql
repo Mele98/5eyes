@@ -789,8 +789,10 @@ CREATE TABLE IF NOT EXISTS target_allocations (
     band_liquidity_min_bps  INTEGER NOT NULL CHECK(band_liquidity_min_bps BETWEEN 0 AND 10000),
     band_liquidity_max_bps  INTEGER NOT NULL CHECK(band_liquidity_max_bps BETWEEN 0 AND 10000),
     risky_fraction_bps      INTEGER CHECK(risky_fraction_bps BETWEEN 0 AND 10000),
+    external_reserve_at_generation_rappen INTEGER CHECK(external_reserve_at_generation_rappen IS NULL OR external_reserve_at_generation_rappen >= 0),
     -- FIX v4: Composite FK für based_on_assessment_id
     based_on_assessment_id  TEXT,
+    capital_market_assumptions_id TEXT REFERENCES capital_market_assumptions(id) ON UPDATE CASCADE,
     policy_id               TEXT NOT NULL REFERENCES optimizer_policies(id) ON UPDATE CASCADE,
     set_by                  TEXT NOT NULL REFERENCES users(id) ON UPDATE CASCADE,
     set_at                  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),

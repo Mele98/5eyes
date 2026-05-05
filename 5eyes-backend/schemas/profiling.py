@@ -1,6 +1,7 @@
 from pydantic import BaseModel, model_validator
 from typing import Optional, Literal
 from schemas.common import BaseResponse
+from services.risk_scoring import profile_for_score_x10
 
 
 # ── Knowledge ──────────────────────────────────────────────────────────────────
@@ -91,6 +92,13 @@ class RiskAssessmentOverride(BaseModel):
     def validate_override_score(self):
         assert 10 <= self.override_score_x10 <= 100, \
             "override_score_x10 muss zwischen 10 (Score 1) und 100 (Score 10) liegen"
+        expected_profile = profile_for_score_x10(self.override_score_x10)
+        if expected_profile != self.override_profile:
+            raise ValueError(
+                f"override_score_x10={self.override_score_x10} ergibt Profil "
+                f"'{expected_profile}', nicht '{self.override_profile}'. "
+                "Bitte Score und Profil konsistent setzen."
+            )
         return self
 
 

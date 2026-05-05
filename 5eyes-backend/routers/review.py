@@ -1,3 +1,6 @@
+import logging
+from collections.abc import Callable
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import bindparam, text
@@ -37,12 +40,24 @@ from services.eodhd_client import preview_eodhd_reference
 from services.openfigi_client import preview_openfigi_mapping
 from services.portfolio_engine import build_recommendation_payload_from_run, generate_recommendation_run
 from services.product_market_data import resolve_market_profile
-from services.review_engine import refresh_system_review_triggers
+from services.review_engine import _add_months, refresh_system_review_triggers
 
 router = APIRouter(tags=["Review & Dokumente"])
 products_router = APIRouter(prefix="/products", tags=["Produkte"])
 recommendations_router = APIRouter(tags=["Empfehlungen"])
 dashboard_router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
+logger = logging.getLogger(__name__)
+
+_HOLDING_MUTABLE_FIELDS = (
+    "depot_bank",
+    "custody_account_number",
+    "as_of_date",
+    "units_milli",
+    "market_value_rappen",
+    "avg_cost_price_rappen",
+    "source",
+    "notes",
+)
 
 
 def _legacy_text_variants(value: str) -> tuple[str, ...]:
@@ -205,6 +220,40 @@ def _apply_openfigi_candidate(
     product.updated_at = now
 
 
+def _commit_product_batch_update(
+    db: Session,
+    *,
+    product: Product,
+    current_user: User,
+    field_name: str,
+    new_value: str,
+    apply_change: Callable[[], None],
+) -> str | None:
+    try:
+        with db.begin_nested():
+            apply_change()
+            log(
+                db,
+                user_id=current_user.id,
+                user_name=current_user.full_name,
+                table_name="products",
+                record_id=product.id,
+                action="UPDATE",
+                field_name=field_name,
+                new_value=new_value,
+            )
+            db.flush()
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        try:
+            db.refresh(product)
+        except Exception:
+            pass
+        return f"DB-Fehler beim Speichern: {exc}"
+    return None
+
+
 def _preview_openfigi_or_raise(
     *,
     product: Product | None,
@@ -320,6 +369,15 @@ def _collect_product_market_data_status(db: Session) -> dict:
                     "currency": product.currency,
                 }
             )
+        normalized_asset_class = str(product.asset_class or "").strip().lower().replace("ä", "ae")
+        normalized_product_type = str(product.product_type or "").strip().lower().replace("ä", "ae")
+        is_liquidity_without_market_ids = (
+            not has_symbol
+            and not has_isin
+            and ("liquid" in normalized_asset_class or "cash" in normalized_product_type)
+        )
+        if is_liquidity_without_market_ids:
+            continue
         if (has_symbol or has_isin or not _is_blank(product.product_name)) and _is_blank(product.reference_data_provider):
             reference_pending.append(
                 {
@@ -358,7 +416,9 @@ def _normalize_trigger_frequency(trigger_type: str, frequency: str | None, trigg
         raw.replace("ä", "ae")
         .replace("ö", "oe")
         .replace("ü", "ue")
-        .replace("?", "ae")
+        .replace("Ã¤", "ae")
+        .replace("Ã¶", "oe")
+        .replace("Ã¼", "ue")
     )
     if "quart" in normalized or normalized.startswith("3 "):
         return "quartalsweise"
@@ -372,6 +432,29 @@ def _normalize_trigger_frequency(trigger_type: str, frequency: str | None, trigg
         return "einmalig"
     if trigger_type == "Zeit":
         return "jährlich"
+    return None
+
+
+def _trigger_frequency_months(frequency: str | None) -> int | None:
+    normalized = (
+        str(frequency or "")
+        .strip()
+        .lower()
+        .replace("ä", "ae")
+        .replace("ö", "oe")
+        .replace("ü", "ue")
+        .replace("Ã¤", "ae")
+        .replace("Ã¶", "oe")
+        .replace("Ã¼", "ue")
+    )
+    if normalized == "monatlich":
+        return 1
+    if "quart" in normalized:
+        return 3
+    if "halb" in normalized:
+        return 6
+    if "jahr" in normalized:
+        return 12
     return None
 
 
@@ -455,9 +538,15 @@ def resolve_trigger(
     trigger.status = "Erledigt"
     trigger.last_triggered_at = now
     trigger.triggered_notes = body.triggered_notes
+    recurrence_months = None
+    if trigger.trigger_type == "Zeit":
+        recurrence_months = _trigger_frequency_months(trigger.frequency) or 12
+    if recurrence_months:
+        trigger.next_due_at = _add_months(now[:10], recurrence_months)
+        trigger.status = "Aktiv"
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="review_triggers", record_id=trigger_id, action="UPDATE",
-        field_name="status", new_value="Erledigt", mandate_id=mandate_id)
+        field_name="status", new_value=trigger.status, mandate_id=mandate_id)
     db.commit()
     db.refresh(trigger)
     return trigger
@@ -518,9 +607,11 @@ def create_advisory_log_entry(
 # ── Contract Documents ─────────────────────────────────────────────────────────
 
 _STATUS_TRANSITIONS = {
-    "Empfohlen": {"Beschlossen"},
+    "Empfohlen": {"Beschlossen", "Abgelehnt"},
     "Beschlossen": {"Umgesetzt"},
-    "Umgesetzt": set(),
+    "Umgesetzt": {"Überarbeitung nötig"},
+    "Überarbeitung nötig": {"Beschlossen", "Abgelehnt"},
+    "Abgelehnt": set(),
 }
 
 
@@ -552,6 +643,11 @@ def update_advisory_log_entry(
                     f"Erlaubt: {sorted(allowed) or ['keine weiteren']}"
                 ),
             )
+        if body.status in {"Abgelehnt", "Überarbeitung nötig"} and not str(body.description or "").strip():
+            raise HTTPException(
+                status_code=422,
+                detail=f"Status '{body.status}' erfordert einen Kommentar in description.",
+            )
         log(
             db,
             user_id=current_user.id,
@@ -570,6 +666,19 @@ def update_advisory_log_entry(
             _get_recommendation_run_or_404(mandate_id, body.recommendation_run_id, db, current_user)
         entry.recommendation_run_id = body.recommendation_run_id
     if body.description is not None:
+        if body.description != entry.description:
+            log(
+                db,
+                user_id=current_user.id,
+                user_name=current_user.full_name,
+                table_name="advisory_log",
+                record_id=log_id,
+                action="UPDATE",
+                field_name="description",
+                old_value=entry.description,
+                new_value=body.description,
+                mandate_id=entry.mandate_id,
+            )
         entry.description = body.description
 
     entry.updated_at = now
@@ -633,11 +742,17 @@ def sign_document(
         doc.signed_by_advisor = 1
     if body.signed_by_client:
         doc.signed_by_client = 1
-    doc.signed_at = now
-    doc.status = "Unterzeichnet"
+    if not doc.signed_at:
+        doc.signed_at = now
+    doc.status = (
+        "Unterzeichnet"
+        if doc.signed_by_advisor and doc.signed_by_client
+        else "Teilweise unterzeichnet"
+    )
+    doc.updated_at = now
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="contract_documents", record_id=doc_id, action="UPDATE",
-        field_name="status", new_value="Unterzeichnet", mandate_id=mandate_id)
+        field_name="status", new_value=doc.status, mandate_id=mandate_id)
     db.commit()
     db.refresh(doc)
     return doc
@@ -846,6 +961,8 @@ def auto_apply_product_id_mappings(
     skipped_count = 0
     failed_count = 0
     for product in products:
+        product_name = product.product_name
+        product_isin = product.isin
         try:
             preview = _preview_openfigi_or_raise(
                 product=product,
@@ -898,34 +1015,34 @@ def auto_apply_product_id_mappings(
             continue
 
         now = _now()
-        _apply_openfigi_candidate(
-            product=product,
-            candidate=selected,
-            now=now,
-            overwrite_symbol=body.overwrite_symbol,
-        )
-        applied_count += 1
-        items.append(
-            {
-                "product_id": product.id,
-                "product_name": product.product_name,
-                "isin": product.isin,
-                "status": "applied",
-                "detail": "OpenFIGI-Mapping uebernommen",
-                "applied_candidate": selected,
-            }
-        )
-        log(
+        item = {
+            "product_id": product.id,
+            "product_name": product_name,
+            "isin": product_isin,
+            "status": "applied",
+            "detail": "OpenFIGI-Mapping uebernommen",
+            "applied_candidate": selected,
+        }
+        error_detail = _commit_product_batch_update(
             db,
-            user_id=current_user.id,
-            user_name=current_user.full_name,
-            table_name="products",
-            record_id=product.id,
-            action="UPDATE",
+            product=product,
+            current_user=current_user,
             field_name="mapping_provider",
             new_value="openfigi",
+            apply_change=lambda: _apply_openfigi_candidate(
+                product=product,
+                candidate=selected,
+                now=now,
+                overwrite_symbol=body.overwrite_symbol,
+            ),
         )
-    db.commit()
+        if error_detail:
+            failed_count += 1
+            item["status"] = "failed"
+            item["detail"] = error_detail
+        else:
+            applied_count += 1
+        items.append(item)
     return {
         "processed": len(products),
         "applied": applied_count,
@@ -1021,6 +1138,9 @@ def auto_apply_product_reference_data(
     skipped_count = 0
     failed_count = 0
     for product in products:
+        product_name = product.product_name
+        product_isin = product.isin
+        product_symbol = product.symbol
         try:
             preview = _preview_eodhd_or_raise(
                 product=product,
@@ -1074,37 +1194,37 @@ def auto_apply_product_reference_data(
             )
             continue
         now = _now()
-        _apply_reference_candidate(
-            product=product,
-            candidate=selected,
-            now=now,
-            overwrite_symbol=body.overwrite_symbol,
-            overwrite_name=body.overwrite_name,
-            overwrite_currency=body.overwrite_currency,
-        )
-        applied_count += 1
-        items.append(
-            {
-                "product_id": product.id,
-                "product_name": product.product_name,
-                "isin": product.isin,
-                "symbol": product.symbol,
-                "status": "applied",
-                "detail": "EODHD-Referenzdaten uebernommen",
-                "applied_candidate": selected,
-            }
-        )
-        log(
+        item = {
+            "product_id": product.id,
+            "product_name": product_name,
+            "isin": product_isin,
+            "symbol": product_symbol,
+            "status": "applied",
+            "detail": "EODHD-Referenzdaten uebernommen",
+            "applied_candidate": selected,
+        }
+        error_detail = _commit_product_batch_update(
             db,
-            user_id=current_user.id,
-            user_name=current_user.full_name,
-            table_name="products",
-            record_id=product.id,
-            action="UPDATE",
+            product=product,
+            current_user=current_user,
             field_name="reference_data_provider",
             new_value="eodhd",
+            apply_change=lambda: _apply_reference_candidate(
+                product=product,
+                candidate=selected,
+                now=now,
+                overwrite_symbol=body.overwrite_symbol,
+                overwrite_name=body.overwrite_name,
+                overwrite_currency=body.overwrite_currency,
+            ),
         )
-    db.commit()
+        if error_detail:
+            failed_count += 1
+            item["status"] = "failed"
+            item["detail"] = error_detail
+        else:
+            applied_count += 1
+        items.append(item)
     return {
         "processed": len(products),
         "applied": applied_count,
@@ -1184,8 +1304,14 @@ def generate_recommendation_run_endpoint(
             depot_bank=body.depot_bank,
         )
     except ValueError as exc:
+        logger.warning("generate_recommendation_run failed for mandate %s: %s", mandate_id, exc)
         raise HTTPException(status_code=409, detail=str(exc))
-    refresh_system_review_triggers(db, mandate, current_user.id)
+    refresh_system_review_triggers(
+        db,
+        mandate,
+        current_user.id,
+        allocation_payload=result.get("allocation_payload"),
+    )
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="recommendation_runs", record_id=result["run"].id, action="CREATE",
         mandate_id=mandate_id, client_id=mandate.client_id)
@@ -1217,6 +1343,7 @@ def get_current_recommendation_payload(
             preferences=None,
         )
     except ValueError as exc:
+        logger.warning("build_recommendation_payload_from_run failed for mandate %s: %s", mandate_id, exc)
         raise HTTPException(status_code=409, detail=str(exc))
 
 
@@ -1315,16 +1442,18 @@ def upsert_position_holding(
     if not position:
         raise HTTPException(status_code=404, detail="Empfehlungsposition nicht gefunden")
     now = _now()
-    payload = body.model_dump()
-    payload["as_of_date"] = _normalize_holding_date(payload.get("as_of_date"))
+    payload = body.model_dump(exclude_unset=True)
+    if "as_of_date" in payload:
+        payload["as_of_date"] = _normalize_holding_date(payload.get("as_of_date"))
     holding = db.query(RecommendationHolding).filter(
         RecommendationHolding.run_id == run_id,
         RecommendationHolding.recommendation_position_id == position_id,
         RecommendationHolding.deleted_at.is_(None)
     ).order_by(RecommendationHolding.updated_at.desc()).first()
     if holding:
-        for field, value in payload.items():
-            setattr(holding, field, value)
+        for field in _HOLDING_MUTABLE_FIELDS:
+            if field in payload:
+                setattr(holding, field, payload[field])
         holding.updated_at = now
         action = "UPDATE"
     else:
@@ -1384,8 +1513,8 @@ def dashboard_summary(
         trigger_count = db.execute(trigger_stmt, {"active_statuses": ACTIVE_TRIGGER_STATUS_VALUES}).scalar()
         clients = [dict(r._mapping) for r in rows]
         for c in clients:
-            c["net_worth_chf"] = c["net_worth_rappen"] / 100
-            c["advisory_wealth_chf"] = c["advisory_wealth_rappen"] / 100
+            c["net_worth_chf"] = (c.get("net_worth_rappen") or 0) / 100
+            c["advisory_wealth_chf"] = (c.get("advisory_wealth_rappen") or 0) / 100
         return {
             "clients": clients,
             "active_alerts": trigger_count,
@@ -1419,8 +1548,8 @@ def dashboard_summary(
         trigger_count = 0
     clients = [dict(r._mapping) for r in rows]
     for c in clients:
-        c["net_worth_chf"] = c["net_worth_rappen"] / 100
-        c["advisory_wealth_chf"] = c["advisory_wealth_rappen"] / 100
+        c["net_worth_chf"] = (c.get("net_worth_rappen") or 0) / 100
+        c["advisory_wealth_chf"] = (c.get("advisory_wealth_rappen") or 0) / 100
     return {
         "clients": clients,
         "active_alerts": trigger_count,

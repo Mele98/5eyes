@@ -191,7 +191,7 @@ def _build_foundation_summary(db: Session, user: User, client: Client, mandate: 
         preferences=None,
     )
 
-    triggers = refresh_system_review_triggers(db, mandate, user.id)
+    triggers = refresh_system_review_triggers(db, mandate, user.id, allocation_payload=allocation_result)
     db.flush()
     goal_analysis = allocation_result.get("goal_analysis") or []
     goal_weight_total = sum(max(1, int(item.get("weight_bps") or 0)) for item in goal_analysis)
@@ -754,13 +754,15 @@ def upsert_foundation_example_case(db: Session, user: User) -> dict:
     db.flush()
 
     answers = [
-        ("Risikof\u00e4higkeit", 1, "Haushaltsueberschuss stabil und hoch", 4),
-        ("Risikof\u00e4higkeit", 2, "Verbindlichkeiten tragbar", 4),
-        ("Risikof\u00e4higkeit", 3, "Hohe freie Mittel / Reserven", 12),
-        ("Risikof\u00e4higkeit", 4, "Substanzielles Gesamtvermoegen", 12),
-        ("Risikobereitschaft", 5, "Wachstum mit klaren Leitplanken", 3),
-        ("Risikobereitschaft", 6, "Zeitweise Schwankungen akzeptiert", 3),
-        ("Risikobereitschaft", 7, "Verhaelt sich in Rueckgaengen diszipliniert", 3),
+        ("Risikof\u00e4higkeit", 3, "Regelmaessiges Einkommen hoch", 4),
+        ("Risikof\u00e4higkeit", 4, "Herkunft: Berufliche Taetigkeit, Vermoegensanlagen", 0),
+        ("Risikof\u00e4higkeit", 5, "Verpflichtungen tief", 4),
+        ("Risikof\u00e4higkeit", 6, "Freies Vermoegen hoch", 12),
+        ("Risikof\u00e4higkeit", 7, "Sparquote hoch", 12),
+        ("Risikof\u00e4higkeit", 8, "Mehr als 12 Jahre", 0),
+        ("Risikobereitschaft", 9, "Wachstum mit klaren Leitplanken", 3),
+        ("Risikobereitschaft", 10, "Zeitweise Schwankungen akzeptiert", 3),
+        ("Risikobereitschaft", 11, "Verhaelt sich in Rueckgaengen diszipliniert", 3),
     ]
     for section, number, label, points in answers:
         db.add(

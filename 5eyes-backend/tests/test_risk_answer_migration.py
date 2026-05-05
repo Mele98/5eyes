@@ -47,10 +47,22 @@ def test_risk_answer_migration_upgrades_legacy_constraints(tmp_path: Path):
         ddl = conn.execute(
             text("SELECT sql FROM sqlite_master WHERE type='table' AND name='risk_assessment_answers'")
         ).scalar_one()
+        conn.execute(text("""
+            INSERT INTO risk_assessment_answers (
+                id, assessment_id, question_number, question_section,
+                answer_label, answer_points, created_at
+            ) VALUES (
+                'ans-12', 'ra-1', 12, 'Risikobereitschaft',
+                'upgraded', 4, '2026-04-10T00:00:00Z'
+            )
+        """))
         rows = conn.execute(
-            text("SELECT id, question_number, question_section FROM risk_assessment_answers")
+            text("SELECT id, question_number, question_section FROM risk_assessment_answers ORDER BY question_number")
         ).fetchall()
 
-    assert "BETWEEN 1 AND 11" in ddl
+    assert "BETWEEN 1 AND 12" in ddl
     assert "Kenntnisse & Erfahrungen" in ddl
-    assert rows == [("ans-1", 9, "Risikobereitschaft")]
+    assert rows == [
+        ("ans-1", 9, "Risikobereitschaft"),
+        ("ans-12", 12, "Risikobereitschaft"),
+    ]

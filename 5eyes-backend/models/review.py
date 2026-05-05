@@ -260,4 +260,5 @@ class AuditLog(Base):
     new_value = Column(String)
     mandate_id = Column(String)
     client_id = Column(String)
+    integrity_hash = Column(String(64))
     created_at = Column(String, nullable=False)

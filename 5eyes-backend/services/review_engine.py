@@ -115,12 +115,14 @@ def refresh_system_review_triggers(
     db: Session,
     mandate: Mandate,
     user_id: str,
+    allocation_payload: dict | None = None,
 ) -> list[ReviewTrigger]:
     now = _now()
     today = _today()
 
     latest_log = db.query(AdvisoryLog).filter(
-        AdvisoryLog.mandate_id == mandate.id
+        AdvisoryLog.mandate_id == mandate.id,
+        AdvisoryLog.entry_type.in_(("Beratungsprotokoll", "Anlageberatung")),
     ).order_by(AdvisoryLog.entry_date.desc(), AdvisoryLog.created_at.desc()).first()
     review_anchor = latest_log.entry_date if latest_log and latest_log.entry_date else mandate.opened_at
     review_trigger = _get_or_create_system_trigger(
@@ -153,16 +155,18 @@ def refresh_system_review_triggers(
     ).first()
 
     if assessment and allocation:
-        policy, cma = ensure_runtime_reference_data(db, user_id)
-        payload = build_target_payload_from_allocation(
-            db=db,
-            mandate=mandate,
-            allocation=allocation,
-            policy=policy,
-            cma=cma,
-            assessment=assessment,
-            preferences=None,
-        )
+        payload = allocation_payload
+        if payload is None:
+            policy, cma = ensure_runtime_reference_data(db, user_id)
+            payload = build_target_payload_from_allocation(
+                db=db,
+                mandate=mandate,
+                allocation=allocation,
+                policy=policy,
+                cma=cma,
+                assessment=assessment,
+                preferences=None,
+            )
 
         live_rebalancing = payload.get("live_rebalancing") or {}
         drift_source = live_rebalancing.get("bucket_drifts") or payload.get("buckets", [])
@@ -171,6 +175,8 @@ def refresh_system_review_triggers(
             current_weight = int(bucket.get("current_weight_bps") or 0)
             min_weight = int(bucket.get("band_min_bps") or 0)
             max_weight = int(bucket.get("band_max_bps") or 0)
+            if min_weight == 0 and max_weight == 0:
+                continue
             if current_weight < min_weight:
                 drifts.append(
                     {

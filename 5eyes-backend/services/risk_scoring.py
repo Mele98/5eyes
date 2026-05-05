@@ -115,7 +115,7 @@ def map_surplus_points(income_chf: float, obligations_chf: float) -> int:
 
 def _profile_from_score(score_x10: int) -> str:
     score = score_x10 / 10
-    rounded_score = math.floor(score + 0.5)
+    rounded_score = max(1, min(10, math.floor(score + 0.5)))
     for (lo, hi), name in SCORE_TO_PROFILE.items():
         if lo <= rounded_score <= hi:
             return name
@@ -174,6 +174,19 @@ def compute_scores(
 
     All point values must be pre-validated (range checks done in Pydantic schema).
     """
+    for name, value, minimum, maximum in (
+        ("q_income_points", q_income_points, 0, 4),
+        ("q_obligations_points", q_obligations_points, 0, 4),
+        ("q_savings_points", q_savings_points, 0, 12),
+        ("q_wealth_points", q_wealth_points, 0, 12),
+        ("q_investment_goal_points", q_investment_goal_points, 1, 4),
+        ("q_risk_preference_points", q_risk_preference_points, 1, 4),
+        ("q_risk_behavior_points", q_risk_behavior_points, 1, 4),
+    ):
+        numeric = int(value)
+        if numeric < minimum or numeric > maximum:
+            raise ValueError(f"{name}={value} ausserhalb [{minimum},{maximum}]")
+
     # ── Risikofähigkeit ────────────────────────────────────────────────────────
     capacity_total = (
         q_income_points + q_obligations_points
@@ -211,4 +224,9 @@ def compute_scores(
 
 def get_house_matrix_profile(score_x10: int) -> str:
     """Map a final score to a house matrix profile name."""
+    return _profile_from_score(score_x10)
+
+
+def profile_for_score_x10(score_x10: int) -> str:
+    """Public wrapper for the profile name of a score_x10 value (10-100)."""
     return _profile_from_score(score_x10)
