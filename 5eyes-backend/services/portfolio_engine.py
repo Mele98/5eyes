@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 
 from sqlalchemy.orm import Session
 
+from config import settings
 from database import new_uuid
 from models.allocation import (
     BuildingBlock,
@@ -3359,6 +3360,132 @@ def _investable_advisory_wealth_rappen(advisory_wealth_rappen: int, external_res
     return max(0, int(advisory_wealth_rappen or 0) - max(0, int(external_reserve_rappen or 0)))
 
 
+# ============================================================================
+# Optimizer-Integration (Phase 4 Spec 2026-05-05)
+# ============================================================================
+
+# OWNER-DECISION OD-3 (bestaetigt): N=2000 Pfade Default. Mit Antithetic = 4000 effektiv.
+_OPTIMIZER_N_PATHS_DEFAULT = 2000
+
+# Cap fuer Audit-Speicherung (objective in milli-units). Squared-Shortfall in
+# rappen^2 kann fuer pathologische Szenarien >9.2e18 werden -> SQLite INTEGER
+# overflow. Wir clampen.
+_OPTIMIZER_OBJECTIVE_MILLI_CAP = 9_000_000_000_000_000_000
+
+
+def _assessment_score_x10(assessment) -> int:
+    """0-100 Score-Wert aus Assessment, konsistent zu _risk_score_bucket-Logik."""
+    raw = (
+        assessment.override_score_x10
+        if getattr(assessment, "is_overridden", 0) and assessment.override_score_x10 is not None
+        else getattr(assessment, "final_score_x10", None)
+    )
+    if raw is None:
+        raw = 10
+    return max(0, min(100, int(raw)))
+
+
+def _run_stochastic_optimizer_pass(
+    *,
+    optimizer_mode: str,
+    cma,
+    goals: list,
+    house_matrix,
+    assessment,
+    advisory_wealth_rappen: int,
+    cashflow_projection_series_rappen: list[int],
+    inflation_series_bps: list[int],
+    targets: dict[str, int],  # mutable: wird in-place ueberschrieben bei converged
+    minimums: dict[str, int],
+    maximums: dict[str, int],
+    reasoning: list[str],
+):
+    """Wenn optimizer_mode='stochastic': Solver aufrufen, targets ersetzen.
+
+    Returns OptimizerResult oder None (wenn Modus != stochastic, oder Solver
+    crashed). Bei status='converged' wird targets in-place ueberschrieben mit
+    den Solver-Output-bps. Bei diverged/fallback bleibt House-Matrix-Default.
+    """
+    if optimizer_mode != "stochastic":
+        return None
+
+    try:
+        from services.optimizer.solver import run_solver
+    except ImportError as exc:
+        logger.warning("Stochastic optimizer module not importable: %s", exc)
+        reasoning.append(
+            "Stochastic Optimizer-Modul nicht verfuegbar — House-Matrix-Default bleibt."
+        )
+        return None
+
+    score_x10 = _assessment_score_x10(assessment)
+    horizon = max(10, int(len(cashflow_projection_series_rappen) or 10))
+
+    try:
+        result = run_solver(
+            cma=cma,
+            goals=list(goals),
+            house_matrix_row=house_matrix,
+            score_x10=score_x10,
+            advisory_wealth_rappen=advisory_wealth_rappen,
+            cashflow_series_rappen=cashflow_projection_series_rappen,
+            horizon_years=horizon,
+            n_paths=_OPTIMIZER_N_PATHS_DEFAULT,
+            inflation_series_bps=inflation_series_bps,
+        )
+    except Exception as exc:  # noqa: BLE001 - never crash allocation flow
+        logger.warning("Stochastic optimizer crashed: %s", exc, exc_info=True)
+        reasoning.append(
+            f"Stochastic Optimizer Fehler ({type(exc).__name__}) — "
+            "House-Matrix-Default bleibt aktiv."
+        )
+        return None
+
+    if result.status == "converged":
+        # In-place: ersetze House-Matrix-Default-Targets mit Solver-Output.
+        # Bands (minimums/maximums) bleiben unveraendert, weil Solver sie
+        # respektiert hat.
+        for bucket, bps in result.weights_bps.items():
+            targets[bucket] = int(bps)
+        reasoning.append(
+            f"Stochastic Optimizer (Mulvey-light, {result.n_starts_attempted} "
+            f"Multi-Starts, {result.iterations} Iter): konvergiert."
+        )
+        if result.reasoning:
+            reasoning.append(result.reasoning[0])
+    else:
+        reasoning.append(
+            f"Stochastic Optimizer Status='{result.status}'. "
+            "House-Matrix-Default bleibt aktiv."
+        )
+
+    return result
+
+
+def _optimizer_audit_fields(optimizer_result) -> dict:
+    """Extrahiert die Audit-Anchor-Felder fuer TargetAllocation. Returns {} wenn None."""
+    if optimizer_result is None:
+        return {}
+    obj_milli_raw = optimizer_result.objective_value
+    if obj_milli_raw == float("inf") or obj_milli_raw != obj_milli_raw:  # NaN check
+        obj_milli = None
+    else:
+        scaled = obj_milli_raw * 1000.0
+        if scaled > _OPTIMIZER_OBJECTIVE_MILLI_CAP:
+            obj_milli = _OPTIMIZER_OBJECTIVE_MILLI_CAP
+        elif scaled < -_OPTIMIZER_OBJECTIVE_MILLI_CAP:
+            obj_milli = -_OPTIMIZER_OBJECTIVE_MILLI_CAP
+        else:
+            obj_milli = int(round(scaled))
+    return {
+        "optimization_method": optimizer_result.method,
+        "optimization_objective_value_milli": obj_milli,
+        "optimization_iterations": int(optimizer_result.iterations or 0),
+        "optimization_seed": int(optimizer_result.seed or 0),
+        "optimization_status": optimizer_result.status,
+    }
+
+
 def _compute_input_snapshot_hash(
     *,
     advisory_positions: list,
@@ -3604,9 +3731,34 @@ def generate_target_allocation(
         cashflow_totals["year"],
         planning_inflation_bps=_current_planning_inflation_bps(db, mandate),
     )
+
+    # Phase 4: Stochastic Optimizer (opt-in via OPTIMIZER_MODE=stochastic).
+    # Wenn der Solver konvergiert, ersetzt er die House-Matrix-Default-Targets
+    # mit der Mulvey/Ziemba-light optimierten Allocation. Die nachfolgenden
+    # Tilts (growth_goals, max_illiquid) werden dann uebersprungen, weil der
+    # Solver die Goals direkt optimiert und alle Constraints respektiert.
+    optimizer_result = _run_stochastic_optimizer_pass(
+        optimizer_mode=settings.optimizer_mode,
+        cma=cma,
+        goals=goals,
+        house_matrix=house_matrix,
+        assessment=assessment,
+        advisory_wealth_rappen=investable_advisory_wealth_rappen,
+        cashflow_projection_series_rappen=cashflow_projection_series_rappen,
+        inflation_series_bps=goal_inflation_series_bps,
+        targets=targets,
+        minimums=minimums,
+        maximums=maximums,
+        reasoning=reasoning,
+    )
+    optimizer_replaced_targets = (
+        optimizer_result is not None and optimizer_result.status == "converged"
+    )
+
     growth_goals = _growth_goals_for_equity_tilt(goals)
     if (
-        not manual_target_override
+        not optimizer_replaced_targets
+        and not manual_target_override
         and recurring_net_cashflow_rappen > 0
         and growth_goals
         and score_bucket >= 7
@@ -3622,7 +3774,7 @@ def generate_target_allocation(
     max_illiquid_bps = _parse_bps_percent(prefs["limits"].get("maxIlliquid"))
     if max_illiquid_bps is not None:
         maximums["alternatives"] = min(maximums["alternatives"], max_illiquid_bps)
-        if targets["alternatives"] > maximums["alternatives"]:
+        if not optimizer_replaced_targets and targets["alternatives"] > maximums["alternatives"]:
             overflow = targets["alternatives"] - maximums["alternatives"]
             targets["alternatives"] = maximums["alternatives"]
             targets["bonds"] += int(round(overflow * 0.6))
@@ -3730,6 +3882,7 @@ def generate_target_allocation(
         total_wealth_rappen=total_wealth_rappen,
     )
 
+    optimizer_audit = _optimizer_audit_fields(optimizer_result)
     target_allocation = TargetAllocation(
         id=new_uuid(),
         mandate_id=mandate.id,
@@ -3760,6 +3913,12 @@ def generate_target_allocation(
         total_wealth_at_generation_rappen=total_wealth_rappen,
         reserve_needed_at_generation_rappen=reserve_needed_rappen,
         external_reserve_at_generation_rappen=external_reserve_rappen,
+        # Phase 4 Optimizer-Audit-Anchor (None wenn house_matrix-Modus)
+        optimization_method=optimizer_audit.get("optimization_method"),
+        optimization_objective_value_milli=optimizer_audit.get("optimization_objective_value_milli"),
+        optimization_iterations=optimizer_audit.get("optimization_iterations"),
+        optimization_seed=optimizer_audit.get("optimization_seed"),
+        optimization_status=optimizer_audit.get("optimization_status"),
         policy_id=policy.id,
         set_by=user_id,
         set_at=now,
