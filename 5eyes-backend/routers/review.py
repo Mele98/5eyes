@@ -14,7 +14,8 @@ from models.review import (
     ConflictOfInterestDisclosure, Product, ProductSuitability,
     RecommendationRun, RecommendationPosition, RecommendationHolding, AuditLog
 )
-from models.allocation import OptimizerPolicy
+from models.allocation import CapitalMarketAssumption, OptimizerPolicy, TargetAllocation
+from models.profiling import RiskAssessment
 from schemas.review import (
     ReviewTriggerCreate, ReviewTriggerResolve, ReviewTriggerResponse,
     AdvisoryLogCreate, AdvisoryLogUpdate, AdvisoryLogResponse,
@@ -109,6 +110,63 @@ def _get_product_or_404(product_id: str, db: Session) -> Product:
     if not product:
         raise HTTPException(status_code=404, detail="Produkt nicht gefunden")
     return product
+
+
+def _validate_recommendation_for_finalization(db: Session, mandate: Mandate, run: RecommendationRun) -> tuple[list[str], list[str]]:
+    errors: list[str] = []
+    warnings: list[str] = []
+    if run.result_status != "Draft":
+        errors.append("Nur Draft-Empfehlungen koennen finalisiert werden.")
+    assessment = db.query(RiskAssessment).filter(
+        RiskAssessment.id == run.assessment_id,
+        RiskAssessment.mandate_id == mandate.id,
+        RiskAssessment.deleted_at.is_(None),
+    ).first() if run.assessment_id else None
+    if not assessment:
+        errors.append("Empfehlung hat kein gueltiges Risikoprofil.")
+    elif not assessment.is_current:
+        errors.append("Empfehlung basiert nicht auf dem aktuellen Risikoprofil.")
+    allocation = db.query(TargetAllocation).filter(
+        TargetAllocation.id == run.target_allocation_id,
+        TargetAllocation.mandate_id == mandate.id,
+        TargetAllocation.deleted_at.is_(None),
+    ).first() if run.target_allocation_id else None
+    if not allocation:
+        errors.append("Empfehlung hat keine gueltige Soll-Allokation.")
+    elif assessment and allocation.based_on_assessment_id and allocation.based_on_assessment_id != assessment.id:
+        errors.append("Soll-Allokation und Risikoprofil der Empfehlung passen nicht zusammen.")
+    if not run.policy_id or not db.query(OptimizerPolicy).filter(OptimizerPolicy.id == run.policy_id).first():
+        errors.append("Empfehlung hat keine gueltige Policy-Version.")
+    if not run.capital_market_assumptions_id or not db.query(CapitalMarketAssumption).filter(
+        CapitalMarketAssumption.id == run.capital_market_assumptions_id,
+        CapitalMarketAssumption.deleted_at.is_(None),
+    ).first():
+        errors.append("Empfehlung hat keine gueltige CMA-Version.")
+    positions = db.query(RecommendationPosition).filter(RecommendationPosition.run_id == run.id).all()
+    if not positions:
+        errors.append("Empfehlung enthaelt keine Positionen.")
+        return errors, warnings
+    total_weight = sum(int(position.target_weight_bps or 0) for position in positions)
+    if total_weight < 9900 or total_weight > 10100:
+        errors.append(f"Positionsgewichte summieren auf {total_weight} bps statt ca. 10000 bps.")
+    product_ids = [position.product_id for position in positions if position.product_id]
+    products = {product.id: product for product in db.query(Product).filter(Product.id.in_(product_ids)).all()} if product_ids else {}
+    for position in positions:
+        product = products.get(position.product_id)
+        if not product or product.deleted_at is not None or int(product.is_active or 0) != 1:
+            errors.append(f"Produkt {position.product_id} ist nicht aktiv oder nicht verfuegbar.")
+            continue
+        if product.ter_bps is None:
+            warnings.append(f"TER fehlt fuer {product.product_name}.")
+        profile = resolve_market_profile(product)
+        if not (profile.get("lookup_symbol") or profile.get("isin")):
+            warnings.append(f"Marktdaten-Mapping fehlt fuer {product.product_name}.")
+    quality = summarize_price_quality(db, product_ids)
+    if int(quality.get("missing_prices_count") or 0):
+        warnings.append("Mindestens eine Position hat keinen aktuellen Marktpreis.")
+    if int(quality.get("stale_positions_count") or 0):
+        warnings.append("Mindestens ein Marktpreis ist veraltet.")
+    return errors, warnings
 
 
 def _active_products_query(db: Session):
@@ -516,7 +574,7 @@ def create_trigger(
 def refresh_system_triggers(
     mandate_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_advisor)
 ):
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
     triggers = refresh_system_review_triggers(db, mandate, current_user.id)
@@ -1259,11 +1317,56 @@ def create_recommendation_run(
     current_user: User = Depends(require_advisor)
 ):
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    # C1: Hard-Gate. Auch der direkte Draft-Create muss auf einem aktuellen,
+    # strategie-fertigen Risikoprofil + aktueller Policy + aktueller CMA basieren
+    # und darf keine fremden / stale TargetAllocation referenzieren.
+    assessment = db.query(RiskAssessment).filter(
+        RiskAssessment.mandate_id == mandate_id,
+        RiskAssessment.is_current == 1,
+        RiskAssessment.deleted_at.is_(None),
+    ).first()
+    if not assessment:
+        raise HTTPException(status_code=409, detail="Bitte zuerst ein aktuelles Risikoprofil speichern.")
+    if assessment.final_score_x10 is None and assessment.override_score_x10 is None:
+        raise HTTPException(status_code=409, detail="Risikoprofil unvollstaendig. Bitte Fragebogen vollstaendig ausfuellen.")
+    if body.assessment_id and body.assessment_id != assessment.id:
+        raise HTTPException(status_code=422, detail=(
+            "assessment_id muss auf das aktuelle Risikoprofil zeigen "
+            f"(erwartet {assessment.id})."
+        ))
     policy = db.query(OptimizerPolicy).filter(
-        OptimizerPolicy.id == body.policy_id
+        OptimizerPolicy.id == body.policy_id,
+        OptimizerPolicy.is_current == 1,
     ).first()
     if not policy:
-        raise HTTPException(status_code=404, detail="Optimizer Policy nicht gefunden")
+        raise HTTPException(status_code=404, detail="Optimizer Policy nicht gefunden oder nicht aktuell")
+    cma = db.query(CapitalMarketAssumption).filter(
+        CapitalMarketAssumption.is_current == 1,
+        CapitalMarketAssumption.deleted_at.is_(None),
+    ).first()
+    if not cma:
+        raise HTTPException(status_code=409, detail="Keine aktuellen Kapitalmarktannahmen.")
+    if body.capital_market_assumptions_id and body.capital_market_assumptions_id != cma.id:
+        raise HTTPException(status_code=422, detail=(
+            "capital_market_assumptions_id muss auf die aktuellen CMA zeigen "
+            f"(erwartet {cma.id})."
+        ))
+    if body.target_allocation_id:
+        ta = db.query(TargetAllocation).filter(
+            TargetAllocation.id == body.target_allocation_id,
+            TargetAllocation.mandate_id == mandate_id,
+            TargetAllocation.deleted_at.is_(None),
+        ).first()
+        if not ta:
+            raise HTTPException(status_code=409, detail=(
+                "target_allocation_id gehoert nicht zu diesem Mandat oder ist gelöscht."
+            ))
+    payload = body.model_dump()
+    payload.pop("other_assets_included", None)
+    if not payload.get("assessment_id"):
+        payload["assessment_id"] = assessment.id
+    if not payload.get("capital_market_assumptions_id"):
+        payload["capital_market_assumptions_id"] = cma.id
     now = _now()
     run = RecommendationRun(
         id=new_uuid(),
@@ -1273,7 +1376,7 @@ def create_recommendation_run(
         other_assets_included=1 if body.other_assets_included else 0,
         created_by=current_user.id,
         created_at=now, updated_at=now,
-        **{k: v for k, v in body.model_dump().items() if k != "other_assets_included"}
+        **payload,
     )
     db.add(run)
     log(db, user_id=current_user.id, user_name=current_user.full_name,
@@ -1333,7 +1436,33 @@ def get_current_recommendation_payload(
     ).order_by(RecommendationRun.created_at.desc()).all()
     if not runs:
         raise HTTPException(status_code=404, detail="Keine Empfehlung gefunden")
-    run = next((item for item in runs if item.result_status == "Final"), None) or runs[0]
+    run = (
+        next((item for item in runs if item.result_status == "Final"), None)
+        or next((item for item in runs if item.result_status == "Draft"), None)
+        or runs[0]
+    )
+    try:
+        return build_recommendation_payload_from_run(
+            db=db,
+            mandate=mandate,
+            run=run,
+            user_id=current_user.id,
+            preferences=None,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+
+@recommendations_router.get("/mandates/{mandate_id}/recommendations/{run_id}/payload",
+                            response_model=RecommendationGenerateResponse)
+def get_recommendation_payload_by_id(
+    mandate_id: str,
+    run_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    run = _get_recommendation_run_or_404(mandate_id, run_id, db, current_user)
     try:
         return build_recommendation_payload_from_run(
             db=db,
@@ -1354,17 +1483,23 @@ def finalize_recommendation(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor)
 ):
+    mandate = _get_mandate_or_404(mandate_id, db, current_user)
     run = _get_recommendation_run_or_404(mandate_id, run_id, db, current_user)
-    # Supersede previous final runs
+    errors, warnings = _validate_recommendation_for_finalization(db, mandate, run)
+    if errors:
+        raise HTTPException(status_code=422, detail="; ".join(errors))
     db.query(RecommendationRun).filter(
         RecommendationRun.mandate_id == mandate_id,
         RecommendationRun.result_status == "Final",
         RecommendationRun.id != run_id
     ).update({"result_status": "Superseded"})
     run.result_status = "Final"
+    run.updated_at = _now()
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="recommendation_runs", record_id=run_id, action="UPDATE",
-        field_name="result_status", new_value="Final", mandate_id=mandate_id)
+        field_name="result_status",
+        new_value=("Final; Warnungen: " + " | ".join(warnings)) if warnings else "Final",
+        mandate_id=mandate_id)
     db.commit()
     db.refresh(run)
     return run

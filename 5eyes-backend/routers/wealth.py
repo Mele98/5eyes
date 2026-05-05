@@ -1,3 +1,4 @@
+import re
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from datetime import date, datetime, timezone
@@ -24,17 +25,24 @@ def _now() -> str:
 
 
 def _normalize_cashflow_date(value) -> str | None:
+    """C10.3: Normalisiert YYYY-MM nach YYYY-MM-01, erlaubt YYYY-MM-DD,
+    leeren String -> None. Alles andere -> 422."""
     raw = str(value or "").strip()
     if not raw:
         return None
-    if len(raw) >= 7 and raw[4:5] == "-" and len(raw[:7]) == 7 and raw[:7].count("-") == 1 and len(raw) == 7:
-        raw = raw[:7] + "-01"
-    raw = raw[:10]
+    # YYYY-MM (Monat-Praezision) -> ersten Tag des Monats
+    if len(raw) == 7 and raw[4:5] == "-" and raw[:4].isdigit() and raw[5:7].isdigit():
+        candidate = raw + "-01"
+    else:
+        candidate = raw[:10]
     try:
-        date.fromisoformat(raw)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=f"Ungueltiges Datum: {raw}") from exc
-    return raw or None
+        date.fromisoformat(candidate)
+    except (TypeError, ValueError):
+        raise HTTPException(
+            status_code=422,
+            detail=f"Ungueltiges Datumsformat: {value!r} (erwartet YYYY-MM-DD oder YYYY-MM)",
+        )
+    return candidate
 
 
 def _normalize_cashflow_timing_precision(value) -> str | None:
@@ -164,8 +172,6 @@ def _normalize_goal_payload(data: dict, existing: Goal | None = None) -> dict:
     payload["horizon_years"] = int(raw_horizon) if raw_horizon not in (None, "") else derived_horizon
     if payload["horizon_years"] is None:
         payload["horizon_years"] = 10
-    if int(payload["horizon_years"] or 0) < 1:
-        raise HTTPException(status_code=400, detail="horizon_years muss >= 1 sein")
     payload["start_date"] = start_date
     payload["target_date"] = target_date
     return payload
@@ -173,6 +179,62 @@ def _normalize_goal_payload(data: dict, existing: Goal | None = None) -> dict:
 
 def _get_mandate_or_404(mandate_id: str, db: Session, current_user: User) -> Mandate:
     return get_mandate_for_user_or_404(mandate_id, db, current_user)
+
+
+_AMORTIZATION_LABEL_RE = re.compile(r"\b(tilgung|amortisation|amortization)\b", re.IGNORECASE)
+
+
+def _is_amortization_label(label) -> bool:
+    if not label:
+        return False
+    return bool(_AMORTIZATION_LABEL_RE.search(str(label)))
+
+
+def _has_active_mortgage_liability(client_id: str, db: Session) -> bool:
+    return db.query(WealthPosition).filter(
+        WealthPosition.client_id == client_id,
+        WealthPosition.assignment == "Verbindlichkeit",
+        WealthPosition.position_type == "Hypothek",
+        WealthPosition.is_active == 1,
+        WealthPosition.deleted_at.is_(None),
+    ).first() is not None
+
+
+def _validate_no_mortgage_amortization_double_count(
+    client_id: str, payload: dict, db: Session, existing: Cashflow | None = None,
+) -> None:
+    """B3: Hypothek-Tilgung darf nicht als Cashflow erfasst werden, wenn fuer
+    denselben Kunden eine aktive Hypothek-Liability existiert.
+
+    Bilanziell ist Tilgung eine Reklassifikation (Vermoegen sinkt, Liability
+    sinkt um denselben Betrag) - kein Aufwand. Wenn als Expense-Cashflow
+    erfasst, sinkt das Vermoegen scheinbar doppelt -> falsche Reserve, falsche
+    Asset-Allokation.
+
+    Quellen: Swiss GAAP FER 16 §28-32, ASIP Standard 2.3, OR 957a.
+    """
+    cashflow_type = payload.get("cashflow_type")
+    if cashflow_type is None and existing is not None:
+        cashflow_type = existing.cashflow_type
+    if str(cashflow_type or "") != "Expense":
+        return
+    label = payload.get("label")
+    if label is None and existing is not None:
+        label = existing.label
+    if not _is_amortization_label(label):
+        return
+    if not _has_active_mortgage_liability(client_id, db):
+        return
+    raise HTTPException(
+        status_code=422,
+        detail=(
+            "Hypothek-Tilgung darf nicht als Cashflow erfasst werden. "
+            "Tilgung ist bilanziell eine Reklassifikation (Vermoegen und Liability "
+            "sinken um denselben Betrag), kein Aufwand. Bitte nur Hypothek-Zinsen "
+            "als Cashflow erfassen; die Tilgung wird ueber die Liability-Position "
+            "verfolgt."
+        ),
+    )
 
 
 def _validate_mortgage_link(client_id: str, data: dict, db: Session) -> None:
@@ -198,15 +260,20 @@ def _validate_mortgage_link(client_id: str, data: dict, db: Session) -> None:
 @router.get("/clients/{client_id}/wealth-positions", response_model=list[WealthPositionResponse])
 def list_wealth_positions(
     client_id: str,
+    include_inactive: bool = False,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    """C10.1: Standardmaessig nur aktive Positionen. include_inactive=true
+    fuer Admin-/Audit-Sicht."""
     get_client_for_user_or_404(client_id, db, current_user)
-    return db.query(WealthPosition).filter(
+    query = db.query(WealthPosition).filter(
         WealthPosition.client_id == client_id,
-        WealthPosition.is_active == 1,
         WealthPosition.deleted_at.is_(None)
-    ).order_by(WealthPosition.assignment, WealthPosition.position_type).all()
+    )
+    if not include_inactive:
+        query = query.filter(WealthPosition.is_active == 1)
+    return query.order_by(WealthPosition.assignment, WealthPosition.position_type).all()
 
 
 @router.post("/clients/{client_id}/wealth-positions",
@@ -239,6 +306,12 @@ def create_wealth_position(
     return wp
 
 
+_ALLOC_FIELDS = (
+    "alloc_equities_bps", "alloc_bonds_bps", "alloc_real_estate_bps",
+    "alloc_liquidity_bps", "alloc_alternatives_bps",
+)
+
+
 @router.put("/clients/{client_id}/wealth-positions/{wp_id}",
             response_model=WealthPositionResponse)
 def update_wealth_position(
@@ -255,12 +328,31 @@ def update_wealth_position(
     ).first()
     if not wp:
         raise HTTPException(status_code=404, detail="Vermögensposition nicht gefunden")
+    # C10.2: exclude_unset erlaubt explizites Null-Setzen ("clear"). exclude_none
+    # haette ein None-Update verschluckt und keine Felder gecleared.
     updates = body.model_dump(exclude_unset=True)
+    # C10.2: Wenn alloc_*-Felder im Update sind, muss die GEMERGTE Verteilung
+    # eine konsistente Summe ergeben (entweder alle 0 = Default-Mix wird genutzt
+    # oder Summe = 10000). Partial-Updates duerfen keine 7000-Summe erzeugen.
+    if any(f in updates for f in _ALLOC_FIELDS):
+        merged = {f: int(updates.get(f, getattr(wp, f, 0)) or 0) for f in _ALLOC_FIELDS}
+        total = sum(merged.values())
+        if total != 0 and total != 10000:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"Allokation muss zusammen 10000 bps oder alle 0 ergeben "
+                    f"(aktuelle Summe: {total}). Bitte alle alloc_*-Felder zusammen "
+                    f"updaten oder auf 0 zuruecksetzen."
+                ),
+            )
     _validate_mortgage_link(client_id, updates, db)
     for field, value in updates.items():
         if isinstance(value, bool):
             value = 1 if value else 0
         setattr(wp, field, value)
+    # C10.2: updated_at darf nach Update nicht stale bleiben.
+    wp.updated_at = _now()
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="wealth_positions", record_id=wp_id, action="UPDATE",
         client_id=client_id)
@@ -295,14 +387,20 @@ def delete_wealth_position(
 @router.get("/clients/{client_id}/cashflows", response_model=list[CashflowResponse])
 def list_cashflows(
     client_id: str,
+    include_inactive: bool = False,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    """C10.1: Standardmaessig nur aktive Cashflows. include_inactive=true
+    fuer Admin-/Audit-Sicht."""
     get_client_for_user_or_404(client_id, db, current_user)
-    return db.query(Cashflow).filter(
+    query = db.query(Cashflow).filter(
         Cashflow.client_id == client_id,
         Cashflow.deleted_at.is_(None)
-    ).order_by(Cashflow.cashflow_type, Cashflow.label).all()
+    )
+    if not include_inactive:
+        query = query.filter(Cashflow.is_active == 1)
+    return query.order_by(Cashflow.cashflow_type, Cashflow.label).all()
 
 
 @router.post("/clients/{client_id}/cashflows",
@@ -316,6 +414,7 @@ def create_cashflow(
     client = get_client_for_user_or_404(client_id, db, current_user)
     now = _now()
     data = _normalize_cashflow_payload(body.model_dump())
+    _validate_no_mortgage_amortization_double_count(client_id, data, db)
     cf = Cashflow(
         id=new_uuid(), client_id=client_id,
         is_active=1, created_at=now, updated_at=now,
@@ -369,6 +468,7 @@ def update_cashflow(
     if not cf:
         raise HTTPException(status_code=404, detail="Cashflow nicht gefunden")
     updates = _normalize_cashflow_payload(body.model_dump(exclude_unset=True), cf)
+    _validate_no_mortgage_amortization_double_count(client_id, updates, db, existing=cf)
     for field, value in updates.items():
         if isinstance(value, bool):
             value = 1 if value else 0
@@ -553,7 +653,6 @@ def upsert_planning_assumptions(
 ):
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
     now = _now()
-    today = date.today().isoformat()
     payload = body.model_dump(exclude_unset=True)
     existing = db.query(PlanningAssumption).filter(
         PlanningAssumption.mandate_id == mandate_id,
@@ -561,37 +660,16 @@ def upsert_planning_assumptions(
         PlanningAssumption.deleted_at.is_(None)
     ).order_by(PlanningAssumption.version.desc()).first()
     if existing:
-        existing.is_current = 0
-        existing.valid_to = today
-        record_payload = {
-            "retirement_age_primary": existing.retirement_age_primary,
-            "retirement_age_partner": existing.retirement_age_partner,
-            "life_expectancy_primary": existing.life_expectancy_primary,
-            "life_expectancy_partner": existing.life_expectancy_partner,
-            "inflation_assumption_bps": existing.inflation_assumption_bps,
-            "pension_indexation_bps": existing.pension_indexation_bps,
-            "notes": existing.notes,
-        }
-        record_payload.update(payload)
-        pa = PlanningAssumption(
-            id=new_uuid(),
-            mandate_id=mandate_id,
-            client_id=mandate.client_id,
-            version=int(existing.version or 0) + 1,
-            is_current=1,
-            valid_from=today,
-            supersedes_id=existing.id,
-            created_at=now,
-            updated_at=now,
-            **record_payload,
-        )
-        db.add(pa)
+        for key, value in payload.items():
+            setattr(existing, key, value)
+        existing.updated_at = now
         log(db, user_id=current_user.id, user_name=current_user.full_name,
-            table_name="planning_assumptions", record_id=pa.id, action="CREATE",
+            table_name="planning_assumptions", record_id=existing.id, action="UPDATE",
             mandate_id=mandate_id, client_id=mandate.client_id)
         db.commit()
-        return {"ok": True, "inflation_assumption_bps": pa.inflation_assumption_bps}
+        return {"ok": True, "inflation_assumption_bps": existing.inflation_assumption_bps}
 
+    today = date.today().isoformat()
     pa = PlanningAssumption(
         id=new_uuid(),
         mandate_id=mandate_id,
@@ -622,12 +700,12 @@ def create_planning_assumptions(
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
     now = _now()
     today = date.today().isoformat()
-    # Supersede previous
+    # Supersede previous (Race-Hardening, siehe profiling.py).
     prev = db.query(PlanningAssumption).filter(
         PlanningAssumption.mandate_id == mandate_id,
         PlanningAssumption.is_current == 1,
         PlanningAssumption.deleted_at.is_(None)
-    ).first()
+    ).with_for_update().first()
     prev_version = 0
     prev_id = None
     if prev:

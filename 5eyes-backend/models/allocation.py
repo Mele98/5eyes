@@ -16,6 +16,9 @@ class OptimizerPolicy(Base):
     max_real_estate_bps = Column(Integer, nullable=False, default=2000)
     max_alternatives_bps = Column(Integer, nullable=False, default=1000)
     min_liquidity_bps = Column(Integer, nullable=False, default=0)
+    # Deprecated since audit-B4 (2026-05-01): goals are always evaluated against
+    # advisory_wealth (ASIP §3.2). Field is retained for schema compatibility but
+    # has no effect on scoring. Do not read or write from new code.
     allow_other_assets_for_goals = Column(Integer, nullable=False, default=1)
     fee_model_json = Column(String)
     notes = Column(String)
@@ -50,14 +53,37 @@ class TargetAllocation(Base):
     band_liquidity_min_bps = Column(Integer, nullable=False)
     band_liquidity_max_bps = Column(Integer, nullable=False)
     risky_fraction_bps = Column(Integer)
-    external_reserve_at_generation_rappen = Column(Integer)
     based_on_assessment_id = Column(String)
     capital_market_assumptions_id = Column(String, ForeignKey("capital_market_assumptions.id"))
+    # C8: Audit-Anker fuer Reproduzierbarkeit / Drift-Erkennung.
+    preferences_json = Column(String)
+    input_snapshot_hash = Column(String)
+    advisory_wealth_at_generation_rappen = Column(Integer)
+    total_wealth_at_generation_rappen = Column(Integer)
+    reserve_needed_at_generation_rappen = Column(Integer)
+    external_reserve_at_generation_rappen = Column(Integer)
     policy_id = Column(String, ForeignKey("optimizer_policies.id"), nullable=False)
     set_by = Column(String, ForeignKey("users.id"), nullable=False)
     set_at = Column(String, nullable=False)
     approved_by = Column(String, ForeignKey("users.id"))
     approved_at = Column(String)
+    # Optimizer-Audit-Anchor (Spec 2026-05-05). Wenn None: Allocation
+    # kommt aus House-Matrix-Default (vor-Optimizer Baseline).
+    optimization_method = Column(String)  # 'house_matrix' | 'iterative' | 'stochastic'
+    optimization_objective_value_milli = Column(Integer)  # objective in milli (Praezision)
+    optimization_iterations = Column(Integer)
+    optimization_seed = Column(Integer)
+    optimization_status = Column(String)  # 'converged' | 'diverged' | 'timeout' | 'fallback_house_matrix'
+    # Phase 6: persistierte Stress-Auswertungen aus dem Solver (Phase 5.2),
+    # JSON-serialisiertes dict[scenario_name, dict]. NULL bei house_matrix-Modus.
+    # Damit kann das FE-Optimizer-Panel auch beim Reload (GET-Endpoint) die
+    # Stress-Tabelle ohne erneuten Solver-Lauf rendern.
+    stress_evaluations_json = Column(String)
+    # Phase 6.2: persistierter Reasoning-Trace des Solvers (list[str] als JSON).
+    # Nur die optimizer-spezifischen Zeilen werden gespeichert; die generischen
+    # House-Matrix-Sätze und dynamischen Drift-Warnings werden im Read-Pfad
+    # frisch berechnet. NULL bei house_matrix-Modus.
+    optimizer_reasoning_json = Column(String)
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
     deleted_at = Column(String)
@@ -96,6 +122,20 @@ class CapitalMarketAssumption(Base):
     inflation_path_json = Column(String)
     correlation_matrix_json = Column(String)
     sub_asset_class_assumptions_json = Column(String)
+    # Optimizer-Phase 1 (Spec 2026-05-05): Skewness und Excess-Kurtosis pro
+    # Bucket. Default None bzw. 0 -> Cornish-Fisher faellt auf Normal zurueck
+    # (backwards-compat, kein Verhaltens-Change ohne SLAM-Daten). Werte in bps
+    # (z.B. equities_skewness_bps=-5000 = -0.5 skew, excess_kurt_bps=25000 = 2.5).
+    equities_skewness_bps = Column(Integer)
+    equities_excess_kurt_bps = Column(Integer)
+    bonds_skewness_bps = Column(Integer)
+    bonds_excess_kurt_bps = Column(Integer)
+    real_estate_skewness_bps = Column(Integer)
+    real_estate_excess_kurt_bps = Column(Integer)
+    alternatives_skewness_bps = Column(Integer)
+    alternatives_excess_kurt_bps = Column(Integer)
+    liquidity_skewness_bps = Column(Integer)
+    liquidity_excess_kurt_bps = Column(Integer)
     source = Column(String, default="Portfolio Management intern")
     notes = Column(String)
     created_by = Column(String, ForeignKey("users.id"), nullable=False)

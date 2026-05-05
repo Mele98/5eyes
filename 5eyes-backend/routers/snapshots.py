@@ -4,11 +4,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from database import get_db
+from services.auth import get_current_user, get_mandate_for_user_or_404, require_advisor
 from services.audit import log
-from services.auth import get_current_user, get_mandate_for_user_or_404
 from models.snapshots import StrategySnapshot, AssetClassAnnualReturn
 from models.mandates import Mandate
-from models.users import User
 from schemas.snapshots import StrategySnapshotCreate, StrategySnapshotResponse, DriftResult
 
 router = APIRouter(prefix="/mandates/{mandate_id}/strategy-snapshots", tags=["snapshots"])
@@ -45,7 +44,7 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _get_mandate(mandate_id: str, db: Session, current_user: User) -> Mandate:
+def _get_mandate(mandate_id: str, db: Session, current_user) -> Mandate:
     return get_mandate_for_user_or_404(mandate_id, db, current_user)
 
 
@@ -69,14 +68,31 @@ def _classify_status(ac: str, drifted_bps: dict, original_bps: dict, snapshot: S
     return "red"
 
 
+def _compute_cumulative(weights: dict, returns_by_year: dict, years: list) -> list:
+    """Berechnet kumulierten Portfolio-Return normiert auf 100."""
+    w = dict(weights)
+    result = [100.0]
+    for year in years:
+        year_returns = returns_by_year.get(year, {})
+        new_w = {}
+        for ac in ASSET_CLASSES:
+            r = year_returns.get(ac, 0) / 10000.0
+            new_w[ac] = w.get(ac, 0.0) * (1 + r)
+        total = sum(new_w.values())
+        if total > 0:
+            w = {ac: v / total for ac, v in new_w.items()}
+        result.append(round(result[-1] * (total if total > 0 else 1.0), 4))
+    return result
+
+
 @router.post("", response_model=StrategySnapshotResponse, status_code=201)
 def create_snapshot(
     mandate_id: str,
     body: StrategySnapshotCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user=Depends(require_advisor),
 ):
-    mandate = _get_mandate(mandate_id, db, current_user)
+    _get_mandate(mandate_id, db, current_user)
     now = _now()
     snap = StrategySnapshot(
         id=str(uuid4()),
@@ -115,7 +131,6 @@ def create_snapshot(
         record_id=snap.id,
         action="CREATE",
         mandate_id=mandate_id,
-        client_id=mandate.client_id,
     )
     db.commit()
     db.refresh(snap)
@@ -126,7 +141,7 @@ def create_snapshot(
 def list_snapshots(
     mandate_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user=Depends(get_current_user),
 ):
     _get_mandate(mandate_id, db, current_user)
     return (
@@ -144,7 +159,7 @@ def list_snapshots(
 def get_drift(
     mandate_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user=Depends(get_current_user),
 ):
     _get_mandate(mandate_id, db, current_user)
 
