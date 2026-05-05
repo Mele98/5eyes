@@ -6,10 +6,16 @@
 - Z1–Z9, B1–B6, W2.5, Security, F23, CI, Cashflow-Inflation, etc.
 - Tests: 357/357 gruen
 
-### codex/stochastic-optimizer (17 Commits ueber audit-master, unpushed)
+### codex/stochastic-optimizer (18 Commits ueber audit-master, unpushed)
 - Phase 1–5 Optimizer (Solver, Stress, GA-Fallback, Cache)
 - Phase 6 Backend (passthrough, sensitivity, persist, audit-log)
 - Tests: 528/528 gruen + 1 erwarteter Skip
+
+### codex/fe-optimizer-panel (1 Commit auf rp-ueberarbeitung, unpushed)
+- Phase 6 FE-Implementation: Container + 4 JS-Funktionen + applyAllocationEngineResult Hook
+- Status-Pill, Reasoning-Trace, Stress-Tabelle, Sensitivity-Buttons, Audit-Footer
+- Workspace: `_release_ready` (NICHT `_develop_security`)
+- Tests: 11/11 FE-Contract gruen, JS-Syntax-Check sauber
 
 ### Dokumentation (alles in `docs/planning/`)
 - `2026-05-05-stochastic-optimizer-spec.md` — Master-Spec
@@ -34,11 +40,11 @@ gh auth status   # bestaetigt "Logged in"
 
 Sobald das durch ist: kann ich (Claude) die 35 Commits pushen.
 
-### 2. Phase 6 FE implementieren
-**Wer:** Codex (im Workspace `_release_ready`).
-**Spec:** `2026-05-06-phase6-fe-implementation-patch.md` — enthaelt fertige
-HTML/CSS/JS-Snippets zum 1:1-Einsetzen plus exakte Anker.
-**Aufwand:** ~2h (3 Edits in `5eyes_v2.html` + Mock + manueller Smoke-Test).
+### 2. Phase 6 FE — ✅ ERLEDIGT
+Implementiert auf `codex/fe-optimizer-panel` (commit `6c9be04`). Branch
+liegt im `_release_ready` Workspace, basiert auf `codex/rp-ueberarbeitung`
+HEAD (ohne Codex' uncommitted Drift). Codex' Workspace ist 1:1 wieder
+hergestellt.
 
 ### 3. B3/B5/B6 FE-Wiring
 **Wer:** Codex.
