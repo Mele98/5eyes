@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from typing import Iterable
 
 import numpy as np
-from scipy.optimize import OptimizeResult, minimize
+from scipy.optimize import OptimizeResult, differential_evolution, minimize
 
 from .constraints import (
     HouseMatrixBands,
@@ -40,6 +40,7 @@ from .goal_liabilities import (
     goals_to_liabilities,
 )
 from .objective import shortfall_objective
+from .scenario_cache import build_scenario_paths_cached
 from .scenario_engine import (
     BUCKET_ORDER,
     N_BUCKETS,
@@ -234,6 +235,84 @@ def _solve_single_start(
         return result
 
 
+def _solve_via_genetic_algorithm(
+    objective_fn,
+    bounds: list[tuple[float, float]],
+    constraints: list[dict],
+    *,
+    seed: int,
+    max_iter: int = 60,
+    popsize: int = 15,
+) -> OptimizeResult:
+    """Phase 5.3 GA-Fallback: scipy.optimize.differential_evolution.
+
+    Robuster als SLSQP gegen lokal-Minima und Konvergenz-Probleme bei
+    nicht-glatten Objectives. Nachteile: 5-10x langsamer, kein Gradient-Use.
+
+    Wir nutzen DE mit Penalty fuer Constraint-Verletzung (DE selbst hat
+    keine native ineq-constraints in alten scipy-Versionen). Equality-
+    Constraint sum=1 wird durch Renormalisation enforciert.
+
+    seed wird durchgereicht fuer Reproduzierbarkeit.
+    """
+    sum_to_one_cons = next(
+        (c for c in constraints if c["type"] == "eq"),
+        None,
+    )
+    ineq_constraints = [c for c in constraints if c["type"] == "ineq"]
+
+    def penalized_objective(w: np.ndarray) -> float:
+        # Renormalize zu sum=1 (Equality enforcement)
+        s = float(np.sum(w))
+        if s > 1e-12:
+            w = w / s
+        # Bound clamping (DE hat boundary handling, aber doppelt sicher)
+        lo = np.array([b[0] for b in bounds])
+        hi = np.array([b[1] for b in bounds])
+        w = np.clip(w, lo, hi)
+        s = float(np.sum(w))
+        if s > 1e-12:
+            w = w / s
+        # Base objective
+        base = float(objective_fn(w))
+        # Penalty fuer Inequality-Verletzungen
+        penalty = 0.0
+        for cons in ineq_constraints:
+            val = float(cons["fun"](w))
+            if val < 0:
+                penalty += 1e9 * abs(val) ** 2  # quadratisch, gross genug zu dominieren
+        return base + penalty
+
+    try:
+        result = differential_evolution(
+            penalized_objective,
+            bounds=bounds,
+            seed=int(seed) & 0x7FFFFFFF,  # DE seed ist int32
+            maxiter=max_iter,
+            popsize=popsize,
+            tol=1e-6,
+            polish=False,  # SLSQP-Polish skip (haben wir schon versucht)
+            disp=False,
+        )
+        # Manuelle Renormalization auf result.x
+        x = np.asarray(result.x, dtype=np.float64)
+        s = float(np.sum(x))
+        if s > 1e-12:
+            x = x / s
+        result.x = x
+        result.message = f"DE: {result.message}"
+        return result
+    except Exception as e:  # noqa: BLE001
+        return OptimizeResult(
+            x=np.array([(lo + hi) / 2.0 for lo, hi in bounds]),
+            fun=float("inf"),
+            success=False,
+            status=99,
+            message=f"DE-crash: {type(e).__name__}: {e}",
+            nit=0,
+        )
+
+
 def run_solver(
     *,
     cma,
@@ -263,10 +342,15 @@ def run_solver(
         goal_ids = "|".join(str(getattr(g, "id", "?")) for g in goals)
         seed = deterministic_seed(cma_id, goal_ids, score_x10, horizon_years, n_paths)
 
-    # ---- 2. Scenario Paths ----
+    # ---- 2. Scenario Paths (cached fuer Wiederholungen mit gleicher cma_id) ----
     inputs = scenario_inputs_from_cma(cma)
-    return_paths = build_scenario_paths(
-        inputs, horizon_years=horizon_years, n_paths=n_paths, seed=seed,
+    cma_id_for_cache = str(getattr(cma, "id", "no-cma"))
+    return_paths = build_scenario_paths_cached(
+        inputs,
+        cma_id=cma_id_for_cache,
+        horizon_years=horizon_years,
+        n_paths=n_paths,
+        seed=seed,
     )
 
     # ---- 3. Liabilities ----
@@ -296,11 +380,12 @@ def run_solver(
             horizon_years=horizon_years,
         )
 
-    # ---- 6. Multi-Start ----
+    # ---- 6. Multi-Start SLSQP ----
     initials = build_initial_guesses(bounds, score_x10)
     best_result: OptimizeResult | None = None
     best_obj = float("inf")
     total_iters = 0
+    used_ga_fallback = False
 
     for x0 in initials:
         result = _solve_single_start(
@@ -312,9 +397,20 @@ def run_solver(
             best_obj = float(result.fun)
             best_result = result
 
+    # ---- 6b. Phase 5.3 GA-Fallback wenn alle SLSQP-Starts divergiert ----
+    if best_result is None:
+        ga_result = _solve_via_genetic_algorithm(
+            objective_fn, bounds, scipy_constraints, seed=seed,
+        )
+        total_iters += int(getattr(ga_result, "nit", 0) or 0)
+        if ga_result.success and ga_result.fun < float("inf"):
+            best_obj = float(ga_result.fun)
+            best_result = ga_result
+            used_ga_fallback = True
+
     # ---- 7. Status & Output ----
     if best_result is None:
-        # Alle Starts divergiert -> Fallback
+        # Auch GA divergiert -> Fallback House-Matrix
         mid = _normalize_to_bounds(
             np.array([(lo + hi) / 2.0 for lo, hi in bounds]),
             bounds,
@@ -328,8 +424,8 @@ def run_solver(
             status="fallback_house_matrix",
             method="fallback_house_matrix",
             reasoning=[
-                "Alle Solver-Multi-Starts divergierten. Fallback auf "
-                "House-Matrix-Mittelwert (siehe OWNER-DECISION OD-5)."
+                "Alle Solver-Multi-Starts divergierten und GA-Fallback ebenso. "
+                "Fallback auf House-Matrix-Mittelwert (siehe OWNER-DECISION OD-5)."
             ],
             n_paths=n_paths,
             n_starts_attempted=len(initials),
@@ -348,7 +444,8 @@ def run_solver(
 
     weights_bps = _weights_to_bps_dict(final_w)
     reasoning: list[str] = []
-    reasoning.append(f"Stochastic Solver: {total_iters} iterations across "
+    method_used = "SLSQP+DE-Fallback" if used_ga_fallback else "SLSQP"
+    reasoning.append(f"Stochastic Solver ({method_used}): {total_iters} iterations across "
                       f"{len(initials)} multi-starts.")
     reasoning.append(f"Best objective L(w*) = {best_obj:.6e}")
     if violation_reasons:
