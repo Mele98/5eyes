@@ -68,10 +68,25 @@ Sensitivity-Analyse, kein Vertrauensmaß.
 
 ## Betroffene Module / Dateien
 
-### Backend (KEINE Änderung nötig — alle Daten kommen schon)
+### Backend (FERTIG — Stand 2026-05-05, commits 269f6a1 + 2b21fb8 + fcc600c)
 
-- `target_allocation`-Response liefert: `optimization_*` Felder + `stress_evaluations` (Phase 5.2)
-- Neuer Endpoint `POST /allocation/sensitivity` (siehe Sec API)
+- `TargetAllocationGenerateResponse` (POST `/target-allocation/generate`):
+  - `optimization_method/_status/_seed/_iterations/_objective_value_milli` (Phase 4)
+  - `stress_evaluations: dict | None` (Phase 5.2 + 6 passthrough)
+  - `reasoning: list[str]` mit Solver-Trace (Phase 6.2)
+- Identische Felder werden auch von **GET `/target-allocation/current/payload`** geliefert
+  — beim Page-Reload muss das FE NICHT erneut den Solver triggern (Persistenz Phase 6.1+6.2):
+  - `target_allocations.stress_evaluations_json` (TEXT, JSON-Object)
+  - `target_allocations.optimizer_reasoning_json` (TEXT, JSON-Liste)
+- Neuer Endpoint **POST `/mandates/{id}/target-allocation/sensitivity`** (Phase 6).
+  Gepinnter Solver-Seed → identische Scenarios baseline vs. modified → sauberes Delta.
+  Body: `{goal_id: str, target_delta_pct: int}` mit delta ∈ {-20, -10, 0, 10, 20}.
+  Response-Felder (alle 5 baseline+new-Paare zum direkten Rendern):
+  `weights_bps_baseline/_new`, `objective_value_milli_baseline/_new`,
+  `target_amount_rappen_baseline/_new`, `delta_objective_pct`,
+  `status_baseline/_new`. 200/404/409/422 nach Spec.
+- Robustheit: defekter JSON in den DB-Spalten fuehrt nicht zum Crash, fallt
+  einfach auf None bzw. leere Reasoning-Zeile zurueck.
 
 ### Frontend (`5eyes-electron/frontend/5eyes_v2.html`)
 
@@ -235,11 +250,7 @@ Response: {
 
 ## Implementierungs-Checkliste für Codex
 
-1. Backend kleinere Erweiterung:
-   - [ ] `routers/allocation.py` → `stress_evaluations` ins Response-Schema (`TargetAllocationGenerateResponse.stress_evaluations: dict | None = None`)
-   - [ ] In `generate_target_allocation` der Aufrufer (vermutlich in `services/portfolio_engine.py` Return-Block): `optimizer_result.stress_evaluations` durchschleifen
-   - [ ] Neuer Endpoint `POST /mandates/{mandate_id}/allocation/sensitivity` (Body, Response wie oben)
-   - [ ] Tests: 1 für Response-Field-Durchschleifen, 3 für Sensitivity-Endpoint
+1. Backend ✅ FERTIG (commits 269f6a1, 2b21fb8, fcc600c — 525/525 Tests gruen).
 
 2. Frontend `5eyes_v2.html`:
    - [ ] Container `<div id="al-optimizer-panel"></div>` nach der Asset-Allocation-Torte einfügen
