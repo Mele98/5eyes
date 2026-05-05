@@ -421,3 +421,74 @@ def test_default_risky_fractions_match_3eyes_slide_17():
     assert DEFAULT_BUCKET_RISKY_FRACTION["real_estate"] == 0.60
     assert DEFAULT_BUCKET_RISKY_FRACTION["alternatives"] == 0.60
     assert DEFAULT_BUCKET_RISKY_FRACTION["liquidity"] == 0.0
+
+
+# ============================================================================
+# Phase 5.1: Building-Block-Aware Risky-Fractions
+# ============================================================================
+
+
+def test_bucket_risky_fractions_from_building_blocks_aggregates_means():
+    """Mehrere BuildingBlock-Sub-Klassen pro Bucket -> Mittelwert."""
+    from services.optimizer.constraints import bucket_risky_fractions_from_building_blocks
+    rows = [
+        SimpleNamespace(asset_class="Aktien", risky_fraction_bps=7000),    # 0.70
+        SimpleNamespace(asset_class="Aktien", risky_fraction_bps=8000),    # 0.80
+        SimpleNamespace(asset_class="Aktien", risky_fraction_bps=10000),   # 1.00
+        SimpleNamespace(asset_class="Obligationen", risky_fraction_bps=2000),  # 0.20
+        SimpleNamespace(asset_class="Obligationen", risky_fraction_bps=4000),  # 0.40
+        SimpleNamespace(asset_class="Liquiditaet", risky_fraction_bps=0),
+    ]
+    out = bucket_risky_fractions_from_building_blocks(rows)
+    # equities mean: (0.70 + 0.80 + 1.00) / 3 = 0.833...
+    assert out["equities"] == pytest.approx(0.8333, abs=1e-4)
+    # bonds mean: (0.20 + 0.40) / 2 = 0.30
+    assert out["bonds"] == pytest.approx(0.30, abs=1e-4)
+    # liquidity = 0
+    assert out["liquidity"] == 0.0
+    # real_estate, alternatives keine BuildingBlocks -> Default
+    assert out["real_estate"] == DEFAULT_BUCKET_RISKY_FRACTION["real_estate"]
+    assert out["alternatives"] == DEFAULT_BUCKET_RISKY_FRACTION["alternatives"]
+
+
+def test_bucket_risky_fractions_handles_german_umlaut_liquiditaet():
+    """Sowohl 'Liquiditaet' (ascii) als auch 'Liquidität' (umlaut) als Asset-Class."""
+    from services.optimizer.constraints import bucket_risky_fractions_from_building_blocks
+    rows = [
+        SimpleNamespace(asset_class="Liquidität", risky_fraction_bps=0),
+        SimpleNamespace(asset_class="Liquiditaet", risky_fraction_bps=0),
+    ]
+    out = bucket_risky_fractions_from_building_blocks(rows)
+    assert out["liquidity"] == 0.0
+
+
+def test_bucket_risky_fractions_empty_rows_returns_all_defaults():
+    """Keine BuildingBlocks -> alle Defaults."""
+    from services.optimizer.constraints import bucket_risky_fractions_from_building_blocks
+    out = bucket_risky_fractions_from_building_blocks([])
+    for bucket in BUCKET_ORDER:
+        assert out[bucket] == DEFAULT_BUCKET_RISKY_FRACTION[bucket]
+
+
+def test_bucket_risky_fractions_ignores_unknown_asset_class():
+    """Unbekannte asset_class wird ignoriert (kein Crash)."""
+    from services.optimizer.constraints import bucket_risky_fractions_from_building_blocks
+    rows = [
+        SimpleNamespace(asset_class="Krypto-Yield-Farming", risky_fraction_bps=10000),
+        SimpleNamespace(asset_class="Aktien", risky_fraction_bps=8000),
+    ]
+    out = bucket_risky_fractions_from_building_blocks(rows)
+    assert out["equities"] == 0.80
+    # andere Buckets fallen auf Default zurueck
+    assert out["liquidity"] == DEFAULT_BUCKET_RISKY_FRACTION["liquidity"]
+
+
+def test_bucket_risky_fractions_skips_none_values():
+    """risky_fraction_bps=None wird ignoriert (DB-Schemata erlauben NULL)."""
+    from services.optimizer.constraints import bucket_risky_fractions_from_building_blocks
+    rows = [
+        SimpleNamespace(asset_class="Aktien", risky_fraction_bps=None),
+        SimpleNamespace(asset_class="Aktien", risky_fraction_bps=8000),
+    ]
+    out = bucket_risky_fractions_from_building_blocks(rows)
+    assert out["equities"] == 0.80  # nur der eine 8000 zaehlt

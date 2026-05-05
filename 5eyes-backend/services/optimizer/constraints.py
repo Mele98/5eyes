@@ -30,6 +30,20 @@ import numpy as np
 from .scenario_engine import BUCKET_ORDER, N_BUCKETS
 
 
+# Mapping von BuildingBlock.asset_class (deutscher String) auf BUCKET_ORDER.
+# Konsistent zur Logik in services.portfolio_engine._build_sub_allocations.
+_ASSET_CLASS_TO_BUCKET = {
+    "aktien": "equities",
+    "obligationen": "bonds",
+    "immobilien": "real_estate",
+    "alternative": "alternatives",
+    "alternativen": "alternatives",
+    "liquiditaet": "liquidity",
+    "liquidität": "liquidity",
+    "liquidity": "liquidity",
+}
+
+
 # Risky-Fraction Defaults pro Bucket (3eyes-Slide 17, OWNER-DECISION OD-6
 # bestaetigt). Diese sind Bucket-aggregierte Mittelwerte aus den Sub-Asset-
 # Class Werten. Wenn der Caller spezifischere Werte aus BuildingBlock-Tabelle
@@ -161,6 +175,44 @@ def build_constraint_set(
         build_risky_fraction_constraint(score_x10, risky_fraction_per_bucket),
     ]
     return bounds, constraints
+
+
+def bucket_risky_fractions_from_building_blocks(
+    building_block_rows: list,
+) -> dict[str, float]:
+    """Aggregiert pro Bucket den Mittelwert der Risky-Fractions aller aktiven
+    BuildingBlock-Sub-Klassen.
+
+    building_block_rows: Liste von BuildingBlock-Modell-Instanzen oder Mocks
+        mit Attributen .asset_class (str) und .risky_fraction_bps (int).
+
+    Wenn ein Bucket keine BuildingBlocks hat (z.B. Defaultsystem ohne Liquid
+    Alternatives-Eintraege), wird auf DEFAULT_BUCKET_RISKY_FRACTION zurueckgefallen.
+
+    Konsistent zu 3eyes-Slide 17: Pro Sub-Asset-Class ist eine eigene Risky-
+    Fraction definiert. Das Bucket-Aggregat ist der Mittelwert dieser Werte
+    (vereinfacht; eine sub-allocation-aware Gewichtung wuerde den User-Tilt
+    beruecksichtigen, ist aber zweite-Ordnungs-Effekt fuer Phase 5.1).
+    """
+    by_bucket: dict[str, list[float]] = {b: [] for b in BUCKET_ORDER}
+    for row in building_block_rows:
+        ac_norm = str(getattr(row, "asset_class", "") or "").strip().lower()
+        bucket = _ASSET_CLASS_TO_BUCKET.get(ac_norm)
+        if bucket is None:
+            continue
+        rf = getattr(row, "risky_fraction_bps", None)
+        if rf is None:
+            continue
+        by_bucket[bucket].append(int(rf) / 10000.0)
+
+    out = {}
+    for bucket in BUCKET_ORDER:
+        vals = by_bucket[bucket]
+        if vals:
+            out[bucket] = float(sum(vals) / len(vals))
+        else:
+            out[bucket] = DEFAULT_BUCKET_RISKY_FRACTION[bucket]
+    return out
 
 
 def is_feasible(

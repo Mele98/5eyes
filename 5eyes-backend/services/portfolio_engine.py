@@ -3399,6 +3399,7 @@ def _run_stochastic_optimizer_pass(
     minimums: dict[str, int],
     maximums: dict[str, int],
     reasoning: list[str],
+    building_blocks_rows: list | None = None,
 ):
     """Wenn optimizer_mode='stochastic': Solver aufrufen, targets ersetzen.
 
@@ -3410,6 +3411,9 @@ def _run_stochastic_optimizer_pass(
         return None
 
     try:
+        from services.optimizer.constraints import (
+            bucket_risky_fractions_from_building_blocks,
+        )
         from services.optimizer.solver import run_solver
     except ImportError as exc:
         logger.warning("Stochastic optimizer module not importable: %s", exc)
@@ -3420,6 +3424,16 @@ def _run_stochastic_optimizer_pass(
 
     score_x10 = _assessment_score_x10(assessment)
     horizon = max(10, int(len(cashflow_projection_series_rappen) or 10))
+    # Phase 5.1: Risky-Fractions aus BuildingBlock-DB statt fester Defaults.
+    # Genauer pro Mandant weil unterschiedliche Policies unterschiedliche
+    # Sub-Asset-Klassen-Werte haben koennen (z.B. EM-Aktien ein/aus).
+    rf_per_bucket = None
+    if building_blocks_rows is not None:
+        try:
+            rf_per_bucket = bucket_risky_fractions_from_building_blocks(building_blocks_rows)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Risky-fraction extraction failed: %s", exc)
+            rf_per_bucket = None
 
     try:
         result = run_solver(
@@ -3432,6 +3446,7 @@ def _run_stochastic_optimizer_pass(
             horizon_years=horizon,
             n_paths=_OPTIMIZER_N_PATHS_DEFAULT,
             inflation_series_bps=inflation_series_bps,
+            risky_fraction_per_bucket=rf_per_bucket,
         )
     except Exception as exc:  # noqa: BLE001 - never crash allocation flow
         logger.warning("Stochastic optimizer crashed: %s", exc, exc_info=True)
@@ -3737,6 +3752,12 @@ def generate_target_allocation(
     # mit der Mulvey/Ziemba-light optimierten Allocation. Die nachfolgenden
     # Tilts (growth_goals, max_illiquid) werden dann uebersprungen, weil der
     # Solver die Goals direkt optimiert und alle Constraints respektiert.
+    # Phase 5.1: Building-Block-Aware Risky-Fractions fuer Solver
+    _building_block_rows = db.query(BuildingBlock).filter(
+        BuildingBlock.policy_id == policy.id,
+        BuildingBlock.is_active == 1,
+    ).all() if settings.optimizer_mode == "stochastic" else None
+
     optimizer_result = _run_stochastic_optimizer_pass(
         optimizer_mode=settings.optimizer_mode,
         cma=cma,
@@ -3750,6 +3771,7 @@ def generate_target_allocation(
         minimums=minimums,
         maximums=maximums,
         reasoning=reasoning,
+        building_blocks_rows=_building_block_rows,
     )
     optimizer_replaced_targets = (
         optimizer_result is not None and optimizer_result.status == "converged"
