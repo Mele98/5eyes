@@ -2297,8 +2297,14 @@ def _run_allocation_monte_carlo(
     for _ in range(simulations):
         current_values = {key: max(0, int(advisory_summary.amounts_rappen.get(key, 0))) for key in BUCKET_FIELDS}
         target_values = {key: max(0, int(target_start_values.get(key, 0))) for key in BUCKET_FIELDS}
-        current_by_year[0].append(sum(current_values.values()))
-        target_by_year[0].append(sum(target_values.values()))
+        # W2.5: Lebensluecke pro Simulation als positiver Schuldenstand mitgefuehrt,
+        # parallel zur deterministischen _simulate_bucket_path-Logik. Wenn Cashflow
+        # mehr Vermoegen abzieht als vorhanden, akkumuliert der Rest hier und macht
+        # den Pfad-Total negativ (Vermoegen aufgezehrt).
+        current_deficit = 0
+        target_deficit = 0
+        current_by_year[0].append(sum(current_values.values()) - current_deficit)
+        target_by_year[0].append(sum(target_values.values()) - target_deficit)
 
         current_start = max(1, sum(current_values.values()))
         target_start = max(1, sum(target_values.values()))
@@ -2315,8 +2321,8 @@ def _run_allocation_monte_carlo(
                 current_values[key] = int(round(max(0, current_values[key]) * growth_factor))
                 target_values[key] = int(round(max(0, target_values[key]) * growth_factor))
 
-            _apply_cashflow_to_bucket_values(current_values, int(contribution or 0))
-            _apply_cashflow_to_bucket_values(target_values, int(contribution or 0))
+            current_deficit += _apply_cashflow_to_bucket_values(current_values, int(contribution or 0))
+            target_deficit += _apply_cashflow_to_bucket_values(target_values, int(contribution or 0))
 
             if rebalance_mode in ("bands", "calendar"):
                 target_weights = _weights_from_bucket_values(target_values)
@@ -2335,8 +2341,8 @@ def _run_allocation_monte_carlo(
                                 target_values[key] * (1 - cost_rappen / total_after)
                             )))
 
-            current_by_year[year_index].append(sum(current_values.values()))
-            target_by_year[year_index].append(sum(target_values.values()))
+            current_by_year[year_index].append(sum(current_values.values()) - current_deficit)
+            target_by_year[year_index].append(sum(target_values.values()) - target_deficit)
 
         current_annualized_returns.append(_annualized_return_bps(current_start, current_by_year[-1][-1], horizon_years))
         target_annualized_returns.append(_annualized_return_bps(target_start, target_by_year[-1][-1], horizon_years))
