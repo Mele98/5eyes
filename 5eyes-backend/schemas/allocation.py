@@ -218,6 +218,40 @@ class TargetAllocationGenerateRequest(BaseModel):
     preferences: Optional[AllocationPreferencesPayload] = None
 
 
+# Phase 6: Sensitivity-Analyse fuer ein einzelnes Goal.
+# OD-FE-2: nur 5 diskrete Stufen, +/-20% in 5%-Schritten = {-20,-10,0,10,20}.
+_ALLOWED_SENSITIVITY_DELTAS = (-20, -10, 0, 10, 20)
+
+
+class AllocationSensitivityRequest(BaseModel):
+    goal_id: str
+    target_delta_pct: int
+
+    @model_validator(mode="after")
+    def validate_delta(self):
+        if self.target_delta_pct not in _ALLOWED_SENSITIVITY_DELTAS:
+            allowed = ", ".join(str(d) for d in _ALLOWED_SENSITIVITY_DELTAS)
+            raise ValueError(
+                f"target_delta_pct muss einer von [{allowed}] sein "
+                f"(erhalten: {self.target_delta_pct})"
+            )
+        return self
+
+
+class AllocationSensitivityResponse(BaseModel):
+    goal_id: str
+    delta_pct: int
+    target_amount_rappen_baseline: int
+    target_amount_rappen_new: int
+    objective_value_milli_baseline: Optional[int]
+    objective_value_milli_new: Optional[int]
+    delta_objective_pct: Optional[float]
+    weights_bps_baseline: dict[str, int]
+    weights_bps_new: dict[str, int]
+    status_baseline: str
+    status_new: str
+
+
 class AllocationBucketResponse(BaseModel):
     asset_class: str
     current_weight_bps: int
@@ -421,6 +455,11 @@ class TargetAllocationGenerateResponse(BaseModel):
     score_bucket: int
     advisory_wealth_rappen: int
     investable_advisory_wealth_rappen: Optional[int] = None
+    # Phase 6 FE-Optimizer-Panel: Stress-Auswertungen aus dem Solver (Phase 5.2).
+    # Schluessel: scenario_name -> dict mit end_wealth_rappen,
+    # min_year_wealth_rappen, max_drawdown_bps. None wenn House-Matrix-Modus
+    # oder Solver gefallback ist.
+    stress_evaluations: Optional[dict] = None
     # C6: explizit benannte Basis fuer Target-/Sim-/MC-Berechnung
     # (= Beratungsvermoegen abzueglich externer Reserve).
     strategy_base_rappen: Optional[int] = None

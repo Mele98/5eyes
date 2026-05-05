@@ -3997,6 +3997,170 @@ def generate_target_allocation(
         "monte_carlo": monte_carlo,
         "goal_analysis": goal_analysis,
         "mandate_score": _build_mandate_score(goal_analysis),
+        # Phase 6: Stress-Auswertungen fuer FE-Optimizer-Panel. None wenn
+        # house_matrix-Modus oder Solver-Fallback.
+        "stress_evaluations": (
+            optimizer_result.stress_evaluations if optimizer_result is not None else None
+        ),
+    }
+
+
+def evaluate_goal_sensitivity(
+    db: Session,
+    mandate: Mandate,
+    user_id: str,
+    goal_id: str,
+    target_delta_pct: int,
+) -> dict:
+    """Phase 6 FE-Sensitivity-Analyse: ein einzelnes Goal um ±delta% verschieben.
+
+    Laeuft den Solver zweimal mit identischem Seed:
+      1. Baseline mit unveraendertem Goal-Target
+      2. Modifiziert: target_amount_rappen oder target_wealth_rappen * (1+delta/100)
+
+    Identischer Seed -> identische Scenarios -> sauberes Apples-to-Apples-Delta.
+
+    Raises ValueError bei:
+      - settings.optimizer_mode != 'stochastic'
+      - kein Risikoprofil
+      - goal_id gehoert nicht zum Mandanten / nicht aktiv
+      - target_delta_pct nicht in {-20,-10,0,10,20} (eigentlich vom Schema
+        validiert, hier nochmals defensiv)
+    """
+    if settings.optimizer_mode != "stochastic":
+        raise ValueError(
+            "Sensitivity-Analyse erfordert OPTIMIZER_MODE=stochastic."
+        )
+    if target_delta_pct not in (-20, -10, 0, 10, 20):
+        raise ValueError(
+            f"target_delta_pct {target_delta_pct} ungueltig "
+            "(erlaubt: -20, -10, 0, 10, 20)."
+        )
+
+    policy, cma = ensure_runtime_reference_data(db, user_id)
+    assessment = db.query(RiskAssessment).filter(
+        RiskAssessment.mandate_id == mandate.id,
+        RiskAssessment.is_current == 1,
+        RiskAssessment.deleted_at.is_(None),
+    ).first()
+    if not assessment:
+        raise ValueError("Bitte zuerst ein aktuelles Risikoprofil speichern.")
+
+    inputs = _load_allocation_inputs(db, mandate, simulation_prefs={}, cma=cma)
+    goals = inputs["goals"]
+    target_goal = next(
+        (g for g in goals if g.id == goal_id and g.mandate_id == mandate.id),
+        None,
+    )
+    if target_goal is None:
+        raise ValueError(f"Goal {goal_id} nicht gefunden im Mandanten {mandate.id}.")
+
+    advisory_wealth_rappen = inputs["advisory_wealth_rappen"]
+    cashflow_projection_series_rappen = inputs["cashflow_projection_series_rappen"]
+    cashflow_totals = inputs["cashflow_totals"]
+    inflation_series_bps = _goal_inflation_series_bps(
+        cma,
+        len(cashflow_projection_series_rappen),
+        cashflow_totals["year"],
+        planning_inflation_bps=_current_planning_inflation_bps(db, mandate),
+    )
+
+    score_bucket = _risk_score_bucket(assessment)
+    house_matrix = _house_matrix_or_default(db, policy, score_bucket)
+    score_x10 = _assessment_score_x10(assessment)
+    horizon = max(10, int(len(cashflow_projection_series_rappen) or 10))
+
+    building_blocks_rows = db.query(BuildingBlock).filter(
+        BuildingBlock.policy_id == policy.id,
+        BuildingBlock.is_active == 1,
+    ).all()
+
+    from services.optimizer.constraints import (
+        bucket_risky_fractions_from_building_blocks,
+    )
+    from services.optimizer.solver import deterministic_seed, run_solver
+
+    rf_per_bucket = None
+    try:
+        rf_per_bucket = bucket_risky_fractions_from_building_blocks(building_blocks_rows)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Sensitivity: risky-fraction extraction failed: %s", exc)
+
+    # Pin den Seed: identisch fuer baseline + modified, damit Scenarios gleich
+    # sind und das objektive Delta nur vom Goal-Shift kommt.
+    cma_id = getattr(cma, "id", "no-cma")
+    goal_ids = "|".join(str(getattr(g, "id", "?")) for g in goals)
+    pinned_seed = deterministic_seed(
+        cma_id, goal_ids, score_x10, horizon, _OPTIMIZER_N_PATHS_DEFAULT,
+        "sensitivity", target_goal.id, target_delta_pct,
+    )
+
+    def _solve(_goals: list):
+        return run_solver(
+            cma=cma,
+            goals=_goals,
+            house_matrix_row=house_matrix,
+            score_x10=score_x10,
+            advisory_wealth_rappen=advisory_wealth_rappen,
+            cashflow_series_rappen=cashflow_projection_series_rappen,
+            horizon_years=horizon,
+            n_paths=_OPTIMIZER_N_PATHS_DEFAULT,
+            seed=pinned_seed,
+            inflation_series_bps=inflation_series_bps,
+            risky_fraction_per_bucket=rf_per_bucket,
+        )
+
+    # ---- Baseline ----
+    baseline_amount = int(target_goal.target_amount_rappen or 0)
+    baseline_wealth = int(target_goal.target_wealth_rappen or 0)
+    baseline_result = _solve(goals)
+
+    # ---- Modified ----
+    factor = 1.0 + (target_delta_pct / 100.0)
+    new_amount = int(round(baseline_amount * factor))
+    new_wealth = int(round(baseline_wealth * factor))
+    original_amount = target_goal.target_amount_rappen
+    original_wealth = target_goal.target_wealth_rappen
+    try:
+        target_goal.target_amount_rappen = new_amount
+        target_goal.target_wealth_rappen = new_wealth
+        modified_result = _solve(goals)
+    finally:
+        # Reset to ensure DB-side state isn't accidentally persisted by caller.
+        target_goal.target_amount_rappen = original_amount
+        target_goal.target_wealth_rappen = original_wealth
+
+    def _obj_milli(value: float) -> int | None:
+        if value == float("inf") or value != value:  # NaN
+            return None
+        scaled = value * 1000.0
+        if scaled > _OPTIMIZER_OBJECTIVE_MILLI_CAP:
+            return _OPTIMIZER_OBJECTIVE_MILLI_CAP
+        if scaled < -_OPTIMIZER_OBJECTIVE_MILLI_CAP:
+            return -_OPTIMIZER_OBJECTIVE_MILLI_CAP
+        return int(round(scaled))
+
+    obj_base = _obj_milli(baseline_result.objective_value)
+    obj_new = _obj_milli(modified_result.objective_value)
+    delta_pct: float | None = None
+    if obj_base is not None and obj_new is not None and obj_base != 0:
+        delta_pct = round((obj_new - obj_base) / abs(obj_base) * 100.0, 2)
+
+    primary_baseline = baseline_amount or baseline_wealth
+    primary_new = new_amount if baseline_amount else new_wealth
+
+    return {
+        "goal_id": target_goal.id,
+        "delta_pct": int(target_delta_pct),
+        "target_amount_rappen_baseline": int(primary_baseline),
+        "target_amount_rappen_new": int(primary_new),
+        "objective_value_milli_baseline": obj_base,
+        "objective_value_milli_new": obj_new,
+        "delta_objective_pct": delta_pct,
+        "weights_bps_baseline": dict(baseline_result.weights_bps),
+        "weights_bps_new": dict(modified_result.weights_bps),
+        "status_baseline": baseline_result.status,
+        "status_new": modified_result.status,
     }
 
 

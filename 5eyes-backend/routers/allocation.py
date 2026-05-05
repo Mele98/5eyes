@@ -12,12 +12,14 @@ from schemas.allocation import (
     CapitalMarketAssumptionCreate, CapitalMarketAssumptionResponse,
     TargetAllocationGenerateRequest, TargetAllocationGenerateResponse,
     BuildingBlockResponse,
+    AllocationSensitivityRequest, AllocationSensitivityResponse,
 )
 from services.auth import get_current_user, get_mandate_for_user_or_404, require_advisor, require_admin
 from services.audit import log
 from services.portfolio_engine import (
     build_target_payload_from_allocation,
     ensure_runtime_reference_data,
+    evaluate_goal_sensitivity,
     generate_target_allocation,
     require_strategy_ready_assessment,
 )
@@ -270,4 +272,36 @@ def generate_target_allocation_endpoint(
         mandate_id=mandate_id, client_id=mandate.client_id)
     db.commit()
     db.refresh(result["target_allocation"])
+    return result
+
+
+@router.post("/mandates/{mandate_id}/target-allocation/sensitivity",
+             response_model=AllocationSensitivityResponse)
+def goal_target_sensitivity(
+    mandate_id: str,
+    body: AllocationSensitivityRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_advisor),
+):
+    """Phase 6 FE-Optimizer-Panel: ein einzelnes Goal um delta_pct verschieben
+    und neuen Solver-Lauf zurueckliefern (mit gepinntem Seed = identische
+    Scenarios = sauberes Apples-to-Apples-Delta).
+
+    Gibt 409 wenn OPTIMIZER_MODE != 'stochastic' oder kein Risikoprofil.
+    Gibt 404 wenn Goal nicht zum Mandanten gehoert.
+    """
+    mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    try:
+        result = evaluate_goal_sensitivity(
+            db=db,
+            mandate=mandate,
+            user_id=current_user.id,
+            goal_id=body.goal_id,
+            target_delta_pct=body.target_delta_pct,
+        )
+    except ValueError as exc:
+        msg = str(exc)
+        if "nicht gefunden" in msg.lower():
+            raise HTTPException(status_code=404, detail=msg)
+        raise HTTPException(status_code=409, detail=msg)
     return result
