@@ -531,6 +531,57 @@ def test_payload_endpoint_returns_persisted_optimizer_reasoning(
     ), f"Reasoning ohne Solver-Trace nach Reload: {reasoning}"
 
 
+def test_sensitivity_endpoint_writes_audit_log(
+    session_factory, monkeypatch, cleanup_overrides,
+):
+    """Phase 6.3: Jeder Sensitivity-Call legt einen AuditLog-Eintrag an
+    (FINMA-Trace). record_id=goal_id, action=SENSITIVITY, new_value=delta_pct."""
+    from models.review import AuditLog
+    monkeypatch.setattr(pe.settings, "optimizer_mode", "stochastic")
+    advisor_id, _cid, mid, _aid, gid = _seed_mandate(session_factory)
+    with session_factory() as s:
+        advisor = s.query(User).filter(User.id == advisor_id).first()
+    client = _client_with_user(session_factory, advisor)
+    resp = client.post(
+        f"/mandates/{mid}/target-allocation/sensitivity",
+        json={"goal_id": gid, "target_delta_pct": -10},
+    )
+    assert resp.status_code == 200, resp.text
+    with session_factory() as s:
+        entries = s.query(AuditLog).filter(
+            AuditLog.action == "SENSITIVITY",
+            AuditLog.record_id == gid,
+        ).all()
+    assert len(entries) == 1
+    entry = entries[0]
+    assert entry.user_id == advisor_id
+    assert entry.mandate_id == mid
+    assert entry.table_name == "goals"
+    assert entry.new_value == "-10"
+
+
+def test_sensitivity_endpoint_no_audit_on_404(
+    session_factory, monkeypatch, cleanup_overrides,
+):
+    """Phase 6.3: Bei unbekanntem goal_id (404) darf KEIN AuditLog entstehen."""
+    from models.review import AuditLog
+    monkeypatch.setattr(pe.settings, "optimizer_mode", "stochastic")
+    advisor_id, _cid, mid, _aid, _gid = _seed_mandate(session_factory)
+    with session_factory() as s:
+        advisor = s.query(User).filter(User.id == advisor_id).first()
+    client = _client_with_user(session_factory, advisor)
+    resp = client.post(
+        f"/mandates/{mid}/target-allocation/sensitivity",
+        json={"goal_id": "nope", "target_delta_pct": 10},
+    )
+    assert resp.status_code == 404
+    with session_factory() as s:
+        entries = s.query(AuditLog).filter(
+            AuditLog.action == "SENSITIVITY",
+        ).all()
+    assert len(entries) == 0
+
+
 def test_payload_endpoint_handles_corrupted_reasoning_json_gracefully(
     session_factory, monkeypatch, cleanup_overrides,
 ):

@@ -289,6 +289,9 @@ def goal_target_sensitivity(
 
     Gibt 409 wenn OPTIMIZER_MODE != 'stochastic' oder kein Risikoprofil.
     Gibt 404 wenn Goal nicht zum Mandanten gehoert.
+
+    FINMA-Trace: jeder Aufruf wird als SENSITIVITY-Eintrag im AuditLog
+    persistiert (mandate, goal, delta).
     """
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
     try:
@@ -304,4 +307,12 @@ def goal_target_sensitivity(
         if "nicht gefunden" in msg.lower():
             raise HTTPException(status_code=404, detail=msg)
         raise HTTPException(status_code=409, detail=msg)
+    # Phase 6.3: AuditLog-Eintrag fuer FINMA-Trace. record_id = goal_id, weil
+    # die Sensitivity sich auf ein konkretes Goal bezieht; new_value = delta_pct
+    # damit forensisch nachvollziehbar ist welche Schieber bewegt wurden.
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="goals", record_id=body.goal_id, action="SENSITIVITY",
+        new_value=str(body.target_delta_pct),
+        mandate_id=mandate_id, client_id=mandate.client_id)
+    db.commit()
     return result
