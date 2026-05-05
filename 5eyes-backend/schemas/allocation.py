@@ -81,6 +81,8 @@ class TargetAllocationResponse(BaseResponse):
     # Phase 6: persistierte Stress-Auswertungen als JSON-String. None bei
     # house_matrix-Modus. FE deserialisiert clientseitig.
     stress_evaluations_json: Optional[str] = None
+    # Phase 6.2: persistierter Solver-Reasoning-Trace (JSON-Liste).
+    optimizer_reasoning_json: Optional[str] = None
     policy_id: str
     set_by: str
     set_at: str

@@ -452,3 +452,110 @@ def test_payload_endpoint_handles_corrupted_stress_json_gracefully(
     resp = client.get(f"/mandates/{mid}/target-allocation/current/payload")
     assert resp.status_code == 200, resp.text
     assert resp.json().get("stress_evaluations") is None
+
+
+# ============================================================================
+# Phase 6.2: optimizer_reasoning Persistenz (target_allocations.optimizer_reasoning_json)
+# ============================================================================
+
+
+def test_optimizer_reasoning_persisted_to_db_column(session_factory, monkeypatch):
+    """Phase 6.2: optimizer_reasoning_json wird in der DB-Spalte abgelegt
+    (JSON-Liste mit Solver-Trace-Zeilen). Nur fuer stochastic-Modus."""
+    import json
+
+    from models.allocation import TargetAllocation
+    monkeypatch.setattr(pe.settings, "optimizer_mode", "stochastic")
+    advisor_id, _cid, mid, _aid, _gid = _seed_mandate(session_factory)
+    with session_factory() as s:
+        mandate = s.query(Mandate).filter(Mandate.id == mid).first()
+        generate_target_allocation(s, mandate, advisor_id, preferences=None)
+        s.commit()
+        ta = s.query(TargetAllocation).filter(
+            TargetAllocation.mandate_id == mid,
+            TargetAllocation.is_current == 1,
+        ).first()
+        # Wenn der Solver konvergierte: Reasoning-Spalte ist gesetzt.
+        # (Bei fallback-Fall ist OptimizerResult.reasoning trotzdem gefuellt.)
+        if ta.optimization_method is not None:
+            assert ta.optimizer_reasoning_json is not None
+            parsed = json.loads(ta.optimizer_reasoning_json)
+            assert isinstance(parsed, list)
+            assert len(parsed) >= 1
+            assert all(isinstance(item, str) for item in parsed)
+
+
+def test_optimizer_reasoning_column_null_in_house_matrix(session_factory, monkeypatch):
+    """Phase 6.2: house_matrix-Modus -> optimizer_reasoning_json bleibt NULL."""
+    from models.allocation import TargetAllocation
+    monkeypatch.setattr(pe.settings, "optimizer_mode", "house_matrix")
+    advisor_id, _cid, mid, _aid, _gid = _seed_mandate(session_factory)
+    with session_factory() as s:
+        mandate = s.query(Mandate).filter(Mandate.id == mid).first()
+        generate_target_allocation(s, mandate, advisor_id, preferences=None)
+        s.commit()
+        ta = s.query(TargetAllocation).filter(
+            TargetAllocation.mandate_id == mid,
+            TargetAllocation.is_current == 1,
+        ).first()
+        assert ta.optimizer_reasoning_json is None
+
+
+def test_payload_endpoint_returns_persisted_optimizer_reasoning(
+    session_factory, monkeypatch, cleanup_overrides,
+):
+    """Phase 6.2: GET /current/payload reasoning-Liste enthaelt persistierte
+    Solver-Reasoning-Zeilen (z.B. 'SLSQP', 'Best objective', 'Stress')."""
+    monkeypatch.setattr(pe.settings, "optimizer_mode", "stochastic")
+    advisor_id, _cid, mid, _aid, _gid = _seed_mandate(session_factory)
+    with session_factory() as s:
+        mandate = s.query(Mandate).filter(Mandate.id == mid).first()
+        gen_result = generate_target_allocation(s, mandate, advisor_id, preferences=None)
+        s.commit()
+        had_optimizer = gen_result["target_allocation"].optimization_method is not None
+    if not had_optimizer:
+        pytest.skip("Solver lief nicht - kein Reasoning persistiert")
+
+    with session_factory() as s:
+        advisor = s.query(User).filter(User.id == advisor_id).first()
+    client = _client_with_user(session_factory, advisor)
+    resp = client.get(f"/mandates/{mid}/target-allocation/current/payload")
+    assert resp.status_code == 200, resp.text
+    reasoning = resp.json().get("reasoning", [])
+    assert isinstance(reasoning, list)
+    joined = " | ".join(reasoning)
+    # Mindestens einer der Solver-Trace-Marker muss drin sein.
+    assert any(
+        marker in joined
+        for marker in ("SLSQP", "Solver", "Best objective", "Stress", "iterations")
+    ), f"Reasoning ohne Solver-Trace nach Reload: {reasoning}"
+
+
+def test_payload_endpoint_handles_corrupted_reasoning_json_gracefully(
+    session_factory, monkeypatch, cleanup_overrides,
+):
+    """Phase 6.2: defekter optimizer_reasoning_json -> kein Crash, leere Liste,
+    generic Reasoning + Drift-Warnings stehen weiter zur Verfuegung."""
+    from models.allocation import TargetAllocation
+    monkeypatch.setattr(pe.settings, "optimizer_mode", "house_matrix")
+    advisor_id, _cid, mid, _aid, _gid = _seed_mandate(session_factory)
+    with session_factory() as s:
+        mandate = s.query(Mandate).filter(Mandate.id == mid).first()
+        generate_target_allocation(s, mandate, advisor_id, preferences=None)
+        s.commit()
+        ta = s.query(TargetAllocation).filter(
+            TargetAllocation.mandate_id == mid,
+            TargetAllocation.is_current == 1,
+        ).first()
+        ta.optimizer_reasoning_json = "[truly broken"
+        s.commit()
+
+    with session_factory() as s:
+        advisor = s.query(User).filter(User.id == advisor_id).first()
+    client = _client_with_user(session_factory, advisor)
+    resp = client.get(f"/mandates/{mid}/target-allocation/current/payload")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    # generic 2-Satz-Reasoning muss da sein, kein Crash
+    reasoning = body.get("reasoning", [])
+    assert any("bestehende aktuelle Soll-Allokation" in r for r in reasoning)

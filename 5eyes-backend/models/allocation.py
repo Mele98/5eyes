@@ -79,6 +79,11 @@ class TargetAllocation(Base):
     # Damit kann das FE-Optimizer-Panel auch beim Reload (GET-Endpoint) die
     # Stress-Tabelle ohne erneuten Solver-Lauf rendern.
     stress_evaluations_json = Column(String)
+    # Phase 6.2: persistierter Reasoning-Trace des Solvers (list[str] als JSON).
+    # Nur die optimizer-spezifischen Zeilen werden gespeichert; die generischen
+    # House-Matrix-Sätze und dynamischen Drift-Warnings werden im Read-Pfad
+    # frisch berechnet. NULL bei house_matrix-Modus.
+    optimizer_reasoning_json = Column(String)
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
     deleted_at = Column(String)

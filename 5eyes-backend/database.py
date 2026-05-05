@@ -194,6 +194,9 @@ def ensure_runtime_columns() -> None:
             # Phase 6: persistierte Stress-Auswertungen (Phase 5.2) als JSON-String.
             # NULL bei house_matrix-Modus oder Pre-Optimizer-Allocations.
             ('stress_evaluations_json', 'TEXT'),
+            # Phase 6.2: persistierter Solver-Reasoning-Trace (list[str] JSON).
+            # Damit /current/payload das identische Reasoning liefert wie /generate.
+            ('optimizer_reasoning_json', 'TEXT'),
         ],
         'recommendation_positions': [
             ('reference_price_rappen', 'INTEGER'),

@@ -3918,6 +3918,21 @@ def generate_target_allocation(
         except (TypeError, ValueError) as exc:
             logger.warning("Stress-eval JSON-serialization failed: %s", exc)
             stress_evaluations_json = None
+    # Phase 6.2: Solver-Reasoning persistieren, damit das Reasoning im
+    # /current/payload-Pfad identisch zu /generate erscheint. Nur die
+    # optimizer-spezifischen Zeilen - generische House-Matrix-Saetze und
+    # dynamische Drift-Warnings werden im Read-Pfad frisch berechnet.
+    optimizer_reasoning_json: str | None = None
+    if optimizer_result is not None and optimizer_result.reasoning:
+        try:
+            optimizer_reasoning_json = json.dumps(
+                list(optimizer_result.reasoning),
+                separators=(",", ":"),
+                ensure_ascii=False,
+            )
+        except (TypeError, ValueError) as exc:
+            logger.warning("Optimizer-reasoning JSON-serialization failed: %s", exc)
+            optimizer_reasoning_json = None
     target_allocation = TargetAllocation(
         id=new_uuid(),
         mandate_id=mandate.id,
@@ -3955,6 +3970,7 @@ def generate_target_allocation(
         optimization_seed=optimizer_audit.get("optimization_seed"),
         optimization_status=optimizer_audit.get("optimization_status"),
         stress_evaluations_json=stress_evaluations_json,
+        optimizer_reasoning_json=optimizer_reasoning_json,
         policy_id=policy.id,
         set_by=user_id,
         set_at=now,
@@ -4421,6 +4437,21 @@ def build_target_payload_from_allocation(
                 "Stored stress_evaluations_json invalid for allocation %s: %s",
                 getattr(allocation, "id", "?"), exc,
             )
+    # Phase 6.2: persistierten Solver-Reasoning-Trace deserialisieren.
+    persisted_optimizer_reasoning: list[str] = []
+    raw_reasoning = getattr(allocation, "optimizer_reasoning_json", None)
+    if raw_reasoning:
+        try:
+            parsed_reasoning = json.loads(raw_reasoning)
+            if isinstance(parsed_reasoning, list):
+                persisted_optimizer_reasoning = [
+                    str(item) for item in parsed_reasoning if item
+                ]
+        except (TypeError, ValueError) as exc:
+            logger.warning(
+                "Stored optimizer_reasoning_json invalid for allocation %s: %s",
+                getattr(allocation, "id", "?"), exc,
+            )
     return {
         "target_allocation": allocation,
         "policy": policy,
@@ -4463,6 +4494,10 @@ def build_target_payload_from_allocation(
                 if normalized_legacy_liquidity
                 else []
             )
+            # Phase 6.2: persistiertes Solver-Reasoning anhaengen, damit das
+            # FE-Optimizer-Panel beim Reload den vollen Iter-/Stress-Trace
+            # zeigt (nicht nur die generischen 2 Saetze oben).
+            + persisted_optimizer_reasoning
             # C8: zentrale Drift-Warnings (Assessment, CMA, Inputs, Preferences,
             # Reserve, Legacy-Anker). Konsolidiert ehemalige inline F2-/F3-Logik.
             + drift_warnings
