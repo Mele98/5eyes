@@ -2244,6 +2244,8 @@ def _run_allocation_monte_carlo(
     start_year: int,
     sub_allocations: list[dict] | None = None,
     target_total_rappen: int | None = None,
+    total_summary: "PortfolioSummary | None" = None,
+    total_liabilities_rappen: int = 0,
 ) -> dict:
     horizon_years = max(1, len(cashflow_projection_series_rappen))
     simulations = _monte_carlo_simulations(simulation_prefs)
@@ -2288,6 +2290,19 @@ def _run_allocation_monte_carlo(
 
     current_by_year: list[list[int]] = [[] for _ in range(horizon_years + 1)]
     target_by_year: list[list[int]] = [[] for _ in range(horizon_years + 1)]
+    # F23: Total-Vermoegen-Pfade in MC parallel zu advisory. Liabilities werden
+    # als initial deficit auf den IST-Total getragen; SOLL-Total bekommt sie
+    # bereits beim Start abgezogen. Wenn total_summary fehlt, bleiben die Listen
+    # leer und der Caller bekommt [] zurueck.
+    total_current_by_year: list[list[int]] = [[] for _ in range(horizon_years + 1)]
+    total_target_by_year: list[list[int]] = [[] for _ in range(horizon_years + 1)]
+    total_liabilities_rappen = max(0, int(total_liabilities_rappen or 0))
+    if total_summary is not None:
+        total_target_start = max(0, int(total_summary.total_rappen) - total_liabilities_rappen)
+        total_target_start_values = _target_bucket_values(total_target_start, targets)
+    else:
+        total_target_start = 0
+        total_target_start_values = {key: 0 for key in BUCKET_FIELDS}
     current_annualized_returns: list[int] = []
     target_annualized_returns: list[int] = []
     target_year_one_returns: list[int] = []
@@ -2303,6 +2318,20 @@ def _run_allocation_monte_carlo(
         # den Pfad-Total negativ (Vermoegen aufgezehrt).
         current_deficit = 0
         target_deficit = 0
+        # F23: parallele Total-Pfade. IST traegt Liabilities ab Start, SOLL hat
+        # sie schon im total_target_start abgezogen.
+        if total_summary is not None:
+            total_current_values = {key: max(0, int(total_summary.amounts_rappen.get(key, 0))) for key in BUCKET_FIELDS}
+            total_target_values = {key: max(0, int(total_target_start_values.get(key, 0))) for key in BUCKET_FIELDS}
+            total_current_deficit = total_liabilities_rappen
+            total_target_deficit = 0
+            total_current_by_year[0].append(sum(total_current_values.values()) - total_current_deficit)
+            total_target_by_year[0].append(sum(total_target_values.values()) - total_target_deficit)
+        else:
+            total_current_values = None
+            total_target_values = None
+            total_current_deficit = 0
+            total_target_deficit = 0
         current_by_year[0].append(sum(current_values.values()) - current_deficit)
         target_by_year[0].append(sum(target_values.values()) - target_deficit)
 
@@ -2320,9 +2349,15 @@ def _run_allocation_monte_carlo(
                 growth_factor = math.exp(mu_ln + sigma * corr[idx])
                 current_values[key] = int(round(max(0, current_values[key]) * growth_factor))
                 target_values[key] = int(round(max(0, target_values[key]) * growth_factor))
+                if total_current_values is not None:
+                    total_current_values[key] = int(round(max(0, total_current_values[key]) * growth_factor))
+                    total_target_values[key] = int(round(max(0, total_target_values[key]) * growth_factor))
 
             current_deficit += _apply_cashflow_to_bucket_values(current_values, int(contribution or 0))
             target_deficit += _apply_cashflow_to_bucket_values(target_values, int(contribution or 0))
+            if total_current_values is not None:
+                total_current_deficit += _apply_cashflow_to_bucket_values(total_current_values, int(contribution or 0))
+                total_target_deficit += _apply_cashflow_to_bucket_values(total_target_values, int(contribution or 0))
 
             if rebalance_mode in ("bands", "calendar"):
                 target_weights = _weights_from_bucket_values(target_values)
@@ -2340,9 +2375,27 @@ def _run_allocation_monte_carlo(
                             target_values[key] = max(0, int(round(
                                 target_values[key] * (1 - cost_rappen / total_after)
                             )))
+                if total_target_values is not None:
+                    total_target_weights = _weights_from_bucket_values(total_target_values)
+                    total_breached = [
+                        key for key in BUCKET_FIELDS
+                        if total_target_weights[key] < int(minimums.get(key, 0)) or total_target_weights[key] > int(maximums.get(key, 0))
+                    ]
+                    if rebalance_mode == "calendar" or total_breached:
+                        total_target_values, total_rebal_turnover = _rebalance_bucket_values_to_targets(total_target_values, targets)
+                        if transaction_cost_bps > 0 and total_rebal_turnover > 0:
+                            cost_rappen = int(round(total_rebal_turnover * transaction_cost_bps / 10000))
+                            total_after = max(1, sum(total_target_values.values()))
+                            for key in BUCKET_FIELDS:
+                                total_target_values[key] = max(0, int(round(
+                                    total_target_values[key] * (1 - cost_rappen / total_after)
+                                )))
 
             current_by_year[year_index].append(sum(current_values.values()) - current_deficit)
             target_by_year[year_index].append(sum(target_values.values()) - target_deficit)
+            if total_current_values is not None:
+                total_current_by_year[year_index].append(sum(total_current_values.values()) - total_current_deficit)
+                total_target_by_year[year_index].append(sum(total_target_values.values()) - total_target_deficit)
 
         current_annualized_returns.append(_annualized_return_bps(current_start, current_by_year[-1][-1], horizon_years))
         target_annualized_returns.append(_annualized_return_bps(target_start, target_by_year[-1][-1], horizon_years))
@@ -2371,6 +2424,7 @@ def _run_allocation_monte_carlo(
     target_terminal_values = target_by_year[-1]
     downside_probability_pct = int(round(sum(1 for value in target_terminal_values if value < target_start_total) / max(1, len(target_terminal_values)) * 100))
 
+    has_total_paths = total_summary is not None and total_current_by_year[0]
     return {
         "simulations": simulations,
         "seed": seed,
@@ -2383,6 +2437,26 @@ def _run_allocation_monte_carlo(
         "target_p10_series_rappen": [_percentile(values, 0.10) for values in target_by_year],
         "target_p50_series_rappen": [_percentile(values, 0.50) for values in target_by_year],
         "target_p90_series_rappen": [_percentile(values, 0.90) for values in target_by_year],
+        # F23: Total-Vermoegen-Pfade (Gesamtvermoegen, Liabilities mit Lebensluecke).
+        # Leer wenn der Aufrufer kein total_summary uebergeben hat.
+        "total_current_p10_series_rappen": (
+            [_percentile(values, 0.10) for values in total_current_by_year] if has_total_paths else []
+        ),
+        "total_current_p50_series_rappen": (
+            [_percentile(values, 0.50) for values in total_current_by_year] if has_total_paths else []
+        ),
+        "total_current_p90_series_rappen": (
+            [_percentile(values, 0.90) for values in total_current_by_year] if has_total_paths else []
+        ),
+        "total_target_p10_series_rappen": (
+            [_percentile(values, 0.10) for values in total_target_by_year] if has_total_paths else []
+        ),
+        "total_target_p50_series_rappen": (
+            [_percentile(values, 0.50) for values in total_target_by_year] if has_total_paths else []
+        ),
+        "total_target_p90_series_rappen": (
+            [_percentile(values, 0.90) for values in total_target_by_year] if has_total_paths else []
+        ),
         "current_annualized_return_p50_bps": _percentile(current_annualized_returns, 0.50),
         "target_annualized_return_p50_bps": _percentile(target_annualized_returns, 0.50),
         "target_var_95_1y_bps": _percentile(target_year_one_losses, 0.95),
@@ -3627,6 +3701,8 @@ def generate_target_allocation(
         start_year=cashflow_totals["year"],
         sub_allocations=sub_allocations,
         target_total_rappen=investable_advisory_wealth_rappen,
+        total_summary=total_summary,
+        total_liabilities_rappen=total_liabilities_rappen,
     )
     goal_analysis = _merge_goal_analysis_with_monte_carlo(goal_analysis, monte_carlo)
     reasoning.append("Eine Pfadsimulation mit normalverteilten Jahresrenditen quantifiziert Zielwahrscheinlichkeit, Verlustband und Rebalancing-Risiko.")
@@ -3914,6 +3990,8 @@ def build_target_payload_from_allocation(
         start_year=cashflow_totals["year"],
         sub_allocations=sub_allocations,
         target_total_rappen=investable_advisory_wealth_rappen,
+        total_summary=total_summary,
+        total_liabilities_rappen=total_liabilities_rappen,
     )
     goal_analysis = _merge_goal_analysis_with_monte_carlo(goal_analysis, monte_carlo)
     bucket_response = []

@@ -325,6 +325,15 @@ class MonteCarloResponse(BaseModel):
     target_p10_series_rappen: list[int]
     target_p50_series_rappen: list[int]
     target_p90_series_rappen: list[int]
+    # F23: Total-Vermoegen-Pfade (Gesamtvermoegen inkl. Liabilities). Leer wenn
+    # der Aufrufer kein total_summary uebergibt; ansonsten parallel zu den
+    # advisory-Pfaden mit gleicher Zeitachse.
+    total_current_p10_series_rappen: list[int] = Field(default_factory=list)
+    total_current_p50_series_rappen: list[int] = Field(default_factory=list)
+    total_current_p90_series_rappen: list[int] = Field(default_factory=list)
+    total_target_p10_series_rappen: list[int] = Field(default_factory=list)
+    total_target_p50_series_rappen: list[int] = Field(default_factory=list)
+    total_target_p90_series_rappen: list[int] = Field(default_factory=list)
     current_annualized_return_p50_bps: int
     target_annualized_return_p50_bps: int
     target_var_95_1y_bps: int
