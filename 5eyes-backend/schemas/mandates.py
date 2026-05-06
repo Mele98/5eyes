@@ -23,6 +23,9 @@ class MandateUpdate(BaseModel):
     depot_bank: Optional[str] = None
     depot_account_number: Optional[str] = None
     closed_at: Optional[str] = None
+    # Sprint A3 (2026-05-06): Rentenalter + Lebenserwartung
+    retirement_year: Optional[int] = None
+    life_expectancy_year: Optional[int] = None
 
 
 class MandateResponse(BaseResponse):
@@ -37,5 +40,7 @@ class MandateResponse(BaseResponse):
     depot_account_number: Optional[str]
     opened_at: str
     closed_at: Optional[str]
+    retirement_year: Optional[int] = None
+    life_expectancy_year: Optional[int] = None
     created_at: str
     updated_at: str
