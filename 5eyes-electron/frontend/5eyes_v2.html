@@ -2728,6 +2728,45 @@ async function loadClientById(clientId) {
         }catch(riskErr){
           console.warn('loadCurrentRiskAssessment:', riskErr);
         }
+        // Bug-fix 2026-05-06: nach Mandant-Switch die gespeicherte Allocation
+        // aktiv hydraten, sonst bleibt strategyState.allocation=null und
+        // go('al') zeigt eine leere Asset-Allocation. loadCurrentAllocationResult
+        // hat selbst stale-guards (mid != activeMandate) und ruft
+        // applyAllocationEngineResult auf bei success.
+        if(!isDemoMandateId(currentMandateId)){
+          try{
+            var hydratedAllocation = await loadCurrentAllocationResult(currentMandateId);
+            // stale-guard: hat sich Client/Mandat während des Awaits geändert?
+            if (loadToken !== liveClientLoadToken || currentClientId !== c.id || currentMandateId !== (hydratedAllocation && allocationPayloadMandateId(hydratedAllocation) || currentMandateId)) {
+              return;
+            }
+            if(hydratedAllocation){
+              strategyState.dirty = false;
+              var dirtyBanner = document.getElementById('al-dirty-banner');
+              if(dirtyBanner) dirtyBanner.style.display = 'none';
+            }
+          }catch(allocErr){
+            // 404 = keine gespeicherte Strategie, 409 = Inputs unvollständig
+            // Beide sind keine Fehler, sondern legitime Zustände. dirty=true
+            // bleibt damit der Berater "Strategie berechnen" anstösst.
+            var status = String(allocErr && allocErr.status || '');
+            if(status === '404'){
+              if(typeof updateStrategyStatus === 'function'){
+                updateStrategyStatus('Noch keine gespeicherte Strategie für diesen Mandanten. Bitte «Anlagestrategie berechnen» ausführen.', false);
+              }
+            } else if(status === '409'){
+              if(typeof updateStrategyStatus === 'function'){
+                updateStrategyStatus('Strategie kann nicht hydratisiert werden — Eingaben unvollständig.', false);
+              }
+            } else {
+              console.warn('loadCurrentAllocationResult:', allocErr);
+            }
+            // Visuell sauber zurücksetzen
+            renderEngineRuntimePanels(null);
+            renderStrategySummary();
+            try{ syncAllocationDonutFromStrategyState(); }catch(_){}
+          }
+        }
       } else {
         hydrateRiskQuestionnaire(null);
         if(typeof calcRiskScore==='function')calcRiskScore();
@@ -2911,12 +2950,22 @@ async function go(p,b){
         renderAllocationCashflowTimeline(strategyState.allocation);
         renderEngineRuntimePanels(strategyState.allocation);
         renderStrategySummary();
-      }else{
-        syncAllocationPendingViews();
+        var dirtyBanner=document.getElementById('al-dirty-banner');
+        if(dirtyBanner)dirtyBanner.style.display='';
+        updateStrategyStatus('Änderungen erkannt: sichtbare Strategie bleibt bis «Anlagestrategie berechnen».',false);
+        return;
       }
-      var dirtyBanner=document.getElementById('al-dirty-banner');
-      if(dirtyBanner)dirtyBanner.style.display='';
-      updateStrategyStatus('Änderungen erkannt: sichtbare Strategie bleibt bis «Anlagestrategie berechnen».',false);
+      // Bug-fix 2026-05-06: dirty + null allocation -> versuchen zu hydraten
+      // statt stehen zu bleiben. refreshStrategyData(false,false) liest
+      // gespeicherte Allokation aus dem Backend und behandelt 404/409 sauber.
+      syncAllocationPendingViews();
+      var dirtyBannerNull=document.getElementById('al-dirty-banner');
+      if(dirtyBannerNull)dirtyBannerNull.style.display='';
+      if(currentMandateId && !isDemoMandateId(currentMandateId)){
+        refreshStrategyData(false,false);
+      }else{
+        updateStrategyStatus('Änderungen erkannt: sichtbare Strategie bleibt bis «Anlagestrategie berechnen».',false);
+      }
       return;
     }
     refreshStrategyData(false,false);
