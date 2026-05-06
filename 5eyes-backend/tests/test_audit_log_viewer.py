@@ -149,9 +149,7 @@ def test_audit_log_limit_capped_at_200(session_factory, admin_client):
 
     response = admin_client.get("/admin/system/audit-log?limit=999")
 
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["limit"] == 200
+    assert response.status_code == 422
 
 
 def test_audit_log_requires_admin(session_factory, forbidden_client):

@@ -50,20 +50,14 @@ def get_recent_logs(
 
 @router.get('/audit-log', response_model=AuditLogPage)
 def get_audit_log(
-    limit: int = 50,
-    offset: int = 0,
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0, le=100_000),
     action: Optional[str] = None,
     q: Optional[str] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
     _ = current_user
-    if limit < 1:
-        limit = 1
-    if limit > 200:
-        limit = 200
-    if offset < 0:
-        offset = 0
 
     query = db.query(AuditLog)
 

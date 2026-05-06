@@ -6,6 +6,18 @@ const http = require('http');
 const net = require('net');
 const path = require('path');
 
+function isSafeExternalUrl(url) {
+  try {
+    const parsed = new URL(url);
+    return (
+      parsed.protocol === 'https:' ||
+      (parsed.protocol === 'http:' && parsed.hostname === 'localhost')
+    );
+  } catch {
+    return false;
+  }
+}
+
 function loadEnvIntoProcess() {
   const candidates = [
     path.join(process.cwd(), '.env'),

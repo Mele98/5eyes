@@ -1,3 +1,4 @@
+import re
 import sqlite3
 import re
 import sys
@@ -136,9 +137,7 @@ def bootstrap_sqlite_schema(
                 'Installiere sqlcipher3-binary oder sqlcipher3.'
             )
         with sqlcipher3.connect(str(db_file)) as conn:
-            _key = (db_key or settings.db_key or '').replace("'", "''")
-            # sqlcipher3 PRAGMA key is kept as an escaped string literal here.
-            conn.execute(f"PRAGMA key = '{_key}'")
+            conn.execute("PRAGMA key = ?", [db_key or settings.db_key or ''])
             conn.execute('PRAGMA cipher_page_size = 4096')
             conn.execute('PRAGMA kdf_iter = 256000')
             conn.execute('PRAGMA cipher_hmac_algorithm = HMAC_SHA512')
@@ -264,12 +263,12 @@ def ensure_runtime_columns() -> None:
             for column_name, sql_type in columns:
                 if column_name in existing:
                     continue
-                if not re.match(r'^[a-z][a-z0-9_]+$', table_name):
-                    raise ValueError(f"Ungueltiger Tabellenname: {table_name!r}")
-                if not re.match(r'^[a-z][a-z0-9_]+$', column_name):
-                    raise ValueError(f"Ungueltiger Spaltenname: {column_name!r}")
+                if not re.match(r'^[a-z][a-z0-9_]*$', table_name):
+                    raise ValueError(f"Ungültiger Tabellenname: {table_name!r}")
+                if not re.match(r'^[a-z][a-z0-9_]*$', column_name):
+                    raise ValueError(f"Ungültiger Spaltenname: {column_name!r}")
                 if not re.match(r'^[A-Z]+$', sql_type):
-                    raise ValueError(f"Ungueltiger SQL-Typ: {sql_type!r}")
+                    raise ValueError(f"Ungültiger SQL-Typ: {sql_type!r}")
                 conn.execute(text(f'ALTER TABLE {table_name} ADD COLUMN {column_name} {sql_type}'))
                 existing.add(column_name)
 

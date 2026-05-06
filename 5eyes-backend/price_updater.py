@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any
+from urllib.parse import quote
 from urllib.request import urlopen
 
 import csv
@@ -177,7 +178,7 @@ def _stooq_symbol(symbol: str) -> str:
 
 def fetch_stooq_price(symbol: str, *, currency: str | None = None) -> PricePoint:
     stooq_symbol = _stooq_symbol(symbol)
-    url = f"https://stooq.com/q/l/?s={stooq_symbol}&f=sd2t2ohlcvn&e=csv"
+    url = f"https://stooq.com/q/l/?s={quote(stooq_symbol, safe='')}&f=sd2t2ohlcvn&e=csv"
     with urlopen(url, timeout=10) as response:
         payload = response.read().decode("utf-8", errors="replace")
     rows = [row for row in csv.reader(StringIO(payload)) if row]
