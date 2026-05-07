@@ -3317,6 +3317,14 @@ def _load_allocation_inputs(
     advisory_wealth_rappen = advisory_summary.total_rappen
     total_liabilities_rappen = sum(int(pos.current_value_rappen or 0) for pos in liability_positions)
     total_wealth_rappen = max(0, total_summary.total_rappen - total_liabilities_rappen)
+    # Sprint B2 (2026-05-07): Anderes-Vermoegen-Schloss-Mechanismus.
+    # is_available_for_goal_funding=1 erlaubt der Position, zur Reserve-Deckung
+    # herangezogen zu werden (liquid: Verkauf, illiquid: Belehnung @ 100% LTV).
+    unlocked_other_assets_rappen = sum(
+        int(pos.current_value_rappen or 0) for pos in all_positions
+        if int(getattr(pos, "is_available_for_goal_funding", 0) or 0) == 1
+        and _norm_text(getattr(pos, "assignment", "")) == "Anderes Vermoegen"
+    )
 
     cashflows = db.query(Cashflow).filter(
         Cashflow.client_id == mandate.client_id,
@@ -3396,6 +3404,8 @@ def _load_allocation_inputs(
         # Sprint A1: erwartete Vermoegenszufluesse, fuer Audit-Trail + FE-Anzeige.
         "wealth_inflows": wealth_inflows,
         "inflow_projection_series_rappen": inflow_projection_series_rappen,
+        # Sprint B2: Anderes-Vermoegen-Schloss-Pool (Reserve-Reduktion).
+        "unlocked_other_assets_rappen": unlocked_other_assets_rappen,
     }
 
 
@@ -3475,6 +3485,7 @@ def _compute_reserve_for_inputs(
     advisory_wealth_rappen: int,
     saa_liquidity_ceiling_bps: int,
     reasoning: list[str] | None = None,
+    unlocked_other_assets_rappen: int = 0,
 ) -> tuple[int, int]:
     """C7 StrategyContext: Single Source of Truth fuer Reserve-Berechnung.
 
@@ -3543,6 +3554,18 @@ def _compute_reserve_for_inputs(
     if uncapped_required_liquidity_bps > saa_liquidity_ceiling_bps:
         saa_reserve_rappen = int(round(saa_liquidity_ceiling_bps * advisory_wealth_rappen / 10000))
         external_reserve_rappen = max(0, reserve_needed_rappen - saa_reserve_rappen)
+        # Sprint B2: Anderes-Vermoegen-Schloss reduziert die externe Reserve,
+        # weil verfuegbares 'anderes Vermoegen' den Reserve-Bedarf decken kann.
+        unlocked = max(0, int(unlocked_other_assets_rappen or 0))
+        if unlocked > 0 and external_reserve_rappen > 0:
+            absorbed = min(unlocked, external_reserve_rappen)
+            external_reserve_rappen = max(0, external_reserve_rappen - absorbed)
+            if reasoning is not None and absorbed > 0:
+                chf_unlocked = absorbed // 100
+                reasoning.append(
+                    f"Anderes Vermoegen mit Goal-Funding-Schloss (CHF {chf_unlocked:,}) "
+                    "deckt einen Teil des externen Reservebedarfs."
+                )
         if reasoning is not None and external_reserve_rappen > 0:
             chf_external = external_reserve_rappen // 100
             reasoning.append(
@@ -3564,6 +3587,7 @@ def _apply_goal_and_reserve_tilts(
     recurring_cashflow_projection_series_rappen: list[int],
     advisory_wealth_rappen: int,
     reasoning: list[str],
+    unlocked_other_assets_rappen: int = 0,
 ) -> tuple[int, int]:
     # C7: Reserve-Berechnung wird zentral in _compute_reserve_for_inputs gehandelt
     # (StrategyContext-Konsolidierung), Goal-Tilts auf Bandbreiten passieren hier.
@@ -3577,6 +3601,7 @@ def _apply_goal_and_reserve_tilts(
         advisory_wealth_rappen=advisory_wealth_rappen,
         saa_liquidity_ceiling_bps=saa_liq_ceiling_bps,
         reasoning=reasoning,
+        unlocked_other_assets_rappen=unlocked_other_assets_rappen,
     )
     # Goal-spezifische Bandbreiten-Tilts (Reduktion Aktien fuer kurze Vermoegensziele)
     for goal in goals:
@@ -4070,6 +4095,7 @@ def generate_target_allocation(
         recurring_cashflow_projection_series_rappen=recurring_cashflow_projection_series_rappen,
         advisory_wealth_rappen=advisory_wealth_rappen,
         reasoning=reasoning,
+        unlocked_other_assets_rappen=int(inputs.get("unlocked_other_assets_rappen") or 0),
     )
     investable_advisory_wealth_rappen = _investable_advisory_wealth_rappen(advisory_wealth_rappen, external_reserve_rappen)
 
@@ -4554,6 +4580,12 @@ def build_target_payload_from_allocation(
     advisory_wealth_rappen = advisory_summary.total_rappen
     total_liabilities_rappen = sum(int(pos.current_value_rappen or 0) for pos in liability_positions)
     total_wealth_rappen = max(0, total_summary.total_rappen - total_liabilities_rappen)
+    # Sprint B2: Anderes-Vermoegen-Schloss-Pool fuer Reserve-Reduktion (rebuild path).
+    unlocked_other_assets_rappen = sum(
+        int(pos.current_value_rappen or 0) for pos in all_positions
+        if int(getattr(pos, "is_available_for_goal_funding", 0) or 0) == 1
+        and _norm_text(getattr(pos, "assignment", "")) == "Anderes Vermoegen"
+    )
 
     cashflows = db.query(Cashflow).filter(
         Cashflow.client_id == mandate.client_id,
@@ -4639,6 +4671,7 @@ def build_target_payload_from_allocation(
         advisory_wealth_rappen=advisory_wealth_rappen,
         saa_liquidity_ceiling_bps=saa_liq_ceil_bps,
         reasoning=None,
+        unlocked_other_assets_rappen=unlocked_other_assets_rappen,
     )
     investable_advisory_wealth_rappen = _investable_advisory_wealth_rappen(advisory_wealth_rappen, external_reserve_rappen)
     goal_inflation_series_bps = _goal_inflation_series_bps(
