@@ -99,6 +99,54 @@ def _reserve_decay_factor(years: int) -> float:
         return 0.90
     raw = math.exp(-(y - 3) / _RESERVE_DECAY_TAU)
     return max(_RESERVE_DECAY_MIN, min(_RESERVE_DECAY_MAX, raw))
+
+
+# Sprint B5 (2026-05-07): Time-Bucket-Reserve mit drei Fristen.
+# Berater-Heuristik PB/Brunel-Das Bucket-Strategy: kurz = mehr Cash, mittel = halbe
+# Reserve, lang = kein Liquiditaets-Anker. Feinere Granularitaet als legacy
+# Stufenfunktion {≤3:100%, ≤7:50%, >7:0%}, opt-in via RESERVE_BUCKET_MODE.
+_TIME_BUCKET_FACTORS: tuple[tuple[int, float, str], ...] = (
+    (1, 1.00, "≤1J"),
+    (3, 0.80, "1-3J"),
+    (7, 0.35, "3-7J"),
+)
+_TIME_BUCKET_LONG_LABEL = ">7J"
+
+
+def _reserve_bucket_mode_time_bucket() -> bool:
+    """Opt-in: B5 Time-Bucket nur wenn RESERVE_BUCKET_MODE=time_bucket.
+    Default 'legacy' (audit-konsistent zu Z2/B5-stufen).
+    """
+    import os
+    return str(os.environ.get("RESERVE_BUCKET_MODE", "legacy")).strip().lower() == "time_bucket"
+
+
+def _time_bucket_reserve_factor(years: int | None) -> float:
+    """Time-Bucket-Faktor fuer Reserve nach Fristigkeit.
+
+    ≤1J -> 1.00 (sofort faellig, voll Reserve)
+    1-3J -> 0.80
+    3-7J -> 0.35
+    >7J  -> 0.00
+    """
+    if years is None:
+        return _TIME_BUCKET_FACTORS[0][1]
+    y = max(0, int(years))
+    for upper, factor, _label in _TIME_BUCKET_FACTORS:
+        if y <= upper:
+            return factor
+    return 0.0
+
+
+def _time_bucket_label(years: int | None) -> str:
+    """Bucket-Label fuer Reasoning-Texte."""
+    if years is None:
+        return _TIME_BUCKET_FACTORS[0][2]
+    y = max(0, int(years))
+    for upper, _factor, label in _TIME_BUCKET_FACTORS:
+        if y <= upper:
+            return label
+    return _TIME_BUCKET_LONG_LABEL
 LABEL_TO_BUCKET = {value: key for key, value in BUCKET_LABELS.items()}
 GOAL_WEIGHT_BY_RANK = {
     1: 10000,
@@ -2066,6 +2114,9 @@ def _goal_reserve_for_goal(goal: Goal) -> int:
 
     Sprint A4 (2026-05-06): Smooth-Decay-Variante via Feature-Flag
     RESERVE_DECAY_MODE=smooth. Default bleibt 'stufen' (audit-konsistent).
+    Sprint B5 (2026-05-07): Time-Bucket-Variante via RESERVE_BUCKET_MODE=
+    time_bucket — kongruent zu _compute_reserve_for_inputs, damit Scoring
+    nicht von der Reserve-Empfehlung abweicht.
     """
     goal_type = _norm_text(goal.goal_type)
     if goal_type not in ("Einmalige_Ausgabe", "Wiederkehrende_Ausgabe", "Pensionsausgabe"):
@@ -2078,6 +2129,8 @@ def _goal_reserve_for_goal(goal: Goal) -> int:
     years = _goal_projection_years(goal)
     if _reserve_decay_mode_smooth():
         return int(round(target_amount * _reserve_decay_factor(years)))
+    if _reserve_bucket_mode_time_bucket():
+        return int(round(target_amount * _time_bucket_reserve_factor(years)))
     # Default Stufenfunktion (Audit-Z2-konsistent)
     if years <= 3:
         return target_amount
@@ -3526,6 +3579,7 @@ def _compute_reserve_for_inputs(
                 else int(goal.target_amount_rappen or 0)
             )
             # Sprint A4: Smooth-Decay opt-in via RESERVE_DECAY_MODE=smooth.
+            # Sprint B5: Time-Bucket opt-in via RESERVE_BUCKET_MODE=time_bucket.
             # Default Stufenfunktion bleibt audit-konsistent.
             if _reserve_decay_mode_smooth():
                 factor = _reserve_decay_factor(years)
@@ -3536,6 +3590,17 @@ def _compute_reserve_for_inputs(
                         reasoning.append(
                             f"Das Ziel '{goal.label}' (in {years}J) traegt zu {factor*100:.0f}% "
                             "zur Liquiditaetsreserve bei (smooth-decay)."
+                        )
+            elif _reserve_bucket_mode_time_bucket():
+                factor = _time_bucket_reserve_factor(years)
+                reserve_amount = int(round(target_amount * factor))
+                if reserve_amount > 0:
+                    reserve_candidates.append(reserve_amount)
+                    if reasoning is not None:
+                        bucket = _time_bucket_label(years)
+                        reasoning.append(
+                            f"Das Ziel '{goal.label}' faellt in den Zeit-Bucket {bucket} "
+                            f"und traegt zu {factor*100:.0f}% zur Liquiditaetsreserve bei."
                         )
             else:
                 if years <= 3:
