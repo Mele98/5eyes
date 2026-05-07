@@ -32,10 +32,12 @@ CAPACITY_TOTAL_TO_PROFILE = {
 }
 
 WILLINGNESS_SCORE_TO_PROFILE = {
-    (0, 30): "Sicherheitsorientiert",
-    (31, 50): "Ausgewogen",
-    (51, 70): "Wachstumsorientiert",
-    (71, 100): "Dynamisch",
+    (10, 24): "Kapitalschutz",
+    (25, 44): "Defensiv",
+    (45, 64): "Ausgewogen",
+    (65, 84): "Wachstumsorientiert",
+    (85, 94): "Dynamisch",
+    (95, 100): "Aktien",
 }
 
 # Horizon label → years (midpoint for matrix lookup)
@@ -49,6 +51,27 @@ HORIZON_YEARS = {
     "0 bis 4 Jahre": 2,
     "5 bis 7 Jahre": 6,
     "12 Jahre und mehr": 15,
+    # Legacy frontend labels
+    "1 bis 3 Jahre": 2,
+    "3 bis 5 Jahre": 4,
+    "5 bis 10 Jahre": 6,
+    "10 Jahre und mehr": 15,
+}
+
+CANONICAL_HORIZON_LABELS = {
+    "Bis 2 Jahre": "Bis 2 Jahre",
+    "2 bis 3 Jahre": "2 bis 3 Jahre",
+    "4 bis 5 Jahre": "4 bis 5 Jahre",
+    "6 bis 7 Jahre": "6 bis 7 Jahre",
+    "8 bis 11 Jahre": "8 bis 11 Jahre",
+    "Mehr als 12 Jahre": "Mehr als 12 Jahre",
+    "0 bis 4 Jahre": "2 bis 3 Jahre",
+    "5 bis 7 Jahre": "6 bis 7 Jahre",
+    "12 Jahre und mehr": "Mehr als 12 Jahre",
+    "1 bis 3 Jahre": "2 bis 3 Jahre",
+    "3 bis 5 Jahre": "4 bis 5 Jahre",
+    "5 bis 10 Jahre": "6 bis 7 Jahre",
+    "10 Jahre und mehr": "Mehr als 12 Jahre",
 }
 
 # Risk capacity profile → numeric band (1–5)
@@ -92,7 +115,7 @@ def map_surplus_points(income_chf: float, obligations_chf: float) -> int:
 
 def _profile_from_score(score_x10: int) -> str:
     score = score_x10 / 10
-    rounded_score = math.floor(score + 0.5)
+    rounded_score = max(1, min(10, math.floor(score + 0.5)))
     for (lo, hi), name in SCORE_TO_PROFILE.items():
         if lo <= rounded_score <= hi:
             return name
@@ -110,7 +133,7 @@ def _willingness_profile(score_x10: int) -> str:
     for (lo, hi), name in WILLINGNESS_SCORE_TO_PROFILE.items():
         if lo <= score_x10 <= hi:
             return name
-    return "Sicherheitsorientiert"
+    return "Kapitalschutz"
 
 
 # ── Public API ─────────────────────────────────────────────────────────────────
@@ -130,6 +153,11 @@ class ScoringResult:
     final_profile: str
 
 
+def canonicalize_horizon_label(label: str) -> str:
+    normalized = str(label or "").strip()
+    return CANONICAL_HORIZON_LABELS.get(normalized, normalized)
+
+
 def compute_scores(
     *,
     q_income_points: int,
@@ -146,6 +174,19 @@ def compute_scores(
 
     All point values must be pre-validated (range checks done in Pydantic schema).
     """
+    for name, value, minimum, maximum in (
+        ("q_income_points", q_income_points, 0, 4),
+        ("q_obligations_points", q_obligations_points, 0, 4),
+        ("q_savings_points", q_savings_points, 0, 12),
+        ("q_wealth_points", q_wealth_points, 0, 12),
+        ("q_investment_goal_points", q_investment_goal_points, 1, 4),
+        ("q_risk_preference_points", q_risk_preference_points, 1, 4),
+        ("q_risk_behavior_points", q_risk_behavior_points, 1, 4),
+    ):
+        numeric = int(value)
+        if numeric < minimum or numeric > maximum:
+            raise ValueError(f"{name}={value} ausserhalb [{minimum},{maximum}]")
+
     # ── Risikofähigkeit ────────────────────────────────────────────────────────
     capacity_total = (
         q_income_points + q_obligations_points
@@ -153,8 +194,9 @@ def compute_scores(
     )
     cap_profile = _capacity_profile(capacity_total)
     cap_band = CAPACITY_BAND[cap_profile]
+    investment_horizon_label = canonicalize_horizon_label(investment_horizon_label)
     horizon_years = HORIZON_YEARS.get(investment_horizon_label, 1)
-    capacity_score_x10 = HORIZON_CAPACITY_MATRIX.get((horizon_years, cap_band), 10)
+    capacity_score_x10 = HORIZON_CAPACITY_MATRIX.get((horizon_years, cap_band), 0)
 
     # ── Risikobereitschaft ─────────────────────────────────────────────────────
     willingness_total = (
@@ -182,4 +224,9 @@ def compute_scores(
 
 def get_house_matrix_profile(score_x10: int) -> str:
     """Map a final score to a house matrix profile name."""
+    return _profile_from_score(score_x10)
+
+
+def profile_for_score_x10(score_x10: int) -> str:
+    """Public wrapper for the profile name of a score_x10 value (10-100)."""
     return _profile_from_score(score_x10)

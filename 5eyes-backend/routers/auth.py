@@ -44,6 +44,17 @@ def _issue_token_response(user: User) -> TokenResponse:
     token = create_access_token({"sub": user.id})
     return TokenResponse(access_token=token, user=UserResponse.model_validate(user))
 
+
+def _login_guard_key(request: Request, username: str) -> str:
+    forwarded_for = str(request.headers.get("x-forwarded-for") or "").strip()
+    if forwarded_for:
+        first_hop = forwarded_for.split(",")[0].strip()
+        if first_hop:
+            return first_hop
+    if request.client and request.client.host:
+        return str(request.client.host)
+    return username
+
 # ── Auth ───────────────────────────────────────────────────────────────────────
 
 
@@ -79,7 +90,8 @@ def bootstrap_admin(body: BootstrapAdminRequest, db: Session = Depends(get_db)):
 
 @router.post("/login", response_model=TokenResponse)
 def login(body: LoginRequest, request: Request, db: Session = Depends(get_db)):
-    decision = login_attempt_guard.check(body.username)
+    guard_key = _login_guard_key(request, body.username)
+    decision = login_attempt_guard.check(guard_key)
     if not decision.allowed:
         raise HTTPException(
             status_code=429,
@@ -92,10 +104,11 @@ def login(body: LoginRequest, request: Request, db: Session = Depends(get_db)):
         User.deleted_at.is_(None)
     ).first()
     if not user or not verify_password(body.password, user.password_hash):
-        failure = login_attempt_guard.register_failure(body.username)
+        failure = login_attempt_guard.register_failure(guard_key)
         logger.warning(
-            "Login failed | username=%s request_id=%s retry_after=%s",
+            "Login failed | username=%s guard_key=%s request_id=%s retry_after=%s",
             body.username,
+            guard_key,
             getattr(request.state, 'request_id', 'n/a'),
             failure.retry_after_seconds,
         )
@@ -104,7 +117,7 @@ def login(body: LoginRequest, request: Request, db: Session = Depends(get_db)):
     if not user.is_active:
         raise HTTPException(status_code=401, detail="Konto deaktiviert")
 
-    login_attempt_guard.register_success(body.username)
+    login_attempt_guard.register_success(guard_key)
     user.last_login_at = _now()
     db.commit()
     db.refresh(user)

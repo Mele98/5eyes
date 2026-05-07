@@ -1,3 +1,6 @@
+import logging
+from collections.abc import Callable
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import bindparam, text
@@ -11,10 +14,11 @@ from models.review import (
     ConflictOfInterestDisclosure, Product, ProductSuitability,
     RecommendationRun, RecommendationPosition, RecommendationHolding, AuditLog
 )
-from models.allocation import OptimizerPolicy
+from models.allocation import CapitalMarketAssumption, OptimizerPolicy, TargetAllocation
+from models.profiling import RiskAssessment
 from schemas.review import (
     ReviewTriggerCreate, ReviewTriggerResolve, ReviewTriggerResponse,
-    AdvisoryLogCreate, AdvisoryLogResponse,
+    AdvisoryLogCreate, AdvisoryLogUpdate, AdvisoryLogResponse,
     ContractDocumentCreate, ContractDocumentSign, ContractDocumentResponse,
     ConflictDisclosureCreate, ConflictDisclosureResponse,
     ProductCreate, ProductResponse,
@@ -37,13 +41,41 @@ from services.eodhd_client import preview_eodhd_reference
 from services.openfigi_client import preview_openfigi_mapping
 from services.portfolio_engine import build_recommendation_payload_from_run, generate_recommendation_run
 from services.product_market_data import resolve_market_profile
-from services.review_engine import refresh_system_review_triggers
+from services.review_engine import _add_months, refresh_system_review_triggers
 
 router = APIRouter(tags=["Review & Dokumente"])
 products_router = APIRouter(prefix="/products", tags=["Produkte"])
 recommendations_router = APIRouter(tags=["Empfehlungen"])
 dashboard_router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
-ACTIVE_TRIGGER_STATUS_VALUES = ("Ausgelöst", "Ausgeloest", "AusgelÃ¶st", "AusgelÃƒÂ¶st")
+logger = logging.getLogger(__name__)
+
+_HOLDING_MUTABLE_FIELDS = (
+    "depot_bank",
+    "custody_account_number",
+    "as_of_date",
+    "units_milli",
+    "market_value_rappen",
+    "avg_cost_price_rappen",
+    "source",
+    "notes",
+)
+
+
+def _legacy_text_variants(value: str) -> tuple[str, ...]:
+    variants = {value}
+    variants.add(
+        value.replace("ä", "ae").replace("ö", "oe").replace("ü", "ue")
+    )
+    try:
+        latin1_variant = value.encode("utf-8").decode("latin1")
+        variants.add(latin1_variant)
+        variants.add(latin1_variant.encode("utf-8").decode("latin1"))
+    except UnicodeError:
+        pass
+    return tuple(item for item in variants if item)
+
+
+ACTIVE_TRIGGER_STATUS_VALUES = _legacy_text_variants("Ausgelöst")
 
 
 def _now() -> str:
@@ -70,6 +102,99 @@ def _get_recommendation_run_or_404(
     return run
 
 
+def _get_product_or_404(product_id: str, db: Session) -> Product:
+    product = db.query(Product).filter(
+        Product.id == product_id,
+        Product.deleted_at.is_(None),
+    ).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Produkt nicht gefunden")
+    return product
+
+
+def _validate_recommendation_for_finalization(db: Session, mandate: Mandate, run: RecommendationRun) -> tuple[list[str], list[str]]:
+    errors: list[str] = []
+    warnings: list[str] = []
+    if run.result_status != "Draft":
+        errors.append("Nur Draft-Empfehlungen koennen finalisiert werden.")
+    assessment = db.query(RiskAssessment).filter(
+        RiskAssessment.id == run.assessment_id,
+        RiskAssessment.mandate_id == mandate.id,
+        RiskAssessment.deleted_at.is_(None),
+    ).first() if run.assessment_id else None
+    if not assessment:
+        errors.append("Empfehlung hat kein gueltiges Risikoprofil.")
+    elif not assessment.is_current:
+        errors.append("Empfehlung basiert nicht auf dem aktuellen Risikoprofil.")
+    allocation = db.query(TargetAllocation).filter(
+        TargetAllocation.id == run.target_allocation_id,
+        TargetAllocation.mandate_id == mandate.id,
+        TargetAllocation.deleted_at.is_(None),
+    ).first() if run.target_allocation_id else None
+    if not allocation:
+        errors.append("Empfehlung hat keine gueltige Soll-Allokation.")
+    elif assessment and allocation.based_on_assessment_id and allocation.based_on_assessment_id != assessment.id:
+        errors.append("Soll-Allokation und Risikoprofil der Empfehlung passen nicht zusammen.")
+    if not run.policy_id or not db.query(OptimizerPolicy).filter(OptimizerPolicy.id == run.policy_id).first():
+        errors.append("Empfehlung hat keine gueltige Policy-Version.")
+    if not run.capital_market_assumptions_id or not db.query(CapitalMarketAssumption).filter(
+        CapitalMarketAssumption.id == run.capital_market_assumptions_id,
+        CapitalMarketAssumption.deleted_at.is_(None),
+    ).first():
+        errors.append("Empfehlung hat keine gueltige CMA-Version.")
+    positions = db.query(RecommendationPosition).filter(RecommendationPosition.run_id == run.id).all()
+    if not positions:
+        errors.append("Empfehlung enthaelt keine Positionen.")
+        return errors, warnings
+    total_weight = sum(int(position.target_weight_bps or 0) for position in positions)
+    if total_weight < 9900 or total_weight > 10100:
+        errors.append(f"Positionsgewichte summieren auf {total_weight} bps statt ca. 10000 bps.")
+    product_ids = [position.product_id for position in positions if position.product_id]
+    products = {product.id: product for product in db.query(Product).filter(Product.id.in_(product_ids)).all()} if product_ids else {}
+    for position in positions:
+        product = products.get(position.product_id)
+        if not product or product.deleted_at is not None or int(product.is_active or 0) != 1:
+            errors.append(f"Produkt {position.product_id} ist nicht aktiv oder nicht verfuegbar.")
+            continue
+        if product.ter_bps is None:
+            warnings.append(f"TER fehlt fuer {product.product_name}.")
+        profile = resolve_market_profile(product)
+        if not (profile.get("lookup_symbol") or profile.get("isin")):
+            warnings.append(f"Marktdaten-Mapping fehlt fuer {product.product_name}.")
+    quality = summarize_price_quality(db, product_ids)
+    if int(quality.get("missing_prices_count") or 0):
+        warnings.append("Mindestens eine Position hat keinen aktuellen Marktpreis.")
+    if int(quality.get("stale_positions_count") or 0):
+        warnings.append("Mindestens ein Marktpreis ist veraltet.")
+    return errors, warnings
+
+
+def _active_products_query(db: Session):
+    return db.query(Product).filter(Product.deleted_at.is_(None), Product.is_active == 1)
+
+
+def _get_trigger_or_404(mandate_id: str, trigger_id: str, db: Session) -> ReviewTrigger:
+    trigger = db.query(ReviewTrigger).filter(
+        ReviewTrigger.id == trigger_id,
+        ReviewTrigger.mandate_id == mandate_id,
+        ReviewTrigger.deleted_at.is_(None),
+    ).first()
+    if not trigger:
+        raise HTTPException(status_code=404, detail="Trigger nicht gefunden")
+    return trigger
+
+
+def _get_document_or_404(mandate_id: str, doc_id: str, db: Session) -> ContractDocument:
+    document = db.query(ContractDocument).filter(
+        ContractDocument.id == doc_id,
+        ContractDocument.mandate_id == mandate_id,
+        ContractDocument.deleted_at.is_(None),
+    ).first()
+    if not document:
+        raise HTTPException(status_code=404, detail="Dokument nicht gefunden")
+    return document
+
+
 def _normalize_holding_date(value: str | None) -> str | None:
     raw = str(value or "").strip()[:10]
     return raw or None
@@ -87,6 +212,22 @@ def _reference_context(product: Product) -> dict[str, str | None]:
         "symbol": product.symbol,
         "exchange_code": product.exchange_code,
         "currency": product.currency,
+    }
+
+
+def _openfigi_context(
+    product: Product | None,
+    *,
+    isin: str | None,
+    symbol: str | None,
+    currency: str | None,
+) -> dict[str, str | None]:
+    return {
+        "product_id": product.id if product else None,
+        "product_name": product.product_name if product else None,
+        "isin": isin or (product.isin if product else None),
+        "symbol": symbol or (product.symbol if product else None),
+        "currency": currency or (product.currency if product else None),
     }
 
 
@@ -116,10 +257,144 @@ def _apply_reference_candidate(
     product.updated_at = now
 
 
+def _apply_openfigi_candidate(
+    *,
+    product: Product,
+    candidate: dict,
+    now: str,
+    overwrite_symbol: bool,
+) -> None:
+    product.figi = candidate.get("figi")
+    product.composite_figi = candidate.get("composite_figi")
+    product.share_class_figi = candidate.get("share_class_figi")
+    product.exchange_code = candidate.get("exch_code")
+    product.market_sector = candidate.get("market_sector")
+    product.security_type = candidate.get("security_type")
+    product.security_type2 = candidate.get("security_type2")
+    product.mapping_provider = "openfigi"
+    product.mapping_resolved_at = now
+    if (not product.symbol or overwrite_symbol) and candidate.get("ticker"):
+        product.symbol = candidate.get("ticker")
+    product.updated_at = now
+
+
+def _commit_product_batch_update(
+    db: Session,
+    *,
+    product: Product,
+    current_user: User,
+    field_name: str,
+    new_value: str,
+    apply_change: Callable[[], None],
+) -> str | None:
+    try:
+        with db.begin_nested():
+            apply_change()
+            log(
+                db,
+                user_id=current_user.id,
+                user_name=current_user.full_name,
+                table_name="products",
+                record_id=product.id,
+                action="UPDATE",
+                field_name=field_name,
+                new_value=new_value,
+            )
+            db.flush()
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        try:
+            db.refresh(product)
+        except Exception:
+            pass
+        return f"DB-Fehler beim Speichern: {exc}"
+    return None
+
+
+def _preview_openfigi_or_raise(
+    *,
+    product: Product | None,
+    isin: str | None,
+    symbol: str | None,
+    exchange_code: str | None,
+    mic_code: str | None,
+    currency: str | None,
+) -> dict:
+    try:
+        return preview_openfigi_mapping(
+            isin=isin or (product.isin if product else None),
+            symbol=symbol or (product.symbol if product else None),
+            exchange_code=exchange_code or (product.exchange_code if product else None),
+            mic_code=mic_code,
+            currency=currency or (product.currency if product else None),
+            context=_openfigi_context(
+                product,
+                isin=isin,
+                symbol=symbol,
+                currency=currency,
+            ),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+
+
+def _preview_eodhd_or_raise(
+    *,
+    product: Product | None,
+    isin: str | None,
+    symbol: str | None,
+    product_name: str | None,
+    exchange_code: str | None,
+    currency: str | None,
+) -> dict:
+    context = _reference_context(product) if product else {
+        "isin": isin,
+        "symbol": symbol,
+        "product_name": product_name,
+        "exchange_code": exchange_code,
+        "currency": currency,
+    }
+    try:
+        return preview_eodhd_reference(
+            isin=isin or (product.isin if product else None),
+            symbol=symbol or (product.symbol if product else None),
+            product_name=product_name or (product.product_name if product else None),
+            exchange_code=exchange_code or (product.exchange_code if product else None),
+            currency=currency or (product.currency if product else None),
+            context=context,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+
+
+def _select_preview_candidate(
+    *,
+    preview: dict,
+    candidate_index: int,
+    preferred_figi: str | None = None,
+    empty_detail: str,
+) -> dict:
+    candidates = list(preview.get("candidates") or [])
+    if not candidates:
+        raise HTTPException(status_code=409, detail=preview.get("warning") or preview.get("error") or empty_detail)
+    if preferred_figi:
+        selected = next((item for item in candidates if item.get("figi") == preferred_figi), None)
+        if selected is None:
+            raise HTTPException(status_code=409, detail="Bevorzugter FIGI-Kandidat nicht gefunden")
+        return selected
+    if candidate_index >= len(candidates):
+        raise HTTPException(status_code=409, detail="candidate_index ausserhalb der gefundenen Kandidaten")
+    return candidates[candidate_index]
+
+
 def _collect_product_market_data_status(db: Session) -> dict:
     products = (
-        db.query(Product)
-        .filter(Product.deleted_at.is_(None), Product.is_active == 1)
+        _active_products_query(db)
         .order_by(Product.product_name.asc())
         .all()
     )
@@ -152,6 +427,15 @@ def _collect_product_market_data_status(db: Session) -> dict:
                     "currency": product.currency,
                 }
             )
+        normalized_asset_class = str(product.asset_class or "").strip().lower().replace("ä", "ae")
+        normalized_product_type = str(product.product_type or "").strip().lower().replace("ä", "ae")
+        is_liquidity_without_market_ids = (
+            not has_symbol
+            and not has_isin
+            and ("liquid" in normalized_asset_class or "cash" in normalized_product_type)
+        )
+        if is_liquidity_without_market_ids:
+            continue
         if (has_symbol or has_isin or not _is_blank(product.product_name)) and _is_blank(product.reference_data_provider):
             reference_pending.append(
                 {
@@ -190,7 +474,9 @@ def _normalize_trigger_frequency(trigger_type: str, frequency: str | None, trigg
         raw.replace("ä", "ae")
         .replace("ö", "oe")
         .replace("ü", "ue")
-        .replace("?", "ae")
+        .replace("Ã¤", "ae")
+        .replace("Ã¶", "oe")
+        .replace("Ã¼", "ue")
     )
     if "quart" in normalized or normalized.startswith("3 "):
         return "quartalsweise"
@@ -204,6 +490,29 @@ def _normalize_trigger_frequency(trigger_type: str, frequency: str | None, trigg
         return "einmalig"
     if trigger_type == "Zeit":
         return "jährlich"
+    return None
+
+
+def _trigger_frequency_months(frequency: str | None) -> int | None:
+    normalized = (
+        str(frequency or "")
+        .strip()
+        .lower()
+        .replace("ä", "ae")
+        .replace("ö", "oe")
+        .replace("ü", "ue")
+        .replace("Ã¤", "ae")
+        .replace("Ã¶", "oe")
+        .replace("Ã¼", "ue")
+    )
+    if normalized == "monatlich":
+        return 1
+    if "quart" in normalized:
+        return 3
+    if "halb" in normalized:
+        return 6
+    if "jahr" in normalized:
+        return 12
     return None
 
 
@@ -265,7 +574,7 @@ def create_trigger(
 def refresh_system_triggers(
     mandate_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_advisor)
 ):
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
     triggers = refresh_system_review_triggers(db, mandate, current_user.id)
@@ -282,20 +591,20 @@ def resolve_trigger(
     current_user: User = Depends(require_advisor)
 ):
     _get_mandate_or_404(mandate_id, db, current_user)
-    trigger = db.query(ReviewTrigger).filter(
-        ReviewTrigger.id == trigger_id,
-        ReviewTrigger.mandate_id == mandate_id,
-        ReviewTrigger.deleted_at.is_(None)
-    ).first()
-    if not trigger:
-        raise HTTPException(status_code=404, detail="Trigger nicht gefunden")
+    trigger = _get_trigger_or_404(mandate_id, trigger_id, db)
     now = _now()
     trigger.status = "Erledigt"
     trigger.last_triggered_at = now
     trigger.triggered_notes = body.triggered_notes
+    recurrence_months = None
+    if trigger.trigger_type == "Zeit":
+        recurrence_months = _trigger_frequency_months(trigger.frequency) or 12
+    if recurrence_months:
+        trigger.next_due_at = _add_months(now[:10], recurrence_months)
+        trigger.status = "Aktiv"
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="review_triggers", record_id=trigger_id, action="UPDATE",
-        field_name="status", new_value="Erledigt", mandate_id=mandate_id)
+        field_name="status", new_value=trigger.status, mandate_id=mandate_id)
     db.commit()
     db.refresh(trigger)
     return trigger
@@ -325,14 +634,18 @@ def create_advisory_log_entry(
 ):
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
     now = _now()
+    if body.recommendation_run_id:
+        _get_recommendation_run_or_404(mandate_id, body.recommendation_run_id, db, current_user)
+    excluded = {"client_signed", "entry_date", "status"}
     entry = AdvisoryLog(
         id=new_uuid(), mandate_id=mandate_id,
         advisor_id=current_user.id,
         entry_date=body.entry_date or date.today().isoformat(),
         client_signed=1 if body.client_signed else 0,
+        status=body.status or "Empfohlen",
         created_at=now, updated_at=now,
         **{k: v for k, v in body.model_dump().items()
-           if k not in ("client_signed", "entry_date")}
+           if k not in excluded}
     )
     db.add(entry)
     log(db, user_id=current_user.id, user_name=current_user.full_name,
@@ -350,6 +663,87 @@ def create_advisory_log_entry(
 
 
 # ── Contract Documents ─────────────────────────────────────────────────────────
+
+_STATUS_TRANSITIONS = {
+    "Empfohlen": {"Beschlossen", "Abgelehnt"},
+    "Beschlossen": {"Umgesetzt"},
+    "Umgesetzt": {"Überarbeitung nötig"},
+    "Überarbeitung nötig": {"Beschlossen", "Abgelehnt"},
+    "Abgelehnt": set(),
+}
+
+
+@router.put("/mandates/{mandate_id}/advisory-log/{log_id}", response_model=AdvisoryLogResponse)
+def update_advisory_log_entry(
+    mandate_id: str,
+    log_id: str,
+    body: AdvisoryLogUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_advisor)
+):
+    _get_mandate_or_404(mandate_id, db, current_user)
+    entry = db.query(AdvisoryLog).filter(
+        AdvisoryLog.id == log_id,
+        AdvisoryLog.mandate_id == mandate_id,
+    ).first()
+    if not entry:
+        raise HTTPException(status_code=404, detail="Advisory-Log-Eintrag nicht gefunden")
+
+    now = _now()
+    if body.status is not None:
+        current_status = entry.status or "Empfohlen"
+        allowed = _STATUS_TRANSITIONS.get(current_status, set())
+        if body.status not in allowed:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"Übergang '{current_status}'→'{body.status}' nicht erlaubt. "
+                    f"Erlaubt: {sorted(allowed) or ['keine weiteren']}"
+                ),
+            )
+        if body.status in {"Abgelehnt", "Überarbeitung nötig"} and not str(body.description or "").strip():
+            raise HTTPException(
+                status_code=422,
+                detail=f"Status '{body.status}' erfordert einen Kommentar in description.",
+            )
+        log(
+            db,
+            user_id=current_user.id,
+            user_name=current_user.full_name,
+            table_name="advisory_log",
+            record_id=log_id,
+            action="UPDATE",
+            field_name="status",
+            old_value=entry.status,
+            new_value=body.status,
+            mandate_id=mandate_id,
+        )
+        entry.status = body.status
+    if body.recommendation_run_id is not None:
+        if body.recommendation_run_id:
+            _get_recommendation_run_or_404(mandate_id, body.recommendation_run_id, db, current_user)
+        entry.recommendation_run_id = body.recommendation_run_id
+    if body.description is not None:
+        if body.description != entry.description:
+            log(
+                db,
+                user_id=current_user.id,
+                user_name=current_user.full_name,
+                table_name="advisory_log",
+                record_id=log_id,
+                action="UPDATE",
+                field_name="description",
+                old_value=entry.description,
+                new_value=body.description,
+                mandate_id=entry.mandate_id,
+            )
+        entry.description = body.description
+
+    entry.updated_at = now
+    db.commit()
+    db.refresh(entry)
+    return entry
+
 
 @router.get("/mandates/{mandate_id}/documents", response_model=list[ContractDocumentResponse])
 def list_documents(
@@ -400,23 +794,23 @@ def sign_document(
     current_user: User = Depends(require_advisor)
 ):
     _get_mandate_or_404(mandate_id, db, current_user)
-    doc = db.query(ContractDocument).filter(
-        ContractDocument.id == doc_id,
-        ContractDocument.mandate_id == mandate_id,
-        ContractDocument.deleted_at.is_(None)
-    ).first()
-    if not doc:
-        raise HTTPException(status_code=404, detail="Dokument nicht gefunden")
+    doc = _get_document_or_404(mandate_id, doc_id, db)
     now = _now()
     if body.signed_by_advisor:
         doc.signed_by_advisor = 1
     if body.signed_by_client:
         doc.signed_by_client = 1
-    doc.signed_at = now
-    doc.status = "Unterzeichnet"
+    if not doc.signed_at:
+        doc.signed_at = now
+    doc.status = (
+        "Unterzeichnet"
+        if doc.signed_by_advisor and doc.signed_by_client
+        else "Teilweise unterzeichnet"
+    )
+    doc.updated_at = now
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="contract_documents", record_id=doc_id, action="UPDATE",
-        field_name="status", new_value="Unterzeichnet", mandate_id=mandate_id)
+        field_name="status", new_value=doc.status, mandate_id=mandate_id)
     db.commit()
     db.refresh(doc)
     return doc
@@ -424,6 +818,8 @@ def sign_document(
 
 # ── Conflicts of Interest ──────────────────────────────────────────────────────
 
+@router.get("/mandates/{mandate_id}/conflict-disclosures",
+            response_model=list[ConflictDisclosureResponse])
 @router.get("/mandates/{mandate_id}/conflicts",
             response_model=list[ConflictDisclosureResponse])
 def list_conflicts(
@@ -472,7 +868,7 @@ def list_products(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    q = db.query(Product).filter(Product.deleted_at.is_(None), Product.is_active == 1)
+    q = _active_products_query(db)
     if asset_class:
         q = q.filter(Product.asset_class == asset_class)
     return q.order_by(Product.asset_class, Product.product_name).all()
@@ -505,12 +901,7 @@ def set_product_market_override(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    product = db.query(Product).filter(
-        Product.id == product_id,
-        Product.deleted_at.is_(None),
-    ).first()
-    if not product:
-        raise HTTPException(status_code=404, detail="Produkt nicht gefunden")
+    product = _get_product_or_404(product_id, db)
     product.lookup_mode_override = body.lookup_mode_override or None
     product.lookup_symbol_override = body.lookup_symbol_override.strip() if body.lookup_symbol_override else None
     product.updated_at = _now()
@@ -549,30 +940,15 @@ def resolve_product_id_mapping(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    product = None
-    if body.product_id:
-        product = db.query(Product).filter(Product.id == body.product_id).first()
-        if not product:
-            raise HTTPException(status_code=404, detail="Produkt nicht gefunden")
-    try:
-        return preview_openfigi_mapping(
-            isin=body.isin or (product.isin if product else None),
-            symbol=body.symbol or (product.symbol if product else None),
-            exchange_code=body.exchange_code,
-            mic_code=body.mic_code,
-            currency=body.currency or (product.currency if product else None),
-            context={
-                "product_id": product.id if product else None,
-                "product_name": product.product_name if product else None,
-                "isin": body.isin or (product.isin if product else None),
-                "symbol": body.symbol or (product.symbol if product else None),
-                "currency": body.currency or (product.currency if product else None),
-            },
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
-    except RuntimeError as exc:
-        raise HTTPException(status_code=502, detail=str(exc))
+    product = _get_product_or_404(body.product_id, db) if body.product_id else None
+    return _preview_openfigi_or_raise(
+        product=product,
+        isin=body.isin,
+        symbol=body.symbol,
+        exchange_code=body.exchange_code,
+        mic_code=body.mic_code,
+        currency=body.currency,
+    )
 
 
 @products_router.post("/openfigi/apply", response_model=ProductIdMappingApplyResponse)
@@ -581,56 +957,28 @@ def apply_product_id_mapping(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    product = db.query(Product).filter(Product.id == body.product_id).first()
-    if not product:
-        raise HTTPException(status_code=404, detail="Produkt nicht gefunden")
-    try:
-        preview = preview_openfigi_mapping(
-            isin=body.isin or product.isin,
-            symbol=body.symbol or product.symbol,
-            exchange_code=body.exchange_code or product.exchange_code,
-            mic_code=body.mic_code,
-            currency=body.currency or product.currency,
-            context={
-                "product_id": product.id,
-                "product_name": product.product_name,
-                "isin": body.isin or product.isin,
-                "symbol": body.symbol or product.symbol,
-                "currency": body.currency or product.currency,
-            },
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
-    except RuntimeError as exc:
-        raise HTTPException(status_code=502, detail=str(exc))
-
-    candidates = list(preview.get("candidates") or [])
-    if not candidates:
-        raise HTTPException(status_code=409, detail=preview.get("warning") or preview.get("error") or "Kein Mapping-Kandidat gefunden")
-
-    selected = None
-    if body.preferred_figi:
-        selected = next((item for item in candidates if item.get("figi") == body.preferred_figi), None)
-        if selected is None:
-            raise HTTPException(status_code=409, detail="Bevorzugter FIGI-Kandidat nicht gefunden")
-    elif body.candidate_index >= len(candidates):
-        raise HTTPException(status_code=409, detail="candidate_index ausserhalb der gefundenen Kandidaten")
-    else:
-        selected = candidates[body.candidate_index]
-
+    product = _get_product_or_404(body.product_id, db)
+    preview = _preview_openfigi_or_raise(
+        product=product,
+        isin=body.isin,
+        symbol=body.symbol,
+        exchange_code=body.exchange_code,
+        mic_code=body.mic_code,
+        currency=body.currency,
+    )
+    selected = _select_preview_candidate(
+        preview=preview,
+        candidate_index=body.candidate_index,
+        preferred_figi=body.preferred_figi,
+        empty_detail="Kein Mapping-Kandidat gefunden",
+    )
     now = _now()
-    product.figi = selected.get("figi")
-    product.composite_figi = selected.get("composite_figi")
-    product.share_class_figi = selected.get("share_class_figi")
-    product.exchange_code = selected.get("exch_code")
-    product.market_sector = selected.get("market_sector")
-    product.security_type = selected.get("security_type")
-    product.security_type2 = selected.get("security_type2")
-    product.mapping_provider = "openfigi"
-    product.mapping_resolved_at = now
-    product.updated_at = now
-    if (not product.symbol or body.overwrite_symbol) and selected.get("ticker"):
-        product.symbol = selected.get("ticker")
+    _apply_openfigi_candidate(
+        product=product,
+        candidate=selected,
+        now=now,
+        overwrite_symbol=body.overwrite_symbol,
+    )
     log(
         db,
         user_id=current_user.id,
@@ -657,10 +1005,8 @@ def auto_apply_product_id_mappings(
     current_user: User = Depends(require_admin),
 ):
     products = (
-        db.query(Product)
+        _active_products_query(db)
         .filter(
-            Product.deleted_at.is_(None),
-            Product.is_active == 1,
             Product.isin.is_not(None),
             (Product.symbol.is_(None) | (Product.symbol == "")),
         )
@@ -673,18 +1019,16 @@ def auto_apply_product_id_mappings(
     skipped_count = 0
     failed_count = 0
     for product in products:
+        product_name = product.product_name
+        product_isin = product.isin
         try:
-            preview = preview_openfigi_mapping(
+            preview = _preview_openfigi_or_raise(
+                product=product,
                 isin=product.isin,
                 symbol=None,
                 exchange_code=product.exchange_code,
+                mic_code=None,
                 currency=product.currency,
-                context={
-                    "product_id": product.id,
-                    "product_name": product.product_name,
-                    "isin": product.isin,
-                    "currency": product.currency,
-                },
             )
         except Exception as exc:
             failed_count += 1
@@ -729,40 +1073,34 @@ def auto_apply_product_id_mappings(
             continue
 
         now = _now()
-        product.figi = selected.get("figi")
-        product.composite_figi = selected.get("composite_figi")
-        product.share_class_figi = selected.get("share_class_figi")
-        product.exchange_code = selected.get("exch_code")
-        product.market_sector = selected.get("market_sector")
-        product.security_type = selected.get("security_type")
-        product.security_type2 = selected.get("security_type2")
-        product.mapping_provider = "openfigi"
-        product.mapping_resolved_at = now
-        if (not product.symbol or body.overwrite_symbol) and selected.get("ticker"):
-            product.symbol = selected.get("ticker")
-        product.updated_at = now
-        applied_count += 1
-        items.append(
-            {
-                "product_id": product.id,
-                "product_name": product.product_name,
-                "isin": product.isin,
-                "status": "applied",
-                "detail": "OpenFIGI-Mapping uebernommen",
-                "applied_candidate": selected,
-            }
-        )
-        log(
+        item = {
+            "product_id": product.id,
+            "product_name": product_name,
+            "isin": product_isin,
+            "status": "applied",
+            "detail": "OpenFIGI-Mapping uebernommen",
+            "applied_candidate": selected,
+        }
+        error_detail = _commit_product_batch_update(
             db,
-            user_id=current_user.id,
-            user_name=current_user.full_name,
-            table_name="products",
-            record_id=product.id,
-            action="UPDATE",
+            product=product,
+            current_user=current_user,
             field_name="mapping_provider",
             new_value="openfigi",
+            apply_change=lambda: _apply_openfigi_candidate(
+                product=product,
+                candidate=selected,
+                now=now,
+                overwrite_symbol=body.overwrite_symbol,
+            ),
         )
-    db.commit()
+        if error_detail:
+            failed_count += 1
+            item["status"] = "failed"
+            item["detail"] = error_detail
+        else:
+            applied_count += 1
+        items.append(item)
     return {
         "processed": len(products),
         "applied": applied_count,
@@ -779,30 +1117,15 @@ def resolve_product_reference_data(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    product = None
-    if body.product_id:
-        product = db.query(Product).filter(Product.id == body.product_id).first()
-        if not product:
-            raise HTTPException(status_code=404, detail="Produkt nicht gefunden")
-    try:
-        return preview_eodhd_reference(
-            isin=body.isin or (product.isin if product else None),
-            symbol=body.symbol or (product.symbol if product else None),
-            product_name=body.product_name or (product.product_name if product else None),
-            exchange_code=body.exchange_code or (product.exchange_code if product else None),
-            currency=body.currency or (product.currency if product else None),
-            context=_reference_context(product) if product else {
-                "isin": body.isin,
-                "symbol": body.symbol,
-                "product_name": body.product_name,
-                "exchange_code": body.exchange_code,
-                "currency": body.currency,
-            },
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
-    except RuntimeError as exc:
-        raise HTTPException(status_code=502, detail=str(exc))
+    product = _get_product_or_404(body.product_id, db) if body.product_id else None
+    return _preview_eodhd_or_raise(
+        product=product,
+        isin=body.isin,
+        symbol=body.symbol,
+        product_name=body.product_name,
+        exchange_code=body.exchange_code,
+        currency=body.currency,
+    )
 
 
 @products_router.post("/eodhd/apply", response_model=ProductReferenceApplyResponse)
@@ -811,29 +1134,20 @@ def apply_product_reference_data(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    product = db.query(Product).filter(Product.id == body.product_id).first()
-    if not product:
-        raise HTTPException(status_code=404, detail="Produkt nicht gefunden")
-    try:
-        preview = preview_eodhd_reference(
-            isin=body.isin or product.isin,
-            symbol=body.symbol or product.symbol,
-            product_name=body.product_name or product.product_name,
-            exchange_code=body.exchange_code or product.exchange_code,
-            currency=body.currency or product.currency,
-            context=_reference_context(product),
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
-    except RuntimeError as exc:
-        raise HTTPException(status_code=502, detail=str(exc))
-
-    candidates = list(preview.get("candidates") or [])
-    if not candidates:
-        raise HTTPException(status_code=409, detail=preview.get("warning") or "Kein Referenzdaten-Kandidat gefunden")
-    if body.candidate_index >= len(candidates):
-        raise HTTPException(status_code=409, detail="candidate_index ausserhalb der gefundenen Kandidaten")
-    selected = candidates[body.candidate_index]
+    product = _get_product_or_404(body.product_id, db)
+    preview = _preview_eodhd_or_raise(
+        product=product,
+        isin=body.isin,
+        symbol=body.symbol,
+        product_name=body.product_name,
+        exchange_code=body.exchange_code,
+        currency=body.currency,
+    )
+    selected = _select_preview_candidate(
+        preview=preview,
+        candidate_index=body.candidate_index,
+        empty_detail="Kein Referenzdaten-Kandidat gefunden",
+    )
     now = _now()
     _apply_reference_candidate(
         product=product,
@@ -869,10 +1183,8 @@ def auto_apply_product_reference_data(
     current_user: User = Depends(require_admin),
 ):
     products = (
-        db.query(Product)
+        _active_products_query(db)
         .filter(
-            Product.deleted_at.is_(None),
-            Product.is_active == 1,
             (Product.reference_data_provider.is_(None) | (Product.reference_data_provider == "")),
         )
         .order_by(Product.updated_at.asc(), Product.product_name.asc())
@@ -884,14 +1196,17 @@ def auto_apply_product_reference_data(
     skipped_count = 0
     failed_count = 0
     for product in products:
+        product_name = product.product_name
+        product_isin = product.isin
+        product_symbol = product.symbol
         try:
-            preview = preview_eodhd_reference(
+            preview = _preview_eodhd_or_raise(
+                product=product,
                 isin=product.isin,
                 symbol=product.symbol,
                 product_name=product.product_name,
                 exchange_code=product.exchange_code,
                 currency=product.currency,
-                context=_reference_context(product),
             )
         except Exception as exc:
             failed_count += 1
@@ -937,37 +1252,37 @@ def auto_apply_product_reference_data(
             )
             continue
         now = _now()
-        _apply_reference_candidate(
-            product=product,
-            candidate=selected,
-            now=now,
-            overwrite_symbol=body.overwrite_symbol,
-            overwrite_name=body.overwrite_name,
-            overwrite_currency=body.overwrite_currency,
-        )
-        applied_count += 1
-        items.append(
-            {
-                "product_id": product.id,
-                "product_name": product.product_name,
-                "isin": product.isin,
-                "symbol": product.symbol,
-                "status": "applied",
-                "detail": "EODHD-Referenzdaten uebernommen",
-                "applied_candidate": selected,
-            }
-        )
-        log(
+        item = {
+            "product_id": product.id,
+            "product_name": product_name,
+            "isin": product_isin,
+            "symbol": product_symbol,
+            "status": "applied",
+            "detail": "EODHD-Referenzdaten uebernommen",
+            "applied_candidate": selected,
+        }
+        error_detail = _commit_product_batch_update(
             db,
-            user_id=current_user.id,
-            user_name=current_user.full_name,
-            table_name="products",
-            record_id=product.id,
-            action="UPDATE",
+            product=product,
+            current_user=current_user,
             field_name="reference_data_provider",
             new_value="eodhd",
+            apply_change=lambda: _apply_reference_candidate(
+                product=product,
+                candidate=selected,
+                now=now,
+                overwrite_symbol=body.overwrite_symbol,
+                overwrite_name=body.overwrite_name,
+                overwrite_currency=body.overwrite_currency,
+            ),
         )
-    db.commit()
+        if error_detail:
+            failed_count += 1
+            item["status"] = "failed"
+            item["detail"] = error_detail
+        else:
+            applied_count += 1
+        items.append(item)
     return {
         "processed": len(products),
         "applied": applied_count,
@@ -1002,11 +1317,56 @@ def create_recommendation_run(
     current_user: User = Depends(require_advisor)
 ):
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    # C1: Hard-Gate. Auch der direkte Draft-Create muss auf einem aktuellen,
+    # strategie-fertigen Risikoprofil + aktueller Policy + aktueller CMA basieren
+    # und darf keine fremden / stale TargetAllocation referenzieren.
+    assessment = db.query(RiskAssessment).filter(
+        RiskAssessment.mandate_id == mandate_id,
+        RiskAssessment.is_current == 1,
+        RiskAssessment.deleted_at.is_(None),
+    ).first()
+    if not assessment:
+        raise HTTPException(status_code=409, detail="Bitte zuerst ein aktuelles Risikoprofil speichern.")
+    if assessment.final_score_x10 is None and assessment.override_score_x10 is None:
+        raise HTTPException(status_code=409, detail="Risikoprofil unvollstaendig. Bitte Fragebogen vollstaendig ausfuellen.")
+    if body.assessment_id and body.assessment_id != assessment.id:
+        raise HTTPException(status_code=422, detail=(
+            "assessment_id muss auf das aktuelle Risikoprofil zeigen "
+            f"(erwartet {assessment.id})."
+        ))
     policy = db.query(OptimizerPolicy).filter(
-        OptimizerPolicy.id == body.policy_id
+        OptimizerPolicy.id == body.policy_id,
+        OptimizerPolicy.is_current == 1,
     ).first()
     if not policy:
-        raise HTTPException(status_code=404, detail="Optimizer Policy nicht gefunden")
+        raise HTTPException(status_code=404, detail="Optimizer Policy nicht gefunden oder nicht aktuell")
+    cma = db.query(CapitalMarketAssumption).filter(
+        CapitalMarketAssumption.is_current == 1,
+        CapitalMarketAssumption.deleted_at.is_(None),
+    ).first()
+    if not cma:
+        raise HTTPException(status_code=409, detail="Keine aktuellen Kapitalmarktannahmen.")
+    if body.capital_market_assumptions_id and body.capital_market_assumptions_id != cma.id:
+        raise HTTPException(status_code=422, detail=(
+            "capital_market_assumptions_id muss auf die aktuellen CMA zeigen "
+            f"(erwartet {cma.id})."
+        ))
+    if body.target_allocation_id:
+        ta = db.query(TargetAllocation).filter(
+            TargetAllocation.id == body.target_allocation_id,
+            TargetAllocation.mandate_id == mandate_id,
+            TargetAllocation.deleted_at.is_(None),
+        ).first()
+        if not ta:
+            raise HTTPException(status_code=409, detail=(
+                "target_allocation_id gehoert nicht zu diesem Mandat oder ist gelöscht."
+            ))
+    payload = body.model_dump()
+    payload.pop("other_assets_included", None)
+    if not payload.get("assessment_id"):
+        payload["assessment_id"] = assessment.id
+    if not payload.get("capital_market_assumptions_id"):
+        payload["capital_market_assumptions_id"] = cma.id
     now = _now()
     run = RecommendationRun(
         id=new_uuid(),
@@ -1016,7 +1376,7 @@ def create_recommendation_run(
         other_assets_included=1 if body.other_assets_included else 0,
         created_by=current_user.id,
         created_at=now, updated_at=now,
-        **{k: v for k, v in body.model_dump().items() if k != "other_assets_included"}
+        **payload,
     )
     db.add(run)
     log(db, user_id=current_user.id, user_name=current_user.full_name,
@@ -1047,8 +1407,14 @@ def generate_recommendation_run_endpoint(
             depot_bank=body.depot_bank,
         )
     except ValueError as exc:
+        logger.warning("generate_recommendation_run failed for mandate %s: %s", mandate_id, exc)
         raise HTTPException(status_code=409, detail=str(exc))
-    refresh_system_review_triggers(db, mandate, current_user.id)
+    refresh_system_review_triggers(
+        db,
+        mandate,
+        current_user.id,
+        allocation_payload=result.get("allocation_payload"),
+    )
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="recommendation_runs", record_id=result["run"].id, action="CREATE",
         mandate_id=mandate_id, client_id=mandate.client_id)
@@ -1070,7 +1436,11 @@ def get_current_recommendation_payload(
     ).order_by(RecommendationRun.created_at.desc()).all()
     if not runs:
         raise HTTPException(status_code=404, detail="Keine Empfehlung gefunden")
-    run = next((item for item in runs if item.result_status == "Final"), None) or runs[0]
+    run = (
+        next((item for item in runs if item.result_status == "Final"), None)
+        or next((item for item in runs if item.result_status == "Draft"), None)
+        or runs[0]
+    )
     try:
         return build_recommendation_payload_from_run(
             db=db,
@@ -1083,6 +1453,29 @@ def get_current_recommendation_payload(
         raise HTTPException(status_code=409, detail=str(exc))
 
 
+@recommendations_router.get("/mandates/{mandate_id}/recommendations/{run_id}/payload",
+                            response_model=RecommendationGenerateResponse)
+def get_recommendation_payload_by_id(
+    mandate_id: str,
+    run_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    run = _get_recommendation_run_or_404(mandate_id, run_id, db, current_user)
+    try:
+        return build_recommendation_payload_from_run(
+            db=db,
+            mandate=mandate,
+            run=run,
+            user_id=current_user.id,
+            preferences=None,
+        )
+    except ValueError as exc:
+        logger.warning("build_recommendation_payload_from_run failed for mandate %s: %s", mandate_id, exc)
+        raise HTTPException(status_code=409, detail=str(exc))
+
+
 @recommendations_router.put("/mandates/{mandate_id}/recommendations/{run_id}/finalize",
                              response_model=RecommendationRunResponse)
 def finalize_recommendation(
@@ -1090,17 +1483,23 @@ def finalize_recommendation(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor)
 ):
+    mandate = _get_mandate_or_404(mandate_id, db, current_user)
     run = _get_recommendation_run_or_404(mandate_id, run_id, db, current_user)
-    # Supersede previous final runs
+    errors, warnings = _validate_recommendation_for_finalization(db, mandate, run)
+    if errors:
+        raise HTTPException(status_code=422, detail="; ".join(errors))
     db.query(RecommendationRun).filter(
         RecommendationRun.mandate_id == mandate_id,
         RecommendationRun.result_status == "Final",
         RecommendationRun.id != run_id
     ).update({"result_status": "Superseded"})
     run.result_status = "Final"
+    run.updated_at = _now()
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="recommendation_runs", record_id=run_id, action="UPDATE",
-        field_name="result_status", new_value="Final", mandate_id=mandate_id)
+        field_name="result_status",
+        new_value=("Final; Warnungen: " + " | ".join(warnings)) if warnings else "Final",
+        mandate_id=mandate_id)
     db.commit()
     db.refresh(run)
     return run
@@ -1130,9 +1529,7 @@ def add_position(
     run = _get_recommendation_run_or_404(mandate_id, run_id, db, current_user)
     if run.result_status == "Final":
         raise HTTPException(status_code=400, detail="Finalisierte Runs können nicht mehr geändert werden")
-    product = db.query(Product).filter(Product.id == body.product_id).first()
-    if not product:
-        raise HTTPException(status_code=404, detail="Produkt nicht gefunden")
+    product = _get_product_or_404(body.product_id, db)
     now = _now()
     pos = RecommendationPosition(
         id=new_uuid(), run_id=run_id,
@@ -1180,16 +1577,18 @@ def upsert_position_holding(
     if not position:
         raise HTTPException(status_code=404, detail="Empfehlungsposition nicht gefunden")
     now = _now()
-    payload = body.model_dump()
-    payload["as_of_date"] = _normalize_holding_date(payload.get("as_of_date"))
+    payload = body.model_dump(exclude_unset=True)
+    if "as_of_date" in payload:
+        payload["as_of_date"] = _normalize_holding_date(payload.get("as_of_date"))
     holding = db.query(RecommendationHolding).filter(
         RecommendationHolding.run_id == run_id,
         RecommendationHolding.recommendation_position_id == position_id,
         RecommendationHolding.deleted_at.is_(None)
     ).order_by(RecommendationHolding.updated_at.desc()).first()
     if holding:
-        for field, value in payload.items():
-            setattr(holding, field, value)
+        for field in _HOLDING_MUTABLE_FIELDS:
+            if field in payload:
+                setattr(holding, field, payload[field])
         holding.updated_at = now
         action = "UPDATE"
     else:
@@ -1249,8 +1648,8 @@ def dashboard_summary(
         trigger_count = db.execute(trigger_stmt, {"active_statuses": ACTIVE_TRIGGER_STATUS_VALUES}).scalar()
         clients = [dict(r._mapping) for r in rows]
         for c in clients:
-            c["net_worth_chf"] = c["net_worth_rappen"] / 100
-            c["advisory_wealth_chf"] = c["advisory_wealth_rappen"] / 100
+            c["net_worth_chf"] = (c.get("net_worth_rappen") or 0) / 100
+            c["advisory_wealth_chf"] = (c.get("advisory_wealth_rappen") or 0) / 100
         return {
             "clients": clients,
             "active_alerts": trigger_count,
@@ -1284,8 +1683,8 @@ def dashboard_summary(
         trigger_count = 0
     clients = [dict(r._mapping) for r in rows]
     for c in clients:
-        c["net_worth_chf"] = c["net_worth_rappen"] / 100
-        c["advisory_wealth_chf"] = c["advisory_wealth_rappen"] / 100
+        c["net_worth_chf"] = (c.get("net_worth_rappen") or 0) / 100
+        c["advisory_wealth_chf"] = (c.get("advisory_wealth_rappen") or 0) / 100
     return {
         "clients": clients,
         "active_alerts": trigger_count,

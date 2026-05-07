@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from datetime import date, datetime, timezone
 from database import get_db, new_uuid
 from models.users import User
@@ -15,13 +15,23 @@ from schemas.profiling import (
 )
 from services.auth import get_client_for_user_or_404, get_current_user, get_mandate_for_user_or_404, require_advisor
 from services.audit import log
-from services.risk_scoring import compute_scores
+from services.risk_scoring import canonicalize_horizon_label, compute_scores, profile_for_score_x10
 
 router = APIRouter(tags=["Risikoprofilierung"])
 
 
 def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+
+
+def _canonical_risk_answer_section(question_number: int | None, question_section: str | None) -> str:
+    section = str(question_section or "").strip()
+    if section in {"Risikofähigkeit", "Risikobereitschaft"}:
+        return section
+    qn = int(question_number or 0)
+    if qn in (9, 10, 11, 12):
+        return "Risikobereitschaft"
+    return "Risikofähigkeit"
 
 
 def _get_mandate_or_404(mandate_id: str, db: Session, current_user: User) -> Mandate:
@@ -55,11 +65,14 @@ def create_knowledge(
     today = date.today().isoformat()
 
     # Supersede previous current
+    # Race-Hardening: pessimistic Lock auf den Anchor-Record. Auf Postgres
+    # serialisiert das parallele "is_current=0; insert is_current=1"-Wechsel.
+    # SQLite ignoriert FOR UPDATE (Single-Writer ohnehin serialisiert).
     prev = db.query(ClientKnowledge).filter(
         ClientKnowledge.client_id == client_id,
         ClientKnowledge.is_current == 1,
         ClientKnowledge.deleted_at.is_(None)
-    ).first()
+    ).with_for_update().first()
     prev_id = None
     prev_version = 0
     if prev:
@@ -106,7 +119,9 @@ def list_risk_assessments(
     current_user: User = Depends(get_current_user)
 ):
     _get_mandate_or_404(mandate_id, db, current_user)
-    return db.query(RiskAssessment).filter(
+    return db.query(RiskAssessment).options(
+        selectinload(RiskAssessment.answers)
+    ).filter(
         RiskAssessment.mandate_id == mandate_id,
         RiskAssessment.deleted_at.is_(None)
     ).order_by(RiskAssessment.assessed_at.desc()).all()
@@ -119,7 +134,9 @@ def get_current_risk_assessment(
     current_user: User = Depends(get_current_user)
 ):
     _get_mandate_or_404(mandate_id, db, current_user)
-    ra = db.query(RiskAssessment).filter(
+    ra = db.query(RiskAssessment).options(
+        selectinload(RiskAssessment.answers)
+    ).filter(
         RiskAssessment.mandate_id == mandate_id,
         RiskAssessment.is_current == 1,
         RiskAssessment.deleted_at.is_(None)
@@ -139,6 +156,7 @@ def create_risk_assessment(
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
     now = _now()
     today = date.today().isoformat()
+    horizon_label = canonicalize_horizon_label(body.investment_horizon_label)
 
     # Compute scores from Fachlogik
     scores = compute_scores(
@@ -146,18 +164,23 @@ def create_risk_assessment(
         q_obligations_points=body.q_obligations_points,
         q_savings_points=body.q_savings_points,
         q_wealth_points=body.q_wealth_points,
-        investment_horizon_label=body.investment_horizon_label,
+        investment_horizon_label=horizon_label,
         q_investment_goal_points=body.q_investment_goal_points,
         q_risk_preference_points=body.q_risk_preference_points,
         q_risk_behavior_points=body.q_risk_behavior_points,
     )
+    final_score_x10 = int(scores.final_score_x10)
+    final_profile = str(scores.final_profile)
+    if str(mandate.mandate_type or "").strip().upper() == "FZK" and final_score_x10 > 75:
+        final_score_x10 = 75
+        final_profile = profile_for_score_x10(final_score_x10)
 
-    # Supersede previous
+    # Supersede previous (Race-Hardening, siehe ClientKnowledge oben).
     prev = db.query(RiskAssessment).filter(
         RiskAssessment.mandate_id == mandate_id,
         RiskAssessment.is_current == 1,
         RiskAssessment.deleted_at.is_(None)
-    ).first()
+    ).with_for_update().first()
     prev_id = None
     prev_version = 0
     if prev:
@@ -181,7 +204,7 @@ def create_risk_assessment(
         risk_capacity_total=scores.risk_capacity_total,
         risk_capacity_profile=scores.risk_capacity_profile,
         investment_horizon_years=body.investment_horizon_years,
-        investment_horizon_label=body.investment_horizon_label,
+        investment_horizon_label=horizon_label,
         risk_capacity_score_x10=scores.risk_capacity_score_x10,
         # Risikobereitschaft
         q_investment_goal_points=body.q_investment_goal_points,
@@ -191,8 +214,8 @@ def create_risk_assessment(
         risk_willingness_profile=scores.risk_willingness_profile,
         risk_willingness_score_x10=scores.risk_willingness_score_x10,
         # Final
-        final_score_x10=scores.final_score_x10,
-        final_profile=scores.final_profile,
+        final_score_x10=final_score_x10,
+        final_profile=final_profile,
         is_overridden=0,
         assessed_at=now,
         assessed_by=current_user.id,
@@ -208,7 +231,10 @@ def create_risk_assessment(
                 id=new_uuid(),
                 assessment_id=ra.id,
                 question_number=ans.get("question_number"),
-                question_section=ans.get("question_section"),
+                question_section=_canonical_risk_answer_section(
+                    ans.get("question_number"),
+                    ans.get("question_section"),
+                ),
                 answer_label=ans.get("answer_label"),
                 answer_points=ans.get("answer_points"),
                 created_at=now,
@@ -218,8 +244,9 @@ def create_risk_assessment(
         table_name="risk_assessments", record_id=ra.id, action="CREATE",
         mandate_id=mandate_id, client_id=mandate.client_id)
     db.commit()
-    db.refresh(ra)
-    return ra
+    return db.query(RiskAssessment).options(
+        selectinload(RiskAssessment.answers)
+    ).filter(RiskAssessment.id == ra.id).one()
 
 
 @router.post("/mandates/{mandate_id}/risk-assessments/{ra_id}/override",
@@ -239,6 +266,11 @@ def override_risk_assessment(
     ).first()
     if not ra:
         raise HTTPException(status_code=404, detail="Risikoprofilierung nicht gefunden")
+    if str(mandate.mandate_type or "").strip().upper() == "FZK" and int(body.override_score_x10 or 0) > 75:
+        raise HTTPException(
+            status_code=422,
+            detail="FZK-Mandat: Override-Score darf 75 nicht überschreiten (FIDLEG)",
+        )
 
     ra.is_overridden = 1
     ra.override_score_x10 = body.override_score_x10

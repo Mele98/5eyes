@@ -9,6 +9,8 @@ class ClientCreate(BaseModel):
     first_name: str
     last_name: str
     date_of_birth: Optional[str] = None
+    investment_horizon_start: Optional[str] = None
+    investment_horizon_end: Optional[str] = None
     country_of_residence: str = "CH"
     canton: Optional[str] = None
     civil_status: Optional[str] = None
@@ -35,6 +37,8 @@ class ClientUpdate(BaseModel):
     first_name: Optional[str] = None
     last_name: Optional[str] = None
     date_of_birth: Optional[str] = None
+    investment_horizon_start: Optional[str] = None
+    investment_horizon_end: Optional[str] = None
     country_of_residence: Optional[str] = None
     canton: Optional[str] = None
     civil_status: Optional[str] = None
@@ -61,6 +65,8 @@ class ClientResponse(BaseResponse):
     first_name: str
     last_name: str
     date_of_birth: Optional[str]
+    investment_horizon_start: Optional[str]
+    investment_horizon_end: Optional[str]
     country_of_residence: str
     canton: Optional[str]
     civil_status: Optional[str]
@@ -136,8 +142,14 @@ class CashflowSummaryResponse(BaseModel):
     client_id: str
     client_name: str
     summary_year: int
+    recurring_income_rappen: int = 0
+    capital_inflow_rappen: int = 0
     total_income_rappen: int
+    recurring_expense_rappen: int = 0
+    capital_outflow_rappen: int = 0
     total_expense_rappen: int
+    recurring_net_rappen: int = 0
+    capital_net_rappen: int = 0
     surplus_rappen: int
     total_income_chf: float
     total_expense_chf: float
@@ -146,7 +158,11 @@ class CashflowSummaryResponse(BaseModel):
 
 class CashflowYearRow(BaseModel):
     year: int
+    recurring_income_rappen: int = 0
+    capital_inflow_rappen: int = 0
     income_rappen: int
+    recurring_expense_rappen: int = 0
+    capital_outflow_rappen: int = 0
     expense_rappen: int
     net_rappen: int
 

@@ -64,6 +64,8 @@ class AdvisoryLog(Base):
     description = Column(String)
     decision = Column(String)
     trigger_id = Column(String)
+    recommendation_run_id = Column(String, ForeignKey("recommendation_runs.id"), nullable=True)
+    status = Column(String, nullable=False, default="Empfohlen")
     advisor_id = Column(String, ForeignKey("users.id"), nullable=False)
     client_signed = Column(Integer, nullable=False, default=0)
     client_signed_at = Column(String)
@@ -74,6 +76,7 @@ class AdvisoryLog(Base):
 
     mandate = relationship("Mandate", back_populates="advisory_log")
     advisor = relationship("User")
+    recommendation_run = relationship("RecommendationRun")
 
 
 class ConflictOfInterestDisclosure(Base):
@@ -208,6 +211,11 @@ class RecommendationPosition(Base):
     product_id = Column(String, ForeignKey("products.id"), nullable=False)
     target_weight_bps = Column(Integer, nullable=False)
     target_amount_rappen = Column(Integer)
+    reference_price_rappen = Column(Integer)
+    reference_price_date = Column(String)
+    reference_price_source = Column(String)
+    reference_lookup_mode = Column(String)
+    reference_price_fetched_at = Column(String)
     rationale = Column(String)
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
@@ -257,4 +265,5 @@ class AuditLog(Base):
     new_value = Column(String)
     mandate_id = Column(String)
     client_id = Column(String)
+    integrity_hash = Column(String(64))
     created_at = Column(String, nullable=False)

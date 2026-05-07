@@ -94,6 +94,8 @@ CREATE TABLE IF NOT EXISTS clients (
     first_name              TEXT NOT NULL,
     last_name               TEXT NOT NULL,
     date_of_birth           TEXT,
+    investment_horizon_start TEXT,
+    investment_horizon_end   TEXT,
     country_of_residence    TEXT NOT NULL DEFAULT 'CH' CHECK(length(country_of_residence) = 2),
     canton                  TEXT,
     civil_status            TEXT CHECK(civil_status IN (
@@ -323,8 +325,8 @@ CREATE INDEX IF NOT EXISTS idx_risk_override_by ON risk_assessments(override_by)
 CREATE TABLE IF NOT EXISTS risk_assessment_answers (
     id                  TEXT PRIMARY KEY,
     assessment_id       TEXT NOT NULL REFERENCES risk_assessments(id) ON UPDATE CASCADE,
-    question_number     INTEGER NOT NULL CHECK(question_number BETWEEN 1 AND 9),
-    question_section    TEXT NOT NULL CHECK(question_section IN ('Risikofähigkeit','Risikobereitschaft')),
+    question_number     INTEGER NOT NULL CHECK(question_number BETWEEN 1 AND 11),
+    question_section    TEXT NOT NULL CHECK(question_section IN ('Kenntnisse & Erfahrungen','Risikofähigkeit','Risikobereitschaft')),
     answer_label        TEXT NOT NULL,
     answer_points       INTEGER NOT NULL,
     created_at          TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
@@ -787,8 +789,10 @@ CREATE TABLE IF NOT EXISTS target_allocations (
     band_liquidity_min_bps  INTEGER NOT NULL CHECK(band_liquidity_min_bps BETWEEN 0 AND 10000),
     band_liquidity_max_bps  INTEGER NOT NULL CHECK(band_liquidity_max_bps BETWEEN 0 AND 10000),
     risky_fraction_bps      INTEGER CHECK(risky_fraction_bps BETWEEN 0 AND 10000),
+    external_reserve_at_generation_rappen INTEGER CHECK(external_reserve_at_generation_rappen IS NULL OR external_reserve_at_generation_rappen >= 0),
     -- FIX v4: Composite FK für based_on_assessment_id
     based_on_assessment_id  TEXT,
+    capital_market_assumptions_id TEXT REFERENCES capital_market_assumptions(id) ON UPDATE CASCADE,
     policy_id               TEXT NOT NULL REFERENCES optimizer_policies(id) ON UPDATE CASCADE,
     set_by                  TEXT NOT NULL REFERENCES users(id) ON UPDATE CASCADE,
     set_at                  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),

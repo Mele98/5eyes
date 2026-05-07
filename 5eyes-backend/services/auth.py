@@ -45,7 +45,18 @@ def get_current_user(
         headers={"WWW-Authenticate": "Bearer"},
     )
     try:
-        payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
+        payload = jwt.decode(
+            token,
+            settings.secret_key,
+            algorithms=[settings.algorithm],
+            options={"verify_exp": False},
+        )
+        try:
+            exp_ts = float(payload.get("exp"))
+        except (TypeError, ValueError):
+            raise credentials_exception
+        if exp_ts <= datetime.now(timezone.utc).timestamp():
+            raise credentials_exception
         user_id: str = payload.get("sub")
         if user_id is None:
             raise credentials_exception

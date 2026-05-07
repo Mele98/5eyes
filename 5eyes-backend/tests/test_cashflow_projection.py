@@ -19,6 +19,10 @@ from services.auth import get_current_user
 import uuid, datetime
 
 
+def _utc_now_iso() -> str:
+    return datetime.datetime.now(datetime.UTC).isoformat().replace("+00:00", "Z")
+
+
 @pytest.fixture()
 def session_factory(tmp_path):
     engine = create_engine(
@@ -58,7 +62,7 @@ def auth_client(session_factory, advisor_user):
 
 def _make_client(session_factory, advisor_id: str) -> str:
     cid = str(uuid.uuid4())
-    now = datetime.datetime.utcnow().isoformat() + "Z"
+    now = _utc_now_iso()
     with session_factory() as s:
         s.add(Client(
             id=cid, client_number="CF-001", first_name="Hans", last_name="Muster",
@@ -70,7 +74,7 @@ def _make_client(session_factory, advisor_id: str) -> str:
 
 def _add_cashflow(session_factory, client_id: str, amount_rappen: int,
                   cf_type: str = "Income", frequency: str = "Jährlich") -> None:
-    now = datetime.datetime.utcnow().isoformat() + "Z"
+    now = _utc_now_iso()
     with session_factory() as s:
         s.add(Cashflow(
             id=str(uuid.uuid4()), client_id=client_id,
@@ -85,12 +89,16 @@ def test_cashflow_projection_returns_5_years(session_factory, auth_client, advis
     cid = _make_client(session_factory, advisor_user.id)
     _add_cashflow(session_factory, cid, 12_000_000)  # CHF 120k Income
 
-    resp = auth_client.get(f"/clients/{cid}/cashflow-projection")
+    resp = auth_client.get(f"/clients/{cid}/cashflow-projection?horizon_years=5")
 
     assert resp.status_code == 200
     data = resp.json()
     assert len(data["years"]) == 5
     assert all(row["income_rappen"] == 12_000_000 for row in data["years"])
+    assert all(row["recurring_income_rappen"] == 12_000_000 for row in data["years"])
+    assert all(row["capital_inflow_rappen"] == 0 for row in data["years"])
+    assert all(row["recurring_expense_rappen"] == 0 for row in data["years"])
+    assert all(row["capital_outflow_rappen"] == 0 for row in data["years"])
 
 
 def test_cashflow_projection_net_calculation(session_factory, auth_client, advisor_user):
@@ -113,3 +121,49 @@ def test_cashflow_projection_empty_client_returns_zeros(session_factory, auth_cl
     assert resp.status_code == 200
     rows = resp.json()["years"]
     assert all(r["net_rappen"] == 0 for r in rows)
+
+
+def test_cashflow_projection_segments_one_off_flows(session_factory, auth_client, advisor_user):
+    cid = _make_client(session_factory, advisor_user.id)
+    now = _utc_now_iso()
+    with session_factory() as s:
+        s.add(Cashflow(
+            id=str(uuid.uuid4()),
+            client_id=cid,
+            cashflow_type="Income",
+            label="3a Bezug",
+            amount_rappen=5_000_000,
+            frequency="einmalig",
+            nature="einmalig",
+            valid_from="2028-01-01",
+            valid_until="2028-01-01",
+            is_active=1,
+            created_at=now,
+            updated_at=now,
+        ))
+        s.add(Cashflow(
+            id=str(uuid.uuid4()),
+            client_id=cid,
+            cashflow_type="Expense",
+            label="Leben",
+            amount_rappen=2_000_000,
+            frequency="jährlich",
+            nature="wiederkehrend",
+            valid_from="2026-01-01",
+            valid_until="2029-12-31",
+            is_active=1,
+            created_at=now,
+            updated_at=now,
+        ))
+        s.commit()
+
+    resp = auth_client.get(f"/clients/{cid}/cashflow-projection?horizon_years=4")
+
+    assert resp.status_code == 200
+    rows = resp.json()["years"]
+    assert rows[0]["recurring_income_rappen"] == 0
+    assert rows[0]["capital_inflow_rappen"] == 0
+    assert rows[0]["recurring_expense_rappen"] == 2_000_000
+    assert rows[0]["capital_outflow_rappen"] == 0
+    assert rows[2]["capital_inflow_rappen"] == 5_000_000
+    assert rows[2]["net_rappen"] == 3_000_000

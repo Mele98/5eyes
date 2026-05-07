@@ -63,6 +63,18 @@ const EXPECTED_BACKEND_APP = process.env.BACKEND_APP_NAME || '5Eyes WealthArchit
 const BACKEND_READY_TIMEOUT_MS = 60_000;
 const BACKEND_POLL_INTERVAL_MS = 500;
 
+function isSafeExternalUrl(url) {
+  try {
+    const parsed = new URL(url);
+    return (
+      parsed.protocol === 'https:' ||
+      (parsed.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(parsed.hostname))
+    );
+  } catch {
+    return false;
+  }
+}
+
 let mainWindow = null;
 let backendProcess = null;
 let backendManagedByApp = false;
@@ -189,7 +201,11 @@ function readStoredToken() {
     if (safeStorage.isEncryptionAvailable()) {
       return safeStorage.decryptString(raw);
     }
-    return raw.toString('utf8');
+    clearStoredToken();
+    // Encryption unavailable — refuse to return a plaintext token.
+    // The stored file may be unencrypted; do not expose it. Force re-login.
+    logLine('WARNING: safeStorage encryption not available — stored token will not be used. User must log in again.');
+    return null;
   } catch (error) {
     logLine(`Failed to read stored token: ${error.message || error}`);
     return null;
@@ -198,10 +214,13 @@ function readStoredToken() {
 
 function writeStoredToken(token) {
   try {
+    if (!safeStorage.isEncryptionAvailable()) {
+      // Refuse to persist token as plaintext — user will need to log in each session.
+      logLine('WARNING: safeStorage encryption not available — token will not be persisted to disk.');
+      return false;
+    }
     fs.mkdirSync(path.dirname(AUTH_TOKEN_STORE_FILE), { recursive: true });
-    const payload = safeStorage.isEncryptionAvailable()
-      ? safeStorage.encryptString(String(token || ''))
-      : Buffer.from(String(token || ''), 'utf8');
+    const payload = safeStorage.encryptString(String(token || ''));
     fs.writeFileSync(AUTH_TOKEN_STORE_FILE, payload);
     return true;
   } catch (error) {
@@ -463,7 +482,7 @@ async function createMainWindow() {
     const localEntry = `file://${resolveFrontendPath().replace(/\\/g, '/')}`;
     if (url !== localEntry) {
       event.preventDefault();
-      if (/^https?:/i.test(url)) {
+      if (isSafeExternalUrl(url)) {
         shell.openExternal(url);
       }
     }

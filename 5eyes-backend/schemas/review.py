@@ -54,6 +54,8 @@ class AdvisoryLogCreate(BaseModel):
         "Kein Handlungsbedarf",
     ]] = None
     trigger_id: Optional[str] = None
+    recommendation_run_id: Optional[str] = None
+    status: Optional[Literal["Empfohlen", "Beschlossen", "Umgesetzt", "Abgelehnt", "Überarbeitung nötig"]] = None
     client_signed: bool = False
     client_signed_at: Optional[str] = None
     document_id: Optional[str] = None
@@ -66,6 +68,18 @@ class AdvisoryLogCreate(BaseModel):
         return self
 
 
+class AdvisoryLogUpdate(BaseModel):
+    status: Optional[Literal["Empfohlen", "Beschlossen", "Umgesetzt", "Abgelehnt", "Überarbeitung nötig"]] = None
+    recommendation_run_id: Optional[str] = None
+    description: Optional[str] = None
+
+    @model_validator(mode="after")
+    def at_least_one_field(self):
+        if self.status is None and self.recommendation_run_id is None and self.description is None:
+            raise ValueError("Mindestens ein Feld muss angegeben werden")
+        return self
+
+
 class AdvisoryLogResponse(BaseResponse):
     id: str
     mandate_id: str
@@ -74,6 +88,8 @@ class AdvisoryLogResponse(BaseResponse):
     description: Optional[str]
     decision: Optional[str]
     trigger_id: Optional[str]
+    recommendation_run_id: Optional[str]
+    status: str
     advisor_id: str
     client_signed: int
     client_signed_at: Optional[str]
@@ -441,6 +457,11 @@ class RecommendationPositionResponse(BaseResponse):
     product_id: str
     target_weight_bps: int
     target_amount_rappen: Optional[int]
+    reference_price_rappen: Optional[int] = None
+    reference_price_date: Optional[str] = None
+    reference_price_source: Optional[str] = None
+    reference_lookup_mode: Optional[str] = None
+    reference_price_fetched_at: Optional[str] = None
     rationale: Optional[str]
     created_at: str
     updated_at: str
@@ -523,6 +544,9 @@ class RecommendationPositionDetailResponse(BaseModel):
     source_sub_asset_classes: list[str] = []
     reference_price_date: Optional[str] = None
     reference_price_rappen: Optional[int] = None
+    reference_price_source: Optional[str] = None
+    reference_lookup_mode: Optional[str] = None
+    reference_price_fetched_at: Optional[str] = None
     reference_recalibrated: Optional[bool] = None
     latest_price_date: Optional[str] = None
     latest_price_rappen: Optional[int] = None
@@ -547,6 +571,8 @@ class RecommendationPositionDetailResponse(BaseModel):
     rebalance_amount_rappen: Optional[int] = None
     price_change_bps: Optional[int] = None
     rebalance_action: Optional[str] = None
+    rebalance_action_code: Optional[str] = None
+    rebalance_action_label: Optional[str] = None
 
 
 class RecommendationGenerateResponse(BaseModel):
@@ -555,10 +581,14 @@ class RecommendationGenerateResponse(BaseModel):
     warnings: list[str]
     implementation_steps: list[str]
     advisory_wealth_rappen: int
+    investable_advisory_wealth_rappen: Optional[int] = None
     expected_return_bps: int
     expected_volatility_bps: int
     average_ter_bps: int
+    average_ter_coverage_bps: int = 0
+    missing_ter_positions_count: int = 0
     target_allocation_id: str
+    context_status: str = "current"
     market_data_quality: dict = Field(default_factory=dict)
     live_rebalancing: Optional[LiveRebalancingResponse] = None
 
@@ -575,6 +605,7 @@ class AuditLogEntry(BaseModel):
     new_value: Optional[str] = None
     mandate_id: Optional[str] = None
     client_id: Optional[str] = None
+    integrity_hash: Optional[str] = None
     created_at: str
 
     model_config = {"from_attributes": True}

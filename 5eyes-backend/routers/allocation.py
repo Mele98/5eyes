@@ -12,13 +12,16 @@ from schemas.allocation import (
     CapitalMarketAssumptionCreate, CapitalMarketAssumptionResponse,
     TargetAllocationGenerateRequest, TargetAllocationGenerateResponse,
     BuildingBlockResponse,
+    AllocationSensitivityRequest, AllocationSensitivityResponse,
 )
 from services.auth import get_current_user, get_mandate_for_user_or_404, require_advisor, require_admin
 from services.audit import log
 from services.portfolio_engine import (
     build_target_payload_from_allocation,
     ensure_runtime_reference_data,
+    evaluate_goal_sensitivity,
     generate_target_allocation,
+    require_strategy_ready_assessment,
 )
 from services.review_engine import refresh_system_review_triggers
 
@@ -66,6 +69,17 @@ def get_current_allocation_payload(
     ).first()
     if not ta:
         raise HTTPException(status_code=404, detail="Keine Soll-Allokation gefunden")
+    # rp-ueberarbeitung: pruefe ob die referenzierte Policy noch aktuell ist,
+    # BEVOR ensure_runtime_reference_data eine neue Policy/CMA erstellt. Eine
+    # Allocation auf einer archivierten Policy soll 404 zurueckgeben.
+    ta_policy = db.query(OptimizerPolicy).filter(
+        OptimizerPolicy.id == ta.policy_id,
+    ).first()
+    if not ta_policy or ta_policy.is_current != 1:
+        raise HTTPException(
+            status_code=404,
+            detail="Soll-Allokation referenziert eine nicht-aktuelle Optimizer Policy."
+        )
     assessment = db.query(RiskAssessment).filter(
         RiskAssessment.mandate_id == mandate_id,
         RiskAssessment.is_current == 1,
@@ -94,12 +108,26 @@ def create_target_allocation(
     current_user: User = Depends(require_advisor)
 ):
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
-    # Validate policy exists
+    # rp-ueberarbeitung: zuerst Policy pruefen (404 fuer archivierte/fehlende),
+    # dann FIDLEG-Risikoprofil-Gate (409 fuer fehlende Risikoprofilierung).
+    # Damit ist die Fehlermeldung bei archivierter Policy eindeutig 404.
     policy = db.query(OptimizerPolicy).filter(
-        OptimizerPolicy.id == body.policy_id
+        OptimizerPolicy.id == body.policy_id,
+        OptimizerPolicy.is_current == 1,
     ).first()
     if not policy:
-        raise HTTPException(status_code=404, detail="Optimizer Policy nicht gefunden")
+        raise HTTPException(status_code=404, detail="Optimizer Policy nicht gefunden oder nicht aktuell")
+    # FIDLEG: jede gespeicherte Soll-Allokation muss auf einer strategie-fertigen
+    # Risikoprofilierung beruhen. Direktes POST darf das nicht umgehen.
+    try:
+        assessment = require_strategy_ready_assessment(db, mandate_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    if body.based_on_assessment_id and body.based_on_assessment_id != assessment.id:
+        raise HTTPException(status_code=422, detail=(
+            "based_on_assessment_id muss auf das aktuelle Risikoprofil zeigen "
+            f"(erwartet {assessment.id})."
+        ))
     now = _now()
     # Supersede previous
     prev = db.query(TargetAllocation).filter(
@@ -111,6 +139,9 @@ def create_target_allocation(
     if prev:
         prev.is_current = 0
         prev_version = prev.version
+    payload = body.model_dump()
+    if not payload.get("based_on_assessment_id"):
+        payload["based_on_assessment_id"] = assessment.id
     ta = TargetAllocation(
         id=new_uuid(),
         mandate_id=mandate_id,
@@ -120,7 +151,7 @@ def create_target_allocation(
         set_at=now,
         created_at=now,
         updated_at=now,
-        **body.model_dump()
+        **payload
     )
     db.add(ta)
     log(db, user_id=current_user.id, user_name=current_user.full_name,
@@ -202,17 +233,27 @@ def update_cma(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin)
 ):
-    """Admin only — update capital market assumptions (creates new version)."""
+    """Admin only — update capital market assumptions (creates new version).
+
+    rp-ueberarbeitung: nicht im Body gesetzte Felder werden von der vorigen
+    Version uebernommen, damit ein partial-Update keine zuvor gepflegten
+    sub_asset_class/correlation/etc. Werte unbeabsichtigt loescht.
+    """
     now = _now()
+    payload = body.model_dump(exclude_unset=True)
     # Archive previous
     prev = db.query(CapitalMarketAssumption).filter(
         CapitalMarketAssumption.is_current == 1,
         CapitalMarketAssumption.deleted_at.is_(None)
     ).first()
+    prev_dict: dict = {}
     prev_version = 0
     if prev:
+        for field_name in CapitalMarketAssumptionCreate.model_fields:
+            prev_dict[field_name] = getattr(prev, field_name, None)
         prev.is_current = 0
         prev_version = prev.version
+    merged = {**prev_dict, **payload}
     cma = CapitalMarketAssumption(
         id=new_uuid(),
         version=prev_version + 1,
@@ -220,7 +261,7 @@ def update_cma(
         created_by=current_user.id,
         created_at=now,
         updated_at=now,
-        **body.model_dump()
+        **merged
     )
     db.add(cma)
     log(db, user_id=current_user.id, user_name=current_user.full_name,
@@ -254,4 +295,47 @@ def generate_target_allocation_endpoint(
         mandate_id=mandate_id, client_id=mandate.client_id)
     db.commit()
     db.refresh(result["target_allocation"])
+    return result
+
+
+@router.post("/mandates/{mandate_id}/target-allocation/sensitivity",
+             response_model=AllocationSensitivityResponse)
+def goal_target_sensitivity(
+    mandate_id: str,
+    body: AllocationSensitivityRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_advisor),
+):
+    """Phase 6 FE-Optimizer-Panel: ein einzelnes Goal um delta_pct verschieben
+    und neuen Solver-Lauf zurueckliefern (mit gepinntem Seed = identische
+    Scenarios = sauberes Apples-to-Apples-Delta).
+
+    Gibt 409 wenn OPTIMIZER_MODE != 'stochastic' oder kein Risikoprofil.
+    Gibt 404 wenn Goal nicht zum Mandanten gehoert.
+
+    FINMA-Trace: jeder Aufruf wird als SENSITIVITY-Eintrag im AuditLog
+    persistiert (mandate, goal, delta).
+    """
+    mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    try:
+        result = evaluate_goal_sensitivity(
+            db=db,
+            mandate=mandate,
+            user_id=current_user.id,
+            goal_id=body.goal_id,
+            target_delta_pct=body.target_delta_pct,
+        )
+    except ValueError as exc:
+        msg = str(exc)
+        if "nicht gefunden" in msg.lower():
+            raise HTTPException(status_code=404, detail=msg)
+        raise HTTPException(status_code=409, detail=msg)
+    # Phase 6.3: AuditLog-Eintrag fuer FINMA-Trace. record_id = goal_id, weil
+    # die Sensitivity sich auf ein konkretes Goal bezieht; new_value = delta_pct
+    # damit forensisch nachvollziehbar ist welche Schieber bewegt wurden.
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="goals", record_id=body.goal_id, action="SENSITIVITY",
+        new_value=str(body.target_delta_pct),
+        mandate_id=mandate_id, client_id=mandate.client_id)
+    db.commit()
     return result

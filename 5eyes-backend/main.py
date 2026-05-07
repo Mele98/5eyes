@@ -18,6 +18,7 @@ import models.mandates  # noqa
 import models.profiling  # noqa
 import models.review  # noqa
 import models.users  # noqa
+import models.snapshots  # noqa
 import models.wealth  # noqa
 from routers.allocation import router as allocation_router
 from routers.auth import router as auth_router, users_router
@@ -32,6 +33,7 @@ from routers.review import (
     recommendations_router,
     router as review_router,
 )
+from routers.snapshots import router as snapshots_router
 from routers.system import router as system_router
 from routers.wealth import router as wealth_router
 
@@ -91,6 +93,7 @@ app.include_router(products_router)
 app.include_router(recommendations_router)
 app.include_router(dashboard_router)
 app.include_router(prices_router)
+app.include_router(snapshots_router)
 app.include_router(system_router)
 
 

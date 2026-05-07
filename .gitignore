@@ -8,6 +8,11 @@ venv/
 dist/
 build/
 *.spec
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
 
 # Node / Electron
 node_modules/
@@ -32,6 +37,8 @@ node_modules/
 
 # Temporary debug scripts
 tmp_*
+tmp/
+extracted_check.js
 
 # OS
 .DS_Store

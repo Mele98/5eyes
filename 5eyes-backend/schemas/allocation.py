@@ -70,6 +70,19 @@ class TargetAllocationResponse(BaseResponse):
     band_liquidity_max_bps: int
     risky_fraction_bps: Optional[int]
     based_on_assessment_id: Optional[str]
+    capital_market_assumptions_id: Optional[str] = None
+    # C8 audit anchors
+    preferences_json: Optional[str] = None
+    input_snapshot_hash: Optional[str] = None
+    advisory_wealth_at_generation_rappen: Optional[int] = None
+    total_wealth_at_generation_rappen: Optional[int] = None
+    reserve_needed_at_generation_rappen: Optional[int] = None
+    external_reserve_at_generation_rappen: Optional[int] = None
+    # Phase 6: persistierte Stress-Auswertungen als JSON-String. None bei
+    # house_matrix-Modus. FE deserialisiert clientseitig.
+    stress_evaluations_json: Optional[str] = None
+    # Phase 6.2: persistierter Solver-Reasoning-Trace (JSON-Liste).
+    optimizer_reasoning_json: Optional[str] = None
     policy_id: str
     set_by: str
     set_at: str
@@ -128,6 +141,7 @@ class CapitalMarketAssumptionCreate(BaseModel):
     liquidity_vol_bps: Optional[int] = None
     inflation_path_json: Optional[str] = None
     correlation_matrix_json: Optional[str] = None
+    sub_asset_class_assumptions_json: Optional[str] = None
     source: Optional[str] = "Portfolio Management intern"
     notes: Optional[str] = None
 
@@ -159,9 +173,18 @@ class CapitalMarketAssumptionResponse(BaseResponse):
     liquidity_vol_bps: Optional[int]
     inflation_path_json: Optional[str]
     correlation_matrix_json: Optional[str]
+    sub_asset_class_assumptions_json: Optional[str]
     source: Optional[str]
     notes: Optional[str]
     created_at: str
+
+
+class SubAssetClassAssumptionResponse(BaseModel):
+    asset_class: str
+    sub_asset_class: str
+    expected_return_bps: int
+    expected_volatility_bps: int
+    source: str
 
 
 class AllocationBandOverridePayload(BaseModel):
@@ -198,6 +221,40 @@ class BuildingBlockResponse(BaseResponse):
 
 class TargetAllocationGenerateRequest(BaseModel):
     preferences: Optional[AllocationPreferencesPayload] = None
+
+
+# Phase 6: Sensitivity-Analyse fuer ein einzelnes Goal.
+# OD-FE-2: nur 5 diskrete Stufen, +/-20% in 5%-Schritten = {-20,-10,0,10,20}.
+_ALLOWED_SENSITIVITY_DELTAS = (-20, -10, 0, 10, 20)
+
+
+class AllocationSensitivityRequest(BaseModel):
+    goal_id: str
+    target_delta_pct: int
+
+    @model_validator(mode="after")
+    def validate_delta(self):
+        if self.target_delta_pct not in _ALLOWED_SENSITIVITY_DELTAS:
+            allowed = ", ".join(str(d) for d in _ALLOWED_SENSITIVITY_DELTAS)
+            raise ValueError(
+                f"target_delta_pct muss einer von [{allowed}] sein "
+                f"(erhalten: {self.target_delta_pct})"
+            )
+        return self
+
+
+class AllocationSensitivityResponse(BaseModel):
+    goal_id: str
+    delta_pct: int
+    target_amount_rappen_baseline: int
+    target_amount_rappen_new: int
+    objective_value_milli_baseline: Optional[int]
+    objective_value_milli_new: Optional[int]
+    delta_objective_pct: Optional[float]
+    weights_bps_baseline: dict[str, int]
+    weights_bps_new: dict[str, int]
+    status_baseline: str
+    status_new: str
 
 
 class AllocationBucketResponse(BaseModel):
@@ -258,6 +315,8 @@ class GoalAnalysisResponse(BaseModel):
     label: str
     goal_type: str
     goal_scope: str
+    value_mode: Optional[str] = None
+    hardness: Optional[str] = None
     rank: int
     weight_bps: int
     target_amount_rappen: int
@@ -274,6 +333,7 @@ class GoalAnalysisResponse(BaseModel):
     timing_label: Optional[str] = None
     path_success_rate_pct: Optional[int] = None
     funded_ratio_p50: Optional[float] = None
+    evaluation_note: Optional[str] = None
     projected_value_p10_rappen: Optional[int] = None
     projected_value_p50_rappen: Optional[int] = None
     projected_value_p90_rappen: Optional[int] = None
@@ -289,6 +349,7 @@ class MonteCarloGoalSummaryResponse(BaseModel):
     projected_value_p50_rappen: int
     projected_value_p90_rappen: int
     score: int
+    evaluation_note: Optional[str] = None
 
 
 class MonteCarloResponse(BaseModel):
@@ -303,6 +364,15 @@ class MonteCarloResponse(BaseModel):
     target_p10_series_rappen: list[int]
     target_p50_series_rappen: list[int]
     target_p90_series_rappen: list[int]
+    # F23: Total-Vermoegen-Pfade (Gesamtvermoegen inkl. Liabilities). Leer wenn
+    # der Aufrufer kein total_summary uebergibt; ansonsten parallel zu den
+    # advisory-Pfaden mit gleicher Zeitachse.
+    total_current_p10_series_rappen: list[int] = Field(default_factory=list)
+    total_current_p50_series_rappen: list[int] = Field(default_factory=list)
+    total_current_p90_series_rappen: list[int] = Field(default_factory=list)
+    total_target_p10_series_rappen: list[int] = Field(default_factory=list)
+    total_target_p50_series_rappen: list[int] = Field(default_factory=list)
+    total_target_p90_series_rappen: list[int] = Field(default_factory=list)
     current_annualized_return_p50_bps: int
     target_annualized_return_p50_bps: int
     target_var_95_1y_bps: int
@@ -347,6 +417,8 @@ class LiveRebalancingPositionResponse(BaseModel):
     price_age_days: Optional[int] = None
     price_is_fresh: Optional[bool] = None
     rebalance_action: str
+    rebalance_action_code: str
+    rebalance_action_label: str
 
 
 class LiveRebalancingBucketResponse(BaseModel):
@@ -387,10 +459,27 @@ class TargetAllocationGenerateResponse(BaseModel):
     house_matrix_profile: str
     score_bucket: int
     advisory_wealth_rappen: int
+    investable_advisory_wealth_rappen: Optional[int] = None
+    # Phase 6 FE-Optimizer-Panel: Stress-Auswertungen aus dem Solver (Phase 5.2).
+    # Schluessel: scenario_name -> dict mit end_wealth_rappen,
+    # min_year_wealth_rappen, max_drawdown_bps. None wenn House-Matrix-Modus
+    # oder Solver gefallback ist.
+    stress_evaluations: Optional[dict] = None
+    # C6: explizit benannte Basis fuer Target-/Sim-/MC-Berechnung
+    # (= Beratungsvermoegen abzueglich externer Reserve).
+    strategy_base_rappen: Optional[int] = None
     total_wealth_rappen: int
+    recurring_income_rappen: int = 0
+    recurring_expense_rappen: int = 0
+    capital_inflow_rappen: int = 0
+    capital_outflow_rappen: int = 0
+    recurring_net_cashflow_rappen: int = 0
+    capital_net_cashflow_rappen: int = 0
     annual_net_cashflow_rappen: int
     cashflow_projection_series_rappen: list[int]
+    recurring_cashflow_projection_series_rappen: list[int] = Field(default_factory=list)
     reserve_needed_rappen: int
+    external_reserve_rappen: int = 0
     risk_budget_bps: int
     risky_fraction_total_bps: int
     risky_fraction_headroom_bps: int
@@ -403,6 +492,7 @@ class TargetAllocationGenerateResponse(BaseModel):
     buckets: list[AllocationBucketResponse]
     sub_allocations: list[AllocationSubBucketResponse]
     asset_class_assumptions: list[AssetClassAssumptionResponse]
+    sub_asset_class_assumptions_reference: list[SubAssetClassAssumptionResponse]
     simulation: AllocationSimulationResponse
     monte_carlo: MonteCarloResponse
     goal_analysis: list[GoalAnalysisResponse]
