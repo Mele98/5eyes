@@ -30,7 +30,7 @@ from models.review import (
     RecommendationPosition,
     RecommendationRun,
 )
-from models.wealth import Cashflow, Goal, PlanningAssumption, WealthPosition
+from models.wealth import Cashflow, Goal, PlanningAssumption, WealthInflow, WealthPosition
 from price_updater import latest_price_snapshot, parse_iso_date, summarize_price_quality
 from services.cashflow_timeline import (
     future_value_with_cashflow_series,
@@ -52,6 +52,53 @@ BUCKET_LABELS = {
 }
 # Maximale strategische Liquiditaetsquote im SAA. Alles darueber wird extern empfohlen.
 _SAA_LIQUIDITY_HARD_CAP_BPS: int = 300  # 3% absolutes Maximum
+
+# Sprint A4 (2026-05-06): Smoother Reserve-Decay statt Stufenfunktion.
+# factor = exp(-years/_RESERVE_DECAY_TAU), geclamped auf [_MIN, _MAX].
+_RESERVE_DECAY_TAU: float = 5.0
+_RESERVE_DECAY_MIN: float = 0.05  # bei sehr langem Horizont noch 5% Tail-Risk-Reserve
+_RESERVE_DECAY_MAX: float = 1.0   # bei years=0 (sofort) genau 100%
+
+
+def _reserve_decay_mode_smooth() -> bool:
+    """Liest die Konfig: smooth-decay nur wenn explizit RESERVE_DECAY_MODE=smooth.
+    Default bleibt 'stufen' (audit-konsistent zu Z2/B5/B6).
+    """
+    import os
+    return str(os.environ.get("RESERVE_DECAY_MODE", "stufen")).strip().lower() == "smooth"
+
+
+def _reserve_decay_factor(years: int) -> float:
+    """Hybrid-Decay-Faktor [0.05, 1.0] fuer Reserve-Berechnung.
+
+    Plateau fuer kurzfristige Goals (Berater-Intuition + Audit-Z2-Konsistenz),
+    dann exponentielles Abklingen ab Year 4 mit tau=4. Smoother als die alte
+    Stufenfunktion {≤3:100%, 4-7:50%, >7:0%} — kein Klippeneffekt mehr bei
+    3.0 vs 3.1 Jahren, aber nahe Goals bleiben voll abgesichert.
+
+    years=0..1 -> 1.00 (sofort fällig, voll Reserve)
+    years=2    -> 0.95
+    years=3    -> 0.90
+    years=4    -> 0.82
+    years=5    -> 0.67
+    years=6    -> 0.55
+    years=7    -> 0.45
+    years=10   -> 0.25
+    years=15   -> 0.09
+    years=20+  -> 0.05 (clamp-min)
+    """
+    import math
+    if years is None:
+        return _RESERVE_DECAY_MAX
+    y = max(0, int(years))
+    if y <= 1:
+        return _RESERVE_DECAY_MAX
+    if y == 2:
+        return 0.95
+    if y == 3:
+        return 0.90
+    raw = math.exp(-(y - 3) / _RESERVE_DECAY_TAU)
+    return max(_RESERVE_DECAY_MIN, min(_RESERVE_DECAY_MAX, raw))
 LABEL_TO_BUCKET = {value: key for key, value in BUCKET_LABELS.items()}
 GOAL_WEIGHT_BY_RANK = {
     1: 10000,
@@ -1295,14 +1342,27 @@ def _expected_metrics(
     }
 
 
-def _simulation_horizon_years(simulation_prefs: dict | None, goals: list[Goal]) -> int:
+def _simulation_horizon_years(
+    simulation_prefs: dict | None,
+    goals: list[Goal],
+    mandate: Mandate | None = None,
+) -> int:
     raw = (simulation_prefs or {}).get("horizonYears")
     try:
         requested = int(str(raw).strip()) if raw not in (None, "", False) else DEFAULT_SIMULATION_HORIZON_YEARS
     except (TypeError, ValueError):
         requested = DEFAULT_SIMULATION_HORIZON_YEARS
     goal_horizon = max((int(goal.horizon_years or 0) for goal in goals), default=0)
-    return max(7, requested, goal_horizon)
+    # Sprint A3: Lebenserwartung als Untergrenze fuer den Horizont. Damit
+    # MC-Pfade lang genug sind, um Pension + Vermoegensverzehr zu simulieren.
+    life_horizon = 0
+    if mandate is not None and getattr(mandate, "life_expectancy_year", None):
+        from datetime import date
+        try:
+            life_horizon = max(0, int(mandate.life_expectancy_year) - date.today().year)
+        except (TypeError, ValueError):
+            life_horizon = 0
+    return max(7, requested, goal_horizon, life_horizon)
 
 
 def _simulation_stress_multiplier(simulation_prefs: dict | None) -> float:
@@ -1952,6 +2012,9 @@ def _goal_reserve_for_goal(goal: Goal) -> int:
     angewandte zielbezogene Logik (years<=3: 100%, 4-7: 50%, >7: 0%)
     zentral wider, damit das Scoring konsistent zur Reserve-Empfehlung
     bleibt.
+
+    Sprint A4 (2026-05-06): Smooth-Decay-Variante via Feature-Flag
+    RESERVE_DECAY_MODE=smooth. Default bleibt 'stufen' (audit-konsistent).
     """
     goal_type = _norm_text(goal.goal_type)
     if goal_type not in ("Einmalige_Ausgabe", "Wiederkehrende_Ausgabe", "Pensionsausgabe"):
@@ -1962,6 +2025,9 @@ def _goal_reserve_for_goal(goal: Goal) -> int:
         else int(goal.target_amount_rappen or 0)
     )
     years = _goal_projection_years(goal)
+    if _reserve_decay_mode_smooth():
+        return int(round(target_amount * _reserve_decay_factor(years)))
+    # Default Stufenfunktion (Audit-Z2-konsistent)
     if years <= 3:
         return target_amount
     if years <= 7:
@@ -3123,6 +3189,64 @@ def ensure_default_products(db: Session) -> None:
     db.flush()
 
 
+def _wealth_inflow_series_rappen(
+    inflows: list,
+    projection_years: int,
+    start_year: int,
+    inflation_series_bps: list[int] | None,
+) -> list[int]:
+    """Sprint A1: konvertiert WealthInflow-Records in eine Year-Series.
+
+    - is_recurring=0: Einmaliger Beitrag im expected_year
+    - is_recurring=1 + frequency='jaehrlich': annual Beitrag ab expected_year
+      ueber duration_years Jahre
+    - is_recurring=1 + frequency='monatlich': annual = amount * 12, gleich wie oben
+    - value_mode='real': Inflations-aufgezinst per offset
+
+    Inflows fliessen ins Beratungsvermoegen, daher positiver Beitrag in der
+    cashflow_projection_series_rappen.
+    """
+    series = [0] * max(0, int(projection_years or 0))
+    if not series or not inflows:
+        return series
+    for infl in inflows:
+        if not getattr(infl, "is_active", 1):
+            continue
+        try:
+            base_amount = int(infl.amount_rappen or 0)
+            if base_amount <= 0:
+                continue
+            year = int(infl.expected_year or 0)
+            offset = year - int(start_year or 0)
+            if offset < 0 or offset >= len(series):
+                continue
+            recurring = int(getattr(infl, "is_recurring", 0) or 0) == 1
+            freq = str(getattr(infl, "frequency", "") or "").strip().lower()
+            duration = int(getattr(infl, "duration_years", 0) or 0) if recurring else 0
+            value_mode = str(getattr(infl, "value_mode", "nominal") or "nominal").strip().lower()
+            is_real = value_mode == "real"
+
+            def _amount_at_offset(off: int, base: int) -> int:
+                if not is_real or not inflation_series_bps:
+                    return base
+                # kumulativ ueber Jahre
+                cum = 1.0
+                for k in range(min(off, len(inflation_series_bps))):
+                    cum *= (1.0 + (int(inflation_series_bps[k]) / 10000.0))
+                return int(round(base * cum))
+
+            if recurring:
+                annual_base = base_amount * 12 if freq == "monatlich" else base_amount
+                last = min(len(series) - 1, offset + max(0, duration) - 1)
+                for off in range(offset, last + 1):
+                    series[off] += _amount_at_offset(off, annual_base)
+            else:
+                series[offset] += _amount_at_offset(offset, base_amount)
+        except (TypeError, ValueError, AttributeError):
+            continue
+    return series
+
+
 def _load_allocation_inputs(
     db: Session,
     mandate: Mandate,
@@ -3153,8 +3277,19 @@ def _load_allocation_inputs(
         Goal.deleted_at.is_(None),
         Goal.is_active == 1,
     ).order_by(Goal.rank.asc()).all()
+    # Sprint A1: erwartete Vermoegenszufluesse (Erbschaft, Bonus, Saeule3b, ...)
+    wealth_inflows = db.query(WealthInflow).filter(
+        WealthInflow.client_id == mandate.client_id,
+        WealthInflow.deleted_at.is_(None),
+        WealthInflow.is_active == 1,
+    ).all()
+    # Mandate-spezifische Inflows nur fuer dieses Mandat; client-weite (mandate_id=None) immer dabei.
+    wealth_inflows = [
+        infl for infl in wealth_inflows
+        if not getattr(infl, "mandate_id", None) or infl.mandate_id == mandate.id
+    ]
     cashflow_totals = totals_for_year(cashflows)
-    projection_years = _simulation_horizon_years(simulation_prefs, goals)
+    projection_years = _simulation_horizon_years(simulation_prefs, goals, mandate)
     # B1: Cashflow-Series respektieren is_inflation_linked + CMA-Inflations-Pfad.
     # AHV/Lohn/Miete (linked=1) wachsen jaehrlich; Bonus/Erbschaft (linked=0) bleiben nominal.
     cf_inflation_series_bps = (
@@ -3167,6 +3302,16 @@ def _load_allocation_inputs(
         start_year=cashflow_totals["year"],
         inflation_series_bps=cf_inflation_series_bps,
     )
+    # Sprint A1: Inflows als positive Beitraege addieren. Dadurch sehen alle
+    # downstream-Konsumer (MC, Goal-Analysis, Reserve) die Erbschaft/Bonus.
+    inflow_projection_series_rappen = _wealth_inflow_series_rappen(
+        wealth_inflows, projection_years, cashflow_totals["year"], cf_inflation_series_bps,
+    )
+    if any(inflow_projection_series_rappen):
+        cashflow_projection_series_rappen = [
+            int(cf) + int(infl)
+            for cf, infl in zip(cashflow_projection_series_rappen, inflow_projection_series_rappen)
+        ]
     recurring_cashflow_projection_series_rappen = recurring_net_cashflow_series(
         cashflows,
         projection_years,
@@ -3197,6 +3342,9 @@ def _load_allocation_inputs(
         "annual_net_cashflow_rappen": cashflow_totals["net_rappen"],
         "cashflow_projection_series_rappen": cashflow_projection_series_rappen,
         "recurring_cashflow_projection_series_rappen": recurring_cashflow_projection_series_rappen,
+        # Sprint A1: erwartete Vermoegenszufluesse, fuer Audit-Trail + FE-Anzeige.
+        "wealth_inflows": wealth_inflows,
+        "inflow_projection_series_rappen": inflow_projection_series_rappen,
     }
 
 
@@ -3315,12 +3463,25 @@ def _compute_reserve_for_inputs(
                 if goal_type in ("Wiederkehrende_Ausgabe", "Pensionsausgabe")
                 else int(goal.target_amount_rappen or 0)
             )
-            if years <= 3:
-                reserve_candidates.append(target_amount)
-                if reasoning is not None:
-                    reasoning.append(f"Das Ziel '{goal.label}' wird als kurzfristiger Liquiditaetsbedarf beruecksichtigt.")
-            elif years <= 7:
-                reserve_candidates.append(int(round(target_amount * 0.5)))
+            # Sprint A4: Smooth-Decay opt-in via RESERVE_DECAY_MODE=smooth.
+            # Default Stufenfunktion bleibt audit-konsistent.
+            if _reserve_decay_mode_smooth():
+                factor = _reserve_decay_factor(years)
+                reserve_amount = int(round(target_amount * factor))
+                if reserve_amount > 0:
+                    reserve_candidates.append(reserve_amount)
+                    if reasoning is not None:
+                        reasoning.append(
+                            f"Das Ziel '{goal.label}' (in {years}J) traegt zu {factor*100:.0f}% "
+                            "zur Liquiditaetsreserve bei (smooth-decay)."
+                        )
+            else:
+                if years <= 3:
+                    reserve_candidates.append(target_amount)
+                    if reasoning is not None:
+                        reasoning.append(f"Das Ziel '{goal.label}' wird als kurzfristiger Liquiditaetsbedarf beruecksichtigt.")
+                elif years <= 7:
+                    reserve_candidates.append(int(round(target_amount * 0.5)))
 
     reserve_needed_rappen = max(reserve_candidates)
     external_reserve_rappen = 0
@@ -4358,7 +4519,7 @@ def build_target_payload_from_allocation(
     recurring_net_cashflow_rappen = recurring_income_rappen - recurring_expense_rappen
     capital_net_cashflow_rappen = capital_inflow_rappen - capital_outflow_rappen
     annual_net_cashflow_rappen = cashflow_totals["net_rappen"]
-    projection_years = _simulation_horizon_years(prefs["simulation"], goals)
+    projection_years = _simulation_horizon_years(prefs["simulation"], goals, mandate)
     # B1: Cashflow-Series mit CMA-Inflations-Pfad (siehe _load_allocation_inputs).
     cf_inflation_series_bps = _inflation_path_series(cma, projection_years, cashflow_totals["year"])
     cashflow_projection_series_rappen = net_cashflow_series(

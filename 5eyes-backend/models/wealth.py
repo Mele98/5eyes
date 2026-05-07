@@ -83,6 +83,36 @@ class Cashflow(Base):
     client = relationship("Client", back_populates="cashflows")
 
 
+class WealthInflow(Base):
+    """Erwarteter Vermögenszufluss (Erbschaft, Bonus, Saeule3b, Verkaufserlös, ...).
+
+    Sprint A1 (2026-05-06): in 3rd-eyes ein eigenes Konzept; bei uns vorher
+    nur als pos-Cashflow modellierbar. First-class fuer:
+    - Reserve-Berechnung: Inflow in Year T reduziert Reserve-Bedarf fuer
+      Outflows ≤ T
+    - cashflow_projection: positive Beitrag im erwarteten Jahr
+    - FE-Visualisierung als gruener Marker
+    """
+    __tablename__ = "wealth_inflows"
+
+    id = Column(String, primary_key=True)
+    client_id = Column(String, ForeignKey("clients.id"), nullable=False)
+    mandate_id = Column(String, ForeignKey("mandates.id"))  # optional, falls Mandate-spezifisch
+    label = Column(String, nullable=False)
+    source_type = Column(String, nullable=False)  # 'Erbschaft' | 'Bonus' | 'Saeule3b' | 'Verkaufserloes' | 'Andere'
+    amount_rappen = Column(Integer, nullable=False)
+    expected_year = Column(Integer, nullable=False)
+    is_recurring = Column(Integer, nullable=False, default=0)
+    frequency = Column(String)  # 'einmalig' | 'jaehrlich' | 'monatlich'
+    duration_years = Column(Integer)  # bei recurring
+    value_mode = Column(String, nullable=False, default="nominal")  # 'nominal' | 'real'
+    notes = Column(String)
+    is_active = Column(Integer, nullable=False, default=1)
+    created_at = Column(String, nullable=False)
+    updated_at = Column(String, nullable=False)
+    deleted_at = Column(String)
+
+
 class Goal(Base):
     __tablename__ = "goals"
 

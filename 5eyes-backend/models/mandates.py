@@ -17,6 +17,10 @@ class Mandate(Base):
     depot_account_number = Column(String)
     opened_at = Column(String, nullable=False)
     closed_at = Column(String)
+    # Sprint A3 (2026-05-06): Lebenserwartung & Rentenalter pro Mandat anpassbar.
+    # NULL = nutzen Defaults (65 / 85 berechnet aus Geburtsjahr).
+    retirement_year = Column(Integer)
+    life_expectancy_year = Column(Integer)
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
     deleted_at = Column(String)

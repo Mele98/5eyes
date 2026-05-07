@@ -217,6 +217,96 @@ class CashflowResponse(BaseResponse):
     updated_at: str
 
 
+# ── Max-Pension-Spending Rechner (Sprint A2, 2026-05-06) ───────────────────────
+
+
+class MaxPensionSpendingRequest(BaseModel):
+    retirement_year: int = Field(..., ge=1900, le=2200)
+    life_expectancy_year: int = Field(..., ge=1900, le=2200)
+    value_mode: Literal["nominal", "real"] = "real"
+    safety_margin_pct: int = Field(0, ge=0, le=50)  # zusaetzlicher Discount in %
+
+    @model_validator(mode="after")
+    def _check_years(self):
+        if self.life_expectancy_year <= self.retirement_year:
+            raise ValueError("life_expectancy_year muss nach retirement_year liegen")
+        return self
+
+
+class MaxPensionSpendingResponse(BaseModel):
+    max_monthly_chf_rappen: int
+    max_annual_chf_rappen: int
+    retirement_year: int
+    life_expectancy_year: int
+    years_in_retirement: int
+    value_mode: str
+    expected_return_bps: int
+    expected_volatility_bps: int
+    real_return_bps: int  # Ito-korrigierter realer Erwartungswert
+    inflation_bps: int
+    advisory_wealth_rappen: int
+    safety_margin_pct: int
+    reasoning: list[str]
+
+
+# ── WealthInflow (Sprint A1, 2026-05-06) ───────────────────────────────────────
+
+WEALTH_INFLOW_SOURCE_TYPES = ("Erbschaft", "Bonus", "Saeule3b", "Verkaufserloes", "Andere")
+
+
+class WealthInflowCreate(BaseModel):
+    label: str = Field(..., min_length=1, max_length=200)
+    source_type: Literal["Erbschaft", "Bonus", "Saeule3b", "Verkaufserloes", "Andere"]
+    amount_rappen: int = Field(..., gt=0)
+    expected_year: int = Field(..., ge=1900, le=2200)
+    is_recurring: int = Field(0, ge=0, le=1)
+    frequency: Optional[Literal["einmalig", "jaehrlich", "monatlich"]] = None
+    duration_years: Optional[int] = Field(None, ge=1, le=99)
+    value_mode: Literal["nominal", "real"] = "nominal"
+    mandate_id: Optional[str] = None
+    notes: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _validate_recurring(self):
+        if self.is_recurring:
+            if not self.frequency or self.frequency == "einmalig":
+                raise ValueError("is_recurring=1 erfordert frequency 'jaehrlich' oder 'monatlich'")
+            if not self.duration_years:
+                raise ValueError("is_recurring=1 erfordert duration_years")
+        return self
+
+
+class WealthInflowUpdate(BaseModel):
+    label: Optional[str] = Field(None, min_length=1, max_length=200)
+    source_type: Optional[Literal["Erbschaft", "Bonus", "Saeule3b", "Verkaufserloes", "Andere"]] = None
+    amount_rappen: Optional[int] = Field(None, gt=0)
+    expected_year: Optional[int] = Field(None, ge=1900, le=2200)
+    is_recurring: Optional[int] = Field(None, ge=0, le=1)
+    frequency: Optional[Literal["einmalig", "jaehrlich", "monatlich"]] = None
+    duration_years: Optional[int] = Field(None, ge=1, le=99)
+    value_mode: Optional[Literal["nominal", "real"]] = None
+    notes: Optional[str] = None
+    is_active: Optional[int] = Field(None, ge=0, le=1)
+
+
+class WealthInflowResponse(BaseResponse):
+    id: str
+    client_id: str
+    mandate_id: Optional[str]
+    label: str
+    source_type: str
+    amount_rappen: int
+    expected_year: int
+    is_recurring: int
+    frequency: Optional[str]
+    duration_years: Optional[int]
+    value_mode: str
+    notes: Optional[str]
+    is_active: int
+    created_at: str
+    updated_at: str
+
+
 # ── Goal ───────────────────────────────────────────────────────────────────────
 
 GOAL_FAMILY_TYPE_MAP = {

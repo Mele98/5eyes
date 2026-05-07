@@ -209,6 +209,11 @@ def ensure_runtime_columns() -> None:
             ('investment_horizon_start', 'TEXT'),
             ('investment_horizon_end', 'TEXT'),
         ],
+        'mandates': [
+            # Sprint A3 (2026-05-06): Rentenalter + Lebenserwartung pro Mandat.
+            ('retirement_year', 'INTEGER'),
+            ('life_expectancy_year', 'INTEGER'),
+        ],
         'cashflows': [
             ('gross_amount_rappen', 'INTEGER'),
             ('tax_amount_rappen', 'INTEGER'),

@@ -6,12 +6,14 @@ from database import get_db, new_uuid
 from models.users import User
 from models.mandates import Mandate
 from models.clients import Client
-from models.wealth import WealthPosition, Cashflow, Goal, PlanningAssumption
+from models.wealth import WealthPosition, Cashflow, Goal, PlanningAssumption, WealthInflow
 from schemas.wealth import (
     WealthPositionCreate, WealthPositionUpdate, WealthPositionResponse,
     CashflowCreate, CashflowUpdate, CashflowResponse,
     GoalCreate, GoalUpdate, GoalResponse,
     PlanningAssumptionCreate, PlanningAssumptionResponse,
+    WealthInflowCreate, WealthInflowUpdate, WealthInflowResponse,
+    MaxPensionSpendingRequest, MaxPensionSpendingResponse,
 )
 from services.auth import get_client_for_user_or_404, get_current_user, get_mandate_for_user_or_404, require_advisor
 from services.audit import log
@@ -753,3 +755,223 @@ def create_planning_assumptions(
     db.commit()
     db.refresh(pa)
     return pa
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Sprint A1 (2026-05-06): WealthInflow CRUD
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get("/clients/{client_id}/wealth-inflows", response_model=list[WealthInflowResponse])
+def list_wealth_inflows(
+    client_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    get_client_for_user_or_404(client_id, db, current_user)
+    return db.query(WealthInflow).filter(
+        WealthInflow.client_id == client_id,
+        WealthInflow.deleted_at.is_(None),
+    ).order_by(WealthInflow.expected_year.asc(), WealthInflow.created_at.asc()).all()
+
+
+@router.post("/clients/{client_id}/wealth-inflows",
+             response_model=WealthInflowResponse, status_code=201)
+def create_wealth_inflow(
+    client_id: str,
+    body: WealthInflowCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_advisor),
+):
+    client = get_client_for_user_or_404(client_id, db, current_user)
+    if body.mandate_id:
+        # Mandate-Ownership-Check
+        get_mandate_for_user_or_404(body.mandate_id, db, current_user)
+    now = _now()
+    inflow = WealthInflow(
+        id=new_uuid(),
+        client_id=client_id,
+        created_at=now,
+        updated_at=now,
+        **body.model_dump(),
+    )
+    db.add(inflow)
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="wealth_inflows", record_id=inflow.id, action="CREATE",
+        client_id=client_id, mandate_id=body.mandate_id)
+    db.commit()
+    db.refresh(inflow)
+    return inflow
+
+
+@router.put("/wealth-inflows/{inflow_id}", response_model=WealthInflowResponse)
+def update_wealth_inflow(
+    inflow_id: str,
+    body: WealthInflowUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_advisor),
+):
+    inflow = db.query(WealthInflow).filter(
+        WealthInflow.id == inflow_id,
+        WealthInflow.deleted_at.is_(None),
+    ).first()
+    if not inflow:
+        raise HTTPException(status_code=404, detail="Vermögenszufluss nicht gefunden")
+    # Ownership via client
+    get_client_for_user_or_404(inflow.client_id, db, current_user)
+    payload = body.model_dump(exclude_unset=True)
+    for key, value in payload.items():
+        setattr(inflow, key, value)
+    inflow.updated_at = _now()
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="wealth_inflows", record_id=inflow.id, action="UPDATE",
+        client_id=inflow.client_id, mandate_id=inflow.mandate_id)
+    db.commit()
+    db.refresh(inflow)
+    return inflow
+
+
+@router.delete("/wealth-inflows/{inflow_id}", status_code=204)
+def delete_wealth_inflow(
+    inflow_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_advisor),
+):
+    inflow = db.query(WealthInflow).filter(
+        WealthInflow.id == inflow_id,
+        WealthInflow.deleted_at.is_(None),
+    ).first()
+    if not inflow:
+        raise HTTPException(status_code=404, detail="Vermögenszufluss nicht gefunden")
+    get_client_for_user_or_404(inflow.client_id, db, current_user)
+    inflow.deleted_at = _now()
+    inflow.is_active = 0
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="wealth_inflows", record_id=inflow.id, action="DELETE",
+        client_id=inflow.client_id, mandate_id=inflow.mandate_id)
+    db.commit()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Sprint A2 (2026-05-06): Max-Pension-Spending Rechner
+# 3rd-eyes-Pattern: invertierte Frage — "wieviel kannst du im Ruhestand
+# ausgeben?" Berater erfasst Vermögen + Vorsorge → System rechnet Annuitaet.
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.post("/mandates/{mandate_id}/goals/calculate-max-pension-spending",
+             response_model=MaxPensionSpendingResponse)
+def calculate_max_pension_spending(
+    mandate_id: str,
+    body: MaxPensionSpendingRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_advisor),
+):
+    import math
+    from services.portfolio_engine import (
+        ensure_runtime_reference_data, _load_allocation_inputs,
+        _baseline_target_bands, _house_matrix_or_default, _risk_score_bucket,
+        _build_sub_allocations, _enrich_sub_allocations_with_risk,
+        _building_block_risky_map, _expected_metrics, _normalize_preferences,
+        _current_planning_inflation_bps, _goal_inflation_series_bps,
+    )
+    from models.profiling import RiskAssessment
+
+    mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
+    policy, cma = ensure_runtime_reference_data(db, current_user.id)
+    assessment = db.query(RiskAssessment).filter(
+        RiskAssessment.mandate_id == mandate.id,
+        RiskAssessment.is_current == 1,
+        RiskAssessment.deleted_at.is_(None),
+    ).first()
+    if not assessment:
+        raise HTTPException(status_code=409, detail="Bitte zuerst ein aktuelles Risikoprofil speichern.")
+
+    inputs = _load_allocation_inputs(db, mandate, simulation_prefs={}, cma=cma)
+    advisory_wealth_rappen = int(inputs["advisory_wealth_rappen"] or 0)
+    if advisory_wealth_rappen <= 0:
+        raise HTTPException(
+            status_code=409,
+            detail="Beratungsvermögen muss > 0 CHF sein für die Max-Spending-Berechnung.",
+        )
+
+    score_bucket = _risk_score_bucket(assessment)
+    house_matrix = _house_matrix_or_default(db, policy, score_bucket)
+    prefs = _normalize_preferences(None)
+    targets, _, _ = _baseline_target_bands(house_matrix, policy)
+    risky_map = _building_block_risky_map(db, policy.id)
+    sub_allocations = _build_sub_allocations(targets, prefs)
+    sub_allocations, _, _ = _enrich_sub_allocations_with_risk(sub_allocations, risky_map)
+    metrics = _expected_metrics(targets, cma, sub_allocations)
+    expected_return_bps = int(metrics.get("expected_return_bps") or 0)
+    expected_vol_bps = int(metrics.get("expected_volatility_bps") or 0)
+
+    inflation_bps = _current_planning_inflation_bps(db, mandate)
+    if inflation_bps is None:
+        # Fallback aus CMA inflation_path_json (Mittelwert ueber 10J)
+        from datetime import date
+        infl_series = _goal_inflation_series_bps(cma, 10, date.today().year, planning_inflation_bps=None)
+        inflation_bps = int(round(sum(infl_series) / max(1, len(infl_series))))
+
+    # Itô-Korrektur: log-Drift = mu - 0.5 * sigma^2
+    mu = expected_return_bps / 10000.0
+    sigma = expected_vol_bps / 10000.0
+    inflation = (inflation_bps or 0) / 10000.0
+    nominal_geometric_return = math.exp(mu - 0.5 * sigma * sigma) - 1.0
+    real_return = (1.0 + nominal_geometric_return) / (1.0 + inflation) - 1.0
+    real_return_bps = int(round(real_return * 10000))
+
+    years_in_retirement = max(1, int(body.life_expectancy_year - body.retirement_year))
+
+    # Annuitaeten-Formel (real): W = wealth * r / (1 - (1+r)^-n)
+    # bei r ≈ 0: linear: W = wealth / n
+    if abs(real_return) < 1e-6:
+        annual_real_chf_rappen = int(round(advisory_wealth_rappen / years_in_retirement))
+    else:
+        denom = 1.0 - (1.0 + real_return) ** (-years_in_retirement)
+        annual_real_chf_rappen = int(round(advisory_wealth_rappen * real_return / denom))
+
+    # Safety-Margin (default 0% — Berater entscheidet pro Kundengespraech)
+    safety_factor = 1.0 - (body.safety_margin_pct / 100.0)
+    annual_real_chf_rappen = max(0, int(round(annual_real_chf_rappen * safety_factor)))
+    monthly_real_chf_rappen = annual_real_chf_rappen // 12
+
+    # Bei value_mode=nominal: real annuity hochrechnen mit erwarteter Inflation
+    # zum Zeitpunkt retirement_year (mittlere Position der Auszahlungsperiode)
+    annual_chf_rappen_out = annual_real_chf_rappen
+    monthly_chf_rappen_out = monthly_real_chf_rappen
+    if body.value_mode == "nominal":
+        # Praktisch: ein Berater der "nominal" wählt will heute-Wert. Inflation
+        # mid-period: 0.5 * years_in_retirement
+        infl_factor = (1.0 + inflation) ** (years_in_retirement / 2.0)
+        annual_chf_rappen_out = int(round(annual_real_chf_rappen * infl_factor))
+        monthly_chf_rappen_out = annual_chf_rappen_out // 12
+
+    reasoning = [
+        f"Beratungsvermögen heute: CHF {advisory_wealth_rappen / 100:,.0f}",
+        f"Erwartete Rendite (Itô-korrigiert): {nominal_geometric_return * 100:.2f}% p.a. nominal",
+        f"Erwartete Inflation: {inflation * 100:.2f}% p.a.",
+        f"Realer Erwartungswert: {real_return * 100:.2f}% p.a.",
+        f"Auszahlungsperiode: {years_in_retirement} Jahre ({body.retirement_year}–{body.life_expectancy_year})",
+        f"Annuität ({body.value_mode}): CHF {annual_chf_rappen_out / 100:,.0f}/Jahr ≈ CHF {monthly_chf_rappen_out / 100:,.0f}/Monat",
+    ]
+    if body.safety_margin_pct:
+        reasoning.append(f"Sicherheits-Discount: {body.safety_margin_pct}% — Hedge gegen Sequence-of-Returns-Risiko.")
+    reasoning.append(
+        "Hinweis: Annuitäts-Berechnung mit erwarteter Rendite. Phase-7 wird MC-basiertes "
+        "Sustainable-Withdrawal-Rate (P10/P50) anbieten — die hier ist deterministisch."
+    )
+
+    return {
+        "max_monthly_chf_rappen": monthly_chf_rappen_out,
+        "max_annual_chf_rappen": annual_chf_rappen_out,
+        "retirement_year": body.retirement_year,
+        "life_expectancy_year": body.life_expectancy_year,
+        "years_in_retirement": years_in_retirement,
+        "value_mode": body.value_mode,
+        "expected_return_bps": expected_return_bps,
+        "expected_volatility_bps": expected_vol_bps,
+        "real_return_bps": real_return_bps,
+        "inflation_bps": int(inflation_bps or 0),
+        "advisory_wealth_rappen": advisory_wealth_rappen,
+        "safety_margin_pct": body.safety_margin_pct,
+        "reasoning": reasoning,
+    }
