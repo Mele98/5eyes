@@ -213,6 +213,11 @@ def ensure_runtime_columns() -> None:
             # Sprint A3 (2026-05-06): Rentenalter + Lebenserwartung pro Mandat.
             ('retirement_year', 'INTEGER'),
             ('life_expectancy_year', 'INTEGER'),
+            # Sprint B4 (2026-05-07): Anlageuniversum (3rd-eyes-Pattern).
+            # Standard | Alternativ; Filter fuer Produkt-Auswahl.
+            ('investment_universe', 'TEXT'),
+            # Sprint B1 (2026-05-07): Building-Block-Wahl pro Mandat (JSON).
+            ('default_building_blocks_json', 'TEXT'),
         ],
         'cashflows': [
             ('gross_amount_rappen', 'INTEGER'),

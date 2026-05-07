@@ -253,6 +253,41 @@ def _normalize_preferences(preferences: dict | None) -> dict:
     }
 
 
+def _merge_mandate_defaults_into_prefs(prefs: dict, mandate) -> dict:
+    """Sprint B1 (2026-05-07): persistierte Building-Block-Wahl pro Mandat als
+    Fallback in die preferences mergen.
+
+    Wenn der Aufrufer keine expliziten asset_class-/geo-prefs setzt, wird die
+    Mandanten-Default-Wahl (default_building_blocks_json) genutzt. Explizite
+    prefs ueberschreiben Mandanten-Defaults nicht (UI-Wahl ist authoritativ).
+    """
+    if mandate is None:
+        return prefs
+    raw = getattr(mandate, "default_building_blocks_json", None)
+    if not raw:
+        return prefs
+    try:
+        defaults = json.loads(raw)
+        if not isinstance(defaults, dict):
+            return prefs
+    except (TypeError, ValueError):
+        return prefs
+    asset_keys = {
+        "equitiesGeo", "bondsDuration", "realestateMarket",
+        "altsGold", "altsLiquidAlts", "altsHedge", "altsPe", "altsCrypto",
+        "bondsHighYield", "bondsEmerging", "equitiesSmid",
+    }
+    geo_keys = {"noEm"}
+    asset_classes = dict(prefs.get("assetClasses") or {})
+    geo = dict(prefs.get("geo") or {})
+    for key, val in defaults.items():
+        if key in asset_keys and key not in asset_classes:
+            asset_classes[key] = val
+        elif key in geo_keys and key not in geo:
+            geo[key] = val
+    return {**prefs, "assetClasses": asset_classes, "geo": geo}
+
+
 def _bucket_key(value: str | None) -> str | None:
     raw = _norm_text(value)
     aliases = {
@@ -913,11 +948,27 @@ def build_live_rebalancing_payload(
     }
 
 
-def _building_block_risky_map(db: Session, policy_id: str) -> dict[tuple[str, str], int]:
-    rows = db.query(BuildingBlock).filter(
+def _building_block_risky_map(
+    db: Session,
+    policy_id: str,
+    investment_universe: str | None = None,
+) -> dict[tuple[str, str], int]:
+    """Sprint B4 (2026-05-07): respektiert mandate.investment_universe.
+
+    Wenn ein Universum gewaehlt ist und BuildingBlocks fuer dieses Universum
+    existieren, werden NUR diese geladen. Sonst Fallback auf alle aktiven BBs
+    (backwards-compat fuer bestehende Mandate ohne explizite Universum-Wahl).
+    """
+    base_query = db.query(BuildingBlock).filter(
         BuildingBlock.policy_id == policy_id,
         BuildingBlock.is_active == 1,
-    ).all()
+    )
+    universe = (investment_universe or "").strip() or None
+    rows = []
+    if universe:
+        rows = base_query.filter(BuildingBlock.universe == universe).all()
+    if not rows:
+        rows = base_query.all()
     return {
         (_norm_text(row.asset_class), _norm_text(row.sub_asset_class)): int(row.risky_fraction_bps or 0)
         for row in rows
@@ -3972,6 +4023,8 @@ def generate_target_allocation(
     assessment = require_strategy_ready_assessment(db, mandate.id)
 
     prefs = _normalize_preferences(preferences)
+    # Sprint B1: Mandanten-Default-Building-Blocks als Fallback in prefs.
+    prefs = _merge_mandate_defaults_into_prefs(prefs, mandate)
     score_bucket = _risk_score_bucket(assessment)
     house_matrix = _house_matrix_or_default(db, policy, score_bucket)
     manual_target_override = _has_manual_target_overrides(prefs["bands"])
@@ -4084,7 +4137,7 @@ def generate_target_allocation(
             reasoning.append("Die Mandatsgrenze fuer illiquide Anlagen deckelt den Alternatives-Anteil.")
 
     targets = _rebalance_to_total(targets, minimums, maximums)
-    risky_map = _building_block_risky_map(db, policy.id)
+    risky_map = _building_block_risky_map(db, policy.id, getattr(mandate, "investment_universe", None))
     sub_allocations = _build_sub_allocations(targets, prefs)
     sub_allocations, asset_risky_weights, risky_fraction_total_bps = _enrich_sub_allocations_with_risk(sub_allocations, risky_map)
     if risky_fraction_total_bps > int(house_matrix.max_risky_fraction_bps):
@@ -4484,6 +4537,8 @@ def build_target_payload_from_allocation(
     preferences: dict | None,
 ) -> dict:
     prefs = _normalize_preferences(preferences)
+    # Sprint B1: Mandanten-Default-Building-Blocks als Fallback (rebuild path).
+    prefs = _merge_mandate_defaults_into_prefs(prefs, mandate)
     score_bucket = _risk_score_bucket(assessment)
     house_matrix = _house_matrix_or_default(db, policy, score_bucket)
     all_positions = db.query(WealthPosition).filter(
@@ -4568,7 +4623,7 @@ def build_target_payload_from_allocation(
         maximums["liquidity"] = saa_liq_ceil_bps
         targets = _rebalance_to_total(targets, minimums, maximums)
 
-    risky_map = _building_block_risky_map(db, policy.id)
+    risky_map = _building_block_risky_map(db, policy.id, getattr(mandate, "investment_universe", None))
     sub_allocations = _build_sub_allocations(targets, prefs)
     sub_allocations, asset_risky_weights, risky_fraction_total_bps = _enrich_sub_allocations_with_risk(sub_allocations, risky_map)
     # C3: gewichtete Bucket-Metriken aus Sub-Allocation.
