@@ -3813,6 +3813,7 @@ def _assessment_score_x10(assessment) -> int:
 def _run_stochastic_optimizer_pass(
     *,
     optimizer_mode: str,
+    apply_targets: bool,
     cma,
     goals: list,
     house_matrix,
@@ -3820,19 +3821,26 @@ def _run_stochastic_optimizer_pass(
     advisory_wealth_rappen: int,
     cashflow_projection_series_rappen: list[int],
     inflation_series_bps: list[int],
-    targets: dict[str, int],  # mutable: wird in-place ueberschrieben bei converged
+    targets: dict[str, int],  # mutable: wird in-place ueberschrieben nur wenn apply_targets
     minimums: dict[str, int],
     maximums: dict[str, int],
     reasoning: list[str],
     building_blocks_rows: list | None = None,
 ):
-    """Wenn optimizer_mode='stochastic': Solver aufrufen, targets ersetzen.
+    """Solver in Shadow- oder Stochastic-Modus aufrufen.
 
-    Returns OptimizerResult oder None (wenn Modus != stochastic, oder Solver
-    crashed). Bei status='converged' wird targets in-place ueberschrieben mit
-    den Solver-Output-bps. Bei diverged/fallback bleibt House-Matrix-Default.
+    optimizer_mode 'stochastic'        -> apply_targets=True: bei converged
+                                          werden targets in-place ueberschrieben.
+    optimizer_mode 'shadow_stochastic' -> apply_targets=False: Solver laeuft fuer
+                                          Methodenvergleich, House-Matrix bleibt
+                                          aktive Allokation.
+    Andere Modi -> None.
+
+    Returns OptimizerResult oder None (wenn Modus nicht relevant oder Solver
+    crashed). Bei diverged/fallback bleibt House-Matrix-Default unabhaengig
+    vom Modus.
     """
-    if optimizer_mode != "stochastic":
+    if optimizer_mode not in {"stochastic", "shadow_stochastic"}:
         return None
 
     try:
@@ -3882,15 +3890,23 @@ def _run_stochastic_optimizer_pass(
         return None
 
     if result.status == "converged":
-        # In-place: ersetze House-Matrix-Default-Targets mit Solver-Output.
-        # Bands (minimums/maximums) bleiben unveraendert, weil Solver sie
-        # respektiert hat.
-        for bucket, bps in result.weights_bps.items():
-            targets[bucket] = int(bps)
-        reasoning.append(
-            f"Stochastic Optimizer (Mulvey-light, {result.n_starts_attempted} "
-            f"Multi-Starts, {result.iterations} Iter): konvergiert."
-        )
+        if apply_targets:
+            # In-place: ersetze House-Matrix-Default-Targets mit Solver-Output.
+            # Bands (minimums/maximums) bleiben unveraendert, weil Solver sie
+            # respektiert hat.
+            for bucket, bps in result.weights_bps.items():
+                targets[bucket] = int(bps)
+            reasoning.append(
+                f"Stochastic Optimizer (Mulvey-light, {result.n_starts_attempted} "
+                f"Multi-Starts, {result.iterations} Iter): konvergiert und als "
+                "Zielallokation angewendet."
+            )
+        else:
+            reasoning.append(
+                f"Shadow-Stochastic Optimizer (Mulvey-light, {result.n_starts_attempted} "
+                f"Multi-Starts, {result.iterations} Iter): konvergiert; "
+                "House-Matrix bleibt aktive Zielallokation."
+            )
         if result.reasoning:
             reasoning.append(result.reasoning[0])
     else:
@@ -3923,6 +3939,146 @@ def _optimizer_audit_fields(optimizer_result) -> dict:
         "optimization_iterations": int(optimizer_result.iterations or 0),
         "optimization_seed": int(optimizer_result.seed or 0),
         "optimization_status": optimizer_result.status,
+    }
+
+
+# --------------------------------------------------------------------------- #
+# V3 Sprint 1 (2026-05-08): Methodenvergleich House Matrix vs. Shadow Stochastic
+# --------------------------------------------------------------------------- #
+_COMPARISON_BUCKETS: tuple[str, ...] = (
+    "equities", "bonds", "real_estate", "alternatives", "liquidity",
+)
+_COMPARISON_MATERIAL_DELTA_BPS: int = 100  # 1 Prozentpunkt = 100 bps
+
+
+def _weights_from_targets(targets: dict[str, int]) -> dict[str, int]:
+    """Extrahiert die fuenf Bucket-Gewichte als bps-int Dict (clamped >= 0)."""
+    return {bucket: int(targets.get(bucket, 0) or 0) for bucket in _COMPARISON_BUCKETS}
+
+
+def _objective_to_milli(value: float | None) -> int | None:
+    """Skaliert objective_value (Float) auf int milli mit Cap (matched _optimizer_audit_fields)."""
+    if value is None:
+        return None
+    if value == float("inf") or value == float("-inf") or value != value:  # NaN check
+        return None
+    scaled = value * 1000.0
+    capped = max(-_OPTIMIZER_OBJECTIVE_MILLI_CAP, min(_OPTIMIZER_OBJECTIVE_MILLI_CAP, scaled))
+    return int(round(capped))
+
+
+def _allocation_comparison_note(
+    deltas: dict[str, int],
+    status: str,
+    objective_delta_pct: float | None,
+) -> str:
+    """Beratungstauglicher Hinweis ohne Marketing-Sprache (V3 §10.5)."""
+    if status != "converged":
+        return (
+            "Der Shadow-Optimizer konvergierte nicht stabil; "
+            "House-Matrix bleibt die relevante Empfehlung."
+        )
+    material = {k: v for k, v in deltas.items() if abs(int(v or 0)) >= _COMPARISON_MATERIAL_DELTA_BPS}
+    if not material:
+        return (
+            "Der Shadow-Optimizer bestaetigt die aktive Allokation weitgehend; "
+            "keine wesentliche Abweichung."
+        )
+    largest_bucket, largest_delta = max(material.items(), key=lambda item: abs(int(item[1] or 0)))
+    direction = "hoeher" if int(largest_delta) > 0 else "tiefer"
+    obj_text = ""
+    if objective_delta_pct is not None:
+        obj_text = f" Objective-Delta: {objective_delta_pct:+.2f}%."
+    return (
+        f"Der Shadow-Optimizer wuerde {largest_bucket} um "
+        f"{abs(int(largest_delta)) / 100:.1f} Prozentpunkte {direction} gewichten."
+        f"{obj_text}"
+    )
+
+
+def _build_allocation_method_comparison(
+    *,
+    optimizer_mode: str,
+    active_method: str,
+    active_weights_bps: dict[str, int],
+    optimizer_result,
+    active_evaluation=None,
+    shadow_evaluation=None,
+) -> dict | None:
+    """V3 Sprint 1: Methodenvergleich nur im Shadow-Modus.
+
+    Sprint 1 (heute): Gewichte + Deltas + Beratungsnote. Objective-Delta nur,
+    wenn Apples-to-Apples (active_evaluation und shadow_evaluation gesetzt).
+    Sprint 1b (Plan §5.6, Commit 3): active/shadow unter demselben Context
+    bewerten und beide Evaluations uebergeben.
+    """
+    if optimizer_mode != "shadow_stochastic" or optimizer_result is None:
+        return None
+
+    shadow_weights = {
+        bucket: int((optimizer_result.weights_bps or {}).get(bucket, 0) or 0)
+        for bucket in _COMPARISON_BUCKETS
+    }
+    deltas = {
+        bucket: shadow_weights[bucket] - int(active_weights_bps.get(bucket, 0) or 0)
+        for bucket in _COMPARISON_BUCKETS
+    }
+
+    objective_delta_pct: float | None = None
+    objective_milli_active: int | None = None
+    objective_milli_shadow: int | None = None
+    if active_evaluation is not None and shadow_evaluation is not None:
+        active_obj = float(active_evaluation.objective_value)
+        shadow_obj = float(shadow_evaluation.objective_value)
+        objective_milli_active = _objective_to_milli(active_obj)
+        objective_milli_shadow = _objective_to_milli(shadow_obj)
+        if active_obj not in (float("inf"), float("-inf"), 0.0) and active_obj == active_obj:
+            objective_delta_pct = round((shadow_obj - active_obj) / active_obj * 100.0, 2)
+    else:
+        # Sprint 1: Solver-eigener objective_value als Hinweis fuer Shadow,
+        # NICHT als Apples-to-Apples-Vergleich. Wir setzen nur shadow-Wert,
+        # objective_delta_pct bleibt None.
+        objective_milli_shadow = _objective_to_milli(getattr(optimizer_result, "objective_value", None))
+
+    candidates = [
+        {
+            "method": active_method,
+            "role": "active",
+            "status": None,
+            "weights_bps": dict(active_weights_bps),
+            "objective_value_milli": objective_milli_active,
+            "feasible": active_evaluation.feasible if active_evaluation is not None else None,
+            "constraint_violations": (
+                list(active_evaluation.constraint_violations)
+                if active_evaluation is not None else []
+            ),
+        },
+        {
+            "method": "stochastic",
+            "role": "shadow",
+            "status": optimizer_result.status,
+            "weights_bps": shadow_weights,
+            "objective_value_milli": objective_milli_shadow,
+            "feasible": shadow_evaluation.feasible if shadow_evaluation is not None else None,
+            "constraint_violations": (
+                list(shadow_evaluation.constraint_violations)
+                if shadow_evaluation is not None else []
+            ),
+        },
+    ]
+
+    return {
+        "active_method": active_method,
+        "shadow_method": "stochastic",
+        "shadow_status": optimizer_result.status,
+        "active_weights_bps": dict(active_weights_bps),
+        "shadow_weights_bps": shadow_weights,
+        "weight_deltas_bps": deltas,
+        "objective_value_milli_active": objective_milli_active,
+        "objective_value_milli_shadow": objective_milli_shadow,
+        "objective_delta_pct": objective_delta_pct,
+        "advisory_note": _allocation_comparison_note(deltas, optimizer_result.status, objective_delta_pct),
+        "candidates": candidates,
     }
 
 
@@ -4242,19 +4398,27 @@ def generate_target_allocation(
         planning_inflation_bps=_current_planning_inflation_bps(db, mandate),
     )
 
-    # Phase 4: Stochastic Optimizer (opt-in via OPTIMIZER_MODE=stochastic).
-    # Wenn der Solver konvergiert, ersetzt er die House-Matrix-Default-Targets
-    # mit der Mulvey/Ziemba-light optimierten Allocation. Die nachfolgenden
-    # Tilts (growth_goals, max_illiquid) werden dann uebersprungen, weil der
-    # Solver die Goals direkt optimiert und alle Constraints respektiert.
+    # Phase 4 / V3 Sprint 1: Stochastic Optimizer.
+    # Modi:
+    # - 'stochastic': Solver konvergiert -> ersetzt House-Matrix-Default-Targets;
+    #   nachfolgende Tilts werden uebersprungen.
+    # - 'shadow_stochastic': Solver laeuft, House-Matrix bleibt aktive Allokation;
+    #   Solver-Result wird nur als Methodenvergleich im Response geliefert. Audit-
+    #   Felder und Stress-JSON werden NICHT auf der TargetAllocation persistiert.
+    # - sonst: Solver wird nicht aufgerufen.
+    optimizer_mode = settings.optimizer_mode
+    run_stochastic = optimizer_mode in {"stochastic", "shadow_stochastic"}
+    apply_stochastic = optimizer_mode == "stochastic"
+    house_targets_before_optimizer = dict(targets)
     # Phase 5.1: Building-Block-Aware Risky-Fractions fuer Solver
     _building_block_rows = db.query(BuildingBlock).filter(
         BuildingBlock.policy_id == policy.id,
         BuildingBlock.is_active == 1,
-    ).all() if settings.optimizer_mode == "stochastic" else None
+    ).all() if run_stochastic else None
 
     optimizer_result = _run_stochastic_optimizer_pass(
-        optimizer_mode=settings.optimizer_mode,
+        optimizer_mode=optimizer_mode,
+        apply_targets=apply_stochastic,
         cma=cma,
         goals=goals,
         house_matrix=house_matrix,
@@ -4268,8 +4432,13 @@ def generate_target_allocation(
         reasoning=reasoning,
         building_blocks_rows=_building_block_rows,
     )
+    # Strikt: Tilts duerfen nur uebersprungen werden, wenn die Targets
+    # tatsaechlich vom Solver ersetzt wurden (also nur im 'stochastic' Modus,
+    # nicht in 'shadow_stochastic'). Sonst lief der Solver nur fuer Vergleich.
     optimizer_replaced_targets = (
-        optimizer_result is not None and optimizer_result.status == "converged"
+        apply_stochastic
+        and optimizer_result is not None
+        and optimizer_result.status == "converged"
     )
 
     growth_goals = _growth_goals_for_equity_tilt(goals)
@@ -4399,11 +4568,22 @@ def generate_target_allocation(
         total_wealth_rappen=total_wealth_rappen,
     )
 
-    optimizer_audit = _optimizer_audit_fields(optimizer_result)
+    # V3 Sprint 1: Audit-/Stress-/Reasoning-Persistenz nur im 'stochastic' Modus.
+    # Im 'shadow_stochastic' bleibt die TargetAllocation House-Matrix-basiert,
+    # und Solver-Felder duerfen nicht so aussehen, als seien sie aktiv.
+    # Im 'stochastic' Modus persistieren wir auch bei diverged/fallback, damit
+    # der Audit-Trail (seed, status, iterations) erklaert, warum der Solver
+    # nicht angewendet wurde.
+    persist_optimizer_audit = optimizer_mode == "stochastic" and optimizer_result is not None
+    optimizer_audit = _optimizer_audit_fields(optimizer_result) if persist_optimizer_audit else {}
     # Phase 6: Stress-Eval als JSON persistieren, damit /current/payload sie
-    # ohne erneuten Solver-Lauf liefern kann.
+    # ohne erneuten Solver-Lauf liefern kann. Nur im stochastic-Modus.
     stress_evaluations_json: str | None = None
-    if optimizer_result is not None and optimizer_result.stress_evaluations:
+    if (
+        optimizer_mode == "stochastic"
+        and optimizer_result is not None
+        and optimizer_result.stress_evaluations
+    ):
         try:
             stress_evaluations_json = json.dumps(
                 optimizer_result.stress_evaluations,
@@ -4417,8 +4597,14 @@ def generate_target_allocation(
     # /current/payload-Pfad identisch zu /generate erscheint. Nur die
     # optimizer-spezifischen Zeilen - generische House-Matrix-Saetze und
     # dynamische Drift-Warnings werden im Read-Pfad frisch berechnet.
+    # Nur im stochastic-Modus: Shadow-Reasoning gehoert nicht in eine
+    # House-Matrix-TargetAllocation.
     optimizer_reasoning_json: str | None = None
-    if optimizer_result is not None and optimizer_result.reasoning:
+    if (
+        optimizer_mode == "stochastic"
+        and optimizer_result is not None
+        and optimizer_result.reasoning
+    ):
         try:
             optimizer_reasoning_json = json.dumps(
                 list(optimizer_result.reasoning),
@@ -4522,10 +4708,20 @@ def generate_target_allocation(
         "monte_carlo": monte_carlo,
         "goal_analysis": goal_analysis,
         "mandate_score": _build_mandate_score(goal_analysis),
-        # Phase 6: Stress-Auswertungen fuer FE-Optimizer-Panel. None wenn
-        # house_matrix-Modus oder Solver-Fallback.
+        # Phase 6: Stress-Auswertungen fuer FE-Optimizer-Panel.
+        # V3 Sprint 1: Im Shadow-Modus nicht im Top-Level stress_evaluations
+        # (das gehoert zur aktiven TargetAllocation = House Matrix).
+        # Shadow-Stress wird ggf. in allocation_method_comparison gehaengt.
         "stress_evaluations": (
-            optimizer_result.stress_evaluations if optimizer_result is not None else None
+            optimizer_result.stress_evaluations
+            if (optimizer_mode == "stochastic" and optimizer_result is not None)
+            else None
+        ),
+        "allocation_method_comparison": _build_allocation_method_comparison(
+            optimizer_mode=optimizer_mode,
+            active_method="house_matrix",
+            active_weights_bps=_weights_from_targets(targets),
+            optimizer_result=optimizer_result,
         ),
     }
 
@@ -4546,15 +4742,19 @@ def evaluate_goal_sensitivity(
     Identischer Seed -> identische Scenarios -> sauberes Apples-to-Apples-Delta.
 
     Raises ValueError bei:
-      - settings.optimizer_mode != 'stochastic'
+      - settings.optimizer_mode nicht in {'stochastic', 'shadow_stochastic'}
       - kein Risikoprofil
       - goal_id gehoert nicht zum Mandanten / nicht aktiv
       - target_delta_pct nicht in {-20,-10,0,10,20} (eigentlich vom Schema
         validiert, hier nochmals defensiv)
+
+    V3 Sprint 1: Sensitivity ist eine reine Analysefunktion. Sie ist auch
+    in 'shadow_stochastic' erlaubt, weil sie keine aktive Zielallokation
+    veraendert — sie zeigt nur Was-wenn-Varianten unter dem Solver.
     """
-    if settings.optimizer_mode != "stochastic":
+    if settings.optimizer_mode not in {"stochastic", "shadow_stochastic"}:
         raise ValueError(
-            "Sensitivity-Analyse erfordert OPTIMIZER_MODE=stochastic."
+            "Sensitivity-Analyse erfordert OPTIMIZER_MODE=stochastic oder shadow_stochastic."
         )
     if target_delta_pct not in (-20, -10, 0, 10, 20):
         raise ValueError(
