@@ -2031,6 +2031,13 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
       <div id="nz-date-hint" style="font-size:10px;color:var(--n5);margin-top:2px">
         Ziele können jetzt mit Startdatum, Zieltermin und laufender Logik erfasst werden.
       </div>
+      <div class="frow" id="nz-probability-row">
+        <div class="fg">
+          <label class="fl" for="nz-probability">Eintrittswahrscheinlichkeit (%)</label>
+          <input class="fi" id="nz-probability" type="number" min="0" max="100" step="1" value="100" placeholder="100">
+          <div style="font-size:10px;color:var(--n5);margin-top:2px">100 = sicher eintretend; tiefer = bedingt (Reserve-Beitrag wird linear skaliert).</div>
+        </div>
+      </div>
     </div>
 
 <div id="nz-error" style="display:none;color:var(--neg);font-size:11px;padding:4px 0;margin-top:4px"></div>
@@ -15672,6 +15679,11 @@ function goalBadgeHtml(goal){
   if(isWealthGoalType(goal&&goal.goal_type||'')&&goalValueMode(goal&&goal.value_mode)==='real'){
     badges.push('<span style="font-size:9px;font-weight:700;color:#1d4ed8;background:rgba(29,78,216,0.08);border-radius:999px;padding:2px 6px;white-space:nowrap">REAL</span>');
   }
+  var prob=goal&&goal.probability_pct;
+  if(prob!=null&&Number(prob)<100){
+    var probClamped=Math.max(0,Math.min(100,Number(prob)));
+    badges.push('<span style="font-size:9px;font-weight:700;color:#7c2d12;background:rgba(234,88,12,0.10);border-radius:999px;padding:2px 6px;white-space:nowrap" title="Bedingtes Ziel: Reserve-Beitrag wird mit '+probClamped+'% gewichtet.">BEDINGT '+probClamped+'%</span>');
+  }
   return badges.join('');
 }
 function goalDisplayFrequency(value){
@@ -15801,6 +15813,7 @@ function resetGoalModal(){
   setInputValue('nz-target-date','');
   setSelectValue('nz-frequency','jaehrlich');
   setSelectValue('nz-ongoing','false');
+  setInputValue('nz-probability','100');
   var nominalRadio=document.getElementById('nz-vm-nominal');
   var realRadio=document.getElementById('nz-vm-real');
   if(nominalRadio)nominalRadio.checked=true;
@@ -15830,6 +15843,7 @@ function openGoalEditor(goalId){
   setInputValue('nz-target-date',normalizeCashflowDateValue(goal.target_date));
   setSelectValue('nz-frequency',goalFrequencyKey(goal.frequency||'jaehrlich'));
   setSelectValue('nz-ongoing',Number(goal.is_ongoing||0)?'true':'false');
+  setInputValue('nz-probability',goal.probability_pct==null?'100':String(goal.probability_pct));
   var vm=goalValueMode(goal.value_mode);
   var vmRadio=document.getElementById('nz-vm-'+vm);
   if(vmRadio)vmRadio.checked=true;
@@ -15904,6 +15918,7 @@ function buildDemoGoalRecord(goalId,payload,existingGoal){
     is_ongoing:payload.is_ongoing?1:0,
     frequency:payload.frequency,
     hardness:payload.hardness,
+    probability_pct:payload.probability_pct==null?100:payload.probability_pct,
     achievement_score:existingGoal&&existingGoal.achievement_score!=null?existingGoal.achievement_score:50
   });
 }
@@ -15973,7 +15988,8 @@ async function saveGoal(){
     target_date:targetDate||null,
     is_ongoing:isRecurringGoalType(type)?isOngoing:false,
     frequency:isRecurringGoalType(type)?frequency:null,
-    hardness:hardnessMap[prio]||'Prim\u00e4r'
+    hardness:hardnessMap[prio]||'Prim\u00e4r',
+    probability_pct:(function(){var raw=parseInt(getInputValue('nz-probability'),10);return isFinite(raw)?Math.max(0,Math.min(100,raw)):100;})()
   };
   if(isReturnGoalType(type))payload.target_return_bps=parsePercentToBps(amountRaw);
   else if(isWealthGoalType(type))payload.target_wealth_rappen=parseCHF(amountRaw);
