@@ -4027,18 +4027,19 @@ def _build_allocation_method_comparison(
     objective_delta_pct: float | None = None
     objective_milli_active: int | None = None
     objective_milli_shadow: int | None = None
+    if active_evaluation is not None:
+        objective_milli_active = _objective_to_milli(float(active_evaluation.objective_value))
+    if shadow_evaluation is not None:
+        objective_milli_shadow = _objective_to_milli(float(shadow_evaluation.objective_value))
+    elif optimizer_result is not None:
+        # Sprint 1 Fallback: kein Shadow-Eval, aber Solver-eigener Wert.
+        # NICHT Apples-to-Apples vergleichbar; objective_delta_pct bleibt None.
+        objective_milli_shadow = _objective_to_milli(getattr(optimizer_result, "objective_value", None))
     if active_evaluation is not None and shadow_evaluation is not None:
         active_obj = float(active_evaluation.objective_value)
         shadow_obj = float(shadow_evaluation.objective_value)
-        objective_milli_active = _objective_to_milli(active_obj)
-        objective_milli_shadow = _objective_to_milli(shadow_obj)
         if active_obj not in (float("inf"), float("-inf"), 0.0) and active_obj == active_obj:
             objective_delta_pct = round((shadow_obj - active_obj) / active_obj * 100.0, 2)
-    else:
-        # Sprint 1: Solver-eigener objective_value als Hinweis fuer Shadow,
-        # NICHT als Apples-to-Apples-Vergleich. Wir setzen nur shadow-Wert,
-        # objective_delta_pct bleibt None.
-        objective_milli_shadow = _objective_to_milli(getattr(optimizer_result, "objective_value", None))
 
     candidates = [
         {
@@ -4080,6 +4081,108 @@ def _build_allocation_method_comparison(
         "advisory_note": _allocation_comparison_note(deltas, optimizer_result.status, objective_delta_pct),
         "candidates": candidates,
     }
+
+
+def _build_shadow_comparison_with_evaluations(
+    *,
+    optimizer_mode: str,
+    optimizer_result,
+    active_weights_bps: dict[str, int],
+    cma,
+    goals: list,
+    house_matrix_row,
+    assessment,
+    advisory_wealth_rappen: int,
+    cashflow_projection_series_rappen: list[int],
+    inflation_series_bps: list[int] | None,
+    building_blocks_rows: list | None,
+) -> dict | None:
+    """V3 Sprint 1c (Commit 3): Methodenvergleich mit Apples-to-Apples Objective.
+
+    Baut einen `OptimizerContext` mit dem **gleichen** Seed wie der Solver-Lauf
+    (aus `optimizer_result.seed`) und bewertet beide Allocations
+    (House-Matrix-aktiv und Shadow-Solver) unter denselben Scenarios.
+
+    Faellt sicher zurueck (nur Gewichte + Note ohne Objective-Delta), wenn der
+    Solver nicht lief oder Context-Bau scheitert.
+    """
+    if optimizer_mode != "shadow_stochastic" or optimizer_result is None:
+        return _build_allocation_method_comparison(
+            optimizer_mode=optimizer_mode,
+            active_method="house_matrix",
+            active_weights_bps=active_weights_bps,
+            optimizer_result=optimizer_result,
+        )
+
+    active_evaluation = None
+    shadow_evaluation = None
+    try:
+        from services.optimizer.constraints import (
+            bucket_risky_fractions_from_building_blocks,
+        )
+        from services.optimizer.solver import (
+            build_optimizer_context,
+            evaluate_weights,
+        )
+    except ImportError as exc:
+        logger.warning(
+            "Shadow-comparison: optimizer module not importable (%s); "
+            "falling back to weight-only comparison.", exc,
+        )
+        return _build_allocation_method_comparison(
+            optimizer_mode=optimizer_mode,
+            active_method="house_matrix",
+            active_weights_bps=active_weights_bps,
+            optimizer_result=optimizer_result,
+        )
+
+    rf_per_bucket: dict[str, float] | None = None
+    if building_blocks_rows is not None:
+        try:
+            rf_per_bucket = bucket_risky_fractions_from_building_blocks(building_blocks_rows)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Shadow-comparison: risky-fraction extraction failed: %s", exc)
+            rf_per_bucket = None
+
+    score_x10 = _assessment_score_x10(assessment)
+    horizon = max(10, int(len(cashflow_projection_series_rappen) or 10))
+
+    try:
+        context = build_optimizer_context(
+            cma=cma,
+            goals=list(goals),
+            house_matrix_row=house_matrix_row,
+            score_x10=score_x10,
+            advisory_wealth_rappen=advisory_wealth_rappen,
+            cashflow_series_rappen=cashflow_projection_series_rappen,
+            horizon_years=horizon,
+            n_paths=_OPTIMIZER_N_PATHS_DEFAULT,
+            seed=int(optimizer_result.seed or 0) or None,
+            inflation_series_bps=inflation_series_bps,
+            risky_fraction_per_bucket=rf_per_bucket,
+        )
+        active_evaluation = evaluate_weights(context, active_weights_bps)
+        # Shadow-Weights nur bewerten wenn der Solver konvergiert ist;
+        # sonst sind die Solver-Weights die House-Matrix-Mid und Vergleich
+        # waere irrefuehrend.
+        if optimizer_result.status == "converged":
+            shadow_evaluation = evaluate_weights(context, optimizer_result.weights_bps)
+    except Exception as exc:  # noqa: BLE001 - never crash allocation flow
+        logger.warning(
+            "Shadow-comparison: evaluate_weights failed (%s); "
+            "falling back to weight-only comparison.", exc, exc_info=True,
+        )
+        active_evaluation = None
+        shadow_evaluation = None
+
+    return _build_allocation_method_comparison(
+        optimizer_mode=optimizer_mode,
+        active_method="house_matrix",
+        active_weights_bps=active_weights_bps,
+        optimizer_result=optimizer_result,
+        active_evaluation=active_evaluation,
+        shadow_evaluation=shadow_evaluation,
+    )
 
 
 def _compute_input_snapshot_hash(
@@ -4717,11 +4820,18 @@ def generate_target_allocation(
             if (optimizer_mode == "stochastic" and optimizer_result is not None)
             else None
         ),
-        "allocation_method_comparison": _build_allocation_method_comparison(
+        "allocation_method_comparison": _build_shadow_comparison_with_evaluations(
             optimizer_mode=optimizer_mode,
-            active_method="house_matrix",
-            active_weights_bps=_weights_from_targets(targets),
             optimizer_result=optimizer_result,
+            active_weights_bps=_weights_from_targets(targets),
+            cma=cma,
+            goals=goals,
+            house_matrix_row=house_matrix,
+            assessment=assessment,
+            advisory_wealth_rappen=investable_advisory_wealth_rappen,
+            cashflow_projection_series_rappen=cashflow_projection_series_rappen,
+            inflation_series_bps=goal_inflation_series_bps,
+            building_blocks_rows=_building_block_rows,
         ),
     }
 

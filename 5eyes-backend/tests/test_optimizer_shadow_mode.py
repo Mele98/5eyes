@@ -274,16 +274,25 @@ def test_shadow_comparison_advisory_note_no_marketing_language(session_factory, 
             assert forbidden not in note, f"Marketing-Sprache '{forbidden}' in Beratungsnote: {note}"
 
 
-def test_shadow_comparison_objective_delta_pct_none_in_sprint1(session_factory, monkeypatch):
-    """Sprint 1 ohne Apples-to-Apples Objective: objective_delta_pct = None."""
+def test_shadow_comparison_objective_delta_pct_present_when_converged(session_factory, monkeypatch):
+    """V3 Sprint 1c: objective_delta_pct ist gesetzt, wenn der Shadow-Solver
+    konvergiert ist; sonst None (nicht-converged liefert keinen vergleichbaren
+    Objective).
+    """
     monkeypatch.setattr(pe.settings, "optimizer_mode", "shadow_stochastic")
     advisor_id, _cid, mid, _aid, _gid = _seed_realistic_mandate(session_factory, suffix="delta")
     with session_factory() as s:
         mandate = s.query(Mandate).filter(Mandate.id == mid).first()
         result = generate_target_allocation(s, mandate, advisor_id, preferences=None)
         cmp = result["allocation_method_comparison"]
-        assert cmp["objective_delta_pct"] is None
-        assert cmp["objective_value_milli_active"] is None
+        if cmp["shadow_status"] == "converged":
+            # Apples-to-Apples Vergleich verfuegbar
+            assert isinstance(cmp["objective_delta_pct"], float)
+            assert cmp["objective_value_milli_active"] is not None
+            assert cmp["objective_value_milli_shadow"] is not None
+        else:
+            # Bei diverged/fallback bleibt der Vergleich konservativ
+            assert cmp["objective_delta_pct"] is None or cmp["objective_value_milli_shadow"] is None
 
 
 def test_shadow_comparison_includes_two_candidates(session_factory, monkeypatch):
@@ -301,6 +310,87 @@ def test_shadow_comparison_includes_two_candidates(session_factory, monkeypatch)
         shadow_cand = next(c for c in cands if c["role"] == "shadow")
         assert active_cand["method"] == "house_matrix"
         assert shadow_cand["method"] == "stochastic"
+
+
+# ============================================================================
+# V3 Sprint 1c (Commit 3): Apples-to-Apples Methodenvergleich
+# ============================================================================
+
+
+def test_shadow_comparison_active_candidate_has_evaluation(session_factory, monkeypatch):
+    """Active Candidate wurde via evaluate_weights bewertet -> feasible
+    ist boolean (nicht None) und constraint_violations ist eine Liste.
+
+    Hinweis: feasible kann auch False sein, wenn House-Matrix-Tilts
+    Band-Bounds verletzen — das ist eine legitime Erkenntnis fuer den
+    Berater (das Vergleichspanel macht es sichtbar).
+    """
+    monkeypatch.setattr(pe.settings, "optimizer_mode", "shadow_stochastic")
+    advisor_id, _cid, mid, _aid, _gid = _seed_realistic_mandate(session_factory, suffix="afeas")
+    with session_factory() as s:
+        mandate = s.query(Mandate).filter(Mandate.id == mid).first()
+        result = generate_target_allocation(s, mandate, advisor_id, preferences=None)
+        cmp = result["allocation_method_comparison"]
+        active = next(c for c in cmp["candidates"] if c["role"] == "active")
+        assert isinstance(active.get("feasible"), bool)
+        assert isinstance(active.get("constraint_violations"), list)
+        assert active.get("objective_value_milli") is not None
+
+
+def test_shadow_advisory_note_mentions_delta_when_converged(session_factory, monkeypatch):
+    """Wenn Shadow konvergiert + objective_delta_pct gesetzt: Note erwaehnt 'Objective-Delta'."""
+    monkeypatch.setattr(pe.settings, "optimizer_mode", "shadow_stochastic")
+    advisor_id, _cid, mid, _aid, _gid = _seed_realistic_mandate(session_factory, suffix="adv")
+    with session_factory() as s:
+        mandate = s.query(Mandate).filter(Mandate.id == mid).first()
+        result = generate_target_allocation(s, mandate, advisor_id, preferences=None)
+        cmp = result["allocation_method_comparison"]
+        if cmp["shadow_status"] == "converged" and cmp["objective_delta_pct"] is not None:
+            assert "Objective-Delta" in cmp["advisory_note"]
+
+
+def test_shadow_comparison_deterministic_for_same_mandate(session_factory, monkeypatch):
+    """Zwei Aufrufe mit demselben Mandanten liefern denselben Vergleich."""
+    monkeypatch.setattr(pe.settings, "optimizer_mode", "shadow_stochastic")
+    advisor_id, _cid, mid, _aid, _gid = _seed_realistic_mandate(session_factory, suffix="det")
+
+    with session_factory() as s:
+        mandate = s.query(Mandate).filter(Mandate.id == mid).first()
+        a = generate_target_allocation(s, mandate, advisor_id, preferences=None)["allocation_method_comparison"]
+
+    with session_factory() as s:
+        mandate = s.query(Mandate).filter(Mandate.id == mid).first()
+        b = generate_target_allocation(s, mandate, advisor_id, preferences=None)["allocation_method_comparison"]
+
+    assert a["shadow_weights_bps"] == b["shadow_weights_bps"]
+    if a["objective_value_milli_active"] is not None:
+        assert a["objective_value_milli_active"] == b["objective_value_milli_active"]
+    if a["objective_value_milli_shadow"] is not None:
+        assert a["objective_value_milli_shadow"] == b["objective_value_milli_shadow"]
+    assert a["objective_delta_pct"] == b["objective_delta_pct"]
+
+
+def test_shadow_comparison_objective_delta_consistent_with_milli_values(session_factory, monkeypatch):
+    """objective_delta_pct == (shadow - active) / active * 100, gerundet auf 2 Stellen."""
+    monkeypatch.setattr(pe.settings, "optimizer_mode", "shadow_stochastic")
+    advisor_id, _cid, mid, _aid, _gid = _seed_realistic_mandate(session_factory, suffix="cons")
+    with session_factory() as s:
+        mandate = s.query(Mandate).filter(Mandate.id == mid).first()
+        result = generate_target_allocation(s, mandate, advisor_id, preferences=None)
+        cmp = result["allocation_method_comparison"]
+        if cmp["shadow_status"] != "converged":
+            pytest.skip("Solver fallback in dieser Konfiguration; Konsistenz nicht testbar.")
+        active_milli = cmp["objective_value_milli_active"]
+        shadow_milli = cmp["objective_value_milli_shadow"]
+        delta_pct = cmp["objective_delta_pct"]
+        if active_milli is None or shadow_milli is None or delta_pct is None:
+            pytest.skip("Objective-Werte fehlen; Konsistenz nicht testbar.")
+        # Beide sind in milli (objective * 1000); Delta-Berechnung in Prozent
+        # erfolgt im Engine vor der Rundung auf 2 Nachkommastellen.
+        if active_milli != 0:
+            expected = round((shadow_milli - active_milli) / active_milli * 100.0, 2)
+            # Rundungspuffer von 1% wegen der mp-Rundung in _objective_to_milli
+            assert abs(delta_pct - expected) < 1.0
 
 
 # ============================================================================
