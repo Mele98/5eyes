@@ -454,6 +454,37 @@ class LiveRebalancingResponse(BaseModel):
     position_drifts: list[LiveRebalancingPositionResponse]
 
 
+class OptimizerConstraintResponse(BaseModel):
+    """V3 Sprint 1d (Plan §6): strukturierter Constraint-Slack pro Constraint.
+
+    Nur in shadow_stochastic / stochastic Modus befuellt; sonst leere Liste.
+    """
+    code: str
+    label: str
+    value_bps: int
+    limit_bps: int
+    slack_bps: int
+    is_binding: bool
+    is_violated: bool
+
+
+class OptimizerGoalDriverResponse(BaseModel):
+    """V3 Sprint 1d (Plan §6): Goal-Driver fuer 'welches Ziel treibt den Solver'.
+
+    weighted_objective_contribution_milli ist objective_contribution * 1000
+    (gleiche Skalierung wie optimization_objective_value_milli auf der TA).
+    rank ist der 1-basierte Rang in absteigender Sortierung (1 = groesster Treiber).
+    Nur in shadow_stochastic / stochastic Modus befuellt; sonst leere Liste.
+    """
+    goal_id: str
+    label: str
+    target_kind: str
+    hardness_key: str
+    weight_bps: int
+    weighted_objective_contribution_milli: Optional[int] = None
+    rank: int
+
+
 class AllocationMethodCandidateResponse(BaseModel):
     method: str
     role: str  # "active" | "shadow"
@@ -502,6 +533,15 @@ class TargetAllocationGenerateResponse(BaseModel):
     # V3 Sprint 1: Methodenvergleich House Matrix vs. Shadow Stochastic.
     # Nur befuellt im 'shadow_stochastic' Modus; sonst None.
     allocation_method_comparison: Optional[AllocationMethodComparisonResponse] = None
+    # V3 Sprint 1d (Plan §5.3 / §6): Strukturierte Constraint-Slacks der aktiven
+    # Allocation. Nur befuellt wenn Solver lief (shadow_stochastic / stochastic);
+    # sonst leere Liste. 'is_binding' / 'is_violated' macht fuer den Berater
+    # sichtbar, welche Leitplanke wirklich begrenzt.
+    optimizer_constraints: list[OptimizerConstraintResponse] = Field(default_factory=list)
+    # V3 Sprint 1d (Plan §5.4 / §6): Goal-Driver-Liste fuer 'welches Ziel treibt
+    # den Shortfall'. Sortiert absteigend nach weighted_objective_contribution_milli.
+    # Nur befuellt wenn Solver lief; sonst leere Liste.
+    optimizer_goal_drivers: list[OptimizerGoalDriverResponse] = Field(default_factory=list)
     # C6: explizit benannte Basis fuer Target-/Sim-/MC-Berechnung
     # (= Beratungsvermoegen abzueglich externer Reserve).
     strategy_base_rappen: Optional[int] = None

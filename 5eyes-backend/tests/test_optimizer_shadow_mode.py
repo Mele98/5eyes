@@ -275,9 +275,10 @@ def test_shadow_comparison_advisory_note_no_marketing_language(session_factory, 
 
 
 def test_shadow_comparison_objective_delta_pct_present_when_converged(session_factory, monkeypatch):
-    """V3 Sprint 1c: objective_delta_pct ist gesetzt, wenn der Shadow-Solver
-    konvergiert ist; sonst None (nicht-converged liefert keinen vergleichbaren
-    Objective).
+    """V3 Sprint 1c: bei convergedem Shadow + non-zero active Objective ist
+    objective_delta_pct ein Float. Wenn die House-Matrix bereits einen
+    Objective-Wert von 0 erreicht (kein Shortfall), wird kein Delta berechnet
+    (Division-durch-Null-Schutz) und delta bleibt None.
     """
     monkeypatch.setattr(pe.settings, "optimizer_mode", "shadow_stochastic")
     advisor_id, _cid, mid, _aid, _gid = _seed_realistic_mandate(session_factory, suffix="delta")
@@ -286,10 +287,13 @@ def test_shadow_comparison_objective_delta_pct_present_when_converged(session_fa
         result = generate_target_allocation(s, mandate, advisor_id, preferences=None)
         cmp = result["allocation_method_comparison"]
         if cmp["shadow_status"] == "converged":
-            # Apples-to-Apples Vergleich verfuegbar
-            assert isinstance(cmp["objective_delta_pct"], float)
+            # Active wurde unter dem Solver-Context bewertet
             assert cmp["objective_value_milli_active"] is not None
+            # Shadow ebenfalls
             assert cmp["objective_value_milli_shadow"] is not None
+            # Delta nur wenn active != 0 (sonst sinnlos)
+            if cmp["objective_value_milli_active"] != 0:
+                assert isinstance(cmp["objective_delta_pct"], float)
         else:
             # Bei diverged/fallback bleibt der Vergleich konservativ
             assert cmp["objective_delta_pct"] is None or cmp["objective_value_milli_shadow"] is None
@@ -368,6 +372,70 @@ def test_shadow_comparison_deterministic_for_same_mandate(session_factory, monke
     if a["objective_value_milli_shadow"] is not None:
         assert a["objective_value_milli_shadow"] == b["objective_value_milli_shadow"]
     assert a["objective_delta_pct"] == b["objective_delta_pct"]
+
+
+def test_shadow_response_includes_optimizer_constraints_list(session_factory, monkeypatch):
+    """V3 Sprint 1d: optimizer_constraints liste befuellt im Shadow-Modus."""
+    monkeypatch.setattr(pe.settings, "optimizer_mode", "shadow_stochastic")
+    advisor_id, _cid, mid, _aid, _gid = _seed_realistic_mandate(session_factory, suffix="cstr")
+    with session_factory() as s:
+        mandate = s.query(Mandate).filter(Mandate.id == mid).first()
+        result = generate_target_allocation(s, mandate, advisor_id, preferences=None)
+        constraints = result.get("optimizer_constraints", [])
+        assert isinstance(constraints, list) and len(constraints) > 0
+        codes = {c["code"] for c in constraints}
+        assert "risky_fraction_cap" in codes
+        for bucket in ("equities", "bonds", "real_estate", "alternatives", "liquidity"):
+            assert f"{bucket}_min" in codes
+            assert f"{bucket}_max" in codes
+        # Jeder Eintrag hat alle Pflichtfelder
+        for c in constraints:
+            assert isinstance(c["value_bps"], int)
+            assert isinstance(c["limit_bps"], int)
+            assert isinstance(c["slack_bps"], int)
+            assert isinstance(c["is_binding"], bool)
+            assert isinstance(c["is_violated"], bool)
+
+
+def test_shadow_response_includes_goal_drivers_list(session_factory, monkeypatch):
+    """V3 Sprint 1d: optimizer_goal_drivers absteigend nach contribution sortiert."""
+    monkeypatch.setattr(pe.settings, "optimizer_mode", "shadow_stochastic")
+    advisor_id, _cid, mid, _aid, _gid = _seed_realistic_mandate(session_factory, suffix="drv")
+    with session_factory() as s:
+        mandate = s.query(Mandate).filter(Mandate.id == mid).first()
+        result = generate_target_allocation(s, mandate, advisor_id, preferences=None)
+        drivers = result.get("optimizer_goal_drivers", [])
+        assert isinstance(drivers, list)
+        if drivers:  # bei Maximierung-only-Goals leer; hier haben wir Pension+Wealth
+            ranks = [d["rank"] for d in drivers]
+            assert ranks == sorted(ranks)
+            assert ranks[0] == 1
+            for d in drivers:
+                assert "goal_id" in d and "label" in d
+                assert "target_kind" in d and "hardness_key" in d
+                assert "weight_bps" in d
+
+
+def test_house_matrix_mode_has_empty_explainability_lists(session_factory, monkeypatch):
+    """In house_matrix Modus laufen die Explainability-Helper nicht."""
+    monkeypatch.setattr(pe.settings, "optimizer_mode", "house_matrix")
+    advisor_id, _cid, mid, _aid, _gid = _seed_realistic_mandate(session_factory, suffix="hmexp")
+    with session_factory() as s:
+        mandate = s.query(Mandate).filter(Mandate.id == mid).first()
+        result = generate_target_allocation(s, mandate, advisor_id, preferences=None)
+        assert result.get("optimizer_constraints") == []
+        assert result.get("optimizer_goal_drivers") == []
+
+
+def test_stochastic_mode_has_explainability_lists(session_factory, monkeypatch):
+    """Auch im pure-stochastic Modus liefern wir constraints + drivers."""
+    monkeypatch.setattr(pe.settings, "optimizer_mode", "stochastic")
+    advisor_id, _cid, mid, _aid, _gid = _seed_realistic_mandate(session_factory, suffix="stexp")
+    with session_factory() as s:
+        mandate = s.query(Mandate).filter(Mandate.id == mid).first()
+        result = generate_target_allocation(s, mandate, advisor_id, preferences=None)
+        assert isinstance(result.get("optimizer_constraints", []), list)
+        assert len(result["optimizer_constraints"]) > 0
 
 
 def test_shadow_comparison_objective_delta_consistent_with_milli_values(session_factory, monkeypatch):

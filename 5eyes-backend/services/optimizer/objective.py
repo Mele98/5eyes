@@ -1,4 +1,4 @@
-"""Objective Functions fuer den Optimizer.
+"""Objective Functions + Goal-Drivers (V3 Sprint 1d).
 
 Master-Spec: docs/planning/2026-05-05-stochastic-optimizer-spec.md (Sec 6)
 
@@ -20,6 +20,7 @@ Pro Goal-Typ wird Shortfall anders berechnet:
 """
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from typing import Iterable
 
 import numpy as np
@@ -145,6 +146,77 @@ def volatility_objective(wealth_paths: np.ndarray) -> float:
     """
     end_wealth = wealth_paths[:, -1]
     return float(np.var(end_wealth))
+
+
+# ============================================================================
+# V3 Sprint 1d (Plan §5.4): Goal-Driver Erklaerbarkeit
+# ============================================================================
+
+
+@dataclass(frozen=True)
+class GoalShortfallContribution:
+    """Beitrag eines einzelnen Goals zum Gesamt-Shortfall-Objective.
+
+    'Contribution under aggregate wealth path' (Plan §5.4):
+        contribution = h_g · g_g · mean_n(shortfall(g, n)^2)
+    Das ist NICHT eine teure marginale Counterfactual-Berechnung
+    ('Objective ohne dieses Goal') — sondern der direkte Beitrag, den dieses
+    Goal in der gemeinsam evaluierten Summe ausmacht. Sortierung absteigend
+    macht 'welches Ziel dominiert den Shortfall' fuer den Berater sichtbar.
+
+    weighted_objective_contribution: float
+        Direkt vergleichbar mit dem Output von shortfall_objective() — die
+        Summe aller GoalShortfallContribution.weighted_objective_contribution
+        ergibt L(w).
+    """
+    goal_id: str
+    label: str
+    target_kind: str
+    hardness_key: str
+    weight_bps: int
+    mean_shortfall_squared: float
+    weighted_objective_contribution: float
+
+
+def shortfall_contributions(
+    liabilities: Iterable[GoalLiability],
+    wealth_paths: np.ndarray,
+    *,
+    initial_wealth_rappen: float,
+    horizon_years: int,
+) -> list[GoalShortfallContribution]:
+    """Pro Goal: Mean-Shortfall² und gewichteter Beitrag zum Objective.
+
+    Sortiert absteigend nach weighted_objective_contribution: das groesste
+    Risiko zuerst. Wenn n_paths == 0, leere Liste.
+    """
+    rows: list[GoalShortfallContribution] = []
+    if wealth_paths.size == 0:
+        return rows
+    n_paths = wealth_paths.shape[0]
+    if n_paths <= 0:
+        return rows
+    inv_n = 1.0 / n_paths
+    for liab in liabilities:
+        per_path = shortfall_squared_per_path(
+            liab,
+            wealth_paths,
+            initial_wealth_rappen=initial_wealth_rappen,
+            horizon_years=horizon_years,
+        )
+        mean_sq = float(np.sum(per_path) * inv_n)
+        h_weight = HARDNESS_WEIGHT.get(liab.hardness_key, 1.0)
+        g_weight = max(1, int(liab.weight_bps)) / 10000.0
+        rows.append(GoalShortfallContribution(
+            goal_id=str(liab.goal_id),
+            label=str(liab.label),
+            target_kind=str(liab.target_kind),
+            hardness_key=str(liab.hardness_key),
+            weight_bps=int(liab.weight_bps),
+            mean_shortfall_squared=mean_sq,
+            weighted_objective_contribution=float(h_weight * g_weight * mean_sq),
+        ))
+    return sorted(rows, key=lambda row: row.weighted_objective_contribution, reverse=True)
 
 
 def combined_objective_two_phase(

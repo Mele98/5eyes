@@ -4185,6 +4185,142 @@ def _build_shadow_comparison_with_evaluations(
     )
 
 
+# --------------------------------------------------------------------------- #
+# V3 Sprint 1d (2026-05-08): Constraint Slacks + Goal Drivers Explainability
+# --------------------------------------------------------------------------- #
+def _build_optimizer_explainability(
+    *,
+    optimizer_mode: str,
+    optimizer_result,
+    active_weights_bps: dict[str, int],
+    cma,
+    goals: list,
+    house_matrix_row,
+    assessment,
+    advisory_wealth_rappen: int,
+    cashflow_projection_series_rappen: list[int],
+    inflation_series_bps: list[int] | None,
+    building_blocks_rows: list | None,
+) -> tuple[list[dict], list[dict]]:
+    """Liefert (constraint_slacks, goal_drivers) fuer die aktive Allocation.
+
+    Plan §5.3 / §5.4: Macht sichtbar, welche Leitplanke wirklich begrenzt
+    und welches Ziel den Shortfall dominiert.
+
+    Nur in shadow_stochastic / stochastic Modi mit gelaufenem Solver. Sonst
+    leere Listen — der House-Matrix-Default lebt ohne Solver-Context und
+    waere fuer diese Erklaerbarkeit nur scheinbar bewertbar.
+
+    Faellt sicher in `([], [])` zurueck, wenn Context-Bau scheitert.
+    """
+    if optimizer_mode not in {"shadow_stochastic", "stochastic"} or optimizer_result is None:
+        return ([], [])
+
+    try:
+        from services.optimizer.constraints import (
+            bucket_risky_fractions_from_building_blocks,
+            constraint_slacks as _constraint_slacks,
+        )
+        from services.optimizer.objective import shortfall_contributions
+        from services.optimizer.scenario_engine import simulate_wealth_paths
+        from services.optimizer.solver import (
+            _weights_bps_to_array,
+            build_optimizer_context,
+        )
+    except ImportError as exc:
+        logger.warning(
+            "Optimizer-explainability: module not importable (%s); "
+            "returning empty lists.", exc,
+        )
+        return ([], [])
+
+    rf_per_bucket: dict[str, float] | None = None
+    if building_blocks_rows is not None:
+        try:
+            rf_per_bucket = bucket_risky_fractions_from_building_blocks(building_blocks_rows)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Explainability: risky-fraction extraction failed: %s", exc)
+            rf_per_bucket = None
+
+    score_x10 = _assessment_score_x10(assessment)
+    horizon = max(10, int(len(cashflow_projection_series_rappen) or 10))
+
+    try:
+        context = build_optimizer_context(
+            cma=cma,
+            goals=list(goals),
+            house_matrix_row=house_matrix_row,
+            score_x10=score_x10,
+            advisory_wealth_rappen=advisory_wealth_rappen,
+            cashflow_series_rappen=cashflow_projection_series_rappen,
+            horizon_years=horizon,
+            n_paths=_OPTIMIZER_N_PATHS_DEFAULT,
+            seed=int(optimizer_result.seed or 0) or None,
+            inflation_series_bps=inflation_series_bps,
+            risky_fraction_per_bucket=rf_per_bucket,
+        )
+    except Exception as exc:  # noqa: BLE001 - never crash allocation flow
+        logger.warning(
+            "Explainability: context build failed (%s); returning empty lists.", exc,
+        )
+        return ([], [])
+
+    constraint_rows = _constraint_slacks(
+        active_weights_bps,
+        bounds=context.bounds,
+        score_x10=context.score_x10,
+        risky_fraction_per_bucket=rf_per_bucket,
+    )
+    constraints_payload = [
+        {
+            "code": row.code,
+            "label": row.label,
+            "value_bps": int(row.value_bps),
+            "limit_bps": int(row.limit_bps),
+            "slack_bps": int(row.slack_bps),
+            "is_binding": bool(row.is_binding),
+            "is_violated": bool(row.is_violated),
+        }
+        for row in constraint_rows
+    ]
+
+    drivers_payload: list[dict] = []
+    try:
+        active_w = _weights_bps_to_array(active_weights_bps)
+        wealth_paths = simulate_wealth_paths(
+            initial_wealth_rappen=context.advisory_wealth_rappen,
+            weights=active_w,
+            return_paths=context.return_paths,
+            cashflow_series_rappen=context.cashflow_series_rappen,
+            liability_path_rappen=context.aggregated_liability_path,
+        )
+        contribution_rows = shortfall_contributions(
+            context.liabilities,
+            wealth_paths,
+            initial_wealth_rappen=context.advisory_wealth_rappen,
+            horizon_years=context.horizon_years,
+        )
+        for rank, row in enumerate(contribution_rows, start=1):
+            drivers_payload.append({
+                "goal_id": row.goal_id,
+                "label": row.label,
+                "target_kind": row.target_kind,
+                "hardness_key": row.hardness_key,
+                "weight_bps": int(row.weight_bps),
+                "weighted_objective_contribution_milli": _objective_to_milli(
+                    row.weighted_objective_contribution
+                ),
+                "rank": rank,
+            })
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "Explainability: shortfall_contributions failed (%s); "
+            "constraints geliefert, drivers leer.", exc,
+        )
+
+    return (constraints_payload, drivers_payload)
+
+
 def _compute_input_snapshot_hash(
     *,
     advisory_positions: list,
@@ -4833,6 +4969,24 @@ def generate_target_allocation(
             inflation_series_bps=goal_inflation_series_bps,
             building_blocks_rows=_building_block_rows,
         ),
+        # V3 Sprint 1d: Constraint Slacks + Goal Drivers fuer die aktive
+        # Allocation. Leere Listen wenn der Solver nicht lief.
+        **dict(zip(
+            ("optimizer_constraints", "optimizer_goal_drivers"),
+            _build_optimizer_explainability(
+                optimizer_mode=optimizer_mode,
+                optimizer_result=optimizer_result,
+                active_weights_bps=_weights_from_targets(targets),
+                cma=cma,
+                goals=goals,
+                house_matrix_row=house_matrix,
+                assessment=assessment,
+                advisory_wealth_rappen=investable_advisory_wealth_rappen,
+                cashflow_projection_series_rappen=cashflow_projection_series_rappen,
+                inflation_series_bps=goal_inflation_series_bps,
+                building_blocks_rows=_building_block_rows,
+            ),
+        )),
     }
 
 
