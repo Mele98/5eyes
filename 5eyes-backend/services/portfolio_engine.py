@@ -147,6 +147,25 @@ def _time_bucket_label(years: int | None) -> str:
         if y <= upper:
             return label
     return _TIME_BUCKET_LONG_LABEL
+
+
+# Sprint B6 (2026-05-08): Bedingte Goals (Conditional Goals).
+# Goals haben eine Eintrittswahrscheinlichkeit `probability_pct` (0-100).
+# Linear gewichtete Reserve: contribution = target * factor * (prob/100).
+# NULL/fehlend -> 100 (sicher, backwards-compat).
+def _goal_probability_factor(goal: object) -> float:
+    raw = getattr(goal, "probability_pct", None)
+    if raw is None:
+        return 1.0
+    try:
+        pct = int(raw)
+    except (TypeError, ValueError):
+        return 1.0
+    return max(0.0, min(100, pct)) / 100.0
+
+
+def _goal_is_conditional(goal: object) -> bool:
+    return _goal_probability_factor(goal) < 1.0
 LABEL_TO_BUCKET = {value: key for key, value in BUCKET_LABELS.items()}
 GOAL_WEIGHT_BY_RANK = {
     1: 10000,
@@ -2117,15 +2136,18 @@ def _goal_reserve_for_goal(goal: Goal) -> int:
     Sprint B5 (2026-05-07): Time-Bucket-Variante via RESERVE_BUCKET_MODE=
     time_bucket — kongruent zu _compute_reserve_for_inputs, damit Scoring
     nicht von der Reserve-Empfehlung abweicht.
+    Sprint B6 (2026-05-08): Bedingte Goals — target * (probability_pct/100)
+    bevor Mode-Faktor angewandt wird.
     """
     goal_type = _norm_text(goal.goal_type)
     if goal_type not in ("Einmalige_Ausgabe", "Wiederkehrende_Ausgabe", "Pensionsausgabe"):
         return 0
-    target_amount = (
+    base_target = (
         _annualize_goal_amount(goal)
         if goal_type in ("Wiederkehrende_Ausgabe", "Pensionsausgabe")
         else int(goal.target_amount_rappen or 0)
     )
+    target_amount = int(round(base_target * _goal_probability_factor(goal)))
     years = _goal_projection_years(goal)
     if _reserve_decay_mode_smooth():
         return int(round(target_amount * _reserve_decay_factor(years)))
@@ -3573,11 +3595,19 @@ def _compute_reserve_for_inputs(
         years = _goal_projection_years(goal)
         goal_type = _norm_text(goal.goal_type)
         if goal_type in ("Einmalige_Ausgabe", "Wiederkehrende_Ausgabe", "Pensionsausgabe"):
-            target_amount = (
+            base_target = (
                 _annualize_goal_amount(goal)
                 if goal_type in ("Wiederkehrende_Ausgabe", "Pensionsausgabe")
                 else int(goal.target_amount_rappen or 0)
             )
+            # Sprint B6: bedingte Goals werden linear gewichtet (target * prob/100).
+            prob_factor = _goal_probability_factor(goal)
+            target_amount = int(round(base_target * prob_factor))
+            if reasoning is not None and prob_factor < 1.0 and base_target > 0:
+                reasoning.append(
+                    f"Das Ziel '{goal.label}' ist bedingt mit {int(round(prob_factor*100))}% "
+                    "Wahrscheinlichkeit; Reserve-Beitrag entsprechend skaliert."
+                )
             # Sprint A4: Smooth-Decay opt-in via RESERVE_DECAY_MODE=smooth.
             # Sprint B5: Time-Bucket opt-in via RESERVE_BUCKET_MODE=time_bucket.
             # Default Stufenfunktion bleibt audit-konsistent.

@@ -338,6 +338,8 @@ class GoalCreate(BaseModel):
     is_ongoing: bool = False
     frequency: Optional[str] = None
     hardness: Literal["Hart", "Primär", "Opportunistisch"] = "Primär"
+    # Sprint B6: Eintrittswahrscheinlichkeit (0-100). Default 100 = sicher eintretend.
+    probability_pct: int = Field(default=100, ge=0, le=100)
     linked_position_id: Optional[str] = None
     notes: Optional[str] = None
 
@@ -385,6 +387,7 @@ class GoalUpdate(BaseModel):
     is_ongoing: Optional[bool] = None
     frequency: Optional[str] = None
     hardness: Optional[str] = None
+    probability_pct: Optional[int] = Field(default=None, ge=0, le=100)
     linked_position_id: Optional[str] = None
     notes: Optional[str] = None
     is_active: Optional[bool] = None
@@ -410,6 +413,7 @@ class GoalResponse(BaseResponse):
     is_ongoing: int
     frequency: Optional[str]
     hardness: str
+    probability_pct: Optional[int] = None
     linked_position_id: Optional[str]
     notes: Optional[str]
     is_active: int
