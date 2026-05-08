@@ -211,6 +211,12 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 .optimizer-table tbody tr{border-bottom:1px solid var(--line-soft);}
 .optimizer-table tbody tr.is-danger{background:rgba(220,53,69,.08);}
 .optimizer-audit{font-size:9px;color:var(--text-muted);font-family:var(--f-d);border-top:1px dashed var(--line-soft);padding-top:6px;}
+.optimizer-table td.delta-pos{color:var(--pos);}
+.optimizer-table td.delta-neg{color:var(--neg);}
+.optimizer-table td.delta-flat{color:var(--text-muted);}
+.optimizer-table tbody tr.is-violated{background:rgba(220,53,69,.08);}
+.optimizer-table tbody tr.is-binding{background:rgba(122,82,0,.06);}
+.advisor-note-shadow{font-size:11px;color:var(--text-body);line-height:1.5;padding:8px 10px;background:var(--surface-muted);border-left:3px solid var(--line-soft);border-radius:var(--radius-control);}
 .sensitivity-list{margin-top:8px;display:flex;flex-direction:column;gap:8px;}
 .sensitivity-row{border:1px solid var(--line-soft);border-radius:var(--radius-control);padding:8px 10px;display:grid;gap:6px;}
 .sensitivity-head{display:flex;justify-content:space-between;align-items:center;gap:8px;}
@@ -1305,6 +1311,58 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
                 <div id="opt-sensitivity-list" style="margin-top:8px;display:flex;flex-direction:column;gap:8px"></div>
               </details>
               <div id="opt-audit-footer" style="font-size:9px;color:var(--n4);font-family:var(--f-d);border-top:1px dashed var(--b1);padding-top:6px"></div>
+            </div>
+          </div>
+          <!-- V3 Sprint 1 Commit 4 (Plan §7): Methodenvergleich House Matrix vs. Shadow Stochastic. -->
+          <div class="card" id="al-method-comparison-panel" style="display:none">
+            <div class="chd">
+              <span class="cht">Methodenvergleich</span>
+              <span class="status-pill" id="method-comparison-pill" style="margin-left:auto"></span>
+            </div>
+            <div class="cbody optimizer-body">
+              <div id="method-comparison-note" class="advisor-note-shadow">Vergleich wird berechnet…</div>
+              <table class="optimizer-table" id="method-comparison-table">
+                <thead>
+                  <tr>
+                    <th>Assetklasse</th>
+                    <th>Aktiv</th>
+                    <th>Shadow</th>
+                    <th>Delta</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+              <details id="method-constraints-block">
+                <summary class="optimizer-summary">Bindende Leitplanken</summary>
+                <table class="optimizer-table" id="method-constraints-table">
+                  <thead>
+                    <tr>
+                      <th>Constraint</th>
+                      <th>Wert</th>
+                      <th>Limit</th>
+                      <th>Slack</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </details>
+              <details id="method-drivers-block">
+                <summary class="optimizer-summary">Goal-Driver (Shortfall-Beitrag)</summary>
+                <table class="optimizer-table" id="method-drivers-table">
+                  <thead>
+                    <tr>
+                      <th>Rang</th>
+                      <th>Ziel</th>
+                      <th>Härte</th>
+                      <th>Gewicht</th>
+                      <th>Beitrag (milli)</th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </details>
+              <div id="method-comparison-audit" class="optimizer-audit"></div>
             </div>
           </div>
           <div class="card" id="al-planning-card">
@@ -12272,6 +12330,7 @@ function applyAllocationEngineResult(result){
   setText('aa-proj-lossprob',formatProbabilityPct(mc&&mc.target_loss_probability_1y_pct));
   renderAllocationCashflowTimeline(result);
   renderOptimizerPanel(result);
+  renderAllocationMethodComparison(result);
   renderActionCards(result.reasoning);
   renderEngineRuntimePanels(result);
   renderStrategySummary();
@@ -16236,6 +16295,142 @@ function decumulationCapitalBridgeRows(limit){
 // ============================================================================
 // Phase 6: Optimizer-Panel (Status, Reasoning, Stress-Tests, Sensitivity)
 // ============================================================================
+// V3 Sprint 1 Commit 4 (Plan §7.2): Klassen-basierter Status-Pill ohne Emoji.
+// Erlaubt fuer Solver-Statuswerte 'converged', 'diverged', 'diverged_infeasible',
+// 'fallback_house_matrix' sowie generische Comparison-Stati.
+function setStatusPill(el,status,label){
+  if(!el)return;
+  var s=String(status||'').toLowerCase();
+  el.className='status-pill';
+  if(s==='converged'){
+    el.className+=' ok';
+    el.textContent=label||'Konvergiert';
+  }else if(s==='diverged'||s==='diverged_infeasible'||s==='fallback_house_matrix'){
+    el.className+=' warn';
+    el.textContent=label||'Fallback';
+  }else if(s){
+    el.textContent=label||status;
+  }else{
+    el.textContent=label||'';
+  }
+}
+
+// V3 Sprint 1 Commit 4 (Plan §7.3): Methodenvergleich-Panel rendern.
+// Quelle: result.allocation_method_comparison (nur im shadow_stochastic-Modus).
+// Renderert House vs. Shadow Tabelle, advisory_note ohne Marketing-Sprache,
+// Constraint-Slacks, Goal-Drivers und Audit-Footer.
+function renderAllocationMethodComparison(result){
+  var panel=document.getElementById('al-method-comparison-panel');
+  if(!panel)return;
+  var cmp=result&&result.allocation_method_comparison;
+  if(!cmp){
+    panel.style.display='none';
+    return;
+  }
+  panel.style.display='';
+
+  var pill=document.getElementById('method-comparison-pill');
+  setStatusPill(
+    pill,
+    cmp.shadow_status||'',
+    cmp.shadow_status==='converged'?'Shadow konvergiert':'Vergleich'
+  );
+
+  var note=document.getElementById('method-comparison-note');
+  if(note){
+    note.textContent=cmp.advisory_note||'';
+  }
+
+  var tbody=document.querySelector('#method-comparison-table tbody');
+  if(tbody){
+    var bucketLabels={
+      equities:'Aktien',
+      bonds:'Obligationen',
+      real_estate:'Immobilien',
+      alternatives:'Alternative',
+      liquidity:'Liquiditaet'
+    };
+    var active=cmp.active_weights_bps||{};
+    var shadow=cmp.shadow_weights_bps||{};
+    var deltas=cmp.weight_deltas_bps||{};
+    var bucketOrder=['equities','bonds','real_estate','alternatives','liquidity'];
+    tbody.innerHTML=bucketOrder.map(function(bucket){
+      var d=Number(deltas[bucket]||0);
+      var deltaClass=d>0?'delta-pos':(d<0?'delta-neg':'delta-flat');
+      var deltaSign=d>0?'+':'';
+      return '<tr>'
+        +'<td>'+escapeHtml(bucketLabels[bucket]||bucket)+'</td>'
+        +'<td>'+escapeHtml(formatBpsPercent(active[bucket]||0))+'</td>'
+        +'<td>'+escapeHtml(formatBpsPercent(shadow[bucket]||0))+'</td>'
+        +'<td class="'+deltaClass+'">'+escapeHtml(deltaSign+formatBpsPercent(d))+'</td>'
+        +'</tr>';
+    }).join('');
+  }
+
+  // Constraint-Slacks (V3 §5.3 Backend-Output)
+  var constraints=Array.isArray(result.optimizer_constraints)?result.optimizer_constraints:[];
+  var cBlock=document.getElementById('method-constraints-block');
+  var cBody=document.querySelector('#method-constraints-table tbody');
+  if(cBody&&cBlock){
+    if(!constraints.length){
+      cBlock.style.display='none';
+    }else{
+      cBlock.style.display='';
+      cBody.innerHTML=constraints.map(function(c){
+        var rowCls='';
+        if(c.is_violated)rowCls=' class="is-violated"';
+        else if(c.is_binding)rowCls=' class="is-binding"';
+        var status=c.is_violated?'Verletzt':(c.is_binding?'Bindend':'Frei');
+        var slack=Number(c.slack_bps||0);
+        var slackSign=slack>0?'+':'';
+        return '<tr'+rowCls+'>'
+          +'<td>'+escapeHtml(c.label||c.code||'')+'</td>'
+          +'<td>'+escapeHtml(formatBpsPercent(c.value_bps||0))+'</td>'
+          +'<td>'+escapeHtml(formatBpsPercent(c.limit_bps||0))+'</td>'
+          +'<td>'+escapeHtml(slackSign+formatBpsPercent(slack))+'</td>'
+          +'<td>'+escapeHtml(status)+'</td>'
+          +'</tr>';
+      }).join('');
+    }
+  }
+
+  // Goal-Drivers (V3 §5.4 Backend-Output)
+  var drivers=Array.isArray(result.optimizer_goal_drivers)?result.optimizer_goal_drivers:[];
+  var dBlock=document.getElementById('method-drivers-block');
+  var dBody=document.querySelector('#method-drivers-table tbody');
+  if(dBody&&dBlock){
+    if(!drivers.length){
+      dBlock.style.display='none';
+    }else{
+      dBlock.style.display='';
+      dBody.innerHTML=drivers.map(function(d){
+        var milli=d.weighted_objective_contribution_milli;
+        var milliText=milli==null?'—':String(milli);
+        return '<tr>'
+          +'<td>'+escapeHtml(String(d.rank||'—'))+'</td>'
+          +'<td>'+escapeHtml(d.label||d.goal_id||'')+'</td>'
+          +'<td>'+escapeHtml(d.hardness_key||'')+'</td>'
+          +'<td>'+escapeHtml(formatBpsPercent(d.weight_bps||0))+'</td>'
+          +'<td>'+escapeHtml(milliText)+'</td>'
+          +'</tr>';
+      }).join('');
+    }
+  }
+
+  var audit=document.getElementById('method-comparison-audit');
+  if(audit){
+    var bits=[
+      'Aktiv: '+(cmp.active_method||'—'),
+      'Shadow: '+(cmp.shadow_method||'—'),
+      'Status: '+(cmp.shadow_status||'—')
+    ];
+    if(cmp.objective_delta_pct!=null){
+      bits.push('Objective-Delta: '+Number(cmp.objective_delta_pct).toFixed(2)+'%');
+    }
+    audit.textContent=bits.join(' | ');
+  }
+}
+
 function renderOptimizerPanel(result){
   var panel=document.getElementById('al-optimizer-panel');
   if(!panel)return;
@@ -16249,19 +16444,16 @@ function renderOptimizerPanel(result){
   panel.style.display='';
   var pill=document.getElementById('opt-status-pill');
   if(pill){
-    pill.textContent='';
+    // V3 Sprint 1 Commit 4 (Plan §7.2): Klassen-basierter Status ohne Emoji.
     pill.style.background='';
     pill.style.color='';
-    var pillMap={
-      converged:{txt:'🟢 Konvergiert',bg:'rgba(22,101,52,0.12)',fg:'var(--pos)'},
-      diverged_infeasible:{txt:'🟡 Divergiert',bg:'rgba(122,82,0,0.15)',fg:'var(--warn)'},
-      diverged:{txt:'🟡 Divergiert',bg:'rgba(122,82,0,0.15)',fg:'var(--warn)'},
-      fallback_house_matrix:{txt:'⚙ Fallback House-Matrix',bg:'var(--bg2)',fg:'var(--n5)'}
+    var labelMap={
+      converged:'Konvergiert',
+      diverged:'Divergiert',
+      diverged_infeasible:'Divergiert',
+      fallback_house_matrix:'Fallback House-Matrix'
     };
-    var p=pillMap[status]||{txt:status||'—',bg:'var(--bg2)',fg:'var(--n5)'};
-    pill.textContent=p.txt;
-    pill.style.background=p.bg;
-    pill.style.color=p.fg;
+    setStatusPill(pill,status,labelMap[status]||status);
   }
   var banner=document.getElementById('opt-fallback-banner');
   if(banner){
