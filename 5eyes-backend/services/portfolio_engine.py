@@ -166,6 +166,32 @@ def _goal_probability_factor(goal: object) -> float:
 
 def _goal_is_conditional(goal: object) -> bool:
     return _goal_probability_factor(goal) < 1.0
+
+
+# Sprint B3 (2026-05-08): Vorsorge-Saeulen-Differenzierung.
+# AHV ist staatlich gedeckt -> kein Reserve-Beitrag aus dem Beratungsportfolio,
+# Goal-Score wird als 'voll erfuellt' gewertet (funded_ratio 100%).
+# BVG/3a/1e/FZG werden hier (Phase 1) nicht engine-seitig differenziert; sie
+# fungieren als Metadata fuer FE-Anzeige und spaetere Liability-Pfade.
+PENSION_PILLARS = ("AHV", "BVG", "3a", "1e", "FZG")
+PENSION_PILLAR_STATE_FUNDED = ("AHV",)
+
+
+def _goal_pension_pillar(goal: object) -> str | None:
+    raw = getattr(goal, "pension_pillar", None)
+    if raw is None:
+        return None
+    text = str(raw).strip()
+    return text if text in PENSION_PILLARS else None
+
+
+def _goal_pension_state_funded(goal: object) -> bool:
+    pillar = _goal_pension_pillar(goal)
+    if pillar is None:
+        return False
+    if _norm_text(getattr(goal, "goal_type", "")) != "Pensionsausgabe":
+        return False
+    return pillar in PENSION_PILLAR_STATE_FUNDED
 LABEL_TO_BUCKET = {value: key for key, value in BUCKET_LABELS.items()}
 GOAL_WEIGHT_BY_RANK = {
     1: 10000,
@@ -2138,6 +2164,9 @@ def _goal_reserve_for_goal(goal: Goal) -> int:
     nicht von der Reserve-Empfehlung abweicht.
     Sprint B6 (2026-05-08): Bedingte Goals — target * (probability_pct/100)
     bevor Mode-Faktor angewandt wird.
+    Sprint B3 (2026-05-08): AHV-Goals werden als 'voll erfuellt' gewertet
+    (Score 100%): wir liefern den vollen target zurueck, weil die staatliche
+    Saeule die Auszahlung deckt — kein Portfolio-Asset noetig.
     """
     goal_type = _norm_text(goal.goal_type)
     if goal_type not in ("Einmalige_Ausgabe", "Wiederkehrende_Ausgabe", "Pensionsausgabe"):
@@ -2147,6 +2176,8 @@ def _goal_reserve_for_goal(goal: Goal) -> int:
         if goal_type in ("Wiederkehrende_Ausgabe", "Pensionsausgabe")
         else int(goal.target_amount_rappen or 0)
     )
+    if _goal_pension_state_funded(goal):
+        return int(round(base_target * _goal_probability_factor(goal)))
     target_amount = int(round(base_target * _goal_probability_factor(goal)))
     years = _goal_projection_years(goal)
     if _reserve_decay_mode_smooth():
@@ -3595,6 +3626,16 @@ def _compute_reserve_for_inputs(
         years = _goal_projection_years(goal)
         goal_type = _norm_text(goal.goal_type)
         if goal_type in ("Einmalige_Ausgabe", "Wiederkehrende_Ausgabe", "Pensionsausgabe"):
+            # Sprint B3: AHV-Goals sind staatlich gedeckt -> kein Reserve-Beitrag
+            # aus dem Beratungsportfolio. Reasoning erklaert die Auslassung.
+            if _goal_pension_state_funded(goal):
+                if reasoning is not None:
+                    pillar = _goal_pension_pillar(goal) or "AHV"
+                    reasoning.append(
+                        f"Das Ziel '{goal.label}' ist {pillar}-finanziert (staatliche Saeule) "
+                        "und benoetigt keine Liquiditaetsreserve aus dem Beratungsmandat."
+                    )
+                continue
             base_target = (
                 _annualize_goal_amount(goal)
                 if goal_type in ("Wiederkehrende_Ausgabe", "Pensionsausgabe")

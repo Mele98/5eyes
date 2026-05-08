@@ -2037,6 +2037,18 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
           <input class="fi" id="nz-probability" type="number" min="0" max="100" step="1" value="100" placeholder="100">
           <div style="font-size:10px;color:var(--n5);margin-top:2px">100 = sicher eintretend; tiefer = bedingt (Reserve-Beitrag wird linear skaliert).</div>
         </div>
+        <div class="fg" id="nz-pension-pillar-wrap" style="display:none">
+          <label class="fl" for="nz-pension-pillar">Vorsorge-Säule</label>
+          <select class="fsel" id="nz-pension-pillar">
+            <option value="">— keine Säule —</option>
+            <option value="AHV">AHV (1. Säule, staatlich)</option>
+            <option value="BVG">BVG (2. Säule)</option>
+            <option value="3a">Säule 3a</option>
+            <option value="1e">1e-Plan</option>
+            <option value="FZG">Freizügigkeit (FZG)</option>
+          </select>
+          <div style="font-size:10px;color:var(--n5);margin-top:2px">AHV-Goals sind staatlich gedeckt — keine Portfolio-Reserve nötig.</div>
+        </div>
       </div>
     </div>
 
@@ -15684,6 +15696,11 @@ function goalBadgeHtml(goal){
     var probClamped=Math.max(0,Math.min(100,Number(prob)));
     badges.push('<span style="font-size:9px;font-weight:700;color:#7c2d12;background:rgba(234,88,12,0.10);border-radius:999px;padding:2px 6px;white-space:nowrap" title="Bedingtes Ziel: Reserve-Beitrag wird mit '+probClamped+'% gewichtet.">BEDINGT '+probClamped+'%</span>');
   }
+  var pillar=goal&&goal.pension_pillar;
+  if(pillar&&['AHV','BVG','3a','1e','FZG'].indexOf(String(pillar))>=0){
+    var pillarTitle=pillar==='AHV'?'AHV: staatliche 1. Säule — keine Portfolio-Reserve':'Vorsorge-Säule '+pillar;
+    badges.push('<span style="font-size:9px;font-weight:700;color:#0c4a6e;background:rgba(14,116,144,0.10);border-radius:999px;padding:2px 6px;white-space:nowrap" title="'+escapeHtml(pillarTitle)+'">'+escapeHtml(pillar)+'</span>');
+  }
   return badges.join('');
 }
 function goalDisplayFrequency(value){
@@ -15755,8 +15772,13 @@ function syncGoalModalState(){
   var hardnessWarn=document.getElementById('nz-hardness-warn');
   var nominalRadio=document.getElementById('nz-vm-nominal');
   var hint=document.getElementById('nz-date-hint');
+  var pensionPillarWrap=document.getElementById('nz-pension-pillar-wrap');
   var ongoing=getInputValue('nz-ongoing')==='true';
   if(amountLabel)amountLabel.textContent=goalAmountLabel(type);
+  if(pensionPillarWrap){
+    pensionPillarWrap.style.display=type==='Pensionsausgabe'?'':'none';
+    if(type!=='Pensionsausgabe')setSelectValue('nz-pension-pillar','');
+  }
   if(amountWrap)amountWrap.style.display=isMaxGoalType(type)?'none':'';
   if(startWrap)startWrap.style.display=isRecurringGoalType(type)?'':'none';
   if(startLabel)startLabel.textContent=isRecurringGoalType(type)?'Beginn *':'Start';
@@ -15814,6 +15836,7 @@ function resetGoalModal(){
   setSelectValue('nz-frequency','jaehrlich');
   setSelectValue('nz-ongoing','false');
   setInputValue('nz-probability','100');
+  setSelectValue('nz-pension-pillar','');
   var nominalRadio=document.getElementById('nz-vm-nominal');
   var realRadio=document.getElementById('nz-vm-real');
   if(nominalRadio)nominalRadio.checked=true;
@@ -15844,6 +15867,7 @@ function openGoalEditor(goalId){
   setSelectValue('nz-frequency',goalFrequencyKey(goal.frequency||'jaehrlich'));
   setSelectValue('nz-ongoing',Number(goal.is_ongoing||0)?'true':'false');
   setInputValue('nz-probability',goal.probability_pct==null?'100':String(goal.probability_pct));
+  setSelectValue('nz-pension-pillar',goal.pension_pillar||'');
   var vm=goalValueMode(goal.value_mode);
   var vmRadio=document.getElementById('nz-vm-'+vm);
   if(vmRadio)vmRadio.checked=true;
@@ -15919,6 +15943,7 @@ function buildDemoGoalRecord(goalId,payload,existingGoal){
     frequency:payload.frequency,
     hardness:payload.hardness,
     probability_pct:payload.probability_pct==null?100:payload.probability_pct,
+    pension_pillar:payload.pension_pillar||null,
     achievement_score:existingGoal&&existingGoal.achievement_score!=null?existingGoal.achievement_score:50
   });
 }
@@ -15989,7 +16014,8 @@ async function saveGoal(){
     is_ongoing:isRecurringGoalType(type)?isOngoing:false,
     frequency:isRecurringGoalType(type)?frequency:null,
     hardness:hardnessMap[prio]||'Prim\u00e4r',
-    probability_pct:(function(){var raw=parseInt(getInputValue('nz-probability'),10);return isFinite(raw)?Math.max(0,Math.min(100,raw)):100;})()
+    probability_pct:(function(){var raw=parseInt(getInputValue('nz-probability'),10);return isFinite(raw)?Math.max(0,Math.min(100,raw)):100;})(),
+    pension_pillar:(function(){var v=getInputValue('nz-pension-pillar')||'';return (type==='Pensionsausgabe'&&['AHV','BVG','3a','1e','FZG'].indexOf(v)>=0)?v:null;})()
   };
   if(isReturnGoalType(type))payload.target_return_bps=parsePercentToBps(amountRaw);
   else if(isWealthGoalType(type))payload.target_wealth_rappen=parseCHF(amountRaw);
