@@ -84,12 +84,18 @@ class TargetAllocation(Base):
     # House-Matrix-Sätze und dynamischen Drift-Warnings werden im Read-Pfad
     # frisch berechnet. NULL bei house_matrix-Modus.
     optimizer_reasoning_json = Column(String)
+    # V3 Sprint 2.1 (2026-05-09 / Plan §4.1): Verknuepfung zur optimizer_runs-
+    # Zeile, die diese TA produziert hat. NULL bei house_matrix-Modus oder
+    # bei shadow_stochastic (TA bleibt House-Matrix-basiert; der Run gehoert
+    # nicht zur TA — nur stochastic-Modus aktualisiert die TA aus dem Solver).
+    optimization_run_id = Column(String, ForeignKey("optimizer_runs.id"))
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
     deleted_at = Column(String)
 
     mandate = relationship("Mandate", back_populates="target_allocations")
     policy = relationship("OptimizerPolicy")
+    optimization_run = relationship("OptimizerRun", foreign_keys=[optimization_run_id])
 
 
 class OptimizerRun(Base):
@@ -114,7 +120,11 @@ class OptimizerRun(Base):
 
     id = Column(String, primary_key=True)
     mandate_id = Column(String, ForeignKey("mandates.id"), nullable=False)
-    target_allocation_id = Column(String, ForeignKey("target_allocations.id"))
+    # use_alter=True bricht den Zyklus optimizer_runs <-> target_allocations
+    # fuer SQLAlchemy DROP-Sortierung in Tests. Production-Lauf unbeeinflusst.
+    target_allocation_id = Column(
+        String, ForeignKey("target_allocations.id", use_alter=True, name="fk_optimizer_runs_target_allocation"),
+    )
     run_at = Column(String, nullable=False)
     optimizer_mode = Column(String, nullable=False)  # 'shadow_stochastic' | 'stochastic'
     role = Column(String, nullable=False)  # 'shadow' | 'active'
@@ -133,7 +143,7 @@ class OptimizerRun(Base):
     created_at = Column(String, nullable=False)
 
     mandate = relationship("Mandate")
-    target_allocation = relationship("TargetAllocation")
+    target_allocation = relationship("TargetAllocation", foreign_keys=[target_allocation_id])
 
 
 class CapitalMarketAssumption(Base):
