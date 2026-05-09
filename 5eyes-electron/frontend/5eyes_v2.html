@@ -8593,6 +8593,24 @@ function currentRiskAssessmentUiRequirementMessage(){
 }
 
 async function ensureStrategyReadyRiskForMandate(mandateId){
+  // Bugfix 2026-05-08: Backend ist Source of Truth, nicht der UI-DOM-State.
+  //
+  // Frueheres Verhalten blockierte Asset-Allocation-Navigation, sobald der
+  // UI-DOM keine .qopt.sel-Klassen trug — auch wenn ein vollstaendiges
+  // gueltiges Risikoprofil im Backend lag. Das passierte typischerweise wenn:
+  //   * der User noch nie auf der Risikoprofil-Page war (DOM nicht hydriert)
+  //   * selectRiskOptionByLabel beim Hydrate keinen Match fand (gespeichertes
+  //     answer_label != aktueller .qopt-Text nach UI-Refactor)
+  //   * Mandant-Wechsel-Race zwischen Hydrate und Navigation
+  //
+  // Neue Logik:
+  //   1. Demo / kein Mandat -> sofort blockieren
+  //   2. UI dirty -> saveRiskProfile() versuchen; bei Misserfolg blockieren
+  //   3. Backend befragen (resolveStrategyRiskForMandate) — wenn dort ein
+  //      vollstaendiges RP liegt, Navigation erlauben unabhaengig vom DOM.
+  //   4. Backend leer/unvollstaendig + UI auch leer -> blockieren mit Hinweis.
+  //   5. Backend leer + UI vollstaendig -> erneuter Save-Versuch (User hat
+  //      eingegeben aber nicht aktiv dirty gesetzt), danach Backend nochmal.
   var requestedMandateId=mandateId!=null?String(mandateId):String(getActiveMandateId()||'');
   if(!requestedMandateId || isDemoMandateId(requestedMandateId)){
     return {risk:null,message:'Bitte zuerst ein aktuelles Risikoprofil speichern.'};
@@ -8602,19 +8620,25 @@ async function ensureStrategyReadyRiskForMandate(mandateId){
     if(!saved){
       return {risk:null,message:currentRiskAssessmentUiRequirementMessage()};
     }
-  }else{
-    var uiIssues=collectRiskAssessmentUiIssues();
-    if(uiIssues.length){
-      try{
-        await loadCurrentRiskAssessment(requestedMandateId,true);
-      }catch(e){
-        if(!e || String(e.status||'')!=='404')throw e;
-      }
-      uiIssues=collectRiskAssessmentUiIssues();
-      if(uiIssues.length){
-        return {risk:null,message:currentRiskAssessmentUiRequirementMessage()};
-      }
-    }
+  }
+  // Source-of-Truth: Backend
+  var resolution=await resolveStrategyRiskForMandate(requestedMandateId);
+  if(resolution && resolution.risk){
+    return resolution;
+  }
+  // Backend hat (noch) kein gueltiges RP. Wenn UI vollstaendig ist, einmal
+  // explizit speichern (User hatte vielleicht angefangen aber nicht aktiv
+  // dirty gesetzt), sonst Hinweis liefern.
+  var uiIssues=collectRiskAssessmentUiIssues();
+  if(uiIssues.length){
+    return {
+      risk:null,
+      message:(resolution && resolution.message) || currentRiskAssessmentUiRequirementMessage(),
+    };
+  }
+  var savedFallback=!!(await saveRiskProfile());
+  if(!savedFallback){
+    return {risk:null,message:currentRiskAssessmentUiRequirementMessage()};
   }
   return await resolveStrategyRiskForMandate(requestedMandateId);
 }
