@@ -92,6 +92,50 @@ class TargetAllocation(Base):
     policy = relationship("OptimizerPolicy")
 
 
+class OptimizerRun(Base):
+    """V3 Sprint 2 (Plan §4.1): persistierter Audit-Trail aller Solver-Laufe.
+
+    Im Gegensatz zur TargetAllocation, die nur den jeweils aktiven Stand
+    haelt, sammelt diese Tabelle JEDEN Solver-Lauf — auch shadow_stochastic
+    Laufe, die die TargetAllocation nicht ersetzen. Damit ist eine 3rd-eyes-
+    artige Risk-Engine-Historie moeglich (mehrere Runs, Seeds, Szenarien,
+    Versionen).
+
+    Persistenz-Trigger (siehe portfolio_engine._persist_optimizer_run):
+    - 'shadow_stochastic'-Modus + Solver lief: ja
+    - 'stochastic'-Modus + Solver lief: ja
+    - 'house_matrix' / 'iterative': nein (Solver lief nicht)
+
+    Verknuepfung optional zu target_allocation_id: bei stochastic-Modus
+    zeigt sie auf die zugehoerige TA; bei shadow_stochastic ist sie NULL,
+    weil die TA House-Matrix-basiert ist und nicht zum Run gehoert.
+    """
+    __tablename__ = "optimizer_runs"
+
+    id = Column(String, primary_key=True)
+    mandate_id = Column(String, ForeignKey("mandates.id"), nullable=False)
+    target_allocation_id = Column(String, ForeignKey("target_allocations.id"))
+    run_at = Column(String, nullable=False)
+    optimizer_mode = Column(String, nullable=False)  # 'shadow_stochastic' | 'stochastic'
+    role = Column(String, nullable=False)  # 'shadow' | 'active'
+    method = Column(String, nullable=False)  # 'stochastic' | 'fallback_house_matrix'
+    status = Column(String, nullable=False)  # converged | diverged | diverged_infeasible | fallback_house_matrix
+    seed = Column(Integer, nullable=False)
+    n_paths = Column(Integer, nullable=False, default=0)
+    n_iterations = Column(Integer, nullable=False, default=0)
+    n_starts_attempted = Column(Integer, nullable=False, default=0)
+    objective_value_milli = Column(Integer)
+    weights_bps_json = Column(String, nullable=False)  # {"equities":...,"bonds":...,...}
+    constraint_violations_json = Column(String)  # JSON list[str]
+    reasoning_json = Column(String)  # JSON list[str]
+    stress_evaluations_json = Column(String)  # JSON dict
+    set_by = Column(String, ForeignKey("users.id"))
+    created_at = Column(String, nullable=False)
+
+    mandate = relationship("Mandate")
+    target_allocation = relationship("TargetAllocation")
+
+
 class CapitalMarketAssumption(Base):
     __tablename__ = "capital_market_assumptions"
 

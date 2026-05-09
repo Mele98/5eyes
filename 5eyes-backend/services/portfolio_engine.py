@@ -18,6 +18,7 @@ from models.allocation import (
     CapitalMarketAssumption,
     HouseMatrix,
     OptimizerPolicy,
+    OptimizerRun,
     TargetAllocation,
 )
 from models.mandates import Mandate
@@ -4321,6 +4322,106 @@ def _build_optimizer_explainability(
     return (constraints_payload, drivers_payload)
 
 
+# --------------------------------------------------------------------------- #
+# V3 Sprint 2 (2026-05-09 / Plan §4.1): persistierter Audit-Trail aller
+# Solver-Laufe in der eigenen Tabelle optimizer_runs.
+# --------------------------------------------------------------------------- #
+def _persist_optimizer_run(
+    db: Session,
+    *,
+    mandate_id: str,
+    target_allocation_id: str | None,
+    optimizer_mode: str,
+    optimizer_result,
+    user_id: str | None,
+    now: str,
+) -> OptimizerRun | None:
+    """Schreibt einen OptimizerRun in die DB.
+
+    Wird nur fuer Modi 'shadow_stochastic' und 'stochastic' aufgerufen, sonst
+    None. role:
+    - 'shadow' -> shadow_stochastic, target_allocation bleibt House-Matrix-basiert
+    - 'active' -> stochastic, weights ersetzten ggf. die TargetAllocation
+
+    Defensive: bei JSON-Serialisierungsfehlern wird der Run trotzdem mit
+    leeren Feldern persistiert (kein Crash).
+    """
+    if optimizer_mode not in {"shadow_stochastic", "stochastic"} or optimizer_result is None:
+        return None
+    role = "active" if optimizer_mode == "stochastic" else "shadow"
+    weights_bps = optimizer_result.weights_bps or {}
+    try:
+        weights_bps_json = json.dumps(
+            {bucket: int(weights_bps.get(bucket, 0) or 0) for bucket in (
+                "equities", "bonds", "real_estate", "alternatives", "liquidity"
+            )},
+            separators=(",", ":"),
+        )
+    except (TypeError, ValueError) as exc:
+        logger.warning("OptimizerRun: weights_bps_json failed (%s)", exc)
+        weights_bps_json = "{}"
+
+    constraint_violations_json: str | None = None
+    if optimizer_result.constraint_violations:
+        try:
+            constraint_violations_json = json.dumps(
+                list(optimizer_result.constraint_violations),
+                separators=(",", ":"),
+                ensure_ascii=False,
+            )
+        except (TypeError, ValueError) as exc:
+            logger.warning("OptimizerRun: constraint_violations_json failed (%s)", exc)
+            constraint_violations_json = None
+
+    reasoning_json: str | None = None
+    if optimizer_result.reasoning:
+        try:
+            reasoning_json = json.dumps(
+                list(optimizer_result.reasoning),
+                separators=(",", ":"),
+                ensure_ascii=False,
+            )
+        except (TypeError, ValueError) as exc:
+            logger.warning("OptimizerRun: reasoning_json failed (%s)", exc)
+            reasoning_json = None
+
+    stress_evaluations_json: str | None = None
+    if optimizer_result.stress_evaluations:
+        try:
+            stress_evaluations_json = json.dumps(
+                optimizer_result.stress_evaluations,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+        except (TypeError, ValueError) as exc:
+            logger.warning("OptimizerRun: stress_evaluations_json failed (%s)", exc)
+            stress_evaluations_json = None
+
+    run = OptimizerRun(
+        id=new_uuid(),
+        mandate_id=mandate_id,
+        target_allocation_id=target_allocation_id if role == "active" else None,
+        run_at=now,
+        optimizer_mode=optimizer_mode,
+        role=role,
+        method=str(getattr(optimizer_result, "method", "stochastic")),
+        status=str(getattr(optimizer_result, "status", "diverged")),
+        seed=int(getattr(optimizer_result, "seed", 0) or 0),
+        n_paths=int(getattr(optimizer_result, "n_paths", 0) or 0),
+        n_iterations=int(getattr(optimizer_result, "iterations", 0) or 0),
+        n_starts_attempted=int(getattr(optimizer_result, "n_starts_attempted", 0) or 0),
+        objective_value_milli=_objective_to_milli(getattr(optimizer_result, "objective_value", None)),
+        weights_bps_json=weights_bps_json,
+        constraint_violations_json=constraint_violations_json,
+        reasoning_json=reasoning_json,
+        stress_evaluations_json=stress_evaluations_json,
+        set_by=user_id,
+        created_at=now,
+    )
+    db.add(run)
+    return run
+
+
 def _compute_input_snapshot_hash(
     *,
     advisory_positions: list,
@@ -4899,6 +5000,17 @@ def generate_target_allocation(
     )
     db.add(target_allocation)
     db.flush()
+
+    # V3 Sprint 2: persistierter Audit-Trail aller Solver-Laufe.
+    _persist_optimizer_run(
+        db,
+        mandate_id=mandate.id,
+        target_allocation_id=target_allocation.id,
+        optimizer_mode=optimizer_mode,
+        optimizer_result=optimizer_result,
+        user_id=user_id,
+        now=now,
+    )
 
     current_amounts = advisory_summary.amounts_rappen
     bucket_response = _build_bucket_response(

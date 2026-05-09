@@ -92,6 +92,29 @@ class TargetAllocationResponse(BaseResponse):
     updated_at: str
 
 
+class OptimizerRunResponse(BaseResponse):
+    """V3 Sprint 2: ein einzelner persistierter Solver-Lauf."""
+    id: str
+    mandate_id: str
+    target_allocation_id: Optional[str] = None
+    run_at: str
+    optimizer_mode: str  # 'shadow_stochastic' | 'stochastic'
+    role: str            # 'shadow' | 'active'
+    method: str          # 'stochastic' | 'fallback_house_matrix'
+    status: str          # converged | diverged | diverged_infeasible | fallback_house_matrix
+    seed: int
+    n_paths: int
+    n_iterations: int
+    n_starts_attempted: int
+    objective_value_milli: Optional[int] = None
+    weights_bps_json: str
+    constraint_violations_json: Optional[str] = None
+    reasoning_json: Optional[str] = None
+    stress_evaluations_json: Optional[str] = None
+    set_by: Optional[str] = None
+    created_at: str
+
+
 class HouseMatrixResponse(BaseResponse):
     id: str
     policy_id: str
