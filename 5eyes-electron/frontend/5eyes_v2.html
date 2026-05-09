@@ -635,14 +635,15 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
   body.sr-print-mode .overlay{display:none!important;}
   body.sr-print-mode .layout{margin-top:0!important;height:auto!important;display:block!important;}
   body.sr-print-mode .content{overflow:visible!important;}
-  body.sr-print-mode .page:not(#page-sr){display:none!important;}
+  body.sr-print-mode .page:not(#page-rv){display:none!important;}
   body.sr-print-mode .ph,
   body.sr-print-mode .cnav,
   body.sr-print-mode button{display:none!important;}
   body.sr-print-mode #sr-signature-block{display:grid!important;}
   body.sr-print-mode{background:#fff!important;}
-  body.sr-print-mode #page-sr{display:block!important;max-width:none;padding:15mm;margin:0;background:#fff!important;box-shadow:none!important;border:none!important;}
-  body.sr-print-mode #page-sr .pad{padding:0!important;}
+  body.sr-print-mode #page-rv{display:block!important;max-width:none;padding:15mm;margin:0;background:#fff!important;box-shadow:none!important;border:none!important;}
+  body.sr-print-mode #page-rv .pad{padding:0!important;}
+  body.sr-print-mode #rv-zusammenfassung{display:block!important;}
 }
 @media (max-width: 1180px){
   .aa-main-grid{grid-template-columns:1fr;}
@@ -771,9 +772,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
     <div class="tsep">/</div>
     <div class="tstep" data-page="po" onclick="go('po',this)"><div class="sn">7</div>Portfolio</div>
     <div class="tsep">/</div>
-    <div class="tstep" data-page="rv" onclick="go('rv',this)"><div class="sn">8</div>Review</div>
-    <div class="tsep">/</div>
-    <div class="tstep" data-page="sr" onclick="go('sr',this)"><div class="sn">9</div>Zusammenfassung</div>
+    <div class="tstep" data-page="rv" onclick="go('rv',this)"><div class="sn">8</div>Zusammenfassung</div>
   </nav>
   <div class="tr">
     <span class="t-alert" id="trigger-count">2 Trigger</span>
@@ -11105,20 +11104,35 @@ function syncAaProjectionAxisScales(){
   }
 }
 function updateProjectionChartsFromSimulation(result){
+  // Bugfix 2026-05-09: kein early-return mehr ohne simulation. Die Current-
+  // Pfade (charts.ist, charts.aaCurrent) sind deterministisch und muessen
+  // bei jedem applyAllocationEngineResult-Aufruf neu gesetzt werden, sonst
+  // bleiben nach Mandant-Wechsel alte Daten vom vorigen Klienten haengen.
+  // Nur charts.opt (target_mix_series) braucht ein gefuelltes simulation-
+  // Payload.
   var sim=simulationPayload(result);
-  if(!sim)return;
-  var labels=(sim.year_labels||[]).map(function(year){return String(year);});
-  var targetSeries=simulationSeriesK(sim.target_mix_series_rappen);
-  var advisoryBaselineProjection=buildCurrentBaselineProjection(result,labels.length?labels.length-1:null,labels);
+  var horizon=sim&&Array.isArray(sim.year_labels)&&sim.year_labels.length>1
+    ? sim.year_labels.length-1
+    : projectionHorizonYears(result,null);
+  var labels=projectionYearLabels(result,horizon,sim&&sim.year_labels);
+  var targetSeries=sim?simulationSeriesK(sim.target_mix_series_rappen):[];
+  var advisoryBaselineProjection=buildCurrentBaselineProjection(result,horizon,labels);
   var advisoryCurrentSeries=advisoryBaselineProjection.seriesK;
-  var totalBaselineProjection=buildCurrentWealthProjection('total',labels.length?labels.length-1:null,labels);
+  var totalBaselineProjection=buildCurrentWealthProjection('total',horizon,labels);
   var totalCurrentSeries=totalBaselineProjection.seriesK;
   if(charts.opt&&charts.opt.data){
     charts.opt.data.labels=labels;
     charts.opt.data.datasets=charts.opt.data.datasets.slice(0,1);
     if(charts.opt.data.datasets[0]){
-      charts.opt.data.datasets[0].label='Optimierte Zielallokation';
-      charts.opt.data.datasets[0].data=targetSeries;
+      if(targetSeries.length){
+        charts.opt.data.datasets[0].label='Optimierte Zielallokation';
+        charts.opt.data.datasets[0].data=targetSeries;
+      }else{
+        // Keine Simulation -> Strategie noch nicht berechnet. Placeholder
+        // statt Daten vom vorigen Mandant.
+        charts.opt.data.datasets[0].label='Strategie ausstehend';
+        charts.opt.data.datasets[0].data=labels.map(function(){return null;});
+      }
       charts.opt.data.datasets[0].tension=0.22;
       charts.opt.data.datasets[0].stepped=false;
     }
@@ -14201,8 +14215,12 @@ function normalizeReviewLayout(){
   var h2=rvSectionHeader('rv-sh2','2','Was heute Ihre Aufmerksamkeit braucht','Zeit-, Markt- und Ereignis-Trigger — Abweichungen und Fristen im Überblick');
   var h3=rvSectionHeader('rv-sh3','3','Unsere Empfehlung — und Ihr Entscheid','Handlungsempfehlung aus der Analyse · Eignungsprüfung FIDLEG · Entscheid protokollieren');
   var h4=rvSectionHeader('rv-sh4','4','Meeting abschliessen','Interessenkonflikte · Governance-Checkliste · Dokumente und Ausgabe');
+  h1=rvSectionHeader('rv-sh1','1','Hauptanalyse','Ist-Portfolio, Soll-Strategie, Zielerreichung und naechste Massnahme');
+  h2=rvSectionHeader('rv-sh2','2','Trigger pruefen','Zeit-, Markt- und Ereignis-Trigger mit Fristen und Dringlichkeit');
+  h3=rvSectionHeader('rv-sh3','3','Entscheid festhalten','Empfehlung, Eignungspruefung und Beratungsprotokoll');
+  h4=rvSectionHeader('rv-sh4','4','Abschluss & Dokumente','Interessenkonflikte, Governance-Checkliste, Druck und Signatur');
   var cnav=pad.querySelector('.cnav');
-  [h1,strategyCard,h2,triggerGrid,h3,utility.actionCard,suitabilityCard,logCard,h4,conflictCard,utility.readinessCard,docsCard].forEach(function(node){
+  [heroCard,summarySection,h1,strategyCard,strategySpiegel,h2,triggerGrid,h3,utility.actionCard,suitabilityCard,logCard,h4,conflictCard,utility.readinessCard,docsCard].forEach(function(node){
     if(node)pad.appendChild(node);
   });
   if(cnav)pad.appendChild(cnav);
@@ -14641,7 +14659,7 @@ function renderReviewHero(state){
     statusKey='none';bg='var(--surface)';borderColor='var(--b1)';dotColor='var(--n4)';
     badge='KEIN STRATEGIEBILD';headline='Noch keine Strategie gespeichert';
     summary='Bitte zuerst eine Asset Allocation generieren, um den Portfolio-Status zu berechnen.';
-    ctaHtml='<button class="btn btn-sm" onclick="go(\'aa\')">Zur Asset Allocation</button>';
+    ctaHtml='<button class="btn btn-sm" onclick="go(\'al\')">Zur Asset Allocation</button>';
   } else if(violated.length>0){
     statusKey='red';bg='var(--neg-lt)';borderColor='rgba(139,30,30,0.25)';dotColor='var(--neg)';
     badge='HANDLUNGSBEDARF';
@@ -17173,4 +17191,3 @@ document.addEventListener('DOMContentLoaded',function(){
 </script>
 </body>
 </html>
-
