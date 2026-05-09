@@ -20,6 +20,7 @@ from .exceptions import (
     RateLimitError,
     SymbolNotFound,
 )
+from .providers import YFinanceProvider
 
 __all__ = [
     "Bar",
@@ -29,4 +30,5 @@ __all__ = [
     "ProviderError",
     "RateLimitError",
     "SymbolNotFound",
+    "YFinanceProvider",
 ]
