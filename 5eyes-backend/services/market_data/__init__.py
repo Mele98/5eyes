@@ -21,6 +21,7 @@ from .exceptions import (
     SymbolNotFound,
 )
 from .aggregator import MarketDataAggregator
+from .cache import CachedAggregator, DEFAULT_TTL_SECONDS
 from .factory import build_default_aggregator
 from .health import HealthState
 from .providers import AlphaVantageProvider, StooqProvider, YFinanceProvider
@@ -37,6 +38,8 @@ __all__ = [
     "StooqProvider",
     "YFinanceProvider",
     "MarketDataAggregator",
+    "CachedAggregator",
+    "DEFAULT_TTL_SECONDS",
     "HealthState",
     "build_default_aggregator",
 ]
