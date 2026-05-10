@@ -20,6 +20,9 @@ from .exceptions import (
     RateLimitError,
     SymbolNotFound,
 )
+from .aggregator import MarketDataAggregator
+from .factory import build_default_aggregator
+from .health import HealthState
 from .providers import AlphaVantageProvider, StooqProvider, YFinanceProvider
 
 __all__ = [
@@ -33,4 +36,7 @@ __all__ = [
     "AlphaVantageProvider",
     "StooqProvider",
     "YFinanceProvider",
+    "MarketDataAggregator",
+    "HealthState",
+    "build_default_aggregator",
 ]

@@ -99,6 +99,14 @@ class Settings(BaseSettings):
     openfigi_api_key: str | None = None
     fred_api_key: str | None = None
     six_api_key: str | None = None
+    alphavantage_api_key: str | None = None
+
+    # V3 Sprint 2026-05 (Multi-Source Data Aggregator).
+    # Komma-separierte Reihenfolge der Provider; erste = Primary.
+    # Gueltige Werte: yfinance, stooq, alphavantage, twelvedata
+    # Default: yfinance,stooq,alphavantage (gratis-only, Tier 1)
+    market_data_providers: str = 'yfinance,stooq,alphavantage'
+    market_data_unhealthy_ttl_seconds: int = 300
 
     # System / diagnostics
     recent_log_lines_default: int = 120
