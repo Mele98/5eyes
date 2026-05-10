@@ -25,6 +25,13 @@ from .cache import CachedAggregator, DEFAULT_TTL_SECONDS
 from .factory import build_default_aggregator
 from .health import HealthState
 from .providers import AlphaVantageProvider, StooqProvider, YFinanceProvider
+from .validation import (
+    DEFAULT_THRESHOLD_BPS,
+    ProviderQuote,
+    ValidationResult,
+    validate_batch,
+    validate_symbol,
+)
 
 __all__ = [
     "Bar",
@@ -42,4 +49,9 @@ __all__ = [
     "DEFAULT_TTL_SECONDS",
     "HealthState",
     "build_default_aggregator",
+    "DEFAULT_THRESHOLD_BPS",
+    "ProviderQuote",
+    "ValidationResult",
+    "validate_batch",
+    "validate_symbol",
 ]
