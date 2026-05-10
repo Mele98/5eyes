@@ -24,7 +24,12 @@ from .aggregator import MarketDataAggregator
 from .cache import CachedAggregator, DEFAULT_TTL_SECONDS
 from .factory import build_default_aggregator
 from .health import HealthState
-from .providers import AlphaVantageProvider, StooqProvider, YFinanceProvider
+from .providers import (
+    AlphaVantageProvider,
+    OpenFIGIProvider,
+    StooqProvider,
+    YFinanceProvider,
+)
 from .validation import (
     DEFAULT_THRESHOLD_BPS,
     ProviderQuote,
@@ -42,6 +47,7 @@ __all__ = [
     "RateLimitError",
     "SymbolNotFound",
     "AlphaVantageProvider",
+    "OpenFIGIProvider",
     "StooqProvider",
     "YFinanceProvider",
     "MarketDataAggregator",
