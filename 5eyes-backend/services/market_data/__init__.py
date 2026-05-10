@@ -41,6 +41,7 @@ from .providers import (
     AlphaVantageProvider,
     OpenFIGIProvider,
     StooqProvider,
+    TwelveDataProvider,
     YFinanceProvider,
 )
 from .validation import (
@@ -62,6 +63,7 @@ __all__ = [
     "AlphaVantageProvider",
     "OpenFIGIProvider",
     "StooqProvider",
+    "TwelveDataProvider",
     "YFinanceProvider",
     "MarketDataAggregator",
     "CachedAggregator",

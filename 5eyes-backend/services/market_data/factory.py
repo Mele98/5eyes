@@ -16,7 +16,12 @@ import logging
 
 from .aggregator import MarketDataAggregator
 from .base import MarketDataProvider
-from .providers import AlphaVantageProvider, StooqProvider, YFinanceProvider
+from .providers import (
+    AlphaVantageProvider,
+    StooqProvider,
+    TwelveDataProvider,
+    YFinanceProvider,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +38,10 @@ def _provider_by_name(name: str, settings: object) -> MarketDataProvider | None:
         return AlphaVantageProvider(
             api_key=getattr(settings, "alphavantage_api_key", None),
         )
-    # twelvedata wird in P12 hinzugefuegt
+    if name == "twelvedata":
+        return TwelveDataProvider(
+            api_key=getattr(settings, "twelvedata_api_key", None),
+        )
     logger.warning("Unbekannter Provider in MARKET_DATA_PROVIDERS: %s", name)
     return None
 
