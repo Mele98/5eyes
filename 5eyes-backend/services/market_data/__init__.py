@@ -24,6 +24,13 @@ from .aggregator import MarketDataAggregator
 from .cache import CachedAggregator, DEFAULT_TTL_SECONDS
 from .factory import build_default_aggregator
 from .health import HealthState
+from .macro import (
+    ECBMacroProvider,
+    FREDMacroProvider,
+    MacroPoint,
+    MacroProvider,
+    SNBMacroProvider,
+)
 from .providers import (
     AlphaVantageProvider,
     OpenFIGIProvider,
@@ -60,4 +67,9 @@ __all__ = [
     "ValidationResult",
     "validate_batch",
     "validate_symbol",
+    "MacroPoint",
+    "MacroProvider",
+    "FREDMacroProvider",
+    "ECBMacroProvider",
+    "SNBMacroProvider",
 ]
