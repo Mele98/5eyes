@@ -24,6 +24,12 @@ from .aggregator import MarketDataAggregator
 from .cache import CachedAggregator, DEFAULT_TTL_SECONDS
 from .factory import build_default_aggregator
 from .health import HealthState
+from .etf import (
+    ETFInfo,
+    ETFProvider,
+    JustetfScraper,
+    SwissfunddataScraper,
+)
 from .macro import (
     ECBMacroProvider,
     FREDMacroProvider,
@@ -72,4 +78,8 @@ __all__ = [
     "FREDMacroProvider",
     "ECBMacroProvider",
     "SNBMacroProvider",
+    "ETFInfo",
+    "ETFProvider",
+    "JustetfScraper",
+    "SwissfunddataScraper",
 ]
