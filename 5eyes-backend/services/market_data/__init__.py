@@ -24,6 +24,8 @@ from .aggregator import MarketDataAggregator
 from .cache import CachedAggregator, DEFAULT_TTL_SECONDS
 from .factory import build_default_aggregator
 from .health import HealthState
+from .legacy_compat import fetch_latest_prices_via_aggregator
+from .scheduled import daily_cache_purge_job, weekly_validation_job
 from .etf import (
     ETFInfo,
     ETFProvider,
@@ -70,6 +72,9 @@ __all__ = [
     "DEFAULT_TTL_SECONDS",
     "HealthState",
     "build_default_aggregator",
+    "fetch_latest_prices_via_aggregator",
+    "daily_cache_purge_job",
+    "weekly_validation_job",
     "DEFAULT_THRESHOLD_BPS",
     "ProviderQuote",
     "ValidationResult",
