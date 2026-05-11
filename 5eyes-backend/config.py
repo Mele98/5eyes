@@ -108,6 +108,19 @@ class Settings(BaseSettings):
     market_data_providers: str = 'yfinance,stooq,alphavantage'
     market_data_unhealthy_ttl_seconds: int = 300
 
+    # P15 — Scheduler-Hooks fuer Cache-Purge und Cross-Validation.
+    # daily_cache_purge laeuft taeglich 03:00 lokal (purgt expired Cache-Eintraege).
+    # weekly_validation laeuft sonntags 04:00 lokal (Median-Vergleich Provider).
+    market_data_cache_purge_enabled: bool = True
+    market_data_cache_purge_hour: int = 3
+    market_data_cache_purge_minute: int = 0
+    market_data_validation_enabled: bool = False
+    market_data_validation_hour: int = 4
+    market_data_validation_minute: int = 0
+    market_data_validation_day_of_week: str = 'sun'
+    market_data_validation_symbols: str = ''  # kommaseparierte Liste
+    market_data_validation_threshold_bps: int = 300
+
     # System / diagnostics
     recent_log_lines_default: int = 120
     recent_log_lines_max: int = 500

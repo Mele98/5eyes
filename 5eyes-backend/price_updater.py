@@ -752,6 +752,7 @@ def start_price_scheduler() -> None:
         id="daily_price_refresh",
         replace_existing=True,
     )
+    _register_market_data_jobs(scheduler)
     scheduler.start()
     logger.info(
         "Price scheduler started for %02d:%02d %s",
@@ -759,6 +760,78 @@ def start_price_scheduler() -> None:
         settings.price_scheduler_minute,
         settings.price_scheduler_timezone,
     )
+
+
+def _daily_cache_purge_wrapper() -> int:
+    """Wrapper fuer APScheduler, importiert spaet damit ImportError nicht
+    den ganzen Scheduler killt."""
+    try:
+        from services.market_data import daily_cache_purge_job
+        return daily_cache_purge_job(SessionLocal)
+    except Exception:  # noqa: BLE001
+        logger.exception("daily_cache_purge_job failed")
+        return 0
+
+
+def _weekly_validation_wrapper() -> tuple[int, int]:
+    """Wrapper fuer APScheduler."""
+    try:
+        from services.market_data import weekly_validation_job
+        raw = str(settings.market_data_validation_symbols or "").strip()
+        symbols = [s.strip() for s in raw.split(",") if s.strip()]
+        if not symbols:
+            logger.info("weekly_validation_job: keine Symbole konfiguriert — skip")
+            return (0, 0)
+        return weekly_validation_job(
+            symbols=symbols,
+            session_factory=SessionLocal,
+            threshold_bps=settings.market_data_validation_threshold_bps,
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception("weekly_validation_job failed")
+        return (0, 0)
+
+
+def _register_market_data_jobs(target_scheduler: Any) -> None:
+    """P15 — registriert Cache-Purge- und Cross-Validation-Jobs am Scheduler."""
+    if CronTrigger is None:
+        return
+    if settings.market_data_cache_purge_enabled:
+        target_scheduler.add_job(
+            _daily_cache_purge_wrapper,
+            trigger=CronTrigger(
+                hour=settings.market_data_cache_purge_hour,
+                minute=settings.market_data_cache_purge_minute,
+                timezone=settings.price_scheduler_timezone,
+            ),
+            id="daily_cache_purge",
+            replace_existing=True,
+        )
+        logger.info(
+            "daily_cache_purge registered for %02d:%02d %s",
+            settings.market_data_cache_purge_hour,
+            settings.market_data_cache_purge_minute,
+            settings.price_scheduler_timezone,
+        )
+    if settings.market_data_validation_enabled:
+        target_scheduler.add_job(
+            _weekly_validation_wrapper,
+            trigger=CronTrigger(
+                day_of_week=settings.market_data_validation_day_of_week,
+                hour=settings.market_data_validation_hour,
+                minute=settings.market_data_validation_minute,
+                timezone=settings.price_scheduler_timezone,
+            ),
+            id="weekly_market_data_validation",
+            replace_existing=True,
+        )
+        logger.info(
+            "weekly_market_data_validation registered for %s %02d:%02d %s",
+            settings.market_data_validation_day_of_week,
+            settings.market_data_validation_hour,
+            settings.market_data_validation_minute,
+            settings.price_scheduler_timezone,
+        )
 
 
 def stop_price_scheduler() -> None:
