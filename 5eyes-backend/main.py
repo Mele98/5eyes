@@ -25,6 +25,7 @@ from routers.auth import router as auth_router, users_router
 from routers.clients import router as clients_router
 from routers.health import router as health_router
 from routers.mandates import router as mandates_router
+from routers.market_data import router as market_data_router
 from routers.prices import router as prices_router
 from routers.profiling import router as profiling_router
 from routers.review import (
@@ -94,6 +95,7 @@ app.include_router(recommendations_router)
 app.include_router(dashboard_router)
 app.include_router(prices_router)
 app.include_router(snapshots_router)
+app.include_router(market_data_router)
 app.include_router(system_router)
 
 
