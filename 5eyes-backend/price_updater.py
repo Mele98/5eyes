@@ -25,6 +25,7 @@ from services.product_market_data import (
     resolve_market_profile,
 )
 from services.twelvedata_client import fetch_twelvedata_latest_prices
+from services.market_data.legacy_compat import fetch_latest_prices_via_aggregator
 
 try:
     import yfinance as yf
@@ -262,6 +263,28 @@ def _fetch_twelvedata_symbol_points(symbols: list[str]) -> tuple[dict[str, tuple
     return symbol_points, symbol_errors
 
 
+def _fetch_aggregator_symbol_points(symbols: list[str]) -> tuple[dict[str, tuple[str, int, str]], dict[str, str]]:
+    """P14: Multi-Source-Aggregator-Pfad (yfinance + stooq + alphavantage + ...).
+
+    Drop-in fuer die direkten Provider-Pfade. Wird gewaehlt wenn
+    PRICE_REFRESH_PRIMARY_PROVIDER (oder _FALLBACK_) = "aggregator".
+    """
+    try:
+        resolved, failures = fetch_latest_prices_via_aggregator(symbols)
+    except Exception as exc:  # noqa: BLE001
+        return {}, {symbol: str(exc) for symbol in symbols}
+    symbol_points = {
+        symbol: (
+            str(payload.get("price_date") or ""),
+            int(payload.get("price_rappen") or 0),
+            str(payload.get("source") or "aggregator"),
+        )
+        for symbol, payload in resolved.items()
+    }
+    symbol_errors = {symbol: str(message) for symbol, message in failures.items()}
+    return symbol_points, symbol_errors
+
+
 def _append_market_warning(message: str | None, *warnings: str | None) -> str:
     base = str(message or "").strip() or "Unbekannter Preisfehler"
     seen = {base}
@@ -287,6 +310,8 @@ def _fetch_primary_symbol_points(
         return _fetch_twelvedata_symbol_points(symbols)
     if provider == "stooq":
         return _fetch_stooq_symbol_points(symbols, product_by_symbol=product_by_symbol)
+    if provider == "aggregator":
+        return _fetch_aggregator_symbol_points(symbols)
     return {}, {symbol: f"Preisprovider {provider or 'unbekannt'} ist nicht implementiert." for symbol in symbols}
 
 
@@ -304,6 +329,8 @@ def _fetch_fallback_symbol_points(
         return _fetch_yfinance_symbol_points(symbols)
     if provider == "twelvedata":
         return _fetch_twelvedata_symbol_points(symbols)
+    if provider == "aggregator":
+        return _fetch_aggregator_symbol_points(symbols)
     return {}, {symbol: f"Fallback-Provider {provider} ist nicht implementiert." for symbol in symbols}
 
 
