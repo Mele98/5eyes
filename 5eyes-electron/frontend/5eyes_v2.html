@@ -4094,9 +4094,122 @@ async function openAdminModal() {
     await Promise.allSettled([
       adminRefreshMarketStatus(false),
       adminUpdateStatus(),
-      loadAdminUserList()
+      loadAdminUserList(),
+      loadMarketDataStatus(false)
     ]);
+    startMarketDataPolling();
   } catch(e) {}
+}
+
+var _marketDataPollTimer = null;
+
+function startMarketDataPolling() {
+  if (_marketDataPollTimer) return;
+  _marketDataPollTimer = setInterval(function() {
+    var modal = document.getElementById('m-admin');
+    if (!modal || modal.style.display === 'none' || modal.style.display === '') {
+      stopMarketDataPolling();
+      return;
+    }
+    loadMarketDataStatus(false);
+  }, 60000);
+}
+
+function stopMarketDataPolling() {
+  if (_marketDataPollTimer) {
+    clearInterval(_marketDataPollTimer);
+    _marketDataPollTimer = null;
+  }
+}
+
+async function loadMarketDataStatus(showLog) {
+  var btn = document.getElementById('btn-admin-mdata-refresh');
+  if (btn) { btn.disabled = true; btn.textContent = 'Ladtâ€¦'; }
+  try {
+    var status = await API.get('/admin/market-data/status');
+    renderMarketDataStatus(status);
+    if (showLog) showAdminResult('âœ“ Datenpipeline-Status aktualisiert', false);
+  } catch(e) {
+    var msg = parseApiError(e, 'Datenpipeline-Status konnte nicht geladen werden.');
+    renderMarketDataStatusError(msg);
+    if (showLog) showAdminResult('âœ— ' + msg, true);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Aktualisieren'; }
+  }
+}
+
+function renderMarketDataStatusError(msg) {
+  var setText = function(id, t) { var el = document.getElementById(id); if (el) el.textContent = t; };
+  setText('admin-mdata-providers', msg);
+  setText('admin-mdata-cache', '');
+  setText('admin-mdata-validation', '');
+  setText('admin-mdata-jobs', '');
+  setText('admin-mdata-meta', '');
+}
+
+function renderMarketDataStatus(status) {
+  if (!status) { renderMarketDataStatusError('Keine Daten'); return; }
+  var providers = Array.isArray(status.providers_health) ? status.providers_health : [];
+  var providersHtml = providers.length === 0
+    ? '<div style="color:var(--n4)">Keine Provider konfiguriert</div>'
+    : providers.map(function(p) {
+        var dot = p.healthy
+          ? '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--pos);margin-right:6px"></span>'
+          : '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--neg);margin-right:6px"></span>';
+        return '<div style="display:flex;align-items:center;padding:2px 0">' + dot + '<span>' + escapeHtml(String(p.name || '?')) + '</span></div>';
+      }).join('');
+  var pEl = document.getElementById('admin-mdata-providers');
+  if (pEl) pEl.innerHTML = providersHtml;
+  var cfgEl = document.getElementById('admin-mdata-providers-config');
+  if (cfgEl) cfgEl.textContent = String(status.providers_config || 'â€”');
+
+  var cache = status.cache || {};
+  var byKind = cache.by_kind || {};
+  var kinds = Object.keys(byKind);
+  var cacheHtml = kinds.length === 0
+    ? '<div style="color:var(--n4)">Cache leer</div>'
+    : kinds.map(function(k) {
+        var b = byKind[k] || {};
+        var valid = Number(b.valid || 0);
+        var expired = Number(b.expired || 0);
+        var total = Number(b.total || 0);
+        return '<div style="display:flex;justify-content:space-between;padding:2px 0">'
+          + '<span style="color:var(--n6)">' + escapeHtml(k) + '</span>'
+          + '<span style="color:var(--n4);font-family:monospace">' + valid + '<span style="color:var(--pos)"> â—</span> / ' + expired + '<span style="color:var(--neg)"> â—</span> / ' + total + '</span>'
+          + '</div>';
+      }).join('');
+  var cEl = document.getElementById('admin-mdata-cache');
+  if (cEl) cEl.innerHTML = cacheHtml;
+
+  var logs = Array.isArray(status.recent_validations) ? status.recent_validations : [];
+  var alertCount = logs.filter(function(l) { return !!l.is_alert; }).length;
+  var validationHtml;
+  if (logs.length === 0) {
+    validationHtml = '<div style="color:var(--n4)">Keine Validation-Logs</div>';
+  } else if (alertCount === 0) {
+    validationHtml = '<div style="color:var(--pos);font-weight:600">' + logs.length + ' Checks &middot; 0 Alerts</div>';
+  } else {
+    validationHtml = '<div style="color:var(--neg);font-weight:600">' + alertCount + ' Alerts</div>'
+      + '<div style="color:var(--n4);margin-top:4px">von ' + logs.length + ' letzten Checks</div>';
+  }
+  var vEl = document.getElementById('admin-mdata-validation');
+  if (vEl) vEl.innerHTML = validationHtml;
+
+  var jobs = Array.isArray(status.scheduler_jobs) ? status.scheduler_jobs : [];
+  var jobsHtml = jobs.length === 0
+    ? '<div style="color:var(--n4)">Scheduler inaktiv</div>'
+    : jobs.map(function(j) {
+        var next = j.next_run_at ? String(j.next_run_at).replace('T', ' ').substring(0, 19) : 'â€”';
+        return '<div style="display:flex;justify-content:space-between;padding:1px 0">'
+          + '<span>' + escapeHtml(String(j.id || '?')) + '</span>'
+          + '<span style="color:var(--n4)">' + escapeHtml(next) + '</span>'
+          + '</div>';
+      }).join('');
+  var jEl = document.getElementById('admin-mdata-jobs');
+  if (jEl) jEl.innerHTML = jobsHtml;
+
+  var meta = document.getElementById('admin-mdata-meta');
+  if (meta) meta.textContent = 'Stand: ' + String(status.generated_at || '').replace('T', ' ').replace('Z', ' UTC');
 }
 
 async function adminBackup() {
@@ -8178,6 +8291,32 @@ function openStammdatenModal(){
           </div>
         </div>
         <div id="admin-result" style="background:var(--bg2);border-radius:6px;padding:10px;font-size:11px;font-family:monospace;min-height:80px;white-space:pre-wrap;color:var(--g4);display:none"></div>
+        <div id="admin-market-data-panel" style="border-top:1px solid var(--b1);padding-top:12px;margin-top:12px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+            <div style="font-size:11px;color:var(--g3);font-weight:600">Datenpipeline-Status</div>
+            <button class="btn-p" style="background:var(--bg2);color:var(--n6);font-size:10px;padding:3px 8px" onclick="loadMarketDataStatus(true)" id="btn-admin-mdata-refresh">Aktualisieren</button>
+          </div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap">
+            <div style="flex:1;min-width:200px;background:var(--bg2);border-radius:6px;padding:10px;border:1px solid var(--b1)">
+              <div style="font-size:9px;text-transform:uppercase;letter-spacing:0.08em;color:var(--n4);margin-bottom:6px">Provider</div>
+              <div id="admin-mdata-providers" style="font-size:11px;color:var(--g4)">â€”</div>
+              <div id="admin-mdata-providers-config" style="font-size:9px;color:var(--n4);margin-top:6px;font-family:monospace"></div>
+            </div>
+            <div style="flex:1;min-width:200px;background:var(--bg2);border-radius:6px;padding:10px;border:1px solid var(--b1)">
+              <div style="font-size:9px;text-transform:uppercase;letter-spacing:0.08em;color:var(--n4);margin-bottom:6px">Cache</div>
+              <div id="admin-mdata-cache" style="font-size:11px;color:var(--g4)">â€”</div>
+            </div>
+            <div style="flex:1;min-width:200px;background:var(--bg2);border-radius:6px;padding:10px;border:1px solid var(--b1)">
+              <div style="font-size:9px;text-transform:uppercase;letter-spacing:0.08em;color:var(--n4);margin-bottom:6px">Cross-Validation</div>
+              <div id="admin-mdata-validation" style="font-size:11px;color:var(--g4)">â€”</div>
+            </div>
+          </div>
+          <div style="margin-top:10px;background:var(--bg2);border-radius:6px;padding:10px;border:1px solid var(--b1)">
+            <div style="font-size:9px;text-transform:uppercase;letter-spacing:0.08em;color:var(--n4);margin-bottom:6px">Scheduler-Jobs</div>
+            <div id="admin-mdata-jobs" style="font-size:11px;color:var(--g4);font-family:monospace">â€”</div>
+          </div>
+          <div id="admin-mdata-meta" style="font-size:9px;color:var(--n4);margin-top:6px;text-align:right"></div>
+        </div>
         <div id="update-section" style="border-top:1px solid var(--b1);padding-top:12px;display:none">
           <div style="font-size:11px;color:var(--g3);margin-bottom:8px;">Software-Update</div>
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
