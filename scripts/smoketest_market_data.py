@@ -166,8 +166,13 @@ def run_smoketest(
     on_date: Date | None = None,
     no_network: bool = False,
     threshold_bps: int = 300,
+    skip_validation: bool = False,
 ) -> SmoketestReport:
-    """Hauptfunktion. Liefert SmoketestReport unabhaengig vom CLI."""
+    """Hauptfunktion. Liefert SmoketestReport unabhaengig vom CLI.
+
+    skip_validation: ueberspringt cross_validate() — schneller fuer CI-Pings,
+    wo nur Provider-Reachability getestet werden soll.
+    """
     from services.market_data.factory import build_default_aggregator
     rpt = SmoketestReport(started_at=_utc_iso())
     target_symbols = list(symbols or DEFAULT_SYMBOLS)
@@ -196,12 +201,47 @@ def run_smoketest(
             rpt.summary_ok = False
             rpt.summary_notes.append("Kein einziges Symbol konnte abgerufen werden.")
 
-        rpt.validations = cross_validate(
-            aggregator, target_symbols, target_date, threshold_bps=threshold_bps,
-        )
+        if not skip_validation:
+            rpt.validations = cross_validate(
+                aggregator, target_symbols, target_date, threshold_bps=threshold_bps,
+            )
 
     rpt.finished_at = _utc_iso()
     return rpt
+
+
+def report_to_dict(rpt: SmoketestReport) -> dict[str, Any]:
+    """Konvertiert SmoketestReport in JSON-serialisierbares dict."""
+    return {
+        "started_at": rpt.started_at,
+        "finished_at": rpt.finished_at,
+        "summary_ok": bool(rpt.summary_ok),
+        "summary_notes": list(rpt.summary_notes),
+        "providers": [
+            {"name": p.name, "healthy": bool(p.healthy), "notes": p.notes}
+            for p in rpt.providers
+        ],
+        "fetches": [
+            {
+                "symbol": f.symbol, "provider": f.provider,
+                "price": f.price, "error": f.error,
+            }
+            for f in rpt.fetches
+        ],
+        "validations": [
+            {
+                "symbol": v.symbol, "n_providers": v.n_providers,
+                "diff_bps": v.diff_bps, "is_alert": bool(v.is_alert),
+                "median": v.median, "note": v.note,
+            }
+            for v in rpt.validations
+        ],
+    }
+
+
+def has_unhealthy_provider(rpt: SmoketestReport) -> bool:
+    """Strict-Mode-Check: gibt True wenn mindestens 1 Provider unhealthy ist."""
+    return any(not p.healthy for p in rpt.providers)
 
 
 def format_report(rpt: SmoketestReport, markdown: bool = False) -> str:
@@ -272,22 +312,48 @@ def main(argv: list[str] | None = None) -> int:
         "--report-file", default=None,
         help="Optional Pfad fuer Markdown-Report.",
     )
+    parser.add_argument(
+        "--json", action="store_true",
+        help="Output als JSON statt formatiertem Text (CI-tauglich).",
+    )
+    parser.add_argument(
+        "--strict", action="store_true",
+        help="Exit 1 bereits wenn mindestens 1 Provider unhealthy (nicht nur summary_ok=False).",
+    )
+    parser.add_argument(
+        "--no-validation", action="store_true",
+        help="Skip Cross-Validation-Step (schneller fuer CI-Pings).",
+    )
     args = parser.parse_args(argv)
 
+    import json as _json
     symbols = [s.strip() for s in args.symbols.split(",") if s.strip()]
     rpt = run_smoketest(
         symbols=symbols, no_network=args.no_network,
         threshold_bps=args.threshold_bps,
+        skip_validation=args.no_validation,
     )
-    print(format_report(rpt, markdown=False))
+    if args.json:
+        print(_json.dumps(report_to_dict(rpt), indent=2, ensure_ascii=False))
+    else:
+        print(format_report(rpt, markdown=False))
     if args.report_file:
-        Path(args.report_file).write_text(
-            format_report(rpt, markdown=True),
-            encoding="utf-8",
-        )
-        print(f"\nMarkdown-Report: {args.report_file}")
+        if args.report_file.endswith(".json"):
+            Path(args.report_file).write_text(
+                _json.dumps(report_to_dict(rpt), indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
+        else:
+            Path(args.report_file).write_text(
+                format_report(rpt, markdown=True),
+                encoding="utf-8",
+            )
+        if not args.json:
+            print(f"\nReport-Datei: {args.report_file}")
 
     if not rpt.summary_ok:
+        return 1
+    if args.strict and has_unhealthy_provider(rpt):
         return 1
     return 0
 
