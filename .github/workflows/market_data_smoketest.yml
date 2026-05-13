@@ -1,0 +1,73 @@
+name: Market Data Pipeline Smoketest
+
+# Laeuft (a) woechentlich Sonntag 04:30 UTC und (b) bei jedem PR, der
+# Pipeline-Code beruehrt. Default: --no-network (keine API-Calls).
+# Bei Bedarf manuell via workflow_dispatch mit live=true triggerbar.
+
+on:
+  schedule:
+    # Sonntag 04:30 UTC = So 06:30 Zurich (nach weekly validation job)
+    - cron: '30 4 * * 0'
+  pull_request:
+    paths:
+      - '5eyes-backend/services/market_data/**'
+      - '5eyes-backend/price_updater.py'
+      - 'scripts/smoketest_market_data.py'
+      - '5eyes-backend/requirements.txt'
+      - '.github/workflows/market_data_smoketest.yml'
+  workflow_dispatch:
+    inputs:
+      live:
+        description: 'Live mode (echte API-Calls; default no-network)'
+        required: false
+        default: 'false'
+
+jobs:
+  smoketest:
+    name: Aggregator Aufbau- und Health-Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: '5eyes-backend/requirements.txt'
+
+      - name: Install dependencies
+        working-directory: 5eyes-backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run smoketest (no-network)
+        if: github.event_name != 'workflow_dispatch' || github.event.inputs.live != 'true'
+        run: |
+          python scripts/smoketest_market_data.py \
+            --no-network \
+            --report-file smoketest_report.md
+
+      - name: Run smoketest (live)
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.live == 'true'
+        env:
+          ALPHAVANTAGE_API_KEY: ${{ secrets.ALPHAVANTAGE_API_KEY }}
+          TWELVEDATA_API_KEY: ${{ secrets.TWELVEDATA_API_KEY }}
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+          OPENFIGI_API_KEY: ${{ secrets.OPENFIGI_API_KEY }}
+        run: |
+          python scripts/smoketest_market_data.py \
+            --symbols UBSG.SW,NESN.SW,AAPL,MSFT \
+            --report-file smoketest_report.md
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoketest-report
+          path: smoketest_report.md
+          retention-days: 30
