@@ -121,6 +121,10 @@ class Settings(BaseSettings):
     market_data_validation_symbols: str = ''  # kommaseparierte Liste
     market_data_validation_threshold_bps: int = 300
 
+    # P22 — Webhook-Notifier fuer Validation-Alerts. Default leer = no-op.
+    market_data_alert_webhook_url: str = ''
+    market_data_alert_webhook_timeout_seconds: float = 5.0
+
     # System / diagnostics
     recent_log_lines_default: int = 120
     recent_log_lines_max: int = 500
