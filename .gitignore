@@ -32,6 +32,8 @@ node_modules/
 
 # Temporary debug scripts
 tmp_*
+tmp/
+extracted_check.js
 
 # OS
 .DS_Store
