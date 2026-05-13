@@ -151,6 +151,23 @@ def check_scheduler_config(env: dict[str, str]) -> list[Finding]:
                 "OK", "MARKET_DATA_VALIDATION_SYMBOLS",
                 f"{len(syms)} Symbole konfiguriert",
             ))
+
+        webhook = _env_or_default(env, "MARKET_DATA_ALERT_WEBHOOK_URL", "").strip()
+        if not webhook:
+            findings.append(Finding(
+                "OK", "MARKET_DATA_ALERT_WEBHOOK_URL",
+                "kein Webhook (default) — Alerts nur in Logs.",
+            ))
+        elif not (webhook.startswith("http://") or webhook.startswith("https://")):
+            findings.append(Finding(
+                "WARN", "MARKET_DATA_ALERT_WEBHOOK_URL",
+                f"URL muss mit http(s):// beginnen — aktuell: {webhook[:40]}...",
+            ))
+        else:
+            findings.append(Finding(
+                "OK", "MARKET_DATA_ALERT_WEBHOOK_URL",
+                "Webhook konfiguriert — Alerts werden gepostet.",
+            ))
     else:
         findings.append(Finding(
             "OK", "MARKET_DATA_VALIDATION_ENABLED",

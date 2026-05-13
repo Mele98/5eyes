@@ -786,6 +786,8 @@ def _weekly_validation_wrapper() -> tuple[int, int]:
             symbols=symbols,
             session_factory=SessionLocal,
             threshold_bps=settings.market_data_validation_threshold_bps,
+            webhook_url=(settings.market_data_alert_webhook_url or None),
+            webhook_timeout_seconds=settings.market_data_alert_webhook_timeout_seconds,
         )
     except Exception:  # noqa: BLE001
         logger.exception("weekly_validation_job failed")

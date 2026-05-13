@@ -25,6 +25,12 @@ from .cache import CachedAggregator, DEFAULT_TTL_SECONDS
 from .factory import build_default_aggregator
 from .health import HealthState
 from .legacy_compat import fetch_latest_prices_via_aggregator
+from .notifier import (
+    DEFAULT_TIMEOUT_SECONDS as ALERT_WEBHOOK_DEFAULT_TIMEOUT,
+    build_alert_payload,
+    notify_validation_alerts,
+    post_alert,
+)
 from .scheduled import daily_cache_purge_job, weekly_validation_job
 from .etf import (
     ETFInfo,
@@ -75,6 +81,10 @@ __all__ = [
     "fetch_latest_prices_via_aggregator",
     "daily_cache_purge_job",
     "weekly_validation_job",
+    "ALERT_WEBHOOK_DEFAULT_TIMEOUT",
+    "build_alert_payload",
+    "notify_validation_alerts",
+    "post_alert",
     "DEFAULT_THRESHOLD_BPS",
     "ProviderQuote",
     "ValidationResult",

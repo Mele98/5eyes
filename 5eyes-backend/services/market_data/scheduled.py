@@ -41,12 +41,18 @@ def weekly_validation_job(
     session_factory: Callable[[], object],
     on_date: Date | None = None,
     threshold_bps: int = 300,
+    webhook_url: str | None = None,
+    webhook_timeout_seconds: float | None = None,
 ) -> tuple[int, int]:
     """Cross-Validation fuer eine Liste von Symbolen.
 
     Returns (n_checked, n_alerts).
+
+    Wenn webhook_url gesetzt UND mindestens 1 Alert -> POST an Webhook
+    (siehe services.market_data.notifier).
     """
     from .factory import build_default_aggregator
+    from .notifier import notify_validation_alerts, DEFAULT_TIMEOUT_SECONDS
     from .validation import validate_batch
 
     target_date = on_date or (
@@ -75,4 +81,26 @@ def weekly_validation_job(
         "weekly_validation_job: checked=%d alerts=%d on_date=%s",
         len(results), n_alerts, target_date,
     )
+
+    if webhook_url:
+        try:
+            _, sent = notify_validation_alerts(
+                results,
+                webhook_url=webhook_url,
+                threshold_bps=threshold_bps,
+                on_date=target_date.isoformat(),
+                timeout_seconds=(
+                    webhook_timeout_seconds
+                    if webhook_timeout_seconds is not None
+                    else DEFAULT_TIMEOUT_SECONDS
+                ),
+            )
+            if n_alerts > 0:
+                logger.info(
+                    "weekly_validation_job: webhook sent=%s for %d alerts",
+                    sent, n_alerts,
+                )
+        except Exception:  # noqa: BLE001
+            logger.exception("weekly_validation_job: webhook dispatch failed")
+
     return len(results), n_alerts
