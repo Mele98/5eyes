@@ -135,6 +135,13 @@ class Goal(Base):
     is_ongoing = Column(Integer, nullable=False, default=0)
     frequency = Column(String)
     hardness = Column(String, nullable=False, default="Primär")
+    # Sprint B6 (2026-05-08): Bedingte Goals — Eintrittswahrscheinlichkeit 0-100.
+    # NULL/None wird in Engine als 100 (sicher eintretend) interpretiert.
+    probability_pct = Column(Integer, nullable=True, default=100)
+    # Sprint B3 (2026-05-08): Vorsorge-Differenziert. Ordnet Pensionsausgabe-Goals
+    # einer konkreten Saeule zu (AHV / BVG / 3a / 1e / FZG). NULL bei nicht-
+    # Pensionsausgabe-Goals oder unspezifizierter Saeule (audit-konsistent zu pre-B3).
+    pension_pillar = Column(String, nullable=True)
     linked_position_id = Column(String)
     notes = Column(String)
     is_active = Column(Integer, nullable=False, default=1)

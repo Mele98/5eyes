@@ -77,6 +77,201 @@ class OptimizerResult:
 
 
 # ============================================================================
+# V3 Sprint 1b (2026-05-08): OptimizerContext + Evaluation
+#
+# Plan §5.2: Wiederverwendbare Evaluation beliebiger Gewichtungen unter
+# denselben Szenarien, damit House-Matrix und Solver-Vorschlag Apples-to-
+# Apples bewertet werden koennen.
+# ============================================================================
+
+
+@dataclass(frozen=True)
+class OptimizerContext:
+    """Gemeinsame Inputs fuer Solver und externe Evaluation.
+
+    Wenn zwei Aufrufer mit identischem Context arbeiten (gleiche cma_id,
+    gleicher seed, gleiche n_paths), erhalten sie identische Szenarien und
+    Liability-Pfade. Damit ist `evaluate_weights(ctx, w_a)` vergleichbar mit
+    `evaluate_weights(ctx, w_b)`.
+    """
+    cma_id: str
+    seed: int
+    horizon_years: int
+    n_paths: int
+    advisory_wealth_rappen: int
+    cashflow_series_rappen: list[int]
+    return_paths: np.ndarray
+    liabilities: list[GoalLiability]
+    aggregated_liability_path: np.ndarray
+    bounds: list[tuple[float, float]]
+    scipy_constraints: list[dict]
+    score_x10: int
+    risky_fraction_per_bucket: dict[str, float] | None = None
+
+
+@dataclass(frozen=True)
+class OptimizerEvaluation:
+    """Bewertung einer konkreten Allocation unter einem OptimizerContext."""
+    weights_bps: dict[str, int]
+    objective_value: float
+    feasible: bool
+    constraint_violations: list[str] = field(default_factory=list)
+    terminal_wealth_p10_rappen: int | None = None
+    terminal_wealth_p50_rappen: int | None = None
+    terminal_wealth_p90_rappen: int | None = None
+
+
+def _weights_bps_to_array(weights_bps: dict[str, int]) -> np.ndarray:
+    """Konvertiert {bucket: bps} -> np.ndarray (5 Buckets, summe = 1).
+
+    Wird genutzt damit evaluate_weights deterministisch denselben Float-Vektor
+    erhaelt wie der Solver intern (ueber denselben Rounding-Pfad).
+    """
+    raw = np.array(
+        [int((weights_bps or {}).get(bucket, 0) or 0) / 10000.0 for bucket in BUCKET_ORDER],
+        dtype=np.float64,
+    )
+    s = float(raw.sum())
+    if s > 1e-12:
+        raw = raw / s
+    return raw
+
+
+def build_optimizer_context(
+    *,
+    cma,
+    goals: list,
+    house_matrix_row,
+    score_x10: int,
+    advisory_wealth_rappen: int,
+    cashflow_series_rappen: Iterable[int],
+    horizon_years: int = 10,
+    n_paths: int = 2000,
+    seed: int | None = None,
+    inflation_series_bps: list[int] | None = None,
+    risky_fraction_per_bucket: dict[str, float] | None = None,
+) -> OptimizerContext:
+    """Baut den Solver-Context (Scenarios, Liabilities, Bounds, Constraints).
+
+    Identische Inputs liefern identische Contexts. Wenn `seed=None`, wird der
+    deterministische Seed aus `(cma_id, goal_ids, score_x10, horizon, n_paths)`
+    abgeleitet — gleicher Pfad wie bisher in `run_solver`.
+    """
+    if seed is None:
+        cma_id = getattr(cma, "id", "no-cma")
+        goal_ids = "|".join(str(getattr(g, "id", "?")) for g in goals)
+        seed = deterministic_seed(cma_id, goal_ids, score_x10, horizon_years, n_paths)
+
+    inputs = scenario_inputs_from_cma(cma)
+    cma_id_for_cache = str(getattr(cma, "id", "no-cma"))
+    return_paths = build_scenario_paths_cached(
+        inputs,
+        cma_id=cma_id_for_cache,
+        horizon_years=horizon_years,
+        n_paths=n_paths,
+        seed=seed,
+    )
+
+    liabilities = goals_to_liabilities(
+        goals,
+        horizon_years=horizon_years,
+        inflation_series_bps=inflation_series_bps,
+    )
+    aggregated_liability = aggregate_liability_path(liabilities, horizon_years)
+    bands = bands_from_house_matrix_row(house_matrix_row)
+    bounds, scipy_constraints = build_constraint_set(
+        bands,
+        score_x10,
+        risky_fraction_per_bucket=risky_fraction_per_bucket,
+    )
+
+    return OptimizerContext(
+        cma_id=cma_id_for_cache,
+        seed=int(seed),
+        horizon_years=int(horizon_years),
+        n_paths=int(n_paths),
+        advisory_wealth_rappen=int(advisory_wealth_rappen or 0),
+        cashflow_series_rappen=list(cashflow_series_rappen),
+        return_paths=return_paths,
+        liabilities=list(liabilities),
+        aggregated_liability_path=aggregated_liability,
+        bounds=list(bounds),
+        scipy_constraints=list(scipy_constraints),
+        score_x10=int(score_x10),
+        risky_fraction_per_bucket=risky_fraction_per_bucket,
+    )
+
+
+def _objective_from_array(context: OptimizerContext, w: np.ndarray) -> float:
+    """Internes Objective fuer einen w-Array unter dem Context.
+
+    Wird vom Solver-Closure genutzt, damit der Optimierungslauf exakt die
+    gleichen Scenarios sieht wie evaluate_weights spaeter.
+    """
+    wealth = simulate_wealth_paths(
+        initial_wealth_rappen=context.advisory_wealth_rappen,
+        weights=w,
+        return_paths=context.return_paths,
+        cashflow_series_rappen=context.cashflow_series_rappen,
+        liability_path_rappen=context.aggregated_liability_path,
+    )
+    return float(shortfall_objective(
+        context.liabilities,
+        wealth,
+        initial_wealth_rappen=context.advisory_wealth_rappen,
+        horizon_years=context.horizon_years,
+    ))
+
+
+def evaluate_weights(
+    context: OptimizerContext,
+    weights_bps: dict[str, int],
+) -> OptimizerEvaluation:
+    """Bewertet eine konkrete bps-Allocation unter dem Context.
+
+    Liefert:
+    - objective_value: shortfall_objective unter den Scenarios des Context
+    - feasible / constraint_violations: gegen bounds + scipy_constraints
+    - terminal_wealth_p10/p50/p90: Endvermoegen-Quantile in Rappen
+    """
+    w = _weights_bps_to_array(weights_bps)
+    wealth = simulate_wealth_paths(
+        initial_wealth_rappen=context.advisory_wealth_rappen,
+        weights=w,
+        return_paths=context.return_paths,
+        cashflow_series_rappen=context.cashflow_series_rappen,
+        liability_path_rappen=context.aggregated_liability_path,
+    )
+    objective = shortfall_objective(
+        context.liabilities,
+        wealth,
+        initial_wealth_rappen=context.advisory_wealth_rappen,
+        horizon_years=context.horizon_years,
+    )
+    feasible, violations = is_feasible(
+        w, bounds=context.bounds, constraints=context.scipy_constraints,
+    )
+    terminal = wealth[:, -1] if wealth.size else np.array([], dtype=np.float64)
+    if terminal.size:
+        p10, p50, p90 = np.percentile(terminal, [10, 50, 90])
+        p10_i = int(round(float(p10)))
+        p50_i = int(round(float(p50)))
+        p90_i = int(round(float(p90)))
+    else:
+        p10_i = p50_i = p90_i = None
+
+    return OptimizerEvaluation(
+        weights_bps=_weights_to_bps_dict(w),
+        objective_value=float(objective),
+        feasible=bool(feasible),
+        constraint_violations=list(violations),
+        terminal_wealth_p10_rappen=p10_i,
+        terminal_wealth_p50_rappen=p50_i,
+        terminal_wealth_p90_rappen=p90_i,
+    )
+
+
+# ============================================================================
 # Deterministic Seed
 # ============================================================================
 
@@ -335,50 +530,38 @@ def run_solver(
 
     Bei Solver-Divergenz aller Multi-Starts: status='fallback_house_matrix'
     mit House-Matrix-Mid als weights (OWNER-DECISION OD-5).
-    """
-    # ---- 1. Seed ----
-    if seed is None:
-        cma_id = getattr(cma, "id", "no-cma")
-        goal_ids = "|".join(str(getattr(g, "id", "?")) for g in goals)
-        seed = deterministic_seed(cma_id, goal_ids, score_x10, horizon_years, n_paths)
 
-    # ---- 2. Scenario Paths (cached fuer Wiederholungen mit gleicher cma_id) ----
-    inputs = scenario_inputs_from_cma(cma)
-    cma_id_for_cache = str(getattr(cma, "id", "no-cma"))
-    return_paths = build_scenario_paths_cached(
-        inputs,
-        cma_id=cma_id_for_cache,
+    V3 Sprint 1b: Solver baut intern einen OptimizerContext und nutzt
+    `_objective_from_array` als Closure. Nach finalem Rounding wird
+    `objective_value` ueber `evaluate_weights` neu bestimmt, damit ein
+    externer Aufruf von `evaluate_weights(ctx, result.weights_bps)` exakt
+    den gleichen Wert liefert.
+    """
+    # ---- 1.-4. Context (Seed, Scenarios, Liabilities, Constraints) ----
+    context = build_optimizer_context(
+        cma=cma,
+        goals=list(goals),
+        house_matrix_row=house_matrix_row,
+        score_x10=score_x10,
+        advisory_wealth_rappen=advisory_wealth_rappen,
+        cashflow_series_rappen=cashflow_series_rappen,
         horizon_years=horizon_years,
         n_paths=n_paths,
         seed=seed,
+        inflation_series_bps=inflation_series_bps,
+        risky_fraction_per_bucket=risky_fraction_per_bucket,
     )
+    # Lokale Aliase fuer Lesbarkeit der bestehenden Logik unten
+    seed = context.seed
+    return_paths = context.return_paths
+    liabilities = context.liabilities
+    aggregated_liability = context.aggregated_liability_path
+    bounds = context.bounds
+    scipy_constraints = context.scipy_constraints
 
-    # ---- 3. Liabilities ----
-    liabilities = goals_to_liabilities(
-        goals, horizon_years=horizon_years, inflation_series_bps=inflation_series_bps,
-    )
-    aggregated_liability = aggregate_liability_path(liabilities, horizon_years)
-
-    # ---- 4. Constraints ----
-    bands = bands_from_house_matrix_row(house_matrix_row)
-    bounds, scipy_constraints = build_constraint_set(
-        bands, score_x10, risky_fraction_per_bucket=risky_fraction_per_bucket,
-    )
-
-    # ---- 5. Objective Closure ----
+    # ---- 5. Objective Closure ueber den Context ----
     def objective_fn(w: np.ndarray) -> float:
-        wealth = simulate_wealth_paths(
-            initial_wealth_rappen=advisory_wealth_rappen,
-            weights=w,
-            return_paths=return_paths,
-            cashflow_series_rappen=cashflow_series_rappen,
-            liability_path_rappen=aggregated_liability,
-        )
-        return shortfall_objective(
-            liabilities, wealth,
-            initial_wealth_rappen=advisory_wealth_rappen,
-            horizon_years=horizon_years,
-        )
+        return _objective_from_array(context, w)
 
     # ---- 6. Multi-Start SLSQP ----
     initials = build_initial_guesses(bounds, score_x10)
@@ -443,11 +626,17 @@ def run_solver(
         status = "converged"
 
     weights_bps = _weights_to_bps_dict(final_w)
+    # V3 Sprint 1b: objective_value via Context-Path neu bestimmen, damit
+    # `evaluate_weights(ctx, result.weights_bps).objective_value` exakt
+    # `result.objective_value` matcht (post-rounding kongruent).
+    post_round_objective = _objective_from_array(
+        context, _weights_bps_to_array(weights_bps)
+    )
     reasoning: list[str] = []
     method_used = "SLSQP+DE-Fallback" if used_ga_fallback else "SLSQP"
     reasoning.append(f"Stochastic Solver ({method_used}): {total_iters} iterations across "
                       f"{len(initials)} multi-starts.")
-    reasoning.append(f"Best objective L(w*) = {best_obj:.6e}")
+    reasoning.append(f"Best objective L(w*) = {post_round_objective:.6e}")
     if violation_reasons:
         reasoning.append("Constraint-Verletzungen am Optimum:")
         reasoning.extend(f"  - {r}" for r in violation_reasons)
@@ -480,7 +669,7 @@ def run_solver(
 
     return OptimizerResult(
         weights_bps=weights_bps,
-        objective_value=best_obj,
+        objective_value=post_round_objective,
         iterations=total_iters,
         seed=seed,
         status=status,

@@ -213,11 +213,24 @@ def ensure_runtime_columns() -> None:
             # Sprint A3 (2026-05-06): Rentenalter + Lebenserwartung pro Mandat.
             ('retirement_year', 'INTEGER'),
             ('life_expectancy_year', 'INTEGER'),
+            # Sprint B4 (2026-05-07): Anlageuniversum (3rd-eyes-Pattern).
+            # Standard | Alternativ; Filter fuer Produkt-Auswahl.
+            ('investment_universe', 'TEXT'),
+            # Sprint B1 (2026-05-07): Building-Block-Wahl pro Mandat (JSON).
+            ('default_building_blocks_json', 'TEXT'),
         ],
         'cashflows': [
             ('gross_amount_rappen', 'INTEGER'),
             ('tax_amount_rappen', 'INTEGER'),
             ('timing_precision', 'TEXT'),
+        ],
+        'goals': [
+            # Sprint B6 (2026-05-08): bedingte Goals — Eintrittswahrscheinlichkeit (0-100).
+            # NULL bei pre-B6-Goals -> Engine interpretiert als 100 (sicher).
+            ('probability_pct', 'INTEGER'),
+            # Sprint B3 (2026-05-08): Vorsorge-Saeule fuer Pensionsausgabe-Goals.
+            # AHV / BVG / 3a / 1e / FZG. NULL bei nicht-Pensionsausgabe oder unspezifiziert.
+            ('pension_pillar', 'TEXT'),
         ],
         'capital_market_assumptions': [
             ('correlation_matrix_json', 'TEXT'),

@@ -215,6 +215,122 @@ def bucket_risky_fractions_from_building_blocks(
     return out
 
 
+# ============================================================================
+# V3 Sprint 1d (Plan §5.3): Constraint Slacks (Berater-Erklaerbarkeit)
+# ============================================================================
+
+
+@dataclass(frozen=True)
+class ConstraintSlack:
+    """Strukturierter Slack einer einzelnen Constraint gegen eine Allocation.
+
+    code:           stabiler ID-String fuer FE-Mapping
+                    (z.B. 'risky_fraction_cap', 'equities_min', 'bonds_max').
+    label:          menschen-lesbares Label fuer Berater (DE).
+    value_bps:      aktueller Wert der Constraint-Variable in bps.
+                    Bei Min-Bounds: aktueller Bucket-Anteil.
+                    Bei Max-Bounds: aktueller Bucket-Anteil.
+                    Bei Risky-Fraction-Cap: gewichteter Risky-Anteil.
+    limit_bps:      die Constraint-Grenze in bps.
+    slack_bps:      Distanz zur Grenze (hi - val) bzw. (val - lo).
+                    Negative Werte zeigen eine Verletzung.
+    is_binding:     True wenn 0 <= slack_bps <= binding_threshold_bps.
+                    Vom Berater interpretiert als 'praktisch ausgereizt'.
+    is_violated:    True wenn slack_bps < 0.
+    """
+    code: str
+    label: str
+    value_bps: int
+    limit_bps: int
+    slack_bps: int
+    is_binding: bool
+    is_violated: bool
+
+
+_BUCKET_LABEL_DE = {
+    "equities": "Aktien",
+    "bonds": "Obligationen",
+    "real_estate": "Immobilien",
+    "alternatives": "Alternative",
+    "liquidity": "Liquiditaet",
+}
+
+
+def constraint_slacks(
+    weights_bps: dict[str, int],
+    *,
+    bounds: list[tuple[float, float]],
+    score_x10: int,
+    risky_fraction_per_bucket: dict[str, float] | None = None,
+    binding_threshold_bps: int = 25,
+) -> list[ConstraintSlack]:
+    """Berechnet pro Constraint einen ConstraintSlack gegen eine Allocation.
+
+    Plan §5.3: Advisor-tauglicher Output, der zeigt 'welche Leitplanke wirklich
+    begrenzt' (statt nur 'feasible' / 'not feasible').
+
+    Liefert eine Liste in dieser Reihenfolge:
+    1. Risky-Fraction-Cap
+    2. Pro Bucket (BUCKET_ORDER): {bucket}_min, {bucket}_max
+
+    binding_threshold_bps: Slack-Schwelle in bps, ab der eine Constraint als
+        'bindend' gilt (default 25 bps = 0.25 Prozentpunkte).
+    """
+    rf_map = risky_fraction_per_bucket or DEFAULT_BUCKET_RISKY_FRACTION
+    w = np.array(
+        [int((weights_bps or {}).get(bucket, 0) or 0) / 10000.0 for bucket in BUCKET_ORDER],
+        dtype=np.float64,
+    )
+    rf = np.array([float(rf_map.get(b, 0.0)) for b in BUCKET_ORDER], dtype=np.float64)
+    risk_used_bps = int(round(float(np.dot(w, rf)) * 10000))
+    risk_limit_bps = int(round(max(0.0, min(1.0, float(score_x10) / 100.0)) * 10000))
+    risk_slack_bps = risk_limit_bps - risk_used_bps
+
+    rows: list[ConstraintSlack] = [
+        ConstraintSlack(
+            code="risky_fraction_cap",
+            label="Risky Fraction Cap",
+            value_bps=risk_used_bps,
+            limit_bps=risk_limit_bps,
+            slack_bps=risk_slack_bps,
+            is_binding=(0 <= risk_slack_bps <= binding_threshold_bps),
+            is_violated=risk_slack_bps < 0,
+        )
+    ]
+
+    for idx, bucket in enumerate(BUCKET_ORDER):
+        if idx >= len(bounds):
+            continue
+        lo, hi = bounds[idx]
+        val_bps = int(round(w[idx] * 10000))
+        lo_bps = int(round(float(lo) * 10000))
+        hi_bps = int(round(float(hi) * 10000))
+        bucket_label = _BUCKET_LABEL_DE.get(bucket, bucket)
+        # Min-Slack: val - lo. Negative = unter Floor.
+        min_slack_bps = val_bps - lo_bps
+        rows.append(ConstraintSlack(
+            code=f"{bucket}_min",
+            label=f"{bucket_label} Minimum",
+            value_bps=val_bps,
+            limit_bps=lo_bps,
+            slack_bps=min_slack_bps,
+            is_binding=(0 <= min_slack_bps <= binding_threshold_bps),
+            is_violated=min_slack_bps < 0,
+        ))
+        # Max-Slack: hi - val. Negative = ueber Cap.
+        max_slack_bps = hi_bps - val_bps
+        rows.append(ConstraintSlack(
+            code=f"{bucket}_max",
+            label=f"{bucket_label} Maximum",
+            value_bps=val_bps,
+            limit_bps=hi_bps,
+            slack_bps=max_slack_bps,
+            is_binding=(0 <= max_slack_bps <= binding_threshold_bps),
+            is_violated=max_slack_bps < 0,
+        ))
+    return rows
+
+
 def is_feasible(
     weights: np.ndarray,
     *,

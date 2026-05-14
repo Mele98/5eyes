@@ -454,6 +454,71 @@ class LiveRebalancingResponse(BaseModel):
     position_drifts: list[LiveRebalancingPositionResponse]
 
 
+class OptimizerConstraintResponse(BaseModel):
+    """V3 Sprint 1d (Plan §6): strukturierter Constraint-Slack pro Constraint.
+
+    Nur in shadow_stochastic / stochastic Modus befuellt; sonst leere Liste.
+    """
+    code: str
+    label: str
+    value_bps: int
+    limit_bps: int
+    slack_bps: int
+    is_binding: bool
+    is_violated: bool
+
+
+class OptimizerGoalDriverResponse(BaseModel):
+    """V3 Sprint 1d (Plan §6): Goal-Driver fuer 'welches Ziel treibt den Solver'.
+
+    weighted_objective_contribution_milli ist objective_contribution * 1000
+    (gleiche Skalierung wie optimization_objective_value_milli auf der TA).
+    rank ist der 1-basierte Rang in absteigender Sortierung (1 = groesster Treiber).
+    Nur in shadow_stochastic / stochastic Modus befuellt; sonst leere Liste.
+    """
+    goal_id: str
+    label: str
+    target_kind: str
+    hardness_key: str
+    weight_bps: int
+    weighted_objective_contribution_milli: Optional[int] = None
+    rank: int
+
+
+class AllocationMethodCandidateResponse(BaseModel):
+    method: str
+    role: str  # "active" | "shadow"
+    status: Optional[str] = None
+    weights_bps: dict[str, int]
+    objective_value_milli: Optional[int] = None
+    terminal_wealth_p10_rappen: Optional[int] = None
+    terminal_wealth_p50_rappen: Optional[int] = None
+    terminal_wealth_p90_rappen: Optional[int] = None
+    feasible: Optional[bool] = None
+    constraint_violations: list[str] = Field(default_factory=list)
+
+
+class AllocationMethodComparisonResponse(BaseModel):
+    """V3 Sprint 1 Shadow-Stochastic: Methodenvergleich House Matrix vs. Solver.
+
+    Wird nur befuellt, wenn settings.optimizer_mode == 'shadow_stochastic'.
+    objective_value_milli_* und objective_delta_pct sind nur dann gesetzt, wenn
+    beide Methoden Apples-to-Apples unter demselben Context bewertet wurden
+    (Sprint 1b/Commit 3 — siehe V3-Codeplan §5.6).
+    """
+    active_method: str
+    shadow_method: Optional[str] = None
+    shadow_status: Optional[str] = None
+    active_weights_bps: dict[str, int]
+    shadow_weights_bps: Optional[dict[str, int]] = None
+    weight_deltas_bps: dict[str, int] = Field(default_factory=dict)
+    objective_value_milli_active: Optional[int] = None
+    objective_value_milli_shadow: Optional[int] = None
+    objective_delta_pct: Optional[float] = None
+    advisory_note: str
+    candidates: list[AllocationMethodCandidateResponse] = Field(default_factory=list)
+
+
 class TargetAllocationGenerateResponse(BaseModel):
     target_allocation: TargetAllocationResponse
     house_matrix_profile: str
@@ -465,6 +530,18 @@ class TargetAllocationGenerateResponse(BaseModel):
     # min_year_wealth_rappen, max_drawdown_bps. None wenn House-Matrix-Modus
     # oder Solver gefallback ist.
     stress_evaluations: Optional[dict] = None
+    # V3 Sprint 1: Methodenvergleich House Matrix vs. Shadow Stochastic.
+    # Nur befuellt im 'shadow_stochastic' Modus; sonst None.
+    allocation_method_comparison: Optional[AllocationMethodComparisonResponse] = None
+    # V3 Sprint 1d (Plan §5.3 / §6): Strukturierte Constraint-Slacks der aktiven
+    # Allocation. Nur befuellt wenn Solver lief (shadow_stochastic / stochastic);
+    # sonst leere Liste. 'is_binding' / 'is_violated' macht fuer den Berater
+    # sichtbar, welche Leitplanke wirklich begrenzt.
+    optimizer_constraints: list[OptimizerConstraintResponse] = Field(default_factory=list)
+    # V3 Sprint 1d (Plan §5.4 / §6): Goal-Driver-Liste fuer 'welches Ziel treibt
+    # den Shortfall'. Sortiert absteigend nach weighted_objective_contribution_milli.
+    # Nur befuellt wenn Solver lief; sonst leere Liste.
+    optimizer_goal_drivers: list[OptimizerGoalDriverResponse] = Field(default_factory=list)
     # C6: explizit benannte Basis fuer Target-/Sim-/MC-Berechnung
     # (= Beratungsvermoegen abzueglich externer Reserve).
     strategy_base_rappen: Optional[int] = None

@@ -21,6 +21,14 @@ class Mandate(Base):
     # NULL = nutzen Defaults (65 / 85 berechnet aus Geburtsjahr).
     retirement_year = Column(Integer)
     life_expectancy_year = Column(Integer)
+    # Sprint B4 (2026-05-07): Anlageuniversum (3rd-eyes-Pattern).
+    # 'Standard' = Swiss Life Anteil hoeher; 'Alternativ' = breiter Marktdurchschnitt.
+    # Default 'Standard' (kompatibel zu existierenden Mandaten).
+    investment_universe = Column(String, nullable=False, default="Standard")
+    # Sprint B1 (2026-05-07): Persistierte Building-Block-Wahl pro Mandat.
+    # JSON mit {equitiesGeo, bondsDuration, realestateMarket, altsXxx}.
+    # NULL = nutze System-Defaults (Schweiz-Fokus, Langfristig, Schweiz, Gold-only).
+    default_building_blocks_json = Column(String)
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
     deleted_at = Column(String)
