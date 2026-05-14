@@ -57,6 +57,7 @@ def create_mandate(
         advisory_language=body.advisory_language,
         depot_bank=body.depot_bank,
         depot_account_number=body.depot_account_number,
+        investment_universe=body.investment_universe or "Standard",
         opened_at=body.opened_at or date.today().isoformat(),
         created_at=now,
         updated_at=now,
