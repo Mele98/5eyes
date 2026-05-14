@@ -860,14 +860,14 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 
     <!-- PAGE: CASHFLOWS -->
     <div id="page-cf" class="page">
-      <div class="ph"><div><div class="ph-t">Cashflows &amp; Ziele</div><div class="ph-s">Zufl&uuml;sse &middot; Ausgaben &middot; Ziele &middot; aktueller Verm&ouml;genspfad</div></div><div class="ph-r"><button class="btn" onclick="om('m-acf')">Cashflow erfassen</button><button class="btn-p" onclick="go('rp')">Risikoprofil &rarr;</button></div></div>
+      <div class="ph"><div><div class="ph-t">Cashflows &amp; Ziele</div><div class="ph-s">Was rein- und rausfliesst &middot; Ihre Ziele &middot; wie sich Ihr Verm&ouml;gen entwickelt</div></div><div class="ph-r"><button class="btn" onclick="om('m-acf')">+ Cashflow</button><button class="btn-p" onclick="go('rp')">Weiter zum Risikoprofil &rarr;</button></div></div>
       <div class="pad">
-        <div style="font-size:11px;color:var(--n5);line-height:1.6;margin-bottom:12px;padding:10px 12px;background:var(--bg);border:1px solid var(--b1);border-radius:var(--r2)">Hier wird sichtbar, was laufend hinein- und hinausfliesst, welche Ziele priorisiert sind und wie sich der heutige Verm&ouml;genspfad aus den effektiven Daten entwickelt. Der Vergleich zur optimierten Strategie bleibt bewusst in der Asset Allokation.</div>
+        <div style="font-size:11px;color:var(--n5);line-height:1.6;margin-bottom:12px;padding:10px 12px;background:var(--bg);border:1px solid var(--b1);border-radius:var(--r2)">Bitte pr&uuml;fen Sie, ob Ihre regelm&auml;ssigen Eink&uuml;nfte und Ausgaben korrekt und vollst&auml;ndig sind und ob die Ziele in der richtigen Reihenfolge stehen. Die Verm&ouml;gensentwicklung darunter zeigt den aktuellen Pfad &mdash; ohne empfohlene Strategie&auml;nderungen.</div>
         <div class="g2" data-slot="cashflows"></div>
         <div id="cf-goals-projection" data-slot="goals-projection" style="display:flex;flex-direction:column;gap:12px;margin-top:12px"></div>
         <div id="cf-save-status" style="display:none;margin-top:12px;padding:10px 12px;border:1px solid var(--b1);border-radius:var(--r2);background:var(--bg);font-size:11px;color:var(--n6)"></div>
       </div>
-      <div class="cnav"><button class="btn" onclick="go('vg')">&larr; Zur&uuml;ck</button><div style="display:flex;gap:8px;align-items:center"><button class="btn-g" id="btn-cf-save-state" onclick="saveCashflowsAndRefreshCurrentPath()">Speichern</button><button class="btn-p" onclick="go('rp')">Risikoprofil &rarr;</button></div></div>
+      <div class="cnav"><button class="btn" onclick="go('vg')">&larr; Zur&uuml;ck zum Verm&ouml;gen</button><div style="display:flex;gap:8px;align-items:center"><button class="btn-g" id="btn-cf-save-state" onclick="saveCashflowsAndRefreshCurrentPath()">&Auml;nderungen speichern</button><button class="btn-p" onclick="go('rp')">Weiter zum Risikoprofil &rarr;</button></div></div>
     </div>
 
     <!-- PAGE: RISIKOPROFIL -->
@@ -2023,10 +2023,10 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
           </select>
         </div>
         <div class="fg">
-          <label class="fl">Scope</label>
+          <label class="fl">Bezugsgrösse</label>
           <select class="fsel" id="nz-scope">
-            <option value="Beratungsvermögen">Beratungsvermögen</option>
-            <option value="Gesamtvermögen">Gesamtvermögen</option>
+            <option value="Beratungsvermögen">Beratungsvermögen (in der Beratung)</option>
+            <option value="Gesamtvermögen">Gesamtvermögen (alle Mittel)</option>
           </select>
         </div>
       </div>
@@ -2086,13 +2086,13 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
         </div>
       </div>
       <div id="nz-date-hint" style="font-size:10px;color:var(--n5);margin-top:2px">
-        Ziele können jetzt mit Startdatum, Zieltermin und laufender Logik erfasst werden.
+        Bei einmaligen Zielen reicht das Zieldatum, bei laufenden Zielen Start- und (optional) Enddatum.
       </div>
       <div class="frow" id="nz-probability-row">
         <div class="fg">
           <label class="fl" for="nz-probability">Eintrittswahrscheinlichkeit (%)</label>
           <input class="fi" id="nz-probability" type="number" min="0" max="100" step="1" value="100" placeholder="100">
-          <div style="font-size:10px;color:var(--n5);margin-top:2px">100 = sicher eintretend; tiefer = bedingt (Reserve-Beitrag wird linear skaliert).</div>
+          <div style="font-size:10px;color:var(--n5);margin-top:2px">100 % = sicher. Tiefer für bedingte Ziele (z.B. Erbschaft, optionaler Hauskauf).</div>
         </div>
         <div class="fg" id="nz-pension-pillar-wrap" style="display:none">
           <label class="fl" for="nz-pension-pillar">Vorsorge-Säule</label>
