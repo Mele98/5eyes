@@ -1675,7 +1675,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
     </div>
     <!-- PAGE: ZUSAMMENFASSUNG -->
     <div id="page-sr" class="page">
-      <div class="ph"><div><div class="ph-t">Ihr Strategiebild</div><div class="ph-s">Risikoprofil · Soll-Allokation · Ziele · Heutiger Entscheid</div></div><div class="ph-r"><button id="sr-summary-print-inline" onclick="printSummaryPage()" class="btn">Protokoll PDF</button><button class="btn-g" onclick="printAnlagestrategie()">Anlagestrategie ↓</button></div></div>
+      <div class="ph"><div><div class="ph-t">Ihr Strategiebild</div><div class="ph-s">Was wir heute zusammen beschliessen — Profil, Strategie, Ziele, Massnahmen</div></div><div class="ph-r"><button id="sr-summary-print-inline" onclick="printSummaryPage()" class="btn">Protokoll drucken</button><button class="btn-g" onclick="printAnlagestrategie()">Anlagestrategie als Dokument</button></div></div>
       <div class="pad">
 
         <!-- 4 KPI tiles — JS füllt alle Werte, keine Dummy-Daten -->
@@ -1687,27 +1687,27 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
             <div id="sr-ovr-badge" style="display:none;margin-top:4px;font-size:9px;color:var(--g3)">&#9888; Override aktiv</div>
           </div>
           <div style="background:var(--surface);border:1px solid var(--b1);border-radius:var(--r2);padding:12px 14px">
-            <div style="font-size:9px;font-weight:500;letter-spacing:0.09em;text-transform:uppercase;color:var(--n4);margin-bottom:6px">Beratungsvermögen</div>
+            <div style="font-size:9px;font-weight:500;letter-spacing:0.09em;text-transform:uppercase;color:var(--n4);margin-bottom:6px">Anlagevermögen</div>
             <div id="sr-wealth" style="font-family:var(--f-d);font-size:22px;font-weight:500;color:var(--n8)">—</div>
-            <div id="sr-wealth-share" style="font-size:11px;color:var(--n5);margin-top:2px">Kein Vermögen erfasst</div>
+            <div id="sr-wealth-share" style="font-size:11px;color:var(--n5);margin-top:2px">Noch kein Vermögen erfasst</div>
           </div>
           <div style="background:var(--surface);border:1px solid var(--b1);border-radius:var(--r2);padding:12px 14px">
-            <div style="font-size:9px;font-weight:500;letter-spacing:0.09em;text-transform:uppercase;color:var(--n4);margin-bottom:6px">Zielerreichung</div>
+            <div style="font-size:9px;font-weight:500;letter-spacing:0.09em;text-transform:uppercase;color:var(--n4);margin-bottom:6px">Ziele erreichbar</div>
             <div id="sr-goal-score" style="font-family:var(--f-d);font-size:22px;font-weight:500;color:var(--n6)">—</div>
-            <div id="sr-goal-sub" style="font-size:11px;color:var(--n5);margin-top:2px">Keine Ziele definiert</div>
+            <div id="sr-goal-sub" style="font-size:11px;color:var(--n5);margin-top:2px">Noch keine Ziele festgelegt</div>
           </div>
           <div style="background:var(--surface);border:1px solid var(--b1);border-radius:var(--r2);padding:12px 14px">
-            <div style="font-size:9px;font-weight:500;letter-spacing:0.09em;text-transform:uppercase;color:var(--n4);margin-bottom:6px">Prognose</div>
+            <div style="font-size:9px;font-weight:500;letter-spacing:0.09em;text-transform:uppercase;color:var(--n4);margin-bottom:6px">Erwartung Vermögen</div>
             <div id="sr-proj-wealth" style="font-family:var(--f-d);font-size:22px;font-weight:500;color:var(--n6)">—</div>
-            <div id="sr-proj-sub" style="font-size:11px;color:var(--n5);margin-top:2px">Strategie berechnen</div>
-            <div id="sr-next-review" style="font-size:10px;color:var(--n4);margin-top:5px">Nächster Review: —</div>
+            <div id="sr-proj-sub" style="font-size:11px;color:var(--n5);margin-top:2px">Strategie noch nicht berechnet</div>
+            <div id="sr-next-review" style="font-size:10px;color:var(--n4);margin-top:5px">Nächstes Gespräch: —</div>
           </div>
         </div>
 
         <!-- STRATEGIE & ZIELE — 2-spaltig -->
         <div class="g2" style="margin-bottom:14px">
           <div class="card">
-            <div class="chd"><span class="cht">Anlagestrategie & Allokation</span></div>
+            <div class="chd"><span class="cht">Wie Ihr Geld investiert wird</span></div>
             <div class="cbody">
               <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
                 <div><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:3px">Strategie</div><div id="sr-strategy-name" style="font-size:13px;font-weight:600;color:var(--n8)">—</div></div>
@@ -1717,7 +1717,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
             </div>
           </div>
           <div class="card">
-            <div class="chd"><span class="cht">Ziele & Präferenzen</span></div>
+            <div class="chd"><span class="cht">Ihre Ziele und Schwerpunkte</span></div>
             <div class="cbody">
               <div style="margin-bottom:10px">
                 <div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:6px">Anlage-Schwerpunkte</div>
@@ -1734,13 +1734,13 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 
         <!-- HEUTIGER ENTSCHEID -->
         <div class="card" style="margin-bottom:14px">
-          <div class="chd"><span class="cht">Heutiger Entscheid</span><span style="font-size:9px;color:var(--n4);margin-left:8px">Massnahmen aus dem Review</span><div class="chr"><button id="sr-recipe-print" class="btn-g" onclick="window.print()">Protokoll drucken</button></div></div>
+          <div class="chd"><span class="cht">Was wir heute beschliessen</span><span style="font-size:9px;color:var(--n4);margin-left:8px">Konkrete Massnahmen aus dem heutigen Gespräch</span><div class="chr"><button id="sr-recipe-print" class="btn-g" onclick="printSummaryPage()">Protokoll drucken</button></div></div>
           <div class="cbody">
-            <div id="sr-implementation-steps" style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:10px"><div style="grid-column:1/-1;font-size:10px;color:var(--n4)">Noch kein Advisory-Entscheid dokumentiert. Bitte zuerst ein Review durchführen.</div></div>
+            <div id="sr-implementation-steps" style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:10px"><div style="grid-column:1/-1;font-size:10px;color:var(--n4)">Noch keine Massnahme festgehalten. Im Review-Schritt einen Eintrag hinzufügen.</div></div>
             <div style="display:flex;justify-content:space-between;align-items:center;padding-top:8px;border-top:1px solid var(--b1)">
-              <span id="sr-decision-meta" style="font-size:10px;color:var(--n6)">Beratungsprotokoll — heutiger Review</span>
+              <span id="sr-decision-meta" style="font-size:10px;color:var(--n6)">Beratungsprotokoll — heutiges Gespräch</span>
               <div style="display:flex;gap:6px;align-items:center">
-                <div id="sr-next-review-date" style="font-size:11px;font-weight:600;color:var(--n6)">Nächster Review: —</div>
+                <div id="sr-next-review-date" style="font-size:11px;font-weight:600;color:var(--n6)">Nächstes Gespräch: —</div>
               </div>
             </div>
           </div>
@@ -1753,7 +1753,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
         </div>
 
       </div>
-      <div class="cnav"><button class="btn" onclick="go('rv')">← Review</button><button class="btn-g" onclick="window.print()">Drucken / PDF</button></div>
+      <div class="cnav"><button class="btn" onclick="go('rv')">← Zurück zum Review</button><button class="btn-g" onclick="printSummaryPage()">Protokoll drucken / als PDF speichern</button></div>
     </div>
 
 </main>
