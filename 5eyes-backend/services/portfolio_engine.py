@@ -5002,7 +5002,7 @@ def generate_target_allocation(
     db.flush()
 
     # V3 Sprint 2: persistierter Audit-Trail aller Solver-Laufe.
-    _persist_optimizer_run(
+    persisted_run = _persist_optimizer_run(
         db,
         mandate_id=mandate.id,
         target_allocation_id=target_allocation.id,
@@ -5011,6 +5011,13 @@ def generate_target_allocation(
         user_id=user_id,
         now=now,
     )
+    # V3 Sprint 2.1: Verknuepfung herstellen — nur fuer 'active'-Runs (also
+    # stochastic-Modus, in dem der Solver tatsaechlich die TA produziert hat).
+    # Im shadow_stochastic-Modus bleibt optimization_run_id NULL, weil die
+    # TA House-Matrix-basiert ist.
+    if persisted_run is not None and persisted_run.role == "active":
+        db.flush()  # ensure persisted_run.id ist gesetzt
+        target_allocation.optimization_run_id = persisted_run.id
 
     current_amounts = advisory_summary.amounts_rappen
     bucket_response = _build_bucket_response(

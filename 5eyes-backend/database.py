@@ -252,6 +252,10 @@ def ensure_runtime_columns() -> None:
         'target_allocations': [
             ('external_reserve_at_generation_rappen', 'INTEGER'),
             ('capital_market_assumptions_id', 'TEXT'),
+            # V3 Sprint 2.1 (2026-05-09 / Plan §4.1): Verknuepfung zur eigenen
+            # optimizer_runs-Zeile. Wegbereiter fuer spaeteren Cleanup der
+            # legacy optimization_*-Spalten auf der TA.
+            ('optimization_run_id', 'TEXT'),
         ],
         'products': [
             ('lookup_mode_override', 'TEXT'),

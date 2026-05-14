@@ -83,6 +83,9 @@ class TargetAllocationResponse(BaseResponse):
     stress_evaluations_json: Optional[str] = None
     # Phase 6.2: persistierter Solver-Reasoning-Trace (JSON-Liste).
     optimizer_reasoning_json: Optional[str] = None
+    # V3 Sprint 2.1: Verknuepfung zur optimizer_runs-Zeile (nur stochastic-Modus
+    # mit converged Solver). NULL bei house_matrix oder shadow_stochastic.
+    optimization_run_id: Optional[str] = None
     policy_id: str
     set_by: str
     set_at: str
