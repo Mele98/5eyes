@@ -340,6 +340,8 @@ class GoalCreate(BaseModel):
     hardness: Literal["Hart", "Primär", "Opportunistisch"] = "Primär"
     # Sprint B6: Eintrittswahrscheinlichkeit (0-100). Default 100 = sicher eintretend.
     probability_pct: int = Field(default=100, ge=0, le=100)
+    # Sprint B3: Vorsorge-Saeule fuer Pensionsausgabe-Goals. Optional.
+    pension_pillar: Optional[Literal["AHV", "BVG", "3a", "1e", "FZG"]] = None
     linked_position_id: Optional[str] = None
     notes: Optional[str] = None
 
@@ -388,6 +390,7 @@ class GoalUpdate(BaseModel):
     frequency: Optional[str] = None
     hardness: Optional[str] = None
     probability_pct: Optional[int] = Field(default=None, ge=0, le=100)
+    pension_pillar: Optional[Literal["AHV", "BVG", "3a", "1e", "FZG"]] = None
     linked_position_id: Optional[str] = None
     notes: Optional[str] = None
     is_active: Optional[bool] = None
@@ -414,6 +417,7 @@ class GoalResponse(BaseResponse):
     frequency: Optional[str]
     hardness: str
     probability_pct: Optional[int] = None
+    pension_pillar: Optional[str] = None
     linked_position_id: Optional[str]
     notes: Optional[str]
     is_active: int

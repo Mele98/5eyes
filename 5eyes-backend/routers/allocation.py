@@ -4,7 +4,7 @@ from datetime import date, datetime, timezone
 from database import get_db, new_uuid
 from models.users import User
 from models.mandates import Mandate
-from models.allocation import TargetAllocation, OptimizerPolicy, CapitalMarketAssumption, HouseMatrix, BuildingBlock
+from models.allocation import TargetAllocation, OptimizerPolicy, OptimizerRun, CapitalMarketAssumption, HouseMatrix, BuildingBlock
 from models.profiling import RiskAssessment
 from schemas.allocation import (
     TargetAllocationCreate, TargetAllocationResponse,
@@ -13,6 +13,7 @@ from schemas.allocation import (
     TargetAllocationGenerateRequest, TargetAllocationGenerateResponse,
     BuildingBlockResponse,
     AllocationSensitivityRequest, AllocationSensitivityResponse,
+    OptimizerRunResponse,
 )
 from services.auth import get_current_user, get_mandate_for_user_or_404, require_advisor, require_admin
 from services.audit import log
@@ -52,6 +53,31 @@ def get_current_allocation(
     if not ta:
         raise HTTPException(status_code=404, detail="Keine Soll-Allokation gefunden")
     return ta
+
+
+@router.get("/mandates/{mandate_id}/optimizer-runs",
+            response_model=list[OptimizerRunResponse])
+def list_optimizer_runs(
+    mandate_id: str,
+    limit: int = 50,
+    offset: int = 0,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """V3 Sprint 2: Liste der persistierten Solver-Laufe fuer ein Mandat.
+
+    Sortiert absteigend nach run_at (neueste zuerst). Default-Pagination
+    50/Anfrage. Wenn der Solver in keinem Modus lief, ist die Liste leer.
+    """
+    _get_mandate_or_404(mandate_id, db, current_user)
+    if limit < 1 or limit > 500:
+        raise HTTPException(status_code=422, detail="limit muss in [1, 500] sein")
+    if offset < 0:
+        raise HTTPException(status_code=422, detail="offset darf nicht negativ sein")
+    runs = db.query(OptimizerRun).filter(
+        OptimizerRun.mandate_id == mandate_id,
+    ).order_by(OptimizerRun.run_at.desc()).offset(offset).limit(limit).all()
+    return runs
 
 
 @router.get("/mandates/{mandate_id}/target-allocation/current/payload",

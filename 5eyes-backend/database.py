@@ -228,6 +228,9 @@ def ensure_runtime_columns() -> None:
             # Sprint B6 (2026-05-08): bedingte Goals — Eintrittswahrscheinlichkeit (0-100).
             # NULL bei pre-B6-Goals -> Engine interpretiert als 100 (sicher).
             ('probability_pct', 'INTEGER'),
+            # Sprint B3 (2026-05-08): Vorsorge-Saeule fuer Pensionsausgabe-Goals.
+            # AHV / BVG / 3a / 1e / FZG. NULL bei nicht-Pensionsausgabe oder unspezifiziert.
+            ('pension_pillar', 'TEXT'),
         ],
         'capital_market_assumptions': [
             ('correlation_matrix_json', 'TEXT'),
