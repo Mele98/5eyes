@@ -1568,7 +1568,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 
     <!-- PAGE: PORTFOLIO -->
     <div id="page-po" class="page">
-      <div class="ph"><div><div class="ph-t">Portfolio &mdash; ETFs &amp; Fonds</div><div class="ph-s">Produkt / Anlageklasse / Marktwert / Gewicht / Handlung</div></div><div class="ph-r"><button class="btn" onclick="om('m-ap')">+ Bestand</button><button class="btn-g" id="btn-po-refresh" onclick="refreshPortfolioFromStoredState()">Portfolio aktualisieren</button><button class="btn" onclick="openImplementationRecipe()">Rezept drucken / PDF</button><button class="btn-p" onclick="go('rv')">Review &rarr;</button></div></div>
+      <div class="ph"><div><div class="ph-t">Portfolio &mdash; ETFs &amp; Fonds</div><div class="ph-s">Was Sie heute halten &middot; was wir vorschlagen &middot; wie der &Uuml;bergang aussieht</div></div><div class="ph-r"><button class="btn" onclick="om('m-ap')">+ Bestand</button><button class="btn-g" id="btn-po-refresh" onclick="refreshPortfolioFromStoredState()">Portfolio aktualisieren</button><button class="btn" onclick="openImplementationRecipe()">Anlagerezept drucken</button><button class="btn-p" onclick="go('rv')">Weiter zum Review &rarr;</button></div></div>
       <div class="pad">
         <div style="background:var(--n8);border-radius:var(--r2);padding:10px 14px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">
           <div><div style="font-size:9px;font-weight:500;letter-spacing:0.08em;text-transform:uppercase;color:rgba(255,255,255,0.4);margin-bottom:2px">Beratungsvermögen total</div><div id="po-advisory-wealth" style="font-family:var(--f-d);font-size:19px;color:#fff">CHF 2'848'000</div></div>
@@ -1576,17 +1576,17 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
         </div>
         <div id="po-engine-warnings" style="display:none;background:#fff7ed;border:1px solid rgba(194,65,12,0.18);border-radius:var(--r);padding:10px 12px;margin-bottom:10px"></div>
         <div id="po-rebalance-summary" style="display:none;flex-direction:column;gap:8px;margin-bottom:10px"></div>
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;gap:10px;flex-wrap:wrap"><div style="font-size:10px;color:var(--n5)">Position anklicken für Allokation, Zielwert, TER und Handlung. Technische Preisdetails erscheinen nur auf Wunsch.</div><div style="font-size:9px;color:var(--n4);background:var(--bg);border:1px solid var(--b1);border-radius:999px;padding:4px 8px">Kundenansicht vorne, Beraterdetails auf Klick</div></div>
-        <div class="pcols"><div class="pch">Produkt</div><div class="pch">Anlageklasse</div><div class="pch" style="text-align:right">Marktwert</div><div class="pch" style="text-align:right">Gewicht</div><div class="pch" style="text-align:right">Handlung</div></div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;gap:10px;flex-wrap:wrap"><div style="font-size:10px;color:var(--n5)">Position anklicken zeigt Details: Soll-Anteil, Zielwert, Kosten und die vorgeschlagene Massnahme.</div><div style="font-size:9px;color:var(--n4);background:var(--bg);border:1px solid var(--b1);border-radius:999px;padding:4px 8px">Klick öffnet Berater-Details</div></div>
+        <div class="pcols"><div class="pch">Produkt</div><div class="pch">Anlageklasse</div><div class="pch" style="text-align:right">Marktwert</div><div class="pch" style="text-align:right">Gewicht</div><div class="pch" style="text-align:right">Massnahme</div></div>
         <div id="po-portfolio-sections"></div>
         <div style="background:var(--n8);border-radius:var(--r);padding:8px 14px;display:flex;justify-content:space-between;align-items:center;margin-top:5px"><span style="font-size:11px;font-weight:600;color:#fff;text-transform:uppercase;letter-spacing:0.04em">Total Beratungsvermögen</span><span id="po-total-footer" style="font-family:var(--f-d);font-size:17px;color:#d4b06a">CHF 2'848'000</span></div>
       </div>
-      <div class="cnav"><button class="btn" onclick="go('al')">← Zurück</button><button class="btn-p" onclick="go('rv')">Review →</button></div>
+      <div class="cnav"><button class="btn" onclick="go('al')">← Zurück zur Asset Allokation</button><button class="btn-p" onclick="go('rv')">Weiter zum Review →</button></div>
     </div>
 
     <!-- PAGE: REVIEW -->
     <div id="page-rv" class="page">
-      <div class="ph"><div><div class="ph-t">Review</div><div class="ph-s">IST vs. SOLL · Trigger · Entscheid</div></div><div class="ph-r"><button class="btn" onclick="om('m-nt')">+ Trigger</button><button class="btn-p" onclick="om('m-ne')">Entscheid protokollieren</button><button class="btn" onclick="printReport()">PDF</button><button class="btn-g" onclick="printAnlagestrategie()">Anlagestrategie ↓</button></div></div>
+      <div class="ph"><div><div class="ph-t">Review</div><div class="ph-s">Was wir heute pr&uuml;fen &middot; was sich seit dem letzten Gespr&auml;ch ge&auml;ndert hat &middot; was wir entscheiden</div></div><div class="ph-r"><button class="btn" onclick="om('m-nt')">+ Trigger</button><button class="btn-p" onclick="om('m-ne')">Entscheid protokollieren</button><button class="btn" onclick="printReport()">Review drucken</button><button class="btn-g" onclick="printAnlagestrategie()">Anlagestrategie als Dokument</button></div></div>
       <div class="strip" id="rv-alert-strip" style="display:none"></div>
       <div id="rv-decision-strip" style="display:none"></div>
       <div class="pad">
