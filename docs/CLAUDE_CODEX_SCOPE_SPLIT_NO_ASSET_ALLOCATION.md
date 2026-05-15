@@ -354,6 +354,59 @@ Erledigt, ohne Asset-Allocation-UX/Fachlogik anzufassen:
 
 Aktuelle technische Absicherung:
 
-- `tests/test_frontend_summary_contracts.py`
-- `tests/test_runtime_contracts.py`
+- `tests/test_runtime_contracts.py` (Routes-Inventar + Frontend-Contracts)
+- `tests/test_cashflow_summary_contract.py` (Cashflow → Summary Roundtrip)
+- `tests/test_frontend_navigation_contracts.py`
+- `tests/test_frontend_risk_questionnaire_contracts.py`
+- `tests/test_frontend_admin_market_data_panel.py` (P17 v2)
+- `tests/test_mandate_api_contracts.py` (Mandate-Roundtrip + investment_universe)
+- `tests/test_risk_assessment_w305_persistence.py` (W305-Felder Roundtrip)
 - JS-Syntaxcheck ueber alle Inline-Skripte in `5eyes_v2.html`
+
+Hinweis 2026-05-15: Die fruehere Referenz auf `tests/test_frontend_summary_contracts.py`
+existiert im aktuellen develop nicht — der Test-File war im wip-fe-review-Snapshot,
+nie auf develop gemerged. Aequivalente Coverage liegt in den oben gelisteten Files.
+
+## 12. Claude-Fortschritt 2026-05-15 (UX-Sprint)
+
+Customer-facing Wording-Sweep durch alle Sektionen ausser §2 (Risikoprofil
+ist FINMA-konform nach Vorlagen aufgebaut, bleibt visuell/inhaltlich
+unveraendert — siehe `feedback_risk_profile_finma.md`):
+
+1. **§1 Stammdaten/Vermoegen:** Card 'Gesamtvermoegen – Holistisch' →
+   'Ihr Gesamtvermoegen' + Subtitle 'Beratungsbasis + holistischer
+   Ueberblick'. page-vg Subtitle erklaert jetzt was zur Beratung gehoert
+   und was nur zum Gesamtbild.
+2. **§3 Cashflows/Ziele:** page-cf-Subtitle und Erklaerungs-Box auf
+   Bestaetigungs-Sprache umgestellt. Goal-Editor: 'Scope' →
+   'Bezugsgroesse' mit erklaerenden Optionen. Eintrittswahrscheinlichkeit-
+   Hinweis konkreter (Beispiel statt Mathe).
+3. **§4 Portfolio:** Header-Subtitle 'Was Sie heute halten · was wir
+   vorschlagen · wie der Uebergang aussieht'. Spalte 'Handlung' →
+   'Massnahme' (Codex: nicht als Trading-Tool).
+4. **§5 Review:** Subtitle in Consulting-Sprache umgeschrieben. Print-
+   Button 'PDF' → 'Review drucken' (kein Versprechen).
+5. **§6 Summary/POS:** 12 Wording-Aenderungen — KPI-Tiles, Cards,
+   Buttons, Empty-States. 'Beratungsvermoegen' → 'Anlagevermoegen',
+   'Heutiger Entscheid' → 'Was wir heute beschliessen', etc. IDs
+   unveraendert (Codex-Vertrag).
+6. **§7 Report (Bug + Wording):**
+   - m-rp-print 'PDF erstellen' war totes Button (`cm()`-only) —
+     ruft jetzt `printReport({pages:['rp']})`.
+   - m-rep 'Erstellen →' war ebenfalls totes Button — ruft jetzt
+     `printReport({source:'modal'})`.
+   - Format-Select 'PDF (A4) / PDF (anonymisiert) / Word (.docx)'
+     versprach 3 Pfade die nicht existieren — durch ehrlichen Hinweis
+     ersetzt: '«Als PDF speichern» im Druckdialog waehlen.'
+7. **§8 Admin:** Niedrig-Hebel laut Codex, sauber gelassen.
+
+Plus 2 echte Bug-Fixes parallel zur Wording-Arbeit:
+
+- **investment_universe** wurde vom create_mandate Handler ignoriert (immer
+  'Standard' persistiert trotz Body-Wert). Test + Fix.
+- **W305.03 Kenntnisse-Felder** (knowledge_services_json,
+  knowledge_instruments_json, income_sources_json) gingen still verloren
+  beim Risikoprofil-Speichern — Schema/Model/DB hatten sie, FE sendet sie,
+  Backend ignorierte sie. Compliance-relevant. Test + Fix.
+
+Alle IDs unveraendert. Test-Suite: 1186 → 1205 grün (+19). Branch develop @ 07dddea.
