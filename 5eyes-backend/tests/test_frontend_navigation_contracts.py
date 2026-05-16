@@ -43,7 +43,9 @@ def test_combined_cashflow_projection_has_own_root_and_responsive_grid():
     assert 'id="page-ub"' not in html
     assert 'id="ub-review-strip"' not in html
     assert "#cf-goals-projection .projection-grid" in html
-    assert "if(templateGrid)templateGrid.classList.add('projection-grid');" in html
+    # initDomLayout fügt templateGrid die projection-grid-Klasse hinzu — sowohl
+    # one-liner als auch block-statement-Variante akzeptiert.
+    assert "templateGrid.classList.add('projection-grid')" in html
 
 
 def test_cashflow_projection_renders_compact_hud_not_component_wall():

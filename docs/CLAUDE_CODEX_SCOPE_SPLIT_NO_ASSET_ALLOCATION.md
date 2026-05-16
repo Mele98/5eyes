@@ -211,14 +211,21 @@ Codex unten:
 - `renderStrategySummary()` stabil halten.
 - `printSummaryPage()` testen.
 - Summary-Contract-Tests erweitern.
-- Technische IDs erhalten:
-  - `sr-approval-grid`
-  - `sr-decision-grid`
-  - `sr-allocation-compare`
-  - `sr-portfolio-print`
-  - `sr-goals`
-  - `sr-conclusion`
+- Technische IDs erhalten (Stand 2026-05-16 verifiziert, 22 sr-* IDs total):
+  - `sr-risk-score`, `sr-risk-profile`, `sr-ovr-badge` (Risiko-KPI)
+  - `sr-wealth`, `sr-wealth-share` (Anlagevermögen-KPI)
+  - `sr-goal-score`, `sr-goal-sub`, `sr-goal-priority-list` (Ziele-KPI + Liste)
+  - `sr-proj-wealth`, `sr-proj-sub`, `sr-next-review`, `sr-next-review-date` (Prognose-KPI)
+  - `sr-strategy-name`, `sr-horizon`, `sr-allocation-bars` (Strategie-Card)
+  - `sr-pref-focus-chips`, `sr-pref-restriction-chips` (Präferenzen)
+  - `sr-implementation-steps`, `sr-decision-meta`, `sr-recipe-print` (Entscheid-Card)
+  - `sr-summary-print-inline`, `sr-signature-block` (Print-Flow)
 - Ziel-/Cashflow-/Risiko-/Portfolio-Daten sauber in Summary spiegeln.
+
+> Korrektur 2026-05-16: Frühere Listung (`sr-approval-grid`, `sr-decision-grid`,
+> `sr-allocation-compare`, `sr-portfolio-print`, `sr-goals`, `sr-conclusion`)
+> war Plan-Wording — diese IDs wurden nie implementiert. Die Liste oben ist
+> der echte Bestand aus `5eyes_v2.html`.
 
 Nicht anfassen durch Codex:
 
@@ -329,12 +336,12 @@ Erledigt, ohne Asset-Allocation-UX/Fachlogik anzufassen:
 6. Marktdaten-Frontend-Stubs (`fetchPrice`, `loadLivePrices`) delegieren an den Backend-Preisstatus statt stille Platzhalter zu sein.
 7. Risikoprofil-Speichern repariert (`surplusPoints` statt undefiniertem `incomePoints`) und Fehler/Summary-Datenfluss abgesichert.
 8. Portfolio-Holding Save/Delete nutzt den aktiven Mandatskontext und hat Tests fuer API-Pfad, Validierung, Refresh und Button-Reset.
-9. Admin-Benutzerfehler werden neben lokalen Feldern auch global sichtbar ausgegeben.
+9. Admin-Benutzerfehler werden modal-lokal sichtbar via `showAdminResult()` (Admin-Modal) + `showModalFeedback()` ausgegeben. *Hinweis 2026-05-16: ein echtes app-weites Notice-System (Toast/Banner) existiert nicht; nur Modal- und Admin-Scope.*
 10. Review-Protokoll-Modal verhindert Trigger-ID-Leaks zwischen triggergebundenen und freien Protokolleintraegen.
 11. Event-/Entscheidungs-/Protokoll-Modals setzen Fehlerzustand beim Oeffnen sauber zurueck.
 12. Vermoegensposition-Loeschpfad faellt bei fehlendem Kundenkontext nicht mehr versehentlich in Demo-Loeschung.
-13. Ziel- und Kundenladefehler sowie Summary-Print-Refresh-Fehler werden sichtbar gemeldet statt nur geloggt.
-14. Cashflow- und Stammdaten-Speicherfehler werden lokal und global sichtbar ausgegeben.
+13. Ziel- und Kundenladefehler sowie Summary-Print-Refresh-Fehler werden via `showModalFeedback()`/`parseApiError()` sichtbar gemeldet statt nur geloggt.
+14. Cashflow- und Stammdaten-Speicherfehler werden modal-lokal via `showModalFeedback()` ausgegeben. *Kein app-weites Notice-System — siehe Hinweis bei Item 9.*
 15. Neues Mandat setzt Vermoegen, Cashflows, Ziele, Review und Strategie-State sauber zurueck, damit keine Alt-Daten in den neuen Kundenkontext laufen.
 16. Kundenliste zeigt leere und fehlerhafte Zustaende sichtbar und escaped Sidebar-Labels.
 17. Entfernte Budget-Seite ist als klarer No-op dokumentiert; keine `Stub:`-/`Platzhalter`-Marker bleiben im Frontend.
@@ -342,11 +349,11 @@ Erledigt, ohne Asset-Allocation-UX/Fachlogik anzufassen:
 19. Initialer Kundenladepfad wartet auf den ersten Kunden, bevor `initApp()` weiterlaeuft.
 20. Neu angelegte Kunden werden in `liveClients` synchronisiert; Sidebar-Klicks laden echte Kunden wieder ueber `loadClientById()`.
 21. Demo-/Teilfehler beim Mandat-Anlegen leeren den Mandatskontext, damit kein altes Mandat in neuen Screens haengen bleibt.
-22. Risikoprofil-Override ist nicht mehr nur visuell: Pflichtbegruendung, Backend-Persistenz, sichtbare Fehler und Summary-Anzeige nutzen den effektiven Override-Score.
-23. Review-/Dokument-Flows fuer Protokoll, Trigger, Dokument-Entwurf und Entscheidungsvorlage melden Speicherfehler nun lokal und global sichtbar.
-24. Foundation-Case, Ereignis-Erfassung, Vermoegenspositionen und Ziele nutzen bei Speicherfehlern einheitliche `parseApiError`-Meldungen plus globale App-Notices.
-25. Login, Bootstrap, Admin-Audit-Log und Admin-Benutzeranlage nutzen ebenfalls sichtbare, einheitliche Fehlerfuehrung statt roher API-Meldungen.
-26. Dynamische Inline-Handler fuer Admin, Vermoegen, Cashflows, Review, Dokumente und Ziele nutzen `jsAttrArg()` statt HTML-Escaping als JS-String-Ersatz.
+22. Risikoprofil-Override ist nicht mehr nur visuell: Pflichtbegruendung, Backend-Persistenz via POST `/mandates/{id}/risk-assessments/{ra_id}/override`, modal-sichtbare Fehler und Summary-Anzeige nutzen den effektiven Override-Score.
+23. Review-/Dokument-Flows fuer Protokoll, Trigger, Dokument-Entwurf und Entscheidungsvorlage melden Speicherfehler modal-lokal via `showModalFeedback()` + `parseApiError()`.
+24. Foundation-Case, Ereignis-Erfassung, Vermoegenspositionen und Ziele nutzen bei Speicherfehlern einheitliche `parseApiError`-Meldungen via `showModalFeedback()`.
+25. Login, Bootstrap, Admin-Audit-Log und Admin-Benutzeranlage nutzen ebenfalls sichtbare, einheitliche Fehlerfuehrung via `showAdminResult()`/`showModalFeedback()` statt roher API-Meldungen.
+26. *Korrektur 2026-05-16: Die behauptete `jsAttrArg()`-Funktion existiert nicht im Code. Dynamische Inline-Handler nutzen `escapeHtml()` für HTML-Escape und String-Konkatenation für onclick-Argumente. Wenn künftig dynamisch generierte onclick-Strings JS-Injection vermeiden sollen, wäre ein `jsAttrArg()`-Helper sinnvoll — aber Item ist nicht erledigt.*
 27. Report-/Summary-Druck hat sichtbare Fallback-Meldungen, wenn Druckfenster, Seitenerzeugung oder Druckdialog nicht sauber starten.
 28. Loeschpfade fuer Cashflows, Ziele und Vermoegenspositionen setzen Button-Zustaende, warten auf Refreshes und markieren Strategie/Summary konsequent als aktualisierungsbeduerftig.
 29. Backdrop-Klicks auf Modals laufen ueber `cm(id)` und damit ueber denselben Cleanup-Pfad wie explizite Schliessen-Buttons.

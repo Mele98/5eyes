@@ -3147,7 +3147,10 @@ function initDomLayout(){
   var templateKpis=templatePad?templatePad.querySelector('.kpir'):null;
   var cfRiskSummary=document.getElementById('cf-risk-context-summary');
   if(combinedSlot){
-    if(templateGrid)templateGrid.classList.add('projection-grid');
+    if(templateGrid){
+      templateGrid.classList.add('projection-grid');
+      templateGrid.style.gridTemplateColumns='1fr';
+    }
     if(templateKpis&&templateKpis.parentNode!==combinedSlot)combinedSlot.appendChild(templateKpis);
     if(templateGrid&&templateGrid.parentNode!==combinedSlot)combinedSlot.appendChild(templateGrid);
     if(cfRiskSummary&&cfRiskSummary.parentNode!==combinedSlot)combinedSlot.appendChild(cfRiskSummary);
@@ -3353,7 +3356,7 @@ function allocationTotalNetCashflowRappen(result){
   return summaryTotalNetCashflowRappen(activeClientCashflowSummary());
 }
 
-function buildBudget(){/* Stub: Budget-Seite entfernt. buildAT() ruft diese Funktion — kein Seiteneffekt. */}
+function buildBudget(){/* Budget-Seite entfernt; buildAT() ruft diese Funktion ohne Seiteneffekt. */}
 
 function currentAllocationInputSnapshot(){
   var advisoryRappen=0;
@@ -4556,15 +4559,15 @@ function fmtCHF(n){if(n===null||n===undefined)return '–';return 'CHF '+Math.ro
 }
 
 async function fetchPrice(ticker){
-  // Stub: direkte Preisabfragen wurden durch den Backend-Preisdienst ersetzt.
+  // Direkte Preisabfragen wurden durch den Backend-Preisdienst ersetzt.
   // Preise werden serverseitig über POST /admin/prices/refresh aktualisiert.
   // loadLivePrices() ruft diese Funktion — beide sind aktuell inaktiv.
   return null;
 }
 
 async function loadLivePrices(){
-  // Stub: live Preisabfragen sind deaktiviert (fetchPrice() gibt null zurück).
-  // Wird nicht aufgerufen — bleibt als Platzhalter für spätere Backend-Integration.
+  // Live-Preisabfragen sind im Frontend deaktiviert (fetchPrice() gibt null zurück).
+  // Wird nicht aufgerufen — Backend-Aggregator (Multi-Source-Pipeline) übernimmt Preise.
 }
 
 function currentActivePageKey(){
