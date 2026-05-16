@@ -3514,17 +3514,13 @@ function cashflowProjectionComponents(row){
 }
 
 function normalizeConversationLabels(){
-  var cfPage=document.getElementById('page-cf');
-  if(cfPage){
-    var subtitle=cfPage.querySelector('.ph-s');
-    if(subtitle)subtitle.textContent='Zufluesse · Ausgaben · Ziele · aktueller Vermoegenspfad';
-    var nextHeader=cfPage.querySelector('.ph-r .btn-p');
-    if(nextHeader)nextHeader.textContent='Risikoprofil ->';
-    var nextNav=cfPage.querySelector('.cnav .btn-p');
-    if(nextNav)nextNav.textContent='Risikoprofil ->';
-  }
-  var projectionHeader=document.querySelector('#page-cf .card.mb .cht');
-  if(projectionHeader)projectionHeader.textContent='Aktueller Vermoegenspfad';
+  // 2026-05-16: Funktion neutralisiert. Vorher hat sie zur Laufzeit den
+  // page-cf-Subtitle, die Header- und Footer-Buttons sowie den Projection-
+  // Card-Header auf alte Domain-Slang-Strings ('Zufluesse · Ausgaben · Ziele
+  // · aktueller Vermoegenspfad', 'Risikoprofil ->', 'Aktueller Vermoegenspfad')
+  // ueberschrieben — das hat die im HTML hinterlegten Customer-UX-Wording-
+  // Aenderungen still rueckgaengig gemacht. Quelle der Wahrheit fuer
+  // Labels ist jetzt der HTML-Static. Aufrufer bleiben no-op-safe.
 }
 
 function normalizeProjectionChartsPresentation(){
