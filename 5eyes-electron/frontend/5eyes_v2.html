@@ -3156,11 +3156,11 @@ function initDomLayout(){
   var cfHeaderTitle=cfPage.querySelector('.ph-t');
   if(cfHeaderTitle)cfHeaderTitle.textContent='Cashflows & Ziele';
   var cfHeaderSubtitle=cfPage.querySelector('.ph-s');
-  if(cfHeaderSubtitle)cfHeaderSubtitle.textContent='Zufl\u00fcsse \u00b7 Ausgaben \u00b7 Ziele \u00b7 aktueller Verm\u00f6genspfad';
+  if(cfHeaderSubtitle)cfHeaderSubtitle.textContent='Was rein- und rausfliesst \u00b7 Ihre Ziele \u00b7 IST-Pfad ohne Optimierung';
   var cfHeaderNext=cfPage.querySelector('.ph-r .btn-p');
-  if(cfHeaderNext){cfHeaderNext.textContent='Risikoprofil \u2192';cfHeaderNext.setAttribute('onclick',"go('rp')");}
+  if(cfHeaderNext){cfHeaderNext.textContent='Weiter zum Risikoprofil \u2192';cfHeaderNext.setAttribute('onclick',"go('rp')");}
   var cfNavNext=cfPage.querySelector('.cnav .btn-p');
-  if(cfNavNext){cfNavNext.textContent='Risikoprofil \u2192';cfNavNext.setAttribute('onclick',"go('rp')");}
+  if(cfNavNext){cfNavNext.textContent='Weiter zum Risikoprofil \u2192';cfNavNext.setAttribute('onclick',"go('rp')");}
 
   var sdHeaderNext=sdPage.querySelector('.ph-r .btn-p');
   if(sdHeaderNext){sdHeaderNext.textContent='Vermögen →';sdHeaderNext.setAttribute('onclick',"go('vg')");}
@@ -3180,11 +3180,11 @@ function initDomLayout(){
   }
 
   var rpHeaderNext=rpPage.querySelector('.ph-r .btn-p');
-  if(rpHeaderNext){rpHeaderNext.textContent='Asset Allokation →';rpHeaderNext.setAttribute('onclick',"go('al')");}
+  if(rpHeaderNext){rpHeaderNext.textContent='Weiter zur Asset Allokation →';rpHeaderNext.setAttribute('onclick',"go('al')");}
   var rpNavBack=rpPage.querySelector('.cnav .btn');
   if(rpNavBack)rpNavBack.setAttribute('onclick',"go('cf')");
   var rpNavNext=rpPage.querySelector('.cnav .btn-p');
-  if(rpNavNext){rpNavNext.textContent='Asset Allokation →';rpNavNext.setAttribute('onclick',"go('al')");}
+  if(rpNavNext){rpNavNext.textContent='Weiter zur Asset Allokation →';rpNavNext.setAttribute('onclick',"go('al')");}
   var rpStepHint=rpPage.querySelector('.card .cbody div[style*="margin-bottom:10px"]');
   if(rpStepHint)rpStepHint.innerHTML='Strategische Soll-Quoten und Building Blocks werden in der <strong>Asset Allokation</strong> im nachfolgenden Strategiemodul definiert.';
   var goalProgressValue=document.getElementById('kpi-goal-progress');
