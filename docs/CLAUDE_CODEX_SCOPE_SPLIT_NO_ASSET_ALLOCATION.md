@@ -414,3 +414,48 @@ Plus 2 echte Bug-Fixes parallel zur Wording-Arbeit:
   Backend ignorierte sie. Compliance-relevant. Test + Fix.
 
 Alle IDs unveraendert. Test-Suite: 1186 → 1205 grün (+19). Branch develop @ 07dddea.
+
+## 13. Claude-Fortschritt 2026-05-16 (Customer-Journey-Korrektur + Asset Allocation)
+
+User-Korrektur zur Methodik: Customer Journey nach 3eyes-Vorlage ist
+SD → CF/Ziele (mit IST-Grafik) → RP → **SAA (page-al, Hauptschritt)** → PO.
+Portfolio (§4) ist die **Ableitung der Asset Allocation in konkrete
+ISIN-Produkte**, nicht 'Bestand vs. Empfehlung'.
+
+Quelle: `~/Desktop/Consulting Firma/3eyes/erklärung drei augen.pdf`
+(Schulung Swiss Life Wealth Managers, 09.04.2024). Memory:
+`project_5eyes_customer_journey.md`.
+
+**Korrekturen nach 3eyes-Methodik:**
+
+1. **§4 Portfolio:** Header-Subtitle korrigiert auf 'Umsetzung Ihrer
+   Asset Allocation in konkrete Produkte (ISIN)'.
+2. **§1 Stammdaten — Beratungsvermoegen:** Section-Heading bekommt
+   Erklärung '— was wir zielgerichtet investieren' (= Subset vom
+   Gesamtvermoegen für SAA-Optimierung).
+3. **§3 Cashflows/Ziele — IST-Grafik:** Subtitle nennt explizit
+   'IST-Pfad ohne Optimierung'; Erklärungs-Box verweist auf SOLL in
+   der Asset Allokation. Methodisch: IST = Baseline ohne Strategie-
+   Anpassung, SOLL = nach stochastischer Optimierung.
+
+**page-al Asset Allokation — neu im UX-Sprint (zentraler Schritt):**
+
+- Header-Subtitle: 'Zielbild · Soll-Prognose · Strategische Herleitung'
+  → 'SOLL-Strategie aus Risikoprofil, Zielen und Beratungsvermögen —
+  stochastisch optimiert' (nennt die 3 Inputs + Methode)
+- Dirty-Banner konkretisiert welche Datenquellen geändert wurden
+- Card 'SOLL-Quoten nach Anlageklassen' nennt die 4 Anlageklassen +
+  verweist auf Portfolio (ISIN) und Review (Drift)
+- Card 'SOLL-Prognose' macht klar dass Hauptchart die optimierte Sicht
+  ist, IST-Benchmark unter «Kennzahlen» aufklappbar
+- Card 'Warum diese Soll-Allokation?' nennt Mulvey/Ziemba explizit als
+  Methode, Building Blocks (SLAM-Input) als Leitplanken
+
+**Konsistenz-Sweep cnav-Buttons:**
+
+3 inkonsistente Footer-cnav-Buttons (page-vg, page-rp, page-al) hatten
+kurze 'X →' Labels statt 'Weiter zu X →' / 'Zurück zu X' Pattern. Jetzt
+über alle 7 Customer-Journey-Pages durchgängig konsistent.
+
+Test-Suite: 1205 passed (+0 — keine neuen Tests, da Wording-Only). Branch
+develop @ 42f4d4e.
