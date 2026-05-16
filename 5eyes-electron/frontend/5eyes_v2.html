@@ -4685,7 +4685,7 @@ function printSummaryPage(){
   },20);
 }
 
-function buildAnlagestrategieDocHtml(allocation,risk,persona,mandateData){
+function buildAnlagestrategieDocHtml(allocation,risk,persona,mandateData,recommendation){
   var today=new Date().toLocaleDateString('de-CH',{year:'numeric',month:'long',day:'numeric'});
   var clientName=persona?((persona.salutation?persona.salutation+' ':'')+((persona.first_name||persona.name||'')+' '+(persona.last_name||'')).trim()).trim():'—';
   var advisoryChf=allocation?Math.round(Number(allocation.advisory_wealth_rappen||0)/100):0;
@@ -4699,6 +4699,9 @@ function buildAnlagestrategieDocHtml(allocation,risk,persona,mandateData){
   var expectedReturnBps=Number(allocation&&allocation.expected_return_bps||0);
   var expectedVolBps=Number(allocation&&allocation.expected_volatility_bps||0);
   var mandateLabel=mandateData&&mandateData.mandate_number?('Mandat '+mandateData.mandate_number):(mandateData&&mandateData.mandate_type?mandateData.mandate_type:'Anlageberatung');
+  var portfolioPositions=recommendation&&Array.isArray(recommendation.positions)
+    ? recommendation.positions
+    : (Array.isArray(currentPortfolioPositions)?currentPortfolioPositions:[]);
   // Bucket color
   function bucketColor(ac){
     var k=String(ac||'').toLowerCase();
@@ -4725,7 +4728,7 @@ function buildAnlagestrategieDocHtml(allocation,risk,persona,mandateData){
     +'</div></div></div>';
   // Section 1b: Kenntnisse & Erfahrungen (SwissLife W305.03 Seite 1)
   var keHtml='';
-  if(riskData&&(riskData.knowledge_services_json||riskData.knowledge_instruments_json)){
+  if(risk&&(risk.knowledge_services_json||risk.knowledge_instruments_json)){
     function _buildKeTable(title,jsonStr){
       var data={}; try{data=JSON.parse(jsonStr||'{}');}catch(e){}
       var keys=Object.keys(data);
@@ -4749,8 +4752,8 @@ function buildAnlagestrategieDocHtml(allocation,risk,persona,mandateData){
     }
     keHtml='<div style="margin-bottom:24px">'
       +'<div style="font-size:9px;font-weight:700;letter-spacing:0.13em;text-transform:uppercase;color:#64748b;border-bottom:2px solid #e2e8f0;padding-bottom:6px;margin-bottom:12px">Kenntnisse &amp; Erfahrungen (W305.03)</div>'
-      +_buildKeTable('Finanzdienstleistungen',riskData.knowledge_services_json||'{}')
-      +_buildKeTable('Finanzinstrumente',riskData.knowledge_instruments_json||'{}')
+      +_buildKeTable('Finanzdienstleistungen',risk.knowledge_services_json||'{}')
+      +_buildKeTable('Finanzinstrumente',risk.knowledge_instruments_json||'{}')
       +'</div>';
   }
   // Section 2: Risikoprofil
@@ -4795,6 +4798,94 @@ function buildAnlagestrategieDocHtml(allocation,risk,persona,mandateData){
     +'<tbody>'+allocTableRows+'</tbody>'
     +(totalAmtChf?'<tfoot><tr style="border-top:2px solid #e2e8f0"><td colspan="4" style="padding:8px 12px;font-size:10px;font-weight:600;color:#334155">Total Beratungsvermögen</td><td style="padding:8px 12px;font-size:11px;font-weight:700;color:#0f172a;text-align:right">CHF '+totalAmtChf.toLocaleString('de-CH')+'</td></tr></tfoot>':'')
     +'</table></div>':'';
+  // Section 4: Portfolio implementation
+  function reportPositionAmountRappen(row){
+    if(!row)return 0;
+    var target=Number(row.target_amount_rappen||0);
+    if(target>0)return Math.round(target);
+    try{
+      if(typeof portfolioMarketValueRappen==='function')return Math.round(portfolioMarketValueRappen(row)||0);
+    }catch(e){}
+    return Math.round(Number(row.market_value_rappen||row.current_market_value_rappen||0));
+  }
+  function reportPositionWeightBps(row,totalRappen){
+    var bps=Number(row&&row.target_weight_bps||0);
+    if(bps)return bps;
+    var amount=reportPositionAmountRappen(row);
+    return totalRappen>0?Math.round(amount/totalRappen*10000):0;
+  }
+  var portfolioHtml='';
+  if(portfolioPositions.length){
+    var totalPortfolioRappen=portfolioPositions.reduce(function(sum,row){return sum+reportPositionAmountRappen(row);},0);
+    var weightedTerBps=totalPortfolioRappen>0
+      ? portfolioPositions.reduce(function(sum,row){
+          return sum+reportPositionAmountRappen(row)*Number(row&&row.ter_bps||0);
+        },0)/totalPortfolioRappen
+      : 0;
+    var currencyMap={};
+    portfolioPositions.forEach(function(row){
+      var c=String(row&&row.currency||'CHF').trim()||'CHF';
+      currencyMap[c]=true;
+    });
+    var grouped={};
+    portfolioPositions.forEach(function(row){
+      var key=assetDisplayName(row&&row.asset_class||'Portfolio');
+      if(!grouped[key])grouped[key]=[];
+      grouped[key].push(row);
+    });
+    var groupHtml=Object.keys(grouped).map(function(groupName){
+      var rows=grouped[groupName];
+      var subtotal=rows.reduce(function(sum,row){return sum+reportPositionAmountRappen(row);},0);
+      var rowHtml=rows.map(function(row){
+        var amount=reportPositionAmountRappen(row);
+        var weightBps=reportPositionWeightBps(row,totalPortfolioRappen);
+        var product=row&&row.product_name?String(row.product_name):'Produkt';
+        var isin=row&&row.isin?String(row.isin):'n/a';
+        var sub=row&&(row.sub_asset_class||row.asset_class)?assetDisplayName(row.sub_asset_class||row.asset_class):'';
+        var currency=String(row&&row.currency||'CHF');
+        var ter=Number(row&&row.ter_bps||0);
+        var provider=row&&(row.provider||row.issuer||row.reference_data_provider)?String(row.provider||row.issuer||row.reference_data_provider):'';
+        return '<tr style="border-bottom:1px solid #f1f5f9">'
+          +'<td style="padding:7px 10px;font-size:10px;color:#334155"><div style="font-weight:600;color:#0f172a;margin-bottom:2px">'+escapeHtml(product)+'</div><div style="font-size:8px;color:#94a3b8;letter-spacing:0.04em">'+escapeHtml(isin)+(provider?' / '+escapeHtml(provider):'')+'</div></td>'
+          +'<td style="padding:7px 10px;font-size:9px;color:#64748b">'+escapeHtml(sub)+'</td>'
+          +'<td style="padding:7px 10px;font-size:10px;color:#334155;text-align:right">'+escapeHtml(formatBpsPercent(weightBps))+'</td>'
+          +'<td style="padding:7px 10px;font-size:10px;color:#334155;text-align:right">'+escapeHtml(formatRappen(amount))+'</td>'
+          +'<td style="padding:7px 10px;font-size:10px;color:#334155;text-align:center">'+escapeHtml(currency)+'</td>'
+          +'<td style="padding:7px 10px;font-size:10px;color:#334155;text-align:right">'+(ter/100).toFixed(2)+'%</td>'
+          +'</tr>';
+      }).join('');
+      return '<div style="page-break-inside:avoid;margin-top:12px">'
+        +'<div style="display:flex;justify-content:space-between;align-items:flex-end;border-bottom:1px solid #e2e8f0;padding-bottom:5px;margin-bottom:4px">'
+        +'<div style="font-size:10px;font-weight:700;color:#0f172a">'+escapeHtml(groupName)+'</div>'
+        +'<div style="font-size:9px;color:#64748b">'+escapeHtml(formatRappen(subtotal))+' / '+escapeHtml(formatBpsPercent(totalPortfolioRappen>0?Math.round(subtotal/totalPortfolioRappen*10000):0))+'</div>'
+        +'</div>'
+        +'<table style="width:100%;border-collapse:collapse">'
+        +'<thead><tr>'
+        +'<th style="padding:5px 10px;font-size:8px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#94a3b8;text-align:left">Produkt</th>'
+        +'<th style="padding:5px 10px;font-size:8px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#94a3b8;text-align:left">Subklasse</th>'
+        +'<th style="padding:5px 10px;font-size:8px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#94a3b8;text-align:right">Soll</th>'
+        +'<th style="padding:5px 10px;font-size:8px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#94a3b8;text-align:right">Zielwert</th>'
+        +'<th style="padding:5px 10px;font-size:8px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#94a3b8;text-align:center">Währung</th>'
+        +'<th style="padding:5px 10px;font-size:8px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#94a3b8;text-align:right">TER</th>'
+        +'</tr></thead><tbody>'+rowHtml+'</tbody></table></div>';
+    }).join('');
+    portfolioHtml='<div style="margin-bottom:24px;page-break-inside:avoid">'
+      +'<div style="font-size:9px;font-weight:700;letter-spacing:0.13em;text-transform:uppercase;color:#64748b;border-bottom:2px solid #e2e8f0;padding-bottom:6px;margin-bottom:14px">Umsetzung in Produkte (ISIN)</div>'
+      +'<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px">'
+      +'<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:11px 12px"><div style="font-size:8px;text-transform:uppercase;color:#94a3b8;margin-bottom:4px">Produkte</div><div style="font-size:18px;font-weight:700;color:#0f172a">'+String(portfolioPositions.length)+'</div></div>'
+      +'<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:11px 12px"><div style="font-size:8px;text-transform:uppercase;color:#94a3b8;margin-bottom:4px">Zielvolumen</div><div style="font-size:16px;font-weight:700;color:#0f172a">'+escapeHtml(formatRappen(totalPortfolioRappen))+'</div></div>'
+      +'<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:11px 12px"><div style="font-size:8px;text-transform:uppercase;color:#94a3b8;margin-bottom:4px">Gewichtete TER</div><div style="font-size:18px;font-weight:700;color:#0f172a">'+(weightedTerBps/100).toFixed(2)+'%</div></div>'
+      +'<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:11px 12px"><div style="font-size:8px;text-transform:uppercase;color:#94a3b8;margin-bottom:4px">Währungen</div><div style="font-size:16px;font-weight:700;color:#0f172a">'+escapeHtml(Object.keys(currencyMap).join(', ')||'CHF')+'</div></div>'
+      +'</div>'
+      +'<div style="font-size:9px;color:#64748b;line-height:1.55;margin-bottom:8px">Das Portfolio ist die konkrete Umsetzung der Soll-Allokation in Produktbausteine. Detailbestände und spätere Live-Drift werden im Review nachgeführt.</div>'
+      +groupHtml
+      +'</div>';
+  }else{
+    portfolioHtml='<div style="margin-bottom:24px;page-break-inside:avoid">'
+      +'<div style="font-size:9px;font-weight:700;letter-spacing:0.13em;text-transform:uppercase;color:#64748b;border-bottom:2px solid #e2e8f0;padding-bottom:6px;margin-bottom:14px">Umsetzung in Produkte (ISIN)</div>'
+      +'<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px 14px;font-size:10px;color:#64748b;line-height:1.6">Noch kein Produktrezept im aktuellen App-Zustand geladen. Sobald das Portfolio generiert wurde, erscheint hier die Produktliste mit ISIN, Zielgewicht, Zielwert, Währung und TER.</div>'
+      +'</div>';
+  }
   // Section 4: MC Risk indicators
   var mcHtml='';
   if(expectedReturnBps||expectedVolBps){
@@ -4864,7 +4955,7 @@ function buildAnlagestrategieDocHtml(allocation,risk,persona,mandateData){
   var footerHtml='<div style="margin-top:36px;padding-top:12px;border-top:1px solid #e2e8f0">'
     +'<div style="font-size:8px;color:#94a3b8;line-height:1.6">Dieses Dokument wurde in Übereinstimmung mit dem Bundesgesetz über die Finanzdienstleistungen (FIDLEG) erstellt. Es dient der Dokumentation der Anlageberatung und stellt keine Garantie für Anlageergebnisse dar. Vergangenheitswerte sind kein verlässlicher Indikator für zukünftige Ergebnisse. Erstellt am '+escapeHtml(today)+'.</div>'
     +'</div>';
-  return headerHtml+'\n<div style="padding:28px 36px 36px">'+keHtml+riskHtml+allocHtml+goalsHtml+mcHtml+sigHtml+footerHtml+'</div>';
+  return headerHtml+'\n<div style="padding:28px 36px 36px">'+keHtml+riskHtml+allocHtml+portfolioHtml+goalsHtml+mcHtml+sigHtml+footerHtml+'</div>';
 }
 function syncPortfolioUmsetzenButtonVisibility(){
   var btn=document.getElementById('btn-portfolio-umsetzen');
@@ -5031,7 +5122,7 @@ function printAnlagestrategie(){
   var clientName=reportClientLabel();
   var today=new Date().toLocaleDateString('de-CH');
   var docTitle='Anlagestrategie \u2013 '+clientName+' \u2013 '+today;
-  var bodyHtml=buildAnlagestrategieDocHtml(allocation,risk,currentPersona,currentMandateData);
+  var bodyHtml=buildAnlagestrategieDocHtml(allocation,risk,currentPersona,currentMandateData,strategyState&&strategyState.recommendation);
   var win=window.open('','_blank','noopener,noreferrer,width=1100,height=950');
   if(!win){window.print();return;}
   win.document.open();
@@ -13337,19 +13428,9 @@ function isAllocationTimelineCashflow(item){
   var type=String(item.cashflow_type||item.type||'');
   return type==='Income'||type==='Expense';
 }
-function allocationTimelineIsOneOff(item){
-  return !!(isOneOffCashflow(item&&item.frequency)||String(item&&item.nature||'').toLowerCase()==='einmalig');
-}
-function allocationTimelineSectionLabel(item){
-  var isIncome=String(item&&item.cashflow_type||'')==='Income';
-  if(allocationTimelineIsOneOff(item))return isIncome?'Kapitalzufluesse':'Kapitalabfluesse';
-  return isIncome?'Laufende Einnahmen':'Laufende Ausgaben';
-}
-function allocationTimelineSectionRank(label){
-  var order=['Laufende Einnahmen','Laufende Ausgaben','Kapitalzufluesse','Kapitalabfluesse'];
-  var idx=order.indexOf(label);
-  return idx>=0?idx:order.length;
-}
+// 2026-05-16: 3 identische Duplikate (allocationTimelineIsOneOff,
+// allocationTimelineSectionLabel, allocationTimelineSectionRank) entfernt —
+// Original-Definitionen stehen in Z 13270-13278 und sind ausreichend.
 function allocationTimelineRangeLabel(item){
   var start=normalizeCashflowDateValue(item&&item.valid_from);
   var end=normalizeCashflowDateValue(item&&item.valid_until);
