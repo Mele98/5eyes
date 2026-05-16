@@ -4704,7 +4704,7 @@ function printSummaryPage(){
   },20);
 }
 
-function buildAnlagestrategieDocHtml(allocation,risk,persona,mandateData,recommendation){
+function buildAnlagestrategieDocHtmlLegacy(allocation,risk,persona,mandateData,recommendation){
   var today=new Date().toLocaleDateString('de-CH',{year:'numeric',month:'long',day:'numeric'});
   var reportSubject='Kundendossier';
   var advisoryChf=allocation?Math.round(Number(allocation.advisory_wealth_rappen||0)/100):0;
@@ -4975,6 +4975,389 @@ function buildAnlagestrategieDocHtml(allocation,risk,persona,mandateData,recomme
     +'<div style="font-size:8px;color:#94a3b8;line-height:1.6">Dieses Dokument wurde in Übereinstimmung mit dem Bundesgesetz über die Finanzdienstleistungen (FIDLEG) erstellt. Es dient der Dokumentation der Anlageberatung und stellt keine Garantie für Anlageergebnisse dar. Vergangenheitswerte sind kein verlässlicher Indikator für zukünftige Ergebnisse. Erstellt am '+escapeHtml(today)+'.</div>'
     +'</div>';
   return headerHtml+'\n<div style="padding:28px 36px 36px">'+keHtml+riskHtml+allocHtml+portfolioHtml+goalsHtml+mcHtml+sigHtml+footerHtml+'</div>';
+}
+
+function buildAnlagestrategieDocHtml(allocation,risk,persona,mandateData,recommendation){
+  var todayLong=new Date().toLocaleDateString('de-CH',{year:'numeric',month:'long',day:'numeric'});
+  var todayShort=new Date().toLocaleDateString('de-CH');
+  var advisorName='Emanuele Konzelmann';
+  var brandName='Emanuele Konzelmann';
+  var p=persona||{};
+  var clientName=reportClientLabel();
+  var clientAddress=[p.address||p.street||'', [p.postal_code||p.zip||'', p.city||p.region||''].join(' ').trim()].filter(Boolean).join('<br>');
+  var mandateLabel=mandateData&&mandateData.mandate_number?('Mandat '+mandateData.mandate_number):(mandateData&&mandateData.mandate_type?mandateData.mandate_type:'Anlageberatung');
+  var buckets=allocation&&Array.isArray(allocation.buckets)?allocation.buckets:[];
+  var scoredGoals=allocation&&Array.isArray(allocation.goal_analysis)?allocation.goal_analysis:[];
+  var portfolioPositions=recommendation&&Array.isArray(recommendation.positions)
+    ? recommendation.positions
+    : (Array.isArray(currentPortfolioPositions)?currentPortfolioPositions:[]);
+  var sim=allocation?simulationPayload(allocation):null;
+  var riskAnswers=[];
+  if(risk&&Array.isArray(risk.answers))riskAnswers=risk.answers;
+  else if(risk&&typeof risk.answers_json==='string'){try{riskAnswers=JSON.parse(risk.answers_json)||[];}catch(e){}}
+  var prefs={};
+  try{prefs=typeof loadAllocationPreferences==='function'?loadAllocationPreferences():{};}catch(e){prefs={};}
+  var prefClasses=prefs&&prefs.assetClasses?prefs.assetClasses:{};
+
+  function safeText(value,fallback){
+    var raw=String(value==null?'':value).trim();
+    return raw||fallback||'—';
+  }
+  function money(rappen){
+    var n=Math.round(Number(rappen||0));
+    var sign=n<0?'−':'';
+    return sign+'CHF '+Math.round(Math.abs(n)/100).toLocaleString('de-CH');
+  }
+  function moneyChf(chf){
+    return 'CHF '+Math.round(Number(chf||0)).toLocaleString('de-CH');
+  }
+  function pct(bps){
+    return formatBpsPercent(Math.round(Number(bps||0)));
+  }
+  function dateRange(start,end){
+    var parts=[start,end].filter(Boolean).map(function(value){return String(value).slice(0,7).replace('-','.')});
+    return parts.length?parts.join(' - '):'—';
+  }
+  function section(label){
+    return '<div class="sl-section-title">'+escapeHtml(label)+'</div>';
+  }
+  function answer(questionNumber,fallback){
+    var row=(riskAnswers||[]).find(function(item){return Number(item&&item.question_number)===Number(questionNumber);});
+    return safeText(row&&row.answer_label,fallback||'Nicht dokumentiert');
+  }
+  function knowledgeSummary(jsonStr,label){
+    var data={}; try{data=JSON.parse(jsonStr||'{}');}catch(e){}
+    var keys=Object.keys(data||{});
+    if(!keys.length)return label+': nicht dokumentiert';
+    var known=keys.filter(function(k){return data[k]&&data[k].known;}).length;
+    var informed=keys.filter(function(k){return data[k]&&data[k].informed;}).length;
+    return label+': '+known+' Kenntnisse, '+informed+' Aufklärungen dokumentiert';
+  }
+  function reportRow(cells,total){
+    return {cells:cells,total:!!total};
+  }
+  function cellHtml(value){
+    if(value&&typeof value==='object'&&value.html!=null)return value.html;
+    return escapeHtml(value==null?'':String(value));
+  }
+  function table(headers,rows,klass){
+    var body=(rows&&rows.length?rows:[reportRow(['Noch keine Daten vorhanden.'],false)]).map(function(row){
+      var cells=row.cells||row;
+      var colspan=(cells.length===1&&headers.length>1)?(' colspan="'+headers.length+'"'):'';
+      return '<tr'+(row.total?' class="sl-total-row"':'')+'>'+cells.map(function(cell,idx){
+        return '<td'+(idx===0?colspan:'')+'>'+cellHtml(cell)+'</td>';
+      }).join('')+'</tr>';
+    }).join('');
+    return '<table class="sl-table '+(klass||'')+'"><thead><tr>'+headers.map(function(h){return '<th>'+escapeHtml(h)+'</th>';}).join('')+'</tr></thead><tbody>'+body+'</tbody></table>';
+  }
+  function page(no,title,body,opts){
+    var cfg=opts||{};
+    return '<section class="sl-report-page '+(cfg.cover?'sl-cover ':'')+(cfg.divider?'sl-divider ':'')+'">'
+      +'<div class="sl-page-head"><div>'+escapeHtml(brandName)+'</div><div>'+escapeHtml(cfg.chapter||'Ihre persönliche Anlagestrategie')+'</div></div>'
+      +'<main class="sl-page-main">'
+      +(title?'<h1>'+escapeHtml(title)+'</h1>':'')
+      +body
+      +'</main>'
+      +'<div class="sl-page-foot"><span>'+escapeHtml(clientName)+'</span><span>'+no+' / 19</span></div>'
+      +'</section>';
+  }
+  function amountFromPosition(pos){
+    return Math.max(0,Math.round(Number(pos&&pos.current_value_rappen||0)));
+  }
+  function wealthPositions(){
+    try{
+      if(typeof activeClientWealthPositions==='function')return activeClientWealthPositions();
+    }catch(e){}
+    return Array.isArray(currentWealthPositions)?currentWealthPositions:[];
+  }
+  function sumPositions(list){
+    return (list||[]).reduce(function(sum,pos){return sum+amountFromPosition(pos);},0);
+  }
+  var allWealth=wealthPositions().filter(function(pos){return pos&&(!Object.prototype.hasOwnProperty.call(pos,'is_active')||pos.is_active!==0);});
+  var advisoryPositions=allWealth.filter(function(pos){return String(pos.assignment||'')==='Beratungsvermögen';});
+  var otherPositions=allWealth.filter(function(pos){return String(pos.assignment||'')==='Anderes Vermögen';});
+  var liabilities=allWealth.filter(function(pos){return String(pos.assignment||'')==='Verbindlichkeit';});
+  var advisoryTotalRappen=sumPositions(advisoryPositions)||Math.round(Number(allocation&&allocation.advisory_wealth_rappen||0));
+  var otherTotalRappen=sumPositions(otherPositions);
+  var liabilitiesRappen=sumPositions(liabilities);
+  var totalGrossRappen=advisoryTotalRappen+otherTotalRappen;
+  var totalNetRappen=Math.max(0,totalGrossRappen-liabilitiesRappen);
+  function projectionRows(scope){
+    var data=null;
+    try{data=typeof wealthProjectionInputs==='function'?wealthProjectionInputs(scope):null;}catch(e){}
+    var total=data&&data.startRappen?Number(data.startRappen||0):(scope==='advisory'?advisoryTotalRappen:totalGrossRappen);
+    var w=data&&data.bucketWeightsBps?data.bucketWeightsBps:{};
+    var rows=[
+      {label:'Cash',group:'Liquidität',bps:Number(w.liquidity||0),key:'liquidity'},
+      {label:'Total Liquidität',group:'Liquidität',bps:Number(w.liquidity||0),key:'liquidity',total:true},
+      {label:'Obligationen',group:'Obligationen',bps:Number(w.bonds||0),key:'bonds'},
+      {label:'Total Obligationen',group:'Obligationen',bps:Number(w.bonds||0),key:'bonds',total:true},
+      {label:'Aktien',group:'Aktien',bps:Number(w.equities||0),key:'equities'},
+      {label:'Total Aktien',group:'Aktien',bps:Number(w.equities||0),key:'equities',total:true},
+      {label:'Immobilien',group:'Immobilien',bps:Number(w.realEstate||0),key:'realEstate'},
+      {label:'Total Immobilien',group:'Immobilien',bps:Number(w.realEstate||0),key:'realEstate',total:true},
+      {label:'Alternative Anlagen',group:'Alternative Anlagen',bps:Number(w.alternatives||0),key:'alternatives'},
+      {label:'Total Alternative Anlagen',group:'Alternative Anlagen',bps:Number(w.alternatives||0),key:'alternatives',total:true}
+    ].filter(function(row){return row.bps>0||row.total;});
+    rows.push({label:'Total',group:'Total',bps:10000,key:'total',total:true});
+    return rows.map(function(row){return Object.assign({},row,{amountRappen:Math.round(total*Number(row.bps||0)/10000)});});
+  }
+  function positionAmountRappen(row){
+    if(!row)return 0;
+    var target=Number(row.target_amount_rappen||0);
+    if(target>0)return Math.round(target);
+    try{if(typeof portfolioMarketValueRappen==='function')return Math.round(portfolioMarketValueRappen(row)||0);}catch(e){}
+    return Math.round(Number(row.market_value_rappen||row.current_market_value_rappen||0));
+  }
+  function positionWeightBps(row,total){
+    var bps=Number(row&&row.target_weight_bps||0);
+    if(bps)return bps;
+    var amount=positionAmountRappen(row);
+    return total>0?Math.round(amount/total*10000):0;
+  }
+  function recommendationRows(){
+    var total=portfolioPositions.reduce(function(sum,row){return sum+positionAmountRappen(row);},0)||advisoryTotalRappen;
+    var out=[];
+    if(portfolioPositions.length){
+      var grouped={};
+      portfolioPositions.forEach(function(row){
+        var key=assetDisplayName(row&&row.asset_class||'Portfolio');
+        if(!grouped[key])grouped[key]=[];
+        grouped[key].push(row);
+      });
+      ['Liquidität','Obligationen','Aktien','Immobilien','Alternative Anlagen','Portfolio'].forEach(function(groupName){
+        var rows=grouped[groupName]||[];
+        rows.forEach(function(row){
+          out.push({
+            label:assetDisplayName(row.sub_asset_class||row.asset_class||row.product_name||'Produkt'),
+            group:groupName,
+            bps:positionWeightBps(row,total),
+            amountRappen:positionAmountRappen(row),
+            isin:row.isin||'',
+            product:row.product_name||'Produkt'
+          });
+        });
+        if(rows.length){
+          var subtotal=rows.reduce(function(sum,row){return sum+positionAmountRappen(row);},0);
+          out.push({label:'Total '+groupName,group:groupName,bps:total>0?Math.round(subtotal/total*10000):0,amountRappen:subtotal,total:true});
+        }
+      });
+      out.push({label:'Total',group:'Total',bps:10000,amountRappen:total,total:true});
+      return out;
+    }
+    buckets.forEach(function(bucket){
+      out.push({
+        label:assetDisplayName(bucket.asset_class),
+        group:assetDisplayName(bucket.asset_class),
+        bps:Number(bucket.target_weight_bps||0),
+        amountRappen:Number(bucket.target_amount_rappen||0),
+        total:true
+      });
+    });
+    out.push({label:'Total',group:'Total',bps:10000,amountRappen:advisoryTotalRappen,total:true});
+    return out;
+  }
+  function allocationTableRows(rows,amountColumn){
+    return rows.map(function(row){
+      var cells=[row.label,pct(row.bps)];
+      if(amountColumn)cells.push(money(row.amountRappen));
+      return reportRow(cells,row.total);
+    });
+  }
+  function colorForLabel(label){
+    var k=String(label||'').toLowerCase();
+    if(k.indexOf('aktien')>=0)return '#1d4ed8';
+    if(k.indexOf('oblig')>=0)return '#8a6b16';
+    if(k.indexOf('immob')>=0)return '#0f766e';
+    if(k.indexOf('altern')>=0||k.indexOf('gold')>=0)return '#6d5f3f';
+    if(k.indexOf('liquid')>=0||k.indexOf('cash')>=0)return '#166534';
+    return '#64748b';
+  }
+  function donut(rows){
+    var source=(rows||[]).filter(function(row){return !row.total&&Number(row.bps||0)>0;});
+    if(!source.length)return '<div class="sl-donut-empty">Keine Daten</div>';
+    var cursor=0;
+    var stops=source.map(function(row){
+      var start=cursor;
+      var end=Math.min(100,cursor+Number(row.bps||0)/100);
+      cursor=end;
+      return colorForLabel(row.label)+' '+start.toFixed(1)+'% '+end.toFixed(1)+'%';
+    }).join(',');
+    return '<div class="sl-donut" style="background:conic-gradient('+stops+')"><div></div></div>';
+  }
+  function twoTables(leftTitle,leftRows,rightTitle,rightRows,amountColumn){
+    var heads=amountColumn?['Beratungsvermögen','Gewicht','Betrag']:['Beratungsvermögen','Gewicht'];
+    return '<div class="sl-two">'
+      +'<div><h2>'+escapeHtml(leftTitle)+'</h2>'+donut(leftRows)+table(heads,allocationTableRows(leftRows,amountColumn),'sl-compact')+'</div>'
+      +'<div><h2>'+escapeHtml(rightTitle)+'</h2>'+donut(rightRows)+table(heads,allocationTableRows(rightRows,amountColumn),'sl-compact')+'</div>'
+      +'</div>';
+  }
+  function preferenceMark(selected,label){
+    return (selected?'☒ ':'☐ ')+label;
+  }
+  function productRows(){
+    var total=portfolioPositions.reduce(function(sum,row){return sum+positionAmountRappen(row);},0);
+    if(!portfolioPositions.length)return [reportRow(['Noch kein Produktrezept geladen. Sobald das Portfolio generiert wurde, erscheinen hier Fonds/ETF, ISIN, Betrag und Gewicht.'],false)];
+    var rows=[];
+    var grouped={};
+    portfolioPositions.forEach(function(row){
+      var key=assetDisplayName(row&&row.asset_class||'Portfolio');
+      if(!grouped[key])grouped[key]=[];
+      grouped[key].push(row);
+    });
+    Object.keys(grouped).forEach(function(group){
+      grouped[group].forEach(function(row){
+        var amount=positionAmountRappen(row);
+        rows.push(reportRow([
+          assetDisplayName(row.sub_asset_class||row.asset_class||'Titel'),
+          row.isin||'',
+          row.product_name||'Produkt',
+          money(amount),
+          pct(positionWeightBps(row,total))
+        ],false));
+      });
+      var subtotal=grouped[group].reduce(function(sum,row){return sum+positionAmountRappen(row);},0);
+      rows.push(reportRow(['Total '+group,'','',subtotal?money(subtotal):'',pct(total>0?Math.round(subtotal/total*10000):0)],true));
+    });
+    rows.push(reportRow(['Total','','',money(total),pct(10000)],true));
+    return rows;
+  }
+  function riskMetric(label,value,sub){
+    return '<div class="sl-metric"><div>'+escapeHtml(label)+'</div><strong>'+escapeHtml(value)+'</strong><span>'+escapeHtml(sub||'')+'</span></div>';
+  }
+  function goalBars(score){
+    var n=Math.max(1,Math.min(8,Math.round(Number(score||0)/12.5)));
+    var html='';
+    for(var i=1;i<=8;i++)html+='<span class="'+(i<=n?'on':'')+'"></span>';
+    return '<div class="sl-bars">'+html+'</div>';
+  }
+  var currentAdvisoryRows=projectionRows('advisory');
+  var currentTotalRows=projectionRows('total');
+  var recommendedRows=recommendationRows();
+  var riskProfile=risk?(risk.override_profile||risk.final_profile||'Nicht definiert'):'Nicht definiert';
+  var riskScore=risk&&((risk.override_score_x10!=null)||(risk.final_score_x10!=null))?Math.round(Number(risk.override_score_x10!=null?risk.override_score_x10:risk.final_score_x10||0)/10):null;
+  var riskBudgetBps=Number(allocation&&allocation.risk_budget_bps||0);
+  var riskyFractionBps=Number(allocation&&allocation.risky_fraction_total_bps||0);
+  if(!riskyFractionBps){
+    riskyFractionBps=buckets.reduce(function(sum,bucket){
+      var key=String(bucket.asset_class||'');
+      var risky=(key==='Aktien'||key==='Alternative')?10000:(key==='Immobilien'?7000:0);
+      return sum+Math.round(Number(bucket.target_weight_bps||0)*risky/10000);
+    },0);
+  }
+  var titleBody='<div class="sl-cover-grid">'
+    +'<div><div class="sl-overline">Ihre persönliche Anlagestrategie</div><h1>Ihre persönliche Anlagestrategie</h1>'
+    +'<p>Was auch immer Ihre Ziele sind: wir begleiten Sie Schritt für Schritt zu einem finanziell selbstbestimmten Leben. Individuell, persönlich und mit klarer Vermögensarchitektur.</p></div>'
+    +'<div class="sl-contact"><h2>Kontaktinformationen</h2><p><strong>'+escapeHtml(advisorName)+'</strong><br>Finanzplanung &amp; Vermögensarchitektur</p><p>'+escapeHtml(mandateLabel)+'</p><h2>Persönliche Daten</h2><p><strong>'+escapeHtml(clientName)+'</strong>'+(clientAddress?'<br>'+clientAddress:'')+'</p><p>'+escapeHtml(todayShort)+'</p></div>'
+    +'</div>';
+  var page2=section('Kenntnisse und Erfahrungen')
+    +table(['Frage','Antwort'],[
+      reportRow(['Von welchen Bewirtschaftungsformen und Finanzinstrumenten haben Sie Kenntnisse?',knowledgeSummary(risk&&risk.knowledge_services_json,'Finanzdienstleistungen')+' · '+knowledgeSummary(risk&&risk.knowledge_instruments_json,'Finanzinstrumente')]),
+      reportRow(['Wie hoch ist Ihr jährliches Bruttoeinkommen und woher stammt es?',answer(3)+' · '+answer(4)]),
+      reportRow(['Wie hoch sind Ihre aktuellen und künftig absehbaren jährlichen Verpflichtungen?',answer(5)])
+    ])
+    +section('Risikobereitschaft')
+    +table(['Frage','Antwort'],[
+      reportRow(['Welcher Zweck wird mit der Vermögensanlage verfolgt?',answer(9)]),
+      reportRow(['Anlagen mit einer höheren erwarteten Rendite haben auch ein höheres erwartetes Risiko.',answer(10)]),
+      reportRow(['Sie stellen fest, dass Ihre Anlagen einen deutlichen Verlust erlitten haben. Wie reagieren Sie?',answer(11)])
+    ])
+    +section('Risikotragfähigkeit')
+    +table(['Frage','Antwort'],[
+      reportRow(['Wie lange können Sie Ihr Geld voraussichtlich anlegen?',risk&&risk.investment_horizon_label?risk.investment_horizon_label:answer(8)]),
+      reportRow(['Wie viel Prozent Ihres Einkommens können Sie jährlich sparen?',answer(7)]),
+      reportRow(['Wie hoch sind Ihre sofort verfügbaren Vermögenswerte für allfällige Notfälle?',answer(6)])
+    ]);
+  var page3='<div class="sl-risk-box">'
+    +'<div><div class="sl-overline">Risikoprofil aktuell</div><h2>'+escapeHtml(riskProfile)+'</h2><p>Basierend auf Ihren Antworten und den gespeicherten Angaben ergibt sich ein Risikoprofil von '+escapeHtml(riskScore!=null?String(riskScore)+' / 10':'nicht definiert')+'.</p></div>'
+    +'<div>'+riskMetric('Maximale Risky Fraction',riskBudgetBps?pct(riskBudgetBps):'n/a','gemäss Profilgrenze')+riskMetric('Zielgerichtete Anlagestrategie',pct(riskyFractionBps),'gewichteter Anteil risikobehafteter Anlagen')+'</div>'
+    +'</div>';
+  var altSelections=[
+    prefClasses.altsGold?'Gold / Rohstoffe':null,
+    prefClasses.altsLiquidAlts?'Liquid Alternatives':null,
+    prefClasses.altsHedge?'Hedge Funds':null,
+    prefClasses.altsPe?'Private Equity':null,
+    prefClasses.altsCrypto?'Krypto':null
+  ].filter(Boolean).join(', ')||'Alternative Anlagen';
+  var page4='<div class="sl-pref-grid">'
+    +'<div><h2>Obligationen</h2><p>'+preferenceMark(prefClasses.bondsDuration==='Langfristig','Langfristig')+'</p><p>'+preferenceMark(prefClasses.bondsDuration==='Kurzfristig','Kurzfristig')+'</p><p>'+preferenceMark(false,'Ausschluss')+'</p></div>'
+    +'<div><h2>Aktien</h2><p>'+preferenceMark(prefClasses.equitiesGeo!=='Global','Schweiz')+'</p><p>'+preferenceMark(prefClasses.equitiesGeo==='Global','Global')+'</p><p>'+preferenceMark(false,'Ausschluss')+'</p></div>'
+    +'<div><h2>Immobilien</h2><p>'+preferenceMark(prefClasses.realestateMarket!=='Ausland','Schweiz')+'</p><p>'+preferenceMark(prefClasses.realestateMarket==='Ausland','Ausland')+'</p><p>'+preferenceMark(false,'Ausschluss')+'</p></div>'
+    +'<div><h2>Alternative Anlagen</h2><p>'+preferenceMark(true,altSelections)+'</p><p>'+preferenceMark(false,'Ausschluss')+'</p></div>'
+    +'</div>'
+    +'<p class="sl-copy">Durch Ihre Auswahl nehmen Sie Einfluss auf die Gewichtung der Anlagen innerhalb von Anlageklassen beziehungsweise Sub-Anlageklassen. Anlageklassen bezeichnen übergeordnete Kategorien von Vermögensanlagen wie Aktien, Obligationen, Immobilien, Liquidität oder alternative Anlagen. Sub-Anlageklassen differenzieren diese nach Merkmalen wie Laufzeit, Region, Währung oder Marktkapitalisierung.</p>'
+    +'<p class="sl-copy">Die Präferenzen werden bei der strategischen Asset Allokation und bei der Produktauswahl berücksichtigt, soweit dies mit Risikoprofil, Zielerreichung, Diversifikation und Umsetzbarkeit vereinbar ist.</p>';
+  var investText='<p class="sl-copy">Die Anlagestrategie von '+escapeHtml(brandName)+' beruht auf dem Ansatz des zielbasierten Investierens. Mit dem Kunden wird eine individuelle Strategische Asset Allokation festgelegt, die in diesem Dokument unter «Ihre persönliche Anlagestrategie» festgehalten ist. Referenzwährung ist der Schweizer Franken.</p>'
+    +'<p class="sl-copy">Die empfohlene Allokation wurde unter Berücksichtigung des Risikoprofils des Kunden sowie der Angaben zu konkreten Zielen, Vermögenssituation, Cashflows und Präferenzen definiert. Sie wurde dahingehend optimiert, dass die Wahrscheinlichkeit der Zielerreichung und der Zielerreichungsgrad aus heutiger Sicht möglichst hoch sind.</p>'
+    +'<p class="sl-copy">'+escapeHtml(brandName)+' überwacht die strategische Struktur im Rahmen der vereinbarten Beratung und führt Portfoliogewichtungen, soweit möglich und sinnvoll, wieder auf die vereinbarte Allokation zurück. Taktische Anpassungen oder Produktwechsel bleiben im Rahmen der dokumentierten Präferenzen und der Umsetzbarkeit vorbehalten.</p>';
+  var universeText='<p class="sl-copy">Zur Umsetzung der Anlagestrategie können insbesondere aktiv sowie passiv verwaltete Anlagefonds, Indexfonds und ETFs unterschiedlicher Anlageklassen eingesetzt werden. Je nach Mandat können auch strukturierte Produkte, Geldmarktinstrumente oder Liquidität auf Konto eingesetzt werden.</p>'
+    +'<p class="sl-copy">Die Referenzwährung ist der CHF. Anlagen in andere Währungen als die Referenzwährung sind zulässig, womit die Vermögenswerte Wechselkursrisiken ausgesetzt sein können. Fremdwährungsrisiken können durch Anteilsklassen, Instrumentenwahl oder Währungsabsicherung reduziert werden, sofern dies im Produktuniversum sinnvoll verfügbar ist.</p>';
+  var summaryText='<p class="sl-copy">Dieser Bericht zeigt Ihnen die strategische Asset Allokation auf, die wir Ihnen empfehlen. Diese Empfehlung basiert auf Ihren Angaben zu Kenntnissen und Erfahrungen, dem Ergebnis der Eignungsprüfung beziehungsweise dem gewählten Risikoprofil, Ihren Angaben zur Vermögenssituation, Ihren Zielen sowie Ihren Präferenzen.</p>'
+    +'<p class="sl-copy">Sie nehmen zur Kenntnis, dass eine exakte Umsetzung der Gewichtungen auf Ebene der Anlageklassen und Sub-Anlageklassen nicht immer möglich ist. Deshalb stellen die Gewichtungen Richtwerte dar, an die wir uns im Rahmen der Umsetzung und Verwaltung des Portfolios bestmöglich annähern.</p>'
+    +'<div class="sl-sign"><div><strong>Ort, Datum</strong><br><br>______________________________</div><div><strong>Kunde</strong><br><br>'+escapeHtml(clientName)+'</div><div><strong>Berater</strong><br><br>'+escapeHtml(advisorName)+'</div></div>';
+  var wealthOverviewRows=advisoryPositions.map(function(pos){return reportRow([pos.label||pos.position_type||'Position',money(amountFromPosition(pos))]);});
+  wealthOverviewRows.push(reportRow(['Total Beratungsvermögen',money(advisoryTotalRappen)],true));
+  var otherOverviewRows=otherPositions.map(function(pos){return reportRow([pos.label||pos.position_type||'Position',money(amountFromPosition(pos))]);});
+  liabilities.forEach(function(pos){otherOverviewRows.push(reportRow([pos.label||'Verbindlichkeit','−'+money(amountFromPosition(pos))]));});
+  otherOverviewRows.push(reportRow(['Total Anderes Vermögen netto',money(Math.max(0,otherTotalRappen-liabilitiesRappen))],true));
+  var capitalRows=(Array.isArray(currentCashflows)?currentCashflows:[]).filter(function(cf){
+    return String(cf&&cf.cashflow_type||'')==='Income'&&(isOneOffCashflow(cf.frequency)||String(cf.nature||'').toLowerCase()==='einmalig');
+  }).map(function(cf){return reportRow([cf.label||'Kapitalzufluss','',cashflowDisplayFrequency(cf.frequency||'einmalig'),dateRange(cf.valid_from,cf.valid_until),money(Math.abs(Number(cf.amount_rappen||0)))]);});
+  var goalRows=(Array.isArray(currentGoals)?currentGoals:[]).map(function(goal){
+    return reportRow([goal.label||'Ziel',goal.goal_type||goal.category||'Ziel','',goal.frequency||'—',dateRange(goal.start_date,goal.target_date),strategyGoalTargetText(goal)]);
+  });
+  var targetMetrics=[
+    reportRow(['Erwartete Rendite',allocation&&allocation.expected_return_bps!=null?((Number(allocation.expected_return_bps||0)/100).toFixed(2)+'%'):'n/a']),
+    reportRow(['Median Rendite (CAGR)',sim&&Array.isArray(sim.target_mix_series_rappen)?((simulationCagrBps(sim.target_mix_series_rappen)/100).toFixed(2)+'%'):'n/a']),
+    reportRow(['Volatilität',allocation&&allocation.expected_volatility_bps!=null?((Number(allocation.expected_volatility_bps||0)/100).toFixed(2)+'%'):'n/a']),
+    reportRow(['Max. Drawdown',sim&&sim.target_max_drawdown_p50_bps!=null?formatRiskLossBps(sim.target_max_drawdown_p50_bps):'n/a']),
+    reportRow(['VaR',sim&&sim.target_var_95_1y_bps!=null?formatRiskLossBps(sim.target_var_95_1y_bps):'n/a'])
+  ];
+  var currentProjection=null; try{currentProjection=wealthProjectionInputs('advisory');}catch(e){}
+  var currentMetrics=[
+    reportRow(['Erwartete Rendite',currentProjection&&currentProjection.expectedReturnBps?((Number(currentProjection.expectedReturnBps||0)/100).toFixed(2)+'%'):'n/a']),
+    reportRow(['Median Rendite (CAGR)','n/a']),
+    reportRow(['Volatilität','n/a']),
+    reportRow(['Max. Drawdown','n/a']),
+    reportRow(['VaR','n/a'])
+  ];
+  var goalScoreRows=(scoredGoals.length?scoredGoals:(Array.isArray(currentGoals)?currentGoals:[])).map(function(goal){
+    var score=Number(goal.achievement_score||goal.probability_pct||0);
+    return reportRow([goal.label||'Ziel',{html:goalBars(score||65)},score?String(Math.round(score))+'%':'n/a',goal.shortfall_rappen?money(goal.shortfall_rappen):'—']);
+  });
+  var explain1='<p class="sl-copy"><strong>Max. Drawdown:</strong> Als maximalen Drawdown bezeichnet man den erwarteten grössten Verlust von einem vorigen Höchststand bis zu einem darauffolgenden Tiefstand. Die Kennzahl kann historisch bestimmt oder vorausschauend simuliert werden.</p>'
+    +'<p class="sl-copy"><strong>Median Rendite CAGR:</strong> Die durchschnittliche jährliche Wachstumsrate im Median-Vermögensszenario ohne Cashflows nach Gebühren. In der Hälfte der Szenarien liegt die Wachstumsrate darüber, in der anderen Hälfte darunter.</p>'
+    +'<p class="sl-copy"><strong>Erwartete Rendite:</strong> Die durchschnittliche jährliche Wachstumsrate ohne Cashflows nach Gebühren. Dieser Mittelwert ist ein Mass für die erwartete Rendite; die tatsächlich realisierte Rendite kann davon abweichen.</p>'
+    +'<p class="sl-copy"><strong>VaR:</strong> Der Value-at-Risk ist eine Risikokennzahl, die angibt, welche Rendite über einen gegebenen Anlagehorizont mit einer gegebenen Wahrscheinlichkeit nicht unterschritten wird.</p>'
+    +'<p class="sl-copy"><strong>Zielerreichung:</strong> Die Zielerreichung misst Wahrscheinlichkeit und Zielerreichungsgrad, mit der die angegebenen finanziellen Ziele aus heutiger Perspektive erreicht werden können.</p>'
+    +'<div class="sl-scale"><div>'+goalBars(12)+' sehr gering</div><div>'+goalBars(25)+' gering</div><div>'+goalBars(37)+' unterdurchschnittlich</div><div>'+goalBars(50)+' durchschnittlich</div><div>'+goalBars(62)+' überdurchschnittlich</div><div>'+goalBars(75)+' hoch</div><div>'+goalBars(100)+' sehr hoch</div></div>';
+  var explain2='<p class="sl-copy"><strong>Fehlbetrag:</strong> Der Fehlbetrag misst den Betrag, der als zusätzliches Kapital nach unserer Einschätzung aus heutiger Perspektive benötigt wird, um die Zielerreichung in einem sehr schlechten Kapitalmarktszenario sicherzustellen.</p>'
+    +'<p class="sl-copy">Bei diesen Angaben handelt es sich nicht um Vertragsbestandteile. Wir übernehmen keine Garantie für die Einhaltung beziehungsweise Erreichung dieser Kennzahlen und Ziele. Diese Übersicht enthält zukunftsgerichtete Aussagen, die unsere Einschätzung und Erwartungen zu einem bestimmten Zeitpunkt ausdrücken.</p>';
+  var disclaimer='<p class="sl-copy">Der Baustein «Ihre persönliche Anlagestrategie» dokumentiert die empfohlene strategische Asset Allokation und die daraus abgeleitete Umsetzung. Der Baustein «Ihre persönliche Ausgangslage» dokumentiert Ihre Angaben sowie unsere Einschätzung und Empfehlung.</p>'
+    +'<p class="sl-copy">Es wird keine Garantie für die Richtigkeit, Vollständigkeit oder Erreichbarkeit der Ziele übernommen. Dieses Dokument wurde mit grösstmöglicher Sorgfalt und nach bestem Wissen erstellt. Es bietet jedoch keine Gewähr für den Inhalt und begründet keine Haftung für Verluste, die aus der Nutzung dieser Informationen entstehen.</p>'
+    +'<p class="sl-copy">Erträge und Wert von Fondsanteilen können sinken oder steigen; ein Totalverlust des eingesetzten Kapitals ist nicht auszuschliessen. Historische Wertentwicklungen sind keine ausreichende Basis für Prognosen zukünftiger Wert- und Preisentwicklungen.</p>'
+    +'<p class="sl-copy">Die veröffentlichten Informationen richten sich ausschliesslich an Personen mit Wohnsitz in der Schweiz. Die aufgeführten Produkte und kollektiven Kapitalanlagen dürfen nicht von Personen erworben oder übertragen werden, die gemäss US-Steuerrecht als US-Personen gelten oder aus einem anderen Grund US-Steuerrecht unterstehen.</p>';
+  return [
+    page(1,'',titleBody,{cover:true}),
+    page(2,'Eignungsprüfung',page2),
+    page(3,'Eignungsprüfung',page3),
+    page(4,'Ihre Präferenzen',page4),
+    page(5,'Vermögensstruktur',twoTables('Ausgangslage - Beratungsvermögen',currentAdvisoryRows.slice(0,8),'Empfehlung - Beratungsvermögen',recommendedRows.slice(0,8),false)),
+    page(6,'Vermögensstruktur',twoTables('Ausgangslage - Fortsetzung',currentAdvisoryRows.slice(8),'Empfehlung - Fortsetzung',recommendedRows.slice(8),false)),
+    page(7,'Investitionsansatz',investText),
+    page(8,'Anlageuniversum',universeText),
+    page(9,'Zusammenfassung',summaryText),
+    page(10,'Ihre persönliche Ausgangslage','<div class="sl-divider-title">Ihre persönliche Ausgangslage</div>',{divider:true,chapter:'Ihre persönliche Ausgangslage'}),
+    page(11,'Vermögensübersicht',section('Beratungsvermögen')+table(['Beratungsvermögen','Betrag (CHF)'],wealthOverviewRows)+section('Anderes Vermögen')+table(['Anderes Vermögen','Betrag (CHF)'],otherOverviewRows),{chapter:'Ihre persönliche Ausgangslage'}),
+    page(12,'Kapitalzuflüsse und Ziele',section('Kapitalzuflüsse')+table(['Name','Haushaltmitglied','Wiederholung','Beginn - Ende','Betrag (CHF)'],capitalRows)+section('Ihre persönlichen Ziele')+table(['Name','Kategorie','','Wiederholung','Beginn - Ende','Betrag (CHF)'],goalRows),{chapter:'Ihre persönliche Ausgangslage'}),
+    page(13,'Vermögensstruktur',twoTables('Ausgangslage - Gesamtvermögen',currentTotalRows.slice(0,8),'Empfehlung - Gesamtvermögen',recommendedRows.slice(0,8),false),{chapter:'Ihre persönliche Ausgangslage'}),
+    page(14,'Vermögensstruktur',twoTables('Ausgangslage - Fortsetzung',currentTotalRows.slice(8),'Empfehlung - Fortsetzung',recommendedRows.slice(8),false),{chapter:'Ihre persönliche Ausgangslage'}),
+    page(15,'Unsere Empfehlung','<p class="sl-copy">Basierend auf Ihren Angaben zu Kenntnissen und Erfahrungen, Risikoprofil, Vermögenssituation, Anlagehorizont, Zielen und Präferenzen haben wir folgende Empfehlung.</p><div class="sl-two"><div><h2>Ausgangslage</h2>'+table(['Kennzahl','Beratungsvermögen'],currentMetrics)+'</div><div><h2>Empfehlung</h2>'+table(['Kennzahl','Beratungsvermögen'],targetMetrics)+'</div></div>'+section('Zielerreichung')+table(['Name','Zielerreichung','Score','Fehlbetrag (CHF)'],goalScoreRows),{chapter:'Ihre persönliche Ausgangslage'}),
+    page(16,'Erläuterungen zu den Kennzahlen',explain1,{chapter:'Ihre persönliche Ausgangslage'}),
+    page(17,'Erläuterungen zu den Kennzahlen',explain2,{chapter:'Ihre persönliche Ausgangslage'}),
+    page(18,'Übersicht der enthaltenen Fonds','<p class="sl-copy">Diese Übersicht zeigt die Fonds und die Gewichtung, die bei Vertragsbeginn beziehungsweise nach Bestätigung durch die Bank umgesetzt werden. Gewichtung, Wert und Fonds können sich über die Laufzeit verändern.</p>'+table(['Anlageklasse','ISIN','Anlageprodukt','Betrag (CHF)','Gewicht'],productRows(),'sl-products'),{chapter:'Ihre persönliche Ausgangslage'}),
+    page(19,'Disclaimer',disclaimer,{chapter:'Ihre persönliche Ausgangslage'})
+  ].join('');
 }
 function syncPortfolioUmsetzenButtonVisibility(){
   var btn=document.getElementById('btn-portfolio-umsetzen');
@@ -9004,10 +9387,13 @@ async function createNewMandate() {
       addToSidebar(currentClientId, '⚠️ kein Mandat');
       showNewClientScreen(firstName, lastName, mType, {dob:dob, canton:canton, household:household});
       cm('m-nc');
+      try{showAppWarn('Kunde angelegt, aber Mandat-Anlage fehlgeschlagen (Netzwerk).',{title:'Teilweise erfolgreich'});}catch(noticeErr){}
       if (btn) { btn.disabled = false; btn.textContent = 'Mandat anlegen'; }
       return;
     }
-    showErr('Mandat konnte nicht angelegt werden: ' + (me.detail || me.message || 'HTTP ' + (me.status || '?')));
+    var mandErr='Mandat konnte nicht angelegt werden: ' + (me.detail || me.message || 'HTTP ' + (me.status || '?'));
+    showErr(mandErr);
+    try{showAppError(mandErr,{title:'Mandat-Anlage fehlgeschlagen'});}catch(noticeErr){}
     return;
   }
 
@@ -9018,6 +9404,7 @@ async function createNewMandate() {
   addToSidebar(currentClientId, '');
   showNewClientScreen(firstName, lastName, mType, {dob:dob, canton:canton, household:household});
   cm('m-nc');
+  try{showAppSuccess('Mandat '+mandateNum+' für '+firstName+' '+lastName+' angelegt',{title:'Neues Mandat'});}catch(noticeErr){}
   ['nc-firstname','nc-lastname','nc-canton'].forEach(function(id){
     var el=document.getElementById(id); if(el)el.value='';
   });
@@ -9371,6 +9758,7 @@ async function createNewUser() {
       role: role
     });
     showAdminResult('\u2713 Benutzer angelegt:\n  Name: ' + data.full_name + '\n  Login: ' + data.username + '\n  Rolle: ' + data.role, false);
+    try{showAppSuccess('Benutzer '+data.username+' angelegt ('+data.role+')',{title:'Neuer Benutzer'});}catch(noticeErr){}
     ['nu-fullname','nu-username','nu-password','nu-email'].forEach(function(id){
       var el=document.getElementById(id); if(el)el.value='';
     });
@@ -9379,6 +9767,7 @@ async function createNewUser() {
   } catch(e) {
     var msg = e.detail || e.message || String(e);
     if (errEl) { errEl.textContent = 'Fehler: ' + msg; errEl.style.display='block'; }
+    try{showAppError('Benutzer-Anlage fehlgeschlagen: '+msg,{title:'Fehler beim Anlegen'});}catch(noticeErr){}
     if (btn) { btn.disabled=false; btn.textContent='Benutzer anlegen'; }
   }
 }
@@ -9779,9 +10168,12 @@ var liveClientLoadToken=0;
       await API.del('/clients/'+cid+'/wealth-positions/'+positionId);
       await refreshWealthUI(cid);
       markStrategyDirty('Vermögensposition gelöscht: Strategie neu berechnen.', true);
+      try{showAppSuccess('Vermögensposition gelöscht',{title:'Position entfernt'});}catch(noticeErr){}
       cm('m-aw');
     }catch(e){
-      showModalFeedback('maw-error',document.getElementById('btn-maw-save'),'Fehler: '+(e.detail||e.message||'?'),true);
+      var dwpErr='Fehler: '+(e.detail||e.message||'?');
+      showModalFeedback('maw-error',document.getElementById('btn-maw-save'),dwpErr,true);
+      try{showAppError(dwpErr,{title:'Vermögensposition nicht gelöscht'});}catch(noticeErr){}
     }
   }
   function bindEventCaptureModal(){
@@ -15204,9 +15596,12 @@ async function saveReviewTrigger(){
       await API.post('/mandates/'+mid+'/triggers',payload);
       showModalFeedback('nt-error',btn,'✓ Trigger angelegt',false);
       await refreshReviewUI(mid);
+      try{showAppSuccess('Trigger «'+(payload.trigger_name||'Review')+'» aktiv',{title:'Review-Trigger angelegt'});}catch(noticeErr){}
       setTimeout(function(){cm('m-nt');},500);
     }catch(e){
-      showModalFeedback('nt-error',btn,'Fehler: '+(e.detail||e.message||'?'),true);
+      var trErr='Fehler: '+(e.detail||e.message||'?');
+      showModalFeedback('nt-error',btn,trErr,true);
+      try{showAppError(trErr,{title:'Trigger nicht angelegt'});}catch(noticeErr){}
     }
   } else {
     currentReviewState.triggers=[Object.assign({id:'demo-trigger-'+Date.now(),status:'Aktiv'},payload)].concat(currentReviewState.triggers||[]);
@@ -15243,9 +15638,12 @@ async function saveContractDocumentDraft(){
       await API.post('/mandates/'+mid+'/documents',payload);
       showModalFeedback('contract-error',btn,'✓ Dokument-Entwurf gespeichert',false);
       await refreshReviewUI(mid);
+      try{showAppSuccess('Dokument-Entwurf gespeichert',{title:'Anlagestrategie-Dokument'});}catch(noticeErr){}
       setTimeout(function(){cm('m-contract-edit');},500);
     }catch(e){
-      showModalFeedback('contract-error',btn,'Fehler: '+(e.detail||e.message||'?'),true);
+      var docErr='Fehler: '+(e.detail||e.message||'?');
+      showModalFeedback('contract-error',btn,docErr,true);
+      try{showAppError(docErr,{title:'Dokument-Entwurf nicht gespeichert'});}catch(noticeErr){}
     }
   } else {
     currentReviewState.documents=[{
