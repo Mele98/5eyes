@@ -455,6 +455,9 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 .admin-metric-label{font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:var(--n4);font-weight:700;margin-bottom:6px;}
 .admin-metric-value{font-size:11px;color:var(--n7);line-height:1.5;}
 .admin-metric-meta{font-size:9px;color:var(--n5);margin-top:6px;}
+.admin-summary-panel{background:var(--bg);border:1px solid var(--b1);border-radius:8px;padding:10px 11px;font-size:11px;min-height:80px;color:var(--n6);line-height:1.5;}
+.admin-code-input{font-family:Consolas,"Courier New",monospace!important;font-size:11px!important;padding:8px!important;line-height:1.45!important;}
+.admin-result-bar{flex-shrink:0;background:var(--bg);border-top:1px solid var(--b1);padding:8px 16px;font-size:11px;white-space:pre-wrap;color:var(--n6);display:none;max-height:90px;overflow-y:auto;line-height:1.45;}
 @media(max-width:900px){.admin-sidebar{width:176px}.admin-content{padding:16px}.admin-health-grid{grid-template-columns:1fr 1fr}.admin-action-row{grid-template-columns:9px minmax(0,1fr)}.admin-link-btn{justify-self:start}}
 
 /* ALLOC TABLE */
@@ -1215,11 +1218,11 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 
     <!-- PAGE: ALLOKATION -->
     <div id="page-al" class="page">
-      <div class="ph"><div><div class="ph-t">Asset Allokation</div><div class="ph-s">Zielbild · Soll-Prognose · Strategische Herleitung</div></div><div class="ph-r"><button class="btn" id="btn-aa-pref-open" onclick="openAllocationPreferencesModal()">Anlagepräferenzen</button><button class="btn" id="btn-aa-params-open" onclick="openAllocationParametersModal()">Parameter</button><button class="btn-g" id="btn-aa-calc" onclick="calculateInvestmentStrategy()">Anlagestrategie berechnen</button><button class="btn" onclick="openAllocationEngineModal()">Soll-Quoten</button><button class="btn-p" id="btn-portfolio-umsetzen" onclick="openPortfolioUmsetzenModal()" style="display:none;background:var(--pos);color:#fff">Portfolio umsetzen ✓</button><button class="btn-p" onclick="go('po')">Portfolio →</button></div></div>
+      <div class="ph"><div><div class="ph-t">Asset Allokation</div><div class="ph-s">SOLL-Strategie aus Risikoprofil, Zielen und Beratungsvermögen — stochastisch optimiert</div></div><div class="ph-r"><button class="btn" id="btn-aa-pref-open" onclick="openAllocationPreferencesModal()">Anlagepräferenzen</button><button class="btn" id="btn-aa-params-open" onclick="openAllocationParametersModal()">Parameter</button><button class="btn-g" id="btn-aa-calc" onclick="calculateInvestmentStrategy()">Anlagestrategie berechnen</button><button class="btn" onclick="openAllocationEngineModal()">Soll-Quoten</button><button class="btn-p" id="btn-portfolio-umsetzen" onclick="openPortfolioUmsetzenModal()" style="display:none;background:var(--pos);color:#fff">Portfolio umsetzen ✓</button><button class="btn-p" onclick="go('po')">Weiter zum Portfolio &rarr;</button></div></div>
       <div id="al-dirty-banner" class="strip strip-w" style="display:none">
         <div>
           <div class="st">Strategie veraltet</div>
-          <div class="ss">Daten haben sich geändert — bitte «Anlagestrategie berechnen» klicken.</div>
+          <div class="ss">Stammdaten, Cashflows, Ziele oder Risikoprofil haben sich geändert — bitte «Anlagestrategie berechnen» klicken.</div>
         </div>
         <button class="btn-g" onclick="calculateInvestmentStrategy()">Jetzt berechnen</button>
       </div>
@@ -1232,16 +1235,16 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
             <div class="alloc-donut-subline">Hier erscheint die optimierte Soll-Allokation des Beratungsvermögens. Gesamtvermögen, Ziele, Cashflows und Risikoprofil beeinflussen die Strategie holistisch, der Kuchen zeigt aber nur den optimierbaren Beratungsteil.</div>
           </div>
           <div class="card">
-            <div class="chd"><span class="cht">Zielbild nach Anlageklassen</span><span style="font-size:9px;color:var(--n4);margin-left:8px">Subanlageklassen aufklappbar</span></div>
+            <div class="chd"><span class="cht">SOLL-Quoten nach Anlageklassen</span><span style="font-size:9px;color:var(--n4);margin-left:8px">Aktien, Obligationen, Immobilien, Alternative — klick für Sub-Klassen</span></div>
             <div class="cbody">
-              <div style="display:flex;justify-content:space-between;align-items:center;margin:0 0 8px;gap:10px;flex-wrap:wrap"><div style="font-size:10px;color:var(--n5)">Hier bleibt nur die strategische Soll-Struktur. Vergleich, Delta und Umsetzung folgen im Review.</div><div style="font-size:9px;color:var(--n4);background:var(--bg);border:1px solid var(--b1);border-radius:999px;padding:4px 8px">Klick = Subanlageklassen</div></div>
+              <div style="display:flex;justify-content:space-between;align-items:center;margin:0 0 8px;gap:10px;flex-wrap:wrap"><div style="font-size:10px;color:var(--n5)">Die strategische Soll-Struktur. Konkrete Wertschriften (ISIN) folgen im Portfolio-Schritt, Vergleich und Drift im Review.</div><div style="font-size:9px;color:var(--n4);background:var(--bg);border:1px solid var(--b1);border-radius:999px;padding:4px 8px">Klick = Sub-Anlageklassen</div></div>
               <div id="at"></div>
             </div>
           </div>
         </div>
         <div class="g2">
           <div class="card">
-            <div class="chd" style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap"><div><span class="cht">Soll-Prognose</span><span style="font-size:9px;color:var(--n4);margin-left:8px">Zielpfad vorne · Benchmark nur als Berater-Sicht</span></div><button id="btn-aa-metrics-toggle" type="button" class="btn" style="font-size:10px;padding:3px 10px" onclick="toggleAaProjectionDetails()">Kennzahlen & Benchmark ▾</button></div>
+            <div class="chd" style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap"><div><span class="cht">SOLL-Prognose</span><span style="font-size:9px;color:var(--n4);margin-left:8px">Vermögensentwicklung mit der optimierten Strategie — IST-Benchmark unter «Kennzahlen»</span></div><button id="btn-aa-metrics-toggle" type="button" class="btn" style="font-size:10px;padding:3px 10px" onclick="toggleAaProjectionDetails()">Kennzahlen & Benchmark ▾</button></div>
             <div class="cbody">
               <div id="aa-compare-wrap" style="display:none">
                 <div id="aa-proj-benchmark-note" style="font-size:10px;color:var(--n6);background:var(--bg);border:1px solid rgba(90,104,120,0.12);border-radius:var(--r);padding:7px 10px;margin-bottom:10px;line-height:1.5">Berater-Sicht: Benchmark gegen den heutigen Mix des Beratungsverm&ouml;gens. Die eigentliche Vergleichs- und Delta-Logik folgt im Review.</div>
@@ -1283,9 +1286,9 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
             <div class="cbody">
               <div class="advisor-note">Diese Karte erklärt nur die Herleitung der Strategie. Vergleiche, Entscheidungen, Dokumentation und Umsetzung erfolgen anschliessend im Review.</div>
               <div id="aa-action-list" class="action-list">
-                <div style="border:1px solid var(--b1);border-radius:var(--r);padding:8px 10px"><div style="display:flex;justify-content:space-between;margin-bottom:3px"><span style="font-size:11px;font-weight:500">Risikoprofil &amp; Zielhorizont</span><span class="tag tr2">Zentral</span></div><div style="font-size:10px;color:var(--n6);line-height:1.5">Die Soll-Allokation richtet sich nach Risikoprofil, Anlagehorizont und dem priorisierten Zielpfad.</div></div>
-                <div style="border:1px solid var(--b1);border-radius:var(--r);padding:8px 10px"><div style="display:flex;justify-content:space-between;margin-bottom:3px"><span style="font-size:11px;font-weight:500">House View &amp; Leitplanken</span><span class="tag ta">Relevant</span></div><div style="font-size:10px;color:var(--n6);line-height:1.5">Bandbreiten, Restriktionen und Kapitalmarktannahmen begrenzen die Strategie bewusst und machen sie nachvollziehbar.</div></div>
-                <div style="border:1px solid var(--b1);border-radius:var(--r);padding:8px 10px"><div style="display:flex;justify-content:space-between;margin-bottom:3px"><span style="font-size:11px;font-weight:500">Nächster Schritt</span><span class="tag tn">Einordnung</span></div><div style="font-size:10px;color:var(--n6);line-height:1.5">Vergleiche zur Umsetzung, Entscheidungen und die eigentliche Dokumentation erfolgen anschliessend im Review.</div></div>
+                <div style="border:1px solid var(--b1);border-radius:var(--r);padding:8px 10px"><div style="display:flex;justify-content:space-between;margin-bottom:3px"><span style="font-size:11px;font-weight:500">Risikoprofil, Ziele &amp; Beratungsvermögen</span><span class="tag tr2">Zentral</span></div><div style="font-size:10px;color:var(--n6);line-height:1.5">Die SOLL-Allokation wird stochastisch (Mulvey/Ziemba) aus dem Risikoprofil-Score, den priorisierten Lebenszielen und dem Beratungsvermögen hergeleitet.</div></div>
+                <div style="border:1px solid var(--b1);border-radius:var(--r);padding:8px 10px"><div style="display:flex;justify-content:space-between;margin-bottom:3px"><span style="font-size:11px;font-weight:500">House View &amp; Leitplanken</span><span class="tag ta">Relevant</span></div><div style="font-size:10px;color:var(--n6);line-height:1.5">Building Blocks pro Anlageklasse (SLAM-Input), Bandbreiten und Kapitalmarktannahmen begrenzen die Strategie bewusst und machen sie nachvollziehbar.</div></div>
+                <div style="border:1px solid var(--b1);border-radius:var(--r);padding:8px 10px"><div style="display:flex;justify-content:space-between;margin-bottom:3px"><span style="font-size:11px;font-weight:500">Nächster Schritt</span><span class="tag tn">Einordnung</span></div><div style="font-size:10px;color:var(--n6);line-height:1.5">Im Portfolio-Schritt folgt die Umsetzung in konkrete Wertschriften (ISIN). Vergleiche und Drift-Monitoring laufen im Review.</div></div>
               </div>
             </div>
           </div>
@@ -5943,7 +5946,7 @@ function showAdminResult(msg, isError) {
   const el = document.getElementById('admin-result');
   if (!el) return;
   el.style.display = 'block';
-  el.style.color = isError ? 'var(--neg)' : 'var(--g4)';
+  el.style.color = isError ? 'var(--neg)' : 'var(--n6)';
   el.textContent = msg;
 }
 
@@ -5951,7 +5954,7 @@ function adminMarketStatusBox(message, isError, allowHtml) {
   var el = document.getElementById('admin-market-summary');
   if (!el) return;
   el.style.display = 'block';
-  el.style.color = isError ? 'var(--neg)' : 'var(--g4)';
+  el.style.color = isError ? 'var(--neg)' : 'var(--n6)';
   if (allowHtml && !isError) el.innerHTML = message;
   else el.textContent = message;
 }
@@ -15568,7 +15571,7 @@ function openStammdatenModal(){
 
         <!-- SEC: AUDIT-LOG -->
         <div id="sec-audit" class="admin-sec-panel" style="display:none;gap:12px;">
-          <div style="font-size:13px;font-weight:600;color:var(--g3);margin-bottom:2px;">Audit-Log</div>
+          <div class="admin-section-title">Audit-Log</div>
           <div id="admin-audit-summary" class="admin-audit-summary"><div class="admin-risk-note">Audit-Uebersicht wird geladen...</div></div>
           <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
             <select id="al-action-filter" class="fsel" style="font-size:11px;padding:3px 6px">
@@ -15590,14 +15593,14 @@ function openStammdatenModal(){
 
         <!-- ══ SEC: MARKT & PREISE ══ -->
         <div id="sec-markt" class="admin-sec-panel" style="display:none;gap:14px;">
-          <div style="font-size:13px;font-weight:600;color:var(--g3);margin-bottom:2px;">Markt &amp; Preise</div>
-          <div style="font-size:10px;color:var(--n4);line-height:1.5">Kurse abrufen, Mapping-Luecken pruefen und Referenzdaten kontrolliert auf den Produktstamm anwenden.</div>
+          <div class="admin-section-title">Markt &amp; Preise</div>
+          <div class="admin-section-sub">Kurse abrufen, Mapping-Luecken pruefen und Referenzdaten kontrolliert auf den Produktstamm anwenden.</div>
           <div class="admin-risk-note warn"><strong>Wirkung</strong>Preisrefresh veraendert Marktwerte. Mapping-Apply veraendert Produkt-Stammdaten und kann kuenftige Bewertungen, Drift und Rebalancing beeinflussen.</div>
           <div style="display:flex;gap:6px;flex-wrap:wrap;">
             <button class="btn-p" style="background:var(--bg2);color:var(--n6)" onclick="adminRefreshMarketStatus(true)" id="btn-admin-market-status">Status laden</button>
             <button class="btn-p" style="background:var(--bg2);color:var(--n6)" onclick="adminRefreshPricesNow()" id="btn-admin-price-refresh">Preise aktualisieren</button>
           </div>
-          <div id="admin-market-summary" style="background:var(--bg2);border-radius:6px;padding:10px;font-size:11px;min-height:100px;color:var(--g4);">Status wird geladen…</div>
+          <div id="admin-market-summary" class="admin-summary-panel">Status wird geladen…</div>
           <div>
             <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--n5);margin-bottom:6px">Arbeitskorb Mapping-Luecken</div>
             <div id="admin-mapping-gaps" class="admin-worklist"><div class="admin-risk-note">Mapping-Arbeitskorb wird geladen...</div></div>
@@ -15654,8 +15657,8 @@ function openStammdatenModal(){
 
         <!-- ══ SEC: PRODUKT OVERRIDE ══ -->
         <div id="sec-override" class="admin-sec-panel" style="display:none;gap:14px;">
-          <div style="font-size:13px;font-weight:600;color:var(--g3);margin-bottom:2px;">Produkt Lookup-Override</div>
-          <div style="font-size:10px;color:var(--n4);line-height:1.5">Einzelnes Produkt manuell auf einen Lookup-Modus und ein Symbol setzen.</div>
+          <div class="admin-section-title">Produkt Lookup-Override</div>
+          <div class="admin-section-sub">Einzelnes Produkt manuell auf einen Lookup-Modus und ein Symbol setzen.</div>
           <div class="admin-risk-note danger"><strong>Hohe Wirkung</strong>Ein Override hat Vorrang vor automatischem Mapping. Er sollte einen fachlichen Grund haben und nach Korrektur der Stammdaten wieder entfernt werden.</div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;align-items:end;">
             <div>
@@ -15687,9 +15690,9 @@ function openStammdatenModal(){
         <div id="sec-returns" class="admin-sec-panel" style="display:none;gap:14px;">
           <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;">
             <div>
-              <div style="font-size:13px;font-weight:600;color:var(--g3);margin-bottom:2px;">Historische Jahresrenditen</div>
+              <div class="admin-section-title">Historische Jahresrenditen</div>
               <div class="admin-risk-note warn" style="margin-top:8px"><strong>Rueckwirkende Wirkung</strong> Aenderungen koennen Drift-Auswertungen seit alten Strategie-Snapshots veraendern. Datenquelle und Jahr bitte vor dem Speichern pruefen.</div>
-              <div style="font-size:10px;color:var(--n4);line-height:1.5">Renditen pro Anlageklasse und Jahr (BPS, 100 BPS = 1%). Basis fuer Strategie-Drift im Portfolio-Spiegel.</div>
+              <div class="admin-section-sub">Renditen pro Anlageklasse und Jahr (BPS, 100 BPS = 1%). Basis fuer Strategie-Drift im Portfolio-Spiegel.</div>
             </div>
             <div style="display:flex;gap:6px;">
               <button class="btn-p" style="background:var(--bg2);color:var(--n6)" onclick="loadAdminAnnualReturns()" id="btn-admin-ar-load">Laden</button>
@@ -15704,9 +15707,9 @@ function openStammdatenModal(){
         <div id="sec-cma" class="admin-sec-panel" style="display:none;gap:14px;">
           <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;">
             <div>
-              <div style="font-size:13px;font-weight:600;color:var(--g3);margin-bottom:2px;">Kapitalmarktannahmen</div>
+              <div class="admin-section-title">Kapitalmarktannahmen</div>
               <div class="admin-risk-note warn" style="margin-top:8px"><strong>Fachliche Wirkung</strong> Neue Annahmen beeinflussen kuenftige Strategien, Simulationen und Kundenausgaben. Bestehende Strategien sollten danach neu berechnet werden.</div>
-              <div style="font-size:10px;color:var(--n4);line-height:1.5">House View fuer Rendite, Volatilitaet, Inflation und Sub-Anlageklassen.</div>
+              <div class="admin-section-sub">House View fuer Rendite, Volatilitaet, Inflation und Sub-Anlageklassen.</div>
             </div>
             <div style="display:flex;gap:6px;flex-wrap:wrap">
               <button class="btn-p" style="background:var(--bg2);color:var(--n6)" onclick="loadAdminCapitalMarketAssumptions(true)" id="btn-admin-cma-refresh">Laden</button>
@@ -15715,7 +15718,7 @@ function openStammdatenModal(){
               <button class="btn-p admin-primary-btn" onclick="saveAdminCapitalMarketAssumptions()" id="btn-admin-cma-save">Speichern</button>
             </div>
           </div>
-          <div id="admin-cma-summary" style="background:var(--bg2);border-radius:6px;padding:12px;font-size:11px;min-height:80px;color:var(--g4);">Annahmen werden geladen…</div>
+          <div id="admin-cma-summary" class="admin-summary-panel">Annahmen werden geladen…</div>
           <div style="display:grid;grid-template-columns:1fr 140px 140px;gap:10px;">
             <div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Set-Name</label><input class="fi" id="admin-cma-name" placeholder="Standard" style="font-size:11px"></div>
             <div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Gültig ab</label><input class="fi" id="admin-cma-valid-from" type="date" style="font-size:11px"></div>
@@ -15730,8 +15733,8 @@ function openStammdatenModal(){
 
         <!-- ══ SEC: RENDITE & VOLATILITÄT ══ -->
         <div id="sec-cma-rv" class="admin-sec-panel" style="display:none;gap:14px;">
-          <div style="font-size:13px;font-weight:600;color:var(--g3);margin-bottom:2px;">Rendite &amp; Volatilität</div>
-          <div style="font-size:10px;color:var(--n4);line-height:1.5">Erwartete Jahresrenditen und Volatilitäten pro Anlageklasse (in %).</div>
+          <div class="admin-section-title">Rendite &amp; Volatilität</div>
+          <div class="admin-section-sub">Erwartete Jahresrenditen und Volatilitäten pro Anlageklasse (in %).</div>
           <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;">
             <div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">CHF IG Rendite</label><input class="fi" id="admin-cma-bond-chf-return" type="number" step="0.1" style="font-size:11px"></div>
             <div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">CHF IG Vol</label><input class="fi" id="admin-cma-bond-chf-vol" type="number" step="0.1" style="font-size:11px"></div>
@@ -15765,7 +15768,7 @@ function openStammdatenModal(){
 
         <!-- ══ SEC: INFLATION & KORRELATION ══ -->
         <div id="sec-cma-inf" class="admin-sec-panel" style="display:none;gap:14px;">
-          <div style="font-size:13px;font-weight:600;color:var(--g3);margin-bottom:2px;">Inflation &amp; Korrelation</div>
+          <div class="admin-section-title">Inflation &amp; Korrelation</div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
             <div>
               <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--n5);margin-bottom:8px">Inflationspfad (5 Jahre)</div>
@@ -15774,14 +15777,14 @@ function openStammdatenModal(){
               <details style="margin-top:10px">
                 <summary style="cursor:pointer;font-size:10px;color:var(--n5)">JSON-Sicht</summary>
                 <div style="margin-top:8px">
-                  <textarea class="fi" id="admin-cma-inflation" rows="4" placeholder='{"2026":50,"2027":70}' style="font-size:11px;padding:8px;font-family:Consolas,monospace"></textarea>
+                  <textarea class="fi admin-code-input" id="admin-cma-inflation" rows="4" placeholder='{"2026":50,"2027":70}'></textarea>
                 </div>
               </details>
             </div>
             <div>
               <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--n5);margin-bottom:8px">Korrelationsmatrix 5×5</div>
               <div style="font-size:10px;color:var(--n5);line-height:1.5;margin-bottom:8px">Aktien / Obligationen / Immobilien / Alternative / Liquidität</div>
-              <textarea class="fi" id="admin-cma-correlation" rows="7" placeholder='[[1,-0.2,0.35,0.2,0.05],[-0.2,1,0.1,-0.05,0.1],[0.35,0.1,1,0.15,0.05],[0.2,-0.05,0.15,1,0],[0.05,0.1,0.05,0,1]]' style="font-size:11px;padding:8px;font-family:Consolas,monospace"></textarea>
+              <textarea class="fi admin-code-input" id="admin-cma-correlation" rows="7" placeholder='[[1,-0.2,0.35,0.2,0.05],[-0.2,1,0.1,-0.05,0.1],[0.35,0.1,1,0.15,0.05],[0.2,-0.05,0.15,1,0],[0.05,0.1,0.05,0,1]]'></textarea>
               <div id="admin-cma-correlation-preview" style="margin-top:8px"></div>
             </div>
           </div>
@@ -15794,8 +15797,8 @@ function openStammdatenModal(){
         <div id="sec-cma-sub" class="admin-sec-panel" style="display:none;gap:14px;">
           <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;">
             <div>
-              <div style="font-size:13px;font-weight:600;color:var(--g3);margin-bottom:2px;">Sub-Anlageklassen House View</div>
-              <div style="font-size:10px;color:var(--n4);line-height:1.5">Feintuning pro Sub-Klasse. Ohne Eintrag fällt die Engine auf die übergeordneten Werte zurück.</div>
+              <div class="admin-section-title">Sub-Anlageklassen House View</div>
+              <div class="admin-section-sub">Feintuning pro Sub-Klasse. Ohne Eintrag fällt die Engine auf die übergeordneten Werte zurück.</div>
             </div>
             <div id="admin-cma-subasset-preview" style="min-width:180px;flex:1 1 180px"></div>
           </div>
@@ -15803,7 +15806,7 @@ function openStammdatenModal(){
           <details style="margin-top:4px">
             <summary style="cursor:pointer;font-size:10px;color:var(--n5)">JSON-Sicht</summary>
             <div style="margin-top:8px">
-              <textarea class="fi" id="admin-cma-subasset-json" rows="8" placeholder='{"Aktien Schweiz":{"asset_class":"Aktien","expected_return_bps":620,"expected_volatility_bps":1450}}' style="font-size:11px;padding:8px;font-family:Consolas,monospace"></textarea>
+              <textarea class="fi admin-code-input" id="admin-cma-subasset-json" rows="8" placeholder='{"Aktien Schweiz":{"asset_class":"Aktien","expected_return_bps":620,"expected_volatility_bps":1450}}'></textarea>
             </div>
           </details>
           <div style="display:flex;justify-content:flex-end;gap:8px;padding-top:4px;border-top:1px solid var(--b1);">
@@ -15813,7 +15816,7 @@ function openStammdatenModal(){
 
         <!-- ══ SEC: BENUTZERLISTE ══ -->
         <div id="sec-users" class="admin-sec-panel" style="display:none;gap:12px;">
-          <div style="font-size:13px;font-weight:600;color:var(--g3);margin-bottom:2px;">Benutzerliste</div>
+          <div class="admin-section-title">Benutzerliste</div>
           <div class="admin-risk-note warn"><strong>Zugriffswirkung</strong> Admin-Rollen haben globale Kundensicht und duerfen Systemdaten sowie Beratungsannahmen aendern.</div>
           <div id="admin-user-summary"></div>
           <div id="ul-list" style="font-size:11px;color:var(--n4)">Wird geladen...</div>
@@ -15822,8 +15825,8 @@ function openStammdatenModal(){
         <!-- ══ SEC: NEUER BENUTZER ══ -->
         <div id="sec-newuser" class="admin-sec-panel" style="display:none;gap:14px;">
           <div>
-            <div style="font-size:13px;font-weight:600;color:var(--g3);margin-bottom:2px;">Neuer Benutzer anlegen</div>
-            <div style="font-size:10px;color:var(--n4);line-height:1.5">Passwort mindestens 10 Zeichen. Berater-Rolle für normale Nutzung empfohlen.</div>
+            <div class="admin-section-title">Neuer Benutzer anlegen</div>
+            <div class="admin-section-sub">Passwort mindestens 10 Zeichen. Berater-Rolle für normale Nutzung empfohlen.</div>
           </div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
             <div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Vollst&auml;ndiger Name *</label><input class="fi" id="nu-fullname" placeholder="Max Muster" style="font-size:11px"></div>
@@ -15846,8 +15849,8 @@ function openStammdatenModal(){
         <!-- ══ SEC: DATENBANK ══ -->
         <div id="sec-db" class="admin-sec-panel" style="display:none;gap:14px;">
           <div>
-            <div style="font-size:13px;font-weight:600;color:var(--g3);margin-bottom:2px;">Datenbank &amp; Wartung</div>
-            <div style="font-size:10px;color:var(--n4);line-height:1.5">Backup erstellen, Datenbankintegrität prüfen und Speicher optimieren.</div>
+            <div class="admin-section-title">Datenbank &amp; Wartung</div>
+            <div class="admin-section-sub">Backup erstellen, Datenbankintegrität prüfen und Speicher optimieren.</div>
           </div>
           <div id="admin-db-status"><div class="admin-risk-note">Wartungsstatus wird geladen...</div></div>
           <div class="admin-risk-note"><strong>Support-Bundle</strong> Enthaelt redaktierte Logs und technische Statusdaten, keine rohen Tokens oder API-Keys.</div>
@@ -15863,12 +15866,12 @@ function openStammdatenModal(){
         <!-- ══ SEC: SOFTWARE-UPDATE ══ -->
         <div id="sec-update" class="admin-sec-panel" style="display:none;gap:14px;">
           <div>
-            <div style="font-size:13px;font-weight:600;color:var(--g3);margin-bottom:2px;">Software-Update</div>
+            <div class="admin-section-title">Software-Update</div>
             <div class="admin-risk-note warn" style="margin-top:8px"><strong>Vor Installation</strong> Offene Arbeit abschliessen und bei groesseren Datenveraenderungen zuerst ein Backup erstellen. Auto-Updates sind nur in installierten Releases aktiv.</div>
-            <div style="font-size:10px;color:var(--n4);line-height:1.5">Verfuegbare Updates pruefen und installieren.</div>
+            <div class="admin-section-sub">Verfuegbare Updates pruefen und installieren.</div>
           </div>
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-            <span id="update-status-label" style="font-size:11px;color:var(--g4);">—</span>
+            <span id="update-status-label" class="admin-metric-meta">—</span>
             <button class="btn-p" style="background:var(--bg2);color:var(--n6)" onclick="adminCheckUpdates()" id="btn-check-updates">Auf Updates prüfen</button>
             <button class="btn-p admin-primary-btn" style="display:none" onclick="adminInstallUpdate()" id="btn-install-update">Update installieren</button>
           </div>
@@ -15886,7 +15889,7 @@ function openStammdatenModal(){
     </div><!-- end body row -->
 
     <!-- Result Bar -->
-    <div id="admin-result" style="flex-shrink:0;background:var(--bg2);border-top:1px solid var(--b1);padding:8px 16px;font-size:11px;white-space:pre-wrap;color:var(--g4);display:none;max-height:90px;overflow-y:auto;"></div>
+    <div id="admin-result" class="admin-result-bar"></div>
 
     <div class="mfooter" style="flex-shrink:0;">
       <button class="btn" onclick="cm('m-admin')">Schliessen</button>
