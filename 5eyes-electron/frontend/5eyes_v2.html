@@ -687,9 +687,28 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 /* dcv dcl for donut center */
 .dcv{font-family:var(--f-d);font-size:14px;color:var(--n8);text-align:center;line-height:1.2;}
 .dcl{font-size:8px;color:var(--n4);letter-spacing:0.05em;text-transform:uppercase;}
+/* App-Notice Toast-System (2026-05-16) */
+.app-notice-stack{position:fixed;top:60px;right:20px;display:flex;flex-direction:column;gap:8px;z-index:10000;pointer-events:none;max-width:380px;}
+.app-notice{pointer-events:auto;display:flex;align-items:flex-start;gap:10px;padding:10px 14px;border-radius:var(--r2);border:1px solid var(--b2);background:#fff;box-shadow:0 4px 14px rgba(15,30,52,0.12);font-size:11px;line-height:1.5;color:var(--n7);animation:appNoticeIn 0.22s ease-out;}
+.app-notice.an-error{border-left:4px solid var(--neg);background:var(--neg-lt);color:var(--n8);}
+.app-notice.an-warn{border-left:4px solid var(--warn);background:var(--warn-lt);color:var(--n8);}
+.app-notice.an-success{border-left:4px solid var(--pos);background:var(--pos-lt);color:var(--n8);}
+.app-notice.an-info{border-left:4px solid var(--n5);background:var(--bg);color:var(--n7);}
+.app-notice .an-body{flex:1;}
+.app-notice .an-title{font-weight:600;color:var(--n8);margin-bottom:2px;}
+.app-notice .an-action{margin-top:6px;}
+.app-notice .an-action button{font-family:var(--f-s);font-size:10px;padding:3px 9px;border:1px solid var(--b2);background:#fff;border-radius:2px;cursor:pointer;color:var(--n8);}
+.app-notice .an-close{flex-shrink:0;background:transparent;border:0;color:var(--n4);cursor:pointer;font-size:14px;line-height:1;padding:0 2px;margin-top:-2px;}
+.app-notice .an-close:hover{color:var(--n7);}
+@keyframes appNoticeIn{from{opacity:0;transform:translateX(20px);}to{opacity:1;transform:translateX(0);}}
+.app-notice.an-leaving{animation:appNoticeOut 0.2s ease-in forwards;}
+@keyframes appNoticeOut{to{opacity:0;transform:translateX(20px);}}
 </style>
 </head>
 <body>
+<!-- App-Notice Toast-Stack (2026-05-16) — globales Notice-System -->
+<div id="app-notice-stack" class="app-notice-stack" role="region" aria-live="polite" aria-label="Hinweise"></div>
+
 <!-- ─── LOGIN / BOOTSTRAP OVERLAY ─────────────────────────── -->
 <div id="login-overlay" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(10,20,35,0.92);z-index:9999;align-items:center;justify-content:center;flex-direction:column;gap:16px;">
   <div style="background:var(--surface);border:1px solid var(--b1);border-radius:12px;padding:40px 48px;min-width:360px;max-width:460px;box-shadow:0 18px 40px rgba(0,0,0,0.35);">
@@ -9376,6 +9395,69 @@ function showModalFeedback(eid,btn,msg,isErr){
   if(btn){btn.disabled=false;btn.textContent=isErr?'Fehler – nochmals':(btn._origText||'Speichern');
     if(!isErr){btn.style.background='var(--pos)';setTimeout(function(){if(btn)btn.style.background='';},2500);}}
 }
+
+// App-Notice: globales Notice-System (Toast-Stack rechts oben).
+// Verwendung: showAppNotice({level:'error', message:'...', title?:'...', durationMs?:4000, action?:{label,onClick}})
+// Levels: 'error' | 'warn' | 'success' | 'info'. Default-Dauer: error=8s, warn=6s, success=4s, info=4s. 0 = manuell (nur close-Button).
+function showAppNotice(opts){
+  opts=opts||{};
+  var stack=document.getElementById('app-notice-stack');
+  if(!stack){
+    if(typeof console!=='undefined'&&console.warn)console.warn('app-notice-stack fehlt, fallback console:',opts.message);
+    return null;
+  }
+  var level=String(opts.level||'info').toLowerCase();
+  if(['error','warn','success','info'].indexOf(level)<0)level='info';
+  var defaults={error:8000,warn:6000,success:4000,info:4000};
+  var duration=opts.durationMs!=null?Number(opts.durationMs):defaults[level];
+  var note=document.createElement('div');
+  note.className='app-notice an-'+level;
+  var body=document.createElement('div');
+  body.className='an-body';
+  if(opts.title){
+    var t=document.createElement('div');
+    t.className='an-title';
+    t.textContent=String(opts.title);
+    body.appendChild(t);
+  }
+  var msgNode=document.createElement('div');
+  msgNode.textContent=String(opts.message||'');
+  body.appendChild(msgNode);
+  if(opts.action&&opts.action.label&&typeof opts.action.onClick==='function'){
+    var actWrap=document.createElement('div');
+    actWrap.className='an-action';
+    var actBtn=document.createElement('button');
+    actBtn.type='button';
+    actBtn.textContent=String(opts.action.label);
+    actBtn.onclick=function(){try{opts.action.onClick();}catch(e){} dismiss();};
+    actWrap.appendChild(actBtn);
+    body.appendChild(actWrap);
+  }
+  note.appendChild(body);
+  var close=document.createElement('button');
+  close.type='button';
+  close.className='an-close';
+  close.setAttribute('aria-label','Schliessen');
+  close.innerHTML='&times;';
+  close.onclick=function(){dismiss();};
+  note.appendChild(close);
+  stack.appendChild(note);
+  var timer=null;
+  function dismiss(){
+    if(timer){clearTimeout(timer);timer=null;}
+    if(!note.parentNode)return;
+    note.classList.add('an-leaving');
+    setTimeout(function(){if(note.parentNode)note.parentNode.removeChild(note);},220);
+  }
+  if(duration>0)timer=setTimeout(dismiss,duration);
+  return {dismiss:dismiss,element:note};
+}
+
+// Convenience-Wrapper für die häufigsten Fälle
+function showAppError(message,opts){return showAppNotice(Object.assign({level:'error',message:message},opts||{}));}
+function showAppWarn(message,opts){return showAppNotice(Object.assign({level:'warn',message:message},opts||{}));}
+function showAppSuccess(message,opts){return showAppNotice(Object.assign({level:'success',message:message},opts||{}));}
+function showAppInfo(message,opts){return showAppNotice(Object.assign({level:'info',message:message},opts||{}));}
 function parseApiError(e,fallback){
   return String((e&&e.detail)||(e&&e.message)||fallback||'?');
 }
