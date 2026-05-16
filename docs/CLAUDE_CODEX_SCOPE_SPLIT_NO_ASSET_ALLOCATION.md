@@ -459,3 +459,42 @@ kurze 'X →' Labels statt 'Weiter zu X →' / 'Zurück zu X' Pattern. Jetzt
 
 Test-Suite: 1205 passed (+0 — keine neuen Tests, da Wording-Only). Branch
 develop @ 42f4d4e.
+
+**Stille JS-Override-Bugs (Lessons Learned, Phase Ende):**
+
+Der Customer-UX-Sprint hat drei stille Bugs aufgedeckt, bei denen JavaScript-
+Code zur Laufzeit die HTML-Statics überschrieb und so meine Wording-
+Änderungen unsichtbar gemacht hätte. Wichtige Erkenntnis für künftige UX-
+Touches: Bei Layout-Refactoring oder dynamischem Rendering muss geprüft
+werden, ob `textContent =` oder `innerHTML =` Statements feste Strings
+setzen statt dynamische Daten:
+
+1. **`normalizeConversationLabels()`** (Z 3516) — neutralisiert (no-op).
+   Hat page-cf Subtitle/Buttons/Card-Header zur Laufzeit auf alte Domain-
+   Slang-Strings zurückgeschrieben.
+
+2. **renderPortfolio pageSubtitle-Override** (Z 12519) — entfernt.
+   Hat page-po Subtitle mit interner Spalten-Liste überschrieben statt der
+   Customer-UX-Story.
+
+3. **`initDomLayout()` Defensive-Override** (Z 3156-3187) — Strings auf
+   neues Wording synchronisiert.
+   Defensive Schicht nach DOM-Restructure — bleibt aktiv, aber Override-
+   Strings müssen mit HTML-Statics übereinstimmen.
+
+**Identifiziert als gewollt (nicht angefasst):**
+- `bindHonestUiActions()` (Z 5235) — bewusste Honesty-Overrides für m-rep/
+  m-rp-print Print-Buttons (Codex §7 "ehrliches PDF-Wording")
+- `normalizeAllocationLayout`/`normalizeReviewLayout` — DOM-Strukturierung
+- `ensureAssetAllocationQuickActions` — defensive für Legacy-HTML
+- `normalizeCashflowProjectionLabels` — ASCII-Normalisierung in eigener Sub-Section
+
+**Konsistenz-Sweeps finaler Phase:**
+- 'Beratungsvermögen' (41 statt 40+1 'Anlagevermögen')
+- 'Asset Allokation' (20 deutsch statt 10+10 Deutsch/Englisch)
+- Stepper auf 8 Schritte ohne Lücken (page-ub Legacy entfernt)
+- cnav-Buttons konsistent 'Weiter zu X →' / '← Zurück zu X'
+
+**`m-strategy-calc`** (4-stufige Berechnungs-Modal) wurde inspiziert und ist
+bereits exzellent: spiegelt die 3eyes-Methodik mit 4 Stages (Mandat/
+Vermögen → Cashflows/Ziele → Risikoprofil → Strategie). Keine Änderung nötig.
