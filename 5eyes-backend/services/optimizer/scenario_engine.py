@@ -179,6 +179,91 @@ def build_scenario_paths(
     return return_factors
 
 
+def build_scenario_paths_with_weights(
+    inputs: ScenarioInputs,
+    *,
+    horizon_years: int,
+    n_paths: int,
+    seed: int,
+    antithetic: bool = True,
+    use_importance_sampling: bool = False,
+    is_shift_strength: float = 0.5,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Liefert Pfade + Likelihood-Weights (Phase 5b Stochastic-Optimizer-Spec).
+
+    Wenn use_importance_sampling=False, identisch zu build_scenario_paths()
+    + weights = ones(n_paths) (trivialer Estimator).
+
+    Wenn use_importance_sampling=True, biased die Sampling-Verteilung in
+    die Tail-Region (default: negativer Equity-Shift), und gibt
+    Likelihood-Ratio-Weights pro Pfad. Downstream-Objective muss die
+    gewichtete Erwartung berechnen statt der ungewichteten Sample-Mean.
+
+    Parameters
+    ----------
+    inputs, horizon_years, n_paths, seed, antithetic
+        Wie in build_scenario_paths().
+    use_importance_sampling : bool
+        Default False. Wenn True, aktiviert Mean-Shift-IS mit Default-Shift
+        (Equity-Buckets nach negativ, siehe importance_sampling.py).
+    is_shift_strength : float
+        Shift-Magnitude in Standard-Deviationen. Nur relevant wenn
+        use_importance_sampling=True. Typisch 0.3-1.0. Default 0.5.
+
+    Returns
+    -------
+    paths : np.ndarray
+        Shape (n_paths, horizon_years, n_buckets) — log-normal return factors.
+    weights : np.ndarray
+        Shape (n_paths,) — Likelihood-Ratio. Bei IS off: alle 1.0.
+
+    Notes
+    -----
+    Antithetic + Importance Sampling werden NICHT kombiniert. Wenn IS aktiv,
+    wird antithetic intern auf False gesetzt (Mean-Shift biased die Stichprobe
+    asymmetrisch, antithetic-Spiegelung wuerde das aufheben).
+    """
+    from .importance_sampling import (
+        apply_mean_shift,
+        build_shift_vector,
+        compute_likelihood_weights,
+        make_default_weights,
+    )
+
+    n_paths = int(max(1, n_paths))
+
+    if not use_importance_sampling:
+        paths = build_scenario_paths(
+            inputs,
+            horizon_years=horizon_years,
+            n_paths=n_paths,
+            seed=seed,
+            antithetic=antithetic,
+        )
+        return paths, make_default_weights(n_paths)
+
+    # IS-Pfad: antithetic deaktivieren (siehe Notes), Pfade mit Mean-Shift
+    horizon_years = int(max(1, horizon_years))
+    rng = np.random.default_rng(np.uint64(seed))
+    z_uncorrelated = rng.standard_normal(size=(n_paths, horizon_years, N_BUCKETS))
+
+    shift_vector = build_shift_vector(N_BUCKETS, strength=float(is_shift_strength))
+    weights = compute_likelihood_weights(z_uncorrelated, shift_vector)
+    z_shifted = apply_mean_shift(z_uncorrelated, shift_vector)
+
+    # Cholesky + Cornish-Fisher + Itô-Korrektur — gleiche Pipeline wie
+    # build_scenario_paths, aber auf den geshifteten Z
+    z_corr = np.einsum("phb,kb->phk", z_shifted, inputs.cholesky)
+    skew = inputs.skew_bps / 10_000.0
+    kurt = inputs.excess_kurt_bps / 10_000.0
+    z_cf = cornish_fisher_array(z_corr, skew, kurt)
+    mu = inputs.mu_bps / 10_000.0
+    sigma = inputs.sigma_bps / 10_000.0
+    log_returns = (mu - 0.5 * sigma * sigma) + sigma * z_cf
+    return_factors = np.exp(log_returns)
+    return return_factors, weights
+
+
 # ============================================================================
 # Simulate Wealth Paths
 # ============================================================================
