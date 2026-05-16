@@ -445,6 +445,16 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 .admin-modal .admin-primary-btn:hover{background:var(--n7)!important;color:#fff!important;}
 .admin-modal .fi,.admin-modal .fsel,.admin-modal textarea{border-radius:7px!important;background:var(--bg2)!important;border-color:var(--b1)!important;}
 .admin-modal #admin-result{background:var(--bg)!important;color:var(--n6)!important;font-size:10px!important;line-height:1.5!important;}
+.admin-modal [style*="color:var(--g3)"]{color:var(--n8)!important;}
+.admin-modal [style*="color:var(--g4)"]{color:var(--n6)!important;}
+.admin-section-head{display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;}
+.admin-section-title{font-size:13px;font-weight:700;color:var(--n8);margin-bottom:2px;}
+.admin-section-sub{font-size:10px;color:var(--n5);line-height:1.5;}
+.admin-compact-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;}
+.admin-metric-panel{background:var(--bg);border:1px solid var(--b1);border-radius:8px;padding:10px 11px;min-height:86px;}
+.admin-metric-label{font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:var(--n4);font-weight:700;margin-bottom:6px;}
+.admin-metric-value{font-size:11px;color:var(--n7);line-height:1.5;}
+.admin-metric-meta{font-size:9px;color:var(--n5);margin-top:6px;}
 @media(max-width:900px){.admin-sidebar{width:176px}.admin-content{padding:16px}.admin-health-grid{grid-template-columns:1fr 1fr}.admin-action-row{grid-template-columns:9px minmax(0,1fr)}.admin-link-btn{justify-self:start}}
 
 /* ALLOC TABLE */
@@ -815,7 +825,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
           <div class="chd"><span class="cht">Ihr Gesamtvermögen</span><span style="font-size:9px;color:var(--n4);margin-left:8px">Beratungsbasis + holistischer Überblick</span><div class="chr"><button class="btn btn-sm" onclick="om('m-aw')">+ Position</button></div></div>
           <div class="cbody"><div id="asset-view">
             <div style="margin-bottom:10px">
-              <div style="font-size:9px;font-weight:600;letter-spacing:0.07em;text-transform:uppercase;color:var(--n6);margin-bottom:5px;padding-bottom:3px;border-bottom:1px solid var(--b1)">Beratungsvermögen</div>
+              <div style="font-size:9px;font-weight:600;letter-spacing:0.07em;text-transform:uppercase;color:var(--n6);margin-bottom:5px;padding-bottom:3px;border-bottom:1px solid var(--b1)">Beratungsvermögen <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--n4);font-size:9px;margin-left:6px">— was wir zielgerichtet investieren</span></div>
               <div class="wr"><div class="wn"><div class="wna">Depot UBS AG Zürich</div><div class="wnd">Kto. 12-345678-9</div></div><div class="wa">CHF 1'850'000</div><div class="wt"><span class="tag tb">Beratung</span></div><button class="btn-ico e" onclick="om('m-edit-depot')" title="Bearbeiten">✎</button></div>
               <div class="wr"><div class="wn"><div class="wna">Depot ZKB</div><div class="wnd">Kto. 87-654321-0</div></div><div class="wa">CHF 620'000</div><div class="wt"><span class="tag tb">Beratung</span></div></div>
               <div class="wr"><div class="wn"><div class="wna">Cash / Liquidität</div><div class="wnd">Sichtguthaben UBS</div></div><div class="wa">CHF 210'000</div><div class="wt"><span class="tag tb">Beratung</span></div></div>
@@ -860,9 +870,9 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 
     <!-- PAGE: CASHFLOWS -->
     <div id="page-cf" class="page">
-      <div class="ph"><div><div class="ph-t">Cashflows &amp; Ziele</div><div class="ph-s">Was rein- und rausfliesst &middot; Ihre Ziele &middot; wie sich Ihr Verm&ouml;gen entwickelt</div></div><div class="ph-r"><button class="btn" onclick="om('m-acf')">+ Cashflow</button><button class="btn-p" onclick="go('rp')">Weiter zum Risikoprofil &rarr;</button></div></div>
+      <div class="ph"><div><div class="ph-t">Cashflows &amp; Ziele</div><div class="ph-s">Was rein- und rausfliesst &middot; Ihre Ziele &middot; IST-Pfad ohne Optimierung</div></div><div class="ph-r"><button class="btn" onclick="om('m-acf')">+ Cashflow</button><button class="btn-p" onclick="go('rp')">Weiter zum Risikoprofil &rarr;</button></div></div>
       <div class="pad">
-        <div style="font-size:11px;color:var(--n5);line-height:1.6;margin-bottom:12px;padding:10px 12px;background:var(--bg);border:1px solid var(--b1);border-radius:var(--r2)">Bitte pr&uuml;fen Sie, ob Ihre regelm&auml;ssigen Eink&uuml;nfte und Ausgaben korrekt und vollst&auml;ndig sind und ob die Ziele in der richtigen Reihenfolge stehen. Die Verm&ouml;gensentwicklung darunter zeigt den aktuellen Pfad &mdash; ohne empfohlene Strategie&auml;nderungen.</div>
+        <div style="font-size:11px;color:var(--n5);line-height:1.6;margin-bottom:12px;padding:10px 12px;background:var(--bg);border:1px solid var(--b1);border-radius:var(--r2)">Bitte pr&uuml;fen Sie, ob Ihre regelm&auml;ssigen Eink&uuml;nfte und Ausgaben korrekt und vollst&auml;ndig sind und ob die Ziele in der richtigen Reihenfolge stehen. Die <strong>IST-Grafik</strong> darunter zeigt, wie sich Ihr Verm&ouml;gen mit den heutigen Anlagen entwickeln w&uuml;rde &mdash; <em>ohne</em> Optimierung der Strategie. Die optimierte SOLL-Sicht folgt in der Asset Allokation.</div>
         <div class="g2" data-slot="cashflows"></div>
         <div id="cf-goals-projection" data-slot="goals-projection" style="display:flex;flex-direction:column;gap:12px;margin-top:12px"></div>
         <div id="cf-save-status" style="display:none;margin-top:12px;padding:10px 12px;border:1px solid var(--b1);border-radius:var(--r2);background:var(--bg);font-size:11px;color:var(--n6)"></div>
@@ -1568,7 +1578,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 
     <!-- PAGE: PORTFOLIO -->
     <div id="page-po" class="page">
-      <div class="ph"><div><div class="ph-t">Portfolio &mdash; ETFs &amp; Fonds</div><div class="ph-s">Was Sie heute halten &middot; was wir vorschlagen &middot; wie der &Uuml;bergang aussieht</div></div><div class="ph-r"><button class="btn" onclick="om('m-ap')">+ Bestand</button><button class="btn-g" id="btn-po-refresh" onclick="refreshPortfolioFromStoredState()">Portfolio aktualisieren</button><button class="btn" onclick="openImplementationRecipe()">Anlagerezept drucken</button><button class="btn-p" onclick="go('rv')">Weiter zum Review &rarr;</button></div></div>
+      <div class="ph"><div><div class="ph-t">Portfolio &mdash; ETFs &amp; Fonds</div><div class="ph-s">Umsetzung Ihrer Asset Allocation in konkrete Produkte (ISIN)</div></div><div class="ph-r"><button class="btn" onclick="om('m-ap')">+ Bestand</button><button class="btn-g" id="btn-po-refresh" onclick="refreshPortfolioFromStoredState()">Portfolio aktualisieren</button><button class="btn" onclick="openImplementationRecipe()">Anlagerezept drucken</button><button class="btn-p" onclick="go('rv')">Weiter zum Review &rarr;</button></div></div>
       <div class="pad">
         <div style="background:var(--n8);border-radius:var(--r2);padding:10px 14px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">
           <div><div style="font-size:9px;font-weight:500;letter-spacing:0.08em;text-transform:uppercase;color:rgba(255,255,255,0.4);margin-bottom:2px">Beratungsvermögen total</div><div id="po-advisory-wealth" style="font-family:var(--f-d);font-size:19px;color:#fff">CHF 2'848'000</div></div>
@@ -1576,7 +1586,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
         </div>
         <div id="po-engine-warnings" style="display:none;background:#fff7ed;border:1px solid rgba(194,65,12,0.18);border-radius:var(--r);padding:10px 12px;margin-bottom:10px"></div>
         <div id="po-rebalance-summary" style="display:none;flex-direction:column;gap:8px;margin-bottom:10px"></div>
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;gap:10px;flex-wrap:wrap"><div style="font-size:10px;color:var(--n5)">Position anklicken zeigt Details: Soll-Anteil, Zielwert, Kosten und die vorgeschlagene Massnahme.</div><div style="font-size:9px;color:var(--n4);background:var(--bg);border:1px solid var(--b1);border-radius:999px;padding:4px 8px">Klick öffnet Berater-Details</div></div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;gap:10px;flex-wrap:wrap"><div style="font-size:10px;color:var(--n5)">Position anklicken zeigt Details: Soll-Anteil aus der Asset Allocation, Zielwert, Kosten und die Massnahme zur Umsetzung.</div><div style="font-size:9px;color:var(--n4);background:var(--bg);border:1px solid var(--b1);border-radius:999px;padding:4px 8px">Klick öffnet Berater-Details</div></div>
         <div class="pcols"><div class="pch">Produkt</div><div class="pch">Anlageklasse</div><div class="pch" style="text-align:right">Marktwert</div><div class="pch" style="text-align:right">Gewicht</div><div class="pch" style="text-align:right">Massnahme</div></div>
         <div id="po-portfolio-sections"></div>
         <div style="background:var(--n8);border-radius:var(--r);padding:8px 14px;display:flex;justify-content:space-between;align-items:center;margin-top:5px"><span style="font-size:11px;font-weight:600;color:#fff;text-transform:uppercase;letter-spacing:0.04em">Total Beratungsvermögen</span><span id="po-total-footer" style="font-family:var(--f-d);font-size:17px;color:#d4b06a">CHF 2'848'000</span></div>
@@ -7353,12 +7363,12 @@ function renderMarketDataStatus(status) {
   if (!status) { renderMarketDataStatusError('Keine Daten'); return; }
   var providers = Array.isArray(status.providers_health) ? status.providers_health : [];
   var providersHtml = providers.length === 0
-    ? '<div style="color:var(--n4)">Keine Provider konfiguriert</div>'
+    ? '<div class="admin-metric-meta">Keine Provider konfiguriert</div>'
     : providers.map(function(p) {
         var dot = p.healthy
-          ? '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--pos);margin-right:6px"></span>'
-          : '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--neg);margin-right:6px"></span>';
-        return '<div style="display:flex;align-items:center;padding:2px 0">' + dot + '<span>' + escapeHtml(String(p.name || '?')) + '</span></div>';
+          ? '<span class="admin-pill ok">OK</span>'
+          : '<span class="admin-pill danger">Fehler</span>';
+        return '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:2px 0"><span>' + escapeHtml(String(p.name || '?')) + '</span>' + dot + '</div>';
       }).join('');
   var pEl = document.getElementById('admin-mdata-providers');
   if (pEl) pEl.innerHTML = providersHtml;
@@ -7369,15 +7379,15 @@ function renderMarketDataStatus(status) {
   var byKind = cache.by_kind || {};
   var kinds = Object.keys(byKind);
   var cacheHtml = kinds.length === 0
-    ? '<div style="color:var(--n4)">Cache leer</div>'
+    ? '<div class="admin-metric-meta">Cache leer</div>'
     : kinds.map(function(k) {
         var b = byKind[k] || {};
         var valid = Number(b.valid || 0);
         var expired = Number(b.expired || 0);
         var total = Number(b.total || 0);
         return '<div style="display:flex;justify-content:space-between;padding:2px 0">'
-          + '<span style="color:var(--n6)">' + escapeHtml(k) + '</span>'
-          + '<span style="color:var(--n4);font-family:monospace">' + valid + ' / ' + expired + ' / ' + total + '</span>'
+          + '<span>' + escapeHtml(k) + '</span>'
+          + '<span class="admin-metric-meta" style="margin-top:0">' + valid + ' / ' + expired + ' / ' + total + '</span>'
           + '</div>';
       }).join('');
   var cEl = document.getElementById('admin-mdata-cache');
@@ -7387,24 +7397,24 @@ function renderMarketDataStatus(status) {
   var alertCount = logs.filter(function(l) { return !!l.is_alert; }).length;
   var validationHtml;
   if (logs.length === 0) {
-    validationHtml = '<div style="color:var(--n4)">Keine Validation-Logs</div>';
+    validationHtml = '<div class="admin-metric-meta">Keine Validation-Logs</div>';
   } else if (alertCount === 0) {
-    validationHtml = '<div style="color:var(--pos);font-weight:600">' + logs.length + ' Checks &middot; 0 Alerts</div>';
+    validationHtml = '<div><span class="admin-pill ok">OK</span><span style="margin-left:7px">' + logs.length + ' Checks &middot; 0 Alerts</span></div>';
   } else {
-    validationHtml = '<div style="color:var(--neg);font-weight:600">' + alertCount + ' Alerts</div>'
-      + '<div style="color:var(--n4);margin-top:4px">von ' + logs.length + ' letzten Checks</div>';
+    validationHtml = '<div><span class="admin-pill danger">' + alertCount + ' Alerts</span></div>'
+      + '<div class="admin-metric-meta">von ' + logs.length + ' letzten Checks</div>';
   }
   var vEl = document.getElementById('admin-mdata-validation');
   if (vEl) vEl.innerHTML = validationHtml;
 
   var jobs = Array.isArray(status.scheduler_jobs) ? status.scheduler_jobs : [];
   var jobsHtml = jobs.length === 0
-    ? '<div style="color:var(--n4)">Scheduler inaktiv</div>'
+    ? '<div class="admin-metric-meta">Scheduler inaktiv</div>'
     : jobs.map(function(j) {
         var next = j.next_run_at ? String(j.next_run_at).replace('T', ' ').substring(0, 19) : '—';
         return '<div style="display:flex;justify-content:space-between;padding:1px 0">'
           + '<span>' + escapeHtml(String(j.id || '?')) + '</span>'
-          + '<span style="color:var(--n4)">' + escapeHtml(next) + '</span>'
+          + '<span class="admin-metric-meta" style="margin-top:0">' + escapeHtml(next) + '</span>'
           + '</div>';
       }).join('');
   var jEl = document.getElementById('admin-mdata-jobs');
@@ -15613,33 +15623,33 @@ function openStammdatenModal(){
 
         <!-- ══ SEC: DATENPIPELINE-STATUS ══ -->
         <div id="sec-market-data" class="admin-sec-panel" style="display:none;gap:14px;">
-          <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;">
+          <div class="admin-section-head">
             <div>
-              <div style="font-size:13px;font-weight:600;color:var(--g3);margin-bottom:2px;">Datenpipeline-Status</div>
-              <div style="font-size:10px;color:var(--n4);line-height:1.5">Health-Check der Multi-Source-Provider, Smart-Cache, Cross-Validation und Scheduler-Jobs.</div>
+              <div class="admin-section-title">Datenpipeline-Status</div>
+              <div class="admin-section-sub">Health-Check der Multi-Source-Provider, Smart-Cache, Cross-Validation und Scheduler-Jobs.</div>
             </div>
-            <button class="btn-p" style="background:var(--bg2);color:var(--n6);font-size:10px;padding:4px 10px" onclick="loadMarketDataStatus(true)" id="btn-admin-mdata-refresh">Aktualisieren</button>
+            <button class="btn" onclick="loadMarketDataStatus(true)" id="btn-admin-mdata-refresh">Aktualisieren</button>
           </div>
-          <div style="display:flex;gap:10px;flex-wrap:wrap">
-            <div style="flex:1;min-width:200px;background:var(--bg2);border-radius:6px;padding:10px;border:1px solid var(--b1)">
-              <div style="font-size:9px;text-transform:uppercase;letter-spacing:0.08em;color:var(--n4);margin-bottom:6px">Provider</div>
-              <div id="admin-mdata-providers" style="font-size:11px;color:var(--g4)">—</div>
-              <div id="admin-mdata-providers-config" style="font-size:9px;color:var(--n4);margin-top:6px;font-family:monospace"></div>
+          <div class="admin-compact-grid">
+            <div class="admin-metric-panel">
+              <div class="admin-metric-label">Provider</div>
+              <div id="admin-mdata-providers" class="admin-metric-value">—</div>
+              <div id="admin-mdata-providers-config" class="admin-metric-meta"></div>
             </div>
-            <div style="flex:1;min-width:200px;background:var(--bg2);border-radius:6px;padding:10px;border:1px solid var(--b1)">
-              <div style="font-size:9px;text-transform:uppercase;letter-spacing:0.08em;color:var(--n4);margin-bottom:6px">Cache</div>
-              <div id="admin-mdata-cache" style="font-size:11px;color:var(--g4)">—</div>
+            <div class="admin-metric-panel">
+              <div class="admin-metric-label">Cache</div>
+              <div id="admin-mdata-cache" class="admin-metric-value">—</div>
             </div>
-            <div style="flex:1;min-width:200px;background:var(--bg2);border-radius:6px;padding:10px;border:1px solid var(--b1)">
-              <div style="font-size:9px;text-transform:uppercase;letter-spacing:0.08em;color:var(--n4);margin-bottom:6px">Cross-Validation</div>
-              <div id="admin-mdata-validation" style="font-size:11px;color:var(--g4)">—</div>
+            <div class="admin-metric-panel">
+              <div class="admin-metric-label">Cross-Validation</div>
+              <div id="admin-mdata-validation" class="admin-metric-value">—</div>
             </div>
           </div>
-          <div style="background:var(--bg2);border-radius:6px;padding:10px;border:1px solid var(--b1)">
-            <div style="font-size:9px;text-transform:uppercase;letter-spacing:0.08em;color:var(--n4);margin-bottom:6px">Scheduler-Jobs</div>
-            <div id="admin-mdata-jobs" style="font-size:11px;color:var(--g4);font-family:monospace">—</div>
+          <div class="admin-metric-panel">
+            <div class="admin-metric-label">Scheduler-Jobs</div>
+            <div id="admin-mdata-jobs" class="admin-metric-value">—</div>
           </div>
-          <div id="admin-mdata-meta" style="font-size:9px;color:var(--n4);text-align:right"></div>
+          <div id="admin-mdata-meta" class="admin-metric-meta" style="text-align:right"></div>
         </div>
 
         <!-- ══ SEC: PRODUKT OVERRIDE ══ -->
