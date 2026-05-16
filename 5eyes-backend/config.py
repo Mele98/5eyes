@@ -140,6 +140,16 @@ class Settings(BaseSettings):
     # - 'stochastic': Solver darf die Zielallokation ersetzen, wenn converged.
     optimizer_mode: str = 'house_matrix'
 
+    # Mean-Shift Importance Sampling fuer Tail-Risk im stochastic Optimizer
+    # (Phase 5 der Stochastic-Optimizer-Spec). Default OFF, opt-in via
+    # MC_IMPORTANCE_SAMPLING_ENABLED=true. Bringt 5-10x Varianz-Reduktion
+    # bei Tail-Statistiken (P(Drawdown > X)) ohne Bias. Siehe
+    # services/optimizer/importance_sampling.py.
+    mc_importance_sampling_enabled: bool = False
+    # Shift-Magnitude in Standard-Deviationen (typisch 0.3-1.0). Hoeher =
+    # mehr Tail-Konzentration aber hoeherer Bias-Variance-Tradeoff.
+    mc_importance_sampling_strength: float = 0.5
+
     @field_validator('app_env')
     @classmethod
     def validate_app_env(cls, value: str) -> str:
