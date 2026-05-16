@@ -4706,7 +4706,7 @@ function printSummaryPage(){
 
 function buildAnlagestrategieDocHtml(allocation,risk,persona,mandateData,recommendation){
   var today=new Date().toLocaleDateString('de-CH',{year:'numeric',month:'long',day:'numeric'});
-  var clientName=persona?((persona.salutation?persona.salutation+' ':'')+((persona.first_name||persona.name||'')+' '+(persona.last_name||'')).trim()).trim():'—';
+  var reportSubject='Kundendossier';
   var advisoryChf=allocation?Math.round(Number(allocation.advisory_wealth_rappen||0)/100):0;
   var totalChf=allocation?Math.round(Number(allocation.total_wealth_rappen||0)/100):0;
   var buckets=allocation&&Array.isArray(allocation.buckets)?allocation.buckets:[];
@@ -4741,7 +4741,7 @@ function buildAnlagestrategieDocHtml(allocation,risk,persona,mandateData,recomme
     +'<div><div style="font-size:10px;font-weight:600;letter-spacing:0.15em;text-transform:uppercase;color:rgba(255,255,255,0.45);margin-bottom:4px">WealthArchitekten</div>'
     +'<div style="font-size:22px;font-weight:700;color:#fff;letter-spacing:-0.02em">Anlagestrategie</div>'
     +'<div style="font-size:12px;color:rgba(255,255,255,0.55);margin-top:4px">Vertraulich · Erstellt am '+escapeHtml(today)+'</div></div>'
-    +'<div style="text-align:right"><div style="font-size:11px;color:rgba(255,255,255,0.7);font-weight:500">'+escapeHtml(clientName)+'</div>'
+    +'<div style="text-align:right"><div style="font-size:11px;color:rgba(255,255,255,0.7);font-weight:500">'+escapeHtml(reportSubject)+'</div>'
     +'<div style="font-size:10px;color:rgba(255,255,255,0.4);margin-top:3px">'+escapeHtml(mandateLabel)+'</div>'
     +(advisoryChf?'<div style="font-size:11px;color:rgba(255,255,255,0.55);margin-top:6px">Beratungsvermögen<br><span style="font-size:15px;font-weight:700;color:#fff">CHF '+advisoryChf.toLocaleString('de-CH')+'</span></div>':'')
     +'</div></div></div>';
@@ -4960,7 +4960,7 @@ function buildAnlagestrategieDocHtml(allocation,risk,persona,mandateData,recomme
     +'<div style="border-bottom:1px solid #334155;margin-top:32px;margin-bottom:6px"></div>'
     +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">'
     +'<div><div style="font-size:9px;color:#64748b">Ort, Datum</div></div>'
-    +'<div><div style="font-size:9px;color:#64748b">Klient/in: '+escapeHtml(clientName)+'</div></div>'
+    +'<div><div style="font-size:9px;color:#64748b">Klient/in</div></div>'
     +'</div></div>'
     +'<div>'
     +'<div style="font-size:10px;color:#334155;margin-bottom:4px">Der Anlageberater bestätigt, die Strategie besprochen und dokumentiert zu haben.</div>'
@@ -5138,9 +5138,8 @@ async function savePortfolioUmsetzen(){
 function printAnlagestrategie(){
   var allocation=strategyState&&strategyState.allocation;
   var risk=currentPersistedRiskForMandate(getActiveMandateId());
-  var clientName=reportClientLabel();
   var today=new Date().toLocaleDateString('de-CH');
-  var docTitle='Anlagestrategie \u2013 '+clientName+' \u2013 '+today;
+  var docTitle='Anlagestrategie \u2013 Kundendossier \u2013 '+today;
   var bodyHtml=buildAnlagestrategieDocHtml(allocation,risk,currentPersona,currentMandateData,strategyState&&strategyState.recommendation);
   var win=window.open('','_blank','noopener,noreferrer,width=1100,height=950');
   if(!win){window.print();return;}
@@ -13916,7 +13915,12 @@ async function saveCashflow(){
       await refreshCashflowsUI(cid);
       updateCfRiskContextSummary();
       markStrategyDirty(isEdit?'Cashflow aktualisiert: Ist-Pfad aktualisiert. Soll-Allokation bei Bedarf separat aktualisieren.':'Cashflow gespeichert: Ist-Pfad aktualisiert. Soll-Allokation bei Bedarf separat aktualisieren.', false);
-    }catch(e){showModalFeedback('acf-error',btn,'Fehler: '+(e.detail||e.message||'?'),true);}
+      try{showAppSuccess(isEdit?'Cashflow aktualisiert':'Cashflow gespeichert');}catch(noticeErr){}
+    }catch(e){
+      var cfErr='Fehler: '+(e.detail||e.message||'?');
+      showModalFeedback('acf-error',btn,cfErr,true);
+      try{showAppError(cfErr,{title:'Cashflow nicht gespeichert'});}catch(noticeErr){}
+    }
   }else{
     var isInc=cftype==='Income';
     var rows=document.getElementById(isInc?'zufluss-rows':'abfluss-rows');
@@ -14263,9 +14267,12 @@ async function saveWealthPosition(){
       await refreshWealthUI(cid);
       showModalFeedback('maw-error',btn,isEdit?'OK: Position aktualisiert':'OK: Position gespeichert',false);
       markStrategyDirty(isEdit?'Vermögensposition aktualisiert: Strategie neu berechnen.':'Vermögensposition gespeichert: Strategie neu berechnen.', true);
+      try{showAppSuccess(isEdit?'Vermögensposition aktualisiert':'Vermögensposition gespeichert');}catch(noticeErr){}
       setTimeout(function(){cm('m-aw');},600);
     }catch(e){
-      showModalFeedback('maw-error',btn,'Fehler: '+(e.detail||e.message||'?'),true);
+      var wpErr='Fehler: '+(e.detail||e.message||'?');
+      showModalFeedback('maw-error',btn,wpErr,true);
+      try{showAppError(wpErr,{title:'Vermögensposition nicht gespeichert'});}catch(noticeErr){}
     }
   } else {
     if(isEdit){
@@ -15142,9 +15149,12 @@ async function saveAdvisoryLogEntry(){
       showModalFeedback('ne-error',btn,'✓ Protokolleintrag gespeichert',false);
       await refreshReviewUI(mid);
       renderSrImplementationDecision(null);
+      try{showAppSuccess('Protokolleintrag gespeichert',{title:'Review-Entscheid dokumentiert'});}catch(noticeErr){}
       setTimeout(function(){cm('m-ne');},500);
     }catch(e){
-      showModalFeedback('ne-error',btn,'Fehler: '+(e.detail||e.message||'?'),true);
+      var alErr='Fehler: '+(e.detail||e.message||'?');
+      showModalFeedback('ne-error',btn,alErr,true);
+      try{showAppError(alErr,{title:'Protokolleintrag nicht gespeichert'});}catch(noticeErr){}
     }
   } else {
     currentReviewState.logs=[Object.assign({id:'demo-log-'+Date.now(),status:'Empfohlen'},payload)].concat(currentReviewState.logs||[]);
@@ -16471,8 +16481,11 @@ async function saveGoal(){
       await refreshGoalsUI(mid);
       updateCfRiskContextSummary();
       markStrategyDirty(isEdit?'Ziel aktualisiert: Ist-Grafik und Zielsicht aktualisiert. Soll-Allokation bei Bedarf separat aktualisieren.':'Ziel gespeichert: Ist-Grafik und Zielsicht aktualisiert. Soll-Allokation bei Bedarf separat aktualisieren.', false);
+      try{showAppSuccess(isEdit?'Ziel aktualisiert':'Ziel gespeichert');}catch(noticeErr){}
     }catch(e){
-      showModalFeedback('nz-error',btn,'Fehler: '+(e.detail||e.message||'?'),true);
+      var goalErr='Fehler: '+(e.detail||e.message||'?');
+      showModalFeedback('nz-error',btn,goalErr,true);
+      try{showAppError(goalErr,{title:'Ziel nicht gespeichert'});}catch(noticeErr){}
     }
   } else {
     var localId=isEdit?currentGoalEditId:('demo-goal-'+Date.now());
