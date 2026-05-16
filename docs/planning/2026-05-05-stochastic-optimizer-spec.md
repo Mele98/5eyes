@@ -11,7 +11,7 @@
 
 ## Ziel
 
-5eyes von "House-Matrix-Default + Goal-Tilts" zu echter goal-basierter Allokation upgraden, wie 3eyes-Schulung Slide 18 sie definiert: **Optimierung minimiert Fehlbeträge über alle Szenarien, sekundär minimiert Volatilität wenn Ziele erfüllt**. Ergebnis: erklärbare, reproduzierbare Allokation pro Mandat, die mathematisch nachvollziehbar gegen die individuellen Lebensziele optimiert ist — nicht ein generisches Profil mit nachträglichen Tilts.
+5eyes von "House-Matrix-Default + Goal-Tilts" zu echter goal-basierter Allokation upgraden, wie Methodik-Schulung Slide 18 sie definiert: **Optimierung minimiert Fehlbeträge über alle Szenarien, sekundär minimiert Volatilität wenn Ziele erfüllt**. Ergebnis: erklärbare, reproduzierbare Allokation pro Mandat, die mathematisch nachvollziehbar gegen die individuellen Lebensziele optimiert ist — nicht ein generisches Profil mit nachträglichen Tilts.
 
 ## Problem (heute)
 
@@ -20,7 +20,7 @@
 - Ziele beeinflussen nur über 2–3 manuelle Tilt-Regeln (`Vermoegensziel ≤5J → eq_reduction`, Reserve-Ceiling)
 - Hardness (hart/primaer/opp) wirkt nur in der Score-Aggregation, nicht in der Allokationswahl
 - Verschiedene Mandate mit gleichem Risikoprofil aber unterschiedlichen Goals → fast identische Allokation
-- Die 3eyes-Schulung beschreibt explizit: "Optimierung gegen vordefinierte Modellportfolios **oder** Hyperpersonalisierung der SAA". 5eyes ist heute "vordefiniert".
+- Die Methodik-Schulung beschreibt explizit: "Optimierung gegen vordefinierte Modellportfolios **oder** Hyperpersonalisierung der SAA". 5eyes ist heute "vordefiniert".
 
 ## Scope
 
@@ -39,13 +39,13 @@
 - Mortalitätsadjustierte Pensionen: v2 (BFS-Sterbetafel)
 - Async-Background-Tasks für >5s-Laufzeiten: kommt wenn Performance-Problem akut
 - FE-Optimization-Panel (Sensitivity, Reasoning-Trace): eigene Codex-Spec
-- Verbindung zu echten SLAM-Daten-Feeds: heute manuelle CMA-Pflege
+- Verbindung zu echten CMA-Daten-Feeds: heute manuelle CMA-Pflege
 
 ## Fachlogik
 
 ### Quellen
 
-- **3eyes-Schulung 2024-04-09 (SLWM intern)**: Slide 10 (Mulvey/Ziemba), Slide 15 (Risky Fraction = Risiko-Score×10%), Slide 17 (Building Blocks), Slide 18 (Optimierungshierarchie), Slide 19 (SLAM-Inputs Skewness/Kurtosis)
+- **Methodik-Schulung 2024-04-09 (intern)**: Slide 10 (Mulvey/Ziemba), Slide 15 (Risky Fraction = Risiko-Score×10%), Slide 17 (Building Blocks), Slide 18 (Optimierungshierarchie), Slide 19 (CMA-Inputs Skewness/Kurtosis)
 - **Mulvey/Vladimirou 1992** "Stochastic Network Programming for Financial Planning Problems"
 - **Ziemba/Mulvey 1998** *Worldwide Asset and Liability Modeling* (Cambridge UP)
 - **Rockafellar/Uryasev 2000** "Optimization of Conditional Value-at-Risk", *J. Risk*
@@ -55,7 +55,7 @@
 - **Cornish/Fisher 1937** "Moments and Cumulants in the Specification of Distributions"
 - **Roy 1952** "Safety First and the Holding of Assets", *Econometrica* — Shortfall-Konzept
 
-### Verbindliche Regeln (aus 3eyes-Slide 18)
+### Verbindliche Regeln (aus Advisory-Methodik-Slide 18)
 
 1. **Priorität 1**: Minimiere Σ_g hardness_weight_g · E[max(0, target_g − wealth_g)^2] über alle Szenarien
 2. **Priorität 2**: Wenn (1) ≤ ε → minimiere Var(terminal_wealth)
@@ -149,9 +149,9 @@ Begründung: Realdaten Aktien haben s ≈ −0.5, k ≈ 4–6 (fat left tail). M
 
 5. **OD-5**: Was passiert wenn Optimizer divergiert (kein gültiges w gefunden)? **Default**: Fallback auf `house_matrix`-Modus mit reasoning-Note "Optimizer konnte keine zulässige Lösung finden — verwende House-Matrix-Default". **Frage**: oder Fehler an User zurückgeben?
 
-6. **OD-6**: Risky-Fraction pro Asset. 3eyes-Slide 17 zeigt: Bonds CH 20%, Eq CH Large 70%, Eq EM 100%, RE CH 50%, Gold 80%. Soll ich diese Werte aus 3eyes-Slide 17 1:1 übernehmen? **Default**: ja, übernehmen.
+6. **OD-6**: Risky-Fraction pro Asset. Advisory-Methodik-Slide 17 zeigt: Bonds CH 20%, Eq CH Large 70%, Eq EM 100%, RE CH 50%, Gold 80%. Soll ich diese Werte aus Advisory-Methodik-Slide 17 1:1 übernehmen? **Default**: ja, übernehmen.
 
-7. **OD-7**: Building-Block-Konzept (Standard vs Alternative) jetzt einführen oder später? **Default**: später (eigene Spec). Heute reicht eine "Default Building Block" mit den Werten aus 3eyes-Slide 17.
+7. **OD-7**: Building-Block-Konzept (Standard vs Alternative) jetzt einführen oder später? **Default**: später (eigene Spec). Heute reicht eine "Default Building Block" mit den Werten aus Advisory-Methodik-Slide 17.
 
 8. **OD-8**: Multi-Period-Liability für Pensionen — wie viele Jahre simulieren? Aktuell horizon=10. Pension läuft 30+ Jahre. **Default**: horizon = max(30, max(goal_horizon)). Performance-Impact: Solver-Zeit wächst linear mit Jahren.
 
@@ -414,7 +414,7 @@ Siehe **OWNER-DECISIONS** OD-1 bis OD-8 oben. Bitte einzeln entscheiden, dann st
 1. **OD-1**: Hardness-Multiplier 50x für Optimizer? (Default: ja)
 2. **OD-3**: N=2000 Pfade ausreichend? (Default: ja, mit Antithetic = 4000 effektiv)
 3. **OD-5**: Solver-Divergenz → Fallback auf House-Matrix? (Default: ja)
-4. **OD-6**: Risky-Fraction-Werte aus 3eyes-Slide 17 1:1 übernehmen? (Default: ja)
+4. **OD-6**: Risky-Fraction-Werte aus Advisory-Methodik-Slide 17 1:1 übernehmen? (Default: ja)
 5. **OD-7**: Building Block Standard nur (Alternative später)? (Default: ja)
 6. **OD-8**: Default-Horizon = max(30, max_goal_horizon)? (Default: ja)
 

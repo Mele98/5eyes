@@ -44,7 +44,7 @@ _ASSET_CLASS_TO_BUCKET = {
 }
 
 
-# Risky-Fraction Defaults pro Bucket (3eyes-Slide 17, OWNER-DECISION OD-6
+# Risky-Fraction Defaults pro Bucket (Advisory-Methodik-Slide 17, OWNER-DECISION OD-6
 # bestaetigt). Diese sind Bucket-aggregierte Mittelwerte aus den Sub-Asset-
 # Class Werten. Wenn der Caller spezifischere Werte aus BuildingBlock-Tabelle
 # hat, kann er DEFAULT_BUCKET_RISKY_FRACTION ueberschreiben.
@@ -56,7 +56,7 @@ DEFAULT_BUCKET_RISKY_FRACTION = {
     "liquidity": 0.00,
 }
 
-# Globale Caps (3eyes-Slide 17, OWNER-DECISION OD-6)
+# Globale Caps (Advisory-Methodik-Slide 17, OWNER-DECISION OD-6)
 MAX_REAL_ESTATE = 0.20
 MAX_ALTERNATIVES = 0.10
 MIN_LIQUIDITY = 0.02
@@ -189,7 +189,7 @@ def bucket_risky_fractions_from_building_blocks(
     Wenn ein Bucket keine BuildingBlocks hat (z.B. Defaultsystem ohne Liquid
     Alternatives-Eintraege), wird auf DEFAULT_BUCKET_RISKY_FRACTION zurueckgefallen.
 
-    Konsistent zu 3eyes-Slide 17: Pro Sub-Asset-Class ist eine eigene Risky-
+    Konsistent zu Advisory-Methodik-Slide 17: Pro Sub-Asset-Class ist eine eigene Risky-
     Fraction definiert. Das Bucket-Aggregat ist der Mittelwert dieser Werte
     (vereinfacht; eine sub-allocation-aware Gewichtung wuerde den User-Tilt
     beruecksichtigen, ist aber zweite-Ordnungs-Effekt fuer Phase 5.1).

@@ -1,6 +1,6 @@
 """
 Risk Scoring Service
-Implements the 5Eyes / 3rd-eyes risk profiling logic (Fachlogik v1.6).
+Implements the 5Eyes / Advisory-Methodik risk profiling logic (Fachlogik v1.6).
 
 Risikofähigkeit (max 28 Punkte im FE-Pfad / generisch bis 32) → Score 0–10 via horizon × capacity matrix
 Risikobereitschaft (max 12 Punkte) → Score 0–10

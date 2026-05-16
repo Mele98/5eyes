@@ -414,8 +414,8 @@ def test_is_feasible_catches_risky_fraction_violation():
     assert any("ineq constraint" in r for r in reasons)
 
 
-def test_default_risky_fractions_match_3eyes_slide_17():
-    """OD-6: Werte aus 3eyes-Slide 17."""
+def test_default_risky_fractions_match_reference_method_slide_17():
+    """OD-6: Werte aus Advisory-Methodik-Slide 17."""
     assert DEFAULT_BUCKET_RISKY_FRACTION["equities"] == 0.80
     assert DEFAULT_BUCKET_RISKY_FRACTION["bonds"] == 0.25
     assert DEFAULT_BUCKET_RISKY_FRACTION["real_estate"] == 0.60

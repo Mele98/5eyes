@@ -12,7 +12,7 @@
 
 `RISK_CAPACITY_BANDS` und `RISK_CAPACITY_MATRIX` sind heute **hardcoded** in
 `5eyes_v2.html`. Das bedeutet: Wenn Emanuele die Scoring-Parameter anpassen will
-(z.B. weil ein Compliance-Review neue Bandbreiten fordert, oder weil 3rd-eyes
+(z.B. weil ein Compliance-Review neue Bandbreiten fordert, oder weil Advisory-Methodik
 die Horizont-Matrix aktualisiert), muss er den JS-Code direkt editieren.
 
 **Ziel:** Diese zwei Kernparameter werden in der DB gespeichert und sind über das

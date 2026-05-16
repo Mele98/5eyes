@@ -86,7 +86,7 @@ class Cashflow(Base):
 class WealthInflow(Base):
     """Erwarteter Vermögenszufluss (Erbschaft, Bonus, Saeule3b, Verkaufserlös, ...).
 
-    Sprint A1 (2026-05-06): in 3rd-eyes ein eigenes Konzept; bei uns vorher
+    Sprint A1 (2026-05-06): in Advisory-Methodik ein eigenes Konzept; bei uns vorher
     nur als pos-Cashflow modellierbar. First-class fuer:
     - Reserve-Berechnung: Inflow in Year T reduziert Reserve-Bedarf fuer
       Outflows ≤ T

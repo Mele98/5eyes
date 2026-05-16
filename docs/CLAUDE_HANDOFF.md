@@ -1,5 +1,30 @@
 # Claude handoff / review request
 
+## UI-Guardrail ab 2026-05-16
+
+Claude: Der Admin-P17/Datenpipeline-Block hat den alten Navy-Gold/Inline-Card-Stil wieder in die App gebracht. Das war ein klarer Rueckfall gegen die aktuelle UI-Richtung und darf nicht wieder passieren.
+
+Ab jetzt gilt fuer alle sichtbaren Frontend-Aenderungen:
+- Cashflow und Asset Allocation sind der Referenzstil: ruhig, schlicht, helle Flaechen, wenig Gold, keine dekorativen Mini-Karten.
+- Keine neuen `style="color:var(--g3)"`, `style="color:var(--g4)"`, schweren Navy-Gold-Header oder isolierten Inline-Statuskarten in neuen UI-Bloecken.
+- Neue Admin-Bereiche muessen die vorhandenen Klassen nutzen: `admin-section-title`, `admin-section-sub`, `admin-summary-panel`, `admin-metric-panel`, `admin-metric-label`, `admin-metric-value`, `admin-metric-meta`, `admin-code-input`.
+- Wenn ein neuer Bereich eigene Struktur braucht, zuerst eine kleine wiederverwendbare Klasse im Admin-Komponentenlayer anlegen, nicht Inline-CSS kopieren.
+- Vor Abgabe per Suche pruefen:
+  - `font-size:13px;font-weight:600;color:var(--g3)`
+  - `color:var(--g4)`
+  - `font-family:Consolas,monospace`
+  - `background:var(--bg2);border-radius:6px;padding`
+Neue Treffer in Admin/Frontend sind nur mit begruendetem Ausnahmefall ok.
+
+## Dokument-/Vorlagen-Guardrail ab 2026-05-16
+
+Claude: Vorlagen-PDFs duerfen nur als Struktur-, Text- und Designreferenz dienen. Kundennamen, Kontaktangaben, Marken oder andere personenbezogene Beispielangaben aus einer Vorlage niemals uebernehmen, hardcoden oder in generische Reports schreiben.
+
+Fuer die Anlagestrategie gilt:
+- Branding aus Vorlagen wie Referenzanbieter/Banken/Beispielberater nie kopieren. Fuer diesen Report ist `Emanuele Konzelmann` der Absender/Brand.
+- Das Report-Template darf keine Namen hardcoden. Im echten kundenspezifischen Export darf der aktive Kunde aus der App (`currentPersona`/API-Daten) in Titel, Kopfzeile, Signatur und Kundendaten erscheinen.
+- Namen aus einer PDF-Vorlage bleiben verboten. Beispielkundennamen duerfen weder als Fallback noch als Demo-Default verwendet werden.
+
 Aktueller Standard fuer neue Arbeitsbloecke:
 - Spezifikationen liegen jetzt in [docs/planning](C:/5eyes/5eyes_stage9_release_ready/docs/planning)
 - neue Claude-Specs bitte aus [CLAUDE_SPEC_TEMPLATE.md](C:/5eyes/5eyes_stage9_release_ready/docs/planning/CLAUDE_SPEC_TEMPLATE.md) ableiten

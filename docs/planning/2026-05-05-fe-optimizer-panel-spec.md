@@ -49,7 +49,7 @@ Sensitivity-Analyse, kein Vertrauensmaß.
 ## Fachlogik
 
 ### Quellen
-- 3eyes-Schulung 2024-04-09 Slide 9: "Differenzierungsfaktoren — Realistische Projektionen"
+- Methodik-Schulung 2024-04-09 Slide 9: "Differenzierungsfaktoren — Realistische Projektionen"
 - Mulvey/Ziemba — Optimizer braucht Erklärbarkeit für PK-Mandate (FINMA RS 2017/2)
 
 ### Verbindliche Regeln

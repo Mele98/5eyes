@@ -15,7 +15,7 @@ Risk-Adjusted Performance im Reporting) ist der Risk-Free aber Pflicht.
 
 - Brunel "Goals-Based Wealth Management" (2015), Kap. 5: Sharpe-Ratio
 - Vanguard "Vanguard 2024 Asset/Allocation Outlook": Risk-Free Schaetzungen
-- SwissLife Asset Management Q1 2026 House View: Risk-Free CHF = SARON spot
+- Kapitalmarktannahmen-Provider Q1 2026 House View: Risk-Free CHF = SARON spot
 
 ## Vorschlag
 

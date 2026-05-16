@@ -103,7 +103,7 @@ class OptimizerRun(Base):
 
     Im Gegensatz zur TargetAllocation, die nur den jeweils aktiven Stand
     haelt, sammelt diese Tabelle JEDEN Solver-Lauf — auch shadow_stochastic
-    Laufe, die die TargetAllocation nicht ersetzen. Damit ist eine 3rd-eyes-
+    Laufe, die die TargetAllocation nicht ersetzen. Damit ist eine Advisory-Methodik-
     artige Risk-Engine-Historie moeglich (mehrere Runs, Seeds, Szenarien,
     Versionen).
 
@@ -178,7 +178,7 @@ class CapitalMarketAssumption(Base):
     sub_asset_class_assumptions_json = Column(String)
     # Optimizer-Phase 1 (Spec 2026-05-05): Skewness und Excess-Kurtosis pro
     # Bucket. Default None bzw. 0 -> Cornish-Fisher faellt auf Normal zurueck
-    # (backwards-compat, kein Verhaltens-Change ohne SLAM-Daten). Werte in bps
+    # (backwards-compat, kein Verhaltens-Change ohne CMA-Daten). Werte in bps
     # (z.B. equities_skewness_bps=-5000 = -0.5 skew, excess_kurt_bps=25000 = 2.5).
     equities_skewness_bps = Column(Integer)
     equities_excess_kurt_bps = Column(Integer)

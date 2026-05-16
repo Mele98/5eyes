@@ -38,7 +38,7 @@ ungewichteten Sample-Mean.
 
 ## Defaults
 
-Aus 3eyes-Schulung Slide 19 (Skew/Kurt-Modelle) wissen wir, dass die
+Aus Methodik-Schulung Slide 19 (Skew/Kurt-Modelle) wissen wir, dass die
 kritischen Tails fuer goal-based Allocation in den Aktien-Renditen liegen
 (Aktien_CH, Aktien_Intl, Aktien_EM). Default-Shift:
 

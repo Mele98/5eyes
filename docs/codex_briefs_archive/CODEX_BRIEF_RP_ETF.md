@@ -21,8 +21,8 @@ git status --short
 
 ## ÜBERSICHT — Was wird geändert
 
-### Feature 1: Risikoprofil (SwissLife W305.03)
-**Warum:** Das bestehende Formular stimmt nicht mit dem offiziellen SwissLife-Compliance-Dokument
+### Feature 1: Risikoprofil (Referenzmodell Eignungspruefung)
+**Warum:** Das bestehende Formular stimmt nicht mit dem offiziellen Referenzmodell-Compliance-Dokument
 überein. Berater müssen dasselbe Formular digital wie auf Papier ausfüllen können.
 
 | Datei | Änderung |
@@ -44,7 +44,7 @@ git status --short
 ## SCORING-LOGIK — Warum die Formel sich ändert
 
 Das **alte System** berechnete Surplus-Punkte als Verhältnis (income - obligations) / income.
-Das **neue System** nach W305.03 bewertet Einkommen (F1) und Verpflichtungen (F3) separat:
+Das **neue System** nach Eignungspruefung bewertet Einkommen (F1) und Verpflichtungen (F3) separat:
 
 ```
 Alt:  surplusPoints (0-4, ratio) + obligationPoints (IMMER 0) + savings (0-12) + reserve (0-12) = max 28
@@ -83,7 +83,7 @@ grep -n "override_warning_document_id" 5eyes-backend/models/profiling.py
 **Ersetzen durch:**
 ```python
     override_warning_document_id = Column(String)
-    # Kenntnisse & Erfahrungen — SwissLife W305.03 Seite 1 (kein Score, nur Compliance)
+    # Kenntnisse & Erfahrungen — Referenzmodell Eignungspruefung Seite 1 (kein Score, nur Compliance)
     knowledge_services_json = Column(String)    # {"Vermögensverwaltung":{"known":0,"informed":1},...}
     knowledge_instruments_json = Column(String) # {"Anlagefonds":{"known":1,"informed":1},...}
     # Herkunft des Einkommens — Frage 2, rein informativ (kein Score)
@@ -110,7 +110,7 @@ grep -n "answers: Optional\[list\[dict\]\]" 5eyes-backend/schemas/profiling.py
 **Ersetzen durch:**
 ```python
     answers: Optional[list[dict]] = None
-    # Kenntnisse & Erfahrungen (SwissLife W305.03 Seite 1) — optional, kein Score
+    # Kenntnisse & Erfahrungen (Referenzmodell Eignungspruefung Seite 1) — optional, kein Score
     knowledge_services_json: Optional[str] = None
     knowledge_instruments_json: Optional[str] = None
     income_sources_json: Optional[str] = None
@@ -149,7 +149,7 @@ Suche den letzten `ensure_column`-Aufruf in `ensure_runtime_columns()`.
 **Danach einfügen:**
 
 ```python
-    # RiskAssessment — Kenntnisse & Erfahrungen (SwissLife W305.03, 2026-04-16)
+    # RiskAssessment — Kenntnisse & Erfahrungen (Referenzmodell Eignungspruefung, 2026-04-16)
     ensure_column(conn, "risk_assessments", "knowledge_services_json", "TEXT")
     ensure_column(conn, "risk_assessments", "knowledge_instruments_json", "TEXT")
     ensure_column(conn, "risk_assessments", "income_sources_json", "TEXT")
@@ -194,7 +194,7 @@ var RISK_HORIZON_OPTIONS = [
 ];
 ```
 
-**Ersetzen durch (6 Einträge — SwissLife W305.03 Seite 3):**
+**Ersetzen durch (6 Einträge — Referenzmodell Eignungspruefung Seite 3):**
 ```javascript
 var RISK_HORIZON_OPTIONS = [
   {label:'Bis 2 Jahre',       years:1},
@@ -206,7 +206,7 @@ var RISK_HORIZON_OPTIONS = [
 ];
 ```
 
-**Warum:** W305.03 hat 6 Zeithorizonte. Die Jahre-Werte (1,2,4,6,9,15) entsprechen den
+**Warum:** Eignungspruefung hat 6 Zeithorizonte. Die Jahre-Werte (1,2,4,6,9,15) entsprechen den
 Zeilen der `RISK_CAPACITY_MATRIX` — keine Änderung an der Matrix nötig.
 `RISK_HORIZON_CANONICAL_LABELS` enthält bereits alle 6 Labels → keine Änderung nötig.
 
@@ -228,19 +228,19 @@ var RISK_FREE_WEALTH_POINTS = [0, 3, 6, 9];
 
 **Ersetzen durch:**
 ```javascript
-// F1: Monatliches Bruttoeinkommen — W305.03 Seite 2, Frage 1
+// F1: Monatliches Bruttoeinkommen — Eignungspruefung Seite 2, Frage 1
 // bis 6k=0 | 6-9k=1 | 9-12k=2 | 12-20k=3 | >20k=4
 var RISK_INCOME_POINTS = [0, 1, 2, 3, 4];
 
-// F3: Monatliche Verpflichtungen — W305.03 Seite 2, Frage 3 (INVERS: weniger Verpfl. = mehr Punkte)
+// F3: Monatliche Verpflichtungen — Eignungspruefung Seite 2, Frage 3 (INVERS: weniger Verpfl. = mehr Punkte)
 // bis 3k=4 | 3-5k=3 | 5-8k=2 | 8-12k=1 | >12k=0
 var RISK_OBLIGATIONS_POINTS = [4, 3, 2, 1, 0];
 
-// F4: Frei verfügbares Vermögen — W305.03 Seite 2, Frage 4
+// F4: Frei verfügbares Vermögen — Eignungspruefung Seite 2, Frage 4
 // <100k=0 | 100-250k=3 | 250k-1M=6 | 1-2M=9 | >2M=12
 var RISK_WEALTH_POINTS = [0, 3, 6, 9, 12];
 
-// F5: Sparquote — W305.03 Seite 2, Frage 5 (5 Optionen statt 4)
+// F5: Sparquote — Eignungspruefung Seite 2, Frage 5 (5 Optionen statt 4)
 // 0%=0 | 1-10%=3 | 10-25%=6 | 25-50%=9 | >50%=12
 var RISK_SAVINGS_POINTS = [0, 3, 6, 9, 12];
 
@@ -278,7 +278,7 @@ grep -n "TAB 1: KENNTNISSE" 5eyes-electron/frontend/5eyes_v2.html
 **Gesamten Block zwischen diesen Markern ersetzen durch:**
 
 ```html
-                <!-- TAB 1: KENNTNISSE & ERFAHRUNGEN (SwissLife W305.03 Seite 1) -->
+                <!-- TAB 1: KENNTNISSE & ERFAHRUNGEN (Referenzmodell Eignungspruefung Seite 1) -->
                 <!-- Rein dokumentarisch / Compliance — KEIN Einfluss auf Score -->
                 <div id="r-ke" class="rpanel active">
 
@@ -372,7 +372,7 @@ grep -n "TAB 2: RISIKOFÄHIGKEIT" 5eyes-electron/frontend/5eyes_v2.html
 **Gesamten Block zwischen diesen Markern ersetzen durch:**
 
 ```html
-                <!-- TAB 2: RISIKOFÄHIGKEIT (SwissLife W305.03 Seite 2) -->
+                <!-- TAB 2: RISIKOFÄHIGKEIT (Referenzmodell Eignungspruefung Seite 2) -->
                 <!-- Punkte: F1(0-4) + F3(4-0 invers) + F4(0-12) + F5(0-12) = max 32 -->
                 <div id="r-rf" class="rpanel">
 
@@ -455,7 +455,7 @@ grep -n "TAB 2: RISIKOFÄHIGKEIT" 5eyes-electron/frontend/5eyes_v2.html
                     </div>
                   </div>
 
-                  <!-- F6: Anlagehorizont — 6 Optionen (W305.03 Seite 3) — kein direkter Punktewert, Matrix-Faktor -->
+                  <!-- F6: Anlagehorizont — 6 Optionen (Eignungspruefung Seite 3) — kein direkter Punktewert, Matrix-Faktor -->
                   <div class="qsec" style="margin-bottom:0">
                     <div class="ql">
                       <span class="qnum">8</span>
@@ -657,7 +657,7 @@ function buildRiskAssessmentPayloadFromUI(){
   var issues=collectRiskAssessmentUiIssues(state);
   if(issues.length) return null;
 
-  // ── Risikofähigkeit — Bracket-basiert nach SwissLife W305.03 ────────────────
+  // ── Risikofähigkeit — Bracket-basiert nach Referenzmodell Eignungspruefung ────────────────
   var incomePoints     = RISK_INCOME_POINTS[Math.max(0,Math.min(RISK_INCOME_POINTS.length-1,     state.incomeIdx))];
   var obligationPoints = RISK_OBLIGATIONS_POINTS[Math.max(0,Math.min(RISK_OBLIGATIONS_POINTS.length-1, state.obligIdx))];
   var wealthPoints     = RISK_WEALTH_POINTS[Math.max(0,Math.min(RISK_WEALTH_POINTS.length-1,     state.wealthIdx))];
@@ -881,7 +881,7 @@ grep -n "Section 2: Risikoprofil" 5eyes-electron/frontend/5eyes_v2.html
 
 **Davor einfügen (neue Sektion "Kenntnisse & Erfahrungen" erscheint VOR dem Risikoprofil-Block):**
 ```javascript
-  // Section 1b: Kenntnisse & Erfahrungen (SwissLife W305.03 Seite 1)
+  // Section 1b: Kenntnisse & Erfahrungen (Referenzmodell Eignungspruefung Seite 1)
   var keHtml='';
   if(riskData&&(riskData.knowledge_services_json||riskData.knowledge_instruments_json)){
     function _buildKeTable(title,jsonStr){
@@ -906,7 +906,7 @@ grep -n "Section 2: Risikoprofil" 5eyes-electron/frontend/5eyes_v2.html
         +'</table></div>';
     }
     keHtml='<div style="margin-bottom:24px">'
-      +'<div style="font-size:9px;font-weight:700;letter-spacing:0.13em;text-transform:uppercase;color:#64748b;border-bottom:2px solid #e2e8f0;padding-bottom:6px;margin-bottom:12px">Kenntnisse &amp; Erfahrungen (W305.03)</div>'
+      +'<div style="font-size:9px;font-weight:700;letter-spacing:0.13em;text-transform:uppercase;color:#64748b;border-bottom:2px solid #e2e8f0;padding-bottom:6px;margin-bottom:12px">Kenntnisse &amp; Erfahrungen (Eignungspruefung)</div>'
       +_buildKeTable('Finanzdienstleistungen',riskData.knowledge_services_json||'{}')
       +_buildKeTable('Finanzinstrumente',riskData.knowledge_instruments_json||'{}')
       +'</div>';

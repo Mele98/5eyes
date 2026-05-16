@@ -55,7 +55,7 @@ Wichtigkeit: P0
 
 Was existiert:
 
-- FINMA W305.02 Fragebogen.
+- FINMA Eignungspruefung Fragebogen.
 - Kenntnisse/Erfahrungen.
 - Risikofaehigkeit.
 - Risikobereitschaft.
@@ -374,7 +374,7 @@ Aktuelle technische Absicherung:
 - `tests/test_frontend_risk_questionnaire_contracts.py`
 - `tests/test_frontend_admin_market_data_panel.py` (P17 v2)
 - `tests/test_mandate_api_contracts.py` (Mandate-Roundtrip + investment_universe)
-- `tests/test_risk_assessment_w305_persistence.py` (W305-Felder Roundtrip)
+- `tests/test_risk_assessment_suitability_persistence.py` (Eignungsfelder Roundtrip)
 - JS-Syntaxcheck ueber alle Inline-Skripte in `5eyes_v2.html`
 
 Hinweis 2026-05-15: Die fruehere Referenz auf `tests/test_frontend_summary_contracts.py`
@@ -399,7 +399,7 @@ unveraendert — siehe `feedback_risk_profile_finma.md`):
    Allocation in konkrete Produkte (ISIN)'. Erste Iteration hatte
    'Bestand vs. Empfehlung'-Story verwendet — methodisch falsch, da
    Portfolio die **Ableitung der SAA in konkrete Wertschriften** ist
-   (3eyes Advisory Process Schritt 4: Portfoliooptimierung nach SAA-
+   (Advisory-Methodik Advisory Process Schritt 4: Portfoliooptimierung nach SAA-
    Optimierung). Spalte 'Handlung' → 'Massnahme'. Customer Journey ist
    SD → CF/Ziele → RP → SAA → PO (siehe project_5eyes_customer_journey.md).
 4. **§5 Review:** Subtitle in Consulting-Sprache umgeschrieben. Print-
@@ -422,7 +422,7 @@ Plus 2 echte Bug-Fixes parallel zur Wording-Arbeit:
 
 - **investment_universe** wurde vom create_mandate Handler ignoriert (immer
   'Standard' persistiert trotz Body-Wert). Test + Fix.
-- **W305.03 Kenntnisse-Felder** (knowledge_services_json,
+- **Eignungspruefung Kenntnisse-Felder** (knowledge_services_json,
   knowledge_instruments_json, income_sources_json) gingen still verloren
   beim Risikoprofil-Speichern — Schema/Model/DB hatten sie, FE sendet sie,
   Backend ignorierte sie. Compliance-relevant. Test + Fix.
@@ -431,16 +431,16 @@ Alle IDs unveraendert. Test-Suite: 1186 → 1205 grün (+19). Branch develop @ 0
 
 ## 13. Claude-Fortschritt 2026-05-16 (Customer-Journey-Korrektur + Asset Allocation)
 
-User-Korrektur zur Methodik: Customer Journey nach 3eyes-Vorlage ist
+User-Korrektur zur Methodik: Customer Journey nach Advisory-Methodik-Vorlage ist
 SD → CF/Ziele (mit IST-Grafik) → RP → **SAA (page-al, Hauptschritt)** → PO.
 Portfolio (§4) ist die **Ableitung der Asset Allocation in konkrete
 ISIN-Produkte**, nicht 'Bestand vs. Empfehlung'.
 
-Quelle: `~/Desktop/Consulting Firma/3eyes/erklärung drei augen.pdf`
-(Schulung Swiss Life Wealth Managers, 09.04.2024). Memory:
+Quelle: `~/Desktop/Consulting Firma/Advisory-Methodik/erklärung Advisory-Methodik.pdf`
+(Schulung Wealth-Management-Referenz, 09.04.2024). Memory:
 `project_5eyes_customer_journey.md`.
 
-**Korrekturen nach 3eyes-Methodik:**
+**Korrekturen nach Advisory-Methodik:**
 
 1. **§4 Portfolio:** Header-Subtitle korrigiert auf 'Umsetzung Ihrer
    Asset Allocation in konkrete Produkte (ISIN)'.
@@ -463,7 +463,7 @@ Quelle: `~/Desktop/Consulting Firma/3eyes/erklärung drei augen.pdf`
 - Card 'SOLL-Prognose' macht klar dass Hauptchart die optimierte Sicht
   ist, IST-Benchmark unter «Kennzahlen» aufklappbar
 - Card 'Warum diese Soll-Allokation?' nennt Mulvey/Ziemba explizit als
-  Methode, Building Blocks (SLAM-Input) als Leitplanken
+  Methode, Building Blocks (CMA-Input) als Leitplanken
 
 **Konsistenz-Sweep cnav-Buttons:**
 
@@ -510,5 +510,5 @@ setzen statt dynamische Daten:
 - cnav-Buttons konsistent 'Weiter zu X →' / '← Zurück zu X'
 
 **`m-strategy-calc`** (4-stufige Berechnungs-Modal) wurde inspiziert und ist
-bereits exzellent: spiegelt die 3eyes-Methodik mit 4 Stages (Mandat/
+bereits exzellent: spiegelt die Advisory-Methodik mit 4 Stages (Mandat/
 Vermögen → Cashflows/Ziele → Risikoprofil → Strategie). Keine Änderung nötig.

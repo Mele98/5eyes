@@ -8,12 +8,12 @@
 
 FINMA RS 2017/2 verlangt nachvollziehbare Allocation-Entscheidungen. Aktuell ist
 der Optimizer-Trace nur in der Web-UI sichtbar. Bei einer Audit-Anfrage
-(SwissLife Compliance, Revisor) muss eine **PDF-Druckversion** existieren, die
+(Referenzmodell Compliance, Revisor) muss eine **PDF-Druckversion** existieren, die
 die ganze Optimization-Entscheidung dokumentiert.
 
 ## Quellen
 
-- 3eyes-Schulung 2024-04-09 Slide 17 (House-View-Trace-Beispiel)
+- Methodik-Schulung 2024-04-09 Slide 17 (House-View-Trace-Beispiel)
 - FINMA RS 2017/2, Sec 3.4 (Dokumentationspflicht der Anlage-Entscheide)
 - ASIP §3.2 (PK-Mandate, Audit-Trail)
 

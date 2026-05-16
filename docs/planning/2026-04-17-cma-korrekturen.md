@@ -12,7 +12,7 @@
 
 Die hardcodierten CMA-Defaults in `5eyes_v2.html` weichen in 4 Positionen
 material von institutionellen Quellen ab (JPMorgan LTCMA 2024, BlackRock BII 2024,
-SLAM via 3rd-eyes-Dokumentation).
+CMA via Advisory-Methodik-Dokumentation).
 
 Diese Werte sind die **Fallback-Defaults**, die geladen werden wenn noch keine
 Admin-gespeicherten Annahmen in der DB vorhanden sind. Falsche Defaults = falsche
@@ -23,7 +23,7 @@ erste Projektionen für neue Installationen.
 | Anlageklasse | Alt (bps) | Neu (bps) | Begründung |
 |---|---|---|---|
 | Obligationen CHF IG | 170 (1.70%) | 220 (2.20%) | CHF-Bundesobl ~1% + IG-Spread; realistischer |
-| Aktien Global | 690 (6.90%) | 700 (7.00%) | SLAM: ~7.0-7.5%, konservativer Mittelpunkt |
+| Aktien Global | 690 (6.90%) | 700 (7.00%) | CMA: ~7.0-7.5%, konservativer Mittelpunkt |
 | Obligationen Emerging | 480 (4.80%) | 400 (4.00%) | EM-Spread überschätzt; CHF-Hedging teuer |
 | Immobilien Schweiz | 330 (3.30%) | 450 (4.50%) | SFIX historisch 4-5%, Cap Rate ~3.5% |
 
@@ -178,5 +178,5 @@ Erwartet: Treffer um Zeile 5563-5572.
 
 - JPMorgan Long-Term Capital Market Assumptions 2024
 - BlackRock Investment Institute 2024 CMAs
-- SLAM (Swiss Life Asset Management) Szenarioraum — via 3rd-eyes Schulungsdokumentation
+- CMA (Kapitalmarktannahmen-Provider) Szenarioraum — via Advisory-Methodik Schulungsdokumentation
 - Pictet Secular Outlook 2024

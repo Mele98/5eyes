@@ -903,13 +903,13 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 
     <!-- PAGE: RISIKOPROFIL -->
     <div id="page-rp" class="page">
-      <div class="ph"><div><div class="ph-t">Risikoprofilierung (FINMA W305.02)</div><div class="ph-s">Risikofähigkeit &middot; Risikobereitschaft &middot; FINMA W305.02</div></div><div class="ph-r"><button class="btn" onclick="om('m-rp-print')">PDF</button><button class="btn-g" id="btn-save-riskprofile" onclick="saveRiskProfile()" style="margin-right:8px">Risikoprofil speichern</button><button class="btn-p" onclick="goFromRiskProfileToAllocation()">Asset Allokation →</button></div></div>
+      <div class="ph"><div><div class="ph-t">Risikoprofilierung (FINMA Eignungspruefung)</div><div class="ph-s">Risikofähigkeit &middot; Risikobereitschaft &middot; FINMA Eignungspruefung</div></div><div class="ph-r"><button class="btn" onclick="om('m-rp-print')">PDF</button><button class="btn-g" id="btn-save-riskprofile" onclick="saveRiskProfile()" style="margin-right:8px">Risikoprofil speichern</button><button class="btn-p" onclick="goFromRiskProfileToAllocation()">Asset Allokation →</button></div></div>
       <div class="pad">
         <div class="g2">
                     <div>
             <div class="card">
               <div class="chd">
-                <span class="cht">Fragebogen FINMA W305.02</span>
+                <span class="cht">Fragebogen FINMA Eignungspruefung</span>
                 <span style="font-size:9px;color:var(--n4)">Antworten direkt anklicken</span>
               </div>
               <div class="cbody" style="padding-top:0">
@@ -919,7 +919,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
                   <div class="rtab" onclick="switchRTab(this,'r-rf')">2 · Risikofähigkeit</div>
                   <div class="rtab" onclick="switchRTab(this,'r-rb')">3 · Risikobereitschaft</div>
                 </div>
-                <!-- TAB 1: KENNTNISSE & ERFAHRUNGEN (SwissLife W305.03 Seite 1) -->
+                <!-- TAB 1: KENNTNISSE & ERFAHRUNGEN (Eignungspruefung Seite 1) -->
                 <!-- Rein dokumentarisch / Compliance - KEIN Einfluss auf Score -->
                 <div id="r-ke" class="rpanel active">
 
@@ -989,7 +989,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 
                 </div>
 
-                <!-- TAB 2: RISIKOFÄHIGKEIT (SwissLife W305.03 Seite 2) -->
+                <!-- TAB 2: RISIKOFÄHIGKEIT (Eignungspruefung Seite 2) -->
                 <!-- Punkte: F1(0-4) + F3(4-0 invers) + F4(0-12) + F5(0-12) = max 32 -->
                 <div id="r-rf" class="rpanel">
 
@@ -1072,7 +1072,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
                     </div>
                   </div>
 
-                  <!-- F6: Anlagehorizont - 6 Optionen (W305.03 Seite 3) - kein direkter Punktewert, Matrix-Faktor -->
+                  <!-- F6: Anlagehorizont - 6 Optionen (Eignungspruefung Seite 3) - kein direkter Punktewert, Matrix-Faktor -->
                   <div class="qsec" style="margin-bottom:0">
                     <div class="ql">
                       <span class="qnum">8</span>
@@ -1305,7 +1305,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
               <div class="advisor-note">Diese Karte erklärt nur die Herleitung der Strategie. Vergleiche, Entscheidungen, Dokumentation und Umsetzung erfolgen anschliessend im Review.</div>
               <div id="aa-action-list" class="action-list">
                 <div style="border:1px solid var(--b1);border-radius:var(--r);padding:8px 10px"><div style="display:flex;justify-content:space-between;margin-bottom:3px"><span style="font-size:11px;font-weight:500">Risikoprofil, Ziele &amp; Beratungsvermögen</span><span class="tag tr2">Zentral</span></div><div style="font-size:10px;color:var(--n6);line-height:1.5">Die SOLL-Allokation wird stochastisch (Mulvey/Ziemba) aus dem Risikoprofil-Score, den priorisierten Lebenszielen und dem Beratungsvermögen hergeleitet.</div></div>
-                <div style="border:1px solid var(--b1);border-radius:var(--r);padding:8px 10px"><div style="display:flex;justify-content:space-between;margin-bottom:3px"><span style="font-size:11px;font-weight:500">House View &amp; Leitplanken</span><span class="tag ta">Relevant</span></div><div style="font-size:10px;color:var(--n6);line-height:1.5">Building Blocks pro Anlageklasse (SLAM-Input), Bandbreiten und Kapitalmarktannahmen begrenzen die Strategie bewusst und machen sie nachvollziehbar.</div></div>
+                <div style="border:1px solid var(--b1);border-radius:var(--r);padding:8px 10px"><div style="display:flex;justify-content:space-between;margin-bottom:3px"><span style="font-size:11px;font-weight:500">House View &amp; Leitplanken</span><span class="tag ta">Relevant</span></div><div style="font-size:10px;color:var(--n6);line-height:1.5">Building Blocks pro Anlageklasse (CMA-Input), Bandbreiten und Kapitalmarktannahmen begrenzen die Strategie bewusst und machen sie nachvollziehbar.</div></div>
                 <div style="border:1px solid var(--b1);border-radius:var(--r);padding:8px 10px"><div style="display:flex;justify-content:space-between;margin-bottom:3px"><span style="font-size:11px;font-weight:500">Nächster Schritt</span><span class="tag tn">Einordnung</span></div><div style="font-size:10px;color:var(--n6);line-height:1.5">Im Portfolio-Schritt folgt die Umsetzung in konkrete Wertschriften (ISIN). Vergleiche und Drift-Monitoring laufen im Review.</div></div>
               </div>
             </div>
@@ -2342,7 +2342,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 </div>
 <div id="maw-error" style="display:none;color:var(--neg);font-size:11px;padding:4px 0;margin-top:4px"></div>
 <div class="mfooter"><button class="btn" onclick="cm('m-aw')">Abbrechen</button><button class="btn-p" id="btn-maw-save" onclick="saveWealthPosition()">Speichern</button></div></div></div><div class="overlay" id="m-eq"><div class="modal"><div class="mhd"><div class="mtitle">Soll-Quoten & Bandbreiten</div><button class="mx" onclick="cm('m-eq')">✕</button></div><div class="mbody"><div id="qt-modal"></div></div><div class="mfooter"><button class="btn" onclick="cm('m-eq')">Schliessen</button><button class="btn-p" onclick="refreshStrategyData(true)">Neu berechnen</button></div></div></div>
-<div class="overlay" id="m-rep"><div class="modal"><div class="mhd"><div class="mtitle">Report generieren</div><button class="mx" onclick="cm('m-rep')">✕</button></div><div class="mbody"><div class="fs">Inhalt</div><div style="display:flex;flex-direction:column;gap:5px;margin-bottom:10px"><label style="display:flex;align-items:center;gap:6px;font-size:11px;cursor:pointer"><input type="checkbox" checked>Stammdaten &amp; Gesamtvermögen</label><label style="display:flex;align-items:center;gap:6px;font-size:11px;cursor:pointer"><input type="checkbox" checked>Risikoprofil (FINMA W305.02)</label><label style="display:flex;align-items:center;gap:6px;font-size:11px;cursor:pointer"><input type="checkbox" checked>Finanzplanung &amp; Budget</label><label style="display:flex;align-items:center;gap:6px;font-size:11px;cursor:pointer"><input type="checkbox" checked>Ziele &amp; IST/OPT-Prognose</label><label style="display:flex;align-items:center;gap:6px;font-size:11px;cursor:pointer"><input type="checkbox">Portfolio Einzeltitel</label></div><div class="frow"><div class="fg"><label class="fl">Ausgabe</label><div style="font-size:10px;color:var(--n5);line-height:1.5;padding:6px 0">Druck-Vorschau in einem neuen Fenster. Im Druckdialog &laquo;Als PDF speichern&raquo; w&auml;hlen f&uuml;r ein Kunden-PDF.</div></div></div></div><div class="mfooter"><button class="btn" onclick="cm('m-rep')">Abbrechen</button><button class="btn-p" onclick="printReport({source:'modal'});cm('m-rep')">Erstellen →</button></div></div></div>
+<div class="overlay" id="m-rep"><div class="modal"><div class="mhd"><div class="mtitle">Report generieren</div><button class="mx" onclick="cm('m-rep')">✕</button></div><div class="mbody"><div class="fs">Inhalt</div><div style="display:flex;flex-direction:column;gap:5px;margin-bottom:10px"><label style="display:flex;align-items:center;gap:6px;font-size:11px;cursor:pointer"><input type="checkbox" checked>Stammdaten &amp; Gesamtvermögen</label><label style="display:flex;align-items:center;gap:6px;font-size:11px;cursor:pointer"><input type="checkbox" checked>Risikoprofil (FINMA Eignungspruefung)</label><label style="display:flex;align-items:center;gap:6px;font-size:11px;cursor:pointer"><input type="checkbox" checked>Finanzplanung &amp; Budget</label><label style="display:flex;align-items:center;gap:6px;font-size:11px;cursor:pointer"><input type="checkbox" checked>Ziele &amp; IST/OPT-Prognose</label><label style="display:flex;align-items:center;gap:6px;font-size:11px;cursor:pointer"><input type="checkbox">Portfolio Einzeltitel</label></div><div class="frow"><div class="fg"><label class="fl">Ausgabe</label><div style="font-size:10px;color:var(--n5);line-height:1.5;padding:6px 0">Druck-Vorschau in einem neuen Fenster. Im Druckdialog &laquo;Als PDF speichern&raquo; w&auml;hlen f&uuml;r ein Kunden-PDF.</div></div></div></div><div class="mfooter"><button class="btn" onclick="cm('m-rep')">Abbrechen</button><button class="btn-p" onclick="printReport({source:'modal'});cm('m-rep')">Erstellen →</button></div></div></div>
 <div class="overlay" id="m-es"><div class="modal"><div class="mhd"><div class="mtitle">Stammdaten bearbeiten</div><button class="mx" onclick="cm('m-es')">✕</button></div><div class="mbody"><div class="frow"><div class="fg"><label class="fl">Anrede</label><select class="fsel" id="es-salutation"><option value="">—</option><option value="Herr">Herr</option><option value="Frau">Frau</option><option value="Divers">Divers</option></select></div><div class="fg"><label class="fl">Vorname *</label><input class="fi" id="es-firstname" placeholder="Andreas"></div><div class="fg"><label class="fl">Nachname *</label><input class="fi" id="es-lastname" placeholder="Müller"></div></div><div class="frow"><div class="fg"><label class="fl">Geburtsdatum</label><input class="fi" id="es-dob" type="date"></div><div class="fg"><label class="fl">Kanton</label><input class="fi" id="es-canton" placeholder="ZH" maxlength="2"></div></div><div class="frow"><div class="fg"><label class="fl">Anlagehorizont Start</label><input class="fi" id="es-horizon-start" type="date"></div><div class="fg"><label class="fl">Anlagehorizont Ende</label><input class="fi" id="es-horizon-end" type="date"></div></div><div id="es-horizon-hint" style="font-size:10px;color:var(--n5);line-height:1.5;margin:-2px 0 10px">Der Mandatshorizont dient als gesprächsnaher Leitwert für Risiko- und Strategieableitung und ergänzt die Zielhorizonte.</div><div class="frow"><div class="fg"><label class="fl">Haushalt</label><select class="fsel" id="es-household"><option value="Einzelperson">Einzelperson</option><option value="Paar">Paar</option><option value="Familie">Familie</option></select></div><div class="fg"><label class="fl">Sprache</label><select class="fsel" id="es-lang"><option value="DE">Deutsch (DE)</option><option value="FR">Französisch (FR)</option><option value="IT">Italienisch (IT)</option><option value="EN">Englisch (EN)</option></select></div></div><div id="es-civil-warning" style="display:none;background:var(--warn-lt);border:1px solid rgba(180,83,9,0.2);border-radius:var(--r);padding:8px 10px;margin:-2px 0 10px;font-size:10px;color:var(--warn)">Haushalt "Paar" und Zivilstand "Ledig" prüfen: bitte Konstellation kurz bestätigen.</div><div class="frow"><div class="fg"><label class="fl">Zivilstand</label><select class="fsel" id="es-civil"><option value="">—</option><option value="Ledig">Ledig</option><option value="Verheiratet">Verheiratet</option><option value="Eingetragene Partnerschaft">Eingetragene Partnerschaft</option><option value="Geschieden">Geschieden</option><option value="Verwitwet">Verwitwet</option><option value="Getrennt">Getrennt</option></select></div><div class="fg"><label class="fl">Beruf</label><input class="fi" id="es-profession" placeholder="z.B. CFO"></div><div class="fg"><label class="fl">Arbeitgeber</label><input class="fi" id="es-employer" placeholder="z.B. Muster AG"></div></div></div>
 
 <div id="es-error" style="display:none;color:var(--neg);font-size:11px;padding:4px 0;margin-top:4px"></div>
@@ -2350,7 +2350,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 <div class="overlay" id="m-nt"><div class="modal"><div class="mhd"><div class="mtitle">Trigger definieren</div><button class="mx" onclick="cm('m-nt')">✕</button></div><div class="mbody"><div class="frow"><div class="fg"><label class="fl">Trigger-Typ</label><select class="fsel"><option>Zeitbasiert</option><option>Bandbreite / Drift</option><option>Event-basiert</option></select></div></div><div class="frow"><div class="fg"><label class="fl">Bezeichnung</label><input class="fi" placeholder="Jahres-Review"></div><div class="fg"><label class="fl">Schwellenwert</label><input class="fi" placeholder="±5% oder 12 Monate"></div></div></div><div class="mfooter"><button class="btn" onclick="cm('m-nt')">Abbrechen</button><button class="btn-p" onclick="cm('m-nt')">Aktivieren</button></div></div></div>
 <div class="overlay" id="m-ap"><div class="modal"><div class="mhd"><div class="mtitle">Bestand zu Empfehlungstitel</div><button class="mx" onclick="cm('m-ap')">✕</button></div><div class="mbody"><div id="ap-empty-state" style="display:none;background:var(--bg);border:1px solid var(--b1);border-radius:var(--r);padding:10px 12px;font-size:11px;color:var(--n6);line-height:1.6">Portfolio-Bestände bauen auf einem vorhandenen Rezept auf. Bitte zuerst die Strategie berechnen und ein aktuelles Anlagerezept laden.</div><div id="ap-form-wrap"><div style="background:var(--bg);border:1px solid var(--b1);border-radius:var(--r);padding:9px 10px;margin-bottom:10px;font-size:10px;line-height:1.6;color:var(--n6)">Hier wird der effektive Depotbestand zum Empfehlungstitel hinterlegt. Wenn ein Bestand vorhanden ist, basiert Live-Drift auf diesem Holding statt auf einer Rekonstruktion aus dem Zielbetrag.</div><div class="frow"><div class="fg"><label class="fl">Empfehlungstitel</label><select class="fsel" id="ap-position-id" onchange="syncPortfolioHoldingSelection()"></select></div></div><div id="ap-product-meta" style="font-size:10px;color:var(--n5);margin:-2px 0 10px"></div><div class="frow"><div class="fg"><label class="fl">Depotbank / Institut</label><input class="fi" id="ap-depot-bank" placeholder="z.B. UBS AG Zürich"></div><div class="fg"><label class="fl">Konto / Depotnummer</label><input class="fi" id="ap-custody-account" placeholder="optional"></div></div><div class="frow"><div class="fg"><label class="fl">Bestand (Stück)</label><input class="fi" id="ap-units" placeholder="z.B. 128.750"></div><div class="fg"><label class="fl">Bestandsmarktwert (CHF)</label><input class="fi" id="ap-market-value" placeholder="optional, z.B. 415'600"></div></div><div class="frow"><div class="fg"><label class="fl">Einstand / Durchschnittskurs (CHF)</label><input class="fi" id="ap-cost-price" placeholder="optional"></div><div class="fg"><label class="fl">Standdatum</label><input class="fi" id="ap-as-of" type="date"></div></div><div class="frow"><div class="fg"><label class="fl">Quelle</label><select class="fsel" id="ap-source"><option value="manual">Manuell</option><option value="custody_import">Custody-Import</option></select></div><div class="fg"><label class="fl">Bewertungsbasis</label><div id="ap-basis-note" style="font-size:10px;color:var(--n5);padding:9px 0">Noch kein Bestand hinterlegt.</div></div></div><div class="frow"><div class="fg"><label class="fl">Notizen</label><textarea class="fta" id="ap-notes" rows="3" placeholder="optional"></textarea></div></div></div><div id="ap-error" style="display:none;color:var(--neg);font-size:11px;padding:4px 0;margin-top:4px"></div></div><div class="mfooter"><button class="btn" onclick="cm('m-ap')">Abbrechen</button><button class="btn" id="btn-ap-delete" style="display:none" onclick="deletePortfolioHolding()">Bestand löschen</button><button class="btn-p" id="btn-ap-save" onclick="savePortfolioHolding()">Speichern</button></div></div></div>
 <div class="overlay" id="m-ums"><div class="modal"><div class="mhd"><div class="mtitle">Anlagerezept für Kunde</div><button class="mx" onclick="cm('m-ums')">✕</button></div><div class="mbody"><div style="background:var(--n0);border:1px solid rgba(29,78,216,0.2);border-radius:var(--r);padding:10px;margin-bottom:10px;font-size:11px;line-height:1.6">Basierend auf Soll-Allokation: Anlageprodukte werden aus dem Anlageuniversum gesucht und ein Bericht erstellt. Erst nach Bestätigung wird der Bericht an die Depotbank übermittelt.</div><div class="frow"><div class="fg"><label class="fl">Depotbank für Umsetzung</label><select class="fsel" id="recipe-depot-bank"><option>UBS AG Zürich</option><option>ZKB</option></select></div></div><div id="recipe-status" style="font-size:10px;color:var(--n4);margin-top:4px">Vor dem Druck wird das aktuelle Rezept live neu aufgebaut.</div></div><div class="mfooter"><button class="btn" onclick="cm('m-ums')">Abbrechen</button><button class="btn-p" onclick="confirmImplementationRecipe()">Umsetzung bestätigen</button></div></div></div>
-<div class="overlay" id="m-rp-print"><div class="modal"><div class="mhd"><div class="mtitle">Risikoprofil PDF</div><button class="mx" onclick="cm('m-rp-print')">✕</button></div><div class="mbody"><div style="font-size:11px;color:var(--n6);line-height:1.7">Das Risikoprofil-Dokument (FINMA W305.02) wird als PDF generiert und enthält alle Antworten, die Auswertung sowie die Unterschriftszeile für Kunde und Berater.</div></div><div class="mfooter"><button class="btn" onclick="cm('m-rp-print')">Abbrechen</button><button class="btn-p" onclick="cm('m-rp-print');printReport({pages:['rp']})">PDF erstellen</button></div></div></div>
+<div class="overlay" id="m-rp-print"><div class="modal"><div class="mhd"><div class="mtitle">Risikoprofil PDF</div><button class="mx" onclick="cm('m-rp-print')">✕</button></div><div class="mbody"><div style="font-size:11px;color:var(--n6);line-height:1.7">Das Risikoprofil-Dokument (FINMA Eignungspruefung) wird als PDF generiert und enthält alle Antworten, die Auswertung sowie die Unterschriftszeile für Kunde und Berater.</div></div><div class="mfooter"><button class="btn" onclick="cm('m-rp-print')">Abbrechen</button><button class="btn-p" onclick="cm('m-rp-print');printReport({pages:['rp']})">PDF erstellen</button></div></div></div>
 
 <script>
 // ─── 5EYES API LAYER ─────────────────────────────────────────────────
@@ -4704,7 +4704,10 @@ function printSummaryPage(){
   },20);
 }
 
-function buildAnlagestrategieDocHtmlLegacy(allocation,risk,persona,mandateData,recommendation){
+function buildAnlagestrategieDocHtml(allocation,risk,persona,mandateData,recommendation){
+  // FINMA-konforme Version (Eignungspruefung Seite 1 Kenntnisse-Tabelle inkludiert).
+  // V2-Draft-Variante existiert als buildAnlagestrategieDocHtmlV2Draft —
+  // nicht aktiv, weil sie Eignungspruefung-Compliance verliert.
   var today=new Date().toLocaleDateString('de-CH',{year:'numeric',month:'long',day:'numeric'});
   var reportSubject='Kundendossier';
   var advisoryChf=allocation?Math.round(Number(allocation.advisory_wealth_rappen||0)/100):0;
@@ -4745,7 +4748,7 @@ function buildAnlagestrategieDocHtmlLegacy(allocation,risk,persona,mandateData,r
     +'<div style="font-size:10px;color:rgba(255,255,255,0.4);margin-top:3px">'+escapeHtml(mandateLabel)+'</div>'
     +(advisoryChf?'<div style="font-size:11px;color:rgba(255,255,255,0.55);margin-top:6px">Beratungsvermögen<br><span style="font-size:15px;font-weight:700;color:#fff">CHF '+advisoryChf.toLocaleString('de-CH')+'</span></div>':'')
     +'</div></div></div>';
-  // Section 1b: Kenntnisse & Erfahrungen (SwissLife W305.03 Seite 1)
+  // Section 1b: Kenntnisse & Erfahrungen (Eignungspruefung Seite 1)
   var keHtml='';
   if(risk&&(risk.knowledge_services_json||risk.knowledge_instruments_json)){
     function _buildKeTable(title,jsonStr){
@@ -4770,7 +4773,7 @@ function buildAnlagestrategieDocHtmlLegacy(allocation,risk,persona,mandateData,r
         +'</table></div>';
     }
     keHtml='<div style="margin-bottom:24px">'
-      +'<div style="font-size:9px;font-weight:700;letter-spacing:0.13em;text-transform:uppercase;color:#64748b;border-bottom:2px solid #e2e8f0;padding-bottom:6px;margin-bottom:12px">Kenntnisse &amp; Erfahrungen (W305.03)</div>'
+      +'<div style="font-size:9px;font-weight:700;letter-spacing:0.13em;text-transform:uppercase;color:#64748b;border-bottom:2px solid #e2e8f0;padding-bottom:6px;margin-bottom:12px">Kenntnisse &amp; Erfahrungen (Eignungspruefung)</div>'
       +_buildKeTable('Finanzdienstleistungen',risk.knowledge_services_json||'{}')
       +_buildKeTable('Finanzinstrumente',risk.knowledge_instruments_json||'{}')
       +'</div>';
@@ -4977,14 +4980,19 @@ function buildAnlagestrategieDocHtmlLegacy(allocation,risk,persona,mandateData,r
   return headerHtml+'\n<div style="padding:28px 36px 36px">'+keHtml+riskHtml+allocHtml+portfolioHtml+goalsHtml+mcHtml+sigHtml+footerHtml+'</div>';
 }
 
-function buildAnlagestrategieDocHtml(allocation,risk,persona,mandateData,recommendation){
+// 2026-05-17: Diese V2-Variante wurde versehentlich aktiviert (uncommitted WIP
+// aus früherer Codex-Session). Sie verzichtet auf die Eignungspruefung-Seite-1-
+// Kenntnisse-Tabelle die Legacy hatte — Compliance-Issue laut Memory
+// "Risikoprofil ist FINMA-konform, nicht UX-refactorn". Daher inaktiv.
+// Re-Migration der Eignungspruefung-Tabelle in eine zukünftige Spec mit FINMA-Sign-Off.
+function buildAnlagestrategieDocHtmlV2Draft(allocation,risk,persona,mandateData,recommendation){
   var todayLong=new Date().toLocaleDateString('de-CH',{year:'numeric',month:'long',day:'numeric'});
   var todayShort=new Date().toLocaleDateString('de-CH');
   var advisorName='Emanuele Konzelmann';
   var brandName='Emanuele Konzelmann';
   var p=persona||{};
   var clientName=reportClientLabel();
-  var clientAddress=[p.address||p.street||'', [p.postal_code||p.zip||'', p.city||p.region||''].join(' ').trim()].filter(Boolean).join('<br>');
+  var clientAddressParts=[p.address||p.street||'', [p.postal_code||p.zip||'', p.city||p.region||''].join(' ').trim()].filter(Boolean);
   var mandateLabel=mandateData&&mandateData.mandate_number?('Mandat '+mandateData.mandate_number):(mandateData&&mandateData.mandate_type?mandateData.mandate_type:'Anlageberatung');
   var buckets=allocation&&Array.isArray(allocation.buckets)?allocation.buckets:[];
   var scoredGoals=allocation&&Array.isArray(allocation.goal_analysis)?allocation.goal_analysis:[];
@@ -5248,7 +5256,7 @@ function buildAnlagestrategieDocHtml(allocation,risk,persona,mandateData,recomme
   var titleBody='<div class="sl-cover-grid">'
     +'<div><div class="sl-overline">Ihre persönliche Anlagestrategie</div><h1>Ihre persönliche Anlagestrategie</h1>'
     +'<p>Was auch immer Ihre Ziele sind: wir begleiten Sie Schritt für Schritt zu einem finanziell selbstbestimmten Leben. Individuell, persönlich und mit klarer Vermögensarchitektur.</p></div>'
-    +'<div class="sl-contact"><h2>Kontaktinformationen</h2><p><strong>'+escapeHtml(advisorName)+'</strong><br>Finanzplanung &amp; Vermögensarchitektur</p><p>'+escapeHtml(mandateLabel)+'</p><h2>Persönliche Daten</h2><p><strong>'+escapeHtml(clientName)+'</strong>'+(clientAddress?'<br>'+clientAddress:'')+'</p><p>'+escapeHtml(todayShort)+'</p></div>'
+    +'<div class="sl-contact"><h2>Kontaktinformationen</h2><p><strong>'+escapeHtml(advisorName)+'</strong><br>Finanzplanung &amp; Vermögensarchitektur</p><p>'+escapeHtml(mandateLabel)+'</p><h2>Persönliche Daten</h2><p><strong>'+escapeHtml(clientName)+'</strong>'+(clientAddressParts.length?'<br>'+clientAddressParts.map(escapeHtml).join('<br>'):'')+'</p><p>'+escapeHtml(todayShort)+'</p></div>'
     +'</div>';
   var page2=section('Kenntnisse und Erfahrungen')
     +table(['Frage','Antwort'],[
@@ -5521,19 +5529,31 @@ async function savePortfolioUmsetzen(){
 function printAnlagestrategie(){
   var allocation=strategyState&&strategyState.allocation;
   var risk=currentPersistedRiskForMandate(getActiveMandateId());
+  var clientName=reportClientLabel();
   var today=new Date().toLocaleDateString('de-CH');
-  var docTitle='Anlagestrategie \u2013 Kundendossier \u2013 '+today;
+  var docTitle='Anlagestrategie \u2013 '+clientName+' \u2013 '+today;
   var bodyHtml=buildAnlagestrategieDocHtml(allocation,risk,currentPersona,currentMandateData,strategyState&&strategyState.recommendation);
-  var win=window.open('','_blank','noopener,noreferrer,width=1100,height=950');
+  var win=window.open('','_blank','noopener,noreferrer,width=1280,height=900');
   if(!win){window.print();return;}
   win.document.open();
   win.document.write('<!doctype html><html><head><meta charset="utf-8"><title>'+escapeHtml(docTitle)+'</title><style>'
     +'*{box-sizing:border-box;margin:0;padding:0}'
-    +'body{font-family:Arial,Helvetica,sans-serif;background:#f8fafc;color:#0f172a}'
-    +'.doc-wrap{max-width:1050px;margin:24px auto;background:#fff;box-shadow:0 4px 24px rgba(0,0,0,0.10);border-radius:8px;overflow:hidden}'
-    +'table td{vertical-align:middle}table thead th{text-align:left}'
-    +'@page{size:A4;margin:12mm}'
-    +'@media print{body{background:#fff}.doc-wrap{max-width:none;margin:0;box-shadow:none;border-radius:0}}'
+    +'body{font-family:Arial,Helvetica,sans-serif;background:#eef2f6;color:#111827;padding:18px}'
+    +'.doc-wrap{max-width:1188px;margin:0 auto}'
+    +'.sl-report-page{width:297mm;min-height:210mm;margin:0 auto 18px;background:#fff;box-shadow:0 8px 30px rgba(15,23,42,0.14);position:relative;padding:17mm 19mm 14mm;display:flex;flex-direction:column;page-break-after:always;overflow:hidden}'
+    +'.sl-page-head{display:flex;justify-content:space-between;align-items:center;font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:#7a8697;border-bottom:1px solid #d8dee7;padding-bottom:7px;margin-bottom:14px}'
+    +'.sl-page-foot{position:absolute;left:19mm;right:19mm;bottom:8mm;display:flex;justify-content:space-between;font-size:8px;color:#8b96a7;border-top:1px solid #e5e9f0;padding-top:5px}'
+    +'.sl-page-main{flex:1;min-height:0}.sl-page-main h1{font-size:24px;font-weight:650;color:#0f172a;margin:0 0 14px;letter-spacing:0}.sl-page-main h2{font-size:13px;font-weight:650;color:#111827;margin:0 0 8px;letter-spacing:0}'
+    +'.sl-overline{font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#607083;margin-bottom:10px}.sl-copy{font-size:11px;line-height:1.62;color:#334155;margin:0 0 10px;max-width:930px}'
+    +'.sl-cover{background:linear-gradient(180deg,#ffffff 0%,#f8fafc 100%)}.sl-cover-grid{display:grid;grid-template-columns:1.15fr .85fr;gap:34px;align-items:center;height:148mm}.sl-cover-grid h1{font-size:38px;line-height:1.04;margin-bottom:18px}.sl-cover-grid p{font-size:13px;line-height:1.6;color:#475569;max-width:540px}.sl-contact{border-left:3px solid #0f172a;padding-left:22px}.sl-contact h2{font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:#64748b;margin:18px 0 8px}.sl-contact p{font-size:12px;line-height:1.55;color:#1f2937;margin-bottom:10px}'
+    +'.sl-section-title{font-size:10px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:#475569;border-bottom:2px solid #d8dee7;padding-bottom:5px;margin:14px 0 8px}'
+    +'.sl-table{width:100%;border-collapse:collapse;margin-bottom:12px}.sl-table th{font-size:8px;text-transform:uppercase;letter-spacing:.06em;color:#6b7280;text-align:left;border-bottom:1px solid #cfd7e3;padding:5px 7px}.sl-table td{font-size:9.5px;line-height:1.35;color:#263241;border-bottom:1px solid #eef1f5;padding:5px 7px;vertical-align:top}.sl-table td:last-child,.sl-table th:last-child{text-align:right}.sl-table td:first-child,.sl-table th:first-child{text-align:left}.sl-total-row td{font-weight:700;color:#111827;border-top:1px solid #cfd7e3}.sl-compact td{padding-top:4px;padding-bottom:4px;font-size:9px}.sl-products td{font-size:8.6px}'
+    +'.sl-two{display:grid;grid-template-columns:1fr 1fr;gap:18px;align-items:start}.sl-donut{width:82px;height:82px;border-radius:50%;margin:0 auto 10px;display:grid;place-items:center}.sl-donut>div{width:45px;height:45px;border-radius:50%;background:#fff}.sl-donut-empty{height:82px;display:grid;place-items:center;font-size:9px;color:#94a3b8}'
+    +'.sl-pref-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px}.sl-pref-grid>div{border:1px solid #d8dee7;background:#f8fafc;padding:12px}.sl-pref-grid p{font-size:10px;line-height:1.7;color:#334155}'
+    +'.sl-risk-box{display:grid;grid-template-columns:1fr .9fr;gap:22px;align-items:start;background:#f8fafc;border:1px solid #d8dee7;padding:18px}.sl-risk-box h2{font-size:26px}.sl-metric{border:1px solid #d8dee7;background:#fff;padding:11px 12px;margin-bottom:10px}.sl-metric div{font-size:8px;text-transform:uppercase;letter-spacing:.08em;color:#7a8697}.sl-metric strong{display:block;font-size:22px;color:#0f172a;margin:4px 0}.sl-metric span{font-size:9px;color:#64748b}'
+    +'.sl-sign{display:grid;grid-template-columns:1fr 1fr 1fr;gap:24px;margin-top:28px;font-size:10px;color:#334155}.sl-divider{display:grid;place-items:center}.sl-divider-title{font-size:34px;font-weight:650;color:#0f172a}.sl-bars{display:inline-flex;gap:2px;vertical-align:middle}.sl-bars span{width:10px;height:8px;background:#e2e8f0;display:inline-block}.sl-bars span.on{background:#166534}.sl-scale{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px;font-size:10px;color:#334155}'
+    +'@page{size:A4 landscape;margin:0}'
+    +'@media print{body{background:#fff;padding:0}.doc-wrap{max-width:none;margin:0}.sl-report-page{width:297mm;height:210mm;min-height:210mm;margin:0;box-shadow:none;page-break-after:always}.sl-report-page:last-child{page-break-after:auto}}'
     +'</style></head><body><div class="doc-wrap">'+bodyHtml+'</div></body></html>');
   win.document.close();
   setTimeout(function(){try{win.focus();win.print();}catch(e){}},380);
@@ -8109,19 +8129,19 @@ var RISK_CAPACITY_MATRIX = {
   '9,1':20,  '9,2':50,  '9,3':60,  '9,4':65,  '9,5':70,
   '15,1':30, '15,2':50, '15,3':60, '15,4':75, '15,5':100
 };
-// F1: Monatliches Bruttoeinkommen - W305.03 Seite 2, Frage 1
+// F1: Monatliches Bruttoeinkommen - Eignungspruefung Seite 2, Frage 1
 // bis 6k=0 | 6-9k=1 | 9-12k=2 | 12-20k=3 | >20k=4
 var RISK_INCOME_POINTS = [0, 1, 2, 3, 4];
 
-// F3: Monatliche Verpflichtungen - W305.03 Seite 2, Frage 3 (INVERS: weniger Verpfl. = mehr Punkte)
+// F3: Monatliche Verpflichtungen - Eignungspruefung Seite 2, Frage 3 (INVERS: weniger Verpfl. = mehr Punkte)
 // bis 3k=4 | 3-5k=3 | 5-8k=2 | 8-12k=1 | >12k=0
 var RISK_OBLIGATIONS_POINTS = [4, 3, 2, 1, 0];
 
-// F4: Frei verfügbares Vermögen - W305.03 Seite 2, Frage 4
+// F4: Frei verfügbares Vermögen - Eignungspruefung Seite 2, Frage 4
 // <100k=0 | 100-250k=3 | 250k-1M=6 | 1-2M=9 | >2M=12
 var RISK_WEALTH_POINTS = [0, 3, 6, 9, 12];
 
-// F5: Sparquote - W305.03 Seite 2, Frage 5 (5 Optionen statt 4)
+// F5: Sparquote - Eignungspruefung Seite 2, Frage 5 (5 Optionen statt 4)
 // 0%=0 | 1-10%=3 | 10-25%=6 | 25-50%=9 | >50%=12
 var RISK_SAVINGS_POINTS = [0, 3, 6, 9, 12];
 

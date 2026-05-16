@@ -2,7 +2,7 @@
 
 Master-Spec: docs/planning/2026-05-05-stochastic-optimizer-spec.md (Sec 6)
 
-Primary Objective (3eyes Slide 18, Priorität 1):
+Primary Objective (Advisory-Methodik Slide 18, Priorität 1):
     L(w) = Σ_g h_g · w_g · (1/N) · Σ_n max(0, target_g - wealth_g(w, n))^2
 
 Sekundaer (Priorität 2, wenn L ≈ 0):

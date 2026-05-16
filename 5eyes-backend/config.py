@@ -130,7 +130,7 @@ class Settings(BaseSettings):
     recent_log_lines_max: int = 500
 
     # Optimizer (siehe docs/planning/2026-05-05-stochastic-optimizer-spec.md
-    # und claude-bericht-3eyes-assetallocation-optimierung-v3-codeplan.md).
+    # und claude-bericht-Advisory-Methodik-assetallocation-optimierung-v3-codeplan.md).
     # Gueltige Werte:
     # - 'house_matrix' (default): produktiver Pfad; Solver wird nicht ausgefuehrt.
     # - 'iterative': reservierter Legacy-/Experimentmodus, faellt auf house_matrix.

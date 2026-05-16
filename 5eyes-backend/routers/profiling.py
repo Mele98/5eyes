@@ -217,7 +217,7 @@ def create_risk_assessment(
         final_score_x10=final_score_x10,
         final_profile=final_profile,
         is_overridden=0,
-        # Kenntnisse & Erfahrungen (SwissLife W305.03 Seite 1) — FE sendet, Backend muss persistieren
+        # Kenntnisse & Erfahrungen (Referenzmodell Eignungspruefung Seite 1) — FE sendet, Backend muss persistieren
         knowledge_services_json=body.knowledge_services_json,
         knowledge_instruments_json=body.knowledge_instruments_json,
         income_sources_json=body.income_sources_json,

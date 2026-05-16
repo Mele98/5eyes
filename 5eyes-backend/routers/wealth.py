@@ -853,7 +853,7 @@ def delete_wealth_inflow(
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Sprint A2 (2026-05-06): Max-Pension-Spending Rechner
-# 3rd-eyes-Pattern: invertierte Frage — "wieviel kannst du im Ruhestand
+# Advisory-Methodik-Pattern: invertierte Frage — "wieviel kannst du im Ruhestand
 # ausgeben?" Berater erfasst Vermögen + Vorsorge → System rechnet Annuitaet.
 # ─────────────────────────────────────────────────────────────────────────────
 

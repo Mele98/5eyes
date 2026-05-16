@@ -31,7 +31,7 @@ Vor der Implementierung unbedingt lesen — folgender Code ist korrekt und darf 
 
 Zwei echte Lücken schliessen:
 1. Warnung wenn Berater einem Renditeziel den Härtegrad "Hart" gibt — das widerspricht der
-   Swiss Life / PK-Logik (Renditeziel ist immer weich/opportunistisch).
+   Referenzanbieter / PK-Logik (Renditeziel ist immer weich/opportunistisch).
 2. Inflationsannahme für reale Vermögensziele im UI editierbar machen. Aktuell liest das Backend
    `PlanningAssumption.inflation_assumption_bps` korrekt, aber kein UI existiert zum Setzen.
 
@@ -50,7 +50,7 @@ Aber wenn der Berater danach manuell auf "Hart" (prio=1) wechselt: keine Warnung
 Fachlich ist Hart+Renditeziel ein Widerspruch:
 - Hart bedeutet: muss zwingend erfüllt werden, dominiert Portfoliokonstruktion
 - Renditeziel ist inhärent unsicher, kann nicht garantiert werden
-- In PK-/Swiss Life-Logik existiert diese Kombination nicht
+- In PK-/Referenzanbieter-Logik existiert diese Kombination nicht
 
 ### Lücke 2 — Inflationsannahme nicht editierbar
 

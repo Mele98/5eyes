@@ -1,4 +1,4 @@
-"""Roundtrip-Tests fuer SwissLife W305.03 Seite 1: Kenntnisse & Erfahrungen +
+"""Roundtrip-Tests fuer Referenzmodell Eignungspruefung Seite 1: Kenntnisse & Erfahrungen +
 Einkommensquellen werden im Risk-Assessment persistiert.
 
 Bugfix-Test: vor 2026-05-15 hat create_risk_assessment die 3 Felder
@@ -35,7 +35,7 @@ def _utc_now_iso() -> str:
 @pytest.fixture()
 def session_factory(tmp_path):
     engine = create_engine(
-        f"sqlite:///{tmp_path / 'risk_w305_persistence.db'}",
+        f"sqlite:///{tmp_path / 'risk_suitability_persistence.db'}",
         connect_args={"check_same_thread": False},
     )
     sf = sessionmaker(autocommit=False, autoflush=False, expire_on_commit=False, bind=engine)
@@ -50,10 +50,10 @@ def session_factory(tmp_path):
 @pytest.fixture()
 def advisor_user():
     return User(
-        id="user-w305",
+        id="user-suitability",
         username="advisor",
         password_hash="h",
-        full_name="Advisor W305",
+        full_name="Advisor Suitability",
         role="advisor",
         is_active=1,
         created_at=_utc_now_iso(),
@@ -78,8 +78,8 @@ def _setup_mandate(auth_client: TestClient, advisor_user: User) -> str:
     cr = auth_client.post(
         "/clients",
         json={
-            "client_number": "W305-001",
-            "first_name": "W305",
+            "client_number": "SUIT-001",
+            "first_name": "Eignungspruefung",
             "last_name": "Tester",
             "advisor_id": advisor_user.id,
             "household_type": "Einzelperson",
@@ -89,7 +89,7 @@ def _setup_mandate(auth_client: TestClient, advisor_user: User) -> str:
     client_id = cr.json()["id"]
     mr = auth_client.post(
         f"/clients/{client_id}/mandates",
-        json={"mandate_number": "W305-M-001", "mandate_type": "Anlageberatung"},
+        json={"mandate_number": "SUIT-M-001", "mandate_type": "Anlageberatung"},
     )
     assert mr.status_code == 201, mr.text
     return mr.json()["id"]
@@ -111,7 +111,7 @@ def _valid_payload(**overrides) -> dict:
     return base
 
 
-def test_w305_fields_persist_on_create(auth_client, advisor_user):
+def test_suitability_fields_persist_on_create(auth_client, advisor_user):
     mid = _setup_mandate(auth_client, advisor_user)
     services = json.dumps({"Vermögensverwaltung": {"known": 1, "informed": 1}})
     instruments = json.dumps({"Anlagefonds": {"known": 1, "informed": 1}})
@@ -140,7 +140,7 @@ def test_w305_fields_persist_on_create(auth_client, advisor_user):
     assert cb["income_sources_json"] == sources
 
 
-def test_w305_fields_default_null_when_omitted(auth_client, advisor_user):
+def test_suitability_fields_default_null_when_omitted(auth_client, advisor_user):
     mid = _setup_mandate(auth_client, advisor_user)
     response = auth_client.post(
         f"/mandates/{mid}/risk-assessments",
@@ -148,7 +148,7 @@ def test_w305_fields_default_null_when_omitted(auth_client, advisor_user):
     )
     assert response.status_code == 201, response.text
     body = response.json()
-    # Backwards-compat: alte Aufrufe ohne W305-Felder bleiben erlaubt
+    # Backwards-compat: alte Aufrufe ohne Eignungsfelder bleiben erlaubt
     assert body["knowledge_services_json"] is None
     assert body["knowledge_instruments_json"] is None
     assert body["income_sources_json"] is None

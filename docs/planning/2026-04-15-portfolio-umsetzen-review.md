@@ -181,7 +181,7 @@ SEED_ASSET_CLASS_RETURNS = [
 ]
 ```
 
-OWNER-DECISION: Zahlen oben sind Schätzwerte — Emanuele soll diese mit Swiss Life-internen CMA-Daten kalibrieren bevor Produktion.
+OWNER-DECISION: Zahlen oben sind Schätzwerte — Emanuele soll diese mit Referenzanbieter-internen CMA-Daten kalibrieren bevor Produktion.
 
 ---
 
@@ -956,7 +956,7 @@ def test_drift_with_returns(db_session, test_client, ...):
 
 ## OWNER-DECISIONS (offen, Emanuele entscheidet)
 
-1. **Seed-Returns kalibrieren:** Die Jahres-Return-Tabelle muss mit realen Swiss Life-CMA-Daten befüllt werden bevor Produktion. Die hinterlegten Werte sind plausible Schätzwerte.
+1. **Seed-Returns kalibrieren:** Die Jahres-Return-Tabelle muss mit realen Referenzanbieter-CMA-Daten befüllt werden bevor Produktion. Die hinterlegten Werte sind plausible Schätzwerte.
 2. **Benchmark-Bezeichnungen:** "SPI-Proxy" und "Konservativ-Proxy" sind interne Bezeichnungen — ok so oder eigene Namen?
 3. **Chart-Startpunkt:** Aktuell: normiert auf 100 am Snapshot-Datum. Alternative: CHF-Betrag auf Y-Achse. Welche Darstellung bevorzugt für Kundengespräch?
 4. **Snapshot unveränderlich?** Aktuell: kein Delete-Endpoint. Soll ein Berater einen Snapshot löschen/überschreiben können? Vorschlag: Nein (Compliance).

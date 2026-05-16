@@ -213,7 +213,7 @@ def ensure_runtime_columns() -> None:
             # Sprint A3 (2026-05-06): Rentenalter + Lebenserwartung pro Mandat.
             ('retirement_year', 'INTEGER'),
             ('life_expectancy_year', 'INTEGER'),
-            # Sprint B4 (2026-05-07): Anlageuniversum (3rd-eyes-Pattern).
+            # Sprint B4 (2026-05-07): Anlageuniversum (Advisory-Methodik-Pattern).
             # Standard | Alternativ; Filter fuer Produkt-Auswahl.
             ('investment_universe', 'TEXT'),
             # Sprint B1 (2026-05-07): Building-Block-Wahl pro Mandat (JSON).
@@ -289,7 +289,7 @@ def ensure_runtime_columns() -> None:
                 conn.execute(text(f'ALTER TABLE {table_name} ADD COLUMN {column_name} {sql_type}'))
                 existing.add(column_name)
 
-        # RiskAssessment - Kenntnisse & Erfahrungen (SwissLife W305.03, 2026-04-16)
+        # RiskAssessment - Kenntnisse & Erfahrungen (Referenzmodell Eignungspruefung, 2026-04-16)
         ensure_column(conn, "risk_assessments", "knowledge_services_json", "TEXT")
         ensure_column(conn, "risk_assessments", "knowledge_instruments_json", "TEXT")
         ensure_column(conn, "risk_assessments", "income_sources_json", "TEXT")

@@ -71,7 +71,7 @@ class RiskAssessment(Base):
     override_client_confirmed = Column(Integer, default=0)
     override_warning_delivered = Column(Integer, default=0)
     override_warning_document_id = Column(String)
-    # Kenntnisse & Erfahrungen - SwissLife W305.03 Seite 1 (kein Score, nur Compliance)
+    # Kenntnisse & Erfahrungen - Referenzmodell Eignungspruefung Seite 1 (kein Score, nur Compliance)
     knowledge_services_json = Column(String)    # {"Vermögensverwaltung":{"known":0,"informed":1},...}
     knowledge_instruments_json = Column(String) # {"Anlagefonds":{"known":1,"informed":1},...}
     # Herkunft des Einkommens - Frage 2, rein informativ (kein Score)

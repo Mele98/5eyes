@@ -1,7 +1,7 @@
 """V3 Sprint 2 Tests: persistierter Audit-Trail in optimizer_runs.
 
 Plan §4.1: eigene Tabelle fuer ALLE Solver-Laufe (auch shadow_stochastic),
-damit eine 3rd-eyes-artige Risk-Engine-Historie moeglich ist.
+damit eine Advisory-Methodik-artige Risk-Engine-Historie moeglich ist.
 
 Verifiziert:
 - house_matrix-Modus persistiert keinen OptimizerRun

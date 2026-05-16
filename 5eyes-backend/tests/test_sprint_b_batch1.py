@@ -80,7 +80,7 @@ def test_b4_model_has_universe_column():
 
 
 def test_b1_options_constants():
-    """B1: Wahl-Optionen sind 3rd-eyes-Pattern (4/3/3)."""
+    """B1: Wahl-Optionen sind Advisory-Methodik-Pattern (4/3/3)."""
     assert "Schweiz Fokus" in EQUITIES_GEO_OPTIONS
     assert "Global" in EQUITIES_GEO_OPTIONS
     assert "Langfristig" in BONDS_DURATION_OPTIONS

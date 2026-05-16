@@ -60,7 +60,7 @@ class RiskAssessmentCreate(BaseModel):
     q_risk_behavior_points: int     # 1–4
     # Answers for full documentation
     answers: Optional[list[dict]] = None
-    # Kenntnisse & Erfahrungen (SwissLife W305.03 Seite 1) - optional, kein Score
+    # Kenntnisse & Erfahrungen (Referenzmodell Eignungspruefung Seite 1) - optional, kein Score
     knowledge_services_json: Optional[str] = None
     knowledge_instruments_json: Optional[str] = None
     income_sources_json: Optional[str] = None

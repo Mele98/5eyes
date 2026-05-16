@@ -5,7 +5,7 @@
 
 ## 0. IDENTITÄT DIESES PROJEKTS
 
-Desktop-App für Schweizer Finanzberater (Swiss Life Wealth Managers Umfeld).
+Desktop-App für Schweizer Finanzberater (Wealth-Management-Referenz Umfeld).
 Stack: **Electron + FastAPI (Python) + SQLite/SQLCipher**.
 Plattform: Windows only. Kein Web-Deployment, kein Cloud.
 
