@@ -320,9 +320,20 @@ class OptimizerAuditTrace(BaseModel):
 - Audit-Anchor in `target_allocation`
 
 ### Phase 5 — Robustheit & Stress (~600 Zeilen, optional)
-- Importance Sampling für Tail
-- GA-Fallback wenn SLSQP divergiert
-- Stress-Scenarios als zusätzliche Constraints
+**Stand 2026-05-17:** alle Phase-5 Subitems implementiert.
+
+- ✅ Antithetic Variates (`scenario_engine.build_scenario_paths(..., antithetic=True)`)
+- ✅ GA-Fallback wenn SLSQP divergiert (`solver.py` Z 571-636, SLSQP+DE-Fallback)
+- ✅ Stress-Scenarios als zusätzliche Constraints (`stress_scenarios.py` + solver-Integration)
+- ✅ **Phase 5a (commit 380d85f):** Importance-Sampling-Modul
+  (`importance_sampling.py` + 11 Unit-Tests, 5-10× Tail-Variance-Reduktion verifiziert)
+- ✅ **Phase 5b (commit 92dfd74):** `build_scenario_paths_with_weights()`
+  Wrapper im scenario_engine — opt-in via Flag, default identisch zu legacy.
+  Antithetic + IS werden NICHT kombiniert (asymmetrische Bias).
+- ⏳ **Phase 5c (offen, eigene Mini-Spec):** Solver-Integration —
+  Objective-Funktion muss likelihood-weights respektieren statt sample-mean.
+  Riskant weil Solver-Pfad-Eingriff. Empfohlen mit Calibration-Tests
+  gegen historische Krisen (2008, 2020).
 
 ### Phase 6 — UX (Codex-Spec)
 - FE-Optimization-Panel
