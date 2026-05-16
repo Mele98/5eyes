@@ -381,9 +381,13 @@ unveraendert — siehe `feedback_risk_profile_finma.md`):
    Bestaetigungs-Sprache umgestellt. Goal-Editor: 'Scope' →
    'Bezugsgroesse' mit erklaerenden Optionen. Eintrittswahrscheinlichkeit-
    Hinweis konkreter (Beispiel statt Mathe).
-3. **§4 Portfolio:** Header-Subtitle 'Was Sie heute halten · was wir
-   vorschlagen · wie der Uebergang aussieht'. Spalte 'Handlung' →
-   'Massnahme' (Codex: nicht als Trading-Tool).
+3. **§4 Portfolio:** Header-Subtitle korrigiert auf 'Umsetzung Ihrer Asset
+   Allocation in konkrete Produkte (ISIN)'. Erste Iteration hatte
+   'Bestand vs. Empfehlung'-Story verwendet — methodisch falsch, da
+   Portfolio die **Ableitung der SAA in konkrete Wertschriften** ist
+   (3eyes Advisory Process Schritt 4: Portfoliooptimierung nach SAA-
+   Optimierung). Spalte 'Handlung' → 'Massnahme'. Customer Journey ist
+   SD → CF/Ziele → RP → SAA → PO (siehe project_5eyes_customer_journey.md).
 4. **§5 Review:** Subtitle in Consulting-Sprache umgeschrieben. Print-
    Button 'PDF' → 'Review drucken' (kein Versprechen).
 5. **§6 Summary/POS:** 12 Wording-Aenderungen — KPI-Tiles, Cards,
