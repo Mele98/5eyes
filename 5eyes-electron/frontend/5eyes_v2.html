@@ -231,14 +231,14 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 .compact-input{font-size:11px;}
 .full-width-action{width:100%;}
 .plan-feedback{font-size:10px;}
-#page-cf .cashflow-client-layout{display:grid;grid-template-columns:minmax(0,2fr) minmax(300px,1fr);gap:14px;align-items:start;}
+#page-cf .cashflow-client-layout{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;align-items:start;}
 #page-cf .cf-client-intro{grid-column:1/-1;margin-bottom:0;}
 #page-cf .cashflow-lists{display:flex;flex-direction:column;gap:12px;margin-bottom:0;}
 #page-cf .cashflow-lists>.card{margin-bottom:0;}
 #page-cf .cashflow-chart-panel{display:flex;flex-direction:column;gap:12px;min-width:0;margin-top:0;}
 #page-cf .cashflow-chart-panel .kpir{grid-template-columns:1fr;gap:8px;margin-bottom:0;}
 #page-cf .cashflow-chart-panel .projection-grid{grid-template-columns:1fr;gap:12px;align-items:start;}
-#page-cf .cashflow-chart-panel .chart-lg{height:320px;}
+#page-cf .cashflow-chart-panel .chart-lg{height:390px;}
 #page-cf .cashflow-chart-panel .chart{height:220px;}
 #page-cf #cf-save-status{grid-column:1/-1;}
 @media(max-width:1100px){
@@ -341,7 +341,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 .dc{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none;}
 .dcv{font-family:var(--f-d);font-size:20px;color:var(--n8);text-align:center;line-height:1.08;}
 .dcl{font-size:10px;color:var(--n4);letter-spacing:0.07em;text-transform:uppercase;}
-.aa-main-grid{display:grid;grid-template-columns:minmax(360px,0.94fr) minmax(0,1.06fr);gap:18px;margin-bottom:18px;align-items:start;}
+.aa-main-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;margin-bottom:18px;align-items:start;}
 .aa-assets-col,.aa-projection-col{min-width:0;}
 .aa-assets-col .alloc-top-grid{grid-template-columns:1fr;margin-bottom:0;}
 .alloc-top-grid{display:grid;grid-template-columns:minmax(340px,400px) minmax(0,1fr);gap:18px;margin-bottom:18px;align-items:start;}
@@ -672,10 +672,9 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
   .aa-flow-timeline-row{grid-template-columns:1fr;gap:6px;}
   .aa-flow-timeline-scale-spacer{display:none;}
 }
-#cf-goals-projection .projection-grid,#page-al .g2{grid-template-columns:minmax(0,1.22fr) minmax(320px,0.88fr);gap:16px;align-items:start;}
+#cf-goals-projection .projection-grid,#page-al .g2{grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;align-items:start;}
 #cf-goals-projection .chart,#page-al .chart{height:260px;}
-#cf-goals-projection .chart-lg{height:430px;}
-#page-al .chart-lg{height:390px;}
+#cf-goals-projection .chart-lg,#page-al .chart-lg{height:390px;}
 
 /* buildQT classes */
 .qtr{display:grid;grid-template-columns:8px 1fr 42px 64px 64px 64px;gap:0;align-items:center;padding:5px 0;border-bottom:1px solid var(--b1);}
@@ -1253,7 +1252,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
                 <div style="border:1px solid rgba(22,101,52,0.16);border-radius:var(--r2);padding:10px 11px;background:rgba(22,101,52,0.04)">
                   <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:4px"><span style="font-size:10px;font-weight:600;color:var(--n7)">Optimierte Zielallokation</span><span class="tag tg">Ziel</span></div>
                   <div style="font-size:10px;color:var(--n5);line-height:1.45;margin-bottom:8px">Hier bleibt der echte Zielpfad der Soll-Strategie. Laufende Cashflows sowie einmalige Kapitalereignisse fliessen in die Prognose ein; Vergleich, Mehrwert und Abweichung folgen im Review.</div>
-                  <div class="chart-lg" id="aa-opt-chart-wrap" style="height:340px"><canvas id="ch-opt"></canvas></div>
+                  <div class="chart-lg" id="aa-opt-chart-wrap" style="height:390px"><canvas id="ch-opt"></canvas></div>
                 </div>
                 <div id="aa-compare-chart-col" style="display:none;border:1px solid var(--b1);border-radius:var(--r2);background:var(--bg);overflow:hidden">
                   <div style="padding:10px 11px 0">
@@ -1261,7 +1260,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
                     <div style="font-size:10px;color:var(--n5);line-height:1.45;margin-bottom:8px">Gleiche Achsen, gleicher Horizont. So bleibt der Vergleich mit der Soll-Strategie fair und lesbar.</div>
                   </div>
                   <div style="padding:0 11px 10px">
-                  <div class="chart-lg" id="aa-current-chart-wrap" style="height:340px"><canvas id="ch-aa-current"></canvas></div>
+                  <div class="chart-lg" id="aa-current-chart-wrap" style="height:390px"><canvas id="ch-aa-current"></canvas></div>
                   </div>
                 </div>
               </div>
@@ -8607,7 +8606,7 @@ function toggleCompareSection(){
   if(wrap)wrap.style.display=open?'none':'';
   if(col)col.style.display=open?'none':'';
   if(grid)grid.style.gridTemplateColumns=open?'1fr':'repeat(2,minmax(0,1fr))';
-  if(chartWrap)chartWrap.style.height=open?'340px':'260px';
+  if(chartWrap)chartWrap.style.height='390px';
   if(btn)btn.textContent=open?'Vergleich einblenden \u25be':'Vergleich ausblenden \u25b4';
   setTimeout(function(){
     if(charts&&charts.opt)charts.opt.resize();
@@ -8627,8 +8626,8 @@ function toggleAaProjectionDetails(){
   if(metrics)metrics.style.display=open?'none':'grid';
   if(col)col.style.display=open?'none':'block';
   if(grid)grid.style.gridTemplateColumns=open?'1fr':'repeat(2,minmax(0,1fr))';
-  if(chartWrap)chartWrap.style.height=open?'340px':'430px';
-  if(currentChartWrap)currentChartWrap.style.height=open?'340px':'430px';
+  if(chartWrap)chartWrap.style.height='390px';
+  if(currentChartWrap)currentChartWrap.style.height='390px';
   if(btn)btn.textContent=open?'Kennzahlen & Benchmark schliessen':'Kennzahlen & Benchmark anzeigen';
   setTimeout(function(){
     syncAaProjectionAxisScales();
@@ -12516,8 +12515,10 @@ function applyRecommendationEngineResult(result){
   var allocationWarnings=strategyState.allocation&&Array.isArray(strategyState.allocation.warnings)?strategyState.allocation.warnings:[];
   renderRecommendationWarnings((result.warnings||[]).concat(allocationWarnings),result.market_data_quality||{},live,result.positions||[]);
   renderPortfolioSections(result.positions||[]);
-  var pageSubtitle=document.querySelector('#page-po .ph .ph-s');
-  if(pageSubtitle)pageSubtitle.textContent='Produkt · Anlageklasse · Marktwert · Gewicht · Handlung';
+  // 2026-05-16: Subtitle-Override entfernt — überschrieb den Customer-UX-Text
+  // 'Umsetzung Ihrer Asset Allokation in konkrete Produkte (ISIN)' mit einer
+  // Spalten-Liste, die ohnehin sichtbar darunter steht. HTML-Static ist
+  // Source-of-Truth.
   if(strategyState.allocation){
     renderActionCards(strategyState.allocation.reasoning||[]);
     renderEngineRuntimePanels(strategyState.allocation);
