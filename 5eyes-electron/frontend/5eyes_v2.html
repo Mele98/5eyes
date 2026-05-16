@@ -9492,6 +9492,22 @@ function escapeHtml(value){
     .replace(/"/g,'&quot;')
     .replace(/'/g,'&#39;');
 }
+// jsAttrArg(value): produziert einen String der sicher als JS-String-Literal-Inhalt
+// in einem HTML-Attribute eingebettet werden kann (z.B. onclick="foo('"+jsAttrArg(v)+"')").
+// Behebt den XSS-Bug von escapeHtml() in onclick-Konstrukten:
+//   - escapeHtml("O'Brien") → "O&#39;Brien"
+//   - Im HTML-Attribute wird &#39; vom Browser zu ' un-entitied
+//   - Im JS-String wird ' als String-Terminator interpretiert → JS-Bruch + ggf. XSS
+// jsAttrArg eskapiert deshalb erst JS-literal (\\', \\\\, \\n), DANN HTML-attribute
+// (&amp;, &quot;, &lt;, &gt;), sodass beide Parser-Pässe korrekt durchlaufen.
+function jsAttrArg(value){
+  var s = String(value == null ? '' : value);
+  // Step 1: JS-string-literal escape (innerhalb single-quote-delimited string)
+  s = s.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\r?\n/g, '\\n');
+  // Step 2: HTML-attribute escape (innerhalb double-quote-delimited attribute)
+  s = s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return s;
+}
 function bindClickHandlers(root, selector, handler){
   if(!root||!selector||typeof handler!=='function')return;
   Array.prototype.forEach.call(root.querySelectorAll(selector), function(el){
@@ -10197,7 +10213,7 @@ function resetAdvisoryLogModal(){
         '<div class="wn"><div class="wna">'+escapeHtml(pos.label||'Position')+'</div><div class="wnd">'+escapeHtml(describeWealthPosition(pos))+'</div></div>'+
         '<div class="wa"'+(isLiability?' style="color:var(--neg)"':'')+'>'+amountText+'</div>'+
         '<div class="wt"><span class="tag '+tagClass+'">'+tagLabel+'</span></div>'+
-        '<div><button class="btn-ico e" onclick="openWealthPositionEditor(\''+escapeHtml(pos.id||'')+'\')" title="Bearbeiten">✎</button><button class="btn-ico" onclick="deleteWealthPositionById(\''+escapeHtml(pos.id||'')+'\')" title="Löschen">✕</button></div></div>';
+        '<div><button class="btn-ico e" onclick="openWealthPositionEditor(\''+jsAttrArg(pos.id||'')+'\')" title="Bearbeiten">✎</button><button class="btn-ico" onclick="deleteWealthPositionById(\''+jsAttrArg(pos.id||'')+'\')" title="Löschen">✕</button></div></div>';
     }).join('');
   };
   var renderRowsSafe=function(list,tagClass,tagLabel,isLiability){
@@ -14689,7 +14705,7 @@ function renderTriggerBucket(targetId,triggers,state){
     }
     var actions=status==='Erledigt'
       ? ''
-      : '<div style="display:flex;gap:5px;margin-top:6px"><button onclick="openAdvisoryLogModal(\''+escapeHtml(trigger.id||'')+'\')" style="font-size:9px;padding:3px 8px;background:'+(critical?'var(--neg)':'none')+';color:'+(critical?'#fff':'var(--n5)')+';border:'+(critical?'none':'1px solid var(--b2)')+';border-radius:var(--r);cursor:pointer;font-family:var(--f-s)">Review protokollieren</button>'+(trigger.trigger_type==='Markt'?'<button onclick="openDecisionTemplateModal(\''+escapeHtml(trigger.id||'')+'\')" style="font-size:9px;padding:3px 8px;background:none;border:1px solid var(--b2);border-radius:var(--r);cursor:pointer;color:var(--n5);font-family:var(--f-s)">Vorlage öffnen</button>':'')+'</div>';
+      : '<div style="display:flex;gap:5px;margin-top:6px"><button onclick="openAdvisoryLogModal(\''+jsAttrArg(trigger.id||'')+'\')" style="font-size:9px;padding:3px 8px;background:'+(critical?'var(--neg)':'none')+';color:'+(critical?'#fff':'var(--n5)')+';border:'+(critical?'none':'1px solid var(--b2)')+';border-radius:var(--r);cursor:pointer;font-family:var(--f-s)">Review protokollieren</button>'+(trigger.trigger_type==='Markt'?'<button onclick="openDecisionTemplateModal(\''+jsAttrArg(trigger.id||'')+'\')" style="font-size:9px;padding:3px 8px;background:none;border:1px solid var(--b2);border-radius:var(--r);cursor:pointer;color:var(--n5);font-family:var(--f-s)">Vorlage öffnen</button>':'')+'</div>';
     if(status!=='Erledigt'){
       actions='<div style="display:flex;gap:5px;margin-top:6px"><button type="button" data-trigger-action="review" style="font-size:9px;padding:3px 8px;background:'+(critical?'var(--neg)':'none')+';color:'+(critical?'#fff':'var(--n5)')+';border:'+(critical?'none':'1px solid var(--b2)')+';border-radius:var(--r);cursor:pointer;font-family:var(--f-s)">Review protokollieren</button>'+(trigger.trigger_type==='Markt'?'<button type="button" data-trigger-action="template" style="font-size:9px;padding:3px 8px;background:none;border:1px solid var(--b2);border-radius:var(--r);cursor:pointer;color:var(--n5);font-family:var(--f-s)">Vorlage öffnen</button>':'')+'</div>';
     }
