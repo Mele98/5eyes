@@ -336,7 +336,7 @@ Erledigt, ohne Asset-Allocation-UX/Fachlogik anzufassen:
 6. Marktdaten-Frontend-Stubs (`fetchPrice`, `loadLivePrices`) delegieren an den Backend-Preisstatus statt stille Platzhalter zu sein.
 7. Risikoprofil-Speichern repariert (`surplusPoints` statt undefiniertem `incomePoints`) und Fehler/Summary-Datenfluss abgesichert.
 8. Portfolio-Holding Save/Delete nutzt den aktiven Mandatskontext und hat Tests fuer API-Pfad, Validierung, Refresh und Button-Reset.
-9. Admin-Benutzerfehler werden modal-lokal sichtbar via `showAdminResult()` (Admin-Modal) + `showModalFeedback()` ausgegeben. *Hinweis 2026-05-16: ein echtes app-weites Notice-System (Toast/Banner) existiert nicht; nur Modal- und Admin-Scope.*
+9. Admin-Benutzerfehler werden modal-lokal sichtbar via `showAdminResult()` (Admin-Modal) + `showModalFeedback()` ausgegeben. *2026-05-17 nachgereicht (commit ce27a04): globales App-Notice-System (`showAppNotice` + Convenience-Wrapper `showAppError/Warn/Success/Info`) jetzt verfügbar — Toast-Stack rechts oben, ARIA-konform. 8 Static-Contract-Tests in `test_frontend_app_notice.py`. Ausgerollt an saveWealthPosition/saveCashflow/saveGoal/saveAdvisoryLogEntry/calculateInvestmentStrategy (commits a780c34 + 3770381). Weitere Aufrufstellen nach Bedarf.*
 10. Review-Protokoll-Modal verhindert Trigger-ID-Leaks zwischen triggergebundenen und freien Protokolleintraegen.
 11. Event-/Entscheidungs-/Protokoll-Modals setzen Fehlerzustand beim Oeffnen sauber zurueck.
 12. Vermoegensposition-Loeschpfad faellt bei fehlendem Kundenkontext nicht mehr versehentlich in Demo-Loeschung.
@@ -353,7 +353,14 @@ Erledigt, ohne Asset-Allocation-UX/Fachlogik anzufassen:
 23. Review-/Dokument-Flows fuer Protokoll, Trigger, Dokument-Entwurf und Entscheidungsvorlage melden Speicherfehler modal-lokal via `showModalFeedback()` + `parseApiError()`.
 24. Foundation-Case, Ereignis-Erfassung, Vermoegenspositionen und Ziele nutzen bei Speicherfehlern einheitliche `parseApiError`-Meldungen via `showModalFeedback()`.
 25. Login, Bootstrap, Admin-Audit-Log und Admin-Benutzeranlage nutzen ebenfalls sichtbare, einheitliche Fehlerfuehrung via `showAdminResult()`/`showModalFeedback()` statt roher API-Meldungen.
-26. *Korrektur 2026-05-16: Die behauptete `jsAttrArg()`-Funktion existiert nicht im Code. Dynamische Inline-Handler nutzen `escapeHtml()` für HTML-Escape und String-Konkatenation für onclick-Argumente. Wenn künftig dynamisch generierte onclick-Strings JS-Injection vermeiden sollen, wäre ein `jsAttrArg()`-Helper sinnvoll — aber Item ist nicht erledigt.*
+26. **2026-05-17 nachgereicht (commit 5d53f34):** `jsAttrArg()`-Helper jetzt
+    implementiert in 5eyes_v2.html (nach `escapeHtml`). 2-Schritt-Escape
+    (JS-Literal: `\\`, `'`, `\n`; dann HTML-Attribute: `&`, `"`, `<`, `>`).
+    Tests in `tests/test_frontend_js_attr_arg.py` (6 Static-Contracts).
+    Zwei XSS-Lücken in dynamischen onclick-Handlern gefixt: Z 10200
+    (Wealth-Edit/Delete) und Z 14692 (AdvisoryLog/DecisionTemplate-Buttons).
+    Pattern für künftige Inline-Handler-Generierung:
+    `'<button onclick="foo(\\''+jsAttrArg(value)+'\\')">'`
 27. Report-/Summary-Druck hat sichtbare Fallback-Meldungen, wenn Druckfenster, Seitenerzeugung oder Druckdialog nicht sauber starten.
 28. Loeschpfade fuer Cashflows, Ziele und Vermoegenspositionen setzen Button-Zustaende, warten auf Refreshes und markieren Strategie/Summary konsequent als aktualisierungsbeduerftig.
 29. Backdrop-Klicks auf Modals laufen ueber `cm(id)` und damit ueber denselben Cleanup-Pfad wie explizite Schliessen-Buttons.
