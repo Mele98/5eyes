@@ -6529,12 +6529,23 @@ function adminDashboardActionHtml(item) {
   item = item || {};
   var tone = item.tone || '';
   var section = String(item.section || 'sec-health').replace(/[^a-z0-9_-]/gi, '');
-  var onclick = item.onclick || ("adminShowSection('" + section + "')");
+  // SECURITY: item.onclick MUSS ein hardcoded JS-String sein (z.B.
+  // "adminShowSection('sec-xy')"). NIE User-Input direkt durchschleusen —
+  // landet als HTML-Attribute-Inline-Handler, kein Escape moeglich ohne
+  // JS-Syntax zu brechen. Validierung: nur Whitelist-Pattern erlaubt.
+  var rawOnclick = item.onclick || ("adminShowSection('" + section + "')");
+  // Whitelist: alphanumerisch + Funktions-Klammern + Argument-Single-Quotes/-Komma.
+  // Falls jemand boeses einbringt, fallback auf section-only handler.
+  var onclick = /^[a-zA-Z_][a-zA-Z0-9_]*\((?:'[a-zA-Z0-9_\-]*'(?:\s*,\s*(?:true|false|'[a-zA-Z0-9_\-]*'))*)?\)$/.test(rawOnclick)
+    ? rawOnclick
+    : ("adminShowSection('" + section + "')");
   var label = item.action || 'Oeffnen';
+  // tone wird in class-Attribut interpoliert — escapeHtml ist hier korrekt.
+  // onclick als-ist (Whitelist-validiert oben), label + Texte escapeHtml.
   return '<div class="admin-action-row ' + escapeHtml(tone) + '">'
     + '<div><div class="admin-action-title">' + escapeHtml(item.title || '') + '</div>'
     + '<div class="admin-action-meta">' + escapeHtml(item.body || '') + '</div></div>'
-    + '<button class="admin-link-btn" onclick="' + escapeHtml(onclick) + '">' + escapeHtml(label) + ' &rsaquo;</button>'
+    + '<button class="admin-link-btn" onclick="' + onclick + '">' + escapeHtml(label) + ' &rsaquo;</button>'
     + '</div>';
 }
 function adminBuildActionPlan(ctx) {
