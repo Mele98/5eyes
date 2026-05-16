@@ -12058,6 +12058,7 @@ async function calculateInvestmentStrategy(){
       applyBufferedStrategyOutputs(false,'Strategie live berechnet: '+new Date().toLocaleTimeString('de-CH',{hour:'2-digit',minute:'2-digit'}));
       setStrategyCalcButtonState('success');
       pulseStrategyRefreshSuccess();
+      try{showAppSuccess('Anlagestrategie aktualisiert',{title:'Berechnung abgeschlossen'});}catch(e){}
       setTimeout(function(){if(!strategyState.loading)setStrategyCalcButtonState('idle');},1800);
       return true;
     }
@@ -12068,7 +12069,9 @@ async function calculateInvestmentStrategy(){
   }catch(e){
     stopStrategyCalcOverlayTimer();
     renderStrategyCalcOverlay(strategyCalcJourney.length-1,'Die Berechnung wurde unterbrochen.','Die Strategie konnte gerade nicht sauber fertiggestellt werden. Bitte prüfen Sie Verbindung und Mandatsdaten und starten Sie den Lauf erneut.','Berechnung gestoppt',100);
-    updateStrategyStatus('Strategie konnte nicht berechnet werden: '+(e&&e.detail?e.detail:(e&&e.message?e.message:'?')),true);
+    var errDetail=(e&&e.detail?e.detail:(e&&e.message?e.message:'?'));
+    updateStrategyStatus('Strategie konnte nicht berechnet werden: '+errDetail,true);
+    try{showAppError('Strategie konnte nicht berechnet werden: '+errDetail,{title:'Berechnung gestoppt'});}catch(noticeErr){}
     await delayMs(1300);
     closeStrategyCalcOverlay();
     return false;
