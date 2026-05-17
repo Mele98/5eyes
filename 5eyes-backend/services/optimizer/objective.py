@@ -110,6 +110,7 @@ def shortfall_objective(
     *,
     initial_wealth_rappen: float,
     horizon_years: int,
+    weights: np.ndarray | None = None,
 ) -> float:
     """Primaere Objective L(w): hardness- und weight-gewichteter MSE-Shortfall.
 
@@ -119,12 +120,36 @@ def shortfall_objective(
     g_g = liability.weight_bps / 10000
 
     Skalar-Output, von scipy.optimize.minimize konsumierbar.
+
+    Parameters
+    ----------
+    weights : np.ndarray | None
+        Optional. Shape (n_paths,). Likelihood-Ratio-Weights aus
+        Importance Sampling (services/optimizer/importance_sampling.py).
+        Wenn None: trivialer sample-mean (alle Pfade gleich gewichtet).
+        Wenn gesetzt: weighted mean = Σ (per_path · w) / Σ w.
+
+        Phase 5c — Mathematik-Backbone fuer IS-faehigen Solver-Pfad.
+        Backwards-Compat: bei weights=None identisch zu vorher.
     """
     total = 0.0
     n_paths = wealth_paths.shape[0]
     if n_paths <= 0:
         return 0.0
-    inv_n = 1.0 / n_paths
+    # Normalisierung: bei weights=None → uniform; sonst weighted (NOT mean von w,
+    # sondern Sum(per_path · w) / Sum(w) als unverzerrter Estimator).
+    if weights is None:
+        inv_n = 1.0 / n_paths
+        weight_sum = None
+    else:
+        weights_arr = np.asarray(weights, dtype=np.float64).reshape(-1)
+        if weights_arr.shape[0] != n_paths:
+            raise ValueError(
+                f"weights.shape[0]={weights_arr.shape[0]} != n_paths={n_paths}"
+            )
+        weight_sum = float(np.sum(weights_arr))
+        if weight_sum <= 0:
+            raise ValueError("Sum-of-weights must be > 0")
     for liab in liabilities:
         h_weight = HARDNESS_WEIGHT.get(liab.hardness_key, 1.0)
         g_weight = max(1, int(liab.weight_bps)) / 10000.0
@@ -133,19 +158,46 @@ def shortfall_objective(
             initial_wealth_rappen=initial_wealth_rappen,
             horizon_years=horizon_years,
         )
-        mean_sq = float(np.sum(per_path) * inv_n)
+        if weights is None:
+            mean_sq = float(np.sum(per_path) * inv_n)
+        else:
+            mean_sq = float(np.sum(per_path * weights_arr) / weight_sum)
         total += h_weight * g_weight * mean_sq
     return total
 
 
-def volatility_objective(wealth_paths: np.ndarray) -> float:
+def volatility_objective(
+    wealth_paths: np.ndarray,
+    *,
+    weights: np.ndarray | None = None,
+) -> float:
     """Sekundaere Objective: Varianz des End-Wealth ueber Pfade.
 
     Wird genutzt wenn die primary objective bereits ~0 ist und wir auf
     minimale Volatilitaet optimieren wollen (Slide 18 Priorität 2).
+
+    Parameters
+    ----------
+    weights : np.ndarray | None
+        Optional Likelihood-Ratios (Phase 5c). Bei None: trivial np.var.
+        Bei gesetzt: weighted variance = Σ w·(x-E_w[x])² / Σ w
+        (Estimator fuer Var unter Ziel-Verteilung wenn weights die
+        Likelihood-Ratios sind).
     """
     end_wealth = wealth_paths[:, -1]
-    return float(np.var(end_wealth))
+    if weights is None:
+        return float(np.var(end_wealth))
+    weights_arr = np.asarray(weights, dtype=np.float64).reshape(-1)
+    if weights_arr.shape[0] != end_wealth.shape[0]:
+        raise ValueError(
+            f"weights.shape[0]={weights_arr.shape[0]} != n_paths={end_wealth.shape[0]}"
+        )
+    weight_sum = float(np.sum(weights_arr))
+    if weight_sum <= 0:
+        raise ValueError("Sum-of-weights must be > 0")
+    weighted_mean = float(np.sum(end_wealth * weights_arr) / weight_sum)
+    deviations = end_wealth - weighted_mean
+    return float(np.sum(weights_arr * deviations * deviations) / weight_sum)
 
 
 # ============================================================================
