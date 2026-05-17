@@ -903,7 +903,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 
     <!-- PAGE: RISIKOPROFIL -->
     <div id="page-rp" class="page">
-      <div class="ph"><div><div class="ph-t">Risikoprofilierung (FINMA Eignungspruefung)</div><div class="ph-s">Risikofähigkeit &middot; Risikobereitschaft &middot; FINMA Eignungspruefung</div></div><div class="ph-r"><button class="btn" onclick="om('m-rp-print')">PDF</button><button class="btn-g" id="btn-save-riskprofile" onclick="saveRiskProfile()" style="margin-right:8px">Risikoprofil speichern</button><button class="btn-p" onclick="goFromRiskProfileToAllocation()">Asset Allokation →</button></div></div>
+      <div class="ph"><div><div class="ph-t">Risikoprofilierung (FINMA Eignungspruefung)</div><div class="ph-s">Risikofähigkeit &middot; Risikobereitschaft &middot; FINMA Eignungspruefung</div></div><div class="ph-r"><button class="btn" onclick="om('m-rp-print')" title="Browser-Print (Legacy)">PDF (Browser)</button><button class="btn" id="btn-rp-server-pdf" onclick="downloadServerPdf('risikoprofil')" title="Server-PDF (ReportLab)">PDF (Server)</button><button class="btn-g" id="btn-save-riskprofile" onclick="saveRiskProfile()" style="margin-right:8px">Risikoprofil speichern</button><button class="btn-p" onclick="goFromRiskProfileToAllocation()">Asset Allokation →</button></div></div>
       <div class="pad">
         <div class="g2">
                     <div>
@@ -1236,7 +1236,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 
     <!-- PAGE: ALLOKATION -->
     <div id="page-al" class="page">
-      <div class="ph"><div><div class="ph-t">Asset Allokation</div><div class="ph-s">SOLL-Strategie aus Risikoprofil, Zielen und Beratungsvermögen — stochastisch optimiert</div></div><div class="ph-r"><button class="btn" id="btn-aa-pref-open" onclick="openAllocationPreferencesModal()">Anlagepräferenzen</button><button class="btn" id="btn-aa-params-open" onclick="openAllocationParametersModal()">Parameter</button><button class="btn-g" id="btn-aa-calc" onclick="calculateInvestmentStrategy()">Anlagestrategie berechnen</button><button class="btn" onclick="openAllocationEngineModal()">Soll-Quoten</button><button class="btn-p" id="btn-portfolio-umsetzen" onclick="openPortfolioUmsetzenModal()" style="display:none;background:var(--pos);color:#fff">Portfolio umsetzen ✓</button><button class="btn-p" onclick="go('po')">Weiter zum Portfolio &rarr;</button></div></div>
+      <div class="ph"><div><div class="ph-t">Asset Allokation</div><div class="ph-s">SOLL-Strategie aus Risikoprofil, Zielen und Beratungsvermögen — stochastisch optimiert</div></div><div class="ph-r"><button class="btn" id="btn-aa-pref-open" onclick="openAllocationPreferencesModal()">Anlagepräferenzen</button><button class="btn" id="btn-aa-params-open" onclick="openAllocationParametersModal()">Parameter</button><button class="btn-g" id="btn-aa-calc" onclick="calculateInvestmentStrategy()">Anlagestrategie berechnen</button><button class="btn" onclick="openAllocationEngineModal()">Soll-Quoten</button><button class="btn" id="btn-aa-pdf" onclick="downloadServerPdf('anlagestrategie')" title="PDF-Bericht (Server)">PDF</button><button class="btn-p" id="btn-portfolio-umsetzen" onclick="openPortfolioUmsetzenModal()" style="display:none;background:var(--pos);color:#fff">Portfolio umsetzen ✓</button><button class="btn-p" onclick="go('po')">Weiter zum Portfolio &rarr;</button></div></div>
       <div id="al-dirty-banner" class="strip strip-w" style="display:none">
         <div>
           <div class="st">Strategie veraltet</div>
@@ -13529,6 +13529,44 @@ function getActiveMandateId(){
   if(currentMandateId)return currentMandateId;
   if(currentPersona&&currentPersona.mandate_id)return currentPersona.mandate_id;
   return null;
+}
+// Sprint 5 Phase 3 (2026-05-17): Server-PDF-Download via PDF-Engine-API.
+// reportType: 'anlagestrategie' | 'risikoprofil'
+async function downloadServerPdf(reportType){
+  try{
+    var mid=getActiveMandateId();
+    if(!mid){
+      if(window.showAppError){showAppError('Bitte zuerst ein Mandat oeffnen.');}
+      else{alert('Bitte zuerst ein Mandat oeffnen.');}
+      return;
+    }
+    if(reportType!=='anlagestrategie'&&reportType!=='risikoprofil'){
+      console.error('downloadServerPdf: unknown reportType', reportType);return;
+    }
+    var path='/mandates/'+encodeURIComponent(mid)+'/reports/'+reportType+'.pdf';
+    var base=await API.baseUrl();
+    var token=await API.getToken();
+    var headers={};
+    if(token)headers['Authorization']='Bearer '+token;
+    var res=await fetch(base+path,{headers:headers});
+    if(!res.ok){
+      var msg='PDF-Generierung fehlgeschlagen (HTTP '+res.status+')';
+      if(window.showAppError){showAppError(msg);}else{alert(msg);}
+      return;
+    }
+    var blob=await res.blob();
+    var url=URL.createObjectURL(blob);
+    var win=window.open(url,'_blank','noopener,noreferrer');
+    // Cleanup nach 60s (Browser hat dann das Blob geladen)
+    setTimeout(function(){try{URL.revokeObjectURL(url);}catch(e){}},60000);
+    if(!win&&window.showAppError){
+      showAppError('PDF kann nicht geoeffnet werden (Popup-Blocker?).');
+    }
+  }catch(err){
+    console.error('downloadServerPdf failed:',err);
+    var emsg='PDF-Generierung fehlgeschlagen: '+(err&&err.message||'unbekannter Fehler');
+    if(window.showAppError){showAppError(emsg);}else{alert(emsg);}
+  }
 }
 function riskBelongsToMandate(risk, mandateId){
   var activeMandateId=mandateId!=null?mandateId:getActiveMandateId();

@@ -27,11 +27,25 @@ router = APIRouter(tags=["PDF Reports"])
 
 
 def _build_pdf_context(mandate: Mandate, current_user: User, db: Session) -> PDFContext:
-    """Sammelt PDFContext-Daten aus Mandant + User + Org."""
+    """Sammelt PDFContext-Daten aus Mandant + Client + User.
+
+    Mandate-Anzeige: <Client.name> [<mandate_number>] — falls Client
+    nicht ladbar (Test-Setup) Fallback auf mandate_number.
+    """
     client = db.query(Client).filter(Client.id == mandate.client_id).first()
-    mandate_name = client.name if client else "Mandat"
-    advisor_name = current_user.email or "Berater"
-    advisor_org = getattr(current_user, "organization", None)
+    client_name = getattr(client, "name", None) if client else None
+    mandate_number = str(getattr(mandate, "mandate_number", "") or "")
+    if client_name:
+        mandate_name = f"{client_name} [{mandate_number}]" if mandate_number else client_name
+    else:
+        mandate_name = mandate_number or f"Mandat {mandate.id}"
+
+    advisor_name = getattr(current_user, "email", None) or "Berater"
+    advisor_org = (
+        getattr(current_user, "organization", None)
+        or getattr(current_user, "org_name", None)
+        or None
+    )
     return PDFContext(
         mandate_name=mandate_name,
         advisor_name=advisor_name,
@@ -43,12 +57,17 @@ def _build_pdf_context(mandate: Mandate, current_user: User, db: Session) -> PDF
 
 
 def _audit_hash_for_mandate(mandate: Mandate) -> str:
-    """SHA-256 ueber stabile Mandate-Felder fuer Reporting-Audit-Trail."""
+    """SHA-256 ueber stabile Mandate-Felder fuer Reporting-Audit-Trail.
+
+    Felder muessen real im Mandate-Model existieren (siehe models/mandates.py).
+    """
     seed = json.dumps({
-        "mandate_id": mandate.id,
-        "name": getattr(mandate, "name", None),
-        "risk_profile_score": getattr(mandate, "risk_profile_score", None),
-        "updated_at": str(getattr(mandate, "updated_at", "")),
+        "mandate_id": str(mandate.id or ""),
+        "mandate_number": str(getattr(mandate, "mandate_number", "") or ""),
+        "mandate_type": str(getattr(mandate, "mandate_type", "") or ""),
+        "status": str(getattr(mandate, "status", "") or ""),
+        "investment_universe": str(getattr(mandate, "investment_universe", "") or ""),
+        "updated_at": str(getattr(mandate, "updated_at", "") or ""),
     }, sort_keys=True)
     return hashlib.sha256(seed.encode("utf-8")).hexdigest()
 
@@ -161,14 +180,37 @@ def get_risikoprofil_pdf(
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
     ctx = _build_pdf_context(mandate, current_user, db)
 
+    # Risikoprofil-Daten aus dem juengsten RiskAssessment laden (defensiv)
+    risk_label = "Nicht definiert"
+    risk_capacity = 0
+    risk_tolerance = 0
+    experience_years = 0
+    suitability_note = ""
+    try:
+        from models.profiling import RiskAssessment
+        ra = (
+            db.query(RiskAssessment)
+            .filter(RiskAssessment.mandate_id == mandate.id)
+            .order_by(RiskAssessment.created_at.desc())
+            .first()
+        )
+        if ra is not None:
+            risk_label = str(getattr(ra, "risk_profile_label", None) or "Nicht definiert")
+            risk_capacity = int(getattr(ra, "risk_capacity_score", 0) or 0)
+            risk_tolerance = int(getattr(ra, "risk_tolerance_score", 0) or 0)
+            experience_years = int(getattr(ra, "experience_years", 0) or 0)
+            suitability_note = str(getattr(ra, "suitability_note", "") or "")
+    except Exception:
+        pass
+
     risk_data = RisikoprofilData(
-        risk_profile_label=str(getattr(mandate, "risk_profile_label", "Nicht definiert")),
-        risk_capacity_score=int(getattr(mandate, "risk_capacity_score", 0) or 0),
-        risk_tolerance_score=int(getattr(mandate, "risk_tolerance_score", 0) or 0),
+        risk_profile_label=risk_label,
+        risk_capacity_score=risk_capacity,
+        risk_tolerance_score=risk_tolerance,
         knowledge_services={},
         knowledge_instruments={},
-        experience_years=int(getattr(mandate, "investment_experience_years", 0) or 0),
-        suitability_note=str(getattr(mandate, "suitability_note", "") or ""),
+        experience_years=experience_years,
+        suitability_note=suitability_note,
     )
 
     pdf_bytes = ReportLabRenderer().render_risikoprofil(ctx, risk_data)
