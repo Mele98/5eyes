@@ -1,7 +1,11 @@
 # Sprint 3 — Tax-Plugin-System (downscaled, Allocation-Fokus)
 
 **Datum:** 2026-05-17
-**Status:** Phase 1 DONE (commit 4f201df), Spec **downscaled** auf MINIMAL-Scope
+**Status:** Phase 1 + Phase 2-Light DONE. Phase 3 (UI-Dropdown + Mandate-FK)
+offen — fuer naechste Session oder Codex.
+**Commits:**
+- Phase 1 Foundation: `4f201df` (Plugin-Architektur, Engine-Integration, 61 Tests)
+- Phase 2-Light: `3c0b5d5` (CHTaxRegime + DETaxRegime + 20 Tests)
 **Vorgaenger:** Sprint 2 (Steuern in CMA) wurde REVERTIERT (commit 02d2cc5).
 
 ## ⚠️ SCOPE-AENDERUNG (2026-05-17 nachmittag)
@@ -351,6 +355,15 @@ def simulate_wealth_paths(
 **Forward:** Direkt Phase-1-Implementation, keine Migration noetig.
 
 ## 8. Phasen-Plan
+
+### Status-Snapshot (Ende dieser Session)
+
+| Phase | Inhalt | Status |
+|---|---|---|
+| 1 | Foundation (Protocol, Registry, Generic, Engine) | ✅ DONE `4f201df` |
+| 2-light | CH+DE Mini-Regimes | ✅ DONE `3c0b5d5` |
+| 3-light | Mandate-FK + UI-Dropdown | ⏳ open (1-2h) |
+| 4-6 | Asien/USA/Audit-Trail/Tariff-Versioning | ❌ GESTRICHEN (Out-of-Scope) |
 
 ### Phase 1 — Foundation (diese Session, ~3-4h)
 - [ ] services/tax/base.py: TaxRegime-Protocol + TaxContext + TaxResult (15 Tests)
