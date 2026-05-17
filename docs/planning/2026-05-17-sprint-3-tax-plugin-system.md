@@ -439,7 +439,7 @@ tests/tax/
 > sind. Fuer definitive Berechnungen ist ein qualifizierter Steuerberater
 > zu konsultieren.
 
-**Audit-Anforderungen (FINMA W305 / BaFin / FCA-aequivalent):**
+**Audit-Anforderungen (FINMA / BaFin / FCA-aequivalent):**
 - Jede Steuer-Berechnung im Reporting muss reproduzierbar sein.
 - TaxCalculationLog speichert: was-Mandant + was-Tarif-Version + was-Override.
 - Reports zeigen Tariff-Version-Hash als Footer.
