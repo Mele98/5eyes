@@ -75,36 +75,46 @@ def _audit_hash_for_mandate(mandate: Mandate) -> str:
 
 
 def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> AnlagestrategieData:
-    """Extrahiert AnlagestrategieData aus DB-Models.
+    """Extrahiert AnlagestrategieData aus DB-Models — Sprint 11 erweitert.
 
-    Defensive: fehlt etwas → Defaults, kein Crash.
+    Defensive: fehlt etwas → Defaults, kein Crash. Reichlich getattr-Defaults.
     """
     target_alloc_bps: dict[str, int] = {}
+    bucket_bands: dict[str, tuple] = {}
+    bucket_amounts: dict[str, int] = {}
     cma_return = 0
     cma_vol = 0
+    advisory_wealth = None
+    ta_obj = None
 
-    # TargetAllocation lesen (falls vorhanden)
+    # ---- TargetAllocation ----
     try:
         from models.allocation import TargetAllocation
-        ta = (
+        ta_obj = (
             db.query(TargetAllocation)
             .filter(TargetAllocation.mandate_id == mandate.id)
             .order_by(TargetAllocation.created_at.desc())
             .first()
         )
-        if ta is not None:
-            target_alloc_bps = {
-                "equities": int(getattr(ta, "equities_bps", 0) or 0),
-                "bonds": int(getattr(ta, "bonds_bps", 0) or 0),
-                "real_estate": int(getattr(ta, "real_estate_bps", 0) or 0),
-                "alternatives": int(getattr(ta, "alternatives_bps", 0) or 0),
-                "liquidity": int(getattr(ta, "liquidity_bps", 0) or 0),
-            }
+        if ta_obj is not None:
+            for bucket in ("equities", "bonds", "real_estate", "alternatives", "liquidity"):
+                target_alloc_bps[bucket] = int(getattr(ta_obj, f"{bucket}_bps", 0) or 0)
+                # Bands
+                min_attr = f"{bucket}_min_bps"
+                max_attr = f"{bucket}_max_bps"
+                mn = getattr(ta_obj, min_attr, None)
+                mx = getattr(ta_obj, max_attr, None)
+                if mn is not None and mx is not None:
+                    bucket_bands[bucket] = (int(mn), int(mx))
+            advisory_wealth = int(getattr(ta_obj, "advisory_wealth_rappen", 0) or 0) or None
+            # Bucket-Amounts ableiten aus advisory_wealth * weight
+            if advisory_wealth:
+                for bucket, bps in target_alloc_bps.items():
+                    bucket_amounts[bucket] = int(advisory_wealth * bps / 10000)
     except Exception:
-        # Wenn Model anders heisst oder DB-Felder fehlen: leeres SAA
         pass
 
-    # CMA-Werte (defensive)
+    # ---- CMA-Werte (gewichtet) ----
     try:
         from models.allocation import CapitalMarketAssumption
         cma = (
@@ -113,7 +123,6 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
             .first()
         )
         if cma is not None:
-            # Weighted Average ueber Allokation (vereinfacht)
             weights_pct = {k: v / 10000.0 for k, v in target_alloc_bps.items()}
             cma_return = int(
                 weights_pct.get("equities", 0) * (getattr(cma, "equity_ch_return_bps", 0) or 0)
@@ -130,17 +139,134 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
     except Exception:
         pass
 
+    # ---- Risk-Assessment ----
+    risk_score_x10 = None
+    risk_label = None
+    investment_horizon = None
+    knowledge_services: dict = {}
+    knowledge_instruments: dict = {}
+    try:
+        from models.profiling import RiskAssessment
+        ra = (
+            db.query(RiskAssessment)
+            .filter(RiskAssessment.mandate_id == mandate.id, RiskAssessment.is_current == 1)
+            .order_by(RiskAssessment.created_at.desc())
+            .first()
+        )
+        if ra is not None:
+            score_raw = getattr(ra, "final_score_x10", None) or getattr(ra, "override_score_x10", None)
+            risk_score_x10 = int(score_raw) if score_raw is not None else None
+            risk_label = getattr(ra, "final_profile", None) or getattr(ra, "risk_capacity_profile", None)
+            investment_horizon = int(getattr(ra, "investment_horizon_years", 0) or 0) or None
+            # Knowledge-JSONs parsen
+            for json_attr, target in [
+                ("knowledge_services_json", knowledge_services),
+                ("knowledge_instruments_json", knowledge_instruments),
+            ]:
+                raw = getattr(ra, json_attr, None)
+                if raw:
+                    try:
+                        parsed = json.loads(raw)
+                        if isinstance(parsed, dict):
+                            for k, v in parsed.items():
+                                target[str(k)] = bool(v)
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+    except Exception:
+        pass
+
+    # ---- Produkte (Recommendation) ----
+    products: list = []
+    try:
+        from models.review import Product, RecommendationPosition, RecommendationRun
+        last_run = (
+            db.query(RecommendationRun)
+            .filter(RecommendationRun.mandate_id == mandate.id)
+            .order_by(RecommendationRun.created_at.desc())
+            .first()
+        )
+        if last_run is not None:
+            positions = (
+                db.query(RecommendationPosition)
+                .filter(RecommendationPosition.recommendation_run_id == last_run.id)
+                .all()
+            )
+            for pos in positions:
+                product_obj = db.query(Product).filter(Product.id == pos.product_id).first()
+                products.append({
+                    "name": str(getattr(product_obj, "product_name", None) or "—"),
+                    "isin": str(getattr(product_obj, "isin", "") or ""),
+                    "asset_class": str(getattr(product_obj, "asset_class", "") or ""),
+                    "sub_asset_class": str(getattr(product_obj, "sub_asset_class", "") or ""),
+                    "currency": str(getattr(product_obj, "currency", "CHF") or "CHF"),
+                    "ter_bps": int(getattr(product_obj, "ter_bps", 0) or 0),
+                    "provider": str(getattr(product_obj, "provider", "") or ""),
+                    "target_weight_bps": int(getattr(pos, "target_weight_bps", 0) or 0),
+                    "target_amount_rappen": int(getattr(pos, "target_amount_rappen", 0) or 0),
+                })
+    except Exception:
+        pass
+
+    # ---- Goal-Analysis (defensive — Felder existieren je nach Optimizer-Run) ----
+    goal_analysis: list = []
+    try:
+        if ta_obj is not None:
+            goal_json = getattr(ta_obj, "goal_analysis_json", None)
+            if goal_json:
+                parsed = json.loads(goal_json)
+                if isinstance(parsed, list):
+                    for entry in parsed:
+                        if not isinstance(entry, dict):
+                            continue
+                        goal_analysis.append({
+                            "rank": int(entry.get("rank", 0) or 0),
+                            "label": str(entry.get("label", "") or ""),
+                            "achievement_score": float(entry.get("achievement_score", 0) or 0),
+                            "target_text": str(entry.get("target_text", "") or ""),
+                        })
+    except Exception:
+        pass
+
+    # ---- Stress/MC-Werte (defensive aus optimization_*_json oder stress_evaluations_json) ----
+    max_dd_bps = None
+    var_95_bps = None
+    median_cagr_bps = None
+    try:
+        if ta_obj is not None:
+            stress_json = getattr(ta_obj, "stress_evaluations_json", None)
+            if stress_json:
+                parsed = json.loads(stress_json)
+                if isinstance(parsed, dict):
+                    max_dd_bps = int(parsed.get("max_drawdown_bps", 0) or 0) or None
+                    var_95_bps = int(parsed.get("var_95_bps", 0) or 0) or None
+                    median_cagr_bps = int(parsed.get("median_cagr_bps", 0) or 0) or None
+    except Exception:
+        pass
+
     horizon = int(getattr(mandate, "investment_horizon_years", 10) or 10)
-    risk_label = getattr(mandate, "risk_profile_label", None)
 
     return AnlagestrategieData(
         target_allocation_bps=target_alloc_bps,
         cma_expected_return_bps=cma_return,
         cma_expected_vol_bps=cma_vol,
         horizon_years=horizon,
-        monte_carlo_stats=None,  # MC-Stats laden ist Phase 2.1, hier defaults
+        monte_carlo_stats=None,
         optimizer_reasoning=None,
         risk_profile_label=risk_label,
+        mandate_number=str(getattr(mandate, "mandate_number", "") or ""),
+        advisory_wealth_rappen=advisory_wealth,
+        risk_score_x10=risk_score_x10,
+        investment_horizon_years=investment_horizon,
+        mandate_type=str(getattr(mandate, "mandate_type", "") or ""),
+        knowledge_services=knowledge_services,
+        knowledge_instruments=knowledge_instruments,
+        bucket_bands_bps=bucket_bands,
+        bucket_amounts_rappen=bucket_amounts,
+        products=products,
+        goal_analysis=goal_analysis,
+        max_drawdown_bps=max_dd_bps,
+        var_95_bps=var_95_bps,
+        median_cagr_bps=median_cagr_bps,
     )
 
 

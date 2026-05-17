@@ -29,7 +29,11 @@ class PDFContext:
 
 @dataclass(frozen=True)
 class AnlagestrategieData:
-    """Daten-Bundle fuer Anlagestrategie-PDF."""
+    """Daten-Bundle fuer Anlagestrategie-PDF (Sprint 11 vollumfaenglich).
+
+    Replikat-Datenstruktur fuer Frontend-Vorlage buildAnlagestrategieDocHtml.
+    Felder mit Default = Optional (Sektion wird ausgelassen wenn leer).
+    """
 
     target_allocation_bps: Mapping[str, int]
     """{'equities': 4000, 'bonds': 3000, ...} - Bucket-Allokation in bps"""
@@ -51,6 +55,53 @@ class AnlagestrategieData:
 
     risk_profile_label: str | None = None
     """Optional: 'Ausgewogen', 'Wachstum', etc."""
+
+    # ---- Sprint 11: erweiterte Felder fuer Frontend-Vorlagen-Replikation ----
+
+    mandate_number: str | None = None
+    """Mandat-Nummer fuer Header-Rechts."""
+
+    advisory_wealth_rappen: int | None = None
+    """Beratungsvermoegen in Rappen fuer Header + Soll-Tabelle-Total."""
+
+    risk_score_x10: int | None = None
+    """Risk-Score 0-100 (final_score_x10), wird als X.Y/10 angezeigt."""
+
+    investment_horizon_years: int | None = None
+    """Anlagehorizont aus Risk-Assessment (kann von horizon_years abweichen)."""
+
+    mandate_type: str | None = None
+    """'Anlageberatung' | 'Vermoegensverwaltung' | etc. fuer Risikoprofil-Box."""
+
+    knowledge_services: Mapping[str, bool] = field(default_factory=dict)
+    """{'Anlageberatung': True, 'Verwaltung': False} — Eignungspruefung."""
+
+    knowledge_instruments: Mapping[str, bool] = field(default_factory=dict)
+    """{'Aktien': True, 'Anleihen': True, 'Derivate': False}."""
+
+    bucket_bands_bps: Mapping[str, tuple[int, int]] = field(default_factory=dict)
+    """{'equities': (min_bps, max_bps), ...} fuer Toleranzbaender-Spalte."""
+
+    bucket_amounts_rappen: Mapping[str, int] = field(default_factory=dict)
+    """{'equities': target_amount_rappen, ...} fuer Betrag-Spalte."""
+
+    products: list = field(default_factory=list)
+    """ISIN-Produkt-Liste. Jedes Element ist dict mit:
+    name, isin, asset_class, sub_asset_class, target_weight_bps,
+    target_amount_rappen, currency, ter_bps, provider."""
+
+    goal_analysis: list = field(default_factory=list)
+    """Goal-Analysis-Liste. Jedes Element ist dict mit:
+    rank, label, achievement_score (0-100), target_text."""
+
+    max_drawdown_bps: int | None = None
+    """Max Drawdown aus Stress-Tests."""
+
+    var_95_bps: int | None = None
+    """Value-at-Risk 95% (1-Jahr)."""
+
+    median_cagr_bps: int | None = None
+    """Median CAGR aus MC-Simulation."""
 
 
 @dataclass(frozen=True)

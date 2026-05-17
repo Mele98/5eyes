@@ -1,140 +1,130 @@
-"""Anlagestrategie-PDF — vollstaendiges Dokument."""
+"""Sprint 11: Anlagestrategie-PDF — Replikat der Frontend-Vorlage
+buildAnlagestrategieDocHtml. A4 Landscape, 8 Sektionen, FIDLEG-Footer.
+
+Spec: docs/planning/2026-05-17-sprint-11-pdf-replikation.md
+"""
 from __future__ import annotations
 
 from reportlab.lib.units import mm
-from reportlab.platypus import (
-    KeepTogether,
-    PageBreak,
-    Paragraph,
-    Spacer,
-    Table,
-    TableStyle,
-)
+from reportlab.platypus import Spacer
 
 from services.pdf.base import AnlagestrategieData, PDFContext
-from services.pdf.components.header import make_document_header, _esc
-from services.pdf.components.pie_chart import make_saa_pie_chart
-from services.pdf.components.table import make_saa_table
-from services.pdf.styles import (
-    COLOR_BORDER,
-    FONT_BOLD,
-    FONT_DEFAULT,
-    FONT_SIZE_BODY,
-    FONT_SIZE_SMALL,
-    make_paragraph_styles,
-)
+from services.pdf.components.eignungspruefung import make_eignungspruefung_section
+from services.pdf.components.header import make_wealtharchitekten_header
+from services.pdf.components.produkte import make_produkte_section
+from services.pdf.components.risiko_metriken import make_risiko_metriken_section
+from services.pdf.components.risikoprofil_box import make_risikoprofil_box
+from services.pdf.components.saa_bar_table import make_saa_bar_table
+from services.pdf.components.unterschrift import make_unterschrift_section
+from services.pdf.components.ziele_table import make_ziele_section
 
 
 def build_anlagestrategie_flowables(
     ctx: PDFContext, data: AnlagestrategieData
 ) -> list:
-    """Returns Flowable-Liste fuer das Anlagestrategie-PDF."""
-    styles = make_paragraph_styles()
+    """8 Sektionen wie Frontend-Vorlage, A4 Landscape.
+
+    1. Header (dark, WealthArchitekten-Banner)
+    2. Kenntnisse & Erfahrungen (Eignungspruefung)
+    3. Risikoprofil-Box
+    4. Soll-Allokation & Toleranzbaender
+    5. Umsetzung in Produkte (ISIN)
+    6. Risikoindikatoren & Prognose (Monte Carlo)
+    7. Anlageziele & Zielerreichung
+    8. Bestaetigung & Unterschrift
+    """
     flowables: list = []
 
-    # ---- Header ----
-    flowables.extend(make_document_header("Anlagestrategie", ctx))
-
-    # ---- Sektion 1: Strategie-Uebersicht ----
-    flowables.append(Paragraph("Strategie-Uebersicht", styles["heading"]))
-
-    if data.risk_profile_label:
-        flowables.append(Paragraph(
-            f"<b>Risikoprofil:</b> {_esc(data.risk_profile_label)}",
-            styles["body"],
-        ))
-    flowables.append(Paragraph(
-        f"<b>Anlagehorizont:</b> {data.horizon_years} Jahre",
-        styles["body"],
-    ))
-    flowables.append(Paragraph(
-        f"<b>Erwartete Rendite p.a.:</b> {data.cma_expected_return_bps / 100.0:.2f} %",
-        styles["body"],
-    ))
-    flowables.append(Paragraph(
-        f"<b>Erwartete Volatilitaet p.a.:</b> {data.cma_expected_vol_bps / 100.0:.2f} %",
-        styles["body"],
+    # ---- 1. Header ----
+    advisory_label = None
+    if data.advisory_wealth_rappen:
+        advisory_label = _format_amount(data.advisory_wealth_rappen, ctx.base_currency)
+    flowables.extend(make_wealtharchitekten_header(
+        ctx,
+        mandate_number=data.mandate_number,
+        advisory_wealth_label=advisory_label,
     ))
 
-    flowables.append(Spacer(1, 5 * mm))
-
-    # ---- Sektion 2: Asset-Allokation (Tabelle + Torte side-by-side) ----
-    flowables.append(Paragraph("Strategische Asset-Allokation (SAA)", styles["heading"]))
-
-    saa_table = make_saa_table(dict(data.target_allocation_bps))
-    saa_pie = make_saa_pie_chart(dict(data.target_allocation_bps))
-
-    composite = Table(
-        [[saa_table, saa_pie]],
-        colWidths=[110 * mm, 60 * mm],
+    # ---- 2. Eignungspruefung ----
+    eignung = make_eignungspruefung_section(
+        services_knowledge=data.knowledge_services,
+        instruments_knowledge=data.knowledge_instruments,
     )
-    composite.setStyle(TableStyle([
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 0),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-    ]))
-    flowables.append(KeepTogether([composite]))
-
-    flowables.append(Spacer(1, 5 * mm))
-
-    # ---- Sektion 3: Monte Carlo Erwartungen ----
-    if data.monte_carlo_stats:
-        flowables.append(Paragraph("Monte-Carlo-Projektion", styles["heading"]))
-        stats = data.monte_carlo_stats
-        ccy = ctx.base_currency
-        mc_rows = [
-            ["Szenario", f"End-Vermoegen ({ccy})"],
-            ["P10 (pessimistisch)", _fmt_amount(stats.get("p10", 0), ccy)],
-            ["P50 (Median)", _fmt_amount(stats.get("p50", 0), ccy)],
-            ["P90 (optimistisch)", _fmt_amount(stats.get("p90", 0), ccy)],
-        ]
-        mc_table = Table(mc_rows, colWidths=[80 * mm, 50 * mm])
-        mc_table.setStyle(TableStyle([
-            ("FONTNAME", (0, 0), (-1, 0), FONT_BOLD),
-            ("FONTSIZE", (0, 0), (-1, -1), FONT_SIZE_BODY),
-            ("ALIGN", (1, 0), (1, -1), "RIGHT"),
-            ("LINEBELOW", (0, 0), (-1, 0), 1.0, COLOR_BORDER),
-            ("TOPPADDING", (0, 0), (-1, -1), 4),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-        ]))
-        flowables.append(mc_table)
+    if eignung:
+        flowables.extend(eignung)
         flowables.append(Spacer(1, 3 * mm))
 
-    # ---- Sektion 4: Optimizer-Begruendung (falls vorhanden) ----
-    if data.optimizer_reasoning:
-        flowables.append(Paragraph("Begruendung", styles["heading"]))
-        flowables.append(Paragraph(_esc(data.optimizer_reasoning), styles["body"]))
+    # ---- 3. Risikoprofil-Box ----
+    risk_box = make_risikoprofil_box(
+        score_x10=data.risk_score_x10,
+        profile_label=data.risk_profile_label,
+        horizon_years=data.investment_horizon_years or data.horizon_years,
+        mandate_type=data.mandate_type,
+    )
+    if risk_box:
+        flowables.extend(risk_box)
+        flowables.append(Spacer(1, 3 * mm))
 
-    flowables.append(Spacer(1, 8 * mm))
-
-    # ---- Disclaimer ----
-    flowables.append(Paragraph(
-        "Dieser Bericht enthaelt Schaetzwerte basierend auf Modell-Annahmen "
-        "und vergangenen Marktdaten. Tatsaechliche Renditen koennen erheblich "
-        "abweichen. Dieser Bericht ersetzt keine persoenliche Anlageberatung. "
-        "Steuerliche Effekte sind vereinfacht modelliert und ersetzen keine "
-        "Steuerberatung.",
-        styles["disclaimer"],
+    # ---- 4. Soll-Allokation ----
+    flowables.extend(make_saa_bar_table(
+        data.target_allocation_bps,
+        bucket_bands_bps=data.bucket_bands_bps,
+        bucket_amounts_rappen=data.bucket_amounts_rappen,
+        base_currency=ctx.base_currency,
+        advisory_wealth_rappen=data.advisory_wealth_rappen,
     ))
+    flowables.append(Spacer(1, 3 * mm))
+
+    # ---- 5. Produkte ----
+    flowables.extend(make_produkte_section(
+        data.products,
+        base_currency=ctx.base_currency,
+    ))
+    flowables.append(Spacer(1, 3 * mm))
+
+    # ---- 6. Risiko-Metriken ----
+    risk_metrics = make_risiko_metriken_section(
+        expected_return_bps=data.cma_expected_return_bps,
+        median_cagr_bps=data.median_cagr_bps,
+        volatility_bps=data.cma_expected_vol_bps,
+        max_drawdown_bps=data.max_drawdown_bps,
+        var_95_bps=data.var_95_bps,
+    )
+    if risk_metrics:
+        flowables.extend(risk_metrics)
+        flowables.append(Spacer(1, 3 * mm))
+
+    # ---- 7. Ziele ----
+    ziele = make_ziele_section(data.goal_analysis)
+    if ziele:
+        flowables.extend(ziele)
+        flowables.append(Spacer(1, 3 * mm))
+
+    # ---- 8. Unterschrift ----
+    flowables.extend(make_unterschrift_section())
 
     return flowables
 
 
-def _fmt_amount(amount: float, currency: str = "CHF") -> str:
-    """Formatiert Rappen-Betrag in der gewuenschten Mandate-Currency.
-
-    5eyes-intern alles in CHF/Rappen. Bei non-CHF wird via services.currency
-    konvertiert (DEFAULT_FX_RATES wenn keine DB-Source). Fallback bei
-    Konvertierungs-Fehler: zeige CHF-Wert mit Hinweis.
-    """
-    ccy = (currency or "CHF").upper().strip()
+def _format_amount(rappen: int, currency: str = "CHF") -> str:
+    """Schweizer-Format mit Tausender-Trenner."""
     try:
-        if ccy == "CHF":
-            value = amount / 100.0
+        if currency == "CHF":
+            value = rappen / 100.0
         else:
             from services.currency.converter import convert_rappen
-            value = convert_rappen(amount, "CHF", ccy) / 100.0
-        return f"{ccy} {value:,.0f}".replace(",", "'")
+            value = convert_rappen(rappen, "CHF", currency) / 100.0
+        return f"{currency} {value:,.0f}".replace(",", "'")
     except Exception:
-        chf = amount / 100.0
-        return f"CHF {chf:,.0f}".replace(",", "'")
+        return f"CHF {rappen/100.0:,.0f}".replace(",", "'")
+
+
+# Backwards-Compat: Helper-Funktion fuer Sprint 5 Risikoprofil-PDF
+def _fmt_amount(amount: float, currency: str = "CHF") -> str:
+    """Legacy-Name fuer test_currency_integration.py."""
+    return _format_amount(int(amount), currency)
+
+
+def _fmt_chf(amount: float) -> str:
+    """Backwards-Compat fuer Sprint 5 Tests."""
+    return _format_amount(int(amount), "CHF")
