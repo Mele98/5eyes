@@ -12333,6 +12333,41 @@ function markStrategyDirty(message,invalidateOutputs){
   if(message)updateStrategyStatus(message,false);
   var dirtyBanner=document.getElementById('al-dirty-banner');
   if(dirtyBanner)dirtyBanner.style.display='';
+  // 2026-05-17 Sprint 1 Item 2: Auto-Recompute mit Debounce — 3eyes-Methodik
+  // 'unmittelbare Berechnung nach jeder Eingabe' (Slide 9 Differenzierungsfaktor
+  // Interaktivitaet). Statt manuellem 'Anlagestrategie berechnen'-Klick wird
+  // 800ms nach jeder Aenderung automatisch neu berechnet. Debounce verhindert
+  // dass schnelle Eingaben (Typing) 10x den Solver triggern.
+  scheduleAutoRecompute();
+}
+
+// Auto-Recompute-Konfiguration. Setze AUTO_RECOMPUTE_ENABLED=false (z.B. via
+// localStorage oder hardcoded fuer Test/Demo) um manuellen Modus zu nutzen.
+var AUTO_RECOMPUTE_ENABLED = true;
+var AUTO_RECOMPUTE_DEBOUNCE_MS = 800;
+var _autoRecomputeTimer = null;
+
+function scheduleAutoRecompute(){
+  if(!AUTO_RECOMPUTE_ENABLED)return;
+  // Skip wenn der Solver gerade laeuft — Re-Trigger nach Abschluss erfolgt
+  // ueber den naechsten markStrategyDirty bei der naechsten Aenderung.
+  if(strategyState&&strategyState.loading)return;
+  // Skip wenn keine echte Mandate (Demo-Modus, Login-Screen, Onboarding etc.)
+  var mid=typeof getActiveMandateId==='function'?getActiveMandateId():null;
+  if(!mid||typeof isDemoMandateId==='function'&&isDemoMandateId(mid))return;
+  // calculateInvestmentStrategy muss verfuegbar sein (Lazy-Load-Schutz)
+  if(typeof calculateInvestmentStrategy!=='function')return;
+  // Debounce: bei schnellen Aenderungen Timer reset
+  if(_autoRecomputeTimer){clearTimeout(_autoRecomputeTimer);_autoRecomputeTimer=null;}
+  _autoRecomputeTimer=setTimeout(function(){
+    _autoRecomputeTimer=null;
+    // Re-check Pre-Conditions zum Zeitpunkt der eigentlichen Ausfuehrung
+    if(!strategyState||!strategyState.dirty)return;
+    if(strategyState.loading)return;
+    var midNow=typeof getActiveMandateId==='function'?getActiveMandateId():null;
+    if(!midNow||(typeof isDemoMandateId==='function'&&isDemoMandateId(midNow)))return;
+    try{calculateInvestmentStrategy();}catch(e){/* defensive: kein Bruch wenn Solver-Pfad fehlt */}
+  },AUTO_RECOMPUTE_DEBOUNCE_MS);
 }
 function updateStrategyStatus(message,isError){
   var status=document.getElementById('aa-pref-status');
