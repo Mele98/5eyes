@@ -218,9 +218,9 @@ def create_risk_assessment(
         final_profile=final_profile,
         is_overridden=0,
         # Kenntnisse & Erfahrungen (Referenzmodell Eignungspruefung Seite 1) — FE sendet, Backend muss persistieren
-        knowledge_services_json=body.knowledge_services_json,
-        knowledge_instruments_json=body.knowledge_instruments_json,
-        income_sources_json=body.income_sources_json,
+        knowledge_services_json=body.knowledge_services_json if body.knowledge_services_json is not None else "{}",
+        knowledge_instruments_json=body.knowledge_instruments_json if body.knowledge_instruments_json is not None else "{}",
+        income_sources_json=body.income_sources_json if body.income_sources_json is not None else "[]",
         assessed_at=now,
         assessed_by=current_user.id,
         created_at=now,

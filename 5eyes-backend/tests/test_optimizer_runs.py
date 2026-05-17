@@ -130,23 +130,39 @@ def _seed_realistic_mandate(session_factory, suffix: str = ""):
         s.add(RiskAssessment(
             id=aid, mandate_id=mid, version=1, is_current=1, valid_from=now[:10],
             q_income_points=2, q_obligations_points=3,
-            q_savings_points=8, q_wealth_points=8,
-            risk_capacity_total=21, risk_capacity_profile="Wachstumsorientiert",
-            risk_capacity_score_x10=70,
-            investment_horizon_years=15, investment_horizon_label="12 bis 17 Jahre",
+            q_savings_points=9, q_wealth_points=9,
+            risk_capacity_total=23, risk_capacity_profile="Dynamisch",
+            risk_capacity_score_x10=100,
+            investment_horizon_years=15, investment_horizon_label="Mehr als 12 Jahre",
             q_investment_goal_points=3, q_risk_preference_points=4, q_risk_behavior_points=3,
             risk_willingness_total=10, risk_willingness_profile="Wachstumsorientiert",
             risk_willingness_score_x10=70,
             final_score_x10=70, final_profile="Wachstumsorientiert",
             is_overridden=0,
+            knowledge_services_json="{}",
+            knowledge_instruments_json="{}",
+            income_sources_json='["Berufliche Taetigkeit"]',
             assessed_at=now, assessed_by=advisor_id,
             created_at=now, updated_at=now,
         ))
-        for q in (3, 5, 6, 7, 8, 9, 10, 11):
+        answers = [
+            (1, "Kenntnisse & Erfahrungen", "Finanzdienstleistungen: {}", 0),
+            (2, "Kenntnisse & Erfahrungen", "Finanzinstrumente: {}", 0),
+            (3, "Risikofaehigkeit", "CHF 9'000 bis 12'000", 2),
+            (4, "Risikofaehigkeit", "Herkunft: Berufliche Taetigkeit", 0),
+            (5, "Risikofaehigkeit", "CHF 3'000 bis 5'000", 3),
+            (6, "Risikofaehigkeit", "CHF 1'000'000 bis 2'000'000", 9),
+            (7, "Risikofaehigkeit", "25 bis 50 %", 9),
+            (8, "Risikofaehigkeit", "Mehr als 12 Jahre - Matrix-Faktor", 0),
+            (9, "Risikobereitschaft", "Das investierte Kapital soll sich stetig vermehren.", 3),
+            (10, "Risikobereitschaft", "Ich strebe eine hoehere Rendite an und bin bereit, dafuer ein erhoehtes Risiko einzugehen.", 3),
+            (11, "Risikobereitschaft", "Ich kann den Verlust voruebergehend akzeptieren und halte an meinen Anlagen fest.", 3),
+        ]
+        for q, section, label, points in answers:
             s.add(RiskAssessmentAnswer(
                 id=str(uuid.uuid4()), assessment_id=aid,
-                question_number=q, question_section="Risikoprofil",
-                answer_label=f"A{q}", answer_points=2,
+                question_number=q, question_section=section,
+                answer_label=label, answer_points=points,
                 created_at=now,
             ))
         s.commit()

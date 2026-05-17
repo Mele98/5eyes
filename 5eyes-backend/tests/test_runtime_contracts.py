@@ -245,15 +245,17 @@ def seed_foreign_client_and_mandate(session_factory, other_advisor_user) -> tupl
 
 def complete_risk_questionnaire_answers() -> list[dict]:
     return [
-        {"question_number": 3, "answer_label": "Regelmaessiges Einkommen hoch", "answer_points": 4},
+        {"question_number": 1, "answer_label": "Finanzdienstleistungen: {}", "answer_points": 0},
+        {"question_number": 2, "answer_label": "Finanzinstrumente: {}", "answer_points": 0},
+        {"question_number": 3, "answer_label": "Ueber CHF 20'000", "answer_points": 4},
         {"question_number": 4, "answer_label": "Herkunft: Berufliche Taetigkeit", "answer_points": 0},
-        {"question_number": 5, "answer_label": "Verpflichtungen tief", "answer_points": 4},
-        {"question_number": 6, "answer_label": "Freies Vermoegen hoch", "answer_points": 12},
-        {"question_number": 7, "answer_label": "Sparquote hoch", "answer_points": 12},
-        {"question_number": 8, "answer_label": "Mehr als 12 Jahre", "answer_points": 0},
-        {"question_number": 9, "answer_label": "Wachstum", "answer_points": 4},
-        {"question_number": 10, "answer_label": "Hohe Schwankungen akzeptiert", "answer_points": 4},
-        {"question_number": 11, "answer_label": "Verluste aussitzen", "answer_points": 4},
+        {"question_number": 5, "answer_label": "Bis CHF 3'000", "answer_points": 4},
+        {"question_number": 6, "answer_label": "Ueber CHF 2'000'000", "answer_points": 12},
+        {"question_number": 7, "answer_label": "Ueber 50 %", "answer_points": 12},
+        {"question_number": 8, "answer_label": "Mehr als 12 Jahre - Matrix-Faktor", "answer_points": 0},
+        {"question_number": 9, "answer_label": "Es soll ein erhebliches Kapitalwachstum angestrebt werden.", "answer_points": 4},
+        {"question_number": 10, "answer_label": "Ich strebe nach der maximalen Rendite und nehme hohe Risiken in Kauf.", "answer_points": 4},
+        {"question_number": 11, "answer_label": "Ich investiere langfristig, deshalb akzeptiere ich solche Schwankungen.", "answer_points": 4},
     ]
 
 

@@ -23,6 +23,7 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 from database import Base, get_db
+import main as main_module
 from main import app
 from models.users import User
 from services.auth import get_current_user
@@ -62,11 +63,14 @@ def advisor_user():
 
 
 @pytest.fixture()
-def auth_client(session_factory, advisor_user):
+def auth_client(session_factory, advisor_user, monkeypatch):
     def override_db():
         with session_factory() as session:
             yield session
 
+    monkeypatch.setattr(main_module, "init_db", lambda: None)
+    monkeypatch.setattr(main_module, "start_price_scheduler", lambda: None)
+    monkeypatch.setattr(main_module, "stop_price_scheduler", lambda: None)
     app.dependency_overrides[get_db] = override_db
     app.dependency_overrides[get_current_user] = lambda: advisor_user
     with TestClient(app) as client:
@@ -140,7 +144,7 @@ def test_suitability_fields_persist_on_create(auth_client, advisor_user):
     assert cb["income_sources_json"] == sources
 
 
-def test_suitability_fields_default_null_when_omitted(auth_client, advisor_user):
+def test_suitability_fields_default_empty_schema_markers_when_omitted(auth_client, advisor_user):
     mid = _setup_mandate(auth_client, advisor_user)
     response = auth_client.post(
         f"/mandates/{mid}/risk-assessments",
@@ -148,7 +152,7 @@ def test_suitability_fields_default_null_when_omitted(auth_client, advisor_user)
     )
     assert response.status_code == 201, response.text
     body = response.json()
-    # Backwards-compat: alte Aufrufe ohne Eignungsfelder bleiben erlaubt
-    assert body["knowledge_services_json"] is None
-    assert body["knowledge_instruments_json"] is None
-    assert body["income_sources_json"] is None
+    # New persisted profiles always carry schema markers so legacy records stay distinguishable.
+    assert body["knowledge_services_json"] == "{}"
+    assert body["knowledge_instruments_json"] == "{}"
+    assert body["income_sources_json"] == "[]"
