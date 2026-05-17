@@ -174,6 +174,11 @@ class CapitalMarketAssumptionCreate(BaseModel):
     bonds_ns_beta1_bps: Optional[int] = None
     bonds_ns_beta2_bps: Optional[int] = None
     bonds_ns_lambda_x100: Optional[int] = None
+    # Sprint 7 (2026-05-17): KGV-Mean-Reversion fuer Equity-Returns.
+    # Wenn alle 3 gesetzt: Engine addiert MR-Adjustment auf equity_*_return_bps.
+    equity_kgv_current_x10: Optional[int] = None
+    equity_kgv_fair_x10: Optional[int] = None
+    equity_kgv_alpha_x100: Optional[int] = None
     source: Optional[str] = "Portfolio Management intern"
     notes: Optional[str] = None
 
@@ -211,6 +216,10 @@ class CapitalMarketAssumptionResponse(BaseResponse):
     bonds_ns_beta1_bps: Optional[int] = None
     bonds_ns_beta2_bps: Optional[int] = None
     bonds_ns_lambda_x100: Optional[int] = None
+    # Sprint 7: KGV-Mean-Reversion fuer Equity-Returns
+    equity_kgv_current_x10: Optional[int] = None
+    equity_kgv_fair_x10: Optional[int] = None
+    equity_kgv_alpha_x100: Optional[int] = None
     source: Optional[str]
     notes: Optional[str]
     created_at: str

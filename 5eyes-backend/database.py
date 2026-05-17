@@ -259,6 +259,10 @@ def ensure_runtime_columns() -> None:
             ('bonds_ns_beta1_bps', 'INTEGER'),
             ('bonds_ns_beta2_bps', 'INTEGER'),
             ('bonds_ns_lambda_x100', 'INTEGER'),
+            # Sprint 7 (2026-05-17): KGV-Mean-Reversion fuer Equity-Returns.
+            ('equity_kgv_current_x10', 'INTEGER'),
+            ('equity_kgv_fair_x10', 'INTEGER'),
+            ('equity_kgv_alpha_x100', 'INTEGER'),
         ],
         'target_allocations': [
             ('external_reserve_at_generation_rappen', 'INTEGER'),

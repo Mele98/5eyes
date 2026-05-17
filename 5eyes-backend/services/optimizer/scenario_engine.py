@@ -465,10 +465,16 @@ def scenario_inputs_from_cma(cma) -> ScenarioInputs:
     # Fallback: alte fix-Werte (Backwards-Compat).
     bonds_return_from_ns = _compute_bonds_return_from_nelson_siegel(cma)
 
+    # Sprint 7: KGV-Mean-Reversion-Adjustment fuer Equity (bps p.a.).
+    # 0 wenn KGV-Params fehlen (Backwards-Compat).
+    equity_kgv_adjustment_bps = _compute_equity_kgv_adjustment(cma)
+
+    base_equity = _avg_or_zero([cma.equity_ch_return_bps, cma.equity_intl_return_bps])
+
     # Returns/Vols pro Bucket (aggregiert grob aus Sub-Klassen)
     # Konsistent zur Aggregation in portfolio_engine._asset_class_expected_metrics
     bucket_returns = {
-        "equities": _avg_or_zero([cma.equity_ch_return_bps, cma.equity_intl_return_bps]),
+        "equities": base_equity + equity_kgv_adjustment_bps,
         "bonds": (
             bonds_return_from_ns
             if bonds_return_from_ns is not None
@@ -538,6 +544,37 @@ def _avg_or_zero(values: list) -> float:
 # 5 Jahre = mittlere Duration eines IG-Bond-Universums (typisch 4-7).
 # Berater kann via separates Mandate-Feld spaeter ueberschreiben.
 _BONDS_DEFAULT_MATURITY_YEARS = 5.0
+
+
+# Sprint 7: Default-Horizont fuer KGV-Mean-Reversion-Adjustment.
+# 10 Jahre ist sinnvoller Planungshorizont. Berater kann via separate
+# scenario_inputs_from_cma-Wrapper-Funktion overriden (TODO Phase 3).
+_KGV_DEFAULT_HORIZON_YEARS = 10
+
+
+def _compute_equity_kgv_adjustment(cma) -> float:
+    """Sprint 7: Equity-Return-Adjustment aus KGV-Mean-Reversion in bps.
+
+    Returns 0.0 wenn CMA NICHT alle 3 KGV-Params hat (Backwards-Compat).
+    Bei vollstaendigen Params: berechnet KGVMeanReversionModel-Adjustment
+    fuer Default-Horizont 10J.
+    """
+    kgv_curr_x10 = getattr(cma, "equity_kgv_current_x10", None)
+    kgv_fair_x10 = getattr(cma, "equity_kgv_fair_x10", None)
+    alpha_x100 = getattr(cma, "equity_kgv_alpha_x100", None)
+    if kgv_curr_x10 is None or kgv_fair_x10 is None or alpha_x100 is None:
+        return 0.0
+    try:
+        from services.equity_valuation.mean_reversion import KGVMeanReversionModel
+        model = KGVMeanReversionModel(
+            kgv_current=float(kgv_curr_x10) / 10.0,
+            kgv_fair=float(kgv_fair_x10) / 10.0,
+            alpha=float(alpha_x100) / 100.0,
+        )
+        return model.expected_annual_return_adjustment_bps(_KGV_DEFAULT_HORIZON_YEARS)
+    except Exception:
+        # Defensive: invalid Params → kein Adjustment
+        return 0.0
 
 
 def _compute_bonds_return_from_nelson_siegel(cma) -> float | None:

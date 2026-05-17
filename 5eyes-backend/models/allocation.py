@@ -199,6 +199,14 @@ class CapitalMarketAssumption(Base):
     bonds_ns_beta1_bps = Column(Integer)
     bonds_ns_beta2_bps = Column(Integer)
     bonds_ns_lambda_x100 = Column(Integer)
+    # Sprint 7 (2026-05-17): KGV-Mean-Reversion fuer Equity-Returns.
+    # Wenn alle 3 Felder gesetzt: scenario_inputs_from_cma addiert ein
+    # KGV-MR-Adjustment auf equity_*_return_bps. Werte als Integer skaliert:
+    # kgv_*_x10 = KGV * 10 (z.B. 220 = 22.0), alpha_x100 = alpha*100 (15 = 0.15).
+    # Beispiel SPX 2026: kgv_current=220, kgv_fair=170, alpha=15.
+    equity_kgv_current_x10 = Column(Integer)
+    equity_kgv_fair_x10 = Column(Integer)
+    equity_kgv_alpha_x100 = Column(Integer)
     source = Column(String, default="Portfolio Management intern")
     notes = Column(String)
     created_by = Column(String, ForeignKey("users.id"), nullable=False)
