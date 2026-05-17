@@ -745,6 +745,9 @@ def upsert_foundation_example_case(db: Session, user: User) -> dict:
         final_score_x10=scoring.final_score_x10,
         final_profile=scoring.final_profile,
         is_overridden=0,
+        knowledge_services_json="{}",
+        knowledge_instruments_json="{}",
+        income_sources_json='["Berufliche Taetigkeit"]',
         assessed_at=now,
         assessed_by=user.id,
         created_at=now,
@@ -754,15 +757,17 @@ def upsert_foundation_example_case(db: Session, user: User) -> dict:
     db.flush()
 
     answers = [
-        ("Risikof\u00e4higkeit", 3, "Regelmaessiges Einkommen hoch", 4),
-        ("Risikof\u00e4higkeit", 4, "Herkunft: Berufliche Taetigkeit, Vermoegensanlagen", 0),
-        ("Risikof\u00e4higkeit", 5, "Verpflichtungen tief", 4),
-        ("Risikof\u00e4higkeit", 6, "Freies Vermoegen hoch", 12),
-        ("Risikof\u00e4higkeit", 7, "Sparquote hoch", 12),
-        ("Risikof\u00e4higkeit", 8, "Mehr als 12 Jahre", 0),
-        ("Risikobereitschaft", 9, "Wachstum mit klaren Leitplanken", 3),
-        ("Risikobereitschaft", 10, "Zeitweise Schwankungen akzeptiert", 3),
-        ("Risikobereitschaft", 11, "Verhaelt sich in Rueckgaengen diszipliniert", 3),
+        ("Kenntnisse", 1, "Finanzdienstleistungen: Beratung und Verwaltung", 0),
+        ("Kenntnisse", 2, "Finanzinstrumente: Anlagefonds und ETFs", 0),
+        ("Risikofaehigkeit", 3, "CHF 20'000 oder mehr", 4),
+        ("Risikofaehigkeit", 4, "Herkunft: Berufliche Taetigkeit, Vermoegensanlagen", 0),
+        ("Risikofaehigkeit", 5, "CHF 5'000 oder weniger", 4),
+        ("Risikofaehigkeit", 6, "CHF 2'000'000 oder mehr", 12),
+        ("Risikofaehigkeit", 7, "Mehr als 50 %", 12),
+        ("Risikofaehigkeit", 8, "Mehr als 12 Jahre - Matrix-Faktor", 0),
+        ("Risikobereitschaft", 9, "Das investierte Kapital soll sich stetig vermehren.", 3),
+        ("Risikobereitschaft", 10, "Ich strebe eine hoehere Rendite an und bin bereit, dafuer ein erhoehtes Risiko einzugehen.", 3),
+        ("Risikobereitschaft", 11, "Ich kann den Verlust voruebergehend akzeptieren und halte an meinen Anlagen fest.", 3),
     ]
     for section, number, label, points in answers:
         db.add(

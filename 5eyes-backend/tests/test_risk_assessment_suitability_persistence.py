@@ -11,6 +11,7 @@ from __future__ import annotations
 import datetime
 import json
 import sys
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 import pytest
@@ -30,6 +31,11 @@ from services.auth import get_current_user
 
 def _utc_now_iso() -> str:
     return datetime.datetime.now(datetime.UTC).isoformat().replace("+00:00", "Z")
+
+
+@asynccontextmanager
+async def _noop_lifespan(_app):
+    yield
 
 
 @pytest.fixture()
@@ -62,11 +68,12 @@ def advisor_user():
 
 
 @pytest.fixture()
-def auth_client(session_factory, advisor_user):
+def auth_client(session_factory, advisor_user, monkeypatch):
     def override_db():
         with session_factory() as session:
             yield session
 
+    monkeypatch.setattr(app.router, "lifespan_context", _noop_lifespan)
     app.dependency_overrides[get_db] = override_db
     app.dependency_overrides[get_current_user] = lambda: advisor_user
     with TestClient(app) as client:
@@ -106,6 +113,27 @@ def _valid_payload(**overrides) -> dict:
         "q_investment_goal_points": 3,
         "q_risk_preference_points": 3,
         "q_risk_behavior_points": 3,
+        "answers": [
+            {"question_number": 1, "answer_label": "Finanzdienstleistungen: Beratung und Verwaltung", "answer_points": 0},
+            {"question_number": 2, "answer_label": "Finanzinstrumente: Anlagefonds und ETFs", "answer_points": 0},
+            {"question_number": 3, "answer_label": "CHF 12'000 bis 20'000", "answer_points": 3},
+            {"question_number": 4, "answer_label": "Herkunft: Berufliche Taetigkeit", "answer_points": 0},
+            {"question_number": 5, "answer_label": "CHF 3'000 bis 5'000", "answer_points": 3},
+            {"question_number": 6, "answer_label": "CHF 1'000'000 bis 2'000'000", "answer_points": 9},
+            {"question_number": 7, "answer_label": "25 bis 50 %", "answer_points": 9},
+            {"question_number": 8, "answer_label": "5 bis 7 Jahre - Matrix-Faktor", "answer_points": 0},
+            {"question_number": 9, "answer_label": "Das investierte Kapital soll sich stetig vermehren.", "answer_points": 3},
+            {
+                "question_number": 10,
+                "answer_label": "Ich strebe eine hoehere Rendite an und bin bereit, dafuer ein erhoehtes Risiko einzugehen.",
+                "answer_points": 3,
+            },
+            {
+                "question_number": 11,
+                "answer_label": "Ich kann den Verlust voruebergehend akzeptieren und halte an meinen Anlagen fest.",
+                "answer_points": 3,
+            },
+        ],
     }
     base.update(overrides)
     return base
@@ -140,7 +168,7 @@ def test_suitability_fields_persist_on_create(auth_client, advisor_user):
     assert cb["income_sources_json"] == sources
 
 
-def test_suitability_fields_default_null_when_omitted(auth_client, advisor_user):
+def test_suitability_fields_default_empty_schema_markers_when_omitted(auth_client, advisor_user):
     mid = _setup_mandate(auth_client, advisor_user)
     response = auth_client.post(
         f"/mandates/{mid}/risk-assessments",
@@ -148,7 +176,7 @@ def test_suitability_fields_default_null_when_omitted(auth_client, advisor_user)
     )
     assert response.status_code == 201, response.text
     body = response.json()
-    # Backwards-compat: alte Aufrufe ohne Eignungsfelder bleiben erlaubt
-    assert body["knowledge_services_json"] is None
-    assert body["knowledge_instruments_json"] is None
-    assert body["income_sources_json"] is None
+    # Neue Risk-Gates brauchen Schema-Marker; alte Aufrufe werden defensiv normalisiert.
+    assert body["knowledge_services_json"] == "{}"
+    assert body["knowledge_instruments_json"] == "{}"
+    assert body["income_sources_json"] == "[]"

@@ -245,15 +245,25 @@ def seed_foreign_client_and_mandate(session_factory, other_advisor_user) -> tupl
 
 def complete_risk_questionnaire_answers() -> list[dict]:
     return [
-        {"question_number": 3, "answer_label": "Regelmaessiges Einkommen hoch", "answer_points": 4},
+        {"question_number": 1, "answer_label": "Finanzdienstleistungen: Beratung und Verwaltung", "answer_points": 0},
+        {"question_number": 2, "answer_label": "Finanzinstrumente: Anlagefonds und ETFs", "answer_points": 0},
+        {"question_number": 3, "answer_label": "CHF 12'000 bis 20'000", "answer_points": 3},
         {"question_number": 4, "answer_label": "Herkunft: Berufliche Taetigkeit", "answer_points": 0},
-        {"question_number": 5, "answer_label": "Verpflichtungen tief", "answer_points": 4},
-        {"question_number": 6, "answer_label": "Freies Vermoegen hoch", "answer_points": 12},
-        {"question_number": 7, "answer_label": "Sparquote hoch", "answer_points": 12},
-        {"question_number": 8, "answer_label": "Mehr als 12 Jahre", "answer_points": 0},
-        {"question_number": 9, "answer_label": "Wachstum", "answer_points": 4},
-        {"question_number": 10, "answer_label": "Hohe Schwankungen akzeptiert", "answer_points": 4},
-        {"question_number": 11, "answer_label": "Verluste aussitzen", "answer_points": 4},
+        {"question_number": 5, "answer_label": "CHF 3'000 bis 5'000", "answer_points": 3},
+        {"question_number": 6, "answer_label": "CHF 1'000'000 bis 2'000'000", "answer_points": 9},
+        {"question_number": 7, "answer_label": "25 bis 50 %", "answer_points": 9},
+        {"question_number": 8, "answer_label": "Mehr als 12 Jahre - Matrix-Faktor", "answer_points": 0},
+        {"question_number": 9, "answer_label": "Das investierte Kapital soll sich stetig vermehren.", "answer_points": 3},
+        {
+            "question_number": 10,
+            "answer_label": "Ich strebe eine hoehere Rendite an und bin bereit, dafuer ein erhoehtes Risiko einzugehen.",
+            "answer_points": 3,
+        },
+        {
+            "question_number": 11,
+            "answer_label": "Ich kann den Verlust voruebergehend akzeptieren und halte an meinen Anlagen fest.",
+            "answer_points": 3,
+        },
     ]
 
 
@@ -902,20 +912,7 @@ def test_risk_assessment_current_includes_raw_points_and_answers(session_factory
         q_investment_goal_points=3,
         q_risk_preference_points=3,
         q_risk_behavior_points=4,
-        answers=[
-            {
-                "question_number": 1,
-                "question_section": "Kenntnisse & Erfahrungen",
-                "answer_label": "Aktien, Anlagefonds",
-                "answer_points": 2,
-            },
-            {
-                "question_number": 12,
-                "question_section": "Risikobereitschaft",
-                "answer_label": "Langfristig investiert, eventuell nachkaufen",
-                "answer_points": 4,
-            },
-        ],
+        answers=complete_risk_questionnaire_answers(),
     )
 
     with session_factory() as session:
@@ -938,9 +935,9 @@ def test_risk_assessment_current_includes_raw_points_and_answers(session_factory
     assert current.q_investment_goal_points == 3
     assert current.q_risk_preference_points == 3
     assert current.q_risk_behavior_points == 4
-    assert [answer.question_number for answer in current.answers] == [1, 12]
-    assert current.answers[0].answer_label == "Aktien, Anlagefonds"
-    assert current.answers[1].answer_points == 4
+    assert [answer.question_number for answer in current.answers] == list(range(1, 12))
+    assert current.answers[0].answer_label.startswith("Finanzdienstleistungen:")
+    assert current.answers[-1].answer_points == 3
 
 
 def test_generate_target_allocation_requires_complete_risk_questionnaire(session_factory, advisor_user):
@@ -960,21 +957,15 @@ def test_generate_target_allocation_requires_complete_risk_questionnaire(session
     )
 
     with session_factory() as session:
-        create_risk_assessment(
-            mandate_id=mandate_id,
-            body=payload,
-            db=session,
-            current_user=advisor_user,
-        )
-        mandate = session.query(Mandate).filter(Mandate.id == mandate_id).one()
-
-        with pytest.raises(ValueError, match="Risikoprofil unvollstaendig"):
-            generate_target_allocation(
+        with pytest.raises(HTTPException) as exc:
+            create_risk_assessment(
+                mandate_id=mandate_id,
+                body=payload,
                 db=session,
-                mandate=mandate,
-                user_id=advisor_user.id,
-                preferences={},
+                current_user=advisor_user,
             )
+    assert exc.value.status_code == 422
+    assert "Risikoprofil unvollstaendig" in str(exc.value.detail)
 
 
 def test_foundation_example_case_is_generation_ready_and_idempotent(session_factory, advisor_user):

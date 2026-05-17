@@ -34,7 +34,7 @@ from models.allocation import (
 )
 from models.clients import Client
 from models.mandates import Mandate
-from models.profiling import RiskAssessment, RiskAssessmentAnswer
+from models.profiling import RiskAssessment
 from models.review import AuditLog
 from models.snapshots import StrategySnapshot
 from models.users import User
@@ -45,6 +45,7 @@ from services.portfolio_engine import (
     build_target_payload_from_allocation,
     ensure_runtime_reference_data,
 )
+from tests.risk_fixture_helpers import CURRENT_RISK_SCHEMA_MARKERS, add_current_risk_answers, noop_lifespan
 
 
 def _utc_now_iso() -> str:
@@ -76,10 +77,11 @@ def advisor_user():
 
 
 @pytest.fixture()
-def auth_client(session_factory, advisor_user):
+def auth_client(session_factory, advisor_user, monkeypatch):
     def override_db():
         with session_factory() as s:
             yield s
+    monkeypatch.setattr(app.router, "lifespan_context", noop_lifespan)
     app.dependency_overrides[get_db] = override_db
     app.dependency_overrides[get_current_user] = lambda: advisor_user
     app.dependency_overrides[require_advisor] = lambda: advisor_user
@@ -137,16 +139,11 @@ def _add_assessment(session_factory, mandate_id: str, advisor_id: str,
             risk_willingness_score_x10=60,
             final_score_x10=final_score_x10, final_profile=profile,
             is_overridden=0,
+            **CURRENT_RISK_SCHEMA_MARKERS,
             assessed_at=now, assessed_by=advisor_id,
             created_at=now, updated_at=now,
         ))
-        for q_num in (3, 5, 6, 7, 8, 9, 10, 11):
-            s.add(RiskAssessmentAnswer(
-                id=str(uuid.uuid4()), assessment_id=aid,
-                question_number=q_num, question_section="Risikoprofil",
-                answer_label=f"Antwort {q_num}", answer_points=2,
-                created_at=now,
-            ))
+        add_current_risk_answers(s, aid, now)
         s.commit()
     return aid
 

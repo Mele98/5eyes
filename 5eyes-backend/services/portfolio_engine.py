@@ -299,7 +299,136 @@ def _norm_text(value) -> str:
     )
 
 
-_REQUIRED_RISK_QUESTION_NUMBERS_FOR_STRATEGY = frozenset((3, 5, 6, 7, 8, 9, 10, 11))
+_REQUIRED_RISK_QUESTION_NUMBERS_FOR_STRATEGY = frozenset(range(1, 12))
+_CURRENT_RISK_ANSWER_POINTS = {
+    1: {0},
+    2: {0},
+    3: {0, 1, 2, 3, 4},
+    4: {0},
+    5: {0, 1, 2, 3, 4},
+    6: {0, 3, 6, 9, 12},
+    7: {0, 3, 6, 9, 12},
+    8: {0},
+    9: {1, 2, 3, 4},
+    10: {1, 2, 3, 4},
+    11: {1, 2, 3, 4},
+}
+_CURRENT_RISK_HORIZON_LABELS = (
+    "bis 2 jahre",
+    "2 bis 3 jahre",
+    "3 bis 5 jahre",
+    "4 bis 5 jahre",
+    "5 bis 7 jahre",
+    "6 bis 7 jahre",
+    "8 bis 11 jahre",
+    "mehr als 12 jahre",
+)
+
+
+def _risk_json_field_is_type(raw, expected_type: type) -> bool:
+    if raw is None:
+        return False
+    try:
+        return isinstance(json.loads(str(raw)), expected_type)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return False
+
+
+def _risk_assessment_has_current_schema_markers(assessment: RiskAssessment) -> bool:
+    return (
+        _risk_json_field_is_type(getattr(assessment, "knowledge_services_json", None), dict)
+        and _risk_json_field_is_type(getattr(assessment, "knowledge_instruments_json", None), dict)
+        and _risk_json_field_is_type(getattr(assessment, "income_sources_json", None), list)
+    )
+
+
+def _risk_answer_text(answer) -> str:
+    return _norm_text(getattr(answer, "answer_label", "")).strip().lower()
+
+
+def _risk_answer_points(answer) -> int | None:
+    try:
+        return int(getattr(answer, "answer_points", None))
+    except (TypeError, ValueError):
+        return None
+
+
+def _risk_answer_matches_current_questionnaire(question_number: int, answer) -> bool:
+    text = _risk_answer_text(answer)
+    if not text:
+        return False
+    points = _risk_answer_points(answer)
+    if points not in _CURRENT_RISK_ANSWER_POINTS.get(question_number, set()):
+        return False
+    if question_number == 1:
+        return text.startswith("finanzdienstleistungen:")
+    if question_number == 2:
+        return text.startswith("finanzinstrumente:")
+    if question_number in (3, 5, 6):
+        return "chf" in text
+    if question_number == 4:
+        return text.startswith("herkunft:")
+    if question_number == 7:
+        return "%" in text
+    if question_number == 8:
+        return "matrix" in text and any(label in text for label in _CURRENT_RISK_HORIZON_LABELS)
+    if question_number == 9:
+        return any(marker in text for marker in ("kapital", "kaufkraft", "vermehren", "wachstum"))
+    if question_number == 10:
+        return "risiko" in text or "wertschwankung" in text or "rendite" in text
+    if question_number == 11:
+        return "verlust" in text or "verkaufen" in text or "schwankung" in text
+    return False
+
+
+def _risk_assessment_has_current_questionnaire_answers(assessment: RiskAssessment) -> bool:
+    answers = getattr(assessment, "answers", None) or []
+    answers_by_number = {}
+    for answer in answers:
+        try:
+            question_number = int(getattr(answer, "question_number", 0) or 0)
+        except (TypeError, ValueError):
+            continue
+        if question_number:
+            answers_by_number[question_number] = answer
+    if not _REQUIRED_RISK_QUESTION_NUMBERS_FOR_STRATEGY.issubset(answers_by_number):
+        return False
+    return all(
+        _risk_answer_matches_current_questionnaire(question_number, answers_by_number[question_number])
+        for question_number in _REQUIRED_RISK_QUESTION_NUMBERS_FOR_STRATEGY
+    )
+
+
+def _risk_override_profile_band(score_x10: int) -> int:
+    score = max(1, min(10, int(round((score_x10 or 10) / 10))))
+    if score <= 2:
+        return 0
+    if score <= 4:
+        return 1
+    if score <= 6:
+        return 2
+    if score <= 8:
+        return 3
+    if score == 9:
+        return 4
+    return 5
+
+
+def _risk_assessment_has_documented_override(assessment: RiskAssessment) -> bool:
+    if not getattr(assessment, "is_overridden", 0) or getattr(assessment, "override_score_x10", None) is None:
+        return False
+    if not str(getattr(assessment, "override_reason", "") or "").strip():
+        return False
+    try:
+        override_score = int(getattr(assessment, "override_score_x10", 0) or 0)
+        final_score = int(getattr(assessment, "final_score_x10", 0) or 0)
+    except (TypeError, ValueError):
+        return False
+    if _risk_override_profile_band(override_score) - _risk_override_profile_band(final_score) < 2:
+        return True
+    return bool(getattr(assessment, "override_client_confirmed", 0)) and bool(
+        getattr(assessment, "override_warning_delivered", 0)
+    )
 
 
 def risk_assessment_ready_for_strategy(assessment: RiskAssessment | None) -> bool:
@@ -307,15 +436,12 @@ def risk_assessment_ready_for_strategy(assessment: RiskAssessment | None) -> boo
         return False
     if assessment.final_score_x10 is None and assessment.override_score_x10 is None:
         return False
-    if assessment.is_overridden and assessment.override_score_x10 is not None:
+    if _risk_assessment_has_documented_override(assessment):
         return True
-    answers = getattr(assessment, "answers", None) or []
-    answered_numbers = {
-        int(getattr(answer, "question_number", 0) or 0)
-        for answer in answers
-        if getattr(answer, "answer_label", None)
-    }
-    return _REQUIRED_RISK_QUESTION_NUMBERS_FOR_STRATEGY.issubset(answered_numbers)
+    return (
+        _risk_assessment_has_current_schema_markers(assessment)
+        and _risk_assessment_has_current_questionnaire_answers(assessment)
+    )
 
 
 def require_strategy_ready_assessment(db: Session, mandate_id: str) -> RiskAssessment:
