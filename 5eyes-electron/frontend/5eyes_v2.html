@@ -12411,9 +12411,19 @@ function markStrategyDirty(message,invalidateOutputs){
   scheduleAutoRecompute();
 }
 
-// Auto-Recompute-Konfiguration. Setze AUTO_RECOMPUTE_ENABLED=false (z.B. via
-// localStorage oder hardcoded fuer Test/Demo) um manuellen Modus zu nutzen.
-var AUTO_RECOMPUTE_ENABLED = true;
+// Auto-Recompute-Konfiguration.
+// Bug-Fix 2026-05-17 (User-Report 'SAA setzt sich zurueck'): Default auf
+// false, weil das automatische Neu-Berechnen nach jeder Aenderung die
+// gerade angezeigte SOLL-Prognose ungewollt ersetzt hat. Berater erwarten
+// dass die berechnete Strategie sichtbar STABIL bleibt bis sie bewusst
+// auf «Anlagestrategie berechnen» klicken. Aktivierung via Console
+// `AUTO_RECOMPUTE_ENABLED=true` oder localStorage 'auto_recompute'='1'.
+var AUTO_RECOMPUTE_ENABLED = false;
+try {
+  if (typeof localStorage !== 'undefined' && localStorage.getItem('auto_recompute') === '1') {
+    AUTO_RECOMPUTE_ENABLED = true;
+  }
+} catch(e){}
 var AUTO_RECOMPUTE_DEBOUNCE_MS = 800;
 var _autoRecomputeTimer = null;
 
@@ -12425,6 +12435,12 @@ function scheduleAutoRecompute(){
   // Skip wenn keine echte Mandate (Demo-Modus, Login-Screen, Onboarding etc.)
   var mid=typeof getActiveMandateId==='function'?getActiveMandateId():null;
   if(!mid||typeof isDemoMandateId==='function'&&isDemoMandateId(mid))return;
+  // Bug-Fix 2026-05-17: nur auf der Asset-Allokation-Seite recomputen.
+  // Verhindert dass CMA-Edits auf Admin-Seite oder Risikoprofil-Save auf
+  // rp-Seite eine SOLL-Prognose-Aktualisierung triggern die der Berater
+  // gerade nicht sieht und nicht erwartet.
+  var currentPage = typeof activePageKey==='function' ? activePageKey() : null;
+  if (currentPage !== 'al') return;
   // calculateInvestmentStrategy muss verfuegbar sein (Lazy-Load-Schutz)
   if(typeof calculateInvestmentStrategy!=='function')return;
   // Debounce: bei schnellen Aenderungen Timer reset
@@ -12436,6 +12452,8 @@ function scheduleAutoRecompute(){
     if(strategyState.loading)return;
     var midNow=typeof getActiveMandateId==='function'?getActiveMandateId():null;
     if(!midNow||(typeof isDemoMandateId==='function'&&isDemoMandateId(midNow)))return;
+    var pageNow=typeof activePageKey==='function'?activePageKey():null;
+    if(pageNow!=='al')return;
     try{calculateInvestmentStrategy();}catch(e){/* defensive: kein Bruch wenn Solver-Pfad fehlt */}
   },AUTO_RECOMPUTE_DEBOUNCE_MS);
 }
