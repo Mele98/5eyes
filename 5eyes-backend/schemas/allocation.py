@@ -168,13 +168,6 @@ class CapitalMarketAssumptionCreate(BaseModel):
     inflation_path_json: Optional[str] = None
     correlation_matrix_json: Optional[str] = None
     sub_asset_class_assumptions_json: Optional[str] = None
-    # Sprint 2 Item 1: Steuern (default 0 = aus)
-    vermoegenssteuer_bps_pa: Optional[int] = 0
-    kapitalertrag_steuer_bps: Optional[int] = 0
-    # Sprint 2 Item 2: Dividenden-Yield-Split (default 0 = aus)
-    dividend_yield_bps_equity_ch: Optional[int] = 0
-    dividend_yield_bps_equity_intl: Optional[int] = 0
-    dividend_yield_bps_real_estate: Optional[int] = 0
     source: Optional[str] = "Portfolio Management intern"
     notes: Optional[str] = None
 
@@ -207,12 +200,6 @@ class CapitalMarketAssumptionResponse(BaseResponse):
     inflation_path_json: Optional[str]
     correlation_matrix_json: Optional[str]
     sub_asset_class_assumptions_json: Optional[str]
-    # Sprint 2 (2026-05-17): Steuern + Dividenden-Split
-    vermoegenssteuer_bps_pa: Optional[int] = 0
-    kapitalertrag_steuer_bps: Optional[int] = 0
-    dividend_yield_bps_equity_ch: Optional[int] = 0
-    dividend_yield_bps_equity_intl: Optional[int] = 0
-    dividend_yield_bps_real_estate: Optional[int] = 0
     source: Optional[str]
     notes: Optional[str]
     created_at: str

@@ -248,13 +248,6 @@ def ensure_runtime_columns() -> None:
             ('alternatives_excess_kurt_bps', 'INTEGER'),
             ('liquidity_skewness_bps', 'INTEGER'),
             ('liquidity_excess_kurt_bps', 'INTEGER'),
-            # Sprint 2 (2026-05-17): Schweizer Steuer-Modell + Dividenden-Yield-Split.
-            # Default 0 = aus, backwards-compat: ohne Werte keine Verhaltens-Aenderung.
-            ('vermoegenssteuer_bps_pa', 'INTEGER'),
-            ('kapitalertrag_steuer_bps', 'INTEGER'),
-            ('dividend_yield_bps_equity_ch', 'INTEGER'),
-            ('dividend_yield_bps_equity_intl', 'INTEGER'),
-            ('dividend_yield_bps_real_estate', 'INTEGER'),
         ],
         'target_allocations': [
             ('external_reserve_at_generation_rappen', 'INTEGER'),
