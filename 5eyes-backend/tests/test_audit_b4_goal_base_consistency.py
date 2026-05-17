@@ -39,17 +39,14 @@ configure_mappers()
 
 from models.clients import Client
 from models.mandates import Mandate
-from models.profiling import RiskAssessment, RiskAssessmentAnswer
+from models.profiling import RiskAssessment
 from models.users import User
 from models.wealth import Goal, WealthPosition
 from services.portfolio_engine import (
     ensure_runtime_reference_data,
     generate_target_allocation,
 )
-from tests.risk_fixture_helpers import (
-    CURRENT_RISK_SCHEMA_MARKERS,
-    add_current_risk_answers,
-)
+from tests.risk_fixture_helpers import CURRENT_RISK_SCHEMA_MARKERS, add_current_risk_answers
 
 
 def _now() -> str:

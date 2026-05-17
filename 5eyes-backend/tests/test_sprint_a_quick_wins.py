@@ -33,10 +33,11 @@ configure_mappers()
 import services.portfolio_engine as pe
 from models.clients import Client
 from models.mandates import Mandate
-from models.profiling import RiskAssessment, RiskAssessmentAnswer
+from models.profiling import RiskAssessment
 from models.users import User
 from models.wealth import Cashflow, Goal, WealthInflow, WealthPosition
 from services.auth import get_current_user, require_advisor
+from tests.risk_fixture_helpers import CURRENT_RISK_SCHEMA_MARKERS, add_current_risk_answers
 
 
 def _now() -> str:
@@ -104,15 +105,11 @@ def _seed_mandate(session_factory, suffix: str = ""):
             risk_willingness_score_x10=70,
             final_score_x10=70, final_profile="Wachstumsorientiert",
             is_overridden=0,
+            **CURRENT_RISK_SCHEMA_MARKERS,
             assessed_at=now, assessed_by=advisor_id,
             created_at=now, updated_at=now,
         ))
-        for q in (3, 5, 6, 7, 8, 9, 10, 11):
-            s.add(RiskAssessmentAnswer(
-                id=str(uuid.uuid4()), assessment_id=aid,
-                question_number=q, question_section="Risikoprofil",
-                answer_label=f"A{q}", answer_points=2, created_at=now,
-            ))
+        add_current_risk_answers(s, aid, now)
         s.commit()
         from services.portfolio_engine import ensure_runtime_reference_data
         ensure_runtime_reference_data(s, advisor_id)

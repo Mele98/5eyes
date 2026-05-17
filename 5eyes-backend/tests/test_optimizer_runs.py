@@ -43,13 +43,14 @@ import services.portfolio_engine as pe
 from models.allocation import OptimizerRun, TargetAllocation
 from models.clients import Client
 from models.mandates import Mandate
-from models.profiling import RiskAssessment, RiskAssessmentAnswer
+from models.profiling import RiskAssessment
 from models.users import User
 from models.wealth import Cashflow, Goal, WealthPosition
 from services.portfolio_engine import (
     ensure_runtime_reference_data,
     generate_target_allocation,
 )
+from tests.risk_fixture_helpers import CURRENT_RISK_SCHEMA_MARKERS, add_current_risk_answers
 
 
 def _now() -> str:
@@ -139,32 +140,11 @@ def _seed_realistic_mandate(session_factory, suffix: str = ""):
             risk_willingness_score_x10=70,
             final_score_x10=70, final_profile="Wachstumsorientiert",
             is_overridden=0,
-            knowledge_services_json="{}",
-            knowledge_instruments_json="{}",
-            income_sources_json='["Berufliche Taetigkeit"]',
+            **CURRENT_RISK_SCHEMA_MARKERS,
             assessed_at=now, assessed_by=advisor_id,
             created_at=now, updated_at=now,
         ))
-        answers = [
-            (1, "Finanzdienstleistungen: Beratung und Verwaltung", 0),
-            (2, "Finanzinstrumente: Anlagefonds und ETFs", 0),
-            (3, "CHF 12'000 bis 20'000", 3),
-            (4, "Herkunft: Berufliche Taetigkeit", 0),
-            (5, "CHF 3'000 bis 5'000", 3),
-            (6, "CHF 1'000'000 bis 2'000'000", 9),
-            (7, "25 bis 50 %", 9),
-            (8, "Mehr als 12 Jahre - Matrix-Faktor", 0),
-            (9, "Das investierte Kapital soll sich stetig vermehren.", 3),
-            (10, "Ich strebe eine hoehere Rendite an und bin bereit, dafuer ein erhoehtes Risiko einzugehen.", 3),
-            (11, "Ich kann den Verlust voruebergehend akzeptieren und halte an meinen Anlagen fest.", 3),
-        ]
-        for q, label, points in answers:
-            s.add(RiskAssessmentAnswer(
-                id=str(uuid.uuid4()), assessment_id=aid,
-                question_number=q, question_section="Risikoprofil",
-                answer_label=label, answer_points=points,
-                created_at=now,
-            ))
+        add_current_risk_answers(s, aid, now)
         s.commit()
         ensure_runtime_reference_data(s, advisor_id)
         s.commit()

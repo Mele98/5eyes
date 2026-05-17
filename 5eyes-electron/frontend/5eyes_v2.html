@@ -12403,9 +12403,8 @@ function markStrategyDirty(message,invalidateOutputs){
   if(message)updateStrategyStatus(message,false);
   var dirtyBanner=document.getElementById('al-dirty-banner');
   if(dirtyBanner)dirtyBanner.style.display='';
-  // 2026-05-17 Sprint 1 Item 2: Auto-Recompute mit Debounce — 3eyes-Methodik
-  // 'unmittelbare Berechnung nach jeder Eingabe' (Slide 9 Differenzierungsfaktor
-  // Interaktivitaet). Statt manuellem 'Anlagestrategie berechnen'-Klick wird
+  // 2026-05-17 Sprint 1 Item 2: Auto-Recompute mit Debounce.
+  // Statt manuellem 'Anlagestrategie berechnen'-Klick wird
   // 800ms nach jeder Aenderung automatisch neu berechnet. Debounce verhindert
   // dass schnelle Eingaben (Typing) 10x den Solver triggern.
   scheduleAutoRecompute();

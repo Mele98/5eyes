@@ -11,7 +11,6 @@ from __future__ import annotations
 import datetime
 import json
 import sys
-from contextlib import asynccontextmanager
 from pathlib import Path
 
 import pytest
@@ -27,15 +26,11 @@ from database import Base, get_db
 from main import app
 from models.users import User
 from services.auth import get_current_user
+from tests.risk_fixture_helpers import current_risk_answer_dicts, noop_lifespan
 
 
 def _utc_now_iso() -> str:
     return datetime.datetime.now(datetime.UTC).isoformat().replace("+00:00", "Z")
-
-
-@asynccontextmanager
-async def _noop_lifespan(_app):
-    yield
 
 
 @pytest.fixture()
@@ -73,7 +68,7 @@ def auth_client(session_factory, advisor_user, monkeypatch):
         with session_factory() as session:
             yield session
 
-    monkeypatch.setattr(app.router, "lifespan_context", _noop_lifespan)
+    monkeypatch.setattr(app.router, "lifespan_context", noop_lifespan)
     app.dependency_overrides[get_db] = override_db
     app.dependency_overrides[get_current_user] = lambda: advisor_user
     with TestClient(app) as client:
@@ -113,27 +108,7 @@ def _valid_payload(**overrides) -> dict:
         "q_investment_goal_points": 3,
         "q_risk_preference_points": 3,
         "q_risk_behavior_points": 3,
-        "answers": [
-            {"question_number": 1, "answer_label": "Finanzdienstleistungen: Beratung und Verwaltung", "answer_points": 0},
-            {"question_number": 2, "answer_label": "Finanzinstrumente: Anlagefonds und ETFs", "answer_points": 0},
-            {"question_number": 3, "answer_label": "CHF 12'000 bis 20'000", "answer_points": 3},
-            {"question_number": 4, "answer_label": "Herkunft: Berufliche Taetigkeit", "answer_points": 0},
-            {"question_number": 5, "answer_label": "CHF 3'000 bis 5'000", "answer_points": 3},
-            {"question_number": 6, "answer_label": "CHF 1'000'000 bis 2'000'000", "answer_points": 9},
-            {"question_number": 7, "answer_label": "25 bis 50 %", "answer_points": 9},
-            {"question_number": 8, "answer_label": "5 bis 7 Jahre - Matrix-Faktor", "answer_points": 0},
-            {"question_number": 9, "answer_label": "Das investierte Kapital soll sich stetig vermehren.", "answer_points": 3},
-            {
-                "question_number": 10,
-                "answer_label": "Ich strebe eine hoehere Rendite an und bin bereit, dafuer ein erhoehtes Risiko einzugehen.",
-                "answer_points": 3,
-            },
-            {
-                "question_number": 11,
-                "answer_label": "Ich kann den Verlust voruebergehend akzeptieren und halte an meinen Anlagen fest.",
-                "answer_points": 3,
-            },
-        ],
+        "answers": current_risk_answer_dicts(),
     }
     base.update(overrides)
     return base

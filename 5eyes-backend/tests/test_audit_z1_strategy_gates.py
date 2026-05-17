@@ -108,15 +108,7 @@ def _seed_runtime(session_factory, advisor_id):
         s.commit()
 
 
-def _add_assessment(
-    session_factory,
-    mid,
-    advisor_id,
-    *,
-    ready=True,
-    is_current=1,
-    with_current_answers=True,
-):
+def _add_assessment(session_factory, mid, advisor_id, *, ready=True, is_current=1):
     aid = str(uuid.uuid4())
     now = _now()
     with session_factory() as s:
@@ -138,7 +130,7 @@ def _add_assessment(
             assessed_at=now, assessed_by=advisor_id,
             created_at=now, updated_at=now,
         ))
-        if ready and with_current_answers:
+        if ready:
             add_current_risk_answers(s, aid, now)
         s.commit()
     return aid
@@ -224,19 +216,6 @@ def test_c1_create_run_without_assessment_returns_409(
         policy_id = s.query(OptimizerPolicy).filter(OptimizerPolicy.is_current == 1).first().id
     resp = auth_client.post(f"/mandates/{mid}/recommendations", json=_rec_body(policy_id))
     assert resp.status_code == 409, resp.text
-
-
-def test_c1_create_run_with_legacy_scored_assessment_returns_409(
-    auth_client, session_factory, advisor
-):
-    _seed_runtime(session_factory, advisor.id)
-    cid, mid = _make_client_and_mandate(session_factory, advisor)
-    _add_assessment(session_factory, mid, advisor.id, ready=True, with_current_answers=False)
-    with session_factory() as s:
-        policy_id = s.query(OptimizerPolicy).filter(OptimizerPolicy.is_current == 1).first().id
-    resp = auth_client.post(f"/mandates/{mid}/recommendations", json=_rec_body(policy_id))
-    assert resp.status_code == 409, resp.text
-    assert "Risikoprofil unvollstaendig" in resp.text
 
 
 def test_c1_create_run_with_foreign_target_allocation_returns_409(

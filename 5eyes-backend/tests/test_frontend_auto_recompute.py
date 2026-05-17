@@ -1,8 +1,8 @@
 """Frontend-Contract-Tests fuer Auto-Recompute mit Debounce (Sprint 1 Item 2).
 
-3eyes-Methodik Slide 9 Differenzierungsfaktor 'Interaktivitaet':
-'Unmittelbare Berechnung und direktes Aufzeigen der Konsequenzen nach
-jeder Eingabe im Beratungsgespraech'.
+Interaktive Methodik:
+Unmittelbare Berechnung und direktes Aufzeigen der Konsequenzen nach
+jeder Eingabe im Beratungsgespraech.
 
 Statt manuellem 'Anlagestrategie berechnen'-Klick triggert jede
 markStrategyDirty()-Aenderung nach 800ms Debounce einen Solver-Lauf.
