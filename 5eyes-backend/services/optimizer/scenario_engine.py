@@ -281,6 +281,7 @@ def simulate_wealth_paths(
     base_calendar_year: int = 2026,
     mandate_age_at_start: int | None = None,
     is_retired: bool = False,
+    death_year_index_per_path: np.ndarray | None = None,
 ) -> np.ndarray:
     """Simuliert Wealth-Pfad ueber alle Szenarien — optional steuer-aware.
 
@@ -302,6 +303,13 @@ def simulate_wealth_paths(
     mandate_age_at_start: optionales Alter des Mandanten zu t=0 fuer
         altersabhaengige Steuern (CH-Pension-Lumpsum, AHV-Alter).
     is_retired: Decumulation-Phase Flag (CH-Pillar-3a-Befreiung).
+    death_year_index_per_path: optional shape (n_paths,) integer-Array
+        mit Sterbe-Jahr-Index pro Pfad. Wenn gesetzt, werden Cashflow
+        und Liability nach death_year_index auf 0 gesetzt (pro Pfad).
+        Spec: docs/planning/2026-05-17-sprint-4-bfs-mortality.md
+        Konvention: death_year_index[p]=5 → Pfad p lebt in t=0..4 (cashflow
+        aktiv), ab t=5 cashflow=0. Wachstum laeuft weiter (Erbschaft, aber
+        keine weiteren Einnahmen/Ausgaben).
 
     Returns: (n_paths, horizon + 1) wealth array. wealth[:, 0] = initial,
     wealth[:, t+1] = wealth nach Wachstum (- Steuern wenn aktiv) + Cashflow
@@ -343,6 +351,22 @@ def simulate_wealth_paths(
             copy_len = min(horizon, liability.size)
             padded[:copy_len] = liability[:copy_len]
             liability = padded
+
+    # Mortalitaets-Maske: pro Pfad cashflow/liability auf 0 nach Tod
+    if death_year_index_per_path is not None:
+        death_idx = np.asarray(death_year_index_per_path, dtype=np.int32)
+        if death_idx.shape != (n_paths,):
+            raise ValueError(
+                f"death_year_index_per_path must be shape ({n_paths},), got {death_idx.shape}"
+            )
+        # Maske: shape (n_paths, horizon), True wenn Pfad lebt in Jahr t
+        t_range = np.arange(horizon, dtype=np.int32)
+        alive_mask = t_range[None, :] < death_idx[:, None]
+        cashflow_per_path = cashflow[None, :] * alive_mask
+        liability_per_path = liability[None, :] * alive_mask
+    else:
+        cashflow_per_path = None  # Sentinel: nutze 1D cashflow direkt
+        liability_per_path = None
 
     # Dividend-Yield pro Bucket vorbereiten — fuer Vektor-Dividenden-Berechnung
     dividend_yield_weighted_bps = 0.0
@@ -408,7 +432,10 @@ def simulate_wealth_paths(
                         grown,
                     )
 
-        wealth[:, t + 1] = grown + cashflow[t] - liability[t]
+        if cashflow_per_path is not None:
+            wealth[:, t + 1] = grown + cashflow_per_path[:, t] - liability_per_path[:, t]
+        else:
+            wealth[:, t + 1] = grown + cashflow[t] - liability[t]
 
     return wealth
 
