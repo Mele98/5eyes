@@ -34,6 +34,7 @@ from routers.review import (
     recommendations_router,
     router as review_router,
 )
+from routers.pdf_reports import router as pdf_reports_router
 from routers.snapshots import router as snapshots_router
 from routers.system import router as system_router
 from routers.wealth import router as wealth_router
@@ -96,6 +97,7 @@ app.include_router(dashboard_router)
 app.include_router(prices_router)
 app.include_router(snapshots_router)
 app.include_router(market_data_router)
+app.include_router(pdf_reports_router)
 app.include_router(system_router)
 
 
