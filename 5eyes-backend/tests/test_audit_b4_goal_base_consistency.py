@@ -46,6 +46,10 @@ from services.portfolio_engine import (
     ensure_runtime_reference_data,
     generate_target_allocation,
 )
+from tests.risk_fixture_helpers import (
+    CURRENT_RISK_SCHEMA_MARKERS,
+    add_current_risk_answers,
+)
 
 
 def _now() -> str:
@@ -125,16 +129,11 @@ def _seed_with_external_assets(session_factory):
             risk_willingness_score_x10=60,
             final_score_x10=60, final_profile="Ausgewogen",
             is_overridden=0,
+            **CURRENT_RISK_SCHEMA_MARKERS,
             assessed_at=now, assessed_by=advisor_id,
             created_at=now, updated_at=now,
         ))
-        for q in (3, 5, 6, 7, 8, 9, 10, 11):
-            s.add(RiskAssessmentAnswer(
-                id=str(uuid.uuid4()), assessment_id=aid,
-                question_number=q, question_section="Risikoprofil",
-                answer_label=f"A{q}", answer_points=2,
-                created_at=now,
-            ))
+        add_current_risk_answers(s, aid, now)
         s.commit()
         ensure_runtime_reference_data(s, advisor_id)
         s.commit()
