@@ -6117,7 +6117,7 @@ var _bandOf=[0,0,0,1,1,2,2,3,3,4,5];
 function updOv(v){
   var d=document.getElementById('ov-disp');var n=document.getElementById('ov-name');
   if(d)d.textContent=v+'/10'; if(n)n.textContent=_pnames[parseInt(v)]||'';
-  var risk=currentPersistedRiskForMandate(getActiveMandateId());
+  var risk=currentRiskAssessmentForOverride(getActiveMandateId());
   var computedScore=risk?Math.round(Number(risk.final_score_x10||0)/10):0;
   var newScore=parseInt(v)||1;
   var delta=_bandOf[newScore]-_bandOf[Math.max(1,Math.min(10,computedScore))];
@@ -6129,15 +6129,16 @@ function updOv(v){
 }
 function updOvWarnBtn(){
   var v=parseInt((document.getElementById('ov-sl')||{value:7}).value)||7;
-  var risk=currentPersistedRiskForMandate(getActiveMandateId());
+  var risk=currentRiskAssessmentForOverride(getActiveMandateId());
   var computedScore=risk?Math.round(Number(risk.final_score_x10||0)/10):0;
   var delta=_bandOf[v]-_bandOf[Math.max(1,Math.min(10,computedScore))];
   var wc=document.getElementById('ov-warn-confirm');
   var btn=document.querySelector('#m-overr .btn-g');
   if(btn){btn.disabled=(delta>=2&&(!wc||!wc.checked));}
 }
-function openOverrideModal(){
-  var risk=currentPersistedRiskForMandate(getActiveMandateId());
+async function openOverrideModal(){
+  var mid=getActiveMandateId();
+  var risk=await resolveRiskAssessmentForOverride(mid);
   var score=risk?Math.round(Number(risk.override_score_x10!=null?risk.override_score_x10:risk.final_score_x10||0)/10):7;
   var profile=risk?(risk.override_profile||risk.final_profile||'Nicht definiert'):'Nicht definiert';
   var el=document.getElementById('ov-current-display');
@@ -6163,7 +6164,8 @@ async function applyOv(){
   }
   if(errEl)errEl.style.display='none';
   var mid=getActiveMandateId();
-  var raId=strategyState.risk?strategyState.risk.id:null;
+  var riskForOverride=await resolveRiskAssessmentForOverride(mid);
+  var raId=riskForOverride?riskForOverride.id:null;
   var btn=document.querySelector('#m-overr .btn-g');
   if(!mid||!raId||isDemoMandateId(mid)){
     var b=document.getElementById('overr-badge');var ov=document.getElementById('overr-val');var rp=document.getElementById('res-pname');
@@ -6172,7 +6174,7 @@ async function applyOv(){
   }
   if(btn){btn.disabled=true;btn.textContent='Speichern...';}
   try{
-    var risk2=currentPersistedRiskForMandate(mid);
+    var risk2=riskForOverride||currentRiskAssessmentForOverride(mid);
     var computedScore2=risk2?Math.round(Number(risk2.final_score_x10||0)/10):0;
     var delta2=_bandOf[v]-_bandOf[Math.max(1,Math.min(10,computedScore2))];
     var wc2=document.getElementById('ov-warn-confirm');
@@ -6181,7 +6183,8 @@ async function applyOv(){
       override_score_x10:v*10,override_profile:n,override_reason:reason,
       override_client_confirmed:warnConfirmed,override_warning_delivered:warnConfirmed
     });
-    strategyState.risk=saved;
+    strategyState.currentRisk=saved;
+    strategyState.risk=riskAssessmentReadyForStrategy(saved, mid)?saved:null;
     renderRiskSummary(saved);
     markStrategyDirty('Risikoprofil überschrieben: Strategie neu berechnen.', true);
     if(btn){btn.disabled=false;btn.textContent='Override bestätigen & protokollieren';}
@@ -7623,6 +7626,68 @@ function collectAdminCapitalMarketAssumptionsPayload() {
     source: getInputValue('admin-cma-source').trim() || 'Portfolio Management intern',
     notes: getInputValue('admin-cma-notes').trim() || null
   };
+}
+
+// Sprint 9 Phase 2 (2026-05-17): FX-Rates-Editor.
+async function loadAdminFxRates(){
+  var grid = document.getElementById('admin-fx-rates-grid');
+  var status = document.getElementById('admin-fx-rates-status');
+  if (!grid) return;
+  grid.innerHTML = '<div style="grid-column:span 4;font-size:10px;color:var(--n5);text-align:center;padding:8px">Laedt...</div>';
+  if (status) status.textContent = '';
+  try {
+    var rates = await API.get('/fx-rates/current');
+    if (!Array.isArray(rates)) { rates = []; }
+    grid.innerHTML = '';
+    rates.forEach(function(entry){
+      var ccy = String(entry.currency || '').toUpperCase();
+      if (ccy === 'CHF') return; // CHF nicht editierbar (immer 1.0)
+      var rate = Number(entry.rate || 0);
+      var source = String(entry.source || 'Default');
+      var cell = document.createElement('div');
+      cell.innerHTML = '<label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">' +
+        escapeHtml(ccy) + ' <span style="color:var(--n3);font-weight:400">(' + escapeHtml(source) + ')</span></label>' +
+        '<input class="fi admin-fx-rate-input" data-currency="' + escapeHtml(ccy) + '" type="number" step="0.0001" min="0.0001" value="' +
+        (rate>0 ? rate.toFixed(4) : '') + '" style="font-size:11px">';
+      grid.appendChild(cell);
+    });
+    if (status) status.textContent = 'Geladen: ' + rates.length + ' Wechselkurse.';
+  } catch(e) {
+    grid.innerHTML = '<div style="grid-column:span 4;color:var(--neg);font-size:10px">Fehler beim Laden: ' + escapeHtml(String(e && (e.detail || e.message) || '?')) + '</div>';
+  }
+}
+async function saveAdminFxRates(){
+  var status = document.getElementById('admin-fx-rates-status');
+  var inputs = document.querySelectorAll('.admin-fx-rate-input');
+  if (!inputs.length){
+    if (status){ status.textContent = 'Keine Rates zu speichern.'; status.style.color='var(--neg)'; }
+    return;
+  }
+  var payload = { rates: [] };
+  for (var i=0; i<inputs.length; i++){
+    var el = inputs[i];
+    var ccy = el.getAttribute('data-currency');
+    var rate = parseFloat(el.value || '0');
+    if (!ccy || !isFinite(rate) || rate <= 0) continue;
+    payload.rates.push({ currency: ccy, rate: rate, source: 'Manual' });
+  }
+  if (!payload.rates.length){
+    if (status){ status.textContent = 'Keine gueltigen Rates eingegeben.'; status.style.color='var(--neg)'; }
+    return;
+  }
+  if (status){ status.textContent = 'Speichert...'; status.style.color='var(--n5)'; }
+  try {
+    var saved = await API.put('/fx-rates', payload);
+    if (status){
+      status.textContent = 'Gespeichert: ' + (Array.isArray(saved) ? saved.length : 0) + ' Rates.';
+      status.style.color='var(--pos)';
+    }
+    try { if(window.showAppSuccess) showAppSuccess('Wechselkurse gespeichert', {title:'FX-Rates'}); } catch(noticeErr){}
+  } catch(e){
+    var msg = parseApiError(e, 'FX-Rates konnten nicht gespeichert werden.');
+    if (status){ status.textContent = msg; status.style.color='var(--neg)'; }
+    try { if(window.showAppError) showAppError(msg); } catch(noticeErr){}
+  }
 }
 
 // Sprint 6+7 Helper: Float-Input → skaliertes Integer oder null
@@ -9248,7 +9313,8 @@ async function saveRiskProfile() {
   if (mandateId) {
     try {
       var saved = await API.post('/mandates/' + mandateId + '/risk-assessments', result.payload);
-      strategyState.risk = saved || null;
+      strategyState.currentRisk = saved || null;
+      strategyState.risk = riskAssessmentReadyForStrategy(saved || null, mandateId) ? (saved || null) : null;
       riskAssessmentUiDirty = false;
       var savedWithRaw = saved ? Object.assign({}, saved, { raw: result.raw, payload: result.payload }) : result;
       _riskScoreResult = savedWithRaw;
@@ -13346,6 +13412,7 @@ async function loadCurrentRiskAssessment(mid, renderUi){
   var requestedMandateId=mid!=null?String(mid):null;
   if(!mid || isDemoMandateId(mid)){
     if(!requestedMandateId||String(getActiveMandateId()||'')===requestedMandateId){
+      strategyState.currentRisk = null;
       strategyState.risk = null;
     }
     if(renderUi){
@@ -13360,6 +13427,7 @@ async function loadCurrentRiskAssessment(mid, renderUi){
     var risk = await API.get('/mandates/'+mid+'/risk-assessments/current');
     var readyRisk=riskAssessmentReadyForStrategy(risk || null, requestedMandateId||getActiveMandateId());
     if(!requestedMandateId||String(getActiveMandateId()||'')===requestedMandateId){
+      strategyState.currentRisk = risk || null;
       strategyState.risk = readyRisk ? (risk || null) : null;
     }
     if(renderUi){
@@ -13376,6 +13444,7 @@ async function loadCurrentRiskAssessment(mid, renderUi){
   }catch(e){
     if(e && e.status === 404){
       if(!requestedMandateId||String(getActiveMandateId()||'')===requestedMandateId){
+        strategyState.currentRisk = null;
         strategyState.risk = null;
       }
       if(renderUi){
@@ -13408,6 +13477,7 @@ async function loadCurrentAllocationResult(mid){
     return null;
   }
   strategyState.risk=riskAssessmentReadyForStrategy(results[1], mid)?results[1]:null;
+  strategyState.currentRisk=results[1]||null;
   var metaResults=results[2]||[];
   strategyState.buildingBlocks=metaResults[0]&&metaResults[0].status==='fulfilled'?metaResults[0].value:[];
   strategyState.marketRuntime=metaResults[1]&&metaResults[1].status==='fulfilled'?metaResults[1].value:null;
@@ -13539,6 +13609,7 @@ async function refreshStrategyData(force,includeRecommendation,retriedAfterBandR
     }
     var allocationResult=results[0];
     strategyState.risk=riskAssessmentReadyForStrategy(results[1], mid)?results[1]:null;
+    strategyState.currentRisk=results[1]||null;
     var metaResults=results[2]||[];
     strategyState.buildingBlocks=metaResults[0]&&metaResults[0].status==='fulfilled'?metaResults[0].value:[];
     strategyState.marketRuntime=metaResults[1]&&metaResults[1].status==='fulfilled'?metaResults[1].value:null;
@@ -13758,6 +13829,24 @@ function riskAssessmentRequirementMessage(risk, mandateId){
 function currentPersistedRiskForMandate(mandateId){
   var risk=strategyState&&strategyState.risk?strategyState.risk:null;
   return riskAssessmentReadyForStrategy(risk, mandateId)?risk:null;
+}
+function currentRiskAssessmentForOverride(mandateId){
+  var raw=strategyState&&strategyState.currentRisk?strategyState.currentRisk:null;
+  if(riskBelongsToMandate(raw, mandateId))return raw;
+  var ready=strategyState&&strategyState.risk?strategyState.risk:null;
+  return riskBelongsToMandate(ready, mandateId)?ready:null;
+}
+async function resolveRiskAssessmentForOverride(mandateId){
+  var current=currentRiskAssessmentForOverride(mandateId);
+  if(current)return current;
+  if(!mandateId||isDemoMandateId(mandateId))return null;
+  try{
+    var loaded=await loadCurrentRiskAssessment(mandateId,false);
+    return riskBelongsToMandate(loaded, mandateId)?loaded:null;
+  }catch(e){
+    if(e&&String(e.status||'')==='404')return null;
+    throw e;
+  }
 }
 async function resolveStrategyRiskForMandate(mandateId){
   var readyRisk=currentPersistedRiskForMandate(mandateId);
@@ -16644,6 +16733,22 @@ function openStammdatenModal(){
               <div></div>
               <div></div>
             </div>
+          </details>
+          <!-- Sprint 9 Phase 2 (2026-05-17): FX-Rates-Editor (Multi-Currency-Support) -->
+          <details id="admin-fx-rates-details" style="margin-top:10px;padding:10px;border:1px solid var(--b1);border-radius:var(--r);background:var(--bg2)" ontoggle="if(this.open && !this._loaded){this._loaded=true;loadAdminFxRates();}">
+            <summary style="cursor:pointer;font-size:11px;font-weight:600;color:var(--n6)">Wechselkurse zu CHF (Multi-Currency-Support)</summary>
+            <div style="font-size:9px;color:var(--n4);background:var(--bg3);padding:6px 8px;border-radius:var(--r);margin-top:8px">
+              Pro 1 Einheit Fremdwaehrung in CHF. Beispiel EUR=0.95 bedeutet 1 EUR = 0.95 CHF. Wird fuer internationale Mandate genutzt (z.B. EUR-Klient mit CHF-Portfolio).
+            </div>
+            <div id="admin-fx-rates-grid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:10px">
+              <!-- Inhalt wird via loadAdminFxRates() gefuellt -->
+              <div style="grid-column:span 4;font-size:10px;color:var(--n5);text-align:center;padding:8px">Laedt...</div>
+            </div>
+            <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px">
+              <button class="btn" style="font-size:10px" onclick="loadAdminFxRates()">Neu laden</button>
+              <button class="btn-p" style="font-size:10px" onclick="saveAdminFxRates()">FX-Rates speichern</button>
+            </div>
+            <div id="admin-fx-rates-status" style="font-size:10px;color:var(--n5);margin-top:6px"></div>
           </details>
           <div style="display:flex;justify-content:flex-end;gap:8px;padding-top:4px;border-top:1px solid var(--b1);margin-top:10px">
             <button class="btn-p" style="background:var(--bg2);color:var(--n6)" onclick="previewAdminCapitalMarketAssumptions()">Vorschau</button>
