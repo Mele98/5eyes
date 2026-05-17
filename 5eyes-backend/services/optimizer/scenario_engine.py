@@ -277,6 +277,8 @@ def simulate_wealth_paths(
     cashflow_series_rappen: Iterable[int],
     liability_path_rappen: Iterable[int] | None = None,
     vermoegenssteuer_bps_pa: int = 0,
+    dividend_yield_bps_per_bucket: np.ndarray | None = None,
+    kapitalertrag_steuer_bps: int = 0,
 ) -> np.ndarray:
     """Simuliert Wealth-Pfad ueber alle Szenarien.
 
@@ -292,6 +294,16 @@ def simulate_wealth_paths(
         UND nach Cashflow/Liability vom positiven End-Wealth abgezogen.
         CH-Realistik: 20-50 bps je nach Kanton.
         Sprint 2 Item 1 (Spec docs/planning/2026-05-17-sprint-2-steuern-dividenden.md).
+    dividend_yield_bps_per_bucket: optional np.ndarray shape (5,) — Dividenden-
+        Yield in bps pro Bucket (Liquidity, Bonds, Equity_CH, Equity_Intl, Alt).
+        Default None = aus (kein Income-Split). Wenn gesetzt + kapitalertrag_
+        steuer_bps > 0: pro Jahr pro Bucket wird tax_drag von der Rendite
+        abgezogen: tax_drag = dividend_yield * tax_rate.
+        Sprint 2 Item 2 (3eyes Slide 20 Total Return = Dividend + Preis).
+    kapitalertrag_steuer_bps: Kapitalertragssteuer auf Dividenden (z.B. 2500 = 25%).
+        Default 0 = aus. Wird nur effektiv wenn dividend_yield_bps_per_bucket auch
+        gesetzt ist. CH-Realistik 2500-3500 bps (Verrechnungssteuer, teilweise
+        rueckforderbar — dieses Modell ist vereinfachte Worst-Case-Annahme).
 
     Returns: (n_paths, horizon + 1) wealth array. wealth[:, 0] = initial,
     wealth[:, t+1] = wealth nach Wachstum + Cashflow - Liability - Steuer im Jahr t.
@@ -327,12 +339,34 @@ def simulate_wealth_paths(
     # Vermoegenssteuer-Faktor (1 - bps/10000); 0 → 1.0 (no-op)
     tax_factor = 1.0 - max(0, int(vermoegenssteuer_bps_pa)) / 10000.0
 
+    # Item 2: Dividenden-Tax-Drag pro Bucket (additive Subtraktion vom Return).
+    # tax_drag_b = dividend_yield_bps_b * kapitalertrag_steuer_bps / 10000^2
+    # Wird vom Bucket-Return abgezogen, dann gewichtete Summe (Portfolio-Drag).
+    # Wenn entweder dividend_yield_per_bucket None ODER kapitalertrag_steuer 0:
+    # → tax_drag_per_bucket = 0 (no-op)
+    if (dividend_yield_bps_per_bucket is not None
+            and int(kapitalertrag_steuer_bps) > 0):
+        dy = np.asarray(dividend_yield_bps_per_bucket, dtype=np.float64).reshape(-1)
+        if dy.shape != (N_BUCKETS,):
+            raise ValueError(
+                f"dividend_yield_bps_per_bucket shape {dy.shape} != ({N_BUCKETS},)"
+            )
+        kap_tax_rate = float(kapitalertrag_steuer_bps) / 10000.0
+        tax_drag_per_bucket = (dy / 10000.0) * kap_tax_rate  # shape (5,)
+        # Portfolio-Drag: gewichtete Summe der per-Bucket-Drags
+        portfolio_tax_drag = float(np.dot(weights, tax_drag_per_bucket))
+    else:
+        portfolio_tax_drag = 0.0
+
     wealth = np.empty((n_paths, horizon + 1), dtype=np.float64)
     wealth[:, 0] = float(initial_wealth_rappen)
 
     for t in range(horizon):
         # Portfolio-Faktor pro Pfad: gewichtete Summe der Asset-Returns
         portfolio_factor = np.einsum("pb,b->p", return_paths[:, t, :], weights)
+        # Item 2: Kapitalertrag-Steuer als jaehrlicher Drag vom Portfolio-Return
+        if portfolio_tax_drag > 0.0:
+            portfolio_factor = portfolio_factor - portfolio_tax_drag
         prev = wealth[:, t]
         # Wachstum nur fuer positive Wealth; negative bleibt nominal (W2.5)
         grown = np.where(prev > 0, prev * portfolio_factor, prev)
