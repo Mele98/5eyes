@@ -207,6 +207,11 @@ class CapitalMarketAssumption(Base):
     equity_kgv_current_x10 = Column(Integer)
     equity_kgv_fair_x10 = Column(Integer)
     equity_kgv_alpha_x100 = Column(Integer)
+    # Sprint 8 (2026-05-17): Risikopraemien-Modell fuer RE + Alternatives.
+    # Wenn gesetzt UND NS-Curve aktiv: re_return = NS.short_rate + premium.
+    # Typische Werte: real_estate 150-250 bps, alternatives 200-400 bps.
+    real_estate_risk_premium_bps = Column(Integer)
+    alternatives_risk_premium_bps = Column(Integer)
     source = Column(String, default="Portfolio Management intern")
     notes = Column(String)
     created_by = Column(String, ForeignKey("users.id"), nullable=False)

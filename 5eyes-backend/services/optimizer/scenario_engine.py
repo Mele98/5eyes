@@ -471,6 +471,16 @@ def scenario_inputs_from_cma(cma) -> ScenarioInputs:
 
     base_equity = _avg_or_zero([cma.equity_ch_return_bps, cma.equity_intl_return_bps])
 
+    # Sprint 8: Risikopraemien-Modell — RE + Alts als risk_free + premium.
+    # Nur aktiv wenn NS-Curve gesetzt (sonst kein risk_free-Anker).
+    # Backwards-Compat: fehlende Premia oder kein NS → fixe Werte.
+    re_return_from_premium = _compute_return_from_risk_premium(
+        cma, "real_estate_risk_premium_bps"
+    )
+    alt_return_from_premium = _compute_return_from_risk_premium(
+        cma, "alternatives_risk_premium_bps"
+    )
+
     # Returns/Vols pro Bucket (aggregiert grob aus Sub-Klassen)
     # Konsistent zur Aggregation in portfolio_engine._asset_class_expected_metrics
     bucket_returns = {
@@ -482,8 +492,16 @@ def scenario_inputs_from_cma(cma) -> ScenarioInputs:
                 cma.bonds_chf_ig_return_bps, cma.bonds_fx_hedged_return_bps,
             ])
         ),
-        "real_estate": _avg_or_zero([cma.real_estate_ch_return_bps]),
-        "alternatives": _avg_or_zero([cma.alternatives_gold_return_bps]),
+        "real_estate": (
+            re_return_from_premium
+            if re_return_from_premium is not None
+            else _avg_or_zero([cma.real_estate_ch_return_bps])
+        ),
+        "alternatives": (
+            alt_return_from_premium
+            if alt_return_from_premium is not None
+            else _avg_or_zero([cma.alternatives_gold_return_bps])
+        ),
         "liquidity": _avg_or_zero([cma.liquidity_return_bps]),
     }
     bucket_vols = {
@@ -544,6 +562,38 @@ def _avg_or_zero(values: list) -> float:
 # 5 Jahre = mittlere Duration eines IG-Bond-Universums (typisch 4-7).
 # Berater kann via separates Mandate-Feld spaeter ueberschreiben.
 _BONDS_DEFAULT_MATURITY_YEARS = 5.0
+
+
+def _compute_return_from_risk_premium(cma, premium_field_name: str) -> float | None:
+    """Sprint 8: Risk-Asset-Return = NS.short_rate + premium.
+
+    Returns None wenn:
+    - premium-Feld nicht gesetzt im CMA
+    - NS-Curve nicht aktiv (kein risk_free-Anker)
+    Caller faellt dann auf fixe Werte zurueck (Backwards-Compat).
+
+    Bei Aktivierung: nutzt NelsonSiegelCurve.short_rate_bps() (= y(0+) =
+    beta0 + beta1) als risk_free Anker und addiert das Premium.
+    """
+    premium = getattr(cma, premium_field_name, None)
+    if premium is None:
+        return None
+    # NS-Params pruefen
+    beta0 = getattr(cma, "bonds_ns_beta0_bps", None)
+    beta1 = getattr(cma, "bonds_ns_beta1_bps", None)
+    if beta0 is None or beta1 is None:
+        return None  # ohne NS keine risk_free-Basis
+    try:
+        from services.risk_premium.model import RiskPremiumModel
+        # Short-Rate = beta0 + beta1 (kein Curvature-Effekt am Short-End)
+        risk_free_bps = float(beta0) + float(beta1)
+        model = RiskPremiumModel(
+            asset_class=premium_field_name,
+            premium_bps=float(premium),
+        )
+        return model.expected_return_bps(risk_free_bps)
+    except Exception:
+        return None
 
 
 # Sprint 7: Default-Horizont fuer KGV-Mean-Reversion-Adjustment.

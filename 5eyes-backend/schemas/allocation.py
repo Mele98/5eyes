@@ -179,6 +179,10 @@ class CapitalMarketAssumptionCreate(BaseModel):
     equity_kgv_current_x10: Optional[int] = None
     equity_kgv_fair_x10: Optional[int] = None
     equity_kgv_alpha_x100: Optional[int] = None
+    # Sprint 8 (2026-05-17): Risikopraemien-Modell fuer RE + Alternatives.
+    # Wenn gesetzt UND NS-Curve aktiv: re_return = NS.short_rate + premium.
+    real_estate_risk_premium_bps: Optional[int] = None
+    alternatives_risk_premium_bps: Optional[int] = None
     source: Optional[str] = "Portfolio Management intern"
     notes: Optional[str] = None
 
@@ -220,6 +224,9 @@ class CapitalMarketAssumptionResponse(BaseResponse):
     equity_kgv_current_x10: Optional[int] = None
     equity_kgv_fair_x10: Optional[int] = None
     equity_kgv_alpha_x100: Optional[int] = None
+    # Sprint 8: Risikopraemien fuer RE + Alternatives
+    real_estate_risk_premium_bps: Optional[int] = None
+    alternatives_risk_premium_bps: Optional[int] = None
     source: Optional[str]
     notes: Optional[str]
     created_at: str

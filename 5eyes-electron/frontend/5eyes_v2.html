@@ -7384,6 +7384,9 @@ function applyAdminCapitalMarketAssumptions(cma) {
   setInputValue('admin-cma-kgv-current', adminScaledIntToFloatString(cma.equity_kgv_current_x10, 10));
   setInputValue('admin-cma-kgv-fair', adminScaledIntToFloatString(cma.equity_kgv_fair_x10, 10));
   setInputValue('admin-cma-kgv-alpha', adminScaledIntToFloatString(cma.equity_kgv_alpha_x100, 100));
+  // Sprint 8: Risikoprämien
+  setInputValue('admin-cma-re-premium', adminBpsToPercentValue(cma.real_estate_risk_premium_bps));
+  setInputValue('admin-cma-alt-premium', adminBpsToPercentValue(cma.alternatives_risk_premium_bps));
   setInputValue('admin-cma-bond-chf-return', adminBpsToPercentValue(cma.bonds_chf_ig_return_bps));
   setInputValue('admin-cma-bond-chf-vol', adminBpsToPercentValue(cma.bonds_chf_ig_vol_bps));
   setInputValue('admin-cma-bond-hedged-return', adminBpsToPercentValue(cma.bonds_fx_hedged_return_bps));
@@ -7423,7 +7426,9 @@ function ensureAdminCapitalMarketBindings() {
     'admin-cma-liquidity-return','admin-cma-liquidity-vol',
     // Sprint 6+7: Engine-Modelle (Nelson-Siegel + KGV-Mean-Reversion)
     'admin-cma-ns-beta0','admin-cma-ns-beta1','admin-cma-ns-beta2','admin-cma-ns-lambda',
-    'admin-cma-kgv-current','admin-cma-kgv-fair','admin-cma-kgv-alpha'
+    'admin-cma-kgv-current','admin-cma-kgv-fair','admin-cma-kgv-alpha',
+    // Sprint 8: Risikoprämien
+    'admin-cma-re-premium','admin-cma-alt-premium'
   ].forEach(function(id){
     var el = document.getElementById(id);
     if (!el) return;
@@ -7612,6 +7617,9 @@ function collectAdminCapitalMarketAssumptionsPayload() {
     equity_kgv_current_x10: adminFloatInputTimes('admin-cma-kgv-current', 10),
     equity_kgv_fair_x10: adminFloatInputTimes('admin-cma-kgv-fair', 10),
     equity_kgv_alpha_x100: adminFloatInputTimes('admin-cma-kgv-alpha', 100),
+    // Sprint 8: Risikopraemien % → bps
+    real_estate_risk_premium_bps: adminPercentInputToBps('admin-cma-re-premium'),
+    alternatives_risk_premium_bps: adminPercentInputToBps('admin-cma-alt-premium'),
     source: getInputValue('admin-cma-source').trim() || 'Portfolio Management intern',
     notes: getInputValue('admin-cma-notes').trim() || null
   };
@@ -16602,6 +16610,14 @@ function openStammdatenModal(){
               <div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">KGV aktuell</label><input class="fi" id="admin-cma-kgv-current" type="number" step="0.1" style="font-size:11px" placeholder="z.B. 22.0"></div>
               <div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">KGV fair value</label><input class="fi" id="admin-cma-kgv-fair" type="number" step="0.1" style="font-size:11px" placeholder="z.B. 17.0"></div>
               <div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Reversion α (0..1)</label><input class="fi" id="admin-cma-kgv-alpha" type="number" step="0.01" style="font-size:11px" placeholder="z.B. 0.15"></div>
+              <div></div>
+
+              <div style="grid-column:span 4;font-size:9px;color:var(--n4);background:var(--bg3);padding:6px 8px;border-radius:var(--r);margin-top:4px">
+                <strong>Risikoprämien</strong> (Real Estate + Alternatives): nur aktiv wenn Nelson-Siegel oben gesetzt ist. Return wird zu <code>NS.short_rate + premium</code>. Bei Zinsanstieg steigt der erwartete Return mit — ein typisches Real-Asset-Verhalten.
+              </div>
+              <div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">RE Premium (%)</label><input class="fi" id="admin-cma-re-premium" type="number" step="0.01" style="font-size:11px" placeholder="z.B. 2.0"></div>
+              <div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Alt Premium (%)</label><input class="fi" id="admin-cma-alt-premium" type="number" step="0.01" style="font-size:11px" placeholder="z.B. 3.0"></div>
+              <div></div>
               <div></div>
             </div>
           </details>

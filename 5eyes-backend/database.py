@@ -263,6 +263,9 @@ def ensure_runtime_columns() -> None:
             ('equity_kgv_current_x10', 'INTEGER'),
             ('equity_kgv_fair_x10', 'INTEGER'),
             ('equity_kgv_alpha_x100', 'INTEGER'),
+            # Sprint 8 (2026-05-17): Risikopraemien-Modell fuer RE + Alternatives.
+            ('real_estate_risk_premium_bps', 'INTEGER'),
+            ('alternatives_risk_premium_bps', 'INTEGER'),
         ],
         'target_allocations': [
             ('external_reserve_at_generation_rappen', 'INTEGER'),
