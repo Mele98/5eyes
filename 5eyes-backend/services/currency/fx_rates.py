@@ -75,3 +75,35 @@ class FXRateSource:
 
     def supported_currencies(self) -> tuple[str, ...]:
         return tuple(sorted(self.rates_in_chf.keys()))
+
+    @classmethod
+    def from_db(cls, db) -> "FXRateSource":
+        """Lade FX-Rates aus der DB. Fallback auf Default-Rates wenn DB leer.
+
+        Berater kann via Admin-Endpoint die Rates ueberschreiben — diese
+        Klassen-Methode picked die aktuelle Version (is_current=1).
+        Fehlt eine Major-Waehrung in der DB, wird der Default genutzt.
+        """
+        try:
+            from models.fx_rate import FXRate
+            rows = (
+                db.query(FXRate)
+                .filter(FXRate.is_current == 1, FXRate.valid_until.is_(None))
+                .all()
+            )
+            if not rows:
+                return cls()
+            rates = dict(DEFAULT_FX_RATES)
+            for row in rows:
+                ccy = str(getattr(row, "currency", "") or "").upper().strip()
+                if len(ccy) != 3:
+                    continue
+                rate_x10000 = int(getattr(row, "rate_x10000", 0) or 0)
+                if rate_x10000 <= 0:
+                    continue
+                rates[ccy] = float(rate_x10000) / 10000.0
+            # CHF muss 1.0 bleiben (auch wenn Berater es ueberschrieben hat)
+            rates["CHF"] = 1.0
+            return cls(rates_in_chf=rates)
+        except Exception:
+            return cls()
