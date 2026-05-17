@@ -31,6 +31,17 @@ Aktueller Standard fuer neue Arbeitsbloecke:
 - Codex startet Umsetzungsbranches ueber [start_codex_branch.ps1](C:/5eyes/5eyes_stage9_release_ready/scripts/start_codex_branch.ps1)
 - Review bitte gegen [REVIEW_CHECKLIST.md](C:/5eyes/5eyes_stage9_release_ready/docs/planning/REVIEW_CHECKLIST.md) ausrichten
 
+## Strategie-Readiness-Guardrail ab 2026-05-17
+
+Claude: Keine Strategie, keine Empfehlung, keine Max-Spending-Berechnung und kein Kundenreport darf an der zentralen Risikoprofil-Reifepruefung vorbeilaufen.
+
+Verbindlich:
+- Nicht mehr direkt auf `RiskAssessment.final_score_x10` oder `override_score_x10` pruefen. Immer `require_strategy_ready_assessment()` bzw. `risk_assessment_ready_for_strategy()` nutzen.
+- Ein alter Score ohne aktuelle Fragebogenantworten ist nicht strategie-faehig. Jeder bepunktete Pflichtpunkt muss gespeichert sein, sonst 409 mit klarer Fehlermeldung.
+- Reports duerfen keine leeren Defaults rendern, wenn echte Daten fehlen. Fehlende aktuelle Soll-Allokation, fehlende Kapitalmarktannahmen oder unvollstaendiges Risikoprofil muessen blockieren.
+- PDF-/Report-Daten muessen aus den echten Model-Feldern kommen, z.B. `target_equities_bps` und `final_profile`; keine Legacy-Feldnamen und keine stillen Fallbacks.
+- Bei neuen Pfaden bitte einen Test ergaenzen, der genau diese Gate-Nutzung absichert.
+
 ## Bereits umgesetzt
 
 ### Backend

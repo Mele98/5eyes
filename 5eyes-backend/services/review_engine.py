@@ -12,6 +12,7 @@ from price_updater import summarize_price_quality
 from services.portfolio_engine import (
     build_target_payload_from_allocation,
     ensure_runtime_reference_data,
+    risk_assessment_ready_for_strategy,
 )
 
 
@@ -154,7 +155,7 @@ def refresh_system_review_triggers(
         TargetAllocation.deleted_at.is_(None),
     ).first()
 
-    if assessment and allocation:
+    if assessment and allocation and risk_assessment_ready_for_strategy(assessment):
         payload = allocation_payload
         if payload is None:
             policy, cma = ensure_runtime_reference_data(db, user_id)

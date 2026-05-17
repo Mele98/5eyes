@@ -5,7 +5,6 @@ from database import get_db, new_uuid
 from models.users import User
 from models.mandates import Mandate
 from models.allocation import TargetAllocation, OptimizerPolicy, OptimizerRun, CapitalMarketAssumption, HouseMatrix, BuildingBlock
-from models.profiling import RiskAssessment
 from schemas.allocation import (
     TargetAllocationCreate, TargetAllocationResponse,
     HouseMatrixResponse,
@@ -106,13 +105,10 @@ def get_current_allocation_payload(
             status_code=404,
             detail="Soll-Allokation referenziert eine nicht-aktuelle Optimizer Policy."
         )
-    assessment = db.query(RiskAssessment).filter(
-        RiskAssessment.mandate_id == mandate_id,
-        RiskAssessment.is_current == 1,
-        RiskAssessment.deleted_at.is_(None),
-    ).first()
-    if not assessment:
-        raise HTTPException(status_code=409, detail="Bitte zuerst ein aktuelles Risikoprofil speichern.")
+    try:
+        assessment = require_strategy_ready_assessment(db, mandate_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
     policy, cma = ensure_runtime_reference_data(db, current_user.id)
     return build_target_payload_from_allocation(
         db=db,

@@ -3642,6 +3642,13 @@ def _load_allocation_inputs(
     }
 
 
+def _require_customer_strategy_inputs(inputs: dict) -> None:
+    if int(inputs.get("advisory_wealth_rappen") or 0) <= 0:
+        raise ValueError("Beratungsvermoegen muss > 0 CHF sein, bevor eine Strategie hergeleitet wird.")
+    if not inputs.get("goals"):
+        raise ValueError("Bitte zuerst mindestens ein aktives Kundenziel erfassen.")
+
+
 def _baseline_target_bands(house_matrix: HouseMatrix, policy: OptimizerPolicy) -> tuple[dict, dict, dict]:
     targets = {
         "equities": int(house_matrix.equity_target_bps),
@@ -4846,6 +4853,7 @@ def generate_target_allocation(
     annual_net_cashflow_rappen = inputs["annual_net_cashflow_rappen"]
     cashflow_projection_series_rappen = inputs["cashflow_projection_series_rappen"]
     recurring_cashflow_projection_series_rappen = inputs["recurring_cashflow_projection_series_rappen"]
+    _require_customer_strategy_inputs(inputs)
     targets, minimums, maximums = _baseline_target_bands(house_matrix, policy)
     reasoning = [
         f"Ausgangspunkt ist die House Matrix fuer Score {score_bucket} ({house_matrix.profile_name}).",
@@ -5288,13 +5296,7 @@ def evaluate_goal_sensitivity(
         )
 
     policy, cma = ensure_runtime_reference_data(db, user_id)
-    assessment = db.query(RiskAssessment).filter(
-        RiskAssessment.mandate_id == mandate.id,
-        RiskAssessment.is_current == 1,
-        RiskAssessment.deleted_at.is_(None),
-    ).first()
-    if not assessment:
-        raise ValueError("Bitte zuerst ein aktuelles Risikoprofil speichern.")
+    assessment = require_strategy_ready_assessment(db, mandate.id)
 
     inputs = _load_allocation_inputs(db, mandate, simulation_prefs={}, cma=cma)
     goals = inputs["goals"]
@@ -5459,6 +5461,10 @@ def build_target_payload_from_allocation(
         Goal.deleted_at.is_(None),
         Goal.is_active == 1,
     ).order_by(Goal.rank.asc()).all()
+    _require_customer_strategy_inputs({
+        "advisory_wealth_rappen": advisory_wealth_rappen,
+        "goals": goals,
+    })
     cashflow_totals = totals_for_year(cashflows)
     recurring_income_rappen = cashflow_totals["recurring_income_rappen"]
     recurring_expense_rappen = cashflow_totals["recurring_expense_rappen"]
@@ -5751,13 +5757,7 @@ def build_recommendation_payload_from_run(
     preferences: dict | None,
 ) -> dict:
     policy, cma = ensure_runtime_reference_data(db, user_id)
-    assessment = db.query(RiskAssessment).filter(
-        RiskAssessment.mandate_id == mandate.id,
-        RiskAssessment.is_current == 1,
-        RiskAssessment.deleted_at.is_(None),
-    ).first()
-    if not assessment:
-        raise ValueError("Bitte zuerst ein aktuelles Risikoprofil speichern.")
+    assessment = require_strategy_ready_assessment(db, mandate.id)
 
     allocation = None
     if run.target_allocation_id:
@@ -6051,13 +6051,7 @@ def generate_recommendation_run(
     ensure_default_products(db)
     prefs = _normalize_preferences(preferences)
     policy, cma = ensure_runtime_reference_data(db, user_id)
-    assessment = db.query(RiskAssessment).filter(
-        RiskAssessment.mandate_id == mandate.id,
-        RiskAssessment.is_current == 1,
-        RiskAssessment.deleted_at.is_(None),
-    ).first()
-    if not assessment:
-        raise ValueError("Bitte zuerst ein aktuelles Risikoprofil speichern.")
+    assessment = require_strategy_ready_assessment(db, mandate.id)
 
     allocation = None
     if target_allocation_id:

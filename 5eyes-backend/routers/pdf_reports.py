@@ -1,7 +1,4 @@
-"""PDF-Report-Endpoints — Anlagestrategie, Risikoprofil als PDF-Download.
-
-Spec: docs/planning/2026-05-17-sprint-5-pdf-engine.md §4 Phase 2
-"""
+"""PDF-Report-Endpoints fuer Anlagestrategie und Risikoprofil."""
 from __future__ import annotations
 
 import hashlib
@@ -12,35 +9,44 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.orm import Session
 
 from database import get_db
+from models.allocation import CapitalMarketAssumption, TargetAllocation
 from models.clients import Client
 from models.mandates import Mandate
+from models.profiling import RiskAssessment
 from models.users import User
 from services.auth import get_current_user, get_mandate_for_user_or_404
 from services.pdf import ReportLabRenderer
-from services.pdf.base import (
-    AnlagestrategieData,
-    PDFContext,
-    RisikoprofilData,
-)
+from services.pdf.base import AnlagestrategieData, PDFContext, RisikoprofilData
+from services.portfolio_engine import require_strategy_ready_assessment
 
 router = APIRouter(tags=["PDF Reports"])
 
 
-def _build_pdf_context(mandate: Mandate, current_user: User, db: Session) -> PDFContext:
-    """Sammelt PDFContext-Daten aus Mandant + Client + User.
+def _client_display_name(client: Client | None) -> str | None:
+    if not client:
+        return None
+    parts = [
+        str(getattr(client, "first_name", "") or "").strip(),
+        str(getattr(client, "last_name", "") or "").strip(),
+    ]
+    full_name = " ".join(part for part in parts if part)
+    return full_name or str(getattr(client, "client_number", "") or "").strip() or None
 
-    Mandate-Anzeige: <Client.name> [<mandate_number>] — falls Client
-    nicht ladbar (Test-Setup) Fallback auf mandate_number.
-    """
+
+def _build_pdf_context(mandate: Mandate, current_user: User, db: Session) -> PDFContext:
     client = db.query(Client).filter(Client.id == mandate.client_id).first()
-    client_name = getattr(client, "name", None) if client else None
+    client_name = _client_display_name(client)
     mandate_number = str(getattr(mandate, "mandate_number", "") or "")
     if client_name:
         mandate_name = f"{client_name} [{mandate_number}]" if mandate_number else client_name
     else:
         mandate_name = mandate_number or f"Mandat {mandate.id}"
 
-    advisor_name = getattr(current_user, "email", None) or "Berater"
+    advisor_name = (
+        getattr(current_user, "full_name", None)
+        or getattr(current_user, "email", None)
+        or "Berater"
+    )
     advisor_org = (
         getattr(current_user, "organization", None)
         or getattr(current_user, "org_name", None)
@@ -57,10 +63,6 @@ def _build_pdf_context(mandate: Mandate, current_user: User, db: Session) -> PDF
 
 
 def _audit_hash_for_mandate(mandate: Mandate) -> str:
-    """SHA-256 ueber stabile Mandate-Felder fuer Reporting-Audit-Trail.
-
-    Felder muessen real im Mandate-Model existieren (siehe models/mandates.py).
-    """
     seed = json.dumps({
         "mandate_id": str(mandate.id or ""),
         "mandate_number": str(getattr(mandate, "mandate_number", "") or ""),
@@ -72,73 +74,116 @@ def _audit_hash_for_mandate(mandate: Mandate) -> str:
     return hashlib.sha256(seed.encode("utf-8")).hexdigest()
 
 
-def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> AnlagestrategieData:
-    """Extrahiert AnlagestrategieData aus DB-Models.
+def _current_target_allocation_or_409(db: Session, mandate_id: str) -> TargetAllocation:
+    allocation = db.query(TargetAllocation).filter(
+        TargetAllocation.mandate_id == mandate_id,
+        TargetAllocation.is_current == 1,
+        TargetAllocation.deleted_at.is_(None),
+    ).order_by(TargetAllocation.created_at.desc()).first()
+    if not allocation:
+        raise HTTPException(status_code=409, detail="Keine aktuelle Soll-Allokation fuer dieses Mandat gefunden.")
+    return allocation
 
-    Defensive: fehlt etwas → Defaults, kein Crash.
-    """
-    target_alloc_bps: dict[str, int] = {}
-    cma_return = 0
-    cma_vol = 0
 
-    # TargetAllocation lesen (falls vorhanden)
-    try:
-        from models.allocation import TargetAllocation
-        ta = (
-            db.query(TargetAllocation)
-            .filter(TargetAllocation.mandate_id == mandate.id)
-            .order_by(TargetAllocation.created_at.desc())
-            .first()
-        )
-        if ta is not None:
-            target_alloc_bps = {
-                "equities": int(getattr(ta, "equities_bps", 0) or 0),
-                "bonds": int(getattr(ta, "bonds_bps", 0) or 0),
-                "real_estate": int(getattr(ta, "real_estate_bps", 0) or 0),
-                "alternatives": int(getattr(ta, "alternatives_bps", 0) or 0),
-                "liquidity": int(getattr(ta, "liquidity_bps", 0) or 0),
-            }
-    except Exception:
-        # Wenn Model anders heisst oder DB-Felder fehlen: leeres SAA
-        pass
+def _capital_market_assumption_for_allocation_or_409(
+    db: Session,
+    allocation: TargetAllocation,
+) -> CapitalMarketAssumption:
+    cma = None
+    if allocation.capital_market_assumptions_id:
+        cma = db.query(CapitalMarketAssumption).filter(
+            CapitalMarketAssumption.id == allocation.capital_market_assumptions_id,
+            CapitalMarketAssumption.deleted_at.is_(None),
+        ).first()
+    if not cma:
+        cma = db.query(CapitalMarketAssumption).filter(
+            CapitalMarketAssumption.is_current == 1,
+            CapitalMarketAssumption.deleted_at.is_(None),
+        ).order_by(CapitalMarketAssumption.valid_from.desc()).first()
+    if not cma:
+        raise HTTPException(status_code=409, detail="Keine aktuellen Kapitalmarktannahmen.")
+    return cma
 
-    # CMA-Werte (defensive)
-    try:
-        from models.allocation import CapitalMarketAssumption
-        cma = (
-            db.query(CapitalMarketAssumption)
-            .order_by(CapitalMarketAssumption.valid_from.desc())
-            .first()
-        )
-        if cma is not None:
-            # Weighted Average ueber Allokation (vereinfacht)
-            weights_pct = {k: v / 10000.0 for k, v in target_alloc_bps.items()}
-            cma_return = int(
-                weights_pct.get("equities", 0) * (getattr(cma, "equity_ch_return_bps", 0) or 0)
-                + weights_pct.get("bonds", 0) * (getattr(cma, "bonds_chf_ig_return_bps", 0) or 0)
-                + weights_pct.get("real_estate", 0) * (getattr(cma, "real_estate_ch_return_bps", 0) or 0)
-                + weights_pct.get("liquidity", 0) * (getattr(cma, "liquidity_return_bps", 0) or 0)
-            )
-            cma_vol = int(
-                weights_pct.get("equities", 0) * (getattr(cma, "equity_ch_vol_bps", 0) or 0)
-                + weights_pct.get("bonds", 0) * (getattr(cma, "bonds_chf_ig_vol_bps", 0) or 0)
-                + weights_pct.get("real_estate", 0) * (getattr(cma, "real_estate_ch_vol_bps", 0) or 0)
-                + weights_pct.get("liquidity", 0) * (getattr(cma, "liquidity_vol_bps", 0) or 0)
-            )
-    except Exception:
-        pass
 
-    horizon = int(getattr(mandate, "investment_horizon_years", 10) or 10)
-    risk_label = getattr(mandate, "risk_profile_label", None)
+def _allocation_bps(allocation: TargetAllocation) -> dict[str, int]:
+    values = {
+        "equities": int(allocation.target_equities_bps or 0),
+        "bonds": int(allocation.target_bonds_bps or 0),
+        "real_estate": int(allocation.target_real_estate_bps or 0),
+        "alternatives": int(allocation.target_alternatives_bps or 0),
+        "liquidity": int(allocation.target_liquidity_bps or 0),
+    }
+    if sum(values.values()) <= 0:
+        raise HTTPException(status_code=409, detail="Aktuelle Soll-Allokation ist leer.")
+    return values
 
+
+def _weighted_cma_metric_bps(
+    cma: CapitalMarketAssumption,
+    target_alloc_bps: dict[str, int],
+    suffix: str,
+) -> int:
+    fields = {
+        "equities": f"equity_ch_{suffix}_bps",
+        "bonds": f"bonds_chf_ig_{suffix}_bps",
+        "real_estate": f"real_estate_ch_{suffix}_bps",
+        "alternatives": f"alternatives_gold_{suffix}_bps",
+        "liquidity": f"liquidity_{suffix}_bps",
+    }
+    total = 0.0
+    for bucket, weight_bps in target_alloc_bps.items():
+        total += (weight_bps / 10000.0) * int(getattr(cma, fields[bucket], 0) or 0)
+    return int(round(total))
+
+
+def _build_anlagestrategie_data(
+    assessment: RiskAssessment,
+    allocation: TargetAllocation,
+    cma: CapitalMarketAssumption,
+) -> AnlagestrategieData:
+    target_alloc_bps = _allocation_bps(allocation)
     return AnlagestrategieData(
         target_allocation_bps=target_alloc_bps,
-        cma_expected_return_bps=cma_return,
-        cma_expected_vol_bps=cma_vol,
-        horizon_years=horizon,
-        monte_carlo_stats=None,  # MC-Stats laden ist Phase 2.1, hier defaults
+        cma_expected_return_bps=_weighted_cma_metric_bps(cma, target_alloc_bps, "return"),
+        cma_expected_vol_bps=_weighted_cma_metric_bps(cma, target_alloc_bps, "vol"),
+        horizon_years=int(getattr(assessment, "investment_horizon_years", 10) or 10),
+        monte_carlo_stats=None,
         optimizer_reasoning=None,
-        risk_profile_label=risk_label,
+        risk_profile_label=str(getattr(assessment, "final_profile", "") or ""),
+    )
+
+
+def _json_bool_mapping(raw: str | None) -> dict[str, bool]:
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return {}
+    if not isinstance(parsed, dict):
+        return {}
+    result: dict[str, bool] = {}
+    for key, value in parsed.items():
+        if isinstance(value, dict):
+            result[str(key)] = bool(value.get("known") or value.get("informed"))
+        else:
+            result[str(key)] = bool(value)
+    return result
+
+
+def _build_risikoprofil_data(assessment: RiskAssessment) -> RisikoprofilData:
+    suitability_note = (
+        f"Profil {assessment.final_profile}; Anlagehorizont "
+        f"{assessment.investment_horizon_label}; erstellt am {assessment.assessed_at}."
+    )
+    return RisikoprofilData(
+        risk_profile_label=str(assessment.final_profile or ""),
+        risk_capacity_score=int(assessment.risk_capacity_score_x10 or 0),
+        risk_tolerance_score=int(assessment.risk_willingness_score_x10 or 0),
+        knowledge_services=_json_bool_mapping(assessment.knowledge_services_json),
+        knowledge_instruments=_json_bool_mapping(assessment.knowledge_instruments_json),
+        experience_years=int(assessment.investment_horizon_years or 0),
+        suitability_note=suitability_note,
     )
 
 
@@ -152,10 +197,15 @@ def get_anlagestrategie_pdf(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Generiert Anlagestrategie-PDF fuer das Mandat."""
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
+    try:
+        assessment = require_strategy_ready_assessment(db, mandate_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    allocation = _current_target_allocation_or_409(db, mandate_id)
+    cma = _capital_market_assumption_for_allocation_or_409(db, allocation)
     ctx = _build_pdf_context(mandate, current_user, db)
-    data = _build_anlagestrategie_data(mandate, db)
+    data = _build_anlagestrategie_data(assessment, allocation, cma)
     pdf_bytes = ReportLabRenderer().render_anlagestrategie(ctx, data)
     safe_name = "".join(c if c.isalnum() else "_" for c in ctx.mandate_name)[:40]
     filename = f"5eyes_anlagestrategie_{safe_name}_{ctx.report_date.isoformat()}.pdf"
@@ -176,43 +226,13 @@ def get_risikoprofil_pdf(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Generiert Risikoprofil-PDF fuer das Mandat (FINMA W305-konform)."""
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
-    ctx = _build_pdf_context(mandate, current_user, db)
-
-    # Risikoprofil-Daten aus dem juengsten RiskAssessment laden (defensiv)
-    risk_label = "Nicht definiert"
-    risk_capacity = 0
-    risk_tolerance = 0
-    experience_years = 0
-    suitability_note = ""
     try:
-        from models.profiling import RiskAssessment
-        ra = (
-            db.query(RiskAssessment)
-            .filter(RiskAssessment.mandate_id == mandate.id)
-            .order_by(RiskAssessment.created_at.desc())
-            .first()
-        )
-        if ra is not None:
-            risk_label = str(getattr(ra, "risk_profile_label", None) or "Nicht definiert")
-            risk_capacity = int(getattr(ra, "risk_capacity_score", 0) or 0)
-            risk_tolerance = int(getattr(ra, "risk_tolerance_score", 0) or 0)
-            experience_years = int(getattr(ra, "experience_years", 0) or 0)
-            suitability_note = str(getattr(ra, "suitability_note", "") or "")
-    except Exception:
-        pass
-
-    risk_data = RisikoprofilData(
-        risk_profile_label=risk_label,
-        risk_capacity_score=risk_capacity,
-        risk_tolerance_score=risk_tolerance,
-        knowledge_services={},
-        knowledge_instruments={},
-        experience_years=experience_years,
-        suitability_note=suitability_note,
-    )
-
+        assessment = require_strategy_ready_assessment(db, mandate.id)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    ctx = _build_pdf_context(mandate, current_user, db)
+    risk_data = _build_risikoprofil_data(assessment)
     pdf_bytes = ReportLabRenderer().render_risikoprofil(ctx, risk_data)
     safe_name = "".join(c if c.isalnum() else "_" for c in ctx.mandate_name)[:40]
     filename = f"5eyes_risikoprofil_{safe_name}_{ctx.report_date.isoformat()}.pdf"

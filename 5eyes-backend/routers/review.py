@@ -39,7 +39,12 @@ from services.auth import get_accessible_client_ids, get_accessible_mandate_ids,
 from services.audit import log
 from services.eodhd_client import preview_eodhd_reference
 from services.openfigi_client import preview_openfigi_mapping
-from services.portfolio_engine import build_recommendation_payload_from_run, generate_recommendation_run
+from services.portfolio_engine import (
+    build_recommendation_payload_from_run,
+    generate_recommendation_run,
+    require_strategy_ready_assessment,
+    risk_assessment_ready_for_strategy,
+)
 from services.product_market_data import resolve_market_profile
 from services.review_engine import _add_months, refresh_system_review_triggers
 
@@ -126,6 +131,8 @@ def _validate_recommendation_for_finalization(db: Session, mandate: Mandate, run
         errors.append("Empfehlung hat kein gueltiges Risikoprofil.")
     elif not assessment.is_current:
         errors.append("Empfehlung basiert nicht auf dem aktuellen Risikoprofil.")
+    elif not risk_assessment_ready_for_strategy(assessment):
+        errors.append("Empfehlung basiert auf einem unvollstaendigen Risikoprofil.")
     allocation = db.query(TargetAllocation).filter(
         TargetAllocation.id == run.target_allocation_id,
         TargetAllocation.mandate_id == mandate.id,
@@ -1320,15 +1327,10 @@ def create_recommendation_run(
     # C1: Hard-Gate. Auch der direkte Draft-Create muss auf einem aktuellen,
     # strategie-fertigen Risikoprofil + aktueller Policy + aktueller CMA basieren
     # und darf keine fremden / stale TargetAllocation referenzieren.
-    assessment = db.query(RiskAssessment).filter(
-        RiskAssessment.mandate_id == mandate_id,
-        RiskAssessment.is_current == 1,
-        RiskAssessment.deleted_at.is_(None),
-    ).first()
-    if not assessment:
-        raise HTTPException(status_code=409, detail="Bitte zuerst ein aktuelles Risikoprofil speichern.")
-    if assessment.final_score_x10 is None and assessment.override_score_x10 is None:
-        raise HTTPException(status_code=409, detail="Risikoprofil unvollstaendig. Bitte Fragebogen vollstaendig ausfuellen.")
+    try:
+        assessment = require_strategy_ready_assessment(db, mandate_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
     if body.assessment_id and body.assessment_id != assessment.id:
         raise HTTPException(status_code=422, detail=(
             "assessment_id muss auf das aktuelle Risikoprofil zeigen "

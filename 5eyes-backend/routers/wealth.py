@@ -872,18 +872,15 @@ def calculate_max_pension_spending(
         _build_sub_allocations, _enrich_sub_allocations_with_risk,
         _building_block_risky_map, _expected_metrics, _normalize_preferences,
         _current_planning_inflation_bps, _goal_inflation_series_bps,
+        require_strategy_ready_assessment,
     )
-    from models.profiling import RiskAssessment
 
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
     policy, cma = ensure_runtime_reference_data(db, current_user.id)
-    assessment = db.query(RiskAssessment).filter(
-        RiskAssessment.mandate_id == mandate.id,
-        RiskAssessment.is_current == 1,
-        RiskAssessment.deleted_at.is_(None),
-    ).first()
-    if not assessment:
-        raise HTTPException(status_code=409, detail="Bitte zuerst ein aktuelles Risikoprofil speichern.")
+    try:
+        assessment = require_strategy_ready_assessment(db, mandate.id)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
 
     inputs = _load_allocation_inputs(db, mandate, simulation_prefs={}, cma=cma)
     advisory_wealth_rappen = int(inputs["advisory_wealth_rappen"] or 0)
