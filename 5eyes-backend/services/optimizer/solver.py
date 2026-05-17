@@ -107,6 +107,12 @@ class OptimizerContext:
     scipy_constraints: list[dict]
     score_x10: int
     risky_fraction_per_bucket: dict[str, float] | None = None
+    # Phase 5c: optional Likelihood-Weights aus Importance Sampling.
+    # Wenn None: trivialer sample-mean (Backwards-Compat). Wenn gesetzt:
+    # shortfall_objective + volatility_objective berechnen weighted Estimator.
+    # Aktivierung: Caller (build_optimizer_context oder ext. Pfad) liefert
+    # weights vom build_scenario_paths_with_weights-Wrapper.
+    scenario_weights: np.ndarray | None = None
 
 
 @dataclass(frozen=True)
@@ -207,6 +213,9 @@ def _objective_from_array(context: OptimizerContext, w: np.ndarray) -> float:
 
     Wird vom Solver-Closure genutzt, damit der Optimierungslauf exakt die
     gleichen Scenarios sieht wie evaluate_weights spaeter.
+
+    Phase 5c: respektiert context.scenario_weights (IS-Likelihood-Ratios)
+    wenn gesetzt. Bei scenario_weights=None: trivialer sample-mean wie zuvor.
     """
     wealth = simulate_wealth_paths(
         initial_wealth_rappen=context.advisory_wealth_rappen,
@@ -220,6 +229,7 @@ def _objective_from_array(context: OptimizerContext, w: np.ndarray) -> float:
         wealth,
         initial_wealth_rappen=context.advisory_wealth_rappen,
         horizon_years=context.horizon_years,
+        weights=context.scenario_weights,
     ))
 
 
@@ -247,6 +257,7 @@ def evaluate_weights(
         wealth,
         initial_wealth_rappen=context.advisory_wealth_rappen,
         horizon_years=context.horizon_years,
+        weights=context.scenario_weights,
     )
     feasible, violations = is_feasible(
         w, bounds=context.bounds, constraints=context.scipy_constraints,
