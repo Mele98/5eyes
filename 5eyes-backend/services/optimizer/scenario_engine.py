@@ -276,8 +276,13 @@ def simulate_wealth_paths(
     return_paths: np.ndarray,
     cashflow_series_rappen: Iterable[int],
     liability_path_rappen: Iterable[int] | None = None,
+    tax_regime=None,
+    dividend_yield_bps_per_bucket: np.ndarray | None = None,
+    base_calendar_year: int = 2026,
+    mandate_age_at_start: int | None = None,
+    is_retired: bool = False,
 ) -> np.ndarray:
-    """Simuliert Wealth-Pfad ueber alle Szenarien.
+    """Simuliert Wealth-Pfad ueber alle Szenarien — optional steuer-aware.
 
     weights: shape (5,), summe ~ 1.0 (Toleranz: keine Constraint hier)
     return_paths: shape (n_paths, horizon, 5) aus build_scenario_paths
@@ -286,13 +291,34 @@ def simulate_wealth_paths(
     liability_path_rappen: shape (horizon,) - Goal-Outflows pro Jahr
         (positiv = Outflow). Wird vom Cashflow subtrahiert (also wealth wird
         kleiner). None = kein Goal-Outflow.
+    tax_regime: TaxRegime-Instanz fuer steuer-aware Simulation. None =
+        keine Steuern (Backwards-Compat zur Vor-Sprint-3-Version).
+        Spec: docs/planning/2026-05-17-sprint-3-tax-plugin-system.md
+    dividend_yield_bps_per_bucket: shape (5,), Dividend-Yield pro Bucket
+        in bps. Nur relevant wenn tax_regime != None. Bestimmt das
+        Dividenden-Einkommen pro Jahr (= wealth * weights @ yields).
+    base_calendar_year: Start-Kalender-Jahr fuer Tax-Year-Versioning
+        (TaxContext.calendar_year = base_calendar_year + t).
+    mandate_age_at_start: optionales Alter des Mandanten zu t=0 fuer
+        altersabhaengige Steuern (CH-Pension-Lumpsum, AHV-Alter).
+    is_retired: Decumulation-Phase Flag (CH-Pillar-3a-Befreiung).
 
     Returns: (n_paths, horizon + 1) wealth array. wealth[:, 0] = initial,
-    wealth[:, t+1] = wealth nach Wachstum + Cashflow - Liability im Jahr t.
+    wealth[:, t+1] = wealth nach Wachstum (- Steuern wenn aktiv) + Cashflow
+    - Liability im Jahr t.
+
+    Steuer-Order pro Jahr (wenn tax_regime aktiv):
+    1. Wachstum: prev * portfolio_factor
+    2. Dividenden-Steuer auf Yield-Komponente des Wachstums
+       (nur wenn dividend_yield_bps_per_bucket gesetzt)
+    3. Vermoegenssteuer auf Wealth nach Wachstum
+       (nur wenn tax_regime.supports_wealth_tax)
+    4. Cashflow + Liability
 
     Lebensluecke (W2.5-konsistent): wealth kann negativ werden. Bei
     negativem wealth wird KEIN Zins-Effekt angewendet (deficit waechst nicht
-    durch Schuldzinsen - nur durch weitere negative Cashflows).
+    durch Schuldzinsen - nur durch weitere negative Cashflows). Steuern
+    werden ebenfalls nur auf positives Wealth angewendet.
     """
     return_paths = np.asarray(return_paths, dtype=np.float64)
     weights = np.asarray(weights, dtype=np.float64).reshape(N_BUCKETS)
@@ -318,8 +344,22 @@ def simulate_wealth_paths(
             padded[:copy_len] = liability[:copy_len]
             liability = padded
 
+    # Dividend-Yield pro Bucket vorbereiten — fuer Vektor-Dividenden-Berechnung
+    dividend_yield_weighted_bps = 0.0
+    if dividend_yield_bps_per_bucket is not None and tax_regime is not None:
+        dy = np.asarray(dividend_yield_bps_per_bucket, dtype=np.float64)
+        if dy.shape != (N_BUCKETS,):
+            raise ValueError(
+                f"dividend_yield_bps_per_bucket must be shape ({N_BUCKETS},), got {dy.shape}"
+            )
+        dividend_yield_weighted_bps = float(np.dot(weights, dy))  # gewichteter bps
+
     wealth = np.empty((n_paths, horizon + 1), dtype=np.float64)
     wealth[:, 0] = float(initial_wealth_rappen)
+
+    # Lazy-Import: vermeidet Zirkular-Dependency wenn TaxRegime services.tax nicht importiert ist
+    if tax_regime is not None:
+        from services.tax.base import TaxContext
 
     for t in range(horizon):
         # Portfolio-Faktor pro Pfad: gewichtete Summe der Asset-Returns
@@ -327,6 +367,47 @@ def simulate_wealth_paths(
         prev = wealth[:, t]
         # Wachstum nur fuer positive Wealth; negative bleibt nominal (W2.5)
         grown = np.where(prev > 0, prev * portfolio_factor, prev)
+
+        if tax_regime is not None:
+            # Pro-Pfad-Median fuer TaxContext (reduziert N TaxRegime-Calls
+            # pro Jahr — die Engine berechnet auf Pfad-Ensemble-Ebene, nicht
+            # individuell). Fuer audit-strict mode wuerden wir pro Pfad
+            # loggen; in scenario_engine genuegt eine repraesentative
+            # Berechnung pro Jahr. Detail-Audit erfolgt im Reporting-Pfad.
+            age_t = (mandate_age_at_start + t) if mandate_age_at_start is not None else None
+            ctx = TaxContext(
+                year_index=t,
+                calendar_year=base_calendar_year + t,
+                wealth_rappen=float(np.median(grown[grown > 0])) if (grown > 0).any() else 0.0,
+                age=age_t,
+                is_retired=is_retired,
+            )
+
+            # 2. Dividenden-Steuer-Drag (auf Yield-Komponente, vektorisiert)
+            if dividend_yield_weighted_bps > 0:
+                # Effektiver Drag-Faktor: dividend_tax_bps * weighted_yield / 10000
+                # Berechnung pro repraesentativem Income — Engine wendet als
+                # multiplikativen Faktor an (= % vom Wealth verloren durch Steuer)
+                div_income_repr = ctx.wealth_rappen * dividend_yield_weighted_bps / 10000.0
+                div_tax_result = tax_regime.dividend_tax(ctx, div_income_repr)
+                div_drag_bps = div_tax_result.effective_bps * dividend_yield_weighted_bps / 10000.0
+                # Anwenden als bps-Drag auf grown
+                grown = np.where(
+                    grown > 0,
+                    grown * (1.0 - div_drag_bps / 10000.0),
+                    grown,
+                )
+
+            # 3. Vermoegenssteuer auf Wealth nach Wachstum (nur positive)
+            if tax_regime.supports_wealth_tax:
+                wt_result = tax_regime.annual_wealth_tax(ctx)
+                if wt_result.effective_bps > 0:
+                    grown = np.where(
+                        grown > 0,
+                        grown * (1.0 - wt_result.effective_bps / 10000.0),
+                        grown,
+                    )
+
         wealth[:, t + 1] = grown + cashflow[t] - liability[t]
 
     return wealth
