@@ -276,6 +276,7 @@ def simulate_wealth_paths(
     return_paths: np.ndarray,
     cashflow_series_rappen: Iterable[int],
     liability_path_rappen: Iterable[int] | None = None,
+    vermoegenssteuer_bps_pa: int = 0,
 ) -> np.ndarray:
     """Simuliert Wealth-Pfad ueber alle Szenarien.
 
@@ -286,13 +287,18 @@ def simulate_wealth_paths(
     liability_path_rappen: shape (horizon,) - Goal-Outflows pro Jahr
         (positiv = Outflow). Wird vom Cashflow subtrahiert (also wealth wird
         kleiner). None = kein Goal-Outflow.
+    vermoegenssteuer_bps_pa: jaehrliche Vermoegenssteuer in bps (z.B. 30 = 0.3%).
+        Default 0 = aus (backwards-compat). Wird nach dem Return-Wachstum
+        UND nach Cashflow/Liability vom positiven End-Wealth abgezogen.
+        CH-Realistik: 20-50 bps je nach Kanton.
+        Sprint 2 Item 1 (Spec docs/planning/2026-05-17-sprint-2-steuern-dividenden.md).
 
     Returns: (n_paths, horizon + 1) wealth array. wealth[:, 0] = initial,
-    wealth[:, t+1] = wealth nach Wachstum + Cashflow - Liability im Jahr t.
+    wealth[:, t+1] = wealth nach Wachstum + Cashflow - Liability - Steuer im Jahr t.
 
     Lebensluecke (W2.5-konsistent): wealth kann negativ werden. Bei
-    negativem wealth wird KEIN Zins-Effekt angewendet (deficit waechst nicht
-    durch Schuldzinsen - nur durch weitere negative Cashflows).
+    negativem wealth wird KEIN Zins-Effekt UND KEINE Vermoegenssteuer
+    angewendet (keine Steuer auf negatives Vermoegen).
     """
     return_paths = np.asarray(return_paths, dtype=np.float64)
     weights = np.asarray(weights, dtype=np.float64).reshape(N_BUCKETS)
@@ -318,6 +324,9 @@ def simulate_wealth_paths(
             padded[:copy_len] = liability[:copy_len]
             liability = padded
 
+    # Vermoegenssteuer-Faktor (1 - bps/10000); 0 → 1.0 (no-op)
+    tax_factor = 1.0 - max(0, int(vermoegenssteuer_bps_pa)) / 10000.0
+
     wealth = np.empty((n_paths, horizon + 1), dtype=np.float64)
     wealth[:, 0] = float(initial_wealth_rappen)
 
@@ -327,7 +336,12 @@ def simulate_wealth_paths(
         prev = wealth[:, t]
         # Wachstum nur fuer positive Wealth; negative bleibt nominal (W2.5)
         grown = np.where(prev > 0, prev * portfolio_factor, prev)
-        wealth[:, t + 1] = grown + cashflow[t] - liability[t]
+        post_cf = grown + cashflow[t] - liability[t]
+        # Vermoegenssteuer: nur auf positives Vermoegen, keine Steuer auf Schuld
+        if tax_factor < 1.0:
+            wealth[:, t + 1] = np.where(post_cf > 0, post_cf * tax_factor, post_cf)
+        else:
+            wealth[:, t + 1] = post_cf
 
     return wealth
 

@@ -190,6 +190,22 @@ class CapitalMarketAssumption(Base):
     alternatives_excess_kurt_bps = Column(Integer)
     liquidity_skewness_bps = Column(Integer)
     liquidity_excess_kurt_bps = Column(Integer)
+    # Sprint 2 (Spec 2026-05-17): Schweizer Steuer-Modell.
+    # Default 0 bps = aus → keine Verhaltens-Aenderung gegenueber pre-Sprint-2-Stand.
+    # Realistische CH-Werte:
+    # - Vermoegenssteuer p.a. typisch 20-50 bps (kantonal verschieden, ~0.2-0.5%)
+    # - Kapitalertragssteuer typisch 2500-3500 bps (25-35% Verrechnungssteuer)
+    vermoegenssteuer_bps_pa = Column(Integer, default=0)
+    kapitalertrag_steuer_bps = Column(Integer, default=0)
+    # Sprint 2 Item 2: Dividenden-Yield-Split (Total Return = Dividend + Preis).
+    # Default 0 = aus → keine Trennung, Returns gelten als Total. Realistische
+    # CH/Welt-Werte:
+    # - SPI ~ 250-300 bps
+    # - MSCI World ~ 150-200 bps
+    # - CH-REITs ~ 250-300 bps
+    dividend_yield_bps_equity_ch = Column(Integer, default=0)
+    dividend_yield_bps_equity_intl = Column(Integer, default=0)
+    dividend_yield_bps_real_estate = Column(Integer, default=0)
     source = Column(String, default="Portfolio Management intern")
     notes = Column(String)
     created_by = Column(String, ForeignKey("users.id"), nullable=False)
