@@ -1099,7 +1099,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
                     <div class="qopts">
                       <div class="qopt" onclick="sq(this,'q9')"><div class="qrad"></div><span class="qtxt">Das investierte Kapital soll erhalten bleiben.</span></div>
                       <div class="qopt" onclick="sq(this,'q9')"><div class="qrad"></div><span class="qtxt">Mit dem Ertrag soll die heutige Kaufkraft beibehalten werden, wobei eine geringe Volatilität in Kauf genommen wird.</span></div>
-                      <div class="qopt sel" onclick="sq(this,'q9')"><div class="qrad"></div><span class="qtxt">Das investierte Kapital soll sich stetig vermehren unter Inkaufnahme des damit verbundenen Verlustrisikos.</span></div>
+                      <div class="qopt" onclick="sq(this,'q9')"><div class="qrad"></div><span class="qtxt">Das investierte Kapital soll sich stetig vermehren unter Inkaufnahme des damit verbundenen Verlustrisikos.</span></div>
                       <div class="qopt" onclick="sq(this,'q9')"><div class="qrad"></div><span class="qtxt">Es soll ein erhebliches Kapitalwachstum angestrebt werden unter Inkaufnahme des damit verbundenen höheren Verlustrisikos.</span></div>
                     </div>
                   </div>
@@ -1108,7 +1108,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
                     <div class="qopts">
                       <div class="qopt" onclick="sq(this,'q10')"><div class="qrad"></div><span class="qtxt">Ich bevorzuge Anlagen mit relativ geringem Risiko. Die Rendite steht für mich nicht im Vordergrund. (Wertschwankung ca. −4 % bis +6 %)</span></div>
                       <div class="qopt" onclick="sq(this,'q10')"><div class="qrad"></div><span class="qtxt">Ich bin bereit, für eine moderate Rendite ein leicht höheres Risiko in Kauf zu nehmen. (Wertschwankung ca. −6 % bis +10 %)</span></div>
-                      <div class="qopt sel" onclick="sq(this,'q10')"><div class="qrad"></div><span class="qtxt">Ich strebe eine höhere Rendite an und bin bereit, dafür ein erhöhtes Risiko einzugehen. (Wertschwankung ca. −10 % bis +16 %)</span></div>
+                      <div class="qopt" onclick="sq(this,'q10')"><div class="qrad"></div><span class="qtxt">Ich strebe eine höhere Rendite an und bin bereit, dafür ein erhöhtes Risiko einzugehen. (Wertschwankung ca. −10 % bis +16 %)</span></div>
                       <div class="qopt" onclick="sq(this,'q10')"><div class="qrad"></div><span class="qtxt">Ich strebe nach der maximalen Rendite und nehme hohe Risiken in Kauf. (Wertschwankung ca. −16 % bis +24 %)</span></div>
                     </div>
                   </div>
@@ -1117,7 +1117,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
                     <div class="qopts">
                       <div class="qopt" onclick="sq(this,'q11')"><div class="qrad"></div><span class="qtxt">Ein solch hoher Verlust bereitet mir grosse Angst und ich möchte alle Anlagen sofort verkaufen.</span></div>
                       <div class="qopt" onclick="sq(this,'q11')"><div class="qrad"></div><span class="qtxt">Ich bin durch den Verlust sehr beunruhigt, handle aber vorerst noch nicht oder möchte höchstens einzelne Positionen verkaufen.</span></div>
-                      <div class="qopt sel" onclick="sq(this,'q11')"><div class="qrad"></div><span class="qtxt">Ich kann den Verlust vorübergehend akzeptieren und halte an meinen Anlagen fest.</span></div>
+                      <div class="qopt" onclick="sq(this,'q11')"><div class="qrad"></div><span class="qtxt">Ich kann den Verlust vorübergehend akzeptieren und halte an meinen Anlagen fest.</span></div>
                       <div class="qopt" onclick="sq(this,'q11')"><div class="qrad"></div><span class="qtxt">Ich investiere langfristig, deshalb akzeptiere ich solche Schwankungen und kaufe eventuell sogar hinzu.</span></div>
                     </div>
                   </div>
@@ -13536,23 +13536,91 @@ function riskBelongsToMandate(risk, mandateId){
   if(risk.final_score_x10==null&&risk.override_score_x10==null)return false;
   return String(risk.mandate_id)===String(activeMandateId);
 }
+function riskJsonFieldIsType(raw,type){
+  if(raw==null)return false;
+  try{
+    var parsed=JSON.parse(String(raw));
+    if(type==='array')return Array.isArray(parsed);
+    if(type==='object')return parsed&&typeof parsed==='object'&&!Array.isArray(parsed);
+  }catch(e){}
+  return false;
+}
+function riskAssessmentHasCurrentSchemaMarkers(risk){
+  return riskJsonFieldIsType(risk&&risk.knowledge_services_json,'object')
+    && riskJsonFieldIsType(risk&&risk.knowledge_instruments_json,'object')
+    && riskJsonFieldIsType(risk&&risk.income_sources_json,'array');
+}
+function riskAnswerText(item){
+  return decodeMojibakeText(String(item&&item.answer_label||'')).trim().toLowerCase()
+    .replace(/ä/g,'ae').replace(/ö/g,'oe').replace(/ü/g,'ue').replace(/ß/g,'ss');
+}
+function riskAnswerPoints(item){
+  var n=Number(item&&item.answer_points);
+  return Number.isFinite(n)?Math.round(n):null;
+}
+function riskAnswerPointsAllowed(questionNumber,points){
+  var allowed={
+    1:{0:true},2:{0:true},3:{0:true,1:true,2:true,3:true,4:true},4:{0:true},
+    5:{0:true,1:true,2:true,3:true,4:true},6:{0:true,3:true,6:true,9:true,12:true},
+    7:{0:true,3:true,6:true,9:true,12:true},8:{0:true},
+    9:{1:true,2:true,3:true,4:true},10:{1:true,2:true,3:true,4:true},11:{1:true,2:true,3:true,4:true}
+  };
+  return !!(allowed[questionNumber]&&allowed[questionNumber][points]);
+}
+function riskAnswerMatchesCurrentQuestionnaire(questionNumber,item){
+  var text=riskAnswerText(item);
+  var points=riskAnswerPoints(item);
+  if(!text||!riskAnswerPointsAllowed(questionNumber,points))return false;
+  if(questionNumber===1)return text.indexOf('finanzdienstleistungen:')===0;
+  if(questionNumber===2)return text.indexOf('finanzinstrumente:')===0;
+  if(questionNumber===3||questionNumber===5||questionNumber===6)return text.indexOf('chf')>=0;
+  if(questionNumber===4)return text.indexOf('herkunft:')===0;
+  if(questionNumber===7)return text.indexOf('%')>=0;
+  if(questionNumber===8){
+    return text.indexOf('matrix')>=0 && ['bis 2 jahre','2 bis 3 jahre','3 bis 5 jahre','4 bis 5 jahre','5 bis 7 jahre','6 bis 7 jahre','8 bis 11 jahre','mehr als 12 jahre'].some(function(label){return text.indexOf(label)>=0;});
+  }
+  if(questionNumber===9)return ['kapital','kaufkraft','vermehren','wachstum'].some(function(marker){return text.indexOf(marker)>=0;});
+  if(questionNumber===10)return text.indexOf('risiko')>=0||text.indexOf('wertschwankung')>=0||text.indexOf('rendite')>=0;
+  if(questionNumber===11)return text.indexOf('verlust')>=0||text.indexOf('verkaufen')>=0||text.indexOf('schwankung')>=0;
+  return false;
+}
 function riskAssessmentHasRequiredAnswers(risk){
-  var required={3:true,5:true,6:true,7:true,8:true,9:true,10:true,11:true};
-  var answered={};
+  if(!riskAssessmentHasCurrentSchemaMarkers(risk))return false;
+  var required={1:true,2:true,3:true,4:true,5:true,6:true,7:true,8:true,9:true,10:true,11:true};
+  var answersByNumber={};
   var answers=Array.isArray(risk&&risk.answers)?risk.answers:[];
   answers.forEach(function(item){
     var questionNumber=Number(item&&item.question_number||0);
-    var answerLabel=String(item&&item.answer_label||'').trim();
-    if(required[questionNumber]&&answerLabel)answered[questionNumber]=true;
+    if(required[questionNumber])answersByNumber[questionNumber]=item;
   });
-  return Object.keys(required).every(function(key){return !!answered[key];});
+  return Object.keys(required).every(function(key){
+    var questionNumber=Number(key);
+    return !!answersByNumber[questionNumber]&&riskAnswerMatchesCurrentQuestionnaire(questionNumber,answersByNumber[questionNumber]);
+  });
+}
+function riskOverrideProfileBand(scoreX10){
+  var score=Math.max(1,Math.min(10,Math.round(Number(scoreX10||10)/10)));
+  if(score<=2)return 0;
+  if(score<=4)return 1;
+  if(score<=6)return 2;
+  if(score<=8)return 3;
+  if(score===9)return 4;
+  return 5;
+}
+function riskAssessmentHasDocumentedOverride(risk){
+  if(!risk||!Number(risk.is_overridden||0)||risk.override_score_x10==null)return false;
+  if(!String(risk.override_reason||'').trim())return false;
+  var delta=riskOverrideProfileBand(Number(risk.override_score_x10||0))-riskOverrideProfileBand(Number(risk.final_score_x10||0));
+  if(delta<2)return true;
+  return !!Number(risk.override_client_confirmed||0)&&!!Number(risk.override_warning_delivered||0);
 }
 function riskAssessmentReadyForStrategy(risk, mandateId){
-  return riskBelongsToMandate(risk, mandateId)&&riskAssessmentHasRequiredAnswers(risk);
+  return riskBelongsToMandate(risk, mandateId)&&(riskAssessmentHasDocumentedOverride(risk)||riskAssessmentHasRequiredAnswers(risk));
 }
 function riskAssessmentRequirementMessage(risk, mandateId){
   if(!riskBelongsToMandate(risk, mandateId))return 'Bitte zuerst ein aktuelles Risikoprofil speichern.';
-  if(!riskAssessmentHasRequiredAnswers(risk))return 'Aktuelles Risikoprofil ist unvollstaendig dokumentiert. Bitte Fragebogen vollstaendig ausfuellen und erneut speichern.';
+  if(Number(risk.is_overridden||0)&&!riskAssessmentHasDocumentedOverride(risk))return 'Der Override ist nicht vollstaendig dokumentiert. Bitte Begruendung, Warnung und Kundenbestaetigung pruefen.';
+  if(!riskAssessmentHasRequiredAnswers(risk))return 'Aktuelles Risikoprofil ist unvollstaendig dokumentiert. Bitte alle bewerteten Fragen anklicken und erneut speichern.';
   return '';
 }
 function currentPersistedRiskForMandate(mandateId){

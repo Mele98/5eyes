@@ -90,6 +90,8 @@ class RiskAssessmentOverride(BaseModel):
 
     @model_validator(mode="after")
     def validate_override_score(self):
+        if not str(self.override_reason or "").strip():
+            raise ValueError("override_reason ist Pflicht")
         assert 10 <= self.override_score_x10 <= 100, \
             "override_score_x10 muss zwischen 10 (Score 1) und 100 (Score 10) liegen"
         expected_profile = profile_for_score_x10(self.override_score_x10)

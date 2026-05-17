@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session, selectinload
 from datetime import date, datetime, timezone
+from types import SimpleNamespace
 from database import get_db, new_uuid
 from models.users import User
 from models.mandates import Mandate
@@ -15,6 +16,7 @@ from schemas.profiling import (
 )
 from services.auth import get_client_for_user_or_404, get_current_user, get_mandate_for_user_or_404, require_advisor
 from services.audit import log
+from services.portfolio_engine import risk_assessment_ready_for_strategy
 from services.risk_scoring import canonicalize_horizon_label, compute_scores, profile_for_score_x10
 
 router = APIRouter(tags=["Risikoprofilierung"])
@@ -175,6 +177,27 @@ def create_risk_assessment(
         final_score_x10 = 75
         final_profile = profile_for_score_x10(final_score_x10)
 
+    knowledge_services_json = body.knowledge_services_json if body.knowledge_services_json is not None else "{}"
+    knowledge_instruments_json = body.knowledge_instruments_json if body.knowledge_instruments_json is not None else "{}"
+    income_sources_json = body.income_sources_json if body.income_sources_json is not None else "[]"
+    readiness_probe = SimpleNamespace(
+        final_score_x10=final_score_x10,
+        override_score_x10=None,
+        is_overridden=0,
+        knowledge_services_json=knowledge_services_json,
+        knowledge_instruments_json=knowledge_instruments_json,
+        income_sources_json=income_sources_json,
+        answers=[SimpleNamespace(**ans) for ans in (body.answers or [])],
+    )
+    if not risk_assessment_ready_for_strategy(readiness_probe):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Risikoprofil unvollstaendig. Bitte alle bewerteten Fragen "
+                "anklicken und das Risikoprofil erneut speichern."
+            ),
+        )
+
     # Supersede previous (Race-Hardening, siehe ClientKnowledge oben).
     prev = db.query(RiskAssessment).filter(
         RiskAssessment.mandate_id == mandate_id,
@@ -218,9 +241,9 @@ def create_risk_assessment(
         final_profile=final_profile,
         is_overridden=0,
         # Kenntnisse & Erfahrungen (Referenzmodell Eignungspruefung Seite 1) — FE sendet, Backend muss persistieren
-        knowledge_services_json=body.knowledge_services_json,
-        knowledge_instruments_json=body.knowledge_instruments_json,
-        income_sources_json=body.income_sources_json,
+        knowledge_services_json=knowledge_services_json,
+        knowledge_instruments_json=knowledge_instruments_json,
+        income_sources_json=income_sources_json,
         assessed_at=now,
         assessed_by=current_user.id,
         created_at=now,

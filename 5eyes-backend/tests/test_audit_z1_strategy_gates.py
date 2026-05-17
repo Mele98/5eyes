@@ -38,10 +38,11 @@ from models.allocation import (
 )
 from models.clients import Client
 from models.mandates import Mandate
-from models.profiling import RiskAssessment, RiskAssessmentAnswer
+from models.profiling import RiskAssessment
 from models.users import User
 from services.auth import get_current_user, require_advisor
 from services.portfolio_engine import ensure_runtime_reference_data
+from tests.risk_fixture_helpers import CURRENT_RISK_SCHEMA_MARKERS, add_current_risk_answers, noop_lifespan
 
 
 def _now() -> str:
@@ -71,10 +72,11 @@ def advisor():
 
 
 @pytest.fixture()
-def auth_client(session_factory, advisor):
+def auth_client(session_factory, advisor, monkeypatch):
     def _odb():
         with session_factory() as s:
             yield s
+    monkeypatch.setattr(app.router, "lifespan_context", noop_lifespan)
     app.dependency_overrides[get_db] = _odb
     app.dependency_overrides[get_current_user] = lambda: advisor
     app.dependency_overrides[require_advisor] = lambda: advisor
@@ -124,17 +126,12 @@ def _add_assessment(session_factory, mid, advisor_id, *, ready=True, is_current=
             final_score_x10=60 if ready else None,
             final_profile="Ausgewogen" if ready else None,
             is_overridden=0,
+            **CURRENT_RISK_SCHEMA_MARKERS,
             assessed_at=now, assessed_by=advisor_id,
             created_at=now, updated_at=now,
         ))
         if ready:
-            for q in (3, 5, 6, 7, 8, 9, 10, 11):
-                s.add(RiskAssessmentAnswer(
-                    id=str(uuid.uuid4()), assessment_id=aid,
-                    question_number=q, question_section="Risikoprofil",
-                    answer_label=f"Antwort {q}", answer_points=2,
-                    created_at=now,
-                ))
+            add_current_risk_answers(s, aid, now)
         s.commit()
     return aid
 
