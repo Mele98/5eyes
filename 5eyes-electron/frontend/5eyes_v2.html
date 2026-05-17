@@ -7376,6 +7376,14 @@ function applyAdminCapitalMarketAssumptions(cma) {
   setInputValue('admin-cma-valid-until', cma.valid_until ? String(cma.valid_until).slice(0, 10) : '');
   setInputValue('admin-cma-source', cma.source || 'Portfolio Management intern');
   setInputValue('admin-cma-notes', cma.notes || '');
+  // Sprint 6+7: Engine-Modelle aus CMA wiederherstellen
+  setInputValue('admin-cma-ns-beta0', adminBpsToPercentValue(cma.bonds_ns_beta0_bps));
+  setInputValue('admin-cma-ns-beta1', adminBpsToPercentValue(cma.bonds_ns_beta1_bps));
+  setInputValue('admin-cma-ns-beta2', adminBpsToPercentValue(cma.bonds_ns_beta2_bps));
+  setInputValue('admin-cma-ns-lambda', adminScaledIntToFloatString(cma.bonds_ns_lambda_x100, 100));
+  setInputValue('admin-cma-kgv-current', adminScaledIntToFloatString(cma.equity_kgv_current_x10, 10));
+  setInputValue('admin-cma-kgv-fair', adminScaledIntToFloatString(cma.equity_kgv_fair_x10, 10));
+  setInputValue('admin-cma-kgv-alpha', adminScaledIntToFloatString(cma.equity_kgv_alpha_x100, 100));
   setInputValue('admin-cma-bond-chf-return', adminBpsToPercentValue(cma.bonds_chf_ig_return_bps));
   setInputValue('admin-cma-bond-chf-vol', adminBpsToPercentValue(cma.bonds_chf_ig_vol_bps));
   setInputValue('admin-cma-bond-hedged-return', adminBpsToPercentValue(cma.bonds_fx_hedged_return_bps));
@@ -7412,7 +7420,10 @@ function ensureAdminCapitalMarketBindings() {
     'admin-cma-bond-hy-return','admin-cma-bond-hy-vol','admin-cma-equity-ch-return','admin-cma-equity-ch-vol',
     'admin-cma-equity-intl-return','admin-cma-equity-intl-vol','admin-cma-equity-em-return','admin-cma-equity-em-vol',
     'admin-cma-real-estate-return','admin-cma-real-estate-vol','admin-cma-gold-return','admin-cma-gold-vol',
-    'admin-cma-liquidity-return','admin-cma-liquidity-vol'
+    'admin-cma-liquidity-return','admin-cma-liquidity-vol',
+    // Sprint 6+7: Engine-Modelle (Nelson-Siegel + KGV-Mean-Reversion)
+    'admin-cma-ns-beta0','admin-cma-ns-beta1','admin-cma-ns-beta2','admin-cma-ns-lambda',
+    'admin-cma-kgv-current','admin-cma-kgv-fair','admin-cma-kgv-alpha'
   ].forEach(function(id){
     var el = document.getElementById(id);
     if (!el) return;
@@ -7591,9 +7602,34 @@ function collectAdminCapitalMarketAssumptionsPayload() {
     inflation_path_json: Object.keys(normalizedInflation || {}).length ? JSON.stringify(normalizedInflation, null, 2) : null,
     correlation_matrix_json: adminCorrelationMatrixPayload(),
     sub_asset_class_assumptions_json: Object.keys(normalizedSubAssets || {}).length ? JSON.stringify(normalizedSubAssets, null, 2) : null,
+    // Sprint 6+7: Engine-Modelle (Nelson-Siegel + KGV-Mean-Reversion)
+    // NS: % → bps, lambda → x100
+    bonds_ns_beta0_bps: adminPercentInputToBps('admin-cma-ns-beta0'),
+    bonds_ns_beta1_bps: adminPercentInputToBps('admin-cma-ns-beta1'),
+    bonds_ns_beta2_bps: adminPercentInputToBps('admin-cma-ns-beta2'),
+    bonds_ns_lambda_x100: adminFloatInputTimes('admin-cma-ns-lambda', 100),
+    // KGV: KGV → x10, alpha → x100
+    equity_kgv_current_x10: adminFloatInputTimes('admin-cma-kgv-current', 10),
+    equity_kgv_fair_x10: adminFloatInputTimes('admin-cma-kgv-fair', 10),
+    equity_kgv_alpha_x100: adminFloatInputTimes('admin-cma-kgv-alpha', 100),
     source: getInputValue('admin-cma-source').trim() || 'Portfolio Management intern',
     notes: getInputValue('admin-cma-notes').trim() || null
   };
+}
+
+// Sprint 6+7 Helper: Float-Input → skaliertes Integer oder null
+function adminFloatInputTimes(elementId, multiplier){
+  var el = document.getElementById(elementId);
+  if (!el) return null;
+  var raw = (el.value || '').trim();
+  if (raw === '') return null;
+  var num = parseFloat(raw);
+  if (!isFinite(num)) return null;
+  return Math.round(num * multiplier);
+}
+function adminScaledIntToFloatString(value, divisor){
+  if (value === null || value === undefined) return '';
+  return String(Number(value) / divisor);
 }
 async function saveAdminCapitalMarketAssumptions() {
   var btn = document.getElementById('btn-admin-cma-save');
@@ -16548,7 +16584,28 @@ function openStammdatenModal(){
             <div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Liquidität Rendite</label><input class="fi" id="admin-cma-liquidity-return" type="number" step="0.1" style="font-size:11px"></div>
             <div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Liquidität Vol</label><input class="fi" id="admin-cma-liquidity-vol" type="number" step="0.1" style="font-size:11px"></div>
           </div>
-          <div style="display:flex;justify-content:flex-end;gap:8px;padding-top:4px;border-top:1px solid var(--b1);">
+          <!-- Sprint 6+7 (2026-05-17): Engine-Modelle (Nelson-Siegel + KGV-Mean-Reversion) -->
+          <details style="margin-top:14px;padding:10px;border:1px solid var(--b1);border-radius:var(--r);background:var(--bg2)">
+            <summary style="cursor:pointer;font-size:11px;font-weight:600;color:var(--n6)">Engine-Modelle (optional) — Nelson-Siegel Yield-Curve + KGV-Mean-Reversion</summary>
+            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:10px">
+              <div style="grid-column:span 4;font-size:9px;color:var(--n4);background:var(--bg3);padding:6px 8px;border-radius:var(--r)">
+                <strong>Nelson-Siegel</strong> (Bonds-Yield-Curve): wenn alle 4 Felder gesetzt sind, nutzt der Optimizer <code>yield(5J)</code> statt der fixen Bond-Returns oben.
+              </div>
+              <div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">β₀ (Long-Rate, %)</label><input class="fi" id="admin-cma-ns-beta0" type="number" step="0.01" style="font-size:11px" placeholder="z.B. 4.0"></div>
+              <div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">β₁ (Slope, %)</label><input class="fi" id="admin-cma-ns-beta1" type="number" step="0.01" style="font-size:11px" placeholder="z.B. -1.5"></div>
+              <div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">β₂ (Curvature, %)</label><input class="fi" id="admin-cma-ns-beta2" type="number" step="0.01" style="font-size:11px" placeholder="z.B. 0.5"></div>
+              <div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">λ (Decay)</label><input class="fi" id="admin-cma-ns-lambda" type="number" step="0.01" style="font-size:11px" placeholder="z.B. 0.60"></div>
+
+              <div style="grid-column:span 4;font-size:9px;color:var(--n4);background:var(--bg3);padding:6px 8px;border-radius:var(--r);margin-top:4px">
+                <strong>KGV-Mean-Reversion</strong> (Equity-Adjustment): wenn alle 3 Felder gesetzt sind, addiert der Optimizer ein zyklisches Adjustment auf Aktien-Returns (Shiller-CAPE-basiert).
+              </div>
+              <div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">KGV aktuell</label><input class="fi" id="admin-cma-kgv-current" type="number" step="0.1" style="font-size:11px" placeholder="z.B. 22.0"></div>
+              <div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">KGV fair value</label><input class="fi" id="admin-cma-kgv-fair" type="number" step="0.1" style="font-size:11px" placeholder="z.B. 17.0"></div>
+              <div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Reversion α (0..1)</label><input class="fi" id="admin-cma-kgv-alpha" type="number" step="0.01" style="font-size:11px" placeholder="z.B. 0.15"></div>
+              <div></div>
+            </div>
+          </details>
+          <div style="display:flex;justify-content:flex-end;gap:8px;padding-top:4px;border-top:1px solid var(--b1);margin-top:10px">
             <button class="btn-p" style="background:var(--bg2);color:var(--n6)" onclick="previewAdminCapitalMarketAssumptions()">Vorschau</button>
             <button class="btn-p admin-primary-btn" onclick="saveAdminCapitalMarketAssumptions()">Speichern</button>
           </div>
