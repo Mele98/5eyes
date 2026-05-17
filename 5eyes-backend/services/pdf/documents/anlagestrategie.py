@@ -81,11 +81,12 @@ def build_anlagestrategie_flowables(
     if data.monte_carlo_stats:
         flowables.append(Paragraph("Monte-Carlo-Projektion", styles["heading"]))
         stats = data.monte_carlo_stats
+        ccy = ctx.base_currency
         mc_rows = [
-            ["Szenario", "End-Vermoegen"],
-            ["P10 (pessimistisch)", _fmt_chf(stats.get("p10", 0))],
-            ["P50 (Median)", _fmt_chf(stats.get("p50", 0))],
-            ["P90 (optimistisch)", _fmt_chf(stats.get("p90", 0))],
+            ["Szenario", f"End-Vermoegen ({ccy})"],
+            ["P10 (pessimistisch)", _fmt_amount(stats.get("p10", 0), ccy)],
+            ["P50 (Median)", _fmt_amount(stats.get("p50", 0), ccy)],
+            ["P90 (optimistisch)", _fmt_amount(stats.get("p90", 0), ccy)],
         ]
         mc_table = Table(mc_rows, colWidths=[80 * mm, 50 * mm])
         mc_table.setStyle(TableStyle([
@@ -119,7 +120,21 @@ def build_anlagestrategie_flowables(
     return flowables
 
 
-def _fmt_chf(amount: float) -> str:
-    """Formatiert Rappen-Betrag als CHF-Text mit Tausender-Trennung."""
-    chf = amount / 100.0
-    return f"CHF {chf:,.0f}".replace(",", "'")
+def _fmt_amount(amount: float, currency: str = "CHF") -> str:
+    """Formatiert Rappen-Betrag in der gewuenschten Mandate-Currency.
+
+    5eyes-intern alles in CHF/Rappen. Bei non-CHF wird via services.currency
+    konvertiert (DEFAULT_FX_RATES wenn keine DB-Source). Fallback bei
+    Konvertierungs-Fehler: zeige CHF-Wert mit Hinweis.
+    """
+    ccy = (currency or "CHF").upper().strip()
+    try:
+        if ccy == "CHF":
+            value = amount / 100.0
+        else:
+            from services.currency.converter import convert_rappen
+            value = convert_rappen(amount, "CHF", ccy) / 100.0
+        return f"{ccy} {value:,.0f}".replace(",", "'")
+    except Exception:
+        chf = amount / 100.0
+        return f"CHF {chf:,.0f}".replace(",", "'")

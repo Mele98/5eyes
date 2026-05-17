@@ -46,6 +46,7 @@ def _build_pdf_context(mandate: Mandate, current_user: User, db: Session) -> PDF
         or getattr(current_user, "org_name", None)
         or None
     )
+    base_currency = str(getattr(mandate, "base_currency", "CHF") or "CHF").upper()
     return PDFContext(
         mandate_name=mandate_name,
         advisor_name=advisor_name,
@@ -53,6 +54,7 @@ def _build_pdf_context(mandate: Mandate, current_user: User, db: Session) -> PDF
         report_date=date.today(),
         audit_hash=_audit_hash_for_mandate(mandate),
         locale="de-CH",
+        base_currency=base_currency,
     )
 
 

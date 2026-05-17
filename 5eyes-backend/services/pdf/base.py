@@ -21,6 +21,10 @@ class PDFContext:
     advisor_org: str | None = None
     audit_hash: str | None = None
     locale: str = "de-CH"
+    # Sprint 9 Phase 4: Mandate-Currency fuer Report-Anzeige
+    # Werte werden via services.currency.convert_rappen umgerechnet wenn
+    # base_currency != CHF (5eyes-interne Basis-Currency ist CHF/Rappen).
+    base_currency: str = "CHF"
 
 
 @dataclass(frozen=True)
