@@ -168,6 +168,12 @@ class CapitalMarketAssumptionCreate(BaseModel):
     inflation_path_json: Optional[str] = None
     correlation_matrix_json: Optional[str] = None
     sub_asset_class_assumptions_json: Optional[str] = None
+    # Sprint 6 Phase 2 (2026-05-17): Nelson-Siegel Yield-Curve fuer Bonds.
+    # Wenn alle 4 gesetzt: Engine nutzt yield_at(maturity) statt fixe Returns.
+    bonds_ns_beta0_bps: Optional[int] = None
+    bonds_ns_beta1_bps: Optional[int] = None
+    bonds_ns_beta2_bps: Optional[int] = None
+    bonds_ns_lambda_x100: Optional[int] = None
     source: Optional[str] = "Portfolio Management intern"
     notes: Optional[str] = None
 
@@ -200,6 +206,11 @@ class CapitalMarketAssumptionResponse(BaseResponse):
     inflation_path_json: Optional[str]
     correlation_matrix_json: Optional[str]
     sub_asset_class_assumptions_json: Optional[str]
+    # Sprint 6 Phase 2: Nelson-Siegel Yield-Curve fuer Bonds
+    bonds_ns_beta0_bps: Optional[int] = None
+    bonds_ns_beta1_bps: Optional[int] = None
+    bonds_ns_beta2_bps: Optional[int] = None
+    bonds_ns_lambda_x100: Optional[int] = None
     source: Optional[str]
     notes: Optional[str]
     created_at: str

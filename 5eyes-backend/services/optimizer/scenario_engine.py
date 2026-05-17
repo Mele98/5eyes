@@ -459,13 +459,23 @@ def scenario_inputs_from_cma(cma) -> ScenarioInputs:
     """
     import json
 
+    # Sprint 6 Phase 2: Nelson-Siegel Yield-Curve fuer Bonds nutzen wenn
+    # CMA alle 4 NS-Params hat. Maturity-Default: 5J (mittlere Duration
+    # IG-Bonds). Berater kann via Update-Endpoint die Params setzen.
+    # Fallback: alte fix-Werte (Backwards-Compat).
+    bonds_return_from_ns = _compute_bonds_return_from_nelson_siegel(cma)
+
     # Returns/Vols pro Bucket (aggregiert grob aus Sub-Klassen)
     # Konsistent zur Aggregation in portfolio_engine._asset_class_expected_metrics
     bucket_returns = {
         "equities": _avg_or_zero([cma.equity_ch_return_bps, cma.equity_intl_return_bps]),
-        "bonds": _avg_or_zero([
-            cma.bonds_chf_ig_return_bps, cma.bonds_fx_hedged_return_bps,
-        ]),
+        "bonds": (
+            bonds_return_from_ns
+            if bonds_return_from_ns is not None
+            else _avg_or_zero([
+                cma.bonds_chf_ig_return_bps, cma.bonds_fx_hedged_return_bps,
+            ])
+        ),
         "real_estate": _avg_or_zero([cma.real_estate_ch_return_bps]),
         "alternatives": _avg_or_zero([cma.alternatives_gold_return_bps]),
         "liquidity": _avg_or_zero([cma.liquidity_return_bps]),
@@ -522,3 +532,41 @@ def _avg_or_zero(values: list) -> float:
     if not valid:
         return 0.0
     return float(sum(valid) / len(valid))
+
+
+# Sprint 6 Phase 2: Default-Maturity fuer Bonds-Bucket-Return-Aggregation.
+# 5 Jahre = mittlere Duration eines IG-Bond-Universums (typisch 4-7).
+# Berater kann via separates Mandate-Feld spaeter ueberschreiben.
+_BONDS_DEFAULT_MATURITY_YEARS = 5.0
+
+
+def _compute_bonds_return_from_nelson_siegel(cma) -> float | None:
+    """Sprint 6 Phase 2: Bond-Return aus Nelson-Siegel-Curve falls vorhanden.
+
+    Returns None wenn CMA NICHT alle 4 NS-Params hat → Caller faellt auf
+    fixed bonds_*_return_bps zurueck (Backwards-Compat).
+
+    Bei vollstaendigen NS-Params: berechnet yield_at(5J) als Bond-Return.
+    Spaeter Erweiterungs-Pfad: pro Bond-Bucket eigene Maturity (kurz/mittel/lang).
+    """
+    beta0 = getattr(cma, "bonds_ns_beta0_bps", None)
+    beta1 = getattr(cma, "bonds_ns_beta1_bps", None)
+    beta2 = getattr(cma, "bonds_ns_beta2_bps", None)
+    lam_x100 = getattr(cma, "bonds_ns_lambda_x100", None)
+    if beta0 is None or beta1 is None or beta2 is None or lam_x100 is None:
+        return None
+    lam = float(lam_x100) / 100.0
+    if lam <= 0:
+        return None
+    try:
+        from services.rates.nelson_siegel import NelsonSiegelCurve
+        curve = NelsonSiegelCurve(
+            beta0_bps=float(beta0),
+            beta1_bps=float(beta1),
+            beta2_bps=float(beta2),
+            lambda_=lam,
+        )
+        return float(curve.yield_at(_BONDS_DEFAULT_MATURITY_YEARS))
+    except Exception:
+        # Defensive: bei invalid NS-Params → Fallback
+        return None

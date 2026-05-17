@@ -190,6 +190,15 @@ class CapitalMarketAssumption(Base):
     alternatives_excess_kurt_bps = Column(Integer)
     liquidity_skewness_bps = Column(Integer)
     liquidity_excess_kurt_bps = Column(Integer)
+    # Sprint 6 Phase 2 (2026-05-17): Nelson-Siegel Yield-Curve fuer Bonds.
+    # Wenn alle 4 Felder gesetzt (!= None): scenario_inputs_from_cma nutzt
+    # die NS-Curve fuer Bond-Returns (yield_at(maturity)) statt der fixen
+    # bonds_*_return_bps Werte. lambda_x100 = lambda * 100 (Integer-DB).
+    # Beispiel ZH-CHF-Kurve 2024: beta0=400, beta1=-200, beta2=80, lambda=60 (=0.6).
+    bonds_ns_beta0_bps = Column(Integer)
+    bonds_ns_beta1_bps = Column(Integer)
+    bonds_ns_beta2_bps = Column(Integer)
+    bonds_ns_lambda_x100 = Column(Integer)
     source = Column(String, default="Portfolio Management intern")
     notes = Column(String)
     created_by = Column(String, ForeignKey("users.id"), nullable=False)

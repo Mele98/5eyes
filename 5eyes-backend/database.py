@@ -254,6 +254,11 @@ def ensure_runtime_columns() -> None:
             ('alternatives_excess_kurt_bps', 'INTEGER'),
             ('liquidity_skewness_bps', 'INTEGER'),
             ('liquidity_excess_kurt_bps', 'INTEGER'),
+            # Sprint 6 Phase 2 (2026-05-17): Nelson-Siegel Yield-Curve fuer Bonds.
+            ('bonds_ns_beta0_bps', 'INTEGER'),
+            ('bonds_ns_beta1_bps', 'INTEGER'),
+            ('bonds_ns_beta2_bps', 'INTEGER'),
+            ('bonds_ns_lambda_x100', 'INTEGER'),
         ],
         'target_allocations': [
             ('external_reserve_at_generation_rappen', 'INTEGER'),
