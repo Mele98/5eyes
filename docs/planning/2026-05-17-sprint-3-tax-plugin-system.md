@@ -1,9 +1,32 @@
-# Sprint 3 — Tax-Plugin-System (WM-grade, weltweit)
+# Sprint 3 — Tax-Plugin-System (downscaled, Allocation-Fokus)
 
 **Datum:** 2026-05-17
-**Status:** Spec / aktiv in Entwicklung
-**Vorgaenger:** Sprint 2 (Steuern in CMA) wurde REVERTIERT (commit 02d2cc5) —
-konzeptionell falsch fuer WM-Anwendung.
+**Status:** Phase 1 DONE (commit 4f201df), Spec **downscaled** auf MINIMAL-Scope
+**Vorgaenger:** Sprint 2 (Steuern in CMA) wurde REVERTIERT (commit 02d2cc5).
+
+## ⚠️ SCOPE-AENDERUNG (2026-05-17 nachmittag)
+
+Nach dem Aufbau der Phase-1-Foundation (Plugin-Architektur, GenericFlatRate,
+Engine-Integration) hat der User klargestellt:
+
+> "fuer die endversion ist tax nicht so relevant wie die anderen funktionen.
+> weil tax wuerde ja ein seperates modell machen im Assetmanagement ist.
+> Wir brauchen es nur fuer asset allocation interessen falls wir irgendwie
+> ein Yield portfolio machen wuerden"
+
+**Konsequenz:**
+- Phase 1 bleibt wie gebaut (Foundation ist gut und erweiterbar)
+- **Phase 2** wird reduziert: 2 Mini-Regimes (CH-Light + DE-Light) mit
+  Pauschal-Mittelwerten statt 26 Kantone progressiv
+- **Phase 3** wird reduziert: Dropdown im Mandate-Form + 3 Override-Felder
+  + Disclaimer — keine separate Audit-UI
+- **Phasen 4-6 GESTRICHEN**: keine Asien/USA-Regimes, keine TaxJurisdiction-
+  Tabelle, kein TaxCalculationLog, kein Tarif-Versioning, kein Multi-Tenant
+
+**Rationale:** Echte WM-Tax-Engine ist ein separates Produkt (TaxCalc,
+Avalara). 5eyes braucht Tax NUR damit Asset-Allocation-Optimierung die
+echten Tax-Drag-Effekte beruecksichtigen kann (Yield- vs Capital-Gain-
+Strategie, CH-Anleihen vs CH-Aktien).
 
 ## 0. Vision & Scope
 

@@ -15,7 +15,6 @@ from __future__ import annotations
 # Generic zuerst — als Catchall-Fallback fuer alles
 from services.tax.regimes import generic  # noqa: F401
 
-# Spezifische Regimes folgen in Phase 2:
-# from services.tax.regimes import ch  # noqa: F401
-# from services.tax.regimes import de  # noqa: F401
-# ...
+# Spezifische Regimes (Phase 2 — downscaled, nur CH+DE als Pauschal-Light):
+from services.tax.regimes import ch  # noqa: F401
+from services.tax.regimes import de  # noqa: F401
