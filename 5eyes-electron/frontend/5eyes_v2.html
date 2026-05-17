@@ -13128,8 +13128,14 @@ async function loadSrPage(){
     }
     if(riskAssessmentReadyForStrategy(risk,mid))strategyState.risk=risk;
     else if(riskBelongsToMandate(risk,mid))strategyState.risk=null;
-    if(allocation&&!strategyState.dirty)strategyState.allocation=allocation;
-    if(recommendation&&!strategyState.dirty)strategyState.recommendation=recommendation;
+    // Bug-Fix 2026-05-17 (User-Report 'SAA verschwindet'): persistierte
+    // Allocation IMMER aus DB hydraten, unabhaengig vom dirty-Flag.
+    // dirty bedeutet 'Inputs haben sich seit letzter Berechnung geaendert'
+    // (Warnungs-Banner), NICHT 'verstecke die zuletzt persistierte SAA'.
+    // Ohne diesen Fix war initial dirty=true → SAA wurde bei jedem Besuch
+    // der sr-Seite verworfen.
+    if(allocation)strategyState.allocation=allocation;
+    if(recommendation)strategyState.recommendation=recommendation;
     renderSrApiSummary(risk,allocation,recommendation,cashflow,triggers);
     renderSrImplementationDecision(null);
   }catch(e){
