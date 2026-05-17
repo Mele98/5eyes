@@ -801,9 +801,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
     <div class="tsep">/</div>
     <div class="tstep" data-page="po" onclick="go('po',this)"><div class="sn">6</div>Portfolio</div>
     <div class="tsep">/</div>
-    <div class="tstep" data-page="rv" onclick="go('rv',this)"><div class="sn">7</div>Review</div>
-    <div class="tsep">/</div>
-    <div class="tstep" data-page="sr" onclick="go('sr',this)"><div class="sn">8</div>Zusammenfassung</div>
+    <div class="tstep" data-page="rv" onclick="go('rv',this)"><div class="sn">7</div>Review &amp; Abschluss</div>
   </nav>
   <div class="tr">
     <span class="t-alert" id="trigger-count">2 Trigger</span>
@@ -1599,7 +1597,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 
     <!-- PAGE: PORTFOLIO -->
     <div id="page-po" class="page">
-      <div class="ph"><div><div class="ph-t">Portfolio &mdash; ETFs &amp; Fonds</div><div class="ph-s">Umsetzung Ihrer Asset Allokation in konkrete Produkte (ISIN)</div></div><div class="ph-r"><button class="btn" onclick="om('m-ap')">+ Bestand</button><button class="btn-g" id="btn-po-refresh" onclick="refreshPortfolioFromStoredState()">Portfolio aktualisieren</button><button class="btn" onclick="openImplementationRecipe()">Anlagerezept drucken</button><button class="btn-p" onclick="go('rv')">Weiter zum Review &rarr;</button></div></div>
+      <div class="ph"><div><div class="ph-t">Portfolio &mdash; ETFs &amp; Fonds</div><div class="ph-s">Umsetzung Ihrer Asset Allokation in konkrete Produkte (ISIN)</div></div><div class="ph-r"><button class="btn" onclick="om('m-ap')">+ Bestand</button><button class="btn-g" id="btn-po-refresh" onclick="refreshPortfolioFromStoredState()">Portfolio aktualisieren</button><button class="btn" onclick="openImplementationRecipe()">Anlagerezept drucken</button><button class="btn" id="btn-po-pdf" onclick="downloadServerPdf('portfolio')" title="Portfolio-PDF (Server)">PDF</button><button class="btn-p" onclick="go('rv')">Weiter zum Review &rarr;</button></div></div>
       <div class="pad">
         <div style="background:var(--n8);border-radius:var(--r2);padding:10px 14px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">
           <div><div style="font-size:9px;font-weight:500;letter-spacing:0.08em;text-transform:uppercase;color:rgba(255,255,255,0.4);margin-bottom:2px">Beratungsvermögen total</div><div id="po-advisory-wealth" style="font-family:var(--f-d);font-size:19px;color:#fff">CHF 2'848'000</div></div>
@@ -1617,7 +1615,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 
     <!-- PAGE: REVIEW -->
     <div id="page-rv" class="page">
-      <div class="ph"><div><div class="ph-t">Review</div><div class="ph-s">Was wir heute pr&uuml;fen &middot; was sich seit dem letzten Gespr&auml;ch ge&auml;ndert hat &middot; was wir entscheiden</div></div><div class="ph-r"><button class="btn" onclick="om('m-nt')">+ Trigger</button><button class="btn-p" onclick="om('m-ne')">Entscheid protokollieren</button><button class="btn" onclick="printReport()">Review drucken</button><button class="btn-g" onclick="printAnlagestrategie()">Anlagestrategie als Dokument</button></div></div>
+      <div class="ph"><div><div class="ph-t">Review &amp; Abschluss</div><div class="ph-s">Pruefen &middot; entscheiden &middot; dokumentieren &middot; ausgeben</div></div><div class="ph-r"><button class="btn" onclick="om('m-nt')">+ Trigger</button><button class="btn-p" onclick="om('m-ne')">Entscheid protokollieren</button><button class="btn" onclick="printAdvisoryProtocol()">Protokoll</button><button class="btn-g" onclick="printAnlagestrategie()">Anlagestrategie</button></div></div>
       <div class="strip" id="rv-alert-strip" style="display:none"></div>
       <div id="rv-decision-strip" style="display:none"></div>
       <div class="pad">
@@ -1690,6 +1688,85 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
           <div class="cbody" id="rv-log-list"><div style="font-size:10px;color:var(--n4)">Noch keine Entscheide dokumentiert. Jetzt protokollieren.</div></div>
         </div>
 
+        <div class="card" id="rv-output-section" style="margin-bottom:14px">
+          <div class="chd"><span class="cht">Dokumente &amp; Ausgabe</span><span style="font-size:9px;color:var(--n4);margin-left:8px">Portfolio &middot; Vertrag &middot; Protokoll &middot; Sonstiges</span></div>
+          <div class="cbody" id="rv-output-hub">
+            <div style="font-size:10px;color:var(--n4);line-height:1.6">Die Ausgaben werden geladen.</div>
+          </div>
+        </div>
+
+        <div id="rv-zusammenfassung" style="margin-bottom:14px">
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px">
+            <div style="background:var(--n8);border-radius:var(--r2);padding:12px 14px;color:#fff">
+              <div style="font-size:9px;font-weight:500;letter-spacing:0.09em;text-transform:uppercase;color:rgba(255,255,255,0.45);margin-bottom:6px">Risikoprofil</div>
+              <div id="sr-risk-score" style="font-family:var(--f-d);font-size:22px;font-weight:500;color:var(--g3)">—</div>
+              <div id="sr-risk-profile" style="font-size:11px;color:rgba(255,255,255,0.7);margin-top:2px">Noch nicht erfasst</div>
+              <div id="sr-ovr-badge" style="display:none;margin-top:4px;font-size:9px;color:var(--g3)">&#9888; Override aktiv</div>
+            </div>
+            <div style="background:var(--surface);border:1px solid var(--b1);border-radius:var(--r2);padding:12px 14px">
+              <div style="font-size:9px;font-weight:500;letter-spacing:0.09em;text-transform:uppercase;color:var(--n4);margin-bottom:6px">Beratungsverm&ouml;gen</div>
+              <div id="sr-wealth" style="font-family:var(--f-d);font-size:22px;font-weight:500;color:var(--n8)">—</div>
+              <div id="sr-wealth-share" style="font-size:11px;color:var(--n5);margin-top:2px">Noch kein Verm&ouml;gen erfasst</div>
+            </div>
+            <div style="background:var(--surface);border:1px solid var(--b1);border-radius:var(--r2);padding:12px 14px">
+              <div style="font-size:9px;font-weight:500;letter-spacing:0.09em;text-transform:uppercase;color:var(--n4);margin-bottom:6px">Ziele erreichbar</div>
+              <div id="sr-goal-score" style="font-family:var(--f-d);font-size:22px;font-weight:500;color:var(--n6)">—</div>
+              <div id="sr-goal-sub" style="font-size:11px;color:var(--n5);margin-top:2px">Noch keine Ziele festgelegt</div>
+            </div>
+            <div style="background:var(--surface);border:1px solid var(--b1);border-radius:var(--r2);padding:12px 14px">
+              <div style="font-size:9px;font-weight:500;letter-spacing:0.09em;text-transform:uppercase;color:var(--n4);margin-bottom:6px">Erwartung Verm&ouml;gen</div>
+              <div id="sr-proj-wealth" style="font-family:var(--f-d);font-size:22px;font-weight:500;color:var(--n6)">—</div>
+              <div id="sr-proj-sub" style="font-size:11px;color:var(--n5);margin-top:2px">Strategie noch nicht berechnet</div>
+              <div id="sr-next-review" style="font-size:10px;color:var(--n4);margin-top:5px">Naechstes Gespraech: —</div>
+            </div>
+          </div>
+
+          <div class="g2" style="margin-bottom:14px">
+            <div class="card">
+              <div class="chd"><span class="cht">Wie Ihr Geld investiert wird</span></div>
+              <div class="cbody">
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
+                  <div><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:3px">Strategie</div><div id="sr-strategy-name" style="font-size:13px;font-weight:600;color:var(--n8)">—</div></div>
+                  <div><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:3px">Anlagehorizont</div><div id="sr-horizon" style="font-size:13px;font-weight:600;color:var(--n8)">—</div></div>
+                </div>
+                <div id="sr-allocation-bars" style="display:flex;flex-direction:column;gap:5px"><div style="font-size:10px;color:var(--n4)">Strategie berechnen, um Allokation zu sehen.</div></div>
+              </div>
+            </div>
+            <div class="card">
+              <div class="chd"><span class="cht">Ihre Ziele und Schwerpunkte</span></div>
+              <div class="cbody">
+                <div style="margin-bottom:10px">
+                  <div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:6px">Anlage-Schwerpunkte</div>
+                  <div id="sr-pref-focus-chips" style="display:flex;flex-wrap:wrap;gap:4px"><span style="font-size:10px;color:var(--n4)">—</span></div>
+                </div>
+                <div style="padding-top:8px;border-top:1px solid var(--b1)">
+                  <div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:6px">Ziele (priorisiert)</div>
+                  <div id="sr-goal-priority-list" style="display:flex;flex-direction:column;gap:5px"><div style="font-size:10px;color:var(--n4)">Noch keine Ziele definiert.</div></div>
+                </div>
+                <div id="sr-pref-restriction-chips" style="display:none"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card" style="margin-bottom:14px">
+            <div class="chd"><span class="cht">Was wir heute beschliessen</span><span style="font-size:9px;color:var(--n4);margin-left:8px">Konkrete Massnahmen aus dem heutigen Gespraech</span><div class="chr"><button id="sr-recipe-print" class="btn-g" onclick="printAdvisoryProtocol()">Beratungsprotokoll drucken</button></div></div>
+            <div class="cbody">
+              <div id="sr-implementation-steps" style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:10px"><div style="grid-column:1/-1;font-size:10px;color:var(--n4)">Noch keine Massnahme festgehalten. Im Review-Schritt einen Eintrag hinzufuegen.</div></div>
+              <div style="display:flex;justify-content:space-between;align-items:center;padding-top:8px;border-top:1px solid var(--b1)">
+                <span id="sr-decision-meta" style="font-size:10px;color:var(--n6)">Beratungsprotokoll — heutiges Gespraech</span>
+                <div style="display:flex;gap:6px;align-items:center">
+                  <div id="sr-next-review-date" style="font-size:11px;font-weight:600;color:var(--n6)">Naechstes Gespraech: —</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div id="sr-signature-block" style="display:none;grid-template-columns:1fr 1fr;gap:40px;margin-top:48px">
+            <div>Berater: ________________<br>Datum: ________________<br>Ort: ________________</div>
+            <div>Klient/in: ________________<br>Datum: ________________<br>Ort: ________________</div>
+          </div>
+        </div>
+
         <!-- DOM-Anker für JS (unsichtbar, renderReviewState() schreibt hier rein) -->
         <div style="display:none">
           <div id="rv-summary-grid"></div>
@@ -1701,11 +1778,11 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
           <div id="rv-doc-grid"></div>
         </div>
 
-        <div class="cnav"><button class="btn" onclick="go('po')">← Portfolio</button><button class="btn-p" onclick="go('sr')">Zusammenfassung →</button></div>
+        <div class="cnav"><button class="btn" onclick="go('po')">← Portfolio</button><button class="btn-g" onclick="printAdvisoryProtocol()">Beratungsprotokoll drucken</button></div>
       </div>
     </div>
     <!-- PAGE: ZUSAMMENFASSUNG -->
-    <div id="page-sr" class="page">
+    <template id="page-sr-legacy">
       <div class="ph"><div><div class="ph-t">Ihr Strategiebild</div><div class="ph-s">Was wir heute zusammen beschliessen — Profil, Strategie, Ziele, Massnahmen</div></div><div class="ph-r"><button id="sr-summary-print-inline" onclick="printSummaryPage()" class="btn">Protokoll drucken</button><button class="btn-g" onclick="printAnlagestrategie()">Anlagestrategie als Dokument</button></div></div>
       <div class="pad">
 
@@ -1785,7 +1862,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 
       </div>
       <div class="cnav"><button class="btn" onclick="go('rv')">← Zurück zum Review</button><button class="btn-g" onclick="printSummaryPage()">Protokoll drucken / als PDF speichern</button></div>
-    </div>
+    </template><div id="page-sr" class="page" style="display:none"></div>
 
 </main>
 </div>
@@ -3007,7 +3084,7 @@ async function initApp() {
 // ─── LIVE PRICES (Yahoo Finance via allorigins proxy) ───
 // ─── PRINT / PDF REPORT ───
 // NAV
-const pages={sd:0,vg:1,cf:2,ub:3,rp:4,al:5,po:6,rv:7,sr:8};
+const pages={sd:0,vg:1,cf:2,ub:3,rp:4,al:5,po:6,rv:7};
 async function ensureRiskProfileBeforeAllocationNavigation(targetPage){
   if(targetPage!=='al')return true;
   var riskState=null;
@@ -3025,6 +3102,7 @@ async function ensureRiskProfileBeforeAllocationNavigation(targetPage){
 }
 async function go(p,b){
   if(p==='ub')p='cf';
+  if(p==='sr')p='rv';
   if(!(await ensureRiskProfileBeforeAllocationNavigation(p)))return;
   Object.keys(pages).forEach(k=>{const el=document.getElementById('page-'+k);if(el)el.classList.remove('active');});
   const pg=document.getElementById('page-'+p);if(pg)pg.classList.add('active');
@@ -3090,9 +3168,7 @@ async function go(p,b){
     refreshStrategyData(false,false);
   },120);
   if(p==='po')setTimeout(function(){refreshPortfolioFromStoredState();},140);
-  if(p==='rv')setTimeout(function(){refreshReviewUI(currentMandateId||null);loadReviewSpiegel(currentMandateId||null);},120);
-  if(p==='sr')setTimeout(function(){if(currentMandateId&&!isDemoMandateId(currentMandateId))refreshReviewUI(currentMandateId).catch(function(e){console.warn('sr-rv-sync:',e);});},80);
-  if(p==='sr')setTimeout(function(){loadSrPage();},140);
+  if(p==='rv')setTimeout(function(){refreshReviewUI(currentMandateId||null);loadReviewSpiegel(currentMandateId||null);loadSrPage();},120);
   setTimeout(function(){normalizeVisibleMojibake(pg||document.body);},30);
 }
 function selC(el){document.querySelectorAll('.client').forEach(c=>c.classList.remove('active'));el.classList.add('active');}
@@ -4617,9 +4693,10 @@ function normalizeReportPages(rawPages){
 }
 function reportPagesForDocumentType(documentType){
   var raw=String(documentType||'').toLowerCase();
+  if(raw.indexOf('vertrag')>=0)return ['rp','al','rv'];
   if(raw.indexOf('strategie')>=0)return ['rp','ub','al'];
-  if(raw.indexOf('rezept')>=0)return ['al','po','sr'];
-  if(raw.indexOf('protokoll')>=0)return ['rv','sr'];
+  if(raw.indexOf('rezept')>=0)return ['al','po','rv'];
+  if(raw.indexOf('protokoll')>=0)return ['rv'];
   if(raw.indexOf('risikoprofil')>=0)return ['rp'];
   return ['rv'];
 }
@@ -4692,28 +4769,17 @@ function printReport(options){
   var title='5eyes Report - '+reportClientLabel()+' - '+new Date().toLocaleDateString('de-CH');
   openPrintableReportWindow(pageKeys,title);
 }
+function printPortfolioPlan(){
+  printReport({pages:['al','po','rv']});
+}
+function printContractOrStrategy(){
+  printAnlagestrategie();
+}
+function printAdvisoryProtocol(){
+  printReport({pages:['rv']});
+}
 function printSummaryPage(){
-  var body=document.body;
-  if(!body){
-    window.print();
-    return;
-  }
-  var cleaned=false;
-  function cleanupSummaryPrintMode(){
-    if(cleaned)return;
-    cleaned=true;
-    body.classList.remove('sr-print-mode');
-    window.removeEventListener('afterprint',cleanupSummaryPrintMode);
-  }
-  body.classList.add('sr-print-mode');
-  window.addEventListener('afterprint',cleanupSummaryPrintMode);
-  setTimeout(function(){
-    try{
-      window.print();
-    }finally{
-      setTimeout(cleanupSummaryPrintMode,600);
-    }
-  },20);
+  printAdvisoryProtocol();
 }
 
 function buildAnlagestrategieDocHtml(allocation,risk,persona,mandateData,recommendation){
@@ -5780,19 +5846,19 @@ function bindHonestUiActions(){
     riskPdfBody.innerHTML='<div style="font-size:11px;color:var(--n6);line-height:1.7">Die aktuelle Risikoprofil-Seite wird über den System-Druckdialog ausgegeben. Ein separates FINMA-PDF-Layout ist in dieser Version noch nicht hinterlegt.</div>';
   }
   var rvHeaderPrint=document.querySelector('#page-rv .ph-r .btn-g');
-  if(rvHeaderPrint)rvHeaderPrint.setAttribute('onclick',"printReport({pages:['rv']})");
+  if(rvHeaderPrint)rvHeaderPrint.setAttribute('onclick',"printContractOrStrategy()");
   var rvFooterPrint=document.querySelector('#page-rv .cnav .btn-g');
-  if(rvFooterPrint)rvFooterPrint.setAttribute('onclick',"printReport({pages:['rv']})");
+  if(rvFooterPrint)rvFooterPrint.setAttribute('onclick',"printAdvisoryProtocol()");
   var srHeaderPrint=document.querySelector('#page-sr .ph-r .btn');
   if(srHeaderPrint)srHeaderPrint.setAttribute('onclick',"printSummaryPage()");
   var srFooterPrint=document.querySelector('#page-sr .cnav .btn-g');
   if(srFooterPrint)srFooterPrint.setAttribute('onclick',"printSummaryPage()");
   var summaryRecipePrint=document.getElementById('sr-recipe-print');
-  if(summaryRecipePrint)summaryRecipePrint.setAttribute('onclick',"printReport({pages:['al','po','rv','sr']})");
+  if(summaryRecipePrint)summaryRecipePrint.setAttribute('onclick',"printAdvisoryProtocol()");
   var docCards=document.querySelectorAll('#rv-doc-grid > div');
   if(docCards[0]){
     var contractBtn=docCards[0].querySelector('button');
-    if(contractBtn)contractBtn.setAttribute('onclick',"printReport({pages:['rv']})");
+    if(contractBtn)contractBtn.setAttribute('onclick',"printContractOrStrategy()");
   }
   if(docCards[1]){
     var strategyBtn=docCards[1].querySelector('button');
@@ -5800,11 +5866,11 @@ function bindHonestUiActions(){
   }
   if(docCards[2]){
     var recipeDocBtn=docCards[2].querySelector('button');
-    if(recipeDocBtn)recipeDocBtn.setAttribute('onclick',"printReport({pages:['al','po','sr']})");
+    if(recipeDocBtn)recipeDocBtn.setAttribute('onclick',"printPortfolioPlan()");
   }
   if(docCards[3]){
     var logBtn=docCards[3].querySelector('button');
-    if(logBtn)logBtn.setAttribute('onclick',"printReport({pages:['rv','sr']})");
+    if(logBtn)logBtn.setAttribute('onclick',"printAdvisoryProtocol()");
   }
   var recipeBtn=document.querySelector('#m-ums .mfooter .btn-p');
   if(recipeBtn)recipeBtn.textContent='Finalisieren & drucken';
@@ -12469,11 +12535,9 @@ function markStrategyDirty(message,invalidateOutputs){
   if(message)updateStrategyStatus(message,false);
   var dirtyBanner=document.getElementById('al-dirty-banner');
   if(dirtyBanner)dirtyBanner.style.display='';
-  // 2026-05-17 Sprint 1 Item 2: Auto-Recompute mit Debounce — 3eyes-Methodik
-  // 'unmittelbare Berechnung nach jeder Eingabe' (Slide 9 Differenzierungsfaktor
-  // Interaktivitaet). Statt manuellem 'Anlagestrategie berechnen'-Klick wird
-  // 800ms nach jeder Aenderung automatisch neu berechnet. Debounce verhindert
-  // dass schnelle Eingaben (Typing) 10x den Solver triggern.
+  // Auto-Recompute mit Debounce: falls aktiviert, wird nach Aenderungen
+  // verzoegert neu gerechnet. Der Default bleibt manuell, damit die sichtbare
+  // SOLL-Prognose stabil bleibt, bis der Berater bewusst neu berechnet.
   scheduleAutoRecompute();
 }
 
@@ -13679,7 +13743,7 @@ async function confirmImplementationRecipe(){
       updateStrategyStatus('Aktuelles Rezept wurde live aufgebaut und kann jetzt gedruckt werden.',false);
     }
     cm('m-ums');
-    printReport({pages:['al','po','sr']});
+    printPortfolioPlan();
   }catch(e){
     updateStrategyStatus('Rezept konnte nicht finalisiert werden: '+(e.detail||e.message||'?'),true);
   }
@@ -13705,7 +13769,7 @@ async function downloadServerPdf(reportType){
       else{alert('Bitte zuerst ein Mandat oeffnen.');}
       return;
     }
-    if(reportType!=='anlagestrategie'&&reportType!=='risikoprofil'){
+    if(reportType!=='anlagestrategie'&&reportType!=='risikoprofil'&&reportType!=='portfolio'){
       console.error('downloadServerPdf: unknown reportType', reportType);return;
     }
     var path='/mandates/'+encodeURIComponent(mid)+'/reports/'+reportType+'.pdf';
@@ -15216,34 +15280,45 @@ function ensureReviewUtilityCards(){
   var page=document.getElementById('page-rv');
   var pad=page&&page.querySelector?page.querySelector('.pad'):null;
   if(!pad)return {};
-  var suitabilityList=document.getElementById('rv-suitability-list');
-  if(suitabilityList&&!document.getElementById('rv-suitability-preflight')){
-    var preflight=document.createElement('div');
-    preflight.id='rv-suitability-preflight';
-    preflight.style.cssText='padding:12px 14px 0';
-    suitabilityList.parentNode.insertBefore(preflight,suitabilityList);
+  function ensureAnchors(anchorIds){
+    anchorIds.forEach(function(id){
+      if(document.getElementById(id))return;
+      var el=document.createElement('div');
+      el.id=id;
+      pad.appendChild(el);
+    });
   }
-  var actionCard=document.getElementById('rv-action-summary');
-  if(!actionCard){
-    var actionWrap=document.createElement('div');
-    actionWrap.className='card';
-    actionWrap.style.cssText='margin:0 24px 16px';
-    actionWrap.innerHTML='<div class="chd"><span class="cht">Entscheidungsraum</span><span style="font-size:9px;color:var(--n4);margin-left:8px">Empfehlung aus Strategievergleich und Triggern</span></div><div class="cbody" id="rv-action-summary"><div style="font-size:10px;color:var(--n4);line-height:1.6">Sobald Drift oder Trigger bewertet sind, erscheint hier die kondensierte Empfehlung fuer das Meeting.</div></div>';
-    pad.appendChild(actionWrap);
-    actionCard=document.getElementById('rv-action-summary');
+  function ensureCard(cardId,title,sub,anchorIds,bodyStyle){
+    ensureAnchors(anchorIds);
+    var existing=document.getElementById(cardId);
+    if(!existing){
+      existing=document.createElement('div');
+      existing.className='card';
+      existing.id=cardId;
+      existing.style.cssText='margin-bottom:14px';
+      existing.innerHTML='<div class="chd"><span class="cht">'+title+'</span>'+(sub?'<span style="font-size:9px;color:var(--n4);margin-left:8px">'+sub+'</span>':'')+'</div><div class="cbody"></div>';
+      pad.appendChild(existing);
+    }
+    var body=existing.querySelector('.cbody')||existing;
+    if(bodyStyle)body.style.cssText=bodyStyle;
+    anchorIds.forEach(function(id){
+      var anchor=document.getElementById(id);
+      if(anchor&&id==='rv-doc-grid')anchor.style.cssText='display:grid;grid-template-columns:repeat(4,1fr);gap:10px';
+      if(anchor&&anchor.parentNode!==body)body.appendChild(anchor);
+    });
+    return existing;
   }
-  var readinessCard=document.getElementById('rv-readiness-check');
-  if(!readinessCard){
-    var readinessWrap=document.createElement('div');
-    readinessWrap.className='card';
-    readinessWrap.style.cssText='margin:0 24px 16px';
-    readinessWrap.innerHTML='<div class="chd"><span class="cht">Meeting abschliessen</span><span style="font-size:9px;color:var(--n4);margin-left:8px">Status vor Druck, PDF und Signatur</span></div><div class="cbody" id="rv-readiness-check"><div style="font-size:10px;color:var(--n4);line-height:1.6">Der Abschluss-Status wird nach dem Laden der Review-Daten automatisch geprueft.</div></div>';
-    pad.appendChild(readinessWrap);
-    readinessCard=document.getElementById('rv-readiness-check');
-  }
+  var actionCard=ensureCard('rv-action-card','Entscheidungsraum','Empfehlung aus Strategievergleich und Triggern',['rv-action-summary']);
+  var suitabilityCard=ensureCard('rv-suitability-card','Eignungspruefung','FIDLEG Preflight und Dokumentation',['rv-suitability-preflight','rv-suitability-list']);
+  var readinessCard=ensureCard('rv-readiness-card','Meeting abschliessen','Status vor Druck, PDF und Signatur',['rv-readiness-check']);
+  var conflictCard=ensureCard('rv-conflict-card','Interessenkonflikte','Offenlegung und Mitigation',['rv-conflict-panel']);
+  var docsCard=ensureCard('rv-documents-card','Dokumente','Entwuerfe, Signatur und Kapitel',['rv-doc-grid']);
   return {
-    actionCard:actionCard?actionCard.closest('.card'):null,
-    readinessCard:readinessCard?readinessCard.closest('.card'):null
+    actionCard:actionCard,
+    suitabilityCard:suitabilityCard,
+    readinessCard:readinessCard,
+    conflictCard:conflictCard,
+    docsCard:docsCard
   };
 }
 function normalizeReviewLayout(){
@@ -15251,19 +15326,16 @@ function normalizeReviewLayout(){
   var pad=page&&page.querySelector?page.querySelector('.pad'):null;
   if(!pad)return;
   var utility=ensureReviewUtilityCards();
+  var heroCard=document.getElementById('rv-hero');
+  var summarySection=document.getElementById('rv-zusammenfassung');
+  var strategySpiegel=document.getElementById('rv-spiegel-card');
+  var outputCard=document.getElementById('rv-output-section');
   var strategyCard=document.getElementById('rv-strategy-compare');
   strategyCard=strategyCard?strategyCard.closest('.card'):null;
   var triggerTime=document.getElementById('rv-trigger-time');
   var triggerGrid=triggerTime&&triggerTime.closest?triggerTime.closest('.card'):null;
-  triggerGrid=triggerGrid&&triggerGrid.parentNode?triggerGrid.parentNode:null;
-  var suitabilityCard=document.getElementById('rv-suitability-list');
-  suitabilityCard=suitabilityCard?suitabilityCard.closest('.card'):null;
   var logCard=document.getElementById('rv-log-list');
   logCard=logCard?logCard.closest('.card'):null;
-  var conflictCard=document.getElementById('rv-conflict-panel');
-  conflictCard=conflictCard?conflictCard.closest('.card'):null;
-  var docsCard=document.getElementById('rv-doc-grid');
-  docsCard=docsCard?docsCard.closest('.card'):null;
   function rvSectionHeader(id,num,title,sub){
     var el=document.getElementById(id);
     if(!el){el=document.createElement('div');el.id=id;}
@@ -15279,10 +15351,10 @@ function normalizeReviewLayout(){
   var h4=rvSectionHeader('rv-sh4','4','Meeting abschliessen','Interessenkonflikte · Governance-Checkliste · Dokumente und Ausgabe');
   h1=rvSectionHeader('rv-sh1','1','Hauptanalyse','Ist-Portfolio, Soll-Strategie, Zielerreichung und naechste Massnahme');
   h2=rvSectionHeader('rv-sh2','2','Trigger pruefen','Zeit-, Markt- und Ereignis-Trigger mit Fristen und Dringlichkeit');
-  h3=rvSectionHeader('rv-sh3','3','Entscheid festhalten','Empfehlung, Eignungspruefung und Beratungsprotokoll');
+  h3=rvSectionHeader('rv-sh3','3','Entscheid & Zusammenfassung','Empfehlung, Ausgabe, Beratungsprotokoll und Kundensicht');
   h4=rvSectionHeader('rv-sh4','4','Abschluss & Dokumente','Interessenkonflikte, Governance-Checkliste, Druck und Signatur');
   var cnav=pad.querySelector('.cnav');
-  [heroCard,summarySection,h1,strategyCard,strategySpiegel,h2,triggerGrid,h3,utility.actionCard,suitabilityCard,logCard,h4,conflictCard,utility.readinessCard,docsCard].forEach(function(node){
+  [heroCard,h1,strategySpiegel,strategyCard,h2,triggerGrid,h3,logCard,utility.actionCard,outputCard,summarySection,h4,utility.suitabilityCard,utility.conflictCard,utility.readinessCard,utility.docsCard].forEach(function(node){
     if(node)pad.appendChild(node);
   });
   if(cnav)pad.appendChild(cnav);
@@ -15366,6 +15438,32 @@ function renderReviewActionSummary(state){
   root.innerHTML='<div style="background:var(--bg);border:1px solid var(--b1);border-radius:var(--r2);padding:12px"><div style="font-size:10px;font-weight:600;color:var(--n8);margin-bottom:8px">Empfehlung heute</div><div style="display:flex;flex-direction:column;gap:6px">'+items.map(function(item){
     return '<div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start"><div style="font-size:11px;color:var(--n7)">• '+escapeHtml(item.assetClass)+': '+escapeHtml(item.meta.action)+'</div><div style="font-size:10px;font-weight:600;color:'+item.meta.tone+'">'+escapeHtml(formatSignedBpsPercent(item.deltaWeightBps))+'</div></div>';
   }).join('')+'</div><div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"><button class="btn-p btn-sm" onclick="om(\'m-ne\')">Protokoll erfassen</button>'+(hasTradeList?'<button class="btn btn-sm" onclick="openTradeList()">Handelsliste oeffnen</button>':'')+'</div></div>';
+}
+function renderReviewOutputHub(state){
+  var root=document.getElementById('rv-output-hub');
+  if(!root)return;
+  var allocation=(state&&state.allocation)||strategyState.allocation||null;
+  var logs=(state&&state.logs)||[];
+  var documents=(state&&state.documents)||[];
+  var risk=currentPersistedRiskForMandate(getActiveMandateId());
+  var hasProtocol=logs.some(function(item){return reviewIsRecent(item.entry_date||item.created_at,1);});
+  var signedDocs=documents.filter(function(doc){return Number(doc.signed_by_advisor||0)===1||Number(doc.signed_by_client||0)===1;}).length;
+  function statusChip(ok,label){
+    return '<span class="tag '+(ok?'tg':'ta')+'">'+escapeHtml(label)+'</span>';
+  }
+  function outputCard(title,sub,statusHtml,primaryLabel,primaryAction,secondaryHtml){
+    return '<div style="border:1px solid var(--b1);border-radius:var(--r2);padding:12px;display:flex;flex-direction:column;gap:10px;min-height:132px">'
+      +'<div><div style="font-size:11px;font-weight:700;color:var(--n8);margin-bottom:4px">'+escapeHtml(title)+'</div><div style="font-size:9px;color:var(--n5);line-height:1.45">'+escapeHtml(sub)+'</div></div>'
+      +'<div>'+statusHtml+'</div>'
+      +'<div style="margin-top:auto;display:flex;gap:6px;flex-wrap:wrap"><button class="btn-p btn-sm" onclick="'+primaryAction+'">'+escapeHtml(primaryLabel)+'</button>'+(secondaryHtml||'')+'</div>'
+      +'</div>';
+  }
+  root.innerHTML='<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">'
+    +outputCard('Portfolio-/Umsetzungsplan','SOLL-Allokation, konkrete Produkte und Umsetzung.',statusChip(!!allocation,allocation?'bereit':'Strategie fehlt'),'Portfolio drucken','printPortfolioPlan()','')
+    +outputCard('Anlagestrategie / Vertrag','Kundendokument mit Strategie, Eignung und Signatur.',statusChip(!!allocation,allocation?'bereit':'unvollstaendig')+(signedDocs?'<span style="margin-left:5px">'+statusChip(true,String(signedDocs)+' signiert')+'</span>':''),'Dokument oeffnen','printContractOrStrategy()','')
+    +outputCard('Beratungsprotokoll','Review, Entscheidung, Massnahmen und Abschluss.',statusChip(hasProtocol,hasProtocol?'dokumentiert':'Entscheid offen'),'Protokoll drucken','printAdvisoryProtocol()','<button class="btn btn-sm" onclick="om(\'m-ne\')">Eintrag</button>')
+    +outputCard('Weitere Dokumente','Risikoprofil, Eignung, Override und Sonstiges.',statusChip(!!risk,risk?'Risikoprofil bereit':'Risikoprofil fehlt'),'Risikoprofil',"downloadServerPdf('risikoprofil')",'<button class="btn btn-sm" onclick="om(\'m-rep\')">Sonstiges</button>')
+    +'</div>';
 }
 function renderReadinessChecklist(state){
   var root=document.getElementById('rv-readiness-check');
@@ -15782,6 +15880,8 @@ function renderReviewState(state){
   renderSuitabilityPreflight(state||{});
   renderAdvisoryLogList((state&&state.logs)||[]);
   renderReviewActionSummary(state||{});
+  renderReviewOutputHub(state||{});
+  renderSrImplementationDecision(null);
   renderConflictDisclosurePanel(conflicts);
   renderSuitabilityChecks((state&&state.suitability)||[]);
   renderReadinessChecklist(state||{});

@@ -105,6 +105,21 @@ class AnlagestrategieData:
 
 
 @dataclass(frozen=True)
+class PortfolioData:
+    """Sprint 11 Phase 6: Portfolio-PDF Daten-Bundle.
+
+    Fokus auf konkrete Positionen mit Soll-vs-IST + Drift.
+    """
+    mandate_number: str | None = None
+    advisory_wealth_rappen: int | None = None
+    positions: list = field(default_factory=list)
+    """Liste von Position-Dicts mit: name, isin, sub_asset_class,
+    target_weight_bps, current_weight_bps, drift_bps,
+    target_amount_rappen, current_amount_rappen, currency,
+    ter_bps, provider."""
+
+
+@dataclass(frozen=True)
 class RisikoprofilData:
     """Daten-Bundle fuer Risikoprofil-PDF (FINMA W305.02/W305.03)."""
 

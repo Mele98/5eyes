@@ -48,6 +48,15 @@ class ReportLabRenderer:
             build_flowables=lambda: build_risikoprofil_flowables(ctx, data),
         )
 
+    def render_portfolio(self, ctx: PDFContext, data) -> bytes:
+        """Sprint 11 Phase 6: Portfolio-PDF (Positionen + Drift)."""
+        from services.pdf.documents.portfolio import build_portfolio_flowables
+        return self._render_to_bytes(
+            ctx=ctx,
+            title="Portfolio",
+            build_flowables=lambda: build_portfolio_flowables(ctx, data),
+        )
+
     def _render_to_bytes(
         self,
         *,

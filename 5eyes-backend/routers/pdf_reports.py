@@ -1,11 +1,13 @@
 """PDF-Report-Endpoints — Anlagestrategie, Risikoprofil als PDF-Download.
 
 Spec: docs/planning/2026-05-17-sprint-5-pdf-engine.md §4 Phase 2
+Sprint 11 Phase 5: Logging + Fallback-Sektionen + Portfolio-PDF
 """
 from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Response
@@ -13,6 +15,8 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from models.clients import Client
+
+logger = logging.getLogger(__name__)
 from models.mandates import Mandate
 from models.users import User
 from services.auth import get_current_user, get_mandate_for_user_or_404
@@ -111,8 +115,11 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
             if advisory_wealth:
                 for bucket, bps in target_alloc_bps.items():
                     bucket_amounts[bucket] = int(advisory_wealth * bps / 10000)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning(
+            "PDF data-load section failed for mandate %s: %s",
+            getattr(mandate, "id", "?"), exc,
+        )
 
     # ---- CMA-Werte (gewichtet) ----
     try:
@@ -136,8 +143,11 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
                 + weights_pct.get("real_estate", 0) * (getattr(cma, "real_estate_ch_vol_bps", 0) or 0)
                 + weights_pct.get("liquidity", 0) * (getattr(cma, "liquidity_vol_bps", 0) or 0)
             )
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning(
+            "PDF data-load section failed for mandate %s: %s",
+            getattr(mandate, "id", "?"), exc,
+        )
 
     # ---- Risk-Assessment ----
     risk_score_x10 = None
@@ -172,8 +182,11 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
                                 target[str(k)] = bool(v)
                     except (json.JSONDecodeError, TypeError):
                         pass
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning(
+            "PDF data-load section failed for mandate %s: %s",
+            getattr(mandate, "id", "?"), exc,
+        )
 
     # ---- Produkte (Recommendation) ----
     products: list = []
@@ -204,8 +217,11 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
                     "target_weight_bps": int(getattr(pos, "target_weight_bps", 0) or 0),
                     "target_amount_rappen": int(getattr(pos, "target_amount_rappen", 0) or 0),
                 })
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning(
+            "PDF data-load section failed for mandate %s: %s",
+            getattr(mandate, "id", "?"), exc,
+        )
 
     # ---- Goal-Analysis (defensive — Felder existieren je nach Optimizer-Run) ----
     goal_analysis: list = []
@@ -224,8 +240,11 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
                             "achievement_score": float(entry.get("achievement_score", 0) or 0),
                             "target_text": str(entry.get("target_text", "") or ""),
                         })
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning(
+            "PDF data-load section failed for mandate %s: %s",
+            getattr(mandate, "id", "?"), exc,
+        )
 
     # ---- Stress/MC-Werte (defensive aus optimization_*_json oder stress_evaluations_json) ----
     max_dd_bps = None
@@ -240,8 +259,11 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
                     max_dd_bps = int(parsed.get("max_drawdown_bps", 0) or 0) or None
                     var_95_bps = int(parsed.get("var_95_bps", 0) or 0) or None
                     median_cagr_bps = int(parsed.get("median_cagr_bps", 0) or 0) or None
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning(
+            "PDF data-load section failed for mandate %s: %s",
+            getattr(mandate, "id", "?"), exc,
+        )
 
     horizon = int(getattr(mandate, "investment_horizon_years", 10) or 10)
 
@@ -328,8 +350,11 @@ def get_risikoprofil_pdf(
             risk_tolerance = int(getattr(ra, "risk_tolerance_score", 0) or 0)
             experience_years = int(getattr(ra, "experience_years", 0) or 0)
             suitability_note = str(getattr(ra, "suitability_note", "") or "")
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning(
+            "PDF data-load section failed for mandate %s: %s",
+            getattr(mandate, "id", "?"), exc,
+        )
 
     risk_data = RisikoprofilData(
         risk_profile_label=risk_label,
@@ -344,6 +369,100 @@ def get_risikoprofil_pdf(
     pdf_bytes = ReportLabRenderer().render_risikoprofil(ctx, risk_data)
     safe_name = "".join(c if c.isalnum() else "_" for c in ctx.mandate_name)[:40]
     filename = f"5eyes_risikoprofil_{safe_name}_{ctx.report_date.isoformat()}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
+
+
+def _build_portfolio_data(mandate: Mandate, db: Session) -> PortfolioData:
+    """Sprint 11 Phase 6: Portfolio-Daten aus DB.
+
+    Lädt die juengste RecommendationRun + Positions + Product-Lookup.
+    Plus aktuelle WealthPositions falls vorhanden (fuer IST-Werte).
+    """
+    advisory_wealth = None
+    positions: list = []
+
+    try:
+        from models.allocation import TargetAllocation
+        ta = (
+            db.query(TargetAllocation)
+            .filter(TargetAllocation.mandate_id == mandate.id)
+            .order_by(TargetAllocation.created_at.desc())
+            .first()
+        )
+        if ta is not None:
+            advisory_wealth = int(getattr(ta, "advisory_wealth_rappen", 0) or 0) or None
+    except Exception as exc:
+        logger.warning("Portfolio data: TA load failed: %s", exc)
+
+    try:
+        from models.review import Product, RecommendationPosition, RecommendationRun
+        last_run = (
+            db.query(RecommendationRun)
+            .filter(RecommendationRun.mandate_id == mandate.id)
+            .order_by(RecommendationRun.created_at.desc())
+            .first()
+        )
+        if last_run is not None:
+            pos_list = (
+                db.query(RecommendationPosition)
+                .filter(RecommendationPosition.recommendation_run_id == last_run.id)
+                .all()
+            )
+            # Batch-Load Products (vermeidet N+1)
+            product_ids = [p.product_id for p in pos_list if p.product_id]
+            products_map = {}
+            if product_ids:
+                product_rows = db.query(Product).filter(Product.id.in_(product_ids)).all()
+                products_map = {p.id: p for p in product_rows}
+
+            for pos in pos_list:
+                prod = products_map.get(pos.product_id)
+                target_bps = int(getattr(pos, "target_weight_bps", 0) or 0)
+                current_bps = int(getattr(pos, "current_weight_bps", 0) or 0)
+                positions.append({
+                    "name": str(getattr(prod, "product_name", None) or "—"),
+                    "isin": str(getattr(prod, "isin", "") or ""),
+                    "sub_asset_class": str(getattr(prod, "sub_asset_class", "") or ""),
+                    "target_weight_bps": target_bps,
+                    "current_weight_bps": current_bps,
+                    "drift_bps": current_bps - target_bps,
+                    "target_amount_rappen": int(getattr(pos, "target_amount_rappen", 0) or 0),
+                    "current_amount_rappen": int(getattr(pos, "current_amount_rappen", 0) or 0),
+                    "currency": str(getattr(prod, "currency", "CHF") or "CHF"),
+                    "ter_bps": int(getattr(prod, "ter_bps", 0) or 0),
+                    "provider": str(getattr(prod, "provider", "") or ""),
+                })
+    except Exception as exc:
+        logger.warning("Portfolio data: positions load failed: %s", exc)
+
+    return PortfolioData(
+        mandate_number=str(getattr(mandate, "mandate_number", "") or ""),
+        advisory_wealth_rappen=advisory_wealth,
+        positions=positions,
+    )
+
+
+@router.get(
+    "/mandates/{mandate_id}/reports/portfolio.pdf",
+    response_class=Response,
+    responses={200: {"content": {"application/pdf": {}}}},
+)
+def get_portfolio_pdf(
+    mandate_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Sprint 11 Phase 6: Portfolio-PDF mit Positionen + Soll-vs-IST + Drift."""
+    mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
+    ctx = _build_pdf_context(mandate, current_user, db)
+    data = _build_portfolio_data(mandate, db)
+    pdf_bytes = ReportLabRenderer().render_portfolio(ctx, data)
+    safe_name = "".join(c if c.isalnum() else "_" for c in ctx.mandate_name)[:40]
+    filename = f"5eyes_portfolio_{safe_name}_{ctx.report_date.isoformat()}.pdf"
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",

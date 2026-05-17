@@ -6,7 +6,7 @@ Spec: docs/planning/2026-05-17-sprint-11-pdf-replikation.md
 from __future__ import annotations
 
 from reportlab.lib.units import mm
-from reportlab.platypus import Spacer
+from reportlab.platypus import PageBreak, Paragraph, Spacer
 
 from services.pdf.base import AnlagestrategieData, PDFContext
 from services.pdf.components.eignungspruefung import make_eignungspruefung_section
@@ -24,16 +24,13 @@ def build_anlagestrategie_flowables(
 ) -> list:
     """8 Sektionen wie Frontend-Vorlage, A4 Landscape.
 
-    1. Header (dark, WealthArchitekten-Banner)
-    2. Kenntnisse & Erfahrungen (Eignungspruefung)
-    3. Risikoprofil-Box
-    4. Soll-Allokation & Toleranzbaender
-    5. Umsetzung in Produkte (ISIN)
-    6. Risikoindikatoren & Prognose (Monte Carlo)
-    7. Anlageziele & Zielerreichung
-    8. Bestaetigung & Unterschrift
+    Sprint 11 Phase 5: forcierte PageBreaks + Fallback-Texte fuer leere
+    Sektionen. Garantiert mindestens 2 Seiten (Seite 1 = Profil/SAA,
+    Seite 2 = Portfolio/Risk/Ziele/Unterschrift).
     """
     flowables: list = []
+    from services.pdf.styles import make_paragraph_styles
+    styles = make_paragraph_styles()
 
     # ---- 1. Header ----
     advisory_label = None
@@ -45,35 +42,57 @@ def build_anlagestrategie_flowables(
         advisory_wealth_label=advisory_label,
     ))
 
-    # ---- 2. Eignungspruefung ----
-    eignung = make_eignungspruefung_section(
-        services_knowledge=data.knowledge_services,
-        instruments_knowledge=data.knowledge_instruments,
-    )
-    if eignung:
-        flowables.extend(eignung)
-        flowables.append(Spacer(1, 3 * mm))
-
-    # ---- 3. Risikoprofil-Box ----
-    risk_box = make_risikoprofil_box(
-        score_x10=data.risk_score_x10,
-        profile_label=data.risk_profile_label,
-        horizon_years=data.investment_horizon_years or data.horizon_years,
-        mandate_type=data.mandate_type,
-    )
-    if risk_box:
-        flowables.extend(risk_box)
-        flowables.append(Spacer(1, 3 * mm))
-
-    # ---- 4. Soll-Allokation ----
-    flowables.extend(make_saa_bar_table(
-        data.target_allocation_bps,
-        bucket_bands_bps=data.bucket_bands_bps,
-        bucket_amounts_rappen=data.bucket_amounts_rappen,
-        base_currency=ctx.base_currency,
-        advisory_wealth_rappen=data.advisory_wealth_rappen,
-    ))
+    # ---- 2. Eignungspruefung (mit Fallback) ----
+    if data.knowledge_services or data.knowledge_instruments:
+        flowables.extend(make_eignungspruefung_section(
+            services_knowledge=data.knowledge_services,
+            instruments_knowledge=data.knowledge_instruments,
+        ))
+    else:
+        flowables.append(_section_title_with_fallback(
+            "Kenntnisse & Erfahrungen (Eignungspruefung)",
+            "Noch keine Kenntnisse erfasst. Bitte im Risikoprofil-Tab "
+            "Finanzdienstleistungen und -instrumente angeben.",
+            styles,
+        ))
     flowables.append(Spacer(1, 3 * mm))
+
+    # ---- 3. Risikoprofil-Box (mit Fallback) ----
+    if data.risk_score_x10 is not None or data.risk_profile_label:
+        flowables.extend(make_risikoprofil_box(
+            score_x10=data.risk_score_x10,
+            profile_label=data.risk_profile_label,
+            horizon_years=data.investment_horizon_years or data.horizon_years,
+            mandate_type=data.mandate_type,
+        ))
+    else:
+        flowables.append(_section_title_with_fallback(
+            "Risikoprofil",
+            "Noch kein Risikoprofil gespeichert. Bitte im Risikoprofil-Tab "
+            "den Fragebogen ausfuellen und speichern.",
+            styles,
+        ))
+    flowables.append(Spacer(1, 3 * mm))
+
+    # ---- 4. Soll-Allokation (immer rendern wegen Header) ----
+    if data.target_allocation_bps and sum(data.target_allocation_bps.values()) > 0:
+        flowables.extend(make_saa_bar_table(
+            data.target_allocation_bps,
+            bucket_bands_bps=data.bucket_bands_bps,
+            bucket_amounts_rappen=data.bucket_amounts_rappen,
+            base_currency=ctx.base_currency,
+            advisory_wealth_rappen=data.advisory_wealth_rappen,
+        ))
+    else:
+        flowables.append(_section_title_with_fallback(
+            "Soll-Allokation & Toleranzbaender",
+            "Noch keine Soll-Allokation berechnet. Bitte im Asset-"
+            "Allokation-Tab 'Anlagestrategie berechnen' klicken.",
+            styles,
+        ))
+
+    # ---- PAGE BREAK — Seite 2 startet hier ----
+    flowables.append(PageBreak())
 
     # ---- 5. Produkte ----
     flowables.extend(make_produkte_section(
@@ -82,28 +101,63 @@ def build_anlagestrategie_flowables(
     ))
     flowables.append(Spacer(1, 3 * mm))
 
-    # ---- 6. Risiko-Metriken ----
-    risk_metrics = make_risiko_metriken_section(
-        expected_return_bps=data.cma_expected_return_bps,
-        median_cagr_bps=data.median_cagr_bps,
-        volatility_bps=data.cma_expected_vol_bps,
-        max_drawdown_bps=data.max_drawdown_bps,
-        var_95_bps=data.var_95_bps,
+    # ---- 6. Risiko-Metriken (mit Fallback) ----
+    has_metrics = (
+        data.cma_expected_return_bps or data.median_cagr_bps
+        or data.cma_expected_vol_bps or data.max_drawdown_bps
+        or data.var_95_bps
     )
-    if risk_metrics:
-        flowables.extend(risk_metrics)
-        flowables.append(Spacer(1, 3 * mm))
+    if has_metrics:
+        flowables.extend(make_risiko_metriken_section(
+            expected_return_bps=data.cma_expected_return_bps,
+            median_cagr_bps=data.median_cagr_bps,
+            volatility_bps=data.cma_expected_vol_bps,
+            max_drawdown_bps=data.max_drawdown_bps,
+            var_95_bps=data.var_95_bps,
+        ))
+    else:
+        flowables.append(_section_title_with_fallback(
+            "Risikoindiktatoren & Prognose (Monte Carlo)",
+            "Noch keine Monte-Carlo-Simulation. Wird zusammen mit "
+            "'Anlagestrategie berechnen' generiert.",
+            styles,
+        ))
+    flowables.append(Spacer(1, 3 * mm))
 
-    # ---- 7. Ziele ----
-    ziele = make_ziele_section(data.goal_analysis)
-    if ziele:
-        flowables.extend(ziele)
-        flowables.append(Spacer(1, 3 * mm))
+    # ---- 7. Ziele (mit Fallback) ----
+    if data.goal_analysis:
+        flowables.extend(make_ziele_section(data.goal_analysis))
+    else:
+        flowables.append(_section_title_with_fallback(
+            "Anlageziele & Zielerreichung",
+            "Noch keine Ziele erfasst oder Zielerreichung noch nicht "
+            "berechnet. Bitte im Cashflow-Tab Ziele anlegen.",
+            styles,
+        ))
+    flowables.append(Spacer(1, 3 * mm))
 
-    # ---- 8. Unterschrift ----
+    # ---- 8. Unterschrift (immer drin) ----
     flowables.extend(make_unterschrift_section())
 
     return flowables
+
+
+def _section_title_with_fallback(title: str, fallback_text: str, styles):
+    """Helper: Section-Title + grauer Italic-Text wenn Sektion leer."""
+    from services.pdf.components.header import _esc
+    from services.pdf.styles import FONT_DEFAULT
+    title_para = Paragraph(
+        f'<font color="#475569" size="9"><b>{_esc(title).upper()}</b></font>',
+        styles["section_title"],
+    )
+    fallback_para = Paragraph(
+        f'<font name="{FONT_DEFAULT}" size="9" color="#94a3b8"><i>'
+        f'{_esc(fallback_text)}</i></font>',
+        styles["small_muted"],
+    )
+    # Beide in einer Mini-Liste zurueckgeben
+    from reportlab.platypus import KeepTogether
+    return KeepTogether([title_para, fallback_para])
 
 
 def _format_amount(rappen: int, currency: str = "CHF") -> str:
