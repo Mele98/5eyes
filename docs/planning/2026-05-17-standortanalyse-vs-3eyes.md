@@ -62,9 +62,18 @@ sind, mit Zeitplan zum Schliessen.
 
 ### A. P0 Compliance-Gap (Pflicht für Beratungs-Mehrwert)
 
-1. **Steuern**: Vermögenssteuer (kantonalspezifisch CH) + Einkommensteuer auf Kapitalerträge + Kapitalbezugssteuer auf Pensionsbezüge
-2. **Dividenden separat modelliert**: CMA muss `dividend_yield_bps` pro Asset, getrennt von Price-Appreciation. Wichtig für Income-orientierte Mandate (Pensionsplanung).
-3. **Mortalitätsadjustierte Pensionen**: BFS-Sterbetafel statt fixer `life_expectancy_year`. Wahrscheinlichkeitsverteilung über Lebensdauer.
+1. ✅ **Steuern** (Sprint 2 Item 1, commit 76a4556): Vermögenssteuer p.a.
+   in CMA-Schema (Default 0 bps = aus). Engine zieht jährlich
+   `wealth * (1 - bps/10000)` ab, nur auf positives Wealth (W2.5-konsistent).
+   Kantonal-spezifische Sätze als CMA-Wert pro Mandat. Plus
+   Kapitalbezugssteuer war schon im Cashflow-Modell.
+2. ✅ **Dividenden separat modelliert** (Sprint 2 Item 2, commit c8f2793):
+   3 CMA-Felder `dividend_yield_bps_equity_ch/intl/real_estate` + Engine-
+   Integration als Tax-Drag `drag_pa = Σ_b weights·yield_b·tax_rate`.
+   Implizit Total Return = Dividend + Preis getrennt für Steuer-Effekt.
+3. ⏳ **Mortalitätsadjustierte Pensionen** (Sprint 3): BFS-Sterbetafel
+   statt fixer `life_expectancy_year`. Wahrscheinlichkeitsverteilung über
+   Lebensdauer.
 
 ### B. P1 Engine-Tiefe (Kompetitiver Faktor)
 
