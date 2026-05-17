@@ -113,6 +113,12 @@ class OptimizerContext:
     # Aktivierung: Caller (build_optimizer_context oder ext. Pfad) liefert
     # weights vom build_scenario_paths_with_weights-Wrapper.
     scenario_weights: np.ndarray | None = None
+    # Sprint 4 Phase 3 (2026-05-17): Optional mortalitaets-Sampling.
+    # Wenn None: keine Mortality (Backwards-Compat). Wenn gesetzt: shape
+    # (n_paths,) integer-Array, pro Pfad year_index ab dem cashflow=0.
+    # Aktivierung: Caller liefert den Array aus
+    # services.mortality.sample_age_at_death + death_year_index_from_age.
+    mortality_death_year_index_per_path: np.ndarray | None = None
 
 
 @dataclass(frozen=True)
@@ -156,6 +162,9 @@ def build_optimizer_context(
     seed: int | None = None,
     inflation_series_bps: list[int] | None = None,
     risky_fraction_per_bucket: dict[str, float] | None = None,
+    client_birth_year: int | None = None,
+    client_sex: str | None = None,
+    use_mortality_simulation: bool = False,
 ) -> OptimizerContext:
     """Baut den Solver-Context (Scenarios, Liabilities, Bounds, Constraints).
 
@@ -191,6 +200,33 @@ def build_optimizer_context(
         risky_fraction_per_bucket=risky_fraction_per_bucket,
     )
 
+    # Sprint 4 Phase 3: Mortalitaets-Sampling wenn aktiviert
+    death_indices = None
+    if use_mortality_simulation and client_birth_year and client_sex in ("M", "F"):
+        try:
+            from datetime import date as _date
+            from services.mortality.bfs import BFS_2020_2022
+            from services.mortality.sampler import (
+                death_year_index_from_age,
+                sample_age_at_death,
+            )
+            current_age = max(0, int(_date.today().year - int(client_birth_year)))
+            death_ages = sample_age_at_death(
+                n_paths=int(n_paths),
+                current_age=current_age,
+                sex=client_sex,
+                table=BFS_2020_2022,
+                seed=int(seed),
+            )
+            death_indices = death_year_index_from_age(
+                death_ages,
+                current_age=current_age,
+                horizon_years=int(horizon_years),
+            )
+        except Exception:
+            # Defensive: keine Mortality bei Fehler — Backwards-Compat
+            death_indices = None
+
     return OptimizerContext(
         cma_id=cma_id_for_cache,
         seed=int(seed),
@@ -205,6 +241,7 @@ def build_optimizer_context(
         scipy_constraints=list(scipy_constraints),
         score_x10=int(score_x10),
         risky_fraction_per_bucket=risky_fraction_per_bucket,
+        mortality_death_year_index_per_path=death_indices,
     )
 
 
@@ -223,6 +260,7 @@ def _objective_from_array(context: OptimizerContext, w: np.ndarray) -> float:
         return_paths=context.return_paths,
         cashflow_series_rappen=context.cashflow_series_rappen,
         liability_path_rappen=context.aggregated_liability_path,
+        death_year_index_per_path=context.mortality_death_year_index_per_path,
     )
     return float(shortfall_objective(
         context.liabilities,
@@ -251,6 +289,7 @@ def evaluate_weights(
         return_paths=context.return_paths,
         cashflow_series_rappen=context.cashflow_series_rappen,
         liability_path_rappen=context.aggregated_liability_path,
+        death_year_index_per_path=context.mortality_death_year_index_per_path,
     )
     objective = shortfall_objective(
         context.liabilities,
@@ -534,6 +573,9 @@ def run_solver(
     risky_fraction_per_bucket: dict[str, float] | None = None,
     max_iter: int = 50,
     ftol: float = 1e-6,
+    client_birth_year: int | None = None,
+    client_sex: str | None = None,
+    use_mortality_simulation: bool = False,
 ) -> OptimizerResult:
     """Mulvey-Light SLSQP Optimizer.
 
@@ -561,6 +603,9 @@ def run_solver(
         seed=seed,
         inflation_series_bps=inflation_series_bps,
         risky_fraction_per_bucket=risky_fraction_per_bucket,
+        client_birth_year=client_birth_year,
+        client_sex=client_sex,
+        use_mortality_simulation=use_mortality_simulation,
     )
     # Lokale Aliase fuer Lesbarkeit der bestehenden Logik unten
     seed = context.seed

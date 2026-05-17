@@ -3827,6 +3827,7 @@ def _run_stochastic_optimizer_pass(
     maximums: dict[str, int],
     reasoning: list[str],
     building_blocks_rows: list | None = None,
+    mandate=None,  # Sprint 4 Phase 3: fuer BFS-Mortalitaets-Sampling
 ):
     """Solver in Shadow- oder Stochastic-Modus aufrufen.
 
@@ -3869,6 +3870,19 @@ def _run_stochastic_optimizer_pass(
             logger.warning("Risky-fraction extraction failed: %s", exc)
             rf_per_bucket = None
 
+    # Sprint 4 Phase 3: Mortalitaets-Felder aus Mandate-Objekt extrahieren
+    mortality_kwargs = {}
+    if mandate is not None:
+        cby = getattr(mandate, "client_birth_year", None)
+        csex = getattr(mandate, "client_sex", None)
+        ums = bool(getattr(mandate, "use_mortality_simulation", 0))
+        if ums and cby and csex in ("M", "F"):
+            mortality_kwargs = {
+                "client_birth_year": int(cby),
+                "client_sex": str(csex),
+                "use_mortality_simulation": True,
+            }
+
     try:
         result = run_solver(
             cma=cma,
@@ -3881,6 +3895,7 @@ def _run_stochastic_optimizer_pass(
             n_paths=_OPTIMIZER_N_PATHS_DEFAULT,
             inflation_series_bps=inflation_series_bps,
             risky_fraction_per_bucket=rf_per_bucket,
+            **mortality_kwargs,
         )
     except Exception as exc:  # noqa: BLE001 - never crash allocation flow
         logger.warning("Stochastic optimizer crashed: %s", exc, exc_info=True)
@@ -4771,6 +4786,7 @@ def generate_target_allocation(
         maximums=maximums,
         reasoning=reasoning,
         building_blocks_rows=_building_block_rows,
+        mandate=mandate,  # Sprint 4 Phase 3: BFS-Mortalitaets-Felder
     )
     # Strikt: Tilts duerfen nur uebersprungen werden, wenn die Targets
     # tatsaechlich vom Solver ersetzt wurden (also nur im 'stochastic' Modus,

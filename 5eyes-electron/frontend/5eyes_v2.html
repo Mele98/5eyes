@@ -1900,6 +1900,18 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
           </select>
         </div>
       </div>
+      <div class="frow" style="border-top:1px solid var(--b1);padding-top:10px;margin-top:8px">
+        <div class="fg"><label class="fl">Geschlecht (BFS-Mortalitaet)</label>
+          <select class="fsel" id="nc-sex">
+            <option value="">— nicht angeben —</option>
+            <option value="M">M&auml;nnlich</option>
+            <option value="F">Weiblich</option>
+          </select>
+        </div>
+        <div class="fg"><label class="fl" title="Aktiviert Mortalitaets-Sampling fuer MC-Pfade (BFS-Sterbetafel)"><input type="checkbox" id="nc-use-mortality" style="vertical-align:middle;margin-right:4px"> Lebensdauer-Unsicherheit</label>
+          <div style="font-size:9.5px;color:var(--n6);line-height:1.4;margin-top:2px">Wenn aktiv: MC-Pfade beruecksichtigen Sterbe-Wahrscheinlichkeit aus BFS-Tafel 2020-2022.</div>
+        </div>
+      </div>
       <div id="nc-error" style="color:var(--neg);font-size:11px;padding:4px 0;display:none"></div>
     </div>
     <div class="mfooter">
@@ -9402,14 +9414,28 @@ async function createNewMandate() {
   }
 
   // Schritt 2: Mandat anlegen
+  // Sprint 4 Phase 3: optionale Mortalitaets-Felder (BFS-Sterbetafel)
+  var sexEl=document.getElementById('nc-sex');
+  var useMortalityEl=document.getElementById('nc-use-mortality');
+  var clientSex=sexEl?(sexEl.value||null):null;
+  var useMortality=useMortalityEl?!!useMortalityEl.checked:false;
+  var clientBirthYear=null;
+  if(dob&&typeof dob==='string'&&dob.length>=4){
+    var yr=parseInt(dob.substring(0,4),10);
+    if(yr>1900&&yr<2100)clientBirthYear=yr;
+  }
+  var mandatePayload={
+    mandate_number: mandateNum,
+    mandate_type: mType,
+    base_currency: 'CHF',
+    advisory_language: 'DE'
+  };
+  if(clientBirthYear)mandatePayload.client_birth_year=clientBirthYear;
+  if(clientSex==='M'||clientSex==='F')mandatePayload.client_sex=clientSex;
+  if(useMortality)mandatePayload.use_mortality_simulation=true;
   var mandateData;
   try {
-    mandateData = await API.post('/clients/' + currentClientId + '/mandates', {
-      mandate_number: mandateNum,
-      mandate_type: mType,
-      base_currency: 'CHF',
-      advisory_language: 'DE'
-    });
+    mandateData = await API.post('/clients/' + currentClientId + '/mandates', mandatePayload);
     currentMandateId = mandateData.id;
     currentMandateData = mandateData;
   } catch(me) {

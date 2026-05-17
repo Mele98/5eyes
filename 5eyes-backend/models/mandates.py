@@ -29,6 +29,14 @@ class Mandate(Base):
     # JSON mit {equitiesGeo, bondsDuration, realestateMarket, altsXxx}.
     # NULL = nutze System-Defaults (Schweiz-Fokus, Langfristig, Schweiz, Gold-only).
     default_building_blocks_json = Column(String)
+    # Sprint 4 Phase 3 (2026-05-17): Mortalitaets-Sampling fuer Cashflow-MC.
+    # Wenn use_mortality_simulation=True und client_birth_year + client_sex
+    # gesetzt: portfolio_engine sampled Sterbe-Alter aus BFS-Tafel und
+    # ueberreicht death_year_index_per_path an scenario_engine.
+    # Default: Off (Backwards-Compat fuer alle bestehenden Mandate).
+    client_birth_year = Column(Integer)
+    client_sex = Column(String)  # 'M' | 'F'
+    use_mortality_simulation = Column(Integer, default=0)  # SQLite bool via int
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
     deleted_at = Column(String)

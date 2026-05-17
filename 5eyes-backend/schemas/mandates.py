@@ -23,6 +23,10 @@ class MandateCreate(BaseModel):
     opened_at: Optional[str] = None
     # Sprint B4 (2026-05-07): Anlageuniversum-Wahl bei Mandat-Erstellung.
     investment_universe: Optional[Literal["Standard", "Alternativ"]] = "Standard"
+    # Sprint 4 Phase 3 (2026-05-17): Mortalitaets-Sampling.
+    client_birth_year: Optional[int] = None
+    client_sex: Optional[Literal["M", "F"]] = None
+    use_mortality_simulation: Optional[bool] = False
 
 
 class MandateUpdate(BaseModel):
@@ -42,6 +46,10 @@ class MandateUpdate(BaseModel):
     # Erwartete Keys: equitiesGeo, bondsDuration, realestateMarket, altsGold,
     #                 altsLiquidAlts, altsHedge, altsPe, altsCrypto.
     default_building_blocks_json: Optional[str] = None
+    # Sprint 4 Phase 3 (2026-05-17): Mortalitaets-Sampling.
+    client_birth_year: Optional[int] = None
+    client_sex: Optional[Literal["M", "F"]] = None
+    use_mortality_simulation: Optional[bool] = None
 
 
 class MandateResponse(BaseResponse):
@@ -60,5 +68,9 @@ class MandateResponse(BaseResponse):
     life_expectancy_year: Optional[int] = None
     investment_universe: Optional[str] = "Standard"
     default_building_blocks_json: Optional[str] = None
+    # Sprint 4 Phase 3 (2026-05-17): Mortalitaets-Sampling
+    client_birth_year: Optional[int] = None
+    client_sex: Optional[str] = None
+    use_mortality_simulation: Optional[bool] = False
     created_at: str
     updated_at: str

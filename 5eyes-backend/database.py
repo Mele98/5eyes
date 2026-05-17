@@ -218,6 +218,12 @@ def ensure_runtime_columns() -> None:
             ('investment_universe', 'TEXT'),
             # Sprint B1 (2026-05-07): Building-Block-Wahl pro Mandat (JSON).
             ('default_building_blocks_json', 'TEXT'),
+            # Sprint 4 Phase 3 (2026-05-17): BFS-Mortalitaets-Sampling
+            # Wenn use_mortality_simulation=1 und client_birth_year + client_sex
+            # gesetzt, sampled portfolio_engine das Sterbe-Alter aus der BFS-Tafel.
+            ('client_birth_year', 'INTEGER'),
+            ('client_sex', 'TEXT'),
+            ('use_mortality_simulation', 'INTEGER'),
         ],
         'cashflows': [
             ('gross_amount_rappen', 'INTEGER'),
