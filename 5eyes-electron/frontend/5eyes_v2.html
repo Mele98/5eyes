@@ -1589,7 +1589,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
               <input class="fi" id="aa-liquidity-reserve-target" type="text" placeholder="z.B. 50'000" style="font-size:10px;padding:4px 7px;width:100%">
             </div>
           </div>
-          <div id="aa-pref-status" style="font-size:10px;color:var(--n4);margin-top:10px">Mandatspräferenzen werden lokal pro Mandat im Arbeitsstand gespeichert und in den Zusammenfassungen gespiegelt.</div>
+          <div id="aa-pref-status" style="font-size:10px;color:var(--n4);margin-top:10px">Mandatspräferenzen werden lokal pro Mandat im Arbeitsstand gespeichert und in der Abschlussansicht gespiegelt.</div>
         </div>
       </div>
       <div class="cnav"><button class="btn" onclick="go('rp')">← Zurück zum Risikoprofil</button><button class="btn-p" onclick="go('po')">Weiter zum Portfolio →</button></div>
@@ -2439,7 +2439,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 <div class="overlay" id="m-nt"><div class="modal"><div class="mhd"><div class="mtitle">Trigger definieren</div><button class="mx" onclick="cm('m-nt')">✕</button></div><div class="mbody"><div class="frow"><div class="fg"><label class="fl">Trigger-Typ</label><select class="fsel"><option>Zeitbasiert</option><option>Bandbreite / Drift</option><option>Event-basiert</option></select></div></div><div class="frow"><div class="fg"><label class="fl">Bezeichnung</label><input class="fi" placeholder="Jahres-Review"></div><div class="fg"><label class="fl">Schwellenwert</label><input class="fi" placeholder="±5% oder 12 Monate"></div></div></div><div class="mfooter"><button class="btn" onclick="cm('m-nt')">Abbrechen</button><button class="btn-p" onclick="cm('m-nt')">Aktivieren</button></div></div></div>
 <div class="overlay" id="m-ap"><div class="modal"><div class="mhd"><div class="mtitle">Bestand zu Empfehlungstitel</div><button class="mx" onclick="cm('m-ap')">✕</button></div><div class="mbody"><div id="ap-empty-state" style="display:none;background:var(--bg);border:1px solid var(--b1);border-radius:var(--r);padding:10px 12px;font-size:11px;color:var(--n6);line-height:1.6">Portfolio-Bestände bauen auf einem vorhandenen Rezept auf. Bitte zuerst die Strategie berechnen und ein aktuelles Anlagerezept laden.</div><div id="ap-form-wrap"><div style="background:var(--bg);border:1px solid var(--b1);border-radius:var(--r);padding:9px 10px;margin-bottom:10px;font-size:10px;line-height:1.6;color:var(--n6)">Hier wird der effektive Depotbestand zum Empfehlungstitel hinterlegt. Wenn ein Bestand vorhanden ist, basiert Live-Drift auf diesem Holding statt auf einer Rekonstruktion aus dem Zielbetrag.</div><div class="frow"><div class="fg"><label class="fl">Empfehlungstitel</label><select class="fsel" id="ap-position-id" onchange="syncPortfolioHoldingSelection()"></select></div></div><div id="ap-product-meta" style="font-size:10px;color:var(--n5);margin:-2px 0 10px"></div><div class="frow"><div class="fg"><label class="fl">Depotbank / Institut</label><input class="fi" id="ap-depot-bank" placeholder="z.B. UBS AG Zürich"></div><div class="fg"><label class="fl">Konto / Depotnummer</label><input class="fi" id="ap-custody-account" placeholder="optional"></div></div><div class="frow"><div class="fg"><label class="fl">Bestand (Stück)</label><input class="fi" id="ap-units" placeholder="z.B. 128.750"></div><div class="fg"><label class="fl">Bestandsmarktwert (CHF)</label><input class="fi" id="ap-market-value" placeholder="optional, z.B. 415'600"></div></div><div class="frow"><div class="fg"><label class="fl">Einstand / Durchschnittskurs (CHF)</label><input class="fi" id="ap-cost-price" placeholder="optional"></div><div class="fg"><label class="fl">Standdatum</label><input class="fi" id="ap-as-of" type="date"></div></div><div class="frow"><div class="fg"><label class="fl">Quelle</label><select class="fsel" id="ap-source"><option value="manual">Manuell</option><option value="custody_import">Custody-Import</option></select></div><div class="fg"><label class="fl">Bewertungsbasis</label><div id="ap-basis-note" style="font-size:10px;color:var(--n5);padding:9px 0">Noch kein Bestand hinterlegt.</div></div></div><div class="frow"><div class="fg"><label class="fl">Notizen</label><textarea class="fta" id="ap-notes" rows="3" placeholder="optional"></textarea></div></div></div><div id="ap-error" style="display:none;color:var(--neg);font-size:11px;padding:4px 0;margin-top:4px"></div></div><div class="mfooter"><button class="btn" onclick="cm('m-ap')">Abbrechen</button><button class="btn" id="btn-ap-delete" style="display:none" onclick="deletePortfolioHolding()">Bestand löschen</button><button class="btn-p" id="btn-ap-save" onclick="savePortfolioHolding()">Speichern</button></div></div></div>
 <div class="overlay" id="m-ums"><div class="modal"><div class="mhd"><div class="mtitle">Anlagerezept für Kunde</div><button class="mx" onclick="cm('m-ums')">✕</button></div><div class="mbody"><div style="background:var(--n0);border:1px solid rgba(29,78,216,0.2);border-radius:var(--r);padding:10px;margin-bottom:10px;font-size:11px;line-height:1.6">Basierend auf Soll-Allokation: Anlageprodukte werden aus dem Anlageuniversum gesucht und ein Bericht erstellt. Erst nach Bestätigung wird der Bericht an die Depotbank übermittelt.</div><div class="frow"><div class="fg"><label class="fl">Depotbank für Umsetzung</label><select class="fsel" id="recipe-depot-bank"><option>UBS AG Zürich</option><option>ZKB</option></select></div></div><div id="recipe-status" style="font-size:10px;color:var(--n4);margin-top:4px">Vor dem Druck wird das aktuelle Rezept live neu aufgebaut.</div></div><div class="mfooter"><button class="btn" onclick="cm('m-ums')">Abbrechen</button><button class="btn-p" onclick="confirmImplementationRecipe()">Umsetzung bestätigen</button></div></div></div>
-<div class="overlay" id="m-rp-print"><div class="modal"><div class="mhd"><div class="mtitle">Risikoprofil PDF</div><button class="mx" onclick="cm('m-rp-print')">✕</button></div><div class="mbody"><div style="font-size:11px;color:var(--n6);line-height:1.7">Das Risikoprofil-Dokument (FINMA Eignungspruefung) wird als PDF generiert und enthält alle Antworten, die Auswertung sowie die Unterschriftszeile für Kunde und Berater.</div></div><div class="mfooter"><button class="btn" onclick="cm('m-rp-print')">Abbrechen</button><button class="btn-p" onclick="cm('m-rp-print');printReport({pages:['rp']})">PDF erstellen</button></div></div></div>
+<div class="overlay" id="m-rp-print"><div class="modal"><div class="mhd"><div class="mtitle">Risikoprofil PDF</div><button class="mx" onclick="cm('m-rp-print')">✕</button></div><div class="mbody"><div style="font-size:11px;color:var(--n6);line-height:1.7">Das Risikoprofil-Dokument (FINMA Eignungspruefung) wird als PDF generiert und enthält alle Antworten, die Auswertung sowie die Unterschriftszeile für Kunde und Berater.</div></div><div class="mfooter"><button class="btn" onclick="cm('m-rp-print')">Abbrechen</button><button class="btn" onclick="cm('m-rp-print');printReport({pages:['rp']})" title="Browser-Druck (alle Eingaben aus dem aktuellen Tab)">Browser-Druck</button><button class="btn-p" onclick="cm('m-rp-print');downloadServerPdf('risikoprofil')" title="Server-PDF (FINMA-konformes Layout)">PDF erstellen</button></div></div></div>
 
 <script>
 // ─── 5EYES API LAYER ─────────────────────────────────────────────────
@@ -5432,7 +5432,7 @@ function buildAnlagestrategieDocHtmlV2Draft(allocation,risk,persona,mandateData,
     page(6,'Vermögensstruktur',twoTables('Ausgangslage - Fortsetzung',currentAdvisoryRows.slice(8),'Empfehlung - Fortsetzung',recommendedRows.slice(8),false)),
     page(7,'Investitionsansatz',investText),
     page(8,'Anlageuniversum',universeText),
-    page(9,'Zusammenfassung',summaryText),
+    page(9,'Abschluss',summaryText),
     page(10,'Ihre persönliche Ausgangslage','<div class="sl-divider-title">Ihre persönliche Ausgangslage</div>',{divider:true,chapter:'Ihre persönliche Ausgangslage'}),
     page(11,'Vermögensübersicht',section('Beratungsvermögen')+table(['Beratungsvermögen','Betrag (CHF)'],wealthOverviewRows)+section('Anderes Vermögen')+table(['Anderes Vermögen','Betrag (CHF)'],otherOverviewRows),{chapter:'Ihre persönliche Ausgangslage'}),
     page(12,'Kapitalzuflüsse und Ziele',section('Kapitalzuflüsse')+table(['Name','Haushaltmitglied','Wiederholung','Beginn - Ende','Betrag (CHF)'],capitalRows)+section('Ihre persönlichen Ziele')+table(['Name','Kategorie','','Wiederholung','Beginn - Ende','Betrag (CHF)'],goalRows),{chapter:'Ihre persönliche Ausgangslage'}),
@@ -5605,6 +5605,20 @@ async function savePortfolioUmsetzen(){
 }
 
 function printAnlagestrategie(){
+  // Sprint 11 Phase 7 (2026-05-18): zuerst Server-PDF probieren (konsistent
+  // mit anderen "PDF"-Buttons), Fallback auf Browser-Print wenn keine
+  // Mandate-Id oder fetch fehlschlaegt.
+  var mid=typeof getActiveMandateId==='function'?getActiveMandateId():null;
+  if(mid && !(typeof isDemoMandateId==='function' && isDemoMandateId(mid))){
+    if(typeof downloadServerPdf==='function'){
+      // Server-PDF wird das Layout konsistent rendern. Fehler in
+      // downloadServerPdf werden intern via Toast angezeigt \u2014 kein
+      // Fallback auf Browser-Print, weil das auf User-Verwirrung
+      // hinauslaeuft (zwei verschiedene Layouts).
+      try{downloadServerPdf('anlagestrategie');return;}catch(e){console.warn('server-pdf failed, falling back', e);}
+    }
+  }
+  // Legacy-Fallback: Browser-Print (fuer Demo-Mandate ohne Backend)
   var allocation=strategyState&&strategyState.allocation;
   var risk=currentPersistedRiskForMandate(getActiveMandateId());
   var clientName=reportClientLabel();
@@ -5849,10 +5863,6 @@ function bindHonestUiActions(){
   if(rvHeaderPrint)rvHeaderPrint.setAttribute('onclick',"printContractOrStrategy()");
   var rvFooterPrint=document.querySelector('#page-rv .cnav .btn-g');
   if(rvFooterPrint)rvFooterPrint.setAttribute('onclick',"printAdvisoryProtocol()");
-  var srHeaderPrint=document.querySelector('#page-sr .ph-r .btn');
-  if(srHeaderPrint)srHeaderPrint.setAttribute('onclick',"printSummaryPage()");
-  var srFooterPrint=document.querySelector('#page-sr .cnav .btn-g');
-  if(srFooterPrint)srFooterPrint.setAttribute('onclick',"printSummaryPage()");
   var summaryRecipePrint=document.getElementById('sr-recipe-print');
   if(summaryRecipePrint)summaryRecipePrint.setAttribute('onclick',"printAdvisoryProtocol()");
   var docCards=document.querySelectorAll('#rv-doc-grid > div');
@@ -15351,7 +15361,7 @@ function normalizeReviewLayout(){
   var h4=rvSectionHeader('rv-sh4','4','Meeting abschliessen','Interessenkonflikte · Governance-Checkliste · Dokumente und Ausgabe');
   h1=rvSectionHeader('rv-sh1','1','Hauptanalyse','Ist-Portfolio, Soll-Strategie, Zielerreichung und naechste Massnahme');
   h2=rvSectionHeader('rv-sh2','2','Trigger pruefen','Zeit-, Markt- und Ereignis-Trigger mit Fristen und Dringlichkeit');
-  h3=rvSectionHeader('rv-sh3','3','Entscheid & Zusammenfassung','Empfehlung, Ausgabe, Beratungsprotokoll und Kundensicht');
+  h3=rvSectionHeader('rv-sh3','3','Entscheid & Abschluss','Empfehlung, Ausgabe, Beratungsprotokoll und Kundensicht');
   h4=rvSectionHeader('rv-sh4','4','Abschluss & Dokumente','Interessenkonflikte, Governance-Checkliste, Druck und Signatur');
   var cnav=pad.querySelector('.cnav');
   [heroCard,h1,strategySpiegel,strategyCard,h2,triggerGrid,h3,logCard,utility.actionCard,outputCard,summarySection,h4,utility.suitabilityCard,utility.conflictCard,utility.readinessCard,utility.docsCard].forEach(function(node){
@@ -15950,9 +15960,6 @@ async function refreshReviewUI(mid){
       recommendation:results[6].status==='fulfilled'?results[6].value:null
     };
     renderReviewState(currentReviewState);
-    if(document.getElementById('page-sr')&&document.getElementById('page-sr').classList.contains('active')){
-      renderSrImplementationDecision(null);
-    }
     normalizeVisibleMojibake(document.getElementById('page-rv')||document.body);
   }catch(e){
     console.warn('refreshReviewUI:',e);
