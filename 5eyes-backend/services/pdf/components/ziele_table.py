@@ -29,52 +29,64 @@ from services.pdf.styles import (
 )
 
 
-def make_ziele_section(goals: Iterable[Mapping]) -> list:
-    """Returns Flowables: Section-Title + Tabelle."""
+def _achievement_bars(score: float) -> str:
+    """Score 0-100 → 8-stufige ▰▱-Balken-Visualisierung wie Vorlage.
+
+    Skala (Vorlage): jeder Balken = 12.5%, Color per goal_color helper.
+    """
+    n_filled = max(0, min(8, int(round(score / 12.5))))
+    filled = "▰" * n_filled
+    empty = "▱" * (8 - n_filled)
+    return filled + empty
+
+
+def make_ziele_section(goals: Iterable[Mapping], *, base_currency: str = "CHF") -> list:
+    """Returns Flowables: Section-Title + Tabelle mit Balken + Fehlbetrag."""
     goals_list = list(goals or [])
     if not goals_list:
         return []
 
     flowables = [_section_title("Anlageziele & Zielerreichung")]
 
-    rows = [["Rang", "Ziel", "Zielerreichung", "Zielgrösse"]]
+    rows = [["Rang", "Ziel", "Zielerreichung", f"Fehlbetrag ({base_currency})", "Zielgrösse"]]
     for g in goals_list:
         rank = int(g.get("rank", 0) or 0)
         label = str(g.get("label", "—") or "—")
         score = float(g.get("achievement_score", 0) or 0)
         target_text = str(g.get("target_text", "") or "")
+        shortfall_rappen = int(g.get("shortfall_rappen", 0) or 0)
 
-        # Bar mit Score
-        bar_drawing = _make_goal_bar(score)
-        score_text = Paragraph(
-            f'<font name="{FONT_BOLD}">{int(score)}/100</font>',
+        # Balken-Visualisierung in Farbe
+        color_hex = goal_color(score).hexval()[2:]
+        bars_text = _achievement_bars(score)
+        achievement_cell = Paragraph(
+            f'<font color="#{color_hex}" size="12"><b>{bars_text}</b></font>'
+            f'<br/><font color="#64748b" size="7">{int(score)}/100</font>',
             _para_compact(),
         )
-        ze_cell = Table(
-            [[bar_drawing], [score_text]],
-            colWidths=[None],
-        )
-        ze_cell.setStyle(TableStyle([
-            ("LEFTPADDING", (0, 0), (-1, -1), 0),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-            ("TOPPADDING", (0, 0), (-1, -1), 1),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 1),
-        ]))
+
+        # Fehlbetrag-Anzeige
+        if shortfall_rappen > 0:
+            shortfall_text = _format_amount(shortfall_rappen, base_currency)
+        else:
+            shortfall_text = "—"
 
         rows.append([
             Paragraph(f'<b>RANG {rank}</b>', _para_compact()),
             Paragraph(_esc(label), _para_compact()),
-            ze_cell,
+            achievement_cell,
+            shortfall_text,
             Paragraph(_esc(target_text), _para_compact()),
         ])
 
     page_width, _ = PAGE_SIZE
     table_width = page_width - 24 * mm
     col_widths = [
-        table_width * 0.10,
-        table_width * 0.35,
+        table_width * 0.08,
         table_width * 0.30,
-        table_width * 0.25,
+        table_width * 0.27,
+        table_width * 0.15,
+        table_width * 0.20,
     ]
     table = Table(rows, colWidths=col_widths)
     table.setStyle(TableStyle([
@@ -95,6 +107,18 @@ def make_ziele_section(goals: Iterable[Mapping]) -> list:
     ]))
     flowables.append(table)
     return flowables
+
+
+def _format_amount(rappen: int, currency: str = "CHF") -> str:
+    try:
+        if currency == "CHF":
+            value = rappen / 100.0
+        else:
+            from services.currency.converter import convert_rappen
+            value = convert_rappen(rappen, "CHF", currency) / 100.0
+        return f"{currency} {value:,.0f}".replace(",", "'")
+    except Exception:
+        return f"CHF {rappen/100.0:,.0f}".replace(",", "'")
 
 
 def _make_goal_bar(score: float) -> Drawing:

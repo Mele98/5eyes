@@ -17,7 +17,15 @@ from services.pdf.components.produkte import make_produkte_section
 from services.pdf.components.risiko_metriken import make_risiko_metriken_section
 from services.pdf.components.risikoprofil_box import make_risikoprofil_box
 from services.pdf.components.saa_bar_table import make_saa_bar_table
-from services.pdf.components.saa_donut import make_saa_donut_with_legend
+from services.pdf.components.saa_donut import (
+    make_saa_donut_with_legend,
+    make_two_donuts_comparison,
+)
+from services.pdf.components.cashflows_ziele import (
+    make_cashflows_section,
+    make_ziele_overview_section,
+)
+from services.pdf.components.vermoegensuebersicht import make_vermoegensuebersicht_section
 from services.pdf.components.text_sections import (
     make_anlageuniversum_section,
     make_disclaimer_section,
@@ -60,9 +68,10 @@ def build_anlagestrategie_flowables(
         advisory_wealth_label=advisory_label,
     ))
 
-    # ---- 2. Eignungspruefung (mit Fallback) ----
-    if data.knowledge_services or data.knowledge_instruments:
+    # ---- 2. Eignungspruefung Frage-Antwort (Sprint 14 Phase 2 P0a) ----
+    if data.risk_answers or data.knowledge_services or data.knowledge_instruments:
         flowables.extend(make_eignungspruefung_section(
+            answers=data.risk_answers,
             services_knowledge=data.knowledge_services,
             instruments_knowledge=data.knowledge_instruments,
         ))
@@ -74,6 +83,27 @@ def build_anlagestrategie_flowables(
             styles,
         ))
     flowables.append(Spacer(1, 3 * mm))
+
+    # ---- 2b. Vermoegensuebersicht (Sprint 14 Phase 2 P0b) ----
+    if data.advisory_positions or data.other_wealth_positions:
+        flowables.extend(make_vermoegensuebersicht_section(
+            data.advisory_positions,
+            data.other_wealth_positions,
+            base_currency=ctx.base_currency,
+        ))
+        flowables.append(Spacer(1, 3 * mm))
+
+    # ---- 2c. Kapitalzuflüsse + Ziele (Sprint 14 Phase 2 P1b) ----
+    if data.cashflow_events:
+        flowables.extend(make_cashflows_section(
+            data.cashflow_events, base_currency=ctx.base_currency,
+        ))
+        flowables.append(Spacer(1, 3 * mm))
+    if data.goals_list:
+        flowables.extend(make_ziele_overview_section(
+            data.goals_list, base_currency=ctx.base_currency,
+        ))
+        flowables.append(Spacer(1, 3 * mm))
 
     # ---- 3. Risikoprofil-Box (mit Fallback) ----
     if data.risk_score_x10 is not None or data.risk_profile_label:
@@ -103,23 +133,33 @@ def build_anlagestrategie_flowables(
             advisory_wealth_rappen=data.advisory_wealth_rappen,
         ))
         flowables.append(Spacer(1, 3 * mm))
-        # Donut + Sub-Klassen-Legende
-        from reportlab.platypus import Table as _DonutTable, TableStyle as _DonutStyle
-        donut_widget = make_saa_donut_with_legend(
-            data.target_allocation_bps,
-            products=data.products,
-            diameter_mm=48.0,
-        )
+        # Sprint 14 Phase 2 P1a: 2 Donuts side-by-side (IST + Empfehlung)
         from reportlab.platypus import KeepTogether
-        donut_wrap = KeepTogether([
-            Paragraph(
-                f'<font color="#475569" size="9"><b>'
-                f'VISUALISIERUNG NACH ANLAGE- UND SUB-ANLAGEKLASSE</b></font>',
-                styles["section_title"],
-            ),
-            donut_widget,
-        ])
-        flowables.append(donut_wrap)
+        title_para = Paragraph(
+            f'<font color="#475569" size="9"><b>'
+            f'VISUALISIERUNG NACH ANLAGE- UND SUB-ANLAGEKLASSE</b></font>',
+            styles["section_title"],
+        )
+        has_current = (
+            data.current_allocation_bps
+            and sum(int(v or 0) for v in data.current_allocation_bps.values()) > 0
+        )
+        if has_current:
+            two_donuts = make_two_donuts_comparison(
+                data.current_allocation_bps,
+                data.target_allocation_bps,
+                current_products=data.advisory_positions,
+                target_products=data.products,
+                diameter_mm=42.0,
+            )
+            flowables.append(KeepTogether([title_para, *two_donuts]))
+        else:
+            donut_widget = make_saa_donut_with_legend(
+                data.target_allocation_bps,
+                products=data.products,
+                diameter_mm=48.0,
+            )
+            flowables.append(KeepTogether([title_para, donut_widget]))
     else:
         flowables.append(_section_title_with_fallback(
             "Soll-Allokation & Toleranzbaender",
@@ -170,7 +210,9 @@ def build_anlagestrategie_flowables(
 
     # ---- 7. Ziele (mit Fallback) ----
     if data.goal_analysis:
-        flowables.extend(make_ziele_section(data.goal_analysis))
+        flowables.extend(make_ziele_section(
+            data.goal_analysis, base_currency=ctx.base_currency,
+        ))
     else:
         flowables.append(_section_title_with_fallback(
             "Anlageziele & Zielerreichung",

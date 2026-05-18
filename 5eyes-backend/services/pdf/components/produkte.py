@@ -28,8 +28,12 @@ from services.pdf.styles import (
     FONT_SIZE_TABLE,
     FONT_SIZE_TABLE_HEADER,
     PAGE_SIZE,
+    asset_class_color,
+    asset_class_label,
     make_paragraph_styles,
 )
+
+BUCKET_ORDER = ("liquidity", "bonds", "equities", "real_estate", "alternatives")
 
 FALLBACK_TEXT = (
     "Noch kein Produktrezept im aktuellen App-Zustand geladen. Sobald das "
@@ -145,50 +149,9 @@ def _make_single_metric(label: str, value: str, border_color=None):
 
 
 def _make_isin_table(products: list, base_currency: str):
+    """Sprint 14 Phase 2: Asset-Class-Gruppierung mit Subtotal-Zeilen."""
     rows = [["Produkt", "Subklasse", "Soll", "Zielwert", "CCY", "TER"]]
-    for p in products:
-        name = str(p.get("name", "—") or "—")
-        isin = str(p.get("isin", "") or "")
-        sub = str(p.get("sub_asset_class", "") or "")
-        weight_bps = int(p.get("target_weight_bps", 0) or 0)
-        amount = int(p.get("target_amount_rappen", 0) or 0)
-        ccy = str(p.get("currency", "CHF") or "CHF")
-        ter = int(p.get("ter_bps", 0) or 0)
-        provider = str(p.get("provider", "") or "")
-
-        product_cell_parts = [f'<font name="{FONT_BOLD}">{_esc(name)}</font>']
-        if isin:
-            product_cell_parts.append(
-                f'<font color="#64748b" size="{FONT_SIZE_SMALL}">'
-                f'ISIN {_esc(isin)}{(" · "+_esc(provider)) if provider else ""}</font>'
-            )
-        product_para = Paragraph(
-            "<br/>".join(product_cell_parts),
-            _para_compact(),
-        )
-
-        rows.append([
-            product_para,
-            _esc(sub) if sub else "—",
-            f"{weight_bps/100:.1f}%" if weight_bps > 0 else "—",
-            _format_amount(amount, ccy) if amount > 0 else "—",
-            ccy,
-            f"{ter/100:.2f}%" if ter > 0 else "—",
-        ])
-
-    page_width, _ = PAGE_SIZE
-    table_width = page_width - 24 * mm
-    col_widths = [
-        table_width * 0.35,  # Produkt
-        table_width * 0.20,  # Subklasse
-        table_width * 0.10,  # Soll
-        table_width * 0.15,  # Zielwert
-        table_width * 0.08,  # CCY
-        table_width * 0.12,  # TER
-    ]
-
-    table = Table(rows, colWidths=col_widths)
-    table.setStyle(TableStyle([
+    style_cmds = [
         ("FONTNAME", (0, 0), (-1, 0), FONT_BOLD),
         ("FONTSIZE", (0, 0), (-1, 0), FONT_SIZE_TABLE_HEADER),
         ("FONTSIZE", (0, 1), (-1, -1), FONT_SIZE_TABLE),
@@ -205,7 +168,115 @@ def _make_isin_table(products: list, base_currency: str):
         ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
         ("LEFTPADDING", (0, 0), (-1, -1), 5),
         ("RIGHTPADDING", (0, 0), (-1, -1), 5),
-    ]))
+    ]
+
+    by_bucket: dict[str, list] = {}
+    for p in products:
+        ac = str(p.get("asset_class", "") or "").lower() or "alternatives"
+        by_bucket.setdefault(ac, []).append(p)
+
+    grand_weight_bps = 0
+    grand_amount = 0
+    for bucket in BUCKET_ORDER:
+        bucket_products = by_bucket.get(bucket, [])
+        if not bucket_products:
+            continue
+
+        # Gruppen-Header-Zeile (Bucket-Name in Farbe)
+        color_hex = asset_class_color(bucket).hexval()[2:]
+        header_idx = len(rows)
+        rows.append([
+            Paragraph(
+                f'<font color="#{color_hex}" size="11">●</font>  '
+                f'<font name="{FONT_BOLD}" size="{FONT_SIZE_TABLE_HEADER}" color="#0f172a">'
+                f'{_esc(asset_class_label(bucket))}</font>',
+                _para_compact(),
+            ),
+            "", "", "", "", "",
+        ])
+        style_cmds.append(("SPAN", (0, header_idx), (-1, header_idx)))
+        style_cmds.append(("BACKGROUND", (0, header_idx), (-1, header_idx),
+                           colors.HexColor("#f1f5f9")))
+        style_cmds.append(("TOPPADDING", (0, header_idx), (-1, header_idx), 6))
+        style_cmds.append(("BOTTOMPADDING", (0, header_idx), (-1, header_idx), 4))
+
+        bucket_weight_bps = 0
+        bucket_amount = 0
+        for p in bucket_products:
+            name = str(p.get("name", "—") or "—")
+            isin = str(p.get("isin", "") or "")
+            sub = str(p.get("sub_asset_class", "") or "")
+            weight_bps = int(p.get("target_weight_bps", 0) or 0)
+            amount = int(p.get("target_amount_rappen", 0) or 0)
+            ccy = str(p.get("currency", "CHF") or "CHF")
+            ter = int(p.get("ter_bps", 0) or 0)
+            provider = str(p.get("provider", "") or "")
+
+            bucket_weight_bps += weight_bps
+            bucket_amount += amount
+
+            product_cell_parts = [f'<font name="{FONT_BOLD}">{_esc(name)}</font>']
+            if isin:
+                product_cell_parts.append(
+                    f'<font color="#64748b" size="{FONT_SIZE_SMALL}">'
+                    f'ISIN {_esc(isin)}{(" · "+_esc(provider)) if provider else ""}</font>'
+                )
+            rows.append([
+                Paragraph("<br/>".join(product_cell_parts), _para_compact()),
+                _esc(sub) if sub else "—",
+                f"{weight_bps/100:.1f}%" if weight_bps > 0 else "—",
+                _format_amount(amount, ccy) if amount > 0 else "—",
+                ccy,
+                f"{ter/100:.2f}%" if ter > 0 else "—",
+            ])
+
+        # Subtotal-Zeile
+        sub_idx = len(rows)
+        rows.append([
+            Paragraph(
+                f'<font name="{FONT_BOLD}">Subtotal {_esc(asset_class_label(bucket))}</font>',
+                _para_compact(),
+            ),
+            "",
+            f"{bucket_weight_bps/100:.1f}%" if bucket_weight_bps > 0 else "—",
+            _format_amount(bucket_amount, base_currency) if bucket_amount > 0 else "—",
+            "", "",
+        ])
+        style_cmds.append(("LINEABOVE", (0, sub_idx), (-1, sub_idx), 0.5, COLOR_BORDER))
+        style_cmds.append(("BACKGROUND", (0, sub_idx), (-1, sub_idx),
+                           colors.HexColor("#f8fafc")))
+        style_cmds.append(("FONTNAME", (0, sub_idx), (-1, sub_idx), FONT_BOLD))
+
+        grand_weight_bps += bucket_weight_bps
+        grand_amount += bucket_amount
+
+    # Grand-Total
+    grand_idx = len(rows)
+    rows.append([
+        Paragraph(f'<font name="{FONT_BOLD}">Total Portfolio</font>', _para_compact()),
+        "",
+        f"{grand_weight_bps/100:.1f}%" if grand_weight_bps > 0 else "—",
+        _format_amount(grand_amount, base_currency) if grand_amount > 0 else "—",
+        "", "",
+    ])
+    style_cmds.append(("LINEABOVE", (0, grand_idx), (-1, grand_idx), 1.2, COLOR_BORDER))
+    style_cmds.append(("BACKGROUND", (0, grand_idx), (-1, grand_idx), COLOR_TABLE_HEADER_BG))
+    style_cmds.append(("TEXTCOLOR", (0, grand_idx), (-1, grand_idx), COLOR_TEXT_LIGHT))
+    style_cmds.append(("FONTNAME", (0, grand_idx), (-1, grand_idx), FONT_BOLD))
+
+    page_width, _ = PAGE_SIZE
+    table_width = page_width - 24 * mm
+    col_widths = [
+        table_width * 0.35,
+        table_width * 0.20,
+        table_width * 0.10,
+        table_width * 0.15,
+        table_width * 0.08,
+        table_width * 0.12,
+    ]
+
+    table = Table(rows, colWidths=col_widths, repeatRows=1)
+    table.setStyle(TableStyle(style_cmds))
     return table
 
 

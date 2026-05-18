@@ -108,6 +108,30 @@ class AnlagestrategieData:
     """Klient-Adress-Zeilen fuer Cover, z.B. ['Bifangstrasse 9', '4800 Zofingen']."""
     client_phone: str | None = None
 
+    # ---- Sprint 14 Phase 2: Eignungspruefung Frage-Antwort ----
+    risk_answers: list = field(default_factory=list)
+    """Liste von RiskAssessmentAnswer-Dicts mit question_number,
+    answer_label, answer_points fuer FINMA-konforme Eignungspruefung."""
+
+    # ---- Vermoegensuebersicht ----
+    advisory_positions: list = field(default_factory=list)
+    """Beratungsvermoegen-Positionen mit asset_class, sub_asset_class,
+    current_amount_rappen fuer hierarchische Vermoegensuebersicht."""
+    other_wealth_positions: list = field(default_factory=list)
+    """Anderes Vermoegen (Hypothek, externe Immobilien, BVG/3a, etc.)."""
+
+    # ---- Cashflows + Goals (Seite 12 der Vorlage) ----
+    cashflow_events: list = field(default_factory=list)
+    """Liste von Cashflow-Events mit name, recurrence, start_label,
+    amount_rappen."""
+    goals_list: list = field(default_factory=list)
+    """Liste von Goals mit name, category, recurrence, start_label,
+    amount_rappen oder target_pct."""
+
+    # ---- IST-Allokation fuer 2-Donut-Vergleich ----
+    current_allocation_bps: Mapping[str, int] = field(default_factory=dict)
+    """{'equities': 3868, ...} aus IST-Bestand (Ausgangslage)."""
+
 
 @dataclass(frozen=True)
 class VertragData:

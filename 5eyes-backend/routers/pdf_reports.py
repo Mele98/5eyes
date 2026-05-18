@@ -188,8 +188,10 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
             getattr(mandate, "id", "?"), exc,
         )
 
-    # ---- Produkte (Recommendation) ----
+    # ---- Produkte (Recommendation) + advisory_positions + current_alloc ----
     products: list = []
+    advisory_positions: list = []
+    current_allocation_bps: dict[str, int] = {}
     try:
         from models.review import Product, RecommendationPosition, RecommendationRun
         last_run = (
@@ -201,25 +203,194 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
         if last_run is not None:
             positions = (
                 db.query(RecommendationPosition)
-                .filter(RecommendationPosition.recommendation_run_id == last_run.id)
+                .filter(RecommendationPosition.run_id == last_run.id)
                 .all()
             )
+            product_ids = [p.product_id for p in positions if p.product_id]
+            products_map = {}
+            if product_ids:
+                product_rows = db.query(Product).filter(Product.id.in_(product_ids)).all()
+                products_map = {p.id: p for p in product_rows}
+
+            current_total_rappen = sum(
+                int(getattr(p, "current_amount_rappen", 0) or 0) for p in positions
+            )
             for pos in positions:
-                product_obj = db.query(Product).filter(Product.id == pos.product_id).first()
+                product_obj = products_map.get(pos.product_id)
+                asset_class = str(getattr(product_obj, "asset_class", "") or "").lower()
+                sub_class = str(getattr(product_obj, "sub_asset_class", "") or "")
+                cur_amt = int(getattr(pos, "current_amount_rappen", 0) or 0)
+                target_amt = int(getattr(pos, "target_amount_rappen", 0) or 0)
+
                 products.append({
                     "name": str(getattr(product_obj, "product_name", None) or "—"),
                     "isin": str(getattr(product_obj, "isin", "") or ""),
-                    "asset_class": str(getattr(product_obj, "asset_class", "") or ""),
-                    "sub_asset_class": str(getattr(product_obj, "sub_asset_class", "") or ""),
+                    "asset_class": asset_class,
+                    "sub_asset_class": sub_class,
                     "currency": str(getattr(product_obj, "currency", "CHF") or "CHF"),
                     "ter_bps": int(getattr(product_obj, "ter_bps", 0) or 0),
                     "provider": str(getattr(product_obj, "provider", "") or ""),
                     "target_weight_bps": int(getattr(pos, "target_weight_bps", 0) or 0),
-                    "target_amount_rappen": int(getattr(pos, "target_amount_rappen", 0) or 0),
+                    "target_amount_rappen": target_amt,
                 })
+
+                if cur_amt > 0 and asset_class:
+                    advisory_positions.append({
+                        "asset_class": asset_class,
+                        "sub_asset_class": sub_class or asset_class,
+                        "current_amount_rappen": cur_amt,
+                    })
+                    if current_total_rappen > 0:
+                        current_allocation_bps[asset_class] = (
+                            current_allocation_bps.get(asset_class, 0)
+                            + int(cur_amt / current_total_rappen * 10000)
+                        )
     except Exception as exc:
         logger.warning(
             "PDF data-load section failed for mandate %s: %s",
+            getattr(mandate, "id", "?"), exc,
+        )
+
+    # ---- Other Wealth (NICHT-Beratungsvermoegen) ----
+    other_wealth_positions: list = []
+    try:
+        from models.wealth import WealthPosition
+        client_id = getattr(mandate, "client_id", None)
+        if client_id:
+            other_q = (
+                db.query(WealthPosition)
+                .filter(
+                    WealthPosition.client_id == client_id,
+                    WealthPosition.is_active == 1,
+                    WealthPosition.deleted_at.is_(None),
+                    WealthPosition.assignment != "Beratungsvermögen",
+                )
+                .all()
+            )
+            for wp in other_q:
+                amt = int(getattr(wp, "current_value_rappen", 0) or 0)
+                if amt == 0:
+                    continue
+                other_wealth_positions.append({
+                    "label": str(getattr(wp, "label", "—") or "—"),
+                    "amount_rappen": amt,
+                    "kind": str(getattr(wp, "position_type", "") or ""),
+                })
+    except Exception as exc:
+        logger.warning(
+            "PDF data-load other_wealth failed for mandate %s: %s",
+            getattr(mandate, "id", "?"), exc,
+        )
+
+    # ---- Risk-Answers (Frage-Antwort fuer Eignungspruefung) ----
+    risk_answers: list = []
+    try:
+        from models.profiling import RiskAssessment as _RA, RiskAssessmentAnswer
+        _ra = (
+            db.query(_RA)
+            .filter(_RA.mandate_id == mandate.id, _RA.is_current == 1)
+            .order_by(_RA.created_at.desc())
+            .first()
+        )
+        if _ra is not None:
+            ans_rows = (
+                db.query(RiskAssessmentAnswer)
+                .filter(RiskAssessmentAnswer.assessment_id == _ra.id)
+                .order_by(RiskAssessmentAnswer.question_number.asc())
+                .all()
+            )
+            for a in ans_rows:
+                risk_answers.append({
+                    "question_number": int(getattr(a, "question_number", 0) or 0),
+                    "question_section": str(getattr(a, "question_section", "") or ""),
+                    "answer_label": str(getattr(a, "answer_label", "") or ""),
+                    "answer_points": int(getattr(a, "answer_points", 0) or 0),
+                })
+    except Exception as exc:
+        logger.warning(
+            "PDF data-load risk_answers failed for mandate %s: %s",
+            getattr(mandate, "id", "?"), exc,
+        )
+
+    # ---- Cashflow-Events + Goals-List (Seite 12 der Vorlage) ----
+    cashflow_events: list = []
+    goals_list: list = []
+    try:
+        from models.wealth import Cashflow, WealthInflow, Goal
+        client_id = getattr(mandate, "client_id", None)
+        if client_id:
+            # Einkommensseite Cashflows + WealthInflows
+            cfs = (
+                db.query(Cashflow)
+                .filter(
+                    Cashflow.client_id == client_id,
+                    Cashflow.is_active == 1,
+                    Cashflow.deleted_at.is_(None),
+                )
+                .all()
+            )
+            for cf in cfs:
+                kind = str(getattr(cf, "cashflow_type", "") or "")
+                # nur Einkommens-Cashflows (positiv)
+                if kind.lower() not in ("einkommen", "income", "zufluss"):
+                    continue
+                cashflow_events.append({
+                    "name": str(getattr(cf, "label", "—") or "—"),
+                    "household_member": "",
+                    "recurrence": str(getattr(cf, "frequency", "") or "—"),
+                    "start_label": str(getattr(cf, "valid_from", "") or "—"),
+                    "amount_rappen": int(getattr(cf, "amount_rappen", 0) or 0),
+                })
+            inflows = (
+                db.query(WealthInflow)
+                .filter(
+                    WealthInflow.client_id == client_id,
+                    WealthInflow.is_active == 1,
+                    WealthInflow.deleted_at.is_(None),
+                )
+                .all()
+            )
+            for inf in inflows:
+                cashflow_events.append({
+                    "name": str(getattr(inf, "label", "—") or "—"),
+                    "household_member": "",
+                    "recurrence": "Einmalig" if not getattr(inf, "is_recurring", 0) else
+                                  str(getattr(inf, "frequency", "") or "Wiederkehrend"),
+                    "start_label": str(getattr(inf, "expected_year", "") or "—"),
+                    "amount_rappen": int(getattr(inf, "amount_rappen", 0) or 0),
+                })
+
+        # Goals fuer Mandate
+        goals_q = (
+            db.query(Goal)
+            .filter(
+                Goal.mandate_id == mandate.id,
+                Goal.is_active == 1,
+                Goal.deleted_at.is_(None),
+            )
+            .order_by(Goal.rank.asc())
+            .all()
+        )
+        for g in goals_q:
+            target_amt = int(getattr(g, "target_amount_rappen", 0) or 0) or 0
+            target_wealth = int(getattr(g, "target_wealth_rappen", 0) or 0) or 0
+            target_pct = getattr(g, "target_return_bps", None)
+            if target_pct is not None:
+                target_pct = float(target_pct) / 100.0  # bps→%
+            start = str(getattr(g, "start_date", "") or "—")
+            target_date = str(getattr(g, "target_date", "") or "—")
+            period = f"{start} – {target_date}" if start != "—" or target_date != "—" else "—"
+            goals_list.append({
+                "name": str(getattr(g, "label", "—") or "—"),
+                "category": str(getattr(g, "goal_family", "") or "—"),
+                "recurrence": str(getattr(g, "frequency", "") or "Einmalig"),
+                "period_label": period,
+                "amount_rappen": target_amt or target_wealth,
+                "target_pct": target_pct,
+            })
+    except Exception as exc:
+        logger.warning(
+            "PDF data-load cashflow/goals failed for mandate %s: %s",
             getattr(mandate, "id", "?"), exc,
         )
 
@@ -239,6 +410,7 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
                             "label": str(entry.get("label", "") or ""),
                             "achievement_score": float(entry.get("achievement_score", 0) or 0),
                             "target_text": str(entry.get("target_text", "") or ""),
+                            "shortfall_rappen": int(entry.get("shortfall_rappen", 0) or 0),
                         })
     except Exception as exc:
         logger.warning(
@@ -289,6 +461,12 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
         max_drawdown_bps=max_dd_bps,
         var_95_bps=var_95_bps,
         median_cagr_bps=median_cagr_bps,
+        risk_answers=risk_answers,
+        advisory_positions=advisory_positions,
+        other_wealth_positions=other_wealth_positions,
+        cashflow_events=cashflow_events,
+        goals_list=goals_list,
+        current_allocation_bps=current_allocation_bps,
     )
 
 
@@ -409,7 +587,7 @@ def _build_portfolio_data(mandate: Mandate, db: Session) -> PortfolioData:
         if last_run is not None:
             pos_list = (
                 db.query(RecommendationPosition)
-                .filter(RecommendationPosition.recommendation_run_id == last_run.id)
+                .filter(RecommendationPosition.run_id == last_run.id)
                 .all()
             )
             # Batch-Load Products (vermeidet N+1)

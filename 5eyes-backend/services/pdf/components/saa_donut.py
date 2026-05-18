@@ -32,11 +32,74 @@ from services.pdf.styles import (
     FONT_DEFAULT,
     FONT_SIZE_SMALL,
     FONT_SIZE_TABLE,
+    PAGE_SIZE,
     asset_class_color,
     asset_class_label,
 )
 
 BUCKET_ORDER = ("equities", "bonds", "real_estate", "alternatives", "liquidity")
+
+
+def make_two_donuts_comparison(
+    current_bps: Mapping[str, int],
+    target_bps: Mapping[str, int],
+    *,
+    current_products: Iterable[Mapping] | None = None,
+    target_products: Iterable[Mapping] | None = None,
+    diameter_mm: float = 45.0,
+    title_left: str = "Ausgangslage (IST)",
+    title_right: str = "Empfehlung (Soll-Allokation)",
+) -> list:
+    """Sprint 14 Phase 2: 2-Donut-Vergleich side-by-side.
+
+    Vorlage Seite 5: Ausgangslage links, Empfehlung rechts.
+    """
+    page_width, _ = PAGE_SIZE
+    table_width = page_width - 24 * mm
+
+    left_block = _donut_with_label(current_bps, title_left, current_products, diameter_mm)
+    right_block = _donut_with_label(target_bps, title_right, target_products, diameter_mm)
+
+    composite = Table(
+        [[left_block, right_block]],
+        colWidths=[table_width * 0.5, table_width * 0.5],
+    )
+    composite.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 5 * mm),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+    ]))
+    return [composite]
+
+
+def _donut_with_label(allocation_bps: Mapping[str, int], title: str,
+                      products: Iterable[Mapping] | None, diameter_mm: float):
+    """Helper: gebrandete Sub-Tabelle mit Titel + Donut + Legende."""
+    label_para = Paragraph(
+        f'<font name="{FONT_BOLD}" size="9" color="#64748b">{title.upper()}</font>',
+        _para_compact(),
+    )
+    donut = _make_donut_drawing(allocation_bps, diameter_mm)
+    legend = _make_class_legend(allocation_bps, products or [])
+
+    inner = Table(
+        [
+            [label_para, ""],
+            [donut, legend],
+        ],
+        colWidths=[diameter_mm * mm + 3 * mm, None],
+    )
+    inner.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+        ("SPAN", (0, 0), (1, 0)),  # Titel-Zeile span ueber beide Spalten
+    ]))
+    return inner
 
 
 def make_saa_donut_with_legend(
