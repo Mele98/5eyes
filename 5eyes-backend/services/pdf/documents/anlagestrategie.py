@@ -9,12 +9,14 @@ from reportlab.lib.units import mm
 from reportlab.platypus import PageBreak, Paragraph, Spacer
 
 from services.pdf.base import AnlagestrategieData, PDFContext
+from services.pdf.components.effektives_portfolio import make_effektives_portfolio_section
 from services.pdf.components.eignungspruefung import make_eignungspruefung_section
 from services.pdf.components.header import make_wealtharchitekten_header
 from services.pdf.components.produkte import make_produkte_section
 from services.pdf.components.risiko_metriken import make_risiko_metriken_section
 from services.pdf.components.risikoprofil_box import make_risikoprofil_box
 from services.pdf.components.saa_bar_table import make_saa_bar_table
+from services.pdf.components.saa_donut import make_saa_donut_with_legend
 from services.pdf.components.unterschrift import make_unterschrift_section
 from services.pdf.components.ziele_table import make_ziele_section
 
@@ -74,8 +76,9 @@ def build_anlagestrategie_flowables(
         ))
     flowables.append(Spacer(1, 3 * mm))
 
-    # ---- 4. Soll-Allokation (immer rendern wegen Header) ----
+    # ---- 4. Soll-Allokation: Bar-Tabelle + Donut+Legende side-by-side ----
     if data.target_allocation_bps and sum(data.target_allocation_bps.values()) > 0:
+        # Bar-Tabelle (volle Breite)
         flowables.extend(make_saa_bar_table(
             data.target_allocation_bps,
             bucket_bands_bps=data.bucket_bands_bps,
@@ -83,6 +86,24 @@ def build_anlagestrategie_flowables(
             base_currency=ctx.base_currency,
             advisory_wealth_rappen=data.advisory_wealth_rappen,
         ))
+        flowables.append(Spacer(1, 3 * mm))
+        # Donut + Sub-Klassen-Legende
+        from reportlab.platypus import Table as _DonutTable, TableStyle as _DonutStyle
+        donut_widget = make_saa_donut_with_legend(
+            data.target_allocation_bps,
+            products=data.products,
+            diameter_mm=48.0,
+        )
+        from reportlab.platypus import KeepTogether
+        donut_wrap = KeepTogether([
+            Paragraph(
+                f'<font color="#475569" size="9"><b>'
+                f'VISUALISIERUNG NACH ANLAGE- UND SUB-ANLAGEKLASSE</b></font>',
+                styles["section_title"],
+            ),
+            donut_widget,
+        ])
+        flowables.append(donut_wrap)
     else:
         flowables.append(_section_title_with_fallback(
             "Soll-Allokation & Toleranzbaender",
@@ -94,8 +115,15 @@ def build_anlagestrategie_flowables(
     # ---- PAGE BREAK — Seite 2 startet hier ----
     flowables.append(PageBreak())
 
-    # ---- 5. Produkte ----
+    # ---- 5. Produkte (Soll-Vorschlag) ----
     flowables.extend(make_produkte_section(
+        data.products,
+        base_currency=ctx.base_currency,
+    ))
+    flowables.append(Spacer(1, 3 * mm))
+
+    # ---- 5b. Effektives Portfolio (IST-Bestand) ----
+    flowables.extend(make_effektives_portfolio_section(
         data.products,
         base_currency=ctx.base_currency,
     ))
