@@ -128,6 +128,25 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 .chr{display:flex;gap:6px;align-items:center;}
 .cbody{padding:16px 18px;}
 
+/* REVIEW & ABSCHLUSS */
+#page-rv .pad{max-width:1160px;margin:0 auto;padding:20px 28px 30px;}
+#page-rv .card{border-radius:var(--r2);box-shadow:none;margin-bottom:10px;}
+#page-rv .chd{background:transparent;padding:11px 14px 9px;}
+#page-rv .cbody{padding:14px 16px;}
+.rv-final-summary{margin-bottom:14px;}
+.rv-final-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px;}
+.rv-final-kpis>div{box-shadow:none!important;}
+.rv-output-rail{display:flex;flex-direction:column;gap:8px;}
+.rv-output-item{display:grid;grid-template-columns:minmax(220px,1.2fr) auto minmax(190px,auto);gap:14px;align-items:center;border:1px solid var(--b1);border-radius:var(--r2);background:var(--surface);padding:11px 12px;}
+.rv-output-item:hover{border-color:var(--b2);background:var(--bg);}
+.rv-output-title{font-size:11px;font-weight:700;color:var(--n8);margin-bottom:3px;}
+.rv-output-sub{font-size:9px;color:var(--n5);line-height:1.45;}
+.rv-output-status{display:flex;gap:5px;align-items:center;justify-content:flex-end;flex-wrap:wrap;}
+.rv-output-actions{display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap;}
+.rv-section-kicker{font-size:9px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--n4);margin-bottom:4px;}
+.rv-section-title{font-size:13px;font-weight:700;color:var(--n8);line-height:1.25;}
+.rv-section-sub{font-size:9px;color:var(--n4);margin-top:3px;line-height:1.45;}
+
 /* KPI */
 .kpir{display:grid;grid-template-columns:repeat(auto-fit,minmax(165px,1fr));gap:12px;margin-bottom:14px;}
 .kpi{background:var(--surface);border:1px solid var(--b1);border-radius:var(--r2);padding:12px 14px;cursor:pointer;transition:all 0.12s;border-top:2px solid transparent;}
@@ -1234,7 +1253,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 
     <!-- PAGE: ALLOKATION -->
     <div id="page-al" class="page">
-      <div class="ph"><div><div class="ph-t">Asset Allokation</div><div class="ph-s">SOLL-Strategie aus Risikoprofil, Zielen und Beratungsvermögen — stochastisch optimiert</div></div><div class="ph-r"><button class="btn" id="btn-aa-pref-open" onclick="openAllocationPreferencesModal()">Anlagepräferenzen</button><button class="btn" id="btn-aa-params-open" onclick="openAllocationParametersModal()">Parameter</button><button class="btn-g" id="btn-aa-calc" onclick="calculateInvestmentStrategy()">Anlagestrategie berechnen</button><button class="btn" onclick="openAllocationEngineModal()">Soll-Quoten</button><button class="btn" id="btn-aa-pdf" onclick="downloadServerPdf('anlagestrategie')" title="PDF-Bericht (Server)">PDF</button><button class="btn-p" id="btn-portfolio-umsetzen" onclick="openPortfolioUmsetzenModal()" style="display:none;background:var(--pos);color:#fff">Portfolio umsetzen ✓</button><button class="btn-p" onclick="go('po')">Weiter zum Portfolio &rarr;</button></div></div>
+      <div class="ph"><div><div class="ph-t">Asset Allokation</div><div class="ph-s">SOLL-Strategie aus Risikoprofil, Zielen und Beratungsvermögen — stochastisch optimiert</div></div><div class="ph-r"><button class="btn" id="btn-aa-pref-open" onclick="openAllocationPreferencesModal()">Anlagepräferenzen</button><button class="btn" id="btn-aa-params-open" onclick="openAllocationParametersModal()">Parameter</button><button class="btn" onclick="openMandateSettingsModal()" title="Mandat-Einstellungen: Mortalitaet, Rentenalter, Lebenserwartung">Mandat-Einstellungen</button><button class="btn-g" id="btn-aa-calc" onclick="calculateInvestmentStrategy()">Anlagestrategie berechnen</button><button class="btn" onclick="openAllocationEngineModal()">Soll-Quoten</button><button class="btn" id="btn-aa-pdf" onclick="downloadServerPdf('anlagestrategie')" title="PDF-Bericht (Server)">PDF</button><button class="btn-p" id="btn-portfolio-umsetzen" onclick="openPortfolioUmsetzenModal()" style="display:none;background:var(--pos);color:#fff">Portfolio umsetzen ✓</button><button class="btn-p" onclick="go('po')">Weiter zum Portfolio &rarr;</button></div></div>
       <div id="al-dirty-banner" class="strip strip-w" style="display:none">
         <div>
           <div class="st">Strategie veraltet</div>
@@ -1695,9 +1714,9 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
           </div>
         </div>
 
-        <div id="rv-zusammenfassung" style="margin-bottom:14px">
-          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px">
-            <div style="background:var(--n8);border-radius:var(--r2);padding:12px 14px;color:#fff">
+        <div id="rv-zusammenfassung" class="rv-final-summary">
+          <div class="rv-final-kpis">
+            <div style="background:var(--surface);border:1px solid var(--b1);border-radius:var(--r2);padding:12px 14px">
               <div style="font-size:9px;font-weight:500;letter-spacing:0.09em;text-transform:uppercase;color:rgba(255,255,255,0.45);margin-bottom:6px">Risikoprofil</div>
               <div id="sr-risk-score" style="font-family:var(--f-d);font-size:22px;font-weight:500;color:var(--g3)">—</div>
               <div id="sr-risk-profile" style="font-size:11px;color:rgba(255,255,255,0.7);margin-top:2px">Noch nicht erfasst</div>
@@ -1944,6 +1963,44 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
     </div>
 
     <!-- MODALS (compact) -->
+<!-- Sprint 11 (2026-05-18): Mandate-Settings-Modal fuer nachtraegliches Aktivieren
+     von BFS-Mortalitaet, Rentenalter, Lebenserwartung (alle Edit-faehigen
+     Mandat-Felder die NICHT im Add-Modal sind). -->
+<div class="overlay" id="m-mandate-settings"><div class="modal" style="width:560px">
+  <div class="mhd"><div class="mtitle">Mandat-Einstellungen</div><button class="mx" onclick="cm('m-mandate-settings')">&#x2715;</button></div>
+  <div class="mbody">
+    <div style="font-size:11px;color:var(--n5);line-height:1.6;background:var(--bg);border:1px solid var(--b1);border-radius:var(--r);padding:10px 12px;margin-bottom:12px">
+      Mandatspezifische Modelle: BFS-Sterbetafel fuer Lebensdauer-Unsicherheit, Rentenalter und Lebenserwartung fuer Cashflow-Horizont.
+    </div>
+    <div style="font-size:11px;font-weight:600;color:var(--n6);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px">Mortalitaet (BFS-Sterbetafel)</div>
+    <div class="frow">
+      <div class="fg"><label class="fl">Geburtsjahr Hauptmandant</label><input class="fi" id="ms-birth-year" type="number" min="1900" max="2030" placeholder="z.B. 1965"></div>
+      <div class="fg"><label class="fl">Geschlecht</label>
+        <select class="fsel" id="ms-sex">
+          <option value="">— nicht angeben —</option>
+          <option value="M">M&auml;nnlich</option>
+          <option value="F">Weiblich</option>
+        </select>
+      </div>
+    </div>
+    <div class="fg" style="margin-top:8px">
+      <label class="fl" style="cursor:pointer"><input type="checkbox" id="ms-use-mortality" style="vertical-align:middle;margin-right:6px">Mortalitaet-Sampling im Optimizer aktivieren</label>
+      <div style="font-size:9.5px;color:var(--n5);line-height:1.4;margin-top:2px;padding-left:22px">Erfordert Geburtsjahr und Geschlecht. MC-Pfade werden mit BFS-Sterbewahrscheinlichkeiten zerschnitten — realistischere Wealth-Pfade fuer Pensionierung.</div>
+    </div>
+
+    <div style="font-size:11px;font-weight:600;color:var(--n6);text-transform:uppercase;letter-spacing:0.06em;margin:14px 0 6px 0">Planungshorizont</div>
+    <div class="frow">
+      <div class="fg"><label class="fl">Rentenalter (Jahr)</label><input class="fi" id="ms-retirement-year" type="number" min="2000" max="2100" placeholder="z.B. 2030"></div>
+      <div class="fg"><label class="fl">Lebenserwartung (Jahr)</label><input class="fi" id="ms-life-expectancy-year" type="number" min="2000" max="2150" placeholder="z.B. 2055"></div>
+    </div>
+
+    <div id="ms-status" style="font-size:10px;color:var(--n5);margin-top:8px"></div>
+  </div>
+  <div class="mfooter">
+    <button class="btn" onclick="cm('m-mandate-settings')">Abbrechen</button>
+    <button class="btn-p" onclick="saveMandateSettings()">Speichern</button>
+  </div>
+</div></div>
 <div class="overlay" id="m-ed"><div class="modal" style="width:560px"><div class="mhd"><div class="mtitle">Entscheidungsvorlage – Drift</div><button class="mx" onclick="cm('m-ed')">&#x2715;</button></div><div class="mbody"><div id="ed-drift-info" style="background:var(--neg-lt);border:1px solid rgba(153,27,27,0.12);border-radius:var(--r);padding:8px;margin-bottom:12px;font-size:11px;line-height:1.6"></div><div class="fs">Optionen</div><div id="ed-options" style="display:flex;flex-direction:column;gap:6px"></div><div id="ed-error" style="display:none;color:var(--neg);font-size:11px;margin-top:8px"></div></div><div class="mfooter"><button class="btn" onclick="cm('m-ed')">Schliessen</button><button class="btn-p" id="btn-ed-save" onclick="documentDecisionTemplate()">Dokumentieren</button></div></div></div>
 <div class="overlay" id="m-nc">
   <div class="modal" style="width:480px">
@@ -11183,6 +11240,79 @@ function openAllocationParametersModal(){
   ensureAllocationControlModalsMounted();
   applyMandateHorizonToSimulationFields();
   om('m-aa-params');
+}
+
+// Sprint 11 (2026-05-18): Mandate-Settings-Modal — laedt aktuelle Werte
+// aus GET /mandates/{id}, speichert via PUT /mandates/{id}.
+async function openMandateSettingsModal(){
+  var mid = typeof getActiveMandateId==='function' ? getActiveMandateId() : null;
+  if(!mid){
+    if(window.showAppError) showAppError('Bitte zuerst ein Mandat oeffnen.');
+    else alert('Bitte zuerst ein Mandat oeffnen.');
+    return;
+  }
+  // Felder leeren
+  ['ms-birth-year','ms-sex','ms-use-mortality','ms-retirement-year','ms-life-expectancy-year'].forEach(function(id){
+    var el = document.getElementById(id);
+    if(!el) return;
+    if(el.type==='checkbox') el.checked = false;
+    else el.value = '';
+  });
+  var status = document.getElementById('ms-status');
+  if(status){ status.textContent = 'Laedt...'; status.style.color='var(--n5)'; }
+  om('m-mandate-settings');
+  try {
+    var m = await API.get('/mandates/'+encodeURIComponent(mid));
+    if(m){
+      if(m.client_birth_year) document.getElementById('ms-birth-year').value = m.client_birth_year;
+      if(m.client_sex) document.getElementById('ms-sex').value = m.client_sex;
+      if(m.use_mortality_simulation) document.getElementById('ms-use-mortality').checked = true;
+      if(m.retirement_year) document.getElementById('ms-retirement-year').value = m.retirement_year;
+      if(m.life_expectancy_year) document.getElementById('ms-life-expectancy-year').value = m.life_expectancy_year;
+      if(status){ status.textContent = 'Geladen.'; status.style.color='var(--n5)'; }
+    }
+  } catch(e) {
+    if(status){
+      status.textContent = 'Konnte Mandat-Daten nicht laden: ' + (e && (e.detail||e.message) || '?');
+      status.style.color = 'var(--neg)';
+    }
+  }
+}
+async function saveMandateSettings(){
+  var mid = typeof getActiveMandateId==='function' ? getActiveMandateId() : null;
+  if(!mid) return;
+  var status = document.getElementById('ms-status');
+  function parseIntOrNull(elId){
+    var el = document.getElementById(elId);
+    if(!el || !el.value) return null;
+    var n = parseInt(el.value, 10);
+    return (isFinite(n) && n > 0) ? n : null;
+  }
+  var payload = {
+    client_birth_year: parseIntOrNull('ms-birth-year'),
+    client_sex: (document.getElementById('ms-sex').value || null),
+    use_mortality_simulation: !!document.getElementById('ms-use-mortality').checked,
+    retirement_year: parseIntOrNull('ms-retirement-year'),
+    life_expectancy_year: parseIntOrNull('ms-life-expectancy-year'),
+  };
+  if(payload.client_sex && payload.client_sex !== 'M' && payload.client_sex !== 'F'){
+    payload.client_sex = null;
+  }
+  if(status){ status.textContent = 'Speichert...'; status.style.color='var(--n5)'; }
+  try {
+    await API.put('/mandates/'+encodeURIComponent(mid), payload);
+    if(status){ status.textContent = 'Gespeichert.'; status.style.color='var(--pos)'; }
+    try { if(window.showAppSuccess) showAppSuccess('Mandat-Einstellungen aktualisiert', {title:'Mandat'}); } catch(noticeErr){}
+    setTimeout(function(){ cm('m-mandate-settings'); }, 600);
+    // Dirty-Marker damit Berater Strategie neu berechnet falls Mortalitaet umgeschaltet
+    if(typeof markStrategyDirty === 'function') markStrategyDirty('Mandat-Einstellungen geaendert: Strategie neu berechnen.', false);
+  } catch(e) {
+    if(status){
+      status.textContent = 'Speichern fehlgeschlagen: ' + (e && (e.detail||e.message) || '?');
+      status.style.color = 'var(--neg)';
+    }
+    try { if(window.showAppError) showAppError(status ? status.textContent : 'Speichern fehlgeschlagen'); } catch(noticeErr){}
+  }
 }
 function buildAllocationRestrictionItems(prefs){
   if(!prefs)return [];
