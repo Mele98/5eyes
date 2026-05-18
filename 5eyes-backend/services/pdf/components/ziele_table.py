@@ -56,11 +56,14 @@ def make_ziele_section(goals: Iterable[Mapping], *, base_currency: str = "CHF") 
         target_text = str(g.get("target_text", "") or "")
         shortfall_rappen = int(g.get("shortfall_rappen", 0) or 0)
 
-        # Balken-Visualisierung in Farbe
+        # Sprint 14 Phase 3: filled-Balken in goal_color, empty-Balken grau
         color_hex = goal_color(score).hexval()[2:]
-        bars_text = _achievement_bars(score)
+        n_filled = max(0, min(8, int(round(score / 12.5))))
+        filled = "▰" * n_filled
+        empty = "▱" * (8 - n_filled)
         achievement_cell = Paragraph(
-            f'<font color="#{color_hex}" size="12"><b>{bars_text}</b></font>'
+            f'<font color="#{color_hex}" size="12"><b>{filled}</b></font>'
+            f'<font color="#cbd5e1" size="12">{empty}</font>'
             f'<br/><font color="#64748b" size="7">{int(score)}/100</font>',
             _para_compact(),
         )

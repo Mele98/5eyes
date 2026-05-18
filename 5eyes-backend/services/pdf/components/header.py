@@ -57,7 +57,12 @@ def make_wealtharchitekten_header(
         f'<para><font name="{FONT_DEFAULT}" size="8" color="#94a3b8">'
         f'Vertraulich · Erstellt am {ctx.report_date.strftime("%d.%m.%Y")}</font></para>',
     ]
-    left_paragraphs = [Paragraph(line, _para_style_blank()) for line in left_lines]
+    # Sprint 14 Phase 3 Fix: leading per fontSize (sonst Overlap)
+    left_paragraphs = [
+        Paragraph(left_lines[0], _para_for_size(9)),
+        Paragraph(left_lines[1], _para_for_size(22)),
+        Paragraph(left_lines[2], _para_for_size(8)),
+    ]
 
     # ---- Rechte Spalte: Kundendossier + Mandat + Vermoegen ----
     right_lines = [
@@ -76,7 +81,11 @@ def make_wealtharchitekten_header(
             f'<para align="right"><font name="{FONT_DEFAULT}" size="8" color="#94a3b8">'
             f'Beratungsvermögen {_esc(advisory_wealth_label)}</font></para>'
         )
-    right_paragraphs = [Paragraph(line, _para_style_blank()) for line in right_lines]
+    right_paragraphs = []
+    right_paragraphs.append(Paragraph(right_lines[0], _para_for_size(8)))
+    right_paragraphs.append(Paragraph(right_lines[1], _para_for_size(11)))
+    for extra in right_lines[2:]:
+        right_paragraphs.append(Paragraph(extra, _para_for_size(8)))
 
     # Padding bis beide Spalten gleich viele Zeilen
     max_lines = max(len(left_paragraphs), len(right_paragraphs))
@@ -114,6 +123,19 @@ def _para_style_blank():
         fontName=FONT_DEFAULT,
         fontSize=9,
         leading=11,
+        spaceAfter=0,
+    )
+
+
+def _para_for_size(size: int):
+    """Sprint 14 Phase 3: korrektes leading (~1.25x fontSize) pro Schriftgroesse,
+    sonst ueberlappen grosse Texte mit den folgenden Zeilen."""
+    from reportlab.lib.styles import ParagraphStyle
+    return ParagraphStyle(
+        f"WAHeader{size}",
+        fontName=FONT_DEFAULT,
+        fontSize=size,
+        leading=max(size * 1.25, 11),
         spaceAfter=0,
     )
 

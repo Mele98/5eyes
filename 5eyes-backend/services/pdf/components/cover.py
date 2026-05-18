@@ -54,15 +54,26 @@ def make_cover_page(
 
     flowables: list = []
 
-    # ---- Titel Block ----
-    flowables.append(Spacer(1, 8 * mm))
+    # ---- Brand-Block + Titel ----
+    flowables.append(Spacer(1, 12 * mm))
     flowables.append(Paragraph(
-        f'<font name="{FONT_BOLD}" size="28" color="#0f172a">'
+        f'<font name="{FONT_BOLD}" size="10" color="#64748b">'
+        f'W E A L T H A R C H I T E K T E N</font>',
+        _para_for_size(10, after=4 * mm),
+    ))
+    flowables.append(Paragraph(
+        f'<font name="{FONT_BOLD}" size="34" color="#0f172a">'
         f'Ihre persönliche Anlagestrategie</font>',
-        _para_compact(after=8 * mm),
+        _para_for_size(34, after=4 * mm),
+    ))
+    flowables.append(Paragraph(
+        f'<font name="{FONT_DEFAULT}" size="11" color="#475569">'
+        f'Strategiedokument · Stand {ctx.report_date.strftime("%d.%m.%Y")}'
+        f'</font>',
+        _para_for_size(11, after=8 * mm),
     ))
     flowables.append(_horizontal_line(thickness=1.2))
-    flowables.append(Spacer(1, 8 * mm))
+    flowables.append(Spacer(1, 10 * mm))
 
     # ---- Kontaktbloecke (2-spaltig) ----
     org = advisor_org or ctx.advisor_org or DEFAULT_ADVISOR_ORG
@@ -136,19 +147,14 @@ def make_cover_page(
     ]))
     flowables.append(contact_table)
 
-    # ---- Tagline + Datum unten ----
-    flowables.append(Spacer(1, 20 * mm))
+    # ---- Tagline unten ----
+    flowables.append(Spacer(1, 24 * mm))
     flowables.append(_horizontal_line(thickness=0.5))
-    flowables.append(Spacer(1, 5 * mm))
+    flowables.append(Spacer(1, 6 * mm))
     flowables.append(Paragraph(
-        f'<font name="{FONT_ITALIC_OR_DEFAULT()}" size="11" color="#475569">'
+        f'<font name="{FONT_ITALIC_OR_DEFAULT()}" size="12" color="#475569">'
         f'{_esc(COVER_TAGLINE)}</font>',
-        _para_compact(after=6 * mm),
-    ))
-    flowables.append(Paragraph(
-        f'<font name="{FONT_BOLD}" size="11" color="#0f172a">'
-        f'{ctx.report_date.strftime("%d.%m.%Y")}</font>',
-        _para_compact(),
+        _para_for_size(12, after=2 * mm),
     ))
     return flowables
 
@@ -157,14 +163,15 @@ def make_section_cover(title: str) -> list:
     """Trenn-Cover-Seite (z.B. Seite 10: 'Ihre persoenliche Ausgangslage').
 
     Grosses Titel-Element, vertikal zentriert wirkend (durch Spacer).
+    Sprint 14 Phase 3: leading=36 fuer 28pt-Title (sonst Linie durchschneidet Text).
     """
     flowables = []
     flowables.append(Spacer(1, 60 * mm))
     flowables.append(_horizontal_line(thickness=1.2))
-    flowables.append(Spacer(1, 6 * mm))
+    flowables.append(Spacer(1, 8 * mm))
     flowables.append(Paragraph(
         f'<font name="{FONT_BOLD}" size="28" color="#0f172a">{_esc(title)}</font>',
-        _para_compact(after=2 * mm),
+        _para_for_size(28, after=8 * mm),
     ))
     flowables.append(_horizontal_line(thickness=1.2))
     flowables.append(Spacer(1, 60 * mm))
@@ -194,5 +201,18 @@ def _para_compact(after: float = 2):
         fontName=FONT_DEFAULT,
         fontSize=10,
         leading=13,
+        spaceAfter=after,
+    )
+
+
+def _para_for_size(size: int, *, after: float = 2):
+    """Sprint 14 Phase 3: korrektes leading (~1.25x fontSize) sonst ueberlappt
+    grosser Text mit folgenden Linien/Paragraphs."""
+    from reportlab.lib.styles import ParagraphStyle
+    return ParagraphStyle(
+        f"CoverSize{size}",
+        fontName=FONT_DEFAULT,
+        fontSize=size,
+        leading=max(size * 1.25, 13),
         spaceAfter=after,
     )

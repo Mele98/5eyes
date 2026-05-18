@@ -106,7 +106,7 @@ def _wrap_table(rows: list, *, col_fracs: list, align_right_from: int):
     page_width, _ = PAGE_SIZE
     table_width = page_width - 24 * mm
     col_widths = [table_width * f for f in col_fracs]
-    table = Table(rows, colWidths=col_widths)
+    table = Table(rows, colWidths=col_widths, repeatRows=1)
     table.setStyle(TableStyle([
         ("FONTNAME", (0, 0), (-1, 0), FONT_BOLD),
         ("FONTSIZE", (0, 0), (-1, 0), FONT_SIZE_TABLE_HEADER),

@@ -45,18 +45,19 @@ def make_risikoprofil_box(
 
     score_value = (float(score_x10) / 10.0) if score_x10 is not None else None
 
+    # Sprint 14 Phase 3: pro Schriftgroesse korrektes leading sonst Overlap
     # Links: grosser Score
     left_content = []
     if score_value is not None:
         left_content.append(Paragraph(
             f'<para align="center"><font name="{FONT_BOLD}" size="34" color="#0f172a">'
             f'{score_value:.1f}</font></para>',
-            _para_style_compact(),
+            _para_size(34, after=1),
         ))
         left_content.append(Paragraph(
             f'<para align="center"><font name="{FONT_DEFAULT}" size="7" color="#64748b">'
             f'VON 10</font></para>',
-            _para_style_compact(),
+            _para_size(7, after=0),
         ))
 
     # Rechts: Profil-Label + Horizont + Mandat
@@ -64,29 +65,29 @@ def make_risikoprofil_box(
     if profile_label:
         right_content.append(Paragraph(
             f'<font name="{FONT_DEFAULT}" size="7" color="#64748b">RISIKOPROFIL</font>',
-            _para_style_compact(),
+            _para_size(7, after=1),
         ))
         right_content.append(Paragraph(
             f'<font name="{FONT_BOLD}" size="14" color="#0f172a">{_esc(profile_label)}</font>',
-            _para_style_compact(line_after=2),
+            _para_size(14, after=4),
         ))
     if horizon_years:
         right_content.append(Paragraph(
             f'<font name="{FONT_DEFAULT}" size="7" color="#64748b">ANLAGEHORIZONT</font>',
-            _para_style_compact(),
+            _para_size(7, after=1),
         ))
         right_content.append(Paragraph(
             f'<font name="{FONT_BOLD}" size="11" color="#0f172a">{horizon_years} Jahre</font>',
-            _para_style_compact(line_after=2),
+            _para_size(11, after=4),
         ))
     if mandate_type:
         right_content.append(Paragraph(
             f'<font name="{FONT_DEFAULT}" size="7" color="#64748b">MANDAT</font>',
-            _para_style_compact(),
+            _para_size(7, after=1),
         ))
         right_content.append(Paragraph(
             f'<font name="{FONT_BOLD}" size="11" color="#0f172a">{_esc(mandate_type)}</font>',
-            _para_style_compact(),
+            _para_size(11, after=0),
         ))
 
     composite = Table(
@@ -123,4 +124,16 @@ def _para_style_compact(line_after: float = 0):
         fontSize=9,
         leading=11,
         spaceAfter=line_after,
+    )
+
+
+def _para_size(size: int, *, after: float = 0):
+    """Sprint 14 Phase 3: leading=~1.25x fontSize sonst Overlap."""
+    from reportlab.lib.styles import ParagraphStyle
+    return ParagraphStyle(
+        f"RpBoxSize{size}",
+        fontName=FONT_DEFAULT,
+        fontSize=size,
+        leading=max(size * 1.25, 9),
+        spaceAfter=after,
     )

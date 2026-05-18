@@ -40,17 +40,40 @@ from services.pdf.components.ziele_table import make_ziele_section
 def build_anlagestrategie_flowables(
     ctx: PDFContext, data: AnlagestrategieData
 ) -> list:
-    """8 Sektionen wie Frontend-Vorlage, A4 Landscape.
+    """Anlagestrategie-PDF mit logischer Beratungs-Reihenfolge.
 
-    Sprint 11 Phase 5: forcierte PageBreaks + Fallback-Texte fuer leere
-    Sektionen. Garantiert mindestens 2 Seiten (Seite 1 = Profil/SAA,
-    Seite 2 = Portfolio/Risk/Ziele/Unterschrift).
+    Sprint 14 Phase 3 Restrukturierung:
+      1. Cover (Persoenliches)
+      2. TEIL A — IHRE PERSOENLICHE AUSGANGSLAGE
+         - Vermoegensuebersicht
+         - Kapitalzufluesse + Ziele
+         - Eignungspruefung
+         - Risikoprofil
+      3. TEIL B — IHRE PERSOENLICHE ANLAGESTRATEGIE
+         - Soll-Allokation + 2-Donut-Vergleich
+         - Produkte (ISIN-Tabelle gruppiert)
+         - Risiko-Metriken
+         - Zielerreichung
+      4. TEIL C — METHODIK
+         - Investitionsansatz
+         - Anlageuniversum
+      5. TEIL D — BESTAETIGUNG
+         - Zusammenfassung + Unterschrift
+      6. ANHANG
+         - Erlaeuterungen zu den Kennzahlen
+         - Disclaimer
     """
     flowables: list = []
     from services.pdf.styles import make_paragraph_styles
     styles = make_paragraph_styles()
 
-    # ---- COVER (Seite 1, Swiss-Life-Wealth-Vorlage) ----
+    advisory_label = None
+    if data.advisory_wealth_rappen:
+        advisory_label = _format_amount(data.advisory_wealth_rappen, ctx.base_currency)
+
+    # ============================================================
+    # 1. COVER
+    # ============================================================
     flowables.extend(make_cover_page(
         ctx,
         client_address_lines=list(getattr(data, "client_address_lines", []) or []),
@@ -58,17 +81,58 @@ def build_anlagestrategie_flowables(
     ))
     flowables.append(PageBreak())
 
-    # ---- 1. Header (Seite 2) ----
-    advisory_label = None
-    if data.advisory_wealth_rappen:
-        advisory_label = _format_amount(data.advisory_wealth_rappen, ctx.base_currency)
+    # ============================================================
+    # TEIL A — IHRE PERSOENLICHE AUSGANGSLAGE
+    # ============================================================
+    flowables.extend(make_section_cover("Ihre persönliche Ausgangslage"))
+    flowables.append(PageBreak())
+
+    # A.1 Vermoegensuebersicht
     flowables.extend(make_wealtharchitekten_header(
-        ctx,
-        mandate_number=data.mandate_number,
+        ctx, mandate_number=data.mandate_number,
         advisory_wealth_label=advisory_label,
     ))
+    if data.advisory_positions or data.other_wealth_positions:
+        flowables.extend(make_vermoegensuebersicht_section(
+            data.advisory_positions, data.other_wealth_positions,
+            base_currency=ctx.base_currency,
+        ))
+    else:
+        flowables.append(_section_title_with_fallback(
+            "Vermögensübersicht",
+            "Noch keine Vermögenspositionen erfasst. Bitte im Vermögens-Tab "
+            "die aktuellen Bestände erfassen.",
+            styles,
+        ))
+    flowables.append(PageBreak())
 
-    # ---- 2. Eignungspruefung Frage-Antwort (Sprint 14 Phase 2 P0a) ----
+    # A.2 Kapitalzufluesse + Ziele
+    flowables.extend(make_wealtharchitekten_header(
+        ctx, mandate_number=data.mandate_number,
+        advisory_wealth_label=advisory_label,
+    ))
+    if data.cashflow_events:
+        flowables.extend(make_cashflows_section(
+            data.cashflow_events, base_currency=ctx.base_currency,
+        ))
+        flowables.append(Spacer(1, 4 * mm))
+    if data.goals_list:
+        flowables.extend(make_ziele_overview_section(
+            data.goals_list, base_currency=ctx.base_currency,
+        ))
+    if not (data.cashflow_events or data.goals_list):
+        flowables.append(_section_title_with_fallback(
+            "Kapitalzuflüsse & Ziele",
+            "Noch keine Cashflow-Ereignisse oder Anlageziele erfasst.",
+            styles,
+        ))
+    flowables.append(PageBreak())
+
+    # A.3 Eignungspruefung
+    flowables.extend(make_wealtharchitekten_header(
+        ctx, mandate_number=data.mandate_number,
+        advisory_wealth_label=advisory_label,
+    ))
     if data.risk_answers or data.knowledge_services or data.knowledge_instruments:
         flowables.extend(make_eignungspruefung_section(
             answers=data.risk_answers,
@@ -77,35 +141,14 @@ def build_anlagestrategie_flowables(
         ))
     else:
         flowables.append(_section_title_with_fallback(
-            "Kenntnisse & Erfahrungen (Eignungspruefung)",
-            "Noch keine Kenntnisse erfasst. Bitte im Risikoprofil-Tab "
-            "Finanzdienstleistungen und -instrumente angeben.",
+            "Eignungsprüfung",
+            "Noch keine Eignungsprüfung erfasst. Bitte im Risikoprofil-Tab "
+            "den Fragebogen ausfüllen.",
             styles,
         ))
-    flowables.append(Spacer(1, 3 * mm))
+    flowables.append(Spacer(1, 4 * mm))
 
-    # ---- 2b. Vermoegensuebersicht (Sprint 14 Phase 2 P0b) ----
-    if data.advisory_positions or data.other_wealth_positions:
-        flowables.extend(make_vermoegensuebersicht_section(
-            data.advisory_positions,
-            data.other_wealth_positions,
-            base_currency=ctx.base_currency,
-        ))
-        flowables.append(Spacer(1, 3 * mm))
-
-    # ---- 2c. Kapitalzuflüsse + Ziele (Sprint 14 Phase 2 P1b) ----
-    if data.cashflow_events:
-        flowables.extend(make_cashflows_section(
-            data.cashflow_events, base_currency=ctx.base_currency,
-        ))
-        flowables.append(Spacer(1, 3 * mm))
-    if data.goals_list:
-        flowables.extend(make_ziele_overview_section(
-            data.goals_list, base_currency=ctx.base_currency,
-        ))
-        flowables.append(Spacer(1, 3 * mm))
-
-    # ---- 3. Risikoprofil-Box (mit Fallback) ----
+    # A.4 Risikoprofil-Box (direkt nach Eignungspruefung, denn das ist das Resultat)
     if data.risk_score_x10 is not None or data.risk_profile_label:
         flowables.extend(make_risikoprofil_box(
             score_x10=data.risk_score_x10,
@@ -116,15 +159,23 @@ def build_anlagestrategie_flowables(
     else:
         flowables.append(_section_title_with_fallback(
             "Risikoprofil",
-            "Noch kein Risikoprofil gespeichert. Bitte im Risikoprofil-Tab "
-            "den Fragebogen ausfuellen und speichern.",
+            "Noch kein Risikoprofil gespeichert.",
             styles,
         ))
-    flowables.append(Spacer(1, 3 * mm))
+    flowables.append(PageBreak())
 
-    # ---- 4. Soll-Allokation: Bar-Tabelle + Donut+Legende side-by-side ----
+    # ============================================================
+    # TEIL B — IHRE PERSOENLICHE ANLAGESTRATEGIE
+    # ============================================================
+    flowables.extend(make_section_cover("Ihre persönliche Anlagestrategie"))
+    flowables.append(PageBreak())
+
+    # B.1 Soll-Allokation Bar-Tabelle + 2-Donut-Vergleich
+    flowables.extend(make_wealtharchitekten_header(
+        ctx, mandate_number=data.mandate_number,
+        advisory_wealth_label=advisory_label,
+    ))
     if data.target_allocation_bps and sum(data.target_allocation_bps.values()) > 0:
-        # Bar-Tabelle (volle Breite)
         flowables.extend(make_saa_bar_table(
             data.target_allocation_bps,
             bucket_bands_bps=data.bucket_bands_bps,
@@ -132,8 +183,7 @@ def build_anlagestrategie_flowables(
             base_currency=ctx.base_currency,
             advisory_wealth_rappen=data.advisory_wealth_rappen,
         ))
-        flowables.append(Spacer(1, 3 * mm))
-        # Sprint 14 Phase 2 P1a: 2 Donuts side-by-side (IST + Empfehlung)
+        flowables.append(Spacer(1, 4 * mm))
         from reportlab.platypus import KeepTogether
         title_para = Paragraph(
             f'<font color="#475569" size="9"><b>'
@@ -155,37 +205,33 @@ def build_anlagestrategie_flowables(
             flowables.append(KeepTogether([title_para, *two_donuts]))
         else:
             donut_widget = make_saa_donut_with_legend(
-                data.target_allocation_bps,
-                products=data.products,
+                data.target_allocation_bps, products=data.products,
                 diameter_mm=48.0,
             )
             flowables.append(KeepTogether([title_para, donut_widget]))
     else:
         flowables.append(_section_title_with_fallback(
-            "Soll-Allokation & Toleranzbaender",
-            "Noch keine Soll-Allokation berechnet. Bitte im Asset-"
-            "Allokation-Tab 'Anlagestrategie berechnen' klicken.",
+            "Soll-Allokation & Toleranzbänder",
+            "Noch keine Soll-Allokation berechnet.",
             styles,
         ))
-
-    # ---- PAGE BREAK — Seite 2 startet hier ----
     flowables.append(PageBreak())
 
-    # ---- 5. Produkte (Soll-Vorschlag) ----
+    # B.2 Produkte (ISIN-Tabelle gruppiert mit Subtotalen)
+    flowables.extend(make_wealtharchitekten_header(
+        ctx, mandate_number=data.mandate_number,
+        advisory_wealth_label=advisory_label,
+    ))
     flowables.extend(make_produkte_section(
-        data.products,
-        base_currency=ctx.base_currency,
+        data.products, base_currency=ctx.base_currency,
     ))
-    flowables.append(Spacer(1, 3 * mm))
+    flowables.append(PageBreak())
 
-    # ---- 5b. Effektives Portfolio (IST-Bestand) ----
-    flowables.extend(make_effektives_portfolio_section(
-        data.products,
-        base_currency=ctx.base_currency,
+    # B.3 Risiko-Metriken + Zielerreichung
+    flowables.extend(make_wealtharchitekten_header(
+        ctx, mandate_number=data.mandate_number,
+        advisory_wealth_label=advisory_label,
     ))
-    flowables.append(Spacer(1, 3 * mm))
-
-    # ---- 6. Risiko-Metriken (mit Fallback) ----
     has_metrics = (
         data.cma_expected_return_bps or data.median_cagr_bps
         or data.cma_expected_vol_bps or data.max_drawdown_bps
@@ -199,55 +245,44 @@ def build_anlagestrategie_flowables(
             max_drawdown_bps=data.max_drawdown_bps,
             var_95_bps=data.var_95_bps,
         ))
-    else:
-        flowables.append(_section_title_with_fallback(
-            "Risikoindiktatoren & Prognose (Monte Carlo)",
-            "Noch keine Monte-Carlo-Simulation. Wird zusammen mit "
-            "'Anlagestrategie berechnen' generiert.",
-            styles,
-        ))
-    flowables.append(Spacer(1, 3 * mm))
+        flowables.append(Spacer(1, 4 * mm))
 
-    # ---- 7. Ziele (mit Fallback) ----
     if data.goal_analysis:
         flowables.extend(make_ziele_section(
             data.goal_analysis, base_currency=ctx.base_currency,
         ))
-    else:
+    elif not has_metrics:
         flowables.append(_section_title_with_fallback(
-            "Anlageziele & Zielerreichung",
-            "Noch keine Ziele erfasst oder Zielerreichung noch nicht "
-            "berechnet. Bitte im Cashflow-Tab Ziele anlegen.",
+            "Zielerreichung & Risikoindikatoren",
+            "Noch keine Monte-Carlo-Simulation. Wird mit 'Anlagestrategie "
+            "berechnen' generiert.",
             styles,
         ))
-    flowables.append(Spacer(1, 3 * mm))
-
-    # ---- PageBreak vor Erklaerungs-Sektionen ----
     flowables.append(PageBreak())
 
-    # ---- Investitionsansatz (statisch) ----
+    # ============================================================
+    # TEIL C — METHODIK
+    # ============================================================
     flowables.extend(make_investitionsansatz_section())
     flowables.append(PageBreak())
 
-    # ---- Anlageuniversum (statisch) ----
     flowables.extend(make_anlageuniversum_section())
     flowables.append(PageBreak())
 
-    # ---- Zusammenfassung + Unterschrift ----
+    # ============================================================
+    # TEIL D — BESTAETIGUNG
+    # ============================================================
     flowables.extend(make_zusammenfassung_section())
     flowables.append(Spacer(1, 6 * mm))
     flowables.extend(make_unterschrift_section())
     flowables.append(PageBreak())
 
-    # ---- Trenn-Cover "Ihre persoenliche Ausgangslage" ----
-    flowables.extend(make_section_cover("Ihre persönliche Ausgangslage"))
-    flowables.append(PageBreak())
-
-    # ---- Kennzahlen-Erlaeuterungen (statisch) ----
+    # ============================================================
+    # ANHANG
+    # ============================================================
     flowables.extend(make_kennzahlen_erlaeuterungen_section())
     flowables.append(PageBreak())
 
-    # ---- Disclaimer (statisch, letzte Seite) ----
     flowables.extend(make_disclaimer_section())
 
     return flowables

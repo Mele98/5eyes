@@ -89,25 +89,58 @@ def make_eignungspruefung_section(
             services_knowledge or {}, instruments_knowledge or {}
         )
 
-    # Map question_number → answer
-    answers_by_q: dict[int, Mapping] = {}
+    # Sprint 14 Phase 3: Bereich-Zuordnung primaer aus den Answer-Daten
+    # (question_section). Fallback: Catalog. So sind Antworten immer dort
+    # gruppiert wo sie im Frontend-Fragebogen wirklich stehen.
+    def _normalize_section(s: str) -> str:
+        v = (s or "").strip()
+        # Normalisierung: Umlaute + Capitalize → matchen mit SECTION_ORDER
+        norm = (v.replace("ae", "ä").replace("oe", "ö").replace("ue", "ü"))
+        for canonical in SECTION_ORDER:
+            if norm.lower() == canonical.lower():
+                return canonical
+            if v.lower() == canonical.lower():
+                return canonical
+        return v or "Sonstiges"
+
+    grouped: dict[str, list] = {sec: [] for sec in SECTION_ORDER}
     for a in answers_list:
         try:
             qn = int(a.get("question_number", 0))
         except (TypeError, ValueError):
             continue
-        if qn > 0:
-            answers_by_q[qn] = a
+        if qn <= 0:
+            continue
+        # Section: bevorzugt aus answer-data, sonst aus catalog
+        raw_section = str(a.get("question_section", "") or "")
+        if raw_section:
+            section = _normalize_section(raw_section)
+        elif qn in QUESTION_CATALOG:
+            section = QUESTION_CATALOG[qn][0]
+        else:
+            section = "Sonstiges"
+        # Frage-Text: bevorzugt aus answer-data, sonst Catalog
+        question_text = str(a.get("question_text", "") or "")
+        if not question_text and qn in QUESTION_CATALOG:
+            question_text = QUESTION_CATALOG[qn][1]
+        if not question_text:
+            question_text = f"Frage {qn}"
+        answer_label = str(a.get("answer_label", "") or "—")
+        try:
+            points = int(a.get("answer_points", 0) or 0)
+        except (TypeError, ValueError):
+            points = 0
+        grouped.setdefault(section, []).append((qn, question_text, answer_label, points))
 
-    flowables.append(_section_title("🔍  Eignungsprüfung — Kenntnisse, Risikobereitschaft und Risikotragfähigkeit"))
+    # Leere Sections entfernen
+    grouped = {k: v for k, v in grouped.items() if v}
+
+    flowables.append(_section_title("Eignungsprüfung — Kenntnisse, Risikobereitschaft und Risikotragfähigkeit"))
 
     # Pro Bereich eine Sub-Sektion mit Frage-Antwort-Tabelle
-    for section in SECTION_ORDER:
-        section_questions = [
-            (qn, txt) for qn, (sec, txt) in QUESTION_CATALOG.items()
-            if sec == section and qn in answers_by_q
-        ]
-        if not section_questions:
+    for section in list(SECTION_ORDER) + [s for s in grouped if s not in SECTION_ORDER]:
+        entries = grouped.get(section)
+        if not entries:
             continue
 
         flowables.append(Spacer(1, 2.5 * mm))
@@ -116,13 +149,17 @@ def make_eignungspruefung_section(
             styles["body"],
         ))
 
-        rows = [["Frage", "Antwort"]]
-        for qn, question_text in sorted(section_questions, key=lambda x: x[0]):
-            answer_label = str(answers_by_q[qn].get("answer_label", "") or "—")
+        rows = [["Frage", "Antwort", "Punkte"]]
+        for qn, question_text, answer_label, points in sorted(entries, key=lambda x: x[0]):
             rows.append([
                 Paragraph(_esc(question_text), _para_q()),
                 Paragraph(
                     f'<font name="{FONT_BOLD}">{_esc(answer_label)}</font>',
+                    _para_a(),
+                ),
+                Paragraph(
+                    f'<para align="center"><font name="{FONT_BOLD}" color="#475569">'
+                    f'{points if points else "—"}</font></para>',
                     _para_a(),
                 ),
             ])
@@ -131,7 +168,8 @@ def make_eignungspruefung_section(
         table_width = page_width - 24 * mm
         table = Table(
             rows,
-            colWidths=[table_width * 0.55, table_width * 0.45],
+            colWidths=[table_width * 0.55, table_width * 0.35, table_width * 0.10],
+            repeatRows=1,
         )
         table.setStyle(TableStyle([
             ("FONTNAME", (0, 0), (-1, 0), FONT_BOLD),
@@ -142,6 +180,7 @@ def make_eignungspruefung_section(
             ("TEXTCOLOR", (0, 1), (-1, -1), COLOR_TEXT),
             ("LINEBELOW", (0, 0), (-1, 0), 0.8, COLOR_BORDER),
             ("LINEBELOW", (0, 1), (-1, -2), 0.3, COLOR_BORDER),
+            ("ALIGN", (2, 0), (2, -1), "CENTER"),
             ("VALIGN", (0, 0), (-1, -1), "TOP"),
             ("TOPPADDING", (0, 0), (-1, -1), 4),
             ("BOTTOMPADDING", (0, 0), (-1, -1), 4),

@@ -8,7 +8,7 @@ from __future__ import annotations
 from typing import Iterable, Mapping
 
 from reportlab.lib.units import mm
-from reportlab.platypus import Paragraph, Spacer, Table, TableStyle
+from reportlab.platypus import KeepTogether, Paragraph, Spacer, Table, TableStyle
 
 from services.pdf.components.header import _esc
 from services.pdf.styles import (
@@ -66,12 +66,15 @@ def make_vermoegensuebersicht_section(
     flowables.append(_make_advisory_table(pos_list, base_currency))
 
     if other_list:
+        # Sprint 14 Phase 3 Fix B8: KeepTogether sonst splittet sich Total-Zeile
         flowables.append(Spacer(1, 4 * mm))
-        flowables.append(Paragraph(
-            f'<font name="{FONT_BOLD}" size="10" color="#0f172a">Anderes Vermögen</font>',
-            styles["body"],
-        ))
-        flowables.append(_make_other_wealth_table(other_list, base_currency))
+        flowables.append(KeepTogether([
+            Paragraph(
+                f'<font name="{FONT_BOLD}" size="10" color="#0f172a">Anderes Vermögen</font>',
+                styles["body"],
+            ),
+            _make_other_wealth_table(other_list, base_currency),
+        ]))
 
     return flowables
 
@@ -129,7 +132,7 @@ def _make_advisory_table(positions: list, currency: str):
 
     page_width, _ = PAGE_SIZE
     table_width = page_width - 24 * mm
-    table = Table(rows, colWidths=[table_width * 0.55, table_width * 0.25, table_width * 0.20])
+    table = Table(rows, colWidths=[table_width * 0.55, table_width * 0.25, table_width * 0.20], repeatRows=1)
     table.setStyle(TableStyle([
         ("FONTNAME", (0, 0), (-1, 0), FONT_BOLD),
         ("FONTSIZE", (0, 0), (-1, 0), FONT_SIZE_TABLE_HEADER),
