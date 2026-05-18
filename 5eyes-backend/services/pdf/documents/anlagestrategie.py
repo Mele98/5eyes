@@ -9,6 +9,7 @@ from reportlab.lib.units import mm
 from reportlab.platypus import PageBreak, Paragraph, Spacer
 
 from services.pdf.base import AnlagestrategieData, PDFContext
+from services.pdf.components.cover import make_cover_page, make_section_cover
 from services.pdf.components.effektives_portfolio import make_effektives_portfolio_section
 from services.pdf.components.eignungspruefung import make_eignungspruefung_section
 from services.pdf.components.header import make_wealtharchitekten_header
@@ -17,6 +18,13 @@ from services.pdf.components.risiko_metriken import make_risiko_metriken_section
 from services.pdf.components.risikoprofil_box import make_risikoprofil_box
 from services.pdf.components.saa_bar_table import make_saa_bar_table
 from services.pdf.components.saa_donut import make_saa_donut_with_legend
+from services.pdf.components.text_sections import (
+    make_anlageuniversum_section,
+    make_disclaimer_section,
+    make_investitionsansatz_section,
+    make_kennzahlen_erlaeuterungen_section,
+    make_zusammenfassung_section,
+)
 from services.pdf.components.unterschrift import make_unterschrift_section
 from services.pdf.components.ziele_table import make_ziele_section
 
@@ -34,7 +42,15 @@ def build_anlagestrategie_flowables(
     from services.pdf.styles import make_paragraph_styles
     styles = make_paragraph_styles()
 
-    # ---- 1. Header ----
+    # ---- COVER (Seite 1, Swiss-Life-Wealth-Vorlage) ----
+    flowables.extend(make_cover_page(
+        ctx,
+        client_address_lines=list(getattr(data, "client_address_lines", []) or []),
+        client_phone=getattr(data, "client_phone", None),
+    ))
+    flowables.append(PageBreak())
+
+    # ---- 1. Header (Seite 2) ----
     advisory_label = None
     if data.advisory_wealth_rappen:
         advisory_label = _format_amount(data.advisory_wealth_rappen, ctx.base_currency)
@@ -164,8 +180,33 @@ def build_anlagestrategie_flowables(
         ))
     flowables.append(Spacer(1, 3 * mm))
 
-    # ---- 8. Unterschrift (immer drin) ----
+    # ---- PageBreak vor Erklaerungs-Sektionen ----
+    flowables.append(PageBreak())
+
+    # ---- Investitionsansatz (statisch) ----
+    flowables.extend(make_investitionsansatz_section())
+    flowables.append(PageBreak())
+
+    # ---- Anlageuniversum (statisch) ----
+    flowables.extend(make_anlageuniversum_section())
+    flowables.append(PageBreak())
+
+    # ---- Zusammenfassung + Unterschrift ----
+    flowables.extend(make_zusammenfassung_section())
+    flowables.append(Spacer(1, 6 * mm))
     flowables.extend(make_unterschrift_section())
+    flowables.append(PageBreak())
+
+    # ---- Trenn-Cover "Ihre persoenliche Ausgangslage" ----
+    flowables.extend(make_section_cover("Ihre persönliche Ausgangslage"))
+    flowables.append(PageBreak())
+
+    # ---- Kennzahlen-Erlaeuterungen (statisch) ----
+    flowables.extend(make_kennzahlen_erlaeuterungen_section())
+    flowables.append(PageBreak())
+
+    # ---- Disclaimer (statisch, letzte Seite) ----
+    flowables.extend(make_disclaimer_section())
 
     return flowables
 

@@ -103,6 +103,11 @@ class AnlagestrategieData:
     median_cagr_bps: int | None = None
     """Median CAGR aus MC-Simulation."""
 
+    # ---- Sprint 14: Cover-Seite Daten ----
+    client_address_lines: list[str] = field(default_factory=list)
+    """Klient-Adress-Zeilen fuer Cover, z.B. ['Bifangstrasse 9', '4800 Zofingen']."""
+    client_phone: str | None = None
+
 
 @dataclass(frozen=True)
 class VertragData:
