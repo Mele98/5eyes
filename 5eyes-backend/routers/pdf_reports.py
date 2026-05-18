@@ -468,3 +468,108 @@ def get_portfolio_pdf(
         media_type="application/pdf",
         headers={"Content-Disposition": f'inline; filename="{filename}"'},
     )
+
+
+def _build_vertrag_data(mandate: Mandate, doc_id: str | None, db: Session) -> VertragData:
+    """Sprint 12: Vertrags-Daten aus ContractDocument + Mandate.
+
+    Wenn doc_id None: nimmt den juengsten Vertrag fuer das Mandat.
+    Wenn keine Vertraege da: liefert Standard-Defaults aus dem
+    Frontend-Modal m-contract-edit.
+    """
+    document_title = "Persönliche Anlagestrategie – Individuelle Vermögensberatung"
+    document_type = "Anlagestrategie"
+    praeambel = (
+        "Auf Grundlage der gemeinsamen Analyse der persönlichen und finanziellen "
+        "Situation sowie der Anlageziele wurde folgende individuelle "
+        "Anlagestrategie vereinbart."
+    )
+    haftungsklausel = (
+        "Diese Empfehlung basiert auf den zum Zeitpunkt der Beratung bekannten "
+        "Informationen und stellt keine Garantie künftiger Wertentwicklungen dar. "
+        "Die Umsetzung erfolgt eigenverantwortlich durch den Kunden."
+    )
+    sondervereinbarungen = None
+    ort = "Zürich"
+    datum = date.today().isoformat()
+
+    try:
+        from models.review import ContractDocument
+        q = db.query(ContractDocument).filter(
+            ContractDocument.mandate_id == mandate.id,
+            ContractDocument.deleted_at.is_(None),
+        )
+        if doc_id:
+            doc = q.filter(ContractDocument.id == doc_id).first()
+        else:
+            doc = q.order_by(ContractDocument.created_at.desc()).first()
+        if doc is not None:
+            document_title = str(getattr(doc, "title", None) or document_title)
+            document_type = str(getattr(doc, "document_type", None) or document_type)
+            content_raw = getattr(doc, "content_json", None)
+            if content_raw:
+                try:
+                    parsed = json.loads(content_raw)
+                    if isinstance(parsed, dict):
+                        praeambel = str(parsed.get("praeambel", praeambel) or praeambel)
+                        haftungsklausel = str(parsed.get("haftungsklausel", haftungsklausel) or haftungsklausel)
+                        sondervereinbarungen = parsed.get("sondervereinbarungen", None)
+                        if sondervereinbarungen is not None:
+                            sondervereinbarungen = str(sondervereinbarungen)
+                        ort = str(parsed.get("ort_unterzeichnung", parsed.get("ort", ort)) or ort)
+                        datum = str(parsed.get("vereinbarungs_datum", parsed.get("datum", datum)) or datum)
+                except (json.JSONDecodeError, TypeError) as exc:
+                    logger.warning("Vertrag content_json parse failed: %s", exc)
+    except Exception as exc:
+        logger.warning("Vertrag data: ContractDocument load failed: %s", exc)
+
+    advisory_wealth = None
+    try:
+        from models.allocation import TargetAllocation
+        ta = (
+            db.query(TargetAllocation)
+            .filter(TargetAllocation.mandate_id == mandate.id)
+            .order_by(TargetAllocation.created_at.desc())
+            .first()
+        )
+        if ta is not None:
+            advisory_wealth = int(getattr(ta, "advisory_wealth_rappen", 0) or 0) or None
+    except Exception as exc:
+        logger.warning("Vertrag data: TA load failed: %s", exc)
+
+    return VertragData(
+        document_title=document_title,
+        document_type=document_type,
+        praeambel=praeambel,
+        haftungsklausel=haftungsklausel,
+        sondervereinbarungen=sondervereinbarungen,
+        ort_unterzeichnung=ort,
+        vereinbarungs_datum=datum,
+        mandate_number=str(getattr(mandate, "mandate_number", "") or ""),
+        advisory_wealth_rappen=advisory_wealth,
+    )
+
+
+@router.get(
+    "/mandates/{mandate_id}/reports/vertrag.pdf",
+    response_class=Response,
+    responses={200: {"content": {"application/pdf": {}}}},
+)
+def get_vertrag_pdf(
+    mandate_id: str,
+    document_id: str | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Sprint 12: Vertrags-PDF (ContractDocument). Optional ?document_id=..."""
+    mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
+    ctx = _build_pdf_context(mandate, current_user, db)
+    data = _build_vertrag_data(mandate, document_id, db)
+    pdf_bytes = ReportLabRenderer().render_vertrag(ctx, data)
+    safe_name = "".join(c if c.isalnum() else "_" for c in ctx.mandate_name)[:40]
+    filename = f"5eyes_vertrag_{safe_name}_{ctx.report_date.isoformat()}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )

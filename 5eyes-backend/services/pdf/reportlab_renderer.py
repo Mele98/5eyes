@@ -57,6 +57,15 @@ class ReportLabRenderer:
             build_flowables=lambda: build_portfolio_flowables(ctx, data),
         )
 
+    def render_vertrag(self, ctx: PDFContext, data) -> bytes:
+        """Sprint 12: Vertrags-PDF (ContractDocument)."""
+        from services.pdf.documents.vertrag import build_vertrag_flowables
+        return self._render_to_bytes(
+            ctx=ctx,
+            title=str(getattr(data, "document_title", "Vertrag")),
+            build_flowables=lambda: build_vertrag_flowables(ctx, data),
+        )
+
     def _render_to_bytes(
         self,
         *,

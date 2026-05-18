@@ -105,6 +105,20 @@ class AnlagestrategieData:
 
 
 @dataclass(frozen=True)
+class VertragData:
+    """Sprint 12: Vertrags-PDF Daten-Bundle (ContractDocument)."""
+    document_title: str = "Beratungsdokument"
+    document_type: str | None = None
+    praeambel: str = ""
+    haftungsklausel: str = ""
+    sondervereinbarungen: str | None = None
+    ort_unterzeichnung: str = "Zürich"
+    vereinbarungs_datum: str = ""
+    mandate_number: str | None = None
+    advisory_wealth_rappen: int | None = None
+
+
+@dataclass(frozen=True)
 class PortfolioData:
     """Sprint 11 Phase 6: Portfolio-PDF Daten-Bundle.
 
