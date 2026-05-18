@@ -160,3 +160,23 @@ def test_c3_expected_metrics_uses_weighted_when_sub_allocations_given():
     metrics_em = _expected_metrics(targets, cma, sub_allocations=subs)
     assert metrics_em["expected_return_bps"] > metrics_default["expected_return_bps"]
     assert metrics_em["expected_return_bps"] == 900  # exakt EM
+
+
+def test_c3_expected_metrics_uses_covariance_for_portfolio_volatility():
+    """Portfolio-Volatilitaet ist sqrt(w' Sigma w), nicht gewichtete Vol-Summe.
+    Bei 50% Aktien / 50% Bonds mit negativer Default-Korrelation muss die
+    Portfolio-Volatilitaet deutlich unter der linearen Summe liegen."""
+    from services.portfolio_engine import _expected_metrics
+    cma = _make_cma()
+    targets = {"equities": 5000, "bonds": 5000, "real_estate": 0, "alternatives": 0, "liquidity": 0}
+    subs = [
+        {"asset_class": "Aktien", "sub_asset_class": "Aktien Schweiz", "target_weight_bps": 5000, "rationale": ""},
+        {"asset_class": "Obligationen", "sub_asset_class": "Obligationen CHF IG", "target_weight_bps": 5000, "rationale": ""},
+    ]
+
+    metrics = _expected_metrics(targets, cma, sub_allocations=subs)
+
+    # Lineare Vol-Summe waere 0.5*1450 + 0.5*350 = 900 bps.
+    # Mit Default-Korrelation Aktien/Bonds -0.20 liegt sqrt(w' Sigma w) bei ~711 bps.
+    assert 705 <= metrics["expected_volatility_bps"] <= 720
+    assert metrics["expected_volatility_bps"] < 900

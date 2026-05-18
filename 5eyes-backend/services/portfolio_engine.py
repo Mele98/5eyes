@@ -473,6 +473,19 @@ def _normalize_preferences(preferences: dict | None) -> dict:
     }
 
 
+def _allocation_snapshot_preferences(allocation: TargetAllocation | None) -> dict | None:
+    if allocation is None:
+        return None
+    raw = getattr(allocation, "preferences_json", None)
+    if not raw:
+        return None
+    try:
+        parsed = json.loads(str(raw))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
 def _merge_mandate_defaults_into_prefs(prefs: dict, mandate) -> dict:
     """Sprint B1 (2026-05-07): persistierte Building-Block-Wahl pro Mandat als
     Fallback in die preferences mergen.
@@ -1601,6 +1614,26 @@ def _bucket_expected_metrics(
     return _weighted_bucket_metrics(cma, sub_allocations)
 
 
+def _portfolio_volatility_bps(
+    targets: dict[str, int],
+    bucket_vols_bps: dict[str, int],
+    cma: CapitalMarketAssumption,
+) -> int:
+    """Berechnet Portfolio-Volatilitaet via w' Sigma w statt linearer Vol-Summe."""
+    cholesky = _build_cholesky_from_cma(cma)
+    exposures = [
+        (int(targets.get(key, 0) or 0) / 10000.0) * (int(bucket_vols_bps.get(key, 0) or 0) / 10000.0)
+        for key in BUCKET_FIELDS
+    ]
+    variance = 0.0
+    for col in range(len(BUCKET_FIELDS)):
+        factor_loading = 0.0
+        for row in range(len(BUCKET_FIELDS)):
+            factor_loading += exposures[row] * float(cholesky[row][col])
+        variance += factor_loading * factor_loading
+    return int(round(math.sqrt(max(0.0, variance)) * 10000))
+
+
 def _expected_metrics(
     targets: dict[str, int],
     cma: CapitalMarketAssumption,
@@ -1609,7 +1642,7 @@ def _expected_metrics(
     returns, vols = _weighted_bucket_metrics(cma, sub_allocations)
     return {
         "expected_return_bps": int(round(sum(targets[key] * returns[key] for key in BUCKET_FIELDS) / 10000)),
-        "expected_volatility_bps": int(round(sum(targets[key] * vols[key] for key in BUCKET_FIELDS) / 10000)),
+        "expected_volatility_bps": _portfolio_volatility_bps(targets, vols, cma),
     }
 
 
@@ -2933,12 +2966,26 @@ def _normalize_splits(
     return scaled
 
 
+def _preference_choice(value, fallback: str) -> str:
+    """Normalisiert UI- und Legacy-Werte auf die internen ASCII-Vergleiche."""
+    raw = value if value not in (None, "") else fallback
+    return _norm_text(raw).strip()
+
+
 def _build_sub_allocations(targets: dict[str, int], preferences: dict) -> list[dict]:
     prefs = _normalize_preferences(preferences)
     asset_prefs = prefs["assetClasses"]
     geo_prefs = prefs["geo"]
     tilts = prefs["tilts"]
     sub_allocations: list[dict] = []
+
+    def _flag_enabled(name: str, default: bool = False) -> bool:
+        value = asset_prefs.get(name)
+        if value is None:
+            return default
+        if isinstance(value, str):
+            return value.strip().lower() not in ("", "0", "false", "nein", "no", "off")
+        return bool(value)
 
     def _append_split(asset_class: str, bucket_weight: int, splits: list[tuple[str, int, str]]):
         if bucket_weight <= 0 or not splits:
@@ -2965,7 +3012,25 @@ def _build_sub_allocations(targets: dict[str, int], preferences: dict) -> list[d
                 }
             )
 
-    equities_geo = asset_prefs.get("equitiesGeo") or "Schweiz Fokus"
+    equities_large_cap = _flag_enabled("equitiesLargeCap", True)
+    equities_smid = _flag_enabled("equitiesSmid", False)
+    if targets["equities"] > 0 and not equities_large_cap:
+        if equities_smid:
+            raise ValueError(
+                "Anlagepraeferenzen nicht umsetzbar: Aktien Large Cap ist ausgeschaltet, "
+                "aber das aktuelle strategische Universum enthaelt nur einen Small-/Mid-Cap-Satelliten. "
+                "Bitte Large Cap aktivieren oder ein vollstaendiges Small-/Mid-Cap-Universum hinterlegen."
+            )
+        raise ValueError(
+            "Anlagepraeferenzen unvollstaendig: Bei Aktien muss mindestens ein Segment aktiv sein."
+        )
+
+    equities_geo = _preference_choice(asset_prefs.get("equitiesGeo"), "Schweiz Fokus")
+    if geo_prefs.get("noEm") and equities_geo == "Schwellenlaender":
+        raise ValueError(
+            "Anlagepraeferenzen widerspruechlich: Schwellenlaender-Fokus ist gewaehlt, "
+            "aber Kein EM-Exposure ist aktiv."
+        )
     if equities_geo == "Global":
         eq_splits = [("Aktien Global", 6500, "Globaler Kernbaustein"), ("Aktien Schweiz", 1500, "Heimmarkt-Anker"), ("Aktien Europa", 1000, "Europa-Diversifikation"), ("Aktien Schwellenlaender", 1000, "Wachstumsbaustein")]
     elif equities_geo == "Europa":
@@ -2986,7 +3051,7 @@ def _build_sub_allocations(targets: dict[str, int], preferences: dict) -> list[d
             label, split_bps, rationale = filtered[0]
             filtered[0] = (label, split_bps + remainder, rationale + "; EM ausgeschlossen")
         eq_splits = filtered
-    if asset_prefs.get("equitiesSmid"):
+    if equities_smid:
         for idx, item in enumerate(eq_splits):
             if item[0] == "Aktien Schweiz":
                 eq_splits[idx] = (item[0], max(0, item[1] - 1000), item[2])
@@ -3018,40 +3083,76 @@ def _build_sub_allocations(targets: dict[str, int], preferences: dict) -> list[d
 
     _append_split("Aktien", targets["equities"], eq_splits)
 
-    bonds_duration = asset_prefs.get("bondsDuration") or "Langfristig"
+    if geo_prefs.get("noEm") and asset_prefs.get("bondsEmerging"):
+        raise ValueError(
+            "Anlagepraeferenzen widerspruechlich: Obligationen Emerging Markets ist aktiv, "
+            "aber Kein EM-Exposure ist aktiv."
+        )
+    bonds_duration = _preference_choice(asset_prefs.get("bondsDuration"), "Langfristig")
     if bonds_duration == "Kurzfristig":
         bond_splits = [("Obligationen CHF IG", 7000, "Kurzfristige CHF-Qualitaet"), ("Obligationen Global Hedged", 2500, "Ergaenzende Diversifikation"), ("Obligationen High Yield", 300, "Renditebeimischung"), ("Obligationen Emerging", 200, "Diversifikation")]
     elif bonds_duration == "Gemischt":
         bond_splits = [("Obligationen CHF IG", 6000, "Gemischter CHF-Kern"), ("Obligationen Global Hedged", 3000, "Globale Diversifikation"), ("Obligationen High Yield", 500, "Renditebeimischung"), ("Obligationen Emerging", 500, "Diversifikation")]
     else:
         bond_splits = [("Obligationen CHF IG", 5500, "Langfristiger CHF-Kern"), ("Obligationen Global Hedged", 3500, "Globale Diversifikation"), ("Obligationen High Yield", 500, "Renditebeimischung"), ("Obligationen Emerging", 500, "Diversifikation")]
-    if not asset_prefs.get("bondsHighYield"):
+    if not _flag_enabled("bondsInvestmentGrade", True):
+        bond_splits = [item for item in bond_splits if item[0] not in ("Obligationen CHF IG", "Obligationen Global Hedged")]
+    if not _flag_enabled("bondsHighYield", False):
         bond_splits = [item for item in bond_splits if item[0] != "Obligationen High Yield"]
-    if not asset_prefs.get("bondsEmerging") or geo_prefs.get("noEm"):
+    if not _flag_enabled("bondsEmerging", False) or geo_prefs.get("noEm"):
         bond_splits = [item for item in bond_splits if item[0] != "Obligationen Emerging"]
+    if targets["bonds"] > 0 and not bond_splits:
+        raise ValueError(
+            "Anlagepraeferenzen unvollstaendig: Die Obligationen-Auswahl schliesst alle "
+            "umsetzbaren Segmente aus. Bitte Investment Grade, High Yield oder Emerging Markets aktivieren."
+        )
     _append_split("Obligationen", targets["bonds"], bond_splits)
 
-    realestate_market = asset_prefs.get("realestateMarket") or "Schweiz"
+    realestate_funds = _flag_enabled("realestateFunds", True)
+    realestate_direct = _flag_enabled("realestateDirect", False)
+    if targets["real_estate"] > 0:
+        if not realestate_funds and not realestate_direct:
+            raise ValueError(
+                "Anlagepraeferenzen unvollstaendig: Bei Immobilien muss Fonds/REIT oder Direkt aktiv sein."
+            )
+        if realestate_direct and not realestate_funds:
+            raise ValueError(
+                "Anlagepraeferenzen nicht umsetzbar: Direktimmobilien-only kann im aktuellen "
+                "produktiven Beratungsuniversum nicht als handelbare Zielallokation umgesetzt werden."
+            )
+
+    realestate_market = _preference_choice(asset_prefs.get("realestateMarket"), "Schweiz")
     if realestate_market == "Ausland":
         re_splits = [("Immobilien Global", 7000, "Auslandsfokus fuer Immobilien"), ("Immobilien Schweiz", 3000, "Heimmarkt-Stabilisator")]
     elif realestate_market == "Gemischt":
         re_splits = [("Immobilien Schweiz", 5000, "Gemischter Immobilienbaustein"), ("Immobilien Global", 5000, "Gemischter Immobilienbaustein")]
     else:
         re_splits = [("Immobilien Schweiz", 8000, "Schweizer Immobilienfokus"), ("Immobilien Global", 2000, "Ergaenzende Diversifikation")]
+    if realestate_direct:
+        re_splits = [
+            (label, bps, rationale + "; Direktimmobilien werden ueber das Gesamtvermoegen beruecksichtigt")
+            for label, bps, rationale in re_splits
+        ]
     _append_split("Immobilien", targets["real_estate"], re_splits)
 
     alt_splits = []
-    if asset_prefs.get("altsGold"):
+    explicit_alt_keys = {"altsGold", "altsLiquidAlts", "altsHedge", "altsPe", "altsCrypto"}.intersection(asset_prefs.keys())
+    if _flag_enabled("altsGold", False):
         alt_splits.append(("Gold / Rohstoffe", 4000, "Stabilisierender Sachwertbaustein"))
-    if asset_prefs.get("altsLiquidAlts"):
+    if _flag_enabled("altsLiquidAlts", False):
         alt_splits.append(("Liquid Alternatives", 2000, "Diversifizierende Alternative"))
-    if asset_prefs.get("altsHedge"):
+    if _flag_enabled("altsHedge", False):
         alt_splits.append(("Hedge Funds", 1500, "Alternative Renditequelle"))
-    if asset_prefs.get("altsPe"):
+    if _flag_enabled("altsPe", False):
         alt_splits.append(("Private Equity", 1500, "Illiquider Wachstumsbaustein"))
-    if asset_prefs.get("altsCrypto"):
+    if _flag_enabled("altsCrypto", False):
         alt_splits.append(("Krypto", 1000, "Satellit gemaess Mandatsvorgabe"))
     if not alt_splits:
+        if targets["alternatives"] > 0 and explicit_alt_keys:
+            raise ValueError(
+                "Anlagepraeferenzen unvollstaendig: Bei Alternativen Anlagen muss mindestens "
+                "ein Instrument aktiv sein."
+            )
         alt_splits.append(("Gold / Rohstoffe", 10000, "Standardbaustein fuer Alternative Anlagen"))
     _append_split("Alternative", targets["alternatives"], alt_splits)
 
@@ -5423,7 +5524,9 @@ def build_target_payload_from_allocation(
     assessment: RiskAssessment,
     preferences: dict | None,
 ) -> dict:
-    prefs = _normalize_preferences(preferences)
+    prefs = _normalize_preferences(
+        preferences if preferences is not None else _allocation_snapshot_preferences(allocation)
+    )
     # Sprint B1: Mandanten-Default-Building-Blocks als Fallback (rebuild path).
     prefs = _merge_mandate_defaults_into_prefs(prefs, mandate)
     score_bucket = _risk_score_bucket(assessment)
@@ -5937,13 +6040,22 @@ def _product_matches_constraints(product: Product, prefs: dict, score_bucket: in
     geo_prefs = prefs["geo"]
     policy_prefs = prefs["policy"]
     asset_class = _norm_text(product.asset_class)
-    if product_prefs.get("fundsOnly") and asset_class != "Liquiditaet" and product.product_type not in ("ETF", "Fonds", "Immobilienfonds"):
+    funds_only = product_prefs.get("fundsOnly") or policy_prefs.get("universe") == "funds_only"
+    listed_only = product_prefs.get("listedOnly") or policy_prefs.get("universe") == "listed_only"
+    chf_only = geo_prefs.get("chfOnly") or policy_prefs.get("hedging") == "chf_only"
+    if funds_only and asset_class != "Liquiditaet" and product.product_type not in ("ETF", "Fonds", "Immobilienfonds"):
         return False
-    if product_prefs.get("listedOnly") and asset_class != "Liquiditaet" and product.product_type not in ("ETF", "Einzeltitel", "Anleihe"):
+    if listed_only and asset_class != "Liquiditaet" and product.product_type not in ("ETF", "Einzeltitel", "Anleihe"):
         return False
-    if geo_prefs.get("chfOnly") and product.currency != "CHF":
+    if (product_prefs.get("noStructured") or product_prefs.get("noDerivatives")) and _product_is_structured(product):
+        return False
+    if product_prefs.get("noLeverage") and _product_is_leveraged(product):
+        return False
+    if chf_only and product.currency != "CHF":
         return False
     if geo_prefs.get("noUsd") and product.currency == "USD":
+        return False
+    if geo_prefs.get("hedgingRequired") and not _product_is_chf_or_fx_hedged(product):
         return False
     if policy_prefs.get("esg") in ("best_in_class", "impact", "net_zero") and asset_class != "Liquiditaet":
         if str(product.sfdr_class or "") not in ("8", "9"):
@@ -5955,6 +6067,37 @@ def _product_matches_constraints(product: Product, prefs: dict, score_bucket: in
         ]
         return bool(allowed)
     return True
+
+
+def _product_descriptor_text(product: Product) -> str:
+    fields = (
+        product.product_name,
+        product.product_type,
+        product.asset_class,
+        product.sub_asset_class,
+        getattr(product, "security_type", None),
+        getattr(product, "security_type2", None),
+        getattr(product, "market_sector", None),
+    )
+    return " ".join(str(field or "") for field in fields).lower()
+
+
+def _product_is_structured(product: Product) -> bool:
+    text = _product_descriptor_text(product)
+    product_type = _norm_text(product.product_type).strip().lower()
+    return product_type == "strukturiertes produkt" or "structured" in text or "zertifikat" in text
+
+
+def _product_is_leveraged(product: Product) -> bool:
+    text = _product_descriptor_text(product)
+    return any(marker in text for marker in ("leveraged", "gehebelt", "2x", "3x", "ultra", "short etf"))
+
+
+def _product_is_chf_or_fx_hedged(product: Product) -> bool:
+    if str(product.currency or "").upper() == "CHF":
+        return True
+    text = _product_descriptor_text(product)
+    return any(marker in text for marker in ("hedged", "chf-hedg", "chf hedg", "abgesichert"))
 
 
 def _product_score(product: Product, sub_asset_class: str, prefs: dict) -> int:
@@ -5971,7 +6114,7 @@ def _product_score(product: Product, sub_asset_class: str, prefs: dict) -> int:
     tilts = prefs["tilts"]
     if policy_prefs.get("homeBias") == "ch_focus" and ("Schweiz" in (product.sub_asset_class or "") or product.currency == "CHF"):
         score += 35
-    if geo_prefs.get("hedgingRequired") and "Hedged" in str(product.sub_asset_class or ""):
+    if (geo_prefs.get("hedgingRequired") or policy_prefs.get("hedging") in ("hedged", "risk_budget")) and _product_is_chf_or_fx_hedged(product):
         score += 20
     if str(product.sfdr_class or "") in ("8", "9"):
         score += 25
@@ -6037,6 +6180,39 @@ def _implementation_steps(buckets: list[dict], target_total_rappen: int) -> list
     if not steps:
         steps.append("Aktuelle Allokation liegt bereits weitgehend in den Zielbandbreiten.")
     return steps
+
+
+def _validate_recommendation_concentration_limits(aggregated_positions: dict[str, dict], prefs: dict) -> None:
+    limits = prefs.get("limits") or {}
+    max_single_bps = _parse_bps_percent(limits.get("singlePosition"))
+    max_issuer_bps = _parse_bps_percent(limits.get("singleIssuer"))
+
+    if max_single_bps is not None:
+        breaches = [
+            entry for entry in aggregated_positions.values()
+            if int(entry.get("target_weight_bps") or 0) > max_single_bps
+        ]
+        if breaches:
+            first = breaches[0]
+            product = first["product"]
+            raise ValueError(
+                "Einzelpositionslimite kann mit dem aktuellen Produktuniversum nicht eingehalten werden: "
+                f"{product.product_name} {int(first['target_weight_bps']) / 100:.2f}% > {max_single_bps / 100:.2f}%."
+            )
+
+    if max_issuer_bps is not None:
+        by_provider: dict[str, int] = {}
+        for entry in aggregated_positions.values():
+            product = entry["product"]
+            provider = str(product.provider or product.product_name or "Unbekannter Emittent")
+            by_provider[provider] = by_provider.get(provider, 0) + int(entry.get("target_weight_bps") or 0)
+        breaches = [(provider, weight) for provider, weight in by_provider.items() if weight > max_issuer_bps]
+        if breaches:
+            provider, weight = sorted(breaches, key=lambda item: item[1], reverse=True)[0]
+            raise ValueError(
+                "Einzelemittentenlimite kann mit dem aktuellen Produktuniversum nicht eingehalten werden: "
+                f"{provider} {weight / 100:.2f}% > {max_issuer_bps / 100:.2f}%."
+            )
 
 
 def generate_recommendation_run(
@@ -6119,6 +6295,9 @@ def generate_recommendation_run(
     warnings = []
     positions_payload = []
     aggregated_positions: dict[str, dict] = {}
+    # Sprint 14 Phase 4 F6: fehlende Sub-Klassen sammeln statt still continue
+    # → wir wollen NICHT, dass die Summe der Positionen unbemerkt <100% liegt.
+    missing_sub_classes: list[dict] = []
 
     for sub in sub_allocations:
         matching = [product for product in products if _product_matches_constraints(product, prefs, score_bucket)]
@@ -6130,6 +6309,11 @@ def generate_recommendation_run(
             used_fallback = bool(candidates)
         if not candidates:
             warnings.append(f"Kein passendes Produkt fuer {sub['sub_asset_class']} gefunden.")
+            missing_sub_classes.append({
+                "sub_asset_class": str(sub["sub_asset_class"]),
+                "asset_class": str(sub["asset_class"]),
+                "target_weight_bps": int(sub["target_weight_bps"]),
+            })
             continue
         ranked = sorted(candidates, key=lambda product: _product_score(product, sub["sub_asset_class"], prefs), reverse=True)
         best = ranked[0]
@@ -6156,6 +6340,28 @@ def generate_recommendation_run(
                 "source_sub_asset_classes": [sub["sub_asset_class"]],
                 "rationales": [rationale],
             }
+
+    # Sprint 14 Phase 4 F6: harter Fail wenn Sub-Klassen nicht gefuellt werden konnten.
+    # Vorher: stilles continue → Summe der Target-Weights konnte unter 100% liegen
+    # ohne dass der Berater es bemerkte. Jetzt: ValueError mit konkreter Liste.
+    if missing_sub_classes:
+        total_missing_bps = sum(item["target_weight_bps"] for item in missing_sub_classes)
+        # Toleranz: bis 50 bps (0.5%) Lücke darf "still" durchlaufen (z.B. einzelne
+        # exotische Sub-Class mit 0 Allokation). Alles darüber ist ein echter Fehler.
+        if total_missing_bps > 50:
+            details = ", ".join(
+                f"{item['sub_asset_class']} ({item['target_weight_bps']/100:.1f}%)"
+                for item in missing_sub_classes
+            )
+            raise ValueError(
+                f"Produktselektion unvollstaendig: kein passendes Produkt fuer "
+                f"{len(missing_sub_classes)} Sub-Klassen ({details}). "
+                f"Gesamt-Luecke: {total_missing_bps/100:.1f}%. "
+                f"Bitte Produktuniversum erweitern oder Restriktionen "
+                f"(chf_only, hedgingRequired, noStructured, noLeverage, ESG) lockern."
+            )
+
+    _validate_recommendation_concentration_limits(aggregated_positions, prefs)
 
     latest_prices = latest_price_snapshot(db, list(aggregated_positions.keys()))
     market_data_quality = summarize_price_quality(db, list(aggregated_positions.keys()))

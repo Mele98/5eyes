@@ -2346,6 +2346,96 @@ def test_generate_target_allocation_uses_weighted_risk_budget(session_factory, a
     assert all(item["risky_fraction_bps"] is not None for item in equities_sub)
 
 
+def test_current_payload_rebuild_uses_stored_allocation_preferences(session_factory, advisor_user):
+    client_id, mandate_id = seed_client_and_mandate(session_factory, advisor_user)
+
+    payload = RiskAssessmentCreate(
+        q_income_points=4,
+        q_obligations_points=4,
+        q_savings_points=12,
+        q_wealth_points=12,
+        investment_horizon_label="Mehr als 12 Jahre",
+        investment_horizon_years=15,
+        q_investment_goal_points=4,
+        q_risk_preference_points=4,
+        q_risk_behavior_points=4,
+        answers=complete_risk_questionnaire_answers(),
+    )
+
+    with session_factory() as session:
+        create_risk_assessment(
+            mandate_id=mandate_id,
+            body=payload,
+            db=session,
+            current_user=advisor_user,
+        )
+        session.add(
+            WealthPosition(
+                id="depot-pref-snapshot-1",
+                client_id=client_id,
+                label="Depot Preference Snapshot",
+                position_type="Depot",
+                assignment="Beratungsvermögen",
+                current_value_rappen=100000000,
+                currency="CHF",
+                alloc_equities_bps=7000,
+                alloc_bonds_bps=1500,
+                alloc_real_estate_bps=500,
+                alloc_liquidity_bps=500,
+                alloc_alternatives_bps=500,
+                is_active=1,
+                created_at="2026-03-27T00:00:00.000Z",
+                updated_at="2026-03-27T00:00:00.000Z",
+            )
+        )
+        session.flush()
+        mandate = session.query(Mandate).filter(Mandate.id == mandate_id).one()
+        generated = generate_target_allocation(
+            db=session,
+            mandate=mandate,
+            user_id=advisor_user.id,
+            preferences={
+                "policy": {},
+                "tilts": {},
+                "product": {},
+                "limits": {},
+                "geo": {},
+                "assetClasses": {
+                    "equitiesGeo": "Schwellenländer",
+                    "bondsHighYield": True,
+                    "bondsEmerging": True,
+                },
+            },
+        )
+        allocation = generated["target_allocation"]
+        policy, cma = ensure_runtime_reference_data(session, advisor_user.id)
+        assessment = session.query(RiskAssessment).filter(
+            RiskAssessment.mandate_id == mandate_id,
+            RiskAssessment.is_current == 1,
+        ).one()
+        rebuilt = build_target_payload_from_allocation(
+            db=session,
+            mandate=mandate,
+            allocation=allocation,
+            policy=policy,
+            cma=cma,
+            assessment=assessment,
+            preferences=None,
+        )
+
+    generated_em = next(
+        item for item in generated["sub_allocations"]
+        if item["sub_asset_class"] == "Aktien Schwellenlaender"
+    )
+    rebuilt_em = next(
+        item for item in rebuilt["sub_allocations"]
+        if item["sub_asset_class"] == "Aktien Schwellenlaender"
+    )
+    assert rebuilt_em["target_weight_bps"] == generated_em["target_weight_bps"]
+    assert rebuilt_em["target_weight_bps"] >= 1000
+    assert not any("Mandatspraeferenzen" in item for item in rebuilt["reasoning"])
+
+
 def test_generate_target_allocation_uses_dated_cashflow_series(session_factory, advisor_user):
     client_id, mandate_id = seed_client_and_mandate(session_factory, advisor_user)
 

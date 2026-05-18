@@ -41,6 +41,70 @@ def _sum_bps(subs):
     return sum(int(s["target_weight_bps"] or 0) for s in subs)
 
 
+def _label_bps(subs, label):
+    return next(int(s["target_weight_bps"]) for s in subs if s["sub_asset_class"] == label)
+
+
+def test_c4_equity_em_focus_accepts_umlaut_ui_value():
+    """Die UI sendet den Schwellenlaender-Wert teilweise als Umlaut-Variante.
+    Die Engine muss daraus den EM-Fokus machen, nicht still auf
+    Schweiz-Fokus zurueckfallen."""
+    targets = {"equities": 6000, "bonds": 2000, "real_estate": 1000,
+               "alternatives": 500, "liquidity": 500}
+
+    def equity_subs(value):
+        return _by_class(_build_sub_allocations(
+            targets,
+            {
+                "policy": {}, "tilts": {}, "product": {}, "limits": {}, "geo": {},
+                "assetClasses": {
+                    "equitiesGeo": value,
+                    "bondsHighYield": True,
+                    "bondsEmerging": True,
+                },
+                "simulation": {},
+            },
+        ), "Aktien")
+
+    assert _label_bps(equity_subs("Schweiz Fokus"), "Aktien Schwellenlaender") == 300
+    assert _label_bps(equity_subs("Schwellenlaender"), "Aktien Schwellenlaender") == 1500
+    assert _label_bps(equity_subs("Schwellenländer"), "Aktien Schwellenlaender") == 1500
+
+
+def test_c4_em_focus_conflicts_with_no_em_exclusion():
+    """Ein EM-Fokus und globales noEm duerfen nicht still gegeneinander
+    arbeiten, sonst sieht die Auswahl aktiv aus, die Quote bleibt aber null
+    oder default."""
+    targets = {"equities": 6000, "bonds": 2000, "real_estate": 1000,
+               "alternatives": 500, "liquidity": 500}
+    with pytest.raises(ValueError, match="Anlagepraeferenzen widerspruechlich"):
+        _build_sub_allocations(
+            targets,
+            {
+                "policy": {}, "tilts": {}, "product": {}, "limits": {},
+                "geo": {"noEm": True},
+                "assetClasses": {"equitiesGeo": "Schwellenländer"},
+                "simulation": {},
+            },
+        )
+
+
+def test_c4_bonds_em_conflicts_with_no_em_exclusion():
+    """Bonds Emerging plus noEm ist ebenfalls ein Widerspruch."""
+    targets = {"equities": 6000, "bonds": 2000, "real_estate": 1000,
+               "alternatives": 500, "liquidity": 500}
+    with pytest.raises(ValueError, match="Anlagepraeferenzen widerspruechlich"):
+        _build_sub_allocations(
+            targets,
+            {
+                "policy": {}, "tilts": {}, "product": {}, "limits": {},
+                "geo": {"noEm": True},
+                "assetClasses": {"bondsEmerging": True},
+                "simulation": {},
+            },
+        )
+
+
 def test_c4_bonds_filter_no_hy_no_em_normalizes_proportionally():
     """Default-Bond-Splits: CHF IG 5500, Global Hedged 3500, HY 500, EM 500.
     Mit bondsHighYield=False UND bondsEmerging=False bleiben nur CHF IG +

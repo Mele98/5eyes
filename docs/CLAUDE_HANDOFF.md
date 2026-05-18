@@ -1,5 +1,48 @@
 # Claude handoff / review request
 
+## Codex-Update 2026-05-18: Asset-Allocation-Methodik-Audit
+
+Claude: Das ist ein fachlich kritischer Bereich. Bitte ab jetzt keine UI-Praeferenz, keinen Risiko-Override und keine Allocation-Kennzahl anfassen, ohne den End-to-End-Vertrag Frontend -> Backend -> Persistenz -> Reload -> Report mitzudenken.
+
+Codex hat im Asset-Allocation-Prozess folgende harte Punkte korrigiert:
+- `build_target_payload_from_allocation(..., preferences=None)` nutzt nun die bei der Zielallokation gespeicherte `preferences_json`. Vorher konnte ein Reload die Sub-Allokation mit Default-Praeferenzen rekonstruieren; dadurch wirkten z.B. Schwellenlaender-Praeferenzen nachtraeglich verloren.
+- `expected_volatility_bps` wird jetzt als Portfolio-Volatilitaet via `sqrt(w' Sigma w)` berechnet, nicht mehr als lineare gewichtete Volatilitaetssumme. Monte-Carlo und Headline-Risiko sind damit methodisch konsistenter.
+- Produktrestriktionen sind haerter: `funds_only`, `listed_only`, `chf_only`, `hedgingRequired`, strukturierte Produkte, Leverage und Konzentrationslimiten werden nicht mehr nur kosmetisch gescored.
+- Praeferenzfelder duerfen nicht still verpuffen: nicht umsetzbare oder leere Segmentwahlen bei Aktien, Obligationen, Immobilien und Alternativen Anlagen brechen nun mit klarer Fehlermeldung ab.
+- `bondsInvestmentGrade` wirkt jetzt auf die Sub-Allokation. Wenn IG, HY und EM alle ausgeschlossen sind, stoppt die Engine.
+
+Methodik-Vertrag, den du beachten musst:
+- Top-Level-Quoten entstehen aus Risikoprofil/House-Matrix, Zielen, Reserve, bestehenden Gesamtvermoegens-Exposures, manuellen Bandbreiten und Risikobudget.
+- Anlagepraeferenzen steuern primar die Sub-Allokation und die Produktselektion innerhalb der Top-Level-Quote. Sie duerfen nur Top-Level-Quoten aendern, wenn das explizit als Band-/Target-Override modelliert ist.
+- Reload-Pfade muessen reproduzierbar sein: gespeicherte Allocation darf nicht mit aktuellen lokalen UI-Defaults neu interpretiert werden.
+- Sichtbare Controls muessen eine Engine-Wirkung haben oder hart blockieren. Kein "sieht klickbar aus, macht aber nichts".
+- Risikobudget ist subanlagenbasiert: BuildingBlock-Risky-Fractions sind massgeblich, nicht nur grobe Asset-Class-Labels.
+
+Offene fachliche Entscheidung:
+- `OPTIMIZER_MODE` ist weiterhin `house_matrix`. Der stochastische Solver kann shadow/aktiv laufen, ist aber nicht Standard. Das ist eine bewusste Produktentscheidung und darf nicht beilaufig geaendert werden.
+
+Verifikation:
+- `python -m pytest -p no:cacheprovider tests\test_portfolio_engine_regressions.py tests\test_audit_z4_weighted_metrics.py tests\test_audit_z3_split_normalize.py tests\test_runtime_contracts.py::test_current_payload_rebuild_uses_stored_allocation_preferences -q`
+- `python -m pytest -p no:cacheprovider tests\test_risk_override_endpoint.py tests\test_runtime_contracts.py::test_current_payload_rebuild_uses_stored_allocation_preferences -q`
+- Frontend-Script-Parse OK, `git diff --check` OK.
+
+## Codex-Update 2026-05-18: Anlagepraeferenzen / Schwellenlaender
+
+Claude: Beim Review der Anlagepraeferenzen war ein echter Contract-Bug drin:
+- Frontend sendet fuer Aktien-Fokus teilweise `Schwellenländer` mit Umlaut.
+- Backend verglich in `_build_sub_allocations()` nur gegen `Schwellenlaender`.
+- Folge: Auswahl sah aktiv aus, die Engine fiel aber still auf Schweiz-Fokus zurueck; EM blieb damit z.B. bei 5% des Aktienbuckets statt 25%.
+
+Fix:
+- Backend normalisiert Preference-Choices via `_norm_text()` vor dem Vergleich.
+- Tests sichern ab, dass `Schwellenländer` und `Schwellenlaender` denselben EM-Fokus ergeben.
+- Widerspruch `Kein EM-Exposure` + `Schwellenlaender-Fokus` oder `Obligationen Emerging` wird jetzt als Fehler blockiert und nicht mehr still glattgebuegelt.
+
+Wichtig fuer kuenftige UI-/Engine-Aenderungen:
+- Anlagepraeferenzen fuer Aktien/Obligationen/Immobilien wirken aktuell als Sub-Allokationssteuerung innerhalb des bestehenden Asset-Class-Buckets.
+- Sie erhoehen nicht automatisch die Top-Level-Quote `Aktien`, `Obligationen` usw.; diese kommt aus Risikoprofil, House-Matrix, Zielen, Reserve, Bandbreiten und Risikobudget.
+- Wenn eine sichtbare Kunden-/Beraterzahl reagieren soll, muss entweder die Sub-Allokation sichtbar gemacht werden oder fachlich bewusst ein Target-/Band-Override gesetzt werden. Nicht still Controls anzeigen, die keine Engine-Wirkung haben.
+
 ## UI-Guardrail ab 2026-05-16
 
 Claude: Der Admin-P17/Datenpipeline-Block hat den alten Navy-Gold/Inline-Card-Stil wieder in die App gebracht. Das war ein klarer Rueckfall gegen die aktuelle UI-Richtung und darf nicht wieder passieren.
@@ -62,6 +105,19 @@ Aktueller Standard fuer neue Arbeitsbloecke:
 - Packaging-Script mit optionalem `BUILD_WITH_SQLCIPHER=1`
 
 ## Was Claude jetzt am meisten reviewen / ergänzen soll
+
+### Codex-Update 2026-05-18: Review & Abschluss
+
+Claude: Die finale Kundenansicht bleibt eine einzige Seite `Review & Abschluss`. Bitte keine separate sichtbare `Zusammenfassung` wieder einfuehren.
+
+Aktuelle UI-Regeln fuer diesen Bereich:
+- Minimalistisch wie Cashflow / Asset Allocation: helle Flaechen, 1px Borders, keine schweren Navy-Kacheln.
+- Dokumente erscheinen als schlanke Aktionsliste, nicht als vier dominante Card-Kacheln.
+- Entscheid/Empfehlung und Governance/Dokumente sind in ruhigen Grid-Gruppen gebuendelt, nicht als lange vertikale Card-Serie.
+- Die vier Ausgabegruppen bleiben fachlich erhalten: Portfolio-/Umsetzungsplan, Anlagestrategie / Vertrag, Beratungsprotokoll, Weitere Dokumente.
+- Risikoprofil-KPI nicht mehr als dunkle Sonderkachel stylen.
+- Trigger/Wiedervorlagen sind interne Beratungslogik. In der Kunden-/Point-of-Sales-Ansicht keine Trigger-Sektion, keinen Trigger-CTA und keinen Trigger-Counter anzeigen.
+- Alte `sr`-Routen duerfen nur Legacy-Alias auf `rv` sein; keine eigene Top-Navigation und keine sichtbare zweite Seite.
 
 1. **Frontend-API-Wiring final prüfen**
    - Login / Token-Flows auf Race Conditions prüfen

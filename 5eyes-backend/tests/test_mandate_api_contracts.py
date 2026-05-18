@@ -213,6 +213,10 @@ def test_foundation_customer_data_roundtrip(auth_client, advisor_user):
     assert goals.json()[0]["label"] == "Zielvermögen"
     assert goals.json()[0]["target_wealth_rappen"] == 3_000_000_00
 
+    # Sprint 14 Phase 4 F10: vollstaendiges Risk-Payload — Validierung
+    # _risk_assessment_has_current_questionnaire_answers fordert alle 11 Fragen
+    # mit spezifischen Antwort-Markern (siehe portfolio_engine._CURRENT_RISK_ANSWER_POINTS
+    # und _risk_answer_matches_current_questionnaire).
     risk_response = auth_client.post(
         f"/mandates/{mandate_id}/risk-assessments",
         json={
@@ -225,13 +229,34 @@ def test_foundation_customer_data_roundtrip(auth_client, advisor_user):
             "q_investment_goal_points": 4,
             "q_risk_preference_points": 4,
             "q_risk_behavior_points": 4,
+            "knowledge_services_json": "{}",
+            "knowledge_instruments_json": "{}",
+            "income_sources_json": "[\"Berufliche Taetigkeit\"]",
             "answers": [
-                {
-                    "question_number": 1,
-                    "question_section": "capacity",
-                    "answer_label": "stabil",
-                    "answer_points": 4,
-                }
+                {"question_number": 1, "question_section": "Kenntnisse",
+                 "answer_label": "Finanzdienstleistungen: Beratung und Verwaltung", "answer_points": 0},
+                {"question_number": 2, "question_section": "Kenntnisse",
+                 "answer_label": "Finanzinstrumente: Anlagefonds und ETFs", "answer_points": 0},
+                {"question_number": 3, "question_section": "Risikofaehigkeit",
+                 "answer_label": "CHF 20'000 oder mehr", "answer_points": 4},
+                {"question_number": 4, "question_section": "Risikofaehigkeit",
+                 "answer_label": "Herkunft: Berufliche Taetigkeit, Vermoegensanlagen", "answer_points": 0},
+                {"question_number": 5, "question_section": "Risikofaehigkeit",
+                 "answer_label": "CHF 5'000 oder weniger", "answer_points": 4},
+                {"question_number": 6, "question_section": "Risikofaehigkeit",
+                 "answer_label": "CHF 2'000'000 oder mehr", "answer_points": 12},
+                {"question_number": 7, "question_section": "Risikofaehigkeit",
+                 "answer_label": "Mehr als 50 %", "answer_points": 12},
+                {"question_number": 8, "question_section": "Risikofaehigkeit",
+                 "answer_label": "Mehr als 12 Jahre - Matrix-Faktor", "answer_points": 0},
+                {"question_number": 9, "question_section": "Risikobereitschaft",
+                 "answer_label": "Das investierte Kapital soll sich stetig vermehren.", "answer_points": 3},
+                {"question_number": 10, "question_section": "Risikobereitschaft",
+                 "answer_label": "Ich strebe eine hoehere Rendite an und bin bereit, dafuer ein erhoehtes Risiko einzugehen.",
+                 "answer_points": 3},
+                {"question_number": 11, "question_section": "Risikobereitschaft",
+                 "answer_label": "Ich kann den Verlust voruebergehend akzeptieren und halte an meinen Anlagen fest.",
+                 "answer_points": 3},
             ],
         },
     )

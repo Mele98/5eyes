@@ -92,6 +92,25 @@ def _make_cma(**overrides) -> CapitalMarketAssumption:
     return CapitalMarketAssumption(**defaults)
 
 
+def _make_product(**overrides) -> Product:
+    defaults = {
+        "id": "product-test",
+        "product_name": "Test Product",
+        "provider": "Test Issuer",
+        "product_type": "ETF",
+        "asset_class": "Aktien",
+        "sub_asset_class": "Aktien Global",
+        "currency": "USD",
+        "ter_bps": 20,
+        "sfdr_class": "8",
+        "is_active": 1,
+        "created_at": "2026-04-20T00:00:00.000Z",
+        "updated_at": "2026-04-20T00:00:00.000Z",
+    }
+    defaults.update(overrides)
+    return Product(**defaults)
+
+
 def test_asset_class_expected_metrics_respects_cma_bucket_fields():
     baseline = _make_cma()
     higher_ch_equity = _make_cma(equity_ch_return_bps=800)
@@ -531,6 +550,120 @@ def test_target_allocation_context_warns_when_cma_changed():
     assert warnings == [
         "Hinweis: Kapitalmarktannahmen haben sich seit Allocation-Erstellung geaendert. Bitte Strategie neu berechnen."
     ]
+
+
+def test_product_constraints_apply_policy_and_structure_preferences():
+    structured = _make_product(
+        product_name="Barrier Reverse Convertible",
+        product_type="Strukturiertes Produkt",
+        currency="CHF",
+    )
+    usd_unhedged = _make_product(product_name="MSCI World ETF", currency="USD")
+    usd_hedged = _make_product(product_name="MSCI World CHF Hedged ETF", currency="USD")
+
+    no_structured = portfolio_engine._normalize_preferences({"product": {"noStructured": True}})
+    assert portfolio_engine._product_matches_constraints(structured, no_structured, score_bucket=8) is False
+
+    chf_only = portfolio_engine._normalize_preferences({"policy": {"hedging": "chf_only"}})
+    assert portfolio_engine._product_matches_constraints(usd_unhedged, chf_only, score_bucket=8) is False
+
+    hedging_required = portfolio_engine._normalize_preferences({"geo": {"hedgingRequired": True}})
+    assert portfolio_engine._product_matches_constraints(usd_unhedged, hedging_required, score_bucket=8) is False
+    assert portfolio_engine._product_matches_constraints(usd_hedged, hedging_required, score_bucket=8) is True
+
+
+def test_recommendation_concentration_limits_are_hard_constraints():
+    product_a = _make_product(id="product-a", product_name="Issuer A Core", provider="Issuer A")
+    product_b = _make_product(id="product-b", product_name="Issuer A Satellite", provider="Issuer A")
+
+    with pytest.raises(ValueError, match="Einzelpositionslimite"):
+        portfolio_engine._validate_recommendation_concentration_limits(
+            {"product-a": {"product": product_a, "target_weight_bps": 2500}},
+            {"limits": {"singlePosition": "20"}},
+        )
+
+    with pytest.raises(ValueError, match="Einzelemittentenlimite"):
+        portfolio_engine._validate_recommendation_concentration_limits(
+            {
+                "product-a": {"product": product_a, "target_weight_bps": 1200},
+                "product-b": {"product": product_b, "target_weight_bps": 1400},
+            },
+            {"limits": {"singleIssuer": "25"}},
+        )
+
+
+def test_build_sub_allocations_rejects_unimplemented_or_empty_preference_sets():
+    targets = {
+        "equities": 6000,
+        "bonds": 2000,
+        "real_estate": 1000,
+        "alternatives": 500,
+        "liquidity": 500,
+    }
+
+    with pytest.raises(ValueError, match="Aktien Large Cap ist ausgeschaltet"):
+        _build_sub_allocations(
+            targets,
+            {"assetClasses": {"equitiesLargeCap": False, "equitiesSmid": True, "altsGold": True}},
+        )
+
+    with pytest.raises(ValueError, match="Obligationen-Auswahl"):
+        _build_sub_allocations(
+            targets,
+            {
+                "assetClasses": {
+                    "bondsInvestmentGrade": False,
+                    "bondsHighYield": False,
+                    "bondsEmerging": False,
+                    "altsGold": True,
+                }
+            },
+        )
+
+    with pytest.raises(ValueError, match="Direktimmobilien-only"):
+        _build_sub_allocations(
+            targets,
+            {"assetClasses": {"realestateFunds": False, "realestateDirect": True, "altsGold": True}},
+        )
+
+    with pytest.raises(ValueError, match="Alternativen Anlagen"):
+        _build_sub_allocations(
+            targets,
+            {
+                "assetClasses": {
+                    "altsGold": False,
+                    "altsLiquidAlts": False,
+                    "altsHedge": False,
+                    "altsPe": False,
+                    "altsCrypto": False,
+                }
+            },
+        )
+
+
+def test_build_sub_allocations_respects_investment_grade_bond_toggle():
+    targets = {
+        "equities": 0,
+        "bonds": 3000,
+        "real_estate": 0,
+        "alternatives": 0,
+        "liquidity": 0,
+    }
+
+    sub_allocations = _build_sub_allocations(
+        targets,
+        {
+            "assetClasses": {
+                "bondsInvestmentGrade": False,
+                "bondsHighYield": True,
+                "bondsEmerging": True,
+            }
+        },
+    )
+
+    bond_labels = {item["sub_asset_class"] for item in sub_allocations if item["asset_class"] == "Obligationen"}
+    assert bond_labels == {"Obligationen High Yield", "Obligationen Emerging"}
+    assert sum(int(item["target_weight_bps"]) for item in sub_allocations) == 3000
 
 
 def test_implementation_steps_use_actual_bucket_amounts_when_available():

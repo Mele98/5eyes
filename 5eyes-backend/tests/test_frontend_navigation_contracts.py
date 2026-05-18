@@ -21,10 +21,13 @@ def test_event_logging_goals_action_returns_to_combined_cashflow_step():
     assert "if(action==='goals')go('uz');" not in html
 
 
-def test_frontend_navigation_keeps_nine_step_page_sequence():
+def test_frontend_navigation_keeps_review_and_summary_combined_sequence():
     html = HTML_PATH.read_text(encoding="utf-8")
 
-    assert "const pages={sd:0,vg:1,cf:2,ub:3,rp:4,al:5,po:6,rv:7,sr:8};" in html
+    assert "const pages={sd:0,vg:1,cf:2,ub:3,rp:4,al:5,po:6,rv:7};" in html
+    assert "if(p==='sr')p='rv';" in html
+    assert 'data-page="sr"' not in html
+    assert "Review &amp; Abschluss" in html
 
 
 def test_summary_recipe_print_binding_uses_explicit_button_id():
@@ -32,6 +35,25 @@ def test_summary_recipe_print_binding_uses_explicit_button_id():
 
     assert 'id="sr-recipe-print"' in html
     assert "var summaryRecipePrint=document.getElementById('sr-recipe-print');" in html
+    assert 'id="rv-output-hub"' in html
+    assert "rv-output-rail" in html
+    assert "rv-output-item" in html
+    assert "rv-decision-grid" in html
+    assert "rv-final-grid" in html
+    assert "function printPortfolioPlan()" in html
+    assert "function printAdvisoryProtocol()" in html
+
+
+def test_review_absschluss_keeps_internal_triggers_out_of_customer_surface():
+    html = HTML_PATH.read_text(encoding="utf-8")
+    review_page = html.split('<div id="page-rv" class="page">', 1)[1].split("<!-- Legacy sr route", 1)[0]
+
+    assert 'id="trigger-count"' not in html
+    assert "om('m-nt')" not in review_page
+    assert "rv-trigger-" not in review_page
+    assert "+ Trigger" not in review_page
+    assert "Trigger pruefen" not in review_page
+    assert "Trigger prüfen" not in review_page
 
 
 def test_combined_cashflow_projection_has_own_root_and_responsive_grid():
