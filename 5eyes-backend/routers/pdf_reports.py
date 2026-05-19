@@ -272,6 +272,7 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
     advisory_wealth = None
     ta_obj = None
     engine_payload: dict | None = None
+    allocation_preferences: dict = {}
     advisory_positions, current_allocation_bps, current_advisory_wealth = _advisory_wealth_positions(mandate, db)
 
     # ---- TargetAllocation + Engine-Payload (Single-Source-of-Truth) ----
@@ -289,6 +290,11 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
             if advisory_wealth:
                 for bucket, bps in target_alloc_bps.items():
                     bucket_amounts[bucket] = int(advisory_wealth * bps / 10000)
+            prefs_raw = getattr(ta_obj, "preferences_json", None)
+            if prefs_raw:
+                parsed_prefs = json.loads(prefs_raw)
+                if isinstance(parsed_prefs, dict):
+                    allocation_preferences = parsed_prefs
 
             # Sprint U-P1 Fix C2+C5: korrekte Risk-Metrics aus Engine-Payload
             try:
@@ -654,6 +660,7 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
         cashflow_events=cashflow_events,
         goals_list=goals_list,
         current_allocation_bps=current_allocation_bps,
+        allocation_preferences=allocation_preferences,
     )
 
 
@@ -673,7 +680,7 @@ def get_anlagestrategie_pdf(
     data = _build_anlagestrategie_data(mandate, db)
     pdf_bytes = ReportLabRenderer().render_anlagestrategie(ctx, data)
     safe_name = "".join(c if c.isalnum() else "_" for c in ctx.mandate_name)[:40]
-    filename = f"5eyes_anlagestrategie_{safe_name}_{ctx.report_date.isoformat()}.pdf"
+    filename = f"anlagestrategie_{safe_name}_{ctx.report_date.isoformat()}.pdf"
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
@@ -751,7 +758,7 @@ def get_risikoprofil_pdf(
 
     pdf_bytes = ReportLabRenderer().render_risikoprofil(ctx, risk_data)
     safe_name = "".join(c if c.isalnum() else "_" for c in ctx.mandate_name)[:40]
-    filename = f"5eyes_risikoprofil_{safe_name}_{ctx.report_date.isoformat()}.pdf"
+    filename = f"risikoprofil_{safe_name}_{ctx.report_date.isoformat()}.pdf"
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
@@ -874,7 +881,7 @@ def get_portfolio_pdf(
     data = _build_portfolio_data(mandate, db)
     pdf_bytes = ReportLabRenderer().render_portfolio(ctx, data)
     safe_name = "".join(c if c.isalnum() else "_" for c in ctx.mandate_name)[:40]
-    filename = f"5eyes_portfolio_{safe_name}_{ctx.report_date.isoformat()}.pdf"
+    filename = f"portfolio_{safe_name}_{ctx.report_date.isoformat()}.pdf"
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
@@ -975,7 +982,7 @@ def get_vertrag_pdf(
     data = _build_vertrag_data(mandate, document_id, db)
     pdf_bytes = ReportLabRenderer().render_vertrag(ctx, data)
     safe_name = "".join(c if c.isalnum() else "_" for c in ctx.mandate_name)[:40]
-    filename = f"5eyes_vertrag_{safe_name}_{ctx.report_date.isoformat()}.pdf"
+    filename = f"vertrag_{safe_name}_{ctx.report_date.isoformat()}.pdf"
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",

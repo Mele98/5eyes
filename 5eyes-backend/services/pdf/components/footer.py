@@ -1,4 +1,4 @@
-"""Sprint 11: FIDLEG-Footer fuer alle WealthArchitekten-PDFs.
+"""Sprint 11: FIDLEG-Footer fuer alle Beratungs-PDFs.
 
 ReportLab onPage-Callback: 8px grauer Disclaimer + Seitenzahl + Audit-Hash.
 Sprint 11 ersetzt Sprint-5-Default-Disclaimer durch FIDLEG-konformen Text.

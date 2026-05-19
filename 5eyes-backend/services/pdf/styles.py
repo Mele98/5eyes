@@ -1,4 +1,4 @@
-"""WealthArchitekten-Designsystem fuer PDF-Dokumente (Sprint 11).
+"""PDF-Designsystem fuer Beratungsdokumente (Sprint 11).
 
 Sprint-11-Anpassung: Farben + Layout an Frontend-PDF-Vorlage
 (buildAnlagestrategieDocHtml). A4 LANDSCAPE, dunkler Header, FIDLEG-Footer.
@@ -19,7 +19,7 @@ MARGIN_BOTTOM = 12 * mm
 MARGIN_LEFT = 12 * mm
 MARGIN_RIGHT = 12 * mm
 
-# ---- Colors (WealthArchitekten Brand, aus Frontend uebernommen) ----
+# ---- Colors (ruhiges Beratungsdesign, aus Frontend uebernommen) ----
 COLOR_HEADER_BG = colors.HexColor("#0f172a")   # Dark Slate Header
 COLOR_HEADER_TEXT = colors.HexColor("#ffffff")
 COLOR_HEADER_SUB = colors.HexColor("#94a3b8")  # Light Gray Subtext

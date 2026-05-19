@@ -4,7 +4,7 @@ Eigenes Dokument (nicht im Anlagestrategie-PDF eingebettet) — Berater
 will Portfolio separat drucken koennen mit Soll-vs-IST + Trade-Empfehlungen.
 
 Sektionen:
-1. Header (WealthArchitekten)
+1. Header
 2. Portfolio-Uebersicht (Metric-Boxes: Total-IST, Positionen, Drift, TER)
 3. Positionen-Tabelle (ISIN, Name, Soll%, IST%, Drift, Wert)
 4. Unterschrift + FIDLEG-Footer

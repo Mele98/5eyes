@@ -2,13 +2,16 @@
 from __future__ import annotations
 
 from datetime import date
+from io import BytesIO
 
 import pytest
+from pypdf import PdfReader
 
 from services.pdf.base import (
     AnlagestrategieData,
     PDFContext,
     PDFRenderer,
+    ProtokollData,
     RisikoprofilData,
 )
 from services.pdf.reportlab_renderer import ReportLabRenderer
@@ -107,6 +110,69 @@ def test_anlagestrategie_pdf_title_metadata(ctx, saa_data):
     assert b"Anlagestrategie" in pdf
 
 
+def test_anlagestrategie_reference_structure_has_19_pages(ctx):
+    data = AnlagestrategieData(
+        target_allocation_bps={
+            "equities": 7100,
+            "real_estate": 2000,
+            "alternatives": 700,
+            "liquidity": 200,
+        },
+        cma_expected_return_bps=431,
+        cma_expected_vol_bps=1078,
+        horizon_years=15,
+        risk_profile_label="Wachstum",
+        mandate_number="M-42",
+        advisory_wealth_rappen=535_100_00,
+        risk_score_x10=80,
+        investment_horizon_years=15,
+        bucket_bands_bps={
+            "equities": (6500, 7500),
+            "real_estate": (1500, 2500),
+            "alternatives": (0, 1000),
+            "liquidity": (0, 500),
+        },
+        products=[
+            {
+                "name": "UBS ETF MSCI World",
+                "isin": "IE000N6LBS91",
+                "asset_class": "equities",
+                "sub_asset_class": "Aktien Welt",
+                "target_weight_bps": 3195,
+                "target_amount_rappen": 170_964_00,
+                "ter_bps": 12,
+                "provider": "UBS",
+            }
+        ],
+        advisory_positions=[
+            {"asset_class": "equities", "sub_asset_class": "Aktien", "current_amount_rappen": 103_500_00},
+            {"asset_class": "bonds", "sub_asset_class": "Obligationen", "current_amount_rappen": 99_000_00},
+        ],
+        other_wealth_positions=[
+            {"label": "Cash extern", "amount_rappen": 100_000_00, "kind": "Liquiditaet"}
+        ],
+        cashflow_events=[
+            {"name": "Freizuegigkeitsdepot", "recurrence": "Einmalig", "start_label": "03.2028", "amount_rappen": 169_000_00}
+        ],
+        goals_list=[
+            {"name": "Vermoegensverzehr", "category": "Rente", "recurrence": "Monatlich", "period_label": "2026-2040", "amount_rappen": 5_025_00}
+        ],
+        goal_analysis=[
+            {"rank": 1, "label": "Vermoegensverzehr", "achievement_score": 75, "target_text": "Rente sichern", "shortfall_rappen": 0}
+        ],
+        current_allocation_bps={"equities": 3868, "bonds": 3700, "real_estate": 832, "liquidity": 1600},
+        allocation_preferences={
+            "policy": {"esg": "esg_integration", "universe": "standard", "homeBias": "ch_focus", "hedging": "hedged"},
+            "assetClasses": {"equitiesGeo": "Schweiz Fokus", "bondsDuration": "Langfristig", "realestateMarket": "Schweiz", "altsGold": True},
+            "product": {"fundsOnly": True},
+            "geo": {"chFocus": True},
+            "bands": {},
+        },
+    )
+    pdf = ReportLabRenderer().render_anlagestrategie(ctx, data)
+    assert len(PdfReader(BytesIO(pdf)).pages) == 19
+
+
 def test_anlagestrategie_with_empty_mc_stats(ctx):
     """Ohne Monte Carlo Stats: kein MC-Section, aber PDF valid."""
     data = AnlagestrategieData(
@@ -156,6 +222,27 @@ def test_risikoprofil_pdf_contains_label(ctx, risk_data):
     pdf = ReportLabRenderer().render_risikoprofil(ctx, risk_data)
     # Title-Metadata
     assert b"Risikoprofil" in pdf
+
+
+def test_protokoll_pdf_magic_bytes(ctx):
+    data = ProtokollData(
+        mandate_number="M-42",
+        advisory_wealth_rappen=1_250_000_00,
+        latest_recommendation_summary="Strategie wurde besprochen.",
+        entries=[
+            {
+                "entry_date": "2026-05-19",
+                "entry_type": "Review",
+                "title": "Entscheid dokumentiert",
+                "description": "Kunde stimmt der Umsetzung zu.",
+                "decision": "Umsetzung",
+                "status": "Empfohlen",
+            }
+        ],
+    )
+    pdf = ReportLabRenderer().render_protokoll(ctx, data)
+    assert pdf[:4] == b"%PDF"
+    assert b"Beratungsprotokoll" in pdf
 
 
 def test_render_performance_under_2_seconds(ctx, saa_data):

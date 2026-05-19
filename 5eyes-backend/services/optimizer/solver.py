@@ -119,6 +119,16 @@ class OptimizerContext:
     # Aktivierung: Caller liefert den Array aus
     # services.mortality.sample_age_at_death + death_year_index_from_age.
     mortality_death_year_index_per_path: np.ndarray | None = None
+    # Sprint U-P2 Fix C9 (2026-05-19): tax-aware Solver-Pfad. Vorher liefen
+    # MC + Objective im Solver tax-naiv — Schweizer Vermoegenssteuer-Drag
+    # blieb unsichtbar. Wenn tax_regime gesetzt ist, wendet simulate_wealth_paths
+    # pro Jahr die TaxRegime-Logik an (Dividenden-, Kapitalgewinn-, Vermoegens-,
+    # Erbschaftssteuer je nach Plugin).
+    tax_regime: object | None = None
+    dividend_yield_bps_per_bucket: np.ndarray | None = None
+    base_calendar_year: int = 2026
+    mandate_age_at_start: int | None = None
+    is_retired: bool = False
 
 
 @dataclass(frozen=True)
@@ -165,6 +175,12 @@ def build_optimizer_context(
     client_birth_year: int | None = None,
     client_sex: str | None = None,
     use_mortality_simulation: bool = False,
+    # Sprint U-P2 Fix C9: tax-aware Solver-Optionen
+    tax_regime: object | None = None,
+    dividend_yield_bps_per_bucket: np.ndarray | None = None,
+    base_calendar_year: int = 2026,
+    mandate_age_at_start: int | None = None,
+    is_retired: bool = False,
 ) -> OptimizerContext:
     """Baut den Solver-Context (Scenarios, Liabilities, Bounds, Constraints).
 
@@ -242,6 +258,12 @@ def build_optimizer_context(
         score_x10=int(score_x10),
         risky_fraction_per_bucket=risky_fraction_per_bucket,
         mortality_death_year_index_per_path=death_indices,
+        # Sprint U-P2 Fix C9: tax-aware Felder
+        tax_regime=tax_regime,
+        dividend_yield_bps_per_bucket=dividend_yield_bps_per_bucket,
+        base_calendar_year=int(base_calendar_year),
+        mandate_age_at_start=mandate_age_at_start,
+        is_retired=bool(is_retired),
     )
 
 
@@ -254,6 +276,7 @@ def _objective_from_array(context: OptimizerContext, w: np.ndarray) -> float:
     Phase 5c: respektiert context.scenario_weights (IS-Likelihood-Ratios)
     wenn gesetzt. Bei scenario_weights=None: trivialer sample-mean wie zuvor.
     """
+    # Sprint U-P2 Fix C9: tax_regime + dividend_yield + age/retired durchreichen
     wealth = simulate_wealth_paths(
         initial_wealth_rappen=context.advisory_wealth_rappen,
         weights=w,
@@ -261,6 +284,11 @@ def _objective_from_array(context: OptimizerContext, w: np.ndarray) -> float:
         cashflow_series_rappen=context.cashflow_series_rappen,
         liability_path_rappen=context.aggregated_liability_path,
         death_year_index_per_path=context.mortality_death_year_index_per_path,
+        tax_regime=context.tax_regime,
+        dividend_yield_bps_per_bucket=context.dividend_yield_bps_per_bucket,
+        base_calendar_year=context.base_calendar_year,
+        mandate_age_at_start=context.mandate_age_at_start,
+        is_retired=context.is_retired,
     )
     return float(shortfall_objective(
         context.liabilities,
@@ -283,6 +311,7 @@ def evaluate_weights(
     - terminal_wealth_p10/p50/p90: Endvermoegen-Quantile in Rappen
     """
     w = _weights_bps_to_array(weights_bps)
+    # Sprint U-P2 Fix C9: tax-aware Evaluation
     wealth = simulate_wealth_paths(
         initial_wealth_rappen=context.advisory_wealth_rappen,
         weights=w,
@@ -290,6 +319,11 @@ def evaluate_weights(
         cashflow_series_rappen=context.cashflow_series_rappen,
         liability_path_rappen=context.aggregated_liability_path,
         death_year_index_per_path=context.mortality_death_year_index_per_path,
+        tax_regime=context.tax_regime,
+        dividend_yield_bps_per_bucket=context.dividend_yield_bps_per_bucket,
+        base_calendar_year=context.base_calendar_year,
+        mandate_age_at_start=context.mandate_age_at_start,
+        is_retired=context.is_retired,
     )
     objective = shortfall_objective(
         context.liabilities,
@@ -576,6 +610,12 @@ def run_solver(
     client_birth_year: int | None = None,
     client_sex: str | None = None,
     use_mortality_simulation: bool = False,
+    # Sprint U-P2 Fix C9: tax-aware Solver-Optionen (Backwards-Compat: alle None)
+    tax_regime: object | None = None,
+    dividend_yield_bps_per_bucket: np.ndarray | None = None,
+    base_calendar_year: int = 2026,
+    mandate_age_at_start: int | None = None,
+    is_retired: bool = False,
 ) -> OptimizerResult:
     """Mulvey-Light SLSQP Optimizer.
 
@@ -606,6 +646,12 @@ def run_solver(
         client_birth_year=client_birth_year,
         client_sex=client_sex,
         use_mortality_simulation=use_mortality_simulation,
+        # Sprint U-P2 Fix C9
+        tax_regime=tax_regime,
+        dividend_yield_bps_per_bucket=dividend_yield_bps_per_bucket,
+        base_calendar_year=base_calendar_year,
+        mandate_age_at_start=mandate_age_at_start,
+        is_retired=is_retired,
     )
     # Lokale Aliase fuer Lesbarkeit der bestehenden Logik unten
     seed = context.seed

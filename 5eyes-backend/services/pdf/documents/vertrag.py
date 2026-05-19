@@ -44,7 +44,7 @@ def build_vertrag_flowables(ctx: PDFContext, data) -> list:
     flowables: list = []
     styles = make_paragraph_styles()
 
-    # ---- Header (WealthArchitekten-Banner) ----
+    # ---- Header-Banner ----
     advisory_label = None
     if getattr(data, "advisory_wealth_rappen", None):
         advisory_label = _format_amount(data.advisory_wealth_rappen, ctx.base_currency)

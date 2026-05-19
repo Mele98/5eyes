@@ -1542,6 +1542,50 @@ def _sub_asset_class_metrics(
     return int(fallback_returns[bucket]), int(fallback_vols[bucket])
 
 
+def _apply_cma_market_adjustments(returns: dict[str, int], cma: CapitalMarketAssumption) -> dict[str, int]:
+    """Sprint U-P2 Fix C6: NS/KGV/Risikoprämien-Adjustments aus scenario_engine
+    auch im Haupt-MC-Pfad anwenden.
+
+    Vorher: NS (Sprint 6), KGV-Mean-Reversion (Sprint 7) und Risikoprämien
+    (Sprint 8) wirkten NUR im Optimizer-Solver (services/optimizer/scenario_engine).
+    Der Haupt-MC, PDF und Allokations-Ansicht ignorierten diese Felder
+    komplett — Berater sah zwei divergierende Wahrheiten je nach OPTIMIZER_MODE.
+
+    Backwards-Compat: jede Adjustment-Funktion gibt None/0.0 zurück wenn die
+    nötigen CMA-Felder fehlen → in dem Fall bleiben Returns unverändert.
+    """
+    try:
+        from services.optimizer.scenario_engine import (
+            _compute_bonds_return_from_nelson_siegel,
+            _compute_equity_kgv_adjustment,
+            _compute_return_from_risk_premium,
+        )
+    except ImportError:
+        return returns
+
+    adjusted = dict(returns)
+
+    # Bonds: Nelson-Siegel Yield-Curve (5J-Maturity-Default) ersetzt fixen Wert
+    ns_bonds = _compute_bonds_return_from_nelson_siegel(cma)
+    if ns_bonds is not None:
+        adjusted["bonds"] = int(round(ns_bonds))
+
+    # Equity: KGV-Mean-Reversion-Adjustment additiv (10J-Horizont-Default)
+    kgv_adj = _compute_equity_kgv_adjustment(cma)
+    if kgv_adj:
+        adjusted["equities"] = int(round(adjusted["equities"] + kgv_adj))
+
+    # Real Estate + Alternatives: NS-short-rate + Risikoprämie (nur wenn NS aktiv)
+    re_from_premium = _compute_return_from_risk_premium(cma, "real_estate_risk_premium_bps")
+    if re_from_premium is not None:
+        adjusted["real_estate"] = int(round(re_from_premium))
+    alt_from_premium = _compute_return_from_risk_premium(cma, "alternatives_risk_premium_bps")
+    if alt_from_premium is not None:
+        adjusted["alternatives"] = int(round(alt_from_premium))
+
+    return adjusted
+
+
 def _asset_class_expected_metrics(cma: CapitalMarketAssumption) -> tuple[dict[str, int], dict[str, int]]:
     """Reine CMA-Bucket-Defaults. KEIN Mischen mit Sub-Asset-Class-Annahmen.
 
@@ -1552,6 +1596,9 @@ def _asset_class_expected_metrics(cma: CapitalMarketAssumption) -> tuple[dict[st
     Sub-Allocation 0% EM enthielt. Diese Funktion liefert nun nur die
     CMA-Bucket-Felder; tatsaechliche Bucket-Metriken aus Sub-Allocation
     werden ueber _weighted_bucket_metrics() berechnet.
+
+    Sprint U-P2 Fix C6: zusaetzlich werden NS/KGV/RP-Adjustments angewendet
+    (vorher nur im Optimizer-Solver aktiv).
     """
     returns = {
         "equities": int(round(((cma.equity_ch_return_bps or 500) + (cma.equity_intl_return_bps or 650)) / 2)),
@@ -1560,6 +1607,7 @@ def _asset_class_expected_metrics(cma: CapitalMarketAssumption) -> tuple[dict[st
         "alternatives": int(cma.alternatives_gold_return_bps or 300),
         "liquidity": int(cma.liquidity_return_bps or 80),
     }
+    returns = _apply_cma_market_adjustments(returns, cma)
     vols = {
         "equities": int(round(((cma.equity_ch_vol_bps or 1200) + (cma.equity_intl_vol_bps or 1450)) / 2)),
         "bonds": int(round(((cma.bonds_chf_ig_vol_bps or 350) + (cma.bonds_fx_hedged_vol_bps or 450)) / 2)),
@@ -1646,15 +1694,55 @@ def _portfolio_volatility_bps(
     return int(round(math.sqrt(max(0.0, variance)) * 10000))
 
 
+def _portfolio_weighted_ter_bps(
+    sub_allocations: list[dict] | None,
+    products: list[dict] | None = None,
+) -> int:
+    """Sprint U-P2 Fix M2: gewichtete TER aus Produktselektion. Wird vom
+    expected_return abgezogen damit der Berater den Netto-Wert sieht.
+
+    Backwards-Compat: ohne products und ohne sub_allocations gibt 0 zurueck
+    (frueheres Verhalten = Brutto-Return). Erst sobald RecommendationRun
+    konkrete Produkte mit ter_bps-Feldern liefert, kommt das echte TER-Drag.
+    """
+    if products:
+        total_weight = 0
+        weighted_ter = 0
+        for prod in products:
+            weight = max(0, int((prod or {}).get("target_weight_bps", 0) or 0))
+            ter = max(0, int((prod or {}).get("ter_bps", 0) or 0))
+            if weight > 0:
+                weighted_ter += weight * ter
+                total_weight += weight
+        if total_weight > 0:
+            return int(round(weighted_ter / total_weight))
+    return 0
+
+
 def _expected_metrics(
     targets: dict[str, int],
     cma: CapitalMarketAssumption,
     sub_allocations: list[dict] | None = None,
+    products: list[dict] | None = None,
 ) -> dict[str, int]:
     returns, vols = _weighted_bucket_metrics(cma, sub_allocations)
+    gross_return_bps = int(round(sum(targets[key] * returns[key] for key in BUCKET_FIELDS) / 10000))
+    vol_bps = _portfolio_volatility_bps(targets, vols, cma)
+    # Sprint U-P2 Fix M2: Net-of-fees Return
+    weighted_ter_bps = _portfolio_weighted_ter_bps(sub_allocations, products)
+    net_return_bps = max(0, gross_return_bps - weighted_ter_bps)
+    # Sprint U-P2 Fix L2: Sharpe-Ratio = (Netto-Return − Risk-Free) / Vola
+    risk_free_bps = int(getattr(cma, "liquidity_return_bps", 80) or 80)
+    sharpe_x100 = 0
+    if vol_bps > 0:
+        sharpe_x100 = int(round(((net_return_bps - risk_free_bps) / vol_bps) * 100))
     return {
-        "expected_return_bps": int(round(sum(targets[key] * returns[key] for key in BUCKET_FIELDS) / 10000)),
-        "expected_volatility_bps": _portfolio_volatility_bps(targets, vols, cma),
+        "expected_return_bps": net_return_bps,
+        "expected_return_gross_bps": gross_return_bps,
+        "expected_ter_bps": weighted_ter_bps,
+        "expected_volatility_bps": vol_bps,
+        "sharpe_ratio_x100": sharpe_x100,
+        "risk_free_bps": risk_free_bps,
     }
 
 
@@ -2424,7 +2512,26 @@ def _build_goal_analysis(
             # C5: zielbezogene Reserve statt globaler reserve_needed_rappen,
             # damit ein grosses Ziel kleinere Ziele nicht unbeabsichtigt
             # auf 'On Track' hebt.
-            available = _goal_reserve_for_goal(goal) if years <= 3 else projected_rappen
+            # Sprint U-P2 Fix H10: vorher wurde fuer years>3 ausschliesslich
+            # `projected_rappen` als available genutzt. Folge: ein 5M-Goal in
+            # 10J mit 500k advisory zeigte "On Track" weil projected_rappen
+            # > 5M moeglich war — obwohl objektiv unterfinanziert. Jetzt:
+            # min(projected, _goal_reserve_for_goal) — die kleinere Zahl wirkt,
+            # damit eine grosse Lebenshaltungs-Annahme nicht zu falscher
+            # Sicherheit fuehrt.
+            if years <= 3:
+                available = _goal_reserve_for_goal(goal)
+            else:
+                # Long-term: projected_rappen muss die zielbezogene Reserve
+                # NICHT unterschreiten — sonst nimmt der konservativere Wert.
+                reserve_for_goal = _goal_reserve_for_goal(goal)
+                # _goal_reserve_for_goal liefert fuer years>3 die abgezinste
+                # Reserve nach Time-Bucket-Logik; bei stufen-mode = 0 fuer >7J.
+                # In dem Fall ignorieren wir die Reserve und nutzen nur projected.
+                if reserve_for_goal > 0:
+                    available = min(projected_rappen, reserve_for_goal + projected_rappen // 2)
+                else:
+                    available = projected_rappen
             denominator = max(1, target_rappen)
             funded_ratio_pct = int(round(min(200, max(-100, available / denominator * 100))))
             success_rate_pct = 100 if available >= target_rappen else 0
@@ -3841,6 +3948,7 @@ def _compute_reserve_for_inputs(
     saa_liquidity_ceiling_bps: int,
     reasoning: list[str] | None = None,
     unlocked_other_assets_rappen: int = 0,
+    inflow_projection_series_rappen: list[int] | None = None,
 ) -> tuple[int, int]:
     """C7 StrategyContext: Single Source of Truth fuer Reserve-Berechnung.
 
@@ -3861,12 +3969,23 @@ def _compute_reserve_for_inputs(
         reserve_candidates.append(liquidity_target)
 
     near_term_cashflow_series = [int(value or 0) for value in (recurring_cashflow_projection_series_rappen or [])[:3]]
-    near_term_shortfall_rappen = max(0, -sum(near_term_cashflow_series))
+    # Sprint U-P2 Fix H11: Wealth-Inflows (Erbschaft, Bonus, einmalige
+    # Verkaufserloese) reduzieren die near_term Reserve wenn sie in den
+    # ersten 3 Jahren liegen. Vorher wurden Inflows NUR in
+    # cashflow_projection_series_rappen (fuer Goal-Achievement + MC) addiert,
+    # aber NICHT in der recurring-Series — Folge: Erbschaft erhoehte
+    # Goal-Achievement aber reduzierte reserve_needed nicht. Jetzt mit-
+    # subtrahiert (wirkt wie zusaetzlicher Net-Inflow).
+    near_term_inflows = sum(
+        int(value or 0)
+        for value in (inflow_projection_series_rappen or [])[:3]
+    )
+    near_term_shortfall_rappen = max(0, -sum(near_term_cashflow_series) - max(0, near_term_inflows))
     if near_term_shortfall_rappen > 0:
         reserve_candidates.append(near_term_shortfall_rappen)
         if reasoning is not None:
             reasoning.append("Zeitlich datierte Netto-Cashflows erhoehen die erforderliche Liquiditaetsreserve fuer die naechsten Jahre.")
-    elif recurring_net_cashflow_rappen < 0:
+    elif recurring_net_cashflow_rappen < 0 and near_term_inflows <= 0:
         reserve_candidates.append(abs(recurring_net_cashflow_rappen) * 3)
         if reasoning is not None:
             reasoning.append("Negativer laufender Netto-Cashflow erhoeht die erforderliche Liquiditaetsreserve.")
@@ -3973,6 +4092,7 @@ def _apply_goal_and_reserve_tilts(
     advisory_wealth_rappen: int,
     reasoning: list[str],
     unlocked_other_assets_rappen: int = 0,
+    inflow_projection_series_rappen: list[int] | None = None,
 ) -> tuple[int, int]:
     # C7: Reserve-Berechnung wird zentral in _compute_reserve_for_inputs gehandelt
     # (StrategyContext-Konsolidierung), Goal-Tilts auf Bandbreiten passieren hier.
@@ -3987,6 +4107,7 @@ def _apply_goal_and_reserve_tilts(
         saa_liquidity_ceiling_bps=saa_liq_ceiling_bps,
         reasoning=reasoning,
         unlocked_other_assets_rappen=unlocked_other_assets_rappen,
+        inflow_projection_series_rappen=inflow_projection_series_rappen,
     )
     # Goal-spezifische Bandbreiten-Tilts (Reduktion Aktien fuer kurze Vermoegensziele)
     for goal in goals:
@@ -4139,6 +4260,34 @@ def _run_stochastic_optimizer_pass(
                 "use_mortality_simulation": True,
             }
 
+    # Sprint U-P2 Fix C9: tax-aware Solver — wenn das Mandat eine
+    # tax_jurisdiction hat, wird das passende TaxRegime aufgeloest und
+    # an run_solver durchgereicht. Backwards-Compat: kein Feld → None
+    # → simulate_wealth_paths laeuft tax-naiv (wie vorher).
+    tax_kwargs: dict = {}
+    try:
+        jurisdiction = str(getattr(mandate, "tax_jurisdiction", "") or "").strip()
+        if jurisdiction:
+            from services.tax.registry import resolve_regime_class
+            from services.tax.base import TaxConfig
+            regime_cls = resolve_regime_class(jurisdiction)
+            tax_overrides_json = getattr(mandate, "tax_overrides_json", None)
+            regime_instance = regime_cls(TaxConfig(jurisdiction_id=jurisdiction))
+            if tax_overrides_json:
+                from services.tax.overrides import apply_overrides
+                regime_instance = apply_overrides(regime_instance, tax_overrides_json)
+            tax_kwargs["tax_regime"] = regime_instance
+            current_year = int(getattr(mandate, "valid_from_year", 0) or 0) or 2026
+            tax_kwargs["base_calendar_year"] = current_year
+            cby = int(getattr(mandate, "client_birth_year", 0) or 0)
+            if cby:
+                tax_kwargs["mandate_age_at_start"] = max(0, current_year - cby)
+            retirement_year = int(getattr(mandate, "retirement_year", 0) or 0)
+            if retirement_year and current_year >= retirement_year:
+                tax_kwargs["is_retired"] = True
+    except Exception as exc:  # noqa: BLE001 - tax loading darf Solver nicht killen
+        logger.warning("Tax-Regime nicht ladbar (%s) — Solver laeuft tax-naiv", exc)
+
     try:
         result = run_solver(
             cma=cma,
@@ -4152,6 +4301,7 @@ def _run_stochastic_optimizer_pass(
             inflation_series_bps=inflation_series_bps,
             risky_fraction_per_bucket=rf_per_bucket,
             **mortality_kwargs,
+            **tax_kwargs,
         )
     except Exception as exc:  # noqa: BLE001 - never crash allocation flow
         logger.warning("Stochastic optimizer crashed: %s", exc, exc_info=True)
@@ -4999,6 +5149,8 @@ def generate_target_allocation(
         advisory_wealth_rappen=advisory_wealth_rappen,
         reasoning=reasoning,
         unlocked_other_assets_rappen=int(inputs.get("unlocked_other_assets_rappen") or 0),
+        # Sprint U-P2 Fix H11: Wealth-Inflows in Reserve berücksichtigen
+        inflow_projection_series_rappen=inputs.get("inflow_projection_series_rappen"),
     )
     investable_advisory_wealth_rappen = _investable_advisory_wealth_rappen(advisory_wealth_rappen, external_reserve_rappen)
 
@@ -5614,6 +5766,26 @@ def build_target_payload_from_allocation(
         start_year=cashflow_totals["year"],
         inflation_series_bps=cf_inflation_series_bps,
     )
+    # Sprint U-P2 Fix H11: WealthInflows im rebuild-Pfad auch laden,
+    # damit Reserve konsistent zum generate-Pfad rechnet.
+    try:
+        from models.wealth import WealthInflow as _WealthInflow
+        rebuild_wealth_inflows = db.query(_WealthInflow).filter(
+            _WealthInflow.client_id == mandate.client_id,
+            _WealthInflow.deleted_at.is_(None),
+            _WealthInflow.is_active == 1,
+        ).all()
+    except Exception:
+        rebuild_wealth_inflows = []
+    inflow_projection_series_rappen = _wealth_inflow_series_rappen(
+        rebuild_wealth_inflows, projection_years, cashflow_totals["year"], cf_inflation_series_bps,
+    )
+    # ebenso wie generate-Pfad: Inflows in cashflow_projection einrechnen
+    if any(inflow_projection_series_rappen):
+        cashflow_projection_series_rappen = [
+            int(cf) + int(infl)
+            for cf, infl in zip(cashflow_projection_series_rappen, inflow_projection_series_rappen)
+        ]
 
     minimums = {
         "equities": int(allocation.band_equities_min_bps or 0),
@@ -5665,6 +5837,8 @@ def build_target_payload_from_allocation(
         saa_liquidity_ceiling_bps=saa_liq_ceil_bps,
         reasoning=None,
         unlocked_other_assets_rappen=unlocked_other_assets_rappen,
+        # Sprint U-P2 Fix H11: Wealth-Inflows in Reserve berücksichtigen (rebuild-Pfad)
+        inflow_projection_series_rappen=inflow_projection_series_rappen,
     )
     investable_advisory_wealth_rappen = _investable_advisory_wealth_rappen(advisory_wealth_rappen, external_reserve_rappen)
     goal_inflation_series_bps = _goal_inflation_series_bps(

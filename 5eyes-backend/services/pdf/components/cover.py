@@ -1,6 +1,6 @@
 """Sprint 14 Phase 1: Cover-Seite + Trenn-Cover.
 
-Repliziert Swiss-Life-Wealth-Vorlage Seite 1 und Seite 10.
+Repliziert die Referenzvorlage Seite 1 und Seite 10.
 """
 from __future__ import annotations
 

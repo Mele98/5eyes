@@ -1,8 +1,8 @@
 """Sprint 14: Statische Erklaerungstexte fuer Anlagestrategie-PDF.
 
 KEINE Marken-Eigennamen von Dritt-Firmen oder externen Produkten — alle
-Texte sind eigenstaendig formuliert mit '5eyes' als Brand bzw.
-neutralen Formulierungen ('wir', 'der Vermoegensverwalter',
+Texte sind eigenstaendig mit neutralen Formulierungen verfasst
+('wir', 'der Vermoegensverwalter',
 'Sie als Kunde').
 """
 from __future__ import annotations

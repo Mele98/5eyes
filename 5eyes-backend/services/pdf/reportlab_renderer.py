@@ -86,6 +86,7 @@ class ReportLabRenderer:
         from services.pdf.components.footer import make_footer_callback
 
         buffer = BytesIO()
+        metadata_brand = ctx.advisor_org or ctx.advisor_name or "Emanuele Konzelmann"
         doc = SimpleDocTemplate(
             buffer,
             pagesize=PAGE_SIZE,
@@ -93,7 +94,7 @@ class ReportLabRenderer:
             bottomMargin=MARGIN_BOTTOM + 12 * mm,  # extra Platz fuer Footer
             leftMargin=MARGIN_LEFT,
             rightMargin=MARGIN_RIGHT,
-            title=f"5eyes — {title} — {ctx.mandate_name}",
+            title=f"{metadata_brand} - {title} - {ctx.mandate_name}",
             author=ctx.advisor_name,
             subject=title,
         )

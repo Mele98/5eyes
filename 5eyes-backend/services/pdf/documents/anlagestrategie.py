@@ -6,7 +6,7 @@ Spec: docs/planning/2026-05-17-sprint-11-pdf-replikation.md
 from __future__ import annotations
 
 from reportlab.lib.units import mm
-from reportlab.platypus import PageBreak, Paragraph, Spacer
+from reportlab.platypus import PageBreak, Paragraph, Spacer, Table, TableStyle
 
 from services.pdf.base import AnlagestrategieData, PDFContext
 from services.pdf.components.cover import make_cover_page, make_section_cover
@@ -146,9 +146,13 @@ def build_anlagestrategie_flowables(
             "den Fragebogen ausfüllen.",
             styles,
         ))
-    flowables.append(Spacer(1, 4 * mm))
+    flowables.append(PageBreak())
 
-    # A.4 Risikoprofil-Box (direkt nach Eignungspruefung, denn das ist das Resultat)
+    # A.4 Risikoprofil-Box (eigene Seite wie Referenzvorlage)
+    flowables.extend(make_wealtharchitekten_header(
+        ctx, mandate_number=data.mandate_number,
+        advisory_wealth_label=advisory_label,
+    ))
     if data.risk_score_x10 is not None or data.risk_profile_label:
         flowables.extend(make_risikoprofil_box(
             score_x10=data.risk_score_x10,
@@ -162,6 +166,14 @@ def build_anlagestrategie_flowables(
             "Noch kein Risikoprofil gespeichert.",
             styles,
         ))
+    flowables.append(PageBreak())
+
+    # A.5 Anlagepraeferenzen
+    flowables.extend(make_wealtharchitekten_header(
+        ctx, mandate_number=data.mandate_number,
+        advisory_wealth_label=advisory_label,
+    ))
+    flowables.extend(_make_preferences_section(data.allocation_preferences, styles))
     flowables.append(PageBreak())
 
     # ============================================================
@@ -183,7 +195,11 @@ def build_anlagestrategie_flowables(
             base_currency=ctx.base_currency,
             advisory_wealth_rappen=data.advisory_wealth_rappen,
         ))
-        flowables.append(Spacer(1, 4 * mm))
+        flowables.append(PageBreak())
+        flowables.extend(make_wealtharchitekten_header(
+            ctx, mandate_number=data.mandate_number,
+            advisory_wealth_label=advisory_label,
+        ))
         from reportlab.platypus import KeepTogether
         title_para = Paragraph(
             f'<font color="#475569" size="9"><b>'
@@ -245,17 +261,28 @@ def build_anlagestrategie_flowables(
             max_drawdown_bps=data.max_drawdown_bps,
             var_95_bps=data.var_95_bps,
         ))
-        flowables.append(Spacer(1, 4 * mm))
+    else:
+        flowables.append(_section_title_with_fallback(
+            "Risikoindikatoren",
+            "Noch keine Monte-Carlo-Simulation. Wird mit 'Anlagestrategie "
+            "berechnen' generiert.",
+            styles,
+        ))
+    flowables.append(PageBreak())
 
+    flowables.extend(make_wealtharchitekten_header(
+        ctx, mandate_number=data.mandate_number,
+        advisory_wealth_label=advisory_label,
+    ))
     if data.goal_analysis:
         flowables.extend(make_ziele_section(
             data.goal_analysis, base_currency=ctx.base_currency,
         ))
-    elif not has_metrics:
+    else:
         flowables.append(_section_title_with_fallback(
-            "Zielerreichung & Risikoindikatoren",
-            "Noch keine Monte-Carlo-Simulation. Wird mit 'Anlagestrategie "
-            "berechnen' generiert.",
+            "Zielerreichung",
+            "Noch keine Zielerreichungsanalyse gespeichert. Wird mit "
+            "'Anlagestrategie berechnen' generiert.",
             styles,
         ))
     flowables.append(PageBreak())
@@ -273,7 +300,7 @@ def build_anlagestrategie_flowables(
     # TEIL D — BESTAETIGUNG
     # ============================================================
     flowables.extend(make_zusammenfassung_section())
-    flowables.append(Spacer(1, 6 * mm))
+    flowables.append(PageBreak())
     flowables.extend(make_unterschrift_section())
     flowables.append(PageBreak())
 
@@ -286,6 +313,192 @@ def build_anlagestrategie_flowables(
     flowables.extend(make_disclaimer_section())
 
     return flowables
+
+
+def _make_preferences_section(preferences, styles) -> list:
+    """Anlagepraeferenzen als ruhige, tabellarische Vorlagen-Seite."""
+    from services.pdf.components.header import _esc
+    from services.pdf.styles import (
+        COLOR_BORDER,
+        COLOR_TABLE_HEADER_BG,
+        COLOR_TEXT,
+        COLOR_TEXT_LIGHT,
+        FONT_BOLD,
+        FONT_DEFAULT,
+        FONT_SIZE_TABLE,
+        FONT_SIZE_TABLE_HEADER,
+        PAGE_SIZE,
+    )
+
+    prefs = preferences if isinstance(preferences, dict) else {}
+    policy = prefs.get("policy") if isinstance(prefs.get("policy"), dict) else {}
+    product = prefs.get("product") if isinstance(prefs.get("product"), dict) else {}
+    geo = prefs.get("geo") if isinstance(prefs.get("geo"), dict) else {}
+    asset_classes = prefs.get("assetClasses") if isinstance(prefs.get("assetClasses"), dict) else {}
+    tilts = prefs.get("tilts") if isinstance(prefs.get("tilts"), dict) else {}
+    bands = prefs.get("bands") if isinstance(prefs.get("bands"), dict) else {}
+
+    rows = [["Bereich", "Festgehaltene Praeferenz"]]
+    rows.extend([
+        ["Nachhaltigkeit", _label(policy.get("esg"), {
+            "none": "Keine ESG-Praeferenz",
+            "esg_integration": "ESG-Integration",
+            "best_in_class": "Best-in-Class",
+            "negative_screening": "Negativ-Screening",
+            "impact": "Impact Investing",
+            "net_zero": "Paris-aligned / Net Zero",
+        }, "Standard / keine gesonderte Vorgabe")],
+        ["Anlageuniversum", _label(policy.get("universe"), {
+            "standard": "Standard",
+            "extended": "Erweitert",
+            "funds_only": "Nur Fonds/ETFs",
+            "listed_only": "Nur kotierte Instrumente",
+        }, "Standard")],
+        ["Heimmarkt", _label(policy.get("homeBias"), {
+            "none": "Kein Heimmarkt-Bias",
+            "ch_focus": "Schweiz-Fokus bevorzugt",
+            "europe_focus": "Europa-Fokus",
+            "global": "Global neutral",
+        }, "Schweiz-Fokus bevorzugt")],
+        ["Waehrung", _label(policy.get("hedging"), {
+            "none": "Keine FX-Vorgabe",
+            "hedged": "FX-gehedgt bevorzugt",
+            "chf_only": "Nur CHF-Instrumente",
+            "risk_budget": "FX ausserhalb Risiko-Budget",
+        }, "Keine FX-Vorgabe")],
+        ["Aktien", str(asset_classes.get("equitiesGeo") or "Schweiz Fokus")],
+        ["Obligationen", str(asset_classes.get("bondsDuration") or "Langfristig")],
+        ["Immobilien", str(asset_classes.get("realestateMarket") or "Schweiz")],
+        ["Alternative Anlagen", _alternatives_label(asset_classes)],
+    ])
+
+    restrictions = []
+    restriction_labels = [
+        ("noDerivatives", "Keine Derivate"),
+        ("noLeverage", "Keine Hebelprodukte"),
+        ("noStructured", "Keine strukturierten Produkte"),
+        ("listedOnly", "Nur kotierte Titel"),
+        ("fundsOnly", "Nur Fonds/ETFs"),
+    ]
+    for key, label in restriction_labels:
+        if product.get(key):
+            restrictions.append(label)
+    geo_labels = [
+        ("chFocus", "CH-Fokus"),
+        ("noEm", "Kein Schwellenlaender-Exposure"),
+        ("hedgingRequired", "FX-Absicherung obligatorisch"),
+        ("chfOnly", "Nur CHF-Instrumente"),
+        ("noUsd", "Kein USD"),
+    ]
+    for key, label in geo_labels:
+        if geo.get(key):
+            restrictions.append(label)
+    tilt_names = {
+        "fossil": "Fossile Energie",
+        "defense": "Verteidigung",
+        "tobacco": "Tabak",
+        "alcohol": "Alkohol",
+        "gaming": "Gluecksspiel",
+        "nuclear": "Kernenergie",
+    }
+    tilt_actions = {
+        "exclude": "ausschliessen",
+        "underweight": "untergewichten",
+        "overweight": "uebergewichten",
+    }
+    for key, mode in tilts.items():
+        if mode and mode != "neutral" and key in tilt_names:
+            restrictions.append(f"{tilt_names[key]} {tilt_actions.get(mode, mode)}")
+    rows.append(["Restriktionen", "; ".join(restrictions) if restrictions else "Keine aktiven Restriktionen"])
+
+    band_labels = []
+    for key, override in bands.items():
+        if not isinstance(override, dict):
+            continue
+        parts = []
+        for field, label in (("min_bps", "Min"), ("target_bps", "Soll"), ("max_bps", "Max")):
+            value = override.get(field)
+            if value is not None:
+                parts.append(f"{label} {int(value) / 100:.1f}%")
+        if parts:
+            band_labels.append(f"{key}: " + " / ".join(parts))
+    rows.append(["Individuelle Bandbreiten", "; ".join(band_labels) if band_labels else "Keine Overrides"])
+
+    table_rows = []
+    for idx, (area, preference) in enumerate(rows):
+        is_header = idx == 0
+        font = FONT_BOLD if is_header else FONT_DEFAULT
+        color = "#475569" if is_header else "#0f172a"
+        table_rows.append([
+            Paragraph(
+                f'<font name="{font}" color="{color}">{_esc(area)}</font>',
+                _preference_cell_style(is_header),
+            ),
+            Paragraph(
+                f'<font name="{font}" color="{color}">{_esc(preference)}</font>',
+                _preference_cell_style(is_header),
+            ),
+        ])
+    page_width, _ = PAGE_SIZE
+    table_width = page_width - 24 * mm
+    table = Table(table_rows, colWidths=[table_width * 0.30, table_width * 0.70], repeatRows=1)
+    table.setStyle(TableStyle([
+        ("FONTNAME", (0, 0), (-1, 0), FONT_BOLD),
+        ("FONTSIZE", (0, 0), (-1, 0), FONT_SIZE_TABLE_HEADER),
+        ("FONTSIZE", (0, 1), (-1, -1), FONT_SIZE_TABLE),
+        ("FONTNAME", (0, 1), (-1, -1), FONT_DEFAULT),
+        ("BACKGROUND", (0, 0), (-1, 0), COLOR_TABLE_HEADER_BG),
+        ("TEXTCOLOR", (0, 0), (-1, 0), COLOR_TEXT_LIGHT),
+        ("TEXTCOLOR", (0, 1), (-1, -1), COLOR_TEXT),
+        ("LINEBELOW", (0, 0), (-1, 0), 0.8, COLOR_BORDER),
+        ("LINEBELOW", (0, 1), (-1, -2), 0.3, COLOR_BORDER),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+    ]))
+
+    return [
+        Paragraph("Anlagepraeferenzen", styles["heading"]),
+        Paragraph(
+            "Die Praeferenzen beeinflussen die Umsetzung innerhalb der Anlageklassen "
+            "und werden bei der Produktauswahl sowie bei Bandbreiten beruecksichtigt.",
+            styles["body"],
+        ),
+        Spacer(1, 4 * mm),
+        table,
+    ]
+
+
+def _label(value, labels: dict, fallback: str) -> str:
+    return labels.get(str(value or ""), str(value or fallback))
+
+
+def _alternatives_label(asset_classes: dict) -> str:
+    labels = [
+        ("altsGold", "Gold / Rohstoffe"),
+        ("altsLiquidAlts", "Liquid Alternatives"),
+        ("altsHedge", "Hedge Funds"),
+        ("altsPe", "Private Equity"),
+        ("altsCrypto", "Krypto"),
+    ]
+    selected = [label for key, label in labels if asset_classes.get(key)]
+    return " + ".join(selected) if selected else "Keine Schwerpunkte"
+
+
+def _preference_cell_style(is_header: bool):
+    from reportlab.lib.styles import ParagraphStyle
+    from services.pdf.styles import FONT_DEFAULT, FONT_SIZE_TABLE, FONT_SIZE_TABLE_HEADER
+
+    size = FONT_SIZE_TABLE_HEADER if is_header else FONT_SIZE_TABLE
+    return ParagraphStyle(
+        "PreferenceCellHeader" if is_header else "PreferenceCell",
+        fontName=FONT_DEFAULT,
+        fontSize=size,
+        leading=max(size + 3, 10),
+        spaceAfter=0,
+    )
 
 
 def _section_title_with_fallback(title: str, fallback_text: str, styles):

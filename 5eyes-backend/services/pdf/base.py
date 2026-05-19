@@ -23,7 +23,7 @@ class PDFContext:
     locale: str = "de-CH"
     # Sprint 9 Phase 4: Mandate-Currency fuer Report-Anzeige
     # Werte werden via services.currency.convert_rappen umgerechnet wenn
-    # base_currency != CHF (5eyes-interne Basis-Currency ist CHF/Rappen).
+    # base_currency != CHF (interne Basis-Currency ist CHF/Rappen).
     base_currency: str = "CHF"
 
 
@@ -105,7 +105,7 @@ class AnlagestrategieData:
 
     # ---- Sprint 14: Cover-Seite Daten ----
     client_address_lines: list[str] = field(default_factory=list)
-    """Klient-Adress-Zeilen fuer Cover, z.B. ['Bifangstrasse 9', '4800 Zofingen']."""
+    """Klient-Adress-Zeilen fuer Cover, dynamisch aus Kundendaten."""
     client_phone: str | None = None
 
     # ---- Sprint 14 Phase 2: Eignungspruefung Frage-Antwort ----
@@ -131,6 +131,9 @@ class AnlagestrategieData:
     # ---- IST-Allokation fuer 2-Donut-Vergleich ----
     current_allocation_bps: Mapping[str, int] = field(default_factory=dict)
     """{'equities': 3868, ...} aus IST-Bestand (Ausgangslage)."""
+
+    allocation_preferences: Mapping[str, object] = field(default_factory=dict)
+    """Gespeicherte Anlagepraeferenzen aus TargetAllocation.preferences_json."""
 
 
 @dataclass(frozen=True)
@@ -203,4 +206,16 @@ class PDFRenderer(Protocol):
         self, ctx: PDFContext, data: RisikoprofilData
     ) -> bytes:
         """Returns PDF-Bytes (komplettes Dokument)."""
+        ...
+
+    def render_portfolio(self, ctx: PDFContext, data: PortfolioData) -> bytes:
+        """Returns PDF-Bytes fuer Portfolio/Umsetzung."""
+        ...
+
+    def render_vertrag(self, ctx: PDFContext, data: VertragData) -> bytes:
+        """Returns PDF-Bytes fuer Vertragsdokumente."""
+        ...
+
+    def render_protokoll(self, ctx: PDFContext, data: ProtokollData) -> bytes:
+        """Returns PDF-Bytes fuer das Beratungsprotokoll."""
         ...
