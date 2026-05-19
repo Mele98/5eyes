@@ -1,7 +1,7 @@
-"""Sprint 11: WealthArchitekten-Dark-Header fuer Anlagestrategie-PDF.
+"""Sprint 11: Dark-Header fuer Beratungs-PDFs.
 
 Dark-Banner mit 2-spaltigem Layout:
-- Links: "WealthArchitekten" Brand + "Anlagestrategie" Titel + Datum + Vertraulich
+- Links: Berater-/Organisationsname + Dokumenttitel + Datum + Vertraulich
 - Rechts: "Kundendossier" + "Mandat <Nr>" + "Beratungsvermoegen CHF <X>"
 """
 from __future__ import annotations
@@ -35,6 +35,7 @@ def make_wealtharchitekten_header(
     *,
     mandate_number: str | None = None,
     advisory_wealth_label: str | None = None,
+    document_title: str = "Anlagestrategie",
 ) -> list:
     """Dunkler Header-Banner (Voll-Breite, ueber Margins hinaus).
 
@@ -49,11 +50,12 @@ def make_wealtharchitekten_header(
     banner_width = page_width - 24 * mm
 
     # ---- Linke Spalte: Branding + Titel + Datum ----
+    brand = ctx.advisor_org or ctx.advisor_name or "Emanuele Konzelmann"
     left_lines = [
         f'<para><font name="{FONT_BOLD}" size="9" color="#94a3b8">'
-        f'WEALTHARCHITEKTEN</font></para>',
+        f'{_esc(brand).upper()}</font></para>',
         f'<para><font name="{FONT_BOLD}" size="22" color="#ffffff">'
-        f'Anlagestrategie</font></para>',
+        f'{_esc(document_title)}</font></para>',
         f'<para><font name="{FONT_DEFAULT}" size="8" color="#94a3b8">'
         f'Vertraulich · Erstellt am {ctx.report_date.strftime("%d.%m.%Y")}</font></para>',
     ]
@@ -145,4 +147,4 @@ def _para_for_size(size: int):
 def make_document_header(title: str, ctx: PDFContext) -> list:
     """Wrapper fuer Sprint-5-Risikoprofil-PDF. Sprint-11-Anlagestrategie
     nutzt make_wealtharchitekten_header() stattdessen."""
-    return make_wealtharchitekten_header(ctx)
+    return make_wealtharchitekten_header(ctx, document_title=title)

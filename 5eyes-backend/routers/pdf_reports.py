@@ -24,7 +24,10 @@ from services.pdf import ReportLabRenderer
 from services.pdf.base import (
     AnlagestrategieData,
     PDFContext,
+    PortfolioData,
+    ProtokollData,
     RisikoprofilData,
+    VertragData,
 )
 
 router = APIRouter(tags=["PDF Reports"])
@@ -37,18 +40,18 @@ def _build_pdf_context(mandate: Mandate, current_user: User, db: Session) -> PDF
     nicht ladbar (Test-Setup) Fallback auf mandate_number.
     """
     client = db.query(Client).filter(Client.id == mandate.client_id).first()
-    client_name = getattr(client, "name", None) if client else None
+    client_name = _client_display_name(client) if client else None
     mandate_number = str(getattr(mandate, "mandate_number", "") or "")
     if client_name:
         mandate_name = f"{client_name} [{mandate_number}]" if mandate_number else client_name
     else:
         mandate_name = mandate_number or f"Mandat {mandate.id}"
 
-    advisor_name = getattr(current_user, "email", None) or "Berater"
+    advisor_name = getattr(current_user, "full_name", None) or getattr(current_user, "email", None) or "Berater"
     advisor_org = (
         getattr(current_user, "organization", None)
         or getattr(current_user, "org_name", None)
-        or None
+        or advisor_name
     )
     base_currency = str(getattr(mandate, "base_currency", "CHF") or "CHF").upper()
     return PDFContext(
@@ -78,10 +81,188 @@ def _audit_hash_for_mandate(mandate: Mandate) -> str:
     return hashlib.sha256(seed.encode("utf-8")).hexdigest()
 
 
+def _client_display_name(client: Client | None) -> str:
+    if client is None:
+        return ""
+    first = str(getattr(client, "first_name", "") or "").strip()
+    last = str(getattr(client, "last_name", "") or "").strip()
+    return " ".join(part for part in (first, last) if part).strip() or str(
+        getattr(client, "client_number", "") or ""
+    )
+
+
+def _bucket_key(value: str | None) -> str | None:
+    raw = str(value or "").strip().lower()
+    aliases = {
+        "aktien": "equities",
+        "equities": "equities",
+        "obligationen": "bonds",
+        "anleihen": "bonds",
+        "bonds": "bonds",
+        "immobilien": "real_estate",
+        "real estate": "real_estate",
+        "real_estate": "real_estate",
+        "alternative": "alternatives",
+        "alternativen": "alternatives",
+        "alternatives": "alternatives",
+        "liquiditaet": "liquidity",
+        "liquidität": "liquidity",
+        "liquides vermoegen": "liquidity",
+        "liquides vermögen": "liquidity",
+        "cash": "liquidity",
+        "liquidity": "liquidity",
+    }
+    return aliases.get(raw)
+
+
+def _target_allocation_weights(ta_obj) -> dict[str, int]:
+    return {
+        "equities": int(getattr(ta_obj, "target_equities_bps", 0) or 0),
+        "bonds": int(getattr(ta_obj, "target_bonds_bps", 0) or 0),
+        "real_estate": int(getattr(ta_obj, "target_real_estate_bps", 0) or 0),
+        "alternatives": int(getattr(ta_obj, "target_alternatives_bps", 0) or 0),
+        "liquidity": int(getattr(ta_obj, "target_liquidity_bps", 0) or 0),
+    }
+
+
+def _target_allocation_bands(ta_obj) -> dict[str, tuple[int, int]]:
+    return {
+        "equities": (
+            int(getattr(ta_obj, "band_equities_min_bps", 0) or 0),
+            int(getattr(ta_obj, "band_equities_max_bps", 0) or 0),
+        ),
+        "bonds": (
+            int(getattr(ta_obj, "band_bonds_min_bps", 0) or 0),
+            int(getattr(ta_obj, "band_bonds_max_bps", 0) or 0),
+        ),
+        "real_estate": (
+            int(getattr(ta_obj, "band_real_estate_min_bps", 0) or 0),
+            int(getattr(ta_obj, "band_real_estate_max_bps", 0) or 0),
+        ),
+        "alternatives": (
+            int(getattr(ta_obj, "band_alternatives_min_bps", 0) or 0),
+            int(getattr(ta_obj, "band_alternatives_max_bps", 0) or 0),
+        ),
+        "liquidity": (
+            int(getattr(ta_obj, "band_liquidity_min_bps", 0) or 0),
+            int(getattr(ta_obj, "band_liquidity_max_bps", 0) or 0),
+        ),
+    }
+
+
+def _advisory_wealth_positions(mandate: Mandate, db: Session) -> tuple[list[dict], dict[str, int], int]:
+    from models.wealth import WealthPosition
+
+    rows = (
+        db.query(WealthPosition)
+        .filter(
+            WealthPosition.client_id == mandate.client_id,
+            WealthPosition.is_active == 1,
+            WealthPosition.deleted_at.is_(None),
+            WealthPosition.assignment == "Beratungsvermögen",
+        )
+        .all()
+    )
+    split_fields = {
+        "equities": ("alloc_equities_bps", "Aktien"),
+        "bonds": ("alloc_bonds_bps", "Obligationen"),
+        "real_estate": ("alloc_real_estate_bps", "Immobilien"),
+        "alternatives": ("alloc_alternatives_bps", "Alternative Anlagen"),
+        "liquidity": ("alloc_liquidity_bps", "Liquidität"),
+    }
+    positions: list[dict] = []
+    current_amounts = {bucket: 0 for bucket in split_fields}
+    total = 0
+    for row in rows:
+        value = int(getattr(row, "current_value_rappen", 0) or 0)
+        if value <= 0:
+            continue
+        total += value
+        any_split = False
+        for bucket, (attr, label) in split_fields.items():
+            bps = int(getattr(row, attr, 0) or 0)
+            if bps <= 0:
+                continue
+            any_split = True
+            amount = int(round(value * bps / 10000))
+            current_amounts[bucket] += amount
+            positions.append({
+                "asset_class": bucket,
+                "sub_asset_class": label,
+                "current_amount_rappen": amount,
+            })
+        if not any_split:
+            bucket = _bucket_key(getattr(row, "position_type", None)) or "liquidity"
+            current_amounts[bucket] += value
+            positions.append({
+                "asset_class": bucket,
+                "sub_asset_class": str(getattr(row, "label", "") or getattr(row, "position_type", "") or bucket),
+                "current_amount_rappen": value,
+            })
+    current_bps = {
+        bucket: int(round(amount / total * 10000)) if total > 0 else 0
+        for bucket, amount in current_amounts.items()
+    }
+    return positions, current_bps, total
+
+
+def _latest_target_allocation(mandate: Mandate, db: Session):
+    from models.allocation import TargetAllocation
+
+    current = (
+        db.query(TargetAllocation)
+        .filter(
+            TargetAllocation.mandate_id == mandate.id,
+            TargetAllocation.is_current == 1,
+            TargetAllocation.deleted_at.is_(None),
+        )
+        .order_by(TargetAllocation.version.desc(), TargetAllocation.created_at.desc())
+        .first()
+    )
+    if current is not None:
+        return current
+    return (
+        db.query(TargetAllocation)
+        .filter(
+            TargetAllocation.mandate_id == mandate.id,
+            TargetAllocation.deleted_at.is_(None),
+        )
+        .order_by(TargetAllocation.version.desc(), TargetAllocation.created_at.desc())
+        .first()
+    )
+
+
+def _knowledge_map_from_json(raw) -> dict[str, bool]:
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return {}
+    if not isinstance(parsed, dict):
+        return {}
+    result: dict[str, bool] = {}
+    for key, value in parsed.items():
+        if isinstance(value, dict):
+            result[str(key)] = bool(
+                value.get("known")
+                or value.get("informed")
+                or value.get("has_experience")
+            )
+        else:
+            result[str(key)] = bool(value)
+    return result
+
+
 def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> AnlagestrategieData:
     """Extrahiert AnlagestrategieData aus DB-Models — Sprint 11 erweitert.
 
     Defensive: fehlt etwas → Defaults, kein Crash. Reichlich getattr-Defaults.
+
+    Sprint U-P1 Fix C2+C5: Risk-Metrics (expected_return, expected_vol, MC,
+    Goal-Analysis) kommen jetzt aus build_target_payload_from_allocation
+    (echtes √(w'Σw) + echte Monte-Carlo) statt aus stress_evaluations_json +
+    linearer Vol-Summe.
     """
     target_alloc_bps: dict[str, int] = {}
     bucket_bands: dict[str, tuple] = {}
@@ -90,64 +271,93 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
     cma_vol = 0
     advisory_wealth = None
     ta_obj = None
+    engine_payload: dict | None = None
+    advisory_positions, current_allocation_bps, current_advisory_wealth = _advisory_wealth_positions(mandate, db)
 
-    # ---- TargetAllocation ----
+    # ---- TargetAllocation + Engine-Payload (Single-Source-of-Truth) ----
     try:
-        from models.allocation import TargetAllocation
-        ta_obj = (
-            db.query(TargetAllocation)
-            .filter(TargetAllocation.mandate_id == mandate.id)
-            .order_by(TargetAllocation.created_at.desc())
-            .first()
-        )
+        ta_obj = _latest_target_allocation(mandate, db)
         if ta_obj is not None:
-            for bucket in ("equities", "bonds", "real_estate", "alternatives", "liquidity"):
-                target_alloc_bps[bucket] = int(getattr(ta_obj, f"{bucket}_bps", 0) or 0)
-                # Bands
-                min_attr = f"{bucket}_min_bps"
-                max_attr = f"{bucket}_max_bps"
-                mn = getattr(ta_obj, min_attr, None)
-                mx = getattr(ta_obj, max_attr, None)
-                if mn is not None and mx is not None:
-                    bucket_bands[bucket] = (int(mn), int(mx))
-            advisory_wealth = int(getattr(ta_obj, "advisory_wealth_rappen", 0) or 0) or None
+            target_alloc_bps = _target_allocation_weights(ta_obj)
+            bucket_bands = _target_allocation_bands(ta_obj)
+            advisory_wealth = (
+                int(getattr(ta_obj, "advisory_wealth_at_generation_rappen", 0) or 0)
+                or current_advisory_wealth
+                or None
+            )
             # Bucket-Amounts ableiten aus advisory_wealth * weight
             if advisory_wealth:
                 for bucket, bps in target_alloc_bps.items():
                     bucket_amounts[bucket] = int(advisory_wealth * bps / 10000)
+
+            # Sprint U-P1 Fix C2+C5: korrekte Risk-Metrics aus Engine-Payload
+            try:
+                from services.portfolio_engine import build_target_payload_from_allocation
+                from models.profiling import RiskAssessment
+                from models.allocation import OptimizerPolicy, CapitalMarketAssumption
+                from services.portfolio_engine import ensure_runtime_reference_data
+                assessment_obj = db.query(RiskAssessment).filter(
+                    RiskAssessment.mandate_id == mandate.id,
+                    RiskAssessment.is_current == 1,
+                    RiskAssessment.deleted_at.is_(None),
+                ).first()
+                policy = db.query(OptimizerPolicy).filter(OptimizerPolicy.id == ta_obj.policy_id).first()
+                if policy and policy.is_current == 1 and assessment_obj:
+                    _runtime_policy, runtime_cma = ensure_runtime_reference_data(db, getattr(mandate, "advisor_id", None) or getattr(assessment_obj, "assessed_by", None) or "")
+                    engine_payload = build_target_payload_from_allocation(
+                        db=db,
+                        mandate=mandate,
+                        allocation=ta_obj,
+                        policy=policy,
+                        cma=runtime_cma,
+                        assessment=assessment_obj,
+                        preferences=None,
+                    )
+            except Exception as exc:
+                logger.warning(
+                    "PDF engine-payload load failed for mandate %s: %s",
+                    getattr(mandate, "id", "?"), exc,
+                )
     except Exception as exc:
         logger.warning(
             "PDF data-load section failed for mandate %s: %s",
             getattr(mandate, "id", "?"), exc,
         )
 
-    # ---- CMA-Werte (gewichtet) ----
-    try:
-        from models.allocation import CapitalMarketAssumption
-        cma = (
-            db.query(CapitalMarketAssumption)
-            .order_by(CapitalMarketAssumption.valid_from.desc())
-            .first()
-        )
-        if cma is not None:
-            weights_pct = {k: v / 10000.0 for k, v in target_alloc_bps.items()}
-            cma_return = int(
-                weights_pct.get("equities", 0) * (getattr(cma, "equity_ch_return_bps", 0) or 0)
-                + weights_pct.get("bonds", 0) * (getattr(cma, "bonds_chf_ig_return_bps", 0) or 0)
-                + weights_pct.get("real_estate", 0) * (getattr(cma, "real_estate_ch_return_bps", 0) or 0)
-                + weights_pct.get("liquidity", 0) * (getattr(cma, "liquidity_return_bps", 0) or 0)
+    # ---- CMA-Werte aus Engine-Payload (echtes √(w'Σw) via _portfolio_volatility_bps) ----
+    if engine_payload is not None:
+        cma_return = int(engine_payload.get("expected_return_bps", 0) or 0)
+        cma_vol = int(engine_payload.get("expected_volatility_bps", 0) or 0)
+    else:
+        # Fallback (Legacy): lineare gewichtete Summe wenn Engine-Payload nicht ladbar.
+        # NOT MATHEMATICALLY CORRECT für Vola (ignoriert Korrelation) — nur als
+        # letzte Notlösung wenn z.B. RA fehlt. Berater bekommt Drift-Warning im UI.
+        try:
+            from models.allocation import CapitalMarketAssumption
+            cma = (
+                db.query(CapitalMarketAssumption)
+                .order_by(CapitalMarketAssumption.valid_from.desc())
+                .first()
             )
-            cma_vol = int(
-                weights_pct.get("equities", 0) * (getattr(cma, "equity_ch_vol_bps", 0) or 0)
-                + weights_pct.get("bonds", 0) * (getattr(cma, "bonds_chf_ig_vol_bps", 0) or 0)
-                + weights_pct.get("real_estate", 0) * (getattr(cma, "real_estate_ch_vol_bps", 0) or 0)
-                + weights_pct.get("liquidity", 0) * (getattr(cma, "liquidity_vol_bps", 0) or 0)
+            if cma is not None:
+                weights_pct = {k: v / 10000.0 for k, v in target_alloc_bps.items()}
+                cma_return = int(
+                    weights_pct.get("equities", 0) * (getattr(cma, "equity_ch_return_bps", 0) or 0)
+                    + weights_pct.get("bonds", 0) * (getattr(cma, "bonds_chf_ig_return_bps", 0) or 0)
+                    + weights_pct.get("real_estate", 0) * (getattr(cma, "real_estate_ch_return_bps", 0) or 0)
+                    + weights_pct.get("liquidity", 0) * (getattr(cma, "liquidity_return_bps", 0) or 0)
+                )
+                cma_vol = int(
+                    weights_pct.get("equities", 0) * (getattr(cma, "equity_ch_vol_bps", 0) or 0)
+                    + weights_pct.get("bonds", 0) * (getattr(cma, "bonds_chf_ig_vol_bps", 0) or 0)
+                    + weights_pct.get("real_estate", 0) * (getattr(cma, "real_estate_ch_vol_bps", 0) or 0)
+                    + weights_pct.get("liquidity", 0) * (getattr(cma, "liquidity_vol_bps", 0) or 0)
+                )
+        except Exception as exc:
+            logger.warning(
+                "PDF data-load CMA-fallback failed for mandate %s: %s",
+                getattr(mandate, "id", "?"), exc,
             )
-    except Exception as exc:
-        logger.warning(
-            "PDF data-load section failed for mandate %s: %s",
-            getattr(mandate, "id", "?"), exc,
-        )
 
     # ---- Risk-Assessment ----
     risk_score_x10 = None
@@ -173,25 +383,15 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
                 ("knowledge_services_json", knowledge_services),
                 ("knowledge_instruments_json", knowledge_instruments),
             ]:
-                raw = getattr(ra, json_attr, None)
-                if raw:
-                    try:
-                        parsed = json.loads(raw)
-                        if isinstance(parsed, dict):
-                            for k, v in parsed.items():
-                                target[str(k)] = bool(v)
-                    except (json.JSONDecodeError, TypeError):
-                        pass
+                target.update(_knowledge_map_from_json(getattr(ra, json_attr, None)))
     except Exception as exc:
         logger.warning(
             "PDF data-load section failed for mandate %s: %s",
             getattr(mandate, "id", "?"), exc,
         )
 
-    # ---- Produkte (Recommendation) + advisory_positions + current_alloc ----
+    # ---- Produkte (Recommendation) ----
     products: list = []
-    advisory_positions: list = []
-    current_allocation_bps: dict[str, int] = {}
     try:
         from models.review import Product, RecommendationPosition, RecommendationRun
         last_run = (
@@ -212,14 +412,10 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
                 product_rows = db.query(Product).filter(Product.id.in_(product_ids)).all()
                 products_map = {p.id: p for p in product_rows}
 
-            current_total_rappen = sum(
-                int(getattr(p, "current_amount_rappen", 0) or 0) for p in positions
-            )
             for pos in positions:
                 product_obj = products_map.get(pos.product_id)
-                asset_class = str(getattr(product_obj, "asset_class", "") or "").lower()
+                asset_class = _bucket_key(getattr(product_obj, "asset_class", None)) or "alternatives"
                 sub_class = str(getattr(product_obj, "sub_asset_class", "") or "")
-                cur_amt = int(getattr(pos, "current_amount_rappen", 0) or 0)
                 target_amt = int(getattr(pos, "target_amount_rappen", 0) or 0)
 
                 products.append({
@@ -234,17 +430,6 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
                     "target_amount_rappen": target_amt,
                 })
 
-                if cur_amt > 0 and asset_class:
-                    advisory_positions.append({
-                        "asset_class": asset_class,
-                        "sub_asset_class": sub_class or asset_class,
-                        "current_amount_rappen": cur_amt,
-                    })
-                    if current_total_rappen > 0:
-                        current_allocation_bps[asset_class] = (
-                            current_allocation_bps.get(asset_class, 0)
-                            + int(cur_amt / current_total_rappen * 10000)
-                        )
     except Exception as exc:
         logger.warning(
             "PDF data-load section failed for mandate %s: %s",
@@ -418,24 +603,26 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
             getattr(mandate, "id", "?"), exc,
         )
 
-    # ---- Stress/MC-Werte (defensive aus optimization_*_json oder stress_evaluations_json) ----
+    # ---- Stress/MC-Werte (echte MC-Werte aus Engine-Payload) ----
+    # Sprint U-P1 Fix C2: PDF las vorher `median_cagr_bps`/`var_95_bps`/
+    # `max_drawdown_bps` aus stress_evaluations_json — diese Keys existierten
+    # dort NICHT (Stress-JSON hat scenario-spezifische Felder wie
+    # `end_wealth_rappen`, `min_year_wealth_rappen`). Resultat: PDF zeigte
+    # immer 0/None fuer CAGR + VaR + Drawdown. Jetzt aus engine_payload.
     max_dd_bps = None
     var_95_bps = None
     median_cagr_bps = None
-    try:
-        if ta_obj is not None:
-            stress_json = getattr(ta_obj, "stress_evaluations_json", None)
-            if stress_json:
-                parsed = json.loads(stress_json)
-                if isinstance(parsed, dict):
-                    max_dd_bps = int(parsed.get("max_drawdown_bps", 0) or 0) or None
-                    var_95_bps = int(parsed.get("var_95_bps", 0) or 0) or None
-                    median_cagr_bps = int(parsed.get("median_cagr_bps", 0) or 0) or None
-    except Exception as exc:
-        logger.warning(
-            "PDF data-load section failed for mandate %s: %s",
-            getattr(mandate, "id", "?"), exc,
-        )
+    if engine_payload is not None:
+        mc = engine_payload.get("monte_carlo") or {}
+        try:
+            max_dd_bps = int(mc.get("target_max_drawdown_p50_bps", 0) or 0) or None
+            var_95_bps = int(mc.get("target_var_95_1y_bps", 0) or 0) or None
+            median_cagr_bps = int(mc.get("target_annualized_return_p50_bps", 0) or 0) or None
+        except (TypeError, ValueError) as exc:
+            logger.warning(
+                "PDF MC-metrics parse failed for mandate %s: %s",
+                getattr(mandate, "id", "?"), exc,
+            )
 
     horizon = int(getattr(mandate, "investment_horizon_years", 10) or 10)
 
@@ -514,6 +701,8 @@ def get_risikoprofil_pdf(
     risk_tolerance = 0
     experience_years = 0
     suitability_note = ""
+    knowledge_services: dict[str, bool] = {}
+    knowledge_instruments: dict[str, bool] = {}
     try:
         from models.profiling import RiskAssessment
         ra = (
@@ -523,11 +712,27 @@ def get_risikoprofil_pdf(
             .first()
         )
         if ra is not None:
-            risk_label = str(getattr(ra, "risk_profile_label", None) or "Nicht definiert")
-            risk_capacity = int(getattr(ra, "risk_capacity_score", 0) or 0)
-            risk_tolerance = int(getattr(ra, "risk_tolerance_score", 0) or 0)
-            experience_years = int(getattr(ra, "experience_years", 0) or 0)
-            suitability_note = str(getattr(ra, "suitability_note", "") or "")
+            is_overridden = bool(getattr(ra, "is_overridden", 0))
+            risk_label = str(
+                (getattr(ra, "override_profile", None) if is_overridden else None)
+                or getattr(ra, "final_profile", None)
+                or "Nicht definiert"
+            )
+            risk_capacity = int(getattr(ra, "risk_capacity_score_x10", 0) or 0)
+            risk_tolerance = int(getattr(ra, "risk_willingness_score_x10", 0) or 0)
+            experience_years = int(getattr(ra, "investment_horizon_years", 0) or 0)
+            knowledge_services = _knowledge_map_from_json(getattr(ra, "knowledge_services_json", None))
+            knowledge_instruments = _knowledge_map_from_json(getattr(ra, "knowledge_instruments_json", None))
+            if is_overridden:
+                reason = str(getattr(ra, "override_reason", "") or "").strip()
+                suitability_note = "Berater-Override wurde dokumentiert."
+                if reason:
+                    suitability_note += f" Begruendung: {reason}"
+            else:
+                suitability_note = (
+                    "Risikofaehigkeit, Risikobereitschaft, Anlagehorizont "
+                    "sowie Kenntnisse und Erfahrungen wurden dokumentiert."
+                )
     except Exception as exc:
         logger.warning(
             "PDF data-load section failed for mandate %s: %s",
@@ -538,8 +743,8 @@ def get_risikoprofil_pdf(
         risk_profile_label=risk_label,
         risk_capacity_score=risk_capacity,
         risk_tolerance_score=risk_tolerance,
-        knowledge_services={},
-        knowledge_instruments={},
+        knowledge_services=knowledge_services,
+        knowledge_instruments=knowledge_instruments,
         experience_years=experience_years,
         suitability_note=suitability_note,
     )
@@ -564,20 +769,21 @@ def _build_portfolio_data(mandate: Mandate, db: Session) -> PortfolioData:
     positions: list = []
 
     try:
-        from models.allocation import TargetAllocation
-        ta = (
-            db.query(TargetAllocation)
-            .filter(TargetAllocation.mandate_id == mandate.id)
-            .order_by(TargetAllocation.created_at.desc())
-            .first()
-        )
+        ta = _latest_target_allocation(mandate, db)
         if ta is not None:
-            advisory_wealth = int(getattr(ta, "advisory_wealth_rappen", 0) or 0) or None
+            advisory_wealth = int(
+                getattr(ta, "advisory_wealth_at_generation_rappen", 0) or 0
+            ) or None
     except Exception as exc:
         logger.warning("Portfolio data: TA load failed: %s", exc)
 
     try:
-        from models.review import Product, RecommendationPosition, RecommendationRun
+        from models.review import (
+            Product,
+            RecommendationHolding,
+            RecommendationPosition,
+            RecommendationRun,
+        )
         last_run = (
             db.query(RecommendationRun)
             .filter(RecommendationRun.mandate_id == mandate.id)
@@ -597,19 +803,47 @@ def _build_portfolio_data(mandate: Mandate, db: Session) -> PortfolioData:
                 product_rows = db.query(Product).filter(Product.id.in_(product_ids)).all()
                 products_map = {p.id: p for p in product_rows}
 
+            holding_rows = (
+                db.query(RecommendationHolding)
+                .filter(
+                    RecommendationHolding.run_id == last_run.id,
+                    RecommendationHolding.deleted_at.is_(None),
+                )
+                .all()
+            )
+            current_amount_by_position: dict[str, int] = {}
+            for holding in holding_rows:
+                pos_id = str(getattr(holding, "recommendation_position_id", "") or "")
+                if not pos_id:
+                    continue
+                current_amount_by_position[pos_id] = (
+                    current_amount_by_position.get(pos_id, 0)
+                    + int(getattr(holding, "market_value_rappen", 0) or 0)
+                )
+            current_total = sum(current_amount_by_position.values())
+            target_total = sum(int(getattr(pos, "target_amount_rappen", 0) or 0) for pos in pos_list)
+            if advisory_wealth is None:
+                advisory_wealth = current_total or target_total or None
+
             for pos in pos_list:
                 prod = products_map.get(pos.product_id)
                 target_bps = int(getattr(pos, "target_weight_bps", 0) or 0)
-                current_bps = int(getattr(pos, "current_weight_bps", 0) or 0)
+                current_amount = current_amount_by_position.get(str(getattr(pos, "id", "") or ""), 0)
+                current_bps = (
+                    int(round(current_amount / current_total * 10000))
+                    if current_total > 0 and current_amount > 0
+                    else 0
+                )
+                drift_bps = current_bps - target_bps if current_total > 0 else 0
                 positions.append({
                     "name": str(getattr(prod, "product_name", None) or "—"),
                     "isin": str(getattr(prod, "isin", "") or ""),
                     "sub_asset_class": str(getattr(prod, "sub_asset_class", "") or ""),
                     "target_weight_bps": target_bps,
                     "current_weight_bps": current_bps,
-                    "drift_bps": current_bps - target_bps,
+                    "drift_bps": drift_bps,
                     "target_amount_rappen": int(getattr(pos, "target_amount_rappen", 0) or 0),
-                    "current_amount_rappen": int(getattr(pos, "current_amount_rappen", 0) or 0),
+                    "current_amount_rappen": current_amount,
                     "currency": str(getattr(prod, "currency", "CHF") or "CHF"),
                     "ter_bps": int(getattr(prod, "ter_bps", 0) or 0),
                     "provider": str(getattr(prod, "provider", "") or ""),
@@ -703,15 +937,11 @@ def _build_vertrag_data(mandate: Mandate, doc_id: str | None, db: Session) -> Ve
 
     advisory_wealth = None
     try:
-        from models.allocation import TargetAllocation
-        ta = (
-            db.query(TargetAllocation)
-            .filter(TargetAllocation.mandate_id == mandate.id)
-            .order_by(TargetAllocation.created_at.desc())
-            .first()
-        )
+        ta = _latest_target_allocation(mandate, db)
         if ta is not None:
-            advisory_wealth = int(getattr(ta, "advisory_wealth_rappen", 0) or 0) or None
+            advisory_wealth = int(
+                getattr(ta, "advisory_wealth_at_generation_rappen", 0) or 0
+            ) or None
     except Exception as exc:
         logger.warning("Vertrag data: TA load failed: %s", exc)
 
@@ -746,6 +976,87 @@ def get_vertrag_pdf(
     pdf_bytes = ReportLabRenderer().render_vertrag(ctx, data)
     safe_name = "".join(c if c.isalnum() else "_" for c in ctx.mandate_name)[:40]
     filename = f"5eyes_vertrag_{safe_name}_{ctx.report_date.isoformat()}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
+
+
+def _build_protokoll_data(mandate: Mandate, db: Session) -> ProtokollData:
+    """Beratungsprotokoll-Daten aus AdvisoryLog + letzter Empfehlung."""
+    advisory_wealth = None
+    try:
+        ta = _latest_target_allocation(mandate, db)
+        if ta is not None:
+            advisory_wealth = int(
+                getattr(ta, "advisory_wealth_at_generation_rappen", 0) or 0
+            ) or None
+    except Exception as exc:
+        logger.warning("Protokoll data: TA load failed: %s", exc)
+
+    entries: list[dict] = []
+    latest_recommendation_summary = None
+    try:
+        from models.review import AdvisoryLog, RecommendationRun
+
+        log_rows = (
+            db.query(AdvisoryLog)
+            .filter(AdvisoryLog.mandate_id == mandate.id)
+            .order_by(AdvisoryLog.entry_date.desc(), AdvisoryLog.created_at.desc())
+            .limit(40)
+            .all()
+        )
+        for row in log_rows:
+            entries.append({
+                "entry_date": str(getattr(row, "entry_date", "") or ""),
+                "entry_type": str(getattr(row, "entry_type", "") or ""),
+                "title": str(getattr(row, "title", "") or ""),
+                "description": str(getattr(row, "description", "") or ""),
+                "decision": str(getattr(row, "decision", "") or ""),
+                "status": str(getattr(row, "status", "") or ""),
+            })
+
+        latest_run = (
+            db.query(RecommendationRun)
+            .filter(RecommendationRun.mandate_id == mandate.id)
+            .order_by(RecommendationRun.created_at.desc())
+            .first()
+        )
+        if latest_run is not None:
+            latest_recommendation_summary = str(
+                getattr(latest_run, "objective_summary", None)
+                or getattr(latest_run, "result_status", "")
+                or ""
+            ).strip() or None
+    except Exception as exc:
+        logger.warning("Protokoll data: AdvisoryLog load failed: %s", exc)
+
+    return ProtokollData(
+        mandate_number=str(getattr(mandate, "mandate_number", "") or ""),
+        advisory_wealth_rappen=advisory_wealth,
+        entries=entries,
+        latest_recommendation_summary=latest_recommendation_summary,
+    )
+
+
+@router.get(
+    "/mandates/{mandate_id}/reports/protokoll.pdf",
+    response_class=Response,
+    responses={200: {"content": {"application/pdf": {}}}},
+)
+def get_protokoll_pdf(
+    mandate_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Beratungsprotokoll-PDF mit AdvisoryLog und Unterschrift."""
+    mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
+    ctx = _build_pdf_context(mandate, current_user, db)
+    data = _build_protokoll_data(mandate, db)
+    pdf_bytes = ReportLabRenderer().render_protokoll(ctx, data)
+    safe_name = "".join(c if c.isalnum() else "_" for c in ctx.mandate_name)[:40]
+    filename = f"protokoll_{safe_name}_{ctx.report_date.isoformat()}.pdf"
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",

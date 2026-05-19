@@ -1448,9 +1448,9 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
             <div>
               <div style="font-size:8px;font-weight:600;letter-spacing:0.1em;text-transform:uppercase;color:var(--n4);margin-bottom:5px">Policy</div>
                 <div style="display:flex;flex-direction:column;gap:9px">
-                <div><label style="font-size:9px;color:var(--n4)">ESG-Orientierung</label><select class="fsel" id="aa-policy-esg" style="font-size:10px"><option value="none">Keine ESG-Präferenz</option><option value="esg_integration" selected>ESG-Integration</option><option value="best_in_class">Best-in-Class</option><option value="negative_screening">Negativ-Screening</option><option value="impact">Impact Investing</option><option value="net_zero">Paris-aligned / Net Zero</option></select></div>
-                <div><label style="font-size:9px;color:var(--n4)">Anlageuniversum</label><select class="fsel" id="aa-policy-universe" style="font-size:10px"><option value="standard" selected>Standard (Börse)</option><option value="extended">Erweitert (inkl. Alternative)</option><option value="funds_only">Nur Fonds / ETFs</option><option value="listed_only">Nur kotierte Instrumente</option></select></div>
-                <div><label style="font-size:9px;color:var(--n4)">Heimmarkt-Präferenz</label><select class="fsel" id="aa-policy-home-bias" style="font-size:10px"><option value="none">Kein Heimmarkt-Bias</option><option value="ch_focus" selected>CH-Fokus bevorzugt</option><option value="europe_focus">Europa-Fokus</option><option value="global">Global neutral</option></select></div>
+                <div><label style="font-size:9px;color:var(--n4)">ESG-Orientierung</label><select class="fsel" id="aa-policy-esg" style="font-size:10px"><option value="none" selected>Keine ESG-Präferenz</option><option value="best_in_class">Best-in-Class (SFDR 8/9 Filter aktiv)</option><option value="impact">Impact Investing (SFDR 9 Filter aktiv)</option><option value="net_zero">Paris-aligned / Net Zero (SFDR 8/9 Filter aktiv)</option><option value="esg_integration">ESG-Integration (Dokumentation, kein Filter)</option><option value="negative_screening">Negativ-Screening (Dokumentation, kein Filter)</option></select></div>
+                <div><label style="font-size:9px;color:var(--n4)">Anlageuniversum</label><select class="fsel" id="aa-policy-universe" style="font-size:10px"><option value="funds_only" selected>Nur Fonds / ETFs (Filter aktiv)</option><option value="listed_only">Nur kotierte Instrumente (Filter aktiv)</option><option value="standard">Standard (kein zusätzlicher Filter)</option><option value="extended">Erweitert inkl. Alternative (kein zusätzlicher Filter)</option></select></div>
+                <div><label style="font-size:9px;color:var(--n4)">Heimmarkt-Präferenz</label><select class="fsel" id="aa-policy-home-bias" style="font-size:10px"><option value="ch_focus" selected>CH-Fokus bevorzugt (Score-Boost aktiv)</option><option value="none">Kein Heimmarkt-Bias</option><option value="europe_focus">Europa-Fokus (Dokumentation, kein Boost)</option><option value="global">Global neutral (Dokumentation, kein Boost)</option></select></div>
                 <div><label style="font-size:9px;color:var(--n4)">Währungsabsicherung</label><select class="fsel" id="aa-policy-hedging" style="font-size:10px"><option value="none" selected>Keine Vorgabe</option><option value="hedged">FX-gehedgt bevorzugt</option><option value="chf_only">Nur CHF-Instrumente</option><option value="risk_budget">Nur ausserhalb Risiko-Budget</option></select></div>
               </div>
             </div>
@@ -4752,6 +4752,11 @@ function printContractOrStrategy(){
   printAnlagestrategie();
 }
 function printAdvisoryProtocol(){
+  var mid=typeof getActiveMandateId==='function'?getActiveMandateId():null;
+  if(mid && !(typeof isDemoMandateId==='function' && isDemoMandateId(mid)) && typeof downloadServerPdf==='function'){
+    downloadServerPdf('protokoll');
+    return;
+  }
   printReport({pages:['rv']});
 }
 function printSummaryPage(){
@@ -10882,7 +10887,7 @@ function getAllocationPreferenceKey(){
 }
 function buildDefaultAllocationPreferences(){
   var prefs={
-    policy:{esg:'esg_integration',universe:'standard',homeBias:'ch_focus',hedging:'none'},
+    policy:{esg:'none',universe:'funds_only',homeBias:'ch_focus',hedging:'none'},
     tilts:{fossil:'neutral',defense:'neutral',tobacco:'neutral',alcohol:'neutral',gaming:'neutral',nuclear:'neutral'},
     product:{noDerivatives:false,noLeverage:false,noStructured:false,listedOnly:false,fundsOnly:true},
     limits:{singlePosition:'',singleIssuer:'',minReserve:'',maxIlliquid:''},
@@ -11458,8 +11463,10 @@ function collectAllocationPreferencesFromUI(){
   var prefs=mergeAllocationPreferences(buildDefaultAllocationPreferences(),stored);
   var live={
     policy:{
-      esg:getInputValue('aa-policy-esg')||'esg_integration',
-      universe:getInputValue('aa-policy-universe')||'standard',
+      // Sprint U-P0 Fix H1-H3: Defaults auf wirkende Werte (waren vorher
+      // "esg_integration"/"standard" die nichts taten — irreführend).
+      esg:getInputValue('aa-policy-esg')||'none',
+      universe:getInputValue('aa-policy-universe')||'funds_only',
       homeBias:getInputValue('aa-policy-home-bias')||'ch_focus',
       hedging:getInputValue('aa-policy-hedging')||'none',
     },
@@ -11517,6 +11524,14 @@ function collectAllocationPreferencesFromUI(){
       liquidityReserveTarget:getInputValue('aa-liquidity-reserve-target'),
     },
   };
+  // Sprint U-P0 Fix C10: aa-geo-ch-focus Checkbox war tot — Backend liest
+  // nur policy.homeBias. Wenn Checkbox aktiv ist, synct sie auf den policy-
+  // Dropdown damit der Klick endlich wirkt (ch_focus aktiviert +35-Boost
+  // im _product_score). Checkbox dominiert wenn aktiv; sonst bleibt user-
+  // selected homeBias.
+  if(live.geo.chFocus){
+    live.policy.homeBias='ch_focus';
+  }
   prefs.policy=live.policy;
   prefs.tilts=live.tilts;
   prefs.product=live.product;
@@ -13814,7 +13829,7 @@ function getActiveMandateId(){
   return null;
 }
 // Sprint 5 Phase 3 (2026-05-17): Server-PDF-Download via PDF-Engine-API.
-// reportType: 'anlagestrategie' | 'risikoprofil'
+// reportType: 'anlagestrategie' | 'risikoprofil' | 'portfolio' | 'vertrag' | 'protokoll'
 async function downloadServerPdf(reportType){
   try{
     var mid=getActiveMandateId();
@@ -13823,7 +13838,7 @@ async function downloadServerPdf(reportType){
       else{alert('Bitte zuerst ein Mandat oeffnen.');}
       return;
     }
-    if(reportType!=='anlagestrategie'&&reportType!=='risikoprofil'&&reportType!=='portfolio'&&reportType!=='vertrag'){
+    if(reportType!=='anlagestrategie'&&reportType!=='risikoprofil'&&reportType!=='portfolio'&&reportType!=='vertrag'&&reportType!=='protokoll'){
       console.error('downloadServerPdf: unknown reportType', reportType);return;
     }
     var path='/mandates/'+encodeURIComponent(mid)+'/reports/'+reportType+'.pdf';

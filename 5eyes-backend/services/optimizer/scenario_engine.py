@@ -109,17 +109,13 @@ def _safe_cholesky(corr_matrix: np.ndarray) -> np.ndarray:
 def build_default_correlation_matrix() -> np.ndarray:
     """Default 5x5 Korrelationsmatrix (CH-Markt, konservativ).
 
-    Werte konsistent zu services.portfolio_engine._DEFAULT_CORRELATION_MATRIX.
+    Sprint U-P0 Fix C7: Single-Source-of-Truth aus portfolio_engine importieren.
+    Vorher waren hier andere Werte hartcodiert (equity-bonds=-0.10 vs -0.20
+    in portfolio_engine), was zwei divergierende Engine-Pfade produzierte.
     Reihenfolge: equities, bonds, real_estate, alternatives, liquidity.
     """
-    # Konservative Default-Korrelationen aus CH-Markt 1990-2024
-    return np.array([
-        [1.00, -0.10, 0.45, 0.30, 0.05],
-        [-0.10, 1.00, 0.10, -0.05, 0.20],
-        [0.45, 0.10, 1.00, 0.25, 0.05],
-        [0.30, -0.05, 0.25, 1.00, 0.05],
-        [0.05, 0.20, 0.05, 0.05, 1.00],
-    ])
+    from services.portfolio_engine import _DEFAULT_CORRELATION_MATRIX
+    return np.array(_DEFAULT_CORRELATION_MATRIX)
 
 
 def build_scenario_paths(

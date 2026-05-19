@@ -51,6 +51,7 @@ def build_portfolio_flowables(ctx: PDFContext, data) -> list:
         ctx,
         mandate_number=getattr(data, "mandate_number", None),
         advisory_wealth_label=advisory_label,
+        document_title="Portfolio",
     ))
 
     positions = list(getattr(data, "positions", []) or [])

@@ -53,12 +53,13 @@ def make_cover_page(
     table_width = page_width - 24 * mm
 
     flowables: list = []
+    org = advisor_org or ctx.advisor_org or DEFAULT_ADVISOR_ORG or ctx.advisor_name or "Emanuele Konzelmann"
 
     # ---- Brand-Block + Titel ----
     flowables.append(Spacer(1, 12 * mm))
     flowables.append(Paragraph(
         f'<font name="{FONT_BOLD}" size="10" color="#64748b">'
-        f'W E A L T H A R C H I T E K T E N</font>',
+        f'{_esc(org).upper()}</font>',
         _para_for_size(10, after=4 * mm),
     ))
     flowables.append(Paragraph(
@@ -76,7 +77,6 @@ def make_cover_page(
     flowables.append(Spacer(1, 10 * mm))
 
     # ---- Kontaktbloecke (2-spaltig) ----
-    org = advisor_org or ctx.advisor_org or DEFAULT_ADVISOR_ORG
     advisor_name = advisor_advisor_name or ctx.advisor_name or "Berater"
     addr_lines = advisor_address_lines or [DEFAULT_ADVISOR_STREET, DEFAULT_ADVISOR_POSTAL]
     phone = advisor_phone or DEFAULT_ADVISOR_PHONE

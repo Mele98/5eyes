@@ -66,6 +66,15 @@ class ReportLabRenderer:
             build_flowables=lambda: build_vertrag_flowables(ctx, data),
         )
 
+    def render_protokoll(self, ctx: PDFContext, data) -> bytes:
+        """Beratungsprotokoll-PDF (AdvisoryLog)."""
+        from services.pdf.documents.protokoll import build_protokoll_flowables
+        return self._render_to_bytes(
+            ctx=ctx,
+            title="Beratungsprotokoll",
+            build_flowables=lambda: build_protokoll_flowables(ctx, data),
+        )
+
     def _render_to_bytes(
         self,
         *,

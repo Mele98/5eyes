@@ -233,7 +233,10 @@ ASSET_LIQUIDITY_PROFILES = {
 }
 DEFAULT_SIMULATION_HORIZON_YEARS = 10
 DEFAULT_SIMULATION_STRESS_MULTIPLIER = 1.0
-DEFAULT_MONTE_CARLO_SIMULATIONS = 750
+# Sprint U-P1 Fix C4: Default-Sample erhoeht von 750 auf 2500. Bei N=750
+# liegt der Standardfehler des 5%-Quantils (VaR/CVaR) bei ca. ±1.5 %-Pkt;
+# bei N=2500 reduziert er sich auf ~±0.8 %-Pkt — WM-Standard.
+DEFAULT_MONTE_CARLO_SIMULATIONS = 2500
 ALLOWED_SIMULATION_REBALANCE_MODES = ("bands", "calendar", "none")
 # One-sided transaction cost applied on rebalancing turnover (bid-ask + commission).
 # 15 bps is a conservative Swiss institutional blended estimate across all asset classes.
@@ -574,8 +577,17 @@ def _coerce_band_bps(value) -> int | None:
 
 
 def _risk_score_bucket(assessment: RiskAssessment) -> int:
+    # Sprint U-P0 Fix H14: explizit Fail wenn keine Bewertung vorhanden,
+    # statt silent fallback auf Bucket 1 (Kapitalschutz). Der vorherige
+    # Default (`score_x10 or 10` → Bucket 1) konnte unbemerkt extrem
+    # konservative Strategien produzieren.
     score_x10 = assessment.override_score_x10 if assessment.is_overridden and assessment.override_score_x10 else assessment.final_score_x10
-    return max(1, min(10, int(round((score_x10 or 10) / 10))))
+    if score_x10 is None:
+        raise ValueError(
+            "Risikoprofil-Score fehlt (final_score_x10 + override_score_x10 sind beide None). "
+            "Bitte Risikoprofilierung abschliessen oder Override mit Begruendung setzen."
+        )
+    return max(1, min(10, int(round(score_x10 / 10))))
 
 
 def _default_weights_for_position(position: WealthPosition) -> dict[str, int]:
@@ -2745,7 +2757,7 @@ def _run_allocation_monte_carlo(
     target_year_one_losses: list[int] = []
     target_max_drawdowns: list[int] = []
 
-    for _ in range(simulations):
+    for _simulation_idx in range(simulations):
         current_values = {key: max(0, int(advisory_summary.amounts_rappen.get(key, 0))) for key in BUCKET_FIELDS}
         target_values = {key: max(0, int(target_start_values.get(key, 0))) for key in BUCKET_FIELDS}
         # W2.5: Lebensluecke pro Simulation als positiver Schuldenstand mitgefuehrt,
@@ -2833,13 +2845,16 @@ def _run_allocation_monte_carlo(
                 total_current_by_year[year_index].append(sum(total_current_values.values()) - total_current_deficit)
                 total_target_by_year[year_index].append(sum(total_target_values.values()) - total_target_deficit)
 
-        current_annualized_returns.append(_annualized_return_bps(current_start, current_by_year[-1][-1], horizon_years))
-        target_annualized_returns.append(_annualized_return_bps(target_start, target_by_year[-1][-1], horizon_years))
+        # Sprint U-P1 Fix C1: Pfad-Indizierung explizit via _simulation_idx
+        # statt [-1]. Vorher: target_by_year[1][-1] funktionierte zufaellig
+        # (Append-Reihenfolge), aber bricht bei jeder Parallelisierung silent.
+        current_annualized_returns.append(_annualized_return_bps(current_start, current_by_year[-1][_simulation_idx], horizon_years))
+        target_annualized_returns.append(_annualized_return_bps(target_start, target_by_year[-1][_simulation_idx], horizon_years))
         if len(target_by_year) > 1 and target_by_year[1]:
-            year_one_return = _return_bps(target_start, target_by_year[1][-1])
+            year_one_return = _return_bps(target_start, target_by_year[1][_simulation_idx])
             target_year_one_returns.append(year_one_return)
-            target_year_one_losses.append(_loss_bps(target_start, target_by_year[1][-1]))
-        target_path = [values[-1] for values in target_by_year if values]
+            target_year_one_losses.append(_loss_bps(target_start, target_by_year[1][_simulation_idx]))
+        target_path = [values[_simulation_idx] for values in target_by_year if values]
         target_max_drawdowns.append(_max_drawdown_bps(target_path))
 
     goal_summaries = [
@@ -2895,8 +2910,14 @@ def _run_allocation_monte_carlo(
         ),
         "current_annualized_return_p50_bps": _percentile(current_annualized_returns, 0.50),
         "target_annualized_return_p50_bps": _percentile(target_annualized_returns, 0.50),
-        "target_var_95_1y_bps": _percentile(target_year_one_losses, 0.95),
-        "target_cvar_95_1y_bps": _conditional_percentile_average(target_year_one_losses, 0.95, upper_tail=True),
+        # Sprint U-P1 Fix C3: VaR_95 = -(5%-Quantil der Returns), als positive
+        # Loss-Zahl (Industriekonvention). Vorher: 95%-Quantil einer auf [0,∞)
+        # abgeschnittenen Loss-Verteilung. Bug: wenn <5% der Pfade negativ
+        # waren, lieferte das verfaelschte (zu kleine) VaR-Werte, weil viele
+        # Loss-Werte exakt 0 waren und das 95%-Quantil somit den Median-Loss
+        # statt das echte Tail-Quantil traf.
+        "target_var_95_1y_bps": max(0, -_percentile(target_year_one_returns, 0.05)),
+        "target_cvar_95_1y_bps": max(0, -_conditional_percentile_average(target_year_one_returns, 0.05, upper_tail=False)),
         "target_loss_probability_1y_pct": int(round(sum(1 for value in target_year_one_returns if value < 0) / max(1, len(target_year_one_returns)) * 100)),
         "target_max_drawdown_p50_bps": _percentile(target_max_drawdowns, 0.50),
         "target_max_drawdown_p95_bps": _percentile(target_max_drawdowns, 0.95),
@@ -4070,6 +4091,14 @@ def _run_stochastic_optimizer_pass(
     vom Modus.
     """
     if optimizer_mode not in {"stochastic", "shadow_stochastic"}:
+        # Sprint U-P0 Fix H8: 'iterative' wird im Validator akzeptiert, aber
+        # hier nicht gehandhabt → silent fallback auf house_matrix. Warne
+        # damit User merkt dass kein Solver lief.
+        if optimizer_mode == "iterative":
+            logger.warning(
+                "OPTIMIZER_MODE='iterative' ist reservierter Legacy-Wert ohne "
+                "eigenen Solver-Pfad. Faellt auf 'house_matrix' zurueck."
+            )
         return None
 
     try:
@@ -6047,7 +6076,14 @@ def _product_matches_constraints(product: Product, prefs: dict, score_bucket: in
         return False
     if listed_only and asset_class != "Liquiditaet" and product.product_type not in ("ETF", "Einzeltitel", "Anleihe"):
         return False
-    if (product_prefs.get("noStructured") or product_prefs.get("noDerivatives")) and _product_is_structured(product):
+    # Sprint U-P0 Fix H5: noStructured und noDerivatives sind semantisch
+    # verschieden — vorher rief beides nur _product_is_structured. Jetzt
+    # prueft noDerivatives zusaetzlich echte Derivate-Marker.
+    if product_prefs.get("noStructured") and _product_is_structured(product):
+        return False
+    if product_prefs.get("noDerivatives") and (
+        _product_is_structured(product) or _product_is_derivative(product)
+    ):
         return False
     if product_prefs.get("noLeverage") and _product_is_leveraged(product):
         return False
@@ -6091,6 +6127,22 @@ def _product_is_structured(product: Product) -> bool:
 def _product_is_leveraged(product: Product) -> bool:
     text = _product_descriptor_text(product)
     return any(marker in text for marker in ("leveraged", "gehebelt", "2x", "3x", "ultra", "short etf"))
+
+
+def _product_is_derivative(product: Product) -> bool:
+    """Sprint U-P0 Fix H5: erkennt echte Derivate (Futures, Optionen, Swaps,
+    Forwards, Mini-Futures, Tracker-Zertifikate) — getrennt von strukturierten
+    Produkten, damit `noDerivatives` semantisch korrekt filtert."""
+    text = _product_descriptor_text(product)
+    product_type = _norm_text(product.product_type).strip().lower()
+    derivative_markers = (
+        "future", "option", "swap", "forward",
+        "mini-future", "knock-out", "warrant", "optionsschein",
+        "tracker", "discount-zertifikat", "bonus-zertifikat",
+    )
+    return product_type in ("future", "option", "derivat") or any(
+        marker in text for marker in derivative_markers
+    )
 
 
 def _product_is_chf_or_fx_hedged(product: Product) -> bool:

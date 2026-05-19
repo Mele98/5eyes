@@ -163,6 +163,20 @@ class PortfolioData:
 
 
 @dataclass(frozen=True)
+class ProtokollData:
+    """Beratungsprotokoll-PDF Daten-Bundle.
+
+    Dokumentiert Advisory-Log, getroffene Entscheide und naechste Schritte.
+    """
+    mandate_number: str | None = None
+    advisory_wealth_rappen: int | None = None
+    entries: list = field(default_factory=list)
+    """Liste von AdvisoryLog-Dicts mit entry_date, entry_type, title,
+    description, decision, status."""
+    latest_recommendation_summary: str | None = None
+
+
+@dataclass(frozen=True)
 class RisikoprofilData:
     """Daten-Bundle fuer Risikoprofil-PDF (FINMA W305.02/W305.03)."""
 

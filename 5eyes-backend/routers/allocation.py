@@ -155,12 +155,14 @@ def create_target_allocation(
             f"(erwartet {assessment.id})."
         ))
     now = _now()
-    # Supersede previous
+    # Sprint U-P0 Fix C8: with_for_update verhindert Race-Condition (zwei
+    # gleichzeitige POSTs → zwei is_current=1 Rows). Konsistent zur
+    # generate_target_allocation-Pfad-Logik in portfolio_engine.py:5134.
     prev = db.query(TargetAllocation).filter(
         TargetAllocation.mandate_id == mandate_id,
         TargetAllocation.is_current == 1,
         TargetAllocation.deleted_at.is_(None)
-    ).first()
+    ).with_for_update().first()
     prev_version = 0
     if prev:
         prev.is_current = 0

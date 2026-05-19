@@ -52,6 +52,7 @@ def build_vertrag_flowables(ctx: PDFContext, data) -> list:
         ctx,
         mandate_number=getattr(data, "mandate_number", None),
         advisory_wealth_label=advisory_label,
+        document_title=str(getattr(data, "document_type", None) or "Vertrag"),
     ))
 
     # ---- Dokument-Titel ----
