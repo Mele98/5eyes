@@ -284,6 +284,8 @@ _ALLOWED_SENSITIVITY_DELTAS = (-20, -10, 0, 10, 20)
 class AllocationSensitivityRequest(BaseModel):
     goal_id: str
     target_delta_pct: int
+    # Sprint U-P5 Fix H9: Horizon-Delta optional (Backwards-Compat: 0)
+    horizon_delta_years: int = 0
 
     @model_validator(mode="after")
     def validate_delta(self):
@@ -293,12 +295,21 @@ class AllocationSensitivityRequest(BaseModel):
                 f"target_delta_pct muss einer von [{allowed}] sein "
                 f"(erhalten: {self.target_delta_pct})"
             )
+        if self.horizon_delta_years < -10 or self.horizon_delta_years > 10:
+            raise ValueError(
+                f"horizon_delta_years muss in [-10, +10] sein "
+                f"(erhalten: {self.horizon_delta_years})"
+            )
         return self
 
 
 class AllocationSensitivityResponse(BaseModel):
     goal_id: str
     delta_pct: int
+    # Sprint U-P5 Fix H9: Horizon-Delta exponiert
+    horizon_delta_years: int = 0
+    horizon_years_baseline: Optional[int] = None
+    horizon_years_new: Optional[int] = None
     target_amount_rappen_baseline: int
     target_amount_rappen_new: int
     objective_value_milli_baseline: Optional[int]

@@ -2452,6 +2452,37 @@ def _goal_reserve_for_goal(goal: Goal) -> int:
     return 0
 
 
+def _expected_death_year_offset_from_mandate(mandate) -> int | None:
+    """Sprint U-P5 Fix H12: leitet aus Mandate-Feldern den erwarteten
+    Sterbe-Zeitpunkt als Years-from-now ab.
+    - Priorität 1: life_expectancy_year (manuell gepflegt im Mandate)
+    - Priorität 2: BFS-Default basierend auf client_birth_year + client_sex
+                   (median life expectancy aus BFS_2020_2022)
+    - Sonst None (kein Cutoff)
+    """
+    from datetime import date as _date
+    today_year = _date.today().year
+    life_expectancy_year = int(getattr(mandate, "life_expectancy_year", 0) or 0)
+    if life_expectancy_year and life_expectancy_year > today_year:
+        return life_expectancy_year - today_year
+    birth_year = int(getattr(mandate, "client_birth_year", 0) or 0)
+    sex = str(getattr(mandate, "client_sex", "") or "")
+    if birth_year and sex in ("M", "F"):
+        try:
+            from services.mortality.bfs import BFS_2020_2022
+            current_age = max(0, today_year - birth_year)
+            # Median life expectancy = remaining years until S(t)=0.5
+            survival = 1.0
+            for age_offset in range(BFS_2020_2022.max_age - current_age):
+                q = BFS_2020_2022.qx(current_age + age_offset, sex)
+                survival *= max(0.0, 1.0 - float(q))
+                if survival < 0.5:
+                    return max(1, age_offset + 1)
+        except Exception:
+            pass
+    return None
+
+
 def _build_goal_analysis(
     goals: list[Goal],
     advisory_wealth_rappen: int,
@@ -2461,7 +2492,15 @@ def _build_goal_analysis(
     expected_return_bps: int,
     reserve_needed_rappen: int,
     policy: OptimizerPolicy,
+    expected_death_year_offset: int | None = None,
 ) -> list[dict]:
+    """Sprint U-P5 Fix H12: expected_death_year_offset (Years from today)
+    schneidet die contribution_series so dass keine Cashflows nach dem
+    erwarteten Sterbejahr in den deterministischen projected_rappen einfliessen.
+    Vorher: Goal-Analyse sah komplette Cashflow-Series ohne Mortality-Cutoff
+    — AHV-Goal mit langer Laufzeit floss komplett in projected obwohl der
+    Mandant statistisch in t=15 stirbt.
+    """
     analysis = []
     for goal in sorted(goals, key=lambda g: (int(g.rank or 999), g.label or "")):
         years = _goal_projection_years(goal)
@@ -2476,6 +2515,11 @@ def _build_goal_analysis(
         contribution_series = list(cashflow_projection_series_rappen[:projection_years])
         if len(contribution_series) < projection_years:
             contribution_series.extend([0] * (projection_years - len(contribution_series)))
+        # Sprint U-P5 Fix H12: Mortality-Cutoff
+        if expected_death_year_offset is not None and expected_death_year_offset > 0:
+            cutoff = min(projection_years, int(expected_death_year_offset))
+            for idx in range(cutoff, len(contribution_series)):
+                contribution_series[idx] = 0
         projected_rappen = future_value_with_cashflow_series(
             investable_base,
             contribution_series,
@@ -5259,6 +5303,8 @@ def generate_target_allocation(
         expected_return_bps=metrics["expected_return_bps"],
         reserve_needed_rappen=reserve_needed_rappen,
         policy=policy,
+        # Sprint U-P5 Fix H12: Mortality-Cutoff
+        expected_death_year_offset=_expected_death_year_offset_from_mandate(mandate),
     )
     asset_class_assumptions = _build_asset_class_assumptions(
         current_amounts=advisory_summary.amounts_rappen,
@@ -5539,12 +5585,18 @@ def evaluate_goal_sensitivity(
     user_id: str,
     goal_id: str,
     target_delta_pct: int,
+    horizon_delta_years: int = 0,
 ) -> dict:
     """Phase 6 FE-Sensitivity-Analyse: ein einzelnes Goal um ±delta% verschieben.
 
+    Sprint U-P5 Fix H9: zusaetzlich horizon_delta_years — perturbiert den
+    Goal-Horizont (target_date verschiebt sich um N Jahre, horizon_years
+    wird angepasst). Damit kann der Berater fragen: "Was wenn der Klient
+    5 Jahre frueher in Rente geht?".
+
     Laeuft den Solver zweimal mit identischem Seed:
-      1. Baseline mit unveraendertem Goal-Target
-      2. Modifiziert: target_amount_rappen oder target_wealth_rappen * (1+delta/100)
+      1. Baseline mit unveraenderten Goal-Werten
+      2. Modifiziert: target_amount * (1+delta/100) UND horizon ± horizon_delta_years
 
     Identischer Seed -> identische Scenarios -> sauberes Apples-to-Apples-Delta.
 
@@ -5552,12 +5604,8 @@ def evaluate_goal_sensitivity(
       - settings.optimizer_mode nicht in {'stochastic', 'shadow_stochastic'}
       - kein Risikoprofil
       - goal_id gehoert nicht zum Mandanten / nicht aktiv
-      - target_delta_pct nicht in {-20,-10,0,10,20} (eigentlich vom Schema
-        validiert, hier nochmals defensiv)
-
-    V3 Sprint 1: Sensitivity ist eine reine Analysefunktion. Sie ist auch
-    in 'shadow_stochastic' erlaubt, weil sie keine aktive Zielallokation
-    veraendert — sie zeigt nur Was-wenn-Varianten unter dem Solver.
+      - target_delta_pct nicht in {-20,-10,0,10,20}
+      - horizon_delta_years nicht in [-10, +10] (entspricht Berater-UI-Slider)
     """
     if settings.optimizer_mode not in {"stochastic", "shadow_stochastic"}:
         raise ValueError(
@@ -5567,6 +5615,11 @@ def evaluate_goal_sensitivity(
         raise ValueError(
             f"target_delta_pct {target_delta_pct} ungueltig "
             "(erlaubt: -20, -10, 0, 10, 20)."
+        )
+    if horizon_delta_years < -10 or horizon_delta_years > 10:
+        raise ValueError(
+            f"horizon_delta_years {horizon_delta_years} ungueltig "
+            "(erlaubt: -10..+10)."
         )
 
     policy, cma = ensure_runtime_reference_data(db, user_id)
@@ -5624,7 +5677,7 @@ def evaluate_goal_sensitivity(
     goal_ids = "|".join(str(getattr(g, "id", "?")) for g in goals)
     pinned_seed = deterministic_seed(
         cma_id, goal_ids, score_x10, horizon, _OPTIMIZER_N_PATHS_DEFAULT,
-        "sensitivity", target_goal.id, target_delta_pct,
+        "sensitivity", target_goal.id, target_delta_pct, horizon_delta_years,
     )
 
     def _solve(_goals: list):
@@ -5648,19 +5701,41 @@ def evaluate_goal_sensitivity(
     baseline_result = _solve(goals)
 
     # ---- Modified ----
+    # Sprint U-P5 Fix H9: target-amount + horizon perturbieren
     factor = 1.0 + (target_delta_pct / 100.0)
     new_amount = int(round(baseline_amount * factor))
     new_wealth = int(round(baseline_wealth * factor))
     original_amount = target_goal.target_amount_rappen
     original_wealth = target_goal.target_wealth_rappen
+    original_horizon = target_goal.horizon_years
+    original_target_date = target_goal.target_date
+    new_horizon = original_horizon
+    new_target_date = original_target_date
+    if horizon_delta_years and original_horizon is not None:
+        new_horizon = max(1, int(original_horizon) + int(horizon_delta_years))
+    if horizon_delta_years and original_target_date:
+        try:
+            from datetime import date as _date2
+            parts = str(original_target_date).split("-")
+            if len(parts) >= 1 and parts[0].isdigit():
+                shifted_year = int(parts[0]) + int(horizon_delta_years)
+                tail = "-".join(parts[1:]) if len(parts) > 1 else "01-01"
+                new_target_date = f"{shifted_year}-{tail}"
+        except Exception:
+            new_target_date = original_target_date
     try:
         target_goal.target_amount_rappen = new_amount
         target_goal.target_wealth_rappen = new_wealth
+        if horizon_delta_years:
+            target_goal.horizon_years = new_horizon
+            target_goal.target_date = new_target_date
         modified_result = _solve(goals)
     finally:
         # Reset to ensure DB-side state isn't accidentally persisted by caller.
         target_goal.target_amount_rappen = original_amount
         target_goal.target_wealth_rappen = original_wealth
+        target_goal.horizon_years = original_horizon
+        target_goal.target_date = original_target_date
 
     def _obj_milli(value: float) -> int | None:
         if value == float("inf") or value != value:  # NaN
@@ -5684,6 +5759,10 @@ def evaluate_goal_sensitivity(
     return {
         "goal_id": target_goal.id,
         "delta_pct": int(target_delta_pct),
+        # Sprint U-P5 Fix H9: horizon-Delta exponiert
+        "horizon_delta_years": int(horizon_delta_years),
+        "horizon_years_baseline": int(original_horizon) if original_horizon is not None else None,
+        "horizon_years_new": int(new_horizon) if new_horizon is not None else None,
         "target_amount_rappen_baseline": int(primary_baseline),
         "target_amount_rappen_new": int(primary_new),
         "objective_value_milli_baseline": obj_base,
@@ -5856,6 +5935,8 @@ def build_target_payload_from_allocation(
         expected_return_bps=metrics["expected_return_bps"],
         reserve_needed_rappen=reserve_needed_rappen,
         policy=policy,
+        # Sprint U-P5 Fix H12: Mortality-Cutoff
+        expected_death_year_offset=_expected_death_year_offset_from_mandate(mandate),
     )
     asset_class_assumptions = _build_asset_class_assumptions(
         current_amounts=advisory_summary.amounts_rappen,

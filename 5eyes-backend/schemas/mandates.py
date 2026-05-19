@@ -50,6 +50,12 @@ class MandateUpdate(BaseModel):
     client_birth_year: Optional[int] = None
     client_sex: Optional[Literal["M", "F"]] = None
     use_mortality_simulation: Optional[bool] = None
+    # Sprint U-P3 (2026-05-19): Steuersitz fuer tax-aware Allocation-MC.
+    # Erwartete Werte z.B. 'CH', 'DE', 'CH-ZH', 'DE-BY' (Pattern matched
+    # gegen services.tax.registry). NULL = tax-naiv. tax_overrides_json
+    # erlaubt selektive Overrides der TaxConfig-Defaults.
+    tax_jurisdiction: Optional[str] = None
+    tax_overrides_json: Optional[str] = None
 
 
 class MandateResponse(BaseResponse):
@@ -72,5 +78,8 @@ class MandateResponse(BaseResponse):
     client_birth_year: Optional[int] = None
     client_sex: Optional[str] = None
     use_mortality_simulation: Optional[bool] = False
+    # Sprint U-P3 (2026-05-19): Steuersitz fuer tax-aware Allocation
+    tax_jurisdiction: Optional[str] = None
+    tax_overrides_json: Optional[str] = None
     created_at: str
     updated_at: str

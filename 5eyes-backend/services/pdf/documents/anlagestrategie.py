@@ -71,6 +71,10 @@ def build_anlagestrategie_flowables(
     if data.advisory_wealth_rappen:
         advisory_label = _format_amount(data.advisory_wealth_rappen, ctx.base_currency)
 
+    return _build_anlagestrategie_flowables_template_order(
+        ctx, data, styles, advisory_label
+    )
+
     # ============================================================
     # 1. COVER
     # ============================================================
@@ -315,6 +319,254 @@ def build_anlagestrategie_flowables(
     return flowables
 
 
+def _build_anlagestrategie_flowables_template_order(
+    ctx: PDFContext,
+    data: AnlagestrategieData,
+    styles,
+    advisory_label: str | None,
+) -> list:
+    """Builds the 19-page order of the provided reference scan."""
+    flowables: list = []
+
+    def header():
+        flowables.extend(make_wealtharchitekten_header(
+            ctx,
+            mandate_number=data.mandate_number,
+            advisory_wealth_label=advisory_label,
+        ))
+
+    def empty_section(title: str, text: str):
+        flowables.append(_section_title_with_fallback(title, text, styles))
+
+    # 1 Cover
+    flowables.extend(make_cover_page(
+        ctx,
+        client_address_lines=list(getattr(data, "client_address_lines", []) or []),
+        client_phone=getattr(data, "client_phone", None),
+    ))
+    flowables.append(PageBreak())
+
+    # 2 Eignungspruefung
+    header()
+    if data.risk_answers or data.knowledge_services or data.knowledge_instruments:
+        flowables.extend(make_eignungspruefung_section(
+            answers=data.risk_answers,
+            services_knowledge=data.knowledge_services,
+            instruments_knowledge=data.knowledge_instruments,
+        ))
+    else:
+        empty_section(
+            "Eignungspruefung",
+            "Noch keine Eignungspruefung erfasst. Bitte im Risikoprofil-Tab den Fragebogen ausfuellen.",
+        )
+    flowables.append(PageBreak())
+
+    # 3 Risikoprofil
+    header()
+    if data.risk_score_x10 is not None or data.risk_profile_label:
+        flowables.extend(make_risikoprofil_box(
+            score_x10=data.risk_score_x10,
+            profile_label=data.risk_profile_label,
+            horizon_years=data.investment_horizon_years or data.horizon_years,
+            mandate_type=data.mandate_type,
+        ))
+    else:
+        empty_section("Risikoprofil", "Noch kein Risikoprofil gespeichert.")
+    flowables.append(PageBreak())
+
+    # 4 Anlagepraeferenzen
+    header()
+    flowables.extend(_make_preferences_section(data.allocation_preferences, styles))
+    flowables.append(PageBreak())
+
+    # 5 Vermoegensstruktur: Donuts
+    header()
+    if data.target_allocation_bps and sum(data.target_allocation_bps.values()) > 0:
+        from reportlab.platypus import KeepTogether
+        title_para = Paragraph(
+            '<font color="#475569" size="9"><b>VERMOEGENSSTRUKTUR - AUSGANGSLAGE UND EMPFEHLUNG</b></font>',
+            styles["section_title"],
+        )
+        has_current = (
+            data.current_allocation_bps
+            and sum(int(v or 0) for v in data.current_allocation_bps.values()) > 0
+        )
+        if has_current:
+            donuts = make_two_donuts_comparison(
+                data.current_allocation_bps,
+                data.target_allocation_bps,
+                current_products=data.advisory_positions,
+                target_products=data.products,
+                diameter_mm=42.0,
+            )
+            flowables.append(KeepTogether([title_para, *donuts]))
+        else:
+            flowables.append(KeepTogether([
+                title_para,
+                make_saa_donut_with_legend(
+                    data.target_allocation_bps,
+                    products=data.products,
+                    diameter_mm=48.0,
+                ),
+            ]))
+    else:
+        empty_section("Vermoegensstruktur", "Noch keine Soll-Allokation berechnet.")
+    flowables.append(PageBreak())
+
+    # 6 Vermoegensstruktur: Tabellenwerte
+    header()
+    if data.target_allocation_bps and sum(data.target_allocation_bps.values()) > 0:
+        flowables.extend(make_saa_bar_table(
+            data.target_allocation_bps,
+            bucket_bands_bps=data.bucket_bands_bps,
+            bucket_amounts_rappen=data.bucket_amounts_rappen,
+            base_currency=ctx.base_currency,
+            advisory_wealth_rappen=data.advisory_wealth_rappen,
+        ))
+    else:
+        empty_section("Vermoegensstruktur", "Noch keine Soll-Allokation berechnet.")
+    flowables.append(PageBreak())
+
+    # 7 Investitionsansatz
+    flowables.extend(make_investitionsansatz_section())
+    flowables.append(PageBreak())
+
+    # 8 Anlageuniversum
+    flowables.extend(make_anlageuniversum_section())
+    flowables.append(PageBreak())
+
+    # 9 Zusammenfassung + Unterschrift
+    flowables.extend(make_zusammenfassung_section())
+    flowables.append(Spacer(1, 6 * mm))
+    flowables.extend(make_unterschrift_section())
+    flowables.append(PageBreak())
+
+    # 10 Ausgangslage-Cover
+    flowables.extend(make_section_cover("Ihre persoenliche Ausgangslage"))
+    flowables.append(PageBreak())
+
+    # 11 Vermoegensuebersicht
+    header()
+    if data.advisory_positions or data.other_wealth_positions:
+        flowables.extend(make_vermoegensuebersicht_section(
+            data.advisory_positions,
+            data.other_wealth_positions,
+            base_currency=ctx.base_currency,
+        ))
+    else:
+        empty_section(
+            "Vermoegensuebersicht",
+            "Noch keine Vermoegenspositionen erfasst. Bitte im Vermoegens-Tab die aktuellen Bestaende erfassen.",
+        )
+    flowables.append(PageBreak())
+
+    # 12 Kapitalzufluesse + Ziele
+    header()
+    if data.cashflow_events:
+        flowables.extend(make_cashflows_section(
+            data.cashflow_events,
+            base_currency=ctx.base_currency,
+        ))
+        flowables.append(Spacer(1, 4 * mm))
+    if data.goals_list:
+        flowables.extend(make_ziele_overview_section(
+            data.goals_list,
+            base_currency=ctx.base_currency,
+        ))
+    if not (data.cashflow_events or data.goals_list):
+        empty_section("Kapitalzufluesse & Ziele", "Noch keine Cashflow-Ereignisse oder Anlageziele erfasst.")
+    flowables.append(PageBreak())
+
+    # 13 Gesamtvermoegen: Donuts
+    header()
+    if data.target_allocation_bps and sum(data.target_allocation_bps.values()) > 0:
+        from reportlab.platypus import KeepTogether
+        title_para = Paragraph(
+            '<font color="#475569" size="9"><b>VERMOEGENSSTRUKTUR - GESAMTVERMOEGEN</b></font>',
+            styles["section_title"],
+        )
+        if data.current_allocation_bps and sum(int(v or 0) for v in data.current_allocation_bps.values()) > 0:
+            total_donuts = make_two_donuts_comparison(
+                data.current_allocation_bps,
+                data.target_allocation_bps,
+                current_products=data.advisory_positions + data.other_wealth_positions,
+                target_products=data.products,
+                diameter_mm=42.0,
+            )
+            flowables.append(KeepTogether([title_para, *total_donuts]))
+        else:
+            flowables.append(KeepTogether([
+                title_para,
+                make_saa_donut_with_legend(
+                    data.target_allocation_bps,
+                    products=data.products,
+                    diameter_mm=48.0,
+                ),
+            ]))
+    else:
+        empty_section("Vermoegensstruktur Gesamtvermoegen", "Noch keine Soll-Allokation berechnet.")
+    flowables.append(PageBreak())
+
+    # 14 Gesamtvermoegen: Tabellenwerte
+    header()
+    if data.target_allocation_bps and sum(data.target_allocation_bps.values()) > 0:
+        flowables.extend(make_saa_bar_table(
+            data.target_allocation_bps,
+            bucket_bands_bps=data.bucket_bands_bps,
+            bucket_amounts_rappen=data.bucket_amounts_rappen,
+            base_currency=ctx.base_currency,
+            advisory_wealth_rappen=data.advisory_wealth_rappen,
+        ))
+    else:
+        empty_section("Vermoegensstruktur Gesamtvermoegen", "Noch keine Soll-Allokation berechnet.")
+    flowables.append(PageBreak())
+
+    # 15 Empfehlung
+    header()
+    has_metrics = (
+        data.cma_expected_return_bps or data.median_cagr_bps
+        or data.cma_expected_vol_bps or data.max_drawdown_bps
+        or data.var_95_bps
+    )
+    if has_metrics:
+        flowables.extend(make_risiko_metriken_section(
+            expected_return_bps=data.cma_expected_return_bps,
+            median_cagr_bps=data.median_cagr_bps,
+            volatility_bps=data.cma_expected_vol_bps,
+            max_drawdown_bps=data.max_drawdown_bps,
+            var_95_bps=data.var_95_bps,
+        ))
+    else:
+        empty_section("Risikoindikatoren", "Noch keine Monte-Carlo-Simulation gespeichert.")
+    flowables.append(Spacer(1, 4 * mm))
+    if data.goal_analysis:
+        flowables.extend(make_ziele_section(
+            data.goal_analysis,
+            base_currency=ctx.base_currency,
+        ))
+    else:
+        empty_section("Zielerreichung", "Noch keine Zielerreichungsanalyse gespeichert.")
+    flowables.append(PageBreak())
+
+    # 16-17 Kennzahlen
+    flowables.extend(make_kennzahlen_erlaeuterungen_section())
+    flowables.append(PageBreak())
+    flowables.extend(_make_kennzahlen_hinweise_section(styles))
+    flowables.append(PageBreak())
+
+    # 18 Fondsuebersicht
+    flowables.extend(make_produkte_section(
+        data.products,
+        base_currency=ctx.base_currency,
+    ))
+    flowables.append(PageBreak())
+
+    # 19 Disclaimer
+    flowables.extend(make_disclaimer_section())
+
+    return flowables
+
+
 def _make_preferences_section(preferences, styles) -> list:
     """Anlagepraeferenzen als ruhige, tabellarische Vorlagen-Seite."""
     from services.pdf.components.header import _esc
@@ -469,6 +721,51 @@ def _make_preferences_section(preferences, styles) -> list:
         Spacer(1, 4 * mm),
         table,
     ]
+
+
+def _make_kennzahlen_hinweise_section(styles) -> list:
+    """Second explanation page, mirroring the reference's split metrics appendix."""
+    from services.pdf.components.header import _esc
+    from services.pdf.styles import FONT_BOLD, FONT_DEFAULT, FONT_SIZE_BODY
+
+    paragraphs = [
+        (
+            "Fehlbetrag",
+            "Der Fehlbetrag misst den Betrag, der als zusaetzliches Kapital aus heutiger "
+            "Perspektive benoetigt wird, um die Zielerreichung in einem sehr schlechten "
+            "Kapitalmarktszenario zu stabilisieren. Er ist eine Orientierungsgroesse und "
+            "keine Garantie."
+        ),
+        (
+            "Einordnung",
+            "Die ausgewiesenen Kennzahlen sind Planungs- und Beratungsgroessen. Sie "
+            "beruhen auf Modellannahmen, Kapitalmarkterwartungen und den erfassten "
+            "Kundendaten. Aenderungen bei Zielen, Vermoegen, Anlagehorizont oder "
+            "Risikoprofil koennen die Empfehlung wesentlich veraendern."
+        ),
+        (
+            "Dokumentation",
+            "Abweichungen, Berater-Overrides, fehlende Informationen und besondere "
+            "Kundenentscheide muessen im Beratungsprotokoll festgehalten werden. Eine "
+            "Strategie darf nur umgesetzt werden, wenn die Eignungspruefung vollstaendig "
+            "und plausibel dokumentiert ist."
+        ),
+    ]
+
+    flowables = [Paragraph("Erlaeuterungen zu den Kennzahlen", styles["heading"])]
+    for title, text in paragraphs:
+        flowables.append(Spacer(1, 3 * mm))
+        flowables.append(Paragraph(
+            f'<font name="{FONT_BOLD}" size="{FONT_SIZE_BODY}" color="#0f172a">'
+            f'{_esc(title)}</font>',
+            styles["subheading"],
+        ))
+        flowables.append(Paragraph(
+            f'<font name="{FONT_DEFAULT}" size="{FONT_SIZE_BODY}" color="#334155">'
+            f'{_esc(text)}</font>',
+            styles["body"],
+        ))
+    return flowables
 
 
 def _label(value, labels: dict, fallback: str) -> str:

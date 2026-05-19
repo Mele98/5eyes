@@ -37,6 +37,14 @@ class Mandate(Base):
     client_birth_year = Column(Integer)
     client_sex = Column(String)  # 'M' | 'F'
     use_mortality_simulation = Column(Integer, default=0)  # SQLite bool via int
+    # Sprint U-P3 (2026-05-19): Steuersitz für tax-aware Allokations-MC.
+    # NULL = tax-naiv (Backwards-Compat). Pattern matched gegen
+    # services.tax.registry.REGIME_REGISTRY: 'CH', 'DE', 'CH-ZH', 'DE-BY', etc.
+    # Fallback '*' = GenericFlatRateRegime (Pauschal-Rate).
+    tax_jurisdiction = Column(String)
+    # JSON-Overrides für TaxConfig-Felder (z.B. {"capital_gain_rate_bps": 1500}).
+    # NULL = nur Plugin-Defaults aus dem registrierten Regime.
+    tax_overrides_json = Column(String)
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
     deleted_at = Column(String)

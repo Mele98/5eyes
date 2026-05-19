@@ -224,6 +224,11 @@ def ensure_runtime_columns() -> None:
             ('client_birth_year', 'INTEGER'),
             ('client_sex', 'TEXT'),
             ('use_mortality_simulation', 'INTEGER'),
+            # Sprint U-P3 (2026-05-19): Steuersitz fuer tax-aware Allocations-MC.
+            # NULL = tax-naiv (Backwards-Compat). Pattern matched gegen Tax-Registry
+            # ('CH', 'DE', 'CH-ZH', 'DE-BY', '*' = Generic).
+            ('tax_jurisdiction', 'TEXT'),
+            ('tax_overrides_json', 'TEXT'),
         ],
         'cashflows': [
             ('gross_amount_rappen', 'INTEGER'),

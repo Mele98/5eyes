@@ -49,14 +49,14 @@ def make_produkte_section(
 ) -> list:
     """Returns Flowables: Section-Title + 4 Metric-Boxes + Tabelle ODER Fallback."""
     products_list = list(products or [])
-    flowables = [_section_title("Umsetzung in Produkte (ISIN)")]
+    flowables = [_section_title("Uebersicht der enthaltenen Fonds")]
 
     # Beschreibungs-Paragraph
     flowables.append(Paragraph(
         '<font name="' + FONT_DEFAULT + '" size="8.5" color="#475569">'
-        'Das Portfolio ist die konkrete Umsetzung der Soll-Allokation in '
-        'Produktbausteine. Detailbestände und spätere Live-Drift werden im '
-        'Review nachgeführt.'
+        'Diese Uebersicht zeigt die Fonds und die Gewichtung, die bei '
+        'Vertragsbeginn bzw. bei Umsetzung des Portfolios verwendet werden. '
+        'Gewichtung, Wert und Produkte koennen sich ueber die Laufzeit veraendern.'
         '</font>',
         make_paragraph_styles()["body"],
     ))

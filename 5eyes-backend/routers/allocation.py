@@ -352,6 +352,8 @@ def goal_target_sensitivity(
             user_id=current_user.id,
             goal_id=body.goal_id,
             target_delta_pct=body.target_delta_pct,
+            # Sprint U-P5 Fix H9: Horizon-Perturbation optional
+            horizon_delta_years=getattr(body, "horizon_delta_years", 0),
         )
     except ValueError as exc:
         msg = str(exc)

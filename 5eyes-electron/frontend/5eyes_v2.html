@@ -1913,6 +1913,20 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
       <div class="fg"><label class="fl">Lebenserwartung (Jahr)</label><input class="fi" id="ms-life-expectancy-year" type="number" min="2000" max="2150" placeholder="z.B. 2055"></div>
     </div>
 
+    <!-- Sprint U-P3: Steuersitz fuer tax-aware Allokations-MC -->
+    <div style="font-size:11px;font-weight:600;color:var(--n6);text-transform:uppercase;letter-spacing:0.06em;margin:14px 0 6px 0">Steuersitz</div>
+    <div class="frow">
+      <div class="fg"><label class="fl">Steuerregime</label>
+        <select class="fsel" id="ms-tax-jurisdiction">
+          <option value="">— Tax-naiv (kein Regime) —</option>
+          <option value="CH">Schweiz (Pauschal)</option>
+          <option value="DE">Deutschland (Pauschal)</option>
+          <option value="*">Generisch (Flat-Rate)</option>
+        </select>
+        <div style="font-size:9.5px;color:var(--n5);line-height:1.4;margin-top:2px">Aktiviert Steuer-Drag im Solver-MC (Vermögens-, Dividenden- und Kapitalgewinnsteuer je nach Regime). Erfordert OPTIMIZER_MODE=stochastic.</div>
+      </div>
+    </div>
+
     <div id="ms-status" style="font-size:10px;color:var(--n5);margin-top:8px"></div>
   </div>
   <div class="mfooter">
@@ -11142,7 +11156,7 @@ async function openMandateSettingsModal(){
     return;
   }
   // Felder leeren
-  ['ms-birth-year','ms-sex','ms-use-mortality','ms-retirement-year','ms-life-expectancy-year'].forEach(function(id){
+  ['ms-birth-year','ms-sex','ms-use-mortality','ms-retirement-year','ms-life-expectancy-year','ms-tax-jurisdiction'].forEach(function(id){
     var el = document.getElementById(id);
     if(!el) return;
     if(el.type==='checkbox') el.checked = false;
@@ -11159,6 +11173,9 @@ async function openMandateSettingsModal(){
       if(m.use_mortality_simulation) document.getElementById('ms-use-mortality').checked = true;
       if(m.retirement_year) document.getElementById('ms-retirement-year').value = m.retirement_year;
       if(m.life_expectancy_year) document.getElementById('ms-life-expectancy-year').value = m.life_expectancy_year;
+      // Sprint U-P3: Steuersitz
+      var taxJ = document.getElementById('ms-tax-jurisdiction');
+      if(taxJ && m.tax_jurisdiction != null) taxJ.value = m.tax_jurisdiction;
       if(status){ status.textContent = 'Geladen.'; status.style.color='var(--n5)'; }
     }
   } catch(e) {
@@ -11178,12 +11195,15 @@ async function saveMandateSettings(){
     var n = parseInt(el.value, 10);
     return (isFinite(n) && n > 0) ? n : null;
   }
+  var taxJEl = document.getElementById('ms-tax-jurisdiction');
   var payload = {
     client_birth_year: parseIntOrNull('ms-birth-year'),
     client_sex: (document.getElementById('ms-sex').value || null),
     use_mortality_simulation: !!document.getElementById('ms-use-mortality').checked,
     retirement_year: parseIntOrNull('ms-retirement-year'),
     life_expectancy_year: parseIntOrNull('ms-life-expectancy-year'),
+    // Sprint U-P3: Steuersitz fuer tax-aware Allokation
+    tax_jurisdiction: (taxJEl && taxJEl.value) || null,
   };
   if(payload.client_sex && payload.client_sex !== 'M' && payload.client_sex !== 'F'){
     payload.client_sex = null;
