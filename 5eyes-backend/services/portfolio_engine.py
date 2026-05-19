@@ -1462,12 +1462,67 @@ def _identity_cholesky(n: int) -> list[list[float]]:
     return [[1.0 if i == j else 0.0 for j in range(n)] for i in range(n)]
 
 
-def _build_cholesky_from_cma(cma: CapitalMarketAssumption) -> list[list[float]]:
+def _cornish_fisher_transform(z: float, skew: float, excess_kurt: float) -> float:
+    """Sprint U-P4 Fix M6: Cornish-Fisher-Expansion bis 4. Ordnung.
+
+    Transformiert eine Standard-Normal-Sample z in eine Sample mit
+    gegebener Skewness und Excess-Kurtosis. Bei skew=0 + excess_kurt=0
+    bleibt z unverändert (Backwards-Compat).
+
+    Formula: z' = z + (z²-1)*S/6 + (z³-3z)*K/24 - (2z³-5z)*S²/36
+    """
+    if skew == 0.0 and excess_kurt == 0.0:
+        return z
+    z2 = z * z
+    z3 = z2 * z
+    return (
+        z
+        + (z2 - 1.0) * skew / 6.0
+        + (z3 - 3.0 * z) * excess_kurt / 24.0
+        - (2.0 * z3 - 5.0 * z) * skew * skew / 36.0
+    )
+
+
+def _crisis_stress_matrix(base_matrix: list[list[float]], crisis_strength: float = 1.0) -> list[list[float]]:
+    """Sprint U-P4 Fix M5: Crisis-Korrelations-Matrix.
+
+    In Tail-Stress-Szenarien (2008, 2020) konvergieren ALLE Risky-Asset-
+    Korrelationen gegen +0.9 — Diversifikation bricht zusammen. Liquidity
+    bleibt unkorreliert (Geldmarkt ist Safe-Haven).
+
+    crisis_strength=0.0 → base_matrix, 1.0 → vollständiger Crisis-Mode.
+    BUCKET_FIELDS-Reihenfolge: equities, bonds, real_estate, alternatives, liquidity.
+    Index 4 = liquidity bleibt diagonal.
+    """
+    s = max(0.0, min(1.0, float(crisis_strength)))
+    if s <= 0:
+        return [list(row) for row in base_matrix]
+    n = len(base_matrix)
+    crisis_target = 0.9
+    out = [list(row) for row in base_matrix]
+    for i in range(n):
+        for j in range(n):
+            if i == j:
+                continue
+            # Liquidity bleibt unkorreliert (Safe-Haven)
+            if i == 4 or j == 4:
+                continue
+            out[i][j] = (1 - s) * base_matrix[i][j] + s * crisis_target
+    return out
+
+
+def _build_cholesky_from_cma(
+    cma: CapitalMarketAssumption,
+    crisis_strength: float = 0.0,
+) -> list[list[float]]:
     """Return lower-triangular Cholesky matrix for the 5 asset classes.
     Uses CMA's correlation_matrix_json when available, else Swiss-market defaults.
 
     Falls back gracefully if the custom matrix is not positive-definite:
     custom → default Swiss-market → identity (uncorrelated).
+
+    Sprint U-P4 Fix M5: optional crisis_strength in [0,1] biased Korrelationen
+    Richtung +0.9 (alle Risky-Assets, Liquidity bleibt unkorreliert).
     """
     matrix = _DEFAULT_CORRELATION_MATRIX
     used_custom = False
@@ -1479,6 +1534,9 @@ def _build_cholesky_from_cma(cma: CapitalMarketAssumption) -> list[list[float]]:
                 used_custom = True
         except (ValueError, TypeError, KeyError):
             pass
+
+    if crisis_strength > 0:
+        matrix = _crisis_stress_matrix(matrix, crisis_strength)
 
     L = _cholesky(matrix)
 
@@ -1805,6 +1863,37 @@ def _simulation_rebalance_mode(simulation_prefs: dict | None) -> str:
     }
     mode = aliases.get(raw, "bands")
     return mode if mode in ALLOWED_SIMULATION_REBALANCE_MODES else "bands"
+
+
+def _simulation_crisis_strength(simulation_prefs: dict | None) -> float:
+    """Sprint U-P4 Fix M5: Crisis-Korrelations-Stärke aus simulation-Prefs.
+
+    Default 0.0 (off). Akzeptiert Bool ("crisisMode": true → 1.0) ODER Float
+    in [0,1] für graduellen Übergang Normal→Crisis-Regime.
+    """
+    if not simulation_prefs:
+        return 0.0
+    raw = simulation_prefs.get("crisisMode") or simulation_prefs.get("crisisStrength")
+    if raw is None:
+        return 0.0
+    if isinstance(raw, bool):
+        return 1.0 if raw else 0.0
+    try:
+        return max(0.0, min(1.0, float(raw)))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _simulation_use_tail_risk(simulation_prefs: dict | None) -> bool:
+    """Sprint U-P4 Fix M6: Default False (Backwards-Compat). Wenn True und
+    CMA Skewness/Kurtosis-Felder hat, wird Cornish-Fisher-Transform auf
+    die Normal-Samples angewendet."""
+    if not simulation_prefs:
+        return False
+    raw = simulation_prefs.get("tailRisk") or simulation_prefs.get("cornishFisher")
+    if isinstance(raw, bool):
+        return raw
+    return str(raw or "").strip().lower() in ("1", "true", "yes", "on")
 
 
 def _target_bucket_values(total_rappen: int, weights_bps: dict[str, int]) -> dict[str, int]:
@@ -2850,9 +2939,21 @@ def _run_allocation_monte_carlo(
     simulations = _monte_carlo_simulations(simulation_prefs)
     stress_multiplier = _simulation_stress_multiplier(simulation_prefs)
     rebalance_mode = _simulation_rebalance_mode(simulation_prefs)
+    # Sprint U-P4 Fix M5+M6: Crisis-Korrelations-Mode + Tail-Risk-Cornish-Fisher
+    crisis_strength = _simulation_crisis_strength(simulation_prefs)
+    use_tail_risk = _simulation_use_tail_risk(simulation_prefs)
     # C3: gewichtete Bucket-Metriken aus Sub-Allocation.
     returns, vols = _weighted_bucket_metrics(cma, sub_allocations)
-    chol = _build_cholesky_from_cma(cma)
+    chol = _build_cholesky_from_cma(cma, crisis_strength=crisis_strength)
+    # Sprint U-P4 Fix M6: Skewness/Kurtosis pro Bucket aus CMA (Cornish-Fisher)
+    skew_per_bucket = [
+        float(getattr(cma, f"{b}_skewness_bps", 0) or 0) / 10000.0
+        for b in BUCKET_FIELDS
+    ]
+    excess_kurt_per_bucket = [
+        float(getattr(cma, f"{b}_excess_kurt_bps", 0) or 0) / 10000.0
+        for b in BUCKET_FIELDS
+    ]
     n_assets = len(BUCKET_FIELDS)
     transaction_cost_bps = _simulation_transaction_cost_bps(simulation_prefs)
     target_start_total = int(target_total_rappen if target_total_rappen is not None else advisory_summary.total_rappen)
@@ -2941,6 +3042,12 @@ def _run_allocation_monte_carlo(
             # Draw n_assets independent standard normals, then correlate via Cholesky: Z = L * W
             indep = [rng.gauss(0.0, 1.0) for _ in range(n_assets)]
             corr = [sum(chol[i][j] * indep[j] for j in range(i + 1)) for i in range(n_assets)]
+            # Sprint U-P4 Fix M6: Cornish-Fisher-Transform fuer Tail-Risk
+            if use_tail_risk:
+                corr = [
+                    _cornish_fisher_transform(corr[i], skew_per_bucket[i], excess_kurt_per_bucket[i])
+                    for i in range(n_assets)
+                ]
             for idx, key in enumerate(BUCKET_FIELDS):
                 mu = returns[key] / 10000
                 sigma = vols[key] / 10000 * stress_multiplier

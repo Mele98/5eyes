@@ -113,13 +113,26 @@ def get_current_allocation_payload(
     ).first()
     if not assessment:
         raise HTTPException(status_code=409, detail="Bitte zuerst ein aktuelles Risikoprofil speichern.")
-    policy, cma = ensure_runtime_reference_data(db, current_user.id)
+    policy, current_cma = ensure_runtime_reference_data(db, current_user.id)
+    # Sprint U-P6 Fix H6: CMA-Reload-Asymmetrie behoben — Metrics/MC werden
+    # mit der zum Generate-Zeitpunkt persistierten CMA berechnet, nicht mit
+    # der aktuellen. Vorher: Bands aus Snapshot, Returns/Vola aus aktueller CMA
+    # → silent Drift wenn CMA-Update zwischen Generate und Reload. Drift-Warning
+    # in _strategy_drift_warnings macht die Differenz weiterhin sichtbar.
+    snapshot_cma = current_cma
+    snapshot_cma_id = getattr(ta, "capital_market_assumptions_id", None)
+    if snapshot_cma_id:
+        snapshot_cma_obj = db.query(CapitalMarketAssumption).filter(
+            CapitalMarketAssumption.id == snapshot_cma_id,
+        ).first()
+        if snapshot_cma_obj is not None:
+            snapshot_cma = snapshot_cma_obj
     return build_target_payload_from_allocation(
         db=db,
         mandate=mandate,
         allocation=ta,
         policy=policy,
-        cma=cma,
+        cma=snapshot_cma,
         assessment=assessment,
         preferences=None,
     )

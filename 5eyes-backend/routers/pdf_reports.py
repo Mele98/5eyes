@@ -310,12 +310,22 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
                 policy = db.query(OptimizerPolicy).filter(OptimizerPolicy.id == ta_obj.policy_id).first()
                 if policy and policy.is_current == 1 and assessment_obj:
                     _runtime_policy, runtime_cma = ensure_runtime_reference_data(db, getattr(mandate, "advisor_id", None) or getattr(assessment_obj, "assessed_by", None) or "")
+                    # Sprint U-P6 Fix H6: Snapshot-CMA fuer reproduzierbare
+                    # Metrics — analog zum /current/payload-Endpoint.
+                    snapshot_cma = runtime_cma
+                    snapshot_cma_id = getattr(ta_obj, "capital_market_assumptions_id", None)
+                    if snapshot_cma_id:
+                        snap = db.query(CapitalMarketAssumption).filter(
+                            CapitalMarketAssumption.id == snapshot_cma_id,
+                        ).first()
+                        if snap is not None:
+                            snapshot_cma = snap
                     engine_payload = build_target_payload_from_allocation(
                         db=db,
                         mandate=mandate,
                         allocation=ta_obj,
                         policy=policy,
-                        cma=runtime_cma,
+                        cma=snapshot_cma,
                         assessment=assessment_obj,
                         preferences=None,
                     )
