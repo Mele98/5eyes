@@ -132,6 +132,17 @@ class Product(Base):
     ter_bps = Column(Integer)
     sfdr_class = Column(String)
     esg_rating = Column(String)
+    # Sprint U-P10 (2026-05-20): Depot-Check / Diversifikations-Tiefe.
+    # JSON-Strings mit {ISO-Code/Sektor: bps}. Σ jeder JSON-Map = 10000 bps (100%).
+    # Wenn NULL: Engine nutzt Default-Proxy aus sub_asset_class (siehe
+    # services/product_exposures.py).
+    country_exposure_json = Column(String)   # {"CH": 4500, "US": 3500, "EU": 2000}
+    sector_exposure_json = Column(String)    # GICS: {"Tech": 2500, "Financial": 1500, ...}
+    currency_exposure_json = Column(String)  # {"CHF": 5000, "USD": 3000, "EUR": 2000}
+    duration_years_x10 = Column(Integer)     # Bonds: 50 = 5.0 Jahre Duration
+    credit_rating = Column(String)           # 'AAA','AA','A','BBB','BB','B','CCC','NR'
+    esg_score_x10 = Column(Integer)          # 0-1000 = 0.0-100.0 (numerischer Score)
+    liquidity_tier = Column(String)          # 'daily','weekly','monthly','illiquid'
     is_active = Column(Integer, nullable=False, default=1)
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)

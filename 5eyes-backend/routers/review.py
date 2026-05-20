@@ -21,7 +21,7 @@ from schemas.review import (
     AdvisoryLogCreate, AdvisoryLogUpdate, AdvisoryLogResponse,
     ContractDocumentCreate, ContractDocumentSign, ContractDocumentResponse,
     ConflictDisclosureCreate, ConflictDisclosureResponse,
-    ProductCreate, ProductResponse,
+    ProductCreate, ProductUpdate, ProductResponse,
     ProductMarketOverrideRequest, ProductMarketOverrideResponse,
     ProductIdMappingPreviewRequest, ProductIdMappingPreviewResponse,
     ProductIdMappingApplyRequest, ProductIdMappingApplyResponse,
@@ -889,6 +889,38 @@ def create_product(
     db.add(product)
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="products", record_id=product.id, action="CREATE")
+    db.commit()
+    db.refresh(product)
+    return product
+
+
+@products_router.put("/{product_id}", response_model=ProductResponse)
+def update_product(
+    product_id: str,
+    body: ProductUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Sprint U-P10: Admin editiert Produkt-Metadaten + Diversifikations-Tiefe.
+
+    Alle Felder optional; nur gesetzte werden ueberschrieben. JSON-Strings
+    (country/sector/currency_exposure_json) werden NICHT validiert hier —
+    der Depot-Check-Engine fault-tolerant via product_exposures._parse_or_proxy.
+    """
+    product = db.query(Product).filter(
+        Product.id == product_id, Product.deleted_at.is_(None),
+    ).first()
+    if not product:
+        raise HTTPException(status_code=404, detail=f"Product {product_id} nicht gefunden")
+    payload = body.model_dump(exclude_none=True)
+    if not payload:
+        return product
+    for field, value in payload.items():
+        setattr(product, field, value)
+    product.updated_at = _now()
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="products", record_id=product_id, action="UPDATE",
+        new_value=", ".join(f"{k}" for k in payload.keys()))
     db.commit()
     db.refresh(product)
     return product

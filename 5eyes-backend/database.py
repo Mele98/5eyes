@@ -294,6 +294,14 @@ def ensure_runtime_columns() -> None:
             ('mapping_resolved_at', 'TEXT'),
             ('reference_data_provider', 'TEXT'),
             ('reference_data_refreshed_at', 'TEXT'),
+            # Sprint U-P10 (2026-05-20): Depot-Check Diversifikations-Tiefe
+            ('country_exposure_json', 'TEXT'),
+            ('sector_exposure_json', 'TEXT'),
+            ('currency_exposure_json', 'TEXT'),
+            ('duration_years_x10', 'INTEGER'),
+            ('credit_rating', 'TEXT'),
+            ('esg_score_x10', 'INTEGER'),
+            ('liquidity_tier', 'TEXT'),
         ],
     }
     inspector = inspect(engine)

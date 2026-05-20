@@ -180,6 +180,35 @@ class ProductCreate(BaseModel):
     ter_bps: Optional[int] = None
     sfdr_class: Optional[Literal["6", "8", "9"]] = None
     esg_rating: Optional[str] = None
+    # Sprint U-P10: Diversifikations-Tiefe (alle optional, Default via Proxy)
+    country_exposure_json: Optional[str] = None
+    sector_exposure_json: Optional[str] = None
+    currency_exposure_json: Optional[str] = None
+    duration_years_x10: Optional[int] = None
+    credit_rating: Optional[str] = None
+    esg_score_x10: Optional[int] = None
+    liquidity_tier: Optional[str] = None
+
+
+class ProductUpdate(BaseModel):
+    """Sprint U-P10: Berater editiert Produkt-Metadaten (Admin-RBAC).
+    Alle Felder optional — nur gesetzte werden geupdated."""
+    product_name: Optional[str] = None
+    provider: Optional[str] = None
+    asset_class: Optional[Literal["Aktien", "Obligationen", "Immobilien", "Alternative", "Liquidität"]] = None
+    sub_asset_class: Optional[str] = None
+    currency: Optional[str] = None
+    ter_bps: Optional[int] = None
+    sfdr_class: Optional[Literal["6", "8", "9"]] = None
+    esg_rating: Optional[str] = None
+    country_exposure_json: Optional[str] = None
+    sector_exposure_json: Optional[str] = None
+    currency_exposure_json: Optional[str] = None
+    duration_years_x10: Optional[int] = None
+    credit_rating: Optional[str] = None
+    esg_score_x10: Optional[int] = None
+    liquidity_tier: Optional[str] = None
+    is_active: Optional[int] = None
 
 
 class ProductResponse(BaseResponse):
@@ -208,6 +237,14 @@ class ProductResponse(BaseResponse):
     ter_bps: Optional[int]
     sfdr_class: Optional[str]
     esg_rating: Optional[str]
+    # Sprint U-P10: Diversifikations-Tiefe
+    country_exposure_json: Optional[str] = None
+    sector_exposure_json: Optional[str] = None
+    currency_exposure_json: Optional[str] = None
+    duration_years_x10: Optional[int] = None
+    credit_rating: Optional[str] = None
+    esg_score_x10: Optional[int] = None
+    liquidity_tier: Optional[str] = None
     is_active: int
     created_at: str
     updated_at: str
