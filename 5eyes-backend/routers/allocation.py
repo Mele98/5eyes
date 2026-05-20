@@ -27,6 +27,7 @@ from services.portfolio_engine import (
     require_strategy_ready_assessment,
 )
 from services.depot_check import compute_depot_check
+from services.backtest_stress import compute_stress_replays
 from services.review_engine import refresh_system_review_triggers
 
 router = APIRouter(tags=["Allokation"])
@@ -412,6 +413,23 @@ def get_depot_check(
     """
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
     return compute_depot_check(db, mandate)
+
+
+@router.get("/mandates/{mandate_id}/backtest/stress-replays")
+def get_backtest_stress_replays(
+    mandate_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Sprint U-P13: Historische Stress-Szenarien (Dotcom 2000-2002, GFC
+    2008, Covid 2020, Bonds-Crash 2022, Stagflation 1973-74) angewandt
+    auf die aktuelle Target-Allocation des Mandates.
+
+    Foundation-Variante mit hartcodierten Returns. Voll-Pipeline mit
+    historischer Time-Series kommt in Sprint U-P11.
+    """
+    mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    return compute_stress_replays(db, mandate)
 
 
 # ============================================================================

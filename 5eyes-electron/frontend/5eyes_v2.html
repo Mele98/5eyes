@@ -1624,7 +1624,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 
     <!-- PAGE: PORTFOLIO -->
     <div id="page-po" class="page">
-      <div class="ph"><div><div class="ph-t">Portfolio &mdash; ETFs &amp; Fonds</div><div class="ph-s">Umsetzung Ihrer Asset Allokation in konkrete Produkte (ISIN)</div></div><div class="ph-r"><button class="btn" onclick="om('m-ap')">+ Bestand</button><button class="btn-g" id="btn-po-refresh" onclick="refreshPortfolioFromStoredState()">Portfolio aktualisieren</button><button class="btn" onclick="openImplementationRecipe()">Anlagerezept drucken</button><button class="btn" id="btn-po-pdf" onclick="downloadServerPdf('portfolio')" title="Portfolio-PDF (Server)">PDF</button><button class="btn-p" onclick="go('rv')">Weiter zum Review &rarr;</button></div></div>
+      <div class="ph"><div><div class="ph-t">Portfolio &mdash; ETFs &amp; Fonds</div><div class="ph-s">Umsetzung Ihrer Asset Allokation in konkrete Produkte (ISIN)</div></div><div class="ph-r"><button class="btn" onclick="om('m-ap')">+ Bestand</button><button class="btn-g" id="btn-po-refresh" onclick="refreshPortfolioFromStoredState()">Portfolio aktualisieren</button><button class="btn" onclick="openImplementationRecipe()">Anlagerezept drucken</button><button class="btn" id="btn-po-depot-check" onclick="openDepotCheck()" title="Depot-Check: Diversifikation, Konzentration, Drift, Stress-Replays">Depot-Check</button><button class="btn" id="btn-po-pdf" onclick="downloadServerPdf('portfolio')" title="Portfolio-PDF (Server)">PDF</button><button class="btn-p" onclick="go('rv')">Weiter zum Review &rarr;</button></div></div>
       <div class="pad">
         <div style="background:var(--n8);border-radius:var(--r2);padding:10px 14px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">
           <div><div style="font-size:9px;font-weight:500;letter-spacing:0.08em;text-transform:uppercase;color:rgba(255,255,255,0.4);margin-bottom:2px">Beratungsvermögen total</div><div id="po-advisory-wealth" style="font-family:var(--f-d);font-size:19px;color:#fff">CHF 2'848'000</div></div>
@@ -1934,6 +1934,76 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
     <button class="btn-p" onclick="saveMandateSettings()">Speichern</button>
   </div>
 </div></div>
+<!-- Sprint U-P14 (2026-05-20): Depot-Check-Modal -->
+<div class="overlay" id="m-dc"><div class="modal" style="width:880px;max-width:95vw">
+  <div class="mhd"><div class="mtitle">Depot-Check &amp; Diversifikation</div><button class="mx" onclick="cm('m-dc')">&#x2715;</button></div>
+  <div class="mbody">
+    <div id="dc-status" style="font-size:11px;color:var(--n5);padding:6px 8px;background:var(--bg2);border-radius:6px;margin-bottom:10px">Wird geladen...</div>
+    <div id="dc-content" style="display:none">
+      <!-- Asset-Klassen-Drift -->
+      <div style="font-size:11px;font-weight:700;color:var(--n8);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.06em">Asset-Klassen-Drift (IST vs SOLL)</div>
+      <div id="dc-bucket-drift" style="margin-bottom:14px"></div>
+
+      <!-- 3 Donuts -->
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:14px">
+        <div>
+          <div style="font-size:10px;font-weight:600;color:var(--n6);margin-bottom:4px">Länder-Exposure</div>
+          <div id="dc-country-list" style="font-size:10.5px"></div>
+          <div id="dc-country-hhi" style="font-size:9.5px;color:var(--n5);margin-top:4px;text-align:right"></div>
+        </div>
+        <div>
+          <div style="font-size:10px;font-weight:600;color:var(--n6);margin-bottom:4px">Sektor-Exposure (GICS)</div>
+          <div id="dc-sector-list" style="font-size:10.5px"></div>
+          <div id="dc-sector-hhi" style="font-size:9.5px;color:var(--n5);margin-top:4px;text-align:right"></div>
+        </div>
+        <div>
+          <div style="font-size:10px;font-weight:600;color:var(--n6);margin-bottom:4px">Währungs-Exposure</div>
+          <div id="dc-currency-list" style="font-size:10.5px"></div>
+          <div id="dc-currency-hhi" style="font-size:9.5px;color:var(--n5);margin-top:4px;text-align:right"></div>
+        </div>
+      </div>
+
+      <!-- Fund Characteristics -->
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;margin-bottom:14px">
+        <div style="padding:8px;background:var(--bg);border:1px solid var(--b1);border-radius:6px">
+          <div style="font-size:9px;color:var(--n5);text-transform:uppercase">Gewichtete TER</div>
+          <div style="font-size:14px;font-weight:700" id="dc-fc-ter">—</div>
+        </div>
+        <div style="padding:8px;background:var(--bg);border:1px solid var(--b1);border-radius:6px">
+          <div style="font-size:9px;color:var(--n5);text-transform:uppercase">Duration (Bonds)</div>
+          <div style="font-size:14px;font-weight:700" id="dc-fc-duration">—</div>
+        </div>
+        <div style="padding:8px;background:var(--bg);border:1px solid var(--b1);border-radius:6px">
+          <div style="font-size:9px;color:var(--n5);text-transform:uppercase">ESG-Score</div>
+          <div style="font-size:14px;font-weight:700" id="dc-fc-esg">—</div>
+        </div>
+        <div style="padding:8px;background:var(--bg);border:1px solid var(--b1);border-radius:6px">
+          <div style="font-size:9px;color:var(--n5);text-transform:uppercase">Top-Positions-HHI</div>
+          <div style="font-size:14px;font-weight:700" id="dc-fc-hhi">—</div>
+        </div>
+      </div>
+
+      <!-- Top-10 Positionen -->
+      <div style="font-size:11px;font-weight:700;color:var(--n8);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.06em">Top-10 Positionen</div>
+      <div id="dc-top-positions" style="margin-bottom:14px"></div>
+
+      <!-- Liquiditäts-Profil -->
+      <div style="font-size:11px;font-weight:700;color:var(--n8);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.06em">Liquiditätsprofil</div>
+      <div id="dc-liquidity" style="display:flex;height:18px;border-radius:6px;overflow:hidden;border:1px solid var(--b1);margin-bottom:14px"></div>
+
+      <!-- Stress-Replays (U-P13) -->
+      <div style="font-size:11px;font-weight:700;color:var(--n8);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.06em">Historische Stress-Szenarien (Replay auf aktueller Bucket-Gewichtung)</div>
+      <div id="dc-stress-replays" style="margin-bottom:14px"></div>
+
+      <!-- Warnings -->
+      <div id="dc-warnings"></div>
+    </div>
+  </div>
+  <div class="mfooter">
+    <button class="btn" onclick="cm('m-dc')">Schliessen</button>
+  </div>
+</div></div>
+
 <div class="overlay" id="m-ed"><div class="modal" style="width:560px"><div class="mhd"><div class="mtitle">Entscheidungsvorlage – Drift</div><button class="mx" onclick="cm('m-ed')">&#x2715;</button></div><div class="mbody"><div id="ed-drift-info" style="background:var(--neg-lt);border:1px solid rgba(153,27,27,0.12);border-radius:var(--r);padding:8px;margin-bottom:12px;font-size:11px;line-height:1.6"></div><div class="fs">Optionen</div><div id="ed-options" style="display:flex;flex-direction:column;gap:6px"></div><div id="ed-error" style="display:none;color:var(--neg);font-size:11px;margin-top:8px"></div></div><div class="mfooter"><button class="btn" onclick="cm('m-ed')">Schliessen</button><button class="btn-p" id="btn-ed-save" onclick="documentDecisionTemplate()">Dokumentieren</button></div></div></div>
 <div class="overlay" id="m-nc">
   <div class="modal" style="width:480px">
@@ -5522,7 +5592,7 @@ async function savePortfolioUmsetzen(){
   }
   if(!mid||isDemoMandateId(mid)){
     cm('m-pu');
-    printAnlagestrategie();
+    printCurrentRubricPdf();
     return;
   }
   var alloc=strategyState&&strategyState.allocation;
@@ -5593,7 +5663,7 @@ async function savePortfolioUmsetzen(){
     updateStrategyStatus('Strategie-Snapshot gespeichert. PDF wird geöffnet.',false);
     syncPortfolioUmsetzenButtonVisibility();
     if(String(document.body&&document.body.dataset.page||'')==='rv')loadReviewSpiegel(mid);
-    printAnlagestrategie();
+    printCurrentRubricPdf();
   }catch(e){
     showErr('Speichern fehlgeschlagen: '+(e&&e.detail?e.detail:(e&&e.message?e.message:String(e||'Unbekannter Fehler'))));
   }finally{
@@ -5602,6 +5672,23 @@ async function savePortfolioUmsetzen(){
       btn.textContent='Strategie festlegen & PDF';
     }
   }
+}
+
+function printCurrentRubricPdf(){
+  var pageKey=typeof currentActivePageKey==='function'?currentActivePageKey():String(document.body&&document.body.dataset.page||'');
+  var mid=typeof getActiveMandateId==='function'?getActiveMandateId():null;
+  var hasServer=mid && !(typeof isDemoMandateId==='function' && isDemoMandateId(mid)) && typeof downloadServerPdf==='function';
+  if(pageKey==='rv'){
+    printAnlagestrategie();
+    return;
+  }
+  if(pageKey==='po'){
+    if(hasServer){downloadServerPdf('portfolio');return;}
+    printReport({pages:['po']});
+    return;
+  }
+  if(hasServer){downloadServerPdf('assetallocation');return;}
+  printReport({pages:['al']});
 }
 
 function printAnlagestrategie(){
@@ -8102,6 +8189,197 @@ async function adminPolicyActivate(){
   } catch(e){
     if(status){ status.textContent = '⚠ Aktivierung fehlgeschlagen: ' + (e && (e.detail||e.message) || '?'); status.style.color='var(--neg)'; }
   }
+}
+
+// ====================================================================
+// Sprint U-P14 (2026-05-20): Depot-Check Frontend
+// ====================================================================
+function dcEscape(s){ return String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function dcFmtPct(bps){ return (Number(bps||0)/100).toFixed(1) + '%'; }
+function dcFmtCHF(rappen){ return (Number(rappen||0)/100).toLocaleString('de-CH', {maximumFractionDigits: 0}) + ' CHF'; }
+var DC_BUCKET_COLORS = {
+  equities: '#1e4b8f', bonds: '#78601a', real_estate: '#2c5080',
+  alternatives: '#4a6080', liquidity: '#166534',
+};
+var DC_GENERIC_COLORS = ['#1e4b8f','#78601a','#166534','#2c5080','#4a6080','#92400e','#7f1d1d','#365314','#1e3a8a','#581c87'];
+
+async function openDepotCheck(){
+  var mid = typeof getActiveMandateId==='function' ? getActiveMandateId() : null;
+  if(!mid){
+    if(window.showAppError) showAppError('Bitte zuerst ein Mandat oeffnen.');
+    else alert('Bitte zuerst ein Mandat oeffnen.');
+    return;
+  }
+  om('m-dc');
+  var statusEl = document.getElementById('dc-status');
+  var contentEl = document.getElementById('dc-content');
+  if(statusEl){ statusEl.textContent = 'Lädt Depot-Check...'; statusEl.style.color='var(--n5)'; }
+  if(contentEl) contentEl.style.display = 'none';
+  try {
+    var data = await API.get('/mandates/' + encodeURIComponent(mid) + '/depot-check');
+    // Stress-Replays parallel laden (Sprint U-P13)
+    var stress = null;
+    try { stress = await API.get('/mandates/' + encodeURIComponent(mid) + '/backtest/stress-replays'); }
+    catch(e){ /* Endpoint optional */ }
+    dcRender(data, stress);
+    if(statusEl){
+      statusEl.textContent = 'Beratungsvermögen: ' + dcFmtCHF(data.total_advisory_wealth_rappen) + (data.warnings && data.warnings.length ? ' · ' + data.warnings.length + ' Hinweis(e)' : ' · alles OK');
+      statusEl.style.color = (data.warnings && data.warnings.length) ? 'var(--neg)' : 'var(--pos)';
+    }
+    if(contentEl) contentEl.style.display = '';
+  } catch(e){
+    if(statusEl){
+      statusEl.textContent = '⚠ ' + (e && (e.detail||e.message) || 'Konnte Depot-Check nicht laden');
+      statusEl.style.color = 'var(--neg)';
+    }
+  }
+}
+
+function dcRender(data, stress){
+  dcRenderBucketDrift(data.buckets || {});
+  dcRenderExposureList('dc-country-list', data.country_exposure_bps || {});
+  dcRenderExposureList('dc-sector-list', data.sector_exposure_bps || {});
+  dcRenderExposureList('dc-currency-list', data.currency_exposure_bps || {});
+  // HHI-Anzeigen
+  var hhi = data.concentration_hhi || {};
+  document.getElementById('dc-country-hhi').textContent = 'HHI ' + (hhi.country || 0) + (hhi.country > 5000 ? ' ⚠ hoch' : (hhi.country > 2500 ? ' · mittel' : ' · gering'));
+  document.getElementById('dc-sector-hhi').textContent = 'HHI ' + (hhi.sector || 0) + (hhi.sector > 2500 ? ' ⚠ hoch' : ' · gering');
+  document.getElementById('dc-currency-hhi').textContent = 'HHI ' + (hhi.currency || 0);
+
+  // Fund-Charakteristika
+  var fc = data.fund_characteristics || {};
+  document.getElementById('dc-fc-ter').textContent = fc.weighted_ter_bps ? (fc.weighted_ter_bps/100).toFixed(2) + '%' : '—';
+  document.getElementById('dc-fc-duration').textContent = fc.weighted_duration_years_x10 ? (fc.weighted_duration_years_x10/10).toFixed(1) + ' J' : '—';
+  document.getElementById('dc-fc-esg').textContent = fc.weighted_esg_score_x10 ? (fc.weighted_esg_score_x10/10).toFixed(1) + ' / 100' : '—';
+  document.getElementById('dc-fc-hhi').textContent = hhi.top_positions || 0;
+
+  dcRenderTopPositions(data.top_positions || []);
+  dcRenderLiquidity(data.liquidity_profile || {});
+  dcRenderStressReplays(stress);
+  dcRenderWarnings(data.warnings || []);
+}
+
+function dcRenderBucketDrift(buckets){
+  var html = '<table style="width:100%;border-collapse:collapse;font-size:10.5px">'
+    + '<thead><tr style="background:var(--bg2)"><th style="padding:5px;text-align:left;border:1px solid var(--b1)">Bucket</th><th style="padding:5px;text-align:right;border:1px solid var(--b1)">IST</th><th style="padding:5px;text-align:right;border:1px solid var(--b1)">SOLL</th><th style="padding:5px;text-align:right;border:1px solid var(--b1)">Drift</th><th style="padding:5px;text-align:left;border:1px solid var(--b1)">Toleranzband</th><th style="padding:5px;text-align:center;border:1px solid var(--b1)">Status</th></tr></thead><tbody>';
+  ['equities','bonds','real_estate','alternatives','liquidity'].forEach(function(key){
+    var b = buckets[key] || {};
+    var ist = (b.ist_bps || 0)/100;
+    var soll = (b.soll_bps || 0)/100;
+    var drift = (b.drift_bps || 0)/100;
+    var bandText = (b.band_min_bps != null && b.band_max_bps != null) ? (b.band_min_bps/100).toFixed(1) + '% – ' + (b.band_max_bps/100).toFixed(1) + '%' : '—';
+    var statusBadge;
+    if(b.in_band === true) statusBadge = '<span style="color:var(--pos)">✓ im Band</span>';
+    else if(b.in_band === false) statusBadge = '<span style="color:var(--neg);font-weight:600">✗ ausserhalb</span>';
+    else statusBadge = '<span style="color:var(--n5)">—</span>';
+    var color = DC_BUCKET_COLORS[key] || '#5a6878';
+    html += '<tr>'
+      + '<td style="padding:4px 6px;border:1px solid var(--b1)"><span style="display:inline-block;width:8px;height:8px;background:'+color+';border-radius:50%;margin-right:6px"></span>' + dcEscape(b.label || key) + '</td>'
+      + '<td style="padding:4px 6px;border:1px solid var(--b1);text-align:right;font-weight:600">' + ist.toFixed(1) + '%</td>'
+      + '<td style="padding:4px 6px;border:1px solid var(--b1);text-align:right">' + soll.toFixed(1) + '%</td>'
+      + '<td style="padding:4px 6px;border:1px solid var(--b1);text-align:right;color:'+(Math.abs(drift)>2 ? 'var(--neg)' : 'var(--n6)')+'">' + (drift >= 0 ? '+' : '') + drift.toFixed(1) + '%</td>'
+      + '<td style="padding:4px 6px;border:1px solid var(--b1);font-size:9.5px;color:var(--n6)">' + bandText + '</td>'
+      + '<td style="padding:4px 6px;border:1px solid var(--b1);text-align:center">' + statusBadge + '</td>'
+      + '</tr>';
+  });
+  html += '</tbody></table>';
+  document.getElementById('dc-bucket-drift').innerHTML = html;
+}
+
+function dcRenderExposureList(elId, expBps){
+  var entries = Object.entries(expBps || {}).filter(function(kv){ return kv[1] > 0; });
+  entries.sort(function(a,b){ return b[1] - a[1]; });
+  var el = document.getElementById(elId);
+  if(!el) return;
+  if(!entries.length){
+    el.innerHTML = '<div style="color:var(--n5);font-size:10px;font-style:italic">Keine Daten</div>';
+    return;
+  }
+  var html = entries.slice(0, 10).map(function(kv, idx){
+    var pct = (kv[1] / 100).toFixed(1);
+    var color = DC_GENERIC_COLORS[idx % DC_GENERIC_COLORS.length];
+    return '<div style="display:flex;justify-content:space-between;align-items:center;padding:2px 0">'
+      + '<div style="display:flex;align-items:center;gap:6px"><span style="display:inline-block;width:8px;height:8px;background:'+color+';border-radius:50%"></span>' + dcEscape(kv[0]) + '</div>'
+      + '<div style="font-weight:600">' + pct + '%</div>'
+      + '</div>'
+      + '<div style="height:3px;background:var(--bg2);border-radius:2px;overflow:hidden;margin-bottom:4px"><div style="width:'+pct+'%;background:'+color+';height:100%"></div></div>';
+  }).join('');
+  el.innerHTML = html;
+}
+
+function dcRenderTopPositions(positions){
+  if(!positions.length){
+    document.getElementById('dc-top-positions').innerHTML = '<div style="color:var(--n5);font-size:10.5px;font-style:italic">Keine Positionen erfasst.</div>';
+    return;
+  }
+  var html = '<table style="width:100%;border-collapse:collapse;font-size:10.5px">'
+    + '<thead><tr style="background:var(--bg2)"><th style="padding:4px;text-align:left;border:1px solid var(--b1)">#</th><th style="padding:4px;text-align:left;border:1px solid var(--b1)">Position</th><th style="padding:4px;text-align:left;border:1px solid var(--b1)">Asset-Klasse</th><th style="padding:4px;text-align:right;border:1px solid var(--b1)">Betrag</th><th style="padding:4px;text-align:right;border:1px solid var(--b1)">%</th><th style="padding:4px;text-align:right;border:1px solid var(--b1)">TER</th></tr></thead><tbody>';
+  positions.forEach(function(p, idx){
+    html += '<tr>'
+      + '<td style="padding:4px;border:1px solid var(--b1)">' + (idx+1) + '</td>'
+      + '<td style="padding:4px;border:1px solid var(--b1)"><div style="font-weight:600">'+dcEscape(p.product_name)+'</div>'+(p.isin?'<div style="font-size:9px;color:var(--n5)">ISIN '+dcEscape(p.isin)+'</div>':'')+'</td>'
+      + '<td style="padding:4px;border:1px solid var(--b1);font-size:9.5px;color:var(--n6)">'+dcEscape(p.asset_class)+(p.sub_asset_class?' · '+dcEscape(p.sub_asset_class):'')+'</td>'
+      + '<td style="padding:4px;border:1px solid var(--b1);text-align:right">' + dcFmtCHF(p.amount_rappen) + '</td>'
+      + '<td style="padding:4px;border:1px solid var(--b1);text-align:right;font-weight:600">' + dcFmtPct(p.weight_bps) + '</td>'
+      + '<td style="padding:4px;border:1px solid var(--b1);text-align:right;color:var(--n6)">' + (p.ter_bps ? (p.ter_bps/100).toFixed(2)+'%' : '—') + '</td>'
+      + '</tr>';
+  });
+  html += '</tbody></table>';
+  document.getElementById('dc-top-positions').innerHTML = html;
+}
+
+function dcRenderLiquidity(lp){
+  var tiers = [
+    {key:'daily', label:'Daily', color:'#166534'},
+    {key:'weekly', label:'Weekly', color:'#1e4b8f'},
+    {key:'monthly', label:'Monthly', color:'#92400e'},
+    {key:'illiquid', label:'Illiquid', color:'#7f1d1d'},
+    {key:'unknown', label:'Unbekannt', color:'#94a3b8'},
+  ];
+  var html = '';
+  tiers.forEach(function(t){
+    var bps = lp[t.key+'_bps'] || 0;
+    if(bps <= 0) return;
+    var pct = (bps/100).toFixed(1);
+    html += '<div style="background:'+t.color+';color:#fff;flex:'+bps+' 0 0;display:flex;align-items:center;justify-content:center;font-size:9.5px;font-weight:600;min-width:30px" title="'+t.label+' '+pct+'%">'+pct+'%</div>';
+  });
+  document.getElementById('dc-liquidity').innerHTML = html || '<div style="background:var(--bg2);width:100%;text-align:center;font-size:10px;color:var(--n5);padding:3px">keine Daten</div>';
+}
+
+function dcRenderStressReplays(stress){
+  var el = document.getElementById('dc-stress-replays');
+  if(!stress || !stress.scenarios || !stress.scenarios.length){
+    el.innerHTML = '<div style="color:var(--n5);font-size:10.5px;font-style:italic">Stress-Replay-Endpoint nicht verfügbar oder noch keine Bucket-Allokation berechnet.</div>';
+    return;
+  }
+  var html = '<table style="width:100%;border-collapse:collapse;font-size:10.5px">'
+    + '<thead><tr style="background:var(--bg2)"><th style="padding:5px;text-align:left;border:1px solid var(--b1)">Szenario</th><th style="padding:5px;text-align:left;border:1px solid var(--b1)">Zeitraum</th><th style="padding:5px;text-align:right;border:1px solid var(--b1)">Cumul. Return</th><th style="padding:5px;text-align:right;border:1px solid var(--b1)">Max-Drawdown</th><th style="padding:5px;text-align:right;border:1px solid var(--b1)">Recovery</th></tr></thead><tbody>';
+  stress.scenarios.forEach(function(s){
+    var ret = (s.cumulative_return_bps || 0)/100;
+    var dd = (s.max_drawdown_bps || 0)/100;
+    html += '<tr>'
+      + '<td style="padding:4px;border:1px solid var(--b1);font-weight:600">'+dcEscape(s.label)+'</td>'
+      + '<td style="padding:4px;border:1px solid var(--b1);color:var(--n6);font-size:9.5px">'+dcEscape(s.period)+'</td>'
+      + '<td style="padding:4px;border:1px solid var(--b1);text-align:right;color:'+(ret<0?'var(--neg)':'var(--pos)')+';font-weight:600">'+(ret>=0?'+':'')+ret.toFixed(1)+'%</td>'
+      + '<td style="padding:4px;border:1px solid var(--b1);text-align:right;color:var(--neg);font-weight:600">-'+dd.toFixed(1)+'%</td>'
+      + '<td style="padding:4px;border:1px solid var(--b1);text-align:right;color:var(--n6)">'+(s.recovery_months ? s.recovery_months + ' Mt.' : '—')+'</td>'
+      + '</tr>';
+  });
+  html += '</tbody></table>';
+  html += '<div style="font-size:9px;color:var(--n5);margin-top:4px">Stress-Replays: historische Returns je Asset-Klasse, gewichtet mit aktueller Bucket-Gewichtung. Modell zeigt was passieren wäre wenn das aktuelle Depot zu Beginn der Krise gehalten wurde.</div>';
+  el.innerHTML = html;
+}
+
+function dcRenderWarnings(warnings){
+  var el = document.getElementById('dc-warnings');
+  if(!warnings || !warnings.length){
+    el.innerHTML = '';
+    return;
+  }
+  var html = '<div style="background:rgba(146,64,14,0.08);border-left:3px solid var(--neg);padding:8px 10px;border-radius:4px;margin-top:8px"><div style="font-size:10px;font-weight:700;color:var(--n8);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.06em">Hinweise &amp; Risiken</div>';
+  html += warnings.map(function(w){ return '<div style="font-size:10.5px;color:var(--n7);padding:2px 0">⚠ ' + dcEscape(w) + '</div>'; }).join('');
+  html += '</div>';
+  el.innerHTML = html;
 }
 
 async function adminPolicyCloneActive(){
@@ -14048,13 +14326,49 @@ async function downloadServerPdf(reportType){
       console.error('downloadServerPdf: unknown reportType', reportType);return;
     }
     var path='/mandates/'+encodeURIComponent(mid)+'/reports/'+reportType+'.pdf';
-    var base=await API.baseUrl();
     var token=await API.getToken();
     var headers={};
     if(token)headers['Authorization']='Bearer '+token;
-    var res=await fetch(base+path,{headers:headers});
+    var requestPdf=async function(baseUrl){
+      var controller=(typeof AbortController!=='undefined')?new AbortController():null;
+      var timeoutId=controller?setTimeout(function(){controller.abort();},60000):null;
+      try{
+        return await fetch(baseUrl+path,{headers:headers,signal:controller?controller.signal:undefined});
+      }finally{
+        if(timeoutId)clearTimeout(timeoutId);
+      }
+    };
+    var base=await API.baseUrl();
+    var res;
+    try{
+      res=await requestPdf(base);
+    }catch(fetchErr){
+      if(API&&typeof API.baseUrl==='function'){
+        API._baseUrl=null;
+        var freshBase=await API.baseUrl();
+        if(freshBase&&freshBase!==base){
+          res=await requestPdf(freshBase);
+        }else{
+          throw fetchErr;
+        }
+      }else{
+        throw fetchErr;
+      }
+    }
     if(!res.ok){
       var msg='PDF-Generierung fehlgeschlagen (HTTP '+res.status+')';
+      try{
+        var detailText=await res.text();
+        if(detailText){
+          try{
+            var parsed=JSON.parse(detailText);
+            if(parsed&&parsed.detail){
+              detailText=typeof parsed.detail==='string'?parsed.detail:JSON.stringify(parsed.detail);
+            }
+          }catch(parseErr){}
+          msg+=': '+detailText.slice(0,500);
+        }
+      }catch(readErr){}
       if(window.showAppError){showAppError(msg);}else{alert(msg);}
       return;
     }
@@ -14087,7 +14401,11 @@ async function downloadServerPdf(reportType){
     try { if(window.showAppSuccess) showAppSuccess('PDF '+filename+' heruntergeladen', {title:'Download'}); } catch(noticeErr){}
   }catch(err){
     console.error('downloadServerPdf failed:',err);
-    var emsg='PDF-Generierung fehlgeschlagen: '+(err&&err.message||'unbekannter Fehler');
+    var reason=(err&&err.name==='AbortError')?'Zeitueberschreitung beim PDF-Download.':(err&&err.message||'unbekannter Fehler');
+    if(String(reason).match(/Failed to fetch|NetworkError|Verbindung|refused|ECONNREFUSED/i)){
+      reason='Backend nicht erreichbar. Bitte App neu starten oder kurz warten und erneut versuchen.';
+    }
+    var emsg='PDF-Generierung fehlgeschlagen: '+reason;
     if(window.showAppError){showAppError(emsg);}else{alert(emsg);}
   }
 }
