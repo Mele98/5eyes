@@ -65,7 +65,13 @@ class AnlagestrategieData:
     """Beratungsvermoegen in Rappen fuer Header + Soll-Tabelle-Total."""
 
     risk_score_x10: int | None = None
-    """Risk-Score 0-100 (final_score_x10), wird als X.Y/10 angezeigt."""
+    """Risk-Score 0-100 fuer interne Herleitung; im Kunden-PDF nicht anzeigen."""
+
+    risk_is_overridden: bool = False
+    """True, wenn das Risikoprofil manuell uebersteuert wurde."""
+
+    risk_override_reason: str | None = None
+    """Dokumentierte Begruendung fuer eine manuelle Risikoprofil-Uebersteuerung."""
 
     investment_horizon_years: int | None = None
     """Anlagehorizont aus Risk-Assessment (kann von horizon_years abweichen)."""
@@ -190,6 +196,10 @@ class RisikoprofilData:
     knowledge_instruments: Mapping[str, bool] = field(default_factory=dict)
     experience_years: int = 0
     suitability_note: str = ""
+    is_overridden: bool = False
+    override_reason: str | None = None
+    override_client_confirmed: bool | None = None
+    override_warning_delivered: bool | None = None
 
 
 @runtime_checkable
@@ -200,6 +210,12 @@ class PDFRenderer(Protocol):
         self, ctx: PDFContext, data: AnlagestrategieData
     ) -> bytes:
         """Returns PDF-Bytes (komplettes Dokument)."""
+        ...
+
+    def render_asset_allocation(
+        self, ctx: PDFContext, data: AnlagestrategieData
+    ) -> bytes:
+        """Returns PDF-Bytes fuer die reine Asset-Allocation-Uebersicht."""
         ...
 
     def render_risikoprofil(

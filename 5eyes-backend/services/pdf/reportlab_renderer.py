@@ -38,6 +38,17 @@ class ReportLabRenderer:
             build_flowables=lambda: build_anlagestrategie_flowables(ctx, data),
         )
 
+    def render_asset_allocation(
+        self, ctx: PDFContext, data: AnlagestrategieData
+    ) -> bytes:
+        """Reine Asset-Allocation-Uebersicht, nicht das Gesamtdokument."""
+        from services.pdf.documents.asset_allocation import build_asset_allocation_flowables
+        return self._render_to_bytes(
+            ctx=ctx,
+            title="Asset Allocation",
+            build_flowables=lambda: build_asset_allocation_flowables(ctx, data),
+        )
+
     def render_risikoprofil(
         self, ctx: PDFContext, data: RisikoprofilData
     ) -> bytes:

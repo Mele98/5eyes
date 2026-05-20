@@ -137,8 +137,7 @@ def _make_donut_drawing(allocation_bps: Mapping[str, int], diameter_mm: float) -
     drawing = Drawing(size, size)
 
     # Werte vorbereiten
-    items = [(b, int(allocation_bps.get(b, 0) or 0)) for b in BUCKET_ORDER]
-    items = [(b, v) for b, v in items if v > 0]
+    items = [(bucket, int(allocation_bps.get(bucket, 0) or 0)) for bucket in _ordered_buckets(allocation_bps)]
     if not items:
         # Leer-State: nur Rahmen + Hinweis
         drawing.add(Rect(
@@ -203,10 +202,8 @@ def _make_class_legend(allocation_bps: Mapping[str, int], products: Iterable[Map
         sub_by_bucket[ac][sub] = sub_by_bucket[ac].get(sub, 0) + weight
 
     rows = []
-    for bucket in BUCKET_ORDER:
+    for bucket in _ordered_buckets(allocation_bps):
         bps = int(allocation_bps.get(bucket, 0) or 0)
-        if bps == 0:
-            continue
         color_hex = asset_class_color(bucket).hexval()[2:]
         label = asset_class_label(bucket)
         # Bucket-Zeile mit Farb-Dot
@@ -255,6 +252,20 @@ def _make_class_legend(allocation_bps: Mapping[str, int], products: Iterable[Map
         ("BOTTOMPADDING", (0, 0), (-1, -1), 1.5),
     ]))
     return legend
+
+
+def _ordered_buckets(allocation_bps: Mapping[str, int]) -> list[str]:
+    """Asset classes from large to small, with stable ties."""
+    return sorted(
+        [
+            bucket for bucket in BUCKET_ORDER
+            if int(allocation_bps.get(bucket, 0) or 0) > 0
+        ],
+        key=lambda bucket: (
+            -int(allocation_bps.get(bucket, 0) or 0),
+            BUCKET_ORDER.index(bucket),
+        ),
+    )
 
 
 def _para_compact():

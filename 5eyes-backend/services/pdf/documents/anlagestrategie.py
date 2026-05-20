@@ -163,6 +163,8 @@ def build_anlagestrategie_flowables(
             profile_label=data.risk_profile_label,
             horizon_years=data.investment_horizon_years or data.horizon_years,
             mandate_type=data.mandate_type,
+            is_overridden=data.risk_is_overridden,
+            override_reason=data.risk_override_reason,
         ))
     else:
         flowables.append(_section_title_with_fallback(
@@ -198,6 +200,7 @@ def build_anlagestrategie_flowables(
             bucket_amounts_rappen=data.bucket_amounts_rappen,
             base_currency=ctx.base_currency,
             advisory_wealth_rappen=data.advisory_wealth_rappen,
+            show_bands=_has_band_overrides(data.allocation_preferences),
         ))
         flowables.append(PageBreak())
         flowables.extend(make_wealtharchitekten_header(
@@ -328,11 +331,12 @@ def _build_anlagestrategie_flowables_template_order(
     """Builds the 19-page order of the provided reference scan."""
     flowables: list = []
 
-    def header():
+    def header(document_title: str):
         flowables.extend(make_wealtharchitekten_header(
             ctx,
             mandate_number=data.mandate_number,
             advisory_wealth_label=advisory_label,
+            document_title=document_title,
         ))
 
     def empty_section(title: str, text: str):
@@ -347,44 +351,55 @@ def _build_anlagestrategie_flowables_template_order(
     flowables.append(PageBreak())
 
     # 2 Eignungspruefung
-    header()
-    if data.risk_answers or data.knowledge_services or data.knowledge_instruments:
-        flowables.extend(make_eignungspruefung_section(
-            answers=data.risk_answers,
-            services_knowledge=data.knowledge_services,
-            instruments_knowledge=data.knowledge_instruments,
-        ))
-    else:
-        empty_section(
-            "Eignungspruefung",
-            "Noch keine Eignungspruefung erfasst. Bitte im Risikoprofil-Tab den Fragebogen ausfuellen.",
-        )
+    header("Eignungsprüfung")
+    flowables.extend(make_eignungspruefung_section(
+        answers=data.risk_answers,
+        services_knowledge=data.knowledge_services,
+        instruments_knowledge=data.knowledge_instruments,
+    ))
     flowables.append(PageBreak())
 
     # 3 Risikoprofil
-    header()
+    header("Risikoprofil")
     if data.risk_score_x10 is not None or data.risk_profile_label:
         flowables.extend(make_risikoprofil_box(
             score_x10=data.risk_score_x10,
             profile_label=data.risk_profile_label,
             horizon_years=data.investment_horizon_years or data.horizon_years,
             mandate_type=data.mandate_type,
+            is_overridden=data.risk_is_overridden,
+            override_reason=data.risk_override_reason,
         ))
     else:
         empty_section("Risikoprofil", "Noch kein Risikoprofil gespeichert.")
     flowables.append(PageBreak())
 
     # 4 Anlagepraeferenzen
-    header()
+    header("Anlagepräferenzen")
     flowables.extend(_make_preferences_section(data.allocation_preferences, styles))
     flowables.append(PageBreak())
 
-    # 5 Vermoegensstruktur: Donuts
-    header()
+    # 5 Vermoegensstruktur: Asset-Allokation zuerst (gross nach klein)
+    header("Vermögensstruktur")
+    if data.target_allocation_bps and sum(data.target_allocation_bps.values()) > 0:
+        flowables.extend(make_saa_bar_table(
+            data.target_allocation_bps,
+            bucket_bands_bps=data.bucket_bands_bps,
+            bucket_amounts_rappen=data.bucket_amounts_rappen,
+            base_currency=ctx.base_currency,
+            advisory_wealth_rappen=data.advisory_wealth_rappen,
+            show_bands=_has_band_overrides(data.allocation_preferences),
+        ))
+    else:
+        empty_section("Vermoegensstruktur", "Noch keine Soll-Allokation berechnet.")
+    flowables.append(PageBreak())
+
+    # 6 Vermoegensstruktur: Subanlageklassen und IST/SOLL-Visualisierung
+    header("Vermögensstruktur")
     if data.target_allocation_bps and sum(data.target_allocation_bps.values()) > 0:
         from reportlab.platypus import KeepTogether
         title_para = Paragraph(
-            '<font color="#475569" size="9"><b>VERMOEGENSSTRUKTUR - AUSGANGSLAGE UND EMPFEHLUNG</b></font>',
+            '<font color="#475569" size="9"><b>SUBANLAGEKLASSEN - AUSGANGSLAGE UND EMPFEHLUNG</b></font>',
             styles["section_title"],
         )
         has_current = (
@@ -413,20 +428,6 @@ def _build_anlagestrategie_flowables_template_order(
         empty_section("Vermoegensstruktur", "Noch keine Soll-Allokation berechnet.")
     flowables.append(PageBreak())
 
-    # 6 Vermoegensstruktur: Tabellenwerte
-    header()
-    if data.target_allocation_bps and sum(data.target_allocation_bps.values()) > 0:
-        flowables.extend(make_saa_bar_table(
-            data.target_allocation_bps,
-            bucket_bands_bps=data.bucket_bands_bps,
-            bucket_amounts_rappen=data.bucket_amounts_rappen,
-            base_currency=ctx.base_currency,
-            advisory_wealth_rappen=data.advisory_wealth_rappen,
-        ))
-    else:
-        empty_section("Vermoegensstruktur", "Noch keine Soll-Allokation berechnet.")
-    flowables.append(PageBreak())
-
     # 7 Investitionsansatz
     flowables.extend(make_investitionsansatz_section())
     flowables.append(PageBreak())
@@ -446,7 +447,7 @@ def _build_anlagestrategie_flowables_template_order(
     flowables.append(PageBreak())
 
     # 11 Vermoegensuebersicht
-    header()
+    header("Vermögensübersicht")
     if data.advisory_positions or data.other_wealth_positions:
         flowables.extend(make_vermoegensuebersicht_section(
             data.advisory_positions,
@@ -461,7 +462,7 @@ def _build_anlagestrategie_flowables_template_order(
     flowables.append(PageBreak())
 
     # 12 Kapitalzufluesse + Ziele
-    header()
+    header("Kapitalzuflüsse & Ziele")
     if data.cashflow_events:
         flowables.extend(make_cashflows_section(
             data.cashflow_events,
@@ -477,12 +478,27 @@ def _build_anlagestrategie_flowables_template_order(
         empty_section("Kapitalzufluesse & Ziele", "Noch keine Cashflow-Ereignisse oder Anlageziele erfasst.")
     flowables.append(PageBreak())
 
-    # 13 Gesamtvermoegen: Donuts
-    header()
+    # 13 Gesamtvermoegen: Asset-Allokation zuerst (gross nach klein)
+    header("Vermögensstruktur")
+    if data.target_allocation_bps and sum(data.target_allocation_bps.values()) > 0:
+        flowables.extend(make_saa_bar_table(
+            data.target_allocation_bps,
+            bucket_bands_bps=data.bucket_bands_bps,
+            bucket_amounts_rappen=data.bucket_amounts_rappen,
+            base_currency=ctx.base_currency,
+            advisory_wealth_rappen=data.advisory_wealth_rappen,
+            show_bands=_has_band_overrides(data.allocation_preferences),
+        ))
+    else:
+        empty_section("Vermoegensstruktur Gesamtvermoegen", "Noch keine Soll-Allokation berechnet.")
+    flowables.append(PageBreak())
+
+    # 14 Gesamtvermoegen: Subanlageklassen und IST/SOLL-Visualisierung
+    header("Vermögensstruktur")
     if data.target_allocation_bps and sum(data.target_allocation_bps.values()) > 0:
         from reportlab.platypus import KeepTogether
         title_para = Paragraph(
-            '<font color="#475569" size="9"><b>VERMOEGENSSTRUKTUR - GESAMTVERMOEGEN</b></font>',
+            '<font color="#475569" size="9"><b>SUBANLAGEKLASSEN - GESAMTVERMOEGEN</b></font>',
             styles["section_title"],
         )
         if data.current_allocation_bps and sum(int(v or 0) for v in data.current_allocation_bps.values()) > 0:
@@ -507,22 +523,8 @@ def _build_anlagestrategie_flowables_template_order(
         empty_section("Vermoegensstruktur Gesamtvermoegen", "Noch keine Soll-Allokation berechnet.")
     flowables.append(PageBreak())
 
-    # 14 Gesamtvermoegen: Tabellenwerte
-    header()
-    if data.target_allocation_bps and sum(data.target_allocation_bps.values()) > 0:
-        flowables.extend(make_saa_bar_table(
-            data.target_allocation_bps,
-            bucket_bands_bps=data.bucket_bands_bps,
-            bucket_amounts_rappen=data.bucket_amounts_rappen,
-            base_currency=ctx.base_currency,
-            advisory_wealth_rappen=data.advisory_wealth_rappen,
-        ))
-    else:
-        empty_section("Vermoegensstruktur Gesamtvermoegen", "Noch keine Soll-Allokation berechnet.")
-    flowables.append(PageBreak())
-
     # 15 Empfehlung
-    header()
+    header("Unsere Empfehlung")
     has_metrics = (
         data.cma_expected_return_bps or data.median_cagr_bps
         or data.cma_expected_vol_bps or data.max_drawdown_bps
@@ -674,7 +676,8 @@ def _make_preferences_section(preferences, styles) -> list:
                 parts.append(f"{label} {int(value) / 100:.1f}%")
         if parts:
             band_labels.append(f"{key}: " + " / ".join(parts))
-    rows.append(["Individuelle Bandbreiten", "; ".join(band_labels) if band_labels else "Keine Overrides"])
+    if band_labels:
+        rows.append(["Individuelle Bandbreiten", "; ".join(band_labels)])
 
     table_rows = []
     for idx, (area, preference) in enumerate(rows):
@@ -766,6 +769,17 @@ def _make_kennzahlen_hinweise_section(styles) -> list:
             styles["body"],
         ))
     return flowables
+
+
+def _has_band_overrides(preferences) -> bool:
+    prefs = preferences if isinstance(preferences, dict) else {}
+    bands = prefs.get("bands") if isinstance(prefs.get("bands"), dict) else {}
+    for override in bands.values():
+        if not isinstance(override, dict):
+            continue
+        if any(override.get(field) is not None for field in ("min_bps", "target_bps", "max_bps")):
+            return True
+    return False
 
 
 def _label(value, labels: dict, fallback: str) -> str:

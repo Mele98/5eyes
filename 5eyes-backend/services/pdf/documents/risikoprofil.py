@@ -29,15 +29,29 @@ def build_risikoprofil_flowables(
         f"<b>Risikoprofil:</b> {_esc(data.risk_profile_label)}", styles["body"]
     ))
     flowables.append(Paragraph(
-        f"<b>Risikofaehigkeit:</b> {data.risk_capacity_score} / 100",
-        styles["body"],
+        f"<b>Anlagehorizont:</b> {data.experience_years} Jahre", styles["body"]
     ))
-    flowables.append(Paragraph(
-        f"<b>Risikotoleranz:</b> {data.risk_tolerance_score} / 100", styles["body"]
-    ))
-    flowables.append(Paragraph(
-        f"<b>Anlageerfahrung:</b> {data.experience_years} Jahre", styles["body"]
-    ))
+
+    if data.is_overridden:
+        flowables.append(Spacer(1, 3 * mm))
+        flowables.append(Paragraph("Manuelle Uebersteuerung", styles["subheading"]))
+        reason = str(data.override_reason or "").strip()
+        note = "Das Risikoprofil wurde manuell uebersteuert und fuer die weitere Beratung dokumentiert."
+        if reason:
+            note += f" Begruendung: {reason}"
+        if data.override_client_confirmed is not None:
+            note += (
+                " Kundenbestaetigung: ja."
+                if data.override_client_confirmed
+                else " Kundenbestaetigung: noch nicht dokumentiert."
+            )
+        if data.override_warning_delivered is not None:
+            note += (
+                " Warnhinweis: zugestellt."
+                if data.override_warning_delivered
+                else " Warnhinweis: noch nicht dokumentiert."
+            )
+        flowables.append(Paragraph(_esc(note), styles["body"]))
 
     if data.knowledge_services:
         flowables.append(Spacer(1, 3 * mm))

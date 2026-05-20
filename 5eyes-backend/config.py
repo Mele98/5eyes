@@ -150,6 +150,14 @@ class Settings(BaseSettings):
     # mehr Tail-Konzentration aber hoeherer Bias-Variance-Tradeoff.
     mc_importance_sampling_strength: float = 0.5
 
+    # Sprint U-P8 Fix M1 (2026-05-20): Block-Diagonal Sub-Asset-Class
+    # Korrelation innerhalb eines Buckets. Default 1.0 = perfekt korreliert
+    # (Backwards-Compat zur Bucket-Skalar-Vola). Werte < 1.0 aktivieren
+    # echte Intra-Bucket-Diversifikation (z.B. CH-Equity ↔ EM-Equity ρ=0.7-0.8).
+    # Inter-Bucket-Korrelationen bleiben aus _DEFAULT_CORRELATION_MATRIX
+    # (siehe portfolio_engine._DEFAULT_CORRELATION_MATRIX).
+    sub_class_intra_correlation: float = 1.0
+
     @field_validator('app_env')
     @classmethod
     def validate_app_env(cls, value: str) -> str:
@@ -176,6 +184,17 @@ class Settings(BaseSettings):
         if normalized not in allowed:
             raise ValueError(f"optimizer_mode must be one of: {', '.join(sorted(allowed))}")
         return normalized
+
+    @field_validator('sub_class_intra_correlation')
+    @classmethod
+    def validate_sub_class_intra_correlation(cls, value: float) -> float:
+        v = float(value)
+        if v < 0.0 or v > 1.0:
+            raise ValueError(
+                f"sub_class_intra_correlation muss in [0.0, 1.0] sein "
+                f"(erhalten: {value})"
+            )
+        return v
 
     @field_validator(
         'price_refresh_primary_provider',

@@ -1,17 +1,17 @@
-"""Sprint 11: SAA-Tabelle mit Bar-Visualisierung (5 Spalten).
+"""SAA-Tabelle mit Bar-Visualisierung.
 
-Frontend-Vorlage:
-    Anlageklasse (Farb-Dot) | Soll % | Visualisierung (Balken) | Band Min-Max | Betrag CHF
-    + Total-Zeile am Ende
+Standardfall: Anlageklasse | Soll | Visualisierung | Betrag.
+Individuelle Bandbreiten werden nur angezeigt, wenn sie explizit
+angefordert werden.
 """
 from __future__ import annotations
 
 from typing import Mapping
 
+from reportlab.graphics.shapes import Drawing, Rect
 from reportlab.lib import colors
 from reportlab.lib.units import mm
 from reportlab.platypus import Paragraph, Table, TableStyle
-from reportlab.graphics.shapes import Drawing, Rect, String
 
 from services.pdf.components.header import _esc
 from services.pdf.styles import (
@@ -39,30 +39,25 @@ def make_saa_bar_table(
     bucket_amounts_rappen: Mapping[str, int] | None = None,
     base_currency: str = "CHF",
     advisory_wealth_rappen: int | None = None,
+    show_bands: bool = False,
 ) -> list:
-    """Returns Flowables: Section-Title + 5-Spalten-Tabelle."""
-    flowables = [_section_title("Soll-Allokation & Toleranzbänder")]
+    """Returns Flowables: Section-Title + Allokations-Tabelle."""
+    title = "Soll-Allokation & individuelle Bandbreiten" if show_bands else "Soll-Allokation"
+    flowables = [_section_title(title)]
 
     bands = dict(bucket_bands_bps or {})
     amounts = dict(bucket_amounts_rappen or {})
 
-    # Header
-    header = [
-        "Anlageklasse",
-        "Soll",
-        "Visualisierung",
-        "Band Min–Max",
-        f"Betrag ({base_currency})",
-    ]
+    header = ["Anlageklasse", "Soll", "Visualisierung", f"Betrag ({base_currency})"]
+    if show_bands:
+        header.insert(3, "Band Min-Max")
     rows = [header]
 
     total_bps = 0
     total_amount = 0
 
-    for bucket in BUCKET_ORDER:
+    for bucket in _ordered_buckets(allocation_bps):
         bps = int(allocation_bps.get(bucket, 0) or 0)
-        if bps == 0:
-            continue
         total_bps += bps
         amt = int(amounts.get(bucket, 0) or 0)
         total_amount += amt
@@ -70,62 +65,63 @@ def make_saa_bar_table(
         min_bps = band[0] if band and len(band) > 0 else None
         max_bps = band[1] if band and len(band) > 1 else None
 
-        # Anlageklasse mit Farb-Dot via Paragraph
-        color_hex = asset_class_color(bucket).hexval()[2:]  # '0x' prefix abschneiden
+        color_hex = asset_class_color(bucket).hexval()[2:]
         label = asset_class_label(bucket)
         asset_cell = Paragraph(
-            f'<font color="#{color_hex}">●</font> '
+            f'<font color="#{color_hex}">&#9679;</font> '
             f'<font name="{FONT_DEFAULT}">{_esc(label)}</font>',
             _para_style_table(),
         )
-
-        # Bar-Visualisierung
         bar_drawing = _make_bar(bps, max_bps_max=10000, color=asset_class_color(bucket))
 
-        # Band-Spalte
-        if min_bps is not None and max_bps is not None:
-            band_text = f"{min_bps/100:.0f}% – {max_bps/100:.0f}%"
-        else:
-            band_text = "—"
-
-        # Betrag-Spalte
         if amt > 0:
             amount_text = _format_amount(amt, base_currency)
         elif advisory_wealth_rappen:
-            # ableiten aus advisory_wealth * weight
             derived = int(advisory_wealth_rappen * bps / 10000)
             amount_text = _format_amount(derived, base_currency)
         else:
-            amount_text = "—"
+            amount_text = "-"
 
-        rows.append([
-            asset_cell,
-            f"{bps/100:.1f}%",
-            bar_drawing,
-            band_text,
-            amount_text,
-        ])
+        row = [asset_cell, f"{bps/100:.1f}%", bar_drawing, amount_text]
+        if show_bands:
+            if min_bps is not None and max_bps is not None:
+                band_text = f"{min_bps/100:.0f}% - {max_bps/100:.0f}%"
+            else:
+                band_text = "-"
+            row.insert(3, band_text)
+        rows.append(row)
 
-    # Total-Zeile
     if advisory_wealth_rappen and total_amount == 0:
         total_amount = advisory_wealth_rappen
-    rows.append([
-        Paragraph(f'<b>Total Beratungsvermögen</b>', _para_style_table()),
+    total_row = [
+        Paragraph("<b>Total Beratungsvermoegen</b>", _para_style_table()),
         f"{total_bps/100:.1f}%",
         "",
-        "",
-        _format_amount(total_amount, base_currency) if total_amount > 0 else "—",
-    ])
+        _format_amount(total_amount, base_currency) if total_amount > 0 else "-",
+    ]
+    if show_bands:
+        total_row.insert(3, "")
+    rows.append(total_row)
 
     page_width, _ = PAGE_SIZE
     table_width = page_width - 24 * mm
-    col_widths = [
-        table_width * 0.30,  # Anlageklasse
-        table_width * 0.10,  # Soll
-        table_width * 0.30,  # Visualisierung
-        table_width * 0.15,  # Band
-        table_width * 0.15,  # Betrag
-    ]
+    if show_bands:
+        col_widths = [
+            table_width * 0.30,
+            table_width * 0.10,
+            table_width * 0.30,
+            table_width * 0.15,
+            table_width * 0.15,
+        ]
+        amount_col = 4
+    else:
+        col_widths = [
+            table_width * 0.34,
+            table_width * 0.12,
+            table_width * 0.34,
+            table_width * 0.20,
+        ]
+        amount_col = 3
 
     table = Table(rows, colWidths=col_widths)
     style_cmds = [
@@ -140,17 +136,32 @@ def make_saa_bar_table(
         ("LINEABOVE", (0, -1), (-1, -1), 1.0, COLOR_BORDER),
         ("FONTNAME", (0, -1), (-1, -1), FONT_BOLD),
         ("ALIGN", (1, 0), (1, -1), "RIGHT"),
-        ("ALIGN", (3, 0), (3, -1), "RIGHT"),
-        ("ALIGN", (4, 0), (4, -1), "RIGHT"),
+        ("ALIGN", (amount_col, 0), (amount_col, -1), "RIGHT"),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
         ("TOPPADDING", (0, 0), (-1, -1), 5),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
         ("LEFTPADDING", (0, 0), (-1, -1), 6),
         ("RIGHTPADDING", (0, 0), (-1, -1), 6),
     ]
+    if show_bands:
+        style_cmds.append(("ALIGN", (3, 0), (3, -1), "RIGHT"))
     table.setStyle(TableStyle(style_cmds))
     flowables.append(table)
     return flowables
+
+
+def _ordered_buckets(allocation_bps: Mapping[str, int]) -> list[str]:
+    """High-level classes: first by size, then stable bucket order."""
+    return sorted(
+        [
+            bucket for bucket in BUCKET_ORDER
+            if int(allocation_bps.get(bucket, 0) or 0) > 0
+        ],
+        key=lambda bucket: (
+            -int(allocation_bps.get(bucket, 0) or 0),
+            BUCKET_ORDER.index(bucket),
+        ),
+    )
 
 
 def _make_bar(bps: int, max_bps_max: int = 10000, color=None) -> Drawing:
@@ -158,17 +169,25 @@ def _make_bar(bps: int, max_bps_max: int = 10000, color=None) -> Drawing:
     bar_width = 50 * mm
     bar_height = 5 * mm
     drawing = Drawing(bar_width, bar_height)
-    # Hintergrund
-    drawing.add(Rect(0, 1, bar_width, bar_height - 2,
-                     fillColor=colors.HexColor("#e2e8f0"),
-                     strokeColor=None))
-    # Wert-Balken
+    drawing.add(Rect(
+        0,
+        1,
+        bar_width,
+        bar_height - 2,
+        fillColor=colors.HexColor("#e2e8f0"),
+        strokeColor=None,
+    ))
     pct = max(0.0, min(1.0, bps / float(max_bps_max)))
     value_w = bar_width * pct
     if value_w > 0:
-        drawing.add(Rect(0, 1, value_w, bar_height - 2,
-                         fillColor=color or colors.HexColor("#1e4b8f"),
-                         strokeColor=None))
+        drawing.add(Rect(
+            0,
+            1,
+            value_w,
+            bar_height - 2,
+            fillColor=color or colors.HexColor("#1e4b8f"),
+            strokeColor=None,
+        ))
     return drawing
 
 

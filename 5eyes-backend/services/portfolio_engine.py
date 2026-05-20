@@ -1687,6 +1687,11 @@ def _weighted_bucket_metrics(
     Ohne Sub-Allocations oder fuer einen Bucket ohne Sub-Eintrag wird
     auf die CMA-Bucket-Defaults aus _asset_class_expected_metrics()
     zurueckgegriffen.
+
+    Sprint U-P8 Fix M1: wenn settings.sub_class_intra_correlation < 1.0
+    aktiviert ist, wird die Bucket-Vola nicht mehr als gewichteter Skalar,
+    sondern als √(w' Σ w) mit Sub-Class-Diversifikation berechnet (Block-
+    Diagonal: innerhalb Bucket ρ, zwischen Buckets wie zuvor 5×5).
     """
     fallback_returns, fallback_vols = _asset_class_expected_metrics(cma)
     if not sub_allocations:
@@ -1696,6 +1701,9 @@ def _weighted_bucket_metrics(
     weighted_ret_bps: dict[str, int] = {key: 0 for key in fallback_returns}
     weighted_vol_bps: dict[str, int] = {key: 0 for key in fallback_vols}
     weight_sum: dict[str, int] = {key: 0 for key in fallback_returns}
+    # Sprint U-P8 Fix M1: pro Bucket die Sub-Vola-Liste sammeln fuer
+    # echte Block-Diagonal-Berechnung
+    bucket_sub_vols: dict[str, list[tuple[int, int]]] = {key: [] for key in fallback_vols}
 
     for item in sub_allocations:
         asset_class_label = str(item.get("asset_class") or "")
@@ -1714,13 +1722,33 @@ def _weighted_bucket_metrics(
         weighted_ret_bps[bucket] += ret_bps * weight
         weighted_vol_bps[bucket] += vol_bps * weight
         weight_sum[bucket] += weight
+        bucket_sub_vols[bucket].append((weight, vol_bps))
+
+    # Sprint U-P8 Fix M1: opt-in Block-Diagonal-Vola
+    intra_rho = float(getattr(settings, "sub_class_intra_correlation", 1.0))
+    use_intra_diversification = intra_rho < 1.0
 
     returns = dict(fallback_returns)
     vols = dict(fallback_vols)
     for bucket in fallback_returns:
-        if weight_sum[bucket] > 0:
-            returns[bucket] = int(round(weighted_ret_bps[bucket] / weight_sum[bucket]))
-            vols[bucket] = int(round(weighted_vol_bps[bucket] / weight_sum[bucket]))
+        ws = weight_sum[bucket]
+        if ws <= 0:
+            continue
+        returns[bucket] = int(round(weighted_ret_bps[bucket] / ws))
+        if use_intra_diversification and len(bucket_sub_vols[bucket]) > 1:
+            # σ_bucket² = Σ w_i² σ_i² + 2 Σ_{i<j} w_i w_j ρ σ_i σ_j
+            subs = bucket_sub_vols[bucket]
+            variance = 0.0
+            for i, (w_i, sigma_i) in enumerate(subs):
+                wf_i = w_i / ws
+                variance += wf_i * wf_i * sigma_i * sigma_i
+                for j in range(i + 1, len(subs)):
+                    w_j, sigma_j = subs[j]
+                    wf_j = w_j / ws
+                    variance += 2 * wf_i * wf_j * intra_rho * sigma_i * sigma_j
+            vols[bucket] = int(round(math.sqrt(max(0.0, variance))))
+        else:
+            vols[bucket] = int(round(weighted_vol_bps[bucket] / ws))
     return returns, vols
 
 

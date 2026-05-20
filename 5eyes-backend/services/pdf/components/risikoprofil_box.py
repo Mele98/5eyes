@@ -32,8 +32,10 @@ def make_risikoprofil_box(
     profile_label: str | None,
     horizon_years: int | None,
     mandate_type: str | None,
+    is_overridden: bool = False,
+    override_reason: str | None = None,
 ) -> list:
-    """Returns Flowables: Section-Title + Box mit grossem Score links + Details rechts."""
+    """Returns Flowables: Section-Title + Risikoprofil-Box ohne interne Punkte."""
     if score_x10 is None and not profile_label:
         return []
 
@@ -43,34 +45,26 @@ def make_risikoprofil_box(
     page_width, _ = PAGE_SIZE
     box_width = page_width - 24 * mm
 
-    score_value = (float(score_x10) / 10.0) if score_x10 is not None else None
-
-    # Sprint 14 Phase 3: pro Schriftgroesse korrektes leading sonst Overlap
-    # Links: grosser Score
     left_content = []
-    if score_value is not None:
-        left_content.append(Paragraph(
-            f'<para align="center"><font name="{FONT_BOLD}" size="34" color="#0f172a">'
-            f'{score_value:.1f}</font></para>',
-            _para_size(34, after=1),
-        ))
+    if profile_label:
         left_content.append(Paragraph(
             f'<para align="center"><font name="{FONT_DEFAULT}" size="7" color="#64748b">'
-            f'VON 10</font></para>',
-            _para_size(7, after=0),
+            f'RISIKOPROFIL</font></para>',
+            _para_size(7, after=2),
+        ))
+        left_content.append(Paragraph(
+            f'<para align="center"><font name="{FONT_BOLD}" size="16" color="#0f172a">'
+            f'{_esc(profile_label)}</font></para>',
+            _para_size(16, after=0),
+        ))
+    else:
+        left_content.append(Paragraph(
+            '<para align="center"><font name="Helvetica-Bold" size="12" color="#64748b">'
+            'Nicht definiert</font></para>',
+            _para_size(12, after=0),
         ))
 
-    # Rechts: Profil-Label + Horizont + Mandat
     right_content = []
-    if profile_label:
-        right_content.append(Paragraph(
-            f'<font name="{FONT_DEFAULT}" size="7" color="#64748b">RISIKOPROFIL</font>',
-            _para_size(7, after=1),
-        ))
-        right_content.append(Paragraph(
-            f'<font name="{FONT_BOLD}" size="14" color="#0f172a">{_esc(profile_label)}</font>',
-            _para_size(14, after=4),
-        ))
     if horizon_years:
         right_content.append(Paragraph(
             f'<font name="{FONT_DEFAULT}" size="7" color="#64748b">ANLAGEHORIZONT</font>',
@@ -87,12 +81,25 @@ def make_risikoprofil_box(
         ))
         right_content.append(Paragraph(
             f'<font name="{FONT_BOLD}" size="11" color="#0f172a">{_esc(mandate_type)}</font>',
-            _para_size(11, after=0),
+            _para_size(11, after=4 if is_overridden else 0),
+        ))
+    if is_overridden:
+        reason = (override_reason or "").strip()
+        note = "Das Risikoprofil wurde manuell uebersteuert."
+        if reason:
+            note += f" Begruendung: {reason}"
+        right_content.append(Paragraph(
+            f'<font name="{FONT_DEFAULT}" size="7" color="#64748b">MANUELLE UEBERSTEUERUNG</font>',
+            _para_size(7, after=1),
+        ))
+        right_content.append(Paragraph(
+            f'<font name="{FONT_BOLD}" size="9" color="#92400e">{_esc(note)}</font>',
+            _para_size(9, after=0),
         ))
 
     composite = Table(
         [[left_content, right_content]],
-        colWidths=[40 * mm, box_width - 40 * mm],
+        colWidths=[58 * mm, box_width - 58 * mm],
     )
     composite.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, -1), COLOR_METRIC_BG),
