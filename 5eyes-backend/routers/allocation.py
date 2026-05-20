@@ -14,6 +14,8 @@ from schemas.allocation import (
     BuildingBlockResponse,
     AllocationSensitivityRequest, AllocationSensitivityResponse,
     OptimizerRunResponse,
+    OptimizerPolicyCreate, OptimizerPolicyUpdate, OptimizerPolicyResponse,
+    OptimizerPolicyDetailResponse, HouseMatrixRowsReplace,
 )
 from services.auth import get_current_user, get_mandate_for_user_or_404, require_advisor, require_admin
 from services.audit import log
@@ -382,3 +384,268 @@ def goal_target_sensitivity(
         mandate_id=mandate_id, client_id=mandate.client_id)
     db.commit()
     return result
+
+
+# ============================================================================
+# Sprint U-P7 (2026-05-20): OptimizerPolicy + HouseMatrix Admin-CRUD
+#
+# Versionierung: jeder strukturelle Edit erzeugt eine neue Policy-Row
+# (vorige is_current=0). House-Matrix-Rows einer Policy werden bulk-ersetzt
+# (atomar). Bestehende TargetAllocation-Records bleiben auf ihrer
+# urspruenglichen policy_id verankert → Snapshot-faehig fuer Backtest.
+#
+# RBAC: alle Admin-Endpoints require_admin (HTTP 403 fuer advisor-only).
+# ============================================================================
+
+
+@router.get("/admin/optimizer-policies", response_model=list[OptimizerPolicyResponse])
+def list_optimizer_policies(
+    include_historic: bool = False,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    q = db.query(OptimizerPolicy)
+    if not include_historic:
+        q = q.filter(OptimizerPolicy.is_current == 1)
+    return q.order_by(OptimizerPolicy.policy_name.asc(), OptimizerPolicy.version.desc()).all()
+
+
+@router.get("/admin/optimizer-policies/{policy_id}", response_model=OptimizerPolicyDetailResponse)
+def get_optimizer_policy_detail(
+    policy_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    policy = db.query(OptimizerPolicy).filter(OptimizerPolicy.id == policy_id).first()
+    if not policy:
+        raise HTTPException(status_code=404, detail=f"OptimizerPolicy {policy_id} nicht gefunden")
+    rows = db.query(HouseMatrix).filter(
+        HouseMatrix.policy_id == policy_id,
+        HouseMatrix.is_active == 1,
+    ).order_by(HouseMatrix.score_from.asc()).all()
+    payload = {c.name: getattr(policy, c.name) for c in policy.__table__.columns}
+    payload["house_matrix_rows"] = [
+        HouseMatrixResponse.model_validate(r, from_attributes=True) for r in rows
+    ]
+    return OptimizerPolicyDetailResponse(**payload)
+
+
+@router.post("/admin/optimizer-policies", response_model=OptimizerPolicyDetailResponse, status_code=201)
+def create_optimizer_policy(
+    body: OptimizerPolicyCreate,
+    activate: bool = False,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    now = _now()
+    if activate:
+        prev = db.query(OptimizerPolicy).filter(
+            OptimizerPolicy.is_current == 1,
+        ).with_for_update().first()
+        if prev:
+            prev.is_current = 0
+            prev.valid_to = now
+            prev.updated_at = now
+
+    policy = OptimizerPolicy(
+        id=new_uuid(),
+        policy_name=body.policy_name,
+        version=1,
+        is_current=1 if activate else 0,
+        valid_from=now,
+        optimizer_engine=body.optimizer_engine,
+        max_real_estate_bps=int(body.max_real_estate_bps),
+        max_alternatives_bps=int(body.max_alternatives_bps),
+        min_liquidity_bps=int(body.min_liquidity_bps),
+        fee_model_json=body.fee_model_json,
+        notes=body.notes,
+        created_by=current_user.id,
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(policy)
+    db.flush()
+
+    for row in body.house_matrix_rows:
+        hm = HouseMatrix(
+            id=new_uuid(),
+            policy_id=policy.id,
+            **row.model_dump(),
+            is_active=1,
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(hm)
+
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="optimizer_policies", record_id=policy.id, action="CREATE",
+        new_value=body.policy_name)
+    db.commit()
+    db.refresh(policy)
+    return get_optimizer_policy_detail(policy.id, db, current_user)
+
+
+@router.put("/admin/optimizer-policies/{policy_id}", response_model=OptimizerPolicyResponse)
+def update_optimizer_policy(
+    policy_id: str,
+    body: OptimizerPolicyUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    policy = db.query(OptimizerPolicy).filter(OptimizerPolicy.id == policy_id).first()
+    if not policy:
+        raise HTTPException(status_code=404, detail=f"Policy {policy_id} nicht gefunden")
+    payload = body.model_dump(exclude_none=True)
+    for field, value in payload.items():
+        setattr(policy, field, value)
+    policy.updated_at = _now()
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="optimizer_policies", record_id=policy_id, action="UPDATE",
+        new_value=", ".join(f"{k}={v}" for k, v in payload.items()))
+    db.commit()
+    db.refresh(policy)
+    return policy
+
+
+@router.put("/admin/optimizer-policies/{policy_id}/house-matrix",
+            response_model=OptimizerPolicyDetailResponse)
+def replace_house_matrix_rows(
+    policy_id: str,
+    body: HouseMatrixRowsReplace,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    policy = db.query(OptimizerPolicy).filter(OptimizerPolicy.id == policy_id).first()
+    if not policy:
+        raise HTTPException(status_code=404, detail=f"Policy {policy_id} nicht gefunden")
+
+    now = _now()
+    db.query(HouseMatrix).filter(HouseMatrix.policy_id == policy_id).delete()
+    for row in body.rows:
+        hm = HouseMatrix(
+            id=new_uuid(),
+            policy_id=policy_id,
+            **row.model_dump(),
+            is_active=1,
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(hm)
+    policy.updated_at = now
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="house_matrix", record_id=policy_id, action="REPLACE_ALL",
+        new_value=f"{len(body.rows)} rows")
+    db.commit()
+    return get_optimizer_policy_detail(policy_id, db, current_user)
+
+
+@router.post("/admin/optimizer-policies/{policy_id}/activate",
+             response_model=OptimizerPolicyResponse)
+def activate_optimizer_policy(
+    policy_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    policy = db.query(OptimizerPolicy).filter(OptimizerPolicy.id == policy_id).first()
+    if not policy:
+        raise HTTPException(status_code=404, detail=f"Policy {policy_id} nicht gefunden")
+    if policy.is_current == 1:
+        return policy
+
+    now = _now()
+    prev = db.query(OptimizerPolicy).filter(
+        OptimizerPolicy.is_current == 1,
+    ).with_for_update().first()
+    if prev and prev.id != policy_id:
+        prev.is_current = 0
+        prev.valid_to = now
+        prev.updated_at = now
+
+    policy.is_current = 1
+    policy.valid_from = now
+    policy.valid_to = None
+    policy.updated_at = now
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="optimizer_policies", record_id=policy_id, action="ACTIVATE")
+    db.commit()
+    db.refresh(policy)
+    return policy
+
+
+@router.post("/admin/optimizer-policies/{policy_id}/clone",
+             response_model=OptimizerPolicyDetailResponse, status_code=201)
+def clone_optimizer_policy(
+    policy_id: str,
+    new_name: str | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    source = db.query(OptimizerPolicy).filter(OptimizerPolicy.id == policy_id).first()
+    if not source:
+        raise HTTPException(status_code=404, detail=f"Source-Policy {policy_id} nicht gefunden")
+
+    now = _now()
+    max_version = db.query(OptimizerPolicy).filter(
+        OptimizerPolicy.policy_name == source.policy_name,
+    ).order_by(OptimizerPolicy.version.desc()).first()
+    next_version = (int(max_version.version) if max_version else 0) + 1
+
+    clone = OptimizerPolicy(
+        id=new_uuid(),
+        policy_name=(new_name or source.policy_name),
+        version=next_version,
+        is_current=0,
+        valid_from=now,
+        optimizer_engine=source.optimizer_engine,
+        max_real_estate_bps=source.max_real_estate_bps,
+        max_alternatives_bps=source.max_alternatives_bps,
+        min_liquidity_bps=source.min_liquidity_bps,
+        allow_other_assets_for_goals=source.allow_other_assets_for_goals,
+        fee_model_json=source.fee_model_json,
+        notes=f"Geklont aus {source.id} ({source.policy_name} v{source.version})",
+        created_by=current_user.id,
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(clone)
+    db.flush()
+
+    source_rows = db.query(HouseMatrix).filter(
+        HouseMatrix.policy_id == source.id,
+        HouseMatrix.is_active == 1,
+    ).order_by(HouseMatrix.score_from.asc()).all()
+    for src_row in source_rows:
+        new_row = HouseMatrix(
+            id=new_uuid(),
+            policy_id=clone.id,
+            score_from=src_row.score_from,
+            score_to=src_row.score_to,
+            profile_name=src_row.profile_name,
+            liq_min_bps=src_row.liq_min_bps,
+            liq_target_bps=src_row.liq_target_bps,
+            liq_max_bps=src_row.liq_max_bps,
+            bonds_min_bps=src_row.bonds_min_bps,
+            bonds_target_bps=src_row.bonds_target_bps,
+            bonds_max_bps=src_row.bonds_max_bps,
+            equity_min_bps=src_row.equity_min_bps,
+            equity_target_bps=src_row.equity_target_bps,
+            equity_max_bps=src_row.equity_max_bps,
+            real_estate_min_bps=src_row.real_estate_min_bps,
+            real_estate_target_bps=src_row.real_estate_target_bps,
+            real_estate_max_bps=src_row.real_estate_max_bps,
+            alt_min_bps=src_row.alt_min_bps,
+            alt_target_bps=src_row.alt_target_bps,
+            alt_max_bps=src_row.alt_max_bps,
+            equity_minimum_bps=src_row.equity_minimum_bps,
+            max_risky_fraction_bps=src_row.max_risky_fraction_bps,
+            is_active=1,
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(new_row)
+
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="optimizer_policies", record_id=clone.id, action="CLONE",
+        old_value=source.id, new_value=clone.policy_name)
+    db.commit()
+    return get_optimizer_policy_detail(clone.id, db, current_user)

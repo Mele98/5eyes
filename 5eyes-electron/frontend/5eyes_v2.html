@@ -1261,7 +1261,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 
     <!-- PAGE: ALLOKATION -->
     <div id="page-al" class="page">
-      <div class="ph"><div><div class="ph-t">Asset Allokation</div><div class="ph-s">SOLL-Strategie aus Risikoprofil, Zielen und Beratungsvermögen — stochastisch optimiert</div></div><div class="ph-r"><button class="btn" id="btn-aa-pref-open" onclick="openAllocationPreferencesModal()">Anlagepräferenzen</button><button class="btn" id="btn-aa-params-open" onclick="openAllocationParametersModal()">Parameter</button><button class="btn" onclick="openMandateSettingsModal()" title="Mandat-Einstellungen: Mortalitaet, Rentenalter, Lebenserwartung">Mandat-Einstellungen</button><button class="btn-g" id="btn-aa-calc" onclick="calculateInvestmentStrategy()">Anlagestrategie berechnen</button><button class="btn" onclick="openAllocationEngineModal()">Soll-Quoten</button><button class="btn" id="btn-aa-pdf" onclick="downloadServerPdf('anlagestrategie')" title="PDF-Bericht (Server)">PDF</button><button class="btn-p" id="btn-portfolio-umsetzen" onclick="openPortfolioUmsetzenModal()" style="display:none;background:var(--pos);color:#fff">Portfolio umsetzen ✓</button><button class="btn-p" onclick="go('po')">Weiter zum Portfolio &rarr;</button></div></div>
+      <div class="ph"><div><div class="ph-t">Asset Allokation</div><div class="ph-s">SOLL-Strategie aus Risikoprofil, Zielen und Beratungsvermögen — stochastisch optimiert</div></div><div class="ph-r"><button class="btn" id="btn-aa-pref-open" onclick="openAllocationPreferencesModal()">Anlagepräferenzen</button><button class="btn" id="btn-aa-params-open" onclick="openAllocationParametersModal()">Parameter</button><button class="btn" onclick="openMandateSettingsModal()" title="Mandat-Einstellungen: Mortalitaet, Rentenalter, Lebenserwartung">Mandat-Einstellungen</button><button class="btn-g" id="btn-aa-calc" onclick="calculateInvestmentStrategy()">Anlagestrategie berechnen</button><button class="btn" onclick="openAllocationEngineModal()">Soll-Quoten</button><button class="btn" id="btn-aa-pdf" onclick="downloadServerPdf('assetallocation')" title="Asset-Allocation-PDF (Server)">PDF</button><button class="btn-p" id="btn-portfolio-umsetzen" onclick="openPortfolioUmsetzenModal()" style="display:none;background:var(--pos);color:#fff">Portfolio umsetzen ✓</button><button class="btn-p" onclick="go('po')">Weiter zum Portfolio &rarr;</button></div></div>
       <div id="al-dirty-banner" class="strip strip-w" style="display:none">
         <div>
           <div class="st">Strategie veraltet</div>
@@ -4760,7 +4760,12 @@ function printReport(options){
   openPrintableReportWindow(pageKeys,title);
 }
 function printPortfolioPlan(){
-  printReport({pages:['al','po','rv']});
+  var mid=typeof getActiveMandateId==='function'?getActiveMandateId():null;
+  if(mid && !(typeof isDemoMandateId==='function' && isDemoMandateId(mid)) && typeof downloadServerPdf==='function'){
+    downloadServerPdf('portfolio');
+    return;
+  }
+  printReport({pages:['po']});
 }
 function printContractOrStrategy(){
   printAnlagestrategie();
@@ -7933,8 +7938,189 @@ function adminShowSection(secId) {
     btn.classList.add('admin-active');
     btn.setAttribute('aria-current', 'page');
   }
+  // Sprint U-P7: Auto-Load der Policies wenn sec-policy aktiviert
+  if (secId === 'sec-policy' && typeof adminLoadPolicies === 'function') {
+    adminLoadPolicies(false);
+  }
 }
 function adminSwitchTab(tabId) { adminShowSection(tabId.replace('tab-', 'sec-')); }
+
+// ====================================================================
+// Sprint U-P7 (2026-05-20): House-Matrix + OptimizerPolicy Admin-Editor
+// ====================================================================
+var adminPolicyState = { policies: [], selectedId: null, rows: [] };
+var ADMIN_POLICY_BUCKETS = [
+  {key:'liq', label:'Liquidität'},
+  {key:'bonds', label:'Obligationen'},
+  {key:'equity', label:'Aktien'},
+  {key:'real_estate', label:'Immobilien'},
+  {key:'alt', label:'Alternative'},
+];
+
+function adminPolicyEscape(s){ return String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+async function adminLoadPolicies(includeHistoric){
+  var url = '/admin/optimizer-policies' + (includeHistoric ? '?include_historic=true' : '');
+  try {
+    var list = await API.get(url);
+    adminPolicyState.policies = Array.isArray(list) ? list : [];
+    adminRenderPolicyList();
+  } catch(e){
+    var el = document.getElementById('admin-policy-list');
+    if(el) el.innerHTML = '<div style="color:var(--neg);font-size:11px">Fehler beim Laden: ' + adminPolicyEscape(e && (e.detail||e.message) || '?') + '</div>';
+  }
+}
+
+function adminRenderPolicyList(){
+  var el = document.getElementById('admin-policy-list');
+  if(!el) return;
+  var rows = adminPolicyState.policies.map(function(p){
+    var badge = p.is_current ? '<span style="background:rgba(22,101,52,0.12);color:var(--pos);padding:1px 6px;border-radius:6px;font-size:9px;font-weight:600;margin-left:6px">AKTIV</span>' : '';
+    var sel = p.id === adminPolicyState.selectedId ? ';background:var(--bg2);font-weight:600' : '';
+    return '<div onclick="adminPolicyOpen(\''+p.id+'\')" style="cursor:pointer;padding:6px 10px;border:1px solid var(--b1);border-radius:6px;margin-bottom:4px'+sel+'">'
+      + adminPolicyEscape(p.policy_name) + ' <span style="color:var(--n5);font-size:10px">v'+p.version+'</span>' + badge
+      + '</div>';
+  }).join('');
+  el.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><div style="font-weight:600">Vorhandene Policies</div>'
+    + '<button class="btn" onclick="adminLoadPolicies(true)" style="font-size:10px">Mit historischen anzeigen</button></div>'
+    + (rows || '<div style="color:var(--n5);font-size:10px">Keine Policies gefunden.</div>');
+}
+
+async function adminPolicyOpen(policyId){
+  adminPolicyState.selectedId = policyId;
+  adminRenderPolicyList();
+  var status = document.getElementById('admin-policy-status');
+  if(status) status.textContent = 'Lädt Policy...';
+  try {
+    var detail = await API.get('/admin/optimizer-policies/' + encodeURIComponent(policyId));
+    adminPolicyState.rows = (detail.house_matrix_rows || []).slice().sort(function(a,b){ return a.score_from - b.score_from; });
+    document.getElementById('admin-policy-detail').style.display = '';
+    document.getElementById('admin-policy-detail-title').textContent = detail.policy_name + ' (v' + detail.version + ')';
+    document.getElementById('admin-policy-detail-sub').textContent =
+      (detail.is_current ? 'AKTIV — wirkt auf alle Mandate' : 'historic/draft — wird nicht für neue Strategien verwendet')
+      + ' · max RE ' + (detail.max_real_estate_bps/100).toFixed(0) + '% · max Alt ' + (detail.max_alternatives_bps/100).toFixed(0) + '%';
+    document.getElementById('btn-policy-save').style.display = '';
+    document.getElementById('btn-policy-activate').style.display = detail.is_current ? 'none' : '';
+    adminRenderPolicyGrid();
+    if(status) status.textContent = '';
+  } catch(e){
+    if(status){ status.textContent = 'Konnte Policy nicht laden: ' + (e && (e.detail||e.message) || '?'); status.style.color='var(--neg)'; }
+  }
+}
+
+function adminRenderPolicyGrid(){
+  var el = document.getElementById('admin-policy-grid');
+  if(!el) return;
+  // Header
+  var html = '<table style="width:100%;border-collapse:collapse;font-size:10.5px"><thead><tr style="background:var(--bg2)">'
+    + '<th style="padding:6px;border:1px solid var(--b1);text-align:left">Score</th>'
+    + '<th style="padding:6px;border:1px solid var(--b1);text-align:left">Profil</th>';
+  ADMIN_POLICY_BUCKETS.forEach(function(b){
+    html += '<th colspan="3" style="padding:6px;border:1px solid var(--b1);text-align:center">'+b.label+'<br/><span style="font-size:9px;color:var(--n5);font-weight:normal">min · target · max (%)</span></th>';
+  });
+  html += '<th style="padding:6px;border:1px solid var(--b1);text-align:right">Risk-Budget<br/><span style="font-size:9px;color:var(--n5);font-weight:normal">% risky</span></th>';
+  html += '</tr></thead><tbody>';
+  adminPolicyState.rows.forEach(function(row, rowIdx){
+    html += '<tr>'
+      + '<td style="padding:4px;border:1px solid var(--b1);font-weight:600">'+row.score_from+'–'+row.score_to+'</td>'
+      + '<td style="padding:4px;border:1px solid var(--b1)"><input class="fi" id="pol-name-'+rowIdx+'" value="'+adminPolicyEscape(row.profile_name)+'" style="font-size:10px;width:100%;border:none"></td>';
+    ADMIN_POLICY_BUCKETS.forEach(function(b){
+      html += '<td style="padding:2px;border:1px solid var(--b1)"><input class="fi pol-bps" data-row="'+rowIdx+'" data-field="'+b.key+'_min_bps" type="number" min="0" max="10000" value="'+row[b.key+'_min_bps']+'" style="font-size:10px;width:50px;text-align:right;border:none" onchange="adminPolicyValidateRow('+rowIdx+')"></td>';
+      html += '<td style="padding:2px;border:1px solid var(--b1);background:var(--bg)"><input class="fi pol-bps" data-row="'+rowIdx+'" data-field="'+b.key+'_target_bps" type="number" min="0" max="10000" value="'+row[b.key+'_target_bps']+'" style="font-size:10px;width:50px;text-align:right;border:none;font-weight:600" onchange="adminPolicyValidateRow('+rowIdx+')"></td>';
+      html += '<td style="padding:2px;border:1px solid var(--b1)"><input class="fi pol-bps" data-row="'+rowIdx+'" data-field="'+b.key+'_max_bps" type="number" min="0" max="10000" value="'+row[b.key+'_max_bps']+'" style="font-size:10px;width:50px;text-align:right;border:none" onchange="adminPolicyValidateRow('+rowIdx+')"></td>';
+    });
+    html += '<td style="padding:2px;border:1px solid var(--b1);text-align:right"><input class="fi pol-bps" data-row="'+rowIdx+'" data-field="max_risky_fraction_bps" type="number" min="0" max="10000" value="'+row.max_risky_fraction_bps+'" style="font-size:10px;width:60px;text-align:right;border:none;font-weight:600" onchange="adminPolicyValidateRow('+rowIdx+')"></td>';
+    html += '</tr>';
+    html += '<tr><td colspan="'+(2+ADMIN_POLICY_BUCKETS.length*3+1)+'" id="pol-row-status-'+rowIdx+'" style="padding:2px 6px;font-size:9.5px;color:var(--n5);border:none"></td></tr>';
+  });
+  html += '</tbody></table>';
+  html += '<div style="font-size:9.5px;color:var(--n5);margin-top:6px">Hinweis: Σ Target-Quoten muss 10000 bps (100%) ergeben. Werte in bps (1% = 100 bps). Mittelspalten (Target) sind hervorgehoben.</div>';
+  el.innerHTML = html;
+  adminPolicyState.rows.forEach(function(_, i){ adminPolicyValidateRow(i); });
+}
+
+function adminPolicyValidateRow(rowIdx){
+  var row = adminPolicyState.rows[rowIdx];
+  if(!row) return;
+  var statusEl = document.getElementById('pol-row-status-'+rowIdx);
+  var problems = [];
+  var targetSum = 0;
+  ADMIN_POLICY_BUCKETS.forEach(function(b){
+    var mn = parseInt((document.querySelector('input[data-row="'+rowIdx+'"][data-field="'+b.key+'_min_bps"]')||{}).value||0,10);
+    var tg = parseInt((document.querySelector('input[data-row="'+rowIdx+'"][data-field="'+b.key+'_target_bps"]')||{}).value||0,10);
+    var mx = parseInt((document.querySelector('input[data-row="'+rowIdx+'"][data-field="'+b.key+'_max_bps"]')||{}).value||0,10);
+    row[b.key+'_min_bps'] = mn; row[b.key+'_target_bps'] = tg; row[b.key+'_max_bps'] = mx;
+    targetSum += tg;
+    if(!(mn <= tg && tg <= mx)) problems.push(b.label+' min≤target≤max verletzt');
+  });
+  var risky = parseInt((document.querySelector('input[data-row="'+rowIdx+'"][data-field="max_risky_fraction_bps"]')||{}).value||0,10);
+  row.max_risky_fraction_bps = risky;
+  if(Math.abs(targetSum - 10000) > 5) problems.push('Σ Target = '+(targetSum/100).toFixed(1)+'% (soll 100%)');
+  if(statusEl){
+    statusEl.textContent = problems.length ? '⚠ ' + problems.join(' · ') : '✓ valide';
+    statusEl.style.color = problems.length ? 'var(--neg)' : 'var(--pos)';
+  }
+}
+
+async function adminPolicySaveRows(){
+  var status = document.getElementById('admin-policy-status');
+  if(status){ status.textContent = 'Speichert...'; status.style.color='var(--n5)'; }
+  // Übernehme aktuelle Inputs in den State
+  adminPolicyState.rows.forEach(function(_, i){ adminPolicyValidateRow(i); });
+  var payload = { rows: adminPolicyState.rows.map(function(r){
+    return {
+      score_from: r.score_from, score_to: r.score_to, profile_name: (document.getElementById('pol-name-'+adminPolicyState.rows.indexOf(r))||{value:r.profile_name}).value,
+      liq_min_bps: r.liq_min_bps, liq_target_bps: r.liq_target_bps, liq_max_bps: r.liq_max_bps,
+      bonds_min_bps: r.bonds_min_bps, bonds_target_bps: r.bonds_target_bps, bonds_max_bps: r.bonds_max_bps,
+      equity_min_bps: r.equity_min_bps, equity_target_bps: r.equity_target_bps, equity_max_bps: r.equity_max_bps,
+      real_estate_min_bps: r.real_estate_min_bps, real_estate_target_bps: r.real_estate_target_bps, real_estate_max_bps: r.real_estate_max_bps,
+      alt_min_bps: r.alt_min_bps, alt_target_bps: r.alt_target_bps, alt_max_bps: r.alt_max_bps,
+      equity_minimum_bps: r.equity_minimum_bps || 0,
+      max_risky_fraction_bps: r.max_risky_fraction_bps,
+    };
+  })};
+  try {
+    await API.put('/admin/optimizer-policies/' + encodeURIComponent(adminPolicyState.selectedId) + '/house-matrix', payload);
+    if(status){ status.textContent = '✓ Bänder gespeichert.'; status.style.color='var(--pos)'; }
+    try { if(window.showAppSuccess) showAppSuccess('House-Matrix gespeichert'); } catch(e){}
+    adminPolicyOpen(adminPolicyState.selectedId);
+  } catch(e){
+    if(status){ status.textContent = '⚠ Speichern fehlgeschlagen: ' + (e && (e.detail||e.message) || '?'); status.style.color='var(--neg)'; }
+  }
+}
+
+async function adminPolicyActivate(){
+  if(!adminPolicyState.selectedId) return;
+  if(!confirm('Diese Policy als aktive Default-Variante setzen? Die bisher aktive wird auf historic gesetzt. Mandate behalten ihre TargetAllocation-Snapshots — aber neue Strategien nutzen dann diese Policy.')) return;
+  var status = document.getElementById('admin-policy-status');
+  try {
+    await API.post('/admin/optimizer-policies/' + encodeURIComponent(adminPolicyState.selectedId) + '/activate', {});
+    if(status){ status.textContent = '✓ Aktiviert.'; status.style.color='var(--pos)'; }
+    try { if(window.showAppSuccess) showAppSuccess('Policy aktiviert'); } catch(e){}
+    await adminLoadPolicies(true);
+    adminPolicyOpen(adminPolicyState.selectedId);
+  } catch(e){
+    if(status){ status.textContent = '⚠ Aktivierung fehlgeschlagen: ' + (e && (e.detail||e.message) || '?'); status.style.color='var(--neg)'; }
+  }
+}
+
+async function adminPolicyCloneActive(){
+  var active = (adminPolicyState.policies || []).find(function(p){ return p.is_current; });
+  if(!active){
+    alert('Keine aktive Policy gefunden. Bitte zuerst Policies laden.');
+    return;
+  }
+  var name = prompt('Name der geklonten Variante:', active.policy_name + ' (Kopie)');
+  if(!name) return;
+  try {
+    var clone = await API.post('/admin/optimizer-policies/' + encodeURIComponent(active.id) + '/clone?new_name=' + encodeURIComponent(name), {});
+    try { if(window.showAppSuccess) showAppSuccess('Variante geklont: ' + clone.policy_name + ' v' + clone.version); } catch(e){}
+    await adminLoadPolicies(true);
+    adminPolicyOpen(clone.id);
+  } catch(e){
+    alert('Klonen fehlgeschlagen: ' + (e && (e.detail||e.message) || '?'));
+  }
+}
 
 async function loadAdminAnnualReturns() {
   var gridEl = document.getElementById('admin-ar-grid');
@@ -13849,7 +14035,7 @@ function getActiveMandateId(){
   return null;
 }
 // Sprint 5 Phase 3 (2026-05-17): Server-PDF-Download via PDF-Engine-API.
-// reportType: 'anlagestrategie' | 'risikoprofil' | 'portfolio' | 'vertrag' | 'protokoll'
+// reportType: 'anlagestrategie' | 'assetallocation' | 'risikoprofil' | 'portfolio' | 'vertrag' | 'protokoll'
 async function downloadServerPdf(reportType){
   try{
     var mid=getActiveMandateId();
@@ -13858,7 +14044,7 @@ async function downloadServerPdf(reportType){
       else{alert('Bitte zuerst ein Mandat oeffnen.');}
       return;
     }
-    if(reportType!=='anlagestrategie'&&reportType!=='risikoprofil'&&reportType!=='portfolio'&&reportType!=='vertrag'&&reportType!=='protokoll'){
+    if(reportType!=='anlagestrategie'&&reportType!=='assetallocation'&&reportType!=='risikoprofil'&&reportType!=='portfolio'&&reportType!=='vertrag'&&reportType!=='protokoll'){
       console.error('downloadServerPdf: unknown reportType', reportType);return;
     }
     var path='/mandates/'+encodeURIComponent(mid)+'/reports/'+reportType+'.pdf';
@@ -16681,6 +16867,7 @@ function openStammdatenModal(){
         <button id="asec-cma-rv" onclick="adminShowSection('sec-cma-rv')" class="admin-sec-btn">Rendite &amp; Vol.</button>
         <button id="asec-cma-inf" onclick="adminShowSection('sec-cma-inf')" class="admin-sec-btn">Inflation &amp; Korr.</button>
         <button id="asec-cma-sub" onclick="adminShowSection('sec-cma-sub')" class="admin-sec-btn">Sub-Anlageklassen</button>
+        <button id="asec-policy" onclick="adminShowSection('sec-policy')" class="admin-sec-btn">House-Matrix</button>
 
         <div class="admin-nav-label">Zugriff</div>
         <button id="asec-users" onclick="adminShowSection('sec-users')" class="admin-sec-btn">Benutzerliste</button>
@@ -16990,6 +17177,32 @@ function openStammdatenModal(){
           </details>
           <div style="display:flex;justify-content:flex-end;gap:8px;padding-top:4px;border-top:1px solid var(--b1);">
             <button class="btn-p admin-primary-btn" onclick="saveAdminCapitalMarketAssumptions()">Speichern</button>
+          </div>
+        </div>
+
+        <!-- ══ SEC: HOUSE-MATRIX POLICY EDITOR (Sprint U-P7) ══ -->
+        <div id="sec-policy" class="admin-sec-panel" style="display:none;gap:14px;">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;">
+            <div>
+              <div class="admin-section-title">House-Matrix &amp; Optimizer-Policy</div>
+              <div class="admin-section-sub">Bandbreiten pro Risiko-Profil (Score 1-10). Jeder Edit erzeugt eine neue Version. Aktive Policy treibt alle Mandate. Backtest-Foundation: historische Varianten bleiben referenziert in TargetAllocations.</div>
+            </div>
+            <button class="btn-p admin-primary-btn" id="btn-policy-clone-active" onclick="adminPolicyCloneActive()">Aktive klonen &amp; bearbeiten</button>
+          </div>
+          <div id="admin-policy-list" style="font-size:11px"></div>
+          <div id="admin-policy-detail" style="display:none;border-top:1px solid var(--b1);padding-top:12px;margin-top:8px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+              <div>
+                <div style="font-size:12px;font-weight:600;color:var(--n8)" id="admin-policy-detail-title">—</div>
+                <div style="font-size:10px;color:var(--n5)" id="admin-policy-detail-sub">—</div>
+              </div>
+              <div style="display:flex;gap:6px">
+                <button class="btn" id="btn-policy-save" onclick="adminPolicySaveRows()" style="display:none">Bänder speichern</button>
+                <button class="btn" id="btn-policy-activate" onclick="adminPolicyActivate()" style="display:none">Als aktiv setzen</button>
+              </div>
+            </div>
+            <div id="admin-policy-grid" style="overflow-x:auto"></div>
+            <div id="admin-policy-status" style="font-size:10px;color:var(--n5);margin-top:8px"></div>
           </div>
         </div>
 

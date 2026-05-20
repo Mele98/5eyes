@@ -143,6 +143,133 @@ class HouseMatrixResponse(BaseResponse):
     max_risky_fraction_bps: int
 
 
+# Sprint U-P7 (2026-05-20): Admin-CRUD für OptimizerPolicy + HouseMatrix.
+# Foundation für Backtest (Phase 2): Versionierung erlaubt parallele Varianten,
+# jeder Edit erzeugt eine neue Policy-Row (Snapshot-fähig).
+class HouseMatrixRowInput(BaseModel):
+    score_from: int = Field(..., ge=1, le=10)
+    score_to: int = Field(..., ge=1, le=10)
+    profile_name: str = Field(..., min_length=1, max_length=80)
+    liq_min_bps: int = Field(..., ge=0, le=10000)
+    liq_target_bps: int = Field(..., ge=0, le=10000)
+    liq_max_bps: int = Field(..., ge=0, le=10000)
+    bonds_min_bps: int = Field(..., ge=0, le=10000)
+    bonds_target_bps: int = Field(..., ge=0, le=10000)
+    bonds_max_bps: int = Field(..., ge=0, le=10000)
+    equity_min_bps: int = Field(..., ge=0, le=10000)
+    equity_target_bps: int = Field(..., ge=0, le=10000)
+    equity_max_bps: int = Field(..., ge=0, le=10000)
+    real_estate_min_bps: int = Field(..., ge=0, le=10000)
+    real_estate_target_bps: int = Field(..., ge=0, le=10000)
+    real_estate_max_bps: int = Field(..., ge=0, le=10000)
+    alt_min_bps: int = Field(..., ge=0, le=10000)
+    alt_target_bps: int = Field(..., ge=0, le=10000)
+    alt_max_bps: int = Field(..., ge=0, le=10000)
+    equity_minimum_bps: int = Field(0, ge=0, le=10000)
+    max_risky_fraction_bps: int = Field(..., ge=0, le=10000)
+
+    @model_validator(mode="after")
+    def _validate_bands_and_sum(self):
+        if not (1 <= self.score_from <= self.score_to <= 10):
+            raise ValueError(f"score_from ({self.score_from}) muss <= score_to ({self.score_to}) und in [1,10] sein")
+        target_sum = (
+            self.liq_target_bps + self.bonds_target_bps + self.equity_target_bps
+            + self.real_estate_target_bps + self.alt_target_bps
+        )
+        if abs(target_sum - 10000) > 5:  # ±0.05% Toleranz
+            raise ValueError(f"Summe Target-Quoten muss 10000 bps (100%) sein, ist {target_sum}")
+        for prefix in ("liq", "bonds", "equity", "real_estate", "alt"):
+            mn = getattr(self, f"{prefix}_min_bps")
+            tg = getattr(self, f"{prefix}_target_bps")
+            mx = getattr(self, f"{prefix}_max_bps")
+            if not (mn <= tg <= mx):
+                raise ValueError(f"{prefix}: min({mn}) <= target({tg}) <= max({mx}) verletzt")
+        if self.equity_minimum_bps > self.equity_max_bps:
+            raise ValueError(f"equity_minimum_bps ({self.equity_minimum_bps}) darf equity_max_bps ({self.equity_max_bps}) nicht überschreiten")
+        return self
+
+
+class OptimizerPolicyCreate(BaseModel):
+    policy_name: str = Field(..., min_length=1, max_length=120)
+    optimizer_engine: str = "goal_based_v1"
+    max_real_estate_bps: int = Field(2000, ge=0, le=10000)
+    max_alternatives_bps: int = Field(1000, ge=0, le=10000)
+    min_liquidity_bps: int = Field(0, ge=0, le=10000)
+    fee_model_json: Optional[str] = None
+    notes: Optional[str] = None
+    house_matrix_rows: list[HouseMatrixRowInput] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _validate_score_coverage(self):
+        # House-Matrix-Rows müssen Score 1..10 vollständig + ohne Lücken/Overlaps abdecken
+        if not self.house_matrix_rows:
+            return self  # Leerer Create → fallback auf Default-Seeds beim Backend
+        rows = sorted(self.house_matrix_rows, key=lambda r: r.score_from)
+        if rows[0].score_from != 1:
+            raise ValueError(f"Erste House-Matrix-Row muss score_from=1 haben, ist {rows[0].score_from}")
+        if rows[-1].score_to != 10:
+            raise ValueError(f"Letzte House-Matrix-Row muss score_to=10 haben, ist {rows[-1].score_to}")
+        for prev, curr in zip(rows, rows[1:]):
+            if curr.score_from != prev.score_to + 1:
+                raise ValueError(
+                    f"Score-Lücke/Overlap zwischen score_to={prev.score_to} und nächstem "
+                    f"score_from={curr.score_from} (erwarte {prev.score_to + 1})"
+                )
+        return self
+
+
+class OptimizerPolicyUpdate(BaseModel):
+    """Editiert nur Policy-Level-Felder. House-Matrix-Rows via separatem Endpoint."""
+    policy_name: Optional[str] = None
+    optimizer_engine: Optional[str] = None
+    max_real_estate_bps: Optional[int] = Field(None, ge=0, le=10000)
+    max_alternatives_bps: Optional[int] = Field(None, ge=0, le=10000)
+    min_liquidity_bps: Optional[int] = Field(None, ge=0, le=10000)
+    fee_model_json: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class HouseMatrixRowsReplace(BaseModel):
+    """Bulk-Update: ersetzt ALLE Rows einer Policy auf einmal (Atomic)."""
+    rows: list[HouseMatrixRowInput] = Field(..., min_length=1)
+
+    @model_validator(mode="after")
+    def _validate_score_coverage(self):
+        rows = sorted(self.rows, key=lambda r: r.score_from)
+        if rows[0].score_from != 1:
+            raise ValueError(f"Erste Row muss score_from=1 haben")
+        if rows[-1].score_to != 10:
+            raise ValueError(f"Letzte Row muss score_to=10 haben")
+        for prev, curr in zip(rows, rows[1:]):
+            if curr.score_from != prev.score_to + 1:
+                raise ValueError(
+                    f"Score-Lücke/Overlap zwischen {prev.score_to} und {curr.score_from}"
+                )
+        return self
+
+
+class OptimizerPolicyResponse(BaseResponse):
+    id: str
+    policy_name: str
+    version: int
+    is_current: int
+    valid_from: str
+    valid_to: Optional[str] = None
+    optimizer_engine: str
+    max_real_estate_bps: int
+    max_alternatives_bps: int
+    min_liquidity_bps: int
+    fee_model_json: Optional[str] = None
+    notes: Optional[str] = None
+    created_by: str
+    created_at: str
+    updated_at: str
+
+
+class OptimizerPolicyDetailResponse(OptimizerPolicyResponse):
+    house_matrix_rows: list[HouseMatrixResponse] = Field(default_factory=list)
+
+
 class CapitalMarketAssumptionCreate(BaseModel):
     assumption_set_name: str = "Standard"
     valid_from: str
