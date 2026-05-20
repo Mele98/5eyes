@@ -26,6 +26,7 @@ from services.portfolio_engine import (
     generate_target_allocation,
     require_strategy_ready_assessment,
 )
+from services.depot_check import compute_depot_check
 from services.review_engine import refresh_system_review_triggers
 
 router = APIRouter(tags=["Allokation"])
@@ -384,6 +385,33 @@ def goal_target_sensitivity(
         mandate_id=mandate_id, client_id=mandate.client_id)
     db.commit()
     return result
+
+
+# ============================================================================
+# Sprint U-P12 (2026-05-20): Depot-Check pro Mandant
+#
+# Endpoint liefert eine vollstaendige Diversifikations-Analyse:
+# - IST-vs-SOLL pro Asset-Klasse (Bands)
+# - Country/Sector/Currency-Exposure aggregiert aus Produkt-Tiefe
+# - Konzentrations-HHI pro Dimension
+# - Top-10-Positionen + Fund-Charakteristika (TER/Duration/ESG)
+# - Liquiditaets-Profil + automatische Warnings
+# ============================================================================
+
+
+@router.get("/mandates/{mandate_id}/depot-check")
+def get_depot_check(
+    mandate_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Vollstaendiger Depot-Check fuer das Mandat.
+
+    Defensive: kein Crash bei fehlenden Daten. Returnt was berechnen geht +
+    Liste der Warnings/Empfehlungen.
+    """
+    mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    return compute_depot_check(db, mandate)
 
 
 # ============================================================================
