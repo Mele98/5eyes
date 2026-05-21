@@ -23,6 +23,7 @@ from services.auth import get_current_user, get_mandate_for_user_or_404
 from services.pdf import ReportLabRenderer
 from services.pdf.base import (
     AnlagestrategieData,
+    BacktestData,
     DepotCheckData,
     PDFContext,
     PortfolioData,
@@ -835,6 +836,7 @@ def _build_portfolio_data(mandate: Mandate, db: Session) -> PortfolioData:
     """
     advisory_wealth = None
     positions: list = []
+    ta = None
 
     try:
         ta = _latest_target_allocation(mandate, db)
@@ -852,12 +854,44 @@ def _build_portfolio_data(mandate: Mandate, db: Session) -> PortfolioData:
             RecommendationPosition,
             RecommendationRun,
         )
-        last_run = (
+        if ta is None:
+            raise HTTPException(
+                status_code=409,
+                detail="Keine aktuelle Soll-Allokation gefunden. Bitte zuerst die Asset Allocation berechnen.",
+            )
+        current_allocation_id = str(getattr(ta, "id", "") or "")
+        matching_runs = (
             db.query(RecommendationRun)
-            .filter(RecommendationRun.mandate_id == mandate.id)
+            .filter(
+                RecommendationRun.mandate_id == mandate.id,
+                RecommendationRun.target_allocation_id == current_allocation_id,
+            )
             .order_by(RecommendationRun.created_at.desc())
-            .first()
+            .all()
         )
+        last_run = (
+            next((run for run in matching_runs if run.result_status == "Final"), None)
+            or next((run for run in matching_runs if run.result_status == "Draft"), None)
+        )
+        if last_run is None:
+            stale_run = (
+                db.query(RecommendationRun)
+                .filter(RecommendationRun.mandate_id == mandate.id)
+                .order_by(RecommendationRun.created_at.desc())
+                .first()
+            )
+            if stale_run is not None:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "Die gespeicherte Portfolio-Empfehlung passt nicht zur aktuellen "
+                        "Asset Allocation. Bitte Portfolio/Empfehlung neu generieren."
+                    ),
+                )
+            raise HTTPException(
+                status_code=404,
+                detail="Noch kein Portfolio fuer die aktuelle Asset Allocation generiert.",
+            )
         if last_run is not None:
             pos_list = (
                 db.query(RecommendationPosition)
@@ -906,6 +940,12 @@ def _build_portfolio_data(mandate: Mandate, db: Session) -> PortfolioData:
                 positions.append({
                     "name": str(getattr(prod, "product_name", None) or "—"),
                     "isin": str(getattr(prod, "isin", "") or ""),
+                    "asset_class": (
+                        _bucket_key(getattr(prod, "asset_class", None))
+                        or str(getattr(prod, "asset_class", "") or "")
+                        or _bucket_key(getattr(prod, "sub_asset_class", None))
+                        or "Portfolio"
+                    ),
                     "sub_asset_class": str(getattr(prod, "sub_asset_class", "") or ""),
                     "target_weight_bps": target_bps,
                     "current_weight_bps": current_bps,
@@ -916,6 +956,8 @@ def _build_portfolio_data(mandate: Mandate, db: Session) -> PortfolioData:
                     "ter_bps": int(getattr(prod, "ter_bps", 0) or 0),
                     "provider": str(getattr(prod, "provider", "") or ""),
                 })
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.warning("Portfolio data: positions load failed: %s", exc)
 
@@ -1181,6 +1223,106 @@ def get_depotcheck_pdf(
     pdf_bytes = ReportLabRenderer().render_depotcheck(ctx, data)
     safe_name = "".join(c if c.isalnum() else "_" for c in ctx.mandate_name)[:40]
     filename = f"depotcheck_{safe_name}_{ctx.report_date.isoformat()}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
+
+
+# ============================================================================
+# Sprint U-P17c (2026-05-22): Strategie-Backtest-PDF
+# ============================================================================
+
+
+def _build_backtest_data(
+    mandate: Mandate,
+    db: Session,
+    *,
+    start_year: int | None,
+    end_year: int | None,
+    benchmark_weights_bps: dict | None,
+) -> BacktestData:
+    """Wendet run_strategy_backtest an und mappt das Resultat auf BacktestData.
+
+    Bewusste Reduktion: PDF zeigt nur den Rebalanced-Pfad. Der Buy-and-Hold-
+    Pfad bleibt nur im interaktiven Modal sichtbar.
+    """
+    from services.backtest_strategy import run_strategy_backtest
+
+    result = run_strategy_backtest(
+        db, mandate,
+        start_year=start_year,
+        end_year=end_year,
+        benchmark_weights_bps=benchmark_weights_bps,
+    )
+    soll = result.get("soll") or {}
+    rebal = (soll.get("rebalanced") if isinstance(soll, dict) else None) or {}
+    bm = result.get("benchmark") or None
+    bm_rebal = (bm.get("rebalanced") if isinstance(bm, dict) else None) or {}
+    bm_weights = bm.get("weights_bps") if isinstance(bm, dict) else None
+    return BacktestData(
+        mandate_number=str(getattr(mandate, "mandate_number", "") or "") or None,
+        initial_value_rappen=int(result.get("initial_value_rappen", 0) or 0),
+        soll_weights_bps=result.get("soll_weights_bps") or {},
+        start_year=result.get("start_year"),
+        end_year=result.get("end_year"),
+        available_years=tuple(result.get("available_years") or []),
+        soll_wealth_path_rappen=tuple(rebal.get("wealth_path_rappen") or []),
+        soll_drawdown_path_bps=tuple(rebal.get("drawdown_path_bps") or []),
+        soll_metrics=rebal.get("metrics") or {},
+        benchmark_weights_bps=bm_weights,
+        benchmark_wealth_path_rappen=tuple(bm_rebal.get("wealth_path_rappen") or []),
+        benchmark_drawdown_path_bps=tuple(bm_rebal.get("drawdown_path_bps") or []),
+        benchmark_metrics=bm_rebal.get("metrics") if bm_rebal else None,
+        warnings=tuple(result.get("warnings") or []),
+    )
+
+
+@router.get(
+    "/mandates/{mandate_id}/reports/backtest.pdf",
+    response_class=Response,
+    responses={200: {"content": {"application/pdf": {}}}},
+)
+def get_backtest_pdf(
+    mandate_id: str,
+    start_year: int | None = None,
+    end_year: int | None = None,
+    benchmark_equities_bps: int | None = None,
+    benchmark_bonds_bps: int | None = None,
+    benchmark_real_estate_bps: int | None = None,
+    benchmark_alternatives_bps: int | None = None,
+    benchmark_liquidity_bps: int | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Strategie-Backtest-PDF: Wealth-Index + Drawdown + Kennzahlen.
+
+    Optional Benchmark-Mix (Summe wird auf 10000 bps normalisiert).
+    Bewusst nur Rebalanced-Pfad im PDF (Buy-and-Hold via Modal verfügbar).
+    """
+    mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
+    ctx = _build_pdf_context(mandate, current_user, db)
+    bm_inputs = {
+        "equities": benchmark_equities_bps,
+        "bonds": benchmark_bonds_bps,
+        "real_estate": benchmark_real_estate_bps,
+        "alternatives": benchmark_alternatives_bps,
+        "liquidity": benchmark_liquidity_bps,
+    }
+    benchmark = (
+        {k: int(v) for k, v in bm_inputs.items() if v is not None}
+        if any(v is not None for v in bm_inputs.values())
+        else None
+    )
+    data = _build_backtest_data(
+        mandate, db,
+        start_year=start_year, end_year=end_year,
+        benchmark_weights_bps=benchmark,
+    )
+    pdf_bytes = ReportLabRenderer().render_backtest(ctx, data)
+    safe_name = "".join(c if c.isalnum() else "_" for c in ctx.mandate_name)[:40]
+    filename = f"backtest_{safe_name}_{ctx.report_date.isoformat()}.pdf"
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",

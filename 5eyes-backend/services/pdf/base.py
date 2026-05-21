@@ -165,7 +165,7 @@ class PortfolioData:
     mandate_number: str | None = None
     advisory_wealth_rappen: int | None = None
     positions: list = field(default_factory=list)
-    """Liste von Position-Dicts mit: name, isin, sub_asset_class,
+    """Liste von Position-Dicts mit: name, isin, asset_class, sub_asset_class,
     target_weight_bps, current_weight_bps, drift_bps,
     target_amount_rappen, current_amount_rappen, currency,
     ter_bps, provider."""
@@ -242,6 +242,46 @@ class RisikoprofilData:
     override_warning_delivered: bool | None = None
 
 
+@dataclass(frozen=True)
+class BacktestData:
+    """Sprint U-P17c (2026-05-22): Strategie-Backtest-PDF-Daten-Bundle.
+
+    Spiegelt das run_strategy_backtest-Output. Zeigt:
+    - Wealth-Index-Pfad und Drawdown-Pfad für SOLL (Rebalanced)
+    - Optional Benchmark-Mix (Rebalanced) für Side-by-Side-Vergleich
+    - Kennzahlen-Tabelle (CAGR/Vol/Sharpe/MaxDD/Best/Worst/Win-Rate)
+
+    Im PDF wird bewusst nur Rebalanced gezeigt (No-Rebal-Linie hätte
+    weniger Aussagekraft für den Kunden — Buy-and-Hold ist eine
+    technische Variante und kann interaktiv im Modal eingesehen werden).
+    """
+
+    mandate_number: str | None = None
+    initial_value_rappen: int = 0
+    soll_weights_bps: Mapping[str, int] = field(default_factory=dict)
+    start_year: int | None = None
+    end_year: int | None = None
+    available_years: Sequence[int] = field(default_factory=tuple)
+
+    # SOLL-Strategie (Rebalanced)
+    soll_wealth_path_rappen: Sequence[Sequence] = field(default_factory=tuple)
+    """[(year, total_rappen), ...] inkl. Initial-Eintrag (start_year-1)"""
+
+    soll_drawdown_path_bps: Sequence[Mapping] = field(default_factory=tuple)
+    """[{"year": int, "drawdown_bps": int}, ...] — bps ≤ 0"""
+
+    soll_metrics: Mapping[str, object] = field(default_factory=dict)
+    """Kennzahlen-Dict aus compute_metrics"""
+
+    # Optional Benchmark (Rebalanced)
+    benchmark_weights_bps: Mapping[str, int] | None = None
+    benchmark_wealth_path_rappen: Sequence[Sequence] = field(default_factory=tuple)
+    benchmark_drawdown_path_bps: Sequence[Mapping] = field(default_factory=tuple)
+    benchmark_metrics: Mapping[str, object] | None = None
+
+    warnings: Sequence[str] = field(default_factory=tuple)
+
+
 @runtime_checkable
 class PDFRenderer(Protocol):
     """Universal-Interface fuer PDF-Renderer."""
@@ -278,4 +318,8 @@ class PDFRenderer(Protocol):
 
     def render_depotcheck(self, ctx: PDFContext, data: DepotCheckData) -> bytes:
         """Returns PDF-Bytes fuer den Depot-Check-Report (Sprint U-P16)."""
+        ...
+
+    def render_backtest(self, ctx: PDFContext, data: BacktestData) -> bytes:
+        """Returns PDF-Bytes fuer den Strategie-Backtest-Report (Sprint U-P17c)."""
         ...

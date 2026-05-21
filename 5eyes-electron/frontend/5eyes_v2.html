@@ -2144,6 +2144,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
     </div>
   </div>
   <div class="mfooter">
+    <button class="btn-p" onclick="downloadBacktestPdf()" title="Backtest als PDF herunterladen mit aktuellem Zeitraum + Benchmark">PDF herunterladen</button>
     <button class="btn" onclick="cm('m-bt')">Schliessen</button>
   </div>
 </div></div>
@@ -9025,6 +9026,25 @@ function btRenderMetricsTable(data, showRebal, showNoRebal){
   document.getElementById('bt-metrics-table').innerHTML = html;
 }
 
+// Sprint U-P17c (2026-05-22): Backtest-PDF mit aktuellem Modal-State
+function downloadBacktestPdf(){
+  var qs = [];
+  var sy = document.getElementById('bt-start-year').value;
+  var ey = document.getElementById('bt-end-year').value;
+  if(sy) qs.push('start_year=' + encodeURIComponent(sy));
+  if(ey) qs.push('end_year=' + encodeURIComponent(ey));
+  if(document.getElementById('bt-bm-enable').checked){
+    var v = btReadBenchmarkPctInputs();
+    // Inputs sind % (0..100). Backend will bps (0..10000) => *100.
+    qs.push('benchmark_equities_bps=' + (v.eq * 100));
+    qs.push('benchmark_bonds_bps=' + (v.bd * 100));
+    qs.push('benchmark_real_estate_bps=' + (v.re * 100));
+    qs.push('benchmark_alternatives_bps=' + (v.al * 100));
+    qs.push('benchmark_liquidity_bps=' + (v.lq * 100));
+  }
+  downloadServerPdf('backtest', qs.length ? qs.join('&') : null);
+}
+
 function btRenderWarnings(warnings){
   var el = document.getElementById('bt-warnings');
   if(!el) return;
@@ -15134,7 +15154,7 @@ function getActiveMandateId(){
 }
 // Sprint 5 Phase 3 (2026-05-17): Server-PDF-Download via PDF-Engine-API.
 // reportType: 'anlagestrategie' | 'assetallocation' | 'risikoprofil' | 'portfolio' | 'vertrag' | 'protokoll'
-async function downloadServerPdf(reportType){
+async function downloadServerPdf(reportType, queryString){
   try{
     var mid=getActiveMandateId();
     if(!mid){
@@ -15142,10 +15162,13 @@ async function downloadServerPdf(reportType){
       else{alert('Bitte zuerst ein Mandat oeffnen.');}
       return;
     }
-    if(reportType!=='anlagestrategie'&&reportType!=='assetallocation'&&reportType!=='risikoprofil'&&reportType!=='portfolio'&&reportType!=='vertrag'&&reportType!=='protokoll'&&reportType!=='depotcheck'){
+    if(reportType!=='anlagestrategie'&&reportType!=='assetallocation'&&reportType!=='risikoprofil'&&reportType!=='portfolio'&&reportType!=='vertrag'&&reportType!=='protokoll'&&reportType!=='depotcheck'&&reportType!=='backtest'){
       console.error('downloadServerPdf: unknown reportType', reportType);return;
     }
     var path='/mandates/'+encodeURIComponent(mid)+'/reports/'+reportType+'.pdf';
+    if(queryString){
+      path += (queryString.indexOf('?')===0 ? queryString : '?' + queryString);
+    }
     var token=await API.getToken();
     var headers={};
     if(token)headers['Authorization']='Bearer '+token;

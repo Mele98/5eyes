@@ -96,6 +96,16 @@ class ReportLabRenderer:
             build_flowables=lambda: build_depotcheck_flowables(ctx, data),
         )
 
+    def render_backtest(self, ctx: PDFContext, data) -> bytes:
+        """Sprint U-P17c (2026-05-22): Strategie-Backtest-PDF
+        (Wealth-Index + Drawdown + Kennzahlen-Tabelle, optional Benchmark)."""
+        from services.pdf.documents.backtest import build_backtest_flowables
+        return self._render_to_bytes(
+            ctx=ctx,
+            title="Strategie-Backtest",
+            build_flowables=lambda: build_backtest_flowables(ctx, data),
+        )
+
     def _render_to_bytes(
         self,
         *,
