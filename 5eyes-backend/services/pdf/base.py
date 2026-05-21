@@ -186,6 +186,46 @@ class ProtokollData:
 
 
 @dataclass(frozen=True)
+class DepotCheckData:
+    """Sprint U-P16 (2026-05-21): Depot-Check-PDF Daten-Bundle.
+
+    Spiegelt 1:1 die Struktur von services.depot_check.compute_depot_check.
+    Plus stress_scenarios aus services.backtest_stress.compute_stress_replays.
+    """
+    mandate_number: str | None = None
+    total_advisory_wealth_rappen: int = 0
+    # Bucket-Drift (IST vs SOLL)
+    buckets: Mapping[str, Mapping[str, object]] = field(default_factory=dict)
+    """{'equities': {label, ist_bps, soll_bps, drift_bps, band_min_bps,
+                     band_max_bps, in_band, ist_rappen}, ...}"""
+    # Aggregierte Exposures
+    country_exposure_bps: Mapping[str, int] = field(default_factory=dict)
+    sector_exposure_bps: Mapping[str, int] = field(default_factory=dict)
+    currency_exposure_bps: Mapping[str, int] = field(default_factory=dict)
+    concentration_hhi: Mapping[str, int] = field(default_factory=dict)
+    """{country, sector, currency, top_positions} → HHI 0-10000"""
+    # Top-Positionen
+    top_positions: list = field(default_factory=list)
+    """Liste mit product_name, isin, asset_class, sub_asset_class, currency,
+    amount_rappen, weight_bps, ter_bps."""
+    # Fund-Charakteristika (gewichtet)
+    weighted_ter_bps: int = 0
+    weighted_duration_years_x10: int = 0
+    weighted_esg_score_x10: int = 0
+    covered_share_bps: int = 0
+    """Anteil Positionen mit gepflegtem TER/Duration/ESG (für Confidence)."""
+    # Liquiditäts-Profil
+    liquidity_profile_bps: Mapping[str, int] = field(default_factory=dict)
+    """{daily_bps, weekly_bps, monthly_bps, illiquid_bps, unknown_bps}."""
+    # Stress-Replays
+    stress_scenarios: list = field(default_factory=list)
+    """Liste mit id, label, period, cumulative_return_bps, max_drawdown_bps,
+    recovery_months, annual_breakdown."""
+    # Auto-Warnings
+    warnings: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
 class RisikoprofilData:
     """Daten-Bundle fuer Risikoprofil-PDF (FINMA W305.02/W305.03)."""
 
@@ -234,4 +274,8 @@ class PDFRenderer(Protocol):
 
     def render_protokoll(self, ctx: PDFContext, data: ProtokollData) -> bytes:
         """Returns PDF-Bytes fuer das Beratungsprotokoll."""
+        ...
+
+    def render_depotcheck(self, ctx: PDFContext, data: DepotCheckData) -> bytes:
+        """Returns PDF-Bytes fuer den Depot-Check-Report (Sprint U-P16)."""
         ...

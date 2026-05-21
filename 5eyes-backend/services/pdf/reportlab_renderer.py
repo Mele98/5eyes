@@ -86,6 +86,16 @@ class ReportLabRenderer:
             build_flowables=lambda: build_protokoll_flowables(ctx, data),
         )
 
+    def render_depotcheck(self, ctx: PDFContext, data) -> bytes:
+        """Sprint U-P16 (2026-05-21): Depot-Check-PDF (Diversifikations-Tiefe
+        + Drift + Stress-Replays + Top-Positionen)."""
+        from services.pdf.documents.depotcheck import build_depotcheck_flowables
+        return self._render_to_bytes(
+            ctx=ctx,
+            title="Depot-Check",
+            build_flowables=lambda: build_depotcheck_flowables(ctx, data),
+        )
+
     def _render_to_bytes(
         self,
         *,

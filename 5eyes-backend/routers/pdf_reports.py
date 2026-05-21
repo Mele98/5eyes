@@ -23,6 +23,7 @@ from services.auth import get_current_user, get_mandate_for_user_or_404
 from services.pdf import ReportLabRenderer
 from services.pdf.base import (
     AnlagestrategieData,
+    DepotCheckData,
     PDFContext,
     PortfolioData,
     ProtokollData,
@@ -378,6 +379,8 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
     # ---- Risk-Assessment ----
     risk_score_x10 = None
     risk_label = None
+    risk_is_overridden = False
+    risk_override_reason = None
     investment_horizon = None
     knowledge_services: dict = {}
     knowledge_instruments: dict = {}
@@ -390,9 +393,21 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
             .first()
         )
         if ra is not None:
-            score_raw = getattr(ra, "final_score_x10", None) or getattr(ra, "override_score_x10", None)
+            risk_is_overridden = bool(getattr(ra, "is_overridden", 0))
+            score_raw = (
+                getattr(ra, "override_score_x10", None)
+                if risk_is_overridden
+                else getattr(ra, "final_score_x10", None)
+            )
+            if score_raw is None:
+                score_raw = getattr(ra, "final_score_x10", None) or getattr(ra, "override_score_x10", None)
             risk_score_x10 = int(score_raw) if score_raw is not None else None
-            risk_label = getattr(ra, "final_profile", None) or getattr(ra, "risk_capacity_profile", None)
+            risk_label = (
+                (getattr(ra, "override_profile", None) if risk_is_overridden else None)
+                or getattr(ra, "final_profile", None)
+                or getattr(ra, "risk_capacity_profile", None)
+            )
+            risk_override_reason = str(getattr(ra, "override_reason", "") or "").strip() or None
             investment_horizon = int(getattr(ra, "investment_horizon_years", 0) or 0) or None
             # Knowledge-JSONs parsen
             for json_attr, target in [
@@ -650,6 +665,8 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
         monte_carlo_stats=None,
         optimizer_reasoning=None,
         risk_profile_label=risk_label,
+        risk_is_overridden=risk_is_overridden,
+        risk_override_reason=risk_override_reason,
         mandate_number=str(getattr(mandate, "mandate_number", "") or ""),
         advisory_wealth_rappen=advisory_wealth,
         risk_score_x10=risk_score_x10,
@@ -699,6 +716,30 @@ def get_anlagestrategie_pdf(
 
 
 @router.get(
+    "/mandates/{mandate_id}/reports/assetallocation.pdf",
+    response_class=Response,
+    responses={200: {"content": {"application/pdf": {}}}},
+)
+def get_assetallocation_pdf(
+    mandate_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Reines Asset-Allocation-PDF fuer die Asset-Allocation-Maske."""
+    mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
+    ctx = _build_pdf_context(mandate, current_user, db)
+    data = _build_anlagestrategie_data(mandate, db)
+    pdf_bytes = ReportLabRenderer().render_asset_allocation(ctx, data)
+    safe_name = "".join(c if c.isalnum() else "_" for c in ctx.mandate_name)[:40]
+    filename = f"assetallocation_{safe_name}_{ctx.report_date.isoformat()}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
+
+
+@router.get(
     "/mandates/{mandate_id}/reports/risikoprofil.pdf",
     response_class=Response,
     responses={200: {"content": {"application/pdf": {}}}},
@@ -718,6 +759,10 @@ def get_risikoprofil_pdf(
     risk_tolerance = 0
     experience_years = 0
     suitability_note = ""
+    is_overridden = False
+    override_reason = None
+    override_client_confirmed = None
+    override_warning_delivered = None
     knowledge_services: dict[str, bool] = {}
     knowledge_instruments: dict[str, bool] = {}
     try:
@@ -741,10 +786,12 @@ def get_risikoprofil_pdf(
             knowledge_services = _knowledge_map_from_json(getattr(ra, "knowledge_services_json", None))
             knowledge_instruments = _knowledge_map_from_json(getattr(ra, "knowledge_instruments_json", None))
             if is_overridden:
-                reason = str(getattr(ra, "override_reason", "") or "").strip()
+                override_reason = str(getattr(ra, "override_reason", "") or "").strip() or None
+                override_client_confirmed = bool(getattr(ra, "override_client_confirmed", 0))
+                override_warning_delivered = bool(getattr(ra, "override_warning_delivered", 0))
                 suitability_note = "Berater-Override wurde dokumentiert."
-                if reason:
-                    suitability_note += f" Begruendung: {reason}"
+                if override_reason:
+                    suitability_note += f" Begruendung: {override_reason}"
             else:
                 suitability_note = (
                     "Risikofaehigkeit, Risikobereitschaft, Anlagehorizont "
@@ -764,6 +811,10 @@ def get_risikoprofil_pdf(
         knowledge_instruments=knowledge_instruments,
         experience_years=experience_years,
         suitability_note=suitability_note,
+        is_overridden=is_overridden,
+        override_reason=override_reason,
+        override_client_confirmed=override_client_confirmed,
+        override_warning_delivered=override_warning_delivered,
     )
 
     pdf_bytes = ReportLabRenderer().render_risikoprofil(ctx, risk_data)
@@ -1074,6 +1125,62 @@ def get_protokoll_pdf(
     pdf_bytes = ReportLabRenderer().render_protokoll(ctx, data)
     safe_name = "".join(c if c.isalnum() else "_" for c in ctx.mandate_name)[:40]
     filename = f"protokoll_{safe_name}_{ctx.report_date.isoformat()}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
+
+
+# ============================================================================
+# Sprint U-P16 (2026-05-21): Depot-Check-PDF
+# ============================================================================
+
+
+def _build_depotcheck_data(mandate: Mandate, db: Session) -> DepotCheckData:
+    """Lädt Depot-Check + Stress-Replays und mappt auf frozen dataclass."""
+    from services.depot_check import compute_depot_check
+    from services.backtest_stress import compute_stress_replays
+
+    dc = compute_depot_check(db, mandate) or {}
+    sr = compute_stress_replays(db, mandate) or {}
+    fc = dc.get("fund_characteristics") or {}
+    return DepotCheckData(
+        mandate_number=str(getattr(mandate, "mandate_number", "") or "") or None,
+        total_advisory_wealth_rappen=int(dc.get("total_advisory_wealth_rappen", 0) or 0),
+        buckets=dc.get("buckets") or {},
+        country_exposure_bps=dc.get("country_exposure_bps") or {},
+        sector_exposure_bps=dc.get("sector_exposure_bps") or {},
+        currency_exposure_bps=dc.get("currency_exposure_bps") or {},
+        concentration_hhi=dc.get("concentration_hhi") or {},
+        top_positions=list(dc.get("top_positions") or []),
+        weighted_ter_bps=int(fc.get("weighted_ter_bps", 0) or 0),
+        weighted_duration_years_x10=int(fc.get("weighted_duration_years_x10", 0) or 0),
+        weighted_esg_score_x10=int(fc.get("weighted_esg_score_x10", 0) or 0),
+        covered_share_bps=int(fc.get("covered_share_bps", 0) or 0),
+        liquidity_profile_bps=dc.get("liquidity_profile") or {},
+        stress_scenarios=list(sr.get("scenarios") or []),
+        warnings=list(dc.get("warnings") or []),
+    )
+
+
+@router.get(
+    "/mandates/{mandate_id}/reports/depotcheck.pdf",
+    response_class=Response,
+    responses={200: {"content": {"application/pdf": {}}}},
+)
+def get_depotcheck_pdf(
+    mandate_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Depot-Check-PDF: Diversifikations-Tiefe + Drift + Stress-Replays."""
+    mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
+    ctx = _build_pdf_context(mandate, current_user, db)
+    data = _build_depotcheck_data(mandate, db)
+    pdf_bytes = ReportLabRenderer().render_depotcheck(ctx, data)
+    safe_name = "".join(c if c.isalnum() else "_" for c in ctx.mandate_name)[:40]
+    filename = f"depotcheck_{safe_name}_{ctx.report_date.isoformat()}.pdf"
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",

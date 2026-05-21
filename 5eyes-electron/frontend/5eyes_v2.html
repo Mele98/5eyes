@@ -2000,6 +2000,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
     </div>
   </div>
   <div class="mfooter">
+    <button class="btn-p" onclick="downloadServerPdf('depotcheck')" title="Server-PDF: Depot-Check mit Drift, Diversifikation, Stress-Replays">PDF herunterladen</button>
     <button class="btn" onclick="cm('m-dc')">Schliessen</button>
   </div>
 </div></div>
@@ -14322,7 +14323,7 @@ async function downloadServerPdf(reportType){
       else{alert('Bitte zuerst ein Mandat oeffnen.');}
       return;
     }
-    if(reportType!=='anlagestrategie'&&reportType!=='assetallocation'&&reportType!=='risikoprofil'&&reportType!=='portfolio'&&reportType!=='vertrag'&&reportType!=='protokoll'){
+    if(reportType!=='anlagestrategie'&&reportType!=='assetallocation'&&reportType!=='risikoprofil'&&reportType!=='portfolio'&&reportType!=='vertrag'&&reportType!=='protokoll'&&reportType!=='depotcheck'){
       console.error('downloadServerPdf: unknown reportType', reportType);return;
     }
     var path='/mandates/'+encodeURIComponent(mid)+'/reports/'+reportType+'.pdf';
