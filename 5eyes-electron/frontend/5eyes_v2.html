@@ -9184,6 +9184,39 @@ async function loadAdminAnnualReturns() {
   }
 }
 
+// Sprint U-P11a (2026-05-22): Annual-Returns aus Marktdaten füllen
+async function backfillAdminAnnualReturns() {
+  var btn = document.getElementById('btn-admin-ar-backfill');
+  var errEl = document.getElementById('admin-ar-error');
+  if (!adminConfirmRisk(
+    'Annual-Returns aus Marktdaten neu laden?',
+    'Lädt die letzten 20 Jahre via yfinance/stooq (USD-Total-Return-Approximation). Bestehende Werte werden überschrieben.'
+  )) return;
+  if (btn) { btn.disabled = true; btn.textContent = 'Lädt…'; }
+  if (errEl) errEl.style.display = 'none';
+  try {
+    var res = await API.post('/admin/system/annual-returns/backfill', {});
+    var s = (res && res.summary) || {rows_written:0, error_count:0};
+    var msg = 'Backfill abgeschlossen: ' + (s.rows_written||0) + ' Werte geschrieben';
+    if (s.error_count) msg += ', ' + s.error_count + ' Fehler';
+    if (res && res.errors && res.errors.length) {
+      var sample = res.errors.slice(0,3).map(function(e){
+        return (e.year ? e.year+' ' : '') + (e.asset_class||'') + ': ' + (e.reason||'?');
+      }).join(' | ');
+      msg += '. Beispiele: ' + sample;
+    }
+    if (window.showAppSuccess) showAppSuccess(msg, {title:'Marktdaten-Backfill'});
+    else alert(msg);
+    await loadAdminAnnualReturns();
+  } catch(e) {
+    var reason = (e && (e.detail||e.message)) || 'unbekannter Fehler';
+    if (errEl) { errEl.textContent = 'Backfill fehlgeschlagen: ' + reason; errEl.style.display = 'block'; }
+    if (window.showAppError) showAppError('Backfill fehlgeschlagen: ' + reason);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Aus Marktdaten füllen'; }
+  }
+}
+
 async function saveAdminAnnualReturns() {
   var btn = document.getElementById('btn-admin-ar-save');
   var errEl = document.getElementById('admin-ar-error');
@@ -18106,6 +18139,7 @@ function openStammdatenModal(){
             </div>
             <div style="display:flex;gap:6px;">
               <button class="btn-p" style="background:var(--bg2);color:var(--n6)" onclick="loadAdminAnnualReturns()" id="btn-admin-ar-load">Laden</button>
+              <button class="btn-p" style="background:var(--bg2);color:var(--n6)" onclick="backfillAdminAnnualReturns()" id="btn-admin-ar-backfill" title="L&auml;dt historische Renditen automatisch via Marktdaten-Aggregator (yfinance/stooq). USD-Total-Return-Approximation.">Aus Marktdaten f&uuml;llen</button>
               <button class="btn-p admin-primary-btn" onclick="saveAdminAnnualReturns()" id="btn-admin-ar-save">Speichern</button>
             </div>
           </div>

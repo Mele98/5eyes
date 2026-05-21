@@ -140,6 +140,55 @@ def get_annual_returns(
     return result
 
 
+@router.post('/annual-returns/backfill')
+def backfill_annual_returns_endpoint(
+    from_year: int | None = None,
+    to_year: int | None = None,
+    overwrite: bool = True,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Sprint U-P11a (2026-05-22): Annual-Returns automatisch aus
+    Marktdaten-Aggregator (yfinance + stooq) befüllen.
+
+    Defaults:
+        from_year = aktuelles Jahr - 20
+        to_year   = aktuelles Jahr - 1
+    Body-Params (Query):
+        overwrite: True (default) - bestehende Rows überschreiben.
+                   False = vorhandene Rows beibehalten, nur Lücken füllen.
+
+    Audit-Log-Eintrag wird geschrieben (Action=BACKFILL).
+    """
+    from services.market_data.annual_returns_backfill import backfill_annual_returns
+    from services.market_data.factory import build_default_aggregator
+
+    current_year = datetime.utcnow().year
+    fy = from_year if from_year is not None else current_year - 20
+    ty = to_year if to_year is not None else current_year - 1
+    try:
+        aggregator = build_default_aggregator()
+        result = backfill_annual_returns(
+            db, aggregator,
+            from_year=int(fy), to_year=int(ty),
+            overwrite=bool(overwrite),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    db.add(AuditLog(
+        id=str(uuid4()),
+        user_id=current_user.id,
+        user_name=getattr(current_user, "full_name", None) or getattr(current_user, "email", "admin"),
+        table_name="asset_class_annual_returns",
+        record_id=f"{fy}-{ty}",
+        action="BACKFILL",
+        new_value=f"rows_written={result['summary']['rows_written']} errors={result['summary']['error_count']}",
+        created_at=datetime.utcnow().isoformat(),
+    ))
+    db.commit()
+    return result
+
+
 @router.put('/annual-returns/{year}/{asset_class}')
 def upsert_annual_return(
     year: int,
