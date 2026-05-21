@@ -539,6 +539,27 @@ def get_strategy_backtest(
     )
 
 
+@router.post("/mandates/{mandate_id}/portfolio/refresh-prices")
+def refresh_portfolio_live_prices(
+    mandate_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_advisor),
+):
+    """Sprint U-P11b (2026-05-22): Live-Preise für die Produkte dieses
+    Mandates via Marktdaten-Aggregator (yfinance/stooq-Fallback) holen
+    und in price_history persistieren.
+
+    Engerer Scope als /admin/prices/refresh — nur Produkte aus dem
+    aktuellsten RecommendationRun des Mandates werden aktualisiert.
+
+    Returns Summary mit processed/inserted/updated/unchanged/failed +
+    Failure-Liste pro Produkt.
+    """
+    from price_updater import refresh_prices_for_mandate
+    mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    return refresh_prices_for_mandate(db, mandate.id)
+
+
 # ============================================================================
 # Sprint U-P7 (2026-05-20): OptimizerPolicy + HouseMatrix Admin-CRUD
 #

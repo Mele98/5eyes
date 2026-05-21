@@ -1632,7 +1632,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 
     <!-- PAGE: PORTFOLIO -->
     <div id="page-po" class="page">
-      <div class="ph"><div><div class="ph-t">Portfolio &mdash; ETFs &amp; Fonds</div><div class="ph-s">Umsetzung Ihrer Asset Allokation in konkrete Produkte (ISIN)</div></div><div class="ph-r"><button class="btn" onclick="om('m-ap')">+ Bestand</button><button class="btn-g" id="btn-po-refresh" onclick="refreshPortfolioFromStoredState()">Portfolio aktualisieren</button><button class="btn" onclick="openImplementationRecipe()">Anlagerezept drucken</button><button class="btn" id="btn-po-depot-check" onclick="openDepotCheck()" title="Depot-Check: Diversifikation, Konzentration, Drift, Stress-Replays">Depot-Check</button><button class="btn" id="btn-po-pdf" onclick="downloadServerPdf('portfolio')" title="Portfolio-PDF (Server)">PDF</button><button class="btn-p" onclick="go('rv')">Weiter zum Review &rarr;</button></div></div>
+      <div class="ph"><div><div class="ph-t">Portfolio &mdash; ETFs &amp; Fonds</div><div class="ph-s">Umsetzung Ihrer Asset Allokation in konkrete Produkte (ISIN)</div></div><div class="ph-r"><button class="btn" onclick="om('m-ap')">+ Bestand</button><button class="btn" id="btn-po-live-prices" onclick="refreshLivePricesForMandate()" title="Live-EOD-Preise via Marktdaten-Aggregator (yfinance/stooq) holen und Portfolio neu laden">Live-Preise</button><button class="btn-g" id="btn-po-refresh" onclick="refreshPortfolioFromStoredState()">Portfolio aktualisieren</button><button class="btn" onclick="openImplementationRecipe()">Anlagerezept drucken</button><button class="btn" id="btn-po-depot-check" onclick="openDepotCheck()" title="Depot-Check: Diversifikation, Konzentration, Drift, Stress-Replays">Depot-Check</button><button class="btn" id="btn-po-pdf" onclick="downloadServerPdf('portfolio')" title="Portfolio-PDF (Server)">PDF</button><button class="btn-p" onclick="go('rv')">Weiter zum Review &rarr;</button></div></div>
       <div class="pad">
         <div style="background:var(--n8);border-radius:var(--r2);padding:10px 14px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">
           <div><div style="font-size:9px;font-weight:500;letter-spacing:0.08em;text-transform:uppercase;color:rgba(255,255,255,0.4);margin-bottom:2px">Beratungsvermögen total</div><div id="po-advisory-wealth" style="font-family:var(--f-d);font-size:19px;color:#fff">CHF 2'848'000</div></div>
@@ -14213,6 +14213,45 @@ async function refreshPortfolioFromStoredState(){
     setPortfolioRefreshButtonState('idle');
   }
 }
+
+// Sprint U-P11b (2026-05-22): Live-EOD-Preise via Marktdaten-Aggregator
+async function refreshLivePricesForMandate(){
+  var mid=getActiveMandateId();
+  if(!mid){
+    if(window.showAppError)showAppError('Bitte zuerst ein Mandat oeffnen.');
+    else alert('Bitte zuerst ein Mandat oeffnen.');
+    return false;
+  }
+  if(typeof isDemoMandateId==='function' && isDemoMandateId(mid)){
+    updateStrategyStatus('Im Demo-Modus gibt es keine Live-Preise.',true);
+    return false;
+  }
+  var btn=document.getElementById('btn-po-live-prices');
+  if(btn){btn.disabled=true; btn.textContent='Lade Preise…';}
+  try{
+    var summary=await API.post('/mandates/'+encodeURIComponent(mid)+'/portfolio/refresh-prices',{});
+    var processed=Number(summary&&summary.processed||0);
+    var updated=Number(summary&&summary.updated||0)+Number(summary&&summary.inserted||0);
+    var unchanged=Number(summary&&summary.unchanged||0);
+    var failed=Number(summary&&summary.failed||0);
+    var msg='Live-Preise: '+processed+' Produkte geprüft, '+updated+' aktualisiert, '+unchanged+' unverändert';
+    if(failed) msg+=', '+failed+' Fehler';
+    if(summary&&summary.warnings&&summary.warnings.length) msg+=' · '+summary.warnings[0];
+    if(window.showAppSuccess) showAppSuccess(msg, {title:'Marktdaten'});
+    else updateStrategyStatus(msg, false);
+    // Portfolio neu laden, damit die neuen Preise im Bestand sichtbar werden
+    await refreshPortfolioFromStoredState();
+    return true;
+  }catch(e){
+    var reason=(e&&(e.detail||e.message))||'unbekannter Fehler';
+    updateStrategyStatus('Live-Preise konnten nicht geladen werden: '+reason, true);
+    if(window.showAppError) showAppError('Live-Preise: '+reason);
+    return false;
+  }finally{
+    if(btn){btn.disabled=false; btn.textContent='Live-Preise';}
+  }
+}
+
 function dcf(btn){
   var row=btn&&btn.closest?btn.closest('.cf-row'):null,cfId=row?row.dataset.cfid:null;
   var cid=getActiveClientId();

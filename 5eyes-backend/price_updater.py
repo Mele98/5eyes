@@ -615,6 +615,135 @@ def summarize_price_quality(
     }
 
 
+def _product_ids_for_mandate(db: Session, mandate_id: str) -> list[str]:
+    """Sprint U-P11b (2026-05-22): Liefert die Product-IDs, die im
+    letzten RecommendationRun dieses Mandates verwendet wurden.
+
+    Wenn das Mandat noch keinen RecommendationRun hat, liefert die
+    Funktion eine leere Liste (kein Crash).
+    """
+    from models.review import RecommendationPosition, RecommendationRun
+
+    latest_run = (
+        db.query(RecommendationRun)
+        .filter(RecommendationRun.mandate_id == mandate_id)
+        .order_by(RecommendationRun.created_at.desc())
+        .first()
+    )
+    if latest_run is None:
+        return []
+    pids = (
+        db.query(RecommendationPosition.product_id)
+        .filter(RecommendationPosition.run_id == latest_run.id)
+        .distinct()
+        .all()
+    )
+    return [pid for (pid,) in pids if pid]
+
+
+def refresh_prices_for_mandate(db: Session, mandate_id: str) -> dict[str, Any]:
+    """Sprint U-P11b (2026-05-22): Per-Mandate Live-Preise-Refresh.
+
+    Engerer Scope als refresh_all_prices: nur die Products, die im
+    aktuellsten RecommendationRun dieses Mandates auftauchen, werden
+    via Marktdaten-Aggregator (yfinance/stooq-Fallback) geholt und
+    in price_history persistiert.
+
+    Idempotent (UPSERT-Pattern aus upsert_price_history bleibt).
+
+    Returns Summary analog refresh_all_prices: processed, inserted,
+    updated, unchanged, failed, failures, mandate_id, started_at,
+    finished_at.
+
+    Wenn das Mandat noch keinen RecommendationRun hat: leeres
+    Summary mit warning.
+    """
+    product_ids = _product_ids_for_mandate(db, mandate_id)
+    summary: dict[str, Any] = {
+        "mandate_id": mandate_id,
+        "processed": 0,
+        "inserted": 0,
+        "updated": 0,
+        "unchanged": 0,
+        "reused_fresh": 0,
+        "failed": 0,
+        "failures": [],
+        "started_at": utc_now_iso(),
+        "provider": PRICE_SOURCE,
+        "fallback_provider": FALLBACK_PRICE_SOURCE,
+        "warnings": [],
+    }
+    if not product_ids:
+        summary["finished_at"] = utc_now_iso()
+        summary["warnings"].append(
+            "Kein Recommendation-Run für dieses Mandat — bitte zuerst die "
+            "Anlagestrategie berechnen und Portfolio aufbauen."
+        )
+        return summary
+
+    products = (
+        db.query(Product)
+        .filter(
+            Product.id.in_(product_ids),
+            Product.is_active == 1,
+            Product.deleted_at.is_(None),
+        )
+        .order_by(Product.product_name.asc())
+        .all()
+    )
+    summary["processed"] = len(products)
+    if not products:
+        summary["finished_at"] = utc_now_iso()
+        summary["warnings"].append(
+            "Keine aktiven Produkte im aktuellsten Recommendation-Run."
+        )
+        return summary
+
+    existing_latest = latest_price_snapshot(db, [product.id for product in products])
+    today = date.today()
+    stale_after_days = 5
+    points, failures = fetch_latest_prices_batch(products)
+
+    for product in products:
+        price_point = points.get(product.id)
+        if price_point is None:
+            latest_existing = existing_latest.get(product.id)
+            latest_date = parse_iso_date(latest_existing.price_date) if latest_existing else None
+            latest_age_days = (today - latest_date).days if latest_date else None
+            if latest_existing and latest_age_days is not None and latest_age_days <= stale_after_days:
+                summary["reused_fresh"] += 1
+                summary["unchanged"] += 1
+                continue
+            failure = failures.get(product.id) or {
+                "lookup_symbol": resolve_lookup_symbol(product),
+                "lookup_mode": resolve_market_profile(product).get("lookup_mode"),
+                "error": "Unbekannter Preisfehler",
+            }
+            summary["failed"] += 1
+            summary["failures"].append({
+                "product_id": product.id,
+                "product_name": product.product_name,
+                "lookup_symbol": failure.get("lookup_symbol"),
+                "lookup_mode": failure.get("lookup_mode"),
+                "error": failure.get("error"),
+            })
+            continue
+
+        with db.begin_nested():
+            _, outcome = upsert_price_history(db, product, price_point)
+
+        if outcome == "inserted":
+            summary["inserted"] += 1
+        elif outcome == "updated":
+            summary["updated"] += 1
+        else:
+            summary["unchanged"] += 1
+
+    db.commit()
+    summary["finished_at"] = utc_now_iso()
+    return summary
+
+
 def refresh_all_prices(db: Session) -> dict[str, Any]:
     global _last_refresh_summary
 
