@@ -94,6 +94,14 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 .ph-t{font-family:var(--f-d);font-size:21px;font-weight:500;color:var(--n8);margin-bottom:2px;}
 .ph-s{font-size:10px;color:var(--n4);}
 .ph-r{display:flex;gap:7px;}
+.aa-actions{align-items:center;flex-wrap:wrap;}
+.aa-more{position:relative;}
+.aa-more>summary{list-style:none;width:30px;height:30px;display:flex;align-items:center;justify-content:center;border:1px solid var(--b2);border-radius:var(--r);color:var(--n5);cursor:pointer;background:transparent;font-size:18px;line-height:1;}
+.aa-more>summary::-webkit-details-marker{display:none;}
+.aa-more[open]>summary,.aa-more>summary:hover{border-color:var(--n4);color:var(--n8);background:var(--bg);}
+.aa-more-menu{position:absolute;right:0;top:calc(100% + 6px);z-index:40;min-width:210px;padding:6px;border:1px solid var(--b1);border-radius:var(--r2);background:var(--surface);box-shadow:0 18px 38px rgba(15,23,42,0.14);}
+.aa-more-menu .btn{width:100%;display:block;text-align:left;border:none;background:transparent;border-radius:var(--r);padding:7px 9px;color:var(--n6);}
+.aa-more-menu .btn:hover{background:var(--bg);color:var(--n8);}
 .pad{padding:18px 26px 22px;}
 .mb{margin-bottom:12px;}
 .g2{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;}
@@ -1261,7 +1269,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 
     <!-- PAGE: ALLOKATION -->
     <div id="page-al" class="page">
-      <div class="ph"><div><div class="ph-t">Asset Allokation</div><div class="ph-s">SOLL-Strategie aus Risikoprofil, Zielen und Beratungsvermögen — stochastisch optimiert</div></div><div class="ph-r"><button class="btn" id="btn-aa-pref-open" onclick="openAllocationPreferencesModal()">Anlagepräferenzen</button><button class="btn" id="btn-aa-params-open" onclick="openAllocationParametersModal()">Parameter</button><button class="btn" onclick="openMandateSettingsModal()" title="Mandat-Einstellungen: Mortalitaet, Rentenalter, Lebenserwartung">Mandat-Einstellungen</button><button class="btn-g" id="btn-aa-calc" onclick="calculateInvestmentStrategy()">Anlagestrategie berechnen</button><button class="btn" onclick="openAllocationEngineModal()">Soll-Quoten</button><button class="btn" id="btn-aa-pdf" onclick="downloadServerPdf('assetallocation')" title="Asset-Allocation-PDF (Server)">PDF</button><button class="btn-p" id="btn-portfolio-umsetzen" onclick="openPortfolioUmsetzenModal()" style="display:none;background:var(--pos);color:#fff">Portfolio umsetzen ✓</button><button class="btn-p" onclick="go('po')">Weiter zum Portfolio &rarr;</button></div></div>
+      <div class="ph"><div><div class="ph-t">Asset Allokation</div><div class="ph-s">SOLL-Strategie aus Risikoprofil, Zielen und Beratungsvermögen — stochastisch optimiert</div></div><div class="ph-r aa-actions"><button class="btn" id="btn-aa-pref-open" onclick="openAllocationPreferencesModal()">Anlagepräferenzen</button><button class="btn-g" id="btn-aa-calc" onclick="calculateInvestmentStrategy()">Anlagestrategie berechnen</button><button class="btn" id="btn-aa-backtest" onclick="openStrategyBacktest()" title="Backtest der SOLL-Strategie auf historischen Jahresrenditen (Wealth-Index, Drawdown, CAGR, Sharpe)">Backtest</button><button class="btn" id="btn-aa-pdf" onclick="downloadServerPdf('assetallocation')" title="Asset-Allocation-PDF (Server)">PDF</button><button class="btn-p" id="btn-portfolio-umsetzen" onclick="openPortfolioUmsetzenModal()" style="display:none;background:var(--pos);color:#fff">Portfolio umsetzen ✓</button><details class="aa-more"><summary title="Interne Optionen">⋯</summary><div class="aa-more-menu"><button class="btn" id="btn-aa-params-open" onclick="openAllocationParametersModal();this.closest('details').removeAttribute('open')">Parameter</button><button class="btn" onclick="openMandateSettingsModal();this.closest('details').removeAttribute('open')" title="Mandat-Einstellungen: Mortalitaet, Rentenalter, Lebenserwartung">Mandat-Einstellungen</button><button class="btn" onclick="openAllocationEngineModal();this.closest('details').removeAttribute('open')">Soll-Quoten</button></div></details></div></div>
       <div id="al-dirty-banner" class="strip strip-w" style="display:none">
         <div>
           <div class="st">Strategie veraltet</div>
@@ -2053,6 +2061,90 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
   </div>
   <div class="mfooter">
     <button class="btn" onclick="cm('m-ab')">Schliessen</button>
+  </div>
+</div></div>
+
+<!-- Sprint U-P17 (2026-05-21): Strategie-Backtest (Annual MVP) -->
+<div class="overlay" id="m-bt"><div class="modal" style="width:1180px;max-width:98vw">
+  <div class="mhd"><div class="mtitle">Strategie-Backtest <span style="font-size:10px;color:var(--n5);font-weight:400;margin-left:6px">Annual MVP &middot; Daily kommt mit U-P11</span></div><button class="mx" onclick="cm('m-bt')">&#x2715;</button></div>
+  <div class="mbody">
+    <div id="bt-info" style="font-size:11px;color:var(--n6);background:var(--bg2);border:1px solid var(--b1);border-radius:6px;padding:8px;margin-bottom:10px">
+      Wendet die SOLL-Strategie dieses Mandates auf historische Jahresrenditen pro Asset-Klasse an
+      (Quelle: Admin &gt; Annual-Returns). Beratungsverm&ouml;gen als Initial-Kapital. Keine Cashflows.
+    </div>
+
+    <!-- Konfigurations-Panel -->
+    <div style="display:grid;grid-template-columns:1fr 2fr;gap:14px;margin-bottom:10px">
+      <!-- Zeitraum -->
+      <div style="background:var(--bg);border:1px solid var(--b1);border-radius:6px;padding:10px">
+        <div style="font-size:10px;font-weight:700;color:var(--n8);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px">Zeitraum</div>
+        <div style="display:grid;grid-template-columns:auto 1fr auto 1fr;gap:6px;align-items:center;font-size:11px">
+          <label style="color:var(--n6)">Von</label>
+          <input class="fi" id="bt-start-year" type="number" placeholder="auto" style="font-size:11px;padding:4px 6px;width:100%">
+          <label style="color:var(--n6)">Bis</label>
+          <input class="fi" id="bt-end-year" type="number" placeholder="auto" style="font-size:11px;padding:4px 6px;width:100%">
+        </div>
+        <div id="bt-available-range" style="font-size:9.5px;color:var(--n5);margin-top:6px"></div>
+        <div style="font-size:10px;color:var(--n6);margin-top:8px;font-weight:600;text-transform:uppercase;letter-spacing:0.04em">Rebalancing</div>
+        <div style="display:flex;gap:12px;font-size:11px;margin-top:4px">
+          <label style="cursor:pointer"><input type="checkbox" id="bt-show-rebal" checked> Mit j&auml;hrl. Rebal</label>
+          <label style="cursor:pointer"><input type="checkbox" id="bt-show-norebal"> Ohne Rebal</label>
+        </div>
+      </div>
+
+      <!-- Benchmark-Editor -->
+      <div style="background:var(--bg);border:1px solid var(--b1);border-radius:6px;padding:10px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <div style="font-size:10px;font-weight:700;color:var(--n8);text-transform:uppercase;letter-spacing:0.06em">Benchmark (optional)</div>
+          <label style="font-size:11px;cursor:pointer"><input type="checkbox" id="bt-bm-enable" onchange="btToggleBenchmark()"> Benchmark anzeigen</label>
+        </div>
+        <div id="bt-bm-controls" style="display:none">
+          <div style="display:flex;gap:6px;margin-bottom:6px">
+            <button class="btn" style="font-size:10px;padding:3px 8px" onclick="btSetBenchmarkPreset('aktien100')">100% Aktien</button>
+            <button class="btn" style="font-size:10px;padding:3px 8px" onclick="btSetBenchmarkPreset('60_40')">60/40</button>
+            <button class="btn" style="font-size:10px;padding:3px 8px" onclick="btSetBenchmarkPreset('70_30')">70/30</button>
+            <button class="btn" style="font-size:10px;padding:3px 8px" onclick="btSetBenchmarkPreset('clear')">Leer</button>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px;font-size:10px;color:var(--n6)">
+            <div><div>Aktien</div><div style="display:flex;align-items:center;gap:2px"><input class="fi bt-bm-pct" id="bt-bm-eq" type="number" min="0" max="100" step="1" value="60" style="font-size:11px;padding:3px 5px;width:100%"><span>%</span></div></div>
+            <div><div>Obligationen</div><div style="display:flex;align-items:center;gap:2px"><input class="fi bt-bm-pct" id="bt-bm-bd" type="number" min="0" max="100" step="1" value="40" style="font-size:11px;padding:3px 5px;width:100%"><span>%</span></div></div>
+            <div><div>Immobilien</div><div style="display:flex;align-items:center;gap:2px"><input class="fi bt-bm-pct" id="bt-bm-re" type="number" min="0" max="100" step="1" value="0" style="font-size:11px;padding:3px 5px;width:100%"><span>%</span></div></div>
+            <div><div>Alt.</div><div style="display:flex;align-items:center;gap:2px"><input class="fi bt-bm-pct" id="bt-bm-al" type="number" min="0" max="100" step="1" value="0" style="font-size:11px;padding:3px 5px;width:100%"><span>%</span></div></div>
+            <div><div>Liquidit&auml;t</div><div style="display:flex;align-items:center;gap:2px"><input class="fi bt-bm-pct" id="bt-bm-lq" type="number" min="0" max="100" step="1" value="0" style="font-size:11px;padding:3px 5px;width:100%"><span>%</span></div></div>
+          </div>
+          <div id="bt-bm-sum" style="font-size:10px;color:var(--n5);margin-top:4px;text-align:right"></div>
+        </div>
+      </div>
+    </div>
+
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:10px">
+      <button class="btn-p" id="bt-run-btn" onclick="btRunBacktest()">Backtest rechnen</button>
+    </div>
+
+    <div id="bt-status" style="font-size:11px;color:var(--n5);padding:6px 8px;background:var(--bg2);border-radius:6px;margin-bottom:10px;display:none"></div>
+
+    <!-- Result-Section -->
+    <div id="bt-content" style="display:none">
+      <div id="bt-meta" style="font-size:11px;color:var(--n6);margin-bottom:10px"></div>
+
+      <!-- Wealth-Index Chart -->
+      <div style="font-size:11px;font-weight:700;color:var(--n8);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.06em">Wealth-Index (Verm&ouml;gens-Pfad)</div>
+      <div id="bt-wealth-chart" style="background:var(--bg);border:1px solid var(--b1);border-radius:6px;padding:8px;margin-bottom:12px"></div>
+
+      <!-- Drawdown Chart -->
+      <div style="font-size:11px;font-weight:700;color:var(--n8);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.06em">Drawdown</div>
+      <div id="bt-drawdown-chart" style="background:var(--bg);border:1px solid var(--b1);border-radius:6px;padding:8px;margin-bottom:12px"></div>
+
+      <!-- Metriken-Tabelle -->
+      <div style="font-size:11px;font-weight:700;color:var(--n8);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.06em">Kennzahlen</div>
+      <div id="bt-metrics-table" style="margin-bottom:14px"></div>
+
+      <!-- Warnings -->
+      <div id="bt-warnings"></div>
+    </div>
+  </div>
+  <div class="mfooter">
+    <button class="btn" onclick="cm('m-bt')">Schliessen</button>
   </div>
 </div></div>
 
@@ -8675,6 +8767,368 @@ function abRenderWarnings(warnings){
   el.innerHTML = html;
 }
 
+// ============================================================================
+// Sprint U-P17 (2026-05-21): Strategie-Backtest (Annual MVP)
+// ============================================================================
+
+var BT_LAST_RESULT = null;  // letztes Backtest-Resultat (für Re-Render bei Toggle)
+
+function btFormatCHF(rappen){ return (Number(rappen||0)/100).toLocaleString('de-CH', {maximumFractionDigits: 0}) + ' CHF'; }
+function btFormatPctBps(bps, decimals){ var d = decimals==null?1:decimals; return (Number(bps||0)/100).toFixed(d) + '%'; }
+function btSignedPctBps(bps, decimals){
+  var d = decimals==null?1:decimals;
+  var n = Number(bps||0)/100;
+  return (n>=0?'+':'') + n.toFixed(d) + '%';
+}
+
+async function openStrategyBacktest(){
+  var mid = typeof getActiveMandateId==='function' ? getActiveMandateId() : null;
+  if(!mid){
+    if(window.showAppError) showAppError('Bitte zuerst ein Mandat oeffnen.');
+    else alert('Bitte zuerst ein Mandat oeffnen.');
+    return;
+  }
+  om('m-bt');
+  // Inputs zurücksetzen
+  document.getElementById('bt-start-year').value = '';
+  document.getElementById('bt-end-year').value = '';
+  document.getElementById('bt-show-rebal').checked = true;
+  document.getElementById('bt-show-norebal').checked = false;
+  document.getElementById('bt-bm-enable').checked = false;
+  document.getElementById('bt-bm-controls').style.display = 'none';
+  document.getElementById('bt-content').style.display = 'none';
+  document.getElementById('bt-available-range').textContent = '';
+  // Auto-Initial-Backtest ohne Benchmark
+  btRunBacktest();
+}
+
+function btToggleBenchmark(){
+  var on = document.getElementById('bt-bm-enable').checked;
+  document.getElementById('bt-bm-controls').style.display = on ? '' : 'none';
+  if(on) btUpdateBenchmarkSum();
+}
+
+function btSetBenchmarkPreset(name){
+  var presets = {
+    'aktien100': {eq:100, bd:0, re:0, al:0, lq:0},
+    '60_40':     {eq:60,  bd:40, re:0, al:0, lq:0},
+    '70_30':     {eq:70,  bd:30, re:0, al:0, lq:0},
+    'clear':     {eq:0,   bd:0, re:0, al:0, lq:0},
+  };
+  var p = presets[name];
+  if(!p) return;
+  document.getElementById('bt-bm-eq').value = p.eq;
+  document.getElementById('bt-bm-bd').value = p.bd;
+  document.getElementById('bt-bm-re').value = p.re;
+  document.getElementById('bt-bm-al').value = p.al;
+  document.getElementById('bt-bm-lq').value = p.lq;
+  btUpdateBenchmarkSum();
+}
+
+function btReadBenchmarkPctInputs(){
+  return {
+    eq: Number(document.getElementById('bt-bm-eq').value || 0),
+    bd: Number(document.getElementById('bt-bm-bd').value || 0),
+    re: Number(document.getElementById('bt-bm-re').value || 0),
+    al: Number(document.getElementById('bt-bm-al').value || 0),
+    lq: Number(document.getElementById('bt-bm-lq').value || 0),
+  };
+}
+
+function btUpdateBenchmarkSum(){
+  var v = btReadBenchmarkPctInputs();
+  var sum = v.eq + v.bd + v.re + v.al + v.lq;
+  var sumEl = document.getElementById('bt-bm-sum');
+  if(sumEl){
+    var color = sum === 100 ? 'var(--pos)' : (Math.abs(sum-100) <= 1 ? 'var(--n5)' : 'var(--neg)');
+    sumEl.style.color = color;
+    sumEl.textContent = 'Summe: ' + sum + '% ' + (sum === 100 ? '✓' : '(wird normalisiert auf 100%)');
+  }
+}
+
+// Bei Input-Änderung der Benchmark-Inputs Live-Summe aktualisieren
+document.addEventListener('input', function(e){
+  if(e.target && e.target.classList && e.target.classList.contains('bt-bm-pct')) btUpdateBenchmarkSum();
+});
+
+async function btRunBacktest(){
+  var mid = typeof getActiveMandateId==='function' ? getActiveMandateId() : null;
+  if(!mid) return;
+  var statusEl = document.getElementById('bt-status');
+  var contentEl = document.getElementById('bt-content');
+  var btn = document.getElementById('bt-run-btn');
+  if(statusEl){ statusEl.style.display='block'; statusEl.textContent='Rechne Backtest…'; statusEl.style.color='var(--n5)'; }
+  if(contentEl) contentEl.style.display='none';
+  if(btn) btn.disabled = true;
+  try {
+    var qs = [];
+    var sy = document.getElementById('bt-start-year').value;
+    var ey = document.getElementById('bt-end-year').value;
+    if(sy) qs.push('start_year=' + encodeURIComponent(sy));
+    if(ey) qs.push('end_year=' + encodeURIComponent(ey));
+    if(document.getElementById('bt-bm-enable').checked){
+      var v = btReadBenchmarkPctInputs();
+      // Inputs sind % (0..100). Backend will bps (0..10000) => *100.
+      qs.push('benchmark_equities_bps=' + (v.eq * 100));
+      qs.push('benchmark_bonds_bps=' + (v.bd * 100));
+      qs.push('benchmark_real_estate_bps=' + (v.re * 100));
+      qs.push('benchmark_alternatives_bps=' + (v.al * 100));
+      qs.push('benchmark_liquidity_bps=' + (v.lq * 100));
+    }
+    var path = '/mandates/' + encodeURIComponent(mid) + '/backtest/strategy' + (qs.length ? '?' + qs.join('&') : '');
+    var data = await API.get(path);
+    BT_LAST_RESULT = data;
+    btRender(data);
+    if(statusEl){ statusEl.style.display='none'; }
+    if(contentEl) contentEl.style.display='';
+  } catch(e){
+    if(statusEl){
+      statusEl.textContent = '⚠ ' + (e && (e.detail||e.message) || 'Backtest fehlgeschlagen');
+      statusEl.style.color = 'var(--neg)';
+    }
+  } finally {
+    if(btn) btn.disabled = false;
+  }
+}
+
+// Toggle-Listener für Re-Render ohne neuen API-Call
+document.addEventListener('change', function(e){
+  if(e.target && (e.target.id === 'bt-show-rebal' || e.target.id === 'bt-show-norebal')){
+    if(BT_LAST_RESULT) btRender(BT_LAST_RESULT);
+  }
+});
+
+function btRender(data){
+  var meta = document.getElementById('bt-meta');
+  var avail = document.getElementById('bt-available-range');
+
+  if(data.available_years && data.available_years.length){
+    var y0 = data.available_years[0], yN = data.available_years[data.available_years.length-1];
+    avail.textContent = 'Verfügbar: ' + y0 + '–' + yN + ' (' + data.available_years.length + ' Jahre)';
+  } else {
+    avail.textContent = 'Keine vollständigen Jahre gepflegt';
+  }
+
+  if(!data.soll){
+    btRenderWarnings(data.warnings || []);
+    if(meta) meta.textContent = '';
+    document.getElementById('bt-wealth-chart').innerHTML = '';
+    document.getElementById('bt-drawdown-chart').innerHTML = '';
+    document.getElementById('bt-metrics-table').innerHTML = '';
+    return;
+  }
+
+  if(meta){
+    var soll = data.soll.weights_bps || {};
+    var weightSummary = ['equities','bonds','real_estate','alternatives','liquidity']
+      .map(function(b){ return (soll[b]/100).toFixed(0)+'%'; }).join(' / ');
+    meta.innerHTML = 'Initial: <b>' + btFormatCHF(data.initial_value_rappen)
+      + '</b> · Zeitraum: <b>' + data.start_year + '–' + data.end_year + '</b>'
+      + ' · SOLL (Aktien/Obl/Imm/Alt/Liq): <b>' + weightSummary + '</b>'
+      + (data.benchmark ? ' · Benchmark aktiv' : '');
+  }
+
+  var showRebal = document.getElementById('bt-show-rebal').checked;
+  var showNoRebal = document.getElementById('bt-show-norebal').checked;
+  if(!showRebal && !showNoRebal){
+    // Mindestens eine Variante muss aktiv sein
+    document.getElementById('bt-show-rebal').checked = true;
+    showRebal = true;
+  }
+
+  // Series für Charts zusammenstellen
+  var wealthSeries = [];
+  var ddSeries = [];
+
+  if(showRebal){
+    wealthSeries.push({label:'SOLL (Rebal)', color:'#1e4b8f', dash:false,
+      data: data.soll.rebalanced.wealth_path_rappen.map(function(p){ return [p[0], p[1]]; })});
+    ddSeries.push({label:'SOLL (Rebal)', color:'#1e4b8f', dash:false,
+      data: data.soll.rebalanced.drawdown_path_bps.map(function(p){ return [p.year, p.drawdown_bps]; })});
+  }
+  if(showNoRebal){
+    wealthSeries.push({label:'SOLL (Buy&Hold)', color:'#1e4b8f', dash:true,
+      data: data.soll.no_rebalance.wealth_path_rappen.map(function(p){ return [p[0], p[1]]; })});
+    ddSeries.push({label:'SOLL (Buy&Hold)', color:'#1e4b8f', dash:true,
+      data: data.soll.no_rebalance.drawdown_path_bps.map(function(p){ return [p.year, p.drawdown_bps]; })});
+  }
+  if(data.benchmark){
+    if(showRebal){
+      wealthSeries.push({label:'Benchmark (Rebal)', color:'#92400e', dash:false,
+        data: data.benchmark.rebalanced.wealth_path_rappen.map(function(p){ return [p[0], p[1]]; })});
+      ddSeries.push({label:'Benchmark (Rebal)', color:'#92400e', dash:false,
+        data: data.benchmark.rebalanced.drawdown_path_bps.map(function(p){ return [p.year, p.drawdown_bps]; })});
+    }
+    if(showNoRebal){
+      wealthSeries.push({label:'Benchmark (Buy&Hold)', color:'#92400e', dash:true,
+        data: data.benchmark.no_rebalance.wealth_path_rappen.map(function(p){ return [p[0], p[1]]; })});
+      ddSeries.push({label:'Benchmark (Buy&Hold)', color:'#92400e', dash:true,
+        data: data.benchmark.no_rebalance.drawdown_path_bps.map(function(p){ return [p.year, p.drawdown_bps]; })});
+    }
+  }
+
+  btRenderLineChart(document.getElementById('bt-wealth-chart'), wealthSeries, {
+    height: 240, yFormat: function(v){ return btFormatCHF(v).replace(' CHF',''); },
+    yMin: null, yMax: null,
+  });
+  btRenderLineChart(document.getElementById('bt-drawdown-chart'), ddSeries, {
+    height: 140, yFormat: function(v){ return (v/100).toFixed(0) + '%'; },
+    yMin: null, yMax: 0, fillBelow: true, isDrawdown: true,
+  });
+
+  btRenderMetricsTable(data, showRebal, showNoRebal);
+  btRenderWarnings(data.warnings || []);
+}
+
+function btRenderMetricsTable(data, showRebal, showNoRebal){
+  var cols = [];
+  if(showRebal) cols.push({key:'soll_rebal', label:'SOLL Rebal', color:'#1e4b8f', metrics: data.soll.rebalanced.metrics});
+  if(showNoRebal) cols.push({key:'soll_norebal', label:'SOLL Buy&Hold', color:'#1e4b8f', dash:true, metrics: data.soll.no_rebalance.metrics});
+  if(data.benchmark){
+    if(showRebal) cols.push({key:'bm_rebal', label:'Benchmark Rebal', color:'#92400e', metrics: data.benchmark.rebalanced.metrics});
+    if(showNoRebal) cols.push({key:'bm_norebal', label:'Benchmark Buy&Hold', color:'#92400e', dash:true, metrics: data.benchmark.no_rebalance.metrics});
+  }
+  var rows = [
+    {label:'Total-Return',  fn: function(m){ return btSignedPctBps(m.total_return_bps); }, hi:'pos_neg'},
+    {label:'CAGR (annualisiert)', fn: function(m){ return btSignedPctBps(m.cagr_bps, 2); }, hi:'pos_neg'},
+    {label:'Volatilität (annualisiert)', fn: function(m){ return btFormatPctBps(m.vol_bps, 2); }},
+    {label:'Sharpe-Ratio', fn: function(m){ return (m.sharpe_x100/100).toFixed(2); }},
+    {label:'Max Drawdown', fn: function(m){ return '-' + btFormatPctBps(m.max_drawdown_bps, 1); }, neg:true},
+    {label:'Bestes Jahr', fn: function(m){ return btSignedPctBps(m.best_year_bps) + (m.best_year_label ? ' (' + m.best_year_label + ')' : ''); }, hi:'pos'},
+    {label:'Schlechtestes Jahr', fn: function(m){ return btSignedPctBps(m.worst_year_bps) + (m.worst_year_label ? ' (' + m.worst_year_label + ')' : ''); }, hi:'neg'},
+    {label:'Win-Rate', fn: function(m){ return btFormatPctBps(m.win_rate_x100, 0) + ' (' + m.positive_years + '/' + m.years_count + ')'; }},
+    {label:'Startwert', fn: function(m){ return btFormatCHF(m.start_value_rappen); }},
+    {label:'Endwert', fn: function(m){ return btFormatCHF(m.end_value_rappen); }, hi:'bold'},
+  ];
+
+  var html = '<table style="width:100%;border-collapse:collapse;font-size:10.5px">';
+  html += '<thead><tr style="background:var(--bg2)"><th style="padding:5px;text-align:left;border:1px solid var(--b1)">Kennzahl</th>';
+  cols.forEach(function(c){
+    html += '<th style="padding:5px;text-align:right;border:1px solid var(--b1)">'
+      + '<span style="display:inline-block;width:10px;height:10px;background:'+c.color+';border-radius:50%;margin-right:5px;' + (c.dash ? 'border:1.5px dashed #fff;background:transparent;outline:2px solid '+c.color+';outline-offset:-2px;' : '') + '"></span>'
+      + dcEscape(c.label) + '</th>';
+  });
+  html += '</tr></thead><tbody>';
+  rows.forEach(function(row){
+    html += '<tr>';
+    html += '<td style="padding:4px 6px;border:1px solid var(--b1);font-weight:600">' + dcEscape(row.label) + '</td>';
+    cols.forEach(function(c){
+      var v = row.fn(c.metrics);
+      var style = 'padding:4px 6px;border:1px solid var(--b1);text-align:right';
+      if(row.hi === 'bold') style += ';font-weight:700';
+      if(row.neg) style += ';color:var(--neg)';
+      html += '<td style="'+style+'">' + dcEscape(String(v)) + '</td>';
+    });
+    html += '</tr>';
+  });
+  html += '</tbody></table>';
+  document.getElementById('bt-metrics-table').innerHTML = html;
+}
+
+function btRenderWarnings(warnings){
+  var el = document.getElementById('bt-warnings');
+  if(!el) return;
+  if(!warnings || !warnings.length){ el.innerHTML = ''; return; }
+  var html = '<div style="background:rgba(146,64,14,0.08);border-left:3px solid var(--neg);padding:8px 10px;border-radius:4px;margin-top:8px"><div style="font-size:10px;font-weight:700;color:var(--n8);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.06em">Hinweise</div>';
+  html += warnings.map(function(w){ return '<div style="font-size:10.5px;color:var(--n7);padding:2px 0">⚠ ' + dcEscape(w) + '</div>'; }).join('');
+  html += '</div>';
+  el.innerHTML = html;
+}
+
+// ============================================================================
+// SVG-Line-Chart (kein external dep). Pflegt eine konsistente x/y-Skala.
+// ============================================================================
+function btRenderLineChart(container, series, opts){
+  opts = opts || {};
+  container.innerHTML = '';
+  if(!series || !series.length){
+    container.innerHTML = '<div style="text-align:center;color:var(--n5);font-size:10.5px;padding:24px">Keine Daten</div>';
+    return;
+  }
+  var W = container.clientWidth || 1100;
+  var H = opts.height || 240;
+  var marginLeft = 60, marginRight = 16, marginTop = 16, marginBottom = 36;
+  var innerW = W - marginLeft - marginRight;
+  var innerH = H - marginTop - marginBottom;
+
+  // x-Domäne: alle Years zusammen
+  var allYears = [];
+  var allYs = [];
+  series.forEach(function(s){ s.data.forEach(function(pt){ allYears.push(pt[0]); allYs.push(pt[1]); }); });
+  var xMin = Math.min.apply(null, allYears);
+  var xMax = Math.max.apply(null, allYears);
+  if(xMin === xMax) xMax = xMin + 1;
+
+  // y-Domäne (mit Padding)
+  var yMinRaw = (opts.yMin !== undefined && opts.yMin !== null) ? opts.yMin : Math.min.apply(null, allYs);
+  var yMaxRaw = (opts.yMax !== undefined && opts.yMax !== null) ? opts.yMax : Math.max.apply(null, allYs);
+  if(opts.isDrawdown){
+    yMinRaw = Math.min(yMinRaw, 0);
+    yMaxRaw = Math.max(yMaxRaw, 0);
+  }
+  var yRange = (yMaxRaw - yMinRaw) || Math.abs(yMaxRaw) || 1;
+  var yPadding = yRange * 0.05;
+  var yMin = yMinRaw - yPadding;
+  var yMax = yMaxRaw + yPadding;
+  if(opts.yMax === 0) yMax = Math.max(0, yPadding);
+
+  function xPx(year){ return marginLeft + (year - xMin) / (xMax - xMin) * innerW; }
+  function yPx(val){ return marginTop + (1 - (val - yMin) / (yMax - yMin)) * innerH; }
+
+  var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" height="' + H + '" preserveAspectRatio="none" style="display:block">';
+
+  // Gridlines (5 horizontal)
+  var nGrid = 5;
+  for(var i=0; i<=nGrid; i++){
+    var y = marginTop + (innerH * i / nGrid);
+    var yVal = yMax - (yMax - yMin) * (i / nGrid);
+    svg += '<line x1="' + marginLeft + '" y1="' + y + '" x2="' + (W - marginRight) + '" y2="' + y + '" stroke="#e2e8f0" stroke-width="0.5"/>';
+    svg += '<text x="' + (marginLeft - 6) + '" y="' + (y + 3) + '" font-size="9" fill="#64748b" text-anchor="end" font-family="system-ui">' + (opts.yFormat ? opts.yFormat(yVal) : String(Math.round(yVal))) + '</text>';
+  }
+  // Zero line (für Drawdown)
+  if(opts.isDrawdown){
+    var y0 = yPx(0);
+    svg += '<line x1="' + marginLeft + '" y1="' + y0 + '" x2="' + (W - marginRight) + '" y2="' + y0 + '" stroke="#64748b" stroke-width="1" stroke-dasharray="2 2"/>';
+  }
+
+  // X-Axis labels — alle Years wenn ≤ 12, sonst jeden 2./3.
+  var uniqueYears = Array.from(new Set(allYears)).sort(function(a,b){ return a-b; });
+  var stride = uniqueYears.length <= 12 ? 1 : Math.ceil(uniqueYears.length / 12);
+  uniqueYears.forEach(function(yr, idx){
+    if(idx % stride === 0 || idx === uniqueYears.length-1){
+      var x = xPx(yr);
+      svg += '<text x="' + x + '" y="' + (H - marginBottom + 14) + '" font-size="9" fill="#64748b" text-anchor="middle" font-family="system-ui">' + yr + '</text>';
+    }
+  });
+
+  // Series als Polylines
+  series.forEach(function(s){
+    if(opts.fillBelow && opts.isDrawdown){
+      // Area fill für Drawdown
+      var areaPts = s.data.map(function(pt){ return xPx(pt[0]) + ',' + yPx(pt[1]); }).join(' ');
+      var areaFirst = xPx(s.data[0][0]) + ',' + yPx(0);
+      var areaLast = xPx(s.data[s.data.length-1][0]) + ',' + yPx(0);
+      svg += '<polygon points="' + areaFirst + ' ' + areaPts + ' ' + areaLast + '" fill="' + s.color + '" fill-opacity="0.1" stroke="none"/>';
+    }
+    var pts = s.data.map(function(pt){ return xPx(pt[0]) + ',' + yPx(pt[1]); }).join(' ');
+    svg += '<polyline points="' + pts + '" fill="none" stroke="' + s.color + '" stroke-width="1.8"'
+        + (s.dash ? ' stroke-dasharray="5 3"' : '')
+        + ' stroke-linejoin="round" stroke-linecap="round"/>';
+  });
+
+  // Legende oben rechts
+  var legendX = marginLeft + 8;
+  var legendY = marginTop + 12;
+  series.forEach(function(s, idx){
+    var yy = legendY + idx * 14;
+    svg += '<line x1="' + legendX + '" y1="' + yy + '" x2="' + (legendX+18) + '" y2="' + yy + '" stroke="' + s.color + '" stroke-width="2"' + (s.dash ? ' stroke-dasharray="5 3"' : '') + '/>';
+    svg += '<text x="' + (legendX+24) + '" y="' + (yy+3) + '" font-size="9.5" fill="#334155" font-family="system-ui">' + dcEscape(s.label) + '</text>';
+  });
+
+  svg += '</svg>';
+  container.innerHTML = svg;
+}
+
 async function adminPolicyCloneActive(){
   var active = (adminPolicyState.policies || []).find(function(p){ return p.is_current; });
   if(!active){
@@ -14101,6 +14555,7 @@ async function loadSrPage(){
     // der sr-Seite verworfen.
     if(allocation)strategyState.allocation=allocation;
     if(recommendation)strategyState.recommendation=recommendation;
+    else if(allocation)strategyState.recommendation=null;
     renderSrApiSummary(risk,allocation,recommendation,cashflow,triggers);
     renderSrImplementationDecision(null);
   }catch(e){
@@ -14399,7 +14854,7 @@ async function loadCurrentRecommendationResult(mid){
   try{
     return await API.get('/mandates/'+mid+'/recommendations/current/payload');
   }catch(e){
-    if(e&&e.status===404)return null;
+    if(e&&(e.status===404||e.status===409))return null;
     throw e;
   }
 }
@@ -16851,6 +17306,7 @@ async function refreshReviewUI(mid){
     }
     if(results[5].status==='fulfilled'&&results[5].value&&!strategyState.dirty)strategyState.allocation=results[5].value;
     if(results[6].status==='fulfilled'&&results[6].value&&!strategyState.dirty)strategyState.recommendation=results[6].value;
+    else if(results[5].status==='fulfilled'&&results[5].value&&!strategyState.dirty)strategyState.recommendation=null;
     currentReviewState={
       triggers:results[0].status==='fulfilled'&&Array.isArray(results[0].value)?results[0].value:[],
       logs:results[1].status==='fulfilled'&&Array.isArray(results[1].value)?results[1].value:[],

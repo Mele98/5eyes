@@ -29,6 +29,7 @@ from services.portfolio_engine import (
 from services.depot_check import compute_depot_check
 from services.backtest_stress import compute_stress_replays
 from services.backtest_ab import run_ab_backtest
+from services.backtest_strategy import run_strategy_backtest
 from services.review_engine import refresh_system_review_triggers
 
 router = APIRouter(tags=["Allokation"])
@@ -484,6 +485,58 @@ def get_backtest_ab(
         if "nicht gefunden" in msg:
             raise HTTPException(status_code=404, detail=msg)
         raise HTTPException(status_code=409, detail=msg)
+
+
+@router.get("/mandates/{mandate_id}/backtest/strategy")
+def get_strategy_backtest(
+    mandate_id: str,
+    start_year: int | None = None,
+    end_year: int | None = None,
+    benchmark_equities_bps: int | None = None,
+    benchmark_bonds_bps: int | None = None,
+    benchmark_real_estate_bps: int | None = None,
+    benchmark_alternatives_bps: int | None = None,
+    benchmark_liquidity_bps: int | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Sprint U-P17: SOLL-Strategie-Backtest auf historischen Jahresrenditen.
+
+    Wendet die aktuelle TargetAllocation (Bucket-Gewichte) auf die Jahres-
+    renditen aus admin/system/annual-returns an. Beratungsvermögen als
+    Initial-Kapital (Snapshot aus advisory_wealth_at_generation_rappen,
+    fallback aktuelle WealthPositions-Summe).
+
+    Liefert für SOLL beide Pfade (mit / ohne jährlichem Rebalancing).
+    Optional gleiche Methode auf einen frei konfigurierbaren Benchmark-Mix.
+
+    Query-Params:
+        start_year, end_year — optional, default = max verfügbarer Bereich
+        benchmark_*_bps — optional, alle 5 zusammen ergeben den Benchmark.
+            Wenn alle None, kein Benchmark. Summe wird auf 10000 normalisiert.
+
+    Read-only, kein Audit-Log.
+    """
+    mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    bm_inputs = {
+        "equities": benchmark_equities_bps,
+        "bonds": benchmark_bonds_bps,
+        "real_estate": benchmark_real_estate_bps,
+        "alternatives": benchmark_alternatives_bps,
+        "liquidity": benchmark_liquidity_bps,
+    }
+    benchmark = (
+        {k: int(v) for k, v in bm_inputs.items() if v is not None}
+        if any(v is not None for v in bm_inputs.values())
+        else None
+    )
+    return run_strategy_backtest(
+        db,
+        mandate,
+        start_year=start_year,
+        end_year=end_year,
+        benchmark_weights_bps=benchmark,
+    )
 
 
 # ============================================================================
