@@ -122,6 +122,16 @@ def _compute_scenario_path(
     }
 
 
+def compute_stress_for_weights(weights_bps: Mapping[str, int]) -> list[dict]:
+    """Sprint U-P15 (2026-05-21): reine Stress-Replay-Berechnung für eine
+    gegebene Bucket-Gewichtung.
+
+    Public-Helper für A/B-Backtest und andere Aufrufer, die nicht an eine
+    TargetAllocation gebunden sind. Keine DB-Abhängigkeit.
+    """
+    return [_compute_scenario_path(s, weights_bps) for s in _SCENARIOS]
+
+
 def compute_stress_replays(db: Session, mandate: Mandate) -> dict:
     """Liefert für das Mandat ein Stress-Replay-Ergebnis: pro Szenario
     cumulative_return, max_drawdown, recovery, Jahres-Aufschlüsselung.
@@ -155,6 +165,6 @@ def compute_stress_replays(db: Session, mandate: Mandate) -> dict:
     return {
         "mandate_id": str(getattr(mandate, "id", "") or ""),
         "weights_bps": weights_bps,
-        "scenarios": [_compute_scenario_path(s, weights_bps) for s in _SCENARIOS],
+        "scenarios": compute_stress_for_weights(weights_bps),
         "note": "Replay mit historischen jährlichen Returns pro Asset-Klasse. Foundation-Variante mit hartcodierten Szenarien — volle Marktdaten-Pipeline kommt in Sprint U-P11.",
     }

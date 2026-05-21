@@ -28,6 +28,7 @@ from services.portfolio_engine import (
 )
 from services.depot_check import compute_depot_check
 from services.backtest_stress import compute_stress_replays
+from services.backtest_ab import run_ab_backtest
 from services.review_engine import refresh_system_review_triggers
 
 router = APIRouter(tags=["Allokation"])
@@ -430,6 +431,59 @@ def get_backtest_stress_replays(
     """
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
     return compute_stress_replays(db, mandate)
+
+
+@router.get("/optimizer-policies", response_model=list[OptimizerPolicyResponse])
+def list_optimizer_policies_read(
+    include_historic: bool = True,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Sprint U-P15: Read-only Policy-Liste für Advisor-UI (A/B-Backtest-
+    Selektoren). Im Gegensatz zu /admin/optimizer-policies erfordert dieser
+    Endpoint kein Admin-Recht — er liefert nur die schlanke Liste ohne
+    HouseMatrix-Detail-Rows.
+    """
+    q = db.query(OptimizerPolicy)
+    if not include_historic:
+        q = q.filter(OptimizerPolicy.is_current == 1)
+    return q.order_by(
+        OptimizerPolicy.policy_name.asc(),
+        OptimizerPolicy.version.desc(),
+    ).all()
+
+
+@router.get("/mandates/{mandate_id}/backtest/ab")
+def get_backtest_ab(
+    mandate_id: str,
+    policy_a: str,
+    policy_b: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Sprint U-P15: A/B-HouseMatrix-Backtest.
+
+    Vergleicht zwei OptimizerPolicy-Versionen auf dem Risikoprofil des
+    Mandates und liefert Bucket-Gewichtung, Risk-Metriken (Return/Vol/
+    Sharpe/TER) und Stress-Replays pro Policy + Diff-Strukturen.
+
+    Read-only: kein DB-Mutation, kein Audit-Log nötig.
+
+    Fehler:
+        400: policy_a == policy_b
+        404: eine der Policies nicht gefunden
+        409: Assessment fehlt oder keine aktive CMA
+    """
+    mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    try:
+        return run_ab_backtest(db, mandate, policy_a, policy_b)
+    except ValueError as exc:
+        msg = str(exc)
+        if "müssen unterschiedlich" in msg:
+            raise HTTPException(status_code=400, detail=msg)
+        if "nicht gefunden" in msg:
+            raise HTTPException(status_code=404, detail=msg)
+        raise HTTPException(status_code=409, detail=msg)
 
 
 # ============================================================================

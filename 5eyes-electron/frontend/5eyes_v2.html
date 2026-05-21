@@ -2000,8 +2000,59 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
     </div>
   </div>
   <div class="mfooter">
+    <button class="btn" onclick="openAbBacktest()" title="A/B-Vergleich zweier Optimizer-Policy-Versionen auf das Risikoprofil dieses Mandates">A/B-Backtest</button>
     <button class="btn-p" onclick="downloadServerPdf('depotcheck')" title="Server-PDF: Depot-Check mit Drift, Diversifikation, Stress-Replays">PDF herunterladen</button>
     <button class="btn" onclick="cm('m-dc')">Schliessen</button>
+  </div>
+</div></div>
+
+<!-- Sprint U-P15 (2026-05-21): A/B-HouseMatrix-Backtest -->
+<div class="overlay" id="m-ab"><div class="modal" style="width:1000px;max-width:97vw">
+  <div class="mhd"><div class="mtitle">A/B-HouseMatrix-Backtest</div><button class="mx" onclick="cm('m-ab')">&#x2715;</button></div>
+  <div class="mbody">
+    <div style="font-size:11px;color:var(--n6);background:var(--bg2);border:1px solid var(--b1);border-radius:6px;padding:8px;margin-bottom:10px">
+      Vergleicht zwei Optimizer-Policy-Versionen auf das aktuelle Risikoprofil dieses Mandates.
+      Reiner House-Matrix-Pfad — Tilts, Goals und Reserve-Logik werden bewusst nicht angewandt, damit
+      der Diff den Policy-Effekt isoliert. Beide Policies werden gegen die aktuelle CMA gemessen.
+    </div>
+
+    <!-- Policy-Selektoren -->
+    <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:10px;align-items:end;margin-bottom:12px">
+      <div>
+        <div style="font-size:10px;font-weight:700;color:var(--n8);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px">Policy A</div>
+        <select id="ab-policy-a" class="inp" style="width:100%"></select>
+      </div>
+      <div>
+        <div style="font-size:10px;font-weight:700;color:var(--n8);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px">Policy B</div>
+        <select id="ab-policy-b" class="inp" style="width:100%"></select>
+      </div>
+      <button class="btn-p" id="ab-run-btn" onclick="abRunCompare()">Vergleichen</button>
+    </div>
+
+    <div id="ab-status" style="font-size:11px;color:var(--n5);padding:6px 8px;background:var(--bg2);border-radius:6px;margin-bottom:10px;display:none"></div>
+
+    <div id="ab-content" style="display:none">
+      <!-- Score-Bucket + CMA -->
+      <div id="ab-meta" style="font-size:11px;color:var(--n6);margin-bottom:10px"></div>
+
+      <!-- Risk-Metriken 4 Boxen -->
+      <div style="font-size:11px;font-weight:700;color:var(--n8);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.06em">Risk-Metriken (Policy A vs Policy B)</div>
+      <div id="ab-risk-metrics" style="margin-bottom:14px"></div>
+
+      <!-- Bucket-Diff-Tabelle -->
+      <div style="font-size:11px;font-weight:700;color:var(--n8);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.06em">Asset-Klassen-Gewichtung</div>
+      <div id="ab-buckets-diff" style="margin-bottom:14px"></div>
+
+      <!-- Stress-Diff-Tabelle -->
+      <div style="font-size:11px;font-weight:700;color:var(--n8);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.06em">Historische Stress-Szenarien (Replay auf beiden Allokationen)</div>
+      <div id="ab-stress-diff" style="margin-bottom:14px"></div>
+
+      <!-- Warnings -->
+      <div id="ab-warnings"></div>
+    </div>
+  </div>
+  <div class="mfooter">
+    <button class="btn" onclick="cm('m-ab')">Schliessen</button>
   </div>
 </div></div>
 
@@ -8383,6 +8434,247 @@ function dcRenderWarnings(warnings){
   el.innerHTML = html;
 }
 
+// ============================================================================
+// Sprint U-P15 (2026-05-21): A/B-HouseMatrix-Backtest
+// ============================================================================
+var AB_BUCKET_KEYS = ['equities','bonds','real_estate','alternatives','liquidity'];
+var AB_BUCKET_LABELS = {
+  equities:'Aktien', bonds:'Obligationen', real_estate:'Immobilien',
+  alternatives:'Alternative Anlagen', liquidity:'Liquidität',
+};
+
+async function openAbBacktest(){
+  var mid = typeof getActiveMandateId==='function' ? getActiveMandateId() : null;
+  if(!mid){
+    if(window.showAppError) showAppError('Bitte zuerst ein Mandat oeffnen.');
+    else alert('Bitte zuerst ein Mandat oeffnen.');
+    return;
+  }
+  om('m-ab');
+  var contentEl = document.getElementById('ab-content');
+  var statusEl = document.getElementById('ab-status');
+  if(contentEl) contentEl.style.display = 'none';
+  if(statusEl){ statusEl.style.display='block'; statusEl.textContent = 'Lade Policy-Liste…'; statusEl.style.color='var(--n5)'; }
+  try {
+    var policies = await API.get('/optimizer-policies?include_historic=true');
+    abPopulatePolicySelects(policies || []);
+    if(statusEl){ statusEl.style.display='none'; }
+  } catch(e){
+    if(statusEl){
+      statusEl.textContent = '⚠ ' + (e && (e.detail||e.message) || 'Konnte Policy-Liste nicht laden');
+      statusEl.style.color = 'var(--neg)';
+    }
+  }
+}
+
+function abPopulatePolicySelects(policies){
+  var selA = document.getElementById('ab-policy-a');
+  var selB = document.getElementById('ab-policy-b');
+  if(!selA || !selB) return;
+  if(!policies.length){
+    selA.innerHTML = '<option value="">Keine Policies</option>';
+    selB.innerHTML = '<option value="">Keine Policies</option>';
+    return;
+  }
+  var html = policies.map(function(p){
+    var label = dcEscape(p.policy_name) + ' v' + p.version + (p.is_current ? ' · aktiv' : '');
+    return '<option value="' + dcEscape(p.id) + '">' + label + '</option>';
+  }).join('');
+  selA.innerHTML = html;
+  selB.innerHTML = html;
+  // Default: A = aktive Policy, B = nächste in Liste
+  var activeIdx = policies.findIndex(function(p){ return p.is_current; });
+  if(activeIdx < 0) activeIdx = 0;
+  selA.selectedIndex = activeIdx;
+  selB.selectedIndex = (activeIdx + 1) < policies.length ? (activeIdx + 1) : Math.max(0, activeIdx - 1);
+}
+
+async function abRunCompare(){
+  var mid = typeof getActiveMandateId==='function' ? getActiveMandateId() : null;
+  if(!mid) return;
+  var selA = document.getElementById('ab-policy-a');
+  var selB = document.getElementById('ab-policy-b');
+  var statusEl = document.getElementById('ab-status');
+  var contentEl = document.getElementById('ab-content');
+  var btn = document.getElementById('ab-run-btn');
+  if(!selA || !selB) return;
+  var pa = selA.value, pb = selB.value;
+  if(!pa || !pb){
+    if(statusEl){ statusEl.style.display='block'; statusEl.textContent='Bitte zwei Policies wählen.'; statusEl.style.color='var(--neg)'; }
+    return;
+  }
+  if(pa === pb){
+    if(statusEl){ statusEl.style.display='block'; statusEl.textContent='Policy A und Policy B müssen unterschiedlich sein.'; statusEl.style.color='var(--neg)'; }
+    return;
+  }
+  if(statusEl){ statusEl.style.display='block'; statusEl.textContent='Rechne A/B-Backtest…'; statusEl.style.color='var(--n5)'; }
+  if(contentEl) contentEl.style.display='none';
+  if(btn) btn.disabled = true;
+  try {
+    var path = '/mandates/' + encodeURIComponent(mid) + '/backtest/ab'
+             + '?policy_a=' + encodeURIComponent(pa)
+             + '&policy_b=' + encodeURIComponent(pb);
+    var data = await API.get(path);
+    abRender(data);
+    if(statusEl){ statusEl.style.display='none'; }
+    if(contentEl) contentEl.style.display='';
+  } catch(e){
+    if(statusEl){
+      statusEl.textContent = '⚠ ' + (e && (e.detail||e.message) || 'Backtest fehlgeschlagen');
+      statusEl.style.color = 'var(--neg)';
+    }
+  } finally {
+    if(btn) btn.disabled = false;
+  }
+}
+
+function abRender(data){
+  var meta = document.getElementById('ab-meta');
+  if(meta){
+    var pa = data.policy_a || {}, pb = data.policy_b || {};
+    meta.innerHTML = 'Score-Bucket <b>' + (data.score_bucket || '—') + '</b> · CMA v' + (data.cma_version || '—')
+      + ' · <b>A:</b> ' + dcEscape(pa.policy_name||'') + ' v' + (pa.version||'?') + ' (' + dcEscape(pa.profile_name||'') + ')'
+      + ' · <b>B:</b> ' + dcEscape(pb.policy_name||'') + ' v' + (pb.version||'?') + ' (' + dcEscape(pb.profile_name||'') + ')';
+  }
+  abRenderRiskMetrics(data.policy_a || {}, data.policy_b || {}, data.risk_metrics_diff || {});
+  abRenderBucketsDiff(data.buckets_diff || {});
+  abRenderStressDiff(data.stress_diff || []);
+  abRenderWarnings(data.warnings || []);
+}
+
+function abMetricBox(label, aValue, bValue, deltaText, deltaColor){
+  return '<div style="padding:8px;background:var(--bg);border:1px solid var(--b1);border-radius:6px">'
+    + '<div style="font-size:9px;color:var(--n5);text-transform:uppercase;letter-spacing:0.06em">' + dcEscape(label) + '</div>'
+    + '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:4px">'
+    +   '<div><span style="font-size:9px;color:var(--n5)">A</span> <span style="font-size:13px;font-weight:700">' + aValue + '</span></div>'
+    +   '<div><span style="font-size:9px;color:var(--n5)">B</span> <span style="font-size:13px;font-weight:700">' + bValue + '</span></div>'
+    + '</div>'
+    + '<div style="font-size:10px;color:' + deltaColor + ';text-align:right;margin-top:2px"><b>Δ ' + deltaText + '</b></div>'
+    + '</div>';
+}
+
+function abRenderRiskMetrics(a, b, diff){
+  var el = document.getElementById('ab-risk-metrics');
+  if(!el) return;
+  var ret_a = ((a.expected_return_bps||0)/100).toFixed(2) + '%';
+  var ret_b = ((b.expected_return_bps||0)/100).toFixed(2) + '%';
+  var dRet = (diff.delta_expected_return_bps||0);
+  var dRetText = (dRet>=0?'+':'') + (dRet/100).toFixed(2) + '%';
+  var dRetColor = dRet>0 ? 'var(--pos)' : (dRet<0 ? 'var(--neg)' : 'var(--n5)');
+
+  var vol_a = ((a.expected_volatility_bps||0)/100).toFixed(2) + '%';
+  var vol_b = ((b.expected_volatility_bps||0)/100).toFixed(2) + '%';
+  var dVol = (diff.delta_expected_volatility_bps||0);
+  var dVolText = (dVol>=0?'+':'') + (dVol/100).toFixed(2) + '%';
+  // Niedrigere Vola = positiv
+  var dVolColor = dVol<0 ? 'var(--pos)' : (dVol>0 ? 'var(--neg)' : 'var(--n5)');
+
+  var sh_a = ((a.sharpe_ratio_x100||0)/100).toFixed(2);
+  var sh_b = ((b.sharpe_ratio_x100||0)/100).toFixed(2);
+  var dSh = (diff.delta_sharpe_ratio_x100||0);
+  var dShText = (dSh>=0?'+':'') + (dSh/100).toFixed(2);
+  var dShColor = dSh>0 ? 'var(--pos)' : (dSh<0 ? 'var(--neg)' : 'var(--n5)');
+
+  var ter_a = ((a.expected_ter_bps||0)/100).toFixed(2) + '%';
+  var ter_b = ((b.expected_ter_bps||0)/100).toFixed(2) + '%';
+  var dTer = (diff.delta_expected_ter_bps||0);
+  var dTerText = (dTer>=0?'+':'') + (dTer/100).toFixed(2) + '%';
+  // Niedrigere TER = positiv
+  var dTerColor = dTer<0 ? 'var(--pos)' : (dTer>0 ? 'var(--neg)' : 'var(--n5)');
+
+  el.innerHTML = '<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px">'
+    + abMetricBox('Expected Return (netto)', ret_a, ret_b, dRetText, dRetColor)
+    + abMetricBox('Erwartete Volatilität', vol_a, vol_b, dVolText, dVolColor)
+    + abMetricBox('Sharpe-Ratio', sh_a, sh_b, dShText, dShColor)
+    + abMetricBox('Gewichtete TER', ter_a, ter_b, dTerText, dTerColor)
+    + '</div>';
+}
+
+function abRenderBucketsDiff(buckets){
+  var el = document.getElementById('ab-buckets-diff');
+  if(!el) return;
+  var html = '<table style="width:100%;border-collapse:collapse;font-size:10.5px">'
+    + '<thead><tr style="background:var(--bg2)">'
+    +   '<th style="padding:5px;text-align:left;border:1px solid var(--b1)">Asset-Klasse</th>'
+    +   '<th style="padding:5px;text-align:right;border:1px solid var(--b1)">Policy A</th>'
+    +   '<th style="padding:5px;text-align:right;border:1px solid var(--b1)">Policy B</th>'
+    +   '<th style="padding:5px;text-align:right;border:1px solid var(--b1)">Δ</th>'
+    + '</tr></thead><tbody>';
+  AB_BUCKET_KEYS.forEach(function(key){
+    var b = buckets[key] || {};
+    var a_pct = ((b.a_bps||0)/100).toFixed(1) + '%';
+    var b_pct = ((b.b_bps||0)/100).toFixed(1) + '%';
+    var delta = (b.delta_bps||0);
+    var dText = (delta>=0?'+':'') + (delta/100).toFixed(1) + '%';
+    var dColor = Math.abs(delta) >= 200 ? 'var(--neg)' : 'var(--n6)';
+    var color = (DC_BUCKET_COLORS && DC_BUCKET_COLORS[key]) || '#5a6878';
+    html += '<tr>'
+      + '<td style="padding:4px 6px;border:1px solid var(--b1)"><span style="display:inline-block;width:8px;height:8px;background:'+color+';border-radius:50%;margin-right:6px"></span>' + dcEscape(b.label || AB_BUCKET_LABELS[key] || key) + '</td>'
+      + '<td style="padding:4px 6px;border:1px solid var(--b1);text-align:right">' + a_pct + '</td>'
+      + '<td style="padding:4px 6px;border:1px solid var(--b1);text-align:right">' + b_pct + '</td>'
+      + '<td style="padding:4px 6px;border:1px solid var(--b1);text-align:right;color:'+dColor+';font-weight:600">' + dText + '</td>'
+      + '</tr>';
+  });
+  html += '</tbody></table>';
+  el.innerHTML = html;
+}
+
+function abRenderStressDiff(scenarios){
+  var el = document.getElementById('ab-stress-diff');
+  if(!el) return;
+  if(!scenarios.length){
+    el.innerHTML = '<div style="color:var(--n5);font-size:10.5px;font-style:italic">Keine Stress-Szenarien verfügbar.</div>';
+    return;
+  }
+  var html = '<table style="width:100%;border-collapse:collapse;font-size:10.5px">'
+    + '<thead><tr style="background:var(--bg2)">'
+    +   '<th style="padding:5px;text-align:left;border:1px solid var(--b1)">Szenario</th>'
+    +   '<th style="padding:5px;text-align:right;border:1px solid var(--b1)">A: Cumul</th>'
+    +   '<th style="padding:5px;text-align:right;border:1px solid var(--b1)">B: Cumul</th>'
+    +   '<th style="padding:5px;text-align:right;border:1px solid var(--b1)">Δ Cumul</th>'
+    +   '<th style="padding:5px;text-align:right;border:1px solid var(--b1)">A: Max-DD</th>'
+    +   '<th style="padding:5px;text-align:right;border:1px solid var(--b1)">B: Max-DD</th>'
+    +   '<th style="padding:5px;text-align:right;border:1px solid var(--b1)">Δ DD</th>'
+    + '</tr></thead><tbody>';
+  scenarios.forEach(function(s){
+    var aCum = (s.a_cumulative_return_bps||0);
+    var bCum = (s.b_cumulative_return_bps||0);
+    var dCum = (s.delta_cumulative_return_bps||0);
+    var aDD = (s.a_max_drawdown_bps||0);
+    var bDD = (s.b_max_drawdown_bps||0);
+    var dDD = (s.delta_max_drawdown_bps||0);
+    var aCumColor = aCum>=0 ? 'var(--pos)' : 'var(--neg)';
+    var bCumColor = bCum>=0 ? 'var(--pos)' : 'var(--neg)';
+    var dCumColor = dCum>0 ? 'var(--pos)' : (dCum<0 ? 'var(--neg)' : 'var(--n5)');
+    // Höherer Drawdown ist schlechter, also positiv → negativ
+    var dDDColor = dDD<0 ? 'var(--pos)' : (dDD>0 ? 'var(--neg)' : 'var(--n5)');
+    html += '<tr>'
+      + '<td style="padding:4px 6px;border:1px solid var(--b1)"><div style="font-weight:600">' + dcEscape(s.label||'') + '</div><div style="font-size:9.5px;color:var(--n5)">' + dcEscape(s.period||'') + '</div></td>'
+      + '<td style="padding:4px 6px;border:1px solid var(--b1);text-align:right;color:'+aCumColor+'">' + (aCum>=0?'+':'') + (aCum/100).toFixed(1) + '%</td>'
+      + '<td style="padding:4px 6px;border:1px solid var(--b1);text-align:right;color:'+bCumColor+'">' + (bCum>=0?'+':'') + (bCum/100).toFixed(1) + '%</td>'
+      + '<td style="padding:4px 6px;border:1px solid var(--b1);text-align:right;font-weight:600;color:'+dCumColor+'">' + (dCum>=0?'+':'') + (dCum/100).toFixed(1) + '%</td>'
+      + '<td style="padding:4px 6px;border:1px solid var(--b1);text-align:right;color:var(--neg)">-' + (aDD/100).toFixed(1) + '%</td>'
+      + '<td style="padding:4px 6px;border:1px solid var(--b1);text-align:right;color:var(--neg)">-' + (bDD/100).toFixed(1) + '%</td>'
+      + '<td style="padding:4px 6px;border:1px solid var(--b1);text-align:right;font-weight:600;color:'+dDDColor+'">' + (dDD>=0?'+':'') + (dDD/100).toFixed(1) + 'pp</td>'
+      + '</tr>';
+  });
+  html += '</tbody></table>';
+  el.innerHTML = html;
+}
+
+function abRenderWarnings(warnings){
+  var el = document.getElementById('ab-warnings');
+  if(!el) return;
+  if(!warnings.length){
+    el.innerHTML = '';
+    return;
+  }
+  var html = '<div style="background:rgba(146,64,14,0.08);border-left:3px solid var(--neg);padding:8px 10px;border-radius:4px;margin-top:8px"><div style="font-size:10px;font-weight:700;color:var(--n8);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.06em">Hinweise</div>';
+  html += warnings.map(function(w){ return '<div style="font-size:10.5px;color:var(--n7);padding:2px 0">⚠ ' + dcEscape(w) + '</div>'; }).join('');
+  html += '</div>';
+  el.innerHTML = html;
+}
+
 async function adminPolicyCloneActive(){
   var active = (adminPolicyState.policies || []).find(function(p){ return p.is_current; });
   if(!active){
@@ -14386,6 +14678,16 @@ async function downloadServerPdf(reportType){
       var match = disp.match(/filename="?([^"]+)"?/i);
       if (match && match[1]) filename = match[1];
     } catch(e) {}
+    if(window.desktop&&typeof window.desktop.savePdfFile==='function'){
+      var base64=await blobToBase64(blob);
+      var saved=await window.desktop.savePdfFile({filename:filename,base64:base64});
+      if(saved&&saved.ok){
+        try{ if(window.showAppSuccess) showAppSuccess('PDF gespeichert', {title:'Download'}); }catch(saveNoticeErr){}
+      }else{
+        try{ if(window.showAppInfo) showAppInfo('PDF-Speichern abgebrochen', {title:'Download'}); }catch(cancelNoticeErr){}
+      }
+      return;
+    }
     var a = document.createElement('a');
     a.href = url;
     a.download = filename;
@@ -14409,6 +14711,18 @@ async function downloadServerPdf(reportType){
     var emsg='PDF-Generierung fehlgeschlagen: '+reason;
     if(window.showAppError){showAppError(emsg);}else{alert(emsg);}
   }
+}
+function blobToBase64(blob){
+  return new Promise(function(resolve,reject){
+    var reader=new FileReader();
+    reader.onload=function(){
+      var result=String(reader.result||'');
+      var comma=result.indexOf(',');
+      resolve(comma>=0?result.slice(comma+1):result);
+    };
+    reader.onerror=function(){reject(reader.error||new Error('PDF konnte nicht gelesen werden.'));};
+    reader.readAsDataURL(blob);
+  });
 }
 function riskBelongsToMandate(risk, mandateId){
   var activeMandateId=mandateId!=null?mandateId:getActiveMandateId();
