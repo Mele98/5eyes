@@ -50,6 +50,12 @@ Annual bleibt als Modus erhalten und ist Fallback, wenn keine täglichen Daten g
 - Endpoint `GET /mandates/{id}/backtest/strategy` um `&resolution=daily` erweitern;
   Default bleibt `annual`. Fehlende Daily-Daten → automatischer Fallback auf annual
   mit klarer `warning`.
+- **Benchmark ist First-Class, auch im Daily-Modus** (NICHT nur Edge-Case): Der
+  bestehende Benchmark-Vergleich (alleine vs. vergleichend via Checkbox; eigene
+  5-Asset-Allokation; Standard-Presets `100% Aktien` / `60/40` / `70/30`) muss im
+  Daily-Modus **bit-gleich verfügbar** sein. Der Benchmark-Pfad durchläuft dieselbe
+  tägliche Compounding-/Rebalance-/Annualisierungs-Logik wie der SOLL-Pfad
+  (`_build_path_views` für Benchmark mit denselben `years_data`/Daily-Series-Daten).
 - Frontend `m-bt`-Modal: Auflösungs-Umschalter (Jährlich / Täglich); stale
   "Annual MVP / Daily kommt mit U-P11"-Labels ersetzen.
 - Backtest-PDF: Wealth-/Drawdown-Chart muss viele Punkte verkraften (Downsampling
@@ -148,6 +154,10 @@ Annual bleibt als Modus erhalten und ist Fallback, wenn keine täglichen Daten g
 6. Backfill ist idempotent (zweiter Lauf mit `overwrite=False` ändert nichts).
 7. Backtest-PDF rendert im Daily-Modus ohne Layout-Bruch (Downsampling aktiv).
 8. Alle bestehenden Backtest-Tests bleiben grün; Annual-Default unverändert.
+9. Benchmark funktioniert im Daily-Modus vollständig: SOLL allein (ohne Benchmark),
+   SOLL + eigene Benchmark-Allokation, SOLL + Preset (100% Aktien / 60/40 / 70/30) —
+   jeweils mit korrekten Daily-Metriken für beide Pfade. PDF zeigt den Benchmark im
+   Daily-Modus genauso wie heute im Annual-Modus.
 
 ## Testfälle
 
