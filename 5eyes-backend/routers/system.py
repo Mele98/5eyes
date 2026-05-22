@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from models.review import AuditLog
-from models.snapshots import AssetClassAnnualReturn
+from models.snapshots import AssetClassAnnualReturn, AssetClassPriceHistory
 from models.users import User
 from schemas.review import AuditLogEntry, AuditLogPage
 from services.auth import require_admin
@@ -220,6 +220,79 @@ def upsert_annual_return(
         ))
     db.commit()
     return {'year': year, 'asset_class': asset_class, 'return_bps': return_bps}
+
+
+@router.get('/asset-class-prices/status')
+def get_asset_class_prices_status(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Sprint U-P19: Abdeckung der täglichen EOD-Serie je Asset-Klasse
+    (erste/letzte Bar + Punktzahl) — Datenquelle für resolution=daily."""
+    from sqlalchemy import func
+    rows = (
+        db.query(
+            AssetClassPriceHistory.asset_class,
+            func.min(AssetClassPriceHistory.price_date),
+            func.max(AssetClassPriceHistory.price_date),
+            func.count(AssetClassPriceHistory.id),
+        )
+        .group_by(AssetClassPriceHistory.asset_class)
+        .all()
+    )
+    coverage = {
+        ac: {"first": first, "last": last, "points": int(cnt)}
+        for ac, first, last, cnt in rows
+    }
+    complete = all(ac in coverage and coverage[ac]["points"] > 0 for ac in _VALID_ASSET_CLASSES)
+    return {"coverage": coverage, "complete": complete}
+
+
+@router.post('/asset-class-prices/backfill')
+def backfill_asset_class_prices_endpoint(
+    from_year: int | None = None,
+    to_year: int | None = None,
+    overwrite: bool = True,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Sprint U-P19: Tägliche EOD-Serie je Asset-Klasse aus dem Marktdaten-
+    Aggregator (yfinance + stooq) befüllen — Foundation für den Daily-Backtest.
+
+    Defaults:
+        from_year = aktuelles Jahr - 20
+        to_year   = aktuelles Jahr
+    overwrite: True (default) bestehende Rows überschreiben, False = nur Lücken.
+
+    Audit-Log-Eintrag (Action=BACKFILL).
+    """
+    from services.market_data.asset_class_price_backfill import backfill_asset_class_prices
+    from services.market_data.factory import build_default_aggregator
+
+    current_year = datetime.utcnow().year
+    fy = from_year if from_year is not None else current_year - 20
+    ty = to_year if to_year is not None else current_year
+    try:
+        aggregator = build_default_aggregator()
+        result = backfill_asset_class_prices(
+            db, aggregator,
+            from_year=int(fy), to_year=int(ty),
+            overwrite=bool(overwrite),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    db.add(AuditLog(
+        id=str(uuid4()),
+        user_id=current_user.id,
+        user_name=getattr(current_user, "full_name", None) or getattr(current_user, "email", "admin"),
+        table_name="asset_class_price_history",
+        record_id=f"{fy}-{ty}",
+        action="BACKFILL",
+        new_value=f"rows_written={result['summary']['rows_written']} errors={result['summary']['error_count']}",
+        created_at=datetime.utcnow().isoformat(),
+    ))
+    db.commit()
+    return result
 
 
 @router.post('/db/optimize')

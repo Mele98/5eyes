@@ -74,9 +74,9 @@ def make_drawdown_chart(
     if benchmark_dd:
         series.append((benchmark_dd, BENCHMARK_COLOR, "Benchmark"))
 
-    all_years = [int(d["year"]) for path, _c, _l in series for d in path]
+    all_x = [float(d["year"]) for path, _c, _l in series for d in path]
     all_bps = [int(d.get("drawdown_bps", 0) or 0) for path, _c, _l in series for d in path]
-    x_min, x_max = min(all_years), max(all_years)
+    x_min, x_max = min(all_x), max(all_x)
     if x_max == x_min:
         x_max = x_min + 1
     y_min = min(all_bps + [0])
@@ -85,8 +85,8 @@ def make_drawdown_chart(
         y_min = -100  # 1% padding
     y_min -= int(abs(y_min) * 0.1)
 
-    def x_px(year: int) -> float:
-        return margin_left + (year - x_min) / (x_max - x_min) * inner_w
+    def x_px(year: float) -> float:
+        return margin_left + (float(year) - x_min) / (x_max - x_min) * inner_w
 
     def y_px(bps: int) -> float:
         return margin_bottom + (bps - y_min) / (y_max - y_min) * inner_h
@@ -108,11 +108,13 @@ def make_drawdown_chart(
     drawing.add(Line(margin_left, zero_y, W - margin_right, zero_y,
                      strokeColor=COLOR_TEXT_LIGHT, strokeWidth=0.6, strokeDashArray=[2, 2]))
 
-    # X-Labels
-    unique_years = sorted(set(all_years))
-    stride = 1 if len(unique_years) <= 12 else max(1, len(unique_years) // 12)
-    for idx, yr in enumerate(unique_years):
-        if idx % stride == 0 or idx == len(unique_years) - 1:
+    # X-Labels: ganzzahlige Jahre aus numerischer Domäne (Annual + Daily)
+    import math as _math
+    year_lo, year_hi = int(_math.floor(x_min)), int(_math.ceil(x_max))
+    tick_years = list(range(year_lo, year_hi + 1))
+    stride = 1 if len(tick_years) <= 12 else max(1, len(tick_years) // 12)
+    for idx, yr in enumerate(tick_years):
+        if (idx % stride == 0 or idx == len(tick_years) - 1) and x_min <= yr <= x_max:
             xp = x_px(yr)
             drawing.add(String(xp, margin_bottom - 6, str(yr),
                                textAnchor="middle", fontName=FONT_DEFAULT, fontSize=7,
@@ -120,16 +122,16 @@ def make_drawdown_chart(
 
     # Area-Polygons + Linien
     for path, color, _label in series:
-        sorted_path = sorted(path, key=lambda d: int(d["year"]))
+        sorted_path = sorted(path, key=lambda d: float(d["year"]))
         # Polygon-Punkte: erst Wertelinie, dann zurück auf 0 für Area-Fill
         coords: list[float] = []
         for d in sorted_path:
-            coords.extend([x_px(int(d["year"])), y_px(int(d.get("drawdown_bps", 0) or 0))])
+            coords.extend([x_px(float(d["year"])), y_px(int(d.get("drawdown_bps", 0) or 0))])
         if len(coords) >= 4:
             area_coords = list(coords)
             # close back along zero
-            area_coords.extend([x_px(int(sorted_path[-1]["year"])), y_px(0)])
-            area_coords.extend([x_px(int(sorted_path[0]["year"])), y_px(0)])
+            area_coords.extend([x_px(float(sorted_path[-1]["year"])), y_px(0)])
+            area_coords.extend([x_px(float(sorted_path[0]["year"])), y_px(0)])
             drawing.add(Polygon(area_coords,
                                 fillColor=color,
                                 fillOpacity=0.10,

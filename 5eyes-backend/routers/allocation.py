@@ -497,6 +497,7 @@ def get_strategy_backtest(
     benchmark_real_estate_bps: int | None = None,
     benchmark_alternatives_bps: int | None = None,
     benchmark_liquidity_bps: int | None = None,
+    resolution: str = "annual",
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -536,6 +537,7 @@ def get_strategy_backtest(
         start_year=start_year,
         end_year=end_year,
         benchmark_weights_bps=benchmark,
+        resolution=resolution,
     )
 
 

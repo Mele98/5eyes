@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, ForeignKey
+from sqlalchemy import Column, String, Integer, ForeignKey, UniqueConstraint, Index
 from sqlalchemy.orm import relationship
 from database import Base
 
@@ -41,6 +41,33 @@ class AssetClassAnnualReturn(Base):
     year = Column(Integer, nullable=False)
     asset_class = Column(String, nullable=False)
     return_bps = Column(Integer, nullable=False)
+    source = Column(String)
+    created_at = Column(String, nullable=False)
+    updated_at = Column(String, nullable=False)
+
+
+class AssetClassPriceHistory(Base):
+    """Sprint U-P19 (2026-05-22): Tägliche EOD-Index-Serie je Asset-Klasse.
+
+    Persistierte Datenquelle für den Daily-Strategie-Backtest. Wird per
+    Admin-Backfill aus dem Marktdaten-Aggregator (Proxy-ETFs) gefüllt; der
+    Backtest liest NUR aus dieser Tabelle (offline-fähig, kein Live-Netz).
+
+    `close_rappen` ist der adjusted_close (Total Return inkl. Dividenden, wenn
+    vorhanden) der Proxy-Serie in Proxy-Währung × 100, als Integer. Für den
+    Backtest zählen nur Verhältnisse aufeinanderfolgender Tage, daher ist die
+    Absolut-Skala/Währung irrelevant.
+    """
+    __tablename__ = "asset_class_price_history"
+    __table_args__ = (
+        UniqueConstraint("asset_class", "price_date", "source",
+                         name="uq_acph_class_date_source"),
+        Index("ix_acph_class_date", "asset_class", "price_date"),
+    )
+    id = Column(String, primary_key=True)
+    asset_class = Column(String, nullable=False)
+    price_date = Column(String, nullable=False)  # ISO-Date "YYYY-MM-DD"
+    close_rappen = Column(Integer, nullable=False)
     source = Column(String)
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)

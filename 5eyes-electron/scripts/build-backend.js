@@ -91,6 +91,8 @@ const hiddenImports = [
   'services.pdf.documents.protokoll',
   'services.pdf.documents.risikoprofil',
   'services.pdf.documents.vertrag',
+  'services.market_data.annual_returns_backfill',
+  'services.market_data.asset_class_price_backfill',
 ];
 
 const collectSubmodules = [

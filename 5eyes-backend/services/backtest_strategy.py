@@ -35,9 +35,11 @@ from typing import Iterable, Mapping
 
 from sqlalchemy.orm import Session
 
+from datetime import date as Date
+
 from models.allocation import TargetAllocation
 from models.mandates import Mandate
-from models.snapshots import AssetClassAnnualReturn
+from models.snapshots import AssetClassAnnualReturn, AssetClassPriceHistory
 from models.wealth import WealthPosition
 
 
@@ -343,6 +345,326 @@ def compute_drawdown_path_bps(wealth_path_rappen: list[tuple[int, int]]) -> list
 
 
 # ---------------------------------------------------------------------------
+# Daily-Resolution (U-P19): Datenquelle, Pfad, Metriken
+# ---------------------------------------------------------------------------
+
+DAILY_PERIODS_PER_YEAR = 252  # Handelstage p.a. für Vol-Annualisierung
+MAX_PATH_POINTS = 260  # Downsampling-Grenze für Charts (Metriken nutzen Vollpfad)
+
+
+def _float_year_label(d: Date) -> float:
+    """Kalenderdatum → kontinuierliches Jahr-Label (z.B. 2020-07-02 ≈ 2020.5).
+
+    Erlaubt zeit-proportionale X-Achse in denselben Charts, die für den
+    Annual-Modus ganzzahlige Jahre nutzen.
+    """
+    year_start = Date(d.year, 1, 1)
+    days_in_year = (Date(d.year + 1, 1, 1) - year_start).days
+    return d.year + (d.toordinal() - year_start.toordinal()) / days_in_year
+
+
+def load_daily_returns_series(
+    db: Session,
+    start_year: int | None = None,
+    end_year: int | None = None,
+) -> tuple[Date | None, list[tuple[Date, dict[str, int]]]]:
+    """Lädt die tägliche EOD-Serie je Asset-Klasse und bildet Tagesrenditen.
+
+    Nur Handelstage, an denen ALLE 5 Asset-Klassen einen Kurs haben
+    (Kalender-Schnittmenge), gehen in den Pfad — analog zur
+    "vollständige-Jahre"-Regel im Annual-Modus. Tagesrendite =
+    close_t / close_{t-1} - 1 (bps), zwischen aufeinanderfolgenden
+    Schnittmengen-Tagen.
+
+    Returns:
+        (anchor_date, series) wobei series == [(date, {bucket: bps}), ...]
+        aufsteigend sortiert; anchor_date ist der Investitions-Starttag
+        (ohne eigene Rendite). Leer (None, []) wenn Daten unvollständig
+        oder < 2 gemeinsame Handelstage.
+    """
+    rows = (
+        db.query(AssetClassPriceHistory)
+        .order_by(AssetClassPriceHistory.price_date)
+        .all()
+    )
+    by_class: dict[str, dict[str, int]] = {}
+    for row in rows:
+        bucket_en = ASSET_CLASS_DE_TO_EN.get(str(row.asset_class or "").strip())
+        if not bucket_en:
+            continue
+        try:
+            close = int(row.close_rappen)
+        except (TypeError, ValueError):
+            continue
+        if close <= 0:
+            continue
+        by_class.setdefault(bucket_en, {})[str(row.price_date)] = close
+
+    if not all(b in by_class and by_class[b] for b in BUCKETS):
+        return (None, [])
+
+    common = set(by_class[BUCKETS[0]].keys())
+    for b in BUCKETS[1:]:
+        common &= set(by_class[b].keys())
+
+    dated: list[Date] = []
+    for ds in sorted(common):
+        try:
+            d = Date.fromisoformat(ds)
+        except ValueError:
+            continue
+        if start_year is not None and d.year < int(start_year):
+            continue
+        if end_year is not None and d.year > int(end_year):
+            continue
+        dated.append(d)
+
+    if len(dated) < 2:
+        return (None, [])
+
+    anchor = dated[0]
+    series: list[tuple[Date, dict[str, int]]] = []
+    for i in range(1, len(dated)):
+        d_prev = dated[i - 1].isoformat()
+        d_cur = dated[i].isoformat()
+        ret_map: dict[str, int] = {}
+        for b in BUCKETS:
+            p_prev = by_class[b][d_prev]
+            p_cur = by_class[b][d_cur]
+            ret_map[b] = int(round((p_cur / p_prev - 1.0) * 10000)) if p_prev > 0 else 0
+        series.append((dated[i], ret_map))
+    return (anchor, series)
+
+
+def compound_daily_path(
+    initial_value_rappen: int,
+    weights_bps: Mapping[str, int],
+    anchor_date: Date,
+    series: list[tuple[Date, Mapping[str, int]]],
+    *,
+    rebalance: bool,
+) -> dict:
+    """Wie compound_wealth_path, aber täglich + Rebalancing nur am Jahreswechsel.
+
+    Args:
+        rebalance: True = beim ersten Handelstag eines neuen Kalenderjahres
+            zurück auf Soll-Gewichte (Compounding bleibt täglich).
+            False = passive Drift (Buy-and-Hold) über den ganzen Zeitraum.
+
+    Returns:
+        {
+            "wealth_path_rappen": [(float_year_label, total_rappen), ...] inkl. Start,
+            "annual_returns_bps": [bps, ...] — hier TAGES-Returns (Key-Parität
+                zum Annual-Modus; von der Vol-Berechnung genutzt),
+        }
+    """
+    initial_value_rappen = int(initial_value_rappen)
+    total_weight = sum(int(weights_bps.get(b, 0) or 0) for b in BUCKETS)
+    if total_weight <= 0:
+        raise ValueError("Bucket-Gewichte summieren auf 0 — Backtest unmöglich.")
+
+    def _alloc_to_weights(total: float) -> dict[str, float]:
+        values: dict[str, float] = {}
+        allocated = 0.0
+        for b in BUCKETS:
+            values[b] = total * (int(weights_bps.get(b, 0) or 0) / total_weight)
+            allocated += values[b]
+        values["liquidity"] += total - allocated  # float-drift-Korrektur
+        return values
+
+    bucket_values = _alloc_to_weights(float(initial_value_rappen))
+    wealth_path: list[tuple[float, int]] = [
+        (_float_year_label(anchor_date), int(round(sum(bucket_values.values()))))
+    ]
+    period_returns_bps: list[int] = []
+    prev_year = anchor_date.year
+
+    for d, ret_map in series:
+        if rebalance and d.year != prev_year:
+            bucket_values = _alloc_to_weights(sum(bucket_values.values()))
+        prev_total = sum(bucket_values.values())
+        if prev_total <= 0:
+            period_returns_bps.append(0)
+            wealth_path.append((_float_year_label(d), 0))
+            prev_year = d.year
+            continue
+        bucket_values = {
+            b: bucket_values[b] * (1.0 + float(ret_map.get(b, 0) or 0) / 10000.0)
+            for b in BUCKETS
+        }
+        new_total = sum(bucket_values.values())
+        period_returns_bps.append(int(round((new_total - prev_total) / prev_total * 10000)))
+        wealth_path.append((_float_year_label(d), int(round(new_total))))
+        prev_year = d.year
+
+    return {
+        "wealth_path_rappen": wealth_path,
+        "annual_returns_bps": period_returns_bps,
+    }
+
+
+def compute_metrics_daily(
+    wealth_path_rappen: list[tuple[float, int]],
+    period_returns_bps: list[int],
+    *,
+    risk_free_bps: int = 80,
+    periods_per_year: int = DAILY_PERIODS_PER_YEAR,
+) -> dict:
+    """Asset-Manager-Metriken für den täglichen Pfad.
+
+    Output-Keys identisch zu compute_metrics. Unterschiede zur Annual-Variante:
+    - CAGR aus echtem Datums-Span (float-Jahr-Differenz der Endpunkte).
+    - Volatilität aus TAGES-Returns × √periods_per_year (Annualisierung).
+    - Max-Drawdown über den vollen täglichen Pfad.
+    - Best/Worst-JAHR + Win-Rate aus Year-End-Aggregation (Asset-Manager-Konvention).
+    """
+    empty = {
+        "cagr_bps": 0, "vol_bps": 0, "sharpe_x100": 0, "max_drawdown_bps": 0,
+        "best_year_bps": 0, "best_year_label": None, "worst_year_bps": 0,
+        "worst_year_label": None, "win_rate_x100": 0, "total_return_bps": 0,
+        "start_value_rappen": 0, "end_value_rappen": 0, "years_count": 0,
+        "positive_years": 0, "negative_years": 0,
+    }
+    if not wealth_path_rappen or not period_returns_bps:
+        return empty
+
+    start_value = int(wealth_path_rappen[0][1])
+    end_value = int(wealth_path_rappen[-1][1])
+    span_years = float(wealth_path_rappen[-1][0]) - float(wealth_path_rappen[0][0])
+
+    # CAGR aus Datums-Span
+    if start_value > 0 and end_value > 0 and span_years > 0:
+        cagr = (end_value / start_value) ** (1.0 / span_years) - 1.0
+        cagr_bps = int(round(cagr * 10000))
+    else:
+        cagr_bps = 0
+
+    # Annualisierte Volatilität aus Tages-Returns
+    n = len(period_returns_bps)
+    if n >= 2:
+        mean = sum(period_returns_bps) / n
+        var = sum((r - mean) ** 2 for r in period_returns_bps) / (n - 1)
+        vol_bps = int(round(math.sqrt(var) * math.sqrt(periods_per_year)))
+    else:
+        vol_bps = 0
+
+    sharpe_x100 = int(round((cagr_bps - int(risk_free_bps)) / vol_bps * 100)) if vol_bps > 0 else 0
+
+    # Max-Drawdown über täglichen Pfad
+    peak = 0
+    max_dd = 0.0
+    for _label, value in wealth_path_rappen:
+        peak = max(peak, int(value))
+        if peak > 0:
+            max_dd = max(max_dd, (peak - int(value)) / peak)
+    max_dd_bps = int(round(max_dd * 10000))
+
+    # Year-End-Aggregation für Jahres-Returns
+    year_end: dict[int, int] = {}
+    for label, value in wealth_path_rappen:
+        year_end[int(label)] = int(value)
+    yearly: list[tuple[int, int]] = []  # (year, return_bps)
+    prev_val = start_value
+    for yr in sorted(year_end.keys()):
+        ye = year_end[yr]
+        if prev_val > 0:
+            yearly.append((yr, int(round((ye - prev_val) / prev_val * 10000))))
+        prev_val = ye
+
+    if yearly:
+        best = max(yearly, key=lambda t: t[1])
+        worst = min(yearly, key=lambda t: t[1])
+        positive = sum(1 for _y, r in yearly if r > 0)
+        negative = sum(1 for _y, r in yearly if r < 0)
+        years_count = len(yearly)
+        win_rate_x100 = int(round(positive / years_count * 10000)) if years_count else 0
+        best_year_bps, best_year_label = best[1], best[0]
+        worst_year_bps, worst_year_label = worst[1], worst[0]
+    else:
+        positive = negative = years_count = win_rate_x100 = 0
+        best_year_bps = worst_year_bps = 0
+        best_year_label = worst_year_label = None
+
+    total_return_bps = int(round((end_value - start_value) / start_value * 10000)) if start_value > 0 else 0
+
+    return {
+        "cagr_bps": cagr_bps,
+        "vol_bps": vol_bps,
+        "sharpe_x100": sharpe_x100,
+        "max_drawdown_bps": max_dd_bps,
+        "best_year_bps": best_year_bps,
+        "best_year_label": best_year_label,
+        "worst_year_bps": worst_year_bps,
+        "worst_year_label": worst_year_label,
+        "win_rate_x100": win_rate_x100,
+        "total_return_bps": total_return_bps,
+        "start_value_rappen": start_value,
+        "end_value_rappen": end_value,
+        "years_count": years_count,
+        "positive_years": positive,
+        "negative_years": negative,
+    }
+
+
+def compute_drawdown_path_float(wealth_path_rappen: list[tuple[float, int]]) -> list[dict]:
+    """Drawdown-Pfad mit float-Jahr-Label (Daily). {"year": float, "drawdown_bps": int}."""
+    out: list[dict] = []
+    peak = 0
+    for label, value in wealth_path_rappen:
+        peak = max(peak, int(value))
+        dd_bps = int(round((int(value) - peak) / peak * 10000)) if peak > 0 else 0
+        out.append({"year": float(label), "drawdown_bps": dd_bps})
+    return out
+
+
+def _downsample_points(points: list, max_points: int, value_index_or_key) -> list:
+    """Dünnt einen Pfad auf max_points aus; behält Start, Ende und globales
+    Min/Max (Peak/Trough), damit Drawdown-Extreme im Chart erhalten bleiben.
+
+    value_index_or_key: int (Tuple-Index) oder str (Dict-Key) für den Wert.
+    """
+    if len(points) <= max_points:
+        return points
+
+    def val(pt):
+        return pt[value_index_or_key] if isinstance(value_index_or_key, int) else pt[value_index_or_key]
+
+    n = len(points)
+    keep_idx = {0, n - 1}
+    keep_idx.add(max(range(n), key=lambda i: val(points[i])))
+    keep_idx.add(min(range(n), key=lambda i: val(points[i])))
+    # ceil-Division, damit das Sampling-Raster garantiert <= max_points Punkte
+    # liefert (n//max_points kann 1 sein und nichts ausduennen).
+    stride = max(2, -(-n // max_points))
+    keep_idx.update(range(0, n, stride))
+    return [points[i] for i in sorted(keep_idx)]
+
+
+def _build_daily_path_views(
+    initial_value_rappen: int,
+    weights_bps: Mapping[str, int],
+    anchor_date: Date,
+    series: list[tuple[Date, Mapping[str, int]]],
+    risk_free_bps: int,
+) -> dict:
+    """Rebal- + No-Rebal-Pfad für den Daily-Modus inkl. Metriken (Vollpfad)
+    und downgesampelten Chart-Pfaden."""
+    out = {"weights_bps": dict(weights_bps)}
+    for key, rebal in (("rebalanced", True), ("no_rebalance", False)):
+        path = compound_daily_path(initial_value_rappen, weights_bps, anchor_date, series, rebalance=rebal)
+        full_wealth = path["wealth_path_rappen"]
+        metrics = compute_metrics_daily(full_wealth, path["annual_returns_bps"], risk_free_bps=risk_free_bps)
+        drawdown_full = compute_drawdown_path_float(full_wealth)
+        out[key] = {
+            "wealth_path_rappen": _downsample_points(full_wealth, MAX_PATH_POINTS, 1),
+            "annual_returns_bps": path["annual_returns_bps"],
+            "drawdown_path_bps": _downsample_points(drawdown_full, MAX_PATH_POINTS, "drawdown_bps"),
+            "metrics": metrics,
+        }
+    return out
+
+
+# ---------------------------------------------------------------------------
 # Master-Service
 # ---------------------------------------------------------------------------
 
@@ -439,14 +761,20 @@ def run_strategy_backtest(
     start_year: int | None = None,
     end_year: int | None = None,
     benchmark_weights_bps: Mapping[str, int] | None = None,
+    resolution: str = "annual",
 ) -> dict:
     """Master-Service: führt den SOLL-Strategie-Backtest für das Mandat aus.
 
     Liefert beide Varianten (mit / ohne Rebal) für SOLL und optional für
     einen Benchmark-Mix. Keine DB-Mutation. Falls keine TargetAllocation
     oder keine Annual-Returns vorhanden: leeres Ergebnis + Warning.
+
+    resolution: "annual" (default, Jahresrenditen) oder "daily" (tägliche
+        EOD-Serie aus asset_class_price_history). Fehlen tägliche Daten,
+        fällt der Backtest automatisch auf "annual" zurück (resolution_used).
     """
     warnings: list[str] = []
+    requested_resolution = "daily" if str(resolution).lower() == "daily" else "annual"
 
     ta = (
         db.query(TargetAllocation)
@@ -464,6 +792,7 @@ def run_strategy_backtest(
             "available_years": [],
             "soll": None,
             "benchmark": None,
+            "resolution_used": "annual",
         }
 
     soll_weights = _soll_weights_bps_from_target_allocation(ta)
@@ -474,6 +803,7 @@ def run_strategy_backtest(
             "available_years": [],
             "soll": None,
             "benchmark": None,
+            "resolution_used": "annual",
         }
 
     initial_value = _resolve_initial_value_rappen(db, mandate, ta)
@@ -484,6 +814,41 @@ def run_strategy_backtest(
         warnings.append(
             "Beratungsvermögen-Startwert konnte nicht ermittelt werden — Backtest läuft auf "
             "Standard-Initial-Kapital von CHF 100'000 für indikative Darstellung."
+        )
+
+    risk_free_bps = 80  # konservative CHF-Geldmarkt-Annahme; aktuelle CMA wird nicht herangezogen
+
+    # --- Daily-Modus (U-P19): persistierte tägliche Serie, sonst Fallback ---
+    if requested_resolution == "daily":
+        anchor, daily_series = load_daily_returns_series(db, start_year, end_year)
+        if anchor is not None and daily_series:
+            daily_years = sorted({anchor.year, *(d.year for d, _r in daily_series)})
+            benchmark_norm = _normalize_benchmark_weights(benchmark_weights_bps)
+            return {
+                "mandate_id": str(mandate.id),
+                "initial_value_rappen": initial_value,
+                "soll_weights_bps": soll_weights,
+                "available_years": daily_years,
+                "start_year": daily_years[0],
+                "end_year": daily_years[-1],
+                "risk_free_bps": risk_free_bps,
+                "soll": _build_daily_path_views(initial_value, soll_weights, anchor, daily_series, risk_free_bps),
+                "benchmark": (
+                    _build_daily_path_views(initial_value, benchmark_norm, anchor, daily_series, risk_free_bps)
+                    if benchmark_norm is not None else None
+                ),
+                "warnings": warnings,
+                "resolution_used": "daily",
+                "note": (
+                    "Daily-Auflösung — tägliche EOD-Serie je Asset-Klasse aus "
+                    "asset_class_price_history. Compounding täglich, Rebalancing jährlich. "
+                    "Proxy-Indices in Proxy-Währung (USD-ETF-Defaults); CHF-Sicht ist eine "
+                    "Approximation ohne FX-Hedge."
+                ),
+            }
+        warnings.append(
+            "Keine ausreichenden täglichen Kursdaten gepflegt — Backtest fällt auf jährliche "
+            "Auflösung zurück (Admin > Asset-Class-Prices befüllen)."
         )
 
     matrix = load_annual_returns_matrix(db)
@@ -497,6 +862,7 @@ def run_strategy_backtest(
             "available_years": [],
             "soll": None,
             "benchmark": None,
+            "resolution_used": "annual",
         }
 
     years_in_range = _years_in_range(matrix, start_year, end_year)
@@ -509,10 +875,10 @@ def run_strategy_backtest(
             "available_years": available_years_all,
             "soll": None,
             "benchmark": None,
+            "resolution_used": "annual",
         }
 
     years_data: list[tuple[int, dict[str, int]]] = [(y, matrix[y]) for y in years_in_range]
-    risk_free_bps = 80  # konservative CHF-Geldmarkt-Annahme; aktuelle CMA wird nicht herangezogen
 
     soll_view = _build_path_views(initial_value, soll_weights, years_data, risk_free_bps)
 
@@ -532,8 +898,10 @@ def run_strategy_backtest(
         "soll": soll_view,
         "benchmark": benchmark_view,
         "warnings": warnings,
+        "resolution_used": "annual",
         "note": (
-            "Annual-MVP — historische Jahresrenditen pro Asset-Klasse aus admin/system/annual-returns. "
-            "Daily-Auflösung pro Sub-Asset-Class kommt mit U-P11 (Marktdaten-Pipeline)."
+            "Jahres-Auflösung — historische Jahresrenditen pro Asset-Klasse aus "
+            "admin/system/annual-returns. Für tägliche Auflösung (Intra-Jahr-Drawdown) "
+            "asset_class_price_history befüllen und resolution=daily wählen."
         ),
     }

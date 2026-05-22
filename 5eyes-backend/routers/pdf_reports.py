@@ -1242,6 +1242,7 @@ def _build_backtest_data(
     start_year: int | None,
     end_year: int | None,
     benchmark_weights_bps: dict | None,
+    resolution: str = "annual",
 ) -> BacktestData:
     """Wendet run_strategy_backtest an und mappt das Resultat auf BacktestData.
 
@@ -1255,6 +1256,7 @@ def _build_backtest_data(
         start_year=start_year,
         end_year=end_year,
         benchmark_weights_bps=benchmark_weights_bps,
+        resolution=resolution,
     )
     soll = result.get("soll") or {}
     rebal = (soll.get("rebalanced") if isinstance(soll, dict) else None) or {}
@@ -1293,6 +1295,7 @@ def get_backtest_pdf(
     benchmark_real_estate_bps: int | None = None,
     benchmark_alternatives_bps: int | None = None,
     benchmark_liquidity_bps: int | None = None,
+    resolution: str = "annual",
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -1300,6 +1303,7 @@ def get_backtest_pdf(
 
     Optional Benchmark-Mix (Summe wird auf 10000 bps normalisiert).
     Bewusst nur Rebalanced-Pfad im PDF (Buy-and-Hold via Modal verfügbar).
+    resolution=daily nutzt die tägliche EOD-Serie (mit Annual-Fallback).
     """
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
     ctx = _build_pdf_context(mandate, current_user, db)
@@ -1319,6 +1323,7 @@ def get_backtest_pdf(
         mandate, db,
         start_year=start_year, end_year=end_year,
         benchmark_weights_bps=benchmark,
+        resolution=resolution,
     )
     pdf_bytes = ReportLabRenderer().render_backtest(ctx, data)
     safe_name = "".join(c if c.isalnum() else "_" for c in ctx.mandate_name)[:40]

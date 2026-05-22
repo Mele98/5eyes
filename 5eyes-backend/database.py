@@ -529,6 +529,26 @@ def ensure_snapshot_tables() -> None:
             CREATE UNIQUE INDEX IF NOT EXISTS uq_acr_year_class
             ON asset_class_annual_returns(year, asset_class)
         """))
+        # Sprint U-P19: tägliche EOD-Serie je Asset-Klasse (Daily-Backtest)
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS asset_class_price_history (
+                id TEXT PRIMARY KEY,
+                asset_class TEXT NOT NULL,
+                price_date TEXT NOT NULL,
+                close_rappen INTEGER NOT NULL,
+                source TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+        """))
+        conn.execute(text("""
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_acph_class_date_source
+            ON asset_class_price_history(asset_class, price_date, source)
+        """))
+        conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS ix_acph_class_date
+            ON asset_class_price_history(asset_class, price_date)
+        """))
         _seed_asset_class_returns(conn)
 
 

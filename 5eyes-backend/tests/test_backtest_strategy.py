@@ -37,18 +37,24 @@ configure_mappers()
 from models.allocation import OptimizerPolicy, TargetAllocation
 from models.clients import Client
 from models.mandates import Mandate
-from models.snapshots import AssetClassAnnualReturn
+from models.snapshots import AssetClassAnnualReturn, AssetClassPriceHistory
 from models.users import User
 from models.wealth import WealthPosition
 from services.backtest_strategy import (
     BUCKETS,
+    MAX_PATH_POINTS,
     _normalize_benchmark_weights,
+    compound_daily_path,
     compound_wealth_path,
     compute_drawdown_path_bps,
+    compute_drawdown_path_float,
     compute_metrics,
+    compute_metrics_daily,
     load_annual_returns_matrix,
+    load_daily_returns_series,
     run_strategy_backtest,
 )
+import datetime as _dt
 
 
 def _now() -> str:
@@ -483,3 +489,231 @@ def test_run_strategy_backtest_does_not_mutate_db(session_factory):
         ar_count_after = s.query(AssetClassAnnualReturn).count()
     assert ta_count_before == ta_count_after
     assert ar_count_before == ar_count_after
+
+
+# ============================================================================
+# U-P19: Daily-Resolution
+# ============================================================================
+
+ALL_DE_CLASSES = ["Aktien", "Obligationen", "Immobilien", "Alternative", "Liquiditaet"]
+
+
+def _seed_daily_prices(session_factory, prices_by_de_class):
+    """prices_by_de_class: {de_class: [(date_iso, close_rappen), ...]}."""
+    now = _now()
+    with session_factory() as s:
+        for ac_de, points in prices_by_de_class.items():
+            for ds, close in points:
+                s.add(AssetClassPriceHistory(
+                    id=str(uuid.uuid4()), asset_class=ac_de, price_date=ds,
+                    close_rappen=int(close), source="test",
+                    created_at=now, updated_at=now,
+                ))
+        s.commit()
+
+
+def _flat_year_step_prices(years, ret_bps_by_de, start_price=1_000_000_00):
+    """Pro Asset-Klasse Preise, die INNERHALB jedes Jahres exakt einmal um die
+    Jahresrendite wachsen (Jan-2 -> Dez-31) und ueber den Jahreswechsel flach
+    bleiben. So realisiert der Daily-Backtest genau diese Jahresrenditen."""
+    out = {}
+    for ac_de, r in ret_bps_by_de.items():
+        pts, price = [], float(start_price)
+        for y in years:
+            pts.append((f"{y}-01-02", int(round(price))))
+            price *= (1.0 + r / 10000.0)
+            pts.append((f"{y}-12-31", int(round(price))))
+        out[ac_de] = pts
+    return out
+
+
+def test_load_daily_returns_series_intersection_and_returns(session_factory):
+    # Aktien hat einen Extra-Tag, den die anderen nicht haben -> faellt raus.
+    prices = {
+        "Aktien": [("2020-01-02", 100_00), ("2020-01-03", 110_00), ("2020-01-06", 121_00)],
+        "Obligationen": [("2020-01-02", 100_00), ("2020-01-06", 100_00)],
+        "Immobilien": [("2020-01-02", 100_00), ("2020-01-06", 100_00)],
+        "Alternative": [("2020-01-02", 100_00), ("2020-01-06", 100_00)],
+        "Liquiditaet": [("2020-01-02", 100_00), ("2020-01-06", 100_00)],
+    }
+    _seed_daily_prices(session_factory, prices)
+    with session_factory() as s:
+        anchor, series = load_daily_returns_series(s)
+    assert anchor == date(2020, 1, 2)
+    # Schnittmenge = {01-02, 01-06}; 01-03 faellt raus -> genau 1 Return-Schritt
+    assert len(series) == 1
+    d, ret = series[0]
+    assert d == date(2020, 1, 6)
+    # Aktien 100 -> 121 ueber die Schnittmenge = +21%
+    assert ret["equities"] == 2100
+    assert ret["bonds"] == 0
+
+
+def test_load_daily_returns_series_empty_when_incomplete(session_factory):
+    # Nur 4 von 5 Klassen -> kein vollstaendiger Kalender
+    prices = {ac: [("2020-01-02", 100_00), ("2020-01-03", 101_00)]
+              for ac in ALL_DE_CLASSES[:4]}
+    _seed_daily_prices(session_factory, prices)
+    with session_factory() as s:
+        anchor, series = load_daily_returns_series(s)
+    assert anchor is None
+    assert series == []
+
+
+def test_compute_metrics_daily_vol_annualized_sqrt252():
+    import math as _math
+    import statistics as _stats
+    rets = [120, -80, 100, -60, 140, -100] * 5  # 30 Tages-Returns
+    path = [(2020.0, 100_000_00), (2021.0, 112_000_00)]
+    m = compute_metrics_daily(path, rets)
+    expected_vol = int(round(_stats.stdev(rets) * _math.sqrt(252)))
+    assert m["vol_bps"] == expected_vol
+
+
+def test_daily_equivalent_to_annual_when_flat_within_year(session_factory):
+    """Daily-Serie, die nur die Jahresrendite realisiert, reproduziert den
+    Annual-Endwert (Acceptance #2)."""
+    mid = _seed_backtest_fixture(session_factory, with_annual_returns=False)
+    years = [2019, 2020, 2021]
+    ret_bps = {"Aktien": 1000, "Obligationen": 300, "Immobilien": 500,
+               "Alternative": 0, "Liquiditaet": 100}
+    # Annual-Returns identisch zu den jaehrlichen Daily-Spruengen
+    now = _now()
+    with session_factory() as s:
+        for y in years:
+            for ac_de, r in ret_bps.items():
+                s.add(AssetClassAnnualReturn(id=str(uuid.uuid4()), year=y,
+                      asset_class=ac_de, return_bps=r, source="t",
+                      created_at=now, updated_at=now))
+        s.commit()
+    _seed_daily_prices(session_factory, _flat_year_step_prices(years, ret_bps))
+
+    with session_factory() as s:
+        mandate = s.query(Mandate).filter(Mandate.id == mid).first()
+        annual = run_strategy_backtest(s, mandate, resolution="annual")
+        daily = run_strategy_backtest(s, mandate, resolution="daily")
+
+    assert annual["resolution_used"] == "annual"
+    assert daily["resolution_used"] == "daily"
+    a_end = annual["soll"]["rebalanced"]["metrics"]["end_value_rappen"]
+    d_end = daily["soll"]["rebalanced"]["metrics"]["end_value_rappen"]
+    # Endwert muss (bis auf Rundung) uebereinstimmen
+    assert abs(a_end - d_end) <= 200
+    # Jahres-Aggregation: gleich viele Jahre, gleiche Jahres-Returns
+    assert daily["soll"]["rebalanced"]["metrics"]["years_count"] == 3
+
+
+def test_daily_maxdd_exceeds_annual_with_intra_year_crash(session_factory):
+    """Intra-Jahr-Crash ist im Daily-MaxDD sichtbar, im Annual nicht (Acceptance #1)."""
+    mid = _seed_backtest_fixture(session_factory, with_annual_returns=False)
+    # 2020: Aktien Jan 100 -> Jun 60 (-40%) -> Dez 95 (Jahresende -5%); Rest flach.
+    prices = {
+        "Aktien": [("2020-01-02", 1_000_000_00), ("2020-06-30", 600_000_00), ("2020-12-31", 950_000_00)],
+        "Obligationen": [("2020-01-02", 1_000_000_00), ("2020-06-30", 1_000_000_00), ("2020-12-31", 1_000_000_00)],
+        "Immobilien": [("2020-01-02", 1_000_000_00), ("2020-06-30", 1_000_000_00), ("2020-12-31", 1_000_000_00)],
+        "Alternative": [("2020-01-02", 1_000_000_00), ("2020-06-30", 1_000_000_00), ("2020-12-31", 1_000_000_00)],
+        "Liquiditaet": [("2020-01-02", 1_000_000_00), ("2020-06-30", 1_000_000_00), ("2020-12-31", 1_000_000_00)],
+    }
+    _seed_daily_prices(session_factory, prices)
+    now = _now()
+    with session_factory() as s:
+        # Annual 2020: Aktien -5%, Rest 0
+        for ac_de, r in {"Aktien": -500, "Obligationen": 0, "Immobilien": 0,
+                         "Alternative": 0, "Liquiditaet": 0}.items():
+            s.add(AssetClassAnnualReturn(id=str(uuid.uuid4()), year=2020,
+                  asset_class=ac_de, return_bps=r, source="t",
+                  created_at=now, updated_at=now))
+        s.commit()
+    with session_factory() as s:
+        mandate = s.query(Mandate).filter(Mandate.id == mid).first()
+        annual = run_strategy_backtest(s, mandate, resolution="annual")
+        daily = run_strategy_backtest(s, mandate, resolution="daily")
+    a_dd = annual["soll"]["rebalanced"]["metrics"]["max_drawdown_bps"]
+    d_dd = daily["soll"]["rebalanced"]["metrics"]["max_drawdown_bps"]
+    assert d_dd > a_dd
+    # 60% Aktien * -40% ~ -24% intra-year -> deutlich groesser als Annual
+    assert d_dd > 2000
+
+
+def test_run_strategy_backtest_daily_fallback_when_no_prices(session_factory):
+    """resolution=daily ohne Tagesdaten -> Fallback auf annual (Acceptance #4)."""
+    mid = _seed_backtest_fixture(session_factory)  # nur Annual-Returns
+    with session_factory() as s:
+        mandate = s.query(Mandate).filter(Mandate.id == mid).first()
+        result = run_strategy_backtest(s, mandate, resolution="daily")
+    assert result["resolution_used"] == "annual"
+    assert result["soll"] is not None
+    assert any("jährliche" in w or "taegliche" in w.lower() or "tägliche" in w
+               for w in result["warnings"])
+
+
+def test_run_strategy_backtest_daily_with_benchmark(session_factory):
+    """Benchmark funktioniert im Daily-Modus (Acceptance #9)."""
+    mid = _seed_backtest_fixture(session_factory, with_annual_returns=False)
+    years = [2019, 2020]
+    ret_bps = {"Aktien": 1500, "Obligationen": 200, "Immobilien": 400,
+               "Alternative": 0, "Liquiditaet": 50}
+    _seed_daily_prices(session_factory, _flat_year_step_prices(years, ret_bps))
+    with session_factory() as s:
+        mandate = s.query(Mandate).filter(Mandate.id == mid).first()
+        result = run_strategy_backtest(
+            s, mandate, resolution="daily",
+            benchmark_weights_bps={"equities": 10000},
+        )
+    assert result["resolution_used"] == "daily"
+    assert result["benchmark"] is not None
+    assert result["benchmark"]["weights_bps"]["equities"] == 10000
+    # SOLL und Benchmark haben je eigene, plausible Daily-Metriken
+    soll_cagr = result["soll"]["rebalanced"]["metrics"]["cagr_bps"]
+    bm_cagr = result["benchmark"]["rebalanced"]["metrics"]["cagr_bps"]
+    # 100% Aktien (15% p.a.) schlaegt die gemischte SOLL-Strategie
+    assert bm_cagr > soll_cagr
+
+
+def test_daily_downsampling_caps_path_points(session_factory):
+    """Langer Tagespfad wird auf MAX_PATH_POINTS gekappt; Metriken auf Vollpfad."""
+    mid = _seed_backtest_fixture(session_factory, with_annual_returns=False)
+    # ~500 aufeinanderfolgende Tage ueber 2 Kalenderjahre
+    start = _dt.date(2020, 1, 2)
+    prices = {ac: [] for ac in ALL_DE_CLASSES}
+    for i in range(500):
+        d = (start + _dt.timedelta(days=i)).isoformat()
+        for ac in ALL_DE_CLASSES:
+            prices[ac].append((d, 1_000_000_00 + i * 1000))  # leicht steigend
+    _seed_daily_prices(session_factory, prices)
+    with session_factory() as s:
+        mandate = s.query(Mandate).filter(Mandate.id == mid).first()
+        result = run_strategy_backtest(s, mandate, resolution="daily")
+    wp = result["soll"]["rebalanced"]["wealth_path_rappen"]
+    dd = result["soll"]["rebalanced"]["drawdown_path_bps"]
+    assert len(wp) <= MAX_PATH_POINTS
+    assert len(dd) <= MAX_PATH_POINTS
+    assert len(wp) >= 2
+    # Metriken auf Vollpfad: 2 Kalenderjahre abgedeckt
+    assert result["soll"]["rebalanced"]["metrics"]["years_count"] >= 2
+
+
+def test_daily_rebalance_is_active_not_noop(session_factory):
+    """Rebal trimmt Gewinner -> Rebal-Endwert < Buy&Hold bei Aktien-Outperformance."""
+    weights = {"equities": 5000, "bonds": 5000, "real_estate": 0,
+               "alternatives": 0, "liquidity": 0}
+    anchor = date(2019, 1, 2)
+    # Aktien jedes Jahr +20% (innerhalb des Jahres), Bonds flach
+    series = [
+        (date(2019, 12, 31), {"equities": 2000, "bonds": 0, "real_estate": 0, "alternatives": 0, "liquidity": 0}),
+        (date(2020, 1, 2), {b: 0 for b in BUCKETS}),
+        (date(2020, 12, 31), {"equities": 2000, "bonds": 0, "real_estate": 0, "alternatives": 0, "liquidity": 0}),
+    ]
+    rebal = compound_daily_path(100_000_00, weights, anchor, series, rebalance=True)
+    norebal = compound_daily_path(100_000_00, weights, anchor, series, rebalance=False)
+    assert rebal["wealth_path_rappen"][-1][1] != norebal["wealth_path_rappen"][-1][1]
+    assert norebal["wealth_path_rappen"][-1][1] > rebal["wealth_path_rappen"][-1][1]
+
+
+def test_compute_drawdown_path_float_keeps_float_labels():
+    path = [(2020.0, 100_000_00), (2020.5, 120_000_00), (2020.9, 60_000_00)]
+    dd = compute_drawdown_path_float(path)
+    assert dd[0]["drawdown_bps"] == 0
+    assert dd[2]["drawdown_bps"] == -5000  # (60-120)/120
+    assert isinstance(dd[1]["year"], float)
+    assert dd[1]["year"] == 2020.5
