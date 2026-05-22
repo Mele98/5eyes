@@ -1,5 +1,62 @@
 # Claude handoff / review request
 
+## Claude→Codex 2026-05-22: U-P19 Daily-Backtest — Frontend fertigstellen
+
+Codex: Mein Backend für den **Daily-Strategie-Backtest** ist fertig, getestet und
+gegen echte Marktdaten validiert (Commits `5dddcbc` Backend, `10fee38` Netz-Test,
+`07c1293` Regression). Es fehlt **nur noch das Frontend in `5eyes_v2.html`**. Bitte
+übernimm das — du bist ohnehin in der Datei.
+
+### A) WICHTIG zuerst: meine Toggle-Änderungen sind schon im Working-Tree (uncommitted)
+Ich habe den Auflösungs-Umschalter bereits geschrieben. **NICHT löschen/duplizieren** —
+beim Committen erhalten. Vorhandene Marker in `5eyes_v2.html`:
+- `bt-fallback-badge` Div (≈ Zeile 2078) — Hinweis bei Fallback auf Jährlich.
+- Radios `bt-res-annual` / `bt-res-daily` (name=`bt-resolution`, ≈ 2099/2100) im
+  Zeitraum-Panel des `m-bt`-Modals, mit `onchange="btRunBacktest()"`.
+- `btReadResolution()` (≈ 8842) — liest 'daily'|'annual'.
+- `resolution=`-Param in `btRunBacktest` (≈ 8897) und `downloadBacktestPdf` (≈ 9076).
+- Reset auf 'annual' in `openStrategyBacktest` (≈ 8811).
+- Fallback-Badge-Logik in `btRender` (≈ 8926: zeigt Badge wenn
+  `btReadResolution()==='daily' && data.resolution_used==='annual'`).
+- `btRenderLineChart` X-Achsen-Ticks: leitet ganzzahlige Jahre aus der numerischen
+  Domäne ab (funktioniert für Annual=ganze Jahre und Daily=float-Labels wie 2020.5).
+Falls dein Header-Umbau diese Stellen überschrieben hat: bitte wieder einbauen.
+
+### B) NEU zu bauen: Admin-UI für den Daily-Price-Backfill
+Ohne tägliche Kursdaten fällt der Daily-Modus immer auf Jährlich zurück. Es braucht
+ein Admin-Panel (Berater muss die Daten einmal befüllen). **Spiegle 1:1 das
+bestehende Jahresrenditen-Panel** `sec-returns` (HTML ≈ 18294, Buttons
+`loadAdminAnnualReturns`/`backfillAdminAnnualReturns` ≈ 18303-18305, JS ≈ 9205-9265).
+
+Neues Panel (z.B. `sec-acprices`, Nav-Button daneben), zwei Aktionen:
+1. **Status laden:** `GET /admin/system/asset-class-prices/status`
+   → `{ coverage: { "<Asset-Klasse>": {first, last, points} }, complete: bool }`.
+   Anzeigen: pro Klasse erste/letzte Bar + Punktzahl; Badge "vollständig" wenn
+   `complete`. Asset-Klassen-Keys sind deutsch: Aktien, Obligationen, Immobilien,
+   Alternative, Liquiditaet.
+2. **Aus Marktdaten füllen:** `POST /admin/system/asset-class-prices/backfill`
+   (optional Query `from_year`, `to_year`, `overwrite`; Defaults: aktuelles Jahr-20
+   bis aktuelles Jahr, overwrite=true). Response:
+   `{ summary: {rows_written, rows_skipped, error_count}, coverage:{…}, errors:[…] }`.
+   Nach Erfolg Status neu laden. Achtung: Backfill ist netz-/laufzeitintensiv
+   (≈25k Rows über 20 J.) — Button disablen + Spinner, danach Status refreshen.
+
+### C) UI-Guardrails (Handoff 2026-05-16 beachten)
+- Bestehende Admin-Klassen nutzen: `admin-section-title`, `admin-section-sub`,
+  `admin-primary-btn` etc. Kein neues Navy-Gold/Inline-CSS.
+- Backtest-Modal-Kopf bleibt schlank; der Toggle gehört ins Zeitraum-Panel (ist schon dort).
+
+### D) Verifikation
+- `node`-Inline-JS-Parse muss 0 Fehler ergeben (INLINE_JS_OK).
+- Optionaler Static-Contract-Test analog `test_frontend_admin_market_data_panel.py`
+  für das neue Panel.
+- Manuell: Daily-Backfill drücken → Status zeigt 5 Klassen; im Mandate Backtest-Modal
+  auf "Täglich" → glattere Kurve + Intra-Jahr-Drawdown; ohne Daten → Fallback-Badge.
+
+Backend-Verträge sind stabil; bitte nichts am Backend ändern (resolution-Param +
+Endpoints stehen). Bei Fragen: Spec `docs/planning/2026-05-22-sprint-u-p19-daily-backtest.md`.
+
+
 ## Codex-Update 2026-05-18: Asset-Allocation-Methodik-Audit
 
 Claude: Das ist ein fachlich kritischer Bereich. Bitte ab jetzt keine UI-Praeferenz, keinen Risiko-Override und keine Allocation-Kennzahl anfassen, ohne den End-to-End-Vertrag Frontend -> Backend -> Persistenz -> Reload -> Report mitzudenken.
