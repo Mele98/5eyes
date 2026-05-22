@@ -717,3 +717,38 @@ def test_compute_drawdown_path_float_keeps_float_labels():
     assert dd[2]["drawdown_bps"] == -5000  # (60-120)/120
     assert isinstance(dd[1]["year"], float)
     assert dd[1]["year"] == 2020.5
+
+
+# ============================================================================
+# Netz-Integration (standardmäßig übersprungen; manuell mit -m network)
+# ============================================================================
+
+
+@pytest.mark.network
+@pytest.mark.skip(reason="network-test, manuell mit -m network ausfuehren")
+def test_daily_pipeline_against_real_market_data(session_factory):
+    """End-to-End gegen echte Marktdaten: Backfill -> Daily-Serie -> Metriken.
+
+    Manuell verifiziert 2026-05-22 (2022-2024, yfinance): 5×753 Tage, 60/40
+    CAGR 3.08% / Vol 11.14% / MaxDD 21.60% — der 2022-Intra-Jahr-Drawdown wird
+    durch die Tagesauflösung sichtbar (vs. Annual, das ihn versteckt)."""
+    from services.market_data.factory import build_default_aggregator
+    from services.market_data.asset_class_price_backfill import backfill_asset_class_prices
+
+    with session_factory() as s:
+        agg = build_default_aggregator()
+        res = backfill_asset_class_prices(s, agg, from_year=2022, to_year=2024)
+        s.commit()
+        assert res["summary"]["rows_written"] > 0
+        assert res["summary"]["error_count"] == 0
+
+        anchor, series = load_daily_returns_series(s)
+        assert anchor is not None
+        assert len(series) > 400  # ~3 Jahre Handelstage
+
+        w = {"equities": 6000, "bonds": 4000, "real_estate": 0, "alternatives": 0, "liquidity": 0}
+        path = compound_daily_path(1_000_000_00, w, anchor, series, rebalance=True)
+        m = compute_metrics_daily(path["wealth_path_rappen"], path["annual_returns_bps"])
+        assert m["years_count"] == 3
+        assert m["vol_bps"] > 0
+        assert m["max_drawdown_bps"] > 1000  # 2022-Einbruch in Tagesauflösung sichtbar
