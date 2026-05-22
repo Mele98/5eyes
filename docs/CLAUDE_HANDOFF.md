@@ -49,6 +49,7 @@ Claude: Der Admin-P17/Datenpipeline-Block hat den alten Navy-Gold/Inline-Card-St
 
 Ab jetzt gilt fuer alle sichtbaren Frontend-Aenderungen:
 - Cashflow und Asset Allocation sind der Referenzstil: ruhig, schlicht, helle Flaechen, wenig Gold, keine dekorativen Mini-Karten.
+- Asset-Allocation-Kopfzeile bleibt bewusst schlank: sichtbar nur `Anlagepraeferenzen`, `Anlagestrategie berechnen`, `PDF` und bei verfuegbarer Strategie `Portfolio umsetzen`. Interne Bedienelemente wie Parameter, Mandat-Einstellungen und Soll-Quoten gehoeren hinter den kleinen Optionspunkt und nicht mehr als dominante Header-Buttons in die Kundenmaske.
 - Keine neuen `style="color:var(--g3)"`, `style="color:var(--g4)"`, schweren Navy-Gold-Header oder isolierten Inline-Statuskarten in neuen UI-Bloecken.
 - Neue Admin-Bereiche muessen die vorhandenen Klassen nutzen: `admin-section-title`, `admin-section-sub`, `admin-summary-panel`, `admin-metric-panel`, `admin-metric-label`, `admin-metric-value`, `admin-metric-meta`, `admin-code-input`.
 - Wenn ein neuer Bereich eigene Struktur braucht, zuerst eine kleine wiederverwendbare Klasse im Admin-Komponentenlayer anlegen, nicht Inline-CSS kopieren.
@@ -105,6 +106,28 @@ Aktueller Standard fuer neue Arbeitsbloecke:
 - Packaging-Script mit optionalem `BUILD_WITH_SQLCIPHER=1`
 
 ## Was Claude jetzt am meisten reviewen / ergänzen soll
+
+### Codex-Update 2026-05-19: PDF-Prozess
+
+Claude: Bitte bei allen Report-/PDF-Aenderungen diese Punkte hart beachten:
+- Server-PDFs duerfen keine alten Modellfelder lesen. `TargetAllocation` nutzt `target_*_bps`, `band_*_min_bps`/`band_*_max_bps` und `advisory_wealth_at_generation_rappen`.
+- `RecommendationPosition` enthaelt keine IST-Felder. Portfolio-IST kommt aus `RecommendationHolding.market_value_rappen`; fehlen Holdings, darf keine falsche Drift simuliert werden.
+- Risikoprofil-PDF nutzt `final_profile`, `risk_capacity_score_x10`, `risk_willingness_score_x10`, `investment_horizon_years` und die Knowledge-JSONs.
+- Es gibt jetzt einen echten Server-Endpunkt `GET /mandates/{mandate_id}/reports/protokoll.pdf`. Browserdruck ist nur Fallback fuer Demo/Legacy.
+- PDF-Branding kommt aus dem Berater-/Organisationsprofil, nicht aus Referenzvorlagen und nicht aus hardcodierten Beispielmarken.
+- Die Anlagestrategie hat wieder eine harte 19-Seiten-Struktur in Vorlagen-Reihenfolge: Strategieblock Seite 1-9, Ausgangslage Seite 10-15, Kennzahlen/Fonds/Disclaimer Seite 16-19.
+- Tests muessen Struktur/Quelle pruefen, nicht nur `%PDF`-Magic-Bytes.
+- Codex-Fix 2026-05-20: Bitte nicht wieder die alte PDF-Struktur einfuehren. Inhaltsseiten haben eigene Header-Titel; "Anlagestrategie" darf nicht als generischer Dauertitel auf jeder Seite stehen.
+- Codex-Fix 2026-05-20: Vermoegensstruktur muss von gross nach klein laufen: zuerst High-Level Asset Allocation / Soll-Allokation, danach Subanlageklassen mit IST/SOLL-Visualisierung.
+- Codex-Fix 2026-05-20: Eignungspruefung muss den Risikofragebogen 1:1 als Frage-Antwort-Dokumentation zeigen. Fragen 1-11 immer rendern, fehlende Antworten sichtbar als "Nicht beantwortet"; Frage und Antwort muessen in jeder Zeile vorhanden sein.
+- Codex-Fix 2026-05-20: Punkte/Scorewerte des Risikoprofils sind intern und duerfen im Kunden-PDF nicht ausgewiesen werden. Frage/Antwort ja, Punkte nein.
+- Codex-Fix 2026-05-20: Wenn das Risikoprofil manuell uebersteuert wurde, muss der Kundenbericht dies sichtbar erwaehnen und die dokumentierte Begruendung anzeigen.
+- Codex-Fix 2026-05-20: Band Min-Max / Toleranzbaender nur anzeigen, wenn der Kunde explizit von Standardbandbreiten abweicht bzw. `allocation_preferences.bands` echte Overrides enthaelt.
+- Codex-Fix 2026-05-20: Asset-Allocation-Maske exportiert nur `assetallocation.pdf`; Portfolio-Maske exportiert nur `portfolio.pdf`; das volle 19-Seiten-Gesamtdokument bleibt im Review/Abschluss via `anlagestrategie.pdf`.
+- Codex-Fix 2026-05-21: Einzel-PDFs bleiben nach Titelblatt und Haftungs-Disclaimer strikt rubrikrein. Asset Allocation zeigt inhaltlich nur Kuchen/Soll-Allokation plus Subanlageklassen. Portfolio zeigt inhaltlich nur Portfolio-Positionen. Keine Risikoprofil-, Vermoegens-, Review-, Signatur- oder Zusatzsektionen in diesen Einzel-PDFs.
+- Codex-Fix 2026-05-21: Portfolio-Einzel-PDF gruppiert Produktpositionen wie das Frontend-HUD nach Assetklasse (`Aktien:`, `Obligationen:` usw.) und listet darunter ausschliesslich Produkte mit Subklasse, Sollgewicht, Zielwert, Waehrung und TER. Die PDF-Datenquelle muss dafuer `asset_class` aus dem Produktuniversum mitgeben; bitte nicht wieder auf eine flache Produktliste ohne Gruppentitel zurueckbauen.
+- Codex-Fix 2026-05-21: Portfolio-Empfehlungen duerfen nicht mehr gegen eine neuere Asset Allocation angezeigt oder gedruckt werden. `recommendations/current/payload` und `portfolio.pdf` muessen eine RecommendationRun verwenden, deren `target_allocation_id` zur aktuell gueltigen `TargetAllocation` passt. Stale Runs muessen blockiert bzw. im Frontend aus dem State geloescht werden; sonst entstehen fachlich falsche Faelle wie Liquiditaet 3% in der SAA, aber Geldmarktfonds 22.2% im Portfolio.
+- Codex-Fix 2026-05-20: PDF-Download im Frontend nutzt Timeout, Base-URL-Refresh und klare Backend-Fehlermeldung. Neue PDF-Dokumentmodule muessen im Windows-/PyInstaller-Build explizit enthalten bleiben (`services.pdf` collect-submodules + Dokument-Hidden-Imports).
 
 ### Codex-Update 2026-05-18: Review & Abschluss
 

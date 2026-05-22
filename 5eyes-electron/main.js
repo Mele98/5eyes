@@ -427,6 +427,14 @@ function terminateBackendProcess() {
   }
 }
 
+function sanitizePdfFilename(name) {
+  const fallback = `report_${new Date().toISOString().slice(0, 10)}.pdf`;
+  const raw = String(name || fallback).trim() || fallback;
+  const base = path.basename(raw).replace(/[<>:"/\\|?*\x00-\x1F]/g, '_');
+  const withExtension = base.toLowerCase().endsWith('.pdf') ? base : `${base}.pdf`;
+  return withExtension.slice(0, 180) || fallback;
+}
+
 async function waitForBackendReady() {
   const startedAt = Date.now();
   while (Date.now() - startedAt < BACKEND_READY_TIMEOUT_MS) {
@@ -533,6 +541,23 @@ ipcMain.handle('shell:open-external', async (_event, targetUrl) => {
 ipcMain.handle('auth:get-token', () => readStoredToken());
 ipcMain.handle('auth:set-token', (_event, token) => writeStoredToken(token));
 ipcMain.handle('auth:clear-token', () => clearStoredToken());
+ipcMain.handle('file:save-pdf', async (_event, payload) => {
+  const filename = sanitizePdfFilename(payload && payload.filename);
+  const base64 = String((payload && payload.base64) || '');
+  if (!base64) {
+    throw new Error('PDF-Daten fehlen.');
+  }
+  const target = await dialog.showSaveDialog(mainWindow || undefined, {
+    title: 'PDF speichern',
+    defaultPath: path.join(app.getPath('downloads'), filename),
+    filters: [{ name: 'PDF', extensions: ['pdf'] }],
+  });
+  if (target.canceled || !target.filePath) {
+    return { ok: false, canceled: true };
+  }
+  fs.writeFileSync(target.filePath, Buffer.from(base64, 'base64'));
+  return { ok: true, path: target.filePath };
+});
 ipcMain.handle('updates:get-state', () => ({ ...updateState }));
 ipcMain.handle('updates:check', async () => checkForUpdates());
 ipcMain.handle('updates:install-downloaded', async () => {

@@ -36,7 +36,7 @@ def make_risikoprofil_box(
     override_reason: str | None = None,
 ) -> list:
     """Returns Flowables: Section-Title + Risikoprofil-Box ohne interne Punkte."""
-    if score_x10 is None and not profile_label:
+    if score_x10 is None and not profile_label and not is_overridden:
         return []
 
     styles = make_paragraph_styles()

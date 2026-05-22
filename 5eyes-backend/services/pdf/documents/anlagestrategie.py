@@ -157,7 +157,7 @@ def build_anlagestrategie_flowables(
         ctx, mandate_number=data.mandate_number,
         advisory_wealth_label=advisory_label,
     ))
-    if data.risk_score_x10 is not None or data.risk_profile_label:
+    if data.risk_score_x10 is not None or data.risk_profile_label or data.risk_is_overridden:
         flowables.extend(make_risikoprofil_box(
             score_x10=data.risk_score_x10,
             profile_label=data.risk_profile_label,
@@ -361,7 +361,7 @@ def _build_anlagestrategie_flowables_template_order(
 
     # 3 Risikoprofil
     header("Risikoprofil")
-    if data.risk_score_x10 is not None or data.risk_profile_label:
+    if data.risk_score_x10 is not None or data.risk_profile_label or data.risk_is_overridden:
         flowables.extend(make_risikoprofil_box(
             score_x10=data.risk_score_x10,
             profile_label=data.risk_profile_label,

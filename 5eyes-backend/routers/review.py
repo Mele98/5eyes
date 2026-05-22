@@ -1463,15 +1463,35 @@ def get_current_recommendation_payload(
     current_user: User = Depends(get_current_user)
 ):
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    current_allocation = db.query(TargetAllocation).filter(
+        TargetAllocation.mandate_id == mandate_id,
+        TargetAllocation.is_current == 1,
+        TargetAllocation.deleted_at.is_(None),
+    ).order_by(TargetAllocation.version.desc(), TargetAllocation.created_at.desc()).first()
+    if not current_allocation:
+        raise HTTPException(status_code=409, detail="Keine aktuelle Soll-Allokation gefunden.")
     runs = db.query(RecommendationRun).filter(
         RecommendationRun.mandate_id == mandate_id
     ).order_by(RecommendationRun.created_at.desc()).all()
     if not runs:
         raise HTTPException(status_code=404, detail="Keine Empfehlung gefunden")
+    runs_for_current_allocation = [
+        item for item in runs
+        if str(item.target_allocation_id or "") == str(current_allocation.id or "")
+        and item.result_status != "Superseded"
+    ]
+    if not runs_for_current_allocation:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Die gespeicherte Portfolio-Empfehlung basiert nicht auf der aktuellen "
+                "Soll-Allokation. Bitte Empfehlung neu berechnen."
+            ),
+        )
     run = (
-        next((item for item in runs if item.result_status == "Final"), None)
-        or next((item for item in runs if item.result_status == "Draft"), None)
-        or runs[0]
+        next((item for item in runs_for_current_allocation if item.result_status == "Final"), None)
+        or next((item for item in runs_for_current_allocation if item.result_status == "Draft"), None)
+        or runs_for_current_allocation[0]
     )
     try:
         return build_recommendation_payload_from_run(

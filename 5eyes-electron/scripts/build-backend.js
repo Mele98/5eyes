@@ -85,6 +85,12 @@ const hiddenImports = [
   'starlette',
   'fastapi',
   'bcrypt',
+  'services.pdf.documents.anlagestrategie',
+  'services.pdf.documents.asset_allocation',
+  'services.pdf.documents.portfolio',
+  'services.pdf.documents.protokoll',
+  'services.pdf.documents.risikoprofil',
+  'services.pdf.documents.vertrag',
 ];
 
 const collectSubmodules = [
@@ -106,6 +112,7 @@ const collectSubmodules = [
   'requests',
   'urllib3',
   'anyio',
+  'services.pdf',
 ];
 
 const pyInstallerArgs = [

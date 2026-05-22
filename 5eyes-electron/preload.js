@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld('desktop', {
   getAuthToken: () => ipcRenderer.invoke('auth:get-token'),
   setAuthToken: (token) => ipcRenderer.invoke('auth:set-token', token),
   clearAuthToken: () => ipcRenderer.invoke('auth:clear-token'),
+  savePdfFile: (payload) => ipcRenderer.invoke('file:save-pdf', payload),
   getUpdateState: () => ipcRenderer.invoke('updates:get-state'),
   checkForUpdates: () => ipcRenderer.invoke('updates:check'),
   installDownloadedUpdate: () => ipcRenderer.invoke('updates:install-downloaded'),

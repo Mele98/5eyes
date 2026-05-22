@@ -11,6 +11,7 @@ from services.pdf.base import (
     AnlagestrategieData,
     PDFContext,
     PDFRenderer,
+    PortfolioData,
     ProtokollData,
     RisikoprofilData,
 )
@@ -170,7 +171,153 @@ def test_anlagestrategie_reference_structure_has_19_pages(ctx):
         },
     )
     pdf = ReportLabRenderer().render_anlagestrategie(ctx, data)
-    assert len(PdfReader(BytesIO(pdf)).pages) == 19
+    reader = PdfReader(BytesIO(pdf))
+    assert len(reader.pages) == 19
+
+    page5 = reader.pages[4].extract_text() or ""
+    page6 = reader.pages[5].extract_text() or ""
+    page13 = reader.pages[12].extract_text() or ""
+    page14 = reader.pages[13].extract_text() or ""
+    assert "SOLL-ALLOKATION" in page5
+    assert "SUBANLAGEKLASSEN" in page6
+    assert "SOLL-ALLOKATION" in page13
+    assert "SUBANLAGEKLASSEN" in page14
+
+
+def test_anlagestrategie_renders_complete_risk_questionnaire(ctx):
+    data = AnlagestrategieData(
+        target_allocation_bps={
+            "equities": 4000,
+            "bonds": 3000,
+            "real_estate": 1500,
+            "alternatives": 1000,
+            "liquidity": 500,
+        },
+        cma_expected_return_bps=400,
+        cma_expected_vol_bps=900,
+        horizon_years=10,
+    )
+    pdf = ReportLabRenderer().render_anlagestrategie(ctx, data)
+    page2 = PdfReader(BytesIO(pdf)).pages[1].extract_text() or ""
+
+    assert "Frage" in page2
+    assert "Antwort" in page2
+    assert "Punkte" not in page2
+    for question_number in range(1, 12):
+        assert f"Frage {question_number}" in page2
+    assert "Regelmässiges Einkommen" in page2
+    assert "Risikofähigkeit" in page2
+    assert page2.count("Nicht beantwortet") >= 11
+
+
+def test_anlagestrategie_hides_standard_band_column(ctx):
+    data = AnlagestrategieData(
+        target_allocation_bps={"equities": 5000, "bonds": 5000},
+        cma_expected_return_bps=400,
+        cma_expected_vol_bps=900,
+        horizon_years=10,
+        bucket_bands_bps={"equities": (4500, 5500), "bonds": (4500, 5500)},
+    )
+    pdf = ReportLabRenderer().render_anlagestrategie(ctx, data)
+    page5 = PdfReader(BytesIO(pdf)).pages[4].extract_text() or ""
+
+    assert "SOLL-ALLOKATION" in page5
+    assert "Band Min" not in page5
+
+
+def test_anlagestrategie_mentions_manual_risk_override(ctx):
+    data = AnlagestrategieData(
+        target_allocation_bps={"equities": 5000, "bonds": 5000},
+        cma_expected_return_bps=400,
+        cma_expected_vol_bps=900,
+        horizon_years=10,
+        risk_profile_label="Wachstumsorientiert",
+        risk_is_overridden=True,
+        risk_override_reason="Kundenwunsch dokumentiert",
+    )
+    pdf = ReportLabRenderer().render_anlagestrategie(ctx, data)
+    text = "\n".join(page.extract_text() or "" for page in PdfReader(BytesIO(pdf)).pages)
+
+    assert "Kundenwunsch dokumentiert" in text
+    assert "MANUELLE" in text or "Manuelle" in text
+
+
+def test_assetallocation_pdf_contains_only_allocation_and_subclasses(ctx):
+    data = AnlagestrategieData(
+        target_allocation_bps={"equities": 6000, "bonds": 4000},
+        cma_expected_return_bps=400,
+        cma_expected_vol_bps=900,
+        horizon_years=10,
+        products=[
+            {
+                "name": "Nicht im Asset-Allocation-PDF",
+                "asset_class": "equities",
+                "sub_asset_class": "Aktien Welt",
+                "target_weight_bps": 6000,
+                "target_amount_rappen": 60_000_00,
+            }
+        ],
+    )
+    pdf = ReportLabRenderer().render_asset_allocation(ctx, data)
+    text = "\n".join(page.extract_text() or "" for page in PdfReader(BytesIO(pdf)).pages)
+
+    assert "SOLL-ALLOKATION" in text
+    assert "SUBANLAGEKLASSEN" in text
+    assert "Aktien Total" in text
+    assert "Obligationen Total" in text
+    assert "Aktien Welt" in text
+    assert text.count("Aktien Welt") == 1
+    assert "Wichtiger Hinweis" in text
+    assert "Kundenwunsch" in text
+    assert "isolierter Auszug" in text
+    assert "Risikoprofil" not in text
+    assert "Eignungsprüfung" not in text
+    assert "Eignungspruefung" not in text
+    assert "Vermögensübersicht" not in text
+    assert "Vermoegensuebersicht" not in text
+    assert "Portfolio" not in text
+    assert "Nicht im Asset-Allocation-PDF" not in text
+    assert "Band Min" not in text
+
+
+def test_assetallocation_pdf_never_prints_bands_in_single_extract(ctx):
+    data = AnlagestrategieData(
+        target_allocation_bps={"equities": 6000, "bonds": 4000},
+        cma_expected_return_bps=400,
+        cma_expected_vol_bps=900,
+        horizon_years=10,
+        bucket_bands_bps={"equities": (5500, 6500), "bonds": (3500, 4500)},
+        allocation_preferences={"bands": {"equities": {"min_bps": 5500, "max_bps": 6500}}},
+    )
+    pdf = ReportLabRenderer().render_asset_allocation(ctx, data)
+    text = "\n".join(page.extract_text() or "" for page in PdfReader(BytesIO(pdf)).pages)
+
+    assert "Band Min" not in text
+    assert "Band Max" not in text
+
+
+def test_anlagestrategie_risk_questionnaire_formats_knowledge_answers(ctx):
+    data = AnlagestrategieData(
+        target_allocation_bps={"equities": 5000, "bonds": 5000},
+        cma_expected_return_bps=400,
+        cma_expected_vol_bps=900,
+        horizon_years=10,
+        risk_answers=[
+            {
+                "question_number": 1,
+                "answer_label": (
+                    'Finanzdienstleistungen: {"Anlageberatung": '
+                    '{"known": true, "informed": true}}'
+                ),
+                "answer_points": 0,
+            },
+        ],
+    )
+    pdf = ReportLabRenderer().render_anlagestrategie(ctx, data)
+    page2 = PdfReader(BytesIO(pdf)).pages[1].extract_text() or ""
+
+    assert "Anlageberatung: Kenntnisse vorhanden, Aufklärung erhalten" in page2
+    assert '{"known"' not in page2
 
 
 def test_anlagestrategie_with_empty_mc_stats(ctx):
@@ -222,6 +369,62 @@ def test_risikoprofil_pdf_contains_label(ctx, risk_data):
     pdf = ReportLabRenderer().render_risikoprofil(ctx, risk_data)
     # Title-Metadata
     assert b"Risikoprofil" in pdf
+
+
+def test_risikoprofil_pdf_hides_internal_scores_and_mentions_override(ctx):
+    data = RisikoprofilData(
+        risk_profile_label="Wachstumsorientiert",
+        risk_capacity_score=65,
+        risk_tolerance_score=58,
+        experience_years=12,
+        is_overridden=True,
+        override_reason="Kundenwunsch dokumentiert",
+        override_client_confirmed=True,
+        override_warning_delivered=True,
+    )
+    pdf = ReportLabRenderer().render_risikoprofil(ctx, data)
+    text = "\n".join(page.extract_text() or "" for page in PdfReader(BytesIO(pdf)).pages)
+
+    assert "Wachstumsorientiert" in text
+    assert "65 / 100" not in text
+    assert "58 / 100" not in text
+    assert "Manuelle" in text
+    assert "Kundenwunsch dokumentiert" in text
+
+
+def test_portfolio_pdf_contains_only_positions(ctx):
+    data = PortfolioData(
+        mandate_number="M-42",
+        advisory_wealth_rappen=100_000_00,
+        positions=[
+            {
+                "name": "Test Fonds",
+                "isin": "CH0000000001",
+                "asset_class": "equities",
+                "sub_asset_class": "Aktien Welt",
+                "target_weight_bps": 10000,
+                "target_amount_rappen": 100_000_00,
+                "ter_bps": 20,
+            }
+        ],
+    )
+    pdf = ReportLabRenderer().render_portfolio(ctx, data)
+    text = "\n".join(page.extract_text() or "" for page in PdfReader(BytesIO(pdf)).pages)
+
+    assert "Portfolio" in text
+    assert "PORTFOLIO-POSITIONEN" in text
+    assert "Aktien:" in text
+    assert "Aktien Welt" in text
+    assert "Zielwert" in text
+    assert "Waehrung" in text
+    assert "Test Fonds" in text
+    assert "Wichtiger Hinweis" in text
+    assert "Kundenwunsch" in text
+    assert "isolierter Auszug" in text
+    assert "Bestätigung" not in text
+    assert "Bestaetigung" not in text
+    assert "Portfolio-Übersicht" not in text
+    assert "Portfolio-Uebersicht" not in text
 
 
 def test_protokoll_pdf_magic_bytes(ctx):
