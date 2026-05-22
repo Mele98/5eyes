@@ -32,6 +32,7 @@ configure_mappers()
 
 from models.allocation import TargetAllocation
 from models.mandates import Mandate
+from models.profiling import RiskAssessment
 from models.review import RecommendationRun
 from models.users import User
 from services.foundation_example import FOUNDATION_MANDATE_NUMBER, upsert_foundation_example_case
@@ -119,6 +120,45 @@ def test_default_ui_preferences_generate_a_portfolio(session_factory):
             db=s, mandate=mandate, user_id="advisor-1", preferences=fe_default,
             target_allocation_id=ta.id, run_type="Optimizer", depot_bank="UBS AG Zürich")
         assert len(result.get("positions") or []) > 0
+
+
+def test_low_risk_override_does_not_empty_existing_saa_portfolio(session_factory):
+    """Produkt-Suitability darf eine vorhandene SAA nicht komplett leer filtern."""
+    with session_factory() as s:
+        mandate = _seed_foundation(s)
+        ta = s.query(TargetAllocation).filter(
+            TargetAllocation.mandate_id == mandate.id,
+            TargetAllocation.is_current == 1,
+        ).one()
+        assessment = s.query(RiskAssessment).filter(
+            RiskAssessment.mandate_id == mandate.id,
+            RiskAssessment.is_current == 1,
+        ).one()
+        assessment.is_overridden = 1
+        assessment.override_score_x10 = 20
+        assessment.override_profile = "Kapitalschutz"
+        assessment.override_reason = "Kundenseitig konservativer dokumentiert"
+        s.commit()
+
+        result = generate_recommendation_run(
+            db=s,
+            mandate=mandate,
+            user_id="advisor-1",
+            preferences={
+                "policy": {"esg": "best_in_class", "homeBias": "ch_focus", "universe": "standard"},
+                "tilts": {"tobacco": "overweight", "alcohol": "overweight", "gaming": "overweight"},
+                "product": {"fundsOnly": False, "listedOnly": False, "noDerivatives": False, "noLeverage": False, "noStructured": False},
+                "limits": {},
+                "geo": {"chfOnly": False, "hedgingRequired": False, "noUsd": False},
+                "assetClasses": {"altsGold": True, "equitiesLargeCap": True, "realestateFunds": True},
+            },
+            target_allocation_id=ta.id,
+            run_type="Optimizer",
+            depot_bank="UBS AG ZÃ¼rich",
+        )
+
+    assert len(result.get("positions") or []) > 0
+    assert any("Suitability" in warning for warning in result.get("warnings") or [])
 
 
 def test_preference_hard_blocks_raise_clear_errors():

@@ -6454,7 +6454,13 @@ def build_recommendation_payload_from_run(
     }
 
 
-def _product_matches_constraints(product: Product, prefs: dict, score_bucket: int) -> bool:
+def _product_matches_constraints(
+    product: Product,
+    prefs: dict,
+    score_bucket: int,
+    *,
+    ignore_suitability: bool = False,
+) -> bool:
     product_prefs = prefs["product"]
     geo_prefs = prefs["geo"]
     policy_prefs = prefs["policy"]
@@ -6486,7 +6492,7 @@ def _product_matches_constraints(product: Product, prefs: dict, score_bucket: in
     if policy_prefs.get("esg") in ("best_in_class", "impact", "net_zero") and asset_class != "Liquiditaet":
         if str(product.sfdr_class or "") not in ("8", "9"):
             return False
-    if product.suitability:
+    if product.suitability and not ignore_suitability:
         allowed = [
             rule for rule in product.suitability
             if int(rule.profile_from or 1) <= score_bucket <= int(rule.profile_to or 10) and int(rule.advisory_allowed or 0) == 1
@@ -6745,10 +6751,28 @@ def generate_recommendation_run(
         matching = [product for product in products if _product_matches_constraints(product, prefs, score_bucket)]
         exact = [product for product in matching if str(product.sub_asset_class or "") == str(sub["sub_asset_class"])]
         used_fallback = False
+        used_suitability_override = False
         candidates = exact
         if not candidates:
             candidates = [product for product in matching if _norm_text(product.asset_class) == _norm_text(sub["asset_class"])]
             used_fallback = bool(candidates)
+        if not candidates:
+            relaxed_matching = [
+                product
+                for product in products
+                if _product_matches_constraints(product, prefs, score_bucket, ignore_suitability=True)
+            ]
+            candidates = [
+                product for product in relaxed_matching
+                if str(product.sub_asset_class or "") == str(sub["sub_asset_class"])
+            ]
+            if not candidates:
+                candidates = [
+                    product for product in relaxed_matching
+                    if _norm_text(product.asset_class) == _norm_text(sub["asset_class"])
+                ]
+                used_fallback = bool(candidates)
+            used_suitability_override = bool(candidates)
         if not candidates:
             warnings.append(f"Kein passendes Produkt fuer {sub['sub_asset_class']} gefunden.")
             missing_sub_classes.append({
@@ -6764,6 +6788,12 @@ def generate_recommendation_run(
         if used_fallback:
             rationale = rationale + f"; Fallback aus {sub['sub_asset_class']}, da keine geeignete exakte Produktabdeckung verfuegbar war"
             warnings.append(f"{sub['sub_asset_class']}: exakte Produktumsetzung nicht moeglich, Core-Fallback verwendet.")
+        if used_suitability_override:
+            rationale = rationale + "; Produkt-Suitability ausserhalb Standardband, Beratung/Override dokumentieren"
+            warnings.append(
+                f"{sub['sub_asset_class']}: Produkt-Suitability liegt ausserhalb des Standard-Risikobands; "
+                "Empfehlung nur mit dokumentierter Beratung/Override verwenden."
+            )
         if depot_bank:
             rationale = rationale + f"; Umsetzung ueber {depot_bank}"
         existing = aggregated_positions.get(best.id)
