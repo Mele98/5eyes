@@ -31,15 +31,16 @@ Pipeline) — dieselbe Endpoint-Signatur, dann nur intern andere Datenquelle.
 from __future__ import annotations
 
 import math
+from bisect import bisect_right
 from typing import Iterable, Mapping
 
 from sqlalchemy.orm import Session
 
 from datetime import date as Date
 
-from models.allocation import TargetAllocation
+from models.allocation import CapitalMarketAssumption, TargetAllocation
 from models.mandates import Mandate
-from models.snapshots import AssetClassAnnualReturn, AssetClassPriceHistory
+from models.snapshots import AssetClassAnnualReturn, AssetClassFxHistory, AssetClassPriceHistory
 from models.wealth import WealthPosition
 
 
@@ -363,24 +364,52 @@ def _float_year_label(d: Date) -> float:
     return d.year + (d.toordinal() - year_start.toordinal()) / days_in_year
 
 
+CHF = "CHF"
+
+
+def _load_fx_to_chf(db: Session, currencies: set[str]) -> dict[str, tuple[list[str], dict[str, float]]]:
+    """Lädt pro Währung die tägliche FX→CHF-Reihe. Returns
+    {ccy: (sorted_iso_dates, {iso_date: rate_to_chf})}. ISO-Datumsstrings
+    sortieren lexikografisch korrekt → bisect-tauglich für Forward-Fill."""
+    out: dict[str, tuple[list[str], dict[str, float]]] = {}
+    for ccy in currencies:
+        rows = (
+            db.query(AssetClassFxHistory)
+            .filter(AssetClassFxHistory.currency == ccy)
+            .order_by(AssetClassFxHistory.price_date)
+            .all()
+        )
+        rate_by_date: dict[str, float] = {}
+        for row in rows:
+            try:
+                rate = int(row.rate_to_chf_x10000) / 10000.0
+            except (TypeError, ValueError):
+                continue
+            if rate > 0:
+                rate_by_date[str(row.price_date)] = rate
+        if rate_by_date:
+            out[ccy] = (sorted(rate_by_date.keys()), rate_by_date)
+    return out
+
+
 def load_daily_returns_series(
     db: Session,
     start_year: int | None = None,
     end_year: int | None = None,
-) -> tuple[Date | None, list[tuple[Date, dict[str, int]]]]:
-    """Lädt die tägliche EOD-Serie je Asset-Klasse und bildet Tagesrenditen.
+) -> tuple[Date | None, list[tuple[Date, dict[str, int]]], dict]:
+    """Lädt die tägliche EOD-Serie je Asset-Klasse, rechnet die Tagesrenditen
+    WÄHRUNGSKORREKT nach CHF um und liefert sie als bps.
 
     Nur Handelstage, an denen ALLE 5 Asset-Klassen einen Kurs haben
-    (Kalender-Schnittmenge), gehen in den Pfad — analog zur
-    "vollständige-Jahre"-Regel im Annual-Modus. Tagesrendite =
-    close_t / close_{t-1} - 1 (bps), zwischen aufeinanderfolgenden
-    Schnittmengen-Tagen.
+    (Kalender-Schnittmenge), gehen in den Pfad. CHF-Tagesrendite je Asset:
+        r_chf = (p_t/p_{t-1}) · (fx_t/fx_{t-1}) − 1
+    wobei fx der native→CHF-Kurs der Asset-Währung ist (Forward-Fill bei
+    FX-Lücken). CHF-Assets (oder ohne FX-Daten) laufen mit fx-Ratio 1.
 
     Returns:
-        (anchor_date, series) wobei series == [(date, {bucket: bps}), ...]
-        aufsteigend sortiert; anchor_date ist der Investitions-Starttag
-        (ohne eigene Rendite). Leer (None, []) wenn Daten unvollständig
-        oder < 2 gemeinsame Handelstage.
+        (anchor_date, series, fx_meta). fx_meta = {"converted": {bucket: ccy},
+        "unconverted": [ccy,...]} (Nicht-CHF-Währungen ohne FX-Daten — als CHF
+        approximiert). Leer (None, [], {}) wenn Daten unvollständig oder < 2 Tage.
     """
     rows = (
         db.query(AssetClassPriceHistory)
@@ -388,6 +417,7 @@ def load_daily_returns_series(
         .all()
     )
     by_class: dict[str, dict[str, int]] = {}
+    bucket_currency: dict[str, str] = {}
     for row in rows:
         bucket_en = ASSET_CLASS_DE_TO_EN.get(str(row.asset_class or "").strip())
         if not bucket_en:
@@ -399,9 +429,12 @@ def load_daily_returns_series(
         if close <= 0:
             continue
         by_class.setdefault(bucket_en, {})[str(row.price_date)] = close
+        ccy = str(getattr(row, "currency", "") or "").upper()
+        if ccy:
+            bucket_currency[bucket_en] = ccy
 
     if not all(b in by_class and by_class[b] for b in BUCKETS):
-        return (None, [])
+        return (None, [], {})
 
     common = set(by_class[BUCKETS[0]].keys())
     for b in BUCKETS[1:]:
@@ -420,7 +453,27 @@ def load_daily_returns_series(
         dated.append(d)
 
     if len(dated) < 2:
-        return (None, [])
+        return (None, [], {})
+
+    # FX-Reihen für alle benötigten Nicht-CHF-Währungen laden
+    needed_ccys = {c for c in bucket_currency.values() if c and c != CHF}
+    fx_series = _load_fx_to_chf(db, needed_ccys)
+    converted: dict[str, str] = {}
+    unconverted: set[str] = set()
+    for b in BUCKETS:
+        ccy = bucket_currency.get(b)
+        if ccy and ccy != CHF:
+            if ccy in fx_series:
+                converted[b] = ccy
+            else:
+                unconverted.add(ccy)
+
+    def _fx_at(ccy: str, d_iso: str) -> float | None:
+        dates, rate_by_date = fx_series[ccy]
+        idx = bisect_right(dates, d_iso) - 1  # letzter FX-Tag <= d_iso (Forward-Fill)
+        if idx < 0:
+            return None
+        return rate_by_date[dates[idx]]
 
     anchor = dated[0]
     series: list[tuple[Date, dict[str, int]]] = []
@@ -431,9 +484,21 @@ def load_daily_returns_series(
         for b in BUCKETS:
             p_prev = by_class[b][d_prev]
             p_cur = by_class[b][d_cur]
-            ret_map[b] = int(round((p_cur / p_prev - 1.0) * 10000)) if p_prev > 0 else 0
+            if p_prev <= 0:
+                ret_map[b] = 0
+                continue
+            fx_ratio = 1.0
+            ccy = converted.get(b)
+            if ccy:
+                fx_prev = _fx_at(ccy, d_prev)
+                fx_cur = _fx_at(ccy, d_cur)
+                if fx_prev and fx_cur and fx_prev > 0:
+                    fx_ratio = fx_cur / fx_prev
+            ret_map[b] = int(round(((p_cur / p_prev) * fx_ratio - 1.0) * 10000))
         series.append((dated[i], ret_map))
-    return (anchor, series)
+
+    fx_meta = {"converted": converted, "unconverted": sorted(unconverted)}
+    return (anchor, series, fx_meta)
 
 
 def compound_daily_path(
@@ -705,6 +770,25 @@ def _resolve_initial_value_rappen(db: Session, mandate: Mandate, ta: TargetAlloc
     return sum(int(getattr(r, "current_value_rappen", 0) or 0) for r in rows)
 
 
+def _resolve_risk_free_bps(db: Session, default_bps: int = 80) -> int:
+    """Risk-free-Rate für Sharpe aus der aktuellen CMA (Geldmarkt-Rendite
+    `liquidity_return_bps`). Fallback: konservative 80 bps, wenn keine CMA
+    oder kein Wert gepflegt ist."""
+    cma = (
+        db.query(CapitalMarketAssumption)
+        .filter(
+            CapitalMarketAssumption.is_current == 1,
+            CapitalMarketAssumption.deleted_at.is_(None),
+        )
+        .first()
+    )
+    if cma is not None:
+        rf = getattr(cma, "liquidity_return_bps", None)
+        if rf is not None and int(rf) >= 0:
+            return int(rf)
+    return default_bps
+
+
 def _normalize_benchmark_weights(weights: Mapping[str, int] | None) -> dict[str, int] | None:
     """Konvertiert Benchmark-Mix in normalisierte Gewichte (Summe 10000).
 
@@ -816,14 +900,21 @@ def run_strategy_backtest(
             "Standard-Initial-Kapital von CHF 100'000 für indikative Darstellung."
         )
 
-    risk_free_bps = 80  # konservative CHF-Geldmarkt-Annahme; aktuelle CMA wird nicht herangezogen
+    # U-P19b: Risk-free für Sharpe aus aktueller CMA (Geldmarkt-Rendite), nicht fix.
+    risk_free_bps = _resolve_risk_free_bps(db)
 
     # --- Daily-Modus (U-P19): persistierte tägliche Serie, sonst Fallback ---
     if requested_resolution == "daily":
-        anchor, daily_series = load_daily_returns_series(db, start_year, end_year)
+        anchor, daily_series, fx_meta = load_daily_returns_series(db, start_year, end_year)
         if anchor is not None and daily_series:
             daily_years = sorted({anchor.year, *(d.year for d, _r in daily_series)})
             benchmark_norm = _normalize_benchmark_weights(benchmark_weights_bps)
+            if fx_meta.get("unconverted"):
+                warnings.append(
+                    "Für folgende Notierungswährungen fehlen FX-Daten, sie wurden "
+                    "näherungsweise als CHF behandelt: " + ", ".join(fx_meta["unconverted"])
+                    + ". Bitte Tageskurs-Backfill erneut ausführen."
+                )
             return {
                 "mandate_id": str(mandate.id),
                 "initial_value_rappen": initial_value,
@@ -839,11 +930,11 @@ def run_strategy_backtest(
                 ),
                 "warnings": warnings,
                 "resolution_used": "daily",
+                "fx_converted": fx_meta.get("converted", {}),
                 "note": (
                     "Daily-Auflösung — tägliche EOD-Serie je Asset-Klasse aus "
                     "asset_class_price_history. Compounding täglich, Rebalancing jährlich. "
-                    "Proxy-Indices in Proxy-Währung (USD-ETF-Defaults); CHF-Sicht ist eine "
-                    "Approximation ohne FX-Hedge."
+                    "Renditen währungskorrekt nach CHF umgerechnet (asset_class_fx_history)."
                 ),
             }
         warnings.append(

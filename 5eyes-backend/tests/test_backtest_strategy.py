@@ -34,16 +34,17 @@ from models import (  # noqa: F401
 )
 configure_mappers()
 
-from models.allocation import OptimizerPolicy, TargetAllocation
+from models.allocation import CapitalMarketAssumption, OptimizerPolicy, TargetAllocation
 from models.clients import Client
 from models.mandates import Mandate
-from models.snapshots import AssetClassAnnualReturn, AssetClassPriceHistory
+from models.snapshots import AssetClassAnnualReturn, AssetClassFxHistory, AssetClassPriceHistory
 from models.users import User
 from models.wealth import WealthPosition
 from services.backtest_strategy import (
     BUCKETS,
     MAX_PATH_POINTS,
     _normalize_benchmark_weights,
+    _resolve_risk_free_bps,
     compound_daily_path,
     compound_wealth_path,
     compute_drawdown_path_bps,
@@ -538,7 +539,7 @@ def test_load_daily_returns_series_intersection_and_returns(session_factory):
     }
     _seed_daily_prices(session_factory, prices)
     with session_factory() as s:
-        anchor, series = load_daily_returns_series(s)
+        anchor, series, _fx = load_daily_returns_series(s)
     assert anchor == date(2020, 1, 2)
     # Schnittmenge = {01-02, 01-06}; 01-03 faellt raus -> genau 1 Return-Schritt
     assert len(series) == 1
@@ -555,7 +556,7 @@ def test_load_daily_returns_series_empty_when_incomplete(session_factory):
               for ac in ALL_DE_CLASSES[:4]}
     _seed_daily_prices(session_factory, prices)
     with session_factory() as s:
-        anchor, series = load_daily_returns_series(s)
+        anchor, series, _fx = load_daily_returns_series(s)
     assert anchor is None
     assert series == []
 
@@ -720,6 +721,83 @@ def test_compute_drawdown_path_float_keeps_float_labels():
 
 
 # ============================================================================
+# U-P19b: Währungskorrektur (FX→CHF) + risk_free aus CMA
+# ============================================================================
+
+_FX_DE = ["Aktien", "Obligationen", "Immobilien", "Alternative", "Liquiditaet"]
+
+
+def _seed_priced_usd(session_factory, price_pts_by_de, fx_pts):
+    """price_pts_by_de: {de_class: [(iso, close_rappen)]} (currency USD).
+    fx_pts: [(iso, rate_to_chf_x10000)] für USD/CHF."""
+    now = _now()
+    with session_factory() as s:
+        for ac_de, pts in price_pts_by_de.items():
+            for ds, close in pts:
+                s.add(AssetClassPriceHistory(id=str(uuid.uuid4()), asset_class=ac_de,
+                      price_date=ds, close_rappen=close, currency="USD", source="t",
+                      created_at=now, updated_at=now))
+        for ds, rate in fx_pts:
+            s.add(AssetClassFxHistory(id=str(uuid.uuid4()), currency="USD", price_date=ds,
+                  rate_to_chf_x10000=rate, source="t", created_at=now, updated_at=now))
+        s.commit()
+
+
+def test_daily_returns_fx_flat_equals_unconverted(session_factory):
+    """Flache USD/CHF-FX ⇒ CHF-Rendite = native Rendite (FX-Ratio 1)."""
+    prices = {
+        "Aktien": [("2023-01-02", 100_00), ("2023-01-03", 110_00)],  # +10%
+        "Obligationen": [("2023-01-02", 100_00), ("2023-01-03", 100_00)],
+        "Immobilien": [("2023-01-02", 100_00), ("2023-01-03", 100_00)],
+        "Alternative": [("2023-01-02", 100_00), ("2023-01-03", 100_00)],
+        "Liquiditaet": [("2023-01-02", 100_00), ("2023-01-03", 100_00)],
+    }
+    _seed_priced_usd(session_factory, prices, [("2023-01-02", 9000), ("2023-01-03", 9000)])
+    with session_factory() as s:
+        anchor, series, fx_meta = load_daily_returns_series(s)
+    assert fx_meta["converted"]["equities"] == "USD"
+    assert fx_meta["unconverted"] == []
+    assert len(series) == 1
+    assert series[0][1]["equities"] == 1000  # +10% bleibt, da FX flach
+    assert series[0][1]["bonds"] == 0
+
+
+def test_daily_returns_fx_movement_drives_chf_return(session_factory):
+    """USD-Preis flach, USD/CHF +10% ⇒ CHF-Rendite +10% (reiner FX-Effekt)."""
+    flat = [("2023-01-02", 100_00), ("2023-01-03", 100_00)]
+    prices = {ac: list(flat) for ac in _FX_DE}
+    _seed_priced_usd(session_factory, prices, [("2023-01-02", 9000), ("2023-01-03", 9900)])  # +10%
+    with session_factory() as s:
+        anchor, series, fx_meta = load_daily_returns_series(s)
+    assert len(series) == 1
+    assert series[0][1]["equities"] == 1000  # FX-Gewinn allein = +10%
+
+
+def test_daily_returns_fx_forward_fill_when_fx_day_missing(session_factory):
+    """Fehlt ein FX-Tag, wird der letzte bekannte Kurs vorwärts genutzt (kein Bruch)."""
+    flat = [("2023-01-02", 100_00), ("2023-01-03", 100_00), ("2023-01-04", 100_00)]
+    prices = {ac: list(flat) for ac in _FX_DE}
+    # FX fehlt am 03.; Forward-Fill ⇒ 02->03 FX-Ratio 1 (beide 9000), 03->04 nutzt 9900/9000
+    _seed_priced_usd(session_factory, prices, [("2023-01-02", 9000), ("2023-01-04", 9900)])
+    with session_factory() as s:
+        anchor, series, fx_meta = load_daily_returns_series(s)
+    assert len(series) == 2
+    assert series[0][1]["equities"] == 0      # 02->03: FX ff bleibt 9000
+    assert series[1][1]["equities"] == 1000   # 03->04: 9900/9000 = +10%
+
+
+def test_resolve_risk_free_bps_from_cma(session_factory):
+    now = _now()
+    with session_factory() as s:
+        assert _resolve_risk_free_bps(s) == 80  # keine CMA -> Fallback
+        s.add(CapitalMarketAssumption(id=str(uuid.uuid4()), valid_from=now,
+              is_current=1, liquidity_return_bps=150, created_by="t",
+              created_at=now, updated_at=now))
+        s.commit()
+        assert _resolve_risk_free_bps(s) == 150
+
+
+# ============================================================================
 # Netz-Integration (standardmäßig übersprungen; manuell mit -m network)
 # ============================================================================
 
@@ -742,7 +820,7 @@ def test_daily_pipeline_against_real_market_data(session_factory):
         assert res["summary"]["rows_written"] > 0
         assert res["summary"]["error_count"] == 0
 
-        anchor, series = load_daily_returns_series(s)
+        anchor, series, _fx = load_daily_returns_series(s)
         assert anchor is not None
         assert len(series) > 400  # ~3 Jahre Handelstage
 

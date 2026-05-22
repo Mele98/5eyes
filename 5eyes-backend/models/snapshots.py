@@ -54,9 +54,10 @@ class AssetClassPriceHistory(Base):
     Backtest liest NUR aus dieser Tabelle (offline-fähig, kein Live-Netz).
 
     `close_rappen` ist der adjusted_close (Total Return inkl. Dividenden, wenn
-    vorhanden) der Proxy-Serie in Proxy-Währung × 100, als Integer. Für den
-    Backtest zählen nur Verhältnisse aufeinanderfolgender Tage, daher ist die
-    Absolut-Skala/Währung irrelevant.
+    vorhanden) der Proxy-Serie in deren Notierungswährung (`currency`) × 100.
+    `currency` (U-P19b) trägt die native Währung der Bar; der Backtest rechnet
+    die Tagesrenditen damit währungskorrekt nach CHF um (siehe
+    AssetClassFxHistory).
     """
     __tablename__ = "asset_class_price_history"
     __table_args__ = (
@@ -68,6 +69,30 @@ class AssetClassPriceHistory(Base):
     asset_class = Column(String, nullable=False)
     price_date = Column(String, nullable=False)  # ISO-Date "YYYY-MM-DD"
     close_rappen = Column(Integer, nullable=False)
+    currency = Column(String)  # U-P19b: native Notierungswährung (ISO-3), z.B. "USD"
+    source = Column(String)
+    created_at = Column(String, nullable=False)
+    updated_at = Column(String, nullable=False)
+
+
+class AssetClassFxHistory(Base):
+    """Sprint U-P19b (2026-05-23): Tägliche FX-Reihe Fremdwährung → CHF.
+
+    Datenquelle für den währungskorrekten Daily-Backtest. Proxy-ETFs notieren in
+    USD; ein CHF-Investor trägt das USD/CHF-Risiko. `rate_to_chf_x10000` ist
+    `1 <currency> = rate CHF` × 10000 (z.B. USD/CHF 0.91 → 9100). Per
+    Admin-Backfill aus dem Aggregator (FX-Symbol-Konvention, z.B. "CHF=X").
+    """
+    __tablename__ = "asset_class_fx_history"
+    __table_args__ = (
+        UniqueConstraint("currency", "price_date", "source",
+                         name="uq_acfx_ccy_date_source"),
+        Index("ix_acfx_ccy_date", "currency", "price_date"),
+    )
+    id = Column(String, primary_key=True)
+    currency = Column(String, nullable=False)  # Fremdwährung (ISO-3)
+    price_date = Column(String, nullable=False)
+    rate_to_chf_x10000 = Column(Integer, nullable=False)
     source = Column(String)
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)

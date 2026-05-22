@@ -29,7 +29,7 @@ from models import (  # noqa: F401
 )
 configure_mappers()
 
-from models.snapshots import AssetClassPriceHistory
+from models.snapshots import AssetClassFxHistory, AssetClassPriceHistory
 from services.market_data.asset_class_price_backfill import (
     DEFAULT_SYMBOL_MAP,
     backfill_asset_class_prices,
@@ -85,6 +85,12 @@ def _history_for_all_classes():
             _bar(symbol, 2023, 1, 3, 101.0, adj=101.5),
             _bar(symbol, 2023, 1, 4, 102.0, adj=102.0),
         ]
+    # U-P19b: USD/CHF-FX-Reihe (Proxies notieren USD) — Symbol 'CHF=X'.
+    hist["CHF=X"] = [
+        _bar("CHF=X", 2023, 1, 2, 0.90),
+        _bar("CHF=X", 2023, 1, 3, 0.91),
+        _bar("CHF=X", 2023, 1, 4, 0.92),
+    ]
     return hist
 
 
@@ -94,6 +100,12 @@ def test_backfill_writes_rows_and_coverage(session_factory):
         result = backfill_asset_class_prices(s, agg, from_year=2023, to_year=2023)
         s.commit()
         total = s.query(AssetClassPriceHistory).count()
+        fx_total = s.query(AssetClassFxHistory).count()
+        usd_row = (
+            s.query(AssetClassPriceHistory)
+            .filter_by(asset_class="Aktien", price_date="2023-01-02")
+            .first()
+        )
     # 5 Klassen * 3 Tage = 15 Rows
     assert total == 15
     assert result["summary"]["rows_written"] == 15
@@ -103,6 +115,11 @@ def test_backfill_writes_rows_and_coverage(session_factory):
         assert cov["points"] == 3
         assert cov["first"] == "2023-01-02"
         assert cov["last"] == "2023-01-04"
+    # U-P19b: native Währung gespeichert + FX→CHF-Reihe befüllt
+    assert usd_row.currency == "USD"
+    assert fx_total == 3
+    assert result["summary"]["fx_rows_written"] == 3
+    assert "USD" in result["fx_coverage"]
 
 
 def test_backfill_prefers_adjusted_close_and_scales_rappen(session_factory):

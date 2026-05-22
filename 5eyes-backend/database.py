@@ -209,6 +209,11 @@ def ensure_runtime_columns() -> None:
             ('investment_horizon_start', 'TEXT'),
             ('investment_horizon_end', 'TEXT'),
         ],
+        # Sprint U-P19b (2026-05-23): native Notierungswährung der Proxy-Bar
+        # fuer waehrungskorrekten Daily-Backtest (NULL = wie CHF behandelt).
+        'asset_class_price_history': [
+            ('currency', 'TEXT'),
+        ],
         'mandates': [
             # Sprint A3 (2026-05-06): Rentenalter + Lebenserwartung pro Mandat.
             ('retirement_year', 'INTEGER'),
@@ -530,12 +535,14 @@ def ensure_snapshot_tables() -> None:
             ON asset_class_annual_returns(year, asset_class)
         """))
         # Sprint U-P19: tägliche EOD-Serie je Asset-Klasse (Daily-Backtest)
+        # U-P19b: + currency (native Notierungswährung der Proxy-Bar)
         conn.execute(text("""
             CREATE TABLE IF NOT EXISTS asset_class_price_history (
                 id TEXT PRIMARY KEY,
                 asset_class TEXT NOT NULL,
                 price_date TEXT NOT NULL,
                 close_rappen INTEGER NOT NULL,
+                currency TEXT,
                 source TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
@@ -548,6 +555,26 @@ def ensure_snapshot_tables() -> None:
         conn.execute(text("""
             CREATE INDEX IF NOT EXISTS ix_acph_class_date
             ON asset_class_price_history(asset_class, price_date)
+        """))
+        # Sprint U-P19b: tägliche FX-Reihe Fremdwährung → CHF
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS asset_class_fx_history (
+                id TEXT PRIMARY KEY,
+                currency TEXT NOT NULL,
+                price_date TEXT NOT NULL,
+                rate_to_chf_x10000 INTEGER NOT NULL,
+                source TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+        """))
+        conn.execute(text("""
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_acfx_ccy_date_source
+            ON asset_class_fx_history(currency, price_date, source)
+        """))
+        conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS ix_acfx_ccy_date
+            ON asset_class_fx_history(currency, price_date)
         """))
         _seed_asset_class_returns(conn)
 
