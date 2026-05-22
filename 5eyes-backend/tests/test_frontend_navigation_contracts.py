@@ -56,6 +56,68 @@ def test_review_absschluss_keeps_internal_triggers_out_of_customer_surface():
     assert "Trigger prüfen" not in review_page
 
 
+def test_portfolio_header_keeps_secondary_actions_in_more_menu():
+    html = HTML_PATH.read_text(encoding="utf-8")
+    header = html.split('<div id="page-po" class="page">', 1)[1].split('<div class="pad">', 1)[0]
+    visible_actions = header.split('<details class="ph-more"', 1)[0]
+    more_menu = header.split('<details class="ph-more"', 1)[1].split("</details>", 1)[0]
+
+    assert 'id="btn-po-refresh"' in visible_actions
+    assert "Portfolio generieren" in visible_actions
+    assert 'id="btn-po-pdf"' in visible_actions
+    assert "Weiter zum Review" in visible_actions
+    assert 'id="btn-po-live-prices"' not in visible_actions
+    assert 'id="btn-po-depot-check"' not in visible_actions
+    assert "openImplementationRecipe()" not in visible_actions
+    assert 'id="btn-po-add-position"' not in visible_actions
+
+    assert 'id="btn-po-add-position"' in more_menu
+    assert 'id="btn-po-live-prices"' in more_menu
+    assert 'id="btn-po-depot-check"' in more_menu
+    assert "openImplementationRecipe()" in more_menu
+    assert "var portfolioBtn=document.getElementById('btn-po-add-position');" in html
+
+
+def test_portfolio_refresh_regenerates_missing_current_recommendation():
+    html = HTML_PATH.read_text(encoding="utf-8")
+    refresh_block = html.split("async function refreshPortfolioFromStoredState(){", 1)[1].split(
+        "// Sprint U-P11b", 1
+    )[0]
+
+    assert "function allocationPreferencesFromStoredAllocation(result)" in html
+    assert "if(!recommendation){" in refresh_block
+    assert "/recommendations/generate" in refresh_block
+    assert "target_allocation_id:allocationId" in refresh_block
+    assert "applyRecommendationEngineResult(recommendation)" in refresh_block
+
+
+def test_allocation_preference_defaults_keep_gold_enabled():
+    html = HTML_PATH.read_text(encoding="utf-8")
+    defaults_block = html.split("function buildDefaultAllocationPreferences(){", 1)[1].split(
+        "function loadAllocationPreferences()", 1
+    )[0]
+    apply_block = html.split("function applyAllocationPreferencesToUI(prefs){", 1)[1].split(
+        "function persistAllocationPreferences", 1
+    )[0]
+
+    assert 'id="aa-alts-gold" checked' in html
+    assert "altsGold:true" in defaults_block
+    assert "setCheckboxValue('aa-alts-gold',prefs.assetClasses&&prefs.assetClasses.altsGold)" in apply_block
+
+
+def test_review_header_focuses_on_closing_actions():
+    html = HTML_PATH.read_text(encoding="utf-8")
+    header = html.split('<div id="page-rv" class="page">', 1)[1].split('<div class="strip"', 1)[0]
+    visible_actions = header.split('<details class="ph-more"', 1)[0]
+    more_menu = header.split('<details class="ph-more"', 1)[1].split("</details>", 1)[0]
+
+    assert "Entscheid protokollieren" in visible_actions
+    assert "printAnlagestrategie()" in visible_actions
+    assert "printAdvisoryProtocol()" not in visible_actions
+    assert "printAdvisoryProtocol()" in more_menu
+    assert "Protokoll drucken" in more_menu
+
+
 def test_combined_cashflow_projection_has_own_root_and_responsive_grid():
     html = HTML_PATH.read_text(encoding="utf-8")
 

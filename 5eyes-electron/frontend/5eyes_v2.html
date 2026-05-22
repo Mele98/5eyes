@@ -90,18 +90,21 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 .page.active{display:block;}
 
 /* PAGE HEADER */
-.ph{background:var(--surface);border-bottom:1px solid var(--b1);padding:14px 24px;display:flex;justify-content:space-between;align-items:center;}
+.ph{background:var(--surface);border-bottom:1px solid var(--b1);padding:18px 28px;display:flex;justify-content:space-between;align-items:flex-start;gap:18px;}
 .ph-t{font-family:var(--f-d);font-size:21px;font-weight:500;color:var(--n8);margin-bottom:2px;}
-.ph-s{font-size:10px;color:var(--n4);}
-.ph-r{display:flex;gap:7px;}
+.ph-s{font-size:10px;color:var(--n4);max-width:620px;line-height:1.55;}
+.ph-r{display:flex;gap:8px;align-items:center;justify-content:flex-end;flex-wrap:wrap;}
+.ph .btn,.ph .btn-p,.ph .btn-g{border-radius:var(--radius-control);}
 .aa-actions{align-items:center;flex-wrap:wrap;}
-.aa-more{position:relative;}
-.aa-more>summary{list-style:none;width:30px;height:30px;display:flex;align-items:center;justify-content:center;border:1px solid var(--b2);border-radius:var(--r);color:var(--n5);cursor:pointer;background:transparent;font-size:18px;line-height:1;}
-.aa-more>summary::-webkit-details-marker{display:none;}
-.aa-more[open]>summary,.aa-more>summary:hover{border-color:var(--n4);color:var(--n8);background:var(--bg);}
-.aa-more-menu{position:absolute;right:0;top:calc(100% + 6px);z-index:40;min-width:210px;padding:6px;border:1px solid var(--b1);border-radius:var(--r2);background:var(--surface);box-shadow:0 18px 38px rgba(15,23,42,0.14);}
-.aa-more-menu .btn{width:100%;display:block;text-align:left;border:none;background:transparent;border-radius:var(--r);padding:7px 9px;color:var(--n6);}
-.aa-more-menu .btn:hover{background:var(--bg);color:var(--n8);}
+.aa-more,.ph-more{position:relative;}
+.aa-more>summary,.ph-more>summary{list-style:none;width:32px;height:32px;display:flex;align-items:center;justify-content:center;border:1px solid var(--b2);border-radius:var(--radius-control);color:var(--n5);cursor:pointer;background:transparent;font-size:18px;line-height:1;}
+.aa-more>summary::-webkit-details-marker,.ph-more>summary::-webkit-details-marker{display:none;}
+.aa-more[open]>summary,.aa-more>summary:hover,.ph-more[open]>summary,.ph-more>summary:hover{border-color:var(--n4);color:var(--n8);background:var(--bg);}
+.aa-more-menu,.ph-more-menu{position:absolute;right:0;top:calc(100% + 8px);z-index:40;min-width:220px;padding:6px;border:1px solid var(--b1);border-radius:var(--radius-panel);background:var(--surface);box-shadow:0 18px 38px rgba(15,23,42,0.14);}
+.aa-more-menu .btn,.ph-more-menu .btn{width:100%;display:block;text-align:left;border:none;background:transparent;border-radius:var(--radius-control);padding:8px 10px;color:var(--n6);}
+.aa-more-menu .btn:hover,.ph-more-menu .btn:hover{background:var(--bg);color:var(--n8);}
+.btn-p.aa-commit-action{background:var(--pos);color:#fff;border:none;}
+.btn-p.aa-commit-action:hover{background:var(--pos);color:#fff;filter:brightness(0.94);}
 .pad{padding:18px 26px 22px;}
 .mb{margin-bottom:12px;}
 .g2{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;}
@@ -936,7 +939,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 
     <!-- PAGE: RISIKOPROFIL -->
     <div id="page-rp" class="page">
-      <div class="ph"><div><div class="ph-t">Risikoprofilierung (FINMA Eignungspruefung)</div><div class="ph-s">Risikofähigkeit &middot; Risikobereitschaft &middot; FINMA Eignungspruefung</div></div><div class="ph-r"><button class="btn" onclick="om('m-rp-print')" title="Browser-Print (Legacy)">PDF (Browser)</button><button class="btn" id="btn-rp-server-pdf" onclick="downloadServerPdf('risikoprofil')" title="Server-PDF (ReportLab)">PDF (Server)</button><button class="btn-g" id="btn-save-riskprofile" onclick="saveRiskProfile()" style="margin-right:8px">Risikoprofil speichern</button><button class="btn-p" onclick="goFromRiskProfileToAllocation()">Asset Allokation →</button></div></div>
+      <div class="ph"><div><div class="ph-t">Risikoprofilierung (FINMA Eignungspruefung)</div><div class="ph-s">Risikofähigkeit &middot; Risikobereitschaft &middot; FINMA Eignungspruefung</div></div><div class="ph-r"><button class="btn" id="btn-rp-server-pdf" onclick="downloadServerPdf('risikoprofil')" title="Risikoprofil-PDF erstellen">PDF</button><button class="btn-g" id="btn-save-riskprofile" onclick="saveRiskProfile()" style="margin-right:8px">Risikoprofil speichern</button><button class="btn-p" onclick="goFromRiskProfileToAllocation()">Asset Allokation →</button></div></div>
       <div class="pad">
         <div class="g2">
                     <div>
@@ -1269,7 +1272,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 
     <!-- PAGE: ALLOKATION -->
     <div id="page-al" class="page">
-      <div class="ph"><div><div class="ph-t">Asset Allokation</div><div class="ph-s">SOLL-Strategie aus Risikoprofil, Zielen und Beratungsvermögen — stochastisch optimiert</div></div><div class="ph-r aa-actions"><button class="btn" id="btn-aa-pref-open" onclick="openAllocationPreferencesModal()">Anlagepräferenzen</button><button class="btn-g" id="btn-aa-calc" onclick="calculateInvestmentStrategy()">Anlagestrategie berechnen</button><button class="btn" id="btn-aa-backtest" onclick="openStrategyBacktest()" title="Backtest der SOLL-Strategie auf historischen Jahresrenditen (Wealth-Index, Drawdown, CAGR, Sharpe)">Backtest</button><button class="btn" id="btn-aa-pdf" onclick="downloadServerPdf('assetallocation')" title="Asset-Allocation-PDF (Server)">PDF</button><button class="btn-p" id="btn-portfolio-umsetzen" onclick="openPortfolioUmsetzenModal()" style="display:none;background:var(--pos);color:#fff">Portfolio umsetzen ✓</button><details class="aa-more"><summary title="Interne Optionen">⋯</summary><div class="aa-more-menu"><button class="btn" id="btn-aa-params-open" onclick="openAllocationParametersModal();this.closest('details').removeAttribute('open')">Parameter</button><button class="btn" onclick="openMandateSettingsModal();this.closest('details').removeAttribute('open')" title="Mandat-Einstellungen: Mortalitaet, Rentenalter, Lebenserwartung">Mandat-Einstellungen</button><button class="btn" onclick="openAllocationEngineModal();this.closest('details').removeAttribute('open')">Soll-Quoten</button></div></details></div></div>
+      <div class="ph"><div><div class="ph-t">Asset Allokation</div><div class="ph-s">SOLL-Strategie aus Risikoprofil, Zielen und Beratungsvermögen — stochastisch optimiert</div></div><div class="ph-r aa-actions"><button class="btn" id="btn-aa-pref-open" onclick="openAllocationPreferencesModal()">Anlagepräferenzen</button><button class="btn-g" id="btn-aa-calc" onclick="calculateInvestmentStrategy()">Anlagestrategie berechnen</button><button class="btn" id="btn-aa-pdf" onclick="downloadServerPdf('assetallocation')" title="Asset-Allocation-PDF (Server)">PDF</button><button class="btn-p aa-commit-action" id="btn-portfolio-umsetzen" onclick="openPortfolioUmsetzenModal()" style="display:none">Portfolio umsetzen</button><details class="aa-more"><summary title="Weitere Optionen" aria-label="Weitere Asset-Allocation-Optionen">⋯</summary><div class="aa-more-menu"><button class="btn" id="btn-aa-backtest" onclick="openStrategyBacktest();this.closest('details').removeAttribute('open')" title="Backtest der SOLL-Strategie auf historischen Jahresrenditen (Wealth-Index, Drawdown, CAGR, Sharpe)">Strategie-Backtest</button><button class="btn" id="btn-aa-params-open" onclick="openAllocationParametersModal();this.closest('details').removeAttribute('open')">Parameter</button><button class="btn" onclick="openMandateSettingsModal();this.closest('details').removeAttribute('open')" title="Mandat-Einstellungen: Mortalitaet, Rentenalter, Lebenserwartung">Mandat-Einstellungen</button><button class="btn" onclick="openAllocationEngineModal();this.closest('details').removeAttribute('open')">Soll-Quoten</button></div></details></div></div>
       <div id="al-dirty-banner" class="strip strip-w" style="display:none">
         <div>
           <div class="st">Strategie veraltet</div>
@@ -1632,7 +1635,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 
     <!-- PAGE: PORTFOLIO -->
     <div id="page-po" class="page">
-      <div class="ph"><div><div class="ph-t">Portfolio &mdash; ETFs &amp; Fonds</div><div class="ph-s">Umsetzung Ihrer Asset Allokation in konkrete Produkte (ISIN)</div></div><div class="ph-r"><button class="btn" onclick="om('m-ap')">+ Bestand</button><button class="btn" id="btn-po-live-prices" onclick="refreshLivePricesForMandate()" title="Live-EOD-Preise via Marktdaten-Aggregator (yfinance/stooq) holen und Portfolio neu laden">Live-Preise</button><button class="btn-g" id="btn-po-refresh" onclick="refreshPortfolioFromStoredState()">Portfolio aktualisieren</button><button class="btn" onclick="openImplementationRecipe()">Anlagerezept drucken</button><button class="btn" id="btn-po-depot-check" onclick="openDepotCheck()" title="Depot-Check: Diversifikation, Konzentration, Drift, Stress-Replays">Depot-Check</button><button class="btn" id="btn-po-pdf" onclick="downloadServerPdf('portfolio')" title="Portfolio-PDF (Server)">PDF</button><button class="btn-p" onclick="go('rv')">Weiter zum Review &rarr;</button></div></div>
+      <div class="ph"><div><div class="ph-t">Portfolio &mdash; ETFs &amp; Fonds</div><div class="ph-s">Umsetzung Ihrer Asset Allokation in konkrete Produkte (ISIN)</div></div><div class="ph-r"><button class="btn-g" id="btn-po-refresh" onclick="refreshPortfolioFromStoredState()">Portfolio generieren</button><button class="btn" id="btn-po-pdf" onclick="downloadServerPdf('portfolio')" title="Portfolio-PDF erstellen">PDF</button><button class="btn-p" onclick="go('rv')">Weiter zum Review &rarr;</button><details class="ph-more"><summary title="Weitere Portfolio-Optionen" aria-label="Weitere Portfolio-Optionen">⋯</summary><div class="ph-more-menu"><button class="btn" id="btn-po-add-position" onclick="openPortfolioPositionHelper();this.closest('details').removeAttribute('open')">+ Bestand</button><button class="btn" id="btn-po-live-prices" onclick="refreshLivePricesForMandate();this.closest('details').removeAttribute('open')" title="Live-EOD-Preise via Marktdaten-Aggregator (yfinance/stooq) holen und Portfolio neu laden">Live-Preise</button><button class="btn" onclick="openImplementationRecipe();this.closest('details').removeAttribute('open')">Anlagerezept drucken</button><button class="btn" id="btn-po-depot-check" onclick="openDepotCheck();this.closest('details').removeAttribute('open')" title="Depot-Check: Diversifikation, Konzentration, Drift, Stress-Replays">Depot-Check</button></div></details></div></div>
       <div class="pad">
         <div style="background:var(--n8);border-radius:var(--r2);padding:10px 14px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">
           <div><div style="font-size:9px;font-weight:500;letter-spacing:0.08em;text-transform:uppercase;color:rgba(255,255,255,0.4);margin-bottom:2px">Beratungsvermögen total</div><div id="po-advisory-wealth" style="font-family:var(--f-d);font-size:19px;color:#fff">CHF 2'848'000</div></div>
@@ -1650,7 +1653,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 
     <!-- PAGE: REVIEW -->
     <div id="page-rv" class="page">
-      <div class="ph"><div><div class="ph-t">Review &amp; Abschluss</div><div class="ph-s">Entscheidung absichern &middot; Unterlagen erstellen &middot; Abschluss vorbereiten</div></div><div class="ph-r"><button class="btn-p" onclick="om('m-ne')">Entscheid protokollieren</button><button class="btn" onclick="printAdvisoryProtocol()">Protokoll</button><button class="btn-g" onclick="printAnlagestrategie()">Anlagestrategie</button></div></div>
+      <div class="ph"><div><div class="ph-t">Review &amp; Abschluss</div><div class="ph-s">Entscheidung absichern &middot; Unterlagen erstellen &middot; Abschluss vorbereiten</div></div><div class="ph-r"><button class="btn-p" onclick="om('m-ne')">Entscheid protokollieren</button><button class="btn-g" onclick="printAnlagestrategie()">Anlagestrategie</button><details class="ph-more"><summary title="Weitere Abschluss-Optionen" aria-label="Weitere Abschluss-Optionen">⋯</summary><div class="ph-more-menu"><button class="btn" onclick="printAdvisoryProtocol();this.closest('details').removeAttribute('open')">Protokoll drucken</button></div></details></div></div>
       <div class="strip" id="rv-alert-strip" style="display:none"></div>
       <div id="rv-decision-strip" style="display:none"></div>
       <div class="pad">
@@ -2066,12 +2069,13 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 
 <!-- Sprint U-P17 (2026-05-21): Strategie-Backtest (Annual MVP) -->
 <div class="overlay" id="m-bt"><div class="modal" style="width:1180px;max-width:98vw">
-  <div class="mhd"><div class="mtitle">Strategie-Backtest <span style="font-size:10px;color:var(--n5);font-weight:400;margin-left:6px">Annual MVP &middot; Daily kommt mit U-P11</span></div><button class="mx" onclick="cm('m-bt')">&#x2715;</button></div>
+  <div class="mhd"><div class="mtitle">Strategie-Backtest</div><button class="mx" onclick="cm('m-bt')">&#x2715;</button></div>
   <div class="mbody">
     <div id="bt-info" style="font-size:11px;color:var(--n6);background:var(--bg2);border:1px solid var(--b1);border-radius:6px;padding:8px;margin-bottom:10px">
-      Wendet die SOLL-Strategie dieses Mandates auf historische Jahresrenditen pro Asset-Klasse an
-      (Quelle: Admin &gt; Annual-Returns). Beratungsverm&ouml;gen als Initial-Kapital. Keine Cashflows.
+      Wendet die SOLL-Strategie dieses Mandates auf historische Renditen pro Asset-Klasse an.
+      Beratungsverm&ouml;gen als Initial-Kapital. Keine Cashflows.
     </div>
+    <div id="bt-fallback-badge" style="display:none;font-size:11px;color:var(--neg);background:var(--neg-lt);border:1px solid rgba(153,27,27,0.12);border-radius:6px;padding:6px 8px;margin-bottom:10px"></div>
 
     <!-- Konfigurations-Panel -->
     <div style="display:grid;grid-template-columns:1fr 2fr;gap:14px;margin-bottom:10px">
@@ -2089,6 +2093,11 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
         <div style="display:flex;gap:12px;font-size:11px;margin-top:4px">
           <label style="cursor:pointer"><input type="checkbox" id="bt-show-rebal" checked> Mit j&auml;hrl. Rebal</label>
           <label style="cursor:pointer"><input type="checkbox" id="bt-show-norebal"> Ohne Rebal</label>
+        </div>
+        <div style="font-size:10px;color:var(--n6);margin-top:8px;font-weight:600;text-transform:uppercase;letter-spacing:0.04em">Aufl&ouml;sung</div>
+        <div style="display:flex;gap:12px;font-size:11px;margin-top:4px">
+          <label style="cursor:pointer"><input type="radio" name="bt-resolution" id="bt-res-annual" value="annual" checked onchange="btRunBacktest()"> J&auml;hrlich</label>
+          <label style="cursor:pointer"><input type="radio" name="bt-resolution" id="bt-res-daily" value="daily" onchange="btRunBacktest()"> T&auml;glich</label>
         </div>
       </div>
 
@@ -2644,7 +2653,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 <div class="overlay" id="m-nt"><div class="modal"><div class="mhd"><div class="mtitle">Trigger definieren</div><button class="mx" onclick="cm('m-nt')">✕</button></div><div class="mbody"><div class="frow"><div class="fg"><label class="fl">Trigger-Typ</label><select class="fsel"><option>Zeitbasiert</option><option>Bandbreite / Drift</option><option>Event-basiert</option></select></div></div><div class="frow"><div class="fg"><label class="fl">Bezeichnung</label><input class="fi" placeholder="Jahres-Review"></div><div class="fg"><label class="fl">Schwellenwert</label><input class="fi" placeholder="±5% oder 12 Monate"></div></div></div><div class="mfooter"><button class="btn" onclick="cm('m-nt')">Abbrechen</button><button class="btn-p" onclick="cm('m-nt')">Aktivieren</button></div></div></div>
 <div class="overlay" id="m-ap"><div class="modal"><div class="mhd"><div class="mtitle">Bestand zu Empfehlungstitel</div><button class="mx" onclick="cm('m-ap')">✕</button></div><div class="mbody"><div id="ap-empty-state" style="display:none;background:var(--bg);border:1px solid var(--b1);border-radius:var(--r);padding:10px 12px;font-size:11px;color:var(--n6);line-height:1.6">Portfolio-Bestände bauen auf einem vorhandenen Rezept auf. Bitte zuerst die Strategie berechnen und ein aktuelles Anlagerezept laden.</div><div id="ap-form-wrap"><div style="background:var(--bg);border:1px solid var(--b1);border-radius:var(--r);padding:9px 10px;margin-bottom:10px;font-size:10px;line-height:1.6;color:var(--n6)">Hier wird der effektive Depotbestand zum Empfehlungstitel hinterlegt. Wenn ein Bestand vorhanden ist, basiert Live-Drift auf diesem Holding statt auf einer Rekonstruktion aus dem Zielbetrag.</div><div class="frow"><div class="fg"><label class="fl">Empfehlungstitel</label><select class="fsel" id="ap-position-id" onchange="syncPortfolioHoldingSelection()"></select></div></div><div id="ap-product-meta" style="font-size:10px;color:var(--n5);margin:-2px 0 10px"></div><div class="frow"><div class="fg"><label class="fl">Depotbank / Institut</label><input class="fi" id="ap-depot-bank" placeholder="z.B. UBS AG Zürich"></div><div class="fg"><label class="fl">Konto / Depotnummer</label><input class="fi" id="ap-custody-account" placeholder="optional"></div></div><div class="frow"><div class="fg"><label class="fl">Bestand (Stück)</label><input class="fi" id="ap-units" placeholder="z.B. 128.750"></div><div class="fg"><label class="fl">Bestandsmarktwert (CHF)</label><input class="fi" id="ap-market-value" placeholder="optional, z.B. 415'600"></div></div><div class="frow"><div class="fg"><label class="fl">Einstand / Durchschnittskurs (CHF)</label><input class="fi" id="ap-cost-price" placeholder="optional"></div><div class="fg"><label class="fl">Standdatum</label><input class="fi" id="ap-as-of" type="date"></div></div><div class="frow"><div class="fg"><label class="fl">Quelle</label><select class="fsel" id="ap-source"><option value="manual">Manuell</option><option value="custody_import">Custody-Import</option></select></div><div class="fg"><label class="fl">Bewertungsbasis</label><div id="ap-basis-note" style="font-size:10px;color:var(--n5);padding:9px 0">Noch kein Bestand hinterlegt.</div></div></div><div class="frow"><div class="fg"><label class="fl">Notizen</label><textarea class="fta" id="ap-notes" rows="3" placeholder="optional"></textarea></div></div></div><div id="ap-error" style="display:none;color:var(--neg);font-size:11px;padding:4px 0;margin-top:4px"></div></div><div class="mfooter"><button class="btn" onclick="cm('m-ap')">Abbrechen</button><button class="btn" id="btn-ap-delete" style="display:none" onclick="deletePortfolioHolding()">Bestand löschen</button><button class="btn-p" id="btn-ap-save" onclick="savePortfolioHolding()">Speichern</button></div></div></div>
 <div class="overlay" id="m-ums"><div class="modal"><div class="mhd"><div class="mtitle">Anlagerezept für Kunde</div><button class="mx" onclick="cm('m-ums')">✕</button></div><div class="mbody"><div style="background:var(--n0);border:1px solid rgba(29,78,216,0.2);border-radius:var(--r);padding:10px;margin-bottom:10px;font-size:11px;line-height:1.6">Basierend auf Soll-Allokation: Anlageprodukte werden aus dem Anlageuniversum gesucht und ein Bericht erstellt. Erst nach Bestätigung wird der Bericht an die Depotbank übermittelt.</div><div class="frow"><div class="fg"><label class="fl">Depotbank für Umsetzung</label><select class="fsel" id="recipe-depot-bank"><option>UBS AG Zürich</option><option>ZKB</option></select></div></div><div id="recipe-status" style="font-size:10px;color:var(--n4);margin-top:4px">Vor dem Druck wird das aktuelle Rezept live neu aufgebaut.</div></div><div class="mfooter"><button class="btn" onclick="cm('m-ums')">Abbrechen</button><button class="btn-p" onclick="confirmImplementationRecipe()">Umsetzung bestätigen</button></div></div></div>
-<div class="overlay" id="m-rp-print"><div class="modal"><div class="mhd"><div class="mtitle">Risikoprofil PDF</div><button class="mx" onclick="cm('m-rp-print')">✕</button></div><div class="mbody"><div style="font-size:11px;color:var(--n6);line-height:1.7">Das Risikoprofil-Dokument (FINMA Eignungspruefung) wird als PDF generiert und enthält alle Antworten, die Auswertung sowie die Unterschriftszeile für Kunde und Berater.</div></div><div class="mfooter"><button class="btn" onclick="cm('m-rp-print')">Abbrechen</button><button class="btn" onclick="cm('m-rp-print');printReport({pages:['rp']})" title="Browser-Druck (alle Eingaben aus dem aktuellen Tab)">Browser-Druck</button><button class="btn-p" onclick="cm('m-rp-print');downloadServerPdf('risikoprofil')" title="Server-PDF (FINMA-konformes Layout)">PDF erstellen</button></div></div></div>
+<div class="overlay" id="m-rp-print"><div class="modal"><div class="mhd"><div class="mtitle">Risikoprofil PDF</div><button class="mx" onclick="cm('m-rp-print')">✕</button></div><div class="mbody"><div style="font-size:11px;color:var(--n6);line-height:1.7">Das Risikoprofil-Dokument (FINMA Eignungspruefung) wird als PDF generiert und enthält alle Antworten, die Auswertung sowie die Unterschriftszeile für Kunde und Berater.</div></div><div class="mfooter"><button class="btn" onclick="cm('m-rp-print')">Abbrechen</button><button class="btn-p" onclick="cm('m-rp-print');downloadServerPdf('risikoprofil')" title="FINMA-konformes PDF erstellen">PDF erstellen</button></div></div></div>
 
 <script>
 // ─── 5EYES API LAYER ─────────────────────────────────────────────────
@@ -6071,8 +6080,8 @@ async function deletePortfolioHolding(){
 }
 
 function bindHonestUiActions(){
-  var portfolioBtn=document.querySelector('#page-po .ph-r .btn');
-  if(portfolioBtn)portfolioBtn.setAttribute('onclick','openPortfolioPositionHelper()');
+  var portfolioBtn=document.getElementById('btn-po-add-position');
+  if(portfolioBtn)portfolioBtn.setAttribute('onclick',"openPortfolioPositionHelper();var d=this.closest('details');if(d)d.removeAttribute('open')");
   var reportBtn=document.querySelector('#m-rep .mfooter .btn-p');
   if(reportBtn){
     reportBtn.textContent='Drucken / PDF öffnen';
@@ -6084,12 +6093,12 @@ function bindHonestUiActions(){
   }
   var riskPdfBtn=document.querySelector('#m-rp-print .mfooter .btn-p');
   if(riskPdfBtn){
-    riskPdfBtn.textContent='Drucken / PDF öffnen';
-    riskPdfBtn.setAttribute('onclick',"cm('m-rp-print');printReport({pages:['rp']})");
+    riskPdfBtn.textContent='PDF erstellen';
+    riskPdfBtn.setAttribute('onclick',"cm('m-rp-print');downloadServerPdf('risikoprofil')");
   }
   var riskPdfBody=document.querySelector('#m-rp-print .mbody');
   if(riskPdfBody){
-    riskPdfBody.innerHTML='<div style="font-size:11px;color:var(--n6);line-height:1.7">Die aktuelle Risikoprofil-Seite wird über den System-Druckdialog ausgegeben. Ein separates FINMA-PDF-Layout ist in dieser Version noch nicht hinterlegt.</div>';
+    riskPdfBody.innerHTML='<div style="font-size:11px;color:var(--n6);line-height:1.7">Das Risikoprofil-Dokument wird als serverseitiges PDF mit stabilem FINMA-Layout generiert.</div>';
   }
   var rvHeaderPrint=document.querySelector('#page-rv .ph-r .btn-g');
   if(rvHeaderPrint)rvHeaderPrint.setAttribute('onclick',"printContractOrStrategy()");
@@ -8799,6 +8808,10 @@ async function openStrategyBacktest(){
   document.getElementById('bt-bm-controls').style.display = 'none';
   document.getElementById('bt-content').style.display = 'none';
   document.getElementById('bt-available-range').textContent = '';
+  var resAnnual = document.getElementById('bt-res-annual');
+  if(resAnnual) resAnnual.checked = true;
+  var fb = document.getElementById('bt-fallback-badge');
+  if(fb) fb.style.display = 'none';
   // Auto-Initial-Backtest ohne Benchmark
   btRunBacktest();
 }
@@ -8824,6 +8837,11 @@ function btSetBenchmarkPreset(name){
   document.getElementById('bt-bm-al').value = p.al;
   document.getElementById('bt-bm-lq').value = p.lq;
   btUpdateBenchmarkSum();
+}
+
+function btReadResolution(){
+  var daily = document.getElementById('bt-res-daily');
+  return (daily && daily.checked) ? 'daily' : 'annual';
 }
 
 function btReadBenchmarkPctInputs(){
@@ -8876,6 +8894,7 @@ async function btRunBacktest(){
       qs.push('benchmark_alternatives_bps=' + (v.al * 100));
       qs.push('benchmark_liquidity_bps=' + (v.lq * 100));
     }
+    qs.push('resolution=' + encodeURIComponent(btReadResolution()));
     var path = '/mandates/' + encodeURIComponent(mid) + '/backtest/strategy' + (qs.length ? '?' + qs.join('&') : '');
     var data = await API.get(path);
     BT_LAST_RESULT = data;
@@ -8902,6 +8921,18 @@ document.addEventListener('change', function(e){
 function btRender(data){
   var meta = document.getElementById('bt-meta');
   var avail = document.getElementById('bt-available-range');
+
+  // Fallback-Hinweis: Daily angefordert, aber auf Jährlich zurückgefallen
+  var fb = document.getElementById('bt-fallback-badge');
+  if(fb){
+    if(btReadResolution() === 'daily' && data.resolution_used === 'annual'){
+      fb.style.display = 'block';
+      fb.textContent = '⚠ Keine täglichen Kursdaten gepflegt — Backtest auf jährlicher Auflösung. '
+        + 'Admin › Asset-Class-Prices befüllen für tägliche Auflösung.';
+    } else {
+      fb.style.display = 'none';
+    }
+  }
 
   if(data.available_years && data.available_years.length){
     var y0 = data.available_years[0], yN = data.available_years[data.available_years.length-1];
@@ -9042,6 +9073,7 @@ function downloadBacktestPdf(){
     qs.push('benchmark_alternatives_bps=' + (v.al * 100));
     qs.push('benchmark_liquidity_bps=' + (v.lq * 100));
   }
+  qs.push('resolution=' + encodeURIComponent(btReadResolution()));
   downloadServerPdf('backtest', qs.length ? qs.join('&') : null);
 }
 
@@ -9111,11 +9143,14 @@ function btRenderLineChart(container, series, opts){
     svg += '<line x1="' + marginLeft + '" y1="' + y0 + '" x2="' + (W - marginRight) + '" y2="' + y0 + '" stroke="#64748b" stroke-width="1" stroke-dasharray="2 2"/>';
   }
 
-  // X-Axis labels — alle Years wenn ≤ 12, sonst jeden 2./3.
-  var uniqueYears = Array.from(new Set(allYears)).sort(function(a,b){ return a-b; });
-  var stride = uniqueYears.length <= 12 ? 1 : Math.ceil(uniqueYears.length / 12);
-  uniqueYears.forEach(function(yr, idx){
-    if(idx % stride === 0 || idx === uniqueYears.length-1){
+  // X-Axis labels — ganzzahlige Jahre aus der numerischen Domäne ableiten
+  // (Annual: ganze Jahre, Daily: float-Jahr-Labels wie 2020.5).
+  var yearLo = Math.floor(xMin), yearHi = Math.ceil(xMax);
+  var tickYears = [];
+  for(var ty = yearLo; ty <= yearHi; ty++) tickYears.push(ty);
+  var stride = tickYears.length <= 12 ? 1 : Math.ceil(tickYears.length / 12);
+  tickYears.forEach(function(yr, idx){
+    if((idx % stride === 0 || idx === tickYears.length-1) && yr >= xMin && yr <= xMax){
       var x = xPx(yr);
       svg += '<text x="' + x + '" y="' + (H - marginBottom + 14) + '" font-size="9" fill="#64748b" text-anchor="middle" font-family="system-ui">' + yr + '</text>';
     }
@@ -9237,6 +9272,136 @@ async function backfillAdminAnnualReturns() {
   }
 }
 
+function adminAssetClassPriceKeys() {
+  return ['Aktien','Obligationen','Immobilien','Alternative','Liquiditaet'];
+}
+
+function adminAssetClassPriceLabel(assetClass) {
+  return assetClass === 'Liquiditaet' ? 'Liquidität' : assetClass;
+}
+
+function formatAdminAssetClassPriceDate(value) {
+  if (!value) return 'n/a';
+  var text = String(value);
+  var match = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (match) return match[3] + '.' + match[2] + '.' + match[1];
+  return text;
+}
+
+function setAdminAssetClassPriceError(message) {
+  var errEl = document.getElementById('admin-acp-error');
+  if (!errEl) return;
+  if (message) {
+    errEl.textContent = message;
+    errEl.style.display = 'block';
+  } else {
+    errEl.textContent = '';
+    errEl.style.display = 'none';
+  }
+}
+
+function renderAdminAssetClassPriceStatus(payload) {
+  var summaryEl = document.getElementById('admin-acp-summary');
+  var gridEl = document.getElementById('admin-acp-grid');
+  if (!summaryEl && !gridEl) return;
+  var coverage = (payload && payload.coverage) || {};
+  var keys = adminAssetClassPriceKeys();
+  var complete = !!(payload && payload.complete);
+  var loaded = 0;
+  var totalPoints = 0;
+  keys.forEach(function(ac) {
+    var row = coverage[ac] || {};
+    var points = Number(row.points || 0);
+    if (points > 0) loaded++;
+    totalPoints += isFinite(points) ? points : 0;
+  });
+  if (summaryEl) {
+    summaryEl.innerHTML = adminPill(complete ? 'vollständig' : 'Lücken', complete ? 'ok' : 'warn')
+      + '<span style="margin-left:8px">' + loaded + ' von ' + keys.length + ' Anlageklassen mit Tagesdaten. '
+      + totalPoints.toLocaleString('de-CH') + ' Datenpunkte insgesamt.</span>';
+  }
+  if (gridEl) {
+    gridEl.innerHTML = keys.map(function(ac) {
+      var row = coverage[ac] || {};
+      var points = Number(row.points || 0);
+      var hasData = points > 0;
+      var first = formatAdminAssetClassPriceDate(row.first);
+      var last = formatAdminAssetClassPriceDate(row.last);
+      return '<div class="admin-metric-panel">'
+        + '<div class="admin-metric-label">' + escapeHtml(adminAssetClassPriceLabel(ac)) + '</div>'
+        + '<div class="admin-metric-value">' + (hasData ? points.toLocaleString('de-CH') : '0') + '</div>'
+        + '<div class="admin-metric-meta">' + escapeHtml(first) + ' bis ' + escapeHtml(last) + '</div>'
+        + '</div>';
+    }).join('');
+  }
+}
+
+async function loadAdminAssetClassPriceStatus(showLog) {
+  var summaryEl = document.getElementById('admin-acp-summary');
+  var gridEl = document.getElementById('admin-acp-grid');
+  var btn = document.getElementById('btn-admin-acp-load');
+  if (!summaryEl && !gridEl) return null;
+  setAdminAssetClassPriceError('');
+  if (summaryEl) summaryEl.textContent = 'Status wird geladen...';
+  if (gridEl) gridEl.innerHTML = '';
+  if (btn) { btn.disabled = true; btn.textContent = 'Lädt...'; }
+  try {
+    var data = await API.get('/admin/system/asset-class-prices/status');
+    renderAdminAssetClassPriceStatus(data);
+    if (showLog) showAdminResult('OK: Tageskurs-Abdeckung aktualisiert', false);
+    return data;
+  } catch(e) {
+    var msg = parseApiError(e, 'Tageskurs-Status konnte nicht geladen werden.');
+    if (summaryEl) summaryEl.textContent = 'Status nicht verfügbar.';
+    setAdminAssetClassPriceError(msg);
+    if (showLog) showAdminResult('Warnung: ' + msg, true);
+    return null;
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Status laden'; }
+  }
+}
+
+async function backfillAdminAssetClassPrices() {
+  var btn = document.getElementById('btn-admin-acp-backfill');
+  var summaryEl = document.getElementById('admin-acp-summary');
+  if (!adminConfirmRisk(
+    'Tageskurse aus Marktdaten füllen?',
+    'Lädt bis zu 20 Jahre tägliche Asset-Class-Preise via Marktdaten-Aggregator. Das kann länger dauern und bestehende Tagespunkte aktualisieren.'
+  )) return;
+  setAdminAssetClassPriceError('');
+  if (btn) { btn.disabled = true; btn.textContent = 'Lädt...'; }
+  if (summaryEl) summaryEl.textContent = 'Daily-Backfill läuft. Bitte warten...';
+  try {
+    var res = await API.fetch('/admin/system/asset-class-prices/backfill', {
+      method: 'POST',
+      body: JSON.stringify({}),
+      timeoutMs: 120000
+    });
+    renderAdminAssetClassPriceStatus(res);
+    var s = (res && res.summary) || {rows_written:0, rows_skipped:0, error_count:0};
+    var msg = 'Daily-Backfill abgeschlossen: ' + (s.rows_written || 0).toLocaleString('de-CH') + ' Tagespunkte geschrieben';
+    if (s.rows_skipped) msg += ', ' + Number(s.rows_skipped || 0).toLocaleString('de-CH') + ' übersprungen';
+    if (s.error_count) msg += ', ' + s.error_count + ' Fehler';
+    if (res && res.errors && res.errors.length) {
+      var sample = res.errors.slice(0,3).map(function(e){
+        return (e.asset_class || 'Asset-Klasse') + ': ' + (e.reason || e.error || '?');
+      }).join(' | ');
+      msg += '. Beispiele: ' + sample;
+    }
+    if (window.showAppSuccess) showAppSuccess(msg, {title:'Daily-Backfill'});
+    else alert(msg);
+    showAdminResult('OK: ' + msg, false);
+    await loadAdminAssetClassPriceStatus(false);
+  } catch(e) {
+    var reason = parseApiError(e, 'Daily-Backfill fehlgeschlagen.');
+    setAdminAssetClassPriceError('Backfill fehlgeschlagen: ' + reason);
+    if (window.showAppError) showAppError('Daily-Backfill fehlgeschlagen: ' + reason, {title:'Marktdaten'});
+    showAdminResult('Warnung: Daily-Backfill fehlgeschlagen: ' + reason, true);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Aus Marktdaten füllen'; }
+  }
+}
+
 async function saveAdminAnnualReturns() {
   var btn = document.getElementById('btn-admin-ar-save');
   var errEl = document.getElementById('admin-ar-error');
@@ -9285,6 +9450,7 @@ async function openAdminModal() {
       loadAdminUserList(),
       loadAdminCapitalMarketAssumptions(false),
       loadAdminAnnualReturns(),
+      loadAdminAssetClassPriceStatus(false),
       loadAdminAuditLog(0),
       loadMarketDataStatus(false)
     ]);
@@ -12548,9 +12714,53 @@ function toggleAllocationRestrictionsPanel(forceOpen){
   var isVisible=!!(wrap&&wrap.style.display!=='none');
   setAllocationRestrictionsPanelVisible(forceOpen===true?true:!isVisible);
 }
+function ensureAssetAllocationMoreMenu(header){
+  var existing=header&&header.querySelector?header.querySelector('.aa-more'):null;
+  if(existing)return existing;
+  var more=document.createElement('details');
+  more.className='aa-more';
+  var summary=document.createElement('summary');
+  summary.title='Weitere Optionen';
+  summary.setAttribute('aria-label','Weitere Asset-Allocation-Optionen');
+  summary.textContent='⋯';
+  more.appendChild(summary);
+  var menu=document.createElement('div');
+  menu.className='aa-more-menu';
+  function addMenuButton(id,label,title,handler){
+    var btn=document.createElement('button');
+    btn.className='btn';
+    btn.type='button';
+    if(id)btn.id=id;
+    if(title)btn.title=title;
+    btn.textContent=label;
+    btn.onclick=function(){
+      handler();
+      more.removeAttribute('open');
+    };
+    menu.appendChild(btn);
+  }
+  addMenuButton(
+    'btn-aa-backtest',
+    'Strategie-Backtest',
+    'Backtest der SOLL-Strategie auf historischen Jahresrenditen (Wealth-Index, Drawdown, CAGR, Sharpe)',
+    function(){ openStrategyBacktest(); }
+  );
+  addMenuButton('btn-aa-params-open','Parameter','',function(){ openAllocationParametersModal(); });
+  addMenuButton(
+    '',
+    'Mandat-Einstellungen',
+    'Mandat-Einstellungen: Mortalitaet, Rentenalter, Lebenserwartung',
+    function(){ openMandateSettingsModal(); }
+  );
+  addMenuButton('','Soll-Quoten','',function(){ openAllocationEngineModal(); });
+  more.appendChild(menu);
+  header.appendChild(more);
+  return more;
+}
 function ensureAssetAllocationQuickActions(){
   var header=document.querySelector('#page-al .ph .ph-r');
   if(!header||header.getAttribute('data-aa-quick')==='1')return;
+  ensureAssetAllocationMoreMenu(header);
   if(document.getElementById('btn-aa-pref-open')&&document.getElementById('btn-aa-params-open')){
     header.setAttribute('data-aa-quick','1');
     updateAllocationPreferencesEntryButton();
@@ -12563,18 +12773,10 @@ function ensureAssetAllocationQuickActions(){
   prefBtn.type='button';
   prefBtn.id='btn-aa-pref-open';
   prefBtn.onclick=function(){ openAllocationPreferencesModal(); };
-  var paramBtn=document.createElement('button');
-  paramBtn.className='btn';
-  paramBtn.type='button';
-  paramBtn.id='btn-aa-params-open';
-  paramBtn.textContent='Parameter';
-  paramBtn.onclick=function(){ openAllocationParametersModal(); };
   if(calc){
     header.insertBefore(prefBtn,calc);
-    header.insertBefore(paramBtn,calc);
   }else{
     header.appendChild(prefBtn);
-    header.appendChild(paramBtn);
   }
   updateAllocationPreferencesEntryButton();
 }
@@ -14170,11 +14372,25 @@ function setPortfolioRefreshButtonState(mode){
   if(!button)return;
   if(mode==='loading'){
     button.disabled=true;
-    button.textContent='Portfolio wird geladen...';
+    button.textContent='Portfolio wird generiert...';
     return;
   }
   button.disabled=false;
-  button.textContent='Portfolio aktualisieren';
+  button.textContent='Portfolio generieren';
+}
+function allocationPreferencesFromStoredAllocation(result){
+  var raw=result&&result.target_allocation&&result.target_allocation.preferences_json;
+  if(raw){
+    try{
+      var parsed=typeof raw==='string'?JSON.parse(raw):raw;
+      if(parsed&&typeof parsed==='object'){
+        return mergeAllocationPreferences(buildDefaultAllocationPreferences(),parsed);
+      }
+    }catch(e){
+      console.warn('stored allocation preferences parse failed',e);
+    }
+  }
+  return collectAllocationPreferencesFromUI();
 }
 async function refreshPortfolioFromStoredState(){
   var mid=getActiveMandateId();
@@ -14194,8 +14410,8 @@ async function refreshPortfolioFromStoredState(){
     }
     strategyState.risk=riskState.risk;
     updateStrategyStatus(hadPendingChanges
-      ? 'Gespeichertes Portfolio wird aktualisiert. Offene Aenderungen bleiben ausstehend.'
-      : 'Portfolio wird aus dem gespeicherten Stand aktualisiert.',false);
+      ? 'Gespeichertes Portfolio wird generiert. Offene Aenderungen bleiben ausstehend.'
+      : 'Portfolio wird aus dem gespeicherten Stand generiert.',false);
     var allocation=await loadCurrentAllocationResult(mid);
     if(!allocation){
       if(!hasVisibleStrategyOutputs())invalidateStrategyOutputs();
@@ -14204,7 +14420,22 @@ async function refreshPortfolioFromStoredState(){
     }
     var recommendation=await loadCurrentRecommendationResult(mid);
     clearPendingStrategyOutputs();
-    applyAllocationEngineResult(allocation);
+    if(!applyAllocationEngineResult(allocation))return false;
+    if(!recommendation){
+      var allocationId=allocation&&allocation.target_allocation&&allocation.target_allocation.id;
+      if(!allocationId){
+        updateStrategyStatus('Soll-Allokation geladen, aber ohne technische ID. Portfolio kann nicht generiert werden.',true);
+        return false;
+      }
+      updateStrategyStatus('Keine passende Portfolio-Empfehlung gefunden. Portfolio wird neu generiert...',false);
+      var recommendationPrefs=allocationPreferencesFromStoredAllocation(allocation);
+      var recommendationDepotBank=getInputValue('recipe-depot-bank')||'UBS AG Zurich';
+      recommendation=await API.post('/mandates/'+mid+'/recommendations/generate',{preferences:recommendationPrefs,target_allocation_id:allocationId,run_type:'Optimizer',depot_bank:recommendationDepotBank});
+      if(String(mid)!==String(getActiveMandateId()||'')){
+        console.warn('stale portfolio recommendation result ignored', {requested:mid, active:getActiveMandateId()});
+        return false;
+      }
+    }
     if(recommendation){
       applyRecommendationEngineResult(recommendation);
     }else{
@@ -14222,11 +14453,11 @@ async function refreshPortfolioFromStoredState(){
     var dirtyBanner=document.getElementById('al-dirty-banner');
     if(dirtyBanner)dirtyBanner.style.display=hadPendingChanges?'':'none';
     updateStrategyStatus(hadPendingChanges
-      ? 'Portfolio aktualisiert. Neue Eingaben wirken erst nach «Anlagestrategie berechnen».'
-      : ('Portfolio aktualisiert: '+new Date().toLocaleTimeString('de-CH',{hour:'2-digit',minute:'2-digit'})),false);
+      ? 'Portfolio generiert. Neue Eingaben wirken erst nach «Anlagestrategie berechnen».'
+      : ('Portfolio generiert: '+new Date().toLocaleTimeString('de-CH',{hour:'2-digit',minute:'2-digit'})),false);
     return true;
   }catch(e){
-    updateStrategyStatus('Portfolio konnte nicht aktualisiert werden: '+String((e&&e.detail)||(e&&e.message)||'?'),true);
+    updateStrategyStatus('Portfolio konnte nicht generiert werden: '+String((e&&e.detail)||(e&&e.message)||'?'),true);
     return false;
   }finally{
     strategyState.loading=false;
@@ -18045,6 +18276,7 @@ function openStammdatenModal(){
         <button id="asec-market-data" onclick="adminShowSection('sec-market-data')" class="admin-sec-btn">Datenpipeline</button>
         <button id="asec-override" onclick="adminShowSection('sec-override')" class="admin-sec-btn">Override</button>
         <button id="asec-returns" onclick="adminShowSection('sec-returns')" class="admin-sec-btn">Jahresrenditen</button>
+        <button id="asec-acprices" onclick="adminShowSection('sec-acprices')" class="admin-sec-btn">Tageskurse</button>
 
         <div class="admin-nav-label">Annahmen</div>
         <button id="asec-cma" onclick="adminShowSection('sec-cma')" class="admin-sec-btn">Annahmen</button>
@@ -18207,6 +18439,24 @@ function openStammdatenModal(){
           </div>
           <div id="admin-ar-grid" style="overflow-x:auto;font-size:11px;"></div>
           <div id="admin-ar-error" style="display:none;color:var(--neg);font-size:10px"></div>
+        </div>
+
+        <!-- ══ SEC: TAGESKURSE ══ -->
+        <div id="sec-acprices" class="admin-sec-panel" style="display:none;gap:14px;">
+          <div class="admin-section-head">
+            <div>
+              <div class="admin-section-title">Historische Tageskurse</div>
+              <div class="admin-risk-note warn" style="margin-top:8px"><strong>Netzintensive Pflege</strong> Der Backfill lädt tägliche Asset-Class-Preise über Marktdatenprovider. Danach steht der Daily-Strategie-Backtest ohne Annual-Fallback zur Verfügung.</div>
+              <div class="admin-section-sub">Abdeckung der täglichen EOD-Serie pro Anlageklasse. Basis für Daily-Backtest, Intra-Jahr-Drawdown und geglättete Wealth-Kurve.</div>
+            </div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap">
+              <button class="btn" onclick="loadAdminAssetClassPriceStatus(true)" id="btn-admin-acp-load">Status laden</button>
+              <button class="btn-p admin-primary-btn" onclick="backfillAdminAssetClassPrices()" id="btn-admin-acp-backfill" title="Lädt tägliche Asset-Class-Preise via Marktdaten-Aggregator. Netzintensiv.">Aus Marktdaten füllen</button>
+            </div>
+          </div>
+          <div id="admin-acp-summary" class="admin-summary-panel">Status wird geladen...</div>
+          <div id="admin-acp-grid" class="admin-compact-grid"></div>
+          <div id="admin-acp-error" class="admin-risk-note danger" style="display:none"></div>
         </div>
 
         <!-- ══ SEC: CMA ANNAHMEN ══ -->
