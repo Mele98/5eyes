@@ -129,6 +129,7 @@ class Goal(Base):
     target_amount_rappen = Column(Integer)
     target_wealth_rappen = Column(Integer)
     target_return_bps = Column(Integer)
+    success_probability_min_x100 = Column(Integer)
     start_date = Column(String)
     horizon_years = Column(Integer)
     target_date = Column(String)

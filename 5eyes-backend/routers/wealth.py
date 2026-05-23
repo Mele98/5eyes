@@ -138,6 +138,101 @@ def _goal_horizon_from_date(target: date | None) -> int | None:
     return max(1, int((delta_days + 364) // 365))
 
 
+def _goal_type_key(value) -> str:
+    raw = str(value or "").strip().lower().replace(" ", "_")
+    return (
+        raw.replace("ä", "ae")
+        .replace("ö", "oe")
+        .replace("ü", "ue")
+        .replace("Ã¤", "ae")
+        .replace("Ã¶", "oe")
+        .replace("Ã¼", "ue")
+    )
+
+
+def _goal_hardness_key(value) -> str:
+    raw = str(value or "").strip().lower()
+    return (
+        raw.replace("ä", "ae")
+        .replace("ö", "oe")
+        .replace("ü", "ue")
+        .replace("Ã¤", "ae")
+        .replace("Ã¶", "oe")
+        .replace("Ã¼", "ue")
+    )
+
+
+def _goal_effective(payload: dict, existing: Goal | None, field: str):
+    if field in payload:
+        return payload.get(field)
+    return getattr(existing, field, None) if existing is not None else None
+
+
+def _goal_int_or_none(value) -> int | None:
+    if value in (None, ""):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=422, detail="Ungültiger Zahlenwert im Ziel")
+
+
+def _validate_goal_payload_semantics(payload: dict, existing: Goal | None = None) -> None:
+    """Zieltyp-spezifische Feldisolierung und fachliche Guardrails.
+
+    GoalCreate validiert bereits viele Fälle. Diese zentrale Prüfung schützt
+    zusätzlich partielle Updates, damit alte Betragsfelder nicht unbemerkt in
+    einen neuen Zieltyp hineinragen.
+    """
+    goal_type = _goal_type_key(_goal_effective(payload, existing, "goal_type"))
+    if goal_type not in {
+        "kapitalerhalt",
+        "vermoegensziel",
+        "einmalige_ausgabe",
+        "wiederkehrende_ausgabe",
+        "pensionsausgabe",
+        "renditeziel",
+        "maximierung",
+    }:
+        raise HTTPException(status_code=422, detail="Unbekannter Zieltyp")
+
+    horizon_years = _goal_int_or_none(_goal_effective(payload, existing, "horizon_years"))
+    if horizon_years is not None and horizon_years < 1:
+        raise HTTPException(status_code=422, detail="Zeithorizont muss mindestens 1 Jahr betragen")
+
+    target_amount = _goal_int_or_none(_goal_effective(payload, existing, "target_amount_rappen"))
+    target_wealth = _goal_int_or_none(_goal_effective(payload, existing, "target_wealth_rappen"))
+    target_return = _goal_int_or_none(_goal_effective(payload, existing, "target_return_bps"))
+    hardness = _goal_hardness_key(_goal_effective(payload, existing, "hardness") or "Primär")
+
+    if goal_type == "renditeziel":
+        if hardness == "hart":
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "Renditeziel darf nicht als 'hart' definiert werden. "
+                    "Echte Bedarfsziele (Entnahme/Mindestvermögen) sind hart."
+                ),
+            )
+        if target_return is None or target_return <= 0:
+            raise HTTPException(status_code=422, detail="Renditeziel benötigt eine positive Zielrendite")
+        if target_amount is not None or target_wealth is not None:
+            raise HTTPException(status_code=422, detail="Renditeziel darf keinen Zielbetrag oder Zielvermögen tragen")
+    elif goal_type in {"einmalige_ausgabe", "wiederkehrende_ausgabe", "pensionsausgabe"}:
+        if target_amount is None or target_amount <= 0:
+            raise HTTPException(status_code=422, detail="Cashflow-Ziel benötigt einen positiven Zielbetrag")
+        if target_return is not None or target_wealth is not None:
+            raise HTTPException(status_code=422, detail="Cashflow-Ziel darf keine Zielrendite oder Zielvermögen tragen")
+    elif goal_type in {"kapitalerhalt", "vermoegensziel"}:
+        if target_wealth is None or target_wealth <= 0:
+            raise HTTPException(status_code=422, detail="Vermögensziel benötigt ein positives Zielvermögen")
+        if target_return is not None or target_amount is not None:
+            raise HTTPException(status_code=422, detail="Vermögensziel darf keine Zielrendite oder Cashflow-Zielbetrag tragen")
+    elif goal_type == "maximierung":
+        if target_return is not None or target_amount is not None or target_wealth is not None:
+            raise HTTPException(status_code=422, detail="Maximierung darf keinen fixen Zielwert tragen")
+
+
 def _normalize_goal_payload(data: dict, existing: Goal | None = None) -> dict:
     payload = dict(data)
     goal_type = payload.get("goal_type", getattr(existing, "goal_type", None))
@@ -176,6 +271,7 @@ def _normalize_goal_payload(data: dict, existing: Goal | None = None) -> dict:
         payload["horizon_years"] = 10
     payload["start_date"] = start_date
     payload["target_date"] = target_date
+    _validate_goal_payload_semantics(payload, existing)
     return payload
 
 
