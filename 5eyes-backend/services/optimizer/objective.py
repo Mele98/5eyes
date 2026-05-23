@@ -28,6 +28,9 @@ import numpy as np
 from .goal_liabilities import GoalLiability
 
 
+LAMBDA_CHANCE_DEFAULT = 1_000_000.0
+TAU_UNREACHABLE = 0.50
+
 # OWNER-DECISION OD-1 (bestaetigt 2026-05-05): 50x zwischen hart/opportunistisch.
 # Im Optimizer brauchen wir staerkere Hardness-Trennung als in der reinen Score-
 # Aggregation (_GOAL_HARDNESS_MULTIPLIER_BPS in portfolio_engine, Faktor 5x).
@@ -36,6 +39,40 @@ HARDNESS_WEIGHT = {
     "primaer": 1.0,
     "opportunistisch": 0.2,
 }
+
+_PRIMARY_HARDNESS_KEYS = {"hart", "primaer", "primär"}
+
+
+def _hardness_key(value: str | None) -> str:
+    raw = str(value or "primaer").strip().lower()
+    if raw in ("hart", "hard"):
+        return "hart"
+    if raw in ("primaer", "primär", "primary"):
+        return "primaer"
+    if raw in ("opportunistisch", "opportunistic", "opp"):
+        return "opportunistisch"
+    return raw or "primaer"
+
+
+def _display_hardness(value: str | None) -> str:
+    key = _hardness_key(value)
+    if key == "primaer":
+        return "primär"
+    return key
+
+
+def _default_tau_x100(liability: GoalLiability) -> int:
+    raw = getattr(liability, "success_probability_min_x100", None)
+    if raw is not None:
+        try:
+            return max(0, min(10000, int(raw)))
+        except (TypeError, ValueError):
+            pass
+    if liability.target_kind == "return_rate":
+        return 5000
+    if liability.target_kind == "maximize":
+        return 10000
+    return 8000
 
 
 def _annualized_return_bps_per_path(
@@ -102,6 +139,67 @@ def shortfall_squared_per_path(
         return shortfall * shortfall
 
     return np.zeros(n_paths, dtype=np.float64)
+
+
+def goal_probability_per_path(
+    wealth_paths: np.ndarray,
+    goal: GoalLiability,
+    initial_value_rappen: int,
+) -> np.ndarray:
+    """Returns an int array with 1 where the goal is achieved, else 0."""
+    n_paths = wealth_paths.shape[0]
+    if n_paths <= 0:
+        return np.zeros(0, dtype=np.int8)
+    if goal.target_kind == "maximize":
+        return np.ones(n_paths, dtype=np.int8)
+    if goal.target_kind in ("wealth_at_t", "cashflow_in_year"):
+        idx = max(1, min(int(goal.target_year_index), wealth_paths.shape[1] - 1))
+        target = float(goal.target_amount_rappen or 0)
+        return (wealth_paths[:, idx] >= target).astype(np.int8)
+    if goal.target_kind == "outflow_stream":
+        return (wealth_paths[:, -1] >= 0).astype(np.int8)
+    if goal.target_kind == "return_rate":
+        horizon = max(1, min(int(goal.target_year_index or (wealth_paths.shape[1] - 1)), wealth_paths.shape[1] - 1))
+        target_return = float(goal.target_amount_rappen or 0) / 10000.0
+        target_wealth = float(max(1, int(initial_value_rappen or 0))) * ((1.0 + target_return) ** horizon)
+        return (wealth_paths[:, horizon] >= target_wealth).astype(np.int8)
+    return np.ones(n_paths, dtype=np.int8)
+
+
+def chance_constraint_penalty(
+    wealth_paths: np.ndarray,
+    goal_liabilities: list[GoalLiability],
+    initial_value_rappen: int,
+    lambda_chance: float = LAMBDA_CHANCE_DEFAULT,
+) -> tuple[float, list[dict]]:
+    """Return chance-constraint penalty and per-goal achievability rows."""
+    penalty = 0.0
+    achievability: list[dict] = []
+    for goal in goal_liabilities:
+        per_path = goal_probability_per_path(wealth_paths, goal, initial_value_rappen)
+        probability = float(np.mean(per_path)) if per_path.size else 0.0
+        tau = _default_tau_x100(goal) / 10000.0
+        if probability >= tau:
+            status = "erreichbar"
+        elif probability >= TAU_UNREACHABLE:
+            status = "knapp"
+        else:
+            status = "nicht_erreichbar"
+        hardness = _hardness_key(getattr(goal, "hardness_key", None))
+        applies_penalty = hardness in _PRIMARY_HARDNESS_KEYS and goal.target_kind != "maximize"
+        if applies_penalty:
+            shortfall = max(0.0, tau - probability)
+            penalty += float(lambda_chance) * shortfall * shortfall
+        achievability.append({
+            "goal_id": str(goal.goal_id),
+            "label": str(goal.label),
+            "target_kind": str(goal.target_kind),
+            "probability": probability,
+            "tau": tau,
+            "status": status,
+            "hardness": _display_hardness(hardness),
+        })
+    return float(penalty), achievability
 
 
 def shortfall_objective(
@@ -279,6 +377,9 @@ def combined_objective_two_phase(
     horizon_years: int,
     primary_weight: float = 1.0,
     volatility_weight: float = 1e-12,
+    lambda_chance: float = LAMBDA_CHANCE_DEFAULT,
+    epsilon: float = 1.0,
+    weights: np.ndarray | None = None,
 ) -> float:
     """Kombination Primary + tiny Volatility-Term.
 
@@ -289,10 +390,20 @@ def combined_objective_two_phase(
     primary_weight: skaliert L(w)
     volatility_weight: typischerweise 1e-12 weil Var(wealth) in rappen^2 sehr gross ist
     """
+    liability_list = list(liabilities)
+    if not liability_list:
+        return 0.0
     primary = shortfall_objective(
-        liabilities, wealth_paths,
+        liability_list, wealth_paths,
         initial_wealth_rappen=initial_wealth_rappen,
         horizon_years=horizon_years,
+        weights=weights,
     )
-    vol = volatility_objective(wealth_paths)
-    return primary_weight * primary + volatility_weight * vol
+    chance, _achievability = chance_constraint_penalty(
+        wealth_paths,
+        liability_list,
+        int(initial_wealth_rappen),
+        lambda_chance=lambda_chance,
+    )
+    vol = volatility_objective(wealth_paths, weights=weights) if primary + chance < float(epsilon) else 0.0
+    return primary_weight * primary + chance + volatility_weight * vol

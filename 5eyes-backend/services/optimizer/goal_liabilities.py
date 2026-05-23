@@ -58,6 +58,7 @@ class GoalLiability:
     liability_path_rappen: list[int] = field(default_factory=list)  # len == horizon_years
     hardness_key: str = "primaer"
     weight_bps: int = 312  # Fallback wenn goal.weight_bps None
+    success_probability_min_x100: int | None = None
     evaluation_note: str | None = None
 
 
@@ -92,6 +93,17 @@ def _weight_bps(goal: Goal) -> int:
         return int(goal.weight_bps)
     rank = int(goal.rank or 5)
     return _DEFAULT_WEIGHT_BY_RANK.get(rank, 312)
+
+
+def _success_probability_min_x100(goal: Goal, *, default_value: int) -> int:
+    raw = getattr(goal, "success_probability_min_x100", None)
+    if raw is None:
+        return int(default_value)
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return int(default_value)
+    return max(0, min(10000, value))
 
 
 # ============================================================================
@@ -254,6 +266,7 @@ def _build_renditeziel(goal: Goal, *, horizon_years: int) -> GoalLiability:
         liability_path_rappen=[0] * horizon_years,
         hardness_key=_hardness_key(goal),
         weight_bps=_weight_bps(goal),
+        success_probability_min_x100=_success_probability_min_x100(goal, default_value=5000),
     )
 
 
@@ -278,6 +291,7 @@ def _build_wealth_target(
         liability_path_rappen=[0] * horizon_years,
         hardness_key=_hardness_key(goal),
         weight_bps=_weight_bps(goal),
+        success_probability_min_x100=_success_probability_min_x100(goal, default_value=8000),
     )
 
 
@@ -305,6 +319,7 @@ def _build_einmalige_ausgabe(
         liability_path_rappen=path,
         hardness_key=_hardness_key(goal),
         weight_bps=_weight_bps(goal),
+        success_probability_min_x100=_success_probability_min_x100(goal, default_value=8000),
     )
 
 
@@ -352,6 +367,7 @@ def _build_recurring_outflow(
         liability_path_rappen=path,
         hardness_key=_hardness_key(goal),
         weight_bps=_weight_bps(goal),
+        success_probability_min_x100=_success_probability_min_x100(goal, default_value=8000),
         evaluation_note=note,
     )
 
@@ -368,6 +384,7 @@ def _build_maximierung(goal: Goal, *, horizon_years: int) -> GoalLiability:
         liability_path_rappen=[0] * horizon_years,
         hardness_key=_hardness_key(goal),
         weight_bps=_weight_bps(goal),
+        success_probability_min_x100=None,
     )
 
 

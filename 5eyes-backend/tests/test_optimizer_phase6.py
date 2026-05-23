@@ -478,7 +478,7 @@ def test_optimizer_reasoning_persisted_to_db_column(session_factory, monkeypatch
             parsed = json.loads(ta.optimizer_reasoning_json)
             assert isinstance(parsed, list)
             assert len(parsed) >= 1
-            assert all(isinstance(item, str) for item in parsed)
+            assert all(isinstance(item, (str, dict)) for item in parsed)
 
 
 def test_optimizer_reasoning_column_null_in_house_matrix(session_factory, monkeypatch):

@@ -88,3 +88,40 @@ def assert_risk_budget_ok(
 ) -> None:
     if int(realized_risky_bps) > int(max_risky_bps) + int(slack_bps):
         raise RiskBudgetExceeded(int(realized_risky_bps), int(max_risky_bps))
+
+
+def _hardness_key(value: str | None) -> str:
+    raw = str(value or "").strip().lower()
+    if raw in ("hart", "hard"):
+        return "hart"
+    if raw in ("primär", "primaer", "primary"):
+        return "primär"
+    if raw in ("opportunistisch", "opportunistic", "opp"):
+        return "opportunistisch"
+    return raw
+
+
+def classify_limiting_factor(
+    allocation_bps: Mapping[str, int],
+    risky_fraction: int,
+    max_risky_fraction: int,
+    min_liquidity_bps: int,
+    bands: Mapping[str, tuple[int, int]],
+    achievability: list[dict],
+    optimization_status: str | None,
+) -> str:
+    del bands  # reserved for Stage-4 message classification refinements
+    if optimization_status == "fallback_house_matrix":
+        return "solver_konvergenz"
+    nicht_erreicht = [
+        row for row in (achievability or [])
+        if row.get("status") == "nicht_erreichbar"
+        and _hardness_key(row.get("hardness")) in ("hart", "primär")
+    ]
+    if len(nicht_erreicht) >= 2:
+        return "zielkonflikt"
+    if nicht_erreicht and int(risky_fraction) >= int(max_risky_fraction) - 50:
+        return "risikoprofil"
+    if int((allocation_bps or {}).get("liquidity", 0) or 0) <= int(min_liquidity_bps) + 1:
+        return "liquiditaetsreserve"
+    return "bandbreite"

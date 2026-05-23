@@ -46,6 +46,7 @@ from services.risk_matrix import (
     RiskBudgetExceeded,
     assert_risk_budget_ok,
     bucket_risky_fraction_bps_from_building_blocks,
+    classify_limiting_factor,
     compute_portfolio_risky_fraction_bps,
 )
 
@@ -4569,6 +4570,24 @@ def _optimizer_audit_fields(optimizer_result) -> dict:
     }
 
 
+def _driving_goal_id_from_achievability(achievability: list[dict]) -> str | None:
+    priority = [
+        row for row in (achievability or [])
+        if str(row.get("hardness") or "").strip().lower() in ("hart", "primär", "primaer")
+    ]
+    if not priority:
+        return None
+    status_rank = {"nicht_erreichbar": 0, "knapp": 1, "erreichbar": 2}
+    row = sorted(
+        priority,
+        key=lambda item: (
+            status_rank.get(str(item.get("status") or ""), 3),
+            float(item.get("probability") or 0.0),
+        ),
+    )[0]
+    return str(row.get("goal_id") or "") or None
+
+
 # --------------------------------------------------------------------------- #
 # V3 Sprint 1 (2026-05-08): Methodenvergleich House Matrix vs. Shadow Stochastic
 # --------------------------------------------------------------------------- #
@@ -5486,7 +5505,19 @@ def generate_target_allocation(
         warnings.append(format_message(WARN_FALLBACK))
         reasoning.append("Die aktive Allokation wurde auf die Bandbreiten-Mitte des Risikoprofils zurueckgesetzt, weil das Risikobudget strikt limitiert.")
     risky_fraction_total_bps = int(realized_risky_bps)
-    limiting_factor = "risikoprofil" if risky_fraction_total_bps >= risk_budget_bps - 50 else None
+    goal_achievability = list(getattr(optimizer_result, "goal_achievability", ()) or [])
+    optimization_status_for_limits = "fallback_house_matrix" if risk_budget_fallback else getattr(optimizer_result, "status", None)
+    limiting_factor = classify_limiting_factor(
+        allocation_bps=targets,
+        risky_fraction=risky_fraction_total_bps,
+        max_risky_fraction=risk_budget_bps,
+        min_liquidity_bps=minimums["liquidity"],
+        bands={bucket: (minimums[bucket], maximums[bucket]) for bucket in BUCKET_FIELDS},
+        achievability=goal_achievability,
+        optimization_status=optimization_status_for_limits,
+    )
+    if not goal_achievability and risky_fraction_total_bps >= risk_budget_bps - 50:
+        limiting_factor = "risikoprofil"
     # C3: gewichtete Bucket-Metriken aus Sub-Allocation in alle nachgelagerten
     # Berechnungen weiterreichen.
     metrics = _expected_metrics(targets, cma, sub_allocations)
@@ -5588,6 +5619,17 @@ def generate_target_allocation(
             "optimization_method": "fallback_house_matrix",
             "optimization_status": "fallback_house_matrix",
         }
+    goal_achievability_json: str | None = None
+    if goal_achievability:
+        try:
+            goal_achievability_json = json.dumps(
+                goal_achievability,
+                separators=(",", ":"),
+                ensure_ascii=False,
+            )
+        except (TypeError, ValueError) as exc:
+            logger.warning("Goal-achievability JSON-serialization failed: %s", exc)
+            goal_achievability_json = None
     # Phase 6: Stress-Eval als JSON persistieren, damit /current/payload sie
     # ohne erneuten Solver-Lauf liefern kann. Nur im stochastic-Modus.
     stress_evaluations_json: str | None = None
@@ -5618,8 +5660,17 @@ def generate_target_allocation(
         and optimizer_result.reasoning
     ):
         try:
+            trace_payload = {
+                "binding_constraints": [],
+                "driving_goal_id": _driving_goal_id_from_achievability(goal_achievability),
+                "limiting_factor": limiting_factor,
+                "achievability": goal_achievability,
+            }
+            reasoning_payload = list(optimizer_result.reasoning)
+            if goal_achievability or limiting_factor:
+                reasoning_payload.append(trace_payload)
             optimizer_reasoning_json = json.dumps(
-                list(optimizer_result.reasoning),
+                reasoning_payload,
                 separators=(",", ":"),
                 ensure_ascii=False,
             )
@@ -5650,6 +5701,7 @@ def generate_target_allocation(
         risky_fraction_bps_at_generation=risky_fraction_total_bps,
         risk_budget_bps_at_generation=risk_budget_bps,
         limiting_factor=limiting_factor,
+        goal_achievability_json=goal_achievability_json,
         based_on_assessment_id=assessment.id,
         capital_market_assumptions_id=cma.id,
         # C8 audit anchors
@@ -5728,6 +5780,7 @@ def generate_target_allocation(
         "risky_fraction_total_bps": risky_fraction_total_bps,
         "risky_fraction_headroom_bps": risk_budget_bps - int(risky_fraction_total_bps),
         "limiting_factor": limiting_factor,
+        "goal_achievability": goal_achievability,
         "warnings": warnings,
         "asset_class_risky_weights_bps": asset_risky_weights,
         "expected_return_bps": metrics["expected_return_bps"],
@@ -6283,12 +6336,33 @@ def build_target_payload_from_allocation(
         try:
             parsed_reasoning = json.loads(raw_reasoning)
             if isinstance(parsed_reasoning, list):
-                persisted_optimizer_reasoning = [
-                    str(item) for item in parsed_reasoning if item
-                ]
+                for item in parsed_reasoning:
+                    if isinstance(item, str) and item:
+                        persisted_optimizer_reasoning.append(item)
+                    elif isinstance(item, dict):
+                        lf = item.get("limiting_factor")
+                        driving = item.get("driving_goal_id")
+                        if lf or driving:
+                            persisted_optimizer_reasoning.append(
+                                f"Stage-3 Trace: limiting_factor={lf or '-'}, driving_goal_id={driving or '-'}."
+                            )
         except (TypeError, ValueError) as exc:
             logger.warning(
                 "Stored optimizer_reasoning_json invalid for allocation %s: %s",
+                getattr(allocation, "id", "?"), exc,
+            )
+    goal_achievability: list[dict] = []
+    raw_goal_achievability = getattr(allocation, "goal_achievability_json", None)
+    if raw_goal_achievability:
+        try:
+            parsed_achievability = json.loads(raw_goal_achievability)
+            if isinstance(parsed_achievability, list):
+                goal_achievability = [
+                    item for item in parsed_achievability if isinstance(item, dict)
+                ]
+        except (TypeError, ValueError) as exc:
+            logger.warning(
+                "Stored goal_achievability_json invalid for allocation %s: %s",
                 getattr(allocation, "id", "?"), exc,
             )
     return {
@@ -6317,6 +6391,7 @@ def build_target_payload_from_allocation(
         "risky_fraction_total_bps": risky_fraction_total_bps,
         "risky_fraction_headroom_bps": risk_budget_bps - int(risky_fraction_total_bps),
         "limiting_factor": getattr(allocation, "limiting_factor", None),
+        "goal_achievability": goal_achievability,
         "asset_class_risky_weights_bps": asset_risky_weights,
         "expected_return_bps": metrics["expected_return_bps"],
         "expected_volatility_bps": metrics["expected_volatility_bps"],
