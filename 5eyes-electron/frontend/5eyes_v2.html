@@ -8411,6 +8411,9 @@ function adminShowSection(secId) {
   if (secId === 'sec-policy' && typeof adminLoadPolicies === 'function') {
     adminLoadPolicies(false);
   }
+  if (secId === 'sec-shadow-comparison-aggregate' && typeof loadShadowAggregate === 'function') {
+    loadShadowAggregate(false);
+  }
 }
 function adminSwitchTab(tabId) { adminShowSection(tabId.replace('tab-', 'sec-')); }
 
@@ -9670,6 +9673,7 @@ async function openAdminModal() {
   adminShowSection('sec-health');
   ensureAdminCapitalMarketBindings();
   if (!getInputValue('admin-cma-name').trim()) loadAdminCapitalMarketAssumptionDefaults(true);
+  var shadowAggregatePanel = document.getElementById('sec-shadow-comparison-aggregate');
   try {
     await Promise.allSettled([
       adminRefreshMarketStatus(false),
@@ -9684,6 +9688,9 @@ async function openAdminModal() {
     ]);
     renderAdminDashboard();
     startMarketDataPolling();
+    if (shadowAggregatePanel && shadowAggregatePanel.style.display !== 'none') {
+      loadShadowAggregate(false);
+    }
   } catch(e) {}
   normalizeVisibleMojibake(document.getElementById('m-admin')||document.body);
 }
@@ -9797,6 +9804,134 @@ function renderMarketDataStatus(status) {
 
   var meta = document.getElementById('admin-mdata-meta');
   if (meta) meta.textContent = 'Stand: ' + String(status.generated_at || '').replace('T', ' ').replace('Z', ' UTC');
+}
+
+async function loadShadowAggregate(showSpinner=true) {
+  var btn = document.getElementById('btn-admin-shadow-aggregate-refresh');
+  var meta = document.getElementById('admin-shadow-aggregate-meta');
+  if (btn && showSpinner) { btn.disabled = true; btn.textContent = 'Laedt...'; }
+  if (meta) meta.textContent = showSpinner ? 'Shadow-Aggregat wird geladen...' : meta.textContent;
+  try {
+    var data = await API.get('/admin/system/shadow-comparison-aggregate');
+    renderShadowAggregate(data);
+    if (showSpinner) showAdminResult('Shadow-Vergleich Aggregat aktualisiert', false);
+  } catch(e) {
+    var msg = parseApiError(e, 'Shadow-Vergleich Aggregat konnte nicht geladen werden.');
+    renderShadowAggregateError(msg);
+    if (showSpinner) showAdminResult(msg, true);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Reload'; }
+  }
+}
+
+function shadowAggregateTone(verdict) {
+  var v = String(verdict || '').toLowerCase();
+  if (v === 'green') return 'ok';
+  if (v === 'yellow') return 'warn';
+  if (v === 'red') return 'danger';
+  return '';
+}
+
+function shadowAggregateLabel(verdict) {
+  var v = String(verdict || '').toLowerCase();
+  if (v === 'green') return 'GREEN';
+  if (v === 'yellow') return 'YELLOW';
+  if (v === 'red') return 'RED';
+  return 'n/a';
+}
+
+function renderShadowAggregateError(error) {
+  var msg = String(error || 'Shadow-Vergleich Aggregat konnte nicht geladen werden.');
+  var status = document.getElementById('admin-shadow-aggregate-status-pill');
+  if (status) {
+    status.className = 'admin-pill danger';
+    status.textContent = 'Fehler';
+  }
+  ['green','yellow','red'].forEach(function(key) {
+    setText('admin-shadow-' + key + '-count', '-');
+    setText('admin-shadow-' + key + '-pct', '-');
+    var ex = document.getElementById('admin-shadow-examples-' + key);
+    if (ex) ex.innerHTML = '<div class="admin-risk-note danger">' + escapeHtml(msg) + '</div>';
+  });
+  setText('admin-shadow-default-reason', msg);
+  setText('admin-shadow-aggregate-meta', '');
+  var badge = document.getElementById('admin-shadow-default-badge');
+  if (badge) badge.className = 'admin-pill danger';
+  setText('admin-shadow-default-badge', 'Default-Wechsel blockiert');
+  var errors = document.getElementById('admin-shadow-aggregate-errors');
+  if (errors) {
+    errors.style.display = 'block';
+    errors.innerHTML = '<strong>Fehler</strong>' + escapeHtml(msg);
+  }
+}
+
+function renderShadowAggregate(data) {
+  data = data || {};
+  var counts = data.counts || {};
+  var percentages = data.percentages || {};
+  var examples = data.examples || {};
+  var ready = !!data.default_switch_ready;
+  var reason = String(data.default_switch_reason || '');
+  var total = Number(counts.total || percentages.total || 0);
+  var topVerdict = 'green';
+  if (Number(counts.red || 0) > 0) topVerdict = 'red';
+  else if (!ready || Number(counts.yellow || 0) > 0) topVerdict = 'yellow';
+
+  var status = document.getElementById('admin-shadow-aggregate-status-pill');
+  if (status) {
+    status.className = 'admin-pill ' + shadowAggregateTone(topVerdict);
+    status.textContent = ready ? 'Default-Wechsel freigegeben' : 'Default-Wechsel blockiert';
+  }
+  var badge = document.getElementById('admin-shadow-default-badge');
+  if (badge) {
+    badge.className = 'admin-pill ' + (ready ? 'ok' : 'warn');
+    badge.textContent = ready ? 'Default-Wechsel freigegeben' : 'Default-Wechsel blockiert';
+  }
+  setText('admin-shadow-default-reason', ready ? 'Default-Wechsel freigegeben: ' + reason : 'Default-Wechsel blockiert: ' + reason);
+  setText('admin-shadow-aggregate-meta', String(total) + ' Mandat(e) mit Shadow-Vergleich');
+
+  ['green','yellow','red'].forEach(function(key) {
+    setText('admin-shadow-' + key + '-count', String(Number(counts[key] || 0)));
+    setText('admin-shadow-' + key + '-pct', (Number(percentages[key] || 0)).toFixed(1) + '%');
+    var ex = document.getElementById('admin-shadow-examples-' + key);
+    if (ex) ex.innerHTML = renderShadowAggregateExamples(examples[key], key);
+  });
+
+  var errors = Array.isArray(data.errors) ? data.errors : [];
+  var errEl = document.getElementById('admin-shadow-aggregate-errors');
+  if (errEl) {
+    if (!errors.length) {
+      errEl.style.display = 'none';
+      errEl.innerHTML = '';
+    } else {
+      errEl.style.display = 'block';
+      errEl.innerHTML = '<strong>Hinweis</strong>' + errors.map(function(row) {
+        return '<div>' + escapeHtml(row.mandate_id || 'Mandat') + ': ' + escapeHtml(row.error || '') + '</div>';
+      }).join('');
+    }
+  }
+}
+
+function renderShadowAggregateExamples(rows, verdict) {
+  rows = Array.isArray(rows) ? rows : [];
+  if (!rows.length) {
+    return '<div class="admin-metric-meta">Keine Beispiele fuer ' + escapeHtml(shadowAggregateLabel(verdict)) + '</div>';
+  }
+  return rows.map(function(row) {
+    var notes = Array.isArray(row.verdict_notes) ? row.verdict_notes : [];
+    var notesHtml = notes.length
+      ? notes.slice(0, 3).map(function(note) { return '<li>' + escapeHtml(note) + '</li>'; }).join('')
+      : '<li>Keine Notizen</li>';
+    return '<div class="admin-workitem">'
+      + '<div class="admin-workitem-title">' + escapeHtml(row.mandate_id || 'Mandat') + '</div>'
+      + '<div class="admin-action-meta">'
+      + '<span class="admin-pill ' + shadowAggregateTone(row.verdict || verdict) + '">' + escapeHtml(shadowAggregateLabel(row.verdict || verdict)) + '</span>'
+      + ' &middot; Limiting-Factor: ' + escapeHtml(row.limiting_factor || '-')
+      + ' &middot; Drift: ' + escapeHtml(formatBpsPercent(row.total_drift_bps || 0))
+      + '</div>'
+      + '<ul style="margin:6px 0 0 15px;padding:0;color:var(--n5);font-size:10px;line-height:1.45">' + notesHtml + '</ul>'
+      + '</div>';
+  }).join('');
 }
 
 async function adminBackup() {
@@ -18627,6 +18762,7 @@ function openStammdatenModal(){
 
         <div class="admin-nav-label">Status</div>
         <button id="asec-health" onclick="adminShowSection('sec-health')" class="admin-sec-btn admin-active">Uebersicht</button>
+        <button id="asec-shadow-comparison-aggregate" onclick="adminShowSection('sec-shadow-comparison-aggregate')" class="admin-sec-btn adm-nav-btn">Shadow-Aggregat</button>
 
         <div class="admin-nav-label">Audit</div>
         <button id="asec-audit" onclick="adminShowSection('sec-audit')" class="admin-sec-btn">Protokoll</button>
@@ -18665,6 +18801,58 @@ function openStammdatenModal(){
           </div>
           <div class="admin-risk-note"><strong>Hinweis</strong>Kritische Aktionen fragen vor dem Speichern nach Bestaetigung.</div>
         </div>
+
+        <!-- SEC: SHADOW-VERGLEICH AGGREGAT -->
+        <section id="sec-shadow-comparison-aggregate" class="admin-sec-panel" style="display:none;gap:14px;">
+          <div class="admin-section-head">
+            <div>
+              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                <div class="admin-section-title">Shadow-Vergleich Aggregat</div>
+                <span id="admin-shadow-aggregate-status-pill" class="admin-pill">n/a</span>
+              </div>
+              <div class="admin-section-sub">Aggregierte GREEN/YELLOW/RED-Auswertung aus persistierten Shadow-Vergleichen fuer das Compliance-Template.</div>
+            </div>
+            <button class="btn" onclick="loadShadowAggregate(true)" id="btn-admin-shadow-aggregate-refresh">Reload</button>
+          </div>
+          <div class="admin-risk-note">
+            <strong>Default-Switch</strong>
+            <span id="admin-shadow-default-badge" class="admin-pill">n/a</span>
+            <div id="admin-shadow-default-reason" style="margin-top:6px">Noch nicht geladen.</div>
+          </div>
+          <div class="admin-compact-grid">
+            <div class="admin-metric-panel">
+              <div class="admin-metric-label">GREEN</div>
+              <div id="admin-shadow-green-count" class="admin-health-v">-</div>
+              <div id="admin-shadow-green-pct" class="admin-metric-meta">-</div>
+            </div>
+            <div class="admin-metric-panel">
+              <div class="admin-metric-label">YELLOW</div>
+              <div id="admin-shadow-yellow-count" class="admin-health-v">-</div>
+              <div id="admin-shadow-yellow-pct" class="admin-metric-meta">-</div>
+            </div>
+            <div class="admin-metric-panel">
+              <div class="admin-metric-label">RED</div>
+              <div id="admin-shadow-red-count" class="admin-health-v">-</div>
+              <div id="admin-shadow-red-pct" class="admin-metric-meta">-</div>
+            </div>
+          </div>
+          <div class="admin-compact-grid">
+            <div class="admin-metric-panel">
+              <div class="admin-metric-label">GREEN Beispiele</div>
+              <div id="admin-shadow-examples-green" class="admin-worklist"><div class="admin-metric-meta">Noch nicht geladen.</div></div>
+            </div>
+            <div class="admin-metric-panel">
+              <div class="admin-metric-label">YELLOW Beispiele</div>
+              <div id="admin-shadow-examples-yellow" class="admin-worklist"><div class="admin-metric-meta">Noch nicht geladen.</div></div>
+            </div>
+            <div class="admin-metric-panel">
+              <div class="admin-metric-label">RED Beispiele</div>
+              <div id="admin-shadow-examples-red" class="admin-worklist"><div class="admin-metric-meta">Noch nicht geladen.</div></div>
+            </div>
+          </div>
+          <div id="admin-shadow-aggregate-errors" class="admin-risk-note warn" style="display:none"></div>
+          <div id="admin-shadow-aggregate-meta" class="admin-metric-meta" style="text-align:right"></div>
+        </section>
 
         <!-- SEC: AUDIT-LOG -->
         <div id="sec-audit" class="admin-sec-panel" style="display:none;gap:12px;">
