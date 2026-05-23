@@ -28,6 +28,7 @@ from services.maintenance import (
 from services.shadow_comparison import (
     ShadowComparisonMissing,
     ShadowComparisonNotFound,
+    aggregate_shadow_comparisons,
     build_shadow_comparison_payload,
 )
 
@@ -183,6 +184,22 @@ def get_shadow_comparison(
         raise HTTPException(status_code=404, detail=str(exc))
     except ShadowComparisonMissing as exc:
         raise HTTPException(status_code=409, detail=str(exc))
+
+
+@router.get('/shadow-comparison-aggregate')
+def get_shadow_comparison_aggregate(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Stage 8 Foundation: aggregierter Shadow-Vergleich über alle Mandate.
+
+    Quelle für die Owner-Verifikation und das Compliance-Template
+    (docs/compliance/shadow-vergleich-template.md). Liefert
+    GREEN/YELLOW/RED-Counts, repräsentative Beispiele und das
+    Methodology-§4-Gesamt-Verdikt fuer den Default-Wechsel.
+    """
+    _ = current_user
+    return aggregate_shadow_comparisons(db)
 
 
 _VALID_ASSET_CLASSES = {'Aktien', 'Obligationen', 'Immobilien', 'Liquiditaet', 'Alternative'}
