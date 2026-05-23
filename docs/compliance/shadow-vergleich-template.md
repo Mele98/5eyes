@@ -21,7 +21,8 @@
 - **Beratungsvermögen:** ca. CHF `<betrag>`
 - **Goals:** `<n>` Stück (`<n_hart>` hart, `<n_primaer>` primär, `<n_opportunistisch>` opportunistisch)
 - **Cashflows:** `<n>` Einträge
-- **Datenquelle:** API `GET /admin/system/shadow-comparison/{mandate_id}` (Roh-JSON anhängen, falls hilfreich)
+- **Datenquelle (Per-Mandat):** API `GET /admin/system/shadow-comparison/{mandate_id}` (Roh-JSON anhängen, falls hilfreich)
+- **Datenquelle (Aggregat über alle Mandate, für Gesamt-Verdikt):** API `GET /admin/system/shadow-comparison-aggregate` — liefert `counts`, `examples`, `default_switch_ready`, `default_switch_reason` gemäß Methodology §4
 
 ### Allokations-Vergleich
 
@@ -116,6 +117,6 @@ Erklärt der Berater die Drift fachlich? Akzeptiert er die Stochastic-Empfehlung
 
 **Default-Wechsel auf `OPTIMIZER_MODE=stochastic` freigegeben:** ☐ ja ☐ nein
 
-**Begründung:** `<…>`
+**Begründung:** `<…>` (bei "ja" zwingend zitieren: `default_switch_reason` aus dem Aggregate-Endpoint zum Zeitpunkt der Freigabe — sollte mit den vier Einzel-Verdikten oben konsistent sein.)
 
 **Owner-Signatur + Datum:** `<…>`

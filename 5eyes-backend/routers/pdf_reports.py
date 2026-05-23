@@ -659,7 +659,12 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
     horizon = int(getattr(mandate, "investment_horizon_years", 10) or 10)
 
     # Stage 7: Achievability + Limiting-Factor aus persistierter TA lesen.
-    # Beide kommen aus Stages 2/3 und sind im house_matrix-Default-Modus None/[].
+    # `limiting_factor` wird in ALLEN Modi gesetzt (auch house_matrix-Default —
+    # dort typisch "bandbreite" oder "risikoprofil"); `goal_achievability_json`
+    # bleibt nur im stochastic-/shadow-Modus belegt.
+    # Der Render-Helper `_make_strategy_reasoning_section` zeigt den Block,
+    # sobald eines von beiden truthy ist — im Default-Pfad ergibt das eine
+    # einzeilige Limiting-Factor-Hinweis-Zeile ohne Achievability-Tabelle.
     limiting_factor = getattr(ta_obj, "limiting_factor", None) if ta_obj else None
     goal_achievability: list = []
     if ta_obj is not None:
