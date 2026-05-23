@@ -6,11 +6,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
+from config import settings
 from database import get_db
 from models.review import AuditLog
 from models.snapshots import AssetClassAnnualReturn, AssetClassPriceHistory
 from models.users import User
 from schemas.review import AuditLogEntry, AuditLogPage
+from services.audit import log as audit_log
 from services.auth import require_admin
 from services.foundation_example import upsert_foundation_example_case
 from services.maintenance import (
@@ -23,11 +25,17 @@ from services.maintenance import (
     run_optimize,
     tail_app_log,
 )
+from services.shadow_comparison import (
+    ShadowComparisonMissing,
+    ShadowComparisonNotFound,
+    build_shadow_comparison_payload,
+)
 
 router = APIRouter(prefix="/admin/system", tags=["System"])
 AUDIT_LOG_VALID_ACTIONS = frozenset(
-    {'CREATE', 'UPDATE', 'DELETE', 'LOGIN', 'EXPORT', 'PASSWORD_RESET'}
+    {'CREATE', 'UPDATE', 'DELETE', 'LOGIN', 'EXPORT', 'PASSWORD_RESET', 'OPTIMIZER_MODE_CHANGE'}
 )
+OPTIMIZER_MODE_VALUES = frozenset({'house_matrix', 'shadow_stochastic', 'stochastic'})
 
 
 @router.get('/paths')
@@ -116,6 +124,65 @@ def create_support_bundle_endpoint(current_user: User = Depends(require_admin)):
 @router.get('/compliance')
 def get_compliance_status(current_user: User = Depends(require_admin)):
     return build_compliance_status()
+
+
+@router.get('/optimizer-mode')
+def get_optimizer_mode(current_user: User = Depends(require_admin)):
+    return {
+        'optimizer_mode': settings.optimizer_mode,
+        'allowed_values': sorted(OPTIMIZER_MODE_VALUES),
+    }
+
+
+@router.put('/optimizer-mode')
+def set_optimizer_mode(
+    body: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    requested = str(body.get('optimizer_mode') or '').strip().lower()
+    if requested not in OPTIMIZER_MODE_VALUES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"optimizer_mode muss einer von {', '.join(sorted(OPTIMIZER_MODE_VALUES))} sein.",
+        )
+    old_value = str(settings.optimizer_mode or '').strip().lower()
+    changed = requested != old_value
+    if changed:
+        settings.optimizer_mode = requested
+        audit_log(
+            db,
+            user_id=current_user.id,
+            user_name=getattr(current_user, "full_name", None) or getattr(current_user, "email", "admin"),
+            table_name="system_settings",
+            record_id="optimizer_mode",
+            action="OPTIMIZER_MODE_CHANGE",
+            field_name="optimizer_mode",
+            old_value=old_value,
+            new_value=requested,
+        )
+        db.commit()
+    return {
+        'optimizer_mode': settings.optimizer_mode,
+        'old_value': old_value,
+        'new_value': requested,
+        'changed': changed,
+    }
+
+
+@router.get('/shadow-comparison/{mandate_id}')
+def get_shadow_comparison(
+    mandate_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    _ = current_user
+    try:
+        return build_shadow_comparison_payload(db, mandate_id)
+    except ShadowComparisonNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except ShadowComparisonMissing as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
 
 
 _VALID_ASSET_CLASSES = {'Aktien', 'Obligationen', 'Immobilien', 'Liquiditaet', 'Alternative'}

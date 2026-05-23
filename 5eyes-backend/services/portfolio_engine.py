@@ -3,6 +3,7 @@ import hashlib
 import logging
 import math
 import random
+import time
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
@@ -4495,6 +4496,7 @@ def _run_stochastic_optimizer_pass(
         logger.warning("Tax-Regime nicht ladbar (%s) — Solver laeuft tax-naiv", exc)
 
     try:
+        t0 = time.perf_counter()
         result = run_solver(
             cma=cma,
             goals=list(goals),
@@ -4510,6 +4512,8 @@ def _run_stochastic_optimizer_pass(
             **mortality_kwargs,
             **tax_kwargs,
         )
+        elapsed_ms = int(round((time.perf_counter() - t0) * 1000))
+        object.__setattr__(result, "elapsed_ms", elapsed_ms)
     except Exception as exc:  # noqa: BLE001 - never crash allocation flow
         logger.warning("Stochastic optimizer crashed: %s", exc, exc_info=True)
         reasoning.append(
@@ -4831,6 +4835,95 @@ def _build_shadow_comparison_with_evaluations(
         active_evaluation=active_evaluation,
         shadow_evaluation=shadow_evaluation,
     )
+
+
+def _build_shadow_optimization_payload(
+    *,
+    optimizer_mode: str,
+    optimizer_result,
+    active_weights_bps: dict[str, int],
+    active_risky_fraction_bps: int,
+    risk_budget_bps: int,
+    minimums: dict[str, int],
+    maximums: dict[str, int],
+    building_blocks_rows: list | None,
+    mandate,
+    assessment,
+    comparison: dict | None,
+    constraints: list[dict],
+    goal_drivers: list[dict],
+) -> dict | None:
+    """Persistierbarer Stage-5 Shadow-Snapshot fuer Admin/Compliance.
+
+    Sichtbare Allokation bleibt House-Matrix; dieser Payload beschreibt das
+    parallel gerechnete Stochastic-Ergebnis und dessen Drift.
+    """
+    if optimizer_mode != "shadow_stochastic" or optimizer_result is None:
+        return None
+    shadow_weights = {
+        bucket: int((optimizer_result.weights_bps or {}).get(bucket, 0) or 0)
+        for bucket in _COMPARISON_BUCKETS
+    }
+    try:
+        shadow_risky_bps = compute_portfolio_risky_fraction_bps(
+            shadow_weights,
+            building_blocks_rows or [],
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Shadow payload: risky-fraction computation failed: %s", exc)
+        shadow_risky_bps = int(active_risky_fraction_bps)
+    achievability = list(getattr(optimizer_result, "goal_achievability", ()) or [])
+    shadow_limiting_factor = classify_limiting_factor(
+        allocation_bps=shadow_weights,
+        risky_fraction=int(shadow_risky_bps),
+        max_risky_fraction=int(risk_budget_bps),
+        min_liquidity_bps=int(minimums.get("liquidity", 0) or 0),
+        bands={bucket: (int(minimums.get(bucket, 0) or 0), int(maximums.get(bucket, 0) or 0)) for bucket in BUCKET_FIELDS},
+        achievability=achievability,
+        optimization_status=str(getattr(optimizer_result, "status", "") or ""),
+    )
+    message_context = SimpleNamespace(
+        limiting_factor=shadow_limiting_factor,
+        optimization_status=str(getattr(optimizer_result, "status", "") or ""),
+        risky_fraction_bps_at_generation=int(shadow_risky_bps),
+        risk_budget_bps_at_generation=int(risk_budget_bps),
+    )
+    messages = classify_messages(
+        message_context,
+        achievability,
+        str(getattr(optimizer_result, "status", "") or ""),
+        mandate,
+        assessment,
+    )
+    return {
+        "engine": "stochastic",
+        "allocation_bps": shadow_weights,
+        "active_allocation_bps": dict(active_weights_bps),
+        "weight_deltas_bps": (comparison or {}).get("weight_deltas_bps", {
+            bucket: shadow_weights[bucket] - int(active_weights_bps.get(bucket, 0) or 0)
+            for bucket in _COMPARISON_BUCKETS
+        }),
+        "risky_fraction_bps": int(shadow_risky_bps),
+        "active_risky_fraction_bps": int(active_risky_fraction_bps),
+        "risk_budget_bps": int(risk_budget_bps),
+        "risky_drift_bps": abs(int(shadow_risky_bps) - int(active_risky_fraction_bps)),
+        "budget_compliance": bool(int(shadow_risky_bps) <= int(risk_budget_bps)),
+        "active_budget_compliance": bool(int(active_risky_fraction_bps) <= int(risk_budget_bps)),
+        "limiting_factor": shadow_limiting_factor,
+        "achievability": achievability,
+        "messages": messages,
+        "elapsed_ms": int(getattr(optimizer_result, "elapsed_ms", 0) or 0),
+        "optimization_status": str(getattr(optimizer_result, "status", "") or ""),
+        "objective_value_milli": _objective_to_milli(getattr(optimizer_result, "objective_value", None)),
+        "seed": int(getattr(optimizer_result, "seed", 0) or 0),
+        "n_paths": int(getattr(optimizer_result, "n_paths", 0) or 0),
+        "n_iterations": int(getattr(optimizer_result, "iterations", 0) or 0),
+        "n_starts_attempted": int(getattr(optimizer_result, "n_starts_attempted", 0) or 0),
+        "reasoning": list(getattr(optimizer_result, "reasoning", []) or []),
+        "comparison": comparison,
+        "constraints": list(constraints or []),
+        "goal_drivers": list(goal_drivers or []),
+    }
 
 
 # --------------------------------------------------------------------------- #
@@ -5692,6 +5785,62 @@ def generate_target_allocation(
         except (TypeError, ValueError) as exc:
             logger.warning("Optimizer-reasoning JSON-serialization failed: %s", exc)
             optimizer_reasoning_json = None
+
+    active_weights_bps = _weights_from_targets(targets)
+    allocation_method_comparison = _build_shadow_comparison_with_evaluations(
+        optimizer_mode=optimizer_mode,
+        optimizer_result=optimizer_result,
+        active_weights_bps=active_weights_bps,
+        cma=cma,
+        goals=goals,
+        house_matrix_row=house_matrix,
+        assessment=assessment,
+        advisory_wealth_rappen=investable_advisory_wealth_rappen,
+        cashflow_projection_series_rappen=cashflow_projection_series_rappen,
+        inflation_series_bps=goal_inflation_series_bps,
+        building_blocks_rows=_building_block_rows,
+    )
+    optimizer_constraints, optimizer_goal_drivers = _build_optimizer_explainability(
+        optimizer_mode=optimizer_mode,
+        optimizer_result=optimizer_result,
+        active_weights_bps=active_weights_bps,
+        cma=cma,
+        goals=goals,
+        house_matrix_row=house_matrix,
+        assessment=assessment,
+        advisory_wealth_rappen=investable_advisory_wealth_rappen,
+        cashflow_projection_series_rappen=cashflow_projection_series_rappen,
+        inflation_series_bps=goal_inflation_series_bps,
+        building_blocks_rows=_building_block_rows,
+    )
+    shadow_optimization_payload = _build_shadow_optimization_payload(
+        optimizer_mode=optimizer_mode,
+        optimizer_result=optimizer_result,
+        active_weights_bps=active_weights_bps,
+        active_risky_fraction_bps=risky_fraction_total_bps,
+        risk_budget_bps=risk_budget_bps,
+        minimums=minimums,
+        maximums=maximums,
+        building_blocks_rows=_building_block_rows,
+        mandate=mandate,
+        assessment=assessment,
+        comparison=allocation_method_comparison,
+        constraints=optimizer_constraints,
+        goal_drivers=optimizer_goal_drivers,
+    )
+    shadow_optimization_json: str | None = None
+    if shadow_optimization_payload:
+        try:
+            shadow_optimization_json = json.dumps(
+                shadow_optimization_payload,
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=False,
+            )
+        except (TypeError, ValueError) as exc:
+            logger.warning("Shadow-optimization JSON-serialization failed: %s", exc)
+            shadow_optimization_json = None
+
     target_allocation = TargetAllocation(
         id=new_uuid(),
         mandate_id=mandate.id,
@@ -5734,6 +5883,7 @@ def generate_target_allocation(
         optimization_status=optimizer_audit.get("optimization_status"),
         stress_evaluations_json=stress_evaluations_json,
         optimizer_reasoning_json=optimizer_reasoning_json,
+        shadow_optimization_json=shadow_optimization_json,
         policy_id=policy.id,
         set_by=user_id,
         set_at=now,
@@ -5821,37 +5971,11 @@ def generate_target_allocation(
             if (optimizer_mode == "stochastic" and optimizer_result is not None)
             else None
         ),
-        "allocation_method_comparison": _build_shadow_comparison_with_evaluations(
-            optimizer_mode=optimizer_mode,
-            optimizer_result=optimizer_result,
-            active_weights_bps=_weights_from_targets(targets),
-            cma=cma,
-            goals=goals,
-            house_matrix_row=house_matrix,
-            assessment=assessment,
-            advisory_wealth_rappen=investable_advisory_wealth_rappen,
-            cashflow_projection_series_rappen=cashflow_projection_series_rappen,
-            inflation_series_bps=goal_inflation_series_bps,
-            building_blocks_rows=_building_block_rows,
-        ),
+        "allocation_method_comparison": allocation_method_comparison,
         # V3 Sprint 1d: Constraint Slacks + Goal Drivers fuer die aktive
         # Allocation. Leere Listen wenn der Solver nicht lief.
-        **dict(zip(
-            ("optimizer_constraints", "optimizer_goal_drivers"),
-            _build_optimizer_explainability(
-                optimizer_mode=optimizer_mode,
-                optimizer_result=optimizer_result,
-                active_weights_bps=_weights_from_targets(targets),
-                cma=cma,
-                goals=goals,
-                house_matrix_row=house_matrix,
-                assessment=assessment,
-                advisory_wealth_rappen=investable_advisory_wealth_rappen,
-                cashflow_projection_series_rappen=cashflow_projection_series_rappen,
-                inflation_series_bps=goal_inflation_series_bps,
-                building_blocks_rows=_building_block_rows,
-            ),
-        )),
+        "optimizer_constraints": optimizer_constraints,
+        "optimizer_goal_drivers": optimizer_goal_drivers,
     }
 
 

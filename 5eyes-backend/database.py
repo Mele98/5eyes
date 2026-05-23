@@ -295,6 +295,9 @@ def ensure_runtime_columns() -> None:
             # optimizer_runs-Zeile. Wegbereiter fuer spaeteren Cleanup der
             # legacy optimization_*-Spalten auf der TA.
             ('optimization_run_id', 'TEXT'),
+            # Stochastic Goal Engine Stage 5: persistierter Shadow-Vergleich
+            # fuer Admin-/Compliance-Auswertung.
+            ('shadow_optimization_json', 'TEXT'),
         ],
         'products': [
             ('lookup_mode_override', 'TEXT'),
