@@ -225,6 +225,155 @@ def format_message(code: str, **kwargs: Any) -> dict[str, Any]:
     }
 
 
+def classify_messages(
+    allocation: Any,
+    achievability: list[dict] | tuple[dict, ...] | None,
+    optimization_status: str | None,
+    mandate: Any,
+    assessment: Any,
+) -> list[dict[str, Any]]:
+    """Klassifiziert Allocation-/Goal-Zustand in advisor-facing Messages.
+
+    Die Funktion ist deterministisch und nutzt nur persistierbare Inputs:
+    TargetAllocation-Felder, Achievability-Liste und RiskAssessment-Override.
+    Dadurch kann /current/payload ohne neuen Solver-Lauf dieselben Messages
+    rekonstruieren.
+    """
+    del mandate  # reserved for later mandate-level data checks
+    messages: list[dict[str, Any]] = []
+    status = str(optimization_status or _get(allocation, "optimization_status") or "")
+    limiting_factor = str(_get(allocation, "limiting_factor") or "")
+    if status == "fallback_house_matrix":
+        messages.append(format_message(WARN_FALLBACK))
+
+    if int(_get(assessment, "is_overridden", 0) or 0) == 1 and _get(assessment, "override_score_x10") is not None:
+        messages.append(format_message(
+            WARN_OVERRIDE,
+            override_label=_get(assessment, "override_profile") or _get(assessment, "final_profile") or "Override",
+            reason=_get(assessment, "override_reason") or "dokumentiert",
+        ))
+
+    priority_rows = [
+        row for row in (list(achievability or []))
+        if _hardness_key(row.get("hardness")) in ("hart", "primaer")
+    ]
+    if not priority_rows:
+        return _dedupe_messages(messages)
+
+    not_reachable = [
+        row for row in priority_rows
+        if str(row.get("status") or "") == "nicht_erreichbar"
+    ]
+    tight_rows = [
+        row for row in priority_rows
+        if str(row.get("status") or "") == "knapp"
+    ]
+
+    if len(not_reachable) >= 2:
+        worst = _sort_by_probability(not_reachable)
+        messages.append(format_message(
+            CONFLICT_GOAL_INCOMPATIBLE,
+            goal_a=_goal_label(worst[0]),
+            goal_b=_goal_label(worst[1]),
+            goal_id=worst[0].get("goal_id"),
+        ))
+    elif not_reachable:
+        row = _sort_by_probability(not_reachable)[0]
+        if _is_profile_limited(allocation, limiting_factor):
+            messages.append(format_message(
+                CONFLICT_PROFILE_LIMITS,
+                goal_label=_goal_label(row),
+                profile_label=_profile_label(assessment),
+                prob=_prob_pct(row),
+                goal_id=row.get("goal_id"),
+            ))
+        else:
+            messages.append(format_message(
+                CONFLICT_DATA_INSUFFICIENT,
+                goal_label=_goal_label(row),
+                goal_id=row.get("goal_id"),
+            ))
+    elif tight_rows:
+        row = _sort_by_probability(tight_rows)[0]
+        messages.append(format_message(
+            OK_TIGHT,
+            goal_label=_goal_label(row),
+            prob=_prob_pct(row),
+            goal_id=row.get("goal_id"),
+        ))
+    else:
+        messages.append(format_message(OK_COMFORTABLE))
+
+    return _dedupe_messages(messages)
+
+
+def _get(obj: Any, name: str, default: Any = None) -> Any:
+    if obj is None:
+        return default
+    if isinstance(obj, dict):
+        return obj.get(name, default)
+    return getattr(obj, name, default)
+
+
+def _hardness_key(value: Any) -> str:
+    raw = str(value or "").strip().lower()
+    if raw in ("hart", "hard"):
+        return "hart"
+    if raw in ("primaer", "primär", "primary"):
+        return "primaer"
+    if raw in ("opportunistisch", "opportunistic", "opp"):
+        return "opportunistisch"
+    return raw
+
+
+def _goal_label(row: dict[str, Any]) -> str:
+    return str(row.get("label") or row.get("goal_label") or row.get("goal_id") or "Ziel")
+
+
+def _prob_pct(row: dict[str, Any]) -> int:
+    try:
+        return int(round(float(row.get("probability") or 0.0) * 100))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _sort_by_probability(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return sorted(rows, key=lambda row: float(row.get("probability") or 0.0))
+
+
+def _profile_label(assessment: Any) -> str:
+    if int(_get(assessment, "is_overridden", 0) or 0) == 1:
+        return str(_get(assessment, "override_profile") or _get(assessment, "final_profile") or "dokumentiertes Profil")
+    return str(_get(assessment, "final_profile") or "dokumentiertes Profil")
+
+
+def _is_profile_limited(allocation: Any, limiting_factor: str) -> bool:
+    if limiting_factor == "risikoprofil":
+        return True
+    risky = _get(allocation, "risky_fraction_bps_at_generation", None)
+    if risky is None:
+        risky = _get(allocation, "risky_fraction_bps", None)
+    budget = _get(allocation, "risk_budget_bps_at_generation", None)
+    if risky is None or budget is None:
+        return False
+    try:
+        return int(risky) >= int(budget) - 50
+    except (TypeError, ValueError):
+        return False
+
+
+def _dedupe_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    seen: set[tuple[str, str | None]] = set()
+    out: list[dict[str, Any]] = []
+    for msg in messages:
+        key = (str(msg.get("code") or ""), msg.get("goal_id"))
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(msg)
+    return out
+
+
 def _safe_format(text: str, kwargs: dict[str, Any]) -> str:
     """str.format mit defensivem Fallback: fehlende Placeholder bleiben
     als {name} im Text stehen, statt eine KeyError-Exception zu werfen.

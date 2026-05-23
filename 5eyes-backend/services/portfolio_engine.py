@@ -6,6 +6,7 @@ import random
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
+from types import SimpleNamespace
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +34,7 @@ from models.review import (
 )
 from models.wealth import Cashflow, Goal, PlanningAssumption, WealthInflow, WealthPosition
 from price_updater import latest_price_snapshot, parse_iso_date, summarize_price_quality
-from services.allocation_messages import WARN_FALLBACK, format_message
+from services.allocation_messages import WARN_FALLBACK, classify_messages, format_message
 from services.cashflow_timeline import (
     future_value_with_cashflow_series,
     net_cashflow_series,
@@ -5630,6 +5631,19 @@ def generate_target_allocation(
         except (TypeError, ValueError) as exc:
             logger.warning("Goal-achievability JSON-serialization failed: %s", exc)
             goal_achievability_json = None
+    message_context = SimpleNamespace(
+        limiting_factor=limiting_factor,
+        optimization_status=optimization_status_for_limits,
+        risky_fraction_bps_at_generation=risky_fraction_total_bps,
+        risk_budget_bps_at_generation=risk_budget_bps,
+    )
+    messages = classify_messages(
+        message_context,
+        goal_achievability,
+        optimization_status_for_limits,
+        mandate,
+        assessment,
+    )
     # Phase 6: Stress-Eval als JSON persistieren, damit /current/payload sie
     # ohne erneuten Solver-Lauf liefern kann. Nur im stochastic-Modus.
     stress_evaluations_json: str | None = None
@@ -5657,7 +5671,7 @@ def generate_target_allocation(
     if (
         optimizer_mode == "stochastic"
         and optimizer_result is not None
-        and optimizer_result.reasoning
+        and (optimizer_result.reasoning or messages)
     ):
         try:
             trace_payload = {
@@ -5665,9 +5679,10 @@ def generate_target_allocation(
                 "driving_goal_id": _driving_goal_id_from_achievability(goal_achievability),
                 "limiting_factor": limiting_factor,
                 "achievability": goal_achievability,
+                "messages": messages,
             }
             reasoning_payload = list(optimizer_result.reasoning)
-            if goal_achievability or limiting_factor:
+            if goal_achievability or limiting_factor or messages:
                 reasoning_payload.append(trace_payload)
             optimizer_reasoning_json = json.dumps(
                 reasoning_payload,
@@ -5781,6 +5796,7 @@ def generate_target_allocation(
         "risky_fraction_headroom_bps": risk_budget_bps - int(risky_fraction_total_bps),
         "limiting_factor": limiting_factor,
         "goal_achievability": goal_achievability,
+        "messages": messages,
         "warnings": warnings,
         "asset_class_risky_weights_bps": asset_risky_weights,
         "expected_return_bps": metrics["expected_return_bps"],
@@ -6331,6 +6347,7 @@ def build_target_payload_from_allocation(
             )
     # Phase 6.2: persistierten Solver-Reasoning-Trace deserialisieren.
     persisted_optimizer_reasoning: list[str] = []
+    persisted_messages: list[dict] = []
     raw_reasoning = getattr(allocation, "optimizer_reasoning_json", None)
     if raw_reasoning:
         try:
@@ -6346,6 +6363,11 @@ def build_target_payload_from_allocation(
                             persisted_optimizer_reasoning.append(
                                 f"Stage-3 Trace: limiting_factor={lf or '-'}, driving_goal_id={driving or '-'}."
                             )
+                        raw_messages = item.get("messages")
+                        if isinstance(raw_messages, list):
+                            persisted_messages = [
+                                msg for msg in raw_messages if isinstance(msg, dict)
+                            ]
         except (TypeError, ValueError) as exc:
             logger.warning(
                 "Stored optimizer_reasoning_json invalid for allocation %s: %s",
@@ -6365,6 +6387,13 @@ def build_target_payload_from_allocation(
                 "Stored goal_achievability_json invalid for allocation %s: %s",
                 getattr(allocation, "id", "?"), exc,
             )
+    messages = persisted_messages or classify_messages(
+        allocation,
+        goal_achievability,
+        getattr(allocation, "optimization_status", None),
+        mandate,
+        assessment,
+    )
     return {
         "target_allocation": allocation,
         "policy": policy,
@@ -6392,6 +6421,7 @@ def build_target_payload_from_allocation(
         "risky_fraction_headroom_bps": risk_budget_bps - int(risky_fraction_total_bps),
         "limiting_factor": getattr(allocation, "limiting_factor", None),
         "goal_achievability": goal_achievability,
+        "messages": messages,
         "asset_class_risky_weights_bps": asset_risky_weights,
         "expected_return_bps": metrics["expected_return_bps"],
         "expected_volatility_bps": metrics["expected_volatility_bps"],
