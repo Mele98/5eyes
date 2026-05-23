@@ -73,3 +73,31 @@ def test_monte_carlo_goal_summary_marks_recurring_goal_outside_horizon():
     assert summary["funded_ratio_p50"] == 0.0
     assert summary["score"] == 0
     assert "ausserhalb des aktuellen Simulationshorizonts" in summary["evaluation_note"]
+
+
+def test_monte_carlo_return_goal_funded_ratio_uses_median_return_not_wealth_multiple():
+    goal = _make_goal(
+        goal_type="Renditeziel",
+        target_amount_rappen=None,
+        target_wealth_rappen=None,
+        target_return_bps=450,
+        start_date=None,
+        target_date=None,
+        horizon_years=10,
+        hardness="Opportunistisch",
+    )
+
+    summary = _monte_carlo_goal_summary(
+        goal,
+        path_values_by_year=[[40_000_000] for _ in range(11)],
+        annualized_return_samples_bps=[300, 450, 600],
+        inflation_series_bps=[0] * 11,
+        advisory_wealth_rappen=40_000_000,
+        total_wealth_rappen=40_000_000,
+        start_year=2026,
+        horizon_years=10,
+        policy=_make_policy(),
+    )
+
+    assert summary["success_rate_pct"] == 67
+    assert summary["funded_ratio_p50"] == 1.0

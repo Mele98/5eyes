@@ -2881,8 +2881,8 @@ def _monte_carlo_goal_summary(
     if goal_type == "Renditeziel":
         target = int(goal.target_return_bps or 0)
         success_rate_pct = int(round(sum(1 for sample in annualized_return_samples_bps if sample >= target) / max(1, len(annualized_return_samples_bps)) * 100))
-        funded_ratio_p50 = float(p50 / max(1, advisory_wealth_rappen))
         median_return = _percentile(annualized_return_samples_bps, 0.50) if annualized_return_samples_bps else 0
+        funded_ratio_p50 = 0.0 if target <= 0 else round(max(0.0, min(2.0, median_return / target)), 4)
         funded_ratio_pct = 100 if target <= 0 else max(0, min(200, int(round(median_return / target * 100))))
         score = _compute_goal_score(
             success_rate_pct=success_rate_pct,

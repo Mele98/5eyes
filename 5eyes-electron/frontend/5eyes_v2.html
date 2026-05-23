@@ -14868,15 +14868,38 @@ function renderRecommendationWarnings(warnings,marketDataQuality,live,positions)
   if(Number(quality.stale_products_count||0)>0)items.unshift('Marktdaten veraltet: '+String(quality.stale_products_count)+' Produkt(e) älter als '+String(quality.stale_after_days||5)+' Tage.');
   if(Number(quality.missing_price_count||0)>0)items.unshift('Marktdaten unvollständig: '+String(quality.missing_price_count)+' Produkt(e) ohne Preis.');
   if(Number(quality.mapping_gap_count||0)>0)items.unshift('Mapping-Lücke: '+String(quality.mapping_gap_count)+' Produkt(e) ohne Symbol/Lookup.');
+  var internalItems=items.slice();
+  var clientItems=[];
+  if(rebalance&&Number(rebalance.holding_positions_count||0)>0){
+    clientItems.push('Bestehende Depotpositionen wurden in der Umsetzung beruecksichtigt.');
+  }
+  if(Number(quality.synthetic_lookup_products_count||0)>0){
+    clientItems.push('Cash- und Festgeldpositionen werden in der Umsetzung zum Nominalwert gefuehrt.');
+  }
+  var hasPortfolioContext=rows.length>0||(rebalance&&(
+    Number(rebalance.holding_positions_count||0)>0||Number(rebalance.implied_positions_count||0)>0
+  ));
+  if(!internalItems.length&&hasPortfolioContext){
+    clientItems.push('Produktliste und Zielgewichte sind fuer die Umsetzung vorbereitet.');
+  }
+  try{
+    box.dataset.internalImplementationNotes=JSON.stringify(internalItems);
+  }catch(_err){
+    box.dataset.internalImplementationNotes='';
+  }
+  if(typeof strategyState!=='undefined'&&strategyState)strategyState.internalImplementationNotes=internalItems.slice();
+  items=clientItems;
   if(!items.length){
     box.style.display='none';
     box.innerHTML='';
     return;
   }
   box.style.display='block';
-  box.innerHTML='<div style="font-size:10px;font-weight:700;letter-spacing:0.05em;text-transform:uppercase;color:#9a3412;margin-bottom:6px">Umsetzungshinweise</div>'
+  box.style.background='#f0fdf4';
+  box.style.border='1px solid rgba(22,101,52,0.18)';
+  box.innerHTML='<div style="font-size:10px;font-weight:700;letter-spacing:0.05em;text-transform:uppercase;color:#166534;margin-bottom:6px">Umsetzungshinweise</div>'
     + items.map(function(item){
-      return '<div style="font-size:11px;color:#9a3412;line-height:1.5;margin-top:3px">• '+escapeHtml(item)+'</div>';
+      return '<div style="font-size:11px;color:#166534;line-height:1.5;margin-top:3px">&bull; '+escapeHtml(item)+'</div>';
     }).join('');
 }
 function renderStrategySummary(){

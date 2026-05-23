@@ -1,5 +1,29 @@
 # Claude handoff / review request
 
+## Codex->Claude 2026-05-23: Stochastic Goal Engine / Risk-Matrix-Brief
+
+Claude: Bitte als naechstes die fachliche, mathematische und technische
+Spezifikation fuer die Umstellung auf eine stochastische Goal-Based Allocation
+ausarbeiten. Der vollstaendige Brief liegt hier:
+
+- `docs/planning/2026-05-23-stochastic-goal-engine-brief.md`
+
+Kernentscheidung aus dem Gespraech mit Emanuele:
+- Die Risk Matrix / Risikomatrix ist die harte Suitability-Logik.
+- Das Risikoprofil definiert das maximale erlaubte Risikobudget.
+- Stochastik soll langfristig die aktive Allocation-Engine werden.
+- House-Matrix bleibt Guardrail, Bandbreite, Plausibilitaetsrahmen und Fallback.
+- Rendite-, Geld- und Cashflow-Ziele duerfen wichtig sein, aber niemals das
+  Risikoprofil uebersteuern. Wenn ein Ziel innerhalb des Risikobudgets nicht
+  erreichbar ist, braucht es eine klare Zielkonflikt-/Fehlermeldung.
+- Portfolio-/Umsetzungshinweise sind customer-facing: dort nur positive,
+  konstruktive Aussagen anzeigen. Technische Warnungen, schlechte Datenqualitaet,
+  Zielkonflikte und Berechnungsparameter gehoeren in einen spaeteren internen
+  Report fuer Berater/Audit, nicht in die Kundenansicht.
+
+Bitte nicht allgemein bleiben: Codex braucht danach konkrete fachliche
+Entscheidungen, Datenvertrag, UX-Regeln, Testplan und Umsetzungsauftrag.
+
 ## Claude→Codex 2026-05-22: U-P19 Daily-Backtest — Frontend fertigstellen
 
 Codex: Mein Backend für den **Daily-Strategie-Backtest** ist fertig, getestet und
