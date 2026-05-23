@@ -39,7 +39,7 @@ from .goal_liabilities import (
     aggregate_liability_path,
     goals_to_liabilities,
 )
-from .objective import shortfall_objective
+from .objective import chance_constraint_penalty, combined_objective_two_phase
 from .scenario_cache import build_scenario_paths_cached
 from .scenario_engine import (
     BUCKET_ORDER,
@@ -74,6 +74,7 @@ class OptimizerResult:
     n_paths: int = 0
     n_starts_attempted: int = 0
     stress_evaluations: dict[str, dict] | None = None
+    goal_achievability: tuple[dict, ...] = ()
 
 
 # ============================================================================
@@ -158,6 +159,22 @@ def _weights_bps_to_array(weights_bps: dict[str, int]) -> np.ndarray:
     if s > 1e-12:
         raw = raw / s
     return raw
+
+
+def _simulate_context_wealth(context: OptimizerContext, w: np.ndarray) -> np.ndarray:
+    return simulate_wealth_paths(
+        initial_wealth_rappen=context.advisory_wealth_rappen,
+        weights=w,
+        return_paths=context.return_paths,
+        cashflow_series_rappen=context.cashflow_series_rappen,
+        liability_path_rappen=context.aggregated_liability_path,
+        death_year_index_per_path=context.mortality_death_year_index_per_path,
+        tax_regime=context.tax_regime,
+        dividend_yield_bps_per_bucket=context.dividend_yield_bps_per_bucket,
+        base_calendar_year=context.base_calendar_year,
+        mandate_age_at_start=context.mandate_age_at_start,
+        is_retired=context.is_retired,
+    )
 
 
 def build_optimizer_context(
@@ -280,21 +297,8 @@ def _objective_from_array(context: OptimizerContext, w: np.ndarray) -> float:
     Phase 5c: respektiert context.scenario_weights (IS-Likelihood-Ratios)
     wenn gesetzt. Bei scenario_weights=None: trivialer sample-mean wie zuvor.
     """
-    # Sprint U-P2 Fix C9: tax_regime + dividend_yield + age/retired durchreichen
-    wealth = simulate_wealth_paths(
-        initial_wealth_rappen=context.advisory_wealth_rappen,
-        weights=w,
-        return_paths=context.return_paths,
-        cashflow_series_rappen=context.cashflow_series_rappen,
-        liability_path_rappen=context.aggregated_liability_path,
-        death_year_index_per_path=context.mortality_death_year_index_per_path,
-        tax_regime=context.tax_regime,
-        dividend_yield_bps_per_bucket=context.dividend_yield_bps_per_bucket,
-        base_calendar_year=context.base_calendar_year,
-        mandate_age_at_start=context.mandate_age_at_start,
-        is_retired=context.is_retired,
-    )
-    return float(shortfall_objective(
+    wealth = _simulate_context_wealth(context, w)
+    return float(combined_objective_two_phase(
         context.liabilities,
         wealth,
         initial_wealth_rappen=context.advisory_wealth_rappen,
@@ -316,20 +320,8 @@ def evaluate_weights(
     """
     w = _weights_bps_to_array(weights_bps)
     # Sprint U-P2 Fix C9: tax-aware Evaluation
-    wealth = simulate_wealth_paths(
-        initial_wealth_rappen=context.advisory_wealth_rappen,
-        weights=w,
-        return_paths=context.return_paths,
-        cashflow_series_rappen=context.cashflow_series_rappen,
-        liability_path_rappen=context.aggregated_liability_path,
-        death_year_index_per_path=context.mortality_death_year_index_per_path,
-        tax_regime=context.tax_regime,
-        dividend_yield_bps_per_bucket=context.dividend_yield_bps_per_bucket,
-        base_calendar_year=context.base_calendar_year,
-        mandate_age_at_start=context.mandate_age_at_start,
-        is_retired=context.is_retired,
-    )
-    objective = shortfall_objective(
+    wealth = _simulate_context_wealth(context, w)
+    objective = combined_objective_two_phase(
         context.liabilities,
         wealth,
         initial_wealth_rappen=context.advisory_wealth_rappen,
@@ -707,6 +699,12 @@ def run_solver(
             bounds,
         )
         weights_bps = _weights_to_bps_dict(mid)
+        mid_wealth = _simulate_context_wealth(context, _weights_bps_to_array(weights_bps))
+        _penalty, goal_achievability = chance_constraint_penalty(
+            mid_wealth,
+            context.liabilities,
+            context.advisory_wealth_rappen,
+        )
         return OptimizerResult(
             weights_bps=weights_bps,
             objective_value=float("inf"),
@@ -720,6 +718,7 @@ def run_solver(
             ],
             n_paths=n_paths,
             n_starts_attempted=len(initials),
+            goal_achievability=tuple(goal_achievability),
         )
 
     # Final clip + renorm + feasibility check
@@ -739,6 +738,12 @@ def run_solver(
     # `result.objective_value` matcht (post-rounding kongruent).
     post_round_objective = _objective_from_array(
         context, _weights_bps_to_array(weights_bps)
+    )
+    final_wealth = _simulate_context_wealth(context, _weights_bps_to_array(weights_bps))
+    _penalty, goal_achievability = chance_constraint_penalty(
+        final_wealth,
+        context.liabilities,
+        context.advisory_wealth_rappen,
     )
     reasoning: list[str] = []
     method_used = "SLSQP+DE-Fallback" if used_ga_fallback else "SLSQP"
@@ -787,6 +792,7 @@ def run_solver(
         n_paths=n_paths,
         n_starts_attempted=len(initials),
         stress_evaluations=stress_evals,
+        goal_achievability=tuple(goal_achievability),
     )
 
 

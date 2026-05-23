@@ -259,7 +259,7 @@ def test_ok_allocation_persists_risk_budget_fields_and_reload_payload(session_fa
     assert ta.optimization_status is None
     assert ta.risky_fraction_bps_at_generation == 6800
     assert ta.risk_budget_bps_at_generation == 7000
-    assert ta.limiting_factor is None
+    assert ta.limiting_factor == "bandbreite"
     assert reloaded["risky_fraction_total_bps"] == 6800
     assert reloaded["risk_budget_bps"] == 7000
 

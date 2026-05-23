@@ -756,6 +756,7 @@ class TargetAllocationGenerateResponse(BaseModel):
     risky_fraction_total_bps: int
     risky_fraction_headroom_bps: int
     limiting_factor: Optional[str] = None
+    goal_achievability: list[dict] = Field(default_factory=list)
     asset_class_risky_weights_bps: dict[str, int]
     expected_return_bps: int
     expected_volatility_bps: int

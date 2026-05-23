@@ -38,6 +38,7 @@ from services.optimizer.constraints import (
 from services.optimizer.goal_liabilities import GoalLiability
 from services.optimizer.objective import (
     HARDNESS_WEIGHT,
+    chance_constraint_penalty,
     combined_objective_two_phase,
     shortfall_objective,
     shortfall_squared_per_path,
@@ -227,12 +228,16 @@ def test_combined_objective_includes_both_terms():
         [300_000_00] * 11,
     ], dtype=np.float64)
     primary = shortfall_objective([liab], wealth, initial_wealth_rappen=100_000_00, horizon_years=10)
-    vol = volatility_objective(wealth)
+    chance, _achievability = chance_constraint_penalty(
+        wealth,
+        [liab],
+        initial_value_rappen=100_000_00,
+    )
     combined = combined_objective_two_phase(
         [liab], wealth, initial_wealth_rappen=100_000_00, horizon_years=10,
         primary_weight=2.0, volatility_weight=0.5,
     )
-    assert combined == pytest.approx(2.0 * primary + 0.5 * vol)
+    assert combined == pytest.approx(2.0 * primary + chance)
 
 
 # ============================================================================
