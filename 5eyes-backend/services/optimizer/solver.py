@@ -107,6 +107,7 @@ class OptimizerContext:
     scipy_constraints: list[dict]
     score_x10: int
     risky_fraction_per_bucket: dict[str, float] | None = None
+    max_risky_fraction_bps: int | None = None
     # Phase 5c: optional Likelihood-Weights aus Importance Sampling.
     # Wenn None: trivialer sample-mean (Backwards-Compat). Wenn gesetzt:
     # shortfall_objective + volatility_objective berechnen weighted Estimator.
@@ -172,6 +173,7 @@ def build_optimizer_context(
     seed: int | None = None,
     inflation_series_bps: list[int] | None = None,
     risky_fraction_per_bucket: dict[str, float] | None = None,
+    max_risky_fraction_bps: int | None = None,
     client_birth_year: int | None = None,
     client_sex: str | None = None,
     use_mortality_simulation: bool = False,
@@ -214,6 +216,7 @@ def build_optimizer_context(
         bands,
         score_x10,
         risky_fraction_per_bucket=risky_fraction_per_bucket,
+        max_risky_fraction_bps=max_risky_fraction_bps,
     )
 
     # Sprint 4 Phase 3: Mortalitaets-Sampling wenn aktiviert
@@ -257,6 +260,7 @@ def build_optimizer_context(
         scipy_constraints=list(scipy_constraints),
         score_x10=int(score_x10),
         risky_fraction_per_bucket=risky_fraction_per_bucket,
+        max_risky_fraction_bps=max_risky_fraction_bps,
         mortality_death_year_index_per_path=death_indices,
         # Sprint U-P2 Fix C9: tax-aware Felder
         tax_regime=tax_regime,
@@ -605,6 +609,7 @@ def run_solver(
     seed: int | None = None,
     inflation_series_bps: list[int] | None = None,
     risky_fraction_per_bucket: dict[str, float] | None = None,
+    max_risky_fraction_bps: int | None = None,
     max_iter: int = 50,
     ftol: float = 1e-6,
     client_birth_year: int | None = None,
@@ -643,6 +648,7 @@ def run_solver(
         seed=seed,
         inflation_series_bps=inflation_series_bps,
         risky_fraction_per_bucket=risky_fraction_per_bucket,
+        max_risky_fraction_bps=max_risky_fraction_bps,
         client_birth_year=client_birth_year,
         client_sex=client_sex,
         use_mortality_simulation=use_mortality_simulation,
