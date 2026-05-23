@@ -93,6 +93,9 @@ class TargetAllocation(Base):
     # bei shadow_stochastic (TA bleibt House-Matrix-basiert; der Run gehoert
     # nicht zur TA — nur stochastic-Modus aktualisiert die TA aus dem Solver).
     optimization_run_id = Column(String, ForeignKey("optimizer_runs.id"))
+    # Stochastic Goal Engine Stage 5: persistierter Shadow-Vergleich fuer
+    # Admin-/Compliance-Auswertung. Nur im shadow_stochastic-Modus befuellt.
+    shadow_optimization_json = Column(String)
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
     deleted_at = Column(String)
