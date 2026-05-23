@@ -658,6 +658,23 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
 
     horizon = int(getattr(mandate, "investment_horizon_years", 10) or 10)
 
+    # Stage 7: Achievability + Limiting-Factor aus persistierter TA lesen.
+    # Beide kommen aus Stages 2/3 und sind im house_matrix-Default-Modus None/[].
+    limiting_factor = getattr(ta_obj, "limiting_factor", None) if ta_obj else None
+    goal_achievability: list = []
+    if ta_obj is not None:
+        raw_achievability = getattr(ta_obj, "goal_achievability_json", None)
+        if raw_achievability:
+            try:
+                parsed = json.loads(raw_achievability)
+                if isinstance(parsed, list):
+                    goal_achievability = [item for item in parsed if isinstance(item, dict)]
+            except (TypeError, ValueError) as exc:
+                logger.warning(
+                    "Stored goal_achievability_json invalid for TA %s: %s",
+                    getattr(ta_obj, "id", "?"), exc,
+                )
+
     return AnlagestrategieData(
         target_allocation_bps=target_alloc_bps,
         cma_expected_return_bps=cma_return,
@@ -689,6 +706,8 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
         goals_list=goals_list,
         current_allocation_bps=current_allocation_bps,
         allocation_preferences=allocation_preferences,
+        limiting_factor=limiting_factor,
+        goal_achievability=goal_achievability,
     )
 
 
@@ -1142,11 +1161,37 @@ def _build_protokoll_data(mandate: Mandate, db: Session) -> ProtokollData:
     except Exception as exc:
         logger.warning("Protokoll data: AdvisoryLog load failed: %s", exc)
 
+    # Stage 7: Konflikt-Messages aus optimizer_reasoning_json["messages"] der
+    # aktuellen TargetAllocation auslesen. Werden im Protokoll als Pflicht-
+    # hinweis fuer FINMA-Audit angehaengt (Spec UX & Messages §5.2).
+    conflict_messages: list = []
+    try:
+        ta_obj = _latest_target_allocation(mandate, db)
+        if ta_obj is not None:
+            raw_reasoning = getattr(ta_obj, "optimizer_reasoning_json", None)
+            if raw_reasoning:
+                parsed = json.loads(raw_reasoning)
+                if isinstance(parsed, list):
+                    for item in parsed:
+                        if isinstance(item, dict):
+                            raw_messages = item.get("messages")
+                            if isinstance(raw_messages, list):
+                                conflict_messages.extend(
+                                    msg for msg in raw_messages
+                                    if isinstance(msg, dict)
+                                    and str(msg.get("severity", "")).lower() == "conflict"
+                                )
+    except (TypeError, ValueError) as exc:
+        logger.warning("Protokoll data: conflict messages parse failed: %s", exc)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Protokoll data: conflict messages load failed: %s", exc)
+
     return ProtokollData(
         mandate_number=str(getattr(mandate, "mandate_number", "") or ""),
         advisory_wealth_rappen=advisory_wealth,
         entries=entries,
         latest_recommendation_summary=latest_recommendation_summary,
+        conflict_messages=conflict_messages,
     )
 
 

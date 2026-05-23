@@ -75,6 +75,36 @@ def build_protokoll_flowables(ctx: PDFContext, data) -> list:
             styles["small_muted"],
         ))
 
+    # Stage 7: Konflikt-Hinweis fuer FINMA-Audit, wenn die Allocation-Engine
+    # mindestens einen Zielkonflikt klassifiziert hat. Pflichthinweis nach
+    # Spec UX & Messages §5.2.
+    conflict_messages = [
+        msg for msg in list(getattr(data, "conflict_messages", []) or [])
+        if isinstance(msg, dict)
+        and str(msg.get("severity", "")).lower() == "conflict"
+    ]
+    if conflict_messages:
+        flowables.append(Spacer(1, 4 * mm))
+        flowables.append(_section_title("Dokumentierte Zielkonflikte"))
+        for msg in conflict_messages:
+            title = str(msg.get("title", "") or "Zielkonflikt").strip()
+            body = str(msg.get("body_advisor", "") or msg.get("body_client", "") or "").strip()
+            if body:
+                sentence = (
+                    "Im Beratungsgespräch wurde folgender Zielkonflikt dokumentiert: "
+                    f"{title} — {body.rstrip('.')}."
+                )
+            else:
+                sentence = (
+                    "Im Beratungsgespräch wurde folgender Zielkonflikt dokumentiert: "
+                    f"{title}."
+                )
+            flowables.append(Paragraph(
+                f'<font name="{FONT_DEFAULT}" size="{FONT_SIZE_BODY}" color="#7f1d1d">{_esc(sentence)}</font>',
+                styles["body"],
+            ))
+            flowables.append(Spacer(1, 2 * mm))
+
     flowables.append(Spacer(1, 8 * mm))
     flowables.extend(make_unterschrift_section())
     return flowables
