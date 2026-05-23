@@ -22,6 +22,7 @@ from models import (  # noqa: F401
 configure_mappers()
 
 import services.portfolio_engine as pe
+from services.allocation_messages import CONFLICT_PROFILE_LIMITS
 from models.allocation import BuildingBlock, HouseMatrix, TargetAllocation
 from models.clients import Client
 from models.mandates import Mandate
@@ -397,6 +398,8 @@ def test_generate_persists_achievability_and_reload_returns_same(session_factory
 
     assert result["goal_achievability"][0]["status"] == "nicht_erreichbar"
     assert result["limiting_factor"] == "risikoprofil"
+    assert CONFLICT_PROFILE_LIMITS in [msg["code"] for msg in result["messages"]]
     assert json.loads(ta.goal_achievability_json) == achievability
     assert reloaded["goal_achievability"] == achievability
     assert reloaded["limiting_factor"] == "risikoprofil"
+    assert reloaded["messages"] == result["messages"]

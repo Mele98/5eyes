@@ -231,6 +231,7 @@ def test_cap_breach_falls_back_to_house_matrix_mid(session_factory, monkeypatch)
     assert ta.optimization_method == "fallback_house_matrix"
     assert ta.optimization_status == "fallback_house_matrix"
     assert any(message.get("code") == WARN_FALLBACK for message in result["warnings"])
+    assert any(message.get("code") == WARN_FALLBACK for message in result["messages"])
 
 
 def test_ok_allocation_persists_risk_budget_fields_and_reload_payload(session_factory, monkeypatch):
@@ -317,6 +318,7 @@ def test_cap_is_active_in_house_matrix_and_stochastic_modes(session_factory, mon
     assert result["risky_fraction_total_bps"] <= result["risk_budget_bps"]
     assert result["target_allocation"].optimization_status == "fallback_house_matrix"
     assert any(message.get("code") == WARN_FALLBACK for message in result["warnings"])
+    assert any(message.get("code") == WARN_FALLBACK for message in result["messages"])
 
 
 def test_generated_allocations_never_exceed_persisted_risk_budget(session_factory, monkeypatch):
