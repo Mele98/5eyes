@@ -160,11 +160,41 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 .rv-section-kicker{font-size:9px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--n4);margin-bottom:4px;}
 .rv-section-title{font-size:13px;font-weight:700;color:var(--n8);line-height:1.25;}
 .rv-section-sub{font-size:9px;color:var(--n4);margin-top:3px;line-height:1.45;}
+.rv-cockpit{display:grid;gap:10px;margin-bottom:14px;}
+.rv-cockpit-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(260px,.7fr);gap:10px;align-items:stretch;}
+.rv-cockpit-tile{background:var(--surface);border:1px solid var(--b1);border-radius:var(--r2);padding:13px 14px;}
+.rv-cockpit-kicker{font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--n4);margin-bottom:6px;}
+.rv-goal-prob-icon{font-size:18px;margin-right:6px;line-height:1;}
+.rv-limiting-badge{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:999px;font-size:10px;font-weight:700;border:1px solid var(--b1);background:var(--bg);color:var(--n6);}
+.rv-limiting-badge.good{background:var(--pos-lt);border-color:rgba(14,107,65,.2);color:var(--pos);}
+.rv-limiting-badge.warn{background:var(--warn-lt);border-color:rgba(122,82,0,.22);color:var(--warn);}
+.rv-limiting-badge.danger{background:var(--neg-lt);border-color:rgba(139,30,30,.2);color:var(--neg);}
+.rv-message-banner{display:flex;gap:10px;padding:10px 12px;border-radius:var(--r2);font-size:11px;line-height:1.55;border:1px solid var(--b1);background:var(--bg);}
+.rv-message-banner.conflict{background:var(--neg-lt);border-left:3px solid var(--neg);color:var(--n8);}
+.rv-message-banner.warning{background:var(--warn-lt);border-left:3px solid var(--warn);color:var(--n8);}
+.rv-message-banner.info{background:var(--bg);border-left:3px solid var(--n3);color:var(--n7);}
+.rv-goal-list{display:grid;gap:6px;font-size:11px;}
+.rv-goal-list-item{display:grid;grid-template-columns:24px minmax(0,1fr) auto auto;gap:8px;align-items:center;padding:7px 8px;border:1px solid var(--b1);border-radius:var(--r);background:var(--surface);}
+.rv-goal-list-label{font-size:11px;font-weight:600;color:var(--n8);}
+.rv-goal-list-meta{font-size:9px;color:var(--n5);margin-top:2px;}
+.al-banner-conflict,.al-banner-warning{display:flex;gap:10px;padding:10px 12px;border-radius:var(--r2);margin-bottom:12px;font-size:11px;line-height:1.55;border:1px solid var(--b1);background:var(--bg);}
+.al-banner-conflict{background:var(--neg-lt);border-left:3px solid var(--neg);color:var(--n8);}
+.al-banner-warning{background:var(--warn-lt);border-left:3px solid var(--warn);color:var(--n8);}
+.al-banner-title{font-size:11px;font-weight:700;color:var(--n8);margin-bottom:2px;}
+.al-banner-body{font-size:10px;color:var(--n6);line-height:1.55;}
+.al-banner-actions{display:flex;gap:5px;flex-wrap:wrap;margin-top:6px;}
+.al-banner-actions span{font-size:9px;color:var(--n5);background:rgba(255,255,255,.55);border:1px solid rgba(15,30,52,.08);border-radius:999px;padding:2px 7px;}
+.m-acf-field{display:block;}
+.m-acf-derived{margin-top:6px;font-size:11px;color:var(--n5);line-height:1.5;background:var(--bg);border:1px solid var(--b1);border-radius:var(--r);padding:7px 9px;}
+.m-acf-derived:empty{display:none;}
+.m-acf-derived strong{color:var(--n8);}
 @media(max-width:1100px){
   .rv-final-kpis{grid-template-columns:repeat(2,1fr);}
   .rv-output-item{grid-template-columns:1fr;gap:9px;}
   .rv-output-status,.rv-output-actions{justify-content:flex-start;}
   .rv-decision-grid,.rv-final-grid{grid-template-columns:1fr;}
+  .rv-cockpit-grid{grid-template-columns:1fr;}
+  .rv-goal-list-item{grid-template-columns:22px minmax(0,1fr);align-items:start;}
 }
 
 /* KPI */
@@ -1281,6 +1311,14 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
         <button class="btn-g" onclick="calculateInvestmentStrategy()">Jetzt berechnen</button>
       </div>
       <div class="pad">
+        <div id="al-message-banner" class="al-banner-warning" style="display:none">
+          <div class="al-banner-icon">!</div>
+          <div class="al-banner-content">
+            <div class="al-banner-title"></div>
+            <div class="al-banner-body"></div>
+            <div class="al-banner-actions"></div>
+          </div>
+        </div>
         <div class="alloc-top-grid">
           <div class="card alloc-donut-card">
             <div class="section-kicker">SOLL-Allokation</div>
@@ -1350,6 +1388,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
           <div class="card" id="al-optimizer-panel" style="display:none">
             <div class="chd">
               <span class="cht">Stochastischer Optimizer</span>
+              <span class="rv-limiting-badge" id="opt-limiting-factor-badge" style="display:none"></span>
               <span class="opt-pill" id="opt-status-pill" style="margin-left:auto;font-size:10px;padding:2px 8px;border-radius:10px;display:inline-flex;align-items:center;gap:4px"></span>
             </div>
             <div class="cbody" style="display:grid;gap:12px">
@@ -1357,6 +1396,20 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
               <details id="opt-reasoning-block" open>
                 <summary style="font-size:11px;font-weight:500;cursor:pointer;color:var(--n6)">Reasoning-Trace</summary>
                 <ul id="opt-reasoning-list" style="margin:6px 0 0 18px;padding:0;font-size:10px;color:var(--n6);line-height:1.5"></ul>
+              </details>
+              <details id="opt-achievability-block">
+                <summary style="font-size:11px;font-weight:500;cursor:pointer;color:var(--n6)">Zielerreichung</summary>
+                <table class="optimizer-table" id="opt-achievability-table">
+                  <thead>
+                    <tr>
+                      <th>Ziel</th>
+                      <th>H&auml;rte</th>
+                      <th>P</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
               </details>
               <details id="opt-stress-block">
                 <summary style="font-size:11px;font-weight:500;cursor:pointer;color:var(--n6)">Stress-Tests (historisch)</summary>
@@ -1657,6 +1710,40 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
       <div class="strip" id="rv-alert-strip" style="display:none"></div>
       <div id="rv-decision-strip" style="display:none"></div>
       <div class="pad">
+        <div class="rv-cockpit" id="rv-cockpit">
+          <div class="rv-cockpit-grid">
+            <div class="rv-cockpit-tile">
+              <div class="rv-cockpit-kicker">Hauptziel</div>
+              <div id="rv-main-goal-label" style="font-size:16px;font-weight:700;color:var(--n8);line-height:1.25">Noch kein Ziel bewertet</div>
+              <div style="display:flex;align-items:center;gap:6px;margin-top:10px">
+                <span id="rv-main-goal-prob-icon" class="rv-goal-prob-icon">○</span>
+                <span id="rv-main-goal-prob" style="font-family:var(--f-d);font-size:24px;color:var(--n8)">—</span>
+                <span id="rv-main-goal-status" class="tag tn">ausstehend</span>
+              </div>
+              <div id="rv-main-goal-meta" style="font-size:10px;color:var(--n5);line-height:1.55;margin-top:7px">Strategie berechnen, um die Zielwahrscheinlichkeit zu sehen.</div>
+            </div>
+            <div class="rv-cockpit-tile">
+              <div class="rv-cockpit-kicker">Limitierender Faktor</div>
+              <span id="rv-limiting-factor-badge" class="rv-limiting-badge">Noch offen</span>
+              <div id="rv-allocation-story" style="font-size:11px;color:var(--n6);line-height:1.6;margin-top:10px">Die Allokations-Story erscheint nach der Strategie-Berechnung.</div>
+            </div>
+          </div>
+          <div id="rv-message-banner" class="rv-message-banner warning" style="display:none">
+            <div style="font-weight:800;line-height:1.2">!</div>
+            <div>
+              <div class="rv-message-title" style="font-size:11px;font-weight:700;color:var(--n8);margin-bottom:2px"></div>
+              <div class="rv-message-body" style="font-size:10px;color:var(--n6);line-height:1.55"></div>
+            </div>
+          </div>
+          <div class="rv-cockpit-tile">
+            <div class="rv-cockpit-kicker">Zielerreichung</div>
+            <div id="rv-goal-achievability-list" class="rv-goal-list"><div style="font-size:10px;color:var(--n4)">Noch keine stochastische Zielerreichung vorhanden.</div></div>
+          </div>
+          <details id="rv-details-accordion" class="rv-cockpit-tile">
+            <summary style="font-size:11px;font-weight:600;color:var(--n6);cursor:pointer">Allokations-Details und Solver-Trace</summary>
+            <div id="rv-details-body" style="font-size:10px;color:var(--n6);line-height:1.6;margin-top:8px">Noch keine Details geladen.</div>
+          </details>
+        </div>
 
         <!-- ① STATUS — Ampel (grün/gelb/rot), JS überschreibt komplett -->
         <div id="rv-hero" style="background:var(--surface);border:1px solid var(--b1);border-radius:var(--r2);padding:18px 22px;margin-bottom:10px">
@@ -2179,9 +2266,6 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
             <option value="Finanzplanung">Finanzplanung</option>
             <option value="Reporting only">Reporting only</option>
           </select>
-          <div id="nz-hardness-warn" style="display:none;margin-top:6px;padding:6px 10px;background:rgba(234,88,12,0.09);border:1px solid rgba(234,88,12,0.25);border-radius:var(--r);font-size:10px;color:#c2410c;line-height:1.5">
-            Renditeziele sollten nie als <strong>Hart</strong> klassifiziert werden. Renditeziele sind opportunistisch - sie k&ouml;nnen nicht garantiert werden. Bitte auf <strong>Prim&auml;r</strong> oder <strong>Opportunistisch</strong> &auml;ndern.
-          </div>
         </div>
         <div class="fg"><label class="fl">Haushalt</label>
           <select class="fsel" id="nc-household">
@@ -2330,13 +2414,13 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
     </div>
     <div class="mbody">
       <div class="frow">
-        <div class="fg">
+        <div class="fg m-acf-field" id="nz-label-field" data-goal-field="label">
           <label class="fl">Bezeichnung *</label>
           <input class="fi" id="nz-label" placeholder="Finanzielle Unabhängigkeit">
         </div>
       </div>
       <div class="frow">
-        <div class="fg">
+        <div class="fg m-acf-field" id="nz-type-field" data-goal-field="type-select" data-stage6-id="m-acf-type-select">
           <label class="fl">Zieltyp</label>
           <select class="fsel" id="nz-type" onchange="syncGoalModalState()">
             <option value="Einmalige_Ausgabe">Einmalige Entnahme</option>
@@ -2347,16 +2431,17 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
             <option value="Renditeziel">Renditeziel</option>
             <option value="Maximierung">Maximierung</option>
           </select>
+          <div id="m-acf-family-hint" style="font-size:10px;color:var(--n5);margin-top:3px;line-height:1.45"></div>
         </div>
-        <div class="fg">
-          <label class="fl">Priorität</label>
+        <div class="fg m-acf-field" id="nz-priority-rank-field" data-goal-field="priority-rank" data-stage6-id="m-acf-priority-rank">
+          <label class="fl">Priorität / Härte</label>
           <select class="fsel" id="nz-prio" onchange="syncGoalModalState()">
-            <option value="1">1 – Muss (Hart)</option>
+            <option value="1" id="nz-prio-hart-option">1 – Muss (Hart)</option>
             <option value="2">2 – Wichtig (Primär)</option>
             <option value="3">3 – Wunsch</option>
           </select>
         </div>
-        <div class="fg">
+        <div class="fg m-acf-field" id="nz-scope-field" data-goal-field="scope">
           <label class="fl">Bezugsgrösse</label>
           <select class="fsel" id="nz-scope">
             <option value="Beratungsvermögen">Beratungsvermögen (in der Beratung)</option>
@@ -2364,7 +2449,10 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
           </select>
         </div>
       </div>
-      <div class="frow" id="nz-value-mode-row" style="display:none">
+      <div id="nz-hardness-warn" style="display:none;margin:-4px 0 8px;padding:6px 10px;background:rgba(234,88,12,0.09);border:1px solid rgba(234,88,12,0.25);border-radius:var(--r);font-size:10px;color:#c2410c;line-height:1.5">
+        Renditeziele k&ouml;nnen nicht als <strong>Hart</strong> gespeichert werden. Rendite ist nicht garantierbar; bitte <strong>Prim&auml;r</strong> oder <strong>Opportunistisch</strong> w&auml;hlen.
+      </div>
+      <div class="frow m-acf-field" id="nz-value-mode-row" data-goal-field="value-mode" style="display:none">
         <div class="fg">
           <label class="fl">Wertbasis</label>
           <div style="display:flex;gap:12px;flex-wrap:wrap;padding-top:8px">
@@ -2381,27 +2469,31 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
         </div>
       </div>
       <div class="frow">
-        <div class="fg">
+        <div class="fg m-acf-field" id="nz-target-amount-field" data-goal-field="target-amount" data-stage6-id="m-acf-target-amount">
           <label class="fl" id="nz-amount-label">Zielbetrag (CHF) *</label>
-          <input class="fi" id="nz-amount" type="number" min="0" placeholder="400000">
+          <input class="fi" id="nz-amount" type="number" min="0" placeholder="400000" oninput="updateGoalDerivedDiagnostics()">
         </div>
-        <div class="fg">
+        <div class="fg m-acf-field" id="nz-target-return-field" data-goal-field="target-return-bps" data-stage6-id="m-acf-target-return-bps" style="display:none">
+          <label class="fl">Zielrendite p.a. (%) *</label>
+          <input class="fi" id="nz-target-return-bps" type="number" min="0" max="30" step="0.05" placeholder="5.00" oninput="updateGoalDerivedDiagnostics()">
+        </div>
+        <div class="fg m-acf-field" id="nz-duration-years-field" data-goal-field="duration-years" data-stage6-id="m-acf-duration-years">
           <label class="fl">Zeithorizont (Jahre)</label>
-          <input class="fi" id="nz-horizon" type="number" min="1" placeholder="10">
+          <input class="fi" id="nz-horizon" type="number" min="1" placeholder="10" oninput="updateGoalDerivedDiagnostics()">
         </div>
       </div>
       <div class="frow">
-        <div class="fg" id="nz-start-wrap">
+        <div class="fg m-acf-field" id="nz-start-wrap" data-goal-field="start-date">
           <label class="fl" id="nz-start-label">Start / Auslösung</label>
-          <input class="fi" id="nz-start-date" type="date">
+          <input class="fi" id="nz-start-date" type="date" onchange="updateGoalDerivedDiagnostics()">
         </div>
-        <div class="fg" id="nz-target-wrap">
+        <div class="fg m-acf-field" id="nz-target-wrap" data-goal-field="target-date" data-stage6-id="m-acf-target-date">
           <label class="fl" id="nz-target-label">Zieldatum</label>
-          <input class="fi" id="nz-target-date" type="date">
+          <input class="fi" id="nz-target-date" type="date" onchange="updateGoalDerivedDiagnostics()">
         </div>
       </div>
       <div class="frow">
-        <div class="fg" id="nz-frequency-wrap">
+        <div class="fg m-acf-field" id="nz-frequency-wrap" data-goal-field="frequency" data-stage6-id="m-acf-frequency">
           <label class="fl">Frequenz</label>
           <select class="fsel" id="nz-frequency">
             <option value="jaehrlich">Jährlich</option>
@@ -2411,7 +2503,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
             <option value="einmalig">Einmalig</option>
           </select>
         </div>
-        <div class="fg" id="nz-ongoing-wrap">
+        <div class="fg m-acf-field" id="nz-ongoing-wrap" data-goal-field="ongoing">
           <label class="fl">Laufend</label>
           <select class="fsel" id="nz-ongoing">
             <option value="false">Nein</option>
@@ -2441,6 +2533,15 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
           <div style="font-size:10px;color:var(--n5);margin-top:2px">AHV-Goals sind staatlich gedeckt — keine Portfolio-Reserve nötig.</div>
         </div>
       </div>
+      <details class="m-acf-field" id="nz-success-prob-field" data-goal-field="success-prob-min" data-stage6-id="m-acf-success-prob-min" style="margin-top:4px">
+        <summary style="cursor:pointer;font-size:10px;color:var(--n5);font-weight:600">Zielwahrscheinlichkeit (advanced)</summary>
+        <div style="margin-top:8px">
+          <label class="fl" for="nz-success-prob-min">Mindestwahrscheinlichkeit (%)</label>
+          <input class="fi" id="nz-success-prob-min" type="number" min="0" max="100" step="1" placeholder="Backend-Default 80 / Renditeziel 50" oninput="updateGoalDerivedDiagnostics()">
+          <div style="font-size:10px;color:var(--n5);margin-top:2px">Leer lassen nutzt den methodischen Default. Das Feld steuert den stochastischen Chance-Constraint.</div>
+        </div>
+      </details>
+      <div id="m-acf-derived" class="m-acf-derived"></div>
     </div>
 
 <div id="nz-error" style="display:none;color:var(--neg);font-size:11px;padding:4px 0;margin-top:4px"></div>
@@ -4417,6 +4518,132 @@ function buildMonteCarloGoalsHtml(mc){
     return '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:7px 9px;background:var(--bg);border:1px solid var(--b1);border-radius:var(--r)"><div><div style="font-size:11px;font-weight:500;color:var(--n8)">'+escapeHtml(item.label||'Ziel')+'</div><div style="font-size:9px;color:var(--n5);margin-top:3px">Pfaderfolg '+escapeHtml(String(item.success_rate_pct||0))+'% / P50 '+escapeHtml(formatRappen(item.projected_value_p50_rappen||0))+'</div></div><div style="text-align:right"><div style="font-size:10px;color:'+tone+';font-weight:600">'+escapeHtml(String(score))+'%</div><div style="font-size:9px;color:var(--n5);margin-top:3px">Funded '+escapeHtml(String(Math.round(Number(item.funded_ratio_p50||0)*100)))+'%</div></div></div>';
   }).join('');
 }
+function allocationMessages(result){
+  return result&&Array.isArray(result.messages)?result.messages:[];
+}
+function firstVisibleAllocationMessage(messages){
+  var rows=Array.isArray(messages)?messages:[];
+  return rows.filter(function(msg){return msg&&msg.severity==='conflict';})[0]
+    || rows.filter(function(msg){return msg&&msg.severity==='warning';})[0]
+    || null;
+}
+function messageActionLabel(code){
+  var map={
+    adjust_goal:'Ziel anpassen',
+    extend_horizon:'Horizont pr\u00fcfen',
+    increase_savings:'Sparrate pr\u00fcfen',
+    review_riskprofile_with_assessment:'Eignungspr\u00fcfung',
+    prioritize_goals:'Ziele priorisieren',
+    review_constraints:'Leitplanken pr\u00fcfen'
+  };
+  return map[code]||String(code||'');
+}
+function renderAllocationMessageBanner(result){
+  var banner=document.getElementById('al-message-banner');
+  if(!banner)return;
+  var msg=firstVisibleAllocationMessage(allocationMessages(result));
+  if(!msg){
+    banner.style.display='none';
+    return;
+  }
+  banner.className=msg.severity==='conflict'?'al-banner-conflict':'al-banner-warning';
+  banner.style.display='flex';
+  var title=banner.querySelector('.al-banner-title');
+  var body=banner.querySelector('.al-banner-body');
+  var actions=banner.querySelector('.al-banner-actions');
+  if(title)title.textContent=msg.title||'Hinweis zur Strategie';
+  if(body)body.textContent=msg.body_client||msg.body_advisor||'Bitte die Strategie im Review einordnen.';
+  if(actions){
+    var actionRows=Array.isArray(msg.actions)?msg.actions:[];
+    actions.innerHTML=actionRows.slice(0,4).map(function(action){
+      return '<span>'+escapeHtml(messageActionLabel(action))+'</span>';
+    }).join('');
+  }
+}
+function allocationAchievability(result){
+  return result&&Array.isArray(result.goal_achievability)?result.goal_achievability:[];
+}
+function goalById(goalId){
+  return (Array.isArray(currentGoals)?currentGoals:[]).filter(function(goal){
+    return String(goal&&goal.id||'')===String(goalId||'');
+  })[0]||null;
+}
+function goalAchievabilityLabel(row){
+  var goal=goalById(row&&row.goal_id);
+  return String((row&&(row.label||row.goal_label))||(goal&&goal.label)||row&&row.goal_id||'Ziel');
+}
+function hardnessDisplay(value){
+  var key=String(value||'').toLowerCase();
+  if(key.indexOf('hart')===0)return 'Hart';
+  if(key.indexOf('opportun')===0)return 'Opportunistisch';
+  return 'Prim\u00e4r';
+}
+function goalAchievabilityStatusLabel(status){
+  if(status==='erreichbar')return 'komfortabel';
+  if(status==='knapp')return 'knapp';
+  if(status==='nicht_erreichbar')return 'nicht plausibel';
+  return status||'offen';
+}
+function rvGoalProbBadge(prob){
+  var p=Number(prob||0);
+  if(p>=0.80)return {icon:'●',color:'var(--pos)',label:'komfortabel',tag:'tg'};
+  if(p>=0.50)return {icon:'◐',color:'var(--warn)',label:'knapp',tag:'ta'};
+  return {icon:'○',color:'var(--neg)',label:'nicht plausibel',tag:'tr2'};
+}
+function limitingFactorMeta(factor){
+  var map={
+    risikoprofil:{label:'Risikoprofil limitiert',tone:'danger'},
+    liquiditaetsreserve:{label:'Liquidit\u00e4tsreserve bindend',tone:'warn'},
+    bandbreite:{label:'Innerhalb der Bandbreiten',tone:'good'},
+    zielkonflikt:{label:'Zielkonflikt erkannt',tone:'danger'},
+    solver_konvergenz:{label:'Bandbreiten-Mittelwert',tone:'warn'}
+  };
+  return map[factor]||{label:'Noch offen',tone:'neutral'};
+}
+function allocationMetaValue(result,name){
+  var ta=result&&result.target_allocation?result.target_allocation:{};
+  if(ta&&ta[name]!=null)return ta[name];
+  if(result&&result[name]!=null)return result[name];
+  if(name==='risky_fraction_bps_at_generation'&&result&&result.risky_fraction_total_bps!=null)return result.risky_fraction_total_bps;
+  if(name==='risk_budget_bps_at_generation'&&result&&result.risk_budget_bps!=null)return result.risk_budget_bps;
+  return null;
+}
+function rvBuildAllocationStory(result,riskAssessment){
+  if(!result)return 'Die Allokations-Story erscheint nach der Strategie-Berechnung.';
+  var factor=allocationMetaValue(result,'limiting_factor')||result.limiting_factor||'';
+  var profile=(riskAssessment&&riskAssessment.final_profile)||result.house_matrix_profile||'dokumentiertes Profil';
+  var maxRisky=Number(allocationMetaValue(result,'risk_budget_bps_at_generation')||0);
+  var realRisky=Number(allocationMetaValue(result,'risky_fraction_bps_at_generation')||0);
+  var maxTxt=maxRisky?((maxRisky/100).toFixed(0)+'%'):'n/a';
+  var realTxt=realRisky?((realRisky/100).toFixed(0)+'%'):'n/a';
+  if(factor==='risikoprofil')return 'Die Allokation sch\u00f6pft das Risikobudget des Profils "'+profile+'" (max. '+maxTxt+') bewusst aus. Effektiv risikobehaftet: '+realTxt+'.';
+  if(factor==='liquiditaetsreserve')return 'Die Liquidit\u00e4tsreserve wirkt als Untergrenze. Der Optimierer h\u00e4lt den Mindestanteil sicherer Anlagen ein; effektiv risikobehaftet: '+realTxt+'.';
+  if(factor==='bandbreite')return 'Die Allokation liegt innerhalb der Profilbandbreiten. Risikoprofil "'+profile+'" ist nicht bindend; effektiv risikobehaftet: '+realTxt+'.';
+  if(factor==='zielkonflikt')return 'Mindestens zwei Ziele konkurrieren miteinander. Die Allokation ist ein dokumentierter Kompromiss; der Hinweis unten ordnet ihn ein.';
+  if(factor==='solver_konvergenz')return 'Der Optimierer konnte nicht stabil konvergieren. Die Strategie nutzt den Bandbreiten-Mittelwert des Profils "'+profile+'".';
+  return 'Strategie auf Risikoprofil "'+profile+'" ausgerichtet. Effektiv risikobehaftet: '+realTxt+'.';
+}
+function renderOptimizerAchievability(result){
+  var block=document.getElementById('opt-achievability-block');
+  var tbody=document.querySelector('#opt-achievability-table tbody');
+  if(!block||!tbody)return;
+  var rows=allocationAchievability(result);
+  if(!rows.length){
+    block.style.display='none';
+    tbody.innerHTML='';
+    return;
+  }
+  block.style.display='';
+  tbody.innerHTML=rows.map(function(row){
+    var prob=Number(row.probability||0);
+    return '<tr>'
+      +'<td>'+escapeHtml(goalAchievabilityLabel(row))+'</td>'
+      +'<td>'+escapeHtml(hardnessDisplay(row.hardness))+'</td>'
+      +'<td>'+escapeHtml(Math.round(prob*100)+'%')+'</td>'
+      +'<td>'+escapeHtml(goalAchievabilityStatusLabel(row.status))+'</td>'
+      +'</tr>';
+  }).join('');
+}
 function buildBuildingBlockReferenceHtml(items){
   return items.length?items.map(function(item){
     return '<div style="display:grid;grid-template-columns:1fr 66px;gap:8px;align-items:center;padding:6px 8px;background:var(--bg);border:1px solid var(--b1);border-radius:var(--r)"><div><div style="font-size:10px;font-weight:500;color:var(--n8)">'+escapeHtml(item.asset_class||'')+' / '+escapeHtml(item.sub_asset_class||'')+'</div><div style="font-size:9px;color:var(--n5);margin-top:2px">'+escapeHtml(item.universe||'Standard')+'</div></div><div style="font-size:10px;color:var(--n7);text-align:right">'+formatBpsPercent(item.risky_fraction_bps||0)+'</div></div>';
@@ -4424,6 +4651,7 @@ function buildBuildingBlockReferenceHtml(items){
 }
 function renderEngineRuntimePanels(result){
   ensureAllocationRuntimePanels();
+  renderAllocationMessageBanner(result);
   var engine=document.getElementById('aa-engine-grid');
   var rationale=document.getElementById('aa-engine-rationale');
   var market=document.getElementById('aa-market-runtime');
@@ -14993,6 +15221,7 @@ function applyAllocationEngineResult(result){
   renderActionCards(result.reasoning);
   renderEngineRuntimePanels(result);
   renderStrategySummary();
+  renderReviewCockpit({allocation:result,recommendation:strategyState.recommendation});
   normalizeVisibleMojibake(document.getElementById('page-al')||document.body);
   normalizeVisibleMojibake(document.getElementById('page-cf')||document.body);
   syncPortfolioUmsetzenButtonVisibility();
@@ -17495,6 +17724,113 @@ function renderDocumentGrid(documents){
   });
   normalizeVisibleMojibake(grid);
 }
+function mainGoalAchievability(result){
+  var rows=allocationAchievability(result);
+  if(rows.length){
+    var rankById={};
+    (Array.isArray(currentGoals)?currentGoals:[]).forEach(function(goal,idx){
+      rankById[String(goal.id||'')]=Number(goal.rank||idx+1);
+    });
+    return rows.slice().sort(function(a,b){
+      var ah=String(a.hardness||'').toLowerCase().indexOf('hart')===0?0:1;
+      var bh=String(b.hardness||'').toLowerCase().indexOf('hart')===0?0:1;
+      if(ah!==bh)return ah-bh;
+      return (rankById[String(a.goal_id||'')]||99)-(rankById[String(b.goal_id||'')]||99);
+    })[0];
+  }
+  var goals=(Array.isArray(currentGoals)?currentGoals:[]).slice().sort(function(a,b){return Number(a.rank||99)-Number(b.rank||99);});
+  if(!goals.length)return null;
+  return {goal_id:goals[0].id,label:goals[0].label,hardness:goals[0].hardness,probability:null,status:'offen'};
+}
+function renderReviewMessageBanner(result){
+  var banner=document.getElementById('rv-message-banner');
+  if(!banner)return;
+  var msg=firstVisibleAllocationMessage(allocationMessages(result));
+  if(!msg){
+    banner.style.display='none';
+    return;
+  }
+  banner.className='rv-message-banner '+(msg.severity==='conflict'?'conflict':'warning');
+  banner.style.display='flex';
+  var title=banner.querySelector('.rv-message-title');
+  var body=banner.querySelector('.rv-message-body');
+  if(title)title.textContent=msg.title||'Hinweis zur Strategie';
+  if(body)body.textContent=msg.body_client||msg.body_advisor||'Bitte im Beratungsgespr\u00e4ch einordnen.';
+}
+function renderReviewGoalAchievability(result){
+  var list=document.getElementById('rv-goal-achievability-list');
+  if(!list)return;
+  var rows=allocationAchievability(result);
+  if(!rows.length){
+    list.innerHTML='<div style="font-size:10px;color:var(--n4)">Noch keine stochastische Zielerreichung vorhanden.</div>';
+    return;
+  }
+  list.innerHTML=rows.map(function(row){
+    var prob=Number(row.probability||0);
+    var badge=rvGoalProbBadge(prob);
+    return '<div class="rv-goal-list-item">'
+      +'<div style="color:'+badge.color+';font-size:15px;line-height:1">'+badge.icon+'</div>'
+      +'<div><div class="rv-goal-list-label">'+escapeHtml(goalAchievabilityLabel(row))+'</div><div class="rv-goal-list-meta">'+escapeHtml(hardnessDisplay(row.hardness))+'</div></div>'
+      +'<div style="font-family:var(--f-d);font-size:13px;color:var(--n8);text-align:right">'+escapeHtml(Math.round(prob*100)+'%')+'</div>'
+      +'<span class="tag '+badge.tag+'">'+escapeHtml(goalAchievabilityStatusLabel(row.status))+'</span>'
+      +'</div>';
+  }).join('');
+}
+function renderReviewDetailsAccordion(result){
+  var body=document.getElementById('rv-details-body');
+  if(!body)return;
+  if(!result){
+    body.textContent='Noch keine Details geladen.';
+    return;
+  }
+  var ta=result.target_allocation||{};
+  var bits=[
+    'Limiting-Factor: '+String(allocationMetaValue(result,'limiting_factor')||'-'),
+    'Risky-Fraction: '+formatBpsPercent(allocationMetaValue(result,'risky_fraction_bps_at_generation')||0),
+    'Risikobudget: '+formatBpsPercent(allocationMetaValue(result,'risk_budget_bps_at_generation')||0),
+    'Optimizer-Status: '+String(ta.optimization_status||result.optimization_status||'-')
+  ];
+  var reasoning=Array.isArray(result.reasoning)?result.reasoning.slice(0,5):[];
+  body.innerHTML='<div>'+bits.map(function(bit){return '<div>'+escapeHtml(bit)+'</div>';}).join('')+'</div>'
+    +(reasoning.length?'<div style="margin-top:8px;border-top:1px solid var(--b1);padding-top:8px">'+reasoning.map(function(line){return '<div>- '+escapeHtml(line)+'</div>';}).join('')+'</div>':'');
+}
+function renderReviewCockpit(state){
+  var result=(state&&state.allocation)||((strategyState&&strategyState.allocation)||null);
+  var risk=currentPersistedRiskForMandate(getActiveMandateId())||(result&&result.risk_assessment)||null;
+  var main=mainGoalAchievability(result);
+  var labelEl=document.getElementById('rv-main-goal-label');
+  var probEl=document.getElementById('rv-main-goal-prob');
+  var iconEl=document.getElementById('rv-main-goal-prob-icon');
+  var statusEl=document.getElementById('rv-main-goal-status');
+  var metaEl=document.getElementById('rv-main-goal-meta');
+  if(main){
+    var prob=main.probability==null?null:Number(main.probability||0);
+    var badge=prob==null?{icon:'○',color:'var(--n4)',label:'ausstehend',tag:'tn'}:rvGoalProbBadge(prob);
+    if(labelEl)labelEl.textContent=goalAchievabilityLabel(main);
+    if(probEl)probEl.textContent=prob==null?'—':Math.round(prob*100)+'%';
+    if(iconEl){iconEl.textContent=badge.icon;iconEl.style.color=badge.color;}
+    if(statusEl){statusEl.className='tag '+badge.tag;statusEl.textContent=badge.label;}
+    if(metaEl)metaEl.textContent=hardnessDisplay(main.hardness)+' · '+(main.tau!=null?('Zielniveau '+Math.round(Number(main.tau||0)*100)+'%'):'Wahrscheinlichkeit nach Strategie-Lauf');
+  }else{
+    if(labelEl)labelEl.textContent='Noch kein Ziel bewertet';
+    if(probEl)probEl.textContent='—';
+    if(iconEl){iconEl.textContent='○';iconEl.style.color='var(--n4)';}
+    if(statusEl){statusEl.className='tag tn';statusEl.textContent='ausstehend';}
+    if(metaEl)metaEl.textContent='Strategie berechnen, um die Zielwahrscheinlichkeit zu sehen.';
+  }
+  var factor=allocationMetaValue(result,'limiting_factor')||'';
+  var factorMeta=limitingFactorMeta(factor);
+  var factorEl=document.getElementById('rv-limiting-factor-badge');
+  if(factorEl){
+    factorEl.textContent=factorMeta.label;
+    factorEl.className='rv-limiting-badge '+(factorMeta.tone==='danger'?'danger':factorMeta.tone==='warn'?'warn':factorMeta.tone==='good'?'good':'');
+  }
+  setText('rv-allocation-story',rvBuildAllocationStory(result,risk));
+  renderReviewMessageBanner(result);
+  renderReviewGoalAchievability(result);
+  renderReviewDetailsAccordion(result);
+}
+
 function renderReviewHero(state){
   var pad=document.getElementById('page-rv');
   pad=pad?pad.querySelector('.pad'):null;
@@ -17567,6 +17903,7 @@ function renderReviewHero(state){
 function renderReviewState(state){
   var triggers=(state&&state.triggers)||[];
   var conflicts=(state&&state.conflicts)||[];
+  renderReviewCockpit(state||{});
   renderReviewHero(state||{});
   normalizeReviewLayout();
   renderReviewDecisionStrip(state||{});
@@ -18807,6 +19144,91 @@ function goalAmountLabel(type){
   if(isMaxGoalType(type))return 'Kein fixer Zielbetrag';
   return 'Zielbetrag *';
 }
+var GOAL_TYPE_FIELDS={
+  'Verm\u00f6gensziel':{show:['target-amount','target-date','duration-years','priority-rank','success-prob-min','value-mode'],required:['target-amount'],hardness_hart:true,hint:'Verm\u00f6gensziel: Zielbetrag und Horizont oder Datum definieren den Kapitalbedarf.'},
+  'Kapitalerhalt':{show:['target-amount','target-date','duration-years','priority-rank','success-prob-min','value-mode'],required:['target-amount'],hardness_hart:true,hint:'Kapitalerhalt: Mindestverm\u00f6gen mit nominaler oder realer Wertbasis.'},
+  'Einmalige_Ausgabe':{show:['target-amount','target-date','duration-years','priority-rank','success-prob-min'],required:['target-amount','target-date'],hardness_hart:true,hint:'Einmalige Entnahme: Betrag und F\u00e4lligkeit beschreiben den Bedarf.'},
+  'Pensionsausgabe':{show:['target-amount','target-date','start-date','frequency','duration-years','ongoing','priority-rank','success-prob-min'],required:['target-amount','start-date','frequency'],hardness_hart:true,hint:'Pensionsausgabe: periodischer Bedarf mit Beginn, Frequenz und optionalem Ende.'},
+  'Wiederkehrende_Ausgabe':{show:['target-amount','target-date','start-date','frequency','duration-years','ongoing','priority-rank','success-prob-min'],required:['target-amount','frequency'],hardness_hart:true,hint:'Laufende Entnahme: periodischer Cashflow, optional mit Enddatum.'},
+  'Renditeziel':{show:['target-return-bps','target-date','duration-years','priority-rank','success-prob-min'],required:['target-return-bps'],hardness_hart:false,hardness_default:'2',hint:'Renditeziel: Wunsch-Rendite p.a.; echte Bedarfsziele bleiben separat hart priorisiert.'},
+  'Maximierung':{show:['priority-rank'],required:[],hardness_hart:false,hardness_default:'3',hint:'Maximierung: kein fixer Zielbetrag, sondern Opportunit\u00e4tsziel innerhalb der Leitplanken.'}
+};
+function goalTypeVisibilityConfig(typeValue){
+  return GOAL_TYPE_FIELDS[typeValue]||GOAL_TYPE_FIELDS['Verm\u00f6gensziel'];
+}
+function setGoalFieldVisible(name,visible,required){
+  var selectors='[data-goal-field="'+name+'"]';
+  var el=document.querySelector(selectors);
+  if(!el)return;
+  el.style.display=visible?'':'none';
+  var input=el.querySelector('input,select,textarea');
+  if(input)input.required=!!required;
+}
+function applyGoalTypeVisibility(typeValue){
+  var cfg=goalTypeVisibilityConfig(typeValue);
+  var names=['target-amount','target-return-bps','target-date','start-date','frequency','duration-years','ongoing','priority-rank','success-prob-min','value-mode'];
+  names.forEach(function(name){
+    setGoalFieldVisible(name,cfg.show.indexOf(name)>=0,cfg.required.indexOf(name)>=0);
+  });
+  var hartOpt=document.getElementById('nz-prio-hart-option');
+  if(hartOpt)hartOpt.disabled=!cfg.hardness_hart;
+  if(!cfg.hardness_hart&&getInputValue('nz-prio')==='1'){
+    setSelectValue('nz-prio',cfg.hardness_default||'2');
+  }
+  var hint=document.getElementById('m-acf-family-hint');
+  if(hint)hint.textContent=cfg.hint||'';
+}
+function goalEditorInitialRappen(){
+  var allocation=strategyState&&strategyState.allocation?strategyState.allocation:null;
+  var rappen=Number(allocation&&allocation.advisory_wealth_rappen||0);
+  if(!(rappen>0)){
+    try{rappen=Number(currentAllocationInputSnapshot().advisoryRappen||0);}catch(_err){rappen=0;}
+  }
+  return Math.max(0,Math.round(rappen||0));
+}
+function goalEditorHorizonYears(){
+  var dateRaw=normalizeCashflowDateValue(getInputValue('nz-target-date'));
+  if(dateRaw){
+    var end=new Date(dateRaw+'T00:00:00');
+    if(!isNaN(end.getTime())){
+      var years=(end.getTime()-Date.now())/(365.25*24*60*60*1000);
+      if(years>0)return years;
+    }
+  }
+  var raw=parseFloat(getInputValue('nz-horizon').replace(',','.'));
+  return isFinite(raw)&&raw>0?raw:0;
+}
+function updateGoalDerivedDiagnostics(){
+  var hintEl=document.getElementById('m-acf-derived');
+  if(!hintEl)return;
+  var type=getInputValue('nz-type')||'Einmalige_Ausgabe';
+  var initialRappen=goalEditorInitialRappen();
+  var initial=Number(initialRappen||0)/100;
+  var horizon=goalEditorHorizonYears();
+  if(!(initial>0)||!(horizon>0)){
+    hintEl.textContent='';
+    return;
+  }
+  if(isReturnGoalType(type)){
+    var rBps=parsePercentToBps(getInputValue('nz-target-return-bps'));
+    if(rBps==null||!(rBps>0)){hintEl.textContent='';return;}
+    var rate=Number(rBps||0)/10000;
+    var impliedWealth=initial*Math.pow(1+rate,horizon);
+    hintEl.innerHTML='<strong>'+escapeHtml(formatRappen(Math.round(impliedWealth*100)))+'</strong> impliziertes Zielverm\u00f6gen in '+horizon.toFixed(1)+' Jahren.';
+  }else if(isWealthGoalType(type)||type==='Einmalige_Ausgabe'){
+    var target=Number(parseCHF(getInputValue('nz-amount'))||0)/100;
+    if(!(target>0)){hintEl.textContent='';return;}
+    var required=Math.pow(target/Math.max(1,initial),1/horizon)-1;
+    hintEl.innerHTML='<strong>'+escapeHtml((required*100).toFixed(2))+'% p.a.</strong> notwendige Rendite als rechnerische Kennzahl, keine Zusage.';
+  }else if(isRecurringGoalType(type)){
+    var streamAmount=Number(parseCHF(getInputValue('nz-amount'))||0)/100;
+    var dur=parseFloat(getInputValue('nz-horizon').replace(',','.'))||0;
+    if(!(streamAmount>0)||!(dur>0)){hintEl.textContent='';return;}
+    hintEl.innerHTML='Vereinfachter Kapitalbedarf des Stroms: <strong>'+escapeHtml(formatRappen(Math.round(streamAmount*dur*100)))+'</strong>. Die pr\u00e4zise Tragf\u00e4higkeit zeigt der Optimizer.';
+  }else{
+    hintEl.textContent='';
+  }
+}
 function goalAmountSummary(goal){
   var type=goal&&goal.goal_type||'';
   if(isReturnGoalType(type)){
@@ -18848,6 +19270,8 @@ function syncGoalModalState(){
   var amountInput=document.getElementById('nz-amount');
   var amountWrap=amountInput&&amountInput.closest?amountInput.closest('.fg'):null;
   var amountLabel=document.getElementById('nz-amount-label');
+  var returnInput=document.getElementById('nz-target-return-bps');
+  var successInput=document.getElementById('nz-success-prob-min');
   var startWrap=document.getElementById('nz-start-wrap');
   var startLabel=document.getElementById('nz-start-label');
   var targetWrap=document.getElementById('nz-target-wrap');
@@ -18860,12 +19284,16 @@ function syncGoalModalState(){
   var hint=document.getElementById('nz-date-hint');
   var pensionPillarWrap=document.getElementById('nz-pension-pillar-wrap');
   var ongoing=getInputValue('nz-ongoing')==='true';
+  applyGoalTypeVisibility(type);
   if(amountLabel)amountLabel.textContent=goalAmountLabel(type);
+  if(returnInput)returnInput.required=isReturnGoalType(type);
+  if(amountInput)amountInput.required=!isReturnGoalType(type)&&!isMaxGoalType(type);
+  if(successInput)successInput.placeholder=isReturnGoalType(type)?'50':'80';
   if(pensionPillarWrap){
     pensionPillarWrap.style.display=type==='Pensionsausgabe'?'':'none';
     if(type!=='Pensionsausgabe')setSelectValue('nz-pension-pillar','');
   }
-  if(amountWrap)amountWrap.style.display=isMaxGoalType(type)?'none':'';
+  if(amountWrap)amountWrap.style.display=(isMaxGoalType(type)||isReturnGoalType(type))?'none':'';
   if(startWrap)startWrap.style.display=isRecurringGoalType(type)?'':'none';
   if(startLabel)startLabel.textContent=isRecurringGoalType(type)?'Beginn *':'Start';
   if(frequencyWrap)frequencyWrap.style.display=isRecurringGoalType(type)?'':'none';
@@ -18873,7 +19301,8 @@ function syncGoalModalState(){
   if(valueModeRow)valueModeRow.style.display=isWealthGoalType(type)?'':'none';
   if(!isWealthGoalType(type)&&nominalRadio)nominalRadio.checked=true;
   if(targetWrap){
-    if(type==='Einmalige_Ausgabe'||isWealthGoalType(type)||isReturnGoalType(type)||isMaxGoalType(type))targetWrap.style.display='';
+    if(type==='Einmalige_Ausgabe'||isWealthGoalType(type)||isReturnGoalType(type))targetWrap.style.display='';
+    else if(isMaxGoalType(type))targetWrap.style.display='none';
     else targetWrap.style.display=ongoing?'none':'';
   }
   if(targetLabel){
@@ -18908,6 +19337,7 @@ function syncGoalModalState(){
     var isHart=getInputValue('nz-prio')==='1';
     hardnessWarn.style.display=(isRendite&&isHart)?'block':'none';
   }
+  updateGoalDerivedDiagnostics();
 }
 function resetGoalModal(){
   currentGoalEditId=null;
@@ -18916,12 +19346,14 @@ function resetGoalModal(){
   setSelectValue('nz-prio','2');
   setSelectValue('nz-scope','Beratungsverm\u00f6gen');
   setInputValue('nz-amount','');
+  setInputValue('nz-target-return-bps','');
   setInputValue('nz-horizon','10');
   setInputValue('nz-start-date','');
   setInputValue('nz-target-date','');
   setSelectValue('nz-frequency','jaehrlich');
   setSelectValue('nz-ongoing','false');
   setInputValue('nz-probability','100');
+  setInputValue('nz-success-prob-min','');
   setSelectValue('nz-pension-pillar','');
   var nominalRadio=document.getElementById('nz-vm-nominal');
   var realRadio=document.getElementById('nz-vm-real');
@@ -18943,16 +19375,18 @@ function openGoalEditor(goalId){
   setSelectValue('nz-type',goalType);
   setSelectValue('nz-prio',priorityMap[goal.hardness]||String(goal.rank||2));
   setSelectValue('nz-scope',goal.goal_scope||'Beratungsverm\u00f6gen');
-  if(isReturnGoalType(goalType))setInputValue('nz-amount',formatInputPercent(goal.target_return_bps));
+  if(isReturnGoalType(goalType))setInputValue('nz-amount','');
   else if(isWealthGoalType(goalType))setInputValue('nz-amount',formatInputCHF(goal.target_wealth_rappen));
   else if(isMaxGoalType(goalType))setInputValue('nz-amount','');
   else setInputValue('nz-amount',formatInputCHF(goal.target_amount_rappen));
+  setInputValue('nz-target-return-bps',isReturnGoalType(goalType)?formatInputPercent(goal.target_return_bps):'');
   setInputValue('nz-horizon',goal.horizon_years==null?'10':goal.horizon_years);
   setInputValue('nz-start-date',normalizeCashflowDateValue(goal.start_date));
   setInputValue('nz-target-date',normalizeCashflowDateValue(goal.target_date));
   setSelectValue('nz-frequency',goalFrequencyKey(goal.frequency||'jaehrlich'));
   setSelectValue('nz-ongoing',Number(goal.is_ongoing||0)?'true':'false');
   setInputValue('nz-probability',goal.probability_pct==null?'100':String(goal.probability_pct));
+  setInputValue('nz-success-prob-min',goal.success_probability_min_x100==null?'':String(Math.round(Number(goal.success_probability_min_x100||0)/100)));
   setSelectValue('nz-pension-pillar',goal.pension_pillar||'');
   var vm=goalValueMode(goal.value_mode);
   var vmRadio=document.getElementById('nz-vm-'+vm);
@@ -19022,6 +19456,7 @@ function buildDemoGoalRecord(goalId,payload,existingGoal){
     target_amount_rappen:payload.target_amount_rappen,
     target_wealth_rappen:payload.target_wealth_rappen,
     target_return_bps:payload.target_return_bps,
+    success_probability_min_x100:payload.success_probability_min_x100,
     start_date:payload.start_date,
     horizon_years:payload.horizon_years,
     target_date:payload.target_date,
@@ -19039,6 +19474,7 @@ async function saveGoal(){
   var prio=getInputValue('nz-prio')||'2';
   var scope=getInputValue('nz-scope')||'Beratungsverm\u00f6gen';
   var amountRaw=getInputValue('nz-amount').trim();
+  var returnRaw=getInputValue('nz-target-return-bps').trim();
   var horizonRaw=parseInt(getInputValue('nz-horizon'),10);
   var horizon=isFinite(horizonRaw)&&horizonRaw>0?horizonRaw:null;
   var startDate=normalizeCashflowDateValue(getInputValue('nz-start-date'));
@@ -19047,15 +19483,21 @@ async function saveGoal(){
   var isOngoing=getInputValue('nz-ongoing')==='true';
   var btn=document.getElementById('btn-nz-save');
   var isEdit=!!currentGoalEditId;
+  var targetReturnBps=null;
   if(!label){showModalFeedback('nz-error',btn,'Bitte Bezeichnung eingeben.',true);return;}
   if(!isMaxGoalType(type)){
-    if(!amountRaw){showModalFeedback('nz-error',btn,isReturnGoalType(type)?'Bitte Zielrendite eingeben.':'Bitte g\u00fcltigen Betrag eingeben.',true);return;}
     if(isReturnGoalType(type)){
-      if(parsePercentToBps(amountRaw)==null){showModalFeedback('nz-error',btn,'Bitte g\u00fcltige Zielrendite eingeben.',true);return;}
-    }else if(isNaN(parseFloat(amountRaw.replace(',','.')))){
+      if(!returnRaw){showModalFeedback('nz-error',btn,'Bitte Zielrendite eingeben.',true);return;}
+      targetReturnBps=parsePercentToBps(returnRaw);
+      if(targetReturnBps==null||targetReturnBps<=0){showModalFeedback('nz-error',btn,'Bitte positive Zielrendite p.a. eingeben.',true);return;}
+    }else if(!amountRaw||isNaN(parseFloat(amountRaw.replace(',','.')))){
       showModalFeedback('nz-error',btn,'Bitte g\u00fcltigen Betrag eingeben.',true);
       return;
     }
+  }
+  if(isReturnGoalType(type)&&prio==='1'){
+    showModalFeedback('nz-error',btn,'Renditeziele koennen nicht als Hart gespeichert werden. Bitte Primaer oder Opportunistisch waehlen.',true);
+    return;
   }
   if(type==='Einmalige_Ausgabe'){
     if(!targetDate&&!startDate){showModalFeedback('nz-error',btn,'Bitte F\u00e4lligkeitsdatum f\u00fcr die einmalige Entnahme eingeben.',true);return;}
@@ -19071,6 +19513,7 @@ async function saveGoal(){
     startDate='';
     frequency='jaehrlich';
     isOngoing=false;
+    if(isMaxGoalType(type))targetDate='';
   }
   var mid=getActiveMandateId();
   if(btn){btn._origText=isEdit?'Aktualisieren':'Speichern';btn.disabled=true;btn.textContent=isEdit?'Aktualisieren...':'Speichern...';}
@@ -19094,6 +19537,7 @@ async function saveGoal(){
     target_amount_rappen:null,
     target_wealth_rappen:null,
     target_return_bps:null,
+    success_probability_min_x100:(function(){if(isMaxGoalType(type))return null;var raw=getInputValue('nz-success-prob-min').trim();if(!raw)return null;var pct=parseInt(raw,10);return isFinite(pct)?Math.max(0,Math.min(100,pct))*100:null;})(),
     start_date:startDate||null,
     horizon_years:horizon,
     target_date:targetDate||null,
@@ -19103,7 +19547,7 @@ async function saveGoal(){
     probability_pct:(function(){var raw=parseInt(getInputValue('nz-probability'),10);return isFinite(raw)?Math.max(0,Math.min(100,raw)):100;})(),
     pension_pillar:(function(){var v=getInputValue('nz-pension-pillar')||'';return (type==='Pensionsausgabe'&&['AHV','BVG','3a','1e','FZG'].indexOf(v)>=0)?v:null;})()
   };
-  if(isReturnGoalType(type))payload.target_return_bps=parsePercentToBps(amountRaw);
+  if(isReturnGoalType(type))payload.target_return_bps=targetReturnBps;
   else if(isWealthGoalType(type))payload.target_wealth_rappen=parseCHF(amountRaw);
   else if(!isMaxGoalType(type))payload.target_amount_rappen=parseCHF(amountRaw);
   if(mid&&!isDemoMandateId(mid)){
@@ -19472,6 +19916,14 @@ function renderOptimizerPanel(result){
     return;
   }
   panel.style.display='';
+  var limitingBadge=document.getElementById('opt-limiting-factor-badge');
+  if(limitingBadge){
+    var factor=allocationMetaValue(result,'limiting_factor')||'';
+    var meta=limitingFactorMeta(factor);
+    limitingBadge.textContent=meta.label;
+    limitingBadge.className='rv-limiting-badge '+(meta.tone==='danger'?'danger':meta.tone==='warn'?'warn':meta.tone==='good'?'good':'');
+    limitingBadge.style.display=factor?'inline-flex':'none';
+  }
   var pill=document.getElementById('opt-status-pill');
   if(pill){
     // V3 Sprint 1 Commit 4 (Plan §7.2): Klassen-basierter Status ohne Emoji.
@@ -19506,6 +19958,7 @@ function renderOptimizerPanel(result){
       return '<li style="margin-bottom:3px">'+escapeHtml(String(line))+'</li>';
     }).join('');
   }
+  renderOptimizerAchievability(result);
   renderStressTable(result.stress_evaluations||null);
   renderSensitivitySlidersForResult(result);
   var footer=document.getElementById('opt-audit-footer');
