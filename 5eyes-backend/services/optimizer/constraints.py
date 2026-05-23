@@ -142,6 +142,7 @@ def build_sum_to_one_constraint() -> dict:
 def build_risky_fraction_constraint(
     score_x10: int,
     risky_fraction_per_bucket: dict[str, float] | None = None,
+    max_risky_fraction_bps: int | None = None,
 ) -> dict:
     """Inequality: score_x10/10 - Σ w_i · rf_i ≥ 0
 
@@ -150,7 +151,10 @@ def build_risky_fraction_constraint(
     """
     rf_map = risky_fraction_per_bucket or DEFAULT_BUCKET_RISKY_FRACTION
     rf_array = np.array([rf_map.get(b, 0.0) for b in BUCKET_ORDER], dtype=np.float64)
-    cap = max(0.0, min(1.0, float(score_x10) / 100.0))
+    if max_risky_fraction_bps is not None:
+        cap = max(0.0, min(1.0, float(max_risky_fraction_bps) / 10000.0))
+    else:
+        cap = max(0.0, min(1.0, float(score_x10) / 100.0))
     return {
         "type": "ineq",
         "fun": lambda w: float(cap - float(np.dot(w, rf_array))),
@@ -162,6 +166,7 @@ def build_constraint_set(
     bands: HouseMatrixBands,
     score_x10: int,
     risky_fraction_per_bucket: dict[str, float] | None = None,
+    max_risky_fraction_bps: int | None = None,
 ) -> tuple[list[tuple[float, float]], list[dict]]:
     """Komplettes scipy-kompatibles Constraint-Set.
 
@@ -172,7 +177,11 @@ def build_constraint_set(
     bounds = build_bounds(bands)
     constraints = [
         build_sum_to_one_constraint(),
-        build_risky_fraction_constraint(score_x10, risky_fraction_per_bucket),
+        build_risky_fraction_constraint(
+            score_x10,
+            risky_fraction_per_bucket,
+            max_risky_fraction_bps=max_risky_fraction_bps,
+        ),
     ]
     return bounds, constraints
 
@@ -262,6 +271,7 @@ def constraint_slacks(
     bounds: list[tuple[float, float]],
     score_x10: int,
     risky_fraction_per_bucket: dict[str, float] | None = None,
+    max_risky_fraction_bps: int | None = None,
     binding_threshold_bps: int = 25,
 ) -> list[ConstraintSlack]:
     """Berechnet pro Constraint einen ConstraintSlack gegen eine Allocation.
@@ -283,7 +293,10 @@ def constraint_slacks(
     )
     rf = np.array([float(rf_map.get(b, 0.0)) for b in BUCKET_ORDER], dtype=np.float64)
     risk_used_bps = int(round(float(np.dot(w, rf)) * 10000))
-    risk_limit_bps = int(round(max(0.0, min(1.0, float(score_x10) / 100.0)) * 10000))
+    if max_risky_fraction_bps is not None:
+        risk_limit_bps = int(max(0, min(10000, int(max_risky_fraction_bps))))
+    else:
+        risk_limit_bps = int(round(max(0.0, min(1.0, float(score_x10) / 100.0)) * 10000))
     risk_slack_bps = risk_limit_bps - risk_used_bps
 
     rows: list[ConstraintSlack] = [

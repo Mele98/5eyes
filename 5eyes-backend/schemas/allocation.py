@@ -69,6 +69,10 @@ class TargetAllocationResponse(BaseResponse):
     band_liquidity_min_bps: int
     band_liquidity_max_bps: int
     risky_fraction_bps: Optional[int]
+    risky_fraction_bps_at_generation: Optional[int] = None
+    risk_budget_bps_at_generation: Optional[int] = None
+    limiting_factor: Optional[str] = None
+    goal_achievability_json: Optional[str] = None
     based_on_assessment_id: Optional[str]
     capital_market_assumptions_id: Optional[str] = None
     # C8 audit anchors
@@ -751,6 +755,7 @@ class TargetAllocationGenerateResponse(BaseModel):
     risk_budget_bps: int
     risky_fraction_total_bps: int
     risky_fraction_headroom_bps: int
+    limiting_factor: Optional[str] = None
     asset_class_risky_weights_bps: dict[str, int]
     expected_return_bps: int
     expected_volatility_bps: int

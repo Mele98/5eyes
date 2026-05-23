@@ -33,6 +33,7 @@ from models.review import (
 )
 from models.wealth import Cashflow, Goal, PlanningAssumption, WealthInflow, WealthPosition
 from price_updater import latest_price_snapshot, parse_iso_date, summarize_price_quality
+from services.allocation_messages import WARN_FALLBACK, format_message
 from services.cashflow_timeline import (
     future_value_with_cashflow_series,
     net_cashflow_series,
@@ -41,6 +42,12 @@ from services.cashflow_timeline import (
     totals_for_year,
 )
 from services.product_market_data import resolve_market_profile, validate_default_product_market_coverage
+from services.risk_matrix import (
+    RiskBudgetExceeded,
+    assert_risk_budget_ok,
+    bucket_risky_fraction_bps_from_building_blocks,
+    compute_portfolio_risky_fraction_bps,
+)
 
 
 BUCKET_FIELDS = ("equities", "bonds", "real_estate", "alternatives", "liquidity")
@@ -1204,6 +1211,18 @@ def _building_block_risky_map(
     existieren, werden NUR diese geladen. Sonst Fallback auf alle aktiven BBs
     (backwards-compat fuer bestehende Mandate ohne explizite Universum-Wahl).
     """
+    rows = _building_block_rows_for_policy(db, policy_id, investment_universe)
+    return {
+        (_norm_text(row.asset_class), _norm_text(row.sub_asset_class)): int(row.risky_fraction_bps or 0)
+        for row in rows
+    }
+
+
+def _building_block_rows_for_policy(
+    db: Session,
+    policy_id: str,
+    investment_universe: str | None = None,
+) -> list[BuildingBlock]:
     base_query = db.query(BuildingBlock).filter(
         BuildingBlock.policy_id == policy_id,
         BuildingBlock.is_active == 1,
@@ -1214,10 +1233,7 @@ def _building_block_risky_map(
         rows = base_query.filter(BuildingBlock.universe == universe).all()
     if not rows:
         rows = base_query.all()
-    return {
-        (_norm_text(row.asset_class), _norm_text(row.sub_asset_class)): int(row.risky_fraction_bps or 0)
-        for row in rows
-    }
+    return rows
 
 
 def _asset_risky_weight_fallbacks() -> dict[str, int]:
@@ -3477,7 +3493,7 @@ def _house_matrix_or_default(db: Session, policy: OptimizerPolicy, score_bucket:
     ).first()
     if hm:
         return hm
-    raise ValueError(f"Keine House-Matrix fuer Score {score_bucket} vorhanden")
+    raise ValueError(f"HouseMatrix unvollstaendig fuer Score {score_bucket}")
 
 
 def _validate_house_matrix_defaults(defaults: list[tuple]) -> None:
@@ -4075,6 +4091,15 @@ def _baseline_target_bands(house_matrix: HouseMatrix, policy: OptimizerPolicy) -
     return targets, minimums, maximums
 
 
+def _house_matrix_mid_targets(house_matrix: HouseMatrix, policy: OptimizerPolicy) -> tuple[dict[str, int], dict[str, int], dict[str, int]]:
+    _targets, minimums, maximums = _baseline_target_bands(house_matrix, policy)
+    midpoint_targets = {
+        bucket: int(round((int(minimums[bucket]) + int(maximums[bucket])) / 2))
+        for bucket in BUCKET_FIELDS
+    }
+    return _rebalance_to_total(midpoint_targets, minimums, maximums), minimums, maximums
+
+
 def _current_planning_inflation_bps(db: Session, mandate: Mandate) -> int | None:
     planning = (
         db.query(PlanningAssumption)
@@ -4479,6 +4504,7 @@ def _run_stochastic_optimizer_pass(
             n_paths=_OPTIMIZER_N_PATHS_DEFAULT,
             inflation_series_bps=inflation_series_bps,
             risky_fraction_per_bucket=rf_per_bucket,
+            max_risky_fraction_bps=int(house_matrix.max_risky_fraction_bps),
             **mortality_kwargs,
             **tax_kwargs,
         )
@@ -4761,6 +4787,7 @@ def _build_shadow_comparison_with_evaluations(
             seed=int(optimizer_result.seed or 0) or None,
             inflation_series_bps=inflation_series_bps,
             risky_fraction_per_bucket=rf_per_bucket,
+            max_risky_fraction_bps=int(house_matrix_row.max_risky_fraction_bps),
         )
         active_evaluation = evaluate_weights(context, active_weights_bps)
         # Shadow-Weights nur bewerten wenn der Solver konvergiert ist;
@@ -4859,6 +4886,7 @@ def _build_optimizer_explainability(
             seed=int(optimizer_result.seed or 0) or None,
             inflation_series_bps=inflation_series_bps,
             risky_fraction_per_bucket=rf_per_bucket,
+            max_risky_fraction_bps=int(house_matrix_row.max_risky_fraction_bps),
         )
     except Exception as exc:  # noqa: BLE001 - never crash allocation flow
         logger.warning(
@@ -4871,6 +4899,7 @@ def _build_optimizer_explainability(
         bounds=context.bounds,
         score_x10=context.score_x10,
         risky_fraction_per_bucket=rf_per_bucket,
+        max_risky_fraction_bps=int(house_matrix_row.max_risky_fraction_bps),
     )
     constraints_payload = [
         {
@@ -5284,6 +5313,7 @@ def generate_target_allocation(
     prefs = _merge_mandate_defaults_into_prefs(prefs, mandate)
     score_bucket = _risk_score_bucket(assessment)
     house_matrix = _house_matrix_or_default(db, policy, score_bucket)
+    risk_budget_bps = int(house_matrix.max_risky_fraction_bps)
     manual_target_override = _has_manual_target_overrides(prefs["bands"])
     inputs = _load_allocation_inputs(db, mandate, prefs["simulation"], cma=cma)
     advisory_summary = inputs["advisory_summary"]
@@ -5308,8 +5338,9 @@ def generate_target_allocation(
     targets, minimums, maximums = _baseline_target_bands(house_matrix, policy)
     reasoning = [
         f"Ausgangspunkt ist die House Matrix fuer Score {score_bucket} ({house_matrix.profile_name}).",
-        f"Das Risikoprofil deckelt die Risky Fraction auf {house_matrix.max_risky_fraction_bps / 100:.0f}%.",
+        f"Das Risikoprofil deckelt die Risky Fraction auf {risk_budget_bps / 100:.0f}%.",
     ]
+    warnings: list[dict] = []
     if len(set(cashflow_projection_series_rappen[:min(len(cashflow_projection_series_rappen), 7)])) > 1:
         reasoning.append("Zeitlich datierte Cashflows werden jahresgenau in die Liquiditaets- und Zielprojektion einbezogen.")
     _apply_band_preferences(prefs["bands"], targets, minimums, maximums, reasoning)
@@ -5353,10 +5384,11 @@ def generate_target_allocation(
     apply_stochastic = optimizer_mode == "stochastic"
     house_targets_before_optimizer = dict(targets)
     # Phase 5.1: Building-Block-Aware Risky-Fractions fuer Solver
-    _building_block_rows = db.query(BuildingBlock).filter(
-        BuildingBlock.policy_id == policy.id,
-        BuildingBlock.is_active == 1,
-    ).all() if run_stochastic else None
+    _building_block_rows = _building_block_rows_for_policy(
+        db,
+        policy.id,
+        getattr(mandate, "investment_universe", None),
+    )
 
     optimizer_result = _run_stochastic_optimizer_pass(
         optimizer_mode=optimizer_mode,
@@ -5414,18 +5446,47 @@ def generate_target_allocation(
     risky_map = _building_block_risky_map(db, policy.id, getattr(mandate, "investment_universe", None))
     sub_allocations = _build_sub_allocations(targets, prefs)
     sub_allocations, asset_risky_weights, risky_fraction_total_bps = _enrich_sub_allocations_with_risk(sub_allocations, risky_map)
-    if risky_fraction_total_bps > int(house_matrix.max_risky_fraction_bps):
-        targets, risky_fraction_total_bps = _enforce_risk_budget(
-            targets=targets,
-            minimums=minimums,
-            maximums=maximums,
-            asset_risky_weights=asset_risky_weights,
-            risk_budget_bps=int(house_matrix.max_risky_fraction_bps),
-        )
+    realized_risky_bps = compute_portfolio_risky_fraction_bps(targets, _building_block_rows)
+    risk_budget_fallback = False
+    try:
+        assert_risk_budget_ok(realized_risky_bps, risk_budget_bps, slack_bps=0)
+    except RiskBudgetExceeded:
+        risk_budget_fallback = True
+        risk_budget_asset_weights = bucket_risky_fraction_bps_from_building_blocks(_building_block_rows)
+        targets, minimums, maximums = _house_matrix_mid_targets(house_matrix, policy)
         targets = _rebalance_to_total(targets, minimums, maximums)
         sub_allocations = _build_sub_allocations(targets, prefs)
         sub_allocations, asset_risky_weights, risky_fraction_total_bps = _enrich_sub_allocations_with_risk(sub_allocations, risky_map)
-        reasoning.append("Die Risky Fraction wird subanlagenbasiert gegen das Risikobudget des Profils ausgerichtet.")
+        realized_risky_bps = compute_portfolio_risky_fraction_bps(targets, _building_block_rows)
+        try:
+            assert_risk_budget_ok(realized_risky_bps, risk_budget_bps, slack_bps=0)
+        except RiskBudgetExceeded:
+            try:
+                targets, risky_fraction_total_bps = _enforce_risk_budget(
+                    targets=targets,
+                    minimums=minimums,
+                    maximums=maximums,
+                    asset_risky_weights=risk_budget_asset_weights,
+                    risk_budget_bps=risk_budget_bps,
+                )
+            except ValueError:
+                maximums = {**maximums, "liquidity": 10000}
+                targets, risky_fraction_total_bps = _enforce_risk_budget(
+                    targets=targets,
+                    minimums=minimums,
+                    maximums=maximums,
+                    asset_risky_weights=risk_budget_asset_weights,
+                    risk_budget_bps=risk_budget_bps,
+                )
+            targets = _rebalance_to_total(targets, minimums, maximums)
+            sub_allocations = _build_sub_allocations(targets, prefs)
+            sub_allocations, asset_risky_weights, risky_fraction_total_bps = _enrich_sub_allocations_with_risk(sub_allocations, risky_map)
+            realized_risky_bps = compute_portfolio_risky_fraction_bps(targets, _building_block_rows)
+            assert_risk_budget_ok(realized_risky_bps, risk_budget_bps, slack_bps=0)
+        warnings.append(format_message(WARN_FALLBACK))
+        reasoning.append("Die aktive Allokation wurde auf die Bandbreiten-Mitte des Risikoprofils zurueckgesetzt, weil das Risikobudget strikt limitiert.")
+    risky_fraction_total_bps = int(realized_risky_bps)
+    limiting_factor = "risikoprofil" if risky_fraction_total_bps >= risk_budget_bps - 50 else None
     # C3: gewichtete Bucket-Metriken aus Sub-Allocation in alle nachgelagerten
     # Berechnungen weiterreichen.
     metrics = _expected_metrics(targets, cma, sub_allocations)
@@ -5521,6 +5582,12 @@ def generate_target_allocation(
     # nicht angewendet wurde.
     persist_optimizer_audit = optimizer_mode == "stochastic" and optimizer_result is not None
     optimizer_audit = _optimizer_audit_fields(optimizer_result) if persist_optimizer_audit else {}
+    if risk_budget_fallback:
+        optimizer_audit = {
+            **optimizer_audit,
+            "optimization_method": "fallback_house_matrix",
+            "optimization_status": "fallback_house_matrix",
+        }
     # Phase 6: Stress-Eval als JSON persistieren, damit /current/payload sie
     # ohne erneuten Solver-Lauf liefern kann. Nur im stochastic-Modus.
     stress_evaluations_json: str | None = None
@@ -5580,6 +5647,9 @@ def generate_target_allocation(
         band_liquidity_min_bps=minimums["liquidity"],
         band_liquidity_max_bps=maximums["liquidity"],
         risky_fraction_bps=risky_fraction_total_bps,
+        risky_fraction_bps_at_generation=risky_fraction_total_bps,
+        risk_budget_bps_at_generation=risk_budget_bps,
+        limiting_factor=limiting_factor,
         based_on_assessment_id=assessment.id,
         capital_market_assumptions_id=cma.id,
         # C8 audit anchors
@@ -5654,9 +5724,11 @@ def generate_target_allocation(
         "recurring_cashflow_projection_series_rappen": recurring_cashflow_projection_series_rappen,
         "reserve_needed_rappen": reserve_needed_rappen,
         "external_reserve_rappen": external_reserve_rappen,
-        "risk_budget_bps": int(house_matrix.max_risky_fraction_bps),
+        "risk_budget_bps": risk_budget_bps,
         "risky_fraction_total_bps": risky_fraction_total_bps,
-        "risky_fraction_headroom_bps": int(house_matrix.max_risky_fraction_bps) - int(risky_fraction_total_bps),
+        "risky_fraction_headroom_bps": risk_budget_bps - int(risky_fraction_total_bps),
+        "limiting_factor": limiting_factor,
+        "warnings": warnings,
         "asset_class_risky_weights_bps": asset_risky_weights,
         "expected_return_bps": metrics["expected_return_bps"],
         "expected_volatility_bps": metrics["expected_volatility_bps"],
@@ -5828,6 +5900,7 @@ def evaluate_goal_sensitivity(
             seed=pinned_seed,
             inflation_series_bps=inflation_series_bps,
             risky_fraction_per_bucket=rf_per_bucket,
+            max_risky_fraction_bps=int(house_matrix.max_risky_fraction_bps),
         )
 
     # ---- Baseline ----
@@ -6034,9 +6107,24 @@ def build_target_payload_from_allocation(
         maximums["liquidity"] = saa_liq_ceil_bps
         targets = _rebalance_to_total(targets, minimums, maximums)
 
+    building_block_rows = _building_block_rows_for_policy(
+        db,
+        policy.id,
+        getattr(mandate, "investment_universe", None),
+    )
     risky_map = _building_block_risky_map(db, policy.id, getattr(mandate, "investment_universe", None))
     sub_allocations = _build_sub_allocations(targets, prefs)
     sub_allocations, asset_risky_weights, risky_fraction_total_bps = _enrich_sub_allocations_with_risk(sub_allocations, risky_map)
+    persisted_risky_bps = getattr(allocation, "risky_fraction_bps_at_generation", None)
+    if persisted_risky_bps is not None:
+        risky_fraction_total_bps = int(persisted_risky_bps)
+    else:
+        risky_fraction_total_bps = compute_portfolio_risky_fraction_bps(targets, building_block_rows)
+    risk_budget_bps = int(
+        getattr(allocation, "risk_budget_bps_at_generation", None)
+        if getattr(allocation, "risk_budget_bps_at_generation", None) is not None
+        else int(house_matrix.max_risky_fraction_bps or 0)
+    )
     # C3: gewichtete Bucket-Metriken aus Sub-Allocation.
     metrics = _expected_metrics(targets, cma, sub_allocations)
     # C7: Reserve-Berechnung zentral via _compute_reserve_for_inputs - identisch
@@ -6225,9 +6313,10 @@ def build_target_payload_from_allocation(
         "recurring_cashflow_projection_series_rappen": recurring_cashflow_projection_series_rappen,
         "reserve_needed_rappen": reserve_needed_rappen,
         "external_reserve_rappen": external_reserve_rappen,
-        "risk_budget_bps": int(house_matrix.max_risky_fraction_bps or 0),
+        "risk_budget_bps": risk_budget_bps,
         "risky_fraction_total_bps": risky_fraction_total_bps,
-        "risky_fraction_headroom_bps": int(house_matrix.max_risky_fraction_bps or 0) - int(risky_fraction_total_bps),
+        "risky_fraction_headroom_bps": risk_budget_bps - int(risky_fraction_total_bps),
+        "limiting_factor": getattr(allocation, "limiting_factor", None),
         "asset_class_risky_weights_bps": asset_risky_weights,
         "expected_return_bps": metrics["expected_return_bps"],
         "expected_volatility_bps": metrics["expected_volatility_bps"],
