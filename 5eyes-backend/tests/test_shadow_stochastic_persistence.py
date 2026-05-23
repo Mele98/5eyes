@@ -172,7 +172,12 @@ def test_admin_shadow_comparison_endpoint_returns_methodology_metrics(
     assert data["goal_counts"]["n_hard_unreachable_st"] == 0
     assert data["elapsed_ms"]["stochastic"] == 250
     assert data["optimization_status"] == "converged"
-    assert data["verdict"]["status"] in {"GREEN", "YELLOW", "RED"}
+    assert data["per_bucket_bps"]["equities"]["stochastic"] == FAKE_STOCHASTIC_WEIGHTS["equities"]
+    assert data["per_bucket_bps"]["equities"]["drift"] == abs(
+        data["shadow_allocation_bps"]["equities"] - data["active_allocation_bps"]["equities"]
+    )
+    assert data["verdict"] in {"green", "yellow", "red"}
+    assert isinstance(data["verdict_notes"], list)
     assert data["raw_shadow_payload"]["engine"] == "stochastic"
 
     with session_factory() as s:

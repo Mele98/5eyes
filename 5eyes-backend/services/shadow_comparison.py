@@ -74,7 +74,7 @@ def build_shadow_comparison_payload(db: Session, mandate_id: str) -> dict[str, A
     optimization_status = str(shadow.get("optimization_status") or "")
     limiting_factor = str(shadow.get("limiting_factor") or "")
 
-    verdict = classify_shadow_verdict(
+    verdict_detail = classify_shadow_verdict(
         total_drift_bps=total_drift_bps,
         risky_drift_bps=risky_drift_bps,
         budget_compliance_st=budget_compliance_st,
@@ -83,6 +83,8 @@ def build_shadow_comparison_payload(db: Session, mandate_id: str) -> dict[str, A
         limiting_factor=limiting_factor,
         optimization_status=optimization_status,
     )
+    verdict = str(verdict_detail.get("status") or "n/a").lower()
+    verdict_notes = [str(note) for note in list(verdict_detail.get("reasons") or [])]
 
     return {
         "mandate_id": mandate_id,
@@ -91,6 +93,14 @@ def build_shadow_comparison_payload(db: Session, mandate_id: str) -> dict[str, A
         "shadow_engine": str(shadow.get("engine") or "stochastic"),
         "active_allocation_bps": active,
         "shadow_allocation_bps": stochastic,
+        "per_bucket_bps": {
+            bucket: {
+                "house_matrix": int(active[bucket]),
+                "stochastic": int(stochastic[bucket]),
+                "drift": abs(int(deltas[bucket])),
+            }
+            for bucket in BUCKETS
+        },
         "weight_deltas_bps": deltas,
         "total_drift_bps": total_drift_bps,
         "risky_fraction_bps": {
@@ -118,6 +128,8 @@ def build_shadow_comparison_payload(db: Session, mandate_id: str) -> dict[str, A
         "reasoning_complete": _reasoning_complete(shadow),
         "messages": list(shadow.get("messages") or []),
         "verdict": verdict,
+        "verdict_notes": verdict_notes,
+        "verdict_detail": verdict_detail,
         "raw_shadow_payload": shadow,
     }
 
