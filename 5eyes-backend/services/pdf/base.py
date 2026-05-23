@@ -141,6 +141,17 @@ class AnlagestrategieData:
     allocation_preferences: Mapping[str, object] = field(default_factory=dict)
     """Gespeicherte Anlagepraeferenzen aus TargetAllocation.preferences_json."""
 
+    # ---- Stage 7 (Stochastic Goal Engine): persistierte Achievability + Limiting-Factor ----
+    limiting_factor: str | None = None
+    """Aus TargetAllocation.limiting_factor (Stages 2/3). Einer der Codes
+    risikoprofil / liquiditaetsreserve / bandbreite / zielkonflikt /
+    solver_konvergenz, oder None wenn nicht klassifiziert."""
+    goal_achievability: list = field(default_factory=list)
+    """Aus TargetAllocation.goal_achievability_json (Stage 3). Liste von
+    Dicts mit goal_id, label, target_kind/goal_type, probability, status,
+    hardness. Leer wenn keine quantifizierbaren Goals oder Stage 3 nicht
+    aktiv (house_matrix-Modus ohne Solver-Lauf)."""
+
 
 @dataclass(frozen=True)
 class VertragData:
@@ -183,6 +194,10 @@ class ProtokollData:
     """Liste von AdvisoryLog-Dicts mit entry_date, entry_type, title,
     description, decision, status."""
     latest_recommendation_summary: str | None = None
+    conflict_messages: list = field(default_factory=list)
+    """Stage 7: severity='conflict'-Messages aus
+    optimizer_reasoning_json/classify_messages. Werden bei Vorhandensein
+    am Protokoll-Ende als Pflichthinweis fuer FINMA-Audit angehaengt."""
 
 
 @dataclass(frozen=True)

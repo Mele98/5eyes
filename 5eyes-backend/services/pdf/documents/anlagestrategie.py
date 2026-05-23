@@ -12,6 +12,10 @@ from services.pdf.base import AnlagestrategieData, PDFContext
 from services.pdf.components.cover import make_cover_page, make_section_cover
 from services.pdf.components.effektives_portfolio import make_effektives_portfolio_section
 from services.pdf.components.eignungspruefung import make_eignungspruefung_section
+from services.pdf.components.goal_achievability import (
+    make_goal_achievability_table,
+    make_limiting_factor_line,
+)
 from services.pdf.components.header import make_wealtharchitekten_header
 from services.pdf.components.produkte import make_produkte_section
 from services.pdf.components.risiko_metriken import make_risiko_metriken_section
@@ -548,6 +552,7 @@ def _build_anlagestrategie_flowables_template_order(
         ))
     else:
         empty_section("Zielerreichung", "Noch keine Zielerreichungsanalyse gespeichert.")
+    flowables.extend(_make_strategy_reasoning_section(data, styles))
     flowables.append(PageBreak())
 
     # 16-17 Kennzahlen
@@ -567,6 +572,26 @@ def _build_anlagestrategie_flowables_template_order(
     flowables.extend(make_disclaimer_section())
 
     return flowables
+
+
+def _make_strategy_reasoning_section(data: AnlagestrategieData, styles) -> list:
+    """Stage 7: stochastic limiting factor + goal achievability.
+
+    The block is intentionally absent for the house_matrix default path, where
+    neither field is persisted.
+    """
+    achievability = list(getattr(data, "goal_achievability", []) or [])
+    limiting_factor = getattr(data, "limiting_factor", None)
+    if not limiting_factor and not achievability:
+        return []
+
+    return [
+        Spacer(1, 4 * mm),
+        Paragraph("Strategie-Begründung", styles["heading"]),
+        make_limiting_factor_line(limiting_factor),
+        Spacer(1, 3 * mm),
+        make_goal_achievability_table(achievability),
+    ]
 
 
 def _make_preferences_section(preferences, styles) -> list:
