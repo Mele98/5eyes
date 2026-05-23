@@ -191,6 +191,10 @@ def ensure_runtime_columns() -> None:
             ('optimization_iterations', 'INTEGER'),
             ('optimization_seed', 'INTEGER'),
             ('optimization_status', 'TEXT'),
+            ('risky_fraction_bps_at_generation', 'INTEGER'),
+            ('risk_budget_bps_at_generation', 'INTEGER'),
+            ('limiting_factor', 'TEXT'),
+            ('goal_achievability_json', 'TEXT'),
             # Phase 6: persistierte Stress-Auswertungen (Phase 5.2) als JSON-String.
             # NULL bei house_matrix-Modus oder Pre-Optimizer-Allocations.
             ('stress_evaluations_json', 'TEXT'),
@@ -247,6 +251,9 @@ def ensure_runtime_columns() -> None:
             # Sprint B3 (2026-05-08): Vorsorge-Saeule fuer Pensionsausgabe-Goals.
             # AHV / BVG / 3a / 1e / FZG. NULL bei nicht-Pensionsausgabe oder unspezifiziert.
             ('pension_pillar', 'TEXT'),
+            # Stochastic Goal Engine Stage 1 (2026-05-23): Renditeziel + Zielwahrscheinlichkeit.
+            ('target_return_bps', 'INTEGER'),
+            ('success_probability_min_x100', 'INTEGER'),
         ],
         'capital_market_assumptions': [
             ('correlation_matrix_json', 'TEXT'),
@@ -280,6 +287,10 @@ def ensure_runtime_columns() -> None:
         'target_allocations': [
             ('external_reserve_at_generation_rappen', 'INTEGER'),
             ('capital_market_assumptions_id', 'TEXT'),
+            ('risky_fraction_bps_at_generation', 'INTEGER'),
+            ('risk_budget_bps_at_generation', 'INTEGER'),
+            ('limiting_factor', 'TEXT'),
+            ('goal_achievability_json', 'TEXT'),
             # V3 Sprint 2.1 (2026-05-09 / Plan §4.1): Verknuepfung zur eigenen
             # optimizer_runs-Zeile. Wegbereiter fuer spaeteren Cleanup der
             # legacy optimization_*-Spalten auf der TA.

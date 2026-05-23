@@ -81,6 +81,15 @@ def _create_client(auth_client: TestClient, advisor_user: User) -> str:
     return response.json()["id"]
 
 
+def _create_mandate(auth_client: TestClient, client_id: str, number: str = "FOUND-M-GOAL") -> str:
+    response = auth_client.post(
+        f"/clients/{client_id}/mandates",
+        json={"mandate_number": number, "mandate_type": "Anlageberatung"},
+    )
+    assert response.status_code == 201, response.text
+    return response.json()["id"]
+
+
 def test_create_mandate_persists_investment_universe(auth_client, advisor_user):
     client_id = _create_client(auth_client, advisor_user)
 
@@ -265,3 +274,78 @@ def test_foundation_customer_data_roundtrip(auth_client, advisor_user):
     assert current_risk.status_code == 200, current_risk.text
     assert current_risk.json()["id"] == risk_response.json()["id"]
     assert current_risk.json()["answers"][0]["question_number"] == 1
+
+
+def test_return_goal_cannot_be_saved_as_hard(auth_client, advisor_user):
+    client_id = _create_client(auth_client, advisor_user)
+    mandate_id = _create_mandate(auth_client, client_id, "FOUND-M-RETURN-HARD")
+
+    response = auth_client.post(
+        f"/mandates/{mandate_id}/goals",
+        json={
+            "goal_family": "Rendite",
+            "goal_type": "Renditeziel",
+            "label": "Renditeziel",
+            "rank": 1,
+            "goal_scope": "Beratungsvermögen",
+            "target_return_bps": 450,
+            "hardness": "Hart",
+        },
+    )
+
+    assert response.status_code == 422, response.text
+    assert "Renditeziel" in response.text
+
+
+def test_return_goal_requires_positive_target_return(auth_client, advisor_user):
+    client_id = _create_client(auth_client, advisor_user)
+    mandate_id = _create_mandate(auth_client, client_id, "FOUND-M-RETURN-POS")
+
+    response = auth_client.post(
+        f"/mandates/{mandate_id}/goals",
+        json={
+            "goal_family": "Rendite",
+            "goal_type": "Renditeziel",
+            "label": "Renditeziel",
+            "rank": 1,
+            "goal_scope": "Beratungsvermögen",
+            "target_return_bps": 0,
+            "hardness": "Opportunistisch",
+        },
+    )
+
+    assert response.status_code == 422, response.text
+    assert "positive Zielrendite" in response.text
+
+
+def test_goal_update_cannot_leave_stale_amount_when_switching_to_return_goal(auth_client, advisor_user):
+    client_id = _create_client(auth_client, advisor_user)
+    mandate_id = _create_mandate(auth_client, client_id, "FOUND-M-RETURN-STALE")
+    goal = auth_client.post(
+        f"/mandates/{mandate_id}/goals",
+        json={
+            "goal_family": "Cashflow",
+            "goal_type": "Einmalige_Ausgabe",
+            "label": "Eigenmittel",
+            "rank": 1,
+            "goal_scope": "Beratungsvermögen",
+            "target_amount_rappen": 50_000_00,
+            "target_date": "2030-01-01",
+            "hardness": "Primär",
+        },
+    )
+    assert goal.status_code == 201, goal.text
+
+    response = auth_client.put(
+        f"/mandates/{mandate_id}/goals/{goal.json()['id']}",
+        json={
+            "goal_family": "Rendite",
+            "goal_type": "Renditeziel",
+            "label": "Renditeziel",
+            "target_return_bps": 450,
+            "hardness": "Opportunistisch",
+        },
+    )
+
+    assert response.status_code == 422, response.text
+    assert "Zielbetrag" in response.text

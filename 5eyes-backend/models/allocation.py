@@ -53,6 +53,10 @@ class TargetAllocation(Base):
     band_liquidity_min_bps = Column(Integer, nullable=False)
     band_liquidity_max_bps = Column(Integer, nullable=False)
     risky_fraction_bps = Column(Integer)
+    risky_fraction_bps_at_generation = Column(Integer)
+    risk_budget_bps_at_generation = Column(Integer)
+    limiting_factor = Column(String)
+    goal_achievability_json = Column(String)
     based_on_assessment_id = Column(String)
     capital_market_assumptions_id = Column(String, ForeignKey("capital_market_assumptions.id"))
     # C8: Audit-Anker fuer Reproduzierbarkeit / Drift-Erkennung.

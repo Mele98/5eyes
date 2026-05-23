@@ -310,17 +310,100 @@ class WealthInflowResponse(BaseResponse):
 # ── Goal ───────────────────────────────────────────────────────────────────────
 
 GOAL_FAMILY_TYPE_MAP = {
-    "Vermögen": ["Kapitalerhalt", "Vermögensziel"],
+    "Vermögen": ["Kapitalerhalt", "Vermögensziel", "Vermoegensziel"],
     "Cashflow": ["Einmalige_Ausgabe", "Wiederkehrende_Ausgabe", "Pensionsausgabe"],
     "Rendite": ["Renditeziel"],
     "Maximierung": ["Maximierung"],
 }
 
 
+def _goal_type_key(value: str | None) -> str:
+    raw = str(value or "").strip().lower().replace(" ", "_")
+    return (
+        raw.replace("ä", "ae")
+        .replace("ö", "oe")
+        .replace("ü", "ue")
+        .replace("Ã¤", "ae")
+        .replace("Ã¶", "oe")
+        .replace("Ã¼", "ue")
+    )
+
+
+def _goal_hardness_key(value: str | None) -> str:
+    raw = str(value or "").strip().lower()
+    return (
+        raw.replace("ä", "ae")
+        .replace("ö", "oe")
+        .replace("ü", "ue")
+        .replace("Ã¤", "ae")
+        .replace("Ã¶", "oe")
+        .replace("Ã¼", "ue")
+    )
+
+
+def _has_value(value) -> bool:
+    return value not in (None, "")
+
+
+def _raise_field_not_allowed(field: str, goal_type: str) -> None:
+    raise ValueError(f"Feld '{field}' ist für Zieltyp '{goal_type}' nicht erlaubt")
+
+
+def _apply_goal_success_probability_default(goal) -> None:
+    if getattr(goal, "success_probability_min_x100", None) is not None:
+        return
+    key = _goal_type_key(getattr(goal, "goal_type", None))
+    if key == "renditeziel":
+        goal.success_probability_min_x100 = 5000
+    elif key in {"kapitalerhalt", "vermoegensziel", "einmalige_ausgabe", "wiederkehrende_ausgabe", "pensionsausgabe"}:
+        goal.success_probability_min_x100 = 8000
+
+
+def _validate_goal_field_isolation(goal, *, require_targets: bool) -> None:
+    goal_type = str(getattr(goal, "goal_type", "") or "")
+    key = _goal_type_key(goal_type)
+    hardness = _goal_hardness_key(getattr(goal, "hardness", None))
+    if hardness and hardness not in {"hart", "primaer", "opportunistisch"}:
+        raise ValueError("hardness muss 'Hart', 'Primär' oder 'Opportunistisch' sein")
+
+    def forbid(*fields: str) -> None:
+        for field in fields:
+            if _has_value(getattr(goal, field, None)):
+                _raise_field_not_allowed(field, goal_type)
+
+    if key == "renditeziel":
+        forbid("target_amount_rappen", "target_wealth_rappen", "frequency")
+        if hardness == "hart":
+            raise ValueError(
+                "Renditeziel darf nicht als 'hart' definiert werden. "
+                "Echte Bedarfsziele (Entnahme/Mindestvermögen) sind hart."
+            )
+        if require_targets and not _has_value(getattr(goal, "target_return_bps", None)):
+            raise ValueError("Renditeziel benötigt target_return_bps")
+    elif key == "einmalige_ausgabe":
+        forbid("target_return_bps", "target_wealth_rappen", "frequency")
+        if require_targets and not _has_value(getattr(goal, "target_amount_rappen", None)):
+            raise ValueError("Einmalige_Ausgabe benötigt target_amount_rappen")
+        if require_targets and not (_has_value(getattr(goal, "target_date", None)) or _has_value(getattr(goal, "horizon_years", None))):
+            raise ValueError("Einmalige_Ausgabe benötigt target_date oder horizon_years")
+    elif key in {"wiederkehrende_ausgabe", "pensionsausgabe"}:
+        forbid("target_return_bps", "target_wealth_rappen")
+        if require_targets and not _has_value(getattr(goal, "frequency", None)):
+            raise ValueError("Cashflow-Ziel benötigt frequency")
+    elif key in {"kapitalerhalt", "vermoegensziel"}:
+        forbid("target_return_bps", "target_amount_rappen", "frequency")
+        if require_targets and not _has_value(getattr(goal, "target_wealth_rappen", None)):
+            raise ValueError("Vermögensziel benötigt target_wealth_rappen")
+        if require_targets and not (_has_value(getattr(goal, "target_date", None)) or _has_value(getattr(goal, "horizon_years", None))):
+            raise ValueError("Vermögensziel benötigt target_date oder horizon_years")
+    elif key == "maximierung":
+        forbid("target_amount_rappen", "target_wealth_rappen", "target_return_bps", "target_date", "frequency")
+
+
 class GoalCreate(BaseModel):
     goal_family: Literal["Vermögen", "Cashflow", "Rendite", "Maximierung"]
     goal_type: Literal[
-        "Kapitalerhalt", "Vermögensziel",
+        "Kapitalerhalt", "Vermögensziel", "Vermoegensziel",
         "Einmalige_Ausgabe", "Wiederkehrende_Ausgabe", "Pensionsausgabe",
         "Renditeziel", "Maximierung"
     ]
@@ -332,12 +415,13 @@ class GoalCreate(BaseModel):
     target_amount_rappen: Optional[int] = None
     target_wealth_rappen: Optional[int] = None
     target_return_bps: Optional[int] = None
+    success_probability_min_x100: Optional[int] = Field(default=None, ge=0, le=10000)
     start_date: Optional[str] = None
     horizon_years: Optional[int] = None
     target_date: Optional[str] = None
     is_ongoing: bool = False
     frequency: Optional[str] = None
-    hardness: Literal["Hart", "Primär", "Opportunistisch"] = "Primär"
+    hardness: str = "Primär"
     # Sprint B6: Eintrittswahrscheinlichkeit (0-100). Default 100 = sicher eintretend.
     probability_pct: int = Field(default=100, ge=0, le=100)
     # Sprint B3: Vorsorge-Saeule fuer Pensionsausgabe-Goals. Optional.
@@ -353,22 +437,8 @@ class GoalCreate(BaseModel):
                 f"goal_type '{self.goal_type}' ist nicht erlaubt für goal_family '{self.goal_family}'. "
                 f"Erlaubt: {allowed}"
             )
-        # Strict field isolation
-        if self.goal_type == "Renditeziel":
-            if self.target_amount_rappen is not None or self.target_wealth_rappen is not None:
-                raise ValueError("Renditeziel darf kein target_amount_rappen oder target_wealth_rappen haben")
-            if self.target_return_bps is None:
-                raise ValueError("Renditeziel benötigt target_return_bps")
-        elif self.goal_type in ("Einmalige_Ausgabe", "Wiederkehrende_Ausgabe", "Pensionsausgabe"):
-            if self.target_return_bps is not None or self.target_wealth_rappen is not None:
-                raise ValueError("Cashflow-Ziel darf kein target_return_bps oder target_wealth_rappen haben")
-            if self.target_amount_rappen is None:
-                raise ValueError("Cashflow-Ziel benötigt target_amount_rappen")
-        elif self.goal_type in ("Kapitalerhalt", "Vermögensziel"):
-            if self.target_return_bps is not None or self.target_amount_rappen is not None:
-                raise ValueError("Vermögensziel darf kein target_return_bps oder target_amount_rappen haben")
-            if self.target_wealth_rappen is None:
-                raise ValueError("Vermögensziel benötigt target_wealth_rappen")
+        _apply_goal_success_probability_default(self)
+        _validate_goal_field_isolation(self, require_targets=True)
         return self
 
 
@@ -383,6 +453,7 @@ class GoalUpdate(BaseModel):
     target_amount_rappen: Optional[int] = None
     target_wealth_rappen: Optional[int] = None
     target_return_bps: Optional[int] = None
+    success_probability_min_x100: Optional[int] = Field(default=None, ge=0, le=10000)
     start_date: Optional[str] = None
     horizon_years: Optional[int] = None
     target_date: Optional[str] = None
@@ -394,6 +465,12 @@ class GoalUpdate(BaseModel):
     linked_position_id: Optional[str] = None
     notes: Optional[str] = None
     is_active: Optional[bool] = None
+
+    @model_validator(mode="after")
+    def validate_goal_update_fields(self):
+        if self.goal_type is not None:
+            _validate_goal_field_isolation(self, require_targets=False)
+        return self
 
 
 class GoalResponse(BaseResponse):
@@ -410,6 +487,7 @@ class GoalResponse(BaseResponse):
     target_amount_rappen: Optional[int]
     target_wealth_rappen: Optional[int]
     target_return_bps: Optional[int]
+    success_probability_min_x100: Optional[int] = None
     start_date: Optional[str]
     horizon_years: Optional[int]
     target_date: Optional[str]
