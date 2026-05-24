@@ -1,0 +1,70 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Editoriale Hierarchie: Default-Body-Style — sparsam, ruhig. */
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    @apply bg-canvas text-ink font-sans;
+    font-feature-settings: 'kern' 1, 'liga' 1;
+  }
+
+  /* Tabellen: dünne Linien, ruhiges Padding (kein Excel-Look) */
+  table {
+    @apply w-full border-collapse;
+  }
+  th {
+    @apply text-left text-caption font-semibold text-ink-muted;
+    @apply border-b border-rule pb-2 pt-1;
+  }
+  td {
+    @apply text-body text-ink py-3 align-top;
+    @apply border-b border-rule;
+  }
+
+  /* Code-Snippets im Scaffold (z.B. Endpoint-Beispiel) */
+  code {
+    @apply font-mono text-caption;
+  }
+}
+
+@layer components {
+  /* Section-Title — institutionell, ruhig */
+  .section-title {
+    @apply font-serif text-h2 text-ink mt-section mb-block;
+  }
+
+  /* Status-Pill für Erkenntnisse-Ampel */
+  .status-pill {
+    @apply inline-flex items-center px-3 py-1 rounded-pill;
+    @apply text-micro uppercase tracking-wider font-semibold;
+  }
+  .status-pill-gruen {
+    @apply bg-canvas-subtle text-status-gruen;
+  }
+  .status-pill-gelb {
+    @apply bg-canvas-subtle text-status-gelb;
+  }
+  .status-pill-rot {
+    @apply bg-canvas-subtle text-status-rot;
+  }
+  .status-pill-neutral {
+    @apply bg-canvas-subtle text-status-neutral;
+  }
+}
+
+/* Print-Layout — identisch zur Bildschirm-Ansicht, A4. */
+@media print {
+  body {
+    @apply bg-white;
+  }
+  .no-print {
+    display: none !important;
+  }
+}
