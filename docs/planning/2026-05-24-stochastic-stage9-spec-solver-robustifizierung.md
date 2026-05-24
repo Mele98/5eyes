@@ -27,6 +27,15 @@ Stage 9 ist bewusst kein Ersatz fuer Stage 8. Der Default-Wechsel bleibt erst
 zulaessig, wenn der Shadow-Vergleich gemaess Methodology gruen ist. Stage 9
 setzt danach die operative Leitplanke.
 
+Motivierender aktueller Befund: Der Foundation-Smoketest
+`tests/test_stage8_foundation_smoketest.py::test_foundation_case_yields_green_or_yellow_verdict`
+liefert reproduzierbar `optimization_status=fallback_house_matrix`,
+`limiting_factor=solver_konvergenz` und damit ein RED-Verdikt, obwohl die Drift
+klein ist (`total_drift_bps=185`, `risky_drift_bps=47`) und kein hartes Ziel als
+unerreichbar markiert wird. Dieser Befund zeigt: Die Pipeline faengt den Fehler
+kontrolliert ab, aber der Default-Switch bleibt blockiert, bis der Solver auf
+der Foundation mindestens GREEN oder YELLOW erreicht.
+
 ## Nicht-Ziel
 
 - Keine Aenderung der fachlichen Risk-Matrix.
@@ -70,12 +79,40 @@ Ein harter Cap-Verstoss (`risky_fraction_bps_at_generation >
 risk_budget_bps_at_generation`) ist immer ROLLBACK-relevant, unabhaengig von
 der Quote.
 
-### 1.3 Statuswerte
+### 1.3 Foundation-Befund als Start-Blocker
+
+Der Foundation-Befund aus
+`docs/planning/2026-05-24-foundation-smoketest-finding.md` ist der konkrete
+Startfall fuer Stage 9:
+
+- `verdict=RED`
+- `optimization_status=fallback_house_matrix`
+- `limiting_factor=solver_konvergenz`
+- `budget_compliance={house_matrix: true, stochastic: true}`
+- `n_hard_unreachable_st=0`
+
+Interpretation fuer diese Spec: Es liegt kein Suitability-Bruch vor, sondern
+ein Solver-Robustheitsproblem. Die Hypothesen sind konsistent mit den Hebeln in
+Section 2:
+
+| Hypothese | Stage-9-Hebel | Konsistenz |
+|---|---|---|
+| `n_paths` zu niedrig | Hebel A - n_paths-Verdoppelung | direkt abgedeckt |
+| Seed-Sensitivitaet | Hebel B - n_starts + Seeds-Shuffle | direkt abgedeckt |
+| Tau zu strikt | Hebel C - Soft-Tau einmalig | direkt abgedeckt |
+| Inflation/Cashflow-Wechselwirkung | Reasoning/Audit + Fallback-Analyse | Diagnosepflicht, kein Risk-Cap-Slack |
+
+Der Foundation-Test darf erst ent-xfailed werden, wenn der Solver ohne finalen
+House-Matrix-Fallback mindestens ein GREEN- oder YELLOW-Verdikt erzeugt.
+
+### 1.4 Statuswerte
 
 Stage 9 unterscheidet:
 
 - `converged`: Solver lieferte ein gueltiges Ergebnis.
 - `converged_robustified`: Solver konvergierte erst nach Stage-9-Hebel.
+- `converged_with_soft_tau`: Solver konvergierte nur nach einmaliger,
+  auditierter Soft-Tau-Lockerung; Methodology-Wertung YELLOW, nicht GREEN.
 - `fallback_stochastic_light`: vereinfachter stochastic Run, aber weiterhin
   innerhalb Risk-Cap.
 - `fallback_house_matrix`: finaler Fallback auf House-Matrix-Mid.
@@ -158,12 +195,17 @@ Allocation.
 
 Wenn A-C keine gueltige Allocation liefern:
 
-1. `stochastic_light`: reduziertes Problem mit weniger Nebenbedingungen, aber
-   unveraendertem Risk-Cap und Sum-to-one.
+1. optionaler Diagnose-Run `stochastic_light`: reduziertes Problem mit weniger
+   Nebenbedingungen, aber unveraendertem Risk-Cap und Sum-to-one.
 2. `house_matrix_mid`: finaler Fallback, wie Stage 2 definiert.
 
 `house_matrix_mid` ist kein Fehler im Kundenprozess, sondern ein konservativer
 Sicherheitsmodus. Intern wird er aber als Monitoring-Event gezaehlt.
+
+Wichtig fuer den Foundation-Befund: `stochastic_light` ist eine optionale
+Diagnose innerhalb der letzten Fallback-Stufe und darf das Foundation-XPASS-Ziel
+nicht verwaessern. GREEN/YELLOW fuer den Foundation-Test entsteht nur, wenn die
+Stufen 1-4 ohne finalen `fallback_house_matrix` eine valide Allocation liefern.
 
 ## 3. Eskalationslogik
 
@@ -171,11 +213,17 @@ Sicherheitsmodus. Intern wird er aber als Monitoring-Event gezaehlt.
 
 Pro Allocation-Run gilt:
 
-1. Standard stochastic Run.
-2. Falls nicht `converged`: Hebel A.
-3. Falls weiterhin nicht `converged`: Hebel B.
-4. Falls weiterhin nicht `converged` und fachlich erlaubt: Hebel C.
-5. Falls weiterhin nicht `converged`: Hebel D.
+1. Standard stochastic Run mit Default-Parametern.
+2. Falls `diverged`: `n_paths x 2` und neuer Seed.
+3. Falls weiterhin `diverged`: `n_starts x 2` mit Seeds-Shuffle.
+4. Falls weiterhin `diverged` und fachlich erlaubt: Soft-Tau-Lockerung auf
+   maximal `tau=0.75`; Erfolg ergibt `converged_with_soft_tau` und YELLOW.
+5. Falls weiterhin `diverged`: finaler Fallback auf `house_matrix_mid`.
+
+Diese fuenf Stufen spiegeln den Foundation-Smoketest-Vorschlag. Der optionale
+`stochastic_light`-Diagnose-Run aus Hebel D darf zwischen Stufe 4 und 5 laufen,
+wenn das Zeitbudget eingehalten wird; er ist aber kein Kriterium, um den
+Foundation-Test als GREEN/YELLOW zu werten.
 
 Maximales Budget:
 
@@ -307,6 +355,8 @@ Stage 9 gilt als spezifiziert und spaeter implementierbar, wenn:
 8. Kunden-UI enthaelt keine technischen Solverdetails.
 9. Interner Report kann die komplette Entscheidungskette rekonstruieren.
 10. Default-Rollback ist dokumentiert und auditierbar.
+11. Test `test_foundation_case_yields_green_or_yellow_verdict` muss XPASS sein;
+    danach `xfail`-Marker entfernen und `strict=True` setzen.
 
 ## 7. Rollback-Plan
 
@@ -351,6 +401,9 @@ Spaetere Stage-9-Implementation braucht mindestens:
 - Aggregat-Endpoint-Tests fuer rolling 24h/7d/30d.
 - Frontend-Static-Tests fuer neutrale Texte ohne verbotene Phrasen.
 - Regression: bestehende Stage-1-bis-8-Tests bleiben gruen.
+- Foundation-Smoke-Test: `test_foundation_case_yields_green_or_yellow_verdict`
+  muss nach Stage-9-Fix XPASS zeigen; anschliessend wird der `xfail`-Marker
+  entfernt und der Test mit `strict=True` als Regression-Sperre aktiviert.
 
 Manuelle Verifikation:
 
