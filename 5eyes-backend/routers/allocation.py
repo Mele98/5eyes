@@ -26,6 +26,7 @@ from services.portfolio_engine import (
     generate_target_allocation,
     require_strategy_ready_assessment,
 )
+from services.advisory_report import compute_advisory_report
 from services.depot_check import compute_depot_check
 from services.backtest_stress import compute_stress_replays
 from services.backtest_ab import run_ab_backtest
@@ -415,6 +416,22 @@ def get_depot_check(
     """
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
     return compute_depot_check(db, mandate)
+
+
+@router.get("/mandates/{mandate_id}/advisory-report")
+def get_advisory_report(
+    mandate_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Sprint U-P21: Voller 15-Seiten Advisory-Report als JSON.
+
+    Konsumiert von der React-Sub-App (5eyes-electron/frontend/reporting/,
+    folgt in U-P22) und vom Server-PDF (U-P26). Berater-Auth via
+    get_current_user, gleiche Pattern wie Depot-Check-Endpoint.
+    """
+    mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    return compute_advisory_report(db, mandate, advisor=current_user)
 
 
 @router.get("/mandates/{mandate_id}/backtest/stress-replays")
