@@ -58,6 +58,24 @@ def _bucket_key_from_product(product: Product) -> str:
     return aliases.get(raw, "alternatives")
 
 
+def _compute_drift(
+    ist: Mapping[str, int] | None,
+    soll: Mapping[str, int] | None,
+) -> dict[str, int]:
+    """Drift IST − SOLL pro Key. Union-of-Keys, fehlende Werte gelten als 0.
+
+    Positive Werte = Überhang im IST (zu viel von dieser Dimension);
+    negative Werte = Unterhang (zu wenig laut Empfehlung).
+    """
+    ist = dict(ist or {})
+    soll = dict(soll or {})
+    keys = set(ist.keys()) | set(soll.keys())
+    return {
+        key: int(ist.get(key, 0) or 0) - int(soll.get(key, 0) or 0)
+        for key in keys
+    }
+
+
 def _safe_int(value, default: int = 0) -> int:
     try:
         return int(value or 0)
@@ -99,6 +117,17 @@ def compute_depot_check(db: Session, mandate: Mandate) -> dict:
         "country_exposure_bps": {},
         "sector_exposure_bps": {},
         "currency_exposure_bps": {},
+        # Sprint U-P20 (2026-05-24): SOLL-Exposures + IST-SOLL-Drift pro
+        # Country/Sector/Currency. Berechnet aus RecommendationPositions
+        # target_amount_rappen (statt current_amount_rappen). Bleibt leer,
+        # wenn kein RecommendationRun existiert — dann ist die Vergleichs-
+        # Basis nicht definiert, Warning wird gesetzt.
+        "soll_country_exposure_bps": {},
+        "soll_sector_exposure_bps": {},
+        "soll_currency_exposure_bps": {},
+        "country_exposure_drift_bps": {},
+        "sector_exposure_drift_bps": {},
+        "currency_exposure_drift_bps": {},
         "concentration_hhi": {
             "country": 0,
             "sector": 0,
@@ -306,11 +335,60 @@ def compute_depot_check(db: Session, mandate: Mandate) -> dict:
             "in_band": in_band,
         }
 
-    # 5. Aggregierte Country/Sector/Currency-Exposures
+    # 5. Aggregierte Country/Sector/Currency-Exposures (IST)
     if position_weights_bps:
         result["country_exposure_bps"] = aggregate_exposures(position_weights_bps, position_country_exp)
         result["sector_exposure_bps"] = aggregate_exposures(position_weights_bps, position_sector_exp)
         result["currency_exposure_bps"] = aggregate_exposures(position_weights_bps, position_currency_exp)
+
+    # 5b. Sprint U-P20: SOLL-Exposures + IST-SOLL-Drift pro Dimension.
+    # SOLL = target_amount_rappen aus RecommendationPositions (das was der
+    # Berater empfohlen hat). Wenn kein RecommendationRun existiert oder
+    # alle target_amount == 0 sind, bleiben die SOLL-Maps leer (keine
+    # Vergleichs-Basis möglich).
+    soll_total_target_rappen = 0
+    position_target_weights_bps: dict[str, int] = {}
+    for rec_pos, prod in positions_with_products:
+        target_amount = _safe_int(getattr(rec_pos, "target_amount_rappen", 0))
+        if target_amount > 0:
+            soll_total_target_rappen += target_amount
+    if soll_total_target_rappen > 0:
+        for rec_pos, prod in positions_with_products:
+            target_amount = _safe_int(getattr(rec_pos, "target_amount_rappen", 0))
+            if target_amount <= 0:
+                continue
+            position_target_weights_bps[rec_pos.id] = int(
+                round(target_amount / soll_total_target_rappen * 10000)
+            )
+        result["soll_country_exposure_bps"] = aggregate_exposures(
+            position_target_weights_bps, position_country_exp
+        )
+        result["soll_sector_exposure_bps"] = aggregate_exposures(
+            position_target_weights_bps, position_sector_exp
+        )
+        result["soll_currency_exposure_bps"] = aggregate_exposures(
+            position_target_weights_bps, position_currency_exp
+        )
+        # Drift = IST - SOLL pro Key. Union beider Key-Sets damit
+        # auch Keys auftauchen, die nur in einem von beiden vorkommen
+        # (z.B. Land, das der Berater empfiehlt aber Kunde noch nicht hat).
+        result["country_exposure_drift_bps"] = _compute_drift(
+            result["country_exposure_bps"], result["soll_country_exposure_bps"]
+        )
+        result["sector_exposure_drift_bps"] = _compute_drift(
+            result["sector_exposure_bps"], result["soll_sector_exposure_bps"]
+        )
+        result["currency_exposure_drift_bps"] = _compute_drift(
+            result["currency_exposure_bps"], result["soll_currency_exposure_bps"]
+        )
+    elif positions_with_products:
+        # RecommendationPositions vorhanden, aber kein target_amount gepflegt.
+        # Berater hat noch nicht „Empfehlung übernehmen" geklickt.
+        result["warnings"].append(
+            "SOLL-Vergleich nicht möglich: kein target_amount in den "
+            "Empfehlungs-Positionen gepflegt. Bitte im Portfolio-Tab eine "
+            "Empfehlung generieren und übernehmen."
+        )
 
     # 6. Konzentrations-HHI pro Dimension
     result["concentration_hhi"]["country"] = herfindahl_hirschman_index(result["country_exposure_bps"])
@@ -362,6 +440,28 @@ def compute_depot_check(db: Session, mandate: Mandate) -> dict:
             band_text = f"{bucket_info['band_min_bps']/100:.1f}%-{bucket_info['band_max_bps']/100:.1f}%"
             result["warnings"].append(
                 f"{bucket_info['label']} außerhalb Toleranzband: {ist_pct:.1f}% (Band: {band_text})"
+            )
+
+    # Sprint U-P20: Drift-Warnings für Country/Sector/Currency-Einzelpositionen.
+    # Schwelle: > 1500 bps Drift (= 15 Prozentpunkte) ist beraterisch
+    # relevant. Größter Drift pro Dimension wird genannt.
+    for dimension_label, drift_key in (
+        ("Land", "country_exposure_drift_bps"),
+        ("Sektor", "sector_exposure_drift_bps"),
+        ("Währung", "currency_exposure_drift_bps"),
+    ):
+        drift_map = result.get(drift_key) or {}
+        if not drift_map:
+            continue
+        # Größter absoluter Drift
+        worst_key, worst_value = max(
+            drift_map.items(), key=lambda kv: abs(int(kv[1] or 0))
+        )
+        if abs(int(worst_value)) >= 1500:
+            direction = "Überhang" if worst_value > 0 else "Unterhang"
+            result["warnings"].append(
+                f"{dimension_label}-Drift {direction} bei '{worst_key}': "
+                f"{worst_value/100:+.1f} Prozentpunkte gegenüber Empfehlung."
             )
 
     return result
