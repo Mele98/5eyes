@@ -222,6 +222,11 @@ class RecommendationPosition(Base):
     product_id = Column(String, ForeignKey("products.id"), nullable=False)
     target_weight_bps = Column(Integer, nullable=False)
     target_amount_rappen = Column(Integer)
+    # Sprint U-P20 (2026-05-24): Echte IST-Holdings des Kunden. NULL =
+    # noch nicht gepflegt (Berater hat Empfehlung erstellt, Kunde hat noch
+    # nichts gekauft). depot_check.py liest dieses Feld als IST-Amount
+    # statt auf target_amount zurueckzufallen (= echter IST/SOLL-Drift).
+    current_amount_rappen = Column(Integer)
     reference_price_rappen = Column(Integer)
     reference_price_date = Column(String)
     reference_price_source = Column(String)
