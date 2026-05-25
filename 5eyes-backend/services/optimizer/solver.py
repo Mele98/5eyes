@@ -28,6 +28,7 @@ import numpy as np
 from scipy.optimize import OptimizeResult, differential_evolution, minimize
 
 from .constraints import (
+    DEFAULT_BUCKET_RISKY_FRACTION,
     HouseMatrixBands,
     bands_from_house_matrix_row,
     build_bounds,
@@ -48,6 +49,9 @@ from .scenario_engine import (
     scenario_inputs_from_cma,
     simulate_wealth_paths,
 )
+
+
+_ROBUSTIFIED_OBJECTIVE_TIE_REL_TOL = 0.05
 
 
 # ============================================================================
@@ -628,6 +632,19 @@ def _finite_feasible_candidate(
     return candidate, objective
 
 
+def _candidate_risky_fraction(
+    weights: np.ndarray,
+    risky_fraction_per_bucket: dict[str, float] | None,
+) -> float:
+    """Compute realized risky fraction for robustified candidate tie-breaks."""
+    rf_map = risky_fraction_per_bucket or DEFAULT_BUCKET_RISKY_FRACTION
+    risky_vector = np.array(
+        [float(rf_map.get(bucket, 0.0)) for bucket in BUCKET_ORDER],
+        dtype=np.float64,
+    )
+    return float(np.dot(weights, risky_vector))
+
+
 def run_solver(
     *,
     cma,
@@ -711,6 +728,7 @@ def run_solver(
     best_feasible_w: np.ndarray | None = None
     best_feasible_obj = float("inf")
     best_feasible_source = ""
+    finite_feasible_candidates: list[dict[str, object]] = []
     attempt_summaries: list[dict[str, object]] = []
     total_iters = 0
     used_ga_fallback = False
@@ -730,6 +748,16 @@ def run_solver(
         )
         if candidate is not None:
             candidate_w, candidate_obj = candidate
+            finite_feasible_candidates.append({
+                "result": result,
+                "weights": candidate_w,
+                "objective": candidate_obj,
+                "source": "slsqp",
+                "risky_fraction": _candidate_risky_fraction(
+                    candidate_w,
+                    context.risky_fraction_per_bucket,
+                ),
+            })
             if candidate_obj < best_feasible_obj:
                 best_feasible_obj = candidate_obj
                 best_feasible_result = result
@@ -767,6 +795,16 @@ def run_solver(
         )
         if candidate is not None:
             candidate_w, candidate_obj = candidate
+            finite_feasible_candidates.append({
+                "result": ga_result,
+                "weights": candidate_w,
+                "objective": candidate_obj,
+                "source": "differential_evolution",
+                "risky_fraction": _candidate_risky_fraction(
+                    candidate_w,
+                    context.risky_fraction_per_bucket,
+                ),
+            })
             if candidate_obj < best_feasible_obj:
                 best_feasible_obj = candidate_obj
                 best_feasible_result = ga_result
@@ -790,6 +828,38 @@ def run_solver(
             "n_paths": int(n_paths),
             "seed": int(seed),
         })
+
+    if best_result is None and finite_feasible_candidates:
+        objective_floor = min(
+            float(candidate["objective"])
+            for candidate in finite_feasible_candidates
+        )
+        objective_limit = objective_floor + max(
+            abs(objective_floor) * _ROBUSTIFIED_OBJECTIVE_TIE_REL_TOL,
+            1e-9,
+        )
+        near_best_candidates = [
+            candidate
+            for candidate in finite_feasible_candidates
+            if float(candidate["objective"]) <= objective_limit
+        ]
+        # 3eyes-Logik: so viel Risiko wie noetig, aber bei praktisch
+        # gleichwertiger Zielerreichung die defensivere Allocation nehmen.
+        chosen_candidate = min(
+            near_best_candidates,
+            key=lambda candidate: (
+                float(candidate["risky_fraction"]),
+                float(np.asarray(candidate["weights"])[BUCKET_ORDER.index("equities")]),
+                float(candidate["objective"]),
+            ),
+        )
+        best_feasible_result = chosen_candidate["result"]  # type: ignore[assignment]
+        best_feasible_w = np.asarray(
+            chosen_candidate["weights"],
+            dtype=np.float64,
+        )
+        best_feasible_obj = float(chosen_candidate["objective"])
+        best_feasible_source = str(chosen_candidate["source"])
 
     if best_result is None and best_feasible_result is not None and best_feasible_w is not None:
         best_result = best_feasible_result
@@ -870,7 +940,7 @@ def run_solver(
             "enabled": True,
             "stage": "finite_feasible_candidate",
             "attempts": attempt_summaries,
-            "final_reason": "strict_feasibility_check_passed",
+            "final_reason": "strict_feasibility_check_passed_risk_tiebreak",
         }
         reasoning.append(
             "Stage-9 Robustifizierung: SciPy meldete keinen stabilen Erfolg, "
