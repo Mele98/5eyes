@@ -302,7 +302,7 @@ def test_shadow_comparison_objective_delta_pct_present_when_converged(session_fa
         mandate = s.query(Mandate).filter(Mandate.id == mid).first()
         result = generate_target_allocation(s, mandate, advisor_id, preferences=None)
         cmp = result["allocation_method_comparison"]
-        if cmp["shadow_status"] == "converged":
+        if pe._optimizer_status_is_converged(cmp["shadow_status"]):
             # Active wurde unter dem Solver-Context bewertet
             assert cmp["objective_value_milli_active"] is not None
             # Shadow ebenfalls
@@ -462,7 +462,7 @@ def test_shadow_comparison_objective_delta_consistent_with_milli_values(session_
         mandate = s.query(Mandate).filter(Mandate.id == mid).first()
         result = generate_target_allocation(s, mandate, advisor_id, preferences=None)
         cmp = result["allocation_method_comparison"]
-        if cmp["shadow_status"] != "converged":
+        if not pe._optimizer_status_is_converged(cmp["shadow_status"]):
             pytest.skip("Solver fallback in dieser Konfiguration; Konsistenz nicht testbar.")
         active_milli = cmp["objective_value_milli_active"]
         shadow_milli = cmp["objective_value_milli_shadow"]
