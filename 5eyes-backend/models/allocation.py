@@ -77,7 +77,7 @@ class TargetAllocation(Base):
     optimization_objective_value_milli = Column(Integer)  # objective in milli (Praezision)
     optimization_iterations = Column(Integer)
     optimization_seed = Column(Integer)
-    optimization_status = Column(String)  # 'converged' | 'diverged' | 'timeout' | 'fallback_house_matrix'
+    optimization_status = Column(String)  # 'converged' | 'converged_robustified' | 'diverged' | 'timeout' | 'fallback_house_matrix'
     # Phase 6: persistierte Stress-Auswertungen aus dem Solver (Phase 5.2),
     # JSON-serialisiertes dict[scenario_name, dict]. NULL bei house_matrix-Modus.
     # Damit kann das FE-Optimizer-Panel auch beim Reload (GET-Endpoint) die
@@ -136,7 +136,7 @@ class OptimizerRun(Base):
     optimizer_mode = Column(String, nullable=False)  # 'shadow_stochastic' | 'stochastic'
     role = Column(String, nullable=False)  # 'shadow' | 'active'
     method = Column(String, nullable=False)  # 'stochastic' | 'fallback_house_matrix'
-    status = Column(String, nullable=False)  # converged | diverged | diverged_infeasible | fallback_house_matrix
+    status = Column(String, nullable=False)  # converged | converged_robustified | diverged | diverged_infeasible | fallback_house_matrix
     seed = Column(Integer, nullable=False)
     n_paths = Column(Integer, nullable=False, default=0)
     n_iterations = Column(Integer, nullable=False, default=0)

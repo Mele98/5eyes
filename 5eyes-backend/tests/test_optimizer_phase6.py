@@ -300,7 +300,7 @@ def test_endpoint_happy_path_returns_200(session_factory, monkeypatch, cleanup_o
     assert body["target_amount_rappen_new"] == 21_600_00
     assert isinstance(body["weights_bps_new"], dict)
     assert body["status_new"] in (
-        "converged", "diverged", "diverged_infeasible", "fallback_house_matrix",
+        "converged", "converged_robustified", "diverged", "diverged_infeasible", "fallback_house_matrix",
     )
 
 

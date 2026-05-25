@@ -202,7 +202,7 @@ def test_shadow_stochastic_persists_run_with_role_shadow(session_factory, monkey
         # Im Shadow-Modus haengt der Run NICHT an einer TA (TA = House Matrix)
         assert run.target_allocation_id is None
         assert run.status in (
-            "converged", "diverged", "diverged_infeasible", "fallback_house_matrix",
+            "converged", "converged_robustified", "diverged", "diverged_infeasible", "fallback_house_matrix",
         )
         assert run.seed > 0
 

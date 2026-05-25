@@ -67,7 +67,7 @@ class OptimizerResult:
     objective_value: float
     iterations: int
     seed: int
-    status: str  # "converged" | "diverged" | "diverged_infeasible" | "fallback_house_matrix"
+    status: str  # "converged" | "converged_robustified" | "diverged" | "diverged_infeasible" | "fallback_house_matrix"
     method: str  # "stochastic" | "fallback_house_matrix"
     constraint_violations: list[str] = field(default_factory=list)
     reasoning: list[str] = field(default_factory=list)
@@ -75,6 +75,7 @@ class OptimizerResult:
     n_starts_attempted: int = 0
     stress_evaluations: dict[str, dict] | None = None
     goal_achievability: tuple[dict, ...] = ()
+    robustification: dict[str, object] | None = None
 
 
 # ============================================================================
@@ -588,6 +589,45 @@ def _solve_via_genetic_algorithm(
         )
 
 
+def _finite_feasible_candidate(
+    result: OptimizeResult,
+    objective_fn,
+    bounds: list[tuple[float, float]],
+    constraints: list[dict],
+) -> tuple[np.ndarray, float] | None:
+    """Return a normalized candidate when SciPy reports non-success but gave one.
+
+    Stage 9 hardens the optimizer against SLSQP status false-positives such as
+    "Inequality constraints incompatible" on non-smooth chance-constraint
+    objectives. A candidate is accepted only after an independent strict
+    feasibility check against bounds, sum-to-one and risk-cap constraints.
+    """
+    raw_x = getattr(result, "x", None)
+    if raw_x is None:
+        return None
+    try:
+        x = np.asarray(raw_x, dtype=np.float64)
+    except (TypeError, ValueError):
+        return None
+    if x.shape[0] != len(bounds):
+        return None
+    candidate = _normalize_to_bounds(np.clip(x, 0.0, 1.0), bounds)
+    feasible, _violations = is_feasible(
+        candidate,
+        bounds=bounds,
+        constraints=constraints,
+    )
+    if not feasible:
+        return None
+    try:
+        objective = float(objective_fn(candidate))
+    except Exception:  # noqa: BLE001 - candidate validation must be defensive
+        return None
+    if not np.isfinite(objective):
+        return None
+    return candidate, objective
+
+
 def run_solver(
     *,
     cma,
@@ -667,8 +707,14 @@ def run_solver(
     initials = build_initial_guesses(bounds, score_x10)
     best_result: OptimizeResult | None = None
     best_obj = float("inf")
+    best_feasible_result: OptimizeResult | None = None
+    best_feasible_w: np.ndarray | None = None
+    best_feasible_obj = float("inf")
+    best_feasible_source = ""
+    attempt_summaries: list[dict[str, object]] = []
     total_iters = 0
     used_ga_fallback = False
+    accepted_feasible_non_success = False
 
     for x0 in initials:
         result = _solve_single_start(
@@ -676,9 +722,36 @@ def run_solver(
             max_iter=max_iter, ftol=ftol,
         )
         total_iters += int(getattr(result, "nit", 0) or 0)
-        if result.success and result.fun < best_obj:
-            best_obj = float(result.fun)
-            best_result = result
+        candidate = _finite_feasible_candidate(
+            result,
+            objective_fn,
+            bounds,
+            scipy_constraints,
+        )
+        if candidate is not None:
+            candidate_w, candidate_obj = candidate
+            if candidate_obj < best_feasible_obj:
+                best_feasible_obj = candidate_obj
+                best_feasible_result = result
+                best_feasible_w = candidate_w
+                best_feasible_source = "slsqp"
+            if bool(getattr(result, "success", False)) and candidate_obj < best_obj:
+                result.x = candidate_w
+                best_obj = candidate_obj
+                best_result = result
+        attempt_summaries.append({
+            "attempt": len(attempt_summaries) + 1,
+            "stage": "slsqp",
+            "status": "converged" if bool(getattr(result, "success", False)) else "non_success",
+            "solver_status": int(getattr(result, "status", 0) or 0),
+            "message": str(getattr(result, "message", "") or "")[:240],
+            "objective_value": (
+                float(candidate[1]) if candidate is not None else None
+            ),
+            "feasible_candidate": candidate is not None,
+            "n_paths": int(n_paths),
+            "seed": int(seed),
+        })
 
     # ---- 6b. Phase 5.3 GA-Fallback wenn alle SLSQP-Starts divergiert ----
     if best_result is None:
@@ -686,10 +759,44 @@ def run_solver(
             objective_fn, bounds, scipy_constraints, seed=seed,
         )
         total_iters += int(getattr(ga_result, "nit", 0) or 0)
-        if ga_result.success and ga_result.fun < float("inf"):
-            best_obj = float(ga_result.fun)
-            best_result = ga_result
-            used_ga_fallback = True
+        candidate = _finite_feasible_candidate(
+            ga_result,
+            objective_fn,
+            bounds,
+            scipy_constraints,
+        )
+        if candidate is not None:
+            candidate_w, candidate_obj = candidate
+            if candidate_obj < best_feasible_obj:
+                best_feasible_obj = candidate_obj
+                best_feasible_result = ga_result
+                best_feasible_w = candidate_w
+                best_feasible_source = "differential_evolution"
+            if bool(getattr(ga_result, "success", False)) and candidate_obj < float("inf"):
+                ga_result.x = candidate_w
+                best_obj = candidate_obj
+                best_result = ga_result
+                used_ga_fallback = True
+        attempt_summaries.append({
+            "attempt": len(attempt_summaries) + 1,
+            "stage": "differential_evolution",
+            "status": "converged" if bool(getattr(ga_result, "success", False)) else "non_success",
+            "solver_status": int(getattr(ga_result, "status", 0) or 0),
+            "message": str(getattr(ga_result, "message", "") or "")[:240],
+            "objective_value": (
+                float(candidate[1]) if candidate is not None else None
+            ),
+            "feasible_candidate": candidate is not None,
+            "n_paths": int(n_paths),
+            "seed": int(seed),
+        })
+
+    if best_result is None and best_feasible_result is not None and best_feasible_w is not None:
+        best_result = best_feasible_result
+        best_result.x = best_feasible_w
+        best_obj = best_feasible_obj
+        accepted_feasible_non_success = True
+        used_ga_fallback = best_feasible_source == "differential_evolution"
 
     # ---- 7. Status & Output ----
     if best_result is None:
@@ -719,6 +826,12 @@ def run_solver(
             n_paths=n_paths,
             n_starts_attempted=len(initials),
             goal_achievability=tuple(goal_achievability),
+            robustification={
+                "enabled": True,
+                "stage": "fallback_house_matrix",
+                "attempts": attempt_summaries,
+                "final_reason": "no_finite_feasible_candidate",
+            },
         )
 
     # Final clip + renorm + feasibility check
@@ -729,6 +842,8 @@ def run_solver(
 
     if not feasible:
         status = "diverged_infeasible"
+    elif accepted_feasible_non_success:
+        status = "converged_robustified"
     else:
         status = "converged"
 
@@ -749,6 +864,20 @@ def run_solver(
     method_used = "SLSQP+DE-Fallback" if used_ga_fallback else "SLSQP"
     reasoning.append(f"Stochastic Solver ({method_used}): {total_iters} iterations across "
                       f"{len(initials)} multi-starts.")
+    robustification_payload: dict[str, object] | None = None
+    if accepted_feasible_non_success:
+        robustification_payload = {
+            "enabled": True,
+            "stage": "finite_feasible_candidate",
+            "attempts": attempt_summaries,
+            "final_reason": "strict_feasibility_check_passed",
+        }
+        reasoning.append(
+            "Stage-9 Robustifizierung: SciPy meldete keinen stabilen Erfolg, "
+            "lieferte aber eine finite Allokation, die Risk-Cap, Bandbreiten "
+            "und Sum-to-one strikt erfuellt. Ergebnis als robustifizierter "
+            "Solver-Run akzeptiert."
+        )
     reasoning.append(f"Best objective L(w*) = {post_round_objective:.6e}")
     if violation_reasons:
         reasoning.append("Constraint-Verletzungen am Optimum:")
@@ -793,6 +922,7 @@ def run_solver(
         n_starts_attempted=len(initials),
         stress_evaluations=stress_evals,
         goal_achievability=tuple(goal_achievability),
+        robustification=robustification_payload,
     )
 
 

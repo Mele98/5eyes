@@ -151,7 +151,13 @@ def classify_shadow_verdict(
         red_reasons.append("risky_drift_bps > 1000")
     if not bool(budget_compliance_st):
         red_reasons.append("budget_compliance_ST == False")
-    if str(optimization_status or "") != "converged":
+    optimization_status_norm = str(optimization_status or "").strip()
+    converged_statuses = {
+        "converged",
+        "converged_robustified",
+        "converged_with_soft_tau",
+    }
+    if optimization_status_norm not in converged_statuses:
         red_reasons.append("optimization_status != converged")
     if int(n_hard_unreachable_st) > 0:
         red_reasons.append("n_hard_unreachable_st > 0")
@@ -161,6 +167,10 @@ def classify_shadow_verdict(
         return {"status": "RED", "reasons": red_reasons}
 
     yellow_reasons: list[str] = []
+    if optimization_status_norm == "converged_robustified":
+        yellow_reasons.append("optimization_status=converged_robustified")
+    if optimization_status_norm == "converged_with_soft_tau":
+        yellow_reasons.append("optimization_status=converged_with_soft_tau")
     if int(total_drift_bps) > 1000:
         yellow_reasons.append("1000 < total_drift_bps <= 2000")
     if int(risky_drift_bps) > 500:
