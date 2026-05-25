@@ -52,6 +52,7 @@ from .scenario_engine import (
 
 
 _ROBUSTIFIED_OBJECTIVE_TIE_REL_TOL = 0.05
+_ROBUSTIFIED_DERISK_REL_TOL = 0.10
 
 
 # ============================================================================
@@ -410,6 +411,37 @@ def _is_within_bounds(w: np.ndarray, bounds: list[tuple[float, float]], tol: flo
     return True
 
 
+def _minimum_risk_allocation(
+    bounds: list[tuple[float, float]],
+    risky_fraction_per_bucket: dict[str, float] | None = None,
+) -> np.ndarray:
+    """Construct the lowest-risk feasible point inside the allocation bounds."""
+    lo = np.array([b[0] for b in bounds], dtype=np.float64)
+    hi = np.array([b[1] for b in bounds], dtype=np.float64)
+    weights = lo.copy()
+    remaining = 1.0 - float(weights.sum())
+    if remaining <= 1e-12:
+        return _normalize_to_bounds(weights, bounds)
+
+    rf_map = risky_fraction_per_bucket or DEFAULT_BUCKET_RISKY_FRACTION
+    bucket_order = sorted(
+        range(len(bounds)),
+        key=lambda i: (
+            float(rf_map.get(BUCKET_ORDER[i], 0.0)),
+            0 if BUCKET_ORDER[i] == "liquidity" else 1,
+            i,
+        ),
+    )
+    for idx in bucket_order:
+        capacity = max(0.0, float(hi[idx] - weights[idx]))
+        add = min(remaining, capacity)
+        weights[idx] += add
+        remaining -= add
+        if remaining <= 1e-12:
+            break
+    return _normalize_to_bounds(weights, bounds)
+
+
 def build_initial_guesses(
     bounds: list[tuple[float, float]],
     score_x10: int,
@@ -435,12 +467,10 @@ def build_initial_guesses(
     mid = np.array([(lo + hi) / 2.0 for lo, hi in bounds])
     candidates.append(_normalize_to_bounds(mid, bounds))
 
-    # 2. Conservative: maximize liquidity (last bucket), minimize others
-    cons = np.array([lo for lo, _ in bounds])
+    # 2. Conservative: minimum risky fraction inside the hard bounds
+    cons = _minimum_risk_allocation(bounds)
     liq_idx = BUCKET_ORDER.index("liquidity")
-    remaining = max(0.0, 1.0 - cons.sum() + cons[liq_idx])
-    cons[liq_idx] = min(bounds[liq_idx][1], remaining)
-    candidates.append(_normalize_to_bounds(cons, bounds))
+    candidates.append(cons)
 
     # 3. Aggressive: maximize equities first
     aggr = np.array([lo for lo, _ in bounds])
@@ -645,6 +675,69 @@ def _candidate_risky_fraction(
     return float(np.dot(weights, risky_vector))
 
 
+def _derisk_candidate_near_best(
+    selected_weights: np.ndarray,
+    *,
+    objective_fn,
+    objective_value: float,
+    bounds: list[tuple[float, float]],
+    constraints: list[dict],
+    risky_fraction_per_bucket: dict[str, float] | None,
+) -> tuple[np.ndarray, float] | None:
+    """Move robustified candidates toward the lowest-risk feasible start.
+
+    This is used only after SciPy reported non-success. At that point the
+    objective is already numerically fragile, so 3eyes' "so viel Risiko wie
+    noetig" rule is a better deterministic tie-break than accepting a
+    platform-specific high-risk candidate by a tiny objective edge.
+    """
+    conservative_anchor = _minimum_risk_allocation(
+        bounds,
+        risky_fraction_per_bucket,
+    )
+    objective_limit = objective_value + max(
+        abs(objective_value) * _ROBUSTIFIED_DERISK_REL_TOL,
+        1e-9,
+    )
+    best_weights = selected_weights
+    best_objective = float(objective_value)
+    best_key = (
+        _candidate_risky_fraction(best_weights, risky_fraction_per_bucket),
+        float(best_weights[BUCKET_ORDER.index("equities")]),
+        best_objective,
+    )
+    for alpha in np.linspace(0.05, 1.0, 20):
+        trial = _normalize_to_bounds(
+            ((1.0 - float(alpha)) * selected_weights) + (float(alpha) * conservative_anchor),
+            bounds,
+        )
+        feasible, _violations = is_feasible(
+            trial,
+            bounds=bounds,
+            constraints=constraints,
+        )
+        if not feasible:
+            continue
+        try:
+            trial_objective = float(objective_fn(trial))
+        except Exception:  # noqa: BLE001 - robustification must be defensive
+            continue
+        if not np.isfinite(trial_objective) or trial_objective > objective_limit:
+            continue
+        trial_key = (
+            _candidate_risky_fraction(trial, risky_fraction_per_bucket),
+            float(trial[BUCKET_ORDER.index("equities")]),
+            trial_objective,
+        )
+        if trial_key < best_key:
+            best_weights = trial
+            best_objective = trial_objective
+            best_key = trial_key
+    if np.allclose(best_weights, selected_weights, atol=1e-9, rtol=0.0):
+        return None
+    return best_weights, best_objective
+
+
 def run_solver(
     *,
     cma,
@@ -733,6 +826,7 @@ def run_solver(
     total_iters = 0
     used_ga_fallback = False
     accepted_feasible_non_success = False
+    robustification_derisked = False
 
     for x0 in initials:
         result = _solve_single_start(
@@ -860,6 +954,17 @@ def run_solver(
         )
         best_feasible_obj = float(chosen_candidate["objective"])
         best_feasible_source = str(chosen_candidate["source"])
+        derisked = _derisk_candidate_near_best(
+            best_feasible_w,
+            objective_fn=objective_fn,
+            objective_value=best_feasible_obj,
+            bounds=bounds,
+            constraints=scipy_constraints,
+            risky_fraction_per_bucket=context.risky_fraction_per_bucket,
+        )
+        if derisked is not None:
+            best_feasible_w, best_feasible_obj = derisked
+            robustification_derisked = True
 
     if best_result is None and best_feasible_result is not None and best_feasible_w is not None:
         best_result = best_feasible_result
@@ -940,7 +1045,11 @@ def run_solver(
             "enabled": True,
             "stage": "finite_feasible_candidate",
             "attempts": attempt_summaries,
-            "final_reason": "strict_feasibility_check_passed_risk_tiebreak",
+            "final_reason": (
+                "strict_feasibility_check_passed_risk_tiebreak_derisked"
+                if robustification_derisked
+                else "strict_feasibility_check_passed_risk_tiebreak"
+            ),
         }
         reasoning.append(
             "Stage-9 Robustifizierung: SciPy meldete keinen stabilen Erfolg, "
