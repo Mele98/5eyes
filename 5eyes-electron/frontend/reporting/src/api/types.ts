@@ -1,5 +1,5 @@
 /**
- * TypeScript-Typen für das Advisory-Report Schema v1.
+ * TypeScript-Typen für das Advisory-Report Schema v2.
  *
  * Spiegelt 1:1 die Datenstruktur aus
  * `5eyes-backend/services/advisory_report.py::compute_advisory_report`
@@ -45,7 +45,15 @@ export interface CoverData {
 }
 
 // ---------------------------------------------------------------------------
-// Sektion 2 — Inhaltsverzeichnis
+// Sektion 2 — Disclaimer
+// ---------------------------------------------------------------------------
+
+export interface DisclaimerData {
+  hinweise: string[];
+}
+
+// ---------------------------------------------------------------------------
+// Sektion 3 — Inhaltsverzeichnis
 // ---------------------------------------------------------------------------
 
 export interface Kapitel {
@@ -58,7 +66,7 @@ export interface InhaltsverzeichnisData {
 }
 
 // ---------------------------------------------------------------------------
-// Sektion 3 — Ausgangslage
+// Sektion 4 — Ausgangslage
 // ---------------------------------------------------------------------------
 
 export interface ClientInfo {
@@ -112,7 +120,7 @@ export interface AusgangslageData {
 }
 
 // ---------------------------------------------------------------------------
-// Sektion 4 — Positionen
+// Sektion 5 — Positionen
 // ---------------------------------------------------------------------------
 
 export interface PositionEntry {
@@ -143,7 +151,7 @@ export interface PositionenData {
 }
 
 // ---------------------------------------------------------------------------
-// Sektion 5 — Was wir prüfen
+// Sektion 6 — Was wir prüfen
 // ---------------------------------------------------------------------------
 
 export interface PruefBlock {
@@ -157,7 +165,7 @@ export interface PruefpunkteData {
 }
 
 // ---------------------------------------------------------------------------
-// Sektion 6 — Erkenntnisse (Ampel)
+// Sektion 7 — Erkenntnisse (Ampel)
 // ---------------------------------------------------------------------------
 
 export interface ErkenntnisCheck {
@@ -172,7 +180,7 @@ export interface ErkenntnisseData {
 }
 
 // ---------------------------------------------------------------------------
-// Sektion 7 — Asset Allocation
+// Sektion 8 — Asset Allocation
 // ---------------------------------------------------------------------------
 
 export interface AssetAllocationItem {
@@ -195,7 +203,7 @@ export interface AssetAllocationData {
 }
 
 // ---------------------------------------------------------------------------
-// Sektion 8 — Risikowährungen
+// Sektion 9 — Risikowährungen
 // ---------------------------------------------------------------------------
 
 export interface CurrencyItem {
@@ -214,7 +222,7 @@ export interface RisikowaehrungenData {
 }
 
 // ---------------------------------------------------------------------------
-// Sektion 9 — Branchen
+// Sektion 10 — Branchen
 // ---------------------------------------------------------------------------
 
 export interface SectorItem {
@@ -233,7 +241,7 @@ export interface BranchenData {
 }
 
 // ---------------------------------------------------------------------------
-// Sektion 10 — Goal-Based Investing
+// Sektion 11 — Goal-Based Investing
 // ---------------------------------------------------------------------------
 
 export interface GoalEntry {
@@ -266,7 +274,7 @@ export interface GoalBasedInvestingData {
 }
 
 // ---------------------------------------------------------------------------
-// Sektion 11 — Risikoprofilierung
+// Sektion 12 — Risikoprofilierung
 // ---------------------------------------------------------------------------
 
 export interface RiskQuestion {
@@ -287,7 +295,7 @@ export interface RisikoprofilierungData {
 }
 
 // ---------------------------------------------------------------------------
-// Sektion 12 — Building Blocks / iSAA
+// Sektion 13 — Building Blocks / iSAA
 // ---------------------------------------------------------------------------
 
 export interface BuildingBlock {
@@ -312,7 +320,7 @@ export interface BuildingBlocksData {
 }
 
 // ---------------------------------------------------------------------------
-// Sektion 13 — Statement aus dem Portfoliomanagement
+// Sektion 14 — Statement aus dem Portfoliomanagement
 // ---------------------------------------------------------------------------
 
 export interface InvestmentPrinciple {
@@ -326,7 +334,7 @@ export interface StatementPmData {
 }
 
 // ---------------------------------------------------------------------------
-// Sektion 14 — Weiteres Vorgehen
+// Sektion 15 — Weiteres Vorgehen
 // ---------------------------------------------------------------------------
 
 export interface WeiteresVorgehenData {
@@ -339,23 +347,16 @@ export interface WeiteresVorgehenData {
 }
 
 // ---------------------------------------------------------------------------
-// Sektion 15 — Disclaimer
-// ---------------------------------------------------------------------------
-
-export interface DisclaimerData {
-  hinweise: string[];
-}
-
-// ---------------------------------------------------------------------------
 // Top-Level Schema
 // ---------------------------------------------------------------------------
 
 export interface AdvisoryReport {
-  schema_version: 1;
+  schema_version: 2;
   mandate_id: string;
   /** ISO-Timestamp YYYY-MM-DDTHH:MM:SS.SSSZ */
   generated_at: string;
   cover: CoverData;
+  disclaimer: DisclaimerData;
   inhaltsverzeichnis: InhaltsverzeichnisData;
   ausgangslage: AusgangslageData;
   positionen: PositionenData;
@@ -369,5 +370,4 @@ export interface AdvisoryReport {
   building_blocks: BuildingBlocksData;
   statement_pm: StatementPmData;
   weiteres_vorgehen: WeiteresVorgehenData;
-  disclaimer: DisclaimerData;
 }

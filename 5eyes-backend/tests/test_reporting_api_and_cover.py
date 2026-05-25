@@ -2,7 +2,7 @@
 
 Prüft die TypeScript-Module statisch auf Disk (keine npm-Installation
 nötig). Validiert dass:
-- Schema-v1-Typen alle 15 Sektionen + Sub-Strukturen abdecken
+- Schema-v2-Typen alle 15 Sektionen + Sub-Strukturen abdecken
 - API-Client robuste Error-Klassen + Defensive Schema-Validierung hat
 - React Hook saubere State-Machine implementiert
 - Cover-Seite alle Cover-Felder rendert + Branding-konform ist
@@ -49,8 +49,8 @@ def test_new_files_exist(relative: str):
 def test_types_declares_top_level_advisory_report_interface():
     content = _read("api/types.ts")
     assert "export interface AdvisoryReport" in content
-    # Top-Level-Schema-Version 1
-    assert "schema_version: 1" in content
+    # Top-Level-Schema-Version 2
+    assert "schema_version: 2" in content
 
 
 @pytest.mark.parametrize("interface", [
@@ -91,23 +91,24 @@ def test_types_declares_ampel_status_union():
 
 def test_client_exports_error_classes():
     content = _read("api/client.ts")
+    assert "validateSchemaV2" in content
+    assert "erwartet 2" in content
     assert "export class ApiError" in content
     assert "export class SchemaError" in content
 
 
-def test_client_validates_schema_v1_top_level_keys():
+def test_client_validates_schema_v2_top_level_keys():
     """Schema-Validierung MUSS prüfen, dass alle 15 Sektion-Keys da sind
     (Defensive vor Render-Crash bei Backend-Drift)."""
     content = _read("api/client.ts")
-    # Alle 15 Sektion-Keys + 3 Meta-Keys müssen in validateSchemaV1 sein
+    # Alle 15 Sektion-Keys + 3 Meta-Keys müssen validiert sein
     expected = [
         "schema_version", "mandate_id", "generated_at",
-        "cover", "inhaltsverzeichnis", "ausgangslage",
+        "cover", "disclaimer", "inhaltsverzeichnis", "ausgangslage",
         "positionen", "pruefpunkte", "erkenntnisse",
         "asset_allocation", "risikowaehrungen", "branchen",
         "goal_based_investing", "risikoprofilierung",
         "building_blocks", "statement_pm", "weiteres_vorgehen",
-        "disclaimer",
     ]
     for key in expected:
         assert f"'{key}'" in content, f"client.ts validiert {key!r} nicht"

@@ -84,7 +84,7 @@ export async function fetchAdvisoryReport(
   }
 
   const data = (await response.json()) as AdvisoryReport;
-  validateSchemaV1(data);
+  validateSchemaV2(data);
   return data;
 }
 
@@ -128,17 +128,17 @@ async function resolveAuthToken(): Promise<string | null> {
  * jede Sub-Struktur — Sub-Defaults sind im Backend-Schema dokumentiert
  * und werden in den Komponenten mit Fallbacks abgefangen.
  */
-function validateSchemaV1(data: unknown): asserts data is AdvisoryReport {
+function validateSchemaV2(data: unknown): asserts data is AdvisoryReport {
   if (!data || typeof data !== 'object') {
     throw new SchemaError('root (kein Objekt)');
   }
   const expectedKeys = [
     'schema_version', 'mandate_id', 'generated_at',
-    'cover', 'inhaltsverzeichnis', 'ausgangslage', 'positionen',
+    'cover', 'disclaimer', 'inhaltsverzeichnis', 'ausgangslage', 'positionen',
     'pruefpunkte', 'erkenntnisse', 'asset_allocation',
     'risikowaehrungen', 'branchen', 'goal_based_investing',
     'risikoprofilierung', 'building_blocks', 'statement_pm',
-    'weiteres_vorgehen', 'disclaimer',
+    'weiteres_vorgehen',
   ] as const;
   for (const key of expectedKeys) {
     if (!(key in (data as Record<string, unknown>))) {
@@ -146,9 +146,9 @@ function validateSchemaV1(data: unknown): asserts data is AdvisoryReport {
     }
   }
   const version = (data as { schema_version?: unknown }).schema_version;
-  if (version !== 1) {
+  if (version !== 2) {
     throw new SchemaError(
-      `schema_version (erwartet 1, erhalten ${String(version)})`,
+      `schema_version (erwartet 2, erhalten ${String(version)})`,
     );
   }
 }

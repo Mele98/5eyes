@@ -60,7 +60,7 @@ def compute_advisory_report(
     Returns
     -------
     dict
-        Stable JSON-Schema (see `advisory_report_schema_v1` in
+        Stable JSON-Schema (see `advisory_report_schema_v2` in
         docs/planning/2026-05-24-sprint-u-p21-advisory-report-backend.md).
         All values are either primitive types, lists, or dicts — directly
         JSON-serializable.
@@ -73,39 +73,39 @@ def compute_advisory_report(
     dc = compute_depot_check(db, mandate) or {}
 
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "mandate_id": str(getattr(mandate, "id", "") or ""),
         "generated_at": generated_at,
         # --- Sektion 1
         "cover": _build_cover(mandate, client, advisor, generated_at),
         # --- Sektion 2
-        "inhaltsverzeichnis": _build_inhaltsverzeichnis(),
-        # --- Sektion 3
-        "ausgangslage": _build_ausgangslage(db, mandate, client),
-        # --- Sektion 4
-        "positionen": _build_positionen(db, mandate),
-        # --- Sektion 5
-        "pruefpunkte": _build_pruefpunkte(),
-        # --- Sektion 6
-        "erkenntnisse": _build_erkenntnisse(db, mandate, dc=dc),
-        # --- Sektion 7
-        "asset_allocation": _build_asset_allocation(dc),
-        # --- Sektion 8
-        "risikowaehrungen": _build_risikowaehrungen(dc),
-        # --- Sektion 9
-        "branchen": _build_branchen(dc),
-        # --- Sektion 10
-        "goal_based_investing": _build_goal_based_investing(db, mandate),
-        # --- Sektion 11
-        "risikoprofilierung": _build_risikoprofilierung(db, mandate),
-        # --- Sektion 12
-        "building_blocks": _build_building_blocks(db, mandate),
-        # --- Sektion 13
-        "statement_pm": _build_statement_pm(),
-        # --- Sektion 14
-        "weiteres_vorgehen": _build_weiteres_vorgehen(),
-        # --- Sektion 15
         "disclaimer": _build_disclaimer(),
+        # --- Sektion 3
+        "inhaltsverzeichnis": _build_inhaltsverzeichnis(),
+        # --- Sektion 4
+        "ausgangslage": _build_ausgangslage(db, mandate, client),
+        # --- Sektion 5
+        "positionen": _build_positionen(db, mandate),
+        # --- Sektion 6
+        "pruefpunkte": _build_pruefpunkte(),
+        # --- Sektion 7
+        "erkenntnisse": _build_erkenntnisse(db, mandate, dc=dc),
+        # --- Sektion 8
+        "asset_allocation": _build_asset_allocation(dc),
+        # --- Sektion 9
+        "risikowaehrungen": _build_risikowaehrungen(dc),
+        # --- Sektion 10
+        "branchen": _build_branchen(dc),
+        # --- Sektion 11
+        "goal_based_investing": _build_goal_based_investing(db, mandate),
+        # --- Sektion 12
+        "risikoprofilierung": _build_risikoprofilierung(db, mandate),
+        # --- Sektion 13
+        "building_blocks": _build_building_blocks(db, mandate),
+        # --- Sektion 14
+        "statement_pm": _build_statement_pm(),
+        # --- Sektion 15
+        "weiteres_vorgehen": _build_weiteres_vorgehen(),
     }
 
 
@@ -149,7 +149,7 @@ def _build_cover(
 
 
 def _build_inhaltsverzeichnis() -> dict[str, Any]:
-    """Sektion 2 — Inhaltsverzeichnis. Statische 11-Kapitel-Struktur."""
+    """Sektion 3 — Inhaltsverzeichnis. Statische 12-Kapitel-Struktur."""
     return {
         "kapitel": [
             {"nr": 1, "title": "Ausgangslage"},
@@ -161,8 +161,9 @@ def _build_inhaltsverzeichnis() -> dict[str, Any]:
             {"nr": 7, "title": "Diversifikation"},
             {"nr": 8, "title": "Statement aus dem Portfoliomanagement"},
             {"nr": 9, "title": "Zielbasierte Optimierung"},
-            {"nr": 10, "title": "Weiteres Vorgehen"},
-            {"nr": 11, "title": "Rechtliche Hinweise"},
+            {"nr": 10, "title": "Risikoprofilierung"},
+            {"nr": 11, "title": "Building Blocks"},
+            {"nr": 12, "title": "Weiteres Vorgehen"},
         ],
     }
 
@@ -172,7 +173,7 @@ def _build_ausgangslage(
     mandate: Mandate,
     client: Client,
 ) -> dict[str, Any]:
-    """Sektion 3 — Ausgangslage. Kundeninformation links, Vermögen rechts,
+    """Sektion 4 — Ausgangslage. Kundeninformation links, Vermögen rechts,
     Key Metrics unten. Daten kommen aus dem Mandat selbst plus aus den
     bestehenden Aggregations-Helpern (portfolio_engine, depot_check)."""
     # Linke Spalte: Kundeninformation
@@ -351,7 +352,7 @@ def _resolve_risk_profile_from_assessment(db: Session, mandate: Mandate) -> str:
 
 
 def _build_positionen(db: Session, mandate: Mandate) -> dict[str, Any]:
-    """Sektion 4 — Übersicht der EMPFOHLENEN Positionen (SOLL, nicht IST).
+    """Sektion 5 — Übersicht der EMPFOHLENEN Positionen (SOLL, nicht IST).
 
     Quelle: aktueller RecommendationRun + RecommendationPositions + Products.
     Falls kein Run vorhanden: leere Liste + klarer Hinweis. Berater pflegt
@@ -457,7 +458,7 @@ def _build_positionen(db: Session, mandate: Mandate) -> dict[str, Any]:
 
 
 def _build_pruefpunkte() -> dict[str, Any]:
-    """Sektion 5 — Was wir im Depotcheck prüfen. 10 statische Beschreibungs-
+    """Sektion 6 — Was wir im Depotcheck prüfen. 10 statische Beschreibungs-
     Blöcke. Berater-Override-Mechanismus folgt in eigenem Sprint (kein
     blockierendes Element für U-P21).
     """
@@ -566,7 +567,7 @@ def _build_erkenntnisse(
     *,
     dc: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Sektion 6 — Erkenntnisse mit Ampel-Bewertung pro Prüfpunkt.
+    """Sektion 7 — Erkenntnisse mit Ampel-Bewertung pro Prüfpunkt.
 
     Liefert pro Prüfpunkt:
         {pruefpunkt, bewertung, beurteilung, handlungsempfehlung}
@@ -925,10 +926,10 @@ def _check_zielkompatibilitaet(db: Session, mandate: Mandate) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# Sektionen 7-9: Visualisierungs-Daten (gleicher Bauplan: IST | SOLL | Drift)
+# Sektionen 8-10: Visualisierungs-Daten (gleicher Bauplan: IST | SOLL | Drift)
 # ---------------------------------------------------------------------------
 
-# Stabile Reihenfolge der Bucket-Keys für Sektion 7 — entspricht Spec §7.
+# Stabile Reihenfolge der Bucket-Keys für Sektion 8 — entspricht Spec §7.
 _ASSET_ALLOCATION_ORDER: tuple[tuple[str, str], ...] = (
     ("liquidity",   "Liquidität"),
     ("bonds",       "Obligationen"),
@@ -937,7 +938,7 @@ _ASSET_ALLOCATION_ORDER: tuple[tuple[str, str], ...] = (
     ("alternatives", "Alternative Anlagen"),
 )
 
-# Stabile Reihenfolge der Berichts-Währungs-Kategorien für Sektion 8.
+# Stabile Reihenfolge der Berichts-Währungs-Kategorien für Sektion 9.
 _CURRENCY_DISPLAY_ORDER: tuple[str, ...] = (
     "CHF", "USD", "EUR", "GBP", "JPY", "EM FX", "Andere",
 )
@@ -947,7 +948,7 @@ _EM_FX_CODES: frozenset[str] = frozenset({
     "ARS", "PHP", "MYR", "THB", "PLN", "HUF", "CZK", "TWD", "KRW", "CLP",
 })
 
-# Stabile Reihenfolge der GICS-Sektoren für Sektion 9 (10 + 1 institutionelle
+# Stabile Reihenfolge der GICS-Sektoren für Sektion 10 (10 + 1 institutionelle
 # Hand-Kategorie für Alternative-Sektoren ausserhalb GICS).
 _GICS_SECTOR_ORDER: tuple[str, ...] = (
     "Information Technology",
@@ -965,7 +966,7 @@ _GICS_SECTOR_ORDER: tuple[str, ...] = (
 
 
 def _build_asset_allocation(dc: dict[str, Any]) -> dict[str, Any]:
-    """Sektion 7 — Asset Allocation. IST | SOLL | Drift pro Anlageklasse."""
+    """Sektion 8 — Asset Allocation. IST | SOLL | Drift pro Anlageklasse."""
     buckets = dc.get("buckets") or {}
     ist_bps: dict[str, int] = {}
     soll_bps: dict[str, int] = {}
@@ -998,7 +999,7 @@ def _build_asset_allocation(dc: dict[str, Any]) -> dict[str, Any]:
 
 
 def _build_risikowaehrungen(dc: dict[str, Any]) -> dict[str, Any]:
-    """Sektion 8 — Risikowährungen. Aggregiert raw FX-Exposures in die
+    """Sektion 9 — Risikowährungen. Aggregiert raw FX-Exposures in die
     7 Berichts-Kategorien (CHF, USD, EUR, GBP, JPY, EM FX, Andere)."""
     ist = _aggregate_fx_into_display_buckets(
         dc.get("currency_exposure_bps") or {}
@@ -1026,7 +1027,7 @@ def _build_risikowaehrungen(dc: dict[str, Any]) -> dict[str, Any]:
 
 
 def _build_branchen(dc: dict[str, Any]) -> dict[str, Any]:
-    """Sektion 9 — Diversifikation Branchen. GICS-Reihenfolge + Hand-
+    """Sektion 10 — Diversifikation Branchen. GICS-Reihenfolge + Hand-
     Kategorie für nicht-GICS-Sektoren ("Andere/Alternativen")."""
     ist_raw = dc.get("sector_exposure_bps") or {}
     soll_raw = dc.get("soll_sector_exposure_bps") or {}
@@ -1151,7 +1152,7 @@ def _default_analyse_branchen(items: list[dict[str, Any]]) -> str:
 # ---------------------------------------------------------------------------
 
 def _build_goal_based_investing(db: Session, mandate: Mandate) -> dict[str, Any]:
-    """Sektion 10 — Goal-Based Investing.
+    """Sektion 11 — Goal-Based Investing.
 
     Liest goal_achievability aus aktueller TA. MC-Pfade (p5/p50/p75 über Zeit)
     sind heute nicht persistiert — Resultat-Struktur enthält dafür einen
@@ -1248,7 +1249,7 @@ def _build_goal_based_investing(db: Session, mandate: Mandate) -> dict[str, Any]
 
 
 def _build_risikoprofilierung(db: Session, mandate: Mandate) -> dict[str, Any]:
-    """Sektion 11 — Risikoprofilierung.
+    """Sektion 12 — Risikoprofilierung.
 
     Liest:
     - aktuelle RiskAssessment (Score Risikofähigkeit/-bereitschaft, Override)
@@ -1312,7 +1313,7 @@ def _build_risikoprofilierung(db: Session, mandate: Mandate) -> dict[str, Any]:
 
 
 def _build_building_blocks(db: Session, mandate: Mandate) -> dict[str, Any]:
-    """Sektion 12 — Building Blocks / iSAA.
+    """Sektion 13 — Building Blocks / iSAA.
 
     Liefert die 5 Allokations-Buckets der aktuellen TA plus die statische
     Erklärung der institutionellen Portfolio-Konstruktion. Granulare
@@ -1406,7 +1407,7 @@ def _default_isaa_constraints(ta: Any) -> list[dict[str, Any]]:
 # ---------------------------------------------------------------------------
 
 def _build_statement_pm() -> dict[str, Any]:
-    """Sektion 13 — Statement aus dem Portfoliomanagement.
+    """Sektion 14 — Statement aus dem Portfoliomanagement.
 
     7 institutionelle Investmentgrundsätze. Statisch — Berater-Override
     via Admin-UI folgt in eigenem Sprint. Texte FINMA-konform, ohne
@@ -1486,7 +1487,7 @@ def _build_statement_pm() -> dict[str, Any]:
 
 
 def _build_weiteres_vorgehen() -> dict[str, Any]:
-    """Sektion 14 — Weiteres Vorgehen. Heute keine Persistenz dafür.
+    """Sektion 15 — Weiteres Vorgehen. Heute keine Persistenz dafür.
 
     Default-Platzhalter mit klarem „vom Berater zu ergänzen"-Hinweis.
     Override-Mechanik (eigenes DB-Modell `MandateReportNotes`) folgt
@@ -1523,7 +1524,7 @@ def _bucket_key_from_asset_class(asset_class: str) -> str:
 
 
 def _build_disclaimer() -> dict[str, Any]:
-    """Sektion 15 — Rechtliche Hinweise. Statisch, FINMA-konform formuliert.
+    """Sektion 2 — Rechtliche Hinweise. Statisch, FINMA-konform formuliert.
 
     Bestehender Single-Report-Disclaimer wird wiederverwendet, hier nur
     der Aggregator-Struktur-Wrapper.
