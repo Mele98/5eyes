@@ -208,6 +208,15 @@ def ensure_runtime_columns() -> None:
             ('reference_price_source', 'TEXT'),
             ('reference_lookup_mode', 'TEXT'),
             ('reference_price_fetched_at', 'TEXT'),
+            # Sprint U-P20 (2026-05-24): Echte IST-Holdings des Kunden.
+            # NULL = noch nicht gepflegt (Empfehlung erstellt, Kunde hat
+            # noch nichts gekauft). depot_check.py liest das Feld für den
+            # IST/SOLL-Drift im Country/Sector/Currency-Vergleich.
+            # HOTFIX U-P20.1 (2026-05-25): Migration war im Sprint U-P20
+            # vergessen — Live-DBs hatten die Column nicht und der
+            # /advisory-report-Endpoint warf 500. Mit Eintrag hier wird
+            # die Column beim naechsten Backend-Start idempotent ergaenzt.
+            ('current_amount_rappen', 'INTEGER'),
         ],
         'clients': [
             ('investment_horizon_start', 'TEXT'),
