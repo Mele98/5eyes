@@ -26,6 +26,7 @@ from services.shadow_comparison import (
     _gesamt_verdikt,
     _summarize_mandate_for_aggregate,
     aggregate_shadow_comparisons,
+    classify_shadow_verdict,
 )
 from test_optimizer_shadow_mode import _seed_realistic_mandate, session_factory
 from test_shadow_stochastic_persistence import _fake_optimizer_result
@@ -111,6 +112,20 @@ def test_summarize_keeps_only_methodology_fields():
     assert summary["goal_counts"]["n_hard_unreachable_st"] == 0
     assert "raw_shadow_payload" not in summary
     assert "shadow_allocation_bps" not in summary
+
+
+def test_converged_robustified_is_yellow_not_red():
+    verdict = classify_shadow_verdict(
+        total_drift_bps=185,
+        risky_drift_bps=47,
+        budget_compliance_st=True,
+        n_hard_unreachable_st=0,
+        elapsed_ms=2036,
+        limiting_factor="bandbreite",
+        optimization_status="converged_robustified",
+    )
+    assert verdict["status"] == "YELLOW"
+    assert "optimization_status=converged_robustified" in verdict["reasons"]
 
 
 # --- Integration: empty DB -------------------------------------------

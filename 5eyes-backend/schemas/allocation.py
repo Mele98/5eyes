@@ -109,7 +109,7 @@ class OptimizerRunResponse(BaseResponse):
     optimizer_mode: str  # 'shadow_stochastic' | 'stochastic'
     role: str            # 'shadow' | 'active'
     method: str          # 'stochastic' | 'fallback_house_matrix'
-    status: str          # converged | diverged | diverged_infeasible | fallback_house_matrix
+    status: str          # converged | converged_robustified | diverged | diverged_infeasible | fallback_house_matrix
     seed: int
     n_paths: int
     n_iterations: int

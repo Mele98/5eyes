@@ -227,7 +227,7 @@ def test_shadow_stochastic_runs_solver_but_keeps_house_targets(session_factory, 
     assert comparison["active_method"] == "house_matrix"
     assert comparison["shadow_method"] == "stochastic"
     assert comparison["shadow_status"] in (
-        "converged", "diverged", "diverged_infeasible", "fallback_house_matrix",
+        "converged", "converged_robustified", "diverged", "diverged_infeasible", "fallback_house_matrix",
     )
     # Comparison enthaelt aktive + Shadow-Gewichte
     assert comparison["active_weights_bps"] == shadow_active_weights

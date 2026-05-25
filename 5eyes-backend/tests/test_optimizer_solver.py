@@ -194,7 +194,7 @@ def test_solver_converges_for_pension_mandate():
     )
 
     assert isinstance(result, OptimizerResult)
-    assert result.status in ("converged", "diverged_infeasible", "fallback_house_matrix")
+    assert result.status in ("converged", "converged_robustified", "diverged_infeasible", "fallback_house_matrix")
     # Weights summieren auf 10000 bps
     assert sum(result.weights_bps.values()) == 10000
     # Alle Buckets vorhanden

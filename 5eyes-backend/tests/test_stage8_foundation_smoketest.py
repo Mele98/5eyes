@@ -181,18 +181,6 @@ def test_foundation_case_appears_in_aggregate(session_factory, monkeypatch):
 # 3. Foundation-Verdikt — Methodology §4 GREEN-Erwartung
 # ---------------------------------------------------------------------------
 
-@pytest.mark.xfail(
-    strict=False,
-    reason=(
-        "Bekannter Befund 2026-05-24: Foundation-Case konvergiert nicht "
-        "(optimization_status=fallback_house_matrix, limiting_factor="
-        "solver_konvergenz). Methodology §1 Pre-Condition damit verletzt. "
-        "Fix-Scope: Stage 9 Spec (Solver-Robustifizierung) — siehe "
-        "docs/planning/2026-05-24-foundation-smoketest-finding.md. "
-        "Wenn dieser Test grün wird (XPASS), strict=True umstellen + "
-        "xfail-Marker entfernen."
-    ),
-)
 def test_foundation_case_yields_green_or_yellow_verdict(
     session_factory, monkeypatch
 ):

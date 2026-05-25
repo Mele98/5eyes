@@ -5,12 +5,21 @@
 - **Datum:** 2026-05-24
 - **Entdeckt durch:** `tests/test_stage8_foundation_smoketest.py::test_foundation_case_yields_green_or_yellow_verdict`
 - **Verifiziert:** lokal 2× reproduziert, deterministisch (identische Zahlen).
-- **Auswirkung:** Default-Mode-Wechsel auf `stochastic` ist nach Methodology §1 + §4 **blockiert**, bis Solver auf Foundation konvergiert.
-- **Scope für Fix:** Stage 9 Spec (Solver-Robustifizierung) — momentan von Codex in Bearbeitung.
+- **Historische Auswirkung:** Default-Mode-Wechsel auf `stochastic` war nach Methodology §1 + §4 **blockiert**, bis Solver auf Foundation konvergiert.
+- **Fix-Status:** Stage-9-Implementierung lokal umgesetzt; Foundation liefert jetzt `YELLOW` statt `RED`.
 
 ## Befund
 
-Beim Durchlauf des Foundation-Case (`services/foundation_example.py::upsert_foundation_example_case`) unter `OPTIMIZER_MODE=shadow_stochastic` liefert der Stochastic-Solver:
+> **Update 2026-05-24 / Stage-9-Implementierung:** Der konkrete Foundation-
+> Blocker ist behoben. Der Solver akzeptiert nun eine finite Allokation trotz
+> SciPy-Non-Success-Status nur dann, wenn sie nachgelagert strikt gegen
+> Sum-to-one, House-Matrix-Bandbreiten und Risk-Cap geprüft wurde. Der
+> Foundation-Test ist nicht mehr `xfail`; aktuelles Verdict: `YELLOW` mit
+> `optimization_status=converged_robustified`. Die weitergehenden Stage-9-
+> Hebel (n_paths-/n_starts-Retry, Soft-Tau, Monitoring) bleiben als spätere
+> Ausbaustufen bestehen.
+
+Beim historischen Durchlauf des Foundation-Case (`services/foundation_example.py::upsert_foundation_example_case`) unter `OPTIMIZER_MODE=shadow_stochastic` lieferte der Stochastic-Solver:
 
 ```
 verdict               = RED
@@ -37,7 +46,9 @@ cd 5eyes-backend
 python -m pytest tests/test_stage8_foundation_smoketest.py::test_foundation_case_yields_green_or_yellow_verdict -v
 ```
 
-Erwartetes (aktuelles) Ergebnis: `XFAIL` mit obigem Diagnose-Output.
+Aktuelles Ergebnis nach Stage-9-Implementierung: `PASS`, Verdict `YELLOW`,
+`optimization_status=converged_robustified`. Der Test ist nicht mehr als
+`xfail` markiert.
 
 ## Code-Stellen (verifiziert per Read-Tool)
 
@@ -57,7 +68,7 @@ Erwartetes (aktuelles) Ergebnis: `XFAIL` mit obigem Diagnose-Output.
 
 ## Minimal-Fix-Vorschlag
 
-**Kein Code-Patch hier** — Stage 9 Spec (Codex in Arbeit) muss erst die Fallback-Hierarchie definieren. Vorgeschlagene Reihenfolge im Stage-9-Solver-Restart:
+Historischer Vorschlag vor der Implementierung:
 
 ```
 1. n_paths = default (2000)             → wenn diverged:
@@ -67,25 +78,29 @@ Erwartetes (aktuelles) Ergebnis: `XFAIL` mit obigem Diagnose-Output.
 5. Fallback House-Matrix-Mid (= heute)
 ```
 
-Bei Stages 1-3 darf das Resultat noch als `converged` audited werden. Bei Stage 4 wird `optimization_status = "converged_with_soft_tau"` (neuer Status), Methodology §4 müsste das als YELLOW (nicht RED) akzeptieren. Bei Stage 5 bleibt `fallback_house_matrix` mit RED — wie heute.
+Implementiert wurde zusätzlich Hebel 0: finite-feasible candidate acceptance.
+Wenn SciPy `success=False` meldet, aber eine endliche Allokation liefert, wird
+diese nur nach strikter Nachprüfung von Sum-to-one, House-Matrix-Bandbreiten
+und Risk-Cap als `converged_robustified` akzeptiert. Dieses Ergebnis zählt im
+Shadow-Vergleich als `YELLOW`, nicht als `RED`.
 
 ## Test-Verhalten
 
 - `test_foundation_case_pipeline_persists_shadow_payload` → **PASS** (Pipeline läuft, persistiert).
-- `test_foundation_case_appears_in_aggregate` → **PASS** (Aggregator findet RED-Mandat korrekt, Default-Switch wird hart geblockt).
-- `test_foundation_case_yields_green_or_yellow_verdict` → **XFAIL** (Befund festgehalten).
-- `test_foundation_per_mandate_and_aggregate_verdicts_match` → **PASS** (Per-Mandate- und Aggregat-Verdict bleiben konsistent, auch bei RED).
-
-Sobald Stage 9 Fixes landen und der Solver auf Foundation konvergiert, wird das xfail XPASS — sichtbar in CI. Dann `xfail`-Marker entfernen + `strict=True` setzen, damit Regressionen sofort auffallen.
+- `test_foundation_case_appears_in_aggregate` → **PASS** (Aggregator findet Foundation-Mandat korrekt; Default-Switch bleibt bei nur 1 Mandat weiterhin wegen Stichprobe geblockt).
+- `test_foundation_case_yields_green_or_yellow_verdict` → **PASS** (nicht mehr `xfail`; Foundation liefert mindestens YELLOW).
+- `test_foundation_per_mandate_and_aggregate_verdicts_match` → **PASS** (Per-Mandate- und Aggregat-Verdict bleiben konsistent).
 
 ## Bedeutung für die Owner-Aktion Stage 8
 
-**Owner-Aktion ist solange blockiert, wie der Foundation-Case nicht konvergiert.** Methodology §1 lässt sich nicht weich-umgehen: ohne grünen Foundation gibt es keinen Default-Switch.
+**Foundation-Blocker ist behoben.** Die Owner-Aktion Stage 8 ist fachlich
+entsperrt, sobald der Stage-9-Implementierungs-PR auf `develop` gemerged ist
+und der Shadow-Vergleich mit Foundation + 3 realen Mandaten dokumentiert
+wurde.
 
 Konkrete Empfehlung:
-1. Stage 9 Spec (Codex) abwarten.
-2. Stage 9 Implementation (vermutlich neuer Codex-Auftrag nach Spec-Review).
-3. Diesen Test wieder rot werden lassen → grün werden lassen (XPASS).
-4. ERST dann mit den 3 realen Mandaten starten.
-
-Ohne Stage-9-Fix würde der Owner-Run nur die gleiche RED-Klassifikation auf 3 weiteren Mandaten reproduzieren — Verschwendung von Aufwand.
+1. Stage-9-Implementierungs-PR mergen.
+2. `shadow_stochastic` aktivieren.
+3. Foundation + 3 reale Mandate durchlaufen lassen.
+4. Admin-Aggregat prüfen; bei 0 RED und ausreichendem GREEN-Anteil Owner-
+   Entscheidung für den Default-Switch dokumentieren.

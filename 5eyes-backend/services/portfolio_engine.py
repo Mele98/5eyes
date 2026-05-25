@@ -4387,6 +4387,17 @@ def _assessment_score_x10(assessment) -> int:
     return max(0, min(100, int(raw)))
 
 
+_CONVERGED_OPTIMIZER_STATUSES = {
+    "converged",
+    "converged_robustified",
+    "converged_with_soft_tau",
+}
+
+
+def _optimizer_status_is_converged(status: str | None) -> bool:
+    return str(status or "").strip() in _CONVERGED_OPTIMIZER_STATUSES
+
+
 def _run_stochastic_optimizer_pass(
     *,
     optimizer_mode: str,
@@ -4522,22 +4533,34 @@ def _run_stochastic_optimizer_pass(
         )
         return None
 
-    if result.status == "converged":
+    if _optimizer_status_is_converged(result.status):
         if apply_targets:
             # In-place: ersetze House-Matrix-Default-Targets mit Solver-Output.
             # Bands (minimums/maximums) bleiben unveraendert, weil Solver sie
             # respektiert hat.
             for bucket, bps in result.weights_bps.items():
                 targets[bucket] = int(bps)
-            reasoning.append(
-                f"Stochastic Optimizer (Mulvey-light, {result.n_starts_attempted} "
-                f"Multi-Starts, {result.iterations} Iter): konvergiert und als "
-                "Zielallokation angewendet."
-            )
+            if result.status == "converged_robustified":
+                reasoning.append(
+                    f"Stochastic Optimizer (Mulvey-light, {result.n_starts_attempted} "
+                    f"Multi-Starts, {result.iterations} Iter): mit Stage-9-"
+                    "Robustifizierung konvergiert und als Zielallokation angewendet."
+                )
+            else:
+                reasoning.append(
+                    f"Stochastic Optimizer (Mulvey-light, {result.n_starts_attempted} "
+                    f"Multi-Starts, {result.iterations} Iter): konvergiert und als "
+                    "Zielallokation angewendet."
+                )
         else:
+            suffix = (
+                "mit Stage-9-Robustifizierung konvergiert"
+                if result.status == "converged_robustified"
+                else "konvergiert"
+            )
             reasoning.append(
                 f"Shadow-Stochastic Optimizer (Mulvey-light, {result.n_starts_attempted} "
-                f"Multi-Starts, {result.iterations} Iter): konvergiert; "
+                f"Multi-Starts, {result.iterations} Iter): {suffix}; "
                 "House-Matrix bleibt aktive Zielallokation."
             )
         if result.reasoning:
@@ -4624,10 +4647,16 @@ def _allocation_comparison_note(
     objective_delta_pct: float | None,
 ) -> str:
     """Beratungstauglicher Hinweis ohne Marketing-Sprache (V3 §10.5)."""
-    if status != "converged":
+    if not _optimizer_status_is_converged(status):
         return (
             "Der Shadow-Optimizer konvergierte nicht stabil; "
             "House-Matrix bleibt die relevante Empfehlung."
+        )
+    if status == "converged_robustified":
+        return (
+            "Der Shadow-Optimizer wurde mit erweiterter numerischer Prüfung "
+            "abgeschlossen; House-Matrix bleibt bis zum Owner-Entscheid die "
+            "aktive Empfehlung."
         )
     material = {k: v for k, v in deltas.items() if abs(int(v or 0)) >= _COMPARISON_MATERIAL_DELTA_BPS}
     if not material:
@@ -4817,7 +4846,7 @@ def _build_shadow_comparison_with_evaluations(
         # Shadow-Weights nur bewerten wenn der Solver konvergiert ist;
         # sonst sind die Solver-Weights die House-Matrix-Mid und Vergleich
         # waere irrefuehrend.
-        if optimizer_result.status == "converged":
+        if _optimizer_status_is_converged(optimizer_result.status):
             shadow_evaluation = evaluate_weights(context, optimizer_result.weights_bps)
     except Exception as exc:  # noqa: BLE001 - never crash allocation flow
         logger.warning(
@@ -4919,6 +4948,7 @@ def _build_shadow_optimization_payload(
         "n_paths": int(getattr(optimizer_result, "n_paths", 0) or 0),
         "n_iterations": int(getattr(optimizer_result, "iterations", 0) or 0),
         "n_starts_attempted": int(getattr(optimizer_result, "n_starts_attempted", 0) or 0),
+        "robustification": getattr(optimizer_result, "robustification", None),
         "reasoning": list(getattr(optimizer_result, "reasoning", []) or []),
         "comparison": comparison,
         "constraints": list(constraints or []),
@@ -5526,7 +5556,7 @@ def generate_target_allocation(
     optimizer_replaced_targets = (
         apply_stochastic
         and optimizer_result is not None
-        and optimizer_result.status == "converged"
+        and _optimizer_status_is_converged(optimizer_result.status)
     )
 
     growth_goals = _growth_goals_for_equity_tilt(goals)

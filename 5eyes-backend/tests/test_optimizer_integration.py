@@ -225,7 +225,7 @@ def test_stochastic_mode_populates_audit_fields(session_factory, monkeypatch):
         assert ta.optimization_iterations is not None
         assert ta.optimization_status is not None
         assert ta.optimization_status in (
-            "converged", "diverged", "diverged_infeasible", "fallback_house_matrix",
+            "converged", "converged_robustified", "diverged", "diverged_infeasible", "fallback_house_matrix",
         )
 
 

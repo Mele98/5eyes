@@ -125,6 +125,28 @@ Stage 9 unterscheidet:
 Die Hebel werden in fester Reihenfolge angewandt. Jeder Hebel muss seine
 Parameter im Audit-Trail speichern.
 
+### 2.0 Hebel 0 - Finite-feasible Candidate Acceptance
+
+**Mechanik:** Wenn SciPy bei der nicht-glatten Chance-Constraint-Zielfunktion
+`success=False` meldet, aber einen endlichen Kandidaten zurueckgibt, wird dieser
+Kandidat nicht blind verworfen. Er darf nur dann akzeptiert werden, wenn eine
+unabhaengige Nachpruefung alle harten Constraints strikt bestaetigt:
+
+- Sum-to-one.
+- House-Matrix-Bandbreiten.
+- `risky_fraction <= max_risky_fraction_bps`.
+
+**Nutzen:** Schließt den Foundation-Befund, bei dem SLSQP/DE einen brauchbaren,
+cap-konformen Kandidaten liefert, aber wegen numerischer Diagnose
+`fallback_house_matrix` ausloest.
+
+**Status:** Erfolg ergibt `optimization_status=converged_robustified` und im
+Shadow-Vergleich ein YELLOW-Verdikt. Das ist keine Default-Freigabe, aber kein
+RED-Blocker mehr.
+
+**Nicht erlaubt als Ersatz fuer:** tatsaechliche Constraint-Verletzung,
+fehlende HouseMatrix-Daten oder eine Allokation ohne endlichen Objective-Wert.
+
 ### 2.1 Hebel A - n_paths-Verdoppelung
 
 **Mechanik:** Anzahl Monte-Carlo-Pfade fuer einen zweiten Run verdoppeln.
@@ -214,11 +236,13 @@ Stufen 1-4 ohne finalen `fallback_house_matrix` eine valide Allocation liefern.
 Pro Allocation-Run gilt:
 
 1. Standard stochastic Run mit Default-Parametern.
-2. Falls `diverged`: `n_paths x 2` und neuer Seed.
-3. Falls weiterhin `diverged`: `n_starts x 2` mit Seeds-Shuffle.
-4. Falls weiterhin `diverged` und fachlich erlaubt: Soft-Tau-Lockerung auf
+2. Falls SciPy keinen Erfolg meldet, aber ein finiter Kandidat existiert:
+   strikte Feasibility-Nachpruefung; bei Erfolg `converged_robustified`.
+3. Falls weiterhin `diverged`: `n_paths x 2` und neuer Seed.
+4. Falls weiterhin `diverged`: `n_starts x 2` mit Seeds-Shuffle.
+5. Falls weiterhin `diverged` und fachlich erlaubt: Soft-Tau-Lockerung auf
    maximal `tau=0.75`; Erfolg ergibt `converged_with_soft_tau` und YELLOW.
-5. Falls weiterhin `diverged`: finaler Fallback auf `house_matrix_mid`.
+6. Falls weiterhin `diverged`: finaler Fallback auf `house_matrix_mid`.
 
 Diese fuenf Stufen spiegeln den Foundation-Smoketest-Vorschlag. Der optionale
 `stochastic_light`-Diagnose-Run aus Hebel D darf zwischen Stufe 4 und 5 laufen,
