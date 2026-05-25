@@ -1,19 +1,19 @@
 import { Routes, Route, Navigate, useParams } from 'react-router-dom';
 import { useAdvisoryReport } from '@/api/useAdvisoryReport';
+import type { AdvisoryReport } from '@/api/types';
+import { Sidebar, REPORT_SECTIONS } from '@/components/Sidebar';
 import { Cover } from '@/pages/Cover';
+import { Disclaimer } from '@/pages/Disclaimer';
+import { Inhaltsverzeichnis } from '@/pages/Inhaltsverzeichnis';
 
-/**
- * Root-Layout der Reporting-Sub-App.
- *
- * Routing-Strategie (Sprint U-P22.2/.3 — API + Cover):
- *   /                                      → Landing-Hinweis (kein Default-Mandat)
- *   /mandates/:mandateId/report            → Single-Page-Report (heute: Cover)
- *   /mandates/:mandateId/report/cover      → expliziter Cover-Direkt-Link
- *
- * Ab U-P23 wird die Single-Page-Struktur durch eine 15-Routen-Sektion-Tour
- * mit Sticky-Side-Nav ersetzt. Heute ist nur die Cover-Seite implementiert,
- * weitere Sektionen kommen sukzessive (U-P23-25).
- */
+type ReportSectionId = (typeof REPORT_SECTIONS)[number]['id'];
+
+const SECTION_ROUTES: Array<{ id: ReportSectionId; path: string }> =
+  REPORT_SECTIONS.map((section) => ({
+    id: section.id,
+    path: section.path,
+  }));
+
 function App() {
   return (
     <div className="min-h-screen bg-canvas text-ink">
@@ -21,12 +21,19 @@ function App() {
         <Route path="/" element={<Landing />} />
         <Route
           path="/mandates/:mandateId/report"
-          element={<ReportShell />}
+          element={<ReportShell sectionId="cover" />}
         />
         <Route
           path="/mandates/:mandateId/report/cover"
-          element={<ReportShell />}
+          element={<ReportShell sectionId="cover" />}
         />
+        {SECTION_ROUTES.filter((route) => route.path).map((route) => (
+          <Route
+            key={route.id}
+            path={`/mandates/:mandateId/report/${route.path}`}
+            element={<ReportShell sectionId={route.id} />}
+          />
+        ))}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </div>
@@ -45,7 +52,7 @@ function Landing() {
       <p className="mt-block max-w-prose text-body text-ink-muted">
         Diese Anwendung erzeugt den institutionellen Depotcheck eines Mandats
         auf Basis des 5eyes-Backend-Endpoints
-        <code className="ml-1 px-2 py-0.5 bg-canvas-subtle rounded-card text-caption">
+        <code className="ml-1 rounded-card bg-canvas-subtle px-2 py-0.5 text-caption">
           GET /mandates/&#123;id&#125;/advisory-report
         </code>
         .
@@ -57,7 +64,7 @@ function Landing() {
   );
 }
 
-function ReportShell() {
+function ReportShell({ sectionId }: { sectionId: ReportSectionId }) {
   const { mandateId } = useParams<{ mandateId: string }>();
   const { state, data, error } = useAdvisoryReport(mandateId);
 
@@ -80,7 +87,42 @@ function ReportShell() {
       />
     );
   }
-  return <Cover data={data.cover} />;
+  return (
+    <div className="min-h-screen lg:grid lg:grid-cols-[17rem_minmax(0,1fr)]">
+      <Sidebar mandateId={mandateId} activeSection={sectionId} />
+      <main>{renderSection(sectionId, data)}</main>
+    </div>
+  );
+}
+
+function renderSection(sectionId: ReportSectionId, data: AdvisoryReport) {
+  if (sectionId === 'cover') {
+    return <Cover data={data.cover} />;
+  }
+  if (sectionId === 'disclaimer') {
+    return <Disclaimer data={data.disclaimer} />;
+  }
+  if (sectionId === 'toc') {
+    return <Inhaltsverzeichnis data={data.inhaltsverzeichnis} />;
+  }
+  return <PendingSection sectionId={sectionId} />;
+}
+
+function PendingSection({ sectionId }: { sectionId: ReportSectionId }) {
+  const section = REPORT_SECTIONS.find((item) => item.id === sectionId);
+  return (
+    <article className="mx-auto min-h-screen max-w-editorial px-page-x py-page-y">
+      <p className="text-micro uppercase text-ink-subtle">
+        Sektion {section?.nr}
+      </p>
+      <h1 className="mt-block font-serif text-h1 text-ink">
+        {section?.title}
+      </h1>
+      <p className="mt-block max-w-prose text-body text-ink-muted">
+        In Vorbereitung.
+      </p>
+    </article>
+  );
 }
 
 function LoadingPanel() {
