@@ -24,7 +24,7 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
     proxy: {
-      '/mandates': {
+      '^/mandates/.*/advisory-report$': {
         target: 'http://localhost:8000',
         changeOrigin: true,
       },
