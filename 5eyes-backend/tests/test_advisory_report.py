@@ -1,12 +1,11 @@
-"""Tests für services/advisory_report.py — Sprint U-P21.1.
+"""Tests für services/advisory_report.py — Advisory-Report-Aggregator.
 
-Deckt die 4 in U-P21.1 implementierten Sektionen ab:
+Deckt die stabile 15-Seiten-Struktur ab:
 - Sektion 1: Cover
-- Sektion 2: Inhaltsverzeichnis
-- Sektion 3: Ausgangslage (Kundeninformation, Wealth-Summary, Key Metrics)
-- Sektion 15: Disclaimer
-
-Sektionen 4-14 folgen in U-P21.2 bis U-P21.5 (mit ihren Tests).
+- Sektion 2: Disclaimer
+- Sektion 3: Inhaltsverzeichnis
+- Sektion 4: Ausgangslage (Kundeninformation, Wealth-Summary, Key Metrics)
+- Sektionen 5-15: Positionen bis Weiteres Vorgehen
 """
 from __future__ import annotations
 
@@ -119,14 +118,18 @@ def test_compute_returns_expected_top_level_structure(session_factory):
         mandate, client, advisor = _seed_minimal_mandate(s)
         s.commit()
         report = compute_advisory_report(s, mandate, advisor=advisor)
-    assert report["schema_version"] == 1
+    assert report["schema_version"] == 2
     assert report["mandate_id"] == mandate.id
     assert report["generated_at"].endswith("Z")
-    # U-P21.1: nur diese Sektionen sind heute implementiert
-    assert set(report.keys()) >= {
+    expected_order = [
         "schema_version", "mandate_id", "generated_at",
-        "cover", "inhaltsverzeichnis", "ausgangslage", "disclaimer",
-    }
+        "cover", "disclaimer", "inhaltsverzeichnis", "ausgangslage",
+        "positionen", "pruefpunkte", "erkenntnisse",
+        "asset_allocation", "risikowaehrungen", "branchen",
+        "goal_based_investing", "risikoprofilierung", "building_blocks",
+        "statement_pm", "weiteres_vorgehen",
+    ]
+    assert list(report.keys()) == expected_order
 
 
 def test_compute_raises_when_mandate_has_no_client_id(session_factory):
@@ -176,26 +179,37 @@ def test_cover_handles_missing_advisor_with_dash(session_factory):
 
 
 # ---------------------------------------------------------------------------
-# Sektion 2: Inhaltsverzeichnis
+# Sektion 3: Inhaltsverzeichnis
 # ---------------------------------------------------------------------------
 
-def test_inhaltsverzeichnis_has_exactly_11_chapters(session_factory):
-    """Spec §2 listet 11 Kapitel. Reihenfolge + Nummerierung muss stabil sein
+def test_inhaltsverzeichnis_has_exactly_12_chapters(session_factory):
+    """Spec listet 12 Kapitel. Reihenfolge + Nummerierung muss stabil sein
     weil Frontend + PDF darauf referenzieren."""
     with session_factory() as s:
         mandate, _c, advisor = _seed_minimal_mandate(s)
         s.commit()
         report = compute_advisory_report(s, mandate, advisor=advisor)
     kapitel = report["inhaltsverzeichnis"]["kapitel"]
-    assert len(kapitel) == 11
-    assert [k["nr"] for k in kapitel] == list(range(1, 12))
-    titles = [k["title"] for k in kapitel]
-    assert titles[0] == "Ausgangslage"
-    assert titles[-1] == "Rechtliche Hinweise"
+    assert len(kapitel) == 12
+    assert [k["nr"] for k in kapitel] == list(range(1, 13))
+    assert [k["title"] for k in kapitel] == [
+        "Ausgangslage",
+        "Übersicht Ihrer Positionen",
+        "Was wir im Depotcheck prüfen",
+        "Erkenntnisse aus dem Depotcheck",
+        "Asset Allocation",
+        "Risikowährungen",
+        "Diversifikation",
+        "Statement aus dem Portfoliomanagement",
+        "Zielbasierte Optimierung",
+        "Risikoprofilierung",
+        "Building Blocks",
+        "Weiteres Vorgehen",
+    ]
 
 
 # ---------------------------------------------------------------------------
-# Sektion 3: Ausgangslage
+# Sektion 4: Ausgangslage
 # ---------------------------------------------------------------------------
 
 def test_ausgangslage_client_info_uses_fallbacks(session_factory):
@@ -299,7 +313,7 @@ def test_ausgangslage_key_metrics_all_none_without_target_allocation(session_fac
 
 
 # ---------------------------------------------------------------------------
-# Sektion 15: Disclaimer
+# Sektion 2: Disclaimer
 # ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
@@ -357,7 +371,7 @@ def _make_rec_run_with_position(
 
 
 # ---------------------------------------------------------------------------
-# Sektion 4: Positionen (SOLL aus RecommendationRun)
+# Sektion 5: Positionen (SOLL aus RecommendationRun)
 # ---------------------------------------------------------------------------
 
 def test_positionen_returns_5_empty_groups_when_no_recommendation_run(session_factory):
@@ -405,7 +419,7 @@ def test_positionen_aggregates_recommendation_positions_with_shares(session_fact
 
 
 # ---------------------------------------------------------------------------
-# Sektion 5: Prüfpunkte (statisch)
+# Sektion 6: Prüfpunkte (statisch)
 # ---------------------------------------------------------------------------
 
 def test_pruefpunkte_returns_10_blocks_with_stable_keys(session_factory):
@@ -430,7 +444,7 @@ def test_pruefpunkte_returns_10_blocks_with_stable_keys(session_factory):
 
 
 # ---------------------------------------------------------------------------
-# Sektion 6: Erkenntnisse (Ampel-Logik)
+# Sektion 7: Erkenntnisse (Ampel-Logik)
 # ---------------------------------------------------------------------------
 
 def test_erkenntnisse_yields_9_checks_with_required_fields(session_factory):
@@ -512,7 +526,7 @@ def test_erkenntnisse_zielkompatibilitaet_nicht_beurteilbar_without_ta(session_f
 
 
 # ---------------------------------------------------------------------------
-# Sektion 7: Asset Allocation
+# Sektion 8: Asset Allocation
 # ---------------------------------------------------------------------------
 
 def test_asset_allocation_returns_5_buckets_in_stable_order(session_factory):
@@ -582,7 +596,7 @@ def test_asset_allocation_carries_drift_and_band_info(session_factory):
 
 
 # ---------------------------------------------------------------------------
-# Sektion 8: Risikowährungen
+# Sektion 9: Risikowährungen
 # ---------------------------------------------------------------------------
 
 def test_risikowaehrungen_returns_7_buckets_in_stable_order(session_factory):
@@ -614,7 +628,7 @@ def test_risikowaehrungen_em_fx_buckets_emerging_market_currencies(session_facto
 
 
 # ---------------------------------------------------------------------------
-# Sektion 9: Branchen (GICS)
+# Sektion 10: Branchen (GICS)
 # ---------------------------------------------------------------------------
 
 def test_branchen_returns_11_gics_sectors_in_stable_order(session_factory):
@@ -664,7 +678,7 @@ def _make_ta_with_goals(
 
 
 # ---------------------------------------------------------------------------
-# Sektion 10: Goal-Based Investing
+# Sektion 11: Goal-Based Investing
 # ---------------------------------------------------------------------------
 
 def test_goal_based_investing_empty_without_ta(session_factory):
@@ -717,7 +731,7 @@ def test_goal_based_investing_aggregates_persisted_achievability(session_factory
 
 
 # ---------------------------------------------------------------------------
-# Sektion 11: Risikoprofilierung
+# Sektion 12: Risikoprofilierung
 # ---------------------------------------------------------------------------
 
 def test_risikoprofilierung_returns_defaults_without_assessment(session_factory):
@@ -774,7 +788,7 @@ def test_risikoprofilierung_with_assessment_returns_real_scores(session_factory)
 
 
 # ---------------------------------------------------------------------------
-# Sektion 12: Building Blocks / iSAA
+# Sektion 13: Building Blocks / iSAA
 # ---------------------------------------------------------------------------
 
 def test_building_blocks_returns_5_blocks_zero_without_ta(session_factory):
@@ -811,7 +825,7 @@ def test_building_blocks_reads_target_bps_from_ta(session_factory):
 
 
 # ---------------------------------------------------------------------------
-# Sektion 13: Statement aus dem Portfoliomanagement
+# Sektion 14: Statement aus dem Portfoliomanagement
 # ---------------------------------------------------------------------------
 
 def test_statement_pm_returns_7_principles_with_stable_keys(session_factory):
@@ -833,7 +847,7 @@ def test_statement_pm_returns_7_principles_with_stable_keys(session_factory):
 
 
 # ---------------------------------------------------------------------------
-# Sektion 14: Weiteres Vorgehen
+# Sektion 15: Weiteres Vorgehen
 # ---------------------------------------------------------------------------
 
 def test_weiteres_vorgehen_returns_placeholders(session_factory):
@@ -890,22 +904,21 @@ def test_endpoint_returns_full_report_structure(session_factory):
 
     assert response.status_code == 200
     data = response.json()
-    # Alle 13 Sektionen-Keys + 3 Meta-Keys
-    expected = {
+    expected = [
         "schema_version", "mandate_id", "generated_at",
-        "cover", "inhaltsverzeichnis", "ausgangslage",
+        "cover", "disclaimer", "inhaltsverzeichnis", "ausgangslage",
         "positionen", "pruefpunkte", "erkenntnisse",
         "asset_allocation", "risikowaehrungen", "branchen",
         "goal_based_investing", "risikoprofilierung", "building_blocks",
-        "statement_pm", "weiteres_vorgehen", "disclaimer",
-    }
-    assert set(data.keys()) == expected
-    assert data["schema_version"] == 1
+        "statement_pm", "weiteres_vorgehen",
+    ]
+    assert list(data.keys()) == expected
+    assert data["schema_version"] == 2
     assert data["mandate_id"] == mid
 
 
 # ---------------------------------------------------------------------------
-# Sektion 15: Disclaimer (bleibt unverändert)
+# Sektion 2: Disclaimer (bleibt unverändert)
 # ---------------------------------------------------------------------------
 
 def test_disclaimer_contains_finma_required_clauses(session_factory):
