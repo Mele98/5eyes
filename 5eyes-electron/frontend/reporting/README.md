@@ -50,7 +50,9 @@ Shell-Integration folgt in U-P27 (Polish-Sprint), wenn alle 15 Sektionen
    uvicorn main:app --reload --port 8000
    ```
 
-2. **Login in 5eyes-Hauptapp**, damit der Session-Cookie gesetzt ist
+2. **Login in 5eyes-Hauptapp**, damit der Bearer-Token vorhanden ist
+   (`window.desktop.getAuthToken` in Electron, `sessionStorage['5eyes_token']`
+   im Browser-Dev-Fallback).
    (die Reporting-Sub-App nutzt dieselbe Session). Hauptapp normal über
    Electron oder `http://localhost:8000` starten und einloggen.
 
@@ -68,7 +70,8 @@ Shell-Integration folgt in U-P27 (Polish-Sprint), wenn alle 15 Sektionen
 
 5. **Ergebnis:** Cover-Seite wird im institutionellen Editorial-Look
    gerendert. Wenn der Browser einen 401-Fehler zeigt, fehlt der
-   Session-Cookie — Schritt 2 wiederholen.
+   Bearer-Token — Schritt 2 wiederholen oder im Dev-Fallback
+   `VITE_5EYES_TOKEN` als Build-Env setzen.
 
 ### Was du visuell prüfen kannst
 

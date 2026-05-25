@@ -1,14 +1,23 @@
 /**
  * Fetch-Wrapper für den 5eyes-Backend-Advisory-Report-Endpoint.
  *
- * Auth-Strategie: Cookies werden mit `credentials: 'include'` mitgesendet
- * (5eyes-Backend setzt Session-Cookie nach Login via /auth/login).
+ * Auth-Strategie: gleicher Bearer-Token wie die 5eyes-Hauptapp. Electron
+ * liefert ihn via `window.desktop.getAuthToken`; im Browser-Dev-Fallback
+ * lesen wir `sessionStorage['5eyes_token']`.
  *
  * Error-Handling: Backend-4xx liefern strukturierte `{detail: string}`-
  * Responses; wir packen sie in `ApiError`. Network-Errors → ApiError mit
  * status=0. Schema-Drift (Top-Level-Key fehlt) → SchemaError.
  */
 import type { AdvisoryReport } from './types';
+
+declare global {
+  interface Window {
+    desktop?: {
+      getAuthToken?: () => Promise<string | null>;
+    };
+  }
+}
 
 export class ApiError extends Error {
   constructor(
@@ -41,13 +50,17 @@ export async function fetchAdvisoryReport(
 ): Promise<AdvisoryReport> {
   const baseUrl = options.baseUrl ?? '';
   const url = `${baseUrl}/mandates/${encodeURIComponent(mandateId)}/advisory-report`;
+  const token = await resolveAuthToken();
 
   let response: Response;
   try {
     response = await fetch(url, {
       method: 'GET',
       credentials: 'include',
-      headers: { Accept: 'application/json' },
+      headers: {
+        Accept: 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
       signal: options.signal,
     });
   } catch (err) {
@@ -73,6 +86,41 @@ export async function fetchAdvisoryReport(
   const data = (await response.json()) as AdvisoryReport;
   validateSchemaV1(data);
   return data;
+}
+
+
+async function resolveAuthToken(): Promise<string | null> {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+  try {
+    const desktopToken = await window.desktop?.getAuthToken?.();
+    if (desktopToken) {
+      return desktopToken;
+    }
+  } catch {
+    // Browser-dev fallback below.
+  }
+  try {
+    const sessionToken = window.sessionStorage.getItem('5eyes_token');
+    if (sessionToken) {
+      return sessionToken;
+    }
+  } catch {
+    // Storage can be unavailable in hardened browser contexts.
+  }
+  try {
+    const localToken = window.localStorage.getItem('5eyes_token');
+    if (localToken) {
+      return localToken;
+    }
+  } catch {
+    // Continue with Vite dev fallback.
+  }
+  if (import.meta.env.DEV && import.meta.env.VITE_5EYES_TOKEN) {
+    return import.meta.env.VITE_5EYES_TOKEN;
+  }
+  return null;
 }
 
 /**

@@ -152,7 +152,7 @@ def test_vite_config_proxies_backend_endpoints():
     assert "localhost:8000" in content, (
         "Backend-Proxy fehlt — Frontend kann API nicht erreichen"
     )
-    assert "/mandates" in content
+    assert "^/mandates/.*/advisory-report$" in content
     assert "/admin" in content
     assert "outDir" in content and "dist" in content
 
