@@ -62,7 +62,8 @@ BUCKET_LABELS = {
     "liquidity": "Liquiditaet",
 }
 # Maximale strategische Liquiditaetsquote im SAA. Alles darueber wird extern empfohlen.
-_SAA_LIQUIDITY_HARD_CAP_BPS: int = 300  # 3% absolutes Maximum
+_SAA_LIQUIDITY_HARD_CAP_BPS: int = 300  # 3% Soll-Maximum (Stufe 2 der Eskalation)
+_SAA_LIQUIDITY_EMERGENCY_CAP_BPS: int = 1000  # 10% absolutes Maximum (Stufe 3, mit Warnung)
 
 # Sprint A4 (2026-05-06): Smoother Reserve-Decay statt Stufenfunktion.
 # factor = exp(-years/_RESERVE_DECAY_TAU), geclamped auf [_MIN, _MAX].
@@ -5604,6 +5605,17 @@ def generate_target_allocation(
         try:
             assert_risk_budget_ok(realized_risky_bps, risk_budget_bps, slack_bps=0)
         except RiskBudgetExceeded:
+            # U-P23.1 (2026-05-25): 2-Stufen-Eskalation statt brutalem
+            # Liquid-Push auf 100%. Der vorherige Code öffnete sofort
+            # `maximums["liquidity"] = 10000` und brachte Defensiv-Mandate
+            # auf 10% SAA-Liquidität (Bug-Report vom Berater).
+            #
+            # Neue Eskalation:
+            #   Stufe 1: Versuch mit HouseMatrix-Bandbreiten unverändert
+            #   Stufe 2: bei Fail → Cap auf SAA-Hard-Cap (3%)
+            #   Stufe 3: bei Fail → Cap auf konservatives Sicherheits-
+            #            Maximum (10%) mit Warning + Reasoning-Trail
+            #   Stufe 4: bei Fail → echte ValueError propagieren
             try:
                 targets, risky_fraction_total_bps = _enforce_risk_budget(
                     targets=targets,
@@ -5613,29 +5625,41 @@ def generate_target_allocation(
                     risk_budget_bps=risk_budget_bps,
                 )
             except ValueError:
-                # U-P23.1 (2026-05-25): Compliance-Hotfix.
-                # Vorher: maximums["liquidity"] = 10000 (= 100%).
-                # Diese Notfall-Eskalation öffnete die Liquiditäts-Bandbreite
-                # auf bis zu 100% und führte regelmässig dazu, dass Defensiv-
-                # Mandate auf 10% SAA-Liquidität landeten (statt der per
-                # HouseMatrix vorgesehenen 2-5%). Die SAA-Liquiditäts-Hard-Cap
-                # (_SAA_LIQUIDITY_HARD_CAP_BPS = 3%) wurde damit umgangen.
-                # Fix: Cap respektieren. Wenn der Solver auch dann das
-                # Risikobudget nicht einhalten kann, propagiert die
-                # RiskBudgetExceeded-Exception nach oben — kein silenter
-                # Liquid-Push mehr.
-                relaxed_liquidity_max = max(
+                # Stufe 2: Cap auf SAA-Hard-Cap (3%)
+                hard_capped = max(
                     int(maximums.get("liquidity", 0) or 0),
                     int(_SAA_LIQUIDITY_HARD_CAP_BPS),
                 )
-                maximums = {**maximums, "liquidity": relaxed_liquidity_max}
-                targets, risky_fraction_total_bps = _enforce_risk_budget(
-                    targets=targets,
-                    minimums=minimums,
-                    maximums=maximums,
-                    asset_risky_weights=risk_budget_asset_weights,
-                    risk_budget_bps=risk_budget_bps,
-                )
+                maximums = {**maximums, "liquidity": hard_capped}
+                try:
+                    targets, risky_fraction_total_bps = _enforce_risk_budget(
+                        targets=targets,
+                        minimums=minimums,
+                        maximums=maximums,
+                        asset_risky_weights=risk_budget_asset_weights,
+                        risk_budget_bps=risk_budget_bps,
+                    )
+                except ValueError:
+                    # Stufe 3: erweitertes Sicherheits-Maximum (10%) +
+                    # explizite Warnung. Compliance-Notiz im Reasoning-
+                    # Trail damit der Berater sieht warum die SAA über
+                    # dem Hard-Cap ist.
+                    expanded_max = max(hard_capped, _SAA_LIQUIDITY_EMERGENCY_CAP_BPS)
+                    maximums = {**maximums, "liquidity": expanded_max}
+                    targets, risky_fraction_total_bps = _enforce_risk_budget(
+                        targets=targets,
+                        minimums=minimums,
+                        maximums=maximums,
+                        asset_risky_weights=risk_budget_asset_weights,
+                        risk_budget_bps=risk_budget_bps,
+                    )
+                    warnings.append(format_message(WARN_FALLBACK))
+                    reasoning.append(
+                        "Liquiditätsanteil über dem SAA-Hard-Cap (3 %): "
+                        "das Risikoprofil-Budget liesse sich anders nicht "
+                        "einhalten. Bitte Risikoprofil oder Goal-Struktur "
+                        "im Beratungsgespräch prüfen."
+                    )
             targets = _rebalance_to_total(targets, minimums, maximums)
             sub_allocations = _build_sub_allocations(targets, prefs)
             sub_allocations, asset_risky_weights, risky_fraction_total_bps = _enrich_sub_allocations_with_risk(sub_allocations, risky_map)

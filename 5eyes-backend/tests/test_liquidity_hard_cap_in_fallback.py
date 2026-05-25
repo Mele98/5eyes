@@ -52,13 +52,21 @@ def test_fallback_path_no_longer_opens_liquidity_to_100_percent():
     assert "U-P23.1" in src, "Hotfix-Marker im Code fehlt."
 
 
-def test_fallback_path_uses_max_of_existing_and_hard_cap():
-    """Wenn der Cap kleiner ist als das HouseMatrix-Maximum, darf
-    der Fix NICHT herunterdrücken (defensiver: max(existing, cap)).
-    Wenn der Cap größer ist (= 3% > HM-Defensiv-5% — gilt NICHT, weil
-    Defensiv-Max ist 5% > 3%), wird das HM-Max beibehalten.
-    """
+def test_fallback_uses_2_stage_cascade_not_brutal_open():
+    """2-Stufen-Eskalation: erst Hard-Cap (3%), dann Emergency-Cap (10%).
+    NIE direkt auf 100% öffnen wie vorher."""
     src = (BACKEND_ROOT / "services" / "portfolio_engine.py").read_text(encoding="utf-8")
-    # Der Fix verwendet max(maximums["liquidity"], hard_cap)
-    assert "max(" in src and "_SAA_LIQUIDITY_HARD_CAP_BPS" in src
-    assert "relaxed_liquidity_max" in src
+    assert "_SAA_LIQUIDITY_HARD_CAP_BPS" in src
+    assert "_SAA_LIQUIDITY_EMERGENCY_CAP_BPS" in src
+    assert "hard_capped = max(" in src
+    assert "expanded_max = max(" in src
+    assert "format_message(WARN_FALLBACK)" in src
+    # Warning-Reasoning ist dokumentiert
+    assert "Hard-Cap" in src
+
+
+def test_emergency_cap_is_10_percent():
+    """Emergency-Cap = 10% (1000 bps). Schwächer als der alte Bug (100%),
+    stärker als der Hard-Cap (3%) — eine Compliance-bewusste Mitte."""
+    from services.portfolio_engine import _SAA_LIQUIDITY_EMERGENCY_CAP_BPS
+    assert _SAA_LIQUIDITY_EMERGENCY_CAP_BPS == 1000
