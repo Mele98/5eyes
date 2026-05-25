@@ -28,7 +28,12 @@ export type AmpelStatus = 'gruen' | 'gelb' | 'rot' | 'nicht_beurteilbar';
 export type GoalHardness = 'Hart' | 'Primaer' | 'Opportunistisch' | '';
 
 /** Status der Zielerreichung. */
-export type GoalStatus = 'erreichbar' | 'knapp' | 'nicht_erreichbar' | '';
+export type GoalStatus =
+  | 'erreichbar'
+  | 'knapp'
+  | 'nicht_erreichbar'
+  | 'data_pending'
+  | '';
 
 // ---------------------------------------------------------------------------
 // Sektion 1 — Cover
@@ -199,6 +204,7 @@ export interface AssetAllocationData {
   ist_bps: Record<string, number>;
   soll_bps: Record<string, number>;
   drift_bps: Record<string, number>;
+  ist_basiert_auf_soll: boolean;
   anmerkungen: string;
 }
 
@@ -218,6 +224,7 @@ export interface RisikowaehrungenData {
   ist_bps: Record<string, number>;
   soll_bps: Record<string, number>;
   drift_bps: Record<string, number>;
+  ist_basiert_auf_soll: boolean;
   erklaerung: string;
 }
 
@@ -237,6 +244,9 @@ export interface BranchenData {
   ist_bps: Record<string, number>;
   soll_bps: Record<string, number>;
   drift_bps: Record<string, number>;
+  anteil_aktien_bps: number;
+  hinweis: string;
+  ist_basiert_auf_soll: boolean;
   analyse: string;
 }
 
@@ -252,7 +262,7 @@ export interface GoalEntry {
   target_date: string;
   hardness: GoalHardness;
   /** Wahrscheinlichkeit in bps (8500 = 85%) */
-  probability_bps: number;
+  probability_bps: number | null;
   status: GoalStatus;
 }
 

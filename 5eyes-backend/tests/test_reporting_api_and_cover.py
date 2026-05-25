@@ -85,6 +85,15 @@ def test_types_declares_ampel_status_union():
         assert value in content
 
 
+def test_types_cover_audit_bug_fields_for_phase1():
+    content = _read("api/types.ts")
+    assert "ist_basiert_auf_soll: boolean" in content
+    assert "anteil_aktien_bps: number" in content
+    assert "hinweis: string" in content
+    assert "| 'data_pending'" in content
+    assert "probability_bps: number | null" in content
+
+
 # ---------------------------------------------------------------------------
 # 3. client.ts — Error-Klassen + Schema-Validierung
 # ---------------------------------------------------------------------------
