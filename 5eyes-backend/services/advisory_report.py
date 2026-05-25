@@ -71,6 +71,8 @@ def compute_advisory_report(
     # (Erkenntnisse-Ampel, Asset Allocation, Währungen, Branchen).
     from services.depot_check import compute_depot_check
     dc = compute_depot_check(db, mandate) or {}
+    ist_basiert_auf_soll = _current_amounts_missing_for_latest_run(db, mandate)
+    equity_sector_context = _build_equity_sector_context(db, mandate)
 
     return {
         "schema_version": 2,
@@ -91,11 +93,19 @@ def compute_advisory_report(
         # --- Sektion 7
         "erkenntnisse": _build_erkenntnisse(db, mandate, dc=dc),
         # --- Sektion 8
-        "asset_allocation": _build_asset_allocation(dc),
+        "asset_allocation": _build_asset_allocation(
+            dc, ist_basiert_auf_soll=ist_basiert_auf_soll
+        ),
         # --- Sektion 9
-        "risikowaehrungen": _build_risikowaehrungen(dc),
+        "risikowaehrungen": _build_risikowaehrungen(
+            dc, ist_basiert_auf_soll=ist_basiert_auf_soll
+        ),
         # --- Sektion 10
-        "branchen": _build_branchen(dc),
+        "branchen": _build_branchen(
+            dc,
+            equity_sector_context=equity_sector_context,
+            ist_basiert_auf_soll=ist_basiert_auf_soll,
+        ),
         # --- Sektion 11
         "goal_based_investing": _build_goal_based_investing(db, mandate),
         # --- Sektion 12
@@ -121,6 +131,109 @@ def _load_client_or_raise(db: Session, mandate: Mandate) -> Client:
     if client is None:
         raise ValueError(f"Client {client_id!r} fuer Mandat nicht gefunden.")
     return client
+
+
+def _latest_recommendation_positions(db: Session, mandate: Mandate) -> list[Any]:
+    from models.review import RecommendationPosition, RecommendationRun
+
+    latest_run = (
+        db.query(RecommendationRun)
+        .filter(RecommendationRun.mandate_id == mandate.id)
+        .order_by(RecommendationRun.created_at.desc())
+        .first()
+    )
+    if latest_run is None:
+        return []
+    return (
+        db.query(RecommendationPosition)
+        .filter(RecommendationPosition.run_id == latest_run.id)
+        .all()
+    )
+
+
+def _latest_recommendation_positions_with_products(
+    db: Session,
+    mandate: Mandate,
+) -> list[tuple[Any, Any]]:
+    from models.review import Product
+
+    rec_positions = _latest_recommendation_positions(db, mandate)
+    product_ids = [p.product_id for p in rec_positions if p.product_id]
+    if not product_ids:
+        return []
+    products = db.query(Product).filter(Product.id.in_(product_ids)).all()
+    products_by_id = {p.id: p for p in products}
+    return [
+        (pos, products_by_id[pos.product_id])
+        for pos in rec_positions
+        if pos.product_id in products_by_id
+    ]
+
+
+def _current_or_target_amount_rappen(rec_pos: Any) -> int:
+    current_amount = _safe_int(getattr(rec_pos, "current_amount_rappen", 0))
+    if current_amount > 0:
+        return current_amount
+    return _safe_int(getattr(rec_pos, "target_amount_rappen", 0))
+
+
+def _current_amounts_missing_for_latest_run(db: Session, mandate: Mandate) -> bool:
+    """True when current values are absent and IST is therefore SOLL-backed."""
+    rec_positions = _latest_recommendation_positions(db, mandate)
+    if not rec_positions:
+        return False
+    return all(getattr(pos, "current_amount_rappen", None) is None for pos in rec_positions)
+
+
+def _build_equity_sector_context(db: Session, mandate: Mandate) -> dict[str, Any]:
+    """Sector distribution normalized within the equity sleeve only."""
+    from services.product_exposures import aggregate_exposures, sector_exposure_for_product
+
+    rows = _latest_recommendation_positions_with_products(db, mandate)
+    total_amount = 0
+    equity_amount = 0
+    equity_rows: list[tuple[Any, Any, int]] = []
+    for rec_pos, product in rows:
+        amount = _current_or_target_amount_rappen(rec_pos)
+        if amount <= 0:
+            continue
+        total_amount += amount
+        if _bucket_key_from_asset_class(str(getattr(product, "asset_class", "") or "")) != "equities":
+            continue
+        equity_amount += amount
+        equity_rows.append((rec_pos, product, amount))
+
+    if total_amount <= 0 or equity_amount <= 0:
+        return {
+            "ist": {},
+            "soll": {},
+            "anteil_aktien_bps": 0,
+        }
+
+    sector_inputs: dict[str, dict[str, int]] = {}
+    ist_weights: dict[str, int] = {}
+    soll_weights: dict[str, int] = {}
+    target_equity_amount = sum(
+        _safe_int(getattr(rec_pos, "target_amount_rappen", 0))
+        for rec_pos, _product, _amount in equity_rows
+    )
+
+    for rec_pos, product, amount in equity_rows:
+        row_id = str(getattr(rec_pos, "id", "") or "")
+        sector_inputs[row_id] = sector_exposure_for_product(
+            getattr(product, "sector_exposure_json", None),
+            getattr(product, "sub_asset_class", None),
+        )
+        ist_weights[row_id] = int(round(amount / equity_amount * 10000))
+        target_amount = _safe_int(getattr(rec_pos, "target_amount_rappen", 0))
+        if target_equity_amount > 0 and target_amount > 0:
+            soll_weights[row_id] = int(round(target_amount / target_equity_amount * 10000))
+
+    return {
+        "ist": aggregate_exposures(ist_weights, sector_inputs) if ist_weights else {},
+        "soll": aggregate_exposures(soll_weights, sector_inputs) if soll_weights else {},
+        "anteil_aktien_bps": int(round(equity_amount / total_amount * 10000)),
+    }
 
 
 def _build_cover(
@@ -965,7 +1078,11 @@ _GICS_SECTOR_ORDER: tuple[str, ...] = (
 )
 
 
-def _build_asset_allocation(dc: dict[str, Any]) -> dict[str, Any]:
+def _build_asset_allocation(
+    dc: dict[str, Any],
+    *,
+    ist_basiert_auf_soll: bool = False,
+) -> dict[str, Any]:
     """Sektion 8 — Asset Allocation. IST | SOLL | Drift pro Anlageklasse."""
     buckets = dc.get("buckets") or {}
     ist_bps: dict[str, int] = {}
@@ -994,11 +1111,16 @@ def _build_asset_allocation(dc: dict[str, Any]) -> dict[str, Any]:
         "ist_bps": ist_bps,
         "soll_bps": soll_bps,
         "drift_bps": drift_bps,
+        "ist_basiert_auf_soll": bool(ist_basiert_auf_soll),
         "anmerkungen": _default_anmerkungen_asset_allocation(items),
     }
 
 
-def _build_risikowaehrungen(dc: dict[str, Any]) -> dict[str, Any]:
+def _build_risikowaehrungen(
+    dc: dict[str, Any],
+    *,
+    ist_basiert_auf_soll: bool = False,
+) -> dict[str, Any]:
     """Sektion 9 — Risikowährungen. Aggregiert raw FX-Exposures in die
     7 Berichts-Kategorien (CHF, USD, EUR, GBP, JPY, EM FX, Andere)."""
     ist = _aggregate_fx_into_display_buckets(
@@ -1022,15 +1144,27 @@ def _build_risikowaehrungen(dc: dict[str, Any]) -> dict[str, Any]:
         "ist_bps": {it["label"]: it["ist_bps"] for it in items},
         "soll_bps": {it["label"]: it["soll_bps"] for it in items},
         "drift_bps": {it["label"]: it["drift_bps"] for it in items},
+        "ist_basiert_auf_soll": bool(ist_basiert_auf_soll),
         "erklaerung": _default_erklaerung_waehrungen(items),
     }
 
 
-def _build_branchen(dc: dict[str, Any]) -> dict[str, Any]:
+def _build_branchen(
+    dc: dict[str, Any],
+    *,
+    equity_sector_context: dict[str, Any] | None = None,
+    ist_basiert_auf_soll: bool = False,
+) -> dict[str, Any]:
     """Sektion 10 — Diversifikation Branchen. GICS-Reihenfolge + Hand-
     Kategorie für nicht-GICS-Sektoren ("Andere/Alternativen")."""
-    ist_raw = dc.get("sector_exposure_bps") or {}
-    soll_raw = dc.get("soll_sector_exposure_bps") or {}
+    if equity_sector_context is None:
+        ist_raw = dc.get("sector_exposure_bps") or {}
+        soll_raw = dc.get("soll_sector_exposure_bps") or {}
+        anteil_aktien_bps = 0
+    else:
+        ist_raw = equity_sector_context.get("ist") or {}
+        soll_raw = equity_sector_context.get("soll") or {}
+        anteil_aktien_bps = int(equity_sector_context.get("anteil_aktien_bps", 0) or 0)
     items: list[dict[str, Any]] = []
     covered_keys: set[str] = set()
     for sector in _GICS_SECTOR_ORDER:
@@ -1062,6 +1196,9 @@ def _build_branchen(dc: dict[str, Any]) -> dict[str, Any]:
         "ist_bps": {it["label"]: it["ist_bps"] for it in items},
         "soll_bps": {it["label"]: it["soll_bps"] for it in items},
         "drift_bps": {it["label"]: it["drift_bps"] for it in items},
+        "anteil_aktien_bps": anteil_aktien_bps,
+        "hinweis": _sector_basis_note(anteil_aktien_bps),
+        "ist_basiert_auf_soll": bool(ist_basiert_auf_soll),
         "analyse": _default_analyse_branchen(items),
     }
 
@@ -1120,6 +1257,18 @@ def _default_erklaerung_waehrungen(items: list[dict[str, Any]]) -> str:
         "Fremdwährungs-Exposure wirkt auf Volatilität und Kaufkraft. "
         "Eine Absicherung kann je nach Anlagehorizont und "
         "Liquiditätsbedarf sinnvoll sein."
+    )
+
+
+def _sector_basis_note(anteil_aktien_bps: int) -> str:
+    if anteil_aktien_bps <= 0:
+        return (
+            "Sektor-Verteilung basiert auf Aktien-Positionen. "
+            "Aktuell sind keine Aktien-Positionen mit Sektor-Daten vorhanden."
+        )
+    return (
+        "Sektor-Verteilung basiert auf "
+        f"{anteil_aktien_bps / 100:.1f}% Aktien-Allokation."
     )
 
 
@@ -1195,6 +1344,34 @@ def _build_goal_based_investing(db: Session, mandate: Mandate) -> dict[str, Any]
     goal_by_id = {str(g.id): g for g in goal_rows}
 
     goals: list[dict[str, Any]] = []
+    if not rows and goal_rows:
+        for meta in goal_rows:
+            target_amount = _safe_int(
+                getattr(meta, "target_amount_rappen", 0)
+                or getattr(meta, "target_wealth_rappen", 0)
+            )
+            goals.append({
+                "goal_id": str(getattr(meta, "id", "") or ""),
+                "label": str(getattr(meta, "label", "") or "") or "—",
+                "goal_type": str(getattr(meta, "goal_type", "") or ""),
+                "target_amount_rappen": target_amount,
+                "target_date": str(getattr(meta, "target_date", "") or ""),
+                "hardness": str(getattr(meta, "hardness", "") or ""),
+                "probability_bps": None,
+                "status": "data_pending",
+            })
+        return {
+            "goals": goals,
+            "goal_achievement_score_bps": 0,
+            "monte_carlo_paths": {
+                "data_pending": True,
+                "note": (
+                    "Zielerreichung und Monte-Carlo-Pfade werden bei der "
+                    "stochastischen Berechnung nachgereicht."
+                ),
+            },
+        }
+
     weighted_sum = 0.0
     weight_total = 0.0
     for r in rows:

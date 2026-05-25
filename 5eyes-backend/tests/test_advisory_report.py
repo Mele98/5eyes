@@ -9,6 +9,7 @@ Deckt die stabile 15-Seiten-Struktur ab:
 """
 from __future__ import annotations
 
+import json
 import sys
 import uuid
 from pathlib import Path
@@ -342,20 +343,25 @@ def _make_rec_run_with_position(
     isin: str = "CH0000000001",
     currency: str = "CHF",
     ter_bps: int = 25,
+    current_amount_rappen: int | None = None,
+    sector_exposure_json: str | None = None,
+    run: RecommendationRun | None = None,
 ) -> tuple[RecommendationRun, Product]:
-    pol = _make_optimizer_policy(s, advisor_id)
-    run = RecommendationRun(
-        id=str(uuid.uuid4()),
-        mandate_id=mandate_id, client_id=client_id,
-        policy_id=pol.id, run_type="Standard", result_status="Draft",
-        created_by=advisor_id, created_at=_NOW, updated_at=_NOW,
-    )
-    s.add(run)
+    if run is None:
+        pol = _make_optimizer_policy(s, advisor_id)
+        run = RecommendationRun(
+            id=str(uuid.uuid4()),
+            mandate_id=mandate_id, client_id=client_id,
+            policy_id=pol.id, run_type="Standard", result_status="Draft",
+            created_by=advisor_id, created_at=_NOW, updated_at=_NOW,
+        )
+        s.add(run)
     prod = Product(
         id=str(uuid.uuid4()), isin=isin, product_name=product_name,
         product_type="ETF", asset_class=asset_class,
         sub_asset_class=sub_asset_class, currency=currency,
-        ter_bps=ter_bps, created_at=_NOW, updated_at=_NOW,
+        ter_bps=ter_bps, sector_exposure_json=sector_exposure_json,
+        created_at=_NOW, updated_at=_NOW,
     )
     s.add(prod)
     s.flush()
@@ -363,6 +369,7 @@ def _make_rec_run_with_position(
         id=str(uuid.uuid4()), run_id=run.id, product_id=prod.id,
         target_weight_bps=10000,
         target_amount_rappen=target_amount_rappen,
+        current_amount_rappen=current_amount_rappen,
         created_at=_NOW, updated_at=_NOW,
     )
     s.add(pos)
@@ -595,6 +602,40 @@ def test_asset_allocation_carries_drift_and_band_info(session_factory):
     assert eq["band_max_bps"] == 6500
 
 
+def test_ist_basiert_auf_soll_flag_when_current_amounts_missing(session_factory):
+    """Wenn alle current_amount_rappen fehlen, markiert der Report den
+    Datenstand als SOLL-basiert in allen Drift-Sektionen."""
+    with session_factory() as s:
+        mandate, client, advisor = _seed_minimal_mandate(s)
+        _make_rec_run_with_position(
+            s, mandate_id=mandate.id, client_id=client.id,
+            advisor_id=advisor.id,
+            target_amount_rappen=1_000_000_00,
+            current_amount_rappen=None,
+        )
+        s.commit()
+        report = compute_advisory_report(s, mandate, advisor=advisor)
+    assert report["asset_allocation"]["ist_basiert_auf_soll"] is True
+    assert report["risikowaehrungen"]["ist_basiert_auf_soll"] is True
+    assert report["branchen"]["ist_basiert_auf_soll"] is True
+
+
+def test_ist_basiert_auf_soll_false_when_current_amount_exists(session_factory):
+    with session_factory() as s:
+        mandate, client, advisor = _seed_minimal_mandate(s)
+        _make_rec_run_with_position(
+            s, mandate_id=mandate.id, client_id=client.id,
+            advisor_id=advisor.id,
+            target_amount_rappen=1_000_000_00,
+            current_amount_rappen=900_000_00,
+        )
+        s.commit()
+        report = compute_advisory_report(s, mandate, advisor=advisor)
+    assert report["asset_allocation"]["ist_basiert_auf_soll"] is False
+    assert report["risikowaehrungen"]["ist_basiert_auf_soll"] is False
+    assert report["branchen"]["ist_basiert_auf_soll"] is False
+
+
 # ---------------------------------------------------------------------------
 # Sektion 9: Risikowährungen
 # ---------------------------------------------------------------------------
@@ -648,6 +689,63 @@ def test_branchen_returns_11_gics_sectors_in_stable_order(session_factory):
     assert "Übrige" not in labels
 
 
+def test_branchen_only_aggregates_equity_positions(session_factory):
+    """Bond-/Cash-/Immobilien-Positionen dürfen die GICS-Sektorverteilung
+    nicht mehr als 'Übrige' verwässern."""
+    with session_factory() as s:
+        mandate, client, advisor = _seed_minimal_mandate(s)
+        run, _eq = _make_rec_run_with_position(
+            s, mandate_id=mandate.id, client_id=client.id,
+            advisor_id=advisor.id,
+            asset_class="Aktien",
+            target_amount_rappen=1_000_000_00,
+            current_amount_rappen=1_000_000_00,
+            sector_exposure_json=json.dumps({"Information Technology": 10000}),
+        )
+        _make_rec_run_with_position(
+            s, mandate_id=mandate.id, client_id=client.id,
+            advisor_id=advisor.id,
+            asset_class="Obligationen",
+            product_name="Bond Fund",
+            isin="CH0000000002",
+            target_amount_rappen=9_000_000_00,
+            current_amount_rappen=9_000_000_00,
+            sector_exposure_json=json.dumps({"Financials": 10000}),
+            run=run,
+        )
+        s.commit()
+        report = compute_advisory_report(s, mandate, advisor=advisor)
+
+    br = report["branchen"]
+    it = next(item for item in br["items"] if item["label"] == "Information Technology")
+    financials = next(item for item in br["items"] if item["label"] == "Financials")
+    assert br["anteil_aktien_bps"] == 1000
+    assert "10.0%" in br["hinweis"]
+    assert it["ist_bps"] == 10000
+    assert financials["ist_bps"] == 0
+    assert "Übrige" not in [item["label"] for item in br["items"]]
+
+
+def test_branchen_returns_zero_when_no_equity(session_factory):
+    with session_factory() as s:
+        mandate, client, advisor = _seed_minimal_mandate(s)
+        _make_rec_run_with_position(
+            s, mandate_id=mandate.id, client_id=client.id,
+            advisor_id=advisor.id,
+            asset_class="Obligationen",
+            target_amount_rappen=1_000_000_00,
+            current_amount_rappen=1_000_000_00,
+            sector_exposure_json=json.dumps({"Financials": 10000}),
+        )
+        s.commit()
+        report = compute_advisory_report(s, mandate, advisor=advisor)
+
+    br = report["branchen"]
+    assert br["anteil_aktien_bps"] == 0
+    assert all(item["ist_bps"] == 0 for item in br["items"])
+    assert "keine Aktien-Positionen" in br["hinweis"]
+
+
 def _make_ta_with_goals(
     s, *, mandate_id: str, advisor_id: str,
     goal_achievability_json: str | None = None,
@@ -691,6 +789,36 @@ def test_goal_based_investing_empty_without_ta(session_factory):
     assert gbi["goals"] == []
     assert gbi["goal_achievement_score_bps"] == 0
     assert gbi["monte_carlo_paths"]["data_pending"] is True
+
+
+def test_goal_based_investing_returns_data_pending_goals_without_achievability(session_factory):
+    """Wenn Goals existieren, aber noch keine stochastic Achievability
+    persistiert ist, darf die UI nicht fälschlich 0 Goals sehen."""
+    with session_factory() as s:
+        mandate, client, advisor = _seed_minimal_mandate(s)
+        goal_id = str(uuid.uuid4())
+        s.add(Goal(
+            id=goal_id, mandate_id=mandate.id, client_id=client.id,
+            goal_family="Vermoegen", goal_type="Vermoegensziel",
+            label="Pension", rank=1, weight_bps=5000,
+            goal_scope="Beratungsvermögen", value_mode="real",
+            target_wealth_rappen=1_200_000_00, frequency="einmalig",
+            target_date="2035-12-31", is_ongoing=0, hardness="Hart",
+            is_active=1, created_at=_NOW, updated_at=_NOW,
+        ))
+        _make_ta_with_goals(
+            s, mandate_id=mandate.id, advisor_id=advisor.id,
+            goal_achievability_json=None,
+        )
+        s.commit()
+        report = compute_advisory_report(s, mandate, advisor=advisor)
+
+    gbi = report["goal_based_investing"]
+    assert len(gbi["goals"]) == 1
+    assert gbi["goals"][0]["label"] == "Pension"
+    assert gbi["goals"][0]["probability_bps"] is None
+    assert gbi["goals"][0]["status"] == "data_pending"
+    assert gbi["goal_achievement_score_bps"] == 0
 
 
 def test_goal_based_investing_aggregates_persisted_achievability(session_factory):
