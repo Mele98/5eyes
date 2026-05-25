@@ -1688,7 +1688,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 
     <!-- PAGE: PORTFOLIO -->
     <div id="page-po" class="page">
-      <div class="ph"><div><div class="ph-t">Portfolio &mdash; ETFs &amp; Fonds</div><div class="ph-s">Umsetzung Ihrer Asset Allokation in konkrete Produkte (ISIN)</div></div><div class="ph-r"><button class="btn-g" id="btn-po-refresh" onclick="refreshPortfolioFromStoredState()">Portfolio generieren</button><button class="btn" id="btn-po-pdf" onclick="downloadServerPdf('portfolio')" title="Portfolio-PDF erstellen">PDF</button><button class="btn-p" onclick="go('rv')">Weiter zum Review &rarr;</button><details class="ph-more"><summary title="Weitere Portfolio-Optionen" aria-label="Weitere Portfolio-Optionen">⋯</summary><div class="ph-more-menu"><button class="btn" id="btn-po-add-position" onclick="openPortfolioPositionHelper();this.closest('details').removeAttribute('open')">+ Bestand</button><button class="btn" id="btn-po-live-prices" onclick="refreshLivePricesForMandate();this.closest('details').removeAttribute('open')" title="Live-EOD-Preise via Marktdaten-Aggregator (yfinance/stooq) holen und Portfolio neu laden">Live-Preise</button><button class="btn" onclick="openImplementationRecipe();this.closest('details').removeAttribute('open')">Anlagerezept drucken</button><button class="btn" id="btn-po-depot-check" onclick="openDepotCheck();this.closest('details').removeAttribute('open')" title="Depot-Check: Diversifikation, Konzentration, Drift, Stress-Replays">Depot-Check</button></div></details></div></div>
+      <div class="ph"><div><div class="ph-t">Portfolio &mdash; ETFs &amp; Fonds</div><div class="ph-s">Umsetzung Ihrer Asset Allokation in konkrete Produkte (ISIN)</div></div><div class="ph-r"><button class="btn-g" id="btn-po-refresh" onclick="refreshPortfolioFromStoredState()">Portfolio generieren</button><button class="btn" id="btn-po-pdf" onclick="downloadServerPdf('portfolio')" title="Portfolio-PDF erstellen">PDF</button><button class="btn-p" onclick="go('rv')">Weiter zum Review &rarr;</button><details class="ph-more"><summary title="Weitere Portfolio-Optionen" aria-label="Weitere Portfolio-Optionen">⋯</summary><div class="ph-more-menu"><button class="btn" id="btn-po-add-position" onclick="openPortfolioPositionHelper();this.closest('details').removeAttribute('open')">+ Bestand</button><button class="btn" id="btn-po-live-prices" onclick="refreshLivePricesForMandate();this.closest('details').removeAttribute('open')" title="Live-EOD-Preise via Marktdaten-Aggregator (yfinance/stooq) holen und Portfolio neu laden">Live-Preise</button><button class="btn" onclick="openImplementationRecipe();this.closest('details').removeAttribute('open')">Anlagerezept drucken</button><button class="btn" id="btn-po-depot-check" onclick="openDepotCheck();this.closest('details').removeAttribute('open')" title="Depot-Check: Diversifikation, Konzentration, Drift, Stress-Replays">Depot-Check</button><button class="btn" id="btn-po-advisory-report" onclick="openReportingApp();this.closest('details').removeAttribute('open')" title="Institutioneller Advisory-Report (15 Seiten) in neuem Browser-Tab">Advisory-Report</button></div></details></div></div>
       <div class="pad">
         <div style="background:var(--n8);border-radius:var(--r2);padding:10px 14px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">
           <div><div style="font-size:9px;font-weight:500;letter-spacing:0.08em;text-transform:uppercase;color:rgba(255,255,255,0.4);margin-bottom:2px">Beratungsvermögen total</div><div id="po-advisory-wealth" style="font-family:var(--f-d);font-size:19px;color:#fff">CHF 2'848'000</div></div>
@@ -8587,6 +8587,38 @@ var DC_BUCKET_COLORS = {
   alternatives: '#4a6080', liquidity: '#166534',
 };
 var DC_GENERIC_COLORS = ['#1e4b8f','#78601a','#166534','#2c5080','#4a6080','#92400e','#7f1d1d','#365314','#1e3a8a','#581c87'];
+
+// Sprint U-P22.6 (2026-05-25): Token-Handoff zur Reporting-Sub-App.
+// Oeffnet die institutionelle Advisory-Report-React-App in einem neuen
+// Browser-Tab und uebergibt den aktuellen Bearer-Token via URL-Fragment.
+// In Produktion (Sprint U-P27) wird dies durch native Electron-Window-
+// Integration ersetzt; bis dahin ist der Browser-Tab der dokumentierte
+// Dev-Workflow (siehe 5eyes-electron/frontend/reporting/README.md).
+async function openReportingApp(){
+  var mid = typeof getActiveMandateId==='function' ? getActiveMandateId() : null;
+  if(!mid){
+    if(window.showAppError) showAppError('Bitte zuerst ein Mandat oeffnen.');
+    else alert('Bitte zuerst ein Mandat oeffnen.');
+    return;
+  }
+  // Token aus der gleichen Quelle wie API.js: erst Electron (window.desktop),
+  // dann Browser-sessionStorage. Reporting-App akzeptiert beides.
+  var token = '';
+  try {
+    if (window.desktop && typeof window.desktop.getAuthToken === 'function') {
+      token = (await window.desktop.getAuthToken()) || '';
+    }
+  } catch(e) { /* fallback unten */ }
+  if (!token) {
+    try { token = sessionStorage.getItem('5eyes_token') || ''; } catch(e){}
+  }
+  // Dev-Default: Vite-Dev-Server auf 5173. Produktions-URL kommt in U-P27,
+  // dann via window.desktop.openReportingWindow(...) ohne externen Browser.
+  var base = 'http://localhost:5173';
+  var path = '/mandates/' + encodeURIComponent(mid) + '/report';
+  var url = base + path + (token ? ('#token=' + encodeURIComponent(token)) : '');
+  window.open(url, '_blank', 'noopener');
+}
 
 async function openDepotCheck(){
   var mid = typeof getActiveMandateId==='function' ? getActiveMandateId() : null;
