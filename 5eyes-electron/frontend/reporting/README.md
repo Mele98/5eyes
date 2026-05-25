@@ -34,6 +34,58 @@ Dev-Server auf Port 8000 weitergeleitet (siehe `vite.config.ts`).
 
 ---
 
+## End-to-End Visual-Check der Cover-Seite
+
+Damit der Berater die Cover-Seite live mit echten Mandats-Daten sieht
+(Sprint U-P22.3 Lieferung), funktioniert der Workflow heute über den
+**Browser**, nicht über die gepackte Electron-App. Die echte Electron-
+Shell-Integration folgt in U-P27 (Polish-Sprint), wenn alle 15 Sektionen
++ PDF fertig sind.
+
+### Schritte
+
+1. **Backend starten** (FastAPI auf Port 8000):
+   ```bash
+   cd 5eyes-backend
+   uvicorn main:app --reload --port 8000
+   ```
+
+2. **Login in 5eyes-Hauptapp**, damit der Session-Cookie gesetzt ist
+   (die Reporting-Sub-App nutzt dieselbe Session). Hauptapp normal über
+   Electron oder `http://localhost:8000` starten und einloggen.
+
+3. **Reporting-Sub-App starten** (in zweitem Terminal):
+   ```bash
+   cd 5eyes-electron/frontend/reporting
+   npm install   # einmalig
+   npm run dev
+   ```
+
+4. **Browser öffnen** mit dem Mandats-Pfad:
+   ```
+   http://localhost:5173/mandates/<MANDAT_ID>/report
+   ```
+
+5. **Ergebnis:** Cover-Seite wird im institutionellen Editorial-Look
+   gerendert. Wenn der Browser einen 401-Fehler zeigt, fehlt der
+   Session-Cookie — Schritt 2 wiederholen.
+
+### Was du visuell prüfen kannst
+
+- Schrift-Hierarchie (Serif Display, Sans Body)
+- Farben (Offwhite Canvas, Navy Ink, Petrol Akzent, mattes Gold)
+- Whitespace und Vertikal-Rhythmus
+- Schweizer Datums-Format (DD.MM.YYYY)
+- Print-Vorschau (Strg+P) → Layout 1:1 zum Bildschirm
+- Fade-In-Animation beim Reload (langsam, sophisticated)
+
+Korrekturen am Look fließen direkt in `tailwind.config.ts` (Design-
+Tokens) bzw. `src/design/tokens.ts` (Chart-Palette) — beide Synchron
+halten (statischer Test in `tests/test_reporting_subapp_scaffold.py`
+verhindert Drift).
+
+---
+
 ## Build
 
 ```bash
