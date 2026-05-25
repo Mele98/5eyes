@@ -101,20 +101,26 @@ def test_main_tsx_calls_handoff_before_react_render():
 # 3. Hauptapp-Side — Button + Funktion in 5eyes_v2.html
 # ---------------------------------------------------------------------------
 
-def test_mainapp_has_advisory_report_button_in_portfolio_more_menu():
-    """Neuer Button `btn-po-advisory-report` MUSS im ph-more-Menü
-    nebem dem Depot-Check-Button stehen (gleicher Kontext, gleicher
-    visueller Anker)."""
+def test_mainapp_has_advisory_report_button_in_portfolio_header():
+    """Neuer Button `btn-po-advisory-report` MUSS in der Portfolio-Header-
+    Hauptbuttonreihe (`ph-r`) stehen, NICHT versteckt im ⋯-Menü.
+
+    Sprint U-P22.7 (2026-05-25): Button aus ph-more-menu nach ph-r
+    verschoben, damit Berater ihn sofort sehen + 1-Klick öffnen können.
+    Statisch verifiziert über Adjazenz zum sichtbaren `btn-po-pdf`-Button.
+    """
     html = _read_mainapp()
     assert 'id="btn-po-advisory-report"' in html
     assert 'onclick="openReportingApp()' in html
-    # Button-Position: muss im selben ph-more-menu wie Depot-Check sein.
-    # Statisch verifiziert über Adjazenz im Markup.
-    depot_idx = html.find('id="btn-po-depot-check"')
+    # Button muss in der sichtbaren Hauptreihe (`ph-r`) sein, NICHT
+    # im versteckten `ph-more-menu`. Test: Adjazenz zum sichtbaren
+    # PDF-Button (der ebenfalls direkt in ph-r steht).
+    pdf_idx = html.find('id="btn-po-pdf"')
     advisory_idx = html.find('id="btn-po-advisory-report"')
-    assert depot_idx > 0 and advisory_idx > 0
-    assert advisory_idx - depot_idx < 500, (
-        "Advisory-Report-Button MUSS direkt nach Depot-Check-Button stehen"
+    assert pdf_idx > 0 and advisory_idx > 0
+    assert abs(advisory_idx - pdf_idx) < 500, (
+        "Advisory-Report-Button MUSS in der sichtbaren Header-Reihe (ph-r) stehen, "
+        "nicht im versteckten ph-more-menu"
     )
 
 
