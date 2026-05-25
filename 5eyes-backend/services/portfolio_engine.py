@@ -5613,7 +5613,22 @@ def generate_target_allocation(
                     risk_budget_bps=risk_budget_bps,
                 )
             except ValueError:
-                maximums = {**maximums, "liquidity": 10000}
+                # U-P23.1 (2026-05-25): Compliance-Hotfix.
+                # Vorher: maximums["liquidity"] = 10000 (= 100%).
+                # Diese Notfall-Eskalation öffnete die Liquiditäts-Bandbreite
+                # auf bis zu 100% und führte regelmässig dazu, dass Defensiv-
+                # Mandate auf 10% SAA-Liquidität landeten (statt der per
+                # HouseMatrix vorgesehenen 2-5%). Die SAA-Liquiditäts-Hard-Cap
+                # (_SAA_LIQUIDITY_HARD_CAP_BPS = 3%) wurde damit umgangen.
+                # Fix: Cap respektieren. Wenn der Solver auch dann das
+                # Risikobudget nicht einhalten kann, propagiert die
+                # RiskBudgetExceeded-Exception nach oben — kein silenter
+                # Liquid-Push mehr.
+                relaxed_liquidity_max = max(
+                    int(maximums.get("liquidity", 0) or 0),
+                    int(_SAA_LIQUIDITY_HARD_CAP_BPS),
+                )
+                maximums = {**maximums, "liquidity": relaxed_liquidity_max}
                 targets, risky_fraction_total_bps = _enforce_risk_budget(
                     targets=targets,
                     minimums=minimums,
