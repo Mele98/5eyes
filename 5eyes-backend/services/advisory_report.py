@@ -288,19 +288,21 @@ def _build_ausgangslage(
 ) -> dict[str, Any]:
     """Sektion 4 — Ausgangslage. Kundeninformation links, Vermögen rechts,
     Key Metrics unten. Daten kommen aus dem Mandat selbst plus aus den
-    bestehenden Aggregations-Helpern (portfolio_engine, depot_check)."""
+    bestehenden Aggregations-Helpern (portfolio_engine, depot_check).
+
+    Sprint U-P30: 4 Felder werden jetzt aus existierenden Quell-Daten
+    abgeleitet, statt aus nicht-persistierten Mandate-Attributen zu lesen
+    (siehe _derive_age / _derive_investment_horizon / _derive_primary_goal_label
+    / _derive_liquidity_need).
+    """
     # Linke Spalte: Kundeninformation
     client_info = {
-        "alter": _safe_int(getattr(client, "age", None)),
-        "anlagehorizont_jahre": _safe_int(
-            getattr(mandate, "investment_horizon_years", None)
-        ),
+        "alter": _derive_age(client),
+        "anlagehorizont_jahre": _derive_investment_horizon(mandate),
         "risikoprofil": str(getattr(mandate, "risk_profile_label", "") or "")
             or _resolve_risk_profile_from_assessment(db, mandate),
-        "anlageziel": str(getattr(mandate, "primary_goal_label", "") or "") or "—",
-        "liquiditaetsbedarf_rappen": _safe_int(
-            getattr(mandate, "liquidity_need_rappen", None)
-        ),
+        "anlageziel": _derive_primary_goal_label(db, mandate),
+        "liquiditaetsbedarf_rappen": _derive_liquidity_need(db, mandate),
         "steuerdomizil": str(getattr(client, "country_of_residence", "") or "CH"),
         "referenzwaehrung": str(getattr(mandate, "base_currency", "") or "CHF"),
     }
@@ -443,6 +445,115 @@ def _build_key_metrics(db: Session, mandate: Mandate) -> dict[str, Any]:
         "max_drawdown_bps": None,
         "var_95_bps": None,
     }
+
+
+def _derive_age(client: Client) -> int:
+    """Sprint U-P30: Alter aus `client.date_of_birth` (ISO YYYY-MM-DD).
+
+    Robust gegen leeres / kaputtes Format → 0 (Frontend zeigt "—" wenn 0).
+    """
+    dob = str(getattr(client, "date_of_birth", "") or "")
+    if not dob or len(dob) < 10:
+        return 0
+    try:
+        from datetime import date
+
+        birth = date.fromisoformat(dob[:10])
+    except ValueError:
+        return 0
+    today = date.today()
+    age = today.year - birth.year - (
+        (today.month, today.day) < (birth.month, birth.day)
+    )
+    return max(0, age)
+
+
+def _derive_investment_horizon(mandate: Mandate) -> int:
+    """Sprint U-P30: Horizont aus `mandate.retirement_year` minus aktuelles Jahr.
+
+    Fallback-Cascade:
+    1. retirement_year (Mandate-Feld) — beste Quelle
+    2. life_expectancy_year (Mandate-Feld) — wenn ohne Pensionierungsjahr
+    3. 10 — konservativer Mittelfrist-Default
+    """
+    from datetime import date
+
+    today_year = date.today().year
+    retirement = _safe_int(getattr(mandate, "retirement_year", None))
+    if retirement and retirement > today_year:
+        return retirement - today_year
+    life_exp = _safe_int(getattr(mandate, "life_expectancy_year", None))
+    if life_exp and life_exp > today_year:
+        return life_exp - today_year
+    return 10
+
+
+def _derive_primary_goal_label(db: Session, mandate: Mandate) -> str:
+    """Sprint U-P30: Label des Goals mit niedrigstem `rank` (= wichtigstes Ziel).
+
+    Fallback "—" wenn keine aktiven Goals. Nutzt `goal_type` als Sub-Default,
+    falls `label` leer ist (Backwards-Compat zu alten Datensätzen).
+    """
+    from models.wealth import Goal
+
+    goal = (
+        db.query(Goal)
+        .filter(
+            Goal.mandate_id == mandate.id,
+            Goal.is_active == 1,
+        )
+        .order_by(Goal.rank.asc())
+        .first()
+    )
+    if goal is None:
+        return "—"
+    label = str(getattr(goal, "label", "") or "").strip()
+    if label:
+        return label
+    fallback = str(getattr(goal, "goal_type", "") or "").strip()
+    return fallback or "—"
+
+
+def _derive_liquidity_need(db: Session, mandate: Mandate) -> int:
+    """Sprint U-P30: Liquiditätsbedarf ≈ 6 Monate Ausgaben aus Cashflows.
+
+    Konservative Schweizer-Beratungs-Faustregel (Notgroschen 3-6 Monate;
+    wir nehmen 6 als oberen Wert für Wealth-Architecture-Mandate).
+
+    Summiert alle aktiven Expense-Cashflows des Kunden, normalisiert auf
+    Jahreswerte (jährlich/monatlich/quartalsweise erkannt) und nimmt die
+    Hälfte als 6-Monats-Notgroschen.
+    """
+    from models.wealth import Cashflow
+
+    client_id = getattr(mandate, "client_id", None)
+    if not client_id:
+        return 0
+    rows = (
+        db.query(Cashflow)
+        .filter(
+            Cashflow.client_id == client_id,
+            Cashflow.is_active == 1,
+            Cashflow.cashflow_type == "Expense",
+        )
+        .all()
+    )
+    annual_expenses_rappen = 0
+    for cf in rows:
+        amount = _safe_int(getattr(cf, "amount_rappen", 0))
+        if amount <= 0:
+            continue
+        freq = str(getattr(cf, "frequency", "") or "").lower()
+        if "jährlich" in freq or "jahr" in freq:
+            annual_expenses_rappen += amount
+        elif "monatlich" in freq or "monat" in freq:
+            annual_expenses_rappen += amount * 12
+        elif "quartal" in freq:
+            annual_expenses_rappen += amount * 4
+        else:
+            # Unbekannte Frequenz: konservativ als Jahresbetrag annehmen
+            annual_expenses_rappen += amount
+    return int(annual_expenses_rappen * 0.5)
 
 
 def _resolve_risk_profile_from_assessment(db: Session, mandate: Mandate) -> str:
