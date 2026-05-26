@@ -1078,3 +1078,186 @@ def test_disclaimer_contains_finma_required_clauses(session_factory):
     forbidden = ["ubs", "pictet", "julius bär", "ppc metrics", "swiss life", "3eyes"]
     for term in forbidden:
         assert term not in full_text, f"Verbotene Marke '{term}' im Disclaimer"
+
+
+# ---------------------------------------------------------------------------
+# Sprint U-P30: Ausgangslage-Felder aus existierenden Daten ableiten
+# ---------------------------------------------------------------------------
+
+def test_ausgangslage_derives_age_from_date_of_birth(session_factory):
+    """`client.date_of_birth` (ISO YYYY-MM-DD) → erwartetes Alter."""
+    from datetime import date
+
+    with session_factory() as s:
+        mandate, client, advisor = _seed_minimal_mandate(s)
+        # 1976-09-18 → erwartetes Alter abhängig vom heutigen Datum
+        client.date_of_birth = "1976-09-18"
+        s.commit()
+        report = compute_advisory_report(s, mandate, advisor=advisor)
+    age = report["ausgangslage"]["client_info"]["alter"]
+    today = date.today()
+    birth = date(1976, 9, 18)
+    expected = today.year - birth.year - (
+        (today.month, today.day) < (birth.month, birth.day)
+    )
+    assert age == expected
+    assert age >= 49  # sanity-check: in 2026 sind das 49 oder 50
+
+
+def test_ausgangslage_returns_zero_when_dob_missing_or_invalid(session_factory):
+    """Robust gegen leeres / kaputtes Format → 0."""
+    with session_factory() as s:
+        mandate, client, advisor = _seed_minimal_mandate(s)
+        client.date_of_birth = None
+        s.commit()
+        report = compute_advisory_report(s, mandate, advisor=advisor)
+    assert report["ausgangslage"]["client_info"]["alter"] == 0
+
+    with session_factory() as s:
+        mandate, client, advisor = _seed_minimal_mandate(s)
+        client.date_of_birth = "not-a-date"
+        s.commit()
+        report = compute_advisory_report(s, mandate, advisor=advisor)
+    assert report["ausgangslage"]["client_info"]["alter"] == 0
+
+
+def test_ausgangslage_derives_horizon_from_retirement_year(session_factory):
+    """`mandate.retirement_year` minus aktuelles Jahr → Horizont."""
+    from datetime import date
+
+    with session_factory() as s:
+        mandate, client, advisor = _seed_minimal_mandate(s)
+        mandate.retirement_year = date.today().year + 15
+        s.commit()
+        report = compute_advisory_report(s, mandate, advisor=advisor)
+    assert report["ausgangslage"]["client_info"]["anlagehorizont_jahre"] == 15
+
+
+def test_ausgangslage_horizon_falls_back_to_life_expectancy(session_factory):
+    """Ohne `retirement_year` → `life_expectancy_year` greift."""
+    from datetime import date
+
+    with session_factory() as s:
+        mandate, client, advisor = _seed_minimal_mandate(s)
+        mandate.retirement_year = None
+        mandate.life_expectancy_year = date.today().year + 30
+        s.commit()
+        report = compute_advisory_report(s, mandate, advisor=advisor)
+    assert report["ausgangslage"]["client_info"]["anlagehorizont_jahre"] == 30
+
+
+def test_ausgangslage_horizon_default_is_10_years(session_factory):
+    """Ohne `retirement_year` und ohne `life_expectancy_year` → konservativ 10."""
+    with session_factory() as s:
+        mandate, client, advisor = _seed_minimal_mandate(s)
+        mandate.retirement_year = None
+        mandate.life_expectancy_year = None
+        s.commit()
+        report = compute_advisory_report(s, mandate, advisor=advisor)
+    assert report["ausgangslage"]["client_info"]["anlagehorizont_jahre"] == 10
+
+
+def test_ausgangslage_derives_primary_goal_label_from_lowest_rank(session_factory):
+    """Wichtigstes Goal = niedrigster `rank`."""
+    with session_factory() as s:
+        mandate, client, advisor = _seed_minimal_mandate(s)
+        s.add_all([
+            Goal(
+                id=str(uuid.uuid4()),
+                mandate_id=mandate.id,
+                client_id=client.id,
+                goal_family="Vermögen",
+                goal_type="Pension",
+                label="Frühpension mit 60",
+                rank=1,
+                is_active=1,
+                created_at=_NOW,
+                updated_at=_NOW,
+            ),
+            Goal(
+                id=str(uuid.uuid4()),
+                mandate_id=mandate.id,
+                client_id=client.id,
+                goal_family="Liquidität",
+                goal_type="Sparziel",
+                label="Haus-Umbau in 5 J",
+                rank=2,
+                is_active=1,
+                created_at=_NOW,
+                updated_at=_NOW,
+            ),
+        ])
+        s.commit()
+        report = compute_advisory_report(s, mandate, advisor=advisor)
+    assert (
+        report["ausgangslage"]["client_info"]["anlageziel"]
+        == "Frühpension mit 60"
+    )
+
+
+def test_ausgangslage_primary_goal_falls_back_to_dash_when_no_goals(session_factory):
+    """Ohne Goals → '—'."""
+    with session_factory() as s:
+        mandate, client, advisor = _seed_minimal_mandate(s)
+        s.commit()
+        report = compute_advisory_report(s, mandate, advisor=advisor)
+    assert report["ausgangslage"]["client_info"]["anlageziel"] == "—"
+
+
+def test_ausgangslage_derives_liquidity_need_from_expense_cashflows(session_factory):
+    """6 Monate Ausgaben → liquiditaetsbedarf_rappen."""
+    with session_factory() as s:
+        mandate, client, advisor = _seed_minimal_mandate(s)
+        s.add_all([
+            Cashflow(
+                id=str(uuid.uuid4()),
+                client_id=client.id,
+                cashflow_type="Expense",
+                label="Lebenshaltung",
+                amount_rappen=10_000_00,   # CHF 10'000 monatlich
+                frequency="monatlich",
+                is_active=1,
+                created_at=_NOW,
+                updated_at=_NOW,
+            ),
+            Cashflow(
+                id=str(uuid.uuid4()),
+                client_id=client.id,
+                cashflow_type="Expense",
+                label="Krankenkasse-Sondervorlage",
+                amount_rappen=12_000_00,   # CHF 12'000 jährlich
+                frequency="jährlich",
+                is_active=1,
+                created_at=_NOW,
+                updated_at=_NOW,
+            ),
+            # Income wird ignoriert:
+            Cashflow(
+                id=str(uuid.uuid4()),
+                client_id=client.id,
+                cashflow_type="Income",
+                label="Salär",
+                amount_rappen=15_000_00,
+                frequency="monatlich",
+                is_active=1,
+                created_at=_NOW,
+                updated_at=_NOW,
+            ),
+        ])
+        s.commit()
+        report = compute_advisory_report(s, mandate, advisor=advisor)
+    # Jahresausgaben = 10000*12 + 12000 = 132'000 CHF = 13'200'000 Rappen
+    # 6 Monate = 6'600'000 Rappen
+    assert (
+        report["ausgangslage"]["client_info"]["liquiditaetsbedarf_rappen"]
+        == 6_600_000
+    )
+
+
+def test_ausgangslage_liquidity_need_is_zero_when_no_cashflows(session_factory):
+    """Ohne Cashflows → 0 (Frontend zeigt 'noch nicht erfasst')."""
+    with session_factory() as s:
+        mandate, client, advisor = _seed_minimal_mandate(s)
+        s.commit()
+        report = compute_advisory_report(s, mandate, advisor=advisor)
+    assert report["ausgangslage"]["client_info"]["liquiditaetsbedarf_rappen"] == 0
