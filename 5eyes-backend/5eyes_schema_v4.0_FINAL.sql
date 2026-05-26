@@ -1164,6 +1164,32 @@ CREATE INDEX IF NOT EXISTS idx_audit_time ON audit_log(created_at);
 CREATE INDEX IF NOT EXISTS idx_audit_mandate ON audit_log(mandate_id);
 
 -- ============================================================
+-- 22b. ADVISORY-REPORT BERATER-OVERRIDES (Sprint U-P28)
+-- ============================================================
+
+-- Eine Zeile pro Mandat (UNIQUE) mit Berater-individuellen Texten fuer den
+-- Advisory-Report. Leere Felder fallen auf den Auto-Default-Text des
+-- Aggregators zurueck.
+CREATE TABLE IF NOT EXISTS mandate_report_notes (
+    id                              TEXT PRIMARY KEY,
+    mandate_id                      TEXT NOT NULL UNIQUE REFERENCES mandates(id) ON UPDATE CASCADE,
+    aa_anmerkungen                  TEXT,
+    waehrungen_erklaerung           TEXT,
+    branchen_analyse                TEXT,
+    vorgehen_block_optimierungen    TEXT,
+    vorgehen_block_zielstrategie    TEXT,
+    vorgehen_offene_fragen_json     TEXT,
+    vorgehen_naechster_termin       TEXT,
+    vorgehen_todos_json             TEXT,
+    vorgehen_dokumente_json         TEXT,
+    last_edited_by                  TEXT NOT NULL REFERENCES users(id) ON UPDATE CASCADE,
+    last_edited_at                  TEXT NOT NULL,
+    created_at                      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    updated_at                      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+CREATE INDEX IF NOT EXISTS idx_mandate_report_notes_mandate ON mandate_report_notes(mandate_id);
+
+-- ============================================================
 -- 23. SYSTEM KONFIGURATION
 -- ============================================================
 

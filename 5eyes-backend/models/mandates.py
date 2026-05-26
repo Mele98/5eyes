@@ -60,3 +60,6 @@ class Mandate(Base):
     suitability_checks = relationship("SuitabilityCheck", back_populates="mandate")
     conflict_disclosures = relationship("ConflictOfInterestDisclosure", back_populates="mandate")
     recommendation_runs = relationship("RecommendationRun", back_populates="mandate")
+    report_notes = relationship(
+        "MandateReportNotes", back_populates="mandate", uselist=False
+    )
