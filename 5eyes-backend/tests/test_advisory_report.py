@@ -1261,3 +1261,146 @@ def test_ausgangslage_liquidity_need_is_zero_when_no_cashflows(session_factory):
         s.commit()
         report = compute_advisory_report(s, mandate, advisor=advisor)
     assert report["ausgangslage"]["client_info"]["liquiditaetsbedarf_rappen"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Sprint U-P28 PR B: MandateReportNotes-Aggregator-Integration
+# ---------------------------------------------------------------------------
+
+def _seed_report_notes(s, mandate_id: str, advisor_id: str, **fields):
+    """Helper: legt eine MandateReportNotes-Zeile mit beliebigen Feldern an."""
+    from models.review import MandateReportNotes
+
+    notes = MandateReportNotes(
+        id=str(uuid.uuid4()),
+        mandate_id=mandate_id,
+        last_edited_by=advisor_id,
+        last_edited_at=_NOW,
+        created_at=_NOW,
+        updated_at=_NOW,
+        **fields,
+    )
+    s.add(notes)
+    return notes
+
+
+def test_override_aa_anmerkungen_replaces_auto_text(session_factory):
+    """`aa_anmerkungen` aus Notes überschreibt den Auto-Drift-Text."""
+    with session_factory() as s:
+        mandate, client, advisor = _seed_minimal_mandate(s)
+        _seed_report_notes(
+            s, mandate.id, advisor.id,
+            aa_anmerkungen="Berater-Text: SAA stabil, kein Handlungsbedarf.",
+        )
+        s.commit()
+        report = compute_advisory_report(s, mandate, advisor=advisor)
+    assert (
+        report["asset_allocation"]["anmerkungen"]
+        == "Berater-Text: SAA stabil, kein Handlungsbedarf."
+    )
+
+
+def test_no_notes_row_keeps_auto_defaults_unchanged(session_factory):
+    """Kein Notes-Eintrag → Aggregator verhält sich wie vor U-P28
+    (Backwards-Compat-Garantie)."""
+    with session_factory() as s:
+        mandate, client, advisor = _seed_minimal_mandate(s)
+        s.commit()
+        report = compute_advisory_report(s, mandate, advisor=advisor)
+    # Auto-Defaults sind nicht-leere Strings + leere Listen
+    aa = report["asset_allocation"]
+    wae = report["risikowaehrungen"]
+    br = report["branchen"]
+    wv = report["weiteres_vorgehen"]
+
+    assert isinstance(aa["anmerkungen"], str) and aa["anmerkungen"]
+    assert isinstance(wae["erklaerung"], str) and wae["erklaerung"]
+    assert isinstance(br["analyse"], str) and br["analyse"]
+    assert wv["block_optimierungen"].startswith("(Vom Berater zu ergänzen")
+    assert wv["block_zielstrategie"].startswith("(Vom Berater zu ergänzen")
+    assert wv["offene_fragen"] == []
+    assert wv["todos"] == []
+    assert wv["dokumente"] == []
+    assert wv["naechster_termin"] is None
+
+
+def test_empty_or_whitespace_override_falls_back_to_auto_default(session_factory):
+    """Leere oder Nur-Whitespace-Overrides triggern den Default — der
+    Berater soll mit '' explizit löschen können, ohne dass leere Strings
+    den Auto-Text verschlucken."""
+    with session_factory() as s:
+        mandate, client, advisor = _seed_minimal_mandate(s)
+        _seed_report_notes(
+            s, mandate.id, advisor.id,
+            aa_anmerkungen="",
+            waehrungen_erklaerung="   ",
+            branchen_analyse=None,
+            vorgehen_block_optimierungen="",
+            vorgehen_block_zielstrategie="\n  ",
+        )
+        s.commit()
+        report = compute_advisory_report(s, mandate, advisor=advisor)
+    # Alle 4 müssen den Auto-Default zeigen (= nicht-leer, nicht-whitespace)
+    assert report["asset_allocation"]["anmerkungen"].strip()
+    assert report["risikowaehrungen"]["erklaerung"].strip()
+    assert report["branchen"]["analyse"].strip()
+    assert (
+        report["weiteres_vorgehen"]["block_optimierungen"]
+        .startswith("(Vom Berater zu ergänzen")
+    )
+    assert (
+        report["weiteres_vorgehen"]["block_zielstrategie"]
+        .startswith("(Vom Berater zu ergänzen")
+    )
+
+
+def test_weiteres_vorgehen_json_lists_and_termin_are_mapped(session_factory):
+    """Die 3 JSON-Listen-Felder + naechster_termin werden korrekt
+    materialisiert. Kaputtes JSON darf nicht crashen."""
+    with session_factory() as s:
+        mandate, client, advisor = _seed_minimal_mandate(s)
+        _seed_report_notes(
+            s, mandate.id, advisor.id,
+            vorgehen_offene_fragen_json=json.dumps(
+                ["BVG-Einkauf prüfen?", "Pillar 3a-Limit erreicht?"]
+            ),
+            vorgehen_todos_json=json.dumps(
+                ["Vorsorgeauftrag aufsetzen", "Risikoabsicherung überprüfen"]
+            ),
+            vorgehen_dokumente_json="kaputtes-json {",  # corrupted
+            vorgehen_naechster_termin="2026-08-15",
+        )
+        s.commit()
+        report = compute_advisory_report(s, mandate, advisor=advisor)
+    wv = report["weiteres_vorgehen"]
+    assert wv["offene_fragen"] == [
+        "BVG-Einkauf prüfen?", "Pillar 3a-Limit erreicht?",
+    ]
+    assert wv["todos"] == [
+        "Vorsorgeauftrag aufsetzen", "Risikoabsicherung überprüfen",
+    ]
+    # Kaputtes JSON → leere Liste, kein Crash
+    assert wv["dokumente"] == []
+    assert wv["naechster_termin"] == "2026-08-15"
+
+
+def test_audit_anchor_not_leaked_to_aggregator_output(session_factory):
+    """`last_edited_by` und `last_edited_at` aus Notes dürfen NICHT in der
+    Aggregator-Antwort auftauchen — die sind für den GET /report-notes-
+    Endpoint da, nicht für die JSON-Struktur des Reports."""
+    with session_factory() as s:
+        mandate, client, advisor = _seed_minimal_mandate(s)
+        _seed_report_notes(
+            s, mandate.id, advisor.id,
+            aa_anmerkungen="X",
+        )
+        s.commit()
+        report = compute_advisory_report(s, mandate, advisor=advisor)
+    raw = json.dumps(report)
+    assert "last_edited_by" not in raw
+    assert "last_edited_at" not in raw
+    # advisor.id darf vorkommen (im Cover advisor-Block), aber nicht als
+    # last_edited_by-Wert im AssetAllocation-Output. Reicht: kein
+    # "last_edited"-Key irgendwo in der Sektion.
+    assert "last_edited" not in json.dumps(report["asset_allocation"])
+    assert "last_edited" not in json.dumps(report["weiteres_vorgehen"])
