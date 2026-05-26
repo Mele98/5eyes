@@ -24,6 +24,7 @@ Bezug: docs/planning/2026-05-24-sprint-u-p21-advisory-report-backend.md
 """
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from typing import Any, Mapping
 
@@ -73,6 +74,11 @@ def compute_advisory_report(
     dc = compute_depot_check(db, mandate) or {}
     ist_basiert_auf_soll = _current_amounts_missing_for_latest_run(db, mandate)
     equity_sector_context = _build_equity_sector_context(db, mandate)
+    # Sprint U-P28 PR B: Berater-Overrides werden EINMAL geladen und an die
+    # vier betroffenen Sektion-Builder weitergegeben. Leere/fehlende Felder
+    # fallen automatisch auf den Auto-Default-Text der jeweiligen Sektion
+    # zurück (Default-Disziplin, siehe `_override_or_default`).
+    notes = _load_report_notes(db, mandate)
 
     return {
         "schema_version": 2,
@@ -94,15 +100,16 @@ def compute_advisory_report(
         "erkenntnisse": _build_erkenntnisse(db, mandate, dc=dc),
         # --- Sektion 8
         "asset_allocation": _build_asset_allocation(
-            dc, ist_basiert_auf_soll=ist_basiert_auf_soll
+            dc, notes=notes, ist_basiert_auf_soll=ist_basiert_auf_soll
         ),
         # --- Sektion 9
         "risikowaehrungen": _build_risikowaehrungen(
-            dc, ist_basiert_auf_soll=ist_basiert_auf_soll
+            dc, notes=notes, ist_basiert_auf_soll=ist_basiert_auf_soll
         ),
         # --- Sektion 10
         "branchen": _build_branchen(
             dc,
+            notes=notes,
             equity_sector_context=equity_sector_context,
             ist_basiert_auf_soll=ist_basiert_auf_soll,
         ),
@@ -115,7 +122,7 @@ def compute_advisory_report(
         # --- Sektion 14
         "statement_pm": _build_statement_pm(),
         # --- Sektion 15
-        "weiteres_vorgehen": _build_weiteres_vorgehen(),
+        "weiteres_vorgehen": _build_weiteres_vorgehen(notes=notes),
     }
 
 
@@ -131,6 +138,60 @@ def _load_client_or_raise(db: Session, mandate: Mandate) -> Client:
     if client is None:
         raise ValueError(f"Client {client_id!r} fuer Mandat nicht gefunden.")
     return client
+
+
+# ---------------------------------------------------------------------------
+# Sprint U-P28 PR B — Berater-Overrides für die 4 betroffenen Sektionen.
+# ---------------------------------------------------------------------------
+
+def _load_report_notes(db: Session, mandate: Mandate) -> Any | None:
+    """Lädt die `MandateReportNotes`-Zeile für ein Mandat, oder None.
+
+    Lazy-Import, damit der Aggregator auch in Test-Szenarien funktioniert,
+    in denen die Tabelle nicht angelegt wurde. Das ist konsistent zu den
+    anderen Sektion-Buildern, die ihre Modelle ebenfalls lazy importieren.
+    """
+    try:
+        from models.review import MandateReportNotes
+
+        return (
+            db.query(MandateReportNotes)
+            .filter(MandateReportNotes.mandate_id == mandate.id)
+            .first()
+        )
+    except Exception:  # noqa: BLE001 — robust gegen Schema-Mismatch in alten DBs
+        return None
+
+
+def _override_or_default(value: Any, default: str) -> str:
+    """Wenn `value` (Berater-Override) gesetzt und nicht leer ist → nutzen.
+
+    Sonst Auto-Default (Status-Quo-Verhalten vor U-P28). Leerzeichen-only
+    gilt als „nicht gepflegt" und triggert ebenfalls den Default.
+    """
+    if value is None:
+        return default
+    text = str(value).strip()
+    if not text:
+        return default
+    return str(value)
+
+
+def _parse_notes_json_list(raw: Any) -> list[str]:
+    """Defensiv: kaputtes JSON in der DB → leere Liste, kein Crash.
+
+    Identisches Verhalten wie `routers.allocation._parse_json_list`, hier
+    lokal um zirkuläre Imports zu vermeiden.
+    """
+    if not raw:
+        return []
+    try:
+        parsed = json.loads(raw)
+    except (TypeError, ValueError):
+        return []
+    if not isinstance(parsed, list):
+        return []
+    return [str(item) for item in parsed if item is not None]
 
 
 def _latest_recommendation_positions(db: Session, mandate: Mandate) -> list[Any]:
@@ -1192,9 +1253,14 @@ _GICS_SECTOR_ORDER: tuple[str, ...] = (
 def _build_asset_allocation(
     dc: dict[str, Any],
     *,
+    notes: Any | None = None,
     ist_basiert_auf_soll: bool = False,
 ) -> dict[str, Any]:
-    """Sektion 8 — Asset Allocation. IST | SOLL | Drift pro Anlageklasse."""
+    """Sektion 8 — Asset Allocation. IST | SOLL | Drift pro Anlageklasse.
+
+    Sprint U-P28 PR B: `notes.aa_anmerkungen` überschreibt den Auto-Drift-
+    Text falls vom Berater gepflegt.
+    """
     buckets = dc.get("buckets") or {}
     ist_bps: dict[str, int] = {}
     soll_bps: dict[str, int] = {}
@@ -1217,23 +1283,33 @@ def _build_asset_allocation(
             "band_max_bps": int(b.get("band_max_bps", 0) or 0),
             "in_band": b.get("in_band"),
         })
+    default_anm = _default_anmerkungen_asset_allocation(items)
+    anmerkungen = _override_or_default(
+        getattr(notes, "aa_anmerkungen", None) if notes is not None else None,
+        default_anm,
+    )
     return {
         "items": items,
         "ist_bps": ist_bps,
         "soll_bps": soll_bps,
         "drift_bps": drift_bps,
         "ist_basiert_auf_soll": bool(ist_basiert_auf_soll),
-        "anmerkungen": _default_anmerkungen_asset_allocation(items),
+        "anmerkungen": anmerkungen,
     }
 
 
 def _build_risikowaehrungen(
     dc: dict[str, Any],
     *,
+    notes: Any | None = None,
     ist_basiert_auf_soll: bool = False,
 ) -> dict[str, Any]:
     """Sektion 9 — Risikowährungen. Aggregiert raw FX-Exposures in die
-    7 Berichts-Kategorien (CHF, USD, EUR, GBP, JPY, EM FX, Andere)."""
+    7 Berichts-Kategorien (CHF, USD, EUR, GBP, JPY, EM FX, Andere).
+
+    Sprint U-P28 PR B: `notes.waehrungen_erklaerung` überschreibt den
+    Auto-CHF-Anteil-Text falls vom Berater gepflegt.
+    """
     ist = _aggregate_fx_into_display_buckets(
         dc.get("currency_exposure_bps") or {}
     )
@@ -1250,24 +1326,34 @@ def _build_risikowaehrungen(
             "soll_bps": s,
             "drift_bps": i - s,
         })
+    default_erkl = _default_erklaerung_waehrungen(items)
+    erklaerung = _override_or_default(
+        getattr(notes, "waehrungen_erklaerung", None) if notes is not None else None,
+        default_erkl,
+    )
     return {
         "items": items,
         "ist_bps": {it["label"]: it["ist_bps"] for it in items},
         "soll_bps": {it["label"]: it["soll_bps"] for it in items},
         "drift_bps": {it["label"]: it["drift_bps"] for it in items},
         "ist_basiert_auf_soll": bool(ist_basiert_auf_soll),
-        "erklaerung": _default_erklaerung_waehrungen(items),
+        "erklaerung": erklaerung,
     }
 
 
 def _build_branchen(
     dc: dict[str, Any],
     *,
+    notes: Any | None = None,
     equity_sector_context: dict[str, Any] | None = None,
     ist_basiert_auf_soll: bool = False,
 ) -> dict[str, Any]:
     """Sektion 10 — Diversifikation Branchen. GICS-Reihenfolge + Hand-
-    Kategorie für nicht-GICS-Sektoren ("Andere/Alternativen")."""
+    Kategorie für nicht-GICS-Sektoren ("Andere/Alternativen").
+
+    Sprint U-P28 PR B: `notes.branchen_analyse` überschreibt die Auto-
+    Sektor-Drift-Analyse falls vom Berater gepflegt.
+    """
     if equity_sector_context is None:
         ist_raw = dc.get("sector_exposure_bps") or {}
         soll_raw = dc.get("soll_sector_exposure_bps") or {}
@@ -1302,6 +1388,11 @@ def _build_branchen(
             "soll_bps": other_soll,
             "drift_bps": other_ist - other_soll,
         })
+    default_analyse = _default_analyse_branchen(items)
+    analyse = _override_or_default(
+        getattr(notes, "branchen_analyse", None) if notes is not None else None,
+        default_analyse,
+    )
     return {
         "items": items,
         "ist_bps": {it["label"]: it["ist_bps"] for it in items},
@@ -1310,7 +1401,7 @@ def _build_branchen(
         "anteil_aktien_bps": anteil_aktien_bps,
         "hinweis": _sector_basis_note(anteil_aktien_bps),
         "ist_basiert_auf_soll": bool(ist_basiert_auf_soll),
-        "analyse": _default_analyse_branchen(items),
+        "analyse": analyse,
     }
 
 
@@ -1774,24 +1865,55 @@ def _build_statement_pm() -> dict[str, Any]:
     }
 
 
-def _build_weiteres_vorgehen() -> dict[str, Any]:
-    """Sektion 15 — Weiteres Vorgehen. Heute keine Persistenz dafür.
+def _build_weiteres_vorgehen(*, notes: Any | None = None) -> dict[str, Any]:
+    """Sektion 15 — Weiteres Vorgehen.
 
-    Default-Platzhalter mit klarem „vom Berater zu ergänzen"-Hinweis.
-    Override-Mechanik (eigenes DB-Modell `MandateReportNotes`) folgt
-    in eigenem Sprint.
+    Sprint U-P28 PR B: 6 Override-Felder aus `MandateReportNotes`. Jede
+    Lücke fällt auf den Default-Platzhalter zurück, sodass alte Mandate
+    ohne gepflegte Notizen unverändert weiterlaufen.
     """
     placeholder = (
         "(Vom Berater zu ergänzen — wird beim Druck des Berichts "
         "konkretisiert.)"
     )
+    block_optimierungen = _override_or_default(
+        getattr(notes, "vorgehen_block_optimierungen", None) if notes is not None else None,
+        placeholder,
+    )
+    block_zielstrategie = _override_or_default(
+        getattr(notes, "vorgehen_block_zielstrategie", None) if notes is not None else None,
+        placeholder,
+    )
+    offene_fragen = (
+        _parse_notes_json_list(getattr(notes, "vorgehen_offene_fragen_json", None))
+        if notes is not None
+        else []
+    )
+    todos = (
+        _parse_notes_json_list(getattr(notes, "vorgehen_todos_json", None))
+        if notes is not None
+        else []
+    )
+    dokumente = (
+        _parse_notes_json_list(getattr(notes, "vorgehen_dokumente_json", None))
+        if notes is not None
+        else []
+    )
+    naechster_termin_raw = (
+        getattr(notes, "vorgehen_naechster_termin", None) if notes is not None else None
+    )
+    naechster_termin = (
+        str(naechster_termin_raw).strip()
+        if naechster_termin_raw and str(naechster_termin_raw).strip()
+        else None
+    )
     return {
-        "block_optimierungen": placeholder,
-        "block_zielstrategie": placeholder,
-        "offene_fragen": [],
-        "naechster_termin": None,
-        "todos": [],
-        "dokumente": [],
+        "block_optimierungen": block_optimierungen,
+        "block_zielstrategie": block_zielstrategie,
+        "offene_fragen": offene_fragen,
+        "naechster_termin": naechster_termin,
+        "todos": todos,
+        "dokumente": dokumente,
     }
 
 
