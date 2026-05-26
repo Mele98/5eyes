@@ -1,11 +1,15 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from datetime import date, datetime, timezone
+from typing import Optional
+import json
+
 from database import get_db, new_uuid
 from models.users import User
 from models.mandates import Mandate
 from models.allocation import TargetAllocation, OptimizerPolicy, OptimizerRun, CapitalMarketAssumption, HouseMatrix, BuildingBlock
 from models.profiling import RiskAssessment
+from models.review import MandateReportNotes
 from schemas.allocation import (
     TargetAllocationCreate, TargetAllocationResponse,
     HouseMatrixResponse,
@@ -17,6 +21,7 @@ from schemas.allocation import (
     OptimizerPolicyCreate, OptimizerPolicyUpdate, OptimizerPolicyResponse,
     OptimizerPolicyDetailResponse, HouseMatrixRowsReplace,
 )
+from schemas.review import ReportNotesResponse, ReportNotesUpdate
 from services.auth import get_current_user, get_mandate_for_user_or_404, require_advisor, require_admin
 from services.audit import log
 from services.portfolio_engine import (
@@ -432,6 +437,151 @@ def get_advisory_report(
     """
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
     return compute_advisory_report(db, mandate, advisor=current_user)
+
+
+# ---------------------------------------------------------------------------
+# Sprint U-P28 — Berater-Overrides für den Advisory-Report.
+# Eine Zeile pro Mandat (UNIQUE auf mandate_id); GET liefert die Override-
+# Texte falls vorhanden, sonst leere Defaults. PUT macht Upsert. Der
+# Aggregator (services.advisory_report) konsumiert diese Tabelle und fällt
+# pro Feld auf den Auto-Default-Text zurück, wenn keine Override gepflegt ist.
+
+def _parse_json_list(raw: Optional[str]) -> list[str]:
+    """Defensiv: kein JSON in der DB → leere Liste, nicht Crash."""
+    if not raw:
+        return []
+    try:
+        parsed = json.loads(raw)
+    except (TypeError, ValueError):
+        return []
+    if not isinstance(parsed, list):
+        return []
+    return [str(item) for item in parsed if item is not None]
+
+
+def _serialize_notes(notes: "MandateReportNotes") -> dict:
+    return {
+        "id": notes.id,
+        "mandate_id": notes.mandate_id,
+        "aa_anmerkungen": notes.aa_anmerkungen,
+        "waehrungen_erklaerung": notes.waehrungen_erklaerung,
+        "branchen_analyse": notes.branchen_analyse,
+        "vorgehen_block_optimierungen": notes.vorgehen_block_optimierungen,
+        "vorgehen_block_zielstrategie": notes.vorgehen_block_zielstrategie,
+        "vorgehen_offene_fragen": _parse_json_list(notes.vorgehen_offene_fragen_json),
+        "vorgehen_naechster_termin": notes.vorgehen_naechster_termin,
+        "vorgehen_todos": _parse_json_list(notes.vorgehen_todos_json),
+        "vorgehen_dokumente": _parse_json_list(notes.vorgehen_dokumente_json),
+        "last_edited_by": notes.last_edited_by,
+        "last_edited_at": notes.last_edited_at,
+        "created_at": notes.created_at,
+        "updated_at": notes.updated_at,
+    }
+
+
+@router.get("/mandates/{mandate_id}/report-notes", response_model=ReportNotesResponse)
+def get_report_notes(
+    mandate_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """U-P28: Berater-Overrides fuer den Advisory-Report.
+
+    Leere Zeile (noch nichts gepflegt) → leere Response mit nur `mandate_id`
+    gesetzt. Die Sub-App und das PDF konsumieren denselben Aggregator und
+    fallen pro Feld auf den Auto-Default-Text zurueck.
+    """
+    mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    notes = (
+        db.query(MandateReportNotes)
+        .filter(MandateReportNotes.mandate_id == mandate.id)
+        .first()
+    )
+    if notes is None:
+        return ReportNotesResponse(mandate_id=mandate.id)
+    return ReportNotesResponse(**_serialize_notes(notes))
+
+
+@router.put("/mandates/{mandate_id}/report-notes", response_model=ReportNotesResponse)
+def put_report_notes(
+    mandate_id: str,
+    body: ReportNotesUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_advisor),
+):
+    """U-P28: Upsert der Berater-Overrides.
+
+    Auth: nur Berater (require_advisor) — Kunden sehen den Report
+    read-only. Audit-Anchor (`last_edited_by` + `last_edited_at`) wird bei
+    jedem PUT aktualisiert; das `created_at` bleibt beim ersten Insert.
+    """
+    mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    notes = (
+        db.query(MandateReportNotes)
+        .filter(MandateReportNotes.mandate_id == mandate.id)
+        .first()
+    )
+
+    now = _now()
+    if notes is None:
+        notes = MandateReportNotes(
+            id=new_uuid(),
+            mandate_id=mandate.id,
+            created_at=now,
+            updated_at=now,
+            last_edited_by=current_user.id,
+            last_edited_at=now,
+        )
+        db.add(notes)
+
+    # Felder updaten — None laesst das bestehende Feld unangetastet
+    # (Schritt-fuer-Schritt-Bearbeitung in der Sub-App), `""` setzt explizit
+    # auf leer und triggert damit den Auto-Default-Fallback im Aggregator.
+    if body.aa_anmerkungen is not None:
+        notes.aa_anmerkungen = body.aa_anmerkungen or None
+    if body.waehrungen_erklaerung is not None:
+        notes.waehrungen_erklaerung = body.waehrungen_erklaerung or None
+    if body.branchen_analyse is not None:
+        notes.branchen_analyse = body.branchen_analyse or None
+    if body.vorgehen_block_optimierungen is not None:
+        notes.vorgehen_block_optimierungen = body.vorgehen_block_optimierungen or None
+    if body.vorgehen_block_zielstrategie is not None:
+        notes.vorgehen_block_zielstrategie = body.vorgehen_block_zielstrategie or None
+    if body.vorgehen_offene_fragen is not None:
+        notes.vorgehen_offene_fragen_json = json.dumps(
+            [str(item) for item in body.vorgehen_offene_fragen]
+        )
+    if body.vorgehen_naechster_termin is not None:
+        notes.vorgehen_naechster_termin = body.vorgehen_naechster_termin or None
+    if body.vorgehen_todos is not None:
+        notes.vorgehen_todos_json = json.dumps(
+            [str(item) for item in body.vorgehen_todos]
+        )
+    if body.vorgehen_dokumente is not None:
+        notes.vorgehen_dokumente_json = json.dumps(
+            [str(item) for item in body.vorgehen_dokumente]
+        )
+
+    notes.last_edited_by = current_user.id
+    notes.last_edited_at = now
+    notes.updated_at = now
+
+    # Audit-Eintrag in dieselbe Transaktion einbinden, damit Notes und
+    # Audit-Log zusammen committed werden (FINMA-Anforderung).
+    db.flush()
+    log(
+        db,
+        user_id=current_user.id,
+        user_name=current_user.full_name,
+        table_name="mandate_report_notes",
+        record_id=notes.id,
+        action="update",
+        mandate_id=mandate.id,
+        client_id=mandate.client_id,
+    )
+    db.commit()
+    db.refresh(notes)
+    return ReportNotesResponse(**_serialize_notes(notes))
 
 
 @router.get("/mandates/{mandate_id}/backtest/stress-replays")

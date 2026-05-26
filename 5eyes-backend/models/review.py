@@ -283,3 +283,46 @@ class AuditLog(Base):
     client_id = Column(String)
     integrity_hash = Column(String(64))
     created_at = Column(String, nullable=False)
+
+
+class MandateReportNotes(Base):
+    """Berater-individuelle Texte für den Advisory-Report (Sprint U-P28).
+
+    Eine Zeile pro Mandat (UNIQUE auf mandate_id). Wird durch den Aggregator
+    `services.advisory_report` konsumiert; jedes leere Feld fällt auf den
+    Auto-Default-Text der jeweiligen Sektion zurück. Das PDF (U-P26) und die
+    React-Sub-App lesen denselben Aggregator — Single Source of Truth.
+
+    Auditierbar über `last_edited_by` + `last_edited_at`.
+    """
+
+    __tablename__ = "mandate_report_notes"
+
+    id = Column(String, primary_key=True)
+    mandate_id = Column(String, ForeignKey("mandates.id"), nullable=False, unique=True)
+
+    # Sektion „Asset Allocation": überschreibt den Drift-Auto-Text
+    aa_anmerkungen = Column(String)
+
+    # Sektion „Risikowährungen": überschreibt den CHF-Anteil-Auto-Text
+    waehrungen_erklaerung = Column(String)
+
+    # Sektion „Branchen": überschreibt die Sektor-Drift-Auto-Analyse
+    branchen_analyse = Column(String)
+
+    # Sektion „Weiteres Vorgehen": Berater-Texte + strukturierte Listen
+    vorgehen_block_optimierungen = Column(String)
+    vorgehen_block_zielstrategie = Column(String)
+    vorgehen_offene_fragen_json = Column(String)  # JSON-Array["frage1","frage2"]
+    vorgehen_naechster_termin = Column(String)    # ISO-Datum oder freier Text
+    vorgehen_todos_json = Column(String)          # JSON-Array["todo1",...]
+    vorgehen_dokumente_json = Column(String)      # JSON-Array["Dok 1",...]
+
+    # Audit-Anchor (FINMA-relevant)
+    last_edited_by = Column(String, ForeignKey("users.id"), nullable=False)
+    last_edited_at = Column(String, nullable=False)
+    created_at = Column(String, nullable=False)
+    updated_at = Column(String, nullable=False)
+
+    mandate = relationship("Mandate", back_populates="report_notes")
+    editor = relationship("User")

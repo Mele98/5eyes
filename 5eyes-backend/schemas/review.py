@@ -653,3 +653,45 @@ class AuditLogPage(BaseModel):
     limit: int
     offset: int
     entries: list[AuditLogEntry]
+
+
+# ---------------------------------------------------------------------------
+# Sprint U-P28: Berater-Overrides für den Advisory-Report.
+#
+# Jedes Feld ist optional — leer/None bedeutet: der Aggregator nimmt den
+# Auto-Default-Text. So bleiben Mandate ohne gepflegte Notizen voll
+# kompatibel zum alten Verhalten.
+
+
+class ReportNotesUpdate(BaseModel):
+    """PUT /mandates/{id}/report-notes — Upsert-Payload."""
+
+    aa_anmerkungen: Optional[str] = None
+    waehrungen_erklaerung: Optional[str] = None
+    branchen_analyse: Optional[str] = None
+    vorgehen_block_optimierungen: Optional[str] = None
+    vorgehen_block_zielstrategie: Optional[str] = None
+    vorgehen_offene_fragen: Optional[list[str]] = None
+    vorgehen_naechster_termin: Optional[str] = None
+    vorgehen_todos: Optional[list[str]] = None
+    vorgehen_dokumente: Optional[list[str]] = None
+
+
+class ReportNotesResponse(BaseResponse):
+    """GET /mandates/{id}/report-notes — leere Felder bleiben None."""
+
+    id: Optional[str] = None
+    mandate_id: str
+    aa_anmerkungen: Optional[str] = None
+    waehrungen_erklaerung: Optional[str] = None
+    branchen_analyse: Optional[str] = None
+    vorgehen_block_optimierungen: Optional[str] = None
+    vorgehen_block_zielstrategie: Optional[str] = None
+    vorgehen_offene_fragen: list[str] = Field(default_factory=list)
+    vorgehen_naechster_termin: Optional[str] = None
+    vorgehen_todos: list[str] = Field(default_factory=list)
+    vorgehen_dokumente: list[str] = Field(default_factory=list)
+    last_edited_by: Optional[str] = None
+    last_edited_at: Optional[str] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
