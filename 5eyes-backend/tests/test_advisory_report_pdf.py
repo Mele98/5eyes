@@ -86,6 +86,48 @@ def _make_minimal_payload() -> dict:
                 "var_95_bps": 980,
             },
         },
+        "pruefpunkte": {
+            "bloecke": [
+                {
+                    "key": "diversifikation",
+                    "title": "Diversifikation",
+                    "beschreibung": "Streuung über Anlageklassen und Regionen.",
+                },
+                {
+                    "key": "waehrungsrisiken",
+                    "title": "Währungsrisiken",
+                    "beschreibung": "Anteil Fremdwährungen zur Referenzwährung.",
+                },
+            ],
+        },
+        "erkenntnisse": {
+            "checks": [
+                {
+                    "pruefpunkt": "Diversifikation",
+                    "bewertung": "gruen",
+                    "beurteilung": "Portfolio ist breit gestreut.",
+                    "handlungsempfehlung": "Beibehalten.",
+                },
+                {
+                    "pruefpunkt": "Währungsrisiken",
+                    "bewertung": "gelb",
+                    "beurteilung": "CHF-Anteil bei 55 %.",
+                    "handlungsempfehlung": "Hedge prüfen.",
+                },
+                {
+                    "pruefpunkt": "Risikobudget",
+                    "bewertung": "rot",
+                    "beurteilung": "Über dem Cap.",
+                    "handlungsempfehlung": "Risiko reduzieren.",
+                },
+                {
+                    "pruefpunkt": "Liquidität",
+                    "bewertung": "nicht_beurteilbar",
+                    "beurteilung": "Daten unvollständig.",
+                    "handlungsempfehlung": "Cashflow-Erfassung nachpflegen.",
+                },
+            ],
+        },
         "positionen": {
             "groups": [
                 {
@@ -374,3 +416,97 @@ def test_positionen_total_is_swiss_formatted():
     page_text = reader.pages[4].extract_text() or ""
     # 45 Mio Rappen → CHF 450'000
     assert "450'000" in page_text
+
+
+# ---------------------------------------------------------------------------
+# Sektion 6 — Prüfpunkte (U-P26 PR C)
+# ---------------------------------------------------------------------------
+
+def test_pruefpunkte_lists_all_titles_and_descriptions():
+    pypdf = pytest.importorskip("pypdf")
+    payload = _make_minimal_payload()
+    pdf = render_advisory_report_pdf_from_payload(payload)
+    reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
+    # Cover/Disclaimer/TOC/Ausgangslage/Positionen/Pruefpunkte = mind. 6 Seiten
+    assert len(reader.pages) >= 6
+    page_text = reader.pages[5].extract_text() or ""
+    assert "Was wir im Depotcheck prüfen" in page_text
+    assert "Diversifikation" in page_text
+    assert "Währungsrisiken" in page_text
+    assert "Streuung über Anlageklassen" in page_text
+
+
+def test_pruefpunkte_handles_empty_block_list():
+    payload = _make_minimal_payload()
+    payload["pruefpunkte"] = {"bloecke": []}
+    pdf = render_advisory_report_pdf_from_payload(payload)
+    assert pdf[:5] == b"%PDF-"
+    pypdf = pytest.importorskip("pypdf")
+    reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
+    page_text = reader.pages[5].extract_text() or ""
+    assert "Keine Prüfpunkte" in page_text
+
+
+# ---------------------------------------------------------------------------
+# Sektion 7 — Erkenntnisse mit Ampel-Pills (U-P26 PR C)
+# ---------------------------------------------------------------------------
+
+def test_erkenntnisse_shows_all_pruefpunkte_with_ampel():
+    pypdf = pytest.importorskip("pypdf")
+    payload = _make_minimal_payload()
+    pdf = render_advisory_report_pdf_from_payload(payload)
+    reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
+    # Cover/Disclaimer/TOC/Ausgangslage/Positionen/Pruefpunkte/Erkenntnisse = mind. 7
+    assert len(reader.pages) >= 7
+    page_text = reader.pages[6].extract_text() or ""
+    assert "Erkenntnisse aus dem Depotcheck" in page_text
+    # alle 4 Prüfpunkte und ihre Beurteilung
+    assert "Diversifikation" in page_text
+    assert "Portfolio ist breit gestreut" in page_text
+    assert "CHF-Anteil bei 55" in page_text
+    assert "Über dem Cap" in page_text
+
+
+def test_erkenntnisse_renders_all_four_ampel_labels():
+    """gruen→OK / gelb→Achtung / rot→Handeln / nicht_beurteilbar→Pendant.
+
+    pypdf bricht schmale Cell-Texte teils auf zwei Zeilen um — wir
+    vergleichen daher gegen den Text ohne Zeilenwechsel/Whitespace,
+    damit der Test stabil bleibt.
+    """
+    pypdf = pytest.importorskip("pypdf")
+    payload = _make_minimal_payload()
+    pdf = render_advisory_report_pdf_from_payload(payload)
+    reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
+    raw = reader.pages[6].extract_text() or ""
+    normalized = "".join(raw.split())  # whitespace incl. \n weg
+    for label in ["OK", "Achtung", "Handeln", "Pendant"]:
+        assert label in normalized, (
+            f"Ampel-Label '{label}' fehlt. Normalisiert: {normalized[:600]}"
+        )
+
+
+def test_erkenntnisse_unknown_bewertung_falls_back_to_pendant():
+    """Unbekannte Ampel-Werte → 'Pendant' (kein Crash)."""
+    pypdf = pytest.importorskip("pypdf")
+    payload = _make_minimal_payload()
+    payload["erkenntnisse"]["checks"] = [{
+        "pruefpunkt": "Mystery",
+        "bewertung": "abracadabra",
+        "beurteilung": "Test",
+        "handlungsempfehlung": "—",
+    }]
+    pdf = render_advisory_report_pdf_from_payload(payload)
+    reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
+    page_text = reader.pages[6].extract_text() or ""
+    assert "Pendant" in page_text
+
+
+def test_erkenntnisse_handles_empty_checks():
+    payload = _make_minimal_payload()
+    payload["erkenntnisse"] = {"checks": []}
+    pdf = render_advisory_report_pdf_from_payload(payload)
+    pypdf = pytest.importorskip("pypdf")
+    reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
+    page_text = reader.pages[6].extract_text() or ""
+    assert "Keine Erkenntnisse" in page_text
