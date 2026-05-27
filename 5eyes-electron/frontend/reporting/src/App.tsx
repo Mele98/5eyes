@@ -9,6 +9,9 @@ import { Ausgangslage } from '@/pages/Ausgangslage';
 import { Positionen } from '@/pages/Positionen';
 import { Pruefpunkte } from '@/pages/Pruefpunkte';
 import { Erkenntnisse } from '@/pages/Erkenntnisse';
+import { AssetAllocation } from '@/pages/AssetAllocation';
+import { Risikowaehrungen } from '@/pages/Risikowaehrungen';
+import { Branchen } from '@/pages/Branchen';
 import { WeiteresVorgehen } from '@/pages/WeiteresVorgehen';
 
 type ReportSectionId = (typeof REPORT_SECTIONS)[number]['id'];
@@ -126,6 +129,33 @@ function renderSection(
   }
   if (sectionId === 'erkenntnisse') {
     return <Erkenntnisse data={data.erkenntnisse} />;
+  }
+  if (sectionId === 'asset-allocation') {
+    return (
+      <AssetAllocation
+        data={data.asset_allocation}
+        mandateId={mandateId}
+        onReload={reload}
+      />
+    );
+  }
+  if (sectionId === 'risikowaehrungen') {
+    return (
+      <Risikowaehrungen
+        data={data.risikowaehrungen}
+        mandateId={mandateId}
+        onReload={reload}
+      />
+    );
+  }
+  if (sectionId === 'branchen') {
+    return (
+      <Branchen
+        data={data.branchen}
+        mandateId={mandateId}
+        onReload={reload}
+      />
+    );
   }
   if (sectionId === 'weiteres-vorgehen') {
     return (
