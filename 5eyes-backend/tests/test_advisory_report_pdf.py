@@ -240,6 +240,33 @@ def _make_minimal_payload() -> dict:
                 "Institutionelle SAA-Logik mit Monte-Carlo-Überprüfung."
             ),
         },
+        "statement_pm": {
+            "principles": [
+                {
+                    "key": "langfristigkeit",
+                    "title": "Langfristigkeit",
+                    "body": "Strategische Allokation auf den Anlagehorizont.",
+                },
+                {
+                    "key": "diversifikation",
+                    "title": "Diversifikation",
+                    "body": "Streuung reduziert idiosynkratisches Risiko.",
+                },
+                {
+                    "key": "kosten",
+                    "title": "Kosten-Disziplin",
+                    "body": "Niedrige TER schlägt über Zeit hohe Performance.",
+                },
+            ],
+        },
+        "weiteres_vorgehen": {
+            "block_optimierungen": "Quartals-Review im September.",
+            "block_zielstrategie": "Vorsorge-Aufbau bis 65 mit Tilgung Hypothek.",
+            "offene_fragen": ["Pillar 3a-Limit erreicht?", "BVG-Einkauf möglich?"],
+            "naechster_termin": "2026-08-15",
+            "todos": ["Vorsorgeauftrag aufsetzen", "Risikoabsicherung prüfen"],
+            "dokumente": ["Identifikationspapier", "Ausweis Wohnsitz"],
+        },
         "positionen": {
             "groups": [
                 {
@@ -867,3 +894,99 @@ def test_building_blocks_section_shows_constraints_and_methodologie():
     assert "Maximale Risikoquote" in page_text
     assert "FINMA" in page_text
     assert "Institutionelle SAA-Logik" in page_text
+
+
+# ---------------------------------------------------------------------------
+# Sektion 14 — Statement aus dem Portfoliomanagement (U-P26 PR F)
+# ---------------------------------------------------------------------------
+
+def test_statement_pm_section_shows_principles():
+    pypdf = pytest.importorskip("pypdf")
+    payload = _make_minimal_payload()
+    pdf = render_advisory_report_pdf_from_payload(payload)
+    reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
+    # Sektion 14 = Seite 14 (0-indexed: 13)
+    assert len(reader.pages) >= 14
+    page_text = reader.pages[13].extract_text() or ""
+    assert "Statement aus dem Portfoliomanagement" in page_text
+    assert "Langfristigkeit" in page_text
+    assert "Diversifikation" in page_text
+    assert "Kosten-Disziplin" in page_text
+
+
+def test_statement_pm_section_handles_empty_principles():
+    payload = _make_minimal_payload()
+    payload["statement_pm"] = {"principles": []}
+    pdf = render_advisory_report_pdf_from_payload(payload)
+    assert pdf[:5] == b"%PDF-"
+    pypdf = pytest.importorskip("pypdf")
+    reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
+    page_text = reader.pages[13].extract_text() or ""
+    assert "Keine Investmentgrundsätze" in page_text
+
+
+# ---------------------------------------------------------------------------
+# Sektion 15 — Weiteres Vorgehen (U-P26 PR F)
+# ---------------------------------------------------------------------------
+
+def test_weiteres_vorgehen_section_shows_blocks_lists_termin():
+    pypdf = pytest.importorskip("pypdf")
+    payload = _make_minimal_payload()
+    pdf = render_advisory_report_pdf_from_payload(payload)
+    reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
+    assert len(reader.pages) >= 15
+    page_text = reader.pages[14].extract_text() or ""
+    assert "Weiteres Vorgehen" in page_text
+    assert "Quartals-Review im September" in page_text
+    assert "Vorsorge-Aufbau bis 65" in page_text
+    assert "Pillar 3a-Limit" in page_text
+    assert "Vorsorgeauftrag" in page_text
+    assert "Identifikationspapier" in page_text
+    assert "2026-08-15" in page_text
+
+
+def test_weiteres_vorgehen_section_renders_placeholders_when_unedited():
+    """Auto-Default-Text (von Aggregator wenn keine Notes gepflegt sind)
+    soll gedimmt-kursiv erscheinen, nicht regulär."""
+    payload = _make_minimal_payload()
+    payload["weiteres_vorgehen"] = {
+        "block_optimierungen": "(Vom Berater zu ergänzen — wird beim Druck konkretisiert.)",
+        "block_zielstrategie": "(Vom Berater zu ergänzen — wird beim Druck konkretisiert.)",
+        "offene_fragen": [],
+        "naechster_termin": None,
+        "todos": [],
+        "dokumente": [],
+    }
+    pdf = render_advisory_report_pdf_from_payload(payload)
+    pypdf = pytest.importorskip("pypdf")
+    reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
+    page_text = reader.pages[14].extract_text() or ""
+    assert "Vom Berater zu ergänzen" in page_text
+    assert "Noch nicht vereinbart" in page_text
+    assert "Keine Einträge" in page_text
+
+
+# ---------------------------------------------------------------------------
+# Polish — Two-Pass-Build für echte Seitenzahlen im Page-Chrome
+# ---------------------------------------------------------------------------
+
+def test_page_chrome_shows_total_pages_after_two_pass_build():
+    """Page-Header soll „Seite x / N" enthalten — nicht nur „Seite x"."""
+    pypdf = pytest.importorskip("pypdf")
+    payload = _make_minimal_payload()
+    pdf = render_advisory_report_pdf_from_payload(payload)
+    reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
+    # Seite 2 (Disclaimer) hat schon Chrome — sollte „Seite 2 / 15" o.ä. zeigen
+    page2 = reader.pages[1].extract_text() or ""
+    assert "Seite 2" in page2
+    assert "/" in page2, f"Total-Pages-Indicator fehlt. Page2 text: {page2[:300]}"
+
+
+def test_full_pdf_has_at_least_15_sections():
+    pypdf = pytest.importorskip("pypdf")
+    payload = _make_minimal_payload()
+    pdf = render_advisory_report_pdf_from_payload(payload)
+    reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
+    assert len(reader.pages) >= 15, (
+        f"Erwartet mindestens 15 Seiten (alle Sektionen), PDF hat {len(reader.pages)}"
+    )
