@@ -1383,3 +1383,35 @@ def get_backtest_pdf(
         media_type="application/pdf",
         headers={"Content-Disposition": f'inline; filename="{filename}"'},
     )
+
+
+@router.get(
+    "/mandates/{mandate_id}/reports/advisory-report.pdf",
+    response_class=Response,
+    responses={200: {"content": {"application/pdf": {}}}},
+)
+def get_advisory_report_pdf(
+    mandate_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Sprint U-P26 PR A: institutioneller Advisory-Report als A4-PDF.
+
+    Konsumiert denselben Aggregator wie die React-Sub-App
+    (`services.advisory_report.compute_advisory_report`), spiegelt also
+    1:1 dieselben Daten. PR A liefert Cover + Disclaimer + Inhalts-
+    verzeichnis + Page-Chrome; Sektionen 4-15 folgen in U-P26 PR B-F.
+    """
+    from services.pdf.documents.advisory_report import render_advisory_report_pdf
+
+    mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
+    pdf_bytes = render_advisory_report_pdf(db, mandate, current_user)
+    safe_mandate = "".join(
+        c if c.isalnum() else "_" for c in str(mandate.mandate_number or "mandate")
+    )[:40]
+    filename = f"advisory-report-{safe_mandate}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
