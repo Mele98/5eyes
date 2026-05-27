@@ -12,6 +12,10 @@ import { Erkenntnisse } from '@/pages/Erkenntnisse';
 import { AssetAllocation } from '@/pages/AssetAllocation';
 import { Risikowaehrungen } from '@/pages/Risikowaehrungen';
 import { Branchen } from '@/pages/Branchen';
+import { Goals } from '@/pages/Goals';
+import { Risikoprofil } from '@/pages/Risikoprofil';
+import { BuildingBlocks } from '@/pages/BuildingBlocks';
+import { StatementPm } from '@/pages/StatementPm';
 import { WeiteresVorgehen } from '@/pages/WeiteresVorgehen';
 
 type ReportSectionId = (typeof REPORT_SECTIONS)[number]['id'];
@@ -156,6 +160,18 @@ function renderSection(
         onReload={reload}
       />
     );
+  }
+  if (sectionId === 'goals') {
+    return <Goals data={data.goal_based_investing} />;
+  }
+  if (sectionId === 'risikoprofil') {
+    return <Risikoprofil data={data.risikoprofilierung} />;
+  }
+  if (sectionId === 'building-blocks') {
+    return <BuildingBlocks data={data.building_blocks} />;
+  }
+  if (sectionId === 'statement-pm') {
+    return <StatementPm data={data.statement_pm} />;
   }
   if (sectionId === 'weiteres-vorgehen') {
     return (
