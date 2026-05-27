@@ -3697,9 +3697,17 @@ def _validate_default_products(defaults: list[tuple]) -> None:
 def ensure_runtime_reference_data(db: Session, user_id: str) -> tuple[OptimizerPolicy, CapitalMarketAssumption]:
     now = _now()
     today = _today()
+    # max_risky_fraction_bps pro Profil (ASIP-Konvention, U-P23.2/3, 2026-05-26):
+    #   Kapitalschutz 3000 (=30%, ASIP-Obergrenze „Sicherheit/Kapitalschutz")
+    #   Defensiv      4500 (=45%, ASIP-Obergrenze „Defensiv")
+    #   Ausgewogen    6000 / Wachstum 8000 / Dynamisch 9000 / Aktien 10000
+    # Konsistenz-Test in tests/test_house_matrix_risk_budget_consistency.py:
+    # die Mid-Allocation jedes Profils × BB.risky_fraction_bps darf NIE
+    # den Cap überschreiten, sonst triggert der Engine-Fallback den
+    # Liquiditäts-Cascade (siehe _SAA_LIQUIDITY_HARD_CAP_BPS-Block).
     defaults = _normalize_house_matrix_defaults([
-        (1, 2, "Kapitalschutz", 0, 300, 800, 6500, 7500, 8500, 500, 1200, 2000, 0, 500, 1000, 0, 500, 500, 2000, 0),
-        (3, 4, "Defensiv", 0, 200, 500, 5000, 6000, 7000, 1500, 2500, 3000, 500, 1000, 1500, 0, 300, 800, 4000, 0),
+        (1, 2, "Kapitalschutz", 0, 300, 800, 6500, 7500, 8500, 500, 1200, 2000, 0, 500, 1000, 0, 500, 500, 3000, 0),
+        (3, 4, "Defensiv", 0, 200, 500, 5000, 6000, 7000, 1500, 2500, 3000, 500, 1000, 1500, 0, 300, 800, 4500, 0),
         (5, 6, "Ausgewogen", 0, 200, 300, 2500, 3500, 4500, 4000, 4800, 5500, 500, 1000, 1500, 300, 500, 800, 6000, 0),
         (7, 8, "Wachstumsorientiert", 0, 150, 200, 1000, 1600, 2500, 6000, 6800, 7500, 500, 800, 1200, 300, 600, 1000, 8000, 6000),
         (9, 9, "Dynamisch", 0, 100, 200, 500, 800, 1500, 7500, 8000, 8500, 300, 700, 1000, 200, 400, 600, 9000, 7500),
