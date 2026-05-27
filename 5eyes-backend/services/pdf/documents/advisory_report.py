@@ -46,6 +46,7 @@ from services.pdf.components.advisory_palette import (
     COLOR_INK_MUTED,
     COLOR_INK_SUBTLE,
     COLOR_RULE,
+    COLOR_STATUS_NEUTRAL,
     FONT_MONO,
     FONT_SANS,
     FONT_SANS_BOLD,
@@ -137,6 +138,18 @@ def render_advisory_report_pdf_from_payload(payload: dict[str, Any]) -> bytes:
     flowables.append(PageBreak())
     flowables.extend(_build_branchen_flowables(
         payload.get("branchen") or {}, styles,
+    ))
+    flowables.append(PageBreak())
+    flowables.extend(_build_goals_flowables(
+        payload.get("goal_based_investing") or {}, styles,
+    ))
+    flowables.append(PageBreak())
+    flowables.extend(_build_risikoprofil_flowables(
+        payload.get("risikoprofilierung") or {}, styles,
+    ))
+    flowables.append(PageBreak())
+    flowables.extend(_build_building_blocks_flowables(
+        payload.get("building_blocks") or {}, styles,
     ))
 
     chrome = make_advisory_page_chrome(
@@ -1004,6 +1017,472 @@ def _editorial_note(label: str, body: str, styles: dict) -> Table:
         ("BOTTOMPADDING", (0, 1), (-1, -1), 8),
     ]))
     return note
+
+
+# ---------------------------------------------------------------------------
+# Sektion 11 — Goal-Based Investing
+# ---------------------------------------------------------------------------
+
+_GOAL_STATUS_PILL = {
+    "erreichbar":      ("Erreichbar",     "#E5EEDF", "#4E6F58"),
+    "knapp":           ("Knapp",          "#F4EBD5", "#B59243"),
+    "nicht_erreichbar":("Schwierig",      "#F0D9D9", "#9E4747"),
+    "data_pending":    ("Daten ausstehend","#E9EBEE", "#7A8395"),
+}
+
+
+def _build_goals_flowables(gbi: dict, styles: dict) -> list[Any]:
+    """Goals-Tabelle + Achievement-Score-KPI + MC-Hinweis."""
+    out: list[Any] = []
+    out.append(Paragraph("Sektion 11", styles["kicker"]))
+    out.append(Paragraph("Zielbasierte Optimierung", styles["h1"]))
+    out.append(Spacer(1, 4 * mm))
+    out.append(_hr())
+    out.append(Spacer(1, 5 * mm))
+
+    score_bps = gbi.get("goal_achievement_score_bps")
+    if score_bps is not None:
+        out.append(_achievement_score_kpi(int(score_bps), styles))
+        out.append(Spacer(1, 5 * mm))
+
+    goals = gbi.get("goals") or []
+    if goals:
+        out.append(_goals_table(goals, styles))
+    else:
+        out.append(Paragraph(
+            "<i>Keine Ziele erfasst.</i>",
+            styles["caption"],
+        ))
+
+    mc = gbi.get("monte_carlo_paths") or {}
+    if mc.get("data_pending"):
+        out.append(Spacer(1, 6 * mm))
+        out.append(Paragraph(
+            f"<b>Monte-Carlo-Pfade:</b> {_escape(str(mc.get('note') or 'in Vorbereitung'))}",
+            _ar_paragraph_style(styles["caption"], color=COLOR_INK_MUTED),
+        ))
+    return out
+
+
+def _achievement_score_kpi(score_bps: int, styles: dict):
+    """Großer Score-Block: Wert mittig, Label oben."""
+    label_p = Paragraph(
+        "GEWICHTETER ZIELERREICHUNGS-SCORE",
+        _ar_paragraph_style(
+            styles["micro"], color=COLOR_INK_SUBTLE, font=FONT_SANS_BOLD,
+        ),
+    )
+    value_p = Paragraph(
+        f"<font size='28' color='#0F1C2E'><b>{format_bps_as_pct(score_bps, decimals=0)}</b></font>",
+        _ar_paragraph_style(styles["body"], color=COLOR_INK),
+    )
+    card = Table([[label_p], [value_p]])
+    card.setStyle(TableStyle([
+        ("LEFTPADDING", (0, 0), (-1, -1), 12),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 12),
+        ("TOPPADDING", (0, 0), (0, 0), 10),
+        ("BOTTOMPADDING", (0, 0), (0, 0), 2),
+        ("TOPPADDING", (0, 1), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 1), (-1, -1), 10),
+        ("BACKGROUND", (0, 0), (-1, -1), COLOR_CANVAS_SUBTLE),
+        ("LINEBEFORE", (0, 0), (0, -1), 2.5, COLOR_ACCENT),
+    ]))
+    return card
+
+
+def _goals_table(goals: list[dict], styles: dict) -> Table:
+    page_width, _ = PAGE_SIZE
+    inner_width = page_width - MARGIN_LEFT - MARGIN_RIGHT
+    col_label = inner_width * 0.34
+    col_type = inner_width * 0.16
+    col_target = inner_width * 0.17
+    col_status = inner_width * 0.16
+    col_prob = inner_width - col_label - col_type - col_target - col_status
+
+    header = [
+        _th("Ziel", styles), _th("Typ", styles),
+        _th("Zielwert", styles), _th("Status", styles),
+        _th("Wahrscheinlichkeit", styles),
+    ]
+    rows = [header]
+    for g in goals:
+        label = _safe_string(g.get("label"))
+        goal_type = _safe_string(g.get("goal_type"))
+        target = format_chf_rappen(g.get("target_amount_rappen"))
+        status = str(g.get("status") or "data_pending").lower()
+        prob = format_bps_as_pct(g.get("probability_bps"))
+        rows.append([
+            Paragraph(_escape(label), _ar_paragraph_style(
+                styles["caption"], color=COLOR_INK, font=FONT_SANS_BOLD,
+            )),
+            Paragraph(_escape(goal_type), styles["caption"]),
+            Paragraph(_escape(target), styles["caption"]),
+            _goal_status_pill(status, styles),
+            Paragraph(_escape(prob), _ar_paragraph_style(
+                styles["caption_mono"], color=COLOR_INK,
+            )),
+        ])
+    table = Table(rows, colWidths=[col_label, col_type, col_target, col_status, col_prob])
+    table.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 4),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ("LINEBELOW", (0, 0), (-1, 0), 0.4, COLOR_RULE),
+        ("LINEBELOW", (0, 1), (-1, -1), 0.2, COLOR_RULE),
+        ("ALIGN", (4, 0), (4, -1), "RIGHT"),
+    ]))
+    return table
+
+
+def _th(text: str, styles: dict) -> Paragraph:
+    return Paragraph(
+        _escape(text),
+        _ar_paragraph_style(
+            styles["micro"], color=COLOR_INK_SUBTLE, font=FONT_SANS_BOLD,
+        ),
+    )
+
+
+def _goal_status_pill(status: str, styles: dict):
+    from reportlab.lib.colors import HexColor
+
+    label, fill_hex, text_hex = _GOAL_STATUS_PILL.get(
+        status, _GOAL_STATUS_PILL["data_pending"]
+    )
+    pill = Table(
+        [[Paragraph(
+            _escape(label),
+            _ar_paragraph_style(
+                styles["micro"], color=HexColor(text_hex), font=FONT_SANS_BOLD,
+            ),
+        )]],
+        colWidths=[None],
+    )
+    pill.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), HexColor(fill_hex)),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 2),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+    ]))
+    return pill
+
+
+# ---------------------------------------------------------------------------
+# Sektion 12 — Risikoprofilierung
+# ---------------------------------------------------------------------------
+
+def _build_risikoprofil_flowables(rp: dict, styles: dict) -> list[Any]:
+    """Risikoprofil-Box (final_profile + 3 Scores) + Override-Hinweis +
+    Fragen-Liste."""
+    out: list[Any] = []
+    out.append(Paragraph("Sektion 12", styles["kicker"]))
+    out.append(Paragraph("Risikoprofilierung", styles["h1"]))
+    out.append(Spacer(1, 4 * mm))
+    out.append(_hr())
+    out.append(Spacer(1, 5 * mm))
+
+    profile_label = _safe_string(rp.get("final_profile"))
+    final_score = rp.get("final_score_x10")
+    capacity = rp.get("risk_capacity_score_x10")
+    willingness = rp.get("risk_willingness_score_x10")
+    risky_bps = rp.get("risky_fraction_bps")
+    is_overridden = bool(rp.get("is_overridden"))
+    override_reason = str(rp.get("override_reason") or "").strip()
+
+    out.append(_risikoprofil_summary(
+        profile_label, final_score, risky_bps, styles,
+    ))
+    out.append(Spacer(1, 4 * mm))
+
+    out.append(_risikoprofil_scores_block(capacity, willingness, styles))
+
+    if is_overridden:
+        out.append(Spacer(1, 3 * mm))
+        text = (
+            "<b>Manuelle Übersteuerung:</b> "
+            + (_escape(override_reason) if override_reason else "ohne Begründung")
+        )
+        out.append(Paragraph(
+            text,
+            _ar_paragraph_style(styles["caption"], color=COLOR_STATUS_NEUTRAL),
+        ))
+
+    questions = rp.get("questions") or []
+    if questions:
+        out.append(Spacer(1, 5 * mm))
+        out.append(Paragraph("Fragen der Risikoprofilierung", styles["h2"]))
+        out.append(_risikoprofil_questions_table(questions, styles))
+    return out
+
+
+def _risikoprofil_summary(
+    profile_label: str, final_score, risky_bps, styles: dict,
+) -> Table:
+    """Drei-Spalten-Box: Profil-Name | Score x/100 | Risikobudget."""
+    page_width, _ = PAGE_SIZE
+    inner_width = page_width - MARGIN_LEFT - MARGIN_RIGHT
+
+    def _cell(label: str, value: str) -> Table:
+        label_p = Paragraph(
+            _escape(label.upper()),
+            _ar_paragraph_style(
+                styles["micro"], color=COLOR_INK_SUBTLE, font=FONT_SANS_BOLD,
+            ),
+        )
+        value_p = Paragraph(
+            _escape(value),
+            _ar_paragraph_style(
+                styles["body"], color=COLOR_INK, font=FONT_SANS_BOLD, size=14,
+            ),
+        )
+        inner = Table([[label_p], [value_p]])
+        inner.setStyle(TableStyle([
+            ("LEFTPADDING", (0, 0), (-1, -1), 0),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+            ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ]))
+        return inner
+
+    score_text = (
+        f"{int(final_score)} / 100" if isinstance(final_score, int) and final_score > 0
+        else "—"
+    )
+    risky_text = format_bps_as_pct(risky_bps)
+
+    cells = [
+        _cell("Profil", profile_label),
+        _cell("Score", score_text),
+        _cell("Risikobudget", risky_text),
+    ]
+    box = Table([cells], colWidths=[inner_width / 3] * 3)
+    box.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("BACKGROUND", (0, 0), (-1, -1), COLOR_CANVAS_SUBTLE),
+        ("LINEBEFORE", (0, 0), (0, -1), 2.5, COLOR_ACCENT),
+        ("LEFTPADDING", (0, 0), (-1, -1), 12),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 12),
+        ("TOPPADDING", (0, 0), (-1, -1), 10),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
+    ]))
+    return box
+
+
+def _risikoprofil_scores_block(capacity, willingness, styles: dict) -> Table:
+    """Score-Bars Risk-Capacity und Risk-Willingness."""
+    page_width, _ = PAGE_SIZE
+    inner_width = page_width - MARGIN_LEFT - MARGIN_RIGHT
+
+    def _score_row(label: str, score) -> Table:
+        try:
+            normalized = int(score or 0)
+        except (TypeError, ValueError):
+            normalized = 0
+        score_text = f"{normalized} / 100" if normalized > 0 else "—"
+        label_p = Paragraph(
+            _escape(label),
+            _ar_paragraph_style(
+                styles["caption"], color=COLOR_INK, font=FONT_SANS_BOLD,
+            ),
+        )
+        value_p = Paragraph(
+            _escape(score_text),
+            _ar_paragraph_style(
+                styles["caption_mono"], color=COLOR_INK_MUTED,
+            ),
+        )
+        # mini-Bar als drawing
+        from reportlab.graphics.shapes import Drawing, Rect
+
+        bar_width = inner_width * 0.45
+        track = Drawing(bar_width, 7)
+        track.add(Rect(
+            0, 0, bar_width, 4,
+            fillColor=COLOR_CANVAS_SUBTLE, strokeColor=None,
+        ))
+        track.add(Rect(
+            0, 0, max(0, min(100, normalized)) / 100 * bar_width, 4,
+            fillColor=COLOR_ACCENT, strokeColor=None,
+        ))
+        row = Table(
+            [[label_p, track, value_p]],
+            colWidths=[inner_width * 0.30, bar_width, inner_width * 0.20],
+        )
+        row.setStyle(TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 0),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+            ("TOPPADDING", (0, 0), (-1, -1), 4),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+            ("ALIGN", (2, 0), (2, -1), "RIGHT"),
+        ]))
+        return row
+
+    box = Table(
+        [[_score_row("Risikofähigkeit", capacity)],
+         [_score_row("Risikobereitschaft", willingness)]],
+        colWidths=[inner_width],
+    )
+    box.setStyle(TableStyle([
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+        ("LINEBELOW", (0, 0), (-1, -2), 0.2, COLOR_RULE),
+    ]))
+    return box
+
+
+def _risikoprofil_questions_table(questions: list[dict], styles: dict) -> Table:
+    page_width, _ = PAGE_SIZE
+    inner_width = page_width - MARGIN_LEFT - MARGIN_RIGHT
+    col_q = inner_width * 0.78
+    col_p = inner_width - col_q
+
+    rows = [[_th("Frage", styles), _th("Punkte", styles)]]
+    for q in questions:
+        rows.append([
+            Paragraph(_escape(str(q.get("frage") or "—")), styles["caption"]),
+            Paragraph(
+                format_integer(q.get("points")),
+                _ar_paragraph_style(
+                    styles["caption_mono"], color=COLOR_INK_MUTED,
+                ),
+            ),
+        ])
+    table = Table(rows, colWidths=[col_q, col_p])
+    table.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 4),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("ALIGN", (1, 0), (1, -1), "RIGHT"),
+        ("LINEBELOW", (0, 0), (-1, 0), 0.4, COLOR_RULE),
+        ("LINEBELOW", (0, 1), (-1, -1), 0.2, COLOR_RULE),
+    ]))
+    return table
+
+
+# ---------------------------------------------------------------------------
+# Sektion 13 — Building Blocks / iSAA
+# ---------------------------------------------------------------------------
+
+def _build_building_blocks_flowables(bb: dict, styles: dict) -> list[Any]:
+    """5 Building Blocks (Target + Band) + Constraints + Methodologie-Text."""
+    out: list[Any] = []
+    out.append(Paragraph("Sektion 13", styles["kicker"]))
+    out.append(Paragraph("Building Blocks", styles["h1"]))
+    out.append(Spacer(1, 4 * mm))
+    out.append(_hr())
+    out.append(Spacer(1, 5 * mm))
+
+    blocks = bb.get("blocks") or []
+    if blocks:
+        out.append(_building_blocks_table(blocks, styles))
+    else:
+        out.append(Paragraph(
+            "<i>Keine Building Blocks erfasst.</i>",
+            styles["caption"],
+        ))
+
+    methodologie = str(bb.get("methodologie") or "").strip()
+    if methodologie:
+        out.append(Spacer(1, 5 * mm))
+        out.append(_editorial_note("Methodologie", methodologie, styles))
+
+    constraints = bb.get("constraints") or []
+    if constraints:
+        out.append(Spacer(1, 5 * mm))
+        out.append(Paragraph("Constraints", styles["h2"]))
+        out.append(_constraints_table(constraints, styles))
+    return out
+
+
+def _building_blocks_table(blocks: list[dict], styles: dict) -> Table:
+    page_width, _ = PAGE_SIZE
+    inner_width = page_width - MARGIN_LEFT - MARGIN_RIGHT
+    col_label = inner_width * 0.30
+    col_target = inner_width * 0.20
+    col_band = inner_width - col_label - col_target
+
+    rows = [[_th("Anlageklasse", styles), _th("Target", styles), _th("Band", styles)]]
+    for b in blocks:
+        label = _safe_string(b.get("label"))
+        target = format_bps_as_pct(b.get("target_bps"))
+        band_min = b.get("band_min_bps")
+        band_max = b.get("band_max_bps")
+        if band_min is not None and band_max is not None:
+            band_text = (
+                f"{format_bps_as_pct(band_min)} – {format_bps_as_pct(band_max)}"
+            )
+        else:
+            band_text = "—"
+        rows.append([
+            Paragraph(_escape(label), _ar_paragraph_style(
+                styles["caption"], color=COLOR_INK, font=FONT_SANS_BOLD,
+            )),
+            Paragraph(_escape(target), _ar_paragraph_style(
+                styles["caption_mono"], color=COLOR_INK,
+            )),
+            Paragraph(_escape(band_text), _ar_paragraph_style(
+                styles["caption_mono"], color=COLOR_INK_MUTED,
+            )),
+        ])
+    table = Table(rows, colWidths=[col_label, col_target, col_band])
+    table.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 4),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("LINEBELOW", (0, 0), (-1, 0), 0.4, COLOR_RULE),
+        ("LINEBELOW", (0, 1), (-1, -1), 0.2, COLOR_RULE),
+    ]))
+    return table
+
+
+def _constraints_table(constraints: list[dict], styles: dict) -> Table:
+    page_width, _ = PAGE_SIZE
+    inner_width = page_width - MARGIN_LEFT - MARGIN_RIGHT
+    col_label = inner_width * 0.30
+    col_value = inner_width * 0.15
+    col_desc = inner_width - col_label - col_value
+
+    rows = [[_th("Constraint", styles), _th("Wert", styles), _th("Beschreibung", styles)]]
+    for c in constraints:
+        rows.append([
+            Paragraph(
+                _escape(str(c.get("label") or "—")),
+                _ar_paragraph_style(
+                    styles["caption"], color=COLOR_INK, font=FONT_SANS_BOLD,
+                ),
+            ),
+            Paragraph(
+                format_bps_as_pct(c.get("value_bps")),
+                _ar_paragraph_style(
+                    styles["caption_mono"], color=COLOR_INK,
+                ),
+            ),
+            Paragraph(
+                _escape(str(c.get("beschreibung") or "")),
+                styles["caption"],
+            ),
+        ])
+    table = Table(rows, colWidths=[col_label, col_value, col_desc])
+    table.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 4),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ("LINEBELOW", (0, 0), (-1, 0), 0.4, COLOR_RULE),
+        ("LINEBELOW", (0, 1), (-1, -1), 0.2, COLOR_RULE),
+    ]))
+    return table
 
 
 # ---------------------------------------------------------------------------
