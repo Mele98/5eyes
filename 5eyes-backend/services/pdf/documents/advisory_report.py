@@ -126,6 +126,18 @@ def render_advisory_report_pdf_from_payload(payload: dict[str, Any]) -> bytes:
     flowables.extend(_build_pruefpunkte_flowables(payload.get("pruefpunkte") or {}, styles))
     flowables.append(PageBreak())
     flowables.extend(_build_erkenntnisse_flowables(payload.get("erkenntnisse") or {}, styles))
+    flowables.append(PageBreak())
+    flowables.extend(_build_asset_allocation_flowables(
+        payload.get("asset_allocation") or {}, styles,
+    ))
+    flowables.append(PageBreak())
+    flowables.extend(_build_risikowaehrungen_flowables(
+        payload.get("risikowaehrungen") or {}, styles,
+    ))
+    flowables.append(PageBreak())
+    flowables.extend(_build_branchen_flowables(
+        payload.get("branchen") or {}, styles,
+    ))
 
     chrome = make_advisory_page_chrome(
         mandate_number=mandate_number,
@@ -826,6 +838,172 @@ def _ampel_pill(status: str, styles: dict) -> Table:
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
     ]))
     return pill
+
+
+# ---------------------------------------------------------------------------
+# Sektionen 8 / 9 / 10 — IST vs SOLL mit Bar-Charts
+# ---------------------------------------------------------------------------
+
+def _build_asset_allocation_flowables(aa: dict, styles: dict) -> list[Any]:
+    """Sektion 8 — Asset Allocation: 5 Anlageklassen IST vs SOLL inkl.
+    Toleranzbänder. Anmerkungen-Text aus Aggregator (vom Berater
+    überschreibbar via MandateReportNotes, U-P28 PR B)."""
+    return _build_bar_chart_section(
+        nr=8, kicker="Sektion 8", title="Asset Allocation",
+        subtitle=(
+            "IST-Portfolio gegen strategische SOLL-Allokation, "
+            "Drift gegenüber Toleranzband."
+        ),
+        items=aa.get("items") or [],
+        ist_basiert_auf_soll=bool(aa.get("ist_basiert_auf_soll")),
+        editorial_label="Einordnung",
+        editorial_text=str(aa.get("anmerkungen") or ""),
+        styles=styles,
+        show_bands=True,
+    )
+
+
+def _build_risikowaehrungen_flowables(rw: dict, styles: dict) -> list[Any]:
+    """Sektion 9 — Risikowährungen. Items haben keine Bands; Erklärung-Text
+    aus Aggregator."""
+    return _build_bar_chart_section(
+        nr=9, kicker="Sektion 9", title="Risikowährungen",
+        subtitle=(
+            "Währungsrisiken als geordnete Exposure-Kategorien "
+            "mit SOLL-Vergleich."
+        ),
+        items=rw.get("items") or [],
+        ist_basiert_auf_soll=bool(rw.get("ist_basiert_auf_soll")),
+        editorial_label="Einordnung",
+        editorial_text=str(rw.get("erklaerung") or ""),
+        styles=styles,
+        show_bands=False,
+    )
+
+
+def _build_branchen_flowables(br: dict, styles: dict) -> list[Any]:
+    """Sektion 10 — Branchen. Sortiert nach Spec (GICS-Reihenfolge), aber
+    nur Top-Items + Sammelkategorie 'Übrige'. Analyse-Text aus Aggregator."""
+    return _build_bar_chart_section(
+        nr=10, kicker="Sektion 10", title="Diversifikation Branchen",
+        subtitle=(
+            "GICS-Sektoren mit IST/SOLL-Vergleich und Sammelkategorie "
+            "für nicht-GICS-Anlagen."
+        ),
+        items=br.get("items") or [],
+        ist_basiert_auf_soll=bool(br.get("ist_basiert_auf_soll")),
+        editorial_label="Analyse",
+        editorial_text=str(br.get("analyse") or ""),
+        styles=styles,
+        show_bands=False,
+        extra_note=str(br.get("hinweis") or "").strip(),
+    )
+
+
+def _build_bar_chart_section(
+    *,
+    nr: int,
+    kicker: str,
+    title: str,
+    subtitle: str,
+    items: list[dict],
+    ist_basiert_auf_soll: bool,
+    editorial_label: str,
+    editorial_text: str,
+    styles: dict,
+    show_bands: bool,
+    extra_note: str = "",
+) -> list[Any]:
+    """Gemeinsamer Aufbau für Sektion 8/9/10. Header → Banner → Bars → Editorial."""
+    from services.pdf.components.advisory_bar_chart import make_bar_chart_ist_soll
+
+    out: list[Any] = []
+    out.append(Paragraph(kicker, styles["kicker"]))
+    out.append(Paragraph(title, styles["h1"]))
+    out.append(Paragraph(
+        f"<i>{_escape(subtitle)}</i>",
+        _ar_paragraph_style(styles["h3"], color=COLOR_INK_MUTED),
+    ))
+    out.append(Spacer(1, 3 * mm))
+    out.append(_hr())
+    out.append(Spacer(1, 4 * mm))
+
+    if ist_basiert_auf_soll:
+        out.append(_data_basis_banner(styles))
+        out.append(Spacer(1, 3 * mm))
+
+    if extra_note:
+        out.append(Paragraph(
+            _escape(extra_note),
+            _ar_paragraph_style(styles["caption"], color=COLOR_INK_MUTED),
+        ))
+        out.append(Spacer(1, 3 * mm))
+
+    if not items:
+        out.append(Paragraph(
+            "<i>Keine Datenpunkte erfasst.</i>",
+            styles["caption"],
+        ))
+        return out
+
+    page_width, _ = PAGE_SIZE
+    inner_width = page_width - MARGIN_LEFT - MARGIN_RIGHT
+    chart = make_bar_chart_ist_soll(
+        items, inner_width_pt=inner_width, show_bands=show_bands,
+    )
+    out.append(chart)
+
+    if editorial_text:
+        out.append(Spacer(1, 5 * mm))
+        out.append(_editorial_note(editorial_label, editorial_text, styles))
+
+    return out
+
+
+def _data_basis_banner(styles: dict) -> Table:
+    """Banner-Hinweis: IST basiert auf SOLL (alte Mandate ohne aktuelle Bestände)."""
+    text = Paragraph(
+        "<b>Datenstand:</b> IST basiert aktuell auf SOLL-/Empfehlungswerten. "
+        "Sobald aktuelle Bestände gepflegt sind, zeigt der Bericht echte "
+        "Portfolio-Drifts.",
+        _ar_paragraph_style(styles["caption"], color=COLOR_INK_MUTED),
+    )
+    banner = Table([[text]])
+    banner.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), COLOR_CANVAS_SUBTLE),
+        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ("BOX", (0, 0), (-1, -1), 0.3, COLOR_RULE),
+    ]))
+    return banner
+
+
+def _editorial_note(label: str, body: str, styles: dict) -> Table:
+    """„Anmerkung"-Box mit Akzent-Linie links."""
+    label_p = Paragraph(
+        _escape(label.upper()),
+        _ar_paragraph_style(
+            styles["micro"], color=COLOR_INK_SUBTLE, font=FONT_SANS_BOLD,
+        ),
+    )
+    body_p = Paragraph(
+        _escape(body),
+        _ar_paragraph_style(styles["body"], color=COLOR_INK_MUTED),
+    )
+    note = Table([[label_p], [body_p]])
+    note.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), COLOR_CANVAS_SUBTLE),
+        ("LINEBEFORE", (0, 0), (0, -1), 2.5, COLOR_ACCENT),
+        ("LEFTPADDING", (0, 0), (-1, -1), 12),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 12),
+        ("TOPPADDING", (0, 0), (0, 0), 8),
+        ("BOTTOMPADDING", (0, 0), (0, 0), 2),
+        ("TOPPADDING", (0, 1), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 1), (-1, -1), 8),
+    ]))
+    return note
 
 
 # ---------------------------------------------------------------------------
