@@ -122,6 +122,10 @@ def render_advisory_report_pdf_from_payload(payload: dict[str, Any]) -> bytes:
     flowables.extend(_build_ausgangslage_flowables(payload.get("ausgangslage") or {}, styles))
     flowables.append(PageBreak())
     flowables.extend(_build_positionen_flowables(payload.get("positionen") or {}, styles))
+    flowables.append(PageBreak())
+    flowables.extend(_build_pruefpunkte_flowables(payload.get("pruefpunkte") or {}, styles))
+    flowables.append(PageBreak())
+    flowables.extend(_build_erkenntnisse_flowables(payload.get("erkenntnisse") or {}, styles))
 
     chrome = make_advisory_page_chrome(
         mandate_number=mandate_number,
@@ -643,6 +647,185 @@ def _build_position_group(group: dict, styles: dict) -> list[Any]:
     ]))
     out.append(table)
     return out
+
+
+# ---------------------------------------------------------------------------
+# Sektion 6 — Was wir im Depotcheck prüfen (statische Beschreibungen)
+# ---------------------------------------------------------------------------
+
+def _build_pruefpunkte_flowables(pruefpunkte: dict, styles: dict) -> list[Any]:
+    """Editorial-Liste der 10 Prüf-Bereiche.
+
+    Layout: ein 2-Spalten-Grid mit Titel links (h3) und Beschreibung rechts
+    (body-muted). Dünne Trenn-Linien zwischen Blöcken, Editorial-Anmutung.
+    """
+    out: list[Any] = []
+    out.append(Paragraph("Sektion 6", styles["kicker"]))
+    out.append(Paragraph("Was wir im Depotcheck prüfen", styles["h1"]))
+    out.append(Spacer(1, 4 * mm))
+    out.append(_hr())
+    out.append(Spacer(1, 5 * mm))
+
+    bloecke = pruefpunkte.get("bloecke") or []
+    if not bloecke:
+        out.append(Paragraph(
+            "<i>Keine Prüfpunkte erfasst.</i>",
+            styles["caption"],
+        ))
+        return out
+
+    page_width, _ = PAGE_SIZE
+    inner_width = page_width - MARGIN_LEFT - MARGIN_RIGHT
+    title_col = inner_width * 0.32
+    desc_col = inner_width - title_col
+
+    rows = []
+    for block in bloecke:
+        title = _safe_string(block.get("title"))
+        desc = _safe_string(block.get("beschreibung"))
+        rows.append([
+            Paragraph(
+                _escape(title),
+                _ar_paragraph_style(
+                    styles["body"], color=COLOR_INK, font=FONT_SANS_BOLD,
+                ),
+            ),
+            Paragraph(_escape(desc), styles["body_muted"]),
+        ])
+
+    table = Table(rows, colWidths=[title_col, desc_col])
+    table.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ("LINEBELOW", (0, 0), (-1, -2), 0.2, COLOR_RULE),
+    ]))
+    out.append(table)
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Sektion 7 — Erkenntnisse aus dem Depotcheck (mit Ampel-Pills)
+# ---------------------------------------------------------------------------
+
+# Mapping Ampel-Status → (Label, Fillcolor, Textcolor)
+_AMPEL_PALETTE = {
+    "gruen":            ("OK",       "#E5EEDF", "#4E6F58"),
+    "gelb":             ("Achtung",  "#F4EBD5", "#B59243"),
+    "rot":              ("Handeln",  "#F0D9D9", "#9E4747"),
+    "nicht_beurteilbar":("Pendant",  "#E9EBEE", "#7A8395"),
+}
+
+
+def _build_erkenntnisse_flowables(erkenntnisse: dict, styles: dict) -> list[Any]:
+    """Tabelle: Prüfpunkt | Ampel | Beurteilung | Handlungsempfehlung.
+
+    Ampel-Pills sind kleine farbige Rechtecke mit Status-Label (gruen→OK,
+    gelb→Achtung, rot→Handeln, nicht_beurteilbar→Pendant). Matte Farben
+    gemäss Design-System (NICHT signal-grün/-rot).
+    """
+    out: list[Any] = []
+    out.append(Paragraph("Sektion 7", styles["kicker"]))
+    out.append(Paragraph("Erkenntnisse aus dem Depotcheck", styles["h1"]))
+    out.append(Spacer(1, 4 * mm))
+    out.append(_hr())
+    out.append(Spacer(1, 5 * mm))
+
+    checks = erkenntnisse.get("checks") or []
+    if not checks:
+        out.append(Paragraph(
+            "<i>Keine Erkenntnisse erfasst.</i>",
+            styles["caption"],
+        ))
+        return out
+
+    page_width, _ = PAGE_SIZE
+    inner_width = page_width - MARGIN_LEFT - MARGIN_RIGHT
+    col_pruefpunkt = inner_width * 0.22
+    col_ampel = inner_width * 0.10
+    col_beurteilung = inner_width * 0.36
+    col_empfehlung = inner_width - col_pruefpunkt - col_ampel - col_beurteilung
+
+    header_row = [
+        Paragraph("Prüfpunkt", _ar_paragraph_style(
+            styles["micro"], color=COLOR_INK_SUBTLE, font=FONT_SANS_BOLD,
+        )),
+        Paragraph("Status", _ar_paragraph_style(
+            styles["micro"], color=COLOR_INK_SUBTLE, font=FONT_SANS_BOLD,
+        )),
+        Paragraph("Beurteilung", _ar_paragraph_style(
+            styles["micro"], color=COLOR_INK_SUBTLE, font=FONT_SANS_BOLD,
+        )),
+        Paragraph("Handlungsempfehlung", _ar_paragraph_style(
+            styles["micro"], color=COLOR_INK_SUBTLE, font=FONT_SANS_BOLD,
+        )),
+    ]
+    rows = [header_row]
+
+    cell_styles: list[tuple] = []  # zusätzliche TableStyle-Commands
+
+    for idx, check in enumerate(checks, start=1):
+        pruefpunkt = _safe_string(check.get("pruefpunkt"))
+        bewertung = str(check.get("bewertung") or "nicht_beurteilbar").lower()
+        beurteilung = _safe_string(check.get("beurteilung"))
+        empfehlung = _safe_string(check.get("handlungsempfehlung"))
+
+        ampel_cell = _ampel_pill(bewertung, styles)
+        rows.append([
+            Paragraph(
+                _escape(pruefpunkt),
+                _ar_paragraph_style(styles["caption"], color=COLOR_INK, font=FONT_SANS_BOLD),
+            ),
+            ampel_cell,
+            Paragraph(_escape(beurteilung), styles["caption"]),
+            Paragraph(_escape(empfehlung), styles["caption"]),
+        ])
+
+    table = Table(
+        rows,
+        colWidths=[col_pruefpunkt, col_ampel, col_beurteilung, col_empfehlung],
+    )
+    table.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 4),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ("LINEBELOW", (0, 0), (-1, 0), 0.4, COLOR_RULE),
+        ("LINEBELOW", (0, 1), (-1, -1), 0.2, COLOR_RULE),
+        *cell_styles,
+    ]))
+    out.append(table)
+    return out
+
+
+def _ampel_pill(status: str, styles: dict) -> Table:
+    """Liefert ein kleines Pill-Element mit Status-Label und Hintergrundfarbe."""
+    from reportlab.lib.colors import HexColor
+
+    label, fill_hex, text_hex = _AMPEL_PALETTE.get(
+        status, _AMPEL_PALETTE["nicht_beurteilbar"]
+    )
+    pill = Table(
+        [[Paragraph(
+            _escape(label),
+            _ar_paragraph_style(
+                styles["micro"], color=HexColor(text_hex), font=FONT_SANS_BOLD,
+            ),
+        )]],
+        colWidths=[None],
+    )
+    pill.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), HexColor(fill_hex)),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 2),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+    ]))
+    return pill
 
 
 # ---------------------------------------------------------------------------
