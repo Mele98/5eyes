@@ -7,6 +7,8 @@ import { Disclaimer } from '@/pages/Disclaimer';
 import { Inhaltsverzeichnis } from '@/pages/Inhaltsverzeichnis';
 import { Ausgangslage } from '@/pages/Ausgangslage';
 import { Positionen } from '@/pages/Positionen';
+import { Pruefpunkte } from '@/pages/Pruefpunkte';
+import { Erkenntnisse } from '@/pages/Erkenntnisse';
 import { WeiteresVorgehen } from '@/pages/WeiteresVorgehen';
 
 type ReportSectionId = (typeof REPORT_SECTIONS)[number]['id'];
@@ -118,6 +120,12 @@ function renderSection(
   }
   if (sectionId === 'positionen') {
     return <Positionen data={data.positionen} />;
+  }
+  if (sectionId === 'pruefpunkte') {
+    return <Pruefpunkte data={data.pruefpunkte} />;
+  }
+  if (sectionId === 'erkenntnisse') {
+    return <Erkenntnisse data={data.erkenntnisse} />;
   }
   if (sectionId === 'weiteres-vorgehen') {
     return (
