@@ -172,6 +172,74 @@ def _make_minimal_payload() -> dict:
             "ist_basiert_auf_soll": False,
             "analyse": "Tech-Übergewicht — Konzentrationsrisiko prüfen.",
         },
+        "goal_based_investing": {
+            "goals": [
+                {
+                    "goal_id": "g1", "label": "Frühpension mit 60",
+                    "goal_type": "Pension",
+                    "target_amount_rappen": 1_500_000_00,
+                    "target_date": "2042-09-18",
+                    "hardness": "Primaer",
+                    "probability_bps": 7800,
+                    "status": "erreichbar",
+                },
+                {
+                    "goal_id": "g2", "label": "Haus-Umbau",
+                    "goal_type": "Liquidität",
+                    "target_amount_rappen": 250_000_00,
+                    "target_date": "2030-01-01",
+                    "hardness": "Opportunistisch",
+                    "probability_bps": 5500,
+                    "status": "knapp",
+                },
+            ],
+            "goal_achievement_score_bps": 7250,
+            "monte_carlo_paths": {
+                "data_pending": True,
+                "note": "Pfade werden live berechnet.",
+            },
+        },
+        "risikoprofilierung": {
+            "risky_fraction_bps": 4250,
+            "risk_capacity_score_x10": 68,
+            "risk_willingness_score_x10": 55,
+            "final_score_x10": 62,
+            "final_profile": "Defensiv",
+            "is_overridden": True,
+            "override_reason": "Kunde wünscht defensiveres Profil als Score impliziert.",
+            "questions": [
+                {"key": "anlagehorizont", "frage": "Anlagehorizont", "points": 8},
+                {"key": "sparquote", "frage": "Sparquote", "points": 6},
+                {"key": "risikopraeferenz", "frage": "Risikopräferenz", "points": 5},
+            ],
+        },
+        "building_blocks": {
+            "blocks": [
+                {
+                    "key": "equities", "label": "Aktien",
+                    "target_bps": 3500, "band_min_bps": 3000, "band_max_bps": 4000,
+                },
+                {
+                    "key": "bonds", "label": "Obligationen",
+                    "target_bps": 5000, "band_min_bps": 4000, "band_max_bps": 6000,
+                },
+                {
+                    "key": "liquidity", "label": "Liquidität",
+                    "target_bps": 250, "band_min_bps": 0, "band_max_bps": 500,
+                },
+            ],
+            "constraints": [
+                {
+                    "key": "max_risky_fraction",
+                    "label": "Maximale Risikoquote",
+                    "value_bps": 4500,
+                    "beschreibung": "FINMA-Eignungsprüfung Obergrenze.",
+                },
+            ],
+            "methodologie": (
+                "Institutionelle SAA-Logik mit Monte-Carlo-Überprüfung."
+            ),
+        },
         "positionen": {
             "groups": [
                 {
@@ -685,3 +753,117 @@ def test_pr_d_layout_contains_no_third_party_brands():
     all_text = "\n".join((p.extract_text() or "") for p in reader.pages).lower()
     for term in ["swiss life", "3eyes"]:
         assert term not in all_text, f"Verbotene Marke '{term}' im PR-D PDF"
+
+
+# ---------------------------------------------------------------------------
+# Sektion 11 — Goal-Based Investing (U-P26 PR E)
+# ---------------------------------------------------------------------------
+
+def test_goals_section_shows_achievement_score_and_goals():
+    pypdf = pytest.importorskip("pypdf")
+    payload = _make_minimal_payload()
+    pdf = render_advisory_report_pdf_from_payload(payload)
+    reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
+    # Sektion 11 = Seite 11 (0-indexed: 10)
+    assert len(reader.pages) >= 11
+    page_text = reader.pages[10].extract_text() or ""
+    assert "Zielbasierte Optimierung" in page_text
+    assert "Frühpension mit 60" in page_text
+    assert "Haus-Umbau" in page_text
+    # Achievement-Score 7250 bps → 72 % oder 73 % (banker's-rounding)
+    normalized = "".join(page_text.split())
+    assert "72%" in normalized or "73%" in normalized, (
+        f"Achievement-Score-KPI fehlt. Normalized: {normalized[:400]}"
+    )
+
+
+def test_goals_section_shows_status_pills():
+    pypdf = pytest.importorskip("pypdf")
+    payload = _make_minimal_payload()
+    pdf = render_advisory_report_pdf_from_payload(payload)
+    reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
+    normalized = "".join((reader.pages[10].extract_text() or "").split())
+    # Pills für die Stati
+    assert "Erreichbar" in normalized
+    assert "Knapp" in normalized
+
+
+def test_goals_section_renders_mc_pending_hint():
+    pypdf = pytest.importorskip("pypdf")
+    payload = _make_minimal_payload()
+    pdf = render_advisory_report_pdf_from_payload(payload)
+    reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
+    page_text = reader.pages[10].extract_text() or ""
+    assert "Monte-Carlo" in page_text
+
+
+# ---------------------------------------------------------------------------
+# Sektion 12 — Risikoprofilierung (U-P26 PR E)
+# ---------------------------------------------------------------------------
+
+def test_risikoprofil_section_shows_profile_score_and_questions():
+    pypdf = pytest.importorskip("pypdf")
+    payload = _make_minimal_payload()
+    pdf = render_advisory_report_pdf_from_payload(payload)
+    reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
+    assert len(reader.pages) >= 12
+    page_text = reader.pages[11].extract_text() or ""
+    assert "Risikoprofilierung" in page_text
+    assert "Defensiv" in page_text
+    assert "62" in page_text  # final_score
+    assert "42.5 %" in page_text  # risky_fraction
+    # Fragen erscheinen
+    assert "Anlagehorizont" in page_text
+    assert "Risikopräferenz" in page_text
+
+
+def test_risikoprofil_section_shows_override_when_active():
+    pypdf = pytest.importorskip("pypdf")
+    payload = _make_minimal_payload()
+    pdf = render_advisory_report_pdf_from_payload(payload)
+    reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
+    page_text = reader.pages[11].extract_text() or ""
+    assert "Manuelle Übersteuerung" in page_text
+    assert "defensiveres Profil" in page_text
+
+
+def test_risikoprofil_section_omits_override_when_inactive():
+    payload = _make_minimal_payload()
+    payload["risikoprofilierung"]["is_overridden"] = False
+    payload["risikoprofilierung"]["override_reason"] = None
+    pdf = render_advisory_report_pdf_from_payload(payload)
+    pypdf = pytest.importorskip("pypdf")
+    reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
+    page_text = reader.pages[11].extract_text() or ""
+    assert "Manuelle Übersteuerung" not in page_text
+
+
+# ---------------------------------------------------------------------------
+# Sektion 13 — Building Blocks (U-P26 PR E)
+# ---------------------------------------------------------------------------
+
+def test_building_blocks_section_shows_blocks_and_bands():
+    pypdf = pytest.importorskip("pypdf")
+    payload = _make_minimal_payload()
+    pdf = render_advisory_report_pdf_from_payload(payload)
+    reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
+    assert len(reader.pages) >= 13
+    page_text = reader.pages[12].extract_text() or ""
+    assert "Building Blocks" in page_text
+    assert "Aktien" in page_text
+    assert "Obligationen" in page_text
+    # Target 3500 bps → 35.0 %
+    assert "35.0 %" in page_text
+    # Band: 30.0 – 40.0 %
+    assert "30.0" in page_text
+
+
+def test_building_blocks_section_shows_constraints_and_methodologie():
+    pypdf = pytest.importorskip("pypdf")
+    payload = _make_minimal_payload()
+    pdf = render_advisory_report_pdf_from_payload(payload)
+    reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
+    page_text = reader.pages[12].extract_text() or ""
+    assert "Maximale Risikoquote" in page_text
+    assert "FINMA" in page_text
+    assert "Institutionelle SAA-Logik" in page_text
