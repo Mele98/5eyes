@@ -5,6 +5,8 @@ import { Sidebar, REPORT_SECTIONS } from '@/components/Sidebar';
 import { Cover } from '@/pages/Cover';
 import { Disclaimer } from '@/pages/Disclaimer';
 import { Inhaltsverzeichnis } from '@/pages/Inhaltsverzeichnis';
+import { Ausgangslage } from '@/pages/Ausgangslage';
+import { Positionen } from '@/pages/Positionen';
 import { WeiteresVorgehen } from '@/pages/WeiteresVorgehen';
 
 type ReportSectionId = (typeof REPORT_SECTIONS)[number]['id'];
@@ -110,6 +112,12 @@ function renderSection(
   }
   if (sectionId === 'toc') {
     return <Inhaltsverzeichnis data={data.inhaltsverzeichnis} />;
+  }
+  if (sectionId === 'ausgangslage') {
+    return <Ausgangslage data={data.ausgangslage} />;
+  }
+  if (sectionId === 'positionen') {
+    return <Positionen data={data.positionen} />;
   }
   if (sectionId === 'weiteres-vorgehen') {
     return (
