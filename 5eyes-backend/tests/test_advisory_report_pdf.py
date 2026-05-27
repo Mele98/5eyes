@@ -128,6 +128,50 @@ def _make_minimal_payload() -> dict:
                 },
             ],
         },
+        "asset_allocation": {
+            "items": [
+                {
+                    "key": "equities", "label": "Aktien",
+                    "ist_bps": 2500, "soll_bps": 3500, "drift_bps": -1000,
+                    "band_min_bps": 3000, "band_max_bps": 4000, "in_band": False,
+                },
+                {
+                    "key": "bonds", "label": "Obligationen",
+                    "ist_bps": 6000, "soll_bps": 5000, "drift_bps": 1000,
+                    "band_min_bps": 4000, "band_max_bps": 6000, "in_band": True,
+                },
+                {
+                    "key": "liquidity", "label": "Liquidität",
+                    "ist_bps": 250, "soll_bps": 250, "drift_bps": 0,
+                    "band_min_bps": 0, "band_max_bps": 500, "in_band": True,
+                },
+            ],
+            "ist_bps": {}, "soll_bps": {}, "drift_bps": {},
+            "ist_basiert_auf_soll": True,
+            "anmerkungen": "Aktien-Anteil unter dem Toleranzband — Rebalancing prüfen.",
+        },
+        "risikowaehrungen": {
+            "items": [
+                {"label": "CHF", "ist_bps": 5500, "soll_bps": 6000, "drift_bps": -500},
+                {"label": "USD", "ist_bps": 3000, "soll_bps": 2500, "drift_bps": 500},
+                {"label": "EUR", "ist_bps": 1500, "soll_bps": 1500, "drift_bps": 0},
+            ],
+            "ist_bps": {}, "soll_bps": {}, "drift_bps": {},
+            "ist_basiert_auf_soll": False,
+            "erklaerung": "CHF-Anteil leicht unter SOLL — kein Handlungsbedarf.",
+        },
+        "branchen": {
+            "items": [
+                {"label": "Tech", "ist_bps": 2500, "soll_bps": 2000, "drift_bps": 500},
+                {"label": "Health", "ist_bps": 1500, "soll_bps": 1800, "drift_bps": -300},
+                {"label": "Übrige", "ist_bps": 1000, "soll_bps": 1200, "drift_bps": -200},
+            ],
+            "ist_bps": {}, "soll_bps": {}, "drift_bps": {},
+            "anteil_aktien_bps": 2500,
+            "hinweis": "Basis für die Sektor-Drift sind die Aktien-Positionen.",
+            "ist_basiert_auf_soll": False,
+            "analyse": "Tech-Übergewicht — Konzentrationsrisiko prüfen.",
+        },
         "positionen": {
             "groups": [
                 {
@@ -510,3 +554,134 @@ def test_erkenntnisse_handles_empty_checks():
     reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
     page_text = reader.pages[6].extract_text() or ""
     assert "Keine Erkenntnisse" in page_text
+
+
+# ---------------------------------------------------------------------------
+# Sektion 8 — Asset Allocation Bar-Chart (U-P26 PR D)
+# ---------------------------------------------------------------------------
+
+def test_asset_allocation_shows_section_header_and_labels():
+    pypdf = pytest.importorskip("pypdf")
+    payload = _make_minimal_payload()
+    pdf = render_advisory_report_pdf_from_payload(payload)
+    reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
+    # Sektion 8 = Seite 8 (0-indexed: 7)
+    assert len(reader.pages) >= 8
+    page_text = reader.pages[7].extract_text() or ""
+    assert "Asset Allocation" in page_text
+    assert "Aktien" in page_text
+    assert "Obligationen" in page_text
+    assert "Liquidität" in page_text
+
+
+def test_asset_allocation_shows_ist_and_soll_percentages():
+    pypdf = pytest.importorskip("pypdf")
+    payload = _make_minimal_payload()
+    pdf = render_advisory_report_pdf_from_payload(payload)
+    reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
+    page_text = reader.pages[7].extract_text() or ""
+    normalized = "".join(page_text.split())
+    # Aktien IST 25.0 % / SOLL 35.0 %
+    assert "25.0%" in normalized
+    assert "35.0%" in normalized
+    # Drift −10.0 %
+    assert "-10.0%" in normalized or "−10.0%" in normalized
+
+
+def test_asset_allocation_shows_data_basis_banner_when_ist_basiert_auf_soll():
+    pypdf = pytest.importorskip("pypdf")
+    payload = _make_minimal_payload()
+    pdf = render_advisory_report_pdf_from_payload(payload)
+    reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
+    page_text = reader.pages[7].extract_text() or ""
+    assert "Datenstand" in page_text
+
+
+def test_asset_allocation_shows_editorial_anmerkungen():
+    pypdf = pytest.importorskip("pypdf")
+    payload = _make_minimal_payload()
+    pdf = render_advisory_report_pdf_from_payload(payload)
+    reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
+    page_text = reader.pages[7].extract_text() or ""
+    assert "Aktien-Anteil unter dem Toleranzband" in page_text
+
+
+def test_asset_allocation_handles_empty_items():
+    payload = _make_minimal_payload()
+    payload["asset_allocation"] = {
+        "items": [], "ist_bps": {}, "soll_bps": {}, "drift_bps": {},
+        "ist_basiert_auf_soll": False, "anmerkungen": "",
+    }
+    pdf = render_advisory_report_pdf_from_payload(payload)
+    assert pdf[:5] == b"%PDF-"
+
+
+# ---------------------------------------------------------------------------
+# Sektion 9 — Risikowährungen (U-P26 PR D)
+# ---------------------------------------------------------------------------
+
+def test_risikowaehrungen_shows_currency_labels():
+    pypdf = pytest.importorskip("pypdf")
+    payload = _make_minimal_payload()
+    pdf = render_advisory_report_pdf_from_payload(payload)
+    reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
+    # Sektion 9 = Seite 9 (0-indexed: 8)
+    assert len(reader.pages) >= 9
+    page_text = reader.pages[8].extract_text() or ""
+    assert "Risikowährungen" in page_text
+    assert "CHF" in page_text
+    assert "USD" in page_text
+    assert "EUR" in page_text
+    assert "CHF-Anteil leicht unter SOLL" in page_text
+
+
+def test_risikowaehrungen_no_data_basis_banner_when_ist_is_real():
+    """ist_basiert_auf_soll=False → kein Datenstand-Banner."""
+    pypdf = pytest.importorskip("pypdf")
+    payload = _make_minimal_payload()
+    pdf = render_advisory_report_pdf_from_payload(payload)
+    reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
+    page_text = reader.pages[8].extract_text() or ""
+    # Banner-Text darf hier nicht auftauchen
+    assert "IST basiert aktuell auf SOLL" not in page_text
+
+
+# ---------------------------------------------------------------------------
+# Sektion 10 — Branchen (U-P26 PR D)
+# ---------------------------------------------------------------------------
+
+def test_branchen_shows_sector_items_and_analyse():
+    pypdf = pytest.importorskip("pypdf")
+    payload = _make_minimal_payload()
+    pdf = render_advisory_report_pdf_from_payload(payload)
+    reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
+    assert len(reader.pages) >= 10
+    page_text = reader.pages[9].extract_text() or ""
+    assert "Diversifikation Branchen" in page_text
+    assert "Tech" in page_text
+    assert "Health" in page_text
+    assert "Übrige" in page_text
+    assert "Tech-Übergewicht" in page_text
+
+
+def test_branchen_shows_hinweis_about_data_basis():
+    pypdf = pytest.importorskip("pypdf")
+    payload = _make_minimal_payload()
+    pdf = render_advisory_report_pdf_from_payload(payload)
+    reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
+    page_text = reader.pages[9].extract_text() or ""
+    assert "Sektor-Drift" in page_text
+
+
+# ---------------------------------------------------------------------------
+# Branding-Disziplin: KEINE Dritt-Marken im erweiterten PDF
+# ---------------------------------------------------------------------------
+
+def test_pr_d_layout_contains_no_third_party_brands():
+    pypdf = pytest.importorskip("pypdf")
+    payload = _make_minimal_payload()
+    pdf = render_advisory_report_pdf_from_payload(payload)
+    reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
+    all_text = "\n".join((p.extract_text() or "") for p in reader.pages).lower()
+    for term in ["swiss life", "3eyes"]:
+        assert term not in all_text, f"Verbotene Marke '{term}' im PR-D PDF"
