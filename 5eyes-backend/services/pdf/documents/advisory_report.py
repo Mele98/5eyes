@@ -88,33 +88,60 @@ def render_advisory_report_pdf(
 def render_advisory_report_pdf_from_payload(payload: dict[str, Any]) -> bytes:
     """Pure PDF-Render aus einem bereits berechneten Aggregator-Payload.
 
-    Wird vor allem für Tests genutzt — der Aggregator selbst kostet DB-
-    Setup-Zeit, der reine Render-Pfad kann mit einem statischen Payload
-    schnell verifiziert werden.
+    Two-Pass-Build (U-P26 PR F): Pass 1 zählt die Seiten, Pass 2 zeichnet
+    mit korrekten „Seite x / N"-Annotationen im Page-Header. Beide Passes
+    teilen sich `_build_all_flowables` — ein Aufruf pro Pass, weil
+    ReportLab die Flowable-Liste beim Build mutiert.
     """
-    buffer = BytesIO()
-
     cover = payload.get("cover") or {}
     mandate_number = str(cover.get("mandate_number") or "—")
     generated_at = str(payload.get("generated_at") or "")
     client_name = str(cover.get("client_name") or "—")
-
-    doc = SimpleDocTemplate(
-        buffer,
-        pagesize=PAGE_SIZE,
-        topMargin=MARGIN_TOP,
-        bottomMargin=MARGIN_BOTTOM,
-        leftMargin=MARGIN_LEFT,
-        rightMargin=MARGIN_RIGHT,
-        title=f"5eyes Advisory Report — {client_name}",
-        author=str(cover.get("advisor_name") or ""),
-        subject="Strategische Portfolioanalyse",
-        creator="5eyes",
-    )
-
     styles = make_advisory_styles()
+
+    def _new_doc() -> tuple[BytesIO, SimpleDocTemplate]:
+        buf = BytesIO()
+        return buf, SimpleDocTemplate(
+            buf,
+            pagesize=PAGE_SIZE,
+            topMargin=MARGIN_TOP,
+            bottomMargin=MARGIN_BOTTOM,
+            leftMargin=MARGIN_LEFT,
+            rightMargin=MARGIN_RIGHT,
+            title=f"5eyes Advisory Report — {client_name}",
+            author=str(cover.get("advisor_name") or ""),
+            subject="Strategische Portfolioanalyse",
+            creator="5eyes",
+        )
+
+    # Pass 1 — Seiten zählen
+    _scratch_buf, scratch_doc = _new_doc()
+    counter = _PageCounter()
+    scratch_doc.build(
+        _build_all_flowables(payload, styles),
+        onFirstPage=counter, onLaterPages=counter,
+    )
+    total_pages = counter.page_count or 1
+
+    # Pass 2 — Render mit korrektem total_pages_hint
+    out_buf, out_doc = _new_doc()
+    chrome = make_advisory_page_chrome(
+        mandate_number=mandate_number,
+        generated_at_iso=generated_at,
+        total_pages_hint=total_pages,
+    )
+    out_doc.build(
+        _build_all_flowables(payload, styles),
+        onFirstPage=chrome, onLaterPages=chrome,
+    )
+    return out_buf.getvalue()
+
+
+def _build_all_flowables(payload: dict[str, Any], styles: dict) -> list[Any]:
+    """Erzeugt einen *frischen* Flowable-Snapshot — wird zweimal aufgerufen
+    (Pass 1 zum Zählen, Pass 2 zum Zeichnen)."""
     flowables: list[Any] = []
-    flowables.extend(_build_cover_flowables(cover, styles))
+    flowables.extend(_build_cover_flowables(payload.get("cover") or {}, styles))
     flowables.append(PageBreak())
     flowables.extend(_build_disclaimer_flowables(payload.get("disclaimer") or {}, styles))
     flowables.append(PageBreak())
@@ -128,36 +155,32 @@ def render_advisory_report_pdf_from_payload(payload: dict[str, Any]) -> bytes:
     flowables.append(PageBreak())
     flowables.extend(_build_erkenntnisse_flowables(payload.get("erkenntnisse") or {}, styles))
     flowables.append(PageBreak())
-    flowables.extend(_build_asset_allocation_flowables(
-        payload.get("asset_allocation") or {}, styles,
-    ))
+    flowables.extend(_build_asset_allocation_flowables(payload.get("asset_allocation") or {}, styles))
     flowables.append(PageBreak())
-    flowables.extend(_build_risikowaehrungen_flowables(
-        payload.get("risikowaehrungen") or {}, styles,
-    ))
+    flowables.extend(_build_risikowaehrungen_flowables(payload.get("risikowaehrungen") or {}, styles))
     flowables.append(PageBreak())
-    flowables.extend(_build_branchen_flowables(
-        payload.get("branchen") or {}, styles,
-    ))
+    flowables.extend(_build_branchen_flowables(payload.get("branchen") or {}, styles))
     flowables.append(PageBreak())
-    flowables.extend(_build_goals_flowables(
-        payload.get("goal_based_investing") or {}, styles,
-    ))
+    flowables.extend(_build_goals_flowables(payload.get("goal_based_investing") or {}, styles))
     flowables.append(PageBreak())
-    flowables.extend(_build_risikoprofil_flowables(
-        payload.get("risikoprofilierung") or {}, styles,
-    ))
+    flowables.extend(_build_risikoprofil_flowables(payload.get("risikoprofilierung") or {}, styles))
     flowables.append(PageBreak())
-    flowables.extend(_build_building_blocks_flowables(
-        payload.get("building_blocks") or {}, styles,
-    ))
+    flowables.extend(_build_building_blocks_flowables(payload.get("building_blocks") or {}, styles))
+    flowables.append(PageBreak())
+    flowables.extend(_build_statement_pm_flowables(payload.get("statement_pm") or {}, styles))
+    flowables.append(PageBreak())
+    flowables.extend(_build_weiteres_vorgehen_flowables(payload.get("weiteres_vorgehen") or {}, styles))
+    return flowables
 
-    chrome = make_advisory_page_chrome(
-        mandate_number=mandate_number,
-        generated_at_iso=generated_at,
-    )
-    doc.build(flowables, onFirstPage=chrome, onLaterPages=chrome)
-    return buffer.getvalue()
+
+class _PageCounter:
+    """Page-Callback ohne Drawing, der die finale Seitenzahl tracked."""
+
+    def __init__(self) -> None:
+        self.page_count: int = 0
+
+    def __call__(self, canvas, doc) -> None:
+        self.page_count = max(self.page_count, int(doc.page))
 
 
 # ---------------------------------------------------------------------------
@@ -1483,6 +1506,222 @@ def _constraints_table(constraints: list[dict], styles: dict) -> Table:
         ("LINEBELOW", (0, 1), (-1, -1), 0.2, COLOR_RULE),
     ]))
     return table
+
+
+# ---------------------------------------------------------------------------
+# Sektion 14 — Statement aus dem Portfoliomanagement
+# ---------------------------------------------------------------------------
+
+def _build_statement_pm_flowables(stmt: dict, styles: dict) -> list[Any]:
+    """7 Investmentgrundsätze als editoriale Liste — Titel + Body."""
+    out: list[Any] = []
+    out.append(Paragraph("Sektion 14", styles["kicker"]))
+    out.append(Paragraph("Statement aus dem Portfoliomanagement", styles["h1"]))
+    out.append(Spacer(1, 4 * mm))
+    out.append(_hr())
+    out.append(Spacer(1, 5 * mm))
+
+    principles = stmt.get("principles") or []
+    if not principles:
+        out.append(Paragraph(
+            "<i>Keine Investmentgrundsätze erfasst.</i>",
+            styles["caption"],
+        ))
+        return out
+
+    page_width, _ = PAGE_SIZE
+    inner_width = page_width - MARGIN_LEFT - MARGIN_RIGHT
+    nr_col = 12 * mm
+    body_col = inner_width - nr_col
+
+    rows = []
+    for idx, p in enumerate(principles, start=1):
+        title = _safe_string(p.get("title"))
+        body = _safe_string(p.get("body"))
+        nr_cell = Paragraph(
+            f"<font color='#B39455'>{idx:02d}</font>",
+            _ar_paragraph_style(
+                styles["caption_mono"], color=COLOR_GOLD, size=FONT_SIZE_CAPTION + 2,
+            ),
+        )
+        body_cell = Table(
+            [
+                [Paragraph(
+                    _escape(title),
+                    _ar_paragraph_style(
+                        styles["body"], color=COLOR_INK, font=FONT_SANS_BOLD,
+                    ),
+                )],
+                [Paragraph(_escape(body), styles["body_muted"])],
+            ],
+        )
+        body_cell.setStyle(TableStyle([
+            ("LEFTPADDING", (0, 0), (-1, -1), 0),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+            ("TOPPADDING", (0, 0), (0, 0), 0),
+            ("BOTTOMPADDING", (0, 0), (0, 0), 1),
+            ("TOPPADDING", (0, 1), (-1, -1), 0),
+            ("BOTTOMPADDING", (0, 1), (-1, -1), 0),
+        ]))
+        rows.append([nr_cell, body_cell])
+
+    table = Table(rows, colWidths=[nr_col, body_col])
+    table.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+        ("TOPPADDING", (0, 0), (-1, -1), 8),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+        ("LINEBELOW", (0, 0), (-1, -2), 0.2, COLOR_RULE),
+    ]))
+    out.append(table)
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Sektion 15 — Weiteres Vorgehen
+# ---------------------------------------------------------------------------
+
+def _build_weiteres_vorgehen_flowables(wv: dict, styles: dict) -> list[Any]:
+    """Berater-individuelle Texte aus MandateReportNotes (U-P28 PR B).
+    Auto-Default-Platzhalter werden gedimmt-kursiv gerendert.
+    """
+    out: list[Any] = []
+    out.append(Paragraph("Sektion 15", styles["kicker"]))
+    out.append(Paragraph("Weiteres Vorgehen", styles["h1"]))
+    out.append(Spacer(1, 4 * mm))
+    out.append(_hr())
+    out.append(Spacer(1, 5 * mm))
+
+    block_opt = str(wv.get("block_optimierungen") or "")
+    block_ziel = str(wv.get("block_zielstrategie") or "")
+    offene_fragen = wv.get("offene_fragen") or []
+    todos = wv.get("todos") or []
+    dokumente = wv.get("dokumente") or []
+    termin = str(wv.get("naechster_termin") or "").strip()
+
+    page_width, _ = PAGE_SIZE
+    inner_width = page_width - MARGIN_LEFT - MARGIN_RIGHT
+    col_w = (inner_width - 6 * mm) / 2
+
+    out.append(Table(
+        [[
+            _vorgehen_block("Optimierungsmassnahmen", block_opt, styles),
+            _vorgehen_block("Zielstrategie", block_ziel, styles),
+        ]],
+        colWidths=[col_w, col_w],
+        style=TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 0),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ]),
+    ))
+
+    out.append(Spacer(1, 6 * mm))
+
+    list_col = (inner_width - 12 * mm) / 3
+    out.append(Table(
+        [[
+            _vorgehen_list("Offene Fragen", offene_fragen, styles),
+            _vorgehen_list("To-Dos", todos, styles),
+            _vorgehen_list("Dokumente", dokumente, styles),
+        ]],
+        colWidths=[list_col, list_col, list_col],
+        style=TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 0),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ]),
+    ))
+
+    out.append(Spacer(1, 6 * mm))
+    out.append(_hr())
+    out.append(Spacer(1, 3 * mm))
+    out.append(Paragraph(
+        "NÄCHSTER TERMIN",
+        _ar_paragraph_style(
+            styles["micro"], color=COLOR_INK_SUBTLE, font=FONT_SANS_BOLD,
+        ),
+    ))
+    out.append(Paragraph(
+        _escape(termin) if termin else "<i>Noch nicht vereinbart.</i>",
+        _ar_paragraph_style(
+            styles["body"], color=COLOR_INK if termin else COLOR_INK_SUBTLE,
+        ),
+    ))
+    return out
+
+
+def _vorgehen_block(title: str, body: str, styles: dict) -> Table:
+    """Ein Text-Block: Titel oben, Body unten — gedimmt-kursiv wenn Auto-Default."""
+    is_persisted = bool(body) and not body.startswith("(Vom Berater zu ergänzen")
+    body_style = _ar_paragraph_style(
+        styles["body"] if is_persisted else styles["body_muted"],
+        color=COLOR_INK if is_persisted else COLOR_INK_SUBTLE,
+    )
+    rendered_body = (
+        _escape(body) if is_persisted else f"<i>{_escape(body or '—')}</i>"
+    )
+    inner = Table([
+        [Paragraph(
+            _escape(title.upper()),
+            _ar_paragraph_style(
+                styles["micro"], color=COLOR_INK_SUBTLE, font=FONT_SANS_BOLD,
+            ),
+        )],
+        [Paragraph(rendered_body, body_style)],
+    ])
+    inner.setStyle(TableStyle([
+        ("LEFTPADDING", (0, 0), (-1, -1), 12),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 12),
+        ("TOPPADDING", (0, 0), (0, 0), 10),
+        ("BOTTOMPADDING", (0, 0), (0, 0), 4),
+        ("TOPPADDING", (0, 1), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 1), (-1, -1), 10),
+        ("BOX", (0, 0), (-1, -1), 0.3, COLOR_RULE),
+    ]))
+    return inner
+
+
+def _vorgehen_list(title: str, items: list[str], styles: dict) -> Table:
+    """Eine Liste: Titel oben, bullets unten — leere Liste zeigt Hinweis."""
+    if items:
+        bullet_paragraphs = [
+            Paragraph(
+                f"·  {_escape(str(item))}",
+                _ar_paragraph_style(styles["caption"], color=COLOR_INK),
+            )
+            for item in items if str(item).strip()
+        ]
+    else:
+        bullet_paragraphs = [Paragraph(
+            "<i>Keine Einträge.</i>",
+            _ar_paragraph_style(styles["caption"], color=COLOR_INK_SUBTLE),
+        )]
+
+    rows = [
+        [Paragraph(
+            _escape(title.upper()),
+            _ar_paragraph_style(
+                styles["micro"], color=COLOR_INK_SUBTLE, font=FONT_SANS_BOLD,
+            ),
+        )],
+    ]
+    for p in bullet_paragraphs:
+        rows.append([p])
+
+    inner = Table(rows)
+    inner.setStyle(TableStyle([
+        ("LEFTPADDING", (0, 0), (-1, -1), 12),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 12),
+        ("TOPPADDING", (0, 0), (0, 0), 10),
+        ("BOTTOMPADDING", (0, 0), (0, 0), 4),
+        ("TOPPADDING", (0, 1), (-1, -1), 1),
+        ("BOTTOMPADDING", (0, 1), (-1, -1), 1),
+        ("BOTTOMPADDING", (0, -1), (-1, -1), 10),
+        ("BOX", (0, 0), (-1, -1), 0.3, COLOR_RULE),
+    ]))
+    return inner
 
 
 # ---------------------------------------------------------------------------
