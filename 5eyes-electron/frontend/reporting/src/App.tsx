@@ -5,6 +5,7 @@ import { Sidebar, REPORT_SECTIONS } from '@/components/Sidebar';
 import { Cover } from '@/pages/Cover';
 import { Disclaimer } from '@/pages/Disclaimer';
 import { Inhaltsverzeichnis } from '@/pages/Inhaltsverzeichnis';
+import { WeiteresVorgehen } from '@/pages/WeiteresVorgehen';
 
 type ReportSectionId = (typeof REPORT_SECTIONS)[number]['id'];
 
@@ -66,7 +67,7 @@ function Landing() {
 
 function ReportShell({ sectionId }: { sectionId: ReportSectionId }) {
   const { mandateId } = useParams<{ mandateId: string }>();
-  const { state, data, error } = useAdvisoryReport(mandateId);
+  const { state, data, error, reload } = useAdvisoryReport(mandateId);
 
   if (!mandateId) {
     return (
@@ -90,12 +91,17 @@ function ReportShell({ sectionId }: { sectionId: ReportSectionId }) {
   return (
     <div className="min-h-screen lg:grid lg:grid-cols-[17rem_minmax(0,1fr)]">
       <Sidebar mandateId={mandateId} activeSection={sectionId} />
-      <main>{renderSection(sectionId, data)}</main>
+      <main>{renderSection(sectionId, data, mandateId, reload)}</main>
     </div>
   );
 }
 
-function renderSection(sectionId: ReportSectionId, data: AdvisoryReport) {
+function renderSection(
+  sectionId: ReportSectionId,
+  data: AdvisoryReport,
+  mandateId: string,
+  reload: () => void,
+) {
   if (sectionId === 'cover') {
     return <Cover data={data.cover} />;
   }
@@ -104,6 +110,15 @@ function renderSection(sectionId: ReportSectionId, data: AdvisoryReport) {
   }
   if (sectionId === 'toc') {
     return <Inhaltsverzeichnis data={data.inhaltsverzeichnis} />;
+  }
+  if (sectionId === 'weiteres-vorgehen') {
+    return (
+      <WeiteresVorgehen
+        data={data.weiteres_vorgehen}
+        mandateId={mandateId}
+        onReload={reload}
+      />
+    );
   }
   return <PendingSection sectionId={sectionId} />;
 }
