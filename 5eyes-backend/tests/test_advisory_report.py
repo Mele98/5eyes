@@ -1157,6 +1157,84 @@ def test_ausgangslage_horizon_default_is_10_years(session_factory):
     assert report["ausgangslage"]["client_info"]["anlagehorizont_jahre"] == 10
 
 
+def test_ausgangslage_horizon_derives_from_planning_assumption(session_factory):
+    """Regression nach Live-Smoke 2026-05-28: Foundation-Mandat seedet
+    `PlanningAssumption.retirement_age_primary=63`, aber NICHT
+    `mandate.retirement_year`. Ohne PlanningAssumption-Fallback griff
+    der Default 10. Daniel 49 + Pension 63 → Horizont muss 14 sein.
+    """
+    from datetime import date
+
+    from models.wealth import PlanningAssumption
+
+    with session_factory() as s:
+        mandate, client, advisor = _seed_minimal_mandate(s)
+        mandate.retirement_year = None
+        mandate.life_expectancy_year = None
+        # Kunde 49 Jahre alt (geboren in einem Jahr das current_year - 49 ist)
+        today_year = date.today().year
+        birth_year = today_year - 49
+        client.date_of_birth = f"{birth_year}-09-18"
+        s.add(
+            PlanningAssumption(
+                id=str(uuid.uuid4()),
+                mandate_id=mandate.id,
+                client_id=client.id,
+                version=1,
+                is_current=1,
+                valid_from=_NOW[:10],
+                retirement_age_primary=63,
+                retirement_age_partner=64,
+                life_expectancy_primary=92,
+                life_expectancy_partner=94,
+                inflation_assumption_bps=150,
+                pension_indexation_bps=100,
+                created_at=_NOW,
+                updated_at=_NOW,
+            )
+        )
+        s.commit()
+        report = compute_advisory_report(s, mandate, advisor=advisor)
+    # Pension bei 63, Kunde 49 → Horizont 14 Jahre
+    horizon = report["ausgangslage"]["client_info"]["anlagehorizont_jahre"]
+    assert horizon == 14, (
+        f"Erwartet 14 Jahre (Pension 63 - Alter 49), gefunden {horizon}"
+    )
+
+
+def test_ausgangslage_horizon_planning_assumption_ignored_without_dob(session_factory):
+    """Edge-Case: PlanningAssumption ohne Geburtsdatum → kein Ableitungspfad,
+    fällt auf Default zurück."""
+    from models.wealth import PlanningAssumption
+
+    with session_factory() as s:
+        mandate, client, advisor = _seed_minimal_mandate(s)
+        mandate.retirement_year = None
+        mandate.life_expectancy_year = None
+        client.date_of_birth = None
+        s.add(
+            PlanningAssumption(
+                id=str(uuid.uuid4()),
+                mandate_id=mandate.id,
+                client_id=client.id,
+                version=1,
+                is_current=1,
+                valid_from=_NOW[:10],
+                retirement_age_primary=63,
+                retirement_age_partner=64,
+                life_expectancy_primary=92,
+                life_expectancy_partner=94,
+                inflation_assumption_bps=150,
+                pension_indexation_bps=100,
+                created_at=_NOW,
+                updated_at=_NOW,
+            )
+        )
+        s.commit()
+        report = compute_advisory_report(s, mandate, advisor=advisor)
+    assert report["ausgangslage"]["client_info"]["anlagehorizont_jahre"] == 10
+
+
 def test_ausgangslage_derives_primary_goal_label_from_lowest_rank(session_factory):
     """Wichtigstes Goal = niedrigster `rank`."""
     with session_factory() as s:
