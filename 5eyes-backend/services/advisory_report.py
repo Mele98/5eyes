@@ -359,7 +359,7 @@ def _build_ausgangslage(
     # Linke Spalte: Kundeninformation
     client_info = {
         "alter": _derive_age(client),
-        "anlagehorizont_jahre": _derive_investment_horizon(mandate),
+        "anlagehorizont_jahre": _derive_investment_horizon(mandate, client, db),
         "risikoprofil": str(getattr(mandate, "risk_profile_label", "") or "")
             or _resolve_risk_profile_from_assessment(db, mandate),
         "anlageziel": _derive_primary_goal_label(db, mandate),
@@ -529,24 +529,77 @@ def _derive_age(client: Client) -> int:
     return max(0, age)
 
 
-def _derive_investment_horizon(mandate: Mandate) -> int:
-    """Sprint U-P30: Horizont aus `mandate.retirement_year` minus aktuelles Jahr.
+def _derive_investment_horizon(
+    mandate: Mandate, client: Client, db: Session
+) -> int:
+    """Sprint U-P30 (2026-05-28 Live-Smoke-Fix):
+    Horizont aus dem Pensionierungs-Zeitpunkt minus aktuelles Jahr.
 
     Fallback-Cascade:
-    1. retirement_year (Mandate-Feld) — beste Quelle
-    2. life_expectancy_year (Mandate-Feld) — wenn ohne Pensionierungsjahr
-    3. 10 — konservativer Mittelfrist-Default
+    1. `mandate.retirement_year` (direkt gesetzt) — beste Quelle
+    2. `PlanningAssumption.retirement_age_primary` + `client.date_of_birth`
+       → Pensions-Jahr abgeleitet (Foundation-Case nutzt diesen Pfad)
+    3. `mandate.life_expectancy_year` — wenn Pension nicht definiert
+    4. 10 — konservativer Mittelfrist-Default
+
+    Bezug: Live-Smoke 2026-05-28 mit MX-FOUNDATION-01 zeigte Horizont = 10
+    statt 14 (Daniel 49 + Pension 63), weil U-P30 nur `Mandate.retirement_year`
+    abfragte, aber Foundation seedet `PlanningAssumption.retirement_age_primary`.
     """
     from datetime import date
 
     today_year = date.today().year
+
+    # 1. Direkt am Mandate gesetzt
     retirement = _safe_int(getattr(mandate, "retirement_year", None))
     if retirement and retirement > today_year:
         return retirement - today_year
+
+    # 2. Via PlanningAssumption + Geburtsdatum ableiten
+    derived = _retirement_year_from_planning(db, mandate, client)
+    if derived and derived > today_year:
+        return derived - today_year
+
+    # 3. Lebenserwartung am Mandate als letzte konkrete Quelle
     life_exp = _safe_int(getattr(mandate, "life_expectancy_year", None))
     if life_exp and life_exp > today_year:
         return life_exp - today_year
+
+    # 4. Konservativer Default
     return 10
+
+
+def _retirement_year_from_planning(
+    db: Session, mandate: Mandate, client: Client
+) -> int | None:
+    """Errechnet das Pensions-Jahr aus `PlanningAssumption.retirement_age_primary`
+    + Geburtsjahr des Kunden. Returns None wenn eines der Felder fehlt.
+    """
+    from models.wealth import PlanningAssumption
+
+    pa = (
+        db.query(PlanningAssumption)
+        .filter(
+            PlanningAssumption.mandate_id == mandate.id,
+            PlanningAssumption.is_current == 1,
+        )
+        .order_by(PlanningAssumption.valid_from.desc())
+        .first()
+    )
+    if pa is None:
+        return None
+    age_primary = _safe_int(getattr(pa, "retirement_age_primary", 0))
+    if age_primary <= 0:
+        return None
+
+    dob = str(getattr(client, "date_of_birth", "") or "")
+    if not dob or len(dob) < 4:
+        return None
+    try:
+        birth_year = int(dob[:4])
+    except ValueError:
+        return None
+    return birth_year + age_primary
 
 
 def _derive_primary_goal_label(db: Session, mandate: Mandate) -> str:
