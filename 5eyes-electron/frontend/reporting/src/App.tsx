@@ -317,7 +317,13 @@ function renderSection(
     );
   }
   if (sectionId === 'beratungsprotokoll') {
-    return <Beratungsprotokoll data={data.beratungsprotokoll} />;
+    return (
+      <Beratungsprotokoll
+        data={data.beratungsprotokoll}
+        mandateId={mandateId}
+        onReload={reload}
+      />
+    );
   }
   if (sectionId === 'compliance') {
     return (
