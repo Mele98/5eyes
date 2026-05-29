@@ -17,6 +17,7 @@ import { Risikoprofil } from '@/pages/Risikoprofil';
 import { BuildingBlocks } from '@/pages/BuildingBlocks';
 import { StatementPm } from '@/pages/StatementPm';
 import { WeiteresVorgehen } from '@/pages/WeiteresVorgehen';
+import { Beratungsprotokoll } from '@/pages/Beratungsprotokoll';
 
 type ReportSectionId = (typeof REPORT_SECTIONS)[number]['id'];
 
@@ -181,6 +182,9 @@ function renderSection(
         onReload={reload}
       />
     );
+  }
+  if (sectionId === 'beratungsprotokoll') {
+    return <Beratungsprotokoll data={data.beratungsprotokoll} />;
   }
   return <PendingSection sectionId={sectionId} />;
 }

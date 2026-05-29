@@ -267,6 +267,43 @@ def _make_minimal_payload() -> dict:
             "todos": ["Vorsorgeauftrag aufsetzen", "Risikoabsicherung prüfen"],
             "dokumente": ["Identifikationspapier", "Ausweis Wohnsitz"],
         },
+        # Sektion 16 — Beratungsprotokoll (Sprint U-FINMA-2.3)
+        "beratungsprotokoll": {
+            "total_active": 3,
+            "last_review_date": "2026-05-15",
+            "days_since_last_review": 13,
+            "suitability_mismatches": [],
+            "has_active_mismatches": False,
+            "retention_audit_ok": True,
+            "latest_entry": {
+                "id": "log-1",
+                "entry_type": "Jahresreview",
+                "title": "Jahresreview Mai 2026",
+                "description": "SAA überprüft, Risikoprofil aktualisiert, nächste Schritte vereinbart.",
+                "decision": "Strategie angepasst",
+                "status": "Beschlossen",
+                "entry_datetime": "2026-05-15T14:00:00.000Z",
+                "duration_minutes": 75,
+                "communication_channel": "persoenlich",
+                "language": "de",
+                "location": "Büro Zürich",
+                "participants": [{"role": "client", "name": "Daniel Beispiel"}],
+                "topics": ["SAA", "Risikoprofil", "Pensionsplanung"],
+                "risk_warnings_given": ["Marktrisiko", "Fremdwährungsrisiko"],
+                "cost_disclosure_given": 1,
+                "conflict_disclosure_ids": [],
+                "suitability_check_id": None,
+                "integrity_hash": "a" * 64,
+                "retain_until": "2036-05-15",
+                "version": 1,
+                "supersedes_id": None,
+                "superseded_by_id": None,
+                "last_read_at": None,
+                "last_read_by": None,
+                "created_at": "2026-05-15T14:00:00.000Z",
+                "updated_at": "2026-05-15T14:00:00.000Z",
+            },
+        },
         "positionen": {
             "groups": [
                 {
@@ -987,6 +1024,98 @@ def test_full_pdf_has_at_least_15_sections():
     payload = _make_minimal_payload()
     pdf = render_advisory_report_pdf_from_payload(payload)
     reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
-    assert len(reader.pages) >= 15, (
-        f"Erwartet mindestens 15 Seiten (alle Sektionen), PDF hat {len(reader.pages)}"
+    # U-FINMA-2.3: Sektion 16 ergaenzt -> mindestens 16 Seiten
+    assert len(reader.pages) >= 16, (
+        f"Erwartet mindestens 16 Seiten (alle Sektionen + Beratungsprotokoll), "
+        f"PDF hat {len(reader.pages)}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Sektion 16 — Beratungsprotokoll (Sprint U-FINMA-2.3)
+# ---------------------------------------------------------------------------
+
+def test_beratungsprotokoll_section_shows_header_and_summary():
+    pypdf = pytest.importorskip("pypdf")
+    payload = _make_minimal_payload()
+    pdf = render_advisory_report_pdf_from_payload(payload)
+    reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
+    # Sektion 16 = Seite 16 (0-indexed: 15)
+    assert len(reader.pages) >= 16
+    text = reader.pages[15].extract_text() or ""
+    assert "Beratungsprotokoll" in text
+    # pypdf-extract korrumpiert Umlaute -> wir matchen den Substring vor dem Umlaut
+    assert "AKTIVE EINTR" in text.upper()
+    assert "3" in text  # total_active
+    assert "2026-05-15" in text  # last_review_date
+
+
+def test_beratungsprotokoll_shows_latest_entry_details():
+    pypdf = pytest.importorskip("pypdf")
+    payload = _make_minimal_payload()
+    pdf = render_advisory_report_pdf_from_payload(payload)
+    reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
+    text = reader.pages[15].extract_text() or ""
+    assert "Jahresreview Mai 2026" in text
+    assert "Beschlossen" in text  # Status-Pill
+    assert "75 min" in text  # Dauer
+    # Topics
+    assert "SAA" in text
+    assert "Risikoprofil" in text
+
+
+def test_beratungsprotokoll_shows_integrity_marker():
+    pypdf = pytest.importorskip("pypdf")
+    payload = _make_minimal_payload()
+    pdf = render_advisory_report_pdf_from_payload(payload)
+    reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
+    text = reader.pages[15].extract_text() or ""
+    assert "verifiziert" in text.lower()
+
+
+def test_beratungsprotokoll_shows_mismatch_banner_when_active():
+    pypdf = pytest.importorskip("pypdf")
+    payload = _make_minimal_payload()
+    payload["beratungsprotokoll"] = {
+        **payload["beratungsprotokoll"],
+        "has_active_mismatches": True,
+        "suitability_mismatches": [
+            "Risiko-Anteil 47.0 % überschreitet Cap 45.0 % (Defensiv).",
+        ],
+    }
+    pdf = render_advisory_report_pdf_from_payload(payload)
+    reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
+    text = reader.pages[15].extract_text() or ""
+    assert "Suitability-Hinweise" in text
+    assert "47.0" in text
+
+
+def test_beratungsprotokoll_shows_retention_warning():
+    pypdf = pytest.importorskip("pypdf")
+    payload = _make_minimal_payload()
+    payload["beratungsprotokoll"] = {
+        **payload["beratungsprotokoll"],
+        "retention_audit_ok": False,
+    }
+    pdf = render_advisory_report_pdf_from_payload(payload)
+    reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
+    text = reader.pages[15].extract_text() or ""
+    assert "Aufbewahrungs" in text
+
+
+def test_beratungsprotokoll_shows_no_entry_hint_when_empty():
+    pypdf = pytest.importorskip("pypdf")
+    payload = _make_minimal_payload()
+    payload["beratungsprotokoll"] = {
+        "total_active": 0,
+        "latest_entry": None,
+        "last_review_date": None,
+        "days_since_last_review": None,
+        "suitability_mismatches": [],
+        "has_active_mismatches": False,
+        "retention_audit_ok": True,
+    }
+    pdf = render_advisory_report_pdf_from_payload(payload)
+    reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
+    text = reader.pages[15].extract_text() or ""
+    assert "Noch kein Beratungsprotokoll" in text

@@ -170,6 +170,8 @@ def _build_all_flowables(payload: dict[str, Any], styles: dict) -> list[Any]:
     flowables.extend(_build_statement_pm_flowables(payload.get("statement_pm") or {}, styles))
     flowables.append(PageBreak())
     flowables.extend(_build_weiteres_vorgehen_flowables(payload.get("weiteres_vorgehen") or {}, styles))
+    flowables.append(PageBreak())
+    flowables.extend(_build_beratungsprotokoll_flowables(payload.get("beratungsprotokoll") or {}, styles))
     return flowables
 
 
@@ -1720,6 +1722,370 @@ def _vorgehen_list(title: str, items: list[str], styles: dict) -> Table:
         ("BOTTOMPADDING", (0, 1), (-1, -1), 1),
         ("BOTTOMPADDING", (0, -1), (-1, -1), 10),
         ("BOX", (0, 0), (-1, -1), 0.3, COLOR_RULE),
+    ]))
+    return inner
+
+
+# ---------------------------------------------------------------------------
+# Sektion 16 — Beratungsprotokoll (Sprint U-FINMA-2.3)
+# ---------------------------------------------------------------------------
+
+def _build_beratungsprotokoll_flowables(bp: dict, styles: dict) -> list[Any]:
+    """FINMA-konforme Beratungsprotokoll-Übersicht im PDF.
+
+    Layout:
+    - Header (Sektion 16)
+    - Übersicht-Block: aktive Einträge + letzter Termin + Tage-seit
+    - Mismatch-Banner wenn `has_active_mismatches` (rot)
+    - Retention-Warnung wenn `!retention_audit_ok` (gelb)
+    - Letzter Eintrag (wenn vorhanden): Typ, Datum, Channel, Dauer,
+      Topics, Risk-Warnings, Status-Pill, Hash-Marker
+    - Fallback wenn kein Eintrag erfasst
+    """
+    out: list[Any] = []
+    out.append(Paragraph("Sektion 16", styles["kicker"]))
+    out.append(Paragraph("Beratungsprotokoll", styles["h1"]))
+    out.append(Spacer(1, 4 * mm))
+    out.append(_hr())
+    out.append(Spacer(1, 5 * mm))
+
+    total = int(bp.get("total_active") or 0)
+    last_review = str(bp.get("last_review_date") or "—")
+    days_since = bp.get("days_since_last_review")
+    has_mismatches = bool(bp.get("has_active_mismatches"))
+    retention_ok = bool(bp.get("retention_audit_ok"))
+    mismatches = bp.get("suitability_mismatches") or []
+    latest = bp.get("latest_entry")
+
+    out.append(_bp_summary_block(
+        total=total,
+        last_review=last_review,
+        days_since=days_since,
+        styles=styles,
+    ))
+    out.append(Spacer(1, 5 * mm))
+
+    if has_mismatches and mismatches:
+        out.append(_bp_mismatch_banner(mismatches, styles))
+        out.append(Spacer(1, 4 * mm))
+
+    if not retention_ok:
+        out.append(_bp_retention_warning(styles))
+        out.append(Spacer(1, 4 * mm))
+
+    if latest:
+        out.append(Paragraph("Letzter Eintrag", styles["h2"]))
+        out.append(Spacer(1, 2 * mm))
+        out.append(_bp_latest_entry_block(latest, styles))
+    else:
+        out.append(_bp_no_entry_hint(styles))
+    return out
+
+
+def _bp_summary_block(*, total: int, last_review: str, days_since, styles: dict) -> Table:
+    """3-Spalten-Box: aktive Einträge · letzter Termin · Tage seit."""
+    page_width, _ = PAGE_SIZE
+    inner_width = page_width - MARGIN_LEFT - MARGIN_RIGHT
+    if isinstance(days_since, (int, float)) and days_since >= 0:
+        days_text = "heute" if int(days_since) == 0 else f"vor {int(days_since)} Tagen"
+    else:
+        days_text = "—"
+
+    def _cell(label: str, value: str) -> Table:
+        l = Paragraph(
+            _escape(label.upper()),
+            _ar_paragraph_style(
+                styles["micro"], color=COLOR_INK_SUBTLE, font=FONT_SANS_BOLD,
+            ),
+        )
+        v = Paragraph(
+            _escape(value),
+            _ar_paragraph_style(
+                styles["body"], color=COLOR_INK, font=FONT_SANS_BOLD, size=14,
+            ),
+        )
+        inner = Table([[l], [v]])
+        inner.setStyle(TableStyle([
+            ("LEFTPADDING", (0, 0), (-1, -1), 0),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+            ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ]))
+        return inner
+
+    cells = [
+        _cell("Aktive Einträge", str(total)),
+        _cell("Letzter Termin", last_review),
+        _cell("Letzte Beratung", days_text),
+    ]
+    box = Table([cells], colWidths=[inner_width / 3] * 3)
+    box.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("BACKGROUND", (0, 0), (-1, -1), COLOR_CANVAS_SUBTLE),
+        ("LINEBEFORE", (0, 0), (0, -1), 2.5, COLOR_ACCENT),
+        ("LEFTPADDING", (0, 0), (-1, -1), 12),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 12),
+        ("TOPPADDING", (0, 0), (-1, -1), 10),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
+    ]))
+    return box
+
+
+def _bp_mismatch_banner(mismatches: list, styles: dict) -> Table:
+    """Roter Hinweis-Block: aktive Suitability-Mismatches."""
+    from reportlab.lib.colors import HexColor
+
+    text_lines = [
+        Paragraph(
+            "<b>Aktive Suitability-Hinweise</b>",
+            _ar_paragraph_style(
+                styles["caption"], color=HexColor("#9E4747"), font=FONT_SANS_BOLD,
+            ),
+        ),
+    ]
+    for m in mismatches:
+        text_lines.append(Paragraph(
+            f"• {_escape(str(m))}",
+            _ar_paragraph_style(styles["caption"], color=COLOR_INK),
+        ))
+    inner = Table([[p] for p in text_lines])
+    inner.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), HexColor("#F0D9D9")),
+        ("LINEBEFORE", (0, 0), (0, -1), 2.5, HexColor("#9E4747")),
+        ("LEFTPADDING", (0, 0), (-1, -1), 12),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 12),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+    ]))
+    return inner
+
+
+def _bp_retention_warning(styles: dict) -> Table:
+    """Gelber Warning-Block: Aufbewahrungs-Frist läuft ab."""
+    from reportlab.lib.colors import HexColor
+
+    p = Paragraph(
+        "<b>Aufbewahrungs-Hinweis:</b> Mindestens ein Beratungsprotokoll-"
+        "Eintrag läuft in den nächsten 30 Tagen ab. FIDLEG verlangt eine "
+        "10-Jahres-Aufbewahrung — bitte Archiv-Pflicht überprüfen.",
+        _ar_paragraph_style(styles["caption"], color=COLOR_INK_MUTED),
+    )
+    inner = Table([[p]])
+    inner.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), HexColor("#F4EBD5")),
+        ("LINEBEFORE", (0, 0), (0, -1), 2.5, HexColor("#B59243")),
+        ("LEFTPADDING", (0, 0), (-1, -1), 12),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 12),
+        ("TOPPADDING", (0, 0), (-1, -1), 8),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+    ]))
+    return inner
+
+
+_BP_STATUS_PILL = {
+    "Empfohlen":          ("Empfohlen",      "#E9EBEE", "#3B475A"),
+    "Beschlossen":        ("Beschlossen",    "#E5EEDF", "#4E6F58"),
+    "Umgesetzt":          ("Umgesetzt",      "#D9C79A", "#B39455"),
+    "Überarbeitung nötig":("Überarbeitung",  "#F4EBD5", "#B59243"),
+    "Abgelehnt":          ("Abgelehnt",      "#F0D9D9", "#9E4747"),
+}
+
+
+def _bp_status_pill(status: str, styles: dict) -> Table:
+    from reportlab.lib.colors import HexColor
+
+    label, fill_hex, text_hex = _BP_STATUS_PILL.get(
+        status, ("Unbekannt", "#E9EBEE", "#3B475A")
+    )
+    pill = Table(
+        [[Paragraph(
+            _escape(label),
+            _ar_paragraph_style(
+                styles["micro"], color=HexColor(text_hex), font=FONT_SANS_BOLD,
+            ),
+        )]],
+        colWidths=[None],
+    )
+    pill.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), HexColor(fill_hex)),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 2),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+    ]))
+    return pill
+
+
+def _bp_latest_entry_block(entry: dict, styles: dict) -> Table:
+    """Detail-Block: Header (Datum/Typ) + Channel/Dauer + Topics + Warnings + Hash."""
+    page_width, _ = PAGE_SIZE
+    inner_width = page_width - MARGIN_LEFT - MARGIN_RIGHT
+
+    title = _safe_string(entry.get("title"))
+    entry_type = _safe_string(entry.get("entry_type"))
+    datetime_iso = str(entry.get("entry_datetime") or entry.get("entry_date") or "")
+    pretty_dt = _format_swiss_datetime(datetime_iso)
+    duration = entry.get("duration_minutes")
+    duration_text = f"{duration} min" if isinstance(duration, (int, float)) else "—"
+    channel = _safe_string(entry.get("communication_channel")).capitalize()
+    status = str(entry.get("status") or "Empfohlen")
+    topics = entry.get("topics") or []
+    warnings = entry.get("risk_warnings_given") or []
+    version = int(entry.get("version") or 1)
+    hash_short = (entry.get("integrity_hash") or "")[:16]
+    description = _safe_string(entry.get("description"))
+
+    rows = []
+
+    # Header-Zeile: Titel + Status
+    header_cells = [
+        Paragraph(
+            _escape(title),
+            _ar_paragraph_style(styles["body"], color=COLOR_INK, font=FONT_SANS_BOLD),
+        ),
+        _bp_status_pill(status, styles),
+    ]
+    rows.append(header_cells)
+
+    # Meta: Typ · Datum · Channel · Dauer
+    meta = (
+        f"{_escape(entry_type)}  &middot;  {_escape(pretty_dt)}  &middot;  "
+        f"{_escape(channel) or '—'}  &middot;  {_escape(duration_text)}  &middot;  "
+        f"Version {version}"
+    )
+    rows.append([
+        Paragraph(
+            meta,
+            _ar_paragraph_style(styles["caption"], color=COLOR_INK_MUTED),
+        ),
+        Paragraph("", styles["caption"]),
+    ])
+
+    # Description
+    if description and description != "—":
+        rows.append([
+            Paragraph(
+                _escape(description),
+                _ar_paragraph_style(styles["body"], color=COLOR_INK),
+            ),
+            Paragraph("", styles["caption"]),
+        ])
+
+    table = Table(rows, colWidths=[inner_width * 0.78, inner_width * 0.22])
+    table.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("ALIGN", (1, 0), (1, 0), "RIGHT"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 4),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("LINEBELOW", (0, 0), (-1, -2), 0.2, COLOR_RULE),
+    ]))
+
+    # Topics + Warnings + Hash in separate Block
+    out_table = Table(
+        [
+            [table],
+            [_bp_topics_block(topics, warnings, hash_short, styles)],
+        ],
+        colWidths=[inner_width],
+    )
+    out_table.setStyle(TableStyle([
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (0, 0), 4),
+        ("BOTTOMPADDING", (0, 1), (-1, -1), 0),
+        ("BOX", (0, 0), (-1, -1), 0.3, COLOR_RULE),
+    ]))
+    return out_table
+
+
+def _bp_topics_block(
+    topics: list, warnings: list, hash_short: str, styles: dict,
+) -> Table:
+    """Topics + Risk-Warnings + Hash-Marker als kompakter Block."""
+    page_width, _ = PAGE_SIZE
+    inner_width = page_width - MARGIN_LEFT - MARGIN_RIGHT - 10
+
+    rows = []
+
+    if topics:
+        rows.append([
+            Paragraph(
+                "THEMEN",
+                _ar_paragraph_style(
+                    styles["micro"], color=COLOR_INK_SUBTLE, font=FONT_SANS_BOLD,
+                ),
+            ),
+            Paragraph(
+                " · ".join(_escape(str(t)) for t in topics),
+                _ar_paragraph_style(styles["caption"], color=COLOR_INK),
+            ),
+        ])
+
+    if warnings:
+        warning_html = "<br/>".join(f"• {_escape(str(w))}" for w in warnings)
+        rows.append([
+            Paragraph(
+                "RISIKO-HINWEISE",
+                _ar_paragraph_style(
+                    styles["micro"], color=COLOR_INK_SUBTLE, font=FONT_SANS_BOLD,
+                ),
+            ),
+            Paragraph(
+                warning_html,
+                _ar_paragraph_style(styles["caption"], color=COLOR_INK),
+            ),
+        ])
+
+    if hash_short:
+        rows.append([
+            Paragraph(
+                "INTEGRITÄT",
+                _ar_paragraph_style(
+                    styles["micro"], color=COLOR_INK_SUBTLE, font=FONT_SANS_BOLD,
+                ),
+            ),
+            Paragraph(
+                f"<font face='{FONT_MONO}'>{_escape(hash_short)}…</font>  "
+                "<font color='#4E6F58'><b>verifiziert</b></font>",
+                _ar_paragraph_style(styles["caption"], color=COLOR_INK_MUTED),
+            ),
+        ])
+
+    if not rows:
+        return Table([[Paragraph(
+            "<i>Keine Themen / Hinweise erfasst.</i>",
+            styles["caption"],
+        )]])
+
+    inner = Table(rows, colWidths=[inner_width * 0.18, inner_width * 0.82])
+    inner.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ("BACKGROUND", (0, 0), (-1, -1), COLOR_CANVAS_SUBTLE),
+    ]))
+    return inner
+
+
+def _bp_no_entry_hint(styles: dict) -> Table:
+    p = Paragraph(
+        "<i>Noch kein Beratungsprotokoll für dieses Mandat erfasst. "
+        "Bitte beim nächsten Termin einen FIDLEG-konformen Eintrag "
+        "anlegen.</i>",
+        _ar_paragraph_style(styles["caption"], color=COLOR_INK_SUBTLE),
+    )
+    inner = Table([[p]])
+    inner.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), COLOR_CANVAS_SUBTLE),
+        ("LEFTPADDING", (0, 0), (-1, -1), 12),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 12),
+        ("TOPPADDING", (0, 0), (-1, -1), 8),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
     ]))
     return inner
 
