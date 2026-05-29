@@ -10,6 +10,7 @@ import type {
   AdvisoryReport,
   AssetAllocationData,
   AusgangslageData,
+  BeratungsprotokollData,
   BranchenData,
   BuildingBlocksData,
   CoverData,
@@ -332,6 +333,18 @@ export function makeWeiteresVorgehen(): WeiteresVorgehenData {
   };
 }
 
+export function makeBeratungsprotokoll(): BeratungsprotokollData {
+  return {
+    total_active: 0,
+    latest_entry: null,
+    last_review_date: null,
+    days_since_last_review: null,
+    suitability_mismatches: [],
+    has_active_mismatches: false,
+    retention_audit_ok: true,
+  };
+}
+
 export function makeAdvisoryReport(): AdvisoryReport {
   return {
     schema_version: 2,
@@ -352,5 +365,6 @@ export function makeAdvisoryReport(): AdvisoryReport {
     building_blocks: makeBuildingBlocks(),
     statement_pm: makeStatementPm(),
     weiteres_vorgehen: makeWeiteresVorgehen(),
+    beratungsprotokoll: makeBeratungsprotokoll(),
   };
 }
