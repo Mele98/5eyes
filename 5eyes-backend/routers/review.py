@@ -615,13 +615,49 @@ def resolve_trigger(
 @router.get("/mandates/{mandate_id}/advisory-log", response_model=list[AdvisoryLogResponse])
 def list_advisory_log(
     mandate_id: str,
+    include_history: bool = False,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    """Sprint U-FINMA-2.1: Listet die *aktuellen* (non-superseded) Einträge.
+
+    Mit `?include_history=true` werden alle Versionen geliefert (für
+    Compliance-Audit). Default: nur aktuelle Köpfe der Versions-Ketten.
+    """
+    from services.advisory_log_service import serialize_response
+
     _get_mandate_or_404(mandate_id, db, current_user)
-    return db.query(AdvisoryLog).filter(
-        AdvisoryLog.mandate_id == mandate_id
-    ).order_by(AdvisoryLog.entry_date.desc()).all()
+    q = db.query(AdvisoryLog).filter(AdvisoryLog.mandate_id == mandate_id)
+    if not include_history:
+        q = q.filter(AdvisoryLog.superseded_by_id.is_(None))
+    rows = q.order_by(AdvisoryLog.entry_date.desc()).all()
+    return [serialize_response(r) for r in rows]
+
+
+@router.get(
+    "/mandates/{mandate_id}/advisory-log/{log_id}",
+    response_model=AdvisoryLogResponse,
+)
+def get_advisory_log_entry(
+    mandate_id: str,
+    log_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Sprint U-FINMA-2.1: Einzelner Eintrag mit Read-Audit-Tracking."""
+    from services.advisory_log_service import mark_read, serialize_response
+
+    _get_mandate_or_404(mandate_id, db, current_user)
+    entry = db.query(AdvisoryLog).filter(
+        AdvisoryLog.id == log_id,
+        AdvisoryLog.mandate_id == mandate_id,
+    ).first()
+    if not entry:
+        raise HTTPException(status_code=404, detail="Advisory-Log-Eintrag nicht gefunden")
+    mark_read(db, entry=entry, reader=current_user)
+    db.commit()
+    db.refresh(entry)
+    return serialize_response(entry)
 
 
 @router.post("/mandates/{mandate_id}/advisory-log",
@@ -632,34 +668,41 @@ def create_advisory_log_entry(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor)
 ):
+    """Sprint U-FINMA-2.1: FINMA-konforme Eintragserstellung mit Hash,
+    Aufbewahrungs-Datum und vollem Audit-Log.
+    """
+    from services.advisory_log_service import create_advisory_log, serialize_response
+
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
-    now = _now()
     if body.recommendation_run_id:
         _get_recommendation_run_or_404(mandate_id, body.recommendation_run_id, db, current_user)
-    excluded = {"client_signed", "entry_date", "status"}
-    entry = AdvisoryLog(
-        id=new_uuid(), mandate_id=mandate_id,
-        advisor_id=current_user.id,
-        entry_date=body.entry_date or date.today().isoformat(),
-        client_signed=1 if body.client_signed else 0,
-        status=body.status or "Empfohlen",
-        created_at=now, updated_at=now,
-        **{k: v for k, v in body.model_dump().items()
-           if k not in excluded}
+    entry = create_advisory_log(
+        db, mandate_id=mandate_id, advisor=current_user, payload=body,
     )
-    db.add(entry)
-    log(db, user_id=current_user.id, user_name=current_user.full_name,
-        table_name="advisory_log", record_id=entry.id, action="CREATE",
-        mandate_id=mandate_id, client_id=mandate.client_id)
+    db.flush()
+    log(
+        db,
+        user_id=current_user.id,
+        user_name=current_user.full_name,
+        table_name="advisory_log",
+        record_id=entry.id,
+        action="CREATE",
+        mandate_id=mandate_id,
+        client_id=mandate.client_id,
+        new_value=entry.integrity_hash,
+    )
     try:
         db.commit()
     except IntegrityError as exc:
         db.rollback()
         if "advisory_log" in str(exc).lower() and "decision" in str(exc).lower():
-            raise HTTPException(status_code=422, detail="Ungültiger Advisory-Entscheid für das aktuelle Schema")
+            raise HTTPException(
+                status_code=422,
+                detail="Ungültiger Advisory-Entscheid für das aktuelle Schema",
+            )
         raise
     db.refresh(entry)
-    return entry
+    return serialize_response(entry)
 
 
 # ── Contract Documents ─────────────────────────────────────────────────────────
@@ -681,6 +724,14 @@ def update_advisory_log_entry(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor)
 ):
+    """Sprint U-FINMA-2.1: Update erzeugt eine *neue Version*, der alte
+    Eintrag wird markiert als superseded (FINMA-Pflicht: keine destructive
+    Updates am Beratungsprotokoll).
+    """
+    from services.advisory_log_service import (
+        serialize_response, supersede_advisory_log,
+    )
+
     _get_mandate_or_404(mandate_id, db, current_user)
     entry = db.query(AdvisoryLog).filter(
         AdvisoryLog.id == log_id,
@@ -688,8 +739,15 @@ def update_advisory_log_entry(
     ).first()
     if not entry:
         raise HTTPException(status_code=404, detail="Advisory-Log-Eintrag nicht gefunden")
+    if entry.superseded_by_id:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Dieser Eintrag wurde bereits durch eine neuere Version ersetzt. "
+                f"Aktuelle Version: {entry.superseded_by_id}"
+            ),
+        )
 
-    now = _now()
     if body.status is not None:
         current_status = entry.status or "Empfohlen"
         allowed = _STATUS_TRANSITIONS.get(current_status, set())
@@ -706,43 +764,29 @@ def update_advisory_log_entry(
                 status_code=422,
                 detail=f"Status '{body.status}' erfordert einen Kommentar in description.",
             )
-        log(
-            db,
-            user_id=current_user.id,
-            user_name=current_user.full_name,
-            table_name="advisory_log",
-            record_id=log_id,
-            action="UPDATE",
-            field_name="status",
-            old_value=entry.status,
-            new_value=body.status,
-            mandate_id=mandate_id,
+    if body.recommendation_run_id:
+        _get_recommendation_run_or_404(
+            mandate_id, body.recommendation_run_id, db, current_user,
         )
-        entry.status = body.status
-    if body.recommendation_run_id is not None:
-        if body.recommendation_run_id:
-            _get_recommendation_run_or_404(mandate_id, body.recommendation_run_id, db, current_user)
-        entry.recommendation_run_id = body.recommendation_run_id
-    if body.description is not None:
-        if body.description != entry.description:
-            log(
-                db,
-                user_id=current_user.id,
-                user_name=current_user.full_name,
-                table_name="advisory_log",
-                record_id=log_id,
-                action="UPDATE",
-                field_name="description",
-                old_value=entry.description,
-                new_value=body.description,
-                mandate_id=entry.mandate_id,
-            )
-        entry.description = body.description
 
-    entry.updated_at = now
+    new_entry = supersede_advisory_log(
+        db, previous=entry, advisor=current_user, update=body,
+    )
+    log(
+        db,
+        user_id=current_user.id,
+        user_name=current_user.full_name,
+        table_name="advisory_log",
+        record_id=new_entry.id,
+        action="UPDATE",
+        field_name="version",
+        old_value=str(entry.version),
+        new_value=str(new_entry.version),
+        mandate_id=mandate_id,
+    )
     db.commit()
-    db.refresh(entry)
-    return entry
+    db.refresh(new_entry)
+    return serialize_response(new_entry)
 
 
 @router.get("/mandates/{mandate_id}/documents", response_model=list[ContractDocumentResponse])

@@ -1011,6 +1011,26 @@ CREATE TABLE IF NOT EXISTS advisory_log (
     -- FIX v4: document_id jetzt als Composite FK
     document_id     TEXT,
     entry_date      TEXT NOT NULL DEFAULT (date('now')),
+    -- U-FINMA-2.1 (2026-05-28): FIDLEG-Art.-16+17-Pflichtfelder
+    entry_datetime               TEXT,
+    duration_minutes             INTEGER,
+    communication_channel        TEXT CHECK(communication_channel IS NULL OR communication_channel IN
+                                     ('persoenlich','video','telefon','schriftlich','hybrid')),
+    language                     TEXT CHECK(language IS NULL OR language IN ('de','fr','it','en')),
+    location                     TEXT,
+    participants_json            TEXT,
+    topics_json                  TEXT,
+    risk_warnings_given_json     TEXT,
+    conflict_disclosure_ids_json TEXT,
+    cost_disclosure_given        INTEGER NOT NULL DEFAULT 0 CHECK(cost_disclosure_given IN (0,1)),
+    suitability_check_id         TEXT REFERENCES suitability_checks(id) ON UPDATE CASCADE,
+    integrity_hash               TEXT,
+    retain_until                 TEXT,
+    version                      INTEGER NOT NULL DEFAULT 1,
+    supersedes_id                TEXT REFERENCES advisory_log(id),
+    superseded_by_id             TEXT REFERENCES advisory_log(id),
+    last_read_at                 TEXT,
+    last_read_by                 TEXT REFERENCES users(id),
     created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
     updated_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
     FOREIGN KEY (trigger_id, mandate_id) REFERENCES review_triggers(id, mandate_id) ON UPDATE CASCADE,
@@ -1020,6 +1040,9 @@ CREATE TABLE IF NOT EXISTS advisory_log (
 CREATE INDEX IF NOT EXISTS idx_advisory_log_mandate ON advisory_log(mandate_id, entry_date DESC);
 CREATE INDEX IF NOT EXISTS idx_advisory_log_trigger ON advisory_log(trigger_id);
 CREATE INDEX IF NOT EXISTS idx_advisory_log_document ON advisory_log(document_id);
+CREATE INDEX IF NOT EXISTS idx_advisory_log_active ON advisory_log(mandate_id, superseded_by_id);
+CREATE INDEX IF NOT EXISTS idx_advisory_log_retain ON advisory_log(retain_until);
+CREATE INDEX IF NOT EXISTS idx_advisory_log_suitability ON advisory_log(suitability_check_id);
 
 -- ============================================================
 -- 19. PRODUKTE & SUITABILITY

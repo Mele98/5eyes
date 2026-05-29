@@ -3701,24 +3701,37 @@ def test_review_engine_emits_market_data_trigger_for_missing_prices(session_fact
     assert "ohne Preis" in str(market_trigger.triggered_value or "")
 
 
+def _valid_finma_advisory_payload(**overrides) -> dict:
+    """U-FINMA-2.1: AdvisoryLogCreate verlangt jetzt FIDLEG-Pflichtfelder."""
+    base = dict(
+        entry_type="Sonstiges",
+        title="Smoke Log",
+        description="Runtime contract test mit ausreichender Laenge fuer Validation.",
+        entry_datetime="2026-03-27T14:00:00.000Z",
+        duration_minutes=45,
+        communication_channel="persoenlich",
+        language="de",
+        topics=["Sonstiges"],
+        risk_warnings_given=[],
+        cost_disclosure_given=False,
+    )
+    base.update(overrides)
+    return base
+
+
 def test_advisory_log_rejects_non_schema_decision_values():
     with pytest.raises(ValidationError):
-        AdvisoryLogCreate(
-            entry_type="Sonstiges",
-            title="Smoke Log",
-            decision="Umschichtung",
-        )
+        AdvisoryLogCreate(**_valid_finma_advisory_payload(decision="Umschichtung"))
 
 
 def test_advisory_log_accepts_schema_allowed_decision_value(session_factory, advisor_user):
     _, mandate_id = seed_client_and_mandate(session_factory, advisor_user)
 
     payload = AdvisoryLogCreate(
-        entry_type="Sonstiges",
-        title="Smoke Log",
-        decision="Strategie angepasst",
-        description="Runtime contract test",
-        entry_date="2026-03-27",
+        **_valid_finma_advisory_payload(
+            decision="Strategie angepasst",
+            entry_date="2026-03-27",
+        )
     )
 
     with session_factory() as session:
@@ -3729,8 +3742,15 @@ def test_advisory_log_accepts_schema_allowed_decision_value(session_factory, adv
             current_user=advisor_user,
         )
 
-    assert result.mandate_id == mandate_id
-    assert result.decision == "Strategie angepasst"
+    # U-FINMA-2.1: Endpoint returnt jetzt ein dict via serialize_response
+    if isinstance(result, dict):
+        assert result["mandate_id"] == mandate_id
+        assert result["decision"] == "Strategie angepasst"
+        assert result["integrity_hash"] is not None
+        assert result["version"] == 1
+    else:
+        assert result.mandate_id == mandate_id
+        assert result.decision == "Strategie angepasst"
 
 
 def _obsolete_create_trigger_normalizes_review_frequency_aliases(session_factory, advisor_user):

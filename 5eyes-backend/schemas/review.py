@@ -36,30 +36,95 @@ class ReviewTriggerResponse(BaseResponse):
     updated_at: str
 
 
+CommunicationChannel = Literal[
+    "persoenlich", "video", "telefon", "schriftlich", "hybrid"
+]
+AdvisoryLanguage = Literal["de", "fr", "it", "en"]
+AdvisoryStatus = Literal[
+    "Empfohlen", "Beschlossen", "Umgesetzt", "Abgelehnt", "Überarbeitung nötig"
+]
+AdvisoryEntryType = Literal[
+    "Jahresreview", "Quartalscheck", "Strategie-Anpassung",
+    "Override-Entscheid", "Ereignis-Reaktion", "Drift-Entscheid",
+    "Zieländerung", "Restriktionsänderung",
+    "Initialer Beratungsabschluss", "Eignungsprüfung", "Sonstiges"
+]
+AdvisoryDecision = Literal[
+    "Keine Transaktion",
+    "Transaktion empfohlen",
+    "Strategie angepasst",
+    "Profil angepasst",
+    "Override bestätigt",
+    "Kein Handlungsbedarf",
+]
+
+
+class AdvisoryParticipant(BaseModel):
+    """Ein Anwesender neben dem Berater. FINMA-Tracking für Datenschutz +
+    Auskunftspflicht."""
+    role: Literal["client", "co_advisor", "partner", "guardian", "third_party"]
+    name: str = Field(min_length=2, max_length=200)
+    note: Optional[str] = None
+
+
 class AdvisoryLogCreate(BaseModel):
-    entry_type: Literal[
-        "Jahresreview", "Quartalscheck", "Strategie-Anpassung",
-        "Override-Entscheid", "Ereignis-Reaktion", "Drift-Entscheid",
-        "Zieländerung", "Restriktionsänderung",
-        "Initialer Beratungsabschluss", "Eignungsprüfung", "Sonstiges"
-    ]
-    title: str
-    description: Optional[str] = None
-    decision: Optional[Literal[
-        "Keine Transaktion",
-        "Transaktion empfohlen",
-        "Strategie angepasst",
-        "Profil angepasst",
-        "Override bestätigt",
-        "Kein Handlungsbedarf",
-    ]] = None
+    """Pflicht-Felder für FINMA-konformes Beratungsprotokoll (Sprint U-FINMA-2.1).
+
+    Mindestlängen: `description` ≥ 30, `decision` ≥ 10 (außer bei reinem
+    Diskussions-Eintrag), `topics` ≥ 1.
+    """
+    entry_type: AdvisoryEntryType
+    title: str = Field(min_length=3, max_length=200)
+    description: str = Field(
+        min_length=30, max_length=20_000,
+        description=(
+            "Inhalt des Gesprächs: besprochene Themen, Argumente, "
+            "Kundenposition. Min 30 Zeichen für FINMA-Nachvollziehbarkeit."
+        ),
+    )
+    decision: Optional[AdvisoryDecision] = None
     trigger_id: Optional[str] = None
     recommendation_run_id: Optional[str] = None
-    status: Optional[Literal["Empfohlen", "Beschlossen", "Umgesetzt", "Abgelehnt", "Überarbeitung nötig"]] = None
+    status: Optional[AdvisoryStatus] = None
     client_signed: bool = False
     client_signed_at: Optional[str] = None
     document_id: Optional[str] = None
-    entry_date: Optional[str] = None
+    entry_date: Optional[str] = None  # Legacy, akzeptiert für Backwards-Compat
+
+    # --- FINMA-Erweiterung (Pflichtfelder ab U-FINMA-2.1) ---
+    entry_datetime: str = Field(
+        description="ISO-Zeitpunkt des Gesprächs (Y-m-dTH:M:S.fZ).",
+    )
+    duration_minutes: int = Field(
+        ge=1, le=600,
+        description="Dauer 1-600 Minuten. Sehr kurze oder lange Termine "
+        "sollten manuell begründet sein.",
+    )
+    communication_channel: CommunicationChannel = Field(
+        description="Medium des Gesprächs. Entscheidet über Hinweispflichten.",
+    )
+    language: AdvisoryLanguage = "de"
+    location: Optional[str] = Field(default=None, max_length=200)
+    participants: list[AdvisoryParticipant] = Field(
+        default_factory=list,
+        description="Anwesende neben dem Berater.",
+    )
+    topics: list[str] = Field(
+        min_length=1, max_length=20,
+        description="Strukturierte Themen-Liste (min 1 Eintrag).",
+    )
+    risk_warnings_given: list[str] = Field(
+        default_factory=list,
+        description="Konkret erteilte Risiko-Hinweise (FIDLEG-Pflicht).",
+    )
+    cost_disclosure_given: bool = Field(
+        description="Ex-ante Kosten kommuniziert? FIDLEG-Pflicht.",
+    )
+    conflict_disclosure_ids: list[str] = Field(
+        default_factory=list,
+        description="IDs der offengelegten ConflictOfInterestDisclosures.",
+    )
+    suitability_check_id: Optional[str] = None
 
     @model_validator(mode="after")
     def validate_signature(self):
@@ -67,16 +132,55 @@ class AdvisoryLogCreate(BaseModel):
             raise ValueError("client_signed_at ist Pflicht wenn client_signed=True")
         return self
 
+    @model_validator(mode="after")
+    def validate_decision_required_when_status(self):
+        """Wenn Status angegeben und nicht 'Empfohlen' → Entscheid muss da sein."""
+        if self.status and self.status != "Empfohlen" and not self.decision:
+            raise ValueError(
+                "decision ist Pflicht wenn status != 'Empfohlen' "
+                "(FIDLEG: Entscheid muss dokumentiert sein)"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def validate_topics_non_empty(self):
+        cleaned = [t.strip() for t in self.topics if t and t.strip()]
+        if not cleaned:
+            raise ValueError("Mindestens ein Thema muss angegeben werden")
+        if any(len(t) < 3 for t in cleaned):
+            raise ValueError("Themen müssen mindestens 3 Zeichen lang sein")
+        return self
+
 
 class AdvisoryLogUpdate(BaseModel):
-    status: Optional[Literal["Empfohlen", "Beschlossen", "Umgesetzt", "Abgelehnt", "Überarbeitung nötig"]] = None
+    """Update erzeugt eine *neue* Version, der alte Eintrag wird marked-as-
+    superseded (kein In-Place-Update — FINMA-Audit-Trail-Pflicht)."""
+    status: Optional[AdvisoryStatus] = None
     recommendation_run_id: Optional[str] = None
     description: Optional[str] = None
+    decision: Optional[AdvisoryDecision] = None
+    client_signed: Optional[bool] = None
+    client_signed_at: Optional[str] = None
+    risk_warnings_given: Optional[list[str]] = None
+    topics: Optional[list[str]] = None
 
     @model_validator(mode="after")
     def at_least_one_field(self):
-        if self.status is None and self.recommendation_run_id is None and self.description is None:
-            raise ValueError("Mindestens ein Feld muss angegeben werden")
+        for field in (
+            "status", "recommendation_run_id", "description", "decision",
+            "client_signed", "risk_warnings_given", "topics",
+        ):
+            if getattr(self, field) is not None:
+                return self
+        raise ValueError("Mindestens ein Feld muss angegeben werden")
+
+    @model_validator(mode="after")
+    def validate_description_min_length(self):
+        if self.description is not None and len(self.description) < 30:
+            raise ValueError(
+                "description muss mindestens 30 Zeichen lang sein "
+                "(FINMA-Nachvollziehbarkeit)"
+            )
         return self
 
 
@@ -97,6 +201,26 @@ class AdvisoryLogResponse(BaseResponse):
     entry_date: str
     created_at: str
     updated_at: str
+
+    # FINMA-Erweiterung
+    entry_datetime: Optional[str] = None
+    duration_minutes: Optional[int] = None
+    communication_channel: Optional[str] = None
+    language: Optional[str] = None
+    location: Optional[str] = None
+    participants: list[dict] = Field(default_factory=list)
+    topics: list[str] = Field(default_factory=list)
+    risk_warnings_given: list[str] = Field(default_factory=list)
+    cost_disclosure_given: int = 0
+    conflict_disclosure_ids: list[str] = Field(default_factory=list)
+    suitability_check_id: Optional[str] = None
+    integrity_hash: Optional[str] = None
+    retain_until: Optional[str] = None
+    version: int = 1
+    supersedes_id: Optional[str] = None
+    superseded_by_id: Optional[str] = None
+    last_read_at: Optional[str] = None
+    last_read_by: Optional[str] = None
 
 
 class ContractDocumentCreate(BaseModel):

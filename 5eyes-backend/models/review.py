@@ -55,6 +55,18 @@ class ContractDocument(Base):
 
 
 class AdvisoryLog(Base):
+    """Beratungsprotokoll-Eintrag (FINMA / FIDLEG Art. 16+17).
+
+    Pro Mandanten-Termin **ein Eintrag** mit allen pflichtgemäßen Angaben:
+    Zeitpunkt + Dauer, Kommunikationskanal, Anwesende, besprochene Themen,
+    erteilte Risiko-/Kostenhinweise, Eignungsprüfungs-Bezug, Entscheid, Hash.
+
+    Versions-Geschichte: Updates erstellen *neue* Zeile mit höherer `version`
+    und `supersedes_id` zeigt auf den Vorgänger. Der jüngste Eintrag einer
+    Kette ist `superseded_by_id IS NULL`. Damit keine Daten je verloren gehen
+    (FINMA-Pflicht: Aufbewahrung 10 Jahre, Integritäts-Audit).
+    """
+
     __tablename__ = "advisory_log"
 
     id = Column(String, primary_key=True)
@@ -74,8 +86,54 @@ class AdvisoryLog(Base):
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
 
+    # --- FINMA-Erweiterung (Sprint U-FINMA-2.1, 2026-05-28) ---
+    # Zeitpunkt + Dauer (FIDLEG Art. 16)
+    entry_datetime = Column(String)  # ISO Y-m-dTH:M:S.fZ — präziser als entry_date
+    duration_minutes = Column(Integer)
+
+    # Kommunikationsmedium (entscheidet über Hinweispflichten)
+    # Erlaubt: 'persoenlich' | 'video' | 'telefon' | 'schriftlich' | 'hybrid'
+    communication_channel = Column(String)
+
+    # Beratungs-Sprache + Ort (für Remote-vs-in-person-Audit)
+    language = Column(String)  # 'de' | 'fr' | 'it' | 'en'
+    location = Column(String)
+
+    # Anwesende neben Berater (JSON-Array: [{"role": "client", "name": "..."}, ...])
+    participants_json = Column(String)
+
+    # Strukturierte Themen-Liste (JSON-Array of strings)
+    topics_json = Column(String)
+
+    # Erteilte Risiko-Hinweise (JSON-Array of strings)
+    risk_warnings_given_json = Column(String)
+
+    # Wurden Ex-ante Kosten kommuniziert? (FIDLEG Pflicht)
+    cost_disclosure_given = Column(Integer, nullable=False, default=0)
+
+    # Offengelegte Interessenkonflikte (JSON-Array of conflict_of_interest_disclosures.id)
+    conflict_disclosure_ids_json = Column(String)
+
+    # Bezug zur Eignungsprüfung zum Zeitpunkt der Beratung
+    suitability_check_id = Column(String, ForeignKey("suitability_checks.id"), nullable=True)
+
+    # Integritäts-Hash über Eintragsinhalt (FINMA-Audit-Trail)
+    integrity_hash = Column(String(64))
+
+    # Aufbewahrungs-Pflicht (= entry_datetime + 10 Jahre, ISO-Date)
+    retain_until = Column(String)
+
+    # Versions-Geschichte
+    version = Column(Integer, nullable=False, default=1)
+    supersedes_id = Column(String, ForeignKey("advisory_log.id"), nullable=True)
+    superseded_by_id = Column(String, ForeignKey("advisory_log.id"), nullable=True)
+
+    # Read-Audit (FINMA verlangt Access-Tracking bei sensiblen Daten)
+    last_read_at = Column(String)
+    last_read_by = Column(String, ForeignKey("users.id"), nullable=True)
+
     mandate = relationship("Mandate", back_populates="advisory_log")
-    advisor = relationship("User")
+    advisor = relationship("User", foreign_keys=[advisor_id])
     recommendation_run = relationship("RecommendationRun")
 
 
