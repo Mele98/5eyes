@@ -139,6 +139,8 @@ function validateSchemaV2(data: unknown): asserts data is AdvisoryReport {
     'risikowaehrungen', 'branchen', 'goal_based_investing',
     'risikoprofilierung', 'building_blocks', 'statement_pm',
     'weiteres_vorgehen',
+    // U-FINMA-2.2: additive Sektion 16
+    'beratungsprotokoll',
   ] as const;
   for (const key of expectedKeys) {
     if (!(key in (data as Record<string, unknown>))) {

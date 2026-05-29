@@ -129,6 +129,8 @@ def test_compute_returns_expected_top_level_structure(session_factory):
         "asset_allocation", "risikowaehrungen", "branchen",
         "goal_based_investing", "risikoprofilierung", "building_blocks",
         "statement_pm", "weiteres_vorgehen",
+        # U-FINMA-2.2: additive Sektion 16
+        "beratungsprotokoll",
     ]
     assert list(report.keys()) == expected_order
 
@@ -1039,6 +1041,8 @@ def test_endpoint_returns_full_report_structure(session_factory):
         "asset_allocation", "risikowaehrungen", "branchen",
         "goal_based_investing", "risikoprofilierung", "building_blocks",
         "statement_pm", "weiteres_vorgehen",
+        # U-FINMA-2.2: additive Sektion 16
+        "beratungsprotokoll",
     ]
     assert list(data.keys()) == expected
     assert data["schema_version"] == 2

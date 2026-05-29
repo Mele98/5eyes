@@ -360,6 +360,53 @@ export interface WeiteresVorgehenData {
 // Top-Level Schema
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Sektion 16 — Beratungsprotokoll (U-FINMA-2.2)
+// ---------------------------------------------------------------------------
+
+export interface BeratungsprotokollEntry {
+  id: string;
+  entry_type: string;
+  title: string;
+  description: string | null;
+  decision: string | null;
+  status: string;
+  entry_datetime: string | null;
+  duration_minutes: number | null;
+  communication_channel: string | null;
+  language: string | null;
+  location: string | null;
+  participants: Array<{ role: string; name: string; note?: string }>;
+  topics: string[];
+  risk_warnings_given: string[];
+  cost_disclosure_given: number;
+  conflict_disclosure_ids: string[];
+  suitability_check_id: string | null;
+  integrity_hash: string | null;
+  retain_until: string | null;
+  version: number;
+  supersedes_id: string | null;
+  superseded_by_id: string | null;
+  last_read_at: string | null;
+  last_read_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BeratungsprotokollData {
+  total_active: number;
+  latest_entry: BeratungsprotokollEntry | null;
+  last_review_date: string | null;
+  days_since_last_review: number | null;
+  suitability_mismatches: string[];
+  has_active_mismatches: boolean;
+  retention_audit_ok: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Top-Level Schema
+// ---------------------------------------------------------------------------
+
 export interface AdvisoryReport {
   schema_version: 2;
   mandate_id: string;
@@ -380,4 +427,6 @@ export interface AdvisoryReport {
   building_blocks: BuildingBlocksData;
   statement_pm: StatementPmData;
   weiteres_vorgehen: WeiteresVorgehenData;
+  /** U-FINMA-2.2: FINMA-konforme Beratungsprotokoll-Übersicht */
+  beratungsprotokoll: BeratungsprotokollData;
 }

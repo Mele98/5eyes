@@ -123,6 +123,8 @@ def compute_advisory_report(
         "statement_pm": _build_statement_pm(),
         # --- Sektion 15
         "weiteres_vorgehen": _build_weiteres_vorgehen(notes=notes),
+        # --- Sektion 16 (additiv, U-FINMA-2.2)
+        "beratungsprotokoll": _build_beratungsprotokoll(db, mandate),
     }
 
 
@@ -1968,6 +1970,86 @@ def _build_weiteres_vorgehen(*, notes: Any | None = None) -> dict[str, Any]:
         "todos": todos,
         "dokumente": dokumente,
     }
+
+
+# ---------------------------------------------------------------------------
+# Sektion 16 — Beratungsprotokoll (Sprint U-FINMA-2.2, FIDLEG)
+# ---------------------------------------------------------------------------
+
+def _build_beratungsprotokoll(db: Session, mandate: Mandate) -> dict[str, Any]:
+    """FINMA-konforme Beratungsprotokoll-Übersicht.
+
+    Liefert:
+    - total_active: Anzahl aktiver AdvisoryLog-Köpfe (non-superseded)
+    - latest_entry: serialisierter letzter Eintrag oder None
+    - last_review_date: Datum des letzten Eintrags (ISO YYYY-MM-DD)
+    - suitability_mismatches: aktive Mismatches (Risikobudget, Bands)
+    - has_active_mismatches: True wenn mindestens ein Mismatch
+    - days_since_last_review: Anzahl Tage seit letzem Eintrag
+    - retention_audit_ok: True wenn keine Einträge ablaufen in den nächsten
+      30 Tagen (FIDLEG-Aufbewahrungspflicht)
+    """
+    from datetime import date
+
+    from services.advisory_log_service import (
+        count_active_entries,
+        detect_suitability_mismatches,
+        get_latest_active_entry,
+        serialize_response,
+    )
+
+    total_active = count_active_entries(db, mandate_id=mandate.id)
+    latest = get_latest_active_entry(db, mandate_id=mandate.id)
+    mismatches = detect_suitability_mismatches(db, mandate)
+
+    last_review_date: str | None = None
+    days_since: int | None = None
+    if latest is not None:
+        last_review_date = (
+            (latest.entry_datetime or "")[:10] or latest.entry_date or None
+        )
+        if last_review_date:
+            try:
+                ref = date.fromisoformat(last_review_date)
+                days_since = (date.today() - ref).days
+            except ValueError:
+                days_since = None
+
+    # Retention-Audit: schauen ob ältester ablaufender Eintrag in <30 Tagen
+    retention_audit_ok = _check_retention_audit(db, mandate.id)
+
+    return {
+        "total_active": total_active,
+        "latest_entry": serialize_response(latest) if latest else None,
+        "last_review_date": last_review_date,
+        "days_since_last_review": days_since,
+        "suitability_mismatches": mismatches,
+        "has_active_mismatches": bool(mismatches),
+        "retention_audit_ok": retention_audit_ok,
+    }
+
+
+def _check_retention_audit(db: Session, mandate_id: str) -> bool:
+    """True wenn kein aktiver Eintrag in den nächsten 30 Tagen abläuft.
+
+    FIDLEG verlangt 10-Jahres-Aufbewahrung — wenn ein Eintrag ablaufen
+    soll, muss vorher Archiv-Pflicht erfüllt sein.
+    """
+    from datetime import date, timedelta
+
+    from models.review import AdvisoryLog
+
+    threshold = (date.today() + timedelta(days=30)).isoformat()
+    expiring = (
+        db.query(AdvisoryLog)
+        .filter(
+            AdvisoryLog.mandate_id == mandate_id,
+            AdvisoryLog.retain_until.isnot(None),
+            AdvisoryLog.retain_until < threshold,
+        )
+        .first()
+    )
+    return expiring is None
 
 
 def _bucket_key_from_asset_class(asset_class: str) -> str:

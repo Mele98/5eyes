@@ -716,6 +716,55 @@ _STATUS_TRANSITIONS = {
 }
 
 
+@router.post(
+    "/mandates/{mandate_id}/advisory-log/from-report-generation",
+    response_model=AdvisoryLogResponse, status_code=201,
+)
+def create_advisory_log_from_report_generation(
+    mandate_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_advisor),
+):
+    """Sprint U-FINMA-2.2: Erzeugt ein Beratungsprotokoll mit pre-filled
+    Defaults — Topics aus Mandat-Kontext, Risk-Warnings aus aktiven
+    Suitability-Mismatches. Berater editiert anschliessend via PUT.
+
+    Endpoint ist explizit — Auto-Log passiert NICHT beim normalen
+    Report-Abruf (sonst Audit-Spam).
+    """
+    from services.advisory_log_service import (
+        build_auto_log_payload,
+        create_advisory_log,
+        serialize_response,
+    )
+
+    mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    payload_dict = build_auto_log_payload(
+        db, mandate=mandate, advisor=current_user,
+        entry_datetime=_now(),
+    )
+    payload = AdvisoryLogCreate(**payload_dict)
+    entry = create_advisory_log(
+        db, mandate_id=mandate_id, advisor=current_user, payload=payload,
+    )
+    db.flush()
+    log(
+        db,
+        user_id=current_user.id,
+        user_name=current_user.full_name,
+        table_name="advisory_log",
+        record_id=entry.id,
+        action="CREATE",
+        field_name="auto_generated",
+        new_value=entry.integrity_hash,
+        mandate_id=mandate_id,
+        client_id=mandate.client_id,
+    )
+    db.commit()
+    db.refresh(entry)
+    return serialize_response(entry)
+
+
 @router.put("/mandates/{mandate_id}/advisory-log/{log_id}", response_model=AdvisoryLogResponse)
 def update_advisory_log_entry(
     mandate_id: str,
