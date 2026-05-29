@@ -31,6 +31,9 @@ export const REPORT_SECTIONS: ReportSectionLink[] = [
   // Audit-Sektionen 19-23 (Suitability/Methodology/Recommendation/
   // MandateLock/LiquidityCascade) in einer Berater-Übersicht.
   { id: 'compliance', nr: 17, title: 'Compliance-Audit', path: 'compliance' },
+  // Sprint U-FINMA-3 (2026-05-29, re-architektiert 2026-06-09):
+  // SuitabilityCheck per Mandat (komplementaer zu Sektion 17).
+  { id: 'eignung', nr: 18, title: 'Eignung', path: 'eignung' },
 ];
 
 interface SidebarProps {

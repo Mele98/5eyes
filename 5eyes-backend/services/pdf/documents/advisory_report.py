@@ -254,26 +254,26 @@ def _build_all_flowables(
     flowables.append(_toc_anchor(toc_collector, "stress_replay", "Historische Stress-Szenarien"))
     flowables.extend(_build_stress_replay_flowables(payload.get("stress_replay") or {}, styles))
     flowables.append(PageBreak())
-    # Sprint U-71 (2026-06-06): A/B-Backtest-Sektion nur wenn der Berater
-    # via payload['ab_backtest'] explizit ein Vergleichsresultat injiziert.
-    # Wenn nicht vorhanden -> Sektion wird stillschweigend ausgelassen.
+    # A/B-Backtest (U-71) — pending-State wird vom Renderer selbst behandelt.
     ab_bt = payload.get("ab_backtest") or {}
     if ab_bt:
-        # pending-State rendert nur den Sektion-Header + Hinweis (Renderer-
-        # internes Gating). Section-Skip erst wenn payload[ab_backtest]
-        # komplett fehlt.
         flowables.extend(_build_ab_backtest_flowables(ab_bt, styles))
         flowables.append(PageBreak())
-    # Der Kostenausweis folgt im Dossier auf die Interessenkonflikt-
-    # Offenlegungen (Sektion 18) und vor dem konsolidierten Compliance-Audit.
+    # U-FINMA-3 (2026-05-29, re-architektiert 2026-06-09): SuitabilityCheck-
+    # Summary fuer Berater-Sicht (per-Mandat, Single-Check).
+    flowables.append(_toc_anchor(toc_collector, "suitability_summary", "Eignungspruefung"))
+    flowables.extend(_build_suitability_summary_flowables(
+        payload.get("suitability_summary") or {}, styles,
+    ))
+    flowables.append(PageBreak())
+    # Kostenausweis vor Compliance-Audit.
     flowables.extend(build_kostenausweis_flowables(
         payload.get("cost_disclosure") or {},
         styles,
     ))
     flowables.append(PageBreak())
     render_compliance_audit_section(payload, flowables, styles)
-    # Sprint U-93 (2026-06-06): Signatur-Block ganz am Bericht-Ende —
-    # FINMA-konforme Bestaetigung Kunde + Berater nach allen Audit-Sektionen.
+    # U-93: Signatur-Block am Bericht-Ende.
     flowables.append(PageBreak())
     flowables.extend(make_unterschrift_section())
     return flowables
@@ -2578,6 +2578,342 @@ def _format_signed_x100(value: int | float | None) -> str:
         numeric = 0.0
     sign = "+" if numeric > 0 else ""
     return f"{sign}{numeric:.2f}"
+
+
+# ---------------------------------------------------------------------------
+# Sektion 27 — Suitability-Summary (Sprint U-FINMA-3, Roadmap-Punkt 3,
+# re-architektiert 2026-06-09 von Sektion 17)
+# ---------------------------------------------------------------------------
+
+_SUITABILITY_RESULT_PILL = {
+    "passed":     ("Eignung gegeben",       "#E5EEDF", "#4E6F58"),
+    "mismatch":   ("Mismatch dokumentiert", "#F0D9D9", "#9E4747"),
+    "incomplete": ("Pruefung unvollstaendig","#F4EBD5", "#B59243"),
+}
+
+_DUTY_TYPE_LABEL = {
+    "suitability":     "Eignungspruefung (Suitability)",
+    "appropriateness": "Angemessenheitspruefung (Appropriateness)",
+    "informational":   "Informationspruefung",
+    "execution_only":  "Execution-only",
+}
+
+
+def _build_suitability_summary_flowables(ss: dict, styles: dict) -> list[Any]:
+    """FINMA-Eignungspruefung als eigenstaendige PDF-Sektion.
+
+    Stellt im Bericht sichtbar den juengsten SuitabilityCheck dar:
+    Status-Pill (passed/mismatch/incomplete), wer hat wann was geprueft,
+    Result-Notes, fehlende Infos, Warnungs-/Bestaetigungs-Spur falls
+    Mismatch + Kunde weitergefuehrt, Referenzen, Empty-State.
+    """
+    out: list[Any] = []
+    out.append(Paragraph("Sektion 27", styles["kicker"]))
+    out.append(Paragraph("Eignungspruefung", styles["h1"]))
+    out.append(Spacer(1, 4 * mm))
+    out.append(_hr())
+    out.append(Spacer(1, 5 * mm))
+
+    if not ss or not ss.get("has_check"):
+        out.append(_ss_empty_state(styles))
+        return out
+
+    out.append(_ss_summary_box(ss, styles))
+    out.append(Spacer(1, 5 * mm))
+
+    notes = str(ss.get("result_notes") or "").strip()
+    if notes:
+        out.append(Paragraph("Beurteilung", styles["h2"]))
+        out.append(Spacer(1, 2 * mm))
+        out.append(Paragraph(
+            _escape(notes),
+            _ar_paragraph_style(styles["body"], color=COLOR_INK_MUTED),
+        ))
+        out.append(Spacer(1, 4 * mm))
+
+    missing = ss.get("missing_information") or []
+    if missing:
+        out.append(_ss_missing_info_block(missing, styles))
+        out.append(Spacer(1, 4 * mm))
+
+    if ss.get("client_proceeded_despite"):
+        out.append(_ss_override_workflow_block(ss, styles))
+        out.append(Spacer(1, 4 * mm))
+
+    refs = ss.get("references") or {}
+    if any(refs.values()):
+        out.append(Paragraph("Verknuepfte Datensaetze", styles["h2"]))
+        out.append(Spacer(1, 2 * mm))
+        out.append(_ss_references_table(refs, ss, styles))
+
+    return out
+
+
+def _ss_summary_box(ss: dict, styles: dict) -> Table:
+    """3-Spalten-Box: Status-Pill + Geprueft von + Pflichttyp/Datum."""
+    from reportlab.lib.colors import HexColor
+
+    page_width, _ = PAGE_SIZE
+    inner_width = page_width - MARGIN_LEFT - MARGIN_RIGHT
+
+    result = str(ss.get("result") or "").strip()
+    pill_label, pill_fill, pill_text = _SUITABILITY_RESULT_PILL.get(
+        result, ("Status unklar", "#E9EBEE", "#3B475A"),
+    )
+    pill = Table(
+        [[Paragraph(
+            _escape(pill_label),
+            _ar_paragraph_style(
+                styles["micro"], color=HexColor(pill_text), font=FONT_SANS_BOLD,
+            ),
+        )]],
+        colWidths=[None],
+    )
+    pill.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), HexColor(pill_fill)),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 2),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+    ]))
+
+    def _cell_label(text: str) -> Paragraph:
+        return Paragraph(
+            _escape(text.upper()),
+            _ar_paragraph_style(
+                styles["micro"], color=COLOR_INK_SUBTLE, font=FONT_SANS_BOLD,
+            ),
+        )
+
+    def _cell_value(text: str) -> Paragraph:
+        return Paragraph(
+            _escape(text),
+            _ar_paragraph_style(
+                styles["body"], color=COLOR_INK, font=FONT_SANS_BOLD, size=12,
+            ),
+        )
+
+    advisor_name = str(ss.get("checked_by_name") or "—")
+    duty_type = str(ss.get("duty_type") or "")
+    duty_label = _DUTY_TYPE_LABEL.get(duty_type, duty_type or "—")
+    performed_at = _format_swiss_datetime(str(ss.get("performed_at") or ""))
+
+    pill_col = Table([[_cell_label("Ergebnis")], [pill]])
+    pill_col.setStyle(TableStyle([
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (0, 0), 6),
+    ]))
+    advisor_col = Table(
+        [[_cell_label("Geprueft von")], [_cell_value(advisor_name)]],
+    )
+    advisor_col.setStyle(TableStyle([
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (0, 0), 6),
+    ]))
+    duty_col = Table([
+        [_cell_label("Pflichttyp / Zeitpunkt")],
+        [_cell_value(duty_label)],
+        [Paragraph(
+            _escape(performed_at),
+            _ar_paragraph_style(styles["caption"], color=COLOR_INK_MUTED),
+        )],
+    ])
+    duty_col.setStyle(TableStyle([
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (0, -1), 2),
+    ]))
+
+    box = Table(
+        [[pill_col, advisor_col, duty_col]],
+        colWidths=[inner_width / 3] * 3,
+    )
+    box.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("BACKGROUND", (0, 0), (-1, -1), COLOR_CANVAS_SUBTLE),
+        ("LINEBEFORE", (0, 0), (0, -1), 2.5, COLOR_ACCENT),
+        ("LEFTPADDING", (0, 0), (-1, -1), 12),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 12),
+        ("TOPPADDING", (0, 0), (-1, -1), 10),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
+    ]))
+    return box
+
+
+def _ss_missing_info_block(missing: list, styles: dict) -> Table:
+    """Gelber Hinweis-Block: Liste der bei der Pruefung fehlenden Infos."""
+    from reportlab.lib.colors import HexColor
+
+    lines: list[Any] = [
+        Paragraph(
+            "<b>Fehlende Informationen zum Zeitpunkt der Pruefung</b>",
+            _ar_paragraph_style(
+                styles["caption"], color=HexColor("#B59243"), font=FONT_SANS_BOLD,
+            ),
+        ),
+    ]
+    for item in missing:
+        lines.append(Paragraph(
+            f"• {_escape(str(item))}",
+            _ar_paragraph_style(styles["caption"], color=COLOR_INK),
+        ))
+    inner = Table([[p] for p in lines])
+    inner.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), HexColor("#F4EBD5")),
+        ("LINEBEFORE", (0, 0), (0, -1), 2.5, HexColor("#B59243")),
+        ("LEFTPADDING", (0, 0), (-1, -1), 12),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 12),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+    ]))
+    return inner
+
+
+def _ss_override_workflow_block(ss: dict, styles: dict) -> Table:
+    """Roter Audit-Block: Kunde wurde trotz Mismatch weitergefuehrt
+    (FIDLEG Art. 12). Zeigt Warnungs-/Bestaetigungs-Spur."""
+    from reportlab.lib.colors import HexColor
+
+    warning_at = _format_swiss_datetime(str(ss.get("warning_delivered_at") or ""))
+    ack_at = _format_swiss_datetime(str(ss.get("client_acknowledged_at") or ""))
+    warning_line = (
+        f"Warnung ausgehaendigt am {warning_at}"
+        if ss.get("warning_delivered")
+        else "Warnung NICHT dokumentiert ausgehaendigt"
+    )
+    ack_line = (
+        f"Kunde hat Hinweis bestaetigt am {ack_at}"
+        if ss.get("client_acknowledged")
+        else "Kundenbestaetigung NICHT dokumentiert"
+    )
+
+    lines: list[Any] = [
+        Paragraph(
+            "<b>Kunde fuhrt trotz Mismatch fort (FIDLEG Art. 12)</b>",
+            _ar_paragraph_style(
+                styles["caption"], color=HexColor("#9E4747"), font=FONT_SANS_BOLD,
+            ),
+        ),
+        Paragraph(
+            f"• {_escape(warning_line)}",
+            _ar_paragraph_style(styles["caption"], color=COLOR_INK),
+        ),
+        Paragraph(
+            f"• {_escape(ack_line)}",
+            _ar_paragraph_style(styles["caption"], color=COLOR_INK),
+        ),
+    ]
+    inner = Table([[p] for p in lines])
+    inner.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), HexColor("#F0D9D9")),
+        ("LINEBEFORE", (0, 0), (0, -1), 2.5, HexColor("#9E4747")),
+        ("LEFTPADDING", (0, 0), (-1, -1), 12),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 12),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+    ]))
+    return inner
+
+
+def _ss_references_table(refs: dict, ss: dict, styles: dict) -> Table:
+    """Schmale Referenz-Tabelle: Welche Datensaetze haengen am Check?"""
+    page_width, _ = PAGE_SIZE
+    inner_width = page_width - MARGIN_LEFT - MARGIN_RIGHT
+
+    rows_def: list[tuple[str, str]] = []
+    if refs.get("risk_assessment_id"):
+        rows_def.append(("Risikoprofil-Assessment", str(refs["risk_assessment_id"])))
+    if refs.get("knowledge_assessment_id"):
+        rows_def.append(("Kenntnisse-Assessment", str(refs["knowledge_assessment_id"])))
+    if refs.get("advisory_log_id"):
+        log_id = str(refs["advisory_log_id"])
+        if ss.get("linked_log_present"):
+            rows_def.append(("Beratungsprotokoll-Eintrag", log_id))
+        else:
+            rows_def.append((
+                "Beratungsprotokoll-Eintrag",
+                f"{log_id} (nicht gefunden)",
+            ))
+    if refs.get("recommendation_run_id"):
+        rows_def.append(("Empfehlungs-Run", str(refs["recommendation_run_id"])))
+    if refs.get("document_id"):
+        rows_def.append(("Beleg-Dokument", str(refs["document_id"])))
+
+    header = [
+        Paragraph(
+            _escape("Datensatz".upper()),
+            _ar_paragraph_style(
+                styles["micro"], color=COLOR_INK_SUBTLE, font=FONT_SANS_BOLD,
+            ),
+        ),
+        Paragraph(
+            _escape("Referenz".upper()),
+            _ar_paragraph_style(
+                styles["micro"], color=COLOR_INK_SUBTLE, font=FONT_SANS_BOLD,
+            ),
+        ),
+    ]
+    body_rows = [
+        [
+            Paragraph(
+                _escape(label),
+                _ar_paragraph_style(styles["caption"], color=COLOR_INK),
+            ),
+            Paragraph(
+                _escape(value),
+                _ar_paragraph_style(styles["caption"], color=COLOR_INK_MUTED, font=FONT_MONO),
+            ),
+        ]
+        for label, value in rows_def
+    ]
+    table = Table(
+        [header, *body_rows],
+        colWidths=[inner_width * 0.35, inner_width * 0.65],
+    )
+    table.setStyle(TableStyle([
+        ("LINEBELOW", (0, 0), (-1, 0), 0.4, COLOR_RULE),
+        ("LINEBELOW", (0, 1), (-1, -2), 0.2, COLOR_RULE),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+    ]))
+    return table
+
+
+def _ss_empty_state(styles: dict) -> Table:
+    """Empty-State wenn kein SuitabilityCheck zum Mandat existiert."""
+    page_width, _ = PAGE_SIZE
+    inner_width = page_width - MARGIN_LEFT - MARGIN_RIGHT
+
+    title = Paragraph(
+        "<b>Noch keine Eignungspruefung dokumentiert</b>",
+        _ar_paragraph_style(styles["body"], color=COLOR_INK, font=FONT_SANS_BOLD),
+    )
+    body = Paragraph(
+        _escape(
+            "Vor der Umsetzung der Anlagestrategie ist eine FINMA-konforme "
+            "Eignungspruefung (Suitability nach FIDLEG) durchzufuehren und "
+            "im System zu hinterlegen. Sie erscheint danach an dieser Stelle."
+        ),
+        _ar_paragraph_style(styles["caption"], color=COLOR_INK_MUTED),
+    )
+    box = Table([[title], [Spacer(1, 2 * mm)], [body]], colWidths=[inner_width])
+    box.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), COLOR_CANVAS_SUBTLE),
+        ("LINEBEFORE", (0, 0), (0, -1), 2.5, COLOR_STATUS_NEUTRAL),
+        ("LEFTPADDING", (0, 0), (-1, -1), 12),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 12),
+        ("TOPPADDING", (0, 0), (-1, -1), 8),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+    ]))
+    return box
 
 
 # ---------------------------------------------------------------------------

@@ -29,6 +29,7 @@ import { StatementPm } from '@/pages/StatementPm';
 import { WeiteresVorgehen } from '@/pages/WeiteresVorgehen';
 import { Beratungsprotokoll } from '@/pages/Beratungsprotokoll';
 import { Compliance } from '@/pages/Compliance';
+import { Eignung } from '@/pages/Eignung';
 
 type ReportSectionId = (typeof REPORT_SECTIONS)[number]['id'];
 
@@ -335,6 +336,9 @@ function renderSection(
         liquidityCascade={data.liquidity_cascade}
       />
     );
+  }
+  if (sectionId === 'eignung') {
+    return <Eignung data={data.suitability_summary} />;
   }
   return <PendingSection sectionId={sectionId} />;
 }
