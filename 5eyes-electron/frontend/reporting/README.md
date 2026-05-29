@@ -34,6 +34,81 @@ Dev-Server auf Port 8000 weitergeleitet (siehe `vite.config.ts`).
 
 ---
 
+## Token-Handoff Live-Verifikation (Roadmap-Punkt 5)
+
+Der Bearer-Token-Handoff von der Hauptapp `5eyes_v2.html` zur Reporting-
+Sub-App ist durch Unit-Tests vollstaendig abgedeckt (`handoff.test.ts`,
+`client.test.ts` — 24/24). Die Live-Verifikation in der gepackten
+Electron-App folgt dieser Checkliste:
+
+### Pfade die der Token nimmt
+
+```
+Hauptapp openReportingApp()            Sub-App main.tsx
+    |                                       |
+    | window.desktop.getAuthToken()         |
+    | (Electron) ODER                       |
+    | sessionStorage['5eyes_token']         |
+    |                                       |
+    v                                       |
+http://localhost:5173/...                   |
+   /mandates/<ID>/report#token=<JWT>        |
+    |                                       |
+    +-> window.open(url, '_blank', 'noopener')
+                                            |
+                                            v
+                              consumeHandoffFromUrlFragment()
+                                |
+                                |--> sessionStorage['5eyes_token']
+                                |--> history.replaceState (URL Cleanup)
+                                v
+                              resolveAuthToken() (bei jedem fetch)
+                                |
+                                |  1. window.desktop.getAuthToken()
+                                |  2. sessionStorage['5eyes_token']
+                                |  3. localStorage['5eyes_token']
+                                |  4. import.meta.env.VITE_5EYES_TOKEN
+                                v
+                              Authorization: Bearer <JWT>
+```
+
+### Smoke-Check Schritt-fuer-Schritt
+
+1. **Backend starten** (siehe Entwicklung-Abschnitt)
+2. **Hauptapp in Electron oeffnen**, einloggen
+3. **DevTools oeffnen** (Strg+Shift+I) im Hauptapp-Fenster
+4. **Mandat oeffnen**, dann `openReportingApp()` per Button
+5. **Erwartung:** Externer Browser-Tab oeffnet sich mit URL
+   `http://localhost:5173/mandates/<ID>/report#token=<JWT>`
+6. **Im neuen Tab DevTools oeffnen**, Console:
+   ```js
+   window.location.hash  // sollte "" sein (URL-Cleanup hat gegriffen)
+   sessionStorage.getItem('5eyes_token')  // sollte den JWT zeigen
+   ```
+7. **Network-Tab** → erster `/mandates/<ID>/advisory-report`-Request muss
+   einen `Authorization: Bearer <JWT>`-Header haben → Status **200**.
+8. **Reload (F5)**: Token bleibt in sessionStorage, kein 401.
+
+### Negative Cases
+
+| Szenario | Erwartung |
+|---|---|
+| Hauptapp ohne Login → openReportingApp() | URL ohne `#token=`, Sub-App zeigt 401 |
+| Tab schliessen + Sub-App-URL direkt aus History | sessionStorage leer → 401 |
+| Token abgelaufen (Backend liefert 401) | Sub-App zeigt strukturierten Error-Panel |
+| Externer Browser ohne `window.desktop` | Cascade nutzt direkt sessionStorage |
+
+### Was die Unit-Tests bereits abdecken
+
+- Akzeptierte Hash-Patterns: `#token=`, `#/route?token=`, `#a=1&token=`
+- URL-Encoded JWT mit `.`, `=`, `+` → korrekt dekodiert
+- URL-Cleanup via `history.replaceState`
+- Cascade-Reihenfolge: `desktop > session > local > env`
+- Fail-Soft: jede Stufe wirft Exception → naechste Stufe greift
+- Idempotenz: wiederholte Aufrufe ohne Hash sind No-Op
+
+---
+
 ## End-to-End Visual-Check der Cover-Seite
 
 Damit der Berater die Cover-Seite live mit echten Mandats-Daten sieht
