@@ -24,6 +24,7 @@ export const REPORT_SECTIONS: ReportSectionLink[] = [
   { id: 'building-blocks', nr: 13, title: 'Building Blocks', path: 'building-blocks' },
   { id: 'statement-pm', nr: 14, title: 'Statement PM', path: 'statement-pm' },
   { id: 'weiteres-vorgehen', nr: 15, title: 'Weiteres Vorgehen', path: 'weiteres-vorgehen' },
+  { id: 'beratungsprotokoll', nr: 16, title: 'Beratungsprotokoll', path: 'beratungsprotokoll' },
 ];
 
 interface SidebarProps {

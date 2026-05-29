@@ -46,6 +46,7 @@ import { Risikoprofil } from './Risikoprofil';
 import { BuildingBlocks } from './BuildingBlocks';
 import { StatementPm } from './StatementPm';
 import { WeiteresVorgehen } from './WeiteresVorgehen';
+import { Beratungsprotokoll } from './Beratungsprotokoll';
 
 import {
   makeAssetAllocation,
@@ -63,6 +64,7 @@ import {
   makeRisikowaehrungen,
   makeStatementPm,
   makeWeiteresVorgehen,
+  makeBeratungsprotokoll,
 } from '@/test/fixtures';
 
 function withRouter(ui: React.ReactNode) {
@@ -296,6 +298,79 @@ describe('Section 15: WeiteresVorgehen', () => {
     expect(screen.getByText(/Vorsorge-Aufbau/)).toBeInTheDocument();
     expect(screen.getByText(/Pillar 3a-Limit/)).toBeInTheDocument();
     expect(screen.getByText('2026-08-15')).toBeInTheDocument();
+  });
+});
+
+describe('Section 16: Beratungsprotokoll (U-FINMA-2.3)', () => {
+  it('rendert leeren Stand mit Hinweis', () => {
+    render(withRouter(<Beratungsprotokoll data={makeBeratungsprotokoll()} />));
+    expect(screen.getByText(/Noch kein Beratungsprotokoll/)).toBeInTheDocument();
+    expect(screen.getByText(/Aktive Einträge/i)).toBeInTheDocument();
+  });
+
+  it('rendert mit aktivem Eintrag + Themen + Hash-Marker', () => {
+    const data = {
+      ...makeBeratungsprotokoll(),
+      total_active: 3,
+      last_review_date: '2026-05-15',
+      days_since_last_review: 13,
+      latest_entry: {
+        id: 'log-1',
+        entry_type: 'Jahresreview',
+        title: 'Jahresreview Mai 2026',
+        description: 'SAA überprüft.',
+        decision: 'Strategie angepasst',
+        status: 'Beschlossen',
+        entry_datetime: '2026-05-15T14:00:00.000Z',
+        duration_minutes: 75,
+        communication_channel: 'persoenlich',
+        language: 'de',
+        location: 'Büro Zürich',
+        participants: [],
+        topics: ['SAA', 'Pensionsplanung'],
+        risk_warnings_given: ['Marktrisiko'],
+        cost_disclosure_given: 1,
+        conflict_disclosure_ids: [],
+        suitability_check_id: null,
+        integrity_hash: 'a'.repeat(64),
+        retain_until: '2036-05-15',
+        version: 1,
+        supersedes_id: null,
+        superseded_by_id: null,
+        last_read_at: null,
+        last_read_by: null,
+        created_at: '2026-05-15T14:00:00.000Z',
+        updated_at: '2026-05-15T14:00:00.000Z',
+      },
+    };
+    render(withRouter(<Beratungsprotokoll data={data} />));
+    expect(screen.getByText('Jahresreview Mai 2026')).toBeInTheDocument();
+    expect(screen.getByText('Beschlossen')).toBeInTheDocument();
+    expect(screen.getByText(/SAA.*Pensionsplanung/)).toBeInTheDocument();
+    expect(screen.getByText('Marktrisiko')).toBeInTheDocument();
+    expect(screen.getByText('verifiziert')).toBeInTheDocument();
+  });
+
+  it('zeigt Mismatch-Banner wenn has_active_mismatches=true', () => {
+    const data = {
+      ...makeBeratungsprotokoll(),
+      has_active_mismatches: true,
+      suitability_mismatches: [
+        'Risiko-Anteil 47.0 % überschreitet Cap 45.0 % (Defensiv).',
+      ],
+    };
+    render(withRouter(<Beratungsprotokoll data={data} />));
+    expect(screen.getByText(/Suitability-Hinweise/i)).toBeInTheDocument();
+    expect(screen.getByText(/47\.0/)).toBeInTheDocument();
+  });
+
+  it('zeigt Retention-Warnung wenn !retention_audit_ok', () => {
+    const data = {
+      ...makeBeratungsprotokoll(),
+      retention_audit_ok: false,
+    };
+    render(withRouter(<Beratungsprotokoll data={data} />));
+    expect(screen.getByText(/Aufbewahrungs-Hinweis/i)).toBeInTheDocument();
   });
 });
 
