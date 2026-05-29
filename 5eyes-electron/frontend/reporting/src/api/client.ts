@@ -141,6 +141,8 @@ function validateSchemaV2(data: unknown): asserts data is AdvisoryReport {
     'weiteres_vorgehen',
     // U-FINMA-2.2: additive Sektion 16
     'beratungsprotokoll',
+    // U-FINMA-3: additive Sektion 17
+    'suitability_summary',
   ] as const;
   for (const key of expectedKeys) {
     if (!(key in (data as Record<string, unknown>))) {
