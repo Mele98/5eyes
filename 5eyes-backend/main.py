@@ -13,6 +13,7 @@ from core.logging_setup import configure_logging
 from core.middleware import RequestContextMiddleware
 from database import init_db
 from price_updater import start_price_scheduler, stop_price_scheduler
+from backup_scheduler import start_backup_scheduler, stop_backup_scheduler
 
 # Import all models so SQLAlchemy registers them
 import models.allocation  # noqa
@@ -87,9 +88,11 @@ async def lifespan(app: FastAPI):
     except Exception as exc:  # noqa: BLE001 — Discovery darf Boot nicht stoppen
         logger.warning('Tax-Plugin-Discovery skipped due to error: %s', exc)
     start_price_scheduler()
+    start_backup_scheduler()
     try:
         yield
     finally:
+        stop_backup_scheduler()
         stop_price_scheduler()
         logger.info('Application shutdown completed')
 

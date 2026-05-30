@@ -157,6 +157,19 @@ class Settings(BaseSettings):
     telemetry_environment: str = ''  # leer = nimmt app_env
     telemetry_sample_rate: float = 1.0
 
+    # U-8 — DB-Backup-Strategie (Roadmap-Punkt 8). SQLite-Online-Backup
+    # via sqlite3.Connection.backup() — atomar, WAL-aware. Standardmaessig
+    # taeglich 03:00 lokal in ein Verzeichnis NEBEN der DB. In Production
+    # sollte backup_dir auf ein SEPARATES Volume / externen Mount zeigen.
+    backup_enabled: bool = True
+    backup_dir: str = str(Path.home() / '5eyes' / 'backups')
+    backup_retain_days: int = 30
+    backup_keep_minimum: int = 3
+    backup_scheduler_enabled: bool = True
+    backup_scheduler_timezone: str = 'Europe/Zurich'
+    backup_scheduler_hour: int = 3
+    backup_scheduler_minute: int = 0
+
     # Optimizer (siehe docs/planning/2026-05-05-stochastic-optimizer-spec.md
     # und claude-bericht-Advisory-Methodik-assetallocation-optimierung-v3-codeplan.md).
     # Gueltige Werte:
@@ -350,6 +363,34 @@ class Settings(BaseSettings):
                     f'Origins enthalten: {forbidden}'
                 )
         return self
+
+    @field_validator('backup_scheduler_hour')
+    @classmethod
+    def validate_backup_scheduler_hour(cls, value: int) -> int:
+        if not 0 <= value <= 23:
+            raise ValueError('backup_scheduler_hour must be between 0 and 23')
+        return value
+
+    @field_validator('backup_scheduler_minute')
+    @classmethod
+    def validate_backup_scheduler_minute(cls, value: int) -> int:
+        if not 0 <= value <= 59:
+            raise ValueError('backup_scheduler_minute must be between 0 and 59')
+        return value
+
+    @field_validator('backup_retain_days')
+    @classmethod
+    def validate_backup_retain_days(cls, value: int) -> int:
+        if value < 0:
+            raise ValueError('backup_retain_days must be >= 0 (0 = nie aufraeumen)')
+        return value
+
+    @field_validator('backup_keep_minimum')
+    @classmethod
+    def validate_backup_keep_minimum(cls, value: int) -> int:
+        if value < 1:
+            raise ValueError('backup_keep_minimum muss >= 1 sein (Katastrophen-Schutz)')
+        return value
 
     @model_validator(mode='after')
     def validate_security(self):
