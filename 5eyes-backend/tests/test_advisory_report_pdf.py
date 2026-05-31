@@ -28,6 +28,8 @@ import services.pdf.documents.advisory_report as advisory_pdf  # noqa: E402
 from services.pdf.documents.advisory_report import (  # noqa: E402
     render_advisory_report_pdf_from_payload,
 )
+from services.pdf.components.goal_classification import classify_goals  # noqa: E402
+from services.pdf.components.mc_paths_chart import build_mc_paths_drawing  # noqa: E402
 
 
 def _make_minimal_payload() -> dict:
@@ -395,6 +397,66 @@ def _make_payload_with_stress_replay() -> dict:
     return payload
 
 
+def _make_payload_with_mc_paths() -> dict:
+    """Payload with aligned p5/p50/p75 paths for Section 11 tests."""
+    payload = _make_minimal_payload()
+    payload["goal_based_investing"]["goals"] = [
+        {
+            "goal_id": "g-reach",
+            "label": "Retirement Goal",
+            "goal_type": "Vermoegen",
+            "target_amount_rappen": 210_000_000,
+            "target_date": "2030-01-01",
+            "hardness": "primaer",
+            "probability_bps": None,
+            "status": "data_pending",
+        },
+        {
+            "goal_id": "g-tight",
+            "label": "Renovation Goal",
+            "goal_type": "Ausgabe",
+            "target_amount_rappen": 180_000_000,
+            "target_date": "2028-01-01",
+            "hardness": "opportunistisch",
+            "probability_bps": None,
+            "status": "data_pending",
+        },
+        {
+            "goal_id": "g-hard",
+            "label": "Safety Goal",
+            "goal_type": "Vermoegen",
+            "target_amount_rappen": 200_000_000,
+            "target_date": "2027-01-01",
+            "hardness": "hart",
+            "probability_bps": None,
+            "status": "data_pending",
+        },
+        {
+            "goal_id": "g-later",
+            "label": "Later Goal",
+            "goal_type": "Vermoegen",
+            "target_amount_rappen": 220_000_000,
+            "target_date": "2035-01-01",
+            "hardness": "primaer",
+            "probability_bps": None,
+            "status": "data_pending",
+        },
+    ]
+    payload["goal_based_investing"]["monte_carlo_paths"] = {
+        "data_pending": False,
+        "p5": [100_000_000, 105_000_000, 110_000_000, 115_000_000, 120_000_000],
+        "p50": [100_000_000, 130_000_000, 160_000_000, 190_000_000, 220_000_000],
+        "p75": [100_000_000, 150_000_000, 200_000_000, 250_000_000, 300_000_000],
+        "time_axis": ["2026", "2027", "2028", "2029", "2030"],
+        "n_paths": 1000,
+        "seed": 282668599573,
+        "horizon_years": 4,
+        "initial_wealth_rappen": 100_000_000,
+        "note": "",
+    }
+    return payload
+
+
 def _make_payload_with_ab_backtest() -> dict:
     payload = _make_minimal_payload()
     payload["ab_backtest"] = {
@@ -473,6 +535,14 @@ def _make_payload_with_ab_backtest() -> dict:
         "warnings": [],
     }
     return payload
+
+
+def _drawing_texts(drawing) -> list[str]:
+    return [
+        str(getattr(node, "text"))
+        for node in getattr(drawing, "contents", [])
+        if getattr(node, "text", None)
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -1001,6 +1071,104 @@ def test_goals_section_renders_mc_pending_hint():
     reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
     page_text = reader.pages[10].extract_text() or ""
     assert "Monte-Carlo" in page_text
+
+
+def test_goals_pdf_builds_mc_paths_chart_when_paths_are_aligned():
+    payload = _make_payload_with_mc_paths()
+    drawing = build_mc_paths_drawing(
+        payload["goal_based_investing"]["monte_carlo_paths"],
+        payload["goal_based_investing"]["goals"],
+    )
+    assert drawing is not None
+    assert drawing.width > 0
+    assert drawing.height > 0
+    assert "Retirement Goal" in _drawing_texts(drawing)
+
+    pdf_with_chart = render_advisory_report_pdf_from_payload(payload)
+    without_paths = _make_payload_with_mc_paths()
+    without_paths["goal_based_investing"]["monte_carlo_paths"] = {
+        "data_pending": True,
+        "note": "Pfade werden live berechnet.",
+    }
+    pdf_without_chart = render_advisory_report_pdf_from_payload(without_paths)
+    assert pdf_with_chart != pdf_without_chart
+
+
+def test_goals_pdf_data_pending_keeps_hint_and_omits_chart():
+    payload = _make_minimal_payload()
+    drawing = build_mc_paths_drawing(
+        payload["goal_based_investing"]["monte_carlo_paths"],
+        payload["goal_based_investing"]["goals"],
+    )
+    assert drawing is None
+
+    pdf = render_advisory_report_pdf_from_payload(payload)
+    pypdf = pytest.importorskip("pypdf")
+    reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
+    page_text = reader.pages[10].extract_text() or ""
+    assert "Monte-Carlo" in page_text
+    assert "Pfade werden live berechnet" in page_text
+
+
+def test_goals_pdf_mc_status_pills_follow_frontend_boundaries():
+    payload = _make_payload_with_mc_paths()
+    classifications = classify_goals(
+        payload["goal_based_investing"]["goals"],
+        payload["goal_based_investing"]["monte_carlo_paths"],
+    )
+    by_id = {c["goal_id"]: c["status"] for c in classifications}
+    assert by_id["g-reach"] == "erreichbar"
+    assert by_id["g-tight"] == "knapp"
+    assert by_id["g-hard"] == "nicht_erreichbar"
+
+    pdf = render_advisory_report_pdf_from_payload(payload)
+    pypdf = pytest.importorskip("pypdf")
+    reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
+    normalized = "".join((reader.pages[10].extract_text() or "").split())
+    assert "MC-Status" in normalized
+    assert "Erreichbar" in normalized
+    assert "Knapp" in normalized
+    assert "Schwierig" in normalized
+
+
+def test_goals_pdf_beyond_horizon_status_is_visible_in_mc_status_column():
+    payload = _make_payload_with_mc_paths()
+    classifications = classify_goals(
+        payload["goal_based_investing"]["goals"],
+        payload["goal_based_investing"]["monte_carlo_paths"],
+    )
+    by_id = {c["goal_id"]: c["status"] for c in classifications}
+    assert by_id["g-later"] == "beyond_horizon"
+
+    pdf = render_advisory_report_pdf_from_payload(payload)
+    pypdf = pytest.importorskip("pypdf")
+    reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
+    normalized = "".join((reader.pages[10].extract_text() or "").split())
+    assert "JenseitsHorizont" in normalized
+
+
+def test_goals_pdf_misaligned_mc_paths_do_not_crash_or_render_chart():
+    payload = _make_payload_with_mc_paths()
+    payload["goal_based_investing"]["monte_carlo_paths"]["p75"] = [100_000_000]
+    drawing = build_mc_paths_drawing(
+        payload["goal_based_investing"]["monte_carlo_paths"],
+        payload["goal_based_investing"]["goals"],
+    )
+    assert drawing is None
+
+    pdf = render_advisory_report_pdf_from_payload(payload)
+    assert pdf[:5] == b"%PDF-"
+
+
+def test_goals_pdf_score_kpi_stays_unchanged_with_mc_chart():
+    pypdf = pytest.importorskip("pypdf")
+    payload = _make_payload_with_mc_paths()
+    pdf = render_advisory_report_pdf_from_payload(payload)
+    reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
+    normalized = "".join((reader.pages[10].extract_text() or "").split())
+    assert "72%" in normalized or "73%" in normalized, (
+        f"Achievement-Score-KPI fehlt. Normalized: {normalized[:400]}"
+    )
 
 
 # ---------------------------------------------------------------------------

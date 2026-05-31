@@ -75,6 +75,8 @@ from services.pdf.components.advisory_palette import (
     PAGE_SIZE,
     make_advisory_styles,
 )
+from services.pdf.components.goal_classification import classify_goals
+from services.pdf.components.mc_paths_chart import build_mc_paths_drawing
 from services.pdf.components.swiss_numbers import (
     format_bps_as_pct,
     format_bps_signed_pct,
@@ -1145,11 +1147,14 @@ _GOAL_STATUS_PILL = {
     "knapp":           ("Knapp",          "#F4EBD5", "#B59243"),
     "nicht_erreichbar":("Schwierig",      "#F0D9D9", "#9E4747"),
     "data_pending":    ("Daten ausstehend","#E9EBEE", "#7A8395"),
+    "past":            ("Vergangen",      "#E9EBEE", "#7A8395"),
+    "beyond_horizon":  ("Jenseits Horizont","#E9EBEE", "#7A8395"),
+    "unknown":         ("Unklar",         "#E9EBEE", "#7A8395"),
 }
 
 
 def _build_goals_flowables(gbi: dict, styles: dict) -> list[Any]:
-    """Goals-Tabelle + Achievement-Score-KPI + MC-Hinweis."""
+    """Goals-Tabelle + Achievement-Score-KPI + MC-Chart/-Hinweis."""
     out: list[Any] = []
     out.append(Paragraph("Sektion 11", styles["kicker"]))
     out.append(Paragraph("Zielbasierte Optimierung", styles["h1"]))
@@ -1163,20 +1168,26 @@ def _build_goals_flowables(gbi: dict, styles: dict) -> list[Any]:
         out.append(Spacer(1, 5 * mm))
 
     goals = gbi.get("goals") or []
+    mc = gbi.get("monte_carlo_paths") or {}
+    mc_classifications = classify_goals(goals, mc)
+    chart = build_mc_paths_drawing(mc, goals)
+    if chart is not None:
+        out.append(chart)
+        out.append(Spacer(1, 5 * mm))
+    elif mc.get("data_pending"):
+        out.append(Paragraph(
+            f"<b>Monte-Carlo-Pfade:</b> "
+            f"{_escape(str(mc.get('note') or 'in Vorbereitung'))}",
+            _ar_paragraph_style(styles["caption"], color=COLOR_INK_MUTED),
+        ))
+        out.append(Spacer(1, 5 * mm))
+
     if goals:
-        out.append(_goals_table(goals, styles))
+        out.append(_goals_table(goals, styles, mc_classifications))
     else:
         out.append(Paragraph(
             "<i>Keine Ziele erfasst.</i>",
             styles["caption"],
-        ))
-
-    mc = gbi.get("monte_carlo_paths") or {}
-    if mc.get("data_pending"):
-        out.append(Spacer(1, 6 * mm))
-        out.append(Paragraph(
-            f"<b>Monte-Carlo-Pfade:</b> {_escape(str(mc.get('note') or 'in Vorbereitung'))}",
-            _ar_paragraph_style(styles["caption"], color=COLOR_INK_MUTED),
         ))
     return out
 
@@ -1207,32 +1218,44 @@ def _achievement_score_kpi(score_bps: int, styles: dict):
     return card
 
 
-def _goals_table(goals: list[dict], styles: dict) -> Table:
-    """Sprint U-72 (2026-06-06): Goal-Achievability-Tabelle mit 7 Spalten
-    (Ziel/Typ/Hartheit/Ziel-Datum/Zielwert/Status/Wahrscheinlichkeit).
+def _goals_table(
+    goals: list[dict],
+    styles: dict,
+    mc_classifications: list[dict] | None = None,
+) -> Table:
+    """Goal-Achievability-Tabelle mit 8 Spalten.
 
-    Pre-U-72 hatte die Tabelle nur 5 Spalten (Ziel/Typ/Zielwert/Status/
-    Wahrscheinlichkeit) — Hartheit (Hart/Primär/Opportunistisch) und
-    Ziel-Datum fehlten obwohl beide im goal_achievability_json
-    aus Stochastic-Optimizer verfuegbar sind und FINMA-relevant sind.
+    Spalten: Ziel/Typ/Hartheit/Ziel-Datum/Zielwert/Status/MC-Status/
+    Wahrscheinlichkeit. U-72 (MC-Status-Spalte) und Stage-9 (Hartheit +
+    Ziel-Datum aus Stochastic-Optimizer goal_achievability_json) kombiniert.
     """
     page_width, _ = PAGE_SIZE
     inner_width = page_width - MARGIN_LEFT - MARGIN_RIGHT
-    col_label = inner_width * 0.24
-    col_type = inner_width * 0.12
-    col_hardness = inner_width * 0.14
-    col_target_date = inner_width * 0.12
-    col_target = inner_width * 0.14
-    col_status = inner_width * 0.13
-    col_prob = inner_width - col_label - col_type - col_hardness - col_target_date - col_target - col_status
+    col_label = inner_width * 0.20
+    col_type = inner_width * 0.10
+    col_hardness = inner_width * 0.11
+    col_target_date = inner_width * 0.10
+    col_target = inner_width * 0.13
+    col_status = inner_width * 0.11
+    col_mc_status = inner_width * 0.13
+    col_prob = (
+        inner_width - col_label - col_type - col_hardness - col_target_date
+        - col_target - col_status - col_mc_status
+    )
 
     header = [
         _th("Ziel", styles), _th("Typ", styles),
         _th("Hartheit", styles), _th("Ziel-Datum", styles),
         _th("Zielwert", styles), _th("Status", styles),
+        _th("MC-Status", styles),
         _th("Wahrscheinlichkeit", styles),
     ]
     rows = [header]
+    mc_by_goal_id = {
+        str(c.get("goal_id") or ""): c
+        for c in (mc_classifications or [])
+        if isinstance(c, dict)
+    }
     for g in goals:
         label = _safe_string(g.get("label"))
         goal_type = _safe_string(g.get("goal_type"))
@@ -1240,6 +1263,10 @@ def _goals_table(goals: list[dict], styles: dict) -> Table:
         target_date = _safe_string(g.get("target_date")) or "—"
         target = format_chf_rappen(g.get("target_amount_rappen"))
         status = str(g.get("status") or "data_pending").lower()
+        mc_status = str(
+            (mc_by_goal_id.get(str(g.get("goal_id") or "")) or {}).get("status")
+            or "unknown"
+        ).lower()
         prob = format_bps_as_pct(g.get("probability_bps"))
         rows.append([
             Paragraph(_escape(label), _ar_paragraph_style(
@@ -1250,13 +1277,14 @@ def _goals_table(goals: list[dict], styles: dict) -> Table:
             Paragraph(_escape(target_date), styles["caption_mono"]),
             Paragraph(_escape(target), styles["caption"]),
             _goal_status_pill(status, styles),
+            _goal_status_pill(mc_status, styles),
             Paragraph(_escape(prob), _ar_paragraph_style(
                 styles["caption_mono"], color=COLOR_INK,
             )),
         ])
     table = Table(rows, colWidths=[
         col_label, col_type, col_hardness, col_target_date,
-        col_target, col_status, col_prob,
+        col_target, col_status, col_mc_status, col_prob,
     ])
     table.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
@@ -1266,7 +1294,7 @@ def _goals_table(goals: list[dict], styles: dict) -> Table:
         ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
         ("LINEBELOW", (0, 0), (-1, 0), 0.4, COLOR_RULE),
         ("LINEBELOW", (0, 1), (-1, -1), 0.2, COLOR_RULE),
-        ("ALIGN", (6, 0), (6, -1), "RIGHT"),  # Wahrscheinlichkeit rechts
+        ("ALIGN", (7, 0), (7, -1), "RIGHT"),  # Wahrscheinlichkeit rechts (Spalte 8)
     ]))
     return table
 
