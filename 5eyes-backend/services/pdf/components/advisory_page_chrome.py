@@ -15,11 +15,21 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Callable
+from zoneinfo import ZoneInfo
 
 from reportlab.lib.units import mm
 from reportlab.pdfgen.canvas import Canvas
 
 from services.pdf.fonts import register_editorial_fonts
+
+# Sprint U-27 (Roadmap-Punkt 27, 2026-05-31): Berater-Datum im PDF muss
+# Europa/Zurich sein, nicht UTC. Vorher: `2026-05-26T14:32:00Z` ->
+# `26.05.2026 14:32` (= UTC dargestellt als Schweizer-Format = falsch).
+# Nachher: konvertiert via zoneinfo, im Sommer +2h, im Winter +1h.
+# FINMA-relevant: Berater-Sichtbares Datum auf Berichts-Artefakten muss
+# der lokalen Geschaeftszeit entsprechen, sonst Audit-Confusion.
+SWISS_TZ = ZoneInfo("Europe/Zurich")
+
 from services.pdf.components.advisory_palette import (
     COLOR_INK,
     COLOR_INK_SUBTLE,
@@ -192,7 +202,16 @@ def _draw_advisory_page_chrome(
 
 
 def _format_swiss_datetime(iso: str) -> str:
-    """Formatiert `2026-05-26T14:32:00.000Z` → `26.05.2026 14:32` (CH-Format).
+    """Formatiert ISO-Timestamp → `26.05.2026 16:32` in Europa/Zurich.
+
+    Beispiel (U-27 Bugfix):
+      `2026-05-26T14:32:00.000Z` (UTC) → `26.05.2026 16:32` (CEST Sommerzeit)
+      `2026-12-26T14:32:00.000Z` (UTC) → `26.12.2026 15:32` (CET Winterzeit)
+
+    Aware Datetimes (mit Z oder +HH:MM) werden via zoneinfo auf
+    Europa/Zurich umgerechnet. Naive Datetimes (kein TZ-Suffix) werden
+    1:1 formatiert — Annahme: bereits lokal (Backwards-Compat zu
+    Tests, die nackte ISO-Strings übergeben).
 
     Robust gegen unerwartete Formate — Fallback ist ein 'Datum unbekannt'.
     """
@@ -204,4 +223,8 @@ def _format_swiss_datetime(iso: str) -> str:
         dt = datetime.fromisoformat(normalized)
     except ValueError:
         return iso
+    if dt.tzinfo is not None:
+        # Aware: konvertiere nach Europa/Zurich
+        dt = dt.astimezone(SWISS_TZ)
+    # Naive bleibt naive — wird 1:1 formatiert.
     return dt.strftime("%d.%m.%Y %H:%M")
