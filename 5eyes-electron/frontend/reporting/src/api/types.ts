@@ -269,11 +269,21 @@ export interface GoalEntry {
 export interface MonteCarloPaths {
   data_pending: boolean;
   note?: string;
-  /** Optional, wird in U-P24+ befüllt mit zeitlichen Pfaden p5/p50/p75 */
+  /**
+   * Zeitliche Pfade p5/p50/p75 in Rappen. Befuellt ab U-11 (PR #111)
+   * via services.monte_carlo_paths. Bei data_pending=true bleiben sie []
+   * (Sub-App rendert dann Empty-State statt Chart).
+   */
   p5?: number[];
   p50?: number[];
   p75?: number[];
+  /** ISO-Jahresstrings, Laenge = horizon_years + 1, gleich-laenge wie pX. */
   time_axis?: string[];
+  /** U-11 metadata fuer Audit / Reproduktion. */
+  n_paths?: number;
+  seed?: number | null;
+  horizon_years?: number;
+  initial_wealth_rappen?: number;
 }
 
 export interface GoalBasedInvestingData {

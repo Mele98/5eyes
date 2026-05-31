@@ -1,16 +1,15 @@
 /**
  * U-FE-4: Sektion 11 — Zielbasierte Optimierung.
  *
- * Großer Achievement-Score-KPI plus Goals-Tabelle mit Status-Pills
- * (Erreichbar / Knapp / Schwierig / Daten ausstehend).
- *
- * Monte-Carlo-Pfade-Hinweis wenn data_pending=True (kommt in
- * U-FE-Charts mit Recharts-Bändern).
+ * Großer Achievement-Score-KPI, Monte-Carlo-Pfade-Chart (p5/p50/p75)
+ * mit Goal-Markern (Sprint U-12, Roadmap-Punkt 12) und Goals-Tabelle
+ * mit Status-Pills.
  */
 import { useMemo, useState } from 'react';
 
 import type { GoalBasedInvestingData, GoalEntry, GoalStatus } from '@/api/types';
 import { AmpelPill } from '@/components/AmpelPill';
+import { MonteCarloPathsChart } from '@/components/MonteCarloPathsChart';
 import { ReportPage } from '@/components/ReportPage';
 import { formatBpsAsPct, formatChfRappen } from '@/lib/format';
 import {
@@ -35,6 +34,17 @@ export function Goals({ data }: GoalsProps) {
   const handleSort = (column: SortColumn) => {
     setSortConfig((prev) => nextSortConfig(prev, column));
   };
+  const mc = data.monte_carlo_paths;
+  // U-12: Chart erscheint NUR wenn der Aggregator echte Pfade liefert.
+  // Bei data_pending=true bleibt der Hinweis-Block (`McPathsHint`).
+  const hasRealPaths =
+    !!mc &&
+    !mc.data_pending &&
+    !!mc.time_axis &&
+    mc.time_axis.length >= 2 &&
+    !!mc.p5 &&
+    !!mc.p50 &&
+    !!mc.p75;
 
   return (
     <ReportPage
@@ -44,6 +54,12 @@ export function Goals({ data }: GoalsProps) {
       subtitle="Erreichungswahrscheinlichkeit pro Mandant-Ziel mit gewichtetem Gesamt-Score."
     >
       <AchievementScoreKpi scoreBps={data.goal_achievement_score_bps} />
+
+      {hasRealPaths ? (
+        <MonteCarloPathsChart paths={mc!} goals={goals} />
+      ) : (
+        <McPathsHint data={data} />
+      )}
 
       {goals.length === 0 ? (
         <p className="mt-section italic text-caption text-ink-subtle">
@@ -70,8 +86,6 @@ export function Goals({ data }: GoalsProps) {
           </table>
         </section>
       )}
-
-      <McPathsHint data={data} />
     </ReportPage>
   );
 }
