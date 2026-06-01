@@ -10,8 +10,24 @@ LOG_FILE_NAME = '5eyes-app.log'
 
 
 def resolve_log_dir() -> Path:
-    base_dir = Path(settings.db_path).expanduser().resolve().parent
-    log_dir = base_dir / 'logs'
+    """Liefert das Log-Verzeichnis fuer den 5eyes-Backend.
+
+    U-43 (Roadmap-Punkt 43, 2026-06-01): Aufloesungs-Reihenfolge:
+      1. settings.log_dir (env LOG_DIR) — explizit gesetzt -> direkt nutzen
+      2. Path(settings.db_path).parent / 'logs' — Backwards-Compat
+         (vor U-43 die einzige Quelle)
+
+    In packaged Electron sollte log_dir explizit auf
+    app.getPath('userData')/logs zeigen, damit DB-Path und Log-Path
+    unabhaengig konfigurierbar sind (z.B. DB auf Backup-Volume,
+    Logs lokal).
+    """
+    explicit = str(getattr(settings, 'log_dir', '') or '').strip()
+    if explicit:
+        log_dir = Path(explicit).expanduser().resolve()
+    else:
+        base_dir = Path(settings.db_path).expanduser().resolve().parent
+        log_dir = base_dir / 'logs'
     log_dir.mkdir(parents=True, exist_ok=True)
     return log_dir
 

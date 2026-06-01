@@ -51,6 +51,13 @@ class Settings(BaseSettings):
     db_use_sqlcipher: bool = False
     db_bootstrap_schema_on_startup: bool = True
 
+    # U-43 (Roadmap-Punkt 43, 2026-06-01): Log-Verzeichnis explizit
+    # konfigurierbar. Vorher: gekoppelt an db_path.parent — sub-optimal
+    # in packaged Electron (DB sollte ggf. in Backup-Volume liegen,
+    # Logs aber in app.getPath('userData')/logs).
+    # Leer = Fallback auf Path(db_path).parent (backwards-compat).
+    log_dir: str = ''
+
     # Auth
     secret_key: str = DEFAULT_SECRET_KEY
     algorithm: str = 'HS256'
