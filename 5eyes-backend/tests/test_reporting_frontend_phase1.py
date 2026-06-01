@@ -40,10 +40,10 @@ def test_inhaltsverzeichnis_page_renders_backend_chapters():
     assert "Inhaltsverzeichnis" in content
 
 
-def test_sidebar_lists_all_15_sections_and_active_state():
+def test_sidebar_lists_all_16_sections_and_active_state():
     content = _read("components/Sidebar.tsx")
     assert "data-testid=\"report-sidebar\"" in content
-    assert content.count("id: '") == 15
+    assert content.count("id: '") == 16
     for title in (
         "Titelblatt",
         "Disclaimer",
@@ -53,6 +53,7 @@ def test_sidebar_lists_all_15_sections_and_active_state():
         "Asset Allocation",
         "Risikowährungen",
         "Weiteres Vorgehen",
+        "Beratungsprotokoll",
     ):
         assert title in content
     assert "activeSection" in content
@@ -103,4 +104,4 @@ def test_no_third_party_brands_in_phase1_frontend():
 def test_sidebar_has_stable_section_numbers():
     content = _read("components/Sidebar.tsx")
     numbers = [int(value) for value in re.findall(r"nr: (\d+)", content)]
-    assert numbers == list(range(1, 16))
+    assert numbers == list(range(1, 17))

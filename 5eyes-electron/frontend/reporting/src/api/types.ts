@@ -404,6 +404,27 @@ export interface BeratungsprotokollData {
 }
 
 // ---------------------------------------------------------------------------
+// Sektion 17 — Historische Stress-Szenarien (U-70)
+// ---------------------------------------------------------------------------
+
+export interface StressReplayScenario {
+  id: string;
+  label: string;
+  period: string;
+  cumulative_return_bps: number;
+  max_drawdown_bps: number;
+  recovery_months: number | null;
+  annual_breakdown: unknown[];
+}
+
+export interface StressReplayData {
+  data_pending: boolean;
+  note: string;
+  weights_bps: Record<string, number>;
+  scenarios: StressReplayScenario[];
+}
+
+// ---------------------------------------------------------------------------
 // Top-Level Schema
 // ---------------------------------------------------------------------------
 
@@ -429,4 +450,6 @@ export interface AdvisoryReport {
   weiteres_vorgehen: WeiteresVorgehenData;
   /** U-FINMA-2.2: FINMA-konforme Beratungsprotokoll-Übersicht */
   beratungsprotokoll: BeratungsprotokollData;
+  /** U-70: Historische Stress-Szenarien auf aktueller Zielallokation */
+  stress_replay: StressReplayData;
 }

@@ -125,6 +125,8 @@ def compute_advisory_report(
         "weiteres_vorgehen": _build_weiteres_vorgehen(notes=notes),
         # --- Sektion 16 (additiv, U-FINMA-2.2)
         "beratungsprotokoll": _build_beratungsprotokoll(db, mandate),
+        # --- Sektion 17 (additiv, U-70)
+        "stress_replay": _build_stress_replay(db, mandate),
     }
 
 
@@ -2050,6 +2052,70 @@ def _check_retention_audit(db: Session, mandate_id: str) -> bool:
         .first()
     )
     return expiring is None
+
+
+# ---------------------------------------------------------------------------
+# Sektion 17 — Historische Stress-Szenarien (Sprint U-70)
+# ---------------------------------------------------------------------------
+
+def _build_stress_replay(db: Session, mandate: Mandate) -> dict[str, Any]:
+    """Historische Stress-Replays für den Advisory-Report.
+
+    Konsumiert den bestehenden U-P13-Service unverändert und mappt dessen
+    Ergebnis auf ein stabiles, PDF-/Frontend-taugliches Schema. Fehler sind
+    report-tauglich fail-soft: der Bericht bleibt erzeugbar, der Abschnitt
+    zeigt dann einen Hinweis statt einer Tabelle.
+    """
+    try:
+        from services.backtest_stress import compute_stress_replays
+
+        raw = compute_stress_replays(db, mandate) or {}
+    except Exception as exc:  # pragma: no cover - defensive report boundary
+        return {
+            "data_pending": True,
+            "note": f"Stress-Replay aktuell nicht verfügbar: {exc}",
+            "weights_bps": {},
+            "scenarios": [],
+        }
+
+    raw_scenarios = raw.get("scenarios") or []
+    if not raw_scenarios:
+        return {
+            "data_pending": True,
+            "note": str(
+                raw.get("warning")
+                or raw.get("note")
+                or "Stress-Replay aktuell nicht verfügbar.",
+            ),
+            "weights_bps": dict(raw.get("weights_bps") or {}),
+            "scenarios": [],
+        }
+
+    scenarios: list[dict[str, Any]] = []
+    for scenario in raw_scenarios:
+        if not isinstance(scenario, Mapping):
+            continue
+        scenarios.append({
+            "id": str(scenario.get("id") or ""),
+            "label": str(
+                scenario.get("scenario_name")
+                or scenario.get("label")
+                or scenario.get("id")
+                or "Szenario",
+            ),
+            "period": str(scenario.get("period") or ""),
+            "cumulative_return_bps": int(scenario.get("cumulative_return_bps") or 0),
+            "max_drawdown_bps": int(scenario.get("max_drawdown_bps") or 0),
+            "recovery_months": scenario.get("recovery_months"),
+            "annual_breakdown": list(scenario.get("annual_breakdown") or []),
+        })
+
+    return {
+        "data_pending": len(scenarios) == 0,
+        "note": str(raw.get("note") or ""),
+        "weights_bps": dict(raw.get("weights_bps") or {}),
+        "scenarios": scenarios,
+    }
 
 
 def _bucket_key_from_asset_class(asset_class: str) -> str:
