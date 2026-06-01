@@ -311,6 +311,16 @@ def _make_minimal_payload() -> dict:
             "weights_bps": {},
             "scenarios": [],
         },
+        "ab_backtest": {
+            "data_pending": True,
+            "note": "Keine zweite OptimizerPolicy für einen A/B-Vergleich vorhanden.",
+            "policy_a": None,
+            "policy_b": None,
+            "buckets_diff": [],
+            "risk_metrics_diff": {},
+            "stress_diff": [],
+            "warnings": [],
+        },
         "positionen": {
             "groups": [
                 {
@@ -381,6 +391,86 @@ def _make_payload_with_stress_replay() -> dict:
                 "annual_breakdown": [],
             },
         ],
+    }
+    return payload
+
+
+def _make_payload_with_ab_backtest() -> dict:
+    payload = _make_minimal_payload()
+    payload["ab_backtest"] = {
+        "data_pending": False,
+        "note": "Reiner House-Matrix-Pfad ohne Tilts, Goals und Reserve-Logik.",
+        "score_bucket": 7,
+        "cma_id": "cma-2026-q1",
+        "cma_version": 3,
+        "policy_a": {
+            "policy_id": "policy-a",
+            "policy_name": "Policy 2025",
+            "version": 1,
+            "is_current": False,
+            "profile_name": "Wachstumsorientiert",
+            "max_risky_fraction_bps": 7000,
+            "weights_bps": {"equities": 6500, "bonds": 2500, "liquidity": 1000},
+            "expected_return_bps": 420,
+            "expected_volatility_bps": 1180,
+            "expected_ter_bps": 42,
+            "sharpe_ratio_x100": 31,
+        },
+        "policy_b": {
+            "policy_id": "policy-b",
+            "policy_name": "Policy 2026",
+            "version": 2,
+            "is_current": True,
+            "profile_name": "Wachstumsorientiert",
+            "max_risky_fraction_bps": 6800,
+            "weights_bps": {"equities": 6000, "bonds": 3000, "liquidity": 1000},
+            "expected_return_bps": 395,
+            "expected_volatility_bps": 1090,
+            "expected_ter_bps": 38,
+            "sharpe_ratio_x100": 33,
+        },
+        "buckets_diff": [
+            {"key": "liquidity", "label": "Liquidität", "a_bps": 1000, "b_bps": 1000, "delta_bps": 0},
+            {"key": "bonds", "label": "Obligationen", "a_bps": 2500, "b_bps": 3000, "delta_bps": 500},
+            {"key": "equities", "label": "Aktien", "a_bps": 6500, "b_bps": 6000, "delta_bps": -500},
+            {"key": "real_estate", "label": "Immobilien", "a_bps": 0, "b_bps": 0, "delta_bps": 0},
+            {"key": "alternatives", "label": "Alternative Anlagen", "a_bps": 0, "b_bps": 0, "delta_bps": 0},
+        ],
+        "risk_metrics_diff": {
+            "delta_expected_return_bps": -25,
+            "delta_expected_volatility_bps": -90,
+            "delta_expected_ter_bps": -4,
+            "delta_sharpe_ratio_x100": 2,
+        },
+        "stress_diff": [
+            {
+                "id": "dotcom_2000_2002",
+                "label": "Dotcom 2000-2002",
+                "period": "2000-2002",
+                "a_cumulative_return_bps": -2100,
+                "b_cumulative_return_bps": -1900,
+                "delta_cumulative_return_bps": 200,
+                "a_max_drawdown_bps": 3200,
+                "b_max_drawdown_bps": 2800,
+                "delta_max_drawdown_bps": -400,
+                "a_recovery_months": 60,
+                "b_recovery_months": 54,
+            },
+            {
+                "id": "gfc_2008",
+                "label": "GFC 2008",
+                "period": "2008",
+                "a_cumulative_return_bps": -1800,
+                "b_cumulative_return_bps": -1600,
+                "delta_cumulative_return_bps": 200,
+                "a_max_drawdown_bps": 2900,
+                "b_max_drawdown_bps": 2600,
+                "delta_max_drawdown_bps": -300,
+                "a_recovery_months": 42,
+                "b_recovery_months": 38,
+            },
+        ],
+        "warnings": [],
     }
     return payload
 
@@ -1112,9 +1202,9 @@ def test_full_pdf_has_at_least_15_sections():
     payload = _make_minimal_payload()
     pdf = render_advisory_report_pdf_from_payload(payload)
     reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
-    # U-70: Stress-Replay ergänzt -> mindestens 17 Seiten
-    assert len(reader.pages) >= 17, (
-        f"Erwartet mindestens 17 Seiten (alle Sektionen + Stress-Replay), "
+    # U-71: A/B-Backtest ergänzt -> mindestens 18 Seiten
+    assert len(reader.pages) >= 18, (
+        f"Erwartet mindestens 18 Seiten (alle Sektionen + A/B-Backtest), "
         f"PDF hat {len(reader.pages)}"
     )
 
@@ -1261,3 +1351,52 @@ def test_stress_replay_empty_scenarios_do_not_crash():
     text = "\n".join((page.extract_text() or "") for page in reader.pages)
     assert "Historische Stress-Szenarien" in text
     assert "Noch keine Stress-Szenarien" in text
+
+
+# ---------------------------------------------------------------------------
+# Sektion 18 — Policy-A/B-Vergleich (Sprint U-71)
+# ---------------------------------------------------------------------------
+
+def test_ab_backtest_section_renders_pending_hint():
+    pypdf = pytest.importorskip("pypdf")
+    payload = _make_minimal_payload()
+    pdf = render_advisory_report_pdf_from_payload(payload)
+    reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
+    text = "\n".join((page.extract_text() or "") for page in reader.pages)
+    assert "Policy-A/B-Vergleich" in text
+    assert "Keine zweite OptimizerPolicy" in text
+
+
+def test_ab_backtest_section_renders_policy_metric_table():
+    pypdf = pytest.importorskip("pypdf")
+    payload = _make_payload_with_ab_backtest()
+    pdf = render_advisory_report_pdf_from_payload(payload)
+    reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
+    text = "\n".join((page.extract_text() or "") for page in reader.pages)
+    assert "Policy-A/B-Vergleich" in text
+    assert "Policy 2025" in text
+    assert "Policy 2026" in text
+    assert "Erwartete Rendite" in text
+    assert "Sharpe" in text
+
+
+def test_ab_backtest_section_shows_bucket_deltas():
+    pypdf = pytest.importorskip("pypdf")
+    payload = _make_payload_with_ab_backtest()
+    pdf = render_advisory_report_pdf_from_payload(payload)
+    reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
+    text = "\n".join((page.extract_text() or "") for page in reader.pages).replace(" ", "")
+    assert "Aktien" in text
+    assert "-5.0%" in text
+    assert "+5.0%" in text
+
+
+def test_ab_backtest_section_shows_stress_diff():
+    pypdf = pytest.importorskip("pypdf")
+    payload = _make_payload_with_ab_backtest()
+    pdf = render_advisory_report_pdf_from_payload(payload)
+    reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
+    text = "\n".join((page.extract_text() or "") for page in reader.pages)
+    assert "Stress-Replay-Differenz" in text
+    assert "Dotcom 2000-2002" in text
+    assert "GFC 2008" in text

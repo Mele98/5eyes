@@ -464,6 +464,60 @@ export interface ConflictDisclosuresData {
 }
 
 // ---------------------------------------------------------------------------
+// Sektion 26 — A/B-HouseMatrix-Backtest (U-71, re-architektiert 2026-06-09)
+// ---------------------------------------------------------------------------
+
+export interface AbPolicySummary {
+  policy_id: string;
+  policy_name: string;
+  version: number;
+  is_current: boolean;
+  profile_name?: string;
+  max_risky_fraction_bps?: number;
+  weights_bps?: Record<string, number>;
+  expected_return_bps?: number;
+  expected_volatility_bps?: number;
+  expected_ter_bps?: number;
+  sharpe_ratio_x100?: number;
+}
+
+export interface AbBucketDiff {
+  key: string;
+  label: string;
+  a_bps: number;
+  b_bps: number;
+  delta_bps: number;
+}
+
+export interface AbStressDiff {
+  id: string;
+  label: string;
+  period: string;
+  a_cumulative_return_bps: number;
+  b_cumulative_return_bps: number;
+  delta_cumulative_return_bps: number;
+  a_max_drawdown_bps: number;
+  b_max_drawdown_bps: number;
+  delta_max_drawdown_bps: number;
+  a_recovery_months: number;
+  b_recovery_months: number;
+}
+
+export interface AbBacktestData {
+  data_pending: boolean;
+  note: string;
+  score_bucket?: number;
+  cma_id?: string;
+  cma_version?: number;
+  policy_a: AbPolicySummary | null;
+  policy_b: AbPolicySummary | null;
+  buckets_diff: AbBucketDiff[];
+  risk_metrics_diff: Record<string, number>;
+  stress_diff: AbStressDiff[];
+  warnings: string[];
+}
+
+// ---------------------------------------------------------------------------
 // Top-Level Schema
 // ---------------------------------------------------------------------------
 
@@ -509,6 +563,8 @@ export interface AdvisoryReport {
   performance_attribution: PerformanceAttributionData;
   /** C2-Wiring: Engine-Configuration-Audit (Optimizer-Run-Reasoning) */
   engine_configuration: EngineConfigurationData;
+  /** U-71 (re-architektiert 2026-06-09): A/B-HouseMatrix-Policy-Vergleich */
+  ab_backtest: AbBacktestData;
 }
 
 /** C2-Wiring (2026-06-07): Stub-Type fuer engine_configuration.
