@@ -1185,6 +1185,11 @@ CREATE INDEX IF NOT EXISTS idx_audit_record ON audit_log(table_name, record_id);
 CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_log(user_id);
 CREATE INDEX IF NOT EXISTS idx_audit_time ON audit_log(created_at);
 CREATE INDEX IF NOT EXISTS idx_audit_mandate ON audit_log(mandate_id);
+-- U-38 (2026-06-01): Composite-Index fuer typische FINMA-Compliance-Queries
+-- "alle Audit-Eintraege fuer Mandat X auf Tabelle Y" (DSG-Export, Audit-
+-- Trail-Verifikation). idx_audit_mandate allein reicht nicht weil SQLite
+-- danach noch table_name filtern muss.
+CREATE INDEX IF NOT EXISTS idx_audit_mandate_table ON audit_log(mandate_id, table_name);
 
 -- ============================================================
 -- 22b. ADVISORY-REPORT BERATER-OVERRIDES (Sprint U-P28)
