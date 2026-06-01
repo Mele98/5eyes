@@ -262,6 +262,17 @@ class Settings(BaseSettings):
             raise ValueError('db_key must be set when db_use_sqlcipher=true')
         if self.recent_log_lines_default > self.recent_log_lines_max:
             raise ValueError('recent_log_lines_default must not exceed recent_log_lines_max')
+        # Sprint U-59 (2026-06-01): Bearer-Token-TTL hard cap in production.
+        # 24h Maximum = ein Arbeitstag, danach Re-Login. Verhindert dass
+        # versehentlich JAHRE-Tokens generiert werden (Token-Diebstahl-
+        # Window-Mitigation). Dev/test bleiben frei (z.B. fuer Long-running
+        # Integration-Tests).
+        if self.app_env == 'production' and self.access_token_expire_minutes > 1440:
+            raise ValueError(
+                f'access_token_expire_minutes={self.access_token_expire_minutes} '
+                f'exceeds 1440 (24h) in production. Reduziere TTL um '
+                f'Token-Diebstahl-Window zu begrenzen.'
+            )
         return self
 
 
