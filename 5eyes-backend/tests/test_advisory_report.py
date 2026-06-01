@@ -131,6 +131,8 @@ def test_compute_returns_expected_top_level_structure(session_factory):
         "statement_pm", "weiteres_vorgehen",
         # U-FINMA-2.2: additive Sektion 16
         "beratungsprotokoll",
+        # U-70: additive Sektion 17
+        "stress_replay",
     ]
     assert list(report.keys()) == expected_order
 
@@ -793,6 +795,59 @@ def test_goal_based_investing_empty_without_ta(session_factory):
     assert gbi["monte_carlo_paths"]["data_pending"] is True
 
 
+def test_stress_replay_pending_without_target_allocation(session_factory):
+    """Ohne aktuelle TA bleibt die neue Report-Sektion fail-soft."""
+    with session_factory() as s:
+        mandate, _c, advisor = _seed_minimal_mandate(s)
+        s.commit()
+        report = compute_advisory_report(s, mandate, advisor=advisor)
+
+    sr = report["stress_replay"]
+    assert sr["data_pending"] is True
+    assert sr["scenarios"] == []
+    assert "Target-Allocation" in sr["note"]
+
+
+def test_stress_replay_returns_foundation_scenarios_from_current_ta(session_factory):
+    """Mit aktueller TA liefert der Aggregator die 5 U-P13 Stress-Szenarien."""
+    with session_factory() as s:
+        mandate, _c, advisor = _seed_minimal_mandate(s)
+        _make_ta_with_goals(s, mandate_id=mandate.id, advisor_id=advisor.id)
+        s.commit()
+        report = compute_advisory_report(s, mandate, advisor=advisor)
+
+    sr = report["stress_replay"]
+    assert sr["data_pending"] is False
+    assert sr["weights_bps"]["equities"] == 5500
+    assert len(sr["scenarios"]) == 5
+    assert any("Dotcom" in scenario["label"] for scenario in sr["scenarios"])
+    first = sr["scenarios"][0]
+    assert {
+        "id", "label", "period", "cumulative_return_bps",
+        "max_drawdown_bps", "recovery_months", "annual_breakdown",
+    } <= set(first)
+
+
+def test_stress_replay_fail_soft_when_service_raises(session_factory, monkeypatch):
+    """Ein Stress-Service-Fehler darf den Advisory-Report nicht abbrechen."""
+    from services import backtest_stress
+
+    def _boom(db, mandate):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(backtest_stress, "compute_stress_replays", _boom)
+    with session_factory() as s:
+        mandate, _c, advisor = _seed_minimal_mandate(s)
+        _make_ta_with_goals(s, mandate_id=mandate.id, advisor_id=advisor.id)
+        s.commit()
+        report = compute_advisory_report(s, mandate, advisor=advisor)
+
+    sr = report["stress_replay"]
+    assert sr["data_pending"] is True
+    assert sr["scenarios"] == []
+    assert "boom" in sr["note"]
+
+
 def test_goal_based_investing_returns_data_pending_goals_without_achievability(session_factory):
     """Wenn Goals existieren, aber noch keine stochastic Achievability
     persistiert ist, darf die UI nicht fälschlich 0 Goals sehen."""
@@ -1043,6 +1098,8 @@ def test_endpoint_returns_full_report_structure(session_factory):
         "statement_pm", "weiteres_vorgehen",
         # U-FINMA-2.2: additive Sektion 16
         "beratungsprotokoll",
+        # U-70: additive Sektion 17
+        "stress_replay",
     ]
     assert list(data.keys()) == expected
     assert data["schema_version"] == 2

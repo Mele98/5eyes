@@ -46,7 +46,9 @@ from services.pdf.components.advisory_palette import (
     COLOR_INK_MUTED,
     COLOR_INK_SUBTLE,
     COLOR_RULE,
+    COLOR_STATUS_GRUEN,
     COLOR_STATUS_NEUTRAL,
+    COLOR_STATUS_ROT,
     FONT_MONO,
     FONT_SANS,
     FONT_SANS_BOLD,
@@ -62,6 +64,7 @@ from services.pdf.components.advisory_palette import (
 )
 from services.pdf.components.swiss_numbers import (
     format_bps_as_pct,
+    format_bps_signed_pct,
     format_chf_rappen,
     format_integer,
 )
@@ -172,6 +175,8 @@ def _build_all_flowables(payload: dict[str, Any], styles: dict) -> list[Any]:
     flowables.extend(_build_weiteres_vorgehen_flowables(payload.get("weiteres_vorgehen") or {}, styles))
     flowables.append(PageBreak())
     flowables.extend(_build_beratungsprotokoll_flowables(payload.get("beratungsprotokoll") or {}, styles))
+    flowables.append(PageBreak())
+    flowables.extend(_build_stress_replay_flowables(payload.get("stress_replay") or {}, styles))
     return flowables
 
 
@@ -2088,6 +2093,136 @@ def _bp_no_entry_hint(styles: dict) -> Table:
         ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
     ]))
     return inner
+
+
+# ---------------------------------------------------------------------------
+# Sektion 17 — Historische Stress-Szenarien (Sprint U-70)
+# ---------------------------------------------------------------------------
+
+def _build_stress_replay_flowables(sr: dict, styles: dict) -> list[Any]:
+    """Stress-Replay-Tabelle im Advisory-Report-PDF."""
+    out: list[Any] = []
+    out.append(Paragraph("Sektion 17", styles["kicker"]))
+    out.append(Paragraph("Historische Stress-Szenarien", styles["h1"]))
+    out.append(Spacer(1, 4 * mm))
+    out.append(_hr())
+    out.append(Spacer(1, 5 * mm))
+
+    note = str(sr.get("note") or "")
+    scenarios = list(sr.get("scenarios") or [])
+    if sr.get("data_pending") or not scenarios:
+        out.append(_editorial_note(
+            "Stress-Replay",
+            note or "Stress-Replay aktuell nicht verfügbar.",
+            styles,
+        ))
+        return out
+
+    out.append(Paragraph(
+        "Die historischen Stress-Szenarien wenden definierte Marktphasen "
+        "auf die aktuelle Zielallokation an. Die Auswertung ist eine "
+        "Szenarioanalyse und kein Renditeversprechen.",
+        _ar_paragraph_style(styles["caption"], color=COLOR_INK_MUTED),
+    ))
+    out.append(Spacer(1, 5 * mm))
+    out.append(_stress_replay_table(scenarios, styles))
+    if note:
+        out.append(Spacer(1, 5 * mm))
+        out.append(Paragraph(
+            _escape(note),
+            _ar_paragraph_style(styles["micro"], color=COLOR_INK_SUBTLE),
+        ))
+    return out
+
+
+def _stress_replay_table(scenarios: list[dict], styles: dict) -> Table:
+    page_width, _ = PAGE_SIZE
+    inner_width = page_width - MARGIN_LEFT - MARGIN_RIGHT
+    col_scenario = inner_width * 0.30
+    col_return = inner_width * 0.14
+    col_drawdown = inner_width * 0.25
+    col_recovery = inner_width * 0.14
+    col_period = inner_width - col_scenario - col_return - col_drawdown - col_recovery
+
+    max_drawdown = max(
+        abs(int(s.get("max_drawdown_bps") or 0)) for s in scenarios
+    ) or 1
+    rows = [[
+        _th("Szenario", styles),
+        _th("Return", styles),
+        _th("Max-Drawdown", styles),
+        _th("Recovery", styles),
+        _th("Zeitraum", styles),
+    ]]
+    for scenario in scenarios:
+        return_bps = int(scenario.get("cumulative_return_bps") or 0)
+        drawdown_bps = int(scenario.get("max_drawdown_bps") or 0)
+        recovery = scenario.get("recovery_months")
+        recovery_text = "—" if recovery is None else f"{int(recovery)} Mt."
+        return_color = COLOR_STATUS_GRUEN if return_bps >= 0 else COLOR_STATUS_ROT
+        rows.append([
+            Paragraph(
+                _escape(_safe_string(scenario.get("label"))),
+                _ar_paragraph_style(
+                    styles["caption"], color=COLOR_INK, font=FONT_SANS_BOLD,
+                ),
+            ),
+            Paragraph(
+                _escape(format_bps_signed_pct(return_bps)),
+                _ar_paragraph_style(
+                    styles["caption_mono"], color=return_color, font=FONT_MONO,
+                ),
+            ),
+            _stress_drawdown_cell(drawdown_bps, max_drawdown, styles),
+            Paragraph(_escape(recovery_text), styles["caption_mono"]),
+            Paragraph(
+                _escape(_safe_string(scenario.get("period"))),
+                styles["caption"],
+            ),
+        ])
+
+    table = Table(
+        rows,
+        colWidths=[col_scenario, col_return, col_drawdown, col_recovery, col_period],
+    )
+    table.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 4),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ("LINEBELOW", (0, 0), (-1, 0), 0.4, COLOR_RULE),
+        ("LINEBELOW", (0, 1), (-1, -1), 0.2, COLOR_RULE),
+        ("ALIGN", (1, 0), (1, -1), "RIGHT"),
+    ]))
+    return table
+
+
+def _stress_drawdown_cell(drawdown_bps: int, max_drawdown_bps: int, styles: dict) -> Table:
+    from reportlab.graphics.shapes import Drawing, Rect
+
+    value = abs(int(drawdown_bps or 0))
+    max_value = max(abs(int(max_drawdown_bps or 0)), 1)
+    bar_width = 48 * mm
+    bar_height = 4.5 * mm
+    filled = bar_width * min(value / max_value, 1.0)
+
+    drawing = Drawing(bar_width, bar_height)
+    drawing.add(Rect(0, 0, bar_width, bar_height, fillColor=COLOR_CANVAS_SUBTLE, strokeColor=None))
+    drawing.add(Rect(0, 0, filled, bar_height, fillColor=COLOR_STATUS_ROT, strokeColor=None))
+    label = Paragraph(
+        _escape(f"-{format_bps_as_pct(value)}"),
+        _ar_paragraph_style(styles["caption_mono"], color=COLOR_INK),
+    )
+    table = Table([[label, drawing]], colWidths=[24 * mm, bar_width])
+    table.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 3),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+    ]))
+    return table
 
 
 # ---------------------------------------------------------------------------

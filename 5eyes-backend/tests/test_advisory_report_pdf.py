@@ -304,6 +304,12 @@ def _make_minimal_payload() -> dict:
                 "updated_at": "2026-05-15T14:00:00.000Z",
             },
         },
+        "stress_replay": {
+            "data_pending": True,
+            "note": "Stress-Replay aktuell nicht verfügbar.",
+            "weights_bps": {},
+            "scenarios": [],
+        },
         "positionen": {
             "groups": [
                 {
@@ -331,6 +337,51 @@ def _make_minimal_payload() -> dict:
             "hinweis": "Daten basieren auf der aktuellen Empfehlung.",
         },
     }
+
+
+def _make_payload_with_stress_replay() -> dict:
+    payload = _make_minimal_payload()
+    payload["stress_replay"] = {
+        "data_pending": False,
+        "note": "Replay mit historischen jährlichen Returns pro Asset-Klasse.",
+        "weights_bps": {
+            "equities": 5500,
+            "bonds": 2500,
+            "real_estate": 1000,
+            "alternatives": 500,
+            "liquidity": 500,
+        },
+        "scenarios": [
+            {
+                "id": "dotcom_2000_2002",
+                "label": "Dotcom 2000-2002",
+                "period": "2000-2002",
+                "cumulative_return_bps": -1830,
+                "max_drawdown_bps": 2450,
+                "recovery_months": 56,
+                "annual_breakdown": [],
+            },
+            {
+                "id": "gfc_2008",
+                "label": "GFC 2008",
+                "period": "2008",
+                "cumulative_return_bps": -1380,
+                "max_drawdown_bps": 3180,
+                "recovery_months": 36,
+                "annual_breakdown": [],
+            },
+            {
+                "id": "covid_2020",
+                "label": "Covid 2020",
+                "period": "2020",
+                "cumulative_return_bps": 890,
+                "max_drawdown_bps": 940,
+                "recovery_months": 5,
+                "annual_breakdown": [],
+            },
+        ],
+    }
+    return payload
 
 
 # ---------------------------------------------------------------------------
@@ -1024,9 +1075,9 @@ def test_full_pdf_has_at_least_15_sections():
     payload = _make_minimal_payload()
     pdf = render_advisory_report_pdf_from_payload(payload)
     reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
-    # U-FINMA-2.3: Sektion 16 ergaenzt -> mindestens 16 Seiten
-    assert len(reader.pages) >= 16, (
-        f"Erwartet mindestens 16 Seiten (alle Sektionen + Beratungsprotokoll), "
+    # U-70: Stress-Replay ergänzt -> mindestens 17 Seiten
+    assert len(reader.pages) >= 17, (
+        f"Erwartet mindestens 17 Seiten (alle Sektionen + Stress-Replay), "
         f"PDF hat {len(reader.pages)}"
     )
 
@@ -1119,3 +1170,57 @@ def test_beratungsprotokoll_shows_no_entry_hint_when_empty():
     reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
     text = reader.pages[15].extract_text() or ""
     assert "Noch kein Beratungsprotokoll" in text
+
+
+# ---------------------------------------------------------------------------
+# Sektion 17 — Historische Stress-Szenarien (Sprint U-70)
+# ---------------------------------------------------------------------------
+
+def test_stress_replay_section_renders_pending_hint():
+    pypdf = pytest.importorskip("pypdf")
+    payload = _make_minimal_payload()
+    pdf = render_advisory_report_pdf_from_payload(payload)
+    reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
+    text = reader.pages[-1].extract_text() or ""
+    assert "Historische Stress-Szenarien" in text
+    assert "Stress-Replay aktuell nicht" in text
+
+
+def test_stress_replay_section_renders_scenario_table():
+    pypdf = pytest.importorskip("pypdf")
+    payload = _make_payload_with_stress_replay()
+    pdf = render_advisory_report_pdf_from_payload(payload)
+    reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
+    text = reader.pages[-1].extract_text() or ""
+    assert "Historische Stress-Szenarien" in text
+    assert "Dotcom 2000-2002" in text
+    assert "GFC 2008" in text
+    assert "Covid 2020" in text
+
+
+def test_stress_replay_section_shows_return_drawdown_and_recovery_values():
+    pypdf = pytest.importorskip("pypdf")
+    payload = _make_payload_with_stress_replay()
+    pdf = render_advisory_report_pdf_from_payload(payload)
+    reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
+    text = (reader.pages[-1].extract_text() or "").replace(" ", "")
+    assert "-18.3%" in text
+    assert "-31.8%" in text
+    assert "+8.9%" in text
+    assert "56Mt." in text
+
+
+def test_stress_replay_empty_scenarios_do_not_crash():
+    pypdf = pytest.importorskip("pypdf")
+    payload = _make_minimal_payload()
+    payload["stress_replay"] = {
+        "data_pending": False,
+        "note": "Noch keine Stress-Szenarien verfügbar.",
+        "weights_bps": {},
+        "scenarios": [],
+    }
+    pdf = render_advisory_report_pdf_from_payload(payload)
+    reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
+    text = reader.pages[-1].extract_text() or ""
+    assert "Historische Stress-Szenarien" in text
+    assert "Noch keine Stress-Szenarien" in text
