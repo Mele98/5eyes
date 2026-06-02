@@ -351,24 +351,31 @@ def _build_cover(
 
 
 def _build_inhaltsverzeichnis() -> dict[str, Any]:
-    """Sektion 3 — Inhaltsverzeichnis. Statische sichtbare Kapitel-Struktur."""
+    """Inhaltsverzeichnis entlang der aktuellen PDF-Render-Reihenfolge.
+    U-13 (2026-06-02) + Aggregator-Sprint #163 + Bug-#7 Contract-Signoff.
+    Wird via TocCollector mit echten Seitenzahlen versorgt."""
     return {
         "kapitel": [
-            {"nr": 1, "title": "Ausgangslage"},
-            {"nr": 2, "title": "Übersicht Ihrer Positionen"},
-            {"nr": 3, "title": "Was wir im Depotcheck prüfen"},
-            {"nr": 4, "title": "Erkenntnisse aus dem Depotcheck"},
-            {"nr": 5, "title": "Asset Allocation"},
-            {"nr": 6, "title": "Risikowährungen"},
-            {"nr": 7, "title": "Diversifikation"},
-            {"nr": 8, "title": "Statement aus dem Portfoliomanagement"},
-            {"nr": 9, "title": "Zielbasierte Optimierung"},
-            {"nr": 10, "title": "Risikoprofilierung"},
-            {"nr": 11, "title": "Building Blocks"},
-            {"nr": 12, "title": "Weiteres Vorgehen"},
-            {"nr": 13, "title": "Beratungsprotokoll"},
-            {"nr": 14, "title": "Historische Stress-Szenarien"},
-            {"nr": 15, "title": "Compliance-Audit"},
+            {"nr": 1, "title": "Rechtliche Hinweise"},
+            {"nr": 2, "title": "Inhaltsverzeichnis"},
+            {"nr": 3, "title": "Ausgangslage"},
+            {"nr": 4, "title": "Übersicht Ihrer Positionen"},
+            {"nr": 5, "title": "Was wir im Depotcheck prüfen"},
+            {"nr": 6, "title": "Erkenntnisse aus dem Depotcheck"},
+            {"nr": 7, "title": "Asset Allocation"},
+            {"nr": 8, "title": "Risikowährungen"},
+            {"nr": 9, "title": "Diversifikation Branchen"},
+            {"nr": 10, "title": "Zielbasierte Optimierung"},
+            {"nr": 11, "title": "Risikoprofilierung"},
+            {"nr": 12, "title": "Building Blocks / iSAA"},
+            {"nr": 13, "title": "Statement aus dem Portfoliomanagement"},
+            {"nr": 14, "title": "Weiteres Vorgehen"},
+            {"nr": 15, "title": "Beratungsprotokoll"},
+            {"nr": 16, "title": "Historische Stress-Szenarien"},
+            {"nr": 17, "title": "A/B-Backtest"},
+            {"nr": 18, "title": "Ex-ante Kostenausweis"},
+            {"nr": 19, "title": "Compliance-Audit"},
+            {"nr": 20, "title": "Unterschrift"},
         ],
     }
 

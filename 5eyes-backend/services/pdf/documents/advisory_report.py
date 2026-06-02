@@ -46,6 +46,11 @@ from services.pdf.components.advisory_page_chrome import (
 from services.pdf.components.compliance_audit import render_compliance_audit_section
 from services.pdf.components.kostenausweis import build_kostenausweis_flowables
 from services.pdf.components.unterschrift import make_unterschrift_section
+from services.pdf.components.table_of_contents import (
+    TocCollector,
+    TocSectionAnchor,
+    make_toc_table,
+)
 from services.pdf.components.advisory_palette import (
     COLOR_ACCENT,
     COLOR_CANVAS_SUBTLE,
@@ -154,104 +159,97 @@ def render_advisory_report_pdf_from_payload(
         )
 
     started = time.perf_counter()
-    try:
-        out_buf, out_doc = _new_doc()
-
-        def _canvasmaker(*args, **kwargs) -> AdvisoryNumberedCanvas:
-            return AdvisoryNumberedCanvas(
-                *args,
-                mandate_number=mandate_number,
-                generated_at_iso=generated_at,
-                watermark_mode=watermark_mode,  # Sprint U-91 (2026-06-06)
-                **kwargs,
-            )
-
-        out_doc.build(
-            _build_all_flowables(payload, styles),
-            canvasmaker=_canvasmaker,
-        )
-        elapsed = time.perf_counter() - started
-        logger.info("advisory_report_pdf_render_seconds=%.3f mode=single_pass", elapsed)
-        return out_buf.getvalue()
-    except Exception:
-        logger.warning(
-            "Single-pass advisory PDF render failed; falling back to two-pass.",
-            exc_info=True,
-        )
-        return _render_advisory_report_pdf_two_pass(
-            _new_doc,
-            payload,
-            styles,
-            mandate_number=mandate_number,
-            generated_at=generated_at,
-        )
-
-
-def _render_advisory_report_pdf_two_pass(
-    new_doc,
-    payload: dict[str, Any],
-    styles: dict,
-    *,
-    mandate_number: str,
-    generated_at: str,
-) -> bytes:
-    """Compatibility fallback for environments that reject canvasmaker."""
-    _scratch_buf, scratch_doc = new_doc()
+    # U-13 (2026-06-02): Two-Pass-Render fuer echte Seitenzahlen im TOC.
+    # Pass 1 zaehlt Seiten + sammelt Section-Startseiten via TocCollector.
+    # Pass 2 rendert mit den realen page-numbers in der TOC-Tabelle.
+    # Vorher: single-pass mit AdvisoryNumberedCanvas — TOC zeigte nur Titel.
+    _scratch_buf, scratch_doc = _new_doc()
     counter = _PageCounter()
+    toc_collector = TocCollector()
     scratch_doc.build(
-        _build_all_flowables(payload, styles),
+        _build_all_flowables(payload, styles, toc_collector=toc_collector),
         onFirstPage=counter, onLaterPages=counter,
     )
     total_pages = counter.page_count or 1
+    toc_page_numbers = toc_collector.page_numbers_by_title()
 
-    out_buf, out_doc = new_doc()
+    out_buf, out_doc = _new_doc()
     chrome = make_advisory_page_chrome(
         mandate_number=mandate_number,
         generated_at_iso=generated_at,
         total_pages_hint=total_pages,
     )
     out_doc.build(
-        _build_all_flowables(payload, styles),
+        _build_all_flowables(payload, styles, toc_page_numbers=toc_page_numbers),
         onFirstPage=chrome, onLaterPages=chrome,
     )
+    elapsed = time.perf_counter() - started
+    logger.info("advisory_report_pdf_render_seconds=%.3f mode=two_pass", elapsed)
     return out_buf.getvalue()
 
 
-def _build_all_flowables(payload: dict[str, Any], styles: dict) -> list[Any]:
-    """Erzeugt einen frischen Flowable-Snapshot fuer einen PDF-Build."""
+def _build_all_flowables(
+    payload: dict[str, Any],
+    styles: dict,
+    *,
+    toc_collector: TocCollector | None = None,
+    toc_page_numbers: dict[str, int] | None = None,
+) -> list[Any]:
+    """Erzeugt einen *frischen* Flowable-Snapshot — wird zweimal aufgerufen
+    (Pass 1 zum Zaehlen + TOC-Sammeln, Pass 2 zum Zeichnen mit echten
+    Seitenzahlen). U-13."""
     flowables: list[Any] = []
     flowables.extend(_build_cover_flowables(payload.get("cover") or {}, styles))
     flowables.append(PageBreak())
+    flowables.append(_toc_anchor(toc_collector, "disclaimer", "Rechtliche Hinweise"))
     flowables.extend(_build_disclaimer_flowables(payload.get("disclaimer") or {}, styles))
     flowables.append(PageBreak())
-    flowables.extend(_build_toc_flowables(payload.get("inhaltsverzeichnis") or {}, styles))
+    flowables.append(_toc_anchor(toc_collector, "toc", "Inhaltsverzeichnis"))
+    flowables.extend(_build_toc_flowables(
+        payload.get("inhaltsverzeichnis") or {}, styles,
+        page_numbers_by_title=toc_page_numbers,
+    ))
     flowables.append(PageBreak())
+    flowables.append(_toc_anchor(toc_collector, "ausgangslage", "Ausgangslage"))
     flowables.extend(_build_ausgangslage_flowables(payload.get("ausgangslage") or {}, styles))
     flowables.append(PageBreak())
+    flowables.append(_toc_anchor(toc_collector, "positionen", "Übersicht Ihrer Positionen"))
     flowables.extend(_build_positionen_flowables(payload.get("positionen") or {}, styles))
     flowables.append(PageBreak())
+    flowables.append(_toc_anchor(toc_collector, "pruefpunkte", "Was wir im Depotcheck prüfen"))
     flowables.extend(_build_pruefpunkte_flowables(payload.get("pruefpunkte") or {}, styles))
     flowables.append(PageBreak())
+    flowables.append(_toc_anchor(toc_collector, "erkenntnisse", "Erkenntnisse aus dem Depotcheck"))
     flowables.extend(_build_erkenntnisse_flowables(payload.get("erkenntnisse") or {}, styles))
     flowables.append(PageBreak())
+    flowables.append(_toc_anchor(toc_collector, "asset_allocation", "Asset Allocation"))
     flowables.extend(_build_asset_allocation_flowables(payload.get("asset_allocation") or {}, styles))
     flowables.append(PageBreak())
+    flowables.append(_toc_anchor(toc_collector, "risikowaehrungen", "Risikowährungen"))
     flowables.extend(_build_risikowaehrungen_flowables(payload.get("risikowaehrungen") or {}, styles))
     flowables.append(PageBreak())
+    flowables.append(_toc_anchor(toc_collector, "branchen", "Diversifikation Branchen"))
     flowables.extend(_build_branchen_flowables(payload.get("branchen") or {}, styles))
     flowables.append(PageBreak())
+    flowables.append(_toc_anchor(toc_collector, "goal_based_investing", "Zielbasierte Optimierung"))
     flowables.extend(_build_goals_flowables(payload.get("goal_based_investing") or {}, styles))
     flowables.append(PageBreak())
+    flowables.append(_toc_anchor(toc_collector, "risikoprofilierung", "Risikoprofilierung"))
     flowables.extend(_build_risikoprofil_flowables(payload.get("risikoprofilierung") or {}, styles))
     flowables.append(PageBreak())
+    flowables.append(_toc_anchor(toc_collector, "building_blocks", "Building Blocks / iSAA"))
     flowables.extend(_build_building_blocks_flowables(payload.get("building_blocks") or {}, styles))
     flowables.append(PageBreak())
+    flowables.append(_toc_anchor(toc_collector, "statement_pm", "Statement aus dem Portfoliomanagement"))
     flowables.extend(_build_statement_pm_flowables(payload.get("statement_pm") or {}, styles))
     flowables.append(PageBreak())
+    flowables.append(_toc_anchor(toc_collector, "weiteres_vorgehen", "Weiteres Vorgehen"))
     flowables.extend(_build_weiteres_vorgehen_flowables(payload.get("weiteres_vorgehen") or {}, styles))
     flowables.append(PageBreak())
+    flowables.append(_toc_anchor(toc_collector, "beratungsprotokoll", "Beratungsprotokoll"))
     flowables.extend(_build_beratungsprotokoll_flowables(payload.get("beratungsprotokoll") or {}, styles))
     flowables.append(PageBreak())
+    flowables.append(_toc_anchor(toc_collector, "stress_replay", "Historische Stress-Szenarien"))
     flowables.extend(_build_stress_replay_flowables(payload.get("stress_replay") or {}, styles))
     flowables.append(PageBreak())
     # Sprint U-71 (2026-06-06): A/B-Backtest-Sektion nur wenn der Berater
@@ -277,6 +275,14 @@ def _build_all_flowables(payload: dict[str, Any], styles: dict) -> list[Any]:
     flowables.append(PageBreak())
     flowables.extend(make_unterschrift_section())
     return flowables
+
+
+def _toc_anchor(
+    collector: TocCollector | None,
+    section_id: str,
+    title: str,
+) -> TocSectionAnchor:
+    return TocSectionAnchor(collector, section_id, title)
 
 
 class _PageCounter:
@@ -428,13 +434,13 @@ def _build_disclaimer_flowables(disclaimer: dict, styles: dict) -> list[Any]:
 # Sektion 3 — Inhaltsverzeichnis
 # ---------------------------------------------------------------------------
 
-def _build_toc_flowables(toc: dict, styles: dict) -> list[Any]:
-    """12 Kapitel mit Nummer, Name, Punktreihe, Seitenzahl-Placeholder.
-
-    Echte Seitenzahlen erfordern Two-Pass-Build (Folge-PR). Aktuell
-    rendern wir den Kapitel-Namen ohne Seitenzahl, damit Layout stabil
-    bleibt — Berater sieht trotzdem die Struktur.
-    """
+def _build_toc_flowables(
+    toc: dict,
+    styles: dict,
+    *,
+    page_numbers_by_title: dict[str, int] | None = None,
+) -> list[Any]:
+    """Kapitel mit echten Seitenzahlen aus dem Two-Pass-Collector."""
     out: list[Any] = []
     out.append(Paragraph("Sektion 3", styles["kicker"]))
     out.append(Paragraph("Inhaltsverzeichnis", styles["h1"]))
@@ -452,65 +458,11 @@ def _build_toc_flowables(toc: dict, styles: dict) -> list[Any]:
 
     page_width, _ = PAGE_SIZE
     inner_width = page_width - MARGIN_LEFT - MARGIN_RIGHT
-    # Sprint U-13 (2026-06-06): TOC bekommt 3 Spalten — Nr/Titel/Seite
-    nr_col = 14 * mm
-    page_col = 22 * mm
-    title_col = inner_width - nr_col - page_col
-
-    # Sprint U-13 (2026-06-06): Estimated-Page-Numbers basierend auf
-    # Kapitel-Reihenfolge. Echtere Seitenzahlen kommen mit Two-Pass-
-    # Render (siehe U-26).
-    # Annahme: Cover=1, Disclaimer=2, TOC=3, dann ca. 1.5 Seiten pro
-    # Folge-Kapitel. Berater sieht: 'Seite ca. X' mit Hinweis darauf
-    # dass exakte Seitenzahl mit dem finalen Druck variieren kann.
-    estimated_pages_per_section_after_toc = [
-        1, 2, 3,  # Cover / Disclaimer / TOC -> Sektion 1/2/3
-    ]
-    # Ab Sektion 4 (Ausgangslage): geschaetzt ~1.5 Seiten pro Sektion
-    running_page = 3
-    for _idx in range(3, max(3, len(kapitel))):
-        running_page += 2  # konservativ 2 Seiten pro Sektion
-        estimated_pages_per_section_after_toc.append(running_page)
-
-    rows = []
-    for i, k in enumerate(kapitel):
-        nr = _format_two_digits(k.get("nr"))
-        title = _escape(str(k.get("title") or "—"))
-        # Fallback wenn mehr Kapitel als unsere Estimate-Liste
-        estimated_page = (
-            estimated_pages_per_section_after_toc[i]
-            if i < len(estimated_pages_per_section_after_toc)
-            else (estimated_pages_per_section_after_toc[-1] + 2)
-        )
-        page_label = f"ca. {estimated_page}"
-        rows.append([
-            Paragraph(
-                f"<font face='{FONT_SANS}' size='{FONT_SIZE_MICRO}' color='#6F7A8A'>{nr}</font>",
-                styles["caption"],
-            ),
-            Paragraph(title, _ar_paragraph_style(styles["body"], color=COLOR_INK)),
-            Paragraph(
-                f"<font face='{FONT_SANS}' size='{FONT_SIZE_MICRO}' color='#6F7A8A'>{page_label}</font>",
-                _ar_paragraph_style(styles["caption"], color=COLOR_INK_SUBTLE),
-            ),
-        ])
-    table = Table(rows, colWidths=[nr_col, title_col, page_col])
-    table.setStyle(TableStyle([
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 0),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-        ("TOPPADDING", (0, 0), (-1, -1), 3),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-        ("LINEBELOW", (0, 0), (-1, -2), 0.2, COLOR_RULE),
-        ("ALIGN", (2, 0), (2, -1), "RIGHT"),  # Page rechts-bündig
-    ]))
-    out.append(table)
-    out.append(Spacer(1, 4 * mm))
-    # Sprint U-13: Disclaimer fuer geschaetzte Seitenzahlen
-    out.append(Paragraph(
-        "<i>Geschaetzte Seitenzahlen. Die exakten Seitenzahlen werden mit "
-        "dem finalen Druck der Sektionen variieren.</i>",
-        _ar_paragraph_style(styles["caption"], color=COLOR_INK_SUBTLE),
+    out.append(make_toc_table(
+        kapitel,
+        styles,
+        inner_width=inner_width,
+        page_numbers_by_title=page_numbers_by_title,
     ))
     return out
 
