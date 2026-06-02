@@ -67,4 +67,37 @@
   .no-print {
     display: none !important;
   }
+
+  /* Sprint U-52 (2026-06-02): Cover-Animation print-aware.
+     framer-motion setzt inline opacity/transform-Werte beim
+     initial-State (initial={{ opacity: 0, y: 12 }}). Wenn der
+     Print-Snapshot vor Animation-Ende ausgeloest wird, waeren
+     Cover-Titel + Subtitle UNSICHTBAR oder verschoben. */
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0s !important;
+    animation-delay: 0s !important;
+    transition-duration: 0s !important;
+    transition-delay: 0s !important;
+  }
+  [data-testid] {
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}
+
+/* Sprint U-52: a11y + Print-Safety-Net via prefers-reduced-motion. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  [data-testid] {
+    opacity: 1 !important;
+    transform: none !important;
+  }
 }
