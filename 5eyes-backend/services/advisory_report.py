@@ -127,6 +127,8 @@ def compute_advisory_report(
         "beratungsprotokoll": _build_beratungsprotokoll(db, mandate),
         # --- Sektion 17 (additiv, U-70)
         "stress_replay": _build_stress_replay(db, mandate),
+        # --- Sektion 21 (additiv, U-69): Recommendation-Methodology-Audit
+        "recommendation_methodology": _build_recommendation_methodology(db, mandate),
     }
 
 
@@ -2179,3 +2181,32 @@ def _safe_int(value: Any, default: int = 0) -> int:
         return int(value or 0)
     except (TypeError, ValueError):
         return default
+
+
+# ---------------------------------------------------------------------------
+# Sprint U-69 (2026-06-03): Recommendation-Methodology-Audit-Wrapper.
+# ---------------------------------------------------------------------------
+
+def _build_recommendation_methodology(
+    db: Session, mandate: Mandate,
+) -> dict[str, Any]:
+    """Wrapper über services/recommendation_audit.audit_recommendation_methodology.
+
+    Liefert pro Mandat die Methodology-Box (welcher Optimizer-Run lieferte
+    die produktive Allokation, mit welchem Status, Seed, n_paths etc.).
+    Read-only, non-breaking. Robust gegen Schema-Mismatch -> degraded.
+    """
+    try:
+        from services.recommendation_audit import audit_recommendation_methodology
+        return audit_recommendation_methodology(db, mandate)
+    except Exception:  # noqa: BLE001
+        return {
+            "latest_run": None,
+            "latest_active_run": None,
+            "total_runs": 0,
+            "shadow_count": 0,
+            "active_count": 0,
+            "fallback_count": 0,
+            "is_compliant": True,
+            "fidleg_basis": "Art. 16 FIDLEG",
+        }
