@@ -90,8 +90,13 @@ class RiskAssessmentOverride(BaseModel):
 
     @model_validator(mode="after")
     def validate_override_score(self):
-        if not str(self.override_reason or "").strip():
-            raise ValueError("override_reason ist Pflicht")
+        # Sprint U-28+U-29 (2026-06-03): Qualitaets-Check ausgelagert
+        # nach services.override_reason_quality (Mindestlaenge 20, Phrase-
+        # Blacklist, MIN_MEANINGFUL_WORDS=3).
+        from services.override_reason_quality import (
+            validate_override_reason_quality,
+        )
+        validate_override_reason_quality(self.override_reason)
         assert 10 <= self.override_score_x10 <= 100, \
             "override_score_x10 muss zwischen 10 (Score 1) und 100 (Score 10) liegen"
         expected_profile = profile_for_score_x10(self.override_score_x10)
