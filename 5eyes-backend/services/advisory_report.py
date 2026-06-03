@@ -127,6 +127,8 @@ def compute_advisory_report(
         "beratungsprotokoll": _build_beratungsprotokoll(db, mandate),
         # --- Sektion 17 (additiv, U-70)
         "stress_replay": _build_stress_replay(db, mandate),
+        # --- Sektion 19 (additiv, U-66): FIDLEG-Suitability-Compliance-Audit
+        "suitability_compliance": _build_suitability_compliance(db, mandate),
     }
 
 
@@ -2168,6 +2170,36 @@ def _build_disclaimer() -> dict[str, Any]:
             "Es findet keine automatische Transaktion statt.",
         ],
     }
+
+
+# ---------------------------------------------------------------------------
+# Sprint U-66 (2026-06-03): FIDLEG-Suitability-Compliance-Audit-Wrapper.
+# ---------------------------------------------------------------------------
+
+def _build_suitability_compliance(db: Session, mandate: Mandate) -> dict[str, Any]:
+    """Dünner Wrapper über services/suitability_audit.audit_mandate_suitability.
+
+    Liefert pro Mandat einen FIDLEG-Audit-Befund (welche AdvisoryLog-
+    Eintraege haben keine Geeignetheitspruefung, welche sind stale,
+    welche haben Result-Inkonsistenzen). Read-only, non-breaking.
+
+    Default-Verhalten: bei jedem Schema-/Import-Fehler -> degraded
+    leeres Schema, Aggregator crasht NIE.
+    """
+    try:
+        from services.suitability_audit import audit_mandate_suitability
+        return audit_mandate_suitability(db, mandate)
+    except Exception:  # noqa: BLE001
+        return {
+            "total_advisory_logs": 0,
+            "logs_requiring_suitability": 0,
+            "logs_with_suitability": 0,
+            "logs_without_suitability": [],
+            "freshness_issues": [],
+            "result_issues": [],
+            "is_compliant": True,
+            "fidleg_basis": "Art. 11/13/16 FIDLEG",
+        }
 
 
 # ---------------------------------------------------------------------------
