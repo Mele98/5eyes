@@ -222,6 +222,12 @@ def ensure_runtime_columns() -> None:
             ('investment_horizon_start', 'TEXT'),
             ('investment_horizon_end', 'TEXT'),
         ],
+        # Sprint U-37 (2026-06-03): Notes-Versionierungs-Log.
+        # Append-only JSON-Array von Edit-Snapshots fuer FINMA-Audit
+        # (was-stand-zu-welchem-Zeitpunkt-im-Bericht).
+        'mandate_report_notes': [
+            ('previous_versions_json', 'TEXT'),
+        ],
         # Sprint U-P19b (2026-05-23): native Notierungswährung der Proxy-Bar
         # fuer waehrungskorrekten Daily-Backtest (NULL = wie CHF behandelt).
         'asset_class_price_history': [

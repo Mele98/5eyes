@@ -382,5 +382,11 @@ class MandateReportNotes(Base):
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
 
+    # Sprint U-37 (2026-06-03): Append-only Versionierungs-Log.
+    # JSON-Array von Snapshots: [{edited_at, edited_by, changes: {field:
+    # {old, new}}}, ...]. FINMA-Audit-Anforderung "was stand wann im
+    # Bericht". NULL bei Pre-U-37-Notes.
+    previous_versions_json = Column(String)
+
     mandate = relationship("Mandate", back_populates="report_notes")
     editor = relationship("User")
