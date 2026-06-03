@@ -19,6 +19,7 @@ from typing import Callable
 from reportlab.lib.units import mm
 from reportlab.pdfgen.canvas import Canvas
 
+from services.pdf.fonts import register_editorial_fonts
 from services.pdf.components.advisory_palette import (
     COLOR_INK,
     COLOR_INK_SUBTLE,
@@ -32,6 +33,9 @@ from services.pdf.components.advisory_palette import (
     MARGIN_TOP,
     PAGE_SIZE,
 )
+
+
+register_editorial_fonts()
 
 
 def make_advisory_page_chrome(

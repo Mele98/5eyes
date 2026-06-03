@@ -15,6 +15,7 @@ from services.pdf.base import (
     PDFContext,
     RisikoprofilData,
 )
+from services.pdf.fonts import register_editorial_fonts
 from services.pdf.styles import (
     MARGIN_BOTTOM,
     MARGIN_LEFT,
@@ -116,6 +117,7 @@ class ReportLabRenderer:
         """Gemeinsamer Render-Loop fuer alle Dokument-Typen."""
         from services.pdf.components.footer import make_footer_callback
 
+        register_editorial_fonts()
         buffer = BytesIO()
         metadata_brand = ctx.advisor_org or ctx.advisor_name or "Emanuele Konzelmann"
         doc = SimpleDocTemplate(

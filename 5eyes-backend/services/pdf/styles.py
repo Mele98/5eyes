@@ -10,6 +10,12 @@ from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
 
+from services.pdf.fonts import editorial_font_names, register_editorial_fonts
+
+
+register_editorial_fonts()
+_FONTS = editorial_font_names()
+
 
 # ---- Page Layout ----
 # Sprint 11: A4 LANDSCAPE wie Frontend-Vorlage
@@ -72,9 +78,13 @@ def goal_color(score: float | int):
 
 
 # ---- Typography ----
-FONT_DEFAULT = "Helvetica"
-FONT_BOLD = "Helvetica-Bold"
-FONT_ITALIC = "Helvetica-Oblique"
+FONT_DEFAULT = _FONTS.sans
+FONT_BOLD = _FONTS.sans_bold
+FONT_ITALIC = _FONTS.serif_italic
+FONT_SERIF = _FONTS.serif
+FONT_SERIF_BOLD = _FONTS.serif_bold
+FONT_SANS = _FONTS.sans
+FONT_SANS_BOLD = _FONTS.sans_bold
 
 # Frontend nutzt sehr kompakte Fonts in der Landscape-Variante
 FONT_SIZE_TITLE = 24       # Cover-Title
@@ -96,7 +106,7 @@ def make_paragraph_styles():
         "title": ParagraphStyle(
             "WATitle",
             parent=base["Title"],
-            fontName=FONT_BOLD,
+            fontName=FONT_SERIF_BOLD,
             fontSize=FONT_SIZE_TITLE,
             textColor=COLOR_HEADER_TEXT,
             spaceAfter=2 * mm,
@@ -105,7 +115,7 @@ def make_paragraph_styles():
         "section_title": ParagraphStyle(
             "WASectionTitle",
             parent=base["Heading2"],
-            fontName=FONT_BOLD,
+            fontName=FONT_SERIF_BOLD,
             fontSize=FONT_SIZE_HEADING,
             textColor=COLOR_TEXT_LIGHT,
             spaceBefore=5 * mm,
@@ -116,7 +126,7 @@ def make_paragraph_styles():
         "heading": ParagraphStyle(
             "WAHeading",
             parent=base["Heading2"],
-            fontName=FONT_BOLD,
+            fontName=FONT_SERIF_BOLD,
             fontSize=FONT_SIZE_HEADING,
             textColor=COLOR_PRIMARY,
             spaceBefore=4 * mm,
@@ -125,7 +135,7 @@ def make_paragraph_styles():
         "subheading": ParagraphStyle(
             "WASubheading",
             parent=base["Heading3"],
-            fontName=FONT_BOLD,
+            fontName=FONT_SERIF_BOLD,
             fontSize=FONT_SIZE_SUBHEADING,
             textColor=COLOR_TEXT,
             spaceBefore=3 * mm,

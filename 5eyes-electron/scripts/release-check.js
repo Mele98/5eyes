@@ -6,6 +6,7 @@ const packageJson = JSON.parse(fs.readFileSync(path.join(projectRoot, 'package.j
 const strict = process.env.STRICT_RELEASE === '1';
 const frontendHtmlPath = path.join(projectRoot, 'frontend', '5eyes_v2.html');
 const frontendHtml = fs.readFileSync(frontendHtmlPath, 'utf8');
+const backendRoot = path.resolve(projectRoot, '..', '5eyes-backend');
 
 function exists(relPath) {
   return fs.existsSync(path.join(projectRoot, relPath));
@@ -17,6 +18,20 @@ const errors = [];
 ['assets/icons/app.ico', 'assets/icons/installer-icon.ico', 'assets/icons/uninstaller-icon.ico'].forEach((file) => {
   if (!exists(file)) {
     errors.push(`Fehlende Build-Ressource: ${file}`);
+  }
+});
+
+[
+  'CormorantGaramond-Regular.ttf',
+  'CormorantGaramond-Italic.ttf',
+  'CormorantGaramond-SemiBold.ttf',
+  'Inter-Regular.ttf',
+  'Inter-SemiBold.ttf',
+  'Inter-Medium.ttf',
+].forEach((file) => {
+  const fontPath = path.join(backendRoot, 'assets', 'fonts', file);
+  if (!fs.existsSync(fontPath)) {
+    errors.push(`Fehlende PDF-Font-Ressource: 5eyes-backend/assets/fonts/${file}`);
   }
 });
 
