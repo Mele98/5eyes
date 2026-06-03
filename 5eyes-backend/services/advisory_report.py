@@ -127,6 +127,8 @@ def compute_advisory_report(
         "beratungsprotokoll": _build_beratungsprotokoll(db, mandate),
         # --- Sektion 17 (additiv, U-70)
         "stress_replay": _build_stress_replay(db, mandate),
+        # --- Sektion 20 (additiv, U-73+U-74): Engine-Modell-Audit
+        "methodology_models": _build_methodology_models(db),
     }
 
 
@@ -2179,3 +2181,29 @@ def _safe_int(value: Any, default: int = 0) -> int:
         return int(value or 0)
     except (TypeError, ValueError):
         return default
+
+
+# ---------------------------------------------------------------------------
+# Sprint U-73+U-74 (2026-06-03): Engine-Modell-Audit-Wrapper.
+# ---------------------------------------------------------------------------
+
+def _build_methodology_models(db: Session) -> dict[str, Any]:
+    """Wrapper über services/methodology_audit.audit_engine_models.
+
+    Liefert pro Engine-Modell (Nelson-Siegel, KGV-MR, Risikopraemien)
+    den Aktivierungs-Status fuer die aktuelle CMA-Version. Read-only,
+    non-breaking.
+
+    Robust gegen Schema-/Import-Fehler -> degraded leeres Schema.
+    """
+    try:
+        from services.methodology_audit import audit_engine_models
+        return audit_engine_models(db)
+    except Exception:  # noqa: BLE001
+        return {
+            "cma_id": None,
+            "cma_version": None,
+            "models": [],
+            "active_count": 0,
+            "methodology_notes": [],
+        }
