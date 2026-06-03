@@ -127,6 +127,8 @@ def compute_advisory_report(
         "beratungsprotokoll": _build_beratungsprotokoll(db, mandate),
         # --- Sektion 17 (additiv, U-70)
         "stress_replay": _build_stress_replay(db, mandate),
+        # --- Sektion 22 (additiv, U-22): Mandate-Lock-Status
+        "mandate_lock_status": _build_mandate_lock_status(db, mandate),
     }
 
 
@@ -2179,3 +2181,30 @@ def _safe_int(value: Any, default: int = 0) -> int:
         return int(value or 0)
     except (TypeError, ValueError):
         return default
+
+
+# ---------------------------------------------------------------------------
+# Sprint U-22 (2026-06-03): Mandate-Lock-Status-Audit Wrapper.
+# ---------------------------------------------------------------------------
+
+def _build_mandate_lock_status(
+    db: Session, mandate: Mandate,
+) -> dict[str, Any]:
+    """Wrapper über services/mandate_lock_audit.audit_mandate_editability.
+
+    Liefert pro Mandat: is_editable + lock_reasons[] + reason-Labels.
+    Read-only, non-breaking. Robust gegen Schema-Mismatch -> degraded
+    is_editable=True.
+    """
+    try:
+        from services.mandate_lock_audit import audit_mandate_editability
+        return audit_mandate_editability(db, mandate)
+    except Exception:  # noqa: BLE001
+        return {
+            "is_editable": True,
+            "lock_reasons": [],
+            "lock_reason_labels": {},
+            "mandate_status": None,
+            "latest_optimizer_status": None,
+            "fidleg_basis": "Art. 16 / Art. 11 FIDLEG",
+        }
