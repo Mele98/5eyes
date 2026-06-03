@@ -127,6 +127,8 @@ def compute_advisory_report(
         "beratungsprotokoll": _build_beratungsprotokoll(db, mandate),
         # --- Sektion 17 (additiv, U-70)
         "stress_replay": _build_stress_replay(db, mandate),
+        # --- Sektion 23 (additiv, U-21): Liquidity-Cascade Stage-3 Warning
+        "liquidity_cascade": _build_liquidity_cascade(db, mandate),
     }
 
 
@@ -2179,3 +2181,33 @@ def _safe_int(value: Any, default: int = 0) -> int:
         return int(value or 0)
     except (TypeError, ValueError):
         return default
+
+
+# ---------------------------------------------------------------------------
+# Sprint U-21 (2026-06-03): Liquidity-Cascade-Audit Wrapper.
+# ---------------------------------------------------------------------------
+
+def _build_liquidity_cascade(
+    db: Session, mandate: Mandate,
+) -> dict[str, Any]:
+    """Wrapper über services/liquidity_cascade_audit.
+
+    Liefert Stage-Classification fuer die aktive TargetAllocation
+    (normal/hard_cap/emergency/unknown) + Berater-Hint bei
+    Stage-3-Eskalation. Read-only, non-breaking.
+    """
+    try:
+        from services.liquidity_cascade_audit import audit_mandate_liquidity_cascade
+        return audit_mandate_liquidity_cascade(db, mandate)
+    except Exception:  # noqa: BLE001
+        return {
+            "stage": "unknown",
+            "stage_label": "Liquidity-Cascade-Stage kann nicht bestimmt werden.",
+            "liquidity_bps": None,
+            "hard_cap_bps": 300,
+            "emergency_cap_bps": 1000,
+            "over_hard_cap_by_bps": None,
+            "warning_required": False,
+            "beratungsgespraech_pruefen": False,
+            "fidleg_basis": "Art. 11 / Art. 13 FIDLEG",
+        }
