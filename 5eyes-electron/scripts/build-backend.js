@@ -47,6 +47,9 @@ ensureMainEntrypoint();
 const addDataArg = isWindows
   ? '5eyes_schema_v4.0_FINAL.sql;.'
   : '5eyes_schema_v4.0_FINAL.sql:.';
+const fontDataArg = isWindows
+  ? 'assets/fonts;assets/fonts'
+  : 'assets/fonts:assets/fonts';
 
 const hiddenImports = [
   'uvicorn.logging',
@@ -125,6 +128,8 @@ const pyInstallerArgs = [
   '5eyes-api',
   '--add-data',
   addDataArg,
+  '--add-data',
+  fontDataArg,
 ];
 
 for (const mod of hiddenImports) {

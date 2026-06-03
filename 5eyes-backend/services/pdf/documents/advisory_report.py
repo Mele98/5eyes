@@ -34,6 +34,7 @@ from sqlalchemy.orm import Session
 from models.mandates import Mandate
 from models.users import User
 from services.advisory_report import compute_advisory_report
+from services.pdf.fonts import register_editorial_fonts
 from services.pdf.components.advisory_page_chrome import (
     _format_swiss_datetime,
     make_advisory_page_chrome,
@@ -96,6 +97,7 @@ def render_advisory_report_pdf_from_payload(payload: dict[str, Any]) -> bytes:
     teilen sich `_build_all_flowables` — ein Aufruf pro Pass, weil
     ReportLab die Flowable-Liste beim Build mutiert.
     """
+    register_editorial_fonts()
     cover = payload.get("cover") or {}
     mandate_number = str(cover.get("mandate_number") or "—")
     generated_at = str(payload.get("generated_at") or "")

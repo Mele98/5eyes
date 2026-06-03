@@ -19,6 +19,12 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
 
+from services.pdf.fonts import editorial_font_names, register_editorial_fonts
+
+
+register_editorial_fonts()
+_FONTS = editorial_font_names()
+
 
 # ---------------------------------------------------------------------------
 # Page-Geometrie — A4 Portrait, editoriale Ränder
@@ -57,19 +63,15 @@ COLOR_STATUS_NEUTRAL = colors.HexColor("#7A8395")
 
 
 # ---------------------------------------------------------------------------
-# Typografie — Helvetica-Familie (ReportLab Stock-Fonts)
-#
-# Hinweis: Cormorant Garamond + Inter wäre der Frontend-Stil, das würde
-# aber TTF-Embedding pro Build verlangen. Wir nutzen Helvetica/Times-Roman
-# (Stock), die Print-Anmutung bleibt institutionell-clean. Wenn später
-# TTF-Embedding gewünscht wird, ist es ein lokaler Patch in `pdfmetrics`.
+# Typografie - Editorial-Fonts wie in der Reporting-Sub-App.
+# Degraded mode bleibt in services.pdf.fonts zentral auf Stock-Fonts.
 # ---------------------------------------------------------------------------
-FONT_SERIF = "Times-Roman"
-FONT_SERIF_BOLD = "Times-Bold"
-FONT_SERIF_ITALIC = "Times-Italic"
-FONT_SANS = "Helvetica"
-FONT_SANS_BOLD = "Helvetica-Bold"
-FONT_MONO = "Courier"
+FONT_SERIF = _FONTS.serif
+FONT_SERIF_BOLD = _FONTS.serif_bold
+FONT_SERIF_ITALIC = _FONTS.serif_italic
+FONT_SANS = _FONTS.sans
+FONT_SANS_BOLD = _FONTS.sans_bold
+FONT_MONO = _FONTS.mono
 
 
 # Schriftgrößen (Druck-tauglich, editoriale Hierarchie)
