@@ -24,6 +24,7 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 
+import services.pdf.documents.advisory_report as advisory_pdf  # noqa: E402
 from services.pdf.documents.advisory_report import (  # noqa: E402
     render_advisory_report_pdf_from_payload,
 )
@@ -1055,10 +1056,10 @@ def test_weiteres_vorgehen_section_renders_placeholders_when_unedited():
 
 
 # ---------------------------------------------------------------------------
-# Polish — Two-Pass-Build für echte Seitenzahlen im Page-Chrome
+# Polish — Single-Pass-Build für echte Seitenzahlen im Page-Chrome
 # ---------------------------------------------------------------------------
 
-def test_page_chrome_shows_total_pages_after_two_pass_build():
+def test_page_chrome_shows_total_pages_after_single_pass_build():
     """Page-Header soll „Seite x / N" enthalten — nicht nur „Seite x"."""
     pypdf = pytest.importorskip("pypdf")
     payload = _make_minimal_payload()
@@ -1068,6 +1069,42 @@ def test_page_chrome_shows_total_pages_after_two_pass_build():
     page2 = reader.pages[1].extract_text() or ""
     assert "Seite 2" in page2
     assert "/" in page2, f"Total-Pages-Indicator fehlt. Page2 text: {page2[:300]}"
+
+
+def test_single_pass_render_builds_story_once(monkeypatch):
+    """Der normale PDF-Pfad darf `_build_all_flowables` nur einmal aufrufen."""
+    payload = _make_minimal_payload()
+    original = advisory_pdf._build_all_flowables
+    calls = 0
+
+    def wrapped(payload_arg, styles_arg):
+        nonlocal calls
+        calls += 1
+        return original(payload_arg, styles_arg)
+
+    monkeypatch.setattr(advisory_pdf, "_build_all_flowables", wrapped)
+
+    pdf = advisory_pdf.render_advisory_report_pdf_from_payload(payload)
+
+    assert pdf[:5] == b"%PDF-"
+    assert calls == 1
+
+
+def test_single_pass_render_falls_back_to_two_pass(monkeypatch, caplog):
+    """Wenn der Canvas-Pfad scheitert, bleibt der alte Two-Pass-Pfad nutzbar."""
+    payload = _make_minimal_payload()
+
+    class BrokenCanvas:
+        def __init__(self, *args, **kwargs):
+            raise RuntimeError("canvasmaker failed")
+
+    monkeypatch.setattr(advisory_pdf, "AdvisoryNumberedCanvas", BrokenCanvas)
+    caplog.set_level("WARNING", logger="services.pdf.documents.advisory_report")
+
+    pdf = advisory_pdf.render_advisory_report_pdf_from_payload(payload)
+
+    assert pdf[:5] == b"%PDF-"
+    assert "falling back to two-pass" in caplog.text
 
 
 def test_full_pdf_has_at_least_15_sections():
