@@ -6,18 +6,6 @@ const http = require('http');
 const net = require('net');
 const path = require('path');
 
-function isSafeExternalUrl(url) {
-  try {
-    const parsed = new URL(url);
-    return (
-      parsed.protocol === 'https:' ||
-      (parsed.protocol === 'http:' && parsed.hostname === 'localhost')
-    );
-  } catch {
-    return false;
-  }
-}
-
 function loadEnvIntoProcess() {
   const candidates = [
     path.join(process.cwd(), '.env'),
@@ -470,6 +458,9 @@ async function createMainWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
+      experimentalFeatures: false,
       devTools: !app.isPackaged,
     },
   });
@@ -566,6 +557,44 @@ ipcMain.handle('updates:install-downloaded', async () => {
     return { ok: true };
   }
   return { ok: false, message: 'No downloaded update available.' };
+});
+
+// Sprint U-61 (2026-06-01): Globaler Security-Hook fuer alle WebContents.
+// Greift auch fuer kuenftige Fenster/PDF-Viewer/etc. — zentraler Audit-Punkt.
+app.on('web-contents-created', (_event, contents) => {
+  // 1. Permission-Requests (geolocation, notifications, midi, media, ...)
+  //    -> default deny. Whitelist hinzufuegen wenn ein konkreter Use-Case kommt.
+  contents.session.setPermissionRequestHandler((_wc, _permission, callback) => {
+    callback(false);
+  });
+
+  // 2. Globaler will-navigate-Filter (zusaetzlich zum window-spezifischen Hook).
+  contents.on('will-navigate', (event, url) => {
+    const localEntry = `file://${resolveFrontendPath().replace(/\\/g, '/')}`;
+    if (url !== localEntry) {
+      event.preventDefault();
+      if (isSafeExternalUrl(url)) {
+        shell.openExternal(url);
+      }
+    }
+  });
+
+  // 3. setWindowOpenHandler global — alle Popups/window.open() -> deny + Shell.
+  contents.setWindowOpenHandler(({ url }) => {
+    if (isSafeExternalUrl(url)) {
+      shell.openExternal(url);
+    }
+    return { action: 'deny' };
+  });
+
+  // 4. WebView-Attachments blockieren (FINMA: keine eingebetteten Renderer).
+  contents.on('will-attach-webview', (event, webPreferences, _params) => {
+    event.preventDefault();
+    delete webPreferences.preload;
+    webPreferences.nodeIntegration = false;
+    webPreferences.contextIsolation = true;
+    webPreferences.sandbox = true;
+  });
 });
 
 app.whenReady().then(async () => {
