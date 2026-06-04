@@ -7,10 +7,18 @@
  * Monte-Carlo-Pfade-Hinweis wenn data_pending=True (kommt in
  * U-FE-Charts mit Recharts-Bändern).
  */
+import { useMemo, useState } from 'react';
+
 import type { GoalBasedInvestingData, GoalEntry, GoalStatus } from '@/api/types';
 import { AmpelPill } from '@/components/AmpelPill';
 import { ReportPage } from '@/components/ReportPage';
 import { formatBpsAsPct, formatChfRappen } from '@/lib/format';
+import {
+  nextSortConfig,
+  sortGoals,
+  type SortColumn,
+  type SortConfig,
+} from '@/lib/sortGoals';
 
 interface GoalsProps {
   data: GoalBasedInvestingData;
@@ -18,6 +26,16 @@ interface GoalsProps {
 
 export function Goals({ data }: GoalsProps) {
   const goals = data.goals ?? [];
+  // Sprint U-48: Three-State-Sort (asc/desc/reset) pro Spalte
+  const [sortConfig, setSortConfig] = useState<SortConfig | null>(null);
+  const sortedGoals = useMemo(
+    () => sortGoals(goals, sortConfig),
+    [goals, sortConfig],
+  );
+  const handleSort = (column: SortColumn) => {
+    setSortConfig((prev) => nextSortConfig(prev, column));
+  };
+
   return (
     <ReportPage
       nr={11}
@@ -37,15 +55,15 @@ export function Goals({ data }: GoalsProps) {
           <table className="mt-3 w-full text-caption">
             <thead>
               <tr className="border-b border-rule">
-                <Th>Ziel</Th>
-                <Th>Typ</Th>
-                <Th align="right">Zielwert</Th>
-                <Th>Status</Th>
-                <Th align="right">Wahrscheinlichkeit</Th>
+                <SortableTh column="label" sortConfig={sortConfig} onSort={handleSort}>Ziel</SortableTh>
+                <SortableTh column="type" sortConfig={sortConfig} onSort={handleSort}>Typ</SortableTh>
+                <SortableTh column="target" sortConfig={sortConfig} onSort={handleSort} align="right">Zielwert</SortableTh>
+                <SortableTh column="status" sortConfig={sortConfig} onSort={handleSort}>Status</SortableTh>
+                <SortableTh column="probability" sortConfig={sortConfig} onSort={handleSort} align="right">Wahrscheinlichkeit</SortableTh>
               </tr>
             </thead>
             <tbody>
-              {goals.map((g) => (
+              {sortedGoals.map((g) => (
                 <GoalRow key={g.goal_id || g.label} g={g} />
               ))}
             </tbody>
@@ -55,6 +73,57 @@ export function Goals({ data }: GoalsProps) {
 
       <McPathsHint data={data} />
     </ReportPage>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Sprint U-48: SortableTh — klickbarer Header mit Sort-Indicator
+// ---------------------------------------------------------------------------
+
+function SortableTh({
+  children,
+  column,
+  sortConfig,
+  onSort,
+  align = 'left',
+}: {
+  children: React.ReactNode;
+  column: SortColumn;
+  sortConfig: SortConfig | null;
+  onSort: (column: SortColumn) => void;
+  align?: 'left' | 'right';
+}) {
+  const isActive = sortConfig?.column === column;
+  const indicator = isActive
+    ? (sortConfig.direction === 'asc' ? ' ▲' : ' ▼')
+    : '';
+  return (
+    <th
+      className={[
+        'pb-3 font-medium uppercase tracking-widest text-micro text-ink-subtle no-print',
+        align === 'right' ? 'pr-0 text-right' : 'pr-4 text-left',
+      ].join(' ')}
+    >
+      <button
+        type="button"
+        data-testid={`goals-sort-${column}`}
+        onClick={() => onSort(column)}
+        className={[
+          'inline-flex items-baseline',
+          align === 'right' ? 'flex-row-reverse' : '',
+          'cursor-pointer hover:text-ink focus:outline-none focus:underline',
+          isActive ? 'text-ink' : '',
+        ].join(' ')}
+        aria-sort={
+          isActive
+            ? (sortConfig.direction === 'asc' ? 'ascending' : 'descending')
+            : 'none'
+        }
+      >
+        <span>{children}</span>
+        <span className="ml-1 text-[10px]">{indicator}</span>
+      </button>
+    </th>
   );
 }
 
@@ -124,21 +193,3 @@ function McPathsHint({ data }: { data: GoalBasedInvestingData }) {
   );
 }
 
-function Th({
-  children,
-  align = 'left',
-}: {
-  children: React.ReactNode;
-  align?: 'left' | 'right';
-}) {
-  return (
-    <th
-      className={[
-        'pb-3 font-medium uppercase tracking-widest text-micro text-ink-subtle',
-        align === 'right' ? 'pr-0 text-right' : 'pr-4 text-left',
-      ].join(' ')}
-    >
-      {children}
-    </th>
-  );
-}
