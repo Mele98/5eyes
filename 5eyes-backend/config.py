@@ -120,6 +120,10 @@ class Settings(BaseSettings):
     market_data_validation_day_of_week: str = 'sun'
     market_data_validation_symbols: str = ''  # kommaseparierte Liste
     market_data_validation_threshold_bps: int = 300
+    market_data_daily_refresh_enabled: bool = True
+    market_data_daily_refresh_hour: int = 6
+    market_data_daily_refresh_minute: int = 0
+    market_data_daily_refresh_max_symbols: int = 500
 
     # P22 — Webhook-Notifier fuer Validation-Alerts. Default leer = no-op.
     market_data_alert_webhook_url: str = ''
@@ -223,6 +227,7 @@ class Settings(BaseSettings):
         'login_lockout_seconds',
         'recent_log_lines_default',
         'recent_log_lines_max',
+        'market_data_daily_refresh_max_symbols',
     )
     @classmethod
     def validate_positive_numbers(cls, value: int) -> int:
@@ -250,6 +255,20 @@ class Settings(BaseSettings):
     def validate_price_scheduler_minute(cls, value: int) -> int:
         if not 0 <= value <= 59:
             raise ValueError('price_scheduler_minute must be between 0 and 59')
+        return value
+
+    @field_validator('market_data_daily_refresh_hour')
+    @classmethod
+    def validate_market_data_daily_refresh_hour(cls, value: int) -> int:
+        if not 0 <= value <= 23:
+            raise ValueError('market_data_daily_refresh_hour must be between 0 and 23')
+        return value
+
+    @field_validator('market_data_daily_refresh_minute')
+    @classmethod
+    def validate_market_data_daily_refresh_minute(cls, value: int) -> int:
+        if not 0 <= value <= 59:
+            raise ValueError('market_data_daily_refresh_minute must be between 0 and 59')
         return value
 
     @model_validator(mode='after')

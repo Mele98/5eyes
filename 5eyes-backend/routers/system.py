@@ -379,6 +379,21 @@ def backfill_asset_class_prices_endpoint(
     return result
 
 
+@router.post('/market-data/refresh-now')
+def refresh_market_data_now(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """U-31: manueller Recovery-Trigger fuer den taeglichen Marktdaten-Refresh."""
+    _ = current_user
+    try:
+        from services.market_data_daily_refresh import run_daily_market_data_refresh
+        return run_daily_market_data_refresh(db)
+    except Exception as exc:  # noqa: BLE001
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
 @router.post('/db/optimize')
 def optimize_database(
     db: Session = Depends(get_db),
