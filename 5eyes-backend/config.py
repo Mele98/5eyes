@@ -281,6 +281,36 @@ class Settings(BaseSettings):
         return value
 
     @model_validator(mode='after')
+    def validate_cors_safety(self):
+        """Sprint U-58/60 (2026-06-01): CORS-Audit-Safety.
+
+        Regeln:
+        - allow_origins darf NIE '*' enthalten — wuerde mit
+          allow_credentials=True (in main.py hardcoded) eine Browser-Spec-
+          Violation triggern und die Middleware ohne Schutz laufen lassen.
+        - In Production: KEINE localhost/127.0.0.1-Origins (Browser-
+          Berater-Setups, kein Dev-Loophole).
+        """
+        if any(str(o).strip() == '*' for o in self.cors_origins):
+            raise ValueError(
+                'cors_origins darf nicht "*" enthalten — '
+                'mit allow_credentials=True ist das Browser-Spec-Verletzung. '
+                'Liste konkrete Origins auf (Electron app://., '
+                'http://localhost:5173 fuer Dev, etc.).'
+            )
+        if self.app_env == 'production':
+            forbidden = [
+                o for o in self.cors_origins
+                if 'localhost' in str(o) or '127.0.0.1' in str(o)
+            ]
+            if forbidden:
+                raise ValueError(
+                    f'cors_origins in production darf keine localhost-'
+                    f'Origins enthalten: {forbidden}'
+                )
+        return self
+
+    @model_validator(mode='after')
     def validate_security(self):
         if self.app_env in {'staging', 'production'} and self.secret_key == DEFAULT_SECRET_KEY:
             raise ValueError('secret_key must be overridden outside development/test')
