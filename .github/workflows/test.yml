@@ -1,4 +1,4 @@
-name: Backend Tests
+name: Tests
 
 on:
   push:
@@ -11,8 +11,16 @@ on:
       - develop
       - main
 
+# Sprint U-53 (2026-06-04): concurrency-group spart Compute bei
+# Push-Storm (z.B. Codex' rapid-fire commits). Neue Push auf gleiche
+# ref canceled noch laufende Runs.
+concurrency:
+  group: tests-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   pytest:
+    name: Backend Tests
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -59,4 +67,44 @@ jobs:
         with:
           name: pytest-log
           path: 5eyes-backend/.pytest_cache/
+          retention-days: 7
+
+  vitest:
+    # Sprint U-53 (2026-06-04): Frontend Reporting Sub-App vitest in CI.
+    # Pre-U-53 lief vitest nur lokal — Bundle-Size (U-56), Sort-Filter-
+    # Logic (U-48/U-49), Keyboard-Shortcuts (U-51) etc. wurden nicht in
+    # CI verifiziert.
+    name: Frontend Reporting Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: 5eyes-electron/frontend/reporting/package-lock.json
+
+      - name: Install npm dependencies
+        working-directory: 5eyes-electron/frontend/reporting
+        run: npm ci
+
+      - name: Build dist (fuer U-56 Bundle-Size-Tests)
+        working-directory: 5eyes-electron/frontend/reporting
+        run: npm run build
+
+      - name: Run vitest
+        working-directory: 5eyes-electron/frontend/reporting
+        run: npx vitest run
+
+      - name: Upload vitest log on failure
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: vitest-log
+          path: 5eyes-electron/frontend/reporting/node_modules/.vite/
           retention-days: 7
