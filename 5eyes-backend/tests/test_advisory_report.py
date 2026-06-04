@@ -135,6 +135,16 @@ def test_compute_returns_expected_top_level_structure(session_factory):
         "stress_replay",
         # U-68: additive Sektion 18
         "conflict_disclosures",
+        # U-66: additive Sektion 19
+        "suitability_compliance",
+        # U-73+U-74: additive Sektion 20
+        "methodology_models",
+        # U-69: additive Sektion 21
+        "recommendation_methodology",
+        # U-22: additive Sektion 22
+        "mandate_lock_status",
+        # U-21: additive Sektion 23
+        "liquidity_cascade",
     ]
     assert list(report.keys()) == expected_order
 
@@ -1104,6 +1114,16 @@ def test_endpoint_returns_full_report_structure(session_factory):
         "stress_replay",
         # U-68: additive Sektion 18
         "conflict_disclosures",
+        # U-66: additive Sektion 19
+        "suitability_compliance",
+        # U-73+U-74: additive Sektion 20
+        "methodology_models",
+        # U-69: additive Sektion 21
+        "recommendation_methodology",
+        # U-22: additive Sektion 22
+        "mandate_lock_status",
+        # U-21: additive Sektion 23
+        "liquidity_cascade",
     ]
     assert list(data.keys()) == expected
     assert data["schema_version"] == 2
