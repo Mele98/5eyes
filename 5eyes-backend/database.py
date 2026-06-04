@@ -607,6 +607,50 @@ def ensure_snapshot_tables() -> None:
         _seed_asset_class_returns(conn)
 
 
+def ensure_audit_log_indexes(target_engine: Engine = engine) -> None:
+    """Sprint U-38 (Roadmap-Punkt 38, 2026-06-01): idempotente Audit-Log-
+    Indexes — inkl. neuer Composite-Index (mandate_id, table_name).
+
+    Die Indexes werden zwar im fresh-init via Schema-SQL angelegt, aber
+    ensure_audit_log_actions baut die Tabelle bei Schema-Migration neu
+    auf und droppt dabei alle existierenden Indexes. Diese Funktion
+    stellt sicher dass alle Indexes nach jedem Migrations-Lauf wieder
+    da sind.
+
+    Neuer Index in U-38: idx_audit_mandate_table — beschleunigt Queries
+    wie "alle Audit-Eintraege fuer Mandat X auf Tabelle Y" (typisches
+    Pattern in services.data_export._query_audit_log und in den FINMA-
+    Compliance-Reports).
+    """
+    inspector = inspect(target_engine)
+    if not inspector.has_table('audit_log'):
+        return
+
+    with target_engine.begin() as conn:
+        # Alle Indexes idempotent — IF NOT EXISTS macht das Re-Run safe.
+        # Reihenfolge nach Spezifitaet: composite zuerst, single-column danach.
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_audit_mandate_table "
+            "ON audit_log(mandate_id, table_name)"
+        ))
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_audit_record "
+            "ON audit_log(table_name, record_id)"
+        ))
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_audit_mandate "
+            "ON audit_log(mandate_id)"
+        ))
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_audit_user "
+            "ON audit_log(user_id)"
+        ))
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_audit_time "
+            "ON audit_log(created_at)"
+        ))
+
+
 def init_db() -> None:
     if settings.db_bootstrap_schema_on_startup:
         bootstrap_sqlite_schema(db_path=settings.db_path, db_key=getattr(settings, 'db_key', None))
@@ -617,3 +661,6 @@ def init_db() -> None:
     run_risk_assessment_answer_migration(engine)
     run_advisory_log_migration(engine)
     ensure_audit_log_actions()
+    # U-38: Indexes nach ensure_audit_log_actions, weil das die Tabelle
+    # ggf. komplett neu baut (Index-Drift-Risk).
+    ensure_audit_log_indexes()
