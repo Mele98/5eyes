@@ -14,6 +14,11 @@ import type {
   BranchenData,
   BuildingBlocksData,
   ConflictDisclosuresData,
+  LiquidityCascadeData,
+  MandateLockStatusData,
+  MethodologyModelsData,
+  RecommendationMethodologyData,
+  SuitabilityComplianceData,
   CoverData,
   DisclaimerData,
   ErkenntnisseData,
@@ -368,6 +373,71 @@ export function makeConflictDisclosures(): ConflictDisclosuresData {
   };
 }
 
+// Sprint U-66/U-73+74/U-69/U-22/U-21 (2026-06-04, konsolidiert):
+// Default-Fixtures fuer die 5 neuen Aggregator-Sektionen 19-23.
+// Mirror der _build_xxx Wrapper-Fallbacks aus services/advisory_report.py.
+
+export function makeSuitabilityCompliance(): SuitabilityComplianceData {
+  return {
+    total_advisory_logs: 0,
+    logs_requiring_suitability: 0,
+    logs_with_suitability: 0,
+    logs_without_suitability: [],
+    freshness_issues: [],
+    result_issues: [],
+    is_compliant: true,
+    fidleg_basis: 'Art. 11/13/16 FIDLEG',
+  };
+}
+
+export function makeMethodologyModels(): MethodologyModelsData {
+  return {
+    cma_id: null,
+    cma_version: null,
+    models: [],
+    active_count: 0,
+    methodology_notes: [],
+  };
+}
+
+export function makeRecommendationMethodology(): RecommendationMethodologyData {
+  return {
+    latest_run: null,
+    latest_active_run: null,
+    total_runs: 0,
+    shadow_count: 0,
+    active_count: 0,
+    fallback_count: 0,
+    is_compliant: true,
+    fidleg_basis: 'Art. 16 FIDLEG',
+  };
+}
+
+export function makeMandateLockStatus(): MandateLockStatusData {
+  return {
+    is_editable: true,
+    lock_reasons: [],
+    lock_reason_labels: {},
+    mandate_status: null,
+    latest_optimizer_status: null,
+    fidleg_basis: 'Art. 16 / Art. 11 FIDLEG',
+  };
+}
+
+export function makeLiquidityCascade(): LiquidityCascadeData {
+  return {
+    stage: 'unknown',
+    stage_label: 'Liquidity-Cascade-Stage kann nicht bestimmt werden.',
+    liquidity_bps: null,
+    hard_cap_bps: 300,
+    emergency_cap_bps: 1000,
+    over_hard_cap_by_bps: null,
+    warning_required: false,
+    beratungsgespraech_pruefen: false,
+    fidleg_basis: 'Art. 11 / Art. 13 FIDLEG',
+  };
+}
+
 export function makeAdvisoryReport(): AdvisoryReport {
   return {
     schema_version: 2,
@@ -391,5 +461,10 @@ export function makeAdvisoryReport(): AdvisoryReport {
     beratungsprotokoll: makeBeratungsprotokoll(),
     stress_replay: makeStressReplay(),
     conflict_disclosures: makeConflictDisclosures(),
+    suitability_compliance: makeSuitabilityCompliance(),
+    methodology_models: makeMethodologyModels(),
+    recommendation_methodology: makeRecommendationMethodology(),
+    mandate_lock_status: makeMandateLockStatus(),
+    liquidity_cascade: makeLiquidityCascade(),
   };
 }
