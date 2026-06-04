@@ -11,7 +11,7 @@
  *
  * Print-ready: identische Darstellung wie Bildschirm (siehe globals.css).
  */
-import { motion } from 'framer-motion';
+import { motion, useReducedMotion } from 'framer-motion';
 import type { CoverData } from '@/api/types';
 
 interface CoverProps {
@@ -19,6 +19,10 @@ interface CoverProps {
 }
 
 export function Cover({ data }: CoverProps) {
+  // Sprint U-52 (2026-06-02): respektiert prefers-reduced-motion
+  // und wirkt als Print-Safety-Net (Headless-Chromium kann
+  // emulateMediaFeatures setzen).
+  const reduce = useReducedMotion();
   return (
     <article
       data-testid="report-page-cover"
@@ -46,9 +50,10 @@ export function Cover({ data }: CoverProps) {
       {/* Hauptblock — Titel + Subtitel, viel Whitespace.
           Editorial-Animation: weicher Fade-in beim Druck nicht sichtbar. */}
       <motion.section
-        initial={{ opacity: 0, y: 12 }}
+        data-testid="cover-main-section"
+        initial={reduce ? false : { opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.6, ease: 'easeOut' }}
+        transition={{ duration: reduce ? 0 : 0.6, ease: 'easeOut' }}
         className="flex-1 flex flex-col justify-center"
       >
         <p className="text-micro uppercase tracking-widest text-accent">
