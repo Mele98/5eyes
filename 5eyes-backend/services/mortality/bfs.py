@@ -8,19 +8,56 @@ q(x) = einjaehrige Sterbewahrscheinlichkeit bei Alter x.
 Werte sind approximative BFS-2020-2022-Periode, gerundet auf 5 Nachkomma-
 stellen. Schluss-Tafel: q(119) = 1.0.
 
-Plausibilitaets-Check (siehe tests/mortality/test_bfs.py):
+Plausibilitaets-Check (siehe tests/test_bfs_mortality_stale_audit.py):
 - Lebenserwartung bei Geburt: Maenner ~81.6, Frauen ~85.4
 - Lebenserwartung bei 65: Maenner ~19.5, Frauen ~22.0
 
-Update-Strategie: bei neuer BFS-Tafel (alle 2-3 Jahre) → neue Klasse
-BFSMortalityTable_2024 etc. anlegen, alte behalten fuer
-Audit-Reproduzierbarkeit.
+Sprint U-34 (2026-06-04) Update-Strategie
+-----------------------------------------
+BFS publiziert Periodensterbetafeln im 3-Jahres-Rhythmus. Sobald eine
+neue Tafel (z.B. 2022-2024) erscheint:
+
+1. Neue Klasse `BFSMortalityTable_2024` mit eigenem `_Q_MALE` + `_Q_FEMALE`
+   anlegen (alte Klasse behalten fuer Audit-Reproduzierbarkeit).
+2. `BFS_2020_2022` Convenience-Export auf neue Default-Instanz umziehen
+   ODER die neue Vintage als `BFS_2022_2024` zusaetzlich exportieren.
+3. is_stale_for_year() Tests aktualisieren — neue VINTAGE_END_YEAR.
+4. Plausibilitaets-Tests (LE_BIRTH_MALE / LE_BIRTH_FEMALE) gegen die
+   neuen BFS-Erwartungswerte tunen.
+
+is_stale_for_year() ist ein read-only Audit-Helper. Er BLOCKIERT den
+Optimizer NICHT — er liefert nur Sichtbarkeit ob die Tafel veraltet ist.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
 
 import numpy as np
+
+
+# Sprint U-34 (2026-06-04): Vintage-Konstanten + Stale-Threshold.
+# Period 2020-2022 = Datengrundlage. Stale-Schwelle 5 Jahre =
+# typischer Update-Rhythmus + 2 Jahre Puffer fuer Publikations-Lag.
+BFS_VINTAGE_START_YEAR: int = 2020
+BFS_VINTAGE_END_YEAR: int = 2022
+BFS_STALE_THRESHOLD_YEARS: int = 5
+
+
+def is_stale_for_year(
+    reference_year: int,
+    *,
+    vintage_end_year: int = BFS_VINTAGE_END_YEAR,
+    threshold_years: int = BFS_STALE_THRESHOLD_YEARS,
+) -> bool:
+    """True wenn die aktuelle BFS-Tafel relativ zum reference_year
+    veraltet ist (> threshold_years seit Vintage-Ende).
+
+    Audit-Helper. Optimizer arbeitet weiter mit der hardcoded Tafel,
+    aber der Berater / Compliance-View kann den Stale-Status anzeigen.
+    """
+    if reference_year < vintage_end_year:
+        return False
+    return (reference_year - vintage_end_year) > threshold_years
 
 
 # Empirisch kalibrierte BFS-2020-2022-Werte (Period).
@@ -89,8 +126,20 @@ class BFSMortalityTable:
 
     name: str = "BFS-2020-2022-Period"
     max_age: int = 119
+    vintage_start_year: int = BFS_VINTAGE_START_YEAR
+    vintage_end_year: int = BFS_VINTAGE_END_YEAR
     _q_male: tuple[float, ...] = _Q_MALE
     _q_female: tuple[float, ...] = _Q_FEMALE
+
+    def is_stale(self, reference_year: int) -> bool:
+        """Wrapper um is_stale_for_year() — Convenience-Method.
+
+        Sprint U-34 (2026-06-04): Audit-Helper, read-only.
+        """
+        return is_stale_for_year(
+            reference_year,
+            vintage_end_year=self.vintage_end_year,
+        )
 
     def qx(self, age: int, sex: str) -> float:
         """Einjaehrige Sterbewahrscheinlichkeit bei Alter x."""
