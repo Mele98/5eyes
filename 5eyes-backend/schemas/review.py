@@ -801,6 +801,15 @@ class ReportNotesUpdate(BaseModel):
     vorgehen_dokumente: Optional[list[str]] = None
 
 
+class ReportNotesHistoryEntry(BaseResponse):
+    """Sprint U-37b (2026-06-04): Ein Edit-Snapshot aus
+    previous_versions_json."""
+
+    edited_at: str
+    edited_by: str
+    changes: dict[str, dict[str, Optional[str]]] = Field(default_factory=dict)
+
+
 class ReportNotesResponse(BaseResponse):
     """GET /mandates/{id}/report-notes — leere Felder bleiben None."""
 
@@ -819,3 +828,6 @@ class ReportNotesResponse(BaseResponse):
     last_edited_at: Optional[str] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
+    # Sprint U-37b: Append-only History aller Edit-Snapshots,
+    # neueste zuerst. Schliesst Lücke aus PR #140 Review-Befund.
+    previous_versions: list[ReportNotesHistoryEntry] = Field(default_factory=list)

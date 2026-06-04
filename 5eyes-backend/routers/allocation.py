@@ -460,6 +460,9 @@ def _parse_json_list(raw: Optional[str]) -> list[str]:
 
 
 def _serialize_notes(notes: "MandateReportNotes") -> dict:
+    # Sprint U-37b (2026-06-04): History aus previous_versions_json
+    # exponieren — schliesst U-37 Review-Lücke aus PR #140.
+    from services.notes_versioning import load_history as _u37_load_history
     return {
         "id": notes.id,
         "mandate_id": notes.mandate_id,
@@ -476,6 +479,7 @@ def _serialize_notes(notes: "MandateReportNotes") -> dict:
         "last_edited_at": notes.last_edited_at,
         "created_at": notes.created_at,
         "updated_at": notes.updated_at,
+        "previous_versions": _u37_load_history(notes),
     }
 
 
