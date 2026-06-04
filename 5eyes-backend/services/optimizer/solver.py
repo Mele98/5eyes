@@ -21,6 +21,7 @@ Fallback-Strategie (OWNER-DECISION OD-5):
 from __future__ import annotations
 
 import hashlib
+import time
 from dataclasses import dataclass, field
 from typing import Iterable
 
@@ -81,6 +82,7 @@ class OptimizerResult:
     stress_evaluations: dict[str, dict] | None = None
     goal_achievability: tuple[dict, ...] = ()
     robustification: dict[str, object] | None = None
+    restart_results: tuple[dict, ...] = ()
 
 
 # ============================================================================
@@ -829,10 +831,12 @@ def run_solver(
     robustification_derisked = False
 
     for x0 in initials:
+        attempt_started = time.perf_counter()
         result = _solve_single_start(
             objective_fn, x0, bounds, scipy_constraints,
             max_iter=max_iter, ftol=ftol,
         )
+        elapsed_ms = int(round((time.perf_counter() - attempt_started) * 1000))
         total_iters += int(getattr(result, "nit", 0) or 0)
         candidate = _finite_feasible_candidate(
             result,
@@ -867,19 +871,28 @@ def run_solver(
             "status": "converged" if bool(getattr(result, "success", False)) else "non_success",
             "solver_status": int(getattr(result, "status", 0) or 0),
             "message": str(getattr(result, "message", "") or "")[:240],
+            "reason": (
+                "solver_success"
+                if bool(getattr(result, "success", False))
+                else "solver_no_convergence"
+            ),
             "objective_value": (
                 float(candidate[1]) if candidate is not None else None
             ),
             "feasible_candidate": candidate is not None,
             "n_paths": int(n_paths),
+            "n_starts": int(len(initials)),
             "seed": int(seed),
+            "elapsed_ms": elapsed_ms,
         })
 
     # ---- 6b. Phase 5.3 GA-Fallback wenn alle SLSQP-Starts divergiert ----
     if best_result is None:
+        attempt_started = time.perf_counter()
         ga_result = _solve_via_genetic_algorithm(
             objective_fn, bounds, scipy_constraints, seed=seed,
         )
+        elapsed_ms = int(round((time.perf_counter() - attempt_started) * 1000))
         total_iters += int(getattr(ga_result, "nit", 0) or 0)
         candidate = _finite_feasible_candidate(
             ga_result,
@@ -915,12 +928,19 @@ def run_solver(
             "status": "converged" if bool(getattr(ga_result, "success", False)) else "non_success",
             "solver_status": int(getattr(ga_result, "status", 0) or 0),
             "message": str(getattr(ga_result, "message", "") or "")[:240],
+            "reason": (
+                "ga_success"
+                if bool(getattr(ga_result, "success", False))
+                else "ga_no_convergence"
+            ),
             "objective_value": (
                 float(candidate[1]) if candidate is not None else None
             ),
             "feasible_candidate": candidate is not None,
             "n_paths": int(n_paths),
+            "n_starts": int(len(initials)),
             "seed": int(seed),
+            "elapsed_ms": elapsed_ms,
         })
 
     if best_result is None and finite_feasible_candidates:
@@ -1007,6 +1027,7 @@ def run_solver(
                 "attempts": attempt_summaries,
                 "final_reason": "no_finite_feasible_candidate",
             },
+            restart_results=tuple(attempt_summaries),
         )
 
     # Final clip + renorm + feasibility check
@@ -1102,6 +1123,7 @@ def run_solver(
         stress_evaluations=stress_evals,
         goal_achievability=tuple(goal_achievability),
         robustification=robustification_payload,
+        restart_results=tuple(attempt_summaries),
     )
 
 

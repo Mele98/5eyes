@@ -440,6 +440,19 @@ Manuelle Verifikation:
 
 Diese Datei ist Stage 9 Spec-only.
 
+Update 2026-06-03 / U-9 Phase-1-Telemetry:
+
+- Der konkrete Foundation-Blocker ist weiterhin behoben
+  (`test_stage8_foundation_smoketest.py` gruen).
+- Die bestehende Multi-Start-/GA-Fallback-Engine wurde nicht fachlich
+  umgebaut.
+- `OptimizerResult.restart_results` und
+  `optimizer_runs.restart_results_json` persistieren nun pro Start
+  `n_paths`, `n_starts`, Seed, Status, `elapsed_ms`, Objective und Reason.
+- Damit ist Acceptance #4 fuer die vorhandenen Multi-Start-/Stage-9-Runs
+  auditierbar vorbereitet; Retry-Orchestrierung A-B-C-D bleibt ein separater
+  Folgebranch.
+
 Implementierung spaeter in separaten Branches:
 
 1. `codex/stochastic-stage9-telemetry`

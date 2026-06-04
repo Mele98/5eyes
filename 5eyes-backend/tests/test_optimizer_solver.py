@@ -318,6 +318,59 @@ def test_solver_audit_trace_populated():
     assert isinstance(result.reasoning, list)
 
 
+def test_solver_restart_results_include_stage9_audit_fields():
+    cma = _make_cma()
+    house_matrix = _make_house_matrix_row()
+    goal = _make_pension_goal()
+
+    result = run_solver(
+        cma=cma, goals=[goal], house_matrix_row=house_matrix, score_x10=70,
+        advisory_wealth_rappen=500_000_00, cashflow_series_rappen=[5_000_00] * 5,
+        horizon_years=5, n_paths=100, seed=42,
+    )
+
+    assert result.restart_results
+    assert len(result.restart_results) >= result.n_starts_attempted
+    for idx, attempt in enumerate(result.restart_results, start=1):
+        assert attempt["attempt"] == idx
+        assert attempt["stage"] in {"slsqp", "differential_evolution"}
+        assert attempt["status"] in {"converged", "non_success"}
+        assert isinstance(attempt["solver_status"], int)
+        assert "reason" in attempt
+        assert "objective_value" in attempt
+        assert isinstance(attempt["feasible_candidate"], bool)
+        assert attempt["n_paths"] == 100
+        assert attempt["n_starts"] == result.n_starts_attempted
+        assert attempt["seed"] == 42
+        assert isinstance(attempt["elapsed_ms"], int)
+        assert attempt["elapsed_ms"] >= 0
+
+
+def test_solver_restart_results_deterministic_except_elapsed_ms():
+    cma = _make_cma()
+    house_matrix = _make_house_matrix_row()
+    goal = _make_pension_goal()
+
+    result_a = run_solver(
+        cma=cma, goals=[goal], house_matrix_row=house_matrix, score_x10=70,
+        advisory_wealth_rappen=500_000_00, cashflow_series_rappen=[5_000_00] * 5,
+        horizon_years=5, n_paths=100, seed=42,
+    )
+    result_b = run_solver(
+        cma=cma, goals=[goal], house_matrix_row=house_matrix, score_x10=70,
+        advisory_wealth_rappen=500_000_00, cashflow_series_rappen=[5_000_00] * 5,
+        horizon_years=5, n_paths=100, seed=42,
+    )
+
+    def stable(attempts):
+        return [
+            {key: value for key, value in attempt.items() if key != "elapsed_ms"}
+            for attempt in attempts
+        ]
+
+    assert stable(result_a.restart_results) == stable(result_b.restart_results)
+
+
 # ============================================================================
 # Performance
 # ============================================================================

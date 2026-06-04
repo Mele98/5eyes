@@ -119,6 +119,7 @@ class OptimizerRunResponse(BaseResponse):
     constraint_violations_json: Optional[str] = None
     reasoning_json: Optional[str] = None
     stress_evaluations_json: Optional[str] = None
+    restart_results_json: Optional[str] = None
     set_by: Optional[str] = None
     created_at: str
 

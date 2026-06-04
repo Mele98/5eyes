@@ -146,6 +146,7 @@ class OptimizerRun(Base):
     constraint_violations_json = Column(String)  # JSON list[str]
     reasoning_json = Column(String)  # JSON list[str]
     stress_evaluations_json = Column(String)  # JSON dict
+    restart_results_json = Column(String)  # JSON list[dict] with Stage-9 start diagnostics
     set_by = Column(String, ForeignKey("users.id"))
     created_at = Column(String, nullable=False)
 
