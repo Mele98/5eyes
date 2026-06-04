@@ -38,6 +38,45 @@ from services.pdf.components.advisory_palette import (
 register_editorial_fonts()
 
 
+class AdvisoryNumberedCanvas(Canvas):
+    """Canvas that draws advisory chrome after the final page count is known."""
+
+    def __init__(
+        self,
+        *args,
+        mandate_number: str,
+        generated_at_iso: str,
+        **kwargs,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self._saved_page_states: list[dict[str, object]] = []
+        self._advisory_mandate_number = str(mandate_number or "—")
+        self._advisory_generated_at = _format_swiss_datetime(generated_at_iso)
+
+    def showPage(self) -> None:  # noqa: N802 - ReportLab API name
+        self._saved_page_states.append(dict(self.__dict__))
+        self._startPage()
+
+    def save(self) -> None:
+        saved_states = self._saved_page_states
+        total_pages = len(saved_states)
+        if total_pages <= 0:
+            super().save()
+            return
+
+        for state in saved_states:
+            self.__dict__.update(state)
+            _draw_advisory_page_chrome(
+                self,
+                page_number=int(self.getPageNumber()),
+                total_pages=total_pages,
+                mandate_number=self._advisory_mandate_number,
+                generated_at_pretty=self._advisory_generated_at,
+            )
+            Canvas.showPage(self)
+        Canvas.save(self)
+
+
 def make_advisory_page_chrome(
     *,
     mandate_number: str,
@@ -53,76 +92,88 @@ def make_advisory_page_chrome(
     generated_at_iso
         ISO-Zeitstempel `YYYY-MM-DDTHH:MM:SS.SSSZ`, kommt aus dem Aggregator.
     total_pages_hint
-        Optional. Wenn None, schreiben wir nur „Seite x" ohne „/ N",
-        weil ReportLab in einem Pass die Gesamt-Seitenzahl noch nicht
-        kennt (würde Two-Pass-Build verlangen — TODO Folge-PR).
+        Optional. Wenn None, schreiben wir nur „Seite x" ohne „/ N".
+        Der Advisory-Report nutzt im Normalfall `AdvisoryNumberedCanvas`,
+        damit die Gesamt-Seitenzahl ohne separaten Zähl-Render bekannt ist.
     """
-    page_width, page_height = PAGE_SIZE
     pretty_dt = _format_swiss_datetime(generated_at_iso)
     safe_mandate = str(mandate_number or "—")
 
     def draw(canvas: Canvas, doc) -> None:
-        # Cover-Seite ist Seite 1 → kein Header/Footer dort
-        if int(doc.page) == 1:
-            return
-
-        canvas.saveState()
-
-        # Header — oben editorial mit dünner Trenn-Linie
-        header_y = page_height - MARGIN_TOP + 8 * mm
-        canvas.setFillColor(COLOR_INK)
-        canvas.setFont(FONT_SANS_BOLD, FONT_SIZE_MICRO + 1)
-        canvas.drawString(MARGIN_LEFT, header_y, "5eyes")
-
-        canvas.setFillColor(COLOR_INK_SUBTLE)
-        canvas.setFont(FONT_SANS, FONT_SIZE_MICRO)
-        canvas.drawString(
-            MARGIN_LEFT + 16 * mm,
-            header_y,
-            f"Wealth Architects  ·  Depotcheck  ·  {safe_mandate}",
+        _draw_advisory_page_chrome(
+            canvas,
+            page_number=int(doc.page),
+            total_pages=total_pages_hint,
+            mandate_number=safe_mandate,
+            generated_at_pretty=pretty_dt,
         )
-
-        # Seitenzahl rechts
-        if total_pages_hint:
-            page_label = f"Seite {int(doc.page)} / {int(total_pages_hint)}"
-        else:
-            page_label = f"Seite {int(doc.page)}"
-        canvas.drawRightString(page_width - MARGIN_RIGHT, header_y, page_label)
-
-        # dünne Trenn-Linie unter Header
-        rule_y = page_height - MARGIN_TOP + 3 * mm
-        canvas.setStrokeColor(COLOR_RULE)
-        canvas.setLineWidth(0.3)
-        canvas.line(
-            MARGIN_LEFT,
-            rule_y,
-            page_width - MARGIN_RIGHT,
-            rule_y,
-        )
-
-        # Footer — unten mit Trenn-Linie + zwei Texten
-        footer_y = MARGIN_BOTTOM - 8 * mm
-        canvas.setStrokeColor(COLOR_RULE)
-        canvas.line(
-            MARGIN_LEFT,
-            MARGIN_BOTTOM - 4 * mm,
-            page_width - MARGIN_RIGHT,
-            MARGIN_BOTTOM - 4 * mm,
-        )
-        canvas.setFillColor(COLOR_INK_SUBTLE)
-        canvas.setFont(FONT_SANS, FONT_SIZE_MICRO)
-        canvas.drawString(
-            MARGIN_LEFT,
-            footer_y,
-            f"Vertraulich  ·  Generiert {pretty_dt}",
-        )
-        canvas.drawRightString(
-            page_width - MARGIN_RIGHT, footer_y, "5eyes Advisory Report"
-        )
-
-        canvas.restoreState()
 
     return draw
+
+
+def _draw_advisory_page_chrome(
+    canvas: Canvas,
+    *,
+    page_number: int,
+    total_pages: int | None,
+    mandate_number: str,
+    generated_at_pretty: str,
+) -> None:
+    if page_number == 1:
+        return
+
+    page_width, page_height = PAGE_SIZE
+    canvas.saveState()
+
+    header_y = page_height - MARGIN_TOP + 8 * mm
+    canvas.setFillColor(COLOR_INK)
+    canvas.setFont(FONT_SANS_BOLD, FONT_SIZE_MICRO + 1)
+    canvas.drawString(MARGIN_LEFT, header_y, "5eyes")
+
+    canvas.setFillColor(COLOR_INK_SUBTLE)
+    canvas.setFont(FONT_SANS, FONT_SIZE_MICRO)
+    canvas.drawString(
+        MARGIN_LEFT + 16 * mm,
+        header_y,
+        f"Wealth Architects  ·  Depotcheck  ·  {mandate_number}",
+    )
+
+    if total_pages:
+        page_label = f"Seite {page_number} / {int(total_pages)}"
+    else:
+        page_label = f"Seite {page_number}"
+    canvas.drawRightString(page_width - MARGIN_RIGHT, header_y, page_label)
+
+    rule_y = page_height - MARGIN_TOP + 3 * mm
+    canvas.setStrokeColor(COLOR_RULE)
+    canvas.setLineWidth(0.3)
+    canvas.line(
+        MARGIN_LEFT,
+        rule_y,
+        page_width - MARGIN_RIGHT,
+        rule_y,
+    )
+
+    footer_y = MARGIN_BOTTOM - 8 * mm
+    canvas.setStrokeColor(COLOR_RULE)
+    canvas.line(
+        MARGIN_LEFT,
+        MARGIN_BOTTOM - 4 * mm,
+        page_width - MARGIN_RIGHT,
+        MARGIN_BOTTOM - 4 * mm,
+    )
+    canvas.setFillColor(COLOR_INK_SUBTLE)
+    canvas.setFont(FONT_SANS, FONT_SIZE_MICRO)
+    canvas.drawString(
+        MARGIN_LEFT,
+        footer_y,
+        f"Vertraulich  ·  Generiert {generated_at_pretty}",
+    )
+    canvas.drawRightString(
+        page_width - MARGIN_RIGHT, footer_y, "5eyes Advisory Report"
+    )
+
+    canvas.restoreState()
 
 
 def _format_swiss_datetime(iso: str) -> str:

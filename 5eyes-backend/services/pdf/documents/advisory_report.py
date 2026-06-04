@@ -16,6 +16,8 @@ Risikoprofil, Building Blocks, Weiteres Vorgehen) folgen in U-P26 PR B-F.
 """
 from __future__ import annotations
 
+import logging
+import time
 from datetime import datetime
 from io import BytesIO
 from typing import Any
@@ -36,6 +38,7 @@ from models.users import User
 from services.advisory_report import compute_advisory_report
 from services.pdf.fonts import register_editorial_fonts
 from services.pdf.components.advisory_page_chrome import (
+    AdvisoryNumberedCanvas,
     _format_swiss_datetime,
     make_advisory_page_chrome,
 )
@@ -71,6 +74,9 @@ from services.pdf.components.swiss_numbers import (
 )
 
 
+logger = logging.getLogger(__name__)
+
+
 # ---------------------------------------------------------------------------
 # Public Entry-Point
 # ---------------------------------------------------------------------------
@@ -92,10 +98,10 @@ def render_advisory_report_pdf(
 def render_advisory_report_pdf_from_payload(payload: dict[str, Any]) -> bytes:
     """Pure PDF-Render aus einem bereits berechneten Aggregator-Payload.
 
-    Two-Pass-Build (U-P26 PR F): Pass 1 zählt die Seiten, Pass 2 zeichnet
-    mit korrekten „Seite x / N"-Annotationen im Page-Header. Beide Passes
-    teilen sich `_build_all_flowables` — ein Aufruf pro Pass, weil
-    ReportLab die Flowable-Liste beim Build mutiert.
+    Single-Pass-Build: `AdvisoryNumberedCanvas` sammelt die finalen
+    Seitenzustände und zeichnet den Page-Chrome beim Speichern mit bekannter
+    Gesamtseitenzahl. Falls ReportLab in diesem Pfad scheitert, fällt der
+    Renderer auf den bisherigen Two-Pass-Pfad zurück.
     """
     register_editorial_fonts()
     cover = payload.get("cover") or {}
@@ -119,8 +125,49 @@ def render_advisory_report_pdf_from_payload(payload: dict[str, Any]) -> bytes:
             creator="5eyes",
         )
 
-    # Pass 1 — Seiten zählen
-    _scratch_buf, scratch_doc = _new_doc()
+    started = time.perf_counter()
+    try:
+        out_buf, out_doc = _new_doc()
+
+        def _canvasmaker(*args, **kwargs) -> AdvisoryNumberedCanvas:
+            return AdvisoryNumberedCanvas(
+                *args,
+                mandate_number=mandate_number,
+                generated_at_iso=generated_at,
+                **kwargs,
+            )
+
+        out_doc.build(
+            _build_all_flowables(payload, styles),
+            canvasmaker=_canvasmaker,
+        )
+        elapsed = time.perf_counter() - started
+        logger.info("advisory_report_pdf_render_seconds=%.3f mode=single_pass", elapsed)
+        return out_buf.getvalue()
+    except Exception:
+        logger.warning(
+            "Single-pass advisory PDF render failed; falling back to two-pass.",
+            exc_info=True,
+        )
+        return _render_advisory_report_pdf_two_pass(
+            _new_doc,
+            payload,
+            styles,
+            mandate_number=mandate_number,
+            generated_at=generated_at,
+        )
+
+
+def _render_advisory_report_pdf_two_pass(
+    new_doc,
+    payload: dict[str, Any],
+    styles: dict,
+    *,
+    mandate_number: str,
+    generated_at: str,
+) -> bytes:
+    """Compatibility fallback for environments that reject canvasmaker."""
+    _scratch_buf, scratch_doc = new_doc()
     counter = _PageCounter()
     scratch_doc.build(
         _build_all_flowables(payload, styles),
@@ -128,8 +175,7 @@ def render_advisory_report_pdf_from_payload(payload: dict[str, Any]) -> bytes:
     )
     total_pages = counter.page_count or 1
 
-    # Pass 2 — Render mit korrektem total_pages_hint
-    out_buf, out_doc = _new_doc()
+    out_buf, out_doc = new_doc()
     chrome = make_advisory_page_chrome(
         mandate_number=mandate_number,
         generated_at_iso=generated_at,
@@ -143,8 +189,7 @@ def render_advisory_report_pdf_from_payload(payload: dict[str, Any]) -> bytes:
 
 
 def _build_all_flowables(payload: dict[str, Any], styles: dict) -> list[Any]:
-    """Erzeugt einen *frischen* Flowable-Snapshot — wird zweimal aufgerufen
-    (Pass 1 zum Zählen, Pass 2 zum Zeichnen)."""
+    """Erzeugt einen frischen Flowable-Snapshot fuer einen PDF-Build."""
     flowables: list[Any] = []
     flowables.extend(_build_cover_flowables(payload.get("cover") or {}, styles))
     flowables.append(PageBreak())
