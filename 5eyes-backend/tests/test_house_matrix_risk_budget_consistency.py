@@ -218,3 +218,68 @@ def test_defensiv_specifically_protected_against_u_p23_2_regression():
         f"(Bug U-P23.2, gefixt 2026-05-26). Bitte nicht auf <4500 senken "
         f"ohne neue Audit-Quelle."
     )
+
+
+# ---------------------------------------------------------------------------
+# Sprint U-40 (Roadmap-Punkt 40, 2026-06-01): Pinned-Test fuer
+# Wachstumsorientiert (Cap 80%). War vorher nur via parametrize gedeckt —
+# Bug-Praevention-Test fuer das Profil mit dem haeufigsten Berater-
+# Anwendungsfall (Privatkunden Mitte-Karriere).
+# ---------------------------------------------------------------------------
+
+def test_wachstum_specifically_protected_against_cap_regression():
+    """Pinned-Test: Wachstumsorientiert Cap muss 80% (8000 bps) sein.
+
+    Wenn jemand den Cap senkt (z.B. auf 7500 wegen vorsichtigerer Spec-
+    Interpretation), schlaegt dieser Test fehl. Wichtig: Wachstumsorientiert
+    ist das DEFAULT-Profil fuer Foundation-Mandate (MX-FOUNDATION-01 nutzt
+    es) — Cap-Aenderung hat hohe Reichweite.
+    """
+    rows = _load_default_house_matrix()
+    cap_wac = next(r[18] for r in rows if r[2] == "Wachstumsorientiert")
+    assert cap_wac == 8000, (
+        f"HouseMatrix-Wachstumsorientiert Cap ist {cap_wac}, soll 8000 "
+        f"(= 80%, ASIP-Konvention) sein. Aenderung ohne neue Audit-Quelle "
+        f"vermeiden — beeinflusst die meisten Foundation-Mandate."
+    )
+
+
+def test_wachstum_mid_recompute_below_cap_under_high_risky_BB():
+    """U-40 Mid-Recompute-Test: auch mit AGGRESSIVEREN BB-Risky-Fractions
+    (= obere DB-Werte statt Mittelwerte) bleibt Wachstumsorientiert-Mid
+    unter dem 80%-Cap.
+
+    Szenario: Berater whaehlt aggressivere Building Blocks
+      Aktien Schwellenlaender 10000 statt mittlere 8000
+      Alternative Hedge Funds 6000 statt 4000
+    Selbst dann darf Mid-Risky <= Cap + Toleranz bleiben.
+    """
+    rows = _load_default_house_matrix()
+    row = next(r for r in rows if r[2] == "Wachstumsorientiert")
+    # Aggressive BB-Wahl: equities 80% statt 75%, alts 80% statt 60%
+    aggressive_bb = {
+        "equities":    8000,   # +500 bps (Mid statt konservativ)
+        "bonds":       2250,
+        "real_estate": 6000,
+        "alternatives": 8000,  # +2000 bps (high-Alt-Allocator)
+        "liquidity":   0,
+    }
+    bonds = row[7] * aggressive_bb["bonds"]
+    equities = row[10] * aggressive_bb["equities"]
+    real_estate = row[13] * aggressive_bb["real_estate"]
+    alternatives = row[16] * aggressive_bb["alternatives"]
+    liquidity = row[4] * aggressive_bb["liquidity"]
+    total = bonds + equities + real_estate + alternatives + liquidity
+    mid_risky_aggressive = total // 10000
+    cap = row[18]
+    # Mid-Recompute mit aggressiver BB-Wahl: Toleranz +200 bps gewaehrt
+    # (vs. die konservativen 100 fuer Mittel-BB). Wenn dieser Test bricht,
+    # heisst das: aggressive BB-Auswahl wuerde im Wachstum-Profil zur
+    # Liquiditaets-Cascade fuehren — entweder Cap erhoehen oder
+    # Mid-Targets defensiver.
+    assert mid_risky_aggressive <= cap + 300, (
+        f"Wachstum mit aggressiver BB-Wahl: Mid-Risky {mid_risky_aggressive} bps "
+        f"> Cap {cap} bps (+ 300 Aggressiv-Toleranz). "
+        f"Beim haeufigsten Foundation-Profil koennte das die Engine in den "
+        f"Liquiditaets-Cascade triggern."
+    )
