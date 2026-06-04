@@ -26,7 +26,7 @@ def _now_utc_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def collect_provider_health() -> list[dict[str, Any]]:
+def collect_provider_health(db: Session | None = None) -> list[dict[str, Any]]:
     """Liest Provider-Reihenfolge aus settings und prueft is_healthy()."""
     try:
         from .factory import build_default_aggregator
@@ -34,13 +34,37 @@ def collect_provider_health() -> list[dict[str, Any]]:
     except Exception as exc:  # noqa: BLE001
         logger.warning("collect_provider_health: build_default_aggregator failed: %s", exc)
         return []
+    registry_by_name: dict[str, dict[str, Any]] = {}
+    if db is not None:
+        try:
+            from .provider_health_registry import latest_provider_health_by_name
+            registry_by_name = latest_provider_health_by_name(
+                db,
+                [getattr(provider, "name", "?") for provider in agg.providers],
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("collect_provider_health: registry unavailable: %s", exc)
     out: list[dict[str, Any]] = []
     for provider in agg.providers:
         try:
             healthy = bool(provider.is_healthy())
         except Exception:  # noqa: BLE001
             healthy = False
-        out.append({"name": getattr(provider, "name", "?"), "healthy": healthy})
+        name = str(getattr(provider, "name", "?"))
+        event = registry_by_name.get(name.lower()) or {}
+        registry_status = str(event.get("status") or "unknown")
+        if registry_status == "unhealthy" and not event.get("recovered_at"):
+            healthy = False
+        out.append({
+            "name": name,
+            "healthy": healthy,
+            "registry_status": registry_status,
+            "reason": event.get("reason"),
+            "observed_at": event.get("observed_at"),
+            "unhealthy_until": event.get("unhealthy_until"),
+            "recovered_at": event.get("recovered_at"),
+            "consecutive_errors": int(event.get("consecutive_errors") or 0),
+        })
     return out
 
 
@@ -133,7 +157,7 @@ def build_market_data_status(db: Session) -> dict[str, Any]:
     from config import settings  # lazy fuer Test-Override
     return {
         "providers_config": str(settings.market_data_providers or ""),
-        "providers_health": collect_provider_health(),
+        "providers_health": collect_provider_health(db),
         "cache": collect_cache_stats(db),
         "recent_validations": collect_recent_validation_logs(db, limit=10),
         "scheduler_jobs": collect_scheduler_jobs(),

@@ -68,4 +68,13 @@ def build_default_aggregator(settings: object | None = None) -> MarketDataAggreg
         # Letzter Strohhalm: yfinance + stooq direkt instanziieren
         providers = [YFinanceProvider(), StooqProvider()]
     ttl = int(getattr(settings, "market_data_unhealthy_ttl_seconds", 300) or 300)
-    return MarketDataAggregator(providers=providers, unhealthy_ttl_seconds=ttl)
+    try:
+        from .provider_health_registry import build_default_registry
+        health_registry = build_default_registry()
+    except Exception:  # noqa: BLE001 - registry is observational only
+        health_registry = None
+    return MarketDataAggregator(
+        providers=providers,
+        unhealthy_ttl_seconds=ttl,
+        health_registry=health_registry,
+    )

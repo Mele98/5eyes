@@ -1,6 +1,6 @@
 # 5eyes Multi-Source-Datenpipeline — Master-Index
 
-**Stand:** 2026-05-14 — P1-P22 fertig, in Merge-Queue.
+**Stand:** 2026-06-04 — P1-P22 fertig; Provider-Health-Registry Phase 1 erledigt.
 **Kosten Tier 1:** CHF 0/Jahr.
 **Status:** Code, Tests, Doku, CI komplett. Wartet auf User-Merge.
 
@@ -30,6 +30,7 @@
 - **P3** StooqProvider · Backup, CSV-basiert, keine Rate-Limits
 - **P4** AlphaVantageProvider · Backup #2, 500 Calls/Tag (gratis Key)
 - **P5** MarketDataAggregator + HealthState · Fallback-Chain, TTL-Backoff
+- **P5.1** Provider-Health-Registry Phase 1 · persistente Failure-/Recovery-Events, Admin-Reset, passiv beobachtend
 - **P6** Smart Cache · SQLite, TTL pro `cache_kind` (eod=24h, history=7d, isin=180d)
 - **P7** Cross-Validation · Median-Diff, Alert > Threshold, ValidationLog
 - **P8** OpenFIGIProvider · ISIN ↔ Yahoo-Ticker
@@ -135,12 +136,35 @@ CachedAggregator (TTL 24h für EOD)
   ↓
 SQLite market_data_cache
 
+Provider-Fehler:
+  RateLimit/ProviderError
+    ↓
+  HealthState TTL-Backoff (aktiv im Aggregator)
+    ↓
+  provider_health_events (passiver Audit-/Admin-Status)
+
 Sonntag 04:00:
   scheduled.weekly_validation_job()
     ↓ Median über alle Provider
     ↓ Diff > 300bps?
     ↓ ja → market_data_validation_log + notifier.post_alert(slack_url)
 ```
+
+---
+
+## Provider-Health-Registry
+
+**Phase 1 (done, 2026-06-04):**
+- Persistente Tabelle `provider_health_events`
+- Aggregator schreibt passive Events bei Provider-Fehlern und Recovery
+- Admin-only: `GET /admin/system/market-data/provider-health`
+- Admin-only: `POST /admin/system/market-data/provider-health/reset`
+- Keine Berater-/PDF-Texte mit Provider-Markennamen, keine aktive Portfolio-Ueberwachung
+
+**Phase 2 (naechster Sprint):**
+- Daily-Cache-Purge health-aware auswerten
+- Provider mit frischem offenem Health-Event bei Cache-Purge/Validation gezielt schonen
+- Bestehende Semantik von `MARKET_DATA_UNHEALTHY_TTL_SECONDS` beibehalten
 
 ---
 

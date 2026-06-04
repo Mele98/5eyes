@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import logging
 from datetime import date as Date
-from typing import Iterable
+from typing import Any, Iterable
 
 from .base import Bar, MarketDataProvider, ProductInfo
 from .exceptions import MarketDataError, ProviderError, RateLimitError, SymbolNotFound
@@ -35,9 +35,11 @@ class MarketDataAggregator:
         self,
         providers: Iterable[MarketDataProvider],
         unhealthy_ttl_seconds: int = 300,
+        health_registry: Any | None = None,
     ) -> None:
         self._providers: list[MarketDataProvider] = list(providers)
         self._health = HealthState(unhealthy_ttl_seconds=unhealthy_ttl_seconds)
+        self._health_registry = health_registry
 
     @property
     def providers(self) -> list[MarketDataProvider]:
@@ -46,6 +48,28 @@ class MarketDataAggregator:
     @property
     def health(self) -> HealthState:
         return self._health
+
+    def _record_unhealthy(self, provider: MarketDataProvider, action_name: str, exc: BaseException) -> None:
+        if self._health_registry is None:
+            return
+        try:
+            self._health_registry.mark_unhealthy(
+                provider.name,
+                reason=str(exc),
+                operation=action_name,
+                error_type=exc.__class__.__name__,
+                consecutive_errors=self._health.consecutive_errors(provider.name),
+            )
+        except Exception:  # noqa: BLE001 - observation must never affect pricing
+            logger.debug("provider-health registry unhealthy write failed", exc_info=True)
+
+    def _record_healthy(self, provider: MarketDataProvider, action_name: str) -> None:
+        if self._health_registry is None:
+            return
+        try:
+            self._health_registry.mark_healthy(provider.name, operation=action_name)
+        except Exception:  # noqa: BLE001
+            logger.debug("provider-health registry healthy write failed", exc_info=True)
 
     def _candidates(self) -> list[MarketDataProvider]:
         """Provider in Reihenfolge, gefiltert auf currently-healthy."""
@@ -78,6 +102,7 @@ class MarketDataAggregator:
             except RateLimitError as exc:
                 logger.warning("%s: %s rate-limited (%s)", action_name, provider.name, exc)
                 self._health.mark_unhealthy(provider.name)
+                self._record_unhealthy(provider, action_name, exc)
                 last_exc = exc
                 continue
             except SymbolNotFound as exc:
@@ -89,6 +114,7 @@ class MarketDataAggregator:
                     "%s: %s provider error (%s)", action_name, provider.name, exc,
                 )
                 self._health.mark_unhealthy(provider.name)
+                self._record_unhealthy(provider, action_name, exc)
                 last_exc = exc
                 continue
             except Exception as exc:  # noqa: BLE001
@@ -96,10 +122,12 @@ class MarketDataAggregator:
                     "%s: %s unexpected error (%s)", action_name, provider.name, exc,
                 )
                 self._health.mark_unhealthy(provider.name)
+                self._record_unhealthy(provider, action_name, exc)
                 last_exc = exc
                 continue
             # Erfolg: Provider bleibt/wird healthy
             self._health.mark_healthy(provider.name)
+            self._record_healthy(provider, action_name)
             return result
         # Kein Provider erfolgreich -> letzte Exception werfen
         if isinstance(last_exc, BaseException):
@@ -132,6 +160,7 @@ class MarketDataAggregator:
                     "get_history(%s): %s error (%s)", symbol, provider.name, exc,
                 )
                 self._health.mark_unhealthy(provider.name)
+                self._record_unhealthy(provider, f"get_history({symbol})", exc)
                 last_exc = exc
                 continue
             except SymbolNotFound as exc:
@@ -142,9 +171,11 @@ class MarketDataAggregator:
                     "get_history(%s): %s unexpected (%s)", symbol, provider.name, exc,
                 )
                 self._health.mark_unhealthy(provider.name)
+                self._record_unhealthy(provider, f"get_history({symbol})", exc)
                 last_exc = exc
                 continue
             self._health.mark_healthy(provider.name)
+            self._record_healthy(provider, f"get_history({symbol})")
             if result:
                 return result
             # leere Liste: weiter zum naechsten Provider, aber keinen Fehler werfen

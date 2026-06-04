@@ -658,6 +658,8 @@ def init_db() -> None:
     Base.metadata.create_all(bind=engine)
     ensure_runtime_columns()
     ensure_snapshot_tables()
+    from services.market_data.provider_health_registry import ensure_provider_health_table
+    ensure_provider_health_table(engine)
     run_risk_assessment_answer_migration(engine)
     run_advisory_log_migration(engine)
     ensure_audit_log_actions()
