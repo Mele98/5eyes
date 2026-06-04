@@ -8,7 +8,9 @@
  * Visueller Stil: dezent, Editorial, gleiche Design-Tokens wie der Rest
  * der Sub-App (offwhite, navy, Petrol-Akzent).
  */
-import { useEffect, type ReactNode } from 'react';
+import { useCallback, useEffect, type ReactNode } from 'react';
+
+import { buildDirtyCloseMessage, dirtyFields } from '@/lib/drawerDraft';
 
 export interface NotesDrawerProps {
   open: boolean;
@@ -18,6 +20,14 @@ export interface NotesDrawerProps {
   children: ReactNode;
   /** Footer-Slot (Speichern/Abbrechen + Auto-Default-Reset). */
   footer: ReactNode;
+  /**
+   * Sprint U-24 (2026-06-04): Dirty-State-Confirm.
+   * Wenn currentValues != originalValues und User versucht zu schliessen
+   * (Backdrop-Click, ESC, X-Button) -> window.confirm-Dialog mit Hinweis
+   * auf Datenverlust.
+   */
+  currentValues?: Record<string, unknown>;
+  originalValues?: Record<string, unknown>;
 }
 
 export function NotesDrawer({
@@ -27,16 +37,34 @@ export function NotesDrawer({
   onClose,
   children,
   footer,
+  currentValues,
+  originalValues,
 }: NotesDrawerProps) {
+  // Sprint U-24: confirm-guard wenn dirty.
+  const handleClose = useCallback(() => {
+    if (currentValues && originalValues) {
+      const changed = dirtyFields(currentValues, originalValues);
+      if (changed.length > 0) {
+        const msg = buildDirtyCloseMessage(changed);
+        // Im Browser: window.confirm; in jsdom-Test ueberschreibbar
+        const ok = typeof window !== 'undefined' && window.confirm
+          ? window.confirm(msg)
+          : true;
+        if (!ok) return;
+      }
+    }
+    onClose();
+  }, [currentValues, originalValues, onClose]);
+
   // ESC-Handler nur registrieren, solange der Drawer offen ist
   useEffect(() => {
     if (!open) return;
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
+      if (event.key === 'Escape') handleClose();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [open, onClose]);
+  }, [open, handleClose]);
 
   if (!open) return null;
 
@@ -51,7 +79,7 @@ export function NotesDrawer({
       <button
         type="button"
         aria-label="Drawer schliessen"
-        onClick={onClose}
+        onClick={handleClose}
         className="flex-1 cursor-default bg-ink/30 backdrop-blur-sm transition-opacity"
       />
       {/* Panel */}
