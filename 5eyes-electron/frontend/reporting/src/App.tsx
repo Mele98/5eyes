@@ -1,7 +1,17 @@
-import { Routes, Route, Navigate, useParams } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { Routes, Route, Navigate, useNavigate, useParams } from 'react-router-dom';
 import { useAdvisoryReport } from '@/api/useAdvisoryReport';
 import type { AdvisoryReport } from '@/api/types';
 import { Sidebar, REPORT_SECTIONS } from '@/components/Sidebar';
+import {
+  KEYBOARD_SHORTCUTS,
+  getFirstSection,
+  getLastSection,
+  getNextSection,
+  getPrevSection,
+  isTypingInInput,
+  sectionHref,
+} from '@/lib/sectionNavigation';
 import { Cover } from '@/pages/Cover';
 import { Disclaimer } from '@/pages/Disclaimer';
 import { Inhaltsverzeichnis } from '@/pages/Inhaltsverzeichnis';
@@ -104,6 +114,115 @@ function ReportShell({ sectionId }: { sectionId: ReportSectionId }) {
     <div className="min-h-screen lg:grid lg:grid-cols-[17rem_minmax(0,1fr)]">
       <Sidebar mandateId={mandateId} activeSection={sectionId} />
       <main>{renderSection(sectionId, data, mandateId, reload)}</main>
+      <KeyboardShortcuts mandateId={mandateId} activeSection={sectionId} />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Sprint U-51: Tastatur-Shortcuts (j/k Nav, g/G Erste/Letzte, ? Help, Esc)
+// ---------------------------------------------------------------------------
+
+function KeyboardShortcuts({
+  mandateId,
+  activeSection,
+}: {
+  mandateId: string;
+  activeSection: string;
+}) {
+  const navigate = useNavigate();
+  const [showHelp, setShowHelp] = useState(false);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (isTypingInInput(e.target)) return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+      switch (e.key) {
+        case 'j': {
+          const next = getNextSection(REPORT_SECTIONS, activeSection);
+          if (next) {
+            e.preventDefault();
+            navigate(sectionHref(mandateId, next));
+          }
+          break;
+        }
+        case 'k': {
+          const prev = getPrevSection(REPORT_SECTIONS, activeSection);
+          if (prev) {
+            e.preventDefault();
+            navigate(sectionHref(mandateId, prev));
+          }
+          break;
+        }
+        case 'g': {
+          // 'g' allein -> erste Sektion (Vim-style: 'g g' wird hier vereinfacht)
+          if (!e.shiftKey) {
+            const first = getFirstSection(REPORT_SECTIONS);
+            if (first) {
+              e.preventDefault();
+              navigate(sectionHref(mandateId, first));
+            }
+          }
+          break;
+        }
+        case 'G': {
+          const last = getLastSection(REPORT_SECTIONS);
+          if (last) {
+            e.preventDefault();
+            navigate(sectionHref(mandateId, last));
+          }
+          break;
+        }
+        case '?': {
+          e.preventDefault();
+          setShowHelp((v) => !v);
+          break;
+        }
+        case 'Escape': {
+          if (showHelp) {
+            e.preventDefault();
+            setShowHelp(false);
+          }
+          break;
+        }
+      }
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [activeSection, mandateId, navigate, showHelp]);
+
+  if (!showHelp) return null;
+  return (
+    <div
+      data-testid="keyboard-help-overlay"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 no-print"
+      onClick={() => setShowHelp(false)}
+    >
+      <div
+        className="max-w-md rounded border border-rule bg-canvas-panel p-6 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <p className="text-micro uppercase tracking-widest text-ink-subtle">
+          Tastatur-Shortcuts
+        </p>
+        <h2 className="mt-2 font-serif text-h3 text-ink">Navigation</h2>
+        <dl className="mt-4 space-y-2 text-caption">
+          {KEYBOARD_SHORTCUTS.map((s) => (
+            <div key={s.key} className="flex items-baseline justify-between gap-4">
+              <dt>
+                <kbd className="rounded border border-rule bg-canvas px-2 py-0.5 font-mono text-micro text-ink">
+                  {s.label}
+                </kbd>
+              </dt>
+              <dd className="text-ink-muted">{s.description}</dd>
+            </div>
+          ))}
+        </dl>
+        <p className="mt-4 text-micro text-ink-subtle">
+          (Shortcuts werden in Eingabefeldern automatisch ignoriert.)
+        </p>
+      </div>
     </div>
   );
 }
