@@ -129,6 +129,16 @@ def compute_advisory_report(
         "stress_replay": _build_stress_replay(db, mandate),
         # --- Sektion 18 (additiv, U-68): FIDLEG Art. 9/26 Interessenkonflikte
         "conflict_disclosures": _build_conflict_disclosures(db, mandate),
+        # --- Sektion 19 (additiv, U-66): FIDLEG-Suitability-Compliance-Audit
+        "suitability_compliance": _build_suitability_compliance(db, mandate),
+        # --- Sektion 20 (additiv, U-73+U-74): Engine-Modell-Audit
+        "methodology_models": _build_methodology_models(db),
+        # --- Sektion 21 (additiv, U-69): Recommendation-Methodology-Audit
+        "recommendation_methodology": _build_recommendation_methodology(db, mandate),
+        # --- Sektion 22 (additiv, U-22): Mandate-Lock-Status
+        "mandate_lock_status": _build_mandate_lock_status(db, mandate),
+        # --- Sektion 23 (additiv, U-21): Liquidity-Cascade Stage-3 Warning
+        "liquidity_cascade": _build_liquidity_cascade(db, mandate),
     }
 
 
@@ -2246,3 +2256,145 @@ def _safe_int(value: Any, default: int = 0) -> int:
         return int(value or 0)
     except (TypeError, ValueError):
         return default
+
+
+# ---------------------------------------------------------------------------
+# Sprint U-66 (2026-06-03): FIDLEG-Suitability-Compliance-Audit-Wrapper.
+# ---------------------------------------------------------------------------
+
+def _build_suitability_compliance(db: Session, mandate: Mandate) -> dict[str, Any]:
+    """Dünner Wrapper über services/suitability_audit.audit_mandate_suitability.
+
+    Liefert pro Mandat einen FIDLEG-Audit-Befund (welche AdvisoryLog-
+    Eintraege haben keine Geeignetheitspruefung, welche sind stale,
+    welche haben Result-Inkonsistenzen). Read-only, non-breaking.
+
+    Default-Verhalten: bei jedem Schema-/Import-Fehler -> degraded
+    leeres Schema, Aggregator crasht NIE.
+    """
+    try:
+        from services.suitability_audit import audit_mandate_suitability
+        return audit_mandate_suitability(db, mandate)
+    except Exception:  # noqa: BLE001
+        return {
+            "total_advisory_logs": 0,
+            "logs_requiring_suitability": 0,
+            "logs_with_suitability": 0,
+            "logs_without_suitability": [],
+            "freshness_issues": [],
+            "result_issues": [],
+            "is_compliant": True,
+            "fidleg_basis": "Art. 11/13/16 FIDLEG",
+        }
+
+
+# ---------------------------------------------------------------------------
+# Sprint U-73+U-74 (2026-06-03): Engine-Modell-Audit-Wrapper.
+# ---------------------------------------------------------------------------
+
+def _build_methodology_models(db: Session) -> dict[str, Any]:
+    """Wrapper über services/methodology_audit.audit_engine_models.
+
+    Liefert pro Engine-Modell (Nelson-Siegel, KGV-MR, Risikopraemien)
+    den Aktivierungs-Status fuer die aktuelle CMA-Version. Read-only,
+    non-breaking.
+
+    Robust gegen Schema-/Import-Fehler -> degraded leeres Schema.
+    """
+    try:
+        from services.methodology_audit import audit_engine_models
+        return audit_engine_models(db)
+    except Exception:  # noqa: BLE001
+        return {
+            "cma_id": None,
+            "cma_version": None,
+            "models": [],
+            "active_count": 0,
+            "methodology_notes": [],
+        }
+
+
+# ---------------------------------------------------------------------------
+# Sprint U-69 (2026-06-03): Recommendation-Methodology-Audit-Wrapper.
+# ---------------------------------------------------------------------------
+
+def _build_recommendation_methodology(
+    db: Session, mandate: Mandate,
+) -> dict[str, Any]:
+    """Wrapper über services/recommendation_audit.audit_recommendation_methodology.
+
+    Liefert pro Mandat die Methodology-Box (welcher Optimizer-Run lieferte
+    die produktive Allokation, mit welchem Status, Seed, n_paths etc.).
+    Read-only, non-breaking. Robust gegen Schema-Mismatch -> degraded.
+    """
+    try:
+        from services.recommendation_audit import audit_recommendation_methodology
+        return audit_recommendation_methodology(db, mandate)
+    except Exception:  # noqa: BLE001
+        return {
+            "latest_run": None,
+            "latest_active_run": None,
+            "total_runs": 0,
+            "shadow_count": 0,
+            "active_count": 0,
+            "fallback_count": 0,
+            "is_compliant": True,
+            "fidleg_basis": "Art. 16 FIDLEG",
+        }
+
+
+# ---------------------------------------------------------------------------
+# Sprint U-22 (2026-06-03): Mandate-Lock-Status-Audit Wrapper.
+# ---------------------------------------------------------------------------
+
+def _build_mandate_lock_status(
+    db: Session, mandate: Mandate,
+) -> dict[str, Any]:
+    """Wrapper über services/mandate_lock_audit.audit_mandate_editability.
+
+    Liefert pro Mandat: is_editable + lock_reasons[] + reason-Labels.
+    Read-only, non-breaking. Robust gegen Schema-Mismatch -> degraded
+    is_editable=True.
+    """
+    try:
+        from services.mandate_lock_audit import audit_mandate_editability
+        return audit_mandate_editability(db, mandate)
+    except Exception:  # noqa: BLE001
+        return {
+            "is_editable": True,
+            "lock_reasons": [],
+            "lock_reason_labels": {},
+            "mandate_status": None,
+            "latest_optimizer_status": None,
+            "fidleg_basis": "Art. 16 / Art. 11 FIDLEG",
+        }
+
+
+# ---------------------------------------------------------------------------
+# Sprint U-21 (2026-06-03): Liquidity-Cascade-Audit Wrapper.
+# ---------------------------------------------------------------------------
+
+def _build_liquidity_cascade(
+    db: Session, mandate: Mandate,
+) -> dict[str, Any]:
+    """Wrapper über services/liquidity_cascade_audit.
+
+    Liefert Stage-Classification fuer die aktive TargetAllocation
+    (normal/hard_cap/emergency/unknown) + Berater-Hint bei
+    Stage-3-Eskalation. Read-only, non-breaking.
+    """
+    try:
+        from services.liquidity_cascade_audit import audit_mandate_liquidity_cascade
+        return audit_mandate_liquidity_cascade(db, mandate)
+    except Exception:  # noqa: BLE001
+        return {
+            "stage": "unknown",
+            "stage_label": "Liquidity-Cascade-Stage kann nicht bestimmt werden.",
+            "liquidity_bps": None,
+            "hard_cap_bps": 300,
+            "emergency_cap_bps": 1000,
+            "over_hard_cap_by_bps": None,
+            "warning_required": False,
+            "beratungsgespraech_pruefen": False,
+            "fidleg_basis": "Art. 11 / Art. 13 FIDLEG",
+        }

@@ -483,4 +483,69 @@ export interface AdvisoryReport {
   stress_replay: StressReplayData;
   /** U-68: FIDLEG Interessenkonflikt-Offenlegungen */
   conflict_disclosures: ConflictDisclosuresData;
+  /** U-66: FIDLEG-Suitability-Compliance-Audit (Stub — full schema in services/suitability_audit.py) */
+  suitability_compliance: SuitabilityComplianceData;
+  /** U-73+U-74: Engine-Modell-Audit (Nelson-Siegel/KGV-MR/Risikopraemien) */
+  methodology_models: MethodologyModelsData;
+  /** U-69: Recommendation-Methodology-Audit (Optimizer-Run-Metadata) */
+  recommendation_methodology: RecommendationMethodologyData;
+  /** U-22: Mandate-Lock-Status (Read-Only-Reasons) */
+  mandate_lock_status: MandateLockStatusData;
+  /** U-21: Liquidity-Cascade Stage-3 Warning */
+  liquidity_cascade: LiquidityCascadeData;
 }
+
+// Sprint U-66/U-73+74/U-69/U-22/U-21 (2026-06-04, konsolidiert):
+// Aggregator-Sektionen 19-23. Stub-Type-Aliases damit der Drift-
+// Konsistenz-Test (tests/test_reporting_api_and_cover.py) passiert.
+// Vollständige Interface-Definitionen folgen im Sub-App-Render-Sprint.
+export type SuitabilityComplianceData = {
+  total_advisory_logs: number;
+  logs_requiring_suitability: number;
+  logs_with_suitability: number;
+  logs_without_suitability: Array<Record<string, unknown>>;
+  freshness_issues: Array<Record<string, unknown>>;
+  result_issues: Array<Record<string, unknown>>;
+  is_compliant: boolean;
+  fidleg_basis: string;
+};
+
+export type MethodologyModelsData = {
+  cma_id: string | null;
+  cma_version: number | null;
+  models: Array<Record<string, unknown>>;
+  active_count: number;
+  methodology_notes: string[];
+};
+
+export type RecommendationMethodologyData = {
+  latest_run: Record<string, unknown> | null;
+  latest_active_run: Record<string, unknown> | null;
+  total_runs: number;
+  shadow_count: number;
+  active_count: number;
+  fallback_count: number;
+  is_compliant: boolean;
+  fidleg_basis: string;
+};
+
+export type MandateLockStatusData = {
+  is_editable: boolean;
+  lock_reasons: string[];
+  lock_reason_labels: Record<string, string>;
+  mandate_status: string | null;
+  latest_optimizer_status: string | null;
+  fidleg_basis: string;
+};
+
+export type LiquidityCascadeData = {
+  stage: 'normal' | 'hard_cap' | 'emergency' | 'unknown';
+  stage_label: string;
+  liquidity_bps: number | null;
+  hard_cap_bps: number;
+  emergency_cap_bps: number;
+  over_hard_cap_by_bps: number | null;
+  warning_required: boolean;
+  beratungsgespraech_pruefen: boolean;
+  fidleg_basis: string;
+};
