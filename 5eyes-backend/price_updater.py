@@ -923,10 +923,46 @@ def _weekly_validation_wrapper() -> tuple[int, int]:
         return (0, 0)
 
 
+def _daily_market_data_refresh_wrapper() -> dict[str, Any]:
+    """Wrapper fuer den taeglichen U-31 Marktdaten-Refresh."""
+    try:
+        from services.market_data_daily_refresh import run_daily_market_data_refresh
+        with SessionLocal() as db:
+            return run_daily_market_data_refresh(db)
+    except Exception:  # noqa: BLE001
+        logger.exception("daily_market_data_refresh failed")
+        return {
+            "status": "failed",
+            "products_refreshed": 0,
+            "prices_added": 0,
+            "fx_added": 0,
+            "errors": [{"scope": "scheduler", "reason": "daily_market_data_refresh failed"}],
+            "finished_at": utc_now_iso(),
+        }
+
+
 def _register_market_data_jobs(target_scheduler: Any) -> None:
-    """P15 — registriert Cache-Purge- und Cross-Validation-Jobs am Scheduler."""
+    """P15/U-31 — registriert Market-Data-Jobs am Price-Scheduler."""
     if CronTrigger is None:
         return
+    if settings.market_data_daily_refresh_enabled:
+        target_scheduler.add_job(
+            _daily_market_data_refresh_wrapper,
+            trigger=CronTrigger(
+                hour=settings.market_data_daily_refresh_hour,
+                minute=settings.market_data_daily_refresh_minute,
+                timezone=settings.price_scheduler_timezone,
+            ),
+            id="daily_market_data_refresh",
+            replace_existing=True,
+            misfire_grace_time=7200,
+        )
+        logger.info(
+            "daily_market_data_refresh registered for %02d:%02d %s",
+            settings.market_data_daily_refresh_hour,
+            settings.market_data_daily_refresh_minute,
+            settings.price_scheduler_timezone,
+        )
     if settings.market_data_cache_purge_enabled:
         target_scheduler.add_job(
             _daily_cache_purge_wrapper,
