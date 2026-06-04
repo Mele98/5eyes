@@ -23,6 +23,9 @@ from services.risk_scoring import profile_for_score_x10
 from tests.risk_fixture_helpers import CURRENT_RISK_ANSWERS
 
 
+VALID_OVERRIDE_REASON = "Kundenwunsch ausdruecklich dokumentiert"
+
+
 @pytest.fixture()
 def session_factory(tmp_path):
     engine = create_engine(
@@ -124,7 +127,7 @@ def test_risk_override_endpoint_persists_and_keeps_assessment_strategy_ready(ses
             body=RiskAssessmentOverride(
                 override_score_x10=70,
                 override_profile=profile_for_score_x10(70),
-                override_reason="Kundenwunsch dokumentiert",
+                override_reason=VALID_OVERRIDE_REASON,
             ),
             db=session,
             current_user=advisor,
@@ -133,5 +136,5 @@ def test_risk_override_endpoint_persists_and_keeps_assessment_strategy_ready(ses
         assert saved.is_overridden == 1
         assert saved.override_score_x10 == 70
         assert saved.override_profile == "Wachstumsorientiert"
-        assert saved.override_reason == "Kundenwunsch dokumentiert"
+        assert saved.override_reason == VALID_OVERRIDE_REASON
         assert risk_assessment_ready_for_strategy(saved) is True

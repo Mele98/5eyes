@@ -43,16 +43,21 @@ from config import Settings, settings  # noqa: E402
 from services.auth import create_access_token, get_current_user  # noqa: E402
 
 
+def _set_production_security_env(monkeypatch):
+    monkeypatch.setenv('APP_ENV', 'production')
+    monkeypatch.setenv('SECRET_KEY', 'strong-random-key-1234567890abcdefghij')
+    monkeypatch.setenv('DB_USE_SQLCIPHER', 'true')
+    monkeypatch.setenv('DB_KEY', 'strong-db-key-abc1234567890')
+    monkeypatch.setenv('CORS_ORIGINS', '["https://app.5eyes.local"]')
+
+
 # ---------------------------------------------------------------------------
 # Settings-Validator (U-59 production cap)
 # ---------------------------------------------------------------------------
 
 def test_production_rejects_excessive_ttl(monkeypatch):
     """Production mit TTL > 24h soll ValidationError werfen."""
-    monkeypatch.setenv('APP_ENV', 'production')
-    monkeypatch.setenv('SECRET_KEY', 'strong-random-key-1234567890abcdefghij')
-    monkeypatch.setenv('DB_USE_SQLCIPHER', 'true')
-    monkeypatch.setenv('DB_KEY', 'strong-db-key-abc1234567890')
+    _set_production_security_env(monkeypatch)
     monkeypatch.setenv('ACCESS_TOKEN_EXPIRE_MINUTES', '2880')  # 48h
     with pytest.raises(ValidationError, match=r'exceeds 1440'):
         Settings()
@@ -60,10 +65,7 @@ def test_production_rejects_excessive_ttl(monkeypatch):
 
 def test_production_accepts_exactly_24h_ttl(monkeypatch):
     """1440 (genau 24h) soll OK sein."""
-    monkeypatch.setenv('APP_ENV', 'production')
-    monkeypatch.setenv('SECRET_KEY', 'strong-random-key-1234567890abcdefghij')
-    monkeypatch.setenv('DB_USE_SQLCIPHER', 'true')
-    monkeypatch.setenv('DB_KEY', 'strong-db-key-abc1234567890')
+    _set_production_security_env(monkeypatch)
     monkeypatch.setenv('ACCESS_TOKEN_EXPIRE_MINUTES', '1440')
     s = Settings()
     assert s.access_token_expire_minutes == 1440

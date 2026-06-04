@@ -7,6 +7,9 @@ from services.portfolio_engine import _risk_score_bucket, risk_assessment_ready_
 from services.risk_scoring import profile_for_score_x10
 
 
+VALID_OVERRIDE_REASON = "Kundenwunsch ausdruecklich dokumentiert"
+
+
 def _make_assessment(
     *,
     is_overridden=0,
@@ -102,7 +105,7 @@ def test_documented_override_with_score_is_strategy_ready_even_without_answers()
         is_overridden=1,
         override_score_x10=70,
         final_score_x10=30,
-        override_reason="Kundenwunsch dokumentiert",
+        override_reason=VALID_OVERRIDE_REASON,
         override_client_confirmed=1,
         override_warning_delivered=1,
     )
@@ -161,7 +164,7 @@ def test_large_upward_override_without_warning_is_not_strategy_ready():
         is_overridden=1,
         override_score_x10=70,
         final_score_x10=30,
-        override_reason="Kundenwunsch dokumentiert",
+        override_reason=VALID_OVERRIDE_REASON,
     )
     assert risk_assessment_ready_for_strategy(ra) is False
 
@@ -171,7 +174,7 @@ def test_small_or_downward_override_with_reason_is_strategy_ready():
         is_overridden=1,
         override_score_x10=70,
         final_score_x10=50,
-        override_reason="Kundenwunsch dokumentiert",
+        override_reason=VALID_OVERRIDE_REASON,
     )
     assert risk_assessment_ready_for_strategy(ra) is True
 
@@ -180,7 +183,7 @@ def _valid_override(**kwargs):
     defaults = dict(
         override_score_x10=70,
         override_profile="Wachstumsorientiert",
-        override_reason="Kundenwunsch dokumentiert",
+        override_reason=VALID_OVERRIDE_REASON,
     )
     defaults.update(kwargs)
     return RiskAssessmentOverride(**defaults)

@@ -13,6 +13,7 @@ import type {
   BeratungsprotokollData,
   BranchenData,
   BuildingBlocksData,
+  ConflictDisclosuresData,
   CoverData,
   DisclaimerData,
   ErkenntnisseData,
@@ -23,6 +24,7 @@ import type {
   RisikoprofilierungData,
   RisikowaehrungenData,
   StatementPmData,
+  StressReplayData,
   WeiteresVorgehenData,
 } from '@/api/types';
 
@@ -345,6 +347,27 @@ export function makeBeratungsprotokoll(): BeratungsprotokollData {
   };
 }
 
+export function makeStressReplay(): StressReplayData {
+  return {
+    data_pending: true,
+    note: 'Keine Stress-Replay-Daten vorhanden.',
+    weights_bps: {},
+    scenarios: [],
+  };
+}
+
+export function makeConflictDisclosures(): ConflictDisclosuresData {
+  return {
+    entries: [],
+    counts: {
+      total: 0,
+      by_type: {},
+    },
+    has_unacknowledged: false,
+    fidleg_basis: 'Art. 9 / Art. 26 FIDLEG',
+  };
+}
+
 export function makeAdvisoryReport(): AdvisoryReport {
   return {
     schema_version: 2,
@@ -366,5 +389,7 @@ export function makeAdvisoryReport(): AdvisoryReport {
     statement_pm: makeStatementPm(),
     weiteres_vorgehen: makeWeiteresVorgehen(),
     beratungsprotokoll: makeBeratungsprotokoll(),
+    stress_replay: makeStressReplay(),
+    conflict_disclosures: makeConflictDisclosures(),
   };
 }
