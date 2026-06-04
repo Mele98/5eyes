@@ -129,6 +129,15 @@ class Settings(BaseSettings):
     recent_log_lines_default: int = 120
     recent_log_lines_max: int = 500
 
+    # Sprint U-7 (2026-06-04): Content-Security-Policy + Permissions-Policy.
+    # Default: aktiv, Default-Policy aus core/middleware.py DEFAULT_CSP_POLICY.
+    # Wer Custom-Policy braucht: CSP_POLICY env setzen.
+    csp_enabled: bool = True
+    csp_policy: str = ''  # '' = Default aus core/middleware.py
+    permissions_policy_enabled: bool = True
+    # HSTS: nur aktivieren wenn https erzwungen (Reverse-Proxy).
+    hsts_enabled: bool = False
+
     # Optimizer (siehe docs/planning/2026-05-05-stochastic-optimizer-spec.md
     # und claude-bericht-Advisory-Methodik-assetallocation-optimierung-v3-codeplan.md).
     # Gueltige Werte:
