@@ -319,6 +319,31 @@ def test_run_persists_reasoning_and_seed(session_factory, monkeypatch):
         assert isinstance(reasoning, list)
 
 
+def test_run_persists_restart_results_json(session_factory, monkeypatch):
+    monkeypatch.setattr(pe.settings, "optimizer_mode", "shadow_stochastic")
+    advisor_id, _cid, mid, _aid = _seed_realistic_mandate(session_factory, suffix="rr")
+    with session_factory() as s:
+        mandate = s.query(Mandate).filter(Mandate.id == mid).first()
+        generate_target_allocation(s, mandate, advisor_id, preferences=None)
+        s.commit()
+        run_id = s.query(OptimizerRun).filter(OptimizerRun.mandate_id == mid).first().id
+
+    with session_factory() as s:
+        run = s.query(OptimizerRun).filter(OptimizerRun.id == run_id).first()
+        assert run is not None
+        assert run.restart_results_json is not None
+        restart_results = json.loads(run.restart_results_json)
+        assert isinstance(restart_results, list)
+        assert len(restart_results) >= run.n_starts_attempted
+        first = restart_results[0]
+        assert first["stage"] == "slsqp"
+        assert first["n_paths"] == run.n_paths
+        assert first["n_starts"] == run.n_starts_attempted
+        assert first["seed"] == run.seed
+        assert isinstance(first["elapsed_ms"], int)
+        assert "reason" in first
+
+
 # ============================================================================
 # Endpoint GET /mandates/{id}/optimizer-runs
 # ============================================================================
@@ -374,6 +399,10 @@ def test_endpoint_returns_runs_sorted_descending(session_factory, monkeypatch):
             assert run["role"] == "shadow"
             assert run["seed"] > 0
             assert "weights_bps_json" in run
+            assert "restart_results_json" in run
+            restart_results = json.loads(run["restart_results_json"])
+            assert isinstance(restart_results, list)
+            assert restart_results[0]["seed"] == run["seed"]
     finally:
         app.dependency_overrides.clear()
 

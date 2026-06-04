@@ -308,6 +308,11 @@ def ensure_runtime_columns() -> None:
             # fuer Admin-/Compliance-Auswertung.
             ('shadow_optimization_json', 'TEXT'),
         ],
+        'optimizer_runs': [
+            # U-9 Stage-9 Telemetry: pro Solver-Start n_paths/n_starts/Seed/
+            # Status/elapsed_ms/reason auditierbar persistieren.
+            ('restart_results_json', 'TEXT'),
+        ],
         'products': [
             ('lookup_mode_override', 'TEXT'),
             ('lookup_symbol_override', 'TEXT'),

@@ -5178,6 +5178,20 @@ def _persist_optimizer_run(
             logger.warning("OptimizerRun: stress_evaluations_json failed (%s)", exc)
             stress_evaluations_json = None
 
+    restart_results_json: str | None = None
+    restart_results = getattr(optimizer_result, "restart_results", None)
+    if restart_results:
+        try:
+            restart_results_json = json.dumps(
+                list(restart_results),
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=False,
+            )
+        except (TypeError, ValueError) as exc:
+            logger.warning("OptimizerRun: restart_results_json failed (%s)", exc)
+            restart_results_json = None
+
     run = OptimizerRun(
         id=new_uuid(),
         mandate_id=mandate_id,
@@ -5196,6 +5210,7 @@ def _persist_optimizer_run(
         constraint_violations_json=constraint_violations_json,
         reasoning_json=reasoning_json,
         stress_evaluations_json=stress_evaluations_json,
+        restart_results_json=restart_results_json,
         set_by=user_id,
         created_at=now,
     )
