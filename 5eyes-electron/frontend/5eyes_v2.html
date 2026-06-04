@@ -119,6 +119,13 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 .btn-g:hover{background:var(--g3);}
 .btn-g.is-loading{position:relative;background:linear-gradient(90deg,#d6ba67 0%,#e8d592 50%,#d6ba67 100%);background-size:220% 100%;animation:calcbuttonpulse 1.15s linear infinite;box-shadow:0 0 0 3px rgba(201,168,76,0.12);}
 .btn-g.is-success{background:var(--pos);color:#fff;box-shadow:0 0 0 3px rgba(22,101,52,0.12);}
+/* U-25 (Roadmap-Punkt 25, 2026-06-01): Loading-State fuer PDF-Buttons.
+   Wiederverwendet calcbuttonpulse, aber mit Grau-Gradient fuer btn / btn-p
+   damit es sich vom gruenen "Berechnen"-Pulse abhebt. Berater sieht jetzt
+   waehrend des 5-15s PDF-Renders ein klares Loading-Signal. */
+.btn-p.is-loading,.btn.is-loading{position:relative;cursor:wait;animation:calcbuttonpulse 1.15s linear infinite;background-size:220% 100%;pointer-events:none;}
+.btn-p.is-loading{background:linear-gradient(90deg,var(--n6) 0%,var(--n5) 50%,var(--n6) 100%);color:rgba(255,255,255,0.92);}
+.btn.is-loading{background:linear-gradient(90deg,#f3f4f6 0%,#e5e7eb 50%,#f3f4f6 100%);color:var(--n7);border-color:var(--n3);}
 .btn-sm{padding:4px 9px;font-size:10px;}
 .btn-ico{background:none;border:none;cursor:pointer;color:var(--n3);padding:2px 4px;font-size:11px;border-radius:2px;}
 .btn-ico:hover{background:var(--bg2);color:var(--neg);}
@@ -15802,9 +15809,39 @@ function getActiveMandateId(){
   if(currentPersona&&currentPersona.mandate_id)return currentPersona.mandate_id;
   return null;
 }
+// U-25 (Roadmap-Punkt 25, 2026-06-01): visuelles Loading-Feedback waehrend
+// PDF-Download. Berater klickt "PDF herunterladen" und sah vorher nichts
+// fuer 5-15s (PDF-Render-Zeit) - er klickte oft mehrfach und triggerte
+// parallele Requests. Jetzt: Button wird disabled, pulsiert grau, zeigt
+// "Wird generiert..." mit a11y aria-busy.
+function _pdfBtnLoading(btn, on, label){
+  if(!btn || !btn.classList) return;
+  if(on){
+    if(btn.dataset.pdfLoadingOrig !== undefined) return;
+    btn.dataset.pdfLoadingOrig = btn.innerHTML;
+    btn.dataset.pdfLoadingOrigDis = btn.disabled ? '1' : '0';
+    btn.innerHTML = '<span aria-hidden="true">⟳ </span>' + (label || 'Wird generiert…');
+    btn.disabled = true;
+    btn.classList.add('is-loading');
+    btn.setAttribute('aria-busy', 'true');
+  } else {
+    if(btn.dataset.pdfLoadingOrig === undefined) return;
+    btn.innerHTML = btn.dataset.pdfLoadingOrig;
+    btn.disabled = (btn.dataset.pdfLoadingOrigDis === '1');
+    btn.classList.remove('is-loading');
+    btn.removeAttribute('aria-busy');
+    try { delete btn.dataset.pdfLoadingOrig; delete btn.dataset.pdfLoadingOrigDis; } catch(e){}
+  }
+}
+
 // Sprint 5 Phase 3 (2026-05-17): Server-PDF-Download via PDF-Engine-API.
 // reportType: 'anlagestrategie' | 'assetallocation' | 'risikoprofil' | 'portfolio' | 'vertrag' | 'protokoll'
 async function downloadServerPdf(reportType, queryString){
+  // U-25: ausloesenden Button erfassen, Double-Click-Guard + Loading-State
+  var _trigBtn = null;
+  try { _trigBtn = (typeof event !== 'undefined' && event) ? (event.currentTarget || event.target) : null; } catch(e){}
+  if(_trigBtn && _trigBtn.classList && _trigBtn.classList.contains('is-loading')) return;
+  _pdfBtnLoading(_trigBtn, true, 'PDF wird generiert…');
   try{
     var mid=getActiveMandateId();
     if(!mid){
@@ -15910,6 +15947,9 @@ async function downloadServerPdf(reportType, queryString){
     }
     var emsg='PDF-Generierung fehlgeschlagen: '+reason;
     if(window.showAppError){showAppError(emsg);}else{alert(emsg);}
+  } finally {
+    // U-25: Loading-State immer zurueck — auch bei early-return oder Exception
+    _pdfBtnLoading(_trigBtn, false);
   }
 }
 function blobToBase64(blob){
