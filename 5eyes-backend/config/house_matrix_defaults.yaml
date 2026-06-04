@@ -1,0 +1,150 @@
+# Sprint U-44 (2026-06-04): HouseMatrix-Defaults als YAML
+# ─────────────────────────────────────────────────────────
+# Single-Source-of-Truth fuer die 6 HouseMatrix-Risikoprofile.
+# Berater/Compliance kann diese YAML ohne Code-Aenderung
+# anpassen — nach Reload werden die Werte vom portfolio_engine
+# konsumiert.
+#
+# Schema pro Profil (alle Werte in bps, 10000 = 100%):
+#   score_from, score_to:        Score-Range (1-10)
+#   name:                        Profilname
+#   liquidity_min/target/max:    Liquiditaets-Bandbreite
+#   bonds_min/target/max:        Anleihen-Bandbreite
+#   equities_min/target/max:     Aktien-Bandbreite
+#   real_estate_min/target/max:  Immobilien-Bandbreite
+#   alternatives_min/target/max: Alternative-Bandbreite
+#   max_risky_fraction_bps:      ASIP-Obergrenze risky (U-P23.X)
+#   equity_minimum_bps:          Equity-Minimum fuer Profil
+#
+# WICHTIG:
+# Diese YAML wird gegen tests/test_house_matrix_yaml_consistency.py
+# verifiziert — alle Werte muessen identisch zu portfolio_engine's
+# Hardcoded-Defaults sein. Wenn jemand einen Wert hier aendert ohne
+# Spec-Diskussion: Test schlaegt fehl.
+
+profiles:
+  - score_from: 1
+    score_to: 2
+    name: "Kapitalschutz"
+    liquidity_min: 0
+    liquidity_target: 300
+    liquidity_max: 800
+    bonds_min: 6500
+    bonds_target: 7500
+    bonds_max: 8500
+    equities_min: 500
+    equities_target: 1200
+    equities_max: 2000
+    real_estate_min: 0
+    real_estate_target: 500
+    real_estate_max: 1000
+    alternatives_min: 0
+    alternatives_target: 500
+    alternatives_max: 500
+    max_risky_fraction_bps: 3000
+    equity_minimum_bps: 0
+
+  - score_from: 3
+    score_to: 4
+    name: "Defensiv"
+    liquidity_min: 0
+    liquidity_target: 200
+    liquidity_max: 500
+    bonds_min: 5000
+    bonds_target: 6000
+    bonds_max: 7000
+    equities_min: 1500
+    equities_target: 2500
+    equities_max: 3000
+    real_estate_min: 500
+    real_estate_target: 1000
+    real_estate_max: 1500
+    alternatives_min: 0
+    alternatives_target: 300
+    alternatives_max: 800
+    max_risky_fraction_bps: 4500
+    equity_minimum_bps: 0
+
+  - score_from: 5
+    score_to: 6
+    name: "Ausgewogen"
+    liquidity_min: 0
+    liquidity_target: 200
+    liquidity_max: 300
+    bonds_min: 2500
+    bonds_target: 3500
+    bonds_max: 4500
+    equities_min: 4000
+    equities_target: 4800
+    equities_max: 5500
+    real_estate_min: 500
+    real_estate_target: 1000
+    real_estate_max: 1500
+    alternatives_min: 300
+    alternatives_target: 500
+    alternatives_max: 800
+    max_risky_fraction_bps: 6000
+    equity_minimum_bps: 0
+
+  - score_from: 7
+    score_to: 8
+    name: "Wachstumsorientiert"
+    liquidity_min: 0
+    liquidity_target: 150
+    liquidity_max: 200
+    bonds_min: 1000
+    bonds_target: 1600
+    bonds_max: 2500
+    equities_min: 6000
+    equities_target: 6800
+    equities_max: 7500
+    real_estate_min: 500
+    real_estate_target: 800
+    real_estate_max: 1200
+    alternatives_min: 300
+    alternatives_target: 600
+    alternatives_max: 1000
+    max_risky_fraction_bps: 8000
+    equity_minimum_bps: 6000
+
+  - score_from: 9
+    score_to: 9
+    name: "Dynamisch"
+    liquidity_min: 0
+    liquidity_target: 100
+    liquidity_max: 200
+    bonds_min: 500
+    bonds_target: 800
+    bonds_max: 1500
+    equities_min: 7500
+    equities_target: 8000
+    equities_max: 8500
+    real_estate_min: 300
+    real_estate_target: 700
+    real_estate_max: 1000
+    alternatives_min: 200
+    alternatives_target: 400
+    alternatives_max: 600
+    max_risky_fraction_bps: 9000
+    equity_minimum_bps: 7500
+
+  - score_from: 10
+    score_to: 10
+    name: "Aktien"
+    liquidity_min: 0
+    liquidity_target: 100
+    liquidity_max: 200
+    bonds_min: 0
+    bonds_target: 200
+    bonds_max: 500
+    equities_min: 8500
+    equities_target: 9000
+    equities_max: 9500
+    real_estate_min: 200
+    real_estate_target: 500
+    real_estate_max: 800
+    alternatives_min: 0
+    alternatives_target: 200
+    alternatives_max: 500
+    max_risky_fraction_bps: 10000
+    equity_minimum_bps: 8500
