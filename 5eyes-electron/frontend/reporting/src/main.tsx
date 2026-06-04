@@ -13,9 +13,16 @@ import './styles/globals.css';
 // React-Router-Pfad sichtbar bleibt. Erst danach rendert React.
 consumeHandoffFromUrlFragment();
 
+// Sprint U-20 (2026-06-04): React-Router v6 Future-Flags via
+// `<BrowserRouter future={...}>` aktivieren — bereitet v7-Migration vor
+// und unterdrueckt Console-Warnings.
+// Flags-Constant liegt in lib/routerFlags.ts damit Tests sie
+// importieren koennen ohne main's createRoot-Side-Effect zu triggern.
+import { ROUTER_FUTURE_FLAGS } from './lib/routerFlags';
+
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <BrowserRouter>
+    <BrowserRouter future={ROUTER_FUTURE_FLAGS}>
       <App />
     </BrowserRouter>
   </React.StrictMode>,
