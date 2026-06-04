@@ -127,6 +127,8 @@ def compute_advisory_report(
         "beratungsprotokoll": _build_beratungsprotokoll(db, mandate),
         # --- Sektion 17 (additiv, U-70)
         "stress_replay": _build_stress_replay(db, mandate),
+        # --- Sektion 18 (additiv, U-68): FIDLEG Art. 9/26 Interessenkonflikte
+        "conflict_disclosures": _build_conflict_disclosures(db, mandate),
     }
 
 
@@ -2167,6 +2169,71 @@ def _build_disclaimer() -> dict[str, Any]:
             "ausschliesslich nach expliziter Freigabe durch den Kunden. "
             "Es findet keine automatische Transaktion statt.",
         ],
+    }
+
+
+# ---------------------------------------------------------------------------
+# Sprint U-68 (2026-06-02): FIDLEG Art. 9/26 Interessenkonflikte.
+# ---------------------------------------------------------------------------
+
+def _build_conflict_disclosures(db: Session, mandate: Mandate) -> dict[str, Any]:
+    """Aggregiert aktive Interessenkonflikt-Offenlegungen pro Mandat.
+
+    FIDLEG Art. 9 verlangt Offenlegung von Vermittlerentschaedigungen
+    (Provisionen, Retrozessionen, Boni). Art. 26 verlangt
+    organisatorische Massnahmen zur Vermeidung. Diese Sektion
+    aggregiert die ConflictOfInterestDisclosure-Eintraege fuer den
+    Berater-Report.
+    """
+    try:
+        from models.review import ConflictOfInterestDisclosure
+        rows = (
+            db.query(ConflictOfInterestDisclosure)
+            .filter(
+                ConflictOfInterestDisclosure.mandate_id == mandate.id,
+                ConflictOfInterestDisclosure.deleted_at.is_(None),
+            )
+            .order_by(ConflictOfInterestDisclosure.disclosed_at.desc())
+            .all()
+        )
+    except Exception:  # noqa: BLE001 — robust gegen Schema-Mismatch
+        return {
+            "entries": [],
+            "counts": {"total": 0, "by_type": {}},
+            "has_unacknowledged": False,
+            "fidleg_basis": "Art. 9 / Art. 26 FIDLEG",
+        }
+
+    entries = []
+    counts_by_type: dict[str, int] = {}
+    has_unacknowledged = False
+    for row in rows:
+        ctype = str(getattr(row, "conflict_type", "") or "unknown")
+        counts_by_type[ctype] = counts_by_type.get(ctype, 0) + 1
+        ack = bool(_safe_int(getattr(row, "client_acknowledged", 0)))
+        disclosed = bool(_safe_int(getattr(row, "disclosed_to_client", 0)))
+        if disclosed and not ack:
+            has_unacknowledged = True
+        entries.append({
+            "id": getattr(row, "id", None),
+            "conflict_type": ctype,
+            "description": getattr(row, "description", "") or "",
+            "inducement_provider": getattr(row, "inducement_provider", None),
+            "inducement_amount_rappen": getattr(row, "inducement_amount_rappen", None),
+            "inducement_frequency": getattr(row, "inducement_frequency", None),
+            "disclosed_to_client": disclosed,
+            "disclosed_at": getattr(row, "disclosed_at", None),
+            "client_acknowledged": ack,
+            "client_acknowledged_at": getattr(row, "client_acknowledged_at", None),
+            "mitigation_action": getattr(row, "mitigation_action", None),
+            "document_id": getattr(row, "document_id", None),
+        })
+
+    return {
+        "entries": entries,
+        "counts": {"total": len(entries), "by_type": counts_by_type},
+        "has_unacknowledged": has_unacknowledged,
+        "fidleg_basis": "Art. 9 / Art. 26 FIDLEG",
     }
 
 
