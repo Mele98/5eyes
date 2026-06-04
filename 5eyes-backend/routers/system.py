@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from uuid import uuid4
 
@@ -392,6 +392,46 @@ def refresh_market_data_now(
     except Exception as exc:  # noqa: BLE001
         db.rollback()
         raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.get('/market-data/provider-health')
+def get_provider_health_registry(
+    limit: int = Query(default=100, ge=1, le=500),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    _ = current_user
+    from services.market_data.provider_health_registry import list_provider_health
+    return {
+        "items": list_provider_health(db, limit=limit),
+        "limit": limit,
+        "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+    }
+
+
+@router.post('/market-data/provider-health/reset')
+def reset_provider_health_registry(
+    body: dict | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    from services.market_data.provider_health_registry import reset_provider_health
+
+    provider_name = str((body or {}).get("provider_name") or "").strip() or None
+    deleted = reset_provider_health(db, provider_name=provider_name)
+    audit_log(
+        db,
+        user_id=current_user.id,
+        user_name=getattr(current_user, "full_name", None) or getattr(current_user, "email", "admin"),
+        table_name="provider_health_events",
+        record_id=provider_name or "all",
+        action="DELETE",
+        field_name="provider_health_events",
+        old_value=f"deleted={deleted}",
+        new_value="reset",
+    )
+    db.commit()
+    return {"deleted": deleted, "provider_name": provider_name, "status": "reset"}
 
 
 @router.post('/db/optimize')
