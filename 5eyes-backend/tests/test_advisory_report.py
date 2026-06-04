@@ -133,6 +133,8 @@ def test_compute_returns_expected_top_level_structure(session_factory):
         "beratungsprotokoll",
         # U-70: additive Sektion 17
         "stress_replay",
+        # U-68: additive Sektion 18
+        "conflict_disclosures",
     ]
     assert list(report.keys()) == expected_order
 
@@ -1100,6 +1102,8 @@ def test_endpoint_returns_full_report_structure(session_factory):
         "beratungsprotokoll",
         # U-70: additive Sektion 17
         "stress_replay",
+        # U-68: additive Sektion 18
+        "conflict_disclosures",
     ]
     assert list(data.keys()) == expected
     assert data["schema_version"] == 2

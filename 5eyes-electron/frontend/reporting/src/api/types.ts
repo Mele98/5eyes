@@ -425,6 +425,35 @@ export interface StressReplayData {
 }
 
 // ---------------------------------------------------------------------------
+// Sektion 18 - Interessenkonflikt-Offenlegungen (U-68)
+// ---------------------------------------------------------------------------
+
+export interface ConflictDisclosureEntry {
+  id: string | null;
+  conflict_type: string;
+  description: string;
+  inducement_provider: string | null;
+  inducement_amount_rappen: number | null;
+  inducement_frequency: string | null;
+  disclosed_to_client: boolean;
+  disclosed_at: string | null;
+  client_acknowledged: boolean;
+  client_acknowledged_at: string | null;
+  mitigation_action: string | null;
+  document_id: string | null;
+}
+
+export interface ConflictDisclosuresData {
+  entries: ConflictDisclosureEntry[];
+  counts: {
+    total: number;
+    by_type: Record<string, number>;
+  };
+  has_unacknowledged: boolean;
+  fidleg_basis: string;
+}
+
+// ---------------------------------------------------------------------------
 // Top-Level Schema
 // ---------------------------------------------------------------------------
 
@@ -452,4 +481,6 @@ export interface AdvisoryReport {
   beratungsprotokoll: BeratungsprotokollData;
   /** U-70: Historische Stress-Szenarien auf aktueller Zielallokation */
   stress_replay: StressReplayData;
+  /** U-68: FIDLEG Interessenkonflikt-Offenlegungen */
+  conflict_disclosures: ConflictDisclosuresData;
 }

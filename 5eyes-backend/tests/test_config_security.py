@@ -3,6 +3,9 @@ import pytest
 from config import DEFAULT_SECRET_KEY, Settings
 
 
+PRODUCTION_CORS_ORIGINS = ['https://app.5eyes.local']
+
+
 def test_production_requires_sqlcipher_and_db_key():
     with pytest.raises(ValueError, match='db_use_sqlcipher=true'):
         Settings(
@@ -10,6 +13,7 @@ def test_production_requires_sqlcipher_and_db_key():
             secret_key='prod-secret',
             db_use_sqlcipher=False,
             db_key=None,
+            cors_origins=PRODUCTION_CORS_ORIGINS,
         )
 
 
@@ -19,6 +23,7 @@ def test_production_accepts_encrypted_database_configuration():
         secret_key='prod-secret',
         db_use_sqlcipher=True,
         db_key='prod-db-key',
+        cors_origins=PRODUCTION_CORS_ORIGINS,
     )
 
     assert settings.db_use_sqlcipher is True
@@ -55,6 +60,7 @@ def test_production_rejects_default_secret_key():
             secret_key=DEFAULT_SECRET_KEY,
             db_use_sqlcipher=True,
             db_key='prod-db-key',
+            cors_origins=PRODUCTION_CORS_ORIGINS,
         )
 
 
