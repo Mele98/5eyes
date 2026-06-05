@@ -1,7 +1,7 @@
 import logging
 from collections.abc import Callable
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import bindparam, text
 from sqlalchemy.exc import IntegrityError
@@ -955,15 +955,61 @@ def create_conflict(
 
 # ── Products ───────────────────────────────────────────────────────────────────
 
+_SFDR_VALID_CLASSES = frozenset({"6", "8", "9"})
+
+
 @products_router.get("", response_model=list[ProductResponse])
 def list_products(
     asset_class: str = None,
+    sfdr_class: str | None = Query(
+        default=None,
+        description=(
+            "SFDR-Klassifizierung (Sustainable Finance Disclosure Regulation). "
+            "Erlaubte Werte: '6' (Standard, keine ESG-Werbung), "
+            "'8' (ESG-Werbung mit nachhaltigen Merkmalen), "
+            "'9' (Nachhaltigkeits-Ziel als Anlage-Ziel). "
+            "Sprint U-95 (2026-06-05)."
+        ),
+    ),
+    esg_rating: str | None = Query(
+        default=None,
+        description=(
+            "ESG-Rating-Filter (case-insensitive exact match). "
+            "Sprint U-95 (2026-06-05)."
+        ),
+    ),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    """Sprint U-95 (2026-06-05): ESG/SFDR-Filter ergaenzt.
+
+    Berater kann nach SFDR-Klassifizierung (Art. 6/8/9) und ESG-Rating
+    filtern um Anlageprodukte zu finden die zu den ESG-Preferences des
+    Kunden passen. Filter sind additiv (AND-Verknuepfung).
+    """
     q = _active_products_query(db)
     if asset_class:
         q = q.filter(Product.asset_class == asset_class)
+    if sfdr_class is not None:
+        normalized = str(sfdr_class).strip()
+        if normalized not in _SFDR_VALID_CLASSES:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"sfdr_class muss einer von {sorted(_SFDR_VALID_CLASSES)} sein, "
+                    f"erhalten: {sfdr_class!r}"
+                ),
+            )
+        q = q.filter(Product.sfdr_class == normalized)
+    if esg_rating is not None:
+        normalized_rating = str(esg_rating).strip()
+        if not normalized_rating:
+            raise HTTPException(
+                status_code=422,
+                detail="esg_rating darf nicht leer sein.",
+            )
+        # Case-insensitive Match (ESG-Ratings haben Schreibweise-Varianten wie 'AAA'/'aaa')
+        q = q.filter(Product.esg_rating.ilike(normalized_rating))
     return q.order_by(Product.asset_class, Product.product_name).all()
 
 
