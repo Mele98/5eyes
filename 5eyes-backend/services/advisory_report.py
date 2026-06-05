@@ -327,8 +327,8 @@ def _build_cover(
         ) if part
     ) or "—"
     return {
-        "title": "Depotcheck",
-        "subtitle": "Strategische Portfolioanalyse",
+        "title": "Strategische Portfolioanalyse",
+        "subtitle": "Persoenlicher Advisory-Report",
         "client_name": client_name,
         "mandate_number": str(getattr(mandate, "mandate_number", "") or ""),
         "report_date": generated_at[:10],  # YYYY-MM-DD
@@ -945,6 +945,7 @@ def _build_erkenntnisse(
         _check_risikoprofil(db, mandate),
         _check_asset_allocation(dc),
         _check_waehrungsstruktur(dc),
+        _check_waehrungsabsicherung(db, mandate, dc),
         _check_diversifikation(dc),
         _check_branchen_konzentration(dc),
         _check_liquiditaet(dc),
@@ -1073,6 +1074,130 @@ def _check_waehrungsstruktur(dc: dict[str, Any]) -> dict[str, Any]:
         f"CHF-Anteil nur {chf_bps/100:.1f}%, dominanter FX {dominant_fx[0]} "
         f"= {dominant_fx[1]/100:.1f}%.",
         "Hedging-Strategie für Fremdwährungs-Exposure prüfen.",
+    )
+
+
+def _suggest_hedge_ratio_bps(fx_total_bps: int, horizon_years: int | None) -> tuple[int, str]:
+    """Sprint U-98 (2026-06-05): konservative Hedge-Ratio-Empfehlung.
+
+    Heuristik (3eyes-light, konservative Variante — Berater bleibt Richter):
+      Horizont < 3 J:  hedge 80% der Fremdwaehrungs-Position
+      Horizont 3-7 J:  hedge 50%
+      Horizont 7-15 J: hedge 25%
+      Horizont > 15 J: hedge 0% (Mean-Reversion-Argument fuer Long-Term)
+    Kappung:
+      FX-Exposure < 15% -> Hedge optional (geringer Impact)
+      Kein Horizont bekannt -> konservative Default-Quote 50%
+
+    Returns:
+        (hedge_bps, rationale): hedge_bps in 0..10000, Berater-tauglicher Text.
+    """
+    # 0 oder negative FX-Exposure: nichts zu hedgen
+    if fx_total_bps <= 0:
+        return 0, "Keine Fremdwaehrungs-Exposition vorhanden."
+    # Sehr kleine FX-Exposure: Hedging selten wirtschaftlich
+    if fx_total_bps < 1500:
+        return 0, (
+            f"Fremdwaehrungs-Anteil {fx_total_bps/100:.1f}% — Hedging wirtschaftlich "
+            "wenig sinnvoll bei dieser Groesse."
+        )
+    if horizon_years is None:
+        return 5000, (
+            "Kein Anlagehorizont bekannt — konservative Default-Hedge-Quote 50% "
+            "der Fremdwaehrungs-Exposition empfohlen."
+        )
+    if horizon_years < 3:
+        ratio_bps = 8000
+        rationale = (
+            f"Kurzer Horizont ({horizon_years} J): Wechselkurs-Volatilitaet "
+            "dominiert vor Mean-Reversion. Hohe Hedge-Quote angezeigt."
+        )
+    elif horizon_years < 7:
+        ratio_bps = 5000
+        rationale = (
+            f"Mittelfristiger Horizont ({horizon_years} J): Hedge-Quote "
+            "ausgewogen — schuetzt vor Drawdowns ohne Long-Term-Mean-Reversion zu vereiteln."
+        )
+    elif horizon_years < 15:
+        ratio_bps = 2500
+        rationale = (
+            f"Langer Horizont ({horizon_years} J): teilweise Absicherung "
+            "reicht, Mean-Reversion mittelt einen Teil des Risikos."
+        )
+    else:
+        ratio_bps = 0
+        rationale = (
+            f"Sehr langer Horizont ({horizon_years} J): Hedge nicht zwingend, "
+            "Mean-Reversion-Argument tragend, Hedge-Kosten ueberwiegen oft."
+        )
+    return ratio_bps, rationale
+
+
+def _check_waehrungsabsicherung(
+    db: Session,
+    mandate: Mandate,
+    dc: dict[str, Any],
+) -> dict[str, Any]:
+    """Sprint U-98 (2026-06-05): konkreter Hedge-Ratio-Vorschlag pro Mandat
+    statt nur generisches 'Hedging pruefen'. Beraeter-Entscheidung bleibt
+    unberuehrt — der Vorschlag ist Diskussions-Grundlage."""
+    from models.profiling import RiskAssessment
+
+    fx = dc.get("currency_exposure_bps") or {}
+    if not fx:
+        return _verdict(
+            "Waehrungsabsicherung", "nicht_beurteilbar",
+            "Keine Waehrungs-Daten verfuegbar.",
+            "Produkte mit Waehrungs-Exposure pflegen, anschliessend Hedge-Quote berechnen.",
+        )
+
+    fx_total_bps = sum(int(v or 0) for k, v in fx.items() if k != "CHF")
+    if fx_total_bps <= 0:
+        return _verdict(
+            "Waehrungsabsicherung", "gruen",
+            "Keine Fremdwaehrungs-Exposition vorhanden.",
+            "Keine Massnahme erforderlich.",
+        )
+
+    horizon_years: int | None = None
+    ra = (
+        db.query(RiskAssessment)
+        .filter(RiskAssessment.mandate_id == mandate.id)
+        .order_by(RiskAssessment.created_at.desc())
+        .first()
+    )
+    if ra is not None:
+        horizon_raw = getattr(ra, "investment_horizon_years", None)
+        if horizon_raw is not None:
+            try:
+                horizon_years = int(horizon_raw)
+            except (ValueError, TypeError):
+                horizon_years = None
+
+    hedge_bps, rationale = _suggest_hedge_ratio_bps(fx_total_bps, horizon_years)
+
+    fx_pct = fx_total_bps / 100
+    hedge_pct = hedge_bps / 100
+    beurteilung = (
+        f"Fremdwaehrungs-Exposition {fx_pct:.1f}%. "
+        + rationale
+    )
+    if hedge_bps == 0:
+        handlung = (
+            "Hedge aktuell nicht empfohlen. Mit Kunde besprechen — Entscheidung dokumentieren."
+        )
+        bewertung = "gruen" if fx_total_bps < 1500 else "gelb"
+    else:
+        handlung = (
+            f"Empfohlene Hedge-Quote: {hedge_pct:.0f}% der Fremdwaehrungs-Position "
+            f"(~{(fx_total_bps * hedge_bps // 10000)/100:.1f}% des Beratungsvermoegens). "
+            "Mit Kunde besprechen — Hedge-Kosten gegen Volatilitaets-Reduktion abwaegen."
+        )
+        # Gelb wenn Hedge mittel/klein, rot wenn hohe Quote bei kurzem Horizont noetig
+        bewertung = "rot" if hedge_bps >= 6000 else "gelb"
+
+    return _verdict(
+        "Waehrungsabsicherung", bewertung, beurteilung, handlung,
     )
 
 

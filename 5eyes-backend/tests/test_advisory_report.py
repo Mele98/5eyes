@@ -179,8 +179,8 @@ def test_cover_uses_advisor_full_name_and_client_name(session_factory):
         s.commit()
         report = compute_advisory_report(s, mandate, advisor=advisor)
     cover = report["cover"]
-    assert cover["title"] == "Depotcheck"
-    assert cover["subtitle"] == "Strategische Portfolioanalyse"
+    assert cover["title"] == "Strategische Portfolioanalyse"
+    assert cover["subtitle"] == "Persoenlicher Advisory-Report"
     assert cover["client_name"] == "Hans Muster"
     assert cover["advisor_name"] == "Anna Beispiel"
     assert cover["mandate_number"].startswith("M-")
@@ -473,15 +473,15 @@ def test_pruefpunkte_returns_10_blocks_with_stable_keys(session_factory):
 # Sektion 7: Erkenntnisse (Ampel-Logik)
 # ---------------------------------------------------------------------------
 
-def test_erkenntnisse_yields_9_checks_with_required_fields(session_factory):
-    """9 Prüfpunkte gemäss Spec §6, jede mit pruefpunkt/bewertung/
-    beurteilung/handlungsempfehlung."""
+def test_erkenntnisse_yields_10_checks_with_required_fields(session_factory):
+    """10 Prüfpunkte gemäss Spec §6 (Stand U-98 2026-06-05: +Waehrungsabsicherung),
+    jede mit pruefpunkt/bewertung/beurteilung/handlungsempfehlung."""
     with session_factory() as s:
         mandate, _c, advisor = _seed_minimal_mandate(s)
         s.commit()
         report = compute_advisory_report(s, mandate, advisor=advisor)
     checks = report["erkenntnisse"]["checks"]
-    assert len(checks) == 9
+    assert len(checks) == 10
     for c in checks:
         assert set(c.keys()) == {
             "pruefpunkt", "bewertung", "beurteilung", "handlungsempfehlung"
