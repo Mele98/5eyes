@@ -16,6 +16,8 @@ coverage.xml
 # Sprint U-106 (2026-06-05): Mutation-Testing-Cache
 .mutmut-cache/
 mutmut-stats.txt
+# Sprint U-107 (2026-06-05): hypothesis property-based-testing cache
+.hypothesis/
 
 # Node / Electron
 node_modules/
