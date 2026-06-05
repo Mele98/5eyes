@@ -34,7 +34,19 @@ from services.shadow_comparison import (
 
 router = APIRouter(prefix="/admin/system", tags=["System"])
 AUDIT_LOG_VALID_ACTIONS = frozenset(
-    {'CREATE', 'UPDATE', 'DELETE', 'LOGIN', 'EXPORT', 'PASSWORD_RESET', 'OPTIMIZER_MODE_CHANGE'}
+    {
+        'CREATE', 'UPDATE', 'DELETE', 'LOGIN', 'EXPORT', 'PASSWORD_RESET',
+        'OPTIMIZER_MODE_CHANGE',
+        # Sprint U-102 (2026-06-05): zusaetzliche Admin-Aktionen die im
+        # Audit-Log geschrieben werden — muessen filtrierbar sein.
+        'BACKFILL',
+        'BACKUP',
+        'SUPPORT_BUNDLE',
+        'MARKET_DATA_REFRESH',
+        'MARKET_DATA_PURGE',
+        'DB_OPTIMIZE',
+        'FOUNDATION_EXAMPLE',
+    }
 )
 OPTIMIZER_MODE_VALUES = frozenset({'house_matrix', 'shadow_stochastic', 'stochastic'})
 
@@ -113,13 +125,41 @@ def database_integrity(
 
 
 @router.post('/db/backup')
-def backup_database(current_user: User = Depends(require_admin)):
-    return create_backup()
+def backup_database(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    result = create_backup()
+    audit_log(
+        db,
+        user_id=current_user.id,
+        user_name=getattr(current_user, "full_name", None) or getattr(current_user, "email", "admin"),
+        table_name="system_backups",
+        record_id=str(result.get("backup_path") or result.get("filename") or "backup"),
+        action="BACKUP",
+        new_value=str(result.get("size_bytes") or result.get("bytes") or ""),
+    )
+    db.commit()
+    return result
 
 
 @router.post('/support-bundle')
-def create_support_bundle_endpoint(current_user: User = Depends(require_admin)):
-    return create_support_bundle()
+def create_support_bundle_endpoint(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    result = create_support_bundle()
+    audit_log(
+        db,
+        user_id=current_user.id,
+        user_name=getattr(current_user, "full_name", None) or getattr(current_user, "email", "admin"),
+        table_name="support_bundles",
+        record_id=str(result.get("bundle_path") or result.get("filename") or "support_bundle"),
+        action="SUPPORT_BUNDLE",
+        new_value=str(result.get("size_bytes") or result.get("bytes") or ""),
+    )
+    db.commit()
+    return result
 
 
 @router.get('/compliance')
@@ -294,14 +334,31 @@ def upsert_annual_return(
         .first()
     )
     if existing:
+        old_bps = existing.return_bps
         existing.return_bps = return_bps
         existing.source = source
         existing.updated_at = now
+        action = "UPDATE"
+        old_value = str(old_bps)
     else:
         db.add(AssetClassAnnualReturn(
             id=str(uuid4()), year=year, asset_class=asset_class,
             return_bps=return_bps, source=source, created_at=now, updated_at=now,
         ))
+        action = "CREATE"
+        old_value = None
+    # Sprint U-102 (2026-06-05): direkter CMA-Write muss auditiert sein.
+    audit_log(
+        db,
+        user_id=current_user.id,
+        user_name=getattr(current_user, "full_name", None) or getattr(current_user, "email", "admin"),
+        table_name="asset_class_annual_returns",
+        record_id=f"{year}-{asset_class}",
+        action=action,
+        field_name="return_bps",
+        old_value=old_value,
+        new_value=str(return_bps),
+    )
     db.commit()
     return {'year': year, 'asset_class': asset_class, 'return_bps': return_bps}
 
@@ -385,13 +442,24 @@ def refresh_market_data_now(
     current_user: User = Depends(require_admin),
 ):
     """U-31: manueller Recovery-Trigger fuer den taeglichen Marktdaten-Refresh."""
-    _ = current_user
     try:
         from services.market_data_daily_refresh import run_daily_market_data_refresh
-        return run_daily_market_data_refresh(db)
+        result = run_daily_market_data_refresh(db)
     except Exception as exc:  # noqa: BLE001
         db.rollback()
         raise HTTPException(status_code=500, detail=str(exc))
+    # Sprint U-102 (2026-06-05): manueller Refresh muss auditiert sein.
+    audit_log(
+        db,
+        user_id=current_user.id,
+        user_name=getattr(current_user, "full_name", None) or getattr(current_user, "email", "admin"),
+        table_name="market_data_runs",
+        record_id=str(result.get("run_id") or result.get("started_at") or "refresh"),
+        action="MARKET_DATA_REFRESH",
+        new_value=str(result.get("status") or "ok"),
+    )
+    db.commit()
+    return result
 
 
 @router.get('/market-data/provider-health')
@@ -456,10 +524,21 @@ def purge_market_data_cache_now(
     current_user: User = Depends(require_advisor),
 ):
     """Manual recovery trigger for the health-aware market-data cache purge."""
-    _ = current_user
     from services.market_data.cache_purge import run_daily_cache_purge
 
-    return run_daily_cache_purge(db)
+    result = run_daily_cache_purge(db)
+    # Sprint U-102 (2026-06-05): Cache-Purge ist destruktiv, muss auditiert sein.
+    audit_log(
+        db,
+        user_id=current_user.id,
+        user_name=getattr(current_user, "full_name", None) or getattr(current_user, "email", "advisor"),
+        table_name="market_data_cache",
+        record_id=str(result.get("run_id") or result.get("started_at") or "purge"),
+        action="MARKET_DATA_PURGE",
+        new_value=str(result.get("rows_deleted") or result.get("status") or "ok"),
+    )
+    db.commit()
+    return result
 
 
 @router.post('/db/optimize')
@@ -467,7 +546,19 @@ def optimize_database(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    return run_optimize(db)
+    result = run_optimize(db)
+    # Sprint U-102 (2026-06-05): VACUUM/ANALYZE wird auditiert (Compliance-Spur).
+    audit_log(
+        db,
+        user_id=current_user.id,
+        user_name=getattr(current_user, "full_name", None) or getattr(current_user, "email", "admin"),
+        table_name="system_db",
+        record_id="optimize",
+        action="DB_OPTIMIZE",
+        new_value=str(result.get("status") or "ok"),
+    )
+    db.commit()
+    return result
 
 
 @router.post('/foundation-example')
@@ -476,5 +567,15 @@ def create_foundation_example(
     current_user: User = Depends(require_admin),
 ):
     payload = upsert_foundation_example_case(db, current_user)
+    # Sprint U-102 (2026-06-05): Foundation-Example erzeugt DB-Daten, muss auditiert sein.
+    audit_log(
+        db,
+        user_id=current_user.id,
+        user_name=getattr(current_user, "full_name", None) or getattr(current_user, "email", "admin"),
+        table_name="foundation_example",
+        record_id=str(payload.get("mandate_id") or payload.get("client_id") or "foundation_example"),
+        action="FOUNDATION_EXAMPLE",
+        new_value=str(payload.get("status") or "created"),
+    )
     db.commit()
     return payload
