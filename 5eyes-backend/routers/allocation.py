@@ -460,6 +460,9 @@ def _parse_json_list(raw: Optional[str]) -> list[str]:
 
 
 def _serialize_notes(notes: "MandateReportNotes") -> dict:
+    # Sprint U-37b (2026-06-04): History aus previous_versions_json
+    # exponieren — schliesst U-37 Review-Lücke aus PR #140.
+    from services.notes_versioning import load_history as _u37_load_history
     return {
         "id": notes.id,
         "mandate_id": notes.mandate_id,
@@ -476,6 +479,7 @@ def _serialize_notes(notes: "MandateReportNotes") -> dict:
         "last_edited_at": notes.last_edited_at,
         "created_at": notes.created_at,
         "updated_at": notes.updated_at,
+        "previous_versions": _u37_load_history(notes),
     }
 
 
@@ -534,33 +538,63 @@ def put_report_notes(
         )
         db.add(notes)
 
+    # Sprint U-37: ALT-Werte snapshotten VOR Update fuer
+    # previous_versions_json History.
+    from services.notes_versioning import (
+        NOTES_VERSIONED_FIELDS as _u37_fields,
+        compute_changes as _u37_compute_changes,
+        _parse_history as _u37_parse_history,
+        _now_iso as _u37_now_iso,
+    )
+    _u37_old_values = {f: getattr(notes, f, None) for f in _u37_fields}
+    _u37_new_values: dict[str, Any] = {}
+
     # Felder updaten — None laesst das bestehende Feld unangetastet
     # (Schritt-fuer-Schritt-Bearbeitung in der Sub-App), `""` setzt explizit
     # auf leer und triggert damit den Auto-Default-Fallback im Aggregator.
     if body.aa_anmerkungen is not None:
+        _u37_new_values["aa_anmerkungen"] = body.aa_anmerkungen or None
         notes.aa_anmerkungen = body.aa_anmerkungen or None
     if body.waehrungen_erklaerung is not None:
+        _u37_new_values["waehrungen_erklaerung"] = body.waehrungen_erklaerung or None
         notes.waehrungen_erklaerung = body.waehrungen_erklaerung or None
     if body.branchen_analyse is not None:
+        _u37_new_values["branchen_analyse"] = body.branchen_analyse or None
         notes.branchen_analyse = body.branchen_analyse or None
     if body.vorgehen_block_optimierungen is not None:
+        _u37_new_values["vorgehen_block_optimierungen"] = body.vorgehen_block_optimierungen or None
         notes.vorgehen_block_optimierungen = body.vorgehen_block_optimierungen or None
     if body.vorgehen_block_zielstrategie is not None:
+        _u37_new_values["vorgehen_block_zielstrategie"] = body.vorgehen_block_zielstrategie or None
         notes.vorgehen_block_zielstrategie = body.vorgehen_block_zielstrategie or None
     if body.vorgehen_offene_fragen is not None:
-        notes.vorgehen_offene_fragen_json = json.dumps(
-            [str(item) for item in body.vorgehen_offene_fragen]
-        )
+        _val = json.dumps([str(item) for item in body.vorgehen_offene_fragen])
+        _u37_new_values["vorgehen_offene_fragen_json"] = _val
+        notes.vorgehen_offene_fragen_json = _val
     if body.vorgehen_naechster_termin is not None:
+        _u37_new_values["vorgehen_naechster_termin"] = body.vorgehen_naechster_termin or None
         notes.vorgehen_naechster_termin = body.vorgehen_naechster_termin or None
     if body.vorgehen_todos is not None:
-        notes.vorgehen_todos_json = json.dumps(
-            [str(item) for item in body.vorgehen_todos]
-        )
+        _val = json.dumps([str(item) for item in body.vorgehen_todos])
+        _u37_new_values["vorgehen_todos_json"] = _val
+        notes.vorgehen_todos_json = _val
     if body.vorgehen_dokumente is not None:
-        notes.vorgehen_dokumente_json = json.dumps(
-            [str(item) for item in body.vorgehen_dokumente]
+        _val = json.dumps([str(item) for item in body.vorgehen_dokumente])
+        _u37_new_values["vorgehen_dokumente_json"] = _val
+        notes.vorgehen_dokumente_json = _val
+
+    # U-37: bei tatsaechlichen Aenderungen Snapshot in History prependen.
+    _u37_changes = _u37_compute_changes(_u37_old_values, _u37_new_values)
+    if _u37_changes:
+        _u37_history = _u37_parse_history(
+            getattr(notes, "previous_versions_json", None)
         )
+        _u37_history.insert(0, {
+            "edited_at": _u37_now_iso(),
+            "edited_by": current_user.id,
+            "changes": _u37_changes,
+        })
+        notes.previous_versions_json = json.dumps(_u37_history)
 
     notes.last_edited_by = current_user.id
     notes.last_edited_at = now
