@@ -339,7 +339,7 @@ def _build_cover(
 
 
 def _build_inhaltsverzeichnis() -> dict[str, Any]:
-    """Sektion 3 — Inhaltsverzeichnis. Statische 12-Kapitel-Struktur."""
+    """Sektion 3 — Inhaltsverzeichnis. Statische sichtbare Kapitel-Struktur."""
     return {
         "kapitel": [
             {"nr": 1, "title": "Ausgangslage"},
@@ -354,6 +354,9 @@ def _build_inhaltsverzeichnis() -> dict[str, Any]:
             {"nr": 10, "title": "Risikoprofilierung"},
             {"nr": 11, "title": "Building Blocks"},
             {"nr": 12, "title": "Weiteres Vorgehen"},
+            {"nr": 13, "title": "Beratungsprotokoll"},
+            {"nr": 14, "title": "Historische Stress-Szenarien"},
+            {"nr": 15, "title": "Compliance-Audit"},
         ],
     }
 

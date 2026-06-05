@@ -199,16 +199,16 @@ def test_cover_handles_missing_advisor_with_dash(session_factory):
 # Sektion 3: Inhaltsverzeichnis
 # ---------------------------------------------------------------------------
 
-def test_inhaltsverzeichnis_has_exactly_12_chapters(session_factory):
-    """Spec listet 12 Kapitel. Reihenfolge + Nummerierung muss stabil sein
+def test_inhaltsverzeichnis_has_expected_chapters(session_factory):
+    """Spec listet die sichtbaren Kapitel. Reihenfolge + Nummerierung muss stabil sein
     weil Frontend + PDF darauf referenzieren."""
     with session_factory() as s:
         mandate, _c, advisor = _seed_minimal_mandate(s)
         s.commit()
         report = compute_advisory_report(s, mandate, advisor=advisor)
     kapitel = report["inhaltsverzeichnis"]["kapitel"]
-    assert len(kapitel) == 12
-    assert [k["nr"] for k in kapitel] == list(range(1, 13))
+    assert len(kapitel) == 15
+    assert [k["nr"] for k in kapitel] == list(range(1, 16))
     assert [k["title"] for k in kapitel] == [
         "Ausgangslage",
         "Übersicht Ihrer Positionen",
@@ -222,6 +222,9 @@ def test_inhaltsverzeichnis_has_exactly_12_chapters(session_factory):
         "Risikoprofilierung",
         "Building Blocks",
         "Weiteres Vorgehen",
+        "Beratungsprotokoll",
+        "Historische Stress-Szenarien",
+        "Compliance-Audit",
     ]
 
 

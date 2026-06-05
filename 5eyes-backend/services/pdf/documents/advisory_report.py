@@ -42,6 +42,7 @@ from services.pdf.components.advisory_page_chrome import (
     _format_swiss_datetime,
     make_advisory_page_chrome,
 )
+from services.pdf.components.compliance_audit import render_compliance_audit_section
 from services.pdf.components.advisory_palette import (
     COLOR_ACCENT,
     COLOR_CANVAS_SUBTLE,
@@ -224,6 +225,8 @@ def _build_all_flowables(payload: dict[str, Any], styles: dict) -> list[Any]:
     flowables.extend(_build_beratungsprotokoll_flowables(payload.get("beratungsprotokoll") or {}, styles))
     flowables.append(PageBreak())
     flowables.extend(_build_stress_replay_flowables(payload.get("stress_replay") or {}, styles))
+    flowables.append(PageBreak())
+    render_compliance_audit_section(payload, flowables, styles)
     return flowables
 
 
