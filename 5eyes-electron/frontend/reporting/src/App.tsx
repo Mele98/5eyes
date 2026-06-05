@@ -28,6 +28,7 @@ import { BuildingBlocks } from '@/pages/BuildingBlocks';
 import { StatementPm } from '@/pages/StatementPm';
 import { WeiteresVorgehen } from '@/pages/WeiteresVorgehen';
 import { Beratungsprotokoll } from '@/pages/Beratungsprotokoll';
+import { Compliance } from '@/pages/Compliance';
 
 type ReportSectionId = (typeof REPORT_SECTIONS)[number]['id'];
 
@@ -304,6 +305,17 @@ function renderSection(
   }
   if (sectionId === 'beratungsprotokoll') {
     return <Beratungsprotokoll data={data.beratungsprotokoll} />;
+  }
+  if (sectionId === 'compliance') {
+    return (
+      <Compliance
+        suitability={data.suitability_compliance}
+        methodology={data.methodology_models}
+        recommendation={data.recommendation_methodology}
+        mandateLock={data.mandate_lock_status}
+        liquidityCascade={data.liquidity_cascade}
+      />
+    );
   }
   return <PendingSection sectionId={sectionId} />;
 }
