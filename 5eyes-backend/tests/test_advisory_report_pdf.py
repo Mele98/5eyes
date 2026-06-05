@@ -1218,7 +1218,7 @@ def test_stress_replay_section_renders_pending_hint():
     payload = _make_minimal_payload()
     pdf = render_advisory_report_pdf_from_payload(payload)
     reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
-    text = reader.pages[-1].extract_text() or ""
+    text = "\n".join((page.extract_text() or "") for page in reader.pages)
     assert "Historische Stress-Szenarien" in text
     assert "Stress-Replay aktuell nicht" in text
 
@@ -1228,7 +1228,7 @@ def test_stress_replay_section_renders_scenario_table():
     payload = _make_payload_with_stress_replay()
     pdf = render_advisory_report_pdf_from_payload(payload)
     reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
-    text = reader.pages[-1].extract_text() or ""
+    text = "\n".join((page.extract_text() or "") for page in reader.pages)
     assert "Historische Stress-Szenarien" in text
     assert "Dotcom 2000-2002" in text
     assert "GFC 2008" in text
@@ -1240,7 +1240,7 @@ def test_stress_replay_section_shows_return_drawdown_and_recovery_values():
     payload = _make_payload_with_stress_replay()
     pdf = render_advisory_report_pdf_from_payload(payload)
     reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
-    text = (reader.pages[-1].extract_text() or "").replace(" ", "")
+    text = "\n".join((page.extract_text() or "") for page in reader.pages).replace(" ", "")
     assert "-18.3%" in text
     assert "-31.8%" in text
     assert "+8.9%" in text
@@ -1258,6 +1258,6 @@ def test_stress_replay_empty_scenarios_do_not_crash():
     }
     pdf = render_advisory_report_pdf_from_payload(payload)
     reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
-    text = reader.pages[-1].extract_text() or ""
+    text = "\n".join((page.extract_text() or "") for page in reader.pages)
     assert "Historische Stress-Szenarien" in text
     assert "Noch keine Stress-Szenarien" in text

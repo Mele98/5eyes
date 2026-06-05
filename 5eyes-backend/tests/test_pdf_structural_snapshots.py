@@ -56,6 +56,9 @@ REQUIRED_ANCHOR_STRINGS_MINIMAL = (
     "Depotcheck",              # Cover-Titel
     "Rechtliche Hinweise",     # Disclaimer-Header
     "Inhaltsverzeichnis",      # TOC-Header
+    "Compliance-Audit",        # FINMA-Audit-Block
+    "Geeignetheitspruefung",   # Sektion 19 im PDF sichtbar
+    "Methodology-Modelle",     # Sektion 20 im PDF sichtbar
 )
 
 # PDF darf KEINE dieser Strings enthalten (Branding-Disziplin)
