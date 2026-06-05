@@ -509,6 +509,38 @@ def refresh_market_data_now(
     return result
 
 
+@router.post('/fx-rates/refresh-now')
+def refresh_fx_rates_now(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Sprint U-99 (2026-06-05): FX-only Recovery-Trigger.
+
+    Aktualisiert ausschliesslich asset_class_fx_history (kein Product-
+    oder Asset-Class-Proxy-Sweep). Sinnvoll wenn Berater Wochenend-Pflege
+    der Reference-Data macht ohne den vollen Marktdaten-Refresh
+    anzustossen.
+    """
+    try:
+        from services.fx_rate_daily_refresh import run_daily_fx_refresh
+        result = run_daily_fx_refresh(db)
+    except Exception as exc:  # noqa: BLE001
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(exc))
+    audit_log(
+        db,
+        user_id=current_user.id,
+        user_name=getattr(current_user, "full_name", None) or getattr(current_user, "email", "admin"),
+        table_name="asset_class_fx_history",
+        record_id=str(result.get("started_at") or "fx_refresh"),
+        action="MARKET_DATA_REFRESH",
+        field_name="fx_only_refresh",
+        new_value=f"fx_added={result.get('fx_added', 0)} status={result.get('status', 'ok')}",
+    )
+    db.commit()
+    return result
+
+
 @router.get('/market-data/provider-health')
 def get_provider_health_registry(
     limit: int = Query(default=100, ge=1, le=500),
