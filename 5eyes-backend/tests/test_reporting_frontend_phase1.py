@@ -40,10 +40,12 @@ def test_inhaltsverzeichnis_page_renders_backend_chapters():
     assert "Inhaltsverzeichnis" in content
 
 
-def test_sidebar_lists_all_16_sections_and_active_state():
+def test_sidebar_lists_all_17_sections_and_active_state():
     content = _read("components/Sidebar.tsx")
     assert "data-testid=\"report-sidebar\"" in content
-    assert content.count("id: '") == 16
+    # Sektionen 1-16 = Standard-Report. Sektion 17 = Compliance-Dashboard
+    # (Sub-App-Aggregation der Backend-Sektionen 19-23).
+    assert content.count("id: '") == 17
     for title in (
         "Titelblatt",
         "Disclaimer",
@@ -104,4 +106,6 @@ def test_no_third_party_brands_in_phase1_frontend():
 def test_sidebar_has_stable_section_numbers():
     content = _read("components/Sidebar.tsx")
     numbers = [int(value) for value in re.findall(r"nr: (\d+)", content)]
-    assert numbers == list(range(1, 17))
+    # Sektion 17 = Compliance-Dashboard (Sub-App-Aggregation der
+    # Backend-Sektionen 19-23, siehe PR #163 + #165).
+    assert numbers == list(range(1, 18))

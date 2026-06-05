@@ -25,6 +25,10 @@ export const REPORT_SECTIONS: ReportSectionLink[] = [
   { id: 'statement-pm', nr: 14, title: 'Statement PM', path: 'statement-pm' },
   { id: 'weiteres-vorgehen', nr: 15, title: 'Weiteres Vorgehen', path: 'weiteres-vorgehen' },
   { id: 'beratungsprotokoll', nr: 16, title: 'Beratungsprotokoll', path: 'beratungsprotokoll' },
+  // Sprint Compliance-Dashboard (2026-06-05): aggregiert die 5
+  // Audit-Sektionen 19-23 (Suitability/Methodology/Recommendation/
+  // MandateLock/LiquidityCascade) in einer Berater-Übersicht.
+  { id: 'compliance', nr: 17, title: 'Compliance-Audit', path: 'compliance' },
 ];
 
 interface SidebarProps {
