@@ -20,10 +20,15 @@ consumeHandoffFromUrlFragment();
 // importieren koennen ohne main's createRoot-Side-Effect zu triggern.
 import { ROUTER_FUTURE_FLAGS } from './lib/routerFlags';
 
+// Sprint U-87 (2026-06-05): Top-Level Error Boundary.
+import { ErrorBoundary } from './components/ErrorBoundary';
+
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <BrowserRouter future={ROUTER_FUTURE_FLAGS}>
-      <App />
-    </BrowserRouter>
+    <ErrorBoundary>
+      <BrowserRouter future={ROUTER_FUTURE_FLAGS}>
+        <App />
+      </BrowserRouter>
+    </ErrorBoundary>
   </React.StrictMode>,
 );
