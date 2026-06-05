@@ -13,6 +13,9 @@ build/
 .coverage.*
 htmlcov/
 coverage.xml
+# Sprint U-106 (2026-06-05): Mutation-Testing-Cache
+.mutmut-cache/
+mutmut-stats.txt
 
 # Node / Electron
 node_modules/
