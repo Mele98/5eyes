@@ -149,6 +149,14 @@ class Settings(BaseSettings):
     # HSTS: nur aktivieren wenn https erzwungen (Reverse-Proxy).
     hsts_enabled: bool = False
 
+    # Sprint U-64 (2026-06-04): Telemetrie-Adapter (opt-in).
+    # sentry-sdk ist NICHT als harte Dependency in requirements.txt.
+    # Wer Telemetrie nutzen will: pip install sentry-sdk + DSN setzen.
+    telemetry_enabled: bool = False
+    telemetry_dsn: str = ''
+    telemetry_environment: str = ''  # leer = nimmt app_env
+    telemetry_sample_rate: float = 1.0
+
     # Optimizer (siehe docs/planning/2026-05-05-stochastic-optimizer-spec.md
     # und claude-bericht-Advisory-Methodik-assetallocation-optimierung-v3-codeplan.md).
     # Gueltige Werte:
