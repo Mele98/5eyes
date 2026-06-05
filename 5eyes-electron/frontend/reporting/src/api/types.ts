@@ -493,6 +493,8 @@ export interface AdvisoryReport {
   mandate_lock_status: MandateLockStatusData;
   /** U-21: Liquidity-Cascade Stage-3 Warning */
   liquidity_cascade: LiquidityCascadeData;
+  /** U-94: Optimizer-Run-History (FIDLEG Art. 9/14 Audit-Trace) */
+  optimizer_run_history: OptimizerRunHistoryData;
 }
 
 // Sprint U-66/U-73+74/U-69/U-22/U-21 (2026-06-04, konsolidiert):
@@ -548,4 +550,29 @@ export type LiquidityCascadeData = {
   warning_required: boolean;
   beratungsgespraech_pruefen: boolean;
   fidleg_basis: string;
+};
+
+// Sprint U-94 (2026-06-05): Optimizer-Run-History — Audit-Trace der letzten
+// Solver-Laeufe pro Mandat fuer FIDLEG Art. 9/14 Nachvollziehbarkeit.
+export type OptimizerRunHistoryItem = {
+  id: string;
+  /** ISO-Timestamp YYYY-MM-DDTHH:MM:SS.SSSZ */
+  run_at: string;
+  optimizer_mode: string;
+  role: string;
+  method: string;
+  status: string;
+  seed: number;
+  n_iterations: number;
+  n_paths: number;
+  objective_value_milli: number | null;
+  target_allocation_id: string | null;
+};
+
+export type OptimizerRunHistoryData = {
+  items: OptimizerRunHistoryItem[];
+  limit: number;
+  total_persisted: number;
+  fidleg_basis: string;
+  error?: string;
 };

@@ -139,6 +139,8 @@ def compute_advisory_report(
         "mandate_lock_status": _build_mandate_lock_status(db, mandate),
         # --- Sektion 23 (additiv, U-21): Liquidity-Cascade Stage-3 Warning
         "liquidity_cascade": _build_liquidity_cascade(db, mandate),
+        # --- Sektion 24 (additiv, U-94): Optimizer-Run-History
+        "optimizer_run_history": _build_optimizer_run_history(db, mandate),
     }
 
 
@@ -2525,4 +2527,78 @@ def _build_liquidity_cascade(
             "warning_required": False,
             "beratungsgespraech_pruefen": False,
             "fidleg_basis": "Art. 11 / Art. 13 FIDLEG",
+        }
+
+
+# ---------------------------------------------------------------------------
+# Sprint U-94 (2026-06-05): Optimizer-Run-History (Sektion 24).
+# ---------------------------------------------------------------------------
+
+# Anzahl der zuletzt persistierten Runs die in der Berater-Sicht
+# aufgelistet werden. Mehr als 10 wird unuebersichtlich; Compliance kann
+# via Admin-Endpoint die volle Liste abrufen.
+_OPTIMIZER_RUN_HISTORY_LIMIT = 10
+
+
+def _build_optimizer_run_history(
+    db: Session, mandate: Mandate,
+) -> dict[str, Any]:
+    """Liefert die letzten N Solver-Laufe fuer das Mandat als Audit-Trace.
+
+    Quelle: models.allocation.OptimizerRun (persistiert vom
+    portfolio_engine bei shadow_stochastic/stochastic-Modus). House-Matrix
+    laeuft kein Solver -> kein Run persistiert.
+
+    Liefert pro Run die Berater-relevanten Felder (run_at/mode/role/method/
+    status/seed/iterations/objective_value_milli) — *keine* der
+    JSON-Reasoning-Payloads, da fuer die Sektion 24 zu lang.
+
+    Robust gegen Schema-Mismatch (Tabelle fehlt/leere FK) -> leere Liste.
+    """
+    try:
+        from models.allocation import OptimizerRun
+
+        runs = (
+            db.query(OptimizerRun)
+            .filter(OptimizerRun.mandate_id == mandate.id)
+            .order_by(OptimizerRun.run_at.desc())
+            .limit(_OPTIMIZER_RUN_HISTORY_LIMIT)
+            .all()
+        )
+        items = [
+            {
+                "id": str(getattr(r, "id", "") or ""),
+                "run_at": str(getattr(r, "run_at", "") or ""),
+                "optimizer_mode": str(getattr(r, "optimizer_mode", "") or ""),
+                "role": str(getattr(r, "role", "") or ""),
+                "method": str(getattr(r, "method", "") or ""),
+                "status": str(getattr(r, "status", "") or ""),
+                "seed": _safe_int(getattr(r, "seed", 0)),
+                "n_iterations": _safe_int(getattr(r, "n_iterations", 0)),
+                "n_paths": _safe_int(getattr(r, "n_paths", 0)),
+                "objective_value_milli": _safe_int(getattr(r, "objective_value_milli", 0)) or None,
+                "target_allocation_id": (
+                    str(getattr(r, "target_allocation_id", "") or "") or None
+                ),
+            }
+            for r in runs
+        ]
+        total = (
+            db.query(OptimizerRun)
+            .filter(OptimizerRun.mandate_id == mandate.id)
+            .count()
+        )
+        return {
+            "items": items,
+            "limit": _OPTIMIZER_RUN_HISTORY_LIMIT,
+            "total_persisted": total,
+            "fidleg_basis": "Art. 9 / Art. 14 FIDLEG (Nachvollziehbarkeit Empfehlungs-Methodik)",
+        }
+    except Exception:  # noqa: BLE001
+        return {
+            "items": [],
+            "limit": _OPTIMIZER_RUN_HISTORY_LIMIT,
+            "total_persisted": 0,
+            "fidleg_basis": "Art. 9 / Art. 14 FIDLEG (Nachvollziehbarkeit Empfehlungs-Methodik)",
+            "error": "Optimizer-Run-History konnte nicht geladen werden.",
         }

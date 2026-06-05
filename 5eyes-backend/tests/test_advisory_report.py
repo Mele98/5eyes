@@ -145,6 +145,8 @@ def test_compute_returns_expected_top_level_structure(session_factory):
         "mandate_lock_status",
         # U-21: additive Sektion 23
         "liquidity_cascade",
+        # U-94: additive Sektion 24
+        "optimizer_run_history",
     ]
     assert list(report.keys()) == expected_order
 
@@ -1127,6 +1129,8 @@ def test_endpoint_returns_full_report_structure(session_factory):
         "mandate_lock_status",
         # U-21: additive Sektion 23
         "liquidity_cascade",
+        # U-94: additive Sektion 24
+        "optimizer_run_history",
     ]
     assert list(data.keys()) == expected
     assert data["schema_version"] == 2

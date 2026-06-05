@@ -35,8 +35,8 @@ import type {
 
 export function makeCover(): CoverData {
   return {
-    title: 'Depotcheck',
-    subtitle: 'Strategische Portfolioanalyse',
+    title: 'Strategische Portfolioanalyse',
+    subtitle: 'Persoenlicher Advisory-Report',
     client_name: 'Hans Muster',
     mandate_number: 'MX-FOUNDATION-01',
     report_date: '2026-05-27',
@@ -466,5 +466,15 @@ export function makeAdvisoryReport(): AdvisoryReport {
     recommendation_methodology: makeRecommendationMethodology(),
     mandate_lock_status: makeMandateLockStatus(),
     liquidity_cascade: makeLiquidityCascade(),
+    optimizer_run_history: makeOptimizerRunHistory(),
+  };
+}
+
+export function makeOptimizerRunHistory() {
+  return {
+    items: [],
+    limit: 10,
+    total_persisted: 0,
+    fidleg_basis: 'Art. 9 / Art. 14 FIDLEG (Nachvollziehbarkeit Empfehlungs-Methodik)',
   };
 }

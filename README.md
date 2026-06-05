@@ -84,6 +84,7 @@ CI läuft beides parallel (siehe `.github/workflows/test.yml`).
 | 21 | `recommendation_methodology` | U-69 (PR #163) |
 | 22 | `mandate_lock_status` | U-22 (PR #163) |
 | 23 | `liquidity_cascade` | U-21 (PR #163) |
+| 24 | `optimizer_run_history` | U-94 |
 
 ## Compliance-Stack 3-Schichten
 
