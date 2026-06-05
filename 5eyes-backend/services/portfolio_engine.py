@@ -1842,6 +1842,15 @@ def _expected_metrics(
     sharpe_x100 = 0
     if vol_bps > 0:
         sharpe_x100 = int(round(((net_return_bps - risk_free_bps) / vol_bps) * 100))
+    # Sprint U-96 (2026-06-05): Erweiterte Risikokennzahlen
+    # (Sortino/Calmar/Information-Ratio) — Pure-Math-Helper, Annahmen
+    # dokumentiert in services/risk_metrics_kpi.py.
+    from services.risk_metrics_kpi import compute_extended_risk_metrics
+    extended = compute_extended_risk_metrics(
+        return_bps=net_return_bps,
+        vol_bps=vol_bps,
+        risk_free_bps=risk_free_bps,
+    )
     return {
         "expected_return_bps": net_return_bps,
         "expected_return_gross_bps": gross_return_bps,
@@ -1849,6 +1858,7 @@ def _expected_metrics(
         "expected_volatility_bps": vol_bps,
         "sharpe_ratio_x100": sharpe_x100,
         "risk_free_bps": risk_free_bps,
+        **extended,
     }
 
 
