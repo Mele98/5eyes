@@ -45,6 +45,42 @@ def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 
 
+# Sprint U-103 (2026-06-05): Felder die NICHT in den Archiv-Snapshot
+# uebernommen werden (Identitaet/Lifecycle gehoeren zur neuen Zeile).
+_POLICY_NONCLONE_FIELDS = frozenset({"id", "version", "is_current", "valid_from", "valid_to"})
+
+
+def _archive_policy_snapshot(db: Session, policy: OptimizerPolicy, now: str) -> OptimizerPolicy:
+    """Sprint U-103 (2026-06-05): Snapshot der aktuellen Policy in eine
+    archivierte Zeile schreiben (is_current=0, valid_to=now). Damit kann
+    nach einem Update die historische Konfiguration rekonstruiert werden,
+    wie sie zum Zeitpunkt eines bestimmten TargetAllocation-Runs galt.
+
+    Praezise: alle Felder ausser id/version/is_current/valid_from/valid_to
+    werden 1:1 kopiert. Die archivierte Zeile bekommt:
+      - neue id (eigener PK)
+      - dieselbe version wie die aktuelle Zeile (= Stand der Archivierung)
+      - is_current=0
+      - valid_from = bisheriges valid_from der aktuellen Zeile
+      - valid_to   = now (Ende-der-Gueltigkeit)
+    """
+    snapshot_kwargs = {
+        column.name: getattr(policy, column.name)
+        for column in policy.__table__.columns
+        if column.name not in _POLICY_NONCLONE_FIELDS
+    }
+    snapshot = OptimizerPolicy(
+        id=new_uuid(),
+        version=policy.version,
+        is_current=0,
+        valid_from=policy.valid_from,
+        valid_to=now,
+        **snapshot_kwargs,
+    )
+    db.add(snapshot)
+    return snapshot
+
+
 def _get_mandate_or_404(mandate_id: str, db: Session, current_user: User) -> Mandate:
     return get_mandate_for_user_or_404(mandate_id, db, current_user)
 
@@ -873,9 +909,21 @@ def update_optimizer_policy(
     if not policy:
         raise HTTPException(status_code=404, detail=f"Policy {policy_id} nicht gefunden")
     payload = body.model_dump(exclude_none=True)
+    now = _now()
+    # Sprint U-103 (2026-06-05): vor In-Place-Update einen Archive-Snapshot
+    # der bisherigen Policy schreiben. Dadurch bleibt rekonstruierbar welche
+    # Werte zur Generierung einer historischen TargetAllocation in Kraft
+    # waren. Die aktuelle Zeile bleibt unter derselben policy_id erreichbar
+    # (FK-Integritaet bestehender TAs unveraendert).
+    if payload:
+        previous_version = policy.version
+        _archive_policy_snapshot(db, policy, now=now)
+        policy.version = previous_version + 1
+        policy.valid_from = now
+        policy.valid_to = None
     for field, value in payload.items():
         setattr(policy, field, value)
-    policy.updated_at = _now()
+    policy.updated_at = now
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="optimizer_policies", record_id=policy_id, action="UPDATE",
         new_value=", ".join(f"{k}={v}" for k, v in payload.items()))
