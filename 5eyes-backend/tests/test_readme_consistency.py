@@ -70,10 +70,10 @@ def test_readme_documents_health_endpoints():
 # Aggregator-Sektionen-Tabelle aktuell?
 # ---------------------------------------------------------------------------
 
-def test_readme_lists_all_23_aggregator_sections():
-    """Tabelle muss Sektionen 1-23 listen (Stand 2026-06-05)."""
+def test_readme_lists_all_24_aggregator_sections():
+    """Tabelle muss Sektionen 1-24 listen (Stand U-94 2026-06-05)."""
     text = _readme()
-    # Section-Keys nach Aggregator-Konsolidierung
+    # Section-Keys nach Aggregator-Konsolidierung + U-94
     for key in (
         "beratungsprotokoll",
         "stress_replay",
@@ -83,6 +83,7 @@ def test_readme_lists_all_23_aggregator_sections():
         "recommendation_methodology",
         "mandate_lock_status",
         "liquidity_cascade",
+        "optimizer_run_history",
     ):
         assert key in text, f"Aggregator-Key {key!r} fehlt in README-Tabelle"
 

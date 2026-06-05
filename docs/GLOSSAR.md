@@ -142,6 +142,15 @@ Modelle (CMA-Quellen, Optimizer-Modus). Aggregator-Sektion 20.
 Anlagehorizont. Default 1000 Pfade, antithetic, Cornish-Fisher fat-tails,
 deterministisch via Seed. Aggregator-Sektion 11.
 
+## O
+
+**Optimizer-Run-History** — Aggregator-Sektion 24
+(`optimizer_run_history`, U-94). Liste der letzten 10 Solver-Laufe
+(`OptimizerRun`-Tabelle) pro Mandat mit run_at/mode/role/method/status/
+seed/iterations/objective. Audit-Trace fuer Nachvollziehbarkeit der
+Empfehlungs-Methodik (FIDLEG Art. 9/14). House-Matrix-Modus persistiert
+keinen Run.
+
 ## P
 
 **Plugin-Tax** — Steuer-Architektur als Strategy-Pattern + Registry.
