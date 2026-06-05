@@ -657,6 +657,57 @@ def ensure_audit_log_indexes(target_engine: Engine = engine) -> None:
         ))
 
 
+PURGE_HISTORY_COLUMNS: tuple[str, ...] = (
+    "id",
+    "started_at",
+    "finished_at",
+    "purged_rows",
+    "skipped_providers_json",
+    "duration_seconds",
+    "errors_json",
+)
+
+PURGE_HISTORY_COLUMN_SQL_TYPES: dict[str, str] = {
+    "id": "INTEGER",
+    "started_at": "TEXT",
+    "finished_at": "TEXT",
+    "purged_rows": "INTEGER NOT NULL DEFAULT 0",
+    "skipped_providers_json": "TEXT",
+    "duration_seconds": "REAL",
+    "errors_json": "TEXT",
+}
+
+
+def ensure_purge_history_table(target_engine: Engine = engine) -> None:
+    """Create/upgrade market_data_purge_history idempotently."""
+    with target_engine.begin() as conn:
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS market_data_purge_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                started_at TEXT NOT NULL,
+                finished_at TEXT,
+                purged_rows INTEGER NOT NULL DEFAULT 0,
+                skipped_providers_json TEXT,
+                duration_seconds REAL,
+                errors_json TEXT
+            )
+        """))
+        existing = {
+            str(row[1])
+            for row in conn.execute(text("PRAGMA table_info(market_data_purge_history)")).fetchall()
+        }
+        for column_name, sql_type in PURGE_HISTORY_COLUMN_SQL_TYPES.items():
+            if column_name in existing:
+                continue
+            conn.execute(text(
+                f"ALTER TABLE market_data_purge_history ADD COLUMN {column_name} {sql_type}"
+            ))
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_market_data_purge_history_started "
+            "ON market_data_purge_history(started_at)"
+        ))
+
+
 def init_db() -> None:
     if settings.db_bootstrap_schema_on_startup:
         bootstrap_sqlite_schema(db_path=settings.db_path, db_key=getattr(settings, 'db_key', None))
@@ -666,6 +717,7 @@ def init_db() -> None:
     ensure_snapshot_tables()
     from services.market_data.provider_health_registry import ensure_provider_health_table
     ensure_provider_health_table(engine)
+    ensure_purge_history_table(engine)
     run_risk_assessment_answer_migration(engine)
     run_advisory_log_migration(engine)
     ensure_audit_log_actions()

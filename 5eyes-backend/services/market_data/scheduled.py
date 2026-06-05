@@ -23,15 +23,17 @@ def daily_cache_purge_job(
     session_factory: Callable[[], object],
 ) -> int:
     """Purge expired Cache-Eintraege. Returns Count geloeschter Eintraege."""
-    from .cache import CachedAggregator
-    from .factory import build_default_aggregator
-    # Wir bauen einen leichten Wrapper nur fuer Cache-Methoden (Aggregator
-    # selbst wird hier nicht aufgerufen).
-    cached = CachedAggregator(
-        base=build_default_aggregator(),
-        session_factory=session_factory,
-    )
-    purged = cached.purge_expired()
+    from .cache_purge import run_daily_cache_purge
+
+    db = session_factory()
+    try:
+        report = run_daily_cache_purge(db)
+    finally:
+        try:
+            db.close()
+        except Exception:  # noqa: BLE001
+            pass
+    purged = int(report.get("purged_rows") or 0)
     logger.info("daily_cache_purge_job: %d expired entries removed", purged)
     return purged
 
