@@ -13,7 +13,7 @@ from models.snapshots import AssetClassAnnualReturn, AssetClassPriceHistory
 from models.users import User
 from schemas.review import AuditLogEntry, AuditLogPage
 from services.audit import log as audit_log
-from services.auth import require_admin
+from services.auth import require_admin, require_advisor
 from services.foundation_example import upsert_foundation_example_case
 from services.maintenance import (
     build_compliance_status,
@@ -432,6 +432,34 @@ def reset_provider_health_registry(
     )
     db.commit()
     return {"deleted": deleted, "provider_name": provider_name, "status": "reset"}
+
+
+@router.get('/market-data/purge-history')
+def get_market_data_purge_history(
+    limit: int = Query(default=20, ge=1, le=200),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    _ = current_user
+    from services.market_data.cache_purge import list_purge_history
+
+    return {
+        "items": list_purge_history(db, limit=limit),
+        "limit": limit,
+        "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+    }
+
+
+@router.post('/market-data/purge-now')
+def purge_market_data_cache_now(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_advisor),
+):
+    """Manual recovery trigger for the health-aware market-data cache purge."""
+    _ = current_user
+    from services.market_data.cache_purge import run_daily_cache_purge
+
+    return run_daily_cache_purge(db)
 
 
 @router.post('/db/optimize')

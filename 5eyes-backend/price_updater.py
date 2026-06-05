@@ -973,6 +973,7 @@ def _register_market_data_jobs(target_scheduler: Any) -> None:
             ),
             id="daily_cache_purge",
             replace_existing=True,
+            misfire_grace_time=3600,
         )
         logger.info(
             "daily_cache_purge registered for %02d:%02d %s",

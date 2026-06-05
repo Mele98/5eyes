@@ -46,6 +46,8 @@ def test_cache_purge_registered_when_enabled(monkeypatch, fake_scheduler):
     job_ids = [call.kwargs["id"] for call in fake_scheduler.add_job.call_args_list]
     assert "daily_cache_purge" in job_ids
     assert "weekly_market_data_validation" not in job_ids
+    purge_call = next(call for call in fake_scheduler.add_job.call_args_list if call.kwargs["id"] == "daily_cache_purge")
+    assert purge_call.kwargs["misfire_grace_time"] == 3600
 
 
 def test_cache_purge_skipped_when_disabled(monkeypatch, fake_scheduler):
