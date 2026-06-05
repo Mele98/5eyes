@@ -112,6 +112,53 @@ def database_integrity(
     return run_integrity_check(db)
 
 
+@router.post('/recommendation-runs/cleanup')
+def cleanup_recommendation_runs_endpoint(
+    body: dict | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Sprint U-104 (2026-06-05): RecommendationRuns aelter als
+    retention_days (default 90) loeschen. Berater-Trigger, kein Cron
+    (Anlagephilosophie ADR-003).
+
+    Body (alles optional):
+      - retention_days: int (default 90, min 30)
+      - dry_run: bool (default False)
+    """
+    from services.recommendation_run_cleanup import cleanup_recommendation_runs
+
+    payload = body or {}
+    retention_days = payload.get("retention_days")
+    dry_run = bool(payload.get("dry_run", False))
+    try:
+        result = cleanup_recommendation_runs(
+            db,
+            retention_days=int(retention_days) if retention_days is not None else None,
+            dry_run=dry_run,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+    audit_log(
+        db,
+        user_id=current_user.id,
+        user_name=getattr(current_user, "full_name", None) or getattr(current_user, "email", "admin"),
+        table_name="recommendation_runs",
+        record_id=f"cleanup-cutoff-{result.cutoff_iso}",
+        action="DELETE",
+        field_name="bulk_cleanup",
+        new_value=(
+            f"dry_run={dry_run} "
+            f"days={result.retention_days} "
+            f"runs={result.deleted_runs} "
+            f"positions={result.deleted_positions}"
+        ),
+    )
+    db.commit()
+    return result.to_dict()
+
+
 @router.post('/db/backup')
 def backup_database(current_user: User = Depends(require_admin)):
     return create_backup()
