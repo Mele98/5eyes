@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { NavLink } from 'react-router-dom';
+import { ThemeToggle } from './ThemeToggle';
 
 export interface ReportSectionLink {
   id: string;
@@ -93,6 +94,9 @@ export function Sidebar({ mandateId, activeSection }: SidebarProps) {
             );
           })}
         </ol>
+        <div className="mt-8 border-t border-rule pt-4">
+          <ThemeToggle />
+        </div>
       </nav>
     </aside>
   );

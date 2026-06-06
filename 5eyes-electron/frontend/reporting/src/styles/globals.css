@@ -15,6 +15,38 @@
     font-feature-settings: 'kern' 1, 'liga' 1;
   }
 
+  /* Sprint U-50 (2026-06-06): Dark-Mode-Tokens.
+   * Bewusst gedaempfte Variante mit Navy-Hintergrund + Offwhite-Text,
+   * NICHT schwarz/weiss-Hochkontrast. Bleibt Swiss-Private-Banking-
+   * Aesthetik treu. */
+  html.dark {
+    color-scheme: dark;
+  }
+  html.dark body {
+    background-color: #0F1C2E;
+    color: #FAFAF6;
+  }
+  html.dark .bg-canvas {
+    background-color: #0F1C2E;
+  }
+  html.dark .bg-canvas-panel,
+  html.dark .bg-canvas-subtle {
+    background-color: #16263A;
+  }
+  html.dark .text-ink {
+    color: #FAFAF6;
+  }
+  html.dark .text-ink-muted {
+    color: #C5CDDA;
+  }
+  html.dark .text-ink-subtle {
+    color: #8E99AC;
+  }
+  html.dark .border-rule,
+  html.dark .border-rule-strong {
+    border-color: #2A3B52;
+  }
+
   /* Tabellen: dünne Linien, ruhiges Padding (kein Excel-Look) */
   table {
     @apply w-full border-collapse;
