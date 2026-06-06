@@ -43,6 +43,16 @@ BUCKET_LABELS = {
 }
 
 
+# Sprint U-39 (2026-06-06): Schwellen fuer Concentration- und
+# Drift-Warnings als benannte Konstanten — vorher als Magic-Numbers in
+# der grossen compute_depot_check-Funktion verstreut.
+_HHI_COUNTRY_WARNING_THRESHOLD = 5000  # > 5000 = single-country dominiert
+_HHI_SECTOR_WARNING_THRESHOLD = 2500   # > 2500 = wenig diversifiziert
+_HHI_TOP_POSITIONS_WARNING_THRESHOLD = 1500
+_ILLIQUID_WARNING_THRESHOLD_BPS = 3000
+_DRIFT_WARNING_THRESHOLD_BPS = 1500    # = 15 Prozentpunkte
+
+
 def _bucket_key_from_product(product: Product) -> str:
     """Mappt Product.asset_class auf den Bucket-Key (englisch)."""
     raw = str(product.asset_class or "").strip().lower()
@@ -103,14 +113,12 @@ def _bucket_from_position_type(position_type: str | None) -> str:
     return aliases.get(raw, "liquidity")
 
 
-def compute_depot_check(db: Session, mandate: Mandate) -> dict:
-    """Liefert eine vollständige Depot-Check-Analyse für einen Mandanten.
-
-    Verwendet primär RecommendationPositions (aktuelle Holdings mit
-    konkreten Produkten) und fällt zurück auf WealthPositions (allgemeine
-    Beratungs-Positionen ohne ISIN/Produkt-Mapping).
+def _init_result_dict(mandate: Mandate) -> dict:
+    """Sprint U-39 (2026-06-06): Initialisiert das Result-Dict mit allen
+    erwarteten Top-Level-Keys + Default-Werten. Extrahiert aus
+    compute_depot_check, damit die Hauptfunktion uebersichtlicher wird.
     """
-    result: dict = {
+    return {
         "mandate_id": str(getattr(mandate, "id", "") or ""),
         "total_advisory_wealth_rappen": 0,
         "buckets": {},  # bucket → {ist_bps, soll_bps, ist_rappen, drift_bps, in_band, band}
@@ -151,15 +159,27 @@ def compute_depot_check(db: Session, mandate: Mandate) -> dict:
         "warnings": [],
     }
 
-    # 1. Aktuelle Holdings laden (RecommendationRun-basiert)
+
+def _load_positions(
+    db: Session, mandate: Mandate,
+) -> tuple[list[tuple[RecommendationPosition, Product]], list[tuple[WealthPosition, str]], int]:
+    """Sprint U-39 (2026-06-06): Laedt Holdings + berechnet total_rappen.
+
+    Returns (positions_with_products, wealth_only_positions, total_rappen).
+    Bevorzugt RecommendationRun-basierte Positionen, faellt auf WealthPosition
+    zurueck wenn kein Run vorhanden oder leer. Verhalten 1:1 wie der
+    Original-Block in compute_depot_check.
+    """
+    positions_with_products: list[tuple[RecommendationPosition, Product]] = []
+    wealth_only_positions: list[tuple[WealthPosition, str]] = []
+    total_rappen = 0
+
     latest_run = (
         db.query(RecommendationRun)
         .filter(RecommendationRun.mandate_id == mandate.id)
         .order_by(RecommendationRun.created_at.desc())
         .first()
     )
-    positions_with_products: list[tuple[RecommendationPosition, Product]] = []
-    total_rappen = 0
     if latest_run is not None:
         rec_positions = (
             db.query(RecommendationPosition)
@@ -183,8 +203,7 @@ def compute_depot_check(db: Session, mandate: Mandate) -> dict:
                 positions_with_products.append((rec_pos, prod))
                 total_rappen += current_amount
 
-    # 2. Falls keine RecommendationPositions: WealthPositions als Fallback
-    wealth_only_positions: list[tuple[WealthPosition, str]] = []
+    # Fallback: WealthPositions wenn keine RecommendationPositions
     if not positions_with_products:
         client_id = getattr(mandate, "client_id", None)
         if client_id:
@@ -201,8 +220,93 @@ def compute_depot_check(db: Session, mandate: Mandate) -> dict:
             for wp in wp_rows:
                 amount = _safe_int(getattr(wp, "current_value_rappen", 0))
                 if amount > 0:
-                    wealth_only_positions.append((wp, _bucket_from_position_type(getattr(wp, "position_type", ""))))
+                    wealth_only_positions.append(
+                        (wp, _bucket_from_position_type(getattr(wp, "position_type", "")))
+                    )
                     total_rappen += amount
+
+    return positions_with_products, wealth_only_positions, total_rappen
+
+
+def _aggregate_warnings(result: dict) -> None:
+    """Sprint U-39 (2026-06-06): Sammelt alle Warning-Texte in result['warnings'].
+
+    Mutiert die uebergebene result-Dict (kein Return). Schwellen sind als
+    Modul-Konstanten benannt (siehe oben), nicht mehr Magic-Numbers.
+    """
+    hhi = result["concentration_hhi"]
+    if hhi["country"] > _HHI_COUNTRY_WARNING_THRESHOLD:
+        result["warnings"].append(
+            f"Hohe Länder-Konzentration (HHI={hhi['country']}, "
+            f">{_HHI_COUNTRY_WARNING_THRESHOLD} = Single-Country-dominiert)"
+        )
+    if hhi["sector"] > _HHI_SECTOR_WARNING_THRESHOLD:
+        result["warnings"].append(
+            f"Hohe Sektor-Konzentration (HHI={hhi['sector']}, "
+            f">{_HHI_SECTOR_WARNING_THRESHOLD} = wenig diversifiziert)"
+        )
+    if hhi["top_positions"] > _HHI_TOP_POSITIONS_WARNING_THRESHOLD:
+        top_3_weight = sum(p["weight_bps"] for p in result["top_positions"][:3])
+        result["warnings"].append(
+            f"Top-3-Positionen = {top_3_weight/100:.1f}% des Depots (Konzentrations-Risiko)"
+        )
+    if result["liquidity_profile"]["illiquid_bps"] > _ILLIQUID_WARNING_THRESHOLD_BPS:
+        result["warnings"].append(
+            f"Illiquider Anteil = {result['liquidity_profile']['illiquid_bps']/100:.1f}% "
+            f"(>{_ILLIQUID_WARNING_THRESHOLD_BPS//100}%)"
+        )
+
+    # Bandbreiten-Verstoesse
+    for bucket_info in result["buckets"].values():
+        if bucket_info.get("in_band") is False:
+            ist_pct = bucket_info["ist_bps"] / 100
+            band_text = (
+                f"{bucket_info['band_min_bps']/100:.1f}%-"
+                f"{bucket_info['band_max_bps']/100:.1f}%"
+            )
+            result["warnings"].append(
+                f"{bucket_info['label']} außerhalb Toleranzband: "
+                f"{ist_pct:.1f}% (Band: {band_text})"
+            )
+
+    # Drift-Warnings fuer Country/Sector/Currency-Einzelpositionen
+    for dimension_label, drift_key in (
+        ("Land", "country_exposure_drift_bps"),
+        ("Sektor", "sector_exposure_drift_bps"),
+        ("Währung", "currency_exposure_drift_bps"),
+    ):
+        drift_map = result.get(drift_key) or {}
+        if not drift_map:
+            continue
+        worst_key, worst_value = max(
+            drift_map.items(), key=lambda kv: abs(int(kv[1] or 0))
+        )
+        if abs(int(worst_value)) >= _DRIFT_WARNING_THRESHOLD_BPS:
+            direction = "Überhang" if worst_value > 0 else "Unterhang"
+            result["warnings"].append(
+                f"{dimension_label}-Drift {direction} bei '{worst_key}': "
+                f"{worst_value/100:+.1f} Prozentpunkte gegenüber Empfehlung."
+            )
+
+
+def compute_depot_check(db: Session, mandate: Mandate) -> dict:
+    """Liefert eine vollständige Depot-Check-Analyse für einen Mandanten.
+
+    Verwendet primär RecommendationPositions (aktuelle Holdings mit
+    konkreten Produkten) und fällt zurück auf WealthPositions (allgemeine
+    Beratungs-Positionen ohne ISIN/Produkt-Mapping).
+
+    Sprint U-39 (2026-06-06): Helfer-Extraktion fuer Zyklomatik-Reduktion.
+    Top-Level-Flow nun klar 4-stufig:
+      1. _init_result_dict — Default-Struktur
+      2. _load_positions — Holdings laden + total_rappen
+      3. Aggregation der Buckets/Exposures/HHI/Top-Positionen
+      4. _aggregate_warnings — Warning-Texte zusammenstellen
+    """
+    result = _init_result_dict(mandate)
+
+    # Sprint U-39 (2026-06-06): Step 1+2 extrahiert in _load_positions().
+    positions_with_products, wealth_only_positions, total_rappen = _load_positions(db, mandate)
 
     result["total_advisory_wealth_rappen"] = total_rappen
     if total_rappen <= 0:
@@ -415,53 +519,6 @@ def compute_depot_check(db: Session, mandate: Mandate) -> dict:
     for tier, amount in liquidity_buckets.items():
         result["liquidity_profile"][f"{tier}_bps"] = int(round(amount / total_rappen * 10000)) if total_rappen > 0 else 0
 
-    # 10. Warnings: Concentration-Risiken
-    if result["concentration_hhi"]["country"] > 5000:
-        result["warnings"].append(
-            f"Hohe Länder-Konzentration (HHI={result['concentration_hhi']['country']}, >5000 = Single-Country-dominiert)"
-        )
-    if result["concentration_hhi"]["sector"] > 2500:
-        result["warnings"].append(
-            f"Hohe Sektor-Konzentration (HHI={result['concentration_hhi']['sector']}, >2500 = wenig diversifiziert)"
-        )
-    if result["concentration_hhi"]["top_positions"] > 1500:
-        top_3_weight = sum(p["weight_bps"] for p in result["top_positions"][:3])
-        result["warnings"].append(
-            f"Top-3-Positionen = {top_3_weight/100:.1f}% des Depots (Konzentrations-Risiko)"
-        )
-    if result["liquidity_profile"]["illiquid_bps"] > 3000:
-        result["warnings"].append(
-            f"Illiquider Anteil = {result['liquidity_profile']['illiquid_bps']/100:.1f}% (>30%)"
-        )
-    # Bandbreiten-Verstöße
-    for bucket_key, bucket_info in result["buckets"].items():
-        if bucket_info.get("in_band") is False:
-            ist_pct = bucket_info["ist_bps"] / 100
-            band_text = f"{bucket_info['band_min_bps']/100:.1f}%-{bucket_info['band_max_bps']/100:.1f}%"
-            result["warnings"].append(
-                f"{bucket_info['label']} außerhalb Toleranzband: {ist_pct:.1f}% (Band: {band_text})"
-            )
-
-    # Sprint U-P20: Drift-Warnings für Country/Sector/Currency-Einzelpositionen.
-    # Schwelle: > 1500 bps Drift (= 15 Prozentpunkte) ist beraterisch
-    # relevant. Größter Drift pro Dimension wird genannt.
-    for dimension_label, drift_key in (
-        ("Land", "country_exposure_drift_bps"),
-        ("Sektor", "sector_exposure_drift_bps"),
-        ("Währung", "currency_exposure_drift_bps"),
-    ):
-        drift_map = result.get(drift_key) or {}
-        if not drift_map:
-            continue
-        # Größter absoluter Drift
-        worst_key, worst_value = max(
-            drift_map.items(), key=lambda kv: abs(int(kv[1] or 0))
-        )
-        if abs(int(worst_value)) >= 1500:
-            direction = "Überhang" if worst_value > 0 else "Unterhang"
-            result["warnings"].append(
-                f"{dimension_label}-Drift {direction} bei '{worst_key}': "
-                f"{worst_value/100:+.1f} Prozentpunkte gegenüber Empfehlung."
-            )
-
+    # Sprint U-39 (2026-06-06): Warnings-Aggregation extrahiert.
+    _aggregate_warnings(result)
     return result
