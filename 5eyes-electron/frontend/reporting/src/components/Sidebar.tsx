@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { NavLink } from 'react-router-dom';
+import { Logo } from './Logo';
 import { ThemeToggle } from './ThemeToggle';
 
 export interface ReportSectionLink {
@@ -48,7 +49,7 @@ export function Sidebar({ mandateId, activeSection }: SidebarProps) {
     >
       <div className="flex items-center justify-between px-6 py-5 lg:block lg:px-6 lg:py-12">
         <div>
-          <p className="font-serif text-h3 text-ink">5eyes</p>
+          <Logo width={92} className="text-ink" />
           <p className="mt-1 text-micro uppercase text-ink-subtle">
             Advisory Report
           </p>
