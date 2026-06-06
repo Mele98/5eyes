@@ -33,6 +33,8 @@ from services.pdf.components.advisory_palette import (
     MARGIN_TOP,
     PAGE_SIZE,
 )
+# Sprint U-91 (2026-06-06): Wasserzeichen-Helper
+from services.pdf.components.watermark import draw_watermark
 
 
 register_editorial_fonts()
@@ -46,12 +48,15 @@ class AdvisoryNumberedCanvas(Canvas):
         *args,
         mandate_number: str,
         generated_at_iso: str,
+        watermark_mode: str = "none",
         **kwargs,
     ) -> None:
         super().__init__(*args, **kwargs)
         self._saved_page_states: list[dict[str, object]] = []
         self._advisory_mandate_number = str(mandate_number or "—")
         self._advisory_generated_at = _format_swiss_datetime(generated_at_iso)
+        # Sprint U-91 (2026-06-06): Wasserzeichen-Modus
+        self._advisory_watermark_mode = str(watermark_mode or "none").strip().lower()
 
     def showPage(self) -> None:  # noqa: N802 - ReportLab API name
         self._saved_page_states.append(dict(self.__dict__))
@@ -72,6 +77,16 @@ class AdvisoryNumberedCanvas(Canvas):
                 total_pages=total_pages,
                 mandate_number=self._advisory_mandate_number,
                 generated_at_pretty=self._advisory_generated_at,
+            )
+            # Sprint U-91 (2026-06-06): Wasserzeichen ueber alle Seiten
+            # (auch Cover) — Berater erkennt Entwurf/Vertraulich auf jeder
+            # ausgedruckten Seite.
+            page_width, page_height = PAGE_SIZE
+            draw_watermark(
+                self,
+                mode=self._advisory_watermark_mode,
+                page_width=page_width,
+                page_height=page_height,
             )
             Canvas.showPage(self)
         Canvas.save(self)
