@@ -1,5 +1,6 @@
 import re
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from datetime import date, datetime, timezone
 from database import get_db, new_uuid
@@ -277,6 +278,56 @@ def _normalize_goal_payload(data: dict, existing: Goal | None = None) -> dict:
 
 def _get_mandate_or_404(mandate_id: str, db: Session, current_user: User) -> Mandate:
     return get_mandate_for_user_or_404(mandate_id, db, current_user)
+
+
+def _resolve_goal_rank_conflict(
+    mandate_id: str,
+    requested_rank: int,
+    db: Session,
+    existing_id: str | None = None,
+) -> int:
+    """Sprint 2026-06-06 Fix: Bei Goal-Rank-Conflict auto-shift auf naechsten freien Rang.
+
+    Hintergrund: Frontend mapped Haerte → Rang (Hart=1, Primaer=2, Opp=3). Mit der
+    naiv-eindeutigen Rang-Pruefung konnte der Berater max 3 Goals erfassen (eines pro
+    Haerte). Beim 4. Goal kam 409. Das war ein UX-Blocker.
+
+    Loesung: Rang ist KEINE Haerte-Klassifikation (das ist `hardness`), sondern reine
+    UI-Sortier-Hilfe. Wenn der gewuenschte Rang belegt ist, vergibt das Backend
+    `max(existing_rank) + 1` (append-at-end). Die Haerte bleibt im `hardness`-Feld
+    semantisch korrekt — nur die visuelle Sortier-Position aendert sich.
+
+    Args:
+        mandate_id: Mandate fuer den Scope
+        requested_rank: Vom Frontend gewuenschter Rang
+        db: SQLAlchemy Session
+        existing_id: Beim Edit der ID des Goals selbst (damit es nicht mit sich
+            kollidiert)
+
+    Returns:
+        Den final zu nutzenden Rang. Gleich requested_rank falls frei, sonst
+        max(other_ranks) + 1.
+    """
+    query = db.query(Goal).filter(
+        Goal.mandate_id == mandate_id,
+        Goal.rank == requested_rank,
+        Goal.is_active == 1,
+        Goal.deleted_at.is_(None),
+    )
+    if existing_id is not None:
+        query = query.filter(Goal.id != existing_id)
+    if not query.first():
+        return int(requested_rank)
+    # Conflict: finde max benutzten Rang (excl. self) und vergebe max+1.
+    max_query = db.query(func.max(Goal.rank)).filter(
+        Goal.mandate_id == mandate_id,
+        Goal.is_active == 1,
+        Goal.deleted_at.is_(None),
+    )
+    if existing_id is not None:
+        max_query = max_query.filter(Goal.id != existing_id)
+    max_rank = max_query.scalar()
+    return int(max_rank or 0) + 1
 
 
 _AMORTIZATION_LABEL_RE = re.compile(r"\b(tilgung|amortisation|amortization)\b", re.IGNORECASE)
@@ -605,16 +656,10 @@ def create_goal(
 ):
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
     data = _normalize_goal_payload(body.model_dump())
-    # Check rank uniqueness
-    existing_rank = db.query(Goal).filter(
-        Goal.mandate_id == mandate_id,
-        Goal.rank == data["rank"],
-        Goal.is_active == 1,
-        Goal.deleted_at.is_(None)
-    ).first()
-    if existing_rank:
-        raise HTTPException(status_code=409,
-            detail=f"Rang {data['rank']} ist bereits vergeben. Bitte anderen Rang wählen.")
+    # Sprint 2026-06-06 Fix: Rang-Konflikt auto-aufloesen statt 409. Hintergrund:
+    # Frontend mapped Haerte->Rang naiv (Hart=1, Primaer=2, Opp=3), so dass max
+    # 3 Goals erfassbar waren. Loesung: bei Conflict auto-shift auf max+1.
+    data["rank"] = _resolve_goal_rank_conflict(mandate_id, int(data["rank"]), db)
     now = _now()
     goal = Goal(
         id=new_uuid(),
@@ -653,16 +698,10 @@ def update_goal(
     updates = _normalize_goal_payload(body.model_dump(exclude_unset=True), goal)
     new_rank = updates.get("rank")
     if new_rank is not None and int(new_rank) != int(goal.rank or 0):
-        existing_rank = db.query(Goal).filter(
-            Goal.mandate_id == mandate_id,
-            Goal.rank == new_rank,
-            Goal.id != goal_id,
-            Goal.is_active == 1,
-            Goal.deleted_at.is_(None)
-        ).first()
-        if existing_rank:
-            raise HTTPException(status_code=409,
-                detail=f"Rang {new_rank} ist bereits vergeben. Bitte anderen Rang wählen.")
+        # Sprint 2026-06-06 Fix: Rang-Konflikt beim Update auto-aufloesen statt 409.
+        updates["rank"] = _resolve_goal_rank_conflict(
+            mandate_id, int(new_rank), db, existing_id=goal_id,
+        )
     for field, value in updates.items():
         if isinstance(value, bool):
             value = 1 if value else 0
