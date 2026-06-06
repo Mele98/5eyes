@@ -27,12 +27,25 @@ export interface AmpelPillProps {
   size?: 'sm' | 'md';
 }
 
+// Sprint U-90 (2026-06-06): a11y-Mapping fuer Screen-Reader-Verbalisierung
+// pro Ampel-Status. Wichtig: visuelle Farbe darf nicht der einzige
+// Informationstraeger sein (WCAG 1.4.1 'Use of Color').
+const ARIA_STATUS_DESCRIPTION: Record<keyof typeof PALETTE, string> = {
+  gruen: 'Status gruen: keine Massnahme erforderlich',
+  gelb: 'Status gelb: Achtung, Pruefung empfohlen',
+  rot: 'Status rot: Handlungsbedarf',
+  nicht_beurteilbar: 'Status nicht beurteilbar: Daten unvollstaendig',
+  unknown: 'Status unbekannt',
+};
+
 export function AmpelPill({ status, label, size = 'sm' }: AmpelPillProps) {
   const key = (status in PALETTE ? status : 'unknown') as keyof typeof PALETTE;
   const palette = PALETTE[key];
   const padding = size === 'md' ? 'px-3 py-1' : 'px-2 py-0.5';
   return (
     <span
+      role="status"
+      aria-label={ARIA_STATUS_DESCRIPTION[key]}
       className={[
         'inline-flex items-center gap-1.5 rounded-full font-semibold uppercase tracking-widest',
         size === 'md' ? 'text-caption' : 'text-micro',
