@@ -1195,16 +1195,27 @@ def _achievement_score_kpi(score_bps: int, styles: dict):
 
 
 def _goals_table(goals: list[dict], styles: dict) -> Table:
+    """Sprint U-72 (2026-06-06): Goal-Achievability-Tabelle mit 7 Spalten
+    (Ziel/Typ/Hartheit/Ziel-Datum/Zielwert/Status/Wahrscheinlichkeit).
+
+    Pre-U-72 hatte die Tabelle nur 5 Spalten (Ziel/Typ/Zielwert/Status/
+    Wahrscheinlichkeit) — Hartheit (Hart/Primär/Opportunistisch) und
+    Ziel-Datum fehlten obwohl beide im goal_achievability_json
+    aus Stochastic-Optimizer verfuegbar sind und FINMA-relevant sind.
+    """
     page_width, _ = PAGE_SIZE
     inner_width = page_width - MARGIN_LEFT - MARGIN_RIGHT
-    col_label = inner_width * 0.34
-    col_type = inner_width * 0.16
-    col_target = inner_width * 0.17
-    col_status = inner_width * 0.16
-    col_prob = inner_width - col_label - col_type - col_target - col_status
+    col_label = inner_width * 0.24
+    col_type = inner_width * 0.12
+    col_hardness = inner_width * 0.14
+    col_target_date = inner_width * 0.12
+    col_target = inner_width * 0.14
+    col_status = inner_width * 0.13
+    col_prob = inner_width - col_label - col_type - col_hardness - col_target_date - col_target - col_status
 
     header = [
         _th("Ziel", styles), _th("Typ", styles),
+        _th("Hartheit", styles), _th("Ziel-Datum", styles),
         _th("Zielwert", styles), _th("Status", styles),
         _th("Wahrscheinlichkeit", styles),
     ]
@@ -1212,6 +1223,8 @@ def _goals_table(goals: list[dict], styles: dict) -> Table:
     for g in goals:
         label = _safe_string(g.get("label"))
         goal_type = _safe_string(g.get("goal_type"))
+        hardness = _safe_string(g.get("hardness")) or "—"
+        target_date = _safe_string(g.get("target_date")) or "—"
         target = format_chf_rappen(g.get("target_amount_rappen"))
         status = str(g.get("status") or "data_pending").lower()
         prob = format_bps_as_pct(g.get("probability_bps"))
@@ -1220,13 +1233,18 @@ def _goals_table(goals: list[dict], styles: dict) -> Table:
                 styles["caption"], color=COLOR_INK, font=FONT_SANS_BOLD,
             )),
             Paragraph(_escape(goal_type), styles["caption"]),
+            Paragraph(_escape(hardness), styles["caption"]),
+            Paragraph(_escape(target_date), styles["caption_mono"]),
             Paragraph(_escape(target), styles["caption"]),
             _goal_status_pill(status, styles),
             Paragraph(_escape(prob), _ar_paragraph_style(
                 styles["caption_mono"], color=COLOR_INK,
             )),
         ])
-    table = Table(rows, colWidths=[col_label, col_type, col_target, col_status, col_prob])
+    table = Table(rows, colWidths=[
+        col_label, col_type, col_hardness, col_target_date,
+        col_target, col_status, col_prob,
+    ])
     table.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("LEFTPADDING", (0, 0), (-1, -1), 4),
@@ -1235,7 +1253,7 @@ def _goals_table(goals: list[dict], styles: dict) -> Table:
         ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
         ("LINEBELOW", (0, 0), (-1, 0), 0.4, COLOR_RULE),
         ("LINEBELOW", (0, 1), (-1, -1), 0.2, COLOR_RULE),
-        ("ALIGN", (4, 0), (4, -1), "RIGHT"),
+        ("ALIGN", (6, 0), (6, -1), "RIGHT"),  # Wahrscheinlichkeit rechts
     ]))
     return table
 
