@@ -35,6 +35,7 @@ from sqlalchemy.orm import Session
 
 from models.mandates import Mandate
 from models.users import User
+from services.cost_disclosure import build_cost_disclosure
 from services.advisory_report import compute_advisory_report
 from services.pdf.fonts import register_editorial_fonts
 from services.pdf.components.advisory_page_chrome import (
@@ -43,6 +44,7 @@ from services.pdf.components.advisory_page_chrome import (
     make_advisory_page_chrome,
 )
 from services.pdf.components.compliance_audit import render_compliance_audit_section
+from services.pdf.components.kostenausweis import build_kostenausweis_flowables
 from services.pdf.components.advisory_palette import (
     COLOR_ACCENT,
     COLOR_CANVAS_SUBTLE,
@@ -93,6 +95,21 @@ def render_advisory_report_pdf(
     1:1 dieselben Daten. Inhalt aktuell: Cover + Disclaimer + TOC (PR A).
     """
     payload = compute_advisory_report(db, mandate, advisor=advisor)
+    if not payload.get("cost_disclosure"):
+        try:
+            payload["cost_disclosure"] = build_cost_disclosure(db, mandate)
+        except Exception:
+            logger.warning(
+                "Ex-ante cost disclosure failed; rendering degraded section.",
+                exc_info=True,
+            )
+            payload["cost_disclosure"] = {
+                "data_pending": True,
+                "warnings": [
+                    "Kosten konnten für diesen Bericht nicht vollständig "
+                    "ermittelt werden."
+                ],
+            }
     return render_advisory_report_pdf_from_payload(payload)
 
 
@@ -225,6 +242,13 @@ def _build_all_flowables(payload: dict[str, Any], styles: dict) -> list[Any]:
     flowables.extend(_build_beratungsprotokoll_flowables(payload.get("beratungsprotokoll") or {}, styles))
     flowables.append(PageBreak())
     flowables.extend(_build_stress_replay_flowables(payload.get("stress_replay") or {}, styles))
+    flowables.append(PageBreak())
+    # Der Kostenausweis folgt im Dossier auf die Interessenkonflikt-
+    # Offenlegungen (Sektion 18) und vor dem konsolidierten Compliance-Audit.
+    flowables.extend(build_kostenausweis_flowables(
+        payload.get("cost_disclosure") or {},
+        styles,
+    ))
     flowables.append(PageBreak())
     render_compliance_audit_section(payload, flowables, styles)
     return flowables
