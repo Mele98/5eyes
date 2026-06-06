@@ -11,8 +11,10 @@
     "build:backend": "node scripts/build-backend.js",
     "pack": "npm run preflight:release && npm run build:backend && electron-builder --dir",
     "dist:win": "npm run preflight:release && npm run build:backend && electron-builder --win nsis",
-    "preflight:release": "node scripts/release-check.js",
-    "dist:win:portable": "npm run preflight:release && npm run build:backend && electron-builder --win portable"
+    "dist:win:portable": "npm run preflight:release && npm run build:backend && electron-builder --win portable",
+    "dist:mac": "npm run preflight:release && npm run build:backend && electron-builder --mac dmg",
+    "dist:linux": "npm run preflight:release && npm run build:backend && electron-builder --linux AppImage",
+    "preflight:release": "node scripts/release-check.js"
   },
   "devDependencies": {
     "electron": "^33.2.1",
@@ -59,6 +61,33 @@
       "artifactName": "5Eyes-${version}-${arch}.${ext}",
       "icon": "assets/icons/app.ico",
       "requestedExecutionLevel": "asInvoker"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "category": "public.app-category.finance",
+      "artifactName": "5Eyes-${version}-${arch}.${ext}",
+      "icon": "assets/icons/app.png"
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "category": "Office",
+      "artifactName": "5Eyes-${version}-${arch}.${ext}",
+      "icon": "assets/icons/app.png"
     },
     "nsis": {
       "oneClick": false,
