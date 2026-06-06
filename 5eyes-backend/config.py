@@ -177,6 +177,13 @@ class Settings(BaseSettings):
     # Shift-Magnitude in Standard-Deviationen (typisch 0.3-1.0). Hoeher =
     # mehr Tail-Konzentration aber hoeherer Bias-Variance-Tradeoff.
     mc_importance_sampling_strength: float = 0.5
+    # P1 (2026-06-06): Auto-Decision — IS wird automatisch aktiviert wenn der
+    # Mandate-Context Tail-Schutz erfordert (konservatives Risikoprofil,
+    # Decumulation, mindestens ein hart-Ziel). Default TRUE — das ist die
+    # Verbesserung gegenueber dem urspruenglichen Phase-5 opt-in-Konzept.
+    # Wenn mc_importance_sampling_enabled=True ueberschreibt das die
+    # Auto-Decision (legacy force-on). Wenn beide False: nie IS.
+    mc_importance_sampling_auto_enable: bool = True
 
     # Sprint U-P8 Fix M1 (2026-05-20): Block-Diagonal Sub-Asset-Class
     # Korrelation innerhalb eines Buckets. Default 1.0 = perfekt korreliert

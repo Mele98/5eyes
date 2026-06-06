@@ -211,13 +211,113 @@ def build_shift_vector(
 
 
 def is_importance_sampling_enabled() -> bool:
-    """Liest den Feature-Flag aus den Settings.
+    """Liest den Force-On-Feature-Flag aus den Settings.
 
-    Default: False (Phase 5 ist optional). Aktivierbar via
+    Default: False (Phase 5 war original opt-in). Aktivierbar via
     MC_IMPORTANCE_SAMPLING_ENABLED=true in .env.
+
+    Wenn True: IS ist immer aktiv (ueberschreibt Auto-Decision).
     """
     try:
         from config import settings  # local import um Circular Imports zu vermeiden
         return bool(getattr(settings, "mc_importance_sampling_enabled", False))
     except Exception:
         return False
+
+
+def is_importance_sampling_auto_enable() -> bool:
+    """Liest das Auto-Enable-Flag (Sprint P1, 2026-06-06).
+
+    Default: True. Wenn True und force_on=False: Auto-Decision basierend
+    auf Mandate-Context entscheidet ob IS aktiv ist.
+    """
+    try:
+        from config import settings
+        return bool(getattr(settings, "mc_importance_sampling_auto_enable", True))
+    except Exception:
+        return True
+
+
+def should_auto_enable_is(
+    *,
+    score_x10: int,
+    has_hart_goal: bool,
+    is_retired: bool,
+    conservative_score_threshold: int = 30,
+) -> tuple[bool, str]:
+    """Entscheidet ob IS fuer einen Mandate-Context Auto-aktiviert werden soll.
+
+    Triggers (mind. einer reicht):
+    1. score_x10 <= 30: Risikoprofil 'Sicherheit' oder 'Konservativ' —
+       der Kunde will Tail-Schutz, IS reduziert MC-Fehler in den unteren
+       Quantilen (p1, p5).
+    2. is_retired=True: Decumulation-Phase — Sequence-of-Returns-Risk
+       (Drawdown im fruehen Ruhestand kann irreversibel Kapital frist).
+       IS macht die Tail-Szenarien fuer Entnahme-Planung sichtbar.
+    3. has_hart_goal: mindestens ein Ziel ist als 'Hart' klassifiziert
+       (z.B. 'Mindest-Pension', 'Kapitalerhalt') — Shortfall darf nicht
+       passieren, also brauchen wir genaue Tail-Statistik.
+
+    Parameters
+    ----------
+    score_x10 : int
+        Risikoprofil-Score (0-100), aus Risikofragebogen.
+    has_hart_goal : bool
+        True wenn mind. ein Goal in liabilities hardness_key == 'hart'.
+    is_retired : bool
+        Decumulation-Flag aus PDFContext / Mandate-Setup.
+    conservative_score_threshold : int, default 30
+        Score-Threshold unter dem konservativer Tail-Schutz greift. 30 entspricht
+        ungefaehr Profil 'Sicherheit' bis 'Konservativ' im Standard-Mapping.
+
+    Returns
+    -------
+    tuple[bool, str]
+        (should_enable, reason). Wenn should_enable=False, reason ist 'standard-mc'.
+        Wenn True, reason ist eine menschen-lesbare Begruendung fuer den
+        OptimizerResult.reasoning Audit-Trail.
+    """
+    reasons: list[str] = []
+    if score_x10 <= conservative_score_threshold:
+        reasons.append(
+            f"konservatives Risikoprofil (score={score_x10}<={conservative_score_threshold})"
+        )
+    if is_retired:
+        reasons.append("Decumulation-Phase (Sequence-of-Returns-Risk)")
+    if has_hart_goal:
+        reasons.append("hart-klassifiziertes Ziel im Mandat")
+
+    if not reasons:
+        return False, "standard-mc"
+    return True, "Auto-IS: " + ", ".join(reasons)
+
+
+def decide_is_for_context(
+    *,
+    score_x10: int,
+    has_hart_goal: bool,
+    is_retired: bool,
+) -> tuple[bool, str]:
+    """Master-Decision: ist IS fuer diesen Mandate-Lauf aktiv? (Sprint P1)
+
+    Reihenfolge:
+    1. Wenn `mc_importance_sampling_enabled=True` (legacy force-on)
+       -> immer IS aktiv mit reason 'force-on via setting'.
+    2. Wenn `mc_importance_sampling_auto_enable=True` (default)
+       -> auto-decide basierend auf Mandate-Context.
+    3. Sonst (beide False) -> nie IS.
+
+    Returns
+    -------
+    tuple[bool, str]
+        (is_active, reason) — analog should_auto_enable_is.
+    """
+    if is_importance_sampling_enabled():
+        return True, "force-on via mc_importance_sampling_enabled"
+    if not is_importance_sampling_auto_enable():
+        return False, "auto-enable disabled, force-on not set"
+    return should_auto_enable_is(
+        score_x10=score_x10,
+        has_hart_goal=has_hart_goal,
+        is_retired=is_retired,
+    )

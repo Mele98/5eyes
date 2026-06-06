@@ -171,13 +171,45 @@ def chance_constraint_penalty(
     goal_liabilities: list[GoalLiability],
     initial_value_rappen: int,
     lambda_chance: float = LAMBDA_CHANCE_DEFAULT,
+    *,
+    weights: np.ndarray | None = None,
 ) -> tuple[float, list[dict]]:
-    """Return chance-constraint penalty and per-goal achievability rows."""
+    """Return chance-constraint penalty and per-goal achievability rows.
+
+    Parameters
+    ----------
+    weights : np.ndarray | None
+        Sprint P1 (2026-06-06): Optional Likelihood-Ratio-Weights aus
+        Importance Sampling. Wenn None: uniform sample-mean P(success).
+        Wenn gesetzt: weighted estimator
+        P_weighted = Sum(per_path * w) / Sum(w).
+
+        WICHTIG: ohne diesen Parameter wuerde IS einen verzerrten
+        Probability-Estimator liefern (alle Pfade aus shifted distribution
+        gleich gewichtet) — die PDF-Achievability-Rows waeren falsch.
+    """
     penalty = 0.0
     achievability: list[dict] = []
+    if weights is not None:
+        weights_arr = np.asarray(weights, dtype=np.float64).reshape(-1)
+        if weights_arr.shape[0] != wealth_paths.shape[0]:
+            raise ValueError(
+                f"weights.shape[0]={weights_arr.shape[0]} != n_paths={wealth_paths.shape[0]}"
+            )
+        weight_sum = float(np.sum(weights_arr))
+        if weight_sum <= 0:
+            raise ValueError("Sum-of-weights must be > 0")
+    else:
+        weights_arr = None
+        weight_sum = None
     for goal in goal_liabilities:
         per_path = goal_probability_per_path(wealth_paths, goal, initial_value_rappen)
-        probability = float(np.mean(per_path)) if per_path.size else 0.0
+        if per_path.size == 0:
+            probability = 0.0
+        elif weights_arr is None:
+            probability = float(np.mean(per_path))
+        else:
+            probability = float(np.sum(per_path.astype(np.float64) * weights_arr) / weight_sum)
         tau = _default_tau_x100(goal) / 10000.0
         if probability >= tau:
             status = "erreichbar"
