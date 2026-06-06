@@ -62,6 +62,23 @@ async def lifespan(app: FastAPI):
         settings.db_use_sqlcipher,
     )
     init_db()
+    # U-32: Discover externe Tax-Regime-Plugins (Entry-Point group
+    # '5eyes.tax_regime'). Boot bricht NICHT ab wenn ein Plugin kaputt
+    # ist — failed_plugins werden geloggt + ueber den DiscoveryResult
+    # auditierbar.
+    try:
+        from services.tax.discovery import discover_external_regimes
+        tax_discovery = discover_external_regimes()
+        if tax_discovery.discovered_count:
+            logger.info(
+                'Tax-Plugin-Discovery | discovered=%d loaded=%d failed=%d skipped=%d',
+                tax_discovery.discovered_count,
+                len(tax_discovery.loaded_plugins),
+                len(tax_discovery.failed_plugins),
+                len(tax_discovery.skipped_plugins),
+            )
+    except Exception as exc:  # noqa: BLE001 — Discovery darf Boot nicht stoppen
+        logger.warning('Tax-Plugin-Discovery skipped due to error: %s', exc)
     start_price_scheduler()
     try:
         yield
