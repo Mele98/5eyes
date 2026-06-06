@@ -137,3 +137,60 @@ def get_accessible_mandate_ids(db: Session, current_user: User) -> list[str]:
     if not has_global_client_access(current_user):
         query = query.filter(Client.advisor_id == current_user.id)
     return [row[0] for row in query.all()]
+
+
+# ---------------------------------------------------------------------------
+# Sprint U-36 (2026-06-06): Client-Portal Auth-Layer.
+# ---------------------------------------------------------------------------
+
+def require_client(current_user: User = Depends(get_current_user)) -> User:
+    """Akzeptiert NUR role='client' (Kunden-Login). Verweigert advisor/admin.
+
+    Genutzt vom /client-portal-Router damit Advisor/Admins nicht
+    versehentlich den Read-Only-Kunden-Pfad ausprobieren — die echte
+    Berater-Sicht hat ihren eigenen Endpoint-Stack.
+    """
+    if current_user.role != "client":
+        raise HTTPException(
+            status_code=403,
+            detail="Dieser Endpoint ist nur fuer Kunden-Logins erreichbar.",
+        )
+    return current_user
+
+
+def get_linked_client_for_user_or_404(user: User, db: Session) -> Client:
+    """Fetcht den 1:1-verlinkten Client fuer einen role='client'-User.
+
+    Raises 404 wenn keine Linkage existiert oder der Client geloescht
+    wurde — dann sieht der Client-User absichtlich nichts (kein Leak
+    durch fehlerhafte Linkage).
+    """
+    from models.client_login import ClientLogin
+
+    link = (
+        db.query(ClientLogin)
+        .filter(
+            ClientLogin.user_id == user.id,
+            ClientLogin.is_active == 1,
+        )
+        .first()
+    )
+    if not link:
+        raise HTTPException(
+            status_code=404,
+            detail="Kein Kunden-Datensatz mit diesem Login verknuepft.",
+        )
+    client = (
+        db.query(Client)
+        .filter(
+            Client.id == link.client_id,
+            Client.deleted_at.is_(None),
+        )
+        .first()
+    )
+    if not client:
+        raise HTTPException(
+            status_code=404,
+            detail="Kunden-Datensatz nicht mehr verfuegbar.",
+        )
+    return client

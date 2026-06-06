@@ -14,6 +14,7 @@ from price_updater import start_price_scheduler, stop_price_scheduler
 # Import all models so SQLAlchemy registers them
 import models.allocation  # noqa
 import models.clients  # noqa
+import models.client_login  # noqa  Sprint U-36 (2026-06-06)
 import models.fx_rate  # noqa
 import models.mandates  # noqa
 import models.profiling  # noqa
@@ -23,6 +24,7 @@ import models.snapshots  # noqa
 import models.wealth  # noqa
 from routers.allocation import router as allocation_router
 from routers.auth import router as auth_router, users_router
+from routers.client_portal import router as client_portal_router
 from routers.clients import router as clients_router
 from routers.health import router as health_router
 from routers.mandates import router as mandates_router
@@ -102,6 +104,7 @@ app.include_router(market_data_router)
 app.include_router(fx_rates_router)
 app.include_router(pdf_reports_router)
 app.include_router(system_router)
+app.include_router(client_portal_router)  # Sprint U-36 (2026-06-06)
 
 
 @app.get("/", tags=["Health"])
