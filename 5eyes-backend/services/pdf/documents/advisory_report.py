@@ -427,21 +427,49 @@ def _build_toc_flowables(toc: dict, styles: dict) -> list[Any]:
 
     page_width, _ = PAGE_SIZE
     inner_width = page_width - MARGIN_LEFT - MARGIN_RIGHT
+    # Sprint U-13 (2026-06-06): TOC bekommt 3 Spalten — Nr/Titel/Seite
     nr_col = 14 * mm
-    title_col = inner_width - nr_col
+    page_col = 22 * mm
+    title_col = inner_width - nr_col - page_col
+
+    # Sprint U-13 (2026-06-06): Estimated-Page-Numbers basierend auf
+    # Kapitel-Reihenfolge. Echtere Seitenzahlen kommen mit Two-Pass-
+    # Render (siehe U-26).
+    # Annahme: Cover=1, Disclaimer=2, TOC=3, dann ca. 1.5 Seiten pro
+    # Folge-Kapitel. Berater sieht: 'Seite ca. X' mit Hinweis darauf
+    # dass exakte Seitenzahl mit dem finalen Druck variieren kann.
+    estimated_pages_per_section_after_toc = [
+        1, 2, 3,  # Cover / Disclaimer / TOC -> Sektion 1/2/3
+    ]
+    # Ab Sektion 4 (Ausgangslage): geschaetzt ~1.5 Seiten pro Sektion
+    running_page = 3
+    for _idx in range(3, max(3, len(kapitel))):
+        running_page += 2  # konservativ 2 Seiten pro Sektion
+        estimated_pages_per_section_after_toc.append(running_page)
 
     rows = []
-    for k in kapitel:
+    for i, k in enumerate(kapitel):
         nr = _format_two_digits(k.get("nr"))
         title = _escape(str(k.get("title") or "—"))
+        # Fallback wenn mehr Kapitel als unsere Estimate-Liste
+        estimated_page = (
+            estimated_pages_per_section_after_toc[i]
+            if i < len(estimated_pages_per_section_after_toc)
+            else (estimated_pages_per_section_after_toc[-1] + 2)
+        )
+        page_label = f"ca. {estimated_page}"
         rows.append([
             Paragraph(
                 f"<font face='{FONT_SANS}' size='{FONT_SIZE_MICRO}' color='#6F7A8A'>{nr}</font>",
                 styles["caption"],
             ),
             Paragraph(title, _ar_paragraph_style(styles["body"], color=COLOR_INK)),
+            Paragraph(
+                f"<font face='{FONT_SANS}' size='{FONT_SIZE_MICRO}' color='#6F7A8A'>{page_label}</font>",
+                _ar_paragraph_style(styles["caption"], color=COLOR_INK_SUBTLE),
+            ),
         ])
-    table = Table(rows, colWidths=[nr_col, title_col])
+    table = Table(rows, colWidths=[nr_col, title_col, page_col])
     table.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("LEFTPADDING", (0, 0), (-1, -1), 0),
@@ -449,8 +477,16 @@ def _build_toc_flowables(toc: dict, styles: dict) -> list[Any]:
         ("TOPPADDING", (0, 0), (-1, -1), 3),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
         ("LINEBELOW", (0, 0), (-1, -2), 0.2, COLOR_RULE),
+        ("ALIGN", (2, 0), (2, -1), "RIGHT"),  # Page rechts-bündig
     ]))
     out.append(table)
+    out.append(Spacer(1, 4 * mm))
+    # Sprint U-13: Disclaimer fuer geschaetzte Seitenzahlen
+    out.append(Paragraph(
+        "<i>Geschaetzte Seitenzahlen. Die exakten Seitenzahlen werden mit "
+        "dem finalen Druck der Sektionen variieren.</i>",
+        _ar_paragraph_style(styles["caption"], color=COLOR_INK_SUBTLE),
+    ))
     return out
 
 
