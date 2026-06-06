@@ -58,9 +58,10 @@ def make_risikoprofil_box(
             _para_size(16, after=0),
         ))
     else:
+        # Sprint U-15 (2026-06-06): Editorial-Bold via TTF (Inter-SemiBold)
         left_content.append(Paragraph(
-            '<para align="center"><font name="Helvetica-Bold" size="12" color="#64748b">'
-            'Nicht definiert</font></para>',
+            f'<para align="center"><font name="{FONT_BOLD}" size="12" color="#64748b">'
+            f'Nicht definiert</font></para>',
             _para_size(12, after=0),
         ))
 

@@ -34,6 +34,8 @@ from services.pdf.styles import (
 def make_cover_page(
     ctx: PDFContext,
     *,
+    document_title: str = "Ihre persönliche Anlagestrategie",
+    document_subtitle: str | None = None,
     client_address_lines: list[str] | None = None,
     client_phone: str | None = None,
     advisor_org: str | None = None,
@@ -64,12 +66,13 @@ def make_cover_page(
     ))
     flowables.append(Paragraph(
         f'<font name="{FONT_BOLD}" size="34" color="#0f172a">'
-        f'Ihre persönliche Anlagestrategie</font>',
+        f'{_esc(document_title)}</font>',
         _para_for_size(34, after=4 * mm),
     ))
+    subtitle = document_subtitle or f'Strategiedokument · Stand {ctx.report_date.strftime("%d.%m.%Y")}'
     flowables.append(Paragraph(
         f'<font name="{FONT_DEFAULT}" size="11" color="#475569">'
-        f'Strategiedokument · Stand {ctx.report_date.strftime("%d.%m.%Y")}'
+        f'{_esc(subtitle)}'
         f'</font>',
         _para_for_size(11, after=8 * mm),
     ))
@@ -190,8 +193,12 @@ def _horizontal_line(thickness: float = 0.5, color=None):
 
 
 def FONT_ITALIC_OR_DEFAULT():
-    """Helvetica-Oblique fuer Italic-Tagline."""
-    return "Helvetica-Oblique"
+    """Sprint U-15 (2026-06-06): Editorial-Italic via TTF-Embedding
+    (CormorantGaramond-Italic) statt Helvetica-Oblique. Faellt auf
+    Helvetica-Oblique zurueck wenn TTFs nicht registriert sind."""
+    from services.pdf.fonts import editorial_font_names
+    names = editorial_font_names()
+    return names.serif_italic if names.serif_italic else "Helvetica-Oblique"
 
 
 def _para_compact(after: float = 2):

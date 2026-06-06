@@ -25,6 +25,7 @@ def make_single_report_cover(
     subtitle: str,
     mandate_number: str | None = None,
     advisory_wealth_label: str | None = None,
+    focus_points: list[str] | None = None,
 ) -> list:
     """Simple title page for one focused report extract."""
     page_width, _ = PAGE_SIZE
@@ -60,38 +61,48 @@ def make_single_report_cover(
         ("LINEBELOW", (0, 0), (-1, -2), 0.3, COLOR_BORDER),
         ("LEFTPADDING", (0, 0), (-1, -1), 0),
         ("RIGHTPADDING", (0, 0), (-1, -1), 4),
-        ("TOPPADDING", (0, 0), (-1, -1), 6),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
     ]))
 
-    return [
-        Spacer(1, 12 * mm),
+    flowables = [
+        Spacer(1, 7 * mm),
         Paragraph(
             f'<font name="{FONT_BOLD}" size="10" color="#64748b">{_esc(org).upper()}</font>',
-            _cover_title(10, after=5 * mm),
+            _cover_title(10, after=4 * mm),
         ),
         Paragraph(
-            f'<font name="{FONT_BOLD}" size="34" color="#0f172a">{_esc(title)}</font>',
-            _cover_title(34, after=4 * mm),
+            f'<font name="{FONT_BOLD}" size="30" color="#0f172a">{_esc(title)}</font>',
+            _cover_title(30, after=3 * mm),
         ),
         Paragraph(
             f'<font name="{FONT_DEFAULT}" size="12" color="#475569">{_esc(subtitle)}</font>',
-            _cover_title(12, after=8 * mm),
+            _cover_title(12, after=6 * mm),
         ),
         _horizontal_line(1.0),
-        Spacer(1, 12 * mm),
+        Spacer(1, 8 * mm),
         info_table,
-        Spacer(1, 24 * mm),
+    ]
+    if focus_points:
+        flowables.extend([
+            Spacer(1, 6 * mm),
+            _focus_block(focus_points),
+        ])
+    flowables.extend([
+        Spacer(1, 8 * mm),
         _horizontal_line(0.5, colors.HexColor("#cbd5e1")),
-        Spacer(1, 6 * mm),
+        Spacer(1, 4 * mm),
         Paragraph(
-            '<font name="Helvetica-Oblique" size="10" color="#64748b">'
+            # Sprint U-15 (2026-06-06): Editorial-Italic via TTF
+            # (CormorantGaramond-Italic) statt Helvetica-Oblique.
+            f'<font name="{_editorial_italic_font()}" size="10" color="#64748b">'
             'Isolierter Auszug aus dem Beratungsprozess. Das vollstaendige '
             'Kundendossier wird im Abschlussbericht dokumentiert.</font>',
             _cover_title(10, after=0),
         ),
-    ]
+    ])
+    return flowables
 
 
 def make_single_report_disclaimer(
@@ -167,6 +178,30 @@ def _horizontal_line(thickness: float, color=None):
     )
 
 
+def _focus_block(points: list[str]) -> Table:
+    page_width, _ = PAGE_SIZE
+    table_width = page_width - 24 * mm
+    rows = [[Paragraph(
+        '<font name="{}" size="8" color="#64748b">BESPRECHUNGSFOKUS</font>'.format(FONT_BOLD),
+        _cover_line(),
+    )]]
+    for point in points[:4]:
+        rows.append([Paragraph(
+            f'<font name="{FONT_DEFAULT}" size="9.5" color="#334155">- {_esc(point)}</font>',
+            _cover_line(),
+        )])
+    table = Table(rows, colWidths=[table_width])
+    table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f8fafc")),
+        ("BOX", (0, 0), (-1, -1), 0.5, COLOR_BORDER),
+        ("LEFTPADDING", (0, 0), (-1, -1), 10),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+    ]))
+    return table
+
+
 def _cover_line():
     from reportlab.lib.styles import ParagraphStyle
 
@@ -189,3 +224,15 @@ def _cover_title(size: int, *, after: float):
         leading=max(size * 1.25, 13),
         spaceAfter=after,
     )
+
+
+def _editorial_italic_font() -> str:
+    """Sprint U-15 (2026-06-06): Editorial-Italic-Font-Name (Cormorant-
+    Italic via TTF oder Helvetica-Oblique-Fallback). Late-binding fuer
+    Stabilitaet."""
+    try:
+        from services.pdf.fonts import editorial_font_names
+        names = editorial_font_names()
+        return names.serif_italic if names.serif_italic else "Helvetica-Oblique"
+    except Exception:
+        return "Helvetica-Oblique"
