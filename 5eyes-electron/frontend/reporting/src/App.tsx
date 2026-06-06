@@ -74,7 +74,7 @@ function Landing() {
         Strategische Portfolioanalyse
       </h1>
       <p className="mt-block max-w-prose text-body text-ink-muted">
-        Diese Anwendung erzeugt den institutionellen Depotcheck eines Mandats
+        Diese Anwendung erzeugt den institutionellen Advisory-Report eines Mandats
         auf Basis des 5eyes-Backend-Endpoints
         <code className="ml-1 rounded-card bg-canvas-subtle px-2 py-0.5 text-caption">
           GET /mandates/&#123;id&#125;/advisory-report
@@ -113,8 +113,21 @@ function ReportShell({ sectionId }: { sectionId: ReportSectionId }) {
   }
   return (
     <div className="min-h-screen lg:grid lg:grid-cols-[17rem_minmax(0,1fr)]">
+      {/* Sprint U-90: Skip-Link fuer Tastatur-Nutzer + Screen-Reader. */}
+      <a
+        href="#report-main-content"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded focus:bg-ink focus:px-4 focus:py-2 focus:text-paper"
+      >
+        Direkt zum Hauptinhalt
+      </a>
       <Sidebar mandateId={mandateId} activeSection={sectionId} />
-      <main>{renderSection(sectionId, data, mandateId, reload)}</main>
+      <main
+        id="report-main-content"
+        tabIndex={-1}
+        aria-label={`Beratungsreport-Hauptinhalt: ${sectionId}`}
+      >
+        {renderSection(sectionId, data, mandateId, reload)}
+      </main>
       <KeyboardShortcuts mandateId={mandateId} activeSection={sectionId} />
     </div>
   );
@@ -341,6 +354,8 @@ function LoadingPanel() {
   return (
     <main
       data-testid="report-loading"
+      aria-busy="true"
+      aria-live="polite"
       className="mx-auto max-w-editorial px-page-x py-page-y"
     >
       <p className="text-micro uppercase tracking-widest text-ink-subtle">
@@ -363,6 +378,8 @@ function ErrorPanel({
   return (
     <main
       data-testid="report-error"
+      role="alert"
+      aria-live="assertive"
       className="mx-auto max-w-editorial px-page-x py-page-y"
     >
       <p className="text-micro uppercase tracking-widest text-status-rot">
