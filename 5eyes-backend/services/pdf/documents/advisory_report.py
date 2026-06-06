@@ -45,6 +45,7 @@ from services.pdf.components.advisory_page_chrome import (
 )
 from services.pdf.components.compliance_audit import render_compliance_audit_section
 from services.pdf.components.kostenausweis import build_kostenausweis_flowables
+from services.pdf.components.unterschrift import make_unterschrift_section
 from services.pdf.components.advisory_palette import (
     COLOR_ACCENT,
     COLOR_CANVAS_SUBTLE,
@@ -251,6 +252,10 @@ def _build_all_flowables(payload: dict[str, Any], styles: dict) -> list[Any]:
     ))
     flowables.append(PageBreak())
     render_compliance_audit_section(payload, flowables, styles)
+    # Sprint U-93 (2026-06-06): Signatur-Block ganz am Bericht-Ende —
+    # FINMA-konforme Bestaetigung Kunde + Berater nach allen Audit-Sektionen.
+    flowables.append(PageBreak())
+    flowables.extend(make_unterschrift_section())
     return flowables
 
 
