@@ -42,7 +42,16 @@ from .goal_liabilities import (
     goals_to_liabilities,
 )
 from .objective import chance_constraint_penalty, combined_objective_two_phase
-from .scenario_cache import build_scenario_paths_cached
+from .scenario_cache import (
+    build_scenario_paths_cached,
+    build_scenario_paths_with_weights_cached,
+)
+from .importance_sampling import (
+    DEFAULT_TAIL_SHIFT_STRENGTH,
+    build_shift_vector,
+    decide_is_for_context,
+    make_default_weights,
+)
 from .scenario_engine import (
     BUCKET_ORDER,
     N_BUCKETS,
@@ -222,19 +231,48 @@ def build_optimizer_context(
 
     inputs = scenario_inputs_from_cma(cma)
     cma_id_for_cache = str(getattr(cma, "id", "no-cma"))
-    return_paths = build_scenario_paths_cached(
-        inputs,
-        cma_id=cma_id_for_cache,
-        horizon_years=horizon_years,
-        n_paths=n_paths,
-        seed=seed,
-    )
 
+    # Sprint P1 (2026-06-06): IS-Auto-Decision
+    # ---------------------------------------
+    # Wir muessen liabilities zuerst bauen, weil hardness fuer die Decision
+    # benoetigt wird. ABER goals_to_liabilities ist deterministisch, also
+    # safe vor der Scenario-Generierung aufzurufen.
     liabilities = goals_to_liabilities(
         goals,
         horizon_years=horizon_years,
         inflation_series_bps=inflation_series_bps,
     )
+    has_hart_goal = any(
+        str(getattr(liab, "hardness_key", "") or "").lower() == "hart"
+        for liab in liabilities
+    )
+    is_active, is_reason = decide_is_for_context(
+        score_x10=int(score_x10),
+        has_hart_goal=has_hart_goal,
+        is_retired=bool(is_retired),
+    )
+    if is_active:
+        shift_vec = build_shift_vector(
+            N_BUCKETS,
+            strength=DEFAULT_TAIL_SHIFT_STRENGTH,
+        )
+        return_paths, scenario_weights = build_scenario_paths_with_weights_cached(
+            inputs,
+            cma_id=cma_id_for_cache,
+            horizon_years=horizon_years,
+            n_paths=n_paths,
+            seed=seed,
+            shift_vector=shift_vec,
+        )
+    else:
+        return_paths = build_scenario_paths_cached(
+            inputs,
+            cma_id=cma_id_for_cache,
+            horizon_years=horizon_years,
+            n_paths=n_paths,
+            seed=seed,
+        )
+        scenario_weights = None  # uniform sample-mean
     aggregated_liability = aggregate_liability_path(liabilities, horizon_years)
     bands = bands_from_house_matrix_row(house_matrix_row)
     bounds, scipy_constraints = build_constraint_set(
@@ -286,6 +324,8 @@ def build_optimizer_context(
         score_x10=int(score_x10),
         risky_fraction_per_bucket=risky_fraction_per_bucket,
         max_risky_fraction_bps=max_risky_fraction_bps,
+        # Sprint P1 (2026-06-06): IS-Likelihood-Weights
+        scenario_weights=scenario_weights,
         mortality_death_year_index_per_path=death_indices,
         # Sprint U-P2 Fix C9: tax-aware Felder
         tax_regime=tax_regime,
@@ -1006,6 +1046,7 @@ def run_solver(
             mid_wealth,
             context.liabilities,
             context.advisory_wealth_rappen,
+            weights=context.scenario_weights,
         )
         return OptimizerResult(
             weights_bps=weights_bps,
@@ -1055,11 +1096,22 @@ def run_solver(
         final_wealth,
         context.liabilities,
         context.advisory_wealth_rappen,
+        weights=context.scenario_weights,
     )
     reasoning: list[str] = []
     method_used = "SLSQP+DE-Fallback" if used_ga_fallback else "SLSQP"
     reasoning.append(f"Stochastic Solver ({method_used}): {total_iters} iterations across "
                       f"{len(initials)} multi-starts.")
+    # Sprint P1 (2026-06-06): IS-Status im Audit-Trail
+    if context.scenario_weights is not None:
+        reasoning.append(
+            "Importance Sampling AKTIV (Tail-Schutz fuer Shortfall-Berechnung). "
+            "Achievability-Wahrscheinlichkeiten sind likelihood-ratio-gewichtet."
+        )
+    else:
+        reasoning.append(
+            "Importance Sampling INAKTIV (Standard-MC, uniformer Sample-Mean)."
+        )
     robustification_payload: dict[str, object] | None = None
     if accepted_feasible_non_success:
         robustification_payload = {

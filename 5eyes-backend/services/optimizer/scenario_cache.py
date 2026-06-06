@@ -87,8 +87,17 @@ class ScenarioCache:
         self._stats = CacheStats(max_size=self._max_size)
 
     def invalidate_cma(self, cma_id: str) -> int:
-        """Entfernt alle Eintraege fuer eine bestimmte cma_id. Returns count."""
-        keys_to_remove = [k for k in self._cache if k[0] == cma_id]
+        """Entfernt alle Eintraege fuer eine bestimmte cma_id. Returns count.
+
+        Sprint P1: Cache-Keys haben jetzt ein Marker-Praefix ('STD' oder 'IS')
+        an Position 0 — cma_id steht an Position 1. Wir support beide Formen
+        fuer Backwards-Compat falls Caller alte Keys direkt put-en.
+        """
+        keys_to_remove = [
+            k for k in self._cache
+            if (len(k) >= 2 and k[0] in ("STD", "IS") and k[1] == cma_id)
+            or (len(k) >= 1 and k[0] == cma_id)
+        ]
         for k in keys_to_remove:
             self._cache.pop(k)
         return len(keys_to_remove)
@@ -118,7 +127,7 @@ def build_scenario_paths_cached(
     antithetic: bool = True,
     cache: ScenarioCache | None = None,
 ) -> np.ndarray:
-    """Cache-aware Wrapper um build_scenario_paths.
+    """Cache-aware Wrapper um build_scenario_paths (Standard-MC ohne IS).
 
     Cache-Key umfasst alle Parameter die das Output beeinflussen:
     cma_id (= proxy fuer mu/sigma/skew/kurt/cholesky), horizon, n_paths,
@@ -131,7 +140,10 @@ def build_scenario_paths_cached(
     """
     if cache is None:
         cache = _GLOBAL_CACHE
-    key = (str(cma_id), int(horizon_years), int(n_paths), int(seed), bool(antithetic))
+    # IS-aware key: 'STD' marker damit IS- und Non-IS-Eintraege getrennt
+    # gecacht werden. build_scenario_paths_with_weights_cached nutzt ein
+    # anderes Marker-Praefix.
+    key = ("STD", str(cma_id), int(horizon_years), int(n_paths), int(seed), bool(antithetic))
     cached = cache.get(key)
     if cached is not None:
         return cached
@@ -144,3 +156,82 @@ def build_scenario_paths_cached(
     )
     cache.put(key, paths)
     return paths
+
+
+def build_scenario_paths_with_weights_cached(
+    inputs: ScenarioInputs,
+    *,
+    cma_id: str,
+    horizon_years: int,
+    n_paths: int,
+    seed: int,
+    antithetic: bool = True,
+    shift_vector: np.ndarray | None = None,
+    cache: ScenarioCache | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Sprint P1 (2026-06-06): IS-aware cached scenario paths.
+
+    Wie build_scenario_paths_cached, aber returnt zusaetzlich die
+    Likelihood-Ratio-Gewichte fuer Mean-Shift Importance Sampling.
+
+    Cache-Key umfasst zusaetzlich den shift_vector damit IS-on und IS-off
+    Pfade NICHT vertauscht werden koennen.
+
+    Parameters
+    ----------
+    shift_vector : np.ndarray | None
+        Mean-Shift-Vector pro Bucket. None oder zero-Vector -> normales MC
+        ohne IS (weights = ones).
+
+    Returns
+    -------
+    tuple[np.ndarray, np.ndarray]
+        (paths shape (n_paths, horizon, 5), weights shape (n_paths,)).
+        Bei IS-off: weights sind alle 1.0.
+    """
+    from .scenario_engine import build_scenario_paths_with_weights
+    from .importance_sampling import make_default_weights
+
+    if cache is None:
+        cache = _GLOBAL_CACHE
+
+    # Wenn kein Shift: identisch zum STD-Pfad, weights = ones
+    if shift_vector is None or float(np.dot(shift_vector, shift_vector)) < 1e-12:
+        paths = build_scenario_paths_cached(
+            inputs,
+            cma_id=cma_id,
+            horizon_years=horizon_years,
+            n_paths=n_paths,
+            seed=seed,
+            antithetic=antithetic,
+            cache=cache,
+        )
+        return paths, make_default_weights(n_paths)
+
+    # IS-aktiv: shift_vector als tuple zur Hash-Stabilitaet
+    shift_tuple = tuple(float(x) for x in np.asarray(shift_vector).reshape(-1))
+    key = (
+        "IS",
+        str(cma_id), int(horizon_years), int(n_paths), int(seed),
+        bool(antithetic), shift_tuple,
+    )
+    cached = cache.get(key)
+    if cached is not None:
+        # Cache speichert paths + weights als (n_paths, horizon+1, 5)-Trick:
+        # letzter Year-Slot hat weights im 0-ten Bucket
+        # Saubere Variante: cache speichert tuple
+        return cached  # cached ist tuple (paths, weights)
+
+    paths, weights = build_scenario_paths_with_weights(
+        inputs,
+        horizon_years=horizon_years,
+        n_paths=n_paths,
+        seed=seed,
+        antithetic=antithetic,
+        use_importance_sampling=True,
+        is_shift_strength=float(np.max(np.abs(shift_vector))),
+    )
+    # Note: build_scenario_paths_with_weights derives shift_vector internally
+    # mit default-target-indices. Wir trauen dem default und cachen das Ergebnis.
+    cache.put(key, (paths, weights))
+    return paths, weights
