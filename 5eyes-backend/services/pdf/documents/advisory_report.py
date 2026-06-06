@@ -89,11 +89,18 @@ def render_advisory_report_pdf(
     db: Session,
     mandate: Mandate,
     advisor: User | None = None,
+    *,
+    watermark_mode: str = "none",
 ) -> bytes:
     """PDF-Bytes des Advisory-Reports für ein Mandat.
 
     Verwendet denselben Aggregator wie das Frontend; das PDF spiegelt
     1:1 dieselben Daten. Inhalt aktuell: Cover + Disclaimer + TOC (PR A).
+
+    Sprint U-91 (2026-06-06): watermark_mode steuert Wasserzeichen-Druck:
+      - 'none' (Default): kein Wasserzeichen
+      - 'entwurf': rotes diagonales 'ENTWURF' fuer Vor-Druck-Review
+      - 'vertraulich': graues 'VERTRAULICH'-Marker am Seitenrand
     """
     payload = compute_advisory_report(db, mandate, advisor=advisor)
     if not payload.get("cost_disclosure"):
@@ -111,10 +118,12 @@ def render_advisory_report_pdf(
                     "ermittelt werden."
                 ],
             }
-    return render_advisory_report_pdf_from_payload(payload)
+    return render_advisory_report_pdf_from_payload(payload, watermark_mode=watermark_mode)
 
 
-def render_advisory_report_pdf_from_payload(payload: dict[str, Any]) -> bytes:
+def render_advisory_report_pdf_from_payload(
+    payload: dict[str, Any], *, watermark_mode: str = "none",
+) -> bytes:
     """Pure PDF-Render aus einem bereits berechneten Aggregator-Payload.
 
     Single-Pass-Build: `AdvisoryNumberedCanvas` sammelt die finalen
@@ -153,6 +162,7 @@ def render_advisory_report_pdf_from_payload(payload: dict[str, Any]) -> bytes:
                 *args,
                 mandate_number=mandate_number,
                 generated_at_iso=generated_at,
+                watermark_mode=watermark_mode,  # Sprint U-91 (2026-06-06)
                 **kwargs,
             )
 
