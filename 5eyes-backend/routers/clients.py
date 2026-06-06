@@ -13,7 +13,13 @@ from schemas.clients import (
     WealthSummaryResponse, CashflowSummaryResponse,
     CashflowYearRow, CashflowProjectionResponse,
 )
-from services.auth import get_client_for_user_or_404, get_current_user, has_global_client_access, require_advisor
+from services.auth import (
+    get_client_for_user_or_404,
+    get_current_user,
+    has_global_client_access,
+    hash_password,
+    require_advisor,
+)
 from services.audit import log
 from services.cashflow_timeline import totals_for_year
 
@@ -312,3 +318,95 @@ def cashflow_projection(
         start_year=start_year,
         years=rows,
     )
+
+
+# ---------------------------------------------------------------------------
+# Sprint U-36 (2026-06-06): Client-Login-Verwaltung (Berater erstellt Kunden-
+# Login fuer einen seiner Klienten).
+# ---------------------------------------------------------------------------
+
+@router.post("/{client_id}/client-login", status_code=201)
+def create_client_login(
+    client_id: str,
+    body: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_advisor),
+):
+    """Sprint U-36: Erstellt User mit role='client' + ClientLogin-Linkage.
+
+    Body (Pflicht):
+      - username: str
+      - password: str (min 8 Zeichen)
+    Optional:
+      - full_name: str (Default: Kunde.first_name + last_name)
+      - email: str
+
+    Bedingungen:
+      - Berater muss den Client besitzen (oder Admin sein)
+      - Username darf nicht vergeben sein
+      - Pro Client darf nur EINE aktive Linkage existieren
+    """
+    from models.client_login import ClientLogin
+
+    client = _get_client_or_404(client_id, db, current_user)
+
+    username = str(body.get("username") or "").strip()
+    password = str(body.get("password") or "")
+    if not username:
+        raise HTTPException(status_code=422, detail="username erforderlich")
+    if len(password) < 8:
+        raise HTTPException(status_code=422, detail="password muss mindestens 8 Zeichen lang sein")
+
+    existing_user = db.query(User).filter(
+        User.username == username,
+        User.deleted_at.is_(None),
+    ).first()
+    if existing_user:
+        raise HTTPException(status_code=409, detail="Benutzername bereits vergeben")
+
+    existing_link = db.query(ClientLogin).filter(
+        ClientLogin.client_id == client.id,
+        ClientLogin.is_active == 1,
+    ).first()
+    if existing_link:
+        raise HTTPException(status_code=409, detail="Fuer diesen Kunden existiert bereits ein aktiver Login")
+
+    now = _now()
+    full_name = str(body.get("full_name") or "").strip() or f"{client.first_name} {client.last_name}".strip()
+    email = body.get("email")
+    client_user = User(
+        id=new_uuid(),
+        username=username,
+        password_hash=hash_password(password),
+        full_name=full_name,
+        email=email,
+        role="client",
+        is_active=1,
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(client_user)
+    db.flush()
+
+    link = ClientLogin(
+        id=new_uuid(),
+        user_id=client_user.id,
+        client_id=client.id,
+        created_by=current_user.id,
+        created_at=now,
+        is_active=1,
+    )
+    db.add(link)
+
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="client_logins", record_id=link.id, action="CREATE",
+        new_value=f"client_id={client.id} user_id={client_user.id}")
+    db.commit()
+
+    return {
+        "client_login_id": link.id,
+        "user_id": client_user.id,
+        "username": client_user.username,
+        "client_id": client.id,
+        "status": "created",
+    }
