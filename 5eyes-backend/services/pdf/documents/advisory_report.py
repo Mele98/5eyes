@@ -254,6 +254,13 @@ def _build_all_flowables(payload: dict[str, Any], styles: dict) -> list[Any]:
     flowables.append(PageBreak())
     flowables.extend(_build_stress_replay_flowables(payload.get("stress_replay") or {}, styles))
     flowables.append(PageBreak())
+    # Sprint U-71 (2026-06-06): A/B-Backtest-Sektion nur wenn der Berater
+    # via payload['ab_backtest'] explizit ein Vergleichsresultat injiziert.
+    # Wenn nicht vorhanden -> Sektion wird stillschweigend ausgelassen.
+    ab_bt = payload.get("ab_backtest") or {}
+    if ab_bt:
+        flowables.extend(_build_ab_backtest_flowables(ab_bt, styles))
+        flowables.append(PageBreak())
     # Der Kostenausweis folgt im Dossier auf die Interessenkonflikt-
     # Offenlegungen (Sektion 18) und vor dem konsolidierten Compliance-Audit.
     flowables.extend(build_kostenausweis_flowables(
@@ -2241,6 +2248,100 @@ def _bp_no_entry_hint(styles: dict) -> Table:
 # ---------------------------------------------------------------------------
 # Sektion 17 — Historische Stress-Szenarien (Sprint U-70)
 # ---------------------------------------------------------------------------
+
+def _build_ab_backtest_flowables(ab: dict, styles: dict) -> list[Any]:
+    """Sprint U-71 (2026-06-06): A/B-Backtest-Vergleich (Policy A vs B).
+
+    Erwartet die Struktur aus services.backtest_ab.run_ab_backtest():
+      - policy_a: dict mit policy_name, weights_bps, expected_return_bps,
+        expected_volatility_bps, sharpe_ratio_x100, expected_ter_bps
+      - policy_b: dict (selbe Struktur)
+      - risk_metrics_diff: delta_* Felder
+      - buckets_diff: per-Bucket-Diff
+      - stress_diff: list[dict] mit Stress-Szenarien-Vergleich
+
+    Wird stillschweigend ausgelassen wenn payload['ab_backtest'] leer ist.
+    """
+    out: list[Any] = []
+    policy_a = ab.get("policy_a") or {}
+    policy_b = ab.get("policy_b") or {}
+    if not policy_a and not policy_b:
+        # Nicht persistiert -> Sektion ueberspringen (oben gefiltert,
+        # hier defensiv).
+        return out
+
+    out.append(Paragraph("A/B-Backtest", styles["kicker"]))
+    out.append(Paragraph(
+        f"Vergleich {_safe_string(policy_a.get('policy_name')) or 'Policy A'} "
+        f"vs {_safe_string(policy_b.get('policy_name')) or 'Policy B'}",
+        styles["h1"],
+    ))
+    out.append(Spacer(1, 4 * mm))
+    out.append(_hr())
+    out.append(Spacer(1, 5 * mm))
+
+    # KPI-Tabelle: Metrik | Policy A | Policy B | Δ
+    diff = ab.get("risk_metrics_diff") or {}
+    metric_rows = [
+        ("Expected-Return (Netto)", "expected_return_bps", format_bps_as_pct, "delta_expected_return_bps"),
+        ("Expected-Volatility", "expected_volatility_bps", format_bps_as_pct, "delta_expected_volatility_bps"),
+        ("Expected-TER", "expected_ter_bps", format_bps_as_pct, "delta_expected_ter_bps"),
+        ("Sharpe-Ratio (x100)", "sharpe_ratio_x100", lambda v: str(int(v) if v is not None else 0), "delta_sharpe_ratio_x100"),
+    ]
+    header = [
+        _th("Metrik", styles), _th("Policy A", styles),
+        _th("Policy B", styles), _th("Δ", styles),
+    ]
+    rows: list[list[Any]] = [header]
+    for label, key, fmt, delta_key in metric_rows:
+        a_val = policy_a.get(key)
+        b_val = policy_b.get(key)
+        delta = diff.get(delta_key, (b_val or 0) - (a_val or 0))
+        rows.append([
+            Paragraph(_escape(label), _ar_paragraph_style(
+                styles["caption"], color=COLOR_INK, font=FONT_SANS_BOLD,
+            )),
+            Paragraph(_escape(fmt(a_val)), styles["caption_mono"]),
+            Paragraph(_escape(fmt(b_val)), styles["caption_mono"]),
+            Paragraph(
+                _escape(fmt(delta)),
+                _ar_paragraph_style(
+                    styles["caption_mono"],
+                    color=COLOR_INK if int(delta or 0) >= 0 else "#B91C1C",
+                ),
+            ),
+        ])
+
+    page_width, _ = PAGE_SIZE
+    inner_width = page_width - MARGIN_LEFT - MARGIN_RIGHT
+    table = Table(rows, colWidths=[
+        inner_width * 0.40,
+        inner_width * 0.20,
+        inner_width * 0.20,
+        inner_width * 0.20,
+    ])
+    table.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 4),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ("LINEBELOW", (0, 0), (-1, 0), 0.4, COLOR_RULE),
+        ("LINEBELOW", (0, 1), (-1, -1), 0.2, COLOR_RULE),
+        ("ALIGN", (1, 0), (-1, -1), "RIGHT"),
+    ]))
+    out.append(table)
+
+    # Methoden-Hinweis
+    out.append(Spacer(1, 6 * mm))
+    out.append(Paragraph(
+        "<i>Methode: forward-looking CMA-basierter Vergleich der "
+        "House-Matrix-Allokationen. Δ &gt; 0 bedeutet bessere Eigenschaft "
+        "fuer Policy B vs Policy A.</i>",
+        _ar_paragraph_style(styles["caption"], color=COLOR_INK_SUBTLE),
+    ))
+    return out
+
 
 def _build_stress_replay_flowables(sr: dict, styles: dict) -> list[Any]:
     """Stress-Replay-Tabelle im Advisory-Report-PDF."""
