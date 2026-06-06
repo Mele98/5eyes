@@ -141,6 +141,8 @@ def compute_advisory_report(
         "liquidity_cascade": _build_liquidity_cascade(db, mandate),
         # --- Sektion 24 (additiv, U-94): Optimizer-Run-History
         "optimizer_run_history": _build_optimizer_run_history(db, mandate),
+        # --- Sektion 25 (additiv, U-97): Performance-Attribution (Brinson)
+        "performance_attribution": _build_performance_attribution(db, mandate),
     }
 
 
@@ -2602,3 +2604,150 @@ def _build_optimizer_run_history(
             "fidleg_basis": "Art. 9 / Art. 14 FIDLEG (Nachvollziehbarkeit Empfehlungs-Methodik)",
             "error": "Optimizer-Run-History konnte nicht geladen werden.",
         }
+
+
+# ---------------------------------------------------------------------------
+# Sprint U-97 (2026-06-06): Performance-Attribution (Brinson) als Sektion 25.
+# ---------------------------------------------------------------------------
+
+def _build_performance_attribution(
+    db: Session, mandate: Mandate,
+) -> dict[str, Any]:
+    """Liefert Brinson-Attribution (Allocation/Selection/Interaction) der
+    aktuellen TargetAllocation vs House-Matrix-Default fuer das Mandat.
+
+    Quelle Portfolio-Weights: aktive TargetAllocation (target_*_bps Felder).
+    Quelle Benchmark-Weights: HouseMatrix-Default fuer den Risk-Score des
+    Mandat-Risikoprofils.
+    Quelle Returns: aktuelle CMA-Erwartungen pro Bucket.
+
+    In 5eyes' forward-looking Framework sind benchmark_returns == portfolio_returns
+    pro Bucket (gleiche CMA). Daher Selection ≈ 0, Interaction ≈ 0; nur
+    Allocation-Effekt zeigt den Wert der SAA-Tilts vs Benchmark.
+
+    Robust gegen Schema-Mismatch -> degraded mit `error`-Key.
+    """
+    try:
+        from models.allocation import (
+            CapitalMarketAssumption,
+            HouseMatrix,
+            OptimizerPolicy,
+            TargetAllocation,
+        )
+        from models.profiling import RiskAssessment
+        from services.performance_attribution import (
+            BUCKET_KEYS,
+            compute_brinson_attribution,
+        )
+
+        ta = (
+            db.query(TargetAllocation)
+            .filter(
+                TargetAllocation.mandate_id == mandate.id,
+                TargetAllocation.is_current == 1,
+                TargetAllocation.deleted_at.is_(None),
+            )
+            .first()
+        )
+        if ta is None:
+            return _performance_attribution_empty("Keine aktive TargetAllocation.")
+
+        # Portfolio-Weights aus TA
+        portfolio_weights = {
+            "equities": _safe_int(getattr(ta, "target_equities_bps", 0)),
+            "bonds": _safe_int(getattr(ta, "target_bonds_bps", 0)),
+            "real_estate": _safe_int(getattr(ta, "target_real_estate_bps", 0)),
+            "alternatives": _safe_int(getattr(ta, "target_alternatives_bps", 0)),
+            "liquidity": _safe_int(getattr(ta, "target_liquidity_bps", 0)),
+        }
+
+        # Benchmark-Weights aus HouseMatrix fuer den Risk-Score des Mandats
+        ra = (
+            db.query(RiskAssessment)
+            .filter(
+                RiskAssessment.mandate_id == mandate.id,
+                RiskAssessment.is_current == 1,
+            )
+            .order_by(RiskAssessment.created_at.desc())
+            .first()
+        )
+        risk_score = _safe_int(getattr(ra, "final_score_x10", 0)) if ra else 0
+        policy_id = getattr(ta, "policy_id", None)
+        hm_row = None
+        if policy_id and risk_score > 0:
+            hm_row = (
+                db.query(HouseMatrix)
+                .filter(
+                    HouseMatrix.policy_id == policy_id,
+                    HouseMatrix.is_active == 1,
+                    HouseMatrix.score_from <= risk_score,
+                    HouseMatrix.score_to >= risk_score,
+                )
+                .first()
+            )
+        if hm_row is None:
+            return _performance_attribution_empty(
+                "Keine House-Matrix-Default fuer das Risikoprofil gefunden."
+            )
+        benchmark_weights = {
+            "equities": _safe_int(getattr(hm_row, "equity_target_bps", 0)),
+            "bonds": _safe_int(getattr(hm_row, "bonds_target_bps", 0)),
+            "real_estate": _safe_int(getattr(hm_row, "real_estate_target_bps", 0)),
+            "alternatives": _safe_int(getattr(hm_row, "alt_target_bps", 0)),
+            "liquidity": _safe_int(getattr(hm_row, "liq_target_bps", 0)),
+        }
+
+        # Returns aus aktueller CMA (gleich fuer Portfolio + Benchmark)
+        cma = (
+            db.query(CapitalMarketAssumption)
+            .filter(CapitalMarketAssumption.is_current == 1)
+            .order_by(CapitalMarketAssumption.valid_from.desc())
+            .first()
+        )
+        if cma is None:
+            return _performance_attribution_empty(
+                "Keine aktuelle CMA verfuegbar."
+            )
+        returns_bps = {
+            "equities": _safe_int(getattr(cma, "equity_ch_return_bps", 0)),
+            "bonds": _safe_int(getattr(cma, "bonds_chf_ig_return_bps", 0)),
+            "real_estate": _safe_int(getattr(cma, "real_estate_ch_return_bps", 0)),
+            "alternatives": _safe_int(getattr(cma, "alternatives_gold_return_bps", 0)),
+            "liquidity": _safe_int(getattr(cma, "liquidity_return_bps", 0)),
+        }
+
+        result = compute_brinson_attribution(
+            portfolio_weights_bps=portfolio_weights,
+            benchmark_weights_bps=benchmark_weights,
+            portfolio_returns_bps=returns_bps,
+        )
+        payload = result.to_dict()
+        payload["method"] = "brinson_fachler_hood_1986"
+        payload["benchmark_source"] = "house_matrix_default_for_risk_score"
+        payload["fidleg_basis"] = (
+            "Art. 9 / Art. 14 FIDLEG (Methoden-Transparenz vs Benchmark)"
+        )
+        return payload
+    except Exception as exc:  # noqa: BLE001
+        return _performance_attribution_empty(
+            f"Performance-Attribution konnte nicht berechnet werden: {exc}"
+        )
+
+
+def _performance_attribution_empty(reason: str) -> dict[str, Any]:
+    """Default-Payload wenn keine Berechnung moeglich (UI zeigt 'nicht beurteilbar')."""
+    return {
+        "buckets": [],
+        "total_portfolio_return_bps": 0,
+        "total_benchmark_return_bps": 0,
+        "total_excess_return_bps": 0,
+        "total_allocation_effect_bps": 0,
+        "total_selection_effect_bps": 0,
+        "total_interaction_effect_bps": 0,
+        "method": "brinson_fachler_hood_1986",
+        "benchmark_source": "house_matrix_default_for_risk_score",
+        "fidleg_basis": (
+            "Art. 9 / Art. 14 FIDLEG (Methoden-Transparenz vs Benchmark)"
+        ),
+        "error": reason,
+    }

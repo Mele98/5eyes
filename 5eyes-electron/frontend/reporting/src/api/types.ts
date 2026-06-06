@@ -495,6 +495,8 @@ export interface AdvisoryReport {
   liquidity_cascade: LiquidityCascadeData;
   /** U-94: Optimizer-Run-History (FIDLEG Art. 9/14 Audit-Trace) */
   optimizer_run_history: OptimizerRunHistoryData;
+  /** U-97: Performance-Attribution (Brinson vs House-Matrix-Benchmark) */
+  performance_attribution: PerformanceAttributionData;
 }
 
 // Sprint U-66/U-73+74/U-69/U-22/U-21 (2026-06-04, konsolidiert):
@@ -573,6 +575,33 @@ export type OptimizerRunHistoryData = {
   items: OptimizerRunHistoryItem[];
   limit: number;
   total_persisted: number;
+  fidleg_basis: string;
+  error?: string;
+};
+
+// Sprint U-97 (2026-06-06): Performance-Attribution — Brinson-Decomposition
+// der erwarteten Excess-Return vs House-Matrix-Default-Benchmark.
+export type AttributionBucket = {
+  bucket: string;
+  weight_portfolio_bps: number;
+  weight_benchmark_bps: number;
+  return_portfolio_bps: number;
+  return_benchmark_bps: number;
+  allocation_effect_bps: number;
+  selection_effect_bps: number;
+  interaction_effect_bps: number;
+};
+
+export type PerformanceAttributionData = {
+  buckets: AttributionBucket[];
+  total_portfolio_return_bps: number;
+  total_benchmark_return_bps: number;
+  total_excess_return_bps: number;
+  total_allocation_effect_bps: number;
+  total_selection_effect_bps: number;
+  total_interaction_effect_bps: number;
+  method: string;
+  benchmark_source: string;
   fidleg_basis: string;
   error?: string;
 };
