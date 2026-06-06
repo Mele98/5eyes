@@ -15,6 +15,11 @@ import type { Config } from 'tailwindcss';
  */
 const config: Config = {
   content: ['./index.html', './src/**/*.{ts,tsx}'],
+  // Sprint U-50 (2026-06-06): Dark-Mode via class-Strategy.
+  // ThemeProvider toggled `.dark` Klasse auf <html>.
+  // Editorial-Stil bleibt — Dark-Mode ist eine RUHIGE Variante,
+  // kein knalliger Modus.
+  darkMode: 'class',
   theme: {
     extend: {
       colors: {
