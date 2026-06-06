@@ -147,6 +147,8 @@ def test_compute_returns_expected_top_level_structure(session_factory):
         "liquidity_cascade",
         # U-94: additive Sektion 24
         "optimizer_run_history",
+        # U-97: additive Sektion 25
+        "performance_attribution",
     ]
     assert list(report.keys()) == expected_order
 
@@ -1131,6 +1133,8 @@ def test_endpoint_returns_full_report_structure(session_factory):
         "liquidity_cascade",
         # U-94: additive Sektion 24
         "optimizer_run_history",
+        # U-97: additive Sektion 25
+        "performance_attribution",
     ]
     assert list(data.keys()) == expected
     assert data["schema_version"] == 2

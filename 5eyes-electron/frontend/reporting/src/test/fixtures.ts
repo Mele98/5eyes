@@ -467,6 +467,7 @@ export function makeAdvisoryReport(): AdvisoryReport {
     mandate_lock_status: makeMandateLockStatus(),
     liquidity_cascade: makeLiquidityCascade(),
     optimizer_run_history: makeOptimizerRunHistory(),
+    performance_attribution: makePerformanceAttribution(),
   };
 }
 
@@ -476,5 +477,20 @@ export function makeOptimizerRunHistory() {
     limit: 10,
     total_persisted: 0,
     fidleg_basis: 'Art. 9 / Art. 14 FIDLEG (Nachvollziehbarkeit Empfehlungs-Methodik)',
+  };
+}
+
+export function makePerformanceAttribution() {
+  return {
+    buckets: [],
+    total_portfolio_return_bps: 0,
+    total_benchmark_return_bps: 0,
+    total_excess_return_bps: 0,
+    total_allocation_effect_bps: 0,
+    total_selection_effect_bps: 0,
+    total_interaction_effect_bps: 0,
+    method: 'brinson_fachler_hood_1986',
+    benchmark_source: 'house_matrix_default_for_risk_score',
+    fidleg_basis: 'Art. 9 / Art. 14 FIDLEG (Methoden-Transparenz vs Benchmark)',
   };
 }
