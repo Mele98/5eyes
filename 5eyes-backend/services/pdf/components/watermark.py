@@ -20,6 +20,16 @@ from reportlab.pdfgen.canvas import Canvas
 
 WATERMARK_MODES = ("none", "entwurf", "vertraulich")
 
+
+def _editorial_bold_font() -> str:
+    """Late-binding: liefert den embedded Inter-SemiBold falls registriert,
+    sonst Helvetica-Bold als Fallback (Defensive-Pattern wie U-15)."""
+    try:
+        from services.pdf.fonts import editorial_font_names
+        return editorial_font_names().sans_bold
+    except Exception:
+        return "Helvetica-Bold"  # fallback wenn fonts noch nicht registriert
+
 # Editorial-Tokens (keine knalligen Farben)
 _ENTWURF_COLOR = HexColor("#B91C1C")  # gedaempftes Rot (Editorial-Disziplin)
 _VERTRAULICH_COLOR = HexColor("#475569")  # gedaempftes Grau
@@ -66,7 +76,7 @@ def _draw_entwurf_watermark(
     """ENTWURF: diagonal, gross, rot, in der Mitte der Seite."""
     canvas.setFillColor(_ENTWURF_COLOR)
     # Helvetica-Bold ist immer verfuegbar (ReportLab-Default)
-    canvas.setFont("Helvetica-Bold", 100)
+    canvas.setFont(_editorial_bold_font(), 100)
     # Alpha-Channel fuer transparentes Wasserzeichen (15% Opazitaet)
     try:
         canvas.setFillAlpha(0.15)
@@ -83,7 +93,7 @@ def _draw_vertraulich_watermark(
 ) -> None:
     """VERTRAULICH: horizontal, klein, grau, am oberen Rand."""
     canvas.setFillColor(_VERTRAULICH_COLOR)
-    canvas.setFont("Helvetica-Bold", 12)
+    canvas.setFont(_editorial_bold_font(), 12)
     try:
         canvas.setFillAlpha(0.45)
     except Exception:
