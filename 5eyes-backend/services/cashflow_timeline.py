@@ -184,13 +184,56 @@ def _compound_inflation_factor(
     return factor
 
 
+def _convert_cf_amount_to_target_currency(
+    cf,
+    fx_source,
+    target_currency: str,
+) -> int:
+    """Sprint B3 (2026-06-07): Konvertiert cf.amount_rappen zu target_currency.
+
+    Wenn fx_source=None: Backwards-Compat-Pfad — currency wird ignoriert,
+    Betrag bleibt wie ist (alte Behavior, Aufrufer kennt FX nicht).
+
+    Wenn fx_source gesetzt: liest cf.currency (default 'CHF'), konvertiert
+    via FXRateSource.cross_rate. Unbekannte Currencies werden defensiv als
+    target_currency behandelt (kein Crash, geloggt).
+    """
+    raw_amount = int(getattr(cf, "amount_rappen", 0) or 0)
+    if raw_amount == 0 or fx_source is None:
+        return raw_amount
+    cf_currency = str(getattr(cf, "currency", "") or "CHF").upper().strip()
+    if not cf_currency:
+        cf_currency = "CHF"
+    target = str(target_currency or "CHF").upper().strip()
+    if cf_currency == target:
+        return raw_amount
+    try:
+        rate = fx_source.cross_rate(cf_currency, target)
+    except (ValueError, AttributeError):
+        # Defensive: unbekannte Currency -> behandle als target_currency.
+        # Logging im Aufrufer (cashflow_timeline ist Pure-Func, kein Logger).
+        return raw_amount
+    return int(round(raw_amount * float(rate)))
+
+
 def totals_for_year(
     cashflows: list,
     year: int | None = None,
     *,
     inflation_series_bps: list[int] | None = None,
     start_year: int | None = None,
+    fx_source=None,
+    target_currency: str = "CHF",
 ) -> dict[str, int]:
+    """Aggregiert alle Cashflows fuer ein Ziel-Jahr.
+
+    Sprint B3 (2026-06-07) — Multi-Currency-Support:
+        fx_source (optional, default None): FXRateSource-Instanz. Wenn gesetzt,
+        wird jeder Cashflow von seiner cf.currency auf target_currency (default
+        'CHF') konvertiert. Wenn None: Backwards-Compat, currency wird ignoriert.
+
+        target_currency: Ziel-Waehrung fuer die aggregierten Totals (Default CHF).
+    """
     target_year = int(year or date.today().year)
     inflation_factor_universal = _compound_inflation_factor(
         inflation_series_bps, start_year, target_year
@@ -204,8 +247,14 @@ def totals_for_year(
         # Aufrufer kann inflation_series_bps weglassen -> Faktor 1.0 (nominal).
         is_linked = bool(getattr(cf, "is_inflation_linked", 0))
         cf_factor = inflation_factor_universal if is_linked else 1.0
+        # Sprint B3: zuerst zu target_currency konvertieren, dann annualisieren.
+        # WICHTIG: Conversion VOR Inflation, damit Inflation in target_currency
+        # angewendet wird (CH-Inflation auf CHF-Werte, nicht auf USD-Werte).
+        amount_in_target = _convert_cf_amount_to_target_currency(
+            cf, fx_source, target_currency,
+        )
         amount = contribution_for_year(
-            amount_rappen=int(getattr(cf, "amount_rappen", 0) or 0),
+            amount_rappen=amount_in_target,
             frequency=getattr(cf, "frequency", None),
             nature=getattr(cf, "nature", None),
             valid_from=getattr(cf, "valid_from", None),
@@ -249,7 +298,14 @@ def net_cashflow_series(
     start_year: int | None = None,
     *,
     inflation_series_bps: list[int] | None = None,
+    fx_source=None,
+    target_currency: str = "CHF",
 ) -> list[int]:
+    """Liefert net_rappen pro Jahr ueber den Horizont.
+
+    Sprint B3: Optionaler fx_source aktiviert Multi-Currency-Conversion.
+    Backwards-Compat: ohne fx_source bleibt das alte Verhalten unveraendert.
+    """
     base_year = int(start_year or date.today().year)
     return [
         totals_for_year(
@@ -257,6 +313,8 @@ def net_cashflow_series(
             base_year + offset,
             inflation_series_bps=inflation_series_bps,
             start_year=base_year,
+            fx_source=fx_source,
+            target_currency=target_currency,
         )["net_rappen"]
         for offset in range(max(0, years))
     ]
@@ -268,7 +326,10 @@ def recurring_net_cashflow_series(
     start_year: int | None = None,
     *,
     inflation_series_bps: list[int] | None = None,
+    fx_source=None,
+    target_currency: str = "CHF",
 ) -> list[int]:
+    """Sprint B3: fx_source + target_currency Backwards-Compat-Passthrough."""
     base_year = int(start_year or date.today().year)
     return [
         totals_for_year(
@@ -276,12 +337,16 @@ def recurring_net_cashflow_series(
             base_year + offset,
             inflation_series_bps=inflation_series_bps,
             start_year=base_year,
+            fx_source=fx_source,
+            target_currency=target_currency,
         )["recurring_income_rappen"]
         - totals_for_year(
             cashflows,
             base_year + offset,
             inflation_series_bps=inflation_series_bps,
             start_year=base_year,
+            fx_source=fx_source,
+            target_currency=target_currency,
         )["recurring_expense_rappen"]
         for offset in range(max(0, years))
     ]
