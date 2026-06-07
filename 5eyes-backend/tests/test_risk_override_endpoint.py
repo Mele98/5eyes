@@ -15,6 +15,7 @@ if str(BACKEND_ROOT) not in sys.path:
 from database import Base
 from models.clients import Client
 from models.mandates import Mandate
+from models.tenant import Tenant  # Sprint T1 (2026-06-08): FK-Aufloesung
 from models.users import User
 from routers.profiling import create_risk_assessment, override_risk_assessment
 from schemas.profiling import RiskAssessmentCreate, RiskAssessmentOverride
