@@ -539,14 +539,20 @@ def simulate_wealth_paths(
 # ============================================================================
 
 
-def scenario_inputs_from_cma(cma) -> ScenarioInputs:
+def scenario_inputs_from_cma(cma, sub_allocations: list[dict] | None = None) -> ScenarioInputs:
     """Extrahiert ScenarioInputs aus einem CMA-Objekt (oder Mock mit gleichen Attributen).
 
-    Aggregiert Sub-Asset-Class Returns/Vols zu Bucket-Level. Diese Phase 1
-    Implementation ist absichtlich grob: simpler Mittelwert der relevanten
-    Sub-Klassen pro Bucket. Phase 2 (Sub-Allocation-Aware Bucket Metrics)
-    wird das verfeinern - aktuell konsistent zu portfolio_engine
-    `_asset_class_expected_metrics`.
+    Sprint B1 (2026-06-07): sub_allocations enables Sub-Allocation-Aware
+    Bucket-Returns. Wenn list[dict] uebergeben wird, werden Bucket-Returns
+    und -Vols nach den realen Sub-Gewichten berechnet (statt Durchschnitt
+    aller verfuegbaren Sub-CMA-Werte).
+
+    sub_allocations: list[dict] mit Keys 'asset_class', 'sub_asset_class',
+    'target_weight_bps'. Konsistent zur Konvention in portfolio_engine.
+    _weighted_bucket_metrics (Single-Source-of-Truth).
+
+    Backwards-Compat: ohne sub_allocations bleibt das alte Verhalten
+    (simpler average der Sub-CMA-Returns pro Bucket).
 
     Korrelation: nutzt cma.correlation_matrix_json wenn 5x5 vorhanden,
     sonst default Swiss-market Matrix.
@@ -607,6 +613,37 @@ def scenario_inputs_from_cma(cma) -> ScenarioInputs:
         "alternatives": _avg_or_zero([cma.alternatives_gold_vol_bps]),
         "liquidity": _avg_or_zero([cma.liquidity_vol_bps]),
     }
+
+    # Sprint B1 (2026-06-07): Sub-Allocation-Aware Override.
+    # Wenn sub_allocations gegeben, ueberschreibt _weighted_bucket_metrics
+    # die simpler-averaged Werte mit gewichteten Sub-Allocation-Metrics.
+    # Single-Source-of-Truth: portfolio_engine._weighted_bucket_metrics —
+    # damit Optimizer und Reporting konsistente Bucket-Metrics nutzen.
+    # Wichtig: NS/KGV/RP-Adjustments (oben) bleiben angewendet auf den
+    # Equity-Bucket nach Sub-Allocation-Override (Adjustments sind
+    # Market-Adjustments, unabhaengig von Sub-Mix).
+    if sub_allocations:
+        try:
+            from services.portfolio_engine import _weighted_bucket_metrics
+            sub_returns, sub_vols = _weighted_bucket_metrics(cma, sub_allocations)
+            # Apply KGV-Adjustment auf den Sub-weighted Equity-Return
+            sub_returns["equities"] = int(sub_returns["equities"]) + int(equity_kgv_adjustment_bps)
+            # NS/RP-Returns sind bucket-level (von der Curve, nicht sub-spezifisch);
+            # bei aktivem NS/RP wird der Sub-Aggregat-Wert ueberschrieben durch
+            # den NS/RP-Wert (Konsistenz zu portfolio_engine).
+            if bonds_return_from_ns is not None:
+                sub_returns["bonds"] = int(bonds_return_from_ns)
+            if re_return_from_premium is not None:
+                sub_returns["real_estate"] = int(re_return_from_premium)
+            if alt_return_from_premium is not None:
+                sub_returns["alternatives"] = int(alt_return_from_premium)
+            bucket_returns = {b: float(sub_returns[b]) for b in bucket_returns}
+            bucket_vols = {b: float(sub_vols[b]) for b in bucket_vols}
+        except Exception:
+            # Defensive: bei Import- oder Berechnungsfehler bleibt der
+            # alte (simpler-average) Pfad aktiv. Niemals Engine-Crash
+            # wegen Sub-Allocation-Format-Issues.
+            pass
 
     mu_bps = np.array([bucket_returns[b] for b in BUCKET_ORDER], dtype=np.float64)
     sigma_bps = np.array([bucket_vols[b] for b in BUCKET_ORDER], dtype=np.float64)
