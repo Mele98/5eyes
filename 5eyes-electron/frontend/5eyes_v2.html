@@ -661,10 +661,12 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 .psp{font-size:10px;font-weight:500;color:var(--g3);}
 .psc{font-size:10px;color:rgba(255,255,255,0.4);}
 .psubh{background:var(--bg2);padding:5px 14px;display:flex;justify-content:space-between;border-bottom:1px solid var(--b1);}
-.pcols{display:grid;grid-template-columns:minmax(0,1.7fr) 120px 118px 72px 128px;gap:12px;padding:6px 14px;background:var(--n0);border-bottom:1px solid var(--b1);}
+/* Bug-#5 (2026-06-07): Portfolio = SOLL-Vorschlag (Ableitung der SAA),
+   keine IST-vs-SOLL-Vergleichs-UI. Drift/Status-Spalte entfaellt -> 4 Spalten. */
+.pcols{display:grid;grid-template-columns:minmax(0,1.7fr) 140px 130px 80px;gap:12px;padding:6px 14px;background:var(--n0);border-bottom:1px solid var(--b1);}
 .pch{font-size:9px;font-weight:500;letter-spacing:0.05em;text-transform:uppercase;color:var(--n4);}
 .prow{border-bottom:1px solid var(--b1);}
-.prow-main{display:grid;grid-template-columns:minmax(0,1.7fr) 120px 118px 72px 128px;gap:12px;align-items:center;padding:8px 14px;cursor:pointer;transition:background 0.12s ease;}
+.prow-main{display:grid;grid-template-columns:minmax(0,1.7fr) 140px 130px 80px;gap:12px;align-items:center;padding:8px 14px;cursor:pointer;transition:background 0.12s ease;}
 .prow-main:hover,.prow.open .prow-main{background:var(--n0);}
 .prow-detail{display:none;padding:10px 14px 12px;background:var(--n0);}
 .prow.open .prow-detail{display:block;}
@@ -1837,9 +1839,12 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
           <div style="display:flex;gap:16px"><div style="text-align:right"><div style="font-size:9px;color:rgba(255,255,255,0.4)">Letzte Preisqualität</div><div id="po-price-quality" style="font-size:13px;font-weight:500;color:#d4b06a">Live</div><div id="po-price-quality-sub" style="font-size:9px;color:rgba(255,255,255,0.55);margin-top:2px">Daten werden geladen</div></div><div style="text-align:right"><div style="font-size:9px;color:rgba(255,255,255,0.4)">Positionen</div><div id="po-position-count" style="font-size:13px;font-weight:500;color:#fff">14</div></div><div style="text-align:right"><div style="font-size:9px;color:rgba(255,255,255,0.4)">Ø TER p.a.</div><div id="po-average-ter" style="font-size:13px;font-weight:500;color:#fff">0.22%</div></div></div>
         </div>
         <div id="po-engine-warnings" style="display:none;background:#fff7ed;border:1px solid rgba(194,65,12,0.18);border-radius:var(--r);padding:10px 12px;margin-bottom:10px"></div>
-        <div id="po-rebalance-summary" style="display:none;flex-direction:column;gap:8px;margin-bottom:10px"></div>
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;gap:10px;flex-wrap:wrap"><div style="font-size:10px;color:var(--n5)">Position anklicken zeigt Details: Soll-Anteil aus der Asset Allokation, Zielwert, Kosten und die Massnahme zur Umsetzung.</div><div style="font-size:9px;color:var(--n4);background:var(--bg);border:1px solid var(--b1);border-radius:999px;padding:4px 8px">Klick öffnet Berater-Details</div></div>
-        <div class="pcols"><div class="pch">Produkt</div><div class="pch">Anlageklasse</div><div class="pch" style="text-align:right">Marktwert</div><div class="pch" style="text-align:right">Gewicht</div><div class="pch" style="text-align:right">Massnahme</div></div>
+        <!-- Bug-#5 (2026-06-07): Portfolio zeigt SOLL-Empfehlung,
+             kein IST-vs-SOLL-Rebalancing-Banner mehr. Drift/Action-
+             Logik gehoert in den Depot-Check, nicht in den
+             Beratungsprozess (Anlagephilosophie: Strategietreue). -->
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;gap:10px;flex-wrap:wrap"><div style="font-size:10px;color:var(--n5)">Position anklicken zeigt Berater-Details: Soll-Anteil aus der Asset Allokation, Zielbetrag und Kosten.</div><div style="font-size:9px;color:var(--n4);background:var(--bg);border:1px solid var(--b1);border-radius:999px;padding:4px 8px">Klick öffnet Berater-Details</div></div>
+        <div class="pcols"><div class="pch">Produkt</div><div class="pch">Anlageklasse</div><div class="pch" style="text-align:right">Zielbetrag</div><div class="pch" style="text-align:right">Soll-Gewicht</div></div>
         <div id="po-portfolio-sections"></div>
         <div style="background:var(--n8);border-radius:var(--r);padding:8px 14px;display:flex;justify-content:space-between;align-items:center;margin-top:5px"><span style="font-size:11px;font-weight:600;color:#fff;text-transform:uppercase;letter-spacing:0.04em">Total Beratungsvermögen</span><span id="po-total-footer" style="font-family:var(--f-d);font-size:17px;color:#d4b06a">CHF 2'848'000</span></div>
       </div>
@@ -14667,43 +14672,13 @@ function togglePortfolioTechnicalDetail(rowId){
   portfolioTechnicalExpandedRows[key]=!portfolioTechnicalExpandedRows[key];
   renderPortfolioSections(currentPortfolioPositions);
 }
-function renderPortfolioRebalancingSummary(live,result,positions){
+function renderPortfolioRebalancingSummary(_live,_result,_positions){
+  // Bug-#5 (2026-06-07): No-op. Portfolio-Tab zeigt nur SOLL-Vorschlag.
+  // Drift-/Rebalancing-Empfehlungen gehoeren in den Depot-Check-Tab, nicht
+  // in den Beratungsprozess (Anlagephilosophie: Strategietreue, keine
+  // automatischen Markt-Trigger; ADR-003 Anti-Market-Timing).
   var box=document.getElementById('po-rebalance-summary');
-  if(!box)return;
-  var rows=Array.isArray(positions)?positions:[];
-  var totalPortfolio=live&&live.live_total_value_rappen!=null
-    ? Number(live.live_total_value_rappen||0)
-    : rows.reduce(function(sum,row){return sum+portfolioMarketValueRappen(row);},0);
-  var statusRows=rows.map(function(row){return portfolioStatusMeta(row,totalPortfolio);});
-  var actionCount=statusRows.filter(function(meta){return meta.label==='ANPASSEN';}).length;
-  var reviewCount=statusRows.filter(function(meta){return meta.label==='PRÜFEN';}).length;
-  var averageTerBps=Number(result&&result.average_ter_bps||0);
-  var items=[];
-  if(actionCount>0){
-    items.push(
-      '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;background:var(--warn-lt);border:1px solid rgba(180,83,9,0.18);border-radius:var(--r);padding:10px 12px">'
-      + '<div><div style="font-size:10px;font-weight:700;letter-spacing:0.05em;text-transform:uppercase;color:#9a3412">Handlungsbedarf</div><div style="font-size:11px;color:#9a3412;line-height:1.5;margin-top:3px">'+String(actionCount)+' Position(en) ausserhalb Bandbreite - Handlungsvorschläge bereit.</div></div>'
-      + '<button class="btn-p" onclick="openDecisionTemplateModal(\'\')">Entscheidungsvorlage</button>'
-      + '</div>'
-    );
-  }
-  if(reviewCount>0){
-    items.push(
-      '<div style="background:var(--bg);border:1px solid var(--b1);border-radius:var(--r);padding:10px 12px"><div style="font-size:10px;font-weight:700;letter-spacing:0.05em;text-transform:uppercase;color:var(--n7)">Datenqualität</div><div style="font-size:11px;color:var(--n6);line-height:1.5;margin-top:3px">'+String(reviewCount)+' Position(en) sollten vor dem Gespräch preislich oder fachlich geprüft werden.</div></div>'
-    );
-  }
-  if(averageTerBps>50){
-    items.push(
-      '<div style="background:var(--bg);border:1px solid var(--b1);border-radius:var(--r);padding:10px 12px"><div style="font-size:10px;font-weight:700;letter-spacing:0.05em;text-transform:uppercase;color:var(--n7)">Kostenhinweis</div><div style="font-size:11px;color:var(--n6);line-height:1.5;margin-top:3px">Durchschnittliche Produktkosten liegen mit '+escapeHtml(((averageTerBps||0)/100).toFixed(2))+'% p.a. über dem Richtwert von 0.50%.</div></div>'
-    );
-  }
-  if(!items.length){
-    box.style.display='none';
-    box.innerHTML='';
-    return;
-  }
-  box.style.display='flex';
-  box.innerHTML=items.join('');
+  if(box){box.style.display='none';box.innerHTML='';}
 }
 function clearStrategySummaryForDirtyState(){
   var snapshot=currentAllocationInputSnapshot();
@@ -15287,7 +15262,8 @@ function renderPortfolioSections(positions){
   if(!items.length){
     portfolioExpandedRows={};
     portfolioTechnicalExpandedRows={};
-    wrap.innerHTML='<div class="ps"><div class="prow"><div class="prow-main" style="cursor:default"><div><div class="pname">Noch keine Produktempfehlungen</div><div class="pdet">Bitte Strategie berechnen.</div></div><div class="pclass"><span class="tag tn">Leer</span></div><div class="pval">CHF 0</div><div class="pval">0%</div><div class="pstatus"><span class="pstatus-badge pstatus-review">OFFEN</span><div class="pstatus-sub">Strategie fehlt</div></div></div></div></div>';
+    // Bug-#5 (2026-06-07): Leerzustand-Zelle in 4-Spalten-Grid (ohne Massnahme).
+    wrap.innerHTML='<div class="ps"><div class="prow"><div class="prow-main" style="cursor:default"><div><div class="pname">Noch keine Produktempfehlungen</div><div class="pdet">Bitte Strategie berechnen.</div></div><div class="pclass"><span class="tag tn">Leer</span></div><div class="pval">CHF 0</div><div class="pval">0%</div></div></div></div>';
     return;
   }
   var totalPortfolio=items.reduce(function(sum,row){return sum+portfolioMarketValueRappen(row);},0);
@@ -15305,12 +15281,9 @@ function renderPortfolioSections(positions){
       var rowKey=String(row.id||row.position_id||row.product_id||row.isin||(group+'-'+index));
       var isExpanded=!!portfolioExpandedRows[rowKey];
       var techExpanded=!!portfolioTechnicalExpandedRows[rowKey];
-      var status=portfolioStatusMeta(row,totalPortfolio);
       var marketValue=portfolioMarketValueRappen(row);
       var targetAmountRappen=Number(row.target_amount_rappen||0);
-      var currentWeightBps=portfolioCurrentWeightBps(row,totalPortfolio);
       var targetWeightBps=Number(row.target_weight_bps||0);
-      var driftBps=portfolioDriftWeightBps(row,totalPortfolio);
       var metaBits=[];
       if(row.sub_asset_class)metaBits.push(String(row.sub_asset_class));
       if(row.currency)metaBits.push(String(row.currency));
@@ -15327,34 +15300,31 @@ function renderPortfolioSections(positions){
       var refPriceLabel=row.reference_price_rappen!==null&&row.reference_price_rappen!==undefined
         ? formatRappen(row.reference_price_rappen)
         : 'n/a';
-      var pnlRappen=portfolioEstimatedPnlRappen(row);
-      var pnlLabel=pnlRappen===null?'n/a':formatSignedRappen(pnlRappen);
-      var barMax=Math.max(Math.abs(currentWeightBps),Math.abs(targetWeightBps),100);
-      var currentBarPct=currentWeightBps?Math.max(4,Math.round(Math.abs(currentWeightBps)/barMax*100)):0;
-      var targetBarPct=targetWeightBps?Math.max(4,Math.round(Math.abs(targetWeightBps)/barMax*100)):0;
-      var detailActionLabel=status.label==='IN-SOLL'?'Kein unmittelbarer Handlungsbedarf':(status.label==='PRÜFEN'?'Bitte fachlich prüfen':'Empfohlene Anpassung vorbereitet');
+      var targetBarPct=targetWeightBps?Math.max(4,Math.round(Math.abs(targetWeightBps)/Math.max(targetWeightBps,100)*100)):0;
+      // Bug-#5 (2026-06-07): Portfolio-Tab = SOLL-Vorschlag aus der SAA.
+      // Marktwert-/Gewicht-Spalten zeigen den ZIELbetrag bzw. das
+      // Soll-Gewicht (target_amount_rappen / target_weight_bps), nicht
+      // den Drift gegen die IST-Allokation. Drift/PnL/Massnahmen-Spalte
+      // entfaellt — gehoert in den Depot-Check.
+      var displayAmountRappen=targetAmountRappen||marketValue;
       return '<div class="prow'+(isExpanded?' open':'')+'">'
         + '<div class="prow-main" onclick="togglePortfolioPositionDetail(decodeURIComponent(\''+encodeURIComponent(rowKey)+'\'))">'
         + '<div><div class="pname">'+escapeHtml(row.product_name||'Produkt')+'</div><div class="pdet">'+escapeHtml(metaBits.join(' · ')||'Preisstand wird vorbereitet')+'</div></div>'
         + '<div class="pclass"><span class="tag tn">'+escapeHtml(assetDisplayName(row.sub_asset_class||row.asset_class||'Titel'))+'</span></div>'
-        + '<div class="pval">'+escapeHtml(formatRappen(marketValue))+'</div>'
-        + '<div class="pval">'+escapeHtml(formatBpsPercent(currentWeightBps))+'</div>'
-        + '<div class="pstatus"><span class="pstatus-badge '+status.className+'">'+escapeHtml(status.label)+'</span><div class="pstatus-sub">'+escapeHtml(status.sub)+'</div></div>'
+        + '<div class="pval">'+escapeHtml(formatRappen(displayAmountRappen))+'</div>'
+        + '<div class="pval">'+escapeHtml(formatBpsPercent(targetWeightBps))+'</div>'
         + '</div>'
         + '<div class="prow-detail"><div class="pdetail-grid">'
-        + '<div class="pdetail-item"><strong>Allokation</strong><div class="pdetail-bars"><div class="pdetail-bar"><span>Ist</span><div class="pdetail-track"><div class="pdetail-fill" style="width:'+String(currentBarPct)+'%;background:var(--n7)"></div></div><span>'+escapeHtml(formatBpsPercent(currentWeightBps))+'</span></div><div class="pdetail-bar"><span>Soll</span><div class="pdetail-track"><div class="pdetail-fill" style="width:'+String(targetBarPct)+'%;background:var(--g4)"></div></div><span>'+escapeHtml(formatBpsPercent(targetWeightBps))+'</span></div></div></div>'
-        + '<div class="pdetail-item"><strong>Zielwert</strong>'+escapeHtml(formatRappen(targetAmountRappen||marketValue))+'<br>Aktueller Marktwert: '+escapeHtml(formatRappen(marketValue))+'</div>'
-        + '<div class="pdetail-item"><strong>Kosten</strong>TER p.a.: '+escapeHtml(((Number(row.ter_bps||0))/100).toFixed(2))+'%<br>Kosten auf aktuellem Volumen: '+escapeHtml(formatRappen(Math.round(marketValue*Number(row.ter_bps||0)/10000)))+' p.a.</div>'
-        + '<div class="pdetail-item"><strong>Depot & Bestand</strong>Depotbank: '+escapeHtml(row.holding_depot_bank||'n/a')+'<br>Depotnummer: '+escapeHtml(row.holding_custody_account_number||'n/a')+'<br>Bestand: '+(row.current_units_milli!==null&&row.current_units_milli!==undefined?escapeHtml(formatUnitsMilli(row.current_units_milli))+' Stk':'n/a')+(row.holding_as_of_date?' · '+escapeHtml(String(row.holding_as_of_date)):'')+'</div>'
-        + '<div class="pdetail-item"><strong>Handlung</strong>Status: '+escapeHtml(status.label)+'<br>Empfehlung: '+escapeHtml(status.actionLabel)+'<br>'+escapeHtml(detailActionLabel)+'</div>'
+        + '<div class="pdetail-item"><strong>Soll-Anteil</strong><div class="pdetail-bars"><div class="pdetail-bar"><span>Soll</span><div class="pdetail-track"><div class="pdetail-fill" style="width:'+String(targetBarPct)+'%;background:var(--g4)"></div></div><span>'+escapeHtml(formatBpsPercent(targetWeightBps))+'</span></div></div></div>'
+        + '<div class="pdetail-item"><strong>Zielbetrag</strong>'+escapeHtml(formatRappen(displayAmountRappen))+'</div>'
+        + '<div class="pdetail-item"><strong>Kosten</strong>TER p.a.: '+escapeHtml(((Number(row.ter_bps||0))/100).toFixed(2))+'%<br>Kosten auf Zielvolumen: '+escapeHtml(formatRappen(Math.round(displayAmountRappen*Number(row.ter_bps||0)/10000)))+' p.a.</div>'
         + '</div>'
         + '<div style="display:flex;justify-content:flex-end;margin-top:10px"><button class="btn" type="button" onclick="event.stopPropagation();togglePortfolioTechnicalDetail(decodeURIComponent(\''+encodeURIComponent(rowKey)+'\'))">'+(techExpanded?'Technische Details ausblenden':'Technische Details anzeigen')+'</button></div>'
         + (techExpanded
           ? ('<div style="margin-top:10px;border-top:1px solid var(--b1);padding-top:10px"><div class="pdetail-grid">'
             + '<div class="pdetail-item"><strong>Produktdaten</strong>ISIN: '+escapeHtml(row.isin||'n/a')+'<br>Symbol: '+escapeHtml(symbolLabel)+'<br>FIGI: '+escapeHtml(row.figi||'n/a')+'</div>'
             + '<div class="pdetail-item"><strong>Preisstand</strong>Live: '+escapeHtml(livePriceLabel)+(row.latest_price_date?' · '+escapeHtml(String(row.latest_price_date)):'')+'<br>Referenz: '+escapeHtml(refPriceLabel)+(row.reference_price_date?' · '+escapeHtml(String(row.reference_price_date)):'')+'<br>Frische: '+(row.price_age_days!==null&&row.price_age_days!==undefined?escapeHtml((row.price_is_fresh?'Frisch':'Alt')+' · '+String(row.price_age_days)+' Tage'):'n/a')+'</div>'
-            + '<div class="pdetail-item"><strong>Abweichung</strong>Drift: '+escapeHtml(formatSignedBpsPercent(driftBps))+'<br>Buchgewinn/-verlust: '+escapeHtml(pnlLabel)+'</div>'
-            + '<div class="pdetail-item"><strong>Quelle</strong>Preisquelle: '+escapeHtml(lookupLabel)+'<br>Einstand: '+(row.holding_avg_cost_price_rappen!==null&&row.holding_avg_cost_price_rappen!==undefined?escapeHtml(formatRappen(row.holding_avg_cost_price_rappen)):'n/a')+'</div>'
+            + '<div class="pdetail-item"><strong>Quelle</strong>Preisquelle: '+escapeHtml(lookupLabel)+'</div>'
             + '</div></div>')
           : '')
         + '</div></div>';
