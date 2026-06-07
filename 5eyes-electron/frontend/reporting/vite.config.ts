@@ -15,6 +15,11 @@ import path from 'node:path';
  */
 export default defineConfig({
   plugins: [react()],
+  // Bug-#6 (2026-06-07): Reporting-App wird vom 5eyes-Backend unter
+  // /reporting/ als Static-Mount serviert (keine separate Vite-Instanz im
+  // Demo/Production). `base` muss daher mit dem Backend-Mount-Pfad
+  // uebereinstimmen, sonst zeigen Asset-URLs ins Leere.
+  base: '/reporting/',
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
