@@ -202,6 +202,7 @@ def build_optimizer_context(
     score_x10: int,
     advisory_wealth_rappen: int,
     cashflow_series_rappen: Iterable[int],
+    sub_allocations: list[dict] | None = None,  # Sprint B1 (2026-06-07)
     horizon_years: int = 10,
     n_paths: int = 2000,
     seed: int | None = None,
@@ -229,8 +230,21 @@ def build_optimizer_context(
         goal_ids = "|".join(str(getattr(g, "id", "?")) for g in goals)
         seed = deterministic_seed(cma_id, goal_ids, score_x10, horizon_years, n_paths)
 
-    inputs = scenario_inputs_from_cma(cma)
+    inputs = scenario_inputs_from_cma(cma, sub_allocations=sub_allocations)
+    # Sprint B1 (2026-06-07): Cache-Key muss Sub-Allocation enthalten,
+    # sonst liefert Cache stale Pfade wenn dieselbe cma_id mit anderem
+    # Sub-Mix aufgerufen wird.
     cma_id_for_cache = str(getattr(cma, "id", "no-cma"))
+    if sub_allocations:
+        try:
+            import hashlib
+            import json as _json
+            sub_repr = _json.dumps(sub_allocations, sort_keys=True, default=str)
+            sub_hash = hashlib.sha256(sub_repr.encode("utf-8")).hexdigest()[:12]
+            cma_id_for_cache = f"{cma_id_for_cache}::sub::{sub_hash}"
+        except Exception:
+            # Defensive: bei JSON-Fehler nur cma_id, kein Cache-Crash
+            pass
 
     # Sprint P1 (2026-06-06): IS-Auto-Decision
     # ---------------------------------------
@@ -805,6 +819,8 @@ def run_solver(
     base_calendar_year: int = 2026,
     mandate_age_at_start: int | None = None,
     is_retired: bool = False,
+    # Sprint B1 (2026-06-07): Sub-Allocation-Aware Bucket-Returns
+    sub_allocations: list[dict] | None = None,
 ) -> OptimizerResult:
     """Mulvey-Light SLSQP Optimizer.
 
@@ -842,6 +858,8 @@ def run_solver(
         base_calendar_year=base_calendar_year,
         mandate_age_at_start=mandate_age_at_start,
         is_retired=is_retired,
+        # Sprint B1 (2026-06-07): Sub-Allocation
+        sub_allocations=sub_allocations,
     )
     # Lokale Aliase fuer Lesbarkeit der bestehenden Logik unten
     seed = context.seed
