@@ -735,6 +735,13 @@ def get_strategy_backtest(
     benchmark_alternatives_bps: int | None = None,
     benchmark_liquidity_bps: int | None = None,
     resolution: str = "annual",
+    # Bug-#8a (2026-06-07): Fee-Inputs in bps p.a.
+    # strategy_fee_bps = TER + Beratungs-/Depotgebuehren der SOLL-Strategie.
+    # benchmark_fee_bps = Fee, die der Benchmark (z.B. ein passives ETF-
+    # Mandat) realistisch traegt. Bei 0 = Brutto-Index (theoretisch nicht
+    # investierbar, aber als oberer Vergleichsanker nuetzlich).
+    strategy_fee_bps: int | None = None,
+    benchmark_fee_bps: int | None = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -775,6 +782,8 @@ def get_strategy_backtest(
         end_year=end_year,
         benchmark_weights_bps=benchmark,
         resolution=resolution,
+        strategy_fee_bps=strategy_fee_bps,
+        benchmark_fee_bps=benchmark_fee_bps,
     )
 
 
