@@ -38,8 +38,8 @@ def _make_minimal_payload() -> dict:
         "mandate_id": "test-mandate-id",
         "generated_at": "2026-05-27T14:32:00.000Z",
         "cover": {
-            "title": "Depotcheck",
-            "subtitle": "Strategische Portfolioanalyse",
+            "title": "Strategische Portfolioanalyse",
+            "subtitle": "Persoenlicher Advisory-Report",
             "client_name": "Hans Muster",
             "mandate_number": "MX-FOUNDATION-01",
             "report_date": "2026-05-27",

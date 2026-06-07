@@ -32,7 +32,12 @@ ADVISOR_CONFIRM_TEXT = (
 )
 
 
-def make_unterschrift_section() -> list:
+def make_unterschrift_section(
+    *,
+    client_confirm_text: str = CLIENT_CONFIRM_TEXT,
+    advisor_confirm_text: str = ADVISOR_CONFIRM_TEXT,
+    signature_space_mm: float = 16,
+) -> list:
     """Returns Flowables: Section-Title + 2-Spalten-Unterschriftsblock."""
     styles = make_paragraph_styles()
     flowables = [_section_title("Bestätigung & Unterschrift")]
@@ -41,10 +46,10 @@ def make_unterschrift_section() -> list:
     left_col = [
         Paragraph(
             f'<font name="{FONT_DEFAULT}" size="{FONT_SIZE_BODY}" color="#334155">'
-            f'{_esc(CLIENT_CONFIRM_TEXT)}</font>',
+            f'{_esc(client_confirm_text)}</font>',
             _para_compact(),
         ),
-        Spacer(1, 16 * mm),  # Platz fuer Unterschrift
+        Spacer(1, signature_space_mm * mm),  # Platz fuer Unterschrift
         _signature_line(),
         Paragraph(
             f'<font name="{FONT_DEFAULT}" size="{FONT_SIZE_SMALL}" color="#64748b">'
@@ -55,10 +60,10 @@ def make_unterschrift_section() -> list:
     right_col = [
         Paragraph(
             f'<font name="{FONT_DEFAULT}" size="{FONT_SIZE_BODY}" color="#334155">'
-            f'{_esc(ADVISOR_CONFIRM_TEXT)}</font>',
+            f'{_esc(advisor_confirm_text)}</font>',
             _para_compact(),
         ),
-        Spacer(1, 16 * mm),
+        Spacer(1, signature_space_mm * mm),
         _signature_line(),
         Paragraph(
             f'<font name="{FONT_DEFAULT}" size="{FONT_SIZE_SMALL}" color="#64748b">'

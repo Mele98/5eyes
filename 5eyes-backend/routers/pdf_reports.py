@@ -24,6 +24,7 @@ from services.pdf import ReportLabRenderer
 from services.pdf.base import (
     AnlagestrategieData,
     BacktestData,
+    ContractSignoffData,
     DepotCheckData,
     PDFContext,
     PortfolioData,
@@ -782,6 +783,7 @@ def get_risikoprofil_pdf(
     risk_label = "Nicht definiert"
     risk_capacity = 0
     risk_tolerance = 0
+    risk_score_x10 = None
     experience_years = 0
     suitability_note = ""
     is_overridden = False
@@ -790,11 +792,28 @@ def get_risikoprofil_pdf(
     override_warning_delivered = None
     knowledge_services: dict[str, bool] = {}
     knowledge_instruments: dict[str, bool] = {}
+    risk_answers: list = []
+    advisory_wealth_rappen = None
     try:
-        from models.profiling import RiskAssessment
-        ra = (
+        ta = _latest_target_allocation(mandate, db)
+        if ta is not None:
+            advisory_wealth_rappen = int(
+                getattr(ta, "advisory_wealth_at_generation_rappen", 0) or 0
+            ) or None
+    except Exception as exc:
+        logger.warning("Risikoprofil PDF advisory wealth load failed: %s", exc)
+    try:
+        from models.profiling import RiskAssessment, RiskAssessmentAnswer
+        ra_query = (
             db.query(RiskAssessment)
             .filter(RiskAssessment.mandate_id == mandate.id)
+        )
+        ra = (
+            ra_query
+            .filter(RiskAssessment.is_current == 1)
+            .order_by(RiskAssessment.created_at.desc())
+            .first()
+            or ra_query
             .order_by(RiskAssessment.created_at.desc())
             .first()
         )
@@ -805,11 +824,32 @@ def get_risikoprofil_pdf(
                 or getattr(ra, "final_profile", None)
                 or "Nicht definiert"
             )
+            risk_score_x10 = int(
+                (
+                    getattr(ra, "override_score_x10", None)
+                    if is_overridden
+                    else getattr(ra, "final_score_x10", None)
+                )
+                or getattr(ra, "final_score_x10", 0)
+                or 0
+            )
             risk_capacity = int(getattr(ra, "risk_capacity_score_x10", 0) or 0)
             risk_tolerance = int(getattr(ra, "risk_willingness_score_x10", 0) or 0)
             experience_years = int(getattr(ra, "investment_horizon_years", 0) or 0)
             knowledge_services = _knowledge_map_from_json(getattr(ra, "knowledge_services_json", None))
             knowledge_instruments = _knowledge_map_from_json(getattr(ra, "knowledge_instruments_json", None))
+            for a in (
+                db.query(RiskAssessmentAnswer)
+                .filter(RiskAssessmentAnswer.assessment_id == ra.id)
+                .order_by(RiskAssessmentAnswer.question_number.asc())
+                .all()
+            ):
+                risk_answers.append({
+                    "question_number": int(getattr(a, "question_number", 0) or 0),
+                    "question_section": str(getattr(a, "question_section", "") or ""),
+                    "answer_label": str(getattr(a, "answer_label", "") or ""),
+                    "answer_points": int(getattr(a, "answer_points", 0) or 0),
+                })
             if is_overridden:
                 override_reason = str(getattr(ra, "override_reason", "") or "").strip() or None
                 override_client_confirmed = bool(getattr(ra, "override_client_confirmed", 0))
@@ -832,8 +872,13 @@ def get_risikoprofil_pdf(
         risk_profile_label=risk_label,
         risk_capacity_score=risk_capacity,
         risk_tolerance_score=risk_tolerance,
+        risk_score_x10=risk_score_x10,
+        mandate_number=getattr(mandate, "mandate_number", None),
+        advisory_wealth_rappen=advisory_wealth_rappen,
+        mandate_type=getattr(mandate, "mandate_type", None),
         knowledge_services=knowledge_services,
         knowledge_instruments=knowledge_instruments,
+        risk_answers=risk_answers,
         experience_years=experience_years,
         suitability_note=suitability_note,
         is_overridden=is_overridden,
@@ -1117,6 +1162,90 @@ def get_vertrag_pdf(
     )
 
 
+def _build_contract_signoff_data(
+    mandate: Mandate,
+    db: Session,
+) -> ContractSignoffData:
+    strategy = _build_anlagestrategie_data(mandate, db)
+    protocol = _build_protokoll_data(mandate, db)
+    ta = _latest_target_allocation(mandate, db)
+    method = str(getattr(ta, "optimization_method", "") or "").strip() or None
+    orientation = strategy.optimizer_reasoning or _format_portfolio_orientation(
+        strategy.allocation_preferences
+    )
+    return ContractSignoffData(
+        mandate_number=str(getattr(mandate, "mandate_number", "") or "") or None,
+        advisory_wealth_rappen=strategy.advisory_wealth_rappen,
+        risk_profile_label=strategy.risk_profile_label,
+        risk_is_overridden=bool(strategy.risk_is_overridden),
+        risk_override_reason=strategy.risk_override_reason,
+        strategy_name=(
+            f"Zielstrategie {strategy.risk_profile_label}"
+            if strategy.risk_profile_label
+            else "Strategische Zielallokation"
+        ),
+        strategy_method=method,
+        limiting_factor=strategy.limiting_factor,
+        target_allocation_bps=dict(strategy.target_allocation_bps or {}),
+        bucket_bands_bps=dict(strategy.bucket_bands_bps or {}),
+        sub_allocations=_aggregate_depotcheck_sub_allocations(
+            list(strategy.products or [])
+        ),
+        portfolio_orientation=orientation,
+        consultation_summary=list(protocol.entries or []),
+        final_recommendation=protocol.latest_recommendation_summary,
+    )
+
+
+def _format_portfolio_orientation(preferences) -> str:
+    if not isinstance(preferences, dict) or not preferences:
+        return (
+            "Die Portfolioausrichtung folgt der dokumentierten Zielallokation "
+            "und den im Beratungsgespraech festgehaltenen Praeferenzen."
+        )
+    values: list[str] = []
+    for section in ("policy", "assetClasses", "product", "geo"):
+        block = preferences.get(section)
+        if not isinstance(block, dict):
+            continue
+        for key, value in block.items():
+            if value in (None, "", False):
+                continue
+            values.append(f"{key}: {value}")
+    if not values:
+        return (
+            "Die Portfolioausrichtung folgt der dokumentierten Zielallokation "
+            "und den im Beratungsgespraech festgehaltenen Praeferenzen."
+        )
+    return "Dokumentierte Praeferenzen: " + "; ".join(values[:12]) + "."
+
+
+@router.get(
+    "/mandates/{mandate_id}/reports/contract-signoff.pdf",
+    response_class=Response,
+    responses={200: {"content": {"application/pdf": {}}}},
+)
+def get_contract_signoff_pdf(
+    mandate_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Final customer sign-off for the documented advisory decision."""
+    mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
+    ctx = _build_pdf_context(mandate, current_user, db)
+    data = _build_contract_signoff_data(mandate, db)
+    pdf_bytes = ReportLabRenderer().render_contract_signoff(ctx, data)
+    safe_name = "".join(c if c.isalnum() else "_" for c in ctx.mandate_name)[:40]
+    filename = (
+        f"beratungsentscheid_{safe_name}_{ctx.report_date.isoformat()}.pdf"
+    )
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
+
+
 def _build_protokoll_data(mandate: Mandate, db: Session) -> ProtokollData:
     """Beratungsprotokoll-Daten aus AdvisoryLog + letzter Empfehlung."""
     advisory_wealth = None
@@ -1230,29 +1359,260 @@ def get_protokoll_pdf(
 
 
 def _build_depotcheck_data(mandate: Mandate, db: Session) -> DepotCheckData:
-    """Lädt Depot-Check + Stress-Replays und mappt auf frozen dataclass."""
-    from services.depot_check import compute_depot_check
+    """Build the client-facing analysis of the recommended target portfolio."""
     from services.backtest_stress import compute_stress_replays
+    from services.cost_disclosure import build_cost_disclosure
+    from services.depot_check import compute_depot_check
 
     dc = compute_depot_check(db, mandate) or {}
     sr = compute_stress_replays(db, mandate) or {}
     fc = dc.get("fund_characteristics") or {}
+    strategy = _build_anlagestrategie_data(mandate, db)
+    try:
+        portfolio = _build_portfolio_data(mandate, db)
+        positions = sorted(
+            list(portfolio.positions or []),
+            key=lambda item: -int(item.get("target_weight_bps", 0) or 0),
+        )
+    except HTTPException:
+        positions = list(strategy.products or [])
+    try:
+        costs = build_cost_disclosure(db, mandate)
+    except Exception as exc:  # noqa: BLE001 - PDF must remain available
+        logger.warning("Depotcheck costs unavailable: %s", exc)
+        costs = {
+            "data_pending": True,
+            "note": "Kostenausweis ist fuer diese Empfehlung noch nicht verfuegbar.",
+            "warnings": [],
+        }
+    performance = _build_depotcheck_performance(mandate, db)
+    soll_country = dc.get("soll_country_exposure_bps") or {}
+    soll_sector = dc.get("soll_sector_exposure_bps") or {}
+    soll_currency = dc.get("soll_currency_exposure_bps") or {}
+    soll_hhi = {
+        "country": _hhi_from_bps(soll_country.values()),
+        "sector": _hhi_from_bps(soll_sector.values()),
+        "currency": _hhi_from_bps(soll_currency.values()),
+        "top_positions": _hhi_from_bps(
+            int(item.get("target_weight_bps", 0) or 0) for item in positions
+        ),
+    }
+    risk_metrics = {
+        "expected_return_bps": int(strategy.cma_expected_return_bps or 0),
+        "expected_vol_bps": int(strategy.cma_expected_vol_bps or 0),
+        "max_drawdown_bps": strategy.max_drawdown_bps,
+        "var_95_bps": strategy.var_95_bps,
+        "horizon_years": int(strategy.horizon_years or 0),
+    }
     return DepotCheckData(
         mandate_number=str(getattr(mandate, "mandate_number", "") or "") or None,
-        total_advisory_wealth_rappen=int(dc.get("total_advisory_wealth_rappen", 0) or 0),
+        total_advisory_wealth_rappen=int(
+            strategy.advisory_wealth_rappen
+            or dc.get("total_advisory_wealth_rappen", 0)
+            or 0
+        ),
+        target_allocation_bps=dict(strategy.target_allocation_bps or {}),
+        bucket_bands_bps=dict(strategy.bucket_bands_bps or {}),
+        sub_allocations=_aggregate_depotcheck_sub_allocations(positions),
+        risk_profile_label=str(strategy.risk_profile_label or "") or None,
+        risk_metrics=risk_metrics,
         buckets=dc.get("buckets") or {},
         country_exposure_bps=dc.get("country_exposure_bps") or {},
         sector_exposure_bps=dc.get("sector_exposure_bps") or {},
         currency_exposure_bps=dc.get("currency_exposure_bps") or {},
+        soll_country_exposure_bps=soll_country,
+        soll_sector_exposure_bps=soll_sector,
+        soll_currency_exposure_bps=soll_currency,
         concentration_hhi=dc.get("concentration_hhi") or {},
-        top_positions=list(dc.get("top_positions") or []),
-        weighted_ter_bps=int(fc.get("weighted_ter_bps", 0) or 0),
+        soll_concentration_hhi=soll_hhi,
+        top_positions=[
+            {
+                "product_name": item.get("name") or item.get("product_name") or "-",
+                "isin": item.get("isin") or "",
+                "asset_class": item.get("asset_class") or "",
+                "sub_asset_class": item.get("sub_asset_class") or "",
+                "currency": item.get("currency") or "CHF",
+                "amount_rappen": int(item.get("target_amount_rappen", 0) or 0),
+                "weight_bps": int(item.get("target_weight_bps", 0) or 0),
+                "ter_bps": int(item.get("ter_bps", 0) or 0),
+            }
+            for item in positions
+        ],
+        weighted_ter_bps=_cost_item_rate(costs, "product_ter")
+        or int(fc.get("weighted_ter_bps", 0) or 0),
         weighted_duration_years_x10=int(fc.get("weighted_duration_years_x10", 0) or 0),
         weighted_esg_score_x10=int(fc.get("weighted_esg_score_x10", 0) or 0),
         covered_share_bps=int(fc.get("covered_share_bps", 0) or 0),
         liquidity_profile_bps=dc.get("liquidity_profile") or {},
         stress_scenarios=list(sr.get("scenarios") or []),
-        warnings=list(dc.get("warnings") or []),
+        warnings=_depotcheck_data_quality_warnings(costs, performance),
+        cost_disclosure=costs,
+        performance=performance,
+        qualitative_assessment=_build_depotcheck_qualitative_assessment(
+            strategy=strategy,
+            positions=positions,
+            soll_hhi=soll_hhi,
+        ),
+    )
+
+
+def _aggregate_depotcheck_sub_allocations(positions: list[dict]) -> list[dict]:
+    grouped: dict[tuple[str, str], dict[str, object]] = {}
+    for item in positions:
+        bucket = str(item.get("asset_class") or "").strip()
+        sub = str(item.get("sub_asset_class") or "").strip() or "Nicht spezifiziert"
+        if not bucket:
+            continue
+        key = (bucket, sub)
+        row = grouped.setdefault(
+            key,
+            {
+                "asset_class": bucket,
+                "sub_asset_class": sub,
+                "weight_bps": 0,
+                "amount_rappen": 0,
+                "products": 0,
+            },
+        )
+        row["weight_bps"] = int(row["weight_bps"]) + int(
+            item.get("target_weight_bps", 0) or 0
+        )
+        row["amount_rappen"] = int(row["amount_rappen"]) + int(
+            item.get("target_amount_rappen", 0) or 0
+        )
+        row["products"] = int(row["products"]) + 1
+    return sorted(
+        grouped.values(),
+        key=lambda row: (-int(row["weight_bps"]), str(row["sub_asset_class"])),
+    )
+
+
+def _hhi_from_bps(values) -> int:
+    clean = [max(0, int(value or 0)) for value in values]
+    total = sum(clean)
+    if total <= 0:
+        return 0
+    return int(round(sum((value / total) ** 2 for value in clean) * 10000))
+
+
+def _cost_item_rate(costs: dict, key: str) -> int:
+    for item in costs.get("cost_items") or []:
+        if str(item.get("key") or "") == key:
+            return int(item.get("rate_bps", 0) or 0)
+    return 0
+
+
+def _build_depotcheck_performance(mandate: Mandate, db: Session) -> dict:
+    try:
+        benchmark = _depotcheck_house_matrix_benchmark(mandate, db)
+        data = _build_backtest_data(
+            mandate,
+            db,
+            start_year=None,
+            end_year=None,
+            benchmark_weights_bps=benchmark or None,
+            resolution="annual",
+        )
+        return {
+            "data_pending": False,
+            "start_year": data.start_year,
+            "end_year": data.end_year,
+            "wealth_path_rappen": list(data.soll_wealth_path_rappen or []),
+            "benchmark_wealth_path_rappen": list(
+                data.benchmark_wealth_path_rappen or []
+            ),
+            "metrics": dict(data.soll_metrics or {}),
+            "benchmark_metrics": dict(data.benchmark_metrics or {}),
+            "benchmark_weights_bps": dict(data.benchmark_weights_bps or {}),
+            "warnings": list(data.warnings or []),
+        }
+    except Exception as exc:  # noqa: BLE001 - PDF must fail soft
+        logger.warning("Depotcheck performance unavailable: %s", exc)
+        return {
+            "data_pending": True,
+            "note": "Historischer Vergleich ist fuer diese Strategie noch nicht verfuegbar.",
+        }
+
+
+def _depotcheck_house_matrix_benchmark(mandate: Mandate, db: Session) -> dict:
+    from models.allocation import HouseMatrix
+    from models.profiling import RiskAssessment
+    from services.risk_matrix import score_bucket_from_assessment
+
+    ta = _latest_target_allocation(mandate, db)
+    if ta is None:
+        return {}
+    assessment = (
+        db.query(RiskAssessment)
+        .filter(
+            RiskAssessment.mandate_id == mandate.id,
+            RiskAssessment.is_current == 1,
+            RiskAssessment.deleted_at.is_(None),
+        )
+        .order_by(RiskAssessment.created_at.desc())
+        .first()
+    )
+    if assessment is None:
+        return {}
+    score = score_bucket_from_assessment(assessment)
+    matrix = (
+        db.query(HouseMatrix)
+        .filter(
+            HouseMatrix.policy_id == getattr(ta, "policy_id", None),
+            HouseMatrix.score_from <= int(score),
+            HouseMatrix.score_to >= int(score),
+            HouseMatrix.is_active == 1,
+        )
+        .order_by(HouseMatrix.score_from.desc())
+        .first()
+    )
+    if matrix is None:
+        return {}
+    return {
+        "equities": int(getattr(matrix, "equity_target_bps", 0) or 0),
+        "bonds": int(getattr(matrix, "bonds_target_bps", 0) or 0),
+        "real_estate": int(getattr(matrix, "real_estate_target_bps", 0) or 0),
+        "alternatives": int(getattr(matrix, "alt_target_bps", 0) or 0),
+        "liquidity": int(getattr(matrix, "liq_target_bps", 0) or 0),
+    }
+
+
+def _depotcheck_data_quality_warnings(costs: dict, performance: dict) -> list[str]:
+    warnings = [str(item) for item in costs.get("warnings") or [] if str(item).strip()]
+    warnings.extend(
+        str(item) for item in performance.get("warnings") or [] if str(item).strip()
+    )
+    if performance.get("data_pending"):
+        warnings.append(str(performance.get("note") or "Performancevergleich ausstehend."))
+    return list(dict.fromkeys(warnings))
+
+
+def _build_depotcheck_qualitative_assessment(
+    *,
+    strategy: AnlagestrategieData,
+    positions: list[dict],
+    soll_hhi: dict[str, int],
+) -> str:
+    profile = str(strategy.risk_profile_label or "dokumentierten Risikoprofil")
+    active_buckets = sum(
+        1 for value in strategy.target_allocation_bps.values() if int(value or 0) > 0
+    )
+    active_products = sum(
+        1 for item in positions if int(item.get("target_weight_bps", 0) or 0) > 0
+    )
+    highest_hhi = max(soll_hhi.values(), default=0)
+    concentration = (
+        "Die Zielstruktur weist eine erhoehte Konzentration auf, die im "
+        "Beratungsgespraech bewusst zu bestaetigen ist."
+        if highest_hhi >= 3000
+        else "Die Zielstruktur ist ueber die dokumentierten Dimensionen breit gestreut."
+    )
+    return (
+        f"Das empfohlene Zielportfolio ist auf das Risikoprofil {profile} "
+        f"ausgerichtet und verteilt das Anlagevermoegen auf {active_buckets} "
+        f"Hauptanlageklassen sowie {active_products} konkrete Zielpositionen. "
+        f"{concentration} Die Analyse ist eine Beratungsgrundlage; der Abgleich "
+        "mit Bank- oder Drittdepotunterlagen erfolgt durch den Berater."
     )
 
 
@@ -1266,7 +1626,7 @@ def get_depotcheck_pdf(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Depot-Check-PDF: Diversifikations-Tiefe + Drift + Stress-Replays."""
+    """Depotcheck-PDF: reine Analyse des empfohlenen Zielportfolios."""
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
     ctx = _build_pdf_context(mandate, current_user, db)
     data = _build_depotcheck_data(mandate, db)

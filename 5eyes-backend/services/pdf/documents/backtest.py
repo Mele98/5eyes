@@ -40,7 +40,11 @@ def build_backtest_flowables(ctx: PDFContext, data: BacktestData) -> list:
     # ============================================================
     # 1. COVER
     # ============================================================
-    flowables.extend(make_cover_page(ctx))
+    flowables.extend(make_cover_page(
+        ctx,
+        document_title="Strategie-Backtest",
+        document_subtitle="Historische Rendite- und Drawdown-Analyse",
+    ))
     flowables.append(PageBreak())
 
     # ============================================================

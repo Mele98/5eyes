@@ -9,6 +9,7 @@ from pypdf import PdfReader
 
 from services.pdf.base import (
     AnlagestrategieData,
+    DepotCheckData,
     PDFContext,
     PDFRenderer,
     PortfolioData,
@@ -263,6 +264,9 @@ def test_assetallocation_pdf_contains_only_allocation_and_subclasses(ctx):
 
     assert "SOLL-ALLOKATION" in text
     assert "SUBANLAGEKLASSEN" in text
+    assert "BESPRECHUNGSFOKUS" in text
+    assert "SOLL-Quoten je Anlageklasse" in text
+    assert "Subanlageklassen und Zielbetr" in text
     assert "Aktien Total" in text
     assert "Obligationen Total" in text
     assert "Aktien Welt" in text
@@ -277,10 +281,12 @@ def test_assetallocation_pdf_contains_only_allocation_and_subclasses(ctx):
     assert "Vermoegensuebersicht" not in text
     assert "Portfolio" not in text
     assert "Nicht im Asset-Allocation-PDF" not in text
-    assert "Band Min" not in text
+    assert "Band Min" in text
+    assert "Band Max" in text
+    assert "strategischen Mittelpunkt" in text
 
 
-def test_assetallocation_pdf_never_prints_bands_in_single_extract(ctx):
+def test_assetallocation_pdf_prints_target_bands_in_single_extract(ctx):
     data = AnlagestrategieData(
         target_allocation_bps={"equities": 6000, "bonds": 4000},
         cma_expected_return_bps=400,
@@ -292,8 +298,10 @@ def test_assetallocation_pdf_never_prints_bands_in_single_extract(ctx):
     pdf = ReportLabRenderer().render_asset_allocation(ctx, data)
     text = "\n".join(page.extract_text() or "" for page in PdfReader(BytesIO(pdf)).pages)
 
-    assert "Band Min" not in text
-    assert "Band Max" not in text
+    assert "Band Min" in text
+    assert "Band Max" in text
+    assert "55%" in text
+    assert "65%" in text
 
 
 def test_anlagestrategie_risk_questionnaire_formats_knowledge_answers(ctx):
@@ -388,8 +396,55 @@ def test_risikoprofil_pdf_hides_internal_scores_and_mentions_override(ctx):
     assert "Wachstumsorientiert" in text
     assert "65 / 100" not in text
     assert "58 / 100" not in text
-    assert "Manuelle" in text
+    assert "Übersteuerung" in text
+    assert "Kundenbestätigung" in text
+    assert "Warnhinweis" in text
     assert "Kundenwunsch dokumentiert" in text
+
+
+def test_risikoprofil_pdf_documents_questions_and_signature(ctx):
+    data = RisikoprofilData(
+        risk_profile_label="Wachstumsorientiert",
+        risk_capacity_score=65,
+        risk_tolerance_score=58,
+        risk_score_x10=58,
+        mandate_number="M-RP",
+        mandate_type="Anlageberatung",
+        knowledge_services={"Anlageberatung": {"known": True, "informed": True}},
+        knowledge_instruments={"Anlagefonds": {"known": True, "informed": True}},
+        risk_answers=[
+            {
+                "question_number": 3,
+                "question_section": "Risikofaehigkeit",
+                "answer_label": "CHF 10'000 bis CHF 20'000",
+                "answer_points": 3,
+            },
+            {
+                "question_number": 11,
+                "question_section": "Risikobereitschaft",
+                "answer_label": "Ich bleibe investiert und prüfe die Strategie im Gespräch.",
+                "answer_points": 3,
+            },
+        ],
+    )
+    pdf = ReportLabRenderer().render_risikoprofil(ctx, data)
+    text = "\n".join(page.extract_text() or "" for page in PdfReader(BytesIO(pdf)).pages)
+
+    assert "Eignungsprüfung" in text
+    assert "Frage 1" in text
+    assert "Frage 11" in text
+    assert "Anlageberatung" in text
+    assert "vorstehenden Angaben zu Risikoprofil" in text
+    assert "Ort, Datum / Klient" in text
+    assert "vorliegende Anlagestrategie" not in text
+
+
+def test_depotcheck_cover_uses_report_specific_title(ctx):
+    pdf = ReportLabRenderer().render_depotcheck(ctx, DepotCheckData(mandate_number="M-D"))
+    first_page = PdfReader(BytesIO(pdf)).pages[0].extract_text() or ""
+
+    assert "Depot-Check" in first_page
+    assert "Anlagestrategie" not in first_page
 
 
 def test_portfolio_pdf_contains_only_positions(ctx):
@@ -412,6 +467,8 @@ def test_portfolio_pdf_contains_only_positions(ctx):
     text = "\n".join(page.extract_text() or "" for page in PdfReader(BytesIO(pdf)).pages)
 
     assert "Portfolio" in text
+    assert "BESPRECHUNGSFOKUS" in text
+    assert "Konkrete Produkte mit ISIN" in text
     assert "PORTFOLIO-POSITIONEN" in text
     assert "Aktien:" in text
     assert "Aktien Welt" in text

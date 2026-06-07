@@ -78,6 +78,18 @@ class ReportLabRenderer:
             build_flowables=lambda: build_vertrag_flowables(ctx, data),
         )
 
+    def render_contract_signoff(self, ctx: PDFContext, data) -> bytes:
+        """Final advisory sign-off with customer and advisor signatures."""
+        from services.pdf.documents.contract_signoff import (
+            build_contract_signoff_flowables,
+        )
+
+        return self._render_to_bytes(
+            ctx=ctx,
+            title="Beratungsentscheid und Kundenbestaetigung",
+            build_flowables=lambda: build_contract_signoff_flowables(ctx, data),
+        )
+
     def render_protokoll(self, ctx: PDFContext, data) -> bytes:
         """Beratungsprotokoll-PDF (AdvisoryLog)."""
         from services.pdf.documents.protokoll import build_protokoll_flowables
@@ -88,8 +100,7 @@ class ReportLabRenderer:
         )
 
     def render_depotcheck(self, ctx: PDFContext, data) -> bytes:
-        """Sprint U-P16 (2026-05-21): Depot-Check-PDF (Diversifikations-Tiefe
-        + Drift + Stress-Replays + Top-Positionen)."""
+        """Depotcheck-PDF als reine Analyse des empfohlenen Zielportfolios."""
         from services.pdf.documents.depotcheck import build_depotcheck_flowables
         return self._render_to_bytes(
             ctx=ctx,

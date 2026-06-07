@@ -59,13 +59,16 @@ def test_review_absschluss_keeps_internal_triggers_out_of_customer_surface():
 def test_portfolio_header_keeps_secondary_actions_in_more_menu():
     html = HTML_PATH.read_text(encoding="utf-8")
     header = html.split('<div id="page-po" class="page">', 1)[1].split('<div class="pad">', 1)[0]
+    page = html.split('<div id="page-po" class="page">', 1)[1].split('<div id="page-rv"', 1)[0]
     visible_actions = header.split('<details class="ph-more"', 1)[0]
     more_menu = header.split('<details class="ph-more"', 1)[1].split("</details>", 1)[0]
 
     assert 'id="btn-po-refresh"' in visible_actions
     assert "Portfolio generieren" in visible_actions
     assert 'id="btn-po-pdf"' in visible_actions
-    assert "Weiter zum Review" in visible_actions
+    assert 'id="btn-po-advisory-report"' in visible_actions
+    assert "Weiter zum Review" not in visible_actions
+    assert "Weiter zum Review" in page
     assert 'id="btn-po-live-prices"' not in visible_actions
     assert 'id="btn-po-depot-check"' not in visible_actions
     assert "openImplementationRecipe()" not in visible_actions

@@ -42,6 +42,11 @@ def build_portfolio_flowables(ctx: PDFContext, data) -> list:
         subtitle="Portfolio-Positionen und Umsetzungsuebersicht",
         mandate_number=getattr(data, "mandate_number", None),
         advisory_wealth_label=advisory_label,
+        focus_points=[
+            "Konkrete Produkte mit ISIN und Zielgewicht",
+            "Zielwerte je Position fuer die Umsetzung",
+            "Abgleich vor Review, Protokollierung und Abschluss",
+        ],
     ))
     flowables.append(PageBreak())
     flowables.extend(make_single_report_disclaimer(

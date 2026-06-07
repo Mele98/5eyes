@@ -34,7 +34,7 @@ def build_asset_allocation_flowables(
     ctx: PDFContext,
     data: AnlagestrategieData,
 ) -> list:
-    """Asset Allocation als Rubrik-PDF: Cover, Disclaimer, Kuchen, Subklassen."""
+    """Asset Allocation with target weights, bands and subasset details."""
     styles = make_paragraph_styles()
     advisory_label = None
     if data.advisory_wealth_rappen:
@@ -47,6 +47,11 @@ def build_asset_allocation_flowables(
         subtitle="Soll-Allokation und Subanlageklassen",
         mandate_number=data.mandate_number,
         advisory_wealth_label=advisory_label,
+        focus_points=[
+            "SOLL-Quoten je Anlageklasse als Grundlage der Beratung",
+            "Subanlageklassen und Zielbetraege fuer die Umsetzung",
+            "Dokumentierter Auszug fuer die Besprechung der Strategie",
+        ],
     ))
     flowables.append(PageBreak())
     flowables.extend(make_single_report_disclaimer(
@@ -67,11 +72,35 @@ def build_asset_allocation_flowables(
             make_saa_donut_with_legend(
                 data.target_allocation_bps,
                 products=None,
-                diameter_mm=60.0,
+                diameter_mm=45.0,
             ),
         ]))
-        flowables.append(Spacer(1, 5 * mm))
+        flowables.append(Spacer(1, 2 * mm))
+        flowables.append(_make_structure_description(data))
+        flowables.append(Spacer(1, 2 * mm))
+        flowables.append(_section_title("Zielquoten und strategische Bandbreiten"))
+        flowables.append(_make_main_allocation_table(
+            data.target_allocation_bps,
+            data.bucket_bands_bps,
+            base_currency=ctx.base_currency,
+            advisory_wealth_rappen=data.advisory_wealth_rappen,
+        ))
+        flowables.append(PageBreak())
+        flowables.extend(make_wealtharchitekten_header(
+            ctx,
+            mandate_number=data.mandate_number,
+            advisory_wealth_label=advisory_label,
+            document_title="Asset Allocation",
+        ))
         flowables.append(_section_title("Subanlageklassen"))
+        flowables.append(Paragraph(
+            f'<font name="{FONT_DEFAULT}" size="9" color="#475569">'
+            'Die Subanlageklassen uebersetzen die strategischen Zielquoten in '
+            'konkrete Segmente. Die Summe der Detailquoten entspricht der '
+            'jeweiligen Hauptanlageklasse.</font>',
+            styles["body"],
+        ))
+        flowables.append(Spacer(1, 3 * mm))
         flowables.append(_make_sub_asset_class_table(
             data.products,
             data.target_allocation_bps,
@@ -86,6 +115,96 @@ def build_asset_allocation_flowables(
         ))
 
     return flowables
+
+
+def _make_structure_description(data: AnlagestrategieData):
+    active = [
+        (bucket, int(value or 0))
+        for bucket, value in data.target_allocation_bps.items()
+        if int(value or 0) > 0
+    ]
+    active.sort(key=lambda item: -item[1])
+    if not active:
+        text = "Noch keine Zielstruktur dokumentiert."
+    else:
+        lead_bucket, lead_bps = active[0]
+        text = (
+            f"Die empfohlene Struktur kombiniert {len(active)} "
+            f"Hauptanlageklassen. Den groessten Anteil bildet "
+            f"{asset_class_label(lead_bucket)} mit {lead_bps / 100:.1f}%. "
+            "Die Zielquote markiert den strategischen Mittelpunkt; Min/Max "
+            "definieren den vereinbarten Handlungskorridor. Bewegungen innerhalb "
+            "dieses Korridors sind kein automatisches Handelssignal."
+        )
+    table_width = PAGE_SIZE[0] - 24 * mm
+    block = Table(
+        [[Paragraph(
+            f'<font name="{FONT_DEFAULT}" size="8.5" color="#334155">{_esc(text)}</font>',
+            make_paragraph_styles()["body"],
+        )]],
+        colWidths=[table_width],
+    )
+    block.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f8fafc")),
+        ("LINEBEFORE", (0, 0), (0, -1), 2.0, colors.HexColor("#285d70")),
+        ("LEFTPADDING", (0, 0), (-1, -1), 10),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+    ]))
+    return block
+
+
+def _make_main_allocation_table(
+    allocation_bps,
+    bands_bps,
+    *,
+    base_currency: str,
+    advisory_wealth_rappen: int | None,
+) -> Table:
+    rows = [["Hauptanlageklasse", "Zielquote", "Band Min", "Band Max", f"Zielbetrag ({base_currency})"]]
+    for bucket in _ordered_buckets(allocation_bps):
+        bps = int((allocation_bps or {}).get(bucket, 0) or 0)
+        band = (bands_bps or {}).get(bucket) or (bps, bps)
+        amount = int((advisory_wealth_rappen or 0) * bps / 10000)
+        rows.append([
+            asset_class_label(bucket),
+            _format_percent(bps),
+            _format_percent(int(band[0] or 0)),
+            _format_percent(int(band[1] or 0)),
+            _format_amount(amount, base_currency) if advisory_wealth_rappen else "-",
+        ])
+    page_width, _ = PAGE_SIZE
+    table_width = page_width - 24 * mm
+    table = Table(
+        rows,
+        colWidths=[
+            table_width * 0.34,
+            table_width * 0.14,
+            table_width * 0.14,
+            table_width * 0.14,
+            table_width * 0.24,
+        ],
+        repeatRows=1,
+    )
+    table.setStyle(TableStyle([
+        ("FONTNAME", (0, 0), (-1, 0), FONT_BOLD),
+        ("FONTNAME", (0, 1), (-1, -1), FONT_DEFAULT),
+        ("FONTSIZE", (0, 0), (-1, 0), FONT_SIZE_TABLE_HEADER),
+        ("FONTSIZE", (0, 1), (-1, -1), FONT_SIZE_TABLE),
+        ("BACKGROUND", (0, 0), (-1, 0), COLOR_TABLE_HEADER_BG),
+        ("TEXTCOLOR", (0, 0), (-1, 0), COLOR_TEXT_LIGHT),
+        ("TEXTCOLOR", (0, 1), (-1, -1), COLOR_TEXT),
+        ("LINEBELOW", (0, 0), (-1, 0), 0.8, COLOR_BORDER),
+        ("LINEBELOW", (0, 1), (-1, -1), 0.3, COLOR_BORDER),
+        ("ALIGN", (1, 1), (-1, -1), "RIGHT"),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 3),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+    ]))
+    return table
 
 
 def _make_sub_asset_class_table(

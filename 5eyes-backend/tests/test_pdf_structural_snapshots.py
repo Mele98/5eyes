@@ -53,7 +53,7 @@ REQUIRED_ANCHOR_STRINGS_MINIMAL = (
     "MX-FOUNDATION-01",        # Mandat-Nummer im Cover
     "Hans Muster",             # Client im Cover
     "Anna Beispiel",           # Advisor im Cover
-    "Depotcheck",              # Cover-Titel
+    "Strategische Portfolioanalyse",  # Cover-Titel
     "Rechtliche Hinweise",     # Disclaimer-Header
     "Inhaltsverzeichnis",      # TOC-Header
     "Compliance-Audit",        # FINMA-Audit-Block

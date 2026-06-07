@@ -168,6 +168,27 @@ class VertragData:
 
 
 @dataclass(frozen=True)
+class ContractSignoffData:
+    """Final customer sign-off for the documented advisory decision."""
+
+    mandate_number: str | None = None
+    advisory_wealth_rappen: int | None = None
+    risk_profile_label: str | None = None
+    risk_is_overridden: bool = False
+    risk_override_reason: str | None = None
+    strategy_name: str | None = None
+    strategy_method: str | None = None
+    limiting_factor: str | None = None
+    target_allocation_bps: Mapping[str, int] = field(default_factory=dict)
+    bucket_bands_bps: Mapping[str, Sequence[int]] = field(default_factory=dict)
+    sub_allocations: list = field(default_factory=list)
+    portfolio_orientation: str | None = None
+    consultation_summary: list = field(default_factory=list)
+    final_recommendation: str | None = None
+    client_acknowledgements: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
 class PortfolioData:
     """Sprint 11 Phase 6: Portfolio-PDF Daten-Bundle.
 
@@ -202,13 +223,14 @@ class ProtokollData:
 
 @dataclass(frozen=True)
 class DepotCheckData:
-    """Sprint U-P16 (2026-05-21): Depot-Check-PDF Daten-Bundle.
-
-    Spiegelt 1:1 die Struktur von services.depot_check.compute_depot_check.
-    Plus stress_scenarios aus services.backtest_stress.compute_stress_replays.
-    """
+    """Depotcheck-PDF Daten-Bundle fuer die reine SOLL-Analyse."""
     mandate_number: str | None = None
     total_advisory_wealth_rappen: int = 0
+    target_allocation_bps: Mapping[str, int] = field(default_factory=dict)
+    bucket_bands_bps: Mapping[str, Sequence[int]] = field(default_factory=dict)
+    sub_allocations: list = field(default_factory=list)
+    risk_profile_label: str | None = None
+    risk_metrics: Mapping[str, object] = field(default_factory=dict)
     # Bucket-Drift (IST vs SOLL)
     buckets: Mapping[str, Mapping[str, object]] = field(default_factory=dict)
     """{'equities': {label, ist_bps, soll_bps, drift_bps, band_min_bps,
@@ -217,7 +239,11 @@ class DepotCheckData:
     country_exposure_bps: Mapping[str, int] = field(default_factory=dict)
     sector_exposure_bps: Mapping[str, int] = field(default_factory=dict)
     currency_exposure_bps: Mapping[str, int] = field(default_factory=dict)
+    soll_country_exposure_bps: Mapping[str, int] = field(default_factory=dict)
+    soll_sector_exposure_bps: Mapping[str, int] = field(default_factory=dict)
+    soll_currency_exposure_bps: Mapping[str, int] = field(default_factory=dict)
     concentration_hhi: Mapping[str, int] = field(default_factory=dict)
+    soll_concentration_hhi: Mapping[str, int] = field(default_factory=dict)
     """{country, sector, currency, top_positions} → HHI 0-10000"""
     # Top-Positionen
     top_positions: list = field(default_factory=list)
@@ -238,6 +264,9 @@ class DepotCheckData:
     recovery_months, annual_breakdown."""
     # Auto-Warnings
     warnings: list[str] = field(default_factory=list)
+    cost_disclosure: Mapping[str, object] = field(default_factory=dict)
+    performance: Mapping[str, object] = field(default_factory=dict)
+    qualitative_assessment: str | None = None
 
 
 @dataclass(frozen=True)
@@ -247,8 +276,13 @@ class RisikoprofilData:
     risk_profile_label: str
     risk_capacity_score: int
     risk_tolerance_score: int
+    risk_score_x10: int | None = None
+    mandate_number: str | None = None
+    advisory_wealth_rappen: int | None = None
+    mandate_type: str | None = None
     knowledge_services: Mapping[str, bool] = field(default_factory=dict)
     knowledge_instruments: Mapping[str, bool] = field(default_factory=dict)
+    risk_answers: list = field(default_factory=list)
     experience_years: int = 0
     suitability_note: str = ""
     is_overridden: bool = False
@@ -325,6 +359,12 @@ class PDFRenderer(Protocol):
 
     def render_vertrag(self, ctx: PDFContext, data: VertragData) -> bytes:
         """Returns PDF-Bytes fuer Vertragsdokumente."""
+        ...
+
+    def render_contract_signoff(
+        self, ctx: PDFContext, data: ContractSignoffData
+    ) -> bytes:
+        """Returns the final advisory sign-off PDF."""
         ...
 
     def render_protokoll(self, ctx: PDFContext, data: ProtokollData) -> bytes:
