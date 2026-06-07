@@ -129,6 +129,46 @@ def has_global_client_access(current_user: User) -> bool:
     return current_user.role == "admin"
 
 
+def _apply_tenant_filter_to_client_query(query, current_user: User):
+    """Sprint T3 (2026-06-08): Erweitert eine Client-Query um tenant_id-Filter.
+
+    Backwards-Compat-Regeln:
+    - User OHNE tenant_id (Legacy): KEIN Filter (alte Behavior)
+    - User MIT tenant_id: Filter auf gleichen tenant_id ODER Client.tenant_id IS NULL
+      (Pre-T1-Daten ohne Tenant gelten als 'main', siehe T2)
+
+    Damit ist Tier 2 (Shared-Cloud) sicher: Berater aus Firma A sieht nie
+    Clients von Firma B. Tier 1 (Self-Hosted) wo nur ein Tenant 'main'
+    existiert: kein Sicherheits-Verlust.
+    """
+    user_tid = getattr(current_user, "tenant_id", None)
+    if not user_tid or not str(user_tid).strip():
+        return query  # Legacy-User: kein Filter
+    user_tid_clean = str(user_tid).strip()
+    # SQLAlchemy: Client.tenant_id == user_tid OR Client.tenant_id IS NULL
+    from sqlalchemy import or_
+    return query.filter(
+        or_(Client.tenant_id == user_tid_clean, Client.tenant_id.is_(None))
+    )
+
+
+def _apply_tenant_filter_to_mandate_query(query, current_user: User):
+    """Sprint T3 (2026-06-08): Erweitert eine Mandate-Query um tenant_id-Filter.
+
+    Mandate-Query MUSS bereits einen JOIN auf Client haben (siehe
+    get_mandate_for_user_or_404). Filter wird auf Mandate.tenant_id
+    angewendet — Mandate IST die Authoritative-Tenant-Ebene fuer Daten.
+    """
+    user_tid = getattr(current_user, "tenant_id", None)
+    if not user_tid or not str(user_tid).strip():
+        return query
+    user_tid_clean = str(user_tid).strip()
+    from sqlalchemy import or_
+    return query.filter(
+        or_(Mandate.tenant_id == user_tid_clean, Mandate.tenant_id.is_(None))
+    )
+
+
 def get_client_for_user_or_404(client_id: str, db: Session, current_user: User) -> Client:
     query = db.query(Client).filter(
         Client.id == client_id,
@@ -136,6 +176,8 @@ def get_client_for_user_or_404(client_id: str, db: Session, current_user: User) 
     )
     if not has_global_client_access(current_user):
         query = query.filter(Client.advisor_id == current_user.id)
+    # Sprint T3: Tenant-Scoping (zusaetzlich zum advisor_id-Filter)
+    query = _apply_tenant_filter_to_client_query(query, current_user)
     client = query.first()
     if not client:
         raise HTTPException(status_code=404, detail="Kunde nicht gefunden")
@@ -146,6 +188,8 @@ def get_accessible_client_ids(db: Session, current_user: User) -> list[str]:
     query = db.query(Client.id).filter(Client.deleted_at.is_(None))
     if not has_global_client_access(current_user):
         query = query.filter(Client.advisor_id == current_user.id)
+    # Sprint T3: Tenant-Scoping
+    query = _apply_tenant_filter_to_client_query(query, current_user)
     return [row[0] for row in query.all()]
 
 
@@ -161,6 +205,8 @@ def get_mandate_for_user_or_404(mandate_id: str, db: Session, current_user: User
     )
     if not has_global_client_access(current_user):
         query = query.filter(Client.advisor_id == current_user.id)
+    # Sprint T3: Tenant-Scoping auf Mandate-Ebene (Authoritative)
+    query = _apply_tenant_filter_to_mandate_query(query, current_user)
     mandate = query.first()
     if not mandate:
         raise HTTPException(status_code=404, detail="Mandat nicht gefunden")
@@ -178,6 +224,8 @@ def get_accessible_mandate_ids(db: Session, current_user: User) -> list[str]:
     )
     if not has_global_client_access(current_user):
         query = query.filter(Client.advisor_id == current_user.id)
+    # Sprint T3: Tenant-Scoping
+    query = _apply_tenant_filter_to_mandate_query(query, current_user)
     return [row[0] for row in query.all()]
 
 
