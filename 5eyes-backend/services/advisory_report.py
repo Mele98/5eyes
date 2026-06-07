@@ -143,6 +143,10 @@ def compute_advisory_report(
         "optimizer_run_history": _build_optimizer_run_history(db, mandate),
         # --- Sektion 25 (additiv, U-97): Performance-Attribution (Brinson)
         "performance_attribution": _build_performance_attribution(db, mandate),
+        # --- Sprint C2 (2026-06-08): Engine-Configuration sichtbar im PDF
+        # Compliance-Audit-Block. Wird vom compliance_audit-Renderer als
+        # 6. Block angefuegt wenn vorhanden.
+        "engine_configuration": _build_engine_configuration(db, mandate),
     }
 
 
@@ -2604,6 +2608,124 @@ def _build_optimizer_run_history(
             "fidleg_basis": "Art. 9 / Art. 14 FIDLEG (Nachvollziehbarkeit Empfehlungs-Methodik)",
             "error": "Optimizer-Run-History konnte nicht geladen werden.",
         }
+
+
+# ---------------------------------------------------------------------------
+# Sprint C2-Wiring (2026-06-08): Engine-Configuration fuer Compliance-Audit-PDF.
+# ---------------------------------------------------------------------------
+
+_IS_AKTIV_PATTERNS = ("importance sampling aktiv", "is aktiv", "is-aktiv")
+_IS_INAKTIV_PATTERNS = ("importance sampling inaktiv", "is inaktiv", "is-inaktiv")
+
+
+def _detect_is_status_from_reasoning(reasoning_text: str) -> tuple[bool, str]:
+    """Sprint C2 (2026-06-08): Parst die OptimizerRun.reasoning_json (lowercased)
+    nach IS-Status. Konvention aus P1: solver.py schreibt entweder
+    'Importance Sampling AKTIV (...)' oder 'Importance Sampling INAKTIV (...)'.
+
+    Returns (is_active, reason_excerpt). reason_excerpt ist der erste relevante
+    Reasoning-Eintrag fuer das Audit-Display.
+    """
+    lower = reasoning_text.lower()
+    if any(p in lower for p in _IS_AKTIV_PATTERNS):
+        return True, "Importance Sampling aktiv (Tail-Schutz fuer Shortfall-Berechnung)"
+    if any(p in lower for p in _IS_INAKTIV_PATTERNS):
+        return False, "Standard-MC (uniformer Sample-Mean)"
+    return False, ""
+
+
+def _detect_tax_mode_from_settings() -> str:
+    """Sprint C2: liest Tax-Mode aus Settings/Defaults.
+
+    Aktuell: scenario_engine default 'median' (Backwards-Compat). HNW-Caller
+    koennen 'binned' setzen — sichtbar machen ob ein anderes Mode aktiv ist.
+    """
+    try:
+        from config import settings
+        # Settings-Hooks falls in Zukunft pro-Mandate-Tax-Mode-Konfiguration
+        # eingefuehrt wird. Aktuell: konservativer Default 'median'.
+        return str(getattr(settings, "mc_default_tax_mode", "median") or "median")
+    except Exception:
+        return "median"
+
+
+def _detect_sub_allocation_aware(db: Session, mandate: Mandate) -> bool:
+    """Sprint C2: True wenn das Mandate eine Sub-Allocation gepflegt hat
+    (`SubAllocation`-Tabelle oder TargetAllocation-Sub-Felder). False sonst.
+
+    Defensive: bei Schema-Mismatch / Tabelle fehlt -> False, kein Crash.
+    """
+    try:
+        from models.allocation import TargetAllocation
+        ta = (
+            db.query(TargetAllocation)
+            .filter(
+                TargetAllocation.mandate_id == mandate.id,
+                TargetAllocation.is_active == 1,
+            )
+            .order_by(TargetAllocation.created_at.desc())
+            .first()
+        )
+        if not ta:
+            return False
+        sub_json = getattr(ta, "sub_allocation_json", "") or ""
+        if sub_json and sub_json.strip() not in ("", "[]", "{}", "null"):
+            return True
+        return False
+    except Exception:
+        return False
+
+
+def _build_engine_configuration(
+    db: Session, mandate: Mandate,
+) -> dict[str, Any]:
+    """Sprint C2-Wiring (2026-06-08): Engine-Configuration fuer
+    Compliance-Audit-Block.
+
+    Extrahiert den IS-Status aus der LETZTEN OptimizerRun.reasoning_json.
+    Falls keine OptimizerRun existiert (House-Matrix-Mode), wird das mit
+    optimizer_mode='house_matrix' kommuniziert.
+
+    Felder im Output (gelesen von services.pdf.components.compliance_audit
+    ._engine_configuration_block):
+    - importance_sampling_active: bool
+    - importance_sampling_reason: str (menschen-lesbar)
+    - tax_mode: 'median'|'binned'|'per_path'
+    - sub_allocation_aware: bool
+    - optimizer_mode: 'house_matrix'|'stochastic'|'shadow_stochastic'
+    """
+    is_active = False
+    is_reason = ""
+    optimizer_mode = "house_matrix"
+    try:
+        from models.allocation import OptimizerRun
+        latest_run = (
+            db.query(OptimizerRun)
+            .filter(OptimizerRun.mandate_id == mandate.id)
+            .order_by(OptimizerRun.run_at.desc())
+            .first()
+        )
+        if latest_run is not None:
+            optimizer_mode = str(getattr(latest_run, "optimizer_mode", "") or "stochastic")
+            reasoning_raw = str(getattr(latest_run, "reasoning_json", "") or "")
+            if reasoning_raw:
+                # reasoning_json kann list[str] sein — wir suchen text-basiert
+                is_active, is_reason = _detect_is_status_from_reasoning(reasoning_raw)
+    except Exception:
+        # Defensive: Schema-Mismatch / fehlende OptimizerRun-Tabelle -> Defaults
+        pass
+
+    tax_mode = _detect_tax_mode_from_settings()
+    sub_alloc_aware = _detect_sub_allocation_aware(db, mandate)
+
+    return {
+        "importance_sampling_active": is_active,
+        "importance_sampling_reason": is_reason,
+        "tax_mode": tax_mode,
+        "sub_allocation_aware": sub_alloc_aware,
+        "optimizer_mode": optimizer_mode,
+        "audit_basis": "Risiko-Engine-Konfiguration zum Zeitpunkt der letzten Strategie-Berechnung.",
+    }
 
 
 # ---------------------------------------------------------------------------
