@@ -17802,10 +17802,16 @@ function normalizeReviewLayout(){
   primaryStory.className='rv-primary-story';
   var storyHeading=rvSectionHeader('rv-story-heading','Beratung','Strategie & Entscheid','Die wesentlichen Aussagen fuer das Kundengespraech, ohne technische Zwischenschritte.');
   [storyHeading,summaryStory,implementationCard].forEach(function(node){if(node)primaryStory.appendChild(node);});
-  var secondaryHeading=rvSectionHeader('rv-secondary-heading','Bei Bedarf','Vertiefung & Dokumentation','Portfolio-Vergleich, Methodik und interne Abschlusskontrollen bleiben erreichbar, ohne die Kundensicht zu ueberladen.');
-  var analysisDisclosure=rvDisclosure('rv-analysis-disclosure','Portfolio-Vergleich & Strategie-Details','IST/SOLL, Strategie-Spiegel und Solver-Trace anzeigen');
+  // Bug-#10 (2026-06-07): Vertiefung-Sektion zeigt nur SOLL-/Methodik-
+  // Details, keine Portfolio-IST/SOLL-Vergleichs-UI mehr. Portfolio-
+  // Vergleich (Bug-#9) und Strategie-Spiegel (Bug-#11) sind weg —
+  // Heading + Disclosure-Title werden entsprechend entschlackt.
+  var secondaryHeading=rvSectionHeader('rv-secondary-heading','Bei Bedarf','Vertiefung & Dokumentation','SOLL-Methodik und interne Abschlusskontrollen bleiben erreichbar, ohne die Kundensicht zu ueberladen.');
+  var analysisDisclosure=rvDisclosure('rv-analysis-disclosure','SOLL-Allokation & Solver-Trace','Methodik, Solver-Iterationen und Allokations-Details anzeigen');
   var analysisBody=analysisDisclosure.querySelector('.rv-review-disclosure-body');
-  [strategyCard,strategySpiegel,cockpitDetails].forEach(function(node){if(node)analysisBody.appendChild(node);});
+  // strategyCard/strategySpiegel sind nach Bug-#9/#11 weg; nur cockpit-
+  // Details landen noch in der Vertiefung.
+  if(cockpitDetails)analysisBody.appendChild(cockpitDetails);
   if(!analysisDisclosure.dataset.chartResizeBound){
     analysisDisclosure.dataset.chartResizeBound='1';
     analysisDisclosure.addEventListener('toggle',function(){
