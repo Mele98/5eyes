@@ -265,6 +265,100 @@ def build_scenario_paths_with_weights(
 # ============================================================================
 
 
+def _compute_per_path_wealth_tax_drag(
+    grown: np.ndarray,
+    *,
+    tax_regime,
+    ctx_template_kwargs: dict,
+    tax_mode: str,
+    n_bins: int = 20,
+) -> np.ndarray:
+    """Sprint B2 (2026-06-07): Liefert per-Pfad Wealth-Tax-Drag-Faktor.
+
+    Returns shape (n_paths,) Float-Array mit dem multiplikativen Drag
+    pro Pfad (z.B. 0.997 = 0.3% Steuer). Bei Pfaden mit wealth <= 0:
+    1.0 (kein Drag).
+
+    Modi:
+    - 'median': MEDIAN ueber alle positive wealth → 1 Steuer-Rate fuer alle
+      (Backwards-Compat, schnellster Pfad)
+    - 'binned': Quantil-Binning in n_bins Schritten, pro Bin eine Rate.
+      Empfohlen fuer HNW-Mandate mit progressivem Tarif (CH-Vermoegenssteuer).
+      ~n_bins × 1 Tax-Call/Jahr statt 1 (Median) oder n_paths (Per-Path).
+    - 'per_path': Eine Tax-Rate pro Pfad (volle Genauigkeit, langsam).
+      Nur fuer Audit/Vergleichstests.
+    """
+    from services.tax.base import TaxContext
+
+    n_paths = grown.shape[0]
+    drag = np.ones(n_paths, dtype=np.float64)
+    positive_mask = grown > 0
+    if not positive_mask.any():
+        return drag
+
+    if tax_mode == "median":
+        ctx = TaxContext(
+            wealth_rappen=float(np.median(grown[positive_mask])),
+            **ctx_template_kwargs,
+        )
+        wt = tax_regime.annual_wealth_tax(ctx)
+        if wt.effective_bps > 0:
+            drag = np.where(positive_mask, 1.0 - wt.effective_bps / 10000.0, 1.0)
+        return drag
+
+    if tax_mode == "per_path":
+        # Loop per Pfad — langsam aber maximal genau
+        for p in range(n_paths):
+            if not positive_mask[p]:
+                continue
+            ctx = TaxContext(
+                wealth_rappen=float(grown[p]),
+                **ctx_template_kwargs,
+            )
+            wt = tax_regime.annual_wealth_tax(ctx)
+            if wt.effective_bps > 0:
+                drag[p] = 1.0 - wt.effective_bps / 10000.0
+        return drag
+
+    # 'binned' (Default-Empfehlung fuer B2)
+    pos_wealth = grown[positive_mask]
+    n_bins_eff = min(int(n_bins), int(pos_wealth.size))
+    if n_bins_eff <= 1:
+        # Edge: nur ein positiver Pfad → wie per_path
+        ctx = TaxContext(
+            wealth_rappen=float(pos_wealth[0]),
+            **ctx_template_kwargs,
+        )
+        wt = tax_regime.annual_wealth_tax(ctx)
+        if wt.effective_bps > 0:
+            drag = np.where(positive_mask, 1.0 - wt.effective_bps / 10000.0, 1.0)
+        return drag
+    # Quantil-Bins
+    quantiles = np.linspace(0, 1, n_bins_eff + 1)
+    bin_edges = np.quantile(pos_wealth, quantiles)
+    # Bin-Repraesentant: Median pro Bin
+    bin_rates = np.zeros(n_bins_eff, dtype=np.float64)
+    for b in range(n_bins_eff):
+        in_bin = (pos_wealth >= bin_edges[b]) & (pos_wealth <= bin_edges[b + 1])
+        if not in_bin.any():
+            continue
+        bin_repr = float(np.median(pos_wealth[in_bin]))
+        ctx = TaxContext(
+            wealth_rappen=bin_repr,
+            **ctx_template_kwargs,
+        )
+        wt = tax_regime.annual_wealth_tax(ctx)
+        bin_rates[b] = float(wt.effective_bps)
+    # Assign Pfad zu Bin via digitize (auf positiven Pfaden)
+    bin_idx = np.clip(
+        np.digitize(grown, bin_edges) - 1, 0, n_bins_eff - 1,
+    )
+    # Drag fuer positive Pfade: 1 - rate/10000; negative bleiben 1.0
+    rates_per_path = np.where(positive_mask, bin_rates[bin_idx], 0.0)
+    drag = 1.0 - rates_per_path / 10000.0
+    return drag
+
+
 def simulate_wealth_paths(
     *,
     initial_wealth_rappen: int,
@@ -278,6 +372,8 @@ def simulate_wealth_paths(
     mandate_age_at_start: int | None = None,
     is_retired: bool = False,
     death_year_index_per_path: np.ndarray | None = None,
+    tax_mode: str = "median",
+    tax_n_bins: int = 20,
 ) -> np.ndarray:
     """Simuliert Wealth-Pfad ueber alle Szenarien — optional steuer-aware.
 
@@ -389,44 +485,46 @@ def simulate_wealth_paths(
         grown = np.where(prev > 0, prev * portfolio_factor, prev)
 
         if tax_regime is not None:
-            # Pro-Pfad-Median fuer TaxContext (reduziert N TaxRegime-Calls
-            # pro Jahr — die Engine berechnet auf Pfad-Ensemble-Ebene, nicht
-            # individuell). Fuer audit-strict mode wuerden wir pro Pfad
-            # loggen; in scenario_engine genuegt eine repraesentative
-            # Berechnung pro Jahr. Detail-Audit erfolgt im Reporting-Pfad.
+            # Sprint B2 (2026-06-07): per-Pfad-Tax-Modes statt nur Median.
+            # 'median' = Backwards-Compat, 'binned' = besserer Default fuer
+            # progressive Tarife (CH-Vermoegenssteuer), 'per_path' = volle
+            # Genauigkeit fuer Audit-Tests.
             age_t = (mandate_age_at_start + t) if mandate_age_at_start is not None else None
-            ctx = TaxContext(
+            ctx_template_kwargs = dict(
                 year_index=t,
                 calendar_year=base_calendar_year + t,
-                wealth_rappen=float(np.median(grown[grown > 0])) if (grown > 0).any() else 0.0,
                 age=age_t,
                 is_retired=is_retired,
             )
-
-            # 2. Dividenden-Steuer-Drag (auf Yield-Komponente, vektorisiert)
-            if dividend_yield_weighted_bps > 0:
-                # Effektiver Drag-Faktor: dividend_tax_bps * weighted_yield / 10000
-                # Berechnung pro repraesentativem Income — Engine wendet als
-                # multiplikativen Faktor an (= % vom Wealth verloren durch Steuer)
-                div_income_repr = ctx.wealth_rappen * dividend_yield_weighted_bps / 10000.0
-                div_tax_result = tax_regime.dividend_tax(ctx, div_income_repr)
+            # Dividenden-Steuer-Drag bleibt repraesentativ (Yield ist ein
+            # Asset-Charakteristikum, nicht wealth-skaliert wie Vermoegensteuer).
+            # Reprasentations-Context: median wealth (wie pre-B2).
+            positive_mask_for_div = grown > 0
+            if dividend_yield_weighted_bps > 0 and positive_mask_for_div.any():
+                ctx_for_div = TaxContext(
+                    wealth_rappen=float(np.median(grown[positive_mask_for_div])),
+                    **ctx_template_kwargs,
+                )
+                div_income_repr = ctx_for_div.wealth_rappen * dividend_yield_weighted_bps / 10000.0
+                div_tax_result = tax_regime.dividend_tax(ctx_for_div, div_income_repr)
                 div_drag_bps = div_tax_result.effective_bps * dividend_yield_weighted_bps / 10000.0
-                # Anwenden als bps-Drag auf grown
                 grown = np.where(
                     grown > 0,
                     grown * (1.0 - div_drag_bps / 10000.0),
                     grown,
                 )
 
-            # 3. Vermoegenssteuer auf Wealth nach Wachstum (nur positive)
+            # 3. Vermoegenssteuer pro Pfad — KERN-VERBESSERUNG B2
             if tax_regime.supports_wealth_tax:
-                wt_result = tax_regime.annual_wealth_tax(ctx)
-                if wt_result.effective_bps > 0:
-                    grown = np.where(
-                        grown > 0,
-                        grown * (1.0 - wt_result.effective_bps / 10000.0),
-                        grown,
-                    )
+                drag = _compute_per_path_wealth_tax_drag(
+                    grown,
+                    tax_regime=tax_regime,
+                    ctx_template_kwargs=ctx_template_kwargs,
+                    tax_mode=tax_mode,
+                    n_bins=tax_n_bins,
+                )
+                # drag ist 1.0 fuer wealth <= 0 (kein Effekt)
+                grown = grown * drag
 
         if cashflow_per_path is not None:
             wealth[:, t + 1] = grown + cashflow_per_path[:, t] - liability_per_path[:, t]
