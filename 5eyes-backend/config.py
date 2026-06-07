@@ -184,6 +184,11 @@ class Settings(BaseSettings):
     # Wenn mc_importance_sampling_enabled=True ueberschreibt das die
     # Auto-Decision (legacy force-on). Wenn beide False: nie IS.
     mc_importance_sampling_auto_enable: bool = True
+    # Sprint C2-Wiring (2026-06-08): Default Tax-Modus fuer simulate_wealth_paths.
+    # 'median' (Default) = Backwards-Compat. HNW-Mandate koennen via Admin auf
+    # 'binned' setzen fuer per-Pfad-progressive-Tax-Berechnung. 'per_path' nur
+    # fuer Audit-Strict-Modus (langsam).
+    mc_default_tax_mode: str = "median"
 
     # Sprint U-P8 Fix M1 (2026-05-20): Block-Diagonal Sub-Asset-Class
     # Korrelation innerhalb eines Buckets. Default 1.0 = perfekt korreliert

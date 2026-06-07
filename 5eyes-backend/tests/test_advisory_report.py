@@ -149,6 +149,8 @@ def test_compute_returns_expected_top_level_structure(session_factory):
         "optimizer_run_history",
         # U-97: additive Sektion 25
         "performance_attribution",
+        # Sprint C2-Wiring (2026-06-08): Engine-Configuration fuer Compliance-Block
+        "engine_configuration",
     ]
     assert list(report.keys()) == expected_order
 
@@ -1135,6 +1137,8 @@ def test_endpoint_returns_full_report_structure(session_factory):
         "optimizer_run_history",
         # U-97: additive Sektion 25
         "performance_attribution",
+        # Sprint C2-Wiring (2026-06-08): Engine-Configuration fuer Compliance-Block
+        "engine_configuration",
     ]
     assert list(data.keys()) == expected
     assert data["schema_version"] == 2
