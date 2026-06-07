@@ -1,9 +1,12 @@
 from contextlib import asynccontextmanager
 import logging
+from pathlib import Path
 
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from config import settings
 from core.logging_setup import configure_logging
@@ -125,6 +128,44 @@ app.include_router(pdf_reports_router)
 app.include_router(system_router)
 app.include_router(tenants_router)  # Sprint T4 (2026-06-08)
 app.include_router(client_portal_router)  # Sprint U-36 (2026-06-06)
+
+
+# ---------------------------------------------------------------------------
+# Bug-#6 (2026-06-07): Reporting-Sub-App vom Backend servieren
+# ---------------------------------------------------------------------------
+# Vorher: openReportingApp() oeffnete http://localhost:5173 — ein Vite-
+# Dev-Server, der in der Demo/Produktion nicht laeuft. Resultat:
+# ERR_CONNECTION_REFUSED. Fix: gebauter Reporting-Bundle wird unter
+# /reporting/ als Static-Mount serviert, inkl. SPA-Fallback fuer
+# react-router-Pfade (z.B. /reporting/mandates/<id>/report).
+_REPORTING_DIST = (
+    Path(__file__).resolve().parent.parent
+    / "5eyes-electron" / "frontend" / "reporting" / "dist"
+)
+if _REPORTING_DIST.is_dir() and (_REPORTING_DIST / "index.html").is_file():
+    # Assets unter /reporting/assets/ statisch — sonst SPA-Fallback.
+    app.mount(
+        "/reporting/assets",
+        StaticFiles(directory=str(_REPORTING_DIST / "assets")),
+        name="reporting_assets",
+    )
+
+    @app.get("/reporting", include_in_schema=False)
+    @app.get("/reporting/{full_path:path}", include_in_schema=False)
+    def reporting_spa_fallback(full_path: str = "") -> FileResponse:
+        # react-router uebernimmt die Pfad-Aufloesung; wir liefern stets
+        # die index.html. Asset-Pfade (.js/.css) sind oben gemountet und
+        # werden nie hier landen.
+        if full_path.startswith("assets/"):
+            raise HTTPException(status_code=404)
+        return FileResponse(_REPORTING_DIST / "index.html")
+else:
+    logger.warning(
+        'Reporting-Dist nicht gefunden (%s) — Advisory-Report-Button '
+        'wird ERR_CONNECTION_REFUSED zeigen. Build via: '
+        '`cd 5eyes-electron/frontend/reporting && npm run build`.',
+        _REPORTING_DIST,
+    )
 
 
 @app.get("/", tags=["Health"])

@@ -26,7 +26,10 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <ErrorBoundary>
-      <BrowserRouter future={ROUTER_FUTURE_FLAGS}>
+      {/* Bug-#6 (2026-06-07): basename muss mit Backend-Static-Mount
+          (/reporting/) und vite.config base uebereinstimmen, sonst
+          springen Routen wie /mandates/:id/report ins 404. */}
+      <BrowserRouter basename="/reporting" future={ROUTER_FUTURE_FLAGS}>
         <App />
       </BrowserRouter>
     </ErrorBoundary>
