@@ -314,26 +314,42 @@ def test_f7_positive_cf_kann_wealth_aus_luecke_holen():
 # ===========================================================================
 
 
-@pytest.mark.xfail(
-    reason="P4/B3 noch nicht implementiert: cashflow_timeline.py ignoriert "
-           "Cashflow.currency-Feld. Wird in Sprint B3 behoben.",
-    strict=True,  # XPASS => Test soll fehlschlagen wenn B3 done und xfail veraltet
-)
-def test_f5_multi_currency_usd_zu_chf_konversion():
-    """B3-Reminder: USD-Income muss zu CHF konvertiert werden (FX-Kurs).
-    Aktuell wird currency-Feld ignoriert -> 100k USD wird als 100k CHF behandelt.
+def test_f5_backwards_compat_ohne_fx_source_keine_konversion():
+    """Sprint B3 (2026-06-07): Default-Verhalten OHNE fx_source bleibt
+    unveraendert — USD wird als CHF behandelt (Backwards-Compat).
 
-    Wenn dieser Test PASSED (xfail wird zu xpass), ist B3 implementiert und
-    der xfail-Marker kann entfernt werden.
+    Das ist die bewusste Default-Politik damit existierende Aufrufer die
+    fx_source nicht kennen, weiter funktionieren.
     """
     from datetime import date
     from types import SimpleNamespace
     from services.cashflow_timeline import net_cashflow_series
 
-    # 100k USD/J = ca. 90k CHF bei 0.90 USD/CHF
     usd_income = SimpleNamespace(
-        amount_rappen=100_000_00,
-        currency="USD",
+        amount_rappen=100_000_00, currency="USD",
+        frequency="jaehrlich", nature=None,
+        valid_from=None, valid_until=None,
+        cashflow_type="Income", is_inflation_linked=0,
+    )
+    today_year = date.today().year
+    series = net_cashflow_series([usd_income], years=3, start_year=today_year)
+    # Default-Pfad (kein fx_source): USD wird als CHF behandelt
+    assert series[0] == 100_000_00, (
+        "Backwards-Compat verletzt: Default-Pfad sollte USD unkonvertiert lassen"
+    )
+
+
+def test_f5_b3_mit_fx_source_konvertiert_usd_zu_chf():
+    """Sprint B3 (2026-06-07): MIT fx_source wird USD korrekt zu CHF
+    konvertiert. Standard-Default-Rate 0.88 USD->CHF -> 100k USD ≈ 88k CHF."""
+    from datetime import date
+    from types import SimpleNamespace
+    from services.cashflow_timeline import net_cashflow_series
+    from services.currency.fx_rates import FXRateSource
+
+    fx = FXRateSource()  # Default-Rates
+    usd_income = SimpleNamespace(
+        amount_rappen=100_000_00, currency="USD",
         frequency="jaehrlich", nature=None,
         valid_from=None, valid_until=None,
         cashflow_type="Income", is_inflation_linked=0,
@@ -341,12 +357,145 @@ def test_f5_multi_currency_usd_zu_chf_konversion():
     today_year = date.today().year
     series = net_cashflow_series(
         [usd_income], years=3, start_year=today_year,
+        fx_source=fx,
     )
-    # Wenn currency korrekt konvertiert wird, MUSS der Wert != 100_000_00 sein
-    # (ausser bei perfektem USD/CHF=1.0 was wir hier nicht erwarten)
-    assert series[0] != 100_000_00, (
-        "Multi-Currency-Gap geschlossen: USD-Income != CHF-Wert in der Series"
+    # 100k USD * 0.88 ≈ 88k CHF (Tolerance fuer Rate-Praezision)
+    assert 85_000_00 < series[0] < 92_000_00, (
+        f"USD-zu-CHF-Conversion falsch: {series[0]} (erwartet ~88_000_00)"
     )
+
+
+def test_f5_b3_eur_und_gbp_mix_zu_chf():
+    """Sprint B3: Mehrere Currencies parallel werden korrekt summiert."""
+    from datetime import date
+    from types import SimpleNamespace
+    from services.cashflow_timeline import net_cashflow_series
+    from services.currency.fx_rates import FXRateSource
+
+    fx = FXRateSource()
+    eur_income = SimpleNamespace(
+        amount_rappen=50_000_00, currency="EUR",
+        frequency="jaehrlich", nature=None,
+        valid_from=None, valid_until=None,
+        cashflow_type="Income", is_inflation_linked=0,
+    )
+    gbp_income = SimpleNamespace(
+        amount_rappen=20_000_00, currency="GBP",
+        frequency="jaehrlich", nature=None,
+        valid_from=None, valid_until=None,
+        cashflow_type="Income", is_inflation_linked=0,
+    )
+    today_year = date.today().year
+    series = net_cashflow_series(
+        [eur_income, gbp_income], years=2, start_year=today_year,
+        fx_source=fx,
+    )
+    # 50k EUR * 0.95 = 47'500 CHF + 20k GBP * 1.10 = 22'000 CHF = ~69'500 CHF
+    expected_chf = int(50_000_00 * 0.95 + 20_000_00 * 1.10)
+    assert abs(series[0] - expected_chf) < 100, (
+        f"Mix-Conversion falsch: got {series[0]}, expected ~{expected_chf}"
+    )
+
+
+def test_f5_b3_chf_unveraendert_wenn_fx_source_gesetzt():
+    """Sprint B3: CHF-Cashflows duerfen NICHT konvertiert werden
+    (Identity-Path) — auch wenn fx_source aktiv ist."""
+    from datetime import date
+    from types import SimpleNamespace
+    from services.cashflow_timeline import net_cashflow_series
+    from services.currency.fx_rates import FXRateSource
+
+    fx = FXRateSource()
+    chf_income = SimpleNamespace(
+        amount_rappen=100_000_00, currency="CHF",
+        frequency="jaehrlich", nature=None,
+        valid_from=None, valid_until=None,
+        cashflow_type="Income", is_inflation_linked=0,
+    )
+    today_year = date.today().year
+    series = net_cashflow_series(
+        [chf_income], years=2, start_year=today_year,
+        fx_source=fx,
+    )
+    assert series[0] == 100_000_00
+
+
+def test_f5_b3_unbekannte_currency_defensiv_kein_crash():
+    """Sprint B3: Unbekannte Currency-Codes duerfen NIEMALS einen Crash
+    verursachen — defensiver Fallback auf 'wie target_currency'."""
+    from datetime import date
+    from types import SimpleNamespace
+    from services.cashflow_timeline import net_cashflow_series
+    from services.currency.fx_rates import FXRateSource
+
+    fx = FXRateSource()
+    weird_income = SimpleNamespace(
+        amount_rappen=100_000_00, currency="XYZ",  # Nicht in DEFAULT_FX_RATES
+        frequency="jaehrlich", nature=None,
+        valid_from=None, valid_until=None,
+        cashflow_type="Income", is_inflation_linked=0,
+    )
+    today_year = date.today().year
+    series = net_cashflow_series(
+        [weird_income], years=2, start_year=today_year, fx_source=fx,
+    )
+    # Defensive: kein Crash, Betrag wird unkonvertiert genutzt
+    assert series[0] == 100_000_00
+
+
+def test_f5_b3_leere_currency_default_zu_chf():
+    """Wenn cf.currency fehlt oder leer ist, Default zu CHF (Backwards-Compat)."""
+    from datetime import date
+    from types import SimpleNamespace
+    from services.cashflow_timeline import net_cashflow_series
+    from services.currency.fx_rates import FXRateSource
+
+    fx = FXRateSource()
+    no_ccy = SimpleNamespace(
+        amount_rappen=100_000_00,
+        # KEIN currency-Feld
+        frequency="jaehrlich", nature=None,
+        valid_from=None, valid_until=None,
+        cashflow_type="Income", is_inflation_linked=0,
+    )
+    today_year = date.today().year
+    series = net_cashflow_series(
+        [no_ccy], years=2, start_year=today_year, fx_source=fx,
+    )
+    assert series[0] == 100_000_00
+
+
+def test_f5_b3_inflation_wirkt_nach_currency_conversion():
+    """Reihenfolge: Currency-Conversion zuerst, dann Inflation.
+
+    Begruendung: CH-Inflation (CMA-Series) bezieht sich auf CHF-Werte. USD-
+    Einnahme wird erst zu CHF konvertiert, dann mit CH-Inflation hochgezinst.
+    """
+    from datetime import date
+    from types import SimpleNamespace
+    from services.cashflow_timeline import net_cashflow_series
+    from services.currency.fx_rates import FXRateSource
+
+    fx = FXRateSource()
+    usd_income = SimpleNamespace(
+        amount_rappen=100_000_00, currency="USD",
+        frequency="jaehrlich", nature=None,
+        valid_from=None, valid_until=None,
+        cashflow_type="Income", is_inflation_linked=1,
+    )
+    today_year = date.today().year
+    series = net_cashflow_series(
+        [usd_income], years=3, start_year=today_year,
+        inflation_series_bps=[200, 200, 200],  # 2% Inflation p.a.
+        fx_source=fx,
+    )
+    # Jahr 0: 100k USD * 0.88 = 88k CHF (nominal, kein Inflations-Faktor)
+    # Jahr 1: 88k CHF * 1.02 = 89'760 CHF
+    # Jahr 2: 88k CHF * 1.02^2 ≈ 91'555 CHF
+    expected_t0 = int(100_000_00 * 0.88)
+    expected_t2 = int(100_000_00 * 0.88 * 1.02 ** 2)
+    assert abs(series[0] - expected_t0) < 100
+    assert abs(series[2] - expected_t2) < 100
 
 
 # ===========================================================================

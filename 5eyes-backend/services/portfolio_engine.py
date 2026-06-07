@@ -4026,7 +4026,20 @@ def _load_allocation_inputs(
         infl for infl in wealth_inflows
         if not getattr(infl, "mandate_id", None) or infl.mandate_id == mandate.id
     ]
-    cashflow_totals = totals_for_year(cashflows)
+    # Sprint B3 (2026-06-07): Multi-Currency-Conversion via FXRateSource.
+    # mandate.base_currency ist das Ziel (typisch CHF). Cashflows in
+    # USD/EUR/GBP etc. werden zum aktuellen FX-Kurs konvertiert. Bei
+    # FX-Lade-Fehler defensiver Fallback auf Default-Rates (kein Crash).
+    fx_source = None
+    try:
+        from services.currency.fx_rates import FXRateSource
+        fx_source = FXRateSource.from_db(db)
+    except Exception:
+        fx_source = None
+    target_currency = str(getattr(mandate, "base_currency", "CHF") or "CHF").upper()
+    cashflow_totals = totals_for_year(
+        cashflows, fx_source=fx_source, target_currency=target_currency,
+    )
     projection_years = _simulation_horizon_years(simulation_prefs, goals, mandate)
     # B1: Cashflow-Series respektieren is_inflation_linked + CMA-Inflations-Pfad.
     # AHV/Lohn/Miete (linked=1) wachsen jaehrlich; Bonus/Erbschaft (linked=0) bleiben nominal.
@@ -4039,6 +4052,8 @@ def _load_allocation_inputs(
         projection_years,
         start_year=cashflow_totals["year"],
         inflation_series_bps=cf_inflation_series_bps,
+        fx_source=fx_source,
+        target_currency=target_currency,
     )
     # Sprint A1: Inflows als positive Beitraege addieren. Dadurch sehen alle
     # downstream-Konsumer (MC, Goal-Analysis, Reserve) die Erbschaft/Bonus.
@@ -4055,6 +4070,8 @@ def _load_allocation_inputs(
         projection_years,
         start_year=cashflow_totals["year"],
         inflation_series_bps=cf_inflation_series_bps,
+        fx_source=fx_source,
+        target_currency=target_currency,
     )
     return {
         "advisory_summary": advisory_summary,
@@ -6325,7 +6342,17 @@ def build_target_payload_from_allocation(
         Goal.deleted_at.is_(None),
         Goal.is_active == 1,
     ).order_by(Goal.rank.asc()).all()
-    cashflow_totals = totals_for_year(cashflows)
+    # Sprint B3 (2026-06-07): Multi-Currency-Conversion (siehe _load_allocation_inputs).
+    fx_source = None
+    try:
+        from services.currency.fx_rates import FXRateSource
+        fx_source = FXRateSource.from_db(db)
+    except Exception:
+        fx_source = None
+    target_currency = str(getattr(mandate, "base_currency", "CHF") or "CHF").upper()
+    cashflow_totals = totals_for_year(
+        cashflows, fx_source=fx_source, target_currency=target_currency,
+    )
     recurring_income_rappen = cashflow_totals["recurring_income_rappen"]
     recurring_expense_rappen = cashflow_totals["recurring_expense_rappen"]
     capital_inflow_rappen = cashflow_totals["capital_inflow_rappen"]
@@ -6341,12 +6368,16 @@ def build_target_payload_from_allocation(
         projection_years,
         start_year=cashflow_totals["year"],
         inflation_series_bps=cf_inflation_series_bps,
+        fx_source=fx_source,
+        target_currency=target_currency,
     )
     recurring_cashflow_projection_series_rappen = recurring_net_cashflow_series(
         cashflows,
         projection_years,
         start_year=cashflow_totals["year"],
         inflation_series_bps=cf_inflation_series_bps,
+        fx_source=fx_source,
+        target_currency=target_currency,
     )
     # Sprint U-P2 Fix H11: WealthInflows im rebuild-Pfad auch laden,
     # damit Reserve konsistent zum generate-Pfad rechnet.
