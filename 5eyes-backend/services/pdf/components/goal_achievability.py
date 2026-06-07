@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from typing import Iterable, Mapping
 
+from reportlab.graphics.shapes import Drawing, Rect, String
 from reportlab.lib import colors
 from reportlab.lib.units import mm
 from reportlab.platypus import Paragraph, Table, TableStyle
@@ -126,6 +127,85 @@ def _prob_cell(probability: float | None) -> str:
     return f"{pct:.0f}%" if abs(pct - round(pct)) < 0.05 else f"{pct:.1f}%"
 
 
+# Sprint C1 (2026-06-07): Goal-Achievability-Ampel-Balken (visuell)
+# Restoriert 3eyes-Style-UX-Schnelligkeit (war regressiv vs Tabelle-only)
+
+_AMPEL_BAR_WIDTH_MM = 30.0
+_AMPEL_BAR_HEIGHT_MM = 4.5
+
+_AMPEL_STATUS_COLORS: dict[str, str] = {
+    "erreichbar":       "#16a34a",  # gruen (tailwind green-600)
+    "knapp":            "#eab308",  # gelb (tailwind yellow-500)
+    "nicht_erreichbar": "#dc2626",  # rot (tailwind red-600)
+}
+_AMPEL_BG_COLOR = "#e2e8f0"  # neutral hellgrau (tailwind slate-200)
+_AMPEL_BORDER_COLOR = "#cbd5e1"  # slate-300
+
+
+def _probability_bar_drawing(probability: float | None, status: str | None) -> Drawing:
+    """Sprint C1 (2026-06-07): visueller Ampel-Balken fuer eine Wahrscheinlichkeit.
+
+    Returns ein ReportLab Drawing das in eine Table-Cell eingebettet werden
+    kann. Balken zeigt:
+    - Hintergrund-Rechteck (hellgrau, voll-Breite)
+    - Vordergrund-Rechteck (Status-Farbe, Breite = probability * full_width)
+    - Prozent-Text rechts vom Balken
+
+    Wenn probability=None: zeigt nur "—" als Text.
+    """
+    w_mm = _AMPEL_BAR_WIDTH_MM
+    h_mm = _AMPEL_BAR_HEIGHT_MM
+    text_width_mm = 9.0  # Reservierter Platz fuer "100.0%"
+    total_w_mm = w_mm + text_width_mm + 2.0
+    drawing = Drawing(total_w_mm * mm, h_mm * mm + 1 * mm)
+
+    if probability is None:
+        # Nur Text "—" rechtsbuendig
+        drawing.add(String(
+            (text_width_mm / 2) * mm + (w_mm + 2) * mm, 1 * mm,
+            "—", fontSize=8, fillColor=colors.HexColor("#94a3b8"),
+            textAnchor="middle",
+        ))
+        return drawing
+
+    try:
+        prob = max(0.0, min(1.0, float(probability)))
+    except (TypeError, ValueError):
+        return _probability_bar_drawing(None, None)
+
+    status_key = str(status or "").strip().lower()
+    fg_color_hex = _AMPEL_STATUS_COLORS.get(status_key, "#64748b")
+
+    # Hintergrund-Rechteck (voll-Breite, hellgrau)
+    drawing.add(Rect(
+        0, 0, w_mm * mm, h_mm * mm,
+        fillColor=colors.HexColor(_AMPEL_BG_COLOR),
+        strokeColor=colors.HexColor(_AMPEL_BORDER_COLOR),
+        strokeWidth=0.3,
+    ))
+
+    # Vordergrund-Rechteck (Status-Farbe, anteilige Breite)
+    fg_width_mm = w_mm * prob
+    if fg_width_mm > 0:
+        drawing.add(Rect(
+            0, 0, fg_width_mm * mm, h_mm * mm,
+            fillColor=colors.HexColor(fg_color_hex),
+            strokeColor=colors.HexColor(fg_color_hex),
+            strokeWidth=0.3,
+        ))
+
+    # Prozent-Text rechts vom Balken
+    pct = prob * 100.0
+    pct_text = f"{pct:.0f}%" if abs(pct - round(pct)) < 0.05 else f"{pct:.1f}%"
+    drawing.add(String(
+        (w_mm + 2) * mm, 0.5 * mm,
+        pct_text, fontSize=8,
+        fillColor=colors.HexColor("#0f172a"),
+        textAnchor="start",
+    ))
+    return drawing
+
+
 def _status_cell(status: str | None) -> str:
     label, color = _STATUS_DISPLAY.get(str(status or "").strip().lower(), (str(status or "—"), "#475569"))
     return f'<font color="{color}"><b>{_esc(label)}</b></font>'
@@ -162,14 +242,18 @@ def make_goal_achievability_table(achievability: Iterable[Mapping]) -> Table:
             typ_raw = str(goal.get("goal_type") or goal.get("target_kind") or "—")
             typ = _GOAL_TYPE_LABELS.get(typ_raw, typ_raw)
             hardness = _norm_hardness(goal.get("hardness"))
-            prob = _prob_cell(goal.get("probability"))
+            # Sprint C1 (2026-06-07): Ampel-Balken statt nur Prozent-Text.
+            # Visuelle Schnellerfassung (3eyes-Style-UX-Restoration).
+            prob_bar = _probability_bar_drawing(
+                goal.get("probability"), goal.get("status"),
+            )
             status = _status_cell(goal.get("status"))
             cell_style = make_paragraph_styles().get("small_muted") or make_paragraph_styles().get("body")
             rows.append([
                 Paragraph(_esc(label), cell_style),
                 _esc(typ),
                 _esc(hardness),
-                prob,
+                prob_bar,
                 Paragraph(status, cell_style),
             ])
 
