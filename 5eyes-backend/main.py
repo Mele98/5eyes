@@ -42,6 +42,7 @@ from routers.fx_rates import router as fx_rates_router
 from routers.pdf_reports import router as pdf_reports_router
 from routers.snapshots import router as snapshots_router
 from routers.system import router as system_router
+from routers.tenants import router as tenants_router  # Sprint T4 (2026-06-08)
 from routers.wealth import router as wealth_router
 
 
@@ -122,6 +123,7 @@ app.include_router(market_data_router)
 app.include_router(fx_rates_router)
 app.include_router(pdf_reports_router)
 app.include_router(system_router)
+app.include_router(tenants_router)  # Sprint T4 (2026-06-08)
 app.include_router(client_portal_router)  # Sprint U-36 (2026-06-06)
 
 

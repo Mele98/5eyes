@@ -114,8 +114,25 @@ def get_current_user(
 
 
 def require_admin(current_user: User = Depends(get_current_user)) -> User:
-    if current_user.role != "admin":
+    # Sprint T4 (2026-06-08): super_admin schluckt auch admin-Pfade
+    # (Super-Admin ist eine Erweiterung von Admin).
+    if current_user.role not in ("admin", "super_admin"):
         raise HTTPException(status_code=403, detail="Nur für Administratoren")
+    return current_user
+
+
+def require_super_admin(current_user: User = Depends(get_current_user)) -> User:
+    """Sprint T4 (2026-06-08): Schutz fuer Tenant-Admin-Endpoints.
+
+    Nur 'super_admin'-Role darf andere Tenants erstellen/verwalten.
+    In Tier 1 + 3 ist dieser Endpoint deaktiviert via
+    settings.tenant_admin_ui_enabled — siehe routers/tenants.py.
+    """
+    if current_user.role != "super_admin":
+        raise HTTPException(
+            status_code=403,
+            detail="Nur fuer Super-Administratoren (Tier-2-Operator)",
+        )
     return current_user
 
 
