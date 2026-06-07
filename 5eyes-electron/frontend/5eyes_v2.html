@@ -117,6 +117,8 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 .btn-p:hover{background:var(--n5);}
 .btn-g{background:var(--g4);color:var(--n8);border:none;border-radius:var(--r);font-family:var(--f-s);font-size:11px;font-weight:600;padding:6px 13px;cursor:pointer;}
 .btn-g:hover{background:var(--g3);}
+.btn-report{background:#2c5f5f;color:#fff;border-color:#2c5f5f;}
+.btn-report:hover{background:#244f4f;color:#fff;border-color:#244f4f;}
 .btn-g.is-loading{position:relative;background:linear-gradient(90deg,#d6ba67 0%,#e8d592 50%,#d6ba67 100%);background-size:220% 100%;animation:calcbuttonpulse 1.15s linear infinite;box-shadow:0 0 0 3px rgba(201,168,76,0.12);}
 .btn-g.is-success{background:var(--pos);color:#fff;box-shadow:0 0 0 3px rgba(22,101,52,0.12);}
 /* U-25 (Roadmap-Punkt 25, 2026-06-01): Loading-State fuer PDF-Buttons.
@@ -147,13 +149,33 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 .cbody{padding:16px 18px;}
 
 /* REVIEW & ABSCHLUSS */
-#page-rv .pad{max-width:1160px;margin:0 auto;padding:20px 28px 30px;}
+#page-rv .pad{max-width:1080px;margin:0 auto;padding:22px 28px 34px;}
 #page-rv .card{border-radius:var(--r2);box-shadow:none;margin-bottom:10px;}
 #page-rv .chd{background:transparent;padding:11px 14px 9px;}
 #page-rv .cbody{padding:14px 16px;}
-.rv-final-summary{margin-bottom:14px;}
-.rv-final-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px;}
+.rv-review-overview{display:flex;flex-direction:column;gap:12px;}
+.rv-review-overview>#rv-hero{margin-bottom:0!important;}
+.rv-review-heading{display:flex;align-items:flex-end;justify-content:space-between;gap:20px;padding:10px 0 2px;}
+.rv-review-heading-copy{font-size:10px;color:var(--n5);line-height:1.5;max-width:480px;text-align:right;}
+.rv-final-summary{display:contents;}
+.rv-final-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:0;}
 .rv-final-kpis>div{box-shadow:none!important;}
+.rv-primary-story{display:grid;gap:12px;margin-top:4px;}
+.rv-primary-story>.g2{margin-bottom:0!important;}
+.rv-primary-story>.card{margin-bottom:0!important;}
+.rv-secondary-stack{display:grid;gap:10px;}
+.rv-review-disclosure{border:1px solid var(--b1);border-radius:var(--r2);background:var(--surface);overflow:hidden;}
+.rv-review-disclosure>summary{list-style:none;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:13px 15px;cursor:pointer;background:var(--surface);}
+.rv-review-disclosure>summary::-webkit-details-marker{display:none;}
+.rv-review-disclosure[open]>summary{border-bottom:1px solid var(--b1);background:var(--n0);}
+.rv-review-disclosure-title{font-size:11px;font-weight:700;color:var(--n7);}
+.rv-review-disclosure-copy{font-size:9px;color:var(--n4);margin-top:3px;line-height:1.45;}
+.rv-review-disclosure-icon{font-size:18px;color:var(--n4);transition:transform .15s ease;}
+.rv-review-disclosure[open] .rv-review-disclosure-icon{transform:rotate(45deg);}
+.rv-review-disclosure-body{padding:12px;display:grid;gap:10px;background:var(--bg);}
+.rv-review-disclosure-body>.card{margin:0!important;background:var(--surface);}
+.rv-review-governance-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;}
+.rv-review-governance-grid>.card{margin:0!important;}
 .rv-output-rail{display:flex;flex-direction:column;gap:8px;}
 .rv-output-item{display:grid;grid-template-columns:minmax(220px,1.2fr) auto minmax(190px,auto);gap:14px;align-items:center;border:1px solid var(--b1);border-radius:var(--r2);background:var(--surface);padding:11px 12px;}
 .rv-output-item:hover{border-color:var(--b2);background:var(--bg);}
@@ -167,9 +189,9 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 .rv-section-kicker{font-size:9px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--n4);margin-bottom:4px;}
 .rv-section-title{font-size:13px;font-weight:700;color:var(--n8);line-height:1.25;}
 .rv-section-sub{font-size:9px;color:var(--n4);margin-top:3px;line-height:1.45;}
-.rv-cockpit{display:grid;gap:10px;margin-bottom:14px;}
+.rv-cockpit{display:grid;gap:10px;margin:0;}
 .rv-cockpit-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(260px,.7fr);gap:10px;align-items:stretch;}
-.rv-cockpit-tile{background:var(--surface);border:1px solid var(--b1);border-radius:var(--r2);padding:13px 14px;}
+.rv-cockpit-tile{background:var(--surface);border:1px solid var(--b1);border-radius:var(--r2);padding:13px 14px;box-shadow:none;}
 .rv-cockpit-kicker{font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--n4);margin-bottom:6px;}
 .rv-goal-prob-icon{font-size:18px;margin-right:6px;line-height:1;}
 .rv-limiting-badge{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:999px;font-size:10px;font-weight:700;border:1px solid var(--b1);background:var(--bg);color:var(--n6);}
@@ -202,6 +224,13 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
   .rv-decision-grid,.rv-final-grid{grid-template-columns:1fr;}
   .rv-cockpit-grid{grid-template-columns:1fr;}
   .rv-goal-list-item{grid-template-columns:22px minmax(0,1fr);align-items:start;}
+}
+@media(max-width:780px){
+  #page-rv .pad{padding:16px 14px 28px;}
+  .rv-final-kpis{grid-template-columns:1fr;}
+  .rv-review-heading{align-items:flex-start;flex-direction:column;gap:5px;}
+  .rv-review-heading-copy{text-align:left;}
+  .rv-review-governance-grid{grid-template-columns:1fr;}
 }
 
 /* KPI */
@@ -307,19 +336,95 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 .compact-input{font-size:11px;}
 .full-width-action{width:100%;}
 .plan-feedback{font-size:10px;}
-#page-cf .cashflow-client-layout{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;align-items:start;}
-#page-cf .cf-client-intro{grid-column:1/-1;margin-bottom:0;}
-#page-cf .cashflow-lists{display:flex;flex-direction:column;gap:12px;margin-bottom:0;}
-#page-cf .cashflow-lists>.card{margin-bottom:0;}
-#page-cf .cashflow-chart-panel{display:flex;flex-direction:column;gap:12px;min-width:0;margin-top:0;}
-#page-cf .cashflow-chart-panel .kpir{grid-template-columns:1fr;gap:8px;margin-bottom:0;}
+#page-cf .pad{width:100%;max-width:none;margin:0;padding:22px 26px 32px;}
+#page-cf .cashflow-client-layout{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:22px;align-items:start;}
+#page-cf .cf-client-intro{grid-column:1/-1;margin:0;border:0;border-left:3px solid var(--g4);border-radius:0;background:transparent;padding:2px 0 2px 13px;font-size:10px;color:var(--n5);line-height:1.55;}
+#page-cf .cf-summary-strip{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));margin-top:14px;border:1px solid var(--b1);border-radius:var(--r2);background:var(--surface);overflow:hidden;}
+#page-cf .cf-summary-item{padding:14px 16px;min-width:0;border-right:1px solid var(--b1);}
+#page-cf .cf-summary-item:last-child{border-right:0;}
+#page-cf .cf-summary-label{font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--n4);margin-bottom:5px;}
+#page-cf .cf-summary-value{font-family:var(--f-d);font-size:22px;color:var(--n8);line-height:1.15;}
+#page-cf .cf-summary-value.positive{color:var(--pos);}
+#page-cf .cf-summary-value.negative{color:var(--neg);}
+#page-cf .cf-summary-meta{font-size:9px;color:var(--n4);margin-top:4px;line-height:1.4;}
+#page-cf .cf-section-heading{grid-column:1/-1;display:flex;justify-content:space-between;align-items:end;gap:16px;padding-top:4px;}
+#page-cf .cf-section-heading:first-child{padding-top:0;}
+#page-cf .cf-section-kicker{font-size:9px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--g5);margin-bottom:4px;}
+#page-cf .cf-section-title{font-size:16px;font-weight:700;color:var(--n8);}
+#page-cf .cf-section-copy{font-size:10px;color:var(--n5);line-height:1.5;max-width:520px;text-align:right;}
+#page-cf .cashflow-lists{grid-column:1;display:grid;grid-template-columns:1fr;gap:14px;margin:0;align-items:start;min-width:0;}
+#page-cf .cashflow-lists>.cf-section-heading{grid-column:auto;}
+#page-cf .cashflow-lists>.card{margin:0;box-shadow:none;border-radius:var(--r2);}
+#page-cf .cashflow-lists>.cf-goals-card{grid-column:auto;margin-top:2px;}
+#page-cf .cashflow-lists .chd{min-height:47px;background:transparent;padding:11px 14px 9px;}
+#page-cf .cashflow-lists .cbody{padding:8px 14px 12px;}
+#page-cf .cashflow-lists .cf-row{padding:8px 0;}
+#page-cf .cashflow-lists .cf-row[draggable="true"]{cursor:grab;transition:opacity .12s ease,background .12s ease,transform .12s ease;}
+#page-cf .cashflow-lists .cf-row[draggable="true"]:active{cursor:grabbing;}
+#page-cf .cashflow-lists .cf-row.is-dragging{opacity:.35;background:var(--bg);transform:scale(.995);}
+#page-cf .cashflow-lists .cf-row .cfi{display:none!important;}
+#page-cf .cashflow-lists .cf-row .btn-ico{opacity:0;transition:opacity .12s ease;}
+#page-cf .cashflow-lists .cf-row:hover .btn-ico,#page-cf .cashflow-lists .cf-row:focus-within .btn-ico{opacity:1;}
+#page-cf .cashflow-lists .cf-sec{display:none!important;}
+#page-cf .cashflow-lists .cft{display:none!important;}
+#page-cf .cashflow-lists .goal{display:grid;grid-template-columns:20px minmax(0,1fr) auto;gap:7px 10px;align-items:center;padding:10px 0;}
+#page-cf .cashflow-lists .goal>.pd{grid-column:1;grid-row:1;}
+#page-cf .cashflow-lists .goal>.gi{grid-column:2;grid-row:1;}
+#page-cf .cashflow-lists .goal>.tag{grid-column:2;grid-row:2;justify-self:start;}
+#page-cf .cashflow-lists .goal>.gbw{grid-column:2;grid-row:3;width:100%;max-width:170px;}
+#page-cf .cashflow-lists .cf-goals-card .chd .btn-p{display:inline-flex!important;}
+#page-cf .cashflow-lists .goal-actions{grid-column:3;grid-row:1/4;display:flex;align-items:flex-end;justify-content:center;gap:3px;flex-direction:column;}
+#page-cf .cashflow-lists .goal-actions .btn{padding:5px 8px;font-size:9px;}
+#page-cf .cashflow-lists .goal-actions .goal-delete-action{border:0;background:transparent;color:var(--n4);font-size:9px;cursor:pointer;padding:5px 4px;}
+#page-cf .cashflow-lists .goal-actions .goal-delete-action:hover{color:var(--neg);}
+#page-cf .cf-ist-panel{grid-column:2;position:sticky;top:12px;min-width:0;width:100%;padding:0;}
+#page-cf .cf-ist-heading{display:flex;justify-content:space-between;align-items:end;gap:14px;margin-bottom:10px;}
+#page-cf .cf-ist-title{font-size:16px;font-weight:700;color:var(--n8);}
+#page-cf .cf-ist-copy{font-size:9px;color:var(--n4);line-height:1.45;text-align:right;max-width:250px;}
+#page-cf .cashflow-chart-panel{display:flex;flex-direction:column;gap:12px;min-width:0;padding:0;}
+#page-cf .cashflow-chart-panel>.kpir{display:none;}
 #page-cf .cashflow-chart-panel .projection-grid{grid-template-columns:1fr;gap:12px;align-items:start;}
-#page-cf .cashflow-chart-panel .chart-lg{height:390px;}
-#page-cf .cashflow-chart-panel .chart{height:220px;}
-#page-cf #cf-save-status{grid-column:1/-1;}
-@media(max-width:1100px){
+#page-cf .cashflow-chart-panel .card{margin:0;box-shadow:none;}
+#page-cf .cashflow-chart-panel .chart-lg{height:430px;}
+#page-cf .cashflow-chart-panel .chart{height:210px;}
+#page-cf #cf-cashflow-hud-slot{margin-top:14px;}
+#page-cf #cf-projection{padding:0!important;}
+#page-cf .cf-hud{border:1px solid var(--b1);border-radius:var(--r2);background:var(--surface);overflow:hidden;}
+#page-cf .cf-hud-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:12px 14px;border-bottom:1px solid var(--b1);}
+#page-cf .cf-hud-kicker{font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--n4);}
+#page-cf .cf-hud-copy{font-size:10px;color:var(--n5);margin-top:3px;}
+#page-cf .cf-hud-status{font-size:9px;font-weight:700;color:var(--n6);border:1px solid var(--b1);border-radius:999px;padding:5px 8px;white-space:nowrap;}
+#page-cf .cf-hud-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));}
+#page-cf .cf-hud-tile{min-width:0;padding:12px 14px;border-right:1px solid var(--b1);}
+#page-cf .cf-hud-tile:last-child{border-right:0;}
+#page-cf .cf-hud-label{font-size:9px;text-transform:uppercase;letter-spacing:.06em;color:var(--n4);font-weight:700;margin-bottom:5px;}
+#page-cf .cf-hud-value{font-family:var(--f-d);font-size:18px;line-height:1.15;color:var(--n8);}
+#page-cf .cf-hud-hint{font-size:9px;color:var(--n5);margin-top:5px;line-height:1.35;}
+#page-cf #cf-risk-context-summary{display:none!important;}
+#page-cf #cf-save-status{grid-column:1/-1;margin-top:0!important;}
+@media(max-width:1150px){
   #page-cf .cashflow-client-layout{grid-template-columns:1fr;}
-  #page-cf .cf-client-intro,#page-cf #cf-save-status{grid-column:auto;}
+  #page-cf .cashflow-lists,#page-cf .cf-ist-panel{grid-column:1;}
+  #page-cf .cf-ist-panel{position:static;top:auto;padding-top:18px;border-top:1px solid var(--b1);}
+  #page-cf .cashflow-chart-panel .chart-lg{height:360px;}
+}
+@media(max-width:780px){
+  .sidebar{display:none;}
+  #page-cf .pad{padding:16px 14px 24px;}
+  #page-cf .ph,#page-rv .ph{flex-direction:column;padding:15px 14px;}
+  #page-cf .ph-r,#page-rv .ph-r{width:100%;justify-content:flex-start;}
+  #page-cf .cnav,#page-rv .cnav{position:static;align-items:stretch;flex-direction:column;gap:8px;padding:10px 14px;}
+  #page-cf .cnav>div{display:flex;flex-wrap:wrap!important;}
+  #page-cf .cf-summary-strip{grid-template-columns:1fr;}
+  #page-cf .cf-summary-item{border-right:0;border-bottom:1px solid var(--b1);}
+  #page-cf .cf-summary-item:last-child{border-bottom:0;}
+  #page-cf .cf-hud-grid{grid-template-columns:1fr;}
+  #page-cf .cf-hud-tile{border-right:0;border-bottom:1px solid var(--b1);}
+  #page-cf .cf-hud-tile:last-child{border-bottom:0;}
+  #page-cf .cashflow-lists .chd{align-items:flex-start;flex-direction:column;gap:7px;}
+  #page-cf .cashflow-lists .chr{width:100%;justify-content:flex-start;flex-wrap:wrap;}
+  #page-cf .cf-section-heading{align-items:flex-start;flex-direction:column;gap:5px;}
+  #page-cf .cf-section-copy{text-align:left;}
 }
 /* BUDGET */
 .bgsec{margin-bottom:8px;}
@@ -345,7 +450,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 .gp{font-size:9px;color:var(--n4);text-align:right;margin-bottom:2px;}
 .gb{height:3px;background:var(--b1);border-radius:2px;overflow:hidden;}
 .gf{height:100%;border-radius:2px;}
-.fg{background:var(--pos);}
+.gf.fg{background:var(--pos);}
 .fa{background:var(--g4);}
 .fr{background:var(--neg);}
 
@@ -608,6 +713,12 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 .overlay.open{display:flex;}
 .modal{background:var(--surface);border-radius:var(--r3);width:500px;max-height:86vh;overflow-y:auto;box-shadow:0 12px 50px rgba(0,0,0,0.25);border-top:3px solid var(--g4);}
 .modal-lg{width:660px;}
+#m-nz .modal{width:min(720px,calc(100vw - 32px));}
+#m-nz .frow{flex-wrap:wrap;}
+#m-nz .fg{min-width:200px;background:transparent;}
+#m-nz input,#m-nz textarea,#m-nz select{pointer-events:auto;user-select:text;-webkit-user-select:text;}
+#m-nz .mhd{position:sticky;top:0;z-index:2;background:var(--surface);}
+#m-nz .mfooter{position:sticky;bottom:0;z-index:2;background:var(--surface);}
 .calc-journey{display:flex;flex-direction:column;gap:12px;}
 .calc-hero{display:flex;align-items:flex-start;gap:12px;padding:4px 2px 2px;}
 .calc-spinner{width:38px;height:38px;border-radius:50%;border:3px solid rgba(15,30,52,0.12);border-top-color:var(--g4);flex-shrink:0;animation:calcspin 0.9s linear infinite;}
@@ -964,11 +1075,35 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 
     <!-- PAGE: CASHFLOWS -->
     <div id="page-cf" class="page">
-      <div class="ph"><div><div class="ph-t">Cashflows &amp; Ziele</div><div class="ph-s">Was rein- und rausfliesst &middot; Ihre Ziele &middot; IST-Pfad ohne Optimierung</div></div><div class="ph-r"><button class="btn" onclick="om('m-acf')">+ Cashflow</button><button class="btn-p" onclick="go('rp')">Weiter zum Risikoprofil &rarr;</button></div></div>
+      <div class="ph"><div><div class="ph-t">Einnahmen, Ausgaben und Ziele</div><div class="ph-s">Zahlungsstr&ouml;me ordnen &middot; Ziele priorisieren &middot; IST-Situation verstehen</div></div><div class="ph-r"><button class="btn" onclick="om('m-acf')">Cashflow erfassen</button><button class="btn" onclick="om('m-nz')">Ziel erfassen</button><button class="btn-p" onclick="go('rp')">Weiter zum Risikoprofil &rarr;</button></div></div>
       <div class="pad">
-        <div style="font-size:11px;color:var(--n5);line-height:1.6;margin-bottom:12px;padding:10px 12px;background:var(--bg);border:1px solid var(--b1);border-radius:var(--r2)">Bitte pr&uuml;fen Sie, ob Ihre regelm&auml;ssigen Eink&uuml;nfte und Ausgaben korrekt und vollst&auml;ndig sind und ob die Ziele in der richtigen Reihenfolge stehen. Die <strong>IST-Grafik</strong> darunter zeigt, wie sich Ihr Verm&ouml;gen mit den heutigen Anlagen entwickeln w&uuml;rde &mdash; <em>ohne</em> Optimierung der Strategie. Die optimierte SOLL-Sicht folgt in der Asset Allokation.</div>
+        <div>Pr&uuml;fen Sie zuerst die laufenden Einnahmen und Ausgaben. Danach ordnen Sie die Ziele nach ihrer Bedeutung f&uuml;r die Planung.</div>
         <div class="g2" data-slot="cashflows"></div>
-        <div id="cf-goals-projection" data-slot="goals-projection" style="display:flex;flex-direction:column;gap:12px;margin-top:12px"></div>
+        <section class="cf-ist-panel" id="cf-ist-panel">
+          <div class="cf-ist-heading">
+            <div><div class="cf-section-kicker">IST-Situation</div><div class="cf-ist-title">Verm&ouml;gensentwicklung heute</div></div>
+            <div class="cf-ist-copy">Heutige Struktur mit den erfassten Einnahmen und Ausgaben.</div>
+          </div>
+          <div id="cf-goals-projection" data-slot="goals-projection"></div>
+          <div id="cf-cashflow-hud-slot" aria-label="Cashflow-HUD"></div>
+          <div class="cf-summary-strip" aria-label="Cashflow-Uebersicht">
+            <div class="cf-summary-item">
+              <div class="cf-summary-label" id="cf-summary-income-label">Total Einnahmen</div>
+              <div class="cf-summary-value positive" id="cf-summary-income">&mdash;</div>
+              <div class="cf-summary-meta" id="cf-summary-income-meta">Laufende Einnahmen</div>
+            </div>
+            <div class="cf-summary-item">
+              <div class="cf-summary-label" id="cf-summary-expense-label">Total Ausgaben</div>
+              <div class="cf-summary-value negative" id="cf-summary-expense">&mdash;</div>
+              <div class="cf-summary-meta" id="cf-summary-expense-meta">Laufende Ausgaben</div>
+            </div>
+            <div class="cf-summary-item">
+              <div class="cf-summary-label" id="cf-summary-net-label">Gesamtsaldo</div>
+              <div class="cf-summary-value" id="cf-summary-net">&mdash;</div>
+              <div class="cf-summary-meta" id="cf-summary-net-meta">Einnahmen abz&uuml;glich Ausgaben</div>
+            </div>
+          </div>
+        </section>
         <div id="cf-save-status" style="display:none;margin-top:12px;padding:10px 12px;border:1px solid var(--b1);border-radius:var(--r2);background:var(--bg);font-size:11px;color:var(--n6)"></div>
       </div>
       <div class="cnav"><button class="btn" onclick="go('vg')">&larr; Zur&uuml;ck zum Verm&ouml;gen</button><div style="display:flex;gap:8px;align-items:center"><button class="btn-g" id="btn-cf-save-state" onclick="saveCashflowsAndRefreshCurrentPath()">&Auml;nderungen speichern</button><button class="btn-p" onclick="go('rp')">Weiter zum Risikoprofil &rarr;</button></div></div>
@@ -976,7 +1111,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 
     <!-- PAGE: RISIKOPROFIL -->
     <div id="page-rp" class="page">
-      <div class="ph"><div><div class="ph-t">Risikoprofilierung (FINMA Eignungspruefung)</div><div class="ph-s">Risikofähigkeit &middot; Risikobereitschaft &middot; FINMA Eignungspruefung</div></div><div class="ph-r"><button class="btn" id="btn-rp-server-pdf" onclick="downloadServerPdf('risikoprofil')" title="Risikoprofil-PDF erstellen">PDF</button><button class="btn-g" id="btn-save-riskprofile" onclick="saveRiskProfile()" style="margin-right:8px">Risikoprofil speichern</button><button class="btn-p" onclick="goFromRiskProfileToAllocation()">Asset Allokation →</button></div></div>
+      <div class="ph"><div><div class="ph-t">Risikoprofilierung (FINMA Eignungspruefung)</div><div class="ph-s">Risikofähigkeit &middot; Risikobereitschaft &middot; FINMA Eignungspruefung</div></div><div class="ph-r"><button class="btn-g" id="btn-save-riskprofile" onclick="saveRiskProfile()">Risikoprofil speichern</button><button class="btn-p" onclick="goFromRiskProfileToAllocation()">Asset Allokation →</button><details class="ph-more"><summary title="Weitere Risikoprofil-Optionen" aria-label="Weitere Risikoprofil-Optionen">⋯</summary><div class="ph-more-menu"><button class="btn" id="btn-rp-server-pdf" onclick="downloadServerPdf('risikoprofil');this.closest('details').removeAttribute('open')" title="Risikoprofil-PDF erstellen">PDF</button></div></details></div></div>
       <div class="pad">
         <div class="g2">
                     <div>
@@ -1695,7 +1830,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 
     <!-- PAGE: PORTFOLIO -->
     <div id="page-po" class="page">
-      <div class="ph"><div><div class="ph-t">Portfolio &mdash; ETFs &amp; Fonds</div><div class="ph-s">Umsetzung Ihrer Asset Allokation in konkrete Produkte (ISIN)</div></div><div class="ph-r"><button class="btn-g" id="btn-po-refresh" onclick="refreshPortfolioFromStoredState()">Portfolio generieren</button><button class="btn" id="btn-po-pdf" onclick="downloadServerPdf('portfolio')" title="Portfolio-PDF erstellen">PDF</button><button class="btn" id="btn-po-advisory-report" onclick="openReportingApp()" title="Institutioneller Advisory-Report (15 Seiten) in neuem Browser-Tab" style="background:#2c5f5f;color:#fff;border-color:#2c5f5f">Advisory-Report</button><button class="btn-p" onclick="go('rv')">Weiter zum Review &rarr;</button><details class="ph-more"><summary title="Weitere Portfolio-Optionen" aria-label="Weitere Portfolio-Optionen">⋯</summary><div class="ph-more-menu"><button class="btn" id="btn-po-add-position" onclick="openPortfolioPositionHelper();this.closest('details').removeAttribute('open')">+ Bestand</button><button class="btn" id="btn-po-live-prices" onclick="refreshLivePricesForMandate();this.closest('details').removeAttribute('open')" title="Live-EOD-Preise via Marktdaten-Aggregator (yfinance/stooq) holen und Portfolio neu laden">Live-Preise</button><button class="btn" onclick="openImplementationRecipe();this.closest('details').removeAttribute('open')">Anlagerezept drucken</button><button class="btn" id="btn-po-depot-check" onclick="openDepotCheck();this.closest('details').removeAttribute('open')" title="Depot-Check: Diversifikation, Konzentration, Drift, Stress-Replays">Depot-Check</button></div></details></div></div>
+      <div class="ph"><div><div class="ph-t">Portfolio &mdash; ETFs &amp; Fonds</div><div class="ph-s">Umsetzung Ihrer Asset Allokation in konkrete Produkte (ISIN)</div></div><div class="ph-r"><button class="btn-g" id="btn-po-refresh" onclick="refreshPortfolioFromStoredState()">Portfolio generieren</button><button class="btn" id="btn-po-pdf" onclick="downloadServerPdf('portfolio')" title="Portfolio-PDF erstellen">PDF</button><button class="btn btn-report" id="btn-po-advisory-report" onclick="openReportingApp()" title="Institutioneller Advisory-Report in neuem Browser-Tab">Advisory-Report</button><details class="ph-more"><summary title="Weitere Portfolio-Optionen" aria-label="Weitere Portfolio-Optionen">⋯</summary><div class="ph-more-menu"><button class="btn" id="btn-po-add-position" onclick="openPortfolioPositionHelper();this.closest('details').removeAttribute('open')">+ Bestand</button><button class="btn" id="btn-po-live-prices" onclick="refreshLivePricesForMandate();this.closest('details').removeAttribute('open')" title="Live-EOD-Preise via Marktdaten-Aggregator (yfinance/stooq) holen und Portfolio neu laden">Live-Preise</button><button class="btn" onclick="openImplementationRecipe();this.closest('details').removeAttribute('open')">Anlagerezept drucken</button><button class="btn" id="btn-po-depot-check" onclick="openDepotCheck();this.closest('details').removeAttribute('open')" title="Depot-Check: Diversifikation, Konzentration, Drift, Stress-Replays">Depot-Check</button></div></details></div></div>
       <div class="pad">
         <div style="background:var(--n8);border-radius:var(--r2);padding:10px 14px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">
           <div><div style="font-size:9px;font-weight:500;letter-spacing:0.08em;text-transform:uppercase;color:rgba(255,255,255,0.4);margin-bottom:2px">Beratungsvermögen total</div><div id="po-advisory-wealth" style="font-family:var(--f-d);font-size:19px;color:#fff">CHF 2'848'000</div></div>
@@ -2423,7 +2558,14 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
       <div class="frow">
         <div class="fg m-acf-field" id="nz-label-field" data-goal-field="label">
           <label class="fl">Bezeichnung *</label>
-          <input class="fi" id="nz-label" placeholder="Finanzielle Unabhängigkeit">
+          <input class="fi" id="nz-label" type="text" autocomplete="off" spellcheck="true" placeholder="Finanzielle Unabhängigkeit">
+        </div>
+      </div>
+      <div class="frow">
+        <div class="fg m-acf-field" id="nz-notes-field" data-goal-field="notes" style="flex-basis:100%">
+          <label class="fl" for="nz-notes">Beschreibung / Kundenwunsch</label>
+          <textarea class="fi" id="nz-notes" rows="3" maxlength="1200" placeholder="Was soll erreicht werden, weshalb ist das Ziel wichtig und welche Rahmenbedingungen sind zu beachten?" style="resize:vertical;min-height:72px;line-height:1.5"></textarea>
+          <div style="font-size:10px;color:var(--n5);margin-top:3px">Diese Beschreibung wird am Ziel gespeichert und bleibt beim Bearbeiten erhalten.</div>
         </div>
       </div>
       <div class="frow">
@@ -2459,6 +2601,14 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
       <div id="nz-hardness-warn" style="display:none;margin:-4px 0 8px;padding:6px 10px;background:rgba(234,88,12,0.09);border:1px solid rgba(234,88,12,0.25);border-radius:var(--r);font-size:10px;color:#c2410c;line-height:1.5">
         Renditeziele k&ouml;nnen nicht als <strong>Hart</strong> gespeichert werden. Rendite ist nicht garantierbar; bitte <strong>Prim&auml;r</strong> oder <strong>Opportunistisch</strong> w&auml;hlen.
       </div>
+      <!-- Sprint 2026-06-08 Fix A: UX-Hinweis SAA = Risikoprofil-bound -->
+      <div id="nz-saa-info" style="display:none;margin:-4px 0 8px;padding:8px 12px;background:rgba(59,130,246,0.07);border:1px solid rgba(59,130,246,0.22);border-radius:var(--r);font-size:10px;color:#1e40af;line-height:1.55">
+        <strong>Wissenschaftliche Logik:</strong> Goal-&Auml;nderungen beeinflussen die
+        <strong>Zielerreichungs-Wahrscheinlichkeit</strong>, nicht die strategische Asset-Allocation.
+        Die SAA wird durch dein <strong>Risikoprofil</strong> definiert
+        (FINMA Art. 6 FIDLEG &middot; Strategietreue &middot; Brinson/Hood/Beebower 1986).
+        Nach dem Speichern wird die Zielerreichung mit "Strategie neu berechnen" aktualisiert.
+      </div>
       <div class="frow m-acf-field" id="nz-value-mode-row" data-goal-field="value-mode" style="display:none">
         <div class="fg">
           <label class="fl">Wertbasis</label>
@@ -2482,7 +2632,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
         </div>
         <div class="fg m-acf-field" id="nz-target-return-field" data-goal-field="target-return-bps" data-stage6-id="m-acf-target-return-bps" style="display:none">
           <label class="fl">Zielrendite p.a. (%) *</label>
-          <input class="fi" id="nz-target-return-bps" type="number" min="0" max="30" step="0.05" placeholder="5.00" oninput="updateGoalDerivedDiagnostics()">
+          <input class="fi" id="nz-target-return-bps" type="text" inputmode="decimal" autocomplete="off" placeholder="z.B. 5,25" oninput="updateGoalDerivedDiagnostics()">
         </div>
         <div class="fg m-acf-field" id="nz-duration-years-field" data-goal-field="duration-years" data-stage6-id="m-acf-duration-years">
           <label class="fl">Zeithorizont (Jahre)</label>
@@ -3563,6 +3713,7 @@ function initDomLayout(){
   var cfIntro=cfPad?cfPad.firstElementChild:null;
   var cfSlot=cfPage.querySelector('[data-slot="cashflows"]');
   var combinedSlot=document.getElementById('cf-goals-projection')||cfPage.querySelector('[data-slot="goals-projection"]');
+  var cashflowHudSlot=document.getElementById('cf-cashflow-hud-slot');
   if(cfPad)cfPad.classList.add('cashflow-client-layout');
   if(cfIntro&&cfIntro.parentNode===cfPad){cfIntro.classList.add('client-summary','cf-client-intro');cfIntro.removeAttribute('style');}
   if(cfSlot){cfSlot.classList.remove('g2');cfSlot.classList.add('cashflow-lists');}
@@ -3571,6 +3722,42 @@ function initDomLayout(){
     Array.prototype.slice.call(templateLeft.children).forEach(function(card){
       if(card&&card.classList&&card.classList.contains('card')&&card.parentNode!==cfSlot)cfSlot.appendChild(card);
     });
+  }
+  if(cfSlot){
+    var incomeCard=document.getElementById('zufluss-rows');
+    incomeCard=incomeCard?incomeCard.closest('.card'):null;
+    var expenseCard=document.getElementById('abfluss-rows');
+    expenseCard=expenseCard?expenseCard.closest('.card'):null;
+    var goalsCard=document.getElementById('zl');
+    goalsCard=goalsCard?goalsCard.closest('.card'):null;
+    if(incomeCard)incomeCard.classList.add('cf-income-card');
+    if(expenseCard)expenseCard.classList.add('cf-expense-card');
+    if(goalsCard)goalsCard.classList.add('cf-goals-card');
+    var incomeTitle=incomeCard?incomeCard.querySelector('.cht'):null;
+    var expenseTitle=expenseCard?expenseCard.querySelector('.cht'):null;
+    var goalsTitle=goalsCard?goalsCard.querySelector('.cht'):null;
+    if(incomeTitle)incomeTitle.textContent='Einnahmen';
+    if(expenseTitle)expenseTitle.textContent='Ausgaben';
+    if(goalsTitle)goalsTitle.textContent='Ziele';
+    var incomeAdd=incomeCard?incomeCard.querySelector('.chd button'):null;
+    var expenseAdd=expenseCard?expenseCard.querySelector('.chd button.btn-p'):null;
+    var goalAdd=goalsCard?goalsCard.querySelector('.chd button.btn-p'):null;
+    if(incomeAdd)incomeAdd.textContent='+ Einnahme';
+    if(expenseAdd)expenseAdd.textContent='+ Ausgabe';
+    if(goalAdd){goalAdd.textContent='Ziel erfassen';goalAdd.style.removeProperty('display');}
+    function ensureCashflowSectionHeading(id,kicker,title,copy,beforeNode){
+      var heading=document.getElementById(id);
+      if(!heading){
+        heading=document.createElement('div');
+        heading.id=id;
+        heading.className='cf-section-heading';
+        heading.innerHTML='<div><div class="cf-section-kicker">'+kicker+'</div><div class="cf-section-title">'+title+'</div></div><div class="cf-section-copy">'+copy+'</div>';
+      }
+      if(beforeNode&&heading.parentNode!==cfSlot)cfSlot.insertBefore(heading,beforeNode);
+      return heading;
+    }
+    ensureCashflowSectionHeading('cf-ledger-heading','Cashflow','Einnahmen & Ausgaben','Alle laufenden und einmaligen Zahlungsstr&ouml;me im direkten Vergleich.',incomeCard||cfSlot.firstChild);
+    ensureCashflowSectionHeading('cf-goals-heading','Planung','Ziele','Nach Bedeutung ordnen. Die Erreichbarkeit folgt aus Strategie und Risikoprofil.',goalsCard);
   }
   if(templateLeft&&templateLeft.parentNode&&templateLeft.children.length===0)templateLeft.parentNode.removeChild(templateLeft);
   var templateKpis=templatePad?templatePad.querySelector('.kpir'):null;
@@ -3584,11 +3771,12 @@ function initDomLayout(){
     if(templateGrid&&templateGrid.parentNode!==combinedSlot)combinedSlot.appendChild(templateGrid);
     if(cfRiskSummary&&cfRiskSummary.parentNode!==combinedSlot)combinedSlot.appendChild(cfRiskSummary);
   }
-
+  var cashflowHud=document.getElementById('cf-projection');
+  if(cashflowHudSlot&&cashflowHud&&cashflowHud.parentNode!==cashflowHudSlot)cashflowHudSlot.appendChild(cashflowHud);
   var cfHeaderTitle=cfPage.querySelector('.ph-t');
-  if(cfHeaderTitle)cfHeaderTitle.textContent='Cashflows & Ziele';
+  if(cfHeaderTitle)cfHeaderTitle.textContent='Einnahmen, Ausgaben und Ziele';
   var cfHeaderSubtitle=cfPage.querySelector('.ph-s');
-  if(cfHeaderSubtitle)cfHeaderSubtitle.textContent='Was rein- und rausfliesst \u00b7 Ihre Ziele \u00b7 IST-Pfad ohne Optimierung';
+  if(cfHeaderSubtitle)cfHeaderSubtitle.textContent='Zahlungsstr\u00f6me ordnen \u00b7 Ziele priorisieren \u00b7 IST-Situation verstehen';
   var cfHeaderNext=cfPage.querySelector('.ph-r .btn-p');
   if(cfHeaderNext){cfHeaderNext.textContent='Weiter zum Risikoprofil \u2192';cfHeaderNext.setAttribute('onclick',"go('rp')");}
   var cfNavNext=cfPage.querySelector('.cnav .btn-p');
@@ -3627,8 +3815,8 @@ function initDomLayout(){
   }
   var projectionHeader=combinedSlot?combinedSlot.querySelector('.card.mb .cht'):null;
   var projectionHeaderMeta=projectionHeader?projectionHeader.nextElementSibling:null;
-  if(projectionHeader)projectionHeader.textContent='Aktueller Vermögenspfad';
-if(projectionHeaderMeta&&projectionHeaderMeta.textContent)projectionHeaderMeta.textContent='heutiger Mix mit laufenden Cashflows und separat beruecksichtigten Kapitalereignissen';
+  if(projectionHeader)projectionHeader.textContent='IST-Situation';
+if(projectionHeaderMeta&&projectionHeaderMeta.textContent)projectionHeaderMeta.textContent='Verm\u00f6gensentwicklung mit heutiger Struktur und den erfassten Zahlungsstr\u00f6men';
   if(combinedSlot){
     Array.prototype.forEach.call(combinedSlot.querySelectorAll('.cht'),function(node){
       var text=String(node.textContent||'').trim();
@@ -3716,6 +3904,80 @@ function renum(){
   document.querySelectorAll('#zl .goal').forEach((r,i)=>{
     const pd=r.querySelector('.pd');if(pd){pd.textContent=i+1;pd.className='pd '+(i<2?'p1':i<4?'p2':'p3');}
   });
+}
+function cashflowOrderStorageKey(type){
+  return '5eyes.cashflow-order.'+String(getActiveClientId()||'demo')+'.'+String(type||'all');
+}
+function storedCashflowOrder(type){
+  try{
+    var raw=localStorage.getItem(cashflowOrderStorageKey(type));
+    var parsed=raw?JSON.parse(raw):[];
+    return Array.isArray(parsed)?parsed.map(String):[];
+  }catch(e){
+    return [];
+  }
+}
+function sortCashflowsByStoredOrder(items,type){
+  var order=storedCashflowOrder(type);
+  if(!order.length)return (items||[]).slice();
+  var rank={};
+  order.forEach(function(id,index){rank[String(id)]=index;});
+  return (items||[]).map(function(item,index){return {item:item,index:index};}).sort(function(a,b){
+    var aId=String(a.item&&a.item.id||'');
+    var bId=String(b.item&&b.item.id||'');
+    var aRank=Object.prototype.hasOwnProperty.call(rank,aId)?rank[aId]:Number.MAX_SAFE_INTEGER;
+    var bRank=Object.prototype.hasOwnProperty.call(rank,bId)?rank[bId]:Number.MAX_SAFE_INTEGER;
+    return aRank===bRank?a.index-b.index:aRank-bRank;
+  }).map(function(entry){return entry.item;});
+}
+function persistCashflowOrder(containerId,type){
+  var list=document.getElementById(containerId);
+  if(!list)return;
+  var ids=Array.prototype.map.call(list.querySelectorAll('.cf-row[data-cfid]'),function(row){
+    return String(row.getAttribute('data-cfid')||'');
+  }).filter(Boolean);
+  try{localStorage.setItem(cashflowOrderStorageKey(type),JSON.stringify(ids));}catch(e){}
+}
+function setupCashflowDragList(containerId,type){
+  var list=document.getElementById(containerId);
+  if(!list)return;
+  var dragging=null;
+  Array.prototype.forEach.call(list.querySelectorAll('.cf-row[data-cfid]'),function(row){
+    row.setAttribute('draggable','true');
+    row.setAttribute('title','Ziehen, um die Reihenfolge zu \u00e4ndern');
+    row.ondragstart=function(ev){
+      if(ev&&ev.target&&ev.target.closest&&ev.target.closest('button')){
+        ev.preventDefault();
+        return;
+      }
+      dragging=row;
+      row.classList.add('is-dragging');
+      if(ev&&ev.dataTransfer){
+        ev.dataTransfer.effectAllowed='move';
+        ev.dataTransfer.setData('text/plain',row.getAttribute('data-cfid')||'');
+      }
+    };
+    row.ondragend=function(){
+      row.classList.remove('is-dragging');
+      dragging=null;
+      persistCashflowOrder(containerId,type);
+    };
+  });
+  list.ondragover=function(ev){
+    if(!dragging)return;
+    ev.preventDefault();
+    var rows=Array.prototype.slice.call(list.querySelectorAll('.cf-row[data-cfid]:not(.is-dragging)'));
+    var before=rows.find(function(row){
+      var rect=row.getBoundingClientRect();
+      return ev.clientY<rect.top+(rect.height/2);
+    });
+    if(before)list.insertBefore(dragging,before);
+    else list.appendChild(dragging);
+  };
+  list.ondrop=function(ev){
+    if(ev)ev.preventDefault();
+    persistCashflowOrder(containerId,type);
+  };
 }
 
 // DATA
@@ -3997,30 +4259,41 @@ function resetCurrentProjectionCharts(){
   applyDeterministicSeries(charts.aaCurrent,'Aktueller Beratungsvermoegenspfad');
 }
 
+function renderCashflowOverview(summaryYear,breakdown){
+  var income=Number(breakdown.totalInflowRappen||0);
+  var expense=Number(breakdown.totalExpenseRappen||0);
+  var net=Number(breakdown.netCashflowRappen||0);
+  var capitalInflows=Number(breakdown.capitalInflowsRappen||0);
+  var capitalOutflows=Number(breakdown.capitalOutflowsRappen||0);
+  var incomeEl=document.getElementById('cf-summary-income');
+  var expenseEl=document.getElementById('cf-summary-expense');
+  var netEl=document.getElementById('cf-summary-net');
+  var incomeLabel=document.getElementById('cf-summary-income-label');
+  var expenseLabel=document.getElementById('cf-summary-expense-label');
+  var netLabel=document.getElementById('cf-summary-net-label');
+  if(incomeLabel)incomeLabel.textContent='Total Einnahmen '+summaryYear;
+  if(expenseLabel)expenseLabel.textContent='Total Ausgaben '+summaryYear;
+  if(netLabel)netLabel.textContent='Gesamtsaldo '+summaryYear;
+  if(incomeEl)incomeEl.textContent=fmtCHF(Math.round(income/100));
+  if(expenseEl)expenseEl.textContent=fmtCHF(Math.round(expense/100));
+  if(netEl){
+    netEl.textContent=(net>=0?'+':'-')+fmtCHF(Math.round(Math.abs(net)/100));
+    netEl.classList.toggle('positive',net>=0);
+    netEl.classList.toggle('negative',net<0);
+  }
+  var incomeMeta=document.getElementById('cf-summary-income-meta');
+  var expenseMeta=document.getElementById('cf-summary-expense-meta');
+  var netMeta=document.getElementById('cf-summary-net-meta');
+  if(incomeMeta)incomeMeta.textContent=capitalInflows?'Laufende und einmalige Einnahmen':'Laufende Einnahmen';
+  if(expenseMeta)expenseMeta.textContent=capitalOutflows?'Laufende und einmalige Ausgaben':'Laufende Ausgaben';
+  if(netMeta)netMeta.textContent='Einnahmen abzueglich Ausgaben, inklusive Kapitalereignissen';
+}
+
 function normalizeCashflowTotalsLabels(summaryYear,breakdown){
-  var recurringNetRappen=Number(breakdown.recurringIncomeRappen||0)-Number(breakdown.recurringExpenseRappen||0);
-  var capitalNetRappen=Number(breakdown.capitalInflowsRappen||0)-Number(breakdown.capitalOutflowsRappen||0);
-  var totalNetRappen=Number(breakdown.netCashflowRappen||0);
-  var recurringTone=recurringNetRappen>=0?'var(--pos)':'var(--neg)';
-  var capitalTone=capitalNetRappen>=0?'var(--pos)':'var(--neg)';
-  var totalTone=totalNetRappen>=0?'var(--pos)':'var(--neg)';
-  var inflowFooter=document.querySelector('#zufluss-rows .cft');
-  if(inflowFooter){
-    inflowFooter.innerHTML=
-      '<div style="display:flex;justify-content:space-between;gap:12px"><span style="font-size:11px;font-weight:600;color:var(--n6)">Total laufende Einnahmen '+summaryYear+'</span><span style="font-family:var(--f-d);font-size:15px;color:var(--pos)">+'+fmtCHF(Math.round(Number(breakdown.recurringIncomeRappen||0)/100))+'</span></div>'+
-      '<div style="display:flex;justify-content:space-between;gap:12px"><span style="font-size:11px;font-weight:600;color:var(--n6)">Total Kapitalzufluesse '+summaryYear+'</span><span style="font-family:var(--f-d);font-size:15px;color:var(--pos)">+'+fmtCHF(Math.round(Number(breakdown.capitalInflowsRappen||0)/100))+'</span></div>'+
-      '<div style="display:flex;justify-content:space-between;gap:12px;padding-top:6px;border-top:1px solid var(--b1)"><span style="font-size:11px;font-weight:600">Total Zufluesse '+summaryYear+'</span><span style="font-family:var(--f-d);font-size:17px;color:var(--pos)">+'+fmtCHF(Math.round(Number(breakdown.totalInflowRappen||0)/100))+'</span></div>';
-  }
-  var outflowFooter=document.querySelector('#abfluss-rows .cft');
-  if(outflowFooter){
-    outflowFooter.innerHTML=
-      '<div style="display:flex;justify-content:space-between;gap:12px"><span style="font-size:11px;font-weight:600;color:var(--n6)">Total laufende Ausgaben '+summaryYear+'</span><span style="font-family:var(--f-d);font-size:15px;color:var(--neg)">-'+fmtCHF(Math.round(Number(breakdown.recurringExpenseRappen||0)/100))+'</span></div>'+
-      (Number(breakdown.capitalOutflowsRappen||0)?'<div style="display:flex;justify-content:space-between;gap:12px"><span style="font-size:11px;font-weight:600;color:var(--n6)">Total einmalige Ausgaben '+summaryYear+'</span><span style="font-family:var(--f-d);font-size:15px;color:var(--neg)">-'+fmtCHF(Math.round(Number(breakdown.capitalOutflowsRappen||0)/100))+'</span></div>':'')+
-      '<div style="display:flex;justify-content:space-between;gap:12px"><span style="font-size:11px;font-weight:600;color:var(--n6)">Total Ausgaben '+summaryYear+'</span><span style="font-family:var(--f-d);font-size:15px;color:var(--neg)">-'+fmtCHF(Math.round(Number(breakdown.totalExpenseRappen||0)/100))+'</span></div>'+
-      '<div style="display:flex;justify-content:space-between;gap:12px;padding-top:6px;border-top:1px solid var(--b1)"><span style="font-size:11px;font-weight:600">'+recurringCashflowLabel(recurringNetRappen)+' '+summaryYear+'</span><span style="font-family:var(--f-d);font-size:16px;color:'+recurringTone+'">'+(recurringNetRappen>=0?'+':'-')+fmtCHF(Math.round(Math.abs(recurringNetRappen)/100))+'</span></div>'+
-      '<div style="display:flex;justify-content:space-between;gap:12px"><span style="font-size:11px;font-weight:600;color:var(--n6)">Kapitalereignisse netto '+summaryYear+'</span><span style="font-family:var(--f-d);font-size:15px;color:'+capitalTone+'">'+(capitalNetRappen>=0?'+':'-')+fmtCHF(Math.round(Math.abs(capitalNetRappen)/100))+'</span></div>'+
-      '<div style="display:flex;justify-content:space-between;gap:12px"><span style="font-size:11px;font-weight:600">Gesamtsaldo inkl. Kapitalereignisse '+summaryYear+'</span><span style="font-family:var(--f-d);font-size:18px;color:'+totalTone+'">'+(totalNetRappen>=0?'+':'-')+fmtCHF(Math.round(Math.abs(totalNetRappen)/100))+'</span></div>';
-  }
+  renderCashflowOverview(summaryYear,breakdown);
+  Array.prototype.forEach.call(document.querySelectorAll('#zufluss-rows .cft,#abfluss-rows .cft'),function(footer){
+    footer.remove();
+  });
 }
 
 function normalizeCashflowProjectionLabels(){
@@ -16150,9 +16423,6 @@ function normalizeCashflowMonthValue(value){
   var raw=String(value||'').trim().slice(0,7);
   return /^\d{4}-\d{2}$/.test(raw)?raw:'';
 }
-function cashflowDirectionBadge(isIncome){
-  return '<div class="cfi" style="background:var('+(isIncome?'--pos-lt':'--neg-lt')+');font-size:9px;font-weight:700;color:'+(isIncome?'var(--pos)':'var(--neg)')+'">'+(isIncome?'ZU':'AB')+'</div>';
-}
 function isOneOffCashflow(value){
   return cashflowFrequencyKey(value)==='einmalig';
 }
@@ -16905,11 +17175,11 @@ async function saveCashflow(){
     if(rows){
       var row=document.createElement('div');row.className='cf-row';row.dataset.cfid='local-'+Date.now();
       var detailLabel=cashflowTimingLabel({frequency:payload.frequency,valid_from:validFrom,valid_until:validUntil,timing_precision:payload.timing_precision,notes:cat,gross_amount_rappen:payload.gross_amount_rappen,tax_amount_rappen:payload.tax_amount_rappen});
-      row.innerHTML=cashflowDirectionBadge(isInc)+
-        '<div class="cfn"><div class="cfna">'+escapeHtml(label)+'</div><div class="cfnd">'+escapeHtml(detailLabel)+' (Demo)</div></div>'+
+      row.innerHTML='<div class="cfn"><div class="cfna">'+escapeHtml(label)+'</div><div class="cfnd">'+escapeHtml(detailLabel)+' (Demo)</div></div>'+
         '<div class="cfa '+(isInc?'ci':'co')+'">'+(isInc?'+':'−')+'CHF '+parseFloat(amount).toLocaleString('de-CH')+'</div>'+
         '<div><button class="btn-ico" onclick="dcf(this)">&#10005;</button></div>';
       var tot=rows.querySelector('.cft');if(tot)rows.insertBefore(row,tot);else rows.appendChild(row);
+      setupCashflowDragList(isInc?'zufluss-rows':'abfluss-rows',isInc?'Income':'Expense');
     }
     showModalFeedback('acf-error',btn,'OK: Demo-Modus aktualisiert',false);
     setTimeout(function(){cm('m-acf');},1200);
@@ -16931,24 +17201,18 @@ async function refreshCashflowsUI(cid){
     currentCashflowSummary=clientScopedSummary(summary||{},cid);
     currentCashflowProjection=projection&&Array.isArray(projection.years)?clientScopedProjection(projection,cid):null;
     var fmt=function(r){return 'CHF '+Math.round(Number(r||0)/100).toLocaleString('de-CH');};
-    var inc=items.filter(function(c){return c.cashflow_type==='Income';});
-    var exp=items.filter(function(c){return c.cashflow_type==='Expense';});
+    var inc=sortCashflowsByStoredOrder(items.filter(function(c){return c.cashflow_type==='Income';}),'Income');
+    var exp=sortCashflowsByStoredOrder(items.filter(function(c){return c.cashflow_type==='Expense';}),'Expense');
     var summaryYear=Number(summary.summary_year||new Date().getFullYear());
     var breakdown=cashflowBreakdownForYear(items,summaryYear);
     var renderRow=function(c,isIncome){
-      return '<div class="cf-row" data-cfid="'+escapeHtml(c.id||'')+'">'+cashflowDirectionBadge(isIncome)+
+      return '<div class="cf-row" draggable="true" data-cfid="'+escapeHtml(c.id||'')+'">'+
         '<div class="cfn"><div class="cfna">'+escapeHtml(c.label||'Cashflow')+'</div><div class="cfnd">'+escapeHtml(cashflowTimingLabel(c))+'</div></div>'+
         '<div class="cfa '+(isIncome?'ci':'co')+'">'+(isIncome?'+':'−')+fmt(c.amount_rappen||0)+'</div>'+
-        '<div><button class="btn-ico e" type="button">&#9998;</button><button class="btn-ico d" type="button">&#10005;</button></div></div>';
+        '<div><button class="btn-ico e" type="button" title="Bearbeiten" aria-label="Cashflow bearbeiten">&#9998;</button><button class="btn-ico d" type="button" title="L\u00f6schen" aria-label="Cashflow l\u00f6schen">&#10005;</button></div></div>';
     };
     var zf=document.getElementById('zufluss-rows');
-    if(zf)zf.innerHTML=
-      renderGroupedCashflowRows(inc,true,renderRow)+
-      '<div class="cft" style="display:grid;gap:6px">'+
-      '<div style="display:flex;justify-content:space-between;gap:12px"><span style="font-size:11px;font-weight:600;color:var(--n6)">Laufende Einnahmen '+summaryYear+'</span><span style="font-family:var(--f-d);font-size:15px;color:var(--pos)">+'+fmt(breakdown.recurringIncomeRappen)+'</span></div>'+
-      '<div style="display:flex;justify-content:space-between;gap:12px"><span style="font-size:11px;font-weight:600;color:var(--n6)">Total Kapitalzuflüsse '+summaryYear+'</span><span style="font-family:var(--f-d);font-size:15px;color:var(--pos)">+'+fmt(breakdown.capitalInflowsRappen)+'</span></div>'+
-      '<div style="display:flex;justify-content:space-between;gap:12px;padding-top:6px;border-top:1px solid var(--b1)"><span style="font-size:11px;font-weight:600">Total Zuflüsse '+summaryYear+'</span><span style="font-family:var(--f-d);font-size:17px;color:var(--pos)">+'+fmt(breakdown.totalInflowRappen)+'</span></div>'+
-      '</div>';
+    if(zf)zf.innerHTML=inc.length?inc.map(function(item){return renderRow(item,true);}).join(''):'<div style="font-size:10px;color:var(--n4);padding:6px 0 8px">Noch keine Einnahmen erfasst.</div>';
     Array.prototype.forEach.call((zf||document.createElement('div')).querySelectorAll('.cf-row[data-cfid] .btn-ico'),function(btn){
       var row=btn.closest('.cf-row[data-cfid]');
       if(!row)return;
@@ -16966,20 +17230,9 @@ async function refreshCashflowsUI(cid){
         };
       }
     });
+    setupCashflowDragList('zufluss-rows','Income');
     var af=document.getElementById('abfluss-rows');
-    var recurringNetRappen=Number(breakdown.recurringIncomeRappen||0)-Number(breakdown.recurringExpenseRappen||0);
-    var capitalNetRappen=Number(breakdown.capitalInflowsRappen||0)-Number(breakdown.capitalOutflowsRappen||0);
-    var totalNetRappen=Number(breakdown.netCashflowRappen||0);
-    if(af)af.innerHTML=
-      renderGroupedCashflowRows(exp,false,renderRow)+
-      '<div class="cft" style="display:grid;gap:6px;border-top:1px solid var(--b1);padding-top:6px;margin-top:4px">'+
-      '<div style="display:flex;justify-content:space-between;gap:12px"><span style="font-size:11px;font-weight:600;color:var(--n6)">Laufende Ausgaben '+summaryYear+'</span><span style="font-family:var(--f-d);font-size:15px;color:var(--neg)">-'+fmt(breakdown.recurringExpenseRappen)+'</span></div>'+
-      (breakdown.capitalOutflowsRappen?'<div style="display:flex;justify-content:space-between;gap:12px"><span style="font-size:11px;font-weight:600;color:var(--n6)">Einmalige Ausgaben '+summaryYear+'</span><span style="font-family:var(--f-d);font-size:15px;color:var(--neg)">-'+fmt(breakdown.capitalOutflowsRappen)+'</span></div>':'')+
-      '<div style="display:flex;justify-content:space-between;gap:12px"><span style="font-size:11px;font-weight:600;color:var(--n6)">Total Ausgaben '+summaryYear+'</span><span style="font-family:var(--f-d);font-size:15px;color:var(--neg)">-'+fmt(breakdown.totalExpenseRappen)+'</span></div>'+
-      '<div style="display:flex;justify-content:space-between;gap:12px;padding-top:6px;border-top:1px solid var(--b1)"><span style="font-size:11px;font-weight:600">'+recurringCashflowLabel(recurringNetRappen)+' '+summaryYear+'</span><span style="font-family:var(--f-d);font-size:16px;color:'+(recurringNetRappen>=0?'var(--pos)':'var(--neg)')+'">'+(recurringNetRappen>=0?'+':'-')+fmt(Math.abs(recurringNetRappen))+'</span></div>'+
-      '<div style="display:flex;justify-content:space-between;gap:12px"><span style="font-size:11px;font-weight:600;color:var(--n6)">Kapitalereignisse netto '+summaryYear+'</span><span style="font-family:var(--f-d);font-size:15px;color:'+(capitalNetRappen>=0?'var(--pos)':'var(--neg)')+'">'+(capitalNetRappen>=0?'+':'-')+fmt(Math.abs(capitalNetRappen))+'</span></div>'+
-      '<div style="display:flex;justify-content:space-between;gap:12px"><span style="font-size:11px;font-weight:600">Gesamtsaldo inkl. Kapitalereignisse '+summaryYear+'</span><span style="font-family:var(--f-d);font-size:18px;color:'+(totalNetRappen>=0?'var(--pos)':'var(--neg)')+'">'+(totalNetRappen>=0?'+':'-')+fmt(Math.abs(totalNetRappen))+'</span></div>'+
-      '</div>';
+    if(af)af.innerHTML=exp.length?exp.map(function(item){return renderRow(item,false);}).join(''):'<div style="font-size:10px;color:var(--n4);padding:6px 0 8px">Noch keine Ausgaben erfasst.</div>';
     Array.prototype.forEach.call((af||document.createElement('div')).querySelectorAll('.cf-row[data-cfid] .btn-ico'),function(btn){
       var row=btn.closest('.cf-row[data-cfid]');
       if(!row)return;
@@ -16997,6 +17250,7 @@ async function refreshCashflowsUI(cid){
         };
       }
     });
+    setupCashflowDragList('abfluss-rows','Expense');
     updateCashflowsAndGoalsKpis(summary);
     normalizeConversationLabels();
     normalizeCashflowTotalsLabels(summaryYear,breakdown);
@@ -17116,19 +17370,19 @@ function renderCashflowProjection(data) {
     ? fmtHud(currentNet) + ' p.a. bleibt verfuegbar.'
     : (currentNet < 0 ? fmtHud(currentNet) + ' p.a. aus Vermögen decken.' : 'Einnahmen und Ausgaben sind ausgeglichen.');
   var hudTile = function(label, value, tone, hint) {
-    return '<div style="border:1px solid var(--b1);border-radius:14px;padding:12px 13px;background:#fff;min-width:0">'
-      + '<div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--n4);font-weight:700;margin-bottom:5px">' + escapeHtml(label) + '</div>'
-      + '<div style="font-size:18px;line-height:1.15;font-weight:800;color:' + tone + '">' + escapeHtml(value) + '</div>'
-      + '<div style="font-size:11px;color:var(--n5);margin-top:5px;line-height:1.35">' + escapeHtml(hint || 'laufend p.a.') + '</div>'
+    return '<div class="cf-hud-tile">'
+      + '<div class="cf-hud-label">' + escapeHtml(label) + '</div>'
+      + '<div class="cf-hud-value" style="color:' + tone + '">' + escapeHtml(value) + '</div>'
+      + '<div class="cf-hud-hint">' + escapeHtml(hint || 'laufend p.a.') + '</div>'
       + '</div>';
   };
-  el.innerHTML = '<div style="border:1px solid var(--b1);border-radius:18px;padding:14px;background:linear-gradient(135deg,#ffffff 0%,#f7faf7 100%);box-shadow:0 10px 26px rgba(15,23,42,.05)">'
-    + '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px">'
-    + '<div><div style="font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--n4)">Cashflow-HUD</div>'
-    + '<div style="font-size:12px;color:var(--n5);margin-top:3px">Aktuelle laufende Situation ' + escapeHtml(String(currentRow.year || '')) + '</div></div>'
-    + '<div style="font-size:11px;font-weight:800;color:' + statusTone + ';background:#fff;border:1px solid var(--b1);border-radius:999px;padding:6px 9px;white-space:nowrap">' + escapeHtml(statusLabel) + '</div>'
+  el.innerHTML = '<div class="cf-hud">'
+    + '<div class="cf-hud-head">'
+    + '<div><div class="cf-hud-kicker">Cashflow-HUD</div>'
+    + '<div class="cf-hud-copy">Aktuelle laufende Situation ' + escapeHtml(String(currentRow.year || '')) + '</div></div>'
+    + '<div class="cf-hud-status" style="color:' + statusTone + '">' + escapeHtml(statusLabel) + '</div>'
     + '</div>'
-    + '<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px">'
+    + '<div class="cf-hud-grid">'
     + hudTile('Einnahmen', fmtHud(currentIncome), 'var(--pos)', 'laufend p.a.')
     + hudTile('Ausgaben', fmtHud(currentExpense), 'var(--neg)', 'laufend p.a.')
     + hudTile(statusLabel, statusValue, statusTone, statusHint)
@@ -17492,25 +17746,67 @@ function normalizeReviewLayout(){
   if(!pad)return;
   var utility=ensureReviewUtilityCards();
   var heroCard=document.getElementById('rv-hero');
+  var cockpit=document.getElementById('rv-cockpit');
+  var cockpitDetails=document.getElementById('rv-details-accordion');
   var summarySection=document.getElementById('rv-zusammenfassung');
+  var summaryKpis=(summarySection?summarySection.querySelector('.rv-final-kpis'):null)||page.querySelector('.rv-final-kpis');
+  var summaryStory=(summarySection?summarySection.querySelector('.g2'):null)||page.querySelector('#rv-primary-story > .g2');
+  var implementationCard=summaryStory?summaryStory.nextElementSibling:null;
+  if(implementationCard&&!(implementationCard.classList&&implementationCard.classList.contains('card')))implementationCard=null;
   var strategySpiegel=document.getElementById('rv-spiegel-card');
   var outputCard=document.getElementById('rv-output-section');
   var strategyCard=document.getElementById('rv-strategy-compare');
   strategyCard=strategyCard?strategyCard.closest('.card'):null;
   var logCard=document.getElementById('rv-log-list');
   logCard=logCard?logCard.closest('.card'):null;
-  function rvSectionHeader(id,num,title,sub){
+  function rvSectionHeader(id,kicker,title,sub){
     var el=document.getElementById(id);
     if(!el){el=document.createElement('div');el.id=id;}
-    el.style.cssText='display:flex;align-items:flex-start;justify-content:space-between;gap:18px;padding:18px 0 9px;border-top:1px solid var(--b1);margin-top:2px';
-    el.innerHTML='<div><div class="rv-section-kicker">0'+escapeHtml(num)+'</div>'
-      +'<div class="rv-section-title">'+escapeHtml(title)+'</div>'
-      +'<div class="rv-section-sub">'+escapeHtml(sub)+'</div></div>';
+    el.className='rv-review-heading';
+    el.removeAttribute('style');
+    el.innerHTML='<div><div class="rv-section-kicker">'+escapeHtml(kicker)+'</div>'
+      +'<div class="rv-section-title">'+escapeHtml(title)+'</div></div>'
+      +'<div class="rv-review-heading-copy">'+escapeHtml(sub)+'</div>';
     return el;
   }
-  var h1=rvSectionHeader('rv-sh1','1','Hauptanalyse','Ist-Portfolio, Soll-Strategie, Zielerreichung und naechste Massnahme');
-  var h3=rvSectionHeader('rv-sh3','2','Entscheid & Abschluss','Empfehlung, Ausgabe, Beratungsprotokoll und Kundensicht');
-  var h4=rvSectionHeader('rv-sh4','3','Abschluss & Dokumente','Interessenkonflikte, Governance-Checkliste, Druck und Signatur');
+  function rvDisclosure(id,title,copy){
+    var disclosure=document.getElementById(id);
+    if(!disclosure){
+      disclosure=document.createElement('details');
+      disclosure.id=id;
+      disclosure.className='rv-review-disclosure';
+      disclosure.innerHTML='<summary><span><span class="rv-review-disclosure-title"></span><span class="rv-review-disclosure-copy"></span></span><span class="rv-review-disclosure-icon" aria-hidden="true">+</span></summary><div class="rv-review-disclosure-body"></div>';
+    }
+    var titleEl=disclosure.querySelector('.rv-review-disclosure-title');
+    var copyEl=disclosure.querySelector('.rv-review-disclosure-copy');
+    if(titleEl)titleEl.textContent=title;
+    if(copyEl)copyEl.textContent=copy;
+    return disclosure;
+  }
+  ['rv-sh1','rv-sh3','rv-sh4'].forEach(function(id){
+    var old=document.getElementById(id);
+    if(old&&old.parentNode)old.parentNode.removeChild(old);
+  });
+  var overview=document.getElementById('rv-review-overview');
+  if(!overview){overview=document.createElement('div');overview.id='rv-review-overview';}
+  overview.className='rv-review-overview';
+  [heroCard,summaryKpis,cockpit].forEach(function(node){if(node)overview.appendChild(node);});
+  var primaryStory=document.getElementById('rv-primary-story');
+  if(!primaryStory){primaryStory=document.createElement('section');primaryStory.id='rv-primary-story';}
+  primaryStory.className='rv-primary-story';
+  var storyHeading=rvSectionHeader('rv-story-heading','Beratung','Strategie & Entscheid','Die wesentlichen Aussagen fuer das Kundengespraech, ohne technische Zwischenschritte.');
+  [storyHeading,summaryStory,implementationCard].forEach(function(node){if(node)primaryStory.appendChild(node);});
+  var secondaryHeading=rvSectionHeader('rv-secondary-heading','Bei Bedarf','Vertiefung & Dokumentation','Portfolio-Vergleich, Methodik und interne Abschlusskontrollen bleiben erreichbar, ohne die Kundensicht zu ueberladen.');
+  var analysisDisclosure=rvDisclosure('rv-analysis-disclosure','Portfolio-Vergleich & Strategie-Details','IST/SOLL, Strategie-Spiegel und Solver-Trace anzeigen');
+  var analysisBody=analysisDisclosure.querySelector('.rv-review-disclosure-body');
+  [strategyCard,strategySpiegel,cockpitDetails].forEach(function(node){if(node)analysisBody.appendChild(node);});
+  if(!analysisDisclosure.dataset.chartResizeBound){
+    analysisDisclosure.dataset.chartResizeBound='1';
+    analysisDisclosure.addEventListener('toggle',function(){
+      if(!analysisDisclosure.open||!_rvSpiegelChart)return;
+      setTimeout(function(){try{_rvSpiegelChart.resize();}catch(e){}},0);
+    });
+  }
   var decisionGrid=document.getElementById('rv-decision-grid');
   if(!decisionGrid){decisionGrid=document.createElement('div');decisionGrid.id='rv-decision-grid';}
   decisionGrid.className='rv-decision-grid';
@@ -17523,10 +17819,16 @@ function normalizeReviewLayout(){
   [utility.suitabilityCard,utility.conflictCard,utility.readinessCard,utility.docsCard].forEach(function(node){
     if(node)finalGrid.appendChild(node);
   });
+  var governanceDisclosure=rvDisclosure('rv-governance-disclosure','Dokumente & interne Abschlusskontrolle','Protokoll, Ausgaben, Eignungspruefung und Governance anzeigen');
+  var governanceBody=governanceDisclosure.querySelector('.rv-review-disclosure-body');
+  governanceBody.classList.add('rv-secondary-stack');
+  [decisionGrid,outputCard,finalGrid].forEach(function(node){if(node)governanceBody.appendChild(node);});
+  finalGrid.classList.add('rv-review-governance-grid');
   var cnav=pad.querySelector('.cnav');
-  [heroCard,h1,strategySpiegel,strategyCard,h3,decisionGrid,outputCard,summarySection,h4,finalGrid].forEach(function(node){
+  [overview,primaryStory,secondaryHeading,analysisDisclosure,governanceDisclosure,summarySection].forEach(function(node){
     if(node)pad.appendChild(node);
   });
+  if(summarySection)summarySection.style.display='none';
   if(cnav)pad.appendChild(cnav);
 }
 function reviewLiveBucketDrifts(state){
@@ -19481,6 +19783,19 @@ function goalEditorHorizonYears(){
   var raw=parseFloat(getInputValue('nz-horizon').replace(',','.'));
   return isFinite(raw)&&raw>0?raw:0;
 }
+function bindGoalEditorTyping(){
+  var modal=document.getElementById('m-nz');
+  if(!modal)return;
+  Array.prototype.forEach.call(modal.querySelectorAll('input,textarea,select'),function(field){
+    if(field.dataset.goalTypingBound==='1')return;
+    field.dataset.goalTypingBound='1';
+    ['keydown','keypress','keyup'].forEach(function(eventName){
+      field.addEventListener(eventName,function(event){
+        event.stopPropagation();
+      });
+    });
+  });
+}
 function updateGoalDerivedDiagnostics(){
   var hintEl=document.getElementById('m-acf-derived');
   if(!hintEl)return;
@@ -19563,10 +19878,27 @@ function syncGoalModalState(){
   var ongoingWrap=document.getElementById('nz-ongoing-wrap');
   var valueModeRow=document.getElementById('nz-value-mode-row');
   var hardnessWarn=document.getElementById('nz-hardness-warn');
+  var hardnessHint=document.getElementById('nz-hardness-hint');
+  if(!hardnessHint){
+    var prioritySelect=document.getElementById('nz-prio');
+    var priorityField=prioritySelect&&prioritySelect.closest?prioritySelect.closest('.fg'):null;
+    if(priorityField){
+      hardnessHint=document.createElement('div');
+      hardnessHint.id='nz-hardness-hint';
+      hardnessHint.style.cssText='font-size:10px;color:var(--n5);margin-top:3px;line-height:1.45';
+      priorityField.appendChild(hardnessHint);
+    }
+  }
   var nominalRadio=document.getElementById('nz-vm-nominal');
   var hint=document.getElementById('nz-date-hint');
   var pensionPillarWrap=document.getElementById('nz-pension-pillar-wrap');
   var ongoing=getInputValue('nz-ongoing')==='true';
+  var prioritySelect=document.getElementById('nz-prio');
+  if(prioritySelect&&prioritySelect.options&&prioritySelect.options.length>=3){
+    prioritySelect.options[0].textContent='Hart - muss erreicht werden';
+    prioritySelect.options[1].textContent='Primaer - wichtiges Planungsziel';
+    prioritySelect.options[2].textContent='Opportunistisch - Wunschziel';
+  }
   applyGoalTypeVisibility(type);
   if(amountLabel)amountLabel.textContent=goalAmountLabel(type);
   if(returnInput)returnInput.required=isReturnGoalType(type);
@@ -19620,11 +19952,30 @@ function syncGoalModalState(){
     var isHart=getInputValue('nz-prio')==='1';
     hardnessWarn.style.display=(isRendite&&isHart)?'block':'none';
   }
+  // Sprint 2026-06-08 Fix A: SAA-Info zeigen bei Renditeziel (wo User
+  // typischerweise Allocation-Reaktion erwartet) und bei Edit-Mode (= bestehendes
+  // Goal). Aufklaerung dass Renditeziel-Target die SAA nicht direkt beeinflusst.
+  var saaInfo=document.getElementById('nz-saa-info');
+  if(saaInfo){
+    var isReturn=isReturnGoalType(type);
+    var isEditing=!!currentGoalEditId;
+    saaInfo.style.display=(isReturn||isEditing)?'block':'none';
+  }
+  if(hardnessHint){
+    hardnessHint.textContent=isReturnGoalType(type)
+      ? 'Rendite ist keine garantierbare Leistung und kann deshalb nur Primaer oder Opportunistisch sein.'
+      : (isMaxGoalType(type)
+        ? 'Maximierung ist ein Wunschziel und kein verbindlicher Mindestbedarf.'
+        : 'Hart ist fuer echte Bedarfs-, Entnahme- und Vermoegensziele zulaessig.');
+  }
   updateGoalDerivedDiagnostics();
 }
 function resetGoalModal(){
   currentGoalEditId=null;
+  var modalTitle=document.querySelector('#m-nz .mtitle');
+  if(modalTitle)modalTitle.textContent='Ziel erfassen';
   setInputValue('nz-label','');
+  setInputValue('nz-notes','');
   setSelectValue('nz-type','Einmalige_Ausgabe');
   setSelectValue('nz-prio','2');
   setSelectValue('nz-scope','Beratungsverm\u00f6gen');
@@ -19646,17 +19997,27 @@ function resetGoalModal(){
   if(btn){btn.textContent='Speichern';btn.disabled=false;}
   var err=document.getElementById('nz-error');
   if(err){err.style.display='none';err.textContent='';}
+  bindGoalEditorTyping();
   syncGoalModalState();
+  setTimeout(function(){
+    var labelInput=document.getElementById('nz-label');
+    if(labelInput)labelInput.focus();
+  },0);
 }
 function openGoalEditor(goalId){
   var goal=(currentGoals||[]).find(function(item){return String(item.id||'')===String(goalId||'');});
   if(!goal)return;
   currentGoalEditId=goal.id;
+  var modalTitle=document.querySelector('#m-nz .mtitle');
+  if(modalTitle)modalTitle.textContent='Ziel bearbeiten';
   var goalType=goal.goal_type||'Einmalige_Ausgabe';
   var priorityMap={'Hart':'1','Prim\u00e4r':'2','Primaer':'2','Opportunistisch':'3'};
+  var storedPriority=priorityMap[goal.hardness]||String(goal.rank||2);
+  var legacyHardReturn=isReturnGoalType(goalType)&&storedPriority==='1';
   setInputValue('nz-label',goal.label||'');
+  setInputValue('nz-notes',goal.notes||'');
   setSelectValue('nz-type',goalType);
-  setSelectValue('nz-prio',priorityMap[goal.hardness]||String(goal.rank||2));
+  setSelectValue('nz-prio',legacyHardReturn?'2':storedPriority);
   setSelectValue('nz-scope',goal.goal_scope||'Beratungsverm\u00f6gen');
   if(isReturnGoalType(goalType))setInputValue('nz-amount','');
   else if(isWealthGoalType(goalType))setInputValue('nz-amount',formatInputCHF(goal.target_wealth_rappen));
@@ -19678,7 +20039,16 @@ function openGoalEditor(goalId){
   if(btn){btn.textContent='Aktualisieren';btn.disabled=false;}
   var err=document.getElementById('nz-error');
   if(err){err.style.display='none';err.textContent='';}
+  bindGoalEditorTyping();
   syncGoalModalState();
+  if(legacyHardReturn){
+    showModalFeedback(
+      'nz-error',
+      btn,
+      'Dieses ältere Renditeziel war als Hart gespeichert. Für die Bearbeitung wird es regelkonform auf Primär gesetzt.',
+      false
+    );
+  }
   var modal=document.getElementById('m-nz');
   if(modal)modal.classList.add('open');
 }
@@ -19703,20 +20073,20 @@ function renderGoalList(items,isDemo){
     var badges=goalBadgeHtml(goal);
     return '<div class="goal" draggable="true" data-goalid="'+escapeHtml(goal.id||'')+'">'+
       '<div class="pd '+(pc[goal.hardness]||'p2')+'">'+(index+1)+'</div>'+
-      '<div class="gi"><div class="gn" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span>'+escapeHtml(goal.label||'Ziel')+'</span>'+badges+'</div><div class="gd">'+escapeHtml(meta.filter(Boolean).join(' \u00b7 '))+'</div>'+goalEvaluationNoteHtml(goal,true)+'</div>'+
+      '<div class="gi"><div class="gn" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span>'+escapeHtml(goal.label||'Ziel')+'</span>'+badges+'</div><div class="gd">'+escapeHtml(meta.filter(Boolean).join(' \u00b7 '))+'</div>'+(goal.notes?'<div class="gd" style="margin-top:3px;color:var(--n5)">'+escapeHtml(goal.notes)+'</div>':'')+goalEvaluationNoteHtml(goal,true)+'</div>'+
       '<span class="tag '+tagTone+'">'+tagLabel+'</span>'+
       '<div class="gbw"><div class="gp">'+(scored?Math.round(pct)+' %':'—')+'</div><div class="gb"><div class="gf '+tone+'" style="width:'+Math.max(0,Math.min(100,scored?Math.round(pct):0))+'%"></div></div></div>'+
-      '<div><button class="btn-ico e" type="button">\u270e</button><button class="btn-ico d" type="button">\u2715</button></div></div>';
+      '<div class="goal-actions"><button class="btn btn-sm goal-edit-action" type="button">Bearbeiten</button><button class="goal-delete-action" type="button">Entfernen</button></div></div>';
   }).join('');
-  Array.prototype.forEach.call(zl.querySelectorAll('.goal[data-goalid] .btn-ico'),function(btn){
+  Array.prototype.forEach.call(zl.querySelectorAll('.goal[data-goalid] .goal-edit-action, .goal[data-goalid] .goal-delete-action'),function(btn){
     var card=btn.closest('.goal[data-goalid]');
     if(!card)return;
-    if(btn.classList.contains('e')){
+    if(btn.classList.contains('goal-edit-action')){
       btn.onclick=function(ev){
         if(ev)ev.preventDefault();
         openGoalEditor(card.getAttribute('data-goalid')||'');
       };
-    }else if(btn.classList.contains('d')){
+    }else if(btn.classList.contains('goal-delete-action')){
       btn.onclick=function(ev){
         if(ev)ev.preventDefault();
         dg(btn);
@@ -19733,6 +20103,7 @@ function buildDemoGoalRecord(goalId,payload,existingGoal){
     goal_family:payload.goal_family,
     goal_type:payload.goal_type,
     label:payload.label,
+    notes:payload.notes,
     rank:payload.rank,
     goal_scope:payload.goal_scope,
     value_mode:payload.value_mode,
@@ -19751,8 +20122,30 @@ function buildDemoGoalRecord(goalId,payload,existingGoal){
     achievement_score:existingGoal&&existingGoal.achievement_score!=null?existingGoal.achievement_score:50
   });
 }
+function upsertSavedGoal(savedGoal,fallbackId,payload){
+  var resolvedId=String(savedGoal&&savedGoal.id||fallbackId||'');
+  if(!resolvedId)return null;
+  var existing=(currentGoals||[]).find(function(goal){
+    return String(goal&&goal.id||'')===resolvedId;
+  })||null;
+  var normalized=Object.assign(
+    {},
+    buildDemoGoalRecord(resolvedId,payload,existing),
+    savedGoal&&typeof savedGoal==='object'?savedGoal:{},
+    {id:resolvedId}
+  );
+  currentGoals=(currentGoals||[]).filter(function(goal){
+    return String(goal&&goal.id||'')!==resolvedId;
+  });
+  currentGoals.push(normalized);
+  currentGoals.sort(function(a,b){return Number(a.rank||99)-Number(b.rank||99);});
+  renderGoalList(currentGoals,false);
+  syncAllocationPendingViews();
+  return normalized;
+}
 async function saveGoal(){
   var label=getInputValue('nz-label').trim();
+  var notes=getInputValue('nz-notes').trim();
   var type=getInputValue('nz-type')||'Einmalige_Ausgabe';
   var prio=getInputValue('nz-prio')||'2';
   var scope=getInputValue('nz-scope')||'Beratungsverm\u00f6gen';
@@ -19766,6 +20159,7 @@ async function saveGoal(){
   var isOngoing=getInputValue('nz-ongoing')==='true';
   var btn=document.getElementById('btn-nz-save');
   var isEdit=!!currentGoalEditId;
+  var goalIdBeforeSave=currentGoalEditId;
   var targetReturnBps=null;
   if(!label){showModalFeedback('nz-error',btn,'Bitte Bezeichnung eingeben.',true);return;}
   if(!isMaxGoalType(type)){
@@ -19814,6 +20208,7 @@ async function saveGoal(){
     goal_family:familyMap[type]||'Cashflow',
     goal_type:type,
     label:label,
+    notes:notes||null,
     rank:parseInt(prio,10)||2,
     goal_scope:scope,
     value_mode:isWealthGoalType(type)?((document.querySelector('input[name=\"nz-value-mode\"]:checked')||{value:'nominal'}).value||'nominal'):'nominal',
@@ -19835,14 +20230,21 @@ async function saveGoal(){
   else if(!isMaxGoalType(type))payload.target_amount_rappen=parseCHF(amountRaw);
   if(mid&&!isDemoMandateId(mid)){
     try{
-      if(isEdit)await API.put('/mandates/'+mid+'/goals/'+currentGoalEditId,payload);
-      else await API.post('/mandates/'+mid+'/goals',payload);
+      var savedGoal=isEdit
+        ? await API.put('/mandates/'+mid+'/goals/'+goalIdBeforeSave,payload)
+        : await API.post('/mandates/'+mid+'/goals',payload);
+      upsertSavedGoal(savedGoal,goalIdBeforeSave,payload);
       showModalFeedback('nz-error',btn,isEdit?'OK: Ziel aktualisiert':'OK: Ziel gespeichert',false);
       currentGoalEditId=null;
       cm('m-nz');
       await refreshGoalsUI(mid);
       updateCfRiskContextSummary();
-      markStrategyDirty(isEdit?'Ziel aktualisiert: Ist-Grafik und Zielsicht aktualisiert. Soll-Allokation bei Bedarf separat aktualisieren.':'Ziel gespeichert: Ist-Grafik und Zielsicht aktualisiert. Soll-Allokation bei Bedarf separat aktualisieren.', false);
+      markStrategyDirty(
+        isEdit
+          ? 'Ziel aktualisiert. Die angezeigte Soll-Allokation ist noch der alte Stand - bitte Anlagestrategie neu berechnen.'
+          : 'Ziel gespeichert. Die angezeigte Soll-Allokation ist noch der alte Stand - bitte Anlagestrategie neu berechnen.',
+        true
+      );
       try{showAppSuccess(isEdit?'Ziel aktualisiert':'Ziel gespeichert');}catch(noticeErr){}
     }catch(e){
       var goalErr='Fehler: '+(e.detail||e.message||'?');
