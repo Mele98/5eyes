@@ -11,9 +11,11 @@ from __future__ import annotations
 
 import sys
 from datetime import date
+from io import BytesIO
 from pathlib import Path
 
 import pytest
+from pypdf import PdfReader
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
@@ -95,6 +97,14 @@ def test_render_backtest_returns_valid_pdf_bytes():
     assert isinstance(pdf, (bytes, bytearray))
     assert pdf.startswith(b"%PDF"), "PDF magic-bytes missing"
     assert len(pdf) > 3000, "PDF suspiciously small"
+
+
+def test_render_backtest_cover_uses_report_specific_title():
+    pdf = ReportLabRenderer().render_backtest(_ctx(), _sample_data())
+    first_page = PdfReader(BytesIO(pdf)).pages[0].extract_text() or ""
+
+    assert "Strategie-Backtest" in first_page
+    assert "Anlagestrategie" not in first_page
 
 
 def test_render_backtest_with_benchmark_is_larger():

@@ -86,11 +86,15 @@ def test_asset_allocation_header_keeps_only_core_actions_visible():
 def test_risk_profile_header_uses_single_server_pdf_action():
     html = HTML_PATH.read_text(encoding="utf-8")
     header = html.split('<div id="page-rp" class="page">', 1)[1].split('<div class="pad">', 1)[0]
+    visible_actions = header.split('<details class="ph-more"', 1)[0]
+    more_menu = header.split('<details class="ph-more"', 1)[1].split("</details>", 1)[0]
     risk_modal = html.split('<div class="overlay" id="m-rp-print">', 1)[1].split("<script>", 1)[0]
 
     assert 'id="btn-rp-server-pdf"' in header
     assert "downloadServerPdf('risikoprofil')" in header
-    assert ">PDF</button>" in header
+    assert 'id="btn-rp-server-pdf"' not in visible_actions
+    assert 'id="btn-rp-server-pdf"' in more_menu
+    assert ">PDF</button>" in more_menu
     assert "PDF (Browser)" not in header
     assert "PDF (Server)" not in header
     assert "om('m-rp-print')" not in header
