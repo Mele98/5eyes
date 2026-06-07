@@ -13028,6 +13028,26 @@ function resetAdvisoryLogModal(){
     otherCount:other.length,
     liabilityCount:liabilities.length
   });
+  // Sprint Bug-#1 (2026-06-08): Edit-/Delete-Buttons wieder funktional machen.
+  // Pre-Fix: renderRowsSafe rendert Buttons ohne onClick → User konnte Positionen
+  // nach Erstellung NICHT bearbeiten. Sicherheits-Pattern (kein Inline-JS) bleibt,
+  // wir registrieren saubere Event-Listener nach dem innerHTML-Update.
+  Array.prototype.forEach.call(av.querySelectorAll('.wr[data-posid] .btn-ico'),function(btn){
+    var row=btn.closest('.wr[data-posid]');
+    if(!row)return;
+    var posid=row.getAttribute('data-posid')||'';
+    if(btn.classList.contains('e')){
+      btn.onclick=function(ev){
+        if(ev)ev.preventDefault();
+        openWealthPositionEditor(posid);
+      };
+    }else if(btn.classList.contains('d')){
+      btn.onclick=function(ev){
+        if(ev)ev.preventDefault();
+        deleteWealthPositionById(posid);
+      };
+    }
+  });
 }
 var allocationPreferencesCache={};
 var allocationPreferenceStoragePrefix='5eyes.allocprefs.';
