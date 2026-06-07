@@ -75,6 +75,48 @@ def build_protokoll_flowables(ctx: PDFContext, data) -> list:
             styles["small_muted"],
         ))
 
+    # Bug-#13b (2026-06-08): Beratungsprotokoll-Bausteine aus der pro Mandat
+    # gespeicherten Selektion (PR #244+#245). Wenn Bausteine ausgewaehlt
+    # sind, erscheinen sie als eigener Abschnitt zwischen Entscheiden und
+    # Konflikt-Hinweis. Custom-Override-Text hat Vorrang vor Bibliotheks-
+    # Default (siehe _build_protokoll_data).
+    bausteine = list(getattr(data, "selected_bausteine", []) or [])
+    if bausteine:
+        flowables.append(Spacer(1, 4 * mm))
+        flowables.append(_section_title("Bausteine zum Beratungsprotokoll"))
+        bausteine_sorted = sorted(
+            bausteine,
+            key=lambda b: (int((b or {}).get("sort_order", 0) or 0), str((b or {}).get("title", ""))),
+        )
+        for baustein in bausteine_sorted:
+            if not isinstance(baustein, dict):
+                continue
+            title = str(baustein.get("title", "") or "Baustein").strip()
+            category = (baustein.get("category") or "").strip()
+            content = str(baustein.get("content_md", "") or "").strip()
+            heading_parts = [_esc(title)]
+            if category:
+                heading_parts.append(
+                    f'<font size="9" color="#64748b">&middot; {_esc(category)}</font>'
+                )
+            flowables.append(Paragraph(
+                f'<font name="{FONT_BOLD}" size="11" color="#0f172a">'
+                + " ".join(heading_parts)
+                + "</font>",
+                styles["body"],
+            ))
+            if content:
+                # Plain-Text-Rendering: Newlines -> <br/>, kein voller Markdown-
+                # Parser (kommt mit dem PDF-Bausteine-Sprint-Followup, falls
+                # Berater Markdown wirklich braucht).
+                safe = _esc(content).replace("\n", "<br/>")
+                flowables.append(Paragraph(
+                    f'<font name="{FONT_DEFAULT}" size="{FONT_SIZE_BODY}" color="#334155">'
+                    f'{safe}</font>',
+                    styles["body"],
+                ))
+            flowables.append(Spacer(1, 3 * mm))
+
     # Stage 7: Konflikt-Hinweis fuer FINMA-Audit, wenn die Allocation-Engine
     # mindestens einen Zielkonflikt klassifiziert hat. Pflichthinweis nach
     # Spec UX & Messages §5.2.

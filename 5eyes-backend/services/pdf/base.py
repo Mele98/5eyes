@@ -220,6 +220,13 @@ class ProtokollData:
     optimizer_reasoning_json/classify_messages. Werden bei Vorhandensein
     am Protokoll-Ende als Pflichthinweis fuer FINMA-Audit angehaengt."""
 
+    # Bug-#13b (2026-06-08): Vom Berater pro Mandat ausgewaehlte Bausteine
+    # aus der Bibliothek (PR #244/#245). Liste von Dicts mit den Keys
+    # title (str), content_md (str), category (str|None), sort_order (int),
+    # custom_override_md (str|None). Wenn vorhanden, rendert das Protokoll-
+    # PDF einen eigenen 'Bausteine'-Abschnitt vor dem Konflikt-Hinweis.
+    selected_bausteine: list = field(default_factory=list)
+
 
 @dataclass(frozen=True)
 class DepotCheckData:
@@ -329,6 +336,19 @@ class BacktestData:
     benchmark_metrics: Mapping[str, object] | None = None
 
     warnings: Sequence[str] = field(default_factory=tuple)
+
+    # Bug-#8b (2026-06-08): Fee-Vergleich (Bug-#8a Backend-Daten).
+    # Wenn strategy_fee_bps>0 ODER benchmark_fee_bps>0, enthaelt das PDF einen
+    # 'Brutto vs. Netto'-Vergleichsblock fuer Strategie und Benchmark. Erlaubt
+    # die ehrliche Aussage 'Strategie schlaegt Benchmark nach Fees' bzw.
+    # 'Indexvergleich ist nicht investierbar — Fee-bereinigt liegt die
+    # Strategie naeher dran'.
+    strategy_fee_bps: int = 0
+    benchmark_fee_bps: int = 0
+    soll_gross_wealth_path_rappen: Sequence[Sequence] = field(default_factory=tuple)
+    soll_gross_metrics: Mapping[str, object] | None = None
+    benchmark_gross_wealth_path_rappen: Sequence[Sequence] = field(default_factory=tuple)
+    benchmark_gross_metrics: Mapping[str, object] | None = None
 
 
 @runtime_checkable

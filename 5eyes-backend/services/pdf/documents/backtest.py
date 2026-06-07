@@ -109,6 +109,17 @@ def build_backtest_flowables(ctx: PDFContext, data: BacktestData) -> list:
     else:
         flowables.append(_fallback_text("Keine Kennzahlen verfügbar."))
 
+    # Bug-#8b (2026-06-08): Brutto-vs-Netto-Vergleich wenn Fees gepflegt.
+    # Berater-Aussage: 'Der Indexvergleich ist ohne Fees nicht investierbar;
+    # nach Fee-Adjustierung liegt die Strategie naeher am realen Anlage-
+    # ergebnis dran.' Wir rendern fuer SOLL und Benchmark je eine Mini-
+    # Tabelle, die brutto vs. netto CAGR + Endwert + Drag aufzeigt.
+    fee_block = _make_fee_comparison_block(data, styles)
+    if fee_block:
+        flowables.append(Spacer(1, 4 * mm))
+        flowables.append(_section_title("Brutto vs. Netto (Bug-#8b)"))
+        flowables.extend(fee_block)
+
     flowables.append(PageBreak())
 
     # ============================================================
@@ -180,6 +191,92 @@ def _fallback_text(text: str):
         f'<font name="{FONT_DEFAULT}" size="9" color="#94a3b8"><i>{_esc(text)}</i></font>',
         styles["small_muted"],
     )
+
+
+def _make_fee_comparison_block(data, styles) -> list:
+    """Bug-#8b (2026-06-08): Brutto-vs-Netto-Vergleich.
+
+    Rendert NICHTS, wenn weder strategy_fee_bps noch benchmark_fee_bps > 0
+    und die gross-Pfade leer sind. Sonst eine kompakte ASCII-Tabelle als
+    Paragraph mit Endwerten und Performance-Drag (CHF p.a. und Gesamt-bps).
+    """
+    has_strat_fee = int(getattr(data, "strategy_fee_bps", 0) or 0) > 0
+    has_bm_fee = int(getattr(data, "benchmark_fee_bps", 0) or 0) > 0
+    if not (has_strat_fee or has_bm_fee):
+        return []
+
+    rows = []
+    if has_strat_fee and getattr(data, "soll_gross_wealth_path_rappen", None):
+        rows.append(_fee_row(
+            label="Strategie (SOLL)",
+            fee_bps=int(getattr(data, "strategy_fee_bps", 0) or 0),
+            gross_path=getattr(data, "soll_gross_wealth_path_rappen", []),
+            net_path=getattr(data, "soll_wealth_path_rappen", []),
+        ))
+    if has_bm_fee and getattr(data, "benchmark_gross_wealth_path_rappen", None):
+        rows.append(_fee_row(
+            label="Benchmark",
+            fee_bps=int(getattr(data, "benchmark_fee_bps", 0) or 0),
+            gross_path=getattr(data, "benchmark_gross_wealth_path_rappen", []),
+            net_path=getattr(data, "benchmark_wealth_path_rappen", []),
+        ))
+    if not rows:
+        return []
+
+    header = (
+        f'<font name="{FONT_BOLD}" size="9" color="#0f172a">'
+        f'Pfad &nbsp;&middot;&nbsp; Fee p.a. &nbsp;&middot;&nbsp; Brutto-Endwert &nbsp;&middot;&nbsp; '
+        f'Netto-Endwert &nbsp;&middot;&nbsp; Fee-Drag total</font>'
+    )
+    body_lines = [header] + rows
+    paragraph = Paragraph(
+        f'<font name="{FONT_DEFAULT}" size="9" color="#334155">'
+        + "<br/>".join(body_lines)
+        + '</font>',
+        styles["body"],
+    )
+    note = Paragraph(
+        f'<font name="{FONT_DEFAULT}" size="8" color="#64748b"><i>'
+        f'Geometrischer Fee-Abzug pro Jahr nach Bucket-Update. Der Brutto-'
+        f'Indexvergleich ist nicht direkt investierbar; die Netto-Reihe '
+        f'spiegelt eine realistisch gefuehrte Strategie inkl. TER, Depot- '
+        f'und Beratungsgebuehren.</i></font>',
+        styles["small_muted"],
+    )
+    return [paragraph, Spacer(1, 2 * mm), note]
+
+
+def _fee_row(*, label: str, fee_bps: int, gross_path, net_path) -> str:
+    gross_end = _path_end_rappen(gross_path)
+    net_end = _path_end_rappen(net_path)
+    drag_rappen = max(0, gross_end - net_end)
+    drag_pct = (drag_rappen / gross_end * 100.0) if gross_end > 0 else 0.0
+    return (
+        f"{_esc(label)} &nbsp;&middot;&nbsp; "
+        f"{fee_bps/100.0:.2f}% &nbsp;&middot;&nbsp; "
+        f"CHF {_format_thousands(gross_end)} &nbsp;&middot;&nbsp; "
+        f"CHF {_format_thousands(net_end)} &nbsp;&middot;&nbsp; "
+        f"CHF {_format_thousands(drag_rappen)} ({drag_pct:.1f}%)"
+    )
+
+
+def _path_end_rappen(path) -> int:
+    if not path:
+        return 0
+    try:
+        last = path[-1]
+        # Tuples: (year, total_rappen)
+        return int(last[1])
+    except (IndexError, TypeError, ValueError):
+        return 0
+
+
+def _format_thousands(rappen: int) -> str:
+    try:
+        value = int(rappen or 0) / 100.0
+        return f"{value:,.0f}".replace(",", "'")
+    except Exception:
+        return "0"
 
 
 def _format_chf(rappen: int, currency: str = "CHF") -> str:
