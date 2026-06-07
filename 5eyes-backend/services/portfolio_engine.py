@@ -4323,6 +4323,57 @@ def _compute_reserve_for_inputs(
     return reserve_needed_rappen, external_reserve_rappen
 
 
+def _renditeziel_equity_tilt_bps(
+    *,
+    target_return_bps: int,
+    current_equity_bps: int,
+    min_equity_bps: int,
+    max_equity_bps: int,
+) -> int:
+    """Sprint 2026-06-08 Option C: Equity-Tilt fuer Renditeziel-Goals.
+
+    Returns signed delta in bps:
+    - positiv = Equity-Erhoehung (Wachstums-Tilt fuer hohes Target)
+    - negativ = Equity-Reduktion (Defensiv-Tilt fuer niedriges Target)
+    - 0 = kein Tilt
+
+    Logik (target in bps):
+    - target < 250 bps (< 2.5% p.a.): Defensiv-Tilt von max 150 bps
+    - target 250-400: kein Tilt (Standard-Bereich)
+    - target 400-600: Wachstums-Tilt von max 150 bps
+    - target > 600: Wachstums-Tilt von max 200 bps
+
+    Resultat wird automatisch an die House-Matrix-Bandbreiten geclippt:
+    - Equity-Erhoehung max = max_equity_bps - current_equity_bps (room nach oben)
+    - Equity-Reduktion max = current_equity_bps - min_equity_bps (room nach unten)
+
+    Strategietreue gewahrt: Tilt verlaesst NIE die Bandbreiten des Risikoprofils.
+    """
+    if target_return_bps <= 0:
+        return 0
+
+    # Raw Tilt-Magnitude basierend auf Target
+    if target_return_bps < 250:
+        raw_tilt = -150  # defensiver Tilt
+    elif target_return_bps < 400:
+        raw_tilt = 0  # Standard-Bereich, kein Tilt
+    elif target_return_bps < 600:
+        raw_tilt = 150  # leichter Wachstums-Tilt
+    else:
+        raw_tilt = 200  # staerkerer Wachstums-Tilt
+
+    if raw_tilt == 0:
+        return 0
+
+    if raw_tilt > 0:
+        # Wachstums-Tilt: clippen auf room nach oben
+        room_up = max(0, int(max_equity_bps) - int(current_equity_bps))
+        return min(raw_tilt, room_up)
+    # Defensiv-Tilt: clippen auf room nach unten
+    room_down = max(0, int(current_equity_bps) - int(min_equity_bps))
+    return -min(abs(raw_tilt), room_down)
+
+
 def _apply_goal_and_reserve_tilts(
     targets: dict,
     minimums: dict,
@@ -4363,6 +4414,62 @@ def _apply_goal_and_reserve_tilts(
                 targets["liquidity"] += eq_reduction // 2
                 targets["bonds"] += eq_reduction - eq_reduction // 2
                 reasoning.append(f"Das Vermoegensziel '{goal.label}' mit kurzem Horizont reduziert den Aktienanteil leicht.")
+
+    # Sprint 2026-06-08 Option C: Goal-Tilt fuer Renditeziele.
+    # SAA bleibt Risikoprofil-bound (FINMA/Strategietreue), aber innerhalb der
+    # House-Matrix-Bandbreiten reagiert sie auf das Renditeziel-Target:
+    # - Niedriges Target (<2.5%): leichte Aktien-Reduktion (Kapitalerhalt-Tilt)
+    # - Mittleres Target (2.5-4%): kein Tilt (Standard)
+    # - Hohes Target (>4%): leichte Aktien-Erhoehung (Wachstums-Tilt)
+    # Max ±200 bps pro Goal, immer geclippt an den Bandbreiten (min/max).
+    # Opportunistische Renditeziele tilten NICHT (Hardness-Filter, ADR-konform).
+    for goal in goals:
+        goal_type = _norm_text(goal.goal_type)
+        if goal_type != "Renditeziel":
+            continue
+        hardness = _norm_text(goal.hardness).lower()
+        # ADR: nur Primaer-Renditeziele tilten (Hart wird im Frontend geblockt;
+        # Opportunistisch ist nicht-tilt-wuerdig per Anlagephilosophie).
+        if hardness not in ("primaer", "primary"):
+            continue
+        target_bps = int(getattr(goal, "target_return_bps", None) or 0)
+        if target_bps <= 0:
+            continue
+        eq_shift = _renditeziel_equity_tilt_bps(
+            target_return_bps=target_bps,
+            current_equity_bps=int(targets.get("equities", 0)),
+            min_equity_bps=int(minimums.get("equities", 0)),
+            max_equity_bps=int(maximums.get("equities", 10000)),
+        )
+        if eq_shift == 0:
+            continue
+        if eq_shift > 0:
+            # Wachstums-Tilt: Equity hoch, Bonds runter
+            bonds_floor = int(minimums.get("bonds", 0))
+            bonds_available = max(0, int(targets.get("bonds", 0)) - bonds_floor)
+            eq_shift_capped = min(eq_shift, bonds_available)
+            if eq_shift_capped > 0:
+                targets["equities"] += eq_shift_capped
+                targets["bonds"] -= eq_shift_capped
+                reasoning.append(
+                    f"Renditeziel '{goal.label}' ({target_bps/100:.2f}% p.a.) "
+                    f"hebt den Aktienanteil um {eq_shift_capped} bps an (innerhalb der "
+                    f"Bandbreiten, Strategietreue gewahrt)."
+                )
+        else:
+            # Defensiver Tilt: Equity runter, Bonds hoch
+            shift_abs = abs(eq_shift)
+            bonds_ceiling = int(maximums.get("bonds", 10000))
+            bonds_room = max(0, bonds_ceiling - int(targets.get("bonds", 0)))
+            shift_capped = min(shift_abs, bonds_room)
+            if shift_capped > 0:
+                targets["equities"] -= shift_capped
+                targets["bonds"] += shift_capped
+                reasoning.append(
+                    f"Renditeziel '{goal.label}' ({target_bps/100:.2f}% p.a.) "
+                    f"senkt den Aktienanteil um {shift_capped} bps zugunsten Bonds "
+                    f"(innerhalb der Bandbreiten)."
+                )
 
     if advisory_wealth_rappen <= 0 or reserve_needed_rappen <= 0:
         return reserve_needed_rappen, 0
