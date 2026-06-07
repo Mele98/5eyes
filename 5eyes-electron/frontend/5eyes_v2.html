@@ -1940,11 +1940,11 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
           </div>
         </div>
 
-        <!-- ② PORTFOLIO-CHECK — IST vs. SOLL, Cashflow, Ziel — Kern jedes Reviews -->
-        <div class="card" style="margin-bottom:10px">
-          <div class="chd"><span class="cht">Portfolio-Check</span><span style="font-size:9px;color:var(--n4);margin-left:8px">IST vs. SOLL · Allokation · Zielerreichung</span></div>
-          <div class="cbody" id="rv-strategy-compare"><div style="font-size:10px;color:var(--n4)">Strategie laden, um den Vergleich anzuzeigen.</div></div>
-        </div>
+        <!-- Bug-#9 (2026-06-07): Portfolio-Check IST-vs-SOLL-Card im Review
+             entfernt. Rebalancing/Drift gehoert in den Depot-Check
+             (Anlagephilosophie: Strategietreue, ADR-003). Zielerreichung
+             bleibt im Cockpit oben (rv-goal-achievability-list). Beratungs-
+             protokoll + Entscheid-Log + Dokumente bleiben unveraendert. -->
 
         <!-- ④ ENTSCHEID — Advisory-Log + Protokollierung -->
         <div class="card" style="margin-bottom:14px">
@@ -21227,89 +21227,14 @@ function renderDriftTable(data){
   el.innerHTML='<div style="border:1px solid var(--b1);border-radius:var(--r2);overflow:hidden">'+headerHtml+rows+'</div>';
 }
 
-function renderReviewStrategyComparison(state){
+function renderReviewStrategyComparison(_state){
+  // Bug-#9 (2026-06-07): No-op. Portfolio-Check-Card im Review-Tab
+  // entfaellt (Rebalancing-/IST-vs-SOLL-Logik raus). Zielerreichung
+  // wird vom Cockpit (rv-goal-achievability-list) gerendert; Beratungs-
+  // protokoll bleibt im Dokumente-Hub.
   var root=document.getElementById('rv-strategy-compare');
-  if(!root)return;
-  var allocation=(state&&state.allocation)||strategyState.allocation||null;
-  var recommendation=(state&&state.recommendation)||strategyState.recommendation||null;
-  var rows=reviewStrategyComparisonRows(allocation);
-  if(!rows.length){
-    root.innerHTML='<div style="font-size:10px;color:var(--n4);line-height:1.6">Vergleich erscheint, sobald eine gespeicherte Strategie vorliegt.</div>';
-    return;
-  }
-  var mc=allocation?monteCarloPayload(allocation):null;
-  var annualNet=allocationRecurringNetCashflowRappen(allocation);
-  var targetRunwayInfo=projectionRunwayInfo(mc&&mc.target_p50_series_rappen,mc&&mc.year_labels);
-  var currentRunwayInfo=projectionRunwayInfo(mc&&mc.current_p50_series_rappen,mc&&mc.year_labels);
-  var targetRunway=targetRunwayInfo.label;
-  var currentRunway=currentRunwayInfo.label;
-  var runwayDeltaYears=targetRunwayInfo.years!=null&&currentRunwayInfo.years!=null?targetRunwayInfo.years-currentRunwayInfo.years:null;
-  var cashflowInfo=currentCashflowCoverageInfo();
-  var goals=allocation&&Array.isArray(allocation.goal_analysis)?allocation.goal_analysis:[];
-  var primaryGoal=goals.slice().sort(function(a,b){return Number(a.rank||99)-Number(b.rank||99);})[0]||null;
-  var primaryGoalLabel=primaryGoal
-    ? ((primaryGoal.label||'Primaerziel')+(primaryGoal.path_success_rate_pct!=null?(' / Pfad '+String(primaryGoal.path_success_rate_pct)+'%'):''))
-    : 'Noch kein Ziel priorisiert';
-  var live=liveRebalancingPayload(allocation)||liveRebalancingPayload(recommendation);
-  var hasTradeList=!!(live&&Array.isArray(live.position_drifts)&&live.position_drifts.some(function(row){
-    return String(row&&row.rebalance_action||'').toUpperCase()!=='HOLD';
-  }));
-  var tableHtml='<div style="border:1px solid var(--b1);border-radius:var(--r2);overflow:hidden;background:var(--surface)">'
-    +'<div style="display:grid;grid-template-columns:1.45fr 72px 72px 72px 1.15fr 92px 128px;gap:8px;align-items:center;padding:8px 10px;background:var(--bg);border-bottom:1px solid var(--b1);font-size:9px;color:var(--n4);text-transform:uppercase;letter-spacing:0.06em"><div>Anlageklasse</div><div style="text-align:right">Ist</div><div style="text-align:right">Soll</div><div style="text-align:right">Delta</div><div>Band</div><div style="text-align:right">Status</div><div style="text-align:right">Massnahme</div></div>'
-    +rows.map(function(item){
-      var meta=reviewBandStateMeta({
-        current_weight_bps:item.currentWeightBps,
-        target_weight_bps:item.targetWeightBps,
-        band_min_bps:item.bandMinBps,
-        band_max_bps:item.bandMaxBps
-      });
-      return '<div style="display:grid;grid-template-columns:1.45fr 72px 72px 72px 1.15fr 92px 128px;gap:8px;align-items:center;padding:10px;border-bottom:1px solid var(--b1)"><div><div style="font-size:11px;font-weight:600;color:var(--n8)">'+escapeHtml(item.assetClass)+'</div><div style="font-size:9px;color:var(--n4);margin-top:3px">Ist '+escapeHtml(formatRappen(item.currentRappen))+' / Soll '+escapeHtml(formatRappen(item.targetRappen))+'</div></div><div style="text-align:right;font-size:11px;color:var(--n8)">'+escapeHtml(formatBpsPercent(item.currentWeightBps))+'</div><div style="text-align:right;font-size:11px;color:var(--n8)">'+escapeHtml(formatBpsPercent(item.targetWeightBps))+'</div><div style="text-align:right;font-size:11px;font-weight:600;color:'+meta.tone+'">'+escapeHtml(formatSignedBpsPercent(item.deltaWeightBps))+'</div><div>'+reviewBandVisualHtml(item,meta)+'</div><div style="text-align:right"><span class="tag '+meta.tagClass+'">'+escapeHtml(meta.label)+'</span></div><div style="text-align:right;font-size:10px;color:var(--n6)">'+escapeHtml(meta.action)+'</div></div>';
-    }).join('')
-    +'</div>';
-  var hotspots=reviewImplementationHotspots(recommendation);
-  var hotspotHtml='';
-  if(hotspots.length){
-    hotspotHtml='<div style="margin-top:12px"><div style="font-size:10px;font-weight:600;color:var(--n7);letter-spacing:0.05em;text-transform:uppercase;margin-bottom:6px">Umsetzungsschwerpunkte</div><div style="display:flex;flex-direction:column;gap:6px">'
-      +hotspots.map(function(item){
-        var tone=Math.abs(Number(item.deltaWeightBps||0))>=100?(Number(item.deltaWeightBps||0)>0?'var(--neg)':'var(--warn)'):'var(--pos)';
-        return '<div style="display:grid;grid-template-columns:1.3fr 70px 70px 80px;gap:8px;align-items:center;padding:8px 9px;background:var(--bg);border:1px solid var(--b1);border-radius:var(--r)"><div><div style="font-size:11px;font-weight:500;color:var(--n8)">'+escapeHtml(item.label||'Baustein')+'</div><div style="font-size:9px;color:var(--n5);margin-top:3px">'+escapeHtml(item.assetClass||'Umsetzung')+'</div></div><div style="text-align:right;font-size:10px;color:var(--n7)">'+escapeHtml(formatBpsPercent(item.currentWeightBps))+'</div><div style="text-align:right;font-size:10px;color:var(--n7)">'+escapeHtml(formatBpsPercent(item.targetWeightBps))+'</div><div style="text-align:right;font-size:10px;font-weight:600;color:'+tone+'">'+escapeHtml(formatSignedBpsPercent(item.deltaWeightBps))+'</div></div>';
-      }).join('')
-      +'</div></div>';
-  }
-  // Grafik 2: Zielerreichung pro Ziel (Fortschrittsbalken)
-  var goalsVisualHtml='';
-  var sortedGoals=goals.slice().sort(function(a,b){return Number(a.rank||99)-Number(b.rank||99);}).slice(0,4);
-  if(sortedGoals.length){
-    goalsVisualHtml='<div style="background:var(--bg);border:1px solid var(--b1);border-radius:var(--r2);padding:12px 14px;margin-bottom:14px">'
-      +'<div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--n4);margin-bottom:12px">Zielerreichung</div>'
-      +'<div style="display:flex;flex-direction:column;gap:10px">'
-      +sortedGoals.map(function(goal){
-        var score=Math.max(0,Math.min(100,Math.round(Number(goal.achievement_score||0))));
-        var tone=score>=70?'var(--pos)':(score>=45?'var(--warn)':'var(--neg)');
-        var label=score>=70?'Im Plan':(score>=45?'Im Blick':'Gefährdet');
-        var targetText=goal.target_amount_rappen?formatRappen(goal.target_amount_rappen):'';
-        return '<div>'
-          +'<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px">'
-          +'<span style="font-size:11px;font-weight:600;color:var(--n8)">'+escapeHtml(goal.label||'Ziel')+'</span>'
-          +'<div style="display:flex;align-items:center;gap:8px">'
-          +(targetText?'<span style="font-size:10px;color:var(--n5)">'+escapeHtml(targetText)+'</span>':'')
-          +'<span style="font-size:12px;font-weight:700;color:'+tone+'">'+score+'%</span>'
-          +'<span style="font-size:9px;color:'+tone+';background:'+(score>=70?'rgba(14,107,65,0.1)':(score>=45?'rgba(122,82,0,0.1)':'rgba(139,30,30,0.1)'))+';border-radius:999px;padding:2px 7px">'+escapeHtml(label)+'</span>'
-          +'</div></div>'
-          +'<div style="position:relative;height:6px;background:var(--bg2);border-radius:999px">'
-          +'<div style="position:absolute;left:0;top:0;height:100%;width:'+score+'%;background:'+tone+';border-radius:999px;transition:width 0.4s ease"></div>'
-          +'</div>'
-          +'</div>';
-      }).join('')
-      +'</div></div>';
-  }
-  // 2-spaltige Grafik-Zeile: Allokation links, Zielerreichung rechts
-  var graphicsHtml='<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">'
-    +reviewAllocationPortraitHtml(rows).replace('margin-bottom:14px','margin-bottom:0')
-    +(goalsVisualHtml?goalsVisualHtml.replace('margin-bottom:14px','margin-bottom:0'):'<div></div>')
-    +'</div>';
-  var actionsHtml=hasTradeList?'<div style="display:flex;justify-content:flex-end;margin-top:10px"><button class="btn btn-sm" onclick="openTradeList()">Handelsliste öffnen</button></div>':'';
-  root.innerHTML=graphicsHtml+tableHtml+hotspotHtml+actionsHtml;
+  if(root){root.innerHTML='';}
+  return;
 }
 var _renderStrategySummaryGoalTiming=renderStrategySummary;
 renderStrategySummary=function(){
