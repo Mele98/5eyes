@@ -280,6 +280,40 @@ def _get_mandate_or_404(mandate_id: str, db: Session, current_user: User) -> Man
     return get_mandate_for_user_or_404(mandate_id, db, current_user)
 
 
+def _invalidate_achievement_scores_for_mandate(
+    mandate_id: str,
+    db: Session,
+) -> int:
+    """Sprint 2026-06-08 Fix B: Achievability-Scores nach Goal-Edit auf NULL.
+
+    Wenn ein Goal hinzugefuegt/geaendert/geloescht wird, sind die persistierten
+    `achievement_score`-Werte aller Goals dieses Mandats potenziell veraltet:
+    - Ein neues Goal aendert die Konkurrenz um Reserve-/Wachstums-Kapazitaet
+    - Geaendertes Goal-Target aendert die Shortfall-Berechnung
+    - Sogar geloeschte Goals beeinflussen die Achievability anderer Goals
+
+    Methodisch sauber: NULL setzen statt veralteten Score zeigen. UI rendert
+    dann "—" mit dem bestehenden "Strategie neu berechnen"-Banner statt
+    falscher Prozent-Werte (Trust-Foundation).
+
+    Wir aendern KEINE Allocation (Strategietreue: SAA = Risikoprofil-bound,
+    ADR-003 anti-market-timing). Nur die persistierten Achievability-Anzeigen
+    werden invalidiert.
+
+    Returns: Anzahl der Goals deren Score auf NULL gesetzt wurde.
+    """
+    updated = db.query(Goal).filter(
+        Goal.mandate_id == mandate_id,
+        Goal.is_active == 1,
+        Goal.deleted_at.is_(None),
+        Goal.achievement_score.isnot(None),
+    ).update(
+        {Goal.achievement_score: None},
+        synchronize_session=False,
+    )
+    return int(updated or 0)
+
+
 def _resolve_goal_rank_conflict(
     mandate_id: str,
     requested_rank: int,
@@ -672,6 +706,9 @@ def create_goal(
         **{k: v for k, v in data.items() if k not in ("is_ongoing",)}
     )
     db.add(goal)
+    # Sprint 2026-06-08 Fix B: Achievability-Scores anderer Goals invalidieren —
+    # neues Goal aendert die Reserve-/Wachstums-Konkurrenz.
+    _invalidate_achievement_scores_for_mandate(mandate_id, db)
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="goals", record_id=goal.id, action="CREATE",
         mandate_id=mandate_id, client_id=mandate.client_id)
@@ -706,6 +743,9 @@ def update_goal(
         if isinstance(value, bool):
             value = 1 if value else 0
         setattr(goal, field, value)
+    # Sprint 2026-06-08 Fix B: Achievability invalidieren — Goal-Target-Aenderung
+    # macht alle gespeicherten Scores potenziell stale.
+    _invalidate_achievement_scores_for_mandate(mandate_id, db)
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="goals", record_id=goal_id, action="UPDATE",
         mandate_id=mandate_id, client_id=mandate.client_id)
@@ -730,6 +770,9 @@ def delete_goal(
         raise HTTPException(status_code=404, detail="Ziel nicht gefunden")
     goal.deleted_at = _now()
     goal.is_active = 0
+    # Sprint 2026-06-08 Fix B: Achievability invalidieren — geloeschtes Goal
+    # aendert Reserve-/Wachstums-Konkurrenz der verbleibenden Goals.
+    _invalidate_achievement_scores_for_mandate(mandate_id, db)
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="goals", record_id=goal_id, action="DELETE",
         mandate_id=mandate_id, client_id=mandate.client_id)
