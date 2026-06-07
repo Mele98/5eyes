@@ -1903,42 +1903,13 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
           <div><button class="btn btn-sm" onclick="go('al')">Zur Asset Allokation</button></div>
         </div>
 
-        <!-- ① STRATEGIE-SPIEGEL — Theoretische Entwicklung seit Festlegung -->
-        <div class="card" id="rv-spiegel-card" style="margin-bottom:10px;display:none">
-          <div class="chd">
-            <span class="cht">Strategie-Spiegel</span>
-            <span style="font-size:9px;color:var(--n4);margin-left:8px">Theoretische Entwicklung seit Festlegung</span>
-            <div class="chr">
-              <span id="rv-spiegel-date" style="font-size:10px;color:var(--n5)"></span>
-            </div>
-          </div>
-          <div class="cbody" style="padding-bottom:10px">
-            <div style="height:180px;margin-bottom:16px">
-              <canvas id="ch-rv-spiegel"></canvas>
-            </div>
-            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:16px">
-              <div style="background:var(--bg);border:1px solid var(--b1);border-radius:var(--r);padding:10px 12px">
-                <div style="font-size:9px;font-weight:500;text-transform:uppercase;letter-spacing:0.08em;color:var(--n4);margin-bottom:5px">Ihre Strategie</div>
-                <div id="rv-kpi-strategy" style="font-family:var(--f-d);font-size:20px;color:var(--n8)">—</div>
-                <div id="rv-kpi-strategy-sub" style="font-size:9px;color:var(--n4);margin-top:2px">seit Festlegung</div>
-              </div>
-              <div style="background:var(--bg);border:1px solid var(--b1);border-radius:var(--r);padding:10px 12px">
-                <div style="font-size:9px;font-weight:500;text-transform:uppercase;letter-spacing:0.08em;color:var(--n4);margin-bottom:5px">vs. SPI-Proxy</div>
-                <div id="rv-kpi-delta" style="font-family:var(--f-d);font-size:20px;color:var(--n8)">—</div>
-                <div style="font-size:9px;color:var(--n4);margin-top:2px">Über-/Unterrendite</div>
-              </div>
-              <div style="background:var(--bg);border:1px solid var(--b1);border-radius:var(--r);padding:10px 12px">
-                <div style="font-size:9px;font-weight:500;text-transform:uppercase;letter-spacing:0.08em;color:var(--n4);margin-bottom:5px">Risikoprofil</div>
-                <div id="rv-kpi-profile" style="font-size:14px;font-weight:700;color:var(--n8);margin-top:3px">—</div>
-                <div id="rv-kpi-snap-date" style="font-size:9px;color:var(--n4);margin-top:2px"></div>
-              </div>
-            </div>
-            <div id="rv-drift-table"></div>
-            <div id="rv-spiegel-no-data" style="display:none;font-size:10px;color:var(--n5);background:var(--bg);border:1px solid var(--b1);border-radius:var(--r);padding:10px 12px;margin-top:10px;line-height:1.6">
-              Noch keine Jahresrenditen für den Zeitraum seit Strategiefestlegung erfasst. Jahresrenditen können im Admin-Bereich → «Marktdaten» gepflegt werden.
-            </div>
-          </div>
-        </div>
+        <!-- Bug-#11 (2026-06-07): 'Strategie-Spiegel'-Card entfernt.
+             Zeigte eine theoretische SPI-Proxy-Vergleichsrendite seit
+             Strategiefestlegung. Im Beratungsprozess unklar (Vergleich
+             gegen welchen Index, welche Periode), und widerspricht der
+             Anlagephilosophie 'Strategietreue, kein Markt-Vergleich'.
+             Backend-Endpoint /strategy-snapshots/latest/drift bleibt
+             unveraendert; nur die UI-Surface entfaellt. -->
 
         <!-- Bug-#9 (2026-06-07): Portfolio-Check IST-vs-SOLL-Card im Review
              entfernt. Rebalancing/Drift gehoert in den Depot-Check
@@ -21045,188 +21016,11 @@ function reviewAllocationPortraitHtml(rows){
 var _rvSpiegelChart=null;
 var _rvSpiegelLoadToken=0;
 
-async function loadReviewSpiegel(mandateId){
-  var card=document.getElementById('rv-spiegel-card');
-  var noDataEl=document.getElementById('rv-spiegel-no-data');
-  var tableEl=document.getElementById('rv-drift-table');
-  if(!card)return;
-  if(!mandateId||isDemoMandateId(mandateId)){
-    card.style.display='none';
-    if(_rvSpiegelChart){
-      try{_rvSpiegelChart.destroy();}catch(e){}
-      _rvSpiegelChart=null;
-    }
-    if(tableEl)tableEl.innerHTML='';
-    return;
-  }
-  var token=++_rvSpiegelLoadToken;
-  var data;
-  try{
-    data=await API.get('/mandates/'+mandateId+'/strategy-snapshots/latest/drift');
-  }catch(e){
-    if(token!==_rvSpiegelLoadToken)return;
-    card.style.display='none';
-    if(_rvSpiegelChart){
-      try{_rvSpiegelChart.destroy();}catch(err){}
-      _rvSpiegelChart=null;
-    }
-    if(tableEl)tableEl.innerHTML='';
-    return;
-  }
-  if(token!==_rvSpiegelLoadToken||String(getActiveMandateId()||'')!==String(mandateId||''))return;
-  if(!data){
-    card.style.display='none';
-    return;
-  }
-  card.style.display='';
-  setText('rv-spiegel-date',data.snapshot_date?'Festgelegt am '+data.snapshot_date:'');
-  setText('rv-kpi-snap-date',data.snapshot_date||'');
-  var stratSeries=Array.isArray(data.chart_strategy)?data.chart_strategy:[];
-  var spiSeries=Array.isArray(data.chart_spi_proxy)?data.chart_spi_proxy:[];
-  var stratLast=stratSeries.length?Number(stratSeries[stratSeries.length-1]||100):100;
-  var spiLast=spiSeries.length?Number(spiSeries[spiSeries.length-1]||100):100;
-  var stratRetPct=((stratLast/100)-1)*100;
-  var spiRetPct=((spiLast/100)-1)*100;
-  var deltaVsSpi=stratRetPct-spiRetPct;
-  var fmtDelta=function(v){return (v>=0?'+':'')+v.toFixed(1)+'%';};
-  setText('rv-kpi-strategy',fmtDelta(stratRetPct));
-  setText('rv-kpi-profile',data.risk_profile_label||'—');
-  var stratEl=document.getElementById('rv-kpi-strategy');
-  if(stratEl)stratEl.style.color=stratRetPct>=0?'var(--pos)':'var(--neg)';
-  var deltaEl=document.getElementById('rv-kpi-delta');
-  if(deltaEl){
-    deltaEl.textContent=fmtDelta(deltaVsSpi);
-    deltaEl.style.color=deltaVsSpi>=0?'var(--pos)':'var(--neg)';
-  }
-  if(noDataEl)noDataEl.style.display=data.has_drift_data?'none':'';
-  renderDriftTable(data);
-  renderSpiegelChart(data);
+async function loadReviewSpiegel(_mandateId){
+  // Bug-#11 (2026-06-07): No-op. Strategie-Spiegel-Card aus dem Review-Tab
+  // entfernt; Loader macht nichts mehr. Backend-Drift-Endpoint bleibt fuer
+  // Aggregator/PDFs verfuegbar (siehe ADR-009 / Aggregator-Statement-PM).
 }
-
-function renderSpiegelChart(data){
-  var canvas=document.getElementById('ch-rv-spiegel');
-  if(!canvas||typeof Chart==='undefined')return;
-  if(_rvSpiegelChart){
-    try{_rvSpiegelChart.destroy();}catch(e){}
-    _rvSpiegelChart=null;
-  }
-  var years=(data&&Array.isArray(data.chart_years)?data.chart_years:[]).map(String);
-  function makeDataset(label,values,color,dash,radius,width){
-    return {
-      label:label,
-      data:Array.isArray(values)?values:[],
-      borderColor:color,
-      backgroundColor:'transparent',
-      borderWidth:width||1.5,
-      borderDash:dash||[],
-      pointRadius:radius!=null?radius:0,
-      pointHoverRadius:4,
-      fill:false,
-      tension:0.3
-    };
-  }
-  _rvSpiegelChart=new Chart(canvas,{
-    type:'line',
-    data:{
-      labels:years,
-      datasets:[
-        makeDataset('Ihre Strategie',data.chart_strategy,'rgb(14,107,65)',[],3,2.5),
-        makeDataset('SPI-Proxy (aggressiv)',data.chart_spi_proxy,'rgba(100,116,139,0.7)',[5,5],0,1.5),
-        makeDataset('Konservativ-Proxy',data.chart_conservative,'rgba(100,116,139,0.4)',[3,6],0,1)
-      ]
-    },
-    options:{
-      responsive:true,
-      maintainAspectRatio:false,
-      interaction:{mode:'index',intersect:false},
-      plugins:{
-        legend:{
-          display:true,
-          labels:{
-            font:{size:9},
-            boxWidth:10,
-            padding:8,
-            color:'#475569'
-          }
-        },
-        tooltip:{
-          callbacks:{
-            label:function(ctx){
-              var v=Number(ctx.raw||100);
-              var pct=((v/100)-1)*100;
-              return ctx.dataset.label+': '+(pct>=0?'+':'')+pct.toFixed(1)+'%';
-            }
-          }
-        }
-      },
-      scales:{
-        x:{
-          ticks:{font:{size:9},color:'#64748b'},
-          grid:{display:false}
-        },
-        y:{
-          ticks:{
-            font:{size:9},
-            color:'#64748b',
-            callback:function(v){
-              return ((Number(v)-100)>=0?'+':'')+((Number(v)-100).toFixed(0))+'%';
-            }
-          },
-          grid:{color:'rgba(0,0,0,0.04)'}
-        }
-      }
-    }
-  });
-}
-
-function renderDriftTable(data){
-  var el=document.getElementById('rv-drift-table');
-  if(!el)return;
-  var LABELS={
-    'Aktien':'Aktien',
-    'Obligationen':'Obligationen',
-    'Immobilien':'Immobilien',
-    'Liquiditaet':'Liquidität',
-    'Alternative':'Alternative'
-  };
-  var STATUS={
-    'green':{tagCls:'tg',label:'Im Band',color:'var(--pos)',action:'Keine Massnahme'},
-    'yellow':{tagCls:'ta',label:'Beobachten',color:'var(--warn)',action:'Beim nächsten Gespräch prüfen'},
-    'red':{tagCls:'tr2',label:'Rebalancen',color:'var(--neg)',action:'Anpassung empfohlen'}
-  };
-  var keys=['Aktien','Obligationen','Immobilien','Liquiditaet','Alternative'];
-  var thStyle='padding:7px 10px;font-size:9px;font-weight:600;letter-spacing:0.07em;text-transform:uppercase;color:var(--n4);border-bottom:1px solid var(--b1)';
-  var headerHtml='<div style="display:grid;grid-template-columns:1.3fr 68px 80px 72px 1fr 100px 120px;gap:6px;padding:0;background:var(--bg)">'
-    +'<div style="'+thStyle+'">Anlageklasse</div>'
-    +'<div style="'+thStyle+';text-align:right">SOLL</div>'
-    +'<div style="'+thStyle+';text-align:right">Drift heute</div>'
-    +'<div style="'+thStyle+';text-align:right">Delta</div>'
-    +'<div style="'+thStyle+'">Band</div>'
-    +'<div style="'+thStyle+';text-align:right">Status</div>'
-    +'<div style="'+thStyle+';text-align:right">Massnahme</div>'
-    +'</div>';
-  var rows=keys.map(function(ac){
-    var orig=Number((data.original&&data.original[ac])||0);
-    var drift=Number((data.drifted&&data.drifted[ac])||0);
-    var delta=drift-orig;
-    var status=data.status&&data.status[ac]?data.status[ac]:'green';
-    var cfg=STATUS[status]||STATUS.green;
-    var bands=data.bands&&data.bands[ac]?data.bands[ac]:{lo:null,hi:null};
-    var bandText=(bands.lo!=null&&bands.hi!=null)?formatBpsPercent(bands.lo)+'–'+formatBpsPercent(bands.hi):'—';
-    var deltaText=(delta>=0?'+':'−')+formatBpsPercent(Math.abs(delta));
-    return '<div style="display:grid;grid-template-columns:1.3fr 68px 80px 72px 1fr 100px 120px;gap:6px;align-items:center;padding:9px 10px;border-bottom:1px solid var(--b1)">'
-      +'<div style="font-size:11px;font-weight:600;color:var(--n8)">'+escapeHtml(LABELS[ac]||ac)+'</div>'
-      +'<div style="text-align:right;font-size:11px;color:var(--n6)">'+escapeHtml(formatBpsPercent(orig))+'</div>'
-      +'<div style="text-align:right;font-size:11px;font-weight:600;color:var(--n8)">'+escapeHtml(formatBpsPercent(drift))+'</div>'
-      +'<div style="text-align:right;font-size:11px;font-weight:600;color:'+cfg.color+'">'+escapeHtml(deltaText)+'</div>'
-      +'<div style="font-size:10px;color:var(--n5)">'+escapeHtml(bandText)+'</div>'
-      +'<div style="text-align:right"><span class="tag '+escapeHtml(cfg.tagCls)+'">'+escapeHtml(cfg.label)+'</span></div>'
-      +'<div style="text-align:right;font-size:10px;color:var(--n5)">'+escapeHtml(cfg.action)+'</div>'
-      +'</div>';
-  }).join('');
-  el.innerHTML='<div style="border:1px solid var(--b1);border-radius:var(--r2);overflow:hidden">'+headerHtml+rows+'</div>';
-}
-
 function renderReviewStrategyComparison(_state){
   // Bug-#9 (2026-06-07): No-op. Portfolio-Check-Card im Review-Tab
   // entfaellt (Rebalancing-/IST-vs-SOLL-Logik raus). Zielerreichung
