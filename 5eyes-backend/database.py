@@ -708,9 +708,63 @@ def ensure_purge_history_table(target_engine: Engine = engine) -> None:
         ))
 
 
+def ensure_default_tenant() -> None:
+    """Sprint T1 (2026-06-08): legt den Default-Tenant 'main' an wenn nicht da.
+
+    Tier 1 (Self-Hosted) und Tier 3 (Dedicated) nutzen genau diesen einen
+    Eintrag. Tier 2 (Shared-Cloud) ueberschreibt das via T4-Admin-API.
+
+    Idempotent: zweiter Aufruf macht nichts.
+
+    Defensive: Bei Fehler (z.B. Schema noch nicht vollstaendig migriert)
+    wird das Anlegen geloggt, der Boot aber nicht abgebrochen.
+    """
+    try:
+        from datetime import datetime, timezone
+        from models.tenant import (
+            DEFAULT_TENANT_ID,
+            LICENSE_STATUS_ACTIVE,
+            TIER_1_SELF_HOSTED,
+            Tenant,
+        )
+
+        with SessionLocal() as db:
+            existing = db.query(Tenant).filter(
+                Tenant.id == DEFAULT_TENANT_ID
+            ).first()
+            if existing is not None:
+                return
+            now = datetime.now(timezone.utc).strftime(
+                "%Y-%m-%dT%H:%M:%S.%f"
+            )[:-3] + "Z"
+            tenant = Tenant(
+                id=DEFAULT_TENANT_ID,
+                display_name="Default Tenant",
+                slug="main",
+                hosting_tier=getattr(settings, "deployment_tier", TIER_1_SELF_HOSTED),
+                license_status=LICENSE_STATUS_ACTIVE,
+                license_valid_until=None,
+                max_users=1,
+                max_mandates=None,
+                storage_quota_mb=None,
+                is_active=1,
+                created_at=now,
+                updated_at=now,
+            )
+            db.add(tenant)
+            db.commit()
+    except Exception:
+        # Boot-Robustheit: Default-Tenant-Setup darf den Backend-Start
+        # nicht stoppen. Logging kann der Caller verarbeiten.
+        pass
+
+
 def init_db() -> None:
     if settings.db_bootstrap_schema_on_startup:
         bootstrap_sqlite_schema(db_path=settings.db_path, db_key=getattr(settings, 'db_key', None))
+
+    # Import von Tenant-Model VOR create_all, damit das Table angelegt wird.
+    import models.tenant  # noqa: F401
 
     Base.metadata.create_all(bind=engine)
     ensure_runtime_columns()
@@ -724,3 +778,7 @@ def init_db() -> None:
     # U-38: Indexes nach ensure_audit_log_actions, weil das die Tabelle
     # ggf. komplett neu baut (Index-Drift-Risk).
     ensure_audit_log_indexes()
+    # Sprint T1 (2026-06-08): Default-Tenant 'main' anlegen wenn nicht da.
+    # Backwards-Compat: tenant_id-Columns sind NULLABLE, aber die Existenz
+    # der 'main'-Row erlaubt T2-Sprint die Auth-Layer-Migration.
+    ensure_default_tenant()

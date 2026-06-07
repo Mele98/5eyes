@@ -21,6 +21,7 @@ import models.profiling  # noqa
 import models.review  # noqa
 import models.users  # noqa
 import models.snapshots  # noqa
+import models.tenant  # noqa  Sprint T1 (2026-06-08) — 3-Tier-Foundation
 import models.wealth  # noqa
 from routers.allocation import router as allocation_router
 from routers.auth import router as auth_router, users_router

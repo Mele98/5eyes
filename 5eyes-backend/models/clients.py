@@ -7,6 +7,9 @@ class Client(Base):
     __tablename__ = "clients"
 
     id = Column(String, primary_key=True)
+    # Sprint T1 (2026-06-08): tenant_id fuer 3-Tier-Architektur. Nullable
+    # in Stage 9 fuer Backwards-Compat (Default-Tenant 'main' via Migration).
+    tenant_id = Column(String, ForeignKey("tenants.id"))
     client_number = Column(String, nullable=False, unique=True)
     salutation = Column(String)
     first_name = Column(String, nullable=False)

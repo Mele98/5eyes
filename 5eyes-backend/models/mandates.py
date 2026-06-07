@@ -7,6 +7,9 @@ class Mandate(Base):
     __tablename__ = "mandates"
 
     id = Column(String, primary_key=True)
+    # Sprint T1 (2026-06-08): tenant_id fuer 3-Tier-Architektur. Nullable
+    # in Stage 9 fuer Backwards-Compat (Default-Tenant 'main' via Migration).
+    tenant_id = Column(String, ForeignKey("tenants.id"))
     client_id = Column(String, ForeignKey("clients.id"), nullable=False)
     mandate_number = Column(String, nullable=False, unique=True)
     mandate_type = Column(String, nullable=False, default="Anlageberatung")

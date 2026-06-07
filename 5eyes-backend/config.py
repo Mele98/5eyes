@@ -190,6 +190,20 @@ class Settings(BaseSettings):
     # fuer Audit-Strict-Modus (langsam).
     mc_default_tax_mode: str = "median"
 
+    # ----- Sprint T1 (2026-06-08): 3-Tier-Hosting-Architektur -----
+    # Bestimmt Deployment-Charakteristik des Backends.
+    # 'tier1' (Default): Self-Hosted, single-tenant ('main'), kein Tenant-UI
+    # 'tier2': Shared-Cloud, multi-tenant via RLS / JWT-claim
+    # 'tier3': Dedicated-VPS, single-tenant per Instance, voll-Multi-User
+    # Siehe docs/adr/ADR-009-3-tier-hosting-architecture.md
+    deployment_tier: str = "tier1"
+    # Tenancy-Modus — fuer Tier 1 + 3 = 'single', fuer Tier 2 = 'multi'.
+    # Wird typischerweise vom Tier abgeleitet, kann aber manuell ueberschrieben
+    # werden (z.B. Tier 1 Multi-User-Test-Setup).
+    tenancy_mode: str = "single"
+    # Tenant-Admin-UI fuer Super-Admin. Tier 2 = True, sonst False.
+    tenant_admin_ui_enabled: bool = False
+
     # Sprint U-P8 Fix M1 (2026-05-20): Block-Diagonal Sub-Asset-Class
     # Korrelation innerhalb eines Buckets. Default 1.0 = perfekt korreliert
     # (Backwards-Compat zur Bucket-Skalar-Vola). Werte < 1.0 aktivieren
