@@ -1320,12 +1320,48 @@ def _build_protokoll_data(mandate: Mandate, db: Session) -> ProtokollData:
     except Exception as exc:  # noqa: BLE001
         logger.warning("Protokoll data: conflict messages load failed: %s", exc)
 
+    # Bug-#13b (2026-06-08): Bausteine-Selektion fuer dieses Mandat laden
+    # (PR #244 Backend + PR #245 Frontend-Modal). Stille Tolerierung wenn die
+    # Tabelle leer/nicht da ist (kein Crash im PDF-Pfad).
+    selected_bausteine: list = []
+    try:
+        from models.protocol_bausteine import (
+            MandateBausteinSelection,
+            ProtocolBaustein,
+        )
+
+        baustein_rows = (
+            db.query(MandateBausteinSelection, ProtocolBaustein)
+            .join(
+                ProtocolBaustein,
+                ProtocolBaustein.id == MandateBausteinSelection.baustein_id,
+            )
+            .filter(MandateBausteinSelection.mandate_id == mandate.id)
+            .order_by(MandateBausteinSelection.sort_order, ProtocolBaustein.title)
+            .all()
+        )
+        for sel, baustein in baustein_rows:
+            selected_bausteine.append({
+                "title": str(getattr(baustein, "title", "") or ""),
+                "content_md": str(
+                    getattr(sel, "custom_override_md", None)
+                    or getattr(baustein, "content_md", "")
+                    or ""
+                ),
+                "category": getattr(baustein, "category", None),
+                "sort_order": int(getattr(sel, "sort_order", 0) or 0),
+                "custom_override_md": getattr(sel, "custom_override_md", None),
+            })
+    except Exception as exc:  # noqa: BLE001 — PDF darf nicht crashen
+        logger.warning("Protokoll data: bausteine load failed: %s", exc)
+
     return ProtokollData(
         mandate_number=str(getattr(mandate, "mandate_number", "") or ""),
         advisory_wealth_rappen=advisory_wealth,
         entries=entries,
         latest_recommendation_summary=latest_recommendation_summary,
         conflict_messages=conflict_messages,
+        selected_bausteine=selected_bausteine,
     )
 
 
@@ -1653,11 +1689,17 @@ def _build_backtest_data(
     end_year: int | None,
     benchmark_weights_bps: dict | None,
     resolution: str = "annual",
+    strategy_fee_bps: int | None = None,
+    benchmark_fee_bps: int | None = None,
 ) -> BacktestData:
     """Wendet run_strategy_backtest an und mappt das Resultat auf BacktestData.
 
     Bewusste Reduktion: PDF zeigt nur den Rebalanced-Pfad. Der Buy-and-Hold-
     Pfad bleibt nur im interaktiven Modal sichtbar.
+
+    Bug-#8b (2026-06-08): Bei fee>0 werden zusaetzlich die Brutto-Pfade
+    (soll.gross / benchmark.gross) auf BacktestData gemappt, damit das PDF
+    einen ehrlichen Brutto-vs-Netto-Vergleich rendern kann.
     """
     from services.backtest_strategy import run_strategy_backtest
 
@@ -1667,11 +1709,17 @@ def _build_backtest_data(
         end_year=end_year,
         benchmark_weights_bps=benchmark_weights_bps,
         resolution=resolution,
+        strategy_fee_bps=strategy_fee_bps,
+        benchmark_fee_bps=benchmark_fee_bps,
     )
     soll = result.get("soll") or {}
     rebal = (soll.get("rebalanced") if isinstance(soll, dict) else None) or {}
+    soll_gross_view = (soll.get("gross") or {}) if isinstance(soll, dict) else {}
+    soll_gross = soll_gross_view.get("rebalanced") if isinstance(soll_gross_view, dict) else None
     bm = result.get("benchmark") or None
     bm_rebal = (bm.get("rebalanced") if isinstance(bm, dict) else None) or {}
+    bm_gross_view = (bm.get("gross") or {}) if isinstance(bm, dict) else {}
+    bm_gross = bm_gross_view.get("rebalanced") if isinstance(bm_gross_view, dict) else None
     bm_weights = bm.get("weights_bps") if isinstance(bm, dict) else None
     return BacktestData(
         mandate_number=str(getattr(mandate, "mandate_number", "") or "") or None,
@@ -1688,6 +1736,13 @@ def _build_backtest_data(
         benchmark_drawdown_path_bps=tuple(bm_rebal.get("drawdown_path_bps") or []),
         benchmark_metrics=bm_rebal.get("metrics") if bm_rebal else None,
         warnings=tuple(result.get("warnings") or []),
+        # Bug-#8b: Fee-Felder + Brutto-Pfade durchreichen
+        strategy_fee_bps=int(result.get("strategy_fee_bps") or 0),
+        benchmark_fee_bps=int(result.get("benchmark_fee_bps") or 0),
+        soll_gross_wealth_path_rappen=tuple((soll_gross or {}).get("wealth_path_rappen") or []),
+        soll_gross_metrics=(soll_gross or {}).get("metrics") if soll_gross else None,
+        benchmark_gross_wealth_path_rappen=tuple((bm_gross or {}).get("wealth_path_rappen") or []),
+        benchmark_gross_metrics=(bm_gross or {}).get("metrics") if bm_gross else None,
     )
 
 
@@ -1706,6 +1761,12 @@ def get_backtest_pdf(
     benchmark_alternatives_bps: int | None = None,
     benchmark_liquidity_bps: int | None = None,
     resolution: str = "annual",
+    # Bug-#8b (2026-06-08): Fee-Inputs (TER+Berater) in bps p.a.
+    # Bei strategy_fee_bps>0 oder benchmark_fee_bps>0 rendert das PDF einen
+    # 'Brutto vs. Netto'-Vergleichsblock fuer ehrlichen Strategie-vs-Index-
+    # Vergleich (Index ist ohne Fees nicht investierbar).
+    strategy_fee_bps: int | None = None,
+    benchmark_fee_bps: int | None = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -1714,6 +1775,9 @@ def get_backtest_pdf(
     Optional Benchmark-Mix (Summe wird auf 10000 bps normalisiert).
     Bewusst nur Rebalanced-Pfad im PDF (Buy-and-Hold via Modal verfügbar).
     resolution=daily nutzt die tägliche EOD-Serie (mit Annual-Fallback).
+
+    Bug-#8b: optionale strategy_fee_bps/benchmark_fee_bps zeigen einen
+    Brutto-vs-Netto-Vergleich im PDF.
     """
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
     ctx = _build_pdf_context(mandate, current_user, db)
@@ -1734,6 +1798,8 @@ def get_backtest_pdf(
         start_year=start_year, end_year=end_year,
         benchmark_weights_bps=benchmark,
         resolution=resolution,
+        strategy_fee_bps=strategy_fee_bps,
+        benchmark_fee_bps=benchmark_fee_bps,
     )
     pdf_bytes = ReportLabRenderer().render_backtest(ctx, data)
     safe_name = "".join(c if c.isalnum() else "_" for c in ctx.mandate_name)[:40]
