@@ -65,6 +65,12 @@ def render_compliance_audit_section(payload: dict, story: list, styles) -> None:
         _mandate_lock_block(payload.get("mandate_lock_status") or {}, styles),
         _liquidity_block(payload.get("liquidity_cascade") or {}, styles),
     ]
+    # Sprint C2 (2026-06-07): Engine-Configuration-Block sichtbar machen
+    # (IS-Status, Tax-Mode, Sub-Allocation-Aware). Nur appended wenn payload
+    # einen 'engine_configuration'-Key enthaelt (Backwards-Compat: optional).
+    engine_cfg = payload.get("engine_configuration")
+    if engine_cfg:
+        blocks.append(_engine_configuration_block(engine_cfg, styles))
     for index, block in enumerate(blocks):
         if index:
             story.append(Spacer(1, 4 * mm))
@@ -217,6 +223,51 @@ def _liquidity_block(data: dict, styles) -> list:
             styles,
         ))
     return [_panel(out, styles, accent=COLOR_STATUS_ROT if warning_required else COLOR_GOLD)]
+
+
+def _engine_configuration_block(data: dict, styles) -> list:
+    """Sprint C2 (2026-06-07): Engine-Configuration im Compliance-Audit-Block.
+
+    Macht den Risiko-Engine-Konfigurations-Status fuer Berater/Auditoren
+    sichtbar:
+    - Importance Sampling aktiv? (mit Trigger-Grund)
+    - Tax-Mode (median/binned/per_path)
+    - Sub-Allocation-Aware?
+    - Stochastic-Engine aktiv (vs House-Matrix-Fallback)?
+
+    Damit kann ein FINMA-Pruefer auf einen Blick sehen, mit welchen
+    Engine-Einstellungen das Mandat berechnet wurde.
+    """
+    is_active = bool(data.get("importance_sampling_active"))
+    is_reason = str(data.get("importance_sampling_reason") or "")
+    tax_mode = str(data.get("tax_mode") or "median")
+    sub_alloc_aware = bool(data.get("sub_allocation_aware"))
+    stochastic_mode = str(data.get("optimizer_mode") or "stochastic")
+
+    if is_active:
+        pill = _pill("IS aktiv", "#E5EEDF", "#4E6F58", styles)
+    else:
+        pill = _pill("IS inaktiv", "#F3F4F6", "#475569", styles)
+
+    out = [
+        _block_header("Risiko-Engine-Konfiguration", pill, styles),
+        _kv_table([
+            ("Optimizer-Modus", _safe(stochastic_mode)),
+            ("Importance Sampling", "aktiv" if is_active else "inaktiv"),
+            ("IS-Trigger", _safe(is_reason) if is_reason else "—"),
+            ("Tax-Modus", _safe(tax_mode)),
+            ("Sub-Allocation-Aware", "ja" if sub_alloc_aware else "nein"),
+        ], styles),
+    ]
+    if is_active:
+        out.append(Spacer(1, 2 * mm))
+        out.append(_muted_note(
+            "Achievability-Wahrscheinlichkeiten sind likelihood-ratio-gewichtet "
+            "(Mean-Shift Importance Sampling, Glasserman 2004 Sec 4.6). "
+            "Tail-Statistik (P5/P95) reduziert Varianz 5-50x gegenueber Standard-MC.",
+            styles,
+        ))
+    return [_panel(out, styles, accent=COLOR_STATUS_GRUEN if is_active else COLOR_GOLD)]
 
 
 def _collect_suitability_violations(data: dict) -> list[dict[str, str]]:
