@@ -1,0 +1,410 @@
+"""Sprint T4 (2026-06-08): Tenant-Admin-API Tests.
+
+Verifiziert:
+1. Super-Admin-Role kann Tenants erstellen/listen/updaten
+2. Regular-Admin und Advisor werden geblockt (403)
+3. Settings tenant_admin_ui_enabled = False blockt alle Endpoints (503)
+4. User-Tenant-Zuweisung funktioniert
+5. Slug-Konflikt → 409
+6. Pydantic-Validation: invalide tier / status → 422
+"""
+from __future__ import annotations
+
+import datetime
+import sys
+from pathlib import Path
+
+import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+BACKEND_ROOT = Path(__file__).resolve().parents[1]
+if str(BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(BACKEND_ROOT))
+
+from config import settings
+from database import Base, get_db
+from main import app
+from models.tenant import (
+    LICENSE_STATUS_TRIAL,
+    TIER_2_SHARED_CLOUD,
+    Tenant,
+)
+from models.users import User
+from services.auth import get_current_user
+
+
+def _utc_now() -> str:
+    return datetime.datetime.now(datetime.UTC).isoformat().replace("+00:00", "Z")
+
+
+@pytest.fixture
+def session_factory(tmp_path):
+    engine = create_engine(
+        f"sqlite:///{tmp_path / 'tenant_api.db'}",
+        connect_args={"check_same_thread": False},
+    )
+    sf = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base.metadata.create_all(bind=engine)
+    try:
+        yield sf
+    finally:
+        Base.metadata.drop_all(bind=engine)
+        engine.dispose()
+
+
+@pytest.fixture
+def super_admin():
+    return User(
+        id="super-admin", username="superadmin", password_hash="h",
+        full_name="Super Admin", role="super_admin", is_active=1,
+        created_at=_utc_now(), updated_at=_utc_now(),
+    )
+
+
+@pytest.fixture
+def regular_admin():
+    return User(
+        id="regular-admin", username="admin", password_hash="h",
+        full_name="Regular Admin", role="admin", is_active=1,
+        created_at=_utc_now(), updated_at=_utc_now(),
+    )
+
+
+@pytest.fixture
+def advisor_user():
+    return User(
+        id="advisor", username="advisor", password_hash="h",
+        full_name="Advisor", role="advisor", is_active=1,
+        created_at=_utc_now(), updated_at=_utc_now(),
+    )
+
+
+def _make_client_as(user, session_factory, monkeypatch):
+    """Helper: TestClient mit Auth-Override fuer einen User + Tier-2-Setting."""
+    monkeypatch.setattr(
+        settings, "tenant_admin_ui_enabled", True, raising=False,
+    )
+
+    def override_db():
+        with session_factory() as session:
+            yield session
+
+    app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_current_user] = lambda: user
+    client = TestClient(app)
+    return client
+
+
+# ===========================================================================
+# 1. Role-Schutz
+# ===========================================================================
+
+
+def test_super_admin_kann_tenant_erstellen(session_factory, super_admin, monkeypatch):
+    client = _make_client_as(super_admin, session_factory, monkeypatch)
+    try:
+        resp = client.post(
+            "/tenants",
+            json={
+                "display_name": "Test Firm AG",
+                "slug": "test-firm",
+                "hosting_tier": TIER_2_SHARED_CLOUD,
+                "license_status": LICENSE_STATUS_TRIAL,
+                "max_users": 10,
+            },
+        )
+        assert resp.status_code == 201, resp.text
+        data = resp.json()
+        assert data["display_name"] == "Test Firm AG"
+        assert data["slug"] == "test-firm"
+        assert data["hosting_tier"] == "tier2"
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_regular_admin_geblockt_403(session_factory, regular_admin, monkeypatch):
+    client = _make_client_as(regular_admin, session_factory, monkeypatch)
+    try:
+        resp = client.post(
+            "/tenants",
+            json={
+                "display_name": "Test", "slug": "test-firm",
+                "hosting_tier": TIER_2_SHARED_CLOUD,
+            },
+        )
+        assert resp.status_code == 403
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_advisor_geblockt_403(session_factory, advisor_user, monkeypatch):
+    client = _make_client_as(advisor_user, session_factory, monkeypatch)
+    try:
+        resp = client.get("/tenants")
+        assert resp.status_code == 403
+    finally:
+        app.dependency_overrides.clear()
+
+
+# ===========================================================================
+# 2. Settings-Schutz
+# ===========================================================================
+
+
+def test_tenant_endpoint_blockt_wenn_admin_ui_disabled(
+    session_factory, super_admin, monkeypatch,
+):
+    """Tier 1 + 3 haben tenant_admin_ui_enabled=False → 503."""
+    monkeypatch.setattr(
+        settings, "tenant_admin_ui_enabled", False, raising=False,
+    )
+
+    def override_db():
+        with session_factory() as session:
+            yield session
+
+    app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_current_user] = lambda: super_admin
+    try:
+        with TestClient(app) as client:
+            resp = client.get("/tenants")
+            assert resp.status_code == 503
+    finally:
+        app.dependency_overrides.clear()
+
+
+# ===========================================================================
+# 3. CRUD-Flow
+# ===========================================================================
+
+
+def test_list_tenants_zeigt_erstellt_tenant(
+    session_factory, super_admin, monkeypatch,
+):
+    client = _make_client_as(super_admin, session_factory, monkeypatch)
+    try:
+        # Create
+        client.post(
+            "/tenants",
+            json={"display_name": "A AG", "slug": "a-ag",
+                  "hosting_tier": TIER_2_SHARED_CLOUD},
+        )
+        client.post(
+            "/tenants",
+            json={"display_name": "B AG", "slug": "b-ag",
+                  "hosting_tier": TIER_2_SHARED_CLOUD},
+        )
+        # List
+        resp = client.get("/tenants")
+        assert resp.status_code == 200
+        items = resp.json()
+        assert len(items) == 2
+        slugs = {t["slug"] for t in items}
+        assert slugs == {"a-ag", "b-ag"}
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_get_single_tenant(session_factory, super_admin, monkeypatch):
+    client = _make_client_as(super_admin, session_factory, monkeypatch)
+    try:
+        create_resp = client.post(
+            "/tenants",
+            json={"display_name": "Single AG", "slug": "single",
+                  "hosting_tier": TIER_2_SHARED_CLOUD},
+        )
+        tenant_id = create_resp.json()["id"]
+        get_resp = client.get(f"/tenants/{tenant_id}")
+        assert get_resp.status_code == 200
+        assert get_resp.json()["slug"] == "single"
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_get_tenant_404_bei_unbekannter_id(
+    session_factory, super_admin, monkeypatch,
+):
+    client = _make_client_as(super_admin, session_factory, monkeypatch)
+    try:
+        resp = client.get("/tenants/does-not-exist")
+        assert resp.status_code == 404
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_update_tenant_partial(session_factory, super_admin, monkeypatch):
+    client = _make_client_as(super_admin, session_factory, monkeypatch)
+    try:
+        create_resp = client.post(
+            "/tenants",
+            json={"display_name": "Original Name", "slug": "orig",
+                  "hosting_tier": TIER_2_SHARED_CLOUD},
+        )
+        tenant_id = create_resp.json()["id"]
+        update_resp = client.put(
+            f"/tenants/{tenant_id}",
+            json={"display_name": "Updated Name", "max_users": 25},
+        )
+        assert update_resp.status_code == 200
+        assert update_resp.json()["display_name"] == "Updated Name"
+        assert update_resp.json()["max_users"] == 25
+        # Andere Felder unveraendert
+        assert update_resp.json()["slug"] == "orig"
+    finally:
+        app.dependency_overrides.clear()
+
+
+# ===========================================================================
+# 4. Slug-Konflikt
+# ===========================================================================
+
+
+def test_slug_duplicate_409(session_factory, super_admin, monkeypatch):
+    client = _make_client_as(super_admin, session_factory, monkeypatch)
+    try:
+        client.post(
+            "/tenants",
+            json={"display_name": "First", "slug": "duplicate",
+                  "hosting_tier": TIER_2_SHARED_CLOUD},
+        )
+        resp = client.post(
+            "/tenants",
+            json={"display_name": "Second", "slug": "duplicate",
+                  "hosting_tier": TIER_2_SHARED_CLOUD},
+        )
+        assert resp.status_code == 409
+        assert "Slug" in resp.json()["detail"]
+    finally:
+        app.dependency_overrides.clear()
+
+
+# ===========================================================================
+# 5. Pydantic-Validation
+# ===========================================================================
+
+
+def test_invalide_tier_422(session_factory, super_admin, monkeypatch):
+    client = _make_client_as(super_admin, session_factory, monkeypatch)
+    try:
+        resp = client.post(
+            "/tenants",
+            json={"display_name": "Test", "slug": "test-firm",
+                  "hosting_tier": "tier99-fantasy"},
+        )
+        assert resp.status_code == 422
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_invalide_license_status_422(
+    session_factory, super_admin, monkeypatch,
+):
+    client = _make_client_as(super_admin, session_factory, monkeypatch)
+    try:
+        resp = client.post(
+            "/tenants",
+            json={
+                "display_name": "Test", "slug": "test-firm",
+                "hosting_tier": TIER_2_SHARED_CLOUD,
+                "license_status": "not-a-real-status",
+            },
+        )
+        assert resp.status_code == 422
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_invalide_slug_format_422(
+    session_factory, super_admin, monkeypatch,
+):
+    """Slug muss Pattern matchen: lowercase, alnum, hyphens, kein leading/trailing hyphen."""
+    client = _make_client_as(super_admin, session_factory, monkeypatch)
+    try:
+        for bad_slug in ("UPPER-CASE", "-leading-hyphen", "trailing-", "with spaces"):
+            resp = client.post(
+                "/tenants",
+                json={"display_name": "X", "slug": bad_slug,
+                      "hosting_tier": TIER_2_SHARED_CLOUD},
+            )
+            assert resp.status_code == 422, f"Slug {bad_slug!r} sollte invalid sein"
+    finally:
+        app.dependency_overrides.clear()
+
+
+# ===========================================================================
+# 6. User-Tenant-Zuweisung
+# ===========================================================================
+
+
+def _persist_advisor(session_factory) -> str:
+    """Helper: erstellt einen Advisor-User in der DB, returnt seine id-Stringkopie."""
+    advisor_id = "advisor-fresh"
+    with session_factory() as db:
+        u = User(
+            id=advisor_id, username="advisor-fresh", password_hash="h",
+            full_name="Advisor", role="advisor", is_active=1,
+            created_at=_utc_now(), updated_at=_utc_now(),
+        )
+        db.add(u)
+        db.commit()
+    return advisor_id
+
+
+def test_assign_user_to_tenant(session_factory, super_admin, monkeypatch):
+    """Super-Admin weist einen Advisor einem Tenant zu."""
+    advisor_id = _persist_advisor(session_factory)
+    client = _make_client_as(super_admin, session_factory, monkeypatch)
+    try:
+        tenant_resp = client.post(
+            "/tenants",
+            json={"display_name": "Assign-Test", "slug": "assign-test",
+                  "hosting_tier": TIER_2_SHARED_CLOUD},
+        )
+        tenant_id = tenant_resp.json()["id"]
+        assign_resp = client.put(
+            f"/tenants/{tenant_id}/users/{advisor_id}/assign",
+        )
+        assert assign_resp.status_code == 200, assign_resp.text
+        data = assign_resp.json()
+        assert data["ok"] is True
+        assert data["user_id"] == advisor_id
+        assert data["tenant_id"] == tenant_id
+
+        with session_factory() as db:
+            u = db.query(User).filter(User.id == advisor_id).first()
+            assert u.tenant_id == tenant_id
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_assign_user_404_unbekannter_tenant(
+    session_factory, super_admin, monkeypatch,
+):
+    advisor_id = _persist_advisor(session_factory)
+    client = _make_client_as(super_admin, session_factory, monkeypatch)
+    try:
+        resp = client.put(f"/tenants/unknown/users/{advisor_id}/assign")
+        assert resp.status_code == 404
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_assign_user_404_unbekannter_user(
+    session_factory, super_admin, monkeypatch,
+):
+    client = _make_client_as(super_admin, session_factory, monkeypatch)
+    try:
+        tenant_resp = client.post(
+            "/tenants",
+            json={"display_name": "Test Firm", "slug": "test-firm",
+                  "hosting_tier": TIER_2_SHARED_CLOUD},
+        )
+        tenant_id = tenant_resp.json()["id"]
+        resp = client.put(
+            f"/tenants/{tenant_id}/users/unknown-user/assign",
+        )
+        assert resp.status_code == 404
+    finally:
+        app.dependency_overrides.clear()
