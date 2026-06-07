@@ -7,6 +7,11 @@ class User(Base):
     __tablename__ = "users"
 
     id = Column(String, primary_key=True)
+    # Sprint T1 (2026-06-08): tenant_id fuer 3-Tier-Architektur.
+    # Nullable in Stage 9 fuer Backwards-Compat — Default-Tenant 'main'
+    # wird via Migration / init_db angelegt und existing User darauf gemappt.
+    # Siehe docs/adr/ADR-009-3-tier-hosting-architecture.md
+    tenant_id = Column(String, ForeignKey("tenants.id"))
     username = Column(String, nullable=False, unique=True)
     password_hash = Column(String, nullable=False)
     full_name = Column(String, nullable=False)
