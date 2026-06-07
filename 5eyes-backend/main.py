@@ -24,6 +24,7 @@ import models.profiling  # noqa
 import models.review  # noqa
 import models.users  # noqa
 import models.snapshots  # noqa
+import models.protocol_bausteine  # noqa  Bug-#13a (2026-06-07) — Beratungsprotokoll-Bausteine
 import models.tenant  # noqa  Sprint T1 (2026-06-08) — 3-Tier-Foundation
 import models.wealth  # noqa
 from routers.allocation import router as allocation_router
@@ -35,6 +36,7 @@ from routers.mandates import router as mandates_router
 from routers.market_data import router as market_data_router
 from routers.prices import router as prices_router
 from routers.profiling import router as profiling_router
+from routers.protocol_bausteine import router as protocol_bausteine_router  # Bug-#13a (2026-06-07)
 from routers.review import (
     dashboard_router,
     products_router,
@@ -128,6 +130,7 @@ app.include_router(pdf_reports_router)
 app.include_router(system_router)
 app.include_router(tenants_router)  # Sprint T4 (2026-06-08)
 app.include_router(client_portal_router)  # Sprint U-36 (2026-06-06)
+app.include_router(protocol_bausteine_router)  # Bug-#13a (2026-06-07)
 
 
 # ---------------------------------------------------------------------------

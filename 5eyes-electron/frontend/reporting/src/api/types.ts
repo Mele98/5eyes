@@ -497,7 +497,14 @@ export interface AdvisoryReport {
   optimizer_run_history: OptimizerRunHistoryData;
   /** U-97: Performance-Attribution (Brinson vs House-Matrix-Benchmark) */
   performance_attribution: PerformanceAttributionData;
+  /** C2-Wiring: Engine-Configuration-Audit (Optimizer-Run-Reasoning) */
+  engine_configuration: EngineConfigurationData;
 }
+
+/** C2-Wiring (2026-06-07): Stub-Type fuer engine_configuration.
+ * Vollstaendige Struktur kommt mit naechstem Engine-Audit-Sprint —
+ * Drift-Test verlangt nur den Top-Level-Key. */
+export type EngineConfigurationData = Record<string, unknown>;
 
 // Sprint U-66/U-73+74/U-69/U-22/U-21 (2026-06-04, konsolidiert):
 // Aggregator-Sektionen 19-23. Stub-Type-Aliases damit der Drift-
