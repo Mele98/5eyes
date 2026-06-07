@@ -6964,6 +6964,19 @@ function updOvWarnBtn(){
 async function openOverrideModal(){
   var mid=getActiveMandateId();
   var risk=await resolveRiskAssessmentForOverride(mid);
+  // Sprint Bug-#2 (2026-06-08): Pre-check fuer Real-Mandate-RA-Existenz.
+  // Bei REAL-Mandat ohne RA: User benachrichtigen statt Modal zu oeffnen.
+  // Demo-Mandate duerfen weiter (visualisierungs-Zweck).
+  if(mid&&!isDemoMandateId(mid)&&!risk){
+    try{showAppError(
+      'Bitte zuerst das Risikoprofil erfassen, bevor du es ueberschreibst. '+
+      'FIDLEG verlangt ein dokumentiertes Original-Profil als Basis fuer den Override.',
+      {title:'Risikoprofil fehlt'}
+    );}catch(e){
+      alert('Bitte zuerst das Risikoprofil erfassen, bevor du es ueberschreibst.');
+    }
+    return;
+  }
   var score=risk?Math.round(Number(risk.override_score_x10!=null?risk.override_score_x10:risk.final_score_x10||0)/10):7;
   var profile=risk?(risk.override_profile||risk.final_profile||'Nicht definiert'):'Nicht definiert';
   var el=document.getElementById('ov-current-display');
@@ -6992,10 +7005,33 @@ async function applyOv(){
   var riskForOverride=await resolveRiskAssessmentForOverride(mid);
   var raId=riskForOverride?riskForOverride.id:null;
   var btn=document.querySelector('#m-overr .btn-g');
-  if(!mid||!raId||isDemoMandateId(mid)){
+  // Sprint Bug-#2 (2026-06-08): Silent-Demo-Path-Fix.
+  // Pre-Fix: wenn !raId (Mandat ohne RA), wurde nur die UI aktualisiert + Modal geschlossen,
+  // OHNE Server-Save. User-Quote: "kann diese Änderung nicht speichern" — er sah die UI-
+  // Bestaetigung, aber nichts wurde persistiert.
+  // Post-Fix:
+  // - Demo-Mandat: bisheriger UI-Only-Pfad bleibt (Demo-Zweck)
+  // - REAL-Mandat ohne RA: klare Fehler-Meldung statt Silent-Demo-Pfad
+  if(!mid){
+    if(errEl){
+      errEl.style.display='block';
+      errEl.textContent='Kein aktives Mandat ausgewaehlt. Bitte zuerst Mandat oeffnen.';
+    }
+    return;
+  }
+  if(isDemoMandateId(mid)){
+    // Echter Demo-Pfad (bewusst nur UI-Update, kein Server-Save)
     var b=document.getElementById('overr-badge');var ov=document.getElementById('overr-val');var rp=document.getElementById('res-pname');
     if(b)b.style.display='block';if(ov)ov.textContent=v+'/10 – '+n;if(rp)rp.textContent=n+' – Override '+v+'/10';
     cm('m-overr');return;
+  }
+  if(!raId){
+    if(errEl){
+      errEl.style.display='block';
+      errEl.textContent='Bitte zuerst das Risikoprofil erfassen, bevor du es ueberschreibst. (Compliance-Pflicht: ein Original-Profil muss existieren)';
+    }
+    if(btn){btn.disabled=false;btn.textContent='Override bestaetigen & protokollieren';}
+    return;
   }
   if(btn){btn.disabled=true;btn.textContent='Speichern...';}
   try{
