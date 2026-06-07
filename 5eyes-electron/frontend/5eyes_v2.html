@@ -20529,6 +20529,12 @@ function setStatusPill(el,status,label){
   if(s==='converged'){
     el.className+=' ok';
     el.textContent=label||'Konvergiert';
+  }else if(s==='converged_robustified'){
+    // Bug-#3 (2026-06-07): Robustifiziert ist NICHT Fallback — Solver hat
+    // eine feasible Loesung gefunden, allerdings ueber Multi-Start-
+    // Stabilisierung. Eigener Status-Pill ohne Warn-Farbe.
+    el.className+=' ok';
+    el.textContent=label||'Konvergiert (robustifiziert)';
   }else if(s==='diverged'||s==='diverged_infeasible'||s==='fallback_house_matrix'){
     el.className+=' warn';
     el.textContent=label||'Fallback';
@@ -20681,17 +20687,38 @@ function renderOptimizerPanel(result){
     pill.style.color='';
     var labelMap={
       converged:'Konvergiert',
+      converged_robustified:'Konvergiert (robustifiziert)',
       diverged:'Divergiert',
-      diverged_infeasible:'Divergiert',
+      diverged_infeasible:'Bandbreite verletzt',
       fallback_house_matrix:'Fallback House-Matrix'
     };
     setStatusPill(pill,status,labelMap[status]||status);
   }
+  // Bug-#3 (2026-06-07): Banner-Text pro Status differenzieren. Vorher zeigte
+  // jeder Warn-Status den gleichen 'House-Matrix-Default verwendet'-Text,
+  // obwohl nur `fallback_house_matrix` tatsaechlich auf die House-Matrix-
+  // Mitte zurueckfaellt. Bei `diverged_infeasible` wurden weiterhin die
+  // berechneten (aber bandbreiten-verletzenden) Gewichte ausgewiesen —
+  // Berater glaubten faelschlich der Fallback waere aktiv.
   var banner=document.getElementById('opt-fallback-banner');
   if(banner){
-    if(status==='fallback_house_matrix'||status==='diverged'||status==='diverged_infeasible'){
+    var bannerMsg='';
+    if(status==='fallback_house_matrix'){
+      bannerMsg='Solver konvergierte nicht — Fallback auf House-Matrix-Mittelwert '
+        +'(Bandbreiten-Default des Risikoprofils). Reasoning unten erklaert warum.';
+    }else if(status==='diverged_infeasible'){
+      bannerMsg='Solver hat eine Loesung berechnet, die ausserhalb der '
+        +'House-Matrix-Bandbreiten liegt (Constraints verletzt). '
+        +'Bitte Risikoprofil oder Renditeziel pruefen — gezeigte Gewichte '
+        +'sind kein gueltiger Anlagevorschlag.';
+    }else if(status==='diverged'){
+      bannerMsg='Solver konvergierte nicht. Keine optimale Allokation '
+        +'gefunden — Reasoning unten erklaert warum. Bitte erneut '
+        +'optimieren oder Eingabedaten anpassen.';
+    }
+    if(bannerMsg){
       banner.style.display='';
-      banner.textContent='Solver konvergierte nicht — House-Matrix-Default verwendet. Reasoning unten erklaert warum.';
+      banner.textContent=bannerMsg;
     }else{
       banner.style.display='none';
     }
