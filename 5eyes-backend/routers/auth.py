@@ -41,7 +41,11 @@ def _bootstrap_required(db: Session) -> bool:
 
 
 def _issue_token_response(user: User) -> TokenResponse:
-    token = create_access_token({"sub": user.id})
+    # Sprint T2 (2026-06-08): Token enthaelt jetzt tid-Claim via
+    # issue_token_for_user. Backwards-Compat: User ohne tenant_id bekommt
+    # tid='main'.
+    from services.auth import issue_token_for_user
+    token = issue_token_for_user(user)
     return TokenResponse(access_token=token, user=UserResponse.model_validate(user))
 
 

@@ -26,6 +26,14 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
+    """Erzeugt ein JWT-Access-Token.
+
+    Sprint T2 (2026-06-08): Falls 'tid' (tenant_id) nicht im data-Dict ist,
+    wird kein Tenant-Claim hinzugefuegt — der Aufrufer (typischerweise der
+    Login-Endpoint) ist verantwortlich tid mitzugeben. Wenn das Token KEIN
+    tid hat, faellt get_current_tenant_id auf 'main' zurueck (Backwards-
+    Compat fuer existierende Tokens).
+    """
     to_encode = data.copy()
     now = datetime.now(timezone.utc)
     expire = now + (
@@ -34,6 +42,30 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     to_encode["exp"] = expire
     to_encode["iat"] = now
     return jwt.encode(to_encode, settings.secret_key, algorithm=settings.algorithm)
+
+
+def _resolve_tenant_id_for_user(user: User) -> str:
+    """Sprint T2 (2026-06-08): Liefert die effektive tenant_id eines Users.
+
+    Reihenfolge:
+    1. user.tenant_id wenn gesetzt
+    2. DEFAULT_TENANT_ID ('main') als Fallback (Backwards-Compat)
+
+    Diese Funktion wird beim Login + bei Token-Validation aufgerufen.
+    """
+    from models.tenant import DEFAULT_TENANT_ID
+    raw = getattr(user, "tenant_id", None)
+    if raw and isinstance(raw, str) and raw.strip():
+        return raw.strip()
+    return DEFAULT_TENANT_ID
+
+
+def issue_token_for_user(user: User, expires_delta: Optional[timedelta] = None) -> str:
+    """Sprint T2 (2026-06-08): Convenience-Wrapper der ein Token mit
+    tenant_id-Claim ausstellt. Login-Endpoint nutzt das.
+    """
+    tid = _resolve_tenant_id_for_user(user)
+    return create_access_token({"sub": user.id, "tid": tid}, expires_delta=expires_delta)
 
 
 def get_current_user(
@@ -67,6 +99,16 @@ def get_current_user(
 
     user = db.query(User).filter(User.id == user_id, User.deleted_at.is_(None)).first()
     if user is None or not user.is_active:
+        raise credentials_exception
+    # Sprint T2 (2026-06-08): Tenant-Cross-Check.
+    # Wenn das Token einen tid-Claim enthaelt und der User in der DB einen
+    # festen tenant_id hat: beide MUESSEN matchen, sonst 401 (Sicherheits-
+    # Constraint — Token darf nicht 'wandern').
+    # Wenn Token kein tid hat (Legacy-Token): erlaubt (Backwards-Compat).
+    # Wenn User keine tenant_id in DB hat: ebenfalls erlaubt (Pre-T1-User).
+    token_tid = payload.get("tid")
+    user_tid = getattr(user, "tenant_id", None)
+    if token_tid and user_tid and str(token_tid).strip() != str(user_tid).strip():
         raise credentials_exception
     return user
 
@@ -137,6 +179,61 @@ def get_accessible_mandate_ids(db: Session, current_user: User) -> list[str]:
     if not has_global_client_access(current_user):
         query = query.filter(Client.advisor_id == current_user.id)
     return [row[0] for row in query.all()]
+
+
+# ---------------------------------------------------------------------------
+# Sprint T2 (2026-06-08): Tenant-Aware Auth-Helpers.
+# ---------------------------------------------------------------------------
+
+
+def get_current_tenant_id(
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+) -> str:
+    """Sprint T2 (2026-06-08): Extrahiert tenant_id aus dem JWT-Claim.
+
+    Reihenfolge:
+    1. JWT-Claim 'tid' (gesetzt durch issue_token_for_user)
+    2. Fallback: 'main' (Backwards-Compat fuer Tokens ohne tid)
+
+    Validiert die JWT-Signatur + Expiration. Bei ungueltigem Token: 401.
+
+    Verwendung in Routern wenn DIREKT die Tenant-ID gebraucht wird ohne
+    das volle User-Objekt zu laden — z.B. fuer Cross-Tenant-Leak-Tests
+    oder Admin-Endpoints.
+
+    Normalweise reicht `Depends(get_current_user)` und dann auf
+    `_resolve_tenant_id_for_user(user)` zugreifen.
+    """
+    from models.tenant import DEFAULT_TENANT_ID
+
+    token = credentials.credentials
+    try:
+        payload = jwt.decode(
+            token, settings.secret_key,
+            algorithms=[settings.algorithm],
+            options={"verify_exp": False},
+        )
+        try:
+            exp_ts = float(payload.get("exp"))
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=401, detail="Token ungültig")
+        if exp_ts <= datetime.now(timezone.utc).timestamp():
+            raise HTTPException(status_code=401, detail="Token abgelaufen")
+        tid = payload.get("tid")
+        if tid and isinstance(tid, str) and tid.strip():
+            return tid.strip()
+        return DEFAULT_TENANT_ID
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Token ungültig")
+
+
+def user_tenant_id(user: User) -> str:
+    """Convenience: tenant_id eines Users (mit 'main'-Fallback).
+
+    Identisch zu _resolve_tenant_id_for_user aber als Public-API
+    fuer Repository-Layer (Sprint T3).
+    """
+    return _resolve_tenant_id_for_user(user)
 
 
 # ---------------------------------------------------------------------------
