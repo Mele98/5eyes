@@ -4230,12 +4230,12 @@ function normalizeProjectionChartsPresentation(){
   if(charts&&charts.ist&&charts.ist.data&&charts.ist.data.datasets&&charts.ist.data.datasets[0]){
     charts.ist.data.datasets[0].label='Aktueller Gesamtvermoegenspfad';
     charts.ist.data.datasets[0].tension=0;
-    charts.ist.data.datasets[0].stepped='after';
+    charts.ist.data.datasets[0].stepped=false;
   }
   if(charts&&charts.aaCurrent&&charts.aaCurrent.data&&charts.aaCurrent.data.datasets&&charts.aaCurrent.data.datasets[0]){
     charts.aaCurrent.data.datasets[0].label='Aktueller Beratungsvermoegenspfad';
     charts.aaCurrent.data.datasets[0].tension=0;
-    charts.aaCurrent.data.datasets[0].stepped='after';
+    charts.aaCurrent.data.datasets[0].stepped=false;
   }
 }
 
@@ -4253,11 +4253,12 @@ function resetCurrentProjectionCharts(){
       pointRadius:0,
       fill:false,
       tension:0,
-      stepped:'after'
+      stepped:false
     }];
     if(chart.options&&chart.options.plugins&&chart.options.plugins.legend){
       chart.options.plugins.legend.display=false;
     }
+    if(chart===charts.ist)syncIstProjectionAxisScale();
     chart.update();
   };
   applyDeterministicSeries(charts.ist,'Aktueller Gesamtvermoegenspfad');
@@ -5178,6 +5179,8 @@ function initCharts(){
   normalizeAllocationLayout();
   normalizeConversationLabels();
   normalizeProjectionChartsPresentation();
+  syncIstProjectionAxisScale();
+  if(charts.ist)charts.ist.update('none');
   renderAllocationCashflowTimeline(strategyState&&strategyState.allocation?strategyState.allocation:null);
   buildAT();buildQT('qt-modal');renderEngineRuntimePanels(null);syncAllocationPendingViews();buildBudget();setupDrag();
 }
@@ -5361,6 +5364,8 @@ function fmtCHF(n){if(n===null||n===undefined)return '–';return 'CHF '+Math.ro
     if(charts.ist&&charts.ist.data&&charts.ist.data.datasets[0]){
       charts.ist.data.labels=labels;
       charts.ist.data.datasets[0].data=currentSeries;
+      charts.ist.data.datasets[0].stepped=false;
+      syncIstProjectionAxisScale();
       charts.ist.update('none');
     }
     if(charts.aaCurrent&&charts.aaCurrent.data&&charts.aaCurrent.data.datasets[0]){
@@ -14419,6 +14424,42 @@ function projectionChartValues(chart){
   });
   return values;
 }
+function projectionAxisDomain(values,edgePaddingShare){
+  var finite=(Array.isArray(values)?values:[]).map(Number).filter(function(value){return isFinite(value);});
+  if(!finite.length)return null;
+  var minValue=Math.min.apply(null,finite);
+  var maxValue=Math.max.apply(null,finite);
+  var spread=maxValue-minValue;
+  if(spread<=0){
+    spread=Math.max(1,Math.abs(maxValue)*0.10);
+    minValue-=spread/2;
+    maxValue+=spread/2;
+  }
+  var share=Math.max(0,Math.min(0.45,Number(edgePaddingShare==null?0.25:edgePaddingShare)));
+  var padding=spread*share/Math.max(0.10,1-(2*share));
+  var paddedMin=minValue-padding;
+  var paddedMax=maxValue+padding;
+  if(minValue>=0&&paddedMin<0){
+    paddedMin=0;
+    paddedMax=Math.max(paddedMax,paddedMin+(spread/Math.max(0.10,1-(2*share))));
+  }
+  return {
+    min:Math.floor(paddedMin/50)*50,
+    max:Math.ceil(paddedMax/50)*50
+  };
+}
+function syncIstProjectionAxisScale(){
+  if(!(charts&&charts.ist&&charts.ist.options&&charts.ist.options.scales&&charts.ist.options.scales.y))return;
+  var yScale=charts.ist.options.scales.y;
+  var domain=projectionAxisDomain(projectionChartValues(charts.ist),0.25);
+  if(!domain){
+    delete yScale.min;
+    delete yScale.max;
+    return;
+  }
+  yScale.min=domain.min;
+  yScale.max=domain.max;
+}
 function syncAaProjectionAxisScales(){
   if(!charts||!charts.opt||!charts.aaCurrent)return;
   var values=projectionChartValues(charts.opt).concat(projectionChartValues(charts.aaCurrent));
@@ -14478,6 +14519,8 @@ function updateProjectionChartsFromSimulation(result){
     if(charts.ist.data.datasets[0])charts.ist.data.datasets[0].label='Aktueller Gesamtvermögenspfad';
     charts.ist.data.datasets[0].data=totalCurrentSeries;
     charts.ist.data.datasets[0].tension=0;
+    charts.ist.data.datasets[0].stepped=false;
+    syncIstProjectionAxisScale();
     charts.ist.update();
   }
   if(charts.aaCurrent&&charts.aaCurrent.data&&charts.aaCurrent.data.datasets&&charts.aaCurrent.data.datasets.length>=1){
@@ -15185,8 +15228,8 @@ async function saveCashflowsAndRefreshCurrentPath(){
     }
     var goalModal=document.getElementById('m-nz');
     if(goalModal&&goalModal.classList.contains('open')){
-      await saveGoal();
-      if(goalModal.classList.contains('open')){
+      var goalSaved=await saveGoal({deferRefresh:true});
+      if(goalSaved!==true||goalModal.classList.contains('open')){
         setCashflowSaveStatus('Das offene Ziel konnte noch nicht gespeichert werden. Bitte Angaben pruefen.',true);
         return false;
       }
@@ -17450,6 +17493,8 @@ function refreshBaselineChartFromClientData(){
     charts.ist.data.datasets[0].label='Aktueller Gesamtvermögenspfad';
     charts.ist.data.datasets[0].data=totalProjection.seriesK;
     charts.ist.data.datasets[0].tension=0;
+    charts.ist.data.datasets[0].stepped=false;
+    syncIstProjectionAxisScale();
     charts.ist.update();
   }
   if(charts.aaCurrent&&charts.aaCurrent.data&&charts.aaCurrent.data.datasets&&charts.aaCurrent.data.datasets[0]){
@@ -17479,11 +17524,13 @@ function refreshBaselineChartFromClientDataForced(){
       borderWidth:2,
       pointRadius:0,
       fill:false,
-      tension:0
+      tension:0,
+      stepped:false
     }];
     if(charts.ist.options&&charts.ist.options.plugins&&charts.ist.options.plugins.legend){
       charts.ist.options.plugins.legend.display=false;
     }
+    syncIstProjectionAxisScale();
     charts.ist.update();
   }
   if(charts.aaCurrent&&charts.aaCurrent.data){
@@ -20310,7 +20357,20 @@ function upsertSavedGoal(savedGoal,fallbackId,payload){
   syncAllocationPendingViews();
   return normalized;
 }
-async function saveGoal(){
+function goalSaveErrorText(error){
+  var detail=error&&error.detail!=null?error.detail:(error&&error.message!=null?error.message:error);
+  if(Array.isArray(detail)){
+    detail=detail.map(function(item){
+      if(item&&typeof item==='object')return item.msg||item.message||JSON.stringify(item);
+      return String(item);
+    }).join(' | ');
+  }else if(detail&&typeof detail==='object'){
+    detail=detail.msg||detail.message||JSON.stringify(detail);
+  }
+  return String(detail||'Unbekannter Fehler beim Speichern.');
+}
+async function saveGoal(options){
+  options=options||{};
   var label=getInputValue('nz-label').trim();
   var notes=getInputValue('nz-notes').trim();
   var type=getInputValue('nz-type')||'Einmalige_Ausgabe';
@@ -20328,31 +20388,31 @@ async function saveGoal(){
   var isEdit=!!currentGoalEditId;
   var goalIdBeforeSave=currentGoalEditId;
   var targetReturnBps=null;
-  if(!label){showModalFeedback('nz-error',btn,'Bitte Bezeichnung eingeben.',true);return;}
+  if(!label){showModalFeedback('nz-error',btn,'Bitte Bezeichnung eingeben.',true);return false;}
   if(!isMaxGoalType(type)){
     if(isReturnGoalType(type)){
-      if(!returnRaw){showModalFeedback('nz-error',btn,'Bitte Zielrendite eingeben.',true);return;}
+      if(!returnRaw){showModalFeedback('nz-error',btn,'Bitte Zielrendite eingeben.',true);return false;}
       targetReturnBps=parsePercentToBps(returnRaw);
-      if(targetReturnBps==null||targetReturnBps<=0){showModalFeedback('nz-error',btn,'Bitte positive Zielrendite p.a. eingeben.',true);return;}
+      if(targetReturnBps==null||targetReturnBps<=0){showModalFeedback('nz-error',btn,'Bitte positive Zielrendite p.a. eingeben.',true);return false;}
     }else if(!amountRaw||isNaN(parseFloat(amountRaw.replace(',','.')))){
       showModalFeedback('nz-error',btn,'Bitte g\u00fcltigen Betrag eingeben.',true);
-      return;
+      return false;
     }
   }
   if(isReturnGoalType(type)&&prio==='1'){
     showModalFeedback('nz-error',btn,'Renditeziele koennen nicht als Hart gespeichert werden. Bitte Primaer oder Opportunistisch waehlen.',true);
-    return;
+    return false;
   }
   if(type==='Einmalige_Ausgabe'){
-    if(!targetDate&&!startDate){showModalFeedback('nz-error',btn,'Bitte F\u00e4lligkeitsdatum f\u00fcr die einmalige Entnahme eingeben.',true);return;}
+    if(!targetDate&&!startDate){showModalFeedback('nz-error',btn,'Bitte F\u00e4lligkeitsdatum f\u00fcr die einmalige Entnahme eingeben.',true);return false;}
     if(!targetDate)targetDate=startDate;
     if(!startDate)startDate=targetDate;
     frequency='einmalig';
     isOngoing=false;
   }else if(isRecurringGoalType(type)){
-    if(!startDate){showModalFeedback('nz-error',btn,'Bitte Beginn f\u00fcr das wiederkehrende Ziel eingeben.',true);return;}
+    if(!startDate){showModalFeedback('nz-error',btn,'Bitte Beginn f\u00fcr das wiederkehrende Ziel eingeben.',true);return false;}
     if(isOngoing)targetDate='';
-    if(targetDate&&targetDate<startDate){showModalFeedback('nz-error',btn,'Enddatum darf nicht vor dem Beginn liegen.',true);return;}
+    if(targetDate&&targetDate<startDate){showModalFeedback('nz-error',btn,'Enddatum darf nicht vor dem Beginn liegen.',true);return false;}
   }else{
     startDate='';
     frequency='jaehrlich';
@@ -20404,7 +20464,7 @@ async function saveGoal(){
       showModalFeedback('nz-error',btn,isEdit?'OK: Ziel aktualisiert':'OK: Ziel gespeichert',false);
       currentGoalEditId=null;
       cm('m-nz');
-      await refreshGoalsUI(mid);
+      if(!options.deferRefresh)await refreshGoalsUI(mid);
       updateCfRiskContextSummary();
       markStrategyDirty(
         isEdit
@@ -20413,10 +20473,12 @@ async function saveGoal(){
         true
       );
       try{showAppSuccess(isEdit?'Ziel aktualisiert':'Ziel gespeichert');}catch(noticeErr){}
+      return true;
     }catch(e){
-      var goalErr='Fehler: '+(e.detail||e.message||'?');
+      var goalErr='Fehler: '+goalSaveErrorText(e);
       showModalFeedback('nz-error',btn,goalErr,true);
       try{showAppError(goalErr,{title:'Ziel nicht gespeichert'});}catch(noticeErr){}
+      return false;
     }
   } else {
     var localId=isEdit?currentGoalEditId:('demo-goal-'+Date.now());
@@ -20429,6 +20491,7 @@ async function saveGoal(){
     showModalFeedback('nz-error',btn,'\u2713 Demo-Modus: Ziel aktualisiert',false);
     currentGoalEditId=null;
     setTimeout(function(){cm('m-nz');},600);
+    return true;
   }
 }
 async function refreshGoalsUI(mid){
