@@ -1853,7 +1853,9 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 
     <!-- PAGE: REVIEW -->
     <div id="page-rv" class="page">
-      <div class="ph"><div><div class="ph-t">Review &amp; Abschluss</div><div class="ph-s">Entscheidung absichern &middot; Unterlagen erstellen &middot; Abschluss vorbereiten</div></div><div class="ph-r"><button class="btn-p" onclick="om('m-ne')">Entscheid protokollieren</button><button class="btn-g" onclick="printAnlagestrategie()">Anlagestrategie</button><details class="ph-more"><summary title="Weitere Abschluss-Optionen" aria-label="Weitere Abschluss-Optionen">⋯</summary><div class="ph-more-menu"><button class="btn" onclick="printAdvisoryProtocol();this.closest('details').removeAttribute('open')">Protokoll drucken</button></div></details></div></div>
+      <!-- Bug-#13a (2026-06-07): 'Protokoll-Bausteine'-Button im Review-
+           Header oeffnet das Bibliotheks- + Auswahl-Modal. -->
+      <div class="ph"><div><div class="ph-t">Review &amp; Abschluss</div><div class="ph-s">Entscheidung absichern &middot; Unterlagen erstellen &middot; Abschluss vorbereiten</div></div><div class="ph-r"><button class="btn-p" onclick="om('m-ne')">Entscheid protokollieren</button><button class="btn-g" onclick="printAnlagestrategie()">Anlagestrategie</button><details class="ph-more"><summary title="Weitere Abschluss-Optionen" aria-label="Weitere Abschluss-Optionen">⋯</summary><div class="ph-more-menu"><button class="btn" onclick="openBausteineModal();this.closest('details').removeAttribute('open')">Protokoll-Bausteine</button><button class="btn" onclick="printAdvisoryProtocol();this.closest('details').removeAttribute('open')">Protokoll drucken</button></div></details></div></div>
       <div class="strip" id="rv-alert-strip" style="display:none"></div>
       <div id="rv-decision-strip" style="display:none"></div>
       <div class="pad">
@@ -2150,6 +2152,33 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
     <button class="btn-p" onclick="saveMandateSettings()">Speichern</button>
   </div>
 </div></div>
+<!-- Bug-#13a (2026-06-07): Beratungsprotokoll-Baustein-Bibliothek + Mandate-Auswahl -->
+<div class="overlay" id="m-bausteine"><div class="modal" style="width:780px;max-width:95vw">
+  <div class="mhd"><div class="mtitle">Protokoll-Bausteine</div><button class="mx" onclick="cm('m-bausteine')">&#x2715;</button></div>
+  <div class="mbody">
+    <div style="font-size:11px;color:var(--n5);margin-bottom:10px;line-height:1.5">
+      Verwalten Sie eigene Textbausteine und waehlen Sie aus, welche fuer
+      dieses Mandat im Beratungsprotokoll erscheinen. Globale Bausteine sind
+      mit (global) markiert und nicht editierbar.
+    </div>
+    <div id="bausteine-status" style="font-size:11px;color:var(--n5);padding:6px 8px;background:var(--bg2);border-radius:6px;margin-bottom:10px">Wird geladen...</div>
+    <div id="bausteine-list" style="margin-bottom:12px"></div>
+    <details style="margin-bottom:10px">
+      <summary style="cursor:pointer;font-size:11px;font-weight:600;color:var(--n6)">+ Neuen Baustein anlegen</summary>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">
+        <input type="text" id="baustein-new-title" placeholder="Titel" style="padding:6px 8px;font-size:11px">
+        <input type="text" id="baustein-new-category" placeholder="Kategorie (optional)" style="padding:6px 8px;font-size:11px">
+      </div>
+      <textarea id="baustein-new-content" placeholder="Markdown-Text" style="width:100%;min-height:80px;margin-top:8px;padding:6px 8px;font-size:11px;font-family:var(--f-mono,monospace)"></textarea>
+      <button class="btn-p btn-sm" style="margin-top:6px" onclick="createBausteinFromModal()">Speichern</button>
+    </details>
+  </div>
+  <div class="mft">
+    <button class="btn" onclick="cm('m-bausteine')">Schliessen</button>
+    <button class="btn-p" id="baustein-save-selection-btn" onclick="saveMandateBausteinSelection()">Auswahl speichern</button>
+  </div>
+</div></div>
+
 <!-- Sprint U-P14 (2026-05-20): Depot-Check-Modal -->
 <div class="overlay" id="m-dc"><div class="modal" style="width:880px;max-width:95vw">
   <div class="mhd"><div class="mtitle">Depot-Check &amp; Diversifikation</div><button class="mx" onclick="cm('m-dc')">&#x2715;</button></div>
@@ -8919,6 +8948,132 @@ async function openReportingApp(){
   var path = '/mandates/' + encodeURIComponent(mid) + '/report';
   var url = base + path + (token ? ('#token=' + encodeURIComponent(token)) : '');
   window.open(url, '_blank', 'noopener');
+}
+
+// ============================================================================
+// Bug-#13a (2026-06-07): Beratungsprotokoll-Baustein-Bibliothek
+// ============================================================================
+// Modal-Flow:
+// 1. openBausteineModal: laedt Bibliothek + aktuelle Mandate-Selektion
+// 2. renderBausteineList: rendert Checkboxen + Edit/Delete-Buttons
+// 3. createBausteinFromModal / saveMandateBausteinSelection: CRUD-Aktionen
+// ----------------------------------------------------------------------------
+var _bausteineCache={library:[], selection:[]};
+
+async function openBausteineModal(){
+  var mid=typeof getActiveMandateId==='function'?getActiveMandateId():null;
+  if(!mid){
+    if(window.showAppError) showAppError('Bitte zuerst ein Mandat oeffnen.');
+    else alert('Bitte zuerst ein Mandat oeffnen.');
+    return;
+  }
+  om('m-bausteine');
+  var status=document.getElementById('bausteine-status');
+  if(status){ status.textContent='Lade Bausteine...'; status.style.color='var(--n5)'; }
+  try{
+    var lib=await API.get('/protocol-bausteine');
+    var sel=await API.get('/mandates/'+encodeURIComponent(mid)+'/protocol-bausteine');
+    _bausteineCache.library=Array.isArray(lib)?lib:[];
+    _bausteineCache.selection=Array.isArray(sel)?sel:[];
+    renderBausteineList();
+    if(status){
+      var n=_bausteineCache.library.length;
+      var picked=_bausteineCache.selection.length;
+      status.textContent=n+' Baustein(e) in Bibliothek, '+picked+' fuer dieses Mandat ausgewaehlt.';
+      status.style.color='var(--n5)';
+    }
+  }catch(e){
+    if(status){ status.textContent='Fehler: '+(e&&(e.detail||e.message)||'Bausteine konnten nicht geladen werden'); status.style.color='var(--neg)'; }
+  }
+}
+
+function renderBausteineList(){
+  var box=document.getElementById('bausteine-list');
+  if(!box)return;
+  var selectedIds={};
+  _bausteineCache.selection.forEach(function(s){ selectedIds[s.baustein_id]=s; });
+  var lib=_bausteineCache.library.slice().sort(function(a,b){
+    return (a.category||'zzz').localeCompare(b.category||'zzz') || a.sort_order-b.sort_order || a.title.localeCompare(b.title);
+  });
+  if(!lib.length){
+    box.innerHTML='<div style="font-size:11px;color:var(--n4);padding:10px;text-align:center">Noch keine Bausteine. Erfassen Sie unten Ihren ersten Baustein.</div>';
+    return;
+  }
+  box.innerHTML=lib.map(function(b){
+    var isGlobal=!b.advisor_id;
+    var isSelected=!!selectedIds[b.id];
+    var globalTag=isGlobal?' <span style="font-size:9px;color:var(--n4)">(global)</span>':'';
+    var catTag=b.category?' <span class="tag tn" style="font-size:9px">'+escapeHtml(b.category)+'</span>':'';
+    return '<div style="display:flex;gap:8px;align-items:flex-start;border:1px solid var(--b1);border-radius:6px;padding:8px 10px;margin-bottom:6px" data-baustein-id="'+escapeHtml(b.id)+'">'
+      +'<input type="checkbox" '+(isSelected?'checked':'')+' onchange="toggleBausteinSelection(\''+escapeHtml(b.id)+'\',this.checked)" style="margin-top:3px">'
+      +'<div style="flex:1">'
+        +'<div style="font-size:11px;font-weight:600;color:var(--n8)">'+escapeHtml(b.title)+catTag+globalTag+'</div>'
+        +'<div style="font-size:10px;color:var(--n6);margin-top:3px;white-space:pre-wrap;max-height:60px;overflow:hidden">'+escapeHtml(b.content_md||'')+'</div>'
+      +'</div>'
+      +(isGlobal?'':'<button class="btn-ico d" title="Loeschen" onclick="deleteBausteinFromModal(\''+escapeHtml(b.id)+'\')" style="margin-left:4px">&#x2715;</button>')
+      +'</div>';
+  }).join('');
+}
+
+function toggleBausteinSelection(bausteinId,checked){
+  var sel=_bausteineCache.selection.filter(function(s){return s.baustein_id!==bausteinId;});
+  if(checked){
+    sel.push({baustein_id:bausteinId, sort_order:sel.length, custom_override_md:null});
+  }
+  _bausteineCache.selection=sel;
+}
+
+async function createBausteinFromModal(){
+  var titleEl=document.getElementById('baustein-new-title');
+  var catEl=document.getElementById('baustein-new-category');
+  var contentEl=document.getElementById('baustein-new-content');
+  var title=(titleEl&&titleEl.value||'').trim();
+  if(!title){
+    if(window.showAppError) showAppError('Bitte einen Titel angeben.');
+    else alert('Bitte einen Titel angeben.');
+    return;
+  }
+  try{
+    var payload={title:title, content_md:(contentEl&&contentEl.value)||'', category:(catEl&&catEl.value||'').trim()||null, sort_order:0};
+    var created=await API.post('/protocol-bausteine', payload);
+    _bausteineCache.library.push(created);
+    if(titleEl)titleEl.value='';
+    if(catEl)catEl.value='';
+    if(contentEl)contentEl.value='';
+    renderBausteineList();
+  }catch(e){
+    if(window.showAppError) showAppError('Speichern fehlgeschlagen: '+(e&&(e.detail||e.message)||''));
+  }
+}
+
+async function deleteBausteinFromModal(bausteinId){
+  if(!confirm('Baustein wirklich loeschen?'))return;
+  try{
+    await API.del('/protocol-bausteine/'+encodeURIComponent(bausteinId));
+    _bausteineCache.library=_bausteineCache.library.filter(function(b){return b.id!==bausteinId;});
+    _bausteineCache.selection=_bausteineCache.selection.filter(function(s){return s.baustein_id!==bausteinId;});
+    renderBausteineList();
+  }catch(e){
+    if(window.showAppError) showAppError('Loeschen fehlgeschlagen: '+(e&&(e.detail||e.message)||''));
+  }
+}
+
+async function saveMandateBausteinSelection(){
+  var mid=typeof getActiveMandateId==='function'?getActiveMandateId():null;
+  if(!mid)return;
+  var btn=document.getElementById('baustein-save-selection-btn');
+  if(btn){ btn.disabled=true; btn.textContent='Speichern...'; }
+  try{
+    var items=_bausteineCache.selection.map(function(s,i){
+      return {baustein_id:s.baustein_id, sort_order:i, custom_override_md:s.custom_override_md||null};
+    });
+    await API.put('/mandates/'+encodeURIComponent(mid)+'/protocol-bausteine', {selections:items});
+    cm('m-bausteine');
+  }catch(e){
+    if(window.showAppError) showAppError('Speichern der Auswahl fehlgeschlagen: '+(e&&(e.detail||e.message)||''));
+  }finally{
+    if(btn){ btn.disabled=false; btn.textContent='Auswahl speichern'; }
+  }
 }
 
 async function openDepotCheck(){
