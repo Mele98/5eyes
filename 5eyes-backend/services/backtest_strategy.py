@@ -128,6 +128,7 @@ def compound_wealth_path(
     years_returns: list[tuple[int, Mapping[str, int]]],
     *,
     rebalance: bool,
+    fee_bps_per_year: int = 0,
 ) -> dict:
     """Berechnet Wealth-Index-Pfad + jährliche Portfolio-Renditen.
 
@@ -137,14 +138,19 @@ def compound_wealth_path(
         years_returns: aufsteigend sortiert [(year, {bucket: bps}), ...]
         rebalance: True = jährlich auf Soll-Gewichte zurücksetzen.
             False = passive Drift, Bucket-Werte werden einzeln aufgezinst.
+        fee_bps_per_year: Bug-#8a (2026-06-07). Jährliche Gesamtkosten in bps
+            (TER + Beratungs-/Depotgebühren). 0 = brutto. Modell:
+            r_net = (1 + r_gross) * (1 - fee_bps/10000) - 1
+            (geometrische Abzugs-Form, Standard für Performance-Reporting).
 
     Returns:
         {
             "start_year_label": int | None — z.B. years[0]-1 (Jahr VOR
                 erster Performance), oder years[0] wenn keine Jahre da
             "wealth_path_rappen": [(year, total_rappen), ...] inkl. Start
-            "annual_returns_bps": [bps, ...] pro Jahr
+            "annual_returns_bps": [bps, ...] pro Jahr (NACH fee_bps)
             "bucket_path_rappen": [{year, bucket: value}, ...] inkl. Start
+            "fee_bps_per_year": int — fuer Audit-Trail
         }
     """
     initial_value_rappen = int(initial_value_rappen)
@@ -172,6 +178,11 @@ def compound_wealth_path(
     wealth_path.append((start_label if start_label is not None else 0, initial_total))
     bucket_path.append({"year": start_label, **{b: int(round(bucket_values[b])) for b in BUCKETS}})
 
+    # Bug-#8a (2026-06-07): Gebuehrenfaktor pro Jahr clampen, damit absurde
+    # Eingaben (negativ oder >100%) die Pfade nicht zerstoeren.
+    fee_bps_clamped = max(0, min(int(fee_bps_per_year or 0), 10000))
+    fee_factor = 1.0 - (fee_bps_clamped / 10000.0)
+
     for year, ret_map in years_returns:
         prev_total = sum(bucket_values.values())
         if prev_total <= 0:
@@ -186,6 +197,10 @@ def compound_wealth_path(
             b: bucket_values[b] * (1.0 + float(ret_map.get(b, 0) or 0) / 10000.0)
             for b in BUCKETS
         }
+        # Bug-#8a: Jahres-Fee proportional auf alle Buckets anwenden (TER
+        # wirkt am NAV, nicht selektiv auf einzelne Klassen).
+        if fee_factor != 1.0:
+            new_values = {b: v * fee_factor for b, v in new_values.items()}
         new_total = sum(new_values.values())
         portfolio_ret = (new_total - prev_total) / prev_total
         annual_returns_bps.append(int(round(portfolio_ret * 10000)))
@@ -212,6 +227,7 @@ def compound_wealth_path(
         "wealth_path_rappen": wealth_path,
         "annual_returns_bps": annual_returns_bps,
         "bucket_path_rappen": bucket_path,
+        "fee_bps_per_year": fee_bps_clamped,
     }
 
 
@@ -817,12 +833,21 @@ def _build_path_views(
     weights_bps: Mapping[str, int],
     years_data: list[tuple[int, Mapping[str, int]]],
     risk_free_bps: int,
+    fee_bps_per_year: int = 0,
 ) -> dict:
-    """Erzeugt sowohl Rebal als auch No-Rebal Pfad + Metriken + Drawdown-Pfad."""
-    rebal = compound_wealth_path(initial_value_rappen, weights_bps, years_data, rebalance=True)
-    norebal = compound_wealth_path(initial_value_rappen, weights_bps, years_data, rebalance=False)
-    return {
+    """Erzeugt sowohl Rebal als auch No-Rebal Pfad + Metriken + Drawdown-Pfad.
+
+    Bug-#8a (2026-06-07): `fee_bps_per_year` wird an `compound_wealth_path`
+    durchgereicht. Damit der Berater Brutto vs. Netto vergleichen kann,
+    liefert die Funktion bei fee>0 zusaetzlich einen `gross`-Block (gleicher
+    Backtest mit fee=0) — wichtig fuer die Aussage 'Strategie schlaegt
+    Benchmark erst nach Fee-Adjustierung'.
+    """
+    rebal = compound_wealth_path(initial_value_rappen, weights_bps, years_data, rebalance=True, fee_bps_per_year=fee_bps_per_year)
+    norebal = compound_wealth_path(initial_value_rappen, weights_bps, years_data, rebalance=False, fee_bps_per_year=fee_bps_per_year)
+    view = {
         "weights_bps": dict(weights_bps),
+        "fee_bps_per_year": int(fee_bps_per_year or 0),
         "rebalanced": {
             "wealth_path_rappen": rebal["wealth_path_rappen"],
             "annual_returns_bps": rebal["annual_returns_bps"],
@@ -836,6 +861,24 @@ def _build_path_views(
             "metrics": compute_metrics(norebal["wealth_path_rappen"], norebal["annual_returns_bps"], risk_free_bps=risk_free_bps),
         },
     }
+    if int(fee_bps_per_year or 0) > 0:
+        gross_rebal = compound_wealth_path(initial_value_rappen, weights_bps, years_data, rebalance=True, fee_bps_per_year=0)
+        gross_norebal = compound_wealth_path(initial_value_rappen, weights_bps, years_data, rebalance=False, fee_bps_per_year=0)
+        view["gross"] = {
+            "rebalanced": {
+                "wealth_path_rappen": gross_rebal["wealth_path_rappen"],
+                "annual_returns_bps": gross_rebal["annual_returns_bps"],
+                "drawdown_path_bps": compute_drawdown_path_bps(gross_rebal["wealth_path_rappen"]),
+                "metrics": compute_metrics(gross_rebal["wealth_path_rappen"], gross_rebal["annual_returns_bps"], risk_free_bps=risk_free_bps),
+            },
+            "no_rebalance": {
+                "wealth_path_rappen": gross_norebal["wealth_path_rappen"],
+                "annual_returns_bps": gross_norebal["annual_returns_bps"],
+                "drawdown_path_bps": compute_drawdown_path_bps(gross_norebal["wealth_path_rappen"]),
+                "metrics": compute_metrics(gross_norebal["wealth_path_rappen"], gross_norebal["annual_returns_bps"], risk_free_bps=risk_free_bps),
+            },
+        }
+    return view
 
 
 def run_strategy_backtest(
@@ -846,6 +889,8 @@ def run_strategy_backtest(
     end_year: int | None = None,
     benchmark_weights_bps: Mapping[str, int] | None = None,
     resolution: str = "annual",
+    strategy_fee_bps: int | None = None,
+    benchmark_fee_bps: int | None = None,
 ) -> dict:
     """Master-Service: führt den SOLL-Strategie-Backtest für das Mandat aus.
 
@@ -971,12 +1016,18 @@ def run_strategy_backtest(
 
     years_data: list[tuple[int, dict[str, int]]] = [(y, matrix[y]) for y in years_in_range]
 
-    soll_view = _build_path_views(initial_value, soll_weights, years_data, risk_free_bps)
+    # Bug-#8a (2026-06-07): Fee-Inputs sauberer Audit-Trail. None = 0 bps
+    # (Brutto-Backtest, wie bisher). Clamp auf [0, 10000] passiert in
+    # compound_wealth_path.
+    strategy_fee_used = max(0, int(strategy_fee_bps or 0))
+    benchmark_fee_used = max(0, int(benchmark_fee_bps or 0))
+
+    soll_view = _build_path_views(initial_value, soll_weights, years_data, risk_free_bps, fee_bps_per_year=strategy_fee_used)
 
     benchmark_view = None
     benchmark_norm = _normalize_benchmark_weights(benchmark_weights_bps)
     if benchmark_norm is not None:
-        benchmark_view = _build_path_views(initial_value, benchmark_norm, years_data, risk_free_bps)
+        benchmark_view = _build_path_views(initial_value, benchmark_norm, years_data, risk_free_bps, fee_bps_per_year=benchmark_fee_used)
 
     return {
         "mandate_id": str(mandate.id),
@@ -986,6 +1037,8 @@ def run_strategy_backtest(
         "start_year": years_in_range[0],
         "end_year": years_in_range[-1],
         "risk_free_bps": risk_free_bps,
+        "strategy_fee_bps": strategy_fee_used,
+        "benchmark_fee_bps": benchmark_fee_used,
         "soll": soll_view,
         "benchmark": benchmark_view,
         "warnings": warnings,
@@ -993,6 +1046,9 @@ def run_strategy_backtest(
         "note": (
             "Jahres-Auflösung — historische Jahresrenditen pro Asset-Klasse aus "
             "admin/system/annual-returns. Für tägliche Auflösung (Intra-Jahr-Drawdown) "
-            "asset_class_price_history befüllen und resolution=daily wählen."
+            "asset_class_price_history befüllen und resolution=daily wählen. "
+            "Bug-#8a: Jahres-Fees (TER+Beratungs-/Depotgebühren) werden geometrisch "
+            "vom Pfad abgezogen; bei Strategy-Fee>0 ist zusätzlich der Brutto-Pfad "
+            "(soll.gross / benchmark.gross) als Vergleichsbasis verfügbar."
         ),
     }
