@@ -268,7 +268,14 @@ def complete_risk_questionnaire_answers() -> list[dict]:
 
 
 def test_runtime_routes_expose_frontend_contracts():
-    route_map = {(route.path, tuple(sorted(route.methods or []))) for route in app.routes}
+    # Bug-#6 (2026-06-07): app.routes enthaelt nun Mount-Eintraege
+    # (StaticFiles /reporting/assets), die kein `methods`-Attribut haben.
+    # Wir filtern auf die API-Routen.
+    route_map = {
+        (route.path, tuple(sorted(route.methods or [])))
+        for route in app.routes
+        if hasattr(route, "methods")
+    }
 
     assert ("/mandates/{mandate_id}/risk-assessments", ("POST",)) in route_map
     assert ("/clients/{client_id}/cashflows/{cf_id}", ("DELETE",)) in route_map
