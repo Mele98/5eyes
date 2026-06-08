@@ -175,6 +175,14 @@ def ensure_column(conn, table_name: str, column_name: str, sql_type: str) -> Non
 
 def ensure_runtime_columns() -> None:
     additive_columns: dict[str, list[tuple[str, str]]] = {
+        # Sprint T1 (2026-06-08): tenant_id fuer 3-Tier-Architektur.
+        # Bootstrap-SQL hat das Feld noch nicht — Migration ergaenzt die
+        # Column idempotent auf Live-DBs, sonst koennen Tier-2-Endpoints
+        # den tenant-Scope nicht setzen und frische Installationen
+        # crashen beim User-Anlegen.
+        'users': [
+            ('tenant_id', 'TEXT'),
+        ],
         'target_allocations': [
             ('capital_market_assumptions_id', 'TEXT'),
             # C8 audit anchors fuer Reproduzierbarkeit / Drift-Erkennung
@@ -221,6 +229,11 @@ def ensure_runtime_columns() -> None:
         'clients': [
             ('investment_horizon_start', 'TEXT'),
             ('investment_horizon_end', 'TEXT'),
+            # Sprint T1 (2026-06-08): tenant_id fuer 3-Tier-Architektur.
+            # Bootstrap-SQL hat das Feld noch nicht — Migration ergaenzt
+            # die Column idempotent auf Live-DBs, sonst koennen Tier-2-
+            # Endpoints den tenant-Scope nicht setzen.
+            ('tenant_id', 'TEXT'),
         ],
         # Sprint U-37 (2026-06-03): Notes-Versionierungs-Log.
         # Append-only JSON-Array von Edit-Snapshots fuer FINMA-Audit
@@ -234,6 +247,10 @@ def ensure_runtime_columns() -> None:
             ('currency', 'TEXT'),
         ],
         'mandates': [
+            # Sprint T1 (2026-06-08): tenant_id fuer 3-Tier-Architektur.
+            # Bootstrap-SQL hat das Feld noch nicht — Migration ergaenzt
+            # die Column idempotent auf Live-DBs.
+            ('tenant_id', 'TEXT'),
             # Sprint A3 (2026-05-06): Rentenalter + Lebenserwartung pro Mandat.
             ('retirement_year', 'INTEGER'),
             ('life_expectancy_year', 'INTEGER'),
@@ -346,6 +363,12 @@ def ensure_runtime_columns() -> None:
     inspector = inspect(engine)
     with engine.begin() as conn:
         for table_name, columns in additive_columns.items():
+            # Defensive (2026-06-08): wenn eine Tabelle (noch) nicht
+            # existiert, Migration ueberspringen statt zu crashen. create_all
+            # legt die fehlenden Tabellen erst nach unserem Aufruf an
+            # (Bootstrap-SQL deckt nicht alle ORM-Tabellen ab).
+            if not inspector.has_table(table_name):
+                continue
             existing = {column['name'] for column in inspector.get_columns(table_name)}
             for column_name, sql_type in columns:
                 if column_name in existing:
