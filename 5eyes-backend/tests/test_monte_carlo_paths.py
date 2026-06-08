@@ -30,6 +30,10 @@ from database import Base
 from models import (  # noqa: F401
     allocation, clients, mandates, profiling, review, snapshots, users, wealth,
 )
+import models.client_login  # noqa: F401  (Sprint U-36)
+import models.fx_rate  # noqa: F401
+import models.protocol_bausteine  # noqa: F401  (Bug-#13a)
+import models.tenant  # noqa: F401  (Sprint T1)
 configure_mappers()
 from models.allocation import (
     CapitalMarketAssumption,
