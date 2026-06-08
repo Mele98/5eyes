@@ -11,20 +11,66 @@
  *   Status-Pill, Integritäts-Marker)
  * - Fallback wenn kein Eintrag erfasst
  */
+import { useState } from 'react';
 import type { BeratungsprotokollData, BeratungsprotokollEntry } from '@/api/types';
 import { ReportPage } from '@/components/ReportPage';
+import { AdvisoryLogEditor } from '@/components/AdvisoryLogEditor';
+import { useAdvisoryLog } from '@/api/useAdvisoryLog';
+import { useUserRole } from '@/api/useUserRole';
 
 interface BeratungsprotokollProps {
   data: BeratungsprotokollData;
+  mandateId?: string;
+  /** Nach erfolgreichem Save: Aggregator neu laden, damit latest_entry erscheint. */
+  onReload?: () => void;
 }
 
-export function Beratungsprotokoll({ data }: BeratungsprotokollProps) {
+export function Beratungsprotokoll({
+  data,
+  mandateId,
+  onReload,
+}: BeratungsprotokollProps) {
+  const { canEdit } = useUserRole();
+  const { autoCreate, saving } = useAdvisoryLog(mandateId);
+
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [preFilled, setPreFilled] = useState<BeratungsprotokollEntry | null>(null);
+
+  const handleAuto = async () => {
+    if (!mandateId) return;
+    const entry = await autoCreate((created) => {
+      // Nach Auto-Log direkt Editor öffnen, damit Berater verfeinern kann
+      setPreFilled(created);
+      setEditorOpen(true);
+      onReload?.();
+    });
+    if (!entry) return;
+  };
+
+  const handleManual = () => {
+    setPreFilled(null);
+    setEditorOpen(true);
+  };
+
+  const handleSaved = () => {
+    onReload?.();
+  };
+
   return (
     <ReportPage
       nr={16}
       kicker="Beratungsprotokoll"
       title="Beratungsprotokoll"
       subtitle="FIDLEG-konforme Dokumentation der Beratungsgespräche, Themen und Risikohinweise."
+      toolbar={
+        canEdit && mandateId ? (
+          <ToolbarActions
+            onAuto={handleAuto}
+            onManual={handleManual}
+            disabled={saving}
+          />
+        ) : null
+      }
     >
       <SummaryBox data={data} />
 
@@ -39,7 +85,52 @@ export function Beratungsprotokoll({ data }: BeratungsprotokollProps) {
       ) : (
         <NoEntryHint />
       )}
+
+      {mandateId ? (
+        <AdvisoryLogEditor
+          open={editorOpen}
+          onClose={() => setEditorOpen(false)}
+          mandateId={mandateId}
+          preFilled={preFilled}
+          onSaved={handleSaved}
+        />
+      ) : null}
     </ReportPage>
+  );
+}
+
+function ToolbarActions({
+  onAuto,
+  onManual,
+  disabled,
+}: {
+  onAuto: () => void;
+  onManual: () => void;
+  disabled: boolean;
+}) {
+  return (
+    <div className="absolute right-page-x top-block flex flex-wrap gap-2">
+      <button
+        type="button"
+        onClick={onAuto}
+        disabled={disabled}
+        title="Erzeugt einen vorbefüllten Eintrag (Topics + aktuelle Suitability-Warnings)"
+        className="inline-flex items-center gap-2 rounded-card border border-rule bg-canvas-panel px-3 py-1.5 text-caption text-ink-muted shadow-sm transition hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+      >
+        <span aria-hidden="true">⚡</span>
+        <span>Auto-Log</span>
+      </button>
+      <button
+        type="button"
+        onClick={onManual}
+        disabled={disabled}
+        title="Neuen Eintrag manuell anlegen"
+        className="inline-flex items-center gap-2 rounded-card border border-rule bg-canvas-panel px-3 py-1.5 text-caption text-ink-muted shadow-sm transition hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+      >
+        <span aria-hidden="true">＋</span>
+        <span>Neuer Eintrag</span>
+      </button>
+    </div>
   );
 }
 

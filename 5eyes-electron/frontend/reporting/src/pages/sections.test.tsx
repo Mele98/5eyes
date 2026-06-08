@@ -31,6 +31,17 @@ vi.mock('@/api/useReportNotes', () => ({
   }),
 }));
 
+// U-FINMA-2.4: useAdvisoryLog mocken, sonst macht der Editor echte POSTs
+vi.mock('@/api/useAdvisoryLog', () => ({
+  useAdvisoryLog: () => ({
+    saving: false,
+    saveError: null,
+    autoCreate: vi.fn(async () => null),
+    create: vi.fn(async () => null),
+    reset: vi.fn(),
+  }),
+}));
+
 import { Cover } from './Cover';
 import { Disclaimer } from './Disclaimer';
 import { Inhaltsverzeichnis } from './Inhaltsverzeichnis';
@@ -335,7 +346,7 @@ describe('Section 15: WeiteresVorgehen', () => {
 
 describe('Section 16: Beratungsprotokoll (U-FINMA-2.3)', () => {
   it('rendert leeren Stand mit Hinweis', () => {
-    render(withRouter(<Beratungsprotokoll data={makeBeratungsprotokoll()} />));
+    render(withRouter(<Beratungsprotokoll data={makeBeratungsprotokoll()} mandateId="test-m" onReload={() => {}} />));
     expect(screen.getByText(/Noch kein Beratungsprotokoll/)).toBeInTheDocument();
     expect(screen.getByText(/Aktive Einträge/i)).toBeInTheDocument();
   });
@@ -375,7 +386,7 @@ describe('Section 16: Beratungsprotokoll (U-FINMA-2.3)', () => {
         updated_at: '2026-05-15T14:00:00.000Z',
       },
     };
-    render(withRouter(<Beratungsprotokoll data={data} />));
+    render(withRouter(<Beratungsprotokoll data={data} mandateId="test-m" onReload={() => {}} />));
     expect(screen.getByText('Jahresreview Mai 2026')).toBeInTheDocument();
     expect(screen.getByText('Beschlossen')).toBeInTheDocument();
     expect(screen.getByText(/SAA.*Pensionsplanung/)).toBeInTheDocument();
@@ -391,7 +402,7 @@ describe('Section 16: Beratungsprotokoll (U-FINMA-2.3)', () => {
         'Risiko-Anteil 47.0 % überschreitet Cap 45.0 % (Defensiv).',
       ],
     };
-    render(withRouter(<Beratungsprotokoll data={data} />));
+    render(withRouter(<Beratungsprotokoll data={data} mandateId="test-m" onReload={() => {}} />));
     expect(screen.getByText(/Suitability-Hinweise/i)).toBeInTheDocument();
     expect(screen.getByText(/47\.0/)).toBeInTheDocument();
   });
@@ -401,8 +412,15 @@ describe('Section 16: Beratungsprotokoll (U-FINMA-2.3)', () => {
       ...makeBeratungsprotokoll(),
       retention_audit_ok: false,
     };
-    render(withRouter(<Beratungsprotokoll data={data} />));
+    render(withRouter(<Beratungsprotokoll data={data} mandateId="test-m" onReload={() => {}} />));
     expect(screen.getByText(/Aufbewahrungs-Hinweis/i)).toBeInTheDocument();
+  });
+
+  it('blendet Toolbar-Buttons ohne mandateId aus (read-only mode)', () => {
+    // Wenn KEIN mandateId, soll Toolbar nicht erscheinen.
+    render(withRouter(<Beratungsprotokoll data={makeBeratungsprotokoll()} />));
+    expect(screen.queryByText('Auto-Log')).not.toBeInTheDocument();
+    expect(screen.queryByText('Neuer Eintrag')).not.toBeInTheDocument();
   });
 });
 
