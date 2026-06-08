@@ -25,6 +25,7 @@ from services.pdf.base import (
     AnlagestrategieData,
     BacktestData,
     ContractSignoffData,
+    CostDisclosurePDFData,
     DepotCheckData,
     PDFContext,
     PortfolioData,
@@ -1840,4 +1841,44 @@ def get_advisory_report_pdf(
         content=pdf_bytes,
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get(
+    "/mandates/{mandate_id}/reports/cost-disclosure.pdf",
+    response_class=Response,
+    responses={200: {"content": {"application/pdf": {}}}},
+)
+def get_cost_disclosure_pdf(
+    mandate_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """FIDLEG Art. 8/9 Ex-ante Kostenausweis als Standalone-PDF.
+
+    Verwendet denselben Service wie der JSON-Endpoint
+    /mandates/{id}/cost-disclosure/ex-ante (PR 1, Single-Source-of-Truth).
+    Der DepotCheck-PDF enthaelt den Kostenausweis als Subsection — dieses
+    PDF ist das eigenstaendige Dokument, das dem Kunden vor Auftrags-
+    ausfuehrung ausgehaendigt werden kann.
+    """
+    from services.cost_disclosure import build_cost_disclosure
+
+    mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
+    ctx = _build_pdf_context(mandate, current_user, db)
+    payload = build_cost_disclosure(db, mandate)
+    data = CostDisclosurePDFData(
+        mandate_number=str(getattr(mandate, "mandate_number", "") or "") or None,
+        advisory_wealth_rappen=int(payload.get("advisory_wealth_rappen") or 0),
+        payload=payload,
+    )
+    pdf_bytes = ReportLabRenderer().render_cost_disclosure(ctx, data)
+    safe_mandate = "".join(
+        c if c.isalnum() else "_" for c in str(mandate.mandate_number or "mandate")
+    )[:40]
+    filename = f"kostenausweis-{safe_mandate}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
     )

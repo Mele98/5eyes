@@ -108,6 +108,17 @@ class ReportLabRenderer:
             build_flowables=lambda: build_depotcheck_flowables(ctx, data),
         )
 
+    def render_cost_disclosure(self, ctx: PDFContext, data) -> bytes:
+        """FIDLEG Art. 8/9 Ex-ante Kostenausweis als Standalone-PDF."""
+        from services.pdf.documents.cost_disclosure import (
+            build_cost_disclosure_flowables,
+        )
+        return self._render_to_bytes(
+            ctx=ctx,
+            title="Ex-ante Kostenausweis",
+            build_flowables=lambda: build_cost_disclosure_flowables(ctx, data),
+        )
+
     def render_backtest(self, ctx: PDFContext, data) -> bytes:
         """Sprint U-P17c (2026-05-22): Strategie-Backtest-PDF
         (Wealth-Index + Drawdown + Kennzahlen-Tabelle, optional Benchmark)."""
