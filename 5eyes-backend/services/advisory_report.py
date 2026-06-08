@@ -1770,13 +1770,7 @@ def _build_goal_based_investing(db: Session, mandate: Mandate) -> dict[str, Any]
         return {
             "goals": goals,
             "goal_achievement_score_bps": 0,
-            "monte_carlo_paths": {
-                "data_pending": True,
-                "note": (
-                    "Zielerreichung und Monte-Carlo-Pfade werden bei der "
-                    "stochastischen Berechnung nachgereicht."
-                ),
-            },
+            "monte_carlo_paths": _build_monte_carlo_paths_section(db, mandate),
         }
 
     weighted_sum = 0.0
@@ -1821,15 +1815,58 @@ def _build_goal_based_investing(db: Session, mandate: Mandate) -> dict[str, Any]
     return {
         "goals": goals,
         "goal_achievement_score_bps": goal_achievement_score_bps,
-        # MC-Pfade werden in U-P26 (PDF + Render) lazy berechnet und befüllt.
-        "monte_carlo_paths": {
-            "data_pending": True,
-            "note": (
-                "Monte-Carlo-Pfade (p5/p50/p75) werden bei der Bericht-"
-                "Generierung live berechnet und in der UI nachgereicht."
-            ),
-        },
+        # U-11 (2026-05-31): echte Monte-Carlo-Pfade via stochastische
+        # Engine (services.optimizer.scenario_engine). Bei fehlender TA /
+        # CMA / Beratungsvermoegen faellt die Funktion auf data_pending=True
+        # mit klarer Begruendung zurueck — UI rendert dann Platzhalter.
+        "monte_carlo_paths": _build_monte_carlo_paths_section(db, mandate),
     }
+
+
+def _build_monte_carlo_paths_section(
+    db: Session, mandate: Mandate
+) -> dict[str, Any]:
+    """U-11 helper — kapselt die Monte-Carlo-Berechnung fuer Sektion 11.
+
+    Holt die Input-Daten (initial_wealth, horizon) und delegiert an
+    services.monte_carlo_paths.compute_quantile_paths. Bei jedem Fehler
+    in der Pipeline (z.B. defekte CMA, kein TA) gibt das innere Modul
+    ein stabiles data_pending=True-Schema zurueck — wir reichen das
+    1:1 durch.
+    """
+    from services.monte_carlo_paths import compute_quantile_paths
+
+    client = _load_client_or_raise(db, mandate)
+    initial_wealth = _compute_beratungsvermoegen_rappen(db, client)
+    horizon = _derive_investment_horizon(mandate, client, db)
+    return compute_quantile_paths(
+        db,
+        mandate,
+        initial_wealth_rappen=initial_wealth,
+        horizon_years=horizon,
+    )
+
+
+def _compute_beratungsvermoegen_rappen(db: Session, client: Client) -> int:
+    """Summiert WealthPositions des Kunden mit assignment="Beratungsvermögen".
+
+    V1 Implementation: direkte Query, kein Cache. WealthPositions werden
+    sonst nur in _build_wealth_summary geladen — Drift-Risk gering, da
+    beide Stellen denselben Filter haben.
+    """
+    from models.wealth import WealthPosition
+
+    rows = (
+        db.query(WealthPosition)
+        .filter(
+            WealthPosition.client_id == client.id,
+            WealthPosition.is_active == 1,
+            WealthPosition.deleted_at.is_(None),
+            WealthPosition.assignment == "Beratungsvermögen",
+        )
+        .all()
+    )
+    return sum(_safe_int(getattr(wp, "current_value_rappen", 0)) for wp in rows)
 
 
 def _build_risikoprofilierung(db: Session, mandate: Mandate) -> dict[str, Any]:
