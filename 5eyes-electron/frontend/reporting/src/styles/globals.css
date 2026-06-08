@@ -91,20 +91,53 @@
   }
 }
 
-/* Print-Layout — identisch zur Bildschirm-Ansicht, A4. */
+/* ============================================================================
+ * Print-Layout (Sprint U-47, Roadmap-Punkt 47, 2026-06-01)
+ *
+ * Sub-App-Bildschirm ist editorial A4-aequivalent — Strg+P soll ein
+ * institutionell sauberes PDF erzeugen ohne Sidebar/Navigations-Chrome.
+ *
+ * Konventionen:
+ *  - .no-print              -> Element wird im Druck ausgeblendet
+ *                              (Sidebar, Buttons, NotesDrawer, etc.)
+ *  - .print-only            -> Element nur im Druck sichtbar
+ *  - .page-break-before     -> erzwingt page-break VOR diesem Element
+ *  - .page-break-after      -> erzwingt page-break NACH diesem Element
+ *  - .page-break-avoid      -> verhindert page-break IN diesem Element
+ *
+ * A4-Margins: 20mm allseitig — passt zu MARGIN_LEFT/RIGHT/TOP/BOTTOM
+ * im Server-PDF (services/pdf/components/advisory_palette.py).
+ * ============================================================================ */
+
+.print-only {
+  display: none;
+}
+
 @media print {
+  /* A4 mit 20mm Default-Margins — gleich wie Server-PDF */
+  @page {
+    size: A4;
+    margin: 20mm;
+  }
+
+  /* Weisser Hintergrund, kein editorial Off-White-Tint */
   body {
     @apply bg-white;
+    /* Farb-Treue im Druck — sonst wandelt Browser unsere Status-Farben
+       in Pastell-Toene um. Wichtig fuer Ampel-Pills + p50-Linie. */
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
+
+  /* Sidebar, Buttons, Drawer etc. — alles was nicht in den Bericht gehoert */
   .no-print {
     display: none !important;
   }
 
   /* Sprint U-52 (2026-06-02): Cover-Animation print-aware.
      framer-motion setzt inline opacity/transform-Werte beim
-     initial-State (initial={{ opacity: 0, y: 12 }}). Wenn der
-     Print-Snapshot vor Animation-Ende ausgeloest wird, waeren
-     Cover-Titel + Subtitle UNSICHTBAR oder verschoben. */
+     initial-State. Wenn der Print-Snapshot vor Animation-Ende
+     ausgeloest wird, waeren Cover-Titel + Subtitle UNSICHTBAR. */
   *,
   *::before,
   *::after {
@@ -116,6 +149,40 @@
   [data-testid] {
     opacity: 1 !important;
     transform: none !important;
+  }
+
+  /* U-47: Komplementaer: Elemente, die NUR im Druck sichtbar sind */
+  .print-only {
+    display: block !important;
+  }
+
+  /* U-47: Page-Break-Helper */
+  .page-break-before {
+    page-break-before: always;
+    break-before: page;
+  }
+  .page-break-after {
+    page-break-after: always;
+    break-after: page;
+  }
+  .page-break-avoid {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  /* U-47: Tabellen-Rows + figures sollten nicht mitten im Druck-Layout
+     getrennt werden (default fuer Editorial-Look). */
+  tr, figure, .status-pill {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  /* U-47: Externe URLs werden im Druck ausgeschrieben — FINMA-Audit-Trail
+     fuer Print-Variante des Berichts. */
+  a[href^="http"]::after {
+    content: " (" attr(href) ")";
+    font-size: 0.85em;
+    color: #5a6577;
   }
 }
 

@@ -73,7 +73,7 @@ export function NotesDrawer({
       role="dialog"
       aria-modal="true"
       aria-label={title}
-      className="fixed inset-0 z-50 flex"
+      className="no-print fixed inset-0 z-50 flex"
     >
       {/* Backdrop */}
       <button

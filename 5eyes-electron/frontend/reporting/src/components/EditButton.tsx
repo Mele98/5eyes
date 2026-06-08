@@ -32,6 +32,7 @@ export function EditButton({ onClick, isEdited, ariaLabel }: EditButtonProps) {
       onClick={onClick}
       aria-label={ariaLabel ?? `Sektion ${label.toLowerCase()}`}
       className="
+        no-print
         absolute right-page-x top-block
         inline-flex items-center gap-2
         rounded-card border border-rule bg-canvas-panel
