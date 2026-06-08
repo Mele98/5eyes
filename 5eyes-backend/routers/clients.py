@@ -410,3 +410,42 @@ def create_client_login(
         "client_id": client.id,
         "status": "created",
     }
+
+# ── DSG-Datenexport (Roadmap-Punkt 10) ────────────────────────────────────────
+
+@router.get("/{client_id}/data-export")
+def export_data(
+    client_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_advisor),
+):
+    """DSG Art. 25 — Auskunftsrecht. Liefert alle personenbezogenen Daten
+    des Kunden in maschinenlesbarem JSON-Format.
+
+    Authentifizierung
+        Advisor-only. Mandantentrennung wird ueber `_get_client_or_404`
+        erzwungen (Berater darf nur seine eigenen Kunden exportieren,
+        ausser bei globalem Zugriff).
+
+    Audit
+        Jeder Export landet als `EXPORT`-Eintrag im audit_log mit
+        integrity_hash, sodass spaeter nachvollziehbar bleibt, welcher
+        Berater wann welche Daten herausgegeben hat (FINMA-konform).
+    """
+    from services.data_export import export_client_data
+
+    client = _get_client_or_404(client_id, db, current_user)
+    payload = export_client_data(db, client.id)
+    log(
+        db,
+        user_id=current_user.id,
+        user_name=current_user.full_name,
+        table_name="clients",
+        record_id=client.id,
+        action="EXPORT",
+        client_id=client.id,
+        new_value=f"DSG-Export schema_v{payload['schema_version']}, "
+                  f"{sum(payload['manifest'].values())} Datensaetze",
+    )
+    db.commit()
+    return payload
