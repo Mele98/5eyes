@@ -39,6 +39,148 @@ from models.users import User
 # Entry-Point
 # ---------------------------------------------------------------------------
 
+_CACHE_KEY = "_advisory_aggregator_call_cache"
+
+
+def _aggregator_cache_get(db: Session, key: Any, factory) -> Any:
+    """Sprint U-18: Call-scoped Cache fuer Sub-Queries innerhalb eines
+    compute_advisory_report()-Aufrufs.
+
+    Wenn der Aufruf-Cache nicht gesetzt ist (Funktion direkt aufgerufen
+    ohne compute() drumherum -> z.B. in Helper-Tests), faellt der Helper
+    auf factory() zurueck — kein Crash, nur kein Caching.
+    """
+    cache = db.info.get(_CACHE_KEY)
+    if cache is None:
+        return factory()
+    if key not in cache:
+        cache[key] = factory()
+    return cache[key]
+
+
+def _cached_latest_recommendation_run(db: Session, mandate: Mandate) -> Any:
+    """U-18: einmal pro compute() statt 4x (Sektionen 5, 8-10, 13)."""
+    from models.review import RecommendationRun
+    return _aggregator_cache_get(
+        db,
+        ("latest_run", mandate.id),
+        lambda: (
+            db.query(RecommendationRun)
+            .filter(RecommendationRun.mandate_id == mandate.id)
+            .order_by(RecommendationRun.created_at.desc())
+            .first()
+        ),
+    )
+
+
+def _cached_latest_rec_positions(db: Session, mandate: Mandate) -> list[Any]:
+    """U-18: einmal pro compute() statt 4x."""
+    from models.review import RecommendationPosition
+    def _factory():
+        run = _cached_latest_recommendation_run(db, mandate)
+        if run is None:
+            return []
+        return (
+            db.query(RecommendationPosition)
+            .filter(RecommendationPosition.run_id == run.id)
+            .all()
+        )
+    return _aggregator_cache_get(db, ("rec_positions", mandate.id), _factory)
+
+
+def _cached_rec_products_by_id(db: Session, mandate: Mandate) -> dict[str, Any]:
+    """U-18: einmal pro compute() statt 3x. Liefert dict id -> Product."""
+    from models.review import Product
+    def _factory():
+        positions = _cached_latest_rec_positions(db, mandate)
+        product_ids = [p.product_id for p in positions if p.product_id]
+        if not product_ids:
+            return {}
+        products = (
+            db.query(Product).filter(Product.id.in_(product_ids)).all()
+        )
+        return {p.id: p for p in products}
+    return _aggregator_cache_get(db, ("rec_products_by_id", mandate.id), _factory)
+
+
+def _cached_current_ta(db: Session, mandate: Mandate) -> Any:
+    """U-18: einmal pro compute() statt 5+ Lookups (Sektionen 4, 7, 11, 12, 13)."""
+    from models.allocation import TargetAllocation
+    return _aggregator_cache_get(
+        db,
+        ("current_ta", mandate.id),
+        lambda: (
+            db.query(TargetAllocation)
+            .filter(
+                TargetAllocation.mandate_id == mandate.id,
+                TargetAllocation.is_current == 1,
+                TargetAllocation.deleted_at.is_(None),
+            )
+            .first()
+        ),
+    )
+
+
+def _cached_current_ra(db: Session, mandate: Mandate) -> Any:
+    """U-18: einmal pro compute() statt 4x (Sektionen 4, 7, 12)."""
+    from models.profiling import RiskAssessment
+    def _factory():
+        # Wir laden die JUENGSTE (created_at DESC), die _build_risikoprofilierung
+        # nutzt, UND fallen darunter auf is_current=1 zurueck wenn die juengste
+        # nicht current ist (Edge-Case wenn alte aktive Zeile noch da).
+        return (
+            db.query(RiskAssessment)
+            .filter(RiskAssessment.mandate_id == mandate.id)
+            .order_by(RiskAssessment.created_at.desc())
+            .first()
+        )
+    return _aggregator_cache_get(db, ("current_ra_latest", mandate.id), _factory)
+
+
+def _cached_current_ra_is_current(db: Session, mandate: Mandate) -> Any:
+    """Spezial-Variante mit is_current=1 + deleted_at IS NULL Filter.
+    _build_risikoprofilierung nutzt diese, _check_risikoprofil + _resolve
+    nutzen `_cached_current_ra`. Beide Wege werden gecached.
+    """
+    from models.profiling import RiskAssessment
+    def _factory():
+        return (
+            db.query(RiskAssessment)
+            .filter(
+                RiskAssessment.mandate_id == mandate.id,
+                RiskAssessment.is_current == 1,
+                RiskAssessment.deleted_at.is_(None),
+            )
+            .order_by(RiskAssessment.created_at.desc())
+            .first()
+        )
+    return _aggregator_cache_get(db, ("current_ra_is_current", mandate.id), _factory)
+
+
+def _cached_active_goals(db: Session, mandate: Mandate) -> list[Any]:
+    """U-18: einmal pro compute() statt 3x (Sektionen 4, 4-Header, 11)."""
+    from models.wealth import Goal
+    def _factory():
+        return (
+            db.query(Goal)
+            .filter(Goal.mandate_id == mandate.id, Goal.is_active == 1)
+            .all()
+        )
+    return _aggregator_cache_get(db, ("active_goals", mandate.id), _factory)
+
+
+def _cached_active_cashflows(db: Session, client_id: str) -> list[Any]:
+    """U-18: einmal pro compute() statt 2x (Sektionen 4, 4-Header)."""
+    from models.wealth import Cashflow
+    def _factory():
+        return (
+            db.query(Cashflow)
+            .filter(Cashflow.client_id == client_id, Cashflow.is_active == 1)
+            .all()
+        )
+    return _aggregator_cache_get(db, ("active_cashflows", client_id), _factory)
+
+
 def compute_advisory_report(
     db: Session,
     mandate: Mandate,
@@ -66,6 +208,26 @@ def compute_advisory_report(
         All values are either primitive types, lists, or dicts — directly
         JSON-serializable.
     """
+    # U-18 (Roadmap-Punkt 18): Call-scoped Cache aktivieren. Ohne den
+    # Cache werden TargetAllocation 7x, RecommendationRun 4x, RiskAssessment
+    # 4x, Goals 3x etc. abgefragt — die Call-Helper unten greifen auf
+    # db.info[_CACHE_KEY] zu und liefern jeden Eintrag nur 1x pro compute().
+    # Try/Finally garantiert dass der Cache am Ende sauber abgeraeumt wird,
+    # auch im Exception-Pfad.
+    db.info[_CACHE_KEY] = {}
+    try:
+        return _compute_advisory_report_inner(db, mandate, advisor=advisor)
+    finally:
+        db.info.pop(_CACHE_KEY, None)
+
+
+def _compute_advisory_report_inner(
+    db: Session,
+    mandate: Mandate,
+    *,
+    advisor: User | None = None,
+) -> dict[str, Any]:
+    """Innere Implementierung — Cache-Lifecycle wird vom Wrapper gemanagt."""
     client = _load_client_or_raise(db, mandate)
     generated_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     # Depot-Check einmal berechnen, an mehrere Sektionen weiterreichen
@@ -223,35 +385,19 @@ def _parse_notes_json_list(raw: Any) -> list[str]:
 
 
 def _latest_recommendation_positions(db: Session, mandate: Mandate) -> list[Any]:
-    from models.review import RecommendationPosition, RecommendationRun
-
-    latest_run = (
-        db.query(RecommendationRun)
-        .filter(RecommendationRun.mandate_id == mandate.id)
-        .order_by(RecommendationRun.created_at.desc())
-        .first()
-    )
-    if latest_run is None:
-        return []
-    return (
-        db.query(RecommendationPosition)
-        .filter(RecommendationPosition.run_id == latest_run.id)
-        .all()
-    )
+    # U-18: Cache-aware; vorher 3 separate Aufrufe, jetzt 1 Lookup.
+    return _cached_latest_rec_positions(db, mandate)
 
 
 def _latest_recommendation_positions_with_products(
     db: Session,
     mandate: Mandate,
 ) -> list[tuple[Any, Any]]:
-    from models.review import Product
-
-    rec_positions = _latest_recommendation_positions(db, mandate)
-    product_ids = [p.product_id for p in rec_positions if p.product_id]
-    if not product_ids:
+    # U-18: Beide Sub-Queries (rec_positions + Products) sind cached.
+    rec_positions = _cached_latest_rec_positions(db, mandate)
+    if not rec_positions:
         return []
-    products = db.query(Product).filter(Product.id.in_(product_ids)).all()
-    products_by_id = {p.id: p for p in products}
+    products_by_id = _cached_rec_products_by_id(db, mandate)
     return [
         (pos, products_by_id[pos.product_id])
         for pos in rec_positions
@@ -432,8 +578,11 @@ def _build_wealth_summary(
     - vorsorge_rappen (position_type contains "Vorsorge"/"Pensionskasse"/"3a")
     - kredite_rappen (negative Verbindlichkeiten)
     Plus Listen für cashflows und ziele (Goals).
+
+    U-18: cashflows + goals kommen aus dem call-scoped Cache. WealthPosition
+    bleibt direkter Query (wird nur in dieser einen Sektion gebraucht).
     """
-    from models.wealth import Cashflow, Goal, WealthPosition
+    from models.wealth import WealthPosition
     wp_rows = (
         db.query(WealthPosition)
         .filter(
@@ -462,11 +611,7 @@ def _build_wealth_summary(
         if any(key in position_type for key in ("kredit", "hypothek", "darlehen")) and amount < 0:
             kredite += abs(amount)
 
-    cashflow_rows = (
-        db.query(Cashflow)
-        .filter(Cashflow.client_id == client.id, Cashflow.is_active == 1)
-        .all()
-    )
+    cashflow_rows = _cached_active_cashflows(db, str(client.id))
     cashflows = [
         {
             "label": str(getattr(cf, "label", "") or ""),
@@ -477,11 +622,7 @@ def _build_wealth_summary(
         for cf in cashflow_rows
     ]
 
-    goal_rows = (
-        db.query(Goal)
-        .filter(Goal.mandate_id == mandate.id, Goal.is_active == 1)
-        .all()
-    )
+    goal_rows = _cached_active_goals(db, mandate)
     ziele = [
         {
             "label": str(getattr(g, "label", "") or ""),
@@ -510,17 +651,10 @@ def _build_key_metrics(db: Session, mandate: Mandate) -> dict[str, Any]:
     Risky-Fraction, erwartete Vol/Return, MaxDD und VaR kommen aus den
     persistierten Audit-Feldern der TargetAllocation. Wenn keine TA
     existiert, sind alle Werte None — die UI rendert dann ein „—".
+
+    U-18: TA aus call-scoped Cache.
     """
-    from models.allocation import TargetAllocation
-    ta = (
-        db.query(TargetAllocation)
-        .filter(
-            TargetAllocation.mandate_id == mandate.id,
-            TargetAllocation.is_current == 1,
-            TargetAllocation.deleted_at.is_(None),
-        )
-        .first()
-    )
+    ta = _cached_current_ta(db, mandate)
     if ta is None:
         return {
             "risky_fraction_bps": None,
@@ -645,20 +779,14 @@ def _derive_primary_goal_label(db: Session, mandate: Mandate) -> str:
 
     Fallback "—" wenn keine aktiven Goals. Nutzt `goal_type` als Sub-Default,
     falls `label` leer ist (Backwards-Compat zu alten Datensätzen).
-    """
-    from models.wealth import Goal
 
-    goal = (
-        db.query(Goal)
-        .filter(
-            Goal.mandate_id == mandate.id,
-            Goal.is_active == 1,
-        )
-        .order_by(Goal.rank.asc())
-        .first()
-    )
-    if goal is None:
+    U-18: nutzt _cached_active_goals — kein eigener DB-Roundtrip.
+    """
+    goals = _cached_active_goals(db, mandate)
+    if not goals:
         return "—"
+    # In-memory min nach rank ist O(N) und vermeidet die separate ORDER BY-Query
+    goal = min(goals, key=lambda g: _safe_int(getattr(g, "rank", 0) or 0))
     label = str(getattr(goal, "label", "") or "").strip()
     if label:
         return label
@@ -675,21 +803,15 @@ def _derive_liquidity_need(db: Session, mandate: Mandate) -> int:
     Summiert alle aktiven Expense-Cashflows des Kunden, normalisiert auf
     Jahreswerte (jährlich/monatlich/quartalsweise erkannt) und nimmt die
     Hälfte als 6-Monats-Notgroschen.
-    """
-    from models.wealth import Cashflow
 
+    U-18: nutzt _cached_active_cashflows (kein eigener DB-Roundtrip);
+    Expense-Filter wird in-memory angewandt.
+    """
     client_id = getattr(mandate, "client_id", None)
     if not client_id:
         return 0
-    rows = (
-        db.query(Cashflow)
-        .filter(
-            Cashflow.client_id == client_id,
-            Cashflow.is_active == 1,
-            Cashflow.cashflow_type == "Expense",
-        )
-        .all()
-    )
+    all_cashflows = _cached_active_cashflows(db, str(client_id))
+    rows = [cf for cf in all_cashflows if str(getattr(cf, "cashflow_type", "")) == "Expense"]
     annual_expenses_rappen = 0
     for cf in rows:
         amount = _safe_int(getattr(cf, "amount_rappen", 0))
@@ -709,14 +831,11 @@ def _derive_liquidity_need(db: Session, mandate: Mandate) -> int:
 
 
 def _resolve_risk_profile_from_assessment(db: Session, mandate: Mandate) -> str:
-    """Lookup risk profile label from the mandate's latest RiskAssessment."""
-    from models.profiling import RiskAssessment
-    ra = (
-        db.query(RiskAssessment)
-        .filter(RiskAssessment.mandate_id == mandate.id)
-        .order_by(RiskAssessment.created_at.desc())
-        .first()
-    )
+    """Lookup risk profile label from the mandate's latest RiskAssessment.
+
+    U-18: nutzt _cached_current_ra (kein eigener DB-Roundtrip).
+    """
+    ra = _cached_current_ra(db, mandate)
     if ra is None:
         return "—"
     label = str(
@@ -737,8 +856,8 @@ def _build_positionen(db: Session, mandate: Mandate) -> dict[str, Any]:
     Gruppierung gemäss Spec §4 in 5 Anlageklassen, sortiert nach Marktwert
     absteigend innerhalb der Gruppe.
     """
-    from models.review import Product, RecommendationPosition, RecommendationRun
-
+    # U-18: latest_run + rec_positions + products kommen alle aus dem
+    # call-scoped Cache (kein Sektion-spezifischer DB-Roundtrip mehr).
     # Initial-Struktur mit allen 5 Gruppen (auch wenn leer — UI rendert
     # konsistent, keine Sprünge).
     bucket_order = [
@@ -753,12 +872,7 @@ def _build_positionen(db: Session, mandate: Mandate) -> dict[str, Any]:
         for key, label in bucket_order
     ]
 
-    latest_run = (
-        db.query(RecommendationRun)
-        .filter(RecommendationRun.mandate_id == mandate.id)
-        .order_by(RecommendationRun.created_at.desc())
-        .first()
-    )
+    latest_run = _cached_latest_recommendation_run(db, mandate)
     if latest_run is None:
         return {
             "groups": groups,
@@ -770,18 +884,8 @@ def _build_positionen(db: Session, mandate: Mandate) -> dict[str, Any]:
             ),
         }
 
-    rec_positions = (
-        db.query(RecommendationPosition)
-        .filter(RecommendationPosition.run_id == latest_run.id)
-        .all()
-    )
-    product_ids = [rp.product_id for rp in rec_positions if rp.product_id]
-    products_map: dict[str, Product] = {}
-    if product_ids:
-        products_map = {
-            p.id: p
-            for p in db.query(Product).filter(Product.id.in_(product_ids)).all()
-        }
+    rec_positions = _cached_latest_rec_positions(db, mandate)
+    products_map = _cached_rec_products_by_id(db, mandate)
     groups_by_key = {g["key"]: g for g in groups}
     total_rappen = 0
     for rp in rec_positions:
@@ -995,15 +1099,12 @@ def _verdict(
 def _check_risikoprofil(db: Session, mandate: Mandate) -> dict[str, Any]:
     """GRÜN: Assessment vorhanden und < 12 Monate alt.
     GELB: Assessment vorhanden, älter.
-    ROT: kein Assessment."""
+    ROT: kein Assessment.
+
+    U-18: nutzt _cached_current_ra (kein eigener DB-Roundtrip).
+    """
     from datetime import date
-    from models.profiling import RiskAssessment
-    ra = (
-        db.query(RiskAssessment)
-        .filter(RiskAssessment.mandate_id == mandate.id)
-        .order_by(RiskAssessment.created_at.desc())
-        .first()
-    )
+    ra = _cached_current_ra(db, mandate)
     if ra is None:
         return _verdict(
             "Risikoprofil", "rot",
@@ -1368,18 +1469,12 @@ def _check_gebuehren(dc: dict[str, Any]) -> dict[str, Any]:
 
 def _check_zielkompatibilitaet(db: Session, mandate: Mandate) -> dict[str, Any]:
     """Liest goal_achievability_json aus aktueller TA. Wenn keine TA oder
-    keine Goal-Daten: nicht_beurteilbar."""
+    keine Goal-Daten: nicht_beurteilbar.
+
+    U-18: nutzt _cached_current_ta (kein eigener DB-Roundtrip).
+    """
     import json
-    from models.allocation import TargetAllocation
-    ta = (
-        db.query(TargetAllocation)
-        .filter(
-            TargetAllocation.mandate_id == mandate.id,
-            TargetAllocation.is_current == 1,
-            TargetAllocation.deleted_at.is_(None),
-        )
-        .first()
-    )
+    ta = _cached_current_ta(db, mandate)
     if ta is None or not getattr(ta, "goal_achievability_json", None):
         return _verdict(
             "Zielkompatibilität", "nicht_beurteilbar",
@@ -1729,20 +1824,12 @@ def _build_goal_based_investing(db: Session, mandate: Mandate) -> dict[str, Any]
     Goal-Achievement-Score wird aus den Wahrscheinlichkeiten der einzelnen
     Goals abgeleitet (gewichteter Durchschnitt, gewichtet mit `weight_bps`
     falls vorhanden — sonst gleichgewichtet).
+
+    U-18: TA + Goals aus call-scoped Cache.
     """
     import json
-    from models.allocation import TargetAllocation
-    from models.wealth import Goal
 
-    ta = (
-        db.query(TargetAllocation)
-        .filter(
-            TargetAllocation.mandate_id == mandate.id,
-            TargetAllocation.is_current == 1,
-            TargetAllocation.deleted_at.is_(None),
-        )
-        .first()
-    )
+    ta = _cached_current_ta(db, mandate)
     rows: list[dict[str, Any]] = []
     if ta is not None and getattr(ta, "goal_achievability_json", None):
         try:
@@ -1754,11 +1841,7 @@ def _build_goal_based_investing(db: Session, mandate: Mandate) -> dict[str, Any]
 
     # Goal-Metadaten ergänzen (Label, Ziel-Datum) aus Goal-Tabelle, falls
     # die persistierte JSON-Zeile keinen Namen mitbringt.
-    goal_rows = (
-        db.query(Goal)
-        .filter(Goal.mandate_id == mandate.id, Goal.is_active == 1)
-        .all()
-    )
+    goal_rows = _cached_active_goals(db, mandate)
     goal_by_id = {str(g.id): g for g in goal_rows}
 
     goals: list[dict[str, Any]] = []
@@ -1889,29 +1972,11 @@ def _build_risikoprofilierung(db: Session, mandate: Mandate) -> dict[str, Any]:
 
     Default-Fragen (für UI-Score-Bar-Rendering) sind die 7 Standard-Fragen
     aus der Spec §11 + ihre Mapping zu den persistierten Punkten.
-    """
-    from models.allocation import TargetAllocation
-    from models.profiling import RiskAssessment
 
-    ra = (
-        db.query(RiskAssessment)
-        .filter(
-            RiskAssessment.mandate_id == mandate.id,
-            RiskAssessment.is_current == 1,
-            RiskAssessment.deleted_at.is_(None),
-        )
-        .order_by(RiskAssessment.created_at.desc())
-        .first()
-    )
-    ta = (
-        db.query(TargetAllocation)
-        .filter(
-            TargetAllocation.mandate_id == mandate.id,
-            TargetAllocation.is_current == 1,
-            TargetAllocation.deleted_at.is_(None),
-        )
-        .first()
-    )
+    U-18: RA + TA aus call-scoped Cache.
+    """
+    ra = _cached_current_ra_is_current(db, mandate)
+    ta = _cached_current_ta(db, mandate)
 
     if ra is None:
         return {
@@ -1951,18 +2016,10 @@ def _build_building_blocks(db: Session, mandate: Mandate) -> dict[str, Any]:
     Erklärung der institutionellen Portfolio-Konstruktion. Granulare
     Sub-Block-Auflösung (z.B. Aktien-CH vs Aktien-Global) kommt in einem
     späteren Sprint, wenn der Sub-Asset-Class-Mix konfigurierbar wird.
-    """
-    from models.allocation import TargetAllocation
 
-    ta = (
-        db.query(TargetAllocation)
-        .filter(
-            TargetAllocation.mandate_id == mandate.id,
-            TargetAllocation.is_current == 1,
-            TargetAllocation.deleted_at.is_(None),
-        )
-        .first()
-    )
+    U-18: TA aus call-scoped Cache.
+    """
+    ta = _cached_current_ta(db, mandate)
     blocks: list[dict[str, Any]] = []
     for key, label in _ASSET_ALLOCATION_ORDER:
         target_bps = (
