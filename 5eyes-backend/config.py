@@ -141,26 +141,18 @@ class Settings(BaseSettings):
     recent_log_lines_max: int = 500
 
     # Sprint U-7 (2026-06-04): Content-Security-Policy + Permissions-Policy.
-    # Default: aktiv, Default-Policy aus core/middleware.py DEFAULT_CSP_POLICY.
-    # Wer Custom-Policy braucht: CSP_POLICY env setzen.
     csp_enabled: bool = True
-    csp_policy: str = ''  # '' = Default aus core/middleware.py
+    csp_policy: str = ''
     permissions_policy_enabled: bool = True
-    # HSTS: nur aktivieren wenn https erzwungen (Reverse-Proxy).
     hsts_enabled: bool = False
 
     # Sprint U-64 (2026-06-04): Telemetrie-Adapter (opt-in).
-    # sentry-sdk ist NICHT als harte Dependency in requirements.txt.
-    # Wer Telemetrie nutzen will: pip install sentry-sdk + DSN setzen.
     telemetry_enabled: bool = False
     telemetry_dsn: str = ''
-    telemetry_environment: str = ''  # leer = nimmt app_env
+    telemetry_environment: str = ''
     telemetry_sample_rate: float = 1.0
 
-    # U-8 — DB-Backup-Strategie (Roadmap-Punkt 8). SQLite-Online-Backup
-    # via sqlite3.Connection.backup() — atomar, WAL-aware. Standardmaessig
-    # taeglich 03:00 lokal in ein Verzeichnis NEBEN der DB. In Production
-    # sollte backup_dir auf ein SEPARATES Volume / externen Mount zeigen.
+    # U-8 — DB-Backup-Strategie (PR #106).
     backup_enabled: bool = True
     backup_dir: str = str(Path.home() / '5eyes' / 'backups')
     backup_retain_days: int = 30
@@ -169,6 +161,14 @@ class Settings(BaseSettings):
     backup_scheduler_timezone: str = 'Europe/Zurich'
     backup_scheduler_hour: int = 3
     backup_scheduler_minute: int = 0
+
+    # U-19 — Aggregator-Cache (Roadmap-Punkt 19). compute_advisory_report
+    # macht 17 Sektionen mit je mehreren DB-Queries; der Sub-App-User klickt
+    # durch Sektionen und triggert pro Sektionsanzeige einen vollen Recompute.
+    # In-Memory-TTL+LRU-Cache zwischen HTTP-Endpoint und Aggregator.
+    aggregator_cache_enabled: bool = True
+    aggregator_cache_ttl_seconds: int = 60
+    aggregator_cache_max_size: int = 256
 
     # Optimizer (siehe docs/planning/2026-05-05-stochastic-optimizer-spec.md
     # und claude-bericht-Advisory-Methodik-assetallocation-optimierung-v3-codeplan.md).
@@ -390,6 +390,19 @@ class Settings(BaseSettings):
     def validate_backup_keep_minimum(cls, value: int) -> int:
         if value < 1:
             raise ValueError('backup_keep_minimum muss >= 1 sein (Katastrophen-Schutz)')
+
+    @field_validator('aggregator_cache_ttl_seconds')
+    @classmethod
+    def validate_aggregator_cache_ttl(cls, value: int) -> int:
+        if value < 0:
+            raise ValueError('aggregator_cache_ttl_seconds muss >= 0 sein (0 = effektiv aus)')
+        return value
+
+    @field_validator('aggregator_cache_max_size')
+    @classmethod
+    def validate_aggregator_cache_max_size(cls, value: int) -> int:
+        if value < 1:
+            raise ValueError('aggregator_cache_max_size muss >= 1 sein')
         return value
 
     @model_validator(mode='after')

@@ -32,6 +32,10 @@ from services.portfolio_engine import (
     require_strategy_ready_assessment,
 )
 from services.advisory_report import compute_advisory_report
+from services.advisory_report_cache import (
+    cached_compute_advisory_report,
+    invalidate_mandate as invalidate_advisory_cache,
+)
 from services.depot_check import compute_depot_check
 from services.backtest_stress import compute_stress_replays
 from services.backtest_ab import run_ab_backtest
@@ -472,7 +476,7 @@ def get_advisory_report(
     get_current_user, gleiche Pattern wie Depot-Check-Endpoint.
     """
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
-    return compute_advisory_report(db, mandate, advisor=current_user)
+    return cached_compute_advisory_report(db, mandate, advisor=current_user)
 
 
 # ---------------------------------------------------------------------------
@@ -651,6 +655,10 @@ def put_report_notes(
     )
     db.commit()
     db.refresh(notes)
+    # U-19: Cache invalidieren, damit die naechste GET /advisory-report den
+    # frisch gespeicherten Override sofort sieht (statt bis zu TTL-Sekunden
+    # auf Auto-Default-Cache zu zeigen).
+    invalidate_advisory_cache(mandate.id)
     return ReportNotesResponse(**_serialize_notes(notes))
 
 

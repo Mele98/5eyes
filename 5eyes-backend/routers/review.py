@@ -37,6 +37,7 @@ from schemas.review import (
 from price_updater import summarize_price_quality
 from services.auth import get_accessible_client_ids, get_accessible_mandate_ids, get_client_for_user_or_404, get_current_user, get_mandate_for_user_or_404, has_global_client_access, require_advisor, require_admin
 from services.audit import log
+from services.advisory_report_cache import invalidate_mandate as invalidate_advisory_cache
 from services.eodhd_client import preview_eodhd_reference
 from services.openfigi_client import preview_openfigi_mapping
 from services.portfolio_engine import build_recommendation_payload_from_run, generate_recommendation_run
@@ -702,6 +703,9 @@ def create_advisory_log_entry(
             )
         raise
     db.refresh(entry)
+    # U-19: Cache invalidieren — Beratungsprotokoll-Sektion zeigt diesen
+    # Eintrag ab dem naechsten GET, statt 60s zu warten.
+    invalidate_advisory_cache(mandate_id)
     return serialize_response(entry)
 
 
@@ -762,6 +766,7 @@ def create_advisory_log_from_report_generation(
     )
     db.commit()
     db.refresh(entry)
+    invalidate_advisory_cache(mandate_id)
     return serialize_response(entry)
 
 
@@ -835,6 +840,7 @@ def update_advisory_log_entry(
     )
     db.commit()
     db.refresh(new_entry)
+    invalidate_advisory_cache(mandate_id)
     return serialize_response(new_entry)
 
 
