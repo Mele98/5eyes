@@ -57,6 +57,7 @@ import {
   makeDisclaimer,
   makeErkenntnisse,
   makeGoals,
+  makeGoalsWithPaths,
   makeInhaltsverzeichnis,
   makePositionen,
   makePruefpunkte,
@@ -250,6 +251,37 @@ describe('Section 11: Goals', () => {
     render(withRouter(<Goals data={makeGoals()} />));
     expect(screen.getByText('Erreichbar')).toBeInTheDocument();
     expect(screen.getByText('Knapp')).toBeInTheDocument();
+  });
+
+  it('zeigt MC-Hinweis-Text wenn data_pending=true', () => {
+    render(withRouter(<Goals data={makeGoals()} />));
+    expect(screen.getByText(/Pfade werden live berechnet/i)).toBeInTheDocument();
+    // KEIN Chart bei data_pending
+    expect(screen.queryByTestId('mc-paths-chart')).not.toBeInTheDocument();
+  });
+
+  it('U-12: rendert MC-Chart wenn echte Pfade vorhanden', () => {
+    render(withRouter(<Goals data={makeGoalsWithPaths()} />));
+    expect(screen.getByTestId('mc-paths-chart')).toBeInTheDocument();
+    expect(screen.getByTestId('mc-paths-band')).toBeInTheDocument();
+    expect(screen.getByTestId('mc-paths-p50')).toBeInTheDocument();
+    // KEIN data_pending-Hinweis wenn echte Pfade da sind
+    expect(
+      screen.queryByText(/Pfade werden live berechnet/i),
+    ).not.toBeInTheDocument();
+  });
+
+  it('U-12: Goal innerhalb des Horizonts hat sichtbaren Marker', () => {
+    render(withRouter(<Goals data={makeGoalsWithPaths()} />));
+    // Haus-Umbau: target_date 2030-01-01, time_axis 2026..2041 -> drin
+    expect(screen.getByTestId('goal-marker-g2')).toBeInTheDocument();
+  });
+
+  it('U-12: Goal jenseits Horizont hat KEINEN Marker', () => {
+    const data = makeGoalsWithPaths();
+    // Pension (g1): target_date 2042-09-18, time_axis endet 2041 -> beyond
+    render(withRouter(<Goals data={data} />));
+    expect(screen.queryByTestId('goal-marker-g1')).not.toBeInTheDocument();
   });
 });
 

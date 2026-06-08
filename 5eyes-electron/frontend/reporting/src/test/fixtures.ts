@@ -266,6 +266,34 @@ export function makeGoals(): GoalBasedInvestingData {
   };
 }
 
+/**
+ * U-12 fixture: Variante mit echten Monte-Carlo-Pfaden, damit
+ * Section-Tests den Chart-Pfad verifizieren koennen. Determinismus
+ * via klar konstruierten Wachstums-Pfaden (3%/5%/7% p.a.).
+ */
+export function makeGoalsWithPaths(): GoalBasedInvestingData {
+  const base = makeGoals();
+  const time_axis = Array.from({ length: 16 }, (_, i) => `${2026 + i}`);
+  const start = 2_700_000_00;
+  const p5 = time_axis.map((_, t) => Math.round(start * Math.pow(1.03, t)));
+  const p50 = time_axis.map((_, t) => Math.round(start * Math.pow(1.05, t)));
+  const p75 = time_axis.map((_, t) => Math.round(start * Math.pow(1.07, t)));
+  return {
+    ...base,
+    monte_carlo_paths: {
+      data_pending: false,
+      time_axis,
+      p5,
+      p50,
+      p75,
+      n_paths: 1000,
+      seed: 42,
+      horizon_years: 15,
+      initial_wealth_rappen: start,
+    },
+  };
+}
+
 export function makeRisikoprofil(): RisikoprofilierungData {
   return {
     risky_fraction_bps: 4250,
