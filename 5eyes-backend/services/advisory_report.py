@@ -147,6 +147,10 @@ def compute_advisory_report(
         # Compliance-Audit-Block. Wird vom compliance_audit-Renderer als
         # 6. Block angefuegt wenn vorhanden.
         "engine_configuration": _build_engine_configuration(db, mandate),
+        # --- Sektion 26 (additiv, U-71): Policy-A/B-Backtest
+        # Wenn keine Vergleichs-Policy existiert: Pending-Hinweis statt
+        # erfundener Vergleich. Re-architektiert 2026-06-09 von Sektion 18.
+        "ab_backtest": _build_ab_backtest(db, mandate),
     }
 
 
@@ -2301,6 +2305,156 @@ def _build_stress_replay(db: Session, mandate: Mandate) -> dict[str, Any]:
         "weights_bps": dict(raw.get("weights_bps") or {}),
         "scenarios": scenarios,
     }
+
+
+# ---------------------------------------------------------------------------
+# Sektion 18 — A/B-HouseMatrix-Backtest (Sprint U-71)
+# ---------------------------------------------------------------------------
+
+def _build_ab_backtest(db: Session, mandate: Mandate) -> dict[str, Any]:
+    """Read-only Policy-Vergleich für den Advisory-Report.
+
+    Der bestehende A/B-Service verlangt zwei Policy-IDs. Für den Report wählen
+    wir konservativ die aktuelle Policy als B und die jüngste andere Policy als
+    A. Gibt es keine Vergleichs-Policy, bleibt die Sektion fail-soft pending.
+    """
+    from models.allocation import OptimizerPolicy
+    from services.backtest_ab import run_ab_backtest
+
+    current = (
+        db.query(OptimizerPolicy)
+        .filter(OptimizerPolicy.is_current == 1)
+        .order_by(OptimizerPolicy.valid_from.desc(), OptimizerPolicy.created_at.desc())
+        .first()
+    )
+    if current is None:
+        return {
+            "data_pending": True,
+            "note": "Keine aktuelle OptimizerPolicy gefunden.",
+            "policy_a": None,
+            "policy_b": None,
+            "buckets_diff": [],
+            "risk_metrics_diff": {},
+            "stress_diff": [],
+            "warnings": [],
+        }
+
+    comparison = (
+        db.query(OptimizerPolicy)
+        .filter(OptimizerPolicy.id != current.id)
+        .order_by(
+            OptimizerPolicy.valid_from.desc(),
+            OptimizerPolicy.version.desc(),
+            OptimizerPolicy.created_at.desc(),
+        )
+        .first()
+    )
+    if comparison is None:
+        return {
+            "data_pending": True,
+            "note": "Keine zweite OptimizerPolicy für einen A/B-Vergleich vorhanden.",
+            "policy_a": _ab_policy_reference(comparison),
+            "policy_b": _ab_policy_reference(current),
+            "buckets_diff": [],
+            "risk_metrics_diff": {},
+            "stress_diff": [],
+            "warnings": [],
+        }
+
+    try:
+        raw = run_ab_backtest(db, mandate, str(comparison.id), str(current.id)) or {}
+    except Exception as exc:  # pragma: no cover - defensive report boundary
+        return {
+            "data_pending": True,
+            "note": f"A/B-Backtest aktuell nicht verfügbar: {exc}",
+            "policy_a": _ab_policy_reference(comparison),
+            "policy_b": _ab_policy_reference(current),
+            "buckets_diff": [],
+            "risk_metrics_diff": {},
+            "stress_diff": [],
+            "warnings": [],
+        }
+
+    policy_a = _ab_policy_summary(raw.get("policy_a") or {})
+    policy_b = _ab_policy_summary(raw.get("policy_b") or {})
+    return {
+        "data_pending": False,
+        "note": str(raw.get("note") or ""),
+        "score_bucket": raw.get("score_bucket"),
+        "cma_id": str(raw.get("cma_id") or ""),
+        "cma_version": int(raw.get("cma_version") or 0),
+        "policy_a": policy_a,
+        "policy_b": policy_b,
+        "buckets_diff": _ab_bucket_diff_list(raw.get("buckets_diff") or {}),
+        "risk_metrics_diff": dict(raw.get("risk_metrics_diff") or {}),
+        "stress_diff": _ab_stress_diff_list(raw.get("stress_diff") or []),
+        "warnings": list(raw.get("warnings") or []),
+    }
+
+
+def _ab_policy_reference(policy) -> dict[str, Any] | None:
+    if policy is None:
+        return None
+    return {
+        "policy_id": str(getattr(policy, "id", "") or ""),
+        "policy_name": str(getattr(policy, "policy_name", "") or ""),
+        "version": int(getattr(policy, "version", 0) or 0),
+        "is_current": bool(getattr(policy, "is_current", 0)),
+    }
+
+
+def _ab_policy_summary(view: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "policy_id": str(view.get("policy_id") or ""),
+        "policy_name": str(view.get("policy_name") or ""),
+        "version": int(view.get("version") or 0),
+        "is_current": bool(view.get("is_current")),
+        "profile_name": str(view.get("profile_name") or ""),
+        "max_risky_fraction_bps": int(view.get("max_risky_fraction_bps") or 0),
+        "weights_bps": dict(view.get("weights_bps") or {}),
+        "expected_return_bps": int(view.get("expected_return_bps") or 0),
+        "expected_volatility_bps": int(view.get("expected_volatility_bps") or 0),
+        "expected_ter_bps": int(view.get("expected_ter_bps") or 0),
+        "sharpe_ratio_x100": int(view.get("sharpe_ratio_x100") or 0),
+    }
+
+
+def _ab_bucket_diff_list(raw: Mapping[str, Any]) -> list[dict[str, Any]]:
+    preferred = ("liquidity", "bonds", "equities", "real_estate", "alternatives")
+    rows: list[dict[str, Any]] = []
+    for key in preferred:
+        item = raw.get(key) or {}
+        rows.append({
+            "key": key,
+            "label": str(item.get("label") or key),
+            "a_bps": int(item.get("a_bps") or 0),
+            "b_bps": int(item.get("b_bps") or 0),
+            "delta_bps": int(item.get("delta_bps") or 0),
+        })
+    return rows
+
+
+def _ab_stress_diff_list(raw: list[dict]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for item in raw:
+        if not isinstance(item, Mapping):
+            continue
+        rows.append({
+            "id": str(item.get("id") or ""),
+            "label": str(item.get("label") or item.get("id") or "Szenario"),
+            "period": str(item.get("period") or ""),
+            "a_cumulative_return_bps": int(item.get("a_cumulative_return_bps") or 0),
+            "b_cumulative_return_bps": int(item.get("b_cumulative_return_bps") or 0),
+            "delta_cumulative_return_bps": int(
+                item.get("delta_cumulative_return_bps") or 0
+            ),
+            "a_max_drawdown_bps": int(item.get("a_max_drawdown_bps") or 0),
+            "b_max_drawdown_bps": int(item.get("b_max_drawdown_bps") or 0),
+            "delta_max_drawdown_bps": int(item.get("delta_max_drawdown_bps") or 0),
+            "a_recovery_months": int(item.get("a_recovery_months") or 0),
+            "b_recovery_months": int(item.get("b_recovery_months") or 0),
+        })
+    return rows
 
 
 def _bucket_key_from_asset_class(asset_class: str) -> str:

@@ -26,12 +26,16 @@ from database import Base
 from models import (  # noqa: F401
     allocation, clients, mandates, profiling, review, snapshots, users, wealth,
 )
+import models.client_login  # noqa: F401
+import models.fx_rate  # noqa: F401
+import models.protocol_bausteine  # noqa: F401
+import models.tenant  # noqa: F401  (Sprint T1)
 configure_mappers()
 
-from models.allocation import OptimizerPolicy, TargetAllocation
+from models.allocation import HouseMatrix, OptimizerPolicy, TargetAllocation
 from models.clients import Client
 from models.mandates import Mandate
-from models.profiling import RiskAssessment
+from models.profiling import RiskAssessment, RiskAssessmentAnswer
 from models.review import (
     Product,
     RecommendationPosition,
@@ -40,6 +44,7 @@ from models.review import (
 from models.users import User
 from models.wealth import Cashflow, Goal, WealthPosition
 from services.advisory_report import compute_advisory_report
+from services.portfolio_engine import ensure_runtime_reference_data
 
 
 @pytest.fixture()
@@ -151,6 +156,8 @@ def test_compute_returns_expected_top_level_structure(session_factory):
         "performance_attribution",
         # Sprint C2-Wiring (2026-06-08): Engine-Configuration fuer Compliance-Block
         "engine_configuration",
+        # U-71: additive Sektion 26 (re-architektiert 2026-06-09 von Sektion 18)
+        "ab_backtest",
     ]
     assert list(report.keys()) == expected_order
 
@@ -357,6 +364,127 @@ def _make_optimizer_policy(s, advisor_id: str) -> OptimizerPolicy:
     s.add(pol)
     s.flush()
     return pol
+
+
+def _make_strategy_ready_assessment(s, *, mandate_id: str, advisor_id: str) -> None:
+    aid = str(uuid.uuid4())
+    s.add(RiskAssessment(
+        id=aid, mandate_id=mandate_id, version=1, is_current=1,
+        valid_from=_NOW,
+        q_income_points=2, q_obligations_points=3,
+        q_savings_points=8, q_wealth_points=8,
+        risk_capacity_total=21,
+        risk_capacity_profile="Wachstumsorientiert",
+        risk_capacity_score_x10=70,
+        investment_horizon_years=15,
+        investment_horizon_label="12 bis 17 Jahre",
+        q_investment_goal_points=3,
+        q_risk_preference_points=4,
+        q_risk_behavior_points=3,
+        risk_willingness_total=10,
+        risk_willingness_profile="Wachstumsorientiert",
+        risk_willingness_score_x10=70,
+        final_score_x10=70,
+        final_profile="Wachstumsorientiert",
+        is_overridden=0,
+        knowledge_services_json="{}",
+        knowledge_instruments_json="{}",
+        income_sources_json='["Berufliche Taetigkeit"]',
+        assessed_at=_NOW,
+        assessed_by=advisor_id,
+        created_at=_NOW,
+        updated_at=_NOW,
+    ))
+    for q, label, points in [
+        (1, "Finanzdienstleistungen: Beratung und Verwaltung", 0),
+        (2, "Finanzinstrumente: Anlagefonds und ETFs", 0),
+        (3, "CHF 12'000 bis 20'000", 3),
+        (4, "Herkunft: Berufliche Taetigkeit", 0),
+        (5, "CHF 3'000 bis 5'000", 3),
+        (6, "CHF 1'000'000 bis 2'000'000", 9),
+        (7, "25 bis 50 %", 9),
+        (8, "Mehr als 12 Jahre - Matrix-Faktor", 0),
+        (9, "Das investierte Kapital soll sich stetig vermehren.", 3),
+        (
+            10,
+            "Ich strebe eine hoehere Rendite an und bin bereit, "
+            "dafuer ein erhoehtes Risiko einzugehen.",
+            3,
+        ),
+        (
+            11,
+            "Ich kann den Verlust voruebergehend akzeptieren und halte "
+            "an meinen Anlagen fest.",
+            3,
+        ),
+    ]:
+        s.add(RiskAssessmentAnswer(
+            id=str(uuid.uuid4()),
+            assessment_id=aid,
+            question_number=q,
+            question_section="Risikoprofil",
+            answer_label=label,
+            answer_points=points,
+            created_at=_NOW,
+        ))
+
+
+def _clone_policy_with_equity_shift(
+    s, *, base_policy: OptimizerPolicy, advisor_id: str, shift_bps: int = 1000
+) -> OptimizerPolicy:
+    new_policy = OptimizerPolicy(
+        id=str(uuid.uuid4()),
+        policy_name=f"Vergleich-{uuid.uuid4().hex[:4]}",
+        version=1,
+        is_current=0,
+        valid_from="2026-01-01",
+        optimizer_engine=base_policy.optimizer_engine,
+        max_real_estate_bps=base_policy.max_real_estate_bps,
+        max_alternatives_bps=base_policy.max_alternatives_bps,
+        min_liquidity_bps=base_policy.min_liquidity_bps,
+        fee_model_json=base_policy.fee_model_json,
+        notes="A/B-Test-Policy",
+        created_by=advisor_id,
+        created_at=_NOW,
+        updated_at=_NOW,
+    )
+    s.add(new_policy)
+    rows = s.query(HouseMatrix).filter(HouseMatrix.policy_id == base_policy.id).all()
+    for row in rows:
+        shift = min(
+            shift_bps,
+            max(0, row.equity_max_bps - row.equity_target_bps),
+            max(0, row.bonds_target_bps - row.bonds_min_bps),
+        )
+        s.add(HouseMatrix(
+            id=str(uuid.uuid4()),
+            policy_id=new_policy.id,
+            score_from=row.score_from,
+            score_to=row.score_to,
+            profile_name=row.profile_name,
+            liq_min_bps=row.liq_min_bps,
+            liq_target_bps=row.liq_target_bps,
+            liq_max_bps=row.liq_max_bps,
+            bonds_min_bps=row.bonds_min_bps,
+            bonds_target_bps=row.bonds_target_bps - shift,
+            bonds_max_bps=row.bonds_max_bps,
+            equity_min_bps=row.equity_min_bps,
+            equity_target_bps=row.equity_target_bps + shift,
+            equity_max_bps=row.equity_max_bps,
+            real_estate_min_bps=row.real_estate_min_bps,
+            real_estate_target_bps=row.real_estate_target_bps,
+            real_estate_max_bps=row.real_estate_max_bps,
+            alt_min_bps=row.alt_min_bps,
+            alt_target_bps=row.alt_target_bps,
+            alt_max_bps=row.alt_max_bps,
+            equity_minimum_bps=row.equity_minimum_bps,
+            max_risky_fraction_bps=row.max_risky_fraction_bps,
+            is_active=1,
+            created_at=_NOW,
+            updated_at=_NOW,
+        ))
+    s.flush()
+    return new_policy
 
 
 def _make_rec_run_with_position(
@@ -869,6 +997,74 @@ def test_stress_replay_fail_soft_when_service_raises(session_factory, monkeypatc
     assert "boom" in sr["note"]
 
 
+def test_ab_backtest_pending_without_second_policy(session_factory):
+    """Mit nur einer Policy bleibt der A/B-Abschnitt sichtbar, aber pending."""
+    with session_factory() as s:
+        mandate, _c, advisor = _seed_minimal_mandate(s)
+        _make_strategy_ready_assessment(
+            s, mandate_id=mandate.id, advisor_id=advisor.id,
+        )
+        ensure_runtime_reference_data(s, advisor.id)
+        s.commit()
+        report = compute_advisory_report(s, mandate, advisor=advisor)
+
+    ab = report["ab_backtest"]
+    assert ab["data_pending"] is True
+    assert ab["policy_a"] is None
+    assert ab["policy_b"]["is_current"] is True
+    assert "zweite OptimizerPolicy" in ab["note"]
+
+
+def test_ab_backtest_returns_policy_diff_from_current_and_comparison_policy(session_factory):
+    """Wenn zwei Policies existieren, nutzt der Report den echten A/B-Service."""
+    with session_factory() as s:
+        mandate, _c, advisor = _seed_minimal_mandate(s)
+        _make_strategy_ready_assessment(
+            s, mandate_id=mandate.id, advisor_id=advisor.id,
+        )
+        ensure_runtime_reference_data(s, advisor.id)
+        current = s.query(OptimizerPolicy).filter(OptimizerPolicy.is_current == 1).first()
+        _clone_policy_with_equity_shift(s, base_policy=current, advisor_id=advisor.id)
+        s.commit()
+        report = compute_advisory_report(s, mandate, advisor=advisor)
+
+    ab = report["ab_backtest"]
+    assert ab["data_pending"] is False
+    assert ab["policy_a"]["is_current"] is False
+    assert ab["policy_b"]["is_current"] is True
+    assert len(ab["buckets_diff"]) == 5
+    assert len(ab["stress_diff"]) == 5
+    assert sum(row["a_bps"] for row in ab["buckets_diff"]) == 10000
+    assert sum(row["b_bps"] for row in ab["buckets_diff"]) == 10000
+    assert any(row["delta_bps"] != 0 for row in ab["buckets_diff"])
+    assert "delta_expected_return_bps" in ab["risk_metrics_diff"]
+
+
+def test_ab_backtest_fail_soft_when_service_raises(session_factory, monkeypatch):
+    """Ein A/B-Service-Fehler darf den Advisory-Report nicht abbrechen."""
+    from services import backtest_ab
+
+    def _boom(db, mandate, policy_a_id, policy_b_id):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(backtest_ab, "run_ab_backtest", _boom)
+    with session_factory() as s:
+        mandate, _c, advisor = _seed_minimal_mandate(s)
+        _make_strategy_ready_assessment(
+            s, mandate_id=mandate.id, advisor_id=advisor.id,
+        )
+        ensure_runtime_reference_data(s, advisor.id)
+        current = s.query(OptimizerPolicy).filter(OptimizerPolicy.is_current == 1).first()
+        _clone_policy_with_equity_shift(s, base_policy=current, advisor_id=advisor.id)
+        s.commit()
+        report = compute_advisory_report(s, mandate, advisor=advisor)
+
+    ab = report["ab_backtest"]
+    assert ab["data_pending"] is True
+    assert ab["buckets_diff"] == []
+    assert "boom" in ab["note"]
+
+
 def test_goal_based_investing_returns_data_pending_goals_without_achievability(session_factory):
     """Wenn Goals existieren, aber noch keine stochastic Achievability
     persistiert ist, darf die UI nicht fälschlich 0 Goals sehen."""
@@ -1139,6 +1335,8 @@ def test_endpoint_returns_full_report_structure(session_factory):
         "performance_attribution",
         # Sprint C2-Wiring (2026-06-08): Engine-Configuration fuer Compliance-Block
         "engine_configuration",
+        # U-71: additive Sektion 26 (re-architektiert 2026-06-09 von Sektion 18)
+        "ab_backtest",
     ]
     assert list(data.keys()) == expected
     assert data["schema_version"] == 2

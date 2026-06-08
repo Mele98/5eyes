@@ -497,6 +497,16 @@ export function makeAdvisoryReport(): AdvisoryReport {
     optimizer_run_history: makeOptimizerRunHistory(),
     performance_attribution: makePerformanceAttribution(),
     engine_configuration: {},
+    ab_backtest: {
+      data_pending: true,
+      note: '',
+      policy_a: null,
+      policy_b: null,
+      buckets_diff: [],
+      risk_metrics_diff: {},
+      stress_diff: [],
+      warnings: [],
+    },
   };
 }
 
