@@ -11,6 +11,7 @@ import type {
   AssetAllocationData,
   AusgangslageData,
   BeratungsprotokollData,
+  SuitabilitySummaryData,
   BranchenData,
   BuildingBlocksData,
   ConflictDisclosuresData,
@@ -466,6 +467,37 @@ export function makeLiquidityCascade(): LiquidityCascadeData {
   };
 }
 
+export function makeSuitabilitySummary(
+  overrides: Partial<SuitabilitySummaryData> = {},
+): SuitabilitySummaryData {
+  return {
+    has_check: true,
+    check_id: 'check-001',
+    performed_at: '2026-05-22T14:30:00.000Z',
+    duty_type: 'suitability',
+    result: 'passed',
+    result_notes:
+      'Anlagestrategie ist mit Risikoprofil und Horizont vereinbar.',
+    missing_information: [],
+    client_proceeded_despite: false,
+    warning_delivered: false,
+    warning_delivered_at: null,
+    client_acknowledged: false,
+    client_acknowledged_at: null,
+    references: {
+      risk_assessment_id: 'ra-001',
+      knowledge_assessment_id: null,
+      advisory_log_id: 'log-1',
+      recommendation_run_id: null,
+      document_id: null,
+    },
+    checked_by_id: 'advisor-001',
+    checked_by_name: 'Anna Beispiel',
+    linked_log_present: true,
+    ...overrides,
+  };
+}
+
 export function makeAdvisoryReport(): AdvisoryReport {
   return {
     schema_version: 2,
@@ -507,6 +539,7 @@ export function makeAdvisoryReport(): AdvisoryReport {
       stress_diff: [],
       warnings: [],
     },
+    suitability_summary: makeSuitabilitySummary(),
   };
 }
 

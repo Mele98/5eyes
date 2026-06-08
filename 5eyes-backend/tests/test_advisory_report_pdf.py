@@ -270,6 +270,31 @@ def _make_minimal_payload() -> dict:
             "todos": ["Vorsorgeauftrag aufsetzen", "Risikoabsicherung prüfen"],
             "dokumente": ["Identifikationspapier", "Ausweis Wohnsitz"],
         },
+        # Sektion 17 — Suitability-Summary (Sprint U-FINMA-3)
+        "suitability_summary": {
+            "has_check": True,
+            "check_id": "check-001",
+            "performed_at": "2026-05-22T14:30:00.000Z",
+            "duty_type": "suitability",
+            "result": "passed",
+            "result_notes": "Anlagestrategie ist mit Risikoprofil und Horizont vereinbar.",
+            "missing_information": [],
+            "client_proceeded_despite": False,
+            "warning_delivered": False,
+            "warning_delivered_at": None,
+            "client_acknowledged": False,
+            "client_acknowledged_at": None,
+            "references": {
+                "risk_assessment_id": "ra-001",
+                "knowledge_assessment_id": None,
+                "advisory_log_id": "log-1",
+                "recommendation_run_id": None,
+                "document_id": None,
+            },
+            "checked_by_id": "advisor-001",
+            "checked_by_name": "Anna Beispiel",
+            "linked_log_present": True,
+        },
         # Sektion 16 — Beratungsprotokoll (Sprint U-FINMA-2.3)
         "beratungsprotokoll": {
             "total_active": 3,
@@ -1356,9 +1381,9 @@ def test_full_pdf_has_at_least_15_sections():
     payload = _make_minimal_payload()
     pdf = render_advisory_report_pdf_from_payload(payload)
     reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
-    # U-71: A/B-Backtest ergänzt -> mindestens 18 Seiten
-    assert len(reader.pages) >= 18, (
-        f"Erwartet mindestens 18 Seiten (alle Sektionen + A/B-Backtest), "
+    # A/B-Backtest + Suitability + Compliance + Signatur -> >= 20 Seiten
+    assert len(reader.pages) >= 20, (
+        f"Erwartet mindestens 20 Seiten (alle Sektionen inkl. AB-Backtest + Eignung + Compliance + Signatur), "
         f"PDF hat {len(reader.pages)}"
     )
 
@@ -1554,3 +1579,110 @@ def test_ab_backtest_section_shows_stress_diff():
     assert "Stress-Replay-Differenz" in text
     assert "Dotcom 2000-2002" in text
     assert "GFC 2008" in text
+
+
+# ---------------------------------------------------------------------------
+# Sektion 27 — Suitability-Summary (Sprint U-FINMA-3, re-architektiert 2026-06-09)
+# ---------------------------------------------------------------------------
+
+def test_suitability_section_renders_header_and_status_pill():
+    """Sektion 27 hat Header + Pill 'Eignung gegeben' bei result=passed."""
+    pypdf = pytest.importorskip("pypdf")
+    payload = _make_minimal_payload()
+    pdf = render_advisory_report_pdf_from_payload(payload)
+    reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
+    text = "\n".join((page.extract_text() or "") for page in reader.pages)
+    assert "Eignungspruefung" in text
+    assert "Eignung gegeben" in text
+    assert "Anna Beispiel" in text
+    assert "Suitability" in text
+
+
+def test_suitability_section_shows_result_notes_and_references():
+    """Result-Notes + Referenzen-Tabelle sichtbar bei passed-Check."""
+    pypdf = pytest.importorskip("pypdf")
+    payload = _make_minimal_payload()
+    pdf = render_advisory_report_pdf_from_payload(payload)
+    reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
+    text = "\n".join((page.extract_text() or "") for page in reader.pages)
+    assert "Anlagestrategie ist mit Risikoprofil" in text
+    assert "Verkn" in text
+    assert "ra-001" in text
+    assert "log-1" in text
+
+
+def test_suitability_section_shows_override_workflow_on_mismatch_proceeded():
+    """Bei Mismatch + Override: rote FIDLEG-Art-12-Box mit Warnungsspur."""
+    pypdf = pytest.importorskip("pypdf")
+    payload = _make_minimal_payload()
+    payload["suitability_summary"] = {
+        **payload["suitability_summary"],
+        "result": "mismatch",
+        "result_notes": "Kunde wuenscht offensivere Strategie als Profil zulaesst.",
+        "client_proceeded_despite": True,
+        "warning_delivered": True,
+        "warning_delivered_at": "2026-05-20T10:00:00.000Z",
+        "client_acknowledged": True,
+        "client_acknowledged_at": "2026-05-20T10:05:00.000Z",
+    }
+    pdf = render_advisory_report_pdf_from_payload(payload)
+    reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
+    text = "\n".join((page.extract_text() or "") for page in reader.pages)
+    assert "Mismatch dokumentiert" in text
+    assert "FIDLEG Art. 12" in text
+    assert "Warnung ausgeh" in text
+    assert "20.05.2026" in text
+
+
+def test_suitability_section_shows_missing_info_block_when_incomplete():
+    """Liste fehlender Infos erscheint als gelber Banner."""
+    pypdf = pytest.importorskip("pypdf")
+    payload = _make_minimal_payload()
+    payload["suitability_summary"] = {
+        **payload["suitability_summary"],
+        "result": "incomplete",
+        "missing_information": [
+            "Aktualisierter Anlagehorizont fehlt",
+            "Liquiditaetsbedarf nicht dokumentiert",
+        ],
+    }
+    pdf = render_advisory_report_pdf_from_payload(payload)
+    reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
+    text = "\n".join((page.extract_text() or "") for page in reader.pages)
+    assert "Fehlende Informationen" in text
+    assert "Aktualisierter Anlagehorizont" in text
+    assert "Liquidi" in text
+
+
+def test_suitability_section_empty_state_when_no_check():
+    """Empty-State wenn has_check=False — Hinweis dass Check fehlt."""
+    pypdf = pytest.importorskip("pypdf")
+    payload = _make_minimal_payload()
+    payload["suitability_summary"] = {
+        "has_check": False,
+        "check_id": None,
+        "performed_at": None,
+        "duty_type": None,
+        "result": None,
+        "result_notes": None,
+        "missing_information": [],
+        "client_proceeded_despite": False,
+        "warning_delivered": False,
+        "warning_delivered_at": None,
+        "client_acknowledged": False,
+        "client_acknowledged_at": None,
+        "references": {
+            "risk_assessment_id": None,
+            "knowledge_assessment_id": None,
+            "advisory_log_id": None,
+            "recommendation_run_id": None,
+            "document_id": None,
+        },
+        "checked_by_id": None,
+        "checked_by_name": "—",
+        "linked_log_present": False,
+    }
+    pdf = render_advisory_report_pdf_from_payload(payload)
+    reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
+    text = "\n".join((page.extract_text() or "") for page in reader.pages)
+    assert "Noch keine Eignungspruefung" in text

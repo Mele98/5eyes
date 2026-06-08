@@ -518,6 +518,52 @@ export interface AbBacktestData {
 }
 
 // ---------------------------------------------------------------------------
+// Sektion 27 — Suitability-Summary (U-FINMA-3, re-architektiert 2026-06-09)
+// ---------------------------------------------------------------------------
+
+/** SuitabilityCheck-Result aus models/profiling.py::SuitabilityCheck.result. */
+export type SuitabilityResult =
+  | 'passed'
+  | 'mismatch'
+  | 'incomplete'
+  | string;
+
+/** Pflichttyp gemaess FIDLEG. */
+export type SuitabilityDutyType =
+  | 'suitability'
+  | 'appropriateness'
+  | 'informational'
+  | 'execution_only'
+  | string;
+
+export interface SuitabilityReferences {
+  risk_assessment_id: string | null;
+  knowledge_assessment_id: string | null;
+  advisory_log_id: string | null;
+  recommendation_run_id: string | null;
+  document_id: string | null;
+}
+
+export interface SuitabilitySummaryData {
+  has_check: boolean;
+  check_id: string | null;
+  performed_at: string | null;
+  duty_type: SuitabilityDutyType | null;
+  result: SuitabilityResult | null;
+  result_notes: string | null;
+  missing_information: string[];
+  client_proceeded_despite: boolean;
+  warning_delivered: boolean;
+  warning_delivered_at: string | null;
+  client_acknowledged: boolean;
+  client_acknowledged_at: string | null;
+  references: SuitabilityReferences;
+  checked_by_id: string | null;
+  checked_by_name: string;
+  linked_log_present: boolean;
+}
+
+// ---------------------------------------------------------------------------
 // Top-Level Schema
 // ---------------------------------------------------------------------------
 
@@ -547,24 +593,26 @@ export interface AdvisoryReport {
   stress_replay: StressReplayData;
   /** U-68: FIDLEG Interessenkonflikt-Offenlegungen */
   conflict_disclosures: ConflictDisclosuresData;
-  /** U-66: FIDLEG-Suitability-Compliance-Audit (Stub — full schema in services/suitability_audit.py) */
+  /** U-66: FIDLEG-Suitability-Compliance-Audit */
   suitability_compliance: SuitabilityComplianceData;
-  /** U-73+U-74: Engine-Modell-Audit (Nelson-Siegel/KGV-MR/Risikopraemien) */
+  /** U-73+U-74: Engine-Modell-Audit */
   methodology_models: MethodologyModelsData;
-  /** U-69: Recommendation-Methodology-Audit (Optimizer-Run-Metadata) */
+  /** U-69: Recommendation-Methodology-Audit */
   recommendation_methodology: RecommendationMethodologyData;
-  /** U-22: Mandate-Lock-Status (Read-Only-Reasons) */
+  /** U-22: Mandate-Lock-Status */
   mandate_lock_status: MandateLockStatusData;
   /** U-21: Liquidity-Cascade Stage-3 Warning */
   liquidity_cascade: LiquidityCascadeData;
-  /** U-94: Optimizer-Run-History (FIDLEG Art. 9/14 Audit-Trace) */
+  /** U-94: Optimizer-Run-History */
   optimizer_run_history: OptimizerRunHistoryData;
-  /** U-97: Performance-Attribution (Brinson vs House-Matrix-Benchmark) */
+  /** U-97: Performance-Attribution */
   performance_attribution: PerformanceAttributionData;
-  /** C2-Wiring: Engine-Configuration-Audit (Optimizer-Run-Reasoning) */
+  /** C2-Wiring: Engine-Configuration-Audit */
   engine_configuration: EngineConfigurationData;
   /** U-71 (re-architektiert 2026-06-09): A/B-HouseMatrix-Policy-Vergleich */
   ab_backtest: AbBacktestData;
+  /** U-FINMA-3 (re-architektiert 2026-06-09): SuitabilityCheck per Mandat */
+  suitability_summary: SuitabilitySummaryData;
 }
 
 /** C2-Wiring (2026-06-07): Stub-Type fuer engine_configuration.

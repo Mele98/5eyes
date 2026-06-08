@@ -58,6 +58,7 @@ import { BuildingBlocks } from './BuildingBlocks';
 import { StatementPm } from './StatementPm';
 import { WeiteresVorgehen } from './WeiteresVorgehen';
 import { Beratungsprotokoll } from './Beratungsprotokoll';
+import { Eignung } from './Eignung';
 
 import {
   makeAssetAllocation,
@@ -77,6 +78,7 @@ import {
   makeStatementPm,
   makeWeiteresVorgehen,
   makeBeratungsprotokoll,
+  makeSuitabilitySummary,
 } from '@/test/fixtures';
 
 function withRouter(ui: React.ReactNode) {
@@ -421,6 +423,122 @@ describe('Section 16: Beratungsprotokoll (U-FINMA-2.3)', () => {
     render(withRouter(<Beratungsprotokoll data={makeBeratungsprotokoll()} />));
     expect(screen.queryByText('Auto-Log')).not.toBeInTheDocument();
     expect(screen.queryByText('Neuer Eintrag')).not.toBeInTheDocument();
+  });
+});
+
+describe('Section 17: Eignung (Suitability-Summary, U-FINMA-3)', () => {
+  it('rendert ohne Crash mit passed-Check', () => {
+    render(withRouter(<Eignung data={makeSuitabilitySummary()} />));
+    // Header (Kicker + Titel) — beide tragen "Eignungspruefung"
+    expect(screen.getAllByText(/Eignungspruefung/i).length).toBeGreaterThan(0);
+    expect(screen.getByText(/Eignung gegeben/i)).toBeInTheDocument();
+    expect(screen.getByText('Anna Beispiel')).toBeInTheDocument();
+  });
+
+  it('zeigt result_notes in der Beurteilung', () => {
+    render(withRouter(<Eignung data={makeSuitabilitySummary()} />));
+    expect(
+      screen.getByText(/Anlagestrategie ist mit Risikoprofil/i),
+    ).toBeInTheDocument();
+  });
+
+  it('Referenzen-Tabelle listet RiskAssessment und AdvisoryLog', () => {
+    render(withRouter(<Eignung data={makeSuitabilitySummary()} />));
+    const refs = screen.getByTestId('suitability-references');
+    expect(refs).toHaveTextContent('Risikoprofil-Assessment');
+    expect(refs).toHaveTextContent('ra-001');
+    expect(refs).toHaveTextContent('Beratungsprotokoll-Eintrag');
+    expect(refs).toHaveTextContent('log-1');
+  });
+
+  it('markiert verwaisten advisory_log_id Verweis', () => {
+    render(
+      withRouter(
+        <Eignung
+          data={makeSuitabilitySummary({
+            linked_log_present: false,
+          })}
+        />,
+      ),
+    );
+    expect(
+      screen.getByText(/log-1 \(nicht gefunden\)/i),
+    ).toBeInTheDocument();
+  });
+
+  it('zeigt Missing-Info-Banner bei incomplete-Check', () => {
+    render(
+      withRouter(
+        <Eignung
+          data={makeSuitabilitySummary({
+            result: 'incomplete',
+            missing_information: [
+              'Aktualisierter Anlagehorizont fehlt',
+              'Liquiditaetsbedarf nicht dokumentiert',
+            ],
+          })}
+        />,
+      ),
+    );
+    const banner = screen.getByTestId('suitability-missing-info');
+    expect(banner).toHaveTextContent('Aktualisierter Anlagehorizont fehlt');
+    expect(banner).toHaveTextContent('Liquiditaetsbedarf nicht dokumentiert');
+  });
+
+  it('zeigt FIDLEG-Art-12-Block bei Mismatch + Override', () => {
+    render(
+      withRouter(
+        <Eignung
+          data={makeSuitabilitySummary({
+            result: 'mismatch',
+            result_notes:
+              'Kunde wuenscht offensivere Strategie als Profil zulaesst.',
+            client_proceeded_despite: true,
+            warning_delivered: true,
+            warning_delivered_at: '2026-05-20T10:00:00.000Z',
+            client_acknowledged: true,
+            client_acknowledged_at: '2026-05-20T10:05:00.000Z',
+          })}
+        />,
+      ),
+    );
+    const wf = screen.getByTestId('suitability-override-workflow');
+    expect(wf).toHaveTextContent(/FIDLEG Art\. 12/i);
+    expect(wf).toHaveTextContent(/Warnung ausgeh/i);
+    expect(wf).toHaveTextContent('20.05.2026');
+    expect(screen.getByText(/Mismatch dokumentiert/i)).toBeInTheDocument();
+  });
+
+  it('Empty-State wenn has_check=false', () => {
+    render(
+      withRouter(
+        <Eignung
+          data={makeSuitabilitySummary({
+            has_check: false,
+            check_id: null,
+            performed_at: null,
+            duty_type: null,
+            result: null,
+            result_notes: null,
+            checked_by_name: '—',
+            references: {
+              risk_assessment_id: null,
+              knowledge_assessment_id: null,
+              advisory_log_id: null,
+              recommendation_run_id: null,
+              document_id: null,
+            },
+            linked_log_present: false,
+          })}
+        />,
+      ),
+    );
+    const empty = screen.getByTestId('suitability-empty-state');
+    expect(empty).toHaveTextContent(/Noch keine Eignungspruefung/i);
+    // Summary-Box wird nicht gerendert
+    expect(
+      screen.queryByTestId('suitability-summary-box'),
+    ).not.toBeInTheDocument();
   });
 });
 

@@ -305,14 +305,14 @@ def _compute_advisory_report_inner(
         "optimizer_run_history": _build_optimizer_run_history(db, mandate),
         # --- Sektion 25 (additiv, U-97): Performance-Attribution (Brinson)
         "performance_attribution": _build_performance_attribution(db, mandate),
-        # --- Sprint C2 (2026-06-08): Engine-Configuration sichtbar im PDF
-        # Compliance-Audit-Block. Wird vom compliance_audit-Renderer als
-        # 6. Block angefuegt wenn vorhanden.
+        # --- Sprint C2 (2026-06-08): Engine-Configuration
         "engine_configuration": _build_engine_configuration(db, mandate),
         # --- Sektion 26 (additiv, U-71): Policy-A/B-Backtest
-        # Wenn keine Vergleichs-Policy existiert: Pending-Hinweis statt
-        # erfundener Vergleich. Re-architektiert 2026-06-09 von Sektion 18.
         "ab_backtest": _build_ab_backtest(db, mandate),
+        # --- Sektion 27 (additiv, U-FINMA-3, re-architektiert 2026-06-09):
+        # SuitabilityCheck-Summary fuer Berater-Sicht (vs. suitability_compliance
+        # in Sektion 19, das eine Aggregat-Statistik aller AdvisoryLogs ist).
+        "suitability_summary": _build_suitability_summary(db, mandate),
     }
 
 
@@ -2282,6 +2282,139 @@ def _build_beratungsprotokoll(db: Session, mandate: Mandate) -> dict[str, Any]:
         "has_active_mismatches": bool(mismatches),
         "retention_audit_ok": retention_audit_ok,
     }
+
+
+# ---------------------------------------------------------------------------
+# Sektion 17 — Eignungspruefung (Sprint U-FINMA-3, Roadmap-Punkt 3)
+# ---------------------------------------------------------------------------
+
+def _build_suitability_summary(db: Session, mandate: Mandate) -> dict[str, Any]:
+    """FINMA-Eignungspruefung im Advisory-Report sichtbar referenziert.
+
+    Liest den juengsten SuitabilityCheck zum Mandat und liefert die
+    Felder, die im Web-Sub-App + PDF Sektion 17 dargestellt werden:
+    - Wer hat wann was geprueft
+    - Ergebnis-Status + Notes
+    - Liste fehlender Informationen
+    - Warnungs-/Bestaetigungs-Workflow falls Client trotz Mismatch
+      fortgefuehrt hat (FINMA Art. 12 FIDLEG)
+    - Querverweise auf RiskAssessment, ClientKnowledge, AdvisoryLog,
+      RecommendationRun, Document
+
+    Wenn kein Check existiert: stabiles leeres Schema mit has_check=False.
+    """
+    from models.profiling import SuitabilityCheck
+
+    check = (
+        db.query(SuitabilityCheck)
+        .filter(SuitabilityCheck.mandate_id == mandate.id)
+        .order_by(SuitabilityCheck.checked_at.desc())
+        .first()
+    )
+
+    if check is None:
+        return {
+            "has_check": False,
+            "check_id": None,
+            "performed_at": None,
+            "duty_type": None,
+            "result": None,
+            "result_notes": None,
+            "missing_information": [],
+            "client_proceeded_despite": False,
+            "warning_delivered": False,
+            "warning_delivered_at": None,
+            "client_acknowledged": False,
+            "client_acknowledged_at": None,
+            "references": {
+                "risk_assessment_id": None,
+                "knowledge_assessment_id": None,
+                "advisory_log_id": None,
+                "recommendation_run_id": None,
+                "document_id": None,
+            },
+            "checked_by_id": None,
+            "checked_by_name": "—",
+            "linked_log_present": False,
+        }
+
+    missing = _parse_notes_json_list(getattr(check, "missing_information_json", None))
+    checked_by_name = _resolve_user_full_name(db, getattr(check, "checked_by", None))
+    advisory_log_id = getattr(check, "advisory_log_id", None) or None
+    linked_log_present = _advisory_log_exists(db, advisory_log_id)
+
+    return {
+        "has_check": True,
+        "check_id": str(getattr(check, "id", "") or "") or None,
+        "performed_at": str(getattr(check, "checked_at", "") or "") or None,
+        "duty_type": str(getattr(check, "duty_type", "") or "") or None,
+        "result": str(getattr(check, "result", "") or "") or None,
+        "result_notes": str(getattr(check, "result_notes", "") or "") or None,
+        "missing_information": missing,
+        "client_proceeded_despite": bool(
+            _safe_int(getattr(check, "client_proceeding_despite", 0))
+        ),
+        "warning_delivered": bool(
+            _safe_int(getattr(check, "warning_delivered", 0))
+        ),
+        "warning_delivered_at": (
+            str(getattr(check, "warning_delivered_at", "") or "") or None
+        ),
+        "client_acknowledged": bool(
+            _safe_int(getattr(check, "client_acknowledged", 0))
+        ),
+        "client_acknowledged_at": (
+            str(getattr(check, "client_acknowledged_at", "") or "") or None
+        ),
+        "references": {
+            "risk_assessment_id": (
+                str(getattr(check, "risk_assessment_id", "") or "") or None
+            ),
+            "knowledge_assessment_id": (
+                str(getattr(check, "knowledge_assessment_id", "") or "") or None
+            ),
+            "advisory_log_id": str(advisory_log_id) if advisory_log_id else None,
+            "recommendation_run_id": (
+                str(getattr(check, "recommendation_run_id", "") or "") or None
+            ),
+            "document_id": (
+                str(getattr(check, "document_id", "") or "") or None
+            ),
+        },
+        "checked_by_id": str(getattr(check, "checked_by", "") or "") or None,
+        "checked_by_name": checked_by_name,
+        "linked_log_present": linked_log_present,
+    }
+
+
+def _resolve_user_full_name(db: Session, user_id: Any) -> str:
+    """Sicherer Lookup eines Berater-Namens. Fallback "—" wenn nicht da."""
+    if not user_id:
+        return "—"
+    user = db.query(User).filter(User.id == user_id).first()
+    if user is None:
+        return "—"
+    name = str(getattr(user, "full_name", "") or "").strip()
+    return name or "—"
+
+
+def _advisory_log_exists(db: Session, advisory_log_id: Any) -> bool:
+    """True wenn referenzierter AdvisoryLog tatsaechlich existiert (nicht
+    geloescht). Erlaubt der UI den Tieftext „Verknuepfter Log nicht
+    gefunden" zu zeigen, statt eine falsche Sicherheit zu suggerieren.
+    """
+    if not advisory_log_id:
+        return False
+    try:
+        from models.review import AdvisoryLog
+        row = (
+            db.query(AdvisoryLog)
+            .filter(AdvisoryLog.id == advisory_log_id)
+            .first()
+        )
+        return row is not None
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def _check_retention_audit(db: Session, mandate_id: str) -> bool:

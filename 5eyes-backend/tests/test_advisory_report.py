@@ -35,7 +35,7 @@ configure_mappers()
 from models.allocation import HouseMatrix, OptimizerPolicy, TargetAllocation
 from models.clients import Client
 from models.mandates import Mandate
-from models.profiling import RiskAssessment, RiskAssessmentAnswer
+from models.profiling import RiskAssessment, RiskAssessmentAnswer, SuitabilityCheck
 from models.review import (
     Product,
     RecommendationPosition,
@@ -158,6 +158,8 @@ def test_compute_returns_expected_top_level_structure(session_factory):
         "engine_configuration",
         # U-71: additive Sektion 26 (re-architektiert 2026-06-09 von Sektion 18)
         "ab_backtest",
+        # U-FINMA-3: additive Sektion 27 (re-architektiert 2026-06-09 von Sektion 17)
+        "suitability_summary",
     ]
     assert list(report.keys()) == expected_order
 
@@ -1342,6 +1344,8 @@ def test_endpoint_returns_full_report_structure(session_factory):
         "engine_configuration",
         # U-71: additive Sektion 26 (re-architektiert 2026-06-09 von Sektion 18)
         "ab_backtest",
+        # U-FINMA-3: additive Sektion 27 (re-architektiert 2026-06-09 von Sektion 17)
+        "suitability_summary",
     ]
     assert list(data.keys()) == expected
     assert data["schema_version"] == 2
@@ -1785,3 +1789,212 @@ def test_audit_anchor_not_leaked_to_aggregator_output(session_factory):
     # "last_edited"-Key irgendwo in der Sektion.
     assert "last_edited" not in json.dumps(report["asset_allocation"])
     assert "last_edited" not in json.dumps(report["weiteres_vorgehen"])
+
+
+# ---------------------------------------------------------------------------
+# Sektion 17: Suitability-Summary (Sprint U-FINMA-3, Roadmap-Punkt 3)
+# ---------------------------------------------------------------------------
+
+def _seed_suitability_check(
+    s,
+    *,
+    mandate_id: str,
+    client_id: str,
+    advisor_id: str,
+    result: str = "passed",
+    result_notes: str = "Eignung gegeben.",
+    missing_information: list[str] | None = None,
+    proceeded_despite: bool = False,
+    warning_delivered: bool = False,
+    advisory_log_id: str | None = None,
+    risk_assessment_id: str | None = None,
+    duty_type: str = "suitability",
+) -> SuitabilityCheck:
+    check = SuitabilityCheck(
+        id=str(uuid.uuid4()),
+        mandate_id=mandate_id,
+        client_id=client_id,
+        recommendation_run_id=None,
+        advisory_log_id=advisory_log_id,
+        duty_type=duty_type,
+        knowledge_assessment_id=None,
+        risk_assessment_id=risk_assessment_id,
+        result=result,
+        result_notes=result_notes,
+        missing_information_json=(
+            json.dumps(missing_information) if missing_information else None
+        ),
+        client_proceeding_despite=1 if proceeded_despite else 0,
+        warning_delivered=1 if warning_delivered else 0,
+        warning_delivered_at="2026-05-20T10:00:00Z" if warning_delivered else None,
+        client_acknowledged=1 if proceeded_despite else 0,
+        client_acknowledged_at=(
+            "2026-05-20T10:05:00Z" if proceeded_despite else None
+        ),
+        document_id=None,
+        checked_by=advisor_id,
+        checked_at="2026-05-22T14:30:00Z",
+        created_at="2026-05-22T14:30:00Z",
+        updated_at="2026-05-22T14:30:00Z",
+    )
+    s.add(check)
+    s.flush()
+    return check
+
+
+def test_suitability_summary_no_check_returns_stable_empty_schema(session_factory):
+    """Ohne SuitabilityCheck: has_check=False, alle Felder leer / Defaults.
+
+    Stabiles Schema ist Pflicht — die Sub-App muss `data.suitability_summary`
+    ohne None-Guards rendern koennen.
+    """
+    with session_factory() as s:
+        mandate, _c, advisor = _seed_minimal_mandate(s)
+        s.commit()
+        report = compute_advisory_report(s, mandate, advisor=advisor)
+    ss = report["suitability_summary"]
+    assert ss["has_check"] is False
+    assert ss["check_id"] is None
+    assert ss["performed_at"] is None
+    assert ss["result"] is None
+    assert ss["missing_information"] == []
+    assert ss["client_proceeded_despite"] is False
+    assert ss["warning_delivered"] is False
+    assert ss["client_acknowledged"] is False
+    assert ss["checked_by_name"] == "—"
+    assert ss["linked_log_present"] is False
+    # Referenzen-Block immer vorhanden, alle Werte None
+    assert set(ss["references"].keys()) == {
+        "risk_assessment_id",
+        "knowledge_assessment_id",
+        "advisory_log_id",
+        "recommendation_run_id",
+        "document_id",
+    }
+    assert all(v is None for v in ss["references"].values())
+
+
+def test_suitability_summary_passed_check_exposes_advisor_and_references(
+    session_factory,
+):
+    """Passed-Check: result+notes propagieren, Berater-Name aufgeloest,
+    RiskAssessment-Referenz im references-Block sichtbar."""
+    with session_factory() as s:
+        mandate, client, advisor = _seed_minimal_mandate(s)
+        ra = RiskAssessment(
+            id=str(uuid.uuid4()), mandate_id=mandate.id,
+            version=1, is_current=1, valid_from=_NOW,
+            q_income_points=3, q_obligations_points=2,
+            q_savings_points=3, q_wealth_points=3,
+            risk_capacity_total=11,
+            risk_capacity_profile="Wachstumsorientiert",
+            investment_horizon_years=15,
+            investment_horizon_label="Langfristig",
+            risk_capacity_score_x10=75,
+            q_investment_goal_points=4,
+            q_risk_preference_points=3,
+            q_risk_behavior_points=2,
+            risk_willingness_total=9,
+            risk_willingness_profile="Ausgewogen",
+            risk_willingness_score_x10=60,
+            final_score_x10=68,
+            final_profile="Ausgewogen",
+            assessed_at=_NOW, assessed_by=advisor.id,
+            created_at=_NOW, updated_at=_NOW,
+        )
+        s.add(ra)
+        s.flush()
+        _seed_suitability_check(
+            s,
+            mandate_id=mandate.id,
+            client_id=client.id,
+            advisor_id=advisor.id,
+            result="passed",
+            result_notes="Anlagestrategie passt zu Risikoprofil und Horizont.",
+            risk_assessment_id=ra.id,
+        )
+        s.commit()
+        report = compute_advisory_report(s, mandate, advisor=advisor)
+    ss = report["suitability_summary"]
+    assert ss["has_check"] is True
+    assert ss["result"] == "passed"
+    assert ss["result_notes"].startswith("Anlagestrategie passt")
+    assert ss["duty_type"] == "suitability"
+    assert ss["checked_by_name"] == "Anna Beispiel"
+    assert ss["performed_at"] == "2026-05-22T14:30:00Z"
+    assert ss["references"]["risk_assessment_id"] == ra.id
+    assert ss["missing_information"] == []
+    assert ss["client_proceeded_despite"] is False
+    assert ss["warning_delivered"] is False
+    assert ss["linked_log_present"] is False
+
+
+def test_suitability_summary_mismatch_without_override_lists_missing_info(
+    session_factory,
+):
+    """Mismatch ohne Override: result=mismatch, missing_information befuellt,
+    proceeded_despite=False, warning_delivered=False — d.h. Berater hat
+    Mismatch erkannt aber Kunde wurde NICHT weitergefuehrt.
+    """
+    with session_factory() as s:
+        mandate, client, advisor = _seed_minimal_mandate(s)
+        _seed_suitability_check(
+            s,
+            mandate_id=mandate.id,
+            client_id=client.id,
+            advisor_id=advisor.id,
+            result="mismatch",
+            result_notes="Risikobereitschaft niedriger als Strategie.",
+            missing_information=[
+                "Aktualisierter Anlagehorizont fehlt",
+                "Liquiditaetsbedarf nicht dokumentiert",
+            ],
+            proceeded_despite=False,
+            warning_delivered=False,
+        )
+        s.commit()
+        report = compute_advisory_report(s, mandate, advisor=advisor)
+    ss = report["suitability_summary"]
+    assert ss["has_check"] is True
+    assert ss["result"] == "mismatch"
+    assert ss["missing_information"] == [
+        "Aktualisierter Anlagehorizont fehlt",
+        "Liquiditaetsbedarf nicht dokumentiert",
+    ]
+    assert ss["client_proceeded_despite"] is False
+    assert ss["warning_delivered"] is False
+    assert ss["client_acknowledged"] is False
+    assert ss["warning_delivered_at"] is None
+
+
+def test_suitability_summary_mismatch_with_override_tracks_warning_workflow(
+    session_factory,
+):
+    """Mismatch mit Override (FIDLEG Art. 12): Kunde trotz Hinweis
+    weitergefuehrt → proceeded_despite=True, warning_delivered=True mit
+    Timestamp, client_acknowledged=True mit Timestamp.
+
+    Diese Konstellation ist die FINMA-pflichtige Audit-Spur.
+    """
+    with session_factory() as s:
+        mandate, client, advisor = _seed_minimal_mandate(s)
+        _seed_suitability_check(
+            s,
+            mandate_id=mandate.id,
+            client_id=client.id,
+            advisor_id=advisor.id,
+            result="mismatch",
+            result_notes="Kunde wuenscht offensivere Strategie als Profil zulaesst.",
+            proceeded_despite=True,
+            warning_delivered=True,
+        )
+        s.commit()
+        report = compute_advisory_report(s, mandate, advisor=advisor)
+    ss = report["suitability_summary"]
+    assert ss["result"] == "mismatch"
+    assert ss["client_proceeded_despite"] is True
+    assert ss["warning_delivered"] is True
+    assert ss["warning_delivered_at"] == "2026-05-20T10:00:00Z"
+    assert ss["client_acknowledged"] is True
+    assert ss["client_acknowledged_at"] == "2026-05-20T10:05:00Z"
+    assert ss["checked_by_name"] == "Anna Beispiel"
