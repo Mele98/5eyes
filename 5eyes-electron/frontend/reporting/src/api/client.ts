@@ -89,7 +89,7 @@ export async function fetchAdvisoryReport(
 }
 
 
-async function resolveAuthToken(): Promise<string | null> {
+export async function resolveAuthToken(): Promise<string | null> {
   if (typeof window === 'undefined') {
     return null;
   }
