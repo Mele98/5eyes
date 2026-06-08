@@ -229,6 +229,20 @@ class ProtokollData:
 
 
 @dataclass(frozen=True)
+class CostDisclosurePDFData:
+    """FIDLEG Art. 8/9 Ex-ante Kostenausweis als Standalone-PDF.
+
+    payload ist 1:1 das dict aus services.cost_disclosure.build_cost_disclosure
+    (Single-Source-of-Truth mit JSON-Endpoint + DepotCheck-PDF-Subsection +
+    Aggregator-Sektion). Das standalone PDF wrappt das gleiche Component
+    services.pdf.components.kostenausweis.build_kostenausweis_flowables.
+    """
+    mandate_number: str | None = None
+    advisory_wealth_rappen: int = 0
+    payload: Mapping[str, object] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
 class DepotCheckData:
     """Depotcheck-PDF Daten-Bundle fuer die reine SOLL-Analyse."""
     mandate_number: str | None = None
