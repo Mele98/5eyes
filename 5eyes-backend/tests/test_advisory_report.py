@@ -212,32 +212,37 @@ def test_cover_handles_missing_advisor_with_dash(session_factory):
 # Sektion 3: Inhaltsverzeichnis
 # ---------------------------------------------------------------------------
 
-def test_inhaltsverzeichnis_has_expected_chapters(session_factory):
-    """Spec listet die sichtbaren Kapitel. Reihenfolge + Nummerierung muss stabil sein
-    weil Frontend + PDF darauf referenzieren."""
+def test_inhaltsverzeichnis_follows_current_pdf_section_order(session_factory):
+    """TOC folgt der aktuellen PDF-Reihenfolge inkl. additiver Sektionen.
+    U-13 (2026-06-02) + Aggregator-Sprint #163."""
     with session_factory() as s:
         mandate, _c, advisor = _seed_minimal_mandate(s)
         s.commit()
         report = compute_advisory_report(s, mandate, advisor=advisor)
     kapitel = report["inhaltsverzeichnis"]["kapitel"]
-    assert len(kapitel) == 15
-    assert [k["nr"] for k in kapitel] == list(range(1, 16))
+    assert len(kapitel) == 20
+    assert [k["nr"] for k in kapitel] == list(range(1, 21))
     assert [k["title"] for k in kapitel] == [
+        "Rechtliche Hinweise",
+        "Inhaltsverzeichnis",
         "Ausgangslage",
         "Übersicht Ihrer Positionen",
         "Was wir im Depotcheck prüfen",
         "Erkenntnisse aus dem Depotcheck",
         "Asset Allocation",
         "Risikowährungen",
-        "Diversifikation",
-        "Statement aus dem Portfoliomanagement",
+        "Diversifikation Branchen",
         "Zielbasierte Optimierung",
         "Risikoprofilierung",
-        "Building Blocks",
+        "Building Blocks / iSAA",
+        "Statement aus dem Portfoliomanagement",
         "Weiteres Vorgehen",
         "Beratungsprotokoll",
         "Historische Stress-Szenarien",
+        "A/B-Backtest",
+        "Ex-ante Kostenausweis",
         "Compliance-Audit",
+        "Unterschrift",
     ]
 
 

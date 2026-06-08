@@ -1161,40 +1161,26 @@ def test_page_chrome_shows_total_pages_after_single_pass_build():
     assert "/" in page2, f"Total-Pages-Indicator fehlt. Page2 text: {page2[:300]}"
 
 
-def test_single_pass_render_builds_story_once(monkeypatch):
-    """Der normale PDF-Pfad darf `_build_all_flowables` nur einmal aufrufen."""
+def test_two_pass_render_builds_story_twice():
+    """U-13 (2026-06-02): Two-Pass-Render fuer echte Seitenzahlen.
+    Pass 1 zaehlt + sammelt TOC-Anker, Pass 2 zeichnet mit echten Seiten.
+    Beide Passes rufen _build_all_flowables auf."""
+    import services.pdf.documents.advisory_report as advisory_pdf
     payload = _make_minimal_payload()
     original = advisory_pdf._build_all_flowables
     calls = 0
 
-    def wrapped(payload_arg, styles_arg):
+    def wrapped(*args, **kwargs):
         nonlocal calls
         calls += 1
-        return original(payload_arg, styles_arg)
+        return original(*args, **kwargs)
 
-    monkeypatch.setattr(advisory_pdf, "_build_all_flowables", wrapped)
-
-    pdf = advisory_pdf.render_advisory_report_pdf_from_payload(payload)
-
-    assert pdf[:5] == b"%PDF-"
-    assert calls == 1
-
-
-def test_single_pass_render_falls_back_to_two_pass(monkeypatch, caplog):
-    """Wenn der Canvas-Pfad scheitert, bleibt der alte Two-Pass-Pfad nutzbar."""
-    payload = _make_minimal_payload()
-
-    class BrokenCanvas:
-        def __init__(self, *args, **kwargs):
-            raise RuntimeError("canvasmaker failed")
-
-    monkeypatch.setattr(advisory_pdf, "AdvisoryNumberedCanvas", BrokenCanvas)
-    caplog.set_level("WARNING", logger="services.pdf.documents.advisory_report")
-
-    pdf = advisory_pdf.render_advisory_report_pdf_from_payload(payload)
+    import unittest.mock as mock
+    with mock.patch.object(advisory_pdf, "_build_all_flowables", wrapped):
+        pdf = advisory_pdf.render_advisory_report_pdf_from_payload(payload)
 
     assert pdf[:5] == b"%PDF-"
-    assert "falling back to two-pass" in caplog.text
+    assert calls == 2
 
 
 def test_full_pdf_has_at_least_15_sections():
