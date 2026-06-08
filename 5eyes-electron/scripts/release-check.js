@@ -39,6 +39,39 @@ if (!frontendHtml.trim().endsWith('</html>')) {
   errors.push('frontend/5eyes_v2.html endet nicht sauber mit </html>.');
 }
 
+// U-6: Sub-App muss vor dem electron-builder-Lauf gebaut sein, sonst
+// landet eine veraltete oder leere `dist/` im Installer.
+const reportingDistIndex = path.join(projectRoot, 'frontend', 'reporting', 'dist', 'index.html');
+const reportingSrcEntry = path.join(projectRoot, 'frontend', 'reporting', 'src', 'main.tsx');
+if (!fs.existsSync(reportingDistIndex)) {
+  errors.push(
+    'frontend/reporting/dist/index.html fehlt. `npm run build:reporting` ausfuehren oder `npm run dist:win` (chained den Build automatisch).'
+  );
+} else if (fs.existsSync(reportingSrcEntry)) {
+  const distMtime = fs.statSync(reportingDistIndex).mtimeMs;
+  const srcMtime = fs.statSync(reportingSrcEntry).mtimeMs;
+  if (srcMtime > distMtime) {
+    warnings.push(
+      'frontend/reporting/dist ist aelter als frontend/reporting/src — Sub-App vor Release neu bauen (`npm run build:reporting`).'
+    );
+    if (strict) {
+      errors.push('STRICT_RELEASE=1: reporting/dist ist veraltet gegen reporting/src.');
+    }
+  }
+}
+
+// U-6: bundle/backend/5eyes-api.exe muss existieren, sonst hat der
+// electron-builder-Lauf keinen Backend-Server zum Mitpacken.
+const bundleBackendExe = path.join(projectRoot, 'bundle', 'backend', '5eyes-api.exe');
+if (!fs.existsSync(bundleBackendExe)) {
+  warnings.push(
+    'bundle/backend/5eyes-api.exe fehlt. `npm run build:backend` ausfuehren (laeuft automatisch in `npm run dist:win`).'
+  );
+  if (strict) {
+    errors.push('STRICT_RELEASE=1: bundle/backend/5eyes-api.exe fehlt.');
+  }
+}
+
 if (frontendHtml.includes('vendor/chart.min.js') && !exists('frontend/vendor/chart.min.js')) {
   warnings.push('Lokale Chart.js-Referenz vorhanden, aber frontend/vendor/chart.min.js fehlt noch. vendor_assets.py ausführen.');
   if (strict) {
