@@ -468,6 +468,7 @@ export function makeAdvisoryReport(): AdvisoryReport {
     liquidity_cascade: makeLiquidityCascade(),
     optimizer_run_history: makeOptimizerRunHistory(),
     performance_attribution: makePerformanceAttribution(),
+    engine_configuration: {},
   };
 }
 
