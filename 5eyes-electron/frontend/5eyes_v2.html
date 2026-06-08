@@ -1832,7 +1832,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 
     <!-- PAGE: PORTFOLIO -->
     <div id="page-po" class="page">
-      <div class="ph"><div><div class="ph-t">Portfolio &mdash; ETFs &amp; Fonds</div><div class="ph-s">Umsetzung Ihrer Asset Allokation in konkrete Produkte (ISIN)</div></div><div class="ph-r"><button class="btn-g" id="btn-po-refresh" onclick="refreshPortfolioFromStoredState()">Portfolio generieren</button><button class="btn" id="btn-po-pdf" onclick="downloadServerPdf('portfolio')" title="Portfolio-PDF erstellen">PDF</button><button class="btn btn-report" id="btn-po-advisory-report" onclick="openReportingApp()" title="Institutioneller Advisory-Report in neuem Browser-Tab">Advisory-Report</button><details class="ph-more"><summary title="Weitere Portfolio-Optionen" aria-label="Weitere Portfolio-Optionen">⋯</summary><div class="ph-more-menu"><button class="btn" id="btn-po-add-position" onclick="openPortfolioPositionHelper();this.closest('details').removeAttribute('open')">+ Bestand</button><button class="btn" id="btn-po-live-prices" onclick="refreshLivePricesForMandate();this.closest('details').removeAttribute('open')" title="Live-EOD-Preise via Marktdaten-Aggregator (yfinance/stooq) holen und Portfolio neu laden">Live-Preise</button><button class="btn" onclick="openImplementationRecipe();this.closest('details').removeAttribute('open')">Anlagerezept drucken</button><button class="btn" id="btn-po-depot-check" onclick="openDepotCheck();this.closest('details').removeAttribute('open')" title="Depot-Check: Diversifikation, Konzentration, Drift, Stress-Replays">Depot-Check</button></div></details></div></div>
+      <div class="ph"><div><div class="ph-t">Portfolio &mdash; ETFs &amp; Fonds</div><div class="ph-s">Umsetzung Ihrer Asset Allokation in konkrete Produkte (ISIN)</div></div><div class="ph-r"><button class="btn-g" id="btn-po-refresh" onclick="refreshPortfolioFromStoredState()">Portfolio generieren</button><button class="btn" id="btn-po-pdf" onclick="downloadServerPdf('portfolio')" title="Portfolio-PDF erstellen">PDF</button><button class="btn btn-report" id="btn-po-advisory-report" onclick="openReportingApp()" title="Institutioneller Advisory-Report in neuem Browser-Tab">Advisory-Report</button><details class="ph-more"><summary title="Weitere Portfolio-Optionen" aria-label="Weitere Portfolio-Optionen">⋯</summary><div class="ph-more-menu"><button class="btn" id="btn-po-add-position" onclick="openPortfolioPositionHelper();this.closest('details').removeAttribute('open')">+ Bestand</button><button class="btn" id="btn-po-live-prices" onclick="refreshLivePricesForMandate();this.closest('details').removeAttribute('open')" title="Live-EOD-Preise via Marktdaten-Aggregator (yfinance/stooq) holen und Portfolio neu laden">Live-Preise</button><button class="btn" onclick="openImplementationRecipe();this.closest('details').removeAttribute('open')">Anlagerezept drucken</button><button class="btn" id="btn-po-depot-check" onclick="openDepotCheck();this.closest('details').removeAttribute('open')" title="Depot-Check: Diversifikation, Konzentration, Drift, Stress-Replays">Depot-Check</button><button class="btn" id="btn-po-cost-disclosure" onclick="openCostDisclosureModal();this.closest('details').removeAttribute('open')" title="FIDLEG Art. 8/9 Ex-ante Kostenausweis vor Auftragsausfuehrung">Kostenausweis</button></div></details></div></div>
       <div class="pad">
         <div style="background:var(--n8);border-radius:var(--r2);padding:10px 14px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">
           <div><div style="font-size:9px;font-weight:500;letter-spacing:0.08em;text-transform:uppercase;color:rgba(255,255,255,0.4);margin-bottom:2px">Beratungsvermögen total</div><div id="po-advisory-wealth" style="font-family:var(--f-d);font-size:19px;color:#fff">CHF 2'848'000</div></div>
@@ -2152,6 +2152,25 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
     <button class="btn-p" onclick="saveMandateSettings()">Speichern</button>
   </div>
 </div></div>
+<!-- FIDLEG Art. 8/9 (2026-06-08): Ex-ante Kostenausweis Modal -->
+<div class="overlay" id="m-cost-disclosure"><div class="modal" style="width:920px;max-width:96vw">
+  <div class="mhd"><div class="mtitle">FIDLEG Ex-ante Kostenausweis</div><button class="mx" onclick="cm('m-cost-disclosure')">&#x2715;</button></div>
+  <div class="mbody">
+    <div id="cd-status" style="font-size:11px;color:var(--n5);padding:6px 8px;background:var(--bg2);border-radius:6px;margin-bottom:10px">Wird geladen...</div>
+    <div id="cd-content" style="display:none">
+      <div id="cd-summary" style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:14px"></div>
+      <div id="cd-warnings" style="display:none;background:#fff7ed;border:1px solid rgba(194,65,12,0.18);border-radius:var(--r);padding:10px 12px;margin-bottom:12px;font-size:11px;color:#9a3412"></div>
+      <div style="font-size:11px;font-weight:600;color:var(--n7);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px">Kostenposten</div>
+      <div id="cd-items"></div>
+      <div style="margin-top:14px;font-size:10px;color:var(--n5);line-height:1.55">Annahmen und Berechnungsbasis: TER aus Empfehlung, Service-Fees aus Gebuehrenmodell, Transaktionskosten als Ex-ante-Schaetzung. Tatsaechliche Kosten koennen abweichen (FIDLEG Art. 8/9, FIDLEV Art. 8/14).</div>
+    </div>
+  </div>
+  <div class="mft">
+    <button class="btn" onclick="cm('m-cost-disclosure')">Schliessen</button>
+    <button class="btn-p" id="cd-pdf-btn" onclick="downloadCostDisclosurePdf()">Als PDF drucken</button>
+  </div>
+</div></div>
+
 <!-- Bug-#13a (2026-06-07): Beratungsprotokoll-Baustein-Bibliothek + Mandate-Auswahl -->
 <div class="overlay" id="m-bausteine"><div class="modal" style="width:780px;max-width:95vw">
   <div class="mhd"><div class="mtitle">Protokoll-Bausteine</div><button class="mx" onclick="cm('m-bausteine')">&#x2715;</button></div>
@@ -8964,6 +8983,157 @@ async function openReportingApp(){
 // 3. createBausteinFromModal / saveMandateBausteinSelection: CRUD-Aktionen
 // ----------------------------------------------------------------------------
 var _bausteineCache={library:[], selection:[]};
+
+// ============================================================================
+// FIDLEG Art. 8/9 (2026-06-08): Ex-ante Kostenausweis
+// ============================================================================
+// Modal-Flow:
+// 1. openCostDisclosureModal -> GET /mandates/{mid}/cost-disclosure/ex-ante
+// 2. renderCostDisclosure: Summary, Warnings, Cost-Items
+// 3. downloadCostDisclosurePdf: oeffnet PDF in neuem Tab + auto-flagt
+//    cost_disclosure_given=1 im AdvisoryLog (FIDLEG-Audit-Trail).
+// ----------------------------------------------------------------------------
+var _costDisclosureLastPayload=null;
+
+async function openCostDisclosureModal(){
+  var mid=typeof getActiveMandateId==='function'?getActiveMandateId():null;
+  if(!mid){
+    if(window.showAppError) showAppError('Bitte zuerst ein Mandat oeffnen.');
+    else alert('Bitte zuerst ein Mandat oeffnen.');
+    return;
+  }
+  om('m-cost-disclosure');
+  var status=document.getElementById('cd-status');
+  var content=document.getElementById('cd-content');
+  if(status){ status.textContent='Lade Kostenausweis...'; status.style.color='var(--n5)'; }
+  if(content) content.style.display='none';
+  try{
+    var data=await API.get('/mandates/'+encodeURIComponent(mid)+'/cost-disclosure/ex-ante');
+    _costDisclosureLastPayload=data;
+    renderCostDisclosure(data);
+    if(content) content.style.display='';
+    if(status){
+      if(data&&data.data_pending){
+        status.textContent='Noch keine Empfehlung — bitte Portfolio zuerst generieren.';
+        status.style.color='var(--warn)';
+      }else{
+        status.textContent='FIDLEG Art. 8/9 Ex-ante-Kostenausweis fuer dieses Mandat.';
+        status.style.color='var(--n5)';
+      }
+    }
+  }catch(e){
+    if(status){
+      status.textContent='Fehler: '+(e&&(e.detail||e.message)||'Kostenausweis konnte nicht geladen werden');
+      status.style.color='var(--neg)';
+    }
+  }
+}
+
+function renderCostDisclosure(data){
+  if(!data) data={data_pending:true, cost_items:[], totals:{}, warnings:[]};
+  var totals=data.totals||{};
+  var summary=document.getElementById('cd-summary');
+  if(summary){
+    var tiles=[
+      ['Anlagebasis', _formatRappenChf(data.advisory_wealth_rappen)],
+      ['Einmalig', _formatRappenChf(totals.one_time_rappen)],
+      ['Laufend p.a.', _formatRappenChf(totals.annual_rappen)],
+      ['Erstes Jahr', _formatRappenChf(totals.first_year_rappen)],
+    ];
+    summary.innerHTML=tiles.map(function(t){
+      return '<div style="background:var(--bg);border:1px solid var(--b1);border-radius:var(--r);padding:10px 12px">'
+        +'<div style="font-size:9px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:var(--n5);margin-bottom:5px">'+escapeHtml(t[0])+'</div>'
+        +'<div style="font-family:var(--f-d);font-size:16px;color:var(--n8)">'+escapeHtml(t[1])+'</div>'
+        +'</div>';
+    }).join('');
+  }
+  var warningsBox=document.getElementById('cd-warnings');
+  if(warningsBox){
+    var warnings=Array.isArray(data.warnings)?data.warnings.filter(Boolean):[];
+    if(warnings.length){
+      warningsBox.style.display='';
+      warningsBox.innerHTML='<div style="font-weight:600;margin-bottom:4px">Annahmen und Datenqualitaet</div>'
+        +'<ul style="margin:0;padding-left:18px;line-height:1.5">'
+        +warnings.map(function(w){return '<li>'+escapeHtml(String(w))+'</li>';}).join('')
+        +'</ul>';
+    }else{
+      warningsBox.style.display='none';
+      warningsBox.innerHTML='';
+    }
+  }
+  var items=document.getElementById('cd-items');
+  if(items){
+    var rows=Array.isArray(data.cost_items)?data.cost_items:[];
+    if(!rows.length){
+      items.innerHTML='<div style="font-size:11px;color:var(--n4);padding:14px;text-align:center;border:1px dashed var(--b1);border-radius:var(--r)">Noch keine Kostenposten ausweisbar.</div>';
+    }else{
+      items.innerHTML='<div style="border:1px solid var(--b1);border-radius:var(--r);overflow:hidden">'
+        +'<div style="display:grid;grid-template-columns:1.6fr 90px 90px 110px 1fr;gap:8px;padding:8px 10px;background:var(--bg);font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--n5);border-bottom:1px solid var(--b1)">'
+        +'<div>Kostenart</div><div style="text-align:right">Turnus</div><div style="text-align:right">Satz</div><div style="text-align:right">Betrag</div><div>Basis</div></div>'
+        +rows.map(function(item){
+          var label=String(item.label||item.category||'Kosten');
+          if(item.is_estimate) label+=' *';
+          var rate=(Number(item.rate_bps||0)/100).toFixed(2)+'%';
+          var amount=_formatRappenChf(item.amount_rappen);
+          var freq=String(item.frequency||'').toLowerCase()==='einmalig'?'einmalig':'p.a.';
+          return '<div style="display:grid;grid-template-columns:1.6fr 90px 90px 110px 1fr;gap:8px;padding:9px 10px;border-bottom:1px solid var(--b1);font-size:11px;align-items:center">'
+            +'<div style="color:var(--n8)">'+escapeHtml(label)+'</div>'
+            +'<div style="text-align:right;color:var(--n6)">'+escapeHtml(freq)+'</div>'
+            +'<div style="text-align:right;font-family:var(--f-d);color:var(--n8)">'+escapeHtml(rate)+'</div>'
+            +'<div style="text-align:right;font-family:var(--f-d);font-weight:600;color:var(--n8)">'+escapeHtml(amount)+'</div>'
+            +'<div style="font-size:10px;color:var(--n5)">'+escapeHtml(String(item.basis_label||'—'))+'</div>'
+            +'</div>';
+        }).join('')
+        +'</div>';
+    }
+  }
+}
+
+async function downloadCostDisclosurePdf(){
+  var mid=typeof getActiveMandateId==='function'?getActiveMandateId():null;
+  if(!mid)return;
+  var btn=document.getElementById('cd-pdf-btn');
+  if(btn){ btn.disabled=true; btn.textContent='Wird vorbereitet...'; }
+  try{
+    // PDF im Backend rendern und in neuem Tab oeffnen.
+    if(typeof downloadServerPdf==='function'){
+      downloadServerPdf('cost-disclosure');
+    }else{
+      var apiBase=(window.API&&typeof window.API.baseUrl==='function')?await window.API.baseUrl():'http://127.0.0.1:8000';
+      var url=String(apiBase).replace(/\/$/, '')+'/mandates/'+encodeURIComponent(mid)+'/reports/cost-disclosure.pdf';
+      window.open(url,'_blank','noopener');
+    }
+    // Audit-Auto-Flag: cost_disclosure_given=1 im AdvisoryLog (FINMA U-2.1).
+    // Pflichtfelder gemaess AdvisoryLogCreate-Schema, kein Crash bei fehlendem
+    // Submit (auto-flag ist non-blocking fuer den User-Flow).
+    try{
+      var nowIso=(new Date()).toISOString();
+      await API.post('/mandates/'+encodeURIComponent(mid)+'/advisory-log',{
+        entry_type: 'Sonstiges',
+        title: 'FIDLEG Ex-ante Kostenausweis ausgehaendigt',
+        description: 'Der voraussichtliche Kostenausweis nach FIDLEG Art. 8/9 wurde dem Kunden vor Auftragsausfuehrung als PDF ausgehaendigt.',
+        entry_datetime: nowIso,
+        duration_minutes: 1,
+        communication_channel: 'persoenlich',
+        topics: ['Ex-ante Kostenausweis'],
+        risk_warnings_given: [],
+        cost_disclosure_given: true,
+        conflict_disclosure_ids: [],
+      });
+    }catch(logErr){
+      // Audit-Eintrag scheitert nicht den User-Flow, aber wir loggen lokal.
+      console.warn('[cost-disclosure] Audit-Auto-Flag fehlgeschlagen:', logErr);
+    }
+  }finally{
+    if(btn){ btn.disabled=false; btn.textContent='Als PDF drucken'; }
+  }
+}
+
+function _formatRappenChf(rappen){
+  var v=Number(rappen||0)/100;
+  try{ return 'CHF '+v.toLocaleString('de-CH',{maximumFractionDigits:0}); }
+  catch(e){ return 'CHF '+Math.round(v); }
+}
 
 async function openBausteineModal(){
   var mid=typeof getActiveMandateId==='function'?getActiveMandateId():null;
@@ -16326,7 +16496,7 @@ async function downloadServerPdf(reportType, queryString){
       else{alert('Bitte zuerst ein Mandat oeffnen.');}
       return;
     }
-    if(reportType!=='anlagestrategie'&&reportType!=='assetallocation'&&reportType!=='risikoprofil'&&reportType!=='portfolio'&&reportType!=='vertrag'&&reportType!=='protokoll'&&reportType!=='depotcheck'&&reportType!=='backtest'){
+    if(reportType!=='anlagestrategie'&&reportType!=='assetallocation'&&reportType!=='risikoprofil'&&reportType!=='portfolio'&&reportType!=='vertrag'&&reportType!=='protokoll'&&reportType!=='depotcheck'&&reportType!=='backtest'&&reportType!=='cost-disclosure'){
       console.error('downloadServerPdf: unknown reportType', reportType);return;
     }
     var path='/mandates/'+encodeURIComponent(mid)+'/reports/'+reportType+'.pdf';
