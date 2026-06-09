@@ -77,9 +77,13 @@ def load_annual_returns_matrix(db: Session) -> dict[int, dict[str, int]]:
     Nur Jahre, in denen ALLE 5 Asset-Klassen gepflegt sind, werden
     zurückgegeben. Unvollständige Jahre würden Phantom-Returns auf 0
     bedeuten und das Bild verzerren.
+
+    Phase 3 Sub-Asset (2026-06-09): Filter sub_asset_class IS NULL, damit
+    Top-Level-Aggregate getrennt von Sub-Asset-Returns bleiben.
     """
     rows = (
         db.query(AssetClassAnnualReturn)
+        .filter(AssetClassAnnualReturn.sub_asset_class.is_(None))
         .order_by(AssetClassAnnualReturn.year, AssetClassAnnualReturn.asset_class)
         .all()
     )
@@ -99,6 +103,176 @@ def load_annual_returns_matrix(db: Session) -> dict[int, dict[str, int]]:
         y: m
         for y, m in by_year.items()
         if all(b in m for b in BUCKETS)
+    }
+
+
+# ---------------------------------------------------------------------------
+# Phase 3 Sub-Asset-Sprint (2026-06-09)
+# ---------------------------------------------------------------------------
+
+
+def load_sub_asset_annual_returns_matrix(db: Session) -> dict[int, dict[str, int]]:
+    """Laedt Sub-Asset-Annual-Returns -> {year: {sub_asset_key: bps}}.
+
+    Im Unterschied zu load_annual_returns_matrix:
+    - Filter sub_asset_class IS NOT NULL
+    - Liefert ALLE Jahre/Sub-Assets (kein 'vollstaendigkeits'-Filter, weil
+      Sub-Asset-Verfuegbarkeit historisch unterschiedlich ist - SMI ab
+      1988, EM ab 1988, Bonds ab 2007 etc.)
+    - Caller (compute_sub_asset_portfolio_returns) entscheidet pro
+      Benchmark welche Sub-Assets gebraucht sind und welche Jahre nutzbar.
+    """
+    rows = (
+        db.query(AssetClassAnnualReturn)
+        .filter(AssetClassAnnualReturn.sub_asset_class.isnot(None))
+        .order_by(AssetClassAnnualReturn.year, AssetClassAnnualReturn.sub_asset_class)
+        .all()
+    )
+    by_year: dict[int, dict[str, int]] = {}
+    for row in rows:
+        sub_key = str(row.sub_asset_class or "").strip()
+        if not sub_key:
+            continue
+        try:
+            year = int(row.year)
+            bps = int(row.return_bps)
+        except (TypeError, ValueError):
+            continue
+        by_year.setdefault(year, {})[sub_key] = bps
+    return by_year
+
+
+def _years_with_all_sub_assets(
+    matrix: Mapping[int, Mapping[str, int]],
+    required_sub_keys: Iterable[str],
+) -> list[int]:
+    """Jahre in denen ALLE benoetigten Sub-Assets gepflegt sind."""
+    needed = set(required_sub_keys)
+    return sorted(
+        y for y, m in matrix.items() if needed.issubset(set(m.keys()))
+    )
+
+
+def _normalize_sub_asset_weights(
+    sub_weights_bps: Mapping[str, int] | None,
+) -> dict[str, int] | None:
+    """Normalisiert Sub-Asset-Weights auf Summe 10000bps.
+
+    None / leeres Dict / Summe<=0 -> None (kein Benchmark).
+    Negative Werte werden zu 0 geklemmt. Korrektur fuer Round-Off geht
+    auf den ersten Schluessel mit positivem Gewicht.
+    """
+    if not sub_weights_bps:
+        return None
+    raw = {k: max(0, int(v or 0)) for k, v in sub_weights_bps.items()}
+    total = sum(raw.values())
+    if total <= 0:
+        return None
+    if total == 10000:
+        return raw
+    scaled: dict[str, int] = {}
+    allocated = 0
+    for k, v in raw.items():
+        share = v / total
+        scaled[k] = int(round(share * 10000))
+        allocated += scaled[k]
+    diff = 10000 - allocated
+    if diff != 0:
+        # Korrektur auf ersten Schluessel mit positivem Gewicht
+        for k in scaled:
+            if scaled[k] > 0:
+                scaled[k] += diff
+                break
+    return scaled
+
+
+def compound_sub_asset_wealth_path(
+    initial_value_rappen: int,
+    sub_weights_bps: Mapping[str, int],
+    years_returns: list[tuple[int, Mapping[str, int]]],
+    *,
+    rebalance: bool,
+    fee_bps_per_year: int = 0,
+) -> dict:
+    """Sub-Asset-Variante von compound_wealth_path.
+
+    Strukturell identisch, aber arbeitet mit beliebigen Sub-Asset-Keys
+    statt der fixen 5 Top-Level-BUCKETS. Round-Off-Korrektur geht auf den
+    ersten Sub-Asset-Key mit positivem Gewicht.
+
+    sub_weights_bps muss auf 10000 normalisiert sein (siehe
+    _normalize_sub_asset_weights).
+    """
+    initial_value_rappen = int(initial_value_rappen)
+    keys = tuple(sub_weights_bps.keys())
+    if not keys:
+        raise ValueError("sub_weights_bps darf nicht leer sein.")
+    total_weight = sum(int(sub_weights_bps.get(k, 0) or 0) for k in keys)
+    if total_weight <= 0:
+        raise ValueError("Sub-Asset-Gewichte summieren auf 0.")
+
+    sub_values: dict[str, float] = {}
+    allocated = 0
+    first_positive_key = next((k for k in keys if int(sub_weights_bps.get(k, 0) or 0) > 0), keys[0])
+    for k in keys:
+        share = int(sub_weights_bps.get(k, 0) or 0) / total_weight
+        amount = int(round(initial_value_rappen * share))
+        sub_values[k] = float(amount)
+        allocated += amount
+    sub_values[first_positive_key] += float(initial_value_rappen - allocated)
+
+    wealth_path: list[tuple[int, int]] = []
+    annual_returns_bps: list[int] = []
+    sub_path: list[dict] = []
+
+    start_label = (years_returns[0][0] - 1) if years_returns else None
+    initial_total = int(round(sum(sub_values.values())))
+    wealth_path.append((start_label if start_label is not None else 0, initial_total))
+    sub_path.append({"year": start_label, **{k: int(round(sub_values[k])) for k in keys}})
+
+    fee_bps_clamped = max(0, min(int(fee_bps_per_year or 0), 10000))
+    fee_factor = 1.0 - (fee_bps_clamped / 10000.0)
+
+    for year, ret_map in years_returns:
+        prev_total = sum(sub_values.values())
+        if prev_total <= 0:
+            annual_returns_bps.append(0)
+            wealth_path.append((year, 0))
+            sub_path.append({"year": year, **{k: 0 for k in keys}})
+            continue
+
+        new_values = {
+            k: sub_values[k] * (1.0 + float(ret_map.get(k, 0) or 0) / 10000.0)
+            for k in keys
+        }
+        if fee_factor != 1.0:
+            new_values = {k: v * fee_factor for k, v in new_values.items()}
+        new_total = sum(new_values.values())
+        portfolio_ret = (new_total - prev_total) / prev_total
+        annual_returns_bps.append(int(round(portfolio_ret * 10000)))
+
+        if rebalance:
+            sub_values = {}
+            allocated_f = 0.0
+            for k in keys:
+                share = int(sub_weights_bps.get(k, 0) or 0) / total_weight
+                sub_values[k] = new_total * share
+                allocated_f += sub_values[k]
+            sub_values[first_positive_key] += new_total - allocated_f
+        else:
+            sub_values = new_values
+
+        total_int = int(round(sum(sub_values.values())))
+        wealth_path.append((year, total_int))
+        sub_path.append({"year": year, **{k: int(round(sub_values[k])) for k in keys}})
+
+    return {
+        "start_year_label": start_label,
+        "wealth_path_rappen": wealth_path,
+        "annual_returns_bps": annual_returns_bps,
+        "sub_path_rappen": sub_path,
+        "fee_bps_per_year": fee_bps_clamped,
+        "sub_asset_keys": list(keys),
     }
 
 
@@ -881,6 +1055,69 @@ def _build_path_views(
     return view
 
 
+def _build_sub_asset_path_views(
+    initial_value_rappen: int,
+    sub_weights_bps: Mapping[str, int],
+    sub_years_data: list[tuple[int, Mapping[str, int]]],
+    risk_free_bps: int,
+    fee_bps_per_year: int = 0,
+) -> dict:
+    """Sub-Asset-Variante von _build_path_views.
+
+    Liefert rebalanced + no_rebalance + (bei fee>0) gross-Block, analog
+    zur Top-Level-Variante.
+    """
+    rebal = compound_sub_asset_wealth_path(
+        initial_value_rappen, sub_weights_bps, sub_years_data,
+        rebalance=True, fee_bps_per_year=fee_bps_per_year,
+    )
+    norebal = compound_sub_asset_wealth_path(
+        initial_value_rappen, sub_weights_bps, sub_years_data,
+        rebalance=False, fee_bps_per_year=fee_bps_per_year,
+    )
+    view = {
+        "sub_weights_bps": dict(sub_weights_bps),
+        "sub_asset_keys": rebal["sub_asset_keys"],
+        "fee_bps_per_year": int(fee_bps_per_year or 0),
+        "rebalanced": {
+            "wealth_path_rappen": rebal["wealth_path_rappen"],
+            "annual_returns_bps": rebal["annual_returns_bps"],
+            "drawdown_path_bps": compute_drawdown_path_bps(rebal["wealth_path_rappen"]),
+            "metrics": compute_metrics(rebal["wealth_path_rappen"], rebal["annual_returns_bps"], risk_free_bps=risk_free_bps),
+        },
+        "no_rebalance": {
+            "wealth_path_rappen": norebal["wealth_path_rappen"],
+            "annual_returns_bps": norebal["annual_returns_bps"],
+            "drawdown_path_bps": compute_drawdown_path_bps(norebal["wealth_path_rappen"]),
+            "metrics": compute_metrics(norebal["wealth_path_rappen"], norebal["annual_returns_bps"], risk_free_bps=risk_free_bps),
+        },
+    }
+    if int(fee_bps_per_year or 0) > 0:
+        gross_rebal = compound_sub_asset_wealth_path(
+            initial_value_rappen, sub_weights_bps, sub_years_data,
+            rebalance=True, fee_bps_per_year=0,
+        )
+        gross_norebal = compound_sub_asset_wealth_path(
+            initial_value_rappen, sub_weights_bps, sub_years_data,
+            rebalance=False, fee_bps_per_year=0,
+        )
+        view["gross"] = {
+            "rebalanced": {
+                "wealth_path_rappen": gross_rebal["wealth_path_rappen"],
+                "annual_returns_bps": gross_rebal["annual_returns_bps"],
+                "drawdown_path_bps": compute_drawdown_path_bps(gross_rebal["wealth_path_rappen"]),
+                "metrics": compute_metrics(gross_rebal["wealth_path_rappen"], gross_rebal["annual_returns_bps"], risk_free_bps=risk_free_bps),
+            },
+            "no_rebalance": {
+                "wealth_path_rappen": gross_norebal["wealth_path_rappen"],
+                "annual_returns_bps": gross_norebal["annual_returns_bps"],
+                "drawdown_path_bps": compute_drawdown_path_bps(gross_norebal["wealth_path_rappen"]),
+                "metrics": compute_metrics(gross_norebal["wealth_path_rappen"], gross_norebal["annual_returns_bps"], risk_free_bps=risk_free_bps),
+            },
+        }
+    return view
+
+
 def run_strategy_backtest(
     db: Session,
     mandate: Mandate,
@@ -891,6 +1128,7 @@ def run_strategy_backtest(
     resolution: str = "annual",
     strategy_fee_bps: int | None = None,
     benchmark_fee_bps: int | None = None,
+    benchmark_sub_weights_bps: Mapping[str, int] | None = None,
 ) -> dict:
     """Master-Service: führt den SOLL-Strategie-Backtest für das Mandat aus.
 
@@ -987,6 +1225,11 @@ def run_strategy_backtest(
             "Auflösung zurück (Admin > Asset-Class-Prices befüllen)."
         )
 
+    # Phase 3 Sub-Asset-Sprint (2026-06-09): Wenn der Caller ein Sub-Asset-
+    # Benchmark mitgibt, laden wir ZUSAETZLICH die Sub-Asset-Annual-Returns
+    # und liefern einen parallelen benchmark-Block. Die SOLL-Strategie bleibt
+    # auf Top-Level (5 Buckets), weil TargetAllocation aktuell nur Top-Level-
+    # Gewichte kennt. Sub-Asset-SOLL ist eine spaetere Sprint-Erweiterung.
     matrix = load_annual_returns_matrix(db)
     available_years_all = sorted(matrix.keys())
     if not available_years_all:
@@ -1029,6 +1272,45 @@ def run_strategy_backtest(
     if benchmark_norm is not None:
         benchmark_view = _build_path_views(initial_value, benchmark_norm, years_data, risk_free_bps, fee_bps_per_year=benchmark_fee_used)
 
+    # Phase 3 Sub-Asset (2026-06-09): Sub-Asset-Benchmark als zusaetzlicher
+    # Block, wenn Caller benchmark_sub_weights_bps angibt. Laeuft parallel
+    # zum klassischen Top-Level-Benchmark — beide koennen koexistieren.
+    benchmark_sub_view = None
+    sub_normalized = _normalize_sub_asset_weights(benchmark_sub_weights_bps)
+    sub_benchmark_meta: dict | None = None
+    if sub_normalized is not None:
+        sub_matrix = load_sub_asset_annual_returns_matrix(db)
+        sub_keys_used = list(sub_normalized.keys())
+        sub_years_available = _years_with_all_sub_assets(sub_matrix, sub_keys_used)
+        # Schnittmenge mit start_year/end_year
+        sub_years_in_range = sub_years_available
+        if start_year is not None:
+            sub_years_in_range = [y for y in sub_years_in_range if y >= int(start_year)]
+        if end_year is not None:
+            sub_years_in_range = [y for y in sub_years_in_range if y <= int(end_year)]
+        if not sub_years_in_range:
+            warnings.append(
+                f"Sub-Asset-Benchmark konnte nicht berechnet werden: keine vollstaendigen "
+                f"Jahresrenditen fuer die gewaehlten Sub-Assets {sub_keys_used} im Zeitraum. "
+                f"Bitte Backfill via Admin > Sub-Asset-Backfill ausfuehren."
+            )
+        else:
+            sub_years_data = [
+                (y, {k: sub_matrix[y].get(k, 0) for k in sub_keys_used})
+                for y in sub_years_in_range
+            ]
+            benchmark_sub_view = _build_sub_asset_path_views(
+                initial_value, sub_normalized, sub_years_data, risk_free_bps,
+                fee_bps_per_year=benchmark_fee_used,
+            )
+            sub_benchmark_meta = {
+                "sub_asset_keys": sub_keys_used,
+                "sub_weights_bps": dict(sub_normalized),
+                "available_years": sub_years_available,
+                "start_year": sub_years_in_range[0],
+                "end_year": sub_years_in_range[-1],
+            }
+
     return {
         "mandate_id": str(mandate.id),
         "initial_value_rappen": initial_value,
@@ -1041,6 +1323,8 @@ def run_strategy_backtest(
         "benchmark_fee_bps": benchmark_fee_used,
         "soll": soll_view,
         "benchmark": benchmark_view,
+        "benchmark_sub_asset": benchmark_sub_view,
+        "benchmark_sub_asset_meta": sub_benchmark_meta,
         "warnings": warnings,
         "resolution_used": "annual",
         "note": (

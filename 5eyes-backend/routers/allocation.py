@@ -732,6 +732,32 @@ def get_backtest_ab(
         raise HTTPException(status_code=409, detail=msg)
 
 
+def _parse_sub_asset_benchmark_query(value: str | None) -> dict[str, int] | None:
+    """Phase 3 (2026-06-09): Parsed Query-Param 'benchmark_sub_assets'.
+
+    Format: 'Aktien_CH_Large:5000,Aktien_US_Large:5000,Obligationen_CH_IG:0'
+    Whitespace toleriert. Leerer/None -> None (kein Sub-Asset-Benchmark).
+    Ungueltige Eintraege werden geskippt (kein Crash); Endsumme wird im
+    Service _normalize_sub_asset_weights normalisiert.
+    """
+    if not value or not value.strip():
+        return None
+    out: dict[str, int] = {}
+    for part in value.split(","):
+        if ":" not in part:
+            continue
+        key, bps_str = part.split(":", 1)
+        key = key.strip()
+        bps_str = bps_str.strip()
+        if not key:
+            continue
+        try:
+            out[key] = int(bps_str)
+        except (TypeError, ValueError):
+            continue
+    return out or None
+
+
 @router.get("/mandates/{mandate_id}/backtest/strategy")
 def get_strategy_backtest(
     mandate_id: str,
@@ -750,6 +776,12 @@ def get_strategy_backtest(
     # investierbar, aber als oberer Vergleichsanker nuetzlich).
     strategy_fee_bps: int | None = None,
     benchmark_fee_bps: int | None = None,
+    # Phase 3 Sub-Asset (2026-06-09): Optional Benchmark auf Sub-Asset-
+    # Granularitaet (z.B. SMI/SPI/SPX statt nur 'Aktien'). Format:
+    # 'Key1:bps,Key2:bps' (Komma-getrennt, Doppelpunkt zwischen
+    # Sub-Asset-Schluessel und Gewicht). Sub-Asset-Catalog in
+    # services/market_data/symbol_catalog.py.
+    benchmark_sub_assets: str | None = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -767,6 +799,8 @@ def get_strategy_backtest(
         start_year, end_year — optional, default = max verfügbarer Bereich
         benchmark_*_bps — optional, alle 5 zusammen ergeben den Benchmark.
             Wenn alle None, kein Benchmark. Summe wird auf 10000 normalisiert.
+        benchmark_sub_assets — optional Sub-Asset-Benchmark, Format
+            'Key1:bps,Key2:bps' (Phase 3 Sub-Asset-Sprint 2026-06-09).
 
     Read-only, kein Audit-Log.
     """
@@ -783,6 +817,7 @@ def get_strategy_backtest(
         if any(v is not None for v in bm_inputs.values())
         else None
     )
+    sub_benchmark = _parse_sub_asset_benchmark_query(benchmark_sub_assets)
     return run_strategy_backtest(
         db,
         mandate,
@@ -792,6 +827,7 @@ def get_strategy_backtest(
         resolution=resolution,
         strategy_fee_bps=strategy_fee_bps,
         benchmark_fee_bps=benchmark_fee_bps,
+        benchmark_sub_weights_bps=sub_benchmark,
     )
 
 
