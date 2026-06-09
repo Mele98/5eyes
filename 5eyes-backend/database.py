@@ -243,8 +243,17 @@ def ensure_runtime_columns() -> None:
         ],
         # Sprint U-P19b (2026-05-23): native Notierungswährung der Proxy-Bar
         # fuer waehrungskorrekten Daily-Backtest (NULL = wie CHF behandelt).
+        # Sprint 2026-06-09 (Phase 1 Sub-Asset): sub_asset_class fuer
+        # Sub-Anlageklassen-Backfill (NULL = Top-Level-Aggregat wie bisher,
+        # NOT NULL = z.B. "Aktien_CH_Large" gemaess symbol_catalog.py).
         'asset_class_price_history': [
             ('currency', 'TEXT'),
+            ('sub_asset_class', 'TEXT'),
+        ],
+        # Sprint 2026-06-09 (Phase 1 Sub-Asset): Annual-Returns auch fuer
+        # Sub-Anlageklassen. NULL = Top-Level-Aggregat (Bisheriges Verhalten).
+        'asset_class_annual_returns': [
+            ('sub_asset_class', 'TEXT'),
         ],
         'mandates': [
             # Sprint T1 (2026-06-08): tenant_id fuer 3-Tier-Architektur.

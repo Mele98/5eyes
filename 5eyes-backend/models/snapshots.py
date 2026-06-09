@@ -44,6 +44,10 @@ class AssetClassAnnualReturn(Base):
     source = Column(String)
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
+    # Sprint 2026-06-09 (Phase 1 Sub-Asset): Sub-Anlageklassen-Schluessel
+    # gemaess symbol_catalog.SUB_ASSET_CATALOG. NULL = Top-Level-Aggregat
+    # (Backwards-Compat zu pre-Sprint-Daten).
+    sub_asset_class = Column(String, nullable=True)
 
 
 class AssetClassPriceHistory(Base):
@@ -73,6 +77,10 @@ class AssetClassPriceHistory(Base):
     source = Column(String)
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
+    # Sprint 2026-06-09 (Phase 1 Sub-Asset): Sub-Anlageklassen-Schluessel
+    # gemaess symbol_catalog.SUB_ASSET_CATALOG. NULL = Top-Level-Aggregat
+    # (Backwards-Compat zu pre-Sprint-Daten).
+    sub_asset_class = Column(String, nullable=True)
 
 
 class AssetClassFxHistory(Base):
