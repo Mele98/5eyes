@@ -1412,7 +1412,23 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
           </div>
           <div>
             <div class="card mb">
-              <div class="chd"><span class="cht">Vermögensentwicklung</span><span style="font-size:9px;color:var(--n4);margin-left:8px">Ist-Situation vs. verbesserte Situation</span></div>
+              <div class="chd" style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+                <div><span class="cht">Vermögensentwicklung</span><span style="font-size:9px;color:var(--n4);margin-left:8px">Ist-Situation vs. verbesserte Situation</span></div>
+                <!-- Sprint 2026-06-09: Berater-Override fuer Projektions-Horizont.
+                     Default Auto = projectionHorizonYears Cascade (Sim>Risk>40).
+                     Bei Override wird Cashflow-Projection neu mit dem Wert geladen
+                     und alle 3 Charts (ist/aaCurrent/opt) re-rendert. -->
+                <div style="display:flex;align-items:center;gap:6px;font-size:10px;color:var(--n5)">
+                  <label for="cf-horizon-override">Horizont:</label>
+                  <input id="cf-horizon-override" type="number" min="3" max="60" step="1" value="" placeholder="auto"
+                         title="Berater-Override fuer den Projektions-Horizont. Leer = automatische Wahl aus Simulation/Risikoprofil."
+                         style="width:54px;font-size:10px;padding:2px 4px;border:1px solid var(--b1);border-radius:2px;background:var(--bg);text-align:right"
+                         onchange="applyIstHorizonOverride(this.value)">
+                  <span>Jahre</span>
+                  <button class="btn" type="button" onclick="applyIstHorizonOverride('')" title="Override zuruecksetzen"
+                          style="font-size:9px;padding:2px 6px">Auto</button>
+                </div>
+              </div>
               <div class="cbody">
                 <div id="ub-projection-note" style="font-size:10px;color:var(--warn);background:var(--warn-lt);border:1px solid rgba(146,64,14,0.12);border-radius:var(--r);padding:7px 9px;margin-bottom:10px">Ist-Situation ohne Optimierung. Sobald eine Strategie berechnet ist, wird hier direkt der verbesserte Zielpfad gegenübergestellt.</div>
                 <div class="chart-lg"><canvas id="ch-ist"></canvas></div>
@@ -3413,7 +3429,7 @@ async function loadClientById(clientId) {
       API.get('/clients/'+clientId),
       API.get('/clients/'+clientId+'/wealth-summary'),
       API.get('/clients/'+clientId+'/cashflow-summary'),
-      API.get('/clients/'+clientId+'/cashflow-projection?horizon_years=40'),
+      API.get('/clients/'+clientId+'/cashflow-projection?horizon_years='+(typeof effectiveCashflowProjectionHorizon==='function'?effectiveCashflowProjectionHorizon():40)),
       API.get('/clients/'+clientId+'/mandates'),
       API.get('/clients/'+clientId+'/wealth-positions'),
     ]);
@@ -3454,6 +3470,8 @@ async function loadClientById(clientId) {
       currentCashflowProjection = cashflowProjectionRes.status === 'fulfilled' && cashflowProjectionRes.value && Array.isArray(cashflowProjectionRes.value.years)
         ? clientScopedProjection(cashflowProjectionRes.value, c.id)
         : null;
+      // Sprint 2026-06-09: Override-Input nach Client-Switch synchronisieren
+      try { syncIstHorizonOverrideInput(); } catch(syncErr) { /* defensive */ }
       renderWealthPositions(positionsRes.status === 'fulfilled' ? positionsRes.value : []);
       if (cashflowRes.status === 'fulfilled' && cashflowRes.value) {
         const cf = cashflowRes.value;
@@ -14372,8 +14390,78 @@ function projectionSeriesCagrBps(seriesRappen){
   if(years<1||start<=0||end<=0)return 0;
   return Math.round((Math.pow(end/start,1/years)-1)*10000);
 }
+// Sprint 2026-06-09: Berater-Override fuer Projektions-Horizont (Card
+// 'Vermoegensentwicklung' im Cashflow-Page). Per Mandat/Client persistiert.
+function istHorizonOverrideKey(){
+  var cid = currentClientId || '';
+  return 'ist-horizon-override-' + String(cid);
+}
+function loadIstHorizonOverride(){
+  try {
+    if (!currentClientId) return null;
+    var raw = localStorage.getItem(istHorizonOverrideKey());
+    if (raw == null || raw === '') return null;
+    var n = parseInt(raw, 10);
+    if (!isFinite(n) || n < 3 || n > 60) return null;
+    return n;
+  } catch(e) { return null; }
+}
+function saveIstHorizonOverride(years){
+  try {
+    if (!currentClientId) return;
+    var key = istHorizonOverrideKey();
+    if (years == null || years === '' || !isFinite(Number(years))) {
+      localStorage.removeItem(key);
+    } else {
+      var n = Math.max(3, Math.min(60, Math.round(Number(years))));
+      localStorage.setItem(key, String(n));
+    }
+  } catch(e) { /* ignore quota / private mode */ }
+}
+function effectiveCashflowProjectionHorizon(){
+  // Berater-Override oder Default 40 (=bisheriges hardcoded Verhalten).
+  var ov = loadIstHorizonOverride();
+  return ov && ov > 0 ? ov : 40;
+}
+function syncIstHorizonOverrideInput(){
+  var el = document.getElementById('cf-horizon-override');
+  if (!el) return;
+  var ov = loadIstHorizonOverride();
+  el.value = ov ? String(ov) : '';
+}
+async function applyIstHorizonOverride(yearsRaw){
+  // Speichern (oder loeschen wenn leer/auto) + Cashflow-Projection neu laden +
+  // alle 3 Projection-Charts re-rendern.
+  var trimmed = (yearsRaw == null ? '' : String(yearsRaw).trim());
+  if (trimmed === '' || !isFinite(Number(trimmed))) {
+    saveIstHorizonOverride(null);
+  } else {
+    saveIstHorizonOverride(trimmed);
+  }
+  syncIstHorizonOverrideInput();
+  if (!currentClientId) return;
+  // Cashflow-Projection mit neuem Horizont nachladen
+  try {
+    var newHorizon = effectiveCashflowProjectionHorizon();
+    var projection = await API.get('/clients/' + currentClientId + '/cashflow-projection?horizon_years=' + newHorizon);
+    currentCashflowProjection = projection && Array.isArray(projection.years)
+      ? clientScopedProjection(projection, currentClientId)
+      : null;
+  } catch(e) {
+    // Refetch-Fehler nicht-blockierend; Charts bleiben dann mit alter Daten.
+  }
+  // Re-Render Charts (auch ohne neue Simulation - buildCurrentWealthProjection
+  // ist deterministisch und respektiert die neue Horizont-Laenge).
+  try {
+    updateProjectionChartsFromSimulation(strategyState && strategyState.allocation);
+  } catch(e) { /* defensive */ }
+}
+
 function projectionHorizonYears(result,preferredYears){
   if(preferredYears!=null&&preferredYears!==''&&isFinite(Number(preferredYears)))return Math.max(1,Number(preferredYears));
+  // Berater-Override hat Vorrang vor Simulation (Sprint 2026-06-09).
+  var override = loadIstHorizonOverride();
+  if (override && override > 0) return override;
   var sim=simulationPayload(result);
   if(sim&&Array.isArray(sim.year_labels)&&sim.year_labels.length>1)return sim.year_labels.length-1;
   var range=currentMandateHorizonRange();
@@ -17660,7 +17748,7 @@ async function refreshCashflowsUI(cid){
     var results=await Promise.allSettled([
       API.get('/clients/'+cid+'/cashflows'),
       API.get('/clients/'+cid+'/cashflow-summary'),
-      API.get('/clients/'+cid+'/cashflow-projection?horizon_years=40')
+      API.get('/clients/'+cid+'/cashflow-projection?horizon_years='+(typeof effectiveCashflowProjectionHorizon==='function'?effectiveCashflowProjectionHorizon():40))
     ]);
     if(String(cid)!==String(currentClientId||''))return;
     var items=results[0].status==='fulfilled'?results[0].value:[];
@@ -17670,6 +17758,8 @@ async function refreshCashflowsUI(cid){
     currentCashflows=clientScopedItems(items,cid);
     currentCashflowSummary=clientScopedSummary(summary||{},cid);
     currentCashflowProjection=projection&&Array.isArray(projection.years)?clientScopedProjection(projection,cid):null;
+    // Sprint 2026-06-09: Override-Input nach Client-Switch synchronisieren
+    try { syncIstHorizonOverrideInput(); } catch(e) {}
     var fmt=function(r){return 'CHF '+Math.round(Number(r||0)/100).toLocaleString('de-CH');};
     var inc=sortCashflowsByStoredOrder(items.filter(function(c){return c.cashflow_type==='Income';}),'Income');
     var exp=sortCashflowsByStoredOrder(items.filter(function(c){return c.cashflow_type==='Expense';}),'Expense');
