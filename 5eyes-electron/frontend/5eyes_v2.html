@@ -2357,6 +2357,14 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
           <label style="color:var(--n6)">Bis</label>
           <input class="fi" id="bt-end-year" type="number" placeholder="auto" style="font-size:11px;padding:4px 6px;width:100%">
         </div>
+        <!-- Phase 4 (2026-06-09): Horizont-Presets fuer schnellen Zugriff
+             auf typische Backtest-Zeitraeume. -->
+        <div style="display:flex;gap:4px;margin-top:6px;flex-wrap:wrap">
+          <button class="btn" type="button" style="font-size:9.5px;padding:2px 6px" onclick="btSetHorizonPreset('1988')" title="SMI-Einfuehrung 1988">Seit 1988</button>
+          <button class="btn" type="button" style="font-size:9.5px;padding:2px 6px" onclick="btSetHorizonPreset('2000')" title="Dotcom-Crash + nach 2000er-Boom">Seit 2000</button>
+          <button class="btn" type="button" style="font-size:9.5px;padding:2px 6px" onclick="btSetHorizonPreset('2008')" title="Globale Finanzkrise + Recovery">Seit 2008</button>
+          <button class="btn" type="button" style="font-size:9.5px;padding:2px 6px" onclick="btSetHorizonPreset('max')" title="Max verfuegbarer Zeitraum">Maximum</button>
+        </div>
         <div id="bt-available-range" style="font-size:9.5px;color:var(--n5);margin-top:6px"></div>
         <div style="font-size:10px;color:var(--n6);margin-top:8px;font-weight:600;text-transform:uppercase;letter-spacing:0.04em">Rebalancing</div>
         <div style="display:flex;gap:12px;font-size:11px;margin-top:4px">
@@ -2377,6 +2385,12 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
           <label style="font-size:11px;cursor:pointer"><input type="checkbox" id="bt-bm-enable" onchange="btToggleBenchmark()"> Benchmark anzeigen</label>
         </div>
         <div id="bt-bm-controls" style="display:none">
+          <!-- Phase 4 (2026-06-09): Modus-Toggle Top-Level (5) vs Sub-Asset (18) -->
+          <div style="display:flex;gap:12px;font-size:10.5px;margin-bottom:8px;padding-bottom:6px;border-bottom:1px dashed var(--b1)">
+            <label style="cursor:pointer"><input type="radio" name="bt-bm-mode" id="bt-bm-mode-top" value="top" checked onchange="btToggleBenchmarkMode()"> Top-Level (5 Klassen)</label>
+            <label style="cursor:pointer"><input type="radio" name="bt-bm-mode" id="bt-bm-mode-sub" value="sub" onchange="btToggleBenchmarkMode()"> Sub-Anlageklassen (granular)</label>
+          </div>
+          <div id="bt-bm-top-controls">
           <div style="display:flex;gap:6px;margin-bottom:6px">
             <button class="btn" style="font-size:10px;padding:3px 8px" onclick="btSetBenchmarkPreset('aktien100')">100% Aktien</button>
             <button class="btn" style="font-size:10px;padding:3px 8px" onclick="btSetBenchmarkPreset('60_40')">60/40</button>
@@ -2391,6 +2405,22 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
             <div><div>Liquidit&auml;t</div><div style="display:flex;align-items:center;gap:2px"><input class="fi bt-bm-pct" id="bt-bm-lq" type="number" min="0" max="100" step="1" value="0" style="font-size:11px;padding:3px 5px;width:100%"><span>%</span></div></div>
           </div>
           <div id="bt-bm-sum" style="font-size:10px;color:var(--n5);margin-top:4px;text-align:right"></div>
+          </div><!-- /bt-bm-top-controls -->
+          <!-- Phase 4 (2026-06-09): Sub-Asset-Picker (18 Klassen).
+               Gruppiert nach Top-Level. Buchstabe direkt aus Phase-1-
+               Catalog (services/market_data/symbol_catalog.py) gespiegelt. -->
+          <div id="bt-bm-sub-controls" style="display:none">
+            <div style="display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap">
+              <button class="btn" type="button" style="font-size:10px;padding:3px 8px" onclick="btSetSubAssetPreset('smi100')">100% SMI</button>
+              <button class="btn" type="button" style="font-size:10px;padding:3px 8px" onclick="btSetSubAssetPreset('world_split')">Welt 60/40 (URTH/AGG)</button>
+              <button class="btn" type="button" style="font-size:10px;padding:3px 8px" onclick="btSetSubAssetPreset('ch_classic')">CH Klassik 50/30/20</button>
+              <button class="btn" type="button" style="font-size:10px;padding:3px 8px" onclick="btSetSubAssetPreset('clear')">Leer</button>
+            </div>
+            <div id="bt-bm-sub-grid" style="font-size:10px;color:var(--n6);max-height:280px;overflow-y:auto;border:1px solid var(--b1);border-radius:4px;padding:8px;background:var(--bg2)">
+              <!-- dynamisch gefuellt aus BT_SUB_ASSET_CATALOG via btBuildSubAssetGrid() -->
+            </div>
+            <div id="bt-bm-sub-sum" style="font-size:10px;color:var(--n5);margin-top:4px;text-align:right"></div>
+          </div>
         </div>
       </div>
     </div>
@@ -9828,6 +9858,147 @@ document.addEventListener('input', function(e){
   if(e.target && e.target.classList && e.target.classList.contains('bt-bm-pct')) btUpdateBenchmarkSum();
 });
 
+// Phase 4 (2026-06-09): Sub-Asset-Catalog gespiegelt aus Backend
+// services/market_data/symbol_catalog.py. Backend bleibt Source-of-Truth;
+// dieser Frontend-Mirror wird beim Catalog-Update mitgezogen.
+var BT_SUB_ASSET_CATALOG = [
+  // Aktien (7)
+  { key: 'Aktien_CH_Large',        top: 'Aktien',        label: 'Aktien CH Large Cap (SMI)' },
+  { key: 'Aktien_CH_SmallMid',     top: 'Aktien',        label: 'Aktien CH Small/Mid Cap (SPI Extra)' },
+  { key: 'Aktien_EU_Large',        top: 'Aktien',        label: 'Aktien EU Large Cap (Stoxx 600)' },
+  { key: 'Aktien_US_Large',        top: 'Aktien',        label: 'Aktien US Large Cap (S&P 500)' },
+  { key: 'Aktien_US_Small',        top: 'Aktien',        label: 'Aktien US Small Cap (Russell 2000)' },
+  { key: 'Aktien_EM',              top: 'Aktien',        label: 'Aktien Emerging Markets' },
+  { key: 'Aktien_Welt',            top: 'Aktien',        label: 'Aktien Welt (MSCI World)' },
+  // Obligationen (4)
+  { key: 'Obligationen_CH_IG',              top: 'Obligationen', label: 'Obligationen CH Investment Grade' },
+  { key: 'Obligationen_Welt_IG_HedgedCHF',  top: 'Obligationen', label: 'Obligationen Welt IG (CHF gehedgt)' },
+  { key: 'Obligationen_Welt_HY',            top: 'Obligationen', label: 'Obligationen Welt High Yield' },
+  { key: 'Obligationen_EM',                 top: 'Obligationen', label: 'Obligationen Emerging Markets' },
+  // Immobilien (2)
+  { key: 'Immobilien_CH',          top: 'Immobilien',    label: 'Immobilien Schweiz (Fonds + AG)' },
+  { key: 'Immobilien_Welt',        top: 'Immobilien',    label: 'Immobilien Welt (Listed REITs)' },
+  // Alternative (3)
+  { key: 'Alternative_Gold',          top: 'Alternative', label: 'Gold (Spot)' },
+  { key: 'Alternative_Krypto',        top: 'Alternative', label: 'Krypto (Bitcoin)' },
+  { key: 'Alternative_PrivateEquity', top: 'Alternative', label: 'Private Equity (Listed)' },
+  // Liquiditaet (2)
+  { key: 'Liquiditaet_CHF',        top: 'Liquiditaet',   label: 'Liquiditaet CHF (SARON)' },
+  { key: 'Liquiditaet_USD',        top: 'Liquiditaet',   label: 'Liquiditaet USD (T-Bill)' },
+];
+
+function btBuildSubAssetGrid(){
+  var grid = document.getElementById('bt-bm-sub-grid');
+  if(!grid) return;
+  // Schon befuellt? -> kein Re-Build noetig (Inputs behalten ihre Werte).
+  if(grid.dataset.built === '1') return;
+  var groups = {};
+  BT_SUB_ASSET_CATALOG.forEach(function(sa){
+    if(!groups[sa.top]) groups[sa.top] = [];
+    groups[sa.top].push(sa);
+  });
+  var html = '';
+  ['Aktien','Obligationen','Immobilien','Alternative','Liquiditaet'].forEach(function(top){
+    var list = groups[top] || [];
+    if(!list.length) return;
+    html += '<div style="margin-bottom:8px"><div style="font-weight:700;color:var(--n8);text-transform:uppercase;font-size:9.5px;letter-spacing:0.05em;margin-bottom:4px">'+top+'</div>';
+    list.forEach(function(sa){
+      var inputId = 'bt-bm-sub-' + sa.key;
+      html += '<div style="display:grid;grid-template-columns:1fr 70px 18px;gap:6px;align-items:center;padding:2px 0">'
+        + '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+dcEscape(sa.label)+'">'+dcEscape(sa.label)+'</span>'
+        + '<input class="fi bt-bm-sub-pct" id="'+inputId+'" data-sa-key="'+sa.key+'" type="number" min="0" max="100" step="0.1" value="0" style="font-size:10.5px;padding:2px 4px;text-align:right" oninput="btUpdateSubAssetSum()">'
+        + '<span style="color:var(--n5)">%</span>'
+        + '</div>';
+    });
+    html += '</div>';
+  });
+  grid.innerHTML = html;
+  grid.dataset.built = '1';
+}
+
+function btReadSubAssetPctInputs(){
+  // Liefert {key: pct, ...} fuer alle Sub-Assets mit Wert > 0
+  var inputs = document.querySelectorAll('#bt-bm-sub-grid .bt-bm-sub-pct');
+  var out = {};
+  for(var i = 0; i < inputs.length; i++){
+    var el = inputs[i];
+    var pct = parseFloat(el.value);
+    if(!isFinite(pct) || pct <= 0) continue;
+    out[el.dataset.saKey] = pct;
+  }
+  return out;
+}
+
+function btUpdateSubAssetSum(){
+  var pcts = btReadSubAssetPctInputs();
+  var total = 0;
+  for(var k in pcts) total += pcts[k];
+  var el = document.getElementById('bt-bm-sub-sum');
+  if(!el) return;
+  if(total === 0){
+    el.textContent = '';
+    el.style.color = 'var(--n5)';
+  } else if(Math.abs(total - 100) < 0.01){
+    el.textContent = 'Total 100% ✓';
+    el.style.color = 'var(--pos)';
+  } else {
+    el.textContent = 'Total ' + total.toFixed(1) + '% — wird auf 100% normalisiert';
+    el.style.color = 'var(--warn)';
+  }
+}
+
+function btToggleBenchmarkMode(){
+  var topEl = document.getElementById('bt-bm-top-controls');
+  var subEl = document.getElementById('bt-bm-sub-controls');
+  var modeSub = document.getElementById('bt-bm-mode-sub');
+  if(modeSub && modeSub.checked){
+    if(topEl) topEl.style.display = 'none';
+    if(subEl) subEl.style.display = '';
+    btBuildSubAssetGrid();
+    btUpdateSubAssetSum();
+  } else {
+    if(topEl) topEl.style.display = '';
+    if(subEl) subEl.style.display = 'none';
+  }
+}
+
+function btSetSubAssetPreset(preset){
+  // Setzt alle Sub-Asset-Sliders auf 0 und legt Preset darauf.
+  btBuildSubAssetGrid();
+  var inputs = document.querySelectorAll('#bt-bm-sub-grid .bt-bm-sub-pct');
+  for(var i = 0; i < inputs.length; i++) inputs[i].value = '0';
+  function set(key, pct){
+    var el = document.getElementById('bt-bm-sub-' + key);
+    if(el) el.value = String(pct);
+  }
+  if(preset === 'smi100'){
+    set('Aktien_CH_Large', 100);
+  } else if(preset === 'world_split'){
+    set('Aktien_Welt', 60);
+    set('Obligationen_Welt_IG_HedgedCHF', 40);
+  } else if(preset === 'ch_classic'){
+    set('Aktien_CH_Large', 30);
+    set('Aktien_CH_SmallMid', 20);
+    set('Obligationen_CH_IG', 30);
+    set('Immobilien_CH', 15);
+    set('Liquiditaet_CHF', 5);
+  }
+  // 'clear' = alle 0 (schon gesetzt)
+  btUpdateSubAssetSum();
+}
+
+function btSetHorizonPreset(preset){
+  // Setzt Start-Jahr (Bis bleibt leer = auto/Maximum)
+  var sy = document.getElementById('bt-start-year');
+  var ey = document.getElementById('bt-end-year');
+  if(!sy) return;
+  if(preset === '1988') sy.value = '1988';
+  else if(preset === '2000') sy.value = '2000';
+  else if(preset === '2008') sy.value = '2008';
+  else if(preset === 'max'){ sy.value = ''; if(ey) ey.value = ''; }
+  if(typeof btRunBacktest === 'function') btRunBacktest();
+}
+
 // Bug-#8a UI (2026-06-09): Kosten-Helpers
 function btReadFeeBps(){
   // Liest die 3 Strategie-Sliders + Benchmark-Slider, gibt bps zurueck.
@@ -9875,13 +10046,28 @@ async function btRunBacktest(){
     if(sy) qs.push('start_year=' + encodeURIComponent(sy));
     if(ey) qs.push('end_year=' + encodeURIComponent(ey));
     if(document.getElementById('bt-bm-enable').checked){
-      var v = btReadBenchmarkPctInputs();
-      // Inputs sind % (0..100). Backend will bps (0..10000) => *100.
-      qs.push('benchmark_equities_bps=' + (v.eq * 100));
-      qs.push('benchmark_bonds_bps=' + (v.bd * 100));
-      qs.push('benchmark_real_estate_bps=' + (v.re * 100));
-      qs.push('benchmark_alternatives_bps=' + (v.al * 100));
-      qs.push('benchmark_liquidity_bps=' + (v.lq * 100));
+      // Phase 4 (2026-06-09): Modus-Toggle Top-Level vs Sub-Asset
+      var modeSub = document.getElementById('bt-bm-mode-sub');
+      if(modeSub && modeSub.checked){
+        // Sub-Asset-Benchmark: 'Key1:bps,Key2:bps' Format
+        var subPcts = btReadSubAssetPctInputs();
+        var parts = [];
+        for(var k in subPcts){
+          // % -> bps: *100, mit Rundung
+          parts.push(k + ':' + Math.round(subPcts[k] * 100));
+        }
+        if(parts.length){
+          qs.push('benchmark_sub_assets=' + encodeURIComponent(parts.join(',')));
+        }
+      } else {
+        var v = btReadBenchmarkPctInputs();
+        // Inputs sind % (0..100). Backend will bps (0..10000) => *100.
+        qs.push('benchmark_equities_bps=' + (v.eq * 100));
+        qs.push('benchmark_bonds_bps=' + (v.bd * 100));
+        qs.push('benchmark_real_estate_bps=' + (v.re * 100));
+        qs.push('benchmark_alternatives_bps=' + (v.al * 100));
+        qs.push('benchmark_liquidity_bps=' + (v.lq * 100));
+      }
     }
     // Bug-#8a UI: Kosten-Parameter
     var fees = btReadFeeBps();
@@ -9943,6 +10129,15 @@ function btRender(data){
     return;
   }
 
+  // Phase 4 (2026-06-09): Wenn Backend benchmark_sub_asset liefert UND Modus
+  // sub aktiv ist, behandeln wir den Sub-Asset-Block als 'data.benchmark'
+  // fuer den nachfolgenden Render — gleiche rebal/no_rebal/metrics-Struktur.
+  var modeSubEl = document.getElementById('bt-bm-mode-sub');
+  if(modeSubEl && modeSubEl.checked && data.benchmark_sub_asset){
+    data.benchmark = data.benchmark_sub_asset;
+    data._benchmark_is_sub_asset = true;
+  }
+
   if(meta){
     var soll = data.soll.weights_bps || {};
     var weightSummary = ['equities','bonds','real_estate','alternatives','liquidity']
@@ -9957,10 +10152,22 @@ function btRender(data){
       if(bmFee > 0) parts.push('Benchmark -' + (bmFee/100).toFixed(2) + '%');
       feeNote = ' · <b>Netto p.a.</b> (' + parts.join(', ') + ')';
     }
+    // Phase 4: Meta-Info Sub-Asset-Benchmark
+    var bmNote = '';
+    if(data.benchmark){
+      if(data._benchmark_is_sub_asset && data.benchmark_sub_asset_meta){
+        var meta_sa = data.benchmark_sub_asset_meta;
+        var nKeys = (meta_sa.sub_asset_keys || []).length;
+        bmNote = ' · Benchmark Sub-Asset aktiv (' + nKeys + ' Klassen, '
+          + meta_sa.start_year + '–' + meta_sa.end_year + ')';
+      } else {
+        bmNote = ' · Benchmark aktiv';
+      }
+    }
     meta.innerHTML = 'Initial: <b>' + btFormatCHF(data.initial_value_rappen)
       + '</b> · Zeitraum: <b>' + data.start_year + '–' + data.end_year + '</b>'
       + ' · SOLL (Aktien/Obl/Imm/Alt/Liq): <b>' + weightSummary + '</b>'
-      + (data.benchmark ? ' · Benchmark aktiv' : '')
+      + bmNote
       + feeNote;
   }
 
@@ -10069,13 +10276,26 @@ function downloadBacktestPdf(){
   if(sy) qs.push('start_year=' + encodeURIComponent(sy));
   if(ey) qs.push('end_year=' + encodeURIComponent(ey));
   if(document.getElementById('bt-bm-enable').checked){
-    var v = btReadBenchmarkPctInputs();
-    // Inputs sind % (0..100). Backend will bps (0..10000) => *100.
-    qs.push('benchmark_equities_bps=' + (v.eq * 100));
-    qs.push('benchmark_bonds_bps=' + (v.bd * 100));
-    qs.push('benchmark_real_estate_bps=' + (v.re * 100));
-    qs.push('benchmark_alternatives_bps=' + (v.al * 100));
-    qs.push('benchmark_liquidity_bps=' + (v.lq * 100));
+    // Phase 4 (2026-06-09): Modus-Toggle Top-Level vs Sub-Asset
+    var modeSubPdf = document.getElementById('bt-bm-mode-sub');
+    if(modeSubPdf && modeSubPdf.checked){
+      var subPctsPdf = btReadSubAssetPctInputs();
+      var partsPdf = [];
+      for(var k in subPctsPdf){
+        partsPdf.push(k + ':' + Math.round(subPctsPdf[k] * 100));
+      }
+      if(partsPdf.length){
+        qs.push('benchmark_sub_assets=' + encodeURIComponent(partsPdf.join(',')));
+      }
+    } else {
+      var v = btReadBenchmarkPctInputs();
+      // Inputs sind % (0..100). Backend will bps (0..10000) => *100.
+      qs.push('benchmark_equities_bps=' + (v.eq * 100));
+      qs.push('benchmark_bonds_bps=' + (v.bd * 100));
+      qs.push('benchmark_real_estate_bps=' + (v.re * 100));
+      qs.push('benchmark_alternatives_bps=' + (v.al * 100));
+      qs.push('benchmark_liquidity_bps=' + (v.lq * 100));
+    }
   }
   // Bug-#8a UI: Fees auch im PDF (Backend rendert Brutto/Netto-Block)
   var fees = btReadFeeBps();
