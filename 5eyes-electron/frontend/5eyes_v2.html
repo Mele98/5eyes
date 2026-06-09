@@ -2379,6 +2379,52 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
       </div>
     </div>
 
+    <!-- Bug-#8a UI (2026-06-09): Kosten-Erfassung. Backend-Parameter
+         strategy_fee_bps = TER + Depot + Advisory in bps p.a.
+         benchmark_fee_bps = ETF-Kosten der Benchmark (z.B. TER passives ETF). -->
+    <div style="background:var(--bg);border:1px solid var(--b1);border-radius:6px;padding:10px;margin-bottom:10px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <div style="font-size:10px;font-weight:700;color:var(--n8);text-transform:uppercase;letter-spacing:0.06em">Kosten p.a. (optional)</div>
+        <div style="display:flex;gap:10px;align-items:center;font-size:10px;color:var(--n6)">
+          <button class="btn" style="font-size:10px;padding:3px 8px" onclick="btResetFees()" title="Alle Kosten auf 0 setzen (Brutto-Vergleich)">Brutto</button>
+          <span id="bt-fee-strategy-sum" style="font-weight:600;color:var(--n7)"></span>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;font-size:10px;color:var(--n6)">
+        <div>
+          <div title="Durchschnittliche Total Expense Ratio aller Produkte">Produktkosten TER &empty;</div>
+          <div style="display:flex;align-items:center;gap:2px;margin-top:2px">
+            <input class="fi bt-fee-strategy" id="bt-fee-ter" type="number" min="0" max="500" step="0.01" value="0" style="font-size:11px;padding:3px 5px;width:100%" oninput="btUpdateFeeSum()">
+            <span>%</span>
+          </div>
+        </div>
+        <div>
+          <div title="Depotgebuehr/Custody p.a.">Depotgeb&uuml;hr</div>
+          <div style="display:flex;align-items:center;gap:2px;margin-top:2px">
+            <input class="fi bt-fee-strategy" id="bt-fee-custody" type="number" min="0" max="500" step="0.01" value="0" style="font-size:11px;padding:3px 5px;width:100%" oninput="btUpdateFeeSum()">
+            <span>%</span>
+          </div>
+        </div>
+        <div>
+          <div title="Beratungs-/Mandatsgebuehr p.a.">Beratung/Mandat</div>
+          <div style="display:flex;align-items:center;gap:2px;margin-top:2px">
+            <input class="fi bt-fee-strategy" id="bt-fee-advisory" type="number" min="0" max="500" step="0.01" value="0" style="font-size:11px;padding:3px 5px;width:100%" oninput="btUpdateFeeSum()">
+            <span>%</span>
+          </div>
+        </div>
+        <div>
+          <div title="ETF-Kosten der Benchmark (z.B. SMI/MSCI-World-ETF-TER)">Benchmark-Kosten</div>
+          <div style="display:flex;align-items:center;gap:2px;margin-top:2px">
+            <input class="fi" id="bt-fee-benchmark" type="number" min="0" max="500" step="0.01" value="0" style="font-size:11px;padding:3px 5px;width:100%">
+            <span>%</span>
+          </div>
+        </div>
+      </div>
+      <div style="font-size:9.5px;color:var(--n5);margin-top:6px">
+        Strategie-Kosten = Summe der drei linken Felder. Netto-Renditen werden im Backtest abgezogen.
+      </div>
+    </div>
+
     <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:10px">
       <button class="btn-p" id="bt-run-btn" onclick="btRunBacktest()">Backtest rechnen</button>
     </div>
@@ -9764,6 +9810,37 @@ document.addEventListener('input', function(e){
   if(e.target && e.target.classList && e.target.classList.contains('bt-bm-pct')) btUpdateBenchmarkSum();
 });
 
+// Bug-#8a UI (2026-06-09): Kosten-Helpers
+function btReadFeeBps(){
+  // Liest die 3 Strategie-Sliders + Benchmark-Slider, gibt bps zurueck.
+  // % -> bps: 1% = 100bps. Inputs sind in % mit Schritt 0.01.
+  function pctToBps(id){
+    var el = document.getElementById(id);
+    if(!el) return 0;
+    var n = parseFloat(el.value);
+    if(!isFinite(n) || n < 0) return 0;
+    return Math.round(n * 100); // 0.50% -> 50bps
+  }
+  var strategy = pctToBps('bt-fee-ter') + pctToBps('bt-fee-custody') + pctToBps('bt-fee-advisory');
+  var benchmark = pctToBps('bt-fee-benchmark');
+  return { strategy: strategy, benchmark: benchmark };
+}
+function btUpdateFeeSum(){
+  var fees = btReadFeeBps();
+  var el = document.getElementById('bt-fee-strategy-sum');
+  if(!el) return;
+  el.textContent = fees.strategy > 0
+    ? 'Total Strategie ' + (fees.strategy / 100).toFixed(2) + '% p.a.'
+    : '';
+}
+function btResetFees(){
+  ['bt-fee-ter','bt-fee-custody','bt-fee-advisory','bt-fee-benchmark'].forEach(function(id){
+    var el = document.getElementById(id);
+    if(el) el.value = '0';
+  });
+  btUpdateFeeSum();
+}
+
 async function btRunBacktest(){
   var mid = typeof getActiveMandateId==='function' ? getActiveMandateId() : null;
   if(!mid) return;
@@ -9788,6 +9865,10 @@ async function btRunBacktest(){
       qs.push('benchmark_alternatives_bps=' + (v.al * 100));
       qs.push('benchmark_liquidity_bps=' + (v.lq * 100));
     }
+    // Bug-#8a UI: Kosten-Parameter
+    var fees = btReadFeeBps();
+    if(fees.strategy > 0) qs.push('strategy_fee_bps=' + fees.strategy);
+    if(fees.benchmark > 0) qs.push('benchmark_fee_bps=' + fees.benchmark);
     qs.push('resolution=' + encodeURIComponent(btReadResolution()));
     var path = '/mandates/' + encodeURIComponent(mid) + '/backtest/strategy' + (qs.length ? '?' + qs.join('&') : '');
     var data = await API.get(path);
@@ -9848,10 +9929,21 @@ function btRender(data){
     var soll = data.soll.weights_bps || {};
     var weightSummary = ['equities','bonds','real_estate','alternatives','liquidity']
       .map(function(b){ return (soll[b]/100).toFixed(0)+'%'; }).join(' / ');
+    // Bug-#8a UI: Netto-Anzeige bei Kosten
+    var stratFee = parseInt(data.strategy_fee_bps || 0, 10);
+    var bmFee = parseInt(data.benchmark_fee_bps || 0, 10);
+    var feeNote = '';
+    if(stratFee > 0 || bmFee > 0){
+      var parts = [];
+      if(stratFee > 0) parts.push('Strategie -' + (stratFee/100).toFixed(2) + '%');
+      if(bmFee > 0) parts.push('Benchmark -' + (bmFee/100).toFixed(2) + '%');
+      feeNote = ' · <b>Netto p.a.</b> (' + parts.join(', ') + ')';
+    }
     meta.innerHTML = 'Initial: <b>' + btFormatCHF(data.initial_value_rappen)
       + '</b> · Zeitraum: <b>' + data.start_year + '–' + data.end_year + '</b>'
       + ' · SOLL (Aktien/Obl/Imm/Alt/Liq): <b>' + weightSummary + '</b>'
-      + (data.benchmark ? ' · Benchmark aktiv' : '');
+      + (data.benchmark ? ' · Benchmark aktiv' : '')
+      + feeNote;
   }
 
   var showRebal = document.getElementById('bt-show-rebal').checked;
@@ -9967,6 +10059,10 @@ function downloadBacktestPdf(){
     qs.push('benchmark_alternatives_bps=' + (v.al * 100));
     qs.push('benchmark_liquidity_bps=' + (v.lq * 100));
   }
+  // Bug-#8a UI: Fees auch im PDF (Backend rendert Brutto/Netto-Block)
+  var fees = btReadFeeBps();
+  if(fees.strategy > 0) qs.push('strategy_fee_bps=' + fees.strategy);
+  if(fees.benchmark > 0) qs.push('benchmark_fee_bps=' + fees.benchmark);
   qs.push('resolution=' + encodeURIComponent(btReadResolution()));
   downloadServerPdf('backtest', qs.length ? qs.join('&') : null);
 }
