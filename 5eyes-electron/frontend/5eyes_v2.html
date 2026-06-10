@@ -9009,8 +9009,11 @@ async function adminPolicyOpen(policyId){
     document.getElementById('admin-policy-detail-sub').textContent =
       (detail.is_current ? 'AKTIV — wirkt auf alle Mandate' : 'historic/draft — wird nicht für neue Strategien verwendet')
       + ' · max RE ' + (detail.max_real_estate_bps/100).toFixed(0) + '% · max Alt ' + (detail.max_alternatives_bps/100).toFixed(0) + '%';
+    adminPolicyState.isCurrent = !!detail.is_current;
     document.getElementById('btn-policy-save').style.display = '';
     document.getElementById('btn-policy-activate').style.display = detail.is_current ? 'none' : '';
+    var polWarn = document.getElementById('admin-policy-active-warning');
+    if (polWarn) polWarn.style.display = detail.is_current ? 'block' : 'none';
     adminRenderPolicyGrid();
     if(status) status.textContent = '';
   } catch(e){
@@ -9070,13 +9073,56 @@ function adminPolicyValidateRow(rowIdx){
     statusEl.textContent = problems.length ? '⚠ ' + problems.join(' · ') : '✓ valide';
     statusEl.style.color = problems.length ? 'var(--neg)' : 'var(--pos)';
   }
+  adminPolicyRefreshSaveState();
+}
+
+// Redesign 2026-06-10: Integritaets-Guards fuer Policy-Editor.
+// Prueft alle Zeilen aus dem State (Σ Target = 100%, min ≤ target ≤ max).
+function adminPolicyAllRowsValid(){
+  return (adminPolicyState.rows || []).every(function(row){
+    var targetSum = 0, ok = true;
+    ADMIN_POLICY_BUCKETS.forEach(function(b){
+      var mn = row[b.key+'_min_bps'], tg = row[b.key+'_target_bps'], mx = row[b.key+'_max_bps'];
+      targetSum += Number(tg || 0);
+      if(!(Number(mn||0) <= Number(tg||0) && Number(tg||0) <= Number(mx||0))) ok = false;
+    });
+    if(Math.abs(targetSum - 10000) > 5) ok = false;
+    return ok;
+  });
+}
+
+// Sperrt den Speichern-Button: hart bei aktiver Policy (Versionstreue),
+// sonst solange die Baender nicht valide sind.
+function adminPolicyRefreshSaveState(){
+  var btn = document.getElementById('btn-policy-save');
+  var hint = document.getElementById('admin-policy-save-hint');
+  if(!btn) return;
+  if(adminPolicyState.isCurrent){
+    btn.disabled = true;
+    btn.title = 'Aktive Policy kann nicht direkt überschrieben werden — erst klonen.';
+    if(hint) hint.textContent = '';
+    return;
+  }
+  var valid = adminPolicyAllRowsValid();
+  btn.disabled = !valid;
+  btn.title = valid ? '' : 'Speichern gesperrt: Bänder noch nicht valide.';
+  if(hint) hint.textContent = valid ? '' : '⚠ Speichern gesperrt, bis alle Zeilen valide sind (Σ Target = 100%, min ≤ target ≤ max).';
 }
 
 async function adminPolicySaveRows(){
+  // Redesign 2026-06-10: Integritaets-Guards (Defense-in-depth zum disabled-Button).
+  if(adminPolicyState.isCurrent){
+    try { if(window.showAppError) showAppError('Aktive Policy kann nicht direkt überschrieben werden — bitte zuerst klonen.'); } catch(e){}
+    return;
+  }
+  adminPolicyState.rows.forEach(function(_, i){ adminPolicyValidateRow(i); });
+  if(!adminPolicyAllRowsValid()){
+    var stInvalid = document.getElementById('admin-policy-status');
+    if(stInvalid){ stInvalid.textContent = '⚠ Speichern gesperrt: Bänder nicht valide (Σ Target = 100%, min ≤ target ≤ max).'; stInvalid.style.color='var(--neg)'; }
+    return;
+  }
   var status = document.getElementById('admin-policy-status');
   if(status){ status.textContent = 'Speichert...'; status.style.color='var(--n5)'; }
-  // Übernehme aktuelle Inputs in den State
-  adminPolicyState.rows.forEach(function(_, i){ adminPolicyValidateRow(i); });
   var payload = { rows: adminPolicyState.rows.map(function(r){
     return {
       score_from: r.score_from, score_to: r.score_to, profile_name: (document.getElementById('pol-name-'+adminPolicyState.rows.indexOf(r))||{value:r.profile_name}).value,
@@ -9101,7 +9147,7 @@ async function adminPolicySaveRows(){
 
 async function adminPolicyActivate(){
   if(!adminPolicyState.selectedId) return;
-  if(!confirm('Diese Policy als aktive Default-Variante setzen? Die bisher aktive wird auf historic gesetzt. Mandate behalten ihre TargetAllocation-Snapshots — aber neue Strategien nutzen dann diese Policy.')) return;
+  if(!adminConfirmRisk('Policy als aktiv setzen?', 'Die bisher aktive Policy wird auf historic gesetzt. Mandate behalten ihre TargetAllocation-Snapshots — aber neue Strategien nutzen dann diese Policy.')) return;
   var status = document.getElementById('admin-policy-status');
   try {
     await API.post('/admin/optimizer-policies/' + encodeURIComponent(adminPolicyState.selectedId) + '/activate', {});
@@ -10514,9 +10560,11 @@ function btRenderLineChart(container, series, opts){
 async function adminPolicyCloneActive(){
   var active = (adminPolicyState.policies || []).find(function(p){ return p.is_current; });
   if(!active){
-    alert('Keine aktive Policy gefunden. Bitte zuerst Policies laden.');
+    try { if(window.showAppError) showAppError('Keine aktive Policy gefunden. Bitte zuerst Policies laden.'); } catch(e){}
     return;
   }
+  // prompt() bewusst belassen: einfache Einzeleingabe; ein Modal-Dialog waere
+  // hier Over-Engineering. confirm()/alert() sind ersetzt.
   var name = prompt('Name der geklonten Variante:', active.policy_name + ' (Kopie)');
   if(!name) return;
   try {
@@ -10525,7 +10573,7 @@ async function adminPolicyCloneActive(){
     await adminLoadPolicies(true);
     adminPolicyOpen(clone.id);
   } catch(e){
-    alert('Klonen fehlgeschlagen: ' + (e && (e.detail||e.message) || '?'));
+    try { if(window.showAppError) showAppError('Klonen fehlgeschlagen: ' + (e && (e.detail||e.message) || '?')); } catch(_){}
   }
 }
 
@@ -10570,14 +10618,18 @@ async function loadAdminAnnualReturns() {
 async function backfillAdminAnnualReturns() {
   var btn = document.getElementById('btn-admin-ar-backfill');
   var errEl = document.getElementById('admin-ar-error');
+  var gapsOnly = !!(document.getElementById('admin-ar-gaps-only') || {}).checked;
   if (!adminConfirmRisk(
-    'Annual-Returns aus Marktdaten neu laden?',
-    'Lädt die letzten 20 Jahre via yfinance/stooq (USD-Total-Return-Approximation). Bestehende Werte werden überschrieben.'
+    'Annual-Returns aus Marktdaten laden?',
+    'Lädt die letzten 20 Jahre via yfinance/stooq (USD-Total-Return-Approximation). '
+      + (gapsOnly ? 'Nur fehlende Werte werden ergänzt — manuell gepflegte Zellen bleiben erhalten.'
+                  : 'ACHTUNG: Bestehende Werte (auch manuell gepflegte) werden überschrieben.')
   )) return;
   if (btn) { btn.disabled = true; btn.textContent = 'Lädt…'; }
   if (errEl) errEl.style.display = 'none';
   try {
-    var res = await API.post('/admin/system/annual-returns/backfill', {});
+    // overwrite ist Query-Param (kein Body-Model) — siehe routers/system.py.
+    var res = await API.post('/admin/system/annual-returns/backfill?overwrite=' + (gapsOnly ? 'false' : 'true'), {});
     var s = (res && res.summary) || {rows_written:0, error_count:0};
     var msg = 'Backfill abgeschlossen: ' + (s.rows_written||0) + ' Werte geschrieben';
     if (s.error_count) msg += ', ' + s.error_count + ' Fehler';
@@ -10691,15 +10743,18 @@ async function loadAdminAssetClassPriceStatus(showLog) {
 async function backfillAdminAssetClassPrices() {
   var btn = document.getElementById('btn-admin-acp-backfill');
   var summaryEl = document.getElementById('admin-acp-summary');
+  var gapsOnly = !!(document.getElementById('admin-acp-gaps-only') || {}).checked;
   if (!adminConfirmRisk(
     'Tageskurse aus Marktdaten füllen?',
-    'Lädt bis zu 20 Jahre tägliche Asset-Class-Preise via Marktdaten-Aggregator. Das kann länger dauern und bestehende Tagespunkte aktualisieren.'
+    'Lädt bis zu 20 Jahre tägliche Asset-Class-Preise via Marktdaten-Aggregator. Das kann länger dauern. '
+      + (gapsOnly ? 'Nur fehlende Tagespunkte werden ergänzt.' : 'Bestehende Tagespunkte werden aktualisiert.')
   )) return;
   setAdminAssetClassPriceError('');
   if (btn) { btn.disabled = true; btn.textContent = 'Lädt...'; }
   if (summaryEl) summaryEl.textContent = 'Daily-Backfill läuft. Bitte warten...';
   try {
-    var res = await API.fetch('/admin/system/asset-class-prices/backfill', {
+    // overwrite ist Query-Param (kein Body-Model) — siehe routers/system.py.
+    var res = await API.fetch('/admin/system/asset-class-prices/backfill?overwrite=' + (gapsOnly ? 'false' : 'true'), {
       method: 'POST',
       body: JSON.stringify({}),
       timeoutMs: 120000
@@ -20239,6 +20294,11 @@ function openStammdatenModal(){
               <button class="btn-p admin-primary-btn" onclick="saveAdminAnnualReturns()" id="btn-admin-ar-save">Speichern</button>
             </div>
           </div>
+          <label class="admin-switch" title="Aktiv: nur fehlende Jahre ergänzen (overwrite=false). Aus: alle Werte neu laden — überschreibt auch manuell gepflegte Zellen." style="margin-top:2px">
+            <input type="checkbox" id="admin-ar-gaps-only">
+            <span class="admin-switch-track"></span>
+            <span>Nur Lücken füllen (manuelle Werte schützen)</span>
+          </label>
           <div id="admin-ar-grid" style="overflow-x:auto;font-size:11px;"></div>
           <div id="admin-ar-error" style="display:none;color:var(--neg);font-size:10px"></div>
         </div>
@@ -20256,6 +20316,11 @@ function openStammdatenModal(){
               <button class="btn-p admin-primary-btn" onclick="backfillAdminAssetClassPrices()" id="btn-admin-acp-backfill" title="Lädt tägliche Asset-Class-Preise via Marktdaten-Aggregator. Netzintensiv.">Aus Marktdaten füllen</button>
             </div>
           </div>
+          <label class="admin-switch" title="Aktiv: nur fehlende Tagespunkte ergänzen (overwrite=false). Aus: bestehende Punkte aktualisieren." style="margin-top:2px">
+            <input type="checkbox" id="admin-acp-gaps-only">
+            <span class="admin-switch-track"></span>
+            <span>Nur Lücken füllen</span>
+          </label>
           <div id="admin-acp-summary" class="admin-summary-panel">Status wird geladen...</div>
           <div id="admin-acp-grid" class="admin-compact-grid"></div>
           <div id="admin-acp-error" class="admin-risk-note danger" style="display:none"></div>
@@ -20438,6 +20503,10 @@ function openStammdatenModal(){
                 <button class="btn" id="btn-policy-activate" onclick="adminPolicyActivate()" style="display:none">Als aktiv setzen</button>
               </div>
             </div>
+            <div id="admin-policy-active-warning" class="admin-risk-note warn" style="display:none">
+              <strong>Aktive Policy</strong> Direktes Überschreiben ist gesperrt — diese Policy treibt alle Mandate. Erstelle mit „Aktive klonen &amp; bearbeiten" eine neue Version, passe sie an und aktiviere sie anschließend (Versionstreue, ADR-konform).
+            </div>
+            <div id="admin-policy-save-hint" style="font-size:9.5px;color:var(--neg);margin-bottom:6px"></div>
             <div id="admin-policy-grid" style="overflow-x:auto"></div>
             <div id="admin-policy-status" style="font-size:10px;color:var(--n5);margin-top:8px"></div>
           </div>
