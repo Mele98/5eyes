@@ -62,7 +62,9 @@ def test_asset_class_price_js_contract_exists():
 def test_asset_class_price_api_routes_and_timeout_referenced():
     html = _html()
     assert "'/admin/system/asset-class-prices/status'" in html
-    assert "'/admin/system/asset-class-prices/backfill'" in html
+    # Redesign 2026-06-10: Backfill sendet jetzt overwrite als Query-Param
+    # ("Nur Luecken fuellen"-Toggle). Route unveraendert, nur QS ergaenzt.
+    assert "'/admin/system/asset-class-prices/backfill?overwrite='" in html
     assert "timeoutMs: 120000" in html
     assert "method: 'POST'" in html
 
