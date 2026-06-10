@@ -60,3 +60,60 @@ ergänzen + UI-Badges eindeutig als "Score" vs "Wahrscheinlichkeit" labeln.
 ## Hinweis
 #2/#3/#5 brauchen Fach-/Design-Entscheide bzw. MC-Neukalibrierung — separat und
 verifiziert angehen, nicht beiläufig.
+
+## Asset Allocation — 9 bestätigte Befunde (6-Agent-Audit + Verifikation, alle Production-Pfad)
+
+### #AA-1 (KRITISCH, EMPIRISCH BESTÄTIGT): Kapitalschutz crasht generate_target_allocation
+Bonds-Bucket-Risky-Fraction = ungewichteter BB-Mittel (2000+2500+5000+4000)/4 = 3375 bps
+(`constraints.py:bucket_risky_fractions_from_building_blocks:189-224`, Docstring gibt
+Vereinfachung zu). Kapitalschutz-Cap = 3000. Bonds-Band-Min 6500 dominiert → keine
+Allokation ≤ 3000 möglich → `assert_risk_budget_ok` (portfolio_engine.py:5824, NICHT
+gefangen) wirft `RiskBudgetExceeded: Ist=4248, Limit=3000`. **Empirisch reproduziert**
+(tests/test_kapitalschutz_risk_budget_regression.py, xfail). **Jedes Score-1-2-Mandat
+crasht.** Fix-Optionen: (A) sub-allocation-gewichtete Risky-Fraction (korrekt, Docstring-
+bestätigt, aber MC/Tests neu kalibrieren), (B) Cap-Review konsistent zu 3375, (C) graceful
+konservativer Fallback statt Crash. **TOP-PRIORITÄT, dediziert + voll verifiziert angehen.**
+
+### #AA-2 (HOCH): Konsistenz-Test gibt falsche Sicherheit
+`test_house_matrix_risk_budget_consistency.py` nutzt hardcoded bonds=2250 statt produktivem
+Mittel 3375 → grün trotz Crash. Fix: Test aus `bucket_risky_fraction_bps_from_building_blocks`
+speisen. ACHTUNG: dann fällt der Test (deckt #AA-1/#AA-3 auf) → gemeinsam mit #AA-1 fixen.
+
+### #AA-3 (HOCH): Defensiv/Ausgewogen verletzen systematisch ihr Budget → immer Mid-Reset-Fallback
+Mit produktivem Mittel 3375: Defensiv realized 5012 > Cap 4500, Ausgewogen 6306 > 6000.
+Crasht NICHT (Fallback fängt), aber JEDES Defensiv/Ausgewogen-Mandat läuft in WARN_FALLBACK
+(Mid-Reset) statt sauberer SAA. Fix: Default-Targets je Profil so setzen dass realized ≤ Cap,
+ODER (besser) gewichtete Risky-Fraction (#AA-1 Fix A löst alle drei).
+
+### #AA-4 (HOCH, MC-Report): 1-Jahres-VaR/CVaR/Loss-Probability durch Cashflow verfälscht
+Jahr-1-Rendite enthält Cashflow-Einzahlung → VaR/Loss-Prob zu klein (Verlustrisiko
+unterschätzt). Fix: Jahr-1-Marktrendite cashflow-bereinigt (Marktwert nach Wachstum, VOR
+Cashflow vs target_start).
+
+### #AA-5 (HOCH, MC-Report): Money-weighted Terminal-Value als CAGR/median_cagr_bps fehletikettiert
+End/Start-Ratio enthält Cashflow-Beiträge → "CAGR" ist money-weighted, nicht time-weighted.
+Fix: echte time-weighted Rendite (geometrische Verkettung der Markt-Wachstumsfaktoren VOR
+Cashflow).
+
+### #AA-6 (MEDIUM, MC): _annualized_return_bps gibt 0 statt -100% für aufgebrauchte Pfade
+→ Median + Erfolgsrate nach oben verzerrt. Fix: Floor-Rendite für depleted paths
+(portfolio_engine.py:2794-2797), analog _return_bps.
+
+### #AA-7 (HOCH): Themen-Tilt nutzt Total-Portfolio-bps als Per-Bucket-Wert
+slice_per_theme relativ zu targets["equities"] statt im Per-Bucket-Raum (0-10000) → Overweight
+liefert nur eq/10000 (30-80%) der intendierten 15%-Bucket-Gewichtung. Fix:
+portfolio_engine.py:3408-3410 Tilt im Per-Bucket-Raum definieren.
+
+### #AA-8 (HOCH): Goal-Reserve nutzt max() statt Summe
+Mehrere gleichzeitige Nahziele werden unterreserviert (nur das größte zählt). Fix: Spending-
+Goal-Liabilitäten summieren (laufende/manuelle Reserve weiter via max() kombinierbar).
+
+### #AA-9 (LOW): Banker's-Rounding in _risk_score_bucket
+`int(round(score_x10/10))` (Banker's) bricht Monotonie + divergiert vom Profil-Namen-Mapping
+(score 45/65). Fix: round-half-up (math.floor(x+0.5)), konsistent zu risk_scoring.py:118.
+→ GEFIXT (siehe Commit).
+
+## Empfehlung
+#AA-1/#AA-2/#AA-3 hängen zusammen (ungewichtetes BB-Risky-Mittel) — gemeinsam fixen
+(sub-allocation-gewichtete Risky-Fraction + MC/Test-Neukalibrierung + Voll-Suite). #AA-4/5/6
+(MC-Metriken) + #AA-7/8 separat, je mit Verifikation. Alle dediziert, nicht token-druck-beiläufig.

@@ -598,7 +598,11 @@ def _risk_score_bucket(assessment: RiskAssessment) -> int:
             "Risikoprofil-Score fehlt (final_score_x10 + override_score_x10 sind beide None). "
             "Bitte Risikoprofilierung abschliessen oder Override mit Begruendung setzen."
         )
-    return max(1, min(10, int(round(score_x10 / 10))))
+    # Validierung 2026-06-11 (#AA-9): round-half-up statt Banker's-round() — sonst
+    # bricht die Monotonie an .5-Grenzen (45->4 statt 5, 65->6 statt 7) und divergiert
+    # vom Profil-Namen-Mapping (risk_scoring._profile_from_score nutzt floor(x+0.5)).
+    # int(x+0.5) == floor(x+0.5) fuer positive Scores.
+    return max(1, min(10, int(score_x10 / 10 + 0.5)))
 
 
 def _default_weights_for_position(position: WealthPosition) -> dict[str, int]:
