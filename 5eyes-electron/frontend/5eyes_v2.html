@@ -10822,6 +10822,7 @@ async function saveAdminAnnualReturns() {
 async function openAdminModal() {
   om('m-admin');
   adminShowSection('sec-health');
+  adminUpdateNewUserRoleHint();
   ensureAdminCapitalMarketBindings();
   if (!getInputValue('admin-cma-name').trim()) loadAdminCapitalMarketAssumptionDefaults(true);
   var shadowAggregatePanel = document.getElementById('sec-shadow-comparison-aggregate');
@@ -12620,71 +12621,147 @@ function showNewClientScreen(firstName, lastName, mType, meta) {
   go('sd');
 }
 
-// ADMIN USER MANAGEMENT
+// ADMIN USER MANAGEMENT (Redesign 2026-06-10: moderne Tabelle + Rollen-Rechte)
+// Zuweisbare Rollen laut Backend-Schema (schemas/users.py): admin/advisor/readonly.
+// super_admin (Tenant-Operator) + client (Portal) werden hier NICHT angelegt.
+var ADMIN_ROLE_META = {
+  admin:    { label: 'Administrator', tone: 'danger',  rights: 'Globale Kundensicht · Benutzer & Systemdaten verwalten · CMA/House-Matrix ändern' },
+  advisor:  { label: 'Berater',       tone: 'info',    rights: 'Eigene Kunden & Mandate anlegen/bearbeiten · keine Systemverwaltung' },
+  readonly: { label: 'Lesend',        tone: 'neutral', rights: 'Nur Ansicht · keine Schreibrechte' }
+};
+function adminRoleLabel(role){ return (ADMIN_ROLE_META[role] && ADMIN_ROLE_META[role].label) || role || '—'; }
+function adminRoleBadge(role){
+  var m = ADMIN_ROLE_META[role] || { label: role, tone: 'neutral' };
+  return '<span class="admin-badge ' + m.tone + ' no-dot">' + escapeHtml(m.label) + '</span>';
+}
+function adminTile(k, v, tone, sub){
+  return '<div class="admin-tile ' + (tone||'') + '"><div class="admin-tile-k">' + escapeHtml(k) + '</div>'
+    + '<div class="admin-tile-v">' + escapeHtml(v) + '</div>'
+    + (sub ? '<div class="admin-tile-s">' + escapeHtml(sub) + '</div>' : '') + '</div>';
+}
+// Passwort-Staerke 0..5 (Laenge + Zeichenklassen).
+function adminPwStrength(pw){
+  pw = String(pw||''); var s = 0;
+  if (pw.length >= 10) s++;
+  if (pw.length >= 14) s++;
+  if (/[A-Z]/.test(pw) && /[a-z]/.test(pw)) s++;
+  if (/[0-9]/.test(pw)) s++;
+  if (/[^A-Za-z0-9]/.test(pw)) s++;
+  return s;
+}
+function adminPwHint(inputId, hintId){
+  var pw = (document.getElementById(inputId)||{}).value || '';
+  var hint = document.getElementById(hintId);
+  if (!hint) return;
+  if (!pw) { hint.textContent = ''; return; }
+  if (pw.length < 10) {
+    hint.textContent = '✗ mindestens 10 Zeichen erforderlich (' + pw.length + '/10)';
+    hint.style.color = 'var(--neg)';
+    return;
+  }
+  var labels = ['', 'schwach', 'schwach', 'mittel', 'gut', 'stark'];
+  var s = adminPwStrength(pw);
+  hint.textContent = '✓ ' + pw.length + ' Zeichen · Stärke: ' + (labels[s] || 'gut');
+  hint.style.color = s >= 4 ? 'var(--pos)' : (s >= 3 ? 'var(--warn)' : 'var(--n5)');
+}
+// Passwort-Feld ein-/ausblenden (Toggle-Button ruft das).
+function adminTogglePwVisibility(inputId, btn){
+  var el = document.getElementById(inputId);
+  if (!el) return;
+  var show = el.type === 'password';
+  el.type = show ? 'text' : 'password';
+  if (btn) btn.textContent = show ? 'Verbergen' : 'Anzeigen';
+}
+
 async function loadAdminUserList() {
   var container = document.getElementById('ul-list');
   if (!container) return;
   container.textContent = 'Wird geladen…';
-  var currentUserId = (currentUser && currentUser.id) || null;
   try {
     var users = await API.get('/users');
     adminSystemState.users = Array.isArray(users) ? users : [];
     renderAdminDashboard();
     renderAdminUserSummary(adminSystemState.users);
-    if (!users || !users.length) {
-      container.textContent = 'Keine Benutzer gefunden.';
-      return;
-    }
-    container.innerHTML = '';
-    users.forEach(function(u) {
-      var safeId = escapeHtml(u.id);
-      var safeName = escapeHtml(u.full_name);
-      var safeUsername = escapeHtml(u.username || '');
-      var safeEmail = escapeHtml(u.email || '');
-      var safeRole = escapeHtml(u.role || '');
-      var safeLastLogin = u.last_login_at ? escapeHtml(adminFormatDateTime(u.last_login_at)) : 'nie eingeloggt';
-      var isSelf = String(u.id) === String(currentUserId);
-      var row = document.createElement('div');
-      row.dataset.userId = u.id;
-      row.style.cssText = 'border:1px solid var(--b1);border-radius:6px;padding:8px 10px;margin-bottom:6px;background:var(--bg2)';
-      var activeLabel = u.is_active ? '<span style="color:var(--pos)">aktiv</span>' : '<span style="color:var(--neg)">inaktiv</span>';
-      row.innerHTML = '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">'
-        + '<span style="font-size:11px">' + safeName + ' · <em style="color:var(--n4)">' + safeUsername + '</em> · <em style="color:var(--n4)">' + safeRole + '</em> · ' + activeLabel + '</span>'
-        + '<button class="btn-p" style="font-size:10px;padding:3px 8px" onclick="toggleAdminUserEdit(\'' + safeId + '\')">Bearbeiten</button>'
-        + '</div>'
-        + '<div id="ul-edit-' + safeId + '" style="display:none;margin-top:8px">'
-        + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px">'
-        + '<div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Name</label><input class="fi" id="ul-name-' + safeId + '" value="' + safeName + '" style="font-size:11px"></div>'
-        + '<div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">E-Mail</label><input class="fi" id="ul-email-' + safeId + '" value="' + safeEmail + '" style="font-size:11px"></div>'
-        + '<div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Rolle</label><select class="fsel" id="ul-role-' + safeId + '" style="font-size:11px"' + (isSelf ? ' disabled title="Eigene Rolle kann nicht geändert werden"' : '') + '>'
-        + '<option value="advisor"' + (u.role==='advisor'?' selected':'') + '>Berater</option>'
-        + '<option value="readonly"' + (u.role==='readonly'?' selected':'') + '>Lesend</option>'
-        + '<option value="admin"' + (u.role==='admin'?' selected':'') + '>Admin</option>'
-        + '</select></div>'
-        + '<div style="display:flex;align-items:flex-end;gap:6px"><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Aktiv</label>'
-        + '<input type="checkbox" id="ul-active-' + safeId + '"' + (u.is_active ? ' checked' : '') + (isSelf ? ' disabled title="Eigenes Konto kann nicht deaktiviert werden"' : '') + ' style="margin-bottom:4px"></div>'
-        + '</div>'
-        + '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">'
-        + '<button class="btn-p" style="font-size:10px;padding:3px 10px" onclick="saveAdminUser(\'' + safeId + '\')">Speichern</button>'
-        + '<button class="btn" style="font-size:10px;padding:3px 10px" onclick="toggleAdminPasswordReset(\'' + safeId + '\')">Passwort zurücksetzen</button>'
-        + '</div>'
-        + '<div id="ul-pw-' + safeId + '" style="display:none;margin-top:6px;gap:6px;align-items:center">'
-        + '<input class="fi" id="ul-newpw-' + safeId + '" type="password" placeholder="Neues Passwort (min. 10)" style="font-size:11px;flex:1">'
-        + '<button class="btn-p" style="font-size:10px;padding:3px 10px" onclick="doAdminPasswordReset(\'' + safeId + '\')">Setzen</button>'
-        + '</div>'
-        + '<div id="ul-error-' + safeId + '" style="color:var(--neg);font-size:10px;margin-top:4px;display:none"></div>'
-        + '</div>';
-      container.appendChild(row);
-    });
+    adminRenderUserTable();
   } catch(e) {
     container.textContent = 'Fehler beim Laden: ' + parseApiError(e, 'Benutzerliste konnte nicht geladen werden.');
   }
 }
 
+function adminFilterUserList(){ adminRenderUserTable(); }
+
+function adminRenderUserTable() {
+  var container = document.getElementById('ul-list');
+  if (!container) return;
+  var users = Array.isArray(adminSystemState.users) ? adminSystemState.users : [];
+  var currentUserId = (currentUser && currentUser.id) || null;
+  var q = ((document.getElementById('ul-search')||{}).value || '').trim().toLowerCase();
+  var roleFilter = (document.getElementById('ul-role-filter')||{}).value || '';
+  var showInactive = ((document.getElementById('ul-show-inactive')||{checked:true}).checked) !== false;
+  var rows = users.filter(function(u){
+    if (roleFilter && String(u.role||'') !== roleFilter) return false;
+    if (!showInactive && Number(u.is_active) !== 1) return false;
+    if (q) {
+      var hay = (String(u.full_name||'') + ' ' + String(u.username||'') + ' ' + String(u.email||'')).toLowerCase();
+      if (hay.indexOf(q) === -1) return false;
+    }
+    return true;
+  });
+  if (!rows.length) {
+    container.innerHTML = '<div class="admin-empty" style="padding:18px"><div class="admin-empty-icon">&#128100;</div>'
+      + '<div class="admin-empty-title">Keine Benutzer</div><div class="admin-empty-body">'
+      + (users.length ? 'Kein Treffer für den aktuellen Filter.' : 'Es sind noch keine Benutzer erfasst.') + '</div></div>';
+    return;
+  }
+  var html = '<div class="admin-tbl-wrap"><table class="admin-tbl"><thead><tr>'
+    + '<th>Name</th><th>Benutzername</th><th>Rolle</th><th>Status</th><th>Letzter Login</th><th style="text-align:right">Aktion</th>'
+    + '</tr></thead><tbody>';
+  rows.forEach(function(u){
+    var sid = escapeHtml(u.id);
+    var isSelf = String(u.id) === String(currentUserId);
+    var statusBadge = u.is_active ? '<span class="admin-badge ok no-dot">aktiv</span>' : '<span class="admin-badge neutral no-dot">inaktiv</span>';
+    var lastLogin = u.last_login_at ? escapeHtml(adminFormatDateTime(u.last_login_at)) : '<span style="color:var(--n4)">nie</span>';
+    html += '<tr>'
+      + '<td><strong>' + escapeHtml(u.full_name||'') + '</strong>' + (isSelf ? ' <span style="color:var(--n4);font-size:9px">(Sie)</span>' : '') + (u.email ? '<div style="color:var(--n4);font-size:9px">' + escapeHtml(u.email) + '</div>' : '') + '</td>'
+      + '<td><em style="color:var(--n5)">' + escapeHtml(u.username||'') + '</em></td>'
+      + '<td>' + adminRoleBadge(u.role) + '</td>'
+      + '<td>' + statusBadge + '</td>'
+      + '<td style="font-size:9.5px;color:var(--n5)">' + lastLogin + '</td>'
+      + '<td style="text-align:right"><button class="admin-icon-btn" onclick="toggleAdminUserEdit(\'' + sid + '\')">Bearbeiten</button></td>'
+      + '</tr>';
+    html += '<tr id="ul-edit-' + sid + '" style="display:none"><td colspan="6" style="background:var(--bg2)">'
+      + '<div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:8px;align-items:end">'
+      + '<div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Name</label><input class="fi" id="ul-name-' + sid + '" value="' + escapeHtml(u.full_name||'') + '" style="font-size:11px"></div>'
+      + '<div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">E-Mail</label><input class="fi" id="ul-email-' + sid + '" value="' + escapeHtml(u.email||'') + '" style="font-size:11px"></div>'
+      + '<div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Rolle</label><select class="fsel" id="ul-role-' + sid + '" style="font-size:11px"' + (isSelf ? ' disabled title="Eigene Rolle kann nicht geändert werden"' : '') + '>'
+      + '<option value="advisor"' + (u.role==='advisor'?' selected':'') + '>Berater</option>'
+      + '<option value="readonly"' + (u.role==='readonly'?' selected':'') + '>Lesend</option>'
+      + '<option value="admin"' + (u.role==='admin'?' selected':'') + '>Administrator</option>'
+      + '</select></div>'
+      + '<label class="admin-switch" style="padding-bottom:5px"' + (isSelf ? ' title="Eigenes Konto kann nicht deaktiviert werden"' : '') + '><input type="checkbox" id="ul-active-' + sid + '"' + (u.is_active ? ' checked' : '') + (isSelf ? ' disabled' : '') + '><span class="admin-switch-track"></span><span>Aktiv</span></label>'
+      + '</div>'
+      + '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:8px">'
+      + '<button class="btn-p admin-primary-btn" style="font-size:10px;padding:4px 12px" onclick="saveAdminUser(\'' + sid + '\')">Speichern</button>'
+      + '<button class="admin-icon-btn" onclick="toggleAdminPasswordReset(\'' + sid + '\')">Passwort zurücksetzen</button>'
+      + '</div>'
+      + '<div id="ul-pw-' + sid + '" style="display:none;margin-top:8px">'
+      + '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">'
+      + '<input class="fi" id="ul-newpw-' + sid + '" type="password" placeholder="Neues Passwort (min. 10 Zeichen)" style="font-size:11px;flex:1;min-width:180px" oninput="adminPwHint(\'ul-newpw-' + sid + '\',\'ul-pwhint-' + sid + '\')">'
+      + '<button class="admin-icon-btn" type="button" onclick="adminTogglePwVisibility(\'ul-newpw-' + sid + '\',this)">Anzeigen</button>'
+      + '<button class="btn-p" style="font-size:10px;padding:4px 12px" onclick="doAdminPasswordReset(\'' + sid + '\')">Setzen</button>'
+      + '</div><div id="ul-pwhint-' + sid + '" style="font-size:9px;margin-top:3px;color:var(--n5)"></div>'
+      + '</div>'
+      + '<div id="ul-error-' + sid + '" style="color:var(--neg);font-size:10px;margin-top:4px;display:none"></div>'
+      + '</td></tr>';
+  });
+  html += '</tbody></table></div>';
+  container.innerHTML = html;
+}
+
 function toggleAdminUserEdit(userId) {
   var panel = document.getElementById('ul-edit-' + userId);
   if (!panel) return;
-  panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+  panel.style.display = (panel.style.display === 'none' || !panel.style.display) ? 'table-row' : 'none';
 }
 
 function toggleAdminPasswordReset(userId) {
@@ -12730,6 +12807,10 @@ async function doAdminPasswordReset(userId) {
     errEl.textContent = '';
   }
   var newPassword = pwEl ? pwEl.value : '';
+  if (newPassword.length < 10) {
+    if (errEl) { errEl.textContent = 'Passwort muss mindestens 10 Zeichen lang sein.'; errEl.style.display = 'block'; }
+    return;
+  }
   try {
     await API.put('/users/' + userId + '/password', { new_password: newPassword });
     if (pwEl) pwEl.value = '';
@@ -12753,11 +12834,11 @@ function renderAdminUserSummary(users) {
   var advisors = rows.filter(function(u){ return String(u.role || '') === 'advisor' && Number(u.is_active) === 1; }).length;
   var readonly = rows.filter(function(u){ return String(u.role || '') === 'readonly' && Number(u.is_active) === 1; }).length;
   var inactive = rows.filter(function(u){ return Number(u.is_active) !== 1; }).length;
-  box.innerHTML = '<div class="admin-health-grid">'
-    + adminHealthCard('Admins', String(admins), admins >= 2 ? 'Mindestens zwei aktive Admins vorhanden.' : 'Ein zweiter Admin reduziert Aussperr-Risiko.', admins >= 2 ? 'ok' : 'warn')
-    + adminHealthCard('Berater', String(advisors), 'Aktive Schreibnutzer fuer Beratung.', 'ok')
-    + adminHealthCard('Lesend', String(readonly), 'Nutzer ohne Schreibrechte.', '')
-    + adminHealthCard('Inaktiv', String(inactive), 'Gesperrte oder ehemalige Benutzer.', inactive ? 'warn' : 'ok')
+  box.innerHTML = '<div class="admin-tile-grid">'
+    + adminTile('Administratoren', String(admins), admins >= 2 ? 'ok' : 'warn', admins >= 2 ? 'Ausfallsicher (≥2 aktiv)' : 'Zweiten Admin empfohlen')
+    + adminTile('Berater', String(advisors), 'info', 'Aktive Schreibnutzer')
+    + adminTile('Lesend', String(readonly), 'neutral', 'Nur Ansicht')
+    + adminTile('Inaktiv', String(inactive), inactive ? 'warn' : 'ok', 'Gesperrt / ehemalig')
     + '</div>';
 }
 // ADMIN AUDIT LOG
@@ -12893,6 +12974,13 @@ function renderAuditLogPagination(container) {
   container.innerHTML = '<button class="btn" style="font-size:10px;padding:2px 8px"' + (prevDisabled ? ' disabled' : '') + ' onclick="loadAdminAuditLog(' + Math.max(0, _auditLogOffset - _auditLogLimit) + ')">&larr; Zurück</button>'
     + '<span style="padding:0 6px">' + escapeHtml(label) + '</span>'
     + '<button class="btn" style="font-size:10px;padding:2px 8px"' + (nextDisabled ? ' disabled' : '') + ' onclick="loadAdminAuditLog(' + (_auditLogOffset + _auditLogLimit) + ')">Weiter &rarr;</button>';
+}
+
+// Zeigt die Rechte der gewaehlten Rolle live unter dem Rollen-Select.
+function adminUpdateNewUserRoleHint(){
+  var role = (document.getElementById('nu-role')||{value:'advisor'}).value;
+  var hint = document.getElementById('nu-role-hint');
+  if (hint) hint.textContent = (ADMIN_ROLE_META[role] && ADMIN_ROLE_META[role].rights) || '';
 }
 
 // Neuer Benutzer anlegen (Admin)
@@ -20514,9 +20602,31 @@ function openStammdatenModal(){
 
         <!-- ══ SEC: BENUTZERLISTE ══ -->
         <div id="sec-users" class="admin-sec-panel" style="display:none;gap:12px;">
-          <div class="admin-section-title">Benutzerliste</div>
-          <div class="admin-risk-note warn"><strong>Zugriffswirkung</strong> Admin-Rollen haben globale Kundensicht und duerfen Systemdaten sowie Beratungsannahmen aendern.</div>
+          <div class="admin-section-head">
+            <div>
+              <div class="admin-section-title">Benutzerliste</div>
+              <div class="admin-section-sub">Konten, Rollen und Status. Deaktivierte Benutzer können sich nicht mehr anmelden — Audit-Einträge bleiben erhalten.</div>
+            </div>
+            <button class="btn" onclick="loadAdminUserList()">Aktualisieren</button>
+          </div>
           <div id="admin-user-summary"></div>
+          <div class="admin-risk-note"><strong>Rollen &amp; Rechte</strong>
+            <div style="display:grid;gap:5px;margin-top:7px;font-size:10px;color:var(--n6)">
+              <div><span class="admin-badge danger no-dot">Administrator</span> Globale Kundensicht · Benutzer &amp; Systemdaten verwalten · CMA/House-Matrix ändern</div>
+              <div><span class="admin-badge info no-dot">Berater</span> Eigene Kunden &amp; Mandate anlegen/bearbeiten · keine Systemverwaltung</div>
+              <div><span class="admin-badge neutral no-dot">Lesend</span> Nur Ansicht · keine Schreibrechte</div>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <input id="ul-search" class="fi" placeholder="Name oder Benutzername suchen…" style="font-size:11px;width:210px" oninput="adminFilterUserList()">
+            <select id="ul-role-filter" class="fsel" style="font-size:11px;padding:3px 6px" onchange="adminFilterUserList()">
+              <option value="">Alle Rollen</option>
+              <option value="admin">Administrator</option>
+              <option value="advisor">Berater</option>
+              <option value="readonly">Lesend</option>
+            </select>
+            <label class="admin-switch" title="Auch deaktivierte Konten anzeigen"><input type="checkbox" id="ul-show-inactive" checked onchange="adminFilterUserList()"><span class="admin-switch-track"></span><span>Inaktive zeigen</span></label>
+          </div>
           <div id="ul-list" style="font-size:11px;color:var(--n4)">Wird geladen...</div>
         </div>
 
@@ -20529,14 +20639,21 @@ function openStammdatenModal(){
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
             <div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Vollst&auml;ndiger Name *</label><input class="fi" id="nu-fullname" placeholder="Max Muster" style="font-size:11px"></div>
             <div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Benutzername *</label><input class="fi" id="nu-username" placeholder="mmuster" style="font-size:11px"></div>
-            <div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Passwort * (min. 10 Zeichen)</label><input class="fi" id="nu-password" type="password" placeholder="&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;" style="font-size:11px"></div>
+            <div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Passwort * (min. 10 Zeichen)</label>
+              <div style="display:flex;gap:6px;align-items:center">
+                <input class="fi" id="nu-password" type="password" placeholder="&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;" style="font-size:11px;flex:1" oninput="adminPwHint('nu-password','nu-pwhint')">
+                <button class="admin-icon-btn" type="button" onclick="adminTogglePwVisibility('nu-password',this)">Anzeigen</button>
+              </div>
+              <div id="nu-pwhint" style="font-size:9px;margin-top:3px;color:var(--n5)"></div>
+            </div>
             <div>
               <label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Rolle</label>
-              <select class="fsel" id="nu-role" style="font-size:11px">
+              <select class="fsel" id="nu-role" style="font-size:11px" onchange="adminUpdateNewUserRoleHint()">
                 <option value="advisor">Berater (advisor)</option>
                 <option value="readonly">Lesend (readonly)</option>
                 <option value="admin">Administrator (admin)</option>
               </select>
+              <div id="nu-role-hint" style="font-size:9px;margin-top:3px;color:var(--n5)"></div>
             </div>
             <div style="grid-column:1/-1"><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">E-Mail (optional)</label><input class="fi" id="nu-email" type="email" placeholder="max@kanzlei.ch" style="font-size:11px"></div>
           </div>
