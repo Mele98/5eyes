@@ -8234,6 +8234,105 @@ function adminRenderCorrelationPreview() {
     preview.innerHTML = '<div style="font-size:10px;color:var(--neg)">Korrelationsmatrix noch nicht lesbar.</div>';
   }
 }
+// Redesign 2026-06-10: Editierbares 5x5-Korrelations-Grid statt roher JSON-Textarea.
+// Das Grid ist die Editor-Schicht ueber der Textarea (Datenquelle bleibt die Textarea,
+// Save-Pfad via adminCorrelationMatrixPayload unveraendert). Diagonale gesperrt = 1.0,
+// Eingabe spiegelt automatisch, Live-Validierung [-1,1] + Symmetrie + PSD (Cholesky).
+var ADMIN_CORR_LABELS = ['Aktien', 'Obli', 'Immo', 'Alt', 'Liq'];
+function adminParseCorrelation(rawJson) {
+  var m = adminSafeJsonParse(rawJson || '', true);
+  if (!Array.isArray(m) || m.length !== 5 || m.some(function(r){ return !Array.isArray(r) || r.length !== 5; })) return null;
+  return m.map(function(r){ return r.map(function(v){ var n = Number(v); return Number.isFinite(n) ? n : 0; }); });
+}
+function renderAdminCorrelationGrid(rawJson) {
+  var container = document.getElementById('admin-cma-correlation-grid');
+  if (!container) return;
+  var m = adminParseCorrelation(rawJson) || adminParseCorrelation(JSON.stringify(ADMIN_CMA_DEFAULT_CORRELATION_MATRIX));
+  if (!m) return;
+  var html = '<table style="border-collapse:collapse;font-size:10px"><thead><tr><th></th>';
+  ADMIN_CORR_LABELS.forEach(function(l){ html += '<th style="padding:2px 4px;color:var(--n4);font-weight:600;text-align:center">' + l + '</th>'; });
+  html += '</tr></thead><tbody>';
+  for (var i = 0; i < 5; i++) {
+    html += '<tr><td style="padding:2px 6px;color:var(--n5);white-space:nowrap;font-weight:600">' + ADMIN_CORR_LABELS[i] + '</td>';
+    for (var j = 0; j < 5; j++) {
+      var v = (m[i] && m[i][j] != null) ? Number(m[i][j]) : (i === j ? 1 : 0);
+      if (i === j) {
+        html += '<td style="padding:1px"><input class="fi" id="corr-' + i + '-' + j + '" data-i="' + i + '" data-j="' + j + '" type="number" value="1" readonly tabindex="-1" style="font-size:10px;width:54px;text-align:center;background:var(--bg2);color:var(--n5)"></td>';
+      } else {
+        html += '<td style="padding:1px"><input class="fi" id="corr-' + i + '-' + j + '" data-i="' + i + '" data-j="' + j + '" type="number" step="0.05" min="-1" max="1" value="' + String(Number(v.toFixed(4))) + '" style="font-size:10px;width:54px;text-align:center"></td>';
+      }
+    }
+    html += '</tr>';
+  }
+  html += '</tbody></table>';
+  container.innerHTML = html;
+  adminRenderCorrelationStatus();
+}
+function adminCollectCorrelationJsonFromGrid() {
+  var m = [];
+  for (var i = 0; i < 5; i++) {
+    var row = [];
+    for (var j = 0; j < 5; j++) {
+      if (i === j) { row.push(1); continue; }
+      var el = document.getElementById('corr-' + i + '-' + j);
+      var n = el ? Number(el.value) : 0;
+      if (!Number.isFinite(n)) n = 0;
+      n = Math.max(-1, Math.min(1, n));
+      row.push(Number(n.toFixed(4)));
+    }
+    m.push(row);
+  }
+  return JSON.stringify(m);
+}
+function adminCorrelationGridInput(target) {
+  if (!target || target.dataset == null || target.dataset.i == null) return;
+  var i = Number(target.dataset.i), j = Number(target.dataset.j);
+  if (i === j) { target.value = '1'; return; }
+  var n = Number(target.value);
+  if (Number.isFinite(n)) {
+    n = Math.max(-1, Math.min(1, n));
+    var mirror = document.getElementById('corr-' + j + '-' + i);
+    if (mirror) mirror.value = String(Number(n.toFixed(4)));
+  }
+  setInputValue('admin-cma-correlation', adminCollectCorrelationJsonFromGrid());
+  adminRenderCorrelationStatus();
+  adminRenderCorrelationPreview();
+}
+// Positiv-Semidefinit-Pruefung via Cholesky (5x5, mit Toleranz).
+function adminIsPSD(m) {
+  var n = m.length, L = [];
+  for (var a = 0; a < n; a++) { L.push(new Array(n).fill(0)); }
+  for (var i = 0; i < n; i++) {
+    for (var j = 0; j <= i; j++) {
+      var sum = m[i][j];
+      for (var k = 0; k < j; k++) sum -= L[i][k] * L[j][k];
+      if (i === j) {
+        if (sum < -1e-9) return false;
+        L[i][j] = Math.sqrt(Math.max(sum, 0));
+      } else {
+        L[i][j] = (L[j][j] > 1e-12) ? sum / L[j][j] : 0;
+      }
+    }
+  }
+  return true;
+}
+function adminRenderCorrelationStatus() {
+  var el = document.getElementById('admin-cma-correlation-status');
+  if (!el) return;
+  var m = adminParseCorrelation(getInputValue('admin-cma-correlation'));
+  if (!m) { el.textContent = '⚠ Matrix nicht lesbar (5×5 erwartet).'; el.style.color = 'var(--neg)'; return; }
+  var problems = [];
+  for (var i = 0; i < 5; i++) {
+    for (var j = 0; j < 5; j++) {
+      if (Math.abs(m[i][j]) > 1.0001) problems.push(ADMIN_CORR_LABELS[i] + '/' + ADMIN_CORR_LABELS[j] + ' außerhalb [-1,1]');
+      if (Math.abs(m[i][j] - m[j][i]) > 0.001) problems.push('unsymmetrisch ' + ADMIN_CORR_LABELS[i] + '/' + ADMIN_CORR_LABELS[j]);
+    }
+  }
+  var psd = problems.length ? false : adminIsPSD(m);
+  if (problems.length) { el.textContent = '⚠ ' + problems.slice(0, 3).join(' · '); el.style.color = 'var(--neg)'; }
+  else if (!psd) { el.textContent = '⚠ Nicht positiv semidefinit — bricht im Monte-Carlo (Cholesky-Zerlegung). Bitte Werte anpassen.'; el.style.color = 'var(--neg)'; }
+  else { el.textContent = '✓ Valide: symmetrisch, alle Werte in [-1, 1], positiv semidefinit.'; el.style.color = 'var(--pos)'; }
+}
 function setAdminCmaError(message) {
   var el = document.getElementById('admin-cma-error');
   if (!el) return;
@@ -8460,6 +8559,7 @@ function applyAdminCapitalMarketAssumptions(cma) {
   renderAdminInflationPlanner(getInputValue('admin-cma-inflation'));
   renderAdminSubAssetEditor(getInputValue('admin-cma-subasset-json'));
   adminRenderCorrelationPreview();
+  renderAdminCorrelationGrid(getInputValue('admin-cma-correlation'));
   renderAdminCapitalMarketAssumptionsSummary(cma);
 }
 function ensureAdminCapitalMarketBindings() {
@@ -8524,7 +8624,13 @@ function ensureAdminCapitalMarketBindings() {
   });
   var corrRaw = document.getElementById('admin-cma-correlation');
   if (corrRaw) corrRaw.addEventListener('input', function(){
+    renderAdminCorrelationGrid(getInputValue('admin-cma-correlation'));
     adminRenderCorrelationPreview();
+    previewAdminCapitalMarketAssumptions();
+  });
+  var corrGrid = document.getElementById('admin-cma-correlation-grid');
+  if (corrGrid) corrGrid.addEventListener('input', function(ev){
+    adminCorrelationGridInput(ev.target);
     previewAdminCapitalMarketAssumptions();
   });
 }
@@ -8559,6 +8665,7 @@ function loadAdminCapitalMarketAssumptionDefaults(silent) {
   renderAdminInflationPlanner(getInputValue('admin-cma-inflation'));
   renderAdminSubAssetEditor(getInputValue('admin-cma-subasset-json'));
   adminRenderCorrelationPreview();
+  renderAdminCorrelationGrid(getInputValue('admin-cma-correlation'));
   previewAdminCapitalMarketAssumptions();
   if (!silent) showAdminResult('OK: Standard-Template für Kapitalmarktannahmen geladen', false);
 }
@@ -10902,9 +11009,17 @@ function renderMarketDataStatus(status) {
     ? '<div class="admin-metric-meta">Keine Provider konfiguriert</div>'
     : providers.map(function(p) {
         var dot = p.healthy
-          ? '<span class="admin-pill ok">OK</span>'
-          : '<span class="admin-pill danger">Fehler</span>';
-        return '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:2px 0"><span>' + escapeHtml(String(p.name || '?')) + '</span>' + dot + '</div>';
+          ? '<span class="admin-badge ok no-dot">OK</span>'
+          : '<span class="admin-badge danger no-dot">Fehler</span>';
+        var detail = '';
+        if (!p.healthy) {
+          var bits = [];
+          if (p.reason) bits.push(escapeHtml(String(p.reason)));
+          if (Number(p.consecutive_errors) > 0) bits.push(Number(p.consecutive_errors) + ' Fehler in Folge');
+          if (p.unhealthy_until) bits.push('gesperrt bis ' + escapeHtml(String(p.unhealthy_until).replace('T', ' ').substring(0, 16)));
+          if (bits.length) detail = '<div class="admin-metric-meta" style="margin-top:1px">' + bits.join(' · ') + '</div>';
+        }
+        return '<div style="padding:3px 0"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><span>' + escapeHtml(String(p.name || '?')) + '</span>' + dot + '</div>' + detail + '</div>';
       }).join('');
   var pEl = document.getElementById('admin-mdata-providers');
   if (pEl) pEl.innerHTML = providersHtml;
@@ -10955,6 +11070,32 @@ function renderMarketDataStatus(status) {
       }).join('');
   var jEl = document.getElementById('admin-mdata-jobs');
   if (jEl) jEl.innerHTML = jobsHtml;
+
+  // Redesign 2026-06-10: recent_validations als Tabelle rendern (Backend lieferte
+  // die Daten schon, Frontend hat sie bisher weggeworfen).
+  var vtEl = document.getElementById('admin-mdata-validation-table');
+  if (vtEl) {
+    if (!logs.length) {
+      vtEl.innerHTML = '<div class="admin-metric-meta">Keine Cross-Validation-Logs vorhanden.</div>';
+    } else {
+      var vrows = logs.map(function(l) {
+        var d = String(l.on_date || l.checked_at || '').replace('T', ' ').substring(0, 10);
+        var nprov = Array.isArray(l.providers) ? l.providers.length : 0;
+        var diff = Number(l.diff_bps || 0), thr = Number(l.threshold_bps || 0);
+        var badge = l.is_alert ? '<span class="admin-badge danger no-dot">Alert</span>' : '<span class="admin-badge ok no-dot">ok</span>';
+        var diffCls = l.is_alert ? 'color:var(--neg);font-weight:600' : '';
+        return '<tr><td>' + escapeHtml(String(l.symbol || '?')) + '</td>'
+          + '<td>' + escapeHtml(d) + '</td>'
+          + '<td class="admin-num">' + nprov + '</td>'
+          + '<td class="admin-num">' + (l.median_close != null ? escapeHtml(String(l.median_close)) : '—') + '</td>'
+          + '<td class="admin-num" style="' + diffCls + '">' + (diff / 100).toFixed(2) + '% / ' + (thr / 100).toFixed(2) + '%</td>'
+          + '<td style="text-align:right">' + badge + '</td></tr>';
+      }).join('');
+      vtEl.innerHTML = '<div class="admin-tbl-wrap" style="max-height:240px"><table class="admin-tbl"><thead><tr>'
+        + '<th>Symbol</th><th>Datum</th><th class="admin-num">Provider</th><th class="admin-num">Median</th><th class="admin-num">Δ / Schwelle</th><th style="text-align:right">Status</th>'
+        + '</tr></thead><tbody>' + vrows + '</tbody></table></div>';
+    }
+  }
 
   var meta = document.getElementById('admin-mdata-meta');
   if (meta) meta.textContent = 'Stand: ' + String(status.generated_at || '').replace('T', ' ').replace('Z', ' UTC');
@@ -11052,6 +11193,27 @@ function renderShadowAggregate(data) {
   if (shadowEmpty) shadowEmpty.style.display = shadowIsEmpty ? 'flex' : 'none';
   if (shadowCountsGrid) shadowCountsGrid.style.display = shadowIsEmpty ? 'none' : '';
   if (shadowExamplesGrid) shadowExamplesGrid.style.display = shadowIsEmpty ? 'none' : '';
+
+  // Redesign 2026-06-10: GREEN/YELLOW/RED als gestapelter Balken (visuelle Verteilung).
+  var shadowBar = document.getElementById('admin-shadow-bar');
+  if (shadowBar) {
+    if (shadowIsEmpty) {
+      shadowBar.innerHTML = '';
+    } else {
+      var g = Number(counts.green || 0), y = Number(counts.yellow || 0), r = Number(counts.red || 0);
+      var tot = (g + y + r) || 1;
+      shadowBar.innerHTML = '<div class="admin-stacked-bar">'
+        + '<div class="admin-stacked-seg" style="width:' + (g / tot * 100).toFixed(1) + '%;background:var(--pos)" title="GREEN ' + g + '"></div>'
+        + '<div class="admin-stacked-seg" style="width:' + (y / tot * 100).toFixed(1) + '%;background:var(--warn)" title="YELLOW ' + y + '"></div>'
+        + '<div class="admin-stacked-seg" style="width:' + (r / tot * 100).toFixed(1) + '%;background:var(--neg)" title="RED ' + r + '"></div>'
+        + '</div>'
+        + '<div style="display:flex;gap:12px;margin-top:5px;font-size:9px;color:var(--n5)">'
+        + '<span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--pos);margin-right:3px"></span>GREEN ' + g + '</span>'
+        + '<span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--warn);margin-right:3px"></span>YELLOW ' + y + '</span>'
+        + '<span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--neg);margin-right:3px"></span>RED ' + r + '</span>'
+        + '</div>';
+    }
+  }
 
   ['green','yellow','red'].forEach(function(key) {
     setText('admin-shadow-' + key + '-count', String(Number(counts[key] || 0)));
@@ -20218,6 +20380,7 @@ function openStammdatenModal(){
             <span id="admin-shadow-default-badge" class="admin-pill">n/a</span>
             <div id="admin-shadow-default-reason" style="margin-top:6px">Noch nicht geladen.</div>
           </div>
+          <div id="admin-shadow-bar" style="margin:2px 0 6px"></div>
           <div class="admin-compact-grid" id="admin-shadow-counts-grid">
             <div class="admin-metric-panel">
               <div class="admin-metric-label">GREEN</div>
@@ -20335,6 +20498,10 @@ function openStammdatenModal(){
           <div class="admin-metric-panel">
             <div class="admin-metric-label">Scheduler-Jobs</div>
             <div id="admin-mdata-jobs" class="admin-metric-value">—</div>
+          </div>
+          <div class="admin-metric-panel">
+            <div class="admin-metric-label">Cross-Validation — letzte Checks</div>
+            <div id="admin-mdata-validation-table" style="margin-top:6px"><div class="admin-metric-meta">—</div></div>
           </div>
           <div id="admin-mdata-meta" class="admin-metric-meta" style="text-align:right"></div>
         </div>
@@ -20542,9 +20709,16 @@ function openStammdatenModal(){
             </div>
             <div>
               <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--n5);margin-bottom:8px">Korrelationsmatrix 5×5</div>
-              <div style="font-size:10px;color:var(--n5);line-height:1.5;margin-bottom:8px">Aktien / Obligationen / Immobilien / Alternative / Liquidität</div>
-              <textarea class="fi admin-code-input" id="admin-cma-correlation" rows="7" placeholder='[[1,-0.2,0.35,0.2,0.05],[-0.2,1,0.1,-0.05,0.1],[0.35,0.1,1,0.15,0.05],[0.2,-0.05,0.15,1,0],[0.05,0.1,0.05,0,1]]'></textarea>
-              <div id="admin-cma-correlation-preview" style="margin-top:8px"></div>
+              <div style="font-size:10px;color:var(--n5);line-height:1.5;margin-bottom:8px">Aktien / Obligationen / Immobilien / Alternative / Liquidität. Diagonale = 1.0 (gesperrt), Eingabe spiegelt automatisch.</div>
+              <div id="admin-cma-correlation-grid" style="overflow-x:auto"></div>
+              <div id="admin-cma-correlation-status" style="font-size:9.5px;margin-top:6px"></div>
+              <details style="margin-top:8px">
+                <summary style="cursor:pointer;font-size:10px;color:var(--n5)">JSON-Sicht (Experten-Modus)</summary>
+                <div style="margin-top:8px">
+                  <textarea class="fi admin-code-input" id="admin-cma-correlation" rows="6" placeholder='[[1,-0.2,0.35,0.2,0.05],[-0.2,1,0.1,-0.05,0.1],[0.35,0.1,1,0.15,0.05],[0.2,-0.05,0.15,1,0],[0.05,0.1,0.05,0,1]]'></textarea>
+                  <div id="admin-cma-correlation-preview" style="margin-top:8px"></div>
+                </div>
+              </details>
             </div>
           </div>
           <div style="display:flex;justify-content:flex-end;gap:8px;padding-top:4px;border-top:1px solid var(--b1);">
