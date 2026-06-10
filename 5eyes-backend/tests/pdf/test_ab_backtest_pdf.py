@@ -47,87 +47,125 @@ def _sample_ab_payload() -> dict:
     }
 
 
-def test_renders_table_with_4_metric_rows():
-    """4 Metrik-Zeilen + Header = 5 Zeilen in der KPI-Tabelle."""
+def test_renders_table_with_5_metric_rows():
+    """5 Metrik-Zeilen + Header = 6 Zeilen in der KPI-Tabelle.
+
+    Sprint-Update: die KPI-Tabelle umfasst jetzt Erwartete Rendite,
+    Erwartete Volatilitaet, TER, Sharpe und Max. Risky Fraction.
+    """
     flowables = _build_ab_backtest_flowables(_sample_ab_payload(), _styles())
     from reportlab.platypus import Table
-    # Suche die KPI-Tabelle (5+ Zeilen) — _hr ist auch Table aber 1-zeilig
+    # Suche die KPI-Tabelle (6+ Zeilen) — _hr ist auch Table aber 1-zeilig
     tables = [f for f in flowables if isinstance(f, Table)]
     kpi_table = next(
-        (t for t in tables if len(t._cellvalues) >= 5),
+        (t for t in tables if len(t._cellvalues) >= 6),
         None,
     )
     assert kpi_table is not None
-    assert len(kpi_table._cellvalues) == 5
+    assert len(kpi_table._cellvalues) == 6
 
 
-def test_empty_payload_returns_empty_flowables():
-    """Wenn weder policy_a noch policy_b -> leeres Flowable-List."""
+def test_empty_payload_renders_section_header_without_crash():
+    """Sprint-Update: bei leerem Payload rendert die Sektion weiterhin den
+    Section-Header (Sektion 18 / Policy-A/B-Vergleich), bricht aber nicht ab
+    und crasht nicht (policy_a/policy_b werden zu {} defaulted)."""
     out = _build_ab_backtest_flowables({}, _styles())
-    assert out == []
+    assert out  # nicht leer — Header wird gerendert
+    header_text = " | ".join(getattr(f, "text", "") for f in out)
+    assert "Sektion 18" in header_text
+    assert "Policy-A/B-Vergleich" in header_text
 
 
-def test_policy_names_in_title():
-    """Vergleichs-Titel enthaelt beide Policy-Namen."""
-    flowables = _build_ab_backtest_flowables(_sample_ab_payload(), _styles())
-    title_texts = " | ".join(
-        getattr(f, "text", "") for f in flowables[:5]
-    )
-    assert "Conservative-Default" in title_texts
-    assert "Growth-Tilt" in title_texts
+def test_policy_names_in_metrics_table_header():
+    """Vergleich enthaelt beide Policy-Namen.
 
-
-def test_kicker_says_ab_backtest():
-    flowables = _build_ab_backtest_flowables(_sample_ab_payload(), _styles())
-    text = getattr(flowables[0], "text", "")
-    assert "A/B-Backtest" in text
-
-
-def test_table_includes_all_4_metric_labels():
+    Sprint-Update: die Policy-Namen stehen jetzt in der KPI-Tabellen-
+    Kopfzeile (A: <name> / B: <name>) statt im Section-Titel.
+    """
     flowables = _build_ab_backtest_flowables(_sample_ab_payload(), _styles())
     from reportlab.platypus import Table
     tables = [f for f in flowables if isinstance(f, Table)]
-    kpi_table = next(t for t in tables if len(t._cellvalues) >= 5)
+    kpi_table = next(t for t in tables if len(t._cellvalues) >= 6)
+    all_text = " | ".join(
+        getattr(cell, "text", str(cell))
+        for row in kpi_table._cellvalues
+        for cell in row
+    )
+    assert "Conservative-Default" in all_text
+    assert "Growth-Tilt" in all_text
+
+
+def test_section_kicker_and_title():
+    """Sprint-Update: Kicker ist 'Sektion 18', Titel 'Policy-A/B-Vergleich'."""
+    flowables = _build_ab_backtest_flowables(_sample_ab_payload(), _styles())
+    kicker = getattr(flowables[0], "text", "")
+    title = getattr(flowables[1], "text", "")
+    assert "Sektion 18" in kicker
+    assert "Policy-A/B-Vergleich" in title
+
+
+def test_table_includes_all_metric_labels():
+    """Sprint-Update: Metrik-Labels sind jetzt deutsch und um
+    'Max. Risky Fraction' erweitert."""
+    flowables = _build_ab_backtest_flowables(_sample_ab_payload(), _styles())
+    from reportlab.platypus import Table
+    tables = [f for f in flowables if isinstance(f, Table)]
+    kpi_table = next(t for t in tables if len(t._cellvalues) >= 6)
     all_text = " | ".join(
         getattr(cell, "text", str(cell))
         for row in kpi_table._cellvalues
         for cell in row
     )
     for metric in (
-        "Expected-Return",
-        "Expected-Volatility",
-        "Expected-TER",
-        "Sharpe-Ratio",
+        "Erwartete Rendite",
+        "Erwartete Volatilität",
+        "TER",
+        "Sharpe",
+        "Max. Risky Fraction",
     ):
         assert metric in all_text
 
 
-def test_negative_delta_uses_red_color():
-    """Delta < 0 -> rot eingefaerbt fuer Visual-Hinweis."""
+def test_negative_delta_rendered_signed():
+    """Delta < 0 wird in der read-only Vergleichstabelle als vorzeichen-
+    behafteter negativer Wert ausgewiesen.
+
+    Sprint-Update: die KPI-Tabelle ist bewusst neutral gehalten (kein
+    rotes Value-Judgment-Coloring), die Delta-Spalte berechnet sich aus
+    den Policy-Werten (B - A) und zeigt das Vorzeichen. policy_b Sharpe
+    30 vs. policy_a 38 -> Delta -0.08.
+    """
     payload = _sample_ab_payload()
-    # Setze policy_b sharpe_ratio kleiner als policy_a UND delta negativ
     payload["policy_b"]["sharpe_ratio_x100"] = 30
-    payload["risk_metrics_diff"]["delta_sharpe_ratio_x100"] = -8
     flowables = _build_ab_backtest_flowables(payload, _styles())
     from reportlab.platypus import Table
     tables = [f for f in flowables if isinstance(f, Table)]
-    kpi_table = next(t for t in tables if len(t._cellvalues) >= 5)
-    # 5. Zeile (Sharpe), 4. Spalte (Delta)
-    sharpe_delta_cell = kpi_table._cellvalues[4][3]
-    # Paragraph hat .style mit .textColor; via getattr
-    style = getattr(sharpe_delta_cell, "style", None)
-    if style is not None and hasattr(style, "textColor"):
-        color_str = str(style.textColor)
-        # Pruefe ob Rot-Ton (B91C1C)
-        assert "B91C1C" in color_str or "0.72" in color_str  # HexColor approx
+    kpi_table = next(t for t in tables if len(t._cellvalues) >= 6)
+    # Sharpe-Zeile (Index 4: Header + Rendite + Volatilitaet + TER -> 4=Sharpe)
+    sharpe_row = kpi_table._cellvalues[4]
+    # Label-Spalte bestaetigen
+    assert "Sharpe" in getattr(sharpe_row[0], "text", "")
+    sharpe_delta_text = getattr(sharpe_row[3], "text", "")
+    assert sharpe_delta_text.startswith("-"), sharpe_delta_text
+    assert "0.08" in sharpe_delta_text
 
 
 def test_methodology_note_included():
-    """Methoden-Hinweis am Ende der Sektion."""
+    """Methoden-Hinweis ist in der Sektion vorhanden.
+
+    Sprint-Update: der Methoden-Hinweis steht jetzt als erlaeuternder
+    Intro-Absatz direkt unter dem Section-Header (read-only Policy-Effekt
+    auf gleichem Risikoprofil + gleicher Kapitalmarktannahme), nicht mehr
+    als separater Fussnoten-Block am Ende.
+    """
     flowables = _build_ab_backtest_flowables(_sample_ab_payload(), _styles())
-    note_texts = [getattr(f, "text", "") for f in flowables[-3:]]
-    combined = " | ".join(note_texts)
-    assert "Methode" in combined or "forward-looking" in combined or "CMA" in combined
+    combined = " | ".join(getattr(f, "text", "") for f in flowables)
+    assert (
+        "Kapitalmarktannahme" in combined
+        or "read-only" in combined
+        or "Policy-Effekt" in combined
+        or "Risikoprofil" in combined
+    )
 
 
 def test_section_skipped_when_payload_has_no_ab_backtest():

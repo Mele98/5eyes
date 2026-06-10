@@ -222,9 +222,10 @@ def test_audit_db_error_returns_unknown_degraded():
 # ---------------------------------------------------------------------------
 
 def test_compute_advisory_report_includes_section_23():
-    from services.advisory_report import compute_advisory_report
+    # Seit PR #110 liegt die Sektions-Verdrahtung in _compute_advisory_report_inner.
+    from services.advisory_report import _compute_advisory_report_inner
     import inspect
-    source = inspect.getsource(compute_advisory_report)
+    source = inspect.getsource(_compute_advisory_report_inner)
     assert "liquidity_cascade" in source
     assert "Sektion 23" in source
 
