@@ -3041,7 +3041,14 @@ const API = {
         this._baseUrl = await window.FiveEyesAPI.resolveBaseUrl();
       } else if (window.desktop && typeof window.desktop.getBackendBaseUrl === 'function') {
         this._baseUrl = await window.desktop.getBackendBaseUrl();
+      } else if (typeof window !== 'undefined' && window.location &&
+                 (window.location.protocol === 'http:' || window.location.protocol === 'https:')) {
+        // Browser-Hosting (2026-06-10): wird die App ueber das Backend/einen
+        // Tunnel ausgeliefert, ist die API same-origin wie das HTML — NICHT
+        // 127.0.0.1 (das waere der localhost des Remote-Browsers).
+        this._baseUrl = window.location.origin;
       } else {
+        // file:// (Electron-Dev ohne Bridge): lokales Backend.
         this._baseUrl = 'http://127.0.0.1:8000';
       }
     }
