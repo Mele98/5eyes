@@ -99,8 +99,12 @@ def test_pytest_job_runs_on_ubuntu(workflow_yaml):
 
 
 def test_pytest_job_has_timeout(workflow_yaml):
-    """Timeout-Schutz: stuck-Tests blockieren nicht CI fuer immer."""
-    assert workflow_yaml["jobs"]["pytest"].get("timeout-minutes") == 15
+    """Timeout-Schutz: stuck-Tests blockieren nicht CI fuer immer.
+
+    2026-06-08 von 15 auf 30 erhoeht: Backend-Suite ueber 3400 Tests
+    gewachsen (Stage 9 + PDF-Audit + Bug-Sprint), 15min wurde knapp.
+    """
+    assert workflow_yaml["jobs"]["pytest"].get("timeout-minutes") == 30
 
 
 def test_pytest_uses_python_3_12(workflow_yaml):

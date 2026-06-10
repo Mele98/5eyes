@@ -176,16 +176,19 @@ def test_nullable_inducement_fields_preserved():
 
 
 def test_compute_advisory_report_includes_section():
-    from services.advisory_report import compute_advisory_report
+    # Seit PR #110 (N+1-Cache-Refactor) ist compute_advisory_report nur ein
+    # duenner Wrapper; die Sektions-Verdrahtung liegt in
+    # _compute_advisory_report_inner.
+    from services.advisory_report import _compute_advisory_report_inner
     import inspect
-    source = inspect.getsource(compute_advisory_report)
+    source = inspect.getsource(_compute_advisory_report_inner)
     assert "conflict_disclosures" in source, (
-        "compute_advisory_report verweist nicht auf conflict_disclosures."
+        "_compute_advisory_report_inner verweist nicht auf conflict_disclosures."
     )
 
 
 def test_section_number_is_18():
     import inspect
-    from services.advisory_report import compute_advisory_report
-    source = inspect.getsource(compute_advisory_report)
+    from services.advisory_report import _compute_advisory_report_inner
+    source = inspect.getsource(_compute_advisory_report_inner)
     assert "Sektion 18" in source

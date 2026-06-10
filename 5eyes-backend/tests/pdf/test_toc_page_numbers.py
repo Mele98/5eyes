@@ -32,48 +32,69 @@ def _sample_toc() -> dict:
     }
 
 
-def test_toc_table_has_3_columns():
+def _page_numbers_for(toc: dict) -> dict:
+    """Two-Pass-Collector liefert {title: page}; hier deterministisch nachgebaut."""
+    return {
+        str(k["title"]): i
+        for i, k in enumerate(toc.get("kapitel") or [], start=1)
+    }
+
+
+def test_toc_table_has_4_columns():
+    # U-13 Two-Pass: TOC hat 4 Spalten (Nr, Titel, Dot-Leader, Seitenzahl).
     flowables = _build_toc_flowables(_sample_toc(), _styles())
     tables = [f for f in flowables if isinstance(f, Table)]
     # _hr() ist auch eine Table (1-zeilig); echte TOC-Tabelle hat >=1 Kapitel-Row + Spalten >=3
     main_table = next(t for t in tables if t._cellvalues and len(t._cellvalues[0]) >= 3)
     for row in main_table._cellvalues:
-        assert len(row) == 3, f"TOC muss 3 Spalten haben, gefunden {len(row)}"
+        assert len(row) == 4, f"TOC muss 4 Spalten haben, gefunden {len(row)}"
 
 
 def test_toc_includes_page_numbers():
-    flowables = _build_toc_flowables(_sample_toc(), _styles())
+    # U-13: echte Seitenzahlen aus dem Two-Pass-Collector in der letzten Spalte (Index 3).
+    toc = _sample_toc()
+    flowables = _build_toc_flowables(
+        toc, _styles(), page_numbers_by_title=_page_numbers_for(toc)
+    )
     tables = [f for f in flowables if isinstance(f, Table)]
     # _hr() ist auch eine Table (1-zeilig); echte TOC-Tabelle hat >=1 Kapitel-Row + Spalten >=3
     main_table = next(t for t in tables if t._cellvalues and len(t._cellvalues[0]) >= 3)
-    # 3. Spalte (Index 2) hat Seitenzahlen mit 'ca.'-Prefix
+    # 4. Spalte (Index 3) traegt die Seitenzahl als reine Zahl.
     for row in main_table._cellvalues:
-        page_cell_text = getattr(row[2], "text", "")
-        assert "ca." in page_cell_text, f"Spalte 3 muss 'ca.' enthalten: {page_cell_text!r}"
+        page_cell_text = getattr(row[3], "text", "")
+        assert page_cell_text.strip().isdigit(), (
+            f"Spalte 4 muss eine Seitenzahl tragen: {page_cell_text!r}"
+        )
 
 
 def test_toc_page_numbers_increase_monotonically():
-    """Estimated-Pages muessen monoton steigen."""
-    import re
-    flowables = _build_toc_flowables(_sample_toc(), _styles())
+    """Echte Seitenzahlen muessen monoton steigen."""
+    toc = _sample_toc()
+    flowables = _build_toc_flowables(
+        toc, _styles(), page_numbers_by_title=_page_numbers_for(toc)
+    )
     tables = [f for f in flowables if isinstance(f, Table)]
     # _hr() ist auch eine Table (1-zeilig); echte TOC-Tabelle hat >=1 Kapitel-Row + Spalten >=3
     main_table = next(t for t in tables if t._cellvalues and len(t._cellvalues[0]) >= 3)
     pages = []
     for row in main_table._cellvalues:
-        page_cell_text = getattr(row[2], "text", "")
-        m = re.search(r"ca\. (\d+)", page_cell_text)
-        if m:
-            pages.append(int(m.group(1)))
+        page_cell_text = getattr(row[3], "text", "").strip()
+        if page_cell_text.isdigit():
+            pages.append(int(page_cell_text))
+    assert len(pages) == len(toc["kapitel"]), f"Nicht alle Seiten gefunden: {pages}"
     assert pages == sorted(pages), f"Pages nicht monoton: {pages}"
 
 
-def test_toc_estimated_page_disclaimer_present():
-    """Disclaimer ueber Estimate muss vorhanden sein."""
+def test_toc_page_numbers_missing_renders_empty():
+    """Ohne Collector-Daten bleibt die Seitenspalte leer (kein Estimate-Fallback)."""
     flowables = _build_toc_flowables(_sample_toc(), _styles())
-    last_paragraph = flowables[-1]
-    text = getattr(last_paragraph, "text", "")
-    assert "Geschaetzt" in text or "Seitenzahl" in text
+    tables = [f for f in flowables if isinstance(f, Table)]
+    main_table = next(t for t in tables if t._cellvalues and len(t._cellvalues[0]) >= 3)
+    for row in main_table._cellvalues:
+        page_cell_text = getattr(row[3], "text", "")
+        assert page_cell_text.strip() == "", (
+            f"Ohne Collector darf keine Seitenzahl stehen: {page_cell_text!r}"
+        )
 
 
 def test_toc_empty_kapitel_no_crash():
@@ -83,34 +104,36 @@ def test_toc_empty_kapitel_no_crash():
     assert "Keine Kapitel" in text
 
 
-def test_toc_more_kapitel_than_estimate_uses_fallback():
-    """Bei 15 Kapiteln: alle bekommen estimated_page."""
-    import re
+def test_toc_all_kapitel_get_collected_page():
+    """Bei 15 Kapiteln: alle bekommen ihre echte Collector-Seitenzahl."""
     toc = {"kapitel": [{"nr": i, "title": f"S{i}"} for i in range(1, 16)]}
-    flowables = _build_toc_flowables(toc, _styles())
+    flowables = _build_toc_flowables(
+        toc, _styles(), page_numbers_by_title=_page_numbers_for(toc)
+    )
     tables = [f for f in flowables if isinstance(f, Table)]
     # _hr() ist auch eine Table (1-zeilig); echte TOC-Tabelle hat >=1 Kapitel-Row + Spalten >=3
     main_table = next(t for t in tables if t._cellvalues and len(t._cellvalues[0]) >= 3)
     pages_found = 0
     for row in main_table._cellvalues:
-        text = getattr(row[2], "text", "")
-        if re.search(r"ca\. (\d+)", text):
+        text = getattr(row[3], "text", "").strip()
+        if text.isdigit():
             pages_found += 1
     assert pages_found == 15, f"Expected 15 page numbers, found {pages_found}"
 
 
 def test_first_section_page_starts_at_1():
-    """Cover/Section 1 = Page 1."""
-    import re
-    flowables = _build_toc_flowables(_sample_toc(), _styles())
+    """Cover/Section 1 = Page 1 (aus dem Collector)."""
+    toc = _sample_toc()
+    flowables = _build_toc_flowables(
+        toc, _styles(), page_numbers_by_title=_page_numbers_for(toc)
+    )
     tables = [f for f in flowables if isinstance(f, Table)]
     # _hr() ist auch eine Table (1-zeilig); echte TOC-Tabelle hat >=1 Kapitel-Row + Spalten >=3
     main_table = next(t for t in tables if t._cellvalues and len(t._cellvalues[0]) >= 3)
     first_row = main_table._cellvalues[0]
-    text = getattr(first_row[2], "text", "")
-    m = re.search(r"ca\. (\d+)", text)
-    assert m
-    assert int(m.group(1)) == 1
+    text = getattr(first_row[3], "text", "").strip()
+    assert text.isdigit()
+    assert int(text) == 1
 
 
 def test_source_documents_u_13_marker():

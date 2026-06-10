@@ -95,12 +95,19 @@ def test_single_pass_path_documented_in_source():
 # Render-Pipeline benutzt Single-Pass per Default
 # ---------------------------------------------------------------------------
 
-def test_render_pdf_uses_canvasmaker_with_advisory_numbered_canvas():
-    """render_advisory_report_pdf_from_payload setzt canvasmaker=
-    AdvisoryNumberedCanvas (Single-Pass-Pfad)."""
+def test_render_pdf_uses_advisory_page_chrome_with_total_pages():
+    """U-13 (2026-06-02): Der Renderer nutzt jetzt einen Two-Pass-Build —
+    Pass 1 zaehlt Seiten via _PageCounter/TocCollector, Pass 2 zeichnet den
+    Page-Chrome via make_advisory_page_chrome mit bekannter Gesamtseitenzahl
+    (total_pages_hint). AdvisoryNumberedCanvas bleibt die Chrome-Infrastruktur
+    hinter make_advisory_page_chrome, wird aber nicht mehr direkt als
+    canvasmaker gesetzt."""
     src = (BACKEND_ROOT / "services" / "pdf" / "documents" / "advisory_report.py").read_text(encoding="utf-8")
-    assert "canvasmaker=_canvasmaker" in src
-    assert "AdvisoryNumberedCanvas(" in src
+    # Two-Pass: Seiten zaehlen, dann Chrome mit Gesamtseitenzahl zeichnen
+    assert "make_advisory_page_chrome(" in src
+    assert "total_pages_hint=total_pages" in src
+    # AdvisoryNumberedCanvas-Infrastruktur weiterhin importiert/verwendet
+    assert "AdvisoryNumberedCanvas" in src
 
 
 def test_render_pdf_returns_bytes():
