@@ -55,15 +55,19 @@ def _sample_goals() -> list[dict]:
     ]
 
 
-def test_table_has_7_columns():
-    """Header-Zeile + Daten haben jeweils 7 Spalten."""
+def test_table_has_8_columns():
+    """Header-Zeile + Daten haben jeweils 8 Spalten.
+
+    Stage-9: zur U-72-Tabelle (Ziel/Typ/Hartheit/Ziel-Datum/Zielwert/Status/
+    Wahrscheinlichkeit) kam die MC-Status-Spalte hinzu -> 8 Spalten.
+    """
     table = _goals_table(_sample_goals(), _styles())
     assert isinstance(table, Table)
-    # Internal data list — pruefen dass jede Zeile 7 Spalten hat
+    # Internal data list — pruefen dass jede Zeile 8 Spalten hat
     data = table._cellvalues
     assert len(data) >= 4  # Header + 3 Goals
     for row in data:
-        assert len(row) == 7, f"Erwarte 7 Spalten, gefunden {len(row)}"
+        assert len(row) == 8, f"Erwarte 8 Spalten, gefunden {len(row)}"
 
 
 def test_table_header_contains_all_7_labels():

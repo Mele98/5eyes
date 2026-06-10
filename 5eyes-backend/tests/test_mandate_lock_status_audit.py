@@ -265,9 +265,10 @@ def test_fidleg_basis_string_stable():
 # ---------------------------------------------------------------------------
 
 def test_compute_advisory_report_includes_section_22():
-    from services.advisory_report import compute_advisory_report
+    # Seit PR #110 liegt die Sektions-Verdrahtung in _compute_advisory_report_inner.
+    from services.advisory_report import _compute_advisory_report_inner
     import inspect
-    source = inspect.getsource(compute_advisory_report)
+    source = inspect.getsource(_compute_advisory_report_inner)
     assert "mandate_lock_status" in source
     assert "Sektion 22" in source
 

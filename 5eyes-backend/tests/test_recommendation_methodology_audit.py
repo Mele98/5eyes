@@ -251,9 +251,10 @@ def test_audit_db_error_returns_degraded():
 # ---------------------------------------------------------------------------
 
 def test_compute_advisory_report_includes_section_21():
-    from services.advisory_report import compute_advisory_report
+    # Seit PR #110 liegt die Sektions-Verdrahtung in _compute_advisory_report_inner.
+    from services.advisory_report import _compute_advisory_report_inner
     import inspect
-    source = inspect.getsource(compute_advisory_report)
+    source = inspect.getsource(_compute_advisory_report_inner)
     assert "recommendation_methodology" in source
     assert "Sektion 21" in source
 

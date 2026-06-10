@@ -13,7 +13,7 @@ from models.snapshots import AssetClassAnnualReturn, AssetClassPriceHistory
 from models.users import User
 from schemas.review import AuditLogEntry, AuditLogPage
 from services.audit import log as audit_log
-from services.auth import require_admin, require_advisor
+from services.auth import require_admin, require_advisor, get_mandate_for_user_or_404
 from services.foundation_example import upsert_foundation_example_case
 from services.maintenance import (
     build_compliance_status,
@@ -264,7 +264,10 @@ def get_shadow_comparison(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    _ = current_user
+    # SECURITY (Mandanten-Trennung): Ownership-/Tenant-Guard — sonst liest ein
+    # tenant-gebundener Admin (Firma A) Shadow-Daten eines fremden Mandats (Firma B).
+    # 404 bei fremdem/nicht vorhandenem Mandat.
+    get_mandate_for_user_or_404(mandate_id, db, current_user)
     try:
         return build_shadow_comparison_payload(db, mandate_id)
     except ShadowComparisonNotFound as exc:

@@ -43,6 +43,7 @@ from schemas.protocol_bausteine import (
 )
 from services.auth import (
     get_current_user,
+    get_mandate_for_user_or_404,
     require_advisor,
 )
 
@@ -76,17 +77,6 @@ def _can_edit_baustein(baustein: ProtocolBaustein, user: User) -> bool:
     if baustein.advisor_id and baustein.advisor_id == user.id:
         return True
     return False
-
-
-def _get_mandate_or_404(mandate_id: str, db: Session, user: User) -> Mandate:
-    m = (
-        db.query(Mandate)
-        .filter(Mandate.id == mandate_id, Mandate.deleted_at.is_(None))
-        .first()
-    )
-    if not m:
-        raise HTTPException(status_code=404, detail="Mandat nicht gefunden")
-    return m
 
 
 # ---------------------------------------------------------------------------
@@ -220,7 +210,9 @@ def list_mandate_selections(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    _get_mandate_or_404(mandate_id, db, current_user)
+    # SECURITY (Mandanten-Trennung): kanonischer Helper validiert Ownership
+    # (Client.advisor_id fuer non-admins) UND Tenant-Filter, statt nur id+deleted_at.
+    get_mandate_for_user_or_404(mandate_id, db, current_user)
     rows = (
         db.query(MandateBausteinSelection, ProtocolBaustein)
         .join(
@@ -263,7 +255,9 @@ def replace_mandate_selections(
     """Replace-Semantik: die uebergebene Liste IST die neue Selektion.
     Vorhandene Eintraege fuer das Mandat werden entfernt, die neuen gesetzt.
     """
-    _get_mandate_or_404(mandate_id, db, current_user)
+    # SECURITY (Mandanten-Trennung): kanonischer Helper validiert Ownership
+    # (Client.advisor_id fuer non-admins) UND Tenant-Filter, statt nur id+deleted_at.
+    get_mandate_for_user_or_404(mandate_id, db, current_user)
 
     # Bausteine validieren — alle muessen existieren und vom User sichtbar sein.
     requested_ids = [item.baustein_id for item in body.selections]
