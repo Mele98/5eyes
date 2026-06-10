@@ -654,6 +654,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 .admin-tile.warn:before{background:var(--warn);}
 .admin-tile.danger:before{background:var(--neg);}
 .admin-tile.info:before{background:var(--g4);}
+.admin-tile.neutral:before{background:var(--n3);}
 .admin-tile-k{font-size:9px;text-transform:uppercase;letter-spacing:.07em;color:var(--n4);font-weight:700;margin-bottom:5px;display:flex;justify-content:space-between;align-items:center;gap:6px;}
 .admin-tile-v{font-size:18px;font-weight:700;color:var(--n8);line-height:1.1;font-variant-numeric:tabular-nums;}
 .admin-tile-s{font-size:9.5px;color:var(--n5);margin-top:4px;line-height:1.4;}
@@ -8851,6 +8852,7 @@ async function adminClearProductOverride() {
       lookup_mode_override: null,
       lookup_symbol_override: null
     });
+    setInputValue('admin-override-product', '');
     setInputValue('admin-override-mode', '');
     setInputValue('admin-override-symbol', '');
     renderAdminOverrideBadge(payload);
@@ -8910,7 +8912,7 @@ async function adminSetProductOverride() {
   } finally {
     if (btn) {
       btn.disabled = false;
-      btn.textContent = 'Override speichern';
+      btn.textContent = 'Speichern';
     }
   }
 }
@@ -12767,7 +12769,7 @@ function toggleAdminUserEdit(userId) {
 function toggleAdminPasswordReset(userId) {
   var panel = document.getElementById('ul-pw-' + userId);
   if (!panel) return;
-  panel.style.display = panel.style.display === 'none' ? 'flex' : 'none';
+  panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
 }
 
 async function saveAdminUser(userId) {
@@ -13018,6 +13020,7 @@ async function createNewUser() {
     ['nu-fullname','nu-username','nu-password','nu-email'].forEach(function(id){
       var el=document.getElementById(id); if(el)el.value='';
     });
+    var nuHint=document.getElementById('nu-pwhint'); if(nuHint){ nuHint.textContent=''; nuHint.style.color='var(--n5)'; }
     await loadAdminUserList();
     if (btn) { btn.disabled=false; btn.textContent='Benutzer anlegen'; }
   } catch(e) {
