@@ -176,6 +176,32 @@ else:
     )
 
 
+# ---------------------------------------------------------------------------
+# Browser-Hosting (2026-06-10): Haupt-App 5eyes_v2.html ueber das Backend
+# ausliefern (gated via settings.serve_main_frontend). Ein einzelner Host/
+# Tunnel stellt so die komplette App im Browser bereit (Remote-Demo). Default
+# AUS: Tier-1/Electron laedt die HTML weiterhin lokal via file://.
+# Eintritts-URL: /app/5eyes_v2.html  (relative Assets desktop-api.js /
+# vendor/chart.min.js liegen daneben; das Frontend ruft die API same-origin).
+# ---------------------------------------------------------------------------
+_MAIN_FRONTEND_DIR = (
+    Path(__file__).resolve().parent.parent / "5eyes-electron" / "frontend"
+)
+if settings.serve_main_frontend and (_MAIN_FRONTEND_DIR / "5eyes_v2.html").is_file():
+    from fastapi.responses import RedirectResponse
+
+    @app.get("/app", include_in_schema=False)
+    def _main_app_entry() -> RedirectResponse:
+        return RedirectResponse(url="/app/5eyes_v2.html")
+
+    app.mount(
+        "/app",
+        StaticFiles(directory=str(_MAIN_FRONTEND_DIR), html=False),
+        name="main_frontend",
+    )
+    logger.info("Browser-Hosting aktiv: Haupt-App unter /app/5eyes_v2.html")
+
+
 @app.get("/", tags=["Health"])
 def health():
     return {

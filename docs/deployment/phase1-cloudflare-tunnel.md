@@ -46,6 +46,11 @@ APP_PORT=8000
 # Demo-Modus: erlaubt unverschluesselte Verbindungen (Tunnel macht TLS).
 # In Production niemals so. Hier OK weil Tunnel-Layer schon TLS macht.
 APP_ENV=development
+
+# Browser-Hosting (2026-06-10): Haupt-App 5eyes_v2.html ueber das Backend
+# ausliefern, damit ein EINZELNER Tunnel die komplette App im Browser
+# bereitstellt (UI + API same-origin). Default AUS — fuer die Demo AN.
+SERVE_MAIN_FRONTEND=true
 ```
 
 ### 3. CORS-Origin oeffnen (Demo-Phase)
@@ -84,20 +89,25 @@ Output sieht so aus:
 +--------------------------------------------------------------------------------------------+
 ```
 
-Diese **HTTPS-URL** kannst du in deinem Demo-Termin teilen — der Kunde
-oeffnet die URL im Browser, sieht 5eyes.
+### 6. App im Browser oeffnen
 
-### 6. Frontend anpassen (falls separat gehostet)
+Mit `SERVE_MAIN_FRONTEND=true` (Schritt 2) liefert das Backend die
+komplette Haupt-App selbst aus — UI **und** API kommen vom selben Host,
+also **kein CORS-Problem** und keine separate Frontend-Konfiguration noetig.
 
-Wenn das Frontend (`5eyes_v2.html`) lokal lebt und gegen das Backend
-geht: setze die Backend-URL in der HTML oder via JS-Konfiguration auf
-die Tunnel-URL.
+**Demo-URL zum Teilen:**
 
-Falls du Electron als Demo-Frontend nutzt: aktuell ist Backend-URL
-hartcodiert auf `localhost:8000`. Workaround:
+```
+https://random-words-here.trycloudflare.com/app/5eyes_v2.html
+```
 
-- Variante A: Demo-Kunde nutzt eigenen Browser, oeffnet Tunnel-URL
-- Variante B: Setze Electron `BACKEND_URL` env-Variable auf Tunnel-URL
+Der Demo-Kunde oeffnet diese URL im Browser, sieht 5eyes, loggt sich mit
+dem Demo-Account ein und kann selbststaendig testen. Das Frontend ruft die
+API automatisch same-origin (`window.location.origin`) auf — es ist NICHT
+mehr auf `127.0.0.1` hartcodiert (Browser-Hosting-Fix 2026-06-10).
+
+> Electron-Desktop-Modus bleibt unveraendert: dort laedt die App weiterhin
+> lokal via `file://` und spricht `127.0.0.1:8000`.
 
 ---
 

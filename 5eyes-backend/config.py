@@ -217,6 +217,12 @@ class Settings(BaseSettings):
     # Tenant-Admin-UI fuer Super-Admin. Tier 2 = True, sonst False.
     tenant_admin_ui_enabled: bool = False
 
+    # Browser-Hosting (2026-06-10): Haupt-App (5eyes_v2.html) ueber das Backend
+    # ausliefern, damit ein einzelner Host/Tunnel die komplette App im Browser
+    # bereitstellt (Remote-Demo/Tier-2). Default AUS — Tier-1/Electron laedt die
+    # HTML weiterhin lokal via file://. Nur fuer Browser-/Tunnel-Demos einschalten.
+    serve_main_frontend: bool = False
+
     # Sprint U-P8 Fix M1 (2026-05-20): Block-Diagonal Sub-Asset-Class
     # Korrelation innerhalb eines Buckets. Default 1.0 = perfekt korreliert
     # (Backwards-Compat zur Bucket-Skalar-Vola). Werte < 1.0 aktivieren
