@@ -14,6 +14,7 @@ from schemas.clients import (
     CashflowYearRow, CashflowProjectionResponse,
 )
 from services.auth import (
+    _apply_tenant_filter_to_client_query,
     get_client_for_user_or_404,
     get_current_user,
     has_global_client_access,
@@ -46,6 +47,10 @@ def list_clients(
     q = db.query(Client).filter(Client.deleted_at.is_(None))
     if not has_global_client_access(current_user):
         q = q.filter(Client.advisor_id == current_user.id)
+    # SECURITY (Mandanten-Trennung): Tenant-Filter IMMER anwenden — auch fuer
+    # globale Admins. Sonst sieht ein tenant-gebundener Admin (role=admin)
+    # Clients fremder Tenants. Spiegelt get_accessible_client_ids.
+    q = _apply_tenant_filter_to_client_query(q, current_user)
     if search:
         safe = search.replace('\\', '\\\\').replace('%', r'\%').replace('_', r'\_')
         like = f"%{safe}%"
