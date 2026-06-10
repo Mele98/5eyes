@@ -1836,23 +1836,14 @@ def dashboard_summary(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Aggregated dashboard: all clients with wealth, active alerts count."""
-    if has_global_client_access(current_user):
-        rows = db.execute(text("SELECT * FROM v_client_wealth_summary ORDER BY client_name")).fetchall()
-        trigger_stmt = text(
-            "SELECT COUNT(*) FROM v_active_triggers WHERE status IN :active_statuses"
-        ).bindparams(bindparam("active_statuses", expanding=True))
-        trigger_count = db.execute(trigger_stmt, {"active_statuses": ACTIVE_TRIGGER_STATUS_VALUES}).scalar()
-        clients = [dict(r._mapping) for r in rows]
-        for c in clients:
-            c["net_worth_chf"] = (c.get("net_worth_rappen") or 0) / 100
-            c["advisory_wealth_chf"] = (c.get("advisory_wealth_rappen") or 0) / 100
-        return {
-            "clients": clients,
-            "active_alerts": trigger_count,
-            "total_clients": len(clients),
-        }
+    """Aggregated dashboard: all clients with wealth, active alerts count.
 
+    SECURITY (Mandanten-Trennung): KEIN ungescopter Admin-Zweig mehr. Auch
+    globale Admins laufen ueber get_accessible_client_ids/-mandate_ids — diese
+    ueberspringen den advisor_id-Filter, wenden aber IMMER den Tenant-Filter an.
+    Ein Firma-A-Admin sieht so alle Clients SEINES Tenants, aber nie fremde.
+    (Legacy-Admin ohne tenant_id: Tier-1-Single-Tenant, sieht weiter alles.)
+    """
     client_ids = get_accessible_client_ids(db, current_user)
     mandate_ids = get_accessible_mandate_ids(db, current_user)
     if not client_ids:
@@ -1894,9 +1885,9 @@ def active_triggers(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    if has_global_client_access(current_user):
-        rows = db.execute(text("SELECT * FROM v_active_triggers")).fetchall()
-        return [dict(r._mapping) for r in rows]
+    # SECURITY (Mandanten-Trennung): kein ungescopter Admin-Zweig — alle laufen
+    # ueber get_accessible_mandate_ids (tenant-gefiltert, advisor-Filter fuer
+    # Admins uebersprungen).
     mandate_ids = get_accessible_mandate_ids(db, current_user)
     if not mandate_ids:
         return []
