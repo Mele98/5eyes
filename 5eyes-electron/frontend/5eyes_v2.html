@@ -641,6 +641,60 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 .admin-result-bar{flex-shrink:0;background:var(--bg);border-top:1px solid var(--b1);padding:8px 16px;font-size:11px;white-space:pre-wrap;color:var(--n6);display:none;max-height:90px;overflow-y:auto;line-height:1.45;}
 @media(max-width:900px){.admin-sidebar{width:176px}.admin-content{padding:16px}.admin-health-grid{grid-template-columns:1fr 1fr}.admin-action-row{grid-template-columns:9px minmax(0,1fr)}.admin-link-btn{justify-self:start}}
 
+/* === MODERNE ADMIN-KOMPONENTEN (Redesign 2026-06-10) === */
+.admin-sec-panel{animation:adminSecFade .18s ease;}
+@keyframes adminSecFade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+/* Stat-Tiles (klickbar, mit Akzent-Kante) */
+.admin-tile-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;}
+.admin-tile{position:relative;background:var(--bg);border:1px solid var(--b1);border-radius:10px;padding:12px 13px 11px 15px;transition:box-shadow .15s,transform .15s,border-color .15s;overflow:hidden;}
+.admin-tile.clickable{cursor:pointer;}
+.admin-tile.clickable:hover{box-shadow:0 4px 16px rgba(15,23,42,.08);transform:translateY(-1px);border-color:var(--n3);}
+.admin-tile:before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--n3);}
+.admin-tile.ok:before{background:var(--pos);}
+.admin-tile.warn:before{background:var(--warn);}
+.admin-tile.danger:before{background:var(--neg);}
+.admin-tile.info:before{background:var(--g4);}
+.admin-tile-k{font-size:9px;text-transform:uppercase;letter-spacing:.07em;color:var(--n4);font-weight:700;margin-bottom:5px;display:flex;justify-content:space-between;align-items:center;gap:6px;}
+.admin-tile-v{font-size:18px;font-weight:700;color:var(--n8);line-height:1.1;font-variant-numeric:tabular-nums;}
+.admin-tile-s{font-size:9.5px;color:var(--n5);margin-top:4px;line-height:1.4;}
+/* Badges/Pills */
+.admin-badge{display:inline-flex;align-items:center;gap:4px;font-size:9.5px;font-weight:700;padding:2px 8px;border-radius:999px;line-height:1.5;border:1px solid transparent;white-space:nowrap;}
+.admin-badge.ok{background:var(--pos-lt);color:var(--pos);}
+.admin-badge.warn{background:rgba(180,120,20,.12);color:var(--warn);}
+.admin-badge.danger{background:var(--neg-lt);color:var(--neg);}
+.admin-badge.info{background:rgba(90,104,120,.1);color:var(--n6);}
+.admin-badge.neutral{background:var(--bg2);color:var(--n5);border-color:var(--b1);}
+.admin-badge:before{content:'';width:5px;height:5px;border-radius:50%;background:currentColor;opacity:.85;}
+.admin-badge.no-dot:before{display:none;}
+/* Moderne Tabelle */
+.admin-tbl-wrap{border:1px solid var(--b1);border-radius:10px;overflow:auto;background:var(--bg);max-height:360px;}
+.admin-tbl{width:100%;border-collapse:collapse;font-size:10.5px;}
+.admin-tbl thead th{text-align:left;font-size:9px;text-transform:uppercase;letter-spacing:.06em;color:var(--n4);font-weight:700;padding:7px 9px;border-bottom:1px solid var(--b1);position:sticky;top:0;background:var(--bg);z-index:1;}
+.admin-tbl tbody td{padding:7px 9px;border-bottom:1px solid var(--b1);color:var(--n7);vertical-align:top;}
+.admin-tbl tbody tr:last-child td{border-bottom:0;}
+.admin-tbl tbody tr{transition:background .12s;}
+.admin-tbl tbody tr:hover{background:rgba(0,0,0,.02);}
+.admin-num{text-align:right;font-variant-numeric:tabular-nums;}
+/* Empty-State */
+.admin-empty{display:flex;flex-direction:column;align-items:center;text-align:center;gap:7px;padding:26px 18px;border:1px dashed var(--b1);border-radius:10px;background:var(--bg2);}
+.admin-empty-icon{font-size:24px;opacity:.45;line-height:1;}
+.admin-empty-title{font-size:12px;font-weight:700;color:var(--n7);}
+.admin-empty-body{font-size:10.5px;color:var(--n5);line-height:1.5;max-width:440px;}
+/* Toggle-Switch */
+.admin-switch{display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-size:10.5px;color:var(--n6);user-select:none;}
+.admin-switch input{position:absolute;opacity:0;width:0;height:0;}
+.admin-switch-track{position:relative;width:34px;height:18px;border-radius:999px;background:var(--n3);transition:background .15s;flex:none;}
+.admin-switch-track:after{content:'';position:absolute;left:2px;top:2px;width:14px;height:14px;border-radius:50%;background:#fff;transition:transform .15s;box-shadow:0 1px 2px rgba(0,0,0,.2);}
+.admin-switch input:checked + .admin-switch-track{background:var(--g4);}
+.admin-switch input:checked + .admin-switch-track:after{transform:translateX(16px);}
+/* Gestapelter Balken */
+.admin-stacked-bar{display:flex;height:12px;border-radius:999px;overflow:hidden;background:var(--bg2);border:1px solid var(--b1);}
+.admin-stacked-seg{height:100%;transition:width .2s;}
+/* Inline-Icon-Button */
+.admin-icon-btn{background:transparent;border:1px solid var(--b1);border-radius:6px;color:var(--n6);font-size:10px;font-weight:600;padding:3px 8px;cursor:pointer;transition:all .12s;white-space:nowrap;}
+.admin-icon-btn:hover{background:var(--bg2);color:var(--n8);border-color:var(--n3);}
+.admin-icon-btn.danger:hover{background:var(--neg-lt);color:var(--neg);border-color:var(--neg);}
+
 /* ALLOC TABLE */
 .ar{display:grid;grid-template-columns:8px 1fr 50px 68px 50px 68px 52px;gap:0;align-items:center;padding:6px 0;border-bottom:1px solid var(--b1);}
 .ar:last-child{border-bottom:none;}
@@ -3589,31 +3643,36 @@ async function refreshPricesFromBackend() {
 
 // ─── UPDATE MANAGEMENT ────────────────────────────────────────────────────────
 function applyUpdateState(state) {
-  const section = document.getElementById('update-section');
   const label = document.getElementById('update-status-label');
   const checkBtn = document.getElementById('btn-check-updates');
   const installBtn = document.getElementById('btn-install-update');
-  if (!state || !section) return;
+  if (!state || !label) return;
   if (typeof adminSystemState !== 'undefined' && adminSystemState) {
     adminSystemState.update = state;
     renderAdminDashboard();
   }
-  if (!state.enabled) { section.style.display = 'none'; return; }
-  section.style.display = 'block';
-  if (state.checking) {
-    if (label) label.textContent = 'Prüfe auf Updates…';
-  } else if (state.downloaded) {
-    if (label) label.textContent = 'Update ' + (state.latestVersion||'') + ' bereit zur Installation.';
-    if (installBtn) installBtn.style.display = 'inline-block';
-  } else if (state.available) {
-    if (label) label.textContent = 'Update ' + (state.latestVersion||'') + ' wird heruntergeladen…';
-  } else if (state.error) {
-    if (label) label.textContent = 'Update-Fehler: ' + state.error.slice(0,60);
-  } else {
-    if (label) label.textContent = 'Aktuell (v' + (state.currentVersion||'?') + ')';
+  // Auto-Update ist nur in installierten Electron-Releases aktiv. In Dev/Browser
+  // (kein FiveEyesAPI) sind die Buttons No-Ops -> klar kommunizieren + sperren.
+  if (!state.enabled) {
+    label.textContent = 'Auto-Update ist nur in installierten Releases aktiv.';
     if (installBtn) installBtn.style.display = 'none';
+    if (checkBtn) checkBtn.disabled = true;
+    return;
   }
   if (checkBtn) checkBtn.disabled = !!state.checking;
+  if (state.checking) {
+    label.textContent = 'Prüfe auf Updates…';
+  } else if (state.downloaded) {
+    label.textContent = 'Update ' + (state.latestVersion||'') + ' bereit zur Installation.';
+    if (installBtn) installBtn.style.display = 'inline-block';
+  } else if (state.available) {
+    label.textContent = 'Update ' + (state.latestVersion||'') + ' wird heruntergeladen…';
+  } else if (state.error) {
+    label.textContent = 'Update-Fehler: ' + state.error.slice(0,60);
+  } else {
+    label.textContent = 'Aktuell (v' + (state.currentVersion||'?') + ')';
+    if (installBtn) installBtn.style.display = 'none';
+  }
 }
 
 async function adminCheckUpdates() {
@@ -3653,6 +3712,8 @@ if (window.desktop && typeof window.desktop.onUpdateStateChanged === 'function')
       const state = await window.FiveEyesAPI.updates.getState();
       applyUpdateState(state);
     } catch(e) {}
+  } else {
+    applyUpdateState({ enabled: false });
   }
 })();
 // ─────────────────────────────────────────────────────────────────────────────
@@ -8000,7 +8061,6 @@ async function adminRefreshMarketStatus(showLog) {
     adminMarketStatusBox(formatAdminMarketSummary(priceStatus, productStatus), false, true);
     renderAdminDashboard();
     adminLoadMappingGaps(false);
-    if (showLog) showAdminResult('OK: Marktstatus aktualisiert', false);
     if (showLog) showAdminResult('✓ Marktstatus aktualisiert', false);
     return { priceStatus: priceStatus, productStatus: productStatus };
   } catch(e) {
@@ -8555,7 +8615,7 @@ async function loadAdminCapitalMarketAssumptions(showLog) {
     if (showLog) showAdminResult('Warnung: ' + msg, true);
     throw e;
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = 'Annahmen laden'; }
+    if (btn) { btn.disabled = false; btn.textContent = 'Laden'; }
   }
 }
 function collectAdminCapitalMarketAssumptionsPayload() {
@@ -8709,7 +8769,7 @@ async function saveAdminCapitalMarketAssumptions() {
     setAdminCmaError(msg);
     showAdminResult('Warnung: ' + msg, true);
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = 'Annahmen speichern'; }
+    if (btn) { btn.disabled = false; btn.textContent = 'Speichern'; }
   }
 }
 
@@ -8760,6 +8820,45 @@ async function adminRunEodhdAutoApply(dryRun) {
     showAdminResult('Warnung: ' + parseApiError(e, 'EODHD-Workflow fehlgeschlagen.'), true);
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = dryRun ? 'EODHD Dry Run' : 'EODHD anwenden'; }
+  }
+}
+
+// Redesign 2026-06-10: Override gezielt entfernen (mode+symbol auf null) —
+// Produkt faellt auf automatisches Mapping zurueck. Setzt um, was die Risk-Note
+// fordert ("nach Korrektur wieder entfernen").
+async function adminClearProductOverride() {
+  var productRef = getInputValue('admin-override-product').trim();
+  setAdminOverrideError('');
+  if (!productRef) {
+    setAdminOverrideError('Produkt-ID oder Name ist Pflicht.');
+    return;
+  }
+  if (!adminConfirmRisk(
+    'Override entfernen?',
+    'Das Produkt faellt auf automatisches Mapping (OpenFIGI/EODHD) zurueck. Beim naechsten Preisabruf wird das Symbol neu aufgeloest.'
+  )) return;
+  var btn = document.getElementById('btn-admin-override-clear');
+  if (btn) { btn.disabled = true; btn.textContent = 'Entfernt...'; }
+  try {
+    var products = await API.get('/products');
+    var match = findAdminProductByReference(products, productRef);
+    if (!match) {
+      setAdminOverrideError('Produkt nicht gefunden: ' + productRef);
+      renderAdminOverrideBadge(null);
+      return;
+    }
+    var payload = await API.put('/products/' + match.id + '/market-override', {
+      lookup_mode_override: null,
+      lookup_symbol_override: null
+    });
+    setInputValue('admin-override-mode', '');
+    setInputValue('admin-override-symbol', '');
+    renderAdminOverrideBadge(payload);
+    showAdminResult('Override entfernt: ' + match.product_name + ' faellt auf automatisches Mapping zurueck.', false);
+  } catch (e) {
+    setAdminOverrideError('Fehler: ' + (e && (e.detail || e.message) || '?'));
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Entfernen'; }
   }
 }
 
@@ -10657,7 +10756,7 @@ async function saveAdminAnnualReturns() {
     );
   });
   await Promise.allSettled(promises);
-  if (btn) { btn.disabled = false; btn.textContent = 'Alle speichern'; }
+  if (btn) { btn.disabled = false; btn.textContent = 'Speichern'; }
   if (errors.length) {
     if (errEl) { errEl.textContent = errors.join('\n'); errEl.style.display = 'block'; }
   } else {
@@ -10887,6 +10986,15 @@ function renderShadowAggregate(data) {
   setText('admin-shadow-default-reason', ready ? 'Default-Wechsel freigegeben: ' + reason : 'Default-Wechsel blockiert: ' + reason);
   setText('admin-shadow-aggregate-meta', String(total) + ' Mandat(e) mit Shadow-Vergleich');
 
+  // Redesign 2026-06-10: erklaerender Empty-State statt stiller Nullen bei total=0.
+  var shadowEmpty = document.getElementById('admin-shadow-empty');
+  var shadowCountsGrid = document.getElementById('admin-shadow-counts-grid');
+  var shadowExamplesGrid = document.getElementById('admin-shadow-examples-grid');
+  var shadowIsEmpty = total === 0;
+  if (shadowEmpty) shadowEmpty.style.display = shadowIsEmpty ? 'flex' : 'none';
+  if (shadowCountsGrid) shadowCountsGrid.style.display = shadowIsEmpty ? 'none' : '';
+  if (shadowExamplesGrid) shadowExamplesGrid.style.display = shadowIsEmpty ? 'none' : '';
+
   ['green','yellow','red'].forEach(function(key) {
     setText('admin-shadow-' + key + '-count', String(Number(counts[key] || 0)));
     setText('admin-shadow-' + key + '-pct', (Number(percentages[key] || 0)).toFixed(1) + '%');
@@ -11019,41 +11127,10 @@ async function adminUpdateStatus() {
   }
 }
 
-async function adminCheckForUpdates() {
-  const btn = document.getElementById('btn-admin-update-check');
-    if (btn) { btn.disabled = true; btn.textContent = 'Prueft...'; }
-  try {
-    if (window.FiveEyesAPI && window.FiveEyesAPI.updates) {
-      await window.FiveEyesAPI.updates.check();
-      await adminUpdateStatus();
-    } else {
-      showAdminResult('Auto-Update ist in diesem Modus nicht verfuegbar.', true);
-    }
-  } catch(e) {
-    showAdminResult('Warnung: ' + (e.message||e), true);
-  } finally {
-    if (btn) { btn.disabled = false; btn.textContent = 'Nach Updates suchen'; }
-  }
-}
-
-async function adminInstallDownloadedUpdate() {
-  if (!adminConfirmRisk('Heruntergeladenes Update installieren?', 'Die App beendet sich fuer die Installation. Nicht gespeicherte Arbeit sollte vorher abgeschlossen sein.')) return;
-  const btn = document.getElementById('btn-admin-update-install');
-  if (btn) { btn.disabled = true; btn.textContent = 'Installiert...'; }
-  try {
-    if (window.FiveEyesAPI && window.FiveEyesAPI.updates) {
-      const result = await window.FiveEyesAPI.updates.install();
-      if (result && result.ok) showAdminResult('Update-Installation wird gestartet. Die App beendet sich gleich.', false);
-      else showAdminResult(result && result.message ? result.message : 'Kein heruntergeladenes Update verfuegbar.', true);
-    } else {
-      showAdminResult('Auto-Update ist in diesem Modus nicht verfuegbar.', true);
-    }
-  } catch(e) {
-    showAdminResult('Warnung: ' + (e.message||e), true);
-  } finally {
-    if (btn) { btn.disabled = false; btn.textContent = 'Heruntergeladenes Update installieren'; }
-  }
-}
+// Redesign 2026-06-10: adminCheckForUpdates() + adminInstallDownloadedUpdate()
+// entfernt — waren Duplikate von adminCheckUpdates()/adminInstallUpdate()
+// (Set A, event-getrieben via applyUpdateState). Diagnose bleibt via
+// adminUpdateStatus() ("Details"-Button).
 // ─────────────────────────────────────────────────────────────────────
 
 
@@ -12665,6 +12742,13 @@ function renderAdminAuditSummary(data) {
     + '<div class="admin-health-sub">Diese Seite: CREATE ' + String(counts.CREATE || 0) + ', UPDATE ' + String(counts.UPDATE || 0) + ', DELETE ' + String(counts.DELETE || 0) + '.</div>'
     + '</div>';
   normalizeVisibleMojibake(box);
+}
+// Redesign 2026-06-10: Audit-Filter laedt automatisch (debounced) statt
+// separatem Laden-Klick. Select feuert direkt, Suchfeld nach 350ms Ruhe / Enter.
+var _auditFilterTimer = null;
+function adminAuditFilterChanged() {
+  if (_auditFilterTimer) clearTimeout(_auditFilterTimer);
+  _auditFilterTimer = setTimeout(function() { loadAdminAuditLog(0); }, 350);
 }
 async function loadAdminAuditLog(offset) {
   var btn = document.getElementById('btn-al-load');
@@ -19950,7 +20034,7 @@ function openStammdatenModal(){
         <button id="asec-newuser" onclick="adminShowSection('sec-newuser')" class="admin-sec-btn">Neuer Benutzer</button>
 
         <div class="admin-nav-label">Wartung</div>
-        <button id="asec-db" onclick="adminShowSection('sec-db')" class="admin-sec-btn">Backups</button>
+        <button id="asec-db" onclick="adminShowSection('sec-db')" class="admin-sec-btn">Datenbank</button>
         <button id="asec-update" onclick="adminShowSection('sec-update')" class="admin-sec-btn">Update</button>
       </div>
 
@@ -19978,12 +20062,17 @@ function openStammdatenModal(){
             </div>
             <button class="btn" onclick="loadShadowAggregate(true)" id="btn-admin-shadow-aggregate-refresh">Reload</button>
           </div>
+          <div id="admin-shadow-empty" class="admin-empty" style="display:none">
+            <div class="admin-empty-icon">&#127765;</div>
+            <div class="admin-empty-title">Noch keine Shadow-Vergleiche vorhanden</div>
+            <div class="admin-empty-body">Es wurden noch keine Shadow-Optimierungen persistiert. F&uuml;hre den Optimizer im <strong>stochastic-Modus</strong> f&uuml;r mindestens 3 Mandate aus &mdash; danach erscheinen hier die aggregierten GREEN/YELLOW/RED-Auswertungen f&uuml;r das Compliance-Template.</div>
+          </div>
           <div class="admin-risk-note">
             <strong>Default-Switch</strong>
             <span id="admin-shadow-default-badge" class="admin-pill">n/a</span>
             <div id="admin-shadow-default-reason" style="margin-top:6px">Noch nicht geladen.</div>
           </div>
-          <div class="admin-compact-grid">
+          <div class="admin-compact-grid" id="admin-shadow-counts-grid">
             <div class="admin-metric-panel">
               <div class="admin-metric-label">GREEN</div>
               <div id="admin-shadow-green-count" class="admin-health-v">-</div>
@@ -20000,7 +20089,7 @@ function openStammdatenModal(){
               <div id="admin-shadow-red-pct" class="admin-metric-meta">-</div>
             </div>
           </div>
-          <div class="admin-compact-grid">
+          <div class="admin-compact-grid" id="admin-shadow-examples-grid">
             <div class="admin-metric-panel">
               <div class="admin-metric-label">GREEN Beispiele</div>
               <div id="admin-shadow-examples-green" class="admin-worklist"><div class="admin-metric-meta">Noch nicht geladen.</div></div>
@@ -20023,7 +20112,7 @@ function openStammdatenModal(){
           <div class="admin-section-title">Audit-Log</div>
           <div id="admin-audit-summary" class="admin-audit-summary"><div class="admin-risk-note">Audit-Uebersicht wird geladen...</div></div>
           <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
-            <select id="al-action-filter" class="fsel" style="font-size:11px;padding:3px 6px">
+            <select id="al-action-filter" class="fsel" style="font-size:11px;padding:3px 6px" onchange="loadAdminAuditLog(0)">
               <option value="">Alle Aktionen</option>
               <option value="CREATE">CREATE</option>
               <option value="UPDATE">UPDATE</option>
@@ -20032,7 +20121,7 @@ function openStammdatenModal(){
               <option value="PASSWORD_RESET">PASSWORD_RESET</option>
               <option value="EXPORT">EXPORT</option>
             </select>
-            <input id="al-q-filter" class="fi" placeholder="Benutzer oder Tabelle suchen…" style="font-size:11px;width:200px">
+            <input id="al-q-filter" class="fi" placeholder="Benutzer oder Tabelle suchen…" style="font-size:11px;width:200px" oninput="adminAuditFilterChanged()" onkeydown="if(event.key==='Enter'){event.preventDefault();loadAdminAuditLog(0);}">
             <button class="btn-p" id="btn-al-load" onclick="loadAdminAuditLog(0)" style="font-size:10px;padding:3px 10px">Laden</button>
           </div>
           <div id="al-error" style="color:var(--neg);font-size:10px;display:none"></div>
@@ -20127,8 +20216,9 @@ function openStammdatenModal(){
               <label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Symbol</label>
               <input class="fi" id="admin-override-symbol" placeholder="z.B. GLD" style="font-size:11px">
             </div>
-            <div style="display:flex;align-items:flex-end;">
-              <button class="btn-p" style="background:var(--bg2);color:var(--n6);width:100%" onclick="adminSetProductOverride()" id="btn-admin-override-save">Override speichern</button>
+            <div style="display:flex;align-items:flex-end;gap:6px;">
+              <button class="btn-p admin-primary-btn" style="flex:1" onclick="adminSetProductOverride()" id="btn-admin-override-save">Speichern</button>
+              <button class="admin-icon-btn danger" onclick="adminClearProductOverride()" id="btn-admin-override-clear" title="Override entfernen — Produkt fällt auf automatisches Mapping zurück">Entfernen</button>
             </div>
           </div>
           <div id="admin-override-badge" style="display:none;padding:4px 8px;border-radius:var(--r);font-size:10px;background:var(--bg2);color:var(--n6);border:1px solid var(--b1)"></div>
@@ -20413,16 +20503,9 @@ function openStammdatenModal(){
             <span id="update-status-label" class="admin-metric-meta">—</span>
             <button class="btn-p" style="background:var(--bg2);color:var(--n6)" onclick="adminCheckUpdates()" id="btn-check-updates">Auf Updates prüfen</button>
             <button class="btn-p admin-primary-btn" style="display:none" onclick="adminInstallUpdate()" id="btn-install-update">Update installieren</button>
-          </div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
-            <button class="btn-p" style="background:var(--bg2);color:var(--n6)" onclick="adminUpdateStatus()">Update-Status</button>
-            <button class="btn-p" style="background:var(--bg2);color:var(--n6)" onclick="adminCheckForUpdates()" id="btn-admin-update-check">Nach Updates suchen</button>
-            <button class="btn-p" style="background:var(--bg2);color:var(--n6);grid-column:1/-1" onclick="adminInstallDownloadedUpdate()" id="btn-admin-update-install">Heruntergeladenes Update installieren</button>
+            <button class="admin-icon-btn" onclick="adminUpdateStatus()" title="Vollständigen Update-Status im Protokoll anzeigen">Details</button>
           </div>
         </div>
-
-        <!-- Kompatibilitäts-Placeholder -->
-        <div id="update-section" style="display:none"></div>
 
       </div><!-- end content -->
     </div><!-- end body row -->
