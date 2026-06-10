@@ -2376,6 +2376,27 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
           <label style="cursor:pointer"><input type="radio" name="bt-resolution" id="bt-res-annual" value="annual" checked onchange="btRunBacktest()"> J&auml;hrlich</label>
           <label style="cursor:pointer"><input type="radio" name="bt-resolution" id="bt-res-daily" value="daily" onchange="btRunBacktest()"> T&auml;glich</label>
         </div>
+        <!-- Bug-#8a UI: Strategie-Kosten p.a. kontextuell hier (statt separater Box).
+             strategy_fee_bps = TER + Depot + Advisory. IDs unveraendert. -->
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px;padding-top:8px;border-top:1px dashed var(--b1)">
+          <div style="font-size:10px;color:var(--n8);font-weight:700;text-transform:uppercase;letter-spacing:0.06em">Strategie-Kosten p.a.</div>
+          <button class="btn" type="button" style="font-size:9.5px;padding:2px 7px" onclick="btResetFees()" title="Alle Kosten auf 0 setzen (Brutto-Vergleich)">Brutto</button>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;font-size:10px;color:var(--n6);margin-top:6px">
+          <div>
+            <div title="Durchschnittliche Total Expense Ratio aller Produkte">TER &empty;</div>
+            <div style="display:flex;align-items:center;gap:2px;margin-top:2px"><input class="fi bt-fee-strategy" id="bt-fee-ter" type="number" min="0" max="500" step="0.01" value="0" style="font-size:11px;padding:3px 5px;width:100%" oninput="btUpdateFeeSum()"><span>%</span></div>
+          </div>
+          <div>
+            <div title="Depotgebuehr/Custody p.a.">Depot</div>
+            <div style="display:flex;align-items:center;gap:2px;margin-top:2px"><input class="fi bt-fee-strategy" id="bt-fee-custody" type="number" min="0" max="500" step="0.01" value="0" style="font-size:11px;padding:3px 5px;width:100%" oninput="btUpdateFeeSum()"><span>%</span></div>
+          </div>
+          <div>
+            <div title="Beratungs-/Mandatsgebuehr p.a.">Beratung</div>
+            <div style="display:flex;align-items:center;gap:2px;margin-top:2px"><input class="fi bt-fee-strategy" id="bt-fee-advisory" type="number" min="0" max="500" step="0.01" value="0" style="font-size:11px;padding:3px 5px;width:100%" oninput="btUpdateFeeSum()"><span>%</span></div>
+          </div>
+        </div>
+        <div id="bt-fee-strategy-sum" style="font-size:9.5px;color:var(--n7);font-weight:600;margin-top:5px;text-align:right"></div>
       </div>
 
       <!-- Benchmark-Editor -->
@@ -2421,55 +2442,19 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
             </div>
             <div id="bt-bm-sub-sum" style="font-size:10px;color:var(--n5);margin-top:4px;text-align:right"></div>
           </div>
+          <!-- Bug-#8a UI: Benchmark-Kosten p.a. kontextuell hier beim Benchmark. -->
+          <div style="margin-top:10px;padding-top:8px;border-top:1px dashed var(--b1);display:flex;align-items:center;gap:8px">
+            <div title="ETF-Kosten der Benchmark (z.B. SMI/MSCI-World-ETF-TER)" style="font-size:10px;color:var(--n8);font-weight:700;text-transform:uppercase;letter-spacing:0.06em;white-space:nowrap">Benchmark-Kosten p.a.</div>
+            <div style="display:flex;align-items:center;gap:2px;max-width:110px"><input class="fi" id="bt-fee-benchmark" type="number" min="0" max="500" step="0.01" value="0" style="font-size:11px;padding:3px 5px;width:100%" oninput="btUpdateFeeSum()"><span style="font-size:10px;color:var(--n6)">%</span></div>
+          </div>
         </div>
       </div>
     </div>
 
-    <!-- Bug-#8a UI (2026-06-09): Kosten-Erfassung. Backend-Parameter
-         strategy_fee_bps = TER + Depot + Advisory in bps p.a.
-         benchmark_fee_bps = ETF-Kosten der Benchmark (z.B. TER passives ETF). -->
-    <div style="background:var(--bg);border:1px solid var(--b1);border-radius:6px;padding:10px;margin-bottom:10px">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-        <div style="font-size:10px;font-weight:700;color:var(--n8);text-transform:uppercase;letter-spacing:0.06em">Kosten p.a. (optional)</div>
-        <div style="display:flex;gap:10px;align-items:center;font-size:10px;color:var(--n6)">
-          <button class="btn" style="font-size:10px;padding:3px 8px" onclick="btResetFees()" title="Alle Kosten auf 0 setzen (Brutto-Vergleich)">Brutto</button>
-          <span id="bt-fee-strategy-sum" style="font-weight:600;color:var(--n7)"></span>
-        </div>
-      </div>
-      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;font-size:10px;color:var(--n6)">
-        <div>
-          <div title="Durchschnittliche Total Expense Ratio aller Produkte">Produktkosten TER &empty;</div>
-          <div style="display:flex;align-items:center;gap:2px;margin-top:2px">
-            <input class="fi bt-fee-strategy" id="bt-fee-ter" type="number" min="0" max="500" step="0.01" value="0" style="font-size:11px;padding:3px 5px;width:100%" oninput="btUpdateFeeSum()">
-            <span>%</span>
-          </div>
-        </div>
-        <div>
-          <div title="Depotgebuehr/Custody p.a.">Depotgeb&uuml;hr</div>
-          <div style="display:flex;align-items:center;gap:2px;margin-top:2px">
-            <input class="fi bt-fee-strategy" id="bt-fee-custody" type="number" min="0" max="500" step="0.01" value="0" style="font-size:11px;padding:3px 5px;width:100%" oninput="btUpdateFeeSum()">
-            <span>%</span>
-          </div>
-        </div>
-        <div>
-          <div title="Beratungs-/Mandatsgebuehr p.a.">Beratung/Mandat</div>
-          <div style="display:flex;align-items:center;gap:2px;margin-top:2px">
-            <input class="fi bt-fee-strategy" id="bt-fee-advisory" type="number" min="0" max="500" step="0.01" value="0" style="font-size:11px;padding:3px 5px;width:100%" oninput="btUpdateFeeSum()">
-            <span>%</span>
-          </div>
-        </div>
-        <div>
-          <div title="ETF-Kosten der Benchmark (z.B. SMI/MSCI-World-ETF-TER)">Benchmark-Kosten</div>
-          <div style="display:flex;align-items:center;gap:2px;margin-top:2px">
-            <input class="fi" id="bt-fee-benchmark" type="number" min="0" max="500" step="0.01" value="0" style="font-size:11px;padding:3px 5px;width:100%">
-            <span>%</span>
-          </div>
-        </div>
-      </div>
-      <div style="font-size:9.5px;color:var(--n5);margin-top:6px">
-        Strategie-Kosten = Summe der drei linken Felder. Netto-Renditen werden im Backtest abgezogen.
-      </div>
-    </div>
+    <!-- Bug-#8a UI: Kosten-Felder sind jetzt kontextuell platziert
+         (Strategie-Kosten in der Zeitraum/Strategie-Box, Benchmark-Kosten
+         in der Benchmark-Box). Backend-Parameter strategy_fee_bps /
+         benchmark_fee_bps unveraendert. -->
 
     <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:10px">
       <button class="btn-p" id="bt-run-btn" onclick="btRunBacktest()">Backtest rechnen</button>
@@ -10213,10 +10198,14 @@ function btRender(data){
   btRenderLineChart(document.getElementById('bt-wealth-chart'), wealthSeries, {
     height: 240, yFormat: function(v){ return btFormatCHF(v).replace(' CHF',''); },
     yMin: null, yMax: null,
+    tipFormat: function(v){ return btFormatCHF(v); },
+    tipDeltaFormat: function(diff, base){ var pct = base ? (diff/base*100) : 0; return (diff>=0?'+':'') + pct.toFixed(1) + '%'; },
   });
   btRenderLineChart(document.getElementById('bt-drawdown-chart'), ddSeries, {
     height: 140, yFormat: function(v){ return (v/100).toFixed(0) + '%'; },
     yMin: null, yMax: 0, fillBelow: true, isDrawdown: true,
+    tipFormat: function(v){ return (v/100).toFixed(1) + '%'; },
+    tipDeltaFormat: function(diff){ return (diff>=0?'+':'') + (diff/100).toFixed(1) + ' pp'; },
   });
 
   btRenderMetricsTable(data, showRebal, showNoRebal);
@@ -10321,6 +10310,7 @@ function btRenderWarnings(warnings){
 function btRenderLineChart(container, series, opts){
   opts = opts || {};
   container.innerHTML = '';
+  container.style.position = 'relative';
   if(!series || !series.length){
     container.innerHTML = '<div style="text-align:center;color:var(--n5);font-size:10.5px;padding:24px">Keine Daten</div>';
     return;
@@ -10408,8 +10398,124 @@ function btRenderLineChart(container, series, opts){
     svg += '<text x="' + (legendX+24) + '" y="' + (yy+3) + '" font-size="9.5" fill="#334155" font-family="system-ui">' + dcEscape(s.label) + '</text>';
   });
 
+  // Interaktiver Hover-Layer (Live-Tooltips fuer Kundengespraech):
+  // Crosshair-Linie + Punkte pro Serie + transparentes Overlay-Rechteck,
+  // das die Maus-Events ueber der Plot-Flaeche faengt.
+  svg += '<g class="bt-cross-group" style="display:none;pointer-events:none">';
+  svg += '<line class="bt-cross-line" x1="0" y1="' + marginTop + '" x2="0" y2="' + (marginTop + innerH) + '" stroke="#94a3b8" stroke-width="1" stroke-dasharray="3 3"/>';
+  series.forEach(function(s){
+    svg += '<circle class="bt-cross-dot" r="3.5" fill="#fff" stroke="' + s.color + '" stroke-width="2" cx="-99" cy="-99"/>';
+  });
+  svg += '</g>';
+  svg += '<rect class="bt-cross-overlay" x="' + marginLeft + '" y="' + marginTop + '" width="' + innerW + '" height="' + innerH + '" fill="transparent" style="cursor:crosshair"/>';
+
   svg += '</svg>';
   container.innerHTML = svg;
+
+  btAttachChartHover(container, {
+    series: series, xMin: xMin, xMax: xMax, marginLeft: marginLeft,
+    innerW: innerW, W: W, H: H, xPx: xPx, yPx: yPx,
+    tipFormat: opts.tipFormat || opts.yFormat || function(v){ return String(Math.round(v)); },
+    tipDeltaFormat: opts.tipDeltaFormat || null,
+    isDrawdown: !!opts.isDrawdown
+  });
+}
+
+// Findet den Index des Datenpunkts mit x am naechsten zu targetX (lineare
+// Suche, Serien haben <= ~260 Punkte).
+function btNearestIdx(data, x){
+  var best = 0, bestd = Infinity;
+  for(var i=0; i<data.length; i++){
+    var d = Math.abs(data[i][0] - x);
+    if(d < bestd){ bestd = d; best = i; }
+  }
+  return best;
+}
+
+function btFormatHoverX(x){
+  return Number.isInteger(x) ? String(x) : x.toFixed(1);
+}
+
+// Verkabelt Crosshair + Tooltip-Karte fuer einen gerenderten Chart.
+function btAttachChartHover(container, meta){
+  var svg = container.querySelector('svg');
+  if(!svg) return;
+  var overlay = svg.querySelector('.bt-cross-overlay');
+  meta.group = svg.querySelector('.bt-cross-group');
+  meta.line  = svg.querySelector('.bt-cross-line');
+  meta.dots  = svg.querySelectorAll('.bt-cross-dot');
+  if(!overlay || !meta.group || !meta.line) return;
+
+  // Tooltip-Karte (innerHTML hat eine evtl. alte Karte bereits entfernt).
+  var tip = document.createElement('div');
+  tip.className = 'bt-cross-tip';
+  tip.style.cssText = 'position:absolute;pointer-events:none;display:none;z-index:50;'
+    + 'background:#fff;border:1px solid #cbd5e1;border-radius:6px;'
+    + 'box-shadow:0 4px 14px rgba(0,0,0,0.12);padding:7px 9px;font-size:10.5px;'
+    + 'color:#1e293b;font-family:system-ui;min-width:130px';
+  container.appendChild(tip);
+  meta.tip = tip;
+
+  function onMove(ev){
+    var rect = svg.getBoundingClientRect();
+    if(!rect.width) return;
+    var sx = (ev.clientX - rect.left) / rect.width * meta.W;
+    var yr = meta.xMin + (sx - meta.marginLeft) / meta.innerW * (meta.xMax - meta.xMin);
+    if(yr < meta.xMin) yr = meta.xMin;
+    if(yr > meta.xMax) yr = meta.xMax;
+
+    // Crosshair an den naechsten Punkt der ersten Serie snappen.
+    var base = meta.series[0].data;
+    if(!base || !base.length) return;
+    var targetX = base[btNearestIdx(base, yr)][0];
+    var cx = meta.xPx(targetX);
+    meta.line.setAttribute('x1', cx);
+    meta.line.setAttribute('x2', cx);
+    meta.group.style.display = '';
+
+    var rows = [], firstVal = null;
+    meta.series.forEach(function(s, i){
+      var idx = btNearestIdx(s.data, targetX);
+      var pt = s.data[idx];
+      var dot = meta.dots[i];
+      if(pt && dot){ dot.setAttribute('cx', meta.xPx(pt[0])); dot.setAttribute('cy', meta.yPx(pt[1])); dot.style.display = ''; }
+      else if(dot){ dot.style.display = 'none'; }
+      var val = pt ? pt[1] : null;
+      if(i === 0) firstVal = val;
+      var valStr = (val !== null) ? meta.tipFormat(val) : '–';
+      var deltaStr = '';
+      if(i > 0 && val !== null && firstVal !== null){
+        var diff = val - firstVal;
+        deltaStr = meta.tipDeltaFormat ? meta.tipDeltaFormat(diff, firstVal)
+                                       : ((diff >= 0 ? '+' : '') + meta.tipFormat(diff));
+      }
+      rows.push('<div style="display:flex;align-items:center;gap:6px;margin-top:2px">'
+        + '<span style="width:8px;height:8px;border-radius:50%;background:' + s.color + ';display:inline-block;flex:none"></span>'
+        + '<span style="flex:1">' + dcEscape(s.label) + '</span>'
+        + '<span style="font-weight:600;white-space:nowrap">' + valStr + '</span>'
+        + (deltaStr ? '<span style="color:#64748b;min-width:48px;text-align:right;white-space:nowrap">' + deltaStr + '</span>' : '')
+        + '</div>');
+    });
+
+    tip.innerHTML = '<div style="font-weight:700;margin-bottom:3px;border-bottom:1px solid #e2e8f0;padding-bottom:3px">'
+      + btFormatHoverX(targetX) + '</div>' + rows.join('');
+    tip.style.display = 'block';
+
+    var crect = container.getBoundingClientRect();
+    var px = ev.clientX - crect.left + 14;
+    var py = ev.clientY - crect.top + 12;
+    var tw = tip.offsetWidth, th = tip.offsetHeight;
+    if(px + tw > container.clientWidth) px = ev.clientX - crect.left - tw - 14;
+    if(px < 0) px = 4;
+    if(py + th > container.clientHeight) py = container.clientHeight - th - 4;
+    if(py < 0) py = 4;
+    tip.style.left = px + 'px';
+    tip.style.top  = py + 'px';
+  }
+  function onLeave(){ meta.group.style.display = 'none'; tip.style.display = 'none'; }
+
+  overlay.addEventListener('mousemove', onMove);
+  overlay.addEventListener('mouseleave', onLeave);
 }
 
 async function adminPolicyCloneActive(){
