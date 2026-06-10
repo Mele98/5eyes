@@ -137,15 +137,21 @@ def contribution_for_year(
     }.get(frequency_value, 12)
 
     anchor = start or year_start
-    current = anchor
-    while current < year_start:
-        current = _add_months(current, months_per_occurrence)
-
     effective_end = min(end or year_end, year_end)
+
+    # Occurrences index-basiert vom ANKER berechnen statt 'current' fortlaufend
+    # driften zu lassen: _add_months klemmt den Tag in kurzen Monaten (z.B. 31->28),
+    # was sonst permanent erhalten bleibt und den Occurrence-Count an der
+    # valid_until-Grenze um 1 verzaehlt. Jede Occurrence re-klemmt vom Original-Tag.
     occurrences = 0
-    while current <= effective_end:
-        occurrences += 1
-        current = _add_months(current, months_per_occurrence)
+    k = 0
+    while True:
+        occ = _add_months(anchor, k * months_per_occurrence)
+        if occ > effective_end:
+            break
+        if occ >= year_start:
+            occurrences += 1
+        k += 1
 
     return amount * occurrences
 

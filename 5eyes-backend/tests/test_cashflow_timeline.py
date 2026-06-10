@@ -316,3 +316,22 @@ def test_net_cashflow_series_respects_one_off_and_recurring_events():
         -4_300_000,
         700_000,
     ]
+
+
+# ── Regression 2026-06-11: kein Day-of-Month-Drift im Occurrence-Count ──────────
+
+def test_contribution_no_day_drift_at_valid_until_boundary():
+    """Monatlicher Flow, Anker 31., valid_until 2024-03-30, year 2024.
+
+    Die Maerz-Occurrence eines '31.'-Flows ist der 31.3. (> 30.3.) und darf
+    NICHT zaehlen. Korrekt: 2 Occurrences (31.1., 29.2.). Die alte Logik liess
+    'current' driften (Feb 29 -> Mar 29 statt Mar 31) und zaehlte faelschlich 3.
+    """
+    assert contribution_for_year(
+        amount_rappen=10_000,
+        frequency="monatlich",
+        nature="wiederkehrend",
+        valid_from="2024-01-31",
+        valid_until="2024-03-30",
+        year=2024,
+    ) == 10_000 * 2

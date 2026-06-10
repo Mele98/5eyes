@@ -17842,8 +17842,28 @@ function renderGroupedCashflowRows(items,isIncome,renderRow){
   });
   return html;
 }
+// Validierung 2026-06-11: IST-Summary aus dem occurrence-genauen Backend-Summary
+// speisen (Single-Source-of-Truth). Das Backend annualisiert wiederkehrende Flows
+// und beruecksichtigt valid_from/until-Fenster + Inflation korrekt — das Frontend
+// soll diese Zahlen NICHT falsch nachrechnen (war: Faktor 12/4/2 zu tief).
+function cashflowBreakdownFromSummary(summary){
+  if(!summary||summary.total_income_rappen==null)return null;
+  return {
+    recurringIncomeRappen:Number(summary.recurring_income_rappen||0),
+    capitalInflowsRappen:Number(summary.capital_inflow_rappen||0),
+    recurringExpenseRappen:Number(summary.recurring_expense_rappen||0),
+    capitalOutflowsRappen:Number(summary.capital_outflow_rappen||0),
+    totalInflowRappen:Number(summary.total_income_rappen||0),
+    totalExpenseRappen:Number(summary.total_expense_rappen||0),
+    netCashflowRappen:Number(summary.surplus_rappen||0)
+  };
+}
+// Fallback (nur wenn Backend-Summary fehlt): annualisiert wiederkehrende Flows via
+// Frequenz-Faktor und filtert das valid_from/until-Fenster auch fuer wiederkehrende.
+var CF_FREQ_FACTOR={monatlich:12,quartalsweise:4,vierteljaehrlich:4,halbjaehrlich:2,jaehrlich:1};
 function cashflowBreakdownForYear(items,summaryYear){
   var year=Number(summaryYear||new Date().getFullYear());
+  var yearStart=year+'-01-01', yearEnd=year+'-12-31';
   var result={
     recurringIncomeRappen:0,
     capitalInflowsRappen:0,
@@ -17858,15 +17878,22 @@ function cashflowBreakdownForYear(items,summaryYear){
     var amount=Number(item.amount_rappen||0);
     if(!amount)return;
     var isOneOff=!!(isOneOffCashflow(item.frequency)||String(item.nature||'').toLowerCase()==='einmalig');
-    var start=normalizeCashflowDateValue(item.valid_from)||normalizeCashflowDateValue(item.valid_until);
-    var flowYear=start?parseInt(String(start).slice(0,4),10):year;
-    if(isOneOff&&isFinite(flowYear)&&flowYear!==year)return;
-    if(String(item.cashflow_type||'')==='Income'){
-      if(isOneOff)result.capitalInflowsRappen+=amount;
-      else result.recurringIncomeRappen+=amount;
-    }else if(String(item.cashflow_type||'')==='Expense'){
-      if(isOneOff)result.capitalOutflowsRappen+=amount;
-      else result.recurringExpenseRappen+=amount;
+    var vfrom=normalizeCashflowDateValue(item.valid_from);
+    var vuntil=normalizeCashflowDateValue(item.valid_until);
+    if(vfrom&&vuntil&&String(vuntil)<String(vfrom))return; // invalides Fenster
+    var type=String(item.cashflow_type||'');
+    if(isOneOff){
+      var start=vfrom||vuntil;
+      var flowYear=start?parseInt(String(start).slice(0,4),10):year;
+      if(isFinite(flowYear)&&flowYear!==year)return;
+      if(type==='Income')result.capitalInflowsRappen+=amount;
+      else if(type==='Expense')result.capitalOutflowsRappen+=amount;
+    }else{
+      if(vuntil&&String(vuntil).slice(0,10)<yearStart)return; // Fenster vor Jahr geendet
+      if(vfrom&&String(vfrom).slice(0,10)>yearEnd)return;      // Fenster startet nach Jahr
+      var annual=amount*(CF_FREQ_FACTOR[cashflowFrequencyKey(item.frequency)]||1);
+      if(type==='Income')result.recurringIncomeRappen+=annual;
+      else if(type==='Expense')result.recurringExpenseRappen+=annual;
     }
   });
   result.totalInflowRappen=result.recurringIncomeRappen+result.capitalInflowsRappen;
@@ -18489,7 +18516,9 @@ async function refreshCashflowsUI(cid){
     var inc=sortCashflowsByStoredOrder(items.filter(function(c){return c.cashflow_type==='Income';}),'Income');
     var exp=sortCashflowsByStoredOrder(items.filter(function(c){return c.cashflow_type==='Expense';}),'Expense');
     var summaryYear=Number(summary.summary_year||new Date().getFullYear());
-    var breakdown=cashflowBreakdownForYear(items,summaryYear);
+    // Validierung 2026-06-11: bevorzugt das occurrence-genaue Backend-Summary;
+    // cashflowBreakdownForYear nur als Fallback wenn Summary fehlt.
+    var breakdown=cashflowBreakdownFromSummary(summary)||cashflowBreakdownForYear(items,summaryYear);
     var renderRow=function(c,isIncome){
       return '<div class="cf-row" draggable="true" data-cfid="'+escapeHtml(c.id||'')+'">'+
         '<div class="cfn"><div class="cfna">'+escapeHtml(c.label||'Cashflow')+'</div><div class="cfnd">'+escapeHtml(cashflowTimingLabel(c))+'</div></div>'+
