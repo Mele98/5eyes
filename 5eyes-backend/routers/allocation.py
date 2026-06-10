@@ -997,6 +997,17 @@ def replace_house_matrix_rows(
     if not policy:
         raise HTTPException(status_code=404, detail=f"Policy {policy_id} nicht gefunden")
 
+    # Redesign 2026-06-10: Versionstreue serverseitig durchsetzen. Die House-Matrix-
+    # Rows werden hier in-place ersetzt (kein Archiv-Snapshot wie beim Policy-PUT).
+    # Auf der AKTIVEN Policy wuerde das alle laufenden Mandate still veraendern und
+    # das UI-Versprechen "jeder Edit erzeugt eine neue Version" brechen. Editieren
+    # daher nur auf Draft/Klon erlauben; danach via /activate scharf schalten.
+    if policy.is_current == 1:
+        raise HTTPException(
+            status_code=409,
+            detail="Aktive Policy kann nicht direkt überschrieben werden — bitte zuerst klonen und die neue Version aktivieren.",
+        )
+
     now = _now()
     db.query(HouseMatrix).filter(HouseMatrix.policy_id == policy_id).delete()
     for row in body.rows:

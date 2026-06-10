@@ -641,6 +641,61 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 .admin-result-bar{flex-shrink:0;background:var(--bg);border-top:1px solid var(--b1);padding:8px 16px;font-size:11px;white-space:pre-wrap;color:var(--n6);display:none;max-height:90px;overflow-y:auto;line-height:1.45;}
 @media(max-width:900px){.admin-sidebar{width:176px}.admin-content{padding:16px}.admin-health-grid{grid-template-columns:1fr 1fr}.admin-action-row{grid-template-columns:9px minmax(0,1fr)}.admin-link-btn{justify-self:start}}
 
+/* === MODERNE ADMIN-KOMPONENTEN (Redesign 2026-06-10) === */
+.admin-sec-panel{animation:adminSecFade .18s ease;}
+@keyframes adminSecFade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+/* Stat-Tiles (klickbar, mit Akzent-Kante) */
+.admin-tile-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;}
+.admin-tile{position:relative;background:var(--bg);border:1px solid var(--b1);border-radius:10px;padding:12px 13px 11px 15px;transition:box-shadow .15s,transform .15s,border-color .15s;overflow:hidden;}
+.admin-tile.clickable{cursor:pointer;}
+.admin-tile.clickable:hover{box-shadow:0 4px 16px rgba(15,23,42,.08);transform:translateY(-1px);border-color:var(--n3);}
+.admin-tile:before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--n3);}
+.admin-tile.ok:before{background:var(--pos);}
+.admin-tile.warn:before{background:var(--warn);}
+.admin-tile.danger:before{background:var(--neg);}
+.admin-tile.info:before{background:var(--g4);}
+.admin-tile.neutral:before{background:var(--n3);}
+.admin-tile-k{font-size:9px;text-transform:uppercase;letter-spacing:.07em;color:var(--n4);font-weight:700;margin-bottom:5px;display:flex;justify-content:space-between;align-items:center;gap:6px;}
+.admin-tile-v{font-size:18px;font-weight:700;color:var(--n8);line-height:1.1;font-variant-numeric:tabular-nums;}
+.admin-tile-s{font-size:9.5px;color:var(--n5);margin-top:4px;line-height:1.4;}
+/* Badges/Pills */
+.admin-badge{display:inline-flex;align-items:center;gap:4px;font-size:9.5px;font-weight:700;padding:2px 8px;border-radius:999px;line-height:1.5;border:1px solid transparent;white-space:nowrap;}
+.admin-badge.ok{background:var(--pos-lt);color:var(--pos);}
+.admin-badge.warn{background:rgba(180,120,20,.12);color:var(--warn);}
+.admin-badge.danger{background:var(--neg-lt);color:var(--neg);}
+.admin-badge.info{background:rgba(90,104,120,.1);color:var(--n6);}
+.admin-badge.neutral{background:var(--bg2);color:var(--n5);border-color:var(--b1);}
+.admin-badge:before{content:'';width:5px;height:5px;border-radius:50%;background:currentColor;opacity:.85;}
+.admin-badge.no-dot:before{display:none;}
+/* Moderne Tabelle */
+.admin-tbl-wrap{border:1px solid var(--b1);border-radius:10px;overflow:auto;background:var(--bg);max-height:360px;}
+.admin-tbl{width:100%;border-collapse:collapse;font-size:10.5px;}
+.admin-tbl thead th{text-align:left;font-size:9px;text-transform:uppercase;letter-spacing:.06em;color:var(--n4);font-weight:700;padding:7px 9px;border-bottom:1px solid var(--b1);position:sticky;top:0;background:var(--bg);z-index:1;}
+.admin-tbl tbody td{padding:7px 9px;border-bottom:1px solid var(--b1);color:var(--n7);vertical-align:top;}
+.admin-tbl tbody tr:last-child td{border-bottom:0;}
+.admin-tbl tbody tr{transition:background .12s;}
+.admin-tbl tbody tr:hover{background:rgba(0,0,0,.02);}
+.admin-num{text-align:right;font-variant-numeric:tabular-nums;}
+/* Empty-State */
+.admin-empty{display:flex;flex-direction:column;align-items:center;text-align:center;gap:7px;padding:26px 18px;border:1px dashed var(--b1);border-radius:10px;background:var(--bg2);}
+.admin-empty-icon{font-size:24px;opacity:.45;line-height:1;}
+.admin-empty-title{font-size:12px;font-weight:700;color:var(--n7);}
+.admin-empty-body{font-size:10.5px;color:var(--n5);line-height:1.5;max-width:440px;}
+/* Toggle-Switch */
+.admin-switch{display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-size:10.5px;color:var(--n6);user-select:none;}
+.admin-switch input{position:absolute;opacity:0;width:0;height:0;}
+.admin-switch-track{position:relative;width:34px;height:18px;border-radius:999px;background:var(--n3);transition:background .15s;flex:none;}
+.admin-switch-track:after{content:'';position:absolute;left:2px;top:2px;width:14px;height:14px;border-radius:50%;background:#fff;transition:transform .15s;box-shadow:0 1px 2px rgba(0,0,0,.2);}
+.admin-switch input:checked + .admin-switch-track{background:var(--g4);}
+.admin-switch input:checked + .admin-switch-track:after{transform:translateX(16px);}
+/* Gestapelter Balken */
+.admin-stacked-bar{display:flex;height:12px;border-radius:999px;overflow:hidden;background:var(--bg2);border:1px solid var(--b1);}
+.admin-stacked-seg{height:100%;transition:width .2s;}
+/* Inline-Icon-Button */
+.admin-icon-btn{background:transparent;border:1px solid var(--b1);border-radius:6px;color:var(--n6);font-size:10px;font-weight:600;padding:3px 8px;cursor:pointer;transition:all .12s;white-space:nowrap;}
+.admin-icon-btn:hover{background:var(--bg2);color:var(--n8);border-color:var(--n3);}
+.admin-icon-btn.danger:hover{background:var(--neg-lt);color:var(--neg);border-color:var(--neg);}
+
 /* ALLOC TABLE */
 .ar{display:grid;grid-template-columns:8px 1fr 50px 68px 50px 68px 52px;gap:0;align-items:center;padding:6px 0;border-bottom:1px solid var(--b1);}
 .ar:last-child{border-bottom:none;}
@@ -3581,31 +3636,36 @@ async function refreshPricesFromBackend() {
 
 // ─── UPDATE MANAGEMENT ────────────────────────────────────────────────────────
 function applyUpdateState(state) {
-  const section = document.getElementById('update-section');
   const label = document.getElementById('update-status-label');
   const checkBtn = document.getElementById('btn-check-updates');
   const installBtn = document.getElementById('btn-install-update');
-  if (!state || !section) return;
+  if (!state || !label) return;
   if (typeof adminSystemState !== 'undefined' && adminSystemState) {
     adminSystemState.update = state;
     renderAdminDashboard();
   }
-  if (!state.enabled) { section.style.display = 'none'; return; }
-  section.style.display = 'block';
-  if (state.checking) {
-    if (label) label.textContent = 'Prüfe auf Updates…';
-  } else if (state.downloaded) {
-    if (label) label.textContent = 'Update ' + (state.latestVersion||'') + ' bereit zur Installation.';
-    if (installBtn) installBtn.style.display = 'inline-block';
-  } else if (state.available) {
-    if (label) label.textContent = 'Update ' + (state.latestVersion||'') + ' wird heruntergeladen…';
-  } else if (state.error) {
-    if (label) label.textContent = 'Update-Fehler: ' + state.error.slice(0,60);
-  } else {
-    if (label) label.textContent = 'Aktuell (v' + (state.currentVersion||'?') + ')';
+  // Auto-Update ist nur in installierten Electron-Releases aktiv. In Dev/Browser
+  // (kein FiveEyesAPI) sind die Buttons No-Ops -> klar kommunizieren + sperren.
+  if (!state.enabled) {
+    label.textContent = 'Auto-Update ist nur in installierten Releases aktiv.';
     if (installBtn) installBtn.style.display = 'none';
+    if (checkBtn) checkBtn.disabled = true;
+    return;
   }
   if (checkBtn) checkBtn.disabled = !!state.checking;
+  if (state.checking) {
+    label.textContent = 'Prüfe auf Updates…';
+  } else if (state.downloaded) {
+    label.textContent = 'Update ' + (state.latestVersion||'') + ' bereit zur Installation.';
+    if (installBtn) installBtn.style.display = 'inline-block';
+  } else if (state.available) {
+    label.textContent = 'Update ' + (state.latestVersion||'') + ' wird heruntergeladen…';
+  } else if (state.error) {
+    label.textContent = 'Update-Fehler: ' + state.error.slice(0,60);
+  } else {
+    label.textContent = 'Aktuell (v' + (state.currentVersion||'?') + ')';
+    if (installBtn) installBtn.style.display = 'none';
+  }
 }
 
 async function adminCheckUpdates() {
@@ -3645,6 +3705,8 @@ if (window.desktop && typeof window.desktop.onUpdateStateChanged === 'function')
       const state = await window.FiveEyesAPI.updates.getState();
       applyUpdateState(state);
     } catch(e) {}
+  } else {
+    applyUpdateState({ enabled: false });
   }
 })();
 // ─────────────────────────────────────────────────────────────────────────────
@@ -7992,7 +8054,6 @@ async function adminRefreshMarketStatus(showLog) {
     adminMarketStatusBox(formatAdminMarketSummary(priceStatus, productStatus), false, true);
     renderAdminDashboard();
     adminLoadMappingGaps(false);
-    if (showLog) showAdminResult('OK: Marktstatus aktualisiert', false);
     if (showLog) showAdminResult('✓ Marktstatus aktualisiert', false);
     return { priceStatus: priceStatus, productStatus: productStatus };
   } catch(e) {
@@ -8164,6 +8225,105 @@ function adminRenderCorrelationPreview() {
   } catch (e) {
     preview.innerHTML = '<div style="font-size:10px;color:var(--neg)">Korrelationsmatrix noch nicht lesbar.</div>';
   }
+}
+// Redesign 2026-06-10: Editierbares 5x5-Korrelations-Grid statt roher JSON-Textarea.
+// Das Grid ist die Editor-Schicht ueber der Textarea (Datenquelle bleibt die Textarea,
+// Save-Pfad via adminCorrelationMatrixPayload unveraendert). Diagonale gesperrt = 1.0,
+// Eingabe spiegelt automatisch, Live-Validierung [-1,1] + Symmetrie + PSD (Cholesky).
+var ADMIN_CORR_LABELS = ['Aktien', 'Obli', 'Immo', 'Alt', 'Liq'];
+function adminParseCorrelation(rawJson) {
+  var m = adminSafeJsonParse(rawJson || '', true);
+  if (!Array.isArray(m) || m.length !== 5 || m.some(function(r){ return !Array.isArray(r) || r.length !== 5; })) return null;
+  return m.map(function(r){ return r.map(function(v){ var n = Number(v); return Number.isFinite(n) ? n : 0; }); });
+}
+function renderAdminCorrelationGrid(rawJson) {
+  var container = document.getElementById('admin-cma-correlation-grid');
+  if (!container) return;
+  var m = adminParseCorrelation(rawJson) || adminParseCorrelation(JSON.stringify(ADMIN_CMA_DEFAULT_CORRELATION_MATRIX));
+  if (!m) return;
+  var html = '<table style="border-collapse:collapse;font-size:10px"><thead><tr><th></th>';
+  ADMIN_CORR_LABELS.forEach(function(l){ html += '<th style="padding:2px 4px;color:var(--n4);font-weight:600;text-align:center">' + l + '</th>'; });
+  html += '</tr></thead><tbody>';
+  for (var i = 0; i < 5; i++) {
+    html += '<tr><td style="padding:2px 6px;color:var(--n5);white-space:nowrap;font-weight:600">' + ADMIN_CORR_LABELS[i] + '</td>';
+    for (var j = 0; j < 5; j++) {
+      var v = (m[i] && m[i][j] != null) ? Number(m[i][j]) : (i === j ? 1 : 0);
+      if (i === j) {
+        html += '<td style="padding:1px"><input class="fi" id="corr-' + i + '-' + j + '" data-i="' + i + '" data-j="' + j + '" type="number" value="1" readonly tabindex="-1" style="font-size:10px;width:54px;text-align:center;background:var(--bg2);color:var(--n5)"></td>';
+      } else {
+        html += '<td style="padding:1px"><input class="fi" id="corr-' + i + '-' + j + '" data-i="' + i + '" data-j="' + j + '" type="number" step="0.05" min="-1" max="1" value="' + String(Number(v.toFixed(4))) + '" style="font-size:10px;width:54px;text-align:center"></td>';
+      }
+    }
+    html += '</tr>';
+  }
+  html += '</tbody></table>';
+  container.innerHTML = html;
+  adminRenderCorrelationStatus();
+}
+function adminCollectCorrelationJsonFromGrid() {
+  var m = [];
+  for (var i = 0; i < 5; i++) {
+    var row = [];
+    for (var j = 0; j < 5; j++) {
+      if (i === j) { row.push(1); continue; }
+      var el = document.getElementById('corr-' + i + '-' + j);
+      var n = el ? Number(el.value) : 0;
+      if (!Number.isFinite(n)) n = 0;
+      n = Math.max(-1, Math.min(1, n));
+      row.push(Number(n.toFixed(4)));
+    }
+    m.push(row);
+  }
+  return JSON.stringify(m);
+}
+function adminCorrelationGridInput(target) {
+  if (!target || target.dataset == null || target.dataset.i == null) return;
+  var i = Number(target.dataset.i), j = Number(target.dataset.j);
+  if (i === j) { target.value = '1'; return; }
+  var n = Number(target.value);
+  if (Number.isFinite(n)) {
+    n = Math.max(-1, Math.min(1, n));
+    var mirror = document.getElementById('corr-' + j + '-' + i);
+    if (mirror) mirror.value = String(Number(n.toFixed(4)));
+  }
+  setInputValue('admin-cma-correlation', adminCollectCorrelationJsonFromGrid());
+  adminRenderCorrelationStatus();
+  adminRenderCorrelationPreview();
+}
+// Positiv-Semidefinit-Pruefung via Cholesky (5x5, mit Toleranz).
+function adminIsPSD(m) {
+  var n = m.length, L = [];
+  for (var a = 0; a < n; a++) { L.push(new Array(n).fill(0)); }
+  for (var i = 0; i < n; i++) {
+    for (var j = 0; j <= i; j++) {
+      var sum = m[i][j];
+      for (var k = 0; k < j; k++) sum -= L[i][k] * L[j][k];
+      if (i === j) {
+        if (sum < -1e-9) return false;
+        L[i][j] = Math.sqrt(Math.max(sum, 0));
+      } else {
+        L[i][j] = (L[j][j] > 1e-12) ? sum / L[j][j] : 0;
+      }
+    }
+  }
+  return true;
+}
+function adminRenderCorrelationStatus() {
+  var el = document.getElementById('admin-cma-correlation-status');
+  if (!el) return;
+  var m = adminParseCorrelation(getInputValue('admin-cma-correlation'));
+  if (!m) { el.textContent = '⚠ Matrix nicht lesbar (5×5 erwartet).'; el.style.color = 'var(--neg)'; return; }
+  var problems = [];
+  for (var i = 0; i < 5; i++) {
+    for (var j = 0; j < 5; j++) {
+      if (Math.abs(m[i][j]) > 1.0001) problems.push(ADMIN_CORR_LABELS[i] + '/' + ADMIN_CORR_LABELS[j] + ' außerhalb [-1,1]');
+      if (Math.abs(m[i][j] - m[j][i]) > 0.001) problems.push('unsymmetrisch ' + ADMIN_CORR_LABELS[i] + '/' + ADMIN_CORR_LABELS[j]);
+    }
+  }
+  var psd = problems.length ? false : adminIsPSD(m);
+  if (problems.length) { el.textContent = '⚠ ' + problems.slice(0, 3).join(' · '); el.style.color = 'var(--neg)'; }
+  else if (!psd) { el.textContent = '⚠ Nicht positiv semidefinit — bricht im Monte-Carlo (Cholesky-Zerlegung). Bitte Werte anpassen.'; el.style.color = 'var(--neg)'; }
+  else { el.textContent = '✓ Valide: symmetrisch, alle Werte in [-1, 1], positiv semidefinit.'; el.style.color = 'var(--pos)'; }
 }
 function setAdminCmaError(message) {
   var el = document.getElementById('admin-cma-error');
@@ -8391,6 +8551,7 @@ function applyAdminCapitalMarketAssumptions(cma) {
   renderAdminInflationPlanner(getInputValue('admin-cma-inflation'));
   renderAdminSubAssetEditor(getInputValue('admin-cma-subasset-json'));
   adminRenderCorrelationPreview();
+  renderAdminCorrelationGrid(getInputValue('admin-cma-correlation'));
   renderAdminCapitalMarketAssumptionsSummary(cma);
 }
 function ensureAdminCapitalMarketBindings() {
@@ -8455,7 +8616,13 @@ function ensureAdminCapitalMarketBindings() {
   });
   var corrRaw = document.getElementById('admin-cma-correlation');
   if (corrRaw) corrRaw.addEventListener('input', function(){
+    renderAdminCorrelationGrid(getInputValue('admin-cma-correlation'));
     adminRenderCorrelationPreview();
+    previewAdminCapitalMarketAssumptions();
+  });
+  var corrGrid = document.getElementById('admin-cma-correlation-grid');
+  if (corrGrid) corrGrid.addEventListener('input', function(ev){
+    adminCorrelationGridInput(ev.target);
     previewAdminCapitalMarketAssumptions();
   });
 }
@@ -8490,6 +8657,7 @@ function loadAdminCapitalMarketAssumptionDefaults(silent) {
   renderAdminInflationPlanner(getInputValue('admin-cma-inflation'));
   renderAdminSubAssetEditor(getInputValue('admin-cma-subasset-json'));
   adminRenderCorrelationPreview();
+  renderAdminCorrelationGrid(getInputValue('admin-cma-correlation'));
   previewAdminCapitalMarketAssumptions();
   if (!silent) showAdminResult('OK: Standard-Template für Kapitalmarktannahmen geladen', false);
 }
@@ -8547,7 +8715,7 @@ async function loadAdminCapitalMarketAssumptions(showLog) {
     if (showLog) showAdminResult('Warnung: ' + msg, true);
     throw e;
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = 'Annahmen laden'; }
+    if (btn) { btn.disabled = false; btn.textContent = 'Laden'; }
   }
 }
 function collectAdminCapitalMarketAssumptionsPayload() {
@@ -8701,7 +8869,7 @@ async function saveAdminCapitalMarketAssumptions() {
     setAdminCmaError(msg);
     showAdminResult('Warnung: ' + msg, true);
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = 'Annahmen speichern'; }
+    if (btn) { btn.disabled = false; btn.textContent = 'Speichern'; }
   }
 }
 
@@ -8755,6 +8923,46 @@ async function adminRunEodhdAutoApply(dryRun) {
   }
 }
 
+// Redesign 2026-06-10: Override gezielt entfernen (mode+symbol auf null) —
+// Produkt faellt auf automatisches Mapping zurueck. Setzt um, was die Risk-Note
+// fordert ("nach Korrektur wieder entfernen").
+async function adminClearProductOverride() {
+  var productRef = getInputValue('admin-override-product').trim();
+  setAdminOverrideError('');
+  if (!productRef) {
+    setAdminOverrideError('Produkt-ID oder Name ist Pflicht.');
+    return;
+  }
+  if (!adminConfirmRisk(
+    'Override entfernen?',
+    'Das Produkt faellt auf automatisches Mapping (OpenFIGI/EODHD) zurueck. Beim naechsten Preisabruf wird das Symbol neu aufgeloest.'
+  )) return;
+  var btn = document.getElementById('btn-admin-override-clear');
+  if (btn) { btn.disabled = true; btn.textContent = 'Entfernt...'; }
+  try {
+    var products = await API.get('/products');
+    var match = findAdminProductByReference(products, productRef);
+    if (!match) {
+      setAdminOverrideError('Produkt nicht gefunden: ' + productRef);
+      renderAdminOverrideBadge(null);
+      return;
+    }
+    var payload = await API.put('/products/' + match.id + '/market-override', {
+      lookup_mode_override: null,
+      lookup_symbol_override: null
+    });
+    setInputValue('admin-override-product', '');
+    setInputValue('admin-override-mode', '');
+    setInputValue('admin-override-symbol', '');
+    renderAdminOverrideBadge(payload);
+    showAdminResult('Override entfernt: ' + match.product_name + ' faellt auf automatisches Mapping zurueck.', false);
+  } catch (e) {
+    setAdminOverrideError('Fehler: ' + (e && (e.detail || e.message) || '?'));
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Entfernen'; }
+  }
+}
+
 async function adminSetProductOverride() {
   var btn = document.getElementById('btn-admin-override-save');
   var productRef = getInputValue('admin-override-product').trim();
@@ -8803,7 +9011,7 @@ async function adminSetProductOverride() {
   } finally {
     if (btn) {
       btn.disabled = false;
-      btn.textContent = 'Override speichern';
+      btn.textContent = 'Speichern';
     }
   }
 }
@@ -8902,8 +9110,11 @@ async function adminPolicyOpen(policyId){
     document.getElementById('admin-policy-detail-sub').textContent =
       (detail.is_current ? 'AKTIV — wirkt auf alle Mandate' : 'historic/draft — wird nicht für neue Strategien verwendet')
       + ' · max RE ' + (detail.max_real_estate_bps/100).toFixed(0) + '% · max Alt ' + (detail.max_alternatives_bps/100).toFixed(0) + '%';
+    adminPolicyState.isCurrent = !!detail.is_current;
     document.getElementById('btn-policy-save').style.display = '';
     document.getElementById('btn-policy-activate').style.display = detail.is_current ? 'none' : '';
+    var polWarn = document.getElementById('admin-policy-active-warning');
+    if (polWarn) polWarn.style.display = detail.is_current ? 'block' : 'none';
     adminRenderPolicyGrid();
     if(status) status.textContent = '';
   } catch(e){
@@ -8963,13 +9174,56 @@ function adminPolicyValidateRow(rowIdx){
     statusEl.textContent = problems.length ? '⚠ ' + problems.join(' · ') : '✓ valide';
     statusEl.style.color = problems.length ? 'var(--neg)' : 'var(--pos)';
   }
+  adminPolicyRefreshSaveState();
+}
+
+// Redesign 2026-06-10: Integritaets-Guards fuer Policy-Editor.
+// Prueft alle Zeilen aus dem State (Σ Target = 100%, min ≤ target ≤ max).
+function adminPolicyAllRowsValid(){
+  return (adminPolicyState.rows || []).every(function(row){
+    var targetSum = 0, ok = true;
+    ADMIN_POLICY_BUCKETS.forEach(function(b){
+      var mn = row[b.key+'_min_bps'], tg = row[b.key+'_target_bps'], mx = row[b.key+'_max_bps'];
+      targetSum += Number(tg || 0);
+      if(!(Number(mn||0) <= Number(tg||0) && Number(tg||0) <= Number(mx||0))) ok = false;
+    });
+    if(Math.abs(targetSum - 10000) > 5) ok = false;
+    return ok;
+  });
+}
+
+// Sperrt den Speichern-Button: hart bei aktiver Policy (Versionstreue),
+// sonst solange die Baender nicht valide sind.
+function adminPolicyRefreshSaveState(){
+  var btn = document.getElementById('btn-policy-save');
+  var hint = document.getElementById('admin-policy-save-hint');
+  if(!btn) return;
+  if(adminPolicyState.isCurrent){
+    btn.disabled = true;
+    btn.title = 'Aktive Policy kann nicht direkt überschrieben werden — erst klonen.';
+    if(hint) hint.textContent = '';
+    return;
+  }
+  var valid = adminPolicyAllRowsValid();
+  btn.disabled = !valid;
+  btn.title = valid ? '' : 'Speichern gesperrt: Bänder noch nicht valide.';
+  if(hint) hint.textContent = valid ? '' : '⚠ Speichern gesperrt, bis alle Zeilen valide sind (Σ Target = 100%, min ≤ target ≤ max).';
 }
 
 async function adminPolicySaveRows(){
+  // Redesign 2026-06-10: Integritaets-Guards (Defense-in-depth zum disabled-Button).
+  if(adminPolicyState.isCurrent){
+    try { if(window.showAppError) showAppError('Aktive Policy kann nicht direkt überschrieben werden — bitte zuerst klonen.'); } catch(e){}
+    return;
+  }
+  adminPolicyState.rows.forEach(function(_, i){ adminPolicyValidateRow(i); });
+  if(!adminPolicyAllRowsValid()){
+    var stInvalid = document.getElementById('admin-policy-status');
+    if(stInvalid){ stInvalid.textContent = '⚠ Speichern gesperrt: Bänder nicht valide (Σ Target = 100%, min ≤ target ≤ max).'; stInvalid.style.color='var(--neg)'; }
+    return;
+  }
   var status = document.getElementById('admin-policy-status');
   if(status){ status.textContent = 'Speichert...'; status.style.color='var(--n5)'; }
-  // Übernehme aktuelle Inputs in den State
-  adminPolicyState.rows.forEach(function(_, i){ adminPolicyValidateRow(i); });
   var payload = { rows: adminPolicyState.rows.map(function(r){
     return {
       score_from: r.score_from, score_to: r.score_to, profile_name: (document.getElementById('pol-name-'+adminPolicyState.rows.indexOf(r))||{value:r.profile_name}).value,
@@ -8994,7 +9248,7 @@ async function adminPolicySaveRows(){
 
 async function adminPolicyActivate(){
   if(!adminPolicyState.selectedId) return;
-  if(!confirm('Diese Policy als aktive Default-Variante setzen? Die bisher aktive wird auf historic gesetzt. Mandate behalten ihre TargetAllocation-Snapshots — aber neue Strategien nutzen dann diese Policy.')) return;
+  if(!adminConfirmRisk('Policy als aktiv setzen?', 'Die bisher aktive Policy wird auf historic gesetzt. Mandate behalten ihre TargetAllocation-Snapshots — aber neue Strategien nutzen dann diese Policy.')) return;
   var status = document.getElementById('admin-policy-status');
   try {
     await API.post('/admin/optimizer-policies/' + encodeURIComponent(adminPolicyState.selectedId) + '/activate', {});
@@ -10528,9 +10782,11 @@ function btAttachChartHover(container, meta){
 async function adminPolicyCloneActive(){
   var active = (adminPolicyState.policies || []).find(function(p){ return p.is_current; });
   if(!active){
-    alert('Keine aktive Policy gefunden. Bitte zuerst Policies laden.');
+    try { if(window.showAppError) showAppError('Keine aktive Policy gefunden. Bitte zuerst Policies laden.'); } catch(e){}
     return;
   }
+  // prompt() bewusst belassen: einfache Einzeleingabe; ein Modal-Dialog waere
+  // hier Over-Engineering. confirm()/alert() sind ersetzt.
   var name = prompt('Name der geklonten Variante:', active.policy_name + ' (Kopie)');
   if(!name) return;
   try {
@@ -10539,7 +10795,7 @@ async function adminPolicyCloneActive(){
     await adminLoadPolicies(true);
     adminPolicyOpen(clone.id);
   } catch(e){
-    alert('Klonen fehlgeschlagen: ' + (e && (e.detail||e.message) || '?'));
+    try { if(window.showAppError) showAppError('Klonen fehlgeschlagen: ' + (e && (e.detail||e.message) || '?')); } catch(_){}
   }
 }
 
@@ -10584,14 +10840,18 @@ async function loadAdminAnnualReturns() {
 async function backfillAdminAnnualReturns() {
   var btn = document.getElementById('btn-admin-ar-backfill');
   var errEl = document.getElementById('admin-ar-error');
+  var gapsOnly = !!(document.getElementById('admin-ar-gaps-only') || {}).checked;
   if (!adminConfirmRisk(
-    'Annual-Returns aus Marktdaten neu laden?',
-    'Lädt die letzten 20 Jahre via yfinance/stooq (USD-Total-Return-Approximation). Bestehende Werte werden überschrieben.'
+    'Annual-Returns aus Marktdaten laden?',
+    'Lädt die letzten 20 Jahre via yfinance/stooq (USD-Total-Return-Approximation). '
+      + (gapsOnly ? 'Nur fehlende Werte werden ergänzt — manuell gepflegte Zellen bleiben erhalten.'
+                  : 'ACHTUNG: Bestehende Werte (auch manuell gepflegte) werden überschrieben.')
   )) return;
   if (btn) { btn.disabled = true; btn.textContent = 'Lädt…'; }
   if (errEl) errEl.style.display = 'none';
   try {
-    var res = await API.post('/admin/system/annual-returns/backfill', {});
+    // overwrite ist Query-Param (kein Body-Model) — siehe routers/system.py.
+    var res = await API.post('/admin/system/annual-returns/backfill?overwrite=' + (gapsOnly ? 'false' : 'true'), {});
     var s = (res && res.summary) || {rows_written:0, error_count:0};
     var msg = 'Backfill abgeschlossen: ' + (s.rows_written||0) + ' Werte geschrieben';
     if (s.error_count) msg += ', ' + s.error_count + ' Fehler';
@@ -10705,15 +10965,18 @@ async function loadAdminAssetClassPriceStatus(showLog) {
 async function backfillAdminAssetClassPrices() {
   var btn = document.getElementById('btn-admin-acp-backfill');
   var summaryEl = document.getElementById('admin-acp-summary');
+  var gapsOnly = !!(document.getElementById('admin-acp-gaps-only') || {}).checked;
   if (!adminConfirmRisk(
     'Tageskurse aus Marktdaten füllen?',
-    'Lädt bis zu 20 Jahre tägliche Asset-Class-Preise via Marktdaten-Aggregator. Das kann länger dauern und bestehende Tagespunkte aktualisieren.'
+    'Lädt bis zu 20 Jahre tägliche Asset-Class-Preise via Marktdaten-Aggregator. Das kann länger dauern. '
+      + (gapsOnly ? 'Nur fehlende Tagespunkte werden ergänzt.' : 'Bestehende Tagespunkte werden aktualisiert.')
   )) return;
   setAdminAssetClassPriceError('');
   if (btn) { btn.disabled = true; btn.textContent = 'Lädt...'; }
   if (summaryEl) summaryEl.textContent = 'Daily-Backfill läuft. Bitte warten...';
   try {
-    var res = await API.fetch('/admin/system/asset-class-prices/backfill', {
+    // overwrite ist Query-Param (kein Body-Model) — siehe routers/system.py.
+    var res = await API.fetch('/admin/system/asset-class-prices/backfill?overwrite=' + (gapsOnly ? 'false' : 'true'), {
       method: 'POST',
       body: JSON.stringify({}),
       timeoutMs: 120000
@@ -10770,7 +11033,7 @@ async function saveAdminAnnualReturns() {
     );
   });
   await Promise.allSettled(promises);
-  if (btn) { btn.disabled = false; btn.textContent = 'Alle speichern'; }
+  if (btn) { btn.disabled = false; btn.textContent = 'Speichern'; }
   if (errors.length) {
     if (errEl) { errEl.textContent = errors.join('\n'); errEl.style.display = 'block'; }
   } else {
@@ -10781,6 +11044,7 @@ async function saveAdminAnnualReturns() {
 async function openAdminModal() {
   om('m-admin');
   adminShowSection('sec-health');
+  adminUpdateNewUserRoleHint();
   ensureAdminCapitalMarketBindings();
   if (!getInputValue('admin-cma-name').trim()) loadAdminCapitalMarketAssumptionDefaults(true);
   var shadowAggregatePanel = document.getElementById('sec-shadow-comparison-aggregate');
@@ -10858,9 +11122,17 @@ function renderMarketDataStatus(status) {
     ? '<div class="admin-metric-meta">Keine Provider konfiguriert</div>'
     : providers.map(function(p) {
         var dot = p.healthy
-          ? '<span class="admin-pill ok">OK</span>'
-          : '<span class="admin-pill danger">Fehler</span>';
-        return '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:2px 0"><span>' + escapeHtml(String(p.name || '?')) + '</span>' + dot + '</div>';
+          ? '<span class="admin-badge ok no-dot">OK</span>'
+          : '<span class="admin-badge danger no-dot">Fehler</span>';
+        var detail = '';
+        if (!p.healthy) {
+          var bits = [];
+          if (p.reason) bits.push(escapeHtml(String(p.reason)));
+          if (Number(p.consecutive_errors) > 0) bits.push(Number(p.consecutive_errors) + ' Fehler in Folge');
+          if (p.unhealthy_until) bits.push('gesperrt bis ' + escapeHtml(String(p.unhealthy_until).replace('T', ' ').substring(0, 16)));
+          if (bits.length) detail = '<div class="admin-metric-meta" style="margin-top:1px">' + bits.join(' · ') + '</div>';
+        }
+        return '<div style="padding:3px 0"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><span>' + escapeHtml(String(p.name || '?')) + '</span>' + dot + '</div>' + detail + '</div>';
       }).join('');
   var pEl = document.getElementById('admin-mdata-providers');
   if (pEl) pEl.innerHTML = providersHtml;
@@ -10911,6 +11183,32 @@ function renderMarketDataStatus(status) {
       }).join('');
   var jEl = document.getElementById('admin-mdata-jobs');
   if (jEl) jEl.innerHTML = jobsHtml;
+
+  // Redesign 2026-06-10: recent_validations als Tabelle rendern (Backend lieferte
+  // die Daten schon, Frontend hat sie bisher weggeworfen).
+  var vtEl = document.getElementById('admin-mdata-validation-table');
+  if (vtEl) {
+    if (!logs.length) {
+      vtEl.innerHTML = '<div class="admin-metric-meta">Keine Cross-Validation-Logs vorhanden.</div>';
+    } else {
+      var vrows = logs.map(function(l) {
+        var d = String(l.on_date || l.checked_at || '').replace('T', ' ').substring(0, 10);
+        var nprov = Array.isArray(l.providers) ? l.providers.length : 0;
+        var diff = Number(l.diff_bps || 0), thr = Number(l.threshold_bps || 0);
+        var badge = l.is_alert ? '<span class="admin-badge danger no-dot">Alert</span>' : '<span class="admin-badge ok no-dot">ok</span>';
+        var diffCls = l.is_alert ? 'color:var(--neg);font-weight:600' : '';
+        return '<tr><td>' + escapeHtml(String(l.symbol || '?')) + '</td>'
+          + '<td>' + escapeHtml(d) + '</td>'
+          + '<td class="admin-num">' + nprov + '</td>'
+          + '<td class="admin-num">' + (l.median_close != null ? escapeHtml(String(l.median_close)) : '—') + '</td>'
+          + '<td class="admin-num" style="' + diffCls + '">' + (diff / 100).toFixed(2) + '% / ' + (thr / 100).toFixed(2) + '%</td>'
+          + '<td style="text-align:right">' + badge + '</td></tr>';
+      }).join('');
+      vtEl.innerHTML = '<div class="admin-tbl-wrap" style="max-height:240px"><table class="admin-tbl"><thead><tr>'
+        + '<th>Symbol</th><th>Datum</th><th class="admin-num">Provider</th><th class="admin-num">Median</th><th class="admin-num">Δ / Schwelle</th><th style="text-align:right">Status</th>'
+        + '</tr></thead><tbody>' + vrows + '</tbody></table></div>';
+    }
+  }
 
   var meta = document.getElementById('admin-mdata-meta');
   if (meta) meta.textContent = 'Stand: ' + String(status.generated_at || '').replace('T', ' ').replace('Z', ' UTC');
@@ -10999,6 +11297,36 @@ function renderShadowAggregate(data) {
   }
   setText('admin-shadow-default-reason', ready ? 'Default-Wechsel freigegeben: ' + reason : 'Default-Wechsel blockiert: ' + reason);
   setText('admin-shadow-aggregate-meta', String(total) + ' Mandat(e) mit Shadow-Vergleich');
+
+  // Redesign 2026-06-10: erklaerender Empty-State statt stiller Nullen bei total=0.
+  var shadowEmpty = document.getElementById('admin-shadow-empty');
+  var shadowCountsGrid = document.getElementById('admin-shadow-counts-grid');
+  var shadowExamplesGrid = document.getElementById('admin-shadow-examples-grid');
+  var shadowIsEmpty = total === 0;
+  if (shadowEmpty) shadowEmpty.style.display = shadowIsEmpty ? 'flex' : 'none';
+  if (shadowCountsGrid) shadowCountsGrid.style.display = shadowIsEmpty ? 'none' : '';
+  if (shadowExamplesGrid) shadowExamplesGrid.style.display = shadowIsEmpty ? 'none' : '';
+
+  // Redesign 2026-06-10: GREEN/YELLOW/RED als gestapelter Balken (visuelle Verteilung).
+  var shadowBar = document.getElementById('admin-shadow-bar');
+  if (shadowBar) {
+    if (shadowIsEmpty) {
+      shadowBar.innerHTML = '';
+    } else {
+      var g = Number(counts.green || 0), y = Number(counts.yellow || 0), r = Number(counts.red || 0);
+      var tot = (g + y + r) || 1;
+      shadowBar.innerHTML = '<div class="admin-stacked-bar">'
+        + '<div class="admin-stacked-seg" style="width:' + (g / tot * 100).toFixed(1) + '%;background:var(--pos)" title="GREEN ' + g + '"></div>'
+        + '<div class="admin-stacked-seg" style="width:' + (y / tot * 100).toFixed(1) + '%;background:var(--warn)" title="YELLOW ' + y + '"></div>'
+        + '<div class="admin-stacked-seg" style="width:' + (r / tot * 100).toFixed(1) + '%;background:var(--neg)" title="RED ' + r + '"></div>'
+        + '</div>'
+        + '<div style="display:flex;gap:12px;margin-top:5px;font-size:9px;color:var(--n5)">'
+        + '<span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--pos);margin-right:3px"></span>GREEN ' + g + '</span>'
+        + '<span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--warn);margin-right:3px"></span>YELLOW ' + y + '</span>'
+        + '<span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--neg);margin-right:3px"></span>RED ' + r + '</span>'
+        + '</div>';
+    }
+  }
 
   ['green','yellow','red'].forEach(function(key) {
     setText('admin-shadow-' + key + '-count', String(Number(counts[key] || 0)));
@@ -11132,41 +11460,10 @@ async function adminUpdateStatus() {
   }
 }
 
-async function adminCheckForUpdates() {
-  const btn = document.getElementById('btn-admin-update-check');
-    if (btn) { btn.disabled = true; btn.textContent = 'Prueft...'; }
-  try {
-    if (window.FiveEyesAPI && window.FiveEyesAPI.updates) {
-      await window.FiveEyesAPI.updates.check();
-      await adminUpdateStatus();
-    } else {
-      showAdminResult('Auto-Update ist in diesem Modus nicht verfuegbar.', true);
-    }
-  } catch(e) {
-    showAdminResult('Warnung: ' + (e.message||e), true);
-  } finally {
-    if (btn) { btn.disabled = false; btn.textContent = 'Nach Updates suchen'; }
-  }
-}
-
-async function adminInstallDownloadedUpdate() {
-  if (!adminConfirmRisk('Heruntergeladenes Update installieren?', 'Die App beendet sich fuer die Installation. Nicht gespeicherte Arbeit sollte vorher abgeschlossen sein.')) return;
-  const btn = document.getElementById('btn-admin-update-install');
-  if (btn) { btn.disabled = true; btn.textContent = 'Installiert...'; }
-  try {
-    if (window.FiveEyesAPI && window.FiveEyesAPI.updates) {
-      const result = await window.FiveEyesAPI.updates.install();
-      if (result && result.ok) showAdminResult('Update-Installation wird gestartet. Die App beendet sich gleich.', false);
-      else showAdminResult(result && result.message ? result.message : 'Kein heruntergeladenes Update verfuegbar.', true);
-    } else {
-      showAdminResult('Auto-Update ist in diesem Modus nicht verfuegbar.', true);
-    }
-  } catch(e) {
-    showAdminResult('Warnung: ' + (e.message||e), true);
-  } finally {
-    if (btn) { btn.disabled = false; btn.textContent = 'Heruntergeladenes Update installieren'; }
-  }
-}
+// Redesign 2026-06-10: adminCheckForUpdates() + adminInstallDownloadedUpdate()
+// entfernt — waren Duplikate von adminCheckUpdates()/adminInstallUpdate()
+// (Set A, event-getrieben via applyUpdateState). Diagnose bleibt via
+// adminUpdateStatus() ("Details"-Button).
 // ─────────────────────────────────────────────────────────────────────
 
 
@@ -12601,77 +12898,153 @@ function showNewClientScreen(firstName, lastName, mType, meta) {
   go('sd');
 }
 
-// ADMIN USER MANAGEMENT
+// ADMIN USER MANAGEMENT (Redesign 2026-06-10: moderne Tabelle + Rollen-Rechte)
+// Zuweisbare Rollen laut Backend-Schema (schemas/users.py): admin/advisor/readonly.
+// super_admin (Tenant-Operator) + client (Portal) werden hier NICHT angelegt.
+var ADMIN_ROLE_META = {
+  admin:    { label: 'Administrator', tone: 'danger',  rights: 'Globale Kundensicht · Benutzer & Systemdaten verwalten · CMA/House-Matrix ändern' },
+  advisor:  { label: 'Berater',       tone: 'info',    rights: 'Eigene Kunden & Mandate anlegen/bearbeiten · keine Systemverwaltung' },
+  readonly: { label: 'Lesend',        tone: 'neutral', rights: 'Nur Ansicht · keine Schreibrechte' }
+};
+function adminRoleLabel(role){ return (ADMIN_ROLE_META[role] && ADMIN_ROLE_META[role].label) || role || '—'; }
+function adminRoleBadge(role){
+  var m = ADMIN_ROLE_META[role] || { label: role, tone: 'neutral' };
+  return '<span class="admin-badge ' + m.tone + ' no-dot">' + escapeHtml(m.label) + '</span>';
+}
+function adminTile(k, v, tone, sub){
+  return '<div class="admin-tile ' + (tone||'') + '"><div class="admin-tile-k">' + escapeHtml(k) + '</div>'
+    + '<div class="admin-tile-v">' + escapeHtml(v) + '</div>'
+    + (sub ? '<div class="admin-tile-s">' + escapeHtml(sub) + '</div>' : '') + '</div>';
+}
+// Passwort-Staerke 0..5 (Laenge + Zeichenklassen).
+function adminPwStrength(pw){
+  pw = String(pw||''); var s = 0;
+  if (pw.length >= 10) s++;
+  if (pw.length >= 14) s++;
+  if (/[A-Z]/.test(pw) && /[a-z]/.test(pw)) s++;
+  if (/[0-9]/.test(pw)) s++;
+  if (/[^A-Za-z0-9]/.test(pw)) s++;
+  return s;
+}
+function adminPwHint(inputId, hintId){
+  var pw = (document.getElementById(inputId)||{}).value || '';
+  var hint = document.getElementById(hintId);
+  if (!hint) return;
+  if (!pw) { hint.textContent = ''; return; }
+  if (pw.length < 10) {
+    hint.textContent = '✗ mindestens 10 Zeichen erforderlich (' + pw.length + '/10)';
+    hint.style.color = 'var(--neg)';
+    return;
+  }
+  var labels = ['', 'schwach', 'schwach', 'mittel', 'gut', 'stark'];
+  var s = adminPwStrength(pw);
+  hint.textContent = '✓ ' + pw.length + ' Zeichen · Stärke: ' + (labels[s] || 'gut');
+  hint.style.color = s >= 4 ? 'var(--pos)' : (s >= 3 ? 'var(--warn)' : 'var(--n5)');
+}
+// Passwort-Feld ein-/ausblenden (Toggle-Button ruft das).
+function adminTogglePwVisibility(inputId, btn){
+  var el = document.getElementById(inputId);
+  if (!el) return;
+  var show = el.type === 'password';
+  el.type = show ? 'text' : 'password';
+  if (btn) btn.textContent = show ? 'Verbergen' : 'Anzeigen';
+}
+
 async function loadAdminUserList() {
   var container = document.getElementById('ul-list');
   if (!container) return;
   container.textContent = 'Wird geladen…';
-  var currentUserId = (currentUser && currentUser.id) || null;
   try {
     var users = await API.get('/users');
     adminSystemState.users = Array.isArray(users) ? users : [];
     renderAdminDashboard();
     renderAdminUserSummary(adminSystemState.users);
-    if (!users || !users.length) {
-      container.textContent = 'Keine Benutzer gefunden.';
-      return;
-    }
-    container.innerHTML = '';
-    users.forEach(function(u) {
-      var safeId = escapeHtml(u.id);
-      var safeName = escapeHtml(u.full_name);
-      var safeUsername = escapeHtml(u.username || '');
-      var safeEmail = escapeHtml(u.email || '');
-      var safeRole = escapeHtml(u.role || '');
-      var safeLastLogin = u.last_login_at ? escapeHtml(adminFormatDateTime(u.last_login_at)) : 'nie eingeloggt';
-      var isSelf = String(u.id) === String(currentUserId);
-      var row = document.createElement('div');
-      row.dataset.userId = u.id;
-      row.style.cssText = 'border:1px solid var(--b1);border-radius:6px;padding:8px 10px;margin-bottom:6px;background:var(--bg2)';
-      var activeLabel = u.is_active ? '<span style="color:var(--pos)">aktiv</span>' : '<span style="color:var(--neg)">inaktiv</span>';
-      row.innerHTML = '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">'
-        + '<span style="font-size:11px">' + safeName + ' · <em style="color:var(--n4)">' + safeUsername + '</em> · <em style="color:var(--n4)">' + safeRole + '</em> · ' + activeLabel + '</span>'
-        + '<button class="btn-p" style="font-size:10px;padding:3px 8px" onclick="toggleAdminUserEdit(\'' + safeId + '\')">Bearbeiten</button>'
-        + '</div>'
-        + '<div id="ul-edit-' + safeId + '" style="display:none;margin-top:8px">'
-        + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px">'
-        + '<div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Name</label><input class="fi" id="ul-name-' + safeId + '" value="' + safeName + '" style="font-size:11px"></div>'
-        + '<div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">E-Mail</label><input class="fi" id="ul-email-' + safeId + '" value="' + safeEmail + '" style="font-size:11px"></div>'
-        + '<div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Rolle</label><select class="fsel" id="ul-role-' + safeId + '" style="font-size:11px"' + (isSelf ? ' disabled title="Eigene Rolle kann nicht geändert werden"' : '') + '>'
-        + '<option value="advisor"' + (u.role==='advisor'?' selected':'') + '>Berater</option>'
-        + '<option value="readonly"' + (u.role==='readonly'?' selected':'') + '>Lesend</option>'
-        + '<option value="admin"' + (u.role==='admin'?' selected':'') + '>Admin</option>'
-        + '</select></div>'
-        + '<div style="display:flex;align-items:flex-end;gap:6px"><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Aktiv</label>'
-        + '<input type="checkbox" id="ul-active-' + safeId + '"' + (u.is_active ? ' checked' : '') + (isSelf ? ' disabled title="Eigenes Konto kann nicht deaktiviert werden"' : '') + ' style="margin-bottom:4px"></div>'
-        + '</div>'
-        + '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">'
-        + '<button class="btn-p" style="font-size:10px;padding:3px 10px" onclick="saveAdminUser(\'' + safeId + '\')">Speichern</button>'
-        + '<button class="btn" style="font-size:10px;padding:3px 10px" onclick="toggleAdminPasswordReset(\'' + safeId + '\')">Passwort zurücksetzen</button>'
-        + '</div>'
-        + '<div id="ul-pw-' + safeId + '" style="display:none;margin-top:6px;gap:6px;align-items:center">'
-        + '<input class="fi" id="ul-newpw-' + safeId + '" type="password" placeholder="Neues Passwort (min. 10)" style="font-size:11px;flex:1">'
-        + '<button class="btn-p" style="font-size:10px;padding:3px 10px" onclick="doAdminPasswordReset(\'' + safeId + '\')">Setzen</button>'
-        + '</div>'
-        + '<div id="ul-error-' + safeId + '" style="color:var(--neg);font-size:10px;margin-top:4px;display:none"></div>'
-        + '</div>';
-      container.appendChild(row);
-    });
+    adminRenderUserTable();
   } catch(e) {
     container.textContent = 'Fehler beim Laden: ' + parseApiError(e, 'Benutzerliste konnte nicht geladen werden.');
   }
 }
 
+function adminFilterUserList(){ adminRenderUserTable(); }
+
+function adminRenderUserTable() {
+  var container = document.getElementById('ul-list');
+  if (!container) return;
+  var users = Array.isArray(adminSystemState.users) ? adminSystemState.users : [];
+  var currentUserId = (currentUser && currentUser.id) || null;
+  var q = ((document.getElementById('ul-search')||{}).value || '').trim().toLowerCase();
+  var roleFilter = (document.getElementById('ul-role-filter')||{}).value || '';
+  var showInactive = ((document.getElementById('ul-show-inactive')||{checked:true}).checked) !== false;
+  var rows = users.filter(function(u){
+    if (roleFilter && String(u.role||'') !== roleFilter) return false;
+    if (!showInactive && Number(u.is_active) !== 1) return false;
+    if (q) {
+      var hay = (String(u.full_name||'') + ' ' + String(u.username||'') + ' ' + String(u.email||'')).toLowerCase();
+      if (hay.indexOf(q) === -1) return false;
+    }
+    return true;
+  });
+  if (!rows.length) {
+    container.innerHTML = '<div class="admin-empty" style="padding:18px"><div class="admin-empty-icon">&#128100;</div>'
+      + '<div class="admin-empty-title">Keine Benutzer</div><div class="admin-empty-body">'
+      + (users.length ? 'Kein Treffer für den aktuellen Filter.' : 'Es sind noch keine Benutzer erfasst.') + '</div></div>';
+    return;
+  }
+  var html = '<div class="admin-tbl-wrap"><table class="admin-tbl"><thead><tr>'
+    + '<th>Name</th><th>Benutzername</th><th>Rolle</th><th>Status</th><th>Letzter Login</th><th style="text-align:right">Aktion</th>'
+    + '</tr></thead><tbody>';
+  rows.forEach(function(u){
+    var sid = escapeHtml(u.id);
+    var isSelf = String(u.id) === String(currentUserId);
+    var statusBadge = u.is_active ? '<span class="admin-badge ok no-dot">aktiv</span>' : '<span class="admin-badge neutral no-dot">inaktiv</span>';
+    var lastLogin = u.last_login_at ? escapeHtml(adminFormatDateTime(u.last_login_at)) : '<span style="color:var(--n4)">nie</span>';
+    html += '<tr>'
+      + '<td><strong>' + escapeHtml(u.full_name||'') + '</strong>' + (isSelf ? ' <span style="color:var(--n4);font-size:9px">(Sie)</span>' : '') + (u.email ? '<div style="color:var(--n4);font-size:9px">' + escapeHtml(u.email) + '</div>' : '') + '</td>'
+      + '<td><em style="color:var(--n5)">' + escapeHtml(u.username||'') + '</em></td>'
+      + '<td>' + adminRoleBadge(u.role) + '</td>'
+      + '<td>' + statusBadge + '</td>'
+      + '<td style="font-size:9.5px;color:var(--n5)">' + lastLogin + '</td>'
+      + '<td style="text-align:right"><button class="admin-icon-btn" onclick="toggleAdminUserEdit(\'' + sid + '\')">Bearbeiten</button></td>'
+      + '</tr>';
+    html += '<tr id="ul-edit-' + sid + '" style="display:none"><td colspan="6" style="background:var(--bg2)">'
+      + '<div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:8px;align-items:end">'
+      + '<div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Name</label><input class="fi" id="ul-name-' + sid + '" value="' + escapeHtml(u.full_name||'') + '" style="font-size:11px"></div>'
+      + '<div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">E-Mail</label><input class="fi" id="ul-email-' + sid + '" value="' + escapeHtml(u.email||'') + '" style="font-size:11px"></div>'
+      + '<div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Rolle</label><select class="fsel" id="ul-role-' + sid + '" style="font-size:11px"' + (isSelf ? ' disabled title="Eigene Rolle kann nicht geändert werden"' : '') + '>'
+      + '<option value="advisor"' + (u.role==='advisor'?' selected':'') + '>Berater</option>'
+      + '<option value="readonly"' + (u.role==='readonly'?' selected':'') + '>Lesend</option>'
+      + '<option value="admin"' + (u.role==='admin'?' selected':'') + '>Administrator</option>'
+      + '</select></div>'
+      + '<label class="admin-switch" style="padding-bottom:5px"' + (isSelf ? ' title="Eigenes Konto kann nicht deaktiviert werden"' : '') + '><input type="checkbox" id="ul-active-' + sid + '"' + (u.is_active ? ' checked' : '') + (isSelf ? ' disabled' : '') + '><span class="admin-switch-track"></span><span>Aktiv</span></label>'
+      + '</div>'
+      + '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:8px">'
+      + '<button class="btn-p admin-primary-btn" style="font-size:10px;padding:4px 12px" onclick="saveAdminUser(\'' + sid + '\')">Speichern</button>'
+      + '<button class="admin-icon-btn" onclick="toggleAdminPasswordReset(\'' + sid + '\')">Passwort zurücksetzen</button>'
+      + '</div>'
+      + '<div id="ul-pw-' + sid + '" style="display:none;margin-top:8px">'
+      + '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">'
+      + '<input class="fi" id="ul-newpw-' + sid + '" type="password" placeholder="Neues Passwort (min. 10 Zeichen)" style="font-size:11px;flex:1;min-width:180px" oninput="adminPwHint(\'ul-newpw-' + sid + '\',\'ul-pwhint-' + sid + '\')">'
+      + '<button class="admin-icon-btn" type="button" onclick="adminTogglePwVisibility(\'ul-newpw-' + sid + '\',this)">Anzeigen</button>'
+      + '<button class="btn-p" style="font-size:10px;padding:4px 12px" onclick="doAdminPasswordReset(\'' + sid + '\')">Setzen</button>'
+      + '</div><div id="ul-pwhint-' + sid + '" style="font-size:9px;margin-top:3px;color:var(--n5)"></div>'
+      + '</div>'
+      + '<div id="ul-error-' + sid + '" style="color:var(--neg);font-size:10px;margin-top:4px;display:none"></div>'
+      + '</td></tr>';
+  });
+  html += '</tbody></table></div>';
+  container.innerHTML = html;
+}
+
 function toggleAdminUserEdit(userId) {
   var panel = document.getElementById('ul-edit-' + userId);
   if (!panel) return;
-  panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+  panel.style.display = (panel.style.display === 'none' || !panel.style.display) ? 'table-row' : 'none';
 }
 
 function toggleAdminPasswordReset(userId) {
   var panel = document.getElementById('ul-pw-' + userId);
   if (!panel) return;
-  panel.style.display = panel.style.display === 'none' ? 'flex' : 'none';
+  panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
 }
 
 async function saveAdminUser(userId) {
@@ -12711,6 +13084,10 @@ async function doAdminPasswordReset(userId) {
     errEl.textContent = '';
   }
   var newPassword = pwEl ? pwEl.value : '';
+  if (newPassword.length < 10) {
+    if (errEl) { errEl.textContent = 'Passwort muss mindestens 10 Zeichen lang sein.'; errEl.style.display = 'block'; }
+    return;
+  }
   try {
     await API.put('/users/' + userId + '/password', { new_password: newPassword });
     if (pwEl) pwEl.value = '';
@@ -12734,11 +13111,11 @@ function renderAdminUserSummary(users) {
   var advisors = rows.filter(function(u){ return String(u.role || '') === 'advisor' && Number(u.is_active) === 1; }).length;
   var readonly = rows.filter(function(u){ return String(u.role || '') === 'readonly' && Number(u.is_active) === 1; }).length;
   var inactive = rows.filter(function(u){ return Number(u.is_active) !== 1; }).length;
-  box.innerHTML = '<div class="admin-health-grid">'
-    + adminHealthCard('Admins', String(admins), admins >= 2 ? 'Mindestens zwei aktive Admins vorhanden.' : 'Ein zweiter Admin reduziert Aussperr-Risiko.', admins >= 2 ? 'ok' : 'warn')
-    + adminHealthCard('Berater', String(advisors), 'Aktive Schreibnutzer fuer Beratung.', 'ok')
-    + adminHealthCard('Lesend', String(readonly), 'Nutzer ohne Schreibrechte.', '')
-    + adminHealthCard('Inaktiv', String(inactive), 'Gesperrte oder ehemalige Benutzer.', inactive ? 'warn' : 'ok')
+  box.innerHTML = '<div class="admin-tile-grid">'
+    + adminTile('Administratoren', String(admins), admins >= 2 ? 'ok' : 'warn', admins >= 2 ? 'Ausfallsicher (≥2 aktiv)' : 'Zweiten Admin empfohlen')
+    + adminTile('Berater', String(advisors), 'info', 'Aktive Schreibnutzer')
+    + adminTile('Lesend', String(readonly), 'neutral', 'Nur Ansicht')
+    + adminTile('Inaktiv', String(inactive), inactive ? 'warn' : 'ok', 'Gesperrt / ehemalig')
     + '</div>';
 }
 // ADMIN AUDIT LOG
@@ -12778,6 +13155,13 @@ function renderAdminAuditSummary(data) {
     + '<div class="admin-health-sub">Diese Seite: CREATE ' + String(counts.CREATE || 0) + ', UPDATE ' + String(counts.UPDATE || 0) + ', DELETE ' + String(counts.DELETE || 0) + '.</div>'
     + '</div>';
   normalizeVisibleMojibake(box);
+}
+// Redesign 2026-06-10: Audit-Filter laedt automatisch (debounced) statt
+// separatem Laden-Klick. Select feuert direkt, Suchfeld nach 350ms Ruhe / Enter.
+var _auditFilterTimer = null;
+function adminAuditFilterChanged() {
+  if (_auditFilterTimer) clearTimeout(_auditFilterTimer);
+  _auditFilterTimer = setTimeout(function() { loadAdminAuditLog(0); }, 350);
 }
 async function loadAdminAuditLog(offset) {
   var btn = document.getElementById('btn-al-load');
@@ -12869,6 +13253,13 @@ function renderAuditLogPagination(container) {
     + '<button class="btn" style="font-size:10px;padding:2px 8px"' + (nextDisabled ? ' disabled' : '') + ' onclick="loadAdminAuditLog(' + (_auditLogOffset + _auditLogLimit) + ')">Weiter &rarr;</button>';
 }
 
+// Zeigt die Rechte der gewaehlten Rolle live unter dem Rollen-Select.
+function adminUpdateNewUserRoleHint(){
+  var role = (document.getElementById('nu-role')||{value:'advisor'}).value;
+  var hint = document.getElementById('nu-role-hint');
+  if (hint) hint.textContent = (ADMIN_ROLE_META[role] && ADMIN_ROLE_META[role].rights) || '';
+}
+
 // Neuer Benutzer anlegen (Admin)
 async function createNewUser() {
   var fullName = (document.getElementById('nu-fullname')||{value:''}).value.trim();
@@ -12904,6 +13295,7 @@ async function createNewUser() {
     ['nu-fullname','nu-username','nu-password','nu-email'].forEach(function(id){
       var el=document.getElementById(id); if(el)el.value='';
     });
+    var nuHint=document.getElementById('nu-pwhint'); if(nuHint){ nuHint.textContent=''; nuHint.style.color='var(--n5)'; }
     await loadAdminUserList();
     if (btn) { btn.disabled=false; btn.textContent='Benutzer anlegen'; }
   } catch(e) {
@@ -20063,7 +20455,7 @@ function openStammdatenModal(){
         <button id="asec-newuser" onclick="adminShowSection('sec-newuser')" class="admin-sec-btn">Neuer Benutzer</button>
 
         <div class="admin-nav-label">Wartung</div>
-        <button id="asec-db" onclick="adminShowSection('sec-db')" class="admin-sec-btn">Backups</button>
+        <button id="asec-db" onclick="adminShowSection('sec-db')" class="admin-sec-btn">Datenbank</button>
         <button id="asec-update" onclick="adminShowSection('sec-update')" class="admin-sec-btn">Update</button>
       </div>
 
@@ -20091,12 +20483,18 @@ function openStammdatenModal(){
             </div>
             <button class="btn" onclick="loadShadowAggregate(true)" id="btn-admin-shadow-aggregate-refresh">Reload</button>
           </div>
+          <div id="admin-shadow-empty" class="admin-empty" style="display:none">
+            <div class="admin-empty-icon">&#127765;</div>
+            <div class="admin-empty-title">Noch keine Shadow-Vergleiche vorhanden</div>
+            <div class="admin-empty-body">Es wurden noch keine Shadow-Optimierungen persistiert. F&uuml;hre den Optimizer im <strong>stochastic-Modus</strong> f&uuml;r mindestens 3 Mandate aus &mdash; danach erscheinen hier die aggregierten GREEN/YELLOW/RED-Auswertungen f&uuml;r das Compliance-Template.</div>
+          </div>
           <div class="admin-risk-note">
             <strong>Default-Switch</strong>
             <span id="admin-shadow-default-badge" class="admin-pill">n/a</span>
             <div id="admin-shadow-default-reason" style="margin-top:6px">Noch nicht geladen.</div>
           </div>
-          <div class="admin-compact-grid">
+          <div id="admin-shadow-bar" style="margin:2px 0 6px"></div>
+          <div class="admin-compact-grid" id="admin-shadow-counts-grid">
             <div class="admin-metric-panel">
               <div class="admin-metric-label">GREEN</div>
               <div id="admin-shadow-green-count" class="admin-health-v">-</div>
@@ -20113,7 +20511,7 @@ function openStammdatenModal(){
               <div id="admin-shadow-red-pct" class="admin-metric-meta">-</div>
             </div>
           </div>
-          <div class="admin-compact-grid">
+          <div class="admin-compact-grid" id="admin-shadow-examples-grid">
             <div class="admin-metric-panel">
               <div class="admin-metric-label">GREEN Beispiele</div>
               <div id="admin-shadow-examples-green" class="admin-worklist"><div class="admin-metric-meta">Noch nicht geladen.</div></div>
@@ -20136,7 +20534,7 @@ function openStammdatenModal(){
           <div class="admin-section-title">Audit-Log</div>
           <div id="admin-audit-summary" class="admin-audit-summary"><div class="admin-risk-note">Audit-Uebersicht wird geladen...</div></div>
           <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
-            <select id="al-action-filter" class="fsel" style="font-size:11px;padding:3px 6px">
+            <select id="al-action-filter" class="fsel" style="font-size:11px;padding:3px 6px" onchange="loadAdminAuditLog(0)">
               <option value="">Alle Aktionen</option>
               <option value="CREATE">CREATE</option>
               <option value="UPDATE">UPDATE</option>
@@ -20145,7 +20543,7 @@ function openStammdatenModal(){
               <option value="PASSWORD_RESET">PASSWORD_RESET</option>
               <option value="EXPORT">EXPORT</option>
             </select>
-            <input id="al-q-filter" class="fi" placeholder="Benutzer oder Tabelle suchen…" style="font-size:11px;width:200px">
+            <input id="al-q-filter" class="fi" placeholder="Benutzer oder Tabelle suchen…" style="font-size:11px;width:200px" oninput="adminAuditFilterChanged()" onkeydown="if(event.key==='Enter'){event.preventDefault();loadAdminAuditLog(0);}">
             <button class="btn-p" id="btn-al-load" onclick="loadAdminAuditLog(0)" style="font-size:10px;padding:3px 10px">Laden</button>
           </div>
           <div id="al-error" style="color:var(--neg);font-size:10px;display:none"></div>
@@ -20214,6 +20612,10 @@ function openStammdatenModal(){
             <div class="admin-metric-label">Scheduler-Jobs</div>
             <div id="admin-mdata-jobs" class="admin-metric-value">—</div>
           </div>
+          <div class="admin-metric-panel">
+            <div class="admin-metric-label">Cross-Validation — letzte Checks</div>
+            <div id="admin-mdata-validation-table" style="margin-top:6px"><div class="admin-metric-meta">—</div></div>
+          </div>
           <div id="admin-mdata-meta" class="admin-metric-meta" style="text-align:right"></div>
         </div>
 
@@ -20240,8 +20642,9 @@ function openStammdatenModal(){
               <label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Symbol</label>
               <input class="fi" id="admin-override-symbol" placeholder="z.B. GLD" style="font-size:11px">
             </div>
-            <div style="display:flex;align-items:flex-end;">
-              <button class="btn-p" style="background:var(--bg2);color:var(--n6);width:100%" onclick="adminSetProductOverride()" id="btn-admin-override-save">Override speichern</button>
+            <div style="display:flex;align-items:flex-end;gap:6px;">
+              <button class="btn-p admin-primary-btn" style="flex:1" onclick="adminSetProductOverride()" id="btn-admin-override-save">Speichern</button>
+              <button class="admin-icon-btn danger" onclick="adminClearProductOverride()" id="btn-admin-override-clear" title="Override entfernen — Produkt fällt auf automatisches Mapping zurück">Entfernen</button>
             </div>
           </div>
           <div id="admin-override-badge" style="display:none;padding:4px 8px;border-radius:var(--r);font-size:10px;background:var(--bg2);color:var(--n6);border:1px solid var(--b1)"></div>
@@ -20262,6 +20665,11 @@ function openStammdatenModal(){
               <button class="btn-p admin-primary-btn" onclick="saveAdminAnnualReturns()" id="btn-admin-ar-save">Speichern</button>
             </div>
           </div>
+          <label class="admin-switch" title="Aktiv: nur fehlende Jahre ergänzen (overwrite=false). Aus: alle Werte neu laden — überschreibt auch manuell gepflegte Zellen." style="margin-top:2px">
+            <input type="checkbox" id="admin-ar-gaps-only">
+            <span class="admin-switch-track"></span>
+            <span>Nur Lücken füllen (manuelle Werte schützen)</span>
+          </label>
           <div id="admin-ar-grid" style="overflow-x:auto;font-size:11px;"></div>
           <div id="admin-ar-error" style="display:none;color:var(--neg);font-size:10px"></div>
         </div>
@@ -20279,6 +20687,11 @@ function openStammdatenModal(){
               <button class="btn-p admin-primary-btn" onclick="backfillAdminAssetClassPrices()" id="btn-admin-acp-backfill" title="Lädt tägliche Asset-Class-Preise via Marktdaten-Aggregator. Netzintensiv.">Aus Marktdaten füllen</button>
             </div>
           </div>
+          <label class="admin-switch" title="Aktiv: nur fehlende Tagespunkte ergänzen (overwrite=false). Aus: bestehende Punkte aktualisieren." style="margin-top:2px">
+            <input type="checkbox" id="admin-acp-gaps-only">
+            <span class="admin-switch-track"></span>
+            <span>Nur Lücken füllen</span>
+          </label>
           <div id="admin-acp-summary" class="admin-summary-panel">Status wird geladen...</div>
           <div id="admin-acp-grid" class="admin-compact-grid"></div>
           <div id="admin-acp-error" class="admin-risk-note danger" style="display:none"></div>
@@ -20409,9 +20822,16 @@ function openStammdatenModal(){
             </div>
             <div>
               <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--n5);margin-bottom:8px">Korrelationsmatrix 5×5</div>
-              <div style="font-size:10px;color:var(--n5);line-height:1.5;margin-bottom:8px">Aktien / Obligationen / Immobilien / Alternative / Liquidität</div>
-              <textarea class="fi admin-code-input" id="admin-cma-correlation" rows="7" placeholder='[[1,-0.2,0.35,0.2,0.05],[-0.2,1,0.1,-0.05,0.1],[0.35,0.1,1,0.15,0.05],[0.2,-0.05,0.15,1,0],[0.05,0.1,0.05,0,1]]'></textarea>
-              <div id="admin-cma-correlation-preview" style="margin-top:8px"></div>
+              <div style="font-size:10px;color:var(--n5);line-height:1.5;margin-bottom:8px">Aktien / Obligationen / Immobilien / Alternative / Liquidität. Diagonale = 1.0 (gesperrt), Eingabe spiegelt automatisch.</div>
+              <div id="admin-cma-correlation-grid" style="overflow-x:auto"></div>
+              <div id="admin-cma-correlation-status" style="font-size:9.5px;margin-top:6px"></div>
+              <details style="margin-top:8px">
+                <summary style="cursor:pointer;font-size:10px;color:var(--n5)">JSON-Sicht (Experten-Modus)</summary>
+                <div style="margin-top:8px">
+                  <textarea class="fi admin-code-input" id="admin-cma-correlation" rows="6" placeholder='[[1,-0.2,0.35,0.2,0.05],[-0.2,1,0.1,-0.05,0.1],[0.35,0.1,1,0.15,0.05],[0.2,-0.05,0.15,1,0],[0.05,0.1,0.05,0,1]]'></textarea>
+                  <div id="admin-cma-correlation-preview" style="margin-top:8px"></div>
+                </div>
+              </details>
             </div>
           </div>
           <div style="display:flex;justify-content:flex-end;gap:8px;padding-top:4px;border-top:1px solid var(--b1);">
@@ -20461,6 +20881,10 @@ function openStammdatenModal(){
                 <button class="btn" id="btn-policy-activate" onclick="adminPolicyActivate()" style="display:none">Als aktiv setzen</button>
               </div>
             </div>
+            <div id="admin-policy-active-warning" class="admin-risk-note warn" style="display:none">
+              <strong>Aktive Policy</strong> Direktes Überschreiben ist gesperrt — diese Policy treibt alle Mandate. Erstelle mit „Aktive klonen &amp; bearbeiten" eine neue Version, passe sie an und aktiviere sie anschließend (Versionstreue, ADR-konform).
+            </div>
+            <div id="admin-policy-save-hint" style="font-size:9.5px;color:var(--neg);margin-bottom:6px"></div>
             <div id="admin-policy-grid" style="overflow-x:auto"></div>
             <div id="admin-policy-status" style="font-size:10px;color:var(--n5);margin-top:8px"></div>
           </div>
@@ -20468,9 +20892,31 @@ function openStammdatenModal(){
 
         <!-- ══ SEC: BENUTZERLISTE ══ -->
         <div id="sec-users" class="admin-sec-panel" style="display:none;gap:12px;">
-          <div class="admin-section-title">Benutzerliste</div>
-          <div class="admin-risk-note warn"><strong>Zugriffswirkung</strong> Admin-Rollen haben globale Kundensicht und duerfen Systemdaten sowie Beratungsannahmen aendern.</div>
+          <div class="admin-section-head">
+            <div>
+              <div class="admin-section-title">Benutzerliste</div>
+              <div class="admin-section-sub">Konten, Rollen und Status. Deaktivierte Benutzer können sich nicht mehr anmelden — Audit-Einträge bleiben erhalten.</div>
+            </div>
+            <button class="btn" onclick="loadAdminUserList()">Aktualisieren</button>
+          </div>
           <div id="admin-user-summary"></div>
+          <div class="admin-risk-note"><strong>Rollen &amp; Rechte</strong>
+            <div style="display:grid;gap:5px;margin-top:7px;font-size:10px;color:var(--n6)">
+              <div><span class="admin-badge danger no-dot">Administrator</span> Globale Kundensicht · Benutzer &amp; Systemdaten verwalten · CMA/House-Matrix ändern</div>
+              <div><span class="admin-badge info no-dot">Berater</span> Eigene Kunden &amp; Mandate anlegen/bearbeiten · keine Systemverwaltung</div>
+              <div><span class="admin-badge neutral no-dot">Lesend</span> Nur Ansicht · keine Schreibrechte</div>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <input id="ul-search" class="fi" placeholder="Name oder Benutzername suchen…" style="font-size:11px;width:210px" oninput="adminFilterUserList()">
+            <select id="ul-role-filter" class="fsel" style="font-size:11px;padding:3px 6px" onchange="adminFilterUserList()">
+              <option value="">Alle Rollen</option>
+              <option value="admin">Administrator</option>
+              <option value="advisor">Berater</option>
+              <option value="readonly">Lesend</option>
+            </select>
+            <label class="admin-switch" title="Auch deaktivierte Konten anzeigen"><input type="checkbox" id="ul-show-inactive" checked onchange="adminFilterUserList()"><span class="admin-switch-track"></span><span>Inaktive zeigen</span></label>
+          </div>
           <div id="ul-list" style="font-size:11px;color:var(--n4)">Wird geladen...</div>
         </div>
 
@@ -20483,14 +20929,21 @@ function openStammdatenModal(){
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
             <div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Vollst&auml;ndiger Name *</label><input class="fi" id="nu-fullname" placeholder="Max Muster" style="font-size:11px"></div>
             <div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Benutzername *</label><input class="fi" id="nu-username" placeholder="mmuster" style="font-size:11px"></div>
-            <div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Passwort * (min. 10 Zeichen)</label><input class="fi" id="nu-password" type="password" placeholder="&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;" style="font-size:11px"></div>
+            <div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Passwort * (min. 10 Zeichen)</label>
+              <div style="display:flex;gap:6px;align-items:center">
+                <input class="fi" id="nu-password" type="password" placeholder="&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;" style="font-size:11px;flex:1" oninput="adminPwHint('nu-password','nu-pwhint')">
+                <button class="admin-icon-btn" type="button" onclick="adminTogglePwVisibility('nu-password',this)">Anzeigen</button>
+              </div>
+              <div id="nu-pwhint" style="font-size:9px;margin-top:3px;color:var(--n5)"></div>
+            </div>
             <div>
               <label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Rolle</label>
-              <select class="fsel" id="nu-role" style="font-size:11px">
+              <select class="fsel" id="nu-role" style="font-size:11px" onchange="adminUpdateNewUserRoleHint()">
                 <option value="advisor">Berater (advisor)</option>
                 <option value="readonly">Lesend (readonly)</option>
                 <option value="admin">Administrator (admin)</option>
               </select>
+              <div id="nu-role-hint" style="font-size:9px;margin-top:3px;color:var(--n5)"></div>
             </div>
             <div style="grid-column:1/-1"><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">E-Mail (optional)</label><input class="fi" id="nu-email" type="email" placeholder="max@kanzlei.ch" style="font-size:11px"></div>
           </div>
@@ -20526,16 +20979,9 @@ function openStammdatenModal(){
             <span id="update-status-label" class="admin-metric-meta">—</span>
             <button class="btn-p" style="background:var(--bg2);color:var(--n6)" onclick="adminCheckUpdates()" id="btn-check-updates">Auf Updates prüfen</button>
             <button class="btn-p admin-primary-btn" style="display:none" onclick="adminInstallUpdate()" id="btn-install-update">Update installieren</button>
-          </div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
-            <button class="btn-p" style="background:var(--bg2);color:var(--n6)" onclick="adminUpdateStatus()">Update-Status</button>
-            <button class="btn-p" style="background:var(--bg2);color:var(--n6)" onclick="adminCheckForUpdates()" id="btn-admin-update-check">Nach Updates suchen</button>
-            <button class="btn-p" style="background:var(--bg2);color:var(--n6);grid-column:1/-1" onclick="adminInstallDownloadedUpdate()" id="btn-admin-update-install">Heruntergeladenes Update installieren</button>
+            <button class="admin-icon-btn" onclick="adminUpdateStatus()" title="Vollständigen Update-Status im Protokoll anzeigen">Details</button>
           </div>
         </div>
-
-        <!-- Kompatibilitäts-Placeholder -->
-        <div id="update-section" style="display:none"></div>
 
       </div><!-- end content -->
     </div><!-- end body row -->
