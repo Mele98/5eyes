@@ -52,14 +52,16 @@ im MC "verfehlt" sein. Fix: konsistente Definition (Renditeziel als outflow-frei
 Allokations-Eigenschaft; im MC separater deficit-freier Rendite-Pfad). Braucht
 Fach-Entscheid was "korrekt/3eyes" ist.
 
-### #6 (niedrig, Doku/UI): Zwei Goal-Status-Vokabulare
+### #6 (niedrig, Doku/UI): Zwei Goal-Status-Vokabulare — GEFIXT ✅ (2026-06-12)
 Deterministisch: Score-Buckets 70/45 (On Track/Prüfen/Gefährdet). Optimizer:
-Wahrscheinlichkeits-tau 80/50. Keine gemeinsame Schwellen-Doku. Fix: engine-spec
-ergänzen + UI-Badges eindeutig als "Score" vs "Wahrscheinlichkeit" labeln.
+Wahrscheinlichkeits-tau 80/50 (erreichbar/knapp/nicht_erreichbar). Keine gemeinsame
+Schwellen-Doku. Fix: engine-spec §4.5 dokumentiert beide Systeme (Kennzahl/Schwellen/
+Begriffe/Code + warum sie bewusst getrennt sind — Punkt-Schätzer vs Verteilungs-Aussage)
++ UI-Tooltips am deterministischen Badge. Bewusst NICHT zwangsangeglichen.
 
-## Hinweis
-#2/#3/#5 brauchen Fach-/Design-Entscheide bzw. MC-Neukalibrierung — separat und
-verifiziert angehen, nicht beiläufig.
+## Hinweis — Status 2026-06-12
+#1/#4/#6 GEFIXT. #2 GEFIXT (impliziertes Wealth-Target, opt-in stochastic). #5 (Brutto/Netto-
+Renditeziel) + #3 (MC-Inflations-Offset) verbleiben — siehe unten.
 
 ## Asset Allocation — 9 bestätigte Befunde (6-Agent-Audit + Verifikation, alle Production-Pfad)
 

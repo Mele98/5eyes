@@ -5484,7 +5484,7 @@ function fmtCHF(n){if(n===null||n===undefined)return '–';return 'CHF '+Math.ro
       return '<div class="goal" draggable="true"><div class="pd '+(pc[g.priority]||'p2')+'">'+(i+1)+'</div>'
         + '<div class="gi"><div class="gn">'+escapeHtml(g.label||'Ziel')+'</div>'
         + '<div class="gd">'+escapeHtml(fmtCHF(g.target))+' \u00b7 '+escapeHtml(String(g.horizon||''))+' J. \u00b7 '+escapeHtml(g.type||'')+'</div></div>'
-        + '<span class="tag '+tcl+'">'+lbl+'</span><div class="gbw"><div class="gp">'+pct+' %</div>'
+        + '<span class="tag '+tcl+'" title="Zielerreichungs-Score (deterministischer Punkt-Schätzer, nicht MC-Wahrscheinlichkeit)">'+lbl+'</span><div class="gbw"><div class="gp" title="Zielerreichungs-Score in %">'+pct+' %</div>'
         + '<div class="gb"><div class="gf '+gcl+'" style="width:'+pct+'%"></div></div></div>'
         + '<div><button class="btn-ico e" onclick="om(\'m-nz\')">\u270e</button><button class="btn-ico" onclick="dg(this)">\u2715</button></div></div>';
     }).join('');
