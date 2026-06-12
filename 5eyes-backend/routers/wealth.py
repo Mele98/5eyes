@@ -19,6 +19,7 @@ from schemas.wealth import (
 from services.auth import get_client_for_user_or_404, get_current_user, get_mandate_for_user_or_404, require_advisor
 from services.audit import log
 from services.cashflow_timeline import SUPPORTED_FREQUENCIES, normalize_frequency, normalize_nature
+from services.data_classification import enforce_data_classification
 
 router = APIRouter(tags=["Vermögen & Ziele"])
 
@@ -594,9 +595,11 @@ def create_cashflow(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor)
 ):
+    payload = body.model_dump()
+    enforce_data_classification(payload.pop("data_classification", None))
     client = get_client_for_user_or_404(client_id, db, current_user)
     now = _now()
-    data = _normalize_cashflow_payload(body.model_dump())
+    data = _normalize_cashflow_payload(payload)
     _validate_no_mortgage_amortization_double_count(client_id, data, db)
     cf = Cashflow(
         id=new_uuid(), client_id=client_id,
@@ -642,6 +645,8 @@ def update_cashflow(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor)
 ):
+    updates = body.model_dump(exclude_unset=True)
+    enforce_data_classification(updates.pop("data_classification", None))
     get_client_for_user_or_404(client_id, db, current_user)
     cf = db.query(Cashflow).filter(
         Cashflow.id == cf_id,
@@ -650,7 +655,7 @@ def update_cashflow(
     ).first()
     if not cf:
         raise HTTPException(status_code=404, detail="Cashflow nicht gefunden")
-    updates = _normalize_cashflow_payload(body.model_dump(exclude_unset=True), cf)
+    updates = _normalize_cashflow_payload(updates, cf)
     _validate_no_mortgage_amortization_double_count(client_id, updates, db, existing=cf)
     for field, value in updates.items():
         if isinstance(value, bool):
@@ -688,8 +693,10 @@ def create_goal(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor)
 ):
+    payload = body.model_dump()
+    enforce_data_classification(payload.pop("data_classification", None))
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
-    data = _normalize_goal_payload(body.model_dump())
+    data = _normalize_goal_payload(payload)
     # Sprint 2026-06-06 Fix: Rang-Konflikt auto-aufloesen statt 409. Hintergrund:
     # Frontend mapped Haerte->Rang naiv (Hart=1, Primaer=2, Opp=3), so dass max
     # 3 Goals erfassbar waren. Loesung: bei Conflict auto-shift auf max+1.
@@ -724,6 +731,8 @@ def update_goal(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor)
 ):
+    updates = body.model_dump(exclude_unset=True)
+    enforce_data_classification(updates.pop("data_classification", None))
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
     goal = db.query(Goal).filter(
         Goal.id == goal_id,
@@ -732,7 +741,7 @@ def update_goal(
     ).first()
     if not goal:
         raise HTTPException(status_code=404, detail="Ziel nicht gefunden")
-    updates = _normalize_goal_payload(body.model_dump(exclude_unset=True), goal)
+    updates = _normalize_goal_payload(updates, goal)
     new_rank = updates.get("rank")
     if new_rank is not None and int(new_rank) != int(goal.rank or 0):
         # Sprint 2026-06-06 Fix: Rang-Konflikt beim Update auto-aufloesen statt 409.

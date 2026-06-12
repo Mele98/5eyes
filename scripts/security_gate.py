@@ -42,6 +42,7 @@ SECURITY_TESTS: list[str] = [
     "tests/test_mailer.py",
     "tests/test_account_recovery.py",
     # — FINMA-Hygiene: keine synthetischen/Skript-Datensaetze zwischen echten Kundendaten —
+    "tests/test_data_classification_gate.py",
     "tests/test_data_integrity_audit.py",
 ]
 

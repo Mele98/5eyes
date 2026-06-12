@@ -30,6 +30,7 @@ class ClientCreate(BaseModel):
     is_qualified_investor: bool = False
     advisor_id: str
     notes: Optional[str] = None
+    data_classification: Literal["synthetic", "real"] = "synthetic"
 
 
 class ClientUpdate(BaseModel):
@@ -56,6 +57,7 @@ class ClientUpdate(BaseModel):
     is_qualified_investor: Optional[bool] = None
     advisor_id: Optional[str] = None
     notes: Optional[str] = None
+    data_classification: Optional[Literal["synthetic", "real"]] = None
 
 
 class ClientResponse(BaseResponse):

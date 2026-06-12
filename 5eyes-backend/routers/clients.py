@@ -23,6 +23,7 @@ from services.auth import (
 )
 from services.audit import log
 from services.cashflow_timeline import totals_for_year
+from services.data_classification import enforce_data_classification
 from services.planning_horizon import life_expectancy_year_for
 from services.wealth_cashflows import derive_wealth_cashflows, mortgage_interest_adjustment_series
 
@@ -72,6 +73,8 @@ def create_client(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor)
 ):
+    payload = body.model_dump()
+    enforce_data_classification(payload.pop("data_classification", None))
     existing = db.query(Client).filter(
         Client.client_number == body.client_number,
         Client.deleted_at.is_(None)
@@ -86,7 +89,7 @@ def create_client(
         id=new_uuid(), created_at=now, updated_at=now,
         # E1 (2026-06-14): Client erbt den Tenant des anlegenden Users -> nie
         # NULL-tenant_id, harte Firmen-Trennung (Voraussetzung fuer strict mode).
-        **{**body.model_dump(), "advisor_id": advisor_id,
+        **{**payload, "advisor_id": advisor_id,
            "tenant_id": getattr(current_user, "tenant_id", None)}
     )
     db.add(client)
@@ -114,8 +117,9 @@ def update_client(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor)
 ):
-    client = _get_client_or_404(client_id, db, current_user)
     updates = body.model_dump(exclude_unset=True)
+    enforce_data_classification(updates.pop("data_classification", None))
+    client = _get_client_or_404(client_id, db, current_user)
     if "advisor_id" in updates and not has_global_client_access(current_user):
         if updates["advisor_id"] != current_user.id:
             raise HTTPException(status_code=403, detail="Berater duerfen Kunden nicht einem anderen Berater zuweisen")
