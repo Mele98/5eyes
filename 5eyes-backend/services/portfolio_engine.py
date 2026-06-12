@@ -2804,7 +2804,12 @@ def _percentile(values: list[int | float], quantile: float) -> int:
 
 
 def _annualized_return_bps(start_value: int, end_value: int, years: int) -> int:
-    if years <= 0 or start_value <= 0 or end_value <= 0:
+    # #AA-6 Fix (2026-06-12): Aufgebrauchte Pfade (end_value <= 0) sind ein
+    # Totalverlust und muessen mit -100% (-10000 bps) einfliessen, nicht mit 0
+    # (das verzerrte Median + Erfolgsrate nach oben). Konsistent zu _return_bps.
+    if end_value <= 0:
+        return -10000
+    if years <= 0 or start_value <= 0:
         return 0
     return int(round((math.pow(end_value / start_value, 1 / years) - 1) * 10000))
 

@@ -95,9 +95,13 @@ End/Start-Ratio enthält Cashflow-Beiträge → "CAGR" ist money-weighted, nicht
 Fix: echte time-weighted Rendite (geometrische Verkettung der Markt-Wachstumsfaktoren VOR
 Cashflow).
 
-### #AA-6 (MEDIUM, MC): _annualized_return_bps gibt 0 statt -100% für aufgebrauchte Pfade
-→ Median + Erfolgsrate nach oben verzerrt. Fix: Floor-Rendite für depleted paths
-(portfolio_engine.py:2794-2797), analog _return_bps.
+### #AA-6 (MEDIUM, MC): _annualized_return_bps gibt 0 statt -100% für aufgebrauchte Pfade — GEFIXT ✅ (2026-06-12)
+Aufgebrauchte Pfade (end_value ≤ 0 = Totalverlust) flossen mit 0% statt -100% ein →
+Median + Erfolgsrate nach oben verzerrt. Fix (portfolio_engine.py:~2806): `if end_value <= 0:
+return -10000` (analog `_return_bps`). **Blast-Radius geringer als befürchtet:** die Metriken
+(success_rate vs positives Renditeziel, median/p50) sind robust gegen Änderungen im unteren
+Tail — der Median verschiebt sich nur bei >50% aufgebrauchten Pfaden (dann korrekt). Verifiziert:
+5 neue Unit-Tests + 118 MC-/Backtest-/Goal-Tests grün (0 Regression).
 
 ### #AA-7 (HOCH): Themen-Tilt nutzt Total-Portfolio-bps als Per-Bucket-Wert — GEFIXT ✅ (2026-06-12)
 `theme_total = 0.15 * targets["equities"]` (Portfolio-Raum), aber eq_splits leben im
