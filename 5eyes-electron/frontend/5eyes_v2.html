@@ -15739,9 +15739,33 @@ function updateProjectionChartsFromSimulation(result){
   if(charts.aaCurrent&&charts.aaCurrent.data&&charts.aaCurrent.data.datasets&&charts.aaCurrent.data.datasets.length>=1){
     charts.aaCurrent.data.labels=labels;
     charts.aaCurrent.data.datasets=charts.aaCurrent.data.datasets.slice(0,1);
-    if(charts.aaCurrent.data.datasets[0])charts.aaCurrent.data.datasets[0].label='Aktueller Beratungsvermögenspfad';
+    if(charts.aaCurrent.data.datasets[0])charts.aaCurrent.data.datasets[0].label='Heutiger Mix (IST)';
     charts.aaCurrent.data.datasets[0].data=advisoryCurrentSeries;
-    charts.aaCurrent.data.datasets[0].tension=0;
+    charts.aaCurrent.data.datasets[0].tension=0.28;
+    charts.aaCurrent.data.datasets[0].stepped=false;
+    // Vergleich (2026-06-12): SOLL-Zielpfad als gestrichelte Linie ueberlagern,
+    // damit der Hover (mode:'index') auch auf dem IST-Chart SOLL UND IST zeigt.
+    if(Array.isArray(targetSeries)&&targetSeries.length){
+      charts.aaCurrent.data.datasets[1]={
+        label:'Optimierte Zielallokation (SOLL)',
+        data:targetSeries,
+        borderColor:'rgba(22,101,52,0.85)',
+        backgroundColor:'rgba(22,101,52,0.05)',
+        borderWidth:1.5,
+        borderDash:[5,4],
+        pointRadius:0,
+        pointHoverRadius:4,
+        fill:false,
+        tension:0.28,
+        stepped:false
+      };
+      if(charts.aaCurrent.options&&charts.aaCurrent.options.plugins&&charts.aaCurrent.options.plugins.legend){
+        charts.aaCurrent.options.plugins.legend.display=true;
+        charts.aaCurrent.options.plugins.legend.labels=charts.aaCurrent.options.plugins.legend.labels||{};
+        charts.aaCurrent.options.plugins.legend.labels.boxWidth=18;
+        charts.aaCurrent.options.plugins.legend.labels.font={size:9};
+      }
+    }
     charts.aaCurrent.update();
   }
   normalizeProjectionChartsPresentation();
