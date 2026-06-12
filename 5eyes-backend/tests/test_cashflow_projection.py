@@ -213,3 +213,29 @@ def test_horizon_falls_back_to_40_without_stammdaten(session_factory, auth_clien
     cid = _make_client(session_factory, advisor_user.id)
     rows = auth_client.get(f"/clients/{cid}/cashflow-projection").json()["years"]
     assert len(rows) == 40
+
+
+def _add_cashflow_dated(session_factory, client_id, amount_rappen, cf_type,
+                        valid_from, valid_until, frequency="jährlich"):
+    now = _utc_now_iso()
+    with session_factory() as s:
+        s.add(Cashflow(
+            id=str(uuid.uuid4()), client_id=client_id,
+            cashflow_type=cf_type, label="Dated CF", nature="wiederkehrend",
+            amount_rappen=amount_rappen, frequency=frequency,
+            valid_from=valid_from, valid_until=valid_until,
+            is_active=1, created_at=now, updated_at=now,
+        ))
+        s.commit()
+
+
+def test_horizon_covers_all_cashflows_beyond_life_expectancy(session_factory, auth_client, advisor_user):
+    """Leart-Szenario: AHV/Verzehr laufen via valid_until ueber die reine
+    Lebenserwartung (Geburt+90) hinaus -> die Projektion MUSS bis zum letzten
+    Cashflow-Jahr reichen, sonst wird der Vermoegensverzehr abgeschnitten."""
+    cid = _make_client_full(session_factory, advisor_user.id, date_of_birth="1965-01-01")
+    # Geburt 1965 + 90 = 2055; Cashflow laeuft aber bis 2060.
+    _add_cashflow_dated(session_factory, cid, 3_500_000, "Income",
+                        valid_from="2030-01-01", valid_until="2060-01-01")
+    rows = auth_client.get(f"/clients/{cid}/cashflow-projection").json()["years"]
+    assert rows[-1]["year"] == 2060

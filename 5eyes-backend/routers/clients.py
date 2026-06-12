@@ -289,7 +289,8 @@ def cashflow_summary(
 
 
 def _derive_cashflow_projection_horizon(
-    client: Client, db: Session, *, default_years: int = 40, cap: int = 60
+    client: Client, db: Session, *, cashflows: list | None = None,
+    default_years: int = 40, cap: int = 60,
 ) -> int:
     """Cashflow-/Vermoegensverzehr-Projektions-Horizont aus den Stammdaten.
 
@@ -298,13 +299,15 @@ def _derive_cashflow_projection_horizon(
     Nach-Pensionierungs-Phase (AHV-Einkommen < Ausgaben -> Vermoegensverzehr)
     ueberhaupt sichtbar wird. Vorher: hartes Default 40, unabhaengig von der Person.
 
-    Quellen-Cascade (Kalenderjahr des Lebensendes), genommen wird das spaeteste
-    plausible Jahr; Fallback ``default_years``:
-      1. ``client.investment_horizon_end`` (explizites Stammdatum)
-      2. ``Mandate.life_expectancy_year``
-      3. Geburtsjahr (``client.date_of_birth`` / ``Mandate.client_birth_year``)
-         + ``PlanningAssumption.life_expectancy_primary``
-      4. Geburtsjahr + 90 (CH-Lebenserwartung, konservativ)
+    Genommen wird das spaeteste plausible Jahr aus:
+      - dem letzten erfassten Cashflow-Ende (valid_until/valid_from) — die
+        Projektion MUSS alle vom Berater erfassten Cashflows abdecken (z.B.
+        AHV/Verzehr bis 2060), sonst wird der Verzehr abgeschnitten;
+      - ``client.investment_horizon_end`` (explizites Stammdatum);
+      - ``Mandate.life_expectancy_year``;
+      - Geburtsjahr + ``PlanningAssumption.life_expectancy_primary``;
+      - Geburtsjahr + 90 (CH-Lebenserwartung, konservativ).
+    Fallback ``default_years``.
     """
     from datetime import date as _date
     from models.mandates import Mandate
@@ -323,6 +326,13 @@ def _derive_cashflow_projection_horizon(
 
     birth_year = _year(getattr(client, "date_of_birth", None))
     end_years: list[int] = []
+
+    # Letztes erfasstes Cashflow-Jahr (valid_until bevorzugt, sonst valid_from) —
+    # die Projektion muss alle Cashflows vollstaendig abbilden.
+    for cf in (cashflows or []):
+        cf_year = _year(getattr(cf, "valid_until", None)) or _year(getattr(cf, "valid_from", None))
+        if cf_year:
+            end_years.append(cf_year)
 
     horizon_end = _year(getattr(client, "investment_horizon_end", None))
     if horizon_end:
@@ -376,19 +386,20 @@ def cashflow_projection(
     from datetime import date as _date
 
     client = _get_client_or_404(client_id, db, current_user)
-    # #Zeitraum-Fix (2026-06-12): ohne expliziten Override wird der Horizont aus
-    # den Stammdaten bis zum Lebensende abgeleitet (statt hartes Default 40),
-    # damit der Vermoegensverzehr nach der Pensionierung sichtbar ist.
-    effective_horizon = (
-        int(horizon_years)
-        if horizon_years is not None
-        else _derive_cashflow_projection_horizon(client, db)
-    )
     cashflows = db.query(Cashflow).filter(
         Cashflow.client_id == client_id,
         Cashflow.deleted_at.is_(None),
         Cashflow.is_active == 1,
     ).all()
+    # #Zeitraum-Fix (2026-06-12): ohne expliziten Override wird der Horizont aus
+    # den Stammdaten + erfassten Cashflows bis zum Lebensende abgeleitet (statt
+    # hartes Default 40), damit der Vermoegensverzehr nach der Pensionierung
+    # vollstaendig sichtbar ist (alle Cashflows abgedeckt).
+    effective_horizon = (
+        int(horizon_years)
+        if horizon_years is not None
+        else _derive_cashflow_projection_horizon(client, db, cashflows=cashflows)
+    )
     start_year = _date.today().year
     rows = []
     for offset in range(int(effective_horizon or 40)):
