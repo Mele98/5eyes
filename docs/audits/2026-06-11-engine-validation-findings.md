@@ -74,10 +74,17 @@ crasht.** Fix-Optionen: (A) sub-allocation-gewichtete Risky-Fraction (korrekt, D
 bestätigt, aber MC/Tests neu kalibrieren), (B) Cap-Review konsistent zu 3375, (C) graceful
 konservativer Fallback statt Crash. **TOP-PRIORITÄT, dediziert + voll verifiziert angehen.**
 
-### #AA-2 (HOCH): Konsistenz-Test gibt falsche Sicherheit
+### #AA-2 (→ LOW, Test-Qualität): Konsistenz-Test gibt falsche Sicherheit — ENTSCHÄRFT (2026-06-12)
 `test_house_matrix_risk_budget_consistency.py` nutzt hardcoded bonds=2250 statt produktivem
-Mittel 3375 → grün trotz Crash. Fix: Test aus `bucket_risky_fraction_bps_from_building_blocks`
-speisen. ACHTUNG: dann fällt der Test (deckt #AA-1/#AA-3 auf) → gemeinsam mit #AA-1 fixen.
+Mittel 3375 → war grün trotz Crash. **Die gefährliche false-confidence (grün-trotz-Crash) ist
+durch den #AA-1-Fix aufgelöst** (Engine crasht nicht mehr, #AA-3 ebenfalls gelöst). Der Test
+bleibt als komplementärer **Design-Buffer-Check** (haben die HM-Caps Headroom für eine
+repräsentative Mid-Allokation) gültig. **Bewusst NICHT umgestellt** (Maxime „kein Umbau ohne
+Not"): Den hardcoded-Wert auf den ungewichteten Produktiv-Mittelwert 3375 zu ziehen würde einen
+FALSCH-fehlschlagenden Test erzeugen, weil die Engine post-#AA-1 das sub-allocation-GEWICHTETE
+Maß nutzt, nicht den ungewichteten Mittelwert. Optionaler Folge-Refactor (separat): Test aus
+`bucket_risky_fraction_bps_from_building_blocks` + realer Sub-Allokation speisen, um Engine-Pfad
+und Design-Buffer-Check zu vereinheitlichen — kein Produktions-Impact.
 
 ### #AA-3 (HOCH): Defensiv/Ausgewogen verletzen systematisch ihr Budget → immer Mid-Reset-Fallback — GELÖST ✅ (2026-06-12, via #AA-1)
 Mit produktivem Mittel 3375: Defensiv realized 5012 > Cap 4500, Ausgewogen 6306 > 6000.
