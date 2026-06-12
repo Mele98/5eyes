@@ -138,8 +138,11 @@ def test_b6_reserve_zero_probability_zero():
     assert needed == 0
 
 
-def test_b6_reserve_max_across_certain_and_conditional():
-    """Sicheres Ziel (100%) + bedingtes (30%) -> max() greift wie bisher."""
+def test_b6_reserve_sums_certain_and_conditional():
+    """#AA-8 (2026-06-12): distinkte gleichzeitige Spending-Goals SUMMIEREN sich
+    (goals-based liquidity bucketing — Brunel/Chhabra; ASIP-Liquiditaets-Buckets).
+    Vorher max() -> systematische Unterreservierung wenn mehrere Nahziele
+    gleichzeitig anfallen. Bedingtes Goal weiter pro-rata (prob/100) gewichtet."""
     needed, _ = pe._compute_reserve_for_inputs(
         goals=[
             _spending_goal(target_rappen=3_000_000, years=2, probability_pct=100, label="A"),
@@ -151,8 +154,8 @@ def test_b6_reserve_max_across_certain_and_conditional():
         advisory_wealth_rappen=10_000_000,
         saa_liquidity_ceiling_bps=1000,
     )
-    # B: 100k * 0.30 = 30k; A: 30k. max=30k
-    assert needed == 3_000_000
+    # A: 30k (sicher) + B: 100k * 0.30 = 30k (bedingt, pro-rata) = 60k erwartete Reserve
+    assert needed == 6_000_000
 
 
 # ============================================================================
