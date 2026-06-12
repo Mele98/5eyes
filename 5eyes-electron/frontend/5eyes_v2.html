@@ -15696,8 +15696,32 @@ function updateProjectionChartsFromSimulation(result){
         charts.opt.data.datasets[0].label='Strategie ausstehend';
         charts.opt.data.datasets[0].data=labels.map(function(){return null;});
       }
-      charts.opt.data.datasets[0].tension=0.22;
+      charts.opt.data.datasets[0].tension=0.28;
       charts.opt.data.datasets[0].stepped=false;
+      // Vergleich (2026-06-12): IST-Pfad (heutiger Mix) als gestrichelte Linie
+      // ueberlagern -> Hover (mode:'index') zeigt SOLL UND IST gleichzeitig fuer
+      // den direkten Vergleich auf einer Grafik.
+      if(targetSeries.length&&Array.isArray(advisoryCurrentSeries)&&advisoryCurrentSeries.length){
+        charts.opt.data.datasets[1]={
+          label:'Heutiger Mix (IST)',
+          data:advisoryCurrentSeries,
+          borderColor:'rgba(122,130,153,0.9)',
+          backgroundColor:'rgba(122,130,153,0.05)',
+          borderWidth:1.5,
+          borderDash:[5,4],
+          pointRadius:0,
+          pointHoverRadius:4,
+          fill:false,
+          tension:0.28,
+          stepped:false
+        };
+        if(charts.opt.options&&charts.opt.options.plugins&&charts.opt.options.plugins.legend){
+          charts.opt.options.plugins.legend.display=true;
+          charts.opt.options.plugins.legend.labels=charts.opt.options.plugins.legend.labels||{};
+          charts.opt.options.plugins.legend.labels.boxWidth=18;
+          charts.opt.options.plugins.legend.labels.font={size:9};
+        }
+      }
     }
     charts.opt.update();
   }
