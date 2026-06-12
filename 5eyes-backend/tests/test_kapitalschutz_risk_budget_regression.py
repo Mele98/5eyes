@@ -81,3 +81,9 @@ def test_low_risk_profiles_generate_without_crash(session_factory, score_x10, pr
         if score_x10 == 10:  # Kapitalschutz: konservativ (niedrige Aktien, Schwerpunkt Obli)
             assert buckets["target_equities_bps"] <= 1500, buckets
             assert buckets["target_bonds_bps"] >= 6000, buckets
+        if score_x10 in (35, 55):
+            # #AA-3 (GELOEST durch #AA-1-Fix): mit dem sub-allocation-gewichteten
+            # Risky-Mass laufen Defensiv/Ausgewogen NICHT mehr in den spurious
+            # WARN_FALLBACK (Mid-Reset). Erwartung: keine Fallback-Warnung.
+            warnings = result.get("warnings") or []
+            assert not any("fallback" in str(w).lower() for w in warnings), (score_x10, warnings)

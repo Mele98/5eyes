@@ -79,11 +79,13 @@ konservativer Fallback statt Crash. **TOP-PRIORITÄT, dediziert + voll verifizie
 Mittel 3375 → grün trotz Crash. Fix: Test aus `bucket_risky_fraction_bps_from_building_blocks`
 speisen. ACHTUNG: dann fällt der Test (deckt #AA-1/#AA-3 auf) → gemeinsam mit #AA-1 fixen.
 
-### #AA-3 (HOCH): Defensiv/Ausgewogen verletzen systematisch ihr Budget → immer Mid-Reset-Fallback
+### #AA-3 (HOCH): Defensiv/Ausgewogen verletzen systematisch ihr Budget → immer Mid-Reset-Fallback — GELÖST ✅ (2026-06-12, via #AA-1)
 Mit produktivem Mittel 3375: Defensiv realized 5012 > Cap 4500, Ausgewogen 6306 > 6000.
-Crasht NICHT (Fallback fängt), aber JEDES Defensiv/Ausgewogen-Mandat läuft in WARN_FALLBACK
-(Mid-Reset) statt sauberer SAA. Fix: Default-Targets je Profil so setzen dass realized ≤ Cap,
-ODER (besser) gewichtete Risky-Fraction (#AA-1 Fix A löst alle drei).
+Crashte NICHT (Fallback fing), aber JEDES Defensiv/Ausgewogen-Mandat lief in WARN_FALLBACK
+(Mid-Reset) statt sauberer SAA. **Gelöst durch #AA-1 Fix A** (sub-allocation-gewichtete
+Risky-Fraction): empirisch generieren Defensiv (Score 35) und Ausgewogen (Score 55) jetzt
+mit **0 Warnungen, kein WARN_FALLBACK, kein Mid-Reset** — realized ≤ Cap. Verankert in
+test_kapitalschutz_risk_budget_regression.py (Assertion: keine Fallback-Warnung für 35/55).
 
 ### #AA-4 (HOCH, MC-Report): 1-Jahres-VaR/CVaR/Loss-Probability durch Cashflow verfälscht
 Jahr-1-Rendite enthält Cashflow-Einzahlung → VaR/Loss-Prob zu klein (Verlustrisiko
