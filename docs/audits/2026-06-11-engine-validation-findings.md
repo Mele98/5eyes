@@ -104,9 +104,14 @@ slice_per_theme relativ zu targets["equities"] statt im Per-Bucket-Raum (0-10000
 liefert nur eq/10000 (30-80%) der intendierten 15%-Bucket-Gewichtung. Fix:
 portfolio_engine.py:3408-3410 Tilt im Per-Bucket-Raum definieren.
 
-### #AA-8 (HOCH): Goal-Reserve nutzt max() statt Summe
-Mehrere gleichzeitige Nahziele werden unterreserviert (nur das größte zählt). Fix: Spending-
-Goal-Liabilitäten summieren (laufende/manuelle Reserve weiter via max() kombinierbar).
+### #AA-8 (HOCH): Goal-Reserve nutzt max() statt Summe — GEFIXT ✅ (2026-06-12)
+Mehrere gleichzeitige Nahziele wurden unterreserviert (nur das größte zählt). **Empirisch
+bewiesen** (100k+50k → 100k statt 150k). Fix (`_compute_reserve_for_inputs`,
+portfolio_engine.py:~4248-4308): Spending-Goal-Beiträge werden in `goal_reserve_sum`
+SUMMIERT, dann als ein Kandidat via `max()` mit den Floor-Kandidaten (manuelle/Liquiditäts-
+Reserve, Cashflow-Shortfall) kombiniert — Floor dominiert weiterhin wenn größer. Verifiziert:
+4 neue Regressionstests (Summe / Floor-max / Einzelziel / Mid-Term-50%) + reserve-/optimizer-
+Integration grün (113 Tests).
 
 ### #AA-9 (LOW): Banker's-Rounding in _risk_score_bucket
 `int(round(score_x10/10))` (Banker's) bricht Monotonie + divergiert vom Profil-Namen-Mapping

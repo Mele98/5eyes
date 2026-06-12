@@ -4245,6 +4245,12 @@ def _compute_reserve_for_inputs(
         if reasoning is not None:
             reasoning.append("Negativer laufender Netto-Cashflow erhoeht die erforderliche Liquiditaetsreserve.")
 
+    # #AA-8 Fix (2026-06-12): Spending-Goal-Reserven SUMMIEREN sich untereinander
+    # (mehrere gleichzeitige Nahziele = additiver Liquiditaetsbedarf), statt via
+    # max() zu konkurrieren (vorher: nur das groesste Ziel zaehlte -> systematische
+    # Unterreservierung). Floor-Kandidaten (manuelle/Liquiditaets-Reserve,
+    # Cashflow-Shortfall) bleiben max()-kombiniert.
+    goal_reserve_sum: int = 0
     for goal in goals:
         years = _goal_projection_years(goal)
         goal_type = _norm_text(goal.goal_type)
@@ -4279,7 +4285,7 @@ def _compute_reserve_for_inputs(
                 factor = _reserve_decay_factor(years)
                 reserve_amount = int(round(target_amount * factor))
                 if reserve_amount > 0:
-                    reserve_candidates.append(reserve_amount)
+                    goal_reserve_sum += reserve_amount
                     if reasoning is not None:
                         reasoning.append(
                             f"Das Ziel '{goal.label}' (in {years}J) traegt zu {factor*100:.0f}% "
@@ -4289,7 +4295,7 @@ def _compute_reserve_for_inputs(
                 factor = _time_bucket_reserve_factor(years)
                 reserve_amount = int(round(target_amount * factor))
                 if reserve_amount > 0:
-                    reserve_candidates.append(reserve_amount)
+                    goal_reserve_sum += reserve_amount
                     if reasoning is not None:
                         bucket = _time_bucket_label(years)
                         reasoning.append(
@@ -4298,12 +4304,14 @@ def _compute_reserve_for_inputs(
                         )
             else:
                 if years <= 3:
-                    reserve_candidates.append(target_amount)
+                    goal_reserve_sum += target_amount
                     if reasoning is not None:
                         reasoning.append(f"Das Ziel '{goal.label}' wird als kurzfristiger Liquiditaetsbedarf beruecksichtigt.")
                 elif years <= 7:
-                    reserve_candidates.append(int(round(target_amount * 0.5)))
+                    goal_reserve_sum += int(round(target_amount * 0.5))
 
+    if goal_reserve_sum > 0:
+        reserve_candidates.append(goal_reserve_sum)
     reserve_needed_rappen = max(reserve_candidates)
     external_reserve_rappen = 0
     if reserve_needed_rappen <= 0 or advisory_wealth_rappen <= 0:

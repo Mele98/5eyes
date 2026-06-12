@@ -34,7 +34,7 @@ from models import users as _user_models  # noqa: F401
 from models import wealth as _wealth_models  # noqa: F401
 from models.allocation import OptimizerPolicy
 from models.wealth import Goal
-from services.portfolio_engine import _build_goal_analysis
+from services.portfolio_engine import _build_goal_analysis, _compute_reserve_for_inputs
 from sqlalchemy.orm import configure_mappers
 configure_mappers()
 
@@ -166,3 +166,55 @@ def test_c5_recurring_spending_uses_annualized_reserve():
     # annualized: 12 * 10k = 120k. Eigene Reserve = 120k. Score sollte 100%
     # sein, NICHT durch globalen Pool aufgepumpt.
     assert 95 <= score <= 100
+
+
+# --- #AA-8 (2026-06-12): Spending-Goal-Reserven summieren, nicht max() ---
+
+def _reserve(goals, **overrides):
+    kwargs = dict(
+        goals=goals, limits_prefs={}, asset_class_prefs={},
+        recurring_net_cashflow_rappen=0,
+        recurring_cashflow_projection_series_rappen=[0, 0, 0],
+        advisory_wealth_rappen=200_000_000,  # 2 Mio, hoher Ceiling
+        saa_liquidity_ceiling_bps=10000,
+    )
+    kwargs.update(overrides)
+    reserve, _external = _compute_reserve_for_inputs(**kwargs)
+    return reserve
+
+
+def test_aa8_multiple_near_term_goals_sum_not_max():
+    """#AA-8: Zwei gleichzeitige Nahziele (100k + 50k in <=3J) erfordern die
+    SUMME (150k) als Reserve, nicht max() (frueher faelschlich nur 100k ->
+    systematische Unterreservierung)."""
+    goals = [
+        _make_goal(gid="g-a", label="Hauskauf", target_amount=10_000_000, years=2),
+        _make_goal(gid="g-b", label="Auto", target_amount=5_000_000, years=2),
+    ]
+    assert _reserve(goals) == 15_000_000
+
+
+def test_aa8_manual_floor_still_dominates_via_max():
+    """Floor-Kandidaten (manuelle Reserve) bleiben max()-kombiniert: eine
+    hoehere manuelle Reserve (300k) dominiert die Goal-Summe (150k)."""
+    goals = [
+        _make_goal(gid="g-a", label="Hauskauf", target_amount=10_000_000, years=2),
+        _make_goal(gid="g-b", label="Auto", target_amount=5_000_000, years=2),
+    ]
+    assert _reserve(goals, limits_prefs={"minReserve": "300000"}) == 30_000_000
+
+
+def test_aa8_single_goal_unchanged():
+    """Einzelziel bleibt unveraendert (Summe == Einzelbetrag)."""
+    goals = [_make_goal(gid="g-a", label="Hauskauf", target_amount=10_000_000, years=2)]
+    assert _reserve(goals) == 10_000_000
+
+
+def test_aa8_midterm_goals_sum_at_half_weight():
+    """Zwei mittelfristige Ziele (4-7J) tragen je 50% bei und summieren sich:
+    (100k + 60k) * 0.5 = 80k."""
+    goals = [
+        _make_goal(gid="g-a", label="A", target_amount=10_000_000, years=5),
+        _make_goal(gid="g-b", label="B", target_amount=6_000_000, years=5),
+    ]
+    assert _reserve(goals) == 8_000_000
