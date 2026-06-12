@@ -103,10 +103,17 @@ neuer Test (identischer Seed, Jahr-1-Risikomasse IDENTISCH mit/ohne 50%-Einzahlu
 hätte die Einzahlung die Loss-Prob künstlich gesenkt) + 126 MC-/runtime-/scenario-Tests grün.
 Test-Invarianten (var ≤ cvar ≤ 10000, loss_prob 0-100) unverändert erfüllt.
 
-### #AA-5 (HOCH, MC-Report): Money-weighted Terminal-Value als CAGR/median_cagr_bps fehletikettiert
-End/Start-Ratio enthält Cashflow-Beiträge → "CAGR" ist money-weighted, nicht time-weighted.
-Fix: echte time-weighted Rendite (geometrische Verkettung der Markt-Wachstumsfaktoren VOR
-Cashflow).
+### #AA-5 (HOCH, MC-Report): Money-weighted Terminal-Value als CAGR fehletikettiert — GEFIXT ✅ (2026-06-12)
+`target/current_annualized_return_p50_bps` (+ Renditeziel-success_rate/median/score) nutzten
+`_annualized_return_bps(start, end_over_horizon)` = money-weighted (end/start enthält alle
+Ein-/Auszahlungen) → eine Einzahlung vor einem guten Jahr hob die ausgewiesene Rendite
+künstlich. **User-Entscheid 2026-06-12: time-weighted (TWR).** Fix (portfolio_engine.py:
+neuer `_twr_annualized_bps` + Pre-/Post-Growth-Faktor-Verkettung im MC-Loop ~3121/3142/3187):
+geometrische Verkettung der jährlichen MARKT-Wachstumsfaktoren (vor Cashflow). Eingebrochene
+Pfade → -100% (Floor analog #AA-6). Verifiziert: TWR cashflow-timing-neutral (identisch mit/ohne
+2x-Einzahlung bei Rebalancing) + 6 neue Tests + 155 annualized-/MC-/backtest-Tests grün.
+**Hinweis:** TWR ist brutto-of-Rebalancing-Transaktionskosten (Kosten heben sich im
+Faktor-Verhältnis auf) — Kosten-Drag 2. Ordnung, dokumentiert.
 
 ### #AA-6 (MEDIUM, MC): _annualized_return_bps gibt 0 statt -100% für aufgebrauchte Pfade — GEFIXT ✅ (2026-06-12)
 Aufgebrauchte Pfade (end_value ≤ 0 = Totalverlust) flossen mit 0% statt -100% ein →

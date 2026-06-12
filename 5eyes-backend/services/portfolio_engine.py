@@ -2814,6 +2814,17 @@ def _annualized_return_bps(start_value: int, end_value: int, years: int) -> int:
     return int(round((math.pow(end_value / start_value, 1 / years) - 1) * 10000))
 
 
+def _twr_annualized_bps(growth_product: float, years: int) -> int:
+    # #AA-5 (2026-06-12): annualisierte time-weighted Rendite aus dem Produkt der
+    # jaehrlichen Markt-Wachstumsfaktoren (cashflow-bereinigt). Eingebrochene Pfade
+    # (Produkt <= 0) -> -100% (analog _annualized_return_bps Floor, #AA-6).
+    if years <= 0:
+        return 0
+    if growth_product <= 0:
+        return -10000
+    return int(round((math.pow(growth_product, 1 / years) - 1) * 10000))
+
+
 def _return_bps(start_value: int, end_value: int) -> int:
     if start_value <= 0 or end_value <= 0:
         return -10000 if end_value <= 0 else 0
@@ -3117,8 +3128,17 @@ def _run_allocation_monte_carlo(
         # Einzahlung ist kein Markt-Gewinn und darf das Verlustrisiko nicht
         # unterschaetzen lassen (bzw. eine Entnahme nicht ueberschaetzen).
         target_year1_market_value: int | None = None
+        # #AA-5 (2026-06-12): time-weighted Rendite (TWR) — geometrische Verkettung
+        # der jaehrlichen MARKT-Wachstumsfaktoren (vor Cashflow). Misst die
+        # Strategie-Performance unabhaengig vom Ein-/Auszahlungs-Timing; das
+        # bisherige money-weighted end/start verzerrte die ausgewiesene Rendite
+        # (eine Einzahlung vor einem guten Jahr hob die "CAGR" kuenstlich).
+        target_twr_product = 1.0
+        current_twr_product = 1.0
 
         for year_index, contribution in enumerate(cashflow_projection_series_rappen, start=1):
+            target_pre_growth = max(1, sum(target_values.values()))
+            current_pre_growth = max(1, sum(current_values.values()))
             # Draw n_assets independent standard normals, then correlate via Cholesky: Z = L * W
             indep = [rng.gauss(0.0, 1.0) for _ in range(n_assets)]
             corr = [sum(chol[i][j] * indep[j] for j in range(i + 1)) for i in range(n_assets)]
@@ -3139,9 +3159,16 @@ def _run_allocation_monte_carlo(
                     total_current_values[key] = int(round(max(0, total_current_values[key]) * growth_factor))
                     total_target_values[key] = int(round(max(0, total_target_values[key]) * growth_factor))
 
+            target_post_growth = sum(target_values.values())
+            current_post_growth = sum(current_values.values())
+            # #AA-5: Jahres-Marktfaktor (post-growth / pre-growth, beide VOR Cashflow)
+            # geometrisch akkumulieren. Transaktionskosten heben sich im Verhaeltnis
+            # auf -> TWR ist brutto-of-Rebalancing-Kosten (Kosten-Drag 2. Ordnung).
+            target_twr_product *= target_post_growth / target_pre_growth
+            current_twr_product *= current_post_growth / current_pre_growth
             if year_index == 1:
                 # #AA-4: Marktwert nach Wachstum, VOR Cashflow/Rebalancing erfassen.
-                target_year1_market_value = sum(target_values.values())
+                target_year1_market_value = target_post_growth
 
             current_deficit += _apply_cashflow_to_bucket_values(current_values, int(contribution or 0))
             target_deficit += _apply_cashflow_to_bucket_values(target_values, int(contribution or 0))
@@ -3190,8 +3217,9 @@ def _run_allocation_monte_carlo(
         # Sprint U-P1 Fix C1: Pfad-Indizierung explizit via _simulation_idx
         # statt [-1]. Vorher: target_by_year[1][-1] funktionierte zufaellig
         # (Append-Reihenfolge), aber bricht bei jeder Parallelisierung silent.
-        current_annualized_returns.append(_annualized_return_bps(current_start, current_by_year[-1][_simulation_idx], horizon_years))
-        target_annualized_returns.append(_annualized_return_bps(target_start, target_by_year[-1][_simulation_idx], horizon_years))
+        # #AA-5: time-weighted (cashflow-bereinigt) statt money-weighted end/start.
+        current_annualized_returns.append(_twr_annualized_bps(current_twr_product, horizon_years))
+        target_annualized_returns.append(_twr_annualized_bps(target_twr_product, horizon_years))
         if target_year1_market_value is not None:
             # #AA-4: cashflow-bereinigt — Markt-Rendite (Pre-Cashflow) statt der
             # cashflow-verzerrten target_by_year[1] (Post-Cashflow).
