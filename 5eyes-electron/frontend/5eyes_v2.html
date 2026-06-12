@@ -4333,9 +4333,27 @@ function wealthProjectionInputs(scope){
       Number(mix.alternatives||0)*returnMap.alternatives
     )/10000);
   });
+  // Bug-Fix (2026-06-12): Verbindlichkeiten (Hypotheken) vom Gesamtvermoegen
+  // ABZIEHEN -> Netto-Vermoegen als Projektionsbasis. wealthScopePositions('total')
+  // schliesst Verbindlichkeiten nur aus, zog sie aber nie ab -> die Verzehr-Kurve
+  // startete brutto (z.B. Leart 1.15M statt netto 850k) und war inkonsistent zur
+  // Wealth-Summary (net_worth_rappen). Rendite/Bucket-Gewichte bleiben auf den
+  // Brutto-Assets (totalRappen); nur der Startwert wird auf netto reduziert.
+  var startRappen=totalRappen;
+  if(scope!=='advisory'){
+    var liabilitiesRappen=0;
+    activeClientWealthPositions().forEach(function(pos){
+      if(pos&&(!Object.prototype.hasOwnProperty.call(pos,'is_active')||pos.is_active!==0)
+        &&String(pos.assignment||'')==='Verbindlichkeit'){
+        liabilitiesRappen+=Math.max(0,Math.round(Number(pos.current_value_rappen||0)));
+      }
+    });
+    startRappen=Math.max(0,totalRappen-liabilitiesRappen);
+  }
   return {
     scope:scope,
-    startRappen:totalRappen,
+    startRappen:startRappen,
+    grossRappen:totalRappen,
     recurringNetCashflowRappen:recurringNetCashflowRappen,
     capitalNetCashflowRappen:capitalNetCashflowRappen,
     annualNetCashflowRappen:annualNetCashflowRappen,
