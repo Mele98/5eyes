@@ -1473,14 +1473,24 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
                      Default Auto = projectionHorizonYears Cascade (Sim>Risk>40).
                      Bei Override wird Cashflow-Projection neu mit dem Wert geladen
                      und alle 3 Charts (ist/aaCurrent/opt) re-rendert. -->
-                <div style="display:flex;align-items:center;gap:6px;font-size:10px;color:var(--n5)">
-                  <label for="cf-horizon-override">Horizont:</label>
-                  <input id="cf-horizon-override" type="number" min="3" max="60" step="1" value="" placeholder="auto"
-                         title="Berater-Override fuer den Projektions-Horizont. Leer = automatische Wahl aus Simulation/Risikoprofil."
+                <div style="display:flex;align-items:center;gap:6px;font-size:10px;color:var(--n5);flex-wrap:wrap">
+                  <label for="cf-horizon-mode">Anlagehorizont:</label>
+                  <select id="cf-horizon-mode" onchange="setHorizonInputMode(this.value)"
+                          title="Wie lange die Grafiken laufen – in Jahren oder bis zu einem Datum."
+                          style="font-size:10px;padding:2px 4px;border:1px solid var(--b1);border-radius:2px;background:var(--bg)">
+                    <option value="years">in Jahren</option>
+                    <option value="date">bis Datum</option>
+                  </select>
+                  <input id="cf-horizon-override" type="number" min="1" max="60" step="1" value="" placeholder="auto"
+                         title="Anlagehorizont in Jahren. Leer = automatisch aus Stammdaten/Cashflows (bis Lebensende)."
                          style="width:54px;font-size:10px;padding:2px 4px;border:1px solid var(--b1);border-radius:2px;background:var(--bg);text-align:right"
                          onchange="applyIstHorizonOverride(this.value)">
-                  <span>Jahre</span>
-                  <button class="btn" type="button" onclick="applyIstHorizonOverride('')" title="Override zuruecksetzen"
+                  <input id="cf-horizon-date" type="date"
+                         title="Anlagehorizont bis zu diesem Datum."
+                         style="display:none;font-size:10px;padding:2px 4px;border:1px solid var(--b1);border-radius:2px;background:var(--bg)"
+                         onchange="applyIstHorizonDate(this.value)">
+                  <span id="cf-horizon-eff" style="color:var(--n6);font-style:italic"></span>
+                  <button class="btn" type="button" onclick="resetIstHorizonOverride()" title="Automatisch aus Stammdaten ableiten"
                           style="font-size:9px;padding:2px 6px">Auto</button>
                 </div>
               </div>
@@ -15209,10 +15219,45 @@ function cashflowProjectionQuery(){
   return (ov && ov > 0) ? ('?horizon_years=' + ov) : '';
 }
 function syncIstHorizonOverrideInput(){
-  var el = document.getElementById('cf-horizon-override');
-  if (!el) return;
   var ov = loadIstHorizonOverride();
-  el.value = ov ? String(ov) : '';
+  var el = document.getElementById('cf-horizon-override');
+  if (el) el.value = ov ? String(ov) : '';
+  var dEl = document.getElementById('cf-horizon-date');
+  if (dEl) {
+    if (ov) {
+      var endY = (new Date()).getFullYear() + Number(ov) - 1;  // inkl. Zieljahr
+      dEl.value = endY + '-12-31';
+    } else { dEl.value = ''; }
+  }
+  updateHorizonEffectiveLabel();
+}
+function setHorizonInputMode(mode){
+  var yEl = document.getElementById('cf-horizon-override');
+  var dEl = document.getElementById('cf-horizon-date');
+  if (!yEl || !dEl) return;
+  if (mode === 'date') { yEl.style.display = 'none'; dEl.style.display = ''; }
+  else { dEl.style.display = 'none'; yEl.style.display = ''; }
+}
+function applyIstHorizonDate(dateStr){
+  // Enddatum -> Jahre ab heute (Zieljahr inklusive), dann normaler Override.
+  var y = parseInt(String(dateStr || '').slice(0, 4), 10);
+  var cur = (new Date()).getFullYear();
+  if (!isFinite(y) || y <= cur) { applyIstHorizonOverride(''); return; }
+  applyIstHorizonOverride(String(Math.min(60, y - cur + 1)));
+}
+function resetIstHorizonOverride(){
+  var dEl = document.getElementById('cf-horizon-date'); if (dEl) dEl.value = '';
+  applyIstHorizonOverride('');  // leer -> Backend leitet aus Stammdaten ab (auto)
+}
+function updateHorizonEffectiveLabel(){
+  var el = document.getElementById('cf-horizon-eff'); if (!el) return;
+  var rows = currentCashflowProjection && Array.isArray(currentCashflowProjection.years)
+    ? currentCashflowProjection.years : [];
+  if (!rows.length) { el.textContent = ''; return; }
+  var endY = Number(rows[rows.length - 1] && rows[rows.length - 1].year || 0);
+  var yrs = rows.length;  // Anzahl Projektionsjahre (inkl. Startjahr)
+  var isAuto = !loadIstHorizonOverride();
+  el.textContent = endY ? ('= bis ' + endY + ' (' + yrs + ' J.)' + (isAuto ? ' · auto' : '')) : '';
 }
 async function applyIstHorizonOverride(yearsRaw){
   // Speichern (oder loeschen wenn leer/auto) + Cashflow-Projection neu laden +
@@ -15240,6 +15285,8 @@ async function applyIstHorizonOverride(yearsRaw){
   try {
     updateProjectionChartsFromSimulation(strategyState && strategyState.allocation);
   } catch(e) { /* defensive */ }
+  // Effektiv-Label mit der NEU geladenen Projektion aktualisieren (bis Jahr / Jahre).
+  updateHorizonEffectiveLabel();
 }
 
 function projectionHorizonYears(result,preferredYears){
