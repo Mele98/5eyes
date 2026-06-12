@@ -1374,6 +1374,7 @@ def _enforce_risk_budget(
     maximums: dict[str, int],
     asset_risky_weights: dict[str, int],
     risk_budget_bps: int,
+    allow_best_effort: bool = False,
 ) -> tuple[dict[str, int], int]:
     adjusted = {key: int(targets[key]) for key in BUCKET_FIELDS}
     current_risk = _risk_budget_from_targets(adjusted, asset_risky_weights)
@@ -1404,6 +1405,13 @@ def _enforce_risk_budget(
         adjusted[receiver] += step
         current_risk = _risk_budget_from_targets(adjusted, asset_risky_weights)
     if current_risk > risk_budget_bps:
+        if allow_best_effort:
+            # Validierung 2026-06-11 (#AA-1): strukturell unerreichbares Budget
+            # (Mindestquoten lassen die Risky-Fraction nicht unter den Cap). Statt
+            # hart zu werfen die konservativste ERREICHBARE Allokation zurueckgeben;
+            # der Aufrufer (letzte Eskalationsstufe) behandelt die Ueberschreitung
+            # graceful (Compliance-Warnung) statt die SAA-Generierung abzubrechen.
+            return adjusted, current_risk
         overshoot_bps = current_risk - risk_budget_bps
         raise ValueError(
             f"Risikobudget konnte nicht eingehalten werden: "
@@ -5751,7 +5759,7 @@ def generate_target_allocation(
     risky_map = _building_block_risky_map(db, policy.id, getattr(mandate, "investment_universe", None))
     sub_allocations = _build_sub_allocations(targets, prefs)
     sub_allocations, asset_risky_weights, risky_fraction_total_bps = _enrich_sub_allocations_with_risk(sub_allocations, risky_map)
-    realized_risky_bps = compute_portfolio_risky_fraction_bps(targets, _building_block_rows)
+    realized_risky_bps = risky_fraction_total_bps  # Validierung 2026-06-11 (#AA-1/#AA-3): sub-allocation-gewichtet (konsistent zur Enforcement-Cascade), statt ungewichtetem BB-Bucket-Mittel
     risk_budget_fallback = False
     try:
         assert_risk_budget_ok(realized_risky_bps, risk_budget_bps, slack_bps=0)
@@ -5762,7 +5770,7 @@ def generate_target_allocation(
         targets = _rebalance_to_total(targets, minimums, maximums)
         sub_allocations = _build_sub_allocations(targets, prefs)
         sub_allocations, asset_risky_weights, risky_fraction_total_bps = _enrich_sub_allocations_with_risk(sub_allocations, risky_map)
-        realized_risky_bps = compute_portfolio_risky_fraction_bps(targets, _building_block_rows)
+        realized_risky_bps = risky_fraction_total_bps  # Validierung 2026-06-11 (#AA-1): sub-allocation-gewichtet (konsistent zur Enforcement-Cascade via asset_risky_weights), statt ungewichtetem BB-Bucket-Mittel
         try:
             assert_risk_budget_ok(realized_risky_bps, risk_budget_bps, slack_bps=0)
         except RiskBudgetExceeded:
@@ -5807,12 +5815,16 @@ def generate_target_allocation(
                     # dem Hard-Cap ist.
                     expanded_max = max(hard_capped, _SAA_LIQUIDITY_EMERGENCY_CAP_BPS)
                     maximums = {**maximums, "liquidity": expanded_max}
+                    # Validierung 2026-06-11 (#AA-1): letzte Eskalationsstufe gibt die
+                    # konservativste ERREICHBARE Allokation zurueck (allow_best_effort)
+                    # statt hart zu werfen, falls das Budget strukturell unerreichbar ist.
                     targets, risky_fraction_total_bps = _enforce_risk_budget(
                         targets=targets,
                         minimums=minimums,
                         maximums=maximums,
                         asset_risky_weights=risk_budget_asset_weights,
                         risk_budget_bps=risk_budget_bps,
+                        allow_best_effort=True,
                     )
                     warnings.append(format_message(WARN_FALLBACK))
                     reasoning.append(
@@ -5824,8 +5836,25 @@ def generate_target_allocation(
             targets = _rebalance_to_total(targets, minimums, maximums)
             sub_allocations = _build_sub_allocations(targets, prefs)
             sub_allocations, asset_risky_weights, risky_fraction_total_bps = _enrich_sub_allocations_with_risk(sub_allocations, risky_map)
-            realized_risky_bps = compute_portfolio_risky_fraction_bps(targets, _building_block_rows)
-            assert_risk_budget_ok(realized_risky_bps, risk_budget_bps, slack_bps=0)
+            realized_risky_bps = risky_fraction_total_bps  # Validierung 2026-06-11 (#AA-1): sub-allocation-gewichtet (konsistent zur Enforcement-Cascade via asset_risky_weights), statt ungewichtetem BB-Bucket-Mittel
+            if int(realized_risky_bps) > int(risk_budget_bps):
+                # Validierung 2026-06-11 (#AA-1): strukturell unerreichbares Budget
+                # (Bausteine + Pflicht-Bandbreiten lassen die Risky-Fraction nicht unter
+                # den Cap — z.B. Kapitalschutz: Bonds-Floor 65% × Bonds-Risky dominiert).
+                # Frueher: hartes RiskBudgetExceeded -> 500, Berater bekam KEINE Strategie
+                # fuer das konservativste Profil. Jetzt: konservativste erreichbare
+                # Allokation behalten + klare Compliance-Warnung (Design-Absicht "Berater
+                # alarmieren", aber ohne Crash). WARN_FALLBACK wird unten angefuegt.
+                reasoning.append(
+                    f"Das Risikoprofil-Budget ({risk_budget_bps / 100:.0f} %) ist mit den "
+                    f"aktuellen Bausteinen und Pflicht-Bandbreiten strukturell nicht "
+                    f"vollstaendig erreichbar (konservativst moeglich: "
+                    f"{int(realized_risky_bps) / 100:.1f} %). Die konservativste zulaessige "
+                    f"Allokation wurde gewaehlt; bitte Risikoprofil oder Bausteine im "
+                    f"Beratungsgespraech pruefen."
+                )
+            else:
+                assert_risk_budget_ok(realized_risky_bps, risk_budget_bps, slack_bps=0)
         warnings.append(format_message(WARN_FALLBACK))
         reasoning.append("Die aktive Allokation wurde auf die Bandbreiten-Mitte des Risikoprofils zurueckgesetzt, weil das Risikobudget strikt limitiert.")
     risky_fraction_total_bps = int(realized_risky_bps)

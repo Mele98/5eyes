@@ -117,3 +117,24 @@ Goal-Liabilitäten summieren (laufende/manuelle Reserve weiter via max() kombini
 #AA-1/#AA-2/#AA-3 hängen zusammen (ungewichtetes BB-Risky-Mittel) — gemeinsam fixen
 (sub-allocation-gewichtete Risky-Fraction + MC/Test-Neukalibrierung + Voll-Suite). #AA-4/5/6
 (MC-Metriken) + #AA-7/8 separat, je mit Verifikation. Alle dediziert, nicht token-druck-beiläufig.
+
+## FIX-Update 2026-06-11 (nach empirischer Verifikation)
+
+### #AA-1 KRITISCH — GEFIXT ✅
+Empirisch bewiesen (Kapitalschutz-Generierung crashte mit RiskBudgetExceeded), dann
+3-teilig sauber behoben + verifiziert (test_kapitalschutz_risk_budget_regression.py jetzt
+GRÜN, 48 Risk-Budget/Allokations-Tests grün):
+1. **Konsistentes Risky-Maß:** Gate + finale Asserts (portfolio_engine.py:5754/5765/5827)
+   nutzen jetzt das sub-allocation-gewichtete `risky_fraction_total_bps` (konsistent zur
+   Enforcement-Cascade) statt des ungewichteten BB-Bucket-Mittels. (adressiert auch #AA-3
+   teilweise: weniger spurious-Fallbacks.)
+2. **`_enforce_risk_budget(allow_best_effort=True)`:** die letzte Eskalationsstufe gibt die
+   konservativste ERREICHBARE Allokation zurück statt hart zu werfen.
+3. **Graceful finaler Check:** bei strukturell unerreichbarem Budget konservativste
+   Allokation + Compliance-Warnung statt Crash (Design-Absicht "Berater alarmieren" erfüllt,
+   aber ohne 500). Kapitalschutz liefert jetzt z.B. {Aktien 5%, Obli 85%, Liq 10%} + Warnung.
+
+### Verbleibend offen (dokumentiert)
+#AA-2 (irreführender Konsistenz-Test mit hardcoded bonds=2250 — sekundär, da Crash gefixt),
+#AA-3 (Default-Targets-Tuning — teils durch konsistentes Maß entschärft), #AA-4/5/6
+(MC-Metriken), #AA-7/8 (Tilt/Reserve), Goal #2/3/5/6. Je dediziert + verifiziert.
