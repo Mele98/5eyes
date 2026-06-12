@@ -15561,7 +15561,10 @@ function projectionAxisDomain(values,edgePaddingShare){
 function syncIstProjectionAxisScale(){
   if(!(charts&&charts.ist&&charts.ist.options&&charts.ist.options.scales&&charts.ist.options.scales.y))return;
   var yScale=charts.ist.options.scales.y;
-  var domain=projectionAxisDomain(projectionChartValues(charts.ist),0.25);
+  // 2026-06-12: Padding eng an die echten Werte (vorher 0.25 -> ~0.5*Spread je
+  // Seite, die Kurve fuellte nur ~50% der Hoehe und sah platt aus). 0.06 ->
+  // ~7% Rand, die Vermoegenskurve fuellt die Grafik, der Verzehr wird sichtbar.
+  var domain=projectionAxisDomain(projectionChartValues(charts.ist),0.06);
   if(!domain){
     delete yScale.min;
     delete yScale.max;
