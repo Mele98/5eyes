@@ -115,13 +115,21 @@ def shortfall_squared_per_path(
         return np.zeros(n_paths, dtype=np.float64)
 
     if liability.target_kind == "return_rate":
-        target_bps = float(liability.target_amount_rappen)  # ist bps in diesem Feld
-        end_wealth = wealth_paths[:, -1]
-        actual_bps = _annualized_return_bps_per_path(
-            initial_wealth_rappen, end_wealth, horizon_years,
-        )
-        # Shortfall = wenn target > actual
-        shortfall = np.maximum(0.0, target_bps - actual_bps)
+        # #2 (2026-06-12): einheitenkonsistenter Shortfall in Rappen statt bps².
+        # Vorher: max(0, target_bps - annualized_bps)² in bps² (~1e4-1e8) — ging
+        # in gemischten Goal-Sets gegen Wealth-Ziele (Rappen²~1e16) unter, das
+        # Renditeziel war im primaeren SLSQP-Objective faktisch unsichtbar.
+        # Fix: impliziertes Wealth-Target = initial·(1+r)^h (Spec §4.1: annualized
+        # >= target  <=>  end_wealth >= initial·(1+target)^h). IDENTISCH zu
+        # goal_probability_per_path -> primaeres Objective & Chance-Constraint
+        # (P-Ampel) nutzen jetzt dieselbe Renditeziel-Definition.
+        target_return = float(liability.target_amount_rappen) / 10000.0
+        horizon = max(1, min(
+            int(liability.target_year_index or (wealth_paths.shape[1] - 1)),
+            wealth_paths.shape[1] - 1,
+        ))
+        target_wealth = max(1.0, float(initial_wealth_rappen)) * ((1.0 + target_return) ** horizon)
+        shortfall = np.maximum(0.0, target_wealth - wealth_paths[:, horizon])
         return shortfall * shortfall
 
     if liability.target_kind in ("wealth_at_t", "cashflow_in_year"):

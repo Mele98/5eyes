@@ -120,22 +120,41 @@ def test_shortfall_outflow_stream_uses_end_wealth():
     assert out[2] == pytest.approx(100_000_00 ** 2)
 
 
-def test_shortfall_return_rate_compares_annualized_bps():
-    """Return-Goal: target_bps - actual_bps shortfall."""
+def test_shortfall_return_rate_uses_implied_wealth_target():
+    """#2 (2026-06-12): Renditeziel-Shortfall in RAPPEN via impliziertem
+    Wealth-Target = initial·(1+r)^h (statt bps²) — einheitenkonsistent zu
+    wealth_at_t und identisch zur Chance-Constraint goal_probability_per_path.
+    5%-Ziel ueber 10 J -> Target = 100k·1.05^10 = 162'889."""
     liab = _make_liab(target_kind="return_rate", target_amount_rappen=500, target_year_index=10)  # 5% Ziel
-    # Path 1: ratio 1.5 ueber 10 Jahre -> ~4.14% annualized -> shortfall ~86 bps
-    # Path 2: ratio 2.0 ueber 10 Jahre -> ~7.18% annualized -> shortfall 0
-    # Path 3: end_wealth negativ -> shortfall = full 500 bps
+    target_wealth = 100_000_00 * (1.05 ** 10)  # ~162'889_46 rappen
     wealth = np.array([
-        [100_000_00] * 10 + [150_000_00],
-        [100_000_00] * 10 + [200_000_00],
-        [100_000_00] * 10 + [-10_000_00],
+        [100_000_00] * 10 + [150_000_00],   # unter Target
+        [100_000_00] * 10 + [200_000_00],   # ueber Target
+        [100_000_00] * 10 + [-10_000_00],   # eingebrochen
     ], dtype=np.float64)
     out = shortfall_squared_per_path(liab, wealth, initial_wealth_rappen=100_000_00, horizon_years=10)
-    assert out[1] == 0  # ueber dem Ziel
-    assert out[0] > 0  # leicht unter Ziel
-    # Path 3: shortfall = 500 - (-10000) = 10500 bps -> sqrt(out) = 10500
-    assert np.sqrt(out[2]) == pytest.approx(10500, abs=10)
+    assert out[1] == 0  # ueber dem impliziten Wealth-Target
+    assert out[0] > 0   # unter dem Target
+    # Shortfall jetzt in Rappen (kommensurabel mit wealth_at_t):
+    assert np.sqrt(out[0]) == pytest.approx(target_wealth - 150_000_00, rel=1e-6)
+    assert np.sqrt(out[2]) == pytest.approx(target_wealth + 10_000_00, rel=1e-6)
+
+
+def test_shortfall_return_rate_commensurate_with_wealth_at_t():
+    """#2 Kern: ein Renditeziel und ein aequivalentes wealth_at_t-Ziel liefern
+    fuer denselben Pfad IDENTISCHE Shortfall² — vorher war return_rate in bps²
+    (~1e4) gegen wealth in Rappen² (~1e16) im Objective faktisch unsichtbar."""
+    horizon = 10
+    initial = 100_000_00
+    implied = int(initial * (1.05 ** horizon))
+    wealth = np.array([[initial] * horizon + [120_000_00]], dtype=np.float64)
+    rr = _make_liab(target_kind="return_rate", target_amount_rappen=500, target_year_index=horizon)
+    wt = _make_liab(target_kind="wealth_at_t", target_amount_rappen=implied, target_year_index=horizon)
+    out_rr = shortfall_squared_per_path(rr, wealth, initial_wealth_rappen=initial, horizon_years=horizon)
+    out_wt = shortfall_squared_per_path(wt, wealth, initial_wealth_rappen=initial, horizon_years=horizon)
+    # rel=1e-6: minimale Differenz nur durch int-Rundung des wealth_at_t-Targets
+    # (Objective nutzt float target_wealth) — Kommensurabilitaet ist der Punkt.
+    assert out_rr[0] == pytest.approx(out_wt[0], rel=1e-6)
 
 
 def test_shortfall_maximize_always_zero():
