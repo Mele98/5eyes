@@ -3112,6 +3112,11 @@ def _run_allocation_monte_carlo(
 
         current_start = max(1, sum(current_values.values()))
         target_start = max(1, sum(target_values.values()))
+        # #AA-4 (2026-06-12): Marktwert nach Jahr-1-Wachstum, VOR Cashflow —
+        # Basis fuer cashflow-bereinigte 1-Jahres-VaR/CVaR/Loss-Prob. Eine
+        # Einzahlung ist kein Markt-Gewinn und darf das Verlustrisiko nicht
+        # unterschaetzen lassen (bzw. eine Entnahme nicht ueberschaetzen).
+        target_year1_market_value: int | None = None
 
         for year_index, contribution in enumerate(cashflow_projection_series_rappen, start=1):
             # Draw n_assets independent standard normals, then correlate via Cholesky: Z = L * W
@@ -3133,6 +3138,10 @@ def _run_allocation_monte_carlo(
                 if total_current_values is not None:
                     total_current_values[key] = int(round(max(0, total_current_values[key]) * growth_factor))
                     total_target_values[key] = int(round(max(0, total_target_values[key]) * growth_factor))
+
+            if year_index == 1:
+                # #AA-4: Marktwert nach Wachstum, VOR Cashflow/Rebalancing erfassen.
+                target_year1_market_value = sum(target_values.values())
 
             current_deficit += _apply_cashflow_to_bucket_values(current_values, int(contribution or 0))
             target_deficit += _apply_cashflow_to_bucket_values(target_values, int(contribution or 0))
@@ -3183,10 +3192,12 @@ def _run_allocation_monte_carlo(
         # (Append-Reihenfolge), aber bricht bei jeder Parallelisierung silent.
         current_annualized_returns.append(_annualized_return_bps(current_start, current_by_year[-1][_simulation_idx], horizon_years))
         target_annualized_returns.append(_annualized_return_bps(target_start, target_by_year[-1][_simulation_idx], horizon_years))
-        if len(target_by_year) > 1 and target_by_year[1]:
-            year_one_return = _return_bps(target_start, target_by_year[1][_simulation_idx])
+        if target_year1_market_value is not None:
+            # #AA-4: cashflow-bereinigt — Markt-Rendite (Pre-Cashflow) statt der
+            # cashflow-verzerrten target_by_year[1] (Post-Cashflow).
+            year_one_return = _return_bps(target_start, target_year1_market_value)
             target_year_one_returns.append(year_one_return)
-            target_year_one_losses.append(_loss_bps(target_start, target_by_year[1][_simulation_idx]))
+            target_year_one_losses.append(_loss_bps(target_start, target_year1_market_value))
         target_path = [values[_simulation_idx] for values in target_by_year if values]
         target_max_drawdowns.append(_max_drawdown_bps(target_path))
 

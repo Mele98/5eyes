@@ -94,10 +94,14 @@ Risky-Fraction): empirisch generieren Defensiv (Score 35) und Ausgewogen (Score 
 mit **0 Warnungen, kein WARN_FALLBACK, kein Mid-Reset** — realized ≤ Cap. Verankert in
 test_kapitalschutz_risk_budget_regression.py (Assertion: keine Fallback-Warnung für 35/55).
 
-### #AA-4 (HOCH, MC-Report): 1-Jahres-VaR/CVaR/Loss-Probability durch Cashflow verfälscht
-Jahr-1-Rendite enthält Cashflow-Einzahlung → VaR/Loss-Prob zu klein (Verlustrisiko
-unterschätzt). Fix: Jahr-1-Marktrendite cashflow-bereinigt (Marktwert nach Wachstum, VOR
-Cashflow vs target_start).
+### #AA-4 (HOCH, MC-Report): 1-Jahres-VaR/CVaR/Loss-Probability durch Cashflow verfälscht — GEFIXT ✅ (2026-06-12)
+Jahr-1-Rendite enthielt Cashflow-Einzahlung (`_return_bps(target_start, target_by_year[1])`,
+Post-Cashflow) → VaR/Loss-Prob zu klein (Verlustrisiko unterschätzt), bei Entnahmen zu groß.
+Fix (portfolio_engine.py:~3116/3137/3187): Marktwert nach Wachstum, VOR Cashflow/Rebalancing
+erfasst (`target_year1_market_value`) und als Basis der 1-J-Risikomasse genutzt. Verifiziert:
+neuer Test (identischer Seed, Jahr-1-Risikomasse IDENTISCH mit/ohne 50%-Einzahlung — vorher
+hätte die Einzahlung die Loss-Prob künstlich gesenkt) + 126 MC-/runtime-/scenario-Tests grün.
+Test-Invarianten (var ≤ cvar ≤ 10000, loss_prob 0-100) unverändert erfüllt.
 
 ### #AA-5 (HOCH, MC-Report): Money-weighted Terminal-Value als CAGR/median_cagr_bps fehletikettiert
 End/Start-Ratio enthält Cashflow-Beiträge → "CAGR" ist money-weighted, nicht time-weighted.
