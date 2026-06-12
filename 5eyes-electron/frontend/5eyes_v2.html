@@ -18664,8 +18664,8 @@ async function refreshCashflowsUI(cid){
 function refreshBaselineChartFromClientData(){
   if(strategyState&&strategyState.allocation&&simulationPayload(strategyState.allocation))return;
   if(!charts||(!charts.ist&&!charts.aaCurrent))return;
-  var totalProjection=buildCurrentWealthProjection('total',10,null);
-  var advisoryProjection=buildCurrentWealthProjection('advisory',10,totalProjection.labels);
+  var totalProjection=buildCurrentWealthProjection('total',null,null);
+  var advisoryProjection=buildCurrentWealthProjection('advisory',null,totalProjection.labels);
   var hasTimelineFlows=(Array.isArray(totalProjection.netCashflowSeriesRappen)?totalProjection.netCashflowSeriesRappen:[]).some(function(value){return Number(value||0)!==0;});
   if(!totalProjection.startRappen&&!advisoryProjection.startRappen&&!Number(totalProjection.annualNetCashflowRappen||0)&&!hasTimelineFlows)return;
   var labels=totalProjection.labels;
@@ -18690,8 +18690,8 @@ function refreshBaselineChartFromClientData(){
 }
 function refreshBaselineChartFromClientDataForced(){
   if(!charts||(!charts.ist&&!charts.aaCurrent))return;
-  var totalProjection=buildCurrentWealthProjection('total',10,null);
-  var advisoryProjection=buildCurrentWealthProjection('advisory',10,totalProjection.labels);
+  var totalProjection=buildCurrentWealthProjection('total',null,null);
+  var advisoryProjection=buildCurrentWealthProjection('advisory',null,totalProjection.labels);
   var hasTimelineFlows=(Array.isArray(totalProjection.netCashflowSeriesRappen)?totalProjection.netCashflowSeriesRappen:[]).some(function(value){return Number(value||0)!==0;});
   if(!totalProjection.startRappen&&!advisoryProjection.startRappen&&!Number(totalProjection.annualNetCashflowRappen||0)&&!hasTimelineFlows)return;
   var labels=totalProjection.labels;
@@ -18934,6 +18934,18 @@ async function refreshWealthUI(cid){
     if(positionsRes.status==='fulfilled'){
       renderWealthPositions(positionsRes.value);
     }
+    // Fix (2026-06-12): Vermoegens-Edit muss sich im IST-Projektionschart
+    // niederschlagen — auch wenn eine Strategie sichtbar ist. renderWealthPositions
+    // ueberspringt den IST-Refresh dann via keepVisibleStrategy-Guard, sodass die
+    // Verzehr-Kurve auf den alten Vermoegenswerten stehen blieb. Beide Refresh-
+    // Funktionen fassen nur den IST-/Baseline-Chart an, nie die SOLL-Strategie.
+    try{
+      if(strategyState&&strategyState.allocation&&typeof updateProjectionChartsFromSimulation==='function'){
+        updateProjectionChartsFromSimulation(strategyState.allocation);
+      }else if(typeof refreshBaselineChartFromClientDataForced==='function'){
+        refreshBaselineChartFromClientDataForced();
+      }
+    }catch(chartErr){console.warn('IST-Chart-Refresh nach Wealth-Edit:',chartErr);}
     syncAllocationPendingViews();
   }catch(e){console.warn('refreshWealthUI:',e);}
 }
