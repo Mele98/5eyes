@@ -288,16 +288,102 @@ def cashflow_summary(
     )
 
 
+def _derive_cashflow_projection_horizon(
+    client: Client, db: Session, *, default_years: int = 40, cap: int = 60
+) -> int:
+    """Cashflow-/Vermoegensverzehr-Projektions-Horizont aus den Stammdaten.
+
+    Anders als der ANLAGEhorizont (endet typischerweise an der Pensionierung)
+    soll die IST-Cashflow-Projektion bis zum LEBENSENDE laufen, damit die
+    Nach-Pensionierungs-Phase (AHV-Einkommen < Ausgaben -> Vermoegensverzehr)
+    ueberhaupt sichtbar wird. Vorher: hartes Default 40, unabhaengig von der Person.
+
+    Quellen-Cascade (Kalenderjahr des Lebensendes), genommen wird das spaeteste
+    plausible Jahr; Fallback ``default_years``:
+      1. ``client.investment_horizon_end`` (explizites Stammdatum)
+      2. ``Mandate.life_expectancy_year``
+      3. Geburtsjahr (``client.date_of_birth`` / ``Mandate.client_birth_year``)
+         + ``PlanningAssumption.life_expectancy_primary``
+      4. Geburtsjahr + 90 (CH-Lebenserwartung, konservativ)
+    """
+    from datetime import date as _date
+    from models.mandates import Mandate
+    from models.wealth import PlanningAssumption
+
+    today_year = _date.today().year
+
+    def _year(value) -> int | None:
+        s = str(value or "").strip()
+        if len(s) < 4:
+            return None
+        try:
+            return int(s[:4])
+        except ValueError:
+            return None
+
+    birth_year = _year(getattr(client, "date_of_birth", None))
+    end_years: list[int] = []
+
+    horizon_end = _year(getattr(client, "investment_horizon_end", None))
+    if horizon_end:
+        end_years.append(horizon_end)
+
+    mandate = (
+        db.query(Mandate)
+        .filter(Mandate.client_id == client.id, Mandate.deleted_at.is_(None))
+        .order_by(Mandate.created_at.desc())
+        .first()
+    )
+    if mandate is not None:
+        if birth_year is None:
+            mb = getattr(mandate, "client_birth_year", None)
+            birth_year = int(mb) if mb else None
+        le_year = getattr(mandate, "life_expectancy_year", None)
+        if le_year and int(le_year) > 0:
+            end_years.append(int(le_year))
+        pa = (
+            db.query(PlanningAssumption)
+            .filter(
+                PlanningAssumption.mandate_id == mandate.id,
+                PlanningAssumption.is_current == 1,
+            )
+            .order_by(PlanningAssumption.valid_from.desc())
+            .first()
+        )
+        if pa is not None and birth_year:
+            le_primary = getattr(pa, "life_expectancy_primary", None)
+            if le_primary and int(le_primary) > 0:
+                end_years.append(birth_year + int(le_primary))
+
+    if birth_year:
+        end_years.append(birth_year + 90)  # CH-Lebenserwartung, konservativ
+
+    plausible = [y for y in end_years if y > today_year]
+    if plausible:
+        # +1: das Lebensende-Jahr selbst soll in der Projektion enthalten sein
+        # (range startet beim laufenden Jahr), damit der Verzehr bis dahin zu sehen ist.
+        return max(1, min(cap, max(plausible) - today_year + 1))
+    return default_years
+
+
 @router.get("/{client_id}/cashflow-projection", response_model=CashflowProjectionResponse)
 def cashflow_projection(
     client_id: str,
-    horizon_years: int = Query(default=40, ge=1, le=60),
+    horizon_years: int | None = Query(default=None, ge=1, le=60),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     from datetime import date as _date
 
-    _get_client_or_404(client_id, db, current_user)
+    client = _get_client_or_404(client_id, db, current_user)
+    # #Zeitraum-Fix (2026-06-12): ohne expliziten Override wird der Horizont aus
+    # den Stammdaten bis zum Lebensende abgeleitet (statt hartes Default 40),
+    # damit der Vermoegensverzehr nach der Pensionierung sichtbar ist.
+    effective_horizon = (
+        int(horizon_years)
+        if horizon_years is not None
+        else _derive_cashflow_projection_horizon(client, db)
+    )
     cashflows = db.query(Cashflow).filter(
         Cashflow.client_id == client_id,
         Cashflow.deleted_at.is_(None),
@@ -305,7 +391,7 @@ def cashflow_projection(
     ).all()
     start_year = _date.today().year
     rows = []
-    for offset in range(int(horizon_years or 40)):
+    for offset in range(int(effective_horizon or 40)):
         yr = start_year + offset
         t = totals_for_year(cashflows, yr)
         rows.append(CashflowYearRow(

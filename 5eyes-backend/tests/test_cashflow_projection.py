@@ -167,3 +167,49 @@ def test_cashflow_projection_segments_one_off_flows(session_factory, auth_client
     assert rows[0]["capital_outflow_rappen"] == 0
     assert rows[2]["capital_inflow_rappen"] == 5_000_000
     assert rows[2]["net_rappen"] == 3_000_000
+
+
+# ---------------------------------------------------------------------------
+# Zeitraum-Fix (2026-06-12): Projektions-Horizont aus Stammdaten bis Lebensende,
+# damit der Vermoegensverzehr nach Pensionierung sichtbar ist (statt hartes 40).
+# ---------------------------------------------------------------------------
+
+def _make_client_full(session_factory, advisor_id: str, **fields) -> str:
+    cid = str(uuid.uuid4())
+    now = _utc_now_iso()
+    with session_factory() as s:
+        s.add(Client(
+            id=cid, client_number="CF-" + cid[:6], first_name="Leart", last_name="Test",
+            advisor_id=advisor_id, created_at=now, updated_at=now, **fields,
+        ))
+        s.commit()
+    return cid
+
+
+def test_horizon_derives_to_life_end_from_birthdate(session_factory, auth_client, advisor_user):
+    """Ohne Override: Geburtsjahr + 90 (CH-Lebenserwartung) -> Projektion bis Lebensende."""
+    cid = _make_client_full(session_factory, advisor_user.id, date_of_birth="1970-05-01")
+    rows = auth_client.get(f"/clients/{cid}/cashflow-projection").json()["years"]
+    # 1970 + 90 = 2060, inklusive -> letztes Projektionsjahr ist 2060
+    assert rows[-1]["year"] == 2060
+
+
+def test_horizon_uses_investment_horizon_end_without_birthdate(session_factory, auth_client, advisor_user):
+    """investment_horizon_end (Stammdatum) wird als Lebensende-Quelle genutzt."""
+    cid = _make_client_full(session_factory, advisor_user.id, investment_horizon_end="2058-06-30")
+    rows = auth_client.get(f"/clients/{cid}/cashflow-projection").json()["years"]
+    assert rows[-1]["year"] == 2058
+
+
+def test_explicit_override_beats_stammdaten(session_factory, auth_client, advisor_user):
+    """Expliziter Berater-Override (?horizon_years=) hat Vorrang vor der Ableitung."""
+    cid = _make_client_full(session_factory, advisor_user.id, date_of_birth="1970-01-01")
+    rows = auth_client.get(f"/clients/{cid}/cashflow-projection?horizon_years=5").json()["years"]
+    assert len(rows) == 5
+
+
+def test_horizon_falls_back_to_40_without_stammdaten(session_factory, auth_client, advisor_user):
+    """Ohne Geburtsdatum/Horizont-Ende/Mandat -> konservatives Default 40."""
+    cid = _make_client(session_factory, advisor_user.id)
+    rows = auth_client.get(f"/clients/{cid}/cashflow-projection").json()["years"]
+    assert len(rows) == 40

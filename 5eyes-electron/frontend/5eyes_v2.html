@@ -3506,7 +3506,7 @@ async function loadClientById(clientId) {
       API.get('/clients/'+clientId),
       API.get('/clients/'+clientId+'/wealth-summary'),
       API.get('/clients/'+clientId+'/cashflow-summary'),
-      API.get('/clients/'+clientId+'/cashflow-projection?horizon_years='+(typeof effectiveCashflowProjectionHorizon==='function'?effectiveCashflowProjectionHorizon():40)),
+      API.get('/clients/'+clientId+'/cashflow-projection'+(typeof cashflowProjectionQuery==='function'?cashflowProjectionQuery():'')),
       API.get('/clients/'+clientId+'/mandates'),
       API.get('/clients/'+clientId+'/wealth-positions'),
     ]);
@@ -15144,9 +15144,16 @@ function saveIstHorizonOverride(years){
   } catch(e) { /* ignore quota / private mode */ }
 }
 function effectiveCashflowProjectionHorizon(){
-  // Berater-Override oder Default 40 (=bisheriges hardcoded Verhalten).
+  // Berater-Override hat Vorrang; sonst null -> Backend leitet den Horizont aus
+  // den Stammdaten (bis Lebensende) ab, damit der Vermoegensverzehr sichtbar ist.
   var ov = loadIstHorizonOverride();
-  return ov && ov > 0 ? ov : 40;
+  return ov && ov > 0 ? ov : null;
+}
+function cashflowProjectionQuery(){
+  // ?horizon_years=<override> nur wenn der Berater einen Override gesetzt hat;
+  // sonst leer -> Backend-Ableitung aus Stammdaten greift.
+  var ov = effectiveCashflowProjectionHorizon();
+  return (ov && ov > 0) ? ('?horizon_years=' + ov) : '';
 }
 function syncIstHorizonOverrideInput(){
   var el = document.getElementById('cf-horizon-override');
@@ -15165,10 +15172,10 @@ async function applyIstHorizonOverride(yearsRaw){
   }
   syncIstHorizonOverrideInput();
   if (!currentClientId) return;
-  // Cashflow-Projection mit neuem Horizont nachladen
+  // Cashflow-Projection mit neuem Horizont nachladen (Override -> Query,
+  // sonst Backend-Ableitung aus Stammdaten).
   try {
-    var newHorizon = effectiveCashflowProjectionHorizon();
-    var projection = await API.get('/clients/' + currentClientId + '/cashflow-projection?horizon_years=' + newHorizon);
+    var projection = await API.get('/clients/' + currentClientId + '/cashflow-projection' + cashflowProjectionQuery());
     currentCashflowProjection = projection && Array.isArray(projection.years)
       ? clientScopedProjection(projection, currentClientId)
       : null;
@@ -15189,6 +15196,12 @@ function projectionHorizonYears(result,preferredYears){
   if (override && override > 0) return override;
   var sim=simulationPayload(result);
   if(sim&&Array.isArray(sim.year_labels)&&sim.year_labels.length>1)return sim.year_labels.length-1;
+  // IST-Ansicht: die aus den Stammdaten (bis Lebensende) abgeleitete Cashflow-
+  // Projektion bestimmt den Horizont, damit der Vermoegensverzehr nach der
+  // Pensionierung sichtbar ist (vorher: currentMandateHorizonRange = Anlage-
+  // horizont/Pensionierung -> Chart wurde zu frueh abgeschnitten).
+  var cfProj=(typeof activeClientCashflowProjection==='function')?activeClientCashflowProjection():null;
+  if(cfProj&&Array.isArray(cfProj.years)&&cfProj.years.length>1)return cfProj.years.length;
   var range=currentMandateHorizonRange();
   if(range&&range.years)return Math.max(1,range.years);
   var field=document.getElementById('aa-sim-horizon');
@@ -18500,7 +18513,7 @@ async function refreshCashflowsUI(cid){
     var results=await Promise.allSettled([
       API.get('/clients/'+cid+'/cashflows'),
       API.get('/clients/'+cid+'/cashflow-summary'),
-      API.get('/clients/'+cid+'/cashflow-projection?horizon_years='+(typeof effectiveCashflowProjectionHorizon==='function'?effectiveCashflowProjectionHorizon():40))
+      API.get('/clients/'+cid+'/cashflow-projection'+(typeof cashflowProjectionQuery==='function'?cashflowProjectionQuery():''))
     ]);
     if(String(cid)!==String(currentClientId||''))return;
     var items=results[0].status==='fulfilled'?results[0].value:[];
