@@ -2947,7 +2947,10 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
   <div class="frow">
     <div class="fg"><label class="fl">Schätzung per</label><input class="fi" id="maw-immo-valuation-date" type="date"></div>
     <div class="fg"><label class="fl">Jährl. Mietertrag (CHF)</label><input class="fi" id="maw-immo-rent" type="number" placeholder="0"></div>
+    <div class="fg"><label class="fl">Wertsteigerung p.a. (%)</label><input class="fi" id="maw-immo-appreciation" type="number" min="0" max="10" step="0.1" placeholder="0"
+      title="Wie sich der Immobilienwert in der Vermögensprojektion entwickelt. 0 = bleibt flach (linear im Vermögen, Sockel). >0 = indexiert (steigt jährlich im Wert)."></div>
   </div>
+  <div style="font-size:10px;color:var(--n5);line-height:1.4;margin:-2px 0 6px">Die Immobilie bleibt als Sockel im Vermögen (wird nicht verzehrt). <strong>0% = flach</strong> (linear drin), <strong>&gt;0% = indexiert</strong> (Wertsteigerung pro Jahr).</div>
 </div>
 
 <!-- VORSORGE -->
@@ -4319,7 +4322,7 @@ function wealthProjectionInputs(scope){
   // (optional indexiert); der Konsum zieht nur das verzehrbare FINANZvermoegen ab.
   // So zeigt die Reinvermoegens-Kurve den Vermoegensverzehr (Finanzteil zehrt ab,
   // Haus bleibt als Boden) — analog 3eyes "Entwicklung Reinvermoegen".
-  var sockelGrossRappen=0,consumableRappen=0,consumableReturnRappenBps=0;
+  var sockelGrossRappen=0,consumableRappen=0,consumableReturnRappenBps=0,sockelIndexRappenBps=0;
   positions.forEach(function(pos){
     var value=Math.max(0,Math.round(Number(pos&&pos.current_value_rappen||0)));
     if(!value)return;
@@ -4330,6 +4333,8 @@ function wealthProjectionInputs(scope){
       +Number(mix.alternatives||0)*returnMap.alternatives)/10000;
     if(String(pos&&pos.position_type||'')==='Immobilien'){
       sockelGrossRappen+=value;  // Immobilie = Sockel (nicht verzehrt)
+      // Wertsteigerung p.a. (asset_expected_return_bps): 0 = flach, >0 = indexiert.
+      sockelIndexRappenBps+=value*Math.max(0,Number(pos&&pos.asset_expected_return_bps||0));
     }else{
       consumableRappen+=value;   // verzehrbares Finanzvermoegen
       consumableReturnRappenBps+=Math.round(value*posReturnBps);
@@ -4368,13 +4373,15 @@ function wealthProjectionInputs(scope){
   // (ohne die Immobilien-Buchrendite, die jetzt im Sockel-Index sitzt).
   var sockelRappen=Math.max(0,sockelGrossRappen-liabilitiesRappen);
   var consumableReturnBps=consumableRappen>0?Math.round(consumableReturnRappenBps/consumableRappen):0;
+  // Sockel-Wertsteigerung p.a. (wertgewichtet ueber die Immobilien): 0 = flach.
+  var sockelIndexBps=sockelGrossRappen>0?Math.round(sockelIndexRappenBps/sockelGrossRappen):0;
   return {
     scope:scope,
     startRappen:startRappen,
     grossRappen:totalRappen,
     sockelRappen:sockelRappen,
     consumableReturnBps:consumableReturnBps,
-    sockelIndexBps:0,
+    sockelIndexBps:sockelIndexBps,
     recurringNetCashflowRappen:recurringNetCashflowRappen,
     capitalNetCashflowRappen:capitalNetCashflowRappen,
     annualNetCashflowRappen:annualNetCashflowRappen,
@@ -13629,7 +13636,7 @@ var liveClientLoadToken=0;
     [
       'maw-depot-label','maw-depot-bank','maw-depot-account','maw-depot-value',
       'maw-liq-label','maw-liq-bank','maw-liq-value','maw-liq-rate','maw-liq-available',
-      'maw-immo-label','maw-immo-address','maw-immo-value','maw-immo-valuation-date','maw-immo-rent',
+      'maw-immo-label','maw-immo-address','maw-immo-value','maw-immo-valuation-date','maw-immo-rent','maw-immo-appreciation',
       'maw-pension-label','maw-pension-institution','maw-pension-value','maw-pension-rate','maw-pension-age','maw-pension-available',
       'maw-alt-label','maw-alt-value','maw-alt-valuation-date','maw-alt-return','maw-alt-location',
       'maw-mortgage-label','maw-mortgage-bank','maw-mortgage-value','maw-mortgage-rate','maw-mortgage-maturity','maw-mortgage-amortization',
@@ -13696,6 +13703,7 @@ var liveClientLoadToken=0;
       setInputValue('maw-immo-value',formatInputCHF(pos.current_value_rappen));
       setInputValue('maw-immo-valuation-date',pos.valuation_date||'');
       setInputValue('maw-immo-rent',formatInputCHF(pos.property_rental_income_rappen));
+      setInputValue('maw-immo-appreciation',formatInputPercent(pos.asset_expected_return_bps));
     } else if(pos.position_type==='Vorsorge'){
       setInputValue('maw-pension-label',pos.label||'');
       setSelectValue('maw-pension-type',pos.pension_type||'BVG');
@@ -18954,6 +18962,7 @@ function buildWealthPositionPayload(cat,typ,note){
     payload.property_address=getInputValue('maw-immo-address').trim()||null;
     payload.property_usage=getInputValue('maw-immo-usage')||null;
     payload.property_rental_income_rappen=parseCHF(getInputValue('maw-immo-rent'));
+    payload.asset_expected_return_bps=parsePercentToBps(getInputValue('maw-immo-appreciation'));  // Wertsteigerung p.a. (Sockel-Index)
   } else if(posType==='Vorsorge'){
     payload.label=getInputValue('maw-pension-label').trim();
     payload.current_value_rappen=parseCHF(getInputValue('maw-pension-value'));
