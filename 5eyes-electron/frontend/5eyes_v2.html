@@ -5331,6 +5331,15 @@ function initCharts(){
             label:function(ctx){
               var label=ctx&&ctx.dataset&&ctx.dataset.label?ctx.dataset.label+': ':'';
               return label+formatRappen(Math.round(Number(ctx&&ctx.raw||0)*100000));
+            },
+            afterLabel:function(ctx){
+              var ds=ctx&&ctx.dataset;
+              if(ds&&ds.__depletionIndex!=null&&ds.__depletionIndex>=0&&ctx.dataIndex===ds.__depletionIndex){
+                return ds.__depletionAtSockel
+                  ? '⚠ Finanzvermögen aufgebraucht — nur noch Immobilien-Sockel'
+                  : '⚠ Vermögen aufgebraucht';
+              }
+              return undefined;
             }
           }
         }
@@ -15379,6 +15388,8 @@ function buildBaselineProjectionFromComponentSeries(startRappen,componentSeries,
   // sonst die Gesamt-Rendite (Backwards-Compat ohne Sockel).
   var rate=Number((sockelOpts&&sockelOpts.consumableReturnBps!=null?sockelOpts.consumableReturnBps:expectedReturnBps)||0)/10000;
   var consumable=Math.max(0,total0-sockel);
+  var consumableStart0=consumable;
+  var depletionIndex=-1;  // Jahr, in dem das verzehrbare Finanzvermoegen erschoepft ist
   var seriesRappen=[Math.max(0,Math.round(consumable+sockel))];
   for(var idx=0;idx<years;idx++){
     var recurringNet=Number(rows[idx]&&rows[idx].recurringNetRappen||0);
@@ -15388,6 +15399,9 @@ function buildBaselineProjectionFromComponentSeries(startRappen,componentSeries,
     consumable=Math.max(0,Math.round(consumable+recurringNet+capitalNet));
     // Sockel bleibt (optional indexiert) — nicht verzehrt
     sockel=Math.max(0,Math.round(sockel*(1+sockelRate)));
+    // Erschoepfungspunkt: Finanzvermoegen erstmals auf 0 -> Kurve schlaegt auf
+    // dem Sockel (Immobilie) bzw. 0 auf; Marker fuer den Berater.
+    if(depletionIndex<0&&consumableStart0>0&&consumable<=0){depletionIndex=idx+1;}
     seriesRappen.push(Math.max(0,Math.round(consumable+sockel)));
   }
   return {
@@ -15398,8 +15412,32 @@ function buildBaselineProjectionFromComponentSeries(startRappen,componentSeries,
     seriesK:seriesRappen.map(function(value){return Math.round(value/100000);}),
     projectedRappen:Number(seriesRappen[seriesRappen.length-1]||0),
     cagrBps:projectionSeriesCagrBps(seriesRappen),
-    sockelRappen:sockel
+    sockelRappen:sockel,
+    depletionIndex:depletionIndex,
+    depletionLabel:depletionIndex>=0&&labels[depletionIndex]!=null?String(labels[depletionIndex]):null,
+    depletionAtSockel:depletionIndex>=0&&sockel>0
   };
+}
+// Setzt einen Verzehr-Marker (roter Punkt) auf den IST-Pfad an dem Jahr, in dem
+// das verzehrbare Finanzvermoegen erschoepft ist (Kurve schlaegt auf Sockel/0 auf).
+function applyDepletionMarkerToDataset(dataset,projection){
+  if(!dataset||!dataset.data)return;
+  var n=dataset.data.length;
+  var di=projection&&projection.depletionIndex!=null?Number(projection.depletionIndex):-1;
+  if(di<0||di>=n){
+    dataset.pointRadius=0;dataset.pointHoverRadius=4;
+    dataset.__depletionIndex=-1;dataset.__depletionLabel=null;return;
+  }
+  var radii=[],colors=[];
+  for(var i=0;i<n;i++){radii.push(i===di?5:0);colors.push(i===di?'#b91c1c':'rgba(146,64,14,0.9)');}
+  dataset.pointRadius=radii;
+  dataset.pointBackgroundColor=colors;
+  dataset.pointBorderColor='#fff';
+  dataset.pointBorderWidth=1.5;
+  dataset.pointHoverRadius=7;
+  dataset.__depletionIndex=di;
+  dataset.__depletionLabel=projection.depletionLabel||null;
+  dataset.__depletionAtSockel=!!projection.depletionAtSockel;
 }
 function buildCurrentBaselineProjection(result,preferredYears,preferredLabels){
   var years=projectionHorizonYears(result,preferredYears);
@@ -15670,6 +15708,7 @@ function updateProjectionChartsFromSimulation(result){
     charts.ist.data.datasets[0].data=totalCurrentSeries;
     charts.ist.data.datasets[0].tension=0;
     charts.ist.data.datasets[0].stepped=false;
+    applyDepletionMarkerToDataset(charts.ist.data.datasets[0],totalBaselineProjection);
     syncIstProjectionAxisScale();
     charts.ist.update();
   }
@@ -18675,6 +18714,7 @@ function refreshBaselineChartFromClientData(){
     charts.ist.data.datasets[0].data=totalProjection.seriesK;
     charts.ist.data.datasets[0].tension=0;
     charts.ist.data.datasets[0].stepped=false;
+    applyDepletionMarkerToDataset(charts.ist.data.datasets[0],totalProjection);
     syncIstProjectionAxisScale();
     charts.ist.update();
   }
@@ -18708,6 +18748,7 @@ function refreshBaselineChartFromClientDataForced(){
       tension:0,
       stepped:false
     }];
+    applyDepletionMarkerToDataset(charts.ist.data.datasets[0],totalProjection);
     if(charts.ist.options&&charts.ist.options.plugins&&charts.ist.options.plugins.legend){
       charts.ist.options.plugins.legend.display=false;
     }
