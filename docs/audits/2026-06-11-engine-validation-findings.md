@@ -22,35 +22,40 @@ Fokus: Rechen-/Darstellungsfehler und 3eyes-Divergenzen.
   (spiegelt portfolio_engine) auf Wealth/Einmalige/wiederkehrende Outflow-Builder
   angewandt + Test (prob=50 → halbe Liability).
 
-## Goals — OFFEN (dokumentiert, bewusst nicht unter Token-Druck blind gefixt)
+## Goals — Status 2026-06-12
 
-### #2 (hoch, opt-in Stochastic): Renditeziel-Shortfall in bps statt CHF
-`_build_renditeziel` setzt `target_kind="return_rate"`, `target_amount_rappen=target_bps`.
-`objective.py` rechnet shortfall² in bps² (~1e8) für return_rate, aber in Rappen² (~1e16)
-für wealth_at_t — gemischte Einheiten in einer Objective-Summe. In gemischten Goal-Sets
-ist das Renditeziel im primären SLSQP-Shortfall faktisch unsichtbar (Verhältnis ~6e10).
-Spec OD-C/§2.3 verlangt: Renditeziel als impliziertes `wealth_at_t` = initial·(1+r)^horizon.
-Die Chance-Constraint (P-Ampel) honoriert OD-C bereits — nur das primäre Objective nicht.
-**Nur OPTIMIZER_MODE=stochastic (opt-in, Default house_matrix).** Fix: `_build_renditeziel`
-auf wealth_at_t mappen (braucht initial_value_rappen im Builder-Kontext). Risiko: ändert
-Solver-Verhalten → Optimizer-Tests gegenprüfen.
+### #2 (hoch, opt-in Stochastic): Renditeziel-Shortfall in bps statt CHF — GEFIXT ✅
+`objective.shortfall_squared_per_path` rechnete für return_rate shortfall² in bps²
+(~1e4-1e8), für wealth_at_t in Rappen² (~1e16) → in gemischten Goal-Sets war das Renditeziel
+im primären SLSQP-Shortfall faktisch unsichtbar. Fix: return_rate-Shortfall via impliziertem
+Wealth-Target `initial·(1+r)^h` in Rappen (Spec §4.1: annualized ≥ target ⇔ end_wealth ≥
+initial·(1+target)^h). **IDENTISCH zu `goal_probability_per_path`** → primäres Objective und
+Chance-Constraint (P-Ampel) nutzen jetzt dieselbe Definition. Nur OPTIMIZER_MODE=stochastic.
+Verifiziert: 2 neue Tests (impliziertes Target + Kommensurabilität zu wealth_at_t) + volle
+Suite grün (3853 passed).
 
-### #3 (medium, MC-Fächer produktiv sichtbar): Ein-Jahr-Inflations-Versatz
-`scenario_engine` wendet `wealth[t+1] = grown + cashflow[t] − liability[t]` an (CF und
-Liability auf derselben t→t+1-Stufe). `cashflow_timeline._compound_inflation_factor`
-nutzt offset 0 = heute = 1.0, während die real-mode Goal-Liabilities via `_inflate_at_year`
-einen Inflationsterm mehr pro Stufe tragen. Folge: real-mode Ziele leicht überinflationiert
-relativ zu Cashflows. Fix: Inflations-Origin beider Module auf dasselbe Jahr eichen
-(liability mit `year_index-1` statt `year_index`). **Risiko: verschiebt ALLE MC-Pfade →
-viele MC-Tests müssen neu kalibriert werden.** Vor Fix: numerisch quantifizieren.
+### #3 (medium, MC, real-mode Goals): Ein-Jahr-Inflations-Versatz — QUANTIFIZIERT, dediziert
+**Numerische Quantifizierung 2026-06-12:** Die Inflations-FUNKTIONEN sind identisch
+(`_cumulative_inflation_factor(T)` == `_compound_inflation_factor(start, start+T)` = T Terme).
+Der Versatz ist rein eine **Index-Konvention** im Szenario-Loop `wealth[t+1] = grown +
+cashflow[t] − liability[t]`: am Wealth-Schritt k trägt der Cashflow `series[k-1]` = k−1 Terme
+(Beginn-of-Year-Konvention), die Liability (Goal year-index k, `path[k-1]`) = k Terme
+(End-of-Year). → real-mode Ziele tragen **genau einen Inflationsterm (~2%/Jahr) mehr** als
+Cashflows am selben Schritt. **Fach-Entscheid nötig** (Cashflows Beginn- oder End-of-Year?),
+dann liability `year_index-1` ODER cashflow `offset+1` angleichen. **Risiko: verschiebt ALLE
+real-mode-MC-Pfade → MC-Tests neu kalibrieren.** → dedizierter Sprint (Konvention + Recalibration).
 
-### #5 (medium, Default-Pfad): Renditeziel Brutto- vs Netto-Rendite
-Deterministische Zielmatrix (`_build_goal_analysis`) wertet Renditeziel-Erfolg gegen die
-**Brutto**-Portfolio-Rendite (ohne Outflow-Subtraktion), MC/Optimizer gegen die
-**outflow-reduzierte Netto**-Rendite. → Renditeziel kann deterministisch "erreicht",
-im MC "verfehlt" sein. Fix: konsistente Definition (Renditeziel als outflow-freie
-Allokations-Eigenschaft; im MC separater deficit-freier Rendite-Pfad). Braucht
-Fach-Entscheid was "korrekt/3eyes" ist.
+### #5 (medium): Renditeziel Brutto- vs Netto-Rendite — ENTSCHIEDEN (brutto), Implementierung dediziert
+Deterministische Zielmatrix (`_build_goal_analysis:2693`) wertet Renditeziel gegen
+`expected_return_bps` (**brutto**/strategie-rein), MC/Optimizer gegen den liability-reduzierten
+`wealth_paths[:, horizon]` (**netto**). → Renditeziel kann deterministisch "erreicht", im
+Optimizer "verfehlt" sein, wenn Outflows die Wealth drücken. **User-Entscheid 2026-06-12
+(konsistent zur #AA-5-TWR-Entscheidung): Renditeziel = Strategie-Performance = BRUTTO/
+deficit-frei.** Implementierungsplan: `simulate_wealth_paths` akkumuliert ein gross
+growth-product pro Pfad (cheap, eine Multiplikation/Jahr, liability-/cashflow-frei) und gibt
+es als optionalen Zusatz-Output zurück; `shortfall_squared_per_path` + `goal_probability_per_path`
+nutzen es für return_rate (Fallback: aktuelles Verhalten). Berührt ~6 Solver-Pfad-Funktionen
+(Signatur, opt-in) → dedizierter, verifizierter Sprint (Solver-Hotloop, Regressions-Fläche).
 
 ### #6 (niedrig, Doku/UI): Zwei Goal-Status-Vokabulare — GEFIXT ✅ (2026-06-12)
 Deterministisch: Score-Buckets 70/45 (On Track/Prüfen/Gefährdet). Optimizer:
