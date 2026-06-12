@@ -3417,7 +3417,13 @@ def _build_sub_allocations(targets: dict[str, int], preferences: dict) -> list[d
             "gaming": "Thema Gluecksspiel",
             "nuclear": "Thema Kernenergie",
         }
-        theme_total = min(int(round(targets["equities"] * 0.15)), 1200)
+        # #AA-7 Fix (2026-06-12): eq_splits leben im Per-Bucket-Raum (sie summieren
+        # zu 10000 und werden in _append_split renormalisiert). Der Theme-Tilt muss
+        # daher relativ zu 10000 statt zur Portfolio-Aktienquote targets["equities"]
+        # definiert werden — sonst haengt die EFFEKTIVE Themen-Gewichtung von der
+        # Aktienquote des Risikoprofils ab (eq=8000 -> ~12%, eq=2000 -> ~3%), statt
+        # konsistent zu sein. Cap 1200 (= 12% des Aktien-Buckets) bleibt die Obergrenze.
+        theme_total = min(int(round(10000 * 0.15)), 1200)
         if theme_total > 0:
             slice_per_theme = max(100, int(round(theme_total / len(overweight_tilts))))
             for idx, item in enumerate(eq_splits):

@@ -99,10 +99,18 @@ Cashflow).
 → Median + Erfolgsrate nach oben verzerrt. Fix: Floor-Rendite für depleted paths
 (portfolio_engine.py:2794-2797), analog _return_bps.
 
-### #AA-7 (HOCH): Themen-Tilt nutzt Total-Portfolio-bps als Per-Bucket-Wert
-slice_per_theme relativ zu targets["equities"] statt im Per-Bucket-Raum (0-10000) → Overweight
-liefert nur eq/10000 (30-80%) der intendierten 15%-Bucket-Gewichtung. Fix:
-portfolio_engine.py:3408-3410 Tilt im Per-Bucket-Raum definieren.
+### #AA-7 (HOCH): Themen-Tilt nutzt Total-Portfolio-bps als Per-Bucket-Wert — GEFIXT ✅ (2026-06-12)
+`theme_total = 0.15 * targets["equities"]` (Portfolio-Raum), aber eq_splits leben im
+Per-Bucket-Raum (Summe 10000, in `_append_split` renormalisiert) → effektive Themen-Gewichtung
+war **größenabhängig** (empirisch: eq=8000→12%, eq=5000→7.5%, eq=2000→3%). Eine explizite
+"overweight"-Präferenz wirkte für konservative Profile viel schwächer. Fix
+(portfolio_engine.py:~3420): `theme_total = min(round(10000*0.15), 1200)` — Per-Bucket-Raum,
+Cap 1200 (12%) bleibt → **konstante 12%** unabhängig von der Aktienquote. Verifiziert: 5 neue
+Regressionstests (Größen-Unabhängigkeit über eq=8000/5000/2000 + Multi-Theme-Split) +
+93 theme-/runtime-Tests grün.
+**Hinweis Magnitude (tunbar):** typische Profile steigen von ~7.5% auf 12% Themen-Gewicht —
+die 12% folgen aus dem bestehenden Cap 1200; der Wert ist über die Konstante anpassbar,
+falls fachlich ein schwächerer/stärkerer Tilt gewünscht ist.
 
 ### #AA-8 (HOCH): Goal-Reserve nutzt max() statt Summe — GEFIXT ✅ (2026-06-12)
 Mehrere gleichzeitige Nahziele wurden unterreserviert (nur das größte zählt). **Empirisch
