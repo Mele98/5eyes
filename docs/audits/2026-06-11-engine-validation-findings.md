@@ -150,10 +150,11 @@ Integration grün (113 Tests).
 (score 45/65). Fix: round-half-up (math.floor(x+0.5)), konsistent zu risk_scoring.py:118.
 → GEFIXT (siehe Commit).
 
-## Empfehlung
-#AA-1/#AA-2/#AA-3 hängen zusammen (ungewichtetes BB-Risky-Mittel) — gemeinsam fixen
-(sub-allocation-gewichtete Risky-Fraction + MC/Test-Neukalibrierung + Voll-Suite). #AA-4/5/6
-(MC-Metriken) + #AA-7/8 separat, je mit Verifikation. Alle dediziert, nicht token-druck-beiläufig.
+## Empfehlung — STATUS 2026-06-12: alle AA-Befunde abgearbeitet ✅
+#AA-1/#AA-3/#AA-4/#AA-5/#AA-6/#AA-7/#AA-8/#AA-9 GEFIXT + verifiziert + committet/gepusht (PR #263).
+#AA-2 auf LOW herabgestuft (false-confidence durch #AA-1 weg). Jeder Fix empirisch bewiesen vor
+dem Commit, mit eigenem Regressionstest. Verbleibend nur noch Goal #2/#3/#5/#6 (Fach-Entscheide /
+opt-in stochastic / doc-UI) — siehe Goals-OFFEN-Sektion oben.
 
 ## FIX-Update 2026-06-11 (nach empirischer Verifikation)
 
@@ -171,7 +172,7 @@ GRÜN, 48 Risk-Budget/Allokations-Tests grün):
    Allokation + Compliance-Warnung statt Crash (Design-Absicht "Berater alarmieren" erfüllt,
    aber ohne 500). Kapitalschutz liefert jetzt z.B. {Aktien 5%, Obli 85%, Liq 10%} + Warnung.
 
-### Verbleibend offen (dokumentiert)
-#AA-2 (irreführender Konsistenz-Test mit hardcoded bonds=2250 — sekundär, da Crash gefixt),
-#AA-3 (Default-Targets-Tuning — teils durch konsistentes Maß entschärft), #AA-4/5/6
-(MC-Metriken), #AA-7/8 (Tilt/Reserve), Goal #2/3/5/6. Je dediziert + verifiziert.
+### Verbleibend offen (dokumentiert) — Stand 2026-06-12
+Nur noch Goals: #2 (Renditeziel bps↔CHF, nur OPTIMIZER_MODE=stochastic), #3 (MC-Inflations-Offset,
+recalibration-risk), #5 (Brutto/Netto-Renditeziel, Fach-Entscheid), #6 (Status-Vokabular doc/UI).
+Alle AA-Befunde (#AA-1 bis #AA-9) sind erledigt.
