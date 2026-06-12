@@ -4315,11 +4315,25 @@ function wealthProjectionInputs(scope){
     alternatives:Number(_acaMap['Alternative']&&_acaMap['Alternative'].expected_return_bps||ADMIN_CMA_DEFAULTS.alternatives_gold_return_bps||300)
   };
   var weightedReturnRappenBps=0;
+  // Sockel-Modell (2026-06-12): Immobilien bleiben als nicht-verzehrbarer Sockel
+  // (optional indexiert); der Konsum zieht nur das verzehrbare FINANZvermoegen ab.
+  // So zeigt die Reinvermoegens-Kurve den Vermoegensverzehr (Finanzteil zehrt ab,
+  // Haus bleibt als Boden) — analog 3eyes "Entwicklung Reinvermoegen".
+  var sockelGrossRappen=0,consumableRappen=0,consumableReturnRappenBps=0;
   positions.forEach(function(pos){
     var value=Math.max(0,Math.round(Number(pos&&pos.current_value_rappen||0)));
     if(!value)return;
     var mix=inferPositionBucketMixBps(pos);
     totalRappen+=value;
+    var posReturnBps=(Number(mix.equities||0)*returnMap.equities+Number(mix.bonds||0)*returnMap.bonds
+      +Number(mix.realEstate||0)*returnMap.realEstate+Number(mix.liquidity||0)*returnMap.liquidity
+      +Number(mix.alternatives||0)*returnMap.alternatives)/10000;
+    if(String(pos&&pos.position_type||'')==='Immobilien'){
+      sockelGrossRappen+=value;  // Immobilie = Sockel (nicht verzehrt)
+    }else{
+      consumableRappen+=value;   // verzehrbares Finanzvermoegen
+      consumableReturnRappenBps+=Math.round(value*posReturnBps);
+    }
     bucketRappen.equities+=Math.round(value*Number(mix.equities||0)/10000);
     bucketRappen.bonds+=Math.round(value*Number(mix.bonds||0)/10000);
     bucketRappen.realEstate+=Math.round(value*Number(mix.realEstate||0)/10000);
@@ -4339,21 +4353,28 @@ function wealthProjectionInputs(scope){
   // startete brutto (z.B. Leart 1.15M statt netto 850k) und war inkonsistent zur
   // Wealth-Summary (net_worth_rappen). Rendite/Bucket-Gewichte bleiben auf den
   // Brutto-Assets (totalRappen); nur der Startwert wird auf netto reduziert.
-  var startRappen=totalRappen;
+  var liabilitiesRappen=0;
   if(scope!=='advisory'){
-    var liabilitiesRappen=0;
     activeClientWealthPositions().forEach(function(pos){
       if(pos&&(!Object.prototype.hasOwnProperty.call(pos,'is_active')||pos.is_active!==0)
         &&String(pos.assignment||'')==='Verbindlichkeit'){
         liabilitiesRappen+=Math.max(0,Math.round(Number(pos.current_value_rappen||0)));
       }
     });
-    startRappen=Math.max(0,totalRappen-liabilitiesRappen);
   }
+  var startRappen=Math.max(0,totalRappen-liabilitiesRappen);
+  // Sockel = Immobilien-Wert abzueglich der (i.d.R. darauf lastenden) Hypotheken.
+  // consumableReturnBps = gewichtete Rendite NUR des verzehrbaren Finanzvermoegens
+  // (ohne die Immobilien-Buchrendite, die jetzt im Sockel-Index sitzt).
+  var sockelRappen=Math.max(0,sockelGrossRappen-liabilitiesRappen);
+  var consumableReturnBps=consumableRappen>0?Math.round(consumableReturnRappenBps/consumableRappen):0;
   return {
     scope:scope,
     startRappen:startRappen,
     grossRappen:totalRappen,
+    sockelRappen:sockelRappen,
+    consumableReturnBps:consumableReturnBps,
+    sockelIndexBps:0,
     recurringNetCashflowRappen:recurringNetCashflowRappen,
     capitalNetCashflowRappen:capitalNetCashflowRappen,
     annualNetCashflowRappen:annualNetCashflowRappen,
@@ -4657,8 +4678,13 @@ function buildCurrentWealthProjection(scope,preferredYears,preferredLabels){
   var labels=projectionYearLabels(null,years,preferredLabels);
   var inputs=wealthProjectionInputs(scope);
   var componentSeries=currentCashflowProjectionComponentSeries(years,labels,inputs.recurringNetCashflowRappen,inputs.capitalNetCashflowRappen);
-  var projection=buildBaselineProjectionFromComponentSeries(inputs.startRappen,componentSeries,inputs.expectedReturnBps,labels);
+  var projection=buildBaselineProjectionFromComponentSeries(inputs.startRappen,componentSeries,inputs.expectedReturnBps,labels,{
+    sockelRappen:inputs.sockelRappen,
+    sockelIndexBps:inputs.sockelIndexBps,
+    consumableReturnBps:inputs.consumableReturnBps
+  });
   projection.scope=scope;
+  projection.sockelRappen=Number(inputs.sockelRappen||0);
   projection.recurringNetCashflowRappen=Number(inputs.recurringNetCashflowRappen||0);
   projection.capitalNetCashflowRappen=Number(inputs.capitalNetCashflowRappen||0);
   projection.annualNetCashflowRappen=Number(inputs.annualNetCashflowRappen||0);
@@ -15333,7 +15359,7 @@ function buildBaselineProjectionFromInputs(startRappen,cashflowSeriesRappen,expe
   };
 }
 
-function buildBaselineProjectionFromComponentSeries(startRappen,componentSeries,expectedReturnBps,preferredLabels){
+function buildBaselineProjectionFromComponentSeries(startRappen,componentSeries,expectedReturnBps,preferredLabels,sockelOpts){
   var rows=(Array.isArray(componentSeries)?componentSeries:[]).map(function(item){
     return {
       recurringNetRappen:Number(item&&item.recurringNetRappen||0),
@@ -15343,16 +15369,26 @@ function buildBaselineProjectionFromComponentSeries(startRappen,componentSeries,
   });
   var years=rows.length;
   var labels=projectionYearLabels(null,years,preferredLabels);
-  var invested=Math.max(0,Math.round(Number(startRappen||0)));
-  var rate=Number(expectedReturnBps||0)/10000;
-  var seriesRappen=[invested];
+  var total0=Math.max(0,Math.round(Number(startRappen||0)));
+  // Sockel-Modell: der Sockel (Immobilien, abzgl. Hypothek) bleibt als Boden und
+  // wird NICHT verzehrt (optional indexiert). Der Konsum (netCashflow) zieht nur
+  // das verzehrbare Finanzvermoegen ab. Reinvermoegen(t) = Finanzteil(t)+Sockel(t).
+  var sockel=Math.max(0,Math.min(total0,Math.round(Number(sockelOpts&&sockelOpts.sockelRappen||0))));
+  var sockelRate=Number(sockelOpts&&sockelOpts.sockelIndexBps||0)/10000;
+  // Rendite des verzehrbaren Teils: bevorzugt die finanz-spezifische Rendite,
+  // sonst die Gesamt-Rendite (Backwards-Compat ohne Sockel).
+  var rate=Number((sockelOpts&&sockelOpts.consumableReturnBps!=null?sockelOpts.consumableReturnBps:expectedReturnBps)||0)/10000;
+  var consumable=Math.max(0,total0-sockel);
+  var seriesRappen=[Math.max(0,Math.round(consumable+sockel))];
   for(var idx=0;idx<years;idx++){
     var recurringNet=Number(rows[idx]&&rows[idx].recurringNetRappen||0);
     var capitalNet=Number(rows[idx]&&rows[idx].capitalNetRappen||0);
-    invested=Math.round(Math.max(0,invested)*(1+rate));
-    invested=Math.max(0,Math.round(invested+recurringNet));
-    invested=Math.max(0,Math.round(invested+capitalNet));
-    seriesRappen.push(Math.max(0,Math.round(invested)));
+    // verzehrbares Finanzvermoegen: Rendite, dann Netto-Cashflow (Konsum zehrt ab)
+    consumable=Math.round(Math.max(0,consumable)*(1+rate));
+    consumable=Math.max(0,Math.round(consumable+recurringNet+capitalNet));
+    // Sockel bleibt (optional indexiert) — nicht verzehrt
+    sockel=Math.max(0,Math.round(sockel*(1+sockelRate)));
+    seriesRappen.push(Math.max(0,Math.round(consumable+sockel)));
   }
   return {
     years:years,
@@ -15361,7 +15397,8 @@ function buildBaselineProjectionFromComponentSeries(startRappen,componentSeries,
     seriesRappen:seriesRappen,
     seriesK:seriesRappen.map(function(value){return Math.round(value/100000);}),
     projectedRappen:Number(seriesRappen[seriesRappen.length-1]||0),
-    cagrBps:projectionSeriesCagrBps(seriesRappen)
+    cagrBps:projectionSeriesCagrBps(seriesRappen),
+    sockelRappen:sockel
   };
 }
 function buildCurrentBaselineProjection(result,preferredYears,preferredLabels){
