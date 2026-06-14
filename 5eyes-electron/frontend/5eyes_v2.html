@@ -950,6 +950,897 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 </style>
 </head>
 <body>
+<!-- 5EYES BROADCAST INTRO (2026-06-14)
+     Fullscreen financial world scene. Self-contained, skippable, reduced-motion
+     aware and dependency-free so it also works in the packaged desktop app. -->
+<div id="intro-screen" role="dialog" aria-label="5eyes wird gestartet">
+  <style>
+    #intro-screen{--intro-bg:#040811;--intro-panel:#091421;--intro-cyan:#54c6d8;--intro-gold:#d5b45d;--intro-red:#da5b55;--intro-text:#edf3f6;--intro-muted:#8295a5;
+      position:fixed;inset:0;z-index:100000;overflow:hidden;background:#040811;color:var(--intro-text);cursor:default;
+      font-family:Inter,"Segoe UI",Arial,sans-serif;opacity:1;transition:opacity .7s ease,transform .7s ease;}
+    #intro-screen.intro-ready{cursor:pointer;}
+    #intro-screen.intro-hide{opacity:0;transform:scale(1.018);pointer-events:none;}
+    #intro-screen::before{content:"";position:absolute;inset:0;z-index:1;pointer-events:none;
+      background:linear-gradient(90deg,rgba(3,7,13,.94) 0%,rgba(3,8,14,.48) 31%,rgba(3,8,14,.03) 60%,rgba(3,7,13,.62) 100%),
+      radial-gradient(circle at 65% 48%,rgba(33,105,125,.18),transparent 37%);}
+    #intro-screen::after{content:"";position:absolute;inset:0;z-index:6;pointer-events:none;opacity:.26;
+      background:repeating-linear-gradient(0deg,rgba(255,255,255,.025) 0,rgba(255,255,255,.025) 1px,transparent 1px,transparent 4px);}
+    #intro-screen canvas{position:absolute;inset:0;width:100%;height:100%;z-index:0;}
+    #intro-screen .intro-perspective{position:absolute;left:24%;right:-12%;bottom:-28%;height:68%;z-index:0;opacity:.28;
+      transform:perspective(560px) rotateX(62deg);transform-origin:center bottom;
+      background-image:linear-gradient(rgba(84,198,216,.20) 1px,transparent 1px),linear-gradient(90deg,rgba(84,198,216,.16) 1px,transparent 1px);
+      background-size:58px 44px;-webkit-mask-image:linear-gradient(to top,#000,transparent 86%);mask-image:linear-gradient(to top,#000,transparent 86%);}
+    #intro-screen .intro-topline{position:absolute;z-index:4;top:0;left:0;right:0;height:48px;padding:0 34px;display:flex;align-items:center;justify-content:space-between;
+      border-bottom:1px solid rgba(112,171,187,.2);background:rgba(4,9,16,.34);font:600 9px/1 ui-monospace,Consolas,monospace;letter-spacing:2.2px;color:#92a9b7;}
+    #intro-screen .intro-live{display:flex;align-items:center;gap:9px;color:#bac8cf;}
+    #intro-screen .intro-live i{width:6px;height:6px;border-radius:50%;background:var(--intro-red);box-shadow:0 0 10px rgba(218,91,85,.9);animation:introLive 2.4s ease-in-out infinite;}
+    #intro-screen .intro-clock{font-variant-numeric:tabular-nums;color:#d2dde2;}
+    #intro-screen .intro-lockup{position:absolute;z-index:4;left:5.3%;top:50%;width:min(480px,38vw);transform:translateY(-53%);animation:introReveal .9s .12s both;}
+    #intro-screen .intro-kicker{display:flex;align-items:center;gap:12px;margin-bottom:17px;font:600 10px/1 ui-monospace,Consolas,monospace;letter-spacing:3.2px;color:var(--intro-cyan);}
+    #intro-screen .intro-kicker::before{content:"";width:38px;height:1px;background:var(--intro-cyan);box-shadow:0 0 8px rgba(84,198,216,.6);}
+    #intro-screen .intro-brand{font-family:"Cormorant Garamond",Georgia,"Times New Roman",serif;font-size:clamp(76px,10vw,148px);font-weight:500;line-height:.72;letter-spacing:0;color:#f4f0e6;text-shadow:0 7px 36px rgba(0,0,0,.5);}
+    #intro-screen .intro-brand b{font-weight:700;color:var(--intro-gold);}
+    #intro-screen .intro-tag{margin-top:28px;font-size:12px;font-weight:500;letter-spacing:5px;color:#c8d3d8;}
+    #intro-screen .intro-rule{display:flex;align-items:center;width:min(420px,100%);margin:25px 0 17px;}
+    #intro-screen .intro-rule i{display:block;height:1px;flex:1;background:linear-gradient(90deg,var(--intro-gold),rgba(213,180,93,.12));}
+    #intro-screen .intro-rule b{width:5px;height:5px;margin-left:8px;border:1px solid var(--intro-gold);transform:rotate(45deg);}
+    #intro-screen .intro-log{min-height:18px;color:#a9bbc5;font:500 10px/1.5 ui-monospace,Consolas,monospace;letter-spacing:1px;text-transform:uppercase;}
+    #intro-screen .intro-progress{width:min(420px,100%);height:2px;margin-top:13px;background:rgba(255,255,255,.09);overflow:hidden;}
+    #intro-screen .intro-progress i{display:block;width:0;height:100%;background:linear-gradient(90deg,var(--intro-gold),var(--intro-cyan));box-shadow:0 0 12px rgba(84,198,216,.7);transition:width .5s ease;}
+    #intro-screen .intro-rail{position:absolute;z-index:4;right:3.1%;top:50%;width:214px;transform:translateY(-48%);border-left:1px solid rgba(112,171,187,.22);padding-left:21px;animation:introReveal .9s .35s both;}
+    #intro-screen .intro-rail-title{margin-bottom:17px;color:#6f8999;font:600 8px/1 ui-monospace,Consolas,monospace;letter-spacing:2.4px;}
+    #intro-screen .intro-signal{display:grid;grid-template-columns:1fr auto;gap:8px;padding:11px 0;border-bottom:1px solid rgba(255,255,255,.07);font:500 9px/1.2 ui-monospace,Consolas,monospace;color:#9eb0ba;letter-spacing:.6px;}
+    #intro-screen .intro-signal em{font-style:normal;color:#8ed4c8;}
+    #intro-screen .intro-signal em::before{content:"";display:inline-block;width:4px;height:4px;margin:0 7px 1px 0;border-radius:50%;background:#67c9ad;box-shadow:0 0 7px rgba(103,201,173,.7);}
+    #intro-screen .intro-caption{position:absolute;z-index:4;left:52%;top:15.5%;font:600 8px/1.5 ui-monospace,Consolas,monospace;letter-spacing:2px;color:rgba(166,193,204,.68);}
+    #intro-screen .intro-caption strong{display:block;margin-top:3px;font-size:12px;font-weight:500;letter-spacing:1px;color:#d2dde1;}
+    #intro-screen .intro-bottom{position:absolute;z-index:5;left:0;right:0;bottom:0;height:54px;display:flex;align-items:stretch;background:rgba(3,7,13,.9);border-top:1px solid rgba(112,171,187,.24);}
+    #intro-screen .intro-channel{min-width:162px;padding:0 26px;display:flex;align-items:center;background:var(--intro-gold);color:#0b1117;font:800 10px/1 ui-monospace,Consolas,monospace;letter-spacing:2px;}
+    #intro-screen .intro-ticker{position:relative;flex:1;overflow:hidden;display:flex;align-items:center;}
+    #intro-screen .intro-ticker-track{display:flex;width:max-content;gap:48px;white-space:nowrap;animation:introTicker 31s linear infinite;color:#9eb0bb;font:500 9px/1 ui-monospace,Consolas,monospace;letter-spacing:1.5px;}
+    #intro-screen .intro-ticker-track span::before{content:"+";margin-right:12px;color:var(--intro-cyan);}
+    #intro-screen .intro-skip{display:flex;align-items:center;padding:0 28px;border:0;border-left:1px solid rgba(112,171,187,.18);background:transparent;
+      font:600 8px/1 ui-monospace,Consolas,monospace;letter-spacing:1.5px;color:#748a98;white-space:nowrap;cursor:default;transition:background .3s ease,color .3s ease;}
+    #intro-screen.intro-ready .intro-skip{background:var(--intro-gold);color:#091019;cursor:pointer;animation:introReady 2.6s ease-in-out infinite;}
+    #intro-screen.intro-calm .intro-live i{animation-duration:4.2s;}
+    #intro-screen.intro-calm .intro-ticker-track{animation-duration:48s;}
+    #intro-screen.intro-calm .intro-signal em::before{box-shadow:0 0 4px rgba(103,201,173,.45);}
+    @keyframes introReveal{from{opacity:0;transform:translateY(-48%) translateX(-14px)}to{opacity:1;transform:translateY(-53%) translateX(0)}}
+    @keyframes introLive{50%{opacity:.35}}
+    @keyframes introReady{50%{background:#e2c675}}
+    @keyframes introTicker{to{transform:translateX(-50%)}}
+    @media(max-width:900px){
+      #intro-screen .intro-lockup{left:6%;width:48vw;top:48%;}
+      #intro-screen .intro-rail{display:none;}
+      #intro-screen .intro-caption{left:auto;right:5%;top:18%;}
+      #intro-screen .intro-brand{font-size:clamp(68px,14vw,112px);}
+    }
+    @media(max-width:620px){
+      #intro-screen .intro-topline{padding:0 18px;height:42px;}
+      #intro-screen .intro-topline>span:first-child,#intro-screen .intro-caption{display:none;}
+      #intro-screen .intro-lockup{left:24px;right:24px;top:auto;bottom:106px;width:auto;transform:none;}
+      #intro-screen .intro-brand{font-size:78px;}
+      #intro-screen .intro-tag{font-size:9px;letter-spacing:3px;margin-top:21px;}
+      #intro-screen .intro-channel{min-width:112px;padding:0 16px;}
+      #intro-screen .intro-ticker{display:none;}
+      #intro-screen .intro-skip{display:flex;flex:1;justify-content:center;padding:0 12px;}
+    }
+    @media(prefers-reduced-motion:reduce){
+      #intro-screen .intro-live i,#intro-screen .intro-ticker-track,#intro-screen.intro-ready .intro-skip{animation:none!important;}
+    }
+  </style>
+  <canvas id="intro-world" aria-hidden="true"></canvas>
+  <div class="intro-perspective"></div>
+  <div class="intro-topline">
+    <span>5EYES / GLOBAL WEALTH NETWORK</span>
+    <span class="intro-live"><i></i> SECURE PRIVATE BANKING CHANNEL</span>
+    <span class="intro-clock">ZURICH 00:00:00</span>
+  </div>
+  <div class="intro-lockup">
+    <div class="intro-kicker">GLOBAL WEALTH INTELLIGENCE</div>
+    <div class="intro-brand"><b>5</b>eyes</div>
+    <div class="intro-tag">WEALTH · STRATEGY · PRIVATE MARKETS</div>
+    <div class="intro-rule"><i></i><b></b></div>
+    <div class="intro-log">System wird initialisiert</div>
+    <div class="intro-progress"><i></i></div>
+  </div>
+  <div class="intro-caption">GLOBAL WEALTH VIEW<strong>CROSS-BORDER / MULTI-ASSET</strong></div>
+  <aside class="intro-rail" aria-label="Systemstatus">
+    <div class="intro-rail-title">PRIVATE BANKING LAYERS</div>
+    <div class="intro-signal"><span>STRATEGIC ALLOCATION</span><em>ACTIVE</em></div>
+    <div class="intro-signal"><span>PRIVATE MARKETS</span><em>MAPPED</em></div>
+    <div class="intro-signal"><span>LIQUIDITY PLAN</span><em>READY</em></div>
+    <div class="intro-signal"><span>RISK BUDGET</span><em>VALID</em></div>
+    <div class="intro-signal"><span>ESTATE &amp; LEGACY</span><em>SYNC</em></div>
+  </aside>
+  <div class="intro-bottom">
+    <div class="intro-channel">5EYES LIVE</div>
+    <div class="intro-ticker"><div class="intro-ticker-track">
+      <span>STRATEGIC ASSET ALLOCATION</span><span>PRIVATE MARKETS</span><span>LIQUIDITY PLANNING</span><span>GOAL-BASED INVESTING</span><span>SUCCESSION &amp; LEGACY</span><span>RISK BUDGET VALIDATED</span>
+      <span>STRATEGIC ASSET ALLOCATION</span><span>PRIVATE MARKETS</span><span>LIQUIDITY PLANNING</span><span>GOAL-BASED INVESTING</span><span>SUCCESSION &amp; LEGACY</span><span>RISK BUDGET VALIDATED</span>
+    </div></div>
+    <button class="intro-skip" type="button" disabled>SYSTEM WIRD GELADEN</button>
+  </div>
+</div>
+<script src="vendor/intro-country-outlines.js"></script>
+<script>
+(function(){
+  try{window.replayIntro=function(){try{sessionStorage.removeItem('introShown');}catch(e){}location.reload();};}catch(e){}
+  var intro=document.getElementById('intro-screen');
+  if(!intro)return;
+  var force=(location.search||'').indexOf('intro=1')>=0;
+  try{
+    if(!force&&sessionStorage.getItem('introShown')==='1'){intro.parentNode&&intro.parentNode.removeChild(intro);return;}
+    sessionStorage.setItem('introShown','1');
+  }catch(e){}
+  var reduce=false;
+  try{reduce=!!(window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches);}catch(e){}
+  var canvas=document.getElementById('intro-world');
+  var ctx=canvas&&canvas.getContext?canvas.getContext('2d'):null;
+  var logEl=intro.querySelector('.intro-log');
+  var bar=intro.querySelector('.intro-progress > i');
+  var clockEl=intro.querySelector('.intro-clock');
+  var continueButton=intro.querySelector('.intro-skip');
+  var steps=['Wealth structure mapping','Strategic allocation synchronized','Private markets and liquidity mapped','Risk budget and goals validated','Advisory environment ready'];
+  var done=false,ready=false,raf=0,clockTimer=0,calmTimer=0,start=performance.now();
+  var countryOutlines=Array.isArray(window.INTRO_COUNTRY_OUTLINES)?window.INTRO_COUNTRY_OUTLINES:[];
+  var continents=[
+    [[-168,70],[-145,62],[-128,50],[-123,38],[-105,25],[-88,18],[-82,26],[-70,44],[-55,53],[-74,68],[-110,73]],
+    [[-81,12],[-72,5],[-68,-12],[-55,-24],[-53,-38],[-67,-55],[-75,-35],[-79,-12]],
+    [[-12,35],[-2,51],[18,60],[42,56],[63,67],[95,72],[125,55],[150,48],[142,35],[115,22],[92,10],[72,22],[48,31],[34,29],[28,40],[12,43]],
+    [[-17,34],[4,37],[24,31],[39,12],[34,-10],[19,-35],[2,-32],[-11,-4]],
+    [[112,-12],[132,-10],[153,-25],[146,-40],[121,-35]],
+    [[-52,82],[-25,76],[-37,61],[-58,64]]
+  ];
+  var continentCenters=[
+    {lon:-108,lat:49,label:'NORTH AMERICA'},
+    {lon:-63,lat:-20,label:'SOUTH AMERICA'},
+    {lon:65,lat:45,label:'EUROPE & ASIA'},
+    {lon:18,lat:4,label:'AFRICA'},
+    {lon:134,lat:-26,label:'OCEANIA'},
+    {lon:-42,lat:71,label:'GREENLAND'}
+  ];
+  function countryRegionIndex(country){
+    if(country.n==='Greenland')return 5;
+    return {
+      'North America':0,
+      'South America':1,
+      'Europe':2,
+      'Asia':2,
+      'Africa':3,
+      'Oceania':4
+    }[country.c]||2;
+  }
+  var countryShapes=countryOutlines.map(function(country){
+    return {
+      name:country.n,
+      region:countryRegionIndex(country),
+      bbox:country.b,
+      rings:country.p
+    };
+  });
+  var globeTexture=[];
+  for(var textureIndex=0;textureIndex<320;textureIndex++){
+    var textureUnit=((textureIndex*97)%317)/316;
+    globeTexture.push([
+      ((textureIndex*137.508)%360)-180,
+      Math.asin(textureUnit*2-1)*180/Math.PI,
+      .12+((textureIndex*29)%17)/100
+    ]);
+  }
+  function pointInPolygon(lon,lat,polygon){
+    var inside=false;
+    for(var i=0,j=polygon.length-1;i<polygon.length;j=i++){
+      var xi=polygon[i][0],yi=polygon[i][1],xj=polygon[j][0],yj=polygon[j][1];
+      var intersects=((yi>lat)!==(yj>lat))&&(lon<(xj-xi)*(lat-yi)/((yj-yi)||.00001)+xi);
+      if(intersects)inside=!inside;
+    }
+    return inside;
+  }
+  function pointInCountry(lon,lat,country){
+    var bbox=country.bbox;
+    if(bbox&&(lon<bbox[0]||lat<bbox[1]||lon>bbox[2]||lat>bbox[3]))return false;
+    var inside=false;
+    for(var ringIndex=0;ringIndex<country.rings.length;ringIndex++){
+      if(pointInPolygon(lon,lat,country.rings[ringIndex]))inside=!inside;
+    }
+    return inside;
+  }
+  var hexLandTiles=[];
+  for(var tileLat=-56,row=0;tileLat<=80;tileLat+=4.5,row++){
+    for(var tileLon=-177+(row%2?2.6:0);tileLon<=177;tileLon+=5.2){
+      var onLand=false,continentIndex=-1,countryIndex=-1;
+      if(countryShapes.length){
+        for(var shapeIndex=0;shapeIndex<countryShapes.length;shapeIndex++){
+          if(pointInCountry(tileLon,tileLat,countryShapes[shapeIndex])){
+            onLand=true;
+            countryIndex=shapeIndex;
+            continentIndex=countryShapes[shapeIndex].region;
+            break;
+          }
+        }
+      }else{
+        for(var polygonIndex=0;polygonIndex<continents.length;polygonIndex++){
+          if(pointInPolygon(tileLon,tileLat,continents[polygonIndex])){onLand=true;continentIndex=polygonIndex;break;}
+        }
+      }
+      if(onLand){
+        var tileSeed=Math.abs(Math.round(tileLon*13+tileLat*29));
+        hexLandTiles.push({
+          lon:tileLon,
+          lat:tileLat,
+          continent:continentIndex,
+          country:countryIndex,
+          lift:.027+(tileSeed%7)*.003,
+          phase:(tileSeed%31)*.19,
+          accent:tileSeed%19===0||tileSeed%23===0
+        });
+      }
+    }
+  }
+  var marketHubs=[
+    {lon:8,lat:47,label:'ZRH'},
+    {lon:-74,lat:40,label:'NYC'},
+    {lon:103,lat:1,label:'SGP'},
+    {lon:139,lat:35,label:'TYO'},
+    {lon:-46,lat:-23,label:'SAO'}
+  ];
+  var marketLinks=[[0,1],[0,2],[0,3],[1,4],[2,3]];
+  var capitalCities=[
+    {lon:7.45,lat:46.95,label:'BERN'},
+    {lon:-.13,lat:51.51,label:'LONDON'},
+    {lon:2.35,lat:48.86,label:'PARIS'},
+    {lon:13.41,lat:52.52,label:'BERLIN'},
+    {lon:-77.04,lat:38.91,label:'WASHINGTON'},
+    {lon:-75.70,lat:45.42,label:'OTTAWA'},
+    {lon:-47.88,lat:-15.79,label:'BRASILIA'},
+    {lon:54.38,lat:24.45,label:'ABU DHABI'},
+    {lon:77.21,lat:28.61,label:'NEW DELHI'},
+    {lon:116.41,lat:39.90,label:'BEIJING'},
+    {lon:139.69,lat:35.68,label:'TOKYO'},
+    {lon:103.82,lat:1.35,label:'SINGAPORE'},
+    {lon:151.21,lat:-33.87,label:'CANBERRA'}
+  ];
+  function finish(){
+    if(done||!ready)return;
+    done=true;
+    if(raf)cancelAnimationFrame(raf);
+    if(clockTimer)clearInterval(clockTimer);
+    if(calmTimer)clearTimeout(calmTimer);
+    window.removeEventListener('resize',resize);
+    window.removeEventListener('keydown',handleKey);
+    intro.classList.add('intro-hide');
+    setTimeout(function(){try{intro.parentNode&&intro.parentNode.removeChild(intro);}catch(e){}},760);
+  }
+  function markReady(){
+    if(done||ready)return;
+    ready=true;
+    intro.classList.add('intro-ready');
+    if(logEl)logEl.textContent='System ready · click to enter';
+    if(bar)bar.style.width='100%';
+    if(continueButton){
+      continueButton.disabled=false;
+      continueButton.textContent='KLICKEN ZUM STARTEN';
+    }
+  }
+  function handleKey(event){
+    if(ready&&(event.key==='Enter'||event.key===' ')){
+      event.preventDefault();
+      finish();
+    }
+  }
+  function cinematicTime(rawTime){
+    var revealEnd=2400,settleEnd=6000;
+    if(rawTime<=revealEnd)return rawTime;
+    if(rawTime>=settleEnd){
+      var settledDistance=(settleEnd-revealEnd)*(.59);
+      return revealEnd+settledDistance+(rawTime-settleEnd)*.12;
+    }
+    var duration=settleEnd-revealEnd;
+    var progress=(rawTime-revealEnd)/duration;
+    var easedIntegral=progress-.82*(progress*progress*progress-.5*progress*progress*progress*progress);
+    return revealEnd+duration*easedIntegral;
+  }
+  function resize(){
+    if(!canvas||!ctx)return;
+    var dpr=Math.min(window.devicePixelRatio||1,2);
+    canvas.width=Math.round(innerWidth*dpr);
+    canvas.height=Math.round(innerHeight*dpr);
+    canvas.style.width=innerWidth+'px';
+    canvas.style.height=innerHeight+'px';
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+  }
+  function project(lon,lat,rotation,cx,cy,r){
+    var lo=(lon+rotation)*Math.PI/180,la=lat*Math.PI/180,c=Math.cos(la);
+    return{x:cx+r*c*Math.sin(lo),y:cy-r*Math.sin(la),z:c*Math.cos(lo)};
+  }
+  function pathGeo(points,rotation,cx,cy,r,close){
+    var drawing=false;
+    ctx.beginPath();
+    for(var i=0;i<points.length;i++){
+      var p=project(points[i][0],points[i][1],rotation,cx,cy,r);
+      if(p.z>-.035){if(!drawing){ctx.moveTo(p.x,p.y);drawing=true;}else ctx.lineTo(p.x,p.y);}else drawing=false;
+    }
+    if(close&&drawing)ctx.closePath();
+    return drawing;
+  }
+  function drawCountryGeometry(rotation,cx,cy,r,activeRegion,activeLift,outlineOnly,focusOnly){
+    if(!countryShapes.length)return;
+    for(var countryIndex=0;countryIndex<countryShapes.length;countryIndex++){
+      var country=countryShapes[countryIndex];
+      var bbox=country.bbox||[0,0,0,0];
+      var centerLon=(bbox[0]+bbox[2])*.5;
+      var centerLat=(bbox[1]+bbox[3])*.5;
+      var centerPoint=project(centerLon,centerLat,rotation,cx,cy,r);
+      var frontness=Math.max(0,Math.min(1,(centerPoint.z+.08)/1.08));
+      if(frontness<=.015)continue;
+      var isFocused=country.region===activeRegion;
+      if(focusOnly&&!isFocused)continue;
+      var countryRadius=r*(isFocused?activeLift:1.006);
+      var fillAlpha=(.018+frontness*.052)*(isFocused?1.9:1);
+      var strokeAlpha=.09+frontness*(isFocused?.38:.20);
+      ctx.lineWidth=isFocused?.78:.48;
+      ctx.fillStyle=isFocused
+        ?'rgba(57,153,169,'+fillAlpha+')'
+        :'rgba(34,112,130,'+fillAlpha+')';
+      ctx.strokeStyle=isFocused
+        ?'rgba(178,229,232,'+strokeAlpha+')'
+        :'rgba(130,201,210,'+strokeAlpha+')';
+      for(var ringIndex=0;ringIndex<country.rings.length;ringIndex++){
+        if(pathGeo(country.rings[ringIndex],rotation,cx,cy,countryRadius,true)){
+          if(!outlineOnly)ctx.fill();
+          ctx.stroke();
+        }
+      }
+    }
+  }
+  function drawSatellite(cx,cy,orbitRadius,t,tilt,phase,flatten){
+    var angle=t*.00042+phase;
+    var ox=Math.cos(angle)*orbitRadius,oy=Math.sin(angle)*orbitRadius*flatten;
+    var cosTilt=Math.cos(tilt),sinTilt=Math.sin(tilt);
+    var sx=cx+ox*cosTilt-oy*sinTilt,sy=cy+ox*sinTilt+oy*cosTilt;
+    var tangent=Math.atan2(
+      (-Math.sin(angle)*orbitRadius)*sinTilt+(Math.cos(angle)*orbitRadius*flatten)*cosTilt,
+      (-Math.sin(angle)*orbitRadius)*cosTilt-(Math.cos(angle)*orbitRadius*flatten)*sinTilt
+    );
+    ctx.save();
+    ctx.translate(cx,cy);ctx.rotate(tilt);ctx.scale(1,flatten);
+    ctx.setLineDash([3,8]);ctx.lineDashOffset=-(t*.012);
+    ctx.strokeStyle='rgba(116,195,209,.24)';ctx.lineWidth=.8;
+    ctx.beginPath();ctx.arc(0,0,orbitRadius,0,Math.PI*2);ctx.stroke();
+    ctx.restore();
+    ctx.save();
+    ctx.translate(sx,sy);ctx.rotate(tangent);
+    ctx.shadowColor='rgba(84,198,216,.8)';ctx.shadowBlur=8;
+    ctx.fillStyle='#b8d7dd';ctx.fillRect(-3.5,-2.2,7,4.4);
+    ctx.fillStyle='rgba(67,156,177,.82)';ctx.fillRect(-12,-3.4,6.5,6.8);ctx.fillRect(5.5,-3.4,6.5,6.8);
+    ctx.strokeStyle='rgba(202,232,236,.52)';ctx.lineWidth=.6;
+    ctx.strokeRect(-12,-3.4,6.5,6.8);ctx.strokeRect(5.5,-3.4,6.5,6.8);
+    ctx.fillStyle='#d5b45d';ctx.beginPath();ctx.arc(0,0,1.35,0,Math.PI*2);ctx.fill();
+    ctx.restore();
+    var pulse=8+((t*.025+phase*30)%12);
+    ctx.strokeStyle='rgba(84,198,216,'+(Math.max(0,.28-(pulse-8)*.02))+')';
+    ctx.lineWidth=.8;ctx.beginPath();ctx.arc(sx,sy,pulse,0,Math.PI*2);ctx.stroke();
+  }
+  function quadraticPoint(a,b,c,p){
+    var q=1-p;
+    return{x:q*q*a.x+2*q*p*b.x+p*p*c.x,y:q*q*a.y+2*q*p*b.y+p*p*c.y};
+  }
+  function drawHexagon(x,y,size,rotation,fill,stroke){
+    ctx.beginPath();
+    for(var side=0;side<6;side++){
+      var angle=rotation+Math.PI/3*side;
+      var hx=x+Math.cos(angle)*size,hy=y+Math.sin(angle)*size;
+      if(!side)ctx.moveTo(hx,hy);else ctx.lineTo(hx,hy);
+    }
+    ctx.closePath();
+    if(fill){ctx.fillStyle=fill;ctx.fill();}
+    if(stroke){ctx.strokeStyle=stroke;ctx.stroke();}
+  }
+  function hexVertices(x,y,size,rotation){
+    var vertices=[];
+    for(var side=0;side<6;side++){
+      var angle=rotation+Math.PI/3*side;
+      vertices.push({x:x+Math.cos(angle)*size,y:y+Math.sin(angle)*size});
+    }
+    return vertices;
+  }
+  function drawHexExtrusion(baseX,baseY,topX,topY,size,rotation,alpha){
+    var base=hexVertices(baseX,baseY,size*.88,rotation);
+    var top=hexVertices(topX,topY,size,rotation);
+    var directionX=topX-baseX,directionY=topY-baseY;
+    var selected=[];
+    for(var side=0;side<6;side++){
+      var next=(side+1)%6;
+      var edgeX=top[next].x-top[side].x,edgeY=top[next].y-top[side].y;
+      if(edgeX*directionY-edgeY*directionX>0)selected.push(side);
+    }
+    for(var face=0;face<selected.length;face++){
+      var faceIndex=selected[face],faceNext=(faceIndex+1)%6;
+      var shade=.08+alpha*(face%2?.32:.48);
+      ctx.fillStyle='rgba(28,105,121,'+shade+')';
+      ctx.strokeStyle='rgba(123,211,220,'+Math.min(.42,shade+.08)+')';
+      ctx.beginPath();
+      ctx.moveTo(base[faceIndex].x,base[faceIndex].y);
+      ctx.lineTo(base[faceNext].x,base[faceNext].y);
+      ctx.lineTo(top[faceNext].x,top[faceNext].y);
+      ctx.lineTo(top[faceIndex].x,top[faceIndex].y);
+      ctx.closePath();ctx.fill();ctx.stroke();
+    }
+  }
+  function drawDottedOrbit(cx,cy,radius,tilt,flatten,t,offset,color){
+    ctx.save();
+    ctx.translate(cx,cy);ctx.rotate(tilt);
+    for(var dot=0;dot<84;dot++){
+      var angle=Math.PI*2*dot/84+offset+t*.000035;
+      var visibility=.28+.72*(.5+.5*Math.sin(angle));
+      var dx=Math.cos(angle)*radius,dy=Math.sin(angle)*radius*flatten;
+      var dotSize=dot%7===0?1.35:.65;
+      ctx.globalAlpha=visibility;
+      ctx.fillStyle=color;
+      ctx.beginPath();ctx.arc(dx,dy,dotSize,0,Math.PI*2);ctx.fill();
+    }
+    ctx.restore();ctx.globalAlpha=1;
+  }
+  function drawWhirlField(cx,cy,r,t,w){
+    var whirls=[
+      {radius:1.02,spread:.42,turns:1.72,tilt:-.18,flatten:.70,phase:.2,color:'rgba(91,207,219,.20)',dash:[2,9]},
+      {radius:1.11,spread:.34,turns:1.34,tilt:.52,flatten:.38,phase:2.1,color:'rgba(213,180,93,.15)',dash:[1,12]},
+      {radius:1.18,spread:.30,turns:1.18,tilt:-.74,flatten:.24,phase:4.0,color:'rgba(156,181,190,.12)',dash:[4,14]}
+    ];
+    ctx.save();
+    ctx.translate(cx,cy);
+    for(var whirlIndex=0;whirlIndex<whirls.length;whirlIndex++){
+      if(w<720&&whirlIndex>0)continue;
+      var whirl=whirls[whirlIndex];
+      ctx.save();
+      ctx.rotate(whirl.tilt);
+      ctx.scale(1,whirl.flatten);
+      ctx.setLineDash(whirl.dash);
+      ctx.lineDashOffset=-(t*.006+whirlIndex*7);
+      ctx.strokeStyle=whirl.color;
+      ctx.lineWidth=whirlIndex===0?1.05:.75;
+      ctx.beginPath();
+      for(var whirlStep=0;whirlStep<=150;whirlStep++){
+        var whirlProgress=whirlStep/150;
+        var angle=whirl.phase+t*(.000045-whirlIndex*.000008)+whirlProgress*Math.PI*2*whirl.turns;
+        var radial=r*(whirl.radius+whirl.spread*whirlProgress);
+        var wx=Math.cos(angle)*radial,wy=Math.sin(angle)*radial;
+        if(!whirlStep)ctx.moveTo(wx,wy);else ctx.lineTo(wx,wy);
+      }
+      ctx.stroke();
+      ctx.setLineDash([]);
+      for(var particle=0;particle<9;particle++){
+        var particleProgress=(particle/9+t*.000012*(whirlIndex+1))%1;
+        var particleAngle=whirl.phase+t*.00004+particleProgress*Math.PI*2*whirl.turns;
+        var particleRadius=r*(whirl.radius+whirl.spread*particleProgress);
+        ctx.globalAlpha=.22+.44*(1-particleProgress);
+        ctx.fillStyle=whirlIndex===1?'#d5b45d':'#7bd4df';
+        ctx.beginPath();
+        ctx.arc(Math.cos(particleAngle)*particleRadius,Math.sin(particleAngle)*particleRadius,particle%3===0?1.35:.75,0,Math.PI*2);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+    ctx.restore();
+    ctx.globalAlpha=1;
+    ctx.setLineDash([]);
+  }
+  function drawFinanceBackdrop(t,w,h){
+    if(w<760)return;
+    var left=w*.34,right=w*.965,top=h*.09,bottom=h*.87;
+    ctx.save();
+    ctx.globalAlpha=.22;
+    ctx.font='600 7px ui-monospace,Consolas,monospace';
+    var lanes=[
+      {y:h*.23,label:'GLOBAL EQUITY / CHF',color:'rgba(84,198,216,.42)',phase:.4},
+      {y:h*.49,label:'CREDIT SPREAD / LIQUIDITY',color:'rgba(213,180,93,.30)',phase:2.1},
+      {y:h*.73,label:'PRIVATE MARKETS / REAL ASSETS',color:'rgba(115,185,170,.31)',phase:4.2}
+    ];
+    for(var laneIndex=0;laneIndex<lanes.length;laneIndex++){
+      var lane=lanes[laneIndex];
+      ctx.fillStyle='rgba(145,175,184,.54)';
+      ctx.fillText(lane.label,left,lane.y-12);
+      ctx.strokeStyle='rgba(105,157,170,.10)';
+      ctx.lineWidth=.6;
+      ctx.beginPath();ctx.moveTo(left,lane.y);ctx.lineTo(right,lane.y);ctx.stroke();
+      ctx.strokeStyle=lane.color;
+      ctx.lineWidth=1;
+      ctx.beginPath();
+      for(var pointIndex=0;pointIndex<=72;pointIndex++){
+        var progress=pointIndex/72;
+        var drift=Math.sin(progress*11+lane.phase+t*.00013)*9;
+        var cycle=Math.sin(progress*27-lane.phase+t*.00008)*3.6;
+        var trend=(progress-.5)*(laneIndex===1?-7:10);
+        var px=left+(right-left)*progress;
+        var py=lane.y+drift+cycle-trend;
+        if(!pointIndex)ctx.moveTo(px,py);else ctx.lineTo(px,py);
+      }
+      ctx.stroke();
+    }
+    var candleBase=top+55,candleWidth=(right-left)/34;
+    for(var candleIndex=0;candleIndex<34;candleIndex++){
+      var energy=Math.sin(candleIndex*1.73+t*.00022);
+      var center=candleBase+Math.sin(candleIndex*.58+t*.00011)*16;
+      var high=9+Math.abs(Math.sin(candleIndex*2.2+t*.00016))*18;
+      var body=3+Math.abs(Math.cos(candleIndex*1.14+t*.00009))*8;
+      var candleX=left+candleIndex*candleWidth;
+      var rising=energy>.02;
+      ctx.strokeStyle=rising?'rgba(102,202,183,.24)':'rgba(218,104,94,.20)';
+      ctx.fillStyle=rising?'rgba(102,202,183,.18)':'rgba(218,104,94,.15)';
+      ctx.beginPath();ctx.moveTo(candleX,center-high);ctx.lineTo(candleX,center+high);ctx.stroke();
+      ctx.fillRect(candleX-1.7,center-body*.5,3.4,body);
+    }
+    var volumeY=bottom,volumeHeight=h*.085;
+    for(var volumeIndex=0;volumeIndex<44;volumeIndex++){
+      var volumeProgress=volumeIndex/43;
+      var volume=.18+.82*Math.abs(Math.sin(volumeIndex*.82+t*.00009));
+      var volumeX=left+(right-left)*volumeProgress;
+      ctx.fillStyle=volumeIndex%9===0?'rgba(213,180,93,.18)':'rgba(84,198,216,.11)';
+      ctx.fillRect(volumeX,volumeY-volumeHeight*volume,3,volumeHeight*volume);
+    }
+    ctx.restore();
+  }
+  function drawWealthHud(t,w,h,cx,cy,r,activeCenter,activeLift,activeLabel){
+    if(w<820)return;
+    var labelX=cx-r*.88,labelY=cy-r*.73;
+    var anchorX=cx+(activeCenter.x-cx)*activeLift;
+    var anchorY=cy+(activeCenter.y-cy)*activeLift;
+    ctx.strokeStyle='rgba(213,180,93,.46)';ctx.lineWidth=.8;
+    ctx.beginPath();ctx.moveTo(anchorX,anchorY);ctx.lineTo(labelX+42,labelY+14);ctx.lineTo(labelX,labelY+14);ctx.stroke();
+    ctx.fillStyle='rgba(213,180,93,.9)';ctx.beginPath();ctx.arc(anchorX,anchorY,2.1,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='rgba(155,184,194,.62)';ctx.font='600 7px ui-monospace,Consolas,monospace';
+    ctx.fillText('CROSS-BORDER WEALTH',labelX,labelY);
+    ctx.fillStyle='rgba(224,233,235,.86)';ctx.font='600 9px ui-monospace,Consolas,monospace';
+    ctx.fillText(activeLabel+' / REGION IN FOCUS',labelX,labelY+10);
+    var ringX=cx+r*.72,ringY=cy-r*.72,ringR=24;
+    var segments=[
+      {a:-Math.PI*.5,b:Math.PI*.02,c:'rgba(84,198,216,.75)'},
+      {a:Math.PI*.08,b:Math.PI*.56,c:'rgba(213,180,93,.72)'},
+      {a:Math.PI*.62,b:Math.PI*1.04,c:'rgba(108,174,187,.55)'},
+      {a:Math.PI*1.10,b:Math.PI*1.45,c:'rgba(190,211,218,.36)'}
+    ];
+    ctx.lineWidth=3.2;
+    for(var segment=0;segment<segments.length;segment++){
+      ctx.strokeStyle=segments[segment].c;ctx.beginPath();
+      ctx.arc(ringX,ringY,ringR+segment*.15,segments[segment].a+t*.000035,segments[segment].b+t*.000035);ctx.stroke();
+    }
+    ctx.lineWidth=.7;ctx.strokeStyle='rgba(130,179,190,.24)';ctx.beginPath();ctx.arc(ringX,ringY,ringR+7,0,Math.PI*2);ctx.stroke();
+    ctx.fillStyle='rgba(185,205,212,.62)';ctx.font='600 7px ui-monospace,Consolas,monospace';
+    ctx.fillText('MULTI-ASSET',ringX-23,ringY+42);
+  }
+  function drawStrategyBackdrop(t,w,h){
+    if(w<900)return;
+    var fade=Math.min(1,t/1800),x=w*.32,y=h*.13,panelW=Math.min(240,w*.18),panelH=112;
+    ctx.save();ctx.globalAlpha=.15*fade;
+    ctx.strokeStyle='rgba(115,183,197,.7)';ctx.fillStyle='rgba(7,20,29,.5)';ctx.lineWidth=.7;
+    ctx.strokeRect(x,y,panelW,panelH);
+    ctx.fillStyle='rgba(153,191,201,.85)';ctx.font='600 7px ui-monospace,Consolas,monospace';
+    ctx.fillText('STRATEGIC ALLOCATION / POLICY VIEW',x+10,y+14);
+    var allocationRows=[
+      {label:'EQUITY',width:.78,color:'rgba(84,198,216,.78)'},
+      {label:'FIXED INCOME',width:.58,color:'rgba(117,164,176,.65)'},
+      {label:'PRIVATE MARKETS',width:.43,color:'rgba(213,180,93,.72)'},
+      {label:'REAL ASSETS',width:.34,color:'rgba(115,185,170,.58)'},
+      {label:'LIQUIDITY',width:.24,color:'rgba(188,205,211,.42)'}
+    ];
+    for(var rowIndex=0;rowIndex<allocationRows.length;rowIndex++){
+      var row=allocationRows[rowIndex],rowY=y+29+rowIndex*15;
+      ctx.fillStyle='rgba(143,169,178,.72)';ctx.fillText(row.label,x+10,rowY+4);
+      ctx.fillStyle='rgba(255,255,255,.06)';ctx.fillRect(x+88,rowY,panelW-100,4);
+      var breathing=.96+.04*Math.sin(t*.0011+rowIndex*.8);
+      ctx.fillStyle=row.color;ctx.fillRect(x+88,rowY,(panelW-100)*row.width*breathing,4);
+    }
+    var frontierX=x+panelW+28,frontierY=y+8,frontierW=148,frontierH=88;
+    ctx.strokeStyle='rgba(115,183,197,.46)';ctx.beginPath();
+    ctx.moveTo(frontierX,frontierY+frontierH);ctx.lineTo(frontierX+frontierW,frontierY+frontierH);
+    ctx.moveTo(frontierX,frontierY+frontierH);ctx.lineTo(frontierX,frontierY);ctx.stroke();
+    ctx.fillStyle='rgba(153,191,201,.8)';ctx.fillText('EFFICIENT FRONTIER',frontierX,frontierY+8);
+    ctx.beginPath();
+    for(var frontierStep=0;frontierStep<=30;frontierStep++){
+      var fp=frontierStep/30;
+      var fx=frontierX+8+fp*(frontierW-14);
+      var fy=frontierY+frontierH-8-(Math.sqrt(fp)*.78+fp*.12)*(frontierH-23);
+      if(!frontierStep)ctx.moveTo(fx,fy);else ctx.lineTo(fx,fy);
+    }
+    ctx.strokeStyle='rgba(84,198,216,.82)';ctx.lineWidth=1.2;ctx.stroke();
+    for(var frontierNode=0;frontierNode<5;frontierNode++){
+      var nodeP=.12+frontierNode*.19;
+      var nodeX=frontierX+8+nodeP*(frontierW-14);
+      var nodeY=frontierY+frontierH-8-(Math.sqrt(nodeP)*.78+nodeP*.12)*(frontierH-23);
+      ctx.fillStyle=frontierNode===2?'rgba(213,180,93,.95)':'rgba(121,208,219,.72)';
+      ctx.beginPath();ctx.arc(nodeX,nodeY,frontierNode===2?2.3:1.5,0,Math.PI*2);ctx.fill();
+    }
+    ctx.restore();
+  }
+  function drawCapitalLights(t,w,rotation,cx,cy,r){
+    var visible=[];
+    for(var cityIndex=0;cityIndex<capitalCities.length;cityIndex++){
+      var capital=capitalCities[cityIndex];
+      var capitalPoint=project(capital.lon,capital.lat,rotation,cx,cy,r);
+      if(capitalPoint.z>.1)visible.push({city:capital,point:capitalPoint,index:cityIndex});
+    }
+    if(!visible.length)return;
+    var activeIndex=Math.floor(t/1180)%visible.length;
+    for(var visibleCityIndex=0;visibleCityIndex<visible.length;visibleCityIndex++){
+      var visibleCapital=visible[visibleCityIndex],point=visibleCapital.point;
+      var isActive=visibleCityIndex===activeIndex;
+      var outward=1.025+(isActive?.02:0);
+      var lightX=cx+(point.x-cx)*outward,lightY=cy+(point.y-cy)*outward;
+      var baseAlpha=.16+point.z*.34;
+      if(isActive){
+        var beam=ctx.createLinearGradient(lightX,lightY-26,lightX,lightY+3);
+        beam.addColorStop(0,'rgba(213,180,93,0)');beam.addColorStop(1,'rgba(213,180,93,.42)');
+        ctx.strokeStyle=beam;ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(lightX,lightY-26);ctx.lineTo(lightX,lightY);ctx.stroke();
+        var capitalPulse=7+((t*.025)%18);
+        ctx.strokeStyle='rgba(213,180,93,'+Math.max(.03,.48-(capitalPulse-7)*.025)+')';
+        ctx.beginPath();ctx.arc(lightX,lightY,capitalPulse,0,Math.PI*2);ctx.stroke();
+        ctx.fillStyle='rgba(245,222,157,.98)';ctx.shadowColor='rgba(213,180,93,.9)';ctx.shadowBlur=10;
+        ctx.beginPath();ctx.arc(lightX,lightY,2.5,0,Math.PI*2);ctx.fill();ctx.shadowBlur=0;
+        if(w>820){
+          var labelRight=lightX<cx;
+          ctx.strokeStyle='rgba(213,180,93,.42)';ctx.beginPath();ctx.moveTo(lightX+4,lightY-4);
+          ctx.lineTo(lightX+(labelRight?22:-22),lightY-16);ctx.stroke();
+          ctx.fillStyle='rgba(230,224,201,.9)';ctx.font='600 7px ui-monospace,Consolas,monospace';
+          ctx.textAlign=labelRight?'left':'right';
+          ctx.fillText(visibleCapital.city.label,lightX+(labelRight?25:-25),lightY-14);
+          ctx.textAlign='left';
+        }
+      }else{
+        ctx.fillStyle='rgba(174,217,222,'+baseAlpha+')';
+        ctx.beginPath();ctx.arc(lightX,lightY,1.25,0,Math.PI*2);ctx.fill();
+      }
+    }
+  }
+  function drawGlobe(t,w,h){
+    var cx=w<720?w*.68:w*.655,cy=h*.47,r=Math.min(w,h)*(w<720?.27:.335);
+    var rotation=18+t*.0045;
+    var centerProjections=[],activeContinent=0,activeScore=-2;
+    for(var centerIndex=0;centerIndex<continentCenters.length;centerIndex++){
+      var centerProjection=project(continentCenters[centerIndex].lon,continentCenters[centerIndex].lat,rotation,cx,cy,r);
+      centerProjections.push(centerProjection);
+      if(centerProjection.z>activeScore){activeScore=centerProjection.z;activeContinent=centerIndex;}
+    }
+    var detachProgress=reduce?1:Math.max(0,Math.min(1,(t-650)/2450));
+    detachProgress=detachProgress*detachProgress*(3-2*detachProgress);
+    var activeFrontness=Math.max(0,Math.min(1,(activeScore-.12)/.82));
+    var activeLift=1+.155*detachProgress*activeFrontness*(.96+.04*Math.sin(t*.0012));
+    var halo=ctx.createRadialGradient(cx,cy,r*.22,cx,cy,r*1.28);
+    halo.addColorStop(0,'rgba(60,170,190,.13)');halo.addColorStop(.72,'rgba(13,58,75,.05)');halo.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.fillStyle=halo;ctx.beginPath();ctx.arc(cx,cy,r*1.28,0,Math.PI*2);ctx.fill();
+    drawWhirlField(cx,cy,r,t,w);
+    ctx.save();ctx.beginPath();ctx.arc(cx,cy,r,0,Math.PI*2);ctx.clip();
+    var ocean=ctx.createLinearGradient(cx-r,cy-r,cx+r,cy+r);
+    ocean.addColorStop(0,'rgba(10,35,49,.2)');ocean.addColorStop(.6,'rgba(15,64,78,.2)');ocean.addColorStop(1,'rgba(3,13,22,.42)');
+    ctx.fillStyle=ocean;ctx.fillRect(cx-r,cy-r,r*2,r*2);
+    ctx.lineWidth=.7;ctx.strokeStyle='rgba(86,180,198,.18)';
+    for(var lat=-60;lat<=60;lat+=20){
+      var pts=[];for(var lon=-180;lon<=180;lon+=3)pts.push([lon,lat]);
+      if(pathGeo(pts,rotation,cx,cy,r,false))ctx.stroke();
+    }
+    for(var lon=-180;lon<180;lon+=20){
+      var m=[];for(var lat=-88;lat<=88;lat+=3)m.push([lon,lat]);
+      if(pathGeo(m,rotation,cx,cy,r,false))ctx.stroke();
+    }
+    if(countryShapes.length){
+      drawCountryGeometry(rotation,cx,cy,r,activeContinent,1.006,false,false);
+    }else{
+      ctx.fillStyle='rgba(91,175,183,.07)';ctx.strokeStyle='rgba(132,211,215,.30)';ctx.lineWidth=.8;
+      for(var c=0;c<continents.length;c++){if(pathGeo(continents[c],rotation,cx,cy,r,true)){ctx.fill();ctx.stroke();}}
+    }
+    for(var tx=0;tx<globeTexture.length;tx++){
+      var texture=globeTexture[tx];
+      var texturePoint=project(texture[0],texture[1],rotation,cx,cy,r);
+      if(texturePoint.z>.02){
+        ctx.fillStyle='rgba(156,219,225,'+(texture[2]*texturePoint.z)+')';
+        ctx.fillRect(texturePoint.x,texturePoint.y,texturePoint.z>0.7?1.4:.8,texturePoint.z>0.7?1.4:.8);
+      }
+    }
+    var projectedHubs=[];
+    for(var hubIndex=0;hubIndex<marketHubs.length;hubIndex++){
+      projectedHubs.push(project(marketHubs[hubIndex].lon,marketHubs[hubIndex].lat,rotation,cx,cy,r));
+    }
+    ctx.setLineDash([2,5]);ctx.lineWidth=.7;
+    for(var linkIndex=0;linkIndex<marketLinks.length;linkIndex++){
+      var link=marketLinks[linkIndex],from=projectedHubs[link[0]],to=projectedHubs[link[1]];
+      if(from.z>.04&&to.z>.04){
+        var control={x:(from.x+to.x)/2,y:(from.y+to.y)/2-Math.min(28,Math.abs(to.x-from.x)*.16)};
+        ctx.strokeStyle='rgba(84,198,216,.28)';
+        ctx.beginPath();ctx.moveTo(from.x,from.y);ctx.quadraticCurveTo(control.x,control.y,to.x,to.y);ctx.stroke();
+        var packetProgress=(t*.00018+linkIndex*.23)%1;
+        var packet=quadraticPoint(from,control,to,packetProgress);
+        ctx.fillStyle='rgba(213,180,93,.92)';ctx.beginPath();ctx.arc(packet.x,packet.y,1.55,0,Math.PI*2);ctx.fill();
+      }
+    }
+    ctx.setLineDash([]);
+    var globeBreath=.5+.5*Math.sin(t*.00048);
+    var breathGlow=ctx.createRadialGradient(cx-r*.28,cy-r*.2,r*.03,cx-r*.08,cy-r*.06,r*.88);
+    breathGlow.addColorStop(0,'rgba(119,211,220,'+(.07+globeBreath*.05)+')');
+    breathGlow.addColorStop(.52,'rgba(46,129,147,'+(.025+globeBreath*.025)+')');
+    breathGlow.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.fillStyle=breathGlow;ctx.fillRect(cx-r,cy-r,r*2,r*2);
+    ctx.restore();
+    drawDottedOrbit(cx,cy,r*1.1,-.19,.73,t,.2,'rgba(104,192,205,.42)');
+    drawDottedOrbit(cx,cy,r*1.22,.55,.34,-t,1.8,'rgba(213,180,93,.30)');
+    if(w>720)drawDottedOrbit(cx,cy,r*1.34,-.72,.22,t,3.4,'rgba(127,155,166,.26)');
+    ctx.strokeStyle='rgba(126,205,218,.46)';ctx.lineWidth=1.15;ctx.beginPath();ctx.arc(cx,cy,r,0,Math.PI*2);ctx.stroke();
+    ctx.strokeStyle='rgba(213,180,93,.27)';ctx.beginPath();ctx.arc(cx,cy,r+10,Math.PI*.1,Math.PI*.46);ctx.stroke();
+    ctx.beginPath();ctx.arc(cx,cy,r+10,Math.PI*1.1,Math.PI*1.34);ctx.stroke();
+    if(activeScore>.08){
+      ctx.shadowColor='rgba(84,198,216,.32)';ctx.shadowBlur=14;
+      if(countryShapes.length){
+        drawCountryGeometry(rotation,cx,cy,r,activeContinent,activeLift,false,true);
+      }else{
+        ctx.fillStyle='rgba(12,55,67,.28)';
+        ctx.strokeStyle='rgba(126,213,222,.48)';
+        ctx.lineWidth=1;
+        if(pathGeo(continents[activeContinent],rotation,cx,cy,r*activeLift,true)){ctx.fill();ctx.stroke();}
+      }
+      ctx.shadowBlur=0;
+    }
+    var visibleTiles=[];
+    for(var tileIndex=0;tileIndex<hexLandTiles.length;tileIndex++){
+      var tile=hexLandTiles[tileIndex];
+      var surfacePoint=project(tile.lon,tile.lat,rotation,cx,cy,r);
+      if(surfacePoint.z>.015)visibleTiles.push({tile:tile,point:surfacePoint,index:tileIndex});
+    }
+    visibleTiles.sort(function(a,b){return a.point.z-b.point.z;});
+    ctx.lineWidth=.55;
+    for(var visibleIndex=0;visibleIndex<visibleTiles.length;visibleIndex++){
+      var visibleTile=visibleTiles[visibleIndex],landTile=visibleTile.tile,landPoint=visibleTile.point;
+      var continentProjection=centerProjections[landTile.continent];
+      var continentFrontness=Math.max(0,Math.min(1,(continentProjection.z-.1)/.86));
+      var focusWeight=Math.max(0,Math.min(1,(continentProjection.z-(activeScore-.18))/.18));
+      var regionDetach=detachProgress*(.018*Math.pow(continentFrontness,2)+.132*Math.pow(focusWeight,2.3));
+      var liftWave=(Math.sin(t*.00135+landTile.phase)+1)*.004;
+      var lift=1+landTile.lift+liftWave+regionDetach;
+      var elevatedX=cx+(landPoint.x-cx)*lift;
+      var elevatedY=cy+(landPoint.y-cy)*lift;
+      var tileSize=(2.05+landPoint.z*2.55)*(w<620?.78:1);
+      var depthAlpha=.08+landPoint.z*.18;
+      drawHexagon(landPoint.x,landPoint.y,tileSize*.9,.52,'rgba(8,28,37,'+(depthAlpha+.06)+')',null);
+      if(regionDetach>.025){
+        drawHexExtrusion(landPoint.x,landPoint.y,elevatedX,elevatedY,tileSize,.52,regionDetach*3.8);
+      }else if(visibleTile.index%4===0){
+        ctx.strokeStyle='rgba(87,180,195,'+(.08+landPoint.z*.12)+')';
+        ctx.beginPath();ctx.moveTo(landPoint.x,landPoint.y);ctx.lineTo(elevatedX,elevatedY);ctx.stroke();
+      }
+      var pulse=.72+.28*Math.sin(t*.0017+landTile.phase);
+      var tileAlpha=(.16+landPoint.z*.48+regionDetach*.72)*pulse;
+      var tileFill=landTile.accent
+        ?'rgba(213,180,93,'+Math.min(.9,tileAlpha+.18)+')'
+        :'rgba(82,190,207,'+Math.min(.82,tileAlpha)+')';
+      var tileStroke=landTile.accent
+        ?'rgba(245,221,153,'+Math.min(.92,tileAlpha+.22)+')'
+        :'rgba(166,226,232,'+Math.min(.78,tileAlpha+.12)+')';
+      ctx.shadowColor=landTile.accent?'rgba(213,180,93,.55)':'rgba(84,198,216,.44)';
+      ctx.shadowBlur=landTile.accent?8:5+regionDetach*22;
+      drawHexagon(elevatedX,elevatedY,tileSize,.52,tileFill,tileStroke);
+      ctx.shadowBlur=0;
+    }
+    if(countryShapes.length){
+      drawCountryGeometry(rotation,cx,cy,r,activeContinent,activeLift,true,false);
+    }
+    drawWealthHud(t,w,h,cx,cy,r,centerProjections[activeContinent],activeLift,continentCenters[activeContinent].label);
+    drawCapitalLights(t,w,rotation,cx,cy,r);
+    for(var n=0;n<projectedHubs.length;n++){
+      var np=projectedHubs[n];
+      if(np.z>.08){
+        var nodePulse=5+((t*.012+n*5)%12);
+        ctx.fillStyle='rgba(213,180,93,.94)';ctx.beginPath();ctx.arc(np.x,np.y,2.2,0,Math.PI*2);ctx.fill();
+        ctx.strokeStyle='rgba(213,180,93,'+(Math.max(.04,.32-(nodePulse-5)*.025))+')';
+        ctx.beginPath();ctx.arc(np.x,np.y,nodePulse,0,Math.PI*2);ctx.stroke();
+        if(w>900&&np.z>.55){
+          ctx.fillStyle='rgba(190,211,218,.62)';ctx.font='600 7px ui-monospace,Consolas,monospace';
+          ctx.fillText(marketHubs[n].label,np.x+8,np.y-7);
+        }
+      }
+    }
+    drawSatellite(cx,cy,r*1.16,t,-.28,.4,.43);
+    if(w>720)drawSatellite(cx,cy,r*1.28,t*.82,.62,3.1,.28);
+  }
+  function drawMarket(t,w,h){
+    var left=w*.31,right=w*.81,base=h*.83,top=h*.68;
+    if(w<720){left=w*.08;right=w*.91;base=h*.58;top=h*.48;}
+    ctx.strokeStyle='rgba(84,198,216,.10)';ctx.lineWidth=1;
+    for(var y=0;y<4;y++){var gy=top+(base-top)*y/3;ctx.beginPath();ctx.moveTo(left,gy);ctx.lineTo(right,gy);ctx.stroke();}
+    var values=[.72,.6,.66,.48,.55,.33,.4,.25,.31,.15,.22,.08];
+    var visible=Math.min(values.length,Math.max(2,Math.floor((t/360)*values.length)));
+    ctx.beginPath();
+    for(var i=0;i<visible;i++){
+      var x=left+(right-left)*i/(values.length-1);
+      var yy=top+(base-top)*(values[i]+Math.sin(t*.0016+i*.8)*.012);
+      if(!i)ctx.moveTo(x,yy);else ctx.lineTo(x,yy);
+    }
+    ctx.strokeStyle='rgba(84,198,216,.92)';ctx.lineWidth=1.8;ctx.shadowColor='rgba(84,198,216,.55)';ctx.shadowBlur=8;ctx.stroke();ctx.shadowBlur=0;
+    var benchmark=[.79,.73,.68,.64,.58,.55,.49,.45,.39,.34,.3,.27];
+    ctx.strokeStyle='rgba(213,180,93,.26)';ctx.lineWidth=1;ctx.beginPath();
+    for(var benchmarkIndex=0;benchmarkIndex<benchmark.length;benchmarkIndex++){
+      var benchmarkX=left+(right-left)*benchmarkIndex/(benchmark.length-1);
+      var benchmarkY=top+(base-top)*(benchmark[benchmarkIndex]+Math.sin(t*.0011+benchmarkIndex)*.008);
+      if(!benchmarkIndex)ctx.moveTo(benchmarkX,benchmarkY);else ctx.lineTo(benchmarkX,benchmarkY);
+    }
+    ctx.stroke();
+    if(visible>1){
+      var lx=left+(right-left)*(visible-1)/(values.length-1);
+      var ly=top+(base-top)*(values[visible-1]+Math.sin(t*.0016+(visible-1)*.8)*.012);
+      var marketPulse=4+((t*.018)%15);
+      ctx.fillStyle='#d5b45d';ctx.beginPath();ctx.arc(lx,ly,2.6,0,Math.PI*2);ctx.fill();
+      ctx.strokeStyle='rgba(84,198,216,'+(Math.max(.03,.34-(marketPulse-4)*.02))+')';
+      ctx.beginPath();ctx.arc(lx,ly,marketPulse,0,Math.PI*2);ctx.stroke();
+    }
+    var bx=right+18,bw=5,gap=5,bars=[.38,.67,.48,.82,.59,.92,.71];
+    if(w>720){
+      for(var b=0;b<bars.length;b++){
+        var barEnergy=.86+Math.sin(t*.0018+b*.9)*.14;
+        var bh=(base-top)*bars[b]*barEnergy;
+        ctx.fillStyle=b===bars.length-1?'rgba(213,180,93,.72)':'rgba(84,198,216,.28)';
+        ctx.fillRect(bx+b*(bw+gap),base-bh,bw,bh);
+      }
+    }
+  }
+  function draw(now){
+    if(done||!ctx)return;
+    var w=innerWidth,h=innerHeight,rawTime=reduce?6000:now-start,t=cinematicTime(rawTime);
+    ctx.clearRect(0,0,w,h);
+    var bg=ctx.createLinearGradient(0,0,w,h);
+    bg.addColorStop(0,'#050b14');bg.addColorStop(.5,'#06101b');bg.addColorStop(1,'#02050a');
+    ctx.fillStyle=bg;ctx.fillRect(0,0,w,h);
+    drawFinanceBackdrop(t,w,h);
+    drawStrategyBackdrop(t,w,h);
+    drawGlobe(t,w,h);drawMarket(t,w,h);
+    if(!reduce)raf=requestAnimationFrame(draw);
+  }
+  function updateClock(){
+    if(!clockEl)return;
+    var d=new Date(),p=function(v){return String(v).padStart(2,'0');};
+    clockEl.textContent='ZURICH '+p(d.getHours())+':'+p(d.getMinutes())+':'+p(d.getSeconds());
+  }
+  intro.addEventListener('click',finish);
+  window.addEventListener('keydown',handleKey);
+  window.addEventListener('resize',resize);
+  calmTimer=setTimeout(function(){if(!done)intro.classList.add('intro-calm');},2600);
+  resize();updateClock();clockTimer=setInterval(updateClock,1000);draw(performance.now());
+  if(reduce){
+    if(logEl)logEl.textContent='System wird vorbereitet';
+    if(bar)bar.style.width='20%';
+    setTimeout(markReady,6000);
+    return;
+  }
+  var i=0;
+  (function tick(){
+    if(done)return;
+    if(i<steps.length){
+      if(logEl)logEl.textContent=steps[i];
+      if(bar)bar.style.width=Math.round((i+1)/steps.length*96)+'%';
+      i++;setTimeout(tick,1200);
+    }else markReady();
+  })();
+  setTimeout(markReady,6000);
+})();
+</script>
+<!-- E0 (2026-06-12): Phase-0 "SYNTHETIC / TEST DATA ONLY"-Banner. Erscheint nur,
+     wenn das Backend allow_real_client_data=false meldet (gehostetes Staging). -->
+<div id="phase0-banner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:99998;
+     background:repeating-linear-gradient(45deg,#7a4d00,#7a4d00 14px,#8a5800 14px,#8a5800 28px);
+     color:#ffe9c2;font:600 11px/22px ui-monospace,Menlo,Consolas,monospace;letter-spacing:2px;
+     text-align:center;height:22px;border-bottom:1px solid rgba(0,0,0,.3);box-shadow:0 1px 6px rgba(0,0,0,.25);">
+  ⚠ SYNTHETIC / TEST DATA ONLY · PHASE-0 · KEINE ECHTEN KUNDENDATEN
+</div>
+<script>
+(function(){
+  // Same-origin (Browser-Hosting) -> "/" liefert das Health-JSON. In Electron
+  // (file://) schlaegt der Fetch fehl -> Banner bleibt aus (Tier-1 lokal).
+  try{
+    fetch('/',{cache:'no-store'}).then(function(r){return r.json();}).then(function(d){
+      if(d && d.allow_real_client_data===false){
+        var b=document.getElementById('phase0-banner'); if(b)b.style.display='block';
+        try{document.body.style.paddingTop='22px';}catch(e){}
+      }
+    }).catch(function(){});
+  }catch(e){}
+})();
+</script>
 <!-- App-Notice Toast-Stack (2026-05-16) — globales Notice-System -->
 <div id="app-notice-stack" class="app-notice-stack" role="region" aria-live="polite" aria-label="Hinweise"></div>
 
@@ -976,6 +1867,13 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
         <label style="font-size:11px;color:var(--g3);display:block;margin-bottom:4px;">Passwort</label>
         <input id="login-password" type="password" autocomplete="current-password"
           style="width:100%;box-sizing:border-box;background:var(--bg2);border:1px solid var(--b1);border-radius:6px;padding:9px 12px;color:var(--n8);font-size:13px;outline:none;"
+          onkeydown="if(event.key==='Enter')doLogin()" />
+      </div>
+      <!-- E1: 2FA-Code — erscheint nur, wenn der Server X-2FA-Required / "2FA-Code erforderlich" meldet. -->
+      <div id="login-2fa-row" style="display:none;margin-bottom:20px;">
+        <label style="font-size:11px;color:var(--g3);display:block;margin-bottom:4px;">2FA-Code (Authenticator)</label>
+        <input id="login-totp" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="6-stellig"
+          style="width:100%;box-sizing:border-box;background:var(--bg2);border:1px solid var(--b1);border-radius:6px;padding:9px 12px;color:var(--n8);font-size:13px;letter-spacing:4px;outline:none;"
           onkeydown="if(event.key==='Enter')doLogin()" />
       </div>
       <div id="login-error" style="color:#e05a5a;font-size:11px;min-height:16px;margin-bottom:10px;"></div>
@@ -1051,9 +1949,463 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
     <span id="current-user-label" style="font-size:11px;color:var(--g3);margin-right:4px"></span>
     <button class="t-btn" onclick="om('m-nc')">+ Mandat</button>
     <button class="t-btn" id="btn-admin-open" onclick="openAdminModal()" style="display:none;background:rgba(201,168,76,0.12);color:var(--g4)" title="System-Administration">&#9881;</button>
+    <button class="t-btn" id="btn-prov" onclick="openProvisioning()" style="display:none;background:rgba(201,168,76,0.12);color:var(--g4)" title="Firmen & Mitarbeiter (Operator)">Firmen</button>
+    <button class="t-btn" id="btn-team" onclick="openTeam()" style="display:none;background:rgba(201,168,76,0.12);color:var(--g4)" title="Mitarbeiter der eigenen Firma einladen & verwalten">Team</button>
+    <button class="t-btn" id="btn-2fa" onclick="open2faSetup()" style="display:none;background:rgba(201,168,76,0.12);color:var(--g4)" title="Zwei-Faktor-Authentifizierung">2FA</button>
     <button class="t-btn" id="btn-logout" onclick="doLogout()" style="display:none;background:rgba(201,168,76,0.12);color:var(--g4)">Abmelden</button>
   </div>
 </header>
+<!-- E1: 2FA-Setup-Modal -->
+<div id="m-2fa" class="overlay"><div class="modal" style="max-width:430px">
+  <div class="mhd"><div class="mtitle">Zwei-Faktor-Authentifizierung</div><button class="mx" onclick="cm('m-2fa')">&#10005;</button></div>
+  <div class="mbody" id="m-2fa-body"><div style="font-size:11px;color:var(--n5)">Lädt…</div></div>
+</div></div>
+<script>
+function _set2faCloseVisible(visible){
+  // ✕ verstecken UND Backdrop-Close sperren (dataset.locked), sonst wäre das
+  // Pflicht-Gate per Klick auf den Hintergrund umgehbar.
+  try{ var mx=document.querySelector('#m-2fa .mx'); if(mx) mx.style.display = visible ? '' : 'none'; }catch(e){}
+  try{ var ov=document.getElementById('m-2fa'); if(ov){ if(visible){ delete ov.dataset.locked; } else { ov.dataset.locked='1'; } } }catch(e){}
+}
+// E1 (2026-06-14): Pflicht-2FA-Gate — required && !enabled -> erzwungenes Setup
+// (✕ versteckt, nur per Aktivierung verlassbar). Sonst (extern, optional) Nudge.
+async function enforce2faGate(){
+  try{
+    var st=await API.get('/auth/2fa/status');
+    if(!st || st.enabled) return;
+    if(st.required){ open2faSetup(true); }
+    else if(window.location && (window.location.protocol==='https:'||window.location.protocol==='http:')){ open2faSetup(false); }
+  }catch(e){}
+}
+async function open2faSetup(forced){
+  window.__force2fa = !!forced;
+  try{ om('m-2fa'); }catch(e){}
+  _set2faCloseVisible(!forced);
+  var body=document.getElementById('m-2fa-body');
+  if(body)body.innerHTML='<div style="font-size:11px;color:var(--n5)">Lädt…</div>';
+  try{
+    var st=await API.get('/auth/2fa/status');
+    if(st&&st.enabled){ window.__force2fa=false; _set2faCloseVisible(true); render2faEnabled(); return; }
+    var setup=await API.post('/auth/2fa/setup',{});
+    render2faSetup(setup.secret,setup.otpauth_uri,!!forced,setup.qr_svg);
+  }catch(e){ if(body)body.innerHTML='<div style="font-size:11px;color:var(--neg)">Fehler: '+escapeHtml(String(e.detail||e.message||e).slice(0,140))+'</div>'; }
+}
+function do2faCopySecret(){
+  var sec=String(window.__2faSecret||''); if(!sec)return;
+  var msg=document.getElementById('m-2fa-copymsg');
+  try{ navigator.clipboard.writeText(sec).then(
+    function(){ if(msg){msg.style.color='var(--pos)';msg.textContent='Secret kopiert.';} },
+    function(){ if(msg){msg.style.color='var(--neg)';msg.textContent='Kopieren nicht möglich — manuell markieren.';} }); }
+  catch(e){ if(msg){msg.style.color='var(--neg)';msg.textContent='Kopieren nicht möglich — manuell markieren.';} }
+}
+function render2faSetup(secret,uri,forced,qrSvg){
+  var body=document.getElementById('m-2fa-body'); if(!body)return;
+  window.__2faSecret=secret;
+  var qrBlock = qrSvg
+    ? '<div style="text-align:center;margin-bottom:12px"><img src="'+escapeHtml(qrSvg)+'" alt="2FA QR-Code" width="180" height="180" style="background:#fff;border:1px solid var(--b1);border-radius:8px;padding:8px"><div style="font-size:10px;color:var(--n4);margin-top:6px">QR scannen oder Secret manuell eintragen</div></div>'
+    : '';
+  body.innerHTML=''
+   +(forced?'<div style="font-size:11px;color:var(--neg);line-height:1.6;margin-bottom:10px;background:rgba(220,60,60,0.08);border:1px solid var(--neg);border-radius:6px;padding:8px 10px">Für den externen Zugriff ist Zwei-Faktor-Authentifizierung <b>verpflichtend</b>. Bitte jetzt einrichten — dieser Schritt kann nicht übersprungen werden.</div>':'')
+   +'<div style="font-size:11px;color:var(--n6);line-height:1.6;margin-bottom:10px">Scanne den QR-Code mit deiner Authenticator-App (Google/Microsoft Authenticator) — oder trage das Secret manuell ein — und bestätige mit dem 6-stelligen Code.</div>'
+   +qrBlock
+   +'<div style="font-size:9px;text-transform:uppercase;letter-spacing:0.06em;color:var(--n4);margin-bottom:2px">Secret</div>'
+   +'<div style="display:flex;gap:6px;align-items:stretch;margin-bottom:4px"><div style="flex:1;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:14px;letter-spacing:2px;background:var(--bg);border:1px solid var(--b1);border-radius:6px;padding:8px 10px;word-break:break-all">'+escapeHtml(secret)+'</div><button class="btn" type="button" style="font-size:10px;white-space:nowrap" onclick="do2faCopySecret()" title="Secret in die Zwischenablage kopieren">Kopieren</button></div>'
+   +'<div id="m-2fa-copymsg" style="font-size:10px;min-height:12px;margin-bottom:8px;color:var(--n4)"></div>'
+   +'<div style="font-size:9px;color:var(--n4);margin-bottom:10px;word-break:break-all">otpauth: '+escapeHtml(uri)+'</div>'
+   +'<label style="font-size:10px;color:var(--n4);display:block;margin-bottom:4px">Code aus der App</label>'
+   +'<input id="m-2fa-code" type="text" inputmode="numeric" maxlength="6" placeholder="6-stellig" style="width:100%;box-sizing:border-box;padding:9px 12px;border:1px solid var(--b1);border-radius:6px;font-size:14px;letter-spacing:4px;margin-bottom:6px">'
+   +'<div id="m-2fa-msg" style="font-size:11px;color:var(--neg);min-height:14px;margin-bottom:8px"></div>'
+   +'<button class="btn-p" onclick="do2faEnable()" style="width:100%">2FA aktivieren</button>';
+}
+function render2faEnabled(){
+  var body=document.getElementById('m-2fa-body'); if(!body)return;
+  body.innerHTML=''
+   +'<div style="font-size:12px;color:var(--pos);margin-bottom:10px">&#10003; Zwei-Faktor-Authentifizierung ist aktiv.</div>'
+   +'<div style="font-size:11px;color:var(--n6);line-height:1.6;margin-bottom:10px">Zum Deaktivieren bitte einen aktuellen Code aus der App eingeben.</div>'
+   +'<input id="m-2fa-code" type="text" inputmode="numeric" maxlength="6" placeholder="6-stellig" style="width:100%;box-sizing:border-box;padding:9px 12px;border:1px solid var(--b1);border-radius:6px;font-size:14px;letter-spacing:4px;margin-bottom:6px">'
+   +'<div id="m-2fa-msg" style="font-size:11px;color:var(--neg);min-height:14px;margin-bottom:8px"></div>'
+   +'<button class="btn" onclick="do2faDisable()" style="width:100%">2FA deaktivieren</button>';
+}
+async function do2faEnable(){
+  var el=document.getElementById('m-2fa-code'); var msg=document.getElementById('m-2fa-msg');
+  try{ await API.post('/auth/2fa/enable',{code:String((el&&el.value)||'').trim()}); if(msg){msg.style.color='var(--pos)';msg.textContent='2FA aktiviert.';} window.__force2fa=false; _set2faCloseVisible(true); render2faEnabled(); }
+  catch(e){ if(msg){msg.style.color='var(--neg)';msg.textContent=String(e.detail||e.message||'Code falsch');} }
+}
+async function do2faDisable(){
+  var el=document.getElementById('m-2fa-code'); var msg=document.getElementById('m-2fa-msg');
+  try{ await API.post('/auth/2fa/disable',{code:String((el&&el.value)||'').trim()}); if(msg){msg.style.color='var(--pos)';msg.textContent='2FA deaktiviert.';} setTimeout(function(){try{cm('m-2fa');}catch(e){}},700); }
+  catch(e){ if(msg){msg.style.color='var(--neg)';msg.textContent=String(e.detail||e.message||'Code falsch');} }
+}
+</script>
+<!-- E1: Operator-Provisioning (Firmen/Tenants + Mitarbeiter) -->
+<div id="m-prov" class="overlay"><div class="modal" style="max-width:560px">
+  <div class="mhd"><div class="mtitle">Firmen & Mitarbeiter (Operator)</div><button class="mx" onclick="cm('m-prov')">&#10005;</button></div>
+  <div class="mbody" id="m-prov-body"><div style="font-size:11px;color:var(--n5)">Lädt…</div></div>
+</div></div>
+<script>
+async function openProvisioning(){ try{ om('m-prov'); }catch(e){} await provRender(); }
+async function provRender(){
+  var body=document.getElementById('m-prov-body'); if(!body)return;
+  body.innerHTML='<div style="font-size:11px;color:var(--n5)">Lädt…</div>';
+  var tenants=[];
+  try{ tenants=await API.get('/tenants'); }
+  catch(e){ body.innerHTML='<div style="font-size:11px;color:var(--neg);line-height:1.6">Tenant-Verwaltung nicht verfügbar: '+escapeHtml(String(e.detail||e.message||e).slice(0,160))+'<br><br>Benötigt Operator-Rolle <b>super_admin</b> + <b>TENANT_ADMIN_UI_ENABLED=true</b> (Tier-2/Staging).</div>'; return; }
+  var opts=(tenants||[]).map(function(t){return '<option value="'+escapeHtml(t.id)+'">'+escapeHtml(t.display_name||t.id)+'</option>';}).join('');
+  var rows=(tenants||[]).map(function(t){return '<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--b1);font-size:11px"><span>'+escapeHtml(t.display_name||t.id)+' <span style="color:var(--n4)">('+escapeHtml(t.slug||'')+')</span></span><span style="color:var(--n4)">'+escapeHtml(t.hosting_tier||'')+' · '+escapeHtml(t.license_status||'')+'</span></div>';}).join('')||'<div style="font-size:10px;color:var(--n4)">Noch keine Firmen.</div>';
+  var inp='width:100%;box-sizing:border-box;padding:7px 9px;border:1px solid var(--b1);border-radius:6px;font-size:12px;margin-bottom:6px';
+  body.innerHTML=''
+   +'<div style="font-size:9px;text-transform:uppercase;letter-spacing:0.06em;color:var(--n4);margin-bottom:4px">Firmen ('+(tenants||[]).length+')</div>'
+   +'<div style="margin-bottom:12px">'+rows+'</div>'
+   +'<div style="border-top:1px solid var(--b1);padding-top:10px;margin-bottom:12px">'
+   +'<div style="font-size:9px;text-transform:uppercase;letter-spacing:0.06em;color:var(--n4);margin-bottom:6px">Neue Firma</div>'
+   +'<input id="prov-t-name" placeholder="Firmenname" style="'+inp+'">'
+   +'<input id="prov-t-slug" placeholder="slug (z.B. firma-a)" style="'+inp+'">'
+   +'<button class="btn-p" style="width:100%" onclick="provCreateTenant()">Firma anlegen</button></div>'
+   +'<div style="border-top:1px solid var(--b1);padding-top:10px">'
+   +'<div style="font-size:9px;text-transform:uppercase;letter-spacing:0.06em;color:var(--n4);margin-bottom:6px">Neuer Mitarbeiter</div>'
+   +'<select id="prov-u-tenant" style="'+inp+'"><option value="">— Firma wählen —</option>'+opts+'</select>'
+   +'<input id="prov-u-name" placeholder="Voller Name" style="'+inp+'">'
+   +'<input id="prov-u-user" placeholder="Benutzername" style="'+inp+'">'
+   +'<input id="prov-u-email" type="email" placeholder="E-Mail (optional — für direkten Versand)" style="'+inp+'">'
+   +'<input id="prov-u-pw" type="password" placeholder="Initial-Passwort (optional, min. 10 Zeichen)" style="'+inp+'">'
+   +'<select id="prov-u-role" style="'+inp+'"><option value="advisor">Berater</option><option value="admin">Firmen-Admin</option></select>'
+   +'<div style="display:flex;gap:6px"><button class="btn-p" style="flex:1" onclick="provCreateEmployee()">Mit Initial-Passwort anlegen</button>'
+   +'<button class="btn" style="flex:1" onclick="provInviteEmployee()" title="Account ohne Passwort — Mitarbeiter setzt es selbst per Link">Einladungslink erzeugen</button></div></div>'
+   +'<div id="prov-invite-box" style="display:none;margin-top:10px;padding:8px 10px;border:1px solid var(--g4);border-radius:6px;background:rgba(201,168,76,0.07)"><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.06em;color:var(--n4);margin-bottom:4px">Einladungslink (einmalig kopieren)</div><div id="prov-invite-link" style="font-family:ui-monospace,Menlo,Consolas,monospace;font-size:10px;word-break:break-all;color:var(--g3);margin-bottom:6px"></div><button class="btn" style="width:100%" onclick="provCopyInvite()">Link kopieren</button></div>'
+   +'<div id="prov-msg" style="font-size:11px;min-height:14px;margin-top:8px"></div>';
+}
+function provMsg(t,ok){var m=document.getElementById('prov-msg');if(m){m.style.color=ok?'var(--pos)':'var(--neg)';m.textContent=t;}}
+async function provCreateTenant(){
+  var n=(document.getElementById('prov-t-name')||{}).value, s=(document.getElementById('prov-t-slug')||{}).value;
+  try{ await API.post('/tenants',{display_name:String(n||'').trim(),slug:String(s||'').trim()}); provMsg('Firma angelegt.',true); await provRender(); }
+  catch(e){ provMsg('Fehler: '+String(e.detail||e.message||e).slice(0,150),false); }
+}
+async function provCreateEmployee(){
+  var tid=(document.getElementById('prov-u-tenant')||{}).value;
+  if(!tid){ provMsg('Bitte Firma wählen.',false); return; }
+  var full=(document.getElementById('prov-u-name')||{}).value;
+  var user=(document.getElementById('prov-u-user')||{}).value;
+  var pw=(document.getElementById('prov-u-pw')||{}).value;
+  var role=(document.getElementById('prov-u-role')||{}).value||'advisor';
+  try{
+    var created=await API.post('/users',{username:String(user||'').trim(),password:String(pw||''),full_name:String(full||'').trim(),role:role});
+    await API.fetch('/tenants/'+encodeURIComponent(tid)+'/users/'+encodeURIComponent(created.id)+'/assign',{method:'PUT'});
+    provMsg('Mitarbeiter angelegt & Firma zugewiesen.',true);
+    await provRender();
+  }catch(e){ provMsg('Fehler: '+String(e.detail||e.message||e).slice(0,150),false); }
+}
+// E1 (2026-06-14): Onboarding per Einladungslink — Account ohne Passwort,
+// Mitarbeiter setzt es selbst. Tenant wie bei provCreateEmployee zugewiesen.
+async function provInviteEmployee(){
+  var tid=(document.getElementById('prov-u-tenant')||{}).value;
+  if(!tid){ provMsg('Bitte Firma wählen.',false); return; }
+  var full=(document.getElementById('prov-u-name')||{}).value;
+  var user=(document.getElementById('prov-u-user')||{}).value;
+  var email=(document.getElementById('prov-u-email')||{}).value;
+  var role=(document.getElementById('prov-u-role')||{}).value||'advisor';
+  if(!String(user||'').trim()||!String(full||'').trim()){ provMsg('Name und Benutzername nötig.',false); return; }
+  try{
+    var payload={username:String(user||'').trim(),full_name:String(full||'').trim(),role:role};
+    if(String(email||'').trim()) payload.email=String(email||'').trim();
+    var inv=await API.post('/users/invite',payload);
+    try{ await API.fetch('/tenants/'+encodeURIComponent(tid)+'/users/'+encodeURIComponent(inv.user_id)+'/assign',{method:'PUT'}); }catch(_a){}
+    var base=(window.location&&(window.location.protocol==='http:'||window.location.protocol==='https:'))
+      ? window.location.origin+'/app/5eyes_v2.html' : '<HOST>/app/5eyes_v2.html';
+    var link=base+'?invite='+encodeURIComponent(inv.invite_token);
+    window.__lastInviteLink=link;
+    var box=document.getElementById('prov-invite-box'); var lk=document.getElementById('prov-invite-link');
+    if(lk)lk.textContent=link; if(box)box.style.display='';
+    provMsg(inv.email_sent ? 'Einladung per E-Mail gesendet (Link unten zur Sicherheit kopierbar, 7 Tage gültig).' : 'Einladung erzeugt — Link an den Mitarbeiter senden (gültig 7 Tage).',true);
+  }catch(e){ provMsg('Fehler: '+String(e.detail||e.message||e).slice(0,150),false); }
+}
+function provCopyInvite(){
+  var link=window.__lastInviteLink||''; if(!link)return;
+  try{ navigator.clipboard.writeText(link).then(function(){provMsg('Link kopiert.',true);},function(){provMsg('Kopieren nicht möglich — manuell markieren.',false);}); }
+  catch(e){ provMsg('Kopieren nicht möglich — manuell markieren.',false); }
+}
+</script>
+<!-- E1 (2026-06-14): Team-Verwaltung der eigenen Firma (Firmen-Admin) -->
+<div id="m-team" class="overlay"><div class="modal" style="max-width:520px">
+  <div class="mhd"><div class="mtitle">Team — eigene Firma</div><button class="mx" onclick="cm('m-team')">&#10005;</button></div>
+  <div class="mbody" id="m-team-body"><div style="font-size:11px;color:var(--n5)">Lädt…</div></div>
+</div></div>
+<script>
+async function openTeam(){ try{ om('m-team'); }catch(e){} await teamRender(); }
+async function teamRender(){
+  var body=document.getElementById('m-team-body'); if(!body)return;
+  body.innerHTML='<div style="font-size:11px;color:var(--n5)">Lädt…</div>';
+  var users=[];
+  try{ users=await API.get('/users'); }
+  catch(e){ body.innerHTML='<div style="font-size:11px;color:var(--neg);line-height:1.6">Mitarbeiterliste nicht verfügbar: '+escapeHtml(String(e.detail||e.message||e).slice(0,160))+'</div>'; return; }
+  function roleLabel(r){ return r==='admin'?'Firmen-Admin':(r==='advisor'?'Berater':(r==='readonly'?'Nur-Lesen':escapeHtml(r||'')))}
+  var rows=(users||[]).map(function(u){
+    var pend = u.invite_pending ? ' <span style="color:var(--g4)">· Einladung offen</span>' : '';
+    var twofa = u.totp_enabled ? ' <span style="color:var(--pos)" title="2FA aktiv">&#128274;</span>' : '';
+    var actions = u.invite_pending
+      ? '<div style="margin-top:2px"><button class="btn" style="font-size:9px;padding:2px 6px;margin-right:4px" onclick="teamResend(\''+escapeHtml(u.id)+'\')">Erneut senden</button><button class="btn" style="font-size:9px;padding:2px 6px" onclick="teamRevoke(\''+escapeHtml(u.id)+'\')">Zurückziehen</button></div>'
+      : '';
+    return '<div style="padding:5px 0;border-bottom:1px solid var(--b1);font-size:11px"><div style="display:flex;justify-content:space-between"><span>'+escapeHtml(u.full_name||u.username||'')+twofa+' <span style="color:var(--n4)">('+escapeHtml(u.username||'')+')</span>'+pend+'</span><span style="color:var(--n4)">'+roleLabel(u.role)+(u.is_active?'':' · inaktiv')+'</span></div>'+actions+'</div>';
+  }).join('')||'<div style="font-size:10px;color:var(--n4)">Noch keine Mitarbeiter.</div>';
+  var inp='width:100%;box-sizing:border-box;padding:7px 9px;border:1px solid var(--b1);border-radius:6px;font-size:12px;margin-bottom:6px';
+  body.innerHTML=''
+   +'<div style="font-size:9px;text-transform:uppercase;letter-spacing:0.06em;color:var(--n4);margin-bottom:4px">Mitarbeiter ('+(users||[]).length+')</div>'
+   +'<div style="margin-bottom:12px">'+rows+'</div>'
+   +'<div style="border-top:1px solid var(--b1);padding-top:10px">'
+   +'<div style="font-size:9px;text-transform:uppercase;letter-spacing:0.06em;color:var(--n4);margin-bottom:6px">Neuen Mitarbeiter einladen</div>'
+   +'<input id="team-name" placeholder="Voller Name" style="'+inp+'">'
+   +'<input id="team-user" placeholder="Benutzername" style="'+inp+'">'
+   +'<input id="team-email" type="email" placeholder="E-Mail (optional — für direkten Versand)" style="'+inp+'">'
+   +'<select id="team-role" style="'+inp+'"><option value="advisor">Berater</option><option value="admin">Firmen-Admin</option><option value="readonly">Nur-Lesen</option></select>'
+   +'<button class="btn-p" style="width:100%" onclick="teamInvite()">Einladungslink erzeugen</button></div>'
+   +'<div id="team-invite-box" style="display:none;margin-top:10px;padding:8px 10px;border:1px solid var(--g4);border-radius:6px;background:rgba(201,168,76,0.07)"><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.06em;color:var(--n4);margin-bottom:4px">Einladungslink (einmalig kopieren · 7 Tage gültig)</div><div id="team-invite-link" style="font-family:ui-monospace,Menlo,Consolas,monospace;font-size:10px;word-break:break-all;color:var(--g3);margin-bottom:6px"></div><button class="btn" style="width:100%" onclick="teamCopyInvite()">Link kopieren</button></div>'
+   +'<div id="team-msg" style="font-size:11px;min-height:14px;margin-top:8px"></div>';
+}
+function teamMsg(t,ok){var m=document.getElementById('team-msg');if(m){m.style.color=ok?'var(--pos)':'var(--neg)';m.textContent=t;}}
+async function teamInvite(){
+  var full=(document.getElementById('team-name')||{}).value;
+  var user=(document.getElementById('team-user')||{}).value;
+  var email=(document.getElementById('team-email')||{}).value;
+  var role=(document.getElementById('team-role')||{}).value||'advisor';
+  if(!String(user||'').trim()||!String(full||'').trim()){ teamMsg('Name und Benutzername nötig.',false); return; }
+  try{
+    var payload={username:String(user||'').trim(),full_name:String(full||'').trim(),role:role};
+    if(String(email||'').trim()) payload.email=String(email||'').trim();
+    var inv=await API.post('/users/invite',payload);
+    var link=_teamLinkFromToken(inv.invite_token);
+    window.__lastTeamInviteLink=link;
+    var box=document.getElementById('team-invite-box'); var lk=document.getElementById('team-invite-link');
+    if(lk)lk.textContent=link; if(box)box.style.display='';
+    teamMsg(inv.email_sent ? 'Einladung per E-Mail gesendet. (Link zur Sicherheit unten kopierbar.)' : 'Einladung erzeugt — Link an den Mitarbeiter senden.', true);
+    await teamRender();
+    var lk2=document.getElementById('team-invite-link'), box2=document.getElementById('team-invite-box');
+    if(lk2)lk2.textContent=link; if(box2)box2.style.display='';
+  }catch(e){ teamMsg('Fehler: '+String(e.detail||e.message||e).slice(0,150),false); }
+}
+function teamCopyInvite(){
+  var link=window.__lastTeamInviteLink||''; if(!link)return;
+  try{ navigator.clipboard.writeText(link).then(function(){teamMsg('Link kopiert.',true);},function(){teamMsg('Kopieren nicht möglich — manuell markieren.',false);}); }
+  catch(e){ teamMsg('Kopieren nicht möglich — manuell markieren.',false); }
+}
+function _teamLinkFromToken(tok){
+  var base=(window.location&&(window.location.protocol==='http:'||window.location.protocol==='https:'))
+    ? window.location.origin+'/app/5eyes_v2.html' : '<HOST>/app/5eyes_v2.html';
+  return base+'?invite='+encodeURIComponent(tok);
+}
+async function teamResend(uid){
+  try{
+    var inv=await API.post('/users/'+encodeURIComponent(uid)+'/invite/resend',{});
+    var link=_teamLinkFromToken(inv.invite_token); window.__lastTeamInviteLink=link;
+    await teamRender();
+    var lk=document.getElementById('team-invite-link'), box=document.getElementById('team-invite-box');
+    if(lk)lk.textContent=link; if(box)box.style.display='';
+    teamMsg(inv.email_sent ? 'Neue Einladung per E-Mail gesendet (alter Link ist ungültig).' : 'Neue Einladung erzeugt — alten Link verwerfen, neuen senden.',true);
+  }catch(e){ teamMsg('Fehler: '+String(e.detail||e.message||e).slice(0,150),false); }
+}
+async function teamRevoke(uid){
+  try{
+    await API.fetch('/users/'+encodeURIComponent(uid)+'/invite',{method:'DELETE'});
+    teamMsg('Einladung zurückgezogen.',true);
+    await teamRender();
+  }catch(e){ teamMsg('Fehler: '+String(e.detail||e.message||e).slice(0,150),false); }
+}
+</script>
+<!-- E1: erzwungener Passwortwechsel beim ersten Login -->
+<div id="m-force-pw" class="overlay"><div class="modal" style="max-width:400px">
+  <div class="mhd"><div class="mtitle">Passwort ändern — erforderlich</div></div>
+  <div class="mbody">
+    <div style="font-size:11px;color:var(--n6);line-height:1.6;margin-bottom:10px">Dein Account wurde mit einem Initial-Passwort angelegt. Bitte setze jetzt ein eigenes Passwort (mindestens 10 Zeichen), um fortzufahren.</div>
+    <input id="fpw-new" type="password" placeholder="Neues Passwort" style="width:100%;box-sizing:border-box;padding:9px 12px;border:1px solid var(--b1);border-radius:6px;font-size:13px;margin-bottom:6px">
+    <input id="fpw-confirm" type="password" placeholder="Bestätigen" style="width:100%;box-sizing:border-box;padding:9px 12px;border:1px solid var(--b1);border-radius:6px;font-size:13px;margin-bottom:6px">
+    <div id="fpw-msg" style="font-size:11px;color:var(--neg);min-height:14px;margin-bottom:8px"></div>
+    <button class="btn-p" style="width:100%" onclick="doForcePasswordChange()">Passwort setzen</button>
+  </div>
+</div></div>
+<script>
+function openForcePasswordChange(){ try{ om('m-force-pw'); }catch(e){} var n=document.getElementById('fpw-new'); if(n)n.focus(); }
+async function doForcePasswordChange(){
+  var nEl=document.getElementById('fpw-new'), cEl=document.getElementById('fpw-confirm'), msg=document.getElementById('fpw-msg');
+  var n=String((nEl&&nEl.value)||''), c=String((cEl&&cEl.value)||'');
+  if(n.length<10){ if(msg){msg.style.color='var(--neg)';msg.textContent='Mindestens 10 Zeichen.';} return; }
+  if(n!==c){ if(msg){msg.style.color='var(--neg)';msg.textContent='Passwörter stimmen nicht überein.';} return; }
+  if(!currentUser||!currentUser.id){ if(msg){msg.textContent='Kein aktiver Benutzer.';} return; }
+  try{
+    await API.fetch('/users/'+encodeURIComponent(currentUser.id)+'/password',{method:'PUT',body:JSON.stringify({new_password:n})});
+    if(currentUser) currentUser.must_change_password=0;
+    try{cm('m-force-pw');}catch(e){}
+    try{ if(typeof showAppSuccess==='function') showAppSuccess('Passwort gesetzt.',{title:'Erledigt'}); }catch(e){}
+  }catch(e){ if(msg){msg.style.color='var(--neg)';msg.textContent=String(e.detail||e.message||'Fehler');} }
+}
+</script>
+
+<!-- E1 (2026-06-14): Einladungs-Annahme (Mitarbeiter setzt sein Passwort) -->
+<div id="m-invite" class="overlay"><div class="modal" style="max-width:420px">
+  <div class="mhd"><div class="mtitle">Konto aktivieren</div></div>
+  <div class="mbody" id="m-invite-body"><div style="font-size:11px;color:var(--n5)">Lädt…</div></div>
+</div></div>
+<script>
+function _getQueryParam(name){
+  try{ return new URLSearchParams(window.location.search).get(name); }catch(e){ return null; }
+}
+async function checkInviteParam(){
+  var token=_getQueryParam('invite');
+  if(!token) return false;
+  try{ om('m-invite'); }catch(e){}
+  var body=document.getElementById('m-invite-body');
+  try{
+    var info=await API.get('/auth/invite/'+encodeURIComponent(token));
+    if(body)body.innerHTML=''
+     +'<div style="font-size:11px;color:var(--n6);line-height:1.6;margin-bottom:12px">Willkommen, <b>'+escapeHtml(info.full_name||'')+'</b>. Setze jetzt dein Passwort (mindestens 10 Zeichen), um dein Konto <b>'+escapeHtml(info.username||'')+'</b> zu aktivieren. Danach richtest du die Zwei-Faktor-Authentifizierung ein.</div>'
+     +'<input id="inv-pw" type="password" placeholder="Passwort" style="width:100%;box-sizing:border-box;padding:9px 12px;border:1px solid var(--b1);border-radius:6px;font-size:13px;margin-bottom:6px">'
+     +'<input id="inv-pw2" type="password" placeholder="Bestätigen" style="width:100%;box-sizing:border-box;padding:9px 12px;border:1px solid var(--b1);border-radius:6px;font-size:13px;margin-bottom:6px">'
+     +'<div id="inv-msg" style="font-size:11px;color:var(--neg);min-height:14px;margin-bottom:8px"></div>'
+     +'<button class="btn-p" style="width:100%" onclick="doInviteAccept()">Konto aktivieren</button>';
+  }catch(e){
+    var det=String(e.detail||e.message||e);
+    if(body)body.innerHTML='<div style="font-size:12px;color:var(--neg);line-height:1.6">Dieser Einladungslink ist ungültig oder abgelaufen.<br><span style="font-size:10px;color:var(--n4)">'+escapeHtml(det.slice(0,140))+'</span></div><button class="btn" style="width:100%;margin-top:10px" onclick="dismissInvite()">Zum Login</button>';
+  }
+  window.__inviteToken=token;
+  return true;
+}
+function _stripInviteParam(){
+  try{ var u=new URL(window.location.href); u.searchParams.delete('invite'); window.history.replaceState({},document.title,u.pathname+u.search+u.hash); }catch(e){}
+}
+function dismissInvite(){ try{cm('m-invite');}catch(e){} _stripInviteParam(); try{ if(typeof showLogin==='function') showLogin(''); }catch(e){} }
+async function doInviteAccept(){
+  var p=document.getElementById('inv-pw'), p2=document.getElementById('inv-pw2'), msg=document.getElementById('inv-msg');
+  var pw=String((p&&p.value)||''), pw2=String((p2&&p2.value)||'');
+  if(pw.length<10){ if(msg){msg.style.color='var(--neg)';msg.textContent='Mindestens 10 Zeichen.';} return; }
+  if(pw!==pw2){ if(msg){msg.style.color='var(--neg)';msg.textContent='Passwörter stimmen nicht überein.';} return; }
+  try{
+    var res=await API.post('/auth/invite/accept',{token:window.__inviteToken,password:pw});
+    if(res&&res.access_token){ await API.setToken(res.access_token); }
+    if(res&&res.user){ currentUser=res.user; }
+    _stripInviteParam();
+    try{cm('m-invite');}catch(e){}
+    try{ if(typeof hideLogin==='function') hideLogin(); }catch(e){}
+    try{ await initApp(); }catch(e){ console.error('[5eyes] invite post-init failed:',e); }
+    // Frisch aktivierter Account hat kein 2FA -> Hard-Gate erzwingt Enrollment.
+    try{ await enforce2faGate(); }catch(e){}
+  }catch(e){ if(msg){msg.style.color='var(--neg)';msg.textContent=String(e.detail||e.message||'Aktivierung fehlgeschlagen');} }
+}
+</script>
+
+<!-- E1 (2026-06-14): SOLL-vs-IST Vergleichs-Modal (gross, beide Grafiken sichtbar,
+     synchroner Hover). Eine versteckte Grafik kann nicht syncen -> hier beide gross. -->
+<div id="m-sollist" class="overlay"><div class="modal" style="max-width:96vw;width:96vw;height:92vh;display:flex;flex-direction:column">
+  <div class="mhd"><div class="mtitle">Vergleich: SOLL-Strategie vs. heutige IST-Situation</div><button class="mx" onclick="closeSollIstCompare()">&#10005;</button></div>
+  <div id="m-sollist-delta" style="display:none;font-size:13px;font-weight:700;color:var(--pos);background:rgba(22,101,52,0.08);border:1px solid rgba(22,101,52,0.18);border-radius:8px;padding:8px 12px;margin:0 4px 8px"></div>
+  <div style="font-size:11px;color:var(--n6);padding:0 4px 8px;line-height:1.5">Gleiche Achsen, gleicher Horizont. Fahre über eine Kurve — die andere Grafik zeigt zeitgleich Best&nbsp;/&nbsp;Haupt&nbsp;/&nbsp;Worst desselben Jahres. Der Abstand SOLL&nbsp;&minus;&nbsp;IST ist der Beratungs-Mehrwert (heute brachliegendes Cash wird investiert).</div>
+  <div style="flex:1;display:grid;grid-template-columns:1fr 1fr;gap:14px;min-height:0">
+    <div style="display:flex;flex-direction:column;border:1px solid rgba(22,101,52,0.18);border-radius:8px;padding:8px 10px;background:rgba(22,101,52,0.04);min-height:0">
+      <div style="font-size:11px;font-weight:700;color:var(--n7);margin-bottom:6px">SOLL — optimierte Strategie <span class="tag tg">Ziel</span></div>
+      <div style="flex:1;min-height:0;position:relative"><canvas id="ch-sollist-soll" role="img" aria-label="SOLL-Strategie: Vermögensentwicklung mit Best Case, Hauptszenario und Worst Case"></canvas></div>
+    </div>
+    <div style="display:flex;flex-direction:column;border:1px solid var(--b1);border-radius:8px;padding:8px 10px;background:var(--bg);min-height:0">
+      <div style="font-size:11px;font-weight:700;color:var(--n7);margin-bottom:6px">IST — heutiger Mix <span class="tag tn">Ist</span></div>
+      <div style="flex:1;min-height:0;position:relative"><canvas id="ch-sollist-ist" role="img" aria-label="IST heutiger Mix: Vermögensentwicklung mit Best Case, Hauptszenario und Worst Case"></canvas></div>
+    </div>
+  </div>
+</div></div>
+<script>
+function _sollistOptions(){
+  return {
+    responsive:true,maintainAspectRatio:false,
+    interaction:{mode:'index',intersect:false},
+    plugins:{
+      legend:{display:true,position:'top',labels:{font:{size:11},boxWidth:12,padding:8}},
+      tooltip:{mode:'index',intersect:false,backgroundColor:'rgba(15,23,42,0.94)',titleFont:{size:12,weight:'600'},bodyFont:{size:12},padding:10,
+        callbacks:{label:function(ctx){var l=ctx&&ctx.dataset&&ctx.dataset.label?ctx.dataset.label+': ':'';return l+formatRappen(Math.round(Number(ctx&&ctx.raw||0)*100000));}}}
+    },
+    elements:{point:{radius:0,hoverRadius:5,hitRadius:26}},
+    scales:{
+      x:{grid:{display:false},ticks:{font:{size:10},color:'#7a8299'}},
+      y:{grid:{color:'rgba(0,0,0,0.05)'},ticks:{font:{size:10},color:'#7a8299',callback:function(v){var n=Number(v)||0;if(n===0)return '0';if(Math.abs(n)>=1000){var m=n/1000;return (m===Math.round(m)?String(Math.round(m)):m.toFixed(1))+' Mio';}return Math.round(n)+'k';}}}
+    }
+  };
+}
+function _cloneDatasets(src){
+  return (Array.isArray(src)?src:[]).map(function(ds){
+    var c=Object.assign({},ds);
+    if(Array.isArray(ds.data))c.data=ds.data.slice();
+    return c;
+  });
+}
+function openSollIstCompare(){
+  if(!(typeof charts!=='undefined'&&charts&&charts.opt&&charts.aaCurrent)){
+    try{ if(typeof showAppNotice==='function') showAppNotice('Bitte zuerst die Anlagestrategie berechnen.',{title:'Noch keine Strategie'}); }catch(e){}
+    return;
+  }
+  try{ om('m-sollist'); }catch(e){}
+  // Layout abwarten, damit die Canvas echte Dimensionen haben (sonst 0x0 -> kein Hover).
+  setTimeout(_renderSollIstCompare,40);
+}
+function _renderSollIstCompare(){
+  try{
+    if(charts.sollistSoll){try{charts.sollistSoll.destroy();}catch(e){}charts.sollistSoll=null;}
+    if(charts.sollistIst){try{charts.sollistIst.destroy();}catch(e){}charts.sollistIst=null;}
+    var lblO=(charts.opt.data&&charts.opt.data.labels)||[];
+    var lblA=(charts.aaCurrent.data&&charts.aaCurrent.data.labels)||[];
+    var labels=(lblA.length>=lblO.length?lblA:lblO).slice();
+    var sollDs=_cloneDatasets(charts.opt.data.datasets);
+    var istDs=_cloneDatasets(charts.aaCurrent.data.datasets);
+    var vals=[];
+    [sollDs,istDs].forEach(function(dss){dss.forEach(function(d){(d.data||[]).forEach(function(v){var n=Number(v);if(isFinite(n))vals.push(n);});});});
+    var yMin=null,yMax=null;
+    if(vals.length){
+      var mn=Math.min.apply(null,vals),mx=Math.max.apply(null,vals),sp=Math.max(1,mx-mn);
+      yMin=Math.max(0,Math.floor((mn-sp*0.08)/50)*50);yMax=Math.ceil((mx+sp*0.08)/50)*50;
+    }
+    var elS=document.getElementById('ch-sollist-soll'), elI=document.getElementById('ch-sollist-ist');
+    if(!elS||!elI)return;
+    var optS=_sollistOptions(); if(yMin!=null){optS.scales.y.min=yMin;optS.scales.y.max=yMax;}
+    var optI=_sollistOptions(); if(yMin!=null){optI.scales.y.min=yMin;optI.scales.y.max=yMax;}
+    charts.sollistSoll=new Chart(elS.getContext('2d'),{type:'line',data:{labels:labels.slice(),datasets:sollDs},options:optS});
+    charts.sollistIst=new Chart(elI.getContext('2d'),{type:'line',data:{labels:labels.slice(),datasets:istDs},options:optI});
+    _wireSollIstHover();
+    // 2026-06-14 (#97): Beratungs-Mehrwert am Horizont prominent anzeigen
+    // (Hauptszenario-Endwert SOLL − IST). Werte in k-CHF -> ×1000 für CHF.
+    try{
+      var _mainLast=function(dss){
+        var d=(dss||[]).filter(function(x){return x&&x.label==='Hauptszenario';})[0]||(dss||[])[0];
+        var arr=(d&&d.data)||[]; for(var i=arr.length-1;i>=0;i--){var n=Number(arr[i]);if(isFinite(n))return n;} return null;
+      };
+      var sMain=_mainLast(sollDs), iMain=_mainLast(istDs);
+      var box=document.getElementById('m-sollist-delta');
+      if(box&&sMain!=null&&iMain!=null){
+        var deltaChf=Math.round((sMain-iMain)*1000);
+        var hLabel=labels.length?String(labels[labels.length-1]):'Horizont';
+        box.style.display='';
+        box.style.color=deltaChf>=0?'var(--pos)':'var(--warn)';
+        box.style.background=deltaChf>=0?'rgba(22,101,52,0.08)':'rgba(146,64,14,0.08)';
+        box.innerHTML='Beratungs-Mehrwert bis '+escapeHtml(hLabel)+': '+(deltaChf>=0?'+':'−')+'CHF '+Math.abs(deltaChf).toLocaleString('de-CH')+' (Hauptszenario SOLL gegenüber heutigem Mix)';
+      } else if(box){ box.style.display='none'; }
+    }catch(_d){}
+  }catch(e){ console.warn('sollist compare:',e); }
+}
+function closeSollIstCompare(){
+  try{cm('m-sollist');}catch(e){}
+  if(typeof charts!=='undefined'&&charts){
+    if(charts.sollistSoll){try{charts.sollistSoll.destroy();}catch(e){}charts.sollistSoll=null;}
+    if(charts.sollistIst){try{charts.sollistIst.destroy();}catch(e){}charts.sollistIst=null;}
+  }
+}
+function _wireSollIstHover(){
+  try{
+    var a=charts.sollistSoll&&charts.sollistSoll.canvas, b=charts.sollistIst&&charts.sollistIst.canvas;
+    if(!a||!b)return;
+    if(!a.__sollistWired){
+      a.__sollistWired=true;
+      a.addEventListener('mousemove',function(e){__syncSiblingHover(charts.sollistSoll,charts.sollistIst,e);});
+      a.addEventListener('mouseleave',function(){__clearSiblingHover(charts.sollistIst);});
+    }
+    if(!b.__sollistWired){
+      b.__sollistWired=true;
+      b.addEventListener('mousemove',function(e){__syncSiblingHover(charts.sollistIst,charts.sollistSoll,e);});
+      b.addEventListener('mouseleave',function(){__clearSiblingHover(charts.sollistSoll);});
+    }
+  }catch(e){}
+}
+</script>
 
 <div class="layout">
   <aside class="sidebar">
@@ -1109,7 +2461,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
           </div></div>
         </div>
         <div class="g2">
-          <div class="card"><div class="chd"><span class="cht">Haushalt</span><button class="btn btn-sm" onclick="openStammdatenModal()">Bearbeiten</button></div><div class="cbody"><div class="psg" id="hh-grid"><div><div class="psk">Hauptperson</div><div class="psv">Andreas Müller, 52 J.</div></div><div><div class="psk">Partner/in</div><div class="psv">Sandra Weber, 50 J.</div></div><div><div class="psk">Kinder</div><div class="psv">1 Tochter, 24 J.</div></div><div><div class="psk">Wohnsitz</div><div class="psv">Zürich ZH</div></div><div><div class="psk">Beruf Andreas</div><div class="psv">CFO, 100%</div></div><div><div class="psk">Beruf Sandra</div><div class="psv">Beraterin, 60%</div></div><div><div class="psk">Pension</div><div class="psv">2033 / 2034</div></div><div><div class="psk">Mandat</div><div class="psv">Advisory (keine VV)</div></div></div></div></div>
+          <div class="card"><div class="chd"><span class="cht">Haushalt</span><button class="btn btn-sm" onclick="openStammdatenModal()">Bearbeiten</button></div><div class="cbody"><div class="psg" id="hh-grid"><div style="font-size:10px;color:var(--n4);padding:6px 0">Wird geladen …</div></div></div></div>
           <div class="card">
         <div class="chd"><span class="cht">Anlagepr&auml;ferenzen</span><span style="font-size:9px;color:var(--n4);margin-left:8px">Kompakte Übersicht — Pflege im Strategie-Schritt</span></div>
         <div class="cbody">
@@ -1486,13 +2838,20 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
               </div>
               <div class="cbody">
                 <div id="ub-projection-note" style="font-size:10px;color:var(--warn);background:var(--warn-lt);border:1px solid rgba(146,64,14,0.12);border-radius:var(--r);padding:7px 9px;margin-bottom:10px">Ist-Situation ohne Optimierung. Sobald eine Strategie berechnet ist, wird hier direkt der verbesserte Zielpfad gegenübergestellt.</div>
-                <div class="chart-lg"><canvas id="ch-ist"></canvas></div>
+                <div class="chart-lg"><canvas id="ch-ist" role="img" aria-label="Vermögensverzehr Gesamtvermögen: IST-Situation und verbesserte (optimierte) Situation über die Zeit"></canvas></div>
                 <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:9px;padding-top:10px;border-top:1px solid var(--b1);margin-top:10px">
                   <div><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:2px">Ist Terminal</div><div id="ub-ist-terminal" style="font-family:var(--f-d);font-size:15px;color:var(--warn)">CHF 5.4 Mio</div></div>
                   <div><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:2px">Verbessert</div><div id="ub-opt-terminal" style="font-family:var(--f-d);font-size:15px;color:var(--pos)">CHF 6.1 Mio</div></div>
                   <div><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:2px">Ø Rendite Mix</div><div id="ub-cagr-ist" style="font-family:var(--f-d);font-size:15px">4.1%</div></div>
                   <div><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:2px">CAGR Zielpfad</div><div id="ub-cagr-opt" style="font-family:var(--f-d);font-size:15px">4.5%</div></div>
                   <div><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:2px">Mehrwert</div><div id="ub-delta-terminal" style="font-family:var(--f-d);font-size:15px;color:var(--pos)">+700k</div></div>
+                </div>
+                <!-- 3eyes-Paritaet: beide Kurven zeigen Gesamtvermoegen; die Optimierung
+                     wirkt auf den Beratungsteil. Hier die zwei Renditesaetze explizit. -->
+                <div style="margin-top:9px;padding-top:9px;border-top:1px solid var(--b1);font-size:10px;color:var(--n5);display:flex;gap:18px;flex-wrap:wrap;align-items:baseline">
+                  <span style="text-transform:uppercase;letter-spacing:0.06em;color:var(--n4);font-size:9px">Erwartete Rendite p.a.</span>
+                  <span><strong id="ub-return-rein" style="font-family:var(--f-d);font-size:13px;color:var(--n8)">–</strong> Reinvermögen (gesamt)</span>
+                  <span><strong id="ub-return-beratung" style="font-family:var(--f-d);font-size:13px;color:var(--pos)">–</strong> Beratungsvermögen (optimiert)</span>
                 </div>
               </div>
             </div>
@@ -1551,40 +2910,56 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
         </div>
         <div class="g2">
           <div class="card">
-            <div class="chd" style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap"><div><span class="cht">SOLL-Prognose</span><span style="font-size:9px;color:var(--n4);margin-left:8px">Vermögensentwicklung mit der optimierten Strategie — IST-Benchmark unter «Kennzahlen»</span></div><button id="btn-aa-metrics-toggle" type="button" class="btn" style="font-size:10px;padding:3px 10px" onclick="toggleAaProjectionDetails()">Kennzahlen & Benchmark ▾</button></div>
+            <div class="chd" style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap"><div><span class="cht">SOLL-Prognose</span><span style="font-size:9px;color:var(--n4);margin-left:8px">Vermögensentwicklung mit der optimierten Strategie — heutige IST-Situation unter «Kennzahlen»</span></div><div style="display:flex;gap:6px;flex-wrap:wrap"><button type="button" class="btn-p" style="font-size:10px;padding:3px 11px" onclick="openSollIstCompare()" title="SOLL und IST gross nebeneinander vergleichen">&#10696; SOLL vs. IST gross vergleichen</button><button id="btn-aa-metrics-toggle" type="button" class="btn" style="font-size:10px;padding:3px 10px" onclick="toggleAaProjectionDetails()">Kennzahlen & IST-Vergleich ▾</button></div></div>
             <div class="cbody">
               <div id="aa-compare-wrap" style="display:none">
-                <div id="aa-proj-benchmark-note" style="font-size:10px;color:var(--n6);background:var(--bg);border:1px solid rgba(90,104,120,0.12);border-radius:var(--r);padding:7px 10px;margin-bottom:10px;line-height:1.5">Berater-Sicht: Benchmark gegen den heutigen Mix des Beratungsverm&ouml;gens. Die eigentliche Vergleichs- und Delta-Logik folgt im Review.</div>
+                <div id="aa-proj-benchmark-note" style="font-size:10px;color:var(--n6);background:var(--bg);border:1px solid rgba(90,104,120,0.12);border-radius:var(--r);padding:7px 10px;margin-bottom:10px;line-height:1.5">Berater-Sicht: SOLL-Strategie gegen die heutige IST-Situation (aktueller Mix des Beratungsverm&ouml;gens). Der Mehrwert entsteht v.a. dadurch, dass heute brachliegende Cash-Positionen investiert werden. Vergleich &amp; Delta folgen im Review.</div>
               </div>
               <div id="aa-proj-chart-grid" style="margin-bottom:10px;grid-template-columns:1fr">
                 <div style="border:1px solid rgba(22,101,52,0.16);border-radius:var(--r2);padding:10px 11px;background:rgba(22,101,52,0.04)">
                   <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:4px"><span style="font-size:10px;font-weight:600;color:var(--n7)">Optimierte Zielallokation</span><span class="tag tg">Ziel</span></div>
                   <div style="font-size:10px;color:var(--n5);line-height:1.45;margin-bottom:8px">Hier bleibt der echte Zielpfad der Soll-Strategie. Laufende Cashflows sowie einmalige Kapitalereignisse fliessen in die Prognose ein; Vergleich, Mehrwert und Abweichung folgen im Review.</div>
-                  <div class="chart-lg" id="aa-opt-chart-wrap" style="height:390px"><canvas id="ch-opt"></canvas></div>
+                  <div class="chart-lg" id="aa-opt-chart-wrap" style="height:390px"><canvas id="ch-opt" role="img" aria-label="SOLL-Prognose der optimierten Strategie mit Best Case, Hauptszenario und Worst Case"></canvas></div>
                 </div>
                 <div id="aa-compare-chart-col" style="display:none;border:1px solid var(--b1);border-radius:var(--r2);background:var(--bg);overflow:hidden">
                   <div style="padding:10px 11px 0">
-                    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:4px"><span style="font-size:10px;font-weight:600;color:var(--n7)">Benchmark: heutiger Mix</span><span class="tag tn">Ist</span></div>
+                    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:4px"><span style="font-size:10px;font-weight:600;color:var(--n7)">IST-Situation: heutiger Mix</span><span class="tag tn">Ist</span></div>
                     <div style="font-size:10px;color:var(--n5);line-height:1.45;margin-bottom:8px">Gleiche Achsen, gleicher Horizont. So bleibt der Vergleich mit der Soll-Strategie fair und lesbar.</div>
                   </div>
                   <div style="padding:0 11px 10px">
-                  <div class="chart-lg" id="aa-current-chart-wrap" style="height:390px"><canvas id="ch-aa-current"></canvas></div>
+                  <div class="chart-lg" id="aa-current-chart-wrap" style="height:390px"><canvas id="ch-aa-current" role="img" aria-label="IST heutiger Mix: Prognose mit Best Case, Hauptszenario und Worst Case"></canvas></div>
                   </div>
                 </div>
               </div>
-              <div class="alloc-metrics" id="aa-proj-metrics" style="display:none">
-                <div><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:1px">Prognose 2033</div><div id="aa-proj-wealth" style="font-family:var(--f-d);font-size:14px;color:var(--pos)">CHF 6.1 Mio</div></div>
-                <div><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:1px">Median 2033 (P50)</div><div id="aa-proj-median" style="font-family:var(--f-d);font-size:14px">CHF 5.9 Mio</div></div>
-                <div><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:1px">CAGR</div><div id="aa-proj-cagr" style="font-family:var(--f-d);font-size:14px">4.5%</div></div>
-                <div><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:1px">P50 Rendite p.a.</div><div id="aa-proj-p50-return" style="font-family:var(--f-d);font-size:14px">4.2%</div></div>
-                <div><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:1px">Benchmark P50 p.a.</div><div id="aa-proj-current-p50-return" style="font-family:var(--f-d);font-size:14px">3.8%</div></div>
-                <div><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:1px">Reichweite Soll (P50)</div><div id="aa-proj-runway-target" style="font-family:var(--f-d);font-size:14px">—</div></div>
-                <div><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:1px">Reichweite Benchmark (P50)</div><div id="aa-proj-runway-current" style="font-family:var(--f-d);font-size:14px">—</div></div>
-                <div><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:1px">Volatilität</div><div id="aa-proj-vol" style="font-family:var(--f-d);font-size:14px">8.8%</div></div>
-                <div><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:1px">VaR 95% (1J)</div><div id="aa-proj-var95" style="font-family:var(--f-d);font-size:14px">-8.0%</div></div>
-                <div><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:1px">CVaR 95% (1J)</div><div id="aa-proj-cvar95" style="font-family:var(--f-d);font-size:14px">-11.0%</div></div>
-                <div><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:1px">Max Drawdown</div><div id="aa-proj-drawdown" style="font-family:var(--f-d);font-size:14px">-14.0%</div></div>
-                <div><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:1px">Verlust-Wkeit 1J</div><div id="aa-proj-lossprob" style="font-family:var(--f-d);font-size:14px">32%</div></div>
+              <div id="aa-proj-metrics" style="display:none">
+                <!-- 2026-06-14: Sauberer Zwei-Spalten-Kennzahlen-Vergleich SOLL vs IST. -->
+                <div style="overflow-x:auto;margin-bottom:12px">
+                  <table style="width:100%;border-collapse:collapse;font-size:12px">
+                    <thead>
+                      <tr style="border-bottom:1px solid var(--b1)">
+                        <th style="text-align:left;padding:6px 8px;font-size:9px;text-transform:uppercase;letter-spacing:0.06em;color:var(--n4);font-weight:600">Kennzahl</th>
+                        <th style="text-align:right;padding:6px 8px;font-size:10px;color:rgb(22,101,52);font-weight:700">SOLL — Strategie</th>
+                        <th style="text-align:right;padding:6px 8px;font-size:10px;color:var(--n6);font-weight:700">IST — heutiger Mix</th>
+                      </tr>
+                    </thead>
+                    <tbody style="font-family:var(--f-d)">
+                      <tr style="border-bottom:1px solid var(--bg2)"><td style="padding:7px 8px;font-family:var(--f);color:var(--n7)">Prognose Endwert (Median)</td><td id="aa-proj-median" style="text-align:right;padding:7px 8px;color:var(--pos);font-weight:600">—</td><td id="aa-proj-current-median" style="text-align:right;padding:7px 8px;color:var(--n7)">—</td></tr>
+                      <tr style="border-bottom:1px solid var(--bg2)"><td style="padding:7px 8px;font-family:var(--f);color:var(--n7)">Erwartete Rendite p.a. (P50)</td><td id="aa-proj-p50-return" style="text-align:right;padding:7px 8px;color:var(--pos);font-weight:600">—</td><td id="aa-proj-current-p50-return" style="text-align:right;padding:7px 8px;color:var(--n7)">—</td></tr>
+                      <tr style="border-bottom:1px solid var(--bg2)"><td style="padding:7px 8px;font-family:var(--f);color:var(--n7)">Wachstum p.a. (CAGR Median)</td><td id="aa-proj-cagr" style="text-align:right;padding:7px 8px;color:var(--pos);font-weight:600">—</td><td id="aa-proj-current-cagr" style="text-align:right;padding:7px 8px;color:var(--n7)">—</td></tr>
+                      <tr><td style="padding:7px 8px;font-family:var(--f);color:var(--n7)">Median-Reichweite</td><td id="aa-proj-runway-target" style="text-align:right;padding:7px 8px;color:var(--pos);font-weight:600">—</td><td id="aa-proj-runway-current" style="text-align:right;padding:7px 8px;color:var(--n7)">—</td></tr>
+                      <tr><td colspan="3" style="padding:9px 8px 3px;font-size:9px;text-transform:uppercase;letter-spacing:0.06em;color:var(--n4);font-weight:600">Risiko (Monte-Carlo, 1 Jahr · tiefer = besser)</td></tr>
+                      <tr style="border-bottom:1px solid var(--bg2)"><td style="padding:7px 8px;font-family:var(--f);color:var(--n7)">Volatilität (1J)</td><td id="aa-proj-vol" style="text-align:right;padding:7px 8px;color:var(--n7);font-weight:600">—</td><td id="aa-proj-current-vol" style="text-align:right;padding:7px 8px;color:var(--n7)">—</td></tr>
+                      <tr style="border-bottom:1px solid var(--bg2)"><td style="padding:7px 8px;font-family:var(--f);color:var(--n7)" title="Value at Risk: max. erwarteter Verlust auf 1 Jahr mit 95% Konfidenz">VaR 95% (1J)</td><td id="aa-proj-var95" style="text-align:right;padding:7px 8px;color:var(--n7);font-weight:600">—</td><td id="aa-proj-current-var95" style="text-align:right;padding:7px 8px;color:var(--n7)">—</td></tr>
+                      <tr style="border-bottom:1px solid var(--bg2)"><td style="padding:7px 8px;font-family:var(--f);color:var(--n7)" title="Conditional VaR / Expected Shortfall: durchschnittl. Verlust in den schlimmsten 5% der Fälle">CVaR 95% (1J)</td><td id="aa-proj-cvar95" style="text-align:right;padding:7px 8px;color:var(--n7);font-weight:600">—</td><td id="aa-proj-current-cvar95" style="text-align:right;padding:7px 8px;color:var(--n7)">—</td></tr>
+                      <tr style="border-bottom:1px solid var(--bg2)"><td style="padding:7px 8px;font-family:var(--f);color:var(--n7)" title="Grösster zwischenzeitlicher Wertrückgang über den Horizont (Median-Pfad)">Max Drawdown (Median)</td><td id="aa-proj-drawdown" style="text-align:right;padding:7px 8px;color:var(--n7);font-weight:600">—</td><td id="aa-proj-current-drawdown" style="text-align:right;padding:7px 8px;color:var(--n7)">—</td></tr>
+                      <tr><td style="padding:7px 8px;font-family:var(--f);color:var(--n7)" title="Wahrscheinlichkeit eines Verlusts über 1 Jahr">Verlust-Wkeit (1J)</td><td id="aa-proj-lossprob" style="text-align:right;padding:7px 8px;color:var(--n7);font-weight:600">—</td><td id="aa-proj-current-lossprob" style="text-align:right;padding:7px 8px;color:var(--n7)">—</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;background:rgba(22,101,52,0.06);border:1px solid rgba(22,101,52,0.16);border-radius:8px;padding:9px 12px;margin-bottom:12px">
+                  <span style="font-size:11px;color:var(--n7);font-weight:600">Beratungs-Mehrwert (Median-Endwert SOLL &minus; IST)</span>
+                  <span id="aa-proj-delta-value" style="font-family:var(--f-d);font-size:15px;font-weight:700;color:var(--pos)">—</span>
+                </div>
               </div>
             </div>
           </div>
@@ -3230,8 +4605,15 @@ function hideLogin() {
   if (label && currentUser) label.textContent = currentUser.full_name || currentUser.username || '';
   const logoutBtn = document.getElementById('btn-logout');
   if (logoutBtn) logoutBtn.style.display = 'inline-block';
+  const twofaBtn = document.getElementById('btn-2fa');
+  if (twofaBtn) twofaBtn.style.display = 'inline-block';
+  const provBtn = document.getElementById('btn-prov');
+  if (provBtn) provBtn.style.display = (currentUser && currentUser.role === 'super_admin') ? 'inline-block' : 'none';
   const adminBtn = document.getElementById('btn-admin-open');
   if (adminBtn) adminBtn.style.display = (currentUser && currentUser.role === 'admin') ? 'inline-block' : 'none';
+  // E1 (2026-06-14): Team-Verwaltung (eigene Firma) fuer Firmen-Admin + Operator.
+  const teamBtn = document.getElementById('btn-team');
+  if (teamBtn) teamBtn.style.display = (currentUser && (currentUser.role === 'admin' || currentUser.role === 'super_admin')) ? 'inline-block' : 'none';
   ensureFoundationExampleButton();
 }
 
@@ -3351,11 +4733,29 @@ async function doLogin() {
   if (!username || !password) { if (errEl) errEl.textContent = 'Bitte Benutzername und Passwort eingeben.'; return; }
   if (btn) { btn.disabled = true; btn.textContent = 'Anmelden…'; }
   try {
-    const data = await API.post('/auth/login', {username, password});
+    const totpEl = document.getElementById('login-totp');
+    const totpCode = ((totpEl && totpEl.value) || '').trim();
+    const loginPayload = {username, password};
+    if (totpCode) loginPayload.totp_code = totpCode;
+    const data = await API.post('/auth/login', loginPayload);
     await API.setToken(data.access_token);
     currentUser = data.user;
     hideLogin();
-    await initApp();
+    try {
+      await initApp();
+    } catch (initError) {
+      if (errEl) errEl.textContent = 'Anmeldung erfolgreich, Oberfläche teilweise eingeschränkt.';
+      console.error('[5eyes] post-login init failed:', initError && initError.stack ? initError.stack : initError);
+    }
+    // E1 (2026-06-14): erzwungener Passwortwechsel beim ersten Login hat Vorrang
+    // vor dem 2FA-Nudge.
+    if (currentUser && currentUser.must_change_password) {
+      try { openForcePasswordChange(); } catch(_ef) {}
+    } else {
+      // 2FA-Gate: required && !enabled -> erzwungenes Setup (Hard-Gate, ✕ versteckt),
+      // sonst bei externem Zugriff weicher Enrollment-Nudge. Lokal/file:// nichts.
+      try { await enforce2faGate(); } catch(_e1) {}
+    }
   } catch(e) {
     if (e.status === 429) {
       const wait = e.retryAfter || 60;
@@ -3375,7 +4775,22 @@ async function doLogin() {
         return;
       }
     } else if (e.status === 401) {
-      if (errEl) errEl.textContent = 'Benutzername oder Passwort falsch.';
+      var __det = String(e.detail || '');
+      var __row = document.getElementById('login-2fa-row');
+      var __t = document.getElementById('login-totp');
+      if (__det.indexOf('2FA-Code erforderlich') >= 0) {
+        if (__row) __row.style.display = '';
+        if (errEl) errEl.textContent = 'Bitte 2FA-Code aus deinem Authenticator eingeben.';
+        if (__t) __t.focus();
+      } else if (__det.indexOf('2FA') >= 0) {
+        if (__row) __row.style.display = '';
+        if (errEl) errEl.textContent = '2FA-Code falsch. Bitte erneut versuchen.';
+        if (__t) { __t.value = ''; __t.focus(); }
+      } else {
+        if (__row) __row.style.display = 'none';
+        if (__t) __t.value = '';
+        if (errEl) errEl.textContent = 'Benutzername oder Passwort falsch.';
+      }
     } else if (e.status === 403) {
       if (errEl) errEl.textContent = 'Konto deaktiviert.';
     } else if ((e.message || '').includes('Failed to fetch')) {
@@ -3494,6 +4909,18 @@ async function loadClientById(clientId) {
   currentWealthPositions = [];
   currentPortfolioPositions = [];
   riskHorizonTouched = false;
+  // Mandanten-Trennung (2026-06-12): DOM-Container des VORIGEN Klienten SOFORT
+  // leeren. Sonst bleiben dessen Cashflow-/Ziel-/Haushalts-Zeilen sichtbar, bis
+  // das async-Nachladen fertig ist — bei einem Klienten ohne eigene (aktive)
+  // Cashflows fiel das als "fremde Zahlen" (z.B. Daniel/Claudia) in der neuen
+  // Ansicht auf. Hartes Leeren stellt sicher: nie fremde Daten in fremder Ansicht.
+  try{
+    var _ldPlaceholder='<div style="font-size:10px;color:var(--n4);padding:6px 0">Wird geladen …</div>';
+    var _ldZf=document.getElementById('zufluss-rows'); if(_ldZf)_ldZf.innerHTML=_ldPlaceholder;
+    var _ldAf=document.getElementById('abfluss-rows'); if(_ldAf)_ldAf.innerHTML=_ldPlaceholder;
+    var _ldZl=document.getElementById('zl'); if(_ldZl)_ldZl.innerHTML='';
+    var _ldHg=document.getElementById('hh-grid'); if(_ldHg)_ldHg.innerHTML=_ldPlaceholder;
+  }catch(_ldErr){}
   currentReviewState = {triggers:[],logs:[],documents:[],conflicts:[],suitability:[],allocation:null,recommendation:null};
   strategyState={allocation:null,recommendation:null,activeMandateId:null,lastGeneratedAt:0,loading:false,dirty:true,risk:null,buildingBlocks:[],marketRuntime:null,pendingAllocation:null,pendingRecommendation:null,deferVisualApply:false};
   hydrateRiskQuestionnaire(null);
@@ -3714,15 +5141,32 @@ if (window.desktop && typeof window.desktop.onUpdateStateChanged === 'function')
 })();
 // ─────────────────────────────────────────────────────────────────────────────
 async function initApp() {
-  initPrefSummaryText();
-  initDomLayout();
-  go('sd');
-  bindAllocationTableInteractions();
-  initCharts();
-  bindAllocationPreferenceControls();
-  ensureFoundationExampleButton();
-  await loadClients();
-  setTimeout(refreshPricesFromBackend, 3000);
+  var step='Grundlayout';
+  try {
+    initPrefSummaryText();
+    initDomLayout();
+    step='Startseite';
+    await go('sd');
+    step='Mandatsaktionen';
+    ensureFoundationExampleButton();
+    step='Mandate';
+    await loadClients();
+    [
+      ['Allokationstabelle',bindAllocationTableInteractions],
+      ['Diagramme',initCharts],
+      ['Allokationspraeferenzen',bindAllocationPreferenceControls]
+    ].forEach(function(entry){
+      try{entry[1]();}catch(optionalError){
+        console.error('[5eyes] optional init failed at '+entry[0]+':',optionalError&&optionalError.stack?optionalError.stack:optionalError);
+      }
+    });
+    setTimeout(refreshPricesFromBackend, 3000);
+  } catch (error) {
+    console.error('[5eyes] initApp failed at '+step+':', error && error.stack ? error.stack : error);
+    var sbl=document.getElementById('sbl');
+    if(sbl)sbl.innerHTML='<div style="padding:8px 10px;font-size:10px;color:var(--neg)">Mandate konnten wegen eines Initialisierungsfehlers nicht geladen werden.</div>';
+    throw error;
+  }
 }
 // ─────────────────────────────────────────────────────────────────────
 
@@ -4767,8 +6211,8 @@ function syncAllocationPendingViews(){
   var benchmarkNote=document.getElementById('aa-proj-benchmark-note');
   if(benchmarkNote){
     benchmarkNote.textContent=snapshot.riskReady
-      ? 'Berater-Sicht: Benchmark und Kennzahlen erscheinen nach der nächsten echten Strategie-Berechnung.'
-      : 'Berater-Sicht: Benchmark und Kennzahlen erscheinen, sobald für dieses Mandat ein aktuelles Risikoprofil gespeichert ist.';
+      ? 'Berater-Sicht: IST-Vergleich und Kennzahlen erscheinen nach der nächsten echten Strategie-Berechnung.'
+      : 'Berater-Sicht: IST-Vergleich und Kennzahlen erscheinen, sobald für dieses Mandat ein aktuelles Risikoprofil gespeichert ist.';
     benchmarkNote.style.color='var(--n6)';
     benchmarkNote.style.background='var(--bg)';
     benchmarkNote.style.borderColor='rgba(90,104,120,0.12)';
@@ -5354,12 +6798,41 @@ function initCharts(){
       elements:{point:{radius:0,hoverRadius:4,hitRadius:18}},
       scales:{
         x:{grid:{display:false},ticks:{font:{size:9},color:'#7a8299'}},
-        y:{grid:{color:'rgba(0,0,0,0.04)'},ticks:{font:{size:9},color:'#7a8299',callback:function(v){return (v/1000).toFixed(1)+'M';}}}
+        y:{grid:{color:'rgba(0,0,0,0.04)'},ticks:{font:{size:9},color:'#7a8299',callback:function(v){var n=Number(v)||0;if(n===0)return '0';if(Math.abs(n)>=1000){var m=n/1000;return (m===Math.round(m)?String(Math.round(m)):m.toFixed(1))+' Mio';}return Math.round(n)+'k';}}}
       }
     };
   };
   if(!charts.ist){
     const el=document.getElementById('ch-ist');
+    // 3eyes-Paritaet (2026-06-12): Ziel-Marker auf der Reinvermoegens-Zeitachse.
+    // Lokales Inline-Plugin (kein globales chartjs-plugin-annotation noetig).
+    const goalMarkerPlugin={
+      id:'goalMarkers',
+      afterDatasetsDraw:function(chart){
+        var markers=chart&&chart.$goalMarkers;
+        if(!markers||!markers.length)return;
+        var xScale=chart.scales&&chart.scales.x, area=chart.chartArea, ctx=chart.ctx;
+        if(!xScale||!area||!ctx)return;
+        markers.forEach(function(m){
+          if(m==null||m.index==null||m.index<0)return;
+          var x=xScale.getPixelForValue(m.index);
+          if(!isFinite(x))return;
+          ctx.save();
+          ctx.beginPath();ctx.setLineDash([3,3]);ctx.lineWidth=1;ctx.strokeStyle='rgba(30,75,143,0.40)';
+          ctx.moveTo(x,area.top+14);ctx.lineTo(x,area.bottom);ctx.stroke();ctx.setLineDash([]);
+          ctx.fillStyle='#1e4b8f';
+          ctx.beginPath();ctx.moveTo(x,area.bottom-7);ctx.lineTo(x-4,area.bottom);ctx.lineTo(x+4,area.bottom);ctx.closePath();ctx.fill();
+          ctx.font='600 9px sans-serif';ctx.textAlign='center';ctx.textBaseline='top';
+          var lbl=String(m.shortLabel||m.label||'Ziel');
+          var tw=ctx.measureText(lbl).width+6;
+          var bx=Math.max(area.left+tw/2,Math.min(area.right-tw/2,x));
+          ctx.fillStyle='rgba(30,75,143,0.92)';
+          ctx.fillRect(bx-tw/2,area.top+1,tw,12);
+          ctx.fillStyle='#fff';ctx.fillText(lbl,bx,area.top+2);
+          ctx.restore();
+        });
+      }
+    };
     if(el)charts.ist=new Chart(el.getContext('2d'),{
       type:'line',
       data:{
@@ -5368,8 +6841,21 @@ function initCharts(){
           {label:'Aktueller Gesamtvermögenspfad',data:ist,borderColor:'rgba(146,64,14,0.75)',backgroundColor:'rgba(146,64,14,0.08)',borderWidth:2,pointRadius:0,fill:false,tension:0.4}
         ]
       },
-      options:wealthLineOptions(false)
+      options:wealthLineOptions(false),
+      plugins:[goalMarkerPlugin]
     });
+    // 3eyes-Paritaet: Alters-Achse (Haupt-/Partnerperson) unter den Jahren — nur
+    // auf der IST-Reinvermoegenskurve, nicht auf den AA-Vergleichscharts.
+    if(charts.ist&&charts.ist.options&&charts.ist.options.scales&&charts.ist.options.scales.x){
+      charts.ist.options.scales.x.ticks=charts.ist.options.scales.x.ticks||{};
+      charts.ist.options.scales.x.ticks.maxRotation=0;
+      charts.ist.options.scales.x.ticks.autoSkip=true;
+      charts.ist.options.scales.x.ticks.callback=function(value,index){
+        var labels=(charts.ist&&charts.ist.data&&charts.ist.data.labels)||[];
+        var lbl=(this&&this.getLabelForValue)?this.getLabelForValue(value):(labels[index]!=null?labels[index]:value);
+        return projectionAgeAxisLabel(lbl);
+      };
+    }
   }
   if(!charts.aaCurrent){
     const el=document.getElementById('ch-aa-current');
@@ -6877,17 +8363,33 @@ document.addEventListener('DOMContentLoaded', async () => {
   bindHonestUiActions();
   bindReviewModals();
   normalizeVisibleMojibake(document.body);
+  // E1 (2026-06-14): Einladungslink hat Vorrang — Mitarbeiter aktiviert sein Konto.
+  try { if (await checkInviteParam()) return; } catch(_inv) {}
   const existingToken = await API.getToken();
   if (existingToken) {
+    var me=null;
     try {
-      const me = await API.get('/auth/me');
+      me = await API.get('/auth/me');
+    } catch(e) {
+      await API.setToken(null);
+    }
+    if(me){
       currentUser = me;
       bootstrapStatusCache = { setup_required: false, can_create_admin: false };
       hideLogin();
-      await initApp();
+      try {
+        await initApp();
+      } catch (initError) {
+        console.error('[5eyes] stored-session init failed:', initError && initError.stack ? initError.stack : initError);
+      }
+      // E1 (2026-06-14): Gates auch nach Reload (gespeicherte Session) erzwingen —
+      // sonst entkäme man dem Pflicht-Passwortwechsel / Pflicht-2FA durch F5.
+      if (currentUser && currentUser.must_change_password) {
+        try { openForcePasswordChange(); } catch(_efr) {}
+      } else {
+        try { await enforce2faGate(); } catch(_e2r) {}
+      }
       return;
-    } catch(e) {
-      await API.setToken(null);
     }
   }
 
@@ -12607,7 +14109,7 @@ function toggleAaProjectionDetails(){
   if(grid)grid.style.gridTemplateColumns=open?'1fr':'repeat(2,minmax(0,1fr))';
   if(chartWrap)chartWrap.style.height='390px';
   if(currentChartWrap)currentChartWrap.style.height='390px';
-  if(btn)btn.textContent=open?'Kennzahlen & Benchmark schliessen':'Kennzahlen & Benchmark anzeigen';
+  if(btn)btn.textContent=open?'Kennzahlen & IST-Vergleich schliessen':'Kennzahlen & IST-Vergleich anzeigen';
   setTimeout(function(){
     syncAaProjectionAxisScales();
     if(charts&&charts.opt)charts.opt.resize();
@@ -15316,6 +16818,68 @@ function projectionYearLabels(result,years,preferredLabels){
   var startYear=(new Date()).getFullYear();
   return Array.from({length:years+1},function(_,idx){return String(startYear+idx);});
 }
+// 3eyes-Paritaet (2026-06-12): Alters-Achse + Ziel-Marker auf der IST-Kurve.
+// Mehrzeiliges x-Tick-Label: [Jahr, Alter Hauptperson, Alter Partner/in].
+function projectionAgeAxisLabel(yearLabel){
+  var year=parseInt(String(yearLabel),10);
+  if(!isFinite(year))return String(yearLabel);
+  var lines=[String(year)];
+  var p=(typeof currentPersona!=='undefined')?currentPersona:null;
+  var ageAt=function(dob){
+    if(!dob)return null;
+    var by=parseInt(String(dob).slice(0,4),10);
+    if(!isFinite(by))return null;
+    var a=year-by;
+    return (a>=0&&a<=120)?a:null;
+  };
+  if(p){
+    var am=ageAt(p.date_of_birth);
+    var ap=ageAt(p.partner_date_of_birth);
+    if(am!=null)lines.push(am+' J.');
+    if(ap!=null)lines.push(ap+' J.');
+  }
+  return lines.length>1?lines:String(year);
+}
+function goalTargetYearForTimeline(goal){
+  if(!goal)return null;
+  var d=goal.target_date||goal.targetDate||goal.start_date;
+  if(d){var y=parseInt(String(d).slice(0,4),10);if(isFinite(y)&&y>1900)return y;}
+  var yrs=parseInt(goal.horizon_years!=null?goal.horizon_years:goal.horizon,10);
+  if(isFinite(yrs))return (new Date()).getFullYear()+yrs;
+  return null;
+}
+function buildGoalTimelineMarkers(labels){
+  if(!Array.isArray(labels)||!labels.length)return [];
+  var goals=(typeof currentGoals!=='undefined'&&Array.isArray(currentGoals))?currentGoals:[];
+  if(!goals.length)return [];
+  var firstYear=parseInt(String(labels[0]),10);
+  var lastYear=parseInt(String(labels[labels.length-1]),10);
+  if(!isFinite(firstYear))return [];
+  var markers=[];
+  goals.forEach(function(g){
+    if(!g)return;
+    if(Object.prototype.hasOwnProperty.call(g,'is_active')&&g.is_active===0)return;
+    // Renditeziele (Wunsch-Rendite p.a.) sind KEINE datierten Vermoegens-
+    // ereignisse -> kein sinnvoller Jahres-Marker auf der Reinvermoegenskurve.
+    // Nur datierte Bedarfsziele (Vermoegensziel/Einmalige_Ausgabe/Pension) markieren.
+    if(String(g.goal_type||'')==='Renditeziel')return;
+    var ty=goalTargetYearForTimeline(g);
+    if(ty==null)return;
+    if(ty<firstYear||(isFinite(lastYear)&&ty>lastYear))return;
+    var idx=labels.indexOf(String(ty));
+    if(idx<0)idx=ty-firstYear;
+    if(idx<0||idx>=labels.length)return;
+    var nm=String(g.label||g.goal_type||'Ziel');
+    markers.push({index:idx,year:ty,label:nm,shortLabel:nm.length>16?(nm.slice(0,15)+'…'):nm});
+  });
+  return markers;
+}
+function refreshIstGoalMarkers(){
+  try{
+    if(!charts||!charts.ist||!charts.ist.data)return;
+    charts.ist.$goalMarkers=buildGoalTimelineMarkers(charts.ist.data.labels||[]);
+  }catch(e){/* defensiv */}
+}
 function currentRecurringNetCashflowRappen(result){
   if(result&&result.recurring_net_cashflow_rappen!=null)return Number(result.recurring_net_cashflow_rappen||0);
   return summaryRecurringNetCashflowRappen(activeClientCashflowSummary());
@@ -15695,21 +17259,37 @@ function syncIstProjectionAxisScale(){
 }
 function syncAaProjectionAxisScales(){
   if(!charts||!charts.opt||!charts.aaCurrent)return;
+  // 2026-06-14: SOLL (charts.opt) und IST (charts.aaCurrent) MÜSSEN identische
+  // X- UND Y-Achsen haben, sonst ist der Vergleich wertlos. Vorher wurden zwar
+  // gemeinsame y-min/max gesetzt, die Charts danach aber NICHT neu gerendert ->
+  // Achsen blieben unterschiedlich. Jetzt: gemeinsame Skala berechnen, X-Labels
+  // angleichen und BEIDE Charts neu zeichnen.
+  // (a) gemeinsame X-Achse: das längere Label-Set gewinnt, beide übernehmen es.
+  var lblO=(charts.opt.data&&charts.opt.data.labels)||[];
+  var lblA=(charts.aaCurrent.data&&charts.aaCurrent.data.labels)||[];
+  var sharedLabels=(lblA.length>=lblO.length)?lblA:lblO;
+  if(sharedLabels&&sharedLabels.length){
+    if(charts.opt.data)charts.opt.data.labels=sharedLabels.slice();
+    if(charts.aaCurrent.data)charts.aaCurrent.data.labels=sharedLabels.slice();
+  }
+  // (b) gemeinsame Y-Achse aus den Werten BEIDER Charts.
   var values=projectionChartValues(charts.opt).concat(projectionChartValues(charts.aaCurrent));
-  if(!values.length)return;
-  var minValue=Math.min.apply(null, values);
-  var maxValue=Math.max.apply(null, values);
-  var spread=Math.max(1, maxValue-minValue);
-  var paddedMin=Math.max(0, Math.floor((minValue-spread*0.08)/50)*50);
-  var paddedMax=Math.ceil((maxValue+spread*0.08)/50)*50;
-  if(charts.opt.options&&charts.opt.options.scales&&charts.opt.options.scales.y){
-    charts.opt.options.scales.y.min=paddedMin;
-    charts.opt.options.scales.y.max=paddedMax;
+  if(values.length){
+    var minValue=Math.min.apply(null, values);
+    var maxValue=Math.max.apply(null, values);
+    var spread=Math.max(1, maxValue-minValue);
+    var paddedMin=Math.max(0, Math.floor((minValue-spread*0.08)/50)*50);
+    var paddedMax=Math.ceil((maxValue+spread*0.08)/50)*50;
+    [charts.opt,charts.aaCurrent].forEach(function(ch){
+      if(ch.options&&ch.options.scales&&ch.options.scales.y){
+        ch.options.scales.y.min=paddedMin;
+        ch.options.scales.y.max=paddedMax;
+      }
+    });
   }
-  if(charts.aaCurrent.options&&charts.aaCurrent.options.scales&&charts.aaCurrent.options.scales.y){
-    charts.aaCurrent.options.scales.y.min=paddedMin;
-    charts.aaCurrent.options.scales.y.max=paddedMax;
-  }
+  // (c) beide neu zeichnen, damit die angeglichenen Achsen WIRKLICH sichtbar sind.
+  try{ charts.opt.update('none'); }catch(e){}
+  try{ charts.aaCurrent.update('none'); }catch(e){}
 }
 function updateProjectionChartsFromSimulation(result){
   // Bugfix 2026-05-09: kein early-return mehr ohne simulation. Die Current-
@@ -15773,12 +17353,44 @@ function updateProjectionChartsFromSimulation(result){
   if(charts.ist&&charts.ist.data&&charts.ist.data.datasets&&charts.ist.data.datasets.length>=1){
     charts.ist.data.labels=labels;
     charts.ist.data.datasets=charts.ist.data.datasets.slice(0,1);
-    if(charts.ist.data.datasets[0])charts.ist.data.datasets[0].label='Aktueller Gesamtvermögenspfad';
+    if(charts.ist.data.datasets[0])charts.ist.data.datasets[0].label='Ist-Situation (Gesamtvermögen)';
     charts.ist.data.datasets[0].data=totalCurrentSeries;
     charts.ist.data.datasets[0].tension=0;
     charts.ist.data.datasets[0].stepped=false;
+    // 3eyes-Paritaet (2026-06-12): "verbesserte Situation" = Gesamtvermoegen mit
+    // optimiertem Beratungsteil, als ZWEITE Linie auf DERSELBEN Gesamtvermoegens-
+    // Basis. Bei t=0 ist das Optimierungs-Delta 0 -> beide Linien starten identisch
+    // (Apfel mit Apfel); danach liegt SOLL leicht ueber IST = der Optimierungs-Hebel
+    // des Beratungsteils. Formel: Gesamt_IST(t) + (advisory_SOLL(t) - advisory_IST(t)).
+    if(targetSeries.length&&Array.isArray(advisoryCurrentSeries)&&advisoryCurrentSeries.length){
+      var __istN=Math.min(totalCurrentSeries.length,advisoryCurrentSeries.length,targetSeries.length);
+      var __istImproved=[];
+      for(var __istI=0;__istI<__istN;__istI++){
+        __istImproved.push(Math.round(Number(totalCurrentSeries[__istI]||0)+(Number(targetSeries[__istI]||0)-Number(advisoryCurrentSeries[__istI]||0))));
+      }
+      charts.ist.data.datasets[1]={
+        label:'Verbesserte Situation (SOLL)',
+        data:__istImproved,
+        borderColor:'rgb(22,101,52)',
+        backgroundColor:'rgba(22,101,52,0.06)',
+        borderWidth:2,
+        borderDash:[5,4],
+        pointRadius:0,
+        pointHoverRadius:4,
+        fill:false,
+        tension:0,
+        stepped:false
+      };
+      if(charts.ist.options&&charts.ist.options.plugins&&charts.ist.options.plugins.legend){
+        charts.ist.options.plugins.legend.display=true;
+        charts.ist.options.plugins.legend.labels=charts.ist.options.plugins.legend.labels||{};
+        charts.ist.options.plugins.legend.labels.boxWidth=18;
+        charts.ist.options.plugins.legend.labels.font={size:9};
+      }
+    }
     applyDepletionMarkerToDataset(charts.ist.data.datasets[0],totalBaselineProjection);
     syncIstProjectionAxisScale();
+    refreshIstGoalMarkers();
     charts.ist.update();
   }
   if(charts.aaCurrent&&charts.aaCurrent.data&&charts.aaCurrent.data.datasets&&charts.aaCurrent.data.datasets.length>=1){
@@ -15815,6 +17427,78 @@ function updateProjectionChartsFromSimulation(result){
   }
   normalizeProjectionChartsPresentation();
   syncAaProjectionAxisScales();
+  wireProjectionChartHoverSync();
+}
+// Cross-Chart-Hover-Sync (2026-06-12): Bewegt man die Maus ueber die SOLL-Grafik
+// (charts.opt) ODER die IST-Grafik (heutiger Mix, charts.aaCurrent), wird auf der
+// JEWEILS ANDEREN Grafik der gleiche Jahres-Index aktiviert (Tooltip + Highlight),
+// damit SOLL und IST am selben Jahr zeitgleich vergleichbar sind. Ein
+// Re-Entrancy-Guard verhindert eine gegenseitige Hover-Schleife.
+var __projHoverSyncing=false;
+function __activeElementsAtIndex(chart,idx){
+  if(!(chart&&chart.data&&Array.isArray(chart.data.datasets)))return [];
+  var out=[];
+  chart.data.datasets.forEach(function(ds,di){
+    if(ds&&Array.isArray(ds.data)&&idx>=0&&idx<ds.data.length&&ds.data[idx]!=null){
+      out.push({datasetIndex:di,index:idx});
+    }
+  });
+  return out;
+}
+function __syncSiblingHover(source,target,evt){
+  if(__projHoverSyncing||!source||!target)return;
+  __projHoverSyncing=true;
+  try{
+    var pts=source.getElementsAtEventForMode(evt,'index',{intersect:false},true);
+    if(pts&&pts.length){
+      var idx=pts[0].index;
+      var active=__activeElementsAtIndex(target,idx);
+      target.setActiveElements(active);
+      // 2026-06-14: Tooltip am ECHTEN Punkt positionieren (nicht in der Ecke {0,0}),
+      // damit er auf der anderen Grafik sichtbar am selben Jahr erscheint — sonst
+      // sieht man Punkt+Daten nicht und müsste manuell rüberfahren.
+      if(target.tooltip){
+        var pos=null;
+        if(active.length){
+          try{
+            var meta=target.getDatasetMeta(active[0].datasetIndex);
+            var el=meta&&meta.data&&meta.data[idx];
+            if(el&&isFinite(el.x)&&isFinite(el.y))pos={x:el.x,y:el.y};
+          }catch(_p){}
+        }
+        target.tooltip.setActiveElements(active,pos||{x:0,y:0});
+      }
+    }else{
+      target.setActiveElements([]);
+      if(target.tooltip)target.tooltip.setActiveElements([],{x:0,y:0});
+    }
+    target.update('none');
+  }catch(e){/* defensiv: Sync darf nie die Grafik brechen */}
+  finally{__projHoverSyncing=false;}
+}
+function __clearSiblingHover(target){
+  if(__projHoverSyncing||!target)return;
+  __projHoverSyncing=true;
+  try{
+    target.setActiveElements([]);
+    if(target.tooltip)target.tooltip.setActiveElements([],{x:0,y:0});
+    target.update('none');
+  }catch(e){}
+  finally{__projHoverSyncing=false;}
+}
+function wireProjectionChartHoverSync(){
+  try{
+    if(!charts||!charts.opt||!charts.aaCurrent)return;
+    var a=charts.opt.canvas, b=charts.aaCurrent.canvas;
+    if(!a||!b)return;
+    // Idempotent: nur einmal pro Canvas-Paar verdrahten.
+    if(a.__projHoverWired&&b.__projHoverWired)return;
+    a.__projHoverWired=true; b.__projHoverWired=true;
+    a.addEventListener('mousemove',function(e){__syncSiblingHover(charts.opt,charts.aaCurrent,e);});
+    a.addEventListener('mouseleave',function(){__clearSiblingHover(charts.aaCurrent);});
+    b.addEventListener('mousemove',function(e){__syncSiblingHover(charts.aaCurrent,charts.opt,e);});
+    b.addEventListener('mouseleave',function(){__clearSiblingHover(charts.opt);});
+  }catch(e){/* defensiv */}
 }
 function upgradeCurrentAaChartWithMonteCarlo(result){
   if(!charts.aaCurrent||!charts.aaCurrent.data)return;
@@ -15825,14 +17509,12 @@ function upgradeCurrentAaChartWithMonteCarlo(result){
   var strategySeries=Array.isArray(result&&result.cashflow_projection_series_rappen)
     ? result.cashflow_projection_series_rappen.map(function(value){return Number(value||0);}).slice(0,Math.max(0,labels.length-1))
     : [];
-  if(strategySeries.length&&projectionSeriesDiffer(latestCurrentSeries,strategySeries)){
-    if(charts.aaCurrent.options&&charts.aaCurrent.options.plugins&&charts.aaCurrent.options.plugins.legend){
-      charts.aaCurrent.options.plugins.legend.display=false;
-    }
-    charts.aaCurrent.update();
-    syncAaProjectionAxisScales();
-    return;
-  }
+  // 2026-06-14: KEIN Early-Return mehr. Die IST-Grafik zeigt IMMER die drei
+  // Szenarien (Best/Haupt/Worst) aus der Monte-Carlo-Simulation des heutigen
+  // Mix — nur so ist sie achsen- UND inhaltsgleich mit der SOLL-Grafik
+  // vergleichbar (User-Anforderung). Die alte Differenz-Heuristik, die hier
+  // sonst die Bänder unterdrückte, ist entfernt.
+  void latestCurrentSeries; void strategySeries;
   var p90=simulationSeriesK(mc.current_p90_series_rappen);
   var p50=simulationSeriesK(mc.current_p50_series_rappen);
   var p10=simulationSeriesK(mc.current_p10_series_rappen);
@@ -15840,7 +17522,7 @@ function upgradeCurrentAaChartWithMonteCarlo(result){
   charts.aaCurrent.data.labels=labels;
   charts.aaCurrent.data.datasets=[
     {
-      label:'P90',
+      label:'Best Case',
       data:p90,
       borderColor:'rgba(146,64,14,0.28)',
       backgroundColor:'rgba(146,64,14,0.10)',
@@ -15852,7 +17534,7 @@ function upgradeCurrentAaChartWithMonteCarlo(result){
       stepped:'after'
     },
     {
-      label:'P50 (Median)',
+      label:'Hauptszenario',
       data:p50,
       borderColor:'rgba(146,64,14,0.82)',
       backgroundColor:'rgba(146,64,14,0.10)',
@@ -15863,7 +17545,7 @@ function upgradeCurrentAaChartWithMonteCarlo(result){
       stepped:'after'
     },
     {
-      label:'P10',
+      label:'Worst Case',
       data:p10,
       borderColor:'rgba(146,64,14,0.28)',
       backgroundColor:'transparent',
@@ -15886,6 +17568,7 @@ function upgradeFanChartWithMonteCarlo(result){
   if(!mc)return;
   var labels=(mc.year_labels||[]).map(function(y){return String(y);});
   var p90=simulationSeriesK(mc.target_p90_series_rappen);
+  var p50=simulationSeriesK(mc.target_p50_series_rappen);
   var p10=simulationSeriesK(mc.target_p10_series_rappen);
   var deterministic=simulationSeriesK(sim&&sim.target_mix_series_rappen);
   var componentSeries=resultCashflowProjectionComponentSeries(result,Math.max(0,labels.length-1),labels);
@@ -15897,10 +17580,14 @@ function upgradeFanChartWithMonteCarlo(result){
     eventPointBackground.push(capitalNet>0?'rgb(22,101,52)':(capitalNet<0?'rgb(139,30,30)':'rgb(15,72,38)'));
   });
   if(!p90.length||!p10.length)return;
+  // 2026-06-14: IDENTISCHE Struktur wie die IST-Grafik — Best/Hauptszenario/Worst
+  // in DIESER Reihenfolge (Haupt in der Mitte) + gleiche Legenden-Labels, damit
+  // der Vergleich 1:1 lesbar ist. Fill-Kette: Best→Haupt→Worst (zwei Bänder).
+  var mainData=p50.length?p50:(deterministic.length?deterministic:p10);
   charts.opt.data.labels=labels;
   charts.opt.data.datasets=[
     {
-      label:'Prognoseband (P10-P90)',
+      label:'Best Case',
       data:p90,
       borderColor:'rgba(22,101,52,0.30)',
       backgroundColor:'rgba(22,101,52,0.10)',
@@ -15911,7 +17598,22 @@ function upgradeFanChartWithMonteCarlo(result){
       tension:0.18
     },
     {
-      label:'Band unten',
+      label:'Hauptszenario',
+      data:mainData,
+      borderColor:'rgb(15,72,38)',
+      backgroundColor:'rgba(22,101,52,0.10)',
+      borderWidth:3,
+      pointRadius:eventPointRadius,
+      pointHoverRadius:4,
+      pointBackgroundColor:eventPointBackground,
+      pointBorderColor:eventPointBackground,
+      pointBorderWidth:0,
+      fill:'+1',
+      tension:0.22,
+      stepped:false
+    },
+    {
+      label:'Worst Case',
       data:p10,
       borderColor:'rgba(22,101,52,0.30)',
       backgroundColor:'transparent',
@@ -15921,31 +17623,15 @@ function upgradeFanChartWithMonteCarlo(result){
       fill:false,
       tension:0.18,
       stepped:false
-    },
-    {
-      label:'Soll-Prognose',
-      data:deterministic.length?deterministic:p10,
-      borderColor:'rgb(15,72,38)',
-      backgroundColor:'transparent',
-      borderWidth:3,
-      pointRadius:eventPointRadius,
-      pointHoverRadius:4,
-      pointBackgroundColor:eventPointBackground,
-      pointBorderColor:eventPointBackground,
-      pointBorderWidth:0,
-      fill:false,
-      tension:0.22,
-      stepped:false
     }
   ];
   charts.opt.options.plugins.legend.display=true;
   charts.opt.options.plugins.legend.labels={
     font:{size:9},
     boxWidth:9,
-    padding:7,
-    filter:function(item){
-      return item&&item.text!=='Band unten';
-    }
+    padding:7
+    // 2026-06-14: alle drei Szenarien (Best/Haupt/Worst) in der Legende zeigen —
+    // konsistent mit der IST-Grafik, für den direkten Vergleich.
   };
   charts.opt.update();
   syncAaProjectionAxisScales();
@@ -16415,6 +18101,7 @@ function closeStrategyCalcOverlay(){
   overlay.dataset.locked='1';
 }
 async function calculateInvestmentStrategy(){
+  try{Error.stackTraceLimit=150;}catch(_diag){} // [DIAG 2026-06-12 temporaer] vollen Rekursions-Stack erfassen
   var startedAt=Date.now();
   strategyCalcLastSuccess=false;
   if(strategyState.loading){
@@ -16438,7 +18125,23 @@ async function calculateInvestmentStrategy(){
       renderStrategyCalcOverlay(strategyCalcOverlayStep,'Anlagestrategie ist aktualisiert. Projektion und Soll-Allokation wurden neu aufgebaut.','Die Strategie steht nun wieder auf dem aktuellen Stand von Vermögen, Cashflows, Zielen und Risikoprofil. Sie können die Wirkung jetzt direkt mit dem Kunden im Allokationsbild besprechen.','Berechnung abgeschlossen',100);
       await delayMs(650);
       closeStrategyCalcOverlay();
-      applyBufferedStrategyOutputs(false,'Strategie live berechnet: '+new Date().toLocaleTimeString('de-CH',{hour:'2-digit',minute:'2-digit'}));
+      // Backstop (2026-06-12): Der Strategie-Lauf war erfolgreich (Engine fertig,
+      // Ergebnis gepuffert). Ein Fehler im VISUELLEN Apply (z.B. Chart-Rekursion)
+      // darf den Lauf nicht als "gestoppt" markieren — Allocation/Tabellen sind
+      // bereits gesetzt. Diagnose landet in der Konsole.
+      try{
+        applyBufferedStrategyOutputs(false,'Strategie live berechnet: '+new Date().toLocaleTimeString('de-CH',{hour:'2-digit',minute:'2-digit'}));
+      }catch(__applyErr){
+        try{
+          var __am=String(__applyErr&&__applyErr.message||'');
+          var __ast=String(__applyErr&&__applyErr.stack||'');
+          var __af=__ast.split('\n').map(function(l){var m=l.match(/at\s+([A-Za-z0-9_$.<>]+)/);return m?m[1]:null;}).filter(Boolean);
+          var __afq={};__af.forEach(function(f){__afq[f]=(__afq[f]||0)+1;});
+          var __acyc=Object.keys(__afq).sort(function(a,b){return __afq[b]-__afq[a];}).slice(0,8).map(function(f){return f+'×'+__afq[f];}).join('  ·  ');
+          console.error('VISUAL_APPLY_FAILED — Zyklus:',__acyc,'\n',__ast);
+          updateStrategyStatus('Strategie berechnet — Darstellung unvollständig (Diagnose in Konsole): '+__acyc,false);
+        }catch(_e){}
+      }
       setStrategyCalcButtonState('success');
       pulseStrategyRefreshSuccess();
       try{showAppSuccess('Anlagestrategie aktualisiert',{title:'Berechnung abgeschlossen'});}catch(e){}
@@ -16453,6 +18156,20 @@ async function calculateInvestmentStrategy(){
     stopStrategyCalcOverlayTimer();
     renderStrategyCalcOverlay(strategyCalcJourney.length-1,'Die Berechnung wurde unterbrochen.','Die Strategie konnte gerade nicht sauber fertiggestellt werden. Bitte prüfen Sie Verbindung und Mandatsdaten und starten Sie den Lauf erneut.','Berechnung gestoppt',100);
     var errDetail=(e&&e.detail?e.detail:(e&&e.message?e.message:'?'));
+    // [DIAG 2026-06-12 temporaer] Stack-Overflow-Zyklus sichtbar machen (richtiger
+    // Catch! Der Crash surfaced hier via applyBufferedStrategyOutputs). Zeigt die
+    // haeufigsten Stack-Frames = den rekursiven Zyklus (oft Chart.js-intern).
+    try{
+      var __m=String(errDetail||'');
+      if(__m.indexOf('call stack')>=0||__m.indexOf('Maximum call')>=0||__m.toLowerCase().indexOf('recursion')>=0){
+        var __st=String(e&&e.stack||'');
+        var __fr=__st.split('\n').map(function(l){var m=l.match(/at\s+([A-Za-z0-9_$.<>]+)/);return m?m[1]:null;}).filter(Boolean);
+        var __fq={};__fr.forEach(function(f){__fq[f]=(__fq[f]||0)+1;});
+        var __cyc=Object.keys(__fq).sort(function(a,b){return __fq[b]-__fq[a];}).slice(0,8).map(function(f){return f+'×'+__fq[f];}).join('  ·  ');
+        try{console.error('STRATEGY_STACK_OVERFLOW — Zyklus:',__cyc,'\n',__st);}catch(_e){}
+        errDetail='Stack-Overflow — Zyklus: '+(__cyc||'unbekannt');
+      }
+    }catch(_diag){}
     updateStrategyStatus('Strategie konnte nicht berechnet werden: '+errDetail,true);
     try{showAppError('Strategie konnte nicht berechnet werden: '+errDetail,{title:'Berechnung gestoppt'});}catch(noticeErr){}
     await delayMs(1300);
@@ -17119,9 +18836,37 @@ function applyAllocationEngineResult(result){
     return {key:normalizeBandKey(key),n:assetDisplayName(key),c:colors[key]||'#5a6878',ist:Number(bucket.current_weight_bps||0)/100,min:Number(bucket.band_min_bps||0)/100,ziel:Number(bucket.target_weight_bps||0)/100,max:Number(bucket.band_max_bps||0)/100};
   });
   buildAT();buildQT('qt-modal');syncAllocationDonutFromStrategyState();
-  updateProjectionChartsFromSimulation(result);
-  upgradeFanChartWithMonteCarlo(result);
-  upgradeCurrentAaChartWithMonteCarlo(result);
+  // Robustheit (2026-06-12): Ein Rendering-Fehler in den Projektionscharts (z.B.
+  // ein Chart.js-interner Stack-Overflow bei einer Dataset-/Scale-Kombination)
+  // darf NIE den ganzen Strategie-Lauf abbrechen. strategyState.allocation ist zu
+  // diesem Zeitpunkt bereits gesetzt — Tabellen/Kennzahlen/Donut werden danach
+  // weiterhin sauber aufgebaut. Der konkrete Chart-Zyklus wird via Diagnose im
+  // calculateInvestmentStrategy-Catch protokolliert.
+  // Jeder Chart-Schritt EINZELN gekapselt: stolpert die IST/SOLL-Overlay-Funktion,
+  // soll das Monte-Carlo-Fächerband (best/höchstwahrscheinlich/worst) trotzdem
+  // rendern — und die Konsole nennt exakt, welche Funktion rekursiert.
+  var __chartStep=function(name,fn){
+    try{ fn(); }
+    catch(__e){
+      try{
+        var __s=String(__e&&__e.stack||'');
+        var __f=__s.split('\n').map(function(l){var m=l.match(/at\s+([A-Za-z0-9_$.<>]+)/);return m?m[1]:null;}).filter(Boolean);
+        var __q={};__f.forEach(function(x){__q[x]=(__q[x]||0)+1;});
+        var __c=Object.keys(__q).sort(function(a,b){return __q[b]-__q[a];}).slice(0,8).map(function(x){return x+'×'+__q[x];}).join('  ·  ');
+        console.error('CHART_RENDER_FAILED ['+name+'] — '+(__e&&__e.message||'')+'\n  Zyklus: '+__c+'\n'+__s);
+      }catch(_e){}
+    }
+  };
+  __chartStep('projection-overlay', function(){ updateProjectionChartsFromSimulation(result); });
+  __chartStep('fan-montecarlo', function(){ upgradeFanChartWithMonteCarlo(result); });
+  __chartStep('aacurrent-montecarlo', function(){ upgradeCurrentAaChartWithMonteCarlo(result); });
+  // Robustheit (2026-06-14): Der gesamte Projektions-/Panel-Schwanz darf den
+  // Strategie-Lauf NICHT abbrechen. strategyState.allocation + Tabellen + Donut
+  // sind oben bereits gesetzt; sollte hier irgendeine Render-/Projektionsfunktion
+  // rekursieren (Maximum call stack), faengt __tailStep das ab, nennt in der
+  // Konsole die rekursierende Funktion (CHART_RENDER_FAILED [strategy-tail]) und
+  // der Lauf endet trotzdem sauber mit return true.
+  __chartStep('strategy-tail', function(){
   var advisoryProjectedRappen=simulationTerminalRappen(result,'target_mix_series_rappen',7);
   var sim=simulationPayload(result);
   var mc=monteCarloPayload(result);
@@ -17160,17 +18905,57 @@ function applyAllocationEngineResult(result){
     targetCagrBps:totalImprovedProjection.cagrBps,
     horizonLabel:String((sim&&sim.year_labels&&sim.year_labels[sim.year_labels.length-1])||'2033')
   });
+  // 3eyes-Paritaet: zwei Renditesaetze — Reinvermoegen (gesamt, optimiert) vs.
+  // Beratungsvermoegen (der Teil, auf den die Optimierung wirkt).
+  setText('ub-return-rein',((Number(totalImprovedProjection.cagrBps||0)/100).toFixed(2))+'%');
+  setText('ub-return-beratung',((Number(advisoryCagrBps||0)/100).toFixed(2))+'%');
   setText('aa-proj-cagr',((Number(advisoryCagrBps||0)/100).toFixed(2))+'%');
   setText('aa-proj-median',formatCompactCHF(mcTargetMedianRappen/100));
   setText('aa-proj-p50-return',((Number(mc&&mc.target_annualized_return_p50_bps||0)/100).toFixed(2))+'%');
   setText('aa-proj-current-p50-return',((Number(mc&&mc.current_annualized_return_p50_bps||0)/100).toFixed(2))+'%');
   setText('aa-proj-runway-target',projectionRunwayLabel(mc&&mc.target_p50_series_rappen,mc&&mc.year_labels));
   setText('aa-proj-runway-current',projectionRunwayLabel(mc&&mc.current_p50_series_rappen,mc&&mc.year_labels));
-  setText('aa-proj-vol',((Number(result.expected_volatility_bps||0)/100).toFixed(2))+'%');
+  // 2026-06-14: IST-Spalte des Kennzahlen-Vergleichs (heutiger Mix, Median) +
+  // Beratungs-Mehrwert (Median-Endwert SOLL − IST).
+  var mcCurrentMedianRappen=mc&&Array.isArray(mc.current_p50_series_rappen)&&mc.current_p50_series_rappen.length?Number(mc.current_p50_series_rappen[mc.current_p50_series_rappen.length-1]||0):0;
+  setText('aa-proj-current-median',mcCurrentMedianRappen?formatCompactCHF(mcCurrentMedianRappen/100):'—');
+  setText('aa-proj-current-cagr',((Number(simulationCagrBps(mc&&mc.current_p50_series_rappen)||0)/100).toFixed(2))+'%');
+  var mcDeltaMedianRappen=Number(mcTargetMedianRappen||0)-Number(mcCurrentMedianRappen||0);
+  var deltaEl=document.getElementById('aa-proj-delta-value');
+  if(deltaEl){
+    deltaEl.textContent=(mcDeltaMedianRappen>=0?'+':'−')+formatCompactCHF(Math.abs(mcDeltaMedianRappen)/100);
+    deltaEl.style.color=mcDeltaMedianRappen>=0?'var(--pos)':'var(--warn)';
+  }
+  // 2026-06-14: Risikometriken zweispaltig SOLL vs IST (gleiche MC-Methodik).
+  // Volatilität = MC-1J-Streuung (target/current_volatility_1y_bps) für saubere
+  // Vergleichbarkeit; Fallback auf analytische Mix-Vola wenn (alt) nicht vorhanden.
+  var _tVol=mc&&mc.target_volatility_1y_bps!=null?mc.target_volatility_1y_bps:result.expected_volatility_bps;
+  setText('aa-proj-vol',((Number(_tVol||0)/100).toFixed(2))+'%');
+  setText('aa-proj-current-vol',((Number(mc&&mc.current_volatility_1y_bps||0)/100).toFixed(2))+'%');
   setText('aa-proj-var95',formatRiskLossBps(mc&&mc.target_var_95_1y_bps));
+  setText('aa-proj-current-var95',formatRiskLossBps(mc&&mc.current_var_95_1y_bps));
   setText('aa-proj-cvar95',formatRiskLossBps(mc&&mc.target_cvar_95_1y_bps));
+  setText('aa-proj-current-cvar95',formatRiskLossBps(mc&&mc.current_cvar_95_1y_bps));
   setText('aa-proj-drawdown',formatRiskLossBps(mc&&mc.target_max_drawdown_p50_bps));
+  setText('aa-proj-current-drawdown',formatRiskLossBps(mc&&mc.current_max_drawdown_p50_bps));
   setText('aa-proj-lossprob',formatProbabilityPct(mc&&mc.target_loss_probability_1y_pct));
+  setText('aa-proj-current-lossprob',formatProbabilityPct(mc&&mc.current_loss_probability_1y_pct));
+  // 2026-06-14 (#98): SOLL-Zelle einfärben — grün=besser als IST, warn=schlechter.
+  // Ertrag: höher=besser; Risiko: tiefer=besser. Gleichstand/fehlend -> neutral.
+  var _colorBetter=function(id,sollVal,istVal,higherBetter){
+    var el=document.getElementById(id); if(!el)return;
+    var sv=Number(sollVal), iv=Number(istVal);
+    if(!isFinite(sv)||!isFinite(iv)||sv===iv){ el.style.color='var(--n7)'; return; }
+    el.style.color=(higherBetter?(sv>iv):(sv<iv))?'var(--pos)':'var(--warn)';
+  };
+  _colorBetter('aa-proj-median', mcTargetMedianRappen, mcCurrentMedianRappen, true);
+  _colorBetter('aa-proj-p50-return', mc&&mc.target_annualized_return_p50_bps, mc&&mc.current_annualized_return_p50_bps, true);
+  _colorBetter('aa-proj-cagr', advisoryCagrBps, simulationCagrBps(mc&&mc.current_p50_series_rappen), true);
+  _colorBetter('aa-proj-vol', _tVol, mc&&mc.current_volatility_1y_bps, false);
+  _colorBetter('aa-proj-var95', mc&&mc.target_var_95_1y_bps, mc&&mc.current_var_95_1y_bps, false);
+  _colorBetter('aa-proj-cvar95', mc&&mc.target_cvar_95_1y_bps, mc&&mc.current_cvar_95_1y_bps, false);
+  _colorBetter('aa-proj-drawdown', mc&&mc.target_max_drawdown_p50_bps, mc&&mc.current_max_drawdown_p50_bps, false);
+  _colorBetter('aa-proj-lossprob', mc&&mc.target_loss_probability_1y_pct, mc&&mc.current_loss_probability_1y_pct, false);
   renderAllocationCashflowTimeline(result);
   renderOptimizerPanel(result);
   renderAllocationMethodComparison(result);
@@ -17181,6 +18966,7 @@ function applyAllocationEngineResult(result){
   normalizeVisibleMojibake(document.getElementById('page-al')||document.body);
   normalizeVisibleMojibake(document.getElementById('page-cf')||document.body);
   syncPortfolioUmsetzenButtonVisibility();
+  });
   return true;
 }
 function applyRecommendationEngineResult(result){
@@ -17464,6 +19250,7 @@ async function refreshStrategyData(force,includeRecommendation,retriedAfterBandR
   }
   strategyState.loading=true;
   updateStrategyStatus('Strategie wird neu berechnet...',false);
+  try{Error.stackTraceLimit=120;}catch(_diag){} // [DIAG 2026-06-12 temporaer] vollen Rekursions-Stack erfassen
   try{
     syncStrategyCalcProgress(2,'Risikoprofil, House-Matrix und Leitplanken werden angewendet...','Das Risikoprofil setzt die Obergrenze. Danach legen wir House-Matrix, Tilts und Bandbreiten sauber über das Beratungsvermögen.','Leitplanken anwenden',56);
     var prefs=collectAllocationPreferencesFromUI();
@@ -17508,6 +19295,19 @@ async function refreshStrategyData(force,includeRecommendation,retriedAfterBandR
     return true;
   }catch(e){
     var detail=String(e.detail||e.message||'?');
+    // [DIAG 2026-06-12 — temporaer] Stack-Overflow-Zyklus sichtbar machen, damit
+    // der rekursive Aufrufpfad ohne DevTools identifizierbar ist. Nach dem Fix
+    // wieder entfernen.
+    if(detail.indexOf('call stack')>=0||detail.indexOf('Maximum call')>=0||detail.toLowerCase().indexOf('recursion')>=0){
+      var __st=String(e&&e.stack||'');
+      var __frames=__st.split('\n').map(function(l){var m=l.match(/at\s+([A-Za-z0-9_$.<>]+)/);return m?m[1]:null;}).filter(Boolean);
+      var __freq={};__frames.forEach(function(f){__freq[f]=(__freq[f]||0)+1;});
+      var __cyc=Object.keys(__freq).sort(function(a,b){return __freq[b]-__freq[a];}).slice(0,6).map(function(f){return f+'×'+__freq[f];}).join('  ·  ');
+      try{console.error('STRATEGY_STACK_OVERFLOW — Zyklus:',__cyc,'\n',__st);}catch(_e){}
+      updateStrategyStatus('Diagnose Stack-Overflow — rekursiver Zyklus (häufigste Frames): '+(__cyc||'unbekannt'),true);
+      strategyState.loading=false;
+      return false;
+    }
     var prefs=loadAllocationPreferences();
     if(!retriedAfterBandReset&&detail.indexOf('Bandbreiten')>=0){
       prefs=mergeAllocationPreferences(buildDefaultAllocationPreferences(),prefs);
@@ -18703,12 +20503,16 @@ async function refreshCashflowsUI(cid){
     var results=await Promise.allSettled([
       API.get('/clients/'+cid+'/cashflows'),
       API.get('/clients/'+cid+'/cashflow-summary'),
-      API.get('/clients/'+cid+'/cashflow-projection'+(typeof cashflowProjectionQuery==='function'?cashflowProjectionQuery():''))
+      API.get('/clients/'+cid+'/cashflow-projection'+(typeof cashflowProjectionQuery==='function'?cashflowProjectionQuery():'')),
+      API.get('/clients/'+cid+'/cashflows-derived')
     ]);
     if(String(cid)!==String(currentClientId||''))return;
     var items=results[0].status==='fulfilled'?results[0].value:[];
     var summary=results[1].status==='fulfilled'?results[1].value:{};
     var projection=results[2].status==='fulfilled'?results[2].value:null;
+    // 2026-06-14: vermögensgetriebene (abgeleitete) Cashflows — schreibgeschützt,
+    // klar als 'aus Vermögen' markiert. Bereits in summary/projection enthalten.
+    var derived=results[3].status==='fulfilled'&&Array.isArray(results[3].value)?results[3].value:[];
     if(!Array.isArray(items))items=(items&&items.items)||[];
     currentCashflows=clientScopedItems(items,cid);
     currentCashflowSummary=clientScopedSummary(summary||{},cid);
@@ -18716,8 +20520,12 @@ async function refreshCashflowsUI(cid){
     // Sprint 2026-06-09: Override-Input nach Client-Switch synchronisieren
     try { syncIstHorizonOverrideInput(); } catch(e) {}
     var fmt=function(r){return 'CHF '+Math.round(Number(r||0)/100).toLocaleString('de-CH');};
-    var inc=sortCashflowsByStoredOrder(items.filter(function(c){return c.cashflow_type==='Income';}),'Income');
-    var exp=sortCashflowsByStoredOrder(items.filter(function(c){return c.cashflow_type==='Expense';}),'Expense');
+    // Mandanten-Trennung: NUR aus dem client-gescopten currentCashflows rendern
+    // (nicht aus rohem items), damit selbst bei einem theoretischen Endpoint-Leak
+    // keine fremden Cashflows in dieser Klienten-Ansicht erscheinen.
+    var _scopedCf=Array.isArray(currentCashflows)?currentCashflows:[];
+    var inc=sortCashflowsByStoredOrder(_scopedCf.filter(function(c){return c.cashflow_type==='Income';}),'Income');
+    var exp=sortCashflowsByStoredOrder(_scopedCf.filter(function(c){return c.cashflow_type==='Expense';}),'Expense');
     var summaryYear=Number(summary.summary_year||new Date().getFullYear());
     // Validierung 2026-06-11: bevorzugt das occurrence-genaue Backend-Summary;
     // cashflowBreakdownForYear nur als Fallback wenn Summary fehlt.
@@ -18728,8 +20536,27 @@ async function refreshCashflowsUI(cid){
         '<div class="cfa '+(isIncome?'ci':'co')+'">'+(isIncome?'+':'−')+fmt(c.amount_rappen||0)+'</div>'+
         '<div><button class="btn-ico e" type="button" title="Bearbeiten" aria-label="Cashflow bearbeiten">&#9998;</button><button class="btn-ico d" type="button" title="L\u00f6schen" aria-label="Cashflow l\u00f6schen">&#10005;</button></div></div>';
     };
+    // 2026-06-14: abgeleitete (vermögensgetriebene) Zeile — schreibgeschützt, kein
+    // data-cfid (Drag/Edit/Delete greifen nicht), Badge AUTO, Quelle im Tooltip.
+    var derInc=derived.filter(function(d){return d&&d.cashflow_type==='Income';});
+    var derExp=derived.filter(function(d){return d&&d.cashflow_type==='Expense';});
+    var renderDerivedRow=function(c,isIncome){
+      var src=c.origin_position_type?(' ('+escapeHtml(String(c.origin_position_type))+')'):'';
+      return '<div class="cf-row cf-derived" style="opacity:0.9" title="Automatisch aus dem Vermoegen abgeleitet'+src+' — Betrag im Vermoegen bearbeiten, nicht hier.">'+
+        '<div class="cfn"><div class="cfna">'+escapeHtml(c.label||'')+' <span style="font-size:8px;background:rgba(201,168,76,0.18);color:var(--g4);border-radius:3px;padding:1px 4px;margin-left:4px;letter-spacing:0.04em;vertical-align:middle">⚙ AUTO</span></div><div class="cfnd">'+escapeHtml(cashflowTimingLabel(c))+' · aus Vermögen</div></div>'+
+        '<div class="cfa '+(isIncome?'ci':'co')+'">'+(isIncome?'+':'−')+fmt(c.amount_rappen||0)+'</div>'+
+        '<div style="width:46px"></div></div>';
+    };
+    var derSum=function(arr){return arr.reduce(function(s,d){return s+Number(d&&d.amount_rappen||0);},0);};
+    var derNote=function(arr,isIncome){
+      if(!arr.length)return '';
+      return '<div style="font-size:9px;color:var(--g4);padding:4px 2px 2px;border-top:1px dashed var(--b1);margin-top:4px">davon &#9881; automatisch aus Vermögen: '+(isIncome?'+':'−')+fmt(derSum(arr))+' p.a.</div>';
+    };
     var zf=document.getElementById('zufluss-rows');
-    if(zf)zf.innerHTML=inc.length?inc.map(function(item){return renderRow(item,true);}).join(''):'<div style="font-size:10px;color:var(--n4);padding:6px 0 8px">Noch keine Einnahmen erfasst.</div>';
+    if(zf){
+      var incHtml=inc.map(function(item){return renderRow(item,true);}).join('')+derInc.map(function(item){return renderDerivedRow(item,true);}).join('');
+      zf.innerHTML=(incHtml+derNote(derInc,true))||'<div style="font-size:10px;color:var(--n4);padding:6px 0 8px">Noch keine Einnahmen erfasst.</div>';
+    }
     Array.prototype.forEach.call((zf||document.createElement('div')).querySelectorAll('.cf-row[data-cfid] .btn-ico'),function(btn){
       var row=btn.closest('.cf-row[data-cfid]');
       if(!row)return;
@@ -18749,7 +20576,10 @@ async function refreshCashflowsUI(cid){
     });
     setupCashflowDragList('zufluss-rows','Income');
     var af=document.getElementById('abfluss-rows');
-    if(af)af.innerHTML=exp.length?exp.map(function(item){return renderRow(item,false);}).join(''):'<div style="font-size:10px;color:var(--n4);padding:6px 0 8px">Noch keine Ausgaben erfasst.</div>';
+    if(af){
+      var expHtml=exp.map(function(item){return renderRow(item,false);}).join('')+derExp.map(function(item){return renderDerivedRow(item,false);}).join('');
+      af.innerHTML=(expHtml+derNote(derExp,false))||'<div style="font-size:10px;color:var(--n4);padding:6px 0 8px">Noch keine Ausgaben erfasst.</div>';
+    }
     Array.prototype.forEach.call((af||document.createElement('div')).querySelectorAll('.cf-row[data-cfid] .btn-ico'),function(btn){
       var row=btn.closest('.cf-row[data-cfid]');
       if(!row)return;
@@ -18803,12 +20633,16 @@ function refreshBaselineChartFromClientData(){
   var labels=totalProjection.labels;
   if(charts.ist&&charts.ist.data&&charts.ist.data.datasets&&charts.ist.data.datasets[0]){
     charts.ist.data.labels=labels;
+    // Ohne Strategie KEINE SOLL-Linie -> evtl. von vorigem Klienten gesetzte
+    // datasets[1] (verbesserte Situation) entfernen, sonst Stale-Bleed.
+    charts.ist.data.datasets=charts.ist.data.datasets.slice(0,1);
     charts.ist.data.datasets[0].label='Aktueller Gesamtvermögenspfad';
     charts.ist.data.datasets[0].data=totalProjection.seriesK;
     charts.ist.data.datasets[0].tension=0;
     charts.ist.data.datasets[0].stepped=false;
     applyDepletionMarkerToDataset(charts.ist.data.datasets[0],totalProjection);
     syncIstProjectionAxisScale();
+    refreshIstGoalMarkers();
     charts.ist.update();
   }
   if(charts.aaCurrent&&charts.aaCurrent.data&&charts.aaCurrent.data.datasets&&charts.aaCurrent.data.datasets[0]){
@@ -18846,6 +20680,7 @@ function refreshBaselineChartFromClientDataForced(){
       charts.ist.options.plugins.legend.display=false;
     }
     syncIstProjectionAxisScale();
+    refreshIstGoalMarkers();
     charts.ist.update();
   }
   if(charts.aaCurrent&&charts.aaCurrent.data){
@@ -20387,8 +22222,11 @@ function calculateAgeFromBirthdate(value){
 }
 function renderHouseholdGridFromCurrentPersona(){
   var hg=document.getElementById('hh-grid');
+  if(!hg)return;
   var p=currentPersona;
-  if(!hg||!p)return;
+  // Mandanten-Trennung: ohne aktiven Klienten/Persona NICHT das (statische)
+  // Demo-HTML stehen lassen, sondern neutral leeren.
+  if(!p){hg.innerHTML='<div style="font-size:10px;color:var(--n4);padding:6px 0">Kein Klient geladen.</div>';return;}
   var firstName=p.first_name||(p.name?p.name.split(' ')[0]:'');
   var lastName=p.last_name||(p.name?p.name.split(' ').slice(1).join(' '):'');
   var fullName=((firstName+' '+lastName).trim()||p.name||'—').trim();
@@ -22437,7 +24275,7 @@ function renderActionCards(reasoning){
       reserveBody+=' Die strategische Liquiditaet im Mandat bleibt bei '+liqTarget+'.';
       if(externalReserve>0)reserveBody+=' Zusaetzlich werden CHF '+externalReserve.toLocaleString('de-CH')+' als separate Reserve ausserhalb des Mandats empfohlen.';
       else if(reserveNeeded>0)reserveBody+=' Der kurzfristige Reservebedarf liegt bei rund CHF '+reserveNeeded.toLocaleString('de-CH')+'.';
-      if(targetRunway!=='-'||currentRunway!=='-')reserveBody+=' Median-Reichweite: Benchmark '+currentRunway+', Soll '+targetRunway+'.';
+      if(targetRunway!=='-'||currentRunway!=='-')reserveBody+=' Median-Reichweite: IST '+currentRunway+', SOLL '+targetRunway+'.';
       if(runwayDeltaYears!=null&&runwayDeltaYears>0)reserveBody+=' Die Strategie gewinnt im Median rund '+runwayDeltaYears+' Jahre Zeit.';
       else if(runwayDeltaYears!=null&&runwayDeltaYears===0&&targetRunway!=='-')reserveBody+=' Wichtig: Die Strategie puffert den Entnahmepfad, verlaengert die Reichweite in diesem Setup aber nicht wesentlich. Fuer mehr Reichweite braucht es weniger Entnahme, mehr Vermoegen oder zusaetzliche Einkommen.';
       pushCard('Entnahme & Reichweite','Zentral','tr2',reserveBody,(annualNet<0||externalReserve>0)?'warn':'good');

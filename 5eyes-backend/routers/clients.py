@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from database import get_db, new_uuid
 from models.users import User
 from models.clients import Client, ClientNationality, ClientOptHistory
-from models.wealth import Cashflow
+from models.wealth import Cashflow, WealthPosition
 from schemas.clients import (
     ClientCreate, ClientUpdate, ClientResponse,
     NationalityCreate, NationalityResponse,
@@ -23,6 +23,7 @@ from services.auth import (
 )
 from services.audit import log
 from services.cashflow_timeline import totals_for_year
+from services.wealth_cashflows import derive_wealth_cashflows, mortgage_interest_adjustment_series
 
 router = APIRouter(prefix="/clients", tags=["Kunden"])
 
@@ -82,7 +83,10 @@ def create_client(
         advisor_id = current_user.id
     client = Client(
         id=new_uuid(), created_at=now, updated_at=now,
-        **{**body.model_dump(), "advisor_id": advisor_id}
+        # E1 (2026-06-14): Client erbt den Tenant des anlegenden Users -> nie
+        # NULL-tenant_id, harte Firmen-Trennung (Voraussetzung fuer strict mode).
+        **{**body.model_dump(), "advisor_id": advisor_id,
+           "tenant_id": getattr(current_user, "tenant_id", None)}
     )
     db.add(client)
     log(db, user_id=current_user.id, user_name=current_user.full_name,
@@ -267,6 +271,10 @@ def cashflow_summary(
         Cashflow.deleted_at.is_(None),
         Cashflow.is_active == 1,
     ).all()
+    # 2026-06-14: vermögensgetriebene Cashflows (Hypothekarzins, Amortisation,
+    # Miet-/Zinserträge) zählen MIT in die Summe — sie sind echte Cashflows, nur
+    # automatisch aus dem Vermögen abgeleitet statt manuell erfasst.
+    cashflows = list(cashflows) + _derived_cashflows_for_client(client_id, db)
     totals = totals_for_year(cashflows)
     client_name = f"{client.first_name or ''} {client.last_name or ''}".strip() or client.client_number or client.id
     return CashflowSummaryResponse(
@@ -286,6 +294,30 @@ def cashflow_summary(
         total_expense_chf=totals["expense_rappen"] / 100,
         surplus_chf=totals["net_rappen"] / 100,
     )
+
+
+def _derived_cashflows_for_client(client_id: str, db: Session) -> list:
+    """Lädt aktive Vermögenspositionen und leitet die periodischen Cashflows ab
+    (Hypothekarzins, Amortisation, Miet-/Zinserträge). Read-only, kein DB-Eintrag."""
+    positions = db.query(WealthPosition).filter(
+        WealthPosition.client_id == client_id,
+        WealthPosition.deleted_at.is_(None),
+        WealthPosition.is_active == 1,
+    ).all()
+    return derive_wealth_cashflows(positions)
+
+
+@router.get("/{client_id}/cashflows-derived")
+def cashflows_derived(
+    client_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Vermögensgetriebene, schreibgeschützte Cashflows (Hypothekarzins,
+    Amortisation, Miet-/Zinserträge) — damit die UI sie sichtbar UND klar als
+    'automatisch aus Vermögen' gekennzeichnet anzeigen kann."""
+    _get_client_or_404(client_id, db, current_user)
+    return [d.to_dict() for d in _derived_cashflows_for_client(client_id, db)]
 
 
 def _derive_cashflow_projection_horizon(
@@ -400,20 +432,35 @@ def cashflow_projection(
         if horizon_years is not None
         else _derive_cashflow_projection_horizon(client, db, cashflows=cashflows)
     )
+    # 2026-06-14: abgeleitete Vermögens-Cashflows in die Projektion einbeziehen
+    # (nach Horizont-Ableitung, damit der Horizont weiterhin aus den erfassten
+    # Cashflows + Stammdaten bestimmt wird — die abgeleiteten sind wiederkehrend).
+    cashflows = list(cashflows) + _derived_cashflows_for_client(client_id, db)
     start_year = _date.today().year
+    horizon = int(effective_horizon or 40)
+    # 2026-06-14 (#31 B-2): Hypothek-Amortisation/Refinanzierung jahresabhängig
+    # einrechnen — konsistent mit der Strategie-Engine. Positiv = weniger Zinslast
+    # (direkte Amortisation), negativ = mehr (3% nach Ablauf/5J-SARON).
+    _mort_positions = db.query(WealthPosition).filter(
+        WealthPosition.client_id == client_id,
+        WealthPosition.deleted_at.is_(None),
+        WealthPosition.is_active == 1,
+    ).all()
+    _mort_adj = mortgage_interest_adjustment_series(_mort_positions, horizon, start_year)
     rows = []
-    for offset in range(int(effective_horizon or 40)):
+    for offset in range(horizon):
         yr = start_year + offset
         t = totals_for_year(cashflows, yr)
+        adj = int(_mort_adj[offset]) if offset < len(_mort_adj) else 0
         rows.append(CashflowYearRow(
             year=yr,
             recurring_income_rappen=t["recurring_income_rappen"],
             capital_inflow_rappen=t["capital_inflow_rappen"],
             income_rappen=t["income_rappen"],
-            recurring_expense_rappen=t["recurring_expense_rappen"],
+            recurring_expense_rappen=max(0, t["recurring_expense_rappen"] - adj),
             capital_outflow_rappen=t["capital_outflow_rappen"],
-            expense_rappen=t["expense_rappen"],
-            net_rappen=t["net_rappen"],
+            expense_rappen=max(0, t["expense_rappen"] - adj),
+            net_rappen=t["net_rappen"] + adj,
         ))
     return CashflowProjectionResponse(
         client_id=client_id,

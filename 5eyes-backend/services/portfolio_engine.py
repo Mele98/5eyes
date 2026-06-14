@@ -43,6 +43,7 @@ from services.cashflow_timeline import (
     recurring_net_cashflow_series,
     totals_for_year,
 )
+from services.wealth_cashflows import derive_wealth_cashflows, mortgage_interest_adjustment_series
 from services.product_market_data import resolve_market_profile, validate_default_product_market_coverage
 from services.risk_matrix import (
     RiskBudgetExceeded,
@@ -2835,6 +2836,16 @@ def _loss_bps(start_value: int, end_value: int) -> int:
     return max(0, -_return_bps(start_value, end_value))
 
 
+def _stddev_bps(values: list[int | float]) -> int:
+    """Populations-Standardabweichung (in bps) einer Return-Verteilung — fuer die
+    simulierte 1-Jahres-Volatilitaet (SOLL/IST-Kennzahlenvergleich)."""
+    if not values or len(values) < 2:
+        return 0
+    mean = sum(float(v) for v in values) / len(values)
+    var = sum((float(v) - mean) ** 2 for v in values) / len(values)
+    return int(round(math.sqrt(var)))
+
+
 def _conditional_percentile_average(values: list[int | float], quantile: float, *, upper_tail: bool = False) -> int:
     if not values:
         return 0
@@ -3094,6 +3105,11 @@ def _run_allocation_monte_carlo(
     target_year_one_returns: list[int] = []
     target_year_one_losses: list[int] = []
     target_max_drawdowns: list[int] = []
+    # 2026-06-14: IST-Risiko symmetrisch zum SOLL erfassen, damit der Kennzahlen-
+    # Vergleich (VaR/CVaR/Drawdown/Verlust-Wkeit/Vola) zweispaltig SOLL vs IST sein kann.
+    current_year_one_returns: list[int] = []
+    current_year_one_losses: list[int] = []
+    current_max_drawdowns: list[int] = []
 
     for _simulation_idx in range(simulations):
         current_values = {key: max(0, int(advisory_summary.amounts_rappen.get(key, 0))) for key in BUCKET_FIELDS}
@@ -3128,6 +3144,7 @@ def _run_allocation_monte_carlo(
         # Einzahlung ist kein Markt-Gewinn und darf das Verlustrisiko nicht
         # unterschaetzen lassen (bzw. eine Entnahme nicht ueberschaetzen).
         target_year1_market_value: int | None = None
+        current_year1_market_value: int | None = None
         # #AA-5 (2026-06-12): time-weighted Rendite (TWR) — geometrische Verkettung
         # der jaehrlichen MARKT-Wachstumsfaktoren (vor Cashflow). Misst die
         # Strategie-Performance unabhaengig vom Ein-/Auszahlungs-Timing; das
@@ -3169,6 +3186,7 @@ def _run_allocation_monte_carlo(
             if year_index == 1:
                 # #AA-4: Marktwert nach Wachstum, VOR Cashflow/Rebalancing erfassen.
                 target_year1_market_value = target_post_growth
+                current_year1_market_value = current_post_growth
 
             current_deficit += _apply_cashflow_to_bucket_values(current_values, int(contribution or 0))
             target_deficit += _apply_cashflow_to_bucket_values(target_values, int(contribution or 0))
@@ -3228,6 +3246,11 @@ def _run_allocation_monte_carlo(
             target_year_one_losses.append(_loss_bps(target_start, target_year1_market_value))
         target_path = [values[_simulation_idx] for values in target_by_year if values]
         target_max_drawdowns.append(_max_drawdown_bps(target_path))
+        if current_year1_market_value is not None:
+            current_year_one_returns.append(_return_bps(current_start, current_year1_market_value))
+            current_year_one_losses.append(_loss_bps(current_start, current_year1_market_value))
+        current_path = [values[_simulation_idx] for values in current_by_year if values]
+        current_max_drawdowns.append(_max_drawdown_bps(current_path))
 
     goal_summaries = [
         _monte_carlo_goal_summary(
@@ -3292,6 +3315,14 @@ def _run_allocation_monte_carlo(
         "target_cvar_95_1y_bps": max(0, -_conditional_percentile_average(target_year_one_returns, 0.05, upper_tail=False)),
         "target_loss_probability_1y_pct": int(round(sum(1 for value in target_year_one_returns if value < 0) / max(1, len(target_year_one_returns)) * 100)),
         "target_max_drawdown_p50_bps": _percentile(target_max_drawdowns, 0.50),
+        # 2026-06-14: IST-Risiko symmetrisch (gleiche MC-Methodik) fuer den
+        # zweispaltigen SOLL-vs-IST-Kennzahlenvergleich im Frontend.
+        "current_var_95_1y_bps": max(0, -_percentile(current_year_one_returns, 0.05)),
+        "current_cvar_95_1y_bps": max(0, -_conditional_percentile_average(current_year_one_returns, 0.05, upper_tail=False)),
+        "current_loss_probability_1y_pct": int(round(sum(1 for value in current_year_one_returns if value < 0) / max(1, len(current_year_one_returns)) * 100)),
+        "current_max_drawdown_p50_bps": _percentile(current_max_drawdowns, 0.50),
+        "target_volatility_1y_bps": _stddev_bps(target_year_one_returns),
+        "current_volatility_1y_bps": _stddev_bps(current_year_one_returns),
         "target_max_drawdown_p95_bps": _percentile(target_max_drawdowns, 0.95),
         "target_downside_probability_pct": downside_probability_pct,
         "goal_summaries": goal_summaries,
@@ -4072,6 +4103,10 @@ def _load_allocation_inputs(
         Cashflow.deleted_at.is_(None),
         Cashflow.is_active == 1,
     ).all()
+    # 2026-06-14: vermögensgetriebene Cashflows (Hypothekarzins, Amortisation,
+    # Miet-/Zinserträge) auch in die Engine-Projektion/Reserve einspeisen, damit
+    # Strategie-Verzehr und Cashflow-Ansicht 1:1 dieselben Posten sehen.
+    cashflows = list(cashflows) + derive_wealth_cashflows(all_positions)
     goals = db.query(Goal).filter(
         Goal.mandate_id == mandate.id,
         Goal.deleted_at.is_(None),
@@ -4126,6 +4161,18 @@ def _load_allocation_inputs(
         cashflow_projection_series_rappen = [
             int(cf) + int(infl)
             for cf, infl in zip(cashflow_projection_series_rappen, inflow_projection_series_rappen)
+        ]
+    # 2026-06-14 (#31): Hypothek-Amortisation/Refinanzierung jahresabhängig in die
+    # Projektion einrechnen — direkt: sinkende Zinslast; Refi auf 3% nach Ablauf
+    # (Fix) bzw. 5 Jahren (SARON). Additiv auf das Netto-Cashflow-Series; die
+    # heutige Cashflow-Ansicht/Summe bleibt unberührt (statischer Posten = Jahr 0).
+    _mortgage_interest_adj = mortgage_interest_adjustment_series(
+        all_positions, projection_years, cashflow_totals["year"],
+    )
+    if any(_mortgage_interest_adj):
+        cashflow_projection_series_rappen = [
+            int(cf) + int(adj)
+            for cf, adj in zip(cashflow_projection_series_rappen, _mortgage_interest_adj)
         ]
     recurring_cashflow_projection_series_rappen = recurring_net_cashflow_series(
         cashflows,
@@ -6534,6 +6581,12 @@ def build_target_payload_from_allocation(
         Cashflow.deleted_at.is_(None),
         Cashflow.is_active == 1,
     ).all()
+    # 2026-06-14: vermögensgetriebene Cashflows (Hypothekarzins, Amortisation,
+    # Miet-/Zinserträge) AUCH im Rebuild-/Recommendation-Pfad einspeisen — sonst
+    # rechnete build_target_payload_from_allocation mit unvollständigen Cashflows
+    # (inkonsistent zu _load_allocation_inputs). Reserve/Empfehlung sehen damit
+    # dieselben Cashflows wie Cashflow-Ansicht und Engine-Projektion.
+    cashflows = list(cashflows) + derive_wealth_cashflows(all_positions)
 
     goals = db.query(Goal).filter(
         Goal.mandate_id == mandate.id,
@@ -6596,6 +6649,18 @@ def build_target_payload_from_allocation(
         cashflow_projection_series_rappen = [
             int(cf) + int(infl)
             for cf, infl in zip(cashflow_projection_series_rappen, inflow_projection_series_rappen)
+        ]
+    # 2026-06-14 (#31): Hypothek-Amortisation/Refinanzierung jahresabhängig in die
+    # Projektion einrechnen — direkt: sinkende Zinslast; Refi auf 3% nach Ablauf
+    # (Fix) bzw. 5 Jahren (SARON). Additiv auf das Netto-Cashflow-Series; die
+    # heutige Cashflow-Ansicht/Summe bleibt unberührt (statischer Posten = Jahr 0).
+    _mortgage_interest_adj = mortgage_interest_adjustment_series(
+        all_positions, projection_years, cashflow_totals["year"],
+    )
+    if any(_mortgage_interest_adj):
+        cashflow_projection_series_rappen = [
+            int(cf) + int(adj)
+            for cf, adj in zip(cashflow_projection_series_rappen, _mortgage_interest_adj)
         ]
 
     minimums = {
