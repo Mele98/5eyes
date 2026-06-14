@@ -182,6 +182,14 @@ def ensure_runtime_columns() -> None:
         # crashen beim User-Anlegen.
         'users': [
             ('tenant_id', 'TEXT'),
+            # E1 (2026-06-13): TOTP-2FA fuer externe Logins.
+            ('totp_secret', 'TEXT'),
+            ('totp_enabled', 'INTEGER'),
+            # E1 (2026-06-14): erzwungener Passwortwechsel beim ersten Login.
+            ('must_change_password', 'INTEGER'),
+            # E1 (2026-06-14): Invite-Link-Onboarding (Token-Hash + Ablauf).
+            ('invite_token_hash', 'TEXT'),
+            ('invite_expires_at', 'TEXT'),
         ],
         'target_allocations': [
             ('capital_market_assumptions_id', 'TEXT'),
@@ -791,6 +799,39 @@ def ensure_default_tenant() -> None:
         pass
 
 
+def ensure_tenant_backfill(engine_to_use=None) -> None:
+    """E1 (2026-06-12, External-Access-Rollout): weist Bestands-Rows mit
+    tenant_id IS NULL dem Default-Tenant 'main' zu.
+
+    Hintergrund: tenant_id-Columns sind aus BC-Gruenden NULLABLE; die Isolation
+    erlaubt heute `tenant_id == user_tid OR tenant_id IS NULL`. Vor Multi-Firma-
+    Echtbetrieb muessen NULL-Rows verschwinden (sonst waeren sie fuer JEDEN Tenant
+    sichtbar). Dieser Backfill ist die Vorbereitung fuer eine spaetere NOT-NULL-
+    Constraint + das Entfernen der `OR IS NULL`-Klausel.
+
+    Idempotent (zweiter Lauf trifft 0 Rows) und defensiv (pro Tabelle isoliert;
+    fehlende Tabelle/Spalte wird uebersprungen; Boot wird nie abgebrochen).
+    """
+    eng = engine_to_use if engine_to_use is not None else engine
+    try:
+        from models.tenant import DEFAULT_TENANT_ID
+        from sqlalchemy import text as _sql_text
+        for table in ("users", "clients", "mandates", "protocol_bausteine"):
+            try:
+                with eng.begin() as conn:
+                    conn.execute(
+                        _sql_text(
+                            f"UPDATE {table} SET tenant_id = :tid WHERE tenant_id IS NULL"
+                        ),
+                        {"tid": DEFAULT_TENANT_ID},
+                    )
+            except Exception:
+                # Tabelle/Spalte (noch) nicht vorhanden -> ueberspringen.
+                pass
+    except Exception:
+        pass
+
+
 def init_db() -> None:
     if settings.db_bootstrap_schema_on_startup:
         bootstrap_sqlite_schema(db_path=settings.db_path, db_key=getattr(settings, 'db_key', None))
@@ -814,3 +855,5 @@ def init_db() -> None:
     # Backwards-Compat: tenant_id-Columns sind NULLABLE, aber die Existenz
     # der 'main'-Row erlaubt T2-Sprint die Auth-Layer-Migration.
     ensure_default_tenant()
+    # E1 (2026-06-12): Bestands-Rows ohne tenant_id dem 'main'-Tenant zuweisen.
+    ensure_tenant_backfill()

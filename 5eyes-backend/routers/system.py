@@ -13,7 +13,7 @@ from models.snapshots import AssetClassAnnualReturn, AssetClassPriceHistory
 from models.users import User
 from schemas.review import AuditLogEntry, AuditLogPage
 from services.audit import log as audit_log
-from services.auth import require_admin, require_advisor, get_mandate_for_user_or_404
+from services.auth import require_admin, require_advisor, require_super_admin, get_mandate_for_user_or_404
 from services.foundation_example import upsert_foundation_example_case
 from services.maintenance import (
     build_compliance_status,
@@ -78,9 +78,23 @@ def get_audit_log(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    _ = current_user
-
     query = db.query(AuditLog)
+
+    # E1 (2026-06-14): Mandanten-Trennung — super_admin (Operator) sieht das ganze
+    # Audit-Log; ein Firmen-Admin NUR Eintraege zu EIGENEN Clients/Mandaten plus
+    # eigene Aktionen. (audit_log hat keine tenant_id -> Scope ueber accessible IDs;
+    # fremde System-/Operator-Aktionen ohne client/mandate-Bezug bleiben unsichtbar.)
+    _user_tid = getattr(current_user, "tenant_id", None)
+    if getattr(current_user, "role", None) != "super_admin" and _user_tid and str(_user_tid).strip():
+        from services.auth import get_accessible_client_ids, get_accessible_mandate_ids
+        cids = list(get_accessible_client_ids(db, current_user))
+        mids = list(get_accessible_mandate_ids(db, current_user))
+        conds = [AuditLog.user_id == current_user.id]
+        if cids:
+            conds.append(AuditLog.client_id.in_(cids))
+        if mids:
+            conds.append(AuditLog.mandate_id.in_(mids))
+        query = query.filter(or_(*conds))
 
     normalized_action = str(action or '').strip().upper()
     if normalized_action in AUDIT_LOG_VALID_ACTIONS:
@@ -279,7 +293,7 @@ def get_shadow_comparison(
 @router.get('/shadow-comparison-aggregate')
 def get_shadow_comparison_aggregate(
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_super_admin),
 ):
     """Stage 8 Foundation: aggregierter Shadow-Vergleich über alle Mandate.
 

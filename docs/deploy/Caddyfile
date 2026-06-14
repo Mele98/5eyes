@@ -1,0 +1,21 @@
+# Phase-0 Reverse-Proxy mit automatischem Let's-Encrypt-TLS.
+# Domain anpassen. Caddy holt + erneuert das Zertifikat selbstständig.
+app.5eyes.ch {
+	encode zstd gzip
+
+	# Sicherheits-Header (Basis; CSP wird in E1 verschärft).
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Frame-Options "SAMEORIGIN"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	# Backend lauscht nur lokal; Caddy ist der einzige öffentliche Eintritt.
+	reverse_proxy 127.0.0.1:8000
+
+	log {
+		output file /var/log/caddy/5eyes-access.log
+	}
+}
