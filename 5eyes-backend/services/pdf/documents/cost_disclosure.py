@@ -7,7 +7,7 @@ kann beim Druck automatisch gesetzt werden (Audit-Trail, PR 3).
 
 Aufbau:
 1. Cover (single-report Stil) mit Fokuspunkten
-2. Header + Editorial-Kostenausweis-Block (services.pdf.components.kostenausweis)
+2. Editorial-Kostenausweis-Block (services.pdf.components.kostenausweis)
 3. Optionaler 'pending'-Hinweis wenn noch keine Empfehlung
 """
 from __future__ import annotations
@@ -17,7 +17,6 @@ from typing import Any, Mapping
 from reportlab.platypus import PageBreak
 
 from services.pdf.base import CostDisclosurePDFData, PDFContext
-from services.pdf.components.header import make_wealtharchitekten_header
 from services.pdf.components.kostenausweis import build_kostenausweis_flowables
 from services.pdf.components.single_report_disclaimer import make_single_report_cover
 from services.pdf.components.advisory_palette import make_advisory_styles
@@ -50,15 +49,12 @@ def build_cost_disclosure_flowables(
     ))
     flowables.append(PageBreak())
 
-    flowables.extend(make_wealtharchitekten_header(
-        ctx,
-        mandate_number=data.mandate_number,
-        advisory_wealth_label=advisory_label,
-        document_title="Ex-ante Kostenausweis",
-    ))
-
     styles = make_advisory_styles()
-    flowables.extend(build_kostenausweis_flowables(data.payload, styles))
+    flowables.extend(build_kostenausweis_flowables(
+        data.payload,
+        styles,
+        compact=True,
+    ))
 
     return flowables
 

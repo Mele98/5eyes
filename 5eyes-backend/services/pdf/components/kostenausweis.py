@@ -30,8 +30,17 @@ from services.pdf.components.swiss_numbers import (
 )
 
 
-def build_kostenausweis_flowables(data: dict[str, Any], styles) -> list[Any]:
-    """Render a compact, client-facing ex-ante cost disclosure."""
+def build_kostenausweis_flowables(
+    data: dict[str, Any],
+    styles,
+    *,
+    compact: bool = False,
+) -> list[Any]:
+    """Render a client-facing ex-ante cost disclosure.
+
+    ``compact`` only tightens vertical spacing; the embedded Advisory-Report
+    layout remains unchanged.
+    """
     out: list[Any] = [
         Paragraph("FIDLEG KOSTENTRANSPARENZ", styles["kicker"]),
         Paragraph("Kostenausweis ex-ante", styles["h1"]),
@@ -45,7 +54,7 @@ def build_kostenausweis_flowables(data: dict[str, Any], styles) -> list[Any]:
             "Berechnungsbasis ausgewiesen.",
             _style(styles["body"], color=COLOR_INK_MUTED),
         ),
-        Spacer(1, 4 * mm),
+        Spacer(1, (2 if compact else 4) * mm),
     ]
 
     if not data or data.get("data_pending"):
@@ -62,21 +71,26 @@ def build_kostenausweis_flowables(data: dict[str, Any], styles) -> list[Any]:
         return out
 
     totals = data.get("totals") or {}
-    out.append(_summary_metrics(data, totals, styles))
-    out.append(Spacer(1, 5 * mm))
-    out.append(_cost_table(list(data.get("cost_items") or []), totals, styles))
+    out.append(_summary_metrics(data, totals, styles, compact=compact))
+    out.append(Spacer(1, (3 if compact else 5) * mm))
+    out.append(_cost_table(
+        list(data.get("cost_items") or []),
+        totals,
+        styles,
+        compact=compact,
+    ))
 
     warnings = [str(item) for item in data.get("warnings") or [] if str(item).strip()]
     if warnings:
-        out.append(Spacer(1, 4 * mm))
-        out.append(_assumptions_panel(warnings, styles))
+        out.append(Spacer(1, (2 if compact else 4) * mm))
+        out.append(_assumptions_panel(warnings, styles, compact=compact))
 
-    out.append(Spacer(1, 5 * mm))
-    out.append(_legal_note(styles))
+    out.append(Spacer(1, (3 if compact else 5) * mm))
+    out.append(_legal_note(styles, compact=compact))
     return out
 
 
-def _summary_metrics(data: dict, totals: dict, styles) -> Table:
+def _summary_metrics(data: dict, totals: dict, styles, *, compact: bool) -> Table:
     metrics = [
         ("ANLAGEBASIS", format_chf_rappen(data.get("advisory_wealth_rappen"))),
         ("EINMALIG", format_chf_rappen(totals.get("one_time_rappen"))),
@@ -105,13 +119,19 @@ def _summary_metrics(data: dict, totals: dict, styles) -> Table:
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("LEFTPADDING", (0, 0), (-1, -1), 8),
         ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-        ("TOPPADDING", (0, 0), (-1, -1), 7),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+        ("TOPPADDING", (0, 0), (-1, -1), 5 if compact else 7),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5 if compact else 7),
     ]))
     return table
 
 
-def _cost_table(items: list[dict[str, Any]], totals: dict, styles) -> Table:
+def _cost_table(
+    items: list[dict[str, Any]],
+    totals: dict,
+    styles,
+    *,
+    compact: bool,
+) -> Table:
     rows: list[list[Any]] = [[
         _th("Kostenart", styles),
         _th("Turnus", styles),
@@ -188,8 +208,8 @@ def _cost_table(items: list[dict[str, Any]], totals: dict, styles) -> Table:
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
         ("LEFTPADDING", (0, 0), (-1, -1), 6),
         ("RIGHTPADDING", (0, 0), (-1, -1), 6),
-        ("TOPPADDING", (0, 0), (-1, -1), 6),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 4 if compact else 6),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4 if compact else 6),
     ]))
     return table
 
@@ -212,7 +232,7 @@ def _total_row(label: str, bps: Any, amount: Any, styles, *, strong: bool) -> li
     ]
 
 
-def _assumptions_panel(warnings: list[str], styles) -> Table:
+def _assumptions_panel(warnings: list[str], styles, *, compact: bool) -> Table:
     body = [
         Paragraph(
             "ANNAHMEN UND DATENQUALITAET",
@@ -230,13 +250,13 @@ def _assumptions_panel(warnings: list[str], styles) -> Table:
         ("BOX", (0, 0), (-1, -1), 0.5, COLOR_GOLD),
         ("LEFTPADDING", (0, 0), (-1, -1), 10),
         ("RIGHTPADDING", (0, 0), (-1, -1), 10),
-        ("TOPPADDING", (0, 0), (-1, -1), 8),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+        ("TOPPADDING", (0, 0), (-1, -1), 6 if compact else 8),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6 if compact else 8),
     ]))
     return table
 
 
-def _legal_note(styles) -> Table:
+def _legal_note(styles, *, compact: bool = False) -> Table:
     text = (
         "<b>Rechtlicher Hinweis.</b> Dieser Ex-ante-Kostenausweis ist eine "
         "vorausschauende Berechnung gemäss Art. 8 und 9 FIDLEG sowie Art. 8 "
@@ -255,8 +275,8 @@ def _legal_note(styles) -> Table:
         ("LINEABOVE", (0, 0), (-1, 0), 0.7, COLOR_ACCENT),
         ("LEFTPADDING", (0, 0), (-1, -1), 9),
         ("RIGHTPADDING", (0, 0), (-1, -1), 9),
-        ("TOPPADDING", (0, 0), (-1, -1), 8),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+        ("TOPPADDING", (0, 0), (-1, -1), 6 if compact else 8),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6 if compact else 8),
     ]))
     return KeepTogether([table])
 
