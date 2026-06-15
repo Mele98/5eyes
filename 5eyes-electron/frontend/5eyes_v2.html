@@ -2910,6 +2910,7 @@ function _wireSollIstHover(){
         </div>
         <div style="display:grid;grid-template-columns:1fr 340px;gap:12px">
           <div>
+            <div id="cf-dupe-hint" style="display:none"></div>
             <div class="card mb">
               <div class="chd"><span class="cht">Vermögenszuflüsse</span><div class="chr"><button class="btn-p btn-sm" onclick="openNewCashflow('Income')">+ Zufluss</button></div></div>
               <div class="cbody" id="zufluss-rows">
@@ -20780,6 +20781,36 @@ function renderCashflowGroups(manualRows, derivedRows, isIncome, renderRow, rend
   });
   return html;
 }
+// 2026-06-15 (#38): Mögliche Doppelerfassung — ein MANUELLER Cashflow, der einen
+// bereits AUTOMATISCH aus dem Vermögen abgeleiteten Posten dupliziert (z.B. manuell
+// "Hypothekarzins", obwohl die Hypothek-Position das schon ableitet). Kein Hard-Block
+// (User-Entscheid "beide zeigen"), nur ein Hinweis — beide fliessen in die Projektion.
+function _cashflowDuplicateHints(manualRows, derivedRows){
+  var tokensFor=function(d){
+    var t=String((d&&d.origin_position_type)||'').toLowerCase();
+    if(t.indexOf('hypothek')>=0) return ['hypothek','hypothekarzins'];
+    if(t.indexOf('immobil')>=0)  return ['miete','mietzins','mieteinnahm','mietertrag'];
+    if(t.indexOf('liquid')>=0)   return ['zinsertrag','kontozins','sparzins'];
+    return [];
+  };
+  var hits=[];
+  (derivedRows||[]).forEach(function(d){
+    var toks=tokensFor(d); if(!toks.length)return;
+    (manualRows||[]).forEach(function(m){
+      var lbl=String((m&&m.label)||'').toLowerCase();
+      if(toks.some(function(tk){return lbl.indexOf(tk)>=0;})) hits.push({manual:m.label||'', derived:d.label||''});
+    });
+  });
+  return hits;
+}
+function _renderCashflowDuplicateHint(manualRows, derivedRows){
+  var el=document.getElementById('cf-dupe-hint'); if(!el)return;
+  var hits=_cashflowDuplicateHints(manualRows, derivedRows);
+  if(!hits.length){ el.style.display='none'; el.innerHTML=''; return; }
+  var items=hits.slice(0,4).map(function(h){return '«'+escapeHtml(h.manual)+'» ↔ &#9881; «'+escapeHtml(h.derived)+'»';}).join(' · ');
+  el.style.display='';
+  el.innerHTML='<div style="font-size:10px;color:var(--g4);line-height:1.5;background:rgba(201,168,76,0.10);border:1px solid rgba(201,168,76,0.28);border-radius:8px;padding:8px 10px;margin-bottom:10px">&#9888; Mögliche Doppelerfassung: '+items+'. Diese Posten werden bereits automatisch aus dem Vermögen abgeleitet — prüfe, ob die manuelle Zeile doppelt zählt (beide fliessen in die Projektion).</div>';
+}
 async function refreshCashflowsUI(cid){
   try{
     var results=await Promise.allSettled([
@@ -20884,6 +20915,8 @@ async function refreshCashflowsUI(cid){
       }
     });
     setupCashflowDragList('abfluss-rows','Expense');
+    // #38: Hinweis auf mögliche Doppelerfassung (manuell vs. abgeleitet).
+    try{ _renderCashflowDuplicateHint(inc.concat(exp), derInc.concat(derExp)); }catch(_dup){}
     updateCashflowsAndGoalsKpis(summary);
     normalizeConversationLabels();
     normalizeCashflowTotalsLabels(summaryYear,breakdown);
