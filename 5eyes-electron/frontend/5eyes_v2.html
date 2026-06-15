@@ -1881,6 +1881,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
         style="width:100%;background:var(--g4);color:#fff;border:none;border-radius:6px;padding:10px;font-size:13px;font-weight:600;cursor:pointer;">
         Anmelden
       </button>
+      <div style="margin-top:12px;text-align:center;"><a href="#" onclick="openResetRequest();return false;" style="font-size:11px;color:var(--g3);text-decoration:none;">Passwort vergessen?</a></div>
       <div id="login-bootstrap-hint" style="display:none;margin-top:14px;font-size:11px;color:var(--g3);line-height:1.6;">
         Die Datenbank ist noch nicht initialisiert. <a href="#" onclick="showBootstrap();return false;" style="color:var(--g4);text-decoration:none;">Ersten Admin anlegen</a>
       </div>
@@ -2021,14 +2022,45 @@ function render2faEnabled(){
   var body=document.getElementById('m-2fa-body'); if(!body)return;
   body.innerHTML=''
    +'<div style="font-size:12px;color:var(--pos);margin-bottom:10px">&#10003; Zwei-Faktor-Authentifizierung ist aktiv.</div>'
-   +'<div style="font-size:11px;color:var(--n6);line-height:1.6;margin-bottom:10px">Zum Deaktivieren bitte einen aktuellen Code aus der App eingeben.</div>'
+   +'<div style="font-size:11px;color:var(--n6);line-height:1.6;margin-bottom:10px">Authenticator verloren? Erzeuge neue Backup-Codes. Zum Deaktivieren einen aktuellen Code aus der App eingeben.</div>'
+   +'<button class="btn" style="width:100%;margin-bottom:12px" onclick="do2faRecoveryRegenerate()">Backup-Codes neu erzeugen</button>'
    +'<input id="m-2fa-code" type="text" inputmode="numeric" maxlength="6" placeholder="6-stellig" style="width:100%;box-sizing:border-box;padding:9px 12px;border:1px solid var(--b1);border-radius:6px;font-size:14px;letter-spacing:4px;margin-bottom:6px">'
    +'<div id="m-2fa-msg" style="font-size:11px;color:var(--neg);min-height:14px;margin-bottom:8px"></div>'
    +'<button class="btn" onclick="do2faDisable()" style="width:100%">2FA deaktivieren</button>';
 }
+// #25: Backup-/Recovery-Codes EINMALIG anzeigen (Klartext kommt nur jetzt vom Server).
+function render2faRecoveryCodes(codes, intro){
+  var body=document.getElementById('m-2fa-body'); if(!body)return;
+  window.__recoveryCodes=(codes||[]).join('\n');
+  var list=(codes||[]).map(function(c){return '<div style="font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px;letter-spacing:1px;background:var(--bg);border:1px solid var(--b1);border-radius:5px;padding:6px 9px;text-align:center">'+escapeHtml(c)+'</div>';}).join('');
+  body.innerHTML=''
+   +'<div style="font-size:11px;color:var(--pos);line-height:1.6;margin-bottom:10px">&#10003; '+escapeHtml(intro||'')+'</div>'
+   +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px">'+list+'</div>'
+   +'<div id="m-2fa-copymsg" style="font-size:10px;min-height:12px;margin-bottom:8px;color:var(--n4)"></div>'
+   +'<div style="display:flex;gap:6px"><button class="btn" style="flex:1" onclick="do2faCopyRecovery()">Codes kopieren</button><button class="btn-p" style="flex:1" onclick="render2faEnabled()">Fertig</button></div>';
+}
+function do2faCopyRecovery(){
+  var t=String(window.__recoveryCodes||''); if(!t)return;
+  var msg=document.getElementById('m-2fa-copymsg');
+  try{ navigator.clipboard.writeText(t).then(
+    function(){ if(msg){msg.style.color='var(--pos)';msg.textContent='Codes kopiert.';} },
+    function(){ if(msg){msg.style.color='var(--neg)';msg.textContent='Kopieren nicht möglich — manuell notieren.';} }); }
+  catch(e){ if(msg){msg.style.color='var(--neg)';msg.textContent='Kopieren nicht möglich — manuell notieren.';} }
+}
+async function do2faRecoveryRegenerate(){
+  var msg=document.getElementById('m-2fa-msg');
+  try{ var res=await API.post('/auth/2fa/recovery/regenerate',{}); if(res&&res.recovery_codes){ render2faRecoveryCodes(res.recovery_codes,'Neue Backup-Codes erzeugt — die alten sind jetzt ungültig.'); } }
+  catch(e){ if(msg){msg.style.color='var(--neg)';msg.textContent=String(e.detail||e.message||'Fehler');} }
+}
 async function do2faEnable(){
   var el=document.getElementById('m-2fa-code'); var msg=document.getElementById('m-2fa-msg');
-  try{ await API.post('/auth/2fa/enable',{code:String((el&&el.value)||'').trim()}); if(msg){msg.style.color='var(--pos)';msg.textContent='2FA aktiviert.';} window.__force2fa=false; _set2faCloseVisible(true); render2faEnabled(); }
+  try{
+    var res=await API.post('/auth/2fa/enable',{code:String((el&&el.value)||'').trim()});
+    window.__force2fa=false; _set2faCloseVisible(true);
+    if(res&&res.recovery_codes&&res.recovery_codes.length){
+      render2faRecoveryCodes(res.recovery_codes,'2FA aktiviert. Bewahre diese Backup-Codes sicher auf — falls du deinen Authenticator verlierst, kommst du damit rein. Jeder Code ist nur EINMAL gültig.');
+    } else { render2faEnabled(); }
+  }
   catch(e){ if(msg){msg.style.color='var(--neg)';msg.textContent=String(e.detail||e.message||'Code falsch');} }
 }
 async function do2faDisable(){
@@ -2242,6 +2274,10 @@ async function doForcePasswordChange(){
   <div class="mhd"><div class="mtitle">Konto aktivieren</div></div>
   <div class="mbody" id="m-invite-body"><div style="font-size:11px;color:var(--n5)">Lädt…</div></div>
 </div></div>
+<div id="m-reset" class="overlay"><div class="modal" style="max-width:420px">
+  <div class="mhd"><div class="mtitle">Passwort zurücksetzen</div><button class="mx" onclick="dismissReset()">&#10005;</button></div>
+  <div class="mbody" id="m-reset-body"><div style="font-size:11px;color:var(--n5)">Lädt…</div></div>
+</div></div>
 <script>
 function _getQueryParam(name){
   try{ return new URLSearchParams(window.location.search).get(name); }catch(e){ return null; }
@@ -2286,6 +2322,57 @@ async function doInviteAccept(){
     // Frisch aktivierter Account hat kein 2FA -> Hard-Gate erzwingt Enrollment.
     try{ await enforce2faGate(); }catch(e){}
   }catch(e){ if(msg){msg.style.color='var(--neg)';msg.textContent=String(e.detail||e.message||'Aktivierung fehlgeschlagen');} }
+}
+// #27: Self-Service Passwort-Reset (Frontend). Backend: /auth/password-reset/{request,confirm}.
+function _stripResetParam(){
+  try{ var u=new URL(window.location.href); u.searchParams.delete('reset'); window.history.replaceState({},document.title,u.pathname+u.search+u.hash); }catch(e){}
+}
+function dismissReset(){ try{cm('m-reset');}catch(e){} _stripResetParam(); }
+function openResetRequest(){
+  try{ om('m-reset'); }catch(e){}
+  var body=document.getElementById('m-reset-body'); if(!body)return;
+  body.innerHTML=''
+   +'<div style="font-size:11px;color:var(--n6);line-height:1.6;margin-bottom:12px">Gib deinen Benutzernamen oder deine E-Mail ein. Falls ein Konto existiert, senden wir einen Link zum Zurücksetzen (gültig 2 Stunden).</div>'
+   +'<input id="rst-ident" type="text" placeholder="Benutzername oder E-Mail" style="width:100%;box-sizing:border-box;padding:9px 12px;border:1px solid var(--b1);border-radius:6px;font-size:13px;margin-bottom:6px">'
+   +'<div id="rst-msg" style="font-size:11px;color:var(--n5);min-height:14px;margin-bottom:8px"></div>'
+   +'<button class="btn-p" style="width:100%" onclick="doResetRequest()">Link anfordern</button>';
+}
+async function doResetRequest(){
+  var el=document.getElementById('rst-ident'), msg=document.getElementById('rst-msg');
+  var ident=String((el&&el.value)||'').trim();
+  if(!ident){ if(msg){msg.style.color='var(--neg)';msg.textContent='Bitte Benutzername oder E-Mail eingeben.';} return; }
+  var generic='Falls ein Konto existiert, wurde eine Reset-Anleitung an die hinterlegte E-Mail gesendet.';
+  try{
+    var payload = ident.indexOf('@')>=0 ? {email:ident} : {username:ident};
+    var res=await API.post('/auth/password-reset/request', payload);
+    if(msg){msg.style.color='var(--pos)';msg.textContent=(res&&res.message)||generic;}
+  }catch(e){ if(msg){msg.style.color='var(--pos)';msg.textContent=generic;} }
+}
+async function checkResetParam(){
+  var token=_getQueryParam('reset');
+  if(!token) return false;
+  window.__resetToken=token;
+  try{ om('m-reset'); }catch(e){}
+  var body=document.getElementById('m-reset-body'); if(!body)return true;
+  body.innerHTML=''
+   +'<div style="font-size:11px;color:var(--n6);line-height:1.6;margin-bottom:12px">Setze jetzt dein neues Passwort (mindestens 8 Zeichen).</div>'
+   +'<input id="rst-pw" type="password" placeholder="Neues Passwort" style="width:100%;box-sizing:border-box;padding:9px 12px;border:1px solid var(--b1);border-radius:6px;font-size:13px;margin-bottom:6px">'
+   +'<input id="rst-pw2" type="password" placeholder="Bestätigen" style="width:100%;box-sizing:border-box;padding:9px 12px;border:1px solid var(--b1);border-radius:6px;font-size:13px;margin-bottom:6px">'
+   +'<div id="rst-msg" style="font-size:11px;color:var(--neg);min-height:14px;margin-bottom:8px"></div>'
+   +'<button class="btn-p" style="width:100%" onclick="doResetConfirm()">Passwort setzen</button>';
+  return true;
+}
+async function doResetConfirm(){
+  var p=document.getElementById('rst-pw'), p2=document.getElementById('rst-pw2'), msg=document.getElementById('rst-msg');
+  var pw=String((p&&p.value)||''), pw2=String((p2&&p2.value)||'');
+  if(pw.length<8){ if(msg){msg.style.color='var(--neg)';msg.textContent='Mindestens 8 Zeichen.';} return; }
+  if(pw!==pw2){ if(msg){msg.style.color='var(--neg)';msg.textContent='Passwörter stimmen nicht überein.';} return; }
+  try{
+    await API.post('/auth/password-reset/confirm',{token:window.__resetToken,new_password:pw});
+    if(msg){msg.style.color='var(--pos)';msg.textContent='Passwort gesetzt. Du kannst dich jetzt anmelden.';}
+    _stripResetParam();
+    setTimeout(function(){ try{cm('m-reset');}catch(e){} try{ if(typeof showLogin==='function') showLogin(''); }catch(e){} },1300);
+  }catch(e){ if(msg){msg.style.color='var(--neg)';msg.textContent=String(e.detail||e.message||'Reset fehlgeschlagen');} }
 }
 </script>
 
@@ -8433,6 +8520,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   normalizeVisibleMojibake(document.body);
   // E1 (2026-06-14): Einladungslink hat Vorrang — Mitarbeiter aktiviert sein Konto.
   try { if (await checkInviteParam()) return; } catch(_inv) {}
+  // #27: Passwort-Reset-Link (?reset=token) hat ebenfalls Vorrang vor dem Login.
+  try { if (await checkResetParam()) return; } catch(_rst) {}
   const existingToken = await API.getToken();
   if (existingToken) {
     var me=null;
