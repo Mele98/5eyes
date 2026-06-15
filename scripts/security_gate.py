@@ -27,6 +27,7 @@ SECURITY_TESTS: list[str] = [
     "tests/test_repository_tenant_scoping.py",
     "tests/test_auth_tenant_aware.py",
     "tests/test_tenant_endpoint_leak_regression.py",
+    "tests/test_tenant_leak_wealth_endpoints.py",
     "tests/test_audit_log_tenant_scoping.py",
     "tests/test_user_admin_tenant_scoping.py",
     "tests/test_mandate_tenant_inheritance.py",
