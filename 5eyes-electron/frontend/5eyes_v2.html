@@ -3094,6 +3094,9 @@ function _wireSollIstHover(){
                   <span style="font-size:11px;color:var(--n7);font-weight:600">Beratungs-Mehrwert (Median-Endwert SOLL &minus; IST)</span>
                   <span id="aa-proj-delta-value" style="font-family:var(--f-d);font-size:15px;font-weight:700;color:var(--pos)">—</span>
                 </div>
+                <!-- #36/PAR-3: Zielerreichung SOLL vs IST je Ziel (nur sichtbar, wenn das
+                     Backend current_goal_analysis liefert). -->
+                <div id="aa-goal-sollist" style="display:none;margin-bottom:12px"></div>
               </div>
             </div>
           </div>
@@ -19002,6 +19005,37 @@ async function loadSrPage(){
     renderSrImplementationDecision(null);
   }
 }
+// #36/PAR-3 (2026-06-15): Zielerreichung je Ziel SOLL vs IST. Liest result.goal_analysis
+// (SOLL) + result.current_goal_analysis (IST, vom Backend deterministisch). Graceful:
+// bleibt versteckt, solange das IST-Payload fehlt (kein Regress fuer Alt-Berechnungen).
+function renderGoalAchievementSollIst(result){
+  var el=document.getElementById('aa-goal-sollist'); if(!el)return;
+  var soll=(result&&Array.isArray(result.goal_analysis))?result.goal_analysis:[];
+  var ist=(result&&Array.isArray(result.current_goal_analysis))?result.current_goal_analysis:[];
+  if(!soll.length||!ist.length){ el.style.display='none'; el.innerHTML=''; return; }
+  var istById={}; ist.forEach(function(g){ if(g&&g.goal_id!=null) istById[String(g.goal_id)]=g; });
+  var pct=function(v){ var n=Number(v); return isFinite(n)?(Math.max(0,Math.min(100,Math.round(n)))+'%'):'—'; };
+  var chf=function(r){ var n=Number(r||0); return n>0?('CHF '+Math.round(n/100).toLocaleString('de-CH')):'—'; };
+  var tone=function(v){ var n=Number(v||0); return n>=70?'var(--pos)':(n>=45?'var(--warn)':'var(--neg)'); };
+  var rows=soll.map(function(g){
+    var i=istById[String(g.goal_id)]||{};
+    return '<tr style="border-bottom:1px solid var(--bg2)">'
+      +'<td style="padding:6px 8px;font-family:var(--f);color:var(--n7)">'+escapeHtml(g.label||'Ziel')+'</td>'
+      +'<td style="text-align:right;padding:6px 8px;font-weight:600;color:'+tone(g.median_achievement_pct)+'">'+pct(g.median_achievement_pct)+'</td>'
+      +'<td style="text-align:right;padding:6px 8px;color:'+tone(i.median_achievement_pct)+'">'+pct(i.median_achievement_pct)+'</td>'
+      +'<td style="text-align:right;padding:6px 8px;color:var(--n6)" title="Fehlbetrag im pessimistischen Szenario (SOLL / IST)">'+chf(g.pessimistic_shortfall_rappen)+' / '+chf(i.pessimistic_shortfall_rappen)+'</td>'
+      +'</tr>';
+  }).join('');
+  el.style.display='';
+  el.innerHTML='<div style="border:1px solid var(--b1);border-radius:8px;overflow:hidden">'
+    +'<div style="font-size:9px;text-transform:uppercase;letter-spacing:0.06em;color:var(--n4);font-weight:600;padding:8px 8px 4px">Zielerreichung je Ziel — SOLL vs IST (Median; Fehlbetrag pessimistisch)</div>'
+    +'<table style="width:100%;border-collapse:collapse;font-size:11px"><thead>'
+    +'<tr style="border-bottom:1px solid var(--b1)"><th style="text-align:left;padding:5px 8px;font-size:9px;text-transform:uppercase;color:var(--n4)">Ziel</th>'
+    +'<th style="text-align:right;padding:5px 8px;font-size:10px;color:rgb(22,101,52)">SOLL</th>'
+    +'<th style="text-align:right;padding:5px 8px;font-size:10px;color:var(--n6)">IST</th>'
+    +'<th style="text-align:right;padding:5px 8px;font-size:9px;text-transform:uppercase;color:var(--n4)">Fehlbetrag S/I</th></tr>'
+    +'</thead><tbody style="font-family:var(--f-d)">'+rows+'</tbody></table></div>';
+}
 function applyAllocationEngineResult(result){
   var payloadMandateId=allocationPayloadMandateId(result);
   var activeMandateId=getActiveMandateId();
@@ -19189,6 +19223,7 @@ function applyAllocationEngineResult(result){
   _colorBetter('aa-proj-cvar95', mc&&mc.target_cvar_95_1y_bps, mc&&mc.current_cvar_95_1y_bps, false);
   _colorBetter('aa-proj-drawdown', mc&&mc.target_max_drawdown_p50_bps, mc&&mc.current_max_drawdown_p50_bps, false);
   _colorBetter('aa-proj-lossprob', mc&&mc.target_loss_probability_1y_pct, mc&&mc.current_loss_probability_1y_pct, false);
+  try{ renderGoalAchievementSollIst(result); }catch(_g36){}
   renderAllocationCashflowTimeline(result);
   renderOptimizerPanel(result);
   renderAllocationMethodComparison(result);
