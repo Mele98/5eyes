@@ -35,6 +35,12 @@ class User(Base):
     invite_token_hash = Column(String)
     invite_expires_at = Column(String)
 
+    # Self-Service-Recovery (#25/#27). Laufzeit-Migration bestehender DBs:
+    # services.account_recovery.ensure_account_recovery_columns.
+    reset_token_hash = Column(String)          # sha256(reset-token); single-use
+    reset_token_expires_at = Column(String)
+    totp_recovery_codes = Column(String)       # JSON-Liste sha256-Hashes der Backup-Codes
+
     @property
     def invite_pending(self) -> bool:
         """True, solange eine Einladung offen ist (Account noch nicht aktiviert)."""

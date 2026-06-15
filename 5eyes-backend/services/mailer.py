@@ -76,3 +76,35 @@ def send_invite_email(to_email: str | None, full_name: str, invite_link: str) ->
     if not to_email:
         return False
     return _send(_build_invite_message(to_email, full_name, invite_link))
+
+
+def _build_password_reset_message(to_email: str, full_name: str, reset_link: str) -> EmailMessage:
+    msg = EmailMessage()
+    msg["Subject"] = "5eyes — Passwort zuruecksetzen"
+    msg["From"] = settings.smtp_from
+    msg["To"] = to_email
+    greeting = (full_name or "").strip() or "Hallo"
+    text = (
+        f"Hallo {greeting},\n\n"
+        "Es wurde ein Zuruecksetzen Ihres 5eyes-Passworts angefordert. Setzen Sie "
+        "Ihr neues Passwort ueber den folgenden Link:\n\n"
+        f"{reset_link}\n\n"
+        "Der Link ist 2 Stunden gueltig und nur einmal verwendbar.\n\n"
+        "Falls Sie das nicht angefordert haben, ignorieren Sie diese E-Mail — Ihr "
+        "Passwort bleibt unveraendert.\n\n"
+        "— 5eyes"
+    )
+    msg.set_content(text)
+    return msg
+
+
+def send_password_reset_email(to_email: str | None, full_name: str, reset_link: str) -> bool:
+    """Versendet die Passwort-Reset-Mail. True nur bei tatsaechlichem Versand
+    (sonst False — der Aufrufer gibt aus Sicherheitsgruenden trotzdem eine
+    generische Erfolgsmeldung zurueck, um Konto-Enumeration zu verhindern)."""
+    if not mail_configured():
+        return False
+    to_email = (to_email or "").strip()
+    if not to_email:
+        return False
+    return _send(_build_password_reset_message(to_email, full_name, reset_link))

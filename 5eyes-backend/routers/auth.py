@@ -20,7 +20,12 @@ from services.auth import (
 from services.login_guard import login_attempt_guard
 from services.audit import log
 from services.totp import generate_secret, provisioning_uri, qr_svg_data_uri, verify as totp_verify
-from services.mailer import send_invite_email
+from services.mailer import send_invite_email, send_password_reset_email
+from services.account_recovery import (
+    ensure_account_recovery_columns, generate_recovery_codes, consume_recovery_code,
+    remaining_recovery_codes, issue_reset_token, reset_token_valid, clear_reset_token,
+)
+from sqlalchemy import or_
 from pydantic import BaseModel as _BaseModel
 
 
@@ -142,9 +147,18 @@ def login(body: LoginRequest, request: Request, db: Session = Depends(get_db)):
                 headers={"X-2FA-Required": "1"},
             )
         if not totp_verify(user.totp_secret or "", code):
-            failure = login_attempt_guard.register_failure(guard_key)
-            headers = {"Retry-After": str(failure.retry_after_seconds)} if failure.retry_after_seconds else None
-            raise HTTPException(status_code=401, detail="2FA-Code falsch", headers=headers)
+            # #25 Fallback: 2FA-Recovery-Code (Backup, falls Authenticator weg).
+            # Single-use — verbrauchter Code wird entfernt + persistiert.
+            ensure_account_recovery_columns(db)
+            if consume_recovery_code(user, code):
+                db.commit()
+                log(db, user_id=user.id, user_name=user.full_name,
+                    table_name="users", record_id=user.id, action="2FA_RECOVERY_USED")
+                db.commit()
+            else:
+                failure = login_attempt_guard.register_failure(guard_key)
+                headers = {"Retry-After": str(failure.retry_after_seconds)} if failure.retry_after_seconds else None
+                raise HTTPException(status_code=401, detail="2FA-Code falsch", headers=headers)
 
     login_attempt_guard.register_success(guard_key)
     user.last_login_at = _now()
@@ -202,10 +216,14 @@ def twofa_enable(body: _TwoFACodeRequest, db: Session = Depends(get_db),
         raise HTTPException(status_code=401, detail="2FA-Code falsch")
     current_user.totp_enabled = 1
     current_user.updated_at = _now()
+    # #25: Recovery-Codes erzeugen und EINMALIG zurueckgeben (nur Hashes gespeichert).
+    ensure_account_recovery_columns(db)
+    codes, blob = generate_recovery_codes()
+    current_user.totp_recovery_codes = blob
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="users", record_id=current_user.id, action="2FA_ENABLE")
     db.commit()
-    return {"enabled": True}
+    return {"enabled": True, "recovery_codes": codes, "recovery_codes_count": len(codes)}
 
 
 @router.post("/2fa/disable")
@@ -218,11 +236,112 @@ def twofa_disable(body: _TwoFACodeRequest, db: Session = Depends(get_db),
         raise HTTPException(status_code=401, detail="2FA-Code falsch")
     current_user.totp_enabled = 0
     current_user.totp_secret = None
+    current_user.totp_recovery_codes = None  # #25: Backup-Codes mit-entwerten
     current_user.updated_at = _now()
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="users", record_id=current_user.id, action="2FA_DISABLE")
     db.commit()
     return {"enabled": False}
+
+
+# ── 2FA Recovery-Codes (#25) ─────────────────────────────────────────────────
+
+@router.get("/2fa/recovery/status")
+def twofa_recovery_status(current_user: User = Depends(get_current_user)):
+    return {
+        "enabled": bool(getattr(current_user, "totp_enabled", 0)),
+        "remaining": remaining_recovery_codes(current_user),
+    }
+
+
+@router.post("/2fa/recovery/regenerate")
+def twofa_recovery_regenerate(db: Session = Depends(get_db),
+                              current_user: User = Depends(get_current_user)):
+    """Erzeugt einen NEUEN Satz Recovery-Codes (alte werden ungueltig). 2FA muss aktiv sein."""
+    if not getattr(current_user, "totp_enabled", 0):
+        raise HTTPException(status_code=400, detail="2FA ist nicht aktiv.")
+    ensure_account_recovery_columns(db)
+    codes, blob = generate_recovery_codes()
+    current_user.totp_recovery_codes = blob
+    current_user.updated_at = _now()
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="users", record_id=current_user.id, action="2FA_RECOVERY_REGEN")
+    db.commit()
+    return {"recovery_codes": codes, "recovery_codes_count": len(codes)}
+
+
+# ── Passwort-Reset (#27, Self-Service) ───────────────────────────────────────
+
+class _PasswordResetRequest(_BaseModel):
+    username: str | None = None
+    email: str | None = None
+
+
+class _PasswordResetConfirm(_BaseModel):
+    token: str
+    new_password: str
+
+
+def _reset_link_for(request: Request, token: str) -> str:
+    base = str(request.base_url).rstrip("/") if request else ""
+    return f"{base}/app/5eyes_v2.html?reset={token}"
+
+
+@router.post("/password-reset/request")
+def password_reset_request(body: _PasswordResetRequest, request: Request,
+                           db: Session = Depends(get_db)):
+    """Startet einen Passwort-Reset. Antwortet IMMER generisch (keine Konto-
+    Enumeration). Versendet bei konfiguriertem SMTP eine Mail; sonst kein Leak."""
+    # Rate-Limit gegen Reset-Spam (Wiederverwendung des Login-Guards).
+    ident = (body.username or body.email or "").strip()
+    guard_key = "pwreset:" + _login_guard_key(request, ident or "anon")
+    decision = login_attempt_guard.check(guard_key)
+    if not decision.allowed:
+        raise HTTPException(status_code=429, detail=decision.reason or "Zu viele Anfragen.",
+                            headers={"Retry-After": str(decision.retry_after_seconds)})
+    login_attempt_guard.register_failure(guard_key)  # jeder Versuch zaehlt zum Limit
+
+    generic = {"message": "Falls ein Konto existiert, wurde eine Reset-Anleitung an die hinterlegte E-Mail gesendet."}
+    if not ident:
+        return generic
+    ensure_account_recovery_columns(db)
+    user = db.query(User).filter(
+        User.deleted_at.is_(None),
+        or_(User.username == ident, User.email == ident),
+    ).first()
+    if not user or not user.is_active:
+        return generic
+    token = issue_reset_token(user)
+    user.updated_at = _now()
+    db.commit()
+    send_password_reset_email(user.email, user.full_name, _reset_link_for(request, token))
+    log(db, user_id=user.id, user_name=user.full_name,
+        table_name="users", record_id=user.id, action="PASSWORD_RESET_REQUEST")
+    db.commit()
+    return generic
+
+
+@router.post("/password-reset/confirm")
+def password_reset_confirm(body: _PasswordResetConfirm, db: Session = Depends(get_db)):
+    """Setzt das Passwort per gueltigem, nicht abgelaufenem, einmaligem Token."""
+    if len((body.new_password or "")) < 8:
+        raise HTTPException(status_code=400, detail="Passwort muss mindestens 8 Zeichen haben.")
+    ensure_account_recovery_columns(db)
+    token_hash = hashlib.sha256((body.token or "").strip().encode("utf-8")).hexdigest()
+    user = db.query(User).filter(
+        User.reset_token_hash == token_hash,
+        User.deleted_at.is_(None),
+    ).first()
+    if not user or not reset_token_valid(user, body.token):
+        raise HTTPException(status_code=400, detail="Ungueltiger oder abgelaufener Reset-Link.")
+    user.password_hash = hash_password(body.new_password)
+    clear_reset_token(user)
+    user.must_change_password = 0
+    user.updated_at = _now()
+    log(db, user_id=user.id, user_name=user.full_name,
+        table_name="users", record_id=user.id, action="PASSWORD_RESET_CONFIRM")
+    db.commit()
+    return {"message": "Passwort erfolgreich gesetzt. Sie koennen sich jetzt anmelden."}
 
 
 # ── Users ──────────────────────────────────────────────────────────────────────

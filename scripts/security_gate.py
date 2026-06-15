@@ -39,6 +39,7 @@ SECURITY_TESTS: list[str] = [
     "tests/test_onboarding_password.py",
     "tests/test_invite_onboarding.py",
     "tests/test_mailer.py",
+    "tests/test_account_recovery.py",
 ]
 
 
