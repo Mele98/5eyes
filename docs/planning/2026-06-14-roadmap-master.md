@@ -31,14 +31,14 @@ Kontroll-Audit-Fazit: Kernlogik sauber. 1 echter Bug gefunden+gefixt (Engine-Cas
 - [ ] **13.** [SEC] Secret-Management. **Lösung:** SECRET_KEY/DB_KEY/SMTP aus Vault oder verschlüsselter Env, nie Default; Rotation; Production-Guard (vorhanden) erzwingt non-default.
 - [ ] **14.** [OPS] Monitoring/Alerting. **Lösung:** Health-Endpoint + Uptime-Check, Fehlerquoten-/Latenz-Alerts, Login-Fail-Spikes; Logaggregation (request_id vorhanden).
 - [ ] **15.** [OPS] Off-Site-Backup-Replikation (CH). **Lösung:** bestehenden Backup-Scheduler um verschlüsselte Off-Site-Kopie (zweites CH-RZ) erweitern; Restore-Drill dokumentieren.
-- [ ] **16.** [FINMA] AVV-Template (Auftragsverarbeitungsvertrag). **Lösung:** Vorlage Operator↔Firma erstellen (revDSG/nDSG), in `docs/compliance/`.
-- [ ] **17.** [FINMA] FINMA-Outsourcing-Anzeige (RS 2018/3). **Lösung:** Template + Prozess für Tier-2-Cloud-Outsourcing; Trigger dokumentieren (ab erstem Echt-Tenant in Shared-Cloud).
-- [ ] **18.** [FINMA] DSFA (Datenschutz-Folgenabschätzung) Operator. **Lösung:** DSFA-Dokument für die Verarbeitung von Kundendaten in Cloud; Risiken+Massnahmen.
+- [✓] **16.** [FINMA] AVV-Template (Auftragsverarbeitungsvertrag). **Erledigt 2026-06-15:** `docs/compliance/avv-template.md` — Rollen je Tier, Pflichten, TOM-Anhang, Unterauftragsverarbeiter, CH-Datenstandort. Vom Betreiber rechtlich zu prüfen.
+- [✓] **17.** [FINMA] FINMA-Outsourcing-Anzeige (RS 2018/3). **Erledigt 2026-06-15:** `docs/compliance/finma-outsourcing-anzeige.md` — Wesentlichkeits-/Tier-Matrix, Trigger (erster Echt-Tenant T2/T3), Prozess-Checkliste, Anzeige-/Inventar-Vorlage.
+- [✓] **18.** [FINMA] DSFA (Datenschutz-Folgenabschätzung) Operator. **Erledigt 2026-06-15:** `docs/compliance/dsfa-datenschutz-folgenabschaetzung.md` — Bearbeitung, Risiken (Mandanten-Übergriff als Hauptrisiko), TOM, Restrisiko je Tier, revDSG Art. 22/23.
 - [ ] **19.** [SEC] Externer Pentest vor erstem Echt-Tenant. **Lösung:** Beauftragung; Fokus Auth/Tenant-Isolation/öffentliche Endpoints; Findings als Sprint.
 - [ ] **20.** [SEC] Globales Rate-Limiting am Edge. **Lösung:** Cloudflare-Rules + App-seitiges Throttling auf alle schreibenden/öffentlichen Endpoints (über Login/Invite hinaus).
 - [ ] **21.** [FINMA] Audit-Log tenant-partitioniert + Streaming. **Lösung:** Audit-Log um Tenant-Partition/Index ergänzen, optional Export-Stream (SIEM); Retention pro Tenant.
 - [ ] **22.** [SEC] Client-Portal expliziter Tenant-Check. **Lösung:** ✓ bereits ergänzt (`get_linked_client_for_user_or_404` prüft user.tenant_id==client.tenant_id) — im Postgres-RLS-Modell zusätzlich absichern.
-- [ ] **23.** [OPS] Provisioning-/Onboarding-Ops-Runbook. **Lösung:** Operator-Schritte (Firma anlegen → Admin einladen → Lizenz/Quota) als Runbook; heute UI vorhanden, Doku ergänzen.
+- [✓] **23.** [OPS] Provisioning-/Onboarding-Ops-Runbook. **Erledigt 2026-06-15:** `docs/deploy/provisioning-runbook.md` — Tenant anlegen → Admin einladen → 2FA → Quota → Verifikations-Checkliste → Betrieb → Offboarding (revDSG-Export). Verweist auf `allow_real_client_data`-Gate.
 - [ ] **24.** [OPS] Lizenz-/Quota-Enforcement. **Lösung:** tenants.quotas auswerten (max User/Mandate), Soft-/Hard-Limits, Hinweis-UI.
 - [ ] **25.** [SEC] 2FA-Recovery-Codes. **Lösung:** Beim 2FA-Enrollment Backup-Codes generieren (Hash speichern), Recovery-Flow falls Authenticator verloren.
 - [ ] **26.** [BE] E-Mail-Versand aktiv schalten. **Lösung:** SMTP-Zugang in `start-external.ps1`/Env setzen (Code fertig, `services/mailer.py`); Invite verschickt dann direkt.
@@ -119,7 +119,7 @@ Kontroll-Audit-Fazit: Kernlogik sauber. 1 echter Bug gefunden+gefixt (Engine-Cas
 - [✓] **92.** [OPS] Health-/Readiness-Endpoints. **Bereits vorhanden (verifiziert 2026-06-14):** routers/health.py — /health/live (Liveness), /health/ready (DB-Check, 503 bei Outage), /health/db.
 - [ ] **93.** [QA] Regressionstest SOLL/IST-Achsen-Sync. **Lösung:** headless DOM-Harness: gleiche Labels + gleiche y-min/max nach syncAaProjectionAxisScales.
 - [✓] **94.** [QA] Regressionstest abgeleitete Cashflows in beiden Engine-Pfaden. **Erledigt 2026-06-14:** `test_engine_cashflow_consistency.py` — Quellen-Guard (beide Pfade enthalten derive_wealth_cashflows) + Verhaltensprobe (Hypothek erhöht recurring_expense im Generate-Pfad).
-- [ ] **95.** [DOC] ADR-Refresh. **Lösung:** ADR-007 (Multi-Tenancy jetzt AKTIV), ADR-009 (3-Tier) aktualisieren mit Ist-Stand der Session.
+- [✓] **95.** [DOC] ADR-Refresh. **Erledigt 2026-06-15:** ADR-007 (Multi-Tenancy jetzt AKTIV, App-Level umgesetzt; RLS/Postgres/Encryption offen) + ADR-009 (T1–T5 + externer Zugriff + Compliance-Vorlagen erledigt; Infra-Schicht offen) je um Ist-Stand-Block ergänzt.
 
 ## 🟢 P5 — Politur · Doku · Nice-to-have (96–110)
 
@@ -129,7 +129,7 @@ Kontroll-Audit-Fazit: Kernlogik sauber. 1 echter Bug gefunden+gefixt (Engine-Cas
 - [✓] **99.** [UX] Cashflow-Liste: Gruppierung (Erwerb/Vorsorge/Wohnen). **Erledigt 2026-06-15:** holistische Lebensbereich-Gruppen (Erwerb → Vorsorge → Wohnen → Kapital & Vermögen → Lebenshaltung → Sonstiges) in zufluss/abfluss mit Zwischentotal je Gruppe; abgeleitete Posten via Herkunft (Hypothek/Immobilie→Wohnen, Liquidität→Kapital) korrekt einsortiert; manuelle Drag-Reihenfolge bleibt innerhalb der Gruppe erhalten (sortCashflowsByStoredOrder vor Bucketing). `cashflowLifeArea()`/`renderCashflowGroups()`. Test `test_frontend_cashflow_grouping.py`.
 - [✓] **100.** [UX] Empty-States/Onboarding-Hints. **Erledigt 2026-06-15:** gemeinsamer Helper `journeyEmptyHint()` macht die singulären Journey-Leerzustände (Ziele, Cashflow Ein-/Ausgaben) FÜHREND — sie nennen, was zu erfassen ist und warum es für Strategie/Vermögensverzehr zählt. (Vermögens-Bucket-Leerzustände bewusst knapp gelassen, da pro Kategorie wiederholt.) Test `test_frontend_empty_states.py`.
 - [ ] **101.** [UX] firm-admin eigene Tenant-Branding-Vorschau. **Lösung:** Logo/Farben pro Firma in Team-UI.
-- [ ] **102.** [DOC] Memory-/Roadmap-Konsolidierung. **Lösung:** alte Roadmap (110, 2026-05-28) als „abgeschlossen" markieren, diese als aktuelle Master-Referenz.
+- [✓] **102.** [DOC] Memory-/Roadmap-Konsolidierung. **Erledigt 2026-06-15:** Dieses Dokument (`2026-06-14-roadmap-master.md`) ist die **aktuelle Master-Referenz**; die alte 110er-Roadmap (2026-05-28) gilt als historisch/abgelöst. Status-Tracking erfolgt nur noch hier + in den Memory-Dateien.
 - [ ] **103.** [REPO] Tote/temporäre Dev-Harnesses entfernen. **Lösung:** repro.js, seed_leart.py etc. aufräumen oder klar als dev markieren.
 - [✓] **104.** [UX] Druck-/Export der Vergleichsgrafik. **Erledigt 2026-06-15:** Button „⤓ PNG exportieren" im SOLL/IST-Pop-up → `exportSollIstComparePng()` rendert beide Charts (SOLL links, IST rechts) + Titel + Mehrwert-Banner auf ein weisses Canvas und lädt es als `SOLL-IST-Vergleich-<Name>.png`. Test `test_frontend_sollist_metrics.py`.
 - [ ] **105.** [UX] Barrierefreiheit Charts. **Lösung:** aria-Labels/Tabellen-Fallback für Screenreader.
