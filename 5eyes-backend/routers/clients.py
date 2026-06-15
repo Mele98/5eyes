@@ -23,6 +23,7 @@ from services.auth import (
 )
 from services.audit import log
 from services.cashflow_timeline import totals_for_year
+from services.planning_horizon import life_expectancy_year_for
 from services.wealth_cashflows import derive_wealth_cashflows, mortgage_interest_adjustment_series
 
 router = APIRouter(prefix="/clients", tags=["Kunden"])
@@ -336,14 +337,13 @@ def _derive_cashflow_projection_horizon(
         Projektion MUSS alle vom Berater erfassten Cashflows abdecken (z.B.
         AHV/Verzehr bis 2060), sonst wird der Verzehr abgeschnitten;
       - ``client.investment_horizon_end`` (explizites Stammdatum);
-      - ``Mandate.life_expectancy_year``;
-      - Geburtsjahr + ``PlanningAssumption.life_expectancy_primary``;
-      - Geburtsjahr + 90 (CH-Lebenserwartung, konservativ).
+      - manuell gesetztem ``Mandate.life_expectancy_year``;
+      - sonst Geburtsjahr +83 (Herr) bzw. +85 (sonstige/unbekannt);
+      - bei Paaren dem spaeteren der beiden Lebenserwartungsjahre.
     Fallback ``default_years``.
     """
     from datetime import date as _date
     from models.mandates import Mandate
-    from models.wealth import PlanningAssumption
 
     today_year = _date.today().year
 
@@ -356,7 +356,6 @@ def _derive_cashflow_projection_horizon(
         except ValueError:
             return None
 
-    birth_year = _year(getattr(client, "date_of_birth", None))
     end_years: list[int] = []
 
     # Letztes erfasstes Cashflow-Jahr (valid_until bevorzugt, sonst valid_from) —
@@ -377,28 +376,11 @@ def _derive_cashflow_projection_horizon(
         .first()
     )
     if mandate is not None:
-        if birth_year is None:
-            mb = getattr(mandate, "client_birth_year", None)
-            birth_year = int(mb) if mb else None
-        le_year = getattr(mandate, "life_expectancy_year", None)
-        if le_year and int(le_year) > 0:
-            end_years.append(int(le_year))
-        pa = (
-            db.query(PlanningAssumption)
-            .filter(
-                PlanningAssumption.mandate_id == mandate.id,
-                PlanningAssumption.is_current == 1,
-            )
-            .order_by(PlanningAssumption.valid_from.desc())
-            .first()
-        )
-        if pa is not None and birth_year:
-            le_primary = getattr(pa, "life_expectancy_primary", None)
-            if le_primary and int(le_primary) > 0:
-                end_years.append(birth_year + int(le_primary))
-
-    if birth_year:
-        end_years.append(birth_year + 90)  # CH-Lebenserwartung, konservativ
+        life_year = life_expectancy_year_for(client=client, mandate=mandate)
+    else:
+        life_year = life_expectancy_year_for(client=client)
+    if life_year:
+        end_years.append(life_year)
 
     plausible = [y for y in end_years if y > today_year]
     if plausible:

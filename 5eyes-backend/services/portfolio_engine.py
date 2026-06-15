@@ -45,6 +45,7 @@ from services.cashflow_timeline import (
 )
 from services.wealth_cashflows import derive_wealth_cashflows, mortgage_interest_adjustment_series
 from services.product_market_data import resolve_market_profile, validate_default_product_market_coverage
+from services.planning_horizon import life_expectancy_year_for
 from services.risk_matrix import (
     RiskBudgetExceeded,
     assert_risk_budget_ok,
@@ -1881,20 +1882,21 @@ def _simulation_horizon_years(
     mandate: Mandate | None = None,
 ) -> int:
     raw = (simulation_prefs or {}).get("horizonYears")
+    has_explicit_override = raw not in (None, "", False)
     try:
-        requested = int(str(raw).strip()) if raw not in (None, "", False) else DEFAULT_SIMULATION_HORIZON_YEARS
+        requested = int(str(raw).strip()) if has_explicit_override else DEFAULT_SIMULATION_HORIZON_YEARS
     except (TypeError, ValueError):
         requested = DEFAULT_SIMULATION_HORIZON_YEARS
+        has_explicit_override = False
     goal_horizon = max((int(goal.horizon_years or 0) for goal in goals), default=0)
-    # Sprint A3: Lebenserwartung als Untergrenze fuer den Horizont. Damit
-    # MC-Pfade lang genug sind, um Pension + Vermoegensverzehr zu simulieren.
-    life_horizon = 0
-    if mandate is not None and getattr(mandate, "life_expectancy_year", None):
-        from datetime import date
-        try:
-            life_horizon = max(0, int(mandate.life_expectancy_year) - date.today().year)
-        except (TypeError, ValueError):
-            life_horizon = 0
+
+    # Ein expliziter Berater-Horizont hat Vorrang vor der automatischen
+    # Lebenserwartung. Zielhorizonte werden dennoch nicht abgeschnitten.
+    if has_explicit_override:
+        return max(7, requested, goal_horizon)
+
+    life_year = life_expectancy_year_for(mandate=mandate)
+    life_horizon = max(0, life_year - date.today().year + 1) if life_year else 0
     return max(7, requested, goal_horizon, life_horizon)
 
 
@@ -2924,6 +2926,8 @@ def _monte_carlo_goal_summary(
     goal_type = _norm_text(goal.goal_type)
     hardness_key = _goal_hardness_key(goal)
     evaluation_note = None
+    target = 0
+    outside_simulation_horizon = False
 
     # B5: Score = alpha * success_rate_pct + (1-alpha) * funded_ratio_pct
     # Pro Goal-Typ: success_rate_pct (binaer/MC) und funded_ratio_pct als
@@ -2949,6 +2953,7 @@ def _monte_carlo_goal_summary(
                 success_rate_pct = 0
                 funded_ratio_p50 = 0.0
                 score = 0
+                outside_simulation_horizon = True
                 evaluation_note = f"Ziel liegt ausserhalb des aktuellen Simulationshorizonts (Horizont: {horizon_years} Jahre)."
             else:
                 target *= duration
@@ -2994,12 +2999,46 @@ def _monte_carlo_goal_summary(
         funded_ratio_p50 = round(p50 / target, 4)
         score = max(0, min(100, int(round((_percentile(annualized_return_samples_bps, 0.50) / 100))))) if annualized_return_samples_bps else 50
 
+    # PAR-3/PAR-6: 3eyes-kompatible Anzeige. Die Zielerreichung ist
+    # effektiv/gewuenscht im Median, auf 100 % gedeckelt. Der pessimistische
+    # CHF-Fehlbetrag basiert auf dem P10-Pfad. Beim Renditeziel wird die
+    # Rendite in ein implizites Endvermoegen umgerechnet, damit die Differenz
+    # ebenfalls als CHF-Betrag ausweisbar ist.
+    if goal_type == "Renditeziel":
+        if target <= 0:
+            median_achievement_pct = 100
+            pessimistic_shortfall_rappen = 0
+        else:
+            median_achievement_pct = max(0, min(100, int(round(funded_ratio_p50 * 100))))
+            pessimistic_return_bps = (
+                _percentile(annualized_return_samples_bps, 0.10)
+                if annualized_return_samples_bps
+                else -10000
+            )
+            desired_growth = max(0.0, 1.0 + target / 10000.0) ** index
+            pessimistic_growth = max(0.0, 1.0 + pessimistic_return_bps / 10000.0) ** index
+            desired_value = int(round(max(0, advisory_wealth_rappen) * desired_growth))
+            pessimistic_value = int(round(max(0, advisory_wealth_rappen) * pessimistic_growth))
+            pessimistic_shortfall_rappen = max(0, desired_value - pessimistic_value)
+    elif goal_type == "Maximierung":
+        median_achievement_pct = 100
+        pessimistic_shortfall_rappen = 0
+    else:
+        median_achievement_pct = max(0, min(100, int(round(funded_ratio_p50 * 100))))
+        pessimistic_shortfall_rappen = (
+            max(0, int(target))
+            if outside_simulation_horizon
+            else max(0, int(target) - int(p10))
+        )
+
     return {
         "goal_id": goal.id,
         "label": goal.label,
         "years": index,
         "success_rate_pct": success_rate_pct,
         "funded_ratio_p50": funded_ratio_p50,
+        "median_achievement_pct": median_achievement_pct,
+        "pessimistic_shortfall_rappen": pessimistic_shortfall_rappen,
         "projected_value_p10_rappen": p10,
         "projected_value_p50_rappen": p50,
         "projected_value_p90_rappen": p90,
@@ -3266,6 +3305,20 @@ def _run_allocation_monte_carlo(
         )
         for goal in goals
     ]
+    current_goal_summaries = [
+        _monte_carlo_goal_summary(
+            goal,
+            path_values_by_year=current_by_year,
+            annualized_return_samples_bps=current_annualized_returns,
+            inflation_series_bps=goal_inflation_series_bps,
+            advisory_wealth_rappen=advisory_wealth_rappen,
+            total_wealth_rappen=total_wealth_rappen,
+            start_year=start_year,
+            horizon_years=horizon_years,
+            policy=policy,
+        )
+        for goal in goals
+    ]
 
     target_terminal_values = target_by_year[-1]
     downside_probability_pct = int(round(sum(1 for value in target_terminal_values if value < target_start_total) / max(1, len(target_terminal_values)) * 100))
@@ -3326,15 +3379,21 @@ def _run_allocation_monte_carlo(
         "target_max_drawdown_p95_bps": _percentile(target_max_drawdowns, 0.95),
         "target_downside_probability_pct": downside_probability_pct,
         "goal_summaries": goal_summaries,
+        "current_goal_summaries": current_goal_summaries,
     }
 
 
-def _merge_goal_analysis_with_monte_carlo(goal_analysis: list[dict], monte_carlo: dict | None) -> list[dict]:
+def _merge_goal_analysis_with_monte_carlo(
+    goal_analysis: list[dict],
+    monte_carlo: dict | None,
+    *,
+    summaries_key: str = "goal_summaries",
+) -> list[dict]:
     if not monte_carlo:
         return goal_analysis
     summaries = {
         item["goal_id"]: item
-        for item in (monte_carlo.get("goal_summaries") or [])
+        for item in (monte_carlo.get(summaries_key) or [])
         if item.get("goal_id")
     }
     merged = []
@@ -3348,8 +3407,11 @@ def _merge_goal_analysis_with_monte_carlo(goal_analysis: list[dict], monte_carlo
                 **item,
                 "achievement_score": int(summary.get("score", item.get("achievement_score") or 0)),
                 "status": "On Track" if int(summary.get("score", 0)) >= 70 else ("Pruefen" if int(summary.get("score", 0)) >= 45 else "Gefaehrdet"),
+                "success_rate_pct": int(summary.get("success_rate_pct") or 0),
                 "path_success_rate_pct": int(summary.get("success_rate_pct") or 0),
                 "funded_ratio_p50": float(summary.get("funded_ratio_p50") or 0),
+                "median_achievement_pct": int(summary.get("median_achievement_pct") or 0),
+                "pessimistic_shortfall_rappen": max(0, int(summary.get("pessimistic_shortfall_rappen") or 0)),
                 "projected_value_p10_rappen": int(summary.get("projected_value_p10_rappen") or 0),
                 "projected_value_p50_rappen": int(summary.get("projected_value_p50_rappen") or 0),
                 "projected_value_p90_rappen": int(summary.get("projected_value_p90_rappen") or 0),
@@ -3809,12 +3871,12 @@ def ensure_runtime_reference_data(db: Session, user_id: str) -> tuple[OptimizerP
     # den Cap überschreiten, sonst triggert der Engine-Fallback den
     # Liquiditäts-Cascade (siehe _SAA_LIQUIDITY_HARD_CAP_BPS-Block).
     defaults = _normalize_house_matrix_defaults([
-        (1, 2, "Kapitalschutz", 0, 300, 800, 6500, 7500, 8500, 500, 1200, 2000, 0, 500, 1000, 0, 500, 500, 3000, 0),
-        (3, 4, "Defensiv", 0, 200, 500, 5000, 6000, 7000, 1500, 2500, 3000, 500, 1000, 1500, 0, 300, 800, 4500, 0),
-        (5, 6, "Ausgewogen", 0, 200, 300, 2500, 3500, 4500, 4000, 4800, 5500, 500, 1000, 1500, 300, 500, 800, 6000, 0),
-        (7, 8, "Wachstumsorientiert", 0, 150, 200, 1000, 1600, 2500, 6000, 6800, 7500, 500, 800, 1200, 300, 600, 1000, 8000, 6000),
-        (9, 9, "Dynamisch", 0, 100, 200, 500, 800, 1500, 7500, 8000, 8500, 300, 700, 1000, 200, 400, 600, 9000, 7500),
-        (10, 10, "Aktien", 0, 100, 200, 0, 200, 500, 8500, 9000, 9500, 200, 500, 800, 0, 200, 500, 10000, 8500),
+        (1, 2, "Kapitalschutz", 0, 300, 800, 6500, 7500, 8500, 500, 1200, 2000, 0, 500, 2000, 0, 500, 500, 3000, 0),
+        (3, 4, "Defensiv", 0, 200, 500, 5000, 6000, 7000, 1500, 2500, 3000, 500, 1000, 2000, 0, 300, 800, 4500, 0),
+        (5, 6, "Ausgewogen", 0, 200, 300, 2500, 3500, 4500, 4000, 4800, 5500, 500, 1000, 2000, 300, 500, 800, 6000, 0),
+        (7, 8, "Wachstumsorientiert", 0, 150, 200, 1000, 1600, 2500, 6000, 6800, 7500, 500, 800, 2000, 300, 600, 1000, 8000, 6000),
+        (9, 9, "Dynamisch", 0, 100, 200, 500, 800, 1500, 7500, 8000, 8500, 300, 700, 2000, 200, 400, 600, 9000, 7500),
+        (10, 10, "Aktien", 0, 100, 200, 0, 200, 500, 8500, 9000, 9500, 200, 500, 2000, 0, 200, 500, 10000, 8500),
     ])
     building_blocks = [
         ("Aktien", "Aktien Schweiz", 7000),
@@ -6037,6 +6099,11 @@ def generate_target_allocation(
         total_summary=total_summary,
         total_liabilities_rappen=total_liabilities_rappen,
     )
+    current_goal_analysis = _merge_goal_analysis_with_monte_carlo(
+        goal_analysis,
+        monte_carlo,
+        summaries_key="current_goal_summaries",
+    )
     goal_analysis = _merge_goal_analysis_with_monte_carlo(goal_analysis, monte_carlo)
     reasoning.append("Eine Pfadsimulation mit normalverteilten Jahresrenditen quantifiziert Zielwahrscheinlichkeit, Verlustband und Rebalancing-Risiko.")
 
@@ -6325,6 +6392,7 @@ def generate_target_allocation(
         "simulation": simulation,
         "monte_carlo": monte_carlo,
         "goal_analysis": goal_analysis,
+        "current_goal_analysis": current_goal_analysis,
         "mandate_score": _build_mandate_score(goal_analysis),
         # Phase 6: Stress-Auswertungen fuer FE-Optimizer-Panel.
         # V3 Sprint 1: Im Shadow-Modus nicht im Top-Level stress_evaluations
@@ -6796,6 +6864,11 @@ def build_target_payload_from_allocation(
         total_summary=total_summary,
         total_liabilities_rappen=total_liabilities_rappen,
     )
+    current_goal_analysis = _merge_goal_analysis_with_monte_carlo(
+        goal_analysis,
+        monte_carlo,
+        summaries_key="current_goal_summaries",
+    )
     goal_analysis = _merge_goal_analysis_with_monte_carlo(goal_analysis, monte_carlo)
     bucket_response = []
     current_amounts = advisory_summary.amounts_rappen
@@ -6974,6 +7047,7 @@ def build_target_payload_from_allocation(
         "simulation": simulation,
         "monte_carlo": monte_carlo,
         "goal_analysis": goal_analysis,
+        "current_goal_analysis": current_goal_analysis,
         "live_rebalancing": live_rebalancing,
         "stress_evaluations": stress_evaluations,
     }

@@ -187,11 +187,31 @@ def _make_client_full(session_factory, advisor_id: str, **fields) -> str:
 
 
 def test_horizon_derives_to_life_end_from_birthdate(session_factory, auth_client, advisor_user):
-    """Ohne Override: Geburtsjahr + 90 (CH-Lebenserwartung) -> Projektion bis Lebensende."""
-    cid = _make_client_full(session_factory, advisor_user.id, date_of_birth="1970-05-01")
+    """Ohne Override: unbekannte Anrede nutzt konservativ Geburtsjahr +85."""
+    cid = _make_client_full(
+        session_factory,
+        advisor_user.id,
+        date_of_birth="1970-05-01",
+    )
     rows = auth_client.get(f"/clients/{cid}/cashflow-projection").json()["years"]
-    # 1970 + 90 = 2060, inklusive -> letztes Projektionsjahr ist 2060
-    assert rows[-1]["year"] == 2060
+    assert rows[-1]["year"] == 2055
+
+
+def test_horizon_for_couple_uses_later_calendar_life_expectancy(
+    session_factory, auth_client, advisor_user,
+):
+    cid = _make_client_full(
+        session_factory,
+        advisor_user.id,
+        date_of_birth="1960-03-20",
+        salutation="Herr",
+        partner_date_of_birth="1955-04-10",
+        partner_salutation="Frau",
+        household_type="Paar",
+    )
+    rows = auth_client.get(f"/clients/{cid}/cashflow-projection").json()["years"]
+    # Mann: 2043, Frau: 2040. Der Haushalt wird nicht 2040 abgeschnitten.
+    assert rows[-1]["year"] == 2043
 
 
 def test_horizon_uses_investment_horizon_end_without_birthdate(session_factory, auth_client, advisor_user):
@@ -231,10 +251,10 @@ def _add_cashflow_dated(session_factory, client_id, amount_rappen, cf_type,
 
 def test_horizon_covers_all_cashflows_beyond_life_expectancy(session_factory, auth_client, advisor_user):
     """Leart-Szenario: AHV/Verzehr laufen via valid_until ueber die reine
-    Lebenserwartung (Geburt+90) hinaus -> die Projektion MUSS bis zum letzten
+    Lebenserwartung (Geburt+85) hinaus -> die Projektion MUSS bis zum letzten
     Cashflow-Jahr reichen, sonst wird der Vermoegensverzehr abgeschnitten."""
     cid = _make_client_full(session_factory, advisor_user.id, date_of_birth="1965-01-01")
-    # Geburt 1965 + 90 = 2055; Cashflow laeuft aber bis 2060.
+    # Geburt 1965 + 85 = 2050; Cashflow laeuft aber bis 2060.
     _add_cashflow_dated(session_factory, cid, 3_500_000, "Income",
                         valid_from="2030-01-01", valid_until="2060-01-01")
     rows = auth_client.get(f"/clients/{cid}/cashflow-projection").json()["years"]

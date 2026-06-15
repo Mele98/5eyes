@@ -832,6 +832,59 @@ def ensure_tenant_backfill(engine_to_use=None) -> None:
         pass
 
 
+_LEGACY_HOUSE_MATRIX_REAL_ESTATE_MAX = {
+    "Kapitalschutz": 1000,
+    "Defensiv": 1500,
+    "Ausgewogen": 1500,
+    "Wachstumsorientiert": 1200,
+    # Bestehende Datenbanken koennen noch den historischen Kurznamen tragen.
+    "Wachstum": 1200,
+    "Dynamisch": 1000,
+    "Aktien": 800,
+}
+
+
+def migrate_house_matrix_real_estate_cap_20(engine_to_use=None) -> int:
+    """Hebt nur unveraenderte Legacy-Defaults auf die neue 20%-Obergrenze.
+
+    Bewusst kein pauschales UPDATE: individuell konfigurierte House-Matrix-
+    Zeilen bleiben erhalten. Die Zielquote wird nicht veraendert.
+    """
+    eng = engine_to_use if engine_to_use is not None else engine
+    updated = 0
+    try:
+        with eng.begin() as conn:
+            for profile_name, legacy_max_bps in _LEGACY_HOUSE_MATRIX_REAL_ESTATE_MAX.items():
+                result = conn.execute(
+                    text(
+                        """
+                        UPDATE house_matrix
+                        SET real_estate_max_bps = 2000,
+                            updated_at = CURRENT_TIMESTAMP
+                        WHERE is_active = 1
+                          AND profile_name = :profile_name
+                          AND real_estate_max_bps = :legacy_max_bps
+                          AND policy_id IN (
+                              SELECT id
+                              FROM optimizer_policies
+                              WHERE is_current = 1
+                                AND max_real_estate_bps >= 2000
+                          )
+                        """
+                    ),
+                    {
+                        "profile_name": profile_name,
+                        "legacy_max_bps": legacy_max_bps,
+                    },
+                )
+                if result.rowcount and result.rowcount > 0:
+                    updated += int(result.rowcount)
+    except Exception:
+        # Boot-Robustheit: eine alte/partielle DB darf den Start nicht stoppen.
+        return 0
+    return updated
+
+
 def init_db() -> None:
     if settings.db_bootstrap_schema_on_startup:
         bootstrap_sqlite_schema(db_path=settings.db_path, db_key=getattr(settings, 'db_key', None))
@@ -841,6 +894,7 @@ def init_db() -> None:
 
     Base.metadata.create_all(bind=engine)
     ensure_runtime_columns()
+    migrate_house_matrix_real_estate_cap_20()
     ensure_snapshot_tables()
     from services.market_data.provider_health_registry import ensure_provider_health_table
     ensure_provider_health_table(engine)
