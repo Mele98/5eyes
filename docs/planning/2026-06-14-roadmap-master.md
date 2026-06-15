@@ -99,7 +99,7 @@ Kontroll-Audit-Fazit: Kernlogik sauber. 1 echter Bug gefunden+gefixt (Engine-Cas
 - [ ] **75.** [UX] Intro/Loading-Screen CI-themebar. **Lösung:** Cooperate-Identity-Hook (Farben/Logo per Tenant), bestehender Intro-Screen.
 - [ ] **76.** [UX] Admin-Menü-Redesign (Auftrag 2026-06-10). **Lösung:** 17 Sektionen System-Administration auditieren (works vs placeholder) + userfriendlicher gruppieren.
 - [ ] **77.** [FE] Logo/Branding final (alt #92). **Lösung:** Inline-SVG-Wordmark vorhanden; finalen Asset/CI-Entscheid des Users einarbeiten. Wartet auf User.
-- [ ] **78.** [DOC] User-Doku / Berater-Handbuch. **Lösung:** Kurzanleitung Workflow SD→CF/Ziele→RP→SAA→PO + neue Features (SOLL/IST, abgeleitete Cashflows).
+- [✓] **78.** [DOC] User-Doku / Berater-Handbuch. **Erledigt 2026-06-15:** `docs/handbook/berater-handbuch.md` — Workflow SD→CF/Ziele→RP→SAA→PO, Strategie lesen (P90/P10/Sharpe), SOLL/IST-Vergleich + PNG, Horizont, Prinzipien, externer Zugriff/2FA, Compliance-Bezug.
 
 ## 🟢 P4 — QA · CI · OPS-Härtung (79–95)
 
@@ -136,7 +136,7 @@ Kontroll-Audit-Fazit: Kernlogik sauber. 1 echter Bug gefunden+gefixt (Engine-Cas
 - [ ] **106.** [DATA] ETF-Scraper-Robustheit. **Lösung:** justetf/swissfunddata-Fallbacks + Health-Alerts (vorhanden) überwachen.
 - [✓] **107.** [BE] Invite-Resend-Rate-Limit. **Erledigt 2026-06-14:** resend_invite drosselt pro Ziel-User (login_attempt_guard, 429+Retry-After). Test grün.
 - [✓] **108.** [UX] 2FA-Setup: „Secret kopieren"-Button. **Erledigt 2026-06-14:** Copy-Button neben dem Text-Secret (`do2faCopySecret`, clipboard) + Erfolgs-/Fehlermeldung.
-- [ ] **109.** [DOC] Disaster-Recovery-Plan. **Lösung:** RTO/RPO, Restore-Drill, Off-Site-Backup-Wiederherstellung dokumentieren.
+- [✓] **109.** [DOC] Disaster-Recovery-Plan. **Erledigt 2026-06-15:** `docs/deploy/disaster-recovery-plan.md` — RTO/RPO-Matrix, Backup-Strategie, Restore-Prozedur, **Pflicht-Restore-Drill** (quartalsweise, mit Protokoll-Tabelle), Rollen/Eskalation.
 - [ ] **110.** [UX] Performance-Wahrnehmung: Skeletons/Spinner. **Lösung:** Ladezustände für Strategie-Berechnung + Charts (teilweise vorhanden) vereinheitlichen.
 
 ---
