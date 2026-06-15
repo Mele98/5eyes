@@ -18,6 +18,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from pypdf import PdfReader
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -251,6 +252,47 @@ def test_document_compose_voll_befuellt_render_pdf_bytes():
     assert pdf_bytes[:4] == b"%PDF"
     # Sanity: > 5kB sind realistisch fuer ein 2-Seiten-Dokument
     assert len(pdf_bytes) > 5000
+
+
+def test_standalone_full_cost_disclosure_stays_on_two_pages():
+    """Cover + disclosure must not orphan the total row on a third page."""
+    from io import BytesIO
+
+    from services.pdf.reportlab_renderer import ReportLabRenderer
+
+    payload = _full_payload()
+    payload["cost_items"].append({
+        "key": "transaction_costs",
+        "label": "Geschaetzs- und Transaktionskosten",
+        "category": "Transaktionskosten",
+        "frequency": "einmalig",
+        "rate_bps": 15,
+        "amount_rappen": 1_500_00,
+        "basis_rappen": 1_000_000_00,
+        "basis_label": "Empfohlenes Produktvolumen",
+        "source": "Konservative Schaetzung",
+        "is_estimate": True,
+        "included_in_total": True,
+    })
+    payload["warnings"] = [
+        "Transaktionskosten sind mangels produktspezifischer Angaben geschaetzt."
+    ]
+    payload["has_estimates"] = True
+    payload["totals"].update({
+        "one_time_rappen": 1_500_00,
+        "one_time_bps": 15,
+        "first_year_rappen": 9_000_00,
+        "first_year_bps": 90,
+    })
+
+    data = CostDisclosurePDFData(
+        mandate_number="M-1",
+        advisory_wealth_rappen=1_000_000_00,
+        payload=payload,
+    )
+    pdf_bytes = ReportLabRenderer().render_cost_disclosure(_ctx(), data)
+
+    assert len(PdfReader(BytesIO(pdf_bytes)).pages) == 2
 
 
 def test_renderer_method_existiert():

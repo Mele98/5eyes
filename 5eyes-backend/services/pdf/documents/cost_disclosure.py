@@ -17,7 +17,6 @@ from typing import Any, Mapping
 from reportlab.platypus import PageBreak
 
 from services.pdf.base import CostDisclosurePDFData, PDFContext
-from services.pdf.components.header import make_wealtharchitekten_header
 from services.pdf.components.kostenausweis import build_kostenausweis_flowables
 from services.pdf.components.single_report_disclaimer import make_single_report_cover
 from services.pdf.components.advisory_palette import make_advisory_styles
@@ -50,15 +49,12 @@ def build_cost_disclosure_flowables(
     ))
     flowables.append(PageBreak())
 
-    flowables.extend(make_wealtharchitekten_header(
-        ctx,
-        mandate_number=data.mandate_number,
-        advisory_wealth_label=advisory_label,
-        document_title="Ex-ante Kostenausweis",
-    ))
-
     styles = make_advisory_styles()
-    flowables.extend(build_kostenausweis_flowables(data.payload, styles))
+    flowables.extend(build_kostenausweis_flowables(
+        data.payload,
+        styles,
+        compact=True,
+    ))
 
     return flowables
 
