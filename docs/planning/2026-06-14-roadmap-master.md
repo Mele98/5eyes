@@ -53,9 +53,9 @@ Kontroll-Audit-Fazit: Kernlogik sauber. 1 echter Bug gefunden+gefixt (Engine-Cas
 - [✓] **32.** [ENG] Hypothek-Laufzeitende. **Durch #31 gelöst (User-Entscheid):** kein Stopp am maturity_date, sondern Refinanzierung mit 3% (Fix nach Ablauf, SARON nach 5J) — in `mortgage_interest_schedule` umgesetzt.
 - [ ] **33.** [ENG] `goal_scope`="Gesamtvermögen" engine-seitig. **Lösung:** Ziele mit Scope Gesamtvermögen gegen total_wealth statt advisory bewerten (heute bewusst Metadaten); Risiko der Wachstumsannahmen externer Assets dokumentieren.
 - [ ] **34.** [ENG] Miete inflationsindexiert (optional). **Lösung:** Pro Immobilie Flag „Miete inflationsgebunden"; abgeleiteter Mietertrag dann is_inflation_linked=1.
-- [ ] **35.** [FE/ENG] Sharpe-/Rendite-Risiko-Kennzahl im Vergleich. **Lösung:** (Rendite − risikofrei) / Volatilität pro Spalte SOLL/IST in die Kennzahlen-Tabelle.
+- [✓] **35.** [FE/ENG] Sharpe-/Rendite-Risiko-Kennzahl im Vergleich. **Erledigt 2026-06-15:** Zeile „Rendite/Risiko (Sharpe)" je Spalte SOLL/IST in der Kennzahlen-Tabelle = (P50-Rendite − risk-free 80 bps = liquidity_return_bps) / MC-1J-Vola, Besser/Schlechter-Färbung. Test `test_frontend_sollist_metrics.py`.
 - [ ] **36.** [FE/ENG] Ziel-Erfolgswahrscheinlichkeit SOLL vs IST. **Lösung:** MC-Erreichungswahrscheinlichkeit je Ziel für beide Pfade nebeneinander.
-- [ ] **37.** [FE] Best/Worst-Endwert je Spalte. **Lösung:** P90/P10-Endwerte zusätzlich zu Median in der Vergleichstabelle.
+- [✓] **37.** [FE] Best/Worst-Endwert je Spalte. **Erledigt 2026-06-15:** Zeilen „Endwert optimistisch (P90)" + „Endwert pessimistisch (P10)" je Spalte SOLL/IST (letztes Element der target/current_p90/p10_series_rappen), Besser-Färbung. Test `test_frontend_sollist_metrics.py`.
 - [ ] **38.** [BE/UX] Doppelerfassungs-Warnung Cashflow. **Lösung:** Beim manuellen Anlegen prüfen, ob ein abgeleiteter Posten gleicher Art existiert → Hinweis (kein Hard-Block, User wählte „beide zeigen").
 - [ ] **39.** [TAX] Steuer in Netto-Rendite/Cashflow. **Lösung:** Vermögens-/Einkommenssteuer-Schätzung (CH-Plugin vorhanden) in Cashflow-Projektion als wiederkehrende Ausgabe optional einrechnen.
 - [ ] **40.** [TAX] Weitere Länder via SDK (FR/US/IT/DE/AT). **Lösung:** Tax-SDK (vorhanden, `services/tax/sdk.py`) — pro Land Plugin nach Conformance-Contract; inhouse oder externes pip-Paket.
@@ -71,7 +71,7 @@ Kontroll-Audit-Fazit: Kernlogik sauber. 1 echter Bug gefunden+gefixt (Engine-Cas
 - [ ] **50.** [DATA] Marktdaten-Provider-Health-Dashboard. **Lösung:** bestehende HealthState + Provider-Validierung in Admin-UI sichtbar machen.
 - [ ] **51.** [DATA] CMA-Werte-Pflegeprozess. **Lösung:** Kapitalmarktannahmen versionieren, konservative Defaults (Maxime tieferer Wert), Quelle/Datum dokumentieren.
 - [ ] **52.** [ENG] Vermögensverzehr-Sockel verfeinern. **Lösung:** Immobilie indexiert (sockelIndexBps), verzehrbares Finanzvermögen mit konservativer Drawdown-Rendite; an Leart geeicht.
-- [ ] **53.** [FE] Cashflow-Editor: abgeleitete Posten „im Vermögen bearbeiten"-Sprung. **Lösung:** Klick auf AUTO-Zeile öffnet die zugehörige Vermögensposition.
+- [✓] **53.** [FE] Cashflow-Editor: abgeleitete Posten „im Vermögen bearbeiten"-Sprung. **Erledigt 2026-06-15:** AUTO-Zeile ist klickbar (wenn `origin_position_id` bekannt) → `jumpToWealthPosition()` navigiert zu Seite «Vermögen» (`go('vg')`), scrollt zur Position (`.wr[data-posid]`) und hebt sie kurz hervor. Test `test_frontend_derived_cashflow_jump.py`.
 - [ ] **54.** [BE] Wealth-Inflows-UI vervollständigen. **Lösung:** Erbschaft/Bonus/3b/Verkaufserlös als first-class FE-Eingabe (Modell vorhanden), Marker im Chart.
 - [ ] **55.** [ENG] Mehrjahres-Cashflow-Editor (Phasen). **Lösung:** Lohn endet/AHV beginnt sauber (valid_until inklusiv beachten), Verzehrphasen modellieren.
 - [ ] **56.** [FINMA] Kostenausweis Ex-ante (#67). **Lösung:** Codex-Auftrag — Ex-ante-Kosten im PDF/Endpoint, konservative CMA, keine Dritt-Marken. Status bei Codex.
@@ -126,12 +126,12 @@ Kontroll-Audit-Fazit: Kernlogik sauber. 1 echter Bug gefunden+gefixt (Engine-Cas
 - [ ] **96.** [UX] Tooltip-Caret-Position im Cross-Hover feinjustieren. **Lösung:** falls Tooltip leicht verrutscht: Position auf oberste Linie/zentriert klemmen.
 - [✓] **97.** [UX] Mehrwert-Delta im Pop-up. **Erledigt 2026-06-14:** prominentes Banner oben im SOLL/IST-Pop-up — „Beratungs-Mehrwert bis <Jahr>: +CHF X (Hauptszenario SOLL gegenüber heutigem Mix)", grün/warn-farbig.
 - [✓] **98.** [UX] Kennzahlen-Tabelle: farbliche Besser/Schlechter-Markierung. **Erledigt 2026-06-14:** `_colorBetter()` färbt SOLL-Zelle grün/warn je Kennzahl (Ertrag höher=besser, Risiko tiefer=besser), aus Roh-MC-Werten.
-- [ ] **99.** [UX] Cashflow-Liste: Gruppierung (Erwerb/Vorsorge/Wohnen). **Lösung:** Kategorien-Header in zufluss/abfluss.
-- [ ] **100.** [UX] Empty-States/Onboarding-Hints. **Lösung:** klare Hinweise wenn Vermögen/Cashflow/Profil fehlt.
+- [✓] **99.** [UX] Cashflow-Liste: Gruppierung (Erwerb/Vorsorge/Wohnen). **Erledigt 2026-06-15:** holistische Lebensbereich-Gruppen (Erwerb → Vorsorge → Wohnen → Kapital & Vermögen → Lebenshaltung → Sonstiges) in zufluss/abfluss mit Zwischentotal je Gruppe; abgeleitete Posten via Herkunft (Hypothek/Immobilie→Wohnen, Liquidität→Kapital) korrekt einsortiert; manuelle Drag-Reihenfolge bleibt innerhalb der Gruppe erhalten (sortCashflowsByStoredOrder vor Bucketing). `cashflowLifeArea()`/`renderCashflowGroups()`. Test `test_frontend_cashflow_grouping.py`.
+- [✓] **100.** [UX] Empty-States/Onboarding-Hints. **Erledigt 2026-06-15:** gemeinsamer Helper `journeyEmptyHint()` macht die singulären Journey-Leerzustände (Ziele, Cashflow Ein-/Ausgaben) FÜHREND — sie nennen, was zu erfassen ist und warum es für Strategie/Vermögensverzehr zählt. (Vermögens-Bucket-Leerzustände bewusst knapp gelassen, da pro Kategorie wiederholt.) Test `test_frontend_empty_states.py`.
 - [ ] **101.** [UX] firm-admin eigene Tenant-Branding-Vorschau. **Lösung:** Logo/Farben pro Firma in Team-UI.
 - [ ] **102.** [DOC] Memory-/Roadmap-Konsolidierung. **Lösung:** alte Roadmap (110, 2026-05-28) als „abgeschlossen" markieren, diese als aktuelle Master-Referenz.
 - [ ] **103.** [REPO] Tote/temporäre Dev-Harnesses entfernen. **Lösung:** repro.js, seed_leart.py etc. aufräumen oder klar als dev markieren.
-- [ ] **104.** [UX] Druck-/Export der Vergleichsgrafik. **Lösung:** SOLL/IST-Pop-up als PNG/PDF exportierbar fürs Kundengespräch.
+- [✓] **104.** [UX] Druck-/Export der Vergleichsgrafik. **Erledigt 2026-06-15:** Button „⤓ PNG exportieren" im SOLL/IST-Pop-up → `exportSollIstComparePng()` rendert beide Charts (SOLL links, IST rechts) + Titel + Mehrwert-Banner auf ein weisses Canvas und lädt es als `SOLL-IST-Vergleich-<Name>.png`. Test `test_frontend_sollist_metrics.py`.
 - [ ] **105.** [UX] Barrierefreiheit Charts. **Lösung:** aria-Labels/Tabellen-Fallback für Screenreader.
 - [ ] **106.** [DATA] ETF-Scraper-Robustheit. **Lösung:** justetf/swissfunddata-Fallbacks + Health-Alerts (vorhanden) überwachen.
 - [✓] **107.** [BE] Invite-Resend-Rate-Limit. **Erledigt 2026-06-14:** resend_invite drosselt pro Ziel-User (login_attempt_guard, 429+Retry-After). Test grün.

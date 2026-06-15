@@ -2292,7 +2292,7 @@ async function doInviteAccept(){
 <!-- E1 (2026-06-14): SOLL-vs-IST Vergleichs-Modal (gross, beide Grafiken sichtbar,
      synchroner Hover). Eine versteckte Grafik kann nicht syncen -> hier beide gross. -->
 <div id="m-sollist" class="overlay"><div class="modal" style="max-width:96vw;width:96vw;height:92vh;display:flex;flex-direction:column">
-  <div class="mhd"><div class="mtitle">Vergleich: SOLL-Strategie vs. heutige IST-Situation</div><button class="mx" onclick="closeSollIstCompare()">&#10005;</button></div>
+  <div class="mhd"><div class="mtitle">Vergleich: SOLL-Strategie vs. heutige IST-Situation</div><div style="display:flex;gap:8px;align-items:center"><button type="button" class="btn" style="font-size:11px;padding:4px 12px" onclick="exportSollIstComparePng()" title="Beide Grafiken als PNG-Bild fürs Kundengespräch speichern">&#10515; PNG exportieren</button><button class="mx" onclick="closeSollIstCompare()">&#10005;</button></div></div>
   <div id="m-sollist-delta" style="display:none;font-size:13px;font-weight:700;color:var(--pos);background:rgba(22,101,52,0.08);border:1px solid rgba(22,101,52,0.18);border-radius:8px;padding:8px 12px;margin:0 4px 8px"></div>
   <div style="font-size:11px;color:var(--n6);padding:0 4px 8px;line-height:1.5">Gleiche Achsen, gleicher Horizont. Fahre über eine Kurve — die andere Grafik zeigt zeitgleich Best&nbsp;/&nbsp;Haupt&nbsp;/&nbsp;Worst desselben Jahres. Der Abstand SOLL&nbsp;&minus;&nbsp;IST ist der Beratungs-Mehrwert (heute brachliegendes Cash wird investiert).</div>
   <div style="flex:1;display:grid;grid-template-columns:1fr 1fr;gap:14px;min-height:0">
@@ -2348,17 +2348,26 @@ function _renderSollIstCompare(){
     var labels=(lblA.length>=lblO.length?lblA:lblO).slice();
     var sollDs=_cloneDatasets(charts.opt.data.datasets);
     var istDs=_cloneDatasets(charts.aaCurrent.data.datasets);
+    // 2026-06-15 FIX: Die X-Achse (labels) muss MINDESTENS so lang sein wie die
+    // längste gezeichnete Datenreihe — sonst endet die Achse vor der Kurve
+    // (Bug: Achse bis 2036, Linie bis 2066). Labels sind Jahre -> fortschreiben.
+    var _maxLen=labels.length;
+    [sollDs,istDs].forEach(function(dss){dss.forEach(function(d){if(Array.isArray(d.data))_maxLen=Math.max(_maxLen,d.data.length);});});
+    if(labels.length<_maxLen){
+      var _ly=parseInt(String(labels[labels.length-1]||'').slice(0,4),10);
+      if(!isFinite(_ly)) _ly=(new Date().getFullYear())+labels.length-1;
+      while(labels.length<_maxLen){ _ly+=1; labels.push(String(_ly)); }
+    }
     var vals=[];
     [sollDs,istDs].forEach(function(dss){dss.forEach(function(d){(d.data||[]).forEach(function(v){var n=Number(v);if(isFinite(n))vals.push(n);});});});
-    var yMin=null,yMax=null;
+    var axisCfg=null;
     if(vals.length){
-      var mn=Math.min.apply(null,vals),mx=Math.max.apply(null,vals),sp=Math.max(1,mx-mn);
-      yMin=Math.max(0,Math.floor((mn-sp*0.08)/50)*50);yMax=Math.ceil((mx+sp*0.08)/50)*50;
+      axisCfg=_projAxisConfig(Math.min.apply(null,vals), Math.max.apply(null,vals));
     }
     var elS=document.getElementById('ch-sollist-soll'), elI=document.getElementById('ch-sollist-ist');
     if(!elS||!elI)return;
-    var optS=_sollistOptions(); if(yMin!=null){optS.scales.y.min=yMin;optS.scales.y.max=yMax;}
-    var optI=_sollistOptions(); if(yMin!=null){optI.scales.y.min=yMin;optI.scales.y.max=yMax;}
+    var optS=_sollistOptions(); if(axisCfg){optS.scales.y.type=axisCfg.type;optS.scales.y.min=axisCfg.min;optS.scales.y.max=axisCfg.max;}
+    var optI=_sollistOptions(); if(axisCfg){optI.scales.y.type=axisCfg.type;optI.scales.y.min=axisCfg.min;optI.scales.y.max=axisCfg.max;}
     charts.sollistSoll=new Chart(elS.getContext('2d'),{type:'line',data:{labels:labels.slice(),datasets:sollDs},options:optS});
     charts.sollistIst=new Chart(elI.getContext('2d'),{type:'line',data:{labels:labels.slice(),datasets:istDs},options:optI});
     _wireSollIstHover();
@@ -2388,6 +2397,40 @@ function closeSollIstCompare(){
     if(charts.sollistSoll){try{charts.sollistSoll.destroy();}catch(e){}charts.sollistSoll=null;}
     if(charts.sollistIst){try{charts.sollistIst.destroy();}catch(e){}charts.sollistIst=null;}
   }
+}
+// 2026-06-15 (#104): Beide Vergleichsgrafiken als EIN PNG-Bild fürs Kunden-
+// gespräch exportieren (SOLL links, IST rechts, Titel + Mehrwert-Banner oben).
+function exportSollIstComparePng(){
+  try{
+    var cs=charts&&charts.sollistSoll&&charts.sollistSoll.canvas;
+    var ci=charts&&charts.sollistIst&&charts.sollistIst.canvas;
+    if(!cs||!ci){ try{alert('Bitte zuerst die Vergleichsgrafik öffnen.');}catch(_){ } return; }
+    var pad=24, gap=24, headH=66, labH=26;
+    var w=cs.width+ci.width+pad*2+gap;
+    var h=Math.max(cs.height,ci.height)+headH+labH+pad;
+    var out=document.createElement('canvas'); out.width=w; out.height=h;
+    var ctx=out.getContext('2d');
+    ctx.fillStyle='#ffffff'; ctx.fillRect(0,0,w,h);
+    var name=(typeof currentPersona!=='undefined'&&currentPersona)?((currentPersona.first_name||currentPersona.name||'')+' '+(currentPersona.last_name||'')).trim():'';
+    ctx.textBaseline='alphabetic';
+    ctx.fillStyle='#0f172a'; ctx.font='bold 22px Arial';
+    ctx.fillText('Vermögensentwicklung: SOLL vs. IST'+(name?(' — '+name):''), pad, 32);
+    var dbox=document.getElementById('m-sollist-delta');
+    if(dbox&&dbox.style.display!=='none'&&(dbox.textContent||'').trim()){
+      ctx.fillStyle='#166534'; ctx.font='600 14px Arial';
+      ctx.fillText(dbox.textContent.trim(), pad, 54);
+    }
+    ctx.font='bold 14px Arial';
+    ctx.fillStyle='#166534'; ctx.fillText('SOLL — optimierte Strategie', pad, headH+16);
+    ctx.fillStyle='#475569'; ctx.fillText('IST — heutiger Mix', pad+cs.width+gap, headH+16);
+    var y=headH+labH;
+    ctx.drawImage(cs, pad, y);
+    ctx.drawImage(ci, pad+cs.width+gap, y);
+    var a=document.createElement('a');
+    a.download='SOLL-IST-Vergleich'+(name?('-'+name.replace(/\s+/g,'_')):'')+'.png';
+    a.href=out.toDataURL('image/png');
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  }catch(e){ try{alert('Export fehlgeschlagen: '+(e&&e.message||e));}catch(_){ } }
 }
 function _wireSollIstHover(){
   try{
@@ -2484,7 +2527,7 @@ function _wireSollIstHover(){
 
     <!-- PAGE: CASHFLOWS -->
     <div id="page-cf" class="page">
-      <div class="ph"><div><div class="ph-t">Einnahmen, Ausgaben und Ziele</div><div class="ph-s">Zahlungsstr&ouml;me ordnen &middot; Ziele priorisieren &middot; IST-Situation verstehen</div></div><div class="ph-r"><button class="btn" onclick="om('m-acf')">Cashflow erfassen</button><button class="btn" onclick="om('m-nz')">Ziel erfassen</button><button class="btn-p" onclick="go('rp')">Weiter zum Risikoprofil &rarr;</button></div></div>
+      <div class="ph"><div><div class="ph-t">Einnahmen, Ausgaben und Ziele</div><div class="ph-s">Zahlungsstr&ouml;me ordnen &middot; Ziele priorisieren &middot; IST-Situation verstehen</div></div><div class="ph-r"><button class="btn" onclick="openNewCashflow('Income')">Einnahme erfassen</button><button class="btn" onclick="openNewCashflow('Expense')">Ausgabe erfassen</button><button class="btn" onclick="om('m-nz')">Ziel erfassen</button><button class="btn-p" onclick="go('rp')">Weiter zum Risikoprofil &rarr;</button></div></div>
       <div class="pad">
         <div>Pr&uuml;fen Sie zuerst die laufenden Einnahmen und Ausgaben. Danach ordnen Sie die Ziele nach ihrer Bedeutung f&uuml;r die Planung.</div>
         <div class="g2" data-slot="cashflows"></div>
@@ -2781,7 +2824,7 @@ function _wireSollIstHover(){
         <div style="display:grid;grid-template-columns:1fr 340px;gap:12px">
           <div>
             <div class="card mb">
-              <div class="chd"><span class="cht">Vermögenszuflüsse</span><div class="chr"><button class="btn-p btn-sm" onclick="om('m-acf')">+ Zufluss</button></div></div>
+              <div class="chd"><span class="cht">Vermögenszuflüsse</span><div class="chr"><button class="btn-p btn-sm" onclick="openNewCashflow('Income')">+ Zufluss</button></div></div>
               <div class="cbody" id="zufluss-rows">
                 <!-- Platzhalter; refreshCashflowsUI ersetzt dies mit den echten
                      Einnahmen des Mandats. KEINE statischen Demo-Cashflows mehr. -->
@@ -2789,7 +2832,7 @@ function _wireSollIstHover(){
               </div>
             </div>
             <div class="card mb">
-              <div class="chd"><span class="cht">Abflüsse &amp; Verpflichtungen</span><div class="chr"><label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:10px;color:var(--n5)"><input type="checkbox" id="idx-toggle" onchange="toggleIndexierung(this.checked)" style="accent-color:var(--g4)"> Indexieren</label><button class="btn-p btn-sm" onclick="om('m-acf')">+ Abfluss</button></div></div>
+              <div class="chd"><span class="cht">Abflüsse &amp; Verpflichtungen</span><div class="chr"><label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:10px;color:var(--n5)"><input type="checkbox" id="idx-toggle" onchange="toggleIndexierung(this.checked)" style="accent-color:var(--g4)"> Indexieren</label><button class="btn-p btn-sm" onclick="openNewCashflow('Expense')">+ Abfluss</button></div></div>
               <div class="cbody" id="abfluss-rows">
                 <!-- Platzhalter; refreshCashflowsUI ersetzt dies mit den echten
                      Ausgaben des Mandats. KEINE statischen Demo-Cashflows mehr. -->
@@ -2944,8 +2987,11 @@ function _wireSollIstHover(){
                     </thead>
                     <tbody style="font-family:var(--f-d)">
                       <tr style="border-bottom:1px solid var(--bg2)"><td style="padding:7px 8px;font-family:var(--f);color:var(--n7)">Prognose Endwert (Median)</td><td id="aa-proj-median" style="text-align:right;padding:7px 8px;color:var(--pos);font-weight:600">—</td><td id="aa-proj-current-median" style="text-align:right;padding:7px 8px;color:var(--n7)">—</td></tr>
+                      <tr style="border-bottom:1px solid var(--bg2)"><td style="padding:7px 8px;font-family:var(--f);color:var(--n7)" title="Optimistisches Szenario: in 10% der Simulationen liegt der Endwert darüber">Endwert optimistisch (P90)</td><td id="aa-proj-p90" style="text-align:right;padding:7px 8px;color:var(--pos);font-weight:600">—</td><td id="aa-proj-current-p90" style="text-align:right;padding:7px 8px;color:var(--n7)">—</td></tr>
+                      <tr style="border-bottom:1px solid var(--bg2)"><td style="padding:7px 8px;font-family:var(--f);color:var(--n7)" title="Pessimistisches Szenario: in 10% der Simulationen liegt der Endwert darunter">Endwert pessimistisch (P10)</td><td id="aa-proj-p10" style="text-align:right;padding:7px 8px;color:var(--pos);font-weight:600">—</td><td id="aa-proj-current-p10" style="text-align:right;padding:7px 8px;color:var(--n7)">—</td></tr>
                       <tr style="border-bottom:1px solid var(--bg2)"><td style="padding:7px 8px;font-family:var(--f);color:var(--n7)">Erwartete Rendite p.a. (P50)</td><td id="aa-proj-p50-return" style="text-align:right;padding:7px 8px;color:var(--pos);font-weight:600">—</td><td id="aa-proj-current-p50-return" style="text-align:right;padding:7px 8px;color:var(--n7)">—</td></tr>
                       <tr style="border-bottom:1px solid var(--bg2)"><td style="padding:7px 8px;font-family:var(--f);color:var(--n7)">Wachstum p.a. (CAGR Median)</td><td id="aa-proj-cagr" style="text-align:right;padding:7px 8px;color:var(--pos);font-weight:600">—</td><td id="aa-proj-current-cagr" style="text-align:right;padding:7px 8px;color:var(--n7)">—</td></tr>
+                      <tr style="border-bottom:1px solid var(--bg2)"><td style="padding:7px 8px;font-family:var(--f);color:var(--n7)" title="Sharpe-Ratio = (Median-Rendite − risikofrei 0.8%) / Volatilität. Rendite je Einheit Risiko — höher = besser.">Rendite/Risiko (Sharpe)</td><td id="aa-proj-sharpe" style="text-align:right;padding:7px 8px;color:var(--pos);font-weight:600">—</td><td id="aa-proj-current-sharpe" style="text-align:right;padding:7px 8px;color:var(--n7)">—</td></tr>
                       <tr><td style="padding:7px 8px;font-family:var(--f);color:var(--n7)">Median-Reichweite</td><td id="aa-proj-runway-target" style="text-align:right;padding:7px 8px;color:var(--pos);font-weight:600">—</td><td id="aa-proj-runway-current" style="text-align:right;padding:7px 8px;color:var(--n7)">—</td></tr>
                       <tr><td colspan="3" style="padding:9px 8px 3px;font-size:9px;text-transform:uppercase;letter-spacing:0.06em;color:var(--n4);font-weight:600">Risiko (Monte-Carlo, 1 Jahr · tiefer = besser)</td></tr>
                       <tr style="border-bottom:1px solid var(--bg2)"><td style="padding:7px 8px;font-family:var(--f);color:var(--n7)">Volatilität (1J)</td><td id="aa-proj-vol" style="text-align:right;padding:7px 8px;color:var(--n7);font-weight:600">—</td><td id="aa-proj-current-vol" style="text-align:right;padding:7px 8px;color:var(--n7)">—</td></tr>
@@ -5263,6 +5309,28 @@ async function go(p,b){
   setTimeout(function(){normalizeVisibleMojibake(pg||document.body);},30);
 }
 function selC(el){document.querySelectorAll('.client').forEach(c=>c.classList.remove('active'));el.classList.add('active');}
+// 2026-06-15 (#100): Einheitlicher, FÜHRENDER Leer-Zustand — sagt nicht nur «leer»,
+// sondern was zu erfassen ist und warum es für die holistische Planung zählt.
+function journeyEmptyHint(text){
+  return '<div style="font-size:10px;color:var(--n5);line-height:1.55;padding:9px 11px;background:var(--bg);border:1px dashed var(--b1);border-radius:var(--r)">'+text+'</div>';
+}
+// 2026-06-15 (#53): Klick auf eine abgeleitete (AUTO) Cashflow-Zeile springt zur
+// auslösenden Vermögensposition (Seite 2 «Vermögen») und hebt sie kurz hervor.
+function jumpToWealthPosition(posId){
+  if(!posId)return;
+  try{ go('vg'); }catch(e){}
+  setTimeout(function(){
+    try{
+      var row=document.querySelector('#page-vg .wr[data-posid="'+(window.CSS&&CSS.escape?CSS.escape(String(posId)):String(posId))+'"]');
+      if(!row)return;
+      row.scrollIntoView({behavior:'smooth',block:'center'});
+      var prevBg=row.style.backgroundColor, prevTr=row.style.transition;
+      row.style.transition='background-color 0.4s ease';
+      row.style.backgroundColor='rgba(201,168,76,0.28)';
+      setTimeout(function(){ row.style.backgroundColor=prevBg||''; setTimeout(function(){ row.style.transition=prevTr||''; },450); },1100);
+    }catch(e){}
+  },220);
+}
 var MOJIBAKE_REPLACEMENTS=[
   ['Ü','Ü'],['Ä','Ä'],['Ö','Ö'],['ü','ü'],['ä','ä'],['ö','ö'],['é','é'],['è','è'],['ê','ê'],
   ['«','«'],['»','»'],['·','·'],['Â',''],
@@ -14454,7 +14522,7 @@ function showNewClientScreen(firstName, lastName, mType, meta) {
   var af = document.getElementById('abfluss-rows');
   if (af) af.innerHTML = '<div style="color:var(--n4);font-size:11px;padding:12px 0">Noch keine Abflusse erfasst.</div>';
   var zl = document.getElementById('zl');
-  if (zl) zl.innerHTML = '<div style="color:var(--n4);font-size:11px;padding:12px 0">Noch keine Ziele erfasst.</div>';
+  if (zl) zl.innerHTML = journeyEmptyHint('Noch keine Ziele. Definieren Sie Lebensziele wie Pensionierung, Eigenheim oder Schenkung — sie steuern die zielbasierte Asset Allocation und den Vermögensverzehr.');
 
   document.title = '5eyes \u00b7 ' + firstName + ' ' + lastName;
   go('sd');
@@ -16433,7 +16501,10 @@ function collectAllocationPreferencesFromUI(){
       noUsd:getCheckboxValue('aa-geo-no-usd'),
     },
     simulation:{
-      horizonYears:getInputValue('aa-sim-horizon')||'10',
+      // 2026-06-15: Sim-Horizont mind. bis Lebenserwartung (Geburt+83/85), damit
+      // die SOLL/IST-Vergleichs-X-Achse bis ans Lebensende reicht (Bug: Achse
+      // endete bei ~2036). Manueller Wert gewinnt nur, wenn er länger ist.
+      horizonYears:(function(){var _i=parseInt(getInputValue('aa-sim-horizon'),10);var _l=_lifeExpectancyHorizonYears();var _b=(isFinite(_i)&&_i>0)?_i:10;return String((_l&&_l>_b)?_l:_b);})(),
       stressMultiplier:getInputValue('aa-sim-stress')||'1.0',
       rebalanceMode:getInputValue('aa-sim-rebalance')||'bands',
       monteCarloRuns:getInputValue('aa-sim-mc-runs')||'750',
@@ -16706,11 +16777,38 @@ function saveIstHorizonOverride(years){
     }
   } catch(e) { /* ignore quota / private mode */ }
 }
+// 2026-06-15: Lebenserwartung nach Kunden-Vorgabe = Geburtsjahr + 83 (Mann) /
+// + 85 (Frau). Bestimmt den Projektions-/X-Achsen-Horizont aller Verlaufscharts
+// (Verzehr UND SOLL/IST-Vergleich), damit die Achse bis ans Lebensende läuft.
+function _lifeExpectancyEndYear(){
+  if(typeof currentPersona==='undefined'||!currentPersona)return null;
+  function endFor(dob,sal){
+    var by=parseInt(String(dob||'').slice(0,4),10);
+    if(!isFinite(by)||by<1900)return null;
+    // Männer (Anrede "Herr") -> +83, sonst (Frau/unbekannt, konservativ) -> +85.
+    var isMale=String(sal||'').toLowerCase().indexOf('herr')>=0;
+    return by+(isMale?83:85);
+  }
+  var ends=[];
+  var a=endFor(currentPersona.date_of_birth,currentPersona.salutation); if(a)ends.push(a);
+  var b=endFor(currentPersona.partner_date_of_birth,currentPersona.partner_salutation); if(b)ends.push(b);
+  // Haushalt: längste Lebenserwartung (Verzehr bis beide Personen weg).
+  return ends.length?Math.max.apply(null,ends):null;
+}
+function _lifeExpectancyHorizonYears(){
+  var ey=_lifeExpectancyEndYear();
+  if(!ey)return null;
+  var yrs=ey-(new Date()).getFullYear()+1; // inkl. Zieljahr
+  if(yrs<3)return null;
+  return Math.max(3,Math.min(80,yrs));
+}
 function effectiveCashflowProjectionHorizon(){
-  // Berater-Override hat Vorrang; sonst null -> Backend leitet den Horizont aus
-  // den Stammdaten (bis Lebensende) ab, damit der Vermoegensverzehr sichtbar ist.
+  // Berater-Override hat Vorrang; sonst Lebenserwartung (Geburt + 83/85); erst
+  // wenn auch das fehlt -> null (Backend leitet aus Stammdaten ab).
   var ov = loadIstHorizonOverride();
-  return ov && ov > 0 ? ov : null;
+  if(ov && ov > 0) return ov;
+  var life = _lifeExpectancyHorizonYears();
+  return life && life > 0 ? life : null;
 }
 function cashflowProjectionQuery(){
   // ?horizon_years=<override> nur wenn der Berater einen Override gesetzt hat;
@@ -17257,6 +17355,19 @@ function syncIstProjectionAxisScale(){
   yScale.min=domain.min;
   yScale.max=domain.max;
 }
+// 2026-06-15: gemeinsame Achsen-Konfiguration für SOLL/IST. Bei sehr steiler
+// Kurve (Wachstum >=4x, alle Werte > 0) logarithmisch (flacht ab, IST bleibt
+// sichtbar), sonst linear mit Padding. IMMER für beide Panels identisch genutzt.
+function _projAxisConfig(minValue, maxValue){
+  // 2026-06-15: BEWUSST IMMER LINEAR. Eine logarithmische Y-Achse ist technisch
+  // korrekt für steile Kurven, aber für Kunden schwer lesbar (gleiche Pixel-
+  // Distanz = unterschiedliche CHF-Beträge). Stattdessen: ehrliche lineare CHF-
+  // Achse mit etwas Polster; beide Panels teilen dieselbe Skala (Vergleichbarkeit).
+  var mn=Number(minValue), mx=Number(maxValue);
+  if(!isFinite(mn)||!isFinite(mx)) return {type:'linear', min:undefined, max:undefined};
+  var spread=Math.max(1, mx-mn);
+  return {type:'linear', min:Math.max(0, Math.floor((mn-spread*0.08)/50)*50), max:Math.ceil((mx+spread*0.08)/50)*50};
+}
 function syncAaProjectionAxisScales(){
   if(!charts||!charts.opt||!charts.aaCurrent)return;
   // 2026-06-14: SOLL (charts.opt) und IST (charts.aaCurrent) MÜSSEN identische
@@ -17267,23 +17378,35 @@ function syncAaProjectionAxisScales(){
   // (a) gemeinsame X-Achse: das längere Label-Set gewinnt, beide übernehmen es.
   var lblO=(charts.opt.data&&charts.opt.data.labels)||[];
   var lblA=(charts.aaCurrent.data&&charts.aaCurrent.data.labels)||[];
-  var sharedLabels=(lblA.length>=lblO.length)?lblA:lblO;
+  var sharedLabels=((lblA.length>=lblO.length)?lblA:lblO).slice();
+  // 2026-06-15 FIX: Labels mind. so lang wie die längste Datenreihe beider Charts
+  // (sonst endet die X-Achse vor der Kurve, z.B. Achse bis 2036 / Linie bis 2066).
+  var _ml=sharedLabels.length;
+  [charts.opt,charts.aaCurrent].forEach(function(ch){
+    ((ch.data&&ch.data.datasets)||[]).forEach(function(d){if(Array.isArray(d.data))_ml=Math.max(_ml,d.data.length);});
+  });
+  if(sharedLabels.length<_ml){
+    var _ly=parseInt(String(sharedLabels[sharedLabels.length-1]||'').slice(0,4),10);
+    if(!isFinite(_ly)) _ly=(new Date().getFullYear())+sharedLabels.length-1;
+    while(sharedLabels.length<_ml){ _ly+=1; sharedLabels.push(String(_ly)); }
+  }
   if(sharedLabels&&sharedLabels.length){
     if(charts.opt.data)charts.opt.data.labels=sharedLabels.slice();
     if(charts.aaCurrent.data)charts.aaCurrent.data.labels=sharedLabels.slice();
   }
-  // (b) gemeinsame Y-Achse aus den Werten BEIDER Charts.
+  // (b) gemeinsame Y-Achse aus den Werten BEIDER Charts. Immer LINEAR (kunden-
+  // freundlich, siehe _projAxisConfig). Beide Panels bekommen IMMER dieselbe
+  // Achse (Typ + Bereich), damit SOLL und IST direkt vergleichbar sind.
   var values=projectionChartValues(charts.opt).concat(projectionChartValues(charts.aaCurrent));
   if(values.length){
     var minValue=Math.min.apply(null, values);
     var maxValue=Math.max.apply(null, values);
-    var spread=Math.max(1, maxValue-minValue);
-    var paddedMin=Math.max(0, Math.floor((minValue-spread*0.08)/50)*50);
-    var paddedMax=Math.ceil((maxValue+spread*0.08)/50)*50;
+    var cfg=_projAxisConfig(minValue, maxValue);
     [charts.opt,charts.aaCurrent].forEach(function(ch){
       if(ch.options&&ch.options.scales&&ch.options.scales.y){
-        ch.options.scales.y.min=paddedMin;
-        ch.options.scales.y.max=paddedMax;
+        ch.options.scales.y.type=cfg.type;
+        ch.options.scales.y.min=cfg.min;
+        ch.options.scales.y.max=cfg.max;
       }
     });
   }
@@ -17530,8 +17653,8 @@ function upgradeCurrentAaChartWithMonteCarlo(result){
       borderDash:[3,3],
       pointRadius:0,
       fill:'+1',
-      tension:0,
-      stepped:'after'
+      tension:0.18,
+      stepped:false
     },
     {
       label:'Hauptszenario',
@@ -17541,8 +17664,8 @@ function upgradeCurrentAaChartWithMonteCarlo(result){
       borderWidth:2,
       pointRadius:0,
       fill:'+1',
-      tension:0,
-      stepped:'after'
+      tension:0.22,
+      stepped:false
     },
     {
       label:'Worst Case',
@@ -17553,7 +17676,8 @@ function upgradeCurrentAaChartWithMonteCarlo(result){
       borderDash:[3,3],
       pointRadius:0,
       fill:false,
-      tension:0
+      tension:0.18,
+      stepped:false
     }
   ];
   charts.aaCurrent.options.plugins.legend.display=true;
@@ -18940,6 +19064,22 @@ function applyAllocationEngineResult(result){
   setText('aa-proj-current-drawdown',formatRiskLossBps(mc&&mc.current_max_drawdown_p50_bps));
   setText('aa-proj-lossprob',formatProbabilityPct(mc&&mc.target_loss_probability_1y_pct));
   setText('aa-proj-current-lossprob',formatProbabilityPct(mc&&mc.current_loss_probability_1y_pct));
+  // 2026-06-15 (#37): Endwert optimistisch (P90) / pessimistisch (P10), SOLL vs IST.
+  var _lastRappen=function(arr){return (Array.isArray(arr)&&arr.length)?Number(arr[arr.length-1]||0):0;};
+  var _tP90=_lastRappen(mc&&mc.target_p90_series_rappen), _tP10=_lastRappen(mc&&mc.target_p10_series_rappen);
+  var _cP90=_lastRappen(mc&&mc.current_p90_series_rappen), _cP10=_lastRappen(mc&&mc.current_p10_series_rappen);
+  setText('aa-proj-p90', _tP90?formatCompactCHF(_tP90/100):'—');
+  setText('aa-proj-current-p90', _cP90?formatCompactCHF(_cP90/100):'—');
+  setText('aa-proj-p10', _tP10?formatCompactCHF(_tP10/100):'—');
+  setText('aa-proj-current-p10', _cP10?formatCompactCHF(_cP10/100):'—');
+  // 2026-06-15 (#35): Sharpe (Rendite/Risiko) = (Median-Rendite − risk-free) / Vola.
+  // risk-free = 80 bps (= liquidity_return_bps, Backend-Konvention portfolio_engine).
+  var _RF_BPS=80;
+  var _sharpe=function(retBps,volBps){var r=Number(retBps),v=Number(volBps);return (isFinite(r)&&isFinite(v)&&v>0)?((r-_RF_BPS)/v):null;};
+  var _shT=_sharpe(mc&&mc.target_annualized_return_p50_bps,_tVol);
+  var _shC=_sharpe(mc&&mc.current_annualized_return_p50_bps,mc&&mc.current_volatility_1y_bps);
+  setText('aa-proj-sharpe', _shT==null?'—':_shT.toFixed(2));
+  setText('aa-proj-current-sharpe', _shC==null?'—':_shC.toFixed(2));
   // 2026-06-14 (#98): SOLL-Zelle einfärben — grün=besser als IST, warn=schlechter.
   // Ertrag: höher=besser; Risiko: tiefer=besser. Gleichstand/fehlend -> neutral.
   var _colorBetter=function(id,sollVal,istVal,higherBetter){
@@ -18949,6 +19089,9 @@ function applyAllocationEngineResult(result){
     el.style.color=(higherBetter?(sv>iv):(sv<iv))?'var(--pos)':'var(--warn)';
   };
   _colorBetter('aa-proj-median', mcTargetMedianRappen, mcCurrentMedianRappen, true);
+  _colorBetter('aa-proj-p90', _tP90, _cP90, true);
+  _colorBetter('aa-proj-p10', _tP10, _cP10, true);
+  _colorBetter('aa-proj-sharpe', _shT, _shC, true);
   _colorBetter('aa-proj-p50-return', mc&&mc.target_annualized_return_p50_bps, mc&&mc.current_annualized_return_p50_bps, true);
   _colorBetter('aa-proj-cagr', advisoryCagrBps, simulationCagrBps(mc&&mc.current_p50_series_rappen), true);
   _colorBetter('aa-proj-vol', _tVol, mc&&mc.current_volatility_1y_bps, false);
@@ -20358,10 +20501,10 @@ function syncCashflowModalState(){
   var inflationBlock=document.getElementById('acf-inflation-block');
   if(inflationBlock)inflationBlock.style.display=(cftype==='Expense'&&!isOneOffCashflow(freq))?'block':'none';
 }
-function resetCashflowModal(){
+function resetCashflowModal(defaultCashflowType){
   currentCashflowEditId=null;
   setInputValue('acf-label','');
-  setSelectValue('acf-cftype','Income');
+  setSelectValue('acf-cftype',defaultCashflowType==='Expense'?'Expense':'Income');
   setInputValue('acf-amount','');
   setSelectValue('acf-cat','Sonstiges');
   setSelectValue('acf-freq','jaehrlich');
@@ -20377,6 +20520,11 @@ function resetCashflowModal(){
   var err=document.getElementById('acf-error');
   if(err){err.style.display='none';err.textContent='';}
   syncCashflowModalState();
+}
+function openNewCashflow(cashflowType){
+  resetCashflowModal(cashflowType);
+  var modal=document.getElementById('m-acf');
+  if(modal)modal.classList.add('open');
 }
 async function openCashflowEditor(cashflowId){
   var cashflow=(currentCashflows||[]).find(function(item){return String(item.id||'')===String(cashflowId||'');});
@@ -20498,6 +20646,51 @@ async function saveCashflow(){
     setTimeout(function(){cm('m-acf');},1200);
   }
 }
+// 2026-06-15 (#99): Holistische Gruppierung der Cashflows nach Lebensbereich,
+// wie ein Berater denkt (Erwerb → Vorsorge → Wohnen → Kapital → Lebenshaltung).
+// Reihenfolge fix; innerhalb einer Gruppe bleibt die manuelle Sortierung erhalten.
+var CASHFLOW_LIFE_AREAS=[
+  {key:'erwerb',label:'Erwerb',re:/(lohn|gehalt|sal(ä|ae)r|erwerb|bonus|honorar|selbst|gesch(ä|ae)ft|einkommen|nebenerwerb)/i},
+  {key:'vorsorge',label:'Vorsorge',re:/(ahv|\biv\b|rente|pension|pensionskasse|\bpk\b|bvg|s(ä|ae)ule|\b3a\b|\b3b\b|leibrente|vorsorge|freiz(ü|ue)g|ergänzungsleist)/i},
+  {key:'wohnen',label:'Wohnen',re:/(hypothek|miete|mietzins|wohn|nebenkosten|liegenschaft|immobil|eigenheim|unterhalt liegensch)/i},
+  {key:'kapital',label:'Kapital & Vermögen',re:/(zins|dividend|kapital|wertschrift|aussch(ü|ue)ttung|kapitalertrag|verm(ö|oe)gensertrag|coupon)/i},
+  {key:'leben',label:'Lebenshaltung',re:/(fixkost|lebenshalt|lebensbedarf|lebensstandard|konsum|variabl|verzehr|versicherung|krankenkasse|steuer|ausgabe|haushalt)/i}
+];
+function cashflowLifeArea(c){
+  // Abgeleitete Posten: Herkunft (Vermögensposition) hat Vorrang vor dem Label.
+  var ot=String((c&&c.origin_position_type)||'').toLowerCase();
+  if(ot){
+    if(ot.indexOf('hypothek')>=0||ot.indexOf('immobil')>=0)return {key:'wohnen',label:'Wohnen'};
+    if(ot.indexOf('liquid')>=0)return {key:'kapital',label:'Kapital & Vermögen'};
+  }
+  var hay=String((c&&c.label)||'')+' '+String((c&&c.notes)||'')+' '+String((c&&c.category)||'');
+  for(var i=0;i<CASHFLOW_LIFE_AREAS.length;i++){ if(CASHFLOW_LIFE_AREAS[i].re.test(hay))return {key:CASHFLOW_LIFE_AREAS[i].key,label:CASHFLOW_LIFE_AREAS[i].label}; }
+  return {key:'sonstiges',label:'Sonstiges'};
+}
+function renderCashflowGroups(manualRows, derivedRows, isIncome, renderRow, renderDerivedRow, fmt){
+  var order=CASHFLOW_LIFE_AREAS.map(function(a){return a.key;}); order.push('sonstiges');
+  var buckets={};
+  var bucket=function(c,isDer){
+    var a=cashflowLifeArea(c);
+    var b=(buckets[a.key]=buckets[a.key]||{label:a.label,manual:[],derived:[]});
+    (isDer?b.derived:b.manual).push(c);
+  };
+  manualRows.forEach(function(c){bucket(c,false);});
+  derivedRows.forEach(function(c){bucket(c,true);});
+  // Wenn alles in genau einer Gruppe liegt, lohnt sich kein Header (flach rendern).
+  var nonEmpty=order.filter(function(k){var b=buckets[k];return b&&(b.manual.length||b.derived.length);});
+  var html='';
+  nonEmpty.forEach(function(key){
+    var b=buckets[key];
+    var sub=b.manual.concat(b.derived).reduce(function(s,c){return s+Number(c&&c.amount_rappen||0);},0);
+    if(nonEmpty.length>1){
+      html+='<div class="cf-grp" style="display:flex;justify-content:space-between;align-items:baseline;font-size:9px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:var(--n5);padding:9px 2px 3px;margin-top:4px;border-bottom:1px solid var(--b1)"><span>'+escapeHtml(b.label)+'</span><span style="color:var(--n6);font-variant-numeric:tabular-nums">'+(isIncome?'+':'−')+fmt(sub)+'</span></div>';
+    }
+    html+=b.manual.map(function(c){return renderRow(c,isIncome);}).join('');
+    html+=b.derived.map(function(c){return renderDerivedRow(c,isIncome);}).join('');
+  });
+  return html;
+}
 async function refreshCashflowsUI(cid){
   try{
     var results=await Promise.allSettled([
@@ -20542,7 +20735,11 @@ async function refreshCashflowsUI(cid){
     var derExp=derived.filter(function(d){return d&&d.cashflow_type==='Expense';});
     var renderDerivedRow=function(c,isIncome){
       var src=c.origin_position_type?(' ('+escapeHtml(String(c.origin_position_type))+')'):'';
-      return '<div class="cf-row cf-derived" style="opacity:0.9" title="Automatisch aus dem Vermoegen abgeleitet'+src+' — Betrag im Vermoegen bearbeiten, nicht hier.">'+
+      // #53: klickbar wenn Herkunftsposition bekannt -> Sprung zur Vermögensposition.
+      var pid=c.origin_position_id?String(c.origin_position_id):'';
+      var attrs=pid?('style="opacity:0.9;cursor:pointer" onclick="jumpToWealthPosition(\''+jsAttrArg(pid)+'\')"'):'style="opacity:0.9"';
+      var tipTail=pid?' — klicken öffnet die Vermögensposition':' — Betrag im Vermoegen bearbeiten, nicht hier.';
+      return '<div class="cf-row cf-derived" '+attrs+' title="Automatisch aus dem Vermoegen abgeleitet'+src+tipTail+'">'+
         '<div class="cfn"><div class="cfna">'+escapeHtml(c.label||'')+' <span style="font-size:8px;background:rgba(201,168,76,0.18);color:var(--g4);border-radius:3px;padding:1px 4px;margin-left:4px;letter-spacing:0.04em;vertical-align:middle">⚙ AUTO</span></div><div class="cfnd">'+escapeHtml(cashflowTimingLabel(c))+' · aus Vermögen</div></div>'+
         '<div class="cfa '+(isIncome?'ci':'co')+'">'+(isIncome?'+':'−')+fmt(c.amount_rappen||0)+'</div>'+
         '<div style="width:46px"></div></div>';
@@ -20554,8 +20751,8 @@ async function refreshCashflowsUI(cid){
     };
     var zf=document.getElementById('zufluss-rows');
     if(zf){
-      var incHtml=inc.map(function(item){return renderRow(item,true);}).join('')+derInc.map(function(item){return renderDerivedRow(item,true);}).join('');
-      zf.innerHTML=(incHtml+derNote(derInc,true))||'<div style="font-size:10px;color:var(--n4);padding:6px 0 8px">Noch keine Einnahmen erfasst.</div>';
+      var incHtml=renderCashflowGroups(inc,derInc,true,renderRow,renderDerivedRow,fmt);
+      zf.innerHTML=(incHtml+derNote(derInc,true))||journeyEmptyHint('Noch keine Einnahmen. Erfassen Sie Lohn, AHV/Rente oder Mieteinnahmen — Basis für Cashflow-Planung und Vermögensverzehr.');
     }
     Array.prototype.forEach.call((zf||document.createElement('div')).querySelectorAll('.cf-row[data-cfid] .btn-ico'),function(btn){
       var row=btn.closest('.cf-row[data-cfid]');
@@ -20577,8 +20774,8 @@ async function refreshCashflowsUI(cid){
     setupCashflowDragList('zufluss-rows','Income');
     var af=document.getElementById('abfluss-rows');
     if(af){
-      var expHtml=exp.map(function(item){return renderRow(item,false);}).join('')+derExp.map(function(item){return renderDerivedRow(item,false);}).join('');
-      af.innerHTML=(expHtml+derNote(derExp,false))||'<div style="font-size:10px;color:var(--n4);padding:6px 0 8px">Noch keine Ausgaben erfasst.</div>';
+      var expHtml=renderCashflowGroups(exp,derExp,false,renderRow,renderDerivedRow,fmt);
+      af.innerHTML=(expHtml+derNote(derExp,false))||journeyEmptyHint('Noch keine Ausgaben. Erfassen Sie Lebenshaltung, Wohnen, Versicherungen und Steuern — damit der Vermögensverzehr realistisch wird.');
     }
     Array.prototype.forEach.call((af||document.createElement('div')).querySelectorAll('.cf-row[data-cfid] .btn-ico'),function(btn){
       var row=btn.closest('.cf-row[data-cfid]');
