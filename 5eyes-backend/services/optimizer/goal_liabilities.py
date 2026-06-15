@@ -84,8 +84,12 @@ def _hardness_key(goal: Goal) -> str:
     return _HARDNESS_LABELS_TO_KEY.get(raw, "primaer")
 
 
-# Konsistent zu services.portfolio_engine.GOAL_WEIGHT_BY_RANK Default 312bps
-_DEFAULT_WEIGHT_BY_RANK = {1: 1875, 2: 938, 3: 469, 4: 312, 5: 312}
+# Validierung 2026-06-11: MUSS mit services.portfolio_engine.GOAL_WEIGHT_BY_RANK
+# uebereinstimmen (geometrisches Halbieren je Rank; weight_bps/10000 = Fraktion,
+# engine-spec Sektion 4). Vorher divergent ({1:1875,...}) bei gleichzeitig falschem
+# "konsistent"-Kommentar -> Goals wurden im Optimizer-Objective anders gewichtet als
+# in der Mandate-Score-Aggregation. Konsistenz via test_goal_rank_weight_parity.
+_DEFAULT_WEIGHT_BY_RANK = {1: 10000, 2: 5000, 3: 2500, 4: 1250, 5: 625}
 
 
 def _weight_bps(goal: Goal) -> int:
@@ -104,6 +108,22 @@ def _success_probability_min_x100(goal: Goal, *, default_value: int) -> int:
     except (TypeError, ValueError):
         return int(default_value)
     return max(0, min(10000, value))
+
+
+def _goal_probability_factor(goal: Goal) -> float:
+    """Validierung 2026-06-11 (engine-spec 4.4 / Sprint U-B6): bedingte Goals
+    pro-rata gewichten. Spiegelt services.portfolio_engine._goal_probability_factor,
+    damit Optimizer-Liability und Reserve-Engine dieselbe Gewichtung nutzen.
+    probability_pct in [0,100]; None/ungueltig -> 1.0 (sicher eintretend).
+    """
+    raw = getattr(goal, "probability_pct", None)
+    if raw is None:
+        return 1.0
+    try:
+        pct = int(raw)
+    except (TypeError, ValueError):
+        return 1.0
+    return max(0.0, min(100.0, float(pct))) / 100.0
 
 
 # ============================================================================
@@ -281,6 +301,7 @@ def _build_wealth_target(
     target_year = _resolve_target_year_index(goal, horizon_years=horizon_years)
     if _is_real_value_mode(goal):
         target = _inflate_at_year(target, target_year, inflation_series_bps)
+    target = int(round(target * _goal_probability_factor(goal)))  # bedingte Goals pro-rata
     return GoalLiability(
         goal_id=str(goal.id),
         label=str(goal.label or ""),
@@ -306,6 +327,7 @@ def _build_einmalige_ausgabe(
     target_year = _resolve_target_year_index(goal, horizon_years=horizon_years)
     if _is_real_value_mode(goal):
         amount = _inflate_at_year(amount, target_year, inflation_series_bps)
+    amount = int(round(amount * _goal_probability_factor(goal)))  # bedingte Goals pro-rata
     path = [0] * horizon_years
     if 1 <= target_year <= horizon_years:
         path[target_year - 1] = amount
@@ -341,6 +363,7 @@ def _build_recurring_outflow(
     )
     path = [0] * horizon_years
     is_real = _is_real_value_mode(goal)
+    prob_factor = _goal_probability_factor(goal)  # bedingte Goals pro-rata
     cumulative_outflow = 0
     for offset in range(duration):
         year_idx = target_year + offset  # 1-based
@@ -349,6 +372,7 @@ def _build_recurring_outflow(
         amount = annual
         if is_real:
             amount = _inflate_at_year(annual, year_idx, inflation_series_bps)
+        amount = int(round(amount * prob_factor))
         path[year_idx - 1] = amount
         cumulative_outflow += amount
     note = None

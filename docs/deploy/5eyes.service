@@ -1,0 +1,29 @@
+# systemd-Unit für das 5eyes-Backend (Phase-0 Staging).
+# -> /etc/systemd/system/5eyes.service
+[Unit]
+Description=5eyes Backend (FastAPI/uvicorn)
+After=network.target
+
+[Service]
+Type=simple
+User=fiveeyes
+Group=fiveeyes
+WorkingDirectory=/opt/5eyes/5eyes-backend
+EnvironmentFile=/opt/5eyes/5eyes-backend/.env
+# Gunicorn mit uvicorn-Workern; Bind NUR lokal (Caddy ist der öffentliche Eintritt).
+ExecStart=/opt/5eyes/5eyes-backend/.venv/bin/gunicorn main:app \
+    --workers 2 \
+    --worker-class uvicorn.workers.UvicornWorker \
+    --bind 127.0.0.1:8000 \
+    --timeout 120
+Restart=on-failure
+RestartSec=3
+# Härtung
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/5eyes /home/fiveeyes/5eyes
+
+[Install]
+WantedBy=multi-user.target

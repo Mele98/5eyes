@@ -503,8 +503,12 @@ def test_compute_reserve_requirements_matches_goal_and_external_reserve_logic():
         saa_liq_ceiling_bps=2000,
     )
 
-    assert reserve_needed_rappen == 4000000
-    assert external_reserve_rappen == 2000000
+    # #AA-8 (2026-06-12): distinkte Spending-Goals summieren (statt max()).
+    # Steuern 40k (sicher, <=3J -> voll) + Ausbildung 20k/J (4-7J -> 50% = 10k)
+    # = 50k erwartete Reserve. Floor-Kandidaten (minReserve 10k / liqTarget 15k /
+    # near-term 2.5k) bleiben via max() darunter. External = 50k - SAA-Anteil 20k = 30k.
+    assert reserve_needed_rappen == 5000000
+    assert external_reserve_rappen == 3000000
 
 
 def test_target_allocation_reserve_warning_detects_rebuilt_external_reserve_drift():

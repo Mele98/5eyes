@@ -139,3 +139,23 @@ Wenn der Trigger irgendwann kommt:
 - `services/auth.py` — JWT-Auth-Layer
 - ADR-002 (Compliance-Stack) — Datenschutz-Narrativ
 - Memory `project_5eyes_audit.md` — Hosting-Modell-Status
+
+---
+
+## Update 2026-06-15 — Multi-Tenancy ist AKTIV (Status: Implemented, App-Level)
+
+Der 2026-06-06 als „deferred" markierte Teil ist umgesetzt (externer Zugriff / Lizenz-Modell):
+
+- [✓] **Tenant-Tabelle + `tenant_id`-Spalten** auf mandantenführenden Tabellen, mit Backfill
+  (`ensure_tenant_backfill`) und Create-Inheritance.
+- [✓] **`strict_tenant_isolation`** (App-Level-Filter) + Cross-Tenant-404-Guards
+  (`get_linked_client_for_user_or_404`); Client-Portal Defense-in-Depth.
+- [✓] **Pflicht-2FA-Hard-Gate** (TOTP) + Invite-Onboarding (Token sha256, Ablauf, single-use,
+  Resend rate-limited, Revoke).
+- [✓] **CI-Security-Gate** (`scripts/security_gate.py`) hält Tenant-Isolation/Auth-Tests grün.
+- [ ] **Postgres-RLS** (#9) — physische Absicherung zusätzlich zum App-Filter (geplant).
+- [ ] **Postgres-Adapter** (#8) / `tenant_id` NOT NULL (#10) — DB-agnostisch via `DATABASE_URL`.
+- [ ] **Per-Tenant-Encryption-at-rest** (#11).
+
+Verbleibend = die DB-physische Schicht (RLS + Postgres + Key-Hierarchie). App-logische
+Mandantentrennung + Auth-Härtung sind produktiv. Compliance-Vorlagen: `docs/compliance/`.

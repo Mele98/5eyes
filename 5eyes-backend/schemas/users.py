@@ -42,6 +42,17 @@ class UserResponse(BaseResponse):
     is_active: int
     last_login_at: Optional[str]
     created_at: str
+    # E1 (2026-06-14): Frontend erzwingt Passwortwechsel beim ersten Login.
+    must_change_password: int = 0
+    totp_enabled: int = 0
+    # E1 (2026-06-14): offene Einladung (Account noch nicht aktiviert) — Team-UI.
+    invite_pending: bool = False
+
+    @field_validator('must_change_password', 'totp_enabled', mode='before')
+    @classmethod
+    def normalize_legacy_nullable_security_flags(cls, value):
+        """Legacy users predate these columns and may still contain NULL."""
+        return 0 if value is None else value
 
 
 class AdviserRegistrationCreate(BaseModel):
@@ -102,12 +113,55 @@ class BootstrapAdminRequest(BaseModel):
 class LoginRequest(BaseModel):
     username: str
     password: str
+    totp_code: str | None = None   # E1: 2FA-Code, falls fuer den User aktiv
 
 
 class UserPasswordReset(BaseModel):
     new_password: str
 
     @field_validator('new_password')
+    @classmethod
+    def validate_password(cls, value: str) -> str:
+        if len(value) < 10:
+            raise ValueError('password must be at least 10 characters long')
+        return value
+
+
+class InviteCreate(BaseModel):
+    """Admin legt einen Mitarbeiter-Account OHNE Passwort an; der Mitarbeiter
+    setzt es selbst per Einladungslink (E1, 2026-06-14)."""
+    username: str
+    full_name: str
+    email: Optional[EmailStr] = None
+    role: Literal["admin", "advisor", "readonly"] = "advisor"
+
+    @field_validator('username', 'full_name')
+    @classmethod
+    def validate_required_text(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError('value must not be empty')
+        return normalized
+
+
+class InviteResponse(BaseModel):
+    user_id: str
+    username: str
+    invite_token: str          # nur EINMALIG im Klartext (danach nur Hash gespeichert)
+    invite_expires_at: str
+    email_sent: bool = False   # True, wenn die Einladung per E-Mail verschickt wurde
+
+
+class InvitePreview(BaseModel):
+    username: str
+    full_name: str
+
+
+class InviteAccept(BaseModel):
+    token: str
+    password: str
+
+    @field_validator('password')
     @classmethod
     def validate_password(cls, value: str) -> str:
         if len(value) < 10:

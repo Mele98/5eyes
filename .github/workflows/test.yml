@@ -19,6 +19,36 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  security-gate:
+    # E1 (2026-06-14): Dedizierter, schneller Gate fuer die sicherheitskritischen
+    # Tests (harte Mandanten-Trennung, Auth, 2FA, Onboarding). Laeuft VOR der
+    # vollen Suite und failt bei der ERSTEN Verletzung (--maxfail=1), damit eine
+    # Cross-Tenant-Leak-Regression nicht im 3900-Test-Lauf untergeht.
+    # Single Source of Truth: scripts/security_gate.py.
+    name: Security Gate (Tenant-Isolation & Auth)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: 5eyes-backend/requirements.txt
+
+      - name: Install dependencies
+        working-directory: 5eyes-backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run security gate
+        run: python scripts/security_gate.py
+
   pytest:
     name: Backend Tests
     runs-on: ubuntu-latest

@@ -216,6 +216,26 @@ class Settings(BaseSettings):
     tenancy_mode: str = "single"
     # Tenant-Admin-UI fuer Super-Admin. Tier 2 = True, sonst False.
     tenant_admin_ui_enabled: bool = False
+    # E1 (2026-06-14): Strikte Mandanten-Trennung. Default False = BC (Rows mit
+    # tenant_id IS NULL gelten als zum eigenen Tenant gehoerig). True (Multi-Firma/
+    # Staging) = NUR exakter Tenant-Match, NULL-Rows sind unsichtbar. Voraussetzung:
+    # Backfill gelaufen + alle Creates setzen tenant_id (Client/Mandate/User/Baustein).
+    strict_tenant_isolation: bool = False
+    # E1 (2026-06-14): Pflicht-2FA. True (Staging/extern) = Nutzer ohne aktives
+    # 2FA muessen es nach dem Login zwingend einrichten, bevor sie weiterarbeiten.
+    require_2fa: bool = False
+
+    # E1 (2026-06-14): SMTP fuer Einladungs-E-Mails (Onboarding). Default AUS —
+    # ist es aus/unkonfiguriert, faellt der Invite-Flow auf Link-Copy zurueck
+    # (kein harter Fehler). Stdlib-smtplib, keine neue Dependency.
+    smtp_enabled: bool = False
+    smtp_host: str = ''
+    smtp_port: int = 587
+    smtp_user: str = ''
+    smtp_password: str = ''
+    smtp_from: str = '5eyes <no-reply@5eyes.local>'
+    smtp_use_tls: bool = True        # STARTTLS auf smtp_port
+    smtp_timeout_seconds: int = 10
 
     # Browser-Hosting (2026-06-10): Haupt-App (5eyes_v2.html) ueber das Backend
     # ausliefern, damit ein einzelner Host/Tunnel die komplette App im Browser

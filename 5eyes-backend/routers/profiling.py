@@ -296,7 +296,7 @@ def override_risk_assessment(
     if str(mandate.mandate_type or "").strip().upper() == "FZK" and int(body.override_score_x10 or 0) > 75:
         raise HTTPException(
             status_code=422,
-            detail="FZK-Mandat: Override-Score darf 75 nicht überschreiten (FIDLEG)",
+            detail="FZK-Mandat: Override-Score darf 75 (= 7.5/10) nicht überschreiten (FIDLEG).",
         )
 
     ra.is_overridden = 1

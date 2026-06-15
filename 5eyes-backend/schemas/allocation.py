@@ -528,8 +528,11 @@ class GoalAnalysisResponse(BaseModel):
     is_ongoing: Optional[int] = None
     frequency: Optional[str] = None
     timing_label: Optional[str] = None
+    success_rate_pct: Optional[int] = None
     path_success_rate_pct: Optional[int] = None
     funded_ratio_p50: Optional[float] = None
+    median_achievement_pct: Optional[int] = None
+    pessimistic_shortfall_rappen: Optional[int] = None
     evaluation_note: Optional[str] = None
     projected_value_p10_rappen: Optional[int] = None
     projected_value_p50_rappen: Optional[int] = None
@@ -542,6 +545,8 @@ class MonteCarloGoalSummaryResponse(BaseModel):
     years: int
     success_rate_pct: int
     funded_ratio_p50: float
+    median_achievement_pct: int
+    pessimistic_shortfall_rappen: int
     projected_value_p10_rappen: int
     projected_value_p50_rappen: int
     projected_value_p90_rappen: int
@@ -579,6 +584,7 @@ class MonteCarloResponse(BaseModel):
     target_max_drawdown_p95_bps: int
     target_downside_probability_pct: int
     goal_summaries: list[MonteCarloGoalSummaryResponse]
+    current_goal_summaries: list[MonteCarloGoalSummaryResponse] = Field(default_factory=list)
 
 
 class LiveRebalancingPositionResponse(BaseModel):
@@ -773,4 +779,5 @@ class TargetAllocationGenerateResponse(BaseModel):
     simulation: AllocationSimulationResponse
     monte_carlo: MonteCarloResponse
     goal_analysis: list[GoalAnalysisResponse]
+    current_goal_analysis: list[GoalAnalysisResponse] = Field(default_factory=list)
     live_rebalancing: Optional[LiveRebalancingResponse] = None

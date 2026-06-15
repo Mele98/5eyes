@@ -22,6 +22,29 @@ class User(Base):
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
     deleted_at = Column(String)
+    # E1 (2026-06-13): TOTP-2FA fuer externe Logins. Nullable/BC.
+    totp_secret = Column(String)                              # Base32; bei Setup gesetzt
+    totp_enabled = Column(Integer, nullable=False, default=0)  # 1 = 2FA aktiv & bestaetigt
+    # E1 (2026-06-14): Mitarbeiter-Onboarding — erzwungener Passwortwechsel beim
+    # ersten Login (von der Provisioning angelegte Accounts mit Initial-Passwort).
+    must_change_password = Column(Integer, nullable=False, default=0)
+    # E1 (2026-06-14): Invite-Link-Onboarding. Admin legt Account OHNE Passwort an,
+    # der Mitarbeiter setzt es selbst per Einladungslink. invite_token_hash =
+    # sha256(token) (Token nur einmalig im Klartext zurueckgegeben); invite_expires_at
+    # = ISO-Ablauf. Beide nach Annahme geleert. Nullable/BC.
+    invite_token_hash = Column(String)
+    invite_expires_at = Column(String)
+
+    # Self-Service-Recovery (#25/#27). Laufzeit-Migration bestehender DBs:
+    # services.account_recovery.ensure_account_recovery_columns.
+    reset_token_hash = Column(String)          # sha256(reset-token); single-use
+    reset_token_expires_at = Column(String)
+    totp_recovery_codes = Column(String)       # JSON-Liste sha256-Hashes der Backup-Codes
+
+    @property
+    def invite_pending(self) -> bool:
+        """True, solange eine Einladung offen ist (Account noch nicht aktiviert)."""
+        return bool(getattr(self, "invite_token_hash", None))
 
     adviser_registration = relationship(
         "AdviserRegistration", back_populates="user", uselist=False

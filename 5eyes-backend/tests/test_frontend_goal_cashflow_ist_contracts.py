@@ -64,7 +64,9 @@ def test_ist_chart_is_continuous_and_has_deterministic_edge_padding():
 
     assert "charts.ist.data.datasets[0].stepped=false" in presentation
     assert "charts.ist.data.datasets[0].stepped='after'" not in presentation
-    assert "projectionAxisDomain(projectionChartValues(charts.ist),0.25)" in domain
+    # 2026-06-12: Padding von 0.25 auf 0.06 reduziert (Achse eng an die echten
+    # Werte; vorher fuellte die Kurve nur ~50% der Hoehe).
+    assert "projectionAxisDomain(projectionChartValues(charts.ist),0.06)" in domain
     assert "yScale.min=domain.min" in domain
     assert "yScale.max=domain.max" in domain
 

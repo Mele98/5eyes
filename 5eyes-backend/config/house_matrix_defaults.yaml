@@ -21,6 +21,11 @@
 # verifiziert — alle Werte muessen identisch zu portfolio_engine's
 # Hardcoded-Defaults sein. Wenn jemand einen Wert hier aendert ohne
 # Spec-Diskussion: Test schlaegt fehl.
+#
+# Owner-Entscheid 2026-06-14:
+# Immobilien duerfen profiluebergreifend bis maximal 20% reichen.
+# Die Zielquoten bleiben unveraendert; Risikobudget und alle anderen
+# Portfolio-Constraints gelten weiterhin.
 
 profiles:
   - score_from: 1
@@ -37,7 +42,7 @@ profiles:
     equities_max: 2000
     real_estate_min: 0
     real_estate_target: 500
-    real_estate_max: 1000
+    real_estate_max: 2000
     alternatives_min: 0
     alternatives_target: 500
     alternatives_max: 500
@@ -58,7 +63,7 @@ profiles:
     equities_max: 3000
     real_estate_min: 500
     real_estate_target: 1000
-    real_estate_max: 1500
+    real_estate_max: 2000
     alternatives_min: 0
     alternatives_target: 300
     alternatives_max: 800
@@ -79,7 +84,7 @@ profiles:
     equities_max: 5500
     real_estate_min: 500
     real_estate_target: 1000
-    real_estate_max: 1500
+    real_estate_max: 2000
     alternatives_min: 300
     alternatives_target: 500
     alternatives_max: 800
@@ -100,7 +105,7 @@ profiles:
     equities_max: 7500
     real_estate_min: 500
     real_estate_target: 800
-    real_estate_max: 1200
+    real_estate_max: 2000
     alternatives_min: 300
     alternatives_target: 600
     alternatives_max: 1000
@@ -121,7 +126,7 @@ profiles:
     equities_max: 8500
     real_estate_min: 300
     real_estate_target: 700
-    real_estate_max: 1000
+    real_estate_max: 2000
     alternatives_min: 200
     alternatives_target: 400
     alternatives_max: 600
@@ -142,7 +147,7 @@ profiles:
     equities_max: 9500
     real_estate_min: 200
     real_estate_target: 500
-    real_estate_max: 800
+    real_estate_max: 2000
     alternatives_min: 0
     alternatives_target: 200
     alternatives_max: 500
