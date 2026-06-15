@@ -662,6 +662,15 @@ def create_foundation_example(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
+    # FINMA-Hygiene (2026-06-15): Demo-/Foundation-Beispieldaten dürfen NIEMALS in einer
+    # Produktionsumgebung erzeugt werden — sonst landen synthetische Datensätze zwischen
+    # echten Kundendaten. In Produktion hart sperren.
+    if str(getattr(settings, "app_env", "") or "").strip().lower() == "production":
+        raise HTTPException(
+            status_code=403,
+            detail="Foundation-/Demo-Daten sind in der Produktionsumgebung gesperrt "
+                   "(FINMA: keine synthetischen Datensätze zwischen echten Kundendaten).",
+        )
     payload = upsert_foundation_example_case(db, current_user)
     # Sprint U-102 (2026-06-05): Foundation-Example erzeugt DB-Daten, muss auditiert sein.
     audit_log(
