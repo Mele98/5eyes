@@ -190,6 +190,13 @@ def ensure_runtime_columns() -> None:
             # E1 (2026-06-14): Invite-Link-Onboarding (Token-Hash + Ablauf).
             ('invite_token_hash', 'TEXT'),
             ('invite_expires_at', 'TEXT'),
+            # #25/#27 (2026-06-15): Self-Service Passwort-Reset + 2FA-Recovery-Codes.
+            # MUSS hier (Startup-Migration) stehen, nicht nur lazy: das User-Modell
+            # selektiert diese Spalten bei JEDEM Query (inkl. Login) -> auf bestehenden
+            # DBs ohne die Spalten crasht sonst der Login (OperationalError).
+            ('reset_token_hash', 'TEXT'),
+            ('reset_token_expires_at', 'TEXT'),
+            ('totp_recovery_codes', 'TEXT'),
         ],
         'target_allocations': [
             ('capital_market_assumptions_id', 'TEXT'),

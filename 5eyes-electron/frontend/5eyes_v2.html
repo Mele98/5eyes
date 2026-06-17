@@ -5917,7 +5917,11 @@ function wealthProjectionInputs(scope){
     equities:Number(_acaMap['Aktien']&&_acaMap['Aktien'].expected_return_bps||ADMIN_CMA_DEFAULTS.equity_intl_return_bps||690),
     bonds:Number(_acaMap['Obligationen']&&_acaMap['Obligationen'].expected_return_bps||ADMIN_CMA_DEFAULTS.bonds_fx_hedged_return_bps||220),
     realEstate:Number(_acaMap['Immobilien']&&_acaMap['Immobilien'].expected_return_bps||ADMIN_CMA_DEFAULTS.real_estate_ch_return_bps||330),
-    liquidity:Number(_acaMap['Liquiditaet']&&_acaMap['Liquiditaet'].expected_return_bps||ADMIN_CMA_DEFAULTS.liquidity_return_bps||80),
+    // 2026-06-17 (User-Fachentscheid): Liquidität wertet NICHT auf (Cash = 0%, sofern
+    // nicht anders beschrieben). Echte Konto-Zinsen laufen ueber den abgeleiteten
+    // Zinsertrag-Cashflow (kein Doppelzählen, kein Phantom-Wachstum) — konsistent zum
+    // Engine-Fix (portfolio_engine: returns['liquidity']=0 in der Projektion).
+    liquidity:0,
     alternatives:Number(_acaMap['Alternative']&&_acaMap['Alternative'].expected_return_bps||ADMIN_CMA_DEFAULTS.alternatives_gold_return_bps||300)
   };
   var weightedReturnRappenBps=0;
