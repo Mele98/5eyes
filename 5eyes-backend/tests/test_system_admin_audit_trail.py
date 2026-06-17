@@ -73,6 +73,7 @@ def test_valid_actions_whitelist_includes_all_new_actions():
         "MARKET_DATA_PURGE",
         "DB_OPTIMIZE",
         "FOUNDATION_EXAMPLE",
+        "FOUNDATION_PURGE",
     }
     actual = system_router.AUDIT_LOG_VALID_ACTIONS
     for act in expected_new:
