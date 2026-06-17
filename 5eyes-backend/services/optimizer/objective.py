@@ -20,6 +20,7 @@ Pro Goal-Typ wird Shortfall anders berechnet:
 """
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from typing import Iterable
 
@@ -41,6 +42,27 @@ HARDNESS_WEIGHT = {
 }
 
 _PRIMARY_HARDNESS_KEYS = {"hart", "primaer", "primär"}
+
+
+def _goal_weighting_mode() -> str:
+    """3eyes-Methodik (Q&A iSAA): 'Alle Ziele sind gleich wichtig (Mittelung)'.
+
+    Default = 'equal' → jedes Ziel geht mit Gewicht 1.0 in die Zielfunktion ein.
+    Die Haertegrad-Gewichtung (hart 10x / primaer 1x / opportunistisch 0.2x)
+    bleibt als optionales Feature erhalten: OPTIMIZER_GOAL_WEIGHTING=hardness.
+    """
+    return (os.environ.get("OPTIMIZER_GOAL_WEIGHTING", "equal") or "equal").strip().lower()
+
+
+def _effective_hardness_weight(hardness_key: str | None) -> float:
+    """Gibt den Haertegrad-Multiplikator nur im opt-in-Modus zurueck, sonst 1.0.
+
+    So mittelt der Optimizer per Default alle Ziele gleich (Methodik-konform),
+    ohne die Haertegrad-Logik zu verlieren.
+    """
+    if _goal_weighting_mode() == "hardness":
+        return HARDNESS_WEIGHT.get(_hardness_key(hardness_key), 1.0)
+    return 1.0
 
 
 def _hardness_key(value: str | None) -> str:
@@ -250,11 +272,13 @@ def shortfall_objective(
     horizon_years: int,
     weights: np.ndarray | None = None,
 ) -> float:
-    """Primaere Objective L(w): hardness- und weight-gewichteter MSE-Shortfall.
+    """Primaere Objective L(w): weight-gewichteter MSE-Shortfall.
 
     L(w) = Σ_g h_g · g_g · mean_n(shortfall(g, n)^2)
 
-    h_g = HARDNESS_WEIGHT[hardness_key]
+    h_g = _effective_hardness_weight(hardness_key)
+          → Default 1.0 (alle Ziele gleich, Methodik-konform);
+            HARDNESS_WEIGHT nur bei OPTIMIZER_GOAL_WEIGHTING=hardness.
     g_g = liability.weight_bps / 10000
 
     Skalar-Output, von scipy.optimize.minimize konsumierbar.
@@ -289,7 +313,7 @@ def shortfall_objective(
         if weight_sum <= 0:
             raise ValueError("Sum-of-weights must be > 0")
     for liab in liabilities:
-        h_weight = HARDNESS_WEIGHT.get(liab.hardness_key, 1.0)
+        h_weight = _effective_hardness_weight(liab.hardness_key)
         g_weight = max(1, int(liab.weight_bps)) / 10000.0
         per_path = shortfall_squared_per_path(
             liab, wealth_paths,
@@ -395,7 +419,7 @@ def shortfall_contributions(
             horizon_years=horizon_years,
         )
         mean_sq = float(np.sum(per_path) * inv_n)
-        h_weight = HARDNESS_WEIGHT.get(liab.hardness_key, 1.0)
+        h_weight = _effective_hardness_weight(liab.hardness_key)
         g_weight = max(1, int(liab.weight_bps)) / 10000.0
         rows.append(GoalShortfallContribution(
             goal_id=str(liab.goal_id),
