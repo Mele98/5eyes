@@ -40,6 +40,38 @@ def test_ignores_soft_deleted_rows():
     assert dia.scan_database(con) == []
 
 
+def _mk_orphan_db():
+    con = sqlite3.connect(":memory:")
+    con.execute("CREATE TABLE clients (id TEXT, deleted_at TEXT)")
+    con.execute("CREATE TABLE recommendation_runs (id TEXT, client_id TEXT, deleted_at TEXT)")
+    return con
+
+
+def test_flags_orphan_of_soft_deleted_client():
+    con = _mk_orphan_db()
+    con.execute("INSERT INTO clients VALUES ('gone','2026-06-15T00:00:00.000Z')")  # soft-deleted
+    con.execute("INSERT INTO recommendation_runs VALUES ('r1','gone',NULL)")        # aktive Waise
+    con.commit()
+    findings = dia.scan_orphans(con)
+    assert any(f["table"] == "recommendation_runs" and f["id"] == "r1" for f in findings)
+
+
+def test_no_orphan_for_active_client():
+    con = _mk_orphan_db()
+    con.execute("INSERT INTO clients VALUES ('ok',NULL)")               # aktiver Kunde
+    con.execute("INSERT INTO recommendation_runs VALUES ('r2','ok',NULL)")
+    con.commit()
+    assert dia.scan_orphans(con) == []
+
+
+def test_orphan_ignores_soft_deleted_child():
+    con = _mk_orphan_db()
+    con.execute("INSERT INTO clients VALUES ('gone','2026-06-15T00:00:00.000Z')")
+    con.execute("INSERT INTO recommendation_runs VALUES ('r3','gone','2026-06-16T00:00:00.000Z')")  # mit-gelöscht
+    con.commit()
+    assert dia.scan_orphans(con) == []
+
+
 def test_flags_foundation_demo_label():
     con = _mk_db()
     con.execute("INSERT INTO cashflows VALUES ('4','c','Daniel Lohn','2026-06-07T10:00:00.000Z',NULL)")
