@@ -3046,6 +3046,20 @@ function _wireSollIstHover(){
               <div id="aa-compare-wrap" style="display:none">
                 <div id="aa-proj-benchmark-note" style="font-size:10px;color:var(--n6);background:var(--bg);border:1px solid rgba(90,104,120,0.12);border-radius:var(--r);padding:7px 10px;margin-bottom:10px;line-height:1.5">Berater-Sicht: SOLL-Strategie gegen die heutige IST-Situation (aktueller Mix des Beratungsverm&ouml;gens). Der Mehrwert entsteht v.a. dadurch, dass heute brachliegende Cash-Positionen investiert werden. Vergleich &amp; Delta folgen im Review.</div>
               </div>
+              <div id="aa-horizon-bar" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:10px;padding:7px 10px;background:var(--bg);border:1px solid var(--b1);border-radius:var(--r2);font-size:10px">
+                <span style="font-weight:600;color:var(--n6)">Prognose-Horizont</span>
+                <select id="aa-horizon-mode" onchange="setAaHorizonMode(this.value)" style="font-size:10px">
+                  <option value="auto">Auto (bis Lebensende)</option>
+                  <option value="age">bis Alter</option>
+                  <option value="date">bis Jahr</option>
+                  <option value="years">Anzahl Jahre</option>
+                </select>
+                <input id="aa-horizon-age" type="number" min="50" max="105" placeholder="85" onchange="applyIstHorizonAge(this.value)" style="display:none;width:56px;font-size:10px" aria-label="Prognose bis Alter">
+                <input id="aa-horizon-endyear" type="number" min="2026" max="2120" placeholder="2070" onchange="applyAaHorizonEndYear(this.value)" style="display:none;width:68px;font-size:10px" aria-label="Prognose bis Jahr">
+                <input id="aa-horizon-years" type="number" min="3" max="60" placeholder="auto" onchange="applyIstHorizonOverride(this.value)" style="display:none;width:56px;font-size:10px" aria-label="Prognose Anzahl Jahre">
+                <span id="aa-horizon-eff" style="color:var(--n6);font-style:italic"></span>
+                <span style="color:var(--n4);margin-left:auto">ändert nur die Grafik-Länge, nicht die Renditen</span>
+              </div>
               <div id="aa-proj-chart-grid" style="margin-bottom:10px;grid-template-columns:1fr">
                 <div style="border:1px solid rgba(22,101,52,0.16);border-radius:var(--r2);padding:10px 11px;background:rgba(22,101,52,0.04)">
                   <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:4px"><span style="font-size:10px;font-weight:600;color:var(--n7)">Optimierte Zielallokation</span><span class="tag tg">Ziel</span></div>
@@ -16925,6 +16939,8 @@ function syncIstHorizonOverrideInput(){
     } else { dEl.value = ''; }
   }
   updateHorizonEffectiveLabel();
+  // Horizont-Balken bei den SOLL/IST-Charts synchron halten (gleiche Override-Quelle).
+  try{ syncAaHorizonControl(); }catch(e){}
 }
 function setHorizonInputMode(mode){
   var yEl = document.getElementById('cf-horizon-override');
@@ -16982,6 +16998,69 @@ async function applyIstHorizonOverride(yearsRaw){
   } catch(e) { /* defensive */ }
   // Effektiv-Label mit der NEU geladenen Projektion aktualisieren (bis Jahr / Jahre).
   updateHorizonEffectiveLabel();
+  // Den Horizont-Balken bei den SOLL/IST-Charts mitziehen (gleiche Override-Quelle).
+  try{ syncAaHorizonControl(); }catch(e){}
+}
+
+// 2026-06-17: Benutzerfreundlicher Prognose-Horizont DIREKT bei den SOLL/IST-Charts.
+// Setzt denselben client-Override wie die Cashflow-Seite (loadIstHorizonOverride) ->
+// aendert NUR die Grafik-Laenge (Projektion neu laden + Charts neu zeichnen), NICHT
+// die SAA/Renditen. "bis Alter X" und "bis Jahr" rechnen auf Jahre ab heute um.
+function _horizonBirthYear(){
+  if(typeof currentPersona==='undefined'||!currentPersona)return null;
+  var by=parseInt(String(currentPersona.date_of_birth||'').slice(0,4),10);
+  if(isFinite(by)&&by>1900)return by;
+  var bp=parseInt(String(currentPersona.partner_date_of_birth||'').slice(0,4),10);
+  return (isFinite(bp)&&bp>1900)?bp:null;
+}
+function applyIstHorizonAge(ageRaw){
+  // Zielalter -> Endjahr (Geburtsjahr + Alter) -> Jahre ab heute (Zieljahr inkl.).
+  var age=parseInt(String(ageRaw==null?'':ageRaw).trim(),10);
+  var by=_horizonBirthYear();
+  var cur=(new Date()).getFullYear();
+  if(!isFinite(age)||!by){ applyIstHorizonOverride(''); return; }
+  var endYear=by+age;
+  if(endYear<=cur){ applyIstHorizonOverride(''); return; }
+  applyIstHorizonOverride(String(Math.min(60,Math.max(3,endYear-cur+1))));
+}
+function applyAaHorizonEndYear(yearRaw){
+  // Zieljahr (Enddatum) -> Jahre ab heute (Zieljahr inkl.).
+  var y=parseInt(String(yearRaw==null?'':yearRaw).trim(),10);
+  var cur=(new Date()).getFullYear();
+  if(!isFinite(y)||y<=cur){ applyIstHorizonOverride(''); return; }
+  applyIstHorizonOverride(String(Math.min(60,y-cur+1)));
+}
+function setAaHorizonMode(mode){
+  var a=document.getElementById('aa-horizon-age');
+  var d=document.getElementById('aa-horizon-endyear');
+  var y=document.getElementById('aa-horizon-years');
+  [a,d,y].forEach(function(el){ if(el)el.style.display='none'; });
+  if(mode==='age'){ if(a)a.style.display=''; }
+  else if(mode==='date'){ if(d)d.style.display=''; }
+  else if(mode==='years'){ if(y)y.style.display=''; }
+  else { resetIstHorizonOverride(); } // 'auto' -> zurueck auf Lebensende-Ableitung
+}
+function syncAaHorizonControl(){
+  var ov=loadIstHorizonOverride();
+  var cur=(new Date()).getFullYear();
+  var by=_horizonBirthYear();
+  var endY=ov?(cur+Number(ov)-1):null; // Zieljahr inkl.
+  var ageEl=document.getElementById('aa-horizon-age');
+  var dEl=document.getElementById('aa-horizon-endyear');
+  var yrEl=document.getElementById('aa-horizon-years');
+  if(yrEl)yrEl.value=ov?String(ov):'';
+  if(dEl)dEl.value=endY?String(endY):'';
+  if(ageEl)ageEl.value=(endY&&by)?String(endY-by):'';
+  var effEl=document.getElementById('aa-horizon-eff');
+  if(effEl){
+    if(ov){
+      var ageTxt=(endY&&by)?(' · Alter '+(endY-by)):'';
+      effEl.textContent='= bis '+endY+ageTxt+' ('+ov+' J.)';
+    } else {
+      var life=_lifeExpectancyEndYear();
+      effEl.textContent=life?('= auto bis '+life+' (Lebensende)'):'= auto';
+    }
+  }
 }
 
 function projectionHorizonYears(result,preferredYears){
