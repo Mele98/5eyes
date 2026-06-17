@@ -3274,7 +3274,7 @@ function _wireSollIstHover(){
             <div>
               <div style="font-size:8px;font-weight:600;letter-spacing:0.1em;text-transform:uppercase;color:var(--n4);margin-bottom:5px">Geografie & Währung</div>
               <div style="display:flex;flex-direction:column;gap:3px;margin-bottom:8px">
-                <label style="display:flex;align-items:center;gap:6px;font-size:10px;cursor:pointer"><input type="checkbox" id="aa-geo-ch-focus"> CH-Fokus</label>
+                <!-- CH-Fokus wird ausschliesslich ueber die Heimmarkt-Praeferenz (policy.homeBias) gesteuert, kein zweiter Schalter. -->
                 <label style="display:flex;align-items:center;gap:6px;font-size:10px;cursor:pointer"><input type="checkbox" id="aa-geo-no-em"> Kein EM-Exposure</label>
                 <label style="display:flex;align-items:center;gap:6px;font-size:10px;cursor:pointer"><input type="checkbox" id="aa-geo-hedging-required"> FX-Absicherung obligatorisch</label>
                 <label style="display:flex;align-items:center;gap:6px;font-size:10px;cursor:pointer"><input type="checkbox" id="aa-geo-chf-only"> Nur CHF-Instrumente</label>
@@ -16591,7 +16591,7 @@ function collectAllocationPreferencesFromUI(){
       maxIlliquid:getInputValue('aa-liquidity-max-illiquid'),
     },
     geo:{
-      chFocus:getCheckboxValue('aa-geo-ch-focus'),
+      chFocus:(getInputValue('aa-policy-home-bias')||'ch_focus')==='ch_focus',
       noEm:getCheckboxValue('aa-geo-no-em'),
       hedgingRequired:getCheckboxValue('aa-geo-hedging-required'),
       chfOnly:getCheckboxValue('aa-geo-chf-only'),
@@ -16626,14 +16626,10 @@ function collectAllocationPreferencesFromUI(){
       liquidityReserveTarget:getInputValue('aa-liquidity-reserve-target'),
     },
   };
-  // Sprint U-P0 Fix C10: aa-geo-ch-focus Checkbox war tot — Backend liest
-  // nur policy.homeBias. Wenn Checkbox aktiv ist, synct sie auf den policy-
-  // Dropdown damit der Klick endlich wirkt (ch_focus aktiviert +35-Boost
-  // im _product_score). Checkbox dominiert wenn aktiv; sonst bleibt user-
-  // selected homeBias.
-  if(live.geo.chFocus){
-    live.policy.homeBias='ch_focus';
-  }
+  // CH-Fokus hat nur EINE Quelle: policy.homeBias (Dropdown). geo.chFocus wird
+  // daraus abgeleitet (siehe oben) und dient nur noch der Restriktions-Anzeige.
+  // Der fruehere zweite Schalter (aa-geo-ch-focus Checkbox) ist entfernt, damit
+  // sich Dropdown und Checkbox nicht mehr widersprechen koennen.
   prefs.policy=live.policy;
   prefs.tilts=live.tilts;
   prefs.product=live.product;
@@ -16667,7 +16663,6 @@ function applyAllocationPreferencesToUI(prefs){
   setSelectValue('aa-limit-single-issuer',prefs.limits&&prefs.limits.singleIssuer);
   setSelectValue('aa-liquidity-min-reserve',prefs.limits&&prefs.limits.minReserve);
   setSelectValue('aa-liquidity-max-illiquid',prefs.limits&&prefs.limits.maxIlliquid);
-  setCheckboxValue('aa-geo-ch-focus',prefs.geo&&prefs.geo.chFocus);
   setCheckboxValue('aa-geo-no-em',prefs.geo&&prefs.geo.noEm);
   setCheckboxValue('aa-geo-hedging-required',prefs.geo&&prefs.geo.hedgingRequired);
   setCheckboxValue('aa-geo-chf-only',prefs.geo&&prefs.geo.chfOnly);
@@ -16717,7 +16712,7 @@ function bindAllocationPreferenceControls(){
     '#aa-tilt-fossil','#aa-tilt-defense','#aa-tilt-tobacco','#aa-tilt-alcohol','#aa-tilt-gaming','#aa-tilt-nuclear',
     '#aa-product-no-derivatives','#aa-product-no-leverage','#aa-product-no-structured','#aa-product-listed-only','#aa-product-funds-only',
     '#aa-limit-single-position','#aa-limit-single-issuer','#aa-liquidity-min-reserve','#aa-liquidity-max-illiquid',
-    '#aa-geo-ch-focus','#aa-geo-no-em','#aa-geo-hedging-required','#aa-geo-chf-only','#aa-geo-no-usd',
+    '#aa-geo-no-em','#aa-geo-hedging-required','#aa-geo-chf-only','#aa-geo-no-usd',
     '#aa-sim-horizon','#aa-sim-stress','#aa-sim-rebalance','#aa-sim-mc-runs',
     '#aa-equities-large-cap','#aa-equities-smid','#aa-bonds-investment-grade','#aa-bonds-high-yield','#aa-bonds-emerging',
     '#aa-realestate-funds','#aa-realestate-direct','#aa-alts-gold','#aa-alts-liquid-alts','#aa-alts-hedge','#aa-alts-pe','#aa-alts-crypto',

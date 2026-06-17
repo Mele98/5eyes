@@ -3668,6 +3668,84 @@ def _build_sub_allocations(targets: dict[str, int], preferences: dict) -> list[d
     return sub_allocations
 
 
+# 3eyes-Methodik (drei augen.pdf): Illiquiditaet ist eine Eigenschaft des
+# Bausteins, kein pauschaler Alternatives-Deckel. Direktimmobilien werden
+# bereits ueber das Gesamtvermoegen (extern) gefuehrt und nicht umgeschichtet;
+# der einzige illiquide Baustein INNERHALB der handelbaren SAA ist Private Equity.
+_ILLIQUID_SUB_ASSET_CLASSES = {"private equity"}
+
+
+def _apply_illiquid_cap(
+    sub_allocations: list[dict],
+    targets: dict[str, int],
+    max_illiquid_bps: int | None,
+    reasoning: list[str],
+) -> tuple[list[dict], dict[str, int]]:
+    """Deckelt den ECHT illiquiden Anteil (Private Equity) auf max_illiquid_bps.
+
+    Methodik-konform (3eyes): nur der illiquide Baustein wird reduziert, nicht
+    die ganze Alternatives-Quote. Der freiwerdende Anteil wird primaer innerhalb
+    der Alternativen zu liquiden Sleeves (Gold, Liquid Alts, ...) verschoben — die
+    Alternatives-Quote bleibt dann unveraendert, nur ihre Zusammensetzung wird
+    liquider. Gibt es keinen liquiden Alt-Sleeve, wandert der Rest in die Liquiditaet.
+    """
+    if max_illiquid_bps is None:
+        return sub_allocations, targets
+    illiquid = [
+        sub for sub in sub_allocations
+        if _norm_text(sub.get("sub_asset_class")).strip().lower() in _ILLIQUID_SUB_ASSET_CLASSES
+    ]
+    illiquid_bps = sum(int(sub.get("target_weight_bps") or 0) for sub in illiquid)
+    if illiquid_bps <= max_illiquid_bps or illiquid_bps <= 0:
+        return sub_allocations, targets
+
+    freed = 0
+    scale = max_illiquid_bps / illiquid_bps
+    for sub in illiquid:
+        old = int(sub.get("target_weight_bps") or 0)
+        new = int(round(old * scale))
+        freed += old - new
+        sub["target_weight_bps"] = new
+    if freed <= 0:
+        return sub_allocations, targets
+
+    liquid_alts = [
+        sub for sub in sub_allocations
+        if _norm_text(sub.get("asset_class")) == _norm_text("Alternative")
+        and _norm_text(sub.get("sub_asset_class")).strip().lower() not in _ILLIQUID_SUB_ASSET_CLASSES
+    ]
+    if liquid_alts:
+        # Innerhalb der Alternativen umschichten: PE -> liquide Sleeves. Alternatives-Quote bleibt.
+        receiver = max(liquid_alts, key=lambda s: int(s.get("target_weight_bps") or 0))
+        receiver["target_weight_bps"] = int(receiver.get("target_weight_bps") or 0) + freed
+        reasoning.append(
+            "Mandatsgrenze fuer illiquide Anlagen: Private Equity gedeckelt, "
+            "freiwerdender Anteil innerhalb der Alternativen zu liquiden Bausteinen verschoben."
+        )
+    else:
+        # Kein liquider Alt-Sleeve vorhanden -> raus aus Alternativen in die Liquiditaet.
+        targets["alternatives"] = max(0, int(targets["alternatives"]) - freed)
+        targets["liquidity"] = int(targets["liquidity"]) + freed
+        liq_sub = next(
+            (s for s in sub_allocations if _norm_text(s.get("asset_class")) == _norm_text("Liquiditaet")),
+            None,
+        )
+        if liq_sub is not None:
+            liq_sub["target_weight_bps"] = int(liq_sub.get("target_weight_bps") or 0) + freed
+        else:
+            sub_allocations.append({
+                "asset_class": "Liquiditaet",
+                "sub_asset_class": "Geldmarktfonds",
+                "target_weight_bps": freed,
+                "rationale": "Liquiditaetsreserve nach Deckelung illiquider Anlagen",
+            })
+        reasoning.append(
+            "Mandatsgrenze fuer illiquide Anlagen: Private Equity gedeckelt, "
+            "freiwerdender Anteil in die Liquiditaet umgeschichtet (kein liquider Alternativ-Baustein aktiv)."
+        )
+    return sub_allocations, targets
+
+
 def _house_matrix_or_default(db: Session, policy: OptimizerPolicy, score_bucket: int) -> HouseMatrix:
     hm = db.query(HouseMatrix).filter(
         HouseMatrix.policy_id == policy.id,
@@ -5927,19 +6005,16 @@ def generate_target_allocation(
         targets["liquidity"] -= 50
         reasoning.append("Positiver laufender Cashflow und langfristige Wachstumsziele ermoeglichen einen moderaten Equity-Tilt.")
 
+    # 3eyes-konform: Illiquiditaet wird auf Baustein-Ebene (Private Equity) gedeckelt,
+    # nicht pauschal auf der ganzen Alternatives-Quote (Gold/Liquid Alts sind liquide).
+    # Direktimmobilien laufen ohnehin extern ueber das Gesamtvermoegen.
     max_illiquid_bps = _parse_bps_percent(prefs["limits"].get("maxIlliquid"))
-    if max_illiquid_bps is not None:
-        maximums["alternatives"] = min(maximums["alternatives"], max_illiquid_bps)
-        if not optimizer_replaced_targets and targets["alternatives"] > maximums["alternatives"]:
-            overflow = targets["alternatives"] - maximums["alternatives"]
-            targets["alternatives"] = maximums["alternatives"]
-            targets["bonds"] += int(round(overflow * 0.6))
-            targets["liquidity"] += overflow - int(round(overflow * 0.6))
-            reasoning.append("Die Mandatsgrenze fuer illiquide Anlagen deckelt den Alternatives-Anteil.")
 
     targets = _rebalance_to_total(targets, minimums, maximums)
     risky_map = _building_block_risky_map(db, policy.id, getattr(mandate, "investment_universe", None))
     sub_allocations = _build_sub_allocations(targets, prefs)
+    if not optimizer_replaced_targets:
+        sub_allocations, targets = _apply_illiquid_cap(sub_allocations, targets, max_illiquid_bps, reasoning)
     sub_allocations, asset_risky_weights, risky_fraction_total_bps = _enrich_sub_allocations_with_risk(sub_allocations, risky_map)
     realized_risky_bps = risky_fraction_total_bps  # Validierung 2026-06-11 (#AA-1/#AA-3): sub-allocation-gewichtet (konsistent zur Enforcement-Cascade), statt ungewichtetem BB-Bucket-Mittel
     risk_budget_fallback = False
@@ -5951,6 +6026,7 @@ def generate_target_allocation(
         targets, minimums, maximums = _house_matrix_mid_targets(house_matrix, policy)
         targets = _rebalance_to_total(targets, minimums, maximums)
         sub_allocations = _build_sub_allocations(targets, prefs)
+        sub_allocations, targets = _apply_illiquid_cap(sub_allocations, targets, max_illiquid_bps, reasoning)
         sub_allocations, asset_risky_weights, risky_fraction_total_bps = _enrich_sub_allocations_with_risk(sub_allocations, risky_map)
         realized_risky_bps = risky_fraction_total_bps  # Validierung 2026-06-11 (#AA-1): sub-allocation-gewichtet (konsistent zur Enforcement-Cascade via asset_risky_weights), statt ungewichtetem BB-Bucket-Mittel
         try:
@@ -6017,6 +6093,7 @@ def generate_target_allocation(
                     )
             targets = _rebalance_to_total(targets, minimums, maximums)
             sub_allocations = _build_sub_allocations(targets, prefs)
+            sub_allocations, targets = _apply_illiquid_cap(sub_allocations, targets, max_illiquid_bps, reasoning)
             sub_allocations, asset_risky_weights, risky_fraction_total_bps = _enrich_sub_allocations_with_risk(sub_allocations, risky_map)
             realized_risky_bps = risky_fraction_total_bps  # Validierung 2026-06-11 (#AA-1): sub-allocation-gewichtet (konsistent zur Enforcement-Cascade via asset_risky_weights), statt ungewichtetem BB-Bucket-Mittel
             if int(realized_risky_bps) > int(risk_budget_bps):
