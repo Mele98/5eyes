@@ -2229,6 +2229,12 @@ def _build_simulation_payload(
     transaction_cost_bps = _simulation_transaction_cost_bps(simulation_prefs)
     # C3: gewichtete Bucket-Metriken aus Sub-Allocation, falls vorhanden.
     returns, vols = _weighted_bucket_metrics(cma, sub_allocations)
+    # 2026-06-17 (User-Fachentscheid): Liquidität wertet in der PROJEKTION NICHT auf
+    # (Cash = 0%, sofern nicht anders gesetzt). Tatsächliche Zinsen kommen ausschliesslich
+    # über den abgeleiteten Zinsertrag-Cashflow rein -> kein Doppelzählen, ein 0%-Konto
+    # bleibt flach. cma.liquidity_return_bps bleibt fuer risk-free/Sharpe/Optimizer unberührt.
+    returns = {**returns, "liquidity": 0}
+    vols = {**vols, "liquidity": 0}
     target_start_total = int(target_total_rappen if target_total_rappen is not None else advisory_summary.total_rappen)
     target_values = _target_bucket_values(target_start_total, targets)
     # Z8-W2 Phase 2: Total-Pfad nutzt Asset-Buckets aus Gesamtvermoegen,
@@ -3080,6 +3086,11 @@ def _run_allocation_monte_carlo(
     use_tail_risk = _simulation_use_tail_risk(simulation_prefs)
     # C3: gewichtete Bucket-Metriken aus Sub-Allocation.
     returns, vols = _weighted_bucket_metrics(cma, sub_allocations)
+    # 2026-06-17 (User-Fachentscheid): Liquidität wertet in der PROJEKTION NICHT auf
+    # (Cash = 0%). mu=0 & sigma=0 -> growth_factor=exp(0)=1.0 -> Liquidität flach im MC.
+    # Echte Zinsen laufen nur über den abgeleiteten Zinsertrag-Cashflow (kein Doppelzählen).
+    returns = {**returns, "liquidity": 0}
+    vols = {**vols, "liquidity": 0}
     chol = _build_cholesky_from_cma(cma, crisis_strength=crisis_strength)
     # Sprint U-P4 Fix M6: Skewness/Kurtosis pro Bucket aus CMA (Cornish-Fisher)
     skew_per_bucket = [
