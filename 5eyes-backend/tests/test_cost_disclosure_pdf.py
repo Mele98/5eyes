@@ -237,7 +237,7 @@ def test_document_compose_pending_keine_exception():
         payload=_pending_payload(),
     )
     flow = build_cost_disclosure_flowables(_ctx(), data)
-    assert flow  # Cover + Header + Block — mindestens ein Element
+    assert flow  # Cover + disclosure block — mindestens ein Element
 
 
 def test_document_compose_voll_befuellt_render_pdf_bytes():

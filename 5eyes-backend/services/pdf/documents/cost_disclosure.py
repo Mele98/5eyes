@@ -7,7 +7,7 @@ kann beim Druck automatisch gesetzt werden (Audit-Trail, PR 3).
 
 Aufbau:
 1. Cover (single-report Stil) mit Fokuspunkten
-2. Header + Editorial-Kostenausweis-Block (services.pdf.components.kostenausweis)
+2. Editorial-Kostenausweis-Block (services.pdf.components.kostenausweis)
 3. Optionaler 'pending'-Hinweis wenn noch keine Empfehlung
 """
 from __future__ import annotations
