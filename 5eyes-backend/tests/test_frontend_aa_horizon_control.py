@@ -61,3 +61,35 @@ def test_aa_horizon_control_synced_from_override_source():
     assert start != -1
     body = html[start:start + 900]
     assert "syncAaHorizonControl()" in body
+
+
+def test_chart_render_honors_horizon_override():
+    """Damit 'Speichern' die Grafik wirklich aendert: updateProjectionChartsFromSimulation
+    muss den Override VOR der vollen Engine-Laenge beruecksichtigen."""
+    html = _html()
+    start = html.find("function updateProjectionChartsFromSimulation(")
+    assert start != -1
+    body = html[start:start + 900]
+    assert "loadIstHorizonOverride" in body, "Override wird im Chart-Render nicht gelesen"
+    assert "_hOv&&_hOv>0" in body, "Override hat keinen Vorrang vor der Engine-Laenge"
+
+
+def test_fan_chart_truncates_to_override():
+    """Der SOLL-Faecher (Best/Haupt/Worst) muss ebenfalls auf den Override
+    getrunkiert werden, sonst bleibt er in voller Engine-Laenge."""
+    html = _html()
+    start = html.find("function upgradeFanChartWithMonteCarlo(")
+    assert start != -1
+    body = html[start:start + 1400]
+    assert "loadIstHorizonOverride" in body
+    assert "_hCut" in body
+
+
+def test_override_apply_rerenders_fan():
+    """applyIstHorizonOverride muss nach dem Chart-Update auch den Faecher neu
+    zeichnen (sonst bliebe nur die deterministische Linie)."""
+    html = _html()
+    start = html.find("async function applyIstHorizonOverride(")
+    assert start != -1
+    body = html[start:start + 1400]
+    assert "upgradeFanChartWithMonteCarlo(" in body

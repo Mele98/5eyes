@@ -16996,6 +16996,9 @@ async function applyIstHorizonOverride(yearsRaw){
   // ist deterministisch und respektiert die neue Horizont-Laenge).
   try {
     updateProjectionChartsFromSimulation(strategyState && strategyState.allocation);
+    // SOLL-Fächer (Best/Haupt/Worst) ebenfalls auf den neuen Horizont neu zeichnen,
+    // sonst bliebe nur die deterministische Linie auf neuer Länge.
+    upgradeFanChartWithMonteCarlo(strategyState && strategyState.allocation);
   } catch(e) { /* defensive */ }
   // Effektiv-Label mit der NEU geladenen Projektion aktualisieren (bis Jahr / Jahre).
   updateHorizonEffectiveLabel();
@@ -17612,10 +17615,16 @@ function updateProjectionChartsFromSimulation(result){
   // Nur charts.opt (target_mix_series) braucht ein gefuelltes simulation-
   // Payload.
   var sim=simulationPayload(result);
-  var horizon=sim&&Array.isArray(sim.year_labels)&&sim.year_labels.length>1
-    ? sim.year_labels.length-1
-    : projectionHorizonYears(result,null);
-  var labels=projectionYearLabels(result,horizon,sim&&sim.year_labels);
+  // 2026-06-17: Berater-Override (bis Alter/Jahr) hat Vorrang vor der vollen
+  // Engine-Laenge — sonst greift der Horizont-Balken bei den SOLL/IST-Charts nicht
+  // (aendert nur die Grafik-Laenge, nicht die Renditen).
+  var _hOv=(typeof loadIstHorizonOverride==='function')?loadIstHorizonOverride():null;
+  var horizon=(_hOv&&_hOv>0)
+    ? _hOv
+    : (sim&&Array.isArray(sim.year_labels)&&sim.year_labels.length>1
+        ? sim.year_labels.length-1
+        : projectionHorizonYears(result,null));
+  var labels=projectionYearLabels(result,horizon,(_hOv&&_hOv>0)?null:(sim&&sim.year_labels));
   var targetSeries=sim?simulationSeriesK(sim.target_mix_series_rappen):[];
   var advisoryBaselineProjection=buildCurrentBaselineProjection(result,horizon,labels);
   var advisoryCurrentSeries=advisoryBaselineProjection.seriesK;
@@ -17881,6 +17890,11 @@ function upgradeFanChartWithMonteCarlo(result){
   var sim=simulationPayload(result);
   if(!mc)return;
   var labels=(mc.year_labels||[]).map(function(y){return String(y);});
+  // 2026-06-17: Prognose-Horizont-Override (bis Alter/Jahr) trunkiert die ANZEIGE
+  // des Fächers auf die gewünschte Länge — nur die Grafik, Renditen unverändert.
+  var _hOv=(typeof loadIstHorizonOverride==='function')?loadIstHorizonOverride():null;
+  var _hCut=(_hOv&&_hOv>0)?Math.min(labels.length,_hOv+1):labels.length;
+  if(_hCut<labels.length)labels=labels.slice(0,_hCut);
   // 2026-06-17 (User-Fachentscheid): Die Liquiditätsreserve wird im Backend aus dem
   // SOLL-Startkapital herausgerechnet (investierbarer Teil). Fürs BILD schlagen wir sie
   // als konstanten Sockel/„0-Punkt" wieder drauf → SOLL & IST starten am vollen Vermögen
@@ -17891,7 +17905,7 @@ function upgradeFanChartWithMonteCarlo(result){
   // IST-Kurve (investierbar + Reserve = volles Vermögen, exakt deckungsgleich mit IST).
   var _reserveR=Number((result&&result.external_reserve_rappen)||0);
   var _withSockel=function(s){return (Array.isArray(s)?s:[]).map(function(v){return Number(v||0)+_reserveR;});};
-  var _prep=function(s){return simulationSeriesK(_reserveR>0?_withSockel(s):s);};
+  var _prep=function(s){var k=simulationSeriesK(_reserveR>0?_withSockel(s):s);return (k.length>_hCut)?k.slice(0,_hCut):k;};
   var p90=_prep(mc.target_p90_series_rappen);
   var p50=_prep(mc.target_p50_series_rappen);
   var p10=_prep(mc.target_p10_series_rappen);
