@@ -5122,6 +5122,11 @@ async function loadClientById(clientId) {
         const kCF = document.getElementById('kpi-cashflow');
         if (kCF) kCF.textContent = 'CHF ' + Math.round(cf.surplus_chf).toLocaleString('de-CH');
       }
+      // 2026-06-17: Cashflow-Liste SOFORT rendern — unabhaengig von der langsameren
+      // Risiko-/Strategie-Hydration darunter (und vor deren stale-guard). Sonst blieb
+      // beim App-Start "Wird geladen …" stehen, bis Risiko + Allocation geladen waren.
+      // refreshCashflowsUI ist self-contained (eigener fetch + eigener stale-guard).
+      refreshCashflowsUI(c.id);
       if(currentMandateId){
         try{
           await loadCurrentRiskAssessment(currentMandateId,true);
@@ -5174,7 +5179,7 @@ async function loadClientById(clientId) {
       if (loadToken !== liveClientLoadToken || currentClientId !== c.id) return;
       syncAllocationPendingViews();
       syncAllocationPreferences();
-      refreshCashflowsUI(c.id);
+      // refreshCashflowsUI wurde bereits frueh (vor der Hydration) angestossen.
       if(currentMandateId){
         refreshGoalsUI(currentMandateId);
         loadPlanningAssumptions();
