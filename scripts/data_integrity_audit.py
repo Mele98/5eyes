@@ -75,6 +75,48 @@ def scan_database(conn: sqlite3.Connection) -> list[dict]:
     return findings
 
 
+# Tabellen mit client_id, die einen gültigen (aktiven) Kunden als Eigentümer brauchen.
+ORPHAN_TABLES = [
+    "cashflows", "wealth_positions", "goals", "mandates",
+    "planning_assumptions", "client_knowledge", "recommendation_runs",
+]
+
+
+def scan_orphans(conn: sqlite3.Connection) -> list[dict]:
+    """Aktive Datensätze, deren client_id auf einen soft-gelöschten/fehlenden Kunden
+    zeigt (verwaiste Finanzdaten ohne gültigen Eigentümer). FINMA: solche Daten
+    müssten dem Lebenszyklus des Kunden folgen (mit-soft-deleted oder gelöscht)."""
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    tables = {r[0] for r in cur.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    if "clients" not in tables:
+        return []
+    active_clients = {
+        r[0] for r in cur.execute("SELECT id FROM clients WHERE deleted_at IS NULL")
+    }
+    findings: list[dict] = []
+    for table in ORPHAN_TABLES:
+        if table not in tables:
+            continue
+        cols = [r[1] for r in cur.execute(f"PRAGMA table_info({table})")]
+        if "client_id" not in cols:
+            continue
+        has_del = "deleted_at" in cols
+        for row in cur.execute(f"SELECT * FROM {table}"):
+            keys = row.keys()
+            active = (not has_del) or (row["deleted_at"] in (None, ""))
+            cid = row["client_id"]
+            if active and cid and cid not in active_clients:
+                findings.append({
+                    "table": table,
+                    "id": row["id"] if "id" in keys else None,
+                    "client_id": cid,
+                    "label": (row["label"] if "label" in keys else "") or "",
+                    "reasons": ["Orphan: client_id zeigt auf soft-deleted/fehlenden Kunden"],
+                })
+    return findings
+
+
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(description="Daten-Integritäts-Audit (FINMA-Hygiene).")
     ap.add_argument("--db", default=str(Path.home() / "5eyes" / "5eyes.db"))
@@ -87,7 +129,7 @@ def main(argv: list[str]) -> int:
         return 2
     conn = sqlite3.connect(str(db_path))
     try:
-        findings = scan_database(conn)
+        findings = scan_database(conn) + scan_orphans(conn)
     finally:
         conn.close()
 
