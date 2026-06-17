@@ -17004,6 +17004,9 @@ async function applyIstHorizonOverride(yearsRaw){
   updateHorizonEffectiveLabel();
   // Den Horizont-Balken bei den SOLL/IST-Charts mitziehen (gleiche Override-Quelle).
   try{ syncAaHorizonControl(); }catch(e){}
+  // GARANTIE: nach allen Re-Renders die Live-Charts hart auf den Horizont kappen,
+  // damit die X-Achse dem Override IMMER folgt (auch falls ein Re-Render scheitert).
+  try{ var _ovNow=loadIstHorizonOverride(); if(_ovNow&&_ovNow>0)_truncateProjectionChartsTo(_ovNow); }catch(e){}
 }
 
 // 2026-06-17: Benutzerfreundlicher Prognose-Horizont DIREKT bei den SOLL/IST-Charts.
@@ -17065,6 +17068,21 @@ function syncAaHorizonControl(){
       effEl.textContent=life?('= auto bis '+life+' (Lebensende)'):'= auto';
     }
   }
+}
+// 2026-06-17 BULLETPROOF: kappt die Live-Projektions-Charts (SOLL/IST/Total) hart auf
+// den Horizont (years+1 Punkte) — unabhaengig von updateProjectionChartsFromSimulation /
+// syncAaProjectionAxisScales. Garantiert, dass die X-Achse dem Horizont folgt.
+function _truncateProjectionChartsTo(years){
+  if(!(years&&years>0)||typeof charts==='undefined'||!charts)return;
+  var keep=Math.round(Number(years))+1;
+  ['opt','aaCurrent','ist'].forEach(function(k){
+    var ch=charts[k];
+    if(!(ch&&ch.data))return;
+    var changed=false;
+    if(Array.isArray(ch.data.labels)&&ch.data.labels.length>keep){ ch.data.labels=ch.data.labels.slice(0,keep); changed=true; }
+    ((ch.data.datasets)||[]).forEach(function(d){ if(d&&Array.isArray(d.data)&&d.data.length>keep){ d.data=d.data.slice(0,keep); changed=true; } });
+    if(changed){ try{ ch.update('none'); }catch(_e){} }
+  });
 }
 // Expliziter Speichern/Anwenden-Knopf: wendet den aktuell gewaehlten Modus + Wert an
 // (mehrfach beliebig wiederholbar). Persistenz + Re-Render passieren in den
@@ -17572,20 +17590,35 @@ function syncAaProjectionAxisScales(){
   var lblO=(charts.opt.data&&charts.opt.data.labels)||[];
   var lblA=(charts.aaCurrent.data&&charts.aaCurrent.data.labels)||[];
   var sharedLabels=((lblA.length>=lblO.length)?lblA:lblO).slice();
+  // 2026-06-17: Berater-Horizont-Override begrenzt die gemeinsame X-Achse HART.
+  // Diese Funktion ist die autoritative Stelle fuer die geteilte X-Achse (wird am
+  // Ende beider Render-Pfade aufgerufen) — ohne diese Begrenzung wuerde sie die
+  // Achse gleich wieder auf die laengste Datenreihe (voller SOLL-Pfad) aufblasen.
+  var _hov=(typeof loadIstHorizonOverride==='function')?loadIstHorizonOverride():null;
+  var _hcap=(_hov&&_hov>0)?(Number(_hov)+1):null;
   // 2026-06-15 FIX: Labels mind. so lang wie die längste Datenreihe beider Charts
-  // (sonst endet die X-Achse vor der Kurve, z.B. Achse bis 2036 / Linie bis 2066).
+  // (sonst endet die X-Achse vor der Kurve) — aber NIE laenger als der Override.
   var _ml=sharedLabels.length;
   [charts.opt,charts.aaCurrent].forEach(function(ch){
     ((ch.data&&ch.data.datasets)||[]).forEach(function(d){if(Array.isArray(d.data))_ml=Math.max(_ml,d.data.length);});
   });
+  if(_hcap)_ml=Math.min(_ml,_hcap);
   if(sharedLabels.length<_ml){
     var _ly=parseInt(String(sharedLabels[sharedLabels.length-1]||'').slice(0,4),10);
     if(!isFinite(_ly)) _ly=(new Date().getFullYear())+sharedLabels.length-1;
     while(sharedLabels.length<_ml){ _ly+=1; sharedLabels.push(String(_ly)); }
   }
+  if(_hcap&&sharedLabels.length>_hcap)sharedLabels=sharedLabels.slice(0,_hcap);
   if(sharedLabels&&sharedLabels.length){
     if(charts.opt.data)charts.opt.data.labels=sharedLabels.slice();
     if(charts.aaCurrent.data)charts.aaCurrent.data.labels=sharedLabels.slice();
+    // Datenreihen ebenfalls auf die Achsenlaenge kappen, damit der naechste Sync sie
+    // nicht wieder als "laengste Datenreihe" verwendet und die Achse aufblaest.
+    if(_hcap){
+      [charts.opt,charts.aaCurrent].forEach(function(ch){
+        ((ch.data&&ch.data.datasets)||[]).forEach(function(d){ if(Array.isArray(d.data)&&d.data.length>_hcap)d.data=d.data.slice(0,_hcap); });
+      });
+    }
   }
   // (b) gemeinsame Y-Achse aus den Werten BEIDER Charts. Immer LINEAR (kunden-
   // freundlich, siehe _projAxisConfig). Beide Panels bekommen IMMER dieselbe
