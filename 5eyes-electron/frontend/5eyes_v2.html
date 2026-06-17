@@ -17784,20 +17784,21 @@ function upgradeFanChartWithMonteCarlo(result){
   var sim=simulationPayload(result);
   if(!mc)return;
   var labels=(mc.year_labels||[]).map(function(y){return String(y);});
-  var p90=simulationSeriesK(mc.target_p90_series_rappen);
-  var p50=simulationSeriesK(mc.target_p50_series_rappen);
-  var p10=simulationSeriesK(mc.target_p10_series_rappen);
-  var deterministic=simulationSeriesK(sim&&sim.target_mix_series_rappen);
   // 2026-06-17 (User-Fachentscheid): Die Liquiditätsreserve wird im Backend aus dem
   // SOLL-Startkapital herausgerechnet (investierbarer Teil). Fürs BILD schlagen wir sie
   // als konstanten Sockel/„0-Punkt" wieder drauf → SOLL & IST starten am vollen Vermögen
   // und die SOLL-Kurve zehrt im Verzehr nur bis auf die Reserve herunter (geschützter
   // Boden). Backend-Logik bleibt unangetastet. (external_reserve_rappen = der Carve-out.)
-  var _reserveK=Math.round(Number((result&&result.external_reserve_rappen)||0)/100000);
-  if(_reserveK>0){
-    var _sockel=function(a){return (Array.isArray(a)?a:[]).map(function(v){return Number(v||0)+_reserveK;});};
-    p90=_sockel(p90); p50=_sockel(p50); p10=_sockel(p10); deterministic=_sockel(deterministic);
-  }
+  // WICHTIG: Reserve in RAPPEN auf die Serie addieren und ERST DANN einmal runden
+  // (simulationSeriesK), sonst entsteht durch doppeltes Runden ein ±1k-Versatz zur
+  // IST-Kurve (investierbar + Reserve = volles Vermögen, exakt deckungsgleich mit IST).
+  var _reserveR=Number((result&&result.external_reserve_rappen)||0);
+  var _withSockel=function(s){return (Array.isArray(s)?s:[]).map(function(v){return Number(v||0)+_reserveR;});};
+  var _prep=function(s){return simulationSeriesK(_reserveR>0?_withSockel(s):s);};
+  var p90=_prep(mc.target_p90_series_rappen);
+  var p50=_prep(mc.target_p50_series_rappen);
+  var p10=_prep(mc.target_p10_series_rappen);
+  var deterministic=_prep(sim&&sim.target_mix_series_rappen);
   var componentSeries=resultCashflowProjectionComponentSeries(result,Math.max(0,labels.length-1),labels);
   var eventPointRadius=[0];
   var eventPointBackground=['rgb(15,72,38)'];
