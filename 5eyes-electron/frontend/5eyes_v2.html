@@ -17081,21 +17081,48 @@ function _truncateProjectionChartsTo(years){
     var changed=false;
     if(Array.isArray(ch.data.labels)&&ch.data.labels.length>keep){ ch.data.labels=ch.data.labels.slice(0,keep); changed=true; }
     ((ch.data.datasets)||[]).forEach(function(d){ if(d&&Array.isArray(d.data)&&d.data.length>keep){ d.data=d.data.slice(0,keep); changed=true; } });
-    if(changed){ try{ ch.update('none'); }catch(_e){} }
+    if(changed){ try{ ch.update(); }catch(_e){} }
   });
 }
 // Expliziter Speichern/Anwenden-Knopf: wendet den aktuell gewaehlten Modus + Wert an
 // (mehrfach beliebig wiederholbar). Persistenz + Re-Render passieren in den
 // applyIstHorizon*-Funktionen; hier nur Dispatch + kurzes optisches Feedback.
-function saveAaHorizon(){
+async function saveAaHorizon(){
+  // Wert je Modus SYNCHRON berechnen (years = null bedeutet "auto" / kein Override).
   var modeEl=document.getElementById('aa-horizon-mode');
   var mode=(modeEl&&modeEl.value)||'auto';
-  if(mode==='age'){ applyIstHorizonAge((document.getElementById('aa-horizon-age')||{}).value); }
-  else if(mode==='date'){ applyAaHorizonEndYear((document.getElementById('aa-horizon-endyear')||{}).value); }
-  else if(mode==='years'){ applyIstHorizonOverride((document.getElementById('aa-horizon-years')||{}).value); }
-  else { resetIstHorizonOverride(); }
+  var cur=(new Date()).getFullYear();
+  var years=null, why='';
+  if(mode==='age'){
+    var a=parseInt(((document.getElementById('aa-horizon-age')||{}).value)||'',10);
+    var by=_horizonBirthYear();
+    if(!by){ why='kein Geburtsdatum'; }
+    else if(!isFinite(a)){ why='Alter leer'; }
+    else { var ey=by+a; if(ey>cur)years=Math.min(60,Math.max(3,ey-cur+1)); else why='Alter liegt in der Vergangenheit'; }
+  } else if(mode==='date'){
+    var y=parseInt(((document.getElementById('aa-horizon-endyear')||{}).value)||'',10);
+    if(!isFinite(y)){ why='Jahr leer'; } else if(y>cur){ years=Math.min(60,y-cur+1); } else { why='Jahr liegt in der Vergangenheit'; }
+  } else if(mode==='years'){
+    var n=parseInt(((document.getElementById('aa-horizon-years')||{}).value)||'',10);
+    if(isFinite(n)){ years=Math.min(60,Math.max(3,n)); } else { why='Jahre leer'; }
+  }
+  // 1. Override persistieren (oder loeschen bei auto).
+  saveIstHorizonOverride(years==null?null:String(years));
+  // 2. Auf den vollen Re-Render WARTEN (laedt Cashflow-Projektion + zeichnet Charts neu),
+  //    damit die anschliessende harte Kappung NICHT von einem spaeteren async-Render
+  //    wieder ueberschrieben wird (das war der Bug: Race zwischen Kappung und Re-Render).
+  try{ await applyIstHorizonOverride(years==null?'':String(years)); }catch(e){}
+  // 3. GARANTIE: ganz zuletzt die Live-Charts hart auf den Horizont kappen.
+  var optBefore=(charts&&charts.opt&&charts.opt.data&&charts.opt.data.labels)?charts.opt.data.labels.length:-1;
+  if(years!=null)_truncateProjectionChartsTo(years);
+  var optAfter=(charts&&charts.opt&&charts.opt.data&&charts.opt.data.labels)?charts.opt.data.labels.length:-1;
+  // 4. Diagnose sichtbar im Effektiv-Label (damit wir bei Problemen sofort sehen woran's liegt).
   var eff=document.getElementById('aa-horizon-eff');
-  if(eff){ eff.style.color='#15803d'; setTimeout(function(){ try{ eff.style.color='var(--n6)'; }catch(_){ } },1000); }
+  if(eff){
+    if(years==null&&mode!=='auto'){ eff.textContent='⚠ '+(why||'kein Wert')+' — auto'; eff.style.color='#b45309'; }
+    else { eff.textContent=(years==null?'auto (Lebensende)':('bis '+(cur+years-1)+' · '+years+' J.'))+'  [x:'+optBefore+'→'+optAfter+']'; eff.style.color='#15803d'; }
+    setTimeout(function(){ try{ syncAaHorizonControl(); }catch(_){ } },2500);
+  }
 }
 
 function projectionHorizonYears(result,preferredYears){
