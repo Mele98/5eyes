@@ -2249,9 +2249,15 @@ def _build_simulation_payload(
         key: int(round(returns[key] + vols[key] * stress_multiplier))
         for key in BUCKET_FIELDS
     }
+    # 2026-06-17: Hauptpfade (current/target) nutzen dieselbe Itô-korrigierte
+    # geometrische Wachstumskonvention wie die Monte-Carlo-Simulation
+    # (growth = exp(r - 0.5*sigma^2)), damit die deterministische Hauptlinie zum
+    # MC-Median (p50) konvergiert statt darueber zu liegen. Liquiditaet (sigma=0)
+    # bleibt flach. Die Stress-Baender (downside/upside) bleiben arithmetisch.
     current_series, _ = _simulate_bucket_path(
         start_values=advisory_summary.amounts_rappen,
         returns_by_asset=returns,
+        vols_by_asset=vols,
         cashflow_series_rappen=cashflow_projection_series_rappen,
         targets=targets,
         minimums=minimums,
@@ -2263,6 +2269,7 @@ def _build_simulation_payload(
     target_series, rebalance_events = _simulate_bucket_path(
         start_values=target_values,
         returns_by_asset=returns,
+        vols_by_asset=vols,
         cashflow_series_rappen=cashflow_projection_series_rappen,
         targets=targets,
         minimums=minimums,
@@ -2303,6 +2310,7 @@ def _build_simulation_payload(
         total_current_series, _ = _simulate_bucket_path(
             start_values=total_summary.amounts_rappen,
             returns_by_asset=returns,
+            vols_by_asset=vols,
             cashflow_series_rappen=cashflow_projection_series_rappen,
             targets=targets,
             minimums=minimums,
@@ -2315,6 +2323,7 @@ def _build_simulation_payload(
         total_target_series, _ = _simulate_bucket_path(
             start_values=total_target_values,
             returns_by_asset=returns,
+            vols_by_asset=vols,
             cashflow_series_rappen=cashflow_projection_series_rappen,
             targets=targets,
             minimums=minimums,
