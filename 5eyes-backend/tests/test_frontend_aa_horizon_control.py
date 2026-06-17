@@ -85,6 +85,19 @@ def test_fan_chart_truncates_to_override():
     assert "_hCut" in body
 
 
+def test_data_series_capped_to_horizon():
+    """Entscheidend: die DATENREIHEN muessen auf den Horizont gekappt werden, sonst
+    verlaengert syncAaProjectionAxisScales die X-Achse wieder auf die laengste
+    Datenreihe (voller SOLL-Pfad) und ignoriert den Override."""
+    html = _html()
+    start = html.find("function updateProjectionChartsFromSimulation(")
+    body = html[start:start + 2200]
+    assert "_hCap(" in body, "Datenreihen werden nicht auf den Horizont gekappt"
+    # Die Kapp-Funktion schneidet auf horizon+1 zu (verhindert das Re-Verlaengern der X-Achse).
+    assert "s.slice(0,horizon+1)" in html
+    assert "targetSeries=_hCap(" in body
+
+
 def test_override_apply_rerenders_fan():
     """applyIstHorizonOverride muss nach dem Chart-Update auch den Faecher neu
     zeichnen (sonst bliebe nur die deterministische Linie)."""
