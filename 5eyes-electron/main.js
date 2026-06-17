@@ -487,7 +487,21 @@ async function createMainWindow() {
     }
   });
 
-  await mainWindow.loadFile(resolveFrontendPath());
+  mainWindow.webContents.on('console-message', (_event, level, message, line, sourceId) => {
+    const severity = ['verbose', 'info', 'warning', 'error'][level] || String(level);
+    logLine(`Renderer ${severity}: ${message} (${sourceId || 'unknown'}:${line || 0})`);
+  });
+
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    logLine(`Renderer process gone: ${JSON.stringify(details || {})}`);
+  });
+
+  // Intro bei jedem echten Desktop-Start zeigen. Das Query-Flag umgeht nur
+  // den persistenten Renderer-Sessionstatus; Reloads innerhalb derselben
+  // laufenden App werden dadurch nicht zusätzlich ausgelöst.
+  await mainWindow.loadFile(resolveFrontendPath(), {
+    query: { intro: '1' },
+  });
 }
 
 async function bootstrap() {

@@ -351,7 +351,32 @@ def test_weight_uses_explicit_when_set():
 def test_weight_falls_back_to_rank_default():
     goal = _make_goal(weight_bps=None, rank=1, horizon_years=5)
     liab = goal_to_liability(goal, horizon_years=5)
-    assert liab.weight_bps == 1875  # Rank 1 default
+    # Validierung 2026-06-11: Rank-Default an portfolio_engine.GOAL_WEIGHT_BY_RANK
+    # angeglichen (war divergent 1875). Rank 1 = 10000 (weight_bps/10000 = 1.0).
+    assert liab.weight_bps == 10000
+
+
+def test_goal_rank_weight_parity_with_portfolio_engine():
+    """Die Rank->Weight-Basistabelle der Optimizer-Liability MUSS mit der
+    Mandate-Score-Aggregation uebereinstimmen (sonst divergente Gewichtung)."""
+    from services.optimizer.goal_liabilities import _DEFAULT_WEIGHT_BY_RANK
+    from services.portfolio_engine import GOAL_WEIGHT_BY_RANK
+    assert _DEFAULT_WEIGHT_BY_RANK == GOAL_WEIGHT_BY_RANK
+
+
+def test_conditional_goal_prorata_weights_liability():
+    """engine-spec 4.4: bedingte Goals (probability_pct) werden pro-rata
+    gewichtet — konsistent zur Reserve-Engine (portfolio_engine)."""
+    td = (date.today() + timedelta(days=365 * 3)).isoformat()
+    g50 = _make_goal(goal_type="Einmalige_Ausgabe", target_amount_rappen=10_000_000,
+                     target_date=td, value_mode="nominal")
+    g50.probability_pct = 50
+    assert goal_to_liability(g50, horizon_years=5).target_amount_rappen == 5_000_000
+
+    gnone = _make_goal(goal_type="Einmalige_Ausgabe", target_amount_rappen=10_000_000,
+                       target_date=td, value_mode="nominal")
+    gnone.probability_pct = None
+    assert goal_to_liability(gnone, horizon_years=5).target_amount_rappen == 10_000_000
 
 
 # ============================================================================

@@ -220,3 +220,21 @@ Tier 2 ──upgrade──> Tier 3 (eigene VPS, Daten-Export+Import)
 - T3 (folgt): Repository-Layer-Scoping
 - T4 (folgt): Tenant-Admin-API
 - T5 (folgt): Tier-Specific-Configs + Deployment-Recipes
+
+---
+
+## Update 2026-06-15 — Stand T1–T5 + externer Zugriff
+
+- [✓] **T1–T5 Foundation** gebaut: Tenant-Model + `tenant_id`-claim/Scoping, Tenant-Admin-Flow
+  (Firmen-/Team-UI + Invite), Tier-Felder (`hosting_tier`, `license_status`, `quotas`).
+- [✓] **Externer Zugriff** (Browser-Hosting/Remote-Test) inkl. Pflicht-2FA, harte
+  Mandantentrennung (App-Level), Invite-Onboarding, `start-external.ps1`.
+- [✓] **Compliance-Vorlagen** erstellt: AVV (#16), FINMA-Outsourcing (#17), DSFA (#18),
+  Provisioning-Runbook (#23) unter `docs/compliance/` + `docs/deploy/`.
+- [ ] **Produktiv-Hosting** offen: CH-VPS (#12), Postgres-Provider-Entscheid (#7) +
+  Adapter (#8) + RLS (#9), Secret-Management (#13), Monitoring (#14), Off-Site-Backup (#15).
+- [ ] **Gate vor Echtdaten:** `allow_real_client_data` bleibt `false` bis Compliance je
+  Tenant abgeschlossen (Runbook §0/§5).
+
+Kurz: **Software- + Tenant-Schicht produktiv-reif**; offen ist die **Betriebs-/Infra-Schicht**
+(CH-Hosting, Postgres/RLS, Secrets, Monitoring, Backups) — braucht Provider-Entscheid (#7).

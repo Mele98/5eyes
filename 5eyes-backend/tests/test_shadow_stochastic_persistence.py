@@ -81,7 +81,11 @@ def _client_with_admin(session_factory, admin_id: str = "admin-stage5"):
         finally:
             db.close()
 
-    admin_user = SimpleNamespace(id=admin_id, full_name="Admin Stage5", email="admin@example.test")
+    # role/tenant_id ergaenzt (2026-06-11): der Shadow-Comparison-Endpoint hat seit
+    # dem Tenant-Guard (#261) get_mandate_for_user_or_404, das current_user.role
+    # (has_global_client_access) + tenant_id liest. Realer require_admin liefert ein
+    # vollstaendiges User-Objekt; der Mock muss das spiegeln.
+    admin_user = SimpleNamespace(id=admin_id, full_name="Admin Stage5", email="admin@example.test", role="admin", tenant_id=None)
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[require_admin] = lambda: admin_user
     return TestClient(app)

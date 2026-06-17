@@ -316,3 +316,68 @@ def test_net_cashflow_series_respects_one_off_and_recurring_events():
         -4_300_000,
         700_000,
     ]
+
+
+# ── Regression 2026-06-11: kein Day-of-Month-Drift im Occurrence-Count ──────────
+
+def test_contribution_no_day_drift_at_valid_until_boundary():
+    """Monatlicher Flow, Anker 31., valid_until 2024-03-30, year 2024.
+
+    Die Maerz-Occurrence eines '31.'-Flows ist der 31.3. (> 30.3.) und darf
+    NICHT zaehlen. Korrekt: 2 Occurrences (31.1., 29.2.). Die alte Logik liess
+    'current' driften (Feb 29 -> Mar 29 statt Mar 31) und zaehlte faelschlich 3.
+    """
+    assert contribution_for_year(
+        amount_rappen=10_000,
+        frequency="monatlich",
+        nature="wiederkehrend",
+        valid_from="2024-01-31",
+        valid_until="2024-03-30",
+        year=2024,
+    ) == 10_000 * 2
+
+
+# ── Szenario "Leart": präzises Einnahmen/Ausgaben-Tracking inkl. Erwerb+AHV ──────
+# (2026-06-12) Berater-Klaerung: Person darf weiterarbeiten UND AHV beziehen.
+# Verankert das exakte Per-Jahr-Tracking inkl. Lohn/AHV-Ueberlapp am Handoff-Jahr,
+# recurring-vs-capital-Trennung (3a-Einmalbezug) und Vermoegensverzehr bis Endjahr.
+
+def _leart_cashflows():
+    return [
+        _make_cf("Income", 100_000_00, valid_from="2026-01-01", valid_until="2030-01-01"),   # Lohn
+        _make_cf("Income", 35_000_00, valid_from="2030-01-01", valid_until="2060-01-01"),     # AHV
+        _make_cf("Income", 50_000_00, frequency="einmalig", nature="einmalig",
+                 valid_from="2031-01-01", valid_until="2031-01-01"),                          # 3a Einmalbezug
+        _make_cf("Expense", 75_000_00, valid_from="2030-01-01", valid_until="2060-01-01"),    # Vermoegensverzehr
+    ]
+
+
+def test_leart_income_expense_tracking_per_year():
+    cfs = _leart_cashflows()
+
+    # Erwerbsphase: nur Lohn, kein Verzehr.
+    t29 = totals_for_year(cfs, 2029)
+    assert (t29["recurring_income_rappen"], t29["recurring_expense_rappen"], t29["net_rappen"]) \
+        == (100_000_00, 0, 100_000_00)
+
+    # Handoff-Jahr 2030: Lohn UND AHV (legitim, Erwerb + AHV) minus Verzehr.
+    t30 = totals_for_year(cfs, 2030)
+    assert t30["recurring_income_rappen"] == 135_000_00  # 100k Lohn + 35k AHV
+    assert t30["recurring_expense_rappen"] == 75_000_00
+    assert t30["capital_inflow_rappen"] == 0
+    assert t30["net_rappen"] == 60_000_00
+
+    # 2031: AHV laufend + 3a als KAPITAL (nicht recurring) getrennt.
+    t31 = totals_for_year(cfs, 2031)
+    assert t31["recurring_income_rappen"] == 35_000_00
+    assert t31["capital_inflow_rappen"] == 50_000_00   # 3a Einmalbezug separat
+    assert t31["recurring_expense_rappen"] == 75_000_00
+    assert t31["net_rappen"] == 10_000_00
+
+    # Verzehrphase: AHV 35k - Verzehr 75k = -40k, bis und mit Endjahr 2060.
+    for yr in (2032, 2045, 2059, 2060):
+        t = totals_for_year(cfs, yr)
+        assert t["net_rappen"] == -40_000_00, (yr, t["net_rappen"])
+
+    # Nach dem letzten Cashflow-Jahr: keine Stroeme mehr.
+    assert totals_for_year(cfs, 2061)["net_rappen"] == 0

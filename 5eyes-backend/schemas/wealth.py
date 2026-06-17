@@ -182,11 +182,13 @@ class CashflowCreate(BaseModel):
 
 
 class CashflowUpdate(BaseModel):
+    cashflow_type: Optional[Literal["Income", "Expense"]] = None
     label: Optional[str] = None
     amount_rappen: Optional[int] = None
     gross_amount_rappen: Optional[int] = None
     tax_amount_rappen: Optional[int] = None
     timing_precision: Optional[str] = None
+    currency: Optional[str] = None
     frequency: Optional[str] = None
     nature: Optional[str] = None
     valid_from: Optional[str] = None

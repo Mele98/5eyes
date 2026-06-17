@@ -43,7 +43,9 @@ from services.cashflow_timeline import (
     recurring_net_cashflow_series,
     totals_for_year,
 )
+from services.wealth_cashflows import derive_wealth_cashflows, mortgage_interest_adjustment_series
 from services.product_market_data import resolve_market_profile, validate_default_product_market_coverage
+from services.planning_horizon import life_expectancy_year_for
 from services.risk_matrix import (
     RiskBudgetExceeded,
     assert_risk_budget_ok,
@@ -598,7 +600,11 @@ def _risk_score_bucket(assessment: RiskAssessment) -> int:
             "Risikoprofil-Score fehlt (final_score_x10 + override_score_x10 sind beide None). "
             "Bitte Risikoprofilierung abschliessen oder Override mit Begruendung setzen."
         )
-    return max(1, min(10, int(round(score_x10 / 10))))
+    # Validierung 2026-06-11 (#AA-9): round-half-up statt Banker's-round() — sonst
+    # bricht die Monotonie an .5-Grenzen (45->4 statt 5, 65->6 statt 7) und divergiert
+    # vom Profil-Namen-Mapping (risk_scoring._profile_from_score nutzt floor(x+0.5)).
+    # int(x+0.5) == floor(x+0.5) fuer positive Scores.
+    return max(1, min(10, int(score_x10 / 10 + 0.5)))
 
 
 def _default_weights_for_position(position: WealthPosition) -> dict[str, int]:
@@ -1370,6 +1376,7 @@ def _enforce_risk_budget(
     maximums: dict[str, int],
     asset_risky_weights: dict[str, int],
     risk_budget_bps: int,
+    allow_best_effort: bool = False,
 ) -> tuple[dict[str, int], int]:
     adjusted = {key: int(targets[key]) for key in BUCKET_FIELDS}
     current_risk = _risk_budget_from_targets(adjusted, asset_risky_weights)
@@ -1400,6 +1407,13 @@ def _enforce_risk_budget(
         adjusted[receiver] += step
         current_risk = _risk_budget_from_targets(adjusted, asset_risky_weights)
     if current_risk > risk_budget_bps:
+        if allow_best_effort:
+            # Validierung 2026-06-11 (#AA-1): strukturell unerreichbares Budget
+            # (Mindestquoten lassen die Risky-Fraction nicht unter den Cap). Statt
+            # hart zu werfen die konservativste ERREICHBARE Allokation zurueckgeben;
+            # der Aufrufer (letzte Eskalationsstufe) behandelt die Ueberschreitung
+            # graceful (Compliance-Warnung) statt die SAA-Generierung abzubrechen.
+            return adjusted, current_risk
         overshoot_bps = current_risk - risk_budget_bps
         raise ValueError(
             f"Risikobudget konnte nicht eingehalten werden: "
@@ -1868,20 +1882,21 @@ def _simulation_horizon_years(
     mandate: Mandate | None = None,
 ) -> int:
     raw = (simulation_prefs or {}).get("horizonYears")
+    has_explicit_override = raw not in (None, "", False)
     try:
-        requested = int(str(raw).strip()) if raw not in (None, "", False) else DEFAULT_SIMULATION_HORIZON_YEARS
+        requested = int(str(raw).strip()) if has_explicit_override else DEFAULT_SIMULATION_HORIZON_YEARS
     except (TypeError, ValueError):
         requested = DEFAULT_SIMULATION_HORIZON_YEARS
+        has_explicit_override = False
     goal_horizon = max((int(goal.horizon_years or 0) for goal in goals), default=0)
-    # Sprint A3: Lebenserwartung als Untergrenze fuer den Horizont. Damit
-    # MC-Pfade lang genug sind, um Pension + Vermoegensverzehr zu simulieren.
-    life_horizon = 0
-    if mandate is not None and getattr(mandate, "life_expectancy_year", None):
-        from datetime import date
-        try:
-            life_horizon = max(0, int(mandate.life_expectancy_year) - date.today().year)
-        except (TypeError, ValueError):
-            life_horizon = 0
+
+    # Ein expliziter Berater-Horizont hat Vorrang vor der automatischen
+    # Lebenserwartung. Zielhorizonte werden dennoch nicht abgeschnitten.
+    if has_explicit_override:
+        return max(7, requested, goal_horizon)
+
+    life_year = life_expectancy_year_for(mandate=mandate)
+    life_horizon = max(0, life_year - date.today().year + 1) if life_year else 0
     return max(7, requested, goal_horizon, life_horizon)
 
 
@@ -2792,9 +2807,25 @@ def _percentile(values: list[int | float], quantile: float) -> int:
 
 
 def _annualized_return_bps(start_value: int, end_value: int, years: int) -> int:
-    if years <= 0 or start_value <= 0 or end_value <= 0:
+    # #AA-6 Fix (2026-06-12): Aufgebrauchte Pfade (end_value <= 0) sind ein
+    # Totalverlust und muessen mit -100% (-10000 bps) einfliessen, nicht mit 0
+    # (das verzerrte Median + Erfolgsrate nach oben). Konsistent zu _return_bps.
+    if end_value <= 0:
+        return -10000
+    if years <= 0 or start_value <= 0:
         return 0
     return int(round((math.pow(end_value / start_value, 1 / years) - 1) * 10000))
+
+
+def _twr_annualized_bps(growth_product: float, years: int) -> int:
+    # #AA-5 (2026-06-12): annualisierte time-weighted Rendite aus dem Produkt der
+    # jaehrlichen Markt-Wachstumsfaktoren (cashflow-bereinigt). Eingebrochene Pfade
+    # (Produkt <= 0) -> -100% (analog _annualized_return_bps Floor, #AA-6).
+    if years <= 0:
+        return 0
+    if growth_product <= 0:
+        return -10000
+    return int(round((math.pow(growth_product, 1 / years) - 1) * 10000))
 
 
 def _return_bps(start_value: int, end_value: int) -> int:
@@ -2805,6 +2836,16 @@ def _return_bps(start_value: int, end_value: int) -> int:
 
 def _loss_bps(start_value: int, end_value: int) -> int:
     return max(0, -_return_bps(start_value, end_value))
+
+
+def _stddev_bps(values: list[int | float]) -> int:
+    """Populations-Standardabweichung (in bps) einer Return-Verteilung — fuer die
+    simulierte 1-Jahres-Volatilitaet (SOLL/IST-Kennzahlenvergleich)."""
+    if not values or len(values) < 2:
+        return 0
+    mean = sum(float(v) for v in values) / len(values)
+    var = sum((float(v) - mean) ** 2 for v in values) / len(values)
+    return int(round(math.sqrt(var)))
 
 
 def _conditional_percentile_average(values: list[int | float], quantile: float, *, upper_tail: bool = False) -> int:
@@ -2885,6 +2926,8 @@ def _monte_carlo_goal_summary(
     goal_type = _norm_text(goal.goal_type)
     hardness_key = _goal_hardness_key(goal)
     evaluation_note = None
+    target = 0
+    outside_simulation_horizon = False
 
     # B5: Score = alpha * success_rate_pct + (1-alpha) * funded_ratio_pct
     # Pro Goal-Typ: success_rate_pct (binaer/MC) und funded_ratio_pct als
@@ -2910,6 +2953,7 @@ def _monte_carlo_goal_summary(
                 success_rate_pct = 0
                 funded_ratio_p50 = 0.0
                 score = 0
+                outside_simulation_horizon = True
                 evaluation_note = f"Ziel liegt ausserhalb des aktuellen Simulationshorizonts (Horizont: {horizon_years} Jahre)."
             else:
                 target *= duration
@@ -2955,12 +2999,46 @@ def _monte_carlo_goal_summary(
         funded_ratio_p50 = round(p50 / target, 4)
         score = max(0, min(100, int(round((_percentile(annualized_return_samples_bps, 0.50) / 100))))) if annualized_return_samples_bps else 50
 
+    # PAR-3/PAR-6: 3eyes-kompatible Anzeige. Die Zielerreichung ist
+    # effektiv/gewuenscht im Median, auf 100 % gedeckelt. Der pessimistische
+    # CHF-Fehlbetrag basiert auf dem P10-Pfad. Beim Renditeziel wird die
+    # Rendite in ein implizites Endvermoegen umgerechnet, damit die Differenz
+    # ebenfalls als CHF-Betrag ausweisbar ist.
+    if goal_type == "Renditeziel":
+        if target <= 0:
+            median_achievement_pct = 100
+            pessimistic_shortfall_rappen = 0
+        else:
+            median_achievement_pct = max(0, min(100, int(round(funded_ratio_p50 * 100))))
+            pessimistic_return_bps = (
+                _percentile(annualized_return_samples_bps, 0.10)
+                if annualized_return_samples_bps
+                else -10000
+            )
+            desired_growth = max(0.0, 1.0 + target / 10000.0) ** index
+            pessimistic_growth = max(0.0, 1.0 + pessimistic_return_bps / 10000.0) ** index
+            desired_value = int(round(max(0, advisory_wealth_rappen) * desired_growth))
+            pessimistic_value = int(round(max(0, advisory_wealth_rappen) * pessimistic_growth))
+            pessimistic_shortfall_rappen = max(0, desired_value - pessimistic_value)
+    elif goal_type == "Maximierung":
+        median_achievement_pct = 100
+        pessimistic_shortfall_rappen = 0
+    else:
+        median_achievement_pct = max(0, min(100, int(round(funded_ratio_p50 * 100))))
+        pessimistic_shortfall_rappen = (
+            max(0, int(target))
+            if outside_simulation_horizon
+            else max(0, int(target) - int(p10))
+        )
+
     return {
         "goal_id": goal.id,
         "label": goal.label,
         "years": index,
         "success_rate_pct": success_rate_pct,
         "funded_ratio_p50": funded_ratio_p50,
+        "median_achievement_pct": median_achievement_pct,
+        "pessimistic_shortfall_rappen": pessimistic_shortfall_rappen,
         "projected_value_p10_rappen": p10,
         "projected_value_p50_rappen": p50,
         "projected_value_p90_rappen": p90,
@@ -3066,6 +3144,11 @@ def _run_allocation_monte_carlo(
     target_year_one_returns: list[int] = []
     target_year_one_losses: list[int] = []
     target_max_drawdowns: list[int] = []
+    # 2026-06-14: IST-Risiko symmetrisch zum SOLL erfassen, damit der Kennzahlen-
+    # Vergleich (VaR/CVaR/Drawdown/Verlust-Wkeit/Vola) zweispaltig SOLL vs IST sein kann.
+    current_year_one_returns: list[int] = []
+    current_year_one_losses: list[int] = []
+    current_max_drawdowns: list[int] = []
 
     for _simulation_idx in range(simulations):
         current_values = {key: max(0, int(advisory_summary.amounts_rappen.get(key, 0))) for key in BUCKET_FIELDS}
@@ -3095,8 +3178,23 @@ def _run_allocation_monte_carlo(
 
         current_start = max(1, sum(current_values.values()))
         target_start = max(1, sum(target_values.values()))
+        # #AA-4 (2026-06-12): Marktwert nach Jahr-1-Wachstum, VOR Cashflow —
+        # Basis fuer cashflow-bereinigte 1-Jahres-VaR/CVaR/Loss-Prob. Eine
+        # Einzahlung ist kein Markt-Gewinn und darf das Verlustrisiko nicht
+        # unterschaetzen lassen (bzw. eine Entnahme nicht ueberschaetzen).
+        target_year1_market_value: int | None = None
+        current_year1_market_value: int | None = None
+        # #AA-5 (2026-06-12): time-weighted Rendite (TWR) — geometrische Verkettung
+        # der jaehrlichen MARKT-Wachstumsfaktoren (vor Cashflow). Misst die
+        # Strategie-Performance unabhaengig vom Ein-/Auszahlungs-Timing; das
+        # bisherige money-weighted end/start verzerrte die ausgewiesene Rendite
+        # (eine Einzahlung vor einem guten Jahr hob die "CAGR" kuenstlich).
+        target_twr_product = 1.0
+        current_twr_product = 1.0
 
         for year_index, contribution in enumerate(cashflow_projection_series_rappen, start=1):
+            target_pre_growth = max(1, sum(target_values.values()))
+            current_pre_growth = max(1, sum(current_values.values()))
             # Draw n_assets independent standard normals, then correlate via Cholesky: Z = L * W
             indep = [rng.gauss(0.0, 1.0) for _ in range(n_assets)]
             corr = [sum(chol[i][j] * indep[j] for j in range(i + 1)) for i in range(n_assets)]
@@ -3116,6 +3214,18 @@ def _run_allocation_monte_carlo(
                 if total_current_values is not None:
                     total_current_values[key] = int(round(max(0, total_current_values[key]) * growth_factor))
                     total_target_values[key] = int(round(max(0, total_target_values[key]) * growth_factor))
+
+            target_post_growth = sum(target_values.values())
+            current_post_growth = sum(current_values.values())
+            # #AA-5: Jahres-Marktfaktor (post-growth / pre-growth, beide VOR Cashflow)
+            # geometrisch akkumulieren. Transaktionskosten heben sich im Verhaeltnis
+            # auf -> TWR ist brutto-of-Rebalancing-Kosten (Kosten-Drag 2. Ordnung).
+            target_twr_product *= target_post_growth / target_pre_growth
+            current_twr_product *= current_post_growth / current_pre_growth
+            if year_index == 1:
+                # #AA-4: Marktwert nach Wachstum, VOR Cashflow/Rebalancing erfassen.
+                target_year1_market_value = target_post_growth
+                current_year1_market_value = current_post_growth
 
             current_deficit += _apply_cashflow_to_bucket_values(current_values, int(contribution or 0))
             target_deficit += _apply_cashflow_to_bucket_values(target_values, int(contribution or 0))
@@ -3164,20 +3274,42 @@ def _run_allocation_monte_carlo(
         # Sprint U-P1 Fix C1: Pfad-Indizierung explizit via _simulation_idx
         # statt [-1]. Vorher: target_by_year[1][-1] funktionierte zufaellig
         # (Append-Reihenfolge), aber bricht bei jeder Parallelisierung silent.
-        current_annualized_returns.append(_annualized_return_bps(current_start, current_by_year[-1][_simulation_idx], horizon_years))
-        target_annualized_returns.append(_annualized_return_bps(target_start, target_by_year[-1][_simulation_idx], horizon_years))
-        if len(target_by_year) > 1 and target_by_year[1]:
-            year_one_return = _return_bps(target_start, target_by_year[1][_simulation_idx])
+        # #AA-5: time-weighted (cashflow-bereinigt) statt money-weighted end/start.
+        current_annualized_returns.append(_twr_annualized_bps(current_twr_product, horizon_years))
+        target_annualized_returns.append(_twr_annualized_bps(target_twr_product, horizon_years))
+        if target_year1_market_value is not None:
+            # #AA-4: cashflow-bereinigt — Markt-Rendite (Pre-Cashflow) statt der
+            # cashflow-verzerrten target_by_year[1] (Post-Cashflow).
+            year_one_return = _return_bps(target_start, target_year1_market_value)
             target_year_one_returns.append(year_one_return)
-            target_year_one_losses.append(_loss_bps(target_start, target_by_year[1][_simulation_idx]))
+            target_year_one_losses.append(_loss_bps(target_start, target_year1_market_value))
         target_path = [values[_simulation_idx] for values in target_by_year if values]
         target_max_drawdowns.append(_max_drawdown_bps(target_path))
+        if current_year1_market_value is not None:
+            current_year_one_returns.append(_return_bps(current_start, current_year1_market_value))
+            current_year_one_losses.append(_loss_bps(current_start, current_year1_market_value))
+        current_path = [values[_simulation_idx] for values in current_by_year if values]
+        current_max_drawdowns.append(_max_drawdown_bps(current_path))
 
     goal_summaries = [
         _monte_carlo_goal_summary(
             goal,
             path_values_by_year=target_by_year,
             annualized_return_samples_bps=target_annualized_returns,
+            inflation_series_bps=goal_inflation_series_bps,
+            advisory_wealth_rappen=advisory_wealth_rappen,
+            total_wealth_rappen=total_wealth_rappen,
+            start_year=start_year,
+            horizon_years=horizon_years,
+            policy=policy,
+        )
+        for goal in goals
+    ]
+    current_goal_summaries = [
+        _monte_carlo_goal_summary(
+            goal,
+            path_values_by_year=current_by_year,
+            annualized_return_samples_bps=current_annualized_returns,
             inflation_series_bps=goal_inflation_series_bps,
             advisory_wealth_rappen=advisory_wealth_rappen,
             total_wealth_rappen=total_wealth_rappen,
@@ -3236,18 +3368,32 @@ def _run_allocation_monte_carlo(
         "target_cvar_95_1y_bps": max(0, -_conditional_percentile_average(target_year_one_returns, 0.05, upper_tail=False)),
         "target_loss_probability_1y_pct": int(round(sum(1 for value in target_year_one_returns if value < 0) / max(1, len(target_year_one_returns)) * 100)),
         "target_max_drawdown_p50_bps": _percentile(target_max_drawdowns, 0.50),
+        # 2026-06-14: IST-Risiko symmetrisch (gleiche MC-Methodik) fuer den
+        # zweispaltigen SOLL-vs-IST-Kennzahlenvergleich im Frontend.
+        "current_var_95_1y_bps": max(0, -_percentile(current_year_one_returns, 0.05)),
+        "current_cvar_95_1y_bps": max(0, -_conditional_percentile_average(current_year_one_returns, 0.05, upper_tail=False)),
+        "current_loss_probability_1y_pct": int(round(sum(1 for value in current_year_one_returns if value < 0) / max(1, len(current_year_one_returns)) * 100)),
+        "current_max_drawdown_p50_bps": _percentile(current_max_drawdowns, 0.50),
+        "target_volatility_1y_bps": _stddev_bps(target_year_one_returns),
+        "current_volatility_1y_bps": _stddev_bps(current_year_one_returns),
         "target_max_drawdown_p95_bps": _percentile(target_max_drawdowns, 0.95),
         "target_downside_probability_pct": downside_probability_pct,
         "goal_summaries": goal_summaries,
+        "current_goal_summaries": current_goal_summaries,
     }
 
 
-def _merge_goal_analysis_with_monte_carlo(goal_analysis: list[dict], monte_carlo: dict | None) -> list[dict]:
+def _merge_goal_analysis_with_monte_carlo(
+    goal_analysis: list[dict],
+    monte_carlo: dict | None,
+    *,
+    summaries_key: str = "goal_summaries",
+) -> list[dict]:
     if not monte_carlo:
         return goal_analysis
     summaries = {
         item["goal_id"]: item
-        for item in (monte_carlo.get("goal_summaries") or [])
+        for item in (monte_carlo.get(summaries_key) or [])
         if item.get("goal_id")
     }
     merged = []
@@ -3261,8 +3407,11 @@ def _merge_goal_analysis_with_monte_carlo(goal_analysis: list[dict], monte_carlo
                 **item,
                 "achievement_score": int(summary.get("score", item.get("achievement_score") or 0)),
                 "status": "On Track" if int(summary.get("score", 0)) >= 70 else ("Pruefen" if int(summary.get("score", 0)) >= 45 else "Gefaehrdet"),
+                "success_rate_pct": int(summary.get("success_rate_pct") or 0),
                 "path_success_rate_pct": int(summary.get("success_rate_pct") or 0),
                 "funded_ratio_p50": float(summary.get("funded_ratio_p50") or 0),
+                "median_achievement_pct": int(summary.get("median_achievement_pct") or 0),
+                "pessimistic_shortfall_rappen": max(0, int(summary.get("pessimistic_shortfall_rappen") or 0)),
                 "projected_value_p10_rappen": int(summary.get("projected_value_p10_rappen") or 0),
                 "projected_value_p50_rappen": int(summary.get("projected_value_p50_rappen") or 0),
                 "projected_value_p90_rappen": int(summary.get("projected_value_p90_rappen") or 0),
@@ -3405,7 +3554,13 @@ def _build_sub_allocations(targets: dict[str, int], preferences: dict) -> list[d
             "gaming": "Thema Gluecksspiel",
             "nuclear": "Thema Kernenergie",
         }
-        theme_total = min(int(round(targets["equities"] * 0.15)), 1200)
+        # #AA-7 Fix (2026-06-12): eq_splits leben im Per-Bucket-Raum (sie summieren
+        # zu 10000 und werden in _append_split renormalisiert). Der Theme-Tilt muss
+        # daher relativ zu 10000 statt zur Portfolio-Aktienquote targets["equities"]
+        # definiert werden — sonst haengt die EFFEKTIVE Themen-Gewichtung von der
+        # Aktienquote des Risikoprofils ab (eq=8000 -> ~12%, eq=2000 -> ~3%), statt
+        # konsistent zu sein. Cap 1200 (= 12% des Aktien-Buckets) bleibt die Obergrenze.
+        theme_total = min(int(round(10000 * 0.15)), 1200)
         if theme_total > 0:
             slice_per_theme = max(100, int(round(theme_total / len(overweight_tilts))))
             for idx, item in enumerate(eq_splits):
@@ -3716,12 +3871,12 @@ def ensure_runtime_reference_data(db: Session, user_id: str) -> tuple[OptimizerP
     # den Cap überschreiten, sonst triggert der Engine-Fallback den
     # Liquiditäts-Cascade (siehe _SAA_LIQUIDITY_HARD_CAP_BPS-Block).
     defaults = _normalize_house_matrix_defaults([
-        (1, 2, "Kapitalschutz", 0, 300, 800, 6500, 7500, 8500, 500, 1200, 2000, 0, 500, 1000, 0, 500, 500, 3000, 0),
-        (3, 4, "Defensiv", 0, 200, 500, 5000, 6000, 7000, 1500, 2500, 3000, 500, 1000, 1500, 0, 300, 800, 4500, 0),
-        (5, 6, "Ausgewogen", 0, 200, 300, 2500, 3500, 4500, 4000, 4800, 5500, 500, 1000, 1500, 300, 500, 800, 6000, 0),
-        (7, 8, "Wachstumsorientiert", 0, 150, 200, 1000, 1600, 2500, 6000, 6800, 7500, 500, 800, 1200, 300, 600, 1000, 8000, 6000),
-        (9, 9, "Dynamisch", 0, 100, 200, 500, 800, 1500, 7500, 8000, 8500, 300, 700, 1000, 200, 400, 600, 9000, 7500),
-        (10, 10, "Aktien", 0, 100, 200, 0, 200, 500, 8500, 9000, 9500, 200, 500, 800, 0, 200, 500, 10000, 8500),
+        (1, 2, "Kapitalschutz", 0, 300, 800, 6500, 7500, 8500, 500, 1200, 2000, 0, 500, 2000, 0, 500, 500, 3000, 0),
+        (3, 4, "Defensiv", 0, 200, 500, 5000, 6000, 7000, 1500, 2500, 3000, 500, 1000, 2000, 0, 300, 800, 4500, 0),
+        (5, 6, "Ausgewogen", 0, 200, 300, 2500, 3500, 4500, 4000, 4800, 5500, 500, 1000, 2000, 300, 500, 800, 6000, 0),
+        (7, 8, "Wachstumsorientiert", 0, 150, 200, 1000, 1600, 2500, 6000, 6800, 7500, 500, 800, 2000, 300, 600, 1000, 8000, 6000),
+        (9, 9, "Dynamisch", 0, 100, 200, 500, 800, 1500, 7500, 8000, 8500, 300, 700, 2000, 200, 400, 600, 9000, 7500),
+        (10, 10, "Aktien", 0, 100, 200, 0, 200, 500, 8500, 9000, 9500, 200, 500, 2000, 0, 200, 500, 10000, 8500),
     ])
     building_blocks = [
         ("Aktien", "Aktien Schweiz", 7000),
@@ -4010,6 +4165,10 @@ def _load_allocation_inputs(
         Cashflow.deleted_at.is_(None),
         Cashflow.is_active == 1,
     ).all()
+    # 2026-06-14: vermögensgetriebene Cashflows (Hypothekarzins, Amortisation,
+    # Miet-/Zinserträge) auch in die Engine-Projektion/Reserve einspeisen, damit
+    # Strategie-Verzehr und Cashflow-Ansicht 1:1 dieselben Posten sehen.
+    cashflows = list(cashflows) + derive_wealth_cashflows(all_positions)
     goals = db.query(Goal).filter(
         Goal.mandate_id == mandate.id,
         Goal.deleted_at.is_(None),
@@ -4064,6 +4223,18 @@ def _load_allocation_inputs(
         cashflow_projection_series_rappen = [
             int(cf) + int(infl)
             for cf, infl in zip(cashflow_projection_series_rappen, inflow_projection_series_rappen)
+        ]
+    # 2026-06-14 (#31): Hypothek-Amortisation/Refinanzierung jahresabhängig in die
+    # Projektion einrechnen — direkt: sinkende Zinslast; Refi auf 3% nach Ablauf
+    # (Fix) bzw. 5 Jahren (SARON). Additiv auf das Netto-Cashflow-Series; die
+    # heutige Cashflow-Ansicht/Summe bleibt unberührt (statischer Posten = Jahr 0).
+    _mortgage_interest_adj = mortgage_interest_adjustment_series(
+        all_positions, projection_years, cashflow_totals["year"],
+    )
+    if any(_mortgage_interest_adj):
+        cashflow_projection_series_rappen = [
+            int(cf) + int(adj)
+            for cf, adj in zip(cashflow_projection_series_rappen, _mortgage_interest_adj)
         ]
     recurring_cashflow_projection_series_rappen = recurring_net_cashflow_series(
         cashflows,
@@ -4233,6 +4404,12 @@ def _compute_reserve_for_inputs(
         if reasoning is not None:
             reasoning.append("Negativer laufender Netto-Cashflow erhoeht die erforderliche Liquiditaetsreserve.")
 
+    # #AA-8 Fix (2026-06-12): Spending-Goal-Reserven SUMMIEREN sich untereinander
+    # (mehrere gleichzeitige Nahziele = additiver Liquiditaetsbedarf), statt via
+    # max() zu konkurrieren (vorher: nur das groesste Ziel zaehlte -> systematische
+    # Unterreservierung). Floor-Kandidaten (manuelle/Liquiditaets-Reserve,
+    # Cashflow-Shortfall) bleiben max()-kombiniert.
+    goal_reserve_sum: int = 0
     for goal in goals:
         years = _goal_projection_years(goal)
         goal_type = _norm_text(goal.goal_type)
@@ -4267,7 +4444,7 @@ def _compute_reserve_for_inputs(
                 factor = _reserve_decay_factor(years)
                 reserve_amount = int(round(target_amount * factor))
                 if reserve_amount > 0:
-                    reserve_candidates.append(reserve_amount)
+                    goal_reserve_sum += reserve_amount
                     if reasoning is not None:
                         reasoning.append(
                             f"Das Ziel '{goal.label}' (in {years}J) traegt zu {factor*100:.0f}% "
@@ -4277,7 +4454,7 @@ def _compute_reserve_for_inputs(
                 factor = _time_bucket_reserve_factor(years)
                 reserve_amount = int(round(target_amount * factor))
                 if reserve_amount > 0:
-                    reserve_candidates.append(reserve_amount)
+                    goal_reserve_sum += reserve_amount
                     if reasoning is not None:
                         bucket = _time_bucket_label(years)
                         reasoning.append(
@@ -4286,12 +4463,14 @@ def _compute_reserve_for_inputs(
                         )
             else:
                 if years <= 3:
-                    reserve_candidates.append(target_amount)
+                    goal_reserve_sum += target_amount
                     if reasoning is not None:
                         reasoning.append(f"Das Ziel '{goal.label}' wird als kurzfristiger Liquiditaetsbedarf beruecksichtigt.")
                 elif years <= 7:
-                    reserve_candidates.append(int(round(target_amount * 0.5)))
+                    goal_reserve_sum += int(round(target_amount * 0.5))
 
+    if goal_reserve_sum > 0:
+        reserve_candidates.append(goal_reserve_sum)
     reserve_needed_rappen = max(reserve_candidates)
     external_reserve_rappen = 0
     if reserve_needed_rappen <= 0 or advisory_wealth_rappen <= 0:
@@ -5747,7 +5926,7 @@ def generate_target_allocation(
     risky_map = _building_block_risky_map(db, policy.id, getattr(mandate, "investment_universe", None))
     sub_allocations = _build_sub_allocations(targets, prefs)
     sub_allocations, asset_risky_weights, risky_fraction_total_bps = _enrich_sub_allocations_with_risk(sub_allocations, risky_map)
-    realized_risky_bps = compute_portfolio_risky_fraction_bps(targets, _building_block_rows)
+    realized_risky_bps = risky_fraction_total_bps  # Validierung 2026-06-11 (#AA-1/#AA-3): sub-allocation-gewichtet (konsistent zur Enforcement-Cascade), statt ungewichtetem BB-Bucket-Mittel
     risk_budget_fallback = False
     try:
         assert_risk_budget_ok(realized_risky_bps, risk_budget_bps, slack_bps=0)
@@ -5758,7 +5937,7 @@ def generate_target_allocation(
         targets = _rebalance_to_total(targets, minimums, maximums)
         sub_allocations = _build_sub_allocations(targets, prefs)
         sub_allocations, asset_risky_weights, risky_fraction_total_bps = _enrich_sub_allocations_with_risk(sub_allocations, risky_map)
-        realized_risky_bps = compute_portfolio_risky_fraction_bps(targets, _building_block_rows)
+        realized_risky_bps = risky_fraction_total_bps  # Validierung 2026-06-11 (#AA-1): sub-allocation-gewichtet (konsistent zur Enforcement-Cascade via asset_risky_weights), statt ungewichtetem BB-Bucket-Mittel
         try:
             assert_risk_budget_ok(realized_risky_bps, risk_budget_bps, slack_bps=0)
         except RiskBudgetExceeded:
@@ -5803,12 +5982,16 @@ def generate_target_allocation(
                     # dem Hard-Cap ist.
                     expanded_max = max(hard_capped, _SAA_LIQUIDITY_EMERGENCY_CAP_BPS)
                     maximums = {**maximums, "liquidity": expanded_max}
+                    # Validierung 2026-06-11 (#AA-1): letzte Eskalationsstufe gibt die
+                    # konservativste ERREICHBARE Allokation zurueck (allow_best_effort)
+                    # statt hart zu werfen, falls das Budget strukturell unerreichbar ist.
                     targets, risky_fraction_total_bps = _enforce_risk_budget(
                         targets=targets,
                         minimums=minimums,
                         maximums=maximums,
                         asset_risky_weights=risk_budget_asset_weights,
                         risk_budget_bps=risk_budget_bps,
+                        allow_best_effort=True,
                     )
                     warnings.append(format_message(WARN_FALLBACK))
                     reasoning.append(
@@ -5820,8 +6003,25 @@ def generate_target_allocation(
             targets = _rebalance_to_total(targets, minimums, maximums)
             sub_allocations = _build_sub_allocations(targets, prefs)
             sub_allocations, asset_risky_weights, risky_fraction_total_bps = _enrich_sub_allocations_with_risk(sub_allocations, risky_map)
-            realized_risky_bps = compute_portfolio_risky_fraction_bps(targets, _building_block_rows)
-            assert_risk_budget_ok(realized_risky_bps, risk_budget_bps, slack_bps=0)
+            realized_risky_bps = risky_fraction_total_bps  # Validierung 2026-06-11 (#AA-1): sub-allocation-gewichtet (konsistent zur Enforcement-Cascade via asset_risky_weights), statt ungewichtetem BB-Bucket-Mittel
+            if int(realized_risky_bps) > int(risk_budget_bps):
+                # Validierung 2026-06-11 (#AA-1): strukturell unerreichbares Budget
+                # (Bausteine + Pflicht-Bandbreiten lassen die Risky-Fraction nicht unter
+                # den Cap — z.B. Kapitalschutz: Bonds-Floor 65% × Bonds-Risky dominiert).
+                # Frueher: hartes RiskBudgetExceeded -> 500, Berater bekam KEINE Strategie
+                # fuer das konservativste Profil. Jetzt: konservativste erreichbare
+                # Allokation behalten + klare Compliance-Warnung (Design-Absicht "Berater
+                # alarmieren", aber ohne Crash). WARN_FALLBACK wird unten angefuegt.
+                reasoning.append(
+                    f"Das Risikoprofil-Budget ({risk_budget_bps / 100:.0f} %) ist mit den "
+                    f"aktuellen Bausteinen und Pflicht-Bandbreiten strukturell nicht "
+                    f"vollstaendig erreichbar (konservativst moeglich: "
+                    f"{int(realized_risky_bps) / 100:.1f} %). Die konservativste zulaessige "
+                    f"Allokation wurde gewaehlt; bitte Risikoprofil oder Bausteine im "
+                    f"Beratungsgespraech pruefen."
+                )
+            else:
+                assert_risk_budget_ok(realized_risky_bps, risk_budget_bps, slack_bps=0)
         warnings.append(format_message(WARN_FALLBACK))
         reasoning.append("Die aktive Allokation wurde auf die Bandbreiten-Mitte des Risikoprofils zurueckgesetzt, weil das Risikobudget strikt limitiert.")
     risky_fraction_total_bps = int(realized_risky_bps)
@@ -5898,6 +6098,11 @@ def generate_target_allocation(
         target_total_rappen=investable_advisory_wealth_rappen,
         total_summary=total_summary,
         total_liabilities_rappen=total_liabilities_rappen,
+    )
+    current_goal_analysis = _merge_goal_analysis_with_monte_carlo(
+        goal_analysis,
+        monte_carlo,
+        summaries_key="current_goal_summaries",
     )
     goal_analysis = _merge_goal_analysis_with_monte_carlo(goal_analysis, monte_carlo)
     reasoning.append("Eine Pfadsimulation mit normalverteilten Jahresrenditen quantifiziert Zielwahrscheinlichkeit, Verlustband und Rebalancing-Risiko.")
@@ -6187,6 +6392,7 @@ def generate_target_allocation(
         "simulation": simulation,
         "monte_carlo": monte_carlo,
         "goal_analysis": goal_analysis,
+        "current_goal_analysis": current_goal_analysis,
         "mandate_score": _build_mandate_score(goal_analysis),
         # Phase 6: Stress-Auswertungen fuer FE-Optimizer-Panel.
         # V3 Sprint 1: Im Shadow-Modus nicht im Top-Level stress_evaluations
@@ -6443,6 +6649,12 @@ def build_target_payload_from_allocation(
         Cashflow.deleted_at.is_(None),
         Cashflow.is_active == 1,
     ).all()
+    # 2026-06-14: vermögensgetriebene Cashflows (Hypothekarzins, Amortisation,
+    # Miet-/Zinserträge) AUCH im Rebuild-/Recommendation-Pfad einspeisen — sonst
+    # rechnete build_target_payload_from_allocation mit unvollständigen Cashflows
+    # (inkonsistent zu _load_allocation_inputs). Reserve/Empfehlung sehen damit
+    # dieselben Cashflows wie Cashflow-Ansicht und Engine-Projektion.
+    cashflows = list(cashflows) + derive_wealth_cashflows(all_positions)
 
     goals = db.query(Goal).filter(
         Goal.mandate_id == mandate.id,
@@ -6505,6 +6717,18 @@ def build_target_payload_from_allocation(
         cashflow_projection_series_rappen = [
             int(cf) + int(infl)
             for cf, infl in zip(cashflow_projection_series_rappen, inflow_projection_series_rappen)
+        ]
+    # 2026-06-14 (#31): Hypothek-Amortisation/Refinanzierung jahresabhängig in die
+    # Projektion einrechnen — direkt: sinkende Zinslast; Refi auf 3% nach Ablauf
+    # (Fix) bzw. 5 Jahren (SARON). Additiv auf das Netto-Cashflow-Series; die
+    # heutige Cashflow-Ansicht/Summe bleibt unberührt (statischer Posten = Jahr 0).
+    _mortgage_interest_adj = mortgage_interest_adjustment_series(
+        all_positions, projection_years, cashflow_totals["year"],
+    )
+    if any(_mortgage_interest_adj):
+        cashflow_projection_series_rappen = [
+            int(cf) + int(adj)
+            for cf, adj in zip(cashflow_projection_series_rappen, _mortgage_interest_adj)
         ]
 
     minimums = {
@@ -6639,6 +6863,11 @@ def build_target_payload_from_allocation(
         target_total_rappen=investable_advisory_wealth_rappen,
         total_summary=total_summary,
         total_liabilities_rappen=total_liabilities_rappen,
+    )
+    current_goal_analysis = _merge_goal_analysis_with_monte_carlo(
+        goal_analysis,
+        monte_carlo,
+        summaries_key="current_goal_summaries",
     )
     goal_analysis = _merge_goal_analysis_with_monte_carlo(goal_analysis, monte_carlo)
     bucket_response = []
@@ -6818,6 +7047,7 @@ def build_target_payload_from_allocation(
         "simulation": simulation,
         "monte_carlo": monte_carlo,
         "goal_analysis": goal_analysis,
+        "current_goal_analysis": current_goal_analysis,
         "live_rebalancing": live_rebalancing,
         "stress_evaluations": stress_evaluations,
     }

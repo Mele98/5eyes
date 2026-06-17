@@ -21,7 +21,7 @@ for path in (BACKEND_ROOT, TESTS_ROOT):
 from database import get_db
 from main import app
 from models.mandates import Mandate
-from services.auth import require_admin
+from services.auth import require_admin, require_super_admin
 from services.shadow_comparison import (
     _gesamt_verdikt,
     _summarize_mandate_for_aggregate,
@@ -45,6 +45,10 @@ def _client_with_admin(session_factory, admin_id: str = "admin-stage8"):
     admin_user = SimpleNamespace(id=admin_id, full_name="Admin Stage8", email="admin@example.test")
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[require_admin] = lambda: admin_user
+    # E1 (2026-06-14): Der systemweite Shadow-Aggregate ("ueber alle Mandate",
+    # tenant-uebergreifend) ist jetzt Owner-/Operator-Governance -> require_super_admin.
+    # Der Mock repraesentiert den Operator und erfuellt daher beide Rollen-Gates.
+    app.dependency_overrides[require_super_admin] = lambda: admin_user
     return TestClient(app)
 
 

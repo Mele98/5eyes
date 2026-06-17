@@ -47,9 +47,14 @@ def create_mandate(
     if existing:
         raise HTTPException(status_code=409, detail="Mandatsnummer bereits vergeben")
     now = _now()
+    # E1 (2026-06-12): tenant_id vom Parent-Client vererben (Fallback: Tenant des
+    # anlegenden Users). Damit neue Mandate NIE NULL-tenant_id haben -> Vorbe-
+    # dingung fuer spaetere NOT-NULL-Constraint + Entfernen der 'OR IS NULL'-Klausel.
+    mandate_tenant_id = getattr(client, "tenant_id", None) or getattr(current_user, "tenant_id", None)
     mandate = Mandate(
         id=new_uuid(),
         client_id=client_id,
+        tenant_id=mandate_tenant_id,
         mandate_number=body.mandate_number,
         mandate_type=body.mandate_type,
         status="Aktiv",

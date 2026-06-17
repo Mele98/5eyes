@@ -289,6 +289,23 @@ L_t = nominal_amount × Π_{i=0..t} (1 + inflation_i)
 - `0` = nicht aktiv
 - Sprint U-B6: Liability wird pro-rata gewichtet
 
+### 4.5 Goal-Status: zwei Vokabulare (deterministisch vs stochastisch) — #6
+
+Es gibt **zwei bewusst getrennte** Status-Systeme. Sie messen Verschiedenes und
+dürfen **nicht** gleichgesetzt werden — die UI labelt sie entsprechend.
+
+| Pfad | Kennzahl | Schwellen | Status-Begriffe | Code |
+|---|---|---|---|---|
+| **Deterministisch** (Zielmatrix, Default-/house_matrix-Pfad) | `achievement_score` 0-100 (Funded-Ratio-artiger Punkt-Schätzer: projiziertes/zielbezogenes Vermögen vs Zielbetrag) | **≥70 / ≥45** | On Track / Prüfen / Gefährdet | `portfolio_engine._build_goal_analysis` |
+| **Stochastisch** (Optimizer, OPTIMIZER_MODE=stochastic) | `P_g` = Anteil MC-Pfade die das Ziel erreichen (Wahrscheinlichkeit, 0-1) | **≥τ / ≥0.50** (τ: 80% Vermögens-/Cashflow-Ziel, 50% Renditeziel) | erreichbar / knapp / nicht_erreichbar | `optimizer/objective.chance_constraint_penalty` |
+
+**Warum unterschiedlich:** Der Score ist ein einzelner deterministischer Punkt-Schätzer
+(eine Projektion), die Wahrscheinlichkeit eine Verteilungs-Aussage über viele MC-Szenarien.
+Ein Ziel kann deterministisch „On Track" und stochastisch „knapp" sein (Punkt-Schätzer trifft,
+aber das Verteilungsband reicht unter τ). Das ist **kein Widerspruch**, sondern komplementäre
+Information. UI-Badges: deterministisch = „Score", stochastisch = „Zielerreichungs-
+Wahrscheinlichkeit" (5eyes_v2.html: dt. Score ~Z.5483, stoch. ~Z.5035-5043).
+
 ---
 
 ## 5. Objective-Funktionen

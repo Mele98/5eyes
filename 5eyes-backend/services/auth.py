@@ -162,8 +162,12 @@ def _apply_tenant_filter_to_client_query(query, current_user: User):
     if not user_tid or not str(user_tid).strip():
         return query  # Legacy-User: kein Filter
     user_tid_clean = str(user_tid).strip()
-    # SQLAlchemy: Client.tenant_id == user_tid OR Client.tenant_id IS NULL
     from sqlalchemy import or_
+    from config import settings as _settings
+    # E1 (2026-06-14): Strict-Modus -> NUR exakter Tenant-Match (NULL unsichtbar).
+    if getattr(_settings, "strict_tenant_isolation", False):
+        return query.filter(Client.tenant_id == user_tid_clean)
+    # BC: Client.tenant_id == user_tid OR Client.tenant_id IS NULL (Pre-T1 = 'main').
     return query.filter(
         or_(Client.tenant_id == user_tid_clean, Client.tenant_id.is_(None))
     )
@@ -181,6 +185,9 @@ def _apply_tenant_filter_to_mandate_query(query, current_user: User):
         return query
     user_tid_clean = str(user_tid).strip()
     from sqlalchemy import or_
+    from config import settings as _settings
+    if getattr(_settings, "strict_tenant_isolation", False):
+        return query.filter(Mandate.tenant_id == user_tid_clean)
     return query.filter(
         or_(Mandate.tenant_id == user_tid_clean, Mandate.tenant_id.is_(None))
     )
@@ -355,4 +362,23 @@ def get_linked_client_for_user_or_404(user: User, db: Session) -> Client:
             status_code=404,
             detail="Kunden-Datensatz nicht mehr verfuegbar.",
         )
+    # E1 (2026-06-14): Defense-in-depth — die 1:1-Linkage allein darf NICHT
+    # genuegen. Wenn die tenant_id des Client-Users und des Clients beide
+    # gesetzt sind und sich unterscheiden, ist das eine tenant-uebergreifende
+    # (fehlerhafte/boesartige) Verknuepfung -> 404 statt Leak. Im Strict-Modus
+    # wird die Trennung zusaetzlich strikt verlangt.
+    _utid = getattr(user, "tenant_id", None)
+    _ctid = getattr(client, "tenant_id", None)
+    _utid_s = str(_utid).strip() if _utid is not None else ""
+    _ctid_s = str(_ctid).strip() if _ctid is not None else ""
+    if _utid_s and _ctid_s and _utid_s != _ctid_s:
+        raise HTTPException(status_code=404, detail="Kunden-Datensatz nicht verfuegbar.")
+    try:
+        from config import settings as _settings
+        if getattr(_settings, "strict_tenant_isolation", False) and _utid_s and _utid_s != _ctid_s:
+            raise HTTPException(status_code=404, detail="Kunden-Datensatz nicht verfuegbar.")
+    except HTTPException:
+        raise
+    except Exception:
+        pass
     return client
