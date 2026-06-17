@@ -52,10 +52,10 @@ def test_reserve_sockel_added_to_soll_curve_and_metrics():
     # User-Fachentscheid 2026-06-17: Liquiditätsreserve als Sockel/0-Punkt wieder auf
     # die SOLL-Darstellung schlagen, damit SOLL & IST am vollen Vermögen starten.
     html = _html()
-    # Chart (upgradeFanChartWithMonteCarlo): Reserve in k auf p90/p50/p10.
+    # Chart: Reserve in RAPPEN auf die Serie, ERST DANN runden (sonst ±1k-Versatz).
     assert "external_reserve_rappen" in html
-    assert "/100000" in html
-    assert "p90=_sockel(p90)" in html
+    assert "_withSockel" in html and "_reserveR" in html
+    assert "p90=_prep(mc.target_p90_series_rappen)" in html
     # Kennzahlen konsistent: _resRappen auf SOLL-Endwerte.
     assert "_resRappen" in html
     assert "+_resRappen" in html
