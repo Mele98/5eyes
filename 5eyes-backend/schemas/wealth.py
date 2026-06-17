@@ -179,6 +179,7 @@ class CashflowCreate(BaseModel):
     valid_until: Optional[str] = None
     is_inflation_linked: bool = False
     notes: Optional[str] = None
+    data_classification: Literal["synthetic", "real"] = "synthetic"
 
 
 class CashflowUpdate(BaseModel):
@@ -196,6 +197,7 @@ class CashflowUpdate(BaseModel):
     is_inflation_linked: Optional[bool] = None
     notes: Optional[str] = None
     is_active: Optional[bool] = None
+    data_classification: Optional[Literal["synthetic", "real"]] = None
 
 
 class CashflowResponse(BaseResponse):
@@ -430,6 +432,7 @@ class GoalCreate(BaseModel):
     pension_pillar: Optional[Literal["AHV", "BVG", "3a", "1e", "FZG"]] = None
     linked_position_id: Optional[str] = None
     notes: Optional[str] = None
+    data_classification: Literal["synthetic", "real"] = "synthetic"
 
     @model_validator(mode="after")
     def validate_family_type(self):
@@ -467,6 +470,7 @@ class GoalUpdate(BaseModel):
     linked_position_id: Optional[str] = None
     notes: Optional[str] = None
     is_active: Optional[bool] = None
+    data_classification: Optional[Literal["synthetic", "real"]] = None
 
     @model_validator(mode="after")
     def validate_goal_update_fields(self):

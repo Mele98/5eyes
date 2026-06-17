@@ -211,6 +211,7 @@ def health():
         "environment": settings.app_env,
         "host": settings.app_host,
         "port": settings.app_port,
+        "allow_real_client_data": settings.allow_real_client_data,
     }
 
 

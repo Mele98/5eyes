@@ -237,6 +237,10 @@ class Settings(BaseSettings):
     smtp_use_tls: bool = True        # STARTTLS auf smtp_port
     smtp_timeout_seconds: int = 10
 
+    # Phase-0 safety gate for external access. Staging sets this to False so
+    # writes explicitly classified as real client data are rejected.
+    allow_real_client_data: bool = True
+
     # Browser-Hosting (2026-06-10): Haupt-App (5eyes_v2.html) ueber das Backend
     # ausliefern, damit ein einzelner Host/Tunnel die komplette App im Browser
     # bereitstellt (Remote-Demo/Tier-2). Default AUS — Tier-1/Electron laedt die
