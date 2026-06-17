@@ -17788,6 +17788,16 @@ function upgradeFanChartWithMonteCarlo(result){
   var p50=simulationSeriesK(mc.target_p50_series_rappen);
   var p10=simulationSeriesK(mc.target_p10_series_rappen);
   var deterministic=simulationSeriesK(sim&&sim.target_mix_series_rappen);
+  // 2026-06-17 (User-Fachentscheid): Die Liquiditätsreserve wird im Backend aus dem
+  // SOLL-Startkapital herausgerechnet (investierbarer Teil). Fürs BILD schlagen wir sie
+  // als konstanten Sockel/„0-Punkt" wieder drauf → SOLL & IST starten am vollen Vermögen
+  // und die SOLL-Kurve zehrt im Verzehr nur bis auf die Reserve herunter (geschützter
+  // Boden). Backend-Logik bleibt unangetastet. (external_reserve_rappen = der Carve-out.)
+  var _reserveK=Math.round(Number((result&&result.external_reserve_rappen)||0)/100000);
+  if(_reserveK>0){
+    var _sockel=function(a){return (Array.isArray(a)?a:[]).map(function(v){return Number(v||0)+_reserveK;});};
+    p90=_sockel(p90); p50=_sockel(p50); p10=_sockel(p10); deterministic=_sockel(deterministic);
+  }
   var componentSeries=resultCashflowProjectionComponentSeries(result,Math.max(0,labels.length-1),labels);
   var eventPointRadius=[0];
   var eventPointBackground=['rgb(15,72,38)'];
@@ -19126,7 +19136,10 @@ function applyAllocationEngineResult(result){
   var advisoryCurrentMixReturnBps=advisoryBaselineProjection.expectedReturnBps;
   var advisoryCagrBps=sim?simulationCagrBps(sim.target_mix_series_rappen):Number(result.expected_return_bps||0);
   var deltaChf=Math.round((advisoryProjectedRappen-advisoryCurrentProjectedRappen)/100);
-  var mcTargetMedianRappen=mc&&Array.isArray(mc.target_p50_series_rappen)&&mc.target_p50_series_rappen.length?Number(mc.target_p50_series_rappen[mc.target_p50_series_rappen.length-1]||0):advisoryProjectedRappen;
+  // 2026-06-17: Liquiditätsreserve-Sockel konsistent zur SOLL-Kurve auch auf die
+  // SOLL-Endwerte aufschlagen (Backend rechnet sie raus). _resRappen = der Carve-out.
+  var _resRappen=Math.round(Number(result&&result.external_reserve_rappen||0));
+  var mcTargetMedianRappen=mc&&Array.isArray(mc.target_p50_series_rappen)&&mc.target_p50_series_rappen.length?(Number(mc.target_p50_series_rappen[mc.target_p50_series_rappen.length-1]||0)+_resRappen):advisoryProjectedRappen;
   setText('aa-proj-wealth',formatCompactCHF(advisoryProjectedRappen/100));
   var aaProjValue=document.getElementById('aa-proj-wealth');
   if(aaProjValue&&aaProjValue.previousElementSibling){
@@ -19190,7 +19203,8 @@ function applyAllocationEngineResult(result){
   setText('aa-proj-current-lossprob',formatProbabilityPct(mc&&mc.current_loss_probability_1y_pct));
   // 2026-06-15 (#37): Endwert optimistisch (P90) / pessimistisch (P10), SOLL vs IST.
   var _lastRappen=function(arr){return (Array.isArray(arr)&&arr.length)?Number(arr[arr.length-1]||0):0;};
-  var _tP90=_lastRappen(mc&&mc.target_p90_series_rappen), _tP10=_lastRappen(mc&&mc.target_p10_series_rappen);
+  var _tP90=_lastRappen(mc&&mc.target_p90_series_rappen); if(_tP90)_tP90+=_resRappen;
+  var _tP10=_lastRappen(mc&&mc.target_p10_series_rappen); if(_tP10)_tP10+=_resRappen;
   var _cP90=_lastRappen(mc&&mc.current_p90_series_rappen), _cP10=_lastRappen(mc&&mc.current_p10_series_rappen);
   setText('aa-proj-p90', _tP90?formatCompactCHF(_tP90/100):'—');
   setText('aa-proj-current-p90', _cP90?formatCompactCHF(_cP90/100):'—');

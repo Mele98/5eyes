@@ -48,6 +48,19 @@ def test_new_metrics_get_better_worse_coloring():
     assert "_colorBetter('aa-proj-sharpe'" in html
 
 
+def test_reserve_sockel_added_to_soll_curve_and_metrics():
+    # User-Fachentscheid 2026-06-17: Liquiditätsreserve als Sockel/0-Punkt wieder auf
+    # die SOLL-Darstellung schlagen, damit SOLL & IST am vollen Vermögen starten.
+    html = _html()
+    # Chart (upgradeFanChartWithMonteCarlo): Reserve in k auf p90/p50/p10.
+    assert "external_reserve_rappen" in html
+    assert "/100000" in html
+    assert "p90=_sockel(p90)" in html
+    # Kennzahlen konsistent: _resRappen auf SOLL-Endwerte.
+    assert "_resRappen" in html
+    assert "+_resRappen" in html
+
+
 def test_sollist_png_export_exists():
     # #104: beide Vergleichsgrafiken als ein PNG fuers Kundengespraech.
     html = _html()
