@@ -241,9 +241,11 @@ def test_shortfall_contributions_dataclass_is_frozen():
         c.weight_bps = 999  # type: ignore[misc]
 
 
-def test_shortfall_contributions_weighted_includes_hardness_and_weight():
-    """Identische shortfalls + unterschiedliche Hardness -> gewichteter Beitrag
-    skaliert mit HARDNESS_WEIGHT[hardness_key]."""
+def test_shortfall_contributions_weighted_includes_hardness_and_weight(monkeypatch):
+    """Optionales Feature (OPTIMIZER_GOAL_WEIGHTING=hardness): identische shortfalls
+    + unterschiedliche Hardness -> gewichteter Beitrag skaliert mit
+    HARDNESS_WEIGHT[hardness_key]. Im Default (equal) waeren beide gleich."""
+    monkeypatch.setenv("OPTIMIZER_GOAL_WEIGHTING", "hardness")
     hard = _wealth_at_t_liability("hart", 100_000_00, weight_bps=5000, hardness="hart")
     primaer = _wealth_at_t_liability("primaer", 100_000_00, weight_bps=5000, hardness="primaer")
     wealth_paths = np.full((10, 6), 50_000_00, dtype=np.float64)

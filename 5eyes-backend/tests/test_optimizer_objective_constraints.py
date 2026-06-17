@@ -176,8 +176,27 @@ def test_shortfall_unknown_kind_returns_zero():
 # ============================================================================
 
 
-def test_objective_sums_hardness_weighted_shortfalls():
-    """Goal hart vs goal opportunistisch: hart wird 50x staerker bestraft."""
+def test_objective_equal_weighting_is_default(monkeypatch):
+    """Methodik-Default: alle Ziele gleich wichtig (Mittelung). Ein 'hartes' und
+    ein 'opportunistisches' Ziel mit identischem Shortfall ergeben dasselbe
+    Objective — der Haertegrad spielt im Default KEINE Rolle."""
+    monkeypatch.delenv("OPTIMIZER_GOAL_WEIGHTING", raising=False)
+    hart = _make_liab(goal_id="h", hardness="hart", weight_bps=10000,
+                       target_kind="wealth_at_t", target_amount_rappen=1_000_000,
+                       target_year_index=5)
+    opp = _make_liab(goal_id="o", hardness="opportunistisch", weight_bps=10000,
+                      target_kind="wealth_at_t", target_amount_rappen=1_000_000,
+                      target_year_index=5)
+    wealth = np.full((10, 11), 999_000, dtype=np.float64)
+    obj_hart = shortfall_objective([hart], wealth, initial_wealth_rappen=500_000, horizon_years=10)
+    obj_opp = shortfall_objective([opp], wealth, initial_wealth_rappen=500_000, horizon_years=10)
+    assert obj_hart == pytest.approx(obj_opp)
+
+
+def test_objective_sums_hardness_weighted_shortfalls(monkeypatch):
+    """Optionales Feature: bei OPTIMIZER_GOAL_WEIGHTING=hardness wird ein hartes
+    Ziel 50x staerker bestraft als ein opportunistisches (10 / 0.2)."""
+    monkeypatch.setenv("OPTIMIZER_GOAL_WEIGHTING", "hardness")
     hart = _make_liab(goal_id="h", hardness="hart", weight_bps=10000,
                        target_kind="wealth_at_t", target_amount_rappen=1_000_000,
                        target_year_index=5)

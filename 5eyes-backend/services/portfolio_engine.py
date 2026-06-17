@@ -2927,6 +2927,7 @@ def _monte_carlo_goal_summary(
     # advisory_path bewertet, konsistent zu _build_goal_analysis.
     scaled_values = list(path_values_by_year[index])
     p10 = _percentile(scaled_values, 0.10)
+    p25 = _percentile(scaled_values, 0.25)
     p50 = _percentile(scaled_values, 0.50)
     p90 = _percentile(scaled_values, 0.90)
     goal_type = _norm_text(goal.goal_type)
@@ -3005,9 +3006,11 @@ def _monte_carlo_goal_summary(
         funded_ratio_p50 = round(p50 / target, 4)
         score = max(0, min(100, int(round((_percentile(annualized_return_samples_bps, 0.50) / 100))))) if annualized_return_samples_bps else 50
 
-    # PAR-3/PAR-6: 3eyes-kompatible Anzeige. Die Zielerreichung ist
+    # PAR-3/PAR-6: Methodik-konforme Anzeige. Die Zielerreichung ist
     # effektiv/gewuenscht im Median, auf 100 % gedeckelt. Der pessimistische
-    # CHF-Fehlbetrag basiert auf dem P10-Pfad. Beim Renditeziel wird die
+    # CHF-Fehlbetrag basiert auf dem schlechtesten Quartil (P25-Pfad) —
+    # so wie in der Beratungs-Methodik fuer Nicht-Cashflow-Ziele das
+    # schlechteste Quartil ausgewiesen wird. Beim Renditeziel wird die
     # Rendite in ein implizites Endvermoegen umgerechnet, damit die Differenz
     # ebenfalls als CHF-Betrag ausweisbar ist.
     if goal_type == "Renditeziel":
@@ -3017,7 +3020,7 @@ def _monte_carlo_goal_summary(
         else:
             median_achievement_pct = max(0, min(100, int(round(funded_ratio_p50 * 100))))
             pessimistic_return_bps = (
-                _percentile(annualized_return_samples_bps, 0.10)
+                _percentile(annualized_return_samples_bps, 0.25)
                 if annualized_return_samples_bps
                 else -10000
             )
@@ -3034,7 +3037,7 @@ def _monte_carlo_goal_summary(
         pessimistic_shortfall_rappen = (
             max(0, int(target))
             if outside_simulation_horizon
-            else max(0, int(target) - int(p10))
+            else max(0, int(target) - int(p25))
         )
 
     return {
@@ -3046,6 +3049,7 @@ def _monte_carlo_goal_summary(
         "median_achievement_pct": median_achievement_pct,
         "pessimistic_shortfall_rappen": pessimistic_shortfall_rappen,
         "projected_value_p10_rappen": p10,
+        "projected_value_p25_rappen": p25,
         "projected_value_p50_rappen": p50,
         "projected_value_p90_rappen": p90,
         "score": max(0, min(100, score)),
