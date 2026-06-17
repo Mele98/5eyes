@@ -38,20 +38,22 @@ def test_age_mode_reuses_override_not_a_new_return_path():
     assert "_horizonBirthYear()" in body, "Zielalter muss ueber das Geburtsjahr umgerechnet werden"
 
 
-def test_save_button_present_and_awaits_then_caps():
-    """Expliziter 'Speichern'-Knopf, mehrfach nutzbar. saveAaHorizon ist async,
-    WARTET den Re-Render ab und kappt die Charts ZULETZT hart (sonst Race: ein
-    spaeterer async-Render ueberschreibt die Kappung -> X-Achse passt sich nicht an)."""
+def test_save_button_truncates_synchronously_then_async_reload():
+    """Speichern-Knopf, mehrfach nutzbar. ENTSCHEIDEND: die Kappung der Live-Charts
+    passiert SOFORT/synchron (X-Achse reagiert unmittelbar) — der Backend-Reload
+    laeuft async hinterher und blockiert NICHT. Sandbox-verifiziert: opt 60->11."""
     html = _html()
     assert 'onclick="saveAaHorizon()"' in html, "Speichern-Button fehlt"
     assert ">Speichern<" in html
-    start = html.find("async function saveAaHorizon(")
-    assert start != -1, "saveAaHorizon muss async sein (await vor finaler Kappung)"
-    body = html[start:start + 1800]
-    assert "await applyIstHorizonOverride(" in body, "Re-Render wird nicht abgewartet"
-    assert "_truncateProjectionChartsTo(years)" in body, "finale harte Kappung fehlt"
-    # Kappung kommt NACH dem await (Reihenfolge entscheidend).
-    assert body.index("await applyIstHorizonOverride(") < body.index("_truncateProjectionChartsTo(years)")
+    start = html.find("function saveAaHorizon(")
+    assert start != -1
+    body = html[start:start + 2000]
+    assert "_truncateProjectionChartsTo(years)" in body, "synchrone Kappung fehlt"
+    assert "applyIstHorizonOverride(" in body, "Persistenz/Reload fehlt"
+    # Synchrone Kappung MUSS vor dem (nicht erwarteten) async-Reload kommen.
+    assert body.index("_truncateProjectionChartsTo(years)") < body.index("Promise.resolve(applyIstHorizonOverride(")
+    # Kein blockierendes await mehr (das war der Haenger-Bug).
+    assert "await applyIstHorizonOverride(" not in body
 
 
 def test_aa_horizon_control_synced_from_override_source():

@@ -17108,20 +17108,25 @@ async function saveAaHorizon(){
   }
   // 1. Override persistieren (oder loeschen bei auto).
   saveIstHorizonOverride(years==null?null:String(years));
-  // 2. Auf den vollen Re-Render WARTEN (laedt Cashflow-Projektion + zeichnet Charts neu),
-  //    damit die anschliessende harte Kappung NICHT von einem spaeteren async-Render
-  //    wieder ueberschrieben wird (das war der Bug: Race zwischen Kappung und Re-Render).
-  try{ await applyIstHorizonOverride(years==null?'':String(years)); }catch(e){}
-  // 3. GARANTIE: ganz zuletzt die Live-Charts hart auf den Horizont kappen.
+  // 2. SOFORT (synchron) kappen — die X-Achse reagiert UNMITTELBAR, voellig unabhaengig
+  //    vom async Backend-Reload. (Vorheriger Bug: wir warteten auf applyIstHorizonOverride;
+  //    war der Call langsam/haengend, lief die Kappung nie.)
   var optBefore=(charts&&charts.opt&&charts.opt.data&&charts.opt.data.labels)?charts.opt.data.labels.length:-1;
   if(years!=null)_truncateProjectionChartsTo(years);
   var optAfter=(charts&&charts.opt&&charts.opt.data&&charts.opt.data.labels)?charts.opt.data.labels.length:-1;
-  // 4. Diagnose sichtbar im Effektiv-Label (damit wir bei Problemen sofort sehen woran's liegt).
+  // 3. Async HINTERHER: Cashflow-Projektion neu laden + Re-Render (respektiert den Override)
+  //    und danach nochmal kappen (belt-and-suspenders). NICHT erwartet -> blockiert nie.
+  try{
+    Promise.resolve(applyIstHorizonOverride(years==null?'':String(years))).then(function(){
+      if(years!=null){ _truncateProjectionChartsTo(years); }
+      else { try{ syncAaHorizonControl(); }catch(_){ } }
+    }).catch(function(){});
+  }catch(e){}
+  // 4. Diagnose im Effektiv-Label.
   var eff=document.getElementById('aa-horizon-eff');
   if(eff){
     if(years==null&&mode!=='auto'){ eff.textContent='⚠ '+(why||'kein Wert')+' — auto'; eff.style.color='#b45309'; }
     else { eff.textContent=(years==null?'auto (Lebensende)':('bis '+(cur+years-1)+' · '+years+' J.'))+'  [x:'+optBefore+'→'+optAfter+']'; eff.style.color='#15803d'; }
-    setTimeout(function(){ try{ syncAaHorizonControl(); }catch(_){ } },2500);
   }
 }
 
