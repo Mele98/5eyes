@@ -186,3 +186,12 @@ def test_regenerate_requires_2fa_active(client, session_factory):
     h = _headers(client, "u6", "pw")
     r = client.post("/auth/2fa/recovery/regenerate", headers=h)
     assert r.status_code == 400
+
+
+def test_recovery_columns_in_startup_migration():
+    """Regression: das User-Modell selektiert reset_token_hash/totp_recovery_codes bei
+    JEDEM Query (inkl. Login). Auf bestehenden DBs MUSS ensure_runtime_columns sie beim
+    Start ergaenzen, sonst crasht der Login (OperationalError: no such column)."""
+    db_src = (Path(__file__).resolve().parents[1] / "database.py").read_text(encoding="utf-8")
+    for col in ("reset_token_hash", "reset_token_expires_at", "totp_recovery_codes"):
+        assert f"('{col}', 'TEXT')" in db_src, f"{col} fehlt in ensure_runtime_columns (Startup-Migration)"
