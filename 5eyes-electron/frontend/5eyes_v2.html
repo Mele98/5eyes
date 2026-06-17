@@ -3057,6 +3057,7 @@ function _wireSollIstHover(){
                 <input id="aa-horizon-age" type="number" min="50" max="105" placeholder="85" onchange="applyIstHorizonAge(this.value)" style="display:none;width:56px;font-size:10px" aria-label="Prognose bis Alter">
                 <input id="aa-horizon-endyear" type="number" min="2026" max="2120" placeholder="2070" onchange="applyAaHorizonEndYear(this.value)" style="display:none;width:68px;font-size:10px" aria-label="Prognose bis Jahr">
                 <input id="aa-horizon-years" type="number" min="3" max="60" placeholder="auto" onchange="applyIstHorizonOverride(this.value)" style="display:none;width:56px;font-size:10px" aria-label="Prognose Anzahl Jahre">
+                <button type="button" class="btn" style="font-size:10px;padding:2px 10px" onclick="saveAaHorizon()" title="Horizont anwenden &amp; speichern">Speichern</button>
                 <span id="aa-horizon-eff" style="color:var(--n6);font-style:italic"></span>
                 <span style="color:var(--n4);margin-left:auto">ändert nur die Grafik-Länge, nicht die Renditen</span>
               </div>
@@ -17061,6 +17062,19 @@ function syncAaHorizonControl(){
       effEl.textContent=life?('= auto bis '+life+' (Lebensende)'):'= auto';
     }
   }
+}
+// Expliziter Speichern/Anwenden-Knopf: wendet den aktuell gewaehlten Modus + Wert an
+// (mehrfach beliebig wiederholbar). Persistenz + Re-Render passieren in den
+// applyIstHorizon*-Funktionen; hier nur Dispatch + kurzes optisches Feedback.
+function saveAaHorizon(){
+  var modeEl=document.getElementById('aa-horizon-mode');
+  var mode=(modeEl&&modeEl.value)||'auto';
+  if(mode==='age'){ applyIstHorizonAge((document.getElementById('aa-horizon-age')||{}).value); }
+  else if(mode==='date'){ applyAaHorizonEndYear((document.getElementById('aa-horizon-endyear')||{}).value); }
+  else if(mode==='years'){ applyIstHorizonOverride((document.getElementById('aa-horizon-years')||{}).value); }
+  else { resetIstHorizonOverride(); }
+  var eff=document.getElementById('aa-horizon-eff');
+  if(eff){ eff.style.color='#15803d'; setTimeout(function(){ try{ eff.style.color='var(--n6)'; }catch(_){ } },1000); }
 }
 
 function projectionHorizonYears(result,preferredYears){
