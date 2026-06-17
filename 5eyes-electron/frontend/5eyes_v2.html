@@ -17625,11 +17625,15 @@ function updateProjectionChartsFromSimulation(result){
         ? sim.year_labels.length-1
         : projectionHorizonYears(result,null));
   var labels=projectionYearLabels(result,horizon,(_hOv&&_hOv>0)?null:(sim&&sim.year_labels));
-  var targetSeries=sim?simulationSeriesK(sim.target_mix_series_rappen):[];
+  // 2026-06-17: ALLE Datenreihen auf den (ggf. per Override gekuerzten) Horizont
+  // trunkieren. Sonst verlaengert syncAaProjectionAxisScales die X-Achse wieder auf
+  // die laengste Datenreihe (voller SOLL-Pfad) -> Achse ignoriert den Override.
+  var _hCap=function(s){return (Array.isArray(s)&&s.length>horizon+1)?s.slice(0,horizon+1):s;};
+  var targetSeries=_hCap(sim?simulationSeriesK(sim.target_mix_series_rappen):[]);
   var advisoryBaselineProjection=buildCurrentBaselineProjection(result,horizon,labels);
-  var advisoryCurrentSeries=advisoryBaselineProjection.seriesK;
+  var advisoryCurrentSeries=_hCap(advisoryBaselineProjection.seriesK);
   var totalBaselineProjection=buildCurrentWealthProjection('total',horizon,labels);
-  var totalCurrentSeries=totalBaselineProjection.seriesK;
+  var totalCurrentSeries=_hCap(totalBaselineProjection.seriesK);
   if(charts.opt&&charts.opt.data){
     charts.opt.data.labels=labels;
     charts.opt.data.datasets=charts.opt.data.datasets.slice(0,1);
