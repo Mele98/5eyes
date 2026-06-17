@@ -38,6 +38,21 @@ def test_age_mode_reuses_override_not_a_new_return_path():
     assert "_horizonBirthYear()" in body, "Zielalter muss ueber das Geburtsjahr umgerechnet werden"
 
 
+def test_save_button_present_and_dispatches_by_mode():
+    """Expliziter 'Speichern'-Knopf neben dem Horizont-Control, mehrfach nutzbar.
+    saveAaHorizon dispatcht je nach Modus auf die bestehenden apply-Funktionen."""
+    html = _html()
+    assert 'onclick="saveAaHorizon()"' in html, "Speichern-Button fehlt"
+    assert ">Speichern<" in html
+    start = html.find("function saveAaHorizon(")
+    assert start != -1
+    body = html[start:start + 700]
+    assert "applyIstHorizonAge(" in body
+    assert "applyAaHorizonEndYear(" in body
+    assert "applyIstHorizonOverride(" in body
+    assert "resetIstHorizonOverride()" in body
+
+
 def test_aa_horizon_control_synced_from_override_source():
     """syncAaHorizonControl wird aus syncIstHorizonOverrideInput aufgerufen ->
     der Balken bleibt mit dem (gemeinsamen) Override synchron."""
