@@ -27,7 +27,9 @@ class WealthPosition(Base):
     property_rental_income_rappen = Column(Integer, nullable=False, default=0)
     # 2026-06-18 (#84): Miete teuerungsindexiert -> abgeleiteter Mietertrag-Cashflow
     # wird is_inflation_linked=1 (waechst in der Projektion mit der Teuerung).
-    property_rental_inflation_linked = Column(Integer, nullable=False, default=0)
+    # server_default="0": DB-seitiger Default, damit auch rohe SQL-Inserts (ohne diese
+    # Spalte) und Bestandszeilen 0 erhalten (nicht nur ORM-Inserts via Python-default).
+    property_rental_inflation_linked = Column(Integer, nullable=False, server_default="0", default=0)
     pension_type = Column(String)
     pension_institution = Column(String)
     pension_technical_rate_bps = Column(Integer)
