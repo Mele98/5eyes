@@ -251,19 +251,31 @@ def create_risk_assessment(
     )
     db.add(ra)
 
-    # Store individual answers if provided
+    # Store individual answers if provided. Unausgefuellte/leere Antwortzeilen
+    # ueberspringen: das FE sendet teils nicht angeklickte (Zusatz-)Fragen mit
+    # NULL-Werten mit. Die Spalten question_number/answer_label/answer_points sind
+    # NOT NULL -> sonst IntegrityError -> 500 ("Interner Serverfehler") beim
+    # Speichern. Konsistent mit dem Vollstaendigkeits-Gate, das solche
+    # unvollstaendigen Antworten ohnehin ignoriert.
     if body.answers:
         for ans in body.answers:
+            question_number = ans.get("question_number")
+            answer_label = ans.get("answer_label")
+            answer_points = ans.get("answer_points")
+            if question_number is None or answer_points is None:
+                continue
+            if answer_label is None or not str(answer_label).strip():
+                continue
             db.add(RiskAssessmentAnswer(
                 id=new_uuid(),
                 assessment_id=ra.id,
-                question_number=ans.get("question_number"),
+                question_number=question_number,
                 question_section=_canonical_risk_answer_section(
-                    ans.get("question_number"),
+                    question_number,
                     ans.get("question_section"),
                 ),
-                answer_label=ans.get("answer_label"),
-                answer_points=ans.get("answer_points"),
+                answer_label=answer_label,
+                answer_points=answer_points,
                 created_at=now,
             ))
 
