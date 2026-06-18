@@ -26,8 +26,8 @@ class TenantCreate(BaseModel):
     hosting_tier: str = Field(default=TIER_1_SELF_HOSTED)
     license_status: str = Field(default=LICENSE_STATUS_TRIAL)
     license_valid_until: Optional[str] = None
-    max_users: int = Field(default=1, ge=1)
-    max_mandates: Optional[int] = Field(default=None, ge=1)
+    max_users: Optional[int] = Field(default=1, ge=0)
+    max_mandates: Optional[int] = Field(default=None, ge=0)
     storage_quota_mb: Optional[int] = Field(default=None, ge=1)
 
     @field_validator("hosting_tier")
@@ -58,8 +58,8 @@ class TenantUpdate(BaseModel):
     license_valid_until: Optional[str] = None
     finma_outsourcing_notified_at: Optional[str] = None
     avv_signed_at: Optional[str] = None
-    max_users: Optional[int] = Field(default=None, ge=1)
-    max_mandates: Optional[int] = Field(default=None, ge=1)
+    max_users: Optional[int] = Field(default=None, ge=0)
+    max_mandates: Optional[int] = Field(default=None, ge=0)
     storage_quota_mb: Optional[int] = Field(default=None, ge=1)
     is_active: Optional[int] = Field(default=None, ge=0, le=1)
 
@@ -95,7 +95,7 @@ class TenantResponse(BaseModel):
     license_valid_until: Optional[str] = None
     finma_outsourcing_notified_at: Optional[str] = None
     avv_signed_at: Optional[str] = None
-    max_users: int
+    max_users: Optional[int] = None
     max_mandates: Optional[int] = None
     storage_quota_mb: Optional[int] = None
     is_active: int

@@ -77,7 +77,7 @@ class Tenant(Base):
     # AVV (Auftragsverarbeitungsvertrag) signiert: Datum
     avv_signed_at = Column(String)
     # Maximale Anzahl Berater-User in dieser Tenant (Lizenz-Limit)
-    max_users = Column(Integer, nullable=False, default=1)
+    max_users = Column(Integer, default=1)
     # Maximale Anzahl Mandate (None = unbegrenzt)
     max_mandates = Column(Integer)
     # Storage-Quota in MB (None = unbegrenzt fuer Tier 1)
