@@ -15,6 +15,7 @@ from schemas.review import AuditLogEntry, AuditLogPage
 from services.audit import log as audit_log
 from services.auth import require_admin, require_advisor, require_super_admin, get_mandate_for_user_or_404
 from services.foundation_example import upsert_foundation_example_case
+from services.foundation_purge import purge_demo_client_data, purge_foundation_example_data
 from services.maintenance import (
     build_compliance_status,
     create_backup,
@@ -46,6 +47,7 @@ AUDIT_LOG_VALID_ACTIONS = frozenset(
         'MARKET_DATA_PURGE',
         'DB_OPTIMIZE',
         'FOUNDATION_EXAMPLE',
+        'FOUNDATION_PURGE',
     }
 )
 OPTIMIZER_MODE_VALUES = frozenset({'house_matrix', 'shadow_stochastic', 'stochastic'})
@@ -684,3 +686,48 @@ def create_foundation_example(
     )
     db.commit()
     return payload
+
+
+@router.post('/foundation-example/purge')
+def purge_foundation_example(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    result = purge_foundation_example_data(db)
+    audit_log(
+        db,
+        user_id=current_user.id,
+        user_name=getattr(current_user, "full_name", None) or getattr(current_user, "email", "admin"),
+        table_name="foundation_example",
+        record_id=",".join(result.get("client_ids") or []) or "foundation_example",
+        action="FOUNDATION_PURGE",
+        new_value=str({
+            "status": result.get("status"),
+            "deleted": result.get("deleted", {}),
+        }),
+    )
+    db.commit()
+    return result
+
+
+@router.post('/clients/{client_id}/purge-demo')
+def purge_demo_client(
+    client_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    result = purge_demo_client_data(db, client_id)
+    audit_log(
+        db,
+        user_id=current_user.id,
+        user_name=getattr(current_user, "full_name", None) or getattr(current_user, "email", "admin"),
+        table_name="foundation_example",
+        record_id=client_id,
+        action="FOUNDATION_PURGE",
+        new_value=str({
+            "status": result.get("status"),
+            "deleted": result.get("deleted", {}),
+        }),
+    )
+    db.commit()
+    return result

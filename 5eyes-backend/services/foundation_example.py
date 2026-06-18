@@ -47,71 +47,9 @@ def _rappen(chf: int | float) -> int:
 
 
 def _delete_foundation_example_if_present(db: Session) -> None:
-    clients = db.query(Client).filter(
-        Client.client_number == FOUNDATION_CLIENT_NUMBER,
-        Client.deleted_at.is_(None),
-    ).all()
-    if not clients:
-        return
+    from services.foundation_purge import purge_foundation_example_data
 
-    client_ids = [client.id for client in clients]
-    mandate_ids = [
-        row[0]
-        for row in db.query(Mandate.id).filter(
-            Mandate.client_id.in_(client_ids),
-            Mandate.deleted_at.is_(None),
-        ).all()
-    ]
-    assessment_ids = []
-    run_ids = []
-    if mandate_ids:
-        assessment_ids = [
-            row[0]
-            for row in db.query(RiskAssessment.id).filter(RiskAssessment.mandate_id.in_(mandate_ids)).all()
-        ]
-        run_ids = [
-            row[0]
-            for row in db.query(RecommendationRun.id).filter(RecommendationRun.mandate_id.in_(mandate_ids)).all()
-        ]
-
-    if run_ids:
-        db.query(RecommendationPosition).filter(RecommendationPosition.run_id.in_(run_ids)).delete(
-            synchronize_session=False
-        )
-        db.query(RecommendationRun).filter(RecommendationRun.id.in_(run_ids)).delete(synchronize_session=False)
-
-    if assessment_ids:
-        db.query(RiskAssessmentAnswer).filter(RiskAssessmentAnswer.assessment_id.in_(assessment_ids)).delete(
-            synchronize_session=False
-        )
-        db.query(RiskAssessment).filter(RiskAssessment.id.in_(assessment_ids)).delete(synchronize_session=False)
-
-    if mandate_ids:
-        db.query(TargetAllocation).filter(TargetAllocation.mandate_id.in_(mandate_ids)).delete(synchronize_session=False)
-        db.query(ReviewTrigger).filter(ReviewTrigger.mandate_id.in_(mandate_ids)).delete(synchronize_session=False)
-        db.query(AdvisoryLog).filter(AdvisoryLog.mandate_id.in_(mandate_ids)).delete(synchronize_session=False)
-        db.query(ContractDocument).filter(ContractDocument.mandate_id.in_(mandate_ids)).delete(
-            synchronize_session=False
-        )
-        db.query(ConflictOfInterestDisclosure).filter(
-            ConflictOfInterestDisclosure.mandate_id.in_(mandate_ids)
-        ).delete(synchronize_session=False)
-        db.query(SuitabilityCheck).filter(SuitabilityCheck.mandate_id.in_(mandate_ids)).delete(
-            synchronize_session=False
-        )
-        db.query(Goal).filter(Goal.mandate_id.in_(mandate_ids)).delete(synchronize_session=False)
-        db.query(PlanningAssumption).filter(PlanningAssumption.mandate_id.in_(mandate_ids)).delete(
-            synchronize_session=False
-        )
-        db.query(Mandate).filter(Mandate.id.in_(mandate_ids)).delete(synchronize_session=False)
-
-    db.query(Cashflow).filter(Cashflow.client_id.in_(client_ids)).delete(synchronize_session=False)
-    db.query(WealthPosition).filter(WealthPosition.client_id.in_(client_ids)).delete(synchronize_session=False)
-    db.query(ClientKnowledge).filter(ClientKnowledge.client_id.in_(client_ids)).delete(synchronize_session=False)
-    db.query(ClientNationality).filter(ClientNationality.client_id.in_(client_ids)).delete(synchronize_session=False)
-    db.query(ClientOptHistory).filter(ClientOptHistory.client_id.in_(client_ids)).delete(synchronize_session=False)
-    db.query(Client).filter(Client.id.in_(client_ids)).delete(synchronize_session=False)
-    db.flush()
+    purge_foundation_example_data(db)
 
 
 def _existing_foundation_example(db: Session) -> tuple[Client | None, Mandate | None]:

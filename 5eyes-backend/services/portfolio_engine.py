@@ -1451,11 +1451,11 @@ _DEFAULT_SUB_ASSET_CLASS_ASSUMPTIONS: dict[str, dict[str, object]] = {
     "Obligationen Emerging": {"asset_class": "Obligationen", "expected_return_bps": 400, "expected_volatility_bps": 1100},
     "Immobilien Schweiz": {"asset_class": "Immobilien", "expected_return_bps": 450, "expected_volatility_bps": 820},
     "Immobilien Global": {"asset_class": "Immobilien", "expected_return_bps": 410, "expected_volatility_bps": 980},
-    "Gold / Rohstoffe": {"asset_class": "Alternative", "expected_return_bps": 300, "expected_volatility_bps": 1200},
+    "Gold / Rohstoffe": {"asset_class": "Alternative", "expected_return_bps": 120, "expected_volatility_bps": 1200},
     "Liquid Alternatives": {"asset_class": "Alternative", "expected_return_bps": 320, "expected_volatility_bps": 700},
     "Hedge Funds": {"asset_class": "Alternative", "expected_return_bps": 420, "expected_volatility_bps": 900},
-    "Private Equity": {"asset_class": "Alternative", "expected_return_bps": 800, "expected_volatility_bps": 2200},
-    "Krypto": {"asset_class": "Alternative", "expected_return_bps": 1200, "expected_volatility_bps": 4500},
+    "Private Equity": {"asset_class": "Alternative", "expected_return_bps": 650, "expected_volatility_bps": 2200},
+    "Krypto": {"asset_class": "Alternative", "expected_return_bps": 800, "expected_volatility_bps": 4500},
     "Geldmarktfonds": {"asset_class": "Liquiditaet", "expected_return_bps": 80, "expected_volatility_bps": 15},
     "Festgeld": {"asset_class": "Liquiditaet", "expected_return_bps": 100, "expected_volatility_bps": 10},
 }
@@ -1696,7 +1696,7 @@ def _asset_class_expected_metrics(cma: CapitalMarketAssumption) -> tuple[dict[st
         "equities": int(round(((cma.equity_ch_return_bps or 500) + (cma.equity_intl_return_bps or 650)) / 2)),
         "bonds": int(round(((cma.bonds_chf_ig_return_bps or 180) + (cma.bonds_fx_hedged_return_bps or 220)) / 2)),
         "real_estate": int(cma.real_estate_ch_return_bps or 350),
-        "alternatives": int(cma.alternatives_gold_return_bps or 300),
+        "alternatives": int(cma.alternatives_gold_return_bps or 120),
         "liquidity": int(cma.liquidity_return_bps or 80),
     }
     returns = _apply_cma_market_adjustments(returns, cma)
@@ -4058,7 +4058,9 @@ def ensure_runtime_reference_data(db: Session, user_id: str) -> tuple[OptimizerP
             equity_em_vol_bps=1900,
             real_estate_ch_return_bps=450,
             real_estate_ch_vol_bps=820,
-            alternatives_gold_return_bps=300,
+            # 2026-06-18 konservativ (User "immer tieferer Wert"): Gold hat langfristig
+            # ~0% Realrendite -> nominale Annahme von 3.0% auf 1.2% gesenkt.
+            alternatives_gold_return_bps=120,
             alternatives_gold_vol_bps=1200,
             liquidity_return_bps=80,
             liquidity_vol_bps=15,
