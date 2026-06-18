@@ -964,3 +964,7 @@ def init_db() -> None:
     ensure_default_tenant()
     # E1 (2026-06-12): Bestands-Rows ohne tenant_id dem 'main'-Tenant zuweisen.
     ensure_tenant_backfill()
+    # Postgres/RLS: SQLite bleibt unveraendert; PostgreSQL erzwingt die
+    # Tenant-Isolation zusaetzlich auf Datenbankebene.
+    from services.postgres_rls import ensure_postgres_rls_policies
+    ensure_postgres_rls_policies(engine)
