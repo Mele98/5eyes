@@ -51,6 +51,86 @@ _HHI_SECTOR_WARNING_THRESHOLD = 2500   # > 2500 = wenig diversifiziert
 _HHI_TOP_POSITIONS_WARNING_THRESHOLD = 1500
 _ILLIQUID_WARNING_THRESHOLD_BPS = 3000
 _DRIFT_WARNING_THRESHOLD_BPS = 1500    # = 15 Prozentpunkte
+_LIQUIDITY_BUCKETS = ("daily", "weekly", "monthly", "illiquid", "unknown")
+
+
+def _norm_liquidity_text(value: object) -> str:
+    return (
+        str(value or "")
+        .strip()
+        .lower()
+        .replace("-", " ")
+        .replace("_", " ")
+    )
+
+
+def _contains_any(text: str, needles: tuple[str, ...]) -> bool:
+    return any(needle in text for needle in needles)
+
+
+def _product_liquidity_tier(product: Product, bucket: str) -> str:
+    """Central IST liquidity classification.
+
+    Mirrors the SOLL-methodology: Private Equity and direct real estate are
+    genuinely illiquid. Gold, liquid alternatives, real-estate funds and REITs
+    must not become illiquid because of stale product metadata.
+    """
+    fields = " ".join(
+        _norm_liquidity_text(getattr(product, name, None))
+        for name in ("product_type", "asset_class", "sub_asset_class", "product_name")
+    )
+    if _contains_any(fields, ("private equity",)):
+        return "illiquid"
+    if _contains_any(fields, ("direktimmobilien", "direkt immobilien", "direct real estate", "liegenschaft")):
+        return "illiquid"
+    if _contains_any(fields, ("immobilienfonds", "real estate fund", "reit")):
+        return "weekly"
+    if _contains_any(fields, ("gold", "rohstoffe", "liquid alternatives")):
+        return "monthly"
+
+    tier = _norm_liquidity_text(getattr(product, "liquidity_tier", None))
+    if tier in _LIQUIDITY_BUCKETS:
+        return tier
+    if bucket == "liquidity":
+        return "daily"
+    product_type = str(getattr(product, "product_type", "") or "")
+    if bucket in ("equities", "bonds") and product_type in ("ETF", "Fonds"):
+        return "daily"
+    if bucket == "real_estate" and "fonds" in _norm_liquidity_text(product_type):
+        return "weekly"
+    if bucket == "alternatives":
+        return "monthly"
+    return "unknown"
+
+
+def _wealth_position_liquidity_tier(position: WealthPosition, bucket: str) -> str:
+    fields = " ".join(
+        _norm_liquidity_text(getattr(position, name, None))
+        for name in ("position_type", "asset_subtype", "label", "asset_liquidity")
+    )
+    has_property_data = any(
+        str(getattr(position, name, "") or "").strip()
+        for name in ("property_address", "property_zip_city", "property_usage")
+    )
+    if _contains_any(fields, ("private equity",)):
+        return "illiquid"
+    if (
+        _contains_any(fields, ("direktimmobilien", "direkt immobilien", "direct real estate", "liegenschaft"))
+        or (bucket == "real_estate" and has_property_data)
+    ):
+        return "illiquid"
+    if _contains_any(fields, ("immobilienfonds", "real estate fund", "reit")):
+        return "weekly"
+    if _contains_any(fields, ("gold", "rohstoffe", "liquid alternatives")):
+        return "monthly"
+    tier = _norm_liquidity_text(getattr(position, "asset_liquidity", None))
+    if tier in _LIQUIDITY_BUCKETS:
+        return tier
+    if bucket == "liquidity":
+        return "daily"
+    if bucket == "alternatives":
+        return "monthly"
+    return "unknown"
 
 
 def _bucket_key_from_product(product: Product) -> str:
@@ -374,20 +454,8 @@ def compute_depot_check(db: Session, mandate: Mandate) -> dict:
         if esg > 0:
             esg_weighted_sum += esg * amount
             esg_covered_amount += amount
-        # Liquidity-Tier
-        tier = str(getattr(prod, "liquidity_tier", "") or "").strip().lower()
-        if tier in liquidity_buckets:
-            liquidity_buckets[tier] += amount
-        elif bucket == "liquidity":
-            liquidity_buckets["daily"] += amount
-        elif bucket in ("equities", "bonds") and (getattr(prod, "product_type", "") in ("ETF", "Fonds")):
-            liquidity_buckets["daily"] += amount
-        elif bucket == "real_estate" and "fonds" in str(getattr(prod, "product_type", "")).lower():
-            liquidity_buckets["weekly"] += amount
-        elif bucket == "alternatives":
-            liquidity_buckets["monthly"] += amount
-        else:
-            liquidity_buckets["unknown"] += amount
+        tier = _product_liquidity_tier(prod, bucket)
+        liquidity_buckets[tier] += amount
 
     # Fallback aus WealthPositions (kein Produkt → keine Exposure-Tiefe)
     for wp, bucket in wealth_only_positions:
@@ -405,7 +473,8 @@ def compute_depot_check(db: Session, mandate: Mandate) -> dict:
             "weight_bps": weight_bps,
             "ter_bps": 0,
         })
-        liquidity_buckets["unknown"] += amount
+        tier = _wealth_position_liquidity_tier(wp, bucket)
+        liquidity_buckets[tier] += amount
 
     # 4. Bucket-Drift gegen TargetAllocation (Soll)
     ta = (
