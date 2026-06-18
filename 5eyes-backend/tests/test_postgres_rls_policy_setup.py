@@ -11,8 +11,10 @@ if str(BACKEND_ROOT) not in sys.path:
 
 from database import Base  # noqa: E402
 from services.postgres_rls import (  # noqa: E402
+    ensure_postgres_tenant_not_null,
     ensure_postgres_rls_policies,
     rls_policy_sql,
+    tenant_not_null_sql,
     tenant_scoped_table_names,
 )
 
@@ -49,3 +51,24 @@ def test_sqlite_rls_policy_setup_is_noop(tmp_path):
     )
     Base.metadata.create_all(bind=engine)
     assert ensure_postgres_rls_policies(engine) == []
+
+
+def test_postgres_not_null_sql_backfills_then_alters():
+    update_sql, alter_sql = tenant_not_null_sql("mandates")
+    assert update_sql == 'UPDATE "mandates" SET tenant_id = :tenant_id WHERE tenant_id IS NULL'
+    assert alter_sql == 'ALTER TABLE "mandates" ALTER COLUMN tenant_id SET NOT NULL'
+
+
+def test_sqlite_tenant_not_null_setup_is_noop_and_nullable(tmp_path):
+    from sqlalchemy import inspect
+
+    engine = create_engine(
+        f"sqlite:///{tmp_path / 'rls-not-null-noop.db'}",
+        connect_args={"check_same_thread": False},
+    )
+    Base.metadata.create_all(bind=engine)
+    assert ensure_postgres_tenant_not_null(engine) == []
+    client_tenant = next(
+        col for col in inspect(engine).get_columns("clients") if col["name"] == "tenant_id"
+    )
+    assert client_tenant["nullable"] is True

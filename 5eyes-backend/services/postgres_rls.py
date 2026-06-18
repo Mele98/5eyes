@@ -73,6 +73,14 @@ def rls_policy_sql(table_name: str) -> tuple[str, ...]:
     )
 
 
+def tenant_not_null_sql(table_name: str) -> tuple[str, str]:
+    q_table = quote_identifier(table_name)
+    return (
+        f"UPDATE {q_table} SET tenant_id = :tenant_id WHERE tenant_id IS NULL",
+        f"ALTER TABLE {q_table} ALTER COLUMN tenant_id SET NOT NULL",
+    )
+
+
 def _is_postgres(connectable: Engine | Connection) -> bool:
     dialect = getattr(connectable, "dialect", None)
     if dialect is None and hasattr(connectable, "engine"):
@@ -107,3 +115,34 @@ def ensure_postgres_rls_policies(
         with connectable.begin() as conn:
             return _execute_policy_ddl(conn, resolved)
     return _execute_policy_ddl(connectable, resolved)
+
+
+def _execute_tenant_not_null(conn: Connection, table_names: Iterable[str], default_tenant_id: str) -> list[str]:
+    applied: list[str] = []
+    for table_name in table_names:
+        update_sql, alter_sql = tenant_not_null_sql(table_name)
+        conn.execute(text(update_sql), {"tenant_id": default_tenant_id})
+        conn.execute(text(alter_sql))
+        applied.append(table_name)
+    return applied
+
+
+def ensure_postgres_tenant_not_null(
+    connectable: Engine | Connection,
+    *,
+    table_names: Iterable[str] | None = None,
+    default_tenant_id: str = "main",
+) -> list[str]:
+    """Backfill and enforce tenant_id NOT NULL on PostgreSQL tenant tables.
+
+    SQLite remains nullable for backwards compatibility.
+    """
+
+    if not _is_postgres(connectable):
+        return []
+
+    resolved = tuple(table_names or tenant_scoped_table_names())
+    if isinstance(connectable, Engine):
+        with connectable.begin() as conn:
+            return _execute_tenant_not_null(conn, resolved, default_tenant_id)
+    return _execute_tenant_not_null(connectable, resolved, default_tenant_id)

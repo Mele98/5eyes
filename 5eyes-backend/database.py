@@ -966,5 +966,6 @@ def init_db() -> None:
     ensure_tenant_backfill()
     # Postgres/RLS: SQLite bleibt unveraendert; PostgreSQL erzwingt die
     # Tenant-Isolation zusaetzlich auf Datenbankebene.
-    from services.postgres_rls import ensure_postgres_rls_policies
+    from services.postgres_rls import ensure_postgres_rls_policies, ensure_postgres_tenant_not_null
+    ensure_postgres_tenant_not_null(engine)
     ensure_postgres_rls_policies(engine)
