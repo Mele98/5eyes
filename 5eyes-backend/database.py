@@ -174,7 +174,7 @@ def ensure_column(conn, table_name: str, column_name: str, sql_type: str) -> Non
 
 
 def ensure_runtime_columns() -> None:
-    additive_columns: dict[str, list[tuple[str, str]]] = {
+    additive_columns: dict[str, list[tuple]] = {  # (name, TYPE) oder (name, TYPE, int_default)
         # Sprint T1 (2026-06-08): tenant_id fuer 3-Tier-Architektur.
         # Bootstrap-SQL hat das Feld noch nicht — Migration ergaenzt die
         # Column idempotent auf Live-DBs, sonst koennen Tier-2-Endpoints
@@ -202,7 +202,7 @@ def ensure_runtime_columns() -> None:
         # NOT NULL DEFAULT 0 -> Bestandszeilen werden auf 0 gesetzt (Response-Schema
         # erwartet int, nicht NULL).
         'wealth_positions': [
-            ('property_rental_inflation_linked', 'INTEGER NOT NULL DEFAULT 0'),
+            ('property_rental_inflation_linked', 'INTEGER', 0),
         ],
         'target_allocations': [
             ('capital_market_assumptions_id', 'TEXT'),
@@ -400,7 +400,12 @@ def ensure_runtime_columns() -> None:
             if not inspector.has_table(table_name):
                 continue
             existing = {column['name'] for column in inspector.get_columns(table_name)}
-            for column_name, sql_type in columns:
+            for spec in columns:
+                # spec = (column_name, sql_type) ODER (column_name, sql_type, int_default).
+                # int_default -> Spalte als NOT NULL DEFAULT <int> (Bestandszeilen erhalten
+                # den Default; rohe SQL-Inserts ohne die Spalte brechen nicht).
+                column_name, sql_type = spec[0], spec[1]
+                default = spec[2] if len(spec) > 2 else None
                 if column_name in existing:
                     continue
                 if not re.match(r'^[a-z][a-z0-9_]*$', table_name):
@@ -409,7 +414,12 @@ def ensure_runtime_columns() -> None:
                     raise ValueError(f"Ungültiger Spaltenname: {column_name!r}")
                 if not re.match(r'^[A-Z]+$', sql_type):
                     raise ValueError(f"Ungültiger SQL-Typ: {sql_type!r}")
-                conn.execute(text(f'ALTER TABLE {table_name} ADD COLUMN {column_name} {sql_type}'))
+                ddl = f'ALTER TABLE {table_name} ADD COLUMN {column_name} {sql_type}'
+                if default is not None:
+                    if not isinstance(default, int) or isinstance(default, bool):
+                        raise ValueError(f"Ungültiger Default (nur int): {default!r}")
+                    ddl += f' NOT NULL DEFAULT {int(default)}'
+                conn.execute(text(ddl))
                 existing.add(column_name)
 
         # RiskAssessment - Kenntnisse & Erfahrungen (Referenzmodell Eignungspruefung, 2026-04-16)
