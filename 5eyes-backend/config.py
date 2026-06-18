@@ -45,6 +45,7 @@ class Settings(BaseSettings):
     log_backup_count: int = 5
 
     # Database
+    database_url: str | None = None
     db_path: str = str(Path.home() / '5eyes' / '5eyes.db')
     db_echo: bool = False
     db_key: str | None = None
@@ -439,8 +440,12 @@ class Settings(BaseSettings):
     def validate_security(self):
         if self.app_env in {'staging', 'production'} and self.secret_key == DEFAULT_SECRET_KEY:
             raise ValueError('secret_key must be overridden outside development/test')
-        if self.app_env == 'production' and not (self.db_use_sqlcipher and self.db_key):
-            raise ValueError('production requires db_use_sqlcipher=true and a non-empty db_key')
+        uses_postgres = bool(
+            self.database_url
+            and str(self.database_url).strip().lower().startswith(("postgresql://", "postgresql+"))
+        )
+        if self.app_env == 'production' and not uses_postgres and not (self.db_use_sqlcipher and self.db_key):
+            raise ValueError('production requires PostgreSQL or db_use_sqlcipher=true with a non-empty db_key')
         if self.db_use_sqlcipher and not self.db_key:
             raise ValueError('db_key must be set when db_use_sqlcipher=true')
         if self.recent_log_lines_default > self.recent_log_lines_max:

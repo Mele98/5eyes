@@ -1,4 +1,3 @@
-import re
 import sqlite3
 import re
 import sys
@@ -47,7 +46,29 @@ def _sqlcipher_enabled(db_key: str | None = None) -> bool:
     return bool(getattr(settings, 'db_use_sqlcipher', False) and key)
 
 
-def build_database_url(db_path: str | Path | None = None, db_key: str | None = None) -> str:
+def _configured_database_url(database_url: str | None = None) -> str | None:
+    configured = database_url if database_url is not None else getattr(settings, "database_url", None)
+    if configured and str(configured).strip():
+        return str(configured).strip()
+    return None
+
+
+def is_sqlite_database_url(database_url: str) -> bool:
+    return database_url.lower().startswith("sqlite")
+
+
+def is_postgres_database_url(database_url: str) -> bool:
+    return database_url.lower().startswith(("postgresql://", "postgresql+"))
+
+
+def build_database_url(
+    db_path: str | Path | None = None,
+    db_key: str | None = None,
+    database_url: str | None = None,
+) -> str:
+    configured = _configured_database_url(database_url)
+    if configured:
+        return configured
     db_file = resolve_db_file(db_path)
     if _sqlcipher_enabled(db_key=db_key):
         if not SQLCIPHER_AVAILABLE:
@@ -60,8 +81,14 @@ def build_database_url(db_path: str | Path | None = None, db_key: str | None = N
     return f'sqlite:///{db_file}'
 
 
-def build_connect_args(db_key: str | None = None) -> dict[str, Any]:
+def build_connect_args(
+    db_key: str | None = None,
+    database_url: str | None = None,
+) -> dict[str, Any]:
     _ = db_key
+    url = database_url or build_database_url(db_key=db_key)
+    if not is_sqlite_database_url(url):
+        return {}
     return {'check_same_thread': False, 'timeout': 30}
 
 
@@ -86,15 +113,22 @@ def create_app_engine(
     db_key: str | None = None,
     echo: bool | None = None,
 ) -> Engine:
+    database_url = build_database_url(db_path=db_path, db_key=db_key)
+    connect_args = build_connect_args(db_key=db_key, database_url=database_url)
     kwargs: dict[str, Any] = {
-        'connect_args': build_connect_args(db_key=db_key),
         'echo': settings.db_echo if echo is None else echo,
         'pool_timeout': 30,
     }
-    if _sqlcipher_enabled(db_key=db_key):
+    if connect_args:
+        kwargs['connect_args'] = connect_args
+    if is_sqlite_database_url(database_url) and _sqlcipher_enabled(db_key=db_key):
         kwargs['module'] = sqlcipher3
-    app_engine = create_engine(build_database_url(db_path=db_path, db_key=db_key), **kwargs)
-    attach_sqlite_pragmas(app_engine, db_key=db_key)
+    app_engine = create_engine(database_url, **kwargs)
+    if app_engine.dialect.name == "sqlite":
+        attach_sqlite_pragmas(app_engine, db_key=db_key)
+    elif app_engine.dialect.name.startswith("postgresql"):
+        from services.tenant_context import attach_tenant_context_reset
+        attach_tenant_context_reset(app_engine)
     return app_engine
 
 
@@ -111,6 +145,11 @@ def get_db() -> Generator[Session, None, None]:
     try:
         yield db
     finally:
+        try:
+            from services.tenant_context import reset_tenant_context
+            reset_tenant_context(db)
+        except Exception:
+            pass
         db.close()
 
 
@@ -899,7 +938,8 @@ def migrate_house_matrix_real_estate_cap_20(engine_to_use=None) -> int:
 
 
 def init_db() -> None:
-    if settings.db_bootstrap_schema_on_startup:
+    active_url = build_database_url(db_path=settings.db_path, db_key=getattr(settings, 'db_key', None))
+    if settings.db_bootstrap_schema_on_startup and is_sqlite_database_url(active_url):
         bootstrap_sqlite_schema(db_path=settings.db_path, db_key=getattr(settings, 'db_key', None))
 
     # Import von Tenant-Model VOR create_all, damit das Table angelegt wird.
