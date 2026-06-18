@@ -55,6 +55,15 @@ Die Engine zieht tausende mehrjährige Pfade (`scenario_engine.py`):
   mit Likelihood-Gewichten zurückkorrigiert — mehr Information über Black-Swan-Verluste
   bei gleicher Rechenlast (opt-in / auto-enable je Kontext).
 
+**Anzeige-Projektion (SOLL/IST-Verläufe) ↔ Optimierung.** Die Optimierung nutzt die obige
+Szenario-Engine. Die *dargestellten* Vermögensverläufe (`portfolio_engine._build_simulation_payload`)
+verwenden eine eigene, deterministisch geseedete Pfadschar (SHA256-Seed über Mandat/CMA/
+Horizont/Targets). Der **deterministische Hauptpfad** nutzt seit 2026-06-17 dieselbe
+**Itô-korrigierte geometrische Wachstumskonvention** wie der Monte-Carlo-Median
+(`growth = exp(r − ½σ²)`), sodass die Hauptlinie **im Zentrum des MC-Median-Fächers**
+liegt statt optimistisch darüber. So sind „Hauptszenario" und Median-Band konsistent und
+die ausgewiesene „Median-Rendite (CAGR)" stimmt mit der dargestellten Kurve überein.
+
 ## 4. Zielmodellierung (Goal → Liability)
 
 Jedes Lebensziel wird in eine **GoalLiability** übersetzt (`goal_liabilities.py`):
@@ -64,9 +73,13 @@ Jedes Lebensziel wird in eine **GoalLiability** übersetzt (`goal_liabilities.py
 - **Wealth-Ziele** (Vermögensziel, Kapitalerhalt) und **Renditeziel** werden am
   **Zieljahr-Index** gegen eine Schwelle bewertet (`target_kind`: Wealth-Schwelle /
   annualisierter Cashflow / Return-bps).
-- **Hardness-Gewichte** priorisieren Ziele (`objective.py`): *hart* = 10.0,
-  *primär* = 1.0, *opportunistisch* = 0.2. Ein hartes Mindestziel dominiert die
-  Optimierung; opportunistische Ziele werden nur „mitgenommen".
+- **Ziel-Gewichtung (Methodik-Default = Gleichgewichtung).** Standardmässig gehen
+  **alle Ziele gleich gewichtet** in die Zielfunktion ein (Mittelung) — methodik-konform
+  zur etablierten Goal-Based-Lehre („alle Ziele sind gleich wichtig"). Die
+  **Hardness-Gewichtung** (*hart* = 10.0, *primär* = 1.0, *opportunistisch* = 0.2,
+  `objective._effective_hardness_weight`) ist als **opt-in** erhalten und wird nur bei
+  `OPTIMIZER_GOAL_WEIGHTING=hardness` aktiv; dann dominiert ein hartes Mindestziel die
+  Optimierung und opportunistische Ziele werden nur „mitgenommen". (Stand 2026-06-17.)
 
 ## 5. Zielfunktion (Downside-orientiert, zweiphasig)
 
@@ -77,9 +90,16 @@ L(w) = Σ_g  h_g · w_g · (1/N) · Σ_n  max(0, target_g − wealth_g(w, n))²
 ```
 
 — die mittlere **quadrierte Unterschreitung** je Ziel `g` über alle Pfade `n`,
-gewichtet mit Hardness `h_g` und Zielgewicht `w_g`. Nur **Unterschreitungen** zählen
+gewichtet mit `h_g` und Zielgewicht `w_g`. Nur **Unterschreitungen** zählen
 (`max(0, …)`): Überschuss wird nicht „belohnt", d. h. die Engine optimiert den
-**Downside**, nicht den Erwartungswert.
+**Downside**, nicht den Erwartungswert. **`h_g` ist im Default 1.0** (alle Ziele
+gleich; Hardness nur als opt-in, siehe Abschnitt 4).
+
+**Anzeige der Zielerreichung (SOLL/IST):** Pro Ziel werden die *Median-Zielerreichung*
+(effektiv ÷ gewünscht, auf 100 % gedeckelt) und ein *pessimistischer CHF-Fehlbetrag*
+ausgewiesen. Der Fehlbetrag basiert auf dem **schlechtesten Quartil (P25)** der
+Pfadverteilung (nicht P10) — methodik-konform zur Praxis, für Nicht-Cashflow-Ziele das
+schlechteste Quartil auszuweisen (`portfolio_engine._monte_carlo_goal_summary`, Stand 2026-06-17).
 
 **Zweiphasig:** Ist die Zielerreichung gesichert (L ≈ 0), schaltet die Engine auf die
 **sekundäre** Zielfunktion um und minimiert die Vermögens-**Varianz** — d. h. unter
@@ -139,6 +159,21 @@ Nahe Ziele und kurzfristiger Liquiditätsbedarf werden über eine **Reserve mit
 glattem Decay** abgesichert (`portfolio_engine._reserve_decay_factor`): sofort fällige
 Bedürfnisse → volle Reserve; mit zunehmendem Horizont sinkt der Reserve-Anteil bis auf
 eine **Tail-Risk-Restreserve von 5 %**. Das verhindert Zwangsverkäufe in Krisen.
+
+**Liquidität wertet in der Projektion NICHT auf (Cash = 0 %).** In der Vermögens-
+projektion (deterministischer Pfad UND Monte-Carlo) wird die Liquidität mit
+`returns["liquidity"]=0` und `vols["liquidity"]=0` geführt — ein 0 %-Konto bleibt flach.
+Tatsächliche Kontozinsen fliessen ausschliesslich über den **abgeleiteten Zinsertrag-
+Cashflow** ein (kein Doppelzählen). Die CMA-`liquidity_return_bps` bleibt davon unberührt
+und dient weiter als risk-free-Satz für Sharpe/Optimizer. (User-Fachentscheid 2026-06-17.)
+
+**Illiquidität ist eine Baustein-Eigenschaft.** Das Mandatslimit „maximaler illiquider
+Anteil" (`maxIlliquid`) deckelt gezielt den **echt illiquiden Baustein Private Equity**
+(`_apply_illiquid_cap`, `_ILLIQUID_SUB_ASSET_CLASSES`) — nicht pauschal die gesamte
+Alternatives-Quote (Gold/Liquid Alts sind liquide). Direktimmobilien werden ohnehin als
+**externes Vermögen** geführt und nicht in die handelbare SAA umgeschichtet. Ein
+Überschuss über das Limit wandert primär zu liquiden Alt-Bausteinen, sonst in die
+Liquidität — die Renditen je Baustein bleiben unverändert.
 
 ## 11. Mortalität & Horizont
 
