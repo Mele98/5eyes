@@ -28,6 +28,7 @@ class WealthPositionCreate(BaseModel):
     property_zip_city: Optional[str] = None
     property_usage: Optional[str] = None
     property_rental_income_rappen: int = 0
+    property_rental_inflation_linked: int = 0
     # Vorsorge
     pension_type: Optional[str] = None
     pension_institution: Optional[str] = None
@@ -90,6 +91,7 @@ class WealthPositionUpdate(BaseModel):
     property_zip_city: Optional[str] = None
     property_usage: Optional[str] = None
     property_rental_income_rappen: Optional[int] = None
+    property_rental_inflation_linked: Optional[int] = None
     pension_type: Optional[str] = None
     pension_institution: Optional[str] = None
     pension_technical_rate_bps: Optional[int] = None
@@ -137,6 +139,7 @@ class WealthPositionResponse(BaseResponse):
     property_zip_city: Optional[str]
     property_usage: Optional[str]
     property_rental_income_rappen: int
+    property_rental_inflation_linked: int = 0
     pension_type: Optional[str]
     pension_institution: Optional[str]
     pension_retirement_age: Optional[int]
