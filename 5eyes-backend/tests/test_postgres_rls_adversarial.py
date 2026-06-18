@@ -62,7 +62,12 @@ def postgres_rls_context():
 
     admin_engine = create_engine(POSTGRES_URL, future=True)
     url = make_url(POSTGRES_URL).set(username=role, password=password)
-    app_engine = create_engine(str(url), future=True, pool_size=1, max_overflow=0)
+    app_engine = create_engine(
+        url.render_as_string(hide_password=False),
+        future=True,
+        pool_size=1,
+        max_overflow=0,
+    )
     attach_tenant_context_reset(app_engine)
 
     with admin_engine.begin() as conn:
