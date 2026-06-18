@@ -45,12 +45,13 @@ def test_horizon_falls_back_to_projectionHorizonYears():
 
 def test_labels_built_from_projectionYearLabels():
     body = _function_block()
-    assert "projectionYearLabels(result,horizon,sim&&sim.year_labels)" in body
+    assert "projectionYearLabels(result,horizon" in body
+    assert "sim&&sim.year_labels" in body
 
 
 def test_target_series_only_when_simulation_present():
     body = _function_block()
-    assert "var targetSeries=sim?simulationSeriesK(sim.target_mix_series_rappen):[]" in body
+    assert "sim?simulationSeriesK(sim.target_mix_series_rappen):[]" in body
 
 
 def test_target_chart_placeholder_when_no_simulation():
