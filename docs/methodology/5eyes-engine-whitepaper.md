@@ -39,6 +39,12 @@ Momente** modelliert:
   Renditen sind nicht normalverteilt — Aktien/Alternatives haben fette, linksschiefe
   Verlust-Tails. Werte werden geklemmt (`_clamp_skew/_clamp_kurt`), um numerische
   Stabilität zu sichern.
+- **Konservative Alternatives-Annahmen (2026-06-18):** Gold/Rohstoffe **1.2 %** (langfr.
+  Realrendite ~0 %), Private Equity **6.5 %**, Krypto **8.0 %** nominal — bewusst am unteren
+  Rand, da diese Klassen unsicher/spekulativ sind. Aktien (CH 6.2 % / Intl 7.0 % / EM 7.6 %),
+  Obligationen (~2.2 %) und Immobilien (4.5 %) bleiben auf den etablierten, vertretbaren
+  Werten. Ein Regressions-Lock (`test_cma_conservative_alternatives`) verhindert ein
+  stilles Hochdriften der Alternatives-Renditen.
 
 ## 3. Szenario-Engine (Monte-Carlo)
 
