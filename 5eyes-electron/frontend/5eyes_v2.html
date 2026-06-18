@@ -3327,10 +3327,14 @@ function _wireSollIstHover(){
             </div>
             <div>
               <label style="font-size:9px;color:var(--n4)">Stressband</label>
-              <select class="fsel" id="aa-sim-stress" style="font-size:10px">
-                <option value="0.5">0.5x Volatilitaet</option>
-                <option value="1.0" selected>1.0x Volatilitaet</option>
-                <option value="1.5">1.5x Volatilitaet</option>
+              <select class="fsel" id="aa-sim-stress" style="font-size:10px"
+                title="Volatilitaets-Multiplikator der Szenarien. Benannte Presets entsprechen historischen Stress-Schweregraden.">
+                <option value="0.75">Mild (0.75x Vola)</option>
+                <option value="1.0" selected>Normal (1.0x Vola)</option>
+                <option value="1.5">Erhoeht (1.5x Vola)</option>
+                <option value="1.6">Corona-Schock 2020 (1.6x)</option>
+                <option value="1.8">Finanzkrise 2008 (1.8x)</option>
+                <option value="2.0">Zinsschock / Stagflation (2.0x)</option>
               </select>
             </div>
             <div>
