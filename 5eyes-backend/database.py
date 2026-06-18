@@ -212,6 +212,13 @@ def ensure_column(conn, table_name: str, column_name: str, sql_type: str) -> Non
     conn.execute(text(f'ALTER TABLE {table_name} ADD COLUMN {column_name} {sql_type}'))
 
 
+def _validate_additive_sql_type(sql_type: str) -> None:
+    """Allow the small DDL subset used by startup additive migrations."""
+
+    if not re.match(r'^(TEXT|INTEGER|REAL)( NOT NULL)?( DEFAULT -?[0-9]+)?$', sql_type):
+        raise ValueError(f"Ungültiger SQL-Typ: {sql_type!r}")
+
+
 def ensure_runtime_columns() -> None:
     additive_columns: dict[str, list[tuple[str, str]]] = {
         # Sprint T1 (2026-06-08): tenant_id fuer 3-Tier-Architektur.
@@ -451,8 +458,7 @@ def ensure_runtime_columns() -> None:
                     raise ValueError(f"Ungültiger Tabellenname: {table_name!r}")
                 if not re.match(r'^[a-z][a-z0-9_]*$', column_name):
                     raise ValueError(f"Ungültiger Spaltenname: {column_name!r}")
-                if not re.match(r'^[A-Z]+$', sql_type):
-                    raise ValueError(f"Ungültiger SQL-Typ: {sql_type!r}")
+                _validate_additive_sql_type(sql_type)
                 conn.execute(text(f'ALTER TABLE {table_name} ADD COLUMN {column_name} {sql_type}'))
                 existing.add(column_name)
 
