@@ -72,6 +72,19 @@ def test_orphan_ignores_soft_deleted_child():
     assert dia.scan_orphans(con) == []
 
 
+def test_cli_returns_exit_1_for_orphan_in_tmp_db(tmp_path):
+    db_path = tmp_path / "orphan.db"
+    con = sqlite3.connect(str(db_path))
+    con.execute("CREATE TABLE clients (id TEXT, deleted_at TEXT)")
+    con.execute("CREATE TABLE recommendation_runs (id TEXT, client_id TEXT, deleted_at TEXT)")
+    con.execute("INSERT INTO clients VALUES ('gone','2026-06-15T00:00:00.000Z')")
+    con.execute("INSERT INTO recommendation_runs VALUES ('r-cli','gone',NULL)")
+    con.commit()
+    con.close()
+
+    assert dia.main(["--db", str(db_path)]) == 1
+
+
 def test_flags_foundation_demo_label():
     con = _mk_db()
     con.execute("INSERT INTO cashflows VALUES ('4','c','Daniel Lohn','2026-06-07T10:00:00.000Z',NULL)")
