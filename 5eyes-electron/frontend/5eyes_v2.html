@@ -4474,6 +4474,7 @@ function _wireSollIstHover(){
   <div class="frow">
     <div class="fg"><label class="fl">Schätzung per</label><input class="fi" id="maw-immo-valuation-date" type="date"></div>
     <div class="fg"><label class="fl">Jährl. Mietertrag (CHF)</label><input class="fi" id="maw-immo-rent" type="number" placeholder="0"></div>
+    <div class="fg"><label class="fl">Miete teuerungsindexiert</label><label style="display:flex;align-items:center;gap:6px;font-size:11px;cursor:pointer;padding-top:7px"><input type="checkbox" id="maw-immo-rent-inflation"> Mietertrag wächst mit der Teuerung</label></div>
     <div class="fg"><label class="fl">Wertsteigerung p.a. (%)</label><input class="fi" id="maw-immo-appreciation" type="number" min="0" max="10" step="0.1" placeholder="0"
       title="Wie sich der Immobilienwert in der Vermögensprojektion entwickelt. 0 = bleibt flach (linear im Vermögen, Sockel). >0 = indexiert (steigt jährlich im Wert)."></div>
   </div>
@@ -15330,6 +15331,7 @@ var liveClientLoadToken=0;
       'maw-note'
     ].forEach(function(id){ setInputValue(id,''); });
     ['sc-akt','sc-obl','sc-imm','sc-liq','sc-alt'].forEach(function(id){ setInputValue(id,'0'); });
+    setCheckboxValue('maw-immo-rent-inflation',false);
     setSelectValue('maw-cat',cat);
     var catSelect=document.getElementById('maw-cat');
     if(catSelect)catSelect.disabled=false;
@@ -15390,6 +15392,7 @@ var liveClientLoadToken=0;
       setInputValue('maw-immo-value',formatInputCHF(pos.current_value_rappen));
       setInputValue('maw-immo-valuation-date',pos.valuation_date||'');
       setInputValue('maw-immo-rent',formatInputCHF(pos.property_rental_income_rappen));
+      setCheckboxValue('maw-immo-rent-inflation',!!pos.property_rental_inflation_linked);
       setInputValue('maw-immo-appreciation',formatInputPercent(pos.asset_expected_return_bps));
     } else if(pos.position_type==='Vorsorge'){
       setInputValue('maw-pension-label',pos.label||'');
@@ -21346,6 +21349,7 @@ function buildWealthPositionPayload(cat,typ,note){
     payload.property_address=getInputValue('maw-immo-address').trim()||null;
     payload.property_usage=getInputValue('maw-immo-usage')||null;
     payload.property_rental_income_rappen=parseCHF(getInputValue('maw-immo-rent'));
+    payload.property_rental_inflation_linked=getCheckboxValue('maw-immo-rent-inflation')?1:0;
     payload.asset_expected_return_bps=parsePercentToBps(getInputValue('maw-immo-appreciation'));  // Wertsteigerung p.a. (Sockel-Index)
   } else if(posType==='Vorsorge'){
     payload.label=getInputValue('maw-pension-label').trim();

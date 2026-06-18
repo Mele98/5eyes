@@ -25,6 +25,9 @@ class WealthPosition(Base):
     property_zip_city = Column(String)
     property_usage = Column(String)
     property_rental_income_rappen = Column(Integer, nullable=False, default=0)
+    # 2026-06-18 (#84): Miete teuerungsindexiert -> abgeleiteter Mietertrag-Cashflow
+    # wird is_inflation_linked=1 (waechst in der Projektion mit der Teuerung).
+    property_rental_inflation_linked = Column(Integer, nullable=False, default=0)
     pension_type = Column(String)
     pension_institution = Column(String)
     pension_technical_rate_bps = Column(Integer)

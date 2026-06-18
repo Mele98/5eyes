@@ -194,7 +194,7 @@ def derive_wealth_cashflows(positions: list) -> list[DerivedCashflow]:
         vfrom = getattr(pos, "valuation_date", None)
         value = int(getattr(pos, "current_value_rappen", 0) or 0)
 
-        def _mk(suffix: str, cf_type: str, amount: int, text: str) -> None:
+        def _mk(suffix: str, cf_type: str, amount: int, text: str, inflation_linked: int = 0) -> None:
             if amount <= 0:
                 return
             out.append(DerivedCashflow(
@@ -205,6 +205,7 @@ def derive_wealth_cashflows(positions: list) -> list[DerivedCashflow]:
                 amount_rappen=amount,
                 currency=currency,
                 valid_from=vfrom,
+                is_inflation_linked=1 if inflation_linked else 0,
                 origin_position_id=pid,
                 origin_position_type=ptype,
             ))
@@ -219,7 +220,8 @@ def derive_wealth_cashflows(positions: list) -> list[DerivedCashflow]:
         elif ptype == "Immobilien":
             _mk("rental_income", "Income",
                 abs(int(getattr(pos, "property_rental_income_rappen", 0) or 0)),
-                f"Mieteinnahmen: {label}")
+                f"Mieteinnahmen: {label}",
+                inflation_linked=int(getattr(pos, "property_rental_inflation_linked", 0) or 0))
         elif ptype == "Liquidität":
             _mk("liquidity_interest", "Income",
                 _rate_amount(value, getattr(pos, "liquidity_interest_rate_bps", 0)),

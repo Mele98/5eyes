@@ -198,6 +198,12 @@ def ensure_runtime_columns() -> None:
             ('reset_token_expires_at', 'TEXT'),
             ('totp_recovery_codes', 'TEXT'),
         ],
+        # 2026-06-18 (#84): Miete-Teuerungsindexierung pro Immobilien-Position.
+        # NOT NULL DEFAULT 0 -> Bestandszeilen werden auf 0 gesetzt (Response-Schema
+        # erwartet int, nicht NULL).
+        'wealth_positions': [
+            ('property_rental_inflation_linked', 'INTEGER NOT NULL DEFAULT 0'),
+        ],
         'target_allocations': [
             ('capital_market_assumptions_id', 'TEXT'),
             # C8 audit anchors fuer Reproduzierbarkeit / Drift-Erkennung
