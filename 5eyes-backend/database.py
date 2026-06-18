@@ -237,6 +237,11 @@ def ensure_runtime_columns() -> None:
             ('reset_token_expires_at', 'TEXT'),
             ('totp_recovery_codes', 'TEXT'),
         ],
+        'tenants': [
+            ('encrypted_dek', 'TEXT'),
+            ('dek_version', 'INTEGER'),
+            ('dek_rotated_at', 'TEXT'),
+        ],
         # 2026-06-18 (#84): Miete-Teuerungsindexierung pro Immobilien-Position.
         # NOT NULL DEFAULT 0 -> Bestandszeilen werden auf 0 gesetzt (Response-Schema
         # erwartet int, nicht NULL).

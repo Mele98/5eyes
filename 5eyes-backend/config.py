@@ -241,6 +241,9 @@ class Settings(BaseSettings):
     # Phase-0 safety gate for external access. Staging sets this to False so
     # writes explicitly classified as real client data are rejected.
     allow_real_client_data: bool = True
+    # Tenant-DEK envelope encryption. Production/Tier-2 should supply this via
+    # env/vault (TENANT_MASTER_KEK); development can pass an explicit KEK in tests.
+    tenant_master_kek: str = ''
 
     # Browser-Hosting (2026-06-10): Haupt-App (5eyes_v2.html) ueber das Backend
     # ausliefern, damit ein einzelner Host/Tunnel die komplette App im Browser

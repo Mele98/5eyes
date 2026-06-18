@@ -82,6 +82,10 @@ class Tenant(Base):
     max_mandates = Column(Integer)
     # Storage-Quota in MB (None = unbegrenzt fuer Tier 1)
     storage_quota_mb = Column(Integer)
+    # Envelope encryption: encrypted per-tenant DEK + rotation metadata.
+    encrypted_dek = Column(String)
+    dek_version = Column(Integer)
+    dek_rotated_at = Column(String)
 
     is_active = Column(Integer, nullable=False, default=1)
     created_at = Column(String, nullable=False)
