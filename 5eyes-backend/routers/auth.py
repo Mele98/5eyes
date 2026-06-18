@@ -21,6 +21,7 @@ from services.login_guard import login_attempt_guard
 from services.audit import log
 from services.totp import generate_secret, provisioning_uri, qr_svg_data_uri, verify as totp_verify
 from services.mailer import send_invite_email, send_password_reset_email
+from services.quota import assert_within_quota
 from services.account_recovery import (
     ensure_account_recovery_columns, generate_recovery_codes, consume_recovery_code,
     remaining_recovery_codes, issue_reset_token, reset_token_valid, clear_reset_token,
@@ -381,6 +382,8 @@ def create_user(
     if existing:
         raise HTTPException(status_code=409, detail="Benutzername bereits vergeben")
     now = _now()
+    tenant_id = getattr(current_user, "tenant_id", None)
+    assert_within_quota(db, tenant_id, "users")
     user = User(
         id=new_uuid(),
         username=body.username,
@@ -392,7 +395,7 @@ def create_user(
         # E1 (2026-06-13): Mitarbeiter erbt den Tenant des anlegenden Admins ->
         # NIE NULL-tenant_id, harte Firmen-Trennung. Cross-Tenant-Zuweisung macht
         # der super_admin ueber die Tenant-Admin-API (assign).
-        tenant_id=getattr(current_user, "tenant_id", None),
+        tenant_id=tenant_id,
         # E1 (2026-06-14): vom Admin angelegter Account -> Initial-Passwort muss
         # beim ersten Login geaendert werden.
         must_change_password=1,
@@ -446,6 +449,8 @@ def invite_user(
     if existing:
         raise HTTPException(status_code=409, detail="Benutzername bereits vergeben")
     now = _now()
+    tenant_id = getattr(current_user, "tenant_id", None)
+    assert_within_quota(db, tenant_id, "users")
     token = secrets.token_urlsafe(32)
     expires_at = (datetime.now(timezone.utc) + timedelta(days=_INVITE_TTL_DAYS)).strftime(
         "%Y-%m-%dT%H:%M:%S.%f"
@@ -459,7 +464,7 @@ def invite_user(
         email=body.email,
         role=body.role,
         is_active=1,
-        tenant_id=getattr(current_user, "tenant_id", None),
+        tenant_id=tenant_id,
         must_change_password=0,            # Mitarbeiter setzt das Passwort selbst
         invite_token_hash=_hash_invite_token(token),
         invite_expires_at=expires_at,

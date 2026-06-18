@@ -8,6 +8,7 @@ from models.mandates import Mandate
 from schemas.mandates import MandateCreate, MandateUpdate, MandateResponse
 from services.auth import get_client_for_user_or_404, get_current_user, get_mandate_for_user_or_404, require_advisor
 from services.audit import log
+from services.quota import assert_within_quota
 
 router = APIRouter(tags=["Mandate"])
 
@@ -51,6 +52,7 @@ def create_mandate(
     # anlegenden Users). Damit neue Mandate NIE NULL-tenant_id haben -> Vorbe-
     # dingung fuer spaetere NOT-NULL-Constraint + Entfernen der 'OR IS NULL'-Klausel.
     mandate_tenant_id = getattr(client, "tenant_id", None) or getattr(current_user, "tenant_id", None)
+    assert_within_quota(db, mandate_tenant_id, "mandates")
     mandate = Mandate(
         id=new_uuid(),
         client_id=client_id,

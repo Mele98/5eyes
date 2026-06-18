@@ -28,7 +28,7 @@ if str(BACKEND_ROOT) not in sys.path:
 
 from database import Base
 from models import (  # noqa: F401
-    allocation, clients, mandates, profiling, review, snapshots, users, wealth,
+    allocation, clients, mandates, profiling, review, snapshots, tenant, users, wealth,
 )
 configure_mappers()
 
