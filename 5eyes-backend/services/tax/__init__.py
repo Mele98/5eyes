@@ -34,6 +34,7 @@ from services.tax.registry import (
 # Auto-Import aller Regimes loest @register_regime aus.
 # Reihenfolge irrelevant — Registry sammelt einfach alle.
 import services.tax.regimes  # noqa: F401, E402
+import services.tax.jurisdictions  # noqa: F401, E402
 
 __all__ = [
     "TaxContext",

@@ -80,3 +80,11 @@ def test_unknown_country_raises_clear_error():
     finally:
         clear_jurisdiction_registry()
         JURISDICTION_REGISTRY.update(original)
+
+
+def test_discover_builtin_jurisdictions_registers_ch():
+    from services.tax.registry import discover_builtin_jurisdictions
+
+    imported = discover_builtin_jurisdictions()
+    assert any(module.endswith(".ch") for module in imported) or "CH" in JURISDICTION_REGISTRY
+    assert get_jurisdiction("CH").metadata.country_code == "CH"
