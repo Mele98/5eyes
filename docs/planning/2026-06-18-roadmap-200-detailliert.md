@@ -432,8 +432,9 @@
 - **Verknüpft:** Reserve-Logik `_reserve_decay_factor`, #94.
 - **DoD:** Test: Reserve ≥ N×Ausgabe bei Verzehr; konservativ.
 
-### [ ] 96. 🟡 Sequence-of-Returns-Kennzahl (Verzehr)
+### [~] 96. 🟡 Sequence-of-Returns-Kennzahl (Verzehr) — Backend fertig (2026-06-19)
 - **DoD:** Kennzahl im SOLL/IST-Vergleich sichtbar.
+- **UMGESETZT (Backend):** Verzehr-/Depletion-Kennzahl aus den MC-Pfaden abgeleitet — Anteil der Pfade, deren Vermögen vor Horizontende aufgezehrt ist (Pfad-Total ≤ 0), plus mittleres Erschöpfungsjahr; für SOLL **und** IST. Helfer `_sequence_of_returns_depletion`; exponiert in `monte_carlo` als `target_/current_depletion_probability_pct` + `target_/current_depletion_median_year`. In der Akkumulation = 0 %. Lock: `test_sequence_of_returns_depletion.py` (5). **OFFEN (klein):** Anzeige im FE-Kennzahlen-Vergleich (5eyes_v2.html) — Werte liegen im Engine-Resultat bereit.
 
 ### [ ] 97. 🟡 CMA-Werte gegen konservative CH-Annahmen prüfen
 - **Können:** Renditen/Vols/Korrelationen je Assetklasse plausibilisieren (konservativ, Ruhestandsgelder).

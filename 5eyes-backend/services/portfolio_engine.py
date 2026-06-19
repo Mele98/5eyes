@@ -3120,6 +3120,24 @@ def _monte_carlo_goal_summary(
     }
 
 
+def _sequence_of_returns_depletion(
+    depletion_offsets: list[int | None], start_year: int
+) -> tuple[int, int | None]:
+    """#96 Sequence-of-Returns / Verzehr-Kennzahl: Anteil der MC-Pfade, deren
+    Vermoegen VOR Horizontende aufgezehrt ist (Pfad-Total <= 0), plus mittleres
+    Erschoepfungsjahr (Median der betroffenen Pfade). Misst das Sequence-of-
+    Returns-Risiko: schlechte Renditen frueh im Verzehr zehren das Kapital
+    schneller auf. In der Akkumulation (keine Netto-Entnahmen) ist die Quote ~0%.
+
+    depletion_offsets: pro Simulation der Jahres-Offset der ersten Erschoepfung
+    (Pfad-Total <= 0) oder None, wenn der Pfad nie erschoepft."""
+    n = max(1, len(depletion_offsets))
+    depleted = sorted(offset for offset in depletion_offsets if offset is not None)
+    probability_pct = int(round(len(depleted) / n * 100))
+    median_year = (start_year + int(depleted[len(depleted) // 2])) if depleted else None
+    return probability_pct, median_year
+
+
 def _run_allocation_monte_carlo(
     *,
     advisory_summary: PortfolioSummary,
@@ -3227,6 +3245,10 @@ def _run_allocation_monte_carlo(
     current_year_one_returns: list[int] = []
     current_year_one_losses: list[int] = []
     current_max_drawdowns: list[int] = []
+    # #96 Verzehr/Sequence-of-Returns: pro Pfad der Jahres-Offset der ERSTEN
+    # Vermoegens-Erschoepfung (Pfad-Total <= 0) oder None.
+    target_depletion_offsets: list[int | None] = []
+    current_depletion_offsets: list[int | None] = []
 
     for _simulation_idx in range(simulations):
         current_values = {key: max(0, int(advisory_summary.amounts_rappen.get(key, 0))) for key in BUCKET_FIELDS}
@@ -3363,11 +3385,18 @@ def _run_allocation_monte_carlo(
             target_year_one_losses.append(_loss_bps(target_start, target_year1_market_value))
         target_path = [values[_simulation_idx] for values in target_by_year if values]
         target_max_drawdowns.append(_max_drawdown_bps(target_path))
+        # #96: erster Jahres-Offset mit aufgezehrtem Vermoegen (Pfad-Total <= 0).
+        target_depletion_offsets.append(
+            next((offset for offset, value in enumerate(target_path) if value <= 0), None)
+        )
         if current_year1_market_value is not None:
             current_year_one_returns.append(_return_bps(current_start, current_year1_market_value))
             current_year_one_losses.append(_loss_bps(current_start, current_year1_market_value))
         current_path = [values[_simulation_idx] for values in current_by_year if values]
         current_max_drawdowns.append(_max_drawdown_bps(current_path))
+        current_depletion_offsets.append(
+            next((offset for offset, value in enumerate(current_path) if value <= 0), None)
+        )
 
     goal_summaries = [
         _monte_carlo_goal_summary(
@@ -3400,6 +3429,14 @@ def _run_allocation_monte_carlo(
 
     target_terminal_values = target_by_year[-1]
     downside_probability_pct = int(round(sum(1 for value in target_terminal_values if value < target_start_total) / max(1, len(target_terminal_values)) * 100))
+
+    # #96 Verzehr/Sequence-of-Returns-Kennzahl (SOLL + IST).
+    target_depletion_probability_pct, target_depletion_median_year = _sequence_of_returns_depletion(
+        target_depletion_offsets, start_year
+    )
+    current_depletion_probability_pct, current_depletion_median_year = _sequence_of_returns_depletion(
+        current_depletion_offsets, start_year
+    )
 
     has_total_paths = total_summary is not None and total_current_by_year[0]
     return {
@@ -3456,6 +3493,12 @@ def _run_allocation_monte_carlo(
         "current_volatility_1y_bps": _stddev_bps(current_year_one_returns),
         "target_max_drawdown_p95_bps": _percentile(target_max_drawdowns, 0.95),
         "target_downside_probability_pct": downside_probability_pct,
+        # #96 Verzehr/Sequence-of-Returns: Anteil Pfade mit aufgezehrtem Vermoegen
+        # vor Horizontende + mittleres Erschoepfungsjahr (None = kein Verzehr-Risiko).
+        "target_depletion_probability_pct": target_depletion_probability_pct,
+        "target_depletion_median_year": target_depletion_median_year,
+        "current_depletion_probability_pct": current_depletion_probability_pct,
+        "current_depletion_median_year": current_depletion_median_year,
         "goal_summaries": goal_summaries,
         "current_goal_summaries": current_goal_summaries,
     }
