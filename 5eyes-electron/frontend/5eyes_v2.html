@@ -3101,7 +3101,8 @@ function _wireSollIstHover(){
                       <tr style="border-bottom:1px solid var(--bg2)"><td style="padding:7px 8px;font-family:var(--f);color:var(--n7)" title="Value at Risk: max. erwarteter Verlust auf 1 Jahr mit 95% Konfidenz">VaR 95% (1J)</td><td id="aa-proj-var95" style="text-align:right;padding:7px 8px;color:var(--n7);font-weight:600">—</td><td id="aa-proj-current-var95" style="text-align:right;padding:7px 8px;color:var(--n7)">—</td></tr>
                       <tr style="border-bottom:1px solid var(--bg2)"><td style="padding:7px 8px;font-family:var(--f);color:var(--n7)" title="Conditional VaR / Expected Shortfall: durchschnittl. Verlust in den schlimmsten 5% der Fälle">CVaR 95% (1J)</td><td id="aa-proj-cvar95" style="text-align:right;padding:7px 8px;color:var(--n7);font-weight:600">—</td><td id="aa-proj-current-cvar95" style="text-align:right;padding:7px 8px;color:var(--n7)">—</td></tr>
                       <tr style="border-bottom:1px solid var(--bg2)"><td style="padding:7px 8px;font-family:var(--f);color:var(--n7)" title="Grösster zwischenzeitlicher Wertrückgang über den Horizont (Median-Pfad)">Max Drawdown (Median)</td><td id="aa-proj-drawdown" style="text-align:right;padding:7px 8px;color:var(--n7);font-weight:600">—</td><td id="aa-proj-current-drawdown" style="text-align:right;padding:7px 8px;color:var(--n7)">—</td></tr>
-                      <tr><td style="padding:7px 8px;font-family:var(--f);color:var(--n7)" title="Wahrscheinlichkeit eines Verlusts über 1 Jahr">Verlust-Wkeit (1J)</td><td id="aa-proj-lossprob" style="text-align:right;padding:7px 8px;color:var(--n7);font-weight:600">—</td><td id="aa-proj-current-lossprob" style="text-align:right;padding:7px 8px;color:var(--n7)">—</td></tr>
+                      <tr style="border-bottom:1px solid var(--bg2)"><td style="padding:7px 8px;font-family:var(--f);color:var(--n7)" title="Wahrscheinlichkeit eines Verlusts über 1 Jahr">Verlust-Wkeit (1J)</td><td id="aa-proj-lossprob" style="text-align:right;padding:7px 8px;color:var(--n7);font-weight:600">—</td><td id="aa-proj-current-lossprob" style="text-align:right;padding:7px 8px;color:var(--n7)">—</td></tr>
+                      <tr><td style="padding:7px 8px;font-family:var(--f);color:var(--n7)" title="Verzehr-/Sequence-of-Returns-Risiko: Anteil der simulierten Pfade, deren Vermögen vor Horizontende aufgezehrt ist (schlechte Renditen früh im Verzehr zehren das Kapital schneller auf). 0% = kein Verzehr-Risiko (z.B. reine Akkumulation).">Verzehr-Risiko</td><td id="aa-proj-depletion" style="text-align:right;padding:7px 8px;color:var(--n7);font-weight:600">—</td><td id="aa-proj-current-depletion" style="text-align:right;padding:7px 8px;color:var(--n7)">—</td></tr>
                     </tbody>
                   </table>
                 </div>
@@ -19389,6 +19390,11 @@ function applyAllocationEngineResult(result){
   setText('aa-proj-current-drawdown',formatRiskLossBps(mc&&mc.current_max_drawdown_p50_bps));
   setText('aa-proj-lossprob',formatProbabilityPct(mc&&mc.target_loss_probability_1y_pct));
   setText('aa-proj-current-lossprob',formatProbabilityPct(mc&&mc.current_loss_probability_1y_pct));
+  // #96 Verzehr-/Sequence-of-Returns-Risiko: Depletion-Wkeit (+ mittleres
+  // Erschöpfungsjahr). 0% = kein Verzehr (z.B. reine Akkumulation).
+  var _fmtDepletion=function(pct,year){var p=Number(pct||0); if(!isFinite(p)||p<=0)return '0%'; return String(Math.round(p))+'%'+(year?(' (ab '+year+')'):''); };
+  setText('aa-proj-depletion',_fmtDepletion(mc&&mc.target_depletion_probability_pct, mc&&mc.target_depletion_median_year));
+  setText('aa-proj-current-depletion',_fmtDepletion(mc&&mc.current_depletion_probability_pct, mc&&mc.current_depletion_median_year));
   // 2026-06-15 (#37): Endwert optimistisch (P90) / pessimistisch (P10), SOLL vs IST.
   var _lastRappen=function(arr){return (Array.isArray(arr)&&arr.length)?Number(arr[arr.length-1]||0):0;};
   var _tP90=_lastRappen(mc&&mc.target_p90_series_rappen); if(_tP90)_tP90+=_resRappen;
@@ -19425,6 +19431,7 @@ function applyAllocationEngineResult(result){
   _colorBetter('aa-proj-cvar95', mc&&mc.target_cvar_95_1y_bps, mc&&mc.current_cvar_95_1y_bps, false);
   _colorBetter('aa-proj-drawdown', mc&&mc.target_max_drawdown_p50_bps, mc&&mc.current_max_drawdown_p50_bps, false);
   _colorBetter('aa-proj-lossprob', mc&&mc.target_loss_probability_1y_pct, mc&&mc.current_loss_probability_1y_pct, false);
+  _colorBetter('aa-proj-depletion', mc&&mc.target_depletion_probability_pct, mc&&mc.current_depletion_probability_pct, false);
   try{ renderGoalAchievementSollIst(result); }catch(_g36){}
   renderAllocationCashflowTimeline(result);
   renderOptimizerPanel(result);
