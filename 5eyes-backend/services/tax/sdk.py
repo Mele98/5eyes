@@ -43,6 +43,7 @@ from __future__ import annotations
 
 from services.tax.base import (
     TaxContext,
+    TaxJurisdiction,
     TaxRegime,
     TaxResult,
 )
@@ -57,12 +58,17 @@ from services.tax.discovery import (
     discover_external_regimes,
 )
 from services.tax.registry import (
+    TaxJurisdictionNotFound,
+    discover_builtin_jurisdictions,
+    get_jurisdiction,
+    list_jurisdictions,
     list_registered_patterns,
+    register_jurisdiction,
     register_regime,
     resolve_regime_class,
 )
 
-TAX_SDK_VERSION = "1.0.0"
+TAX_SDK_VERSION = "1.1.0"
 """Semver-Version der oeffentlichen Tax-SDK-Schnittstelle.
 
 Breaking-Changes (Protocol-Methods, Entry-Point-Group):
@@ -83,12 +89,18 @@ zu haben."""
 SDK_PUBLIC_API = (
     # Protocol / Datentypen
     "TaxRegime",
+    "TaxJurisdiction",
     "TaxContext",
     "TaxResult",
     # Registry
     "register_regime",
+    "register_jurisdiction",
     "resolve_regime_class",
+    "get_jurisdiction",
+    "list_jurisdictions",
+    "TaxJurisdictionNotFound",
     "list_registered_patterns",
+    "discover_builtin_jurisdictions",
     # Discovery
     "discover_external_regimes",
     "DiscoveryResult",
