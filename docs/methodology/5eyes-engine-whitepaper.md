@@ -86,6 +86,17 @@ Jedes Lebensziel wird in eine **GoalLiability** übersetzt (`goal_liabilities.py
   `objective._effective_hardness_weight`) ist als **opt-in** erhalten und wird nur bei
   `OPTIMIZER_GOAL_WEIGHTING=hardness` aktiv; dann dominiert ein hartes Mindestziel die
   Optimierung und opportunistische Ziele werden nur „mitgenommen". (Stand 2026-06-17.)
+- **Ziel-Bezugsgrösse (`goal_scope`).** Standardmässig werden Ziele gegen das
+  **Beratungsvermögen** bewertet (die Strategie optimiert nur dieses). Wird ein
+  Wealth-Ziel (Vermögensziel/Kapitalerhalt) auf **`goal_scope="Gesamtvermögen"`** gesetzt,
+  fliessen zusätzlich die **externen Assets** (Eigenheim etc. = Gesamt- minus
+  Beratungsvermögen) in die Hochrechnung ein — **konservativ nur mit der Teuerung
+  fortgeschrieben (realer Zuwachs 0 %, keine Volatilität)**. Da dieser externe Anteil eine
+  deterministische Konstante ist und in **beiden** Pfaden (deterministisch + Monte-Carlo)
+  identisch addiert wird, entsteht **kein Drift** zwischen den Bewertungen. Ausgaben- und
+  Renditeziele bleiben scope-neutral (Ausgaben sind liquiditätsgetrieben — illiquide
+  externe Assets finanzieren keine kurzfristige Ausgabe). (User-Fachentscheid 2026-06-19;
+  `portfolio_engine._goal_uses_total_scope`, `_external_assets_inflation_value`.)
 
 ## 5. Zielfunktion (Downside-orientiert, zweiphasig)
 
@@ -189,6 +200,17 @@ erfassten Cashflow — der Vermögensverzehr nach der Pensionierung wird also vo
 abgebildet. Optional zerschneiden **BFS-Sterbewahrscheinlichkeiten** die MC-Pfade für
 realistischere Langlebigkeits-Szenarien.
 
+**Sequence-of-Returns-/Verzehr-Risiko (Kennzahl).** Für den Verzehr weist die Engine aus
+den MC-Pfaden eine **Depletion-Kennzahl** aus: den Anteil der Pfade, deren Vermögen vor
+Horizontende **aufgezehrt** ist (Pfad-Total ≤ 0), sowie das **mittlere Erschöpfungsjahr**
+(Median der betroffenen Pfade) — getrennt für SOLL und IST
+(`portfolio_engine._sequence_of_returns_depletion`;
+`monte_carlo.target_/current_depletion_probability_pct` + `…_median_year`). Sie macht das
+**Sequence-of-Returns-Risiko** sichtbar: schlechte Renditen früh im Verzehr zehren das
+Kapital schneller auf als dieselben Renditen in günstiger Reihenfolge. In reiner
+Akkumulation (keine Netto-Entnahmen) ist die Quote 0 %. Im SOLL/IST-Kennzahlen-Vergleich
+erscheint sie als Zeile „Verzehr-Risiko" (tiefer = besser). (Stand 2026-06-19.)
+
 ## 12. Nach-Steuer- und Währungssicht
 
 Die Szenario-Engine kann **steueraware** (CH-Steuerregime via Tax-Plugin-SDK, z. B.
@@ -218,4 +240,13 @@ der Schweizer Anleger trägt das Fremdwährungsrisiko, das entsprechend modellie
 antithetisch) · `importance_sampling.py` · `objective.py` (Zielfunktion, Chance-Constraints,
 Hardness) · `goal_liabilities.py` (Ziel→Liability) · `constraints.py` (8 Regeln) ·
 `distributions.py` (Cornish-Fisher) · `stress_scenarios.py`.
-`services/portfolio_engine.py`: Orchestrierung, Reserve, Mortalität, MC-Kennzahlen.
+`services/portfolio_engine.py`: Orchestrierung, Reserve, Mortalität, MC-Kennzahlen;
+`_goal_uses_total_scope` + `_external_assets_inflation_value` (Gesamtvermögen-Scope, §4),
+`_sequence_of_returns_depletion` (Verzehr-Kennzahl, §11).
+
+**Regression-Locks (Auswahl):** `test_goal_scope_gesamtvermoegen` (Scope real 0 %, kein
+MC-Drift) · `test_audit_b4_goal_base_consistency` (Default-Scope advisory-only) ·
+`test_sequence_of_returns_depletion` (Verzehr-Kennzahl + Akkumulation = 0 %) ·
+`test_engine_methodik_invariants` · `test_goal_pessimistic_quartile` (P25) ·
+`test_deterministic_ito_growth` · `test_liquidity_zero_engine_lock` (Cash 0 %) ·
+`test_illiquid_cap`.
