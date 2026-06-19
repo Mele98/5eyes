@@ -383,11 +383,12 @@
 
 ### [✓] 79–82 Zielerreichung P25 · Ziel-Gleichgewichtung (Härtegrad opt-in) · maxIlliquid=PE · Itô-Hauptpfad=MC-Median (diese Session)
 
-### [ ] 83. 🟠 `goal_scope="Gesamtvermögen"` engine-seitig
+### [✓] 83. 🟠 `goal_scope="Gesamtvermögen"` engine-seitig (2026-06-19)
 - **Ziel:** Ziele gegen Gesamtvermögen statt nur Beratungsvermögen bewerten.
 - **Können:** Bei Scope=Gesamtvermögen Hochrechnung gegen total_wealth; Wachstumsannahmen externer Assets (Immobilien etc.) konservativ + dokumentiert.
 - **Verknüpft:** #84 (Miete), #97 (CMA).
 - **DoD:** Test: Ziel mit Scope Gesamtvermögen nutzt total-Pfad; Determinismus.
+- **UMGESETZT (User-Entscheid: real 0 %):** Für Vermögensziele (Kapitalerhalt/Vermoegensziel) mit `goal_scope="Gesamtvermögen"` werden externe Assets (Gesamt- minus Beratungsvermögen) **konservativ nur mit Teuerung** (realer Zuwachs 0 %, keine Vola) zur Projektion addiert — in deterministischem UND MC-Pfad **identisch** (kein Drift, B4-Falle vermieden). Default-Scope (Beratungsvermögen) unverändert. Ausgaben-/Renditeziele bleiben scope-neutral (Ausgaben liquiditätsgetrieben — illiquide Eigenheime zahlen keine kurzfristige Ausgabe). Helfer `_external_assets_inflation_value` + `_goal_uses_total_scope` in `portfolio_engine.py`. Locks: `test_goal_scope_gesamtvermoegen.py` (6), B4-Tests auf Default-Scope umgestellt.
 
 ### [ ] 84. 🟠 Miete inflationsindexiert (optional)
 - **Können:** Flag pro Immobilie „Miete inflationsgebunden" → abgeleiteter Mietertrag `is_inflation_linked=1`.

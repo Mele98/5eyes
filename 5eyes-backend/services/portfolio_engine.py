@@ -2660,6 +2660,32 @@ def _expected_death_year_offset_from_mandate(mandate) -> int | None:
     return None
 
 
+def _goal_uses_total_scope(goal) -> bool:
+    """#83: True wenn das Ziel gegen das Gesamtvermoegen bewertet wird
+    (goal_scope='Gesamtvermoegen'). Default ist 'Beratungsvermoegen'."""
+    return "gesamt" in str(getattr(goal, "goal_scope", "") or "").strip().lower()
+
+
+def _external_assets_inflation_value(
+    base_rappen: int, years: int, inflation_series_bps: list[int] | None
+) -> int:
+    """#83 Gesamtvermoegen-Scope: externe Assets (Eigenheim etc.) wachsen
+    KONSERVATIV nur mit der Teuerung — realer Zuwachs 0 % (User-Entscheid
+    2026-06-19). Keine Volatilitaet -> in deterministischem UND Monte-Carlo-Pfad
+    identisch addiert, daher KEIN MC-Drift (die fruehere B4-Falle). Default-Scope
+    (Beratungsvermoegen) ruft das hier nie auf."""
+    base = max(0, int(base_rappen or 0))
+    if base <= 0:
+        return 0
+    series = list(inflation_series_bps or [])
+    last_bps = int(series[-1]) if series else 150
+    value = float(base)
+    for idx in range(max(0, int(years or 0))):
+        infl_bps = int(series[idx]) if idx < len(series) else last_bps
+        value *= 1 + (infl_bps / 10000)
+    return int(round(value))
+
+
 def _build_goal_analysis(
     goals: list[Goal],
     advisory_wealth_rappen: int,
@@ -2679,14 +2705,19 @@ def _build_goal_analysis(
     Mandant statistisch in t=15 stirbt.
     """
     analysis = []
+    # #83 Gesamtvermoegen-Scope: externe Assets = Gesamt- minus Beratungsvermoegen.
+    external_wealth_rappen = max(0, int(total_wealth_rappen or 0) - int(advisory_wealth_rappen or 0))
     for goal in sorted(goals, key=lambda g: (int(g.rank or 999), g.label or "")):
         years = _goal_projection_years(goal)
-        # B4: Goals werden IMMER gegen advisory_wealth bewertet, weil die
+        # B4: Default werden Goals gegen advisory_wealth bewertet, weil die
         # Strategie nur das Beratungsvermoegen optimiert. External Assets
-        # (Eigenheim etc.) werden nicht hochgerechnet, weil ihre Wachstums-
-        # annahme fragil und nicht strategie-relevant ist (PK-konsistent,
-        # ASIP §3.2). Bisheriger Skalierungs-Pfad mit allow_other_assets_for_goals
-        # erzeugte Drift zwischen deterministischer und MC-Bewertung.
+        # (Eigenheim etc.) werden mit Aktien-Renditen NICHT hochgerechnet, weil
+        # diese Annahme fragil ist (PK-konsistent, ASIP §3.2). Bisheriger
+        # Skalierungs-Pfad mit allow_other_assets_for_goals erzeugte Drift
+        # zwischen deterministischer und MC-Bewertung.
+        # #83 (opt-in): bei goal_scope='Gesamtvermoegen' werden externe Assets
+        # ZUSAETZLICH beruecksichtigt — aber KONSERVATIV nur mit Teuerung (real
+        # 0%, keine Vola), siehe Vermoegensziel-Zweig + _external_assets_inflation_value.
         investable_base = advisory_wealth_rappen
         projection_years = max(1, years or 1)
         contribution_series = list(cashflow_projection_series_rappen[:projection_years])
@@ -2720,6 +2751,13 @@ def _build_goal_analysis(
             )
         elif goal_type in ("Kapitalerhalt", "Vermoegensziel"):
             target_rappen = _goal_target_wealth_rappen(goal, years, inflation_series_bps)
+            # #83: bei Gesamtvermoegen-Scope die externen Assets (nur Teuerung,
+            # real 0%) zum projizierten Beratungsvermoegen addieren. Default-Scope
+            # unveraendert. Wirkt auch im gespeicherten projected_value_rappen.
+            if _goal_uses_total_scope(goal):
+                projected_rappen += _external_assets_inflation_value(
+                    external_wealth_rappen, projection_years, inflation_series_bps
+                )
             denominator = max(1, target_rappen)
             funded_ratio_pct = int(round(min(200, max(-100, projected_rappen / denominator * 100))))
             success_rate_pct = 100 if projected_rappen >= target_rappen else 0
@@ -2930,10 +2968,12 @@ def _monte_carlo_goal_summary(
     policy: OptimizerPolicy,
 ) -> dict:
     index = _year_index_for_goal(goal, start_year, horizon_years)
-    # B4: MC-Pfade sind advisory-only. Keine Skalierung mehr (frueher
-    # _goal_base_scale x total/advisory) - das war methodisch falsch,
-    # weil External Assets nicht wie Aktien wachsen. Goal wird gegen
-    # advisory_path bewertet, konsistent zu _build_goal_analysis.
+    # B4: MC-Pfade sind advisory-only. Keine Skalierung mit total/advisory mehr
+    # (frueher _goal_base_scale) - das war methodisch falsch, weil External
+    # Assets nicht wie Aktien wachsen. Goal wird gegen advisory_path bewertet,
+    # konsistent zu _build_goal_analysis.
+    # #83 (opt-in): goal_scope='Gesamtvermoegen' addiert externe Assets nur mit
+    # Teuerung (real 0%, keine Vola) -> deterministische Konstante, kein Drift.
     scaled_values = list(path_values_by_year[index])
     p10 = _percentile(scaled_values, 0.10)
     p25 = _percentile(scaled_values, 0.25)
@@ -2996,6 +3036,20 @@ def _monte_carlo_goal_summary(
             )
     elif goal_type in ("Kapitalerhalt", "Vermoegensziel"):
         target = _goal_target_wealth_rappen(goal, index, inflation_series_bps)
+        # #83: Gesamtvermoegen-Scope -> externe Assets (nur Teuerung, real 0%, KEINE
+        # Vola) deterministisch auf jeden MC-Pfad addieren. Konsistent zu
+        # _build_goal_analysis; da konstant, kein MC-Drift (B4-Falle vermieden).
+        if _goal_uses_total_scope(goal):
+            external_projected = _external_assets_inflation_value(
+                max(0, int(total_wealth_rappen or 0) - int(advisory_wealth_rappen or 0)),
+                index, inflation_series_bps,
+            )
+            if external_projected:
+                scaled_values = [value + external_projected for value in scaled_values]
+                p10 = _percentile(scaled_values, 0.10)
+                p25 = _percentile(scaled_values, 0.25)
+                p50 = _percentile(scaled_values, 0.50)
+                p90 = _percentile(scaled_values, 0.90)
         success_rate_pct = int(round(sum(1 for value in scaled_values if value >= target) / max(1, len(scaled_values)) * 100))
         funded_ratio_p50 = round(p50 / target, 4)
         funded_ratio_pct = max(0, min(200, int(round(funded_ratio_p50 * 100))))
