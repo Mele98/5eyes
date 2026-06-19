@@ -461,7 +461,8 @@
 ### [ ] 103. 🟢 Goal-Achievement-Ordinalskala 3eyes-exakt (heute kontinuierlich) — bewusst optional
 ### [ ] 104. 🟢 Serielle Renditeziele sauber im Optimizer
 ### [ ] 105. 🟢 Liquid-Alts vs Hedge-Funds Liquiditäts-Klassifikation feinjustieren
-### [ ] 106. 🟡 Engine-Whitepaper aktuell halten (Methodik-Transparenz für FINMA)
+### [✓] 106. 🟡 Engine-Whitepaper aktuell halten (Methodik-Transparenz für FINMA) — Stand 2026-06-19
+- **AKTUALISIERT:** §4 um Ziel-Bezugsgrösse `goal_scope=Gesamtvermögen` (#83, externe Assets real 0 %, kein MC-Drift) erweitert; §11 um die Verzehr-/Sequence-of-Returns-Kennzahl (#96) ergänzt; Code-/Test-Referenzen um die neuen Helfer + Regression-Locks nachgeführt. (Laufende Aufgabe — bei künftigen Methodik-Änderungen weiter pflegen.)
 ### [ ] 107. 🟢 Backtesting gegen historische Daten erweitern
 ### [ ] 108. 🟢 Stress-Szenarien-Presets (2008/2020/Zinsschock)
 ### [ ] 109. 🟢 Goal-Priorisierung bei Konflikt transparenter
