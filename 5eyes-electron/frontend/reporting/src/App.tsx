@@ -30,6 +30,7 @@ import { WeiteresVorgehen } from '@/pages/WeiteresVorgehen';
 import { Beratungsprotokoll } from '@/pages/Beratungsprotokoll';
 import { Compliance } from '@/pages/Compliance';
 import { Eignung } from '@/pages/Eignung';
+import { GoalsEditor } from '@/sections/goals/GoalsEditor';
 
 type ReportSectionId = (typeof REPORT_SECTIONS)[number]['id'];
 
@@ -59,10 +60,28 @@ function App() {
             element={<ReportShell sectionId={route.id} />}
           />
         ))}
+        {/* Track #64: Goal-Editor (Editor-Workflow, KEINE Report-Sektion). */}
+        <Route
+          path="/mandates/:mandateId/goals-editor"
+          element={<GoalsEditorRoute />}
+        />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </div>
   );
+}
+
+function GoalsEditorRoute() {
+  const { mandateId } = useParams<{ mandateId: string }>();
+  if (!mandateId) {
+    return (
+      <ErrorPanel
+        headline="Kein Mandat"
+        detail="URL erwartet :mandateId-Parameter."
+      />
+    );
+  }
+  return <GoalsEditor mandateId={mandateId} />;
 }
 
 function Landing() {

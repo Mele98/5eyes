@@ -726,3 +726,123 @@ export type PerformanceAttributionData = {
   fidleg_basis: string;
   error?: string;
 };
+
+// ---------------------------------------------------------------------------
+// Goal-Editor (Track #64, FE-React-Migration) — Mutations-Schema.
+//
+// Spiegelt 1:1 die Pydantic-Modelle in `5eyes-backend/schemas/wealth.py`:
+//   GoalCreate (410-438), GoalUpdate (453-476), GoalResponse (485-514),
+//   MaxPensionSpendingRequest (230-240), MaxPensionSpendingResponse (243-256).
+//
+// WICHTIG: NICHT mit `GoalEntry` (Sektion 11, Read-Model des Advisory-Reports)
+// verwechseln — `GoalRecord` ist das vollständige CRUD-Modell des Editors.
+// `is_ongoing` und `is_active` liefert das Backend als int (0/1), NICHT boolean.
+// ---------------------------------------------------------------------------
+
+export type GoalFamily = 'Vermögen' | 'Cashflow' | 'Rendite' | 'Maximierung';
+
+export type GoalType =
+  | 'Kapitalerhalt'
+  | 'Vermögensziel'
+  | 'Vermoegensziel'
+  | 'Einmalige_Ausgabe'
+  | 'Wiederkehrende_Ausgabe'
+  | 'Pensionsausgabe'
+  | 'Renditeziel'
+  | 'Maximierung';
+
+export type GoalScope = 'Beratungsvermögen' | 'Gesamtvermögen';
+export type GoalValueMode = 'nominal' | 'real';
+export type PensionPillar = 'AHV' | 'BVG' | '3a' | '1e' | 'FZG';
+
+/** UI-Auswahlwerte für Härtegrad. Backend normalisiert ä→ae; Default "Primär". */
+export type GoalHardnessInput = 'Hart' | 'Primär' | 'Opportunistisch';
+
+export interface GoalCreatePayload {
+  goal_family: GoalFamily;
+  goal_type: GoalType;
+  label: string;
+  rank: number;
+  weight_bps?: number | null;
+  goal_scope?: GoalScope;
+  value_mode?: GoalValueMode;
+  target_amount_rappen?: number | null;
+  target_wealth_rappen?: number | null;
+  target_return_bps?: number | null;
+  success_probability_min_x100?: number | null;
+  start_date?: string | null;
+  horizon_years?: number | null;
+  target_date?: string | null;
+  is_ongoing?: boolean;
+  frequency?: string | null;
+  hardness?: string;
+  probability_pct?: number;
+  pension_pillar?: PensionPillar | null;
+  linked_position_id?: string | null;
+  notes?: string | null;
+  /** Berater-App sendet implizit "synthetic"; NICHT im Edit-UI erfassen. */
+  data_classification?: 'synthetic' | 'real';
+}
+
+/** Partial-Update (Backend `exclude_unset=True`) + reaktivierbares `is_active`. */
+export type GoalUpdatePayload = Partial<GoalCreatePayload> & {
+  is_active?: boolean;
+};
+
+export interface GoalRecord {
+  id: string;
+  mandate_id: string;
+  client_id: string;
+  goal_family: string;
+  goal_type: string;
+  label: string;
+  rank: number;
+  weight_bps: number | null;
+  goal_scope: string;
+  value_mode: string;
+  target_amount_rappen: number | null;
+  target_wealth_rappen: number | null;
+  target_return_bps: number | null;
+  success_probability_min_x100: number | null;
+  start_date: string | null;
+  horizon_years: number | null;
+  target_date: string | null;
+  /** int 0/1 (kein boolean). */
+  is_ongoing: number;
+  frequency: string | null;
+  hardness: string;
+  probability_pct: number | null;
+  pension_pillar: string | null;
+  linked_position_id: string | null;
+  notes: string | null;
+  /** int 0/1 (kein boolean). */
+  is_active: number;
+  achievement_score: number | null;
+  last_scored_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MaxPensionSpendingRequest {
+  retirement_year: number;
+  life_expectancy_year: number;
+  /** Default im Backend "real" (konservativer/tieferer Wert). */
+  value_mode?: GoalValueMode;
+  safety_margin_pct?: number;
+}
+
+export interface MaxPensionSpendingResponse {
+  max_monthly_chf_rappen: number;
+  max_annual_chf_rappen: number;
+  retirement_year: number;
+  life_expectancy_year: number;
+  years_in_retirement: number;
+  value_mode: string;
+  expected_return_bps: number;
+  expected_volatility_bps: number;
+  real_return_bps: number;
+  inflation_bps: number;
+  advisory_wealth_rappen: number;
+  safety_margin_pct: number;
+  reasoning: string[];
+}
