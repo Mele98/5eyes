@@ -925,3 +925,76 @@ export interface AllocationSensitivityResult {
   status_baseline: string;
   status_new: string;
 }
+
+// ---------------------------------------------------------------------------
+// Cashflow-Editor (Track #68, FE-React-Migration).
+// Spiegelt schemas/wealth.py: CashflowCreate (171-185), Update (188-203),
+// Response (206-224). DerivedCashflow (services/wealth_cashflows.py:31) READ-ONLY.
+// valid_until INKLUSIV. is_inflation_linked/is_active = int 0/1. Am CLIENT.
+// ---------------------------------------------------------------------------
+
+export type CashflowType = 'Income' | 'Expense';
+export type CashflowNature = 'wiederkehrend' | 'einmalig';
+
+export interface CashflowCreatePayload {
+  cashflow_type: CashflowType;
+  label: string;
+  amount_rappen: number;
+  gross_amount_rappen?: number | null;
+  tax_amount_rappen?: number | null;
+  timing_precision?: string | null;
+  currency?: string;
+  frequency?: string;
+  nature?: CashflowNature;
+  valid_from?: string | null;
+  valid_until?: string | null;
+  is_inflation_linked?: boolean;
+  notes?: string | null;
+  data_classification?: 'synthetic' | 'real';
+}
+
+export type CashflowUpdatePayload = Partial<CashflowCreatePayload> & {
+  is_active?: boolean;
+};
+
+export interface CashflowRecord {
+  id: string;
+  client_id: string;
+  cashflow_type: string;
+  label: string;
+  amount_rappen: number;
+  gross_amount_rappen: number | null;
+  tax_amount_rappen: number | null;
+  timing_precision: string | null;
+  currency: string;
+  frequency: string;
+  nature: string;
+  valid_from: string | null;
+  valid_until: string | null;
+  is_inflation_linked: number;
+  notes: string | null;
+  is_active: number;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Read-only, aus Vermögenspositionen abgeleitet (Hypozins, Amortisation, Mieten). */
+export interface DerivedCashflow {
+  id: string;
+  client_id: string;
+  cashflow_type: string;
+  label: string;
+  amount_rappen: number;
+  currency: string;
+  frequency: string;
+  nature: string;
+  valid_from: string | null;
+  valid_until: string | null;
+  is_inflation_linked: number;
+  notes: string | null;
+  is_active: number;
+  is_derived: number;
+  source: string;
+  origin_position_id: string | null;
+  origin_position_type: string | null;
+}
