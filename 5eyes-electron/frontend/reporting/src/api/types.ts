@@ -846,3 +846,82 @@ export interface MaxPensionSpendingResponse {
   safety_margin_pct: number;
   reasoning: string[];
 }
+
+// ---------------------------------------------------------------------------
+// Asset-Allocation-Editor (Track #67, FE-React-Migration).
+// Spiegelt schemas/allocation.py: TargetAllocationCreate (6-24),
+// TargetAllocationResponse (51-100), Sensitivity (417/439).
+// ---------------------------------------------------------------------------
+
+export type AllocationBucketKey =
+  | 'equities'
+  | 'bonds'
+  | 'real_estate'
+  | 'alternatives'
+  | 'liquidity';
+
+/** POST-Body /mandates/{id}/target-allocation (TargetAllocationCreate). */
+export interface TargetAllocationCreatePayload {
+  target_equities_bps: number;
+  target_bonds_bps: number;
+  target_real_estate_bps: number;
+  target_alternatives_bps: number;
+  target_liquidity_bps: number;
+  band_equities_min_bps: number;
+  band_equities_max_bps: number;
+  band_bonds_min_bps: number;
+  band_bonds_max_bps: number;
+  band_real_estate_min_bps: number;
+  band_real_estate_max_bps: number;
+  band_alternatives_min_bps: number;
+  band_alternatives_max_bps: number;
+  band_liquidity_min_bps: number;
+  band_liquidity_max_bps: number;
+  risky_fraction_bps?: number | null;
+  based_on_assessment_id?: string | null;
+  policy_id: string;
+}
+
+/** Response-Kernfelder (TargetAllocationResponse hat zusätzliche Audit-Felder). */
+export interface TargetAllocationRecord extends TargetAllocationCreatePayload {
+  id: string;
+  mandate_id: string;
+  version: number;
+  is_current: number;
+  set_by: string;
+  set_at: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Minimal getypte Teilmenge von TargetAllocationGenerateResponse. */
+export interface AllocationGenerateResult {
+  target_allocation: TargetAllocationRecord;
+  expected_return_bps: number;
+  expected_volatility_bps: number;
+  risky_fraction_total_bps: number;
+  limiting_factor: string | null;
+  reasoning: string[];
+  messages: Array<Record<string, unknown>>;
+}
+
+export interface AllocationSensitivityRequestPayload {
+  goal_id: string;
+  target_delta_pct: number;
+  horizon_delta_years?: number;
+}
+
+export interface AllocationSensitivityResult {
+  goal_id: string;
+  delta_pct: number;
+  horizon_delta_years: number;
+  target_amount_rappen_baseline: number;
+  target_amount_rappen_new: number;
+  objective_value_milli_baseline: number | null;
+  objective_value_milli_new: number | null;
+  delta_objective_pct: number | null;
+  weights_bps_baseline: Record<string, number>;
+  weights_bps_new: Record<string, number>;
+  status_baseline: string;
+  status_new: string;
+}
