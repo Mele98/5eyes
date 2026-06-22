@@ -5010,10 +5010,14 @@ def _run_stochastic_optimizer_pass(
         jurisdiction = str(getattr(mandate, "tax_jurisdiction", "") or "").strip()
         if jurisdiction:
             from services.tax.registry import resolve_regime_class
-            from services.tax.base import TaxConfig
             regime_cls = resolve_regime_class(jurisdiction)
             tax_overrides_json = getattr(mandate, "tax_overrides_json", None)
-            regime_instance = regime_cls(TaxConfig(jurisdiction_id=jurisdiction))
+            # Regimes sind frozen dataclasses mit Defaults -> no-arg konstruierbar.
+            # (Fix #39/46: zuvor wurde das Regime mit einem TaxConfig-Objekt
+            #  konstruiert; die Klasse existierte nie in services.tax.base, der
+            #  ImportError wurde vom breiten except unten verschluckt -> der Solver
+            #  lief bei JEDEM Mandat tax-naiv. Overrides laufen ueber apply_overrides.)
+            regime_instance = regime_cls()
             if tax_overrides_json:
                 from services.tax.overrides import apply_overrides
                 regime_instance = apply_overrides(regime_instance, tax_overrides_json)
