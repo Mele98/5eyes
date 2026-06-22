@@ -45,3 +45,64 @@ def test_engine_no_longer_imports_taxconfig() -> None:
     assert "from services.tax.base import TaxConfig" not in src
     assert "regime_cls(TaxConfig(" not in src
     assert "regime_cls()" in src
+
+
+# ── E2E-Wiring (TAX-1/2/3): _build_tax_solver_kwargs liefert das, was run_solver bekommt ──
+
+from types import SimpleNamespace  # noqa: E402
+
+from services.portfolio_engine import _build_tax_solver_kwargs  # noqa: E402
+
+
+def _mandate(**kw):
+    base = dict(
+        tax_jurisdiction=None, tax_overrides_json=None, opened_at="2030-01-15",
+        client_birth_year=None, retirement_year=None,
+    )
+    base.update(kw)
+    return SimpleNamespace(**base)
+
+
+def test_no_jurisdiction_yields_empty_kwargs() -> None:
+    """Ohne tax_jurisdiction -> kein tax_regime (Solver tax-naiv, Backwards-Compat)."""
+    assert _build_tax_solver_kwargs(_mandate(tax_jurisdiction=None)) == {}
+    assert _build_tax_solver_kwargs(_mandate(tax_jurisdiction="")) == {}
+
+
+def test_jurisdiction_ch_reaches_solver_with_regime() -> None:
+    """TAX-3: gesetztes tax_jurisdiction -> nicht-None tax_regime an run_solver."""
+    kw = _build_tax_solver_kwargs(_mandate(tax_jurisdiction="CH"))
+    assert kw.get("tax_regime") is not None
+    assert kw["tax_regime"].country_code == "CH"
+    # Landes-Pauschale (kein Kanton): Basis-Wealth-Tax.
+    assert kw["tax_regime"].wealth_tax_bps_pa == 40
+
+
+def test_canton_factory_used_for_region_id() -> None:
+    """TAX-1: 'CH-GE' nutzt die Kanton-Factory (GE 85 bps), nicht den CH-Default 40."""
+    kw = _build_tax_solver_kwargs(_mandate(tax_jurisdiction="CH-GE"))
+    assert kw["tax_regime"].wealth_tax_bps_pa == 85
+    assert kw["tax_regime"].region_code == "GE"
+
+
+def test_unknown_canton_falls_back_to_base_regime() -> None:
+    """Unbekannte Region crasht nicht, sondern faellt auf das Basis-CH-Regime zurueck."""
+    kw = _build_tax_solver_kwargs(_mandate(tax_jurisdiction="CH-XX"))
+    assert kw.get("tax_regime") is not None
+    assert kw["tax_regime"].country_code == "CH"
+
+
+def test_base_calendar_year_from_opened_at_not_hardcoded() -> None:
+    """TAX-2: base_calendar_year kommt aus opened_at, nicht aus dem nie-existenten
+    valid_from_year (das frueher immer 2026 ergab)."""
+    kw = _build_tax_solver_kwargs(_mandate(tax_jurisdiction="CH", opened_at="2034-07-01"))
+    assert kw["base_calendar_year"] == 2034
+
+
+def test_age_and_retired_relative_to_real_year() -> None:
+    kw = _build_tax_solver_kwargs(
+        _mandate(tax_jurisdiction="CH", opened_at="2040-01-01",
+                 client_birth_year=1975, retirement_year=2038)
+    )
+    assert kw["mandate_age_at_start"] == 65  # 2040 - 1975
+    assert kw["is_retired"] is True  # 2040 >= 2038

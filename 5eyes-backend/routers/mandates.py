@@ -95,7 +95,11 @@ def update_mandate(
     current_user: User = Depends(require_advisor)
 ):
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
-    for field, value in body.model_dump(exclude_none=True).items():
+    # MND-1 Fix: exclude_unset statt exclude_none — sonst lassen sich gesetzte
+    # Felder (z.B. tax_jurisdiction, depot_bank) nie wieder leeren, weil null
+    # verworfen wird. Mit exclude_unset werden genau die vom Client gesendeten
+    # Felder geschrieben (inkl. explizitem null = Loeschen); nicht gesendete bleiben.
+    for field, value in body.model_dump(exclude_unset=True).items():
         setattr(mandate, field, value)
     mandate.updated_at = _now()
     log(db, user_id=current_user.id, user_name=current_user.full_name,
