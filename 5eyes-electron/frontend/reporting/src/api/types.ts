@@ -35,6 +35,109 @@ export type GoalStatus =
   | 'data_pending'
   | '';
 
+export type RiskProfileName =
+  | 'Kapitalschutz'
+  | 'Defensiv'
+  | 'Ausgewogen'
+  | 'Wachstumsorientiert'
+  | 'Dynamisch'
+  | 'Aktien';
+
+export type InvestmentHorizonLabel =
+  | 'Bis 2 Jahre'
+  | '2 bis 3 Jahre'
+  | '4 bis 5 Jahre'
+  | '6 bis 7 Jahre'
+  | '8 bis 11 Jahre'
+  | 'Mehr als 12 Jahre'
+  | '0 bis 4 Jahre'
+  | '5 bis 7 Jahre'
+  | '12 Jahre und mehr'
+  | '1 bis 3 Jahre'
+  | '3 bis 5 Jahre'
+  | '5 bis 10 Jahre'
+  | '10 Jahre und mehr';
+
+export interface RiskAssessmentAnswerCreate {
+  question_number: number;
+  question_section: string;
+  answer_label: string;
+  answer_points: number;
+}
+
+export interface RiskAssessmentCreate {
+  q_income_points: number;
+  q_obligations_points: number;
+  q_savings_points: number;
+  q_wealth_points: number;
+  investment_horizon_label: InvestmentHorizonLabel;
+  investment_horizon_years: number;
+  q_investment_goal_points: number;
+  q_risk_preference_points: number;
+  q_risk_behavior_points: number;
+  answers?: RiskAssessmentAnswerCreate[];
+  knowledge_services_json?: string | null;
+  knowledge_instruments_json?: string | null;
+  income_sources_json?: string | null;
+}
+
+export interface RiskOverride {
+  override_score_x10: number;
+  override_profile: RiskProfileName;
+  override_reason: string;
+  override_client_confirmed?: boolean;
+  override_warning_delivered?: boolean;
+  override_warning_document_id?: string | null;
+}
+
+export interface RiskAssessmentAnswer {
+  id: string;
+  question_number: number;
+  question_section: string;
+  answer_label: string;
+  answer_points: number;
+  created_at: string;
+}
+
+export interface RiskAssessment {
+  id: string;
+  mandate_id: string;
+  version: number;
+  is_current: number;
+  valid_from: string;
+  q_income_points: number;
+  q_obligations_points: number;
+  q_savings_points: number;
+  q_wealth_points: number;
+  risk_capacity_total: number;
+  risk_capacity_profile: string;
+  investment_horizon_years: number;
+  investment_horizon_label: string;
+  risk_capacity_score_x10: number;
+  q_investment_goal_points: number;
+  q_risk_preference_points: number;
+  q_risk_behavior_points: number;
+  risk_willingness_total: number;
+  risk_willingness_profile: string;
+  risk_willingness_score_x10: number;
+  final_score_x10: number;
+  final_profile: string;
+  is_overridden: number;
+  override_score_x10?: number | null;
+  override_profile?: string | null;
+  override_at?: string | null;
+  override_reason?: string | null;
+  override_client_confirmed?: number | null;
+  override_warning_delivered?: number | null;
+  assessed_at: string;
+  assessed_by: string;
+  created_at: string;
+  answers: RiskAssessmentAnswer[];
+  knowledge_services_json?: string | null;
+  knowledge_instruments_json?: string | null;
+  income_sources_json?: string | null;
+}
+
 // ---------------------------------------------------------------------------
 // Sektion 1 — Cover
 // ---------------------------------------------------------------------------
