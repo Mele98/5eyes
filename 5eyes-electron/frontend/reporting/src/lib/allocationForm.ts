@@ -44,6 +44,25 @@ export function totalTargetBps(draft: AllocationDraft): number {
  */
 export function validateAllocation(draft: AllocationDraft): string[] {
   const errors: string[] = [];
+  // Backend-Felder sind int (schemas/allocation.py): NaN (leeres Feld) oder Float
+  // würde erst als 422 abgelehnt. Pro Feld auf ganze, endliche Zahl prüfen.
+  let allInteger = true;
+  for (const { key, label } of ALLOCATION_BUCKETS) {
+    const band = draft[key];
+    if (!band) continue;
+    for (const [field, value] of [
+      ['Ziel', band.target],
+      ['Min', band.min],
+      ['Max', band.max],
+    ] as Array<[string, number]>) {
+      if (!Number.isFinite(value) || !Number.isInteger(value)) {
+        errors.push(`${label} ${field} muss eine ganze Zahl in BP sein.`);
+        allInteger = false;
+      }
+    }
+  }
+  // Summen-/Band-Checks nur sinnvoll, wenn alle Werte ganze Zahlen sind.
+  if (!allInteger) return errors;
   const total = totalTargetBps(draft);
   if (total !== 10000) {
     errors.push(`Allokation muss 10000 BP (100%) ergeben — aktuell ${total} BP.`);

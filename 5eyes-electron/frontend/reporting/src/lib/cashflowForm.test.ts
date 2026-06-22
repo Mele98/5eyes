@@ -3,6 +3,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
+  CASHFLOW_FREQUENCIES,
   buildCashflowPayload,
   validateCashflow,
   type CashflowFormInput,
@@ -63,5 +64,26 @@ describe('buildCashflowPayload', () => {
     expect(payload.valid_from).toBe('2030-01-01');
     expect(payload.valid_until).toBe('2045-12-31');
     expect(payload.is_inflation_linked).toBe(true);
+  });
+});
+
+describe('cf-01: Frequenz-Liste deckt Backend ab', () => {
+  it('enthält quartalsweise und halbjährlich', () => {
+    expect(CASHFLOW_FREQUENCIES).toContain('quartalsweise');
+    expect(CASHFLOW_FREQUENCIES).toContain('halbjährlich');
+    // Drift-Guard gegen services/cashflow_timeline.py SUPPORTED_FREQUENCIES
+    expect([...CASHFLOW_FREQUENCIES].sort()).toEqual(
+      ['einmalig', 'halbjährlich', 'jährlich', 'monatlich', 'quartalsweise'].sort(),
+    );
+  });
+});
+
+describe('cf-02: einmalige Cashflows brauchen ein Datum', () => {
+  it('meldet einmalig ohne Datum', () => {
+    const errs = validateCashflow(base({ frequency: 'einmalig', nature: 'einmalig' }));
+    expect(errs.some((e) => e.includes('Einmalige Cashflows benötigen ein Datum'))).toBe(true);
+  });
+  it('akzeptiert einmalig mit valid_from', () => {
+    expect(validateCashflow(base({ frequency: 'einmalig', nature: 'einmalig', valid_from: '2030-01-01' }))).toEqual([]);
   });
 });
