@@ -35,6 +35,7 @@ import { AllocationEditor } from '@/sections/allocation/AllocationEditor';
 import { CashflowEditor } from '@/sections/cashflow/CashflowEditor';
 import { MandateEditor } from '@/sections/mandate/MandateEditor';
 import { CrmEditor } from '@/sections/crm/CrmEditor';
+import { WealthInflowEditor } from '@/sections/wealthInflow/WealthInflowEditor';
 
 type ReportSectionId = (typeof REPORT_SECTIONS)[number]['id'];
 
@@ -87,10 +88,28 @@ function App() {
         {/* Track #66: CRM/Stammdaten-Editor (Workflow-Eintritt). */}
         <Route path="/crm-editor" element={<CrmEditor />} />
         <Route path="/clients/:clientId/crm-editor" element={<CrmEditorRoute />} />
+        {/* Roadmap #54: Vermögenszuflüsse-Editor (am Client). */}
+        <Route
+          path="/clients/:clientId/wealth-inflows-editor"
+          element={<WealthInflowEditorRoute />}
+        />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </div>
   );
+}
+
+function WealthInflowEditorRoute() {
+  const { clientId } = useParams<{ clientId: string }>();
+  if (!clientId) {
+    return (
+      <ErrorPanel
+        headline="Kein Kunde"
+        detail="URL erwartet :clientId-Parameter."
+      />
+    );
+  }
+  return <WealthInflowEditor clientId={clientId} />;
 }
 
 function GoalsEditorRoute() {
