@@ -1072,3 +1072,97 @@ export interface MandateRecord {
   created_at: string;
   updated_at: string;
 }
+
+// ---------------------------------------------------------------------------
+// CRM / Stammdaten-Editor (Track #66, FE-React-Migration).
+// Spiegelt schemas/clients.py: ClientCreate (6-33), Update (36-60),
+// Response (63-90), Nationality (93-103).
+// ---------------------------------------------------------------------------
+
+export type Salutation = 'Herr' | 'Frau' | 'Divers';
+export type HouseholdType = 'Einzelperson' | 'Paar' | 'Familie';
+export type ClientClassification =
+  | 'Privatkunde'
+  | 'Professioneller Kunde'
+  | 'Institutioneller Kunde';
+export type ClientLanguage = 'DE' | 'FR' | 'IT' | 'EN';
+
+export interface ClientCreatePayload {
+  client_number: string;
+  salutation?: Salutation | null;
+  first_name: string;
+  last_name: string;
+  date_of_birth?: string | null;
+  investment_horizon_start?: string | null;
+  investment_horizon_end?: string | null;
+  country_of_residence?: string;
+  canton?: string | null;
+  civil_status?: string | null;
+  profession?: string | null;
+  employer?: string | null;
+  language?: ClientLanguage;
+  household_type?: HouseholdType;
+  client_classification?: ClientClassification;
+  is_professional_opt_out?: boolean;
+  is_qualified_investor?: boolean;
+  advisor_id: string;
+  notes?: string | null;
+}
+
+export interface ClientUpdatePayload {
+  salutation?: string | null;
+  first_name?: string;
+  last_name?: string;
+  date_of_birth?: string | null;
+  investment_horizon_start?: string | null;
+  investment_horizon_end?: string | null;
+  country_of_residence?: string;
+  canton?: string | null;
+  civil_status?: string | null;
+  profession?: string | null;
+  employer?: string | null;
+  language?: string;
+  household_type?: string;
+  client_classification?: string;
+  is_professional_opt_out?: boolean;
+  is_qualified_investor?: boolean;
+  notes?: string | null;
+}
+
+export interface ClientRecord {
+  id: string;
+  client_number: string;
+  salutation: string | null;
+  first_name: string;
+  last_name: string;
+  date_of_birth: string | null;
+  investment_horizon_start: string | null;
+  investment_horizon_end: string | null;
+  country_of_residence: string;
+  canton: string | null;
+  civil_status: string | null;
+  profession: string | null;
+  employer: string | null;
+  language: string;
+  partner_salutation: string | null;
+  partner_first_name: string | null;
+  partner_last_name: string | null;
+  partner_date_of_birth: string | null;
+  partner_profession: string | null;
+  household_type: string;
+  client_classification: string;
+  is_professional_opt_out: number;
+  is_qualified_investor: number;
+  advisor_id: string;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NationalityRecord {
+  id: string;
+  client_id: string;
+  country_code: string;
+  is_primary: number;
+  created_at: string;
+}

@@ -34,6 +34,7 @@ import { GoalsEditor } from '@/sections/goals/GoalsEditor';
 import { AllocationEditor } from '@/sections/allocation/AllocationEditor';
 import { CashflowEditor } from '@/sections/cashflow/CashflowEditor';
 import { MandateEditor } from '@/sections/mandate/MandateEditor';
+import { CrmEditor } from '@/sections/crm/CrmEditor';
 
 type ReportSectionId = (typeof REPORT_SECTIONS)[number]['id'];
 
@@ -83,6 +84,9 @@ function App() {
           path="/mandates/:mandateId/mandate-editor"
           element={<MandateEditorRoute />}
         />
+        {/* Track #66: CRM/Stammdaten-Editor (Workflow-Eintritt). */}
+        <Route path="/crm-editor" element={<CrmEditor />} />
+        <Route path="/clients/:clientId/crm-editor" element={<CrmEditorRoute />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </div>
@@ -139,6 +143,11 @@ function MandateEditorRoute() {
     );
   }
   return <MandateEditor mandateId={mandateId} />;
+}
+
+function CrmEditorRoute() {
+  const { clientId } = useParams<{ clientId: string }>();
+  return <CrmEditor initialClientId={clientId} />;
 }
 
 function Landing() {
