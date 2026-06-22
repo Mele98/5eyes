@@ -31,6 +31,7 @@ import { Beratungsprotokoll } from '@/pages/Beratungsprotokoll';
 import { Compliance } from '@/pages/Compliance';
 import { Eignung } from '@/pages/Eignung';
 import { GoalsEditor } from '@/sections/goals/GoalsEditor';
+import { AllocationEditor } from '@/sections/allocation/AllocationEditor';
 
 type ReportSectionId = (typeof REPORT_SECTIONS)[number]['id'];
 
@@ -65,6 +66,11 @@ function App() {
           path="/mandates/:mandateId/goals-editor"
           element={<GoalsEditorRoute />}
         />
+        {/* Track #67: Asset-Allocation-Editor. */}
+        <Route
+          path="/mandates/:mandateId/allocation-editor"
+          element={<AllocationEditorRoute />}
+        />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </div>
@@ -82,6 +88,19 @@ function GoalsEditorRoute() {
     );
   }
   return <GoalsEditor mandateId={mandateId} />;
+}
+
+function AllocationEditorRoute() {
+  const { mandateId } = useParams<{ mandateId: string }>();
+  if (!mandateId) {
+    return (
+      <ErrorPanel
+        headline="Kein Mandat"
+        detail="URL erwartet :mandateId-Parameter."
+      />
+    );
+  }
+  return <AllocationEditor mandateId={mandateId} />;
 }
 
 function Landing() {
