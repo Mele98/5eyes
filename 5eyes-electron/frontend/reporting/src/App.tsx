@@ -32,6 +32,7 @@ import { Compliance } from '@/pages/Compliance';
 import { Eignung } from '@/pages/Eignung';
 import { GoalsEditor } from '@/sections/goals/GoalsEditor';
 import { AllocationEditor } from '@/sections/allocation/AllocationEditor';
+import { CashflowEditor } from '@/sections/cashflow/CashflowEditor';
 
 type ReportSectionId = (typeof REPORT_SECTIONS)[number]['id'];
 
@@ -71,6 +72,11 @@ function App() {
           path="/mandates/:mandateId/allocation-editor"
           element={<AllocationEditorRoute />}
         />
+        {/* Track #68: Cashflow-Editor (am Client). */}
+        <Route
+          path="/clients/:clientId/cashflow-editor"
+          element={<CashflowEditorRoute />}
+        />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </div>
@@ -101,6 +107,19 @@ function AllocationEditorRoute() {
     );
   }
   return <AllocationEditor mandateId={mandateId} />;
+}
+
+function CashflowEditorRoute() {
+  const { clientId } = useParams<{ clientId: string }>();
+  if (!clientId) {
+    return (
+      <ErrorPanel
+        headline="Kein Kunde"
+        detail="URL erwartet :clientId-Parameter."
+      />
+    );
+  }
+  return <CashflowEditor clientId={clientId} />;
 }
 
 function Landing() {
