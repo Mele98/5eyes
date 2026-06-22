@@ -24,6 +24,7 @@ import type {
   GoalScope,
   GoalType,
   GoalValueMode,
+  PensionPillar,
 } from '@/api/types';
 import { MaxPensionSpendingPanel } from './MaxPensionSpendingPanel';
 
@@ -54,6 +55,10 @@ interface WizardState {
   horizonYears: string;
   probabilityPct: string;
   notes: string;
+  // GOAL-3 Fix: beim Bearbeiten erhalten (sonst still auf null überschrieben).
+  pensionPillar: '' | PensionPillar;
+  weightBps: string;
+  successProbX100: string;
 }
 
 function emptyState(): WizardState {
@@ -72,6 +77,9 @@ function emptyState(): WizardState {
     horizonYears: '',
     probabilityPct: '100',
     notes: '',
+    pensionPillar: '',
+    weightBps: '',
+    successProbX100: '',
   };
 }
 
@@ -95,6 +103,9 @@ function stateFromRecord(rec: GoalRecord): WizardState {
     horizonYears: rec.horizon_years != null ? String(rec.horizon_years) : '',
     probabilityPct: rec.probability_pct != null ? String(rec.probability_pct) : '100',
     notes: rec.notes ?? '',
+    pensionPillar: (rec.pension_pillar as PensionPillar) ?? '',
+    weightBps: rec.weight_bps != null ? String(rec.weight_bps) : '',
+    successProbX100: rec.success_probability_min_x100 != null ? String(rec.success_probability_min_x100) : '',
   };
 }
 
@@ -126,6 +137,10 @@ function toFormInput(s: WizardState): GoalFormInput {
     horizon_years: num(s.horizonYears),
     probability_pct: s.probabilityPct.trim() === '' ? 100 : Number(s.probabilityPct),
     notes: s.notes || null,
+    // GOAL-3 Fix: erhalten statt nullen (Wizard schickte sie vorher gar nicht).
+    pension_pillar: s.pensionPillar || null,
+    weight_bps: num(s.weightBps),
+    success_probability_min_x100: num(s.successProbX100),
   };
 }
 
@@ -389,7 +404,24 @@ export function GoalWizard({ open, mandateId, editing, onClose, onSaved }: GoalW
                 </div>
               )}
               {typeKey === 'pensionsausgabe' && (
-                <MaxPensionSpendingPanel mandateId={mandateId} />
+                <>
+                  <label className="block text-caption text-ink-muted">
+                    Vorsorge-Säule
+                    <select
+                      value={state.pensionPillar}
+                      onChange={(e) => set('pensionPillar', e.target.value as '' | PensionPillar)}
+                      className={inputClass}
+                    >
+                      <option value="">—</option>
+                      <option value="AHV">AHV</option>
+                      <option value="BVG">BVG</option>
+                      <option value="3a">3a</option>
+                      <option value="1e">1e</option>
+                      <option value="FZG">FZG</option>
+                    </select>
+                  </label>
+                  <MaxPensionSpendingPanel mandateId={mandateId} />
+                </>
               )}
               {typeKey === 'maximierung' && (
                 <p className="text-caption text-ink-muted">

@@ -14,7 +14,16 @@ import type {
   CashflowType,
 } from '@/api/types';
 
-export const CASHFLOW_FREQUENCIES = ['jährlich', 'monatlich', 'einmalig'] as const;
+// Vollständige Backend-Liste (services/cashflow_timeline.py SUPPORTED_FREQUENCIES /
+// wealth.py _normalize_cashflow_payload). Vorher fehlten quartalsweise + halbjährlich
+// → Berater konnte sie nicht erfassen und Edit eines solchen Records brach den Select.
+export const CASHFLOW_FREQUENCIES = [
+  'monatlich',
+  'quartalsweise',
+  'halbjährlich',
+  'jährlich',
+  'einmalig',
+] as const;
 
 export interface CashflowFormInput {
   cashflow_type: CashflowType;
@@ -53,6 +62,12 @@ export function validateCashflow(input: CashflowFormInput): string[] {
   }
   if (input.valid_from && input.valid_until && input.valid_until < input.valid_from) {
     errors.push('valid_until darf nicht vor valid_from liegen (valid_until ist inklusiv).');
+  }
+  // Backend _normalize_cashflow_payload (wealth.py:93-101): einmalige Cashflows
+  // brauchen ein Datum, sonst 422. Inline statt erst beim POST melden.
+  const isEinmalig = input.frequency === 'einmalig' || input.nature === 'einmalig';
+  if (isEinmalig && !input.valid_from && !input.valid_until) {
+    errors.push('Einmalige Cashflows benötigen ein Datum (Gültig ab oder bis).');
   }
   return errors;
 }

@@ -23,6 +23,22 @@ function balancedDraft(): AllocationDraft {
   };
 }
 
+describe('ALLOC-1: Integer-/Finite-Validierung', () => {
+  it('meldet einen Float-Wert (Backend-Felder sind int)', () => {
+    const d = balancedDraft();
+    d.equities.target = 4000.5;
+    d.bonds.target = 2999.5; // Summe bleibt 10000, aber Floats
+    const errs = validateAllocation(d);
+    expect(errs.some((e) => e.includes('ganze Zahl in BP'))).toBe(true);
+  });
+  it('meldet ein NaN-Feld (Finite-Guard)', () => {
+    const d = balancedDraft();
+    d.liquidity.target = Number.NaN;
+    const errs = validateAllocation(d);
+    expect(errs.some((e) => e.includes('ganze Zahl in BP'))).toBe(true);
+  });
+});
+
 describe('totalTargetBps', () => {
   it('summiert die 5 Ziel-Quoten', () => {
     expect(totalTargetBps(balancedDraft())).toBe(10000);

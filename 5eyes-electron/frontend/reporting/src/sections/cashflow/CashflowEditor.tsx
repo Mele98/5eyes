@@ -40,6 +40,8 @@ export function CashflowEditor({ clientId }: CashflowEditorProps) {
   const [derived, setDerived] = useState<DerivedCashflow[]>([]);
   const [error, setError] = useState('');
   const [statusMsg, setStatusMsg] = useState('');
+  // Löschfehler unabhängig vom LoadState sichtbar (gleiche Klasse wie GOAL-9/WI-1).
+  const [actionError, setActionError] = useState('');
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<CashflowRecord | null>(null);
 
@@ -72,12 +74,13 @@ export function CashflowEditor({ clientId }: CashflowEditorProps) {
 
   async function onDelete(cf: CashflowRecord) {
     setStatusMsg('');
+    setActionError('');
     try {
       await deleteCashflow(clientId, cf.id);
       setStatusMsg(`Cashflow „${cf.label}" gelöscht.`);
       await load();
     } catch (err) {
-      setError(err instanceof ApiError ? err.detail : 'Löschen fehlgeschlagen.');
+      setActionError(err instanceof ApiError ? err.detail : 'Löschen fehlgeschlagen.');
     }
   }
 
@@ -103,6 +106,11 @@ export function CashflowEditor({ clientId }: CashflowEditorProps) {
       <p role="status" aria-live="polite" className="mt-2 min-h-[1.25rem] text-caption text-ink-muted">
         {statusMsg}
       </p>
+      {actionError && (
+        <p role="alert" aria-live="assertive" className="mt-1 text-caption text-status-rot">
+          {actionError}
+        </p>
+      )}
 
       {state === 'loading' || state === 'idle' ? (
         <p aria-busy="true" className="mt-block text-body text-ink-muted">Cashflows werden geladen…</p>

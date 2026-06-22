@@ -38,6 +38,8 @@ export function GoalsEditor({ mandateId }: GoalsEditorProps) {
   const [goals, setGoals] = useState<GoalRecord[]>([]);
   const [error, setError] = useState<string>('');
   const [statusMsg, setStatusMsg] = useState<string>('');
+  // GOAL-9 Fix: Löschfehler unabhängig vom LoadState sichtbar machen.
+  const [actionError, setActionError] = useState<string>('');
   const [wizardOpen, setWizardOpen] = useState(false);
   const [editing, setEditing] = useState<GoalRecord | null>(null);
 
@@ -66,12 +68,13 @@ export function GoalsEditor({ mandateId }: GoalsEditorProps) {
 
   async function onDelete(goal: GoalRecord) {
     setStatusMsg('');
+    setActionError('');
     try {
       await deleteGoal(mandateId, goal.id);
       setStatusMsg(`Ziel „${goal.label}" gelöscht.`);
       await load();
     } catch (err) {
-      setError(err instanceof ApiError ? err.detail : 'Löschen fehlgeschlagen.');
+      setActionError(err instanceof ApiError ? err.detail : 'Löschen fehlgeschlagen.');
     }
   }
 
@@ -104,6 +107,11 @@ export function GoalsEditor({ mandateId }: GoalsEditorProps) {
       <p role="status" aria-live="polite" className="mt-2 min-h-[1.25rem] text-caption text-ink-muted">
         {statusMsg}
       </p>
+      {actionError && (
+        <p role="alert" aria-live="assertive" className="mt-1 text-caption text-status-rot">
+          {actionError}
+        </p>
+      )}
 
       {state === 'loading' || state === 'idle' ? (
         <p aria-busy="true" className="mt-block text-body text-ink-muted">

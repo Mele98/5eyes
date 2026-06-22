@@ -66,6 +66,8 @@ export function WealthInflowEditor({ clientId }: WealthInflowEditorProps) {
   const [rows, setRows] = useState<WealthInflowRecord[]>([]);
   const [error, setError] = useState('');
   const [statusMsg, setStatusMsg] = useState('');
+  // WI-1 Fix: Aktions-Fehler (z.B. Löschen) sind unabhängig vom LoadState sichtbar.
+  const [actionError, setActionError] = useState('');
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<WealthInflowRecord | null>(null);
 
@@ -94,12 +96,13 @@ export function WealthInflowEditor({ clientId }: WealthInflowEditorProps) {
 
   async function onDelete(rec: WealthInflowRecord) {
     setStatusMsg('');
+    setActionError('');
     try {
       await deleteWealthInflow(rec.id);
       setStatusMsg(`Zufluss „${rec.label}" gelöscht.`);
       await load();
     } catch (err) {
-      setError(err instanceof ApiError ? err.detail : 'Löschen fehlgeschlagen.');
+      setActionError(err instanceof ApiError ? err.detail : 'Löschen fehlgeschlagen.');
     }
   }
 
@@ -125,6 +128,11 @@ export function WealthInflowEditor({ clientId }: WealthInflowEditorProps) {
       <p role="status" aria-live="polite" className="mt-2 min-h-[1.25rem] text-caption text-ink-muted">
         {statusMsg}
       </p>
+      {actionError && (
+        <p role="alert" aria-live="assertive" className="mt-1 text-caption text-status-rot">
+          {actionError}
+        </p>
+      )}
 
       {state === 'loading' || state === 'idle' ? (
         <p aria-busy="true" className="mt-block text-body text-ink-muted">Zuflüsse werden geladen…</p>
