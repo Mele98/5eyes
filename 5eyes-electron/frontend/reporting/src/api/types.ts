@@ -1166,3 +1166,55 @@ export interface NationalityRecord {
   is_primary: number;
   created_at: string;
 }
+
+// ---------------------------------------------------------------------------
+// Vermögenszuflüsse / WealthInflow-Editor (Roadmap #54, FE-React-Migration).
+// Spiegelt schemas/wealth.py: WealthInflowCreate (264-274), Update (286-296),
+// Response (299-314). Am CLIENT (/clients/{id}/wealth-inflows), Mutation via
+// /wealth-inflows/{id}. is_recurring/is_active = int 0/1.
+// ---------------------------------------------------------------------------
+
+export type WealthInflowSourceType =
+  | 'Erbschaft'
+  | 'Bonus'
+  | 'Saeule3b'
+  | 'Verkaufserloes'
+  | 'Andere';
+export type WealthInflowFrequency = 'einmalig' | 'jaehrlich' | 'monatlich';
+
+export interface WealthInflowCreatePayload {
+  label: string;
+  source_type: WealthInflowSourceType;
+  amount_rappen: number;
+  expected_year: number;
+  is_recurring?: number;
+  frequency?: WealthInflowFrequency | null;
+  duration_years?: number | null;
+  value_mode?: 'nominal' | 'real';
+  mandate_id?: string | null;
+  notes?: string | null;
+}
+
+export type WealthInflowUpdatePayload = Partial<
+  Omit<WealthInflowCreatePayload, 'mandate_id'>
+> & {
+  is_active?: number;
+};
+
+export interface WealthInflowRecord {
+  id: string;
+  client_id: string;
+  mandate_id: string | null;
+  label: string;
+  source_type: string;
+  amount_rappen: number;
+  expected_year: number;
+  is_recurring: number;
+  frequency: string | null;
+  duration_years: number | null;
+  value_mode: string;
+  notes: string | null;
+  is_active: number;
+  created_at: string;
+  updated_at: string;
+}
