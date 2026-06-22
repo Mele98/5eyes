@@ -998,3 +998,77 @@ export interface DerivedCashflow {
   origin_position_id: string | null;
   origin_position_type: string | null;
 }
+
+// ---------------------------------------------------------------------------
+// Mandate-Editor (Track #65, FE-React-Migration).
+// Spiegelt schemas/mandates.py: MandateCreate (14-29), Update (32-58),
+// Response (61-85). Mandate am Client (/clients/{id}/mandates), Einzel via /mandates/{id}.
+// ---------------------------------------------------------------------------
+
+export type MandateType =
+  | 'Vermögensverwaltung'
+  | 'Anlageberatung'
+  | 'Finanzplanung'
+  | 'Reporting only';
+export type MandateStatus = 'Aktiv' | 'Inaktiv' | 'Archiviert';
+export type AdvisoryLanguage = 'DE' | 'FR' | 'IT' | 'EN';
+export type InvestmentUniverse = 'Standard' | 'Alternativ';
+export type ClientSex = 'M' | 'F';
+
+export interface MandateCreatePayload {
+  mandate_number: string;
+  mandate_type?: MandateType;
+  base_currency?: string;
+  advisory_language?: AdvisoryLanguage;
+  depot_bank?: string | null;
+  depot_account_number?: string | null;
+  opened_at?: string | null;
+  investment_universe?: InvestmentUniverse;
+  client_birth_year?: number | null;
+  client_sex?: ClientSex | null;
+  use_mortality_simulation?: boolean;
+}
+
+export interface MandateUpdatePayload {
+  mandate_type?: string;
+  status?: MandateStatus;
+  base_currency?: string;
+  advisory_language?: string;
+  depot_bank?: string | null;
+  depot_account_number?: string | null;
+  closed_at?: string | null;
+  retirement_year?: number | null;
+  life_expectancy_year?: number | null;
+  investment_universe?: InvestmentUniverse;
+  default_building_blocks_json?: string | null;
+  client_birth_year?: number | null;
+  client_sex?: ClientSex | null;
+  use_mortality_simulation?: boolean;
+  tax_jurisdiction?: string | null;
+  tax_overrides_json?: string | null;
+}
+
+export interface MandateRecord {
+  id: string;
+  client_id: string;
+  mandate_number: string;
+  mandate_type: string;
+  status: string;
+  base_currency: string;
+  advisory_language: string;
+  depot_bank: string | null;
+  depot_account_number: string | null;
+  opened_at: string;
+  closed_at: string | null;
+  retirement_year: number | null;
+  life_expectancy_year: number | null;
+  investment_universe: string | null;
+  default_building_blocks_json: string | null;
+  client_birth_year: number | null;
+  client_sex: string | null;
+  use_mortality_simulation: boolean | null;
+  tax_jurisdiction: string | null;
+  tax_overrides_json: string | null;
+  created_at: string;
+  updated_at: string;
+}

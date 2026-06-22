@@ -33,6 +33,7 @@ import { Eignung } from '@/pages/Eignung';
 import { GoalsEditor } from '@/sections/goals/GoalsEditor';
 import { AllocationEditor } from '@/sections/allocation/AllocationEditor';
 import { CashflowEditor } from '@/sections/cashflow/CashflowEditor';
+import { MandateEditor } from '@/sections/mandate/MandateEditor';
 
 type ReportSectionId = (typeof REPORT_SECTIONS)[number]['id'];
 
@@ -77,6 +78,11 @@ function App() {
           path="/clients/:clientId/cashflow-editor"
           element={<CashflowEditorRoute />}
         />
+        {/* Track #65: Mandate-Editor. */}
+        <Route
+          path="/mandates/:mandateId/mandate-editor"
+          element={<MandateEditorRoute />}
+        />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </div>
@@ -120,6 +126,19 @@ function CashflowEditorRoute() {
     );
   }
   return <CashflowEditor clientId={clientId} />;
+}
+
+function MandateEditorRoute() {
+  const { mandateId } = useParams<{ mandateId: string }>();
+  if (!mandateId) {
+    return (
+      <ErrorPanel
+        headline="Kein Mandat"
+        detail="URL erwartet :mandateId-Parameter."
+      />
+    );
+  }
+  return <MandateEditor mandateId={mandateId} />;
 }
 
 function Landing() {
