@@ -28,15 +28,14 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
+    // DL-4: Dev-Proxy muss ALLE Backend-Routen der Editor-Workflows abdecken,
+    // nicht nur advisory-report — sonst scheitern Goals/Allocation/Cashflow/
+    // Mandate/CRM/WealthInflow-Calls in `npm run dev`.
     proxy: {
-      '^/mandates/.*/advisory-report$': {
-        target: 'http://localhost:8000',
-        changeOrigin: true,
-      },
-      '/admin': {
-        target: 'http://localhost:8000',
-        changeOrigin: true,
-      },
+      '^/mandates/': { target: 'http://localhost:8000', changeOrigin: true },
+      '^/clients': { target: 'http://localhost:8000', changeOrigin: true },
+      '^/wealth-inflows': { target: 'http://localhost:8000', changeOrigin: true },
+      '/admin': { target: 'http://localhost:8000', changeOrigin: true },
     },
   },
   build: {
