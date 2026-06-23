@@ -18,14 +18,14 @@ describe('AmpelPill', () => {
     expect(screen.getByText('Handeln')).toBeInTheDocument();
   });
 
-  it('rendert "Pendant" für nicht_beurteilbar', () => {
+  it('rendert "Pendent" für nicht_beurteilbar', () => {
     render(<AmpelPill status="nicht_beurteilbar" />);
-    expect(screen.getByText('Pendant')).toBeInTheDocument();
+    expect(screen.getByText('Pendent')).toBeInTheDocument();
   });
 
-  it('fällt für unbekannten Status auf Pendant zurück', () => {
+  it('fällt für unbekannten Status auf Pendent zurück', () => {
     render(<AmpelPill status="abracadabra" />);
-    expect(screen.getByText('Pendant')).toBeInTheDocument();
+    expect(screen.getByText('Pendent')).toBeInTheDocument();
   });
 
   it('respektiert label-Override (für Goal-Status)', () => {

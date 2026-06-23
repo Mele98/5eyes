@@ -35,6 +35,16 @@ export function Branchen({ data, mandateId, onReload }: BranchenProps) {
         />
       }
     >
+      {/* PB-02: Datenstand-Banner wie in AssetAllocation/Risikowaehrungen —
+          macht transparent, dass IST mangels Beständen auf SOLL basiert. */}
+      {data.ist_basiert_auf_soll ? (
+        <div className="mb-block border border-rule bg-canvas-subtle p-4 text-caption text-ink-muted">
+          <span className="font-semibold text-ink">Datenstand:</span> IST basiert
+          aktuell auf SOLL-/Empfehlungswerten. Sobald aktuelle Bestände gepflegt
+          sind, zeigt der Bericht echte Branchen-Drifts.
+        </div>
+      ) : null}
+
       {data.hinweis ? (
         <div className="mb-block border border-rule bg-canvas-subtle p-4 text-caption text-ink-muted">
           {data.hinweis}
