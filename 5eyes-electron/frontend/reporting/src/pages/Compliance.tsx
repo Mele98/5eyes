@@ -38,11 +38,13 @@ export function Compliance({
   mandateLock,
   liquidityCascade,
 }: ComplianceProps) {
+  // DL-2: defensiv gegen partielle/ältere Payloads (Aggregator liefert diese
+  // Sektionen zwar immer, aber ein fehlendes Objekt soll die Seite nicht crashen).
   const overallCompliant = (
-    suitability.is_compliant
-    && recommendation.is_compliant
-    && mandateLock.is_editable
-    && !liquidityCascade.warning_required
+    !!suitability?.is_compliant
+    && !!recommendation?.is_compliant
+    && !!mandateLock?.is_editable
+    && !liquidityCascade?.warning_required
   );
 
   return (
