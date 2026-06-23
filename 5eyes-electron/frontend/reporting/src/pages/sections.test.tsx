@@ -149,6 +149,37 @@ describe('Section 4: Ausgangslage', () => {
     render(withRouter(<Ausgangslage data={data} />));
     expect(screen.queryByText('0 Jahre')).not.toBeInTheDocument();
   });
+
+  it('PA-04: versteckt null-Kennzahlen statt em-dash-Karten zu zeigen', () => {
+    const data = makeAusgangslage();
+    data.key_metrics = {
+      risky_fraction_bps: 6000,
+      zielerreichung_bps: null,
+      exp_vol_bps: null,
+      exp_return_bps: null,
+      max_drawdown_bps: null,
+      var_95_bps: null,
+    };
+    render(withRouter(<Ausgangslage data={data} />));
+    expect(screen.getByText('Risky-Fraction')).toBeInTheDocument();
+    // Die 5 null-Metriken werden NICHT als Karten gerendert.
+    expect(screen.queryByText('Erw. Volatilität')).not.toBeInTheDocument();
+    expect(screen.queryByText('VaR 95 %')).not.toBeInTheDocument();
+  });
+
+  it('PA-04: ohne Kennzahlen entfällt der ganze Kennzahlen-Block', () => {
+    const data = makeAusgangslage();
+    data.key_metrics = {
+      risky_fraction_bps: null,
+      zielerreichung_bps: null,
+      exp_vol_bps: null,
+      exp_return_bps: null,
+      max_drawdown_bps: null,
+      var_95_bps: null,
+    };
+    render(withRouter(<Ausgangslage data={data} />));
+    expect(screen.queryByText('Kennzahlen')).not.toBeInTheDocument();
+  });
 });
 
 describe('Section 5: Positionen', () => {
