@@ -80,12 +80,24 @@ describe('CrmEditor', () => {
   });
 
   it('öffnet das Stammdaten-Formular bei Auswahl', async () => {
-    listMock.mockResolvedValue([makeClient()]);
+    listMock.mockResolvedValue([makeClient({ household_type: 'Einzelperson' })]);
     render(<CrmEditor />);
     await screen.findByText('Muster, Max');
     fireEvent.click(screen.getByRole('button', { name: 'Stammdaten von Muster, Max bearbeiten' }));
     expect(screen.getByRole('form', { name: 'Kunden-Stammdaten' })).toBeInTheDocument();
     expect(screen.getByLabelText('Vorname')).toHaveValue('Max');
+  });
+
+  it('crm-2: zeigt das Partner-Fieldset nur bei Paar/Familie', async () => {
+    listMock.mockResolvedValue([makeClient({ household_type: 'Einzelperson' })]);
+    render(<CrmEditor />);
+    await screen.findByText('Muster, Max');
+    fireEvent.click(screen.getByRole('button', { name: 'Stammdaten von Muster, Max bearbeiten' }));
+    // Einzelperson: kein Partner-Block
+    expect(screen.queryByRole('group', { name: 'Partner' })).not.toBeInTheDocument();
+    // Haushaltstyp auf Paar → Partner-Block erscheint
+    fireEvent.change(screen.getByLabelText('Haushaltstyp'), { target: { value: 'Paar' } });
+    expect(screen.getByRole('group', { name: 'Partner' })).toBeInTheDocument();
   });
 
   it('speichert Änderungen via updateClient', async () => {

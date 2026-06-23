@@ -1105,6 +1105,11 @@ export interface ClientCreatePayload {
   client_classification?: ClientClassification;
   is_professional_opt_out?: boolean;
   is_qualified_investor?: boolean;
+  partner_salutation?: string | null;
+  partner_first_name?: string | null;
+  partner_last_name?: string | null;
+  partner_date_of_birth?: string | null;
+  partner_profession?: string | null;
   advisor_id: string;
   notes?: string | null;
 }
@@ -1126,6 +1131,12 @@ export interface ClientUpdatePayload {
   client_classification?: string;
   is_professional_opt_out?: boolean;
   is_qualified_investor?: boolean;
+  // crm-2: Partner-Stammdaten (schemas/clients.py ClientUpdate:49-53).
+  partner_salutation?: string | null;
+  partner_first_name?: string | null;
+  partner_last_name?: string | null;
+  partner_date_of_birth?: string | null;
+  partner_profession?: string | null;
   notes?: string | null;
 }
 

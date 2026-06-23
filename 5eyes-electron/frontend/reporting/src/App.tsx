@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Suspense, lazy, useEffect, useState } from 'react';
 import { Routes, Route, Navigate, useNavigate, useParams } from 'react-router-dom';
 import { useAdvisoryReport } from '@/api/useAdvisoryReport';
 import type { AdvisoryReport } from '@/api/types';
@@ -30,12 +30,20 @@ import { WeiteresVorgehen } from '@/pages/WeiteresVorgehen';
 import { Beratungsprotokoll } from '@/pages/Beratungsprotokoll';
 import { Compliance } from '@/pages/Compliance';
 import { Eignung } from '@/pages/Eignung';
-import { GoalsEditor } from '@/sections/goals/GoalsEditor';
-import { AllocationEditor } from '@/sections/allocation/AllocationEditor';
-import { CashflowEditor } from '@/sections/cashflow/CashflowEditor';
-import { MandateEditor } from '@/sections/mandate/MandateEditor';
-import { CrmEditor } from '@/sections/crm/CrmEditor';
-import { WealthInflowEditor } from '@/sections/wealthInflow/WealthInflowEditor';
+// Editor-Workflows lazy laden (U-56 Bundle-Budget): der Report-Viewer lädt den
+// Editor-Code nicht mit — jede Sektion wird als eigener Chunk on-demand geholt.
+const GoalsEditor = lazy(() =>
+  import('@/sections/goals/GoalsEditor').then((m) => ({ default: m.GoalsEditor })));
+const AllocationEditor = lazy(() =>
+  import('@/sections/allocation/AllocationEditor').then((m) => ({ default: m.AllocationEditor })));
+const CashflowEditor = lazy(() =>
+  import('@/sections/cashflow/CashflowEditor').then((m) => ({ default: m.CashflowEditor })));
+const MandateEditor = lazy(() =>
+  import('@/sections/mandate/MandateEditor').then((m) => ({ default: m.MandateEditor })));
+const CrmEditor = lazy(() =>
+  import('@/sections/crm/CrmEditor').then((m) => ({ default: m.CrmEditor })));
+const WealthInflowEditor = lazy(() =>
+  import('@/sections/wealthInflow/WealthInflowEditor').then((m) => ({ default: m.WealthInflowEditor })));
 
 type ReportSectionId = (typeof REPORT_SECTIONS)[number]['id'];
 
@@ -48,6 +56,7 @@ const SECTION_ROUTES: Array<{ id: ReportSectionId; path: string }> =
 function App() {
   return (
     <div className="min-h-screen bg-canvas text-ink">
+      <Suspense fallback={<LoadingPanel />}>
       <Routes>
         <Route path="/" element={<Landing />} />
         <Route
@@ -95,6 +104,7 @@ function App() {
         />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
+      </Suspense>
     </div>
   );
 }
