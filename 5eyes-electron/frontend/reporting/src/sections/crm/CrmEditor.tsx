@@ -34,6 +34,8 @@ function inputFromRecord(rec: ClientRecord): ClientFormInput {
     first_name: rec.first_name ?? '',
     last_name: rec.last_name ?? '',
     date_of_birth: rec.date_of_birth ?? '',
+    investment_horizon_start: rec.investment_horizon_start ?? '',
+    investment_horizon_end: rec.investment_horizon_end ?? '',
     country_of_residence: rec.country_of_residence ?? 'CH',
     canton: rec.canton ?? '',
     civil_status: rec.civil_status ?? '',
@@ -44,6 +46,11 @@ function inputFromRecord(rec: ClientRecord): ClientFormInput {
     client_classification: (rec.client_classification as ClientClassification) ?? 'Privatkunde',
     is_qualified_investor: rec.is_qualified_investor === 1,
     is_professional_opt_out: rec.is_professional_opt_out === 1,
+    partner_salutation: (rec.partner_salutation as Salutation) ?? '',
+    partner_first_name: rec.partner_first_name ?? '',
+    partner_last_name: rec.partner_last_name ?? '',
+    partner_date_of_birth: rec.partner_date_of_birth ?? '',
+    partner_profession: rec.partner_profession ?? '',
     notes: rec.notes ?? '',
   };
 }
@@ -282,6 +289,44 @@ export function CrmEditor({ initialClientId }: CrmEditorProps) {
                 <input type="checkbox" checked={form.is_professional_opt_out} onChange={(e) => set('is_professional_opt_out', e.target.checked)} />
                 Professional Opt-out
               </label>
+              <label className="block text-caption text-ink-muted">
+                Anlagehorizont ab
+                <input type="date" value={form.investment_horizon_start} onChange={(e) => set('investment_horizon_start', e.target.value)} className={inputClass} />
+              </label>
+              <label className="block text-caption text-ink-muted">
+                Anlagehorizont bis
+                <input type="date" value={form.investment_horizon_end} onChange={(e) => set('investment_horizon_end', e.target.value)} className={inputClass} />
+              </label>
+
+              {form.household_type !== 'Einzelperson' && (
+                <fieldset className="col-span-2 mt-2 grid grid-cols-2 gap-3 rounded border border-rule p-3">
+                  <legend className="px-1 text-micro uppercase tracking-widest text-ink-subtle">Partner</legend>
+                  <label className="block text-caption text-ink-muted">
+                    Anrede
+                    <select value={form.partner_salutation} onChange={(e) => set('partner_salutation', e.target.value as '' | Salutation)} className={inputClass}>
+                      <option value="">—</option>
+                      {SALUTATIONS.map((s) => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                  </label>
+                  <label className="block text-caption text-ink-muted">
+                    Geburtsdatum
+                    <input type="date" value={form.partner_date_of_birth} onChange={(e) => set('partner_date_of_birth', e.target.value)} className={inputClass} />
+                  </label>
+                  <label className="block text-caption text-ink-muted">
+                    Vorname
+                    <input type="text" value={form.partner_first_name} onChange={(e) => set('partner_first_name', e.target.value)} className={inputClass} />
+                  </label>
+                  <label className="block text-caption text-ink-muted">
+                    Nachname
+                    <input type="text" value={form.partner_last_name} onChange={(e) => set('partner_last_name', e.target.value)} className={inputClass} />
+                  </label>
+                  <label className="col-span-2 block text-caption text-ink-muted">
+                    Beruf
+                    <input type="text" value={form.partner_profession} onChange={(e) => set('partner_profession', e.target.value)} className={inputClass} />
+                  </label>
+                </fieldset>
+              )}
+
               <label className="col-span-2 block text-caption text-ink-muted">
                 Notizen
                 <textarea value={form.notes} onChange={(e) => set('notes', e.target.value)} rows={2} className={inputClass} />
