@@ -6011,6 +6011,36 @@ def _build_bucket_response(
     return bucket_response
 
 
+def _assert_allocation_has_basis(
+    advisory_wealth_rappen: int,
+    recurring_income_rappen: int,
+    recurring_expense_rappen: int,
+    capital_inflow_rappen: int,
+    capital_outflow_rappen: int,
+) -> None:
+    """Guard (User-Anweisung 2026-06-23): Ohne jede Datenbasis ist keine seriöse Asset-
+    Allocation möglich — sonst zeigt die SOLL-%-Torte ein Vermögen vor, das es nicht gibt.
+
+    Regel:
+    - Beratungsvermögen > 0  → erlaubt.
+    - Beratungsvermögen == 0 ABER Cashflows erfasst → erlaubt (Vermögensaufbau via Sparquote,
+      "Strategie vor Geldfluss").
+    - Weder Beratungsvermögen NOCH Cashflows (gar keine Daten) → ValueError (Endpoint → 409).
+    """
+    has_cashflow = bool(
+        recurring_income_rappen
+        or recurring_expense_rappen
+        or capital_inflow_rappen
+        or capital_outflow_rappen
+    )
+    if advisory_wealth_rappen <= 0 and not has_cashflow:
+        raise ValueError(
+            "Keine Vermögensbasis: Dieses Mandat hat weder Beratungsvermögen noch Cashflows. "
+            "Bitte zuerst Vermögenspositionen oder Cashflows (Vermögensaufbau) erfassen — "
+            "ohne Datenbasis ist keine Asset-Allocation möglich."
+        )
+
+
 def generate_target_allocation(
     db: Session,
     mandate: Mandate,
@@ -6051,6 +6081,14 @@ def generate_target_allocation(
     annual_net_cashflow_rappen = inputs["annual_net_cashflow_rappen"]
     cashflow_projection_series_rappen = inputs["cashflow_projection_series_rappen"]
     recurring_cashflow_projection_series_rappen = inputs["recurring_cashflow_projection_series_rappen"]
+    # Datenbasis-Guard: kein Beratungsvermögen UND keine Cashflows → keine Allocation (409).
+    _assert_allocation_has_basis(
+        advisory_wealth_rappen,
+        recurring_income_rappen,
+        recurring_expense_rappen,
+        capital_inflow_rappen,
+        capital_outflow_rappen,
+    )
     targets, minimums, maximums = _baseline_target_bands(house_matrix, policy)
     reasoning = [
         f"Ausgangspunkt ist die House Matrix fuer Score {score_bucket} ({house_matrix.profile_name}).",
