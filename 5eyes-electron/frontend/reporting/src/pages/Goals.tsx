@@ -37,6 +37,9 @@ export function Goals({ data }: GoalsProps) {
   const mc = data.monte_carlo_paths;
   // U-12: Chart erscheint NUR wenn der Aggregator echte Pfade liefert.
   // Bei data_pending=true bleibt der Hinweis-Block (`McPathsHint`).
+  // charts-1: Pfad-Arrays müssen dieselbe Länge wie time_axis haben — sonst
+  // gibt MonteCarloPathsChart null zurück (Längen-Check dort) und der Chart-Slot
+  // bliebe leer ohne Hinweis. Längengleichheit hier mitprüfen.
   const hasRealPaths =
     !!mc &&
     !mc.data_pending &&
@@ -44,7 +47,10 @@ export function Goals({ data }: GoalsProps) {
     mc.time_axis.length >= 2 &&
     !!mc.p5 &&
     !!mc.p50 &&
-    !!mc.p75;
+    !!mc.p75 &&
+    mc.p5.length === mc.time_axis.length &&
+    mc.p50.length === mc.time_axis.length &&
+    mc.p75.length === mc.time_axis.length;
 
   return (
     <ReportPage
@@ -114,7 +120,7 @@ function SortableTh({
   return (
     <th
       className={[
-        'pb-3 font-medium uppercase tracking-widest text-micro text-ink-subtle no-print',
+        'pb-3 font-medium uppercase tracking-widest text-micro text-ink-subtle',
         align === 'right' ? 'pr-0 text-right' : 'pr-4 text-left',
       ].join(' ')}
     >

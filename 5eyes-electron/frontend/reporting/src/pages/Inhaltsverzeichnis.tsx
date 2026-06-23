@@ -5,6 +5,8 @@ interface InhaltsverzeichnisProps {
 }
 
 export function Inhaltsverzeichnis({ data }: InhaltsverzeichnisProps) {
+  // PA-02: defensiv (siehe PA-01) — fehlendes kapitel-Array darf die App nicht blanken.
+  const kapitel = data?.kapitel ?? [];
   return (
     <article
       data-testid="report-page-toc"
@@ -15,8 +17,13 @@ export function Inhaltsverzeichnis({ data }: InhaltsverzeichnisProps) {
         <h1 className="font-serif text-h1 text-ink">Inhaltsverzeichnis</h1>
       </header>
 
+      {kapitel.length === 0 ? (
+        <p className="mt-section text-body italic text-ink-muted">
+          Kein Inhaltsverzeichnis verfügbar.
+        </p>
+      ) : (
       <ol className="mt-section">
-        {data.kapitel.map((kapitel) => (
+        {kapitel.map((kapitel) => (
           <li
             key={`${kapitel.nr}-${kapitel.title}`}
             className="group grid gap-4 border-t border-rule py-5 transition-colors duration-soft hover:border-rule-strong md:grid-cols-[4rem_minmax(0,1fr)]"
@@ -30,6 +37,7 @@ export function Inhaltsverzeichnis({ data }: InhaltsverzeichnisProps) {
           </li>
         ))}
       </ol>
+      )}
     </article>
   );
 }
