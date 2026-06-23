@@ -169,7 +169,9 @@ function GoalRow({ g }: { g: GoalEntry }) {
       </td>
       <td className="py-4 pr-4 align-top text-ink-muted">{g.goal_type || '—'}</td>
       <td className="py-4 pr-4 text-right align-top font-mono text-ink">
-        {formatChfRappen(g.target_amount_rappen)}
+        {/* PB-03: Renditeziel/Maximierung haben keinen Rappen-Zielwert (Backend 0)
+            → "CHF 0" wäre irreführend; dann "—". */}
+        {g.target_amount_rappen ? formatChfRappen(g.target_amount_rappen) : '—'}
       </td>
       <td className="py-4 pr-4 align-top">
         <GoalStatusPill status={g.status} />

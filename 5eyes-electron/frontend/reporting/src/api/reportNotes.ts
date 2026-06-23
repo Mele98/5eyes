@@ -112,7 +112,16 @@ async function handleResponse(response: Response): Promise<ReportNotes> {
     }
     throw new ApiError(response.status, detail);
   }
-  return (await response.json()) as ReportNotes;
+  const raw = (await response.json()) as ReportNotes;
+  // comp-5: Listenfelder defensiv normalisieren — buildInitial/anythingPersisted
+  // spreaden/lesen sie ungeschützt ([...x]); ein fehlendes/null-Feld (ältere
+  // Payloads) würde sonst beim Öffnen des Notes-Drawers crashen.
+  return {
+    ...raw,
+    vorgehen_offene_fragen: Array.isArray(raw.vorgehen_offene_fragen) ? raw.vorgehen_offene_fragen : [],
+    vorgehen_todos: Array.isArray(raw.vorgehen_todos) ? raw.vorgehen_todos : [],
+    vorgehen_dokumente: Array.isArray(raw.vorgehen_dokumente) ? raw.vorgehen_dokumente : [],
+  };
 }
 
 /**

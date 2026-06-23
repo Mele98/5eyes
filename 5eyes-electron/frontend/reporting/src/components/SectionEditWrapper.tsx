@@ -44,7 +44,8 @@ export function SingleFieldEditWrapper({
   const [open, setOpen] = useState(false);
   return (
     <>
-      <EditButton onClick={() => setOpen(true)} isEdited={isEdited} />
+      {/* comp-4: aussagekräftiges aria-label statt generischem "Sektion bearbeiten". */}
+      <EditButton onClick={() => setOpen(true)} isEdited={isEdited} ariaLabel={`${field.title} bearbeiten`} />
       <SingleFieldForm
         open={open}
         onClose={() => setOpen(false)}
@@ -75,7 +76,7 @@ export function WeiteresVorgehenEditWrapper({
   const [open, setOpen] = useState(false);
   return (
     <>
-      <EditButton onClick={() => setOpen(true)} isEdited={isEdited} />
+      <EditButton onClick={() => setOpen(true)} isEdited={isEdited} ariaLabel="Weiteres Vorgehen bearbeiten" />
       <WeiteresVorgehenForm
         open={open}
         onClose={() => setOpen(false)}

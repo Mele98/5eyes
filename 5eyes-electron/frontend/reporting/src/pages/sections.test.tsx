@@ -226,7 +226,7 @@ describe('Section 7: Erkenntnisse', () => {
     expect(screen.getByText('OK')).toBeInTheDocument();
     expect(screen.getByText('Achtung')).toBeInTheDocument();
     expect(screen.getByText('Handeln')).toBeInTheDocument();
-    expect(screen.getByText('Pendant')).toBeInTheDocument();
+    expect(screen.getByText('Pendent')).toBeInTheDocument();
   });
 
   it('handelt leere checks graziös', () => {
