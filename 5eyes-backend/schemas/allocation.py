@@ -319,6 +319,24 @@ class CapitalMarketAssumptionCreate(BaseModel):
     source: Optional[str] = "Portfolio Management intern"
     notes: Optional[str] = None
 
+    @model_validator(mode="after")
+    def _validate_cma(self):
+        # SCHEMA-03: Volatilitäten dürfen NICHT negativ sein — eine negative Varianz
+        # erzeugt in der Kovarianz-/Cholesky-Konstruktion der Monte-Carlo NaN/komplexe
+        # Werte (stiller Fehler statt klarer 422). Returns/Prämien dürfen negativ sein.
+        _vol_fields = (
+            "bonds_chf_ig_vol_bps", "bonds_fx_hedged_vol_bps", "bonds_hy_vol_bps",
+            "equity_ch_vol_bps", "equity_intl_vol_bps", "equity_em_vol_bps",
+            "real_estate_ch_vol_bps", "alternatives_gold_vol_bps", "liquidity_vol_bps",
+        )
+        for f in _vol_fields:
+            v = getattr(self, f, None)
+            if v is not None and v < 0:
+                raise ValueError(f"{f} darf nicht negativ sein (Volatilität >= 0).")
+        if self.valid_until is not None and self.valid_from and self.valid_until < self.valid_from:
+            raise ValueError("valid_until darf nicht vor valid_from liegen.")
+        return self
+
 
 class CapitalMarketAssumptionResponse(BaseResponse):
     id: str

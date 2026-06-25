@@ -256,6 +256,13 @@ function attachBackendProcessLogging(proc) {
   };
   forward(proc.stdout, 'stdout');
   forward(proc.stderr, 'stderr');
+  // EM-1: 'error' MUSS behandelt werden — sonst wird ein Spawn-Fehler (dev: python
+  // nicht auf PATH -> ENOENT; packaged: exe von AV/EACCES blockiert) als uncaught
+  // Exception geworfen und crasht den Electron-Main-Prozess, bevor irgendein Dialog
+  // erscheint. Mit Listener läuft waitForBackendReady stattdessen sauber in den Timeout.
+  proc.on('error', (err) => {
+    logLine(`Backend-Prozess konnte nicht gestartet werden: ${err && err.message ? err.message : err}`);
+  });
 }
 
 async function resolveFreePort(host) {
