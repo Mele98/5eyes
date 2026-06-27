@@ -128,7 +128,14 @@ class StooqProvider(MarketDataProvider):
         params["d1"] = (on_date - timedelta(days=10)).strftime("%Y%m%d")
         text = self._http_get(_STOOQ_BASE_URL, params)
         rows = self._parse_csv(text, symbol)
-        return self._to_bar(symbol, rows[-1], stooq_currency(sym))
+        # MD-04: Vertrag (base.get_eod) erzwingen — nur Handelstage <= on_date und
+        # das Maximum nehmen. Stooq kann (je nach Zeitzone/Range-Handling) eine
+        # Zeile > on_date liefern; rows[-1] wäre dann vertragswidrig.
+        eligible = [r for r in rows if r[0] <= on_date]
+        if not eligible:
+            raise SymbolNotFound(f"stooq: kein Handelstag <= {on_date} fuer {symbol}")
+        latest = max(eligible, key=lambda r: r[0])
+        return self._to_bar(symbol, latest, stooq_currency(sym))
 
     def get_history(self, symbol: str, start: Date, end: Date) -> list[Bar]:
         if end < start:
