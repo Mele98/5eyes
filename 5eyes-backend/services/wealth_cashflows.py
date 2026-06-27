@@ -218,10 +218,15 @@ def derive_wealth_cashflows(positions: list) -> list[DerivedCashflow]:
                 abs(int(getattr(pos, "mortgage_amortization_rappen", 0) or 0)),
                 f"Amortisation: {label}")
         elif ptype == "Immobilien":
-            _mk("rental_income", "Income",
-                abs(int(getattr(pos, "property_rental_income_rappen", 0) or 0)),
-                f"Mieteinnahmen: {label}",
-                inflation_linked=int(getattr(pos, "property_rental_inflation_linked", 0) or 0))
+            # Mieteinnahme nur ableiten, wenn die Liegenschaft auch einen Wert > 0 hat.
+            # Sonst entstünde Einkommen ohne Substanz (Wert 0 + Miete = Dateneingabe-
+            # Fehler / Inkonsistenz): die IST-Cashflow-Projektion zeigte Mieterträge,
+            # während Gesamt-/Beratungsvermögen die Liegenschaft mit 0 führen.
+            if value > 0:
+                _mk("rental_income", "Income",
+                    abs(int(getattr(pos, "property_rental_income_rappen", 0) or 0)),
+                    f"Mieteinnahmen: {label}",
+                    inflation_linked=int(getattr(pos, "property_rental_inflation_linked", 0) or 0))
         elif ptype == "Liquidität":
             _mk("liquidity_interest", "Income",
                 _rate_amount(value, getattr(pos, "liquidity_interest_rate_bps", 0)),
