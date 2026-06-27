@@ -195,7 +195,15 @@ def compute_scores(
     cap_profile = _capacity_profile(capacity_total)
     cap_band = CAPACITY_BAND[cap_profile]
     investment_horizon_label = canonicalize_horizon_label(investment_horizon_label)
-    horizon_years = HORIZON_YEARS.get(investment_horizon_label, 1)
+    # RT-1: unbekanntes Horizont-Label hart abweisen statt still auf 1 Jahr zu
+    # defaulten — sonst kippt der Anlagehorizont unbemerkt auf die kürzeste
+    # Kapazitäts-Stufe und verfälscht den FINMA-Score nach unten.
+    if investment_horizon_label not in HORIZON_YEARS:
+        raise ValueError(
+            f"Unbekanntes investment_horizon_label '{investment_horizon_label}' — "
+            f"erlaubt: {sorted(HORIZON_YEARS)}."
+        )
+    horizon_years = HORIZON_YEARS[investment_horizon_label]
     capacity_score_x10 = HORIZON_CAPACITY_MATRIX.get((horizon_years, cap_band), 0)
 
     # ── Risikobereitschaft ─────────────────────────────────────────────────────

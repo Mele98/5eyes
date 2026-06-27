@@ -67,13 +67,20 @@ class RiskAssessmentCreate(BaseModel):
 
     @model_validator(mode="after")
     def validate_points(self):
-        assert 0 <= self.q_income_points <= 4, "q_income_points muss zwischen 0 und 4 liegen"
-        assert 0 <= self.q_obligations_points <= 4
-        assert 0 <= self.q_savings_points <= 12
-        assert 0 <= self.q_wealth_points <= 12
-        assert 1 <= self.q_investment_goal_points <= 4
-        assert 1 <= self.q_risk_preference_points <= 4
-        assert 1 <= self.q_risk_behavior_points <= 4
+        # SCHEMA-01: explizit raise statt assert — assert wird unter `python -O`
+        # gestrippt, wodurch die FINMA-Punkte-Ranges still ungeprüft blieben.
+        _ranges = [
+            ("q_income_points", self.q_income_points, 0, 4),
+            ("q_obligations_points", self.q_obligations_points, 0, 4),
+            ("q_savings_points", self.q_savings_points, 0, 12),
+            ("q_wealth_points", self.q_wealth_points, 0, 12),
+            ("q_investment_goal_points", self.q_investment_goal_points, 1, 4),
+            ("q_risk_preference_points", self.q_risk_preference_points, 1, 4),
+            ("q_risk_behavior_points", self.q_risk_behavior_points, 1, 4),
+        ]
+        for name, val, lo, hi in _ranges:
+            if not (lo <= val <= hi):
+                raise ValueError(f"{name} muss zwischen {lo} und {hi} liegen (erhalten: {val}).")
         return self
 
 

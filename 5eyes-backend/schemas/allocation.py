@@ -4,22 +4,24 @@ from schemas.common import BaseResponse
 
 
 class TargetAllocationCreate(BaseModel):
-    target_equities_bps: int
-    target_bonds_bps: int
-    target_real_estate_bps: int
-    target_alternatives_bps: int
-    target_liquidity_bps: int
-    band_equities_min_bps: int
-    band_equities_max_bps: int
-    band_bonds_min_bps: int
-    band_bonds_max_bps: int
-    band_real_estate_min_bps: int
-    band_real_estate_max_bps: int
-    band_alternatives_min_bps: int
-    band_alternatives_max_bps: int
-    band_liquidity_min_bps: int
-    band_liquidity_max_bps: int
-    risky_fraction_bps: Optional[int] = None
+    # SCHEMA-04: bps-Felder auf [0,10000] begrenzt (vorher bare int → negative/
+    # absurde Quoten passierten bis zur Summen-/Band-Prüfung bzw. Engine).
+    target_equities_bps: int = Field(ge=0, le=10000)
+    target_bonds_bps: int = Field(ge=0, le=10000)
+    target_real_estate_bps: int = Field(ge=0, le=10000)
+    target_alternatives_bps: int = Field(ge=0, le=10000)
+    target_liquidity_bps: int = Field(ge=0, le=10000)
+    band_equities_min_bps: int = Field(ge=0, le=10000)
+    band_equities_max_bps: int = Field(ge=0, le=10000)
+    band_bonds_min_bps: int = Field(ge=0, le=10000)
+    band_bonds_max_bps: int = Field(ge=0, le=10000)
+    band_real_estate_min_bps: int = Field(ge=0, le=10000)
+    band_real_estate_max_bps: int = Field(ge=0, le=10000)
+    band_alternatives_min_bps: int = Field(ge=0, le=10000)
+    band_alternatives_max_bps: int = Field(ge=0, le=10000)
+    band_liquidity_min_bps: int = Field(ge=0, le=10000)
+    band_liquidity_max_bps: int = Field(ge=0, le=10000)
+    risky_fraction_bps: Optional[int] = Field(default=None, ge=0, le=10000)
     based_on_assessment_id: Optional[str] = None
     policy_id: str
 
