@@ -686,6 +686,37 @@ def _product_ids_for_mandate(db: Session, mandate_id: str) -> list[str]:
     return [pid for (pid,) in pids if pid]
 
 
+def _is_stale_redundant_fetch(
+    price_point: "PricePoint",
+    existing_latest_row: Any,
+    today: date,
+    stale_after_days: int,
+) -> tuple[bool, int | None]:
+    """MD-03: erkennt einen erfolgreichen, aber veralteten Fetch.
+
+    Gibt (is_stale, age_days) zurück. is_stale=True nur wenn der gefetchte Kurs
+    älter als stale_after_days ist UND STRIKT älter als der bereits gespeicherte
+    jüngste Kurs — dann ist er eine Regression auf ein älteres Datum und soll als
+    'stale' gezählt werden statt still als inserted/updated.
+
+    Bewusst `<` statt `<=`: eine Preis-KORREKTUR für dasselbe (alte) Datum bleibt
+    so ein legitimes Update. Existiert noch gar kein Kurs, wird auch ein alter
+    Wert gespeichert (besser als nichts) -> is_stale=False.
+    """
+    fetched_date = parse_iso_date(price_point.price_date)
+    if fetched_date is None:
+        return False, None
+    age_days = (today - fetched_date).days
+    if age_days <= stale_after_days:
+        return False, age_days
+    latest_date = (
+        parse_iso_date(existing_latest_row.price_date) if existing_latest_row else None
+    )
+    if latest_date is not None and fetched_date < latest_date:
+        return True, age_days
+    return False, age_days
+
+
 def refresh_prices_for_mandate(db: Session, mandate_id: str) -> dict[str, Any]:
     """Sprint U-P11b (2026-05-22): Per-Mandate Live-Preise-Refresh.
 
@@ -711,6 +742,7 @@ def refresh_prices_for_mandate(db: Session, mandate_id: str) -> dict[str, Any]:
         "updated": 0,
         "unchanged": 0,
         "reused_fresh": 0,
+        "stale": 0,
         "failed": 0,
         "failures": [],
         "started_at": utc_now_iso(),
@@ -774,6 +806,27 @@ def refresh_prices_for_mandate(db: Session, mandate_id: str) -> dict[str, Any]:
             })
             continue
 
+        # MD-03: erfolgreicher, aber veralteter Fetch nicht still als frischen
+        # Kurs verbuchen. Älter als stale_after_days UND nicht neuer als Bestand
+        # -> als 'stale' zählen und überspringen.
+        latest_existing = existing_latest.get(product.id)
+        is_stale, fetched_age = _is_stale_redundant_fetch(
+            price_point, latest_existing, today, stale_after_days
+        )
+        if is_stale:
+            summary["stale"] += 1
+            summary["failures"].append({
+                "product_id": product.id,
+                "product_name": product.product_name,
+                "lookup_symbol": resolve_lookup_symbol(product),
+                "lookup_mode": resolve_market_profile(product).get("lookup_mode"),
+                "error": (
+                    f"Kurs veraltet ({fetched_age}d > {stale_after_days}d) und nicht "
+                    "neuer als gespeicherter Wert — übersprungen."
+                ),
+            })
+            continue
+
         try:
             with db.begin_nested():
                 _, outcome = upsert_price_history(db, product, price_point)
@@ -818,6 +871,7 @@ def refresh_all_prices(db: Session) -> dict[str, Any]:
         "updated": 0,
         "unchanged": 0,
         "reused_fresh": 0,
+        "stale": 0,
         "failed": 0,
         "failures": [],
         "started_at": utc_now_iso(),
@@ -857,6 +911,27 @@ def refresh_all_prices(db: Session) -> dict[str, Any]:
                     "error": failure.get("error"),
                 }
             )
+            continue
+
+        # MD-03: erfolgreicher, aber veralteter Fetch nicht still als frischen
+        # Kurs verbuchen. Älter als stale_after_days UND nicht neuer als Bestand
+        # -> als 'stale' zählen und überspringen.
+        latest_existing = existing_latest.get(product.id)
+        is_stale, fetched_age = _is_stale_redundant_fetch(
+            price_point, latest_existing, today, stale_after_days
+        )
+        if is_stale:
+            summary["stale"] += 1
+            summary["failures"].append({
+                "product_id": product.id,
+                "product_name": product.product_name,
+                "lookup_symbol": resolve_lookup_symbol(product),
+                "lookup_mode": resolve_market_profile(product).get("lookup_mode"),
+                "error": (
+                    f"Kurs veraltet ({fetched_age}d > {stale_after_days}d) und nicht "
+                    "neuer als gespeicherter Wert — übersprungen."
+                ),
+            })
             continue
 
         try:
