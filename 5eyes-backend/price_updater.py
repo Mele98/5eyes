@@ -112,9 +112,15 @@ def fetch_latest_price(product: Product) -> PricePoint:
             if raw_price is None:
                 raise ValueError(f"Ungültiger Schlusskurs für {lookup_symbol}")
 
+            price_rappen = to_rappen(raw_price)
+            # MD-02: nicht-positiver Kurs ist kein gültiger Preis -> als Fehlversuch
+            # behandeln (Retry/last_error), nicht als 0-Kurs zurückgeben.
+            if price_rappen <= 0:
+                raise ValueError(f"Nicht-positiver Schlusskurs ({raw_price}) für {lookup_symbol}")
+
             return PricePoint(
                 price_date=getattr(last_index, "strftime", lambda x: str(last_index))("%Y-%m-%d"),
-                price_rappen=to_rappen(raw_price),
+                price_rappen=price_rappen,
                 currency=(product.currency or "CHF"),
             )
         except Exception as exc:
@@ -246,20 +252,46 @@ def _fetch_stooq_symbol_points(
     return symbol_points, symbol_errors
 
 
+def _collect_symbol_points(
+    resolved: dict[str, dict[str, Any]],
+    *,
+    default_source: str,
+) -> tuple[dict[str, tuple[str, int, str]], dict[str, str]]:
+    """MD-02: Provider-Payloads in symbol_points überführen, OHNE einen fehlenden
+    Preis via 'or 0' als gültigen 0-Kurs zu maskieren. Nicht-positive oder nicht
+    parsebare price_rappen landen in symbol_errors, damit das Produkt sauber als
+    'failed' gezählt wird statt einen 0-Kurs zu persistieren.
+    """
+    symbol_points: dict[str, tuple[str, int, str]] = {}
+    symbol_errors: dict[str, str] = {}
+    for symbol, payload in resolved.items():
+        raw = payload.get("price_rappen")
+        try:
+            price_rappen = int(raw)
+        except (TypeError, ValueError):
+            price_rappen = 0
+        source = str(payload.get("source") or default_source)
+        if price_rappen <= 0:
+            symbol_errors[symbol] = (
+                f"Ungültiger Kurs (price_rappen={raw!r}) von {source} verworfen."
+            )
+            continue
+        symbol_points[symbol] = (
+            str(payload.get("price_date") or ""),
+            price_rappen,
+            source,
+        )
+    return symbol_points, symbol_errors
+
+
 def _fetch_twelvedata_symbol_points(symbols: list[str]) -> tuple[dict[str, tuple[str, int, str]], dict[str, str]]:
     try:
         resolved, failures = fetch_twelvedata_latest_prices(symbols)
     except Exception as exc:
         return {}, {symbol: str(exc) for symbol in symbols}
-    symbol_points = {
-        symbol: (
-            str(payload.get("price_date") or ""),
-            int(payload.get("price_rappen") or 0),
-            str(payload.get("source") or "twelvedata"),
-        )
-        for symbol, payload in resolved.items()
-    }
-    symbol_errors = {symbol: str(message) for symbol, message in failures.items()}
+    symbol_points, symbol_errors = _collect_symbol_points(resolved, default_source="twelvedata")
+    for symbol, message in failures.items():
+        symbol_errors.setdefault(symbol, str(message))
     return symbol_points, symbol_errors
 
 
@@ -273,15 +305,9 @@ def _fetch_aggregator_symbol_points(symbols: list[str]) -> tuple[dict[str, tuple
         resolved, failures = fetch_latest_prices_via_aggregator(symbols)
     except Exception as exc:  # noqa: BLE001
         return {}, {symbol: str(exc) for symbol in symbols}
-    symbol_points = {
-        symbol: (
-            str(payload.get("price_date") or ""),
-            int(payload.get("price_rappen") or 0),
-            str(payload.get("source") or "aggregator"),
-        )
-        for symbol, payload in resolved.items()
-    }
-    symbol_errors = {symbol: str(message) for symbol, message in failures.items()}
+    symbol_points, symbol_errors = _collect_symbol_points(resolved, default_source="aggregator")
+    for symbol, message in failures.items():
+        symbol_errors.setdefault(symbol, str(message))
     return symbol_points, symbol_errors
 
 
@@ -405,6 +431,18 @@ def fetch_latest_prices_batch(products: list[Product]) -> tuple[dict[str, PriceP
         for symbol, message in fallback_errors.items():
             symbol_errors[symbol] = symbol_errors.get(symbol) or message
 
+    # MD-02: zentrales Safety-Net über ALLE Provider (auch yfinance/stooq/Fallback) —
+    # ein nicht-positiver price_rappen ist nie ein gültiger Kurs. Aus symbol_points
+    # entfernen und als Fehler markieren, damit kein 0-Kurs in resolved_points/DB
+    # gelangt.
+    for symbol in list(symbol_points.keys()):
+        point_date, point_rappen, point_source = symbol_points[symbol]
+        if point_rappen <= 0:
+            del symbol_points[symbol]
+            symbol_errors[symbol] = symbol_errors.get(symbol) or (
+                f"Ungültiger Kurs (price_rappen={point_rappen}) von {point_source} verworfen."
+            )
+
     for primary_symbol, mapped_products in primary_symbols.items():
         if primary_symbol in symbol_points:
             price_date, price_rappen, price_source = symbol_points[primary_symbol]
@@ -448,6 +486,13 @@ def fetch_latest_prices_batch(products: list[Product]) -> tuple[dict[str, PriceP
 
 
 def upsert_price_history(db: Session, product: Product, price_point: PricePoint) -> tuple[PriceHistory, str]:
+    # MD-02: letzte Verteidigungslinie — nie einen nicht-positiven Kurs persistieren,
+    # egal über welchen Pfad er hereinkommt. Callers fangen das pro Produkt ab.
+    if price_point.price_rappen <= 0:
+        raise ValueError(
+            f"Ungültiger Kurs (price_rappen={price_point.price_rappen}) für "
+            f"Produkt {product.id} — wird nicht gespeichert."
+        )
     existing = (
         db.query(PriceHistory)
         .filter(
@@ -729,8 +774,21 @@ def refresh_prices_for_mandate(db: Session, mandate_id: str) -> dict[str, Any]:
             })
             continue
 
-        with db.begin_nested():
-            _, outcome = upsert_price_history(db, product, price_point)
+        try:
+            with db.begin_nested():
+                _, outcome = upsert_price_history(db, product, price_point)
+        except ValueError as exc:
+            # MD-02: ungültiger Kurs (<=0) -> als Fehler zählen, Batch läuft weiter.
+            logger.warning("Price upsert rejected for product %s: %s", product.id, exc)
+            summary["failed"] += 1
+            summary["failures"].append({
+                "product_id": product.id,
+                "product_name": product.product_name,
+                "lookup_symbol": resolve_lookup_symbol(product),
+                "lookup_mode": resolve_market_profile(product).get("lookup_mode"),
+                "error": str(exc),
+            })
+            continue
 
         if outcome == "inserted":
             summary["inserted"] += 1
@@ -801,8 +859,21 @@ def refresh_all_prices(db: Session) -> dict[str, Any]:
             )
             continue
 
-        with db.begin_nested():
-            _, outcome = upsert_price_history(db, product, price_point)
+        try:
+            with db.begin_nested():
+                _, outcome = upsert_price_history(db, product, price_point)
+        except ValueError as exc:
+            # MD-02: ungültiger Kurs (<=0) -> als Fehler zählen, Batch läuft weiter.
+            logger.warning("Price upsert rejected for product %s: %s", product.id, exc)
+            summary["failed"] += 1
+            summary["failures"].append({
+                "product_id": product.id,
+                "product_name": product.product_name,
+                "lookup_symbol": resolve_lookup_symbol(product),
+                "lookup_mode": resolve_market_profile(product).get("lookup_mode"),
+                "error": str(exc),
+            })
+            continue
 
         if outcome == "inserted":
             summary["inserted"] += 1
