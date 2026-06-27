@@ -126,6 +126,7 @@ def test_summary_includes_derived_alongside_manual(auth_client, session_factory,
                   assignment="Verbindlichkeit", current_value_rappen=500_000_00,
                   mortgage_interest_rate_bps=150, valuation_date=f"{this_year}-01-01")
     _add_position(session_factory, cid, label="Immo", position_type="Immobilien",
+                  current_value_rappen=900_000_00,
                   property_rental_income_rappen=24_000_00, valuation_date=f"{this_year}-01-01")
     body = auth_client.get(f"/clients/{cid}/cashflow-summary").json()
     # Einnahmen = Lohn 100k + Miete 24k = 124k; Ausgaben = Zins 7'500.
