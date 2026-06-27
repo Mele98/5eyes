@@ -132,6 +132,34 @@ def test_get_eod_falls_back_to_last_trading_day_on_weekend():
     assert bar.close == Decimal("28.75")
 
 
+def test_md04_get_eod_filters_rows_after_on_date():
+    """MD-04: Yahoo kann bei losem 'end' einen Tag > on_date liefern. get_eod muss
+    auf <= on_date filtern und NICHT die spätere Zeile zurückgeben."""
+    df = _mock_history_df([
+        (date(2026, 5, 7), 28.20, 28.60, 28.15, 28.55, 28.55, 1_400_000),
+        (date(2026, 5, 8), 28.50, 28.90, 28.30, 28.75, 28.75, 1_500_000),
+        (date(2026, 5, 9), 30.00, 30.50, 29.80, 30.20, 30.20, 1_600_000),  # > on_date
+    ])
+    mock_ticker = _make_mock_ticker(df, fast_currency="CHF")
+    provider = YFinanceProvider()
+    with patch.object(provider, "_ticker_obj", return_value=mock_ticker):
+        bar = provider.get_eod("UBSG.SW", date(2026, 5, 8))
+    assert bar.date == date(2026, 5, 8)
+    assert bar.close == Decimal("28.75")  # NICHT 30.20
+
+
+def test_md04_get_eod_all_rows_after_on_date_raises():
+    """MD-04: bleibt nach dem Filter keine Zeile <= on_date, -> SymbolNotFound."""
+    df = _mock_history_df([
+        (date(2026, 5, 9), 30.00, 30.50, 29.80, 30.20, 30.20, 1_600_000),
+    ])
+    mock_ticker = _make_mock_ticker(df, fast_currency="CHF")
+    provider = YFinanceProvider()
+    with patch.object(provider, "_ticker_obj", return_value=mock_ticker):
+        with pytest.raises(SymbolNotFound):
+            provider.get_eod("UBSG.SW", date(2026, 5, 8))
+
+
 def test_get_eod_empty_df_raises_symbol_not_found():
     df = _mock_history_df([])
     mock_ticker = _make_mock_ticker(df)
