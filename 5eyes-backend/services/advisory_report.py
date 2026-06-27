@@ -645,6 +645,40 @@ def _build_wealth_summary(
     }
 
 
+def _compute_goal_achievement_score_bps(db: Session, mandate: Mandate) -> int | None:
+    """AR-2: einzige Quelle für den Zielerreichungs-Score (gewichteter Mittelwert der
+    Goal-Wahrscheinlichkeiten aus goal_achievability_json, weight_bps-gewichtet bzw.
+    gleichgewichtet). Genutzt von _build_key_metrics (Karte) UND der Goal-Based-Sektion,
+    damit beide denselben Wert zeigen. None = keine TA/keine bewertbaren Goals → Karte '—'.
+    """
+    import json
+
+    ta = _cached_current_ta(db, mandate)
+    if ta is None or not getattr(ta, "goal_achievability_json", None):
+        return None
+    try:
+        parsed = json.loads(ta.goal_achievability_json) or []
+    except (TypeError, ValueError):
+        return None
+    rows = [r for r in parsed if isinstance(r, dict)] if isinstance(parsed, list) else []
+    if not rows:
+        return None
+    goal_by_id = {str(g.id): g for g in _cached_active_goals(db, mandate)}
+    weighted_sum = 0.0
+    weight_total = 0.0
+    for r in rows:
+        meta = goal_by_id.get(str(r.get("goal_id", "") or ""))
+        probability = float(r.get("probability", 0) or 0)  # 0..1
+        weight = float(getattr(meta, "weight_bps", 0) or 0) if meta else 0.0
+        if weight <= 0:
+            weight = 1.0  # gleichgewichtet, falls Goal keine weight_bps hat
+        weighted_sum += probability * weight
+        weight_total += weight
+    if weight_total <= 0:
+        return None
+    return int(round(weighted_sum / weight_total * 10000))
+
+
 def _build_key_metrics(db: Session, mandate: Mandate) -> dict[str, Any]:
     """Aggregiert die 6 Key-Metric-Karten aus dem aktuellen TA-Snapshot.
 
@@ -666,10 +700,10 @@ def _build_key_metrics(db: Session, mandate: Mandate) -> dict[str, Any]:
         }
     return {
         "risky_fraction_bps": _safe_int(getattr(ta, "risky_fraction_bps", 0)) or None,
-        # Zielerreichung kommt aus goal_achievability_json — Aggregation
-        # erfolgt in eigener Sektion (U-P21.4). Hier nur der best-effort
-        # bestehende Wert oder None.
-        "zielerreichung_bps": None,
+        # AR-2: Zielerreichung aus dem geteilten Helper — identisch zum Wert der
+        # Goal-Based-Sektion (vorher hartkodiert None → Karte zeigte immer '—',
+        # obwohl die Sektion einen echten Score auswies = Inkonsistenz im Bericht).
+        "zielerreichung_bps": _compute_goal_achievement_score_bps(db, mandate),
         # Engine schreibt exp_return/exp_vol nicht direkt auf TA, sondern
         # in optimizer_reasoning_json oder shadow_optimization_json. Für
         # U-P21.1 belassen wir None — wird in U-P21.4 (Goal-Based) ergänzt.
@@ -898,6 +932,21 @@ def _build_positionen(db: Session, mandate: Mandate) -> dict[str, Any]:
         bucket_key = _bucket_key_from_asset_class(
             str(getattr(prod, "asset_class", "") or "")
         )
+        # AR-3: nicht zugeordnete Anlageklasse -> sichtbare 'Sonstige'-Gruppe
+        # (lazy, nur wenn tatsächlich eine solche Position existiert, damit die
+        # Standard-5-Gruppen-Struktur unverändert bleibt). So wird die fehlende
+        # Klassifizierung als Datenqualitäts-Hinweis sichtbar statt in Alternatives
+        # verschleiert.
+        if bucket_key not in groups_by_key:
+            sonstige = {
+                "key": "unknown",
+                "label": "Sonstige / nicht zugeordnet",
+                "positions": [],
+                "total_rappen": 0,
+            }
+            groups.append(sonstige)
+            groups_by_key["unknown"] = sonstige
+            bucket_key = "unknown"
         groups_by_key[bucket_key]["positions"].append({
             "isin": str(getattr(prod, "isin", "") or ""),
             "product_name": str(getattr(prod, "product_name", "") or "—"),
@@ -1491,11 +1540,17 @@ def _check_zielkompatibilitaet(db: Session, mandate: Mandate) -> dict[str, Any]:
             "Zielerreichungs-Daten leer oder ungültig.",
             "Anlagestrategie neu berechnen.",
         )
+    # AR-1: Engine (services/optimizer/objective.py:_PRIMARY_HARDNESS_KEYS) behandelt
+    # SOWOHL "hart" ALS AUCH "primär"/"primaer" als penalty-tragende (bindende) Ziele
+    # und persistiert sie via _display_hardness als "hart"/"primär". Der Report flaggte
+    # bisher nur ("hart","hard") rot — ein nicht erreichbares primäres Ziel blieb damit
+    # unauffällig, obwohl es in der Optimierung bindend ist. Kanonisches Set spiegeln.
+    _PRIMARY_HARDNESS = ("hart", "hard", "primaer", "primär", "primary")
     n_hart_unreachable = sum(
         1 for r in rows
         if isinstance(r, dict)
         and str(r.get("status", "")).lower() == "nicht_erreichbar"
-        and str(r.get("hardness", "")).lower() in ("hart", "hard")
+        and str(r.get("hardness", "")).strip().lower() in _PRIMARY_HARDNESS
     )
     n_knapp = sum(
         1 for r in rows
@@ -1505,7 +1560,7 @@ def _check_zielkompatibilitaet(db: Session, mandate: Mandate) -> dict[str, Any]:
     if n_hart_unreachable > 0:
         return _verdict(
             "Zielkompatibilität", "rot",
-            f"{n_hart_unreachable} hart definiertes Ziel nicht erreichbar.",
+            f"{n_hart_unreachable} bindend (hart/primär) definiertes Ziel nicht erreichbar.",
             "Zieldefinition oder Anlagestrategie anpassen.",
         )
     if n_knapp > 0:
@@ -1867,17 +1922,10 @@ def _build_goal_based_investing(db: Session, mandate: Mandate) -> dict[str, Any]
             "monte_carlo_paths": _build_monte_carlo_paths_section(db, mandate),
         }
 
-    weighted_sum = 0.0
-    weight_total = 0.0
     for r in rows:
         gid = str(r.get("goal_id", "") or "")
         meta = goal_by_id.get(gid)
         probability = float(r.get("probability", 0) or 0)  # 0..1
-        weight = float(getattr(meta, "weight_bps", 0) or 0) if meta else 0.0
-        if weight <= 0:
-            weight = 1.0  # gleichgewichtet, falls Goal keine weight_bps hat
-        weighted_sum += probability * weight
-        weight_total += weight
         # Goal-Typ-spezifisches Zielmass: Vermögensziele nutzen
         # target_wealth_rappen, Cashflow-/Pension-Ziele target_amount_rappen,
         # Rendite-Ziele target_return_bps (= None hier, da kein Rappen-Wert).
@@ -1901,10 +1949,10 @@ def _build_goal_based_investing(db: Session, mandate: Mandate) -> dict[str, Any]
             "probability_bps": int(round(probability * 10000)),
             "status": str(r.get("status", "") or ""),
         })
-    goal_achievement_score_bps = (
-        int(round(weighted_sum / weight_total * 10000))
-        if weight_total > 0 and goals else 0
-    )
+    # AR-2: Score aus dem geteilten Helper (single source of truth, identisch zur
+    # Key-Metric-Karte). None (keine bewertbaren Goals) -> 0 für die Sektion.
+    _score = _compute_goal_achievement_score_bps(db, mandate)
+    goal_achievement_score_bps = _score if _score is not None else 0
 
     return {
         "goals": goals,
@@ -2655,7 +2703,13 @@ def _ab_stress_diff_list(raw: list[dict]) -> list[dict[str, Any]]:
 
 
 def _bucket_key_from_asset_class(asset_class: str) -> str:
-    """Mappt Product.asset_class auf die 5 Berichts-Buckets."""
+    """Mappt Product.asset_class auf die 5 Berichts-Buckets.
+
+    AR-3: Leere/whitespace-only oder nicht gemappte (vertippte/lokalisierte)
+    Anlageklassen NICHT mehr still nach 'alternatives' kippen — das verfälschte
+    Sektion 5 und blähte die Alternatives-Quote auf. Stattdessen 'unknown'; der
+    Caller weist solche Positionen einer sichtbaren 'Sonstige'-Gruppe zu.
+    """
     raw = (asset_class or "").strip().lower()
     aliases = {
         "aktien": "equities", "equities": "equities",
@@ -2667,7 +2721,7 @@ def _bucket_key_from_asset_class(asset_class: str) -> str:
         "liquidität": "liquidity", "liquiditaet": "liquidity",
         "cash": "liquidity", "liquidity": "liquidity",
     }
-    return aliases.get(raw, "alternatives")
+    return aliases.get(raw, "unknown")
 
 
 def _build_disclaimer() -> dict[str, Any]:
