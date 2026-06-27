@@ -34,7 +34,10 @@ class ClientCreate(BaseModel):
 
 
 class ClientUpdate(BaseModel):
-    salutation: Optional[str] = None
+    # SCHEMA-05: Update nutzt dieselben Literal-Enums wie Create — vorher waren
+    # salutation/language/household_type/client_classification freie str und
+    # umgingen die FIDLEG-Wertelisten bei PATCH.
+    salutation: Optional[Literal["Herr", "Frau", "Divers"]] = None
     first_name: Optional[str] = None
     last_name: Optional[str] = None
     date_of_birth: Optional[str] = None
@@ -45,14 +48,16 @@ class ClientUpdate(BaseModel):
     civil_status: Optional[str] = None
     profession: Optional[str] = None
     employer: Optional[str] = None
-    language: Optional[str] = None
+    language: Optional[Literal["DE", "FR", "IT", "EN"]] = None
     partner_salutation: Optional[str] = None
     partner_first_name: Optional[str] = None
     partner_last_name: Optional[str] = None
     partner_date_of_birth: Optional[str] = None
     partner_profession: Optional[str] = None
-    household_type: Optional[str] = None
-    client_classification: Optional[str] = None
+    household_type: Optional[Literal["Einzelperson", "Paar", "Familie"]] = None
+    client_classification: Optional[Literal[
+        "Privatkunde", "Professioneller Kunde", "Institutioneller Kunde"
+    ]] = None
     is_professional_opt_out: Optional[bool] = None
     is_qualified_investor: Optional[bool] = None
     advisor_id: Optional[str] = None
