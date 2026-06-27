@@ -304,3 +304,38 @@ def test_positions_without_current_amount_are_not_refreshed(monkeypatch, db_sess
     assert called["fetch"] is False
     assert summary["products_considered"] == 0
     assert db_session.query(PriceHistory).filter_by(product_id=product_id).count() == 0
+
+
+# ---------------------------------------------------------------------------
+# MD-06: target_date = jüngster Werktag
+# ---------------------------------------------------------------------------
+
+from datetime import date, timedelta  # noqa: E402
+from services.market_data_daily_refresh import _most_recent_business_day  # noqa: E402
+
+
+def test_md06_most_recent_business_day_rolls_back_weekend():
+    # 2026-06-27 ist Samstag, 2026-06-28 Sonntag, 2026-06-26 Freitag
+    assert _most_recent_business_day(date(2026, 6, 27)) == date(2026, 6, 26)  # Sa -> Fr
+    assert _most_recent_business_day(date(2026, 6, 28)) == date(2026, 6, 26)  # So -> Fr
+    assert _most_recent_business_day(date(2026, 6, 26)) == date(2026, 6, 26)  # Fr unverändert
+    assert _most_recent_business_day(date(2026, 6, 29)) == date(2026, 6, 29)  # Mo unverändert
+
+
+def test_md06_asset_class_and_fx_requested_on_business_day(monkeypatch, db_session):
+    """get_eod darf für asset-class/FX nie mit einem Wochenend-Datum aufgerufen werden."""
+    seen_dates: list[date] = []
+
+    class _CapturingAggregator(FakeAggregator):
+        def get_eod(self, symbol: str, on_date: date) -> Bar:
+            seen_dates.append(on_date)
+            return super().get_eod(symbol, on_date)
+
+    monkeypatch.setattr(
+        "services.market_data.factory.build_default_aggregator",
+        lambda: _CapturingAggregator(),
+    )
+    run_daily_market_data_refresh(db_session)
+    assert seen_dates, "get_eod sollte für asset-class/FX aufgerufen werden"
+    for d in seen_dates:
+        assert d.weekday() < 5, f"{d} ist ein Wochenendtag (weekday={d.weekday()})"

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import logging
 import time
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Iterable
 
@@ -162,8 +162,24 @@ def _refresh_product_prices(db: Session, products: Iterable[Product], errors: li
     return counts
 
 
+def _most_recent_business_day(d: date) -> date:
+    """MD-06: jüngster Werktag <= d (Sa -> Fr, So -> Fr).
+
+    An Wochenenden gibt es keinen Handelstag; eine Anfrage mit dem Wochenend-Datum
+    als kanonischem Ziel ist irreführend. Feiertage werden nicht modelliert — der
+    Provider-Contract (get_eod liefert letzten Handelstag <= on_date, MD-04) deckt
+    die verbleibende Rückschau ab.
+    """
+    weekday = d.weekday()  # Mo=0 .. So=6
+    if weekday == 5:       # Samstag
+        return d - timedelta(days=1)
+    if weekday == 6:       # Sonntag
+        return d - timedelta(days=2)
+    return d
+
+
 def _refresh_asset_class_prices(db: Session, aggregator: Any, errors: list[dict]) -> int:
-    target_date = date.today()
+    target_date = _most_recent_business_day(date.today())
     rows_written = 0
     for asset_class, symbol in dict(DEFAULT_SYMBOL_MAP).items():
         try:
@@ -199,7 +215,7 @@ def _refresh_fx_rates(
     *,
     currencies: Iterable[str] = DEFAULT_FX_CURRENCIES,
 ) -> int:
-    target_date = date.today()
+    target_date = _most_recent_business_day(date.today())
     rows_written = 0
     for currency in sorted({str(c or "").upper() for c in currencies if str(c or "").strip()}):
         if currency == "CHF":
