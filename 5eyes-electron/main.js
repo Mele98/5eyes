@@ -417,6 +417,14 @@ function spawnBackendProcess() {
   backendManagedByApp = true;
 }
 
+// EM-7-Fix: child.killed bedeutet NUR "ein Signal wurde erfolgreich gesendet",
+// nicht "der Prozess ist beendet". Für die SIGKILL-Eskalation muss echte
+// Lebendigkeit geprüft werden: exitCode/signalCode sind null, solange der
+// Prozess läuft, und werden beim Beenden gesetzt.
+function backendProcessStillAlive(proc) {
+  return !!proc && proc.exitCode === null && proc.signalCode === null;
+}
+
 function terminateBackendProcess() {
   if (!backendManagedByApp || !backendProcess || backendProcess.killed) {
     return;
@@ -443,7 +451,10 @@ function terminateBackendProcess() {
       proc.kill('SIGTERM');
       setTimeout(() => {
         try {
-          if (proc && !proc.killed) {
+          // EM-7-Fix: NICHT proc.killed prüfen — das ist nach kill('SIGTERM')
+          // sofort true (= "Signal gesendet", nicht "Prozess tot"), wodurch die
+          // Eskalation nie feuerte. Echte Lebendigkeit über exit-/signalCode.
+          if (backendProcessStillAlive(proc)) {
             logLine(`Backend pid=${pid} did not exit on SIGTERM — escalating to SIGKILL`);
             proc.kill('SIGKILL');
           }
@@ -602,9 +613,14 @@ ipcMain.handle('file:save-pdf', async (_event, payload) => {
     if (!base64) {
       return { ok: false, error: 'PDF-Daten fehlen.' };
     }
-    // Base64 validieren: leerer oder nicht-round-trip-fähiger Input -> Abbruch.
-    const buffer = Buffer.from(base64, 'base64');
-    if (buffer.length === 0 || buffer.toString('base64').replace(/=+$/, '') !== base64.replace(/=+$/, '')) {
+    // Base64 validieren: zuerst Whitespace/Zeilenumbrüche entfernen (manche Renderer
+    // chunken Base64), DANN Round-Trip-Vergleich. So werden valide, nur anders
+    // formatierte PDFs akzeptiert, echter Müll (Nicht-Base64) aber weiterhin
+    // abgelehnt — Buffer.from ist beim Dekodieren tolerant und würde sonst Bytes
+    // aus Garbage erzeugen.
+    const compact = base64.replace(/\s+/g, '');
+    const buffer = Buffer.from(compact, 'base64');
+    if (buffer.length === 0 || buffer.toString('base64').replace(/=+$/, '') !== compact.replace(/=+$/, '')) {
       return { ok: false, error: 'PDF-Daten sind ungültig (kein valides Base64).' };
     }
     const target = await dialog.showSaveDialog(mainWindow || undefined, {
@@ -711,3 +727,9 @@ app.on('activate', async () => {
     await createMainWindow();
   }
 });
+
+// Nur für Tests exportiert (Electron ignoriert module.exports am Entrypoint).
+// Erlaubt das deterministische Prüfen der EM-7-Lebendigkeitslogik.
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports.backendProcessStillAlive = backendProcessStillAlive;
+}

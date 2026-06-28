@@ -62,7 +62,7 @@ Module._load = function (request, parent, isMain) {
 };
 
 // main.js laden (registriert ipc-Handler in unseren Stub).
-require(path.join(__dirname, '..', 'main.js'));
+const mainExports = require(path.join(__dirname, '..', 'main.js'));
 Module._load = originalLoad;
 
 // ── Assertions ───────────────────────────────────────────────────────────────
@@ -136,6 +136,35 @@ function check(name, fn) {
 
     state.encryptionAvailable = true;            // Recovery
     assert.strictEqual(getToken({}), 'secret-123', 'Token nach Recovery wieder lesbar');
+  });
+
+  // EM-2 (Review-LOW): Base64 mit Whitespace/Newlines (tolerant dekodiert) muss
+  // jetzt akzeptiert werden — vorher hätte der strikte Round-Trip valide PDFs
+  // fälschlich abgelehnt.
+  await check('EM-2 Base64 mit Whitespace -> akzeptiert', async () => {
+    const out = path.join(tmpDownloads, 'ws.pdf');
+    state.saveDialogResult = { canceled: false, filePath: out };
+    const raw = Buffer.from('%PDF-1.4 whitespace', 'utf8').toString('base64');
+    const chunked = raw.replace(/(.{8})/g, '$1\n');  // Zeilenumbrüche einstreuen
+    const r = await savePdf({}, { filename: 'ws.pdf', base64: chunked });
+    assert.strictEqual(r.ok, true);
+    assert.strictEqual(fs.readFileSync(out, 'utf8'), '%PDF-1.4 whitespace');
+  });
+
+  // EM-7-Fix: backendProcessStillAlive prüft echte Lebendigkeit, NICHT proc.killed.
+  await check('EM-7 backendProcessStillAlive exportiert', () => {
+    assert.strictEqual(typeof mainExports.backendProcessStillAlive, 'function');
+  });
+  await check('EM-7 killed=true aber laufend -> noch lebendig (SIGKILL würde feuern)', () => {
+    const alive = mainExports.backendProcessStillAlive;
+    // Nach kill('SIGTERM'): killed=true, aber Prozess läuft noch (exit/signal null).
+    assert.strictEqual(alive({ killed: true, exitCode: null, signalCode: null }), true);
+  });
+  await check('EM-7 beendet -> nicht mehr lebendig (kein SIGKILL)', () => {
+    const alive = mainExports.backendProcessStillAlive;
+    assert.strictEqual(alive({ killed: true, exitCode: 0, signalCode: null }), false);
+    assert.strictEqual(alive({ killed: true, exitCode: null, signalCode: 'SIGTERM' }), false);
+    assert.strictEqual(alive(null), false);
   });
 
   console.log(failed === 0 ? '\nALL GREEN' : `\n${failed} FAILED`);
