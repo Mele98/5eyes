@@ -468,6 +468,12 @@ def combined_objective_two_phase(
         liability_list,
         int(initial_wealth_rappen),
         lambda_chance=lambda_chance,
+        # OPT-1: weights MUSS auch in die Chance-Penalty fliessen. shortfall_ und
+        # volatility_objective bekommen sie bereits; ohne sie schätzt die Penalty
+        # P(success) als uniformes Sample-Mean über IS-geshiftete Pfade -> verzerrt
+        # -> falsche Strafterme -> falsch gewichtete Optimierung. Konsistent mit
+        # _objective_from_array/evaluate_weights (solver.py), die weights setzen.
+        weights=weights,
     )
     vol = volatility_objective(wealth_paths, weights=weights) if primary + chance < float(epsilon) else 0.0
     return primary_weight * primary + chance + volatility_weight * vol
