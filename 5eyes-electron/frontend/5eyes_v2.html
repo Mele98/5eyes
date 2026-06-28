@@ -21099,12 +21099,20 @@ async function refreshCashflowsUI(cid){
     var derExp=derived.filter(function(d){return d&&d.cashflow_type==='Expense';});
     var renderDerivedRow=function(c,isIncome){
       var src=c.origin_position_type?(' ('+escapeHtml(String(c.origin_position_type))+')'):'';
+      // Vermögens-Topf der Quellposition. "Anderes Vermögen" taucht NICHT in der
+      // Beratungs-/Allokationsansicht auf — daher hier explizit kennzeichnen, sonst
+      // wirkt eine Einnahme (z.B. Mietertrag) ohne sichtbare Vermögensquelle.
+      var asg=String((c&&c.origin_assignment)||'').trim();
+      var isOutsideAdvisory = asg && asg.toLowerCase().indexOf('beratung')===-1;
+      var potLabel = asg || 'Vermögen';
+      var potTag = asg ? (' <span style="font-size:8px;border-radius:3px;padding:1px 4px;margin-left:4px;letter-spacing:0.04em;vertical-align:middle;'+(isOutsideAdvisory?'background:rgba(176,120,40,0.22);color:#b07828':'background:rgba(120,120,120,0.16);color:var(--g4)')+'" title="Vermögens-Topf der Quelle">'+escapeHtml(potLabel)+'</span>') : '';
       // #53: klickbar wenn Herkunftsposition bekannt -> Sprung zur Vermögensposition.
       var pid=c.origin_position_id?String(c.origin_position_id):'';
       var attrs=pid?('style="opacity:0.9;cursor:pointer" onclick="jumpToWealthPosition(\''+jsAttrArg(pid)+'\')"'):'style="opacity:0.9"';
       var tipTail=pid?' — klicken öffnet die Vermögensposition':' — Betrag im Vermoegen bearbeiten, nicht hier.';
-      return '<div class="cf-row cf-derived" '+attrs+' title="Automatisch aus dem Vermoegen abgeleitet'+src+tipTail+'">'+
-        '<div class="cfn"><div class="cfna">'+escapeHtml(c.label||'')+' <span style="font-size:8px;background:rgba(201,168,76,0.18);color:var(--g4);border-radius:3px;padding:1px 4px;margin-left:4px;letter-spacing:0.04em;vertical-align:middle">⚙ AUTO</span></div><div class="cfnd">'+escapeHtml(cashflowTimingLabel(c))+' · aus Vermögen</div></div>'+
+      var tipAsg=asg?(' · Topf: '+asg+(isOutsideAdvisory?' (nicht im Beratungsvermögen/keine Allokation)':'')):'';
+      return '<div class="cf-row cf-derived" '+attrs+' title="Automatisch aus dem Vermoegen abgeleitet'+src+tipAsg+tipTail+'">'+
+        '<div class="cfn"><div class="cfna">'+escapeHtml(c.label||'')+' <span style="font-size:8px;background:rgba(201,168,76,0.18);color:var(--g4);border-radius:3px;padding:1px 4px;margin-left:4px;letter-spacing:0.04em;vertical-align:middle">⚙ AUTO</span>'+potTag+'</div><div class="cfnd">'+escapeHtml(cashflowTimingLabel(c))+' · aus '+escapeHtml(potLabel)+'</div></div>'+
         '<div class="cfa '+(isIncome?'ci':'co')+'">'+(isIncome?'+':'−')+fmt(c.amount_rappen||0)+'</div>'+
         '<div style="width:46px"></div></div>';
     };
