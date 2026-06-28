@@ -44,3 +44,18 @@ def test_no_rental_income_when_value_zero():
 def test_no_rental_income_when_value_negative():
     cfs = derive_wealth_cashflows([_immo(-100, 300_000)])
     assert _rental(cfs) == []
+
+
+def test_rental_income_carries_origin_assignment():
+    # Herkunfts-Topf wird durchgereicht, damit die UI sichtbar machen kann, dass
+    # ein Mietertrag aus 'Anderem Vermögen' stammt (nicht im Beratungsvermögen).
+    cfs = derive_wealth_cashflows([_immo(10_000_000, 300_000, assignment="Anderes Vermögen")])
+    rent = _rental(cfs)
+    assert len(rent) == 1
+    assert rent[0].origin_assignment == "Anderes Vermögen"
+    assert "origin_assignment" in rent[0].to_dict()
+
+
+def test_origin_assignment_none_when_unset():
+    cfs = derive_wealth_cashflows([_immo(10_000_000, 300_000)])
+    assert _rental(cfs)[0].origin_assignment is None
