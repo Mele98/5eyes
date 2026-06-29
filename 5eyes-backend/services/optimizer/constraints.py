@@ -91,8 +91,15 @@ def bands_from_house_matrix_row(row) -> HouseMatrixBands:
     Erwartet Felder *_min_bps, *_max_bps wie in models.allocation.HouseMatrix.
     """
     def _band(min_attr: str, max_attr: str) -> tuple[float, float]:
-        lo = int(getattr(row, min_attr, 0) or 0) / 10000.0
-        hi = int(getattr(row, max_attr, 10000) or 0) / 10000.0
+        # OPT-2: fehlenden/None-Wert vom EXPLIZITEN Wert unterscheiden. Vorher kippte
+        # `int(getattr(..., 10000) or 0)` eine vorhandene None-Obergrenze (oder den
+        # via `or` falsch behandelten Fall) auf 0 -> die Anlageklasse wäre im Solver
+        # auf ~0 gezwungen. Jetzt: fehlend -> Default (min=0 kein Floor, max=10000
+        # keine Cap); ein EXPLIZITES 0 bleibt 0 (legitime "diese Klasse nicht halten").
+        raw_lo = getattr(row, min_attr, None)
+        raw_hi = getattr(row, max_attr, None)
+        lo = (int(raw_lo) if raw_lo is not None else 0) / 10000.0
+        hi = (int(raw_hi) if raw_hi is not None else 10000) / 10000.0
         return (lo, hi)
 
     return HouseMatrixBands(
