@@ -26,14 +26,31 @@ def test_default_weights_are_ones():
     assert np.allclose(w, 1.0)
 
 
-def test_build_shift_vector_default_targets_equity_buckets():
+def test_build_shift_vector_default_targets_equity_bucket():
+    # MC-2: Default shiftet den Aktien-Bucket. In der kanonischen BUCKET_ORDER
+    # (equities, bonds, real_estate, alternatives, liquidity) ist das Index 0.
     shift = build_shift_vector(5)
     assert shift.shape == (5,)
-    assert shift[0] == 0.0  # liquidity
+    assert shift[0] == -DEFAULT_TAIL_SHIFT_STRENGTH  # equities
     assert shift[1] == 0.0  # bonds
-    assert shift[2] == -DEFAULT_TAIL_SHIFT_STRENGTH  # equity_ch
-    assert shift[3] == -DEFAULT_TAIL_SHIFT_STRENGTH  # equity_intl
-    assert shift[4] == 0.0  # alternatives
+    assert shift[2] == 0.0  # real_estate
+    assert shift[3] == 0.0  # alternatives
+    assert shift[4] == 0.0  # liquidity
+
+
+def test_mc2_default_shift_targets_canonical_equities_index():
+    """MC-2-Guard: der Default-Shift muss GENAU den equities-Bucket der kanonischen
+    BUCKET_ORDER treffen — nicht einen hartcodierten Index. Schlägt fehl, falls
+    jemand wieder [2,3] hartcodiert oder die Bucket-Reihenfolge bricht."""
+    from services.optimizer.scenario_engine import BUCKET_ORDER
+
+    eq_idx = BUCKET_ORDER.index("equities")
+    shift = build_shift_vector(len(BUCKET_ORDER))
+    for i in range(len(BUCKET_ORDER)):
+        expected = -DEFAULT_TAIL_SHIFT_STRENGTH if i == eq_idx else 0.0
+        assert shift[i] == expected, (
+            f"Bucket {i} ({BUCKET_ORDER[i]}): shift {shift[i]}, erwartet {expected}"
+        )
 
 
 def test_build_shift_vector_custom_indices():
@@ -89,18 +106,18 @@ def test_weighted_estimator_unbiased_for_symmetric_function():
     n_paths = 50_000
     horizon = 1
     n_buckets = 5
-    shift = build_shift_vector(n_buckets)  # shift[2] = shift[3] = -0.5
+    shift = build_shift_vector(n_buckets)  # shift[0] (equities) = -0.5
 
     z_proposal = rng.standard_normal(size=(n_paths, horizon, n_buckets)) + shift
     weights = compute_likelihood_weights(z_proposal, shift)
 
-    # Test fuer Bucket 2 (equity_ch, geshifted) — unweighted mean ist shift[2] = -0.5
-    raw_mean_b2 = z_proposal[:, 0, 2].mean()
-    assert abs(raw_mean_b2 - shift[2]) < 0.02, "unweighted mean sollte shift sein"
+    # Test fuer Bucket 0 (equities, geshifted) — unweighted mean ist shift[0] = -0.5
+    raw_mean_b0 = z_proposal[:, 0, 0].mean()
+    assert abs(raw_mean_b0 - shift[0]) < 0.02, "unweighted mean sollte shift sein"
 
     # Weighted mean sollte ~0 sein (Target-Distribution)
-    weighted_mean_b2 = (z_proposal[:, 0, 2] * weights).sum() / weights.sum()
-    assert abs(weighted_mean_b2 - 0.0) < 0.1, f"weighted mean = {weighted_mean_b2:.4f}, sollte ~0"
+    weighted_mean_b0 = (z_proposal[:, 0, 0] * weights).sum() / weights.sum()
+    assert abs(weighted_mean_b0 - 0.0) < 0.1, f"weighted mean = {weighted_mean_b0:.4f}, sollte ~0"
 
 
 def test_zero_shift_gives_trivial_weights():
@@ -130,8 +147,8 @@ def test_importance_sampling_reduces_tail_variance():
     rng = np.random.default_rng(2024)
     n_paths = 2_000
     n_buckets = 5
-    bucket_idx = 2  # equity_ch
-    shift = build_shift_vector(n_buckets)  # shift bucket 2 nach negativ
+    bucket_idx = 0  # equities (MC-2: Default-Shift trifft Index 0)
+    shift = build_shift_vector(n_buckets)  # shift bucket 0 nach negativ
 
     # Indikator-Fkt: 1 wenn Z[bucket] < -2 (Tail-Event)
     threshold = -2.0
