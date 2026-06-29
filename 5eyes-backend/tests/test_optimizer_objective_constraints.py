@@ -311,6 +311,37 @@ def test_bands_from_house_matrix_row_extracts_correctly():
     assert bands.liquidity == (0.02, 0.20)
 
 
+def test_opt2_missing_max_defaults_to_full_not_zero():
+    """OPT-2: fehlende/None-Obergrenze -> volle Range (1.0), NICHT 0.
+
+    Vorher kollabierte `int(getattr(..., 10000) or 0)` eine None-Obergrenze auf 0
+    und hätte die Anlageklasse im Solver auf ~0 gezwungen."""
+    # max-Attribute fehlen ganz bzw. sind None -> Default 10000 (= 1.0).
+    row = SimpleNamespace(
+        equity_min_bps=3000, equity_max_bps=None,
+        bonds_min_bps=2000,  # bonds_max_bps fehlt komplett
+        real_estate_min_bps=0, real_estate_max_bps=2000,
+        alt_min_bps=0, alt_max_bps=1000,
+        liq_min_bps=0, liq_max_bps=2000,
+    )
+    bands = bands_from_house_matrix_row(row)
+    assert bands.equities == (0.30, 1.0), "None-max -> volle Range"
+    assert bands.bonds == (0.20, 1.0), "fehlendes max -> volle Range"
+
+
+def test_opt2_explicit_zero_max_stays_zero():
+    """OPT-2: ein EXPLIZITES max=0 bleibt 0 (legitim 'diese Klasse nicht halten')."""
+    row = SimpleNamespace(
+        equity_min_bps=0, equity_max_bps=7000,
+        bonds_min_bps=0, bonds_max_bps=5000,
+        real_estate_min_bps=0, real_estate_max_bps=2000,
+        alt_min_bps=0, alt_max_bps=0,  # Alternatives explizit gesperrt
+        liq_min_bps=0, liq_max_bps=2000,
+    )
+    bands = bands_from_house_matrix_row(row)
+    assert bands.alternatives == (0.0, 0.0), "explizites max=0 bleibt 0"
+
+
 # ============================================================================
 # build_bounds: globale Caps ueberschreiben House-Matrix
 # ============================================================================
