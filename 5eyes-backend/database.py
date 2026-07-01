@@ -406,20 +406,32 @@ def ensure_runtime_columns() -> None:
                 # den Default; rohe SQL-Inserts ohne die Spalte brechen nicht).
                 column_name, sql_type = spec[0], spec[1]
                 default = spec[2] if len(spec) > 2 else None
-                if column_name in existing:
-                    continue
                 if not re.match(r'^[a-z][a-z0-9_]*$', table_name):
                     raise ValueError(f"Ungültiger Tabellenname: {table_name!r}")
                 if not re.match(r'^[a-z][a-z0-9_]*$', column_name):
                     raise ValueError(f"Ungültiger Spaltenname: {column_name!r}")
                 if not re.match(r'^[A-Z]+$', sql_type):
                     raise ValueError(f"Ungültiger SQL-Typ: {sql_type!r}")
-                ddl = f'ALTER TABLE {table_name} ADD COLUMN {column_name} {sql_type}'
+                if default is not None and (not isinstance(default, int) or isinstance(default, bool)):
+                    raise ValueError(f"Ungültiger Default (nur int): {default!r}")
+                if column_name not in existing:
+                    ddl = f'ALTER TABLE {table_name} ADD COLUMN {column_name} {sql_type}'
+                    if default is not None:
+                        ddl += f' NOT NULL DEFAULT {int(default)}'
+                    conn.execute(text(ddl))
+                # WP-500-Fix (2026-07-01): idempotenter Backfill. Wenn die Column in
+                # einer FRÜHEREN Migration OHNE Default zugefügt wurde, sind Bestands-
+                # zeilen NULL geblieben — der `NOT NULL DEFAULT` oben greift nur beim
+                # erstmaligen Anlegen, und ein bereits vorhandener Column-Name führte
+                # bisher zu `continue` (kein Backfill). Response-Schemas erwarten aber
+                # int (nicht NULL) -> ein einziges NULL liess `/wealth-positions` u.ä.
+                # mit 500 (ResponseValidationError) fehlschlagen. NULL->default auf
+                # jedem Start reparieren (idempotent, betrifft nur Alt-NULLs).
                 if default is not None:
-                    if not isinstance(default, int) or isinstance(default, bool):
-                        raise ValueError(f"Ungültiger Default (nur int): {default!r}")
-                    ddl += f' NOT NULL DEFAULT {int(default)}'
-                conn.execute(text(ddl))
+                    conn.execute(
+                        text(f'UPDATE {table_name} SET {column_name} = :d WHERE {column_name} IS NULL'),
+                        {'d': int(default)},
+                    )
                 existing.add(column_name)
 
         # RiskAssessment - Kenntnisse & Erfahrungen (Referenzmodell Eignungspruefung, 2026-04-16)

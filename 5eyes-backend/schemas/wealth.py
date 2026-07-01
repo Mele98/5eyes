@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import Optional, Literal
 from schemas.common import BaseResponse
 
@@ -141,6 +141,18 @@ class WealthPositionResponse(BaseResponse):
     property_rental_income_rappen: int
     property_rental_inflation_linked: int = 0
     pension_type: Optional[str]
+
+    @field_validator("property_rental_inflation_linked", mode="before")
+    @classmethod
+    def _inflation_linked_none_to_zero(cls, v):
+        # WP-500-Fix (2026-07-01): Belt-and-Suspenders. Diese Spalte wurde in einer
+        # frühen Migration ohne Backfill zugefügt -> Bestandszeilen NULL. Der Feld-
+        # Default (=0) greift NUR bei FEHLENDEM Wert, nicht bei present-None; ein
+        # einziges NULL liess `/wealth-positions` (response_model=list[...]) mit 500
+        # fehlschlagen und riss die GESAMTE Positionsliste im Frontend weg. None
+        # defensiv auf 0 (Modell-Default) mappen. Die eigentliche Reparatur macht
+        # der idempotente DB-Backfill in database.ensure_runtime_columns.
+        return 0 if v is None else v
     pension_institution: Optional[str]
     pension_retirement_age: Optional[int]
     pension_payout_form: Optional[str]
