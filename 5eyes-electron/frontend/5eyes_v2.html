@@ -6986,7 +6986,9 @@ function initCharts(){
       },
       elements:{point:{radius:0,hoverRadius:4,hitRadius:18}},
       scales:{
-        x:{grid:{display:false},ticks:{font:{size:9},color:'#7a8299'}},
+        // 2026-07-01: autoSkip + maxTicksLimit -> bei langen Horizonten (bis ~100
+        // Jahre) nur ~12 horizontale Jahres-Ticks statt ~100 rotierte/gequetschte.
+        x:{grid:{display:false},ticks:{font:{size:9},color:'#7a8299',autoSkip:true,maxRotation:0,maxTicksLimit:12}},
         y:{grid:{color:'rgba(0,0,0,0.04)'},ticks:{font:{size:9},color:'#7a8299',callback:function(v){var n=Number(v)||0;if(n===0)return '0';if(Math.abs(n)>=1000){var m=n/1000;return (m===Math.round(m)?String(Math.round(m)):m.toFixed(1))+' Mio';}return Math.round(n)+'k';}}}
       }
     };
@@ -20482,12 +20484,29 @@ function allocationTimelineRange(result){
   var endDate=new Date(end,11,31,23,59,59,999);
   return {
     labels:labels,
+    // 2026-07-01: ausgeduennte Jahres-Ticks fuer die Zeitachse (max ~12), damit
+    // lange Horizonte (Auto bis Lebensende = bis zu ~100 Jahre) nicht als
+    // gequetschte 1-Zelle-pro-Jahr-Liste erscheinen. Die Balken sind prozent-
+    // positioniert (Datum->%), daher unabhaengig von der Tick-Anzahl; nur die
+    // Achsen-Labels + Gitterlinien werden ausgeduennt.
+    tickLabels:allocationTimelineThinYears(labels,12),
     startYear:start,
     endYear:end,
     startDate:startDate,
     endDate:endDate,
     spanMs:Math.max(1,endDate.getTime()-startDate.getTime())
   };
+}
+function allocationTimelineThinYears(labels,maxTicks){
+  var list=Array.isArray(labels)?labels:[];
+  var L=list.length;
+  var max=Math.max(2,Number(maxTicks||12));
+  if(L<=max)return list.slice();
+  var step=Math.ceil((L-1)/(max-1));
+  var out=[];
+  for(var i=0;i<L;i+=step)out.push(list[i]);
+  if(out[out.length-1]!==list[L-1])out.push(list[L-1]);
+  return out;
 }
 function isAllocationTimelineCashflow(item){
   if(!item)return false;
@@ -20546,7 +20565,8 @@ function allocationTimelineBarHtmlLegacy(item,range){
   var right=allocationTimelineOffsetPct(endDate,range);
   var width=Math.max(2,right-left);
   var isIncome=String(item&&item.cashflow_type||'')==='Income';
-  var laneGrid='<div class="aa-flow-timeline-lane-grid" style="grid-template-columns:repeat('+range.labels.length+',minmax(0,1fr))">'+range.labels.map(function(){return '<span></span>';}).join('')+'</div>';
+  var laneTicks=(range&&Array.isArray(range.tickLabels)&&range.tickLabels.length)?range.tickLabels:range.labels;
+  var laneGrid='<div class="aa-flow-timeline-lane-grid" style="grid-template-columns:repeat('+laneTicks.length+',minmax(0,1fr))">'+laneTicks.map(function(){return '<span></span>';}).join('')+'</div>';
   return '<div class="aa-flow-timeline-row">'
     +'<div class="aa-flow-timeline-meta">'
     +'<div class="aa-flow-timeline-label">'+escapeHtml(String(item&&item.label||'Cashflow'))+'</div>'
@@ -20610,7 +20630,8 @@ function allocationTimelineBarHtml(item,range){
     ? (isIncome?'aa-flow-timeline-bar aa-flow-timeline-bar-capital-income':'aa-flow-timeline-bar aa-flow-timeline-bar-capital-expense')
     : (isIncome?'aa-flow-timeline-bar aa-flow-timeline-bar-income':'aa-flow-timeline-bar aa-flow-timeline-bar-expense');
   var hoverLabel=escapeHtml(allocationTimelineHoverLabel(item));
-  var laneGrid='<div class="aa-flow-timeline-lane-grid" style="grid-template-columns:repeat('+range.labels.length+',minmax(0,1fr))">'+range.labels.map(function(){return '<span></span>';}).join('')+'</div>';
+  var laneTicks=(range&&Array.isArray(range.tickLabels)&&range.tickLabels.length)?range.tickLabels:range.labels;
+  var laneGrid='<div class="aa-flow-timeline-lane-grid" style="grid-template-columns:repeat('+laneTicks.length+',minmax(0,1fr))">'+laneTicks.map(function(){return '<span></span>';}).join('')+'</div>';
   return '<div class="aa-flow-timeline-row">'
     +'<div class="aa-flow-timeline-lane">'
     +laneGrid
@@ -20709,7 +20730,8 @@ function renderAllocationCashflowTimeline(result){
     return;
   }
   var range=allocationTimelineRange(result);
-  var scale='<div class="aa-flow-timeline-scale"><div class="aa-flow-timeline-scale-spacer">Laufzeiten</div><div class="aa-flow-timeline-years" style="grid-template-columns:repeat('+range.labels.length+',minmax(0,1fr))">'+range.labels.map(function(year){return '<div class="aa-flow-timeline-year">'+escapeHtml(String(year))+'</div>';}).join('')+'</div></div>';
+  var ticks=(range&&Array.isArray(range.tickLabels)&&range.tickLabels.length)?range.tickLabels:range.labels;
+  var scale='<div class="aa-flow-timeline-scale"><div class="aa-flow-timeline-scale-spacer">Laufzeiten</div><div class="aa-flow-timeline-years" style="grid-template-columns:repeat('+ticks.length+',minmax(0,1fr))">'+ticks.map(function(year){return '<div class="aa-flow-timeline-year">'+escapeHtml(String(year))+'</div>';}).join('')+'</div></div>';
   var sorted=flows.slice().sort(function(a,b){
     var sectionDiff=allocationTimelineSectionRank(allocationTimelineSectionLabel(a))-allocationTimelineSectionRank(allocationTimelineSectionLabel(b));
     if(sectionDiff!==0)return sectionDiff;
