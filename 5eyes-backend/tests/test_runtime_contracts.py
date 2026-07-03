@@ -46,6 +46,7 @@ from routers.review import (
 from routers.review import auto_apply_product_id_mappings, auto_apply_product_reference_data
 from routers.snapshots import create_snapshot, get_drift, list_snapshots
 from routers.wealth import (
+    _goal_horizon_from_date,
     create_cashflow,
     create_goal,
     create_wealth_position,
@@ -1597,7 +1598,10 @@ def test_create_goal_derives_horizon_and_frequency_from_timing_fields(session_fa
     assert result.frequency == "monatlich"
     assert result.is_ongoing == 1
     assert result.start_date == f"{current_year + 4}-08-01"
-    assert result.horizon_years == 5
+    # Deterministisch statt Magic-Number: der Horizont wird per _goal_horizon_from_date
+    # aus dem Start-/Zieldatum abgeleitet (ceil der Tages-Differenz zu heute). Ein
+    # hartkodierter Wert war zeitabhaengig-flaky (kippt je nach heutigem Monat).
+    assert result.horizon_years == _goal_horizon_from_date(date(current_year + 4, 8, 1))
 
 
 def test_planning_assumptions_ui_get_and_put_support_inflation_bps(session_factory, advisor_user):
@@ -2015,7 +2019,9 @@ def test_create_goal_uses_target_date_for_one_off_goal(session_factory, advisor_
     assert result.frequency is None
     assert result.is_ongoing == 0
     assert result.start_date == f"{current_year + 2}-06-30"
-    assert result.horizon_years == 3
+    # Deterministisch: Horizont aus dem Zieldatum abgeleitet (ceil Tages-Differenz),
+    # nicht hartkodiert — sonst zeitabhaengig-flaky (kippt je nach heutigem Monat).
+    assert result.horizon_years == _goal_horizon_from_date(date(current_year + 2, 6, 30))
 
 
 def test_create_wealth_position_rejects_free_text_mortgage_link(session_factory, advisor_user):
