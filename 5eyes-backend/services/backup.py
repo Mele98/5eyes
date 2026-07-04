@@ -28,7 +28,9 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 import sqlite3
+import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -41,6 +43,11 @@ logger = logging.getLogger(__name__)
 _BACKUP_FILENAME_PATTERN = "5eyes-backup-{ts}.db"
 _BACKUP_FILENAME_GLOB = "5eyes-backup-*.db"
 _TIMESTAMP_FORMAT = "%Y%m%d-%H%M%S"
+
+# AB-1: Temp-Dateien beim atomaren Schreiben. Werden bei Absturz sichtbar
+# als Ruinen liegen gelassen, aber NIE als reguläres Backup gelistet/gepruned.
+_PARTIAL_SUFFIX = ".partial"
+_PARTIAL_GLOB = "*" + _PARTIAL_SUFFIX
 
 
 @dataclass(frozen=True)
@@ -101,17 +108,23 @@ def backup_database(
     target_dir_path = Path(target_dir).expanduser().resolve()
     target_dir_path.mkdir(parents=True, exist_ok=True)
 
+    # AB-1: Verwaiste Temp-Dateien frueherer, abgebrochener Laeufe entfernen.
+    _remove_orphaned_partials(target_dir_path)
+
     ts = (timestamp or datetime.now(timezone.utc))
     fname = _BACKUP_FILENAME_PATTERN.format(ts=ts.strftime(_TIMESTAMP_FORMAT))
     target = target_dir_path / fname
 
-    # Atomares Backup via sqlite3.Connection.backup()
-    # — funktioniert auch wenn die Source-DB gerade geschrieben wird.
+    # Wirklich atomares Backup: Temp-Datei -> integrity_check -> os.replace.
+    # Die Integritaetspruefung passiert VOR dem sichtbaren Rename (in
+    # _perform_atomic_copy); erst ein "ok" macht das Backup sichtbar.
     _perform_atomic_copy(src, target)
 
+    # Sidecar ERST nach dem Backup-Rename, ebenfalls via Temp+Replace,
+    # damit Backup + Sidecar aus Lesersicht atomar erscheinen.
     sha = _sha256_file(target)
     sidecar = target.with_suffix(target.suffix + ".sha256")
-    sidecar.write_text(f"{sha}  {target.name}\n", encoding="utf-8")
+    _write_sidecar_atomically(sidecar, f"{sha}  {target.name}\n")
 
     pruned = _prune_old_backups(
         target_dir_path,
@@ -170,19 +183,29 @@ def restore_database(
 
     hash_verified = False
     if verify_hash:
+        # AB-1: Strikte Verifikation. Ein fehlendes ODER mismatchtes Sidecar
+        # fuehrt zum Abbruch — NIE stilles Ueberschreiben der Live-DB mit
+        # einem unverifizierten (moeglicherweise korrupten) Backup.
         sidecar = src.with_suffix(src.suffix + ".sha256")
-        if sidecar.exists():
-            expected = sidecar.read_text(encoding="utf-8").split()[0].strip()
-            actual = _sha256_file(src)
-            if expected != actual:
-                raise ValueError(
-                    f"SHA256-Mismatch fuer {src.name}: "
-                    f"expected={expected[:16]}... actual={actual[:16]}..."
-                )
-            hash_verified = True
+        if not sidecar.exists():
+            raise ValueError(
+                f"Kein SHA256-Sidecar fuer {src.name} — Restore mit "
+                f"verify_hash=True abgelehnt (fehlende Integritaetsgarantie)."
+            )
+        expected = sidecar.read_text(encoding="utf-8").split()[0].strip()
+        actual = _sha256_file(src)
+        if expected != actual:
+            raise ValueError(
+                f"SHA256-Mismatch fuer {src.name}: "
+                f"expected={expected[:16]}... actual={actual[:16]}..."
+            )
+        hash_verified = True
 
     target = Path(target_db_path).expanduser().resolve()
     target.parent.mkdir(parents=True, exist_ok=True)
+    # Einspielen in die produktive DB ebenfalls via Temp+os.replace
+    # (inkl. integrity_check der Kopie) — abgebrochener Restore hinterlaesst
+    # die Live-DB unveraendert.
     _perform_atomic_copy(src, target)
 
     bytes_restored = target.stat().st_size
@@ -207,7 +230,7 @@ def list_backups(target_dir: str | Path) -> list[Path]:
     if not p.exists():
         return []
     files = sorted(
-        p.glob(_BACKUP_FILENAME_GLOB),
+        _list_backup_files(p),  # *.partial ausgeschlossen
         key=lambda f: f.stat().st_mtime,
         reverse=True,
     )
@@ -218,28 +241,152 @@ def list_backups(target_dir: str | Path) -> list[Path]:
 # Internals
 # ---------------------------------------------------------------------------
 
+def _fsync_path(path: Path) -> None:
+    """fsync einer Datei (best-effort). Fehler werden geloggt, nicht geworfen."""
+    try:
+        fd = os.open(str(path), os.O_RDONLY)
+    except OSError as exc:  # pragma: no cover - plattformabhaengig
+        logger.debug("fsync: konnte %s nicht oeffnen (%s)", path, exc)
+        return
+    try:
+        os.fsync(fd)
+    except OSError as exc:  # pragma: no cover - plattformabhaengig
+        logger.debug("fsync fehlgeschlagen fuer %s (%s)", path, exc)
+    finally:
+        os.close(fd)
+
+
+def _fsync_dir(directory: Path) -> None:
+    """fsync des Verzeichnisses, damit der Rename durable ist.
+
+    Auf Windows lassen sich Verzeichnisse nicht mit os.open()/os.fsync()
+    synchronisieren — dort ist os.replace() bereits atomar und der
+    Directory-fsync entfaellt best-effort (kein Fehler).
+    """
+    if os.name != "posix":
+        return
+    try:
+        fd = os.open(str(directory), os.O_RDONLY)
+    except OSError as exc:  # pragma: no cover - plattformabhaengig
+        logger.debug("dir-fsync: konnte %s nicht oeffnen (%s)", directory, exc)
+        return
+    try:
+        os.fsync(fd)
+    except OSError as exc:  # pragma: no cover - plattformabhaengig
+        logger.debug("dir-fsync fehlgeschlagen fuer %s (%s)", directory, exc)
+    finally:
+        os.close(fd)
+
+
+def _integrity_check_ok(db_path: Path) -> bool:
+    """Oeffnet die (fertig geschriebene) DB read-only und prueft
+    `PRAGMA integrity_check`. True nur bei exakt "ok".
+    """
+    uri = f"file:{db_path.as_posix()}?mode=ro"
+    conn = sqlite3.connect(uri, uri=True)
+    try:
+        rows = conn.execute("PRAGMA integrity_check").fetchall()
+    finally:
+        conn.close()
+    return len(rows) == 1 and str(rows[0][0]).lower() == "ok"
+
+
 def _perform_atomic_copy(source: Path, target: Path) -> None:
-    """Atomares Kopieren via sqlite3.Connection.backup().
+    """Wirklich atomares Kopieren einer SQLite-DB (AB-1).
+
+    Ablauf:
+      1. Online-Backup via sqlite3.Connection.backup() in eine eindeutige
+         Temp-Datei im SELBEN Zielverzeichnis (damit os.replace atomar auf
+         demselben Dateisystem laeuft).
+      2. Temp-Datei read-only wieder oeffnen und `PRAGMA integrity_check`.
+      3. Nur bei "ok": fsync(Datei) -> os.replace(temp, final) -> fsync(dir).
+      4. Bei JEDEM Fehler: Temp-Datei entfernen und Exception weiterreichen.
 
     Auch wenn die Source-DB gerade beschrieben wird, liefert die
     Online-Backup-API einen konsistenten Snapshot. WAL-Journal-Inhalte
-    werden mitkopiert.
-
-    Wir oeffnen die Source bewusst URI-mode read-only (`?mode=ro`), um
-    keine konkurrierenden Writes zu provozieren. Das funktioniert
-    sowohl mit normalem SQLite als auch mit SQLCipher-DBs — die
-    .backup()-API kopiert die Bytes wie sie sind.
+    werden mitkopiert. Source wird bewusst URI-mode read-only (`?mode=ro`)
+    geoeffnet. Funktioniert mit normalem SQLite und SQLCipher (Bytes 1:1).
     """
-    source_uri = f"file:{source.as_posix()}?mode=ro"
-    src_conn = sqlite3.connect(source_uri, uri=True)
+    target_dir = target.parent
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    # Eindeutige Temp-Datei im Zielverzeichnis (gleiches Dateisystem).
+    fd, temp_name = tempfile.mkstemp(
+        prefix=target.name + ".", suffix=_PARTIAL_SUFFIX, dir=str(target_dir)
+    )
+    os.close(fd)
+    temp = Path(temp_name)
+
     try:
-        dst_conn = sqlite3.connect(str(target))
+        source_uri = f"file:{source.as_posix()}?mode=ro"
+        src_conn = sqlite3.connect(source_uri, uri=True)
         try:
-            src_conn.backup(dst_conn)
+            dst_conn = sqlite3.connect(str(temp))
+            try:
+                src_conn.backup(dst_conn)
+            finally:
+                dst_conn.close()
         finally:
-            dst_conn.close()
-    finally:
-        src_conn.close()
+            src_conn.close()
+
+        # Integritaet der frisch geschriebenen Kopie verifizieren.
+        if not _integrity_check_ok(temp):
+            raise ValueError(
+                f"integrity_check fehlgeschlagen fuer Backup-Temp {temp.name}"
+            )
+
+        # Durabilitaet: Dateiinhalt auf Platte, dann atomarer Rename.
+        _fsync_path(temp)
+        os.replace(str(temp), str(target))
+        _fsync_dir(target_dir)
+    except BaseException:
+        # Abbruch zwischen Temp-Schreiben und Rename -> Temp entfernen,
+        # damit KEINE gueltig benannte, aber unvollstaendige Datei bleibt.
+        try:
+            if temp.exists():
+                temp.unlink()
+        except OSError as exc:  # pragma: no cover
+            logger.warning("Konnte Temp-Backup nicht entfernen: %s (%s)", temp, exc)
+        raise
+
+
+def _remove_orphaned_partials(target_dir: Path) -> int:
+    """Entfernt verwaiste *.partial-Dateien (Ruinen abgebrochener Laeufe)."""
+    if not target_dir.exists():
+        return 0
+    removed = 0
+    for f in target_dir.glob(_PARTIAL_GLOB):
+        try:
+            f.unlink()
+            removed += 1
+        except OSError as exc:  # pragma: no cover
+            logger.warning("Konnte verwaiste Temp-Datei nicht loeschen: %s (%s)", f, exc)
+    return removed
+
+
+def _write_sidecar_atomically(sidecar: Path, content: str) -> None:
+    """Schreibt das .sha256-Sidecar via Temp+os.replace, damit Backup und
+    Sidecar atomar (aus Sicht des Lesers) erscheinen.
+    """
+    target_dir = sidecar.parent
+    fd, temp_name = tempfile.mkstemp(
+        prefix=sidecar.name + ".", suffix=_PARTIAL_SUFFIX, dir=str(target_dir)
+    )
+    temp = Path(temp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(content)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(str(temp), str(sidecar))
+        _fsync_dir(target_dir)
+    except BaseException:
+        try:
+            if temp.exists():
+                temp.unlink()
+        except OSError:  # pragma: no cover
+            pass
+        raise
 
 
 def _sha256_file(path: Path, chunk_size: int = 1 << 16) -> str:
@@ -254,8 +401,17 @@ def _sha256_file(path: Path, chunk_size: int = 1 << 16) -> str:
     return h.hexdigest()
 
 
+def _list_backup_files(target_dir: Path) -> list[Path]:
+    """Alle regulaeren Backup-Dateien — *.partial werden ausgeschlossen."""
+    return [
+        f
+        for f in target_dir.glob(_BACKUP_FILENAME_GLOB)
+        if f.suffix != _PARTIAL_SUFFIX and not f.name.endswith(_PARTIAL_SUFFIX)
+    ]
+
+
 def _count_backups(target_dir: Path) -> int:
-    return sum(1 for _ in target_dir.glob(_BACKUP_FILENAME_GLOB))
+    return len(_list_backup_files(target_dir))
 
 
 def _prune_old_backups(
@@ -274,7 +430,7 @@ def _prune_old_backups(
 
     cutoff = now.timestamp() - retain_days * 86400
     all_backups = sorted(
-        target_dir.glob(_BACKUP_FILENAME_GLOB),
+        _list_backup_files(target_dir),  # *.partial ausgeschlossen
         key=lambda f: f.stat().st_mtime,
         reverse=True,  # neueste zuerst
     )
