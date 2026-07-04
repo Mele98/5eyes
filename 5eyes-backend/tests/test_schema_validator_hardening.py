@@ -204,15 +204,20 @@ def test_schema06_partial_update_no_false_positive():
 
 # ── RT-1 ─────────────────────────────────────────────────────────────────────
 
-def test_rt1_unknown_horizon_label_rejected():
-    with pytest.raises(ValueError):
-        compute_scores(
-            q_income_points=2, q_obligations_points=2,
-            q_savings_points=6, q_wealth_points=6,
-            investment_horizon_label="irgendwas Falsches",
-            q_investment_goal_points=2, q_risk_preference_points=2,
-            q_risk_behavior_points=2,
-        )
+def test_rt1_unknown_horizon_label_defaults_conservative():
+    # RT-1 (revidiert 2026-07-04): unbekanntes Label -> konservativer Default
+    # (horizon=1 -> capacity 0), KEIN raise. Ungültige Labels fängt die Pydantic-
+    # Literal-Whitelist an der API ab; intern ist der 0-Default die sichere,
+    # testabgedeckte Semantik (test_cholesky_and_horizon.py).
+    res = compute_scores(
+        q_income_points=4, q_obligations_points=4,
+        q_savings_points=12, q_wealth_points=12,
+        investment_horizon_label="irgendwas Falsches",
+        q_investment_goal_points=4, q_risk_preference_points=4,
+        q_risk_behavior_points=4,
+    )
+    assert res.risk_capacity_score_x10 == 0
+    assert res.final_score_x10 == 0
 
 
 def test_rt1_known_horizon_label_accepted():
