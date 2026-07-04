@@ -5063,6 +5063,7 @@ async function loadClientById(clientId) {
   currentGoals = [];
   currentCashflows = [];
   currentCashflowSummary = null;
+  currentWealthSummary = null;
   currentCashflowProjection = null;
   currentWealthPositions = [];
   currentPortfolioPositions = [];
@@ -5123,11 +5124,14 @@ async function loadClientById(clientId) {
       if (phS) phS.textContent = (c.first_name||'') + ' ' + (c.last_name||'') + ' · ' + (c.household_type||'') + ' · ' + (c.canton || c.country_of_residence || '');
       if (wealthRes.status === 'fulfilled' && wealthRes.value) {
         const w = wealthRes.value;
+        currentWealthSummary = clientScopedSummary((w||{}), c.id);
         const fmtK = v => 'CHF ' + Math.round(v).toLocaleString('de-CH');
         const kRV = document.getElementById('kpi-reinvermoegen');
         if (kRV) kRV.textContent = fmtK(w.net_worth_chf);
         const kBV = document.getElementById('kpi-beratungsvermoegen');
         if (kBV) kBV.textContent = fmtK(w.advisory_wealth_chf);
+      } else {
+        currentWealthSummary = null;
       }
       currentCashflowSummary = cashflowRes.status === 'fulfilled' && cashflowRes.value
         ? clientScopedSummary((cashflowRes.value||{}), c.id)
@@ -6206,6 +6210,10 @@ function activeClientCashflowSummary(){
   return clientScopedSummary(currentCashflowSummary,currentClientId);
 }
 
+function activeClientWealthSummary(){
+  return clientScopedSummary(currentWealthSummary,currentClientId);
+}
+
 function activeClientCashflowProjection(){
   return clientScopedProjection(currentCashflowProjection,currentClientId);
 }
@@ -7093,6 +7101,7 @@ const PERSONAS = [{"id": "HH-001", "name": "Lukas Meier", "household": "Single",
 let currentPersona = null;
 var currentCashflows = [];
 var currentCashflowSummary = null;
+var currentWealthSummary = null;
 var currentCashflowProjection = null;
 var currentGoals = [];
 var currentPortfolioPositions = [];
@@ -7809,9 +7818,11 @@ function buildAnlagestrategieDocHtmlV2Draft(allocation,risk,persona,mandateData,
   var advisoryPositions=allWealth.filter(function(pos){return String(pos.assignment||'')==='Beratungsvermögen';});
   var otherPositions=allWealth.filter(function(pos){return String(pos.assignment||'')==='Anderes Vermögen';});
   var liabilities=allWealth.filter(function(pos){return String(pos.assignment||'')==='Verbindlichkeit';});
+  var wealthSummary=null;
+  try{if(typeof activeClientWealthSummary==='function')wealthSummary=activeClientWealthSummary();}catch(e){}
   var advisoryTotalRappen=sumPositions(advisoryPositions)||Math.round(Number(allocation&&allocation.advisory_wealth_rappen||0));
-  var otherTotalRappen=sumPositions(otherPositions);
-  var liabilitiesRappen=sumPositions(liabilities);
+  var liabilitiesRappen=sumPositions(liabilities)||Math.max(0,Math.round(Number(wealthSummary&&wealthSummary.liabilities_rappen||0)));
+  var otherTotalRappen=sumPositions(otherPositions)||Math.max(0,Math.round(Number(wealthSummary&&wealthSummary.gross_wealth_rappen||0))-Math.round(Number(wealthSummary&&wealthSummary.advisory_wealth_rappen||0))-liabilitiesRappen);
   var totalGrossRappen=advisoryTotalRappen+otherTotalRappen;
   var totalNetRappen=Math.max(0,totalGrossRappen-liabilitiesRappen);
   function projectionRows(scope){
@@ -21483,6 +21494,7 @@ async function refreshWealthUI(cid){
     var positionsRes=results[1];
     if(summaryRes.status==='fulfilled'&&summaryRes.value){
       var d=summaryRes.value;
+      currentWealthSummary=clientScopedSummary((d||{}),cid);
       var fmt=function(v){return 'CHF '+Math.round(v).toLocaleString('de-CH');};
       var k=document.getElementById('kpi-reinvermoegen');
       if(k)k.textContent=fmt(d.net_worth_chf||0);
