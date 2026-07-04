@@ -195,15 +195,15 @@ def compute_scores(
     cap_profile = _capacity_profile(capacity_total)
     cap_band = CAPACITY_BAND[cap_profile]
     investment_horizon_label = canonicalize_horizon_label(investment_horizon_label)
-    # RT-1: unbekanntes Horizont-Label hart abweisen statt still auf 1 Jahr zu
-    # defaulten — sonst kippt der Anlagehorizont unbemerkt auf die kürzeste
-    # Kapazitäts-Stufe und verfälscht den FINMA-Score nach unten.
-    if investment_horizon_label not in HORIZON_YEARS:
-        raise ValueError(
-            f"Unbekanntes investment_horizon_label '{investment_horizon_label}' — "
-            f"erlaubt: {sorted(HORIZON_YEARS)}."
-        )
-    horizon_years = HORIZON_YEARS[investment_horizon_label]
+    # RT-1 (revidiert 2026-07-04): BEWUSST konservativer Default statt raise. Ein
+    # unbekanntes Label fällt auf horizon_years=1 zurück -> HORIZON_CAPACITY_MATRIX
+    # liefert für die kürzeste Stufe 0 -> Score 0 (sicherster Fall). Das ist die
+    # ursprünglich intendierte, testabgedeckte Safety-Net-Semantik
+    # (test_cholesky_and_horizon.py). Ungültige Labels werden ohnehin bereits von
+    # der Pydantic-Literal-Whitelist (RiskAssessmentCreate) an der API abgewiesen;
+    # ein raise hier würde nur interne/Legacy-Aufrufe hart crashen statt konservativ
+    # zu defaulten.
+    horizon_years = HORIZON_YEARS.get(investment_horizon_label, 1)
     capacity_score_x10 = HORIZON_CAPACITY_MATRIX.get((horizon_years, cap_band), 0)
 
     # ── Risikobereitschaft ─────────────────────────────────────────────────────
