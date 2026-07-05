@@ -225,7 +225,10 @@ def _make_isin_table(products: list, base_currency: str):
                 Paragraph("<br/>".join(product_cell_parts), _para_compact()),
                 _esc(sub) if sub else "—",
                 f"{weight_bps/100:.1f}%" if weight_bps > 0 else "—",
-                _format_amount(amount, ccy) if amount > 0 else "—",
+                # target_amount_rappen ist CHF (base_currency) — NICHT in die Produkt-
+                # Waehrung umrechnen, sonst summieren die Zeilen nicht auf Subtotal/
+                # Total (die base_currency nutzen). Die Produkt-CCY steht separat.
+                _format_amount(amount, base_currency) if amount > 0 else "—",
                 ccy,
                 f"{ter/100:.2f}%" if ter > 0 else "—",
             ])
