@@ -10,11 +10,26 @@ Spec: docs/planning/2026-05-17-sprint-9-multi-currency.md
 """
 from __future__ import annotations
 
+import contextvars
+
 from services.currency.fx_rates import DEFAULT_FX_RATES, FXRateSource
 
 
-# Eine Default-Instanz fuer Convenience.
+# Eine Default-Instanz fuer Convenience (hardcodierte DEFAULT_FX_RATES).
 _DEFAULT_SOURCE = FXRateSource()
+
+# Aktive FX-Quelle pro Request/Context. Die PDF-Generierung setzt hier die aus der
+# DB gepflegten Berater-Rates (FXRateSource.from_db), damit convert_rappen sie als
+# Default nutzt statt der hardcodierten DEFAULT_FX_RATES. None -> _DEFAULT_SOURCE.
+# ContextVar ist thread-/async-sicher (kein Leak zwischen parallelen Requests).
+_active_fx_source: contextvars.ContextVar = contextvars.ContextVar(
+    "active_fx_source", default=None
+)
+
+
+def set_active_fx_source(source: FXRateSource | None) -> None:
+    """Setzt die fuer diesen Context (Request) aktive FX-Quelle (z.B. DB-Rates)."""
+    _active_fx_source.set(source)
 
 
 # Alle unterstuetzten Currency-Codes (fuer UI-Dropdowns etc.)
@@ -45,7 +60,9 @@ def convert_rappen(
     """
     if amount_rappen == 0:
         return 0.0
-    src = source if source is not None else _DEFAULT_SOURCE
+    # Prioritaet: explizit uebergebene source > aktive Context-Quelle (DB-Rates aus
+    # der PDF-Generierung) > hardcodierter DEFAULT_FX_RATES-Fallback.
+    src = source if source is not None else (_active_fx_source.get() or _DEFAULT_SOURCE)
     from_ccy = from_currency.upper().strip()
     to_ccy = to_currency.upper().strip()
     if from_ccy == to_ccy:
