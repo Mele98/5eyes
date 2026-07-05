@@ -5125,13 +5125,20 @@ async function loadClientById(clientId) {
       if (wealthRes.status === 'fulfilled' && wealthRes.value) {
         const w = wealthRes.value;
         currentWealthSummary = clientScopedSummary((w||{}), c.id);
-        const fmtK = v => 'CHF ' + Math.round(v).toLocaleString('de-CH');
+        const fmtK = v => 'CHF ' + Math.round(Number(v)||0).toLocaleString('de-CH');
         const kRV = document.getElementById('kpi-reinvermoegen');
         if (kRV) kRV.textContent = fmtK(w.net_worth_chf);
         const kBV = document.getElementById('kpi-beratungsvermoegen');
         if (kBV) kBV.textContent = fmtK(w.advisory_wealth_chf);
       } else {
+        // Wealth-Summary fehlt/rejected: currentWealthSummary leeren UND die KPI-
+        // Nodes neutralisieren, sonst bleibt beim Klientenwechsel das Reinvermögen
+        // des VORIGEN Klienten sichtbar (staler, plausibel wirkender Wert).
         currentWealthSummary = null;
+        const kRV0 = document.getElementById('kpi-reinvermoegen');
+        if (kRV0) kRV0.textContent = 'CHF —';
+        const kBV0 = document.getElementById('kpi-beratungsvermoegen');
+        if (kBV0) kBV0.textContent = 'CHF —';
       }
       currentCashflowSummary = cashflowRes.status === 'fulfilled' && cashflowRes.value
         ? clientScopedSummary((cashflowRes.value||{}), c.id)
@@ -21119,7 +21126,10 @@ async function refreshCashflowsUI(cid){
     var summaryYear=Number(summary.summary_year||new Date().getFullYear());
     // Validierung 2026-06-11: bevorzugt das occurrence-genaue Backend-Summary;
     // cashflowBreakdownForYear nur als Fallback wenn Summary fehlt.
-    var breakdown=cashflowBreakdownFromSummary(summary)||cashflowBreakdownForYear(items,summaryYear);
+    // Mandanten-Trennung auch im Fallback: gescopte _scopedCf statt rohem items
+    // (sonst zeigten die Summenkacheln bei fehlendem Backend-Summary Totale über
+    // ALLE geladenen Cashflows inkl. eines vorigen Klienten).
+    var breakdown=cashflowBreakdownFromSummary(summary)||cashflowBreakdownForYear(_scopedCf,summaryYear);
     var renderRow=function(c,isIncome){
       return '<div class="cf-row" draggable="true" data-cfid="'+escapeHtml(c.id||'')+'">'+
         '<div class="cfn"><div class="cfna">'+escapeHtml(c.label||'Cashflow')+'</div><div class="cfnd">'+escapeHtml(cashflowTimingLabel(c))+'</div></div>'+
