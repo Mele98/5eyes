@@ -383,11 +383,12 @@
 
 ### [✓] 79–82 Zielerreichung P25 · Ziel-Gleichgewichtung (Härtegrad opt-in) · maxIlliquid=PE · Itô-Hauptpfad=MC-Median (diese Session)
 
-### [ ] 83. 🟠 `goal_scope="Gesamtvermögen"` engine-seitig
+### [✓] 83. 🟠 `goal_scope="Gesamtvermögen"` engine-seitig (2026-06-19)
 - **Ziel:** Ziele gegen Gesamtvermögen statt nur Beratungsvermögen bewerten.
 - **Können:** Bei Scope=Gesamtvermögen Hochrechnung gegen total_wealth; Wachstumsannahmen externer Assets (Immobilien etc.) konservativ + dokumentiert.
 - **Verknüpft:** #84 (Miete), #97 (CMA).
 - **DoD:** Test: Ziel mit Scope Gesamtvermögen nutzt total-Pfad; Determinismus.
+- **UMGESETZT (User-Entscheid: real 0 %):** Für Vermögensziele (Kapitalerhalt/Vermoegensziel) mit `goal_scope="Gesamtvermögen"` werden externe Assets (Gesamt- minus Beratungsvermögen) **konservativ nur mit Teuerung** (realer Zuwachs 0 %, keine Vola) zur Projektion addiert — in deterministischem UND MC-Pfad **identisch** (kein Drift, B4-Falle vermieden). Default-Scope (Beratungsvermögen) unverändert. Ausgaben-/Renditeziele bleiben scope-neutral (Ausgaben liquiditätsgetrieben — illiquide Eigenheime zahlen keine kurzfristige Ausgabe). Helfer `_external_assets_inflation_value` + `_goal_uses_total_scope` in `portfolio_engine.py`. Locks: `test_goal_scope_gesamtvermoegen.py` (6), B4-Tests auf Default-Scope umgestellt.
 
 ### [ ] 84. 🟠 Miete inflationsindexiert (optional)
 - **Können:** Flag pro Immobilie „Miete inflationsgebunden" → abgeleiteter Mietertrag `is_inflation_linked=1`.
@@ -431,8 +432,10 @@
 - **Verknüpft:** Reserve-Logik `_reserve_decay_factor`, #94.
 - **DoD:** Test: Reserve ≥ N×Ausgabe bei Verzehr; konservativ.
 
-### [ ] 96. 🟡 Sequence-of-Returns-Kennzahl (Verzehr)
-- **DoD:** Kennzahl im SOLL/IST-Vergleich sichtbar.
+### [✓] 96. 🟡 Sequence-of-Returns-Kennzahl (Verzehr) — Backend + FE (2026-06-19)
+- **DoD:** Kennzahl im SOLL/IST-Vergleich sichtbar. ✅
+- **UMGESETZT (Backend):** Verzehr-/Depletion-Kennzahl aus den MC-Pfaden abgeleitet — Anteil der Pfade, deren Vermögen vor Horizontende aufgezehrt ist (Pfad-Total ≤ 0), plus mittleres Erschöpfungsjahr; für SOLL **und** IST. Helfer `_sequence_of_returns_depletion`; exponiert in `monte_carlo` als `target_/current_depletion_probability_pct` + `target_/current_depletion_median_year`. In der Akkumulation = 0 %. Lock: `test_sequence_of_returns_depletion.py` (5).
+- **UMGESETZT (FE):** Zeile „Verzehr-Risiko" im SOLL/IST-Kennzahlen-Vergleich (`5eyes_v2.html`, IDs `aa-proj-depletion`/`aa-proj-current-depletion`), zeigt Depletion-% (+ „ab Jahr"), SOLL grün/warn vs IST eingefärbt (tiefer = besser). Monolith-Snapshot regeneriert.
 
 ### [ ] 97. 🟡 CMA-Werte gegen konservative CH-Annahmen prüfen
 - **Können:** Renditen/Vols/Korrelationen je Assetklasse plausibilisieren (konservativ, Ruhestandsgelder).
@@ -458,7 +461,8 @@
 ### [ ] 103. 🟢 Goal-Achievement-Ordinalskala 3eyes-exakt (heute kontinuierlich) — bewusst optional
 ### [ ] 104. 🟢 Serielle Renditeziele sauber im Optimizer
 ### [ ] 105. 🟢 Liquid-Alts vs Hedge-Funds Liquiditäts-Klassifikation feinjustieren
-### [ ] 106. 🟡 Engine-Whitepaper aktuell halten (Methodik-Transparenz für FINMA)
+### [✓] 106. 🟡 Engine-Whitepaper aktuell halten (Methodik-Transparenz für FINMA) — Stand 2026-06-19
+- **AKTUALISIERT:** §4 um Ziel-Bezugsgrösse `goal_scope=Gesamtvermögen` (#83, externe Assets real 0 %, kein MC-Drift) erweitert; §11 um die Verzehr-/Sequence-of-Returns-Kennzahl (#96) ergänzt; Code-/Test-Referenzen um die neuen Helfer + Regression-Locks nachgeführt. (Laufende Aufgabe — bei künftigen Methodik-Änderungen weiter pflegen.)
 ### [ ] 107. 🟢 Backtesting gegen historische Daten erweitern
 ### [ ] 108. 🟢 Stress-Szenarien-Presets (2008/2020/Zinsschock)
 ### [ ] 109. 🟢 Goal-Priorisierung bei Konflikt transparenter

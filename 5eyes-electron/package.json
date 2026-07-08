@@ -8,6 +8,7 @@
   "scripts": {
     "start": "electron .",
     "dev": "electron .",
+    "test": "node tests/main.smoke.test.js",
     "build:backend": "node scripts/build-backend.js",
     "build:reporting": "cd frontend/reporting && npm run build",
     "pack": "npm run preflight:release && npm run build:reporting && npm run build:backend && electron-builder --dir",

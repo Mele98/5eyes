@@ -51,6 +51,11 @@ class DerivedCashflow:
     source: str = "wealth_position"
     origin_position_id: Optional[str] = None
     origin_position_type: Optional[str] = None
+    # Vermögens-Topf der Quellposition ("Beratungsvermögen" / "Anderes Vermögen").
+    # Macht sichtbar, dass z.B. Mieterträge aus 'Anderem Vermögen' stammen, das in
+    # der Beratungs-/Allokationsansicht NICHT auftaucht — sonst wirkt eine Einnahme
+    # ohne sichtbare Quelle.
+    origin_assignment: Optional[str] = None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -193,6 +198,7 @@ def derive_wealth_cashflows(positions: list) -> list[DerivedCashflow]:
         currency = str(getattr(pos, "currency", "") or "CHF")
         vfrom = getattr(pos, "valuation_date", None)
         value = int(getattr(pos, "current_value_rappen", 0) or 0)
+        assignment = str(getattr(pos, "assignment", "") or "").strip() or None
 
         def _mk(suffix: str, cf_type: str, amount: int, text: str, inflation_linked: int = 0) -> None:
             if amount <= 0:
@@ -208,6 +214,7 @@ def derive_wealth_cashflows(positions: list) -> list[DerivedCashflow]:
                 is_inflation_linked=1 if inflation_linked else 0,
                 origin_position_id=pid,
                 origin_position_type=ptype,
+                origin_assignment=assignment,
             ))
 
         if ptype == "Hypothek":
@@ -218,10 +225,15 @@ def derive_wealth_cashflows(positions: list) -> list[DerivedCashflow]:
                 abs(int(getattr(pos, "mortgage_amortization_rappen", 0) or 0)),
                 f"Amortisation: {label}")
         elif ptype == "Immobilien":
-            _mk("rental_income", "Income",
-                abs(int(getattr(pos, "property_rental_income_rappen", 0) or 0)),
-                f"Mieteinnahmen: {label}",
-                inflation_linked=int(getattr(pos, "property_rental_inflation_linked", 0) or 0))
+            # Mieteinnahme nur ableiten, wenn die Liegenschaft auch einen Wert > 0 hat.
+            # Sonst entstünde Einkommen ohne Substanz (Wert 0 + Miete = Dateneingabe-
+            # Fehler / Inkonsistenz): die IST-Cashflow-Projektion zeigte Mieterträge,
+            # während Gesamt-/Beratungsvermögen die Liegenschaft mit 0 führen.
+            if value > 0:
+                _mk("rental_income", "Income",
+                    abs(int(getattr(pos, "property_rental_income_rappen", 0) or 0)),
+                    f"Mieteinnahmen: {label}",
+                    inflation_linked=int(getattr(pos, "property_rental_inflation_linked", 0) or 0))
         elif ptype == "Liquidität":
             _mk("liquidity_interest", "Income",
                 _rate_amount(value, getattr(pos, "liquidity_interest_rate_bps", 0)),

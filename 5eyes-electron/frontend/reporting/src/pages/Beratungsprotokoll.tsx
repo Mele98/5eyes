@@ -281,8 +281,11 @@ function LatestEntry({ entry }: { entry: BeratungsprotokollEntry }) {
           <>
             <dt className="text-micro uppercase tracking-widest text-ink-subtle">Integrität</dt>
             <dd className="text-caption text-ink-muted">
+              {/* C1: ehrliche Anzeige — das FE prüft den Hash NICHT, es liegt nur
+                  einer vor. "verifiziert" wäre eine irreführende FINMA-Aussage,
+                  solange das Backend kein integrity_verified-Flag liefert. */}
               <span className="font-mono">{hashShort}…</span>{' '}
-              <span className="font-semibold text-status-gruen">verifiziert</span>
+              <span className="text-ink-subtle">Integritäts-Hash hinterlegt</span>
             </dd>
           </>
         ) : null}

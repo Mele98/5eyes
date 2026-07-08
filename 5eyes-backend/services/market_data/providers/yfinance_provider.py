@@ -123,7 +123,18 @@ class YFinanceProvider(MarketDataProvider):
             raise ProviderError(f"yfinance.history failed for {symbol}: {exc}") from exc
         if df is None or df.empty:
             raise SymbolNotFound(f"yfinance: keine Daten fuer {symbol} (Datum {on_date})")
-        # Letzte Zeile = letzter Handelstag <= on_date
+        # MD-04: Vertrag (base.get_eod) erzwingen — nur Handelstage <= on_date.
+        # Yahoo behandelt `end` lose und kann einen Extra-Tag liefern; df.iloc[-1]
+        # könnte daher > on_date sein. Auf <= on_date filtern und das Maximum nehmen.
+        mask = [
+            (idx.date() if hasattr(idx, "date") else idx) <= on_date
+            for idx in df.index
+        ]
+        df = df[mask]
+        if df is None or df.empty:
+            raise SymbolNotFound(
+                f"yfinance: kein Handelstag <= {on_date} fuer {symbol}"
+            )
         last_row = df.iloc[-1]
         last_date = df.index[-1].date() if hasattr(df.index[-1], "date") else on_date
         currency = self._currency_from_ticker(ticker)

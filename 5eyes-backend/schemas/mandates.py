@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, model_validator
 from typing import Optional, Literal
 from schemas.common import BaseResponse
 
@@ -24,22 +24,28 @@ class MandateCreate(BaseModel):
     # Sprint B4 (2026-05-07): Anlageuniversum-Wahl bei Mandat-Erstellung.
     investment_universe: Optional[Literal["Standard", "Alternativ"]] = "Standard"
     # Sprint 4 Phase 3 (2026-05-17): Mortalitaets-Sampling.
-    client_birth_year: Optional[int] = None
+    # SCHEMA-06: Geburtsjahr plausibilisiert (1900–2200).
+    client_birth_year: Optional[int] = Field(default=None, ge=1900, le=2200)
     client_sex: Optional[Literal["M", "F"]] = None
     use_mortality_simulation: Optional[bool] = False
 
 
 class MandateUpdate(BaseModel):
-    mandate_type: Optional[str] = None
+    # SCHEMA-05: mandate_type/advisory_language nutzen dieselben Literal-Enums
+    # wie Create — vorher freie str, die die Wertelisten bei PATCH umgingen.
+    mandate_type: Optional[Literal[
+        "Vermögensverwaltung", "Anlageberatung", "Finanzplanung", "Reporting only"
+    ]] = None
     status: Optional[Literal["Aktiv", "Inaktiv", "Archiviert"]] = None
     base_currency: Optional[str] = None
-    advisory_language: Optional[str] = None
+    advisory_language: Optional[Literal["DE", "FR", "IT", "EN"]] = None
     depot_bank: Optional[str] = None
     depot_account_number: Optional[str] = None
     closed_at: Optional[str] = None
     # Sprint A3 (2026-05-06): Rentenalter + Lebenserwartung
-    retirement_year: Optional[int] = None
-    life_expectancy_year: Optional[int] = None
+    # SCHEMA-06: Jahre plausibilisiert (1900–2200) + Reihenfolge-Check unten.
+    retirement_year: Optional[int] = Field(default=None, ge=1900, le=2200)
+    life_expectancy_year: Optional[int] = Field(default=None, ge=1900, le=2200)
     # Sprint B4 (2026-05-07): Anlageuniversum
     investment_universe: Optional[Literal["Standard", "Alternativ"]] = None
     # Sprint B1 (2026-05-07): Building-Block-Wahl als JSON-String.
@@ -47,7 +53,8 @@ class MandateUpdate(BaseModel):
     #                 altsLiquidAlts, altsHedge, altsPe, altsCrypto.
     default_building_blocks_json: Optional[str] = None
     # Sprint 4 Phase 3 (2026-05-17): Mortalitaets-Sampling.
-    client_birth_year: Optional[int] = None
+    # SCHEMA-06: Geburtsjahr plausibilisiert (1900–2200).
+    client_birth_year: Optional[int] = Field(default=None, ge=1900, le=2200)
     client_sex: Optional[Literal["M", "F"]] = None
     use_mortality_simulation: Optional[bool] = None
     # Sprint U-P3 (2026-05-19): Steuersitz fuer tax-aware Allocation-MC.
@@ -56,6 +63,30 @@ class MandateUpdate(BaseModel):
     # erlaubt selektive Overrides der TaxConfig-Defaults.
     tax_jurisdiction: Optional[str] = None
     tax_overrides_json: Optional[str] = None
+
+    @model_validator(mode="after")
+    def validate_year_order(self):
+        # SCHEMA-06: chronologische Plausibilität nur prüfen, wenn beide Jahre
+        # im selben PATCH gesetzt sind (Felder sind einzeln optional).
+        if self.client_birth_year is not None and self.retirement_year is not None:
+            if self.retirement_year <= self.client_birth_year:
+                raise ValueError(
+                    f"retirement_year ({self.retirement_year}) muss nach "
+                    f"client_birth_year ({self.client_birth_year}) liegen."
+                )
+        if self.retirement_year is not None and self.life_expectancy_year is not None:
+            if self.life_expectancy_year < self.retirement_year:
+                raise ValueError(
+                    f"life_expectancy_year ({self.life_expectancy_year}) darf nicht "
+                    f"vor retirement_year ({self.retirement_year}) liegen."
+                )
+        if self.client_birth_year is not None and self.life_expectancy_year is not None:
+            if self.life_expectancy_year <= self.client_birth_year:
+                raise ValueError(
+                    f"life_expectancy_year ({self.life_expectancy_year}) muss nach "
+                    f"client_birth_year ({self.client_birth_year}) liegen."
+                )
+        return self
 
 
 class MandateResponse(BaseResponse):

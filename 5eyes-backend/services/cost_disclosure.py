@@ -162,6 +162,14 @@ def calculate_cost_disclosure(
     ]
     invested_amount = sum(item["amount_rappen"] for item in clean_positions)
     advisory_wealth = max(0, _safe_int(advisory_wealth_rappen))
+    # FIDLEG: ist das echte Beratungsvermögen nicht erfasst, wird als Näherung das
+    # investierte Produktvolumen als Gebührenbasis genutzt. Dann darf die Basis NICHT
+    # als "Beratungsvermögen" etikettiert werden (irreführend, und bei nicht
+    # investiertem Barvermögen wäre die Jahresgebühr sonst zu tief ausgewiesen).
+    advisory_wealth_provided = advisory_wealth > 0
+    advisory_basis_label = (
+        "Beratungsvermögen" if advisory_wealth_provided else "Empfohlenes Produktvolumen"
+    )
     if advisory_wealth <= 0:
         advisory_wealth = invested_amount
     if invested_amount <= 0 and advisory_wealth <= 0:
@@ -186,7 +194,7 @@ def calculate_cost_disclosure(
             frequency="jährlich",
             rate_bps=rate,
             basis_rappen=advisory_wealth,
-            basis_label="Beratungsvermögen",
+            basis_label=advisory_basis_label,
             source="Gebührenmodell der Empfehlung",
             is_estimate=False,
         ))
@@ -196,6 +204,12 @@ def calculate_cost_disclosure(
         warnings.append(
             "Beratungs- oder Verwaltungsgebühren sind im Gebührenmodell "
             "nicht hinterlegt und deshalb nicht im Total enthalten."
+        )
+    elif not advisory_wealth_provided:
+        warnings.append(
+            "Beratungsvermögen war nicht erfasst; die jährlichen Dienstleistungs"
+            "kosten sind auf das empfohlene Produktvolumen bezogen und können bei "
+            "nicht investiertem Vermögen zu tief ausfallen."
         )
 
     for keys, label in _ONE_TIME_RATE_KEYS:

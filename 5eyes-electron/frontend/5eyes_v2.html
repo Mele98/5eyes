@@ -3101,7 +3101,8 @@ function _wireSollIstHover(){
                       <tr style="border-bottom:1px solid var(--bg2)"><td style="padding:7px 8px;font-family:var(--f);color:var(--n7)" title="Value at Risk: max. erwarteter Verlust auf 1 Jahr mit 95% Konfidenz">VaR 95% (1J)</td><td id="aa-proj-var95" style="text-align:right;padding:7px 8px;color:var(--n7);font-weight:600">—</td><td id="aa-proj-current-var95" style="text-align:right;padding:7px 8px;color:var(--n7)">—</td></tr>
                       <tr style="border-bottom:1px solid var(--bg2)"><td style="padding:7px 8px;font-family:var(--f);color:var(--n7)" title="Conditional VaR / Expected Shortfall: durchschnittl. Verlust in den schlimmsten 5% der Fälle">CVaR 95% (1J)</td><td id="aa-proj-cvar95" style="text-align:right;padding:7px 8px;color:var(--n7);font-weight:600">—</td><td id="aa-proj-current-cvar95" style="text-align:right;padding:7px 8px;color:var(--n7)">—</td></tr>
                       <tr style="border-bottom:1px solid var(--bg2)"><td style="padding:7px 8px;font-family:var(--f);color:var(--n7)" title="Grösster zwischenzeitlicher Wertrückgang über den Horizont (Median-Pfad)">Max Drawdown (Median)</td><td id="aa-proj-drawdown" style="text-align:right;padding:7px 8px;color:var(--n7);font-weight:600">—</td><td id="aa-proj-current-drawdown" style="text-align:right;padding:7px 8px;color:var(--n7)">—</td></tr>
-                      <tr><td style="padding:7px 8px;font-family:var(--f);color:var(--n7)" title="Wahrscheinlichkeit eines Verlusts über 1 Jahr">Verlust-Wkeit (1J)</td><td id="aa-proj-lossprob" style="text-align:right;padding:7px 8px;color:var(--n7);font-weight:600">—</td><td id="aa-proj-current-lossprob" style="text-align:right;padding:7px 8px;color:var(--n7)">—</td></tr>
+                      <tr style="border-bottom:1px solid var(--bg2)"><td style="padding:7px 8px;font-family:var(--f);color:var(--n7)" title="Wahrscheinlichkeit eines Verlusts über 1 Jahr">Verlust-Wkeit (1J)</td><td id="aa-proj-lossprob" style="text-align:right;padding:7px 8px;color:var(--n7);font-weight:600">—</td><td id="aa-proj-current-lossprob" style="text-align:right;padding:7px 8px;color:var(--n7)">—</td></tr>
+                      <tr><td style="padding:7px 8px;font-family:var(--f);color:var(--n7)" title="Verzehr-/Sequence-of-Returns-Risiko: Anteil der simulierten Pfade, deren Vermögen vor Horizontende aufgezehrt ist (schlechte Renditen früh im Verzehr zehren das Kapital schneller auf). 0% = kein Verzehr-Risiko (z.B. reine Akkumulation).">Verzehr-Risiko</td><td id="aa-proj-depletion" style="text-align:right;padding:7px 8px;color:var(--n7);font-weight:600">—</td><td id="aa-proj-current-depletion" style="text-align:right;padding:7px 8px;color:var(--n7)">—</td></tr>
                     </tbody>
                   </table>
                 </div>
@@ -5062,6 +5063,7 @@ async function loadClientById(clientId) {
   currentGoals = [];
   currentCashflows = [];
   currentCashflowSummary = null;
+  currentWealthSummary = null;
   currentCashflowProjection = null;
   currentWealthPositions = [];
   currentPortfolioPositions = [];
@@ -5122,11 +5124,21 @@ async function loadClientById(clientId) {
       if (phS) phS.textContent = (c.first_name||'') + ' ' + (c.last_name||'') + ' · ' + (c.household_type||'') + ' · ' + (c.canton || c.country_of_residence || '');
       if (wealthRes.status === 'fulfilled' && wealthRes.value) {
         const w = wealthRes.value;
-        const fmtK = v => 'CHF ' + Math.round(v).toLocaleString('de-CH');
+        currentWealthSummary = clientScopedSummary((w||{}), c.id);
+        const fmtK = v => 'CHF ' + Math.round(Number(v)||0).toLocaleString('de-CH');
         const kRV = document.getElementById('kpi-reinvermoegen');
         if (kRV) kRV.textContent = fmtK(w.net_worth_chf);
         const kBV = document.getElementById('kpi-beratungsvermoegen');
         if (kBV) kBV.textContent = fmtK(w.advisory_wealth_chf);
+      } else {
+        // Wealth-Summary fehlt/rejected: currentWealthSummary leeren UND die KPI-
+        // Nodes neutralisieren, sonst bleibt beim Klientenwechsel das Reinvermögen
+        // des VORIGEN Klienten sichtbar (staler, plausibel wirkender Wert).
+        currentWealthSummary = null;
+        const kRV0 = document.getElementById('kpi-reinvermoegen');
+        if (kRV0) kRV0.textContent = 'CHF —';
+        const kBV0 = document.getElementById('kpi-beratungsvermoegen');
+        if (kBV0) kBV0.textContent = 'CHF —';
       }
       currentCashflowSummary = cashflowRes.status === 'fulfilled' && cashflowRes.value
         ? clientScopedSummary((cashflowRes.value||{}), c.id)
@@ -6205,6 +6217,10 @@ function activeClientCashflowSummary(){
   return clientScopedSummary(currentCashflowSummary,currentClientId);
 }
 
+function activeClientWealthSummary(){
+  return clientScopedSummary(currentWealthSummary,currentClientId);
+}
+
 function activeClientCashflowProjection(){
   return clientScopedProjection(currentCashflowProjection,currentClientId);
 }
@@ -6985,7 +7001,9 @@ function initCharts(){
       },
       elements:{point:{radius:0,hoverRadius:4,hitRadius:18}},
       scales:{
-        x:{grid:{display:false},ticks:{font:{size:9},color:'#7a8299'}},
+        // 2026-07-01: autoSkip + maxTicksLimit -> bei langen Horizonten (bis ~100
+        // Jahre) nur ~12 horizontale Jahres-Ticks statt ~100 rotierte/gequetschte.
+        x:{grid:{display:false},ticks:{font:{size:9},color:'#7a8299',autoSkip:true,maxRotation:0,maxTicksLimit:12}},
         y:{grid:{color:'rgba(0,0,0,0.04)'},ticks:{font:{size:9},color:'#7a8299',callback:function(v){var n=Number(v)||0;if(n===0)return '0';if(Math.abs(n)>=1000){var m=n/1000;return (m===Math.round(m)?String(Math.round(m)):m.toFixed(1))+' Mio';}return Math.round(n)+'k';}}}
       }
     };
@@ -7090,6 +7108,7 @@ const PERSONAS = [{"id": "HH-001", "name": "Lukas Meier", "household": "Single",
 let currentPersona = null;
 var currentCashflows = [];
 var currentCashflowSummary = null;
+var currentWealthSummary = null;
 var currentCashflowProjection = null;
 var currentGoals = [];
 var currentPortfolioPositions = [];
@@ -7806,9 +7825,11 @@ function buildAnlagestrategieDocHtmlV2Draft(allocation,risk,persona,mandateData,
   var advisoryPositions=allWealth.filter(function(pos){return String(pos.assignment||'')==='Beratungsvermögen';});
   var otherPositions=allWealth.filter(function(pos){return String(pos.assignment||'')==='Anderes Vermögen';});
   var liabilities=allWealth.filter(function(pos){return String(pos.assignment||'')==='Verbindlichkeit';});
+  var wealthSummary=null;
+  try{if(typeof activeClientWealthSummary==='function')wealthSummary=activeClientWealthSummary();}catch(e){}
   var advisoryTotalRappen=sumPositions(advisoryPositions)||Math.round(Number(allocation&&allocation.advisory_wealth_rappen||0));
-  var otherTotalRappen=sumPositions(otherPositions);
-  var liabilitiesRappen=sumPositions(liabilities);
+  var liabilitiesRappen=sumPositions(liabilities)||Math.max(0,Math.round(Number(wealthSummary&&wealthSummary.liabilities_rappen||0)));
+  var otherTotalRappen=sumPositions(otherPositions)||Math.max(0,Math.round(Number(wealthSummary&&wealthSummary.gross_wealth_rappen||0))-Math.round(Number(wealthSummary&&wealthSummary.advisory_wealth_rappen||0))-liabilitiesRappen);
   var totalGrossRappen=advisoryTotalRappen+otherTotalRappen;
   var totalNetRappen=Math.max(0,totalGrossRappen-liabilitiesRappen);
   function projectionRows(scope){
@@ -16520,12 +16541,6 @@ function renderPreferenceChips(targetId,items,variant){
   el.innerHTML=chips.map(function(item){
     return '<span style="font-size:10px;padding:3px 8px;'+palette+'border-radius:var(--r2)">'+escapeHtml(item)+'</span>';
   }).join('');
-  Array.prototype.forEach.call(grid.querySelectorAll('button[onclick="printReport()"]'),function(btn,idx){
-    var doc=docs[idx];
-    if(!doc)return;
-    btn.textContent='Kapitel drucken';
-    btn.setAttribute('onclick',"printDocumentTypeReport('"+String(doc.document_type||'Dokument').replace(/'/g,"\\'")+"')");
-  });
 }
 function renderAllocationPreferenceSummary(prefs){
   if(!prefs)return;
@@ -19389,6 +19404,11 @@ function applyAllocationEngineResult(result){
   setText('aa-proj-current-drawdown',formatRiskLossBps(mc&&mc.current_max_drawdown_p50_bps));
   setText('aa-proj-lossprob',formatProbabilityPct(mc&&mc.target_loss_probability_1y_pct));
   setText('aa-proj-current-lossprob',formatProbabilityPct(mc&&mc.current_loss_probability_1y_pct));
+  // #96 Verzehr-/Sequence-of-Returns-Risiko: Depletion-Wkeit (+ mittleres
+  // Erschöpfungsjahr). 0% = kein Verzehr (z.B. reine Akkumulation).
+  var _fmtDepletion=function(pct,year){var p=Number(pct||0); if(!isFinite(p)||p<=0)return '0%'; return String(Math.round(p))+'%'+(year?(' (ab '+year+')'):''); };
+  setText('aa-proj-depletion',_fmtDepletion(mc&&mc.target_depletion_probability_pct, mc&&mc.target_depletion_median_year));
+  setText('aa-proj-current-depletion',_fmtDepletion(mc&&mc.current_depletion_probability_pct, mc&&mc.current_depletion_median_year));
   // 2026-06-15 (#37): Endwert optimistisch (P90) / pessimistisch (P10), SOLL vs IST.
   var _lastRappen=function(arr){return (Array.isArray(arr)&&arr.length)?Number(arr[arr.length-1]||0):0;};
   var _tP90=_lastRappen(mc&&mc.target_p90_series_rappen); if(_tP90)_tP90+=_resRappen;
@@ -19425,6 +19445,7 @@ function applyAllocationEngineResult(result){
   _colorBetter('aa-proj-cvar95', mc&&mc.target_cvar_95_1y_bps, mc&&mc.current_cvar_95_1y_bps, false);
   _colorBetter('aa-proj-drawdown', mc&&mc.target_max_drawdown_p50_bps, mc&&mc.current_max_drawdown_p50_bps, false);
   _colorBetter('aa-proj-lossprob', mc&&mc.target_loss_probability_1y_pct, mc&&mc.current_loss_probability_1y_pct, false);
+  _colorBetter('aa-proj-depletion', mc&&mc.target_depletion_probability_pct, mc&&mc.current_depletion_probability_pct, false);
   try{ renderGoalAchievementSollIst(result); }catch(_g36){}
   renderAllocationCashflowTimeline(result);
   renderOptimizerPanel(result);
@@ -20475,12 +20496,29 @@ function allocationTimelineRange(result){
   var endDate=new Date(end,11,31,23,59,59,999);
   return {
     labels:labels,
+    // 2026-07-01: ausgeduennte Jahres-Ticks fuer die Zeitachse (max ~12), damit
+    // lange Horizonte (Auto bis Lebensende = bis zu ~100 Jahre) nicht als
+    // gequetschte 1-Zelle-pro-Jahr-Liste erscheinen. Die Balken sind prozent-
+    // positioniert (Datum->%), daher unabhaengig von der Tick-Anzahl; nur die
+    // Achsen-Labels + Gitterlinien werden ausgeduennt.
+    tickLabels:allocationTimelineThinYears(labels,12),
     startYear:start,
     endYear:end,
     startDate:startDate,
     endDate:endDate,
     spanMs:Math.max(1,endDate.getTime()-startDate.getTime())
   };
+}
+function allocationTimelineThinYears(labels,maxTicks){
+  var list=Array.isArray(labels)?labels:[];
+  var L=list.length;
+  var max=Math.max(2,Number(maxTicks||12));
+  if(L<=max)return list.slice();
+  var step=Math.ceil((L-1)/(max-1));
+  var out=[];
+  for(var i=0;i<L;i+=step)out.push(list[i]);
+  if(out[out.length-1]!==list[L-1])out.push(list[L-1]);
+  return out;
 }
 function isAllocationTimelineCashflow(item){
   if(!item)return false;
@@ -20539,7 +20577,8 @@ function allocationTimelineBarHtmlLegacy(item,range){
   var right=allocationTimelineOffsetPct(endDate,range);
   var width=Math.max(2,right-left);
   var isIncome=String(item&&item.cashflow_type||'')==='Income';
-  var laneGrid='<div class="aa-flow-timeline-lane-grid" style="grid-template-columns:repeat('+range.labels.length+',minmax(0,1fr))">'+range.labels.map(function(){return '<span></span>';}).join('')+'</div>';
+  var laneTicks=(range&&Array.isArray(range.tickLabels)&&range.tickLabels.length)?range.tickLabels:range.labels;
+  var laneGrid='<div class="aa-flow-timeline-lane-grid" style="grid-template-columns:repeat('+laneTicks.length+',minmax(0,1fr))">'+laneTicks.map(function(){return '<span></span>';}).join('')+'</div>';
   return '<div class="aa-flow-timeline-row">'
     +'<div class="aa-flow-timeline-meta">'
     +'<div class="aa-flow-timeline-label">'+escapeHtml(String(item&&item.label||'Cashflow'))+'</div>'
@@ -20603,7 +20642,8 @@ function allocationTimelineBarHtml(item,range){
     ? (isIncome?'aa-flow-timeline-bar aa-flow-timeline-bar-capital-income':'aa-flow-timeline-bar aa-flow-timeline-bar-capital-expense')
     : (isIncome?'aa-flow-timeline-bar aa-flow-timeline-bar-income':'aa-flow-timeline-bar aa-flow-timeline-bar-expense');
   var hoverLabel=escapeHtml(allocationTimelineHoverLabel(item));
-  var laneGrid='<div class="aa-flow-timeline-lane-grid" style="grid-template-columns:repeat('+range.labels.length+',minmax(0,1fr))">'+range.labels.map(function(){return '<span></span>';}).join('')+'</div>';
+  var laneTicks=(range&&Array.isArray(range.tickLabels)&&range.tickLabels.length)?range.tickLabels:range.labels;
+  var laneGrid='<div class="aa-flow-timeline-lane-grid" style="grid-template-columns:repeat('+laneTicks.length+',minmax(0,1fr))">'+laneTicks.map(function(){return '<span></span>';}).join('')+'</div>';
   return '<div class="aa-flow-timeline-row">'
     +'<div class="aa-flow-timeline-lane">'
     +laneGrid
@@ -20702,7 +20742,8 @@ function renderAllocationCashflowTimeline(result){
     return;
   }
   var range=allocationTimelineRange(result);
-  var scale='<div class="aa-flow-timeline-scale"><div class="aa-flow-timeline-scale-spacer">Laufzeiten</div><div class="aa-flow-timeline-years" style="grid-template-columns:repeat('+range.labels.length+',minmax(0,1fr))">'+range.labels.map(function(year){return '<div class="aa-flow-timeline-year">'+escapeHtml(String(year))+'</div>';}).join('')+'</div></div>';
+  var ticks=(range&&Array.isArray(range.tickLabels)&&range.tickLabels.length)?range.tickLabels:range.labels;
+  var scale='<div class="aa-flow-timeline-scale"><div class="aa-flow-timeline-scale-spacer">Laufzeiten</div><div class="aa-flow-timeline-years" style="grid-template-columns:repeat('+ticks.length+',minmax(0,1fr))">'+ticks.map(function(year){return '<div class="aa-flow-timeline-year">'+escapeHtml(String(year))+'</div>';}).join('')+'</div></div>';
   var sorted=flows.slice().sort(function(a,b){
     var sectionDiff=allocationTimelineSectionRank(allocationTimelineSectionLabel(a))-allocationTimelineSectionRank(allocationTimelineSectionLabel(b));
     if(sectionDiff!==0)return sectionDiff;
@@ -21079,7 +21120,10 @@ async function refreshCashflowsUI(cid){
     var summaryYear=Number(summary.summary_year||new Date().getFullYear());
     // Validierung 2026-06-11: bevorzugt das occurrence-genaue Backend-Summary;
     // cashflowBreakdownForYear nur als Fallback wenn Summary fehlt.
-    var breakdown=cashflowBreakdownFromSummary(summary)||cashflowBreakdownForYear(items,summaryYear);
+    // Mandanten-Trennung auch im Fallback: gescopte _scopedCf statt rohem items
+    // (sonst zeigten die Summenkacheln bei fehlendem Backend-Summary Totale über
+    // ALLE geladenen Cashflows inkl. eines vorigen Klienten).
+    var breakdown=cashflowBreakdownFromSummary(summary)||cashflowBreakdownForYear(_scopedCf,summaryYear);
     var renderRow=function(c,isIncome){
       return '<div class="cf-row" draggable="true" data-cfid="'+escapeHtml(c.id||'')+'">'+
         '<div class="cfn"><div class="cfna">'+escapeHtml(c.label||'Cashflow')+'</div><div class="cfnd">'+escapeHtml(cashflowTimingLabel(c))+'</div></div>'+
@@ -21092,12 +21136,20 @@ async function refreshCashflowsUI(cid){
     var derExp=derived.filter(function(d){return d&&d.cashflow_type==='Expense';});
     var renderDerivedRow=function(c,isIncome){
       var src=c.origin_position_type?(' ('+escapeHtml(String(c.origin_position_type))+')'):'';
+      // Vermögens-Topf der Quellposition. "Anderes Vermögen" taucht NICHT in der
+      // Beratungs-/Allokationsansicht auf — daher hier explizit kennzeichnen, sonst
+      // wirkt eine Einnahme (z.B. Mietertrag) ohne sichtbare Vermögensquelle.
+      var asg=String((c&&c.origin_assignment)||'').trim();
+      var isOutsideAdvisory = asg && asg.toLowerCase().indexOf('beratung')===-1;
+      var potLabel = asg || 'Vermögen';
+      var potTag = asg ? (' <span style="font-size:8px;border-radius:3px;padding:1px 4px;margin-left:4px;letter-spacing:0.04em;vertical-align:middle;'+(isOutsideAdvisory?'background:rgba(176,120,40,0.22);color:#b07828':'background:rgba(120,120,120,0.16);color:var(--g4)')+'" title="Vermögens-Topf der Quelle">'+escapeHtml(potLabel)+'</span>') : '';
       // #53: klickbar wenn Herkunftsposition bekannt -> Sprung zur Vermögensposition.
       var pid=c.origin_position_id?String(c.origin_position_id):'';
       var attrs=pid?('style="opacity:0.9;cursor:pointer" onclick="jumpToWealthPosition(\''+jsAttrArg(pid)+'\')"'):'style="opacity:0.9"';
       var tipTail=pid?' — klicken öffnet die Vermögensposition':' — Betrag im Vermoegen bearbeiten, nicht hier.';
-      return '<div class="cf-row cf-derived" '+attrs+' title="Automatisch aus dem Vermoegen abgeleitet'+src+tipTail+'">'+
-        '<div class="cfn"><div class="cfna">'+escapeHtml(c.label||'')+' <span style="font-size:8px;background:rgba(201,168,76,0.18);color:var(--g4);border-radius:3px;padding:1px 4px;margin-left:4px;letter-spacing:0.04em;vertical-align:middle">⚙ AUTO</span></div><div class="cfnd">'+escapeHtml(cashflowTimingLabel(c))+' · aus Vermögen</div></div>'+
+      var tipAsg=asg?(' · Topf: '+asg+(isOutsideAdvisory?' (nicht im Beratungsvermögen/keine Allokation)':'')):'';
+      return '<div class="cf-row cf-derived" '+attrs+' title="Automatisch aus dem Vermoegen abgeleitet'+src+tipAsg+tipTail+'">'+
+        '<div class="cfn"><div class="cfna">'+escapeHtml(c.label||'')+' <span style="font-size:8px;background:rgba(201,168,76,0.18);color:var(--g4);border-radius:3px;padding:1px 4px;margin-left:4px;letter-spacing:0.04em;vertical-align:middle">⚙ AUTO</span>'+potTag+'</div><div class="cfnd">'+escapeHtml(cashflowTimingLabel(c))+' · aus '+escapeHtml(potLabel)+'</div></div>'+
         '<div class="cfa '+(isIncome?'ci':'co')+'">'+(isIncome?'+':'−')+fmt(c.amount_rappen||0)+'</div>'+
         '<div style="width:46px"></div></div>';
     };
@@ -21446,6 +21498,7 @@ async function refreshWealthUI(cid){
     var positionsRes=results[1];
     if(summaryRes.status==='fulfilled'&&summaryRes.value){
       var d=summaryRes.value;
+      currentWealthSummary=clientScopedSummary((d||{}),cid);
       var fmt=function(v){return 'CHF '+Math.round(v).toLocaleString('de-CH');};
       var k=document.getElementById('kpi-reinvermoegen');
       if(k)k.textContent=fmt(d.net_worth_chf||0);

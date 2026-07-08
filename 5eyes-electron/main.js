@@ -189,13 +189,18 @@ function readStoredToken() {
     if (safeStorage.isEncryptionAvailable()) {
       return safeStorage.decryptString(raw);
     }
-    clearStoredToken();
-    // Encryption unavailable — refuse to return a plaintext token.
-    // The stored file may be unencrypted; do not expose it. Force re-login.
-    logLine('WARNING: safeStorage encryption not available — stored token will not be used. User must log in again.');
+    // EM-5: Encryption nur *vorübergehend* nicht verfügbar (z.B. Keychain/DPAPI noch
+    // nicht bereit). writeStoredToken persistiert NIE Klartext, die Datei ist also
+    // immer ein gültiges Ciphertext. Datei daher NICHT löschen — nur ignorieren und
+    // re-login erzwingen; sobald safeStorage wieder verfügbar ist, lässt sie sich
+    // erneut entschlüsseln. (Vorher: clearStoredToken() verwarf das Token unnötig.)
+    logLine('WARNING: safeStorage encryption not available — stored token will not be used this session. User must log in again.');
     return null;
   } catch (error) {
-    logLine(`Failed to read stored token: ${error.message || error}`);
+    // Echte Entschlüsselungs-/Lesefehler eines vorhandenen Ciphertext: Datei ist
+    // korrupt/fremd -> bereinigen, damit sie nicht bei jedem Start erneut scheitert.
+    logLine(`Failed to read stored token (clearing corrupt token file): ${error.message || error}`);
+    clearStoredToken();
     return null;
   }
 }
@@ -229,7 +234,12 @@ function clearStoredToken() {
 
 app.setAppUserModelId('ch.5eyes.wealtharchitekten');
 
-if (!app.requestSingleInstanceLock()) {
+// EM-4: Single-Instance-Lock-Ergebnis festhalten. app.quit() ist asynchron, daher
+// darf der whenReady-Bootstrap (Backend-Spawn + Fenster) bei fehlendem Lock NICHT
+// laufen — sonst startet eine zweite Instanz kurzzeitig ein zweites Backend/Fenster,
+// bevor quit greift.
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
+if (!hasSingleInstanceLock) {
   app.quit();
 }
 
@@ -256,6 +266,13 @@ function attachBackendProcessLogging(proc) {
   };
   forward(proc.stdout, 'stdout');
   forward(proc.stderr, 'stderr');
+  // EM-1: 'error' MUSS behandelt werden — sonst wird ein Spawn-Fehler (dev: python
+  // nicht auf PATH -> ENOENT; packaged: exe von AV/EACCES blockiert) als uncaught
+  // Exception geworfen und crasht den Electron-Main-Prozess, bevor irgendein Dialog
+  // erscheint. Mit Listener läuft waitForBackendReady stattdessen sauber in den Timeout.
+  proc.on('error', (err) => {
+    logLine(`Backend-Prozess konnte nicht gestartet werden: ${err && err.message ? err.message : err}`);
+  });
 }
 
 async function resolveFreePort(host) {
@@ -275,12 +292,18 @@ async function resolveFreePort(host) {
 }
 
 async function isTcpPortInUse(host, port) {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     const server = net.createServer();
     server.unref();
     server.once('error', (error) => {
-      if (error && error.code === 'EADDRINUSE') resolve(true);
-      else reject(error);
+      // EM-6: jeder Bind-Fehler bedeutet "Port nicht sicher nutzbar" -> als belegt
+      // melden, damit pickBackendRuntime auf einen freien Ephemeral-Port ausweicht.
+      // Vorher rejectete ein Nicht-EADDRINUSE-Fehler die Promise und riss den
+      // gesamten Bootstrap (-> App-Quit) mit, statt nur den Port-Fallback zu nehmen.
+      if (error && error.code !== 'EADDRINUSE') {
+        logLine(`Port-Probe ${host}:${port} fehlgeschlagen (${error.code || error.message || error}) — behandle Port als belegt.`);
+      }
+      resolve(true);
     });
     server.listen({ host, port }, () => {
       server.close(() => resolve(false));
@@ -394,18 +417,51 @@ function spawnBackendProcess() {
   backendManagedByApp = true;
 }
 
+// EM-7-Fix: child.killed bedeutet NUR "ein Signal wurde erfolgreich gesendet",
+// nicht "der Prozess ist beendet". Für die SIGKILL-Eskalation muss echte
+// Lebendigkeit geprüft werden: exitCode/signalCode sind null, solange der
+// Prozess läuft, und werden beim Beenden gesetzt.
+function backendProcessStillAlive(proc) {
+  return !!proc && proc.exitCode === null && proc.signalCode === null;
+}
+
 function terminateBackendProcess() {
   if (!backendManagedByApp || !backendProcess || backendProcess.killed) {
     return;
   }
 
   const pid = backendProcess.pid;
+  const proc = backendProcess;
   try {
     logLine(`Terminating managed backend process pid=${pid}`);
     if (process.platform === 'win32') {
-      spawnSync('taskkill', ['/pid', String(pid), '/t', '/f'], { windowsHide: true });
+      // EM-7: spawnSync-Ergebnis auswerten — taskkill kann fehlschlagen (Prozess
+      // schon weg, fehlende Rechte). status/error explizit loggen statt blind
+      // anzunehmen, dass terminiert wurde.
+      const result = spawnSync('taskkill', ['/pid', String(pid), '/t', '/f'], { windowsHide: true });
+      if (result.error) {
+        logLine(`taskkill spawn failed for pid=${pid}: ${result.error.message || result.error}`);
+      } else if (result.status !== 0) {
+        const stderr = result.stderr ? String(result.stderr).trim() : '';
+        logLine(`taskkill exited status=${result.status} for pid=${pid}${stderr ? ` (${stderr})` : ''}`);
+      }
     } else {
-      backendProcess.kill('SIGTERM');
+      // EM-7: POSIX-Eskalation SIGTERM -> SIGKILL. Nach kurzer Gnadenfrist
+      // hart killen, falls der Prozess SIGTERM ignoriert.
+      proc.kill('SIGTERM');
+      setTimeout(() => {
+        try {
+          // EM-7-Fix: NICHT proc.killed prüfen — das ist nach kill('SIGTERM')
+          // sofort true (= "Signal gesendet", nicht "Prozess tot"), wodurch die
+          // Eskalation nie feuerte. Echte Lebendigkeit über exit-/signalCode.
+          if (backendProcessStillAlive(proc)) {
+            logLine(`Backend pid=${pid} did not exit on SIGTERM — escalating to SIGKILL`);
+            proc.kill('SIGKILL');
+          }
+        } catch (escErr) {
+          logLine(`SIGKILL escalation failed for pid=${pid}: ${escErr.message || escErr}`);
+        }
+      }, 2000).unref();
     }
   } catch (error) {
     logLine(`Failed to terminate backend process: ${error.message || error}`);
@@ -547,21 +603,40 @@ ipcMain.handle('auth:get-token', () => readStoredToken());
 ipcMain.handle('auth:set-token', (_event, token) => writeStoredToken(token));
 ipcMain.handle('auth:clear-token', () => clearStoredToken());
 ipcMain.handle('file:save-pdf', async (_event, payload) => {
-  const filename = sanitizePdfFilename(payload && payload.filename);
-  const base64 = String((payload && payload.base64) || '');
-  if (!base64) {
-    throw new Error('PDF-Daten fehlen.');
+  // EM-2: Handler-Body komplett in try/catch — fehlende Daten und fs-Fehler
+  // (ENOSPC, EACCES/EPERM auf gewähltem Pfad) als strukturiertes Ergebnis
+  // zurückgeben statt als rejected Promise, das der Renderer als unbehandelte
+  // Exception sieht.
+  try {
+    const filename = sanitizePdfFilename(payload && payload.filename);
+    const base64 = String((payload && payload.base64) || '');
+    if (!base64) {
+      return { ok: false, error: 'PDF-Daten fehlen.' };
+    }
+    // Base64 validieren: zuerst Whitespace/Zeilenumbrüche entfernen (manche Renderer
+    // chunken Base64), DANN Round-Trip-Vergleich. So werden valide, nur anders
+    // formatierte PDFs akzeptiert, echter Müll (Nicht-Base64) aber weiterhin
+    // abgelehnt — Buffer.from ist beim Dekodieren tolerant und würde sonst Bytes
+    // aus Garbage erzeugen.
+    const compact = base64.replace(/\s+/g, '');
+    const buffer = Buffer.from(compact, 'base64');
+    if (buffer.length === 0 || buffer.toString('base64').replace(/=+$/, '') !== compact.replace(/=+$/, '')) {
+      return { ok: false, error: 'PDF-Daten sind ungültig (kein valides Base64).' };
+    }
+    const target = await dialog.showSaveDialog(mainWindow || undefined, {
+      title: 'PDF speichern',
+      defaultPath: path.join(app.getPath('downloads'), filename),
+      filters: [{ name: 'PDF', extensions: ['pdf'] }],
+    });
+    if (target.canceled || !target.filePath) {
+      return { ok: false, canceled: true };
+    }
+    await fs.promises.writeFile(target.filePath, buffer);
+    return { ok: true, path: target.filePath };
+  } catch (error) {
+    logLine(`file:save-pdf failed: ${error && error.message ? error.message : error}`);
+    return { ok: false, error: String((error && error.message) || error) };
   }
-  const target = await dialog.showSaveDialog(mainWindow || undefined, {
-    title: 'PDF speichern',
-    defaultPath: path.join(app.getPath('downloads'), filename),
-    filters: [{ name: 'PDF', extensions: ['pdf'] }],
-  });
-  if (target.canceled || !target.filePath) {
-    return { ok: false, canceled: true };
-  }
-  fs.writeFileSync(target.filePath, Buffer.from(base64, 'base64'));
-  return { ok: true, path: target.filePath };
 });
 ipcMain.handle('updates:get-state', () => ({ ...updateState }));
 ipcMain.handle('updates:check', async () => checkForUpdates());
@@ -612,6 +687,8 @@ app.on('web-contents-created', (_event, contents) => {
 });
 
 app.whenReady().then(async () => {
+  // EM-4: zweite Instanz hat keinen Lock — Bootstrap überspringen (quit läuft bereits).
+  if (!hasSingleInstanceLock) return;
   try {
     logLine(`App starting | version=${app.getVersion()} packaged=${app.isPackaged}`);
     configureAutoUpdates();
@@ -650,3 +727,9 @@ app.on('activate', async () => {
     await createMainWindow();
   }
 });
+
+// Nur für Tests exportiert (Electron ignoriert module.exports am Entrypoint).
+// Erlaubt das deterministische Prüfen der EM-7-Lebendigkeitslogik.
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports.backendProcessStillAlive = backendProcessStillAlive;
+}

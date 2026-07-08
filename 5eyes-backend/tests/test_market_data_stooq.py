@@ -112,6 +112,34 @@ def test_get_eod_returns_last_row_as_bar():
     assert bar.source == "stooq"
 
 
+def test_md04_get_eod_filters_rows_after_on_date():
+    """MD-04: Stooq kann eine Zeile > on_date liefern. get_eod muss auf <= on_date
+    filtern und das Maximum nehmen, nicht blind rows[-1]."""
+    csv_with_future = (
+        "Date,Open,High,Low,Close,Volume\n"
+        "2026-05-07,28.20,28.60,28.15,28.55,1400000\n"
+        "2026-05-08,28.50,28.90,28.30,28.75,1500000\n"
+        "2026-05-09,30.00,30.50,29.80,30.20,1600000\n"  # > on_date
+    )
+    session = _mock_session(_mock_response(csv_with_future))
+    provider = StooqProvider(session=session)
+    bar = provider.get_eod("UBSG.SW", date(2026, 5, 8))
+    assert bar.date == date(2026, 5, 8)
+    assert bar.close == Decimal("28.75")  # NICHT 30.20
+
+
+def test_md04_get_eod_all_rows_after_on_date_raises():
+    """MD-04: alle Zeilen > on_date -> SymbolNotFound."""
+    csv_only_future = (
+        "Date,Open,High,Low,Close,Volume\n"
+        "2026-05-09,30.00,30.50,29.80,30.20,1600000\n"
+    )
+    session = _mock_session(_mock_response(csv_only_future))
+    provider = StooqProvider(session=session)
+    with pytest.raises(SymbolNotFound):
+        provider.get_eod("UBSG.SW", date(2026, 5, 8))
+
+
 def test_get_eod_html_response_raises_symbol_not_found():
     session = _mock_session(_mock_response("<html>not found</html>", content_type="text/html"))
     provider = StooqProvider(session=session)

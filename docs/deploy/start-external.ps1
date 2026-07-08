@@ -45,7 +45,11 @@ $env:DEPLOYMENT_TIER       = 'tier2'   # Multi-Firma
 $env:TENANCY_MODE          = 'multi'
 $env:TENANT_ADMIN_UI_ENABLED = 'true'  # Operator-Provisioning (Firmen/Mitarbeiter)
 $env:STRICT_TENANT_ISOLATION = 'true'  # physische Trennung: NULL-tenant_id unsichtbar
-$env:REQUIRE_2FA           = 'true'    # Pflicht-2FA: externer Zugriff erzwingt Authenticator-Enrollment
+# Pflicht-2FA: erzwingt Authenticator-Enrollment beim externen Zugriff. Default sicher = true.
+# Fuer einen reibungslosen Kollegen-Test (NUR synthetische Daten) vorher abschaltbar via
+#   $env:REQUIRE_2FA = 'false'
+# (dann wird ein bereits gesetzter Wert respektiert statt ueberschrieben).
+if (-not $env:REQUIRE_2FA) { $env:REQUIRE_2FA = 'true' }
 
 # Optional: Einladungs-E-Mails direkt verschicken (sonst Link-Copy). Auskommentiert
 # lassen, bis ein SMTP-Zugang vorliegt — der Invite-Flow funktioniert auch ohne.

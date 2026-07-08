@@ -73,7 +73,11 @@ def session_factory(tmp_path):
 
 def _seed_with_external_assets(session_factory):
     """200k Beratung + 800k Eigenheim Gesamtvermoegen.
-    Goal: Vermoegensziel 'Gesamtvermoegen 1.5M in 10J'."""
+    Goal: Vermoegensziel 'Gesamtvermoegen 1.5M in 10J' mit DEFAULT-Scope
+    (Beratungsvermoegen). Dieser File lockt den Default-Invariant: externe
+    Assets fliessen NICHT in die Goal-Hochrechnung. Der opt-in
+    goal_scope='Gesamtvermoegen' (#83, externe Assets nur mit Teuerung) ist
+    separat in test_goal_scope_gesamtvermoegen.py abgedeckt."""
     advisor_id = "user-b4-1"
     cid = str(uuid.uuid4())
     mid = str(uuid.uuid4())
@@ -108,7 +112,7 @@ def _seed_with_external_assets(session_factory):
         s.add(Goal(
             id="goal-b4-total", mandate_id=mid, client_id=cid,
             goal_family="Vermoegen", goal_type="Vermoegensziel",
-            goal_scope="Gesamtvermoegen",
+            goal_scope="Beratungsvermoegen",
             label="Gesamt 1.5M",
             rank=1, weight_bps=10000,
             target_wealth_rappen=1_500_000_00,
@@ -141,7 +145,7 @@ def _seed_with_external_assets(session_factory):
 
 
 def test_b4_goal_evaluated_against_advisory_only_consistent(session_factory):
-    """Goal mit goal_scope=Gesamtvermoegen wird gegen advisory bewertet.
+    """Goal mit DEFAULT-Scope (Beratungsvermoegen) wird gegen advisory bewertet.
     deterministisches projected_value muss zur MC-P50-Bezugsgroesse passen
     (beide advisory-only). Vorher war P50 um Faktor (total/advisory) aufgeblaeht.
     """

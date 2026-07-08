@@ -146,19 +146,22 @@ function BucketGroup({ group }: { group: PositionGroup }) {
           Keine Positionen in dieser Anlageklasse.
         </p>
       ) : (
-        <table className="mt-3 w-full text-caption">
+        <table className="mt-3 w-full text-caption" aria-label={`Positionen — ${group.label}`}>
+          {/* PA-05: Tabelle benannt (caption) + scope an den Headern, damit
+              Screenreader Anlageklasse und Spaltenzuordnung ansagen. */}
+          <caption className="sr-only">{`Positionen der Anlageklasse ${group.label}`}</caption>
           <thead>
             <tr className="border-b border-rule">
-              <th className="pb-2 pr-3 text-left font-medium uppercase tracking-widest text-micro text-ink-subtle">
+              <th scope="col" className="pb-2 pr-3 text-left font-medium uppercase tracking-widest text-micro text-ink-subtle">
                 Position
               </th>
-              <th className="pb-2 pr-3 text-left font-medium uppercase tracking-widest text-micro text-ink-subtle">
+              <th scope="col" className="pb-2 pr-3 text-left font-medium uppercase tracking-widest text-micro text-ink-subtle">
                 ISIN
               </th>
-              <th className="pb-2 pr-3 text-right font-medium uppercase tracking-widest text-micro text-ink-subtle">
+              <th scope="col" className="pb-2 pr-3 text-right font-medium uppercase tracking-widest text-micro text-ink-subtle">
                 Anteil
               </th>
-              <th className="pb-2 text-right font-medium uppercase tracking-widest text-micro text-ink-subtle">
+              <th scope="col" className="pb-2 text-right font-medium uppercase tracking-widest text-micro text-ink-subtle">
                 Wert
               </th>
             </tr>

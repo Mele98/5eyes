@@ -39,11 +39,14 @@ ungewichteten Sample-Mean.
 ## Defaults
 
 Aus Methodik-Schulung Slide 19 (Skew/Kurt-Modelle) wissen wir, dass die
-kritischen Tails fuer goal-based Allocation in den Aktien-Renditen liegen
-(Aktien_CH, Aktien_Intl, Aktien_EM). Default-Shift:
+kritischen Tails fuer goal-based Allocation in den Aktien-Renditen liegen.
+Default-Shift trifft daher den Aktien-Bucket. MC-2 (2026-06-29): der Shift-Index
+wird aus der KANONISCHEN scenario_engine.BUCKET_ORDER abgeleitet
+(equities, bonds, real_estate, alternatives, liquidity) — also Index 0 — und
+NICHT mehr als [2,3] hartcodiert (das traf in der realen Reihenfolge
+real_estate+alternatives statt der Aktien und biaste den falschen Tail).
 
-    mu = [0, 0, -shift_strength, -shift_strength, 0]
-    (Liquid, Bonds, Equity_CH, Equity_Intl, Alt)
+    mu[BUCKET_ORDER.index("equities")] = -shift_strength
 
 mit shift_strength = 0.5 (entspricht 0.5 Standard-Deviationen Shift,
 moderat genug um Bias-Variance-Tradeoff im sweet spot zu halten).
@@ -59,10 +62,12 @@ from typing import Optional
 import numpy as np
 
 
-# Default-Shift-Vector: nur Aktien-Buckets (Index 2, 3 in der 5-Bucket-Welt
-# liquidity/bonds/equity_ch/equity_intl/alternatives). Wert -0.5 = halbe
-# Standard-Deviation Shift in negative Richtung (= mehr Drawdown-Szenarien).
-DEFAULT_TAIL_SHIFT_VECTOR = np.array([0.0, 0.0, -0.5, -0.5, 0.0])
+# Default-Shift-Vector in der KANONISCHEN BUCKET_ORDER
+# (equities, bonds, real_estate, alternatives, liquidity): nur der Aktien-Bucket
+# (Index 0) wird um -0.5 (halbe Standard-Deviation) negativ geshiftet
+# (= mehr Drawdown-Szenarien). MC-2-Fix: vorher [0,0,-0.5,-0.5,0], was
+# real_estate+alternatives traf statt der Aktien.
+DEFAULT_TAIL_SHIFT_VECTOR = np.array([-0.5, 0.0, 0.0, 0.0, 0.0])
 DEFAULT_TAIL_SHIFT_STRENGTH = 0.5  # einheitenlose Standard-Deviation-Multiplikator
 
 
@@ -171,6 +176,19 @@ def make_default_weights(n_paths: int) -> np.ndarray:
     return np.ones(int(max(1, n_paths)), dtype=np.float64)
 
 
+def _default_equity_tail_indices(n_buckets: int) -> list[int]:
+    """MC-2: Default-Tail-Index = Position des Aktien-Buckets in der kanonischen
+    scenario_engine.BUCKET_ORDER. Lazy-Import (kein Modul-Zirkel: scenario_engine
+    importiert build_shift_vector, ruft es aber nicht beim Import auf). Fallback 0,
+    da equities in der bekannten Order an Index 0 steht."""
+    try:
+        from .scenario_engine import BUCKET_ORDER
+        idx = BUCKET_ORDER.index("equities")
+    except Exception:
+        idx = 0
+    return [idx] if 0 <= idx < n_buckets else []
+
+
 def build_shift_vector(
     n_buckets: int,
     *,
@@ -179,17 +197,17 @@ def build_shift_vector(
 ) -> np.ndarray:
     """Konstruiert einen Shift-Vector fuer Mean-Shift IS.
 
-    Default (target_indices=None): nutzt die Equity-Buckets (Index 2 + 3
-    in der 5-Bucket-Welt = Equity_CH, Equity_Intl) mit negativem Shift.
-    Das biased die Stichproben in die fuer Shortfall-Optimierung wichtige
-    Drawdown-Tail.
+    Default (target_indices=None): shiftet den Aktien-Bucket negativ. Der Index
+    wird aus der kanonischen scenario_engine.BUCKET_ORDER abgeleitet (MC-2-Fix),
+    nicht hartcodiert. Das biased die Stichproben in den fuer Shortfall-
+    Optimierung wichtigen Drawdown-Tail.
 
     Parameters
     ----------
     n_buckets : int
         Anzahl Asset-Buckets (typisch 5).
     target_indices : list of int, optional
-        Welche Buckets shiften. Default = [2, 3] (Equity CH + Intl).
+        Welche Buckets shiften. Default = [BUCKET_ORDER.index("equities")].
     strength : float
         Shift-Magnitude in Standard-Deviationen. Default 0.5.
         Empfohlen: 0.3-1.0. >1.5 fuehrt zu starkem Bias-Variance-Tradeoff.
@@ -201,8 +219,7 @@ def build_shift_vector(
     """
     n_buckets = int(max(1, n_buckets))
     if target_indices is None:
-        # Default fuer 5-Bucket-Welt: Equity_CH (2) + Equity_Intl (3)
-        target_indices = [i for i in (2, 3) if i < n_buckets]
+        target_indices = _default_equity_tail_indices(n_buckets)
     shift = np.zeros(n_buckets, dtype=np.float64)
     for i in target_indices:
         if 0 <= int(i) < n_buckets:

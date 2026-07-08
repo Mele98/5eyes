@@ -26,6 +26,17 @@ export function Ausgangslage({ data }: AusgangslageProps) {
   const w = data.wealth_summary;
   const m = data.key_metrics;
 
+  const kpis = ([
+    ['Risky-Fraction', m.risky_fraction_bps],
+    ['Zielerreichung', m.zielerreichung_bps],
+    ['Erw. Volatilität', m.exp_vol_bps],
+    ['Erw. Rendite', m.exp_return_bps],
+    ['Max Drawdown', m.max_drawdown_bps],
+    ['VaR 95 %', m.var_95_bps],
+  ] as Array<[string, number | null]>).filter(
+    (entry): entry is [string, number] => entry[1] != null,
+  );
+
   return (
     <ReportPage
       nr={4}
@@ -38,15 +49,19 @@ export function Ausgangslage({ data }: AusgangslageProps) {
         <WealthSummaryBlock w={w} />
       </div>
 
-      <h2 className="mt-section font-serif text-h2 text-ink">Kennzahlen</h2>
-      <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
-        <KpiCard label="Risky-Fraction" value={formatBpsAsPct(m.risky_fraction_bps)} />
-        <KpiCard label="Zielerreichung" value={formatBpsAsPct(m.zielerreichung_bps)} />
-        <KpiCard label="Erw. Volatilität" value={formatBpsAsPct(m.exp_vol_bps)} />
-        <KpiCard label="Erw. Rendite" value={formatBpsAsPct(m.exp_return_bps)} />
-        <KpiCard label="Max Drawdown" value={formatBpsAsPct(m.max_drawdown_bps)} />
-        <KpiCard label="VaR 95 %" value={formatBpsAsPct(m.var_95_bps)} />
-      </div>
+      {/* PA-04: nur befüllte Kennzahlen rendern. Mehrere Metriken sind backend-
+          seitig (noch) null; alle 6 Karten zu zeigen ergab 5x „—" und wirkte
+          unfertig. Sind keine Kennzahlen vorhanden, entfällt der ganze Block. */}
+      {kpis.length > 0 && (
+        <>
+          <h2 className="mt-section font-serif text-h2 text-ink">Kennzahlen</h2>
+          <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
+            {kpis.map(([label, bps]) => (
+              <KpiCard key={label} label={label} value={formatBpsAsPct(bps)} />
+            ))}
+          </div>
+        </>
+      )}
     </ReportPage>
   );
 }

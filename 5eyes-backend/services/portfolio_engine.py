@@ -2660,6 +2660,32 @@ def _expected_death_year_offset_from_mandate(mandate) -> int | None:
     return None
 
 
+def _goal_uses_total_scope(goal) -> bool:
+    """#83: True wenn das Ziel gegen das Gesamtvermoegen bewertet wird
+    (goal_scope='Gesamtvermoegen'). Default ist 'Beratungsvermoegen'."""
+    return "gesamt" in str(getattr(goal, "goal_scope", "") or "").strip().lower()
+
+
+def _external_assets_inflation_value(
+    base_rappen: int, years: int, inflation_series_bps: list[int] | None
+) -> int:
+    """#83 Gesamtvermoegen-Scope: externe Assets (Eigenheim etc.) wachsen
+    KONSERVATIV nur mit der Teuerung — realer Zuwachs 0 % (User-Entscheid
+    2026-06-19). Keine Volatilitaet -> in deterministischem UND Monte-Carlo-Pfad
+    identisch addiert, daher KEIN MC-Drift (die fruehere B4-Falle). Default-Scope
+    (Beratungsvermoegen) ruft das hier nie auf."""
+    base = max(0, int(base_rappen or 0))
+    if base <= 0:
+        return 0
+    series = list(inflation_series_bps or [])
+    last_bps = int(series[-1]) if series else 150
+    value = float(base)
+    for idx in range(max(0, int(years or 0))):
+        infl_bps = int(series[idx]) if idx < len(series) else last_bps
+        value *= 1 + (infl_bps / 10000)
+    return int(round(value))
+
+
 def _build_goal_analysis(
     goals: list[Goal],
     advisory_wealth_rappen: int,
@@ -2679,14 +2705,19 @@ def _build_goal_analysis(
     Mandant statistisch in t=15 stirbt.
     """
     analysis = []
+    # #83 Gesamtvermoegen-Scope: externe Assets = Gesamt- minus Beratungsvermoegen.
+    external_wealth_rappen = max(0, int(total_wealth_rappen or 0) - int(advisory_wealth_rappen or 0))
     for goal in sorted(goals, key=lambda g: (int(g.rank or 999), g.label or "")):
         years = _goal_projection_years(goal)
-        # B4: Goals werden IMMER gegen advisory_wealth bewertet, weil die
+        # B4: Default werden Goals gegen advisory_wealth bewertet, weil die
         # Strategie nur das Beratungsvermoegen optimiert. External Assets
-        # (Eigenheim etc.) werden nicht hochgerechnet, weil ihre Wachstums-
-        # annahme fragil und nicht strategie-relevant ist (PK-konsistent,
-        # ASIP §3.2). Bisheriger Skalierungs-Pfad mit allow_other_assets_for_goals
-        # erzeugte Drift zwischen deterministischer und MC-Bewertung.
+        # (Eigenheim etc.) werden mit Aktien-Renditen NICHT hochgerechnet, weil
+        # diese Annahme fragil ist (PK-konsistent, ASIP §3.2). Bisheriger
+        # Skalierungs-Pfad mit allow_other_assets_for_goals erzeugte Drift
+        # zwischen deterministischer und MC-Bewertung.
+        # #83 (opt-in): bei goal_scope='Gesamtvermoegen' werden externe Assets
+        # ZUSAETZLICH beruecksichtigt — aber KONSERVATIV nur mit Teuerung (real
+        # 0%, keine Vola), siehe Vermoegensziel-Zweig + _external_assets_inflation_value.
         investable_base = advisory_wealth_rappen
         projection_years = max(1, years or 1)
         contribution_series = list(cashflow_projection_series_rappen[:projection_years])
@@ -2720,6 +2751,13 @@ def _build_goal_analysis(
             )
         elif goal_type in ("Kapitalerhalt", "Vermoegensziel"):
             target_rappen = _goal_target_wealth_rappen(goal, years, inflation_series_bps)
+            # #83: bei Gesamtvermoegen-Scope die externen Assets (nur Teuerung,
+            # real 0%) zum projizierten Beratungsvermoegen addieren. Default-Scope
+            # unveraendert. Wirkt auch im gespeicherten projected_value_rappen.
+            if _goal_uses_total_scope(goal):
+                projected_rappen += _external_assets_inflation_value(
+                    external_wealth_rappen, projection_years, inflation_series_bps
+                )
             denominator = max(1, target_rappen)
             funded_ratio_pct = int(round(min(200, max(-100, projected_rappen / denominator * 100))))
             success_rate_pct = 100 if projected_rappen >= target_rappen else 0
@@ -2930,10 +2968,12 @@ def _monte_carlo_goal_summary(
     policy: OptimizerPolicy,
 ) -> dict:
     index = _year_index_for_goal(goal, start_year, horizon_years)
-    # B4: MC-Pfade sind advisory-only. Keine Skalierung mehr (frueher
-    # _goal_base_scale x total/advisory) - das war methodisch falsch,
-    # weil External Assets nicht wie Aktien wachsen. Goal wird gegen
-    # advisory_path bewertet, konsistent zu _build_goal_analysis.
+    # B4: MC-Pfade sind advisory-only. Keine Skalierung mit total/advisory mehr
+    # (frueher _goal_base_scale) - das war methodisch falsch, weil External
+    # Assets nicht wie Aktien wachsen. Goal wird gegen advisory_path bewertet,
+    # konsistent zu _build_goal_analysis.
+    # #83 (opt-in): goal_scope='Gesamtvermoegen' addiert externe Assets nur mit
+    # Teuerung (real 0%, keine Vola) -> deterministische Konstante, kein Drift.
     scaled_values = list(path_values_by_year[index])
     p10 = _percentile(scaled_values, 0.10)
     p25 = _percentile(scaled_values, 0.25)
@@ -2996,6 +3036,20 @@ def _monte_carlo_goal_summary(
             )
     elif goal_type in ("Kapitalerhalt", "Vermoegensziel"):
         target = _goal_target_wealth_rappen(goal, index, inflation_series_bps)
+        # #83: Gesamtvermoegen-Scope -> externe Assets (nur Teuerung, real 0%, KEINE
+        # Vola) deterministisch auf jeden MC-Pfad addieren. Konsistent zu
+        # _build_goal_analysis; da konstant, kein MC-Drift (B4-Falle vermieden).
+        if _goal_uses_total_scope(goal):
+            external_projected = _external_assets_inflation_value(
+                max(0, int(total_wealth_rappen or 0) - int(advisory_wealth_rappen or 0)),
+                index, inflation_series_bps,
+            )
+            if external_projected:
+                scaled_values = [value + external_projected for value in scaled_values]
+                p10 = _percentile(scaled_values, 0.10)
+                p25 = _percentile(scaled_values, 0.25)
+                p50 = _percentile(scaled_values, 0.50)
+                p90 = _percentile(scaled_values, 0.90)
         success_rate_pct = int(round(sum(1 for value in scaled_values if value >= target) / max(1, len(scaled_values)) * 100))
         funded_ratio_p50 = round(p50 / target, 4)
         funded_ratio_pct = max(0, min(200, int(round(funded_ratio_p50 * 100))))
@@ -3064,6 +3118,24 @@ def _monte_carlo_goal_summary(
         "score": max(0, min(100, score)),
         "evaluation_note": evaluation_note,
     }
+
+
+def _sequence_of_returns_depletion(
+    depletion_offsets: list[int | None], start_year: int
+) -> tuple[int, int | None]:
+    """#96 Sequence-of-Returns / Verzehr-Kennzahl: Anteil der MC-Pfade, deren
+    Vermoegen VOR Horizontende aufgezehrt ist (Pfad-Total <= 0), plus mittleres
+    Erschoepfungsjahr (Median der betroffenen Pfade). Misst das Sequence-of-
+    Returns-Risiko: schlechte Renditen frueh im Verzehr zehren das Kapital
+    schneller auf. In der Akkumulation (keine Netto-Entnahmen) ist die Quote ~0%.
+
+    depletion_offsets: pro Simulation der Jahres-Offset der ersten Erschoepfung
+    (Pfad-Total <= 0) oder None, wenn der Pfad nie erschoepft."""
+    n = max(1, len(depletion_offsets))
+    depleted = sorted(offset for offset in depletion_offsets if offset is not None)
+    probability_pct = int(round(len(depleted) / n * 100))
+    median_year = (start_year + int(depleted[len(depleted) // 2])) if depleted else None
+    return probability_pct, median_year
 
 
 def _run_allocation_monte_carlo(
@@ -3173,6 +3245,10 @@ def _run_allocation_monte_carlo(
     current_year_one_returns: list[int] = []
     current_year_one_losses: list[int] = []
     current_max_drawdowns: list[int] = []
+    # #96 Verzehr/Sequence-of-Returns: pro Pfad der Jahres-Offset der ERSTEN
+    # Vermoegens-Erschoepfung (Pfad-Total <= 0) oder None.
+    target_depletion_offsets: list[int | None] = []
+    current_depletion_offsets: list[int | None] = []
 
     for _simulation_idx in range(simulations):
         current_values = {key: max(0, int(advisory_summary.amounts_rappen.get(key, 0))) for key in BUCKET_FIELDS}
@@ -3309,11 +3385,18 @@ def _run_allocation_monte_carlo(
             target_year_one_losses.append(_loss_bps(target_start, target_year1_market_value))
         target_path = [values[_simulation_idx] for values in target_by_year if values]
         target_max_drawdowns.append(_max_drawdown_bps(target_path))
+        # #96: erster Jahres-Offset mit aufgezehrtem Vermoegen (Pfad-Total <= 0).
+        target_depletion_offsets.append(
+            next((offset for offset, value in enumerate(target_path) if value <= 0), None)
+        )
         if current_year1_market_value is not None:
             current_year_one_returns.append(_return_bps(current_start, current_year1_market_value))
             current_year_one_losses.append(_loss_bps(current_start, current_year1_market_value))
         current_path = [values[_simulation_idx] for values in current_by_year if values]
         current_max_drawdowns.append(_max_drawdown_bps(current_path))
+        current_depletion_offsets.append(
+            next((offset for offset, value in enumerate(current_path) if value <= 0), None)
+        )
 
     goal_summaries = [
         _monte_carlo_goal_summary(
@@ -3346,6 +3429,14 @@ def _run_allocation_monte_carlo(
 
     target_terminal_values = target_by_year[-1]
     downside_probability_pct = int(round(sum(1 for value in target_terminal_values if value < target_start_total) / max(1, len(target_terminal_values)) * 100))
+
+    # #96 Verzehr/Sequence-of-Returns-Kennzahl (SOLL + IST).
+    target_depletion_probability_pct, target_depletion_median_year = _sequence_of_returns_depletion(
+        target_depletion_offsets, start_year
+    )
+    current_depletion_probability_pct, current_depletion_median_year = _sequence_of_returns_depletion(
+        current_depletion_offsets, start_year
+    )
 
     has_total_paths = total_summary is not None and total_current_by_year[0]
     return {
@@ -3402,6 +3493,12 @@ def _run_allocation_monte_carlo(
         "current_volatility_1y_bps": _stddev_bps(current_year_one_returns),
         "target_max_drawdown_p95_bps": _percentile(target_max_drawdowns, 0.95),
         "target_downside_probability_pct": downside_probability_pct,
+        # #96 Verzehr/Sequence-of-Returns: Anteil Pfade mit aufgezehrtem Vermoegen
+        # vor Horizontende + mittleres Erschoepfungsjahr (None = kein Verzehr-Risiko).
+        "target_depletion_probability_pct": target_depletion_probability_pct,
+        "target_depletion_median_year": target_depletion_median_year,
+        "current_depletion_probability_pct": current_depletion_probability_pct,
+        "current_depletion_median_year": current_depletion_median_year,
         "goal_summaries": goal_summaries,
         "current_goal_summaries": current_goal_summaries,
     }
@@ -4824,6 +4921,63 @@ def _optimizer_status_is_converged(status: str | None) -> bool:
     return str(status or "").strip() in _CONVERGED_OPTIMIZER_STATUSES
 
 
+def _build_tax_solver_kwargs(mandate) -> dict:
+    """Baut die tax-*-kwargs fuer run_solver aus dem Mandat (Sprint U-P2 Fix C9).
+
+    Leeres Dict, wenn keine tax_jurisdiction gesetzt ist ODER beim Laden ein
+    Fehler auftritt (fail-soft: der Solver laeuft dann tax-naiv statt zu crashen).
+    Bewusst extrahiert, damit die Wiring (tax_regime erreicht run_solver) direkt
+    testbar ist und ein Re-Break (#39/46) nicht erneut still durchrutscht.
+    """
+    tax_kwargs: dict = {}
+    try:
+        jurisdiction = str(getattr(mandate, "tax_jurisdiction", "") or "").strip()
+        if not jurisdiction:
+            return tax_kwargs
+        from services.tax.registry import resolve_regime_class
+        regime_cls = resolve_regime_class(jurisdiction)
+        tax_overrides_json = getattr(mandate, "tax_overrides_json", None)
+        # TAX-1: Bei region-spezifischer ID (z.B. 'CH-GE') die Kanton-Factory nutzen —
+        # sonst liefert regime_cls() nur den Landes-Pauschalwert (CH 40 statt GE 85 bps).
+        # Unbekannte Region -> Basis-Regime (kein Crash).
+        region = jurisdiction.split("-", 1)[1].strip() if "-" in jurisdiction else ""
+        if region and hasattr(regime_cls, "for_canton"):
+            try:
+                regime_instance = regime_cls.for_canton(region)
+            except (ValueError, KeyError) as region_exc:
+                logger.warning(
+                    "Unbekannte Tax-Region '%s' (%s) — nutze Basis-Regime",
+                    jurisdiction, region_exc,
+                )
+                regime_instance = regime_cls()
+        else:
+            regime_instance = regime_cls()
+        if tax_overrides_json:
+            from services.tax.overrides import apply_overrides
+            regime_instance = apply_overrides(regime_instance, tax_overrides_json)
+        tax_kwargs["tax_regime"] = regime_instance
+        # TAX-2: 'valid_from_year' existiert NICHT auf dem Mandat-Model (frueher:
+        # getattr-Default 0 -> current_year hartcodiert 2026). Echtes Bewertungsjahr
+        # aus opened_at (ISO 'YYYY-MM-DD'), sonst aktuelles Kalenderjahr.
+        opened = str(getattr(mandate, "opened_at", "") or "").strip()
+        if len(opened) >= 4 and opened[:4].isdigit():
+            current_year = int(opened[:4])
+        else:
+            from datetime import date as _date
+            current_year = _date.today().year
+        tax_kwargs["base_calendar_year"] = current_year
+        cby = int(getattr(mandate, "client_birth_year", 0) or 0)
+        if cby:
+            tax_kwargs["mandate_age_at_start"] = max(0, current_year - cby)
+        retirement_year = int(getattr(mandate, "retirement_year", 0) or 0)
+        if retirement_year and current_year >= retirement_year:
+            tax_kwargs["is_retired"] = True
+    except Exception as exc:  # noqa: BLE001 - tax loading darf Solver nicht killen
+        logger.warning("Tax-Regime nicht ladbar (%s) — Solver laeuft tax-naiv", exc)
+        return {}
+    return tax_kwargs
+
+
 def _run_stochastic_optimizer_pass(
     *,
     optimizer_mode: str,
@@ -4908,29 +5062,7 @@ def _run_stochastic_optimizer_pass(
     # tax_jurisdiction hat, wird das passende TaxRegime aufgeloest und
     # an run_solver durchgereicht. Backwards-Compat: kein Feld → None
     # → simulate_wealth_paths laeuft tax-naiv (wie vorher).
-    tax_kwargs: dict = {}
-    try:
-        jurisdiction = str(getattr(mandate, "tax_jurisdiction", "") or "").strip()
-        if jurisdiction:
-            from services.tax.registry import resolve_regime_class
-            from services.tax.base import TaxConfig
-            regime_cls = resolve_regime_class(jurisdiction)
-            tax_overrides_json = getattr(mandate, "tax_overrides_json", None)
-            regime_instance = regime_cls(TaxConfig(jurisdiction_id=jurisdiction))
-            if tax_overrides_json:
-                from services.tax.overrides import apply_overrides
-                regime_instance = apply_overrides(regime_instance, tax_overrides_json)
-            tax_kwargs["tax_regime"] = regime_instance
-            current_year = int(getattr(mandate, "valid_from_year", 0) or 0) or 2026
-            tax_kwargs["base_calendar_year"] = current_year
-            cby = int(getattr(mandate, "client_birth_year", 0) or 0)
-            if cby:
-                tax_kwargs["mandate_age_at_start"] = max(0, current_year - cby)
-            retirement_year = int(getattr(mandate, "retirement_year", 0) or 0)
-            if retirement_year and current_year >= retirement_year:
-                tax_kwargs["is_retired"] = True
-    except Exception as exc:  # noqa: BLE001 - tax loading darf Solver nicht killen
-        logger.warning("Tax-Regime nicht ladbar (%s) — Solver laeuft tax-naiv", exc)
+    tax_kwargs = _build_tax_solver_kwargs(mandate)
 
     try:
         t0 = time.perf_counter()
@@ -5879,6 +6011,36 @@ def _build_bucket_response(
     return bucket_response
 
 
+def _assert_allocation_has_basis(
+    advisory_wealth_rappen: int,
+    recurring_income_rappen: int,
+    recurring_expense_rappen: int,
+    capital_inflow_rappen: int,
+    capital_outflow_rappen: int,
+) -> None:
+    """Guard (User-Anweisung 2026-06-23): Ohne jede Datenbasis ist keine seriöse Asset-
+    Allocation möglich — sonst zeigt die SOLL-%-Torte ein Vermögen vor, das es nicht gibt.
+
+    Regel:
+    - Beratungsvermögen > 0  → erlaubt.
+    - Beratungsvermögen == 0 ABER Cashflows erfasst → erlaubt (Vermögensaufbau via Sparquote,
+      "Strategie vor Geldfluss").
+    - Weder Beratungsvermögen NOCH Cashflows (gar keine Daten) → ValueError (Endpoint → 409).
+    """
+    has_cashflow = bool(
+        recurring_income_rappen
+        or recurring_expense_rappen
+        or capital_inflow_rappen
+        or capital_outflow_rappen
+    )
+    if advisory_wealth_rappen <= 0 and not has_cashflow:
+        raise ValueError(
+            "Keine Vermögensbasis: Dieses Mandat hat weder Beratungsvermögen noch Cashflows. "
+            "Bitte zuerst Vermögenspositionen oder Cashflows (Vermögensaufbau) erfassen — "
+            "ohne Datenbasis ist keine Asset-Allocation möglich."
+        )
+
+
 def generate_target_allocation(
     db: Session,
     mandate: Mandate,
@@ -5919,6 +6081,14 @@ def generate_target_allocation(
     annual_net_cashflow_rappen = inputs["annual_net_cashflow_rappen"]
     cashflow_projection_series_rappen = inputs["cashflow_projection_series_rappen"]
     recurring_cashflow_projection_series_rappen = inputs["recurring_cashflow_projection_series_rappen"]
+    # Datenbasis-Guard: kein Beratungsvermögen UND keine Cashflows → keine Allocation (409).
+    _assert_allocation_has_basis(
+        advisory_wealth_rappen,
+        recurring_income_rappen,
+        recurring_expense_rappen,
+        capital_inflow_rappen,
+        capital_outflow_rappen,
+    )
     targets, minimums, maximums = _baseline_target_bands(house_matrix, policy)
     reasoning = [
         f"Ausgangspunkt ist die House Matrix fuer Score {score_bucket} ({house_matrix.profile_name}).",

@@ -4,22 +4,24 @@ from schemas.common import BaseResponse
 
 
 class TargetAllocationCreate(BaseModel):
-    target_equities_bps: int
-    target_bonds_bps: int
-    target_real_estate_bps: int
-    target_alternatives_bps: int
-    target_liquidity_bps: int
-    band_equities_min_bps: int
-    band_equities_max_bps: int
-    band_bonds_min_bps: int
-    band_bonds_max_bps: int
-    band_real_estate_min_bps: int
-    band_real_estate_max_bps: int
-    band_alternatives_min_bps: int
-    band_alternatives_max_bps: int
-    band_liquidity_min_bps: int
-    band_liquidity_max_bps: int
-    risky_fraction_bps: Optional[int] = None
+    # SCHEMA-04: bps-Felder auf [0,10000] begrenzt (vorher bare int → negative/
+    # absurde Quoten passierten bis zur Summen-/Band-Prüfung bzw. Engine).
+    target_equities_bps: int = Field(ge=0, le=10000)
+    target_bonds_bps: int = Field(ge=0, le=10000)
+    target_real_estate_bps: int = Field(ge=0, le=10000)
+    target_alternatives_bps: int = Field(ge=0, le=10000)
+    target_liquidity_bps: int = Field(ge=0, le=10000)
+    band_equities_min_bps: int = Field(ge=0, le=10000)
+    band_equities_max_bps: int = Field(ge=0, le=10000)
+    band_bonds_min_bps: int = Field(ge=0, le=10000)
+    band_bonds_max_bps: int = Field(ge=0, le=10000)
+    band_real_estate_min_bps: int = Field(ge=0, le=10000)
+    band_real_estate_max_bps: int = Field(ge=0, le=10000)
+    band_alternatives_min_bps: int = Field(ge=0, le=10000)
+    band_alternatives_max_bps: int = Field(ge=0, le=10000)
+    band_liquidity_min_bps: int = Field(ge=0, le=10000)
+    band_liquidity_max_bps: int = Field(ge=0, le=10000)
+    risky_fraction_bps: Optional[int] = Field(default=None, ge=0, le=10000)
     based_on_assessment_id: Optional[str] = None
     policy_id: str
 
@@ -318,6 +320,24 @@ class CapitalMarketAssumptionCreate(BaseModel):
     alternatives_risk_premium_bps: Optional[int] = None
     source: Optional[str] = "Portfolio Management intern"
     notes: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _validate_cma(self):
+        # SCHEMA-03: Volatilitäten dürfen NICHT negativ sein — eine negative Varianz
+        # erzeugt in der Kovarianz-/Cholesky-Konstruktion der Monte-Carlo NaN/komplexe
+        # Werte (stiller Fehler statt klarer 422). Returns/Prämien dürfen negativ sein.
+        _vol_fields = (
+            "bonds_chf_ig_vol_bps", "bonds_fx_hedged_vol_bps", "bonds_hy_vol_bps",
+            "equity_ch_vol_bps", "equity_intl_vol_bps", "equity_em_vol_bps",
+            "real_estate_ch_vol_bps", "alternatives_gold_vol_bps", "liquidity_vol_bps",
+        )
+        for f in _vol_fields:
+            v = getattr(self, f, None)
+            if v is not None and v < 0:
+                raise ValueError(f"{f} darf nicht negativ sein (Volatilität >= 0).")
+        if self.valid_until is not None and self.valid_from and self.valid_until < self.valid_from:
+            raise ValueError("valid_until darf nicht vor valid_from liegen.")
+        return self
 
 
 class CapitalMarketAssumptionResponse(BaseResponse):

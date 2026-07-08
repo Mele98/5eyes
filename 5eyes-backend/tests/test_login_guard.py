@@ -1,4 +1,23 @@
-from services.login_guard import LoginAttemptGuard
+import pytest
+
+from services.login_guard import LoginAttemptGuard, login_attempt_guard
+
+
+@pytest.fixture(autouse=True)
+def _reset_persistent_login_guard():
+    """AUTH-03: der Guard ist jetzt DB-persistent + prozessweit geteilt.
+
+    Frueher hielt jede ``LoginAttemptGuard()``-Instanz eigene In-Memory-Dicts,
+    sodass Tests automatisch isoliert waren. Jetzt teilen alle Instanzen (ohne
+    explizite Engine) dieselbe App-DB -> Fehlversuche wuerden zwischen Tests
+    akkumulieren. Diese Fixture leert den geteilten Zustand vor+nach jedem Test
+    (nutzt die Backwards-Compat-Reset-Shims ``_failures``/``_locked_until``).
+    """
+    login_attempt_guard._failures.clear()
+    login_attempt_guard._locked_until.clear()
+    yield
+    login_attempt_guard._failures.clear()
+    login_attempt_guard._locked_until.clear()
 
 
 def test_login_guard_locks_after_repeated_failures(monkeypatch):

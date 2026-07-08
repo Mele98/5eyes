@@ -54,6 +54,7 @@ def test_mortgage_negative_value_is_abs():
 
 def test_rental_income():
     pos = _pos(id="i1", position_type="Immobilien", label="Renditeobjekt",
+               current_value_rappen=1_200_000_00,  # Liegenschaft mit Wert (Guard)
                property_rental_income_rappen=24_000_00)
     rows = derive_wealth_cashflows([pos])
     assert len(rows) == 1
@@ -86,9 +87,9 @@ def test_depot_appreciation_not_derived():
 
 
 def test_inactive_and_deleted_skipped():
-    active = _pos(id="a", position_type="Immobilien", property_rental_income_rappen=12_000_00)
-    inactive = _pos(id="b", position_type="Immobilien", property_rental_income_rappen=12_000_00, is_active=0)
-    deleted = _pos(id="c", position_type="Immobilien", property_rental_income_rappen=12_000_00, deleted_at="2026-01-01")
+    active = _pos(id="a", position_type="Immobilien", current_value_rappen=600_000_00, property_rental_income_rappen=12_000_00)
+    inactive = _pos(id="b", position_type="Immobilien", current_value_rappen=600_000_00, property_rental_income_rappen=12_000_00, is_active=0)
+    deleted = _pos(id="c", position_type="Immobilien", current_value_rappen=600_000_00, property_rental_income_rappen=12_000_00, deleted_at="2026-01-01")
     rows = derive_wealth_cashflows([active, inactive, deleted])
     assert len(rows) == 1
     assert rows[0].origin_position_id == "a"
