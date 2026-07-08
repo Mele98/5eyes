@@ -1,4 +1,4 @@
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
 from typing import Optional
 from schemas.common import BaseResponse
 
@@ -8,11 +8,11 @@ class StrategySnapshotCreate(BaseModel):
     advisory_assets_rappen: int
     risk_profile_score: int
     risk_profile_label: str
-    soll_equities_bps: int
-    soll_bonds_bps: int
-    soll_real_estate_bps: int
-    soll_liquidity_bps: int
-    soll_alternatives_bps: int
+    soll_equities_bps: int = Field(ge=0, le=10000)
+    soll_bonds_bps: int = Field(ge=0, le=10000)
+    soll_real_estate_bps: int = Field(ge=0, le=10000)
+    soll_liquidity_bps: int = Field(ge=0, le=10000)
+    soll_alternatives_bps: int = Field(ge=0, le=10000)
     band_equities_lo_bps: Optional[int] = None
     band_equities_hi_bps: Optional[int] = None
     band_bonds_lo_bps: Optional[int] = None
@@ -35,8 +35,11 @@ class StrategySnapshotCreate(BaseModel):
             + self.soll_liquidity_bps
             + self.soll_alternatives_bps
         )
-        assert abs(total - 10000) <= 50, \
-            f"BPS-Summe {total} weicht mehr als 50 BPS von 10000 ab (Rundungsfehler erlaubt)"
+        # SCHEMA-02: explizit raise statt assert (assert wird unter `python -O` gestrippt).
+        if abs(total - 10000) > 50:
+            raise ValueError(
+                f"BPS-Summe {total} weicht mehr als 50 BPS von 10000 ab (Rundungsfehler erlaubt)."
+            )
         return self
 
 

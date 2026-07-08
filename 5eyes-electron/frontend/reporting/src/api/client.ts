@@ -143,6 +143,20 @@ function validateSchemaV2(data: unknown): asserts data is AdvisoryReport {
     'beratungsprotokoll',
     // U-FINMA-3: additive Sektion 17
     'suitability_summary',
+    // DL-1: weitere Top-Level-Sektionen, die der Aggregator unbedingt liefert
+    // (advisory_report.py:289-315) und die u.a. die Compliance-Sektion liest —
+    // ohne sie blieb Schema-Drift bei diesen Sektionen ungefangen.
+    'stress_replay',
+    'conflict_disclosures',
+    'suitability_compliance',
+    'methodology_models',
+    'recommendation_methodology',
+    'mandate_lock_status',
+    'liquidity_cascade',
+    'optimizer_run_history',
+    'performance_attribution',
+    'engine_configuration',
+    'ab_backtest',
   ] as const;
   for (const key of expectedKeys) {
     if (!(key in (data as Record<string, unknown>))) {

@@ -134,6 +134,12 @@ def _validate_recommendation_for_finalization(db: Session, mandate: Mandate, run
     ).first() if run.target_allocation_id else None
     if not allocation:
         errors.append("Empfehlung hat keine gueltige Soll-Allokation.")
+    elif not allocation.is_current:
+        # Analog zum Risikoprofil-Gate oben: eine finalisierte Empfehlung MUSS auf der
+        # aktuellen Soll-Allokation basieren. Sonst wird der Run zwar Final, ist aber
+        # ueber get_current_recommendation_payload (filtert auf is_current-Allokation)
+        # nicht mehr auffindbar -> verwaister Final-Zustand.
+        errors.append("Empfehlung basiert nicht auf der aktuellen Soll-Allokation.")
     elif assessment and allocation.based_on_assessment_id and allocation.based_on_assessment_id != assessment.id:
         errors.append("Soll-Allokation und Risikoprofil der Empfehlung passen nicht zusammen.")
     if not run.policy_id or not db.query(OptimizerPolicy).filter(OptimizerPolicy.id == run.policy_id).first():

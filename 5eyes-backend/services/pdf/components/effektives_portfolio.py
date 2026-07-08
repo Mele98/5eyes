@@ -98,7 +98,10 @@ def make_effektives_portfolio_section(
             product_para,
             _esc(sub) if sub else "—",
             f"{current_bps/100:.1f}%" if current_bps > 0 else "—",
-            _format_amount(current_amount, ccy) if current_amount > 0 else "—",
+            # current_amount_rappen ist CHF (base_currency) — NICHT in die Produkt-
+            # Waehrung umrechnen, sonst passt die Zeile weder zum Spaltenkopf
+            # "IST-Wert (CHF)" noch zur Total-Zeile. Die Produkt-CCY bleibt separat.
+            _format_amount(current_amount, base_currency) if current_amount > 0 else "—",
             f"{ter/100:.2f}%" if ter > 0 else "—",
         ])
 

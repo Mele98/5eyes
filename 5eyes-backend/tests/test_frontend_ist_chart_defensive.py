@@ -45,12 +45,23 @@ def test_horizon_falls_back_to_projectionHorizonYears():
 
 def test_labels_built_from_projectionYearLabels():
     body = _function_block()
-    assert "projectionYearLabels(result,horizon,sim&&sim.year_labels)" in body
+    # Refactor 2026-06-17: Berater-Horizont-Override schiebt eine Bedingung
+    # zwischen horizon und sim.year_labels:
+    #   projectionYearLabels(result,horizon,(_hOv&&_hOv>0)?null:(sim&&sim.year_labels))
+    # Die defensive Absicht (Labels via projectionYearLabels, sim.year_labels
+    # bleibt die Quelle wenn kein Override) ist unveraendert — robuste Teilchecks:
+    assert "projectionYearLabels(result,horizon," in body
+    assert "sim&&sim.year_labels" in body
 
 
 def test_target_series_only_when_simulation_present():
     body = _function_block()
-    assert "var targetSeries=sim?simulationSeriesK(sim.target_mix_series_rappen):[]" in body
+    # Refactor 2026-06-17: targetSeries wird zusaetzlich per _hCap(...) auf den
+    # (ggf. per Override gekuerzten) Horizont getrimmt:
+    #   var targetSeries=_hCap(sim?simulationSeriesK(sim.target_mix_series_rappen):[]);
+    # Die defensive Ternary (nur bei vorhandener Simulation Daten, sonst []) ist
+    # unveraendert — wir pruefen genau diese, unabhaengig vom _hCap-Wrapper:
+    assert "sim?simulationSeriesK(sim.target_mix_series_rappen):[]" in body
 
 
 def test_target_chart_placeholder_when_no_simulation():

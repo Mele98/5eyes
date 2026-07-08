@@ -78,6 +78,13 @@ export function MonteCarloPathsChart({
     return null;
   }
 
+  // charts-2: nicht-endliche Werte (NaN/Infinity, z.B. Backend serialisiert NaN→null
+  // oder Overflow) würden ungültige SVG-Koordinaten erzeugen (kaputter/leerer Chart).
+  // Ein einziger nicht-finiter Wert → wir rendern nichts (Caller zeigt Empty-State).
+  if (![...p5, ...p50, ...p75].every((v) => Number.isFinite(v))) {
+    return null;
+  }
+
   // y-Range = [0, max(p75) * 1.05]. 0 als Untergrenze macht die Wachstums-
   // Geschichte anschaulich (vs. min(p5) das die Bandbreite klein wirken laesst).
   const maxValue = Math.max(...p75) * 1.05;

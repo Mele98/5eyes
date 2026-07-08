@@ -90,6 +90,16 @@ describe('MonteCarloPathsChart — Defensive', () => {
     expect(container.querySelector('svg')).toBeNull();
   });
 
+  it('charts-2: rendert null bei nicht-finitem Wert (NaN/Infinity) in den Pfaden', () => {
+    const base = makeMc();
+    const p50 = [...base.p50!];
+    p50[3] = Number.NaN; // z.B. Backend serialisiert NaN
+    const { container } = render(
+      <MonteCarloPathsChart paths={makeMc({ p50 })} goals={[]} />,
+    );
+    expect(container.querySelector('svg')).toBeNull();
+  });
+
   it('rendert null wenn p5-Laenge != time_axis-Laenge', () => {
     const mc = makeMc();
     mc.p5 = mc.p5!.slice(0, 5);

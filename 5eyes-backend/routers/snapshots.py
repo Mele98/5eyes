@@ -150,7 +150,9 @@ def list_snapshots(
             StrategySnapshot.mandate_id == mandate_id,
             StrategySnapshot.deleted_at.is_(None),
         )
-        .order_by(StrategySnapshot.snapshot_date.desc())
+        # Sekundaer nach created_at: snapshot_date ist ein client-gesetzter Tages-
+        # String -> bei zwei Snapshots am selben Kalendertag sonst nicht-deterministisch.
+        .order_by(StrategySnapshot.snapshot_date.desc(), StrategySnapshot.created_at.desc())
         .all()
     )
 
@@ -169,7 +171,9 @@ def get_drift(
             StrategySnapshot.mandate_id == mandate_id,
             StrategySnapshot.deleted_at.is_(None),
         )
-        .order_by(StrategySnapshot.snapshot_date.desc())
+        # Sekundaer nach created_at (siehe list_snapshots): sonst kann bei zwei
+        # Snapshots am selben Tag der aeltere als "latest" fuer die Drift-Ampel gewinnen.
+        .order_by(StrategySnapshot.snapshot_date.desc(), StrategySnapshot.created_at.desc())
         .first()
     )
     if not snapshot:

@@ -509,6 +509,23 @@ def create_client_login(
     now = _now()
     full_name = str(body.get("full_name") or "").strip() or f"{client.first_name} {client.last_name}".strip()
     email = body.get("email")
+    # SEC-1 (2026-07-04): Client-Login-User erbt tenant_id vom Parent-Client
+    # (Fallback: Tenant des anlegenden Beraters), analog create_mandate. Damit
+    # entstehen keine "herrenlosen" NULL-Tenant-Client-User mehr (harte Mandanten-
+    # trennung / FINMA/FIDLEG/DSG; Vorbedingung fuer spaetere NOT-NULL-Constraint).
+    client_user_tenant_id = getattr(client, "tenant_id", None) or getattr(current_user, "tenant_id", None)
+    # Guard: Ist kein Tenant ableitbar, darf im Strict-/Multi-Kontext KEIN NULL-
+    # Tenant-User entstehen (waere fuer JEDEN Tenant sichtbar). Legacy-Single/
+    # non-strict bleibt zulaessig (BC).
+    if not (client_user_tenant_id and str(client_user_tenant_id).strip()):
+        from config import settings as _settings
+        _strict = getattr(_settings, "strict_tenant_isolation", False)
+        _multi = getattr(_settings, "tenancy_mode", "single") == "multi"
+        if _strict or _multi:
+            raise HTTPException(
+                status_code=409,
+                detail="Tenant nicht bestimmbar — Client-Login kann im Multi-/Strict-Modus nicht ohne Mandant angelegt werden",
+            )
     client_user = User(
         id=new_uuid(),
         username=username,
@@ -516,6 +533,7 @@ def create_client_login(
         full_name=full_name,
         email=email,
         role="client",
+        tenant_id=client_user_tenant_id,
         is_active=1,
         created_at=now,
         updated_at=now,
