@@ -16541,12 +16541,6 @@ function renderPreferenceChips(targetId,items,variant){
   el.innerHTML=chips.map(function(item){
     return '<span style="font-size:10px;padding:3px 8px;'+palette+'border-radius:var(--r2)">'+escapeHtml(item)+'</span>';
   }).join('');
-  Array.prototype.forEach.call(grid.querySelectorAll('button[onclick="printReport()"]'),function(btn,idx){
-    var doc=docs[idx];
-    if(!doc)return;
-    btn.textContent='Kapitel drucken';
-    btn.setAttribute('onclick',"printDocumentTypeReport('"+String(doc.document_type||'Dokument').replace(/'/g,"\\'")+"')");
-  });
 }
 function renderAllocationPreferenceSummary(prefs){
   if(!prefs)return;
