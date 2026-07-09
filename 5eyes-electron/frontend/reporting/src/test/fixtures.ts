@@ -32,7 +32,52 @@ import type {
   StatementPmData,
   StressReplayData,
   WeiteresVorgehenData,
+  RiskAssessment,
 } from '@/api/types';
+
+export function makeRiskAssessment(
+  overrides: Partial<RiskAssessment> = {},
+): RiskAssessment {
+  return {
+    id: 'ra-1',
+    mandate_id: 'mandate-1',
+    version: 1,
+    is_current: 1,
+    valid_from: '2026-06-22',
+    q_income_points: 2,
+    q_obligations_points: 2,
+    q_savings_points: 6,
+    q_wealth_points: 6,
+    risk_capacity_total: 16,
+    risk_capacity_profile: 'Ausgewogen',
+    investment_horizon_years: 6,
+    investment_horizon_label: '6 bis 7 Jahre',
+    risk_capacity_score_x10: 55,
+    q_investment_goal_points: 3,
+    q_risk_preference_points: 3,
+    q_risk_behavior_points: 3,
+    risk_willingness_total: 9,
+    risk_willingness_profile: 'Ausgewogen',
+    risk_willingness_score_x10: 60,
+    final_score_x10: 55,
+    final_profile: 'Ausgewogen',
+    is_overridden: 0,
+    override_score_x10: null,
+    override_profile: null,
+    override_at: null,
+    override_reason: null,
+    override_client_confirmed: null,
+    override_warning_delivered: null,
+    assessed_at: '2026-06-22T08:00:00.000Z',
+    assessed_by: 'advisor-1',
+    created_at: '2026-06-22T08:00:00.000Z',
+    answers: [],
+    knowledge_services_json: '{}',
+    knowledge_instruments_json: '{}',
+    income_sources_json: '[]',
+    ...overrides,
+  };
+}
 
 export function makeCover(): CoverData {
   return {

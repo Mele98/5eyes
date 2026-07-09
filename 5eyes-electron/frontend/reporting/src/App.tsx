@@ -30,6 +30,7 @@ import { WeiteresVorgehen } from '@/pages/WeiteresVorgehen';
 import { Beratungsprotokoll } from '@/pages/Beratungsprotokoll';
 import { Compliance } from '@/pages/Compliance';
 import { Eignung } from '@/pages/Eignung';
+import { ProfilingPage } from '@/sections/profiling/ProfilingPage';
 // Editor-Workflows lazy laden (U-56 Bundle-Budget): der Report-Viewer lädt den
 // Editor-Code nicht mit — jede Sektion wird als eigener Chunk on-demand geholt.
 const GoalsEditor = lazy(() =>
@@ -66,6 +67,10 @@ function App() {
         <Route
           path="/mandates/:mandateId/report/cover"
           element={<ReportShell sectionId="cover" />}
+        />
+        <Route
+          path="/mandates/:mandateId/risikoprofil-editor"
+          element={<ProfilingPage />}
         />
         {SECTION_ROUTES.filter((route) => route.path).map((route) => (
           <Route
