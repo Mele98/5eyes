@@ -37,6 +37,29 @@ from services.market_data.exceptions import MarketDataError
 # keine FX-Konvertierung.
 BASE_CURRENCY = "CHF"
 
+# Explizite Notierungswaehrung je Asset-Klasse-Proxy. Die gespeicherte currency
+# steuert im Backtest die FX-Ueberlagerung (backtest_strategy._fx_at), darf also
+# NICHT aus dem Symbol-Suffix geraten werden: stooq_currency() liefert fuer nicht-US-
+# Symbole (z.B. '.SW'/'^SSMI' = SIX/CHF, '^STOXX' = EUR) faelschlich USD. Die
+# DEFAULT_SYMBOL_MAP-Proxies sind bewusst durchweg USD-Total-Return-ETFs; wird ein
+# Proxy je durch ein nicht-USD-Symbol ersetzt, MUSS hier die korrekte Waehrung
+# gesetzt werden. Unbekannte Asset-Klassen fallen auf die Provider-Angabe zurueck.
+DEFAULT_CURRENCY_MAP: dict[str, str] = {
+    "Aktien": "USD",
+    "Obligationen": "USD",
+    "Immobilien": "USD",
+    "Alternative": "USD",
+    "Liquiditaet": "USD",
+}
+
+
+def _resolve_currency(asset_class: str, bar_currency: str | None) -> str | None:
+    """Explizite Proxy-Waehrung bevorzugen, sonst die Provider-Angabe (Fallback)."""
+    explicit = DEFAULT_CURRENCY_MAP.get(asset_class)
+    if explicit:
+        return explicit
+    return (str(bar_currency or "").upper() or None)
+
 
 def _fx_symbol_for(currency: str) -> str:
     """Yahoo-FX-Symbol für <currency>→CHF. USD ist auf Yahoo implizite Basis
@@ -242,7 +265,7 @@ def backfill_asset_class_prices(
             close_rappen = _bar_close_rappen(bar)
             if close_rappen is None or close_rappen <= 0:
                 continue
-            currency = (str(getattr(bar, "currency", "") or "").upper() or None)
+            currency = _resolve_currency(asset_class, getattr(bar, "currency", None))
             if currency:
                 asset_currency = currency
                 currencies_seen.add(currency)
