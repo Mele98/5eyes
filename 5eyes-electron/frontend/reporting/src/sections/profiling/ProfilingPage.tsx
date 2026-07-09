@@ -111,8 +111,37 @@ function optionLabel(options: Option[], value: number): string {
   return options.find((option) => option.value === value)?.label ?? options[0].label;
 }
 
+// Vollstaendiges Label->Jahre-Mapping, gespiegelt aus dem Backend
+// (services/risk_scoring.HORIZON_YEARS). Das Dropdown (HORIZON_OPTIONS) zeigt nur
+// die 6 kanonischen Kategorien, aber ein bereits gespeichertes Legacy-Label MUSS
+// beim Speichern die korrekten Jahre behalten — sonst wurde investment_horizon_years
+// beim reinen Re-Save still auf 6 defaultet (Verstuemmelung der Risikofaehigkeit).
+const HORIZON_YEARS_BY_LABEL: Record<InvestmentHorizonLabel, number> = {
+  'Bis 2 Jahre': 1,
+  '2 bis 3 Jahre': 2,
+  '4 bis 5 Jahre': 4,
+  '6 bis 7 Jahre': 6,
+  '8 bis 11 Jahre': 9,
+  'Mehr als 12 Jahre': 15,
+  '0 bis 4 Jahre': 2,
+  '5 bis 7 Jahre': 6,
+  '12 Jahre und mehr': 15,
+  '1 bis 3 Jahre': 2,
+  '3 bis 5 Jahre': 4,
+  '5 bis 10 Jahre': 6,
+  '10 Jahre und mehr': 15,
+};
+
 function horizonYears(label: InvestmentHorizonLabel): number {
-  return HORIZON_OPTIONS.find((option) => option.label === label)?.years ?? 6;
+  return HORIZON_YEARS_BY_LABEL[label] ?? 6;
+}
+
+// Ein geladenes (evtl. Legacy-)Label auf die passende kanonische Dropdown-Kategorie
+// abbilden (ueber die Jahre-Aequivalenz), damit das <select> die korrekte Auswahl
+// zeigt statt optisch auf die erste Option zu fallen. Jahre bleiben identisch.
+function canonicalHorizonLabel(label: InvestmentHorizonLabel): InvestmentHorizonLabel {
+  const years = HORIZON_YEARS_BY_LABEL[label] ?? 6;
+  return HORIZON_OPTIONS.find((option) => option.years === years)?.label ?? label;
 }
 
 export function buildRiskAssessmentPayload(
@@ -215,6 +244,13 @@ export function ProfilingPage() {
   useEffect(() => {
     if (!mandateId) return;
     let cancelled = false;
+    // #306-Review #2 (Mandanten-Trennung): den Editor beim Mandatswechsel SOFORT
+    // leeren, bevor die neuen Daten (oder der 404-Leerzustand) stehen. Sonst blieben
+    // Profil + Antworten des VORIGEN Mandats sichtbar und koennten faelschlich unter
+    // dem neuen Mandat gespeichert werden.
+    setAssessment(null);
+    setForm(DEFAULT_STATE);
+    setError(null);
     fetchCurrentRiskAssessment(mandateId)
       .then((data) => {
         if (!cancelled) {
@@ -224,8 +260,12 @@ export function ProfilingPage() {
             q_obligations_points: data.q_obligations_points,
             q_savings_points: data.q_savings_points,
             q_wealth_points: data.q_wealth_points,
-            investment_horizon_label:
+            // #306-Review #1: Legacy-Label auf die kanonische Dropdown-Kategorie
+            // normalisieren (gleiche Jahre), damit das <select> die korrekte Auswahl
+            // zeigt statt optisch auf die erste Option zu fallen.
+            investment_horizon_label: canonicalHorizonLabel(
               data.investment_horizon_label as InvestmentHorizonLabel,
+            ),
             investment_horizon_years: data.investment_horizon_years,
             q_investment_goal_points: data.q_investment_goal_points,
             q_risk_preference_points: data.q_risk_preference_points,

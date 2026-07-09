@@ -86,6 +86,31 @@ describe('Profiling payload', () => {
     expect(payload.knowledge_instruments_json).toBeTruthy();
     expect(payload.income_sources_json).toBeTruthy();
   });
+
+  it('behaelt korrekte horizon_years fuer Legacy-Labels (kein stiller 6-Default)', () => {
+    const base = {
+      q_income_points: 2,
+      q_obligations_points: 2,
+      q_savings_points: 6,
+      q_wealth_points: 6,
+      investment_horizon_years: 0,
+      q_investment_goal_points: 3,
+      q_risk_preference_points: 3,
+      q_risk_behavior_points: 3,
+    };
+    expect(
+      buildRiskAssessmentPayload({ ...base, investment_horizon_label: '12 Jahre und mehr' })
+        .investment_horizon_years,
+    ).toBe(15);
+    expect(
+      buildRiskAssessmentPayload({ ...base, investment_horizon_label: '10 Jahre und mehr' })
+        .investment_horizon_years,
+    ).toBe(15);
+    expect(
+      buildRiskAssessmentPayload({ ...base, investment_horizon_label: '0 bis 4 Jahre' })
+        .investment_horizon_years,
+    ).toBe(2);
+  });
 });
 
 describe('ProfilingPage save flow', () => {
