@@ -2963,10 +2963,6 @@ function _wireSollIstHover(){
                          style="display:none;font-size:10px;padding:2px 4px;border:1px solid var(--b1);border-radius:2px;background:var(--bg)"
                          onchange="applyIstHorizonDate(this.value)">
                   <span id="cf-horizon-eff" style="color:var(--n6);font-style:italic"></span>
-                  <label style="display:flex;align-items:center;gap:5px;font-size:10px;cursor:pointer;color:var(--n6)" title="Schätzt CH-Einkommens- und Vermögenssteuer und rechnet sie als wiederkehrende Ausgabe in die Projektion ein. Näherung, keine Steuerberatung.">
-                    <input type="checkbox" id="cf-include-tax" onchange="applyCashflowIncludeTax(this.checked)"> Steuer (CH, geschätzt)
-                  </label>
-                  <span id="cf-tax-hint" style="color:var(--n6);font-style:italic;font-size:10px"></span>
                   <button class="btn" type="button" onclick="resetIstHorizonOverride()" title="Automatisch aus Stammdaten ableiten"
                           style="font-size:9px;padding:2px 6px">Auto</button>
                 </div>
@@ -16915,30 +16911,6 @@ function saveIstHorizonOverride(years){
     }
   } catch(e) { /* ignore quota / private mode */ }
 }
-// #39: opt-in Steuer-Schaetzung in der Cashflow-Projektion (client-scoped Toggle).
-function cashflowIncludeTaxKey(){ return 'cf-include-tax:' + (currentClientId||''); }
-function loadCashflowIncludeTax(){
-  try { return !!currentClientId && localStorage.getItem(cashflowIncludeTaxKey())==='1'; }
-  catch(e){ return false; }
-}
-function saveCashflowIncludeTax(on){
-  try { if(currentClientId) localStorage.setItem(cashflowIncludeTaxKey(), on?'1':'0'); }
-  catch(e){ /* ignore quota / private mode */ }
-}
-function updateCfTaxUi(){
-  var cb=document.getElementById('cf-include-tax');
-  if(cb) cb.checked=loadCashflowIncludeTax();
-  var hint=document.getElementById('cf-tax-hint');
-  if(hint){
-    var yrs=currentCashflowProjection&&Array.isArray(currentCashflowProjection.years)?currentCashflowProjection.years:null;
-    var tax=yrs&&yrs.length?Number(yrs[0].estimated_tax_rappen||0):0;
-    hint.textContent=(loadCashflowIncludeTax()&&tax>0)?('Steuer Jahr 1: CHF '+Math.round(tax/100).toLocaleString('de-CH')):'';
-  }
-}
-function applyCashflowIncludeTax(on){
-  saveCashflowIncludeTax(!!on);
-  if(currentClientId) refreshCashflowsUI(currentClientId);
-}
 // 2026-06-15: Lebenserwartung nach Kunden-Vorgabe = Geburtsjahr + 83 (Mann) /
 // + 85 (Frau). Bestimmt den Projektions-/X-Achsen-Horizont aller Verlaufscharts
 // (Verzehr UND SOLL/IST-Vergleich), damit die Achse bis ans Lebensende läuft.
@@ -16974,13 +16946,9 @@ function effectiveCashflowProjectionHorizon(){
 }
 function cashflowProjectionQuery(){
   // ?horizon_years=<override> nur wenn der Berater einen Override gesetzt hat;
-  // sonst leer -> Backend-Ableitung aus Stammdaten greift. Plus optionaler
-  // Steuer-Toggle (#39): &include_tax=true.
-  var params = [];
+  // sonst leer -> Backend-Ableitung aus Stammdaten greift.
   var ov = effectiveCashflowProjectionHorizon();
-  if (ov && ov > 0) params.push('horizon_years=' + ov);
-  if (loadCashflowIncludeTax()) params.push('include_tax=true');
-  return params.length ? ('?' + params.join('&')) : '';
+  return (ov && ov > 0) ? ('?horizon_years=' + ov) : '';
 }
 function syncIstHorizonOverrideInput(){
   var ov = loadIstHorizonOverride();
@@ -16996,8 +16964,6 @@ function syncIstHorizonOverrideInput(){
   updateHorizonEffectiveLabel();
   // Horizont-Balken bei den SOLL/IST-Charts synchron halten (gleiche Override-Quelle).
   try{ syncAaHorizonControl(); }catch(e){}
-  // #39: Steuer-Checkbox + Jahr-1-Hinweis synchronisieren (nach Projektions-Load).
-  try{ updateCfTaxUi(); }catch(e){}
 }
 function setHorizonInputMode(mode){
   var yEl = document.getElementById('cf-horizon-override');
