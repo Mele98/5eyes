@@ -1998,3 +1998,136 @@ def test_suitability_summary_mismatch_with_override_tracks_warning_workflow(
     assert ss["client_acknowledged"] is True
     assert ss["client_acknowledged_at"] == "2026-05-20T10:05:00Z"
     assert ss["checked_by_name"] == "Anna Beispiel"
+
+
+# ---------------------------------------------------------------------------
+# Audit-Fixes AR-1 / AR-2 / AR-3
+# ---------------------------------------------------------------------------
+
+def _ziel_check(report):
+    return next(
+        c for c in report["erkenntnisse"]["checks"]
+        if c["pruefpunkt"] == "Zielkompatibilität"
+    )
+
+
+def test_ar1_primaer_unreachable_goal_flags_rot(session_factory):
+    """AR-1: ein nicht erreichbares PRIMÄRES Ziel (Engine-Display 'primär') muss
+    rot flaggen — vorher wurde nur 'hart' erkannt."""
+    import json
+    with session_factory() as s:
+        mandate, _c, advisor = _seed_minimal_mandate(s)
+        payload = json.dumps([
+            {"goal_id": "g1", "label": "Rente", "probability": 0.10,
+             "status": "nicht_erreichbar", "hardness": "primär"},
+        ])
+        _make_ta_with_goals(s, mandate_id=mandate.id, advisor_id=advisor.id,
+                            goal_achievability_json=payload)
+        s.commit()
+        report = compute_advisory_report(s, mandate, advisor=advisor)
+    check = _ziel_check(report)
+    assert check["bewertung"] == "rot"
+    assert "primär" in check["beurteilung"]
+
+
+def test_ar1_hart_unreachable_goal_still_rot(session_factory):
+    """AR-1: 'hart' bleibt rot (keine Regression)."""
+    import json
+    with session_factory() as s:
+        mandate, _c, advisor = _seed_minimal_mandate(s)
+        payload = json.dumps([
+            {"goal_id": "g1", "label": "Haus", "probability": 0.05,
+             "status": "nicht_erreichbar", "hardness": "hart"},
+        ])
+        _make_ta_with_goals(s, mandate_id=mandate.id, advisor_id=advisor.id,
+                            goal_achievability_json=payload)
+        s.commit()
+        report = compute_advisory_report(s, mandate, advisor=advisor)
+    assert _ziel_check(report)["bewertung"] == "rot"
+
+
+def test_ar1_opportunistic_unreachable_not_rot(session_factory):
+    """AR-1: ein nicht erreichbares OPPORTUNISTISCHES Ziel ist NICHT bindend -> nicht rot."""
+    import json
+    with session_factory() as s:
+        mandate, _c, advisor = _seed_minimal_mandate(s)
+        payload = json.dumps([
+            {"goal_id": "g1", "label": "Boot", "probability": 0.10,
+             "status": "nicht_erreichbar", "hardness": "opportunistisch"},
+        ])
+        _make_ta_with_goals(s, mandate_id=mandate.id, advisor_id=advisor.id,
+                            goal_achievability_json=payload)
+        s.commit()
+        report = compute_advisory_report(s, mandate, advisor=advisor)
+    assert _ziel_check(report)["bewertung"] != "rot"
+
+
+def test_ar2_key_metric_zielerreichung_matches_goal_section(session_factory):
+    """AR-2: die Key-Metric-Karte 'Zielerreichung' muss denselben Score zeigen wie
+    die Goal-Based-Sektion (vorher hartkodiert None)."""
+    import json
+    with session_factory() as s:
+        mandate, _c, advisor = _seed_minimal_mandate(s)
+        payload = json.dumps([
+            {"goal_id": "g1", "label": "Rente", "probability": 0.72,
+             "status": "erreichbar", "hardness": "primär"},
+        ])
+        _make_ta_with_goals(s, mandate_id=mandate.id, advisor_id=advisor.id,
+                            goal_achievability_json=payload)
+        s.commit()
+        report = compute_advisory_report(s, mandate, advisor=advisor)
+    km = report["ausgangslage"]["key_metrics"]
+    gbi = report["goal_based_investing"]
+    assert km["zielerreichung_bps"] == 7200
+    assert km["zielerreichung_bps"] == gbi["goal_achievement_score_bps"]
+
+
+def test_ar2_key_metric_zielerreichung_none_without_achievability(session_factory):
+    """AR-2: TA ohne goal_achievability_json -> Karte bleibt None (kein Fake-Wert)."""
+    with session_factory() as s:
+        mandate, _c, advisor = _seed_minimal_mandate(s)
+        _make_ta_with_goals(s, mandate_id=mandate.id, advisor_id=advisor.id,
+                            goal_achievability_json=None)
+        s.commit()
+        report = compute_advisory_report(s, mandate, advisor=advisor)
+    assert report["ausgangslage"]["key_metrics"]["zielerreichung_bps"] is None
+
+
+def test_ar3_unmapped_asset_class_goes_to_sonstige_group(session_factory):
+    """AR-3: eine Position mit nicht gemappter Anlageklasse landet in einer sichtbaren
+    'Sonstige'-Gruppe statt still in Alternatives."""
+    with session_factory() as s:
+        mandate, client, advisor = _seed_minimal_mandate(s)
+        run, _p = _make_rec_run_with_position(
+            s, mandate_id=mandate.id, client_id=client.id, advisor_id=advisor.id,
+            target_amount_rappen=100_000_00, asset_class="Aktien",
+            product_name="Equity-ETF", isin="CH0000000011",
+        )
+        _make_rec_run_with_position(
+            s, mandate_id=mandate.id, client_id=client.id, advisor_id=advisor.id,
+            target_amount_rappen=50_000_00, asset_class="Krypto-Sondervermögen",
+            product_name="Mystery-Fund", isin="CH0000000012", run=run,
+        )
+        s.commit()
+        report = compute_advisory_report(s, mandate, advisor=advisor)
+    groups = {g["key"]: g for g in report["positionen"]["groups"]}
+    assert "unknown" in groups, "Sonstige-Gruppe muss erscheinen"
+    sonstige = groups["unknown"]
+    assert sonstige["label"] == "Sonstige / nicht zugeordnet"
+    assert sonstige["total_rappen"] == 50_000_00
+    # Alternatives bleibt unberührt (kein Fehl-Inflate)
+    assert groups["alternatives"]["total_rappen"] == 0
+    assert groups["equities"]["total_rappen"] == 100_000_00
+
+
+def test_ar3_all_mapped_keeps_five_groups(session_factory):
+    """AR-3: ohne unmapped Position bleibt es bei genau 5 Gruppen (keine Regression)."""
+    with session_factory() as s:
+        mandate, client, advisor = _seed_minimal_mandate(s)
+        _make_rec_run_with_position(
+            s, mandate_id=mandate.id, client_id=client.id, advisor_id=advisor.id,
+            target_amount_rappen=100_000_00, asset_class="Aktien",
+        )
+        s.commit()
+        report = compute_advisory_report(s, mandate, advisor=advisor)
+    assert len(report["positionen"]["groups"]) == 5

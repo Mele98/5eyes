@@ -15,8 +15,8 @@ const PALETTE: Record<
   gruen:             { label: 'OK',       bg: 'bg-status-gruen/15',   text: 'text-status-gruen' },
   gelb:              { label: 'Achtung',  bg: 'bg-status-gelb/15',    text: 'text-status-gelb' },
   rot:               { label: 'Handeln',  bg: 'bg-status-rot/15',     text: 'text-status-rot' },
-  nicht_beurteilbar: { label: 'Pendant',  bg: 'bg-status-neutral/15', text: 'text-status-neutral' },
-  unknown:           { label: 'Pendant',  bg: 'bg-status-neutral/15', text: 'text-status-neutral' },
+  nicht_beurteilbar: { label: 'Pendent',  bg: 'bg-status-neutral/15', text: 'text-status-neutral' },
+  unknown:           { label: 'Pendent',  bg: 'bg-status-neutral/15', text: 'text-status-neutral' },
 };
 
 export interface AmpelPillProps {

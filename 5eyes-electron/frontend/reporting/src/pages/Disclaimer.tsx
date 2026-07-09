@@ -5,6 +5,9 @@ interface DisclaimerProps {
 }
 
 export function Disclaimer({ data }: DisclaimerProps) {
+  // PA-01: defensiv gegen partielle/ältere Payloads — ohne Guard würde ein
+  // fehlendes hinweise-Array die GANZE App weiss machen (keine Section-Boundary).
+  const hinweise = data?.hinweise ?? [];
   return (
     <article
       data-testid="report-page-disclaimer"
@@ -19,8 +22,13 @@ export function Disclaimer({ data }: DisclaimerProps) {
         </p>
       </header>
 
+      {hinweise.length === 0 ? (
+        <p className="mt-section text-body italic text-ink-muted">
+          Keine rechtlichen Hinweise erfasst.
+        </p>
+      ) : (
       <ol className="mt-section space-y-6">
-        {data.hinweise.map((hinweis, index) => (
+        {hinweise.map((hinweis, index) => (
           <li
             key={`${index}-${hinweis.slice(0, 16)}`}
             className="grid gap-4 border-b border-rule pb-6 md:grid-cols-[4rem_minmax(0,1fr)]"
@@ -32,6 +40,7 @@ export function Disclaimer({ data }: DisclaimerProps) {
           </li>
         ))}
       </ol>
+      )}
     </article>
   );
 }

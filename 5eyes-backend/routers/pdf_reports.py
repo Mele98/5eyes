@@ -43,6 +43,17 @@ def _build_pdf_context(mandate: Mandate, current_user: User, db: Session) -> PDF
     Mandate-Anzeige: <Client.name> [<mandate_number>] — falls Client
     nicht ladbar (Test-Setup) Fallback auf mandate_number.
     """
+    # FX-Fund 1: Berater-gepflegte DB-FX-Rates fuer ALLE Waehrungsumrechnungen dieses
+    # Reports aktivieren (via ContextVar), statt der hardcodierten DEFAULT_FX_RATES.
+    # Gemeinsamer Einstiegspunkt aller PDF-Endpoints -> eine Stelle statt ~14 Caller.
+    # Fuer CHF-Basis-Reports ist die Umrechnung ohnehin Identity (kein Effekt).
+    from services.currency.converter import set_active_fx_source
+    from services.currency.fx_rates import FXRateSource
+    try:
+        set_active_fx_source(FXRateSource.from_db(db))
+    except Exception:
+        set_active_fx_source(None)  # sicherer Fallback auf DEFAULT_FX_RATES
+
     client = db.query(Client).filter(Client.id == mandate.client_id).first()
     client_name = _client_display_name(client) if client else None
     mandate_number = str(getattr(mandate, "mandate_number", "") or "")

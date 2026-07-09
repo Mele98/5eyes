@@ -406,20 +406,32 @@ def ensure_runtime_columns() -> None:
                 # den Default; rohe SQL-Inserts ohne die Spalte brechen nicht).
                 column_name, sql_type = spec[0], spec[1]
                 default = spec[2] if len(spec) > 2 else None
-                if column_name in existing:
-                    continue
                 if not re.match(r'^[a-z][a-z0-9_]*$', table_name):
                     raise ValueError(f"Ungültiger Tabellenname: {table_name!r}")
                 if not re.match(r'^[a-z][a-z0-9_]*$', column_name):
                     raise ValueError(f"Ungültiger Spaltenname: {column_name!r}")
                 if not re.match(r'^[A-Z]+$', sql_type):
                     raise ValueError(f"Ungültiger SQL-Typ: {sql_type!r}")
-                ddl = f'ALTER TABLE {table_name} ADD COLUMN {column_name} {sql_type}'
+                if default is not None and (not isinstance(default, int) or isinstance(default, bool)):
+                    raise ValueError(f"Ungültiger Default (nur int): {default!r}")
+                if column_name not in existing:
+                    ddl = f'ALTER TABLE {table_name} ADD COLUMN {column_name} {sql_type}'
+                    if default is not None:
+                        ddl += f' NOT NULL DEFAULT {int(default)}'
+                    conn.execute(text(ddl))
+                # WP-500-Fix (2026-07-01): idempotenter Backfill. Wenn die Column in
+                # einer FRÜHEREN Migration OHNE Default zugefügt wurde, sind Bestands-
+                # zeilen NULL geblieben — der `NOT NULL DEFAULT` oben greift nur beim
+                # erstmaligen Anlegen, und ein bereits vorhandener Column-Name führte
+                # bisher zu `continue` (kein Backfill). Response-Schemas erwarten aber
+                # int (nicht NULL) -> ein einziges NULL liess `/wealth-positions` u.ä.
+                # mit 500 (ResponseValidationError) fehlschlagen. NULL->default auf
+                # jedem Start reparieren (idempotent, betrifft nur Alt-NULLs).
                 if default is not None:
-                    if not isinstance(default, int) or isinstance(default, bool):
-                        raise ValueError(f"Ungültiger Default (nur int): {default!r}")
-                    ddl += f' NOT NULL DEFAULT {int(default)}'
-                conn.execute(text(ddl))
+                    conn.execute(
+                        text(f'UPDATE {table_name} SET {column_name} = :d WHERE {column_name} IS NULL'),
+                        {'d': int(default)},
+                    )
                 existing.add(column_name)
 
         # RiskAssessment - Kenntnisse & Erfahrungen (Referenzmodell Eignungspruefung, 2026-04-16)
@@ -822,6 +834,51 @@ def ensure_default_tenant() -> None:
         pass
 
 
+def ensure_client_login_user_tenant_backfill(engine_to_use=None) -> None:
+    """SEC-1 (2026-07-04): weist Bestands-Client-Login-User (role='client') mit
+    tenant_id IS NULL den Tenant ihres verlinkten Clients zu.
+
+    Hintergrund: Der Client-Login-Pfad (routers/clients.py:create_client_login)
+    hat den User historisch OHNE tenant_id angelegt -> NULL-Tenant-User, die im
+    Non-Strict-Modus fuer JEDEN Tenant sichtbar sind (Bruch der Mandantentrennung,
+    FINMA/FIDLEG/DSG). Der generische ensure_tenant_backfill() wuerde diese Rows
+    pauschal nach 'main' ziehen — FALSCH, wenn der verlinkte Client zu einer
+    anderen Firma gehoert. Deshalb laeuft dieser praezise Backfill (Tenant vom
+    verlinkten Client via client_logins-Linkage) ZUERST.
+
+    Idempotent (zweiter Lauf trifft 0 Rows) und defensiv (fehlende Tabelle/Spalte
+    wird uebersprungen; Boot wird nie abgebrochen).
+    """
+    eng = engine_to_use if engine_to_use is not None else engine
+    try:
+        from sqlalchemy import text as _sql_text
+        with eng.begin() as conn:
+            conn.execute(
+                _sql_text(
+                    """
+                    UPDATE users
+                    SET tenant_id = (
+                        SELECT c.tenant_id
+                        FROM client_logins cl
+                        JOIN clients c ON c.id = cl.client_id
+                        WHERE cl.user_id = users.id
+                    )
+                    WHERE role = 'client'
+                      AND tenant_id IS NULL
+                      AND id IN (
+                          SELECT cl2.user_id
+                          FROM client_logins cl2
+                          JOIN clients c2 ON c2.id = cl2.client_id
+                          WHERE c2.tenant_id IS NOT NULL
+                      )
+                    """
+                )
+            )
+    except Exception:
+        # Tabelle/Spalte (noch) nicht vorhanden -> ueberspringen (Boot-Robustheit).
+        pass
+
+
 def ensure_tenant_backfill(engine_to_use=None) -> None:
     """E1 (2026-06-12, External-Access-Rollout): weist Bestands-Rows mit
     tenant_id IS NULL dem Default-Tenant 'main' zu.
@@ -932,5 +989,9 @@ def init_db() -> None:
     # Backwards-Compat: tenant_id-Columns sind NULLABLE, aber die Existenz
     # der 'main'-Row erlaubt T2-Sprint die Auth-Layer-Migration.
     ensure_default_tenant()
+    # SEC-1 (2026-07-04): Client-Login-User mit NULL-Tenant praezise auf den
+    # Tenant ihres verlinkten Clients ziehen — MUSS vor dem generischen
+    # ensure_tenant_backfill() laufen, das sonst pauschal nach 'main' zieht.
+    ensure_client_login_user_tenant_backfill()
     # E1 (2026-06-12): Bestands-Rows ohne tenant_id dem 'main'-Tenant zuweisen.
     ensure_tenant_backfill()

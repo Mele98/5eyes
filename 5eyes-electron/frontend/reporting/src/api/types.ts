@@ -829,3 +829,506 @@ export type PerformanceAttributionData = {
   fidleg_basis: string;
   error?: string;
 };
+
+// ---------------------------------------------------------------------------
+// Goal-Editor (Track #64, FE-React-Migration) — Mutations-Schema.
+//
+// Spiegelt 1:1 die Pydantic-Modelle in `5eyes-backend/schemas/wealth.py`:
+//   GoalCreate (410-438), GoalUpdate (453-476), GoalResponse (485-514),
+//   MaxPensionSpendingRequest (230-240), MaxPensionSpendingResponse (243-256).
+//
+// WICHTIG: NICHT mit `GoalEntry` (Sektion 11, Read-Model des Advisory-Reports)
+// verwechseln — `GoalRecord` ist das vollständige CRUD-Modell des Editors.
+// `is_ongoing` und `is_active` liefert das Backend als int (0/1), NICHT boolean.
+// ---------------------------------------------------------------------------
+
+export type GoalFamily = 'Vermögen' | 'Cashflow' | 'Rendite' | 'Maximierung';
+
+export type GoalType =
+  | 'Kapitalerhalt'
+  | 'Vermögensziel'
+  | 'Vermoegensziel'
+  | 'Einmalige_Ausgabe'
+  | 'Wiederkehrende_Ausgabe'
+  | 'Pensionsausgabe'
+  | 'Renditeziel'
+  | 'Maximierung';
+
+export type GoalScope = 'Beratungsvermögen' | 'Gesamtvermögen';
+export type GoalValueMode = 'nominal' | 'real';
+export type PensionPillar = 'AHV' | 'BVG' | '3a' | '1e' | 'FZG';
+
+/** UI-Auswahlwerte für Härtegrad. Backend normalisiert ä→ae; Default "Primär". */
+export type GoalHardnessInput = 'Hart' | 'Primär' | 'Opportunistisch';
+
+export interface GoalCreatePayload {
+  goal_family: GoalFamily;
+  goal_type: GoalType;
+  label: string;
+  rank: number;
+  weight_bps?: number | null;
+  goal_scope?: GoalScope;
+  value_mode?: GoalValueMode;
+  target_amount_rappen?: number | null;
+  target_wealth_rappen?: number | null;
+  target_return_bps?: number | null;
+  success_probability_min_x100?: number | null;
+  start_date?: string | null;
+  horizon_years?: number | null;
+  target_date?: string | null;
+  is_ongoing?: boolean;
+  frequency?: string | null;
+  hardness?: string;
+  probability_pct?: number;
+  pension_pillar?: PensionPillar | null;
+  linked_position_id?: string | null;
+  notes?: string | null;
+  /** Berater-App sendet implizit "synthetic"; NICHT im Edit-UI erfassen. */
+  data_classification?: 'synthetic' | 'real';
+}
+
+/** Partial-Update (Backend `exclude_unset=True`) + reaktivierbares `is_active`. */
+export type GoalUpdatePayload = Partial<GoalCreatePayload> & {
+  is_active?: boolean;
+};
+
+export interface GoalRecord {
+  id: string;
+  mandate_id: string;
+  client_id: string;
+  goal_family: string;
+  goal_type: string;
+  label: string;
+  rank: number;
+  weight_bps: number | null;
+  goal_scope: string;
+  value_mode: string;
+  target_amount_rappen: number | null;
+  target_wealth_rappen: number | null;
+  target_return_bps: number | null;
+  success_probability_min_x100: number | null;
+  start_date: string | null;
+  horizon_years: number | null;
+  target_date: string | null;
+  /** int 0/1 (kein boolean). */
+  is_ongoing: number;
+  frequency: string | null;
+  hardness: string;
+  probability_pct: number | null;
+  pension_pillar: string | null;
+  linked_position_id: string | null;
+  notes: string | null;
+  /** int 0/1 (kein boolean). */
+  is_active: number;
+  achievement_score: number | null;
+  last_scored_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MaxPensionSpendingRequest {
+  retirement_year: number;
+  life_expectancy_year: number;
+  /** Default im Backend "real" (konservativer/tieferer Wert). */
+  value_mode?: GoalValueMode;
+  safety_margin_pct?: number;
+}
+
+export interface MaxPensionSpendingResponse {
+  max_monthly_chf_rappen: number;
+  max_annual_chf_rappen: number;
+  retirement_year: number;
+  life_expectancy_year: number;
+  years_in_retirement: number;
+  value_mode: string;
+  expected_return_bps: number;
+  expected_volatility_bps: number;
+  real_return_bps: number;
+  inflation_bps: number;
+  advisory_wealth_rappen: number;
+  safety_margin_pct: number;
+  reasoning: string[];
+}
+
+// ---------------------------------------------------------------------------
+// Asset-Allocation-Editor (Track #67, FE-React-Migration).
+// Spiegelt schemas/allocation.py: TargetAllocationCreate (6-24),
+// TargetAllocationResponse (51-100), Sensitivity (417/439).
+// ---------------------------------------------------------------------------
+
+export type AllocationBucketKey =
+  | 'equities'
+  | 'bonds'
+  | 'real_estate'
+  | 'alternatives'
+  | 'liquidity';
+
+/** POST-Body /mandates/{id}/target-allocation (TargetAllocationCreate). */
+export interface TargetAllocationCreatePayload {
+  target_equities_bps: number;
+  target_bonds_bps: number;
+  target_real_estate_bps: number;
+  target_alternatives_bps: number;
+  target_liquidity_bps: number;
+  band_equities_min_bps: number;
+  band_equities_max_bps: number;
+  band_bonds_min_bps: number;
+  band_bonds_max_bps: number;
+  band_real_estate_min_bps: number;
+  band_real_estate_max_bps: number;
+  band_alternatives_min_bps: number;
+  band_alternatives_max_bps: number;
+  band_liquidity_min_bps: number;
+  band_liquidity_max_bps: number;
+  risky_fraction_bps?: number | null;
+  based_on_assessment_id?: string | null;
+  policy_id: string;
+}
+
+/** Response-Kernfelder (TargetAllocationResponse hat zusätzliche Audit-Felder). */
+export interface TargetAllocationRecord extends TargetAllocationCreatePayload {
+  id: string;
+  mandate_id: string;
+  version: number;
+  is_current: number;
+  set_by: string;
+  set_at: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Minimal getypte Teilmenge von TargetAllocationGenerateResponse. */
+export interface AllocationGenerateResult {
+  target_allocation: TargetAllocationRecord;
+  expected_return_bps: number;
+  expected_volatility_bps: number;
+  risky_fraction_total_bps: number;
+  limiting_factor: string | null;
+  reasoning: string[];
+  messages: Array<Record<string, unknown>>;
+}
+
+export interface AllocationSensitivityRequestPayload {
+  goal_id: string;
+  target_delta_pct: number;
+  horizon_delta_years?: number;
+}
+
+export interface AllocationSensitivityResult {
+  goal_id: string;
+  delta_pct: number;
+  horizon_delta_years: number;
+  target_amount_rappen_baseline: number;
+  target_amount_rappen_new: number;
+  objective_value_milli_baseline: number | null;
+  objective_value_milli_new: number | null;
+  delta_objective_pct: number | null;
+  weights_bps_baseline: Record<string, number>;
+  weights_bps_new: Record<string, number>;
+  status_baseline: string;
+  status_new: string;
+}
+
+// ---------------------------------------------------------------------------
+// Cashflow-Editor (Track #68, FE-React-Migration).
+// Spiegelt schemas/wealth.py: CashflowCreate (171-185), Update (188-203),
+// Response (206-224). DerivedCashflow (services/wealth_cashflows.py:31) READ-ONLY.
+// valid_until INKLUSIV. is_inflation_linked/is_active = int 0/1. Am CLIENT.
+// ---------------------------------------------------------------------------
+
+export type CashflowType = 'Income' | 'Expense';
+export type CashflowNature = 'wiederkehrend' | 'einmalig';
+
+export interface CashflowCreatePayload {
+  cashflow_type: CashflowType;
+  label: string;
+  amount_rappen: number;
+  gross_amount_rappen?: number | null;
+  tax_amount_rappen?: number | null;
+  timing_precision?: string | null;
+  currency?: string;
+  frequency?: string;
+  nature?: CashflowNature;
+  valid_from?: string | null;
+  valid_until?: string | null;
+  is_inflation_linked?: boolean;
+  notes?: string | null;
+  data_classification?: 'synthetic' | 'real';
+}
+
+export type CashflowUpdatePayload = Partial<CashflowCreatePayload> & {
+  is_active?: boolean;
+};
+
+export interface CashflowRecord {
+  id: string;
+  client_id: string;
+  cashflow_type: string;
+  label: string;
+  amount_rappen: number;
+  gross_amount_rappen: number | null;
+  tax_amount_rappen: number | null;
+  timing_precision: string | null;
+  currency: string;
+  frequency: string;
+  nature: string;
+  valid_from: string | null;
+  valid_until: string | null;
+  is_inflation_linked: number;
+  notes: string | null;
+  is_active: number;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Read-only, aus Vermögenspositionen abgeleitet (Hypozins, Amortisation, Mieten). */
+export interface DerivedCashflow {
+  id: string;
+  client_id: string;
+  cashflow_type: string;
+  label: string;
+  amount_rappen: number;
+  currency: string;
+  frequency: string;
+  nature: string;
+  valid_from: string | null;
+  valid_until: string | null;
+  is_inflation_linked: number;
+  notes: string | null;
+  is_active: number;
+  is_derived: number;
+  source: string;
+  origin_position_id: string | null;
+  origin_position_type: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Mandate-Editor (Track #65, FE-React-Migration).
+// Spiegelt schemas/mandates.py: MandateCreate (14-29), Update (32-58),
+// Response (61-85). Mandate am Client (/clients/{id}/mandates), Einzel via /mandates/{id}.
+// ---------------------------------------------------------------------------
+
+export type MandateType =
+  | 'Vermögensverwaltung'
+  | 'Anlageberatung'
+  | 'Finanzplanung'
+  | 'Reporting only';
+export type MandateStatus = 'Aktiv' | 'Inaktiv' | 'Archiviert';
+export type AdvisoryLanguage = 'DE' | 'FR' | 'IT' | 'EN';
+export type InvestmentUniverse = 'Standard' | 'Alternativ';
+export type ClientSex = 'M' | 'F';
+
+export interface MandateCreatePayload {
+  mandate_number: string;
+  mandate_type?: MandateType;
+  base_currency?: string;
+  advisory_language?: AdvisoryLanguage;
+  depot_bank?: string | null;
+  depot_account_number?: string | null;
+  opened_at?: string | null;
+  investment_universe?: InvestmentUniverse;
+  client_birth_year?: number | null;
+  client_sex?: ClientSex | null;
+  use_mortality_simulation?: boolean;
+}
+
+export interface MandateUpdatePayload {
+  mandate_type?: string;
+  status?: MandateStatus;
+  base_currency?: string;
+  advisory_language?: string;
+  depot_bank?: string | null;
+  depot_account_number?: string | null;
+  closed_at?: string | null;
+  retirement_year?: number | null;
+  life_expectancy_year?: number | null;
+  investment_universe?: InvestmentUniverse;
+  default_building_blocks_json?: string | null;
+  client_birth_year?: number | null;
+  client_sex?: ClientSex | null;
+  use_mortality_simulation?: boolean;
+  tax_jurisdiction?: string | null;
+  tax_overrides_json?: string | null;
+}
+
+export interface MandateRecord {
+  id: string;
+  client_id: string;
+  mandate_number: string;
+  mandate_type: string;
+  status: string;
+  base_currency: string;
+  advisory_language: string;
+  depot_bank: string | null;
+  depot_account_number: string | null;
+  opened_at: string;
+  closed_at: string | null;
+  retirement_year: number | null;
+  life_expectancy_year: number | null;
+  investment_universe: string | null;
+  default_building_blocks_json: string | null;
+  client_birth_year: number | null;
+  client_sex: string | null;
+  use_mortality_simulation: boolean | null;
+  tax_jurisdiction: string | null;
+  tax_overrides_json: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// ---------------------------------------------------------------------------
+// CRM / Stammdaten-Editor (Track #66, FE-React-Migration).
+// Spiegelt schemas/clients.py: ClientCreate (6-33), Update (36-60),
+// Response (63-90), Nationality (93-103).
+// ---------------------------------------------------------------------------
+
+export type Salutation = 'Herr' | 'Frau' | 'Divers';
+export type HouseholdType = 'Einzelperson' | 'Paar' | 'Familie';
+export type ClientClassification =
+  | 'Privatkunde'
+  | 'Professioneller Kunde'
+  | 'Institutioneller Kunde';
+export type ClientLanguage = 'DE' | 'FR' | 'IT' | 'EN';
+
+export interface ClientCreatePayload {
+  client_number: string;
+  salutation?: Salutation | null;
+  first_name: string;
+  last_name: string;
+  date_of_birth?: string | null;
+  investment_horizon_start?: string | null;
+  investment_horizon_end?: string | null;
+  country_of_residence?: string;
+  canton?: string | null;
+  civil_status?: string | null;
+  profession?: string | null;
+  employer?: string | null;
+  language?: ClientLanguage;
+  household_type?: HouseholdType;
+  client_classification?: ClientClassification;
+  is_professional_opt_out?: boolean;
+  is_qualified_investor?: boolean;
+  partner_salutation?: string | null;
+  partner_first_name?: string | null;
+  partner_last_name?: string | null;
+  partner_date_of_birth?: string | null;
+  partner_profession?: string | null;
+  advisor_id: string;
+  notes?: string | null;
+}
+
+export interface ClientUpdatePayload {
+  salutation?: string | null;
+  first_name?: string;
+  last_name?: string;
+  date_of_birth?: string | null;
+  investment_horizon_start?: string | null;
+  investment_horizon_end?: string | null;
+  country_of_residence?: string;
+  canton?: string | null;
+  civil_status?: string | null;
+  profession?: string | null;
+  employer?: string | null;
+  language?: string;
+  household_type?: string;
+  client_classification?: string;
+  is_professional_opt_out?: boolean;
+  is_qualified_investor?: boolean;
+  // crm-2: Partner-Stammdaten (schemas/clients.py ClientUpdate:49-53).
+  partner_salutation?: string | null;
+  partner_first_name?: string | null;
+  partner_last_name?: string | null;
+  partner_date_of_birth?: string | null;
+  partner_profession?: string | null;
+  notes?: string | null;
+}
+
+export interface ClientRecord {
+  id: string;
+  client_number: string;
+  salutation: string | null;
+  first_name: string;
+  last_name: string;
+  date_of_birth: string | null;
+  investment_horizon_start: string | null;
+  investment_horizon_end: string | null;
+  country_of_residence: string;
+  canton: string | null;
+  civil_status: string | null;
+  profession: string | null;
+  employer: string | null;
+  language: string;
+  partner_salutation: string | null;
+  partner_first_name: string | null;
+  partner_last_name: string | null;
+  partner_date_of_birth: string | null;
+  partner_profession: string | null;
+  household_type: string;
+  client_classification: string;
+  is_professional_opt_out: number;
+  is_qualified_investor: number;
+  advisor_id: string;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NationalityRecord {
+  id: string;
+  client_id: string;
+  country_code: string;
+  is_primary: number;
+  created_at: string;
+}
+
+// ---------------------------------------------------------------------------
+// Vermögenszuflüsse / WealthInflow-Editor (Roadmap #54, FE-React-Migration).
+// Spiegelt schemas/wealth.py: WealthInflowCreate (264-274), Update (286-296),
+// Response (299-314). Am CLIENT (/clients/{id}/wealth-inflows), Mutation via
+// /wealth-inflows/{id}. is_recurring/is_active = int 0/1.
+// ---------------------------------------------------------------------------
+
+export type WealthInflowSourceType =
+  | 'Erbschaft'
+  | 'Bonus'
+  | 'Saeule3b'
+  | 'Verkaufserloes'
+  | 'Andere';
+export type WealthInflowFrequency = 'einmalig' | 'jaehrlich' | 'monatlich';
+
+export interface WealthInflowCreatePayload {
+  label: string;
+  source_type: WealthInflowSourceType;
+  amount_rappen: number;
+  expected_year: number;
+  is_recurring?: number;
+  frequency?: WealthInflowFrequency | null;
+  duration_years?: number | null;
+  value_mode?: 'nominal' | 'real';
+  mandate_id?: string | null;
+  notes?: string | null;
+}
+
+export type WealthInflowUpdatePayload = Partial<
+  Omit<WealthInflowCreatePayload, 'mandate_id'>
+> & {
+  is_active?: number;
+};
+
+export interface WealthInflowRecord {
+  id: string;
+  client_id: string;
+  mandate_id: string | null;
+  label: string;
+  source_type: string;
+  amount_rappen: number;
+  expected_year: number;
+  is_recurring: number;
+  frequency: string | null;
+  duration_years: number | null;
+  value_mode: string;
+  notes: string | null;
+  is_active: number;
+  created_at: string;
+  updated_at: string;
+}

@@ -46,6 +46,7 @@ from routers.review import (
 from routers.review import auto_apply_product_id_mappings, auto_apply_product_reference_data
 from routers.snapshots import create_snapshot, get_drift, list_snapshots
 from routers.wealth import (
+    _goal_horizon_from_date,
     create_cashflow,
     create_goal,
     create_wealth_position,
@@ -1597,7 +1598,10 @@ def test_create_goal_derives_horizon_and_frequency_from_timing_fields(session_fa
     assert result.frequency == "monatlich"
     assert result.is_ongoing == 1
     assert result.start_date == f"{current_year + 4}-08-01"
-    assert result.horizon_years == 5
+    # Deterministisch statt Magic-Number: der Horizont wird per _goal_horizon_from_date
+    # aus dem Start-/Zieldatum abgeleitet (ceil der Tages-Differenz zu heute). Ein
+    # hartkodierter Wert war zeitabhaengig-flaky (kippt je nach heutigem Monat).
+    assert result.horizon_years == _goal_horizon_from_date(date(current_year + 4, 8, 1))
 
 
 def test_planning_assumptions_ui_get_and_put_support_inflation_bps(session_factory, advisor_user):
@@ -2015,7 +2019,9 @@ def test_create_goal_uses_target_date_for_one_off_goal(session_factory, advisor_
     assert result.frequency is None
     assert result.is_ongoing == 0
     assert result.start_date == f"{current_year + 2}-06-30"
-    assert result.horizon_years == 3
+    # Deterministisch: Horizont aus dem Zieldatum abgeleitet (ceil Tages-Differenz),
+    # nicht hartkodiert — sonst zeitabhaengig-flaky (kippt je nach heutigem Monat).
+    assert result.horizon_years == _goal_horizon_from_date(date(current_year + 2, 6, 30))
 
 
 def test_create_wealth_position_rejects_free_text_mortgage_link(session_factory, advisor_user):
@@ -2472,7 +2478,7 @@ def test_generate_target_allocation_uses_dated_cashflow_series(session_factory, 
                 client_id=client_id,
                 label="Depot Hauptbank",
                 position_type="Depot",
-                assignment="BeratungsvermÃ¶gen",
+                assignment="Beratungsvermögen",
                 current_value_rappen=50000000,
                 currency="CHF",
                 alloc_equities_bps=6000,
@@ -2538,10 +2544,10 @@ def test_generate_target_allocation_uses_dated_cashflow_series(session_factory, 
                     mandate_id=mandate_id,
                     client_id=client_id,
                     goal_family="Vermoegen",
-                    goal_type="VermÃ¶gensziel",
+                    goal_type="Vermögensziel",
                     label="Familienvermögen",
                     rank=1,
-                    goal_scope="BeratungsvermÃ¶gen",
+                    goal_scope="Beratungsvermögen",
                     value_mode="nominal",
                     target_wealth_rappen=180000000,
                     horizon_years=9,
@@ -2703,7 +2709,7 @@ def test_generate_target_allocation_goal_analysis_exposes_timing_and_return_targ
                 client_id=client_id,
                 label="Depot Analyse",
                 position_type="Depot",
-                assignment="BeratungsvermÃƒÂ¶gen",
+                assignment="Beratungsvermögen",
                 current_value_rappen=60000000,
                 currency="CHF",
                 alloc_equities_bps=6000,
@@ -2726,7 +2732,7 @@ def test_generate_target_allocation_goal_analysis_exposes_timing_and_return_targ
                     goal_type="Einmalige_Ausgabe",
                     label="Eigenmittel",
                     rank=1,
-                    goal_scope="BeratungsvermÃ¶gen",
+                    goal_scope="Beratungsvermögen",
                     value_mode="nominal",
                     target_amount_rappen=35000000,
                     start_date="2028-06-30",
@@ -2744,13 +2750,13 @@ def test_generate_target_allocation_goal_analysis_exposes_timing_and_return_targ
                     goal_type="Pensionsausgabe",
                     label="Pensionsbedarf",
                     rank=2,
-                    goal_scope="BeratungsvermÃ¶gen",
+                    goal_scope="Beratungsvermögen",
                     value_mode="nominal",
                     target_amount_rappen=800000,
                     start_date="2032-01-01",
                     target_date="2040-12-31",
                     frequency="monatlich",
-                    hardness="PrimÃ¤r",
+                    hardness="Primär",
                     is_active=1,
                     created_at="2026-03-27T00:00:00.000Z",
                     updated_at="2026-03-27T00:00:00.000Z",
@@ -2763,7 +2769,7 @@ def test_generate_target_allocation_goal_analysis_exposes_timing_and_return_targ
                     goal_type="Renditeziel",
                     label="Renditeziel",
                     rank=3,
-                    goal_scope="GesamtvermÃ¶gen",
+                    goal_scope="Gesamtvermögen",
                     value_mode="nominal",
                     target_return_bps=450,
                     target_date="2034-12-31",
@@ -2850,7 +2856,7 @@ def test_generate_target_allocation_clamps_monte_carlo_runs(session_factory, adv
                 client_id=client_id,
                 label="Depot Clamp",
                 position_type="Depot",
-                assignment="BeratungsvermÃ¶gen",
+                assignment="Beratungsvermögen",
                 current_value_rappen=50000000,
                 currency="CHF",
                 alloc_equities_bps=5000,
@@ -2911,7 +2917,7 @@ def test_build_target_payload_from_allocation_exposes_monte_carlo(session_factor
                 client_id=client_id,
                 label="Depot Payload",
                 position_type="Depot",
-                assignment="BeratungsvermÃ¶gen",
+                assignment="Beratungsvermögen",
                 current_value_rappen=80000000,
                 currency="CHF",
                 alloc_equities_bps=5000,
@@ -2933,11 +2939,11 @@ def test_build_target_payload_from_allocation_exposes_monte_carlo(session_factor
                 goal_type="Vermoegensziel",
                 label="Kapitalausbau",
                 rank=1,
-                goal_scope="BeratungsvermÃ¶gen",
+                goal_scope="Beratungsvermögen",
                 value_mode="nominal",
                 target_wealth_rappen=120000000,
                 target_date="2035-12-31",
-                hardness="PrimÃ¤r",
+                hardness="Primär",
                 is_active=1,
                 created_at="2026-03-27T00:00:00.000Z",
                 updated_at="2026-03-27T00:00:00.000Z",
@@ -3155,7 +3161,7 @@ def test_recommendation_payload_prefers_actual_holdings_for_live_drift(session_f
                 client_id=client_id,
                 label="Depot Holdings",
                 position_type="Depot",
-                assignment="BeratungsvermÃ¶gen",
+                assignment="Beratungsvermögen",
                 current_value_rappen=80000000,
                 currency="CHF",
                 alloc_equities_bps=6500,
@@ -3278,7 +3284,7 @@ def test_recommendation_payload_marks_implied_units_from_holding_market_value(se
                 client_id=client_id,
                 label="Depot Tiny Holding",
                 position_type="Depot",
-                assignment="BeratungsvermÃ¶gen",
+                assignment="Beratungsvermögen",
                 current_value_rappen=80000000,
                 currency="CHF",
                 alloc_equities_bps=6500,
@@ -3305,7 +3311,7 @@ def test_recommendation_payload_marks_implied_units_from_holding_market_value(se
             user_id=advisor_user.id,
             preferences={"policy": {}, "tilts": {}, "product": {}, "limits": {}, "geo": {}, "assetClasses": {}},
             target_allocation_id=allocation["target_allocation"].id,
-            depot_bank="UBS AG ZÃ¼rich",
+            depot_bank="UBS AG Zürich",
         )
         first_position = result["positions"][0]
         session.add(
@@ -3326,7 +3332,7 @@ def test_recommendation_payload_marks_implied_units_from_holding_market_value(se
                 run_id=result["run"].id,
                 recommendation_position_id=first_position["id"],
                 product_id=first_position["product_id"],
-                depot_bank="UBS AG ZÃ¼rich",
+                depot_bank="UBS AG Zürich",
                 custody_account_number="CH-DEPOT-TINY-1",
                 as_of_date=date.today().isoformat(),
                 market_value_rappen=1,
@@ -3456,7 +3462,7 @@ def test_generate_recommendation_run_carries_holdings_forward_by_product(session
                 client_id=client_id,
                 label="Depot Carry",
                 position_type="Depot",
-                assignment="BeratungsvermÃ¶gen",
+                assignment="Beratungsvermögen",
                 current_value_rappen=80000000,
                 currency="CHF",
                 alloc_equities_bps=6500,
@@ -3556,7 +3562,7 @@ def test_deleted_holding_does_not_resurface_from_older_runs(session_factory, adv
                 client_id=client_id,
                 label="Depot Delete Carry",
                 position_type="Depot",
-                assignment="BeratungsvermÃ¶gen",
+                assignment="Beratungsvermögen",
                 current_value_rappen=80000000,
                 currency="CHF",
                 alloc_equities_bps=6500,
@@ -4329,7 +4335,7 @@ def test_dashboard_summary_and_active_triggers_are_scoped_to_advisor(session_fac
                 mandate_id=mandate_id,
                 trigger_type="Zeit",
                 trigger_name="Eigen",
-                status="AusgelÃ¶st",
+                status="Ausgelöst",
                 is_system=0,
                 calendar_exported=0,
                 created_at="2026-03-27T00:00:00.000Z",
@@ -4342,7 +4348,7 @@ def test_dashboard_summary_and_active_triggers_are_scoped_to_advisor(session_fac
                 mandate_id=foreign_mandate_id,
                 trigger_type="Zeit",
                 trigger_name="Fremd",
-                status="AusgelÃ¶st",
+                status="Ausgelöst",
                 is_system=0,
                 calendar_exported=0,
                 created_at="2026-03-27T00:00:00.000Z",

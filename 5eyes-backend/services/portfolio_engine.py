@@ -4921,6 +4921,63 @@ def _optimizer_status_is_converged(status: str | None) -> bool:
     return str(status or "").strip() in _CONVERGED_OPTIMIZER_STATUSES
 
 
+def _build_tax_solver_kwargs(mandate) -> dict:
+    """Baut die tax-*-kwargs fuer run_solver aus dem Mandat (Sprint U-P2 Fix C9).
+
+    Leeres Dict, wenn keine tax_jurisdiction gesetzt ist ODER beim Laden ein
+    Fehler auftritt (fail-soft: der Solver laeuft dann tax-naiv statt zu crashen).
+    Bewusst extrahiert, damit die Wiring (tax_regime erreicht run_solver) direkt
+    testbar ist und ein Re-Break (#39/46) nicht erneut still durchrutscht.
+    """
+    tax_kwargs: dict = {}
+    try:
+        jurisdiction = str(getattr(mandate, "tax_jurisdiction", "") or "").strip()
+        if not jurisdiction:
+            return tax_kwargs
+        from services.tax.registry import resolve_regime_class
+        regime_cls = resolve_regime_class(jurisdiction)
+        tax_overrides_json = getattr(mandate, "tax_overrides_json", None)
+        # TAX-1: Bei region-spezifischer ID (z.B. 'CH-GE') die Kanton-Factory nutzen —
+        # sonst liefert regime_cls() nur den Landes-Pauschalwert (CH 40 statt GE 85 bps).
+        # Unbekannte Region -> Basis-Regime (kein Crash).
+        region = jurisdiction.split("-", 1)[1].strip() if "-" in jurisdiction else ""
+        if region and hasattr(regime_cls, "for_canton"):
+            try:
+                regime_instance = regime_cls.for_canton(region)
+            except (ValueError, KeyError) as region_exc:
+                logger.warning(
+                    "Unbekannte Tax-Region '%s' (%s) — nutze Basis-Regime",
+                    jurisdiction, region_exc,
+                )
+                regime_instance = regime_cls()
+        else:
+            regime_instance = regime_cls()
+        if tax_overrides_json:
+            from services.tax.overrides import apply_overrides
+            regime_instance = apply_overrides(regime_instance, tax_overrides_json)
+        tax_kwargs["tax_regime"] = regime_instance
+        # TAX-2: 'valid_from_year' existiert NICHT auf dem Mandat-Model (frueher:
+        # getattr-Default 0 -> current_year hartcodiert 2026). Echtes Bewertungsjahr
+        # aus opened_at (ISO 'YYYY-MM-DD'), sonst aktuelles Kalenderjahr.
+        opened = str(getattr(mandate, "opened_at", "") or "").strip()
+        if len(opened) >= 4 and opened[:4].isdigit():
+            current_year = int(opened[:4])
+        else:
+            from datetime import date as _date
+            current_year = _date.today().year
+        tax_kwargs["base_calendar_year"] = current_year
+        cby = int(getattr(mandate, "client_birth_year", 0) or 0)
+        if cby:
+            tax_kwargs["mandate_age_at_start"] = max(0, current_year - cby)
+        retirement_year = int(getattr(mandate, "retirement_year", 0) or 0)
+        if retirement_year and current_year >= retirement_year:
+            tax_kwargs["is_retired"] = True
+    except Exception as exc:  # noqa: BLE001 - tax loading darf Solver nicht killen
+        logger.warning("Tax-Regime nicht ladbar (%s) — Solver laeuft tax-naiv", exc)
+        return {}
+    return tax_kwargs
+
+
 def _run_stochastic_optimizer_pass(
     *,
     optimizer_mode: str,
@@ -5005,29 +5062,7 @@ def _run_stochastic_optimizer_pass(
     # tax_jurisdiction hat, wird das passende TaxRegime aufgeloest und
     # an run_solver durchgereicht. Backwards-Compat: kein Feld → None
     # → simulate_wealth_paths laeuft tax-naiv (wie vorher).
-    tax_kwargs: dict = {}
-    try:
-        jurisdiction = str(getattr(mandate, "tax_jurisdiction", "") or "").strip()
-        if jurisdiction:
-            from services.tax.registry import resolve_regime_class
-            from services.tax.base import TaxConfig
-            regime_cls = resolve_regime_class(jurisdiction)
-            tax_overrides_json = getattr(mandate, "tax_overrides_json", None)
-            regime_instance = regime_cls(TaxConfig(jurisdiction_id=jurisdiction))
-            if tax_overrides_json:
-                from services.tax.overrides import apply_overrides
-                regime_instance = apply_overrides(regime_instance, tax_overrides_json)
-            tax_kwargs["tax_regime"] = regime_instance
-            current_year = int(getattr(mandate, "valid_from_year", 0) or 0) or 2026
-            tax_kwargs["base_calendar_year"] = current_year
-            cby = int(getattr(mandate, "client_birth_year", 0) or 0)
-            if cby:
-                tax_kwargs["mandate_age_at_start"] = max(0, current_year - cby)
-            retirement_year = int(getattr(mandate, "retirement_year", 0) or 0)
-            if retirement_year and current_year >= retirement_year:
-                tax_kwargs["is_retired"] = True
-    except Exception as exc:  # noqa: BLE001 - tax loading darf Solver nicht killen
-        logger.warning("Tax-Regime nicht ladbar (%s) — Solver laeuft tax-naiv", exc)
+    tax_kwargs = _build_tax_solver_kwargs(mandate)
 
     try:
         t0 = time.perf_counter()
@@ -5976,6 +6011,36 @@ def _build_bucket_response(
     return bucket_response
 
 
+def _assert_allocation_has_basis(
+    advisory_wealth_rappen: int,
+    recurring_income_rappen: int,
+    recurring_expense_rappen: int,
+    capital_inflow_rappen: int,
+    capital_outflow_rappen: int,
+) -> None:
+    """Guard (User-Anweisung 2026-06-23): Ohne jede Datenbasis ist keine seriöse Asset-
+    Allocation möglich — sonst zeigt die SOLL-%-Torte ein Vermögen vor, das es nicht gibt.
+
+    Regel:
+    - Beratungsvermögen > 0  → erlaubt.
+    - Beratungsvermögen == 0 ABER Cashflows erfasst → erlaubt (Vermögensaufbau via Sparquote,
+      "Strategie vor Geldfluss").
+    - Weder Beratungsvermögen NOCH Cashflows (gar keine Daten) → ValueError (Endpoint → 409).
+    """
+    has_cashflow = bool(
+        recurring_income_rappen
+        or recurring_expense_rappen
+        or capital_inflow_rappen
+        or capital_outflow_rappen
+    )
+    if advisory_wealth_rappen <= 0 and not has_cashflow:
+        raise ValueError(
+            "Keine Vermögensbasis: Dieses Mandat hat weder Beratungsvermögen noch Cashflows. "
+            "Bitte zuerst Vermögenspositionen oder Cashflows (Vermögensaufbau) erfassen — "
+            "ohne Datenbasis ist keine Asset-Allocation möglich."
+        )
+
+
 def generate_target_allocation(
     db: Session,
     mandate: Mandate,
@@ -6016,6 +6081,14 @@ def generate_target_allocation(
     annual_net_cashflow_rappen = inputs["annual_net_cashflow_rappen"]
     cashflow_projection_series_rappen = inputs["cashflow_projection_series_rappen"]
     recurring_cashflow_projection_series_rappen = inputs["recurring_cashflow_projection_series_rappen"]
+    # Datenbasis-Guard: kein Beratungsvermögen UND keine Cashflows → keine Allocation (409).
+    _assert_allocation_has_basis(
+        advisory_wealth_rappen,
+        recurring_income_rappen,
+        recurring_expense_rappen,
+        capital_inflow_rappen,
+        capital_outflow_rappen,
+    )
     targets, minimums, maximums = _baseline_target_bands(house_matrix, policy)
     reasoning = [
         f"Ausgangspunkt ist die House Matrix fuer Score {score_bucket} ({house_matrix.profile_name}).",

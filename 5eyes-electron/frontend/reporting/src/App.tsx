@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Suspense, lazy, useEffect, useState } from 'react';
 import { Routes, Route, Navigate, useNavigate, useParams } from 'react-router-dom';
 import { useAdvisoryReport } from '@/api/useAdvisoryReport';
 import type { AdvisoryReport } from '@/api/types';
@@ -31,6 +31,20 @@ import { Beratungsprotokoll } from '@/pages/Beratungsprotokoll';
 import { Compliance } from '@/pages/Compliance';
 import { Eignung } from '@/pages/Eignung';
 import { ProfilingPage } from '@/sections/profiling/ProfilingPage';
+// Editor-Workflows lazy laden (U-56 Bundle-Budget): der Report-Viewer lädt den
+// Editor-Code nicht mit — jede Sektion wird als eigener Chunk on-demand geholt.
+const GoalsEditor = lazy(() =>
+  import('@/sections/goals/GoalsEditor').then((m) => ({ default: m.GoalsEditor })));
+const AllocationEditor = lazy(() =>
+  import('@/sections/allocation/AllocationEditor').then((m) => ({ default: m.AllocationEditor })));
+const CashflowEditor = lazy(() =>
+  import('@/sections/cashflow/CashflowEditor').then((m) => ({ default: m.CashflowEditor })));
+const MandateEditor = lazy(() =>
+  import('@/sections/mandate/MandateEditor').then((m) => ({ default: m.MandateEditor })));
+const CrmEditor = lazy(() =>
+  import('@/sections/crm/CrmEditor').then((m) => ({ default: m.CrmEditor })));
+const WealthInflowEditor = lazy(() =>
+  import('@/sections/wealthInflow/WealthInflowEditor').then((m) => ({ default: m.WealthInflowEditor })));
 
 type ReportSectionId = (typeof REPORT_SECTIONS)[number]['id'];
 
@@ -43,6 +57,7 @@ const SECTION_ROUTES: Array<{ id: ReportSectionId; path: string }> =
 function App() {
   return (
     <div className="min-h-screen bg-canvas text-ink">
+      <Suspense fallback={<LoadingPanel />}>
       <Routes>
         <Route path="/" element={<Landing />} />
         <Route
@@ -64,10 +79,109 @@ function App() {
             element={<ReportShell sectionId={route.id} />}
           />
         ))}
+        {/* Track #64: Goal-Editor (Editor-Workflow, KEINE Report-Sektion). */}
+        <Route
+          path="/mandates/:mandateId/goals-editor"
+          element={<GoalsEditorRoute />}
+        />
+        {/* Track #67: Asset-Allocation-Editor. */}
+        <Route
+          path="/mandates/:mandateId/allocation-editor"
+          element={<AllocationEditorRoute />}
+        />
+        {/* Track #68: Cashflow-Editor (am Client). */}
+        <Route
+          path="/clients/:clientId/cashflow-editor"
+          element={<CashflowEditorRoute />}
+        />
+        {/* Track #65: Mandate-Editor. */}
+        <Route
+          path="/mandates/:mandateId/mandate-editor"
+          element={<MandateEditorRoute />}
+        />
+        {/* Track #66: CRM/Stammdaten-Editor (Workflow-Eintritt). */}
+        <Route path="/crm-editor" element={<CrmEditor />} />
+        <Route path="/clients/:clientId/crm-editor" element={<CrmEditorRoute />} />
+        {/* Roadmap #54: Vermögenszuflüsse-Editor (am Client). */}
+        <Route
+          path="/clients/:clientId/wealth-inflows-editor"
+          element={<WealthInflowEditorRoute />}
+        />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
+      </Suspense>
     </div>
   );
+}
+
+function WealthInflowEditorRoute() {
+  const { clientId } = useParams<{ clientId: string }>();
+  if (!clientId) {
+    return (
+      <ErrorPanel
+        headline="Kein Kunde"
+        detail="URL erwartet :clientId-Parameter."
+      />
+    );
+  }
+  return <WealthInflowEditor clientId={clientId} />;
+}
+
+function GoalsEditorRoute() {
+  const { mandateId } = useParams<{ mandateId: string }>();
+  if (!mandateId) {
+    return (
+      <ErrorPanel
+        headline="Kein Mandat"
+        detail="URL erwartet :mandateId-Parameter."
+      />
+    );
+  }
+  return <GoalsEditor mandateId={mandateId} />;
+}
+
+function AllocationEditorRoute() {
+  const { mandateId } = useParams<{ mandateId: string }>();
+  if (!mandateId) {
+    return (
+      <ErrorPanel
+        headline="Kein Mandat"
+        detail="URL erwartet :mandateId-Parameter."
+      />
+    );
+  }
+  return <AllocationEditor mandateId={mandateId} />;
+}
+
+function CashflowEditorRoute() {
+  const { clientId } = useParams<{ clientId: string }>();
+  if (!clientId) {
+    return (
+      <ErrorPanel
+        headline="Kein Kunde"
+        detail="URL erwartet :clientId-Parameter."
+      />
+    );
+  }
+  return <CashflowEditor clientId={clientId} />;
+}
+
+function MandateEditorRoute() {
+  const { mandateId } = useParams<{ mandateId: string }>();
+  if (!mandateId) {
+    return (
+      <ErrorPanel
+        headline="Kein Mandat"
+        detail="URL erwartet :mandateId-Parameter."
+      />
+    );
+  }
+  return <MandateEditor mandateId={mandateId} />;
+}
+
+function CrmEditorRoute() {
+  const { clientId } = useParams<{ clientId: string }>();
+  return <CrmEditor initialClientId={clientId} />;
 }
 
 function Landing() {
