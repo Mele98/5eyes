@@ -19,7 +19,7 @@ ist für diesen Fall **irrelevant**.
 | **A1** | Crash-Wurzelfix „Maximum call stack" | offen (Symptom abgefangen, Wurzel nicht) | ~0,5–1 Tag nach Repro |
 | **A2** | End-to-End-Visual-Smoke | QA (Checkliste unten) | ~1–2 Tage |
 | **A3** | Pilot-Trockenlauf (1 realer Kunde) | QA/Prozess | ~1 Tag + Fixes |
-| **B1** | Steuer in Cashflow/Netto-Rendite (#39) | **echt offen — einzige Code-Task** | ~2–4 Tage |
+| **B1** | Steuer (#39) | **❌ VERWORFEN** — Steuern = manuelle Ausgabe (Produkt-Entscheid, kein Steuertool) | 0 |
 | **B2** | Miete inflationsindexiert (#34) | **✅ BEREITS FERTIG** (inkl. FE) | 0 (nur A2-Verifikation) |
 | **B3** | goal_scope Gesamtvermögen (#33) | **✅ implementiert** (konservativ, #83) | 0 (nur Methodik-Entscheid) |
 
@@ -111,9 +111,15 @@ Der eigentliche Freigabe-Schritt. Du bist der Fachexperte — wenn DU dem Report
 
 ---
 
-## B1 — Steuer in Cashflow/Netto-Rendite (#39)  ← EINZIGE echte Code-Task
+## B1 — Steuer in Cashflow (#39)  ❌ VERWORFEN (Produkt-Entscheid 2026-07-09)
 
-### Ist-Zustand (im Code)
+> **Entscheid:** 5eyes ist ein **Asset-Allocation-Tool, kein Steuertool.** Ein internationaler
+> Steuerrechner waere zu komplex und ausserhalb des Produkt-Scopes. **Steuern erfasst der Berater
+> einfach als normale Ausgabe** (manueller Expense-Cashflow, Label „Steuern") — das funktioniert
+> heute schon ohne jeden Zusatzcode. Der zwischenzeitliche Steuerrechner-Prototyp (#358/#359) wurde
+> per #360 wieder entfernt. **Nichts zu tun.** Der Rest dieses Abschnitts ist historisch/obsolet.
+
+### Ist-Zustand (im Code) — OBSOLET (Prototyp entfernt)
 - **Cashflow-Projektion:** Endpoint `routers/clients.py:397 cashflow_projection` aggregiert je Jahr
   `recurring_income/expense`, `income/expense`, `net`. Es gibt bereits ein **Muster für additive
   Jahres-Anpassungen**: `mortgage_interest_adjustment_series(...)` wird pro Jahr auf
@@ -198,7 +204,7 @@ Im Code verifiziert — **kein Code nötig, nur eine bewusste Methodik-Entscheid
 
 ## Zeitachse bis „erster echter Beratungskunde"
 - **Nur Tier A (A1+A2+A3):** ~1 Woche (dominiert von deinem A1-Repro + dem A3-Pilotfall).
-- **+ B1 (Steuer), falls für deine Kunden relevant:** +2–4 Tage.
+- **B1 (Steuer): entfällt** — Steuern werden als manuelle Ausgabe (Expense-Cashflow) erfasst, kein Steuerrechner.
 - **B2/B3:** 0 (bereits gebaut).
 
 ## Empfohlene Reihenfolge
