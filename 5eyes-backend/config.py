@@ -449,6 +449,17 @@ class Settings(BaseSettings):
         )
         if self.app_env == 'production' and not uses_postgres and not (self.db_use_sqlcipher and self.db_key):
             raise ValueError('production requires PostgreSQL or db_use_sqlcipher=true with a non-empty db_key')
+        # #299-Security-Follow-up #5: Tenant-Isolation-Backstop erzwingen. Auf
+        # Server-Deployments (PostgreSQL = Tier-2/3, mandantenfaehig) MUSS in
+        # staging/production der App-Layer-Filter strikt sein — sonst waere eine
+        # Row mit vergessenem tenant_id (NULL) tenant-uebergreifend sichtbar
+        # (Guertel + Hosentraeger zur DB-seitigen RLS, die nur bei nicht-Superuser-
+        # Rolle greift). Tier-1 (SQLite-Desktop, single-tenant) ist nicht betroffen.
+        if self.app_env in {'staging', 'production'} and uses_postgres and not self.strict_tenant_isolation:
+            raise ValueError(
+                'strict_tenant_isolation muss in staging/production mit PostgreSQL '
+                'aktiv sein (Multi-Tenant-Isolation-Backstop).'
+            )
         if self.db_use_sqlcipher and not self.db_key:
             raise ValueError('db_key must be set when db_use_sqlcipher=true')
         if self.recent_log_lines_default > self.recent_log_lines_max:
