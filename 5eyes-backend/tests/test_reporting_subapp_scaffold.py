@@ -152,7 +152,9 @@ def test_vite_config_proxies_backend_endpoints():
     assert "localhost:8000" in content, (
         "Backend-Proxy fehlt — Frontend kann API nicht erreichen"
     )
-    assert "^/mandates/.*/advisory-report$" in content
+    # Der Proxy deckt bewusst die ganze Mandate-API ab (nicht nur advisory-report),
+    # sonst scheitern die Goals/Allocation/Cashflow-Editoren (siehe vite.config-Kommentar).
+    assert "^/mandates/" in content
     assert "/admin" in content
     assert "outDir" in content and "dist" in content
 

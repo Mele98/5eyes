@@ -29,14 +29,18 @@ def test_phase1_pages_and_sidebar_exist():
 def test_disclaimer_page_renders_all_hinweise():
     content = _read("pages/Disclaimer.tsx")
     assert "data-testid=\"report-page-disclaimer\"" in content
-    assert "data.hinweise.map" in content
+    # Refactor (PA-01): defensiv destrukturiert `const hinweise = data?.hinweise ?? []`
+    # und dann `hinweise.map(...)` — rendert weiterhin alle Hinweise, ohne dass ein
+    # fehlendes Array die Section blankt.
+    assert "hinweise.map" in content
     assert "Rechtliche Hinweise" in content
 
 
 def test_inhaltsverzeichnis_page_renders_backend_chapters():
     content = _read("pages/Inhaltsverzeichnis.tsx")
     assert "data-testid=\"report-page-toc\"" in content
-    assert "data.kapitel.map" in content
+    # Refactor (PA-02): defensiv `const kapitel = data?.kapitel ?? []` + `kapitel.map(...)`.
+    assert "kapitel.map" in content
     assert "Inhaltsverzeichnis" in content
 
 
