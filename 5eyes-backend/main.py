@@ -27,6 +27,7 @@ import models.users  # noqa
 import models.snapshots  # noqa
 import models.protocol_bausteine  # noqa  Bug-#13a (2026-06-07) — Beratungsprotokoll-Bausteine
 import models.tenant  # noqa  Sprint T1 (2026-06-08) — 3-Tier-Foundation
+import models.tax  # noqa
 import models.wealth  # noqa
 from routers.allocation import router as allocation_router
 from routers.auth import router as auth_router, users_router
@@ -50,6 +51,7 @@ from routers.pdf_reports import router as pdf_reports_router
 from routers.snapshots import router as snapshots_router
 from routers.system import router as system_router
 from routers.tenants import router as tenants_router  # Sprint T4 (2026-06-08)
+from routers.tax import router as tax_router
 from routers.wealth import router as wealth_router
 
 
@@ -88,6 +90,15 @@ async def lifespan(app: FastAPI):
             )
     except Exception as exc:  # noqa: BLE001 — Discovery darf Boot nicht stoppen
         logger.warning('Tax-Plugin-Discovery skipped due to error: %s', exc)
+    try:
+        from database import SessionLocal
+        from services.tax.parameters import seed_default_tax_parameter_sets
+
+        with SessionLocal() as db:
+            seed_default_tax_parameter_sets(db)
+            db.commit()
+    except Exception as exc:  # noqa: BLE001 - reference seed must not stop boot
+        logger.warning('Tax-Parameter-Seed skipped due to error: %s', exc)
     start_price_scheduler()
     start_backup_scheduler()
     try:
@@ -133,6 +144,7 @@ app.include_router(fx_rates_router)
 app.include_router(pdf_reports_router)
 app.include_router(system_router)
 app.include_router(tenants_router)  # Sprint T4 (2026-06-08)
+app.include_router(tax_router)
 app.include_router(client_portal_router)  # Sprint U-36 (2026-06-06)
 app.include_router(protocol_bausteine_router)  # Bug-#13a (2026-06-07)
 app.include_router(cost_disclosure_router)  # FIDLEG Art. 8/9 Ex-ante (2026-06-08)

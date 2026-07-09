@@ -12,15 +12,24 @@ Konzept:
 from __future__ import annotations
 
 import fnmatch
+import importlib
+import pkgutil
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from services.tax.base import TaxRegime
+    from services.tax.base import TaxJurisdiction, TaxRegime
 
 
 REGIME_REGISTRY: dict[str, type["TaxRegime"]] = {}
 """Globale Registry. Key = id_pattern, Value = Regime-Klasse.
 Wird zur Laufzeit gefuellt durch @register_regime."""
+
+JURISDICTION_REGISTRY: dict[str, "TaxJurisdiction"] = {}
+"""Country-level tax estimate plugins keyed by ISO country code."""
+
+
+class TaxJurisdictionNotFound(KeyError):
+    """Raised when no country-level tax plugin is registered."""
 
 
 def register_regime(id_pattern: str):
@@ -78,3 +87,58 @@ def list_registered_patterns() -> list[str]:
 def clear_registry() -> None:
     """TEST-ONLY: leert die Registry. Nutze niemals in Production-Code."""
     REGIME_REGISTRY.clear()
+
+
+def _normalize_country_code(country_code: str) -> str:
+    return country_code.upper().strip()
+
+
+def register_jurisdiction(plugin):
+    """Register a country-level TaxJurisdiction plugin.
+
+    Accepts either an instance or a zero-argument class. Last registration for
+    the same country wins, which keeps tests and hot-reload deterministic.
+    """
+    instance = plugin() if isinstance(plugin, type) else plugin
+    country_code = _normalize_country_code(instance.metadata.country_code)
+    JURISDICTION_REGISTRY[country_code] = instance
+    return plugin
+
+
+def get_jurisdiction(country_code: str) -> "TaxJurisdiction":
+    """Return the registered country-level plugin for an ISO country code."""
+    normalized = _normalize_country_code(country_code)
+    try:
+        return JURISDICTION_REGISTRY[normalized]
+    except KeyError as exc:
+        raise TaxJurisdictionNotFound(
+            f"No TaxJurisdiction registered for country '{normalized}'."
+        ) from exc
+
+
+def list_jurisdictions() -> list["TaxJurisdiction"]:
+    """Return registered country-level plugins sorted by country code."""
+    return [JURISDICTION_REGISTRY[key] for key in sorted(JURISDICTION_REGISTRY)]
+
+
+def clear_jurisdiction_registry() -> None:
+    """TEST-ONLY: clear country-level plugins."""
+    JURISDICTION_REGISTRY.clear()
+
+
+def discover_builtin_jurisdictions(
+    package_name: str = "services.tax.jurisdictions",
+) -> list[str]:
+    """Import built-in jurisdiction modules so they can register themselves."""
+    package = importlib.import_module(package_name)
+    imported: list[str] = []
+    package_path = getattr(package, "__path__", None)
+    if package_path is None:
+        return imported
+    for module_info in pkgutil.iter_modules(package_path):
+        if module_info.name.startswith("_"):
+            continue
+        module_name = f"{package_name}.{module_info.name}"
+        importlib.import_module(module_name)
+        imported.append(module_name)
+    return imported

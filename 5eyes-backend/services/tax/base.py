@@ -7,6 +7,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Mapping, Protocol, runtime_checkable
 
+from schemas.tax import TaxEstimateResult, TaxJurisdictionMetadata, TaxProfileInput
+
 
 @dataclass(frozen=True)
 class TaxContext:
@@ -232,4 +234,35 @@ class TaxRegime(Protocol):
         in Pauschalbesteuerungs-Regime ist, kann wealth_tax_bps_pa
         auf einen Spezialwert gesetzt werden.
         """
+        ...
+
+
+@runtime_checkable
+class TaxJurisdiction(Protocol):
+    """Read-only tax estimate plugin interface.
+
+    This interface is the country-plugin layer for advisory/API usage. It is
+    deliberately separate from TaxRegime, which remains the optimizer-facing
+    per-path interface.
+    """
+
+    @property
+    def metadata(self) -> TaxJurisdictionMetadata:
+        """Stable country metadata."""
+        ...
+
+    def estimate_income_tax(self, profile: TaxProfileInput) -> TaxEstimateResult:
+        """Estimate income tax for the supplied profile."""
+        ...
+
+    def estimate_wealth_tax(self, profile: TaxProfileInput) -> TaxEstimateResult:
+        """Estimate wealth tax for the supplied profile."""
+        ...
+
+    def estimate_capital_gains(self, profile: TaxProfileInput) -> TaxEstimateResult:
+        """Estimate capital-gains tax for the supplied profile."""
+        ...
+
+    def estimate(self, profile: TaxProfileInput) -> TaxEstimateResult:
+        """Estimate all tax components and return an aggregate result."""
         ...
