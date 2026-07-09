@@ -10,6 +10,7 @@ from models.clients import Client
 from models.mandates import Mandate
 from models.users import User
 from config import settings
+from services.tenant_context import set_tenant_context
 
 bearer_scheme = HTTPBearer()
 
@@ -110,6 +111,12 @@ def get_current_user(
     user_tid = getattr(user, "tenant_id", None)
     if token_tid and user_tid and str(token_tid).strip() != str(user_tid).strip():
         raise credentials_exception
+    if user.role == "super_admin":
+        # Super-admins are unscoped by default: RLS sees no tenant and returns
+        # no tenant-owned rows unless an operator path explicitly enables bypass.
+        set_tenant_context(db, None)
+    else:
+        set_tenant_context(db, token_tid or _resolve_tenant_id_for_user(user))
     return user
 
 

@@ -45,6 +45,7 @@ class Settings(BaseSettings):
     log_backup_count: int = 5
 
     # Database
+    database_url: str | None = None
     db_path: str = str(Path.home() / '5eyes' / '5eyes.db')
     db_echo: bool = False
     db_key: str | None = None
@@ -240,6 +241,9 @@ class Settings(BaseSettings):
     # Phase-0 safety gate for external access. Staging sets this to False so
     # writes explicitly classified as real client data are rejected.
     allow_real_client_data: bool = True
+    # Tenant-DEK envelope encryption. Production/Tier-2 should supply this via
+    # env/vault (TENANT_MASTER_KEK); development can pass an explicit KEK in tests.
+    tenant_master_kek: str = ''
 
     # Browser-Hosting (2026-06-10): Haupt-App (5eyes_v2.html) ueber das Backend
     # ausliefern, damit ein einzelner Host/Tunnel die komplette App im Browser
@@ -439,8 +443,12 @@ class Settings(BaseSettings):
     def validate_security(self):
         if self.app_env in {'staging', 'production'} and self.secret_key == DEFAULT_SECRET_KEY:
             raise ValueError('secret_key must be overridden outside development/test')
-        if self.app_env == 'production' and not (self.db_use_sqlcipher and self.db_key):
-            raise ValueError('production requires db_use_sqlcipher=true and a non-empty db_key')
+        uses_postgres = bool(
+            self.database_url
+            and str(self.database_url).strip().lower().startswith(("postgresql://", "postgresql+"))
+        )
+        if self.app_env == 'production' and not uses_postgres and not (self.db_use_sqlcipher and self.db_key):
+            raise ValueError('production requires PostgreSQL or db_use_sqlcipher=true with a non-empty db_key')
         if self.db_use_sqlcipher and not self.db_key:
             raise ValueError('db_key must be set when db_use_sqlcipher=true')
         if self.recent_log_lines_default > self.recent_log_lines_max:
