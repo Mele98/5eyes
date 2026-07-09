@@ -88,6 +88,28 @@ def _is_postgres(connectable: Engine | Connection) -> bool:
     return str(getattr(dialect, "name", "")).startswith("postgresql")
 
 
+def _assert_rls_effective_role(conn: Connection) -> None:
+    """#299-Security-Follow-up #4: RLS wird von einer Superuser- oder BYPASSRLS-
+    Rolle vollstaendig umgangen — auch mit FORCE ROW LEVEL SECURITY. Verbindet die
+    App in staging/production mit einer solchen Rolle, ist die gesamte DB-seitige
+    Tenant-Isolation wirkungslos. Daher hart abbrechen. Dev/test bleiben frei
+    (lokales PostgreSQL laeuft oft als superuser).
+    """
+    from config import settings
+
+    if settings.app_env not in {"staging", "production"}:
+        return
+    row = conn.execute(
+        text("SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user")
+    ).first()
+    if row is not None and (bool(row[0]) or bool(row[1])):
+        raise RuntimeError(
+            "Tenant-RLS wirkungslos: die App-DB-Rolle ist Superuser oder hat "
+            "BYPASSRLS. In staging/production eine dedizierte, unprivilegierte Rolle "
+            "(NOSUPERUSER, NOBYPASSRLS, nicht Tabellen-Owner) verwenden."
+        )
+
+
 def _execute_policy_ddl(conn: Connection, table_names: Iterable[str]) -> list[str]:
     applied: list[str] = []
     for table_name in table_names:
@@ -113,7 +135,9 @@ def ensure_postgres_rls_policies(
     resolved = tuple(table_names or tenant_scoped_table_names())
     if isinstance(connectable, Engine):
         with connectable.begin() as conn:
+            _assert_rls_effective_role(conn)
             return _execute_policy_ddl(conn, resolved)
+    _assert_rls_effective_role(connectable)
     return _execute_policy_ddl(connectable, resolved)
 
 
