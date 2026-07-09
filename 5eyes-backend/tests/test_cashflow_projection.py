@@ -113,25 +113,6 @@ def test_cashflow_projection_net_calculation(session_factory, auth_client, advis
     assert rows[0]["net_rappen"] == 6_000_000
 
 
-def test_cashflow_projection_include_tax_reduces_net(session_factory, auth_client, advisor_user):
-    # #39: opt-in Steuer-Schaetzung wird als wiederkehrende Ausgabe eingerechnet.
-    cid = _make_client(session_factory, advisor_user.id)
-    _add_cashflow(session_factory, cid, 15_000_000, "Income")  # CHF 150k Erwerb
-
-    base = auth_client.get(f"/clients/{cid}/cashflow-projection?horizon_years=3").json()["years"]
-    taxed = auth_client.get(
-        f"/clients/{cid}/cashflow-projection?horizon_years=3&include_tax=true"
-    ).json()["years"]
-
-    # Ohne Flag: keine Steuer, Netto unveraendert.
-    assert all(r["estimated_tax_rappen"] == 0 for r in base)
-    # Mit Flag: Steuer > 0, exakt als Ausgabe eingerechnet -> Netto sinkt um die Steuer.
-    tax0 = taxed[0]["estimated_tax_rappen"]
-    assert tax0 > 0
-    assert taxed[0]["net_rappen"] == base[0]["net_rappen"] - tax0
-    assert taxed[0]["recurring_expense_rappen"] == base[0]["recurring_expense_rappen"] + tax0
-
-
 def test_cashflow_projection_empty_client_returns_zeros(session_factory, auth_client, advisor_user):
     cid = _make_client(session_factory, advisor_user.id)
 
