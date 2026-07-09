@@ -99,3 +99,50 @@ def test_rotate_tenant_dek_increments_version_and_replaces_key(session_factory):
         assert new_dek != old_dek
         assert tenant.encrypted_dek != old_encrypted
         assert tenant.dek_version == 2
+
+
+def test_passphrase_kek_uses_pbkdf2_not_saltless_sha256(session_factory):
+    # #299-Follow-up #1: ein Passphrase-KEK (kein gueltiger Fernet-Key) wird per PBKDF2
+    # abgeleitet (Work-Factor), nicht mehr per saltlosem Single-Shot-SHA-256.
+    import base64
+    import hashlib
+
+    from services.tenant_crypto import (
+        _KEK_KDF_ITERATIONS,
+        _KEK_KDF_SALT,
+        _resolve_master_kek,
+    )
+
+    passphrase = "operator-passphrase-not-a-fernet-key"
+    resolved = _resolve_master_kek(passphrase)
+    expected_pbkdf2 = base64.urlsafe_b64encode(
+        hashlib.pbkdf2_hmac("sha256", passphrase.encode("utf-8"), _KEK_KDF_SALT, _KEK_KDF_ITERATIONS)
+    )
+    assert resolved == expected_pbkdf2  # deterministisch + PBKDF2
+    old_saltless = base64.urlsafe_b64encode(hashlib.sha256(passphrase.encode("utf-8")).digest())
+    assert resolved != old_saltless  # nicht mehr das schwache SHA-256
+
+    Session, _ = session_factory
+    with Session() as db:
+        _seed_tenant(db, tenant_id="firm-P")
+        token = encrypt_for_tenant(db, "firm-P", b"secret", master_kek=passphrase)
+        assert decrypt_for_tenant(db, "firm-P", token, master_kek=passphrase) == b"secret"
+
+
+def test_dek_provisioning_survives_caller_rollback(session_factory):
+    # #299-Follow-up #2: ein lazily angelegter DEK muss einen Rollback des Aufrufers
+    # ueberleben (eigene committete Transaktion) — sonst waeren damit verschluesselte
+    # Daten dauerhaft unlesbar.
+    Session, _ = session_factory
+    with Session() as db:
+        _seed_tenant(db, tenant_id="firm-R")
+
+    with Session() as caller:
+        get_tenant_dek(caller, "firm-R", master_kek="m")
+        caller.rollback()  # Aufrufer bricht seine Transaktion ab
+
+    with Session() as check:
+        tenant = check.query(Tenant).filter(Tenant.id == "firm-R").first()
+        assert tenant.encrypted_dek, "DEK muss den Aufrufer-Rollback ueberleben"
+        token = encrypt_for_tenant(check, "firm-R", b"payload", master_kek="m")
+        assert decrypt_for_tenant(check, "firm-R", token, master_kek="m") == b"payload"
