@@ -398,10 +398,16 @@ def _derive_cashflow_projection_horizon(
 def cashflow_projection(
     client_id: str,
     horizon_years: int | None = Query(default=None, ge=1, le=60),
+    include_tax: bool = Query(default=False),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     from datetime import date as _date
+
+    from services.tax_projection import (
+        estimate_annual_tax_rappen,
+        taxable_wealth_rappen_from_positions,
+    )
 
     client = _get_client_or_404(client_id, db, current_user)
     cashflows = db.query(Cashflow).filter(
@@ -433,20 +439,37 @@ def cashflow_projection(
         WealthPosition.is_active == 1,
     ).all()
     _mort_adj = mortgage_interest_adjustment_series(_mort_positions, horizon, start_year)
+    # #39 (opt-in): geschaetzte CH-Steuer je Jahr als wiederkehrende Ausgabe. Basis
+    # Vermoegen aus den Positionen (konstant v1), Basis Einkommen = wiederkehrende
+    # Einnahmen des Jahres. Fail-safe: Nicht-CH/Plugin-Fehler -> 0 (siehe Service).
+    _taxable_wealth = (
+        taxable_wealth_rappen_from_positions(_mort_positions) if include_tax else 0
+    )
     rows = []
     for offset in range(horizon):
         yr = start_year + offset
         t = totals_for_year(cashflows, yr)
         adj = int(_mort_adj[offset]) if offset < len(_mort_adj) else 0
+        tax = 0
+        if include_tax:
+            tax = estimate_annual_tax_rappen(
+                country_code="CH",
+                region=getattr(client, "canton", None),
+                taxable_income_rappen=int(t["recurring_income_rappen"]),
+                taxable_wealth_rappen=_taxable_wealth,
+                year=yr,
+                civil_status=getattr(client, "civil_status", None),
+            )
         rows.append(CashflowYearRow(
             year=yr,
             recurring_income_rappen=t["recurring_income_rappen"],
             capital_inflow_rappen=t["capital_inflow_rappen"],
             income_rappen=t["income_rappen"],
-            recurring_expense_rappen=max(0, t["recurring_expense_rappen"] - adj),
+            recurring_expense_rappen=max(0, t["recurring_expense_rappen"] - adj + tax),
             capital_outflow_rappen=t["capital_outflow_rappen"],
-            expense_rappen=max(0, t["expense_rappen"] - adj),
-            net_rappen=t["net_rappen"] + adj,
+            expense_rappen=max(0, t["expense_rappen"] - adj + tax),
+            net_rappen=t["net_rappen"] + adj - tax,
+            estimated_tax_rappen=tax,
         ))
     return CashflowProjectionResponse(
         client_id=client_id,

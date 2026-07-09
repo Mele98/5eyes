@@ -172,6 +172,9 @@ class CashflowYearRow(BaseModel):
     capital_outflow_rappen: int = 0
     expense_rappen: int
     net_rappen: int
+    # #39 (opt-in): geschaetzte Jahres-Steuer (Einkommen+Vermoegen), bereits in
+    # expense_rappen/net_rappen eingerechnet. 0 wenn include_tax nicht gesetzt.
+    estimated_tax_rappen: int = 0
 
 
 class CashflowProjectionResponse(BaseModel):
