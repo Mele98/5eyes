@@ -1064,6 +1064,13 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 </div>
 <script src="vendor/intro-country-outlines.js"></script>
 <script>
+// Stack-sichere Min/Max (A1-Root-Fix): Math.min/max.apply(null, arr) legt JEDES
+// Array-Element als eigenes Funktions-Argument auf den Stack — bei sehr langen Serien
+// (z.B. viele Projektionsjahre/monatlich) wirft V8 "RangeError: Maximum call stack
+// size exceeded". Diese schleifenbasierten Varianten sind size-unabhaengig und bei
+// normalen Groessen verhaltensidentisch (leeres Array -> +/-Infinity wie Math.min/max()).
+function arrMin(a){var m=Infinity;for(var i=0;i<a.length;i++){var n=Number(a[i]);if(n<m)m=n;}return m;}
+function arrMax(a){var m=-Infinity;for(var i=0;i<a.length;i++){var n=Number(a[i]);if(n>m)m=n;}return m;}
 (function(){
   try{window.replayIntro=function(){try{sessionStorage.removeItem('introShown');}catch(e){}location.reload();};}catch(e){}
   var intro=document.getElementById('intro-screen');
@@ -2449,7 +2456,7 @@ function _renderSollIstCompare(){
     [sollDs,istDs].forEach(function(dss){dss.forEach(function(d){(d.data||[]).forEach(function(v){var n=Number(v);if(isFinite(n))vals.push(n);});});});
     var axisCfg=null;
     if(vals.length){
-      axisCfg=_projAxisConfig(Math.min.apply(null,vals), Math.max.apply(null,vals));
+      axisCfg=_projAxisConfig(arrMin(vals), arrMax(vals));
     }
     var elS=document.getElementById('ch-sollist-soll'), elI=document.getElementById('ch-sollist-ist');
     if(!elS||!elI)return;
@@ -12359,13 +12366,13 @@ function btRenderLineChart(container, series, opts){
   var allYears = [];
   var allYs = [];
   series.forEach(function(s){ s.data.forEach(function(pt){ allYears.push(pt[0]); allYs.push(pt[1]); }); });
-  var xMin = Math.min.apply(null, allYears);
-  var xMax = Math.max.apply(null, allYears);
+  var xMin = arrMin( allYears);
+  var xMax = arrMax( allYears);
   if(xMin === xMax) xMax = xMin + 1;
 
   // y-Domäne (mit Padding)
-  var yMinRaw = (opts.yMin !== undefined && opts.yMin !== null) ? opts.yMin : Math.min.apply(null, allYs);
-  var yMaxRaw = (opts.yMax !== undefined && opts.yMax !== null) ? opts.yMax : Math.max.apply(null, allYs);
+  var yMinRaw = (opts.yMin !== undefined && opts.yMin !== null) ? opts.yMin : arrMin( allYs);
+  var yMaxRaw = (opts.yMax !== undefined && opts.yMax !== null) ? opts.yMax : arrMax( allYs);
   if(opts.isDrawdown){
     yMinRaw = Math.min(yMinRaw, 0);
     yMaxRaw = Math.max(yMaxRaw, 0);
@@ -13510,7 +13517,7 @@ function inferGoalHorizonYears(goal){
   if(targetYears>0)candidates.push(targetYears);
   var startYears=yearsUntilGoalDate(goal.start_date);
   if(startYears>0)candidates.push(startYears);
-  return candidates.length?Math.min.apply(null,candidates):0;
+  return candidates.length?arrMin(candidates):0;
 }
 
 function goalRiskPriority(goal){
@@ -16927,7 +16934,7 @@ function _lifeExpectancyEndYear(){
   var a=endFor(currentPersona.date_of_birth,currentPersona.salutation); if(a)ends.push(a);
   var b=endFor(currentPersona.partner_date_of_birth,currentPersona.partner_salutation); if(b)ends.push(b);
   // Haushalt: längste Lebenserwartung (Verzehr bis beide Personen weg).
-  return ends.length?Math.max.apply(null,ends):null;
+  return ends.length?arrMax(ends):null;
 }
 function _lifeExpectancyHorizonYears(){
   var ey=_lifeExpectancyEndYear();
@@ -17584,8 +17591,8 @@ function projectionChartValues(chart){
 function projectionAxisDomain(values,edgePaddingShare){
   var finite=(Array.isArray(values)?values:[]).map(Number).filter(function(value){return isFinite(value);});
   if(!finite.length)return null;
-  var minValue=Math.min.apply(null,finite);
-  var maxValue=Math.max.apply(null,finite);
+  var minValue=arrMin(finite);
+  var maxValue=arrMax(finite);
   var spread=maxValue-minValue;
   if(spread<=0){
     spread=Math.max(1,Math.abs(maxValue)*0.10);
@@ -17679,8 +17686,8 @@ function syncAaProjectionAxisScales(){
   // Achse (Typ + Bereich), damit SOLL und IST direkt vergleichbar sind.
   var values=projectionChartValues(charts.opt).concat(projectionChartValues(charts.aaCurrent));
   if(values.length){
-    var minValue=Math.min.apply(null, values);
-    var maxValue=Math.max.apply(null, values);
+    var minValue=arrMin( values);
+    var maxValue=arrMax( values);
     var cfg=_projAxisConfig(minValue, maxValue);
     [charts.opt,charts.aaCurrent].forEach(function(ch){
       if(ch.options&&ch.options.scales&&ch.options.scales.y){
