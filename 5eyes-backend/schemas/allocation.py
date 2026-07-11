@@ -394,9 +394,24 @@ class SubAssetClassAssumptionResponse(BaseModel):
 
 
 class AllocationBandOverridePayload(BaseModel):
-    min_bps: Optional[int] = None
-    target_bps: Optional[int] = None
-    max_bps: Optional[int] = None
+    # bps im gueltigen Bereich 0..10000 (0..100%). Ohne diese Guards erreichten
+    # negative/ueberzogene/verdrehte Band-Overrides den Optimizer und erzeugten eine
+    # unloesbare oder korrupte Restriktion.
+    min_bps: Optional[int] = Field(default=None, ge=0, le=10000)
+    target_bps: Optional[int] = Field(default=None, ge=0, le=10000)
+    max_bps: Optional[int] = Field(default=None, ge=0, le=10000)
+
+    @model_validator(mode="after")
+    def validate_band_order(self):
+        lo, tg, hi = self.min_bps, self.target_bps, self.max_bps
+        if lo is not None and hi is not None and lo > hi:
+            raise ValueError(f"min_bps ({lo}) darf max_bps ({hi}) nicht ueberschreiten")
+        if tg is not None:
+            if lo is not None and tg < lo:
+                raise ValueError(f"target_bps ({tg}) darf nicht unter min_bps ({lo}) liegen")
+            if hi is not None and tg > hi:
+                raise ValueError(f"target_bps ({tg}) darf nicht ueber max_bps ({hi}) liegen")
+        return self
 
 
 class AllocationPreferencesPayload(BaseModel):

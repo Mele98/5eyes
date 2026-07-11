@@ -183,7 +183,9 @@ class WealthPositionResponse(BaseResponse):
 class CashflowCreate(BaseModel):
     cashflow_type: Literal["Income", "Expense"]
     label: str
-    amount_rappen: int
+    # amount_rappen ist der BETRAG (Magnitude); die Richtung ergibt sich aus
+    # cashflow_type. Negativ wuerde das Vorzeichen in der Projektion still kippen.
+    amount_rappen: int = Field(ge=0)
     gross_amount_rappen: Optional[int] = None
     tax_amount_rappen: Optional[int] = None
     timing_precision: Optional[str] = None
@@ -200,7 +202,7 @@ class CashflowCreate(BaseModel):
 class CashflowUpdate(BaseModel):
     cashflow_type: Optional[Literal["Income", "Expense"]] = None
     label: Optional[str] = None
-    amount_rappen: Optional[int] = None
+    amount_rappen: Optional[int] = Field(default=None, ge=0)
     gross_amount_rappen: Optional[int] = None
     tax_amount_rappen: Optional[int] = None
     timing_precision: Optional[str] = None
@@ -389,6 +391,15 @@ def _validate_goal_field_isolation(goal, *, require_targets: bool) -> None:
         for field in fields:
             if _has_value(getattr(goal, field, None)):
                 _raise_field_not_allowed(field, goal_type)
+
+    # Positivitaets-Guard fuer Ziel-BETRAEGE: ein gesetzter target_amount/target_wealth
+    # muss > 0 sein (negativer/0-Zielwert verzerrt Zielerreichung/Monte-Carlo still).
+    # target_return_bps hat bereits einen eigenen "positive Zielrendite"-Guard im
+    # Renditeziel-Zweig; die Praesenz-Pflicht je Zieltyp bleibt unten.
+    for _pf in ("target_amount_rappen", "target_wealth_rappen"):
+        _pv = getattr(goal, _pf, None)
+        if _has_value(_pv) and int(_pv) <= 0:
+            raise ValueError(f"{_pf} muss groesser als 0 sein")
 
     if key == "renditeziel":
         forbid("target_amount_rappen", "target_wealth_rappen", "frequency")
