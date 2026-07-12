@@ -37,20 +37,23 @@ def test_client_register_css_present():
     html = _html()
     assert ".client-letter{position:sticky" in html
     assert ".sb-search input" in html
+    assert ".sb-az .az" in html  # A-Z-Sprungleiste
 
 
-def test_client_names_masked_by_default():
-    # Privacy-by-Default (Banking-Standard, revDSG Art. 7): Namen sind beim Start
-    # maskiert (priv=true wenn keine gespeicherte Wahl vorliegt) + persistiert.
+def test_names_hidden_by_default():
+    # Privacy-first (Banking-Standard, revDSG Art. 7): Mandatsnamen sind NICHT auf den
+    # ersten Blick sichtbar. Standard = nichts angezeigt, nicht persistiert.
     html = _html()
-    assert "localStorage.getItem('sb-privacy')" in html
-    assert "v===null ? true" in html  # kein gespeicherter Wert -> maskiert
-    assert "function applyPrivacyMode(" in html
-    assert "localStorage.setItem('sb-privacy'" in html
+    assert "var registerShowAll = false" in html
+    assert "else vis = false;" in html  # Standard: keine Zeile sichtbar
+    assert "Buchstaben wählen oder suchen" in html
+    assert "function applyRegisterView(" in html
 
 
-def test_search_reveals_only_matches_when_masked():
-    # Im Blur-Modus werden nur die Suchtreffer lesbar gemacht (gezielte Enthuellung).
+def test_az_jump_rail():
+    # Anklickbare A-Z-Leiste zum Springen (skaliert auf 1000+ Kunden).
     html = _html()
-    assert "el.classList.toggle('reveal', !!q && match)" in html
-    assert ".sb-scroll.blurred .client.reveal .client-n" in html
+    assert 'id="sb-az"' in html
+    assert "function selectRegisterLetter(" in html
+    assert "ABCDEFGHIJKLMNOPQRSTUVWXYZ#" in html
+    assert "az-off" in html and "az-active" in html
