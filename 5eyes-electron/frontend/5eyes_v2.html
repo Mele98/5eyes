@@ -71,6 +71,13 @@ html,body{height:100%;overflow:hidden;font-family:var(--f-s);font-size:13px;line
 .client-m{font-size:9px;color:rgba(255,255,255,0.32);}
 .client-tags{display:flex;gap:3px;flex-wrap:wrap;margin-top:5px;}
 .ctag{font-size:8px;padding:1px 5px;border-radius:2px;font-weight:500;}
+/* Kunden-Register: Suchfeld + sticky A-Z-Trenner */
+.sb-search{padding:6px 8px 4px;}
+.sb-search input{width:100%;box-sizing:border-box;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.10);border-radius:var(--r2);color:rgba(255,255,255,0.85);font-size:11px;padding:5px 8px;outline:none;}
+.sb-search input:focus{border-color:rgba(201,168,76,0.45);}
+.sb-search input::placeholder{color:rgba(255,255,255,0.35);}
+.client-letter{position:sticky;top:0;background:var(--n7);font-size:9px;font-weight:700;letter-spacing:0.08em;color:rgba(201,168,76,0.78);padding:4px 10px 2px;text-transform:uppercase;z-index:1;}
+.sb-empty{padding:12px 10px;font-size:10px;color:rgba(255,255,255,0.4);text-align:center;}
 .ct-r{background:rgba(139,30,30,0.4);color:#f5a0a0;}
 .ct-g{background:rgba(14,107,65,0.4);color:#7dd4a8;}
 .ct-a{background:rgba(122,82,0,0.4);color:#f0c878;}
@@ -2550,6 +2557,7 @@ function _wireSollIstHover(){
       <span class="sb-lbl">Mandate <span id="alert-count" style="background:var(--neg);color:#fff;border-radius:2px;padding:1px 5px;font-size:8px;margin-left:4px">2</span></span>
       <button class="sb-btn" id="pb" onclick="toggleP()">Ausblenden</button>
     </div>
+    <div class="sb-search"><input type="text" id="client-search" placeholder="Kunde suchen…" oninput="filterClientRegister(this.value)" aria-label="Kunde suchen"></div>
     <div class="sb-scroll" id="sbl">
       <div class="client active" data-pid="HH-001" onclick="selC(this);loadPersona('HH-001')" style="border-left:2px solid var(--g4)">
         <div class="client-n">Lukas Meier</div><div class="client-m">HH-001 &middot; Young Accumulator</div>
@@ -5042,20 +5050,64 @@ async function loadClients() {
     }
   }
 }
+// Kunden-Register: alphabetisch (Nachname) gruppiert mit sticky A-Z-Trennern + Suche.
+function _clientSortKey(c){
+  var byLast = ((c.last_name||'') + ' ' + (c.first_name||'')).trim();
+  var byName = ((c.first_name||'') + ' ' + (c.last_name||'')).trim();
+  return (byLast || byName || String(c.client_number||c.id||'')).toLowerCase();
+}
 function rebuildSidebar(clients) {
   const sbl = document.getElementById('sbl');
   if (!sbl) return;
   sbl.innerHTML = '';
-  clients.forEach(c => {
-    const name = (c.first_name||'') + ' ' + (c.last_name||'');
+  const list = (clients||[]).slice();
+  if (!list.length) {
+    sbl.innerHTML = '<div class="sb-empty">Keine Mandate erfasst.</div>';
+    return;
+  }
+  list.sort((a,b) => _clientSortKey(a).localeCompare(_clientSortKey(b), 'de'));
+  let currentLetter = null;
+  list.forEach(c => {
+    const name = ((c.first_name||'') + ' ' + (c.last_name||'')).trim() || (c.client_number||c.id);
     const number = c.client_number || c.id;
+    let letter = (_clientSortKey(c).charAt(0) || '#').toUpperCase();
+    if (!/[A-ZÄÖÜ]/.test(letter)) letter = '#';
+    if (letter !== currentLetter) {
+      currentLetter = letter;
+      const hd = document.createElement('div');
+      hd.className = 'client-letter';
+      hd.dataset.letter = letter;
+      hd.textContent = letter;
+      sbl.appendChild(hd);
+    }
     const div = document.createElement('div');
     div.className = 'client';
     div.dataset.pid = c.id;
     div.dataset.cid = c.id;
+    div.dataset.letter = letter;
+    div.dataset.search = (name + ' ' + number).toLowerCase();
     div.onclick = () => loadClientById(c.id);
     div.innerHTML = '<div class="client-n">'+escapeHtml(name)+'</div><div class="client-m">'+escapeHtml(number)+'</div>';
     sbl.appendChild(div);
+  });
+  if (typeof currentClientId !== 'undefined' && currentClientId) {
+    sbl.querySelectorAll('.client').forEach(el => el.classList.toggle('active', el.dataset.cid === currentClientId));
+  }
+  const searchEl = document.getElementById('client-search');
+  if (searchEl && searchEl.value) filterClientRegister(searchEl.value);
+}
+function filterClientRegister(query) {
+  const sbl = document.getElementById('sbl');
+  if (!sbl) return;
+  const q = String(query||'').trim().toLowerCase();
+  const shown = {};
+  sbl.querySelectorAll('.client').forEach(el => {
+    const match = !q || (el.dataset.search||'').indexOf(q) >= 0;
+    el.style.display = match ? '' : 'none';
+    if (match) shown[el.dataset.letter||'#'] = true;
+  });
+  sbl.querySelectorAll('.client-letter').forEach(hd => {
+    hd.style.display = shown[hd.dataset.letter||'#'] ? '' : 'none';
   });
 }
 async function loadClientById(clientId) {
