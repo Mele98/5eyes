@@ -79,6 +79,13 @@ html,body{height:100%;overflow:hidden;font-family:var(--f-s);font-size:13px;line
 .sb-search input::placeholder{color:rgba(255,255,255,0.35);}
 .client-letter{position:sticky;top:0;background:var(--n7);font-size:9px;font-weight:700;letter-spacing:0.08em;color:rgba(201,168,76,0.78);padding:4px 10px 2px;text-transform:uppercase;z-index:1;}
 .sb-empty{padding:12px 10px;font-size:10px;color:rgba(255,255,255,0.4);text-align:center;}
+/* A-Z-Sprungleiste (Adressbuch, skaliert auf 1000+) */
+.sb-az{display:flex;flex-wrap:wrap;gap:1px;padding:2px 6px 5px;border-bottom:1px solid rgba(255,255,255,0.05);}
+.sb-az .az{font-size:8px;font-weight:600;color:rgba(255,255,255,0.5);min-width:14px;height:14px;line-height:14px;text-align:center;border-radius:3px;cursor:pointer;}
+.sb-az .az:hover{background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.9);}
+.sb-az .az-active{background:rgba(201,168,76,0.28);color:#fff;}
+.sb-az .az-off{color:rgba(255,255,255,0.16);cursor:default;}
+.sb-prompt{padding:16px 12px;font-size:10px;color:rgba(255,255,255,0.42);text-align:center;line-height:1.5;}
 .ct-r{background:rgba(139,30,30,0.4);color:#f5a0a0;}
 .ct-g{background:rgba(14,107,65,0.4);color:#7dd4a8;}
 .ct-a{background:rgba(122,82,0,0.4);color:#f0c878;}
@@ -2556,10 +2563,11 @@ function _wireSollIstHover(){
   <aside class="sidebar">
     <div class="sb-hd">
       <span class="sb-lbl">Mandate <span id="alert-count" style="background:var(--neg);color:#fff;border-radius:2px;padding:1px 5px;font-size:8px;margin-left:4px">2</span></span>
-      <button class="sb-btn" id="pb" onclick="toggleP()">Ausblenden</button>
+      <button class="sb-btn" id="pb" onclick="toggleP()">Alle anzeigen</button>
     </div>
     <div class="sb-search"><input type="text" id="client-search" placeholder="Kunde suchen…" oninput="filterClientRegister(this.value)" aria-label="Kunde suchen"></div>
-    <div class="sb-scroll blurred" id="sbl">
+    <div class="sb-az" id="sb-az"></div>
+    <div class="sb-scroll" id="sbl">
       <div class="client active" data-pid="HH-001" onclick="selC(this);loadPersona('HH-001')" style="border-left:2px solid var(--g4)">
         <div class="client-n">Lukas Meier</div><div class="client-m">HH-001 &middot; Young Accumulator</div>
         <div class="client-tags"><span class="ctag ct-g">Moderat</span></div>
@@ -5052,68 +5060,106 @@ async function loadClients() {
   }
 }
 // Kunden-Register: alphabetisch (Nachname) gruppiert mit sticky A-Z-Trennern + Suche.
+// --- Kunden-Register (skaliert auf 1000+, Privacy-first) -----------------------
+// Standard: KEINE Namen sichtbar (Mandatsnamen nicht auf den ersten Blick). Der
+// Berater navigiert bewusst per A-Z-Sprungleiste, Suche oder "Alle anzeigen".
+// Nicht persistiert -> jede Session startet privat (revDSG Art. 7).
+var registerLetter = null;
+var registerShowAll = false;
 function _clientSortKey(c){
   var byLast = ((c.last_name||'') + ' ' + (c.first_name||'')).trim();
   var byName = ((c.first_name||'') + ' ' + (c.last_name||'')).trim();
   return (byLast || byName || String(c.client_number||c.id||'')).toLowerCase();
 }
+function _clientLetter(c){
+  var l = (_clientSortKey(c).charAt(0) || '#').toUpperCase();
+  if (l === 'Ä') return 'A'; if (l === 'Ö') return 'O'; if (l === 'Ü') return 'U';
+  return /[A-Z]/.test(l) ? l : '#';
+}
 function rebuildSidebar(clients) {
   const sbl = document.getElementById('sbl');
   if (!sbl) return;
-  sbl.innerHTML = '';
   const list = (clients||[]).slice();
-  if (!list.length) {
-    sbl.innerHTML = '<div class="sb-empty">Keine Mandate erfasst.</div>';
-    return;
-  }
   list.sort((a,b) => _clientSortKey(a).localeCompare(_clientSortKey(b), 'de'));
+  // A-Z-Sprungleiste: nur vorhandene Buchstaben sind aktiv/klickbar.
+  const present = {};
+  list.forEach(c => { present[_clientLetter(c)] = true; });
+  const az = document.getElementById('sb-az');
+  if (az) {
+    az.innerHTML = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ#'.split('').map(L => {
+      const on = !!present[L];
+      return '<span class="az'+(on?'':' az-off')+'" data-l="'+L+'"'+(on?' onclick="selectRegisterLetter(\''+L+'\')"':'')+'>'+L+'</span>';
+    }).join('');
+  }
+  sbl.innerHTML = '';
+  if (!list.length) { sbl.innerHTML = '<div class="sb-empty">Keine Mandate erfasst.</div>'; return; }
   let currentLetter = null;
   list.forEach(c => {
     const name = ((c.first_name||'') + ' ' + (c.last_name||'')).trim() || (c.client_number||c.id);
     const number = c.client_number || c.id;
-    let letter = (_clientSortKey(c).charAt(0) || '#').toUpperCase();
-    if (!/[A-ZÄÖÜ]/.test(letter)) letter = '#';
+    const letter = _clientLetter(c);
     if (letter !== currentLetter) {
       currentLetter = letter;
       const hd = document.createElement('div');
-      hd.className = 'client-letter';
-      hd.dataset.letter = letter;
-      hd.textContent = letter;
+      hd.className = 'client-letter'; hd.dataset.letter = letter; hd.textContent = letter;
       sbl.appendChild(hd);
     }
     const div = document.createElement('div');
     div.className = 'client';
-    div.dataset.pid = c.id;
-    div.dataset.cid = c.id;
-    div.dataset.letter = letter;
+    div.dataset.pid = c.id; div.dataset.cid = c.id; div.dataset.letter = letter;
     div.dataset.search = (name + ' ' + number).toLowerCase();
     div.onclick = () => loadClientById(c.id);
     div.innerHTML = '<div class="client-n">'+escapeHtml(name)+'</div><div class="client-m">'+escapeHtml(number)+'</div>';
     sbl.appendChild(div);
   });
-  if (typeof currentClientId !== 'undefined' && currentClientId) {
-    sbl.querySelectorAll('.client').forEach(el => el.classList.toggle('active', el.dataset.cid === currentClientId));
-  }
-  applyPrivacyMode();
-  const searchEl = document.getElementById('client-search');
-  if (searchEl && searchEl.value) filterClientRegister(searchEl.value);
+  const ph = document.createElement('div');
+  ph.className = 'sb-prompt'; ph.id = 'sb-prompt';
+  ph.textContent = list.length + ' Mandate · Buchstaben wählen oder suchen';
+  sbl.appendChild(ph);
+  applyRegisterView();
+}
+function selectRegisterLetter(letter) {
+  registerLetter = (registerLetter === letter) ? null : letter;  // erneuter Klick schliesst
+  registerShowAll = false;
+  const s = document.getElementById('client-search'); if (s) s.value = '';
+  applyRegisterView();
+  const hd = document.querySelector('#sbl .client-letter[data-letter="'+letter+'"]');
+  if (registerLetter && hd && hd.scrollIntoView) hd.scrollIntoView({block:'start'});
 }
 function filterClientRegister(query) {
+  registerLetter = null;  // Suche hat Vorrang vor Buchstaben-Auswahl
+  applyRegisterView();
+}
+function toggleP() {
+  registerShowAll = !registerShowAll;
+  if (registerShowAll) { registerLetter = null; const s = document.getElementById('client-search'); if (s) s.value = ''; }
+  applyRegisterView();
+}
+function applyRegisterView() {
   const sbl = document.getElementById('sbl');
   if (!sbl) return;
-  const q = String(query||'').trim().toLowerCase();
-  const shown = {};
+  const q = String((document.getElementById('client-search')||{}).value || '').trim().toLowerCase();
+  const shownLetters = {};
+  let anyShown = false;
   sbl.querySelectorAll('.client').forEach(el => {
-    const match = !q || (el.dataset.search||'').indexOf(q) >= 0;
-    el.style.display = match ? '' : 'none';
-    // Privacy: nur die Suchtreffer werden lesbar (gezielte Enthuellung); ohne
-    // Suchtext bleibt die maskierte Liste maskiert.
-    el.classList.toggle('reveal', !!q && match);
-    if (match) shown[el.dataset.letter||'#'] = true;
+    let vis;
+    if (q) vis = (el.dataset.search||'').indexOf(q) >= 0;
+    else if (registerShowAll) vis = true;
+    else if (registerLetter) vis = (el.dataset.letter === registerLetter);
+    else vis = false;  // Standard: nichts sichtbar
+    el.style.display = vis ? '' : 'none';
+    if (vis) { anyShown = true; shownLetters[el.dataset.letter||'#'] = true; }
+    el.classList.toggle('active', typeof currentClientId !== 'undefined' && el.dataset.cid === currentClientId);
   });
   sbl.querySelectorAll('.client-letter').forEach(hd => {
-    hd.style.display = shown[hd.dataset.letter||'#'] ? '' : 'none';
+    hd.style.display = shownLetters[hd.dataset.letter||'#'] ? '' : 'none';
   });
+  const az = document.getElementById('sb-az');
+  if (az) az.querySelectorAll('.az').forEach(s => s.classList.toggle('az-active', !q && !registerShowAll && s.dataset.l === registerLetter));
+  const ph = document.getElementById('sb-prompt');
+  if (ph) ph.style.display = anyShown ? 'none' : '';
+  const pb = document.getElementById('pb');
+  if (pb) pb.textContent = registerShowAll ? 'Ausblenden' : 'Alle anzeigen';
 }
 async function loadClientById(clientId) {
   const loadToken = ++liveClientLoadToken;
@@ -5561,20 +5607,9 @@ function normalizeVisibleMojibake(root){
 // Privacy-by-Default (Banking-Standard, revDSG Art. 7): Kundennamen sind beim Start
 // maskiert (geblurrt) und werden erst nach bewusstem "Einblenden" gezeigt. Die Wahl
 // wird persistiert; bei aktiver Suche werden nur die Treffer gezielt enthuellt.
-let priv=(function(){ try{ var v=localStorage.getItem('sb-privacy'); return v===null ? true : v!=='0'; }catch(e){ return true; } })();
-function applyPrivacyMode(){
-  var sbl=document.getElementById('sbl');
-  if(sbl) sbl.classList.toggle('blurred',priv);
-  var pb=document.getElementById('pb');
-  if(pb) pb.textContent=priv?'Einblenden':'Ausblenden';
-}
-function toggleP(){
-  priv=!priv;
-  try{ localStorage.setItem('sb-privacy',priv?'1':'0'); }catch(e){}
-  // Beim erneuten Maskieren die Suche leeren, sonst blieben enthuellte Treffer sichtbar.
-  if(priv){ var s=document.getElementById('client-search'); if(s){ s.value=''; filterClientRegister(''); } }
-  applyPrivacyMode();
-}
+// Der fruehere Blur-Privacy-Code wurde durch das navigations-basierte Register
+// ersetzt (rebuildSidebar/applyRegisterView/toggleP oben): Namen sind standardmaessig
+// gar nicht sichtbar, nicht nur geblurrt.
 function initPrefSummaryText(){
   var prefSummary=document.getElementById('sd-pref-summary');
   if(prefSummary){
