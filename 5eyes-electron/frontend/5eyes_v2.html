@@ -64,6 +64,7 @@ html,body{height:100%;overflow:hidden;font-family:var(--f-s);font-size:13px;line
 .sb-btn:hover{border-color:var(--g4);color:var(--g3);}
 .sb-scroll{flex:1;overflow-y:auto;padding:7px 9px;}
 .sb-scroll.blurred .client-n,.sb-scroll.blurred .client-m{filter:blur(4px);user-select:none;}
+.sb-scroll.blurred .client.reveal .client-n,.sb-scroll.blurred .client.reveal .client-m{filter:none;user-select:auto;}
 .client{padding:8px 10px;border-radius:var(--r2);cursor:pointer;margin-bottom:4px;border:1px solid transparent;transition:all 0.12s;}
 .client:hover{background:rgba(255,255,255,0.05);border-color:rgba(255,255,255,0.08);}
 .client.active{background:rgba(201,168,76,0.12);border-color:rgba(201,168,76,0.35);}
@@ -2558,7 +2559,7 @@ function _wireSollIstHover(){
       <button class="sb-btn" id="pb" onclick="toggleP()">Ausblenden</button>
     </div>
     <div class="sb-search"><input type="text" id="client-search" placeholder="Kunde suchen…" oninput="filterClientRegister(this.value)" aria-label="Kunde suchen"></div>
-    <div class="sb-scroll" id="sbl">
+    <div class="sb-scroll blurred" id="sbl">
       <div class="client active" data-pid="HH-001" onclick="selC(this);loadPersona('HH-001')" style="border-left:2px solid var(--g4)">
         <div class="client-n">Lukas Meier</div><div class="client-m">HH-001 &middot; Young Accumulator</div>
         <div class="client-tags"><span class="ctag ct-g">Moderat</span></div>
@@ -5093,6 +5094,7 @@ function rebuildSidebar(clients) {
   if (typeof currentClientId !== 'undefined' && currentClientId) {
     sbl.querySelectorAll('.client').forEach(el => el.classList.toggle('active', el.dataset.cid === currentClientId));
   }
+  applyPrivacyMode();
   const searchEl = document.getElementById('client-search');
   if (searchEl && searchEl.value) filterClientRegister(searchEl.value);
 }
@@ -5104,6 +5106,9 @@ function filterClientRegister(query) {
   sbl.querySelectorAll('.client').forEach(el => {
     const match = !q || (el.dataset.search||'').indexOf(q) >= 0;
     el.style.display = match ? '' : 'none';
+    // Privacy: nur die Suchtreffer werden lesbar (gezielte Enthuellung); ohne
+    // Suchtext bleibt die maskierte Liste maskiert.
+    el.classList.toggle('reveal', !!q && match);
     if (match) shown[el.dataset.letter||'#'] = true;
   });
   sbl.querySelectorAll('.client-letter').forEach(hd => {
@@ -5553,8 +5558,23 @@ function normalizeVisibleMojibake(root){
     if(el.hasAttribute('placeholder'))el.setAttribute('placeholder',decodeMojibakeText(el.getAttribute('placeholder')));
   });
 }
-let priv=false;
-function toggleP(){priv=!priv;document.getElementById('sbl').classList.toggle('blurred',priv);document.getElementById('pb').textContent=priv?'Einblenden':'Ausblenden';}
+// Privacy-by-Default (Banking-Standard, revDSG Art. 7): Kundennamen sind beim Start
+// maskiert (geblurrt) und werden erst nach bewusstem "Einblenden" gezeigt. Die Wahl
+// wird persistiert; bei aktiver Suche werden nur die Treffer gezielt enthuellt.
+let priv=(function(){ try{ var v=localStorage.getItem('sb-privacy'); return v===null ? true : v!=='0'; }catch(e){ return true; } })();
+function applyPrivacyMode(){
+  var sbl=document.getElementById('sbl');
+  if(sbl) sbl.classList.toggle('blurred',priv);
+  var pb=document.getElementById('pb');
+  if(pb) pb.textContent=priv?'Einblenden':'Ausblenden';
+}
+function toggleP(){
+  priv=!priv;
+  try{ localStorage.setItem('sb-privacy',priv?'1':'0'); }catch(e){}
+  // Beim erneuten Maskieren die Suche leeren, sonst blieben enthuellte Treffer sichtbar.
+  if(priv){ var s=document.getElementById('client-search'); if(s){ s.value=''; filterClientRegister(''); } }
+  applyPrivacyMode();
+}
 function initPrefSummaryText(){
   var prefSummary=document.getElementById('sd-pref-summary');
   if(prefSummary){
