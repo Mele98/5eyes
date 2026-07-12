@@ -29,8 +29,9 @@ def test_life_expectancy_rule_83_85_by_salutation():
 def test_household_uses_longer_life_expectancy():
     html = _html()
     # Partner einbeziehen + Maximum (Verzehr bis beide Personen weg).
+    # arrMax (stack-sicher, A1-Fix #362) ersetzt das fruehere Math.max.apply(null,ends).
     assert "currentPersona.partner_date_of_birth" in html
-    assert "Math.max.apply(null,ends)" in html
+    assert "arrMax(ends)" in html
 
 
 def test_cashflow_horizon_falls_back_to_life_expectancy():
