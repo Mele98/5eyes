@@ -2936,11 +2936,22 @@ function _wireSollIstHover(){
           <div>
             <div id="cf-dupe-hint" style="display:none"></div>
             <div class="card mb">
-              <div class="chd"><span class="cht">Vermögenszuflüsse</span><div class="chr"><button class="btn-p btn-sm" onclick="openNewCashflow('Income')">+ Zufluss</button></div></div>
+              <div class="chd"><span class="cht">Vermögenszuflüsse</span><div class="chr"><button class="btn-p btn-sm" onclick="openNewInflow()">+ Zufluss</button></div></div>
               <div class="cbody" id="zufluss-rows">
                 <!-- Platzhalter; refreshCashflowsUI ersetzt dies mit den echten
                      Einnahmen des Mandats. KEINE statischen Demo-Cashflows mehr. -->
                 <div style="font-size:10px;color:var(--n4);padding:6px 0 8px">Einnahmen werden geladen…</div>
+              </div>
+            </div>
+            <!-- Roadmap #54: Dedizierter Editor fuer einmalige Vermoegenszufluesse
+                 (Erbschaft, Bonus, Saeule 3b, Verkaufserloes ...). Bewusst getrennt
+                 von den laufenden Einnahme-Cashflows oben (#zufluss-rows). -->
+            <div class="card mb">
+              <div class="chd"><span class="cht">Erwartete Vermögenszuflüsse</span><div class="chr"><button class="btn-p btn-sm" onclick="openNewInflow()">+ Zufluss</button></div></div>
+              <div class="cbody" id="inflow-rows">
+                <!-- Platzhalter; refreshInflowsUI ersetzt dies mit den echten
+                     Vermoegenszufluessen des Mandanten. -->
+                <div style="font-size:10px;color:var(--n4);padding:6px 0 8px">Vermögenszuflüsse werden geladen…</div>
               </div>
             </div>
             <div class="card mb">
@@ -4260,6 +4271,86 @@ function _wireSollIstHover(){
     </div>
   </div>
 </div>
+<!-- Roadmap #54: Modal fuer einmalige Vermoegenszufluesse (geklont von m-acf). -->
+<div class="overlay" id="m-awi">
+  <div class="modal">
+    <div class="mhd">
+      <div class="mtitle">Vermögenszufluss erfassen</div>
+      <button class="mx" onclick="cm('m-awi')">✕</button>
+    </div>
+    <div class="mbody">
+      <div class="frow">
+        <div class="fg">
+          <label class="fl">Bezeichnung *</label>
+          <input class="fi" id="awi-label" placeholder="Erbschaft Tante / Bonus 2027 / Verkauf Ferienhaus...">
+        </div>
+      </div>
+      <div class="frow">
+        <div class="fg">
+          <label class="fl">Art des Zuflusses</label>
+          <select class="fsel" id="awi-source-type">
+            <option value="Erbschaft">Erbschaft</option>
+            <option value="Bonus">Bonus</option>
+            <option value="Saeule3b">Säule 3b</option>
+            <option value="Verkaufserloes">Verkaufserlös</option>
+            <option value="Andere">Andere</option>
+          </select>
+        </div>
+        <div class="fg">
+          <label class="fl">Betrag (CHF) *</label>
+          <input class="fi" id="awi-amount" type="number" min="0" placeholder="250000">
+        </div>
+      </div>
+      <div class="frow">
+        <div class="fg">
+          <label class="fl">Erwartetes Jahr *</label>
+          <input class="fi" id="awi-year" type="number" min="1900" max="2200" placeholder="2032">
+        </div>
+        <div class="fg">
+          <label class="fl">Bewertung</label>
+          <select class="fsel" id="awi-value-mode">
+            <option value="nominal">Nominal (heutiger Frankenbetrag)</option>
+            <option value="real">Real (kaufkraftbereinigt)</option>
+          </select>
+        </div>
+      </div>
+      <div class="frow">
+        <div class="fg">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:11px;font-weight:500;color:var(--n7);margin-top:4px">
+            <input type="checkbox" id="awi-recurring" onchange="syncInflowModalState()" style="width:14px;height:14px;cursor:pointer">
+            Wiederkehrender Zufluss
+          </label>
+        </div>
+      </div>
+      <div class="frow" id="awi-recurring-wrap" style="display:none">
+        <div class="fg">
+          <label class="fl">Frequenz</label>
+          <select class="fsel" id="awi-frequency">
+            <option value="einmalig">Einmalig</option>
+            <option value="jaehrlich">Jährlich</option>
+            <option value="monatlich">Monatlich</option>
+          </select>
+        </div>
+        <div class="fg">
+          <label class="fl">Dauer (Jahre)</label>
+          <input class="fi" id="awi-duration" type="number" min="1" max="99" placeholder="5">
+        </div>
+      </div>
+      <div class="frow">
+        <div class="fg">
+          <label class="fl">Notiz</label>
+          <input class="fi" id="awi-notes" placeholder="Optional...">
+        </div>
+      </div>
+    </div>
+
+    <div id="awi-error" style="display:none;color:var(--neg);font-size:11px;padding:4px 0;margin-top:4px"></div>
+    <div class="mfooter">
+      <button class="btn" onclick="cm('m-awi')">Abbrechen</button>
+      <button class="btn-p" id="btn-awi-save" onclick="saveInflow()">Speichern</button>
+    </div>
+  </div>
+</div>
 <div class="overlay" id="m-nz">
   <div class="modal">
     <div class="mhd">
@@ -5192,6 +5283,7 @@ async function loadClientById(clientId) {
   try{
     var _ldPlaceholder='<div style="font-size:10px;color:var(--n4);padding:6px 0">Wird geladen …</div>';
     var _ldZf=document.getElementById('zufluss-rows'); if(_ldZf)_ldZf.innerHTML=_ldPlaceholder;
+    var _ldWi=document.getElementById('inflow-rows'); if(_ldWi)_ldWi.innerHTML=_ldPlaceholder;
     var _ldAf=document.getElementById('abfluss-rows'); if(_ldAf)_ldAf.innerHTML=_ldPlaceholder;
     var _ldZl=document.getElementById('zl'); if(_ldZl)_ldZl.innerHTML='';
     var _ldHg=document.getElementById('hh-grid'); if(_ldHg)_ldHg.innerHTML=_ldPlaceholder;
@@ -5275,6 +5367,8 @@ async function loadClientById(clientId) {
       // beim App-Start "Wird geladen …" stehen, bis Risiko + Allocation geladen waren.
       // refreshCashflowsUI ist self-contained (eigener fetch + eigener stale-guard).
       refreshCashflowsUI(c.id);
+      // Roadmap #54: dedizierte Vermoegenszufluesse parallel laden (self-contained).
+      refreshInflowsUI(c.id);
       if(currentMandateId){
         try{
           await loadCurrentRiskAssessment(currentMandateId,true);
@@ -7143,16 +7237,21 @@ function initCharts(){
           if(m==null||m.index==null||m.index<0)return;
           var x=xScale.getPixelForValue(m.index);
           if(!isFinite(x))return;
+          // Roadmap #54: Vermoegenszufluesse gruen, Ziele blau (klar unterscheidbar).
+          var isInflow=m&&m.type==='inflow';
+          var lineCol=isInflow?'rgba(21,128,61,0.40)':'rgba(30,75,143,0.40)';
+          var solidCol=isInflow?'#15803d':'#1e4b8f';
+          var boxCol=isInflow?'rgba(21,128,61,0.92)':'rgba(30,75,143,0.92)';
           ctx.save();
-          ctx.beginPath();ctx.setLineDash([3,3]);ctx.lineWidth=1;ctx.strokeStyle='rgba(30,75,143,0.40)';
+          ctx.beginPath();ctx.setLineDash([3,3]);ctx.lineWidth=1;ctx.strokeStyle=lineCol;
           ctx.moveTo(x,area.top+14);ctx.lineTo(x,area.bottom);ctx.stroke();ctx.setLineDash([]);
-          ctx.fillStyle='#1e4b8f';
+          ctx.fillStyle=solidCol;
           ctx.beginPath();ctx.moveTo(x,area.bottom-7);ctx.lineTo(x-4,area.bottom);ctx.lineTo(x+4,area.bottom);ctx.closePath();ctx.fill();
           ctx.font='600 9px sans-serif';ctx.textAlign='center';ctx.textBaseline='top';
-          var lbl=String(m.shortLabel||m.label||'Ziel');
+          var lbl=String(m.shortLabel||m.label||(isInflow?'Zufluss':'Ziel'));
           var tw=ctx.measureText(lbl).width+6;
           var bx=Math.max(area.left+tw/2,Math.min(area.right-tw/2,x));
-          ctx.fillStyle='rgba(30,75,143,0.92)';
+          ctx.fillStyle=boxCol;
           ctx.fillRect(bx-tw/2,area.top+1,tw,12);
           ctx.fillStyle='#fff';ctx.fillText(lbl,bx,area.top+2);
           ctx.restore();
@@ -14760,6 +14859,7 @@ function showNewClientScreen(firstName, lastName, mType, meta) {
   currentMandateData = {id: currentMandateId || null, mandate_type: mType};
   currentGoals = [];
   currentCashflows = [];
+  currentInflows = [];
   currentCashflowSummary = null;
   currentCashflowProjection = null;
   riskHorizonTouched = false;
@@ -14782,6 +14882,8 @@ function showNewClientScreen(firstName, lastName, mType, meta) {
 
   var zf = document.getElementById('zufluss-rows');
   if (zf) zf.innerHTML = '<div style="color:var(--n4);font-size:11px;padding:12px 0">Noch keine Zuflusse erfasst.</div>';
+  var inflowRows = document.getElementById('inflow-rows');
+  if (inflowRows) inflowRows.innerHTML = '<div style="color:var(--n4);font-size:11px;padding:12px 0">Noch keine Vermogenszuflusse erfasst.</div>';
   var af = document.getElementById('abfluss-rows');
   if (af) af.innerHTML = '<div style="color:var(--n4);font-size:11px;padding:12px 0">Noch keine Abflusse erfasst.</div>';
   var zl = document.getElementById('zl');
@@ -17360,7 +17462,9 @@ function buildGoalTimelineMarkers(labels){
 function refreshIstGoalMarkers(){
   try{
     if(!charts||!charts.ist||!charts.ist.data)return;
-    charts.ist.$goalMarkers=buildGoalTimelineMarkers(charts.ist.data.labels||[]);
+    var labels=charts.ist.data.labels||[];
+    // Ziel-Marker (blau) + Vermoegenszufluss-Marker (gruen, Roadmap #54).
+    charts.ist.$goalMarkers=buildGoalTimelineMarkers(labels).concat(buildWealthInflowMarkers(labels));
   }catch(e){/* defensiv */}
 }
 function currentRecurringNetCashflowRappen(result){
@@ -18785,7 +18889,8 @@ async function saveCashflowsAndRefreshCurrentPath(){
     }
     await Promise.all([
       refreshCashflowsUI(cid),
-      refreshGoalsUI(mid)
+      refreshGoalsUI(mid),
+      refreshInflowsUI(cid)
     ]);
     updateCfRiskContextSummary();
     refreshBaselineChartFromClientDataForced();
@@ -21133,6 +21238,200 @@ async function saveCashflow(){
     showModalFeedback('acf-error',btn,'OK: Demo-Modus aktualisiert',false);
     setTimeout(function(){cm('m-acf');},1200);
   }
+}
+// ---------------------------------------------------------------------------
+// Roadmap #54: Dedizierte Vermoegenszufluesse (einmalige Wealth-Inflows).
+// ADDITIV — die bestehenden Cashflow-Funktionen bleiben unberuehrt. Eigenes
+// State (currentInflows), eigenes Modal (m-awi), eigener Container (#inflow-rows).
+// ---------------------------------------------------------------------------
+var currentInflows=[];
+var currentInflowEditId=null;
+// Deutsche Labels fuer die 5 source_types (Backend-Werte exakt beibehalten).
+var INFLOW_SOURCE_LABELS={Erbschaft:'Erbschaft',Bonus:'Bonus',Saeule3b:'Säule 3b',Verkaufserloes:'Verkaufserlös',Andere:'Andere'};
+function inflowSourceLabel(v){return INFLOW_SOURCE_LABELS[String(v||'')]||String(v||'');}
+function resetInflowModal(){
+  currentInflowEditId=null;
+  setInputValue('awi-label','');
+  setSelectValue('awi-source-type','Erbschaft');
+  setInputValue('awi-amount','');
+  setInputValue('awi-year','');
+  setSelectValue('awi-value-mode','nominal');
+  var rec=document.getElementById('awi-recurring');if(rec)rec.checked=false;
+  setSelectValue('awi-frequency','einmalig');
+  setInputValue('awi-duration','');
+  setInputValue('awi-notes','');
+  var btn=document.getElementById('btn-awi-save');
+  if(btn){btn.textContent='Speichern';btn.disabled=false;}
+  var err=document.getElementById('awi-error');
+  if(err){err.style.display='none';err.textContent='';}
+  syncInflowModalState();
+}
+// Frequenz-/Dauer-Felder nur bei wiederkehrendem Zufluss anzeigen.
+function syncInflowModalState(){
+  var rec=document.getElementById('awi-recurring');
+  var wrap=document.getElementById('awi-recurring-wrap');
+  var isRec=!!(rec&&rec.checked);
+  if(wrap)wrap.style.display=isRec?'':'none';
+  if(isRec){
+    // Wiederkehrend erfordert eine echte Frequenz — 'einmalig' waere invalide.
+    if(getInputValue('awi-frequency')==='einmalig')setSelectValue('awi-frequency','jaehrlich');
+  }
+}
+function openNewInflow(){
+  resetInflowModal();
+  var modal=document.getElementById('m-awi');
+  if(modal)modal.classList.add('open');
+}
+function openInflowEditor(inflowId){
+  var inflow=(currentInflows||[]).find(function(item){return String(item.id||'')===String(inflowId||'');});
+  if(!inflow)return;
+  currentInflowEditId=inflow.id;
+  setInputValue('awi-label',inflow.label||'');
+  setSelectValue('awi-source-type',inflow.source_type||'Erbschaft');
+  setInputValue('awi-amount',formatInputCHF(inflow.amount_rappen));
+  setInputValue('awi-year',inflow.expected_year!=null?String(inflow.expected_year):'');
+  setSelectValue('awi-value-mode',inflow.value_mode||'nominal');
+  var rec=document.getElementById('awi-recurring');if(rec)rec.checked=!!(inflow.is_recurring);
+  setSelectValue('awi-frequency',inflow.frequency||'einmalig');
+  setInputValue('awi-duration',inflow.duration_years!=null?String(inflow.duration_years):'');
+  setInputValue('awi-notes',inflow.notes||'');
+  var btn=document.getElementById('btn-awi-save');
+  if(btn){btn.textContent='Aktualisieren';btn.disabled=false;}
+  var err=document.getElementById('awi-error');
+  if(err){err.style.display='none';err.textContent='';}
+  syncInflowModalState();
+  var modal=document.getElementById('m-awi');
+  if(modal)modal.classList.add('open');
+}
+async function saveInflow(){
+  var label=(document.getElementById('awi-label')||{value:''}).value.trim();
+  var sourceType=(document.getElementById('awi-source-type')||{value:'Erbschaft'}).value;
+  var amount=(document.getElementById('awi-amount')||{value:''}).value;
+  var yearRaw=(document.getElementById('awi-year')||{value:''}).value;
+  var valueMode=(document.getElementById('awi-value-mode')||{value:'nominal'}).value;
+  var isRecurring=!!(document.getElementById('awi-recurring')&&document.getElementById('awi-recurring').checked);
+  var frequency=(document.getElementById('awi-frequency')||{value:'einmalig'}).value;
+  var durationRaw=(document.getElementById('awi-duration')||{value:''}).value;
+  var btn=document.getElementById('btn-awi-save');
+  var isEdit=!!currentInflowEditId;
+  if(!label){showModalFeedback('awi-error',btn,'Bitte Bezeichnung eingeben.',true);return;}
+  if(!amount||isNaN(parseFloat(amount))){showModalFeedback('awi-error',btn,'Bitte gültigen Betrag eingeben.',true);return;}
+  var amountRappen=parseCHF(amount);
+  if(amountRappen<=0){showModalFeedback('awi-error',btn,'Betrag muss grösser als 0 sein.',true);return;}
+  var year=parseInt(yearRaw,10);
+  if(!isFinite(year)||year<1900||year>2200){showModalFeedback('awi-error',btn,'Bitte gültiges Jahr (1900–2200) eingeben.',true);return;}
+  var durationYears=durationRaw!==''?parseInt(durationRaw,10):null;
+  // Spiegelt die Backend-Regel: is_recurring=1 verlangt frequency in
+  // {jaehrlich,monatlich} UND duration_years — sonst 422.
+  if(isRecurring){
+    if(frequency==='einmalig'){showModalFeedback('awi-error',btn,'Wiederkehrender Zufluss benötigt eine Frequenz (jährlich oder monatlich).',true);return;}
+    if(!durationYears||durationYears<1||durationYears>99){showModalFeedback('awi-error',btn,'Wiederkehrender Zufluss benötigt eine Dauer (1–99 Jahre).',true);return;}
+  }
+  var payload={
+    label:label,
+    source_type:sourceType,
+    amount_rappen:amountRappen,
+    expected_year:year,
+    is_recurring:isRecurring?1:0,
+    value_mode:valueMode
+  };
+  if(isRecurring){
+    payload.frequency=frequency;
+    payload.duration_years=durationYears;
+  }
+  var notes=(document.getElementById('awi-notes')||{value:''}).value.trim();
+  if(notes)payload.notes=notes;
+  var cid=getActiveClientId();
+  if(!cid||isDemoClientId(cid)){
+    showModalFeedback('awi-error',btn,'Bitte zuerst einen echten Mandanten auswählen.',true);
+    return;
+  }
+  if(btn){btn._origText=isEdit?'Aktualisieren':'Speichern';btn.disabled=true;btn.textContent=isEdit?'Aktualisieren...':'Speichern...';}
+  try{
+    if(isEdit)await API.put('/wealth-inflows/'+currentInflowEditId,payload);
+    else await API.post('/clients/'+cid+'/wealth-inflows',payload);
+    showModalFeedback('awi-error',btn,isEdit?'OK: Zufluss aktualisiert':'OK: Zufluss gespeichert',false);
+    cm('m-awi');
+    await refreshInflowsUI(cid);
+    refreshIstGoalMarkers();
+    try{showAppSuccess(isEdit?'Vermögenszufluss aktualisiert':'Vermögenszufluss gespeichert');}catch(noticeErr){}
+  }catch(e){
+    var wiErr='Fehler: '+(e.detail||e.message||'?');
+    showModalFeedback('awi-error',btn,wiErr,true);
+    try{showAppError(wiErr,{title:'Vermögenszufluss nicht gespeichert'});}catch(noticeErr){}
+  }
+}
+async function deleteInflow(inflowId){
+  if(!inflowId)return;
+  try{
+    await API.delete('/wealth-inflows/'+inflowId);
+    var cid=getActiveClientId();
+    await refreshInflowsUI(cid);
+    refreshIstGoalMarkers();
+    try{showAppSuccess('Vermögenszufluss gelöscht');}catch(noticeErr){}
+  }catch(e){
+    try{showAppError('Fehler beim Löschen: '+(e.detail||e.message||'?'),{title:'Vermögenszufluss nicht gelöscht'});}catch(noticeErr){}
+  }
+}
+async function refreshInflowsUI(cid){
+  cid=cid||getActiveClientId();
+  var host=document.getElementById('inflow-rows');
+  if(!cid||isDemoClientId(cid)){
+    currentInflows=[];
+    if(host)host.innerHTML=journeyEmptyHint('Noch keine erwarteten Vermögenszuflüsse. Erfassen Sie z.B. eine Erbschaft, einen Bonus oder einen Verkaufserlös.');
+    return;
+  }
+  try{
+    var items=await API.get('/clients/'+cid+'/wealth-inflows');
+    if(String(cid)!==String(currentClientId||''))return;
+    if(!Array.isArray(items))items=(items&&items.items)||[];
+    currentInflows=Array.isArray(items)?items.slice():[];
+    var fmtR=function(r){return 'CHF '+Math.round(Number(r||0)/100).toLocaleString('de-CH');};
+    if(!host)return;
+    if(!currentInflows.length){
+      host.innerHTML=journeyEmptyHint('Noch keine erwarteten Vermögenszuflüsse. Erfassen Sie z.B. eine Erbschaft, einen Bonus oder einen Verkaufserlös.');
+      return;
+    }
+    host.innerHTML=currentInflows.map(function(inflow){
+      var sub=escapeHtml(inflowSourceLabel(inflow.source_type)+' · '+(inflow.expected_year||''));
+      return '<div class="cf-row" data-inflowid="'+escapeHtml(inflow.id||'')+'">'+
+        '<div class="cfn"><div class="cfna">'+escapeHtml(inflow.label||'Zufluss')+'</div><div class="cfnd">'+sub+'</div></div>'+
+        '<div class="cfa ci">+'+fmtR(inflow.amount_rappen||0)+'</div>'+
+        '<div><button class="btn-ico e" type="button" title="Bearbeiten" aria-label="Vermögenszufluss bearbeiten">&#9998;</button><button class="btn-ico d" type="button" title="Löschen" aria-label="Vermögenszufluss löschen">&#10005;</button></div></div>';
+    }).join('');
+    Array.prototype.forEach.call(host.querySelectorAll('.cf-row[data-inflowid] .btn-ico'),function(btn){
+      var row=btn.closest('.cf-row[data-inflowid]');
+      if(!row)return;
+      var inflowId=row.getAttribute('data-inflowid')||'';
+      btn.onclick=function(ev){
+        if(ev)ev.preventDefault();
+        if(btn.classList.contains('e'))openInflowEditor(inflowId);
+        else deleteInflow(inflowId);
+      };
+    });
+  }catch(e){
+    if(String(cid)!==String(currentClientId||''))return;
+    console.warn('refreshInflowsUI:',e);
+    currentInflows=[];
+    if(host)host.innerHTML=journeyEmptyHint('Vermögenszuflüsse konnten nicht geladen werden.');
+  }
+}
+// Chart-Marker fuer Vermoegenszufluesse (gruen, mirror von buildGoalTimelineMarkers).
+function buildWealthInflowMarkers(labels){
+  if(!Array.isArray(labels)||!labels.length)return [];
+  var inflows=(typeof currentInflows!=='undefined'&&Array.isArray(currentInflows))?currentInflows:[];
+  if(!inflows.length)return [];
+  var fmtR=function(r){return Math.round(Number(r||0)/100).toLocaleString('de-CH');};
+  var markers=[];
+  inflows.forEach(function(inflow){
+    if(!inflow)return;
+    if(Object.prototype.hasOwnProperty.call(inflow,'is_active')&&inflow.is_active===0)return;
+    var idx=labels.indexOf(String(inflow.expected_year));
+    if(idx<0)return;
+    var nm=String(inflow.label||inflowSourceLabel(inflow.source_type)||'Zufluss');
+    markers.push({index:idx,year:inflow.expected_year,label:nm+' (CHF '+fmtR(inflow.amount_rappen)+')',shortLabel:inflowSourceLabel(inflow.source_type),type:'inflow'});
+  });
+  return markers;
 }
 // 2026-06-15 (#99): Holistische Gruppierung der Cashflows nach Lebensbereich,
 // wie ein Berater denkt (Erwerb → Vorsorge → Wohnen → Kapital → Lebenshaltung).
