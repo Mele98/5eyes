@@ -290,6 +290,61 @@ def test_wealth_paths_with_liability_subtracts_from_wealth():
     assert wealth[0, 3] == pytest.approx(150_000_00)
 
 
+def test_cashflow_and_liability_are_independent_subtractors_no_double_count():
+    """#59 Goal-Liability-Doppelzaehlung Endkontrolle.
+
+    simulate_wealth_paths subtrahiert cashflow_series_rappen (aus Cashflow-
+    Records) und liability_path_rappen (aus Spending-Goals) als ZWEI getrennte
+    Kanaele. Dieser Test pinnt, dass ein reiner Goal-Outflow (ohne matchenden
+    Expense-Cashflow) genau EINMAL abgezogen wird — nicht doppelt. Bricht,
+    falls jemand die Goal-Outflows zusaetzlich in die Cashflow-Series mergen
+    wuerde (echte Doppelzaehlung).
+    """
+    inputs = _identity_inputs(mu=0, sigma=0)  # kein Wachstum -> reine Arithmetik
+    paths = build_scenario_paths(inputs, horizon_years=3, n_paths=2, seed=42)
+    weights = np.array([0, 0, 0, 0, 1.0])  # 100% Liquiditaet, flach
+
+    # Goal-Outflow 40k in Jahr 2 (Index 1), KEIN korrespondierender Cashflow.
+    wealth = simulate_wealth_paths(
+        initial_wealth_rappen=300_000_00,
+        weights=weights,
+        return_paths=paths,
+        cashflow_series_rappen=[0, 0, 0],
+        liability_path_rappen=[0, 40_000_00, 0],
+    )
+    # Jahr 1: 300k. Jahr 2: 300k - 40k = 260k (genau EINMAL). Jahr 3: 260k.
+    assert wealth[0, 1] == pytest.approx(300_000_00)
+    assert wealth[0, 2] == pytest.approx(260_000_00)
+    assert wealth[0, 3] == pytest.approx(260_000_00)
+
+
+def test_income_cashflow_and_goal_liability_net_correctly():
+    """#59: Positiver Netto-Cashflow (Income) und Goal-Liability wirken getrennt
+    und je genau einmal — Income erhoeht, Liability senkt, keiner doppelt.
+
+    Szenario: laufender Netto-Ueberschuss +10k/Jahr (Lohn > Ausgaben) UND ein
+    diskretes Spending-Goal 50k in Jahr 3. Zwei verschiedene Geldstroeme; das
+    erwartete Endvermoegen zaehlt jeden genau einmal.
+    """
+    inputs = _identity_inputs(mu=0, sigma=0)
+    paths = build_scenario_paths(inputs, horizon_years=3, n_paths=2, seed=7)
+    weights = np.array([0, 0, 0, 0, 1.0])
+
+    wealth = simulate_wealth_paths(
+        initial_wealth_rappen=100_000_00,
+        weights=weights,
+        return_paths=paths,
+        cashflow_series_rappen=[10_000_00, 10_000_00, 10_000_00],  # +10k/Jahr Income
+        liability_path_rappen=[0, 0, 50_000_00],                    # 50k Goal in Jahr 3
+    )
+    # J1: 100k + 10k = 110k
+    # J2: 110k + 10k = 120k
+    # J3: 120k + 10k - 50k = 80k  (Income 3x je einmal, Liability 1x einmal)
+    assert wealth[0, 1] == pytest.approx(110_000_00)
+    assert wealth[0, 2] == pytest.approx(120_000_00)
+    assert wealth[0, 3] == pytest.approx(80_000_00)
+
+
 def test_wealth_paths_with_short_cashflow_pads_with_zero():
     """Wenn cashflow_series kuerzer als horizon: Auffuellen mit 0."""
     inputs = _identity_inputs(mu=0, sigma=0)
