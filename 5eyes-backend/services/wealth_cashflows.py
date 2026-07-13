@@ -235,8 +235,16 @@ def derive_wealth_cashflows(positions: list) -> list[DerivedCashflow]:
                     f"Mieteinnahmen: {label}",
                     inflation_linked=int(getattr(pos, "property_rental_inflation_linked", 0) or 0))
         elif ptype == "Liquidität":
-            _mk("liquidity_interest", "Income",
-                _rate_amount(value, getattr(pos, "liquidity_interest_rate_bps", 0)),
-                f"Zinsertrag: {label}")
+            interest = _rate_amount(value, getattr(pos, "liquidity_interest_rate_bps", 0))
+            if interest >= 0:
+                _mk("liquidity_interest", "Income", interest,
+                    f"Zinsertrag: {label}")
+            else:
+                # Negativzins / Verwahrungsentgelt (wie 2015-2022 bei CH-Banken auf
+                # Bar-/Depotguthaben): ein negativer Satz ist eine Ausgabe, kein Ertrag.
+                # Ohne diese Verzweigung wuerde _mk() den negativen Betrag als
+                # "Rauschen" (amount <= 0) verwerfen -> Negativzins wuerde nie berechnet.
+                _mk("liquidity_interest", "Expense", abs(interest),
+                    f"Negativzins: {label}")
 
     return out

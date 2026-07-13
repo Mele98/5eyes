@@ -73,6 +73,20 @@ def test_liquidity_interest():
     assert rows[0].label == "Zinsertrag: Sparkonto"
 
 
+def test_liquidity_negative_interest_is_expense():
+    # Negativzins / Verwahrungsentgelt (CH-Banken 2015-2022): CHF 200'000 @ -0.75%
+    # -> CHF 1'500 Ausgabe. Frueher verwarf _mk() den negativen Betrag als
+    # "Rauschen" (amount <= 0) -> Negativzins wurde nie berechnet. Jetzt: Expense.
+    pos = _pos(id="l2", position_type="Liquidität", label="Kontokorrent",
+               current_value_rappen=200_000_00, liquidity_interest_rate_bps=-75)
+    rows = derive_wealth_cashflows([pos])
+    assert len(rows) == 1
+    assert rows[0].cashflow_type == "Expense"
+    assert rows[0].amount_rappen == 1_500_00  # positiver Betrag (Magnitude)
+    assert rows[0].label == "Negativzins: Kontokorrent"
+    assert rows[0].origin_position_id == "l2"
+
+
 def test_zero_rate_or_amount_yields_nothing():
     assert derive_wealth_cashflows([_pos(position_type="Hypothek", current_value_rappen=0, mortgage_interest_rate_bps=150)]) == []
     assert derive_wealth_cashflows([_pos(position_type="Hypothek", current_value_rappen=500_000_00, mortgage_interest_rate_bps=0)]) == []
