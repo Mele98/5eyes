@@ -57,3 +57,20 @@ def test_az_jump_rail():
     assert "function selectRegisterLetter(" in html
     assert "ABCDEFGHIJKLMNOPQRSTUVWXYZ#" in html
     assert "az-off" in html and "az-active" in html
+
+
+def test_client_letter_folds_diacritics():
+    # Bug-Fix: Namen mit Diakritika (é/ç/ñ/à…) muessen unter ihrem ASCII-
+    # Grundbuchstaben in der A-Z-Leiste landen, nicht unter '#'. Frueher wurden
+    # nur Ä/Ö/Ü behandelt -> z.B. "Celik"->'#' unerreichbar ueber die Leiste.
+    html = _html()
+    az_block = html.split("function _clientLetter(", 1)[1].split("}", 1)[0]
+    assert "normalize('NFD')" in az_block
+
+
+def test_search_returns_to_private_default():
+    # Bug-Fix: Wer aktiv sucht, verlaesst "Alle anzeigen"; das Leeren des
+    # Suchfeldes darf NICHT alle Namen re-exponieren (Privacy-by-default).
+    html = _html()
+    filter_block = html.split("function filterClientRegister(", 1)[1].split("}", 1)[0]
+    assert "registerShowAll = false" in filter_block

@@ -5072,8 +5072,11 @@ function _clientSortKey(c){
   return (byLast || byName || String(c.client_number||c.id||'')).toLowerCase();
 }
 function _clientLetter(c){
-  var l = (_clientSortKey(c).charAt(0) || '#').toUpperCase();
-  if (l === 'Ä') return 'A'; if (l === 'Ö') return 'O'; if (l === 'Ü') return 'U';
+  // Diakritika (ä/é/ç/ñ/à…) auf ASCII-Grundbuchstaben falten, damit Namen unter
+  // dem erwarteten Buchstaben der A-Z-Leiste landen und nicht unter '#'.
+  var l = (_clientSortKey(c).charAt(0) || '#')
+            .normalize('NFD').replace(/[̀-ͯ]/g, '')
+            .toUpperCase();
   return /[A-Z]/.test(l) ? l : '#';
 }
 function rebuildSidebar(clients) {
@@ -5128,6 +5131,9 @@ function selectRegisterLetter(letter) {
 }
 function filterClientRegister(query) {
   registerLetter = null;  // Suche hat Vorrang vor Buchstaben-Auswahl
+  // Wer aktiv sucht, verlässt "Alle anzeigen" -> Leeren des Feldes kehrt in den
+  // Privacy-Default (nichts sichtbar) zurück statt alle Namen zu re-exponieren.
+  if (String(query||'').trim()) registerShowAll = false;
   applyRegisterView();
 }
 function toggleP() {
