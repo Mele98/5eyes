@@ -2169,6 +2169,84 @@ def _build_asset_class_assumptions(
     return assumptions
 
 
+def _build_total_wealth_allocation(
+    total_summary: PortfolioSummary,
+    total_liabilities_rappen: int,
+    total_wealth_rappen: int,
+    target_weights_bps: dict,
+) -> dict:
+    """Gesamtvermögens-Allokation mit der Immobilie als fixem Fundament (Sockel).
+
+    Produkt-Entscheid 2026-07-13: IST und SOLL werden auf dem GESAMTvermögen
+    dargestellt ("mit allem"), nicht nur auf dem Beratungsvermögen. Die Immobilie
+    (real_estate) ist ein konstanter, nicht-optimierbarer Block ("Fundament",
+    netto Hypothek) — identisch in IST und SOLL. Nur das liquide Finanzvermögen
+    (der Rest) wird über die Asset-Klassen optimiert; die Ziel-% werden dafür ohne
+    real_estate renormiert, weil das Haus die Immobilienquote bereits stellt.
+
+    REIN ADDITIV: beeinflusst Optimizer/Reserve/Ziele NICHT — nur die Anzeige.
+    Der Optimizer/die Reserve rechnen unverändert auf dem Beratungsvermögen.
+    """
+    amounts = {k: max(0, int(total_summary.amounts_rappen.get(k, 0))) for k in BUCKET_FIELDS}
+    liabilities = max(0, int(total_liabilities_rappen or 0))
+    total_base = max(0, int(total_wealth_rappen or 0))
+    # Fundament = Immobilie netto Hypothek (konstant). Hypothek zuerst gegen die
+    # Immobilie verrechnen; ein Überhang (Hypothek > Immobilie) mindert den Finanzteil.
+    real_estate_gross = amounts["real_estate"]
+    foundation_rappen = max(0, real_estate_gross - liabilities)
+    liab_remaining = max(0, liabilities - real_estate_gross)
+    financial_base_rappen = max(0, total_base - foundation_rappen)
+
+    # IST (heutiger Mix, total): Fundament + heutige Finanz-Buckets; ein Rest-
+    # Hypothek-Überhang wird von der Liquidität abgezogen (Netto-Konsistenz).
+    current_amounts = dict(amounts)
+    current_amounts["real_estate"] = foundation_rappen
+    if liab_remaining:
+        current_amounts["liquidity"] = max(0, current_amounts["liquidity"] - liab_remaining)
+
+    # SOLL (Ziel, total): Fundament identisch; Ziel-% ohne real_estate renormiert
+    # auf den Finanzteil (das Haus stellt die Immobilienquote bereits).
+    tgt = {k: int((target_weights_bps or {}).get(k, 0) or 0) for k in BUCKET_FIELDS}
+    non_re_sum = sum(v for k, v in tgt.items() if k != "real_estate")
+    target_amounts = {k: 0 for k in BUCKET_FIELDS}
+    target_amounts["real_estate"] = foundation_rappen
+    if non_re_sum > 0 and financial_base_rappen > 0:
+        for k in BUCKET_FIELDS:
+            if k == "real_estate":
+                continue
+            target_amounts[k] = int(round(financial_base_rappen * tgt[k] / non_re_sum))
+        # Rundungsrest dem grössten Finanz-Bucket zuschlagen -> Summe exakt = Finanzbasis.
+        fin_keys = [k for k in BUCKET_FIELDS if k != "real_estate"]
+        residual = financial_base_rappen - sum(target_amounts[k] for k in fin_keys)
+        if residual and fin_keys:
+            biggest = max(fin_keys, key=lambda k: target_amounts[k])
+            target_amounts[biggest] += residual
+    else:
+        # Kein Finanzziel / kein liquider Teil → keine Umschichtung (Fallback = IST).
+        for k in BUCKET_FIELDS:
+            if k != "real_estate":
+                target_amounts[k] = current_amounts[k]
+
+    base = max(1, total_base)
+    allocation = []
+    for key in BUCKET_FIELDS:
+        allocation.append({
+            "asset_class": BUCKET_LABELS[key],
+            "current_weight_bps": _bps(current_amounts[key], base),
+            "target_weight_bps": _bps(target_amounts[key], base),
+            "current_amount_rappen": int(current_amounts[key]),
+            "target_amount_rappen": int(target_amounts[key]),
+            "is_foundation": key == "real_estate",
+        })
+    return {
+        "basis": "gesamtvermoegen",
+        "foundation_rappen": int(foundation_rappen),
+        "financial_base_rappen": int(financial_base_rappen),
+        "total_base_rappen": int(total_base),
+        "allocation": allocation,
+    }
+
+
 def _build_sub_asset_class_assumption_reference(
     sub_allocations: list[dict],
     cma: CapitalMarketAssumption,
@@ -6623,6 +6701,17 @@ def generate_target_allocation(
         target_total_rappen=investable_advisory_wealth_rappen,
     )
 
+    total_allocation_payload = _build_total_wealth_allocation(
+        total_summary, total_liabilities_rappen, total_wealth_rappen,
+        {
+            "equities": int(getattr(target_allocation, "target_equities_bps", 0) or 0),
+            "bonds": int(getattr(target_allocation, "target_bonds_bps", 0) or 0),
+            "real_estate": int(getattr(target_allocation, "target_real_estate_bps", 0) or 0),
+            "alternatives": int(getattr(target_allocation, "target_alternatives_bps", 0) or 0),
+            "liquidity": int(getattr(target_allocation, "target_liquidity_bps", 0) or 0),
+        },
+    )
+
     return {
         "target_allocation": target_allocation,
         "policy": policy,
@@ -6634,6 +6723,9 @@ def generate_target_allocation(
         "investable_advisory_wealth_rappen": investable_advisory_wealth_rappen,
         "strategy_base_rappen": investable_advisory_wealth_rappen,
         "total_wealth_rappen": total_wealth_rappen,
+        # Gesamtvermögens-Allokation (IST+SOLL) mit Immobilie als fixem Fundament.
+        # Rein additiv/anzeigeseitig — Optimizer/Reserve/Ziele unberührt (2026-07-13).
+        "total_allocation": total_allocation_payload,
         "recurring_income_rappen": recurring_income_rappen,
         "recurring_expense_rappen": recurring_expense_rappen,
         "capital_inflow_rappen": capital_inflow_rappen,
@@ -7260,6 +7352,9 @@ def build_target_payload_from_allocation(
         mandate,
         assessment,
     )
+    total_allocation_payload = _build_total_wealth_allocation(
+        total_summary, total_liabilities_rappen, total_wealth_rappen, targets,
+    )
     return {
         "target_allocation": allocation,
         "policy": policy,
@@ -7271,6 +7366,9 @@ def build_target_payload_from_allocation(
         "investable_advisory_wealth_rappen": investable_advisory_wealth_rappen,
         "strategy_base_rappen": investable_advisory_wealth_rappen,
         "total_wealth_rappen": total_wealth_rappen,
+        # Gesamtvermögens-Allokation (IST+SOLL) mit Immobilie als fixem Fundament.
+        # Rein additiv/anzeigeseitig — Optimizer/Reserve/Ziele unberührt (2026-07-13).
+        "total_allocation": total_allocation_payload,
         "recurring_income_rappen": recurring_income_rappen,
         "recurring_expense_rappen": recurring_expense_rappen,
         "capital_inflow_rappen": capital_inflow_rappen,
