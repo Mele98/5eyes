@@ -3064,7 +3064,8 @@ function _wireSollIstHover(){
             <div class="section-kicker">SOLL-Allokation</div>
             <div class="donut-wrap"><canvas id="ch-dn"></canvas><div class="dc"><div class="dcv">CHF<br>2.85M</div><div class="dcl">Beratung</div></div></div>
             <div id="dnleg" class="alloc-legend"></div>
-            <div class="alloc-donut-subline">Hier erscheint die optimierte Soll-Allokation des Beratungsvermögens. Gesamtvermögen, Ziele, Cashflows und Risikoprofil beeinflussen die Strategie holistisch, der Kuchen zeigt aber nur den optimierbaren Beratungsteil.</div>
+            <div class="alloc-donut-subline">Die Torte zeigt das <strong>Vermögen, das in eine optimale Anlagestrategie umgeschichtet werden kann</strong> (Beratungsvermögen). Eigenheim und weiteres Vermögen bilden das <strong>Fundament</strong> und fliessen als <strong>Reinvermögen</strong> holistisch in Strategie, Ziele und Kennzahlen ein — siehe Reinvermögens-Kurve und die Reinvermögen/Beratungsvermögen-Renditen.</div>
+            <div id="alloc-rein-context" class="alloc-donut-subline" style="display:none;margin-top:6px;color:var(--n7)"></div>
           </div>
           <div class="card">
             <div class="chd"><span class="cht">SOLL-Quoten nach Anlageklassen</span><span style="font-size:9px;color:var(--n4);margin-left:8px">Aktien, Obligationen, Immobilien, Alternative — klick für Sub-Klassen</span></div>
@@ -7167,6 +7168,25 @@ function syncAllocationDonutFromStrategyState(){
     charts.dn.data.labels=['Strategie ausstehend'];
     charts.dn.data.datasets[0].data=[100];
     charts.dn.data.datasets[0].backgroundColor=['rgba(122,130,153,0.28)'];
+  }
+  // 3eyes-treu: Torte = umschichtbares Beratungsvermögen; Reinvermögen (inkl.
+  // Eigenheim-Fundament) als Kontext daneben ausweisen (Etappe 2, total_allocation).
+  var _rc=document.getElementById('alloc-rein-context');
+  if(_rc){
+    var _a=strategyState&&strategyState.allocation;
+    if(hasStrategy&&_a){
+      var _ta=_a.total_allocation||{};
+      var _rein=Number(_a.total_wealth_rappen||_ta.total_base_rappen||0);
+      var _found=Number(_ta.foundation_rappen||0);
+      var _ber=Number(_a.advisory_wealth_rappen||0);
+      var _f=function(r){return 'CHF '+Math.round(Number(r||0)/100).toLocaleString('de-CH');};
+      _rc.innerHTML='Reinvermögen (gesamt): <strong>'+_f(_rein)+'</strong>'
+        +(_found>0?' · davon Eigenheim-Fundament '+_f(_found):'')
+        +'<br>Optimierbares Beratungsvermögen (diese Torte): <strong>'+_f(_ber)+'</strong>';
+      _rc.style.display='';
+    }else{
+      _rc.style.display='none';
+    }
   }
   charts.dn.update();
   buildDLegend();
