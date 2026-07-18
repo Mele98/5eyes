@@ -1,7 +1,12 @@
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 import bcrypt as _bcrypt
-from jose import JWTError, jwt
+# Migration jose -> PyJWT (2026-07-18): python-jose 3.3.0 ist unmaintained und
+# CVE-behaftet (Algorithm-Confusion). PyJWT verlangt algorithms= beim decode
+# (bereits vorhanden) und schliesst damit alg-Confusion. Nur HS256 (symmetrisch),
+# kein JWE -> Wechsel ist verhaltensneutral.
+import jwt
+from jwt import PyJWTError
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
@@ -95,7 +100,7 @@ def get_current_user(
         user_id: str = payload.get("sub")
         if user_id is None:
             raise credentials_exception
-    except JWTError:
+    except PyJWTError:
         raise credentials_exception
 
     user = db.query(User).filter(User.id == user_id, User.deleted_at.is_(None)).first()
@@ -302,7 +307,7 @@ def get_current_tenant_id(
         if tid and isinstance(tid, str) and tid.strip():
             return tid.strip()
         return DEFAULT_TENANT_ID
-    except JWTError:
+    except PyJWTError:
         raise HTTPException(status_code=401, detail="Token ungültig")
 
 

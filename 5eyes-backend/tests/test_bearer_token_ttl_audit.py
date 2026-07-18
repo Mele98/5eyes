@@ -32,7 +32,7 @@ from unittest.mock import MagicMock
 import pytest
 from fastapi import HTTPException
 from fastapi.security import HTTPAuthorizationCredentials
-from jose import jwt
+import jwt
 from pydantic import ValidationError
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
@@ -231,6 +231,26 @@ def test_token_alg_none_attack_rejected():
     db_mock = MagicMock()
     with pytest.raises(HTTPException) as exc:
         get_current_user(_credentials(forged), db=db_mock)
+    assert exc.value.status_code == 401
+
+
+def test_token_wrong_algorithm_rejected():
+    """Algorithm-Allowlist (Anti-Confusion): ein mit HS512 statt HS256
+    signiertes Token muss abgelehnt werden, weil der Server hart auf
+    algorithms=[settings.algorithm] pinnt. Regression-Guard fuer die
+    jose->PyJWT-Migration (2026-07-18) — PyJWT wirft InvalidAlgorithmError,
+    die als PyJWTError zu 401 wird.
+    """
+    assert settings.algorithm == 'HS256'  # Praemisse des Tests
+    future = datetime.now(timezone.utc) + timedelta(minutes=10)
+    raw = jwt.encode(
+        {'sub': 'user-x', 'exp': future},
+        settings.secret_key,          # gleiches Secret ...
+        algorithm='HS512',            # ... aber nicht erlaubter Algorithmus
+    )
+    db_mock = MagicMock()
+    with pytest.raises(HTTPException) as exc:
+        get_current_user(_credentials(raw), db=db_mock)
     assert exc.value.status_code == 401
 
 
