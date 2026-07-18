@@ -1,0 +1,18 @@
+# 5eyes Backend — zentrale Test-Konfiguration.
+#
+# Vor dieser Datei lebte die Pytest-Konfiguration ausschliesslich im CI-CLI
+# (.github/workflows/test.yml). Das hier zentralisiert testpaths, Default-Optionen
+# und die Marker-Registry, damit ein lokaler `pytest`-Aufruf dem CI-Lauf entspricht.
+#
+# Bewusst NICHT gesetzt:
+#   - --strict-markers: erst aktivieren, wenn alle Custom-Marker sicher erfasst sind
+#     (verhindert, dass ein uebersehener Marker die ganze Suite rot faerbt).
+#   - --cov / --cov-fail-under: Coverage bleibt im CI-Kommando. Eine harte Schwelle
+#     erst nach Baseline-Messung setzen, sonst bricht der erste Lauf.
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--tb=short -ra"
+markers = [
+    "network: Test benoetigt echten Netzwerkzugriff (externe Marktdaten-Provider). In Offline-CI via -m 'not network' abwaehlbar.",
+]
