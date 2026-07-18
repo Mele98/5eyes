@@ -161,3 +161,76 @@ def test_compliance_audit_changes_pdf_bytes_against_without_section(monkeypatch)
     assert len(with_section) > len(without_section)
     assert "Compliance-Audit" in _extract_text(with_section)
     assert "Compliance-Audit" not in _extract_text(without_section)
+
+
+# ---------------------------------------------------------------------------
+# Fail-closed (2026-07-18): ein fehlgeschlagenes Compliance-Audit darf NIE
+# 'compliant' behaupten. Builder liefern is_compliant=None + audit_degraded,
+# der Renderer zeigt 'Pruefung nicht moeglich' (amber) statt gruen.
+# ---------------------------------------------------------------------------
+
+def test_suitability_builder_fails_closed_on_audit_exception(monkeypatch):
+    """Wenn audit_mandate_suitability wirft, darf der Builder NICHT
+    is_compliant=True zurueckgeben (frueherer Fail-open-Bug)."""
+    import services.suitability_audit as sa
+    from services.advisory_report import _build_suitability_compliance
+
+    def _boom(_db, _mandate):
+        raise RuntimeError("audit kaputt")
+
+    monkeypatch.setattr(sa, "audit_mandate_suitability", _boom)
+    result = _build_suitability_compliance(db=None, mandate=None)
+
+    assert result["is_compliant"] is None, "Fail-open: behauptet faelschlich Konformitaet"
+    assert result["audit_degraded"] is True
+
+
+def test_recommendation_builder_fails_closed_on_audit_exception(monkeypatch):
+    import services.recommendation_audit as ra
+    from services.advisory_report import _build_recommendation_methodology
+
+    def _boom(_db, _mandate):
+        raise RuntimeError("audit kaputt")
+
+    monkeypatch.setattr(ra, "audit_recommendation_methodology", _boom)
+    result = _build_recommendation_methodology(db=None, mandate=None)
+
+    assert result["is_compliant"] is None
+    assert result["audit_degraded"] is True
+
+
+def test_degraded_suitability_renders_pruefung_nicht_moeglich():
+    """Renderer: degraded Suitability-Payload -> sichtbarer Fail-closed-Hinweis,
+    nicht stilles Gruen."""
+    payload = _make_minimal_payload()
+    payload["suitability_compliance"] = {
+        "total_advisory_logs": 0,
+        "logs_requiring_suitability": 0,
+        "logs_with_suitability": 0,
+        "logs_without_suitability": [],
+        "freshness_issues": [],
+        "result_issues": [],
+        "is_compliant": None,
+        "audit_degraded": True,
+        "fidleg_basis": "Art. 11/13/16 FIDLEG",
+    }
+    text = _render_text(payload)
+    assert "Pruefung nicht moeglich" in text
+
+
+def test_compliant_suitability_does_not_show_degraded_hint():
+    """Gegenprobe: ein sauberes, konformes Payload zeigt den Fail-closed-
+    Hinweis NICHT (sonst wuerde der Test oben nichts beweisen)."""
+    payload = _make_minimal_payload()
+    payload["suitability_compliance"] = {
+        "total_advisory_logs": 2,
+        "logs_requiring_suitability": 2,
+        "logs_with_suitability": 2,
+        "logs_without_suitability": [],
+        "freshness_issues": [],
+        "result_issues": [],
+        "is_compliant": True,
+        "fidleg_basis": "Art. 11/13/16 FIDLEG",
+    }
+    text = _render_text(payload)
+    assert "Pruefung nicht moeglich" not in text
