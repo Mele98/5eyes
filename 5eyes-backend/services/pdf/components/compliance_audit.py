@@ -78,6 +78,10 @@ def render_compliance_audit_section(payload: dict, story: list, styles) -> None:
 
 
 def _suitability_block(data: dict, styles) -> list:
+    # Fail-closed (2026-07-18): NUR der explizite audit_degraded-Marker
+    # (Audit-Exception) -> 'Pruefung nicht moeglich' (amber). Ein fehlendes
+    # is_compliant (leeres Minimal-Payload) bleibt beim bisherigen Verhalten.
+    is_degraded = bool(data.get("audit_degraded"))
     is_compliant = bool(data.get("is_compliant", True))
     violations = _collect_suitability_violations(data)
     rows = [[
@@ -86,15 +90,16 @@ def _suitability_block(data: dict, styles) -> list:
         _metric("Mit Check", data.get("logs_with_suitability"), styles),
         _metric("Ohne Check", len(data.get("logs_without_suitability") or []), styles),
     ]]
+    pill = _pill(*PILL_PENDING, styles=styles) if is_degraded else _compliance_pill(is_compliant, styles)
     out = [
-        _block_header(
-            "Geeignetheitspruefung",
-            _compliance_pill(is_compliant, styles),
-            styles,
-        ),
+        _block_header("Geeignetheitspruefung", pill, styles),
         _metrics_row(rows, styles),
     ]
-    if violations:
+    if is_degraded:
+        out.append(_muted_note(
+            "Pruefung nicht moeglich: Suitability-Audit fehlgeschlagen. "
+            "Konformitaet konnte NICHT bestaetigt werden.", styles))
+    elif violations:
         out.append(Spacer(1, 2 * mm))
         out.append(_issues_table(
             violations,
@@ -104,7 +109,8 @@ def _suitability_block(data: dict, styles) -> list:
         ))
     else:
         out.append(_muted_note("Keine Suitability-Verstoesse im Audit-Payload.", styles))
-    return [_panel(out, styles, accent=COLOR_STATUS_GRUEN if is_compliant else COLOR_STATUS_ROT)]
+    accent = COLOR_ACCENT if is_degraded else (COLOR_STATUS_GRUEN if is_compliant else COLOR_STATUS_ROT)
+    return [_panel(out, styles, accent=accent)]
 
 
 def _methodology_block(data: dict, styles) -> list:
@@ -144,10 +150,17 @@ def _methodology_block(data: dict, styles) -> list:
 
 
 def _recommendation_block(data: dict, styles) -> list:
+    # Fail-closed (2026-07-18): nur expliziter audit_degraded-Marker -> pending
+    # (amber), nie gruen. Fehlendes Payload faellt weiter auf has_run/pending.
+    is_degraded = bool(data.get("audit_degraded"))
     is_compliant = bool(data.get("is_compliant", True))
     active_run = data.get("latest_active_run") or data.get("latest_run") or {}
     has_run = isinstance(active_run, dict) and bool(active_run)
-    pill = _compliance_pill(is_compliant, styles) if has_run else _pill(*PILL_PENDING, styles=styles)
+    pill = (
+        _pill(*PILL_PENDING, styles=styles)
+        if is_degraded or not has_run
+        else _compliance_pill(is_compliant, styles)
+    )
 
     out = [
         _block_header("Recommendation-Methodology", pill, styles),
@@ -167,9 +180,15 @@ def _recommendation_block(data: dict, styles) -> list:
         ]
         out.append(Spacer(1, 2 * mm))
         out.append(_kv_table(details, styles))
+    elif is_degraded:
+        out.append(_muted_note(
+            "Pruefung nicht moeglich: Recommendation-Audit fehlgeschlagen. "
+            "Konformitaet konnte NICHT bestaetigt werden.", styles))
     else:
         out.append(_muted_note("Daten ausstehend: kein Optimizer-Run im Payload.", styles))
-    return [_panel(out, styles, accent=COLOR_STATUS_GRUEN if is_compliant else COLOR_STATUS_ROT)]
+    accent = COLOR_ACCENT if (is_degraded or not has_run) else (
+        COLOR_STATUS_GRUEN if is_compliant else COLOR_STATUS_ROT)
+    return [_panel(out, styles, accent=accent)]
 
 
 def _mandate_lock_block(data: dict, styles) -> list:

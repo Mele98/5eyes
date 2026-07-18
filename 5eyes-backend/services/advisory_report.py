@@ -2849,6 +2849,11 @@ def _build_suitability_compliance(db: Session, mandate: Mandate) -> dict[str, An
 
     Default-Verhalten: bei jedem Schema-/Import-Fehler -> degraded
     leeres Schema, Aggregator crasht NIE.
+
+    Fail-closed (2026-07-18): im Fehlerfall NIE 'is_compliant: True' — ein
+    fehlgeschlagenes Audit darf keine Konformitaet behaupten. Stattdessen
+    is_compliant=None + audit_degraded=True -> Renderer zeigt 'Pruefung nicht
+    moeglich' (amber) statt Gruen.
     """
     try:
         from services.suitability_audit import audit_mandate_suitability
@@ -2861,7 +2866,8 @@ def _build_suitability_compliance(db: Session, mandate: Mandate) -> dict[str, An
             "logs_without_suitability": [],
             "freshness_issues": [],
             "result_issues": [],
-            "is_compliant": True,
+            "is_compliant": None,
+            "audit_degraded": True,
             "fidleg_basis": "Art. 11/13/16 FIDLEG",
         }
 
@@ -2909,6 +2915,7 @@ def _build_recommendation_methodology(
         from services.recommendation_audit import audit_recommendation_methodology
         return audit_recommendation_methodology(db, mandate)
     except Exception:  # noqa: BLE001
+        # Fail-closed (2026-07-18): kein falsches 'compliant' bei Audit-Fehler.
         return {
             "latest_run": None,
             "latest_active_run": None,
@@ -2916,7 +2923,8 @@ def _build_recommendation_methodology(
             "shadow_count": 0,
             "active_count": 0,
             "fallback_count": 0,
-            "is_compliant": True,
+            "is_compliant": None,
+            "audit_degraded": True,
             "fidleg_basis": "Art. 16 FIDLEG",
         }
 
