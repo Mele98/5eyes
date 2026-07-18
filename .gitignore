@@ -42,6 +42,7 @@ node_modules/
 
 # Temporary debug scripts
 tmp_*
+.tmp_*
 tmp/
 extracted_check.js
 
