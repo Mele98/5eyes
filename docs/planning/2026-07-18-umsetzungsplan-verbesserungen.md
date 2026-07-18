@@ -3,6 +3,22 @@
 **Stand:** 18. Juli 2026 · Basis: [CTO-Standortbericht](./2026-07-18-cto-standortbericht.md) §04
 **Zweck:** Die 7 Verbesserungspunkte aus §04 in der kostengünstigsten Reihenfolge abarbeiten — so, dass jeder Schritt einzeln grün testbar ist und Risiko vom Rest getrennt bleibt.
 
+## Fortschritt (Stand 2026-07-18, autonom umgesetzt)
+
+| Punkt | Status | Ergebnis |
+|---|---|---|
+| 0.1 Repo-Hygiene | ✅ gemerged | `.tmp_*` ignoriert, 3 Junk-Dateien (520 KB) entfernt |
+| 0.2 Zentrale Test-Konfig | ✅ gemerged | `5eyes-backend/pyproject.toml` (testpaths, marker, tb=short); CI-neutral |
+| 1.1 python-jose → PyJWT | ✅ gemerged | PyJWT[crypto] 2.10.1; Security-Gate grün (150); neuer Algorithm-Allowlist-Guard |
+| 1.2 Fail-open → Fail-closed | ✅ gemerged | Audit-Exception liefert `is_compliant=None`+`audit_degraded`; Renderer zeigt „Prüfung nicht möglich"; 4 Pin-Tests |
+| 1.3 Engine-/Report-Korrektheit | ✅ verifiziert | **AR-1, OPT-1, RES-1 bereits behoben** (datierte Fix-Kommentare im Code); RES-2-Risiken geguardet. Juni-Audit-Doc ist stale. Offen nur AR-2 (siehe unten) |
+| 2.1 Suitability Hard-Gate | ⏸ wartet auf User | blockierend erzwingen oder nur anzeigen? |
+| 3.1/3.2 Monolith-Migration | offen | eigene Sprint-Spur |
+
+**Wichtige Erkenntnis:** Die Engine-Korrektheits-Findings (Welle 1.3) aus dem Juni-Audit waren in den 172 Commits seither bereits gefixt — vor jedem „Fix" wurde am echten Code verifiziert (kein redundanter/riskanter Eingriff). **Einzig offen: AR-2** — `_build_key_metrics` liefert `exp_vol/exp_return/max_drawdown/var_95 = None`, weil die Engine sie nicht auf die Zielallokation schreibt; sie liegen im MC-Payload. Das ist ein kleines Feature (MC-Kennzahlen in die Report-Karte verdrahten), kein Bug.
+
+---
+
 ## Leitprinzipien (warum diese Reihenfolge effizient ist)
 
 1. **Billig & risikolos zuerst.** Mechanische Hygiene (kein Fachlogik-Risiko) kostet Stunden, räumt aber das Arbeitsfeld frei und reduziert Merge-Reibung für alles danach.
