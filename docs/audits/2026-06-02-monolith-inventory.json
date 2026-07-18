@@ -4890,7 +4890,7 @@
       "id": "",
       "line": 2939,
       "tag": "button",
-      "value": "openNewInflow()"
+      "value": "openNewCashflow('Income')"
     },
     {
       "class": "btn-p btn-sm",
@@ -17988,8 +17988,8 @@
     }
   ],
   "source_path": "5eyes-electron/frontend/5eyes_v2.html",
-  "source_sha256": "7bee2a5a909da81878ada2e293e9fbac912f6029a4356ee44432986f5e9cefab",
-  "source_size_bytes": 1548528,
+  "source_sha256": "21761352f7900294209354231fcc8882a2a0e462f30418ceb3a50012603edf50",
+  "source_size_bytes": 1548538,
   "sub_sections": [
     {
       "class": "admin-sec-btn",
