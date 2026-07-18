@@ -13,10 +13,11 @@ if str(BACKEND_ROOT) not in sys.path:
 from database import Base, get_db
 from main import app
 from models.clients import Client
-from models.wealth import Cashflow
+from models.wealth import Cashflow, WealthInflow
+from models.allocation import CapitalMarketAssumption
 from models.users import User
 from services.auth import get_current_user
-import uuid, datetime
+import uuid, datetime, json
 
 
 def _utc_now_iso() -> str:
@@ -259,3 +260,114 @@ def test_horizon_covers_all_cashflows_beyond_life_expectancy(session_factory, au
                         valid_from="2030-01-01", valid_until="2060-01-01")
     rows = auth_client.get(f"/clients/{cid}/cashflow-projection").json()["years"]
     assert rows[-1]["year"] == 2060
+
+
+# ---------------------------------------------------------------------------
+# CF-1/CF-2 (2026-07-16): Cashflow-Ansicht mit der Strategie-Engine angleichen —
+# Inflation (is_inflation_linked), FX (Fremdwaehrung -> CHF), Wealth-Inflows.
+# Sonst divergiert die dem Berater/Kunden gezeigte Tabelle von den Strategie-
+# Zahlen (FIDLEG-Vertrauensrisiko).
+# ---------------------------------------------------------------------------
+
+def _add_current_cma(session_factory, advisor_id: str, inflation_bps_by_year: dict) -> None:
+    """Legt eine aktuell gueltige CMA (is_current=1) mit Inflationspfad an."""
+    now = _utc_now_iso()
+    with session_factory() as s:
+        s.add(CapitalMarketAssumption(
+            id=str(uuid.uuid4()),
+            assumption_set_name="Test-CMA",
+            version=1,
+            valid_from="2026-01-01",
+            is_current=1,
+            inflation_path_json=json.dumps({str(k): int(v) for k, v in inflation_bps_by_year.items()}),
+            created_by=advisor_id,
+            created_at=now,
+            updated_at=now,
+        ))
+        s.commit()
+
+
+def _add_cashflow_flags(session_factory, client_id, amount_rappen, cf_type="Income",
+                        frequency="jährlich", is_inflation_linked=0, currency="CHF"):
+    now = _utc_now_iso()
+    with session_factory() as s:
+        s.add(Cashflow(
+            id=str(uuid.uuid4()), client_id=client_id,
+            cashflow_type=cf_type, label="Flagged CF", nature="wiederkehrend",
+            amount_rappen=amount_rappen, frequency=frequency,
+            currency=currency, is_inflation_linked=is_inflation_linked,
+            is_active=1, created_at=now, updated_at=now,
+        ))
+        s.commit()
+
+
+def test_inflation_linked_cashflow_grows_over_years(session_factory, auth_client, advisor_user):
+    """Ein is_inflation_linked=1 Cashflow erscheint im Startjahr nominal (Faktor 1.0)
+    und in spaeteren Jahren aufgezinst — konsistent mit der Strategie-Engine."""
+    start_year = datetime.date.today().year
+    cid = _make_client(session_factory, advisor_user.id)
+    _add_current_cma(session_factory, advisor_user.id, {start_year: 200})  # 2.0% p.a.
+    _add_cashflow_flags(session_factory, cid, 10_000_000, "Income", is_inflation_linked=1)
+
+    rows = auth_client.get(f"/clients/{cid}/cashflow-projection?horizon_years=15").json()["years"]
+
+    # Startjahr (offset 0): nominal, kein Aufzinsen (User-Input ist Heute-Wert).
+    assert rows[0]["recurring_income_rappen"] == 10_000_000
+    # Jahr 10 (offset 9): kumuliert (1.02)^9 aufgezinst.
+    expected_y10 = round(10_000_000 * (1.02 ** 9))
+    assert rows[9]["recurring_income_rappen"] == expected_y10
+    assert rows[9]["recurring_income_rappen"] > rows[0]["recurring_income_rappen"]
+    # Monoton steigend ueber den Horizont.
+    series = [r["recurring_income_rappen"] for r in rows]
+    assert series == sorted(series)
+
+
+def test_non_inflation_linked_cashflow_stays_nominal(session_factory, auth_client, advisor_user):
+    """Kontrolle: is_inflation_linked=0 bleibt nominal, auch wenn eine CMA existiert."""
+    start_year = datetime.date.today().year
+    cid = _make_client(session_factory, advisor_user.id)
+    _add_current_cma(session_factory, advisor_user.id, {start_year: 200})
+    _add_cashflow_flags(session_factory, cid, 10_000_000, "Income", is_inflation_linked=0)
+
+    rows = auth_client.get(f"/clients/{cid}/cashflow-projection?horizon_years=15").json()["years"]
+    assert all(r["recurring_income_rappen"] == 10_000_000 for r in rows)
+
+
+def test_foreign_currency_cashflow_converted_to_chf(session_factory, auth_client, advisor_user):
+    """Ein USD-Cashflow wird zum FX-Kurs auf CHF konvertiert (Default USD=0.88 CHF)."""
+    cid = _make_client(session_factory, advisor_user.id)
+    # USD 100'000 (in Cents). is_inflation_linked=0 -> reiner FX-Effekt.
+    _add_cashflow_flags(session_factory, cid, 10_000_000, "Income",
+                        is_inflation_linked=0, currency="USD")
+
+    rows = auth_client.get(f"/clients/{cid}/cashflow-projection?horizon_years=3").json()["years"]
+    # 10_000_000 * 0.88 = 8_800_000 CHF-Rappen.
+    assert rows[0]["recurring_income_rappen"] == 8_800_000
+    assert rows[0]["income_rappen"] == 8_800_000
+
+
+def test_wealth_inflow_appears_in_projection(session_factory, auth_client, advisor_user):
+    """Erwartete Vermoegenszufluesse (WealthInflow) erscheinen als Zufluss im
+    Erwartungsjahr — analog zur Engine, die sie in die Projektion addiert."""
+    start_year = datetime.date.today().year
+    cid = _make_client(session_factory, advisor_user.id)
+    now = _utc_now_iso()
+    with session_factory() as s:
+        s.add(WealthInflow(
+            id=str(uuid.uuid4()), client_id=cid,
+            label="Erbschaft", source_type="Erbschaft",
+            amount_rappen=5_000_000, expected_year=start_year + 2,
+            is_recurring=0, value_mode="nominal",
+            is_active=1, created_at=now, updated_at=now,
+        ))
+        s.commit()
+
+    rows = auth_client.get(f"/clients/{cid}/cashflow-projection?horizon_years=6").json()["years"]
+    # Offset 2 = expected_year: Zufluss sichtbar.
+    assert rows[2]["capital_inflow_rappen"] == 5_000_000
+    assert rows[2]["income_rappen"] == 5_000_000
+    assert rows[2]["net_rappen"] == 5_000_000
+    # Andere Jahre: kein Zufluss.
+    assert rows[0]["capital_inflow_rappen"] == 0
+    assert rows[1]["capital_inflow_rappen"] == 0
+    assert rows[3]["capital_inflow_rappen"] == 0
