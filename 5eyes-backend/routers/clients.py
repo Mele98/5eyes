@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from database import get_db, new_uuid
 from models.users import User
 from models.clients import Client, ClientNationality, ClientOptHistory
-from models.wealth import Cashflow, WealthPosition
+from models.wealth import Cashflow, WealthPosition, WealthInflow
 from schemas.clients import (
     ClientCreate, ClientUpdate, ClientResponse,
     NationalityCreate, NationalityResponse,
@@ -433,20 +433,82 @@ def cashflow_projection(
         WealthPosition.is_active == 1,
     ).all()
     _mort_adj = mortgage_interest_adjustment_series(_mort_positions, horizon, start_year)
+
+    # CF-1/CF-2 (2026-07-16): Cashflow-Ansicht mit der Strategie-Engine angleichen.
+    # Vorher rief dieser Endpoint totals_for_year(cashflows, yr) OHNE Inflation/FX/
+    # Inflows -> die dem Berater/Kunden gezeigte Tabelle divergierte von den
+    # Strategie-Zahlen (_load_allocation_inputs in portfolio_engine.py) -> FIDLEG-
+    # Vertrauensrisiko. Hier werden dieselben drei Angleichungen angewandt:
+    #   1. Inflation: is_inflation_linked-Cashflows werden per CMA-Inflationspfad
+    #      aufgezinst (AHV/Lohn/Miete wachsen; Bonus/Erbschaft bleiben nominal).
+    #   2. FX: Fremdwaehrungs-Cashflows werden zu CHF konvertiert.
+    #   3. Wealth-Inflows: erwartete Zufluesse (Erbschaft/Bonus/Saeule3b) werden als
+    #      zusaetzliche Zufluss-Beitraege addiert (KEINE Cashflow-Rows).
+    #
+    # ARCHITEKTUR: Dieser Endpoint ist CLIENT-scoped, die Engine ist MANDAT-scoped.
+    # Fuer die client-weite Ansicht daher:
+    #   - Inflation: aktuell gueltige CMA (is_current=1) — Inflation ist CMA-Ebene,
+    #     kein mandat-spezifischer Wert noetig. Ohne CMA -> None -> nominale Darstellung.
+    #   - Waehrung: Ziel = 'CHF' (Schweizer Berater-Default), da am Client-Level kein
+    #     eindeutiges Mandat/base_currency existiert.
+    #   - Wealth-Inflows: ALLE aktiven WealthInflow-Records des Clients (mandate-
+    #     spezifische UND client-weite), da client-scoped ueber alle Mandate aggregiert.
+    from models.allocation import CapitalMarketAssumption
+    from services.portfolio_engine import (
+        _inflation_path_series,
+        _wealth_inflow_series_rappen,
+    )
+
+    # FX-Source spiegelt die Engine (_load_allocation_inputs): bei Lade-Fehler
+    # defensiver None-Fallback (kein Crash, dann single-currency wie zuvor).
+    fx_source = None
+    try:
+        from services.currency.fx_rates import FXRateSource
+        fx_source = FXRateSource.from_db(db)
+    except Exception:
+        fx_source = None
+    target_currency = "CHF"
+
+    cma = db.query(CapitalMarketAssumption).filter(
+        CapitalMarketAssumption.is_current == 1,
+        CapitalMarketAssumption.deleted_at.is_(None),
+    ).first()
+    inflation_series_bps = (
+        _inflation_path_series(cma, horizon, start_year) if cma is not None else None
+    )
+
+    wealth_inflows = db.query(WealthInflow).filter(
+        WealthInflow.client_id == client_id,
+        WealthInflow.deleted_at.is_(None),
+        WealthInflow.is_active == 1,
+    ).all()
+    inflow_series = _wealth_inflow_series_rappen(
+        wealth_inflows, horizon, start_year, inflation_series_bps,
+    )
+
     rows = []
     for offset in range(horizon):
         yr = start_year + offset
-        t = totals_for_year(cashflows, yr)
+        t = totals_for_year(
+            cashflows,
+            yr,
+            inflation_series_bps=inflation_series_bps,
+            start_year=start_year,
+            fx_source=fx_source,
+            target_currency=target_currency,
+        )
         adj = int(_mort_adj[offset]) if offset < len(_mort_adj) else 0
+        # Wealth-Inflows als Zufluss-Beitrag (Erbschaft/Bonus sind Kapital-Zufluesse).
+        inflow = int(inflow_series[offset]) if offset < len(inflow_series) else 0
         rows.append(CashflowYearRow(
             year=yr,
             recurring_income_rappen=t["recurring_income_rappen"],
-            capital_inflow_rappen=t["capital_inflow_rappen"],
-            income_rappen=t["income_rappen"],
+            capital_inflow_rappen=t["capital_inflow_rappen"] + inflow,
+            income_rappen=t["income_rappen"] + inflow,
             recurring_expense_rappen=max(0, t["recurring_expense_rappen"] - adj),
             capital_outflow_rappen=t["capital_outflow_rappen"],
             expense_rappen=max(0, t["expense_rappen"] - adj),
-            net_rappen=t["net_rappen"] + adj,
+            net_rappen=t["net_rappen"] + adj + inflow,
         ))
     return CashflowProjectionResponse(
         client_id=client_id,
