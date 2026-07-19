@@ -6666,6 +6666,13 @@ def generate_target_allocation(
         stress_evaluations_json=stress_evaluations_json,
         optimizer_reasoning_json=optimizer_reasoning_json,
         shadow_optimization_json=shadow_optimization_json,
+        # AR-2 (FIDLEG-Report): MC-Risiko-KPIs auf Beratungsvermoegens-Ebene
+        # (target_*, NICHT total_*) persistieren, damit _build_key_metrics sie
+        # ausweisen kann statt "—". Defensiv: fehlt ein Key -> None. Einheit bps.
+        mc_exp_vol_bps=monte_carlo.get("target_volatility_1y_bps"),
+        mc_exp_return_bps=monte_carlo.get("target_annualized_return_p50_bps"),
+        mc_max_drawdown_bps=monte_carlo.get("target_max_drawdown_p50_bps"),
+        mc_var_95_bps=monte_carlo.get("target_var_95_1y_bps"),
         policy_id=policy.id,
         set_by=user_id,
         set_at=now,
