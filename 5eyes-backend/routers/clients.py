@@ -398,6 +398,7 @@ def _derive_cashflow_projection_horizon(
 def cashflow_projection(
     client_id: str,
     horizon_years: int | None = Query(default=None, ge=1, le=60),
+    indexation: bool = Query(default=True),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -473,8 +474,16 @@ def cashflow_projection(
         CapitalMarketAssumption.is_current == 1,
         CapitalMarketAssumption.deleted_at.is_(None),
     ).first()
+    # Indexierungs-Schalter (2026-07-19, 3eyes-like): Globaler Master-Toggle fuer
+    # die Cashflow-Projektions-Ansicht. indexation=True (Default) = heutiges
+    # CF-Verhalten (is_inflation_linked-Cashflows werden per CMA-Inflationspfad
+    # aufgezinst, gilt fuer Einnahmen UND Ausgaben sowie Wealth-Inflows).
+    # indexation=False = alles nominal (keine Aufzinsung). FX bleibt unabhaengig
+    # aktiv, da Waehrungsumrechnung keine Indexierung ist.
     inflation_series_bps = (
-        _inflation_path_series(cma, horizon, start_year) if cma is not None else None
+        _inflation_path_series(cma, horizon, start_year)
+        if (cma is not None and indexation)
+        else None
     )
 
     wealth_inflows = db.query(WealthInflow).filter(

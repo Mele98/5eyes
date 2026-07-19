@@ -2955,7 +2955,7 @@ function _wireSollIstHover(){
               </div>
             </div>
             <div class="card mb">
-              <div class="chd"><span class="cht">Abflüsse &amp; Verpflichtungen</span><div class="chr"><label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:10px;color:var(--n5)"><input type="checkbox" id="idx-toggle" onchange="toggleIndexierung(this.checked)" style="accent-color:var(--g4)"> Indexieren</label><button class="btn-p btn-sm" onclick="openNewCashflow('Expense')">+ Abfluss</button></div></div>
+              <div class="chd"><span class="cht">Abflüsse &amp; Verpflichtungen</span><div class="chr"><button class="btn-p btn-sm" onclick="openNewCashflow('Expense')">+ Abfluss</button></div></div>
               <div class="cbody" id="abfluss-rows">
                 <!-- Platzhalter; refreshCashflowsUI ersetzt dies mit den echten
                      Ausgaben des Mandats. KEINE statischen Demo-Cashflows mehr. -->
@@ -3000,6 +3000,17 @@ function _wireSollIstHover(){
                   <span id="cf-horizon-eff" style="color:var(--n6);font-style:italic"></span>
                   <button class="btn" type="button" onclick="resetIstHorizonOverride()" title="Automatisch aus Stammdaten ableiten"
                           style="font-size:9px;padding:2px 6px">Auto</button>
+                  <!-- Indexierungs-Schalter (2026-07-19, 3eyes-like): Globaler Master-Toggle
+                       fuer die Cashflow-Projektion. AN = inflation-linked Cashflows
+                       (Einnahmen UND Ausgaben) werden per CMA-Inflationspfad aufgezinst.
+                       AUS = alles nominal. Berechnet die Projektion im Backend neu
+                       (?indexation=true|false), nicht nur kosmetisch. -->
+                  <label for="cf-indexation-toggle" title="Inflation berücksichtigen: inflationsgekoppelte Einnahmen und Ausgaben werden über die Jahre gemäss CMA-Inflationspfad aufgezinst. Aus = alle Werte nominal (heutige Kaufkraft)."
+                         style="display:flex;align-items:center;gap:4px;cursor:pointer;margin-left:8px;padding-left:8px;border-left:1px solid var(--b1)">
+                    <input type="checkbox" id="cf-indexation-toggle" checked
+                           onchange="applyCashflowIndexation(this.checked)" style="accent-color:var(--g4)">
+                    Indexierung berücksichtigen
+                  </label>
                 </div>
               </div>
               <div class="cbody">
@@ -8858,44 +8869,13 @@ function switchRTab(btn, panelId) {
   if (p) p.classList.add('active');
 }
 
-// INDEXIERUNG ABFLÜSSE
-const baseAmounts = {
-  'a-lhk': 180000, 'a-st': 95000, 'a-bvg': 35000,
-  'a-hyp': 18000,  'a-3a': 7000
-};
-function fmt(n) {
-  return '−CHF ' + Math.round(n).toLocaleString('de-CH');
-}
-function toggleIndexierung(on) {
-  document.querySelectorAll('.idx-col').forEach(el => {
-    el.style.display = on ? 'flex' : 'none';
-  });
-  if (!on) {
-    // Reset to base amounts
-    Object.keys(baseAmounts).forEach(id => {
-      const el = document.getElementById(id);
-      if (el) el.textContent = fmt(baseAmounts[id]);
-    });
-  } else {
-    recalcIdx();
-  }
-}
-function recalcIdx() {
-  const horizon = 10; // Jahre
-  const ids  = Object.keys(baseAmounts);
-  const inps = document.querySelectorAll('.idx-inp');
-  ids.forEach((id, i) => {
-    const pct  = parseFloat(inps[i]?.value || 0) / 100;
-    const proj = baseAmounts[id] * Math.pow(1 + pct, horizon);
-    const el = document.getElementById(id);
-    if (el) {
-      const diff = proj - baseAmounts[id];
-      el.innerHTML = fmt(proj) +
-        (diff > 0 ? '<span style="font-size:9px;color:var(--warn);margin-left:4px">(+' +
-          Math.round(diff).toLocaleString('de-CH') + ' in ' + horizon + ' J.)</span>' : '');
-    }
-  });
-}
+// INDEXIERUNG ABFLÜSSE (2026-07-19): Die frühere rein kosmetische Indexierungs-
+// Logik (toggleIndexierung/recalcIdx/baseAmounts mit hartkodierten Demo-IDs
+// a-lhk/a-st/... + .idx-col-Spalten) wurde entfernt. Sie war nicht mit der
+// echten Engine/Endpoint-Inflation verbunden und operierte auf DOM-Elementen,
+// die es nicht mehr gab. Ersetzt durch den GLOBALEN Master-Schalter
+// #cf-indexation-toggle -> applyCashflowIndexation() -> Backend-Refetch mit
+// ?indexation=true|false (siehe cashflowProjectionQuery / applyCashflowIndexation).
 function downloadEventCalendarFile(eventType,eventDate,details){
   var iso=String(eventDate||new Date().toISOString().slice(0,10));
   var stamp=iso.replace(/-/g,'');
@@ -17186,11 +17166,41 @@ function effectiveCashflowProjectionHorizon(){
   var life = _lifeExpectancyHorizonYears();
   return life && life > 0 ? life : null;
 }
+// Indexierungs-Schalter (2026-07-19, 3eyes-like): globaler Zustand. Default AN
+// (= heutiges CF-Verhalten: inflation-linked Cashflows werden aufgezinst).
+var cashflowIndexationOn = true;
 function cashflowProjectionQuery(){
   // ?horizon_years=<override> nur wenn der Berater einen Override gesetzt hat;
   // sonst leer -> Backend-Ableitung aus Stammdaten greift.
+  // ?indexation=false wird angehaengt, wenn der globale Indexierungs-Schalter
+  // AUS ist -> Backend rechnet die Projektion nominal (keine Aufzinsung).
   var ov = effectiveCashflowProjectionHorizon();
-  return (ov && ov > 0) ? ('?horizon_years=' + ov) : '';
+  var params = [];
+  if (ov && ov > 0) params.push('horizon_years=' + ov);
+  if (!cashflowIndexationOn) params.push('indexation=false');
+  return params.length ? ('?' + params.join('&')) : '';
+}
+async function applyCashflowIndexation(on){
+  // Globaler Master-Schalter: Projektion im Backend neu berechnen (nicht kosmetisch)
+  // und alle Projektions-Charts/Tabellen re-rendern. Gilt fuer Einnahmen UND Ausgaben.
+  cashflowIndexationOn = !!on;
+  var cb = document.getElementById('cf-indexation-toggle');
+  if (cb) cb.checked = cashflowIndexationOn;
+  if (!currentClientId) return;
+  try {
+    var projection = await API.get('/clients/' + currentClientId + '/cashflow-projection' + cashflowProjectionQuery());
+    currentCashflowProjection = projection && Array.isArray(projection.years)
+      ? clientScopedProjection(projection, currentClientId)
+      : null;
+  } catch(e) {
+    // Refetch-Fehler nicht-blockierend; Ansicht bleibt mit alten Daten.
+  }
+  try {
+    updateProjectionChartsFromSimulation(strategyState && strategyState.allocation);
+    upgradeFanChartWithMonteCarlo(strategyState && strategyState.allocation);
+  } catch(e) { /* defensive */ }
+  try { updateHorizonEffectiveLabel(); } catch(e) {}
+  try{ var _ovNow=loadIstHorizonOverride(); if(_ovNow&&_ovNow>0)_truncateProjectionChartsTo(_ovNow); }catch(e){}
 }
 function syncIstHorizonOverrideInput(){
   var ov = loadIstHorizonOverride();

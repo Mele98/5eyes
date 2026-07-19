@@ -371,3 +371,112 @@ def test_wealth_inflow_appears_in_projection(session_factory, auth_client, advis
     assert rows[0]["capital_inflow_rappen"] == 0
     assert rows[1]["capital_inflow_rappen"] == 0
     assert rows[3]["capital_inflow_rappen"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Indexierungs-Schalter (2026-07-19, 3eyes-like): Globaler Master-Toggle
+# ?indexation=true|false. true (Default) = is_inflation_linked-Cashflows werden
+# per CMA-Inflationspfad aufgezinst (heutiges Verhalten). false = alles nominal
+# (keine Aufzinsung, auch nicht fuer Wealth-Inflows). FX bleibt unabhaengig aktiv.
+# ---------------------------------------------------------------------------
+
+def test_indexation_default_true_matches_explicit_true(session_factory, auth_client, advisor_user):
+    """Default (kein Param) == ?indexation=true: Aufzinsung ist an."""
+    start_year = datetime.date.today().year
+    cid = _make_client(session_factory, advisor_user.id)
+    _add_current_cma(session_factory, advisor_user.id, {start_year: 200})
+    _add_cashflow_flags(session_factory, cid, 10_000_000, "Income", is_inflation_linked=1)
+
+    default_rows = auth_client.get(
+        f"/clients/{cid}/cashflow-projection?horizon_years=15"
+    ).json()["years"]
+    true_rows = auth_client.get(
+        f"/clients/{cid}/cashflow-projection?horizon_years=15&indexation=true"
+    ).json()["years"]
+    assert default_rows == true_rows
+
+
+def test_indexation_false_keeps_inflation_linked_cashflow_nominal(
+    session_factory, auth_client, advisor_user,
+):
+    """indexation=false: is_inflation_linked=1 bleibt in ALLEN Jahren nominal;
+    indexation=true zinst die spaeteren Jahre auf -> true > false."""
+    start_year = datetime.date.today().year
+    cid = _make_client(session_factory, advisor_user.id)
+    _add_current_cma(session_factory, advisor_user.id, {start_year: 200})  # 2.0% p.a.
+    _add_cashflow_flags(session_factory, cid, 10_000_000, "Income", is_inflation_linked=1)
+
+    off_rows = auth_client.get(
+        f"/clients/{cid}/cashflow-projection?horizon_years=15&indexation=false"
+    ).json()["years"]
+    on_rows = auth_client.get(
+        f"/clients/{cid}/cashflow-projection?horizon_years=15&indexation=true"
+    ).json()["years"]
+
+    # AUS: alle Jahre nominal (== Nominalwert), kein Aufzinsen.
+    assert all(r["recurring_income_rappen"] == 10_000_000 for r in off_rows)
+    # AN vs AUS: Startjahr identisch (Faktor 1.0), spaetere Jahre AN > AUS.
+    assert on_rows[0]["recurring_income_rappen"] == off_rows[0]["recurring_income_rappen"]
+    assert on_rows[9]["recurring_income_rappen"] > off_rows[9]["recurring_income_rappen"]
+    assert on_rows[-1]["recurring_income_rappen"] > off_rows[-1]["recurring_income_rappen"]
+
+
+def test_indexation_false_applies_to_expenses_too(session_factory, auth_client, advisor_user):
+    """Der globale Schalter gilt auch fuer Ausgaben: is_inflation_linked=1 Expense
+    bleibt bei indexation=false nominal, waechst bei true."""
+    start_year = datetime.date.today().year
+    cid = _make_client(session_factory, advisor_user.id)
+    _add_current_cma(session_factory, advisor_user.id, {start_year: 200})
+    _add_cashflow_flags(session_factory, cid, 4_000_000, "Expense", is_inflation_linked=1)
+
+    off_rows = auth_client.get(
+        f"/clients/{cid}/cashflow-projection?horizon_years=15&indexation=false"
+    ).json()["years"]
+    on_rows = auth_client.get(
+        f"/clients/{cid}/cashflow-projection?horizon_years=15&indexation=true"
+    ).json()["years"]
+
+    assert all(r["recurring_expense_rappen"] == 4_000_000 for r in off_rows)
+    assert on_rows[9]["recurring_expense_rappen"] > off_rows[9]["recurring_expense_rappen"]
+
+
+def test_indexation_false_keeps_fx_conversion_active(session_factory, auth_client, advisor_user):
+    """FX ist keine Indexierung: ein USD-Cashflow wird auch bei indexation=false
+    weiterhin zu CHF konvertiert."""
+    cid = _make_client(session_factory, advisor_user.id)
+    _add_cashflow_flags(session_factory, cid, 10_000_000, "Income",
+                        is_inflation_linked=0, currency="USD")
+
+    rows = auth_client.get(
+        f"/clients/{cid}/cashflow-projection?horizon_years=3&indexation=false"
+    ).json()["years"]
+    # FX bleibt aktiv: 10_000_000 * 0.88 = 8_800_000.
+    assert rows[0]["recurring_income_rappen"] == 8_800_000
+
+
+def test_indexation_false_wealth_inflow_nominal(session_factory, auth_client, advisor_user):
+    """Wealth-Inflows mit value_mode='real' werden bei indexation=false NICHT
+    aufgezinst (nominal); bei true zinst der CMA-Pfad sie auf -> true >= false."""
+    start_year = datetime.date.today().year
+    cid = _make_client(session_factory, advisor_user.id)
+    _add_current_cma(session_factory, advisor_user.id, {start_year: 200})
+    now = _utc_now_iso()
+    with session_factory() as s:
+        s.add(WealthInflow(
+            id=str(uuid.uuid4()), client_id=cid,
+            label="Rente", source_type="Rente",
+            amount_rappen=5_000_000, expected_year=start_year + 5,
+            is_recurring=0, value_mode="real",
+            is_active=1, created_at=now, updated_at=now,
+        ))
+        s.commit()
+
+    off_rows = auth_client.get(
+        f"/clients/{cid}/cashflow-projection?horizon_years=10&indexation=false"
+    ).json()["years"]
+    on_rows = auth_client.get(
+        f"/clients/{cid}/cashflow-projection?horizon_years=10&indexation=true"
+    ).json()["years"]
+    # Bei true wird der real-Zufluss per Inflationspfad hochskaliert -> >= nominal.
+    assert on_rows[5]["capital_inflow_rappen"] >= off_rows[5]["capital_inflow_rappen"]
+    assert off_rows[5]["capital_inflow_rappen"] == 5_000_000
