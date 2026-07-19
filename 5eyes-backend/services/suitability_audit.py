@@ -164,6 +164,8 @@ def audit_mandate_suitability(
       'risk_assessment_date': str|None,
       'risk_assessment_profile': str|None,
       'risk_assessment_age_days': int|None,
+      'risk_assessment_signed_at': str|None,      # Kunden-Signatur (Doku, s.u.)
+      'risk_assessment_signed_method': str|None,  # 'portal' | 'advisor_recorded'
       'is_compliant': bool,
       'fidleg_basis': 'Art. 10 / Art. 12 FIDLEG',
     }
@@ -183,6 +185,10 @@ def audit_mandate_suitability(
         "risk_assessment_date": None,
         "risk_assessment_profile": None,
         "risk_assessment_age_days": None,
+        # FIDLEG-Kunden-Signatur des Risikoprofils (reine Dokumentation, aendert
+        # is_compliant NICHT). None solange kein aktuelles Profil geladen/signiert.
+        "risk_assessment_signed_at": None,
+        "risk_assessment_signed_method": None,
         "audit_degraded": False,
         "is_compliant": True,
         "fidleg_basis": "Art. 10 / Art. 12 FIDLEG",
@@ -236,6 +242,8 @@ def audit_mandate_suitability(
         getattr(ra, "assessed_at", None) or getattr(ra, "valid_from", None)
     )
     base["risk_assessment_profile"] = getattr(ra, "final_profile", None)
+    base["risk_assessment_signed_at"] = getattr(ra, "client_signed_at", None)
+    base["risk_assessment_signed_method"] = getattr(ra, "client_signed_method", None)
 
     ra_dt = (_parse_iso(getattr(ra, "assessed_at", None))
              or _parse_iso(getattr(ra, "valid_from", None)))
