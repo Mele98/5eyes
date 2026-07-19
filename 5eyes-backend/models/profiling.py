@@ -76,6 +76,13 @@ class RiskAssessment(Base):
     knowledge_instruments_json = Column(String) # {"Anlagefonds":{"known":1,"informed":1},...}
     # Herkunft des Einkommens - Frage 2, rein informativ (kein Score)
     income_sources_json = Column(String)        # ["Berufliche Tätigkeit","Rente"]
+    # FIDLEG-Eignungspruefung: Kunden-Signatur des Risikoprofils (2026-07-19).
+    # Reine DOKUMENTATION der Kunden-Bestaetigung — aendert NICHT die
+    # Eignungs-Konformitaet (is_compliant im Audit). Modell B (Kundenportal:
+    # method='portal') oder Fallback A (Berater erfasst: method='advisor_recorded').
+    client_signed_at = Column(String)           # ISO-UTC; None = noch nicht signiert
+    client_signed_method = Column(String)       # 'portal' | 'advisor_recorded'
+    client_signed_ref = Column(String)          # Portal-User-ID bzw. Berater-Notiz
     assessed_at = Column(String, nullable=False)
     assessed_by = Column(String, ForeignKey("users.id"), nullable=False)
     created_at = Column(String, nullable=False)

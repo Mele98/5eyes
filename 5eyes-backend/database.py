@@ -497,6 +497,12 @@ def ensure_runtime_columns() -> None:
         ensure_column(conn, "risk_assessments", "knowledge_services_json", "TEXT")
         ensure_column(conn, "risk_assessments", "knowledge_instruments_json", "TEXT")
         ensure_column(conn, "risk_assessments", "income_sources_json", "TEXT")
+        # FIDLEG-Signatur (2026-07-19): Kunden-Signatur des Risikoprofils. Reine
+        # Dokumentation (aendert die Eignungs-Konformitaet NICHT). ensure_column ist
+        # idempotent -> ergaenzt die Spalten auf bestehenden SQLite-DBs beim Start.
+        ensure_column(conn, "risk_assessments", "client_signed_at", "TEXT")
+        ensure_column(conn, "risk_assessments", "client_signed_method", "TEXT")
+        ensure_column(conn, "risk_assessments", "client_signed_ref", "TEXT")
 
 
 def run_advisory_log_migration(target_engine: Engine = engine) -> None:

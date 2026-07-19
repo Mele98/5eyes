@@ -12,18 +12,26 @@ Admin-Tabellen. Pure Read-Only-Sicht.
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from database import get_db
 from models.clients import Client
 from models.mandates import Mandate
+from models.profiling import RiskAssessment
 from models.users import User
 from services.advisory_report import compute_advisory_report
+from services.audit import log
 from services.auth import get_linked_client_for_user_or_404, require_client
 
 
 router = APIRouter(prefix="/client-portal", tags=["Kunden-Portal"])
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 
 
 def _client_to_dict(client: Client) -> dict:
@@ -103,3 +111,65 @@ def client_portal_mandate_report(
     if not mandate:
         raise HTTPException(status_code=404, detail="Mandat nicht gefunden.")
     return compute_advisory_report(db, mandate)
+
+
+@router.post("/mandates/{mandate_id}/risk-profile/sign")
+def client_portal_sign_risk_profile(
+    mandate_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_client),
+):
+    """Modell B (Kundenportal): der eingeloggte Kunde signiert das aktuelle
+    Risikoprofil (FIDLEG-Eignungspruefung) SEINES verknuepften Mandats.
+
+    Sicherheits-Gates (identisch zum Report-Endpoint):
+      - Kunde ist 1:1 mit genau seiner Client-Akte verknuepft
+      - Mandat muss zu dieser Akte gehoeren, sonst 404 (kein Leak, ob ein
+        fremdes Mandat existiert) -> ein Kunde kann NUR sein eigenes Profil
+        signieren, nie ein fremdes.
+    Reine DOKUMENTATION der Bestaetigung — aendert die Eignungs-Konformitaet
+    (Audit is_compliant) NICHT.
+    """
+    client = get_linked_client_for_user_or_404(current_user, db)
+    mandate = (
+        db.query(Mandate)
+        .filter(
+            Mandate.id == mandate_id,
+            Mandate.client_id == client.id,
+            Mandate.deleted_at.is_(None),
+        )
+        .first()
+    )
+    if not mandate:
+        raise HTTPException(status_code=404, detail="Mandat nicht gefunden.")
+
+    ra = (
+        db.query(RiskAssessment)
+        .filter(
+            RiskAssessment.mandate_id == mandate_id,
+            RiskAssessment.is_current == 1,
+            RiskAssessment.deleted_at.is_(None),
+        )
+        .first()
+    )
+    if not ra:
+        raise HTTPException(
+            status_code=404, detail="Keine aktuelle Risikoprofilierung gefunden."
+        )
+
+    signed_at = _now()
+    ra.client_signed_at = signed_at
+    ra.client_signed_method = "portal"
+    ra.client_signed_ref = current_user.id
+    ra.updated_at = signed_at
+
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="risk_assessments", record_id=ra.id, action="UPDATE",
+        field_name="client_signed", new_value="portal",
+        mandate_id=mandate_id, client_id=client.id)
+    db.commit()
+    return {
+        "risk_assessment_id": ra.id,
+        "client_signed_at": ra.client_signed_at,
+        "client_signed_method": ra.client_signed_method,
+    }

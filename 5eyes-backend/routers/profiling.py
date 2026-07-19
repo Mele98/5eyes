@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy.orm import Session, selectinload
 from datetime import date, datetime, timezone
 from types import SimpleNamespace
@@ -328,6 +329,49 @@ def override_risk_assessment(
     db.commit()
     db.refresh(ra)
     return ra
+
+
+class RiskProfileSignRequest(BaseModel):
+    note: str | None = None
+
+
+@router.post("/mandates/{mandate_id}/risk-profile/sign")
+def sign_risk_profile(
+    mandate_id: str,
+    body: RiskProfileSignRequest | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_advisor)
+):
+    """FIDLEG-Eignungspruefung: Berater erfasst die Kunden-Signatur des
+    aktuellen Risikoprofils (Fallback A / 'old-school', wenn der Kunde nicht
+    ueber das Portal signiert). Reine DOKUMENTATION der Bestaetigung — aendert
+    die Eignungs-Konformitaet (Audit is_compliant) NICHT."""
+    mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    ra = db.query(RiskAssessment).filter(
+        RiskAssessment.mandate_id == mandate_id,
+        RiskAssessment.is_current == 1,
+        RiskAssessment.deleted_at.is_(None)
+    ).first()
+    if not ra:
+        raise HTTPException(status_code=404, detail="Keine aktuelle Risikoprofilierung gefunden")
+
+    note = (body.note if body else None)
+    signed_at = _now()
+    ra.client_signed_at = signed_at
+    ra.client_signed_method = "advisor_recorded"
+    ra.client_signed_ref = note
+    ra.updated_at = signed_at
+
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="risk_assessments", record_id=ra.id, action="UPDATE",
+        field_name="client_signed", new_value="advisor_recorded",
+        mandate_id=mandate_id, client_id=mandate.client_id)
+    db.commit()
+    return {
+        "risk_assessment_id": ra.id,
+        "client_signed_at": ra.client_signed_at,
+        "client_signed_method": ra.client_signed_method,
+    }
 
 
 # ── Suitability Checks ─────────────────────────────────────────────────────────
