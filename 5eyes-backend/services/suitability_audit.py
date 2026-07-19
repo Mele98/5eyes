@@ -37,13 +37,56 @@ from sqlalchemy.orm import Session
 # Suitability-Check-Freshness in Tagen (12 Monate per Industry-Praxis).
 SUITABILITY_FRESHNESS_MAX_DAYS = 365
 
-# duty_type-Werte die eine Geeignetheitspruefung VERLANGEN.
-# 'execution_only' und 'no_advice' brauchen sie nicht (FIDLEG Art. 13 Abs. 3).
+# duty_type-Werte die (auf Log-Ebene) eine Geeignetheitspruefung VERLANGEN.
+# Historisch (Per-Log-Design). Bleibt fuer Referenz/Rueckwaertskompat erhalten,
+# ist aber NICHT mehr der Treiber des Audits (siehe unten, Art.-12-Umstellung).
 DUTY_TYPES_REQUIRING_SUITABILITY = {
     "advisory_individual",  # Vollberatung mit Einzelempfehlung
     "advisory_portfolio",   # Vermoegensverwaltung
     "portfolio_management",
 }
+
+# Mandatstypen, die KEINE Eignungspruefung verlangen (reines Execution-only /
+# blosse Auftragsuebermittlung -> FIDLEG Art. 13 "Ausnahme von der Pruefpflicht").
+# Alles andere ist in 5eyes portfoliobezogene Anlageberatung bzw. Vermoegens-
+# verwaltung und faellt damit unter die EIGNUNGSPRUEFUNG (Art. 12).
+MANDATE_TYPES_EXEMPT_FROM_SUITABILITY = {
+    "execution_only", "execution-only", "executiononly",
+    "ausfuehrung", "ausführung", "auftragsuebermittlung", "no_advice",
+}
+
+
+def _mandate_requires_suitability(mandate: Any) -> bool:
+    """FIDLEG Art. 10 (Pruefpflicht) + Art. 12 (Eignungspruefung): Wer
+    portfoliobezogene Anlageberatung oder Vermoegensverwaltung erbringt, muss
+    eine Eignungspruefung durchfuehren. 5eyes erbringt genau das (SAA-/Portfolio-
+    Methodik), daher verlangt praktisch jedes Mandat eine Eignungspruefung —
+    ausgenommen ausdrueckliches Execution-only (Art. 13)."""
+    mtype = str(getattr(mandate, "mandate_type", "") or "").strip().lower()
+    return mtype not in MANDATE_TYPES_EXEMPT_FROM_SUITABILITY
+
+
+def _current_risk_assessment(db: Session, mandate_id: Any):
+    """Aktuelles Risikoprofil (= 5eyes-Eignungspruefung nach Art. 12) fuer ein
+    Mandat. Das RiskAssessment erfasst finanzielle Verhaeltnisse (Einkommen/
+    Verpflichtungen/Ersparnis/Vermoegen), Anlageziel + Horizont und Risiko-
+    bereitschaft — die von Art. 12 verlangten Elemente. None NUR wenn schlicht
+    keins existiert. Ein Schema-/DB-Fehler wird NICHT verschluckt (er darf nicht
+    als 'kein Profil' = non-compliant fehlgedeutet werden), sondern propagiert
+    und wird im Audit als 'degraded' behandelt."""
+    from models.profiling import RiskAssessment
+    return (
+        db.query(RiskAssessment)
+        .filter(
+            RiskAssessment.mandate_id == mandate_id,
+            RiskAssessment.is_current == 1,
+        )
+        .order_by(
+            RiskAssessment.valid_from.desc(),
+            RiskAssessment.version.desc(),
+        )
+        .first()
+    )
 
 
 def _parse_iso(value: Any) -> Optional[datetime]:
@@ -89,120 +132,124 @@ def evaluate_suitability_freshness(
 def audit_mandate_suitability(
     db: Session, mandate: Any,
 ) -> dict[str, Any]:
-    """Liefert FIDLEG-Geeignetheits-Audit-Report fuer ein Mandat.
+    """FIDLEG-Eignungspruefungs-Audit auf MANDATSEBENE
+    (Art. 10 Pruefpflicht + Art. 12 Eignungspruefung).
 
-    Schema-Output
-    -------------
+    Umstellung 2026-07-19 (Option A): Frueher wurde pro AdvisoryLog-Eintrag ein
+    'duty_type' + 'suitability_check_id' geprueft — beide Spalten existieren auf
+    AdvisoryLog gar nicht, weshalb der Audit IMMER 'compliant' meldete (blind).
+
+    Rechtlich korrekt ist die Eignungspruefung ohnehin eine mandats-/beziehungs-
+    bezogene, REGELMAESSIG zu aktualisierende Pflicht (Art. 12): Wer portfolio-
+    bezogene Anlageberatung oder Vermoegensverwaltung erbringt — 5eyes tut das —
+    muss finanzielle Verhaeltnisse, Anlageziele und Kenntnisse/Erfahrung erheben
+    und aktuell halten. In 5eyes IST diese Eignungspruefung das aktuelle
+    RiskAssessment (Risikoprofil). Der Audit prueft daher: existiert ein
+    AKTUELLES (<= SUITABILITY_FRESHNESS_MAX_DAYS Tage) Risikoprofil? Fehlt es
+    oder ist es veraltet -> nicht konform.
+
+    Schema-Output (rueckwaertskompatibel + neue risk_assessment_* Felder fuer die
+    Zusammenfassung "wann/welches Profil"):
     {
-      'total_advisory_logs': N,
-      'logs_requiring_suitability': N,
-      'logs_with_suitability': N,
-      'logs_without_suitability': [{ id, entry_datetime, duty_type, ... }, ...],
-      'freshness_issues': [{ log_id, check_id, reason, age_days }, ...],
-      'result_issues': [{ log_id, check_id, result, ... }, ...],
+      'total_advisory_logs': N,          # informativ (Beratungsprotokoll-Eintraege)
+      'logs_requiring_suitability': 0|1, # 1 wenn das Mandat eine Eignungspr. verlangt
+      'logs_with_suitability': 0|1,      # 1 wenn ein aktuelles/frisches Profil vorliegt
+      'logs_without_suitability': [ {reason, detail}, ... ],
+      'freshness_issues': [ {risk_assessment_id, reason, age_days}, ... ],
+      'result_issues': [],
+      'requires_suitability': bool,
+      'suitability_basis': 'risk_assessment' | 'execution_only_exempt' | None,
+      'risk_assessment_id': str|None,
+      'risk_assessment_version': int|None,
+      'risk_assessment_date': str|None,
+      'risk_assessment_profile': str|None,
+      'risk_assessment_age_days': int|None,
       'is_compliant': bool,
-      'fidleg_basis': 'Art. 11/13/16 FIDLEG',
+      'fidleg_basis': 'Art. 10 / Art. 12 FIDLEG',
     }
-
-    Non-breaking: liest Daten, fasst Audit-Befund zusammen.
     """
-    base = {
+    now = datetime.now(timezone.utc)
+    base: dict[str, Any] = {
         "total_advisory_logs": 0,
         "logs_requiring_suitability": 0,
         "logs_with_suitability": 0,
         "logs_without_suitability": [],
         "freshness_issues": [],
         "result_issues": [],
+        "requires_suitability": False,
+        "suitability_basis": None,
+        "risk_assessment_id": None,
+        "risk_assessment_version": None,
+        "risk_assessment_date": None,
+        "risk_assessment_profile": None,
+        "risk_assessment_age_days": None,
+        "audit_degraded": False,
         "is_compliant": True,
-        "fidleg_basis": "Art. 11/13/16 FIDLEG",
+        "fidleg_basis": "Art. 10 / Art. 12 FIDLEG",
     }
 
+    # Anzahl Beratungsprotokoll-Eintraege (nur informativ fuer die Anzeige).
     try:
         from models.review import AdvisoryLog
-        from models.profiling import SuitabilityCheck
-        logs = (
+        base["total_advisory_logs"] = (
             db.query(AdvisoryLog)
             .filter(AdvisoryLog.mandate_id == mandate.id)
-            .all()
+            .count()
         )
     except Exception:  # noqa: BLE001 — robust gegen Schema-Mismatch
+        base["total_advisory_logs"] = 0
+
+    # Execution-only (Art. 13): keine Eignungspruefung noetig -> konform.
+    if not _mandate_requires_suitability(mandate):
+        base["suitability_basis"] = "execution_only_exempt"
+        base["is_compliant"] = True
         return base
 
-    base["total_advisory_logs"] = len(logs)
-    if not logs:
-        return base
+    base["requires_suitability"] = True
+    base["logs_requiring_suitability"] = 1
+    base["suitability_basis"] = "risk_assessment"
 
-    # Cache: SuitabilityCheck-Lookups pro Mandat (1 Query, dann in-memory)
+    # Infra-/Schema-Fehler beim Laden des Risikoprofils NICHT als 'kein Profil'
+    # (= non-compliant) fehldeuten -> fail-closed 'degraded' (is_compliant=None,
+    # audit_degraded=True), konsistent zum Renderer (zeigt 'Pruefung nicht moeglich').
     try:
-        from models.profiling import SuitabilityCheck
-        check_rows = (
-            db.query(SuitabilityCheck)
-            .filter(SuitabilityCheck.mandate_id == mandate.id)
-            .all()
-        )
-        checks_by_id = {getattr(c, "id"): c for c in check_rows}
+        ra = _current_risk_assessment(db, mandate.id)
     except Exception:  # noqa: BLE001
-        checks_by_id = {}
+        base["suitability_basis"] = "degraded"
+        base["audit_degraded"] = True
+        base["is_compliant"] = None
+        return base
 
-    for log in logs:
-        duty = str(getattr(log, "duty_type", "") or "").strip().lower()
-        log_id = getattr(log, "id", None)
-        entry_dt = _parse_iso(getattr(log, "entry_datetime", None)) or \
-                   _parse_iso(getattr(log, "entry_date", None)) or \
-                   datetime.now(timezone.utc)
+    if ra is None:
+        base["logs_without_suitability"].append({
+            "reason": "no_current_risk_assessment",
+            "detail": ("Keine aktuelle Eignungspruefung (Risikoprofil) fuer das "
+                       "Mandat erfasst — FIDLEG Art. 12 verlangt sie vor "
+                       "portfoliobezogener Anlageberatung."),
+        })
+        base["is_compliant"] = False
+        return base
 
-        if duty not in DUTY_TYPES_REQUIRING_SUITABILITY:
-            continue
-        base["logs_requiring_suitability"] += 1
+    base["risk_assessment_id"] = getattr(ra, "id", None)
+    base["risk_assessment_version"] = getattr(ra, "version", None)
+    base["risk_assessment_date"] = (
+        getattr(ra, "assessed_at", None) or getattr(ra, "valid_from", None)
+    )
+    base["risk_assessment_profile"] = getattr(ra, "final_profile", None)
 
-        check_id = getattr(log, "suitability_check_id", None)
-        if not check_id:
-            base["logs_without_suitability"].append({
-                "id": log_id,
-                "entry_datetime": getattr(log, "entry_datetime", None),
-                "duty_type": duty,
-                "reason": "no_suitability_check_linked",
-            })
-            base["is_compliant"] = False
-            continue
-
-        check = checks_by_id.get(check_id)
-        if check is None:
-            base["logs_without_suitability"].append({
-                "id": log_id,
-                "entry_datetime": getattr(log, "entry_datetime", None),
-                "duty_type": duty,
-                "reason": "suitability_check_id_dangling",
-                "check_id": check_id,
-            })
-            base["is_compliant"] = False
-            continue
-
-        base["logs_with_suitability"] += 1
-        check_dt = _parse_iso(getattr(check, "checked_at", None))
-        freshness = evaluate_suitability_freshness(check_dt, entry_dt)
-        if not freshness["fresh"]:
-            base["freshness_issues"].append({
-                "log_id": log_id,
-                "check_id": check_id,
-                "reason": freshness["reason"],
-                "age_days": freshness["age_days"],
-            })
-            base["is_compliant"] = False
-
-        # Result-Konsistenz: wenn Check NEGATIV und client_proceeding_despite=0
-        # aber Berater hat trotzdem advisory_log angelegt -> Verstoss.
-        result = str(getattr(check, "result", "") or "").strip().lower()
-        proceeding = bool(int(getattr(check, "client_proceeding_despite", 0) or 0))
-        if result in {"nicht_geeignet", "unsuitable", "ungeeignet"} \
-                and not proceeding:
-            base["result_issues"].append({
-                "log_id": log_id,
-                "check_id": check_id,
-                "result": result,
-                "client_proceeding_despite": proceeding,
-                "reason": "advisory_despite_unsuitable_without_consent",
-            })
-            base["is_compliant"] = False
+    ra_dt = (_parse_iso(getattr(ra, "assessed_at", None))
+             or _parse_iso(getattr(ra, "valid_from", None)))
+    freshness = evaluate_suitability_freshness(ra_dt, now)
+    base["risk_assessment_age_days"] = freshness["age_days"]
+    if freshness["fresh"]:
+        base["logs_with_suitability"] = 1
+        base["is_compliant"] = True
+    else:
+        base["freshness_issues"].append({
+            "risk_assessment_id": base["risk_assessment_id"],
+            "reason": freshness["reason"],
+            "age_days": freshness["age_days"],
+        })
+        base["is_compliant"] = False
 
     return base

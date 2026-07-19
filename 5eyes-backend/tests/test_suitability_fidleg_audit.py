@@ -1,16 +1,21 @@
-"""Sprint U-66 (Roadmap-Punkt 66, 2026-06-03): FIDLEG-Suitability-Audit.
+"""FIDLEG-Eignungspruefungs-Audit (Sprint U-66; Art.-12-Umstellung 2026-07-19).
 
 Hintergrund
 -----------
-FIDLEG Art. 11-13 verlangt Geeignetheitspruefung VOR Anlageempfehlung.
-Modelle (SuitabilityCheck + AdvisoryLog.suitability_check_id) gibt es
-schon, aber kein Code-Pfad pruefte Compliance.
+FIDLEG Art. 10 (Pruefpflicht) + Art. 12 (Eignungspruefung): Wer portfolio-
+bezogene Anlageberatung oder Vermoegensverwaltung erbringt — 5eyes tut das —
+muss eine Eignungspruefung durchfuehren und REGELMAESSIG aktualisieren.
 
-Diese Suite verifiziert services/suitability_audit.py und seine
-Integration in compute_advisory_report (Sektion 19).
+Umstellung (Option A): Der Audit prueft auf MANDATSEBENE, ob ein AKTUELLES
+Risikoprofil (RiskAssessment = 5eyes-Eignungspruefung) existiert. Der fruehere
+Per-Log-Ansatz las AdvisoryLog.duty_type/.suitability_check_id — Spalten, die es
+auf AdvisoryLog gar nicht gibt -> der Audit war blind (immer 'compliant').
 
-Test-Strategie: Pure-Unit mit MagicMock-DB (kein echtes SQLAlchemy
-brauchen) — schnell, deterministisch.
+Diese Suite verifiziert services/suitability_audit.py und seine Integration in
+compute_advisory_report (Sektion 19).
+
+Test-Strategie: Pure-Unit mit MagicMock-DB, deterministische Frische ueber
+_days_ago(...) relativ zu now (keine hartkodierten Kalenderdaten -> nicht flaky).
 """
 from __future__ import annotations
 
@@ -138,54 +143,60 @@ def test_duty_types_exclude_execution_only():
 # audit_mandate_suitability — Helpers
 # ---------------------------------------------------------------------------
 
-def _log(**overrides):
+def _risk_assessment(**overrides):
+    """Synthetisches RiskAssessment (= 5eyes-Eignungspruefung). Default: heute
+    erstellt (frisch). assessed_at via _days_ago fuer deterministische Frische."""
     base = {
-        "id": "log-001",
+        "id": "ra-001",
         "mandate_id": "MX-TEST",
-        "duty_type": "advisory_individual",
-        "entry_datetime": "2026-06-01T10:00:00Z",
-        "entry_date": "2026-06-01",
-        "suitability_check_id": "chk-001",
+        "version": 1,
+        "is_current": 1,
+        "valid_from": _days_ago(30)[:10],
+        "assessed_at": _days_ago(30),
+        "final_profile": "Ausgewogen",
     }
     base.update(overrides)
     return MagicMock(**base)
 
 
-def _check(**overrides):
-    base = {
-        "id": "chk-001",
-        "mandate_id": "MX-TEST",
-        "checked_at": "2026-05-01T10:00:00Z",
-        "result": "geeignet",
-        "client_proceeding_despite": 0,
-    }
-    base.update(overrides)
-    return MagicMock(**base)
+def _days_ago(days: int) -> str:
+    """ISO-Timestamp 'days' Tage vor jetzt (deterministisch relativ zu now)."""
+    return (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
 
 
-def _stub_mandate(mid: str = "MX-TEST"):
+def _stub_mandate(mid: str = "MX-TEST", mandate_type: str = "Anlageberatung"):
     m = MagicMock()
     m.id = mid
+    m.mandate_type = mandate_type
     return m
 
 
-def _stub_db(logs, checks):
-    """Stub-DB: liefert je nach Model-Klasse die richtigen Rows."""
+def _stub_db(ra=None, *, advisory_log_count: int = 0, raise_on: str | None = None):
+    """Stub-DB: AdvisoryLog.count() -> advisory_log_count, RiskAssessment.first()
+    -> ra. raise_on='risk' laesst die RiskAssessment-Query werfen (Infra-Fehler);
+    raise_on='all' laesst jede Query werfen."""
     db = MagicMock()
+
     log_query = MagicMock()
     log_query.filter.return_value = log_query
-    log_query.all.return_value = logs
+    log_query.count.return_value = advisory_log_count
 
-    check_query = MagicMock()
-    check_query.filter.return_value = check_query
-    check_query.all.return_value = checks
+    ra_query = MagicMock()
+    ra_query.filter.return_value = ra_query
+    ra_query.order_by.return_value = ra_query
+    if raise_on in ("risk", "all"):
+        ra_query.first.side_effect = RuntimeError("table missing")
+    else:
+        ra_query.first.return_value = ra
 
     def query_router(model):
+        if raise_on == "all":
+            raise RuntimeError("db down")
         name = getattr(model, "__name__", str(model))
         if "AdvisoryLog" in name:
             return log_query
-        if "SuitabilityCheck" in name:
-            return check_query
+        if "RiskAssessment" in name:
+            return ra_query
         return MagicMock()
     db.query.side_effect = query_router
     return db
@@ -195,106 +206,67 @@ def _stub_db(logs, checks):
 # audit_mandate_suitability — Szenarien
 # ---------------------------------------------------------------------------
 
-def test_audit_empty_mandate_compliant():
-    db = _stub_db([], [])
-    result = audit_mandate_suitability(db, _stub_mandate())
-    assert result["total_advisory_logs"] == 0
+def test_audit_execution_only_mandate_exempt():
+    """Execution-only-Mandat (Art. 13) verlangt keine Eignungspruefung -> konform."""
+    db = _stub_db(ra=None, advisory_log_count=2)
+    result = audit_mandate_suitability(db, _stub_mandate(mandate_type="execution_only"))
+    assert result["requires_suitability"] is False
+    assert result["suitability_basis"] == "execution_only_exempt"
     assert result["is_compliant"] is True
 
 
-def test_audit_execution_only_no_check_required():
-    """execution_only-Logs werden nicht in logs_requiring_suitability gezaehlt."""
-    logs = [_log(duty_type="execution_only", suitability_check_id=None)]
-    db = _stub_db(logs, [])
+def test_audit_no_risk_assessment_flags_violation():
+    """Anlageberatung ohne aktuelle Eignungspruefung (Risikoprofil) -> Verstoss."""
+    db = _stub_db(ra=None, advisory_log_count=1)
     result = audit_mandate_suitability(db, _stub_mandate())
-    assert result["total_advisory_logs"] == 1
-    assert result["logs_requiring_suitability"] == 0
-    assert result["is_compliant"] is True
-
-
-def test_audit_missing_suitability_check_flags_violation():
-    """advisory_individual ohne suitability_check_id -> Verstoss."""
-    logs = [_log(suitability_check_id=None)]
-    db = _stub_db(logs, [])
-    result = audit_mandate_suitability(db, _stub_mandate())
+    assert result["requires_suitability"] is True
     assert result["logs_requiring_suitability"] == 1
     assert len(result["logs_without_suitability"]) == 1
-    assert result["logs_without_suitability"][0]["reason"] == "no_suitability_check_linked"
+    assert result["logs_without_suitability"][0]["reason"] == "no_current_risk_assessment"
     assert result["is_compliant"] is False
 
 
-def test_audit_dangling_suitability_check_id_flags_violation():
-    """suitability_check_id zeigt auf nicht-existierende Pruefung."""
-    logs = [_log(suitability_check_id="chk-nonexistent")]
-    db = _stub_db(logs, [_check(id="chk-other")])  # Andere ID
-    result = audit_mandate_suitability(db, _stub_mandate())
-    assert len(result["logs_without_suitability"]) == 1
-    assert result["logs_without_suitability"][0]["reason"] == "suitability_check_id_dangling"
-    assert result["is_compliant"] is False
-
-
-def test_audit_fresh_compliant_check_passes():
-    logs = [_log(entry_datetime="2026-06-01T10:00:00Z")]
-    checks = [_check(checked_at="2026-05-15T10:00:00Z")]
-    db = _stub_db(logs, checks)
+def test_audit_fresh_risk_assessment_compliant():
+    """Frisches Risikoprofil (< 365 Tage) -> konform."""
+    db = _stub_db(ra=_risk_assessment(assessed_at=_days_ago(30)))
     result = audit_mandate_suitability(db, _stub_mandate())
     assert result["logs_with_suitability"] == 1
     assert result["freshness_issues"] == []
-    assert result["result_issues"] == []
     assert result["is_compliant"] is True
 
 
-def test_audit_stale_check_flags_freshness_issue():
-    logs = [_log(entry_datetime="2026-06-01T10:00:00Z")]
-    checks = [_check(checked_at="2024-01-01T10:00:00Z")]  # > 1 Jahr alt
-    db = _stub_db(logs, checks)
+def test_audit_stale_risk_assessment_flags_freshness():
+    """Veraltetes Risikoprofil (> 365 Tage) -> Frische-Verstoss (Art. 12
+    'regelmaessig aktualisieren')."""
+    db = _stub_db(ra=_risk_assessment(assessed_at=_days_ago(400)))
     result = audit_mandate_suitability(db, _stub_mandate())
     assert len(result["freshness_issues"]) == 1
     assert result["freshness_issues"][0]["reason"] == "stale"
     assert result["is_compliant"] is False
 
 
-def test_audit_check_after_advisory_flags_issue():
-    """Pruefung NACH Beratung -> Verstoss."""
-    logs = [_log(entry_datetime="2026-05-01T10:00:00Z")]
-    checks = [_check(checked_at="2026-06-01T10:00:00Z")]
-    db = _stub_db(logs, checks)
+def test_audit_populates_risk_assessment_summary_fields():
+    """Fuer die Zusammenfassung 'wann/welches Profil': id/version/datum/profil
+    werden ausgewiesen."""
+    ra = _risk_assessment(id="ra-xy", version=3, final_profile="Wachstumsorientiert",
+                          assessed_at=_days_ago(10))
+    db = _stub_db(ra=ra)
     result = audit_mandate_suitability(db, _stub_mandate())
-    assert len(result["freshness_issues"]) == 1
-    assert result["freshness_issues"][0]["reason"] == "check_after_advisory"
-    assert result["is_compliant"] is False
+    assert result["risk_assessment_id"] == "ra-xy"
+    assert result["risk_assessment_version"] == 3
+    assert result["risk_assessment_profile"] == "Wachstumsorientiert"
+    assert result["risk_assessment_date"] is not None
+    assert result["risk_assessment_age_days"] is not None
 
 
-def test_audit_unsuitable_without_consent_flags_result_issue():
-    """Check=nicht_geeignet + client_proceeding=0 -> Verstoss."""
-    logs = [_log()]
-    checks = [_check(result="nicht_geeignet", client_proceeding_despite=0)]
-    db = _stub_db(logs, checks)
+def test_audit_db_error_returns_degraded_fail_closed():
+    """Infra-/Schema-Fehler beim Laden des Risikoprofils -> degraded, NICHT
+    faelschlich compliant (fail-closed, konsistent zu Welle 1.2)."""
+    db = _stub_db(raise_on="risk")
     result = audit_mandate_suitability(db, _stub_mandate())
-    assert len(result["result_issues"]) == 1
-    assert result["result_issues"][0]["result"] == "nicht_geeignet"
-    assert result["is_compliant"] is False
-
-
-def test_audit_unsuitable_with_client_consent_compliant():
-    """Check=nicht_geeignet + client_proceeding=1 -> dokumentiert, OK."""
-    logs = [_log()]
-    checks = [_check(result="nicht_geeignet", client_proceeding_despite=1)]
-    db = _stub_db(logs, checks)
-    result = audit_mandate_suitability(db, _stub_mandate())
-    assert result["result_issues"] == []
-    # Freshness ist trotzdem ok (Mai check vor Juni log)
-    assert result["is_compliant"] is True
-
-
-def test_audit_db_error_returns_degraded_compliant():
-    """Schema-Mismatch -> degraded leeres Schema, nicht crashen."""
-    db = MagicMock()
-    db.query.side_effect = RuntimeError("table missing")
-    result = audit_mandate_suitability(db, _stub_mandate())
-    assert result["total_advisory_logs"] == 0
-    assert result["is_compliant"] is True
-    assert result["fidleg_basis"] == "Art. 11/13/16 FIDLEG"
+    assert result["audit_degraded"] is True
+    assert result["is_compliant"] is None
+    assert result["fidleg_basis"] == "Art. 10 / Art. 12 FIDLEG"
 
 
 # ---------------------------------------------------------------------------
@@ -311,11 +283,12 @@ def test_compute_advisory_report_includes_section_19():
 
 
 def test_build_suitability_compliance_degraded_on_error():
-    """Wrapper darf nicht crashen — bei Service-Error degraded payload."""
+    """Wrapper darf nicht crashen — bei Service-Error fail-closed (is_compliant
+    None + audit_degraded), NIE faelschlich compliant."""
     from services.advisory_report import _build_suitability_compliance
     db = MagicMock()
     db.query.side_effect = RuntimeError("simulated")
     mandate = _stub_mandate()
     result = _build_suitability_compliance(db, mandate)
-    assert result["is_compliant"] is True
-    assert result["fidleg_basis"] == "Art. 11/13/16 FIDLEG"
+    assert result["is_compliant"] is None
+    assert result.get("audit_degraded") is True

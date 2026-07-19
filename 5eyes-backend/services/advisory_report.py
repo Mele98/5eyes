@@ -2870,7 +2870,7 @@ def _build_suitability_compliance(db: Session, mandate: Mandate) -> dict[str, An
             "result_issues": [],
             "is_compliant": None,
             "audit_degraded": True,
-            "fidleg_basis": "Art. 11/13/16 FIDLEG",
+            "fidleg_basis": "Art. 10 / Art. 12 FIDLEG",
         }
 
 
