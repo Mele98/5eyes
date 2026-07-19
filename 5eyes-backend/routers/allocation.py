@@ -4,6 +4,7 @@ from datetime import date, datetime, timezone
 from typing import Optional
 import json
 
+from config import settings
 from database import get_db, new_uuid
 from models.users import User
 from models.mandates import Mandate
@@ -41,6 +42,7 @@ from services.backtest_stress import compute_stress_replays
 from services.backtest_ab import run_ab_backtest
 from services.backtest_strategy import run_strategy_backtest
 from services.review_engine import refresh_system_review_triggers
+from services.suitability_audit import audit_mandate_suitability
 
 router = APIRouter(tags=["Allokation"])
 
@@ -373,6 +375,24 @@ def generate_target_allocation_endpoint(
     current_user: User = Depends(require_advisor)
 ):
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    # Welle 2.1 (2026-07): Opt-in FIDLEG-Hard-Gate. Default AUS
+    # (require_suitability_before_recommendation=False) → heutiges Verhalten,
+    # der Suitability-Check bleibt reiner Sichtbarkeits-Layer und blockiert
+    # NICHT. Nur wenn das Flag aktiv ist, wird VOR der Generierung geprueft,
+    # ob eine aktuelle/konforme Eignungspruefung vorliegt (FIDLEG Art. 11-13).
+    # Konservativ: blockiert ausschliesslich wenn audit_mandate_suitability
+    # is_compliant=False meldet (fehlende/nicht-konforme Pruefung).
+    if settings.require_suitability_before_recommendation:
+        suitability = audit_mandate_suitability(db, mandate)
+        if not suitability.get("is_compliant", True):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "FIDLEG: Eignungsprüfung fehlt oder ist nicht aktuell — "
+                    "Empfehlung blockiert "
+                    "(require_suitability_before_recommendation=True)."
+                ),
+            )
     try:
         result = generate_target_allocation(
             db=db,
