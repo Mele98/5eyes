@@ -46,6 +46,9 @@ tmp_*
 tmp/
 extracted_check.js
 
+# Claude Code agent worktrees / local session dir
+.claude/
+
 # OS
 .DS_Store
 Thumbs.db
