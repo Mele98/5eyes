@@ -66,6 +66,18 @@ class TargetAllocation(Base):
     total_wealth_at_generation_rappen = Column(Integer)
     reserve_needed_at_generation_rappen = Column(Integer)
     external_reserve_at_generation_rappen = Column(Integer)
+    # AR-2 (FIDLEG-Report): persistierte Monte-Carlo-Risiko-Kennzahlen auf
+    # Beratungsvermoegens-Ebene (target_*), erzeugt beim Strategie-Lauf. Der
+    # Report liest sie in _build_key_metrics; NULL bei Alt-TAs -> Karte zeigt "—".
+    # Semantik/Quelle (aus _run_allocation_monte_carlo, alle in bps):
+    #   mc_exp_vol_bps      <- target_volatility_1y_bps        (1-J-Vola, stddev der 1-J-Returns)
+    #   mc_exp_return_bps   <- target_annualized_return_p50_bps (annualisierter Median-Return)
+    #   mc_max_drawdown_bps <- target_max_drawdown_p50_bps     (Median Max-Drawdown)
+    #   mc_var_95_bps       <- target_var_95_1y_bps            (1-J-VaR95, positiver Loss)
+    mc_exp_vol_bps = Column(Integer)
+    mc_exp_return_bps = Column(Integer)
+    mc_max_drawdown_bps = Column(Integer)
+    mc_var_95_bps = Column(Integer)
     policy_id = Column(String, ForeignKey("optimizer_policies.id"), nullable=False)
     set_by = Column(String, ForeignKey("users.id"), nullable=False)
     set_at = Column(String, nullable=False)

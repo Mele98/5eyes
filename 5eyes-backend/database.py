@@ -274,6 +274,13 @@ def ensure_runtime_columns() -> None:
             # Phase 6.2: persistierter Solver-Reasoning-Trace (list[str] JSON).
             # Damit /current/payload das identische Reasoning liefert wie /generate.
             ('optimizer_reasoning_json', 'TEXT'),
+            # AR-2 (2026-07-19): MC-Risiko-KPIs (bps) fuer FIDLEG-Report. Auch
+            # hier (redundant zum zweiten target_allocations-Block) gefuehrt,
+            # damit die Migration robust bleibt; ALTER ist idempotent.
+            ('mc_exp_vol_bps', 'INTEGER'),
+            ('mc_exp_return_bps', 'INTEGER'),
+            ('mc_max_drawdown_bps', 'INTEGER'),
+            ('mc_var_95_bps', 'INTEGER'),
         ],
         'recommendation_positions': [
             ('reference_price_rappen', 'INTEGER'),
@@ -404,6 +411,14 @@ def ensure_runtime_columns() -> None:
             # Stochastic Goal Engine Stage 5: persistierter Shadow-Vergleich
             # fuer Admin-/Compliance-Auswertung.
             ('shadow_optimization_json', 'TEXT'),
+            # AR-2 (2026-07-19): persistierte Monte-Carlo-Risiko-KPIs (bps,
+            # Beratungsvermoegens-Ebene) fuer den FIDLEG-Report. Migration
+            # ergaenzt sie idempotent auf bestehenden SQLite-DBs; Alt-TAs
+            # bleiben NULL (Report zeigt dann "—", kein Bruch).
+            ('mc_exp_vol_bps', 'INTEGER'),
+            ('mc_exp_return_bps', 'INTEGER'),
+            ('mc_max_drawdown_bps', 'INTEGER'),
+            ('mc_var_95_bps', 'INTEGER'),
         ],
         'optimizer_runs': [
             # U-9 Stage-9 Telemetry: pro Solver-Start n_paths/n_starts/Seed/

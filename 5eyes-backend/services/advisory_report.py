@@ -704,13 +704,15 @@ def _build_key_metrics(db: Session, mandate: Mandate) -> dict[str, Any]:
         # Goal-Based-Sektion (vorher hartkodiert None → Karte zeigte immer '—',
         # obwohl die Sektion einen echten Score auswies = Inkonsistenz im Bericht).
         "zielerreichung_bps": _compute_goal_achievement_score_bps(db, mandate),
-        # Engine schreibt exp_return/exp_vol nicht direkt auf TA, sondern
-        # in optimizer_reasoning_json oder shadow_optimization_json. Für
-        # U-P21.1 belassen wir None — wird in U-P21.4 (Goal-Based) ergänzt.
-        "exp_vol_bps": None,
-        "exp_return_bps": None,
-        "max_drawdown_bps": None,
-        "var_95_bps": None,
+        # AR-2: Erwartete Vola/Return, Max-Drawdown und VaR95 aus den beim
+        # Strategie-Lauf persistierten Monte-Carlo-KPIs (Beratungsvermoegens-
+        # Ebene, target_*). Alt-TAs ohne diese Spalten -> None (Karte zeigt "—",
+        # kein Bruch). Werte sind bereits in bps; _safe_int-Wrapper hier robust
+        # gegen fehlende Attribute (getattr default None) und 0-Werte -> None.
+        "exp_vol_bps": _safe_int(getattr(ta, "mc_exp_vol_bps", None)) or None,
+        "exp_return_bps": _safe_int(getattr(ta, "mc_exp_return_bps", None)) or None,
+        "max_drawdown_bps": _safe_int(getattr(ta, "mc_max_drawdown_bps", None)) or None,
+        "var_95_bps": _safe_int(getattr(ta, "mc_var_95_bps", None)) or None,
     }
 
 
