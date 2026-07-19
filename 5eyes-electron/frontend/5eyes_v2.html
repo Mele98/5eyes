@@ -3608,6 +3608,28 @@ function _wireSollIstHover(){
             </div>
           </div>
 
+          <div class="card" id="sr-riskprofile-card" style="margin-bottom:14px">
+            <div class="chd"><span class="cht">Risikoprofil</span><span style="font-size:9px;color:var(--n4);margin-left:8px">Versioniert &middot; datiert &middot; signierbar</span><div class="chr"><button class="btn-g btn-sm" id="sr-riskprofile-sign-btn" onclick="signRiskProfile()">Signatur erfassen</button></div></div>
+            <div class="cbody">
+              <div style="display:grid;grid-template-columns:1.3fr 1fr 1.4fr;gap:12px;align-items:start">
+                <div>
+                  <div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:3px">Profil</div>
+                  <div id="sr-riskprofile-profile" style="font-size:14px;font-weight:600;color:var(--n8)">Noch nicht erfasst</div>
+                  <div id="sr-riskprofile-override" style="display:none;margin-top:3px;font-size:9px;color:var(--warn)">&#9888; Override aktiv</div>
+                </div>
+                <div>
+                  <div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:3px">Erfasst am &middot; Version</div>
+                  <div id="sr-riskprofile-meta" style="font-size:13px;font-weight:500;color:var(--n7)">&mdash;</div>
+                </div>
+                <div>
+                  <div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:3px">Signatur</div>
+                  <div id="sr-riskprofile-signature"><span class="tag ta">&#9888; nicht signiert</span></div>
+                </div>
+              </div>
+              <div id="sr-riskprofile-hint" style="font-size:10px;color:var(--n5);margin-top:10px;line-height:1.5"></div>
+            </div>
+          </div>
+
           <div class="g2" style="margin-bottom:14px">
             <div class="card">
               <div class="chd"><span class="cht">Wie Ihr Geld investiert wird</span></div>
@@ -22180,6 +22202,7 @@ function normalizeReviewLayout(){
   var cockpitDetails=document.getElementById('rv-details-accordion');
   var summarySection=document.getElementById('rv-zusammenfassung');
   var summaryKpis=(summarySection?summarySection.querySelector('.rv-final-kpis'):null)||page.querySelector('.rv-final-kpis');
+  var riskProfileCard=document.getElementById('sr-riskprofile-card');
   var summaryStory=(summarySection?summarySection.querySelector('.g2'):null)||page.querySelector('#rv-primary-story > .g2');
   var implementationCard=summaryStory?summaryStory.nextElementSibling:null;
   if(implementationCard&&!(implementationCard.classList&&implementationCard.classList.contains('card')))implementationCard=null;
@@ -22220,7 +22243,7 @@ function normalizeReviewLayout(){
   var overview=document.getElementById('rv-review-overview');
   if(!overview){overview=document.createElement('div');overview.id='rv-review-overview';}
   overview.className='rv-review-overview';
-  [heroCard,summaryKpis,cockpit].forEach(function(node){if(node)overview.appendChild(node);});
+  [heroCard,summaryKpis,riskProfileCard,cockpit].forEach(function(node){if(node)overview.appendChild(node);});
   var primaryStory=document.getElementById('rv-primary-story');
   if(!primaryStory){primaryStory=document.createElement('section');primaryStory.id='rv-primary-story';}
   primaryStory.className='rv-primary-story';
@@ -22885,6 +22908,104 @@ function renderReviewState(state){
   renderSuitabilityChecks((state&&state.suitability)||[]);
   renderReadinessChecklist(state||{});
   renderDocumentGrid((state&&state.documents)||[]);
+  renderReviewRiskProfileCard();
+}
+// Risikoprofil-Karte in der Review-Zusammenfassung: Profil + Datum + Version
+// + Signatur-Status (analog zur versionierten/datierten Anlagestrategie).
+function reviewRiskProfileForCard(){
+  var mid=typeof getActiveMandateId==='function'?getActiveMandateId():null;
+  var raw=strategyState&&strategyState.currentRisk?strategyState.currentRisk:null;
+  if(raw&&riskBelongsToMandate(raw,mid))return raw;
+  if(strategyState&&strategyState.risk&&riskBelongsToMandate(strategyState.risk,mid))return strategyState.risk;
+  return currentPersistedRiskForMandate(mid);
+}
+function renderReviewRiskProfileCard(){
+  var card=document.getElementById('sr-riskprofile-card');
+  if(!card)return;
+  var mid=typeof getActiveMandateId==='function'?getActiveMandateId():null;
+  var isDemo=mid&&typeof isDemoMandateId==='function'?isDemoMandateId(mid):!mid;
+  var risk=reviewRiskProfileForCard();
+  var profileEl=document.getElementById('sr-riskprofile-profile');
+  var overrideEl=document.getElementById('sr-riskprofile-override');
+  var metaEl=document.getElementById('sr-riskprofile-meta');
+  var sigEl=document.getElementById('sr-riskprofile-signature');
+  var hintEl=document.getElementById('sr-riskprofile-hint');
+  var btn=document.getElementById('sr-riskprofile-sign-btn');
+  if(!risk){
+    if(profileEl)profileEl.textContent='Noch nicht erfasst';
+    if(overrideEl)overrideEl.style.display='none';
+    if(metaEl)metaEl.innerHTML='&mdash;';
+    if(sigEl)sigEl.innerHTML='<span class="tag tn">kein Risikoprofil</span>';
+    if(hintEl)hintEl.textContent='Bitte zuerst auf der Seite Risikoprofil einen Fragebogen ausfuellen und speichern.';
+    if(btn){btn.disabled=true;btn.title='Zuerst Risikoprofil speichern.';}
+    return;
+  }
+  var profile=risk.override_profile||risk.final_profile||'Nicht definiert';
+  var scoreX10=risk.override_score_x10!=null?risk.override_score_x10:risk.final_score_x10;
+  var scoreTxt=scoreX10!=null?(' &middot; '+Math.round(Number(scoreX10||0)/10)+' / 10'):'';
+  if(profileEl)profileEl.innerHTML=escapeHtml(profile)+'<span style="font-size:11px;font-weight:500;color:var(--n5)">'+scoreTxt+'</span>';
+  if(overrideEl)overrideEl.style.display=Number(risk.is_overridden||0)?'block':'none';
+  var assessedRaw=risk.assessed_at||risk.valid_from||risk.created_at||risk.updated_at||null;
+  var assessedTxt=assessedRaw?formatDateSwiss(String(assessedRaw).slice(0,10)):'Datum unbekannt';
+  var versionTxt=risk.version!=null&&String(risk.version)!==''?('v'+String(risk.version)):'';
+  if(metaEl)metaEl.innerHTML=escapeHtml(assessedTxt)+(versionTxt?(' &middot; <span style="color:var(--n5)">'+escapeHtml(versionTxt)+'</span>'):'');
+  var signedAt=risk.client_signed_at||null;
+  if(sigEl){
+    if(signedAt){
+      var methodRaw=String(risk.client_signed_method||'').toLowerCase();
+      var methodTxt=methodRaw.indexOf('portal')>=0?'Portal':(methodRaw.indexOf('advisor')>=0||methodRaw.indexOf('berater')>=0?'Berater':(risk.client_signed_method?String(risk.client_signed_method):'Berater'));
+      sigEl.innerHTML='<span class="tag tg">&#10003; signiert am '+escapeHtml(formatDateSwiss(String(signedAt).slice(0,10)))+' ('+escapeHtml(methodTxt)+')</span>';
+    }else{
+      sigEl.innerHTML='<span class="tag ta">&#9888; nicht signiert</span>';
+    }
+  }
+  if(hintEl){
+    hintEl.textContent=signedAt
+      ?'Die Kundenzustimmung zum Risikoprofil ist dokumentiert.'
+      :'Noch nicht signiert. Mit «Signatur erfassen» dokumentieren Sie die Kundenzustimmung zum aktuellen Risikoprofil.';
+  }
+  if(btn){
+    if(isDemo){btn.disabled=true;btn.title='Signatur nur fuer ein gespeichertes Mandat moeglich.';}
+    else{btn.disabled=false;btn.title='';}
+    btn.textContent=signedAt?'Signatur erneuern':'Signatur erfassen';
+  }
+}
+async function signRiskProfile(){
+  var mid=typeof getActiveMandateId==='function'?getActiveMandateId():null;
+  if(!mid||(typeof isDemoMandateId==='function'&&isDemoMandateId(mid))){
+    showAppError('Signatur nur fuer ein gespeichertes Mandat moeglich.');
+    return;
+  }
+  var risk=reviewRiskProfileForCard();
+  if(!risk){
+    showAppError('Bitte zuerst ein aktuelles Risikoprofil speichern, bevor es signiert wird.');
+    return;
+  }
+  var note='';
+  try{
+    var raw=window.prompt('Notiz zur Signatur (optional):','');
+    if(raw===null)return; // Berater hat abgebrochen
+    note=String(raw||'');
+  }catch(e){note='';}
+  var btn=document.getElementById('sr-riskprofile-sign-btn');
+  var restore=btn?btn.textContent:'';
+  if(btn){btn.disabled=true;btn.textContent='Signieren…';}
+  try{
+    var res=await API.post('/mandates/'+mid+'/risk-profile/sign',{note:note});
+    if(res){
+      [strategyState.currentRisk,strategyState.risk].forEach(function(target){
+        if(!target)return;
+        if(res.client_signed_at!=null)target.client_signed_at=res.client_signed_at;
+        if(res.client_signed_method!=null)target.client_signed_method=res.client_signed_method;
+      });
+    }
+    renderReviewRiskProfileCard();
+    showAppSuccess('Risikoprofil signiert.');
+  }catch(e){
+    showAppError(parseApiError(e,'Signatur konnte nicht erfasst werden.'));
+  }finally{
+    if(btn){btn.disabled=false;btn.textContent=restore||'Signatur erfassen';}
+  }
 }
 function buildDemoReviewState(){
   var baseDate=new Date().toISOString().slice(0,10);
@@ -22929,7 +23050,8 @@ async function refreshReviewUI(mid){
       API.get('/mandates/'+mid+'/conflict-disclosures').catch(function(){return API.get('/mandates/'+mid+'/conflicts');}),
       API.get('/mandates/'+mid+'/suitability-checks').catch(function(){return [];}),
       API.get('/mandates/'+mid+'/target-allocation/current/payload').catch(function(){return null;}),
-      API.get('/mandates/'+mid+'/recommendations/current/payload').catch(function(){return null;})
+      API.get('/mandates/'+mid+'/recommendations/current/payload').catch(function(){return null;}),
+      loadCurrentRiskAssessment(mid,false).catch(function(){return null;})
     ]);
     if(String(mid)!==String(getActiveMandateId()||'')){
       console.warn('stale review payload ignored', {requested:mid, active:getActiveMandateId()});
