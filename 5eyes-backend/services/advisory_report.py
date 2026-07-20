@@ -291,6 +291,10 @@ def _compute_advisory_report_inner(
         "stress_replay": _build_stress_replay(db, mandate),
         # --- Sektion 18 (additiv, U-68): FIDLEG Art. 9/26 Interessenkonflikte
         "conflict_disclosures": _build_conflict_disclosures(db, mandate),
+        # --- Kostenausweis Ex-ante (FIDLEG Art. 8/9): bisher nur im PDF-Renderer
+        # (self-populate). Jetzt auch im Aggregator-Payload, damit ALLE Konsumenten
+        # (React-Reporting, API) den Kostenausweis konsistent erhalten.
+        "cost_disclosure": _build_cost_disclosure_section(db, mandate),
         # --- Sektion 19 (additiv, U-66): FIDLEG-Suitability-Compliance-Audit
         "suitability_compliance": _build_suitability_compliance(db, mandate),
         # --- Sektion 20 (additiv, U-73+U-74): Engine-Modell-Audit
@@ -2841,6 +2845,23 @@ def _safe_int(value: Any, default: int = 0) -> int:
 # ---------------------------------------------------------------------------
 # Sprint U-66 (2026-06-03): FIDLEG-Suitability-Compliance-Audit-Wrapper.
 # ---------------------------------------------------------------------------
+
+def _build_cost_disclosure_section(db: Session, mandate: Mandate) -> dict[str, Any]:
+    """Wrapper um services/cost_disclosure.build_cost_disclosure (FIDLEG Art. 8/9
+    Kostenausweis Ex-ante) fuer den Advisory-Report-Aggregator. Der Service selbst
+    liefert bei fehlender Empfehlung bereits ein 'pending'-Payload; hier zusaetzlich
+    fail-closed gegen Import-/Schema-Fehler (degraded, NIE stille 0-Kosten)."""
+    try:
+        from services.cost_disclosure import build_cost_disclosure
+        return build_cost_disclosure(db, mandate)
+    except Exception:  # noqa: BLE001
+        return {
+            "available": False,
+            "audit_degraded": True,
+            "fidleg_basis": "Art. 8 / Art. 9 FIDLEG",
+            "note": "Kostenausweis konnte nicht erstellt werden (degraded).",
+        }
+
 
 def _build_suitability_compliance(db: Session, mandate: Mandate) -> dict[str, Any]:
     """Dünner Wrapper über services/suitability_audit.audit_mandate_suitability.

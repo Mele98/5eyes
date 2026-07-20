@@ -140,6 +140,8 @@ def test_compute_returns_expected_top_level_structure(session_factory):
         "stress_replay",
         # U-68: additive Sektion 18
         "conflict_disclosures",
+        # Kostenausweis Ex-ante (FIDLEG Art. 8/9)
+        "cost_disclosure",
         # U-66: additive Sektion 19
         "suitability_compliance",
         # U-73+U-74: additive Sektion 20
@@ -1326,6 +1328,8 @@ def test_endpoint_returns_full_report_structure(session_factory):
         "stress_replay",
         # U-68: additive Sektion 18
         "conflict_disclosures",
+        # Kostenausweis Ex-ante (FIDLEG Art. 8/9)
+        "cost_disclosure",
         # U-66: additive Sektion 19
         "suitability_compliance",
         # U-73+U-74: additive Sektion 20
