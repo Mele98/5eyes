@@ -158,6 +158,20 @@ def has_global_client_access(current_user: User) -> bool:
     return current_user.role == "admin"
 
 
+def _effective_strict_tenant_isolation(settings_obj) -> bool:
+    """rls-1 (2026-07-19): effektive strikte Mandanten-Trennung. True wenn der
+    Flag explizit gesetzt ist ODER das Deployment mandantenfaehig ist
+    (deployment_tier=='tier2' bzw. tenancy_mode=='multi') — damit ein Multi-
+    Tenant-Setup NIE versehentlich ohne Strict-Isolation laeuft (auch ausserhalb
+    staging/production, wo der config-Validator es ohnehin erzwingt). Tier1 /
+    single-tenant bleibt unveraendert (kein Zwang, BC fuer NULL-tenant-Rows)."""
+    if getattr(settings_obj, "strict_tenant_isolation", False):
+        return True
+    tier = str(getattr(settings_obj, "deployment_tier", "") or "").strip().lower()
+    mode = str(getattr(settings_obj, "tenancy_mode", "") or "").strip().lower()
+    return tier == "tier2" or mode == "multi"
+
+
 def _apply_tenant_filter_to_client_query(query, current_user: User):
     """Sprint T3 (2026-06-08): Erweitert eine Client-Query um tenant_id-Filter.
 
@@ -177,7 +191,7 @@ def _apply_tenant_filter_to_client_query(query, current_user: User):
     from sqlalchemy import or_
     from config import settings as _settings
     # E1 (2026-06-14): Strict-Modus -> NUR exakter Tenant-Match (NULL unsichtbar).
-    if getattr(_settings, "strict_tenant_isolation", False):
+    if _effective_strict_tenant_isolation(_settings):
         return query.filter(Client.tenant_id == user_tid_clean)
     # BC: Client.tenant_id == user_tid OR Client.tenant_id IS NULL (Pre-T1 = 'main').
     return query.filter(
@@ -198,7 +212,7 @@ def _apply_tenant_filter_to_mandate_query(query, current_user: User):
     user_tid_clean = str(user_tid).strip()
     from sqlalchemy import or_
     from config import settings as _settings
-    if getattr(_settings, "strict_tenant_isolation", False):
+    if _effective_strict_tenant_isolation(_settings):
         return query.filter(Mandate.tenant_id == user_tid_clean)
     return query.filter(
         or_(Mandate.tenant_id == user_tid_clean, Mandate.tenant_id.is_(None))
@@ -387,7 +401,7 @@ def get_linked_client_for_user_or_404(user: User, db: Session) -> Client:
         raise HTTPException(status_code=404, detail="Kunden-Datensatz nicht verfuegbar.")
     try:
         from config import settings as _settings
-        if getattr(_settings, "strict_tenant_isolation", False) and _utid_s and _utid_s != _ctid_s:
+        if _effective_strict_tenant_isolation(_settings) and _utid_s and _utid_s != _ctid_s:
             raise HTTPException(status_code=404, detail="Kunden-Datensatz nicht verfuegbar.")
     except HTTPException:
         raise
