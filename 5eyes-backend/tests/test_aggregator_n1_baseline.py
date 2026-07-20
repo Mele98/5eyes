@@ -345,12 +345,19 @@ def test_specific_tables_are_queried_at_most_twice(session_factory):
 
     by_table = counter.by_table()
 
-    # U-18-Original-Cache-Wirkung haelt fuer RR/RP/GOALS
-    assert by_table.get("RECOMMENDATION_RUNS", 0) <= 2, (
-        f"RECOMMENDATION_RUNS soll <=2, war {by_table.get('RECOMMENDATION_RUNS')}"
+    # U-18-Original-Cache-Wirkung haelt fuer RR/RP/GOALS.
+    # 2026-07-20: Baseline 2 -> 3. Die neue Kostenausweis-Sektion (FIDLEG Art.
+    # 8/9, services/cost_disclosure.build_cost_disclosure) laedt den letzten
+    # RecommendationRun (Fee-Snapshot-Quelle) einmal zusaetzlich. Bewusster,
+    # bounded +1-Query fuer eine legitime Sektion — kein N+1-Wildwuchs.
+    assert by_table.get("RECOMMENDATION_RUNS", 0) <= 3, (
+        f"RECOMMENDATION_RUNS soll <=3, war {by_table.get('RECOMMENDATION_RUNS')}"
     )
-    assert by_table.get("RECOMMENDATION_POSITIONS", 0) <= 2, (
-        f"RECOMMENDATION_POSITIONS soll <=2, war {by_table.get('RECOMMENDATION_POSITIONS')}"
+    # 2026-07-20: Baseline 2 -> 3 analog RECOMMENDATION_RUNS — build_cost_disclosure
+    # laedt zur Kostenberechnung auch die RecommendationPositions des letzten Runs
+    # einmal zusaetzlich. Bewusster, bounded +1-Query.
+    assert by_table.get("RECOMMENDATION_POSITIONS", 0) <= 3, (
+        f"RECOMMENDATION_POSITIONS soll <=3, war {by_table.get('RECOMMENDATION_POSITIONS')}"
     )
     assert by_table.get("GOALS", 0) <= 1, (
         f"GOALS soll <=1, war {by_table.get('GOALS')}"
