@@ -7,7 +7,7 @@ import bcrypt as _bcrypt
 # kein JWE -> Wechsel ist verhaltensneutral.
 import jwt
 from jwt import PyJWTError
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from database import get_db
@@ -77,6 +77,7 @@ def issue_token_for_user(user: User, expires_delta: Optional[timedelta] = None) 
 def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     db: Session = Depends(get_db),
+    request: Request = None,
 ) -> User:
     token = credentials.credentials
     credentials_exception = HTTPException(
@@ -116,6 +117,19 @@ def get_current_user(
     user_tid = getattr(user, "tenant_id", None)
     if token_tid and user_tid and str(token_tid).strip() != str(user_tid).strip():
         raise credentials_exception
+    # AUTH-02 (2026-07-19): must_change_password serverseitig erzwingen. Ein User
+    # mit gesetztem Flag darf NUR den Passwortwechsel + /me + /logout aufrufen,
+    # bis er das Passwort geaendert hat -> sonst 403. 'request' ist optional
+    # (direkte get_current_user-Aufrufe in Tests umgehen das Gate; ueber FastAPI
+    # wird es injiziert). Verhindert das Aussperren (change-password bleibt offen).
+    if getattr(user, "must_change_password", 0) and request is not None:
+        path = (getattr(getattr(request, "url", None), "path", "") or "").rstrip("/")
+        if not path.endswith(("/auth/change-password", "/auth/me", "/auth/logout")):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=("Passwort muss geaendert werden, bevor weitere Aktionen "
+                        "moeglich sind (must_change_password)."),
+            )
     if user.role == "super_admin":
         # Super-admins are unscoped by default: RLS sees no tenant and returns
         # no tenant-owned rows unless an operator path explicitly enables bypass.

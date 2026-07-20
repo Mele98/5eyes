@@ -183,6 +183,37 @@ def logout(current_user: User = Depends(get_current_user)):
     return {"message": "Erfolgreich abgemeldet"}
 
 
+class _ChangePassword(_BaseModel):
+    current_password: str
+    new_password: str
+
+
+@router.post("/change-password")
+def change_password(
+    body: _ChangePassword,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """AUTH-02 (2026-07-19): Authentifizierter Passwortwechsel des eingeloggten
+    Users. Verifiziert das aktuelle Passwort, setzt das neue (>=8 Zeichen,
+    verschieden) und loescht must_change_password. Bleibt bei gesetztem
+    must_change_password ERREICHBAR (Ausnahme im get_current_user-Gate), damit
+    sich niemand aussperrt."""
+    if not verify_password(body.current_password or "", current_user.password_hash or ""):
+        raise HTTPException(status_code=400, detail="Aktuelles Passwort ist falsch.")
+    if len(body.new_password or "") < 8:
+        raise HTTPException(status_code=422, detail="Neues Passwort muss mindestens 8 Zeichen haben.")
+    if body.new_password == body.current_password:
+        raise HTTPException(status_code=422, detail="Neues Passwort muss sich vom aktuellen unterscheiden.")
+    current_user.password_hash = hash_password(body.new_password)
+    current_user.must_change_password = 0
+    current_user.updated_at = _now()
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="users", record_id=current_user.id, action="PASSWORD_CHANGE")
+    db.commit()
+    return {"message": "Passwort erfolgreich geaendert."}
+
+
 # ── 2FA / TOTP (E1, externe Logins) ─────────────────────────────────────────────
 
 @router.get("/2fa/status")
