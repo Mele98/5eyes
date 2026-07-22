@@ -167,6 +167,46 @@ class OptimizerRun(Base):
 
 
 class CapitalMarketAssumption(Base):
+    """Kapitalmarktannahmen (CMA) -- versioniert pro assumption_set_name.
+
+    Roadmap #51 (CMA-Werte-Pflegeprozess, 2026-07-23): dokumentiert hier den
+    Pflegeprozess fuer eine neue CMA-Version, damit Versionierung, Quelle/
+    Datum-Dokumentation und die Konservativitaets-Maxime (Memory
+    feedback_conservative_values: "immer der tiefere Wert bei Rendite-
+    erwartungen", relevant fuer Ruhestandsgelder) nicht nur Konvention,
+    sondern nachvollziehbar sind.
+
+    Ablauf einer neuen CMA-Version (z.B. neues Quartals-CMA-Update):
+      1. Vorherige aktuelle Zeile ermitteln (gleicher assumption_set_name,
+         is_current=1, deleted_at IS NULL) -- siehe
+         services/cma_import.py:diff_against_current / apply_cma_row fuer
+         das etablierte Muster.
+      2. Neue Zeile mit version = alte version + 1 anlegen, is_current=1.
+         Die alte Zeile bekommt is_current=0 (NICHT geloescht -- Audit-Trail
+         bleibt erhalten). valid_from = Datum, ab dem die neue Annahme in der
+         Engine wirkt (scenario_inputs_from_cma liest nur is_current=1).
+      3. Quelle/Datum dokumentieren (Roadmap #51 Kernforderung):
+         - source: Herkunft der Zahlen, z.B. "Pictet CMA 2026Q3" oder bei
+           manueller/konservativer Schaetzung "konservativ manuell".
+         - source_date: ISO-Datum der zugrunde liegenden Publikation (kann
+           von valid_from abweichen -- z.B. Research-Papier vom 2026-06-15,
+           aber Inkraftsetzung im System erst valid_from=2026-07-01).
+         - notes: Methodik-Anmerkungen (z.B. Abweichungen vom Original,
+           angewandte konservative Abschlaege).
+      4. VOR dem Speichern validate_cma_conservative(cma_new, cma_previous)
+         aus services/cma_import.py aufrufen (dry-run-freundlich, blockiert
+         NICHT): warnt fuer jedes *_return_bps-Feld, das in der neuen Version
+         HOEHER (optimistischer) liegt als in der Vorgaenger-Version. Eine
+         Warnung bedeutet nicht automatisch "falsch" -- der Berater/Admin
+         kann bewusst abweichen (z.B. begruendete Neubewertung der
+         Marktlage) -- aber die Abweichung von der Konservativitaets-Maxime
+         muss sichtbar auffallen und im Zweifel per `notes` begruendet werden.
+         Diese Funktion aendert NIE automatisch Werte, sie ist reines
+         Warnsystem (kein hartes Gate).
+      5. CSV-Import: services/cma_import.py:import_cma_csv() automatisiert
+         Schritte 1-4 fuer Batch-Updates (mehrere Buckets pro Zeile).
+    """
+
     __tablename__ = "capital_market_assumptions"
 
     id = Column(String, primary_key=True)
@@ -233,6 +273,12 @@ class CapitalMarketAssumption(Base):
     real_estate_risk_premium_bps = Column(Integer)
     alternatives_risk_premium_bps = Column(Integer)
     source = Column(String, default="Portfolio Management intern")
+    # Roadmap #51 (2026-07-23): ISO-Datum der Quellpublikation (z.B. Datum des
+    # zitierten CMA-Reports), NICHT identisch mit valid_from (= Inkraftsetzung
+    # im System). NULL = nicht dokumentiert (Altbestand / manuelle Annahme
+    # ohne explizites Publikationsdatum). Additive Spalte, siehe
+    # database.py:ensure_runtime_columns() fuer die Migration auf Alt-DBs.
+    source_date = Column(String)
     notes = Column(String)
     created_by = Column(String, ForeignKey("users.id"), nullable=False)
     created_at = Column(String, nullable=False)
