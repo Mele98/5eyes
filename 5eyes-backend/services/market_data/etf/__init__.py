@@ -13,7 +13,9 @@ fuer Sub-Allocation. Mit yfinance allein kriegst du diese Daten nicht.
 """
 from __future__ import annotations
 
+from .aggregator import ETFAggregator
 from .base import ETFInfo, ETFProvider
+from .factory import build_default_etf_aggregator
 from .providers import (
     JustetfScraper,
     SwissfunddataScraper,
@@ -22,6 +24,8 @@ from .providers import (
 __all__ = [
     "ETFInfo",
     "ETFProvider",
+    "ETFAggregator",
+    "build_default_etf_aggregator",
     "JustetfScraper",
     "SwissfunddataScraper",
 ]

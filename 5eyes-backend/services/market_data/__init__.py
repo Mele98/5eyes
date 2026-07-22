@@ -33,10 +33,12 @@ from .notifier import (
 )
 from .scheduled import daily_cache_purge_job, weekly_validation_job
 from .etf import (
+    ETFAggregator,
     ETFInfo,
     ETFProvider,
     JustetfScraper,
     SwissfunddataScraper,
+    build_default_etf_aggregator,
 )
 from .macro import (
     ECBMacroProvider,
@@ -97,6 +99,8 @@ __all__ = [
     "SNBMacroProvider",
     "ETFInfo",
     "ETFProvider",
+    "ETFAggregator",
+    "build_default_etf_aggregator",
     "JustetfScraper",
     "SwissfunddataScraper",
 ]
