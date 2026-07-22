@@ -85,9 +85,32 @@ def bootstrap_status(db: Session = Depends(get_db)):
     return BootstrapStatusResponse(setup_required=required, can_create_admin=required)
 
 
+def _bootstrap_guard_key(request: Request) -> str:
+    """AUTH-05: IP-basierter Guard-Key fuer den OEFFENTLICHEN Bootstrap-Endpoint —
+    ohne Limit koennte er als Brute-Force/DoS-Vektor gegen die Ersteinrichtung
+    missbraucht werden (Anlegen-Race + wiederholte 409-Anfragen)."""
+    return "bootstrap-admin:" + _login_guard_key(request, "bootstrap")
+
+
 @router.post('/bootstrap-admin', response_model=TokenResponse, status_code=201)
-def bootstrap_admin(body: BootstrapAdminRequest, db: Session = Depends(get_db)):
+def bootstrap_admin(body: BootstrapAdminRequest, request: Request, db: Session = Depends(get_db)):
+    guard_key = _bootstrap_guard_key(request)
+    decision = login_attempt_guard.check(guard_key)
+    if not decision.allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=decision.reason or "Zu viele Versuche. Bitte später erneut versuchen.",
+            headers={"Retry-After": str(decision.retry_after_seconds)},
+        )
+
     if not _bootstrap_required(db):
+        failure = login_attempt_guard.register_failure(guard_key)
+        if not failure.allowed:
+            raise HTTPException(
+                status_code=429,
+                detail=failure.reason or "Zu viele Versuche. Bitte später erneut versuchen.",
+                headers={"Retry-After": str(failure.retry_after_seconds)},
+            )
         raise HTTPException(status_code=409, detail='Ersteinrichtung bereits abgeschlossen')
 
     now = _now()
@@ -105,6 +128,7 @@ def bootstrap_admin(body: BootstrapAdminRequest, db: Session = Depends(get_db)):
     db.add(admin)
     db.commit()
     db.refresh(admin)
+    login_attempt_guard.register_success(guard_key)
     logger.info('Bootstrap admin created | username=%s', admin.username)
     return _issue_token_response(admin)
 
