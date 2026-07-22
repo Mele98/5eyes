@@ -992,6 +992,20 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 </style>
 </head>
 <body>
+<script>
+// Roadmap #74: Dark-Mode-Praeferenz SOFORT setzen, bevor irgendetwas gerendert
+// wird -- so weit oben wie moeglich in <body>, damit kein Hell/Dunkel-
+// Flackern (FOUC) beim Start auftritt. Persistenz-Key und Logik siehe
+// THEME_STORAGE_KEY/applyTheme() weiter unten; dieses Inline-Script dupliziert
+// bewusst nur das Minimum (Storage-Key lesen + Attribut setzen), damit es
+// synchron und ohne Warten auf den Rest des Skripts laeuft.
+(function(){
+  try{
+    var v=localStorage.getItem('5eyes_theme');
+    if(v==='dark'||v==='light')document.documentElement.dataset.theme=v;
+  }catch(e){}
+})();
+</script>
 <!-- 5EYES BROADCAST INTRO (2026-06-14)
      Fullscreen financial world scene. Self-contained, skippable, reduced-motion
      aware and dependency-free so it also works in the packaged desktop app. -->
@@ -1997,6 +2011,8 @@ function arrMax(a){var m=-Infinity;for(var i=0;i<a.length;i++){var n=Number(a[i]
   </nav>
   <div class="tr">
     <span id="current-user-label" style="font-size:11px;color:var(--g3);margin-right:4px"></span>
+    <!-- Roadmap #74: Dark-Mode-Toggle. Icon + Persistenz siehe toggleTheme() weiter unten im Script-Bereich. -->
+    <button class="t-btn" id="btn-theme-toggle" onclick="toggleTheme()" style="background:rgba(201,168,76,0.12);color:var(--g4);padding:5px 9px" title="Dark Mode umschalten" aria-label="Dark Mode umschalten">&#9789;</button>
     <button class="t-btn" onclick="om('m-nc')">+ Mandat</button>
     <button class="t-btn" id="btn-admin-open" onclick="openAdminModal()" style="display:none;background:rgba(201,168,76,0.12);color:var(--g4)" title="System-Administration">&#9881;</button>
     <button class="t-btn" id="btn-prov" onclick="openProvisioning()" style="display:none;background:rgba(201,168,76,0.12);color:var(--g4)" title="Firmen & Mitarbeiter (Operator)">Firmen</button>
@@ -2454,8 +2470,8 @@ function _sollistOptions(){
     },
     elements:{point:{radius:0,hoverRadius:5,hitRadius:26}},
     scales:{
-      x:{grid:{display:false},ticks:{font:{size:10},color:'#7a8299'}},
-      y:{grid:{color:'rgba(0,0,0,0.05)'},ticks:{font:{size:10},color:'#7a8299',callback:function(v){var n=Number(v)||0;if(n===0)return '0';if(Math.abs(n)>=1000){var m=n/1000;return (m===Math.round(m)?String(Math.round(m)):m.toFixed(1))+' Mio';}return Math.round(n)+'k';}}}
+      x:{grid:{display:false},ticks:{font:{size:10},color:chartAxisColor()}},
+      y:{grid:{color:chartGridColor()},ticks:{font:{size:10},color:chartAxisColor(),callback:function(v){var n=Number(v)||0;if(n===0)return '0';if(Math.abs(n)>=1000){var m=n/1000;return (m===Math.round(m)?String(Math.round(m)):m.toFixed(1))+' Mio';}return Math.round(n)+'k';}}}
     }
   };
 }
@@ -5588,6 +5604,7 @@ if (window.desktop && typeof window.desktop.onUpdateStateChanged === 'function')
 async function initApp() {
   var step='Grundlayout';
   try {
+    updateThemeToggleIcon(); // Roadmap #74: Icon passend zur (frueh via Inline-Script gesetzten) Theme-Praeferenz
     initPrefSummaryText();
     initDomLayout();
     step='Startseite';
@@ -5771,6 +5788,78 @@ function normalizeVisibleMojibake(root){
 // Der fruehere Blur-Privacy-Code wurde durch das navigations-basierte Register
 // ersetzt (rebuildSidebar/applyRegisterView/toggleP oben): Namen sind standardmaessig
 // gar nicht sichtbar, nicht nur geblurrt.
+// Roadmap #74: Dark-Mode-Toggle. Die Praeferenz wird ausserdem GANZ am Anfang
+// von <body> per Inline-Script synchron gesetzt (bevor irgendetwas gerendert
+// wird), damit beim Start kein Hell/Dunkel-Flackern (FOUC) auftritt. Diese
+// Funktionen hier uebernehmen nur noch: (a) Klick-Handling, (b) Icon-Sync,
+// (c) Persistenz. Siehe THEME_STORAGE_KEY / applyStoredThemeEarly() im <body>.
+var THEME_STORAGE_KEY='5eyes_theme';
+function getStoredTheme(){
+  try{
+    var v=localStorage.getItem(THEME_STORAGE_KEY);
+    return (v==='dark'||v==='light')?v:null;
+  }catch(e){ return null; }
+}
+function setStoredTheme(theme){
+  try{ localStorage.setItem(THEME_STORAGE_KEY,theme); }catch(e){}
+}
+function getCurrentTheme(){
+  return (document.documentElement.dataset.theme==='dark')?'dark':'light';
+}
+function applyTheme(theme,persist){
+  var t=(theme==='dark')?'dark':'light';
+  document.documentElement.dataset.theme=t;
+  if(persist!==false)setStoredTheme(t);
+  updateThemeToggleIcon();
+  try{ refreshThemedChartColors(); }catch(e){}
+}
+function toggleTheme(){
+  applyTheme(getCurrentTheme()==='dark'?'light':'dark',true);
+}
+function updateThemeToggleIcon(){
+  var btn=document.getElementById('btn-theme-toggle');
+  if(!btn)return;
+  var isDark=getCurrentTheme()==='dark';
+  // U+2600 SUN (zurueck zu hell) / U+263D FIRST QUARTER MOON (wechsle zu dunkel)
+  btn.innerHTML=isDark?'&#9728;':'&#9789;';
+  btn.title=isDark?'Zu Light Mode wechseln':'Zu Dark Mode wechseln';
+  btn.setAttribute('aria-label',btn.title);
+}
+// Chart.js rendert auf <canvas> und kennt daher keine CSS-Variablen -- Farben
+// muessen als aufgeloeste Strings uebergeben werden. --chart-axis/--chart-grid
+// haben KEINE verschachtelten var()-Referenzen (anders als z.B. --text-muted),
+// darum liefert getComputedStyle hier zuverlaessig den fertigen Farbwert.
+function chartAxisColor(){
+  try{
+    var v=getComputedStyle(document.documentElement).getPropertyValue('--chart-axis').trim();
+    return v||'#7a8299';
+  }catch(e){ return '#7a8299'; }
+}
+function chartGridColor(){
+  try{
+    var v=getComputedStyle(document.documentElement).getPropertyValue('--chart-grid').trim();
+    return v||'rgba(15,30,52,0.05)';
+  }catch(e){ return 'rgba(15,30,52,0.05)'; }
+}
+// Best-effort Recolor bereits gezeichneter Charts bei Theme-Wechsel (ohne
+// Neuaufbau/Neu-Navigation). Grenzen bewusst klein gehalten (kein Over-
+// Engineering): nur Achsen-/Gridfarbe, keine Serienfarben (die sind
+// Datenfarben, nicht Theme-Farben, und bleiben bewusst unveraendert).
+function refreshThemedChartColors(){
+  if(typeof charts==='undefined'||!charts)return;
+  var axisColor=chartAxisColor(), gridColor=chartGridColor();
+  ['sollistSoll','sollistIst','ist','aaCurrent','opt'].forEach(function(key){
+    var ch=charts[key];
+    if(!ch||!ch.options||!ch.options.scales)return;
+    ['x','y'].forEach(function(axisKey){
+      var scale=ch.options.scales[axisKey];
+      if(!scale)return;
+      if(scale.ticks)scale.ticks.color=axisColor;
+      if(scale.grid&&('color' in scale.grid))scale.grid.color=gridColor;
+    });
+    try{ ch.update(); }catch(e){}
+  });
+}
 function initPrefSummaryText(){
   var prefSummary=document.getElementById('sd-pref-summary');
   if(prefSummary){
@@ -7297,8 +7386,8 @@ function initCharts(){
       scales:{
         // 2026-07-01: autoSkip + maxTicksLimit -> bei langen Horizonten (bis ~100
         // Jahre) nur ~12 horizontale Jahres-Ticks statt ~100 rotierte/gequetschte.
-        x:{grid:{display:false},ticks:{font:{size:9},color:'#7a8299',autoSkip:true,maxRotation:0,maxTicksLimit:12}},
-        y:{grid:{color:'rgba(0,0,0,0.04)'},ticks:{font:{size:9},color:'#7a8299',callback:function(v){var n=Number(v)||0;if(n===0)return '0';if(Math.abs(n)>=1000){var m=n/1000;return (m===Math.round(m)?String(Math.round(m)):m.toFixed(1))+' Mio';}return Math.round(n)+'k';}}}
+        x:{grid:{display:false},ticks:{font:{size:9},color:chartAxisColor(),autoSkip:true,maxRotation:0,maxTicksLimit:12}},
+        y:{grid:{color:chartGridColor()},ticks:{font:{size:9},color:chartAxisColor(),callback:function(v){var n=Number(v)||0;if(n===0)return '0';if(Math.abs(n)>=1000){var m=n/1000;return (m===Math.round(m)?String(Math.round(m)):m.toFixed(1))+' Mio';}return Math.round(n)+'k';}}}
       }
     };
   };
