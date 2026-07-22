@@ -152,6 +152,8 @@ def test_compute_returns_expected_top_level_structure(session_factory):
         "mandate_lock_status",
         # U-21: additive Sektion 23
         "liquidity_cascade",
+        # Roadmap #61: additive Sektion 28 (Reserve-Erklaerbarkeit)
+        "reserve_explainability",
         # U-94: additive Sektion 24
         "optimizer_run_history",
         # U-97: additive Sektion 25
@@ -1340,6 +1342,8 @@ def test_endpoint_returns_full_report_structure(session_factory):
         "mandate_lock_status",
         # U-21: additive Sektion 23
         "liquidity_cascade",
+        # Roadmap #61: additive Sektion 28 (Reserve-Erklaerbarkeit)
+        "reserve_explainability",
         # U-94: additive Sektion 24
         "optimizer_run_history",
         # U-97: additive Sektion 25
