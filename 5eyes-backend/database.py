@@ -236,6 +236,10 @@ def ensure_runtime_columns() -> None:
             ('reset_token_hash', 'TEXT'),
             ('reset_token_expires_at', 'TEXT'),
             ('totp_recovery_codes', 'TEXT'),
+            # AUTH-04 (2026-07-22): Token-Revocation-Timestamp fuer /auth/logout.
+            ('token_revoked_before', 'TEXT'),
+            # AUTH-06 (2026-07-22): letzter akzeptierter TOTP-Zeitschritt (Anti-Replay).
+            ('totp_last_counter', 'TEXT'),
         ],
         'tenants': [
             ('encrypted_dek', 'TEXT'),
