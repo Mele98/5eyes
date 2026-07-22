@@ -23809,36 +23809,43 @@ function openStammdatenModal(){
     <div style="flex:1;display:flex;overflow:hidden;">
 
       <!-- ─── SIDEBAR ─── -->
+      <!-- Roadmap #76 (2026-07-23): 17 Sektionen in 6 fachliche Ober-Kategorien
+           gruppiert statt vorheriger Status/Audit/Daten/Annahmen/Zugriff/Wartung-
+           Aufteilung mit isoliertem Audit-Eintrag. Shadow-Aggregat + Protokoll
+           bilden neu "Compliance" (beide dienen fachlich der Aufsichts-/Nachweis-
+           pflicht: Shadow-Aggregat speist das Compliance-Template, Protokoll ist
+           das Audit-Trail). data-admin-category dient nur der Navigation/Tests —
+           adminShowSection() bleibt unveraendert id-basiert (keine Fachlogik). -->
       <div class="admin-sidebar">
 
-        <div class="admin-nav-label">Status</div>
-        <button id="asec-health" onclick="adminShowSection('sec-health')" class="admin-sec-btn admin-active">Uebersicht</button>
-        <button id="asec-shadow-comparison-aggregate" onclick="adminShowSection('sec-shadow-comparison-aggregate')" class="admin-sec-btn adm-nav-btn">Shadow-Aggregat</button>
+        <div class="admin-nav-label" data-admin-category="dashboard">Dashboard</div>
+        <button id="asec-health" onclick="adminShowSection('sec-health')" class="admin-sec-btn admin-active" data-admin-category="dashboard">Uebersicht</button>
 
-        <div class="admin-nav-label">Audit</div>
-        <button id="asec-audit" onclick="adminShowSection('sec-audit')" class="admin-sec-btn">Protokoll</button>
+        <div class="admin-nav-label" data-admin-category="compliance">Compliance</div>
+        <button id="asec-shadow-comparison-aggregate" onclick="adminShowSection('sec-shadow-comparison-aggregate')" class="admin-sec-btn adm-nav-btn" data-admin-category="compliance">Shadow-Aggregat</button>
+        <button id="asec-audit" onclick="adminShowSection('sec-audit')" class="admin-sec-btn" data-admin-category="compliance">Protokoll</button>
 
-        <div class="admin-nav-label">Daten</div>
-        <button id="asec-markt" onclick="adminShowSection('sec-markt')" class="admin-sec-btn">Kurse &amp; Mapping</button>
-        <button id="asec-market-data" onclick="adminShowSection('sec-market-data')" class="admin-sec-btn">Datenpipeline</button>
-        <button id="asec-override" onclick="adminShowSection('sec-override')" class="admin-sec-btn">Override</button>
-        <button id="asec-returns" onclick="adminShowSection('sec-returns')" class="admin-sec-btn">Jahresrenditen</button>
-        <button id="asec-acprices" onclick="adminShowSection('sec-acprices')" class="admin-sec-btn">Tageskurse</button>
+        <div class="admin-nav-label" data-admin-category="daten">Daten &amp; Marktdaten</div>
+        <button id="asec-markt" onclick="adminShowSection('sec-markt')" class="admin-sec-btn" data-admin-category="daten">Kurse &amp; Mapping</button>
+        <button id="asec-market-data" onclick="adminShowSection('sec-market-data')" class="admin-sec-btn" data-admin-category="daten">Datenpipeline</button>
+        <button id="asec-override" onclick="adminShowSection('sec-override')" class="admin-sec-btn" data-admin-category="daten">Override</button>
+        <button id="asec-returns" onclick="adminShowSection('sec-returns')" class="admin-sec-btn" data-admin-category="daten">Jahresrenditen</button>
+        <button id="asec-acprices" onclick="adminShowSection('sec-acprices')" class="admin-sec-btn" data-admin-category="daten">Tageskurse</button>
 
-        <div class="admin-nav-label">Annahmen</div>
-        <button id="asec-cma" onclick="adminShowSection('sec-cma')" class="admin-sec-btn">Annahmen</button>
-        <button id="asec-cma-rv" onclick="adminShowSection('sec-cma-rv')" class="admin-sec-btn">Rendite &amp; Vol.</button>
-        <button id="asec-cma-inf" onclick="adminShowSection('sec-cma-inf')" class="admin-sec-btn">Inflation &amp; Korr.</button>
-        <button id="asec-cma-sub" onclick="adminShowSection('sec-cma-sub')" class="admin-sec-btn">Sub-Anlageklassen</button>
-        <button id="asec-policy" onclick="adminShowSection('sec-policy')" class="admin-sec-btn">House-Matrix</button>
+        <div class="admin-nav-label" data-admin-category="annahmen">Kapitalmarkt-Annahmen</div>
+        <button id="asec-cma" onclick="adminShowSection('sec-cma')" class="admin-sec-btn" data-admin-category="annahmen">Annahmen</button>
+        <button id="asec-cma-rv" onclick="adminShowSection('sec-cma-rv')" class="admin-sec-btn" data-admin-category="annahmen">Rendite &amp; Vol.</button>
+        <button id="asec-cma-inf" onclick="adminShowSection('sec-cma-inf')" class="admin-sec-btn" data-admin-category="annahmen">Inflation &amp; Korr.</button>
+        <button id="asec-cma-sub" onclick="adminShowSection('sec-cma-sub')" class="admin-sec-btn" data-admin-category="annahmen">Sub-Anlageklassen</button>
+        <button id="asec-policy" onclick="adminShowSection('sec-policy')" class="admin-sec-btn" data-admin-category="annahmen">House-Matrix</button>
 
-        <div class="admin-nav-label">Zugriff</div>
-        <button id="asec-users" onclick="adminShowSection('sec-users')" class="admin-sec-btn">Benutzerliste</button>
-        <button id="asec-newuser" onclick="adminShowSection('sec-newuser')" class="admin-sec-btn">Neuer Benutzer</button>
+        <div class="admin-nav-label" data-admin-category="zugriff">Benutzer &amp; Zugriff</div>
+        <button id="asec-users" onclick="adminShowSection('sec-users')" class="admin-sec-btn" data-admin-category="zugriff">Benutzerliste</button>
+        <button id="asec-newuser" onclick="adminShowSection('sec-newuser')" class="admin-sec-btn" data-admin-category="zugriff">Neuer Benutzer</button>
 
-        <div class="admin-nav-label">Wartung</div>
-        <button id="asec-db" onclick="adminShowSection('sec-db')" class="admin-sec-btn">Datenbank</button>
-        <button id="asec-update" onclick="adminShowSection('sec-update')" class="admin-sec-btn">Update</button>
+        <div class="admin-nav-label" data-admin-category="wartung">Wartung &amp; Betrieb</div>
+        <button id="asec-db" onclick="adminShowSection('sec-db')" class="admin-sec-btn" data-admin-category="wartung">Datenbank</button>
+        <button id="asec-update" onclick="adminShowSection('sec-update')" class="admin-sec-btn" data-admin-category="wartung">Update</button>
       </div>
 
       <!-- ─── CONTENT ─── -->
