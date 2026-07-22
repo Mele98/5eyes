@@ -579,6 +579,13 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 .alloc-legend-values{display:flex;align-items:center;gap:10px;flex-shrink:0;}
 .alloc-legend-pct{font-size:10px;font-weight:600;color:var(--n8);}
 .alloc-legend-amt{font-size:10px;color:var(--n4);min-width:66px;text-align:right;}
+/* Roadmap #105: Barrierefreiheit Charts -- sr-only (nicht display:none, sonst
+   ignorieren Screenreader den Inhalt komplett). Nutzung: versteckte Tabellen-
+   Fallbacks neben Chart.js-<canvas>-Elementen (Screenreader-Nutzer erhalten
+   so die gleichen Zahlen als semantische Tabelle statt nur als Pixelgrafik). */
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;}
+.sr-only-table{border-collapse:collapse;}
+.sr-only-table caption,.sr-only-table th,.sr-only-table td{font-size:10px;}
 .alloc-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(132px,1fr));gap:10px;padding-top:10px;border-top:1px solid var(--b1);margin-top:12px;}
 .aa-flow-timeline{border-top:1px solid var(--b1);margin-top:12px;padding-top:12px;display:grid;gap:10px;}
 .aa-flow-timeline-note{font-size:10px;color:var(--n5);line-height:1.55;background:var(--bg);border:1px solid var(--b1);border-radius:var(--r);padding:8px 10px;}
@@ -2451,10 +2458,20 @@ async function doResetConfirm(){
     <div style="display:flex;flex-direction:column;border:1px solid rgba(22,101,52,0.18);border-radius:8px;padding:8px 10px;background:rgba(22,101,52,0.04);min-height:0">
       <div style="font-size:11px;font-weight:700;color:var(--n7);margin-bottom:6px">SOLL — optimierte Strategie <span class="tag tg">Ziel</span></div>
       <div style="flex:1;min-height:0;position:relative"><canvas id="ch-sollist-soll" role="img" aria-label="SOLL-Strategie: Vermögensentwicklung mit Best Case, Hauptszenario und Worst Case"></canvas></div>
+      <table id="ch-sollist-soll-table" class="sr-only sr-only-table">
+        <caption>SOLL-Strategie: Vermögensentwicklung (Best Case, Hauptszenario, Worst Case) nach Jahr</caption>
+        <thead><tr id="ch-sollist-soll-thead"><th scope="col">Jahr</th></tr></thead>
+        <tbody></tbody>
+      </table>
     </div>
     <div style="display:flex;flex-direction:column;border:1px solid var(--b1);border-radius:8px;padding:8px 10px;background:var(--bg);min-height:0">
       <div style="font-size:11px;font-weight:700;color:var(--n7);margin-bottom:6px">IST — heutiger Mix <span class="tag tn">Ist</span></div>
       <div style="flex:1;min-height:0;position:relative"><canvas id="ch-sollist-ist" role="img" aria-label="IST heutiger Mix: Vermögensentwicklung mit Best Case, Hauptszenario und Worst Case"></canvas></div>
+      <table id="ch-sollist-ist-table" class="sr-only sr-only-table">
+        <caption>IST heutiger Mix: Vermögensentwicklung (Best Case, Hauptszenario, Worst Case) nach Jahr</caption>
+        <thead><tr id="ch-sollist-ist-thead"><th scope="col">Jahr</th></tr></thead>
+        <tbody></tbody>
+      </table>
     </div>
   </div>
 </div></div>
@@ -2540,7 +2557,29 @@ function _renderSollIstCompare(){
         box.style.background=deltaChf>=0?'rgba(22,101,52,0.08)':'rgba(146,64,14,0.08)';
         box.innerHTML='Beratungs-Mehrwert bis '+escapeHtml(hLabel)+': '+(deltaChf>=0?'+':'−')+'CHF '+Math.abs(deltaChf).toLocaleString('de-CH')+' (Hauptszenario SOLL gegenüber heutigem Mix)';
       } else if(box){ box.style.display='none'; }
+      // Roadmap #105: aria-label mit dem tatsaechlichen Endwert (Hauptszenario)
+      // fuellen -- ein statisches Label kann den Zahlenwert nicht abbilden.
+      var _fmtEndK=function(k){return k==null?null:formatRappen(Math.round(k*100000));};
+      var _sEndFmt=_fmtEndK(sMain), _iEndFmt=_fmtEndK(iMain);
+      if(elS)elS.setAttribute('aria-label','SOLL-Strategie: Vermögensentwicklung mit Best Case, Hauptszenario und Worst Case'+(_sEndFmt?('. Hauptszenario Endwert '+hLabel+': '+_sEndFmt):''));
+      if(elI)elI.setAttribute('aria-label','IST heutiger Mix: Vermögensentwicklung mit Best Case, Hauptszenario und Worst Case'+(_iEndFmt?('. Hauptszenario Endwert '+hLabel+': '+_iEndFmt):''));
     }catch(_d){}
+    // Roadmap #105: sr-only Tabellen-Fallback -- gleiche Kurven-Daten als
+    // semantische Tabelle (Jahr x Szenario) fuer Screenreader-Nutzer.
+    try{
+      var _fillSollIstTable=function(theadId,tbodyEl,lbls,dss){
+        var thead=document.getElementById(theadId);
+        if(thead)thead.innerHTML='<th scope="col">Jahr</th>'+(dss||[]).map(function(d){return '<th scope="col">'+escapeHtml(String((d&&d.label)||''))+'</th>';}).join('');
+        if(!tbodyEl)return;
+        var rows=(lbls||[]).map(function(lbl,i){
+          var cells=(dss||[]).map(function(d){var v=(d&&d.data&&d.data[i]!=null)?Number(d.data[i]):null;return '<td>'+(v!=null&&isFinite(v)?escapeHtml(formatRappen(Math.round(v*100000))):'–')+'</td>';}).join('');
+          return '<tr><td>'+escapeHtml(String(lbl))+'</td>'+cells+'</tr>';
+        });
+        tbodyEl.innerHTML=rows.join('');
+      };
+      _fillSollIstTable('ch-sollist-soll-thead',document.querySelector('#ch-sollist-soll-table tbody'),labels,sollDs);
+      _fillSollIstTable('ch-sollist-ist-thead',document.querySelector('#ch-sollist-ist-table tbody'),labels,istDs);
+    }catch(_t){}
   }catch(e){ console.warn('sollist compare:',e); }
 }
 function closeSollIstCompare(){
@@ -3116,8 +3155,13 @@ function _wireSollIstHover(){
         <div class="alloc-top-grid">
           <div class="card alloc-donut-card">
             <div class="section-kicker">SOLL-Allokation</div>
-            <div class="donut-wrap"><canvas id="ch-dn"></canvas><div class="dc"><div class="dcv">CHF<br>2.85M</div><div class="dcl">Beratung</div></div></div>
+            <div class="donut-wrap"><canvas id="ch-dn" role="img" aria-label="SOLL-Allokation: Aufteilung des Beratungsvermögens nach Anlageklassen, Ring-/Doughnut-Diagramm"></canvas><div class="dc"><div class="dcv">CHF<br>2.85M</div><div class="dcl">Beratung</div></div></div>
             <div id="dnleg" class="alloc-legend"></div>
+            <table id="ch-dn-table" class="sr-only sr-only-table">
+              <caption>SOLL-Allokation nach Anlageklassen (Beratungsvermögen)</caption>
+              <thead><tr><th scope="col">Anlageklasse</th><th scope="col">Anteil (%)</th><th scope="col">Betrag (CHF)</th></tr></thead>
+              <tbody></tbody>
+            </table>
             <div class="alloc-donut-subline">Die Torte zeigt das <strong>Vermögen, das in eine optimale Anlagestrategie umgeschichtet werden kann</strong> (Beratungsvermögen). Eigenheim und weiteres Vermögen bilden das <strong>Fundament</strong> und fliessen als <strong>Reinvermögen</strong> holistisch in Strategie, Ziele und Kennzahlen ein — siehe Reinvermögens-Kurve und die Reinvermögen/Beratungsvermögen-Renditen.</div>
             <div id="alloc-rein-context" class="alloc-donut-subline" style="display:none;margin-top:6px;color:var(--n7)"></div>
           </div>
@@ -7339,6 +7383,28 @@ function syncAllocationDonutFromStrategyState(){
   }
   charts.dn.update();
   buildDLegend();
+  // Roadmap #105: aria-label + sr-only Tabellen-Fallback dynamisch mit den
+  // gleichen Zahlen wie die Legende fuellen (Screenreader-Nutzer lesen sonst
+  // nur "SOLL-Allokation" ohne die tatsaechlichen Anteile/Betraege).
+  try{
+    var _dnCanvas=document.getElementById('ch-dn');
+    var _dnTableBody=document.querySelector('#ch-dn-table tbody');
+    if(hasStrategy){
+      var _rows=alloc.map(function(r){
+        var _pct=Number(r.soll||0);
+        var _amt=Number(r.chfTarget||0);
+        if(!(_amt>0))_amt=Math.round(TOTAL*_pct/100);
+        return {name:String(r.n||''),pct:_pct,amt:_amt};
+      });
+      if(_dnCanvas)_dnCanvas.setAttribute('aria-label','SOLL-Allokation: '+_rows.map(function(r){return r.name+' '+r.pct.toFixed(1)+'%';}).join(', '));
+      if(_dnTableBody)_dnTableBody.innerHTML=_rows.map(function(r){
+        return '<tr><td>'+escapeHtml(r.name)+'</td><td>'+escapeHtml(r.pct.toFixed(1))+'</td><td>'+escapeHtml(Math.round(r.amt).toLocaleString('de-CH'))+'</td></tr>';
+      }).join('');
+    }else{
+      if(_dnCanvas)_dnCanvas.setAttribute('aria-label','SOLL-Allokation: noch keine Strategie berechnet');
+      if(_dnTableBody)_dnTableBody.innerHTML='<tr><td colspan="3">Strategie ausstehend — noch keine Allokation berechnet.</td></tr>';
+    }
+  }catch(_dnA){}
 }
 
 let charts={};
