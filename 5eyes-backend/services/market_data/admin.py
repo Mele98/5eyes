@@ -68,6 +68,56 @@ def collect_provider_health(db: Session | None = None) -> list[dict[str, Any]]:
     return out
 
 
+def collect_etf_provider_health(db: Session | None = None) -> list[dict[str, Any]]:
+    """Analog zu `collect_provider_health`, aber fuer die ETF-Master-Daten-
+    Fallback-Kette (justetf/swissfunddata, siehe etf/aggregator.py).
+
+    Macht den bislang unsichtbaren ETF-Scraper-Status (enabled? healthy?
+    letzter Fehler?) fuer ein spaeteres Admin-Dashboard abfragbar -- exakt
+    das gleiche serialisierbare Dict-Format wie bei den Equity-Providern,
+    damit ein Dashboard beide Listen gleich rendern kann.
+    """
+    try:
+        from .etf.factory import build_default_etf_aggregator
+        agg = build_default_etf_aggregator()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("collect_etf_provider_health: build_default_etf_aggregator failed: %s", exc)
+        return []
+    registry_by_name: dict[str, dict[str, Any]] = {}
+    if db is not None:
+        try:
+            from .provider_health_registry import latest_provider_health_by_name
+            registry_by_name = latest_provider_health_by_name(
+                db,
+                [getattr(provider, "name", "?") for provider in agg.providers],
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("collect_etf_provider_health: registry unavailable: %s", exc)
+    out: list[dict[str, Any]] = []
+    for provider in agg.providers:
+        try:
+            healthy = bool(provider.is_healthy())
+        except Exception:  # noqa: BLE001
+            healthy = False
+        name = str(getattr(provider, "name", "?"))
+        event = registry_by_name.get(name.lower()) or {}
+        registry_status = str(event.get("status") or "unknown")
+        if registry_status == "unhealthy" and not event.get("recovered_at"):
+            healthy = False
+        out.append({
+            "name": name,
+            "enabled": bool(getattr(provider, "enabled", False)),
+            "healthy": healthy,
+            "registry_status": registry_status,
+            "reason": event.get("reason"),
+            "observed_at": event.get("observed_at"),
+            "unhealthy_until": event.get("unhealthy_until"),
+            "recovered_at": event.get("recovered_at"),
+            "consecutive_errors": int(event.get("consecutive_errors") or 0),
+        })
+    return out
+
+
 def collect_cache_stats(db: Session) -> dict[str, Any]:
     """Aggregiert Cache-Eintraege per cache_kind in total / valid / expired."""
     from models.market_data_cache import MarketDataCacheEntry  # lazy
@@ -158,6 +208,7 @@ def build_market_data_status(db: Session) -> dict[str, Any]:
     return {
         "providers_config": str(settings.market_data_providers or ""),
         "providers_health": collect_provider_health(db),
+        "etf_providers_health": collect_etf_provider_health(db),
         "cache": collect_cache_stats(db),
         "recent_validations": collect_recent_validation_logs(db, limit=10),
         "scheduler_jobs": collect_scheduler_jobs(),
