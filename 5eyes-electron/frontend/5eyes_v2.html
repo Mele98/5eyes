@@ -14,6 +14,7 @@ body{font-family:var(--f-s);}
 <style>
 /* 5EYES / WEALTHARCHITEKTEN / Navy-Gold */
 :root {
+  color-scheme: light;
   --n9:#09111f; --n8:#0f1e34; --n7:#162844; --n6:#1d3558;
   --n5:#2a4a70; --n4:#3d6491; --n3:#6b94bf; --n2:#b0c8e0; --n1:#dce9f4; --n0:#f0f6fb;
   --g5:#9a7c2e; --g4:#c9a84c; --g3:#dfc070; --g1:#faf3e0; --g0:#fdfaf2;
@@ -29,14 +30,40 @@ body{font-family:var(--f-s);}
   --surface-main:var(--surface); --surface-muted:var(--bg); --surface-subtle:var(--bg2);
   --text-strong:var(--n8); --text-body:var(--n6); --text-muted:var(--n4);
   --line-soft:var(--b1); --radius-control:7px; --radius-panel:8px;
+  /* Roadmap #74: feste Navy/Gold-"Chrome"-Tokens fuer Elemente, die IMMER als
+     Vollflaeche mit hellem/weissem Text dienen (Topbar, Sidebar, Primary-Buttons,
+     Badges). Diese werden im Dark-Theme NICHT umdefiniert, sonst waere z.B. die
+     Topbar hell mit unsichtbarem weissem Text. Werte = identische Hex wie --n6/7/8. */
+  --chrome-n6:#1d3558; --chrome-n7:#162844; --chrome-n8:#0f1e34;
+  /* Chart.js kennt keine CSS-Variablen zur Laufzeit -> Farben werden beim
+     Chart-Aufbau per getComputedStyle ausgelesen (siehe initCharts/_sollistOptions). */
+  --chart-axis:#7a8299; --chart-grid:rgba(15,30,52,0.05);
+}
+/* Roadmap #74: Dark-Mode-Theme. Gleiche Systematik wie oben (n0-n9 Neutrals,
+   g0-g5 Gold-Akzente, pos/neg/warn Signalfarben), aber mit invertierter
+   Helligkeits-Hierarchie: n9 (staerkste Tinte) wird nahe Weiss fuer Text auf
+   dunklem Grund, n0 (vormals hellster Hintergrund) wird die dunkelste Flaeche.
+   --chrome-* und --g3/--g4 bleiben bewusst unveraendert (Navy-Gold-Identitaet:
+   Topbar/Primary-Buttons/Badges sehen in beiden Modi gleich aus). */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --n9:#f5f9fd; --n8:#e2ecf7; --n7:#c3d5ea; --n6:#a9c0dc;
+  --n5:#82a0c4; --n4:#5f80a8; --n3:#3a5578; --n2:#233a58; --n1:#152640; --n0:#0a1524;
+  --g5:#d9b869; --g4:#c9a84c; --g3:#dfc070; --g1:#261d0e; --g0:#1c150a;
+  --pos:#2fbf72; --pos-lt:#123322;
+  --neg:#e0564f; --neg-lt:#341616;
+  --warn:#d9a520; --warn-lt:#2e2208;
+  --surface:#101b2c; --bg:#070d16; --bg2:#0c1524;
+  --b1:rgba(226,236,247,0.09); --b2:rgba(226,236,247,0.18);
+  --chart-axis:#7d93b8; --chart-grid:rgba(226,236,247,0.10);
 }
 *{box-sizing:border-box;margin:0;padding:0;}
 html,body{height:100%;overflow:hidden;font-family:var(--f-s);font-size:13px;line-height:1.5;color:var(--n9);background:var(--bg);}
 
 /* TOPBAR */
-.topbar{height:48px;background:var(--n8);border-bottom:2px solid var(--g4);display:flex;align-items:center;position:fixed;top:0;left:0;right:0;z-index:200;}
+.topbar{height:48px;background:var(--chrome-n8);border-bottom:2px solid var(--g4);display:flex;align-items:center;position:fixed;top:0;left:0;right:0;z-index:200;}
 .logo{width:188px;min-width:188px;height:100%;display:flex;align-items:center;gap:9px;padding:0 16px;border-right:1px solid rgba(255,255,255,0.07);}
-.logo-m{width:28px;height:28px;background:var(--g4);border-radius:2px;display:flex;align-items:center;justify-content:center;font-family:var(--f-d);font-size:12px;font-weight:600;color:var(--n8);}
+.logo-m{width:28px;height:28px;background:var(--g4);border-radius:2px;display:flex;align-items:center;justify-content:center;font-family:var(--f-d);font-size:12px;font-weight:600;color:var(--chrome-n8);}
 .logo-n{font-family:var(--f-d);font-size:13px;color:#fff;letter-spacing:0.02em;}
 .logo-s{font-size:8px;color:var(--g3);letter-spacing:0.14em;text-transform:uppercase;}
 .tnav{flex:1;display:flex;align-items:stretch;height:100%;overflow-x:auto;min-width:0;}
@@ -46,18 +73,18 @@ html,body{height:100%;overflow:hidden;font-family:var(--f-s);font-size:13px;line
 .tstep.done{color:rgba(100,200,140,0.85);}
 .tstep.done .sn{background:var(--pos);color:#fff;}
 .sn{width:16px;height:16px;border-radius:50%;background:rgba(255,255,255,0.1);display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:600;color:rgba(255,255,255,0.35);flex-shrink:0;}
-.tstep.active .sn{background:var(--g4);color:var(--n8);}
+.tstep.active .sn{background:var(--g4);color:var(--chrome-n8);}
 .tsep{color:rgba(255,255,255,0.15);font-size:11px;padding:0 1px;}
 .tr{display:flex;align-items:center;gap:8px;padding:0 14px;border-left:1px solid rgba(255,255,255,0.07);}
 .t-alert{font-size:9px;background:var(--neg);color:#fff;padding:3px 8px;border-radius:2px;font-weight:600;letter-spacing:0.04em;}
-.t-btn{background:var(--g4);color:var(--n8);border:none;border-radius:var(--r);font-family:var(--f-s);font-size:11px;font-weight:600;padding:5px 12px;cursor:pointer;}
+.t-btn{background:var(--g4);color:var(--chrome-n8);border:none;border-radius:var(--r);font-family:var(--f-s);font-size:11px;font-weight:600;padding:5px 12px;cursor:pointer;}
 .t-btn:hover{background:var(--g3);}
 
 /* LAYOUT */
 .layout{display:flex;height:calc(100vh - 48px);margin-top:48px;}
 
 /* SIDEBAR */
-.sidebar{width:188px;min-width:188px;background:var(--n7);display:flex;flex-direction:column;border-right:1px solid rgba(255,255,255,0.05);}
+.sidebar{width:188px;min-width:188px;background:var(--chrome-n7);display:flex;flex-direction:column;border-right:1px solid rgba(255,255,255,0.05);}
 .sb-hd{padding:11px 12px 8px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid rgba(255,255,255,0.06);}
 .sb-lbl{font-size:9px;font-weight:500;letter-spacing:0.13em;text-transform:uppercase;color:rgba(255,255,255,0.28);}
 .sb-btn{background:none;border:1px solid rgba(255,255,255,0.12);border-radius:2px;color:rgba(255,255,255,0.3);font-size:9px;padding:2px 7px;cursor:pointer;font-family:var(--f-s);}
@@ -77,7 +104,7 @@ html,body{height:100%;overflow:hidden;font-family:var(--f-s);font-size:13px;line
 .sb-search input{width:100%;box-sizing:border-box;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.10);border-radius:var(--r2);color:rgba(255,255,255,0.85);font-size:11px;padding:5px 8px;outline:none;}
 .sb-search input:focus{border-color:rgba(201,168,76,0.45);}
 .sb-search input::placeholder{color:rgba(255,255,255,0.35);}
-.client-letter{position:sticky;top:0;background:var(--n7);font-size:9px;font-weight:700;letter-spacing:0.08em;color:rgba(201,168,76,0.78);padding:4px 10px 2px;text-transform:uppercase;z-index:1;}
+.client-letter{position:sticky;top:0;background:var(--chrome-n7);font-size:9px;font-weight:700;letter-spacing:0.08em;color:rgba(201,168,76,0.78);padding:4px 10px 2px;text-transform:uppercase;z-index:1;}
 .sb-empty{padding:12px 10px;font-size:10px;color:rgba(255,255,255,0.4);text-align:center;}
 /* A-Z-Sprungleiste (Adressbuch, skaliert auf 1000+) */
 .sb-az{display:flex;flex-wrap:wrap;gap:1px;padding:2px 6px 5px;border-bottom:1px solid rgba(255,255,255,0.05);}
@@ -128,9 +155,9 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 /* BUTTONS */
 .btn{background:none;border:1px solid var(--b2);border-radius:var(--r);font-family:var(--f-s);font-size:11px;color:var(--n6);padding:6px 13px;cursor:pointer;transition:all 0.12s;}
 .btn:hover{border-color:var(--n4);color:var(--n8);}
-.btn-p{background:var(--n6);color:#fff;border:none;border-radius:var(--r);font-family:var(--f-s);font-size:11px;font-weight:500;padding:6px 13px;cursor:pointer;}
+.btn-p{background:var(--chrome-n6);color:#fff;border:none;border-radius:var(--r);font-family:var(--f-s);font-size:11px;font-weight:500;padding:6px 13px;cursor:pointer;}
 .btn-p:hover{background:var(--n5);}
-.btn-g{background:var(--g4);color:var(--n8);border:none;border-radius:var(--r);font-family:var(--f-s);font-size:11px;font-weight:600;padding:6px 13px;cursor:pointer;}
+.btn-g{background:var(--g4);color:var(--chrome-n8);border:none;border-radius:var(--r);font-family:var(--f-s);font-size:11px;font-weight:600;padding:6px 13px;cursor:pointer;}
 .btn-g:hover{background:var(--g3);}
 .btn-report{background:#2c5f5f;color:#fff;border-color:#2c5f5f;}
 .btn-report:hover{background:#244f4f;color:#fff;border-color:#244f4f;}
@@ -455,7 +482,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 .goal{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--b1);cursor:grab;}
 .goal:last-child{border-bottom:none;}
 .pd{width:16px;height:16px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:600;flex-shrink:0;}
-.p1{background:var(--n8);color:#fff;}
+.p1{background:var(--chrome-n8);color:#fff;}
 .p2{background:var(--n5);color:#fff;}
 .p3{background:var(--n2);color:var(--n7);}
 .gi{flex:1;}
@@ -478,13 +505,13 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 .rpanel.active{display:block;}
 .qsec{margin-bottom:14px;}
 .ql{font-size:11px;font-weight:500;color:var(--n8);margin-bottom:6px;display:flex;align-items:flex-start;gap:7px;}
-.qnum{display:inline-flex;align-items:center;justify-content:center;width:17px;height:17px;background:var(--n7);color:#fff;border-radius:50%;font-size:9px;font-weight:600;flex-shrink:0;}
+.qnum{display:inline-flex;align-items:center;justify-content:center;width:17px;height:17px;background:var(--chrome-n7);color:#fff;border-radius:50%;font-size:9px;font-weight:600;flex-shrink:0;}
 .qopts{display:flex;flex-direction:column;gap:4px;padding-left:24px;}
 .qopt{display:flex;align-items:flex-start;gap:6px;padding:5px 8px;border:1px solid var(--b1);border-radius:var(--r);cursor:pointer;transition:all 0.12s;}
 .qopt:hover{border-color:var(--g4);}
 .qopt.sel{border-color:var(--n6);background:var(--n0);}
 .qrad{width:12px;height:12px;border:2px solid var(--b2);border-radius:50%;flex-shrink:0;margin-top:1px;position:relative;}
-.qopt.sel .qrad{border-color:var(--n6);background:var(--n6);}
+.qopt.sel .qrad{border-color:var(--chrome-n6);background:var(--chrome-n6);}
 .qopt.sel .qrad::after{content:'';position:absolute;width:4px;height:4px;background:#fff;border-radius:50%;top:50%;left:50%;transform:translate(-50%,-50%);}
 .qtxt{font-size:11px;color:var(--n7);}
 .qcbs{display:grid;grid-template-columns:1fr 1fr;gap:3px;padding-left:24px;}
@@ -492,7 +519,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 .qcb:hover{border-color:var(--g4);}
 .qcb.sel{border-color:var(--n6);background:var(--n0);}
 .qbox{width:11px;height:11px;border:2px solid var(--b2);border-radius:2px;position:relative;flex-shrink:0;}
-.qcb.sel .qbox{background:var(--n6);border-color:var(--n6);}
+.qcb.sel .qbox{background:var(--chrome-n6);border-color:var(--chrome-n6);}
 .qcb.sel .qbox::after{content:'✓';position:absolute;color:#fff;font-size:8px;top:50%;left:50%;transform:translate(-50%,-50%);}
 .qinp{width:100%;padding:5px 8px;border:1px solid var(--b1);border-radius:var(--r);font-family:var(--f-s);font-size:11px;color:var(--n8);background:var(--bg);outline:none;}
 .qinp:focus{border-color:var(--g4);}
@@ -637,8 +664,8 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 .admin-modal .btn,.admin-modal .btn-p,.admin-modal .btn-g{border-radius:7px!important;font-size:11px!important;font-weight:600!important;padding:5px 11px!important;box-shadow:none!important;}
 .admin-modal .btn-p,.admin-modal .btn-g{background:var(--bg2)!important;color:var(--n7)!important;border:1px solid var(--b1)!important;}
 .admin-modal .btn-p:hover,.admin-modal .btn-g:hover{background:var(--bg)!important;color:var(--n8)!important;}
-.admin-modal .admin-primary-btn{background:var(--n8)!important;color:#fff!important;border:1px solid var(--n8)!important;border-radius:7px!important;}
-.admin-modal .admin-primary-btn:hover{background:var(--n7)!important;color:#fff!important;}
+.admin-modal .admin-primary-btn{background:var(--chrome-n8)!important;color:#fff!important;border:1px solid var(--chrome-n8)!important;border-radius:7px!important;}
+.admin-modal .admin-primary-btn:hover{background:var(--chrome-n7)!important;color:#fff!important;}
 .admin-modal .fi,.admin-modal .fsel,.admin-modal textarea{border-radius:7px!important;background:var(--bg2)!important;border-color:var(--b1)!important;}
 .admin-modal #admin-result{background:var(--bg)!important;color:var(--n6)!important;font-size:10px!important;line-height:1.5!important;}
 .admin-modal [style*="color:var(--g3)"]{color:var(--n8)!important;}
@@ -725,7 +752,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 
 /* PORTFOLIO */
 .ps{margin-bottom:5px;}
-.psh{background:var(--n7);padding:7px 14px;display:flex;justify-content:space-between;align-items:center;border-radius:var(--r2) var(--r2) 0 0;}
+.psh{background:var(--chrome-n7);padding:7px 14px;display:flex;justify-content:space-between;align-items:center;border-radius:var(--r2) var(--r2) 0 0;}
 .psn{font-size:10px;font-weight:600;color:#fff;letter-spacing:0.05em;text-transform:uppercase;}
 .psr{display:flex;gap:10px;}
 .psp{font-size:10px;font-weight:500;color:var(--g3);}
@@ -746,7 +773,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 .pdetail-bars{display:grid;gap:6px;margin-top:4px;}
 .pdetail-bar{display:grid;grid-template-columns:42px 1fr 52px;gap:8px;align-items:center;}
 .pdetail-track{height:6px;border-radius:999px;background:var(--bg2);overflow:hidden;}
-.pdetail-fill{height:100%;border-radius:999px;background:var(--n6);}
+.pdetail-fill{height:100%;border-radius:999px;background:var(--chrome-n6);}
 .pisin{font-size:9px;color:var(--n4);font-family:monospace;}
 .pname{font-size:11px;color:var(--n8);font-weight:600;}
 .pdet{font-size:9px;color:var(--n4);}
@@ -965,6 +992,20 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 </style>
 </head>
 <body>
+<script>
+// Roadmap #74: Dark-Mode-Praeferenz SOFORT setzen, bevor irgendetwas gerendert
+// wird -- so weit oben wie moeglich in <body>, damit kein Hell/Dunkel-
+// Flackern (FOUC) beim Start auftritt. Persistenz-Key und Logik siehe
+// THEME_STORAGE_KEY/applyTheme() weiter unten; dieses Inline-Script dupliziert
+// bewusst nur das Minimum (Storage-Key lesen + Attribut setzen), damit es
+// synchron und ohne Warten auf den Rest des Skripts laeuft.
+(function(){
+  try{
+    var v=localStorage.getItem('5eyes_theme');
+    if(v==='dark'||v==='light')document.documentElement.dataset.theme=v;
+  }catch(e){}
+})();
+</script>
 <!-- 5EYES BROADCAST INTRO (2026-06-14)
      Fullscreen financial world scene. Self-contained, skippable, reduced-motion
      aware and dependency-free so it also works in the packaged desktop app. -->
@@ -1970,6 +2011,8 @@ function arrMax(a){var m=-Infinity;for(var i=0;i<a.length;i++){var n=Number(a[i]
   </nav>
   <div class="tr">
     <span id="current-user-label" style="font-size:11px;color:var(--g3);margin-right:4px"></span>
+    <!-- Roadmap #74: Dark-Mode-Toggle. Icon + Persistenz siehe toggleTheme() weiter unten im Script-Bereich. -->
+    <button class="t-btn" id="btn-theme-toggle" onclick="toggleTheme()" style="background:rgba(201,168,76,0.12);color:var(--g4);padding:5px 9px" title="Dark Mode umschalten" aria-label="Dark Mode umschalten">&#9789;</button>
     <button class="t-btn" onclick="om('m-nc')">+ Mandat</button>
     <button class="t-btn" id="btn-admin-open" onclick="openAdminModal()" style="display:none;background:rgba(201,168,76,0.12);color:var(--g4)" title="System-Administration">&#9881;</button>
     <button class="t-btn" id="btn-prov" onclick="openProvisioning()" style="display:none;background:rgba(201,168,76,0.12);color:var(--g4)" title="Firmen & Mitarbeiter (Operator)">Firmen</button>
@@ -2427,8 +2470,8 @@ function _sollistOptions(){
     },
     elements:{point:{radius:0,hoverRadius:5,hitRadius:26}},
     scales:{
-      x:{grid:{display:false},ticks:{font:{size:10},color:'#7a8299'}},
-      y:{grid:{color:'rgba(0,0,0,0.05)'},ticks:{font:{size:10},color:'#7a8299',callback:function(v){var n=Number(v)||0;if(n===0)return '0';if(Math.abs(n)>=1000){var m=n/1000;return (m===Math.round(m)?String(Math.round(m)):m.toFixed(1))+' Mio';}return Math.round(n)+'k';}}}
+      x:{grid:{display:false},ticks:{font:{size:10},color:chartAxisColor()}},
+      y:{grid:{color:chartGridColor()},ticks:{font:{size:10},color:chartAxisColor(),callback:function(v){var n=Number(v)||0;if(n===0)return '0';if(Math.abs(n)>=1000){var m=n/1000;return (m===Math.round(m)?String(Math.round(m)):m.toFixed(1))+' Mio';}return Math.round(n)+'k';}}}
     }
   };
 }
@@ -2909,7 +2952,7 @@ function _wireSollIstHover(){
                 <div class="resbox"><div class="res-t">Empfohlene Anlagestrategie</div><div class="res-p" id="res-pname">Growth – Wachstum</div><div class="res-d">Risikoklasse <strong>«Wachstumsorientiert»</strong>. Erhöhtes Kapitalwachstum, erhöhtes Risiko. Horizont min. 8 Jahre. <strong>Risikobereitschaft bindend</strong> – Soll-Aktienquote max. 45%.</div>
 <div style="margin-top:10px;padding-top:8px;border-top:1px solid rgba(255,255,255,0.15);display:flex;align-items:center;justify-content:space-between;">
   <span style="font-size:10px;color:var(--n5)">Berechneter Score: <strong style="color:var(--n8)">7/10</strong></span>
-  <button onclick="openOverrideModal()" style="background:var(--n6);border:none;color:#fff;border-radius:var(--r);font-family:var(--f-s);font-size:10px;font-weight:500;padding:5px 11px;cursor:pointer;">Profil überschreiben</button>
+  <button onclick="openOverrideModal()" style="background:var(--chrome-n6);border:none;color:#fff;border-radius:var(--r);font-family:var(--f-s);font-size:10px;font-weight:500;padding:5px 11px;cursor:pointer;">Profil überschreiben</button>
 </div>
 <div class="override-badge" id="overr-badge">&#9888; Override aktiv &ndash; Score: <span id="overr-val"></span> &ndash; protokolliert</div>
 </div>
@@ -3484,7 +3527,7 @@ function _wireSollIstHover(){
     <div id="page-po" class="page">
       <div class="ph"><div><div class="ph-t">Portfolio &mdash; ETFs &amp; Fonds</div><div class="ph-s">Umsetzung Ihrer Asset Allokation in konkrete Produkte (ISIN)</div></div><div class="ph-r"><button class="btn-g" id="btn-po-refresh" onclick="refreshPortfolioFromStoredState()">Portfolio generieren</button><button class="btn" id="btn-po-pdf" onclick="downloadServerPdf('portfolio')" title="Portfolio-PDF erstellen">PDF</button><button class="btn btn-report" id="btn-po-advisory-report" onclick="openReportingApp()" title="Institutioneller Advisory-Report in neuem Browser-Tab">Advisory-Report</button><details class="ph-more"><summary title="Weitere Portfolio-Optionen" aria-label="Weitere Portfolio-Optionen">⋯</summary><div class="ph-more-menu"><button class="btn" id="btn-po-add-position" onclick="openPortfolioPositionHelper();this.closest('details').removeAttribute('open')">+ Bestand</button><button class="btn" id="btn-po-live-prices" onclick="refreshLivePricesForMandate();this.closest('details').removeAttribute('open')" title="Live-EOD-Preise via Marktdaten-Aggregator (yfinance/stooq) holen und Portfolio neu laden">Live-Preise</button><button class="btn" onclick="openImplementationRecipe();this.closest('details').removeAttribute('open')">Anlagerezept drucken</button><button class="btn" id="btn-po-depot-check" onclick="openDepotCheck();this.closest('details').removeAttribute('open')" title="Depot-Check: Diversifikation, Konzentration, Drift, Stress-Replays">Depot-Check</button><button class="btn" id="btn-po-cost-disclosure" onclick="openCostDisclosureModal();this.closest('details').removeAttribute('open')" title="FIDLEG Art. 8/9 Ex-ante Kostenausweis vor Auftragsausfuehrung">Kostenausweis</button></div></details></div></div>
       <div class="pad">
-        <div style="background:var(--n8);border-radius:var(--r2);padding:10px 14px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">
+        <div style="background:var(--chrome-n8);border-radius:var(--r2);padding:10px 14px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">
           <div><div style="font-size:9px;font-weight:500;letter-spacing:0.08em;text-transform:uppercase;color:rgba(255,255,255,0.4);margin-bottom:2px">Beratungsvermögen total</div><div id="po-advisory-wealth" style="font-family:var(--f-d);font-size:19px;color:#fff">CHF 2'848'000</div></div>
           <div style="display:flex;gap:16px"><div style="text-align:right"><div style="font-size:9px;color:rgba(255,255,255,0.4)">Letzte Preisqualität</div><div id="po-price-quality" style="font-size:13px;font-weight:500;color:#d4b06a">Live</div><div id="po-price-quality-sub" style="font-size:9px;color:rgba(255,255,255,0.55);margin-top:2px">Daten werden geladen</div></div><div style="text-align:right"><div style="font-size:9px;color:rgba(255,255,255,0.4)">Positionen</div><div id="po-position-count" style="font-size:13px;font-weight:500;color:#fff">14</div></div><div style="text-align:right"><div style="font-size:9px;color:rgba(255,255,255,0.4)">Ø TER p.a.</div><div id="po-average-ter" style="font-size:13px;font-weight:500;color:#fff">0.22%</div></div></div>
         </div>
@@ -3496,7 +3539,7 @@ function _wireSollIstHover(){
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;gap:10px;flex-wrap:wrap"><div style="font-size:10px;color:var(--n5)">Position anklicken zeigt Berater-Details: Soll-Anteil aus der Asset Allokation, Zielbetrag und Kosten.</div><div style="font-size:9px;color:var(--n4);background:var(--bg);border:1px solid var(--b1);border-radius:999px;padding:4px 8px">Klick öffnet Berater-Details</div></div>
         <div class="pcols"><div class="pch">Produkt</div><div class="pch">Anlageklasse</div><div class="pch" style="text-align:right">Zielbetrag</div><div class="pch" style="text-align:right">Soll-Gewicht</div></div>
         <div id="po-portfolio-sections"></div>
-        <div style="background:var(--n8);border-radius:var(--r);padding:8px 14px;display:flex;justify-content:space-between;align-items:center;margin-top:5px"><span style="font-size:11px;font-weight:600;color:#fff;text-transform:uppercase;letter-spacing:0.04em">Total Beratungsvermögen</span><span id="po-total-footer" style="font-family:var(--f-d);font-size:17px;color:#d4b06a">CHF 2'848'000</span></div>
+        <div style="background:var(--chrome-n8);border-radius:var(--r);padding:8px 14px;display:flex;justify-content:space-between;align-items:center;margin-top:5px"><span style="font-size:11px;font-weight:600;color:#fff;text-transform:uppercase;letter-spacing:0.04em">Total Beratungsvermögen</span><span id="po-total-footer" style="font-family:var(--f-d);font-size:17px;color:#d4b06a">CHF 2'848'000</span></div>
       </div>
       <div class="cnav"><button class="btn" onclick="go('al')">← Zurück zur Asset Allokation</button><button class="btn-p" onclick="go('rv')">Weiter zum Review →</button></div>
     </div>
@@ -5561,6 +5604,7 @@ if (window.desktop && typeof window.desktop.onUpdateStateChanged === 'function')
 async function initApp() {
   var step='Grundlayout';
   try {
+    updateThemeToggleIcon(); // Roadmap #74: Icon passend zur (frueh via Inline-Script gesetzten) Theme-Praeferenz
     initPrefSummaryText();
     initDomLayout();
     step='Startseite';
@@ -5744,6 +5788,78 @@ function normalizeVisibleMojibake(root){
 // Der fruehere Blur-Privacy-Code wurde durch das navigations-basierte Register
 // ersetzt (rebuildSidebar/applyRegisterView/toggleP oben): Namen sind standardmaessig
 // gar nicht sichtbar, nicht nur geblurrt.
+// Roadmap #74: Dark-Mode-Toggle. Die Praeferenz wird ausserdem GANZ am Anfang
+// von <body> per Inline-Script synchron gesetzt (bevor irgendetwas gerendert
+// wird), damit beim Start kein Hell/Dunkel-Flackern (FOUC) auftritt. Diese
+// Funktionen hier uebernehmen nur noch: (a) Klick-Handling, (b) Icon-Sync,
+// (c) Persistenz. Siehe THEME_STORAGE_KEY / applyStoredThemeEarly() im <body>.
+var THEME_STORAGE_KEY='5eyes_theme';
+function getStoredTheme(){
+  try{
+    var v=localStorage.getItem(THEME_STORAGE_KEY);
+    return (v==='dark'||v==='light')?v:null;
+  }catch(e){ return null; }
+}
+function setStoredTheme(theme){
+  try{ localStorage.setItem(THEME_STORAGE_KEY,theme); }catch(e){}
+}
+function getCurrentTheme(){
+  return (document.documentElement.dataset.theme==='dark')?'dark':'light';
+}
+function applyTheme(theme,persist){
+  var t=(theme==='dark')?'dark':'light';
+  document.documentElement.dataset.theme=t;
+  if(persist!==false)setStoredTheme(t);
+  updateThemeToggleIcon();
+  try{ refreshThemedChartColors(); }catch(e){}
+}
+function toggleTheme(){
+  applyTheme(getCurrentTheme()==='dark'?'light':'dark',true);
+}
+function updateThemeToggleIcon(){
+  var btn=document.getElementById('btn-theme-toggle');
+  if(!btn)return;
+  var isDark=getCurrentTheme()==='dark';
+  // U+2600 SUN (zurueck zu hell) / U+263D FIRST QUARTER MOON (wechsle zu dunkel)
+  btn.innerHTML=isDark?'&#9728;':'&#9789;';
+  btn.title=isDark?'Zu Light Mode wechseln':'Zu Dark Mode wechseln';
+  btn.setAttribute('aria-label',btn.title);
+}
+// Chart.js rendert auf <canvas> und kennt daher keine CSS-Variablen -- Farben
+// muessen als aufgeloeste Strings uebergeben werden. --chart-axis/--chart-grid
+// haben KEINE verschachtelten var()-Referenzen (anders als z.B. --text-muted),
+// darum liefert getComputedStyle hier zuverlaessig den fertigen Farbwert.
+function chartAxisColor(){
+  try{
+    var v=getComputedStyle(document.documentElement).getPropertyValue('--chart-axis').trim();
+    return v||'#7a8299';
+  }catch(e){ return '#7a8299'; }
+}
+function chartGridColor(){
+  try{
+    var v=getComputedStyle(document.documentElement).getPropertyValue('--chart-grid').trim();
+    return v||'rgba(15,30,52,0.05)';
+  }catch(e){ return 'rgba(15,30,52,0.05)'; }
+}
+// Best-effort Recolor bereits gezeichneter Charts bei Theme-Wechsel (ohne
+// Neuaufbau/Neu-Navigation). Grenzen bewusst klein gehalten (kein Over-
+// Engineering): nur Achsen-/Gridfarbe, keine Serienfarben (die sind
+// Datenfarben, nicht Theme-Farben, und bleiben bewusst unveraendert).
+function refreshThemedChartColors(){
+  if(typeof charts==='undefined'||!charts)return;
+  var axisColor=chartAxisColor(), gridColor=chartGridColor();
+  ['sollistSoll','sollistIst','ist','aaCurrent','opt'].forEach(function(key){
+    var ch=charts[key];
+    if(!ch||!ch.options||!ch.options.scales)return;
+    ['x','y'].forEach(function(axisKey){
+      var scale=ch.options.scales[axisKey];
+      if(!scale)return;
+      if(scale.ticks)scale.ticks.color=axisColor;
+      if(scale.grid&&('color' in scale.grid))scale.grid.color=gridColor;
+    });
+    try{ ch.update(); }catch(e){}
+  });
+}
 function initPrefSummaryText(){
   var prefSummary=document.getElementById('sd-pref-summary');
   if(prefSummary){
@@ -7270,8 +7386,8 @@ function initCharts(){
       scales:{
         // 2026-07-01: autoSkip + maxTicksLimit -> bei langen Horizonten (bis ~100
         // Jahre) nur ~12 horizontale Jahres-Ticks statt ~100 rotierte/gequetschte.
-        x:{grid:{display:false},ticks:{font:{size:9},color:'#7a8299',autoSkip:true,maxRotation:0,maxTicksLimit:12}},
-        y:{grid:{color:'rgba(0,0,0,0.04)'},ticks:{font:{size:9},color:'#7a8299',callback:function(v){var n=Number(v)||0;if(n===0)return '0';if(Math.abs(n)>=1000){var m=n/1000;return (m===Math.round(m)?String(Math.round(m)):m.toFixed(1))+' Mio';}return Math.round(n)+'k';}}}
+        x:{grid:{display:false},ticks:{font:{size:9},color:chartAxisColor(),autoSkip:true,maxRotation:0,maxTicksLimit:12}},
+        y:{grid:{color:chartGridColor()},ticks:{font:{size:9},color:chartAxisColor(),callback:function(v){var n=Number(v)||0;if(n===0)return '0';if(Math.abs(n)>=1000){var m=n/1000;return (m===Math.round(m)?String(Math.round(m)):m.toFixed(1))+' Mio';}return Math.round(n)+'k';}}}
       }
     };
   };
