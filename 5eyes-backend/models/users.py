@@ -41,6 +41,17 @@ class User(Base):
     reset_token_expires_at = Column(String)
     totp_recovery_codes = Column(String)       # JSON-Liste sha256-Hashes der Backup-Codes
 
+    # AUTH-04 (2026-07-22): pragmatische Token-Revocation ohne jti/Blacklist.
+    # Logout setzt diesen Timestamp (ISO, ms-Praezision); get_current_user
+    # verweigert jedes Token mit payload['iat'] < token_revoked_before (401).
+    # Laufzeit-Migration bestehender DBs: database.ensure_runtime_columns.
+    token_revoked_before = Column(String)
+    # AUTH-06 (2026-07-22): Anti-Replay fuer TOTP-Login — letzter akzeptierter
+    # HOTP-Zeitschritt (int als TEXT). Ein zweiter Login-Versuch mit Code aus
+    # demselben oder einem frueheren Zeitschritt wird abgelehnt. services/totp.py
+    # bleibt unveraendert; die Speicherung/Pruefung lebt im Login-Flow.
+    totp_last_counter = Column(String)
+
     @property
     def invite_pending(self) -> bool:
         """True, solange eine Einladung offen ist (Account noch nicht aktiviert)."""

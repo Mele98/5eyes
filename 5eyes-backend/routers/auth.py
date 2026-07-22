@@ -179,7 +179,17 @@ def me(current_user: User = Depends(get_current_user)):
 
 
 @router.post("/logout")
-def logout(current_user: User = Depends(get_current_user)):
+def logout(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """AUTH-04 (2026-07-22): Logout war bisher ein No-op — ein gestohlenes
+    Token blieb bis zum Ablauf gueltig. Setzt token_revoked_before = jetzt;
+    get_current_user verweigert danach jedes Token mit iat < diesem Zeitpunkt
+    (401), unabhaengig von dessen exp."""
+    current_user.token_revoked_before = _now()
+    current_user.updated_at = _now()
+    db.commit()
     return {"message": "Erfolgreich abgemeldet"}
 
 

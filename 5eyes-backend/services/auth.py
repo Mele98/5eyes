@@ -66,6 +66,23 @@ def _resolve_tenant_id_for_user(user: User) -> str:
     return DEFAULT_TENANT_ID
 
 
+def _parse_iso_timestamp(value) -> Optional[float]:
+    """AUTH-04: parst die ISO-Timestamps dieser Codebase (ms-Praezision, ggf.
+    'Z'-Suffix) in Unix-Epoch-Sekunden (float). None bei Unparsbarem statt
+    Exception -> ein defektes/leeres Feld darf den Auth-Pfad nicht crashen."""
+    if not value:
+        return None
+    raw = str(value).strip()
+    if raw.endswith("Z"):
+        raw = raw[:-1]
+    for fmt in ("%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%dT%H:%M:%S"):
+        try:
+            return datetime.strptime(raw, fmt).replace(tzinfo=timezone.utc).timestamp()
+        except ValueError:
+            continue
+    return None
+
+
 def issue_token_for_user(user: User, expires_delta: Optional[timedelta] = None) -> str:
     """Sprint T2 (2026-06-08): Convenience-Wrapper der ein Token mit
     tenant_id-Claim ausstellt. Login-Endpoint nutzt das.
@@ -107,6 +124,18 @@ def get_current_user(
     user = db.query(User).filter(User.id == user_id, User.deleted_at.is_(None)).first()
     if user is None or not user.is_active:
         raise credentials_exception
+    # AUTH-04 (2026-07-22): Token-Revocation. /auth/logout setzt
+    # token_revoked_before = now; jedes Token, das VOR diesem Zeitpunkt
+    # ausgestellt wurde (iat < revoked_before), ist ab sofort ungueltig —
+    # unabhaengig von seiner exp. Pragmatisch ohne jti/Blacklist-Tabelle.
+    revoked_before_ts = _parse_iso_timestamp(getattr(user, "token_revoked_before", None))
+    if revoked_before_ts is not None:
+        try:
+            iat_ts = float(payload.get("iat"))
+        except (TypeError, ValueError):
+            iat_ts = None
+        if iat_ts is not None and iat_ts < revoked_before_ts:
+            raise credentials_exception
     # Sprint T2 (2026-06-08): Tenant-Cross-Check.
     # Wenn das Token einen tid-Claim enthaelt und der User in der DB einen
     # festen tenant_id hat: beide MUESSEN matchen, sonst 401 (Sicherheits-
