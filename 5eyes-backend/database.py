@@ -252,6 +252,19 @@ def ensure_runtime_columns() -> None:
         'wealth_positions': [
             ('property_rental_inflation_linked', 'INTEGER', 0),
         ],
+        # A2-Smoke-Test-Fund (2026-07-22): 'target_allocations' hatte einen
+        # DOPPELTEN Dict-Key in diesem Literal (hier + weiter unten). In Python
+        # gewinnt der ZWEITE — der erste Block war dadurch tote Migration:
+        # preferences_json, input_snapshot_hash, die advisory/total/reserve-
+        # Rappen-Spalten, alle optimization_*-Legacy-Felder, stress_evaluations_
+        # json und optimizer_reasoning_json wurden NIE auf einer per Raw-SQL-
+        # Bootstrap (5eyes_schema_v4.0_FINAL.sql) frisch angelegten DB migriert
+        # -> jede fabrikneue Installation crashte mit 'no such column:
+        # target_allocations.preferences_json' auf /target-allocation/current/
+        # payload + /recommendations/current/payload — der Blocker fuer den
+        # allerersten echten Mandanten. Beide Bloecke hier zu EINEM gemergt;
+        # ensure_column() ist idempotent (PRAGMA-Check), das Zusammenfuehren
+        # ist ohne Risiko fuer DBs, die einzelne Spalten schon haben.
         'target_allocations': [
             ('capital_market_assumptions_id', 'TEXT'),
             # C8 audit anchors fuer Reproduzierbarkeit / Drift-Erkennung
@@ -278,9 +291,13 @@ def ensure_runtime_columns() -> None:
             # Phase 6.2: persistierter Solver-Reasoning-Trace (list[str] JSON).
             # Damit /current/payload das identische Reasoning liefert wie /generate.
             ('optimizer_reasoning_json', 'TEXT'),
-            # AR-2 (2026-07-19): MC-Risiko-KPIs (bps) fuer FIDLEG-Report. Auch
-            # hier (redundant zum zweiten target_allocations-Block) gefuehrt,
-            # damit die Migration robust bleibt; ALTER ist idempotent.
+            # V3 Sprint 2.1 (2026-05-09 / Plan §4.1): Verknuepfung zur eigenen
+            # optimizer_runs-Zeile (nur im zweiten, vormals lebenden Block).
+            ('optimization_run_id', 'TEXT'),
+            # Stochastic Goal Engine Stage 5: persistierter Shadow-Vergleich
+            # fuer Admin-/Compliance-Auswertung.
+            ('shadow_optimization_json', 'TEXT'),
+            # AR-2 (2026-07-19): MC-Risiko-KPIs (bps) fuer FIDLEG-Report.
             ('mc_exp_vol_bps', 'INTEGER'),
             ('mc_exp_return_bps', 'INTEGER'),
             ('mc_max_drawdown_bps', 'INTEGER'),
@@ -400,29 +417,6 @@ def ensure_runtime_columns() -> None:
             # Sprint 8 (2026-05-17): Risikopraemien-Modell fuer RE + Alternatives.
             ('real_estate_risk_premium_bps', 'INTEGER'),
             ('alternatives_risk_premium_bps', 'INTEGER'),
-        ],
-        'target_allocations': [
-            ('external_reserve_at_generation_rappen', 'INTEGER'),
-            ('capital_market_assumptions_id', 'TEXT'),
-            ('risky_fraction_bps_at_generation', 'INTEGER'),
-            ('risk_budget_bps_at_generation', 'INTEGER'),
-            ('limiting_factor', 'TEXT'),
-            ('goal_achievability_json', 'TEXT'),
-            # V3 Sprint 2.1 (2026-05-09 / Plan §4.1): Verknuepfung zur eigenen
-            # optimizer_runs-Zeile. Wegbereiter fuer spaeteren Cleanup der
-            # legacy optimization_*-Spalten auf der TA.
-            ('optimization_run_id', 'TEXT'),
-            # Stochastic Goal Engine Stage 5: persistierter Shadow-Vergleich
-            # fuer Admin-/Compliance-Auswertung.
-            ('shadow_optimization_json', 'TEXT'),
-            # AR-2 (2026-07-19): persistierte Monte-Carlo-Risiko-KPIs (bps,
-            # Beratungsvermoegens-Ebene) fuer den FIDLEG-Report. Migration
-            # ergaenzt sie idempotent auf bestehenden SQLite-DBs; Alt-TAs
-            # bleiben NULL (Report zeigt dann "—", kein Bruch).
-            ('mc_exp_vol_bps', 'INTEGER'),
-            ('mc_exp_return_bps', 'INTEGER'),
-            ('mc_max_drawdown_bps', 'INTEGER'),
-            ('mc_var_95_bps', 'INTEGER'),
         ],
         'optimizer_runs': [
             # U-9 Stage-9 Telemetry: pro Solver-Start n_paths/n_starts/Seed/
