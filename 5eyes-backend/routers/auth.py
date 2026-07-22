@@ -1,6 +1,7 @@
 import hashlib
 import logging
 import secrets
+import time
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
@@ -19,7 +20,10 @@ from services.auth import (
 )
 from services.login_guard import login_attempt_guard
 from services.audit import log
-from services.totp import generate_secret, provisioning_uri, qr_svg_data_uri, verify as totp_verify
+from services.totp import (
+    generate_secret, provisioning_uri, qr_svg_data_uri, verify as totp_verify,
+    _PERIOD as _TOTP_PERIOD_SECONDS,
+)
 from services.mailer import send_invite_email, send_password_reset_email
 from services.quota import assert_within_quota
 from services.account_recovery import (
@@ -64,6 +68,28 @@ def _issue_token_response(user: User) -> TokenResponse:
     from services.auth import issue_token_for_user
     token = issue_token_for_user(user)
     return TokenResponse(access_token=token, user=UserResponse.model_validate(user))
+
+
+def _totp_replay_check_and_record(user: User) -> bool:
+    """AUTH-06: Anti-Replay fuer TOTP-Login. services/totp.verify() prueft nur,
+    ob der Code zum aktuellen Zeitfenster (+/-1 Zeitschritt) passt — ohne
+    Gedaechtnis kann derselbe (mitgelesene) Code beliebig oft im selben
+    Zeitfenster wiederverwendet werden. Diese Funktion haelt den zuletzt
+    akzeptierten HOTP-Zeitschritt am User fest (totp_last_counter) und liefert
+    True, wenn der aktuelle Zeitschritt bereits verwendet wurde (Replay) — der
+    Aufrufer MUSS den Login dann verweigern. Sonst wird der Zeitschritt als
+    'zuletzt akzeptiert' auf dem (noch nicht committeten) User-Objekt vermerkt.
+    services/totp.py bleibt unveraendert."""
+    counter = int(time.time() // _TOTP_PERIOD_SECONDS)
+    raw_last = getattr(user, "totp_last_counter", None)
+    try:
+        last = int(raw_last) if raw_last is not None else None
+    except (TypeError, ValueError):
+        last = None
+    if last is not None and counter <= last:
+        return True
+    user.totp_last_counter = str(counter)
+    return False
 
 
 def _login_guard_key(request: Request, username: str) -> str:
@@ -184,6 +210,13 @@ def login(body: LoginRequest, request: Request, db: Session = Depends(get_db)):
                 failure = login_attempt_guard.register_failure(guard_key)
                 headers = {"Retry-After": str(failure.retry_after_seconds)} if failure.retry_after_seconds else None
                 raise HTTPException(status_code=401, detail="2FA-Code falsch", headers=headers)
+        else:
+            # AUTH-06: gueltiger TOTP-Code — aber schon in diesem/einem
+            # frueheren Zeitschritt verwendet (Replay, z.B. mitgelesener Code)?
+            if _totp_replay_check_and_record(user):
+                failure = login_attempt_guard.register_failure(guard_key)
+                headers = {"Retry-After": str(failure.retry_after_seconds)} if failure.retry_after_seconds else None
+                raise HTTPException(status_code=401, detail="2FA-Code bereits verwendet", headers=headers)
 
     login_attempt_guard.register_success(guard_key)
     user.last_login_at = _now()
