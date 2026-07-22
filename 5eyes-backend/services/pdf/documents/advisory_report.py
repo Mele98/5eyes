@@ -174,6 +174,10 @@ def render_advisory_report_pdf_from_payload(
     )
     total_pages = counter.page_count or 1
     toc_page_numbers = toc_collector.page_numbers_by_title()
+    # Roadmap #71/#72: same collector also carries the bookmark key per
+    # section, so the Pass-2 TOC table can render real internal hyperlinks
+    # (not just page numbers) — see `make_toc_table` / `TocSectionAnchor`.
+    toc_section_ids = toc_collector.section_ids_by_title()
 
     out_buf, out_doc = _new_doc()
     chrome = make_advisory_page_chrome(
@@ -182,7 +186,11 @@ def render_advisory_report_pdf_from_payload(
         total_pages_hint=total_pages,
     )
     out_doc.build(
-        _build_all_flowables(payload, styles, toc_page_numbers=toc_page_numbers),
+        _build_all_flowables(
+            payload, styles,
+            toc_page_numbers=toc_page_numbers,
+            toc_section_ids=toc_section_ids,
+        ),
         onFirstPage=chrome, onLaterPages=chrome,
     )
     elapsed = time.perf_counter() - started
@@ -196,10 +204,12 @@ def _build_all_flowables(
     *,
     toc_collector: TocCollector | None = None,
     toc_page_numbers: dict[str, int] | None = None,
+    toc_section_ids: dict[str, str] | None = None,
 ) -> list[Any]:
     """Erzeugt einen *frischen* Flowable-Snapshot — wird zweimal aufgerufen
     (Pass 1 zum Zaehlen + TOC-Sammeln, Pass 2 zum Zeichnen mit echten
-    Seitenzahlen). U-13."""
+    Seitenzahlen). U-13. `toc_section_ids` (Roadmap #71/#72) ist nur in
+    Pass 2 gesetzt und macht die TOC-Zeilen zu echten internen Links."""
     flowables: list[Any] = []
     flowables.extend(_build_cover_flowables(payload.get("cover") or {}, styles))
     flowables.append(PageBreak())
@@ -210,6 +220,7 @@ def _build_all_flowables(
     flowables.extend(_build_toc_flowables(
         payload.get("inhaltsverzeichnis") or {}, styles,
         page_numbers_by_title=toc_page_numbers,
+        section_ids_by_title=toc_section_ids,
     ))
     flowables.append(PageBreak())
     flowables.append(_toc_anchor(toc_collector, "ausgangslage", "Ausgangslage"))
@@ -441,8 +452,12 @@ def _build_toc_flowables(
     styles: dict,
     *,
     page_numbers_by_title: dict[str, int] | None = None,
+    section_ids_by_title: dict[str, str] | None = None,
 ) -> list[Any]:
-    """Kapitel mit echten Seitenzahlen aus dem Two-Pass-Collector."""
+    """Kapitel mit echten Seitenzahlen aus dem Two-Pass-Collector.
+
+    `section_ids_by_title` (Roadmap #71/#72) macht jede Zeile zusätzlich zu
+    einem klickbaren internen Link auf den jeweiligen Sektions-Anker."""
     out: list[Any] = []
     out.append(Paragraph("Sektion 3", styles["kicker"]))
     out.append(Paragraph("Inhaltsverzeichnis", styles["h1"]))
@@ -465,6 +480,7 @@ def _build_toc_flowables(
         styles,
         inner_width=inner_width,
         page_numbers_by_title=page_numbers_by_title,
+        section_ids_by_title=section_ids_by_title,
     ))
     return out
 
