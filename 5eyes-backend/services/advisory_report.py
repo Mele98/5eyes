@@ -305,6 +305,8 @@ def _compute_advisory_report_inner(
         "mandate_lock_status": _build_mandate_lock_status(db, mandate),
         # --- Sektion 23 (additiv, U-21): Liquidity-Cascade Stage-3 Warning
         "liquidity_cascade": _build_liquidity_cascade(db, mandate),
+        # --- Sektion 28 (additiv, Roadmap #61): Reserve-Erklaerbarkeit
+        "reserve_explainability": _build_reserve_explainability(db, mandate),
         # --- Sektion 24 (additiv, U-94): Optimizer-Run-History
         "optimizer_run_history": _build_optimizer_run_history(db, mandate),
         # --- Sektion 25 (additiv, U-97): Performance-Attribution (Brinson)
@@ -3007,6 +3009,293 @@ def _build_liquidity_cascade(
             "beratungsgespraech_pruefen": False,
             "fidleg_basis": "Art. 11 / Art. 13 FIDLEG",
         }
+
+
+# ---------------------------------------------------------------------------
+# Roadmap #61 (2026-07-22): Reserve-Erklaerbarkeit im Report.
+# ---------------------------------------------------------------------------
+#
+# Ziel: die Reserve-Herleitung (near-term-shortfall, Ziel-Reserven, SAA-
+# Liquiditaets-Ceiling, externe Reserve, "Anderes Vermoegen"-Absorption),
+# die services.portfolio_engine._compute_reserve_for_inputs bereits bei der
+# Allokations-Generierung berechnet, als Berater-Narrativ im Report sichtbar
+# machen. Rein additiv/erklaerend — die angezeigten Reserve-Betraege sind
+# IMMER die bei der Allokations-Generierung persistierten Werte
+# (reserve_needed_at_generation_rappen / external_reserve_at_generation_rappen)
+# und werden hier NIE veraendert.
+#
+# Luecke (verifiziert 2026-07-22): der Read-/Rebuild-Pfad
+# (build_target_payload_from_allocation) ruft _compute_reserve_for_inputs mit
+# reasoning=None auf — die granularen Erklaerungstexte, die die Funktion bei
+# der Generierung produziert, werden also aktuell NICHT persistiert und
+# landen NICHT im Advisory-Report-Payload. Diese Sektion schliesst die
+# Luecke, indem sie _compute_reserve_for_inputs — die Single Source of Truth
+# fuer die Reserve-Logik — ein zweites Mal rein lesend mit denselben Inputs
+# wie der Read-Pfad aufruft, um die reasoning-Liste zu ernten (nicht um neue
+# Zahlen zu erzeugen). Nur wenn das frische Ergebnis exakt mit den
+# persistierten Totalen uebereinstimmt, wird die Komposition angezeigt
+# (fail-closed bei Datendrift seit Generierung — nie eine falsche Herleitung).
+
+
+def _recompute_reserve_reasoning(
+    db: Session, mandate: Mandate, ta: Any, saa_ceiling_bps: int,
+) -> dict[str, Any] | None:
+    """Ruft die Engine-Funktion `_compute_reserve_for_inputs` (Single Source
+    of Truth, services/portfolio_engine.py) mit frischer reasoning-Liste auf,
+    unter Verwendung derselben Inputs wie `build_target_payload_from_allocation`
+    (Cashflows inkl. vermoegensgetriebener Ableitungen, Ziele, Wealth-Inflows,
+    Mandats-Praeferenzen-Snapshot der TA). Reine Lese-Operation ohne DB-Writes.
+
+    Gibt None bei jeglichem Fehler zurueck — der Aufrufer faellt dann auf die
+    persistierten Totale ohne granulare Komposition zurueck (fail-closed).
+    """
+    from models.allocation import CapitalMarketAssumption
+    from models.wealth import WealthInflow, WealthPosition
+    from services.cashflow_timeline import recurring_net_cashflow_series, totals_for_year
+    from services.portfolio_engine import (
+        _allocation_snapshot_preferences,
+        _compute_reserve_for_inputs,
+        _inflation_path_series,
+        _normalize_preferences,
+        _simulation_horizon_years,
+        _wealth_inflow_series_rappen,
+    )
+    from services.wealth_cashflows import derive_wealth_cashflows
+
+    prefs = _normalize_preferences(_allocation_snapshot_preferences(ta))
+    goals = list(_cached_active_goals(db, mandate))
+
+    positions = (
+        db.query(WealthPosition)
+        .filter(
+            WealthPosition.client_id == mandate.client_id,
+            WealthPosition.deleted_at.is_(None),
+            WealthPosition.is_active == 1,
+        )
+        .all()
+    )
+    advisory_wealth_rappen = sum(
+        int(getattr(pos, "current_value_rappen", 0) or 0)
+        for pos in positions
+        if str(getattr(pos, "assignment", "")) == "Beratungsvermögen"
+    )
+    # Sprint B2 (portfolio_engine): Anderes-Vermoegen-Schloss-Pool, der die
+    # externe Reserve reduzieren kann.
+    unlocked_other_assets_rappen = sum(
+        int(getattr(pos, "current_value_rappen", 0) or 0)
+        for pos in positions
+        if int(getattr(pos, "is_available_for_goal_funding", 0) or 0) == 1
+        and str(getattr(pos, "assignment", "")) == "Anderes Vermögen"
+    )
+
+    cashflows = list(_cached_active_cashflows(db, str(mandate.client_id)))
+    cashflows = cashflows + derive_wealth_cashflows(positions)
+
+    fx_source = None
+    try:
+        from services.currency.fx_rates import FXRateSource
+        fx_source = FXRateSource.from_db(db)
+    except Exception:  # noqa: BLE001
+        fx_source = None
+    target_currency = str(getattr(mandate, "base_currency", "CHF") or "CHF").upper()
+
+    cma = (
+        db.query(CapitalMarketAssumption)
+        .filter(CapitalMarketAssumption.is_current == 1)
+        .order_by(CapitalMarketAssumption.valid_from.desc())
+        .first()
+    )
+    if cma is None:
+        return None
+
+    cashflow_totals = totals_for_year(cashflows, fx_source=fx_source, target_currency=target_currency)
+    recurring_net_cashflow_rappen = (
+        cashflow_totals["recurring_income_rappen"] - cashflow_totals["recurring_expense_rappen"]
+    )
+    projection_years = _simulation_horizon_years(prefs["simulation"], goals, mandate)
+    cf_inflation_series_bps = _inflation_path_series(cma, projection_years, cashflow_totals["year"])
+    recurring_cashflow_projection_series_rappen = recurring_net_cashflow_series(
+        cashflows,
+        projection_years,
+        start_year=cashflow_totals["year"],
+        inflation_series_bps=cf_inflation_series_bps,
+        fx_source=fx_source,
+        target_currency=target_currency,
+    )
+
+    inflows = (
+        db.query(WealthInflow)
+        .filter(
+            WealthInflow.client_id == mandate.client_id,
+            WealthInflow.deleted_at.is_(None),
+            WealthInflow.is_active == 1,
+        )
+        .all()
+    )
+    inflow_projection_series_rappen = _wealth_inflow_series_rappen(
+        inflows, projection_years, cashflow_totals["year"], cf_inflation_series_bps,
+    )
+
+    reasoning: list[str] = []
+    fresh_needed_rappen, fresh_external_rappen = _compute_reserve_for_inputs(
+        goals=goals,
+        limits_prefs=prefs["limits"],
+        asset_class_prefs=prefs["assetClasses"],
+        recurring_net_cashflow_rappen=recurring_net_cashflow_rappen,
+        recurring_cashflow_projection_series_rappen=recurring_cashflow_projection_series_rappen,
+        advisory_wealth_rappen=advisory_wealth_rappen,
+        saa_liquidity_ceiling_bps=saa_ceiling_bps,
+        reasoning=reasoning,
+        unlocked_other_assets_rappen=unlocked_other_assets_rappen,
+        inflow_projection_series_rappen=inflow_projection_series_rappen,
+    )
+    return {
+        "reserve_needed_rappen": fresh_needed_rappen,
+        "external_reserve_rappen": fresh_external_rappen,
+        "advisory_wealth_rappen": advisory_wealth_rappen,
+        "reasoning": reasoning,
+    }
+
+
+def _build_reserve_explainability(db: Session, mandate: Mandate) -> dict[str, Any]:
+    """Sektion 28 (additiv, Roadmap #61) — Reserve-Erklaerbarkeit.
+
+    Zeigt, WARUM die aktuelle Soll-Allokation eine Liquiditaetsreserve
+    ausweist (near-term-Cashflow-Shortfall, Nahziele, manuelle Vorgabe) und
+    ob/warum eine externe Reserve empfohlen wird (SAA-Liquiditaets-Ceiling
+    ueberschritten), inkl. "Anderes Vermoegen"-Absorption falls zutreffend.
+
+    Zahlen-Ground-Truth sind ausschliesslich die bei Allokations-Generierung
+    persistierten Felder `reserve_needed_at_generation_rappen` /
+    `external_reserve_at_generation_rappen` der aktuellen TargetAllocation —
+    diese werden hier NIE neu berechnet oder ueberschrieben. Die granulare
+    Komposition (Narrativ) wird nur gezeigt, wenn eine frische, rein lesende
+    Nachrechnung ueber dieselbe Engine-Funktion exakt dieselben Totale
+    liefert (sonst: Datendrift, Komposition wird unterdrueckt, Hinweis statt
+    falscher Herleitung).
+
+    Fail-closed: jeder Fehler (fehlende TA, Schema-Mismatch, Exception in der
+    Nachrechnung) degradiert auf ein leeres/neutrales Schema statt zu
+    crashen oder falsche Zahlen zu zeigen.
+    """
+    empty: dict[str, Any] = {
+        "available": False,
+        "reserve_needed_rappen": None,
+        "external_reserve_rappen": None,
+        "saa_liquidity_ceiling_bps": None,
+        "external_reserve_recommended": False,
+        "external_reserve_reason": None,
+        "other_assets_absorption_rappen": None,
+        "composition_available": False,
+        "narrative": [],
+        "drift_detected": False,
+        "hinweis": "Keine Reserve-Herleitung verfuegbar (keine aktive Soll-Allokation).",
+        "fidleg_basis": "Art. 8 / Art. 9 FIDLEG (Transparenz Kosten- und Anlageentscheid)",
+    }
+    try:
+        ta = _cached_current_ta(db, mandate)
+        if ta is None:
+            return empty
+
+        raw_needed = getattr(ta, "reserve_needed_at_generation_rappen", None)
+        raw_external = getattr(ta, "external_reserve_at_generation_rappen", None)
+        if raw_needed is None or raw_external is None:
+            return {
+                **empty,
+                "hinweis": (
+                    "Diese Soll-Allokation stammt aus einer Phase ohne persistierte "
+                    "Reserve-Audit-Felder (Legacy). Bitte Strategie neu berechnen, "
+                    "damit eine Reserve-Herleitung angezeigt werden kann."
+                ),
+            }
+
+        reserve_needed_rappen = _safe_int(raw_needed)
+        external_reserve_rappen = _safe_int(raw_external)
+
+        from services.portfolio_engine import _SAA_LIQUIDITY_HARD_CAP_BPS
+        band_liquidity_max_bps = getattr(ta, "band_liquidity_max_bps", None)
+        saa_ceiling_bps = min(
+            int(band_liquidity_max_bps) if band_liquidity_max_bps is not None
+            else int(_SAA_LIQUIDITY_HARD_CAP_BPS),
+            int(_SAA_LIQUIDITY_HARD_CAP_BPS),
+        )
+
+        if reserve_needed_rappen <= 0:
+            return {
+                **empty,
+                "available": True,
+                "reserve_needed_rappen": 0,
+                "external_reserve_rappen": 0,
+                "saa_liquidity_ceiling_bps": saa_ceiling_bps,
+                "composition_available": True,
+                "narrative": ["Fuer dieses Mandat besteht aktuell kein zusaetzlicher Liquiditaetsreserve-Bedarf."],
+                "hinweis": None,
+            }
+
+        composition_available = False
+        drift_detected = False
+        narrative: list[str] = []
+        other_assets_absorption_rappen: int | None = None
+
+        try:
+            fresh = _recompute_reserve_reasoning(db, mandate, ta, saa_ceiling_bps)
+        except Exception:  # noqa: BLE001
+            fresh = None
+
+        if fresh is not None and (
+            fresh["reserve_needed_rappen"] == reserve_needed_rappen
+            and fresh["external_reserve_rappen"] == external_reserve_rappen
+        ):
+            composition_available = True
+            narrative = list(fresh["reasoning"])
+            advisory_wealth_rappen = int(fresh["advisory_wealth_rappen"] or 0)
+            saa_reserve_rappen = int(round(saa_ceiling_bps * advisory_wealth_rappen / 10000))
+            pre_absorption_external_rappen = max(0, reserve_needed_rappen - saa_reserve_rappen)
+            other_assets_absorption_rappen = max(
+                0, pre_absorption_external_rappen - external_reserve_rappen,
+            )
+        elif fresh is not None:
+            drift_detected = True
+
+        external_reserve_recommended = external_reserve_rappen > 0
+        external_reserve_reason = (
+            "Der Liquiditaetsbedarf uebersteigt die strategische SAA-Liquiditaets-"
+            f"Obergrenze von {saa_ceiling_bps / 100:.1f}%. Der Ueberschuss wird als "
+            "externe Reserve ausserhalb des Beratungsmandats empfohlen."
+            if external_reserve_recommended else None
+        )
+
+        hinweis = None
+        if drift_detected:
+            hinweis = (
+                "Hinweis: Die Reserve-Zusammensetzung konnte nicht im Detail "
+                "hergeleitet werden, weil sich Cashflows, Ziele oder Praeferenzen "
+                "seit der letzten Allokations-Generierung geaendert haben. Die "
+                "angezeigten Reserve-Betraege sind unveraendert die bei der "
+                "Generierung persistierten Werte. Strategie neu berechnen, um die "
+                "Herleitung zu aktualisieren."
+            )
+        elif not composition_available:
+            hinweis = (
+                "Hinweis: Reserve-Zusammensetzung konnte nicht ermittelt werden."
+            )
+
+        return {
+            "available": True,
+            "reserve_needed_rappen": reserve_needed_rappen,
+            "external_reserve_rappen": external_reserve_rappen,
+            "saa_liquidity_ceiling_bps": saa_ceiling_bps,
+            "external_reserve_recommended": external_reserve_recommended,
+            "external_reserve_reason": external_reserve_reason,
+            "other_assets_absorption_rappen": other_assets_absorption_rappen,
+            "composition_available": composition_available,
+            "narrative": narrative,
+            "drift_detected": drift_detected,
+            "hinweis": hinweis,
+            "fidleg_basis": "Art. 8 / Art. 9 FIDLEG (Transparenz Kosten- und Anlageentscheid)",
+        }
+    except Exception:  # noqa: BLE001
+        return empty
 
 
 # ---------------------------------------------------------------------------
