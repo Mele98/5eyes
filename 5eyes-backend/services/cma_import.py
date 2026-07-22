@@ -41,6 +41,7 @@ REQUIRED_COLUMNS: tuple[str, ...] = (
 
 OPTIONAL_TEXT_COLUMNS: tuple[str, ...] = (
     "source",
+    "source_date",  # Roadmap #51: ISO-Datum der Quellpublikation, additiv.
     "notes",
     "valid_until",
 )
@@ -82,6 +83,10 @@ class ImportRowResult:
     issues: list[ImportIssue] = field(default_factory=list)
     diff: dict[str, tuple[Any, Any]] = field(default_factory=dict)  # column -> (old, new)
     applied: bool = False
+    # Roadmap #51: Warnungen von validate_cma_conservative() (nicht blockierend).
+    # Leer = keine Rueckwaerts-Abweichung von der Konservativitaets-Maxime
+    # gegenueber der vorherigen is_current=1-Version erkannt.
+    conservative_warnings: list[str] = field(default_factory=list)
 
     @property
     def has_errors(self) -> bool:
@@ -202,6 +207,95 @@ def diff_against_current(db: Any, row: dict) -> dict[str, tuple[Any, Any]]:
     return diff
 
 
+def _get_current_cma_entry(db: Any, name: str) -> Any | None:
+    """Liefert die aktuelle (is_current=1, deleted_at IS NULL) Zeile fuer
+    `name`, oder None wenn es keine Vorgaenger-Version gibt.
+
+    Eigenstaendiger Helper (statt diff_against_current umzubauen), damit das
+    bestehende, testabgedeckte Verhalten von diff_against_current unberuehrt
+    bleibt.
+    """
+    from models.allocation import CapitalMarketAssumption  # lazy
+    name = (name or "").strip()
+    if not name:
+        return None
+    return (
+        db.query(CapitalMarketAssumption)
+        .filter(
+            CapitalMarketAssumption.assumption_set_name == name,
+            CapitalMarketAssumption.is_current == 1,
+            CapitalMarketAssumption.deleted_at.is_(None),
+        )
+        .order_by(CapitalMarketAssumption.version.desc())
+        .first()
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Konservativitaets-Validierung (Roadmap #51: CMA-Werte-Pflegeprozess)
+# --------------------------------------------------------------------------- #
+_RETURN_BPS_FIELDS: tuple[str, ...] = tuple(
+    col for col in CMA_NUMERIC_COLUMNS if col.endswith("_return_bps")
+)
+
+
+def _cma_field_value(obj: Any, field_name: str) -> int | None:
+    """Liest ein *_return_bps-Feld aus einer ORM-Instanz ODER einer
+    dict-artigen CSV-Row. CSV-Rows liefern Strings (oder None/""); ORM-
+    Instanzen liefern int|None. None/"" wird als "fehlt" behandelt."""
+    if obj is None:
+        return None
+    raw = obj.get(field_name) if isinstance(obj, dict) else getattr(obj, field_name, None)
+    if raw is None or raw == "":
+        return None
+    return int(raw)
+
+
+def validate_cma_conservative(cma_new: Any, cma_previous: Any) -> list[str]:
+    """Warnt (blockiert NICHT), wenn die neue CMA-Version bei Rendite-
+    erwartungen optimistischer ist als die vorherige aktuelle Version.
+
+    Maxime (Memory feedback_conservative_values, Ruhestandsgelder): bei
+    Renditeerwartungen immer den TIEFEREN Wert nehmen. Diese Funktion
+    operationalisiert die Maxime als reines Warnsystem (Roadmap #51):
+    sie vergleicht jedes `*_return_bps`-Feld von `cma_new` gegen den Wert
+    im selben Feld von `cma_previous` und meldet jedes Feld, dessen neuer
+    Wert HOEHER liegt als der alte.
+
+    `cma_new` / `cma_previous` duerfen `CapitalMarketAssumption`-ORM-
+    Instanzen ODER dict-artige CSV-Rows sein (siehe read_cma_csv). Felder,
+    die in einer der beiden Seiten fehlen (None/""), werden uebersprungen
+    (kein Vergleich moeglich -> keine Warnung).
+
+    `cma_previous=None` (keine Vorgaenger-Version, z.B. erstes Anlegen
+    eines neuen assumption_set_name) liefert immer eine leere Liste.
+
+    Aendert NIE automatisch Werte und wirft KEINE Exception -- reines
+    Warnsystem, kein hartes Gate. Der Berater/Admin kann bewusst von der
+    Maxime abweichen (z.B. begruendete Neubewertung der Marktlage), aber
+    die Abweichung muss durch die zurueckgegebenen Warnungen auffallen.
+
+    Returns:
+        Liste menschenlesbarer Warnungen (Deutsch). Leer = keine
+        Abweichung von der Konservativitaets-Maxime erkannt.
+    """
+    warnings: list[str] = []
+    if cma_previous is None:
+        return warnings
+    for field_name in _RETURN_BPS_FIELDS:
+        old_val = _cma_field_value(cma_previous, field_name)
+        new_val = _cma_field_value(cma_new, field_name)
+        if old_val is None or new_val is None:
+            continue
+        if new_val > old_val:
+            warnings.append(
+                f"{field_name}: neue Annahme {new_val} bps > vorherige Version "
+                f"{old_val} bps (optimistischer als Vorgaenger -- Maxime 'immer "
+                "der tiefere Wert bei Renditeerwartungen' pruefen)."
+            )
+    return warnings
+
+
 # --------------------------------------------------------------------------- #
 # Apply
 # --------------------------------------------------------------------------- #
@@ -244,6 +338,7 @@ def apply_cma_row(db: Any, row: dict, user_id: str | None) -> Any:
         "valid_until": row.get("valid_until"),
         "is_current": 1,
         "source": row.get("source") or "csv-import",
+        "source_date": row.get("source_date"),
         "notes": row.get("notes"),
         "created_at": now_iso,
         "updated_at": now_iso,
@@ -286,6 +381,15 @@ def import_cma_csv(
             row_result.diff = diff_against_current(db, row)
         except Exception as exc:  # noqa: BLE001
             row_result.issues.append(ImportIssue(idx, None, f"diff failed: {exc}", "warning"))
+        # Konservativitaets-Check (Roadmap #51, auch bei dry_run -- reine
+        # Warnung, blockiert weder Validation noch Apply).
+        try:
+            previous = _get_current_cma_entry(db, row_result.assumption_set_name)
+            row_result.conservative_warnings = validate_cma_conservative(row, previous)
+        except Exception as exc:  # noqa: BLE001
+            row_result.issues.append(
+                ImportIssue(idx, None, f"conservative-check failed: {exc}", "warning")
+            )
         # Apply
         if not row_result.has_errors and not dry_run:
             try:

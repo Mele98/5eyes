@@ -417,6 +417,11 @@ def ensure_runtime_columns() -> None:
             # Sprint 8 (2026-05-17): Risikopraemien-Modell fuer RE + Alternatives.
             ('real_estate_risk_premium_bps', 'INTEGER'),
             ('alternatives_risk_premium_bps', 'INTEGER'),
+            # Roadmap #51 (2026-07-23): CMA-Werte-Pflegeprozess -- Quelle/Datum
+            # dokumentieren. source (Herkunft) existierte bereits im Bootstrap-
+            # SQL; source_date (ISO-Datum der Quellpublikation, kann von
+            # valid_from abweichen) fehlte -- additive Migration fuer Alt-DBs.
+            ('source_date', 'TEXT'),
         ],
         'optimizer_runs': [
             # U-9 Stage-9 Telemetry: pro Solver-Start n_paths/n_starts/Seed/
