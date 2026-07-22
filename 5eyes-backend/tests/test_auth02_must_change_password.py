@@ -125,3 +125,35 @@ def test_change_password_too_short_rejected(session_factory, client):
     r = client.post("/auth/change-password", headers=_auth(tok),
                     json={"current_password": "OldPassw0rd", "new_password": "short"})
     assert r.status_code == 422
+
+
+def test_self_service_password_endpoint_reachable_when_must_change(session_factory, client):
+    """A2-Smoke-Test-Fund (2026-07-22): das BESTEHENDE Frontend-Modal fuer den
+    erzwungenen Erst-Passwortwechsel ruft PUT /users/{eigene_id}/password
+    (nicht /auth/change-password) — dieser Pfad muss trotz must_change_password
+    erreichbar sein, sonst waere jeder frisch angelegte User ausgesperrt."""
+    uid = _seed(session_factory, must_change=1)
+    tok = _token(session_factory, uid)
+    r = client.put(f"/users/{uid}/password", headers=_auth(tok),
+                   json={"new_password": "NewPassw0rd1"})
+    assert r.status_code == 200
+    with session_factory() as s:
+        assert s.query(User).filter(User.id == uid).first().must_change_password == 0
+
+
+def test_self_service_password_endpoint_blocked_for_other_users_while_locked(session_factory, client):
+    """Die Ausnahme gilt NUR fuer die EIGENE user_id — ein gesperrter Admin darf
+    waehrend must_change_password weiterhin NICHT das Passwort eines ANDEREN
+    Users zuruecksetzen (kein genereller /password-Freifahrtschein)."""
+    admin_uid = _seed(session_factory, uid="u-admin-mcp", must_change=1)
+    with session_factory() as s:
+        s.add(User(
+            id="u-other", username="u-other", password_hash=hash_password("Whatever1"),
+            full_name="Other", role="advisor", is_active=1,
+            must_change_password=0, created_at=_now(), updated_at=_now(),
+        ))
+        s.commit()
+    tok = _token(session_factory, admin_uid)
+    r = client.put("/users/u-other/password", headers=_auth(tok),
+                   json={"new_password": "NewPassw0rd1"})
+    assert r.status_code == 403

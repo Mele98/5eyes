@@ -151,9 +151,28 @@ def get_current_user(
     # bis er das Passwort geaendert hat -> sonst 403. 'request' ist optional
     # (direkte get_current_user-Aufrufe in Tests umgehen das Gate; ueber FastAPI
     # wird es injiziert). Verhindert das Aussperren (change-password bleibt offen).
+    #
+    # A2-Smoke-Test-Fund (2026-07-22): das bestehende Frontend-Modal fuer den
+    # erzwungenen Erst-Passwortwechsel ruft NICHT den neuen /auth/change-password-
+    # Endpoint, sondern den bereits vorhandenen Self-Service-Pfad
+    # PUT /users/{eigene_id}/password (routers/auth.py:reset_user_password,
+    # is_self=True -> Flag wird geloescht). Ohne diese Ausnahme waere JEDER
+    # frisch angelegte User permanent ausgesperrt (der einzige UI-Weg zum
+    # Passwortwechsel selbst wird geblockt). Bewusst NUR fuer PUT auf die EIGENE
+    # user_id -> ein gesperrter Admin kann weiterhin NICHT das Passwort anderer
+    # User zuruecksetzen, waehrend sein eigenes offen ist.
     if getattr(user, "must_change_password", 0) and request is not None:
         path = (getattr(getattr(request, "url", None), "path", "") or "").rstrip("/")
-        if not path.endswith(("/auth/change-password", "/auth/me", "/auth/logout")):
+        method = str(getattr(request, "method", "") or "").upper()
+        is_self_password_reset = (
+            method == "PUT"
+            and path.endswith("/password")
+            and path.rsplit("/", 2)[-2:-1] == [str(user.id)]
+        )
+        if not (
+            path.endswith(("/auth/change-password", "/auth/me", "/auth/logout"))
+            or is_self_password_reset
+        ):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=("Passwort muss geaendert werden, bevor weitere Aktionen "
