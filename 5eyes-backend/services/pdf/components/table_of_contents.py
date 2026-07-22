@@ -1,7 +1,15 @@
-"""Advisory-Report table of contents with real page numbers.
+"""Advisory-Report table of contents with real page numbers and links.
 
 U-13: ReportLab renders sequentially, so TOC page numbers are collected in
 Pass 1 through invisible section anchors and rendered in Pass 2.
+
+Roadmap #71/#72: the same section anchors also drop a named PDF bookmark
+(`canvas.bookmarkPage`) and a PDF-outline/sidebar entry
+(`canvas.addOutlineEntry`) at every section start. The TOC table wraps each
+row's title/page cells in a ReportLab `<link href="#<section_id>">` tag,
+which ReportLab turns into an internal `GoTo` annotation
+(`Canvas.linkRect`) pointing at that bookmark — so the printed TOC is
+clickable in any PDF viewer, in addition to showing the real page number.
 """
 from __future__ import annotations
 
@@ -61,6 +69,11 @@ class TocCollector:
     def page_numbers_by_id(self) -> dict[str, int]:
         return {entry.section_id: entry.page_number for entry in self._entries}
 
+    def section_ids_by_title(self) -> dict[str, str]:
+        """Title → bookmark key, used by the TOC table to build internal
+        hyperlinks that jump to the same anchor used for the page number."""
+        return {entry.title: entry.section_id for entry in self._entries}
+
 
 class TocSectionAnchor(Flowable):
     """Zero-height flowable that records the current page when drawn."""
@@ -77,6 +90,20 @@ class TocSectionAnchor(Flowable):
         return 0, 0
 
     def draw(self) -> None:
+        # Roadmap #71/#72: drop a named bookmark + PDF-outline entry at the
+        # start of every section, independent of TOC collection — this is
+        # what makes the TOC's `<link href="#section_id">` cells (see
+        # `make_toc_table`) resolve to a real destination, and it also
+        # gives the reader a native sidebar/outline navigation panel.
+        # `getattr` guards keep this safe against minimal canvas doubles in
+        # unit tests that only implement `getPageNumber()`.
+        bookmark_page = getattr(self.canv, "bookmarkPage", None)
+        if bookmark_page is not None:
+            bookmark_page(self.section_id)
+        add_outline_entry = getattr(self.canv, "addOutlineEntry", None)
+        if add_outline_entry is not None:
+            add_outline_entry(self.title or self.section_id, self.section_id, level=0, closed=0)
+
         if self.collector is None:
             return
         self.collector.register(
@@ -92,9 +119,21 @@ def make_toc_table(
     *,
     inner_width: float,
     page_numbers_by_title: Mapping[str, int] | None = None,
+    section_ids_by_title: Mapping[str, str] | None = None,
 ) -> Table:
-    """Build a TOC table with optional page numbers and dot leaders."""
+    """Build a TOC table with real page numbers, dot leaders, and — when
+    `section_ids_by_title` is given — clickable internal links.
+
+    `section_ids_by_title` maps a section title (as collected by
+    `TocCollector`) to the bookmark key that `TocSectionAnchor.draw()`
+    registered via `canvas.bookmarkPage()` for that section. When present,
+    the title/page cells become `<link href="#<section_id>">` so clicking
+    the TOC entry jumps to the section in any PDF viewer. Without it (e.g.
+    degraded-mode rendering with only estimated titles), rows render as
+    plain text — unchanged behaviour.
+    """
     rows = _toc_rows(chapters, page_numbers_by_title)
+    section_ids = dict(section_ids_by_title or {})
     nr_col = 14 * mm
     page_col = 10 * mm
     dots_col = 28 * mm
@@ -102,6 +141,13 @@ def make_toc_table(
 
     table_rows = []
     for row in rows:
+        href = _resolve_section_id(row["title"], section_ids) if section_ids else None
+        title_html = escape(row["title"])
+        page_html = escape(row["page"])
+        if href:
+            title_html = f"<link href='#{href}'>{title_html}</link>"
+            if page_html:
+                page_html = f"<link href='#{href}'>{page_html}</link>"
         table_rows.append([
             Paragraph(
                 (
@@ -111,7 +157,7 @@ def make_toc_table(
                 styles["caption"],
             ),
             Paragraph(
-                escape(row["title"]),
+                title_html,
                 _paragraph_style(styles["body"], color=COLOR_INK),
             ),
             Paragraph(
@@ -121,7 +167,7 @@ def make_toc_table(
                 ),
             ),
             Paragraph(
-                escape(row["page"]),
+                page_html,
                 _paragraph_style(
                     styles["caption"], color=COLOR_INK, font=FONT_SANS_BOLD,
                 ),
@@ -177,6 +223,21 @@ def _resolve_page_number(title: str, page_numbers_by_title: Mapping[str, int]) -
             return int(page)
         if collected_norm.startswith(normalized) or normalized.startswith(collected_norm):
             return int(page)
+    return None
+
+
+def _resolve_section_id(title: str, section_ids_by_title: Mapping[str, str]) -> str | None:
+    """Same fuzzy-matching contract as `_resolve_page_number`, so a TOC row
+    links to the exact anchor whose page number it displays."""
+    if title in section_ids_by_title:
+        return str(section_ids_by_title[title])
+    normalized = _norm(title)
+    for collected_title, section_id in section_ids_by_title.items():
+        collected_norm = _norm(collected_title)
+        if collected_norm == normalized:
+            return str(section_id)
+        if collected_norm.startswith(normalized) or normalized.startswith(collected_norm):
+            return str(section_id)
     return None
 
 
