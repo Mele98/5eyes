@@ -244,10 +244,21 @@ def create_support_bundle() -> dict[str, Any]:
     }
 
 
+_INTEGRITY_CHECK_MAX_PROBLEMS = 50
+
+
 def run_integrity_check(db: Session) -> dict[str, Any]:
+    # AB-6 (2026-07-23): PRAGMA integrity_check ohne Problem-Cap laeuft auf
+    # einer stark korrupten, grossen DB potenziell sehr lange und liefert ein
+    # unbeschraenktes Result-Set komplett ins Memory (.fetchall()). Mit N als
+    # Argument bricht SQLite nach spaetestens N gefundenen Problemen ab; das
+    # Python-seitige Slicing ist ein zusaetzliches Sicherheitsnetz, falls der
+    # SQLite-Build das Argument ignoriert.
     quick = db.execute(text('PRAGMA quick_check')).scalar()
-    integrity_rows = db.execute(text('PRAGMA integrity_check')).fetchall()
-    integrity = [row[0] for row in integrity_rows]
+    integrity_rows = db.execute(
+        text(f'PRAGMA integrity_check({_INTEGRITY_CHECK_MAX_PROBLEMS})')
+    ).fetchall()
+    integrity = [row[0] for row in integrity_rows][:_INTEGRITY_CHECK_MAX_PROBLEMS]
     return {
         'status': 'ok' if quick == 'ok' and integrity == ['ok'] else 'warning',
         'quick_check': quick,
