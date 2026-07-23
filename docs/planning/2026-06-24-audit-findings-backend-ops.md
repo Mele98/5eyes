@@ -27,11 +27,26 @@ am 2026-06-23/24. NOCH NICHT GEFIXT — priorisierter Backlog. Volle Roh-Outputs
 >   tenant-loser Admin ist im effektiv strikten/Multi-Tenant-Modus jetzt
 >   restricted statt global sichtbar; Tier1-BC unveraendert. Test: `tests/test_sec2_tenantless_admin_visibility.py`.
 > - rls-2 → `routers/protocol_bausteine.py` (`list_bausteine`,
->   `replace_mandate_selections`): Tenant-Filter auch fuer role=='admin'.
->   Test: `tests/test_rls2_baustein_tenant_isolation.py`.
+>   `replace_mandate_selections`, UND zusaetzlich `_can_edit_baustein`/PUT/DELETE
+>   — Tenant-Filter auch fuer role=='admin'). **Korrektur (2026-07-24):** dieser
+>   Branch's eigener rls-2-Commit (`41af31c`) wurde NICHT gemergt — ein
+>   unabhaengiges, parallel gelaufenes Security-Deep-Audit (`security/deep-audit
+>   -2026-07-23`, Fund F3) hatte exakt dasselbe Finding bereits vollstaendiger
+>   gefixt (deckt zusaetzlich `_can_edit_baustein`, also PUT/DELETE-Endpoints, ab
+>   -- rls-2's Fix liess die ab). Beide Fixes definierten sogar dieselbe Helper-
+>   Funktion `_apply_tenant_filter_to_baustein_query` mit leicht unterschied-
+>   licher Signatur -- ein Merge beider haette das Modul kaputt gemacht (Python
+>   Last-Definition-Wins, still). Die vollstaendigere F3-Variante ist in develop;
+>   `test_rls2_baustein_tenant_isolation.py` wurde NICHT gemergt (haette gegen
+>   nicht mehr existierende Funktionsnamen importiert), Abdeckung stattdessen
+>   ueber `tests/test_independent_security_audit_2026_07_23.py` (13 Tests).
 > - rls-3 → `schemas/wealth.py` + `routers/wealth.py`: Phase-0-Gate
->   (`enforce_data_classification`) fuer Wealth-Position/-Inflow nachgezogen.
->   Test: `tests/test_data_classification_gate.py` (2 neue Tests).
+>   (`enforce_data_classification`) fuer Wealth-Inflows nachgezogen. **Korrektur
+>   (2026-07-24):** der WealthPosition-Teil dieses Findings war bereits FRUEHER
+>   in derselben Session (vor diesem Branch) gefixt -- nur der WealthInflow-Teil
+>   war noch offen und wurde manuell (nicht per Merge, um Duplikate zu
+>   vermeiden) aus diesem Branch uebernommen. Test: `tests/test_data_classification_gate.py`
+>   (1 neuer Test: `test_wealth_inflow_create_and_update_enforce_gate`).
 > - MD-05 → `price_updater.py`: exponentielles Retry-Backoff + Jitter statt
 >   fixer Sleep-Dauer (`_retry_backoff_seconds`). Test: `tests/test_price_updater_md05_retry_backoff.py`.
 >   (Inter-Symbol-Throttle im Stooq-Batch-Loop bleibt OFFEN, siehe MD-05 unten.)
