@@ -137,31 +137,46 @@ def test_mainapp_open_reporting_app_function_handles_missing_mandate():
 
 def test_mainapp_open_reporting_app_uses_url_fragment_for_token():
     """Token MUSS via URL-Fragment übergeben werden, NICHT via Query.
-    Konkret: `#token=` muss im URL-Konstruktor auftauchen."""
+    Konkret: `#token=` muss im URL-Konstruktor auftauchen.
+
+    Roadmap #63 / ADR-008 Track 2 (2026-07-23): der Token-Handoff wurde aus
+    openReportingApp() in die geteilte Helper-Funktion
+    resolveReportingAppUrl() extrahiert (Wiederverwendung durch
+    openProfilingEditor()). openReportingApp() ruft sie auf statt die Logik
+    zu duplizieren — die Invariante wird jetzt im Helper geprueft.
+    """
     html = _read_mainapp()
     func_start = html.find("async function openReportingApp()")
     func_block = html[func_start:func_start + 2000]
-    assert "#token=" in func_block, (
+    assert "resolveReportingAppUrl" in func_block, (
+        "openReportingApp() muss den geteilten Token-Handoff-Helper nutzen"
+    )
+    assert "encodeURIComponent(mid)" in func_block
+
+    helper_start = html.find("async function resolveReportingAppUrl(")
+    assert helper_start > 0, "resolveReportingAppUrl() fehlt"
+    helper_block = html[helper_start:helper_start + 2000]
+    assert "#token=" in helper_block, (
         "Token MUSS via URL-Fragment uebergeben werden (Server-Log-Hygiene)"
     )
-    # Plus: encodeURIComponent fuer beide Werte
-    assert "encodeURIComponent(mid)" in func_block
-    assert "encodeURIComponent(token)" in func_block
+    assert "encodeURIComponent(token)" in helper_block
 
 
 def test_mainapp_open_reporting_app_uses_same_token_hierarchy_as_main_api():
-    """openReportingApp() MUSS dieselbe Token-Quellen-Hierarchie nutzen
-    wie der bestehende API-Client der Hauptapp:
+    """openReportingApp() MUSS (via resolveReportingAppUrl()) dieselbe
+    Token-Quellen-Hierarchie nutzen wie der bestehende API-Client der
+    Hauptapp:
       1. window.desktop.getAuthToken (Electron)
       2. sessionStorage['5eyes_token'] (Browser)
     Sonst kann der Berater die Reporting-App nicht öffnen, obwohl er
     in der Hauptapp eingeloggt ist."""
     html = _read_mainapp()
-    func_start = html.find("async function openReportingApp()")
-    func_block = html[func_start:func_start + 2000]
-    assert "window.desktop" in func_block
-    assert "getAuthToken" in func_block
-    assert "sessionStorage.getItem('5eyes_token')" in func_block
+    helper_start = html.find("async function resolveReportingAppUrl(")
+    assert helper_start > 0, "resolveReportingAppUrl() fehlt"
+    helper_block = html[helper_start:helper_start + 2000]
+    assert "window.desktop" in helper_block
+    assert "getAuthToken" in helper_block
+    assert "sessionStorage.getItem('5eyes_token')" in helper_block
 
 
 def test_mainapp_open_reporting_app_uses_window_open_with_noopener():
