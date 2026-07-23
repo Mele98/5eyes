@@ -706,6 +706,15 @@ def reset_user_password(
     user = db.query(User).filter(User.id == user_id, User.deleted_at.is_(None)).first()
     if not user:
         raise HTTPException(status_code=404, detail="Benutzer nicht gefunden")
+    # SEC (2026-07-23, unabhaengiges Audit): Mandanten-Trennung fuer den Admin-
+    # Reset-Zweig. Ohne diesen Check konnte ein tenant-gebundener Firmen-Admin
+    # (role='admin') das Passwort JEDES Users setzen -- auch von Usern eines
+    # fremden Tenants -- weil hier (im Unterschied zu resend_invite/revoke_invite/
+    # update_user) nie ein Tenant-Sichtbarkeits-Check stattfand. 404 statt 403,
+    # damit die Existenz eines fremden Users nicht geleakt wird (siehe
+    # _assert_user_visible_to).
+    if not is_self:
+        _assert_user_visible_to(current_user, user)
     user.password_hash = hash_password(body.new_password)
     # Self -> Flag loeschen (erledigt). Admin-Reset -> Flag setzen (Mitarbeiter
     # muss das vom Admin gesetzte Passwort beim naechsten Login aendern).
@@ -815,8 +824,18 @@ def get_adviser_registration(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    if current_user.role != "admin" and current_user.id != user_id:
+    if current_user.role not in ("admin", "super_admin") and current_user.id != user_id:
         raise HTTPException(status_code=403, detail="Nur eigene Beraterregistrierung einsehbar")
+    # SEC (2026-07-23, unabhaengiges Audit): Mandanten-Trennung -- ohne diesen
+    # Check konnte ein tenant-gebundener Firmen-Admin die FINMA-Registrierungs-
+    # daten (Registernummer, Ombudsstelle) eines Users eines FREMDEN Tenants
+    # einsehen, weil hier nie ein Tenant-Sichtbarkeits-Check stattfand.
+    if current_user.id != user_id:
+        target_user = db.query(User).filter(
+            User.id == user_id, User.deleted_at.is_(None),
+        ).first()
+        if target_user is not None:
+            _assert_user_visible_to(current_user, target_user)
     reg = db.query(AdviserRegistration).filter(
         AdviserRegistration.user_id == user_id,
         AdviserRegistration.deleted_at.is_(None)
@@ -833,6 +852,15 @@ def upsert_adviser_registration(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin)
 ):
+    # SEC (2026-07-23, unabhaengiges Audit): Mandanten-Trennung -- ohne diesen
+    # Check konnte ein tenant-gebundener Firmen-Admin die FINMA-Registrierungs-
+    # daten eines Users eines FREMDEN Tenants anlegen/ueberschreiben, weil hier
+    # (require_admin allein) nie ein Tenant-Sichtbarkeits-Check stattfand.
+    target_user = db.query(User).filter(
+        User.id == user_id, User.deleted_at.is_(None),
+    ).first()
+    if target_user is not None:
+        _assert_user_visible_to(current_user, target_user)
     now = _now()
     reg = db.query(AdviserRegistration).filter(
         AdviserRegistration.user_id == user_id,

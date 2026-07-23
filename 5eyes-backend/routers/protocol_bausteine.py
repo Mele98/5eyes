@@ -69,9 +69,53 @@ def _log(db: Session, *, user: User, table: str, record_id: str, action: str) ->
     )
 
 
+def _baustein_tenant_visible(baustein: ProtocolBaustein, user: User) -> bool:
+    """SEC (2026-07-23, unabhaengiges Audit): Mandanten-Trennung fuer die
+    Baustein-Bibliothek. Vorher pruefte diese Bibliothek (anders als jeder
+    andere Router in dieser Codebase) NIE tenant_id -- ein Admin sah/edierte/
+    loeschte automatisch ALLE Bausteine aller Tenants (list_bausteine liess
+    admin komplett ungefiltert, _can_edit_baustein gab admin blanko True).
+    Mirror von services.auth._apply_tenant_filter_to_client_query:
+    - User ohne tenant_id (Legacy/Tier1): immer sichtbar (kein Filter).
+    - Baustein ohne tenant_id (Legacy/Pre-T1-Baustein): sichtbar, ausser im
+      Strict-Modus (dort NUR exakter Tenant-Match, analog Client/Mandate).
+    - Sonst: tenant_id muss exakt matchen.
+    """
+    user_tid = str(getattr(user, "tenant_id", None) or "").strip()
+    if not user_tid:
+        return True
+    baustein_tid = str(getattr(baustein, "tenant_id", None) or "").strip()
+    if not baustein_tid:
+        from config import settings as _settings
+        from services.auth import _effective_strict_tenant_isolation
+        return not _effective_strict_tenant_isolation(_settings)
+    return baustein_tid == user_tid
+
+
+def _apply_tenant_filter_to_baustein_query(query, user: User):
+    """SEC (2026-07-23): Query-Variante von _baustein_tenant_visible, fuer
+    list_bausteine -- IMMER angewendet, auch fuer admin (spiegelt den
+    etablierten Kommentar/Pattern 'Tenant-Filter IMMER anwenden -- auch fuer
+    globale Admins' aus routers/clients.py::list_clients)."""
+    user_tid = str(getattr(user, "tenant_id", None) or "").strip()
+    if not user_tid:
+        return query
+    from sqlalchemy import or_
+    from config import settings as _settings
+    from services.auth import _effective_strict_tenant_isolation
+    if _effective_strict_tenant_isolation(_settings):
+        return query.filter(ProtocolBaustein.tenant_id == user_tid)
+    return query.filter(
+        or_(ProtocolBaustein.tenant_id == user_tid, ProtocolBaustein.tenant_id.is_(None))
+    )
+
+
 def _can_edit_baustein(baustein: ProtocolBaustein, user: User) -> bool:
     """Globale (advisor_id IS NULL) Bausteine darf nur admin aendern,
-    eigene Bausteine darf der Berater selbst."""
+    eigene Bausteine darf der Berater selbst. In jedem Fall zusaetzlich
+    tenant-sichtbar (siehe _baustein_tenant_visible)."""
+    if not _baustein_tenant_visible(baustein, user):
+        return False
     if user.role == "admin":
         return True
     if baustein.advisor_id and baustein.advisor_id == user.id:
@@ -92,13 +136,18 @@ def list_bausteine(
     current_user: User = Depends(get_current_user),
 ):
     """Berater sieht: eigene Bausteine + global (advisor_id IS NULL).
-    Admin sieht: alles."""
+    Admin sieht: alles -- aber IMMER nur innerhalb des eigenen Tenants (siehe
+    _apply_tenant_filter_to_baustein_query; SEC 2026-07-23)."""
     q = db.query(ProtocolBaustein).filter(ProtocolBaustein.deleted_at.is_(None))
     if current_user.role != "admin":
         q = q.filter(
             (ProtocolBaustein.advisor_id == current_user.id)
             | (ProtocolBaustein.advisor_id.is_(None))
         )
+    # SEC (2026-07-23): Tenant-Filter IMMER anwenden -- auch fuer globale
+    # Admins. Sonst sieht ein tenant-gebundener Admin (Firma A) die komplette
+    # Baustein-Bibliothek einer fremden Firma B (Cross-Tenant-Leak).
+    q = _apply_tenant_filter_to_baustein_query(q, current_user)
     if category:
         q = q.filter(ProtocolBaustein.category == category)
     if not include_inactive:
@@ -277,6 +326,17 @@ def replace_mandate_selections(
                 status_code=400,
                 detail=f"Unbekannte Baustein-IDs: {sorted(missing)}",
             )
+        # SEC (2026-07-23, unabhaengiges Audit): Tenant-Sichtbarkeit gilt fuer
+        # ALLE Rollen (auch admin) -- sonst koennte ein Mandat einen Baustein
+        # eines FREMDEN Tenants in sein Beratungsprotokoll ziehen (Content-
+        # Leak zwischen Firmen). Vorher pruefte dieser Block nur advisor_id
+        # und nur fuer Nicht-Admins.
+        for b in bausteine:
+            if not _baustein_tenant_visible(b, current_user):
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Baustein {b.id} gehoert einem anderen Mandanten",
+                )
         if current_user.role != "admin":
             for b in bausteine:
                 if b.advisor_id and b.advisor_id != current_user.id:
