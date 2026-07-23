@@ -7,6 +7,87 @@ am 2026-06-23/24. NOCH NICHT GEFIXT — priorisierter Backlog. Volle Roh-Outputs
 > Bewusst nicht über die Mitternacht-Deadline + in Codex' aktiv-dirty Dateien gepatcht.
 > **SEC-1 zuerst** (Tenant-Isolation) — ggf. schon von Codex' RLS-PR #299 abgedeckt: prüfen.
 
+> ## RE-VERIFIKATION 2026-07-23 (Branch `fix/audit-2026-06-24-reverification`)
+>
+> Systematische Re-Verifikation ALLER Findings gegen den aktuellen Code-Stand.
+> Status pro Finding (Kurzform, Details/Fundstellen siehe Bulletpoints unten):
+>
+> **ERLEDIGT (bereits gefixt, Doku war veraltet):** CF-1, AR-1, OPT-1 (=MC-1),
+> SEC-1, SCHEMA-01, SCHEMA-02, SCHEMA-03, SCHEMA-04, SCHEMA-05, SCHEMA-06,
+> AR-2, AR-3, MC-2, RT-1 (bewusst NICHT wie vorgeschlagen gefixt — konservativer
+> Default ist die intendierte Safety-Net-Semantik, siehe risk_scoring.py:198-204),
+> rls-1, AB-1, AB-2, AB-3 (durch AB-1/AB-2 abgeloest), AB-4, MD-02, MD-03, MD-04,
+> MD-06, AUTH-01, AUTH-02, AUTH-04, AUTH-05, AUTH-06, EM-1, EM-2, EM-4, EM-5,
+> EM-6, EM-7.
+>
+> **HEUTE GEFIXT (additiv, getestet, einzeln committet):**
+> - CF-2 → `routers/clients.py` cashflow_summary (fx_source/target_currency
+>   analog zur bereits gefixten cashflow_projection). Test: `tests/test_cf2_cashflow_summary_fx.py`.
+> - SEC-2 → `routers/auth.py` (`_assert_user_visible_to`, `update_user`):
+>   tenant-loser Admin ist im effektiv strikten/Multi-Tenant-Modus jetzt
+>   restricted statt global sichtbar; Tier1-BC unveraendert. Test: `tests/test_sec2_tenantless_admin_visibility.py`.
+> - rls-2 → `routers/protocol_bausteine.py` (`list_bausteine`,
+>   `replace_mandate_selections`): Tenant-Filter auch fuer role=='admin'.
+>   Test: `tests/test_rls2_baustein_tenant_isolation.py`.
+> - rls-3 → `schemas/wealth.py` + `routers/wealth.py`: Phase-0-Gate
+>   (`enforce_data_classification`) fuer Wealth-Position/-Inflow nachgezogen.
+>   Test: `tests/test_data_classification_gate.py` (2 neue Tests).
+> - MD-05 → `price_updater.py`: exponentielles Retry-Backoff + Jitter statt
+>   fixer Sleep-Dauer (`_retry_backoff_seconds`). Test: `tests/test_price_updater_md05_retry_backoff.py`.
+>   (Inter-Symbol-Throttle im Stooq-Batch-Loop bleibt OFFEN, siehe MD-05 unten.)
+> - AB-5 → `services/maintenance.py` `build_compliance_status()`: Warnung +
+>   `backups_colocated_with_db`-Flag wenn Backup-Verzeichnis == DB-Verzeichnis.
+>   Test: `tests/test_ab5_backup_colocation_warning.py`.
+> - AB-6 → `services/maintenance.py` `run_integrity_check()`: `PRAGMA
+>   integrity_check(50)` statt unbeschraenkt. Test: `tests/test_maintenance.py`.
+>
+> **OFFEN, RISIKOREICH (bewusst NICHT gefixt — aendert reale Empfehlungs-/
+> Berechnungsergebnisse, ausserhalb des sicheren additiven Scopes):**
+> - **RES-1** — WIDERSPRICHT einer frueheren Session-Aussage ("bereits gefixt"):
+>   `_compute_reserve_for_inputs` (portfolio_engine.py, aktuell ~Z.4664-4680)
+>   verwendet WEITERHIN `max(0, -sum(near_term_cashflow_series) - max(0,
+>   near_term_inflows))` statt jahresweiser kumulativer Running-Balance — der
+>   im Audit beschriebene Bug ist am aktuellen Code-Stand VERIFIZIERT NOCH
+>   OFFEN. Nicht gefixt, weil das direkt reserve_needed_rappen aendert (Kern
+>   der SAA-Empfehlung).
+> - **RES-2** — external_reserve_rappen/reserve_needed_rappen weiterhin
+>   ungedeckelt gg. advisory_wealth_rappen (portfolio_engine.py `_compute_reserve_for_inputs`).
+>   Aendert investable_advisory_wealth_rappen -> Kern-Empfehlungslogik.
+> - **goals-1** — `_monte_carlo_goal_summary` (portfolio_engine.py ~Z.3036-3200)
+>   ruft `_goal_pension_state_funded` NICHT auf (im Gegensatz zum
+>   deterministischen Pfad und zu `_compute_reserve_for_inputs`), AHV-Goals
+>   werden im MC-Pfad weiterhin wie normale Ausgaben-Goals bewertet.
+>   Aendert Goal-Achievability-Scores, die im Bericht/Frontend angezeigt werden.
+> - **OPT-2** — `bands_from_house_matrix_row` (services/optimizer/constraints.py)
+>   nutzt weiterhin nur `equity_min_bps`, NICHT das staerkere `equity_minimum_bps`
+>   (das der deterministische Pfad in portfolio_engine.py:4567 einrechnet) —
+>   Divergenz zwischen Optimizer-Bounds und deterministischem Pfad bleibt.
+>   Aendert die Solver-Loesungsmenge (reale Allokationsempfehlung).
+> - **RT-2** — `services/tax/regimes/generic.py`: negative Overrides (z.B.
+>   `wealth_tax_bps_pa=-500`) erzeugen weiterhin negative "Steuer"-Betraege
+>   (Rate wird nicht bei 0 geflort). Explizit ausserhalb des Scopes (Tax-
+>   Berechnungsformeln sind laut Auftrag tabu).
+> - **MD-01** — `price_updater.py`: `symbol_points`-Tupel tragen weiterhin
+>   KEINE Provider-Currency (3-Tupel `(date, rappen, source)`), `PricePoint.currency`
+>   bleibt `product.currency or 'CHF'` in `fetch_latest_prices_batch` (Batch-Pfad).
+>   `fetch_latest_price` (Single-Pfad) beruecksichtigt bereits `market_profile.get('currency')`
+>   — Inkonsistenz zwischen Single- und Batch-Pfad bleibt. NICHT gefixt: mehrstelliger
+>   Tuple-Shape-Refactor ueber 4 Provider-Fetch-Funktionen, reales Korrektheitsrisiko
+>   fuer Preisdaten, zu gross fuer einen additiven Einzel-Commit in dieser Session.
+> - **AUTH-03** — GEPRUEFT UND BEWUSST NICHT GEFIXT (Versuch gemacht + wieder
+>   verworfen): `_login_guard_key` (routers/auth.py) vertraut X-Forwarded-For
+>   weiterhin unbedingt (spoofbar). Ein Fix (Default auf `request.client.host`,
+>   XFF nur bei explizitem `trusted_proxy_count`) wurde implementiert, brach
+>   aber `tests/test_auth05_bootstrap_admin_rate_limit.py::test_bootstrap_admin_lockout_is_per_source_not_global`
+>   (dieser Test verlangt aktuell explizit XFF-basierte Per-Source-Isolation)
+>   und wurde deshalb verworfen. Ein echter Fix braucht eine bewusste
+>   Entscheidung zur Deployment-Topologie (Reverse-Proxy ja/nein) und
+>   Anpassung des AUTH-05-Tests — nicht mehr "sicher additiv".
+>
+> **Tests:** alle 54 neuen/betroffenen Tests gruen; siehe Commits auf diesem
+> Branch fuer Details. Volle Suite lief zum Zeitpunkt der Uebergabe im
+> Hintergrund (Ergebnis ggf. noch nachzutragen).
+
 ## Backend-Engine (w2ag4bcgn)
 
 ### HIGH (6)
