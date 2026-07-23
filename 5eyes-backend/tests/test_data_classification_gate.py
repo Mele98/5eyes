@@ -345,3 +345,43 @@ def test_wealth_position_update_with_real_classification_is_blocked(auth_client,
     )
 
     _assert_phase_zero_block(response)
+
+
+# ---------------------------------------------------------------------------
+# Wealth-Inflows (rls-3, Audit 2026-06-24, gefixt 2026-07-23): dieselbe Luecke
+# wie bei Wealth-Positionen -- enforce_data_classification fehlte komplett fuer
+# create/update_wealth_inflow (Erbschaft/Bonus/Saeule3b/etc.).
+# ---------------------------------------------------------------------------
+
+def test_wealth_inflow_create_and_update_enforce_gate(auth_client, monkeypatch):
+    monkeypatch.setattr(settings, "allow_real_client_data", False)
+    client_id = _create_synthetic_client(auth_client, "E0-WINFLOW")
+    base_payload = {
+        "label": "Synthetic Erbschaft",
+        "source_type": "Erbschaft",
+        "amount_rappen": 50_000_00,
+        "expected_year": 2030,
+    }
+
+    blocked_create = auth_client.post(
+        f"/clients/{client_id}/wealth-inflows",
+        json={**base_payload, "data_classification": "real"},
+    )
+    _assert_phase_zero_block(blocked_create)
+
+    created = auth_client.post(
+        f"/clients/{client_id}/wealth-inflows",
+        json={**base_payload, "data_classification": "synthetic"},
+    )
+    assert created.status_code == 201, created.text
+    inflow_id = created.json()["id"]
+
+    blocked_update = auth_client.put(
+        f"/wealth-inflows/{inflow_id}",
+        json={"label": "MustNotPersist", "data_classification": "real"},
+    )
+    _assert_phase_zero_block(blocked_update)
+
+    listed = auth_client.get(f"/clients/{client_id}/wealth-inflows")
+    assert listed.status_code == 200
+    assert listed.json()[0]["label"] == "Synthetic Erbschaft"

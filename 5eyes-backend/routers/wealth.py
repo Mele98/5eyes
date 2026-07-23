@@ -971,6 +971,12 @@ def create_wealth_inflow(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor),
 ):
+    data = body.model_dump()
+    # rls-3 (2026-07-23): Phase-0-Gate fehlte fuer Wealth-Inflows -- analog zu
+    # create_cashflow/create_goal/create_wealth_position nachgezogen
+    # (WealthInflow-Model hat keine data_classification-Spalte, Feld dient nur
+    # der Enforcement).
+    enforce_data_classification(data.pop("data_classification", None))
     client = get_client_for_user_or_404(client_id, db, current_user)
     if body.mandate_id:
         # Mandate-Ownership-Check
@@ -981,7 +987,7 @@ def create_wealth_inflow(
         client_id=client_id,
         created_at=now,
         updated_at=now,
-        **body.model_dump(),
+        **data,
     )
     db.add(inflow)
     log(db, user_id=current_user.id, user_name=current_user.full_name,
@@ -1008,6 +1014,9 @@ def update_wealth_inflow(
     # Ownership via client
     get_client_for_user_or_404(inflow.client_id, db, current_user)
     payload = body.model_dump(exclude_unset=True)
+    # rls-3 (2026-07-23): Phase-0-Gate analog update_cashflow/update_goal/
+    # update_wealth_position.
+    enforce_data_classification(payload.pop("data_classification", None))
     for key, value in payload.items():
         setattr(inflow, key, value)
     inflow.updated_at = _now()

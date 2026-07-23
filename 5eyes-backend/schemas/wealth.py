@@ -294,6 +294,9 @@ class WealthInflowCreate(BaseModel):
     value_mode: Literal["nominal", "real"] = "nominal"
     mandate_id: Optional[str] = None
     notes: Optional[str] = None
+    # rls-3 (2026-07-23): Phase-0-Gate (enforce_data_classification) fehlte fuer
+    # Wealth-Inflows komplett -- analog zu Cashflow/Goal/Wealth-Position nachgezogen.
+    data_classification: Literal["synthetic", "real"] = "synthetic"
 
     @model_validator(mode="after")
     def _validate_recurring(self):
@@ -316,6 +319,8 @@ class WealthInflowUpdate(BaseModel):
     value_mode: Optional[Literal["nominal", "real"]] = None
     notes: Optional[str] = None
     is_active: Optional[int] = Field(None, ge=0, le=1)
+    # rls-3 (2026-07-23): siehe WealthInflowCreate.
+    data_classification: Optional[Literal["synthetic", "real"]] = None
 
 
 class WealthInflowResponse(BaseResponse):
