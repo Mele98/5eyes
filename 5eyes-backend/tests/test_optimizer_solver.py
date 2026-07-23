@@ -33,6 +33,8 @@ from services.optimizer.constraints import (
 from services.optimizer.scenario_engine import BUCKET_ORDER
 from services.optimizer.solver import (
     OptimizerResult,
+    _covariance_bps_from_scenario_inputs,
+    _markowitz_min_variance_candidate,
     build_initial_guesses,
     deterministic_seed,
     run_solver,
@@ -171,6 +173,132 @@ def test_build_initial_guesses_with_loose_bounds_returns_all_5():
     bounds = [(0.0, 1.0)] * 5
     initials = build_initial_guesses(bounds, score_x10=70)
     assert len(initials) == 5
+
+
+# ============================================================================
+# PAR-5: Markowitz-informierter Multi-Start-Kandidat (3eyes-Parity)
+# ============================================================================
+
+
+def _reasonable_mu_and_cov():
+    """Plausible bps-Inputs (aus einer realistischen CMA), fuer Markowitz-Tests."""
+    mu_bps = np.array([650.0, 220.0, 450.0, 300.0, 80.0])  # BUCKET_ORDER
+    sigma_bps = np.array([1500.0, 380.0, 820.0, 1200.0, 20.0])
+    cholesky = np.linalg.cholesky(np.eye(5))  # unkorreliert, sicher PD
+    cov_bps = _covariance_bps_from_scenario_inputs(sigma_bps, cholesky)
+    return mu_bps, cov_bps
+
+
+def test_markowitz_candidate_respects_bucket_bounds_and_sums_to_one():
+    """(a) Der neue Kandidat erfuellt Summe=1 (~10000bps) und Bucket-Bounds."""
+    bounds = [(0.0, 1.0)] * 5
+    mu_bps, cov_bps = _reasonable_mu_and_cov()
+    candidate = _markowitz_min_variance_candidate(bounds, mu_bps, cov_bps)
+    assert candidate is not None
+    assert candidate.shape == (5,)
+    assert float(np.sum(candidate)) == pytest.approx(1.0, abs=1e-3)
+    for i, (lo, hi) in enumerate(bounds):
+        assert lo - 1e-3 <= candidate[i] <= hi + 1e-3
+
+
+def test_markowitz_candidate_respects_tight_house_matrix_bands():
+    """Auch mit engen, realistischen House-Matrix-Bands bleibt der Kandidat
+    innerhalb der Bounds (nicht nur bei trivialen [0,1]-Bounds)."""
+    bounds = [(0.4, 0.7), (0.2, 0.5), (0.0, 0.20), (0.0, 0.10), (0.02, 0.20)]
+    mu_bps, cov_bps = _reasonable_mu_and_cov()
+    candidate = _markowitz_min_variance_candidate(bounds, mu_bps, cov_bps)
+    assert candidate is not None
+    assert float(np.sum(candidate)) == pytest.approx(1.0, abs=1e-3)
+    for i, (lo, hi) in enumerate(bounds):
+        assert lo - 1e-3 <= candidate[i] <= hi + 1e-3
+
+
+def test_markowitz_candidate_none_when_mu_or_cov_missing():
+    """Ohne mu_bps/cov_bps (Backwards-Compat-Default) gibt es keinen Kandidaten."""
+    bounds = [(0.0, 1.0)] * 5
+    assert _markowitz_min_variance_candidate(bounds, None, None) is None
+    mu_bps, cov_bps = _reasonable_mu_and_cov()
+    assert _markowitz_min_variance_candidate(bounds, mu_bps, None) is None
+    assert _markowitz_min_variance_candidate(bounds, None, cov_bps) is None
+
+
+def test_markowitz_candidate_none_on_shape_mismatch():
+    """(b) Degenerierter Input (falsche Shape) -> None statt Crash."""
+    bounds = [(0.0, 1.0)] * 5
+    bad_mu = np.array([1.0, 2.0])  # falsche Laenge
+    _, cov_bps = _reasonable_mu_and_cov()
+    assert _markowitz_min_variance_candidate(bounds, bad_mu, cov_bps) is None
+
+    mu_bps, _ = _reasonable_mu_and_cov()
+    bad_cov = np.eye(3)  # falsche Shape
+    assert _markowitz_min_variance_candidate(bounds, mu_bps, bad_cov) is None
+
+
+def test_markowitz_candidate_none_on_nan_inputs():
+    """(b) NaN/Inf in mu oder cov -> None statt Crash (z.B. korrupte CMA-Werte)."""
+    bounds = [(0.0, 1.0)] * 5
+    mu_bps, cov_bps = _reasonable_mu_and_cov()
+    nan_mu = mu_bps.copy()
+    nan_mu[0] = np.nan
+    assert _markowitz_min_variance_candidate(bounds, nan_mu, cov_bps) is None
+
+    nan_cov = cov_bps.copy()
+    nan_cov[0, 0] = np.inf
+    assert _markowitz_min_variance_candidate(bounds, mu_bps, nan_cov) is None
+
+
+def test_covariance_helper_none_on_singular_or_bad_cholesky_shape():
+    """(b) Kaputte/gemismatchte Cholesky-Matrix -> Cov-Helper gibt None,
+    kein Crash (z.B. corrupted correlation_matrix_json in der CMA)."""
+    sigma_bps = np.array([1500.0, 380.0, 820.0, 1200.0, 20.0])
+    wrong_shape_cholesky = np.eye(3)  # Shape-Mismatch zu 5 Buckets
+    assert _covariance_bps_from_scenario_inputs(sigma_bps, wrong_shape_cholesky) is None
+
+    nan_cholesky = np.eye(5)
+    nan_cholesky[0, 0] = np.nan
+    result = _covariance_bps_from_scenario_inputs(sigma_bps, nan_cholesky)
+    assert result is None
+
+
+def test_build_initial_guesses_without_markowitz_params_keeps_existing_5_unchanged():
+    """(c) Regressionsschutz: ohne mu_bps/cov_bps liefert build_initial_guesses
+    exakt dieselben (unveraenderten) 5 Kandidaten wie vor PAR-5."""
+    bounds = [(0.0, 1.0)] * 5
+    initials_without = build_initial_guesses(bounds, score_x10=70)
+    assert len(initials_without) == 5
+
+    # Mit Markowitz-Inputs muessen die ersten 5 Kandidaten (Mid, Conservative,
+    # Aggressive, Risk-Cap-Edge, Equal) bit-identisch bleiben - PAR-5 ist rein
+    # additiv, kein Kandidat wird veraendert oder ersetzt.
+    mu_bps, cov_bps = _reasonable_mu_and_cov()
+    initials_with = build_initial_guesses(bounds, score_x10=70, mu_bps=mu_bps, cov_bps=cov_bps)
+    assert len(initials_with) == 6, "PAR-5 Kandidat sollte additiv als 6. hinzukommen"
+    for original, extended in zip(initials_without, initials_with[:5]):
+        np.testing.assert_allclose(original, extended)
+
+
+def test_build_initial_guesses_adds_sixth_candidate_when_markowitz_feasible():
+    """(d)-Vorstufe: mit sinnvollen CMA-Inputs kommt ein 6. Kandidat hinzu,
+    und er ist ebenfalls bounds-/sum-feasible (wird vom bestehenden Filter
+    genauso behandelt wie die anderen 5)."""
+    bounds = [(0.0, 1.0)] * 5
+    mu_bps, cov_bps = _reasonable_mu_and_cov()
+    initials = build_initial_guesses(bounds, score_x10=70, mu_bps=mu_bps, cov_bps=cov_bps)
+    assert len(initials) == 6
+    sixth = initials[-1]
+    assert float(np.sum(sixth)) == pytest.approx(1.0, abs=1e-3)
+    for i, (lo, hi) in enumerate(bounds):
+        assert lo - 1e-3 <= sixth[i] <= hi + 1e-3
+
+
+def test_build_initial_guesses_markowitz_never_crashes_on_bad_cma_inputs():
+    """(b) End-to-end Guard: kaputte mu/cov (z.B. Shape-Fehler) fuehren nicht
+    zum Crash von build_initial_guesses - Set faellt auf 5 Kandidaten zurueck."""
+    bounds = [(0.0, 1.0)] * 5
+    bad_mu = np.array([np.nan] * 5)
+    bad_cov = np.full((5, 5), np.inf)
+    initials = build_initial_guesses(bounds, score_x10=70, mu_bps=bad_mu, cov_bps=bad_cov)
+    assert len(initials) == 5, "Bei kaputten Markowitz-Inputs bleibt es bei den 5 Basis-Kandidaten"
 
 
 # ============================================================================
@@ -400,6 +528,41 @@ def test_solver_under_performance_budget_5s():
 # ============================================================================
 # Edge Cases
 # ============================================================================
+
+
+def test_solver_full_run_with_par5_markowitz_candidate_still_valid():
+    """(d) Voller Solver-Lauf mit dem um den Markowitz-Kandidaten erweiterten
+    Multi-Start-Set liefert weiterhin eine gueltige, feasible Allokation -
+    kein Crash, Bounds respektiert. run_solver() berechnet mu_bps/cov_bps
+    intern immer aus der CMA (PAR-5 additiv), dieser Test macht das explizit."""
+    cma = _make_cma()
+    house_matrix = _make_house_matrix_row()
+    goal = _make_pension_goal(hardness="Hart")
+
+    result = run_solver(
+        cma=cma, goals=[goal], house_matrix_row=house_matrix,
+        score_x10=70,
+        advisory_wealth_rappen=1_000_000_00,
+        cashflow_series_rappen=[20_000_00] * 30,
+        horizon_years=30,
+        n_paths=500,
+        seed=42,
+    )
+
+    assert isinstance(result, OptimizerResult)
+    assert result.status in (
+        "converged", "converged_robustified", "diverged_infeasible", "fallback_house_matrix",
+    )
+    assert sum(result.weights_bps.values()) == 10000
+    for bucket in BUCKET_ORDER:
+        assert bucket in result.weights_bps
+
+    bands = bands_from_house_matrix_row(house_matrix)
+    bounds, constraints = build_constraint_set(bands, 70)
+    weights = np.array([result.weights_bps[b] / 10000.0 for b in BUCKET_ORDER])
+    feasible, reasons = is_feasible(weights, bounds=bounds, constraints=constraints, tolerance=1e-3)
+    if result.status == "converged":
+        assert feasible, f"Converged status but infeasible: {reasons}"
 
 
 def test_solver_empty_goals_returns_feasible_allocation():
