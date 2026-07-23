@@ -2756,7 +2756,7 @@ function _wireSollIstHover(){
 
     <!-- PAGE: RISIKOPROFIL -->
     <div id="page-rp" class="page">
-      <div class="ph"><div><div class="ph-t">Risikoprofilierung (FINMA Eignungspruefung)</div><div class="ph-s">Risikofähigkeit &middot; Risikobereitschaft &middot; FINMA Eignungspruefung</div></div><div class="ph-r"><button class="btn-g" id="btn-save-riskprofile" onclick="saveRiskProfile()">Risikoprofil speichern</button><button class="btn-p" onclick="goFromRiskProfileToAllocation()">Asset Allokation →</button><details class="ph-more"><summary title="Weitere Risikoprofil-Optionen" aria-label="Weitere Risikoprofil-Optionen">⋯</summary><div class="ph-more-menu"><button class="btn" id="btn-rp-server-pdf" onclick="downloadServerPdf('risikoprofil');this.closest('details').removeAttribute('open')" title="Risikoprofil-PDF erstellen">PDF</button></div></details></div></div>
+      <div class="ph"><div><div class="ph-t">Risikoprofilierung (FINMA Eignungspruefung)</div><div class="ph-s">Risikofähigkeit &middot; Risikobereitschaft &middot; FINMA Eignungspruefung</div></div><div class="ph-r"><button class="btn-g" id="btn-save-riskprofile" onclick="saveRiskProfile()">Risikoprofil speichern</button><button class="btn-p" onclick="goFromRiskProfileToAllocation()">Asset Allokation →</button><details class="ph-more"><summary title="Weitere Risikoprofil-Optionen" aria-label="Weitere Risikoprofil-Optionen">⋯</summary><div class="ph-more-menu"><button class="btn" id="btn-rp-server-pdf" onclick="downloadServerPdf('risikoprofil');this.closest('details').removeAttribute('open')" title="Risikoprofil-PDF erstellen">PDF</button><button class="btn" id="btn-rp-react-editor" onclick="openProfilingEditor();this.closest('details').removeAttribute('open')" title="Risikoprofil-Editor (React, Beta) in neuem Browser-Tab">Editor (Beta)</button></div></details></div></div>
       <div class="pad">
         <div class="g2">
                     <div>
@@ -11477,13 +11477,12 @@ var DC_GENERIC_COLORS = ['#1e4b8f','#78601a','#166534','#2c5080','#4a6080','#924
 // Fix: Reporting-Bundle wird vom Backend unter /reporting/ als Static-
 // Mount serviert (siehe 5eyes-backend/main.py), gleicher Host:Port wie
 // die API. Funktioniert ohne separaten Dev-Server.
-async function openReportingApp(){
-  var mid = typeof getActiveMandateId==='function' ? getActiveMandateId() : null;
-  if(!mid){
-    if(window.showAppError) showAppError('Bitte zuerst ein Mandat oeffnen.');
-    else alert('Bitte zuerst ein Mandat oeffnen.');
-    return;
-  }
+//
+// Roadmap #63 / ADR-008 Track 2 (2026-07-23): der Token-Handoff wird in
+// resolveReportingAppUrl() extrahiert, damit weitere Editor-Workflows
+// (z.B. openProfilingEditor()) dieselbe Bruecke zur React-Sub-App nutzen
+// koennen, ohne die Logik zu duplizieren.
+async function resolveReportingAppUrl(path){
   // Token aus der gleichen Quelle wie API.js: erst Electron (window.desktop),
   // dann Browser-sessionStorage. Reporting-App akzeptiert beides.
   var token = '';
@@ -11505,8 +11504,38 @@ async function openReportingApp(){
     }
   } catch(e) { /* fallback bleibt */ }
   var base = String(apiBase).replace(/\/$/, '') + '/reporting';
+  return base + path + (token ? ('#token=' + encodeURIComponent(token)) : '');
+}
+
+async function openReportingApp(){
+  var mid = typeof getActiveMandateId==='function' ? getActiveMandateId() : null;
+  if(!mid){
+    if(window.showAppError) showAppError('Bitte zuerst ein Mandat oeffnen.');
+    else alert('Bitte zuerst ein Mandat oeffnen.');
+    return;
+  }
   var path = '/mandates/' + encodeURIComponent(mid) + '/report';
-  var url = base + path + (token ? ('#token=' + encodeURIComponent(token)) : '');
+  var url = await resolveReportingAppUrl(path);
+  window.open(url, '_blank', 'noopener');
+}
+
+// Roadmap #63 / ADR-008 Track 2 (2026-07-23): Migration Profiling-Workflow.
+// Oeffnet den neuen React-Risikoprofil-Editor (Schema-First-Migration, PR #306)
+// in einem neuen Browser-Tab statt des Inline-HTML-Fragebogens. Der Editor ruft
+// exakt dieselben Backend-Endpunkte auf wie saveRiskProfile() unten
+// (POST /mandates/{id}/risk-assessments, GET .../risk-assessments/current) --
+// keine Fachlogik-Aenderung, nur die Praesentationsschicht wandert.
+// Uebergangs-Strategie gemaess ADR-008 Track 2: der Inline-Fragebogen bleibt
+// vorerst aktiv (Zwei-Stack-Betrieb), bis die React-Seite im Alltag erprobt ist.
+async function openProfilingEditor(){
+  var mid = typeof getActiveMandateId==='function' ? getActiveMandateId() : null;
+  if(!mid){
+    if(window.showAppError) showAppError('Bitte zuerst ein Mandat oeffnen.');
+    else alert('Bitte zuerst ein Mandat oeffnen.');
+    return;
+  }
+  var path = '/mandates/' + encodeURIComponent(mid) + '/risikoprofil-editor';
+  var url = await resolveReportingAppUrl(path);
   window.open(url, '_blank', 'noopener');
 }
 

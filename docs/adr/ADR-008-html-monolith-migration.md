@@ -128,7 +128,7 @@ Grund:
 | Sektion                  | HTML-Monolith | React/TS | Drift-Test |
 |--------------------------|---------------|----------|------------|
 | Reporting-Sections (20)  | superseded    | ✓        | ✓          |
-| Profiling-Fragebogen     | aktiv         | -        | ✓          |
+| Profiling-Fragebogen     | aktiv (Zwei-Stack, React-Editor per Wiring-Bruecke erreichbar) | ✓ | ✓ |
 | Goal-Wizard              | aktiv         | -        | -          |
 | Mandate-Edit             | aktiv         | -        | -          |
 | Kunden-CRM               | aktiv         | -        | -          |
@@ -136,6 +136,34 @@ Grund:
 | Compliance-Dashboard     | aktiv         | (View ✓) | ✓          |
 | Cashflow-Review-Editor   | aktiv         | -        | ✓          |
 | App-Shell                | aktiv         | -        | -          |
+
+### Update 2026-07-23 (Roadmap #63): Profiling als erste vollstaendige Slice
+
+Der Profiling-Fragebogen ist die erste Sektion, die den kompletten
+Migrations-Pattern (Schema-First -> React-Page -> Tests -> Wiring ->
+Drift-Test) durchlaufen hat:
+
+- Schema/React-Page/Tests bereits vorhanden seit PR #306
+  (`5eyes-electron/frontend/reporting/src/sections/profiling/ProfilingPage.tsx`).
+- Fehlender Schritt war das **Wiring**: die React-Seite war unter
+  `/mandates/:mandateId/risikoprofil-editor` geroutet, aber im
+  HTML-Monolithen nirgends erreichbar.
+- Ergaenzt: `openProfilingEditor()` in `5eyes_v2.html` (Button "Editor
+  (Beta)" im Risikoprofil-Header-Overflow-Menu) oeffnet die React-Seite
+  per Token-Handoff in neuem Tab -- exakt das gleiche Muster wie
+  `openReportingApp()` fuer den Advisory-Report. Beide teilen sich jetzt
+  `resolveReportingAppUrl()`.
+- Inline-Fragebogen bleibt bewusst aktiv (Zwei-Stack-Uebergang); keine
+  Fachlogik/Scoring-Aenderung.
+- Neuer Drift-Test: `5eyes-backend/tests/test_profiling_editor_wiring_contract.py`
+  haelt Route (App.tsx), Wiring-Funktion (5eyes_v2.html) und
+  Backend-Endpunkte (api/profiling.ts) synchron.
+- Gleiche Wiring-Luecke besteht noch fuer Goal-Wizard, Mandate-Edit,
+  Kunden-CRM, Asset-Allocation-Edit und Cashflow-Review-Editor: React-
+  Routen existieren bereits (`GoalsEditor`, `AllocationEditor`,
+  `MandateEditor`, `CrmEditor`, `CashflowEditor`, `WealthInflowEditor` in
+  `App.tsx`), aber keine davon ist aus `5eyes_v2.html` erreichbar. Naechster
+  Schritt: `resolveReportingAppUrl()` fuer diese Sektionen wiederverwenden.
 
 ## Wann re-evaluieren?
 
