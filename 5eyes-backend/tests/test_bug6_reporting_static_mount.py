@@ -129,15 +129,26 @@ def test_frontend_open_reporting_app_nutzt_backend_url():
     bug6_start = text.find("Bug-#6 (2026-06-07)")
     assert bug6_start > 0, "Bug-#6-Marker fehlt in 5eyes_v2.html"
 
-    # Im openReportingApp-Block: Backend-Mount-Pfad und keine 5173-Konstante.
+    # Im openReportingApp-Block: keine 5173-Konstante.
     fn_start = text.find("async function openReportingApp", bug6_start)
     fn_end = text.find("\n}\n", fn_start)
     assert fn_start > 0 and fn_end > fn_start
     fn_body = text[fn_start:fn_end]
-    assert "'/reporting'" in fn_body or "\"/reporting\"" in fn_body
     assert "localhost:5173" not in fn_body, (
         "Vite-Dev-Server-URL ist noch im Code — Fix unvollstaendig"
     )
+    # Roadmap #63 / ADR-008 Track 2 (2026-07-23): der Backend-Mount-Pfad
+    # ('/reporting') wurde aus openReportingApp() in die geteilte Helper-
+    # Funktion resolveReportingAppUrl() extrahiert (Wiederverwendung durch
+    # openProfilingEditor()) -- openReportingApp() ruft sie jetzt auf statt
+    # den Pfad selbst zu bauen.
+    assert "resolveReportingAppUrl" in fn_body
+    helper_start = text.find("async function resolveReportingAppUrl(")
+    assert helper_start > 0, "resolveReportingAppUrl() fehlt"
+    helper_end = text.find("\n}\n", helper_start)
+    helper_body = text[helper_start:helper_end]
+    assert "'/reporting'" in helper_body or "\"/reporting\"" in helper_body
+    assert "localhost:5173" not in helper_body
 
 
 def test_vite_config_hat_base_reporting():
