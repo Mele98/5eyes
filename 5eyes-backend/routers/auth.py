@@ -16,7 +16,8 @@ from schemas.users import (
 )
 from services.auth import (
     hash_password, verify_password, create_access_token,
-    get_current_user, require_admin
+    get_current_user, require_admin,
+    _effective_strict_tenant_isolation,
 )
 from services.login_guard import login_attempt_guard
 from services.audit import log
@@ -665,12 +666,18 @@ def update_user(
     # 403, damit die Existenz fremder User nicht geleakt wird.
     if getattr(current_user, "role", None) != "super_admin":
         utid = (getattr(current_user, "tenant_id", None) or "").strip()
+        from config import settings as _settings
+        strict = getattr(_settings, "strict_tenant_isolation", False)
         if utid:
-            from config import settings as _settings
             ttid = (getattr(user, "tenant_id", None) or "").strip()
-            strict = getattr(_settings, "strict_tenant_isolation", False)
             visible = (ttid == utid) or ((not strict) and ttid == "")
             if not visible:
+                raise HTTPException(status_code=404, detail="Benutzer nicht gefunden")
+        elif _effective_strict_tenant_isolation(_settings):
+            # SEC-2 (2026-07-23): siehe _assert_user_visible_to -- selbe Ausnahme
+            # fuer den Mutations-Pfad (nicht nur die Sichtbarkeits-Liste).
+            ttid = (getattr(user, "tenant_id", None) or "").strip()
+            if ttid:
                 raise HTTPException(status_code=404, detail="Benutzer nicht gefunden")
     if user_id == current_user.id:
         if body.is_active is not None and not body.is_active:
@@ -739,11 +746,23 @@ def _assert_user_visible_to(current_user: User, user: User) -> None:
     if getattr(current_user, "role", None) == "super_admin":
         return
     utid = (getattr(current_user, "tenant_id", None) or "").strip()
-    if not utid:
-        return
     from config import settings as _settings
-    ttid = (getattr(user, "tenant_id", None) or "").strip()
     strict = getattr(_settings, "strict_tenant_isolation", False)
+    if not utid:
+        # SEC-2 (2026-07-23): Ein tenant-loser Firmen-Admin sah bisher IMMER
+        # alle User (auch fremder Tenants) -- unrestricted statt restricted.
+        # Fix nur im effektiv strikten/Multi-Tenant-Kontext (_effective_strict_
+        # tenant_isolation, Tier2/Shared-Cloud): dort ist ein tenant-loser Admin
+        # ein Konfigurationsfehler und darf NICHT global sichtbar sein. Tier1/
+        # Single-Tenant-BC (die ueberwiegende Mehrheit) bleibt unveraendert
+        # (kein tenant_id gesetzt = alte Behavior), da dort tenant-lose Admins
+        # das gewollte Legacy-Setup sind.
+        if _effective_strict_tenant_isolation(_settings):
+            ttid = (getattr(user, "tenant_id", None) or "").strip()
+            if ttid:
+                raise HTTPException(status_code=404, detail="Benutzer nicht gefunden")
+        return
+    ttid = (getattr(user, "tenant_id", None) or "").strip()
     visible = (ttid == utid) or ((not strict) and ttid == "")
     if not visible:
         raise HTTPException(status_code=404, detail="Benutzer nicht gefunden")
