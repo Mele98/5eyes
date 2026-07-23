@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import random
 import time
 from io import StringIO
 from dataclasses import dataclass
@@ -78,6 +79,25 @@ def to_rappen(amount: Any) -> int:
     return int(value * 100)
 
 
+def _retry_backoff_seconds(attempt: int, base_delay: float) -> float:
+    """MD-05: exponentielles Backoff + Jitter statt fixer Sleep-Dauer.
+
+    Vorher: time.sleep(retry_delay_seconds) unveraendert bei jedem Versuch ->
+    bei Rate-Limits/temporaeren Ausfaellen wird der Provider im selben Takt
+    erneut angefragt (kein Backoff), und bei vielen parallelen Retries (z.B.
+    Batch-Refresh ueber mehrere Prozesse) entsteht ein Thundering-Herd-Effekt
+    (alle schlagen synchron zur selben Sekunde erneut auf).
+
+    attempt ist 1-indiziert (der Versuch, der gerade fehlgeschlagen ist).
+    Verdoppelt den Basis-Delay pro Versuch und addiert zufaelligen Jitter
+    (0..50% des Basis-Delays), damit parallele Retries entzerrt werden.
+    """
+    base = max(0.0, float(base_delay or 0.0))
+    backoff = base * (2 ** max(0, int(attempt) - 1))
+    jitter = random.uniform(0.0, base * 0.5) if base > 0 else 0.0
+    return backoff + jitter
+
+
 def fetch_latest_price(product: Product) -> PricePoint:
     market_profile = resolve_market_profile(product)
     if market_profile.get("lookup_mode") == "synthetic_par":
@@ -133,7 +153,8 @@ def fetch_latest_price(product: Product) -> PricePoint:
                 exc,
             )
             if attempt < settings.price_refresh_max_attempts:
-                time.sleep(settings.price_refresh_retry_delay_seconds)
+                # MD-05: exponentielles Backoff + Jitter statt fixer Sleep-Dauer.
+                time.sleep(_retry_backoff_seconds(attempt, settings.price_refresh_retry_delay_seconds))
 
     raise RuntimeError(f"Preisabruf für {lookup_symbol} fehlgeschlagen: {last_error}") from last_error
 
