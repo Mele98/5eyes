@@ -8,7 +8,9 @@ Workflow:
 3. Convert goals -> liabilities + aggregate liability path
 4. Setup constraints aus House-Matrix + globale Caps
 5. Multi-Start: 3-5 Initial-Allocations (House-Matrix-Mid, Conservative,
-   Aggressive, Risky-Fraction-Edge, gleichverteilt)
+   Aggressive, Risky-Fraction-Edge, gleichverteilt) + optional PAR-5:
+   ein zusaetzlicher Markowitz-Min-Varianz-Kandidat aus der CMA (additiv,
+   siehe build_initial_guesses/_markowitz_min_variance_candidate)
 6. SLSQP pro Initial-Allocation
 7. Pick best result (lowest objective)
 8. Validate feasibility, return OptimizerResult mit Audit-Trace
@@ -498,9 +500,127 @@ def _minimum_risk_allocation(
     return _normalize_to_bounds(weights, bounds)
 
 
+def _covariance_bps_from_scenario_inputs(
+    sigma_bps: np.ndarray,
+    cholesky: np.ndarray,
+) -> np.ndarray | None:
+    """Baut die Kovarianzmatrix (bps^2-Einheiten) aus Vol-Vektor + Cholesky.
+
+    `cholesky` ist die Cholesky-Zerlegung der (dimensionslosen) Korrelations-
+    matrix (siehe scenario_engine.scenario_inputs_from_cma / _safe_cholesky).
+    Es gilt L @ L.T = Korrelation, also:
+
+        Cov = D @ Korrelation @ D = (D @ L) @ (D @ L).T,  D = diag(sigma_bps)
+
+    Diese Konstruktion ist per Definition PSD (kein Risiko einer nicht-
+    positiv-definiten Matrix durch Rundungsfehler in einer separat
+    gespeicherten Korrelationsmatrix). Bei Shape-Mismatch oder NaN/Inf wird
+    None zurueckgegeben (Caller behandelt das als "Markowitz-Kandidat
+    nicht verfuegbar", kein Crash).
+    """
+    try:
+        sigma = np.asarray(sigma_bps, dtype=np.float64)
+        chol = np.asarray(cholesky, dtype=np.float64)
+        n = sigma.shape[0]
+        if chol.shape != (n, n):
+            return None
+        d_chol = np.diag(sigma) @ chol
+        cov = d_chol @ d_chol.T
+        if not np.all(np.isfinite(cov)):
+            return None
+        return cov
+    except Exception:  # noqa: BLE001 - defensive, darf Solver nie crashen
+        return None
+
+
+def _markowitz_min_variance_candidate(
+    bounds: list[tuple[float, float]],
+    mu_bps: np.ndarray | None,
+    cov_bps: np.ndarray | None,
+) -> np.ndarray | None:
+    """PAR-5 (3eyes-Parity): Markowitz-informierter Multi-Start-Kandidat.
+
+    Loest ein kleines quadratisches Programm auf der Effizienzgrenze:
+
+        minimiere   w^T * Cov * w                 (Portfolio-Varianz)
+        unter       sum(w) == 1
+                    w^T * mu >= target_return      (Mindest-Rendite)
+                    lo_i <= w_i <= hi_i             (dieselben Bucket-Bands)
+
+    `target_return` ist die erwartete Rendite des bereits vorhandenen
+    Mid-of-Bounds-Kandidaten - so bleibt der Markowitz-Punkt konsistent zum
+    House-Matrix-Risikoniveau statt einen willkuerlichen neuen Rendite-
+    Zielwert einzufuehren. Das Ergebnis liegt (naeherungsweise, siehe unten)
+    auf der Markowitz-Effizienzgrenze innerhalb der Bucket-Bands - analog zu
+    3eyes, das ebenfalls von der Effizienzgrenze aus startet.
+
+    Dies ist ein echtes QP via scipy.optimize.minimize(method="SLSQP"),
+    nicht nur eine Naeherung - scipy ist bereits Kern-Dependency des Solvers
+    (siehe _solve_single_start weiter unten im selben Modul).
+
+    Guard (Punkt 5 des Auftrags): bei jedem Fehler (Shape-Mismatch, NaN/Inf,
+    SLSQP-Exception, degenerierte/nicht handhabbare Kovarianz) wird None
+    zurueckgegeben. Der Aufrufer laesst den Kandidaten dann einfach weg -
+    kein Crash des gesamten Solver-Laufs.
+    """
+    if mu_bps is None or cov_bps is None:
+        return None
+    n = len(bounds)
+    try:
+        mu = np.asarray(mu_bps, dtype=np.float64)
+        cov = np.asarray(cov_bps, dtype=np.float64)
+        if mu.shape != (n,) or cov.shape != (n, n):
+            return None
+        if not np.all(np.isfinite(mu)) or not np.all(np.isfinite(cov)):
+            return None
+
+        mid = np.array([(lo + hi) / 2.0 for lo, hi in bounds], dtype=np.float64)
+        x0 = _normalize_to_bounds(mid, bounds)
+        target_return = float(x0 @ mu)
+
+        def _variance(w: np.ndarray) -> float:
+            return float(w @ cov @ w)
+
+        def _variance_grad(w: np.ndarray) -> np.ndarray:
+            return 2.0 * (cov @ w)
+
+        cons = [
+            {
+                "type": "eq",
+                "fun": lambda w: float(np.sum(w) - 1.0),
+                "jac": lambda w: np.ones_like(w),
+            },
+            {
+                "type": "ineq",
+                "fun": lambda w: float(w @ mu - target_return),
+                "jac": lambda w: mu,
+            },
+        ]
+        result = minimize(
+            _variance,
+            x0=x0,
+            jac=_variance_grad,
+            method="SLSQP",
+            bounds=bounds,
+            constraints=cons,
+            options={"maxiter": 100, "ftol": 1e-9, "disp": False},
+        )
+        raw_x = getattr(result, "x", None)
+        if raw_x is None:
+            return None
+        candidate = np.asarray(raw_x, dtype=np.float64)
+        if candidate.shape != (n,) or not np.all(np.isfinite(candidate)):
+            return None
+        return _normalize_to_bounds(np.clip(candidate, 0.0, 1.0), bounds)
+    except Exception:  # noqa: BLE001 - defensive, darf Solver nie crashen
+        return None
+
+
 def build_initial_guesses(
     bounds: list[tuple[float, float]],
     score_x10: int,
+    mu_bps: np.ndarray | None = None,
+    cov_bps: np.ndarray | None = None,
 ) -> list[np.ndarray]:
     """Liefert Multi-Start-Initials, alle innerhalb der Bounds und summe~1.
 
@@ -511,6 +631,11 @@ def build_initial_guesses(
     3. Aggressive: max Equities, in Bounds
     4. Risk-cap-edge: Risky-Fraction-Limit voll ausnutzen
     5. Equal: 1/n pro Bucket (Default-Diversifikation)
+    6. PAR-5 (optional, additiv): Markowitz-Min-Varianz-Punkt aus CMA
+       (expected returns `mu_bps` + Kovarianz `cov_bps`), nur wenn beide
+       Parameter uebergeben werden und das QP loesbar ist. Backwards-Compat:
+       ohne mu_bps/cov_bps (Default None) bleibt das Verhalten exakt wie
+       zuvor (Kandidaten 1-5, unveraendert).
 
     Infeasible-Kandidaten (z.B. wegen pathologischer Bounds) werden gefiltert.
     Mindestens 1 Kandidat (Mid-of-Bounds) wird auch dann zurueckgegeben wenn
@@ -554,6 +679,14 @@ def build_initial_guesses(
     # 5. Equal-weight - kann infeasible werden bei strikten Bounds
     eq = np.full(n, 1.0 / n)
     candidates.append(_normalize_to_bounds(eq, bounds))
+
+    # 6. PAR-5 (additiv, optional): Markowitz-Min-Varianz-Punkt aus der CMA.
+    # Nur hinzugefuegt wenn mu_bps/cov_bps uebergeben wurden UND das QP
+    # ein brauchbares Ergebnis liefert - sonst bleibt das Set bei 5
+    # Kandidaten (identisch zum bisherigen Verhalten).
+    markowitz = _markowitz_min_variance_candidate(bounds, mu_bps, cov_bps)
+    if markowitz is not None:
+        candidates.append(markowitz)
 
     # Filter feasible Kandidaten; wenn alle infeasible: behalte mindestens
     # Mid-of-Bounds als Best-Effort-Start.
@@ -874,7 +1007,33 @@ def run_solver(
         return _objective_from_array(context, w)
 
     # ---- 6. Multi-Start SLSQP ----
-    initials = build_initial_guesses(bounds, score_x10)
+    # PAR-5: zusaetzlicher Markowitz-Min-Varianz-Kandidat aus der CMA. Die
+    # ScenarioInputs (mu_bps, sigma_bps, cholesky) wurden intern bereits
+    # einmal in build_optimizer_context() berechnet; wir extrahieren sie
+    # hier defensiv erneut (reine CMA-Feldzugriffe, kein Monte-Carlo, daher
+    # billig) statt den frozen OptimizerContext um Felder zu erweitern.
+    # Bei jedem Fehler bleibt mu_bps/cov_bps None -> build_initial_guesses
+    # faellt automatisch auf die bisherigen 5 Kandidaten zurueck.
+    mu_bps_for_markowitz: np.ndarray | None = None
+    cov_bps_for_markowitz: np.ndarray | None = None
+    try:
+        _scenario_inputs_for_markowitz = scenario_inputs_from_cma(
+            cma, sub_allocations=sub_allocations,
+        )
+        mu_bps_for_markowitz = _scenario_inputs_for_markowitz.mu_bps
+        cov_bps_for_markowitz = _covariance_bps_from_scenario_inputs(
+            _scenario_inputs_for_markowitz.sigma_bps,
+            _scenario_inputs_for_markowitz.cholesky,
+        )
+    except Exception:  # noqa: BLE001 - defensiv, PAR-5 darf Solver nie crashen
+        mu_bps_for_markowitz = None
+        cov_bps_for_markowitz = None
+
+    initials = build_initial_guesses(
+        bounds, score_x10,
+        mu_bps=mu_bps_for_markowitz,
+        cov_bps=cov_bps_for_markowitz,
+    )
     best_result: OptimizeResult | None = None
     best_obj = float("inf")
     best_feasible_result: OptimizeResult | None = None
