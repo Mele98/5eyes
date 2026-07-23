@@ -16,6 +16,7 @@ import type {
   BuildingBlocksData,
   ConflictDisclosuresData,
   LiquidityCascadeData,
+  ReserveExplainabilityData,
   MandateLockStatusData,
   MethodologyModelsData,
   RecommendationMethodologyData,
@@ -498,6 +499,23 @@ export function makeMandateLockStatus(): MandateLockStatusData {
   };
 }
 
+export function makeReserveExplainability(): ReserveExplainabilityData {
+  return {
+    available: true,
+    reserve_needed_rappen: 0,
+    external_reserve_rappen: 0,
+    saa_liquidity_ceiling_bps: 300,
+    external_reserve_recommended: false,
+    external_reserve_reason: null,
+    other_assets_absorption_rappen: null,
+    composition_available: true,
+    narrative: ['Fuer dieses Mandat besteht aktuell kein zusaetzlicher Liquiditaetsreserve-Bedarf.'],
+    drift_detected: false,
+    hinweis: null,
+    fidleg_basis: 'Art. 8 / Art. 9 FIDLEG (Transparenz Kosten- und Anlageentscheid)',
+  };
+}
+
 export function makeLiquidityCascade(): LiquidityCascadeData {
   return {
     stage: 'unknown',
@@ -571,6 +589,7 @@ export function makeAdvisoryReport(): AdvisoryReport {
     recommendation_methodology: makeRecommendationMethodology(),
     mandate_lock_status: makeMandateLockStatus(),
     liquidity_cascade: makeLiquidityCascade(),
+    reserve_explainability: makeReserveExplainability(),
     optimizer_run_history: makeOptimizerRunHistory(),
     performance_attribution: makePerformanceAttribution(),
     engine_configuration: {},

@@ -706,6 +706,8 @@ export interface AdvisoryReport {
   mandate_lock_status: MandateLockStatusData;
   /** U-21: Liquidity-Cascade Stage-3 Warning */
   liquidity_cascade: LiquidityCascadeData;
+  /** Roadmap #61 (2026-07-22): Reserve-Erklaerbarkeit (Herleitung Liquiditaetsreserve) */
+  reserve_explainability: ReserveExplainabilityData;
   /** U-94: Optimizer-Run-History */
   optimizer_run_history: OptimizerRunHistoryData;
   /** U-97: Performance-Attribution */
@@ -775,6 +777,26 @@ export type LiquidityCascadeData = {
   over_hard_cap_by_bps: number | null;
   warning_required: boolean;
   beratungsgespraech_pruefen: boolean;
+  fidleg_basis: string;
+};
+
+// Roadmap #61 (2026-07-22): Reserve-Erklaerbarkeit — Herleitung der
+// Liquiditaetsreserve (near-term-Shortfall, Nahziele, SAA-Ceiling, externe
+// Reserve) als Berater-Narrativ. Zahlen sind IMMER die bei der Allokations-
+// Generierung persistierten Werte; die Komposition (narrative) wird nur bei
+// exaktem Match einer read-only Nachrechnung gezeigt (sonst drift_detected).
+export type ReserveExplainabilityData = {
+  available: boolean;
+  reserve_needed_rappen: number | null;
+  external_reserve_rappen: number | null;
+  saa_liquidity_ceiling_bps: number | null;
+  external_reserve_recommended: boolean;
+  external_reserve_reason: string | null;
+  other_assets_absorption_rappen: number | null;
+  composition_available: boolean;
+  narrative: string[];
+  drift_detected: boolean;
+  hinweis: string | null;
   fidleg_basis: string;
 };
 
