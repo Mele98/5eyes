@@ -49,14 +49,29 @@ def configure_logging() -> None:
     stream_handler = logging.StreamHandler(sys.stdout)
     stream_handler.setFormatter(formatter)
 
-    file_handler = RotatingFileHandler(
-        resolve_log_file(),
-        maxBytes=settings.log_max_bytes,
-        backupCount=settings.log_backup_count,
-        encoding='utf-8',
-    )
-    file_handler.setFormatter(formatter)
-
     root_logger.setLevel(desired_level)
     root_logger.addHandler(stream_handler)
-    root_logger.addHandler(file_handler)
+
+    # Roadmap #89 (Log-Rotation + LOG_DIR-Prod): LOG_DIR/Rotation koennen in
+    # echten Produktivumgebungen an Berechtigungs- oder Volume-Problemen
+    # scheitern (z.B. LOG_DIR zeigt auf ein read-only oder noch nicht
+    # gemountetes Verzeichnis). Ein Schreibfehler hier darf den App-Start
+    # NICHT zum Absturz bringen — Fallback ist Konsolen-Logging (bereits
+    # oben registriert) + eine Warnung, statt die FastAPI-Lifespan mit einer
+    # unbehandelten Exception abzubrechen.
+    try:
+        file_handler = RotatingFileHandler(
+            resolve_log_file(),
+            maxBytes=settings.log_max_bytes,
+            backupCount=settings.log_backup_count,
+            encoding='utf-8',
+        )
+        file_handler.setFormatter(formatter)
+        root_logger.addHandler(file_handler)
+    except OSError as exc:
+        root_logger.warning(
+            'Log-Datei-Handler konnte nicht initialisiert werden (LOG_DIR=%r): %s '
+            '- Logging faellt auf Konsole zurueck.',
+            getattr(settings, 'log_dir', '') or settings.db_path,
+            exc,
+        )
