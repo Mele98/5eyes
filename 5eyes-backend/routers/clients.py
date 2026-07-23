@@ -280,7 +280,16 @@ def cashflow_summary(
     # Miet-/Zinserträge) zählen MIT in die Summe — sie sind echte Cashflows, nur
     # automatisch aus dem Vermögen abgeleitet statt manuell erfasst.
     cashflows = list(cashflows) + _derived_cashflows_for_client(client_id, db)
-    totals = totals_for_year(cashflows)
+    # CF-2 (2026-07-23): FX-Konvertierung wie im Schwester-Endpoint
+    # cashflow_projection — sonst zeigt das Summary Fremdwaehrungs-Cashflows im
+    # Rohbetrag statt zu CHF konvertiert (Divergenz zwischen den beiden Ansichten).
+    fx_source = None
+    try:
+        from services.currency.fx_rates import FXRateSource
+        fx_source = FXRateSource.from_db(db)
+    except Exception:
+        fx_source = None
+    totals = totals_for_year(cashflows, fx_source=fx_source, target_currency="CHF")
     client_name = f"{client.first_name or ''} {client.last_name or ''}".strip() or client.client_number or client.id
     return CashflowSummaryResponse(
         client_id=client_id,
