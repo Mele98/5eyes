@@ -66,3 +66,25 @@ Beispiele:
 - `5eyes-backend/tests/test_readme_consistency.py`
 - `5eyes-backend/tests/test_glossar_consistency.py`
 - `5eyes-backend/tests/test_liquidity_cascade_constants.py`
+
+## Ergänzung (2026-07-23) — Drift innerhalb einer einzigen Datei: Dict-Key-Duplikate
+
+Bisherige Beispiele prüfen Drift **zwischen** Dateien (Backend vs. Frontend vs. Doku).
+Der Fund vom 2026-07-22 (Commit `536fcb3`) zeigt eine engere Variante desselben
+Grundproblems — stiller Drift **innerhalb** einer Funktion: `database.py:
+ensure_runtime_columns()` enthielt im `additive_columns`-Dict-Literal zwei Blöcke mit
+demselben Tabellen-Key `"target_allocations"`. Python lässt bei einem Dict-Literal den
+**zweiten** Key gewinnen — der erste Block (u.a. `preferences_json`) wurde beim
+Dict-Aufbau lautlos verworfen, ohne Fehler, ohne Warnung. Auf einer per Raw-SQL frisch
+gebooteten Installation (`5eyes_schema_v4.0_FINAL.sql` → `init_db()`, der Pfad jeder
+echten Erstinstallation) fehlten dadurch dauerhaft 12 Spalten auf `target_allocations`,
+was `/target-allocation/current/payload` und `/recommendations/current/payload` mit
+`no such column`-Fehlern crashte — ein Blocker für den ersten echten Mandanten.
+
+Guard nach demselben Drift-Test-Rezept, aber AST-basiert statt Cross-File-String-Match:
+`tests/test_a2_target_allocations_schema_drift.py::
+test_additive_columns_has_no_duplicate_table_keys` parst `database.py` per `ast.parse`,
+findet den `additive_columns`-Dict-Literal-Knoten und schlägt fehl, sobald ein
+Tabellen-Key mehrfach vorkommt — die Bugklasse kann sich nicht mehr unbemerkt
+wiederholen. Ergänzt durch zwei Fresh-Bootstrap-Pin-Tests (Spalten-Vollständigkeit nach
+`ensure_runtime_columns()`, Idempotenz bei zweitem Lauf).

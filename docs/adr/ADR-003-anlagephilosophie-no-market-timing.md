@@ -53,3 +53,31 @@ Die Software setzt diese Philosophie **technisch** durch:
   `test_no_forbidden_customer_facing_phrases` geprüft
 - GLOSSAR.md hat eine Verbots-Sektion die in
   `test_glossar_consistency.py` getestet wird
+
+## Ist-Stand-Ergänzung (2026-07-23) — Eignungsprüfungs-Audit wird scharf geschaltet
+
+Punkt 2 der Entscheidung ("Re-Balancing-Vorschläge nur bei Eignungsprüfung")
+stand bislang auf einem **blinden** Audit: `services/suitability_audit.py`
+(Sprint U-66, 2026-06-03) prüfte pro `AdvisoryLog`-Eintrag ein `duty_type`/
+`suitability_check_id`-Feld — beide Spalten existieren auf `AdvisoryLog` gar
+nicht, weshalb `audit_mandate_suitability()` **immer** `is_compliant=True`
+meldete, unabhängig vom tatsächlichen Zustand.
+
+Umstellung am 2026-07-19 (Commit `8a867f8`, "Option A"): Die Funktion
+`audit_mandate_suitability(db, mandate)` prüft jetzt **mandatsbezogen** nach
+FIDLEG Art. 10 (Prüfpflicht) + Art. 12 (Eignungsprüfung): existiert ein
+aktuelles `RiskAssessment` für das Mandat und ist es nicht älter als
+`SUITABILITY_FRESHNESS_MAX_DAYS` (365 Tage, Industriepraxis)? Execution-only-
+Mandate (`_mandate_requires_suitability()`) bleiben nach Art. 13 ausgenommen.
+Damit ist die Voraussetzung für re-balancing-relevante Eignungsprüfungen
+erstmals tatsächlich (statt nur behauptet) auditierbar.
+
+Ergänzend (Commit `6ef4f94`, 2026-07-19): Kunden-Signatur des Risikoprofils
+— `POST /mandates/{mandate_id}/risk-profile/sign` (Berater-Fallback,
+`routers/profiling.py:338`, setzt `client_signed_method="advisor_recorded"`)
+und die Kunden-Portal-Variante (`routers/client_portal.py:116`, setzt
+`client_signed_method="portal"`) schreiben beide auf
+`RiskAssessment.client_signed_at`/`.client_signed_method`. Die Signatur ist
+reine Dokumentation der Bestätigung und verändert `is_compliant` im Audit
+nicht — sie beantwortet nur "wann/wie hat der Kunde bestätigt", nicht "ist
+das Profil aktuell".

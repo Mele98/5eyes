@@ -159,3 +159,35 @@ Der 2026-06-06 als „deferred" markierte Teil ist umgesetzt (externer Zugriff /
 
 Verbleibend = die DB-physische Schicht (RLS + Postgres + Key-Hierarchie). App-logische
 Mandantentrennung + Auth-Härtung sind produktiv. Compliance-Vorlagen: `docs/compliance/`.
+
+---
+
+## Update 2026-07-23 — rls-1 (effektive Strict-Isolation) + Datenklassifizierungs-Gate
+
+**rls-1 (Commit `22b94c6`, 2026-07-19):** Die 3 Lesestellen des App-Level-Filters in
+`services/auth.py` (`_apply_tenant_filter_to_client_query`,
+`_apply_tenant_filter_to_mandate_query`, die Client-Portal-Linkage-Prüfung) lesen nicht
+mehr den rohen `settings.strict_tenant_isolation`-Flag, sondern die neue Helper-Funktion
+`_effective_strict_tenant_isolation(settings_obj)` (`services/auth.py:223`). Sie liefert
+`True` wenn der Flag explizit gesetzt ist **ODER** das Deployment mandantenfähig ist
+(`deployment_tier == "tier2"` bzw. `tenancy_mode == "multi"`) — damit ein Tier-2-/
+Multi-Tenant-Setup nie versehentlich ohne Strict-Isolation läuft, auch außerhalb der
+staging/production-Config-Validierung. Tier 1 + Tier 3 (single-tenant) bleiben
+unverändert (kein Zwang, Backwards-Compat für NULL-tenant-Rows). Test:
+`tests/test_rls1_effective_strict_isolation.py`.
+
+**Datenklassifizierungs-Gate auf Vermögenspositionen ausgeweitet (Commit `3906b7a`,
+2026-07-19/22):** Das Phase-0-Gate (`services/data_classification.py:
+enforce_data_classification`, blockt `data_classification="real"` solange
+`settings.allow_real_client_data` falsch ist) wurde bereits für Clients/Cashflows/Goals
+aufgerufen (`routers/clients.py`, `routers/wealth.py`), aber `WealthPositionCreate`/
+`WealthPositionUpdate` (`schemas/wealth.py`) hatten das Feld `data_classification`
+schlicht nicht deklariert — Pydantic verwarf ein mitgesendetes `"real"` bereits beim
+Parsen, bevor `enforce_data_classification()` es je sah. Vermögenspositionen (Depot/
+Hypothek/Immobilie/Liquidität) waren damit die einzigen mandantenbezogenen, sensiblen
+Datensätze, die das Phase-0-Gate umgehen konnten. Fix: Feld ergänzt + Aufruf in
+`routers/wealth.py` (`create_wealth_position`, `update_wealth_position`). Dieses Gate ist
+kein Tenant-Isolation-Mechanismus im engeren Sinn, sondern der komplementäre
+"echte-vs-synthetische-Daten"-Schutz vor Produktivschaltung pro Tenant (siehe ADR-009,
+"Gate vor Echtdaten") — hier dokumentiert, weil der Lückenschluss im selben
+Audit-Sprint wie rls-1 gefunden wurde.
