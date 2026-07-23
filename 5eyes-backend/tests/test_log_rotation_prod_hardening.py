@@ -74,7 +74,12 @@ def tmp_log_dir(tmp_path, monkeypatch):
     """db_path -> tmp_path/db.sqlite -> Logs landen in tmp_path/logs."""
     db_file = tmp_path / "5eyes.db"
     monkeypatch.setattr(settings, "db_path", str(db_file))
-    monkeypatch.setattr(settings, "log_dir", "")
+    # raising=False: robuster gegen Testreihenfolge-Verschmutzung (siehe
+    # 2026-07-23-Fix in test_log_dir_resolution.py -- ein anderer Test hatte
+    # das Attribut per rohem `del` ohne Teardown vom Settings-Singleton
+    # entfernt; monkeypatch.setattr() mit dem strikten Default (raising=True)
+    # verlangt, dass das Attribut bereits existiert).
+    monkeypatch.setattr(settings, "log_dir", "", raising=False)
     return tmp_path / "logs"
 
 

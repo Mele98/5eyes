@@ -99,12 +99,17 @@ def test_missing_log_dir_attribute_falls_back(monkeypatch, tmp_path):
     # Loesche log_dir-Attribut wenn vorhanden — pydantic-settings hat es
     # eigentlich immer, aber wir verifizieren defensives Verhalten
     # via getattr-Default in resolve_log_dir.
-    try:
-        del settings.log_dir
-    except AttributeError:
-        pass
-    # Falls del nicht ging, fake leeren String — defensive testet beide Pfade
-    if hasattr(settings, 'log_dir'):
-        monkeypatch.setattr(settings, 'log_dir', '')
+    #
+    # 2026-07-23 Fix: monkeypatch.delattr() statt rohem `del settings.log_dir`.
+    # Ein rohes `del` auf dem Modul-Singleton `settings` hat KEIN Teardown —
+    # das Attribut blieb fuer den Rest des Pytest-Prozesses geloescht und liess
+    # JEDEN spaeter laufenden Test, der `monkeypatch.setattr(settings, 'log_dir',
+    # ...)` ohne raising=False aufruft, mit AttributeError crashen (gefunden im
+    # vollen Suite-Lauf: tests/test_log_rotation_prod_hardening.py schlug NUR im
+    # Gesamtlauf fehl, nie isoliert — klassische Testreihenfolge-Verschmutzung
+    # ueber ein Modul-Singleton). monkeypatch.delattr() traegt die Wiederherstellung
+    # automatisch in den eigenen Undo-Stack ein, wie jede andere monkeypatch-
+    # Operation.
+    monkeypatch.delattr(settings, 'log_dir', raising=False)
     result = resolve_log_dir()
     assert result == (tmp_path / 'fallback' / 'logs').resolve()
