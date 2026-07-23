@@ -277,6 +277,19 @@ def run_optimize(db: Session) -> dict[str, Any]:
     }
 
 
+def _backups_colocated_with_db() -> bool:
+    """AB-5 (2026-07-23): Backups im selben Verzeichnis wie die Live-DB
+    schuetzen nicht gegen Disk-Verlust/-Korruption (siehe services/backup.py
+    Docstring-Warnung). Best-effort-Vergleich, defensiv gegen jeden Pfad-
+    Fehler (Compliance-Status darf dadurch nie crashen)."""
+    try:
+        db_dir = resolve_db_file(settings.db_path).parent.resolve()
+        backup_dir = Path(settings.backup_dir).expanduser().resolve()
+        return db_dir == backup_dir
+    except Exception:
+        return False
+
+
 def build_compliance_status() -> dict[str, Any]:
     db_encryption_enabled = bool(settings.db_use_sqlcipher and settings.db_key)
     warnings: list[str] = []
@@ -286,6 +299,9 @@ def build_compliance_status() -> dict[str, Any]:
         warnings.append('DB-Verschluesselung ist aktuell nicht aktiviert. Fuer reale Kundendaten sollte SQLCipher mit DB_KEY aktiviert werden.')
     if not settings.login_rate_limit_enabled:
         warnings.append('Login-Rate-Limit ist deaktiviert.')
+    backups_colocated = _backups_colocated_with_db()
+    if backups_colocated:
+        warnings.append('Backups liegen im selben Verzeichnis wie die Live-Datenbank. Bei Datenverlust des Datentraegers (Disk-Ausfall, Ordner-Loeschung) sind DB und Backup gleichzeitig betroffen — separates Verzeichnis/Medium empfohlen.')
     return {
         'status': 'ok' if not warnings else 'warning',
         'environment': settings.app_env,
@@ -300,6 +316,7 @@ def build_compliance_status() -> dict[str, Any]:
             'support_bundle_redacts_logs': True,
             'browser_token_fallback_storage': 'sessionStorage',
             'electron_token_storage': 'safeStorage',
+            'backups_colocated_with_db': backups_colocated,
         },
         'warnings': warnings,
     }
