@@ -468,9 +468,10 @@ def create_wealth_position(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor)
 ):
+    data = body.model_dump()
+    enforce_data_classification(data.pop("data_classification", None))
     client = get_client_for_user_or_404(client_id, db, current_user)
     now = _now()
-    data = body.model_dump()
     # Convert booleans to integers for SQLite
     for bool_field in ("pension_wef_possible", "is_available_for_goal_funding"):
         if bool_field in data and data[bool_field] is not None:
@@ -504,6 +505,8 @@ def update_wealth_position(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor)
 ):
+    updates = body.model_dump(exclude_unset=True)
+    enforce_data_classification(updates.pop("data_classification", None))
     get_client_for_user_or_404(client_id, db, current_user)
     wp = db.query(WealthPosition).filter(
         WealthPosition.id == wp_id,
@@ -514,7 +517,6 @@ def update_wealth_position(
         raise HTTPException(status_code=404, detail="Vermögensposition nicht gefunden")
     # C10.2: exclude_unset erlaubt explizites Null-Setzen ("clear"). exclude_none
     # haette ein None-Update verschluckt und keine Felder gecleared.
-    updates = body.model_dump(exclude_unset=True)
     # C10.2: Wenn alloc_*-Felder im Update sind, muss die GEMERGTE Verteilung
     # eine konsistente Summe ergeben (entweder alle 0 = Default-Mix wird genutzt
     # oder Summe = 10000). Partial-Updates duerfen keine 7000-Summe erzeugen.

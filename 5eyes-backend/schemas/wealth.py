@@ -58,6 +58,13 @@ class WealthPositionCreate(BaseModel):
     is_available_for_goal_funding: bool = False
     goal_funding_method: Optional[str] = None
     notes: Optional[str] = None
+    # Phase-0-Datenklassifizierungs-Sperre (services/data_classification.py):
+    # bislang FEHLTE dieses Feld auf WealthPositionCreate/-Update -> Pydantic
+    # verwarf ein mitgesendetes "data_classification":"real" stillschweigend,
+    # bevor der Endpoint es je sah, und enforce_data_classification() wurde nie
+    # aufgerufen. Vermoegenspositionen (Depot/Hypothek/Immobilie) waren damit
+    # die einzigen sensiblen Datensaetze, die das Phase-0-Gate umgehen konnten.
+    data_classification: Literal["synthetic", "real"] = "synthetic"
 
     @model_validator(mode="after")
     def validate_depot_alloc(self):
@@ -117,6 +124,7 @@ class WealthPositionUpdate(BaseModel):
     goal_funding_method: Optional[str] = None
     notes: Optional[str] = None
     is_active: Optional[bool] = None
+    data_classification: Optional[Literal["synthetic", "real"]] = None
 
 
 class WealthPositionResponse(BaseResponse):

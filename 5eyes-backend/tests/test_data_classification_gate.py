@@ -260,3 +260,88 @@ def test_root_info_exposes_data_gate(auth_client, monkeypatch):
 
     assert response.status_code == 200
     assert response.json()["allow_real_client_data"] is False
+
+
+# ---------------------------------------------------------------------------
+# Wealth-Positions (2026-07-23): bis hierhin war create_wealth_position/
+# update_wealth_position die einzige mutierende Client-Unterressource ohne
+# enforce_data_classification()-Aufruf und ohne data_classification-Feld auf
+# WealthPositionCreate/-Update -> ein mitgesendetes "data_classification":
+# "real" wurde von Pydantic VOR dem Endpoint stillschweigend verworfen. Die
+# sensibelsten Datensaetze (Depot/Hypothek/Immobilie) konnten damit das
+# Phase-0-Gate umgehen. Behoben (schemas/wealth.py + routers/wealth.py);
+# diese Tests pinnen den Fix.
+# ---------------------------------------------------------------------------
+
+def _wealth_position_payload(classification: str | None = None) -> dict:
+    payload = {
+        "label": "Bankkonto Phase-0",
+        "position_type": "Liquidität",
+        "current_value_rappen": 10_000_00,
+    }
+    if classification is not None:
+        payload["data_classification"] = classification
+    return payload
+
+
+def test_real_wealth_position_is_blocked_when_gate_is_closed(
+    auth_client, session_factory, monkeypatch,
+):
+    from models.wealth import WealthPosition
+
+    client_id = _create_synthetic_client(auth_client, "E0-WP-REAL")
+    monkeypatch.setattr(settings, "allow_real_client_data", False)
+
+    response = auth_client.post(
+        f"/clients/{client_id}/wealth-positions",
+        json=_wealth_position_payload("real"),
+    )
+
+    _assert_phase_zero_block(response)
+    with session_factory() as session:
+        assert session.query(WealthPosition).filter(
+            WealthPosition.client_id == client_id,
+        ).count() == 0
+
+
+def test_synthetic_wealth_position_is_allowed_when_gate_is_closed(auth_client, monkeypatch):
+    client_id = _create_synthetic_client(auth_client, "E0-WP-SYNTH")
+    monkeypatch.setattr(settings, "allow_real_client_data", False)
+
+    response = auth_client.post(
+        f"/clients/{client_id}/wealth-positions",
+        json=_wealth_position_payload("synthetic"),
+    )
+
+    assert response.status_code == 201, response.text
+    assert "data_classification" not in response.json()
+
+
+def test_wealth_position_omitted_classification_defaults_to_synthetic(auth_client, monkeypatch):
+    client_id = _create_synthetic_client(auth_client, "E0-WP-DEFAULT")
+    monkeypatch.setattr(settings, "allow_real_client_data", False)
+
+    response = auth_client.post(
+        f"/clients/{client_id}/wealth-positions",
+        json=_wealth_position_payload(),
+    )
+
+    assert response.status_code == 201, response.text
+
+
+def test_wealth_position_update_with_real_classification_is_blocked(auth_client, monkeypatch):
+    client_id = _create_synthetic_client(auth_client, "E0-WP-UPD")
+    create_resp = auth_client.post(
+        f"/clients/{client_id}/wealth-positions",
+        json=_wealth_position_payload("synthetic"),
+    )
+    assert create_resp.status_code == 201, create_resp.text
+    wp_id = create_resp.json()["id"]
+
+    monkeypatch.setattr(settings, "allow_real_client_data", False)
+    response = auth_client.put(
+        f"/clients/{client_id}/wealth-positions/{wp_id}",
+        json={"data_classification": "real", "notes": "reclassify"},
+    )
+
+    _assert_phase_zero_block(response)
