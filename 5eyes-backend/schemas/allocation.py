@@ -337,6 +337,50 @@ class CapitalMarketAssumptionCreate(BaseModel):
                 raise ValueError(f"{f} darf nicht negativ sein (Volatilität >= 0).")
         if self.valid_until is not None and self.valid_from and self.valid_until < self.valid_from:
             raise ValueError("valid_until darf nicht vor valid_from liegen.")
+        # 2026-07-24 (Formel-Audit): correlation_matrix_json wurde bisher NUR
+        # auf Shape (5x5) geprueft (services/portfolio_engine.py::
+        # _build_cholesky_from_cma), NICHT auf Werte-Range. Der einzige
+        # Laufzeit-Fallback (_is_valid_cholesky) prueft nur numerische
+        # Entartung, nicht ob es fachlich ueberhaupt eine gueltige
+        # Korrelationsmatrix ist -- ein Tippfehler wie 1.05 statt 0.95 kann
+        # eine weiterhin positiv-definite, also "gueltige" Matrix ergeben und
+        # laeuft unbemerkt in die Simulation. Hier auf Pydantic-Ebene
+        # abgefangen, VOR dem DB-Write (analog SCHEMA-03).
+        if self.correlation_matrix_json:
+            import json as _json
+            try:
+                parsed = _json.loads(self.correlation_matrix_json)
+            except (ValueError, TypeError) as exc:
+                raise ValueError(f"correlation_matrix_json ist kein gültiges JSON: {exc}")
+            if not (
+                isinstance(parsed, list) and len(parsed) == 5
+                and all(isinstance(row, list) and len(row) == 5 for row in parsed)
+            ):
+                raise ValueError(
+                    "correlation_matrix_json muss eine 5x5-Matrix (Liste von 5 Listen "
+                    "mit je 5 Zahlen) sein."
+                )
+            for i, row in enumerate(parsed):
+                for j, v in enumerate(row):
+                    if not isinstance(v, (int, float)) or isinstance(v, bool):
+                        raise ValueError(f"correlation_matrix_json[{i}][{j}] muss eine Zahl sein.")
+                    if v < -1.0 or v > 1.0:
+                        raise ValueError(
+                            f"correlation_matrix_json[{i}][{j}]={v} liegt ausserhalb "
+                            "des gültigen Korrelationsbereichs [-1, 1]."
+                        )
+                if abs(float(row[i]) - 1.0) > 1e-6:
+                    raise ValueError(
+                        f"correlation_matrix_json Diagonale [{i}][{i}]={row[i]} muss "
+                        "1.0 sein (Korrelation eines Assets mit sich selbst)."
+                    )
+            for i in range(5):
+                for j in range(5):
+                    if abs(float(parsed[i][j]) - float(parsed[j][i])) > 1e-6:
+                        raise ValueError(
+                            f"correlation_matrix_json ist nicht symmetrisch bei "
+                            f"[{i}][{j}]={parsed[i][j]} vs [{j}][{i}]={parsed[j][i]}."
+                        )
         return self
 
 
