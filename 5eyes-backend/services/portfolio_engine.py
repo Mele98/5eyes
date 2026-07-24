@@ -4550,12 +4550,17 @@ def _load_allocation_inputs(
     # mandate.base_currency ist das Ziel (typisch CHF). Cashflows in
     # USD/EUR/GBP etc. werden zum aktuellen FX-Kurs konvertiert. Bei
     # FX-Lade-Fehler defensiver Fallback auf Default-Rates (kein Crash).
+    # 2026-07-24 (Generalaudit): Fallback war fx_source=None -> keine
+    # Konvertierung mehr (Rohbetrag), obwohl FXRateSource.from_db() selbst
+    # schon auf Default-Rates faellt statt zu raisen -- dieser aeussere
+    # except greift praktisch nie, aber FXRateSource() ist die konsistentere
+    # Wahl falls doch (Naeherung statt komplettes Ignorieren der Waehrung).
+    from services.currency.fx_rates import FXRateSource
     fx_source = None
     try:
-        from services.currency.fx_rates import FXRateSource
         fx_source = FXRateSource.from_db(db)
     except Exception:
-        fx_source = None
+        fx_source = FXRateSource()
     target_currency = str(getattr(mandate, "base_currency", "CHF") or "CHF").upper()
     cashflow_totals = totals_for_year(
         cashflows, fx_source=fx_source, target_currency=target_currency,
@@ -7156,12 +7161,14 @@ def build_target_payload_from_allocation(
         Goal.is_active == 1,
     ).order_by(Goal.rank.asc()).all()
     # Sprint B3 (2026-06-07): Multi-Currency-Conversion (siehe _load_allocation_inputs).
+    # 2026-07-24 (Generalaudit): siehe _load_allocation_inputs -- Fallback auf
+    # FXRateSource() statt None, konsistent zum dortigen Fix.
+    from services.currency.fx_rates import FXRateSource
     fx_source = None
     try:
-        from services.currency.fx_rates import FXRateSource
         fx_source = FXRateSource.from_db(db)
     except Exception:
-        fx_source = None
+        fx_source = FXRateSource()
     target_currency = str(getattr(mandate, "base_currency", "CHF") or "CHF").upper()
     cashflow_totals = totals_for_year(
         cashflows, fx_source=fx_source, target_currency=target_currency,

@@ -283,12 +283,20 @@ def cashflow_summary(
     # CF-2 (2026-07-23): FX-Konvertierung wie im Schwester-Endpoint
     # cashflow_projection — sonst zeigt das Summary Fremdwaehrungs-Cashflows im
     # Rohbetrag statt zu CHF konvertiert (Divergenz zwischen den beiden Ansichten).
+    # 2026-07-24 (Generalaudit): FXRateSource.from_db() faengt intern bereits
+    # JEDEN Fehler ab und faellt selbst auf Default-Kurse zurueck (siehe
+    # services/currency/fx_rates.py::from_db) -- dieser aeussere except greift
+    # praktisch nie. Faellt er doch (z.B. Import-Fehler), war der Fallback
+    # bisher fx_source=None -> totals_for_year() KONVERTIERT GAR NICHT MEHR
+    # (Fremdwaehrungs-Betraege im Rohwert), schlechter als der DEFAULT_FX_RATES-
+    # Fallback, den from_db() selbst nutzt. FXRateSource() (= Default-Kurse)
+    # ist die konsistente Wahl.
+    from services.currency.fx_rates import FXRateSource
     fx_source = None
     try:
-        from services.currency.fx_rates import FXRateSource
         fx_source = FXRateSource.from_db(db)
     except Exception:
-        fx_source = None
+        fx_source = FXRateSource()
     totals = totals_for_year(cashflows, fx_source=fx_source, target_currency="CHF")
     client_name = f"{client.first_name or ''} {client.last_name or ''}".strip() or client.client_number or client.id
     return CashflowSummaryResponse(
@@ -470,13 +478,17 @@ def cashflow_projection(
     )
 
     # FX-Source spiegelt die Engine (_load_allocation_inputs): bei Lade-Fehler
-    # defensiver None-Fallback (kein Crash, dann single-currency wie zuvor).
+    # 2026-07-24 (Generalaudit): Fallback auf FXRateSource() (Default-Kurse)
+    # statt None -- FXRateSource.from_db() faengt intern schon jeden Fehler ab
+    # und faellt selbst auf Default-Kurse zurueck, dieser aeussere except
+    # greift praktisch nie. Faellt er doch, ist fx_source=None schlechter
+    # (deaktiviert Konvertierung komplett statt Naeherung zu zeigen).
+    from services.currency.fx_rates import FXRateSource
     fx_source = None
     try:
-        from services.currency.fx_rates import FXRateSource
         fx_source = FXRateSource.from_db(db)
     except Exception:
-        fx_source = None
+        fx_source = FXRateSource()
     target_currency = "CHF"
 
     cma = db.query(CapitalMarketAssumption).filter(

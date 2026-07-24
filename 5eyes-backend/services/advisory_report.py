@@ -3126,12 +3126,17 @@ def _recompute_reserve_reasoning(
     cashflows = list(_cached_active_cashflows(db, str(mandate.client_id)))
     cashflows = cashflows + derive_wealth_cashflows(positions)
 
+    # 2026-07-24 (Generalaudit): Fallback auf FXRateSource() statt None --
+    # FXRateSource.from_db() faengt intern schon jeden Fehler ab und faellt
+    # selbst auf Default-Kurse zurueck; dieser aeussere except greift
+    # praktisch nie. fx_source=None wuerde die Konvertierung komplett
+    # deaktivieren statt eine Naeherung zu zeigen.
+    from services.currency.fx_rates import FXRateSource
     fx_source = None
     try:
-        from services.currency.fx_rates import FXRateSource
         fx_source = FXRateSource.from_db(db)
     except Exception:  # noqa: BLE001
-        fx_source = None
+        fx_source = FXRateSource()
     target_currency = str(getattr(mandate, "base_currency", "CHF") or "CHF").upper()
 
     cma = (
