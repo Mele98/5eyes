@@ -18,11 +18,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from typing import TYPE_CHECKING
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from models.clients import Client
 from models.review import RecommendationPosition, RecommendationRun
+
+if TYPE_CHECKING:
+    from models.users import User
 
 
 # Default-Schwelle (Tage). Berater-relevante Empfehlungen werden in
@@ -82,32 +87,62 @@ def _cutoff_iso(retention_days: int, *, now: datetime | None = None) -> str:
     return cutoff.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 
 
+def _tenant_scoped_client_ids(db: Session, current_user: "User | None") -> list[str] | None:
+    """2026-07-24 (Security-Audit): liefert die Liste sichtbarer Client-IDs
+    fuer den aufrufenden User, oder None wenn KEIN Filter angewendet werden
+    soll (kein current_user uebergeben -- Backwards-Compat fuer bestehende
+    Tests/interne Aufrufer; super_admin; oder tenant-loser Legacy-User,
+    siehe services.auth._apply_tenant_filter_to_client_query fuer die exakt
+    gespiegelte Konvention). None bedeutet 'kein Filter', NIE 'alles
+    verstecken' -- eine leere Liste ([]) ist das korrekte Signal fuer
+    'Tenant hat keine sichtbaren Clients', nicht None."""
+    if current_user is None:
+        return None
+    if getattr(current_user, "role", None) == "super_admin":
+        return None
+    user_tid = getattr(current_user, "tenant_id", None)
+    if not user_tid or not str(user_tid).strip():
+        return None
+    from services.auth import _apply_tenant_filter_to_client_query
+    query = _apply_tenant_filter_to_client_query(db.query(Client.id), current_user)
+    return [row[0] for row in query.all()]
+
+
 def cleanup_recommendation_runs(
     db: Session,
     *,
     retention_days: int | None = None,
     dry_run: bool = False,
     now: datetime | None = None,
+    current_user: "User | None" = None,
 ) -> CleanupResult:
     """Loescht (oder zaehlt nur, bei dry_run=True) RecommendationRuns
     aelter als retention_days.
+
+    2026-07-24 (Security-Audit): `current_user` ist optional (Backwards-
+    Compat fuer bestehende Aufrufer/Tests), aber der Endpoint MUSS ihn
+    uebergeben -- ohne Tenant-Filter konnte ein tenant-gebundener (nicht
+    super_admin) Admin RecommendationRun/-Position-Zeilen FREMDER Tenants
+    physisch loeschen (kein Soft-Delete, kein Undo). Filter spiegelt exakt
+    services.auth._apply_tenant_filter_to_client_query ueber client_id.
 
     Raises:
         ValueError: wenn retention_days < MIN_RETENTION_DAYS.
     """
     effective_days = _resolve_retention_days(retention_days)
     cutoff_iso = _cutoff_iso(effective_days, now=now)
+    visible_client_ids = _tenant_scoped_client_ids(db, current_user)
 
     # 1) Eindeutige Run-IDs identifizieren — als String-Sort funktioniert
     #    ISO8601 lexikografisch (deshalb das feste Z-Suffix-Format).
-    candidate_run_ids = [
-        row[0]
-        for row in (
-            db.query(RecommendationRun.id)
-            .filter(RecommendationRun.created_at < cutoff_iso)
-            .all()
+    candidate_query = db.query(RecommendationRun.id).filter(
+        RecommendationRun.created_at < cutoff_iso
+    )
+    if visible_client_ids is not None:
+        candidate_query = candidate_query.filter(
+            RecommendationRun.client_id.in_(visible_client_ids)
         )
-    ]
+    candidate_run_ids = [row[0] for row in candidate_query.all()]
     deleted_runs = len(candidate_run_ids)
 
     # 2) Zugehoerige Positions zaehlen (auch im dry_run, damit Berater
@@ -137,21 +172,30 @@ def cleanup_recommendation_runs(
         # commit wird vom Caller (Endpoint) gemacht — damit AuditLog-Write
         # in derselben Transaktion landet.
 
+    # 2026-07-24 (Security-Audit): dieselbe Tenant-Scoping auch fuer die
+    # reinen Report-Zahlen -- sonst saehe ein tenant-gebundener Admin ueber
+    # 'runs_remaining'/'oldest_remaining_iso' die GESAMTZAHL/das aelteste
+    # Datum quer durch ALLE Tenants (kleineres, aber reales Info-Leak).
+    def _scope(query):
+        if visible_client_ids is not None:
+            return query.filter(RecommendationRun.client_id.in_(visible_client_ids))
+        return query
+
     runs_remaining = (
-        db.query(func.count(RecommendationRun.id))
+        _scope(db.query(func.count(RecommendationRun.id)))
         .filter(RecommendationRun.created_at >= cutoff_iso)
         .scalar()
         if dry_run
-        else db.query(func.count(RecommendationRun.id)).scalar()
+        else _scope(db.query(func.count(RecommendationRun.id))).scalar()
     )
     runs_remaining = int(runs_remaining or 0)
 
     oldest_remaining_iso = (
-        db.query(func.min(RecommendationRun.created_at))
+        _scope(db.query(func.min(RecommendationRun.created_at)))
         .filter(RecommendationRun.created_at >= cutoff_iso)
         .scalar()
         if dry_run
-        else db.query(func.min(RecommendationRun.created_at)).scalar()
+        else _scope(db.query(func.min(RecommendationRun.created_at))).scalar()
     )
 
     return CleanupResult(

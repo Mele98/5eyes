@@ -164,6 +164,12 @@ def cleanup_recommendation_runs_endpoint(
             db,
             retention_days=int(retention_days) if retention_days is not None else None,
             dry_run=dry_run,
+            # 2026-07-24 (Security-Audit): current_user durchreichen, sonst
+            # loescht/zaehlt cleanup_recommendation_runs quer durch ALLE
+            # Tenants -- ein tenant-gebundener Admin (nicht super_admin)
+            # koennte fremder Tenants RecommendationRun-Historie physisch
+            # unwiderruflich loeschen.
+            current_user=current_user,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
