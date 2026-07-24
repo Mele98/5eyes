@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from datetime import datetime, timezone
 from database import get_db, new_uuid
 from models.users import User
@@ -96,7 +97,18 @@ def create_client(
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="clients", record_id=client.id, action="CREATE",
         client_id=client.id)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        # 2026-07-24 (Generalaudit): der Pre-Check oben ist TOCTOU-racy --
+        # zwei parallele Requests (z.B. Doppelklick) koennen beide den
+        # Check passieren, bevor einer committet. Der UNIQUE-Constraint auf
+        # client_number (models/clients.py) verhindert zuverlaessig ein
+        # Duplikat, gab dem VERLIERENDEN Request bisher aber einen 500
+        # statt eines klaren 409. Kein Datenintegritaets-Bug (kein Duplikat
+        # persistiert), nur eine falsche HTTP-Statuscode-Antwort.
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Kundennummer bereits vergeben")
     db.refresh(client)
     return client
 

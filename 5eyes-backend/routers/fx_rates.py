@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from database import get_db, new_uuid
 from models.fx_rate import FXRate
 from models.users import User
+from services.audit import log
 from services.auth import get_current_user, require_advisor
 from services.currency.fx_rates import DEFAULT_FX_RATES, FXRateSource
 
@@ -115,7 +116,9 @@ def upsert_fx_rates(
             FXRate.currency == ccy,
             FXRate.is_current == 1,
         ).all()
+        old_rate_display = None
         for old in old_rows:
+            old_rate_display = f"{float(old.rate_x10000) / 10000.0:.4f}"
             old.is_current = 0
             old.valid_until = now
             old.updated_at = now
@@ -136,6 +139,17 @@ def upsert_fx_rates(
         )
         db.add(row)
         affected_currencies.add(ccy)
+        # 2026-07-24 (Generalaudit): FX-Rate-Aenderungen wirken global auf
+        # ALLE Tenants (kein tenant_id auf FXRate) und verzerren sonst
+        # unbemerkt Fremdwaehrungs-Betraege in Beratungsdokumenten -- bisher
+        # nicht im zentralen AuditLog nachvollziehbar (nur die versionierte
+        # FXRate-Tabelle selbst zeigt den neuen Wert, kein "wer/wann").
+        log(
+            db, user_id=current_user.id, user_name=current_user.full_name,
+            table_name="fx_rates", record_id=row.id, action="UPSERT",
+            field_name=ccy, old_value=old_rate_display,
+            new_value=f"{float(entry.rate):.4f}",
+        )
 
     db.commit()
     return list_current_fx_rates(db=db, current_user=current_user)
