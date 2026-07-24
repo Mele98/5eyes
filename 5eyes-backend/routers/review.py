@@ -142,13 +142,26 @@ def _validate_recommendation_for_finalization(db: Session, mandate: Mandate, run
         errors.append("Empfehlung basiert nicht auf der aktuellen Soll-Allokation.")
     elif assessment and allocation.based_on_assessment_id and allocation.based_on_assessment_id != assessment.id:
         errors.append("Soll-Allokation und Risikoprofil der Empfehlung passen nicht zusammen.")
-    if not run.policy_id or not db.query(OptimizerPolicy).filter(OptimizerPolicy.id == run.policy_id).first():
+    policy = db.query(OptimizerPolicy).filter(
+        OptimizerPolicy.id == run.policy_id,
+    ).first() if run.policy_id else None
+    if not policy:
         errors.append("Empfehlung hat keine gueltige Policy-Version.")
-    if not run.capital_market_assumptions_id or not db.query(CapitalMarketAssumption).filter(
+    elif not policy.is_current:
+        # 2026-07-24 (Generalaudit): dasselbe Muster wie der Risikoprofil-/
+        # Soll-Allokation-Guard oben (F4, PROAKTIV-AUDIT Runde 4) -- eine
+        # finalisierte Empfehlung darf nicht auf einer bereits ersetzten
+        # Policy-Version basieren, sonst ist der Final-Zustand fachlich
+        # veraltet ohne dass das erkennbar waere.
+        errors.append("Empfehlung basiert nicht auf der aktuellen Policy-Version.")
+    cma = db.query(CapitalMarketAssumption).filter(
         CapitalMarketAssumption.id == run.capital_market_assumptions_id,
         CapitalMarketAssumption.deleted_at.is_(None),
-    ).first():
+    ).first() if run.capital_market_assumptions_id else None
+    if not cma:
         errors.append("Empfehlung hat keine gueltige CMA-Version.")
+    elif not cma.is_current:
+        errors.append("Empfehlung basiert nicht auf der aktuellen CMA-Version.")
     positions = db.query(RecommendationPosition).filter(RecommendationPosition.run_id == run.id).all()
     if not positions:
         errors.append("Empfehlung enthaelt keine Positionen.")
