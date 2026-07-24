@@ -1504,7 +1504,19 @@ def _cornish_fisher_transform(z: float, skew: float, excess_kurt: float) -> floa
     bleibt z unverändert (Backwards-Compat).
 
     Formula: z' = z + (z²-1)*S/6 + (z³-3z)*K/24 - (2z³-5z)*S²/36
+
+    2026-07-24 (Audit, portfoliotheoretische Formel-Ueberpruefung): skew/
+    excess_kurt werden hier NICHT validiert, bevor sie in die Formel
+    einfliessen. Die CF-Expansion ist bei extremen Skew/Kurt-Kombinationen
+    bekanntermassen nicht-monoton (liefert keine gueltige Quantilfunktion
+    mehr) -- ein Dateneingabefehler in der CMA-Admin-UI (z.B. ein Tippfehler
+    um eine Grössenordnung) wuerde das unbemerkt durchreichen. Clamp auf
+    einen Bereich, der jeden real beobachteten/plausiblen Markt-Skew/-Kurt
+    weit uebersteigt (typische Aktien-Skew ~ -1..0, Exzess-Kurtosis ~ 1..10),
+    aber grobe Fat-Finger-Fehler abfaengt.
     """
+    skew = max(-3.0, min(3.0, skew))
+    excess_kurt = max(-2.0, min(30.0, excess_kurt))
     if skew == 0.0 and excess_kurt == 0.0:
         return z
     z2 = z * z
@@ -3062,6 +3074,13 @@ def _monte_carlo_goal_summary(
     evaluation_note = None
     target = 0
     outside_simulation_horizon = False
+    # 2026-07-24 (goals-1, Formel-Audit): siehe Kommentar an der Verzweigung
+    # unten -- ein Flag statt der Bedingung zweimal zu wiederholen, weil sie
+    # auch den pessimistic_shortfall_rappen-Block betrifft.
+    pension_state_funded_goal = (
+        goal_type in ("Einmalige_Ausgabe", "Wiederkehrende_Ausgabe", "Pensionsausgabe")
+        and _goal_pension_state_funded(goal)
+    )
 
     # B5: Score = alpha * success_rate_pct + (1-alpha) * funded_ratio_pct
     # Pro Goal-Typ: success_rate_pct (binaer/MC) und funded_ratio_pct als
@@ -3072,6 +3091,33 @@ def _monte_carlo_goal_summary(
         median_return = _percentile(annualized_return_samples_bps, 0.50) if annualized_return_samples_bps else 0
         funded_ratio_p50 = 0.0 if target <= 0 else round(max(0.0, min(2.0, median_return / target)), 4)
         funded_ratio_pct = 100 if target <= 0 else max(0, min(200, int(round(median_return / target * 100))))
+        score = _compute_goal_score(
+            success_rate_pct=success_rate_pct,
+            funded_ratio_pct=funded_ratio_pct,
+            hardness_key=hardness_key,
+        )
+    elif pension_state_funded_goal:
+        # 2026-07-24 (goals-1, Formel-Audit): AHV/Renten-Goals sind staatlich
+        # gedeckt -- der deterministische Pfad (_goal_reserve_for_goal,
+        # Sprint B3) behandelt sie deshalb als voll erfuellt (keine
+        # Portfolio-Finanzierung noetig), UNABHAENGIG von den Jahren bis
+        # Zieleintritt. Der MC-Pfad rief _goal_pension_state_funded nie ab
+        # und bewertete dasselbe Goal wie ein normales, voll aus dem
+        # simulierten Portfolio zu finanzierendes Ausgabenziel -- Folge: der
+        # MC-Bericht zeigte einen unabhaengig (und meist niedrigeren)
+        # berechneten Score als der deterministische Bericht fuer dasselbe
+        # Ziel. Fix: identische Formel wie _goal_reserve_for_goal (target *
+        # Wahrscheinlichkeitsfaktor), damit beide Berichte konsistent sind.
+        base_target = max(1, int(
+            _annualize_goal_amount(goal)
+            if goal_type in ("Wiederkehrende_Ausgabe", "Pensionsausgabe")
+            else int(goal.target_amount_rappen or 0)
+        ))
+        target = base_target
+        available = _goal_reserve_for_goal(goal)
+        success_rate_pct = 100 if available >= base_target else 0
+        funded_ratio_p50 = round(available / base_target, 4)
+        funded_ratio_pct = max(0, min(200, int(round(funded_ratio_p50 * 100))))
         score = _compute_goal_score(
             success_rate_pct=success_rate_pct,
             funded_ratio_pct=funded_ratio_pct,
@@ -3154,7 +3200,15 @@ def _monte_carlo_goal_summary(
     # schlechteste Quartil ausgewiesen wird. Beim Renditeziel wird die
     # Rendite in ein implizites Endvermoegen umgerechnet, damit die Differenz
     # ebenfalls als CHF-Betrag ausweisbar ist.
-    if goal_type == "Renditeziel":
+    if pension_state_funded_goal:
+        # 2026-07-24 (goals-1): der "pessimistische" Fehlbetrag darf hier
+        # NICHT vom simulierten Portfolio-P25 abhaengen -- die Deckung kommt
+        # von der staatlichen Saeule, nicht vom Portfolio. Fehlbetrag =
+        # Ziel minus das, was _goal_reserve_for_goal als gedeckt ausweist
+        # (0, ausser das Ziel ist bedingt/wahrscheinlichkeitsgewichtet).
+        median_achievement_pct = max(0, min(100, int(round(funded_ratio_p50 * 100))))
+        pessimistic_shortfall_rappen = max(0, int(target) - int(round(target * funded_ratio_p50)))
+    elif goal_type == "Renditeziel":
         if target <= 0:
             median_achievement_pct = 100
             pessimistic_shortfall_rappen = 0
@@ -4697,11 +4751,29 @@ def _compute_reserve_for_inputs(
     # aber NICHT in der recurring-Series — Folge: Erbschaft erhoehte
     # Goal-Achievement aber reduzierte reserve_needed nicht. Jetzt mit-
     # subtrahiert (wirkt wie zusaetzlicher Net-Inflow).
-    near_term_inflows = sum(
-        int(value or 0)
+    near_term_inflow_series = [
+        max(0, int(value or 0))
         for value in (inflow_projection_series_rappen or [])[:3]
-    )
-    near_term_shortfall_rappen = max(0, -sum(near_term_cashflow_series) - max(0, near_term_inflows))
+    ]
+    near_term_inflows = sum(near_term_inflow_series)
+    # 2026-07-24 (RES-1, Formel-Audit): Running-Minimum statt reiner Endsumme.
+    # Vorher: max(0, -sum(series) - inflows) -- das misst nur den kumulativen
+    # STAND NACH dem letzten Jahr, nicht den TIEFSTEN Punkt dazwischen. Bei
+    # einer gemischten Serie (z.B. -50k/+40k/-10k) ergibt die Endsumme -20k,
+    # obwohl der tatsaechliche Tiefpunkt bereits in Jahr 1 bei -50k liegt --
+    # der Kunde braucht dort mehr Liquiditaet als die Endsumme nahelegt, sonst
+    # droht ein Notverkauf zum unguenstigen Zeitpunkt. Fix: kumulative
+    # Partialsummen ueber die Jahre bilden, den tiefsten Punkt (running min,
+    # nie ueber 0) nehmen. Ist die Serie monoton (Mehrheit der Faelle), ist
+    # der tiefste Punkt = die Endsumme -> identisches Verhalten wie vorher.
+    # In JEDEM Fall gilt: running_min <= end_sum, also kann dieser Fix die
+    # empfohlene Reserve nur erhoehen oder gleich lassen, nie senken.
+    cumulative = 0
+    running_min = 0
+    for idx, cashflow_value in enumerate(near_term_cashflow_series):
+        cumulative += cashflow_value + (near_term_inflow_series[idx] if idx < len(near_term_inflow_series) else 0)
+        running_min = min(running_min, cumulative)
+    near_term_shortfall_rappen = max(0, -running_min)
     if near_term_shortfall_rappen > 0:
         reserve_candidates.append(near_term_shortfall_rappen)
         if reasoning is not None:
@@ -4805,6 +4877,28 @@ def _compute_reserve_for_inputs(
                 f"Ein Liquiditaetsbedarf von CHF {chf_external:,} wird als externe Reserve ausserhalb "
                 f"des Beratungsmandats empfohlen. Die SAA-Liquiditaet bleibt auf {saa_liquidity_ceiling_bps / 100:.1f}%."
             )
+        # 2026-07-24 (RES-2, Formel-Audit): external_reserve_rappen war bisher
+        # ungecappt gegen advisory_wealth_rappen. Bei mehreren summierten
+        # Nahzielen (#AA-8) oder einem hohen manuellen Reserve-Override kann
+        # der berechnete Bedarf das GESAMTE Beratungsvermoegen uebersteigen ->
+        # investable_advisory_wealth_rappen faellt auf 0, die SOLL-Simulation
+        # laeuft mit Start=0, und das Frontend schlaegt eine externe Reserve
+        # oben auf die SOLL-Kurve, die > 100% des Vermoegens waere -- ohne
+        # jede Warnung an den Berater. Fix: hart auf advisory_wealth_rappen
+        # cappen + Warnung, damit die Deckungsluecke sichtbar bleibt statt
+        # sich in einer unplausiblen Kennzahl zu verstecken.
+        if external_reserve_rappen > advisory_wealth_rappen:
+            if reasoning is not None:
+                chf_needed = reserve_needed_rappen // 100
+                chf_available = advisory_wealth_rappen // 100
+                reasoning.append(
+                    f"Der berechnete Liquiditaetsbedarf (CHF {chf_needed:,}) uebersteigt das "
+                    f"gesamte Beratungsvermoegen (CHF {chf_available:,}) -- nicht alle Nahziele "
+                    "sind aus diesem Mandat allein deckbar. Die externe Reserve wird auf das "
+                    "verfuegbare Vermoegen begrenzt; die Deckungsluecke muss ausserhalb des "
+                    "Mandats geschlossen werden (z.B. anderes Vermoegen, zusaetzliches Sparen)."
+                )
+            external_reserve_rappen = advisory_wealth_rappen
 
     return reserve_needed_rappen, external_reserve_rappen
 
