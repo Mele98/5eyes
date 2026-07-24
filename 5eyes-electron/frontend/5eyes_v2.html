@@ -3,6 +3,16 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- 2026-07-24 (Generalaudit, Electron/IPC-Sweep): CSP-Meta-Tag fuer die
+     Renderer-Seite. Das Backend setzt bereits einen Content-Security-Policy-
+     Header (core/middleware.py DEFAULT_CSP_POLICY, csp_enabled), aber dieser
+     greift NUR bei ueber HTTP ausgelieferten Antworten -- der Electron-
+     Hauptprozess laedt diese Datei via mainWindow.loadFile() als file://-URL,
+     die NIE durch die Backend-Middleware laeuft. contextIsolation+sandbox+
+     nodeIntegration:false (main.js) mindern das Risiko bereits stark, aber
+     eine CSP ist zusaetzliche Tiefenverteidigung gegen injizierte Skripte.
+     Policy 1:1 gespiegelt von core/middleware.py::DEFAULT_CSP_POLICY. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' app://. null; script-src 'self' 'unsafe-inline' app://. null; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:*; font-src 'self' data:; frame-ancestors 'none'; form-action 'self'; object-src 'none'; base-uri 'self'">
 <title>5eyes / WealthArchitekten v4</title>
 <style>/* Vendored: system fonts replace Google Fonts (DM Sans + EB Garamond) */
 :root{--f-s:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;--f-d:Georgia,"Times New Roman",serif;}
