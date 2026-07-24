@@ -3125,6 +3125,15 @@ def _monte_carlo_goal_summary(
         )
     elif goal_type in ("Einmalige_Ausgabe", "Wiederkehrende_Ausgabe", "Pensionsausgabe"):
         target = _annualize_goal_amount(goal)
+        # 2026-07-24 (Formel-Audit, Folgefund zu goals-1): bedingte Goals
+        # (probability_pct < 100, Sprint B6) wurden im deterministischen Pfad
+        # ueber _goal_reserve_for_goal() bereits mit dem Wahrscheinlichkeits-
+        # faktor gewichtet -- der MC-Pfad wendete ihn fuer Ausgabenziele nie
+        # an (nur fuer Renditeziel, Zeile ~3082). Ein 50%-wahrscheinliches
+        # Ausgabenziel wurde im MC-Bericht wie ein sicheres (100%) behandelt.
+        # Fix: denselben Faktor auf das Ziel anwenden -- ein bedingtes Ziel
+        # braucht proportional weniger Deckung, konsistent zur Reserve-Logik.
+        target = target * _goal_probability_factor(goal)
         if goal_type in ("Wiederkehrende_Ausgabe", "Pensionsausgabe"):
             full_duration = _full_goal_duration_years(goal)
             duration = _goal_duration_years(goal, start_year, horizon_years)
