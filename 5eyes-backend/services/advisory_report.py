@@ -1123,7 +1123,7 @@ def _build_erkenntnisse(
 
     checks: list[dict[str, Any]] = [
         _check_risikoprofil(db, mandate),
-        _check_asset_allocation(dc),
+        _check_asset_allocation(dc, mandate),
         _check_waehrungsstruktur(dc),
         _check_waehrungsabsicherung(db, mandate, dc),
         _check_diversifikation(dc),
@@ -1187,7 +1187,26 @@ def _check_risikoprofil(db: Session, mandate: Mandate) -> dict[str, Any]:
     )
 
 
-def _check_asset_allocation(dc: dict[str, Any]) -> dict[str, Any]:
+def _erkenntnisse_is_illiquid_bucket(bucket_key: str) -> bool:
+    """2026-07-24: Immobilien sind fuer NIEMANDEN kurzfristig per Rebalancing
+    loesbar -- spiegelt _reviewIsIlliquidAssetClass() im Frontend
+    (5eyes_v2.html), das denselben Fund fuer die Live-Review-UI behoben hat."""
+    return bucket_key == "real_estate"
+
+
+def _erkenntnisse_is_discretionary_mandate(mandate: Mandate) -> bool:
+    """Spiegelt _reviewIsDiscretionaryMandate() im Frontend: nur Vermoegens-
+    verwaltung hat Ausfuehrungsbefugnis fuer eine Rebalancing-Empfehlung."""
+    return str(getattr(mandate, "mandate_type", "") or "") == "Vermögensverwaltung"
+
+
+def _check_asset_allocation(dc: dict[str, Any], mandate: Mandate) -> dict[str, Any]:
+    """2026-07-24 (Formel-/Sprach-Audit): Bandverletzungen bei Immobilien
+    (illiquide Anlageklasse) UND bei reiner Anlageberatung (mandate_type !=
+    'Vermögensverwaltung', keine Ausfuehrungsbefugnis) duerfen nicht als
+    'Rebalancing'-Handlungsempfehlung erscheinen -- exakt derselbe Bug, der
+    heute Nacht in der Live-Review-UI (reviewBandStateMeta) behoben wurde,
+    bestand unabhaengig davon auch im gedruckten Beratungsprotokoll."""
     buckets = dc.get("buckets") or {}
     if not buckets:
         return _verdict(
@@ -1196,27 +1215,43 @@ def _check_asset_allocation(dc: dict[str, Any]) -> dict[str, Any]:
             "Strategische Asset Allocation berechnen und freigeben.",
         )
     out_of_band = [
-        b for b in buckets.values()
+        (key, b) for key, b in buckets.items()
         if b.get("in_band") is False
     ]
-    n_out = len(out_of_band)
-    if n_out == 0:
+    if not out_of_band:
         return _verdict(
             "Asset Allocation", "gruen",
             "Alle Anlageklassen liegen innerhalb des Toleranzbandes.",
             "Keine Massnahme erforderlich.",
         )
-    if n_out <= 2:
-        labels = ", ".join(str(b.get("label", "")) for b in out_of_band)
+    liquid_out = [item for item in out_of_band if not _erkenntnisse_is_illiquid_bucket(item[0])]
+    labels = ", ".join(str(b.get("label", "")) for _, b in out_of_band)
+    discretionary = _erkenntnisse_is_discretionary_mandate(mandate)
+    if not liquid_out:
+        # Nur illiquide (Immobilien-)Abweichungen: nie 'rot', keine
+        # Rebalancing-Sprache -- unabhaengig vom Mandatstyp.
         return _verdict(
             "Asset Allocation", "gelb",
-            f"{n_out} Anlageklasse(n) ausserhalb des Bandes: {labels}.",
-            "Rebalancing prüfen, sofern keine fachliche Begründung vorliegt.",
+            f"{len(out_of_band)} Anlageklasse(n) ausserhalb des Bandes: {labels}.",
+            "Bei nächster Transaktion oder im Kundengespräch berücksichtigen — "
+            "keine kurzfristige Rebalancing-Massnahme möglich.",
+        )
+    if discretionary:
+        rebalance_gelb = "Rebalancing prüfen, sofern keine fachliche Begründung vorliegt."
+        rebalance_rot = "Rebalancing planen, Eignungsprüfung dokumentieren."
+    else:
+        rebalance_gelb = "Empfehlung zur Anpassung prüfen und mit dem Kunden besprechen, sofern keine fachliche Begründung vorliegt."
+        rebalance_rot = "Empfehlung zur Anpassung mit dem Kunden besprechen, Eignungsprüfung dokumentieren."
+    if len(liquid_out) <= 2:
+        return _verdict(
+            "Asset Allocation", "gelb",
+            f"{len(out_of_band)} Anlageklasse(n) ausserhalb des Bandes: {labels}.",
+            rebalance_gelb,
         )
     return _verdict(
         "Asset Allocation", "rot",
-        f"{n_out} Anlageklassen liegen ausserhalb des Bandes.",
-        "Rebalancing planen, Eignungsprüfung dokumentieren.",
+        f"{len(out_of_band)} Anlageklassen liegen ausserhalb des Bandes: {labels}.",
+        rebalance_rot,
     )
 
 
