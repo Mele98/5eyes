@@ -168,3 +168,81 @@ def test_tax_result_includes_tariff_version(ctx):
     r = GenericFlatRateRegime(wealth_tax_bps_pa=50.0, tariff_version="GENERIC-v1")
     result = r.annual_wealth_tax(ctx)
     assert result.tariff_version == "GENERIC-v1"
+
+
+# ---------------------------------------------------------------------------
+# RT-2 (2026-07-24, Audit-Backlog): ein negativer bps-Override (via
+# Mandate.tax_overrides_json erreichbar, validate_parameters warnt nur,
+# blockiert nicht) darf NIE einen negativen Steuerbetrag erzeugen -- das
+# waere downstream eine Steuer-EINNAHME statt -Ausgabe. Grundlage (wealth/
+# income/gains) war bereits auf >=0 geflort; die Rate selbst nicht.
+# ---------------------------------------------------------------------------
+
+def test_negative_wealth_tax_override_floors_to_zero(ctx):
+    r = GenericFlatRateRegime(wealth_tax_bps_pa=-50.0)
+    result = r.annual_wealth_tax(ctx)
+    assert result.amount_rappen == 0.0
+    # effective_bps bleibt unveraendert sichtbar (Transparenz fuer den Berater,
+    # dass der Override negativ war) -- nur der Betrag wird geflort.
+    assert result.effective_bps == -50.0
+
+
+def test_negative_dividend_tax_override_floors_to_zero(ctx):
+    r = GenericFlatRateRegime(dividend_tax_bps=-2500.0)
+    result = r.dividend_tax(ctx, 10_000_00)
+    assert result.amount_rappen == 0.0
+
+
+def test_negative_interest_tax_override_floors_to_zero(ctx):
+    r = GenericFlatRateRegime(interest_tax_bps=-1000.0)
+    result = r.interest_tax(ctx, 5_000_00)
+    assert result.amount_rappen == 0.0
+
+
+def test_negative_capital_gains_tax_override_floors_to_zero(ctx):
+    r = GenericFlatRateRegime(capital_gains_tax_bps=-2000.0)
+    result = r.capital_gains_tax(ctx, 50_000_00, 5)
+    assert result.amount_rappen == 0.0
+
+
+def test_negative_pension_lumpsum_tax_override_floors_to_zero(ctx):
+    r = GenericFlatRateRegime(pension_lumpsum_tax_bps=-100.0)
+    result = r.pension_lumpsum_tax(ctx, 100_000_00)
+    assert result.amount_rappen == 0.0
+
+
+def test_negative_inheritance_tax_override_floors_to_zero(ctx):
+    r = GenericFlatRateRegime(inheritance_tax_bps_default=-300.0)
+    result = r.inheritance_tax(ctx, 200_000_00, "child")
+    assert result.amount_rappen == 0.0
+
+
+def test_via_with_overrides_negative_rate_still_floors(ctx):
+    """End-to-end ueber den echten Override-Pfad (with_overrides), nicht nur
+    per Konstruktor-Kwarg -- deckt den tatsaechlich erreichbaren Weg ab
+    (Mandate.tax_overrides_json -> apply_overrides -> with_overrides)."""
+    base = GenericFlatRateRegime()
+    overridden = base.with_overrides({"wealth_tax_bps_pa": -500.0})
+    result = overridden.annual_wealth_tax(ctx)
+    assert result.amount_rappen == 0.0
+
+
+def test_positive_rates_unaffected_by_floor(ctx):
+    """Der Fix darf den Normalfall (nicht-negative Rate) nicht veraendern --
+    exakter Betrag muss identisch zum vorherigen (ungeflorten) Ergebnis sein."""
+    r = GenericFlatRateRegime(
+        wealth_tax_bps_pa=50.0, dividend_tax_bps=2500.0,
+        capital_gains_tax_bps=2000.0, pension_lumpsum_tax_bps=1000.0,
+        inheritance_tax_bps_default=1500.0,
+    )
+    assert r.annual_wealth_tax(ctx).amount_rappen == 1_000_000_00 * 0.005
+    assert r.dividend_tax(ctx, 10_000_00).amount_rappen == 10_000_00 * 0.25
+    assert r.capital_gains_tax(ctx, 50_000_00, 5).amount_rappen == 50_000_00 * 0.20
+    assert r.pension_lumpsum_tax(ctx, 100_000_00).amount_rappen == 100_000_00 * 0.10
+    assert r.inheritance_tax(ctx, 200_000_00, "child").amount_rappen == 200_000_00 * 0.15
+
+
+def test_zero_rate_still_zero_amount(ctx):
+    """Randfall: exakt 0 bleibt 0 (kein Floor-Artefakt bei der Grenze)."""
+    r = GenericFlatRateRegime(wealth_tax_bps_pa=0.0)
+    assert r.annual_wealth_tax(ctx).amount_rappen == 0.0

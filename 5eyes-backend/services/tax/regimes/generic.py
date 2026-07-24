@@ -164,8 +164,21 @@ class GenericFlatRateRegime:
         tax_type: str,
         breakdown: Mapping[str, float] | None = None,
     ) -> TaxResult:
+        # RT-2 (2026-07-24, Audit-Backlog): jede Berechnungsmethode floort
+        # bereits ihre Bemessungsgrundlage (wealth/income/gains) auf >= 0
+        # ("keine Steuer auf negatives Vermoegen") -- aber ein negativer
+        # bps-Override (z.B. wealth_tax_bps_pa=-500, via Mandate.tax_overrides_
+        # json ohne serverseitige Blockade erreichbar; validate_parameters()
+        # warnt nur, blockiert nicht) multipliziert eine NICHT-negative
+        # Grundlage mit einer negativen Rate -> negativer "Steuer"-Betrag.
+        # Ein negativer Betrag ist in diesem Kontext IMMER ein Fehler, nie
+        # eine legitime Steuerrueckerstattung (dieses Regime kennt keine
+        # Rueckerstattungs-Logik) -- ein solcher Wert wuerde downstream als
+        # Steuer-EINNAHME statt -Ausgabe interpretiert. Zentral hier statt an
+        # 6 Call-Sites geflort: reine Sicherheitsabsicherung, aendert amount
+        # fuer jede nicht-negative Rate (der Normalfall) NICHT.
         return TaxResult(
-            amount_rappen=amount,
+            amount_rappen=max(0.0, amount),
             effective_bps=float(bps),
             regime_id=self.id,
             tariff_version=self.tariff_version,
