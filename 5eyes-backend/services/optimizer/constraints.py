@@ -102,8 +102,24 @@ def bands_from_house_matrix_row(row) -> HouseMatrixBands:
         hi = (int(raw_hi) if raw_hi is not None else 10000) / 10000.0
         return (lo, hi)
 
+    equities_lo, equities_hi = _band("equity_min_bps", "equity_max_bps")
+    # 2026-07-24 (Formel-Audit): der deterministische Pfad rechnet die
+    # Aktien-Untergrenze aus max(equity_min_bps, equity_minimum_bps) ein
+    # (portfolio_engine.py, minimums["equities"] = max(equity_min_bps,
+    # equity_minimum_bps or 0) -- z.B. eine haertere, ziel-/goal-getriebene
+    # Mindestquote). Der Optimizer-Constraint-Aufbau hier nutzte bisher NUR
+    # equity_min_bps -- bei einer House-Matrix-Konfiguration mit
+    # equity_minimum_bps > equity_min_bps wuerde der Solver eine niedrigere
+    # Aktienquote zulassen als der deterministische Pfad vorsieht (aktuell
+    # mit den geladenen House-Matrix-Defaults nie der Fall, da equity_minimum_
+    # bps dort nie ueber equity_min_bps liegt -- aber ein latenter Bug bei
+    # zukuenftigen Profil-Edits). Fix spiegelt exakt dieselbe max()-Formel.
+    equity_minimum_bps = getattr(row, "equity_minimum_bps", None)
+    if equity_minimum_bps is not None:
+        equities_lo = max(equities_lo, int(equity_minimum_bps) / 10000.0)
+
     return HouseMatrixBands(
-        equities=_band("equity_min_bps", "equity_max_bps"),
+        equities=(equities_lo, equities_hi),
         bonds=_band("bonds_min_bps", "bonds_max_bps"),
         real_estate=_band("real_estate_min_bps", "real_estate_max_bps"),
         alternatives=_band("alt_min_bps", "alt_max_bps"),

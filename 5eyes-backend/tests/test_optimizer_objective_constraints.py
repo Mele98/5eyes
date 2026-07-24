@@ -342,6 +342,54 @@ def test_opt2_explicit_zero_max_stays_zero():
     assert bands.alternatives == (0.0, 0.0), "explizites max=0 bleibt 0"
 
 
+def test_equity_minimum_bps_raises_floor_above_equity_min_bps():
+    """2026-07-24 (Formel-Audit): der deterministische Pfad rechnet die
+    Aktien-Untergrenze aus max(equity_min_bps, equity_minimum_bps) ein
+    (z.B. eine haertere, ziel-getriebene Mindestquote). Der Optimizer-
+    Constraint-Aufbau muss dieselbe (staerkere) Untergrenze respektieren,
+    sonst liesse der Solver eine niedrigere Aktienquote zu als der
+    deterministische Pfad vorsieht."""
+    row = SimpleNamespace(
+        equity_min_bps=3000, equity_max_bps=8000, equity_minimum_bps=5500,
+        bonds_min_bps=0, bonds_max_bps=5000,
+        real_estate_min_bps=0, real_estate_max_bps=2000,
+        alt_min_bps=0, alt_max_bps=1000,
+        liq_min_bps=0, liq_max_bps=2000,
+    )
+    bands = bands_from_house_matrix_row(row)
+    assert bands.equities == (0.55, 0.80), (
+        "equity_minimum_bps (55%) ist staerker als equity_min_bps (30%) und muss gewinnen"
+    )
+
+
+def test_equity_minimum_bps_does_not_lower_floor_when_weaker():
+    """equity_minimum_bps < equity_min_bps darf die (staerkere) equity_min_bps-
+    Untergrenze NICHT abschwaechen -- max(), nicht Ersetzung."""
+    row = SimpleNamespace(
+        equity_min_bps=4000, equity_max_bps=8000, equity_minimum_bps=1000,
+        bonds_min_bps=0, bonds_max_bps=5000,
+        real_estate_min_bps=0, real_estate_max_bps=2000,
+        alt_min_bps=0, alt_max_bps=1000,
+        liq_min_bps=0, liq_max_bps=2000,
+    )
+    bands = bands_from_house_matrix_row(row)
+    assert bands.equities == (0.40, 0.80)
+
+
+def test_equity_minimum_bps_absent_keeps_prior_behavior():
+    """Fehlt equity_minimum_bps ganz (Mock/altes Schema ohne das Feld) --
+    unveraendertes Verhalten, kein AttributeError."""
+    row = SimpleNamespace(
+        equity_min_bps=4000, equity_max_bps=7000,
+        bonds_min_bps=2000, bonds_max_bps=5000,
+        real_estate_min_bps=0, real_estate_max_bps=2000,
+        alt_min_bps=0, alt_max_bps=1000,
+        liq_min_bps=200, liq_max_bps=2000,
+    )
+    bands = bands_from_house_matrix_row(row)
+    assert bands.equities == (0.40, 0.70)
+
+
 # ============================================================================
 # build_bounds: globale Caps ueberschreiben House-Matrix
 # ============================================================================
