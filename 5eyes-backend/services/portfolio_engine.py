@@ -3369,6 +3369,22 @@ def _run_allocation_monte_carlo(
         # (eine Einzahlung vor einem guten Jahr hob die "CAGR" kuenstlich).
         target_twr_product = 1.0
         current_twr_product = 1.0
+        # #AA-10 (2026-07-24): cashflow-neutraler Markt-Index-Pfad fuer Max
+        # Drawdown. Vorher lief _max_drawdown_bps ueber target_by_year/
+        # current_by_year, die den kumulierten Cashflow-Deficit (Entnahmen)
+        # NETTO enthalten -- bei einem Entnahme-Mandat (Verzehrphase) zeigt
+        # ein defensives Portfolio dadurch einen "Max Drawdown", der
+        # ueberwiegend aus geplanten Ausgaben besteht, nicht aus Marktverlust.
+        # CAGR (TWR, #AA-5) und VaR/CVaR/Loss-Prob (Jahr-1-Marktwert, #AA-4)
+        # sind bereits cashflow-bereinigt -- Max Drawdown bekam diese
+        # Behandlung nie und wird hier nachgezogen: derselbe post/pre-growth-
+        # Faktor wie beim TWR wird zu einem eigenen Index-Pfad verkettet, der
+        # gleiche Skala wie der Start-Wert hat (Interpretierbarkeit), aber nie
+        # durch Entnahmen/Einzahlungen bewegt wird.
+        target_market_index = float(target_start)
+        current_market_index = float(current_start)
+        target_market_path = [target_market_index]
+        current_market_path = [current_market_index]
 
         for year_index, contribution in enumerate(cashflow_projection_series_rappen, start=1):
             target_pre_growth = max(1, sum(target_values.values()))
@@ -3400,6 +3416,13 @@ def _run_allocation_monte_carlo(
             # auf -> TWR ist brutto-of-Rebalancing-Kosten (Kosten-Drag 2. Ordnung).
             target_twr_product *= target_post_growth / target_pre_growth
             current_twr_product *= current_post_growth / current_pre_growth
+            # #AA-10: derselbe Markt-Faktor, aber als eigener Pfad verkettet
+            # (statt nur zum Endprodukt) -- fuer den Peak-to-Trough-Drawdown
+            # brauchen wir die Zwischenwerte pro Jahr, nicht nur das Ergebnis.
+            target_market_index *= target_post_growth / target_pre_growth
+            current_market_index *= current_post_growth / current_pre_growth
+            target_market_path.append(target_market_index)
+            current_market_path.append(current_market_index)
             if year_index == 1:
                 # #AA-4: Marktwert nach Wachstum, VOR Cashflow/Rebalancing erfassen.
                 target_year1_market_value = target_post_growth
@@ -3462,7 +3485,11 @@ def _run_allocation_monte_carlo(
             target_year_one_returns.append(year_one_return)
             target_year_one_losses.append(_loss_bps(target_start, target_year1_market_value))
         target_path = [values[_simulation_idx] for values in target_by_year if values]
-        target_max_drawdowns.append(_max_drawdown_bps(target_path))
+        # #AA-10: Max Drawdown auf dem cashflow-neutralen Markt-Index-Pfad, NICHT
+        # auf target_path (der enthaelt die Entnahmen/Einzahlungen -- korrekt fuer
+        # die Verzehr-Erschoepfung direkt darunter, aber falsch fuer eine reine
+        # Marktrisiko-Kennzahl).
+        target_max_drawdowns.append(_max_drawdown_bps(target_market_path))
         # #96: erster Jahres-Offset mit aufgezehrtem Vermoegen (Pfad-Total <= 0).
         target_depletion_offsets.append(
             next((offset for offset, value in enumerate(target_path) if value <= 0), None)
@@ -3471,7 +3498,8 @@ def _run_allocation_monte_carlo(
             current_year_one_returns.append(_return_bps(current_start, current_year1_market_value))
             current_year_one_losses.append(_loss_bps(current_start, current_year1_market_value))
         current_path = [values[_simulation_idx] for values in current_by_year if values]
-        current_max_drawdowns.append(_max_drawdown_bps(current_path))
+        # #AA-10: siehe target_market_path oben -- symmetrisch fuer IST.
+        current_max_drawdowns.append(_max_drawdown_bps(current_market_path))
         current_depletion_offsets.append(
             next((offset for offset, value in enumerate(current_path) if value <= 0), None)
         )
