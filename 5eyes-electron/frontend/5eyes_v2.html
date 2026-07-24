@@ -19536,16 +19536,19 @@ function renderSrImplementationDecision(entry){
     }):null)
     || ((currentReviewState&&Array.isArray(currentReviewState.logs)&&currentReviewState.logs.length)?currentReviewState.logs[0]:null);
   var driftItems=reviewStrategyComparisonRows(allocation).map(function(item){
-    item.meta=reviewBandStateMeta({current_weight_bps:item.currentWeightBps,target_weight_bps:item.targetWeightBps,band_min_bps:item.bandMinBps,band_max_bps:item.bandMaxBps});
+    item.meta=reviewBandStateMeta({current_weight_bps:item.currentWeightBps,target_weight_bps:item.targetWeightBps,band_min_bps:item.bandMinBps,band_max_bps:item.bandMaxBps},item.assetKey);
     return item;
   }).filter(function(item){return item.meta.tagClass!=='tg'||Math.abs(Number(item.deltaWeightBps||0))>=200;})
     .sort(function(a,b){return Math.abs(Number(b.deltaWeightBps||0))-Math.abs(Number(a.deltaWeightBps||0))});
   var live=liveRebalancingPayload(allocation)||liveRebalancingPayload(recommendation);
-  var hasTradeList=!!(live&&Array.isArray(live.position_drifts)&&live.position_drifts.some(function(row){return String(row&&row.rebalance_action||'').toUpperCase()!=='HOLD';}));
+  // 2026-07-24: Handelsliste nur bei Ausfuehrungsbefugnis (Vermoegensverwaltung).
+  var hasTradeList=_reviewIsDiscretionaryMandate()&&!!(live&&Array.isArray(live.position_drifts)&&live.position_drifts.some(function(row){return String(row&&row.rebalance_action||'').toUpperCase()!=='HOLD';}));
   var cards=[];
   if(driftItems.length){
     driftItems.slice(0,3).forEach(function(item,idx){
-      var verb=Number(item.deltaWeightBps||0)>0?'Reduzieren':'Aufstocken';
+      // Illiquide Anlageklassen (Immobilien) sind nicht "reduzierbar/aufstockbar"
+      // per Transaktion -- neutrale Beobachtungs-Sprache statt Handelsverb.
+      var verb=_reviewIsIlliquidAssetClass(item.assetKey)?'Beobachten':(Number(item.deltaWeightBps||0)>0?'Reduzieren':'Aufstocken');
       cards.push('<div style="border:1px solid var(--b1);border-radius:var(--r2);padding:10px">'
         +'<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px"><div style="width:20px;height:20px;border-radius:50%;background:'+item.meta.tone+';color:#fff;font-size:10px;font-weight:600;display:flex;align-items:center;justify-content:center">'+String(idx+1)+'</div><span style="font-size:11px;font-weight:500;color:var(--n8)">'+escapeHtml(verb)+'</span></div>'
         +'<div style="font-size:10px;color:var(--n8);font-weight:500;margin-bottom:3px">'+escapeHtml(item.assetClass)+'</div>'
@@ -22561,7 +22564,7 @@ function renderReviewActionSummary(state){
       target_weight_bps:item.targetWeightBps,
       band_min_bps:item.bandMinBps,
       band_max_bps:item.bandMaxBps
-    });
+    },item.assetKey);
     return item;
   });
   var items=rows.filter(function(item){
@@ -22570,7 +22573,9 @@ function renderReviewActionSummary(state){
     return Math.abs(Number(b.deltaWeightBps||0))-Math.abs(Number(a.deltaWeightBps||0));
   }).slice(0,3);
   var live=liveRebalancingPayload(allocation)||liveRebalancingPayload(recommendation);
-  var hasTradeList=!!(live&&Array.isArray(live.position_drifts)&&live.position_drifts.some(function(row){
+  // 2026-07-24: Handelsliste ist eine Ausfuehrungs-Aktion -- nur sinnvoll,
+  // wenn die Firma selbst Ausfuehrungsbefugnis hat (Vermoegensverwaltung).
+  var hasTradeList=_reviewIsDiscretionaryMandate()&&!!(live&&Array.isArray(live.position_drifts)&&live.position_drifts.some(function(row){
     return String(row&&row.rebalance_action||'').toUpperCase()!=='HOLD';
   }));
   if(!items.length){
@@ -23047,11 +23052,15 @@ function renderReviewHero(state){
   }
   var allocation=(state&&state.allocation)||strategyState.allocation||null;
   var rows=allocation?reviewStrategyComparisonRows(allocation).map(function(item){
-    item.meta=reviewBandStateMeta({current_weight_bps:item.currentWeightBps,target_weight_bps:item.targetWeightBps,band_min_bps:item.bandMinBps,band_max_bps:item.bandMaxBps});
+    item.meta=reviewBandStateMeta({current_weight_bps:item.currentWeightBps,target_weight_bps:item.targetWeightBps,band_min_bps:item.bandMinBps,band_max_bps:item.bandMaxBps},item.assetKey);
     return item;
   }):[];
-  var violated=rows.filter(function(r){return r.meta.tagClass==='tr2';});
-  var tight=rows.filter(function(r){return r.meta.tagClass==='ta';});
+  // 2026-07-24: illiquide Bandverletzungen (Immobilien) sind fuer NIEMANDEN
+  // per Handelsliste kurzfristig loesbar -- sie zaehlen als "im Blick
+  // behalten", nicht als roter Handlungsbedarf, unabhaengig vom Mandatstyp.
+  var violated=rows.filter(function(r){return r.meta.tagClass==='tr2'&&!_reviewIsIlliquidAssetClass(r.assetKey);});
+  var tight=rows.filter(function(r){return r.meta.tagClass==='ta'||(r.meta.tagClass==='tr2'&&_reviewIsIlliquidAssetClass(r.assetKey));});
+  var isDiscretionary=_reviewIsDiscretionaryMandate();
   var cashflowInfo=currentCashflowCoverageInfo();
   var netMonthlyChf=Math.round(Math.abs(cashflowInfo.netRappen)/12/100);
   var netSign=cashflowInfo.netRappen>=0?'+':'-';
@@ -23063,13 +23072,21 @@ function renderReviewHero(state){
     ctaHtml='<button class="btn btn-sm" onclick="go(\'al\')">Zur Asset Allokation</button>';
   } else if(violated.length>0){
     statusKey='red';bg='var(--neg-lt)';borderColor='rgba(139,30,30,0.25)';dotColor='var(--neg)';
-    badge='HANDLUNGSBEDARF';
+    badge=isDiscretionary?'HANDLUNGSBEDARF':'EMPFEHLUNG PRÜFEN';
     var top=violated.slice().sort(function(a,b){return Math.abs(Number(b.deltaWeightBps||0))-Math.abs(Number(a.deltaWeightBps||0));})[0];
-    headline=violated.length===1?'Bandverletzung bei '+top.assetClass:String(violated.length)+' Bandverletzungen — Rebalancing erforderlich';
+    if(isDiscretionary){
+      headline=violated.length===1?'Bandverletzung bei '+top.assetClass:String(violated.length)+' Bandverletzungen — Rebalancing erforderlich';
+    } else {
+      headline=violated.length===1?top.assetClass+' weicht vom vereinbarten Band ab':String(violated.length)+' Anlageklassen weichen vom vereinbarten Band ab';
+    }
     summary=top.assetClass+': IST '+formatBpsPercent(top.currentWeightBps)+' / SOLL '+formatBpsPercent(top.targetWeightBps)+' — ausserhalb der vereinbarten Bandbreite. '+top.meta.action+'.';
-    var live=liveRebalancingPayload(allocation);
-    var hasTradeList=!!(live&&Array.isArray(live.position_drifts)&&live.position_drifts.some(function(r){return String(r&&r.rebalance_action||'').toUpperCase()!=='HOLD';}));
-    ctaHtml='<button class="btn-p btn-sm" onclick="openDecisionTemplateModal(\'\')">Entscheidungsvorlage</button>'+(hasTradeList?'<button class="btn btn-sm" onclick="openTradeList()">Handelsliste</button>':'');
+    if(isDiscretionary){
+      var live=liveRebalancingPayload(allocation);
+      var hasTradeList=!!(live&&Array.isArray(live.position_drifts)&&live.position_drifts.some(function(r){return String(r&&r.rebalance_action||'').toUpperCase()!=='HOLD';}));
+      ctaHtml='<button class="btn-p btn-sm" onclick="openDecisionTemplateModal(\'\')">Entscheidungsvorlage</button>'+(hasTradeList?'<button class="btn btn-sm" onclick="openTradeList()">Handelsliste</button>':'');
+    } else {
+      ctaHtml='<button class="btn-p btn-sm" onclick="openDecisionTemplateModal(\'\')">Entscheidungsvorlage</button>';
+    }
   } else if(tight.length>0){
     statusKey='yellow';bg='var(--warn-lt)';borderColor='rgba(122,82,0,0.2)';dotColor='var(--warn)';
     badge='IM BLICK BEHALTEN';
@@ -25710,19 +25727,38 @@ function renderActionCards(reasoning){
   }
   el.innerHTML=items.join('');
 }
-function reviewBandStateMeta(bucket){
+// 2026-07-24: Geschaeftsmodell-bewusste Formulierung fuer Band-Abweichungen.
+// Zwei unabhaengige Achsen bestimmen die Sprache, NICHT nur eine:
+// (a) illiquide Anlageklassen (aktuell: Immobilien) sind fuer NIEMANDEN per
+//     Handelsliste rebalancierbar -- auch nicht fuer Vermoegensverwaltung.
+// (b) reine Anlageberatung/Finanzplanung/Reporting-only hat keine
+//     Ausfuehrungsbefugnis -- "Rebalancing erforderlich" impliziert faelschlich,
+//     dass die Firma selbst handelt. Nur Vermoegensverwaltung bekommt die
+//     operative Rebalancing-Sprache + Handelsliste.
+function _reviewIsIlliquidAssetClass(assetKey){
+  var k=String(assetKey||'').toLowerCase();
+  return k.indexOf('immob')>=0;
+}
+function _reviewIsDiscretionaryMandate(){
+  var mandateType=(currentMandateData&&currentMandateData.mandate_type)||'';
+  return mandateType==='Vermögensverwaltung';
+}
+function reviewBandStateMeta(bucket,assetKey){
   var target=Number(bucket&&bucket.target_weight_bps||0);
   var current=Number(bucket&&bucket.current_weight_bps||0);
   var min=Number(bucket&&bucket.band_min_bps||0);
   var max=Number(bucket&&bucket.band_max_bps||0);
   var delta=current-target;
   var hasBand=max>min;
+  var illiquid=_reviewIsIlliquidAssetClass(assetKey);
+  var discretionary=_reviewIsDiscretionaryMandate();
   if(hasBand&&(current<min||current>max)){
     return {
       label:'Verletzt',
       tagClass:'tr2',
       tone:'var(--neg)',
-      action:'Rebalancing erforderlich'
+      action: illiquid ? 'Bei naechster Transaktion/Gespraech beruecksichtigen'
+        : (discretionary ? 'Rebalancing erforderlich' : 'Empfehlung anpassen')
     };
   }
   var bandSpan=hasBand?(max-min):1000;
@@ -25733,7 +25769,8 @@ function reviewBandStateMeta(bucket){
       label:'Band eng',
       tagClass:'ta',
       tone:'var(--warn)',
-      action:'Rebalancing prüfen'
+      action: illiquid ? 'Beobachten'
+        : (discretionary ? 'Rebalancing prüfen' : 'Beobachten und im Gespräch ansprechen')
     };
   }
   return {
