@@ -125,6 +125,9 @@ class AdvisoryLogCreate(BaseModel):
         description="IDs der offengelegten ConflictOfInterestDisclosures.",
     )
     suitability_check_id: Optional[str] = None
+    # 2026-07-25 (Generalaudit): Phase-0-Gate fehlte fuer Beratungsprotokoll --
+    # enthaelt Freitext-Gespraechsinhalt, sensibelste Kategorie neben Risk-Profiling.
+    data_classification: Literal["synthetic", "real"] = "synthetic"
 
     @model_validator(mode="after")
     def validate_signature(self):
@@ -231,6 +234,8 @@ class ContractDocumentCreate(BaseModel):
     ]
     title: str
     content_json: Optional[str] = None
+    # 2026-07-25 (Generalaudit): Phase-0-Gate fehlte fuer Vertragsdokumente.
+    data_classification: Literal["synthetic", "real"] = "synthetic"
 
 
 class ContractDocumentSign(BaseModel):
@@ -274,6 +279,8 @@ class ConflictDisclosureCreate(BaseModel):
     inducement_frequency: Optional[str] = None
     mitigation_action: Optional[str] = None
     document_id: Optional[str] = None
+    # 2026-07-25 (Generalaudit): Phase-0-Gate fehlte fuer Interessenkonflikte.
+    data_classification: Literal["synthetic", "real"] = "synthetic"
 
 
 class ConflictDisclosureResponse(BaseResponse):

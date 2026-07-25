@@ -38,6 +38,7 @@ from price_updater import summarize_price_quality
 from services.auth import get_accessible_client_ids, get_accessible_mandate_ids, get_client_for_user_or_404, get_current_user, get_mandate_for_user_or_404, has_global_client_access, require_advisor, require_admin
 from services.audit import log
 from services.advisory_report_cache import invalidate_mandate as invalidate_advisory_cache
+from services.data_classification import enforce_data_classification
 from services.eodhd_client import preview_eodhd_reference
 from services.openfigi_client import preview_openfigi_mapping
 from services.portfolio_engine import build_recommendation_payload_from_run, generate_recommendation_run
@@ -693,6 +694,7 @@ def create_advisory_log_entry(
     """
     from services.advisory_log_service import create_advisory_log, serialize_response
 
+    enforce_data_classification(body.data_classification)
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
     if body.recommendation_run_id:
         _get_recommendation_run_or_404(mandate_id, body.recommendation_run_id, db, current_user)
@@ -885,6 +887,11 @@ def create_document(
     current_user: User = Depends(require_advisor)
 ):
     _get_mandate_or_404(mandate_id, db, current_user)
+    fields = body.model_dump()
+    # 2026-07-25 (Generalaudit): data_classification hat kein DB-Spalten-
+    # Aequivalent auf ContractDocument (nur Enforcement) -- vor dem Spread
+    # in den Konstruktor entfernen, sonst TypeError: unexpected keyword arg.
+    enforce_data_classification(fields.pop("data_classification", None))
     now = _now()
     doc = ContractDocument(
         id=new_uuid(), mandate_id=mandate_id,
@@ -892,7 +899,7 @@ def create_document(
         signed_by_advisor=0, signed_by_client=0,
         created_by=current_user.id,
         created_at=now, updated_at=now,
-        **body.model_dump()
+        **fields
     )
     db.add(doc)
     log(db, user_id=current_user.id, user_name=current_user.full_name,
@@ -961,13 +968,17 @@ def create_conflict(
     current_user: User = Depends(require_advisor)
 ):
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    fields = body.model_dump()
+    # 2026-07-25 (Generalaudit): siehe create_document -- kein DB-Spalten-
+    # Aequivalent auf ConflictOfInterestDisclosure, nur Enforcement.
+    enforce_data_classification(fields.pop("data_classification", None))
     now = _now()
     conflict = ConflictOfInterestDisclosure(
         id=new_uuid(), mandate_id=mandate_id,
         disclosed_by=current_user.id,
         disclosed_to_client=0, client_acknowledged=0,
         created_at=now, updated_at=now,
-        **body.model_dump()
+        **fields
     )
     db.add(conflict)
     log(db, user_id=current_user.id, user_name=current_user.full_name,

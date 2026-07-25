@@ -1,7 +1,7 @@
 """Bug-#13a (2026-06-07): Pydantic-Schemas fuer Baustein-Bibliothek."""
 from __future__ import annotations
 
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -42,6 +42,10 @@ class MandateBausteinSelectionItem(BaseModel):
 
 class MandateBausteinSelectionUpdate(BaseModel):
     selections: list[MandateBausteinSelectionItem]
+    # 2026-07-25 (Generalaudit): custom_override_md ist laut Modell-Docstring
+    # explizit fuer "Klienten-spezifische Erlaeuterung" gedacht -- Phase-0-Gate
+    # fehlte, obwohl es echten Freitext pro Mandat enthalten kann.
+    data_classification: Literal["synthetic", "real"] = "synthetic"
 
 
 class MandateBausteinSelectionResponse(BaseModel):

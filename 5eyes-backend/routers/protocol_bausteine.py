@@ -46,6 +46,7 @@ from services.auth import (
     get_mandate_for_user_or_404,
     require_advisor,
 )
+from services.data_classification import enforce_data_classification
 
 
 router = APIRouter(tags=["Protocol-Bausteine"])
@@ -304,6 +305,7 @@ def replace_mandate_selections(
     """Replace-Semantik: die uebergebene Liste IST die neue Selektion.
     Vorhandene Eintraege fuer das Mandat werden entfernt, die neuen gesetzt.
     """
+    enforce_data_classification(body.data_classification)
     # SECURITY (Mandanten-Trennung): kanonischer Helper validiert Ownership
     # (Client.advisor_id fuer non-admins) UND Tenant-Filter, statt nur id+deleted_at.
     get_mandate_for_user_or_404(mandate_id, db, current_user)
