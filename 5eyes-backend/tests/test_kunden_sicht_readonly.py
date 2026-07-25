@@ -247,6 +247,25 @@ def test_client_cannot_read_foreign_mandate_report(session_factory):
 
 
 # ---------------------------------------------------------------------------
+# POST /client-portal/mandates/{mandate_id}/risk-profile/sign
+# 2026-07-25 (Generalaudit, Wave-8-Fork): der Code-Pfad ist identisch zum
+# Report-Endpoint geschuetzt (Mandate.client_id == client.id), aber es fehlte
+# ein expliziter Cross-Client-IDOR-Test dafuer (reine Coverage-Luecke).
+# ---------------------------------------------------------------------------
+
+def test_client_cannot_sign_foreign_mandate_risk_profile(session_factory):
+    """Kunde A darf nicht das Risikoprofil von Kunde B signieren (IDOR)."""
+    _, _cidA, midA, client_user_A = _setup_client_login(session_factory, suffix="u36signA")
+    _, _cidB, midB, _client_user_B = _setup_client_login(session_factory, suffix="u36signB")
+    try:
+        with _client_as_kunde(session_factory, client_user_A) as client:
+            response = client.post(f"/client-portal/mandates/{midB}/risk-profile/sign")
+            assert response.status_code == 404
+    finally:
+        app.dependency_overrides.clear()
+
+
+# ---------------------------------------------------------------------------
 # Rollen-Trennung: Advisor darf nicht ins Client-Portal
 # ---------------------------------------------------------------------------
 

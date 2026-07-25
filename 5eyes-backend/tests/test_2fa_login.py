@@ -51,6 +51,18 @@ def client(session_factory):
     app.dependency_overrides.clear()
 
 
+@pytest.fixture(autouse=True)
+def _reset_login_guard():
+    """Der IP/User-Rate-Limit-Guard ist ein prozessweiter Singleton (DB-
+    persistent); ohne Reset akkumulieren Fehlversuche ueber Tests hinweg."""
+    from services.login_guard import login_attempt_guard
+    login_attempt_guard._failures.clear()
+    login_attempt_guard._locked_until.clear()
+    yield
+    login_attempt_guard._failures.clear()
+    login_attempt_guard._locked_until.clear()
+
+
 def _seed_user(SF, uid, password, totp_secret=None, totp_enabled=0):
     with SF() as s:
         s.add(User(
@@ -174,3 +186,104 @@ def test_setup_and_enable_flow(session_factory):
         out = twofa_enable(_TwoFACodeRequest(code=code), db=db, current_user=u)
         assert out["enabled"] is True
         assert u.totp_enabled == 1
+
+
+# ── 2026-07-25 (Generalaudit): /2fa/enable + /2fa/disable hatten KEIN Rate-
+# Limit auf totp_verify -- ein gestohlenes Bearer-Token liess unbegrenztes
+# Bruteforcen des 6-stelligen Codes zu (z.B. um 2FA zu deaktivieren, ohne das
+# Secret zu kennen). Fix: login_attempt_guard, keyed nach user_id.
+
+def test_enable_locks_out_after_repeated_wrong_codes(session_factory, monkeypatch):
+    from config import settings
+    from routers.auth import twofa_setup, twofa_enable, _TwoFACodeRequest
+
+    monkeypatch.setattr(settings, "login_rate_limit_enabled", True)
+    monkeypatch.setattr(settings, "login_max_attempts", 3)
+    monkeypatch.setattr(settings, "login_window_seconds", 300)
+    monkeypatch.setattr(settings, "login_lockout_seconds", 600)
+
+    with session_factory() as db:
+        u = User(id="brute1", username="brute1", password_hash="h", full_name="brute1",
+                 role="advisor", is_active=1, created_at=_now(), updated_at=_now())
+        db.add(u)
+        db.commit()
+        twofa_setup(db=db, current_user=u)
+
+        # 3 Fehlversuche (login_max_attempts=3) werden noch je mit 401
+        # beantwortet -- der 3. setzt den Lockout, sichtbar erst beim NAECHSTEN
+        # Aufruf (check() greift vor totp_verify, analog /auth/login).
+        for _ in range(3):
+            with pytest.raises(Exception) as exc:
+                twofa_enable(_TwoFACodeRequest(code="000000"), db=db, current_user=u)
+            assert exc.value.status_code == 401
+
+        with pytest.raises(Exception) as exc:
+            twofa_enable(_TwoFACodeRequest(code="000000"), db=db, current_user=u)
+        assert exc.value.status_code == 429
+
+        # Auch der RICHTIGE Code wird jetzt blockiert -- Lockout gilt fuers Konto.
+        real_code = totp.totp_at(db.get(User, "brute1").totp_secret, time.time())
+        with pytest.raises(Exception) as exc:
+            twofa_enable(_TwoFACodeRequest(code=real_code), db=db, current_user=u)
+        assert exc.value.status_code == 429
+        assert db.get(User, "brute1").totp_enabled in (0, None)
+
+
+def test_disable_locks_out_after_repeated_wrong_codes(session_factory, monkeypatch):
+    from config import settings
+    from routers.auth import twofa_enable, twofa_disable, twofa_setup, _TwoFACodeRequest
+
+    monkeypatch.setattr(settings, "login_rate_limit_enabled", True)
+    monkeypatch.setattr(settings, "login_max_attempts", 3)
+    monkeypatch.setattr(settings, "login_window_seconds", 300)
+    monkeypatch.setattr(settings, "login_lockout_seconds", 600)
+
+    with session_factory() as db:
+        u = User(id="brute2", username="brute2", password_hash="h", full_name="brute2",
+                 role="advisor", is_active=1, created_at=_now(), updated_at=_now())
+        db.add(u)
+        db.commit()
+        res = twofa_setup(db=db, current_user=u)
+        code = totp.totp_at(res["secret"], time.time())
+        twofa_enable(_TwoFACodeRequest(code=code), db=db, current_user=u)
+        assert db.get(User, "brute2").totp_enabled == 1
+
+        for _ in range(3):
+            with pytest.raises(Exception) as exc:
+                twofa_disable(_TwoFACodeRequest(code="000000"), db=db, current_user=u)
+            assert exc.value.status_code == 401
+
+        with pytest.raises(Exception) as exc:
+            twofa_disable(_TwoFACodeRequest(code="000000"), db=db, current_user=u)
+        assert exc.value.status_code == 429
+        # 2FA bleibt aktiv -- der Lockout hat das Deaktivieren verhindert.
+        assert db.get(User, "brute2").totp_enabled == 1
+
+
+def test_enable_succeeds_after_lockout_window_key_isolated_per_user(session_factory, monkeypatch):
+    """Lockout auf User A trifft NICHT User B (kein Cross-Account-Leak)."""
+    from config import settings
+    from routers.auth import twofa_setup, twofa_enable, _TwoFACodeRequest
+
+    monkeypatch.setattr(settings, "login_rate_limit_enabled", True)
+    monkeypatch.setattr(settings, "login_max_attempts", 3)
+    monkeypatch.setattr(settings, "login_window_seconds", 300)
+    monkeypatch.setattr(settings, "login_lockout_seconds", 600)
+
+    with session_factory() as db:
+        u_a = User(id="brute-a", username="brute-a", password_hash="h", full_name="a",
+                   role="advisor", is_active=1, created_at=_now(), updated_at=_now())
+        u_b = User(id="brute-b", username="brute-b", password_hash="h", full_name="b",
+                   role="advisor", is_active=1, created_at=_now(), updated_at=_now())
+        db.add_all([u_a, u_b])
+        db.commit()
+        twofa_setup(db=db, current_user=u_a)
+        res_b = twofa_setup(db=db, current_user=u_b)
+
+        for _ in range(3):
+            with pytest.raises(Exception):
+                twofa_enable(_TwoFACodeRequest(code="000000"), db=db, current_user=u_a)
+
+        code_b = totp.totp_at(res_b["secret"], time.time())
+        out = twofa_enable(_TwoFACodeRequest(code=code_b), db=db, current_user=u_b)
+        assert out["enabled"] is True

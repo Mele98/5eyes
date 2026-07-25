@@ -26,6 +26,7 @@ from services.audit import log
 from services.cashflow_timeline import totals_for_year
 from services.data_classification import enforce_data_classification
 from services.planning_horizon import life_expectancy_year_for
+from services.quota import assert_within_quota
 from services.wealth_cashflows import derive_wealth_cashflows, mortgage_interest_adjustment_series
 
 router = APIRouter(prefix="/clients", tags=["Kunden"])
@@ -630,6 +631,11 @@ def create_client_login(
                 status_code=409,
                 detail="Tenant nicht bestimmbar — Client-Login kann im Multi-/Strict-Modus nicht ohne Mandant angelegt werden",
             )
+    # 2026-07-25 (Generalaudit): assert_within_quota fehlte hier -- anders als
+    # create_user/invite_user (routers/auth.py) liess sich max_users durch
+    # beliebig viele Client-Portal-Logins umgehen (Lizenzmodell-Bypass), da
+    # services.quota zaehlt ALLE User-Zeilen des Tenants unabhaengig von role.
+    assert_within_quota(db, client_user_tenant_id, "users")
     client_user = User(
         id=new_uuid(),
         username=username,

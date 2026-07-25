@@ -320,14 +320,34 @@ def twofa_setup(db: Session = Depends(get_db), current_user: User = Depends(get_
     return {"secret": secret, "otpauth_uri": uri, "qr_svg": qr_svg_data_uri(uri)}
 
 
+def _twofa_mgmt_guard_key(user_id: str) -> str:
+    """2026-07-25 (Generalaudit): Guard-Key fuer /2fa/enable + /2fa/disable,
+    keyed nach user_id (nicht IP) -- das relevante Angriffsszenario ist ein
+    GESTOHLENES Bearer-Token (XSS/Log-Leak), nicht Credential-Stuffing von
+    einer IP. Ein Angreifer mit gueltigem Token aber ohne TOTP-Secret soll den
+    6-stelligen Code nicht unbegrenzt raten koennen, um 2FA zu deaktivieren."""
+    return "2fa-mgmt:" + str(user_id)
+
+
 @router.post("/2fa/enable")
 def twofa_enable(body: _TwoFACodeRequest, db: Session = Depends(get_db),
                  current_user: User = Depends(get_current_user)):
     """Aktiviert 2FA nach Bestaetigung eines gueltigen Codes aus dem Authenticator."""
     if not current_user.totp_secret:
         raise HTTPException(status_code=400, detail="Kein 2FA-Setup ausstehend. Zuerst /auth/2fa/setup.")
+    guard_key = _twofa_mgmt_guard_key(current_user.id)
+    decision = login_attempt_guard.check(guard_key)
+    if not decision.allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=decision.reason or "Zu viele Fehlversuche. Bitte später erneut versuchen.",
+            headers={"Retry-After": str(decision.retry_after_seconds)},
+        )
     if not totp_verify(current_user.totp_secret, body.code):
-        raise HTTPException(status_code=401, detail="2FA-Code falsch")
+        failure = login_attempt_guard.register_failure(guard_key)
+        headers = {"Retry-After": str(failure.retry_after_seconds)} if failure.retry_after_seconds else None
+        raise HTTPException(status_code=401, detail="2FA-Code falsch", headers=headers)
+    login_attempt_guard.register_success(guard_key)
     current_user.totp_enabled = 1
     current_user.updated_at = _now()
     # #25: Recovery-Codes erzeugen und EINMALIG zurueckgeben (nur Hashes gespeichert).
@@ -346,8 +366,19 @@ def twofa_disable(body: _TwoFACodeRequest, db: Session = Depends(get_db),
     """Deaktiviert 2FA (erfordert einen gueltigen Code) und loescht das Secret."""
     if not getattr(current_user, "totp_enabled", 0):
         return {"enabled": False}
+    guard_key = _twofa_mgmt_guard_key(current_user.id)
+    decision = login_attempt_guard.check(guard_key)
+    if not decision.allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=decision.reason or "Zu viele Fehlversuche. Bitte später erneut versuchen.",
+            headers={"Retry-After": str(decision.retry_after_seconds)},
+        )
     if not totp_verify(current_user.totp_secret or "", body.code):
-        raise HTTPException(status_code=401, detail="2FA-Code falsch")
+        failure = login_attempt_guard.register_failure(guard_key)
+        headers = {"Retry-After": str(failure.retry_after_seconds)} if failure.retry_after_seconds else None
+        raise HTTPException(status_code=401, detail="2FA-Code falsch", headers=headers)
+    login_attempt_guard.register_success(guard_key)
     current_user.totp_enabled = 0
     current_user.totp_secret = None
     current_user.totp_recovery_codes = None  # #25: Backup-Codes mit-entwerten

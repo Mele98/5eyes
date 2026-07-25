@@ -16,11 +16,13 @@ if str(BACKEND_ROOT) not in sys.path:
 
 from database import Base
 from main import app  # noqa: F401  register all models
+from models.client_login import ClientLogin
 from models.clients import Client
 from models.mandates import Mandate
 from models.tenant import Tenant
 from models.users import User
 from routers.auth import create_user
+from routers.clients import create_client_login
 from routers.mandates import create_mandate
 from schemas.mandates import MandateCreate
 from schemas.users import UserCreate
@@ -230,3 +232,74 @@ def test_null_mandate_quota_means_unlimited_and_is_tenant_isolated(session_facto
         )
 
         assert mandate.tenant_id == "firm-A"
+
+
+# ── 2026-07-25 (Generalaudit): Client-Login zaehlte NICHT gegen max_users ────
+# (Quota-Fund aus Wave 8) -- create_client_login legt einen role='client'-User
+# an, den services.quota.assert_within_quota("users") mitzaehlt (zaehlt ALLE
+# User-Zeilen unabhaengig von role), aber der Endpoint prüfte die Quota nie.
+
+def test_client_login_at_quota_is_rejected_with_409(session_factory):
+    with session_factory() as db:
+        tenant = _tenant("firm-A", max_users=1)
+        admin = _admin("admin-a", "firm-A")
+        client = _client("client-a", "admin-a", "firm-A")
+        db.add_all([tenant, admin, client])
+        db.commit()
+
+        with pytest.raises(HTTPException) as exc:
+            create_client_login(
+                client_id="client-a",
+                body={"username": "kunde-a", "password": "password123"},
+                db=db,
+                current_user=admin,
+            )
+
+        assert exc.value.status_code == 409
+        assert "max_users" in str(exc.value.detail)
+        # Kein Client-User + keine Linkage in der DB angelegt.
+        assert db.query(User).filter(User.role == "client").count() == 0
+        assert db.query(ClientLogin).count() == 0
+
+
+def test_client_login_under_quota_can_be_created(session_factory):
+    with session_factory() as db:
+        tenant = _tenant("firm-A", max_users=2)
+        admin = _admin("admin-a", "firm-A")
+        client = _client("client-a", "admin-a", "firm-A")
+        db.add_all([tenant, admin, client])
+        db.commit()
+
+        create_client_login(
+            client_id="client-a",
+            body={"username": "kunde-a", "password": "password123"},
+            db=db,
+            current_user=admin,
+        )
+
+        created = db.query(User).filter(User.role == "client").one()
+        assert created.tenant_id == "firm-A"
+
+
+def test_client_login_counts_toward_advisor_user_quota(session_factory):
+    # Regression fuer den Umkehrschluss-Fund: einmal angelegte Client-Logins
+    # muessen (korrekterweise) gegen dasselbe max_users-Limit zaehlen wie
+    # Berater-User -- assert_within_quota zaehlt ALLE Rollen zusammen.
+    with session_factory() as db:
+        tenant = _tenant("firm-A", max_users=2)
+        admin = _admin("admin-a", "firm-A")
+        client = _client("client-a", "admin-a", "firm-A")
+        db.add_all([tenant, admin, client])
+        db.commit()
+
+        create_client_login(
+            client_id="client-a",
+            body={"username": "kunde-a", "password": "password123"},
+            db=db,
+            current_user=admin,
+        )
+
+        with pytest.raises(HTTPException) as exc:
+            create_user(_user_body("employee-a"), db=db, current_user=admin)
+
+        assert exc.value.status_code == 409

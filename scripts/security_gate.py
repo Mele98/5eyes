@@ -37,6 +37,8 @@ SECURITY_TESTS: list[str] = [
     "tests/test_postgres_rls_adversarial.py",
     "tests/test_client_portal_tenant_isolation.py",
     "tests/test_shadow_comparison_aggregator.py",
+    "tests/test_kunden_sicht_readonly.py",
+    "tests/test_tenant_quota_enforcement.py",
     # — Authentifizierung / 2FA / Onboarding —
     "tests/test_totp.py",
     "tests/test_2fa_login.py",
