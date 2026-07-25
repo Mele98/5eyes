@@ -273,9 +273,23 @@ def change_password(
         raise HTTPException(status_code=422, detail="Neues Passwort muss mindestens 8 Zeichen haben.")
     if body.new_password == body.current_password:
         raise HTTPException(status_code=422, detail="Neues Passwort muss sich vom aktuellen unterscheiden.")
+    # 2026-07-25 (Generalaudit): analog zu AUTH-04 (Logout) -- ein bereits
+    # gestohlenes/kompromittiertes Token blieb bisher bis zu 8h (Access-
+    # Token-TTL) gueltig, selbst NACH einem Passwortwechsel. ABER: bei einem
+    # ERZWUNGENEN Erst-Passwortwechsel (must_change_password=1, z.B. frisch
+    # eingeladener User) ist "sofort abmelden" die falsche UX -- das
+    # bestehende Frontend-Modal + test_after_change_flag_cleared_and_
+    # access_restored erwarten explizit nahtlosen Weiterzugriff mit
+    # demselben Token, sonst waere jeder frisch onboardete User sofort
+    # wieder ausgesperrt. Revocation nur fuer den REGULAEREN (nicht
+    # erzwungenen) Passwortwechsel -- da ist "Session sofort beenden" das
+    # sicherheitskonform erwartete Verhalten.
+    was_forced_change = bool(current_user.must_change_password)
     current_user.password_hash = hash_password(body.new_password)
     current_user.must_change_password = 0
     current_user.updated_at = _now()
+    if not was_forced_change:
+        current_user.token_revoked_before = _now()
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="users", record_id=current_user.id, action="PASSWORD_CHANGE")
     db.commit()
@@ -722,11 +736,22 @@ def reset_user_password(
     # _assert_user_visible_to).
     if not is_self:
         _assert_user_visible_to(current_user, user)
+    # 2026-07-25 (Generalaudit): siehe change_password oben -- Self-Zweig
+    # braucht dieselbe Ausnahme fuer den erzwungenen Erst-Passwortwechsel
+    # (dieser Endpoint wird laut test_self_service_password_endpoint_
+    # reachable_when_must_change GENAU DAFUER vom Frontend-Modal genutzt --
+    # nahtloser Weiterzugriff erwartet). Der ADMIN-Reset-Zweig (not is_self)
+    # bekommt die Ausnahme NICHT -- das ist genau der Account-Takeover-
+    # Remediation-Fall, wo ein bereits gestohlenes Token des FREMDEN Users
+    # sofort (nicht erst nach bis zu 8h) sterben muss.
+    was_forced_change = bool(user.must_change_password)
     user.password_hash = hash_password(body.new_password)
     # Self -> Flag loeschen (erledigt). Admin-Reset -> Flag setzen (Mitarbeiter
     # muss das vom Admin gesetzte Passwort beim naechsten Login aendern).
     user.must_change_password = 0 if is_self else 1
     user.updated_at = _now()
+    if not is_self or not was_forced_change:
+        user.token_revoked_before = _now()
     log(
         db,
         user_id=current_user.id,
