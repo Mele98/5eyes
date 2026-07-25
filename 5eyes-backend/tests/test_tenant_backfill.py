@@ -69,3 +69,42 @@ def test_backfill_tolerates_missing_table(tmp_path):
     # Leere DB ohne create_all der Datentabellen -> darf nicht crashen.
     eng = create_engine(f"sqlite:///{tmp_path / 'empty.db'}")
     ensure_tenant_backfill(eng)  # keine Exception
+
+
+# ── 2026-07-25 (Generalaudit): in tenancy_mode="multi" (Tier 2, mehrere echte
+# Firmen) ist die pauschale 'main'-Zuweisung fachlich FALSCH fuer eine Zeile,
+# die eigentlich zu einer anderen Firma gehoert -- Bruch der Mandantentrennung
+# durch die Migration selbst. NULL muss NULL bleiben (bereits bekanntes,
+# dokumentiertes Verhalten der Isolation-Klausel), statt falsch gelabelt zu werden.
+
+def test_backfill_skips_blanket_main_assignment_in_multi_tenant_mode(tmp_path, monkeypatch):
+    from config import settings
+    monkeypatch.setattr(settings, "tenancy_mode", "multi", raising=False)
+
+    eng = _engine(tmp_path)
+    SF = sessionmaker(bind=eng, expire_on_commit=False)
+    _add_client(SF, "null-client-multi", None)
+    _add_client(SF, "firma-a-client-multi", "firma-a")
+
+    ensure_tenant_backfill(eng)
+
+    with eng.connect() as c:
+        rows = dict(c.execute(text("SELECT id, tenant_id FROM clients")).fetchall())
+    # NULL bleibt NULL -- wird NICHT faelschlich 'main' zugewiesen.
+    assert rows["null-client-multi"] is None
+    assert rows["firma-a-client-multi"] == "firma-a"
+
+
+def test_backfill_still_assigns_main_in_single_tenant_mode(tmp_path, monkeypatch):
+    from config import settings
+    monkeypatch.setattr(settings, "tenancy_mode", "single", raising=False)
+
+    eng = _engine(tmp_path)
+    SF = sessionmaker(bind=eng, expire_on_commit=False)
+    _add_client(SF, "null-client-single", None)
+
+    ensure_tenant_backfill(eng)
+
+    with eng.connect() as c:
+        tid = c.execute(text("SELECT tenant_id FROM clients WHERE id='null-client-single'")).scalar()
+    assert tid == DEFAULT_TENANT_ID

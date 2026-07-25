@@ -178,6 +178,46 @@ def test_annual_return_upsert_update_writes_audit_with_old_value(session_factory
     assert rows[0].new_value == "250"
 
 
+# ── 2026-07-25 (Generalaudit): return_bps hatte keinen Plausibilitaets-Range-
+# Check -- ein Tippfehler (zusaetzliche Null) konnte einen absurden Wert
+# unbemerkt persistieren, der in JEDE Kundenempfehlung fuer diese Asset-
+# Class/Jahr einfliesst (systemweiter Blast-Radius, analog SCHEMA-03 Vola>=0).
+
+def test_annual_return_upsert_rejects_absurd_return_bps(session_factory):
+    try:
+        with _client(session_factory) as client:
+            response = client.put(
+                "/admin/system/annual-returns/2032/Aktien",
+                json={"return_bps": -500_000, "source": "test"},
+            )
+            assert response.status_code == 422, response.text
+    finally:
+        app.dependency_overrides.clear()
+
+    with session_factory() as s:
+        from models.snapshots import AssetClassAnnualReturn
+        assert s.query(AssetClassAnnualReturn).filter_by(
+            year=2032, asset_class="Aktien",
+        ).count() == 0
+
+
+def test_annual_return_upsert_accepts_extreme_but_plausible_bps(session_factory):
+    try:
+        with _client(session_factory) as client:
+            response = client.put(
+                "/admin/system/annual-returns/2033/Aktien",
+                json={"return_bps": -9_000, "source": "test"},
+            )
+            assert response.status_code == 200, response.text
+            response = client.put(
+                "/admin/system/annual-returns/2034/Aktien",
+                json={"return_bps": 80_000, "source": "test"},
+            )
+            assert response.status_code == 200, response.text
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_market_data_refresh_writes_audit(session_factory, monkeypatch):
     # Stub den Service damit kein echter yfinance-Call passiert
     import services.market_data_daily_refresh as mdr

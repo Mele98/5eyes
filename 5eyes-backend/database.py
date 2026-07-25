@@ -957,9 +957,23 @@ def ensure_tenant_backfill(engine_to_use=None) -> None:
     sichtbar). Dieser Backfill ist die Vorbereitung fuer eine spaetere NOT-NULL-
     Constraint + das Entfernen der `OR IS NULL`-Klausel.
 
+    2026-07-25 (Generalaudit): NUR in tenancy_mode == "single" (Tier 1/3 —
+    strukturell IMMER genau ein Tenant, siehe models/tenant.py-Docstring)
+    ist "main" fachlich garantiert korrekt. In tenancy_mode == "multi"
+    (Tier 2, mehrere echte Firmen) lief dieser Backfill bisher UNCONDITIONAL
+    bei JEDEM Boot und haette jede zukuenftige NULL-tenant_id-Zeile (z.B. durch
+    einen noch nicht auditierten Endpoint oder Bug) STILLSCHWEIGEND der Firma
+    zugewiesen, die zufaellig 'main' heisst -- eine falsche Zuordnung ist hier
+    schlimmer als das (bereits bekannte, dokumentierte) NULL-bleibt-sichtbar-
+    fuer-alle-Verhalten, weil sie den Datensatz faelschlich als legitimes
+    Eigentum von 'main' erscheinen laesst (Bruch der Mandantentrennung durch
+    die Migration selbst). Deshalb: in "multi" ueberspringen, NULL bleibt NULL.
+
     Idempotent (zweiter Lauf trifft 0 Rows) und defensiv (pro Tabelle isoliert;
     fehlende Tabelle/Spalte wird uebersprungen; Boot wird nie abgebrochen).
     """
+    if str(getattr(settings, "tenancy_mode", "single") or "single").strip().lower() == "multi":
+        return
     eng = engine_to_use if engine_to_use is not None else engine
     try:
         from models.tenant import DEFAULT_TENANT_ID

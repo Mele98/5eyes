@@ -398,6 +398,18 @@ def upsert_annual_return(
     if 'return_bps' not in body:
         raise HTTPException(status_code=400, detail="return_bps erforderlich")
     return_bps = int(body['return_bps'])
+    # 2026-07-25 (Generalaudit): kein Plausibilitaets-Range-Check -- ein
+    # Tippfehler (zusaetzliche/fehlende Null) konnte einen absurden Wert
+    # (z.B. -500'000 bps = -5000%) unbemerkt persistieren. Dieser Wert
+    # fliesst in JEDE Kundenempfehlung fuer diese Asset-Class/Jahr ein
+    # (systemweiter Blast-Radius, analog SCHEMA-03 Vola>=0). Bounds grosszuegig
+    # gewaehlt (-100% bis +1000%), um legitime Extremjahre nicht zu blockieren.
+    if not (-10_000 <= return_bps <= 100_000):
+        raise HTTPException(
+            status_code=422,
+            detail="return_bps ausserhalb plausibler Bandbreite (-10000 bis 100000 bps, "
+                   "entspricht -100% bis +1000%).",
+        )
     source = str(body.get('source') or 'admin')
     now = datetime.utcnow().isoformat()
     existing = (
