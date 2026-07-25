@@ -91,6 +91,61 @@ def test_invite_creates_account_with_token_and_tenant(client, session_factory):
         assert u.invite_expires_at
 
 
+# ── 2026-07-25 (Generalaudit): Host-Header-Injection -> Invite-Link auf eine
+# Phishing-Domain umleitbar (siehe test_account_recovery.py fuer den
+# Reset-Link-Fall). public_base_url wird, wenn konfiguriert, IMMER bevorzugt.
+
+def test_invite_link_ignores_attacker_host_header_when_public_base_url_configured(
+    client, monkeypatch,
+):
+    from config import settings
+    monkeypatch.setattr(settings, "public_base_url", "https://trusted.5eyes.example")
+
+    captured = {}
+
+    def _fake_send(to_email, full_name, link):
+        captured["link"] = link
+        return True
+
+    import routers.auth as auth_router
+    monkeypatch.setattr(auth_router, "send_invite_email", _fake_send)
+
+    r = client.post(
+        "/users/invite",
+        json={"username": "phish.target", "full_name": "Phish Target", "role": "advisor"},
+        headers={"Host": "evil-attacker.test", "X-Forwarded-Host": "evil-attacker.test"},
+    )
+    assert r.status_code == 201, r.text
+    assert captured["link"].startswith("https://trusted.5eyes.example/")
+    assert "evil-attacker.test" not in captured["link"]
+
+
+def test_invite_link_falls_back_to_forwarded_host_when_public_base_url_unset(
+    client, monkeypatch,
+):
+    from config import settings
+    monkeypatch.setattr(settings, "public_base_url", None)
+
+    captured = {}
+
+    def _fake_send(to_email, full_name, link):
+        captured["link"] = link
+        return True
+
+    import routers.auth as auth_router
+    monkeypatch.setattr(auth_router, "send_invite_email", _fake_send)
+
+    r = client.post(
+        "/users/invite",
+        json={"username": "legacy.behavior", "full_name": "Legacy Behavior", "role": "advisor"},
+        headers={"X-Forwarded-Host": "app.legit-deployment.test", "X-Forwarded-Proto": "https"},
+    )
+    assert r.status_code == 201, r.text
+    # Backwards-Compat: unveraendertes Fallback-Verhalten (kein public_base_url
+    # konfiguriert).
+    assert captured["link"].startswith("https://app.legit-deployment.test/")
+
+
 def test_invite_preview_returns_display_info(client):
     token = _invite(client).json()["invite_token"]
     r = client.get(f"/auth/invite/{token}")

@@ -68,6 +68,7 @@ RETENTION_NOTES: dict[str, str] = {
     "conflict_of_interest_disclosure": "10 Jahre nach Erfassung (FIDLEG Art. 9).",
     "mandate_report_notes": "10 Jahre nach Erstellung (FIDLEG Art. 11).",
     "review_trigger": "10 Jahre nach Auflage (FIDLEG Art. 11).",
+    "protocol_baustein_selections": "10 Jahre nach Erstellung (FIDLEG Art. 11).",
     "client_nationalities": "Kundenbeziehung + 10 Jahre (GwG Art. 7).",
     "client_opt_history": "10 Jahre nach Klassifikationswechsel (FIDLEG Art. 4).",
     "audit_log": (
@@ -122,6 +123,7 @@ def export_client_data(db: Session, client_id: str) -> dict[str, Any]:
         "mandate_report_notes": [...],
         "review_trigger":       [...],
         "strategy_snapshots":   [...],
+        "protocol_baustein_selections": [...],
         "audit_log":            [...]          # nur Eintraege zu diesem Kunden
       }
     }
@@ -165,6 +167,7 @@ def export_client_data(db: Session, client_id: str) -> dict[str, Any]:
         "mandate_report_notes": _query_mandate_report_notes(db, mandate_ids),
         "review_trigger": _query_review_trigger(db, mandate_ids),
         "strategy_snapshots": _query_strategy_snapshots(db, mandate_ids),
+        "protocol_baustein_selections": _query_protocol_baustein_selections(db, mandate_ids),
         "audit_log": _query_audit_log(db, client_id, mandate_ids),
     }
 
@@ -550,6 +553,26 @@ def _query_review_trigger(
         rows = (
             db.query(ReviewTrigger)
             .filter(ReviewTrigger.mandate_id.in_(mandate_ids))
+            .all()
+        )
+        return _serialize_list(rows)
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def _query_protocol_baustein_selections(
+    db: Session, mandate_ids: list[str]
+) -> list[dict[str, Any]]:
+    """2026-07-25 (Generalaudit, Wave-10 DSG-Fork): custom_override_md ist laut
+    Modell-Docstring explizit fuer "Klienten-spezifische Erlaeuterung" gedacht --
+    fehlte bisher im Auskunfts-Export (DSG Art. 25)."""
+    if not mandate_ids:
+        return []
+    try:
+        from models.protocol_bausteine import MandateBausteinSelection
+        rows = (
+            db.query(MandateBausteinSelection)
+            .filter(MandateBausteinSelection.mandate_id.in_(mandate_ids))
             .all()
         )
         return _serialize_list(rows)

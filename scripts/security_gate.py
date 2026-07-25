@@ -52,6 +52,7 @@ SECURITY_TESTS: list[str] = [
     "tests/test_data_classification_gate_profiling_mandate.py",
     "tests/test_data_classification_gate_review.py",
     "tests/test_password_change_revokes_tokens.py",
+    "tests/test_data_export.py",
     "tests/test_foundation_demo_purge.py",
     "tests/test_data_integrity_audit.py",
 ]

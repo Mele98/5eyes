@@ -427,8 +427,20 @@ class _PasswordResetConfirm(_BaseModel):
     new_password: str
 
 
+def _trusted_public_base_url() -> str | None:
+    """2026-07-25 (Generalaudit): ist public_base_url konfiguriert, wird sie
+    IMMER bevorzugt und der (Client-kontrollierte!) Host/X-Forwarded-Host-
+    Header komplett ignoriert -- schliesst Host-Header-Injection auf den
+    versendeten Reset-/Invite-Links. Siehe config.py::public_base_url."""
+    from config import settings as _settings
+    configured = str(getattr(_settings, "public_base_url", None) or "").strip()
+    return configured.rstrip("/") if configured else None
+
+
 def _reset_link_for(request: Request, token: str) -> str:
-    base = str(request.base_url).rstrip("/") if request else ""
+    base = _trusted_public_base_url()
+    if base is None:
+        base = str(request.base_url).rstrip("/") if request else ""
     return f"{base}/app/5eyes_v2.html?reset={token}"
 
 
@@ -563,9 +575,15 @@ _INVITE_TTL_DAYS = 7
 
 
 def _invite_link_for(request: Request, token: str) -> str:
-    """Baut den Einladungslink aus der OEFFENTLICHEN Origin (X-Forwarded-* hinter
-    Cloudflare/Proxy bevorzugt), damit die E-Mail einen extern erreichbaren Link
-    enthaelt — nicht die interne 127.0.0.1-Adresse."""
+    """Baut den Einladungslink aus der OEFFENTLICHEN Origin. Bevorzugt IMMER
+    das vertrauenswuerdige config.public_base_url (siehe _trusted_public_base_url);
+    nur wenn das nicht konfiguriert ist, Fallback auf X-Forwarded-*/Host-Header
+    (Client-kontrollierbar -- siehe Generalaudit-Fund 2026-07-25), damit die
+    E-Mail einen extern erreichbaren Link enthaelt statt der internen
+    127.0.0.1-Adresse."""
+    trusted = _trusted_public_base_url()
+    if trusted is not None:
+        return f"{trusted}/app/5eyes_v2.html?invite={token}"
     proto = str(request.headers.get("x-forwarded-proto") or request.url.scheme or "https").split(",")[0].strip()
     host = str(request.headers.get("x-forwarded-host") or request.headers.get("host") or request.url.netloc or "").split(",")[0].strip()
     base = f"{proto}://{host}" if host else str(request.base_url).rstrip("/")

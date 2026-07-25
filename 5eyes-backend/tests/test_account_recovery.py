@@ -93,6 +93,66 @@ def test_reset_request_is_generic_and_issues_token(client, session_factory):
     assert r2.status_code == 200
 
 
+# ── 2026-07-25 (Generalaudit): Host-Header-Injection -> Password-Reset-
+# Poisoning. Der Reset-Link wurde bisher aus dem (Client-kontrollierten!)
+# Host-Header konstruiert -- ein Angreifer konnte auf dem OEFFENTLICHEN
+# /auth/password-reset/request-Endpoint einen gueltigen Reset-Token fuer ein
+# fremdes Konto ausloesen UND den Link auf eine Phishing-Domain umleiten,
+# indem er den Host-Header manipuliert. Fix: config.public_base_url wird,
+# wenn konfiguriert, IMMER bevorzugt (Header komplett ignoriert).
+
+def test_reset_link_ignores_attacker_host_header_when_public_base_url_configured(
+    client, session_factory, monkeypatch,
+):
+    from config import settings
+    import services.mailer as mailer_mod
+
+    monkeypatch.setattr(settings, "public_base_url", "https://trusted.5eyes.example")
+    _seed_user(session_factory, "r2", "pw", email="victim@example.test")
+
+    captured = {}
+
+    def _fake_send(to_email, full_name, link):
+        captured["link"] = link
+        return True
+
+    monkeypatch.setattr(mailer_mod, "send_password_reset_email", _fake_send)
+    import routers.auth as auth_router
+    monkeypatch.setattr(auth_router, "send_password_reset_email", _fake_send)
+
+    r = client.post(
+        "/auth/password-reset/request",
+        json={"username": "r2"},
+        headers={"Host": "evil-attacker.test", "X-Forwarded-Host": "evil-attacker.test"},
+    )
+    assert r.status_code == 200
+    assert captured["link"].startswith("https://trusted.5eyes.example/")
+    assert "evil-attacker.test" not in captured["link"]
+
+
+def test_reset_link_falls_back_to_host_header_when_public_base_url_unset(
+    client, session_factory, monkeypatch,
+):
+    from config import settings
+    monkeypatch.setattr(settings, "public_base_url", None)
+    _seed_user(session_factory, "r3", "pw", email="user3@example.test")
+
+    captured = {}
+
+    def _fake_send(to_email, full_name, link):
+        captured["link"] = link
+        return True
+
+    import routers.auth as auth_router
+    monkeypatch.setattr(auth_router, "send_password_reset_email", _fake_send)
+
+    r = client.post("/auth/password-reset/request", json={"username": "r3"})
+    assert r.status_code == 200
+    # Backwards-Compat: unveraendertes Fallback-Verhalten (kein public_base_url
+    # konfiguriert -- z.B. lokaler Tier-1-Desktop-Betrieb, kein Angriffsvektor).
+    assert "/app/5eyes_v2.html?reset=" in captured["link"]
+
+
 def test_reset_confirm_sets_new_password_and_is_single_use(client, session_factory):
     _seed_user(session_factory, "r2", "oldpw")
     with session_factory() as s:

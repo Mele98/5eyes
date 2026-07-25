@@ -80,6 +80,18 @@ class Settings(BaseSettings):
         ]
     )
     cors_allow_origin_regex: str | None = r'^null$'
+    # 2026-07-25 (Generalaudit): Passwort-Reset-/Invite-Links wurden bisher aus
+    # dem (Client-kontrollierten!) Host/X-Forwarded-Host-Header konstruiert --
+    # Host-Header-Injection auf dem OEFFENTLICHEN, unauthentifizierten
+    # /auth/password-reset/request-Endpoint erlaubte einen gueltigen Reset-
+    # Link auf eine Phishing-Domain fuer die HINTERLEGTE (echte) E-Mail-Adresse
+    # des Opfers zu versenden (klassisches "Password-Reset-Poisoning"). Ist
+    # public_base_url gesetzt, wird IMMER dieser vertrauenswuerdige Wert
+    # genutzt (Header ignoriert). Fuer jede extern erreichbare Installation
+    # (Tier 2/3, Browser-Hosting) MUSS dies konfiguriert werden. Bleibt NULL
+    # (Tier-1-Desktop-Default, kein externer Zugriff), bleibt das bisherige
+    # Header-Fallback-Verhalten unveraendert.
+    public_base_url: str | None = None
 
     # Price refresh
     price_scheduler_enabled: bool = True

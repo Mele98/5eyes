@@ -263,6 +263,35 @@ def test_mandates_section_contains_clients_mandate(session_factory):
     assert mandates[0]["client_id"] == client.id
 
 
+# 2026-07-25 (Generalaudit, Wave 10): custom_override_md ist laut Modell-
+# Docstring explizit fuer "Klienten-spezifische Erlaeuterung" gedacht --
+# fehlte bisher im DSG-Auskunfts-Export (DSG Art. 25).
+def test_protocol_baustein_selection_is_exported(session_factory):
+    from models.protocol_bausteine import MandateBausteinSelection, ProtocolBaustein
+
+    with session_factory() as s:
+        client, mandate, advisor = _seed_full_client(s)
+        baustein = ProtocolBaustein(
+            id=str(uuid.uuid4()), advisor_id=advisor.id, title="Risikohinweis",
+            content_md="Standardtext", is_active=1, created_at=_NOW, updated_at=_NOW,
+        )
+        s.add(baustein)
+        s.flush()
+        selection = MandateBausteinSelection(
+            id=str(uuid.uuid4()), mandate_id=mandate.id, baustein_id=baustein.id,
+            sort_order=0, custom_override_md="Klientenspezifische Anmerkung XY",
+            created_at=_NOW, updated_at=_NOW,
+        )
+        s.add(selection)
+        s.commit()
+        payload = export_client_data(s, client.id)
+
+    section = payload["sections"]["protocol_baustein_selections"]
+    assert len(section) == 1
+    assert section[0]["id"] == selection.id
+    assert section[0]["custom_override_md"] == "Klientenspezifische Anmerkung XY"
+
+
 def test_risk_assessment_and_suitability_are_exported(session_factory):
     with session_factory() as s:
         client, _, _ = _seed_full_client(s)
