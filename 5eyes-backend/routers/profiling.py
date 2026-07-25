@@ -17,6 +17,7 @@ from schemas.profiling import (
 )
 from services.auth import get_client_for_user_or_404, get_current_user, get_mandate_for_user_or_404, require_advisor
 from services.audit import log
+from services.data_classification import enforce_data_classification
 from services.portfolio_engine import risk_assessment_ready_for_strategy
 from services.risk_scoring import canonicalize_horizon_label, compute_scores, profile_for_score_x10
 
@@ -63,6 +64,7 @@ def create_knowledge(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor)
 ):
+    enforce_data_classification(body.data_classification)
     client = get_client_for_user_or_404(client_id, db, current_user)
     now = _now()
     today = date.today().isoformat()
@@ -156,6 +158,7 @@ def create_risk_assessment(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor)
 ):
+    enforce_data_classification(body.data_classification)
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
     now = _now()
     today = date.today().isoformat()

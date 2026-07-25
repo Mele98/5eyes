@@ -8,6 +8,7 @@ from models.mandates import Mandate
 from schemas.mandates import MandateCreate, MandateUpdate, MandateResponse
 from services.auth import get_client_for_user_or_404, get_current_user, get_mandate_for_user_or_404, require_advisor
 from services.audit import log
+from services.data_classification import enforce_data_classification
 from services.quota import assert_within_quota
 
 router = APIRouter(tags=["Mandate"])
@@ -40,6 +41,7 @@ def create_mandate(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor)
 ):
+    enforce_data_classification(body.data_classification)
     client = get_client_for_user_or_404(client_id, db, current_user)
     existing = db.query(Mandate).filter(
         Mandate.mandate_number == body.mandate_number,
@@ -99,7 +101,13 @@ def update_mandate(
     # Felder (z.B. tax_jurisdiction, depot_bank) nie wieder leeren, weil null
     # verworfen wird. Mit exclude_unset werden genau die vom Client gesendeten
     # Felder geschrieben (inkl. explizitem null = Loeschen); nicht gesendete bleiben.
-    for field, value in body.model_dump(exclude_unset=True).items():
+    updates = body.model_dump(exclude_unset=True)
+    # 2026-07-25 (Generalaudit): data_classification hat kein DB-Spalten-
+    # Aequivalent auf Mandate (nur Enforcement, analog Cashflow/Goal) --
+    # muss VOR dem generischen setattr-Loop entfernt werden, sonst wuerde
+    # setattr(mandate, "data_classification", ...) versucht.
+    enforce_data_classification(updates.pop("data_classification", None))
+    for field, value in updates.items():
         setattr(mandate, field, value)
     mandate.updated_at = _now()
     log(db, user_id=current_user.id, user_name=current_user.full_name,

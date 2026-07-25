@@ -28,6 +28,9 @@ class MandateCreate(BaseModel):
     client_birth_year: Optional[int] = Field(default=None, ge=1900, le=2200)
     client_sex: Optional[Literal["M", "F"]] = None
     use_mortality_simulation: Optional[bool] = False
+    # 2026-07-25 (Generalaudit): Phase-0-Gate fehlte fuer Mandate -- analog
+    # zu Client/Cashflow/Goal/WealthPosition/WealthInflow nachgezogen.
+    data_classification: Literal["synthetic", "real"] = "synthetic"
 
 
 class MandateUpdate(BaseModel):
@@ -63,6 +66,8 @@ class MandateUpdate(BaseModel):
     # erlaubt selektive Overrides der TaxConfig-Defaults.
     tax_jurisdiction: Optional[str] = None
     tax_overrides_json: Optional[str] = None
+    # 2026-07-25 (Generalaudit): siehe MandateCreate.
+    data_classification: Optional[Literal["synthetic", "real"]] = None
 
     @model_validator(mode="after")
     def validate_year_order(self):

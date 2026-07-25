@@ -17,6 +17,10 @@ class KnowledgeCreate(BaseModel):
     exp_alternatives: EXP_OPTIONS = "Keine"
     exp_structured: EXP_OPTIONS = "Keine"
     next_review_at: Optional[str] = None
+    # 2026-07-25 (Generalaudit): Phase-0-Gate (enforce_data_classification)
+    # fehlte fuer Kenntnisse-&-Erfahrungen -- analog zu Client/Cashflow/Goal/
+    # WealthPosition/WealthInflow nachgezogen.
+    data_classification: Literal["synthetic", "real"] = "synthetic"
 
 
 class KnowledgeResponse(BaseResponse):
@@ -63,6 +67,11 @@ class RiskAssessmentCreate(BaseModel):
     # Kenntnisse & Erfahrungen (Referenzmodell Eignungspruefung Seite 1) - optional, kein Score
     knowledge_services_json: Optional[str] = None
     knowledge_instruments_json: Optional[str] = None
+    # 2026-07-25 (Generalaudit): Phase-0-Gate fehlte fuer Risikoprofilierung --
+    # die sensibelste Datenkategorie der App (Einkommen/Vermoegen/
+    # Verpflichtungen/Risikoantworten). Analog zu Client/Cashflow/Goal/
+    # WealthPosition/WealthInflow/Knowledge nachgezogen.
+    data_classification: Literal["synthetic", "real"] = "synthetic"
     income_sources_json: Optional[str] = None
 
     @model_validator(mode="after")
