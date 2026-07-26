@@ -312,6 +312,11 @@ def apply_cma_row(db: Any, row: dict, user_id: str | None) -> Any:
     if not name:
         raise ValueError("assumption_set_name darf nicht leer sein")
 
+    # 2026-07-25 (Generalaudit, Wave 14): with_for_update() ergaenzt, analog
+    # zum identischen Anchor-Lookup in routers/allocation.py::update_cma.
+    # Stand Audit ist diese Funktion in keinem Router/Script verdrahtet
+    # (0 Aufrufer ausserhalb der eigenen Tests) -- kein aktiver Exploit-Pfad,
+    # aber zukunftssicher fuer den Tag, an dem ein CSV-Import-Endpoint sie nutzt.
     prev = (
         db.query(CapitalMarketAssumption)
         .filter(
@@ -320,6 +325,7 @@ def apply_cma_row(db: Any, row: dict, user_id: str | None) -> Any:
             CapitalMarketAssumption.deleted_at.is_(None),
         )
         .order_by(CapitalMarketAssumption.version.desc())
+        .with_for_update()
         .first()
     )
     new_version = (int(prev.version) + 1) if prev is not None else 1
