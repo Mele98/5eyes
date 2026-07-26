@@ -234,6 +234,26 @@ def test_r2_fx_rates_upsert_uses_for_update():
     )
 
 
+def test_r2_finalize_recommendation_locks_mandate_row():
+    """2026-07-26 (Generalaudit-Nachtrag): finalize_recommendation's Bulk-
+    UPDATE (alle anderen 'Final'-Runs -> 'Superseded') schuetzt NUR, wenn
+    bereits ein Final-Run existiert -- bei der ERSTEN Finalisierung eines
+    Mandats matcht das Bulk-UPDATE 0 Zeilen, zwei nahezu gleichzeitige
+    Finalize-Calls fuer zwei verschiedene Runs koennten dann BEIDE 'Final'
+    werden. Die Mandate-Zeile MUSS deshalb VOR dem Bulk-UPDATE gesperrt
+    werden (serialisiert JEDEN Finalize-Call fuer dasselbe Mandat)."""
+    src = _read_source("routers/review.py")
+    snippet = re.search(
+        r"def finalize_recommendation\([\s\S]*?\n\)\s*:\s*\n[\s\S]*?db\.query\(RecommendationRun\)",
+        src,
+    )
+    assert snippet, "finalize_recommendation Funktionskoerper nicht gefunden"
+    assert "with_for_update" in snippet.group(0), (
+        "finalize_recommendation muss die Mandate-Zeile vor dem Bulk-UPDATE "
+        "mit with_for_update() sperren."
+    )
+
+
 # ============================================================================
 # Sanity: existing flows weiterhin gruen
 # ============================================================================

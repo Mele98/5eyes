@@ -1711,6 +1711,16 @@ def finalize_recommendation(
     current_user: User = Depends(require_advisor)
 ):
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    # 2026-07-26 (Generalaudit-Nachtrag): sperrt die Mandats-Zeile fuer die
+    # Dauer der Transaktion. Der Bulk-UPDATE unten (alle anderen "Final"-Runs
+    # -> "Superseded") schuetzt NUR, wenn bereits ein Final-Run existiert --
+    # bei der ERSTEN Finalisierung eines Mandats (noch kein Final-Run) matcht
+    # das Bulk-UPDATE 0 Zeilen, und zwei nahezu gleichzeitige Finalize-Calls
+    # fuer zwei verschiedene Runs koennten dann BEIDE "Final" werden (zwei
+    # gleichzeitig gueltige, unterschiedliche Empfehlungen fuer denselben
+    # Kunden). Das Sperren der Mandate-Zeile serialisiert JEDEN Finalize-Call
+    # fuer dasselbe Mandat, unabhaengig vom Vorzustand.
+    db.query(Mandate).filter(Mandate.id == mandate_id).with_for_update().first()
     run = _get_recommendation_run_or_404(mandate_id, run_id, db, current_user)
     errors, warnings = _validate_recommendation_for_finalization(db, mandate, run)
     if errors:

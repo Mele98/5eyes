@@ -24,6 +24,8 @@ from sqlalchemy.orm import Session
 
 from config import settings
 from database import get_db, new_uuid
+from models.client_login import ClientLogin
+from models.clients import Client
 from models.tenant import Tenant
 from models.users import User
 from schemas.tenants import (
@@ -216,6 +218,41 @@ def assign_user_to_tenant(
     )
     if user is None:
         raise HTTPException(status_code=404, detail="User nicht gefunden")
+    # 2026-07-26 (Generalaudit-Nachtrag): Guard gegen stille Verwaisung --
+    # Client.tenant_id/ClientLogin bleiben beim ALTEN Tenant stehen (kein
+    # Cross-Tenant-Leak), wuerden fuer den User nach der Neuzuweisung aber
+    # unsichtbar (Tenant-Filter matcht client.tenant_id gegen den NEUEN
+    # user.tenant_id, kein Treffer mehr). Blockiert die Neuzuweisung mit
+    # klarer Fehlermeldung statt die Dateninkonsistenz stillschweigend
+    # zu erzeugen -- Admin muss die Kunden zuerst umziehen oder den
+    # Advisor-Owner wechseln.
+    if user.tenant_id and str(user.tenant_id).strip() != str(tenant_id).strip():
+        active_clients = db.query(Client).filter(
+            Client.advisor_id == user.id,
+            Client.deleted_at.is_(None),
+        ).count()
+        if active_clients > 0:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"User betreut noch {active_clients} aktive Kunden im bisherigen "
+                    "Tenant -- Neuzuweisung wuerde diese fuer den User unsichtbar machen. "
+                    "Bitte zuerst die Kunden umziehen oder den Advisor-Owner wechseln."
+                ),
+            )
+        active_login = db.query(ClientLogin).filter(
+            ClientLogin.user_id == user.id,
+            ClientLogin.is_active == 1,
+        ).first()
+        if active_login is not None:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "User ist als aktiver Kunden-Login mit einem Client im bisherigen "
+                    "Tenant verknuepft -- Neuzuweisung wuerde diese Verknuepfung "
+                    "inkonsistent machen."
+                ),
+            )
     user.tenant_id = tenant_id
     user.updated_at = _now_iso()
     # Sprint T4: audit_log.action ist auf festes ENUM begrenzt; wir nutzen

@@ -414,6 +414,66 @@ def test_assign_user_to_tenant(session_factory, super_admin, monkeypatch):
         app.dependency_overrides.clear()
 
 
+# ── 2026-07-26 (Generalaudit-Nachtrag): Guard gegen stille Verwaisung ──────
+# Client.tenant_id bleibt beim ALTEN Tenant stehen (kein Cross-Tenant-Leak),
+# wuerde fuer den User nach der Neuzuweisung aber unsichtbar werden.
+
+def test_assign_user_to_tenant_blocked_when_active_clients_exist(
+    session_factory, super_admin, monkeypatch,
+):
+    from models.clients import Client
+
+    advisor_id = _persist_advisor(session_factory)
+    with session_factory() as db:
+        db.add(Client(
+            id="client-owned-by-advisor", client_number="C-OWNED",
+            first_name="T", last_name="X", advisor_id=advisor_id,
+            created_at=_utc_now(), updated_at=_utc_now(),
+        ))
+        db.query(User).filter(User.id == advisor_id).update({"tenant_id": "firma-alt"})
+        db.commit()
+
+    client = _make_client_as(super_admin, session_factory, monkeypatch)
+    try:
+        tenant_resp = client.post(
+            "/tenants",
+            json={"display_name": "Neu", "slug": "assign-blocked",
+                  "hosting_tier": TIER_2_SHARED_CLOUD},
+        )
+        tenant_id = tenant_resp.json()["id"]
+        assign_resp = client.put(f"/tenants/{tenant_id}/users/{advisor_id}/assign")
+        assert assign_resp.status_code == 409, assign_resp.text
+        assert "aktive Kunden" in assign_resp.json()["detail"]
+
+        with session_factory() as db:
+            u = db.query(User).filter(User.id == advisor_id).first()
+            assert u.tenant_id == "firma-alt"  # unveraendert
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_assign_user_to_tenant_allowed_when_no_active_clients(
+    session_factory, super_admin, monkeypatch,
+):
+    advisor_id = _persist_advisor(session_factory)
+    with session_factory() as db:
+        db.query(User).filter(User.id == advisor_id).update({"tenant_id": "firma-alt"})
+        db.commit()
+
+    client = _make_client_as(super_admin, session_factory, monkeypatch)
+    try:
+        tenant_resp = client.post(
+            "/tenants",
+            json={"display_name": "Neu", "slug": "assign-allowed",
+                  "hosting_tier": TIER_2_SHARED_CLOUD},
+        )
+        tenant_id = tenant_resp.json()["id"]
+        assign_resp = client.put(f"/tenants/{tenant_id}/users/{advisor_id}/assign")
+        assert assign_resp.status_code == 200, assign_resp.text
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_assign_user_404_unbekannter_tenant(
     session_factory, super_admin, monkeypatch,
 ):
