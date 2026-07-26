@@ -12,7 +12,13 @@ class WealthPositionCreate(BaseModel):
         "Alternative", "Hypothek", "Custom"
     ]
     assignment: Literal["Beratungsvermögen", "Anderes Vermögen", "Verbindlichkeit"] = "Anderes Vermögen"
-    current_value_rappen: int = 0
+    # 2026-07-25 (Generalaudit): kein Bounds-Check -- current_value_rappen
+    # fliesst direkt in die SAA-/MC-Basis-Aggregation ein. Bounds grosszuegig
+    # (bis CHF 100 Mia.), um legitime Grossvermoegen nicht zu blockieren, aber
+    # einen Tippfehler (zusaetzliche Nullen) abzufangen. current_value_rappen
+    # ist IMMER >=0, auch fuer Hypothek/Verbindlichkeit (Vorzeichen laeuft
+    # ueber assignment, siehe services/portfolio_engine.py total_liabilities_rappen).
+    current_value_rappen: int = Field(default=0, ge=0, le=10_000_000_000_000)
     currency: str = "CHF"
     valuation_date: Optional[str] = None
     # Depot
@@ -27,7 +33,8 @@ class WealthPositionCreate(BaseModel):
     property_address: Optional[str] = None
     property_zip_city: Optional[str] = None
     property_usage: Optional[str] = None
-    property_rental_income_rappen: int = 0
+    # 2026-07-25 (Generalaudit): siehe current_value_rappen.
+    property_rental_income_rappen: int = Field(default=0, ge=0, le=10_000_000_000_000)
     property_rental_inflation_linked: int = 0
     # Vorsorge
     pension_type: Optional[str] = None
@@ -41,7 +48,8 @@ class WealthPositionCreate(BaseModel):
     mortgage_type: Optional[str] = None
     mortgage_interest_rate_bps: Optional[int] = None
     mortgage_maturity_date: Optional[str] = None
-    mortgage_amortization_rappen: int = 0
+    # 2026-07-25 (Generalaudit): siehe current_value_rappen.
+    mortgage_amortization_rappen: int = Field(default=0, ge=0, le=10_000_000_000_000)
     mortgage_amortization_type: Optional[str] = None
     mortgage_linked_property_id: Optional[str] = None
     # Alternative
@@ -85,7 +93,7 @@ class WealthPositionCreate(BaseModel):
 class WealthPositionUpdate(BaseModel):
     label: Optional[str] = None
     assignment: Optional[str] = None
-    current_value_rappen: Optional[int] = None
+    current_value_rappen: Optional[int] = Field(default=None, ge=0, le=10_000_000_000_000)
     valuation_date: Optional[str] = None
     depot_bank: Optional[str] = None
     depot_account_number: Optional[str] = None
@@ -97,7 +105,7 @@ class WealthPositionUpdate(BaseModel):
     property_address: Optional[str] = None
     property_zip_city: Optional[str] = None
     property_usage: Optional[str] = None
-    property_rental_income_rappen: Optional[int] = None
+    property_rental_income_rappen: Optional[int] = Field(default=None, ge=0, le=10_000_000_000_000)
     property_rental_inflation_linked: Optional[int] = None
     pension_type: Optional[str] = None
     pension_institution: Optional[str] = None
@@ -109,7 +117,7 @@ class WealthPositionUpdate(BaseModel):
     mortgage_type: Optional[str] = None
     mortgage_interest_rate_bps: Optional[int] = None
     mortgage_maturity_date: Optional[str] = None
-    mortgage_amortization_rappen: Optional[int] = None
+    mortgage_amortization_rappen: Optional[int] = Field(default=None, ge=0, le=10_000_000_000_000)
     mortgage_amortization_type: Optional[str] = None
     mortgage_linked_property_id: Optional[str] = None
     asset_subtype: Optional[str] = None
@@ -188,6 +196,29 @@ class WealthPositionResponse(BaseResponse):
 
 # ── Cashflow ───────────────────────────────────────────────────────────────────
 
+# 2026-07-25 (Generalaudit, Wave 12): frequency war ein freier String (fuer
+# Alias-Toleranz, z.B. "monthly"/"jaehrlich"/"annual" -- absichtlich KEIN
+# strikter Literal, siehe services.cashflow_timeline.normalize_frequency).
+# Ein unerkannter Wert (Tippfehler wie "monatlic") fiel bisher aber NICHT
+# dort auf, sondern erst tief in annual_amount_for_year() -> months_per_
+# occurrence-Lookup, wo er STILL auf 12 Monate/jaehrlich zurueckfaellt --
+# ein Kunde mit tatsaechlich monatlichem Cashflow bekaeme eine um Faktor 12
+# zu niedrige Jahresprojektion, ohne jede Fehlermeldung. Fix: dieselbe
+# Normalisierungsfunktion hier am API-Rand aufrufen und ablehnen, wenn sie
+# NICHT auf einen der 4 bekannten kanonischen Werte abbildet -- zero Risiko
+# einer abweichenden Logik (identische Funktion, kein Duplikat).
+def _validate_frequency_field(frequency: str) -> None:
+    from services.cashflow_timeline import normalize_frequency
+
+    normalized = normalize_frequency(frequency)
+    if normalized not in {"monatlich", "quartalsweise", "halbjährlich", "jährlich", "einmalig"}:
+        raise ValueError(
+            f"Unbekannte frequency {frequency!r} -- erlaubt sind u.a. "
+            "'monatlich', 'quartalsweise', 'halbjährlich', 'jährlich', 'einmalig' "
+            "(auch englische Varianten wie 'monthly'/'annually')."
+        )
+
+
 class CashflowCreate(BaseModel):
     cashflow_type: Literal["Income", "Expense"]
     label: str
@@ -206,6 +237,11 @@ class CashflowCreate(BaseModel):
     notes: Optional[str] = None
     data_classification: Literal["synthetic", "real"] = "synthetic"
 
+    @model_validator(mode="after")
+    def validate_frequency_recognized(self):
+        _validate_frequency_field(self.frequency)
+        return self
+
 
 class CashflowUpdate(BaseModel):
     cashflow_type: Optional[Literal["Income", "Expense"]] = None
@@ -223,6 +259,12 @@ class CashflowUpdate(BaseModel):
     notes: Optional[str] = None
     is_active: Optional[bool] = None
     data_classification: Optional[Literal["synthetic", "real"]] = None
+
+    @model_validator(mode="after")
+    def validate_frequency_recognized(self):
+        if self.frequency is not None:
+            _validate_frequency_field(self.frequency)
+        return self
 
 
 class CashflowResponse(BaseResponse):

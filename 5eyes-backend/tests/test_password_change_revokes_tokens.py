@@ -192,3 +192,55 @@ def test_admin_reset_revokes_even_when_setting_must_change_flag(client, session_
     )
     assert resp.status_code == 200, resp.text
     assert client.get("/auth/me", headers=target_headers).status_code == 401
+
+
+# ── 2026-07-25 (Generalaudit, Wave 12): /auth/password-reset/confirm ────────
+# Wave-12-Session-Concurrency-Fork-Fund: der oeffentliche Token-basierte
+# Reset-Pfad revoked bisher KEINE Sessions -- anders als change_password und
+# PUT /users/{id}/password oben. Reset ist der dedizierte Account-Recovery-
+# Pfad; ohne Revocation bliebe ein bereits gestohlenes Token trotz Reset
+# gueltig, genau der Angreifer bliebe drin, den der Reset aussperren soll.
+
+def test_password_reset_confirm_revokes_old_token(client, session_factory):
+    from services.account_recovery import issue_reset_token
+
+    _seed_user(session_factory, "pwrevoke-reset1", "old-pw-12345")
+    login = client.post("/auth/login", json={"username": "pwrevoke-reset1", "password": "old-pw-12345"})
+    assert login.status_code == 200
+    token = login.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+    assert client.get("/auth/me", headers=headers).status_code == 200
+
+    with session_factory() as s:
+        u = s.query(User).filter_by(id="pwrevoke-reset1").first()
+        reset_token = issue_reset_token(u)
+        s.commit()
+
+    resp = client.post(
+        "/auth/password-reset/confirm",
+        json={"token": reset_token, "new_password": "reset-new-pw-999"},
+    )
+    assert resp.status_code == 200, resp.text
+    # Das VOR dem Reset ausgestellte Token muss jetzt abgelehnt werden.
+    assert client.get("/auth/me", headers=headers).status_code == 401
+
+
+def test_fresh_login_after_password_reset_confirm_still_works(client, session_factory):
+    from services.account_recovery import issue_reset_token
+
+    _seed_user(session_factory, "pwrevoke-reset2", "old-pw-12345")
+    with session_factory() as s:
+        u = s.query(User).filter_by(id="pwrevoke-reset2").first()
+        reset_token = issue_reset_token(u)
+        s.commit()
+
+    client.post(
+        "/auth/password-reset/confirm",
+        json={"token": reset_token, "new_password": "reset-new-pw-999"},
+    )
+    time.sleep(1.1)  # JWT 'iat' hat Sekunden-Aufloesung, siehe test_auth04.
+
+    login2 = client.post("/auth/login", json={"username": "pwrevoke-reset2", "password": "reset-new-pw-999"})
+    assert login2.status_code == 200
+    token2 = login2.json()["access_token"]
+    assert client.get("/auth/me", headers={"Authorization": f"Bearer {token2}"}).status_code == 200

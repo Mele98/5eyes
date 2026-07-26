@@ -155,6 +155,18 @@ def rotate_tenant_dek(db: Session, tenant_id: str, *, master_kek: str | bytes | 
     Existing encrypted payloads must be re-encrypted by the caller before old
     ciphertext is discarded. Current codebase uses this as the documented PII
     encryption interface; no existing business fields are mutated here.
+
+    ⚠️ WARNUNG (2026-07-25, Generalaudit, Wave 12): diese Funktion
+    ueberschreibt `tenant.encrypted_dek` SOFORT und bewahrt die alte DEK
+    NIRGENDS auf. Jeder mit der alten DEK bereits verschluesselte Payload
+    wird dadurch DAUERHAFT unlesbar, wenn der Aufrufer nicht VORHER selbst
+    alle betroffenen Payloads mit der neuen DEK re-verschluesselt hat (die
+    alte DEK muss dafuer VOR diesem Aufruf separat abgerufen werden). Stand
+    Audit: `rotate_tenant_dek`/`encrypt_for_tenant`/`decrypt_for_tenant`
+    werden im gesamten Anwendungscode NIRGENDS aufgerufen (nur in Tests) --
+    kein Live-PII-Feld nutzt diese Schnittstelle, daher aktuell kein
+    Datenverlust-Risiko. Vor dem ersten produktiven Einsatz MUSS ein
+    echter Re-Encrypt-Flow um diese Funktion herum gebaut werden.
     """
 
     tenant = _tenant_or_error(db, tenant_id)

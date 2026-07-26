@@ -495,6 +495,15 @@ def password_reset_confirm(body: _PasswordResetConfirm, db: Session = Depends(ge
     clear_reset_token(user)
     user.must_change_password = 0
     user.updated_at = _now()
+    # 2026-07-25 (Generalaudit, Wave 12): fehlte hier -- anders als der bereits
+    # gefixte change_password-Endpoint (AUTH-02-Folgefund). Passwort-Reset ist
+    # der dedizierte Account-Recovery-Pfad fuer vermutete Kompromittierung --
+    # ohne Revocation bliebe ein bereits gestohlenes Token trotz Reset bis zu
+    # 8h gueltig, genau der Angreifer bliebe drin, den der Reset aussperren soll.
+    # Anders als change_password (dort Ausnahme fuer erzwungenen Erst-Wechsel)
+    # gibt es hier KEINE Ausnahme -- Reset ist immer ein bewusster, expliziter
+    # Vorgang ueber einen separaten E-Mail-Link, nie ein Onboarding-Zwischenschritt.
+    user.token_revoked_before = _now()
     log(db, user_id=user.id, user_name=user.full_name,
         table_name="users", record_id=user.id, action="PASSWORD_RESET_CONFIRM")
     db.commit()
