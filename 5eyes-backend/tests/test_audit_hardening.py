@@ -190,6 +190,21 @@ def test_r2_portfolio_engine_target_allocation_uses_for_update():
     )
 
 
+def test_r2_allocation_update_cma_uses_for_update():
+    """2026-07-25 (Generalaudit, Wave 11): update_cma war die einzige
+    is_current-Supersede-Stelle im Codebase OHNE with_for_update() --
+    nachgetragen, analog zu allen anderen Anchor-Lookups oben."""
+    src = _read_source("routers/allocation.py")
+    snippet = re.search(
+        r"prev = db\.query\(CapitalMarketAssumption\)\.filter\([^)]*?\)[\s\S]*?\.first\(\)",
+        src,
+    )
+    assert snippet, "CapitalMarketAssumption anchor lookup nicht gefunden"
+    assert "with_for_update" in snippet.group(0), (
+        "CapitalMarketAssumption anchor-lookup muss with_for_update() haben."
+    )
+
+
 # ============================================================================
 # Sanity: existing flows weiterhin gruen
 # ============================================================================

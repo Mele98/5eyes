@@ -337,10 +337,15 @@ def update_cma(
     now = _now()
     payload = body.model_dump(exclude_unset=True)
     # Archive previous
+    # 2026-07-25 (Generalaudit, Wave 11): with_for_update() ergaenzt --
+    # fehlte hier als einzige is_current-Supersede-Stelle im gesamten
+    # Codebase (anders als OptimizerPolicy/TargetAllocation/RiskAssessment/
+    # ClientKnowledge). Zwei nahezu gleichzeitige Admin-Edits (Doppelklick/
+    # Retry) haetten sonst zwei CMA-Versionen mit is_current=1 erzeugen koennen.
     prev = db.query(CapitalMarketAssumption).filter(
         CapitalMarketAssumption.is_current == 1,
         CapitalMarketAssumption.deleted_at.is_(None)
-    ).first()
+    ).with_for_update().first()
     prev_dict: dict = {}
     prev_version = 0
     if prev:

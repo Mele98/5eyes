@@ -363,6 +363,17 @@ def get_current_tenant_id(
 
     Normalweise reicht `Depends(get_current_user)` und dann auf
     `_resolve_tenant_id_for_user(user)` zugreifen.
+
+    ⚠️ WARNUNG (2026-07-25, Generalaudit, Wave 11 JWT-Fork): diese Funktion
+    laedt den User NICHT aus der DB — sie prueft daher WEDER
+    `token_revoked_before` (Logout-/Passwortwechsel-Widerruf, AUTH-04) NOCH
+    `is_active`/`deleted_at`. NIEMALS als alleinige Auth-Dependency eines
+    Endpoints verwenden (`Depends(get_current_tenant_id)` statt
+    `Depends(get_current_user)`) — das wuerde die gesamte Revocation-
+    Mechanik lautlos umgehen (ein per Logout widerrufenes Token bliebe
+    bis zum Ablauf gueltig). Aktuell (Stand Audit) wird diese Funktion in
+    KEINEM Router als Dependency genutzt — nur fuer Faelle, wo zusaetzlich
+    zu `get_current_user` bereits geprueft wurde.
     """
     from models.tenant import DEFAULT_TENANT_ID
 

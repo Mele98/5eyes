@@ -308,7 +308,13 @@ class ProductCreate(BaseModel):
     asset_class: Literal["Aktien", "Obligationen", "Immobilien", "Alternative", "Liquidität"]
     sub_asset_class: Optional[str] = None
     currency: str = "CHF"
-    ter_bps: Optional[int] = None
+    # 2026-07-25 (Generalaudit): kein Bounds-Check -- ter_bps fliesst in den
+    # FIDLEG-Kostenausweis JEDES Kunden ein, der das Produkt haelt. Ein
+    # Tippfehler (negativ/zusaetzliche Nullen) korrumpiert den Kostenausweis
+    # systemweit (analog zum bereits gefixten return_bps-Fund). Bounds
+    # grosszuegig (0-10%), um legitime teure Alternative-Produkte nicht
+    # zu blockieren.
+    ter_bps: Optional[int] = Field(default=None, ge=0, le=1000)
     sfdr_class: Optional[Literal["6", "8", "9"]] = None
     esg_rating: Optional[str] = None
     # Sprint U-P10: Diversifikations-Tiefe (alle optional, Default via Proxy)
@@ -329,7 +335,8 @@ class ProductUpdate(BaseModel):
     asset_class: Optional[Literal["Aktien", "Obligationen", "Immobilien", "Alternative", "Liquidität"]] = None
     sub_asset_class: Optional[str] = None
     currency: Optional[str] = None
-    ter_bps: Optional[int] = None
+    # 2026-07-25 (Generalaudit): siehe ProductCreate.
+    ter_bps: Optional[int] = Field(default=None, ge=0, le=1000)
     sfdr_class: Optional[Literal["6", "8", "9"]] = None
     esg_rating: Optional[str] = None
     country_exposure_json: Optional[str] = None
