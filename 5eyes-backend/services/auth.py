@@ -83,6 +83,34 @@ def _parse_iso_timestamp(value) -> Optional[float]:
     return None
 
 
+def tenant_access_block_reason(db: Session, tenant_id: Optional[str]) -> Optional[str]:
+    """2026-07-25 (Generalaudit, Wave 13): routers/tenants.py::update_tenant
+    erlaubt einem Super-Admin, einen Tenant zu deaktivieren (is_active=0) oder
+    dessen license_status auf 'suspended'/'expired' zu setzen -- das waren
+    bisher reine Metadaten OHNE Wirkung: Tenant.is_active/license_status
+    wurden im gesamten Auth-Layer nirgends ausgewertet. Die einzige in der
+    API exponierte "Tenant abschalten"-Aktion hatte damit keine Wirkung --
+    Nutzer eines deaktivierten/gesperrten Tenants konnten sich unverändert
+    weiter einloggen und arbeiten. Gibt einen Detail-String zurueck wenn der
+    Zugriff blockiert werden muss, sonst None. Fail-open wenn kein
+    tenant_id gesetzt ist (Legacy/Pre-T1-User) oder der Tenant nicht
+    (mehr) existiert -- konsistent mit services.quota.assert_within_quota.
+    """
+    tid = str(tenant_id or "").strip()
+    if not tid:
+        return None
+    from models.tenant import Tenant
+
+    tenant = db.query(Tenant).filter(Tenant.id == tid).first()
+    if tenant is None:
+        return None
+    if not tenant.is_active:
+        return "Ihre Firma ist deaktiviert. Bitte kontaktieren Sie Ihren Administrator."
+    if str(getattr(tenant, "license_status", "") or "").strip().lower() in {"suspended", "expired"}:
+        return "Die Lizenz Ihrer Firma ist abgelaufen oder gesperrt. Bitte kontaktieren Sie Ihren Administrator."
+    return None
+
+
 def issue_token_for_user(user: User, expires_delta: Optional[timedelta] = None) -> str:
     """Sprint T2 (2026-06-08): Convenience-Wrapper der ein Token mit
     tenant_id-Claim ausstellt. Login-Endpoint nutzt das.
@@ -146,6 +174,10 @@ def get_current_user(
     user_tid = getattr(user, "tenant_id", None)
     if token_tid and user_tid and str(token_tid).strip() != str(user_tid).strip():
         raise credentials_exception
+    # 2026-07-25 (Generalaudit, Wave 13): siehe tenant_access_block_reason().
+    block_reason = tenant_access_block_reason(db, user_tid)
+    if block_reason is not None:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=block_reason)
     # AUTH-02 (2026-07-19): must_change_password serverseitig erzwingen. Ein User
     # mit gesetztem Flag darf NUR den Passwortwechsel + /me + /logout aufrufen,
     # bis er das Passwort geaendert hat -> sonst 403. 'request' ist optional

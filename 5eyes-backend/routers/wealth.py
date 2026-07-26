@@ -846,11 +846,16 @@ def upsert_planning_assumptions(
     now = _now()
     today = date.today().isoformat()
     payload = body.model_dump(exclude_unset=True)
+    # 2026-07-25 (Generalaudit, Wave 13): with_for_update() ergaenzt -- fehlte
+    # hier, obwohl der Sibling-Endpoint create_planning_assumptions (unten)
+    # denselben Anchor-Lookup bereits korrekt lockt (Race-Hardening, analog
+    # profiling.py). Zwei nahezu gleichzeitige PUT-Requests (Doppelklick/
+    # Retry) haetten zwei is_current=1-Versionen erzeugen koennen.
     existing = db.query(PlanningAssumption).filter(
         PlanningAssumption.mandate_id == mandate_id,
         PlanningAssumption.is_current == 1,
         PlanningAssumption.deleted_at.is_(None)
-    ).order_by(PlanningAssumption.version.desc()).first()
+    ).with_for_update().order_by(PlanningAssumption.version.desc()).first()
     if existing:
         # rp-ueberarbeitung: Upsert legt eine NEUE Version an (versioning), nicht
         # eine UPDATE in-place. Felder die im neuen Body nicht gesetzt sind,

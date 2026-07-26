@@ -17,7 +17,7 @@ from schemas.users import (
 from services.auth import (
     hash_password, verify_password, create_access_token,
     get_current_user, require_admin,
-    _effective_strict_tenant_isolation,
+    _effective_strict_tenant_isolation, tenant_access_block_reason,
 )
 from services.login_guard import login_attempt_guard
 from services.audit import log
@@ -188,6 +188,12 @@ def login(body: LoginRequest, request: Request, db: Session = Depends(get_db)):
         raise HTTPException(status_code=401, detail="Benutzername oder Passwort falsch", headers=headers)
     if not user.is_active:
         raise HTTPException(status_code=401, detail="Konto deaktiviert")
+    # 2026-07-25 (Generalaudit, Wave 13): siehe tenant_access_block_reason()
+    # in services/auth.py -- ohne diesen Check konnte sich ein User auch
+    # nach Tenant-Deaktivierung/Lizenz-Sperre weiterhin frisch einloggen.
+    tenant_block_reason = tenant_access_block_reason(db, getattr(user, "tenant_id", None))
+    if tenant_block_reason is not None:
+        raise HTTPException(status_code=403, detail=tenant_block_reason)
 
     # E1 (2026-06-13): 2FA-Gate — fuer externe Logins. Ist 2FA aktiv, muss nach
     # korrektem Passwort ein gueltiger TOTP-Code vorliegen.

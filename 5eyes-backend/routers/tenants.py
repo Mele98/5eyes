@@ -19,6 +19,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from config import settings
@@ -105,7 +106,16 @@ def create_tenant(
         record_id=tenant.id,
         action="CREATE",
     )
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        # 2026-07-25 (Generalaudit, Wave 13): der Pre-Check oben ist TOCTOU-
+        # racy -- analog zum bereits gefixten client_number-Fund in
+        # routers/clients.py::create_client. Der UNIQUE-Constraint auf
+        # slug (models/tenant.py) verhindert zuverlaessig ein Duplikat,
+        # gab dem VERLIERENDEN Request bisher aber einen 500 statt 409.
+        db.rollback()
+        raise HTTPException(status_code=409, detail=f"Slug '{body.slug}' ist bereits vergeben.")
     db.refresh(tenant)
     return tenant
 

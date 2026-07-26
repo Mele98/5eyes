@@ -205,6 +205,35 @@ def test_r2_allocation_update_cma_uses_for_update():
     )
 
 
+def test_r2_wealth_upsert_planning_assumptions_uses_for_update():
+    """2026-07-25 (Generalaudit, Wave 13): upsert_planning_assumptions (PUT,
+    der tatsaechlich UI-verdrahtete Endpoint) fehlte with_for_update() --
+    der Sibling create_planning_assumptions (POST) hatte es bereits."""
+    src = _read_source("routers/wealth.py")
+    snippet = re.search(
+        r"existing = db\.query\(PlanningAssumption\)\.filter\([^)]*?\)[\s\S]*?\.first\(\)",
+        src,
+    )
+    assert snippet, "PlanningAssumption (upsert) anchor lookup nicht gefunden"
+    assert "with_for_update" in snippet.group(0), (
+        "PlanningAssumption upsert-anchor-lookup muss with_for_update() haben."
+    )
+
+
+def test_r2_fx_rates_upsert_uses_for_update():
+    """2026-07-25 (Generalaudit, Wave 13): upsert_fx_rates' Supersede-Query
+    fehlte with_for_update() -- gleiche Race-Condition-Kategorie wie update_cma."""
+    src = _read_source("routers/fx_rates.py")
+    snippet = re.search(
+        r"old_rows = db\.query\(FXRate\)\.filter\([^)]*?\)[\s\S]*?\.all\(\)",
+        src,
+    )
+    assert snippet, "FXRate anchor lookup nicht gefunden"
+    assert "with_for_update" in snippet.group(0), (
+        "FXRate anchor-lookup muss with_for_update() haben."
+    )
+
+
 # ============================================================================
 # Sanity: existing flows weiterhin gruen
 # ============================================================================

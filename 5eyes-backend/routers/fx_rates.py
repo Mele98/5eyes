@@ -106,16 +106,28 @@ def upsert_fx_rates(
             raise HTTPException(
                 status_code=422, detail=f"Rate for '{ccy}' must be > 0"
             )
+        # 2026-07-25 (Generalaudit, Wave 13): keine Obergrenze -- ein Tippfehler
+        # wirkt global auf ALLE Tenants/Mandate (kein tenant_id auf FXRate),
+        # analog zum bereits gefixten return_bps-Fund. Bounds grosszuegig
+        # (kein reales Waehrungspaar liegt annaehernd in dieser Groessenordnung).
+        if entry.rate > 1000:
+            raise HTTPException(
+                status_code=422, detail=f"Rate for '{ccy}' unplausibel hoch (>1000)"
+            )
         if ccy == "CHF" and abs(entry.rate - 1.0) > 1e-6:
             raise HTTPException(
                 status_code=422, detail="CHF rate must be 1.0 (base currency)"
             )
 
         # Alte is_current=1 invalidieren
+        # 2026-07-25 (Generalaudit, Wave 13): with_for_update() ergaenzt --
+        # gleiches Race-Condition-Muster wie der in Wave 11 gefixte
+        # update_cma-Fund. Zwei nahezu gleichzeitige Upserts fuer dieselbe
+        # Waehrung haetten zwei is_current=1-Zeilen erzeugen koennen.
         old_rows = db.query(FXRate).filter(
             FXRate.currency == ccy,
             FXRate.is_current == 1,
-        ).all()
+        ).with_for_update().all()
         old_rate_display = None
         for old in old_rows:
             old_rate_display = f"{float(old.rate_x10000) / 10000.0:.4f}"

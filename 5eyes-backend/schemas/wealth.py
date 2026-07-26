@@ -595,12 +595,17 @@ class GoalResponse(BaseResponse):
 # ── Planning Assumptions ───────────────────────────────────────────────────────
 
 class PlanningAssumptionCreate(BaseModel):
-    retirement_age_primary: Optional[int] = None
-    retirement_age_partner: Optional[int] = None
-    life_expectancy_primary: Optional[int] = None
-    life_expectancy_partner: Optional[int] = None
-    inflation_assumption_bps: Optional[int] = None
-    pension_indexation_bps: Optional[int] = None
+    # 2026-07-25 (Generalaudit, Wave 13): kein Bounds-Check -- diese Felder
+    # fliessen direkt in die MC-Simulation/Ziel-Projektion JEDES Berichts
+    # fuer dieses Mandat ein. Ein Tippfehler (negatives/absurdes Alter oder
+    # eine Inflation von z.B. -500%) wird unbemerkt persistiert. Bounds
+    # grosszuegig, um legitime Stress-Test-Szenarien nicht zu blockieren.
+    retirement_age_primary: Optional[int] = Field(default=None, ge=40, le=100)
+    retirement_age_partner: Optional[int] = Field(default=None, ge=40, le=100)
+    life_expectancy_primary: Optional[int] = Field(default=None, ge=40, le=120)
+    life_expectancy_partner: Optional[int] = Field(default=None, ge=40, le=120)
+    inflation_assumption_bps: Optional[int] = Field(default=None, ge=-1000, le=3000)
+    pension_indexation_bps: Optional[int] = Field(default=None, ge=-1000, le=3000)
     notes: Optional[str] = None
 
 

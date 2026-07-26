@@ -280,6 +280,41 @@ def test_slug_duplicate_409(session_factory, super_admin, monkeypatch):
         app.dependency_overrides.clear()
 
 
+def test_slug_race_condition_returns_409_not_500(session_factory, super_admin, monkeypatch):
+    """2026-07-25 (Generalaudit, Wave 13): der Pre-Check ist TOCTOU-racy --
+    analog zum bereits gefixten client_number-Fund (routers/clients.py).
+    Simuliert den Race-Verlust direkt ueber Session.commit(), analog
+    test_client_creation_race_condition.py."""
+    from sqlalchemy.exc import IntegrityError
+    from sqlalchemy.orm import Session as OrmSession
+
+    client = _make_client_as(super_admin, session_factory, monkeypatch)
+    try:
+        original_commit = OrmSession.commit
+        call_count = {"n": 0}
+
+        def _commit_raises_once(self, *args, **kwargs):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                raise IntegrityError("UNIQUE constraint failed", {}, Exception("simuliert"))
+            return original_commit(self, *args, **kwargs)
+
+        monkeypatch.setattr(OrmSession, "commit", _commit_raises_once)
+
+        resp = client.post(
+            "/tenants",
+            json={"display_name": "Race", "slug": "race-slug",
+                  "hosting_tier": TIER_2_SHARED_CLOUD},
+        )
+        assert resp.status_code == 409, resp.text
+        assert "Slug" in resp.json()["detail"]
+
+        with session_factory() as s:
+            assert s.query(Tenant).filter(Tenant.slug == "race-slug").count() == 0
+    finally:
+        app.dependency_overrides.clear()
+
+
 # ===========================================================================
 # 5. Pydantic-Validation
 # ===========================================================================
