@@ -222,12 +222,35 @@ def compute_advisory_report(
         db.info.pop(_CACHE_KEY, None)
 
 
+# 2026-07-27 (HUD-Konfiguration): diese Sektionen lassen sich NIE ausblenden,
+# unabhaengig von mandate.hidden_report_sections -- FIDLEG-Pflichtbestandteile
+# (Disclaimer, Kostenausweis, Eignungspruefung, Beratungsprotokoll) plus
+# "cover", weil dessen Felder (mandate_number/client_name/generated_at)
+# auch fuer den PDF-Dokument-Titel und die Seiten-Kopf-/Fusszeile auf JEDER
+# Seite verwendet werden (render_advisory_report_pdf_from_payload) -- ein
+# fehlendes "cover" wuerde nicht nur die Cover-Seite treffen, sondern die
+# gesamte Seiten-Chrome. Bewusster Sicherheits-Default; keine explizite
+# Rueckmeldung erhalten, ob weichere Compliance-Sektionen ebenfalls gesperrt
+# sein sollen -- diese Liste kann bei Bedarf spaeter gelockert werden.
+PROTECTED_REPORT_SECTIONS = frozenset({
+    "cover",
+    "disclaimer",
+    "cost_disclosure",
+    "suitability_compliance",
+    "suitability_summary",
+    "beratungsprotokoll",
+})
+
+
 def _apply_hidden_sections_filter(payload: dict[str, Any], mandate: Mandate) -> dict[str, Any]:
     """2026-07-27 (HUD-Konfiguration): entfernt die in
     mandate.hidden_report_sections gelisteten Top-Level-Sektionen aus dem
     Aggregator-Payload. NULL/leer/kaputtes JSON -> Payload unveraendert
     (Backwards-Compat, betrifft alle Bestandsmandate ohne diese Konfiguration
-    nicht -- Default ist "alles sichtbar", exakt wie bisher)."""
+    nicht -- Default ist "alles sichtbar", exakt wie bisher). Sektionen in
+    PROTECTED_REPORT_SECTIONS werden NIE entfernt, selbst wenn explizit
+    gelistet -- gilt fuer JEDEN Konsumenten dieses Payloads (PDF, JSON-API,
+    Frontend), nicht nur den PDF-Renderer."""
     raw = getattr(mandate, "hidden_report_sections", None)
     if not raw:
         return payload
@@ -237,7 +260,9 @@ def _apply_hidden_sections_filter(payload: dict[str, Any], mandate: Mandate) -> 
         return payload
     if not isinstance(hidden, list) or not hidden:
         return payload
-    hidden_keys = {str(key) for key in hidden}
+    hidden_keys = {str(key) for key in hidden} - PROTECTED_REPORT_SECTIONS
+    if not hidden_keys:
+        return payload
     return {key: value for key, value in payload.items() if key not in hidden_keys}
 
 

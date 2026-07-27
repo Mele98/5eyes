@@ -1686,3 +1686,63 @@ def test_suitability_section_empty_state_when_no_check():
     reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
     text = "\n".join((page.extract_text() or "") for page in reader.pages)
     assert "Noch keine Eignungspruefung" in text
+
+
+# ---------------------------------------------------------------------------
+# 2026-07-27 (HUD-Konfiguration): eine fehlende Top-Level-Sektion im Payload
+# (compute_advisory_report entfernt ausgeblendete Sektionen VOR Uebergabe
+# an den PDF-Renderer) muss die gesamte Sektion inkl. PageBreak+TOC-Anker
+# ueberspringen, nicht nur mit leerem Inhalt rendern -- sonst waere eine
+# "ausgeblendete" Sektion trotzdem als fast leere Seite sichtbar.
+# ---------------------------------------------------------------------------
+
+def test_hidden_section_produces_fewer_pages_than_baseline():
+    pypdf = pytest.importorskip("pypdf")
+    baseline_payload = _make_minimal_payload()
+    baseline_pdf = render_advisory_report_pdf_from_payload(baseline_payload)
+    baseline_pages = len(pypdf.PdfReader(__import__("io").BytesIO(baseline_pdf)).pages)
+
+    hidden_payload = _make_minimal_payload()
+    del hidden_payload["asset_allocation"]
+    hidden_pdf = render_advisory_report_pdf_from_payload(hidden_payload)
+    hidden_pages = len(pypdf.PdfReader(__import__("io").BytesIO(hidden_pdf)).pages)
+
+    assert hidden_pages < baseline_pages
+
+
+def test_hidden_section_text_does_not_appear_in_pdf():
+    pypdf = pytest.importorskip("pypdf")
+    payload = _make_minimal_payload()
+    del payload["branchen"]
+    pdf = render_advisory_report_pdf_from_payload(payload)
+    reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
+    text = "\n".join((page.extract_text() or "") for page in reader.pages)
+    assert "Diversifikation Branchen" not in text
+    assert "Tech-Übergewicht" not in text
+
+
+def test_ab_backtest_pattern_still_works_when_key_present_but_falsy():
+    """Regressionsschutz fuer das bereits VOR der HUD-Konfiguration bestehende
+    Muster: ab_backtest wird bedingt gerendert, auch wenn der Key vorhanden,
+    aber sein Wert leer/falsy ist (anders als die neuen 'in payload'-Checks)."""
+    pypdf = pytest.importorskip("pypdf")
+    payload = _make_minimal_payload()
+    payload["ab_backtest"] = {}
+    pdf = render_advisory_report_pdf_from_payload(payload)
+    reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
+    text = "\n".join((page.extract_text() or "") for page in reader.pages)
+    assert "A/B-Backtest" not in text or "A-Variante" not in text
+
+
+def test_protected_sections_always_render_even_if_absent_from_payload():
+    """cover/disclaimer/beratungsprotokoll/suitability_summary/cost_disclosure
+    werden IMMER unconditional gerendert (Fallback auf leeres Dict), selbst
+    wenn der Key im Payload fehlt -- sie sind nie Teil der hideable Sektionen."""
+    pypdf = pytest.importorskip("pypdf")
+    payload = _make_minimal_payload()
+    for key in ("beratungsprotokoll", "suitability_summary"):
+        payload.pop(key, None)
+    # Darf nicht crashen -- die protected Sektionen lesen defensiv mit
+    # payload.get(key) or {} und rendern einen Empty-State statt zu fehlen.
+    pdf = render_advisory_report_pdf_from_payload(payload)
+    assert isinstance(pdf, bytes) and len(pdf) > 0

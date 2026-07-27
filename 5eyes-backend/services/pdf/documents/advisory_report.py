@@ -210,74 +210,100 @@ def _build_all_flowables(
     (Pass 1 zum Zaehlen + TOC-Sammeln, Pass 2 zum Zeichnen mit echten
     Seitenzahlen). U-13. `toc_section_ids` (Roadmap #71/#72) ist nur in
     Pass 2 gesetzt und macht die TOC-Zeilen zu echten internen Links."""
+    # 2026-07-27 (HUD-Konfiguration): compute_advisory_report() entfernt
+    # ausgeblendete Top-Level-Keys bereits VOR diesem Payload -- die einzige
+    # Ausnahme sind PROTECTED_REPORT_SECTIONS (nie entfernt). Ein fehlender
+    # Key bedeutet also eindeutig "vom Berater ausgeblendet" (im
+    # unveraenderten Default-Fall sind IMMER alle Keys vorhanden). Jede
+    # hideable Sektion wird deshalb komplett uebersprungen (kein PageBreak,
+    # kein TOC-Anker) statt nur mit leerem Inhalt gerendert -- sonst waere
+    # eine "ausgeblendete" Sektion im PDF trotzdem als fast leere Seite
+    # sichtbar. Geschuetzte Sektionen (cover/disclaimer/cost_disclosure/
+    # suitability_*/beratungsprotokoll) bleiben bewusst unconditional.
     flowables: list[Any] = []
     flowables.extend(_build_cover_flowables(payload.get("cover") or {}, styles))
     flowables.append(PageBreak())
     flowables.append(_toc_anchor(toc_collector, "disclaimer", "Rechtliche Hinweise"))
     flowables.extend(_build_disclaimer_flowables(payload.get("disclaimer") or {}, styles))
     flowables.append(PageBreak())
-    flowables.append(_toc_anchor(toc_collector, "toc", "Inhaltsverzeichnis"))
-    flowables.extend(_build_toc_flowables(
-        payload.get("inhaltsverzeichnis") or {}, styles,
-        page_numbers_by_title=toc_page_numbers,
-        section_ids_by_title=toc_section_ids,
-    ))
-    flowables.append(PageBreak())
-    flowables.append(_toc_anchor(toc_collector, "ausgangslage", "Ausgangslage"))
-    flowables.extend(_build_ausgangslage_flowables(payload.get("ausgangslage") or {}, styles))
-    flowables.append(PageBreak())
-    flowables.append(_toc_anchor(toc_collector, "positionen", "Übersicht Ihrer Positionen"))
-    flowables.extend(_build_positionen_flowables(payload.get("positionen") or {}, styles))
-    flowables.append(PageBreak())
-    flowables.append(_toc_anchor(toc_collector, "pruefpunkte", "Was wir im Depotcheck prüfen"))
-    flowables.extend(_build_pruefpunkte_flowables(payload.get("pruefpunkte") or {}, styles))
-    flowables.append(PageBreak())
-    flowables.append(_toc_anchor(toc_collector, "erkenntnisse", "Erkenntnisse aus dem Depotcheck"))
-    flowables.extend(_build_erkenntnisse_flowables(payload.get("erkenntnisse") or {}, styles))
-    flowables.append(PageBreak())
-    flowables.append(_toc_anchor(toc_collector, "asset_allocation", "Asset Allocation"))
-    flowables.extend(_build_asset_allocation_flowables(payload.get("asset_allocation") or {}, styles))
-    flowables.append(PageBreak())
-    flowables.append(_toc_anchor(toc_collector, "risikowaehrungen", "Risikowährungen"))
-    flowables.extend(_build_risikowaehrungen_flowables(payload.get("risikowaehrungen") or {}, styles))
-    flowables.append(PageBreak())
-    flowables.append(_toc_anchor(toc_collector, "branchen", "Diversifikation Branchen"))
-    flowables.extend(_build_branchen_flowables(payload.get("branchen") or {}, styles))
-    flowables.append(PageBreak())
-    flowables.append(_toc_anchor(toc_collector, "goal_based_investing", "Zielbasierte Optimierung"))
-    flowables.extend(_build_goals_flowables(payload.get("goal_based_investing") or {}, styles))
-    flowables.append(PageBreak())
-    flowables.append(_toc_anchor(toc_collector, "risikoprofilierung", "Risikoprofilierung"))
-    flowables.extend(_build_risikoprofil_flowables(payload.get("risikoprofilierung") or {}, styles))
-    flowables.append(PageBreak())
-    flowables.append(_toc_anchor(toc_collector, "building_blocks", "Building Blocks / iSAA"))
-    flowables.extend(_build_building_blocks_flowables(payload.get("building_blocks") or {}, styles))
-    flowables.append(PageBreak())
-    flowables.append(_toc_anchor(toc_collector, "statement_pm", "Statement aus dem Portfoliomanagement"))
-    flowables.extend(_build_statement_pm_flowables(payload.get("statement_pm") or {}, styles))
-    flowables.append(PageBreak())
-    flowables.append(_toc_anchor(toc_collector, "weiteres_vorgehen", "Weiteres Vorgehen"))
-    flowables.extend(_build_weiteres_vorgehen_flowables(payload.get("weiteres_vorgehen") or {}, styles))
-    flowables.append(PageBreak())
+    if "inhaltsverzeichnis" in payload:
+        flowables.append(_toc_anchor(toc_collector, "toc", "Inhaltsverzeichnis"))
+        flowables.extend(_build_toc_flowables(
+            payload.get("inhaltsverzeichnis") or {}, styles,
+            page_numbers_by_title=toc_page_numbers,
+            section_ids_by_title=toc_section_ids,
+        ))
+        flowables.append(PageBreak())
+    if "ausgangslage" in payload:
+        flowables.append(_toc_anchor(toc_collector, "ausgangslage", "Ausgangslage"))
+        flowables.extend(_build_ausgangslage_flowables(payload.get("ausgangslage") or {}, styles))
+        flowables.append(PageBreak())
+    if "positionen" in payload:
+        flowables.append(_toc_anchor(toc_collector, "positionen", "Übersicht Ihrer Positionen"))
+        flowables.extend(_build_positionen_flowables(payload.get("positionen") or {}, styles))
+        flowables.append(PageBreak())
+    if "pruefpunkte" in payload:
+        flowables.append(_toc_anchor(toc_collector, "pruefpunkte", "Was wir im Depotcheck prüfen"))
+        flowables.extend(_build_pruefpunkte_flowables(payload.get("pruefpunkte") or {}, styles))
+        flowables.append(PageBreak())
+    if "erkenntnisse" in payload:
+        flowables.append(_toc_anchor(toc_collector, "erkenntnisse", "Erkenntnisse aus dem Depotcheck"))
+        flowables.extend(_build_erkenntnisse_flowables(payload.get("erkenntnisse") or {}, styles))
+        flowables.append(PageBreak())
+    if "asset_allocation" in payload:
+        flowables.append(_toc_anchor(toc_collector, "asset_allocation", "Asset Allocation"))
+        flowables.extend(_build_asset_allocation_flowables(payload.get("asset_allocation") or {}, styles))
+        flowables.append(PageBreak())
+    if "risikowaehrungen" in payload:
+        flowables.append(_toc_anchor(toc_collector, "risikowaehrungen", "Risikowährungen"))
+        flowables.extend(_build_risikowaehrungen_flowables(payload.get("risikowaehrungen") or {}, styles))
+        flowables.append(PageBreak())
+    if "branchen" in payload:
+        flowables.append(_toc_anchor(toc_collector, "branchen", "Diversifikation Branchen"))
+        flowables.extend(_build_branchen_flowables(payload.get("branchen") or {}, styles))
+        flowables.append(PageBreak())
+    if "goal_based_investing" in payload:
+        flowables.append(_toc_anchor(toc_collector, "goal_based_investing", "Zielbasierte Optimierung"))
+        flowables.extend(_build_goals_flowables(payload.get("goal_based_investing") or {}, styles))
+        flowables.append(PageBreak())
+    if "risikoprofilierung" in payload:
+        flowables.append(_toc_anchor(toc_collector, "risikoprofilierung", "Risikoprofilierung"))
+        flowables.extend(_build_risikoprofil_flowables(payload.get("risikoprofilierung") or {}, styles))
+        flowables.append(PageBreak())
+    if "building_blocks" in payload:
+        flowables.append(_toc_anchor(toc_collector, "building_blocks", "Building Blocks / iSAA"))
+        flowables.extend(_build_building_blocks_flowables(payload.get("building_blocks") or {}, styles))
+        flowables.append(PageBreak())
+    if "statement_pm" in payload:
+        flowables.append(_toc_anchor(toc_collector, "statement_pm", "Statement aus dem Portfoliomanagement"))
+        flowables.extend(_build_statement_pm_flowables(payload.get("statement_pm") or {}, styles))
+        flowables.append(PageBreak())
+    if "weiteres_vorgehen" in payload:
+        flowables.append(_toc_anchor(toc_collector, "weiteres_vorgehen", "Weiteres Vorgehen"))
+        flowables.extend(_build_weiteres_vorgehen_flowables(payload.get("weiteres_vorgehen") or {}, styles))
+        flowables.append(PageBreak())
     flowables.append(_toc_anchor(toc_collector, "beratungsprotokoll", "Beratungsprotokoll"))
     flowables.extend(_build_beratungsprotokoll_flowables(payload.get("beratungsprotokoll") or {}, styles))
     flowables.append(PageBreak())
-    flowables.append(_toc_anchor(toc_collector, "stress_replay", "Historische Stress-Szenarien"))
-    flowables.extend(_build_stress_replay_flowables(payload.get("stress_replay") or {}, styles))
-    flowables.append(PageBreak())
+    if "stress_replay" in payload:
+        flowables.append(_toc_anchor(toc_collector, "stress_replay", "Historische Stress-Szenarien"))
+        flowables.extend(_build_stress_replay_flowables(payload.get("stress_replay") or {}, styles))
+        flowables.append(PageBreak())
     # A/B-Backtest (U-71) — pending-State wird vom Renderer selbst behandelt.
+    # Bereits vor der HUD-Konfiguration bedingt gerendert (Vorbild fuer alle
+    # anderen hideable Sektionen oben).
     ab_bt = payload.get("ab_backtest") or {}
     if ab_bt:
         flowables.extend(_build_ab_backtest_flowables(ab_bt, styles))
         flowables.append(PageBreak())
     # U-FINMA-3 (2026-05-29, re-architektiert 2026-06-09): SuitabilityCheck-
-    # Summary fuer Berater-Sicht (per-Mandat, Single-Check).
+    # Summary fuer Berater-Sicht (per-Mandat, Single-Check). Geschuetzt (FIDLEG).
     flowables.append(_toc_anchor(toc_collector, "suitability_summary", "Eignungspruefung"))
     flowables.extend(_build_suitability_summary_flowables(
         payload.get("suitability_summary") or {}, styles,
     ))
     flowables.append(PageBreak())
-    # Kostenausweis vor Compliance-Audit.
+    # Kostenausweis vor Compliance-Audit. Geschuetzt (FIDLEG Art. 8/9).
     flowables.extend(build_kostenausweis_flowables(
         payload.get("cost_disclosure") or {},
         styles,

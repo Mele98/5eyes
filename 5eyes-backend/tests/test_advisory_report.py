@@ -177,14 +177,42 @@ def test_compute_returns_expected_top_level_structure(session_factory):
 def test_hidden_report_sections_removes_listed_keys(session_factory):
     with session_factory() as s:
         mandate, client, advisor = _seed_minimal_mandate(s)
-        mandate.hidden_report_sections = json.dumps(["cover", "disclaimer"])
+        mandate.hidden_report_sections = json.dumps(["stress_replay", "branchen"])
         s.commit()
         report = compute_advisory_report(s, mandate, advisor=advisor)
-    assert "cover" not in report
-    assert "disclaimer" not in report
+    assert "stress_replay" not in report
+    assert "branchen" not in report
     # Andere Sektionen bleiben unberuehrt.
     assert "ausgangslage" in report
     assert "schema_version" in report
+
+
+def test_hidden_report_sections_cannot_hide_protected_sections(session_factory):
+    """2026-07-27: cover/disclaimer/cost_disclosure/suitability_*/
+    beratungsprotokoll sind FIDLEG-Pflichtbestandteile bzw. steuern die
+    PDF-Seiten-Chrome (cover) -- lassen sich NIE ausblenden, selbst wenn
+    explizit gelistet."""
+    from services.advisory_report import PROTECTED_REPORT_SECTIONS
+
+    with session_factory() as s:
+        mandate, client, advisor = _seed_minimal_mandate(s)
+        mandate.hidden_report_sections = json.dumps(sorted(PROTECTED_REPORT_SECTIONS))
+        s.commit()
+        report = compute_advisory_report(s, mandate, advisor=advisor)
+    for key in PROTECTED_REPORT_SECTIONS:
+        assert key in report, f"{key} sollte sich nicht ausblenden lassen"
+
+
+def test_hidden_report_sections_mixed_protected_and_hideable(session_factory):
+    """Ein Mix aus geschuetzten + hideable Keys: nur die hideable werden
+    tatsaechlich entfernt, die geschuetzten bleiben trotz Listung erhalten."""
+    with session_factory() as s:
+        mandate, client, advisor = _seed_minimal_mandate(s)
+        mandate.hidden_report_sections = json.dumps(["cover", "stress_replay"])
+        s.commit()
+        report = compute_advisory_report(s, mandate, advisor=advisor)
+    assert "cover" in report  # geschuetzt, trotz Listung nicht entfernt
+    assert "stress_replay" not in report  # hideable, wird entfernt
 
 
 def test_hidden_report_sections_none_leaves_payload_unchanged(session_factory):
