@@ -168,6 +168,63 @@ def test_compute_returns_expected_top_level_structure(session_factory):
     assert list(report.keys()) == expected_order
 
 
+# ---------------------------------------------------------------------------
+# 2026-07-27 (HUD-Konfiguration): Mandate.hidden_report_sections filtert
+# Top-Level-Sektionen aus dem Aggregator-Payload -- additiv, NULL/leer lässt
+# den Payload unveraendert (Backwards-Compat fuer alle Bestandsmandate).
+# ---------------------------------------------------------------------------
+
+def test_hidden_report_sections_removes_listed_keys(session_factory):
+    with session_factory() as s:
+        mandate, client, advisor = _seed_minimal_mandate(s)
+        mandate.hidden_report_sections = json.dumps(["cover", "disclaimer"])
+        s.commit()
+        report = compute_advisory_report(s, mandate, advisor=advisor)
+    assert "cover" not in report
+    assert "disclaimer" not in report
+    # Andere Sektionen bleiben unberuehrt.
+    assert "ausgangslage" in report
+    assert "schema_version" in report
+
+
+def test_hidden_report_sections_none_leaves_payload_unchanged(session_factory):
+    with session_factory() as s:
+        mandate, client, advisor = _seed_minimal_mandate(s)
+        assert mandate.hidden_report_sections is None
+        s.commit()
+        report = compute_advisory_report(s, mandate, advisor=advisor)
+    assert "cover" in report
+    assert "disclaimer" in report
+
+
+def test_hidden_report_sections_empty_list_leaves_payload_unchanged(session_factory):
+    with session_factory() as s:
+        mandate, client, advisor = _seed_minimal_mandate(s)
+        mandate.hidden_report_sections = json.dumps([])
+        s.commit()
+        report = compute_advisory_report(s, mandate, advisor=advisor)
+    assert "cover" in report
+
+
+def test_hidden_report_sections_malformed_json_leaves_payload_unchanged(session_factory):
+    with session_factory() as s:
+        mandate, client, advisor = _seed_minimal_mandate(s)
+        mandate.hidden_report_sections = "{not valid json"
+        s.commit()
+        report = compute_advisory_report(s, mandate, advisor=advisor)
+    assert "cover" in report
+
+
+def test_hidden_report_sections_unknown_key_is_a_noop(session_factory):
+    with session_factory() as s:
+        mandate, client, advisor = _seed_minimal_mandate(s)
+        mandate.hidden_report_sections = json.dumps(["does_not_exist"])
+        s.commit()
+        report = compute_advisory_report(s, mandate, advisor=advisor)
+    assert "cover" in report
+    assert "schema_version" in report
+
+
 def test_compute_raises_when_mandate_has_no_client_id(session_factory):
     """Defensiv: Mandat ohne client_id → klarer ValueError, kein silent."""
     with session_factory() as s:

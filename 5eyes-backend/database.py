@@ -380,6 +380,8 @@ def ensure_runtime_columns() -> None:
             # ('CH', 'DE', 'CH-ZH', 'DE-BY', '*' = Generic).
             ('tax_jurisdiction', 'TEXT'),
             ('tax_overrides_json', 'TEXT'),
+            # 2026-07-27 (HUD-Konfiguration): siehe models/mandates.py.
+            ('hidden_report_sections', 'TEXT'),
         ],
         'cashflows': [
             ('gross_amount_rappen', 'INTEGER'),

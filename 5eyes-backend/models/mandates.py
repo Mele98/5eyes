@@ -48,6 +48,11 @@ class Mandate(Base):
     # JSON-Overrides für TaxConfig-Felder (z.B. {"capital_gain_rate_bps": 1500}).
     # NULL = nur Plugin-Defaults aus dem registrierten Regime.
     tax_overrides_json = Column(String)
+    # 2026-07-27 (HUD-Konfiguration): JSON-Array von Sektions-Keys aus dem
+    # Advisory-Report-Aggregator (services/advisory_report.py), die fuer
+    # DIESES Mandat ausgeblendet werden sollen. NULL = alles sichtbar
+    # (Backwards-Compat, unveraendertes Verhalten fuer alle Bestandsmandate).
+    hidden_report_sections = Column(String)
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
     deleted_at = Column(String)

@@ -216,9 +216,29 @@ def compute_advisory_report(
     # auch im Exception-Pfad.
     db.info[_CACHE_KEY] = {}
     try:
-        return _compute_advisory_report_inner(db, mandate, advisor=advisor)
+        result = _compute_advisory_report_inner(db, mandate, advisor=advisor)
+        return _apply_hidden_sections_filter(result, mandate)
     finally:
         db.info.pop(_CACHE_KEY, None)
+
+
+def _apply_hidden_sections_filter(payload: dict[str, Any], mandate: Mandate) -> dict[str, Any]:
+    """2026-07-27 (HUD-Konfiguration): entfernt die in
+    mandate.hidden_report_sections gelisteten Top-Level-Sektionen aus dem
+    Aggregator-Payload. NULL/leer/kaputtes JSON -> Payload unveraendert
+    (Backwards-Compat, betrifft alle Bestandsmandate ohne diese Konfiguration
+    nicht -- Default ist "alles sichtbar", exakt wie bisher)."""
+    raw = getattr(mandate, "hidden_report_sections", None)
+    if not raw:
+        return payload
+    try:
+        hidden = json.loads(raw)
+    except (TypeError, ValueError):
+        return payload
+    if not isinstance(hidden, list) or not hidden:
+        return payload
+    hidden_keys = {str(key) for key in hidden}
+    return {key: value for key, value in payload.items() if key not in hidden_keys}
 
 
 def _compute_advisory_report_inner(
