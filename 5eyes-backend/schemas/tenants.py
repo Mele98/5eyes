@@ -29,6 +29,9 @@ class TenantCreate(BaseModel):
     max_users: Optional[int] = Field(default=1, ge=0)
     max_mandates: Optional[int] = Field(default=None, ge=0)
     storage_quota_mb: Optional[int] = Field(default=None, ge=1)
+    # 2026-07-27 (Retrozessions-Feature): firmenweite Vorbelegung fuer neue
+    # Interessenkonflikt-Offenlegungen, siehe models/tenant.py.
+    default_retrocession_reimbursement: bool = False
 
     @field_validator("hosting_tier")
     @classmethod
@@ -62,6 +65,7 @@ class TenantUpdate(BaseModel):
     max_mandates: Optional[int] = Field(default=None, ge=0)
     storage_quota_mb: Optional[int] = Field(default=None, ge=1)
     is_active: Optional[int] = Field(default=None, ge=0, le=1)
+    default_retrocession_reimbursement: Optional[bool] = None
 
     @field_validator("hosting_tier")
     @classmethod
@@ -98,6 +102,7 @@ class TenantResponse(BaseModel):
     max_users: Optional[int] = None
     max_mandates: Optional[int] = None
     storage_quota_mb: Optional[int] = None
+    default_retrocession_reimbursement: int = 0
     is_active: int
     created_at: str
     updated_at: str

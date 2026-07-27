@@ -95,6 +95,7 @@ def create_tenant(
         max_users=body.max_users,
         max_mandates=body.max_mandates,
         storage_quota_mb=body.storage_quota_mb,
+        default_retrocession_reimbursement=1 if body.default_retrocession_reimbursement else 0,
         is_active=1,
         created_at=now,
         updated_at=now,

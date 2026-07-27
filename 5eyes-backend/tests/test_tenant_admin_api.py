@@ -256,6 +256,31 @@ def test_update_tenant_partial(session_factory, super_admin, monkeypatch):
         app.dependency_overrides.clear()
 
 
+def test_default_retrocession_reimbursement_roundtrips(session_factory, super_admin, monkeypatch):
+    """2026-07-27 (Retrozessions-Feature): das 'Kontrollpanel'-Setting fuer die
+    firmenweite Vorbelegung von ConflictOfInterestDisclosure.reimbursed_to_client."""
+    client = _make_client_as(super_admin, session_factory, monkeypatch)
+    try:
+        create_resp = client.post(
+            "/tenants",
+            json={"display_name": "Retro-Firma", "slug": "retro-firma",
+                  "hosting_tier": TIER_2_SHARED_CLOUD,
+                  "default_retrocession_reimbursement": True},
+        )
+        assert create_resp.status_code == 201, create_resp.text
+        assert create_resp.json()["default_retrocession_reimbursement"] == 1
+        tenant_id = create_resp.json()["id"]
+
+        update_resp = client.put(
+            f"/tenants/{tenant_id}",
+            json={"default_retrocession_reimbursement": False},
+        )
+        assert update_resp.status_code == 200, update_resp.text
+        assert update_resp.json()["default_retrocession_reimbursement"] == 0
+    finally:
+        app.dependency_overrides.clear()
+
+
 # ===========================================================================
 # 4. Slug-Konflikt
 # ===========================================================================

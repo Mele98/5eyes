@@ -52,7 +52,7 @@ def build_cost_disclosure(db: Session, mandate: Any) -> dict[str, Any]:
     fallback only when the run does not contain a fee snapshot.
     """
     from models.allocation import OptimizerPolicy, TargetAllocation
-    from models.review import Product, RecommendationPosition, RecommendationRun
+    from models.review import ConflictOfInterestDisclosure, Product, RecommendationPosition, RecommendationRun
 
     latest_run = (
         db.query(RecommendationRun)
@@ -122,6 +122,27 @@ def build_cost_disclosure(db: Session, mandate: Any) -> dict[str, Any]:
         getattr(target_allocation, "advisory_wealth_at_generation_rappen", 0)
         or 0
     )
+    # 2026-07-27 (Retrozessions-Feature): offengelegte, nicht-geloeschte
+    # Interessenkonflikte mit einer bezifferten Retrozession fliessen in den
+    # Kostenausweis ein (Offenlegungspflicht, siehe calculate_cost_disclosure).
+    disclosure_rows = (
+        db.query(ConflictOfInterestDisclosure)
+        .filter(
+            ConflictOfInterestDisclosure.mandate_id == mandate.id,
+            ConflictOfInterestDisclosure.deleted_at.is_(None),
+            ConflictOfInterestDisclosure.inducement_amount_rappen.isnot(None),
+        )
+        .all()
+    )
+    inducements = [
+        {
+            "amount_rappen": int(row.inducement_amount_rappen or 0),
+            "frequency": row.inducement_frequency,
+            "reimbursed_to_client": bool(row.reimbursed_to_client),
+            "provider": row.inducement_provider,
+        }
+        for row in disclosure_rows
+    ]
     return calculate_cost_disclosure(
         advisory_wealth_rappen=advisory_wealth,
         positions=positions,
@@ -131,6 +152,7 @@ def build_cost_disclosure(db: Session, mandate: Any) -> dict[str, Any]:
             ("transaction_cost_bps", "estimated_transaction_cost_bps"),
             default=DEFAULT_TRANSACTION_COST_BPS,
         ),
+        inducements=inducements,
         source_run_id=str(latest_run.id),
         as_of=str(getattr(latest_run, "created_at", "") or ""),
     )
@@ -142,6 +164,7 @@ def calculate_cost_disclosure(
     positions: Iterable[Mapping[str, Any]],
     fee_model: Mapping[str, Any] | str | None,
     transaction_cost_bps: int = DEFAULT_TRANSACTION_COST_BPS,
+    inducements: Iterable[Mapping[str, Any]] | None = None,
     source_run_id: str | None = None,
     as_of: str | None = None,
 ) -> dict[str, Any]:
@@ -287,6 +310,62 @@ def calculate_cost_disclosure(
             "Erstumsetzung; tatsächliche Spreads, Courtagen und "
             "Börsenabgaben können abweichen."
         )
+
+    # 2026-07-27 (Retrozessions-Feature): FIDLEG Art. 25/26 + BGE 132 III 460
+    # verlangen Offenlegung von Vergütungen Dritter UNABHAENGIG davon, ob sie
+    # an den Kunden zurückerstattet werden -- deshalb wird JEDE Retrozession
+    # als Cost-Item ausgewiesen. Nur die tatsächliche RUECKERSTATTUNG (der
+    # Kunde erhält netto weniger Kosten) fliesst als negativer Betrag ins
+    # Total ein; eine vom Berater EINBEHALTENE Retrozession ist bereits Teil
+    # der oben ausgewiesenen Produkt-/Dienstleistungskosten (kein separater
+    # Kostenpunkt) und wird deshalb NICHT zusätzlich addiert (Doppelzähl-
+    # Vermeidung), aber transparent als Warnung genannt.
+    for inducement in (inducements or []):
+        amount = _safe_int(inducement.get("amount_rappen"))
+        if amount <= 0:
+            continue
+        frequency_raw = str(inducement.get("frequency") or "").strip().lower()
+        is_annual = frequency_raw in ("", "jährlich", "jaehrlich", "annual", "annually", "yearly")
+        reimbursed = bool(inducement.get("reimbursed_to_client"))
+        provider = str(inducement.get("provider") or "Produktanbieter").strip() or "Produktanbieter"
+        if reimbursed:
+            items.append({
+                "key": "retrocession_reimbursed",
+                "label": f"Rückerstattung Vergütung von Dritten ({provider})",
+                "category": "Vergütungen von Dritten",
+                "frequency": "jährlich" if is_annual else frequency_raw,
+                "rate_bps": None,
+                "amount_rappen": -amount,
+                "basis_rappen": advisory_wealth,
+                "basis_label": advisory_basis_label,
+                "source": "Interessenkonflikt-Offenlegung (Retrozession, zurückerstattet)",
+                "is_estimate": False,
+                "included_in_total": is_annual,
+            })
+            if not is_annual:
+                warnings.append(
+                    f"Eine zurückerstattete Vergütung von Dritten ({provider}) mit "
+                    "nicht-jährlicher Frequenz ist offengelegt, aber nicht im Total verrechnet."
+                )
+        else:
+            items.append({
+                "key": "retrocession_disclosed",
+                "label": f"Vergütung von Dritten, einbehalten ({provider})",
+                "category": "Vergütungen von Dritten",
+                "frequency": "jährlich" if is_annual else frequency_raw,
+                "rate_bps": None,
+                "amount_rappen": amount,
+                "basis_rappen": advisory_wealth,
+                "basis_label": advisory_basis_label,
+                "source": "Interessenkonflikt-Offenlegung (Retrozession, Verzicht dokumentiert)",
+                "is_estimate": False,
+                "included_in_total": False,
+            })
+            warnings.append(
+                f"Vergütung von Dritten ({provider}) ist offengelegt, wird gemäss "
+                "dokumentiertem Kundenverzicht aber vom Berater einbehalten und ist "
+                "bereits Teil der ausgewiesenen Kosten -- nicht zusätzlich im Total."
+            )
 
     one_time_amount = sum(
         int(item.get("amount_rappen") or 0)

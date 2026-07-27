@@ -279,6 +279,11 @@ class ConflictDisclosureCreate(BaseModel):
     inducement_frequency: Optional[str] = None
     mitigation_action: Optional[str] = None
     document_id: Optional[str] = None
+    # 2026-07-27 (Retrozessions-Feature): explizit None = "nicht angegeben",
+    # Router fuellt aus Tenant.default_retrocession_reimbursement auf --
+    # unterscheidet sich damit bewusst von einem expliziten False.
+    reimbursed_to_client: Optional[bool] = None
+    waiver_document_id: Optional[str] = None
     # 2026-07-25 (Generalaudit): Phase-0-Gate fehlte fuer Interessenkonflikte.
     data_classification: Literal["synthetic", "real"] = "synthetic"
 
@@ -294,6 +299,8 @@ class ConflictDisclosureResponse(BaseResponse):
     disclosed_at: Optional[str]
     client_acknowledged: int
     mitigation_action: Optional[str]
+    reimbursed_to_client: int = 0
+    waiver_document_id: Optional[str] = None
     disclosed_by: str
     created_at: str
     updated_at: str

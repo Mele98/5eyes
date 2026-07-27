@@ -86,6 +86,13 @@ class Tenant(Base):
     encrypted_dek = Column(String)
     dek_version = Column(Integer)
     dek_rotated_at = Column(String)
+    # 2026-07-27 (Retrozessions-Feature): Firmenweite Vorbelegung fuer neue
+    # Interessenkonflikt-Offenlegungen (ConflictOfInterestDisclosure.
+    # reimbursed_to_client) -- spiegelt die uebliche Firmenpolicy ("wir
+    # erstatten Retrozessionen grundsaetzlich nicht zurueck"), bleibt aber
+    # pro Kunde/Mandat individuell ueberschreibbar (der Verzicht ist ein
+    # individueller Rechtsakt, keine reine Firmenpolicy).
+    default_retrocession_reimbursement = Column(Integer, nullable=False, default=0)
 
     is_active = Column(Integer, nullable=False, default=1)
     created_at = Column(String, nullable=False)

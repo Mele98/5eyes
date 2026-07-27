@@ -636,11 +636,43 @@ def _default_weights_for_position(position: WealthPosition) -> dict[str, int]:
     return mapping.get(_norm_text(position.position_type), mapping["Custom"]).copy()
 
 
-def _summarize_positions(positions: list[WealthPosition]) -> PortfolioSummary:
+def _convert_position_amount_to_target_currency(pos, fx_source, target_currency: str) -> int:
+    """2026-07-27 (WealthPosition-FX-Fix): konvertiert pos.current_value_rappen
+    zu target_currency -- 1:1 nach dem Vorbild von
+    services.cashflow_timeline._convert_cf_amount_to_target_currency (Sprint B3).
+
+    Wenn fx_source=None: Backwards-Compat-Pfad -- currency wird ignoriert,
+    Betrag bleibt wie ist (alte Behavior, Aufrufer kennt FX nicht).
+
+    Wenn fx_source gesetzt: liest pos.currency (default 'CHF'), konvertiert
+    via FXRateSource.cross_rate. Unbekannte Currencies werden defensiv als
+    target_currency behandelt (kein Crash).
+    """
+    raw_amount = int(getattr(pos, "current_value_rappen", 0) or 0)
+    if raw_amount == 0 or fx_source is None:
+        return raw_amount
+    pos_currency = str(getattr(pos, "currency", "") or "CHF").upper().strip()
+    if not pos_currency:
+        pos_currency = "CHF"
+    target = str(target_currency or "CHF").upper().strip()
+    if pos_currency == target:
+        return raw_amount
+    try:
+        rate = fx_source.cross_rate(pos_currency, target)
+    except (ValueError, AttributeError):
+        return raw_amount
+    return int(round(raw_amount * float(rate)))
+
+
+def _summarize_positions(
+    positions: list[WealthPosition],
+    fx_source=None,
+    target_currency: str = "CHF",
+) -> PortfolioSummary:
     amounts = {key: 0 for key in BUCKET_FIELDS}
     total_rappen = 0
     for pos in positions:
-        value_rappen = int(pos.current_value_rappen or 0)
+        value_rappen = _convert_position_amount_to_target_currency(pos, fx_source, target_currency)
         if value_rappen <= 0:
             continue
         weights = _default_weights_for_position(pos)
@@ -4508,6 +4540,27 @@ def _load_allocation_inputs(
     simulation_prefs: dict,
     cma: CapitalMarketAssumption | None = None,
 ) -> dict:
+    # Sprint B3 (2026-06-07): Multi-Currency-Conversion via FXRateSource.
+    # mandate.base_currency ist das Ziel (typisch CHF). Cashflows in
+    # USD/EUR/GBP etc. werden zum aktuellen FX-Kurs konvertiert. Bei
+    # FX-Lade-Fehler defensiver Fallback auf Default-Rates (kein Crash).
+    # 2026-07-24 (Generalaudit): Fallback war fx_source=None -> keine
+    # Konvertierung mehr (Rohbetrag), obwohl FXRateSource.from_db() selbst
+    # schon auf Default-Rates faellt statt zu raisen -- dieser aeussere
+    # except greift praktisch nie, aber FXRateSource() ist die konsistentere
+    # Wahl falls doch (Naeherung statt komplettes Ignorieren der Waehrung).
+    # 2026-07-27 (WealthPosition-FX-Fix): Setup nach oben verschoben, damit
+    # auch _summarize_positions (Vermoegenspositionen) dieselbe FX-Quelle
+    # nutzen kann -- vorher wurde NUR Cashflows konvertiert, Vermoegens-
+    # positionen in Fremdwaehrung flossen unkonvertiert in die SAA-/MC-Basis.
+    from services.currency.fx_rates import FXRateSource
+    fx_source = None
+    try:
+        fx_source = FXRateSource.from_db(db)
+    except Exception:
+        fx_source = FXRateSource()
+    target_currency = str(getattr(mandate, "base_currency", "CHF") or "CHF").upper()
+
     all_positions = db.query(WealthPosition).filter(
         WealthPosition.client_id == mandate.client_id,
         WealthPosition.deleted_at.is_(None),
@@ -4516,16 +4569,20 @@ def _load_allocation_inputs(
     advisory_positions = [pos for pos in all_positions if _norm_text(pos.assignment) == "Beratungsvermoegen"]
     asset_positions_total = [pos for pos in all_positions if _norm_text(pos.assignment) != "Verbindlichkeit"]
     liability_positions = [pos for pos in all_positions if _norm_text(pos.assignment) == "Verbindlichkeit"]
-    advisory_summary = _summarize_positions(advisory_positions)
-    total_summary = _summarize_positions(asset_positions_total)
+    advisory_summary = _summarize_positions(advisory_positions, fx_source=fx_source, target_currency=target_currency)
+    total_summary = _summarize_positions(asset_positions_total, fx_source=fx_source, target_currency=target_currency)
     advisory_wealth_rappen = advisory_summary.total_rappen
-    total_liabilities_rappen = sum(int(pos.current_value_rappen or 0) for pos in liability_positions)
+    total_liabilities_rappen = sum(
+        _convert_position_amount_to_target_currency(pos, fx_source, target_currency)
+        for pos in liability_positions
+    )
     total_wealth_rappen = max(0, total_summary.total_rappen - total_liabilities_rappen)
     # Sprint B2 (2026-05-07): Anderes-Vermoegen-Schloss-Mechanismus.
     # is_available_for_goal_funding=1 erlaubt der Position, zur Reserve-Deckung
     # herangezogen zu werden (liquid: Verkauf, illiquid: Belehnung @ 100% LTV).
     unlocked_other_assets_rappen = sum(
-        int(pos.current_value_rappen or 0) for pos in all_positions
+        _convert_position_amount_to_target_currency(pos, fx_source, target_currency)
+        for pos in all_positions
         if int(getattr(pos, "is_available_for_goal_funding", 0) or 0) == 1
         and _norm_text(getattr(pos, "assignment", "")) == "Anderes Vermoegen"
     )
@@ -4555,22 +4612,8 @@ def _load_allocation_inputs(
         infl for infl in wealth_inflows
         if not getattr(infl, "mandate_id", None) or infl.mandate_id == mandate.id
     ]
-    # Sprint B3 (2026-06-07): Multi-Currency-Conversion via FXRateSource.
-    # mandate.base_currency ist das Ziel (typisch CHF). Cashflows in
-    # USD/EUR/GBP etc. werden zum aktuellen FX-Kurs konvertiert. Bei
-    # FX-Lade-Fehler defensiver Fallback auf Default-Rates (kein Crash).
-    # 2026-07-24 (Generalaudit): Fallback war fx_source=None -> keine
-    # Konvertierung mehr (Rohbetrag), obwohl FXRateSource.from_db() selbst
-    # schon auf Default-Rates faellt statt zu raisen -- dieser aeussere
-    # except greift praktisch nie, aber FXRateSource() ist die konsistentere
-    # Wahl falls doch (Naeherung statt komplettes Ignorieren der Waehrung).
-    from services.currency.fx_rates import FXRateSource
-    fx_source = None
-    try:
-        fx_source = FXRateSource.from_db(db)
-    except Exception:
-        fx_source = FXRateSource()
-    target_currency = str(getattr(mandate, "base_currency", "CHF") or "CHF").upper()
+    # fx_source/target_currency bereits weiter oben ermittelt (siehe FX-Fix-
+    # Kommentar) -- hier wiederverwendet statt erneut geladen.
     cashflow_totals = totals_for_year(
         cashflows, fx_source=fx_source, target_currency=target_currency,
     )
@@ -7132,6 +7175,20 @@ def build_target_payload_from_allocation(
     prefs = _merge_mandate_defaults_into_prefs(prefs, mandate)
     score_bucket = _risk_score_bucket(assessment)
     house_matrix = _house_matrix_or_default(db, policy, score_bucket)
+    # Sprint B3 (2026-06-07): Multi-Currency-Conversion (siehe _load_allocation_inputs).
+    # 2026-07-24 (Generalaudit): siehe _load_allocation_inputs -- Fallback auf
+    # FXRateSource() statt None, konsistent zum dortigen Fix.
+    # 2026-07-27 (WealthPosition-FX-Fix): Setup nach oben verschoben, damit
+    # auch _summarize_positions dieselbe FX-Quelle nutzen kann (siehe
+    # _load_allocation_inputs fuer die ausfuehrliche Begruendung).
+    from services.currency.fx_rates import FXRateSource
+    fx_source = None
+    try:
+        fx_source = FXRateSource.from_db(db)
+    except Exception:
+        fx_source = FXRateSource()
+    target_currency = str(getattr(mandate, "base_currency", "CHF") or "CHF").upper()
+
     all_positions = db.query(WealthPosition).filter(
         WealthPosition.client_id == mandate.client_id,
         WealthPosition.deleted_at.is_(None),
@@ -7140,14 +7197,18 @@ def build_target_payload_from_allocation(
     advisory_positions = [pos for pos in all_positions if _norm_text(pos.assignment) == "Beratungsvermoegen"]
     asset_positions_total = [pos for pos in all_positions if _norm_text(pos.assignment) != "Verbindlichkeit"]
     liability_positions = [pos for pos in all_positions if _norm_text(pos.assignment) == "Verbindlichkeit"]
-    advisory_summary = _summarize_positions(advisory_positions)
-    total_summary = _summarize_positions(asset_positions_total)
+    advisory_summary = _summarize_positions(advisory_positions, fx_source=fx_source, target_currency=target_currency)
+    total_summary = _summarize_positions(asset_positions_total, fx_source=fx_source, target_currency=target_currency)
     advisory_wealth_rappen = advisory_summary.total_rappen
-    total_liabilities_rappen = sum(int(pos.current_value_rappen or 0) for pos in liability_positions)
+    total_liabilities_rappen = sum(
+        _convert_position_amount_to_target_currency(pos, fx_source, target_currency)
+        for pos in liability_positions
+    )
     total_wealth_rappen = max(0, total_summary.total_rappen - total_liabilities_rappen)
     # Sprint B2: Anderes-Vermoegen-Schloss-Pool fuer Reserve-Reduktion (rebuild path).
     unlocked_other_assets_rappen = sum(
-        int(pos.current_value_rappen or 0) for pos in all_positions
+        _convert_position_amount_to_target_currency(pos, fx_source, target_currency)
+        for pos in all_positions
         if int(getattr(pos, "is_available_for_goal_funding", 0) or 0) == 1
         and _norm_text(getattr(pos, "assignment", "")) == "Anderes Vermoegen"
     )
@@ -7169,16 +7230,6 @@ def build_target_payload_from_allocation(
         Goal.deleted_at.is_(None),
         Goal.is_active == 1,
     ).order_by(Goal.rank.asc()).all()
-    # Sprint B3 (2026-06-07): Multi-Currency-Conversion (siehe _load_allocation_inputs).
-    # 2026-07-24 (Generalaudit): siehe _load_allocation_inputs -- Fallback auf
-    # FXRateSource() statt None, konsistent zum dortigen Fix.
-    from services.currency.fx_rates import FXRateSource
-    fx_source = None
-    try:
-        fx_source = FXRateSource.from_db(db)
-    except Exception:
-        fx_source = FXRateSource()
-    target_currency = str(getattr(mandate, "base_currency", "CHF") or "CHF").upper()
     cashflow_totals = totals_for_year(
         cashflows, fx_source=fx_source, target_currency=target_currency,
     )

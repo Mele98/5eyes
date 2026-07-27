@@ -16,6 +16,7 @@ from models.review import (
 )
 from models.allocation import CapitalMarketAssumption, OptimizerPolicy, TargetAllocation
 from models.profiling import RiskAssessment
+from models.tenant import Tenant
 from schemas.review import (
     ReviewTriggerCreate, ReviewTriggerResolve, ReviewTriggerResponse,
     AdvisoryLogCreate, AdvisoryLogUpdate, AdvisoryLogResponse,
@@ -972,6 +973,13 @@ def create_conflict(
     # 2026-07-25 (Generalaudit): siehe create_document -- kein DB-Spalten-
     # Aequivalent auf ConflictOfInterestDisclosure, nur Enforcement.
     enforce_data_classification(fields.pop("data_classification", None))
+    # 2026-07-27 (Retrozessions-Feature): reimbursed_to_client=None bedeutet
+    # "nicht angegeben" -- aus der firmenweiten Tenant-Vorbelegung auffuellen
+    # (Spalte ist NOT NULL, kann nicht als None persistiert werden).
+    if fields.get("reimbursed_to_client") is None:
+        tenant_id = getattr(mandate, "tenant_id", None)
+        tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first() if tenant_id else None
+        fields["reimbursed_to_client"] = bool(getattr(tenant, "default_retrocession_reimbursement", 0)) if tenant else False
     now = _now()
     conflict = ConflictOfInterestDisclosure(
         id=new_uuid(), mandate_id=mandate_id,

@@ -245,6 +245,14 @@ def ensure_runtime_columns() -> None:
             ('encrypted_dek', 'TEXT'),
             ('dek_version', 'INTEGER'),
             ('dek_rotated_at', 'TEXT'),
+            # 2026-07-27 (Retrozessions-Feature): Firmenweite Vorbelegung,
+            # siehe models/tenant.py.
+            ('default_retrocession_reimbursement', 'INTEGER', 0),
+        ],
+        # 2026-07-27 (Retrozessions-Feature): siehe models/review.py.
+        'conflict_of_interest_disclosures': [
+            ('reimbursed_to_client', 'INTEGER', 0),
+            ('waiver_document_id', 'TEXT'),
         ],
         # 2026-06-18 (#84): Miete-Teuerungsindexierung pro Immobilien-Position.
         # NOT NULL DEFAULT 0 -> Bestandszeilen werden auf 0 gesetzt (Response-Schema

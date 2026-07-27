@@ -153,6 +153,16 @@ class ConflictOfInterestDisclosure(Base):
     client_acknowledged_at = Column(String)
     mitigation_action = Column(String)
     document_id = Column(String)
+    # 2026-07-27 (Retrozessions-Feature): FIDLEG/BGE 132 III 460 verlangt
+    # Herausgabe von Retrozessionen an den Kunden, AUSSER er hat vorgaengig,
+    # in Kenntnis der ungefaehren Groessenordnung, gueltig darauf verzichtet.
+    # reimbursed_to_client=1 -> Retrozession wird tatsaechlich zurueckerstattet
+    # (mindert den ausgewiesenen Kostenausweis). =0 -> Verzicht dokumentiert,
+    # Berater behaelt sie (bleibt aber offenlegungspflichtig, siehe
+    # services/cost_disclosure.py). waiver_document_id referenziert das
+    # unterschriebene Verzichts-Dokument fuer Beweiszwecke.
+    reimbursed_to_client = Column(Integer, nullable=False, default=0)
+    waiver_document_id = Column(String)
     disclosed_by = Column(String, ForeignKey("users.id"), nullable=False)
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
