@@ -42,6 +42,7 @@ from routers.profiling import router as profiling_router
 from routers.protocol_bausteine import router as protocol_bausteine_router  # Bug-#13a (2026-06-07)
 from routers.review import (
     dashboard_router,
+    product_universe_router,
     products_router,
     recommendations_router,
     router as review_router,
@@ -135,6 +136,7 @@ app.include_router(wealth_router)
 app.include_router(allocation_router)
 app.include_router(review_router)
 app.include_router(products_router)
+app.include_router(product_universe_router)
 app.include_router(recommendations_router)
 app.include_router(dashboard_router)
 app.include_router(prices_router)

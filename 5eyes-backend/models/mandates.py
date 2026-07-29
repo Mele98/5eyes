@@ -48,6 +48,14 @@ class Mandate(Base):
     # JSON-Overrides für TaxConfig-Felder (z.B. {"capital_gain_rate_bps": 1500}).
     # NULL = nur Plugin-Defaults aus dem registrierten Regime.
     tax_overrides_json = Column(String)
+    # 2026-07-27 (Laender-Skalierung, Fonds-Kuratierung): Länder-Code fuer
+    # dieses Mandat (z.B. "CH", "DE") -- NICHT dasselbe wie tax_jurisdiction
+    # (kann kantonal sein, z.B. "CH-ZH"). Steuert, welche
+    # ProductUniverseEntry-Zeilen (models/review.py) fuer die Fonds-Auswahl
+    # in generate_recommendation_run gelten. NULL = "CH" (Backwards-Compat,
+    # Schweiz bleibt fuer alle Bestandsmandate unveraendert) -- gleiches
+    # Nullable-Pattern wie tax_jurisdiction, Code interpretiert NULL als "CH".
+    jurisdiction = Column(String)
     # 2026-07-27 (HUD-Konfiguration): JSON-Array von Sektions-Keys aus dem
     # Advisory-Report-Aggregator (services/advisory_report.py), die fuer
     # DIESES Mandat ausgeblendet werden sollen. NULL = alles sichtbar

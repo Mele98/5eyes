@@ -52,7 +52,10 @@ def build_cost_disclosure(db: Session, mandate: Any) -> dict[str, Any]:
     fallback only when the run does not contain a fee snapshot.
     """
     from models.allocation import OptimizerPolicy, TargetAllocation
-    from models.review import ConflictOfInterestDisclosure, Product, RecommendationPosition, RecommendationRun
+    from models.review import (
+        ConflictOfInterestDisclosure, Product, ProductUniverseEntry,
+        RecommendationPosition, RecommendationRun,
+    )
 
     latest_run = (
         db.query(RecommendationRun)
@@ -81,6 +84,30 @@ def build_cost_disclosure(db: Session, mandate: Any) -> dict[str, Any]:
         .filter(RecommendationPosition.run_id == latest_run.id)
         .all()
     )
+    # 2026-07-27 (Fonds-Kuratierung): eine Verwaltung kann fuer ein Produkt
+    # eine eigene, ausgehandelte Gebuehr hinterlegt haben (ProductUniverseEntry.
+    # override_ter_bps) -- live nachgeschlagen (kein Snapshot), damit eine
+    # spaetere Korrektur der Konditionen sofort im naechsten Kostenausweis
+    # wirkt. Betrifft NUR diesen Tenant, das globale Produkt bleibt unveraendert.
+    ter_bps_overrides: dict[str, int] = {}
+    tenant_id = getattr(mandate, "tenant_id", None)
+    if tenant_id and rows:
+        jurisdiction = getattr(mandate, "jurisdiction", None) or "CH"
+        product_ids = {product.id for _, product in rows}
+        override_entries = (
+            db.query(ProductUniverseEntry)
+            .filter(
+                ProductUniverseEntry.tenant_id == tenant_id,
+                ProductUniverseEntry.jurisdiction == jurisdiction,
+                ProductUniverseEntry.product_id.in_(product_ids),
+                ProductUniverseEntry.deleted_at.is_(None),
+                ProductUniverseEntry.override_ter_bps.is_not(None),
+            )
+            .all()
+        )
+        ter_bps_overrides = {
+            entry.product_id: int(entry.override_ter_bps) for entry in override_entries
+        }
     positions = [
         {
             "amount_rappen": int(
@@ -90,9 +117,13 @@ def build_cost_disclosure(db: Session, mandate: Any) -> dict[str, Any]:
             ),
             "weight_bps": int(getattr(position, "target_weight_bps", 0) or 0),
             "ter_bps": (
-                int(product.ter_bps)
-                if getattr(product, "ter_bps", None) is not None
-                else None
+                ter_bps_overrides[product.id]
+                if product.id in ter_bps_overrides
+                else (
+                    int(product.ter_bps)
+                    if getattr(product, "ter_bps", None) is not None
+                    else None
+                )
             ),
         }
         for position, product in rows

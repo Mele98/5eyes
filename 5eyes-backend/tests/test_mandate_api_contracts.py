@@ -168,6 +168,38 @@ def test_update_mandate_roundtrips_hidden_report_sections(auth_client, advisor_u
     assert json.loads(reload_response.json()["hidden_report_sections"]) == hidden
 
 
+def test_create_mandate_jurisdiction_defaults_to_null(auth_client, advisor_user):
+    """2026-07-27 (Laender-Skalierung): neue Mandate haben KEIN gesetztes
+    jurisdiction -- NULL wird von Backend-Code als 'CH' interpretiert
+    (Backwards-Compat, siehe models/mandates.py)."""
+    client_id = _create_client(auth_client, advisor_user)
+    response = auth_client.post(
+        f"/clients/{client_id}/mandates",
+        json={"mandate_number": "FOUND-M-JUR-1", "mandate_type": "Anlageberatung"},
+    )
+    assert response.status_code == 201, response.text
+    assert response.json()["jurisdiction"] is None
+
+
+def test_update_mandate_roundtrips_jurisdiction(auth_client, advisor_user):
+    client_id = _create_client(auth_client, advisor_user)
+    mandate = auth_client.post(
+        f"/clients/{client_id}/mandates",
+        json={"mandate_number": "FOUND-M-JUR-2", "mandate_type": "Anlageberatung"},
+    ).json()
+
+    response = auth_client.put(
+        f"/mandates/{mandate['id']}",
+        json={"jurisdiction": "DE"},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["jurisdiction"] == "DE"
+
+    reload_response = auth_client.get(f"/mandates/{mandate['id']}")
+    assert reload_response.status_code == 200, reload_response.text
+    assert reload_response.json()["jurisdiction"] == "DE"
+
+
 def test_foundation_customer_data_roundtrip(auth_client, advisor_user):
     """Phase-1-Fundament: die wichtigsten Beratungsdaten ueberleben Speichern/Laden.
 

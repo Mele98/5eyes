@@ -12,6 +12,7 @@ from models.mandates import Mandate
 from models.review import (
     ReviewTrigger, AdvisoryLog, ContractDocument,
     ConflictOfInterestDisclosure, Product, ProductSuitability,
+    ProductUniverseEntry,
     RecommendationRun, RecommendationPosition, RecommendationHolding, AuditLog
 )
 from models.allocation import CapitalMarketAssumption, OptimizerPolicy, TargetAllocation
@@ -30,6 +31,7 @@ from schemas.review import (
     ProductReferencePreviewRequest, ProductReferencePreviewResponse,
     ProductReferenceApplyRequest, ProductReferenceApplyResponse,
     ProductReferenceBatchApplyRequest, ProductReferenceBatchApplyResponse,
+    ProductUniverseEntryCreate, ProductUniverseEntryUpdate, ProductUniverseEntryResponse,
     RecommendationRunCreate, RecommendationRunResponse,
     RecommendationPositionCreate, RecommendationPositionResponse,
     RecommendationHoldingUpsert, RecommendationHoldingResponse,
@@ -1506,6 +1508,116 @@ def auto_apply_product_reference_data(
         "dry_run": body.dry_run,
         "items": items,
     }
+
+
+# ── Fonds-Universum (Laender-Skalierung, Fonds-Kuratierung) ────────────────────
+# 2026-07-27: Kuratierte Positivliste je Tenant+Jurisdiktion. Ohne Eintraege
+# fuer ein (tenant_id, jurisdiction)-Paar bleibt der volle Produktkatalog
+# unveraendert nutzbar (Backwards-Compat) -- siehe models/review.py Docstring.
+
+product_universe_router = APIRouter(prefix="/product-universe", tags=["Fonds-Universum"])
+
+
+def _get_product_universe_entry_or_404(entry_id: str, tenant_id: str | None, db: Session) -> ProductUniverseEntry:
+    entry = db.query(ProductUniverseEntry).filter(
+        ProductUniverseEntry.id == entry_id,
+        ProductUniverseEntry.deleted_at.is_(None),
+    ).first()
+    if not entry:
+        raise HTTPException(status_code=404, detail=f"ProductUniverseEntry {entry_id} nicht gefunden")
+    if entry.tenant_id != tenant_id:
+        raise HTTPException(status_code=404, detail=f"ProductUniverseEntry {entry_id} nicht gefunden")
+    return entry
+
+
+@product_universe_router.get("", response_model=list[ProductUniverseEntryResponse])
+def list_product_universe_entries(
+    jurisdiction: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    q = db.query(ProductUniverseEntry).filter(
+        ProductUniverseEntry.tenant_id == current_user.tenant_id,
+        ProductUniverseEntry.deleted_at.is_(None),
+    )
+    if jurisdiction is not None:
+        q = q.filter(ProductUniverseEntry.jurisdiction == jurisdiction)
+    return q.order_by(ProductUniverseEntry.jurisdiction, ProductUniverseEntry.created_at).all()
+
+
+@product_universe_router.post("", response_model=ProductUniverseEntryResponse, status_code=201)
+def create_product_universe_entry(
+    body: ProductUniverseEntryCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    if not current_user.tenant_id:
+        raise HTTPException(status_code=422, detail="Benutzer ohne Tenant kann kein Fonds-Universum pflegen.")
+    product = db.query(Product).filter(
+        Product.id == body.product_id, Product.deleted_at.is_(None),
+    ).first()
+    if not product:
+        raise HTTPException(status_code=404, detail=f"Product {body.product_id} nicht gefunden")
+    existing = db.query(ProductUniverseEntry).filter(
+        ProductUniverseEntry.tenant_id == current_user.tenant_id,
+        ProductUniverseEntry.jurisdiction == body.jurisdiction,
+        ProductUniverseEntry.product_id == body.product_id,
+        ProductUniverseEntry.deleted_at.is_(None),
+    ).first()
+    if existing:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Eintrag fuer Produkt {body.product_id} in Jurisdiktion {body.jurisdiction!r} existiert bereits.",
+        )
+    now = _now()
+    entry = ProductUniverseEntry(
+        id=new_uuid(),
+        tenant_id=current_user.tenant_id,
+        jurisdiction=body.jurisdiction,
+        product_id=body.product_id,
+        override_ter_bps=body.override_ter_bps,
+        created_by=current_user.id,
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(entry)
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="product_universe_entries", record_id=entry.id, action="CREATE")
+    db.commit()
+    db.refresh(entry)
+    return entry
+
+
+@product_universe_router.put("/{entry_id}", response_model=ProductUniverseEntryResponse)
+def update_product_universe_entry(
+    entry_id: str,
+    body: ProductUniverseEntryUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    entry = _get_product_universe_entry_or_404(entry_id, current_user.tenant_id, db)
+    entry.override_ter_bps = body.override_ter_bps
+    entry.updated_at = _now()
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="product_universe_entries", record_id=entry.id, action="UPDATE",
+        field_name="override_ter_bps", new_value=str(body.override_ter_bps))
+    db.commit()
+    db.refresh(entry)
+    return entry
+
+
+@product_universe_router.delete("/{entry_id}", status_code=204)
+def delete_product_universe_entry(
+    entry_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    entry = _get_product_universe_entry_or_404(entry_id, current_user.tenant_id, db)
+    entry.deleted_at = _now()
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="product_universe_entries", record_id=entry.id, action="DELETE")
+    db.commit()
+    return None
 
 
 # ── Recommendations ────────────────────────────────────────────────────────────

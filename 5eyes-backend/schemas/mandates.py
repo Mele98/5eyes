@@ -71,6 +71,8 @@ class MandateUpdate(BaseModel):
     # sollen. NULL = alles sichtbar (Backwards-Compat). Gleiches Muster wie
     # default_building_blocks_json -- roher JSON-String, keine native Liste.
     hidden_report_sections: Optional[str] = None
+    # 2026-07-27 (Laender-Skalierung): siehe models/mandates.py. NULL = "CH".
+    jurisdiction: Optional[str] = None
     # 2026-07-25 (Generalaudit): siehe MandateCreate.
     data_classification: Optional[Literal["synthetic", "real"]] = None
 
@@ -124,5 +126,7 @@ class MandateResponse(BaseResponse):
     tax_overrides_json: Optional[str] = None
     # 2026-07-27 (HUD-Konfiguration): siehe MandateUpdate.
     hidden_report_sections: Optional[str] = None
+    # 2026-07-27 (Laender-Skalierung): siehe MandateUpdate.
+    jurisdiction: Optional[str] = None
     created_at: str
     updated_at: str

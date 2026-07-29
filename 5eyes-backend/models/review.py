@@ -220,6 +220,49 @@ class Product(Base):
     price_history = relationship("PriceHistory", back_populates="product")
 
 
+class ProductUniverseEntry(Base):
+    """2026-07-27 (Laender-Skalierung, Fonds-Kuratierung): kuratierte
+    Positivliste "welche Fonds sind fuer Tenant X in Jurisdiktion Y zulaessig"
+    -- ersetzt fuer den Optimizer den kompletten globalen Produktkatalog
+    durch eine engere Auswahl, SOBALD mindestens ein Eintrag fuer ein
+    (tenant_id, jurisdiction)-Paar existiert. Deckt zwei Anwendungsfaelle ab:
+    (1) eine Verwaltung will fuer ein bestimmtes Land NUR dort zulaessige/
+    vertriebene Fonds als Kandidaten haben, (2) eine Verwaltung hat eigene
+    Fonds oder ausgehandelte, tiefere Gebuehren-Konditionen fuer ein Produkt
+    (override_ter_bps ersetzt product.ter_bps fuer die Kostenberechnung
+    dieses Tenants -- siehe services/cost_disclosure.py).
+
+    Rueckwaerts-kompatibel: existiert fuer ein (tenant_id, jurisdiction)-Paar
+    KEIN Eintrag (der Normalfall fuer alle Bestandsmandate/CH), bleibt der
+    volle globale Katalog unveraendert nutzbar -- diese Tabelle greift nur,
+    wenn ein Admin explizit mindestens einen Eintrag anlegt.
+    """
+    __tablename__ = "product_universe_entries"
+    __table_args__ = (
+        Index(
+            "ix_product_universe_tenant_jurisdiction",
+            "tenant_id", "jurisdiction",
+        ),
+    )
+
+    id = Column(String, primary_key=True)
+    tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False)
+    jurisdiction = Column(String, nullable=False)  # z.B. "CH", "DE"
+    product_id = Column(String, ForeignKey("products.id"), nullable=False)
+    # NULL = nutze product.ter_bps unveraendert. Gesetzt = diese Verwaltung
+    # hat fuer dieses Produkt eine eigene, ausgehandelte Gebuehr -- ersetzt
+    # product.ter_bps AUSSCHLIESSLICH fuer diesen Tenant in der Kosten-
+    # berechnung (services/cost_disclosure.py), das globale Produkt selbst
+    # bleibt unveraendert (kein Cross-Tenant-Seiteneffekt).
+    override_ter_bps = Column(Integer)
+    created_by = Column(String, ForeignKey("users.id"), nullable=False)
+    created_at = Column(String, nullable=False)
+    updated_at = Column(String, nullable=False)
+    deleted_at = Column(String)
+
+    product = relationship("Product")
+
+
 class ProductSuitability(Base):
     __tablename__ = "product_suitability"
 

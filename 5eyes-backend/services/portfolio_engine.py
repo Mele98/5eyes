@@ -29,6 +29,7 @@ from models.review import (
     PriceHistory,
     Product,
     ProductSuitability,
+    ProductUniverseEntry,
     RecommendationHolding,
     RecommendationPosition,
     RecommendationRun,
@@ -8018,6 +8019,29 @@ def _validate_recommendation_concentration_limits(aggregated_positions: dict[str
             )
 
 
+def _filter_products_by_universe(db: Session, mandate: Mandate, products: list) -> list:
+    """2026-07-27 (Laender-Skalierung, Fonds-Kuratierung): schraenkt den
+    Produktkandidaten-Pool auf die ProductUniverseEntry-Positivliste des
+    Tenants+Jurisdiktion ein, WENN mindestens ein Eintrag existiert.
+
+    Rueckwaerts-kompatibel: existiert fuer (tenant_id, jurisdiction) KEIN
+    Eintrag, bleibt `products` unveraendert (voller Katalog, wie bisher).
+    """
+    tenant_id = getattr(mandate, "tenant_id", None)
+    if not tenant_id:
+        return products
+    jurisdiction = getattr(mandate, "jurisdiction", None) or "CH"
+    entries = db.query(ProductUniverseEntry).filter(
+        ProductUniverseEntry.tenant_id == tenant_id,
+        ProductUniverseEntry.jurisdiction == jurisdiction,
+        ProductUniverseEntry.deleted_at.is_(None),
+    ).all()
+    if not entries:
+        return products
+    allowed_product_ids = {entry.product_id for entry in entries}
+    return [product for product in products if product.id in allowed_product_ids]
+
+
 def generate_recommendation_run(
     db: Session,
     mandate: Mandate,
@@ -8092,6 +8116,7 @@ def generate_recommendation_run(
 
     score_bucket = _risk_score_bucket(assessment)
     products = db.query(Product).filter(Product.deleted_at.is_(None), Product.is_active == 1).all()
+    products = _filter_products_by_universe(db, mandate, products)
     sub_allocations = target_payload["sub_allocations"]
     advisory_wealth_rappen = int(target_payload["advisory_wealth_rappen"] or 0)
     investable_advisory_wealth_rappen = int(target_payload.get("investable_advisory_wealth_rappen") or advisory_wealth_rappen)

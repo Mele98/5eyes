@@ -382,6 +382,10 @@ def ensure_runtime_columns() -> None:
             ('tax_overrides_json', 'TEXT'),
             # 2026-07-27 (HUD-Konfiguration): siehe models/mandates.py.
             ('hidden_report_sections', 'TEXT'),
+            # 2026-07-27 (Laender-Skalierung): siehe models/mandates.py. NULL
+            # (kein DB-Default möglich fuer TEXT-Spalten in dieser Migration-
+            # Helper-Funktion) -- Code interpretiert NULL als "CH".
+            ('jurisdiction', 'TEXT'),
         ],
         'cashflows': [
             ('gross_amount_rappen', 'INTEGER'),

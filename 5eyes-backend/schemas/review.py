@@ -395,6 +395,27 @@ class ProductResponse(BaseResponse):
     updated_at: str
 
 
+class ProductUniverseEntryCreate(BaseModel):
+    jurisdiction: str
+    product_id: str
+    override_ter_bps: Optional[int] = None
+
+
+class ProductUniverseEntryUpdate(BaseModel):
+    override_ter_bps: Optional[int] = None
+
+
+class ProductUniverseEntryResponse(BaseResponse):
+    id: str
+    tenant_id: str
+    jurisdiction: str
+    product_id: str
+    override_ter_bps: Optional[int]
+    created_by: str
+    created_at: str
+    updated_at: str
+
+
 class ProductIdMappingPreviewRequest(BaseModel):
     product_id: Optional[str] = None
     isin: Optional[str] = None
