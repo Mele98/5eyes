@@ -3891,11 +3891,24 @@ function _wireSollIstHover(){
 <!-- Sprint 11 (2026-05-18): Mandate-Settings-Modal fuer nachtraegliches Aktivieren
      von BFS-Mortalitaet, Rentenalter, Lebenserwartung (alle Edit-faehigen
      Mandat-Felder die NICHT im Add-Modal sind). -->
-<div class="overlay" id="m-mandate-settings"><div class="modal" style="width:560px">
+<div class="overlay" id="m-mandate-settings"><div class="modal" style="width:640px">
   <div class="mhd"><div class="mtitle">Mandat-Einstellungen</div><button class="mx" onclick="cm('m-mandate-settings')">&#x2715;</button></div>
-  <div class="mbody">
+  <div class="mbody" style="max-height:70vh;overflow-y:auto">
     <div style="font-size:11px;color:var(--n5);line-height:1.6;background:var(--bg);border:1px solid var(--b1);border-radius:var(--r);padding:10px 12px;margin-bottom:12px">
       Mandatspezifische Modelle: BFS-Sterbetafel fuer Lebensdauer-Unsicherheit, Rentenalter und Lebenserwartung fuer Cashflow-Horizont.
+    </div>
+
+    <!-- 2026-07-29 (Laender-Skalierung): Jurisdiktion steuert Fonds-Universum-Filter -->
+    <div style="font-size:11px;font-weight:600;color:var(--n6);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px">Jurisdiktion</div>
+    <div class="frow">
+      <div class="fg"><label class="fl">Land</label>
+        <select class="fsel" id="ms-jurisdiction">
+          <option value="">— Schweiz (Default) —</option>
+          <option value="CH">Schweiz (CH)</option>
+          <option value="DE">Deutschland (DE)</option>
+        </select>
+        <div style="font-size:9.5px;color:var(--n5);line-height:1.4;margin-top:2px">Steuert, welches Fonds-Universum (Kontrollpanel &rarr; Fonds-Universum) fuer die Portfolio-Empfehlung dieses Mandats gilt.</div>
+      </div>
     </div>
     <div style="font-size:11px;font-weight:600;color:var(--n6);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px">Mortalitaet (BFS-Sterbetafel)</div>
     <div class="frow">
@@ -3931,6 +3944,26 @@ function _wireSollIstHover(){
         </select>
         <div style="font-size:9.5px;color:var(--n5);line-height:1.4;margin-top:2px">Aktiviert Steuer-Drag im Solver-MC (Vermögens-, Dividenden- und Kapitalgewinnsteuer je nach Regime). Erfordert OPTIMIZER_MODE=stochastic.</div>
       </div>
+    </div>
+
+    <!-- 2026-07-29 (HUD-Konfiguration): Sektionen im Advisory-Report ausblendbar -->
+    <div style="font-size:11px;font-weight:600;color:var(--n6);text-transform:uppercase;letter-spacing:0.06em;margin:14px 0 6px 0">Report-Sektionen (PDF)</div>
+    <div style="font-size:9.5px;color:var(--n5);line-height:1.4;margin-bottom:8px">Abgewaehlte Sektionen erscheinen NICHT im Advisory-Report-PDF dieses Mandats. Compliance-kritische Sektionen (Deckblatt, Disclaimer, Kostenausweis, Eignungspruefung, Beratungsprotokoll) sind immer sichtbar und hier nicht auswaehlbar.</div>
+    <div id="ms-report-sections" style="display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;font-size:11px">
+      <label class="fl" style="cursor:pointer;font-weight:400"><input type="checkbox" class="ms-section-cb" value="ausgangslage" style="vertical-align:middle;margin-right:6px">Ausgangslage</label>
+      <label class="fl" style="cursor:pointer;font-weight:400"><input type="checkbox" class="ms-section-cb" value="positionen" style="vertical-align:middle;margin-right:6px">Positionen (IST)</label>
+      <label class="fl" style="cursor:pointer;font-weight:400"><input type="checkbox" class="ms-section-cb" value="pruefpunkte" style="vertical-align:middle;margin-right:6px">Pruefpunkte</label>
+      <label class="fl" style="cursor:pointer;font-weight:400"><input type="checkbox" class="ms-section-cb" value="erkenntnisse" style="vertical-align:middle;margin-right:6px">Erkenntnisse</label>
+      <label class="fl" style="cursor:pointer;font-weight:400"><input type="checkbox" class="ms-section-cb" value="asset_allocation" style="vertical-align:middle;margin-right:6px">Asset Allocation (SOLL)</label>
+      <label class="fl" style="cursor:pointer;font-weight:400"><input type="checkbox" class="ms-section-cb" value="risikowaehrungen" style="vertical-align:middle;margin-right:6px">Risiko &amp; Waehrungen</label>
+      <label class="fl" style="cursor:pointer;font-weight:400"><input type="checkbox" class="ms-section-cb" value="branchen" style="vertical-align:middle;margin-right:6px">Branchen-Exposure</label>
+      <label class="fl" style="cursor:pointer;font-weight:400"><input type="checkbox" class="ms-section-cb" value="goal_based_investing" style="vertical-align:middle;margin-right:6px">Goal-Based Investing</label>
+      <label class="fl" style="cursor:pointer;font-weight:400"><input type="checkbox" class="ms-section-cb" value="risikoprofilierung" style="vertical-align:middle;margin-right:6px">Risikoprofilierung</label>
+      <label class="fl" style="cursor:pointer;font-weight:400"><input type="checkbox" class="ms-section-cb" value="building_blocks" style="vertical-align:middle;margin-right:6px">Bausteine</label>
+      <label class="fl" style="cursor:pointer;font-weight:400"><input type="checkbox" class="ms-section-cb" value="statement_pm" style="vertical-align:middle;margin-right:6px">Statement Portfolio Mgmt.</label>
+      <label class="fl" style="cursor:pointer;font-weight:400"><input type="checkbox" class="ms-section-cb" value="weiteres_vorgehen" style="vertical-align:middle;margin-right:6px">Weiteres Vorgehen</label>
+      <label class="fl" style="cursor:pointer;font-weight:400"><input type="checkbox" class="ms-section-cb" value="stress_replay" style="vertical-align:middle;margin-right:6px">Stress-Replay / Backtest</label>
+      <label class="fl" style="cursor:pointer;font-weight:400"><input type="checkbox" class="ms-section-cb" value="inhaltsverzeichnis" style="vertical-align:middle;margin-right:6px">Inhaltsverzeichnis</label>
     </div>
 
     <div id="ms-status" style="font-size:10px;color:var(--n5);margin-top:8px"></div>
@@ -11278,8 +11311,152 @@ function adminShowSection(secId) {
   if (secId === 'sec-shadow-comparison-aggregate' && typeof loadShadowAggregate === 'function') {
     loadShadowAggregate(false);
   }
+  // 2026-07-29 (Laender-Skalierung): Fonds-Universum-Liste + Produkt-Dropdown
+  // beim Betreten der Sektion laden (frisch, kein Cache -- Liste ist klein).
+  if (secId === 'sec-product-universe' && typeof loadAdminProductUniverseEntries === 'function') {
+    loadAdminProductUniverseEntries();
+  }
 }
 function adminSwitchTab(tabId) { adminShowSection(tabId.replace('tab-', 'sec-')); }
+
+// ====================================================================
+// 2026-07-29 (Laender-Skalierung, Fonds-Kuratierung): Fonds-Universum-
+// Admin-Panel (/product-universe). Kuratierte Positivliste pro
+// Tenant+Jurisdiktion mit optionalem TER-Override -- siehe
+// services/portfolio_engine.py::_filter_products_by_universe +
+// services/cost_disclosure.py::build_cost_disclosure.
+// ====================================================================
+var adminProductUniverseState = { entries: [], products: [] };
+
+async function loadAdminProductUniverseEntries(){
+  var tbody = document.getElementById('pu-list-tbody');
+  var errBox = document.getElementById('pu-error');
+  if (errBox) { errBox.style.display = 'none'; errBox.textContent = ''; }
+  if (tbody) tbody.innerHTML = '<tr><td colspan="5">Laedt...</td></tr>';
+  try {
+    if (!adminProductUniverseState.products.length) {
+      var products = await API.get('/products');
+      adminProductUniverseState.products = Array.isArray(products) ? products : [];
+      adminPopulateProductUniverseProductSelect();
+    }
+    var jurisdiction = (document.getElementById('pu-filter-jurisdiction')||{}).value || '';
+    var path = '/product-universe' + (jurisdiction ? ('?jurisdiction=' + encodeURIComponent(jurisdiction)) : '');
+    var entries = await API.get(path);
+    adminProductUniverseState.entries = Array.isArray(entries) ? entries : [];
+    adminRenderProductUniverseTable();
+  } catch(e) {
+    if (tbody) tbody.innerHTML = '<tr><td colspan="5">Fehler</td></tr>';
+    if (errBox) { errBox.style.display = 'block'; errBox.textContent = parseApiError(e, 'Fonds-Universum konnte nicht geladen werden.'); }
+  }
+}
+
+function adminPopulateProductUniverseProductSelect(){
+  var sel = document.getElementById('pu-new-product');
+  if (!sel) return;
+  var products = adminProductUniverseState.products.slice().sort(function(a,b){
+    return String(a.product_name||'').localeCompare(String(b.product_name||''));
+  });
+  var html = '<option value="">— Produkt waehlen —</option>';
+  products.forEach(function(p){
+    html += '<option value="' + escapeHtml(p.id) + '">' + escapeHtml(p.product_name || p.id) + '</option>';
+  });
+  sel.innerHTML = html;
+}
+
+function adminProductUniverseProductLabel(productId){
+  var p = adminProductUniverseState.products.find(function(x){ return x.id === productId; });
+  return p ? p.product_name : productId;
+}
+
+function adminRenderProductUniverseTable(){
+  var tbody = document.getElementById('pu-list-tbody');
+  if (!tbody) return;
+  var entries = adminProductUniverseState.entries;
+  if (!entries.length) {
+    tbody.innerHTML = '<tr><td colspan="5" style="color:var(--n4)">Keine Eintraege — voller Produktkatalog gilt unveraendert.</td></tr>';
+    return;
+  }
+  var html = '';
+  entries.forEach(function(entry){
+    var eid = escapeHtml(entry.id);
+    html += '<tr>'
+      + '<td>' + escapeHtml(entry.jurisdiction) + '</td>'
+      + '<td>' + escapeHtml(adminProductUniverseProductLabel(entry.product_id)) + '</td>'
+      + '<td><input class="fi" type="number" min="0" id="pu-ter-' + eid + '" value="' + (entry.override_ter_bps != null ? escapeHtml(entry.override_ter_bps) : '') + '" placeholder="—" style="font-size:11px;width:90px"></td>'
+      + '<td style="font-size:9.5px;color:var(--n5)">' + escapeHtml(adminFormatDateTime ? adminFormatDateTime(entry.created_at) : entry.created_at) + '</td>'
+      + '<td style="text-align:right;white-space:nowrap">'
+        + '<button class="admin-icon-btn" onclick="adminUpdateProductUniverseEntry(\'' + jsAttrArg(entry.id) + '\')">Speichern</button> '
+        + '<button class="admin-icon-btn danger" onclick="adminDeleteProductUniverseEntry(\'' + jsAttrArg(entry.id) + '\')">Loeschen</button>'
+      + '</td>'
+      + '</tr>';
+  });
+  tbody.innerHTML = html;
+}
+
+async function adminCreateProductUniverseEntry(){
+  var errBox = document.getElementById('pu-error');
+  if (errBox) { errBox.style.display = 'none'; errBox.textContent = ''; }
+  var jurisdiction = (document.getElementById('pu-new-jurisdiction')||{}).value || '';
+  var productId = (document.getElementById('pu-new-product')||{}).value || '';
+  var terRaw = (document.getElementById('pu-new-ter')||{}).value || '';
+  if (!productId) {
+    if (errBox) { errBox.style.display = 'block'; errBox.textContent = 'Bitte ein Produkt waehlen.'; }
+    return;
+  }
+  var payload = { jurisdiction: jurisdiction, product_id: productId };
+  if (terRaw !== '') {
+    var terVal = parseInt(terRaw, 10);
+    if (!isFinite(terVal) || terVal < 0) {
+      if (errBox) { errBox.style.display = 'block'; errBox.textContent = 'Eigene TER muss eine nicht-negative Zahl (Bps) sein.'; }
+      return;
+    }
+    payload.override_ter_bps = terVal;
+  }
+  try {
+    await API.post('/product-universe', payload);
+    document.getElementById('pu-new-product').value = '';
+    document.getElementById('pu-new-ter').value = '';
+    loadAdminProductUniverseEntries();
+  } catch(e) {
+    if (errBox) { errBox.style.display = 'block'; errBox.textContent = parseApiError(e, 'Eintrag konnte nicht angelegt werden.'); }
+  }
+}
+
+async function adminUpdateProductUniverseEntry(entryId){
+  var errBox = document.getElementById('pu-error');
+  if (errBox) { errBox.style.display = 'none'; errBox.textContent = ''; }
+  var input = document.getElementById('pu-ter-' + entryId);
+  var raw = input ? input.value : '';
+  var payload = {};
+  if (raw === '') {
+    payload.override_ter_bps = null;
+  } else {
+    var terVal = parseInt(raw, 10);
+    if (!isFinite(terVal) || terVal < 0) {
+      if (errBox) { errBox.style.display = 'block'; errBox.textContent = 'Eigene TER muss eine nicht-negative Zahl (Bps) sein.'; }
+      return;
+    }
+    payload.override_ter_bps = terVal;
+  }
+  try {
+    await API.put('/product-universe/' + encodeURIComponent(entryId), payload);
+    loadAdminProductUniverseEntries();
+  } catch(e) {
+    if (errBox) { errBox.style.display = 'block'; errBox.textContent = parseApiError(e, 'Eintrag konnte nicht gespeichert werden.'); }
+  }
+}
+
+async function adminDeleteProductUniverseEntry(entryId){
+  if (!adminConfirmRisk('Eintrag entfernen', 'Dieses Produkt faellt fuer die betroffene Jurisdiktion auf den vollen Katalog zurueck, sobald keine weiteren Eintraege mehr existieren.')) return;
+  var errBox = document.getElementById('pu-error');
+  if (errBox) { errBox.style.display = 'none'; errBox.textContent = ''; }
+  try {
+    await API.del('/product-universe/' + encodeURIComponent(entryId));
+    loadAdminProductUniverseEntries();
+  } catch(e) {
+    if (errBox) { errBox.style.display = 'block'; errBox.textContent = parseApiError(e, 'Eintrag konnte nicht geloescht werden.'); }
+  }
+}
 
 // ====================================================================
 // Sprint U-P7 (2026-05-20): House-Matrix + OptimizerPolicy Admin-Editor
@@ -16731,12 +16908,13 @@ async function openMandateSettingsModal(){
     return;
   }
   // Felder leeren
-  ['ms-birth-year','ms-sex','ms-use-mortality','ms-retirement-year','ms-life-expectancy-year','ms-tax-jurisdiction'].forEach(function(id){
+  ['ms-birth-year','ms-sex','ms-use-mortality','ms-retirement-year','ms-life-expectancy-year','ms-tax-jurisdiction','ms-jurisdiction'].forEach(function(id){
     var el = document.getElementById(id);
     if(!el) return;
     if(el.type==='checkbox') el.checked = false;
     else el.value = '';
   });
+  document.querySelectorAll('#ms-report-sections .ms-section-cb').forEach(function(cb){ cb.checked = false; });
   var status = document.getElementById('ms-status');
   if(status){ status.textContent = 'Laedt...'; status.style.color='var(--n5)'; }
   om('m-mandate-settings');
@@ -16751,6 +16929,20 @@ async function openMandateSettingsModal(){
       // Sprint U-P3: Steuersitz
       var taxJ = document.getElementById('ms-tax-jurisdiction');
       if(taxJ && m.tax_jurisdiction != null) taxJ.value = m.tax_jurisdiction;
+      // 2026-07-29 (Laender-Skalierung): Jurisdiktion (NULL = "CH")
+      var jur = document.getElementById('ms-jurisdiction');
+      if(jur && m.jurisdiction != null) jur.value = m.jurisdiction;
+      // 2026-07-29 (HUD-Konfiguration): ausgeblendete Report-Sektionen
+      if(m.hidden_report_sections){
+        try {
+          var hidden = JSON.parse(m.hidden_report_sections) || [];
+          document.querySelectorAll('#ms-report-sections .ms-section-cb').forEach(function(cb){
+            cb.checked = hidden.indexOf(cb.value) === -1;
+          });
+        } catch(parseErr){ /* malformed JSON -> alles sichtbar lassen (Default) */ }
+      } else {
+        document.querySelectorAll('#ms-report-sections .ms-section-cb').forEach(function(cb){ cb.checked = true; });
+      }
       if(status){ status.textContent = 'Geladen.'; status.style.color='var(--n5)'; }
     }
   } catch(e) {
@@ -16771,6 +16963,11 @@ async function saveMandateSettings(){
     return (isFinite(n) && n > 0) ? n : null;
   }
   var taxJEl = document.getElementById('ms-tax-jurisdiction');
+  var jurEl = document.getElementById('ms-jurisdiction');
+  var hiddenSections = [];
+  document.querySelectorAll('#ms-report-sections .ms-section-cb').forEach(function(cb){
+    if(!cb.checked) hiddenSections.push(cb.value);
+  });
   var payload = {
     client_birth_year: parseIntOrNull('ms-birth-year'),
     client_sex: (document.getElementById('ms-sex').value || null),
@@ -16779,6 +16976,11 @@ async function saveMandateSettings(){
     life_expectancy_year: parseIntOrNull('ms-life-expectancy-year'),
     // Sprint U-P3: Steuersitz fuer tax-aware Allokation
     tax_jurisdiction: (taxJEl && taxJEl.value) || null,
+    // 2026-07-29 (Laender-Skalierung): Jurisdiktion (leer = "CH")
+    jurisdiction: (jurEl && jurEl.value) || null,
+    // 2026-07-29 (HUD-Konfiguration): NULL statt "[]" wenn nichts ausgeblendet
+    // ist -- konsistent mit Backend-Default ("alles sichtbar" = NULL).
+    hidden_report_sections: hiddenSections.length ? JSON.stringify(hiddenSections) : null,
   };
   if(payload.client_sex && payload.client_sex !== 'M' && payload.client_sex !== 'F'){
     payload.client_sex = null;
@@ -23975,6 +24177,7 @@ function openStammdatenModal(){
         <button id="asec-override" onclick="adminShowSection('sec-override')" class="admin-sec-btn" data-admin-category="daten">Override</button>
         <button id="asec-returns" onclick="adminShowSection('sec-returns')" class="admin-sec-btn" data-admin-category="daten">Jahresrenditen</button>
         <button id="asec-acprices" onclick="adminShowSection('sec-acprices')" class="admin-sec-btn" data-admin-category="daten">Tageskurse</button>
+        <button id="asec-product-universe" onclick="adminShowSection('sec-product-universe')" class="admin-sec-btn" data-admin-category="daten">Fonds-Universum</button>
 
         <div class="admin-nav-label" data-admin-category="annahmen">Kapitalmarkt-Annahmen</div>
         <button id="asec-cma" onclick="adminShowSection('sec-cma')" class="admin-sec-btn" data-admin-category="annahmen">Annahmen</button>
@@ -24228,6 +24431,47 @@ function openStammdatenModal(){
           <div id="admin-acp-summary" class="admin-summary-panel">Status wird geladen...</div>
           <div id="admin-acp-grid" class="admin-compact-grid"></div>
           <div id="admin-acp-error" class="admin-risk-note danger" style="display:none"></div>
+        </div>
+
+        <!-- ══ SEC: FONDS-UNIVERSUM (2026-07-29, Laender-Skalierung) ══ -->
+        <div id="sec-product-universe" class="admin-sec-panel" style="display:none;gap:14px;">
+          <div class="admin-section-title">Fonds-Universum pro Jurisdiktion</div>
+          <div class="admin-section-sub">Kuratierte Positivliste, welche Fonds fuer diese Verwaltung in einem Land zulaessig sind bzw. eigene, ausgehandelte Konditionen haben. Ohne Eintraege fuer ein Land bleibt der volle Produktkatalog unveraendert nutzbar.</div>
+          <div class="admin-risk-note warn"><strong>Fachliche Wirkung</strong> Sobald mindestens ein Eintrag fuer ein Land existiert, werden Portfolio-Empfehlungen fuer Mandate mit dieser Jurisdiktion NUR noch aus dieser Liste befuellt.</div>
+          <div style="display:grid;grid-template-columns:140px 1fr 140px auto;gap:8px;align-items:end;">
+            <div>
+              <label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Jurisdiktion</label>
+              <select class="fsel" id="pu-new-jurisdiction" style="font-size:11px">
+                <option value="CH">Schweiz (CH)</option>
+                <option value="DE">Deutschland (DE)</option>
+              </select>
+            </div>
+            <div>
+              <label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Produkt</label>
+              <select class="fsel" id="pu-new-product" style="font-size:11px"><option value="">— Produkt waehlen —</option></select>
+            </div>
+            <div>
+              <label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Eigene TER (Bps, optional)</label>
+              <input class="fi" id="pu-new-ter" type="number" min="0" placeholder="z.B. 15" style="font-size:11px">
+            </div>
+            <button class="btn-p admin-primary-btn" onclick="adminCreateProductUniverseEntry()" id="btn-pu-create">Hinzufuegen</button>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <label style="font-size:9px;color:var(--n4)">Filter:</label>
+            <select class="fsel" id="pu-filter-jurisdiction" style="font-size:11px;width:auto" onchange="loadAdminProductUniverseEntries()">
+              <option value="">Alle Jurisdiktionen</option>
+              <option value="CH">Schweiz (CH)</option>
+              <option value="DE">Deutschland (DE)</option>
+            </select>
+            <button class="btn" style="background:var(--bg2);color:var(--n6)" onclick="loadAdminProductUniverseEntries()">Aktualisieren</button>
+          </div>
+          <div id="pu-list-wrap" class="admin-tbl-wrap">
+            <table class="admin-tbl">
+              <thead><tr><th>Jurisdiktion</th><th>Produkt</th><th>Eigene TER (Bps)</th><th>Angelegt</th><th></th></tr></thead>
+              <tbody id="pu-list-tbody"><tr><td colspan="5">Laedt...</td></tr></tbody>
+            </table>
+          </div>
+          <div id="pu-error" style="display:none;color:var(--neg);font-size:10px"></div>
         </div>
 
         <!-- ══ SEC: CMA ANNAHMEN ══ -->
