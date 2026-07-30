@@ -315,6 +315,13 @@ class RecommendationRun(Base):
     optimizer_version = Column(String)
     weighting_regime = Column(String)
     fee_assumptions_json = Column(String)
+    # WP1 (Home-Bias/CMA-Parametrisierung pro Jurisdiktion, 2026-07-30): JSON-
+    # Warnhinweis, wenn dieser Lauf provisorische (noch nicht IC-geprueft,
+    # siehe CapitalMarketAssumption.status) CMA- oder Home-Bias-Daten
+    # verwendet hat. NULL = keine provisorischen Daten beteiligt (Backwards-
+    # Compat -- alle Bestandslaeufe sind CH und damit committee_approved).
+    # Befuellung ist NICHT Teil dieses Arbeitspakets (spaeteres WP).
+    provisional_data_warning = Column(String)
     other_assets_included = Column(Integer, nullable=False, default=0)
     result_status = Column(String, nullable=False, default="Draft")
     created_by = Column(String, ForeignKey("users.id"), nullable=False)

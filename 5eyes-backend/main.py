@@ -20,6 +20,7 @@ import models.allocation  # noqa
 import models.clients  # noqa
 import models.client_login  # noqa  Sprint U-36 (2026-06-06)
 import models.fx_rate  # noqa
+import models.jurisdiction  # noqa  WP1 (2026-07-30) — Home-Bias/CMA pro Jurisdiktion
 import models.mandates  # noqa
 import models.profiling  # noqa
 import models.review  # noqa

@@ -284,6 +284,44 @@ class CapitalMarketAssumption(Base):
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
     deleted_at = Column(String)
+    # WP1 (Home-Bias/CMA-Parametrisierung pro Jurisdiktion, 2026-07-30):
+    # Laender-Code fuer diese CMA-Zeile (z.B. "CH", "DE"). NULL = "CH"
+    # (Backwards-Compat, gleiches Nullable-Pattern wie Mandate.jurisdiction
+    # in models/mandates.py -- Code interpretiert NULL ueberall als "CH").
+    # KEIN DB-Default (additive Migration in database.py::ensure_runtime_
+    # columns() unterstuetzt nur int_default fuer TEXT-Spalten nicht).
+    jurisdiction = Column(String)
+    # Governance-Status DIESER Zeile (nicht der Jurisdiktion als Ganzes,
+    # siehe models/jurisdiction.py::JurisdictionProfile.status fuer letzteres).
+    # Erlaubte Werte (Validierung folgt in einem spaeteren Schema/Router-
+    # Paket, hier nur die Spalte):
+    #   "provisional"        -- keine/unsichere Daten
+    #   "data_derived"        -- automatisch aus echten Marktdaten berechnet,
+    #                            mit Quellenangabe (source_detail)
+    #   "committee_approved" -- vom Investment Committee geprueft
+    # NUR "committee_approved"-Zeilen duerfen (spaeteres Arbeitspaket) in
+    # Kundendokumente einfliessen. NULL = nicht klassifiziert (kein DB-
+    # Default fuer neue Inserts von aussen; Bestandszeilen werden per
+    # idempotentem Backfill in database.py auf 'committee_approved' gesetzt,
+    # weil sie bereits IC-freigegebene CH-Zahlen repraesentieren).
+    status = Column(String)
+    # Freitext/JSON zur Datenherkunft, z.B. "FRED-Serie DGS10 vom 2026-07-29,
+    # Nelson-Siegel-Fit" -- Pflichtangabe (fachlich, nicht DB-erzwungen) fuer
+    # status="data_derived".
+    source_detail = Column(String)
+    computed_at = Column(String)
+    computed_by = Column(String)
+    # Generische Home-Bias-Gegenstuecke zu equity_ch_*/bonds_chf_ig_*/
+    # real_estate_ch_* fuer Nicht-CH-Jurisdiktionen. Die bestehenden CH-
+    # Spalten oben bleiben UNVERAENDERT und werden weiterhin ausschliesslich
+    # vom CH-Pfad gelesen -- diese neuen Spalten sind additiv und werden von
+    # der Engine in diesem Arbeitspaket noch NICHT gelesen (spaeteres WP).
+    equity_home_return_bps = Column(Integer)
+    equity_home_vol_bps = Column(Integer)
+    bonds_home_ig_return_bps = Column(Integer)
+    bonds_home_ig_vol_bps = Column(Integer)
+    real_estate_home_return_bps = Column(Integer)
+    real_estate_home_vol_bps = Column(Integer)
 
 
 class BuildingBlock(Base):
@@ -301,6 +339,18 @@ class BuildingBlock(Base):
     is_active = Column(Integer, nullable=False, default=1)
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
+    # WP1 (Home-Bias/CMA-Parametrisierung pro Jurisdiktion, 2026-07-30):
+    # NULL = "CH" (Backwards-Compat, gleiches Nullable-Pattern wie
+    # Mandate.jurisdiction / CapitalMarketAssumption.jurisdiction).
+    jurisdiction = Column(String)
+    # 1 = dieser Baustein ist noch nicht IC-geprueft (analog zu
+    # CapitalMarketAssumption.status="provisional", aber als einfaches
+    # Boolean-Flag statt Tri-State, da BuildingBlock keine Kapitalmarkt-
+    # Zahlen enthaelt). int-Default 0 ist zulaessig (INTEGER-Spalte).
+    is_provisional = Column(Integer, nullable=False, default=0)
+    # Semantischer Tag (z.B. "core", "satellite", "home_bias_overlay") --
+    # reine Kennzeichnung, keine Logik in diesem Arbeitspaket.
+    role = Column(String)
 
     policy = relationship("OptimizerPolicy", back_populates="building_blocks")
 

@@ -406,6 +406,30 @@ def ensure_runtime_columns() -> None:
         'capital_market_assumptions': [
             ('correlation_matrix_json', 'TEXT'),
             ('sub_asset_class_assumptions_json', 'TEXT'),
+            # WP1 (Home-Bias/CMA-Parametrisierung pro Jurisdiktion, 2026-07-30):
+            # siehe models/allocation.py::CapitalMarketAssumption. jurisdiction
+            # NULL = "CH" (gleiches Nullable-Pattern wie mandates.jurisdiction).
+            # status hat KEINEN DB-Default (bleibt NULL fuer neue Inserts von
+            # aussen) -- Bestandszeilen werden weiter unten (WP1-Status-Backfill)
+            # EINMALIG beim erstmaligen Anlegen dieser Spalte auf
+            # 'committee_approved' zurueckgeschrieben, weil Bestandszeilen
+            # bereits IC-freigegebene CH-Zahlen sind. Erlaubte Werte fuer
+            # status (Validierung folgt in einem spaeteren Schema/Router-Paket):
+            # "provisional" | "data_derived" | "committee_approved".
+            ('jurisdiction', 'TEXT'),
+            ('status', 'TEXT'),
+            ('source_detail', 'TEXT'),
+            ('computed_at', 'TEXT'),
+            ('computed_by', 'TEXT'),
+            # Generische Home-Bias-Gegenstuecke zu equity_ch_*/bonds_chf_ig_*/
+            # real_estate_ch_* -- die CH-Spalten bleiben unveraendert und werden
+            # weiterhin ausschliesslich vom CH-Pfad gelesen.
+            ('equity_home_return_bps', 'INTEGER'),
+            ('equity_home_vol_bps', 'INTEGER'),
+            ('bonds_home_ig_return_bps', 'INTEGER'),
+            ('bonds_home_ig_vol_bps', 'INTEGER'),
+            ('real_estate_home_return_bps', 'INTEGER'),
+            ('real_estate_home_vol_bps', 'INTEGER'),
             # Optimizer-Phase 1: Skewness + Excess-Kurtosis pro Bucket fuer
             # Cornish-Fisher fat-tail Sampling. NULL/0 -> Normal-Verteilung
             # (backwards-compat). Werte in bps (z.B. -5000 = -0.5 skew).
@@ -437,6 +461,23 @@ def ensure_runtime_columns() -> None:
             # valid_from abweichen) fehlte -- additive Migration fuer Alt-DBs.
             ('source_date', 'TEXT'),
         ],
+        # WP1 (Home-Bias/CMA-Parametrisierung pro Jurisdiktion, 2026-07-30):
+        # siehe models/allocation.py::BuildingBlock. jurisdiction NULL = "CH"
+        # (gleiches Nullable-Pattern wie mandates.jurisdiction). is_provisional
+        # ist ein reiner int-Default (0 = kein IC-Vorbehalt) -- zulaessig, weil
+        # INTEGER (siehe ensure_runtime_columns()-Docstring zu int_default).
+        'building_blocks': [
+            ('jurisdiction', 'TEXT'),
+            ('is_provisional', 'INTEGER', 0),
+            ('role', 'TEXT'),
+        ],
+        # WP1 (2026-07-30): siehe models/review.py::RecommendationRun. JSON-
+        # Warnhinweis, wenn der Lauf provisorische (noch nicht IC-geprueft)
+        # CMA-/Home-Bias-Daten verwendet hat -- Vorbild fee_assumptions_json
+        # (gleicher Spaltentyp/-Stil, gleiche Klasse).
+        'recommendation_runs': [
+            ('provisional_data_warning', 'TEXT'),
+        ],
         'optimizer_runs': [
             # U-9 Stage-9 Telemetry: pro Solver-Start n_paths/n_starts/Seed/
             # Status/elapsed_ms/reason auditierbar persistieren.
@@ -467,6 +508,10 @@ def ensure_runtime_columns() -> None:
         ],
     }
     inspector = inspect(engine)
+    # WP1 (Home-Bias/CMA-Parametrisierung pro Jurisdiktion, 2026-07-30):
+    # gesetzt, wenn 'status' auf capital_market_assumptions in DIESEM Lauf
+    # neu per ALTER TABLE angelegt wurde (siehe Backfill weiter unten).
+    cma_status_newly_added = False
     with engine.begin() as conn:
         for table_name, columns in additive_columns.items():
             # Defensive (2026-06-08): wenn eine Tabelle (noch) nicht
@@ -490,11 +535,14 @@ def ensure_runtime_columns() -> None:
                     raise ValueError(f"Ungültiger SQL-Typ: {sql_type!r}")
                 if default is not None and (not isinstance(default, int) or isinstance(default, bool)):
                     raise ValueError(f"Ungültiger Default (nur int): {default!r}")
-                if column_name not in existing:
+                column_is_new = column_name not in existing
+                if column_is_new:
                     ddl = f'ALTER TABLE {table_name} ADD COLUMN {column_name} {sql_type}'
                     if default is not None:
                         ddl += f' NOT NULL DEFAULT {int(default)}'
                     conn.execute(text(ddl))
+                    if table_name == 'capital_market_assumptions' and column_name == 'status':
+                        cma_status_newly_added = True
                 # WP-500-Fix (2026-07-01): idempotenter Backfill. Wenn die Column in
                 # einer FRÜHEREN Migration OHNE Default zugefügt wurde, sind Bestands-
                 # zeilen NULL geblieben — der `NOT NULL DEFAULT` oben greift nur beim
@@ -509,6 +557,27 @@ def ensure_runtime_columns() -> None:
                         {'d': int(default)},
                     )
                 existing.add(column_name)
+
+        # WP1-Status-Backfill (2026-07-30): 'status' auf capital_market_assumptions
+        # ist eine TEXT-Spalte -> kein int_default moeglich (siehe Validierung
+        # oben). Bestandszeilen (heutige CH-Zeilen) sind aber bereits vom
+        # Investment Committee freigegebene Zahlen -- deshalb EINMALIG beim
+        # erstmaligen Anlegen dieser Spalte per Backfill auf
+        # 'committee_approved' setzen (Muster wie WP-500-Fix: UPDATE ... WHERE
+        # status IS NULL). BEWUSST NUR innerhalb des column_is_new-Zweigs
+        # (nicht auf jedem Boot-Lauf, anders als WP-500-Fix): Constraint aus der
+        # Spezifikation ist, dass status fuer NEUE Inserts von aussen (z.B.
+        # provisorische Nicht-CH-CMA-Zeilen aus einem spaeteren Arbeitspaket)
+        # NICHT automatisch beim naechsten Backend-Start auf
+        # 'committee_approved' hochgestuft werden darf -- die Spalte bleibt
+        # NULL/leer, bis ein Mensch/Prozess sie explizit setzt.
+        if cma_status_newly_added:
+            conn.execute(
+                text(
+                    "UPDATE capital_market_assumptions SET status = 'committee_approved' "
+                    "WHERE status IS NULL"
+                )
+            )
 
         # RiskAssessment - Kenntnisse & Erfahrungen (Referenzmodell Eignungspruefung, 2026-04-16)
         ensure_column(conn, "risk_assessments", "knowledge_services_json", "TEXT")
@@ -916,6 +985,58 @@ def ensure_default_tenant() -> None:
         pass
 
 
+def ensure_default_ch_jurisdiction() -> None:
+    """WP1 (Home-Bias/CMA-Parametrisierung pro Jurisdiktion, 2026-07-30):
+    legt die JurisdictionProfile-Zeile fuer "CH" an, wenn sie fehlt.
+
+    Analog zu ensure_default_tenant() direkt darueber: genau eine
+    approved/nicht-provisorische Zeile fuer den einzigen heute existierenden
+    Markt (Schweiz). Kein Mandat referenziert diese Zeile per FK -- Mandate.
+    jurisdiction bleibt NULL fuer CH (siehe models/mandates.py) und wird von
+    der bestehenden Engine ausschliesslich als String "CH" interpretiert,
+    NICHT als Fremdschluessel auf diese Tabelle. Diese Zeile ist reine
+    Stammdaten-Grundlage fuer spaetere Arbeitspakete (Router/UI), die eine
+    Liste verfuegbarer/freigegebener Jurisdiktionen brauchen.
+
+    Idempotent: zweiter Aufruf legt keine zweite CH-Zeile an (code ist
+    UNIQUE).
+
+    Defensive: Bei Fehler (z.B. Schema noch nicht vollstaendig migriert)
+    wird das Anlegen geloggt, der Boot aber nicht abgebrochen.
+    """
+    try:
+        from datetime import datetime, timezone
+        from models.jurisdiction import JurisdictionProfile
+
+        with SessionLocal() as db:
+            existing = db.query(JurisdictionProfile).filter(
+                JurisdictionProfile.code == "CH"
+            ).first()
+            if existing is not None:
+                return
+            now = datetime.now(timezone.utc).strftime(
+                "%Y-%m-%dT%H:%M:%S.%f"
+            )[:-3] + "Z"
+            profile = JurisdictionProfile(
+                id=new_uuid(),
+                code="CH",
+                display_name="Schweiz",
+                home_currency="CHF",
+                is_active=1,
+                is_provisional=0,
+                status="approved",
+                created_by=None,
+                created_at=now,
+                updated_at=now,
+            )
+            db.add(profile)
+            db.commit()
+    except Exception:
+        # Boot-Robustheit: Default-Jurisdiktion-Setup darf den Backend-Start
+        # nicht stoppen. Logging kann der Caller verarbeiten.
+        pass
+
+
 def ensure_client_login_user_tenant_backfill(engine_to_use=None) -> None:
     """SEC-1 (2026-07-04): weist Bestands-Client-Login-User (role='client') mit
     tenant_id IS NULL den Tenant ihres verlinkten Clients zu.
@@ -1068,6 +1189,8 @@ def init_db() -> None:
 
     # Import von Tenant-Model VOR create_all, damit das Table angelegt wird.
     import models.tenant  # noqa: F401
+    # WP1 (2026-07-30): dito fuer die neuen Jurisdiktions-Tabellen.
+    import models.jurisdiction  # noqa: F401
 
     Base.metadata.create_all(bind=engine)
     ensure_runtime_columns()
@@ -1086,6 +1209,10 @@ def init_db() -> None:
     # Backwards-Compat: tenant_id-Columns sind NULLABLE, aber die Existenz
     # der 'main'-Row erlaubt T2-Sprint die Auth-Layer-Migration.
     ensure_default_tenant()
+    # WP1 (Home-Bias/CMA-Parametrisierung pro Jurisdiktion, 2026-07-30):
+    # Default-Jurisdiktion 'CH' anlegen wenn nicht da (analog zu
+    # ensure_default_tenant() direkt darueber).
+    ensure_default_ch_jurisdiction()
     # SEC-1 (2026-07-04): Client-Login-User mit NULL-Tenant praezise auf den
     # Tenant ihres verlinkten Clients ziehen — MUSS vor dem generischen
     # ensure_tenant_backfill() laufen, das sonst pauschal nach 'main' zieht.
