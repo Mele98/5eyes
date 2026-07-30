@@ -1518,6 +1518,18 @@ def auto_apply_product_reference_data(
 product_universe_router = APIRouter(prefix="/product-universe", tags=["Fonds-Universum"])
 
 
+def _effective_tenant_id(user: User) -> str:
+    """Sprint T2 (2026-06-08) etabliertes Muster (siehe services/auth.py
+    ::_resolve_tenant_id_for_user): user.tenant_id ist in Stage 9 nullable
+    (Backwards-Compat, Single-Tenant-Boot-Backfill setzt es i.d.R. auf
+    DEFAULT_TENANT_ID='main'). NULL als Fehler zu behandeln wuerde admins
+    VOR dem naechsten Boot-Zyklus komplett aussperren -- stattdessen wie
+    ueberall sonst im Code auf 'main' fallen lassen."""
+    from models.tenant import DEFAULT_TENANT_ID
+    raw = getattr(user, "tenant_id", None)
+    return raw.strip() if raw and isinstance(raw, str) and raw.strip() else DEFAULT_TENANT_ID
+
+
 def _get_product_universe_entry_or_404(entry_id: str, tenant_id: str | None, db: Session) -> ProductUniverseEntry:
     entry = db.query(ProductUniverseEntry).filter(
         ProductUniverseEntry.id == entry_id,
@@ -1536,8 +1548,9 @@ def list_product_universe_entries(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
+    tenant_id = _effective_tenant_id(current_user)
     q = db.query(ProductUniverseEntry).filter(
-        ProductUniverseEntry.tenant_id == current_user.tenant_id,
+        ProductUniverseEntry.tenant_id == tenant_id,
         ProductUniverseEntry.deleted_at.is_(None),
     )
     if jurisdiction is not None:
@@ -1551,15 +1564,14 @@ def create_product_universe_entry(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    if not current_user.tenant_id:
-        raise HTTPException(status_code=422, detail="Benutzer ohne Tenant kann kein Fonds-Universum pflegen.")
+    tenant_id = _effective_tenant_id(current_user)
     product = db.query(Product).filter(
         Product.id == body.product_id, Product.deleted_at.is_(None),
     ).first()
     if not product:
         raise HTTPException(status_code=404, detail=f"Product {body.product_id} nicht gefunden")
     existing = db.query(ProductUniverseEntry).filter(
-        ProductUniverseEntry.tenant_id == current_user.tenant_id,
+        ProductUniverseEntry.tenant_id == tenant_id,
         ProductUniverseEntry.jurisdiction == body.jurisdiction,
         ProductUniverseEntry.product_id == body.product_id,
         ProductUniverseEntry.deleted_at.is_(None),
@@ -1572,7 +1584,7 @@ def create_product_universe_entry(
     now = _now()
     entry = ProductUniverseEntry(
         id=new_uuid(),
-        tenant_id=current_user.tenant_id,
+        tenant_id=tenant_id,
         jurisdiction=body.jurisdiction,
         product_id=body.product_id,
         override_ter_bps=body.override_ter_bps,
@@ -1595,7 +1607,7 @@ def update_product_universe_entry(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    entry = _get_product_universe_entry_or_404(entry_id, current_user.tenant_id, db)
+    entry = _get_product_universe_entry_or_404(entry_id, _effective_tenant_id(current_user), db)
     entry.override_ter_bps = body.override_ter_bps
     entry.updated_at = _now()
     log(db, user_id=current_user.id, user_name=current_user.full_name,
@@ -1612,7 +1624,7 @@ def delete_product_universe_entry(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    entry = _get_product_universe_entry_or_404(entry_id, current_user.tenant_id, db)
+    entry = _get_product_universe_entry_or_404(entry_id, _effective_tenant_id(current_user), db)
     entry.deleted_at = _now()
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="product_universe_entries", record_id=entry.id, action="DELETE")

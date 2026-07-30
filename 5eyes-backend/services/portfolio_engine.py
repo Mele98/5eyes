@@ -8026,10 +8026,15 @@ def _filter_products_by_universe(db: Session, mandate: Mandate, products: list) 
 
     Rueckwaerts-kompatibel: existiert fuer (tenant_id, jurisdiction) KEIN
     Eintrag, bleibt `products` unveraendert (voller Katalog, wie bisher).
+
+    mandate.tenant_id=NULL wird wie ueberall im Code (siehe
+    services/auth.py::_resolve_tenant_id_for_user) auf DEFAULT_TENANT_ID
+    ('main') aufgeloest statt die Filterung zu uebergehen -- Mandate/Users
+    werden beim naechsten Boot ohnehin dorthin zurueckgeschrieben
+    (database.py-Backfill, Single-Tenant-Modus).
     """
-    tenant_id = getattr(mandate, "tenant_id", None)
-    if not tenant_id:
-        return products
+    from models.tenant import DEFAULT_TENANT_ID
+    tenant_id = getattr(mandate, "tenant_id", None) or DEFAULT_TENANT_ID
     jurisdiction = getattr(mandate, "jurisdiction", None) or "CH"
     entries = db.query(ProductUniverseEntry).filter(
         ProductUniverseEntry.tenant_id == tenant_id,

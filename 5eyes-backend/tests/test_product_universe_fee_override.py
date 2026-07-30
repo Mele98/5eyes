@@ -227,10 +227,28 @@ def test_entry_without_override_value_does_not_change_ter_bps(session_factory):
 
 def test_mandate_without_tenant_id_uses_product_ter_bps(session_factory):
     """Bestandsmandate ohne tenant_id (Backwards-Compat vor Sprint T1) --
-    Override-Lookup wird komplett uebersprungen, kein Crash."""
+    Override-Lookup loest auf DEFAULT_TENANT_ID ('main') auf; ohne Eintraege
+    fuer 'main' bleibt das Verhalten unveraendert, kein Crash."""
     _seed(session_factory, mandate_tenant_id=None, mandate_jurisdiction="CH", product_ter_bps=20)
     with session_factory() as db:
         mandate = _mandate(session_factory)
         payload = build_cost_disclosure(db, mandate)
     item = _ter_bps_of_only_position(payload)
     assert item["amount_rappen"] == round(100_000_000 * 20 / 10000)
+
+
+def test_null_tenant_id_falls_back_to_main_tenant_override(session_factory):
+    """2026-07-29 (UI-Verifikation): ein Admin-User/Mandat ohne tenant_id
+    (z.B. frisch gebootstrapped, vor dem naechsten Boot-Backfill) MUSS
+    trotzdem von Eintraegen profitieren, die unter DEFAULT_TENANT_ID ('main')
+    angelegt wurden -- sonst waere das Feature fuer genau den haeufigsten
+    Single-Tenant-Deployment-Fall (Tier 1) unbenutzbar."""
+    _seed(
+        session_factory, mandate_tenant_id=None, mandate_jurisdiction="CH", product_ter_bps=20,
+        override_entries=[{"tenant_id": "main", "jurisdiction": "CH", "override_ter_bps": 5}],
+    )
+    with session_factory() as db:
+        mandate = _mandate(session_factory)
+        payload = build_cost_disclosure(db, mandate)
+    item = _ter_bps_of_only_position(payload)
+    assert item["amount_rappen"] == round(100_000_000 * 5 / 10000)

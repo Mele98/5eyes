@@ -66,12 +66,36 @@ def _mandate(*, tenant_id=None, jurisdiction=None):
 
 
 def test_no_tenant_id_returns_unfiltered(session_factory):
+    """mandate.tenant_id=NULL loest auf DEFAULT_TENANT_ID ('main') auf --
+    ohne Eintraege fuer 'main' bleibt das Verhalten unveraendert (Backwards-
+    Compat, identisch zum alten 'skip Filterung ganz'-Verhalten)."""
     ids = _products(session_factory)
     mandate = _mandate(tenant_id=None, jurisdiction="CH")
     with session_factory() as db:
         products = db.query(Product).filter(Product.id.in_(ids)).all()
         result = _filter_products_by_universe(db, mandate, products)
     assert {p.id for p in result} == set(ids)
+
+
+def test_null_tenant_id_falls_back_to_main_tenant_entries(session_factory):
+    """2026-07-29 (UI-Verifikation): existieren Eintraege fuer den
+    DEFAULT_TENANT_ID ('main'), MUESSEN sie auch fuer Mandate mit
+    tenant_id=NULL greifen -- gleiches Muster wie services/auth.py::
+    _resolve_tenant_id_for_user (Single-Tenant-Boot-Backfill setzt
+    NULL-Zeilen ohnehin auf 'main')."""
+    ids = _products(session_factory)
+    now = _now()
+    with session_factory() as s:
+        s.add(ProductUniverseEntry(
+            id="pue-f-main", tenant_id="main", jurisdiction="CH",
+            product_id=ids[0], created_by="advisor-x", created_at=now, updated_at=now,
+        ))
+        s.commit()
+    mandate = _mandate(tenant_id=None, jurisdiction="CH")
+    with session_factory() as db:
+        products = db.query(Product).filter(Product.id.in_(ids)).all()
+        result = _filter_products_by_universe(db, mandate, products)
+    assert {p.id for p in result} == {ids[0]}
 
 
 def test_no_entries_for_tenant_returns_unfiltered(session_factory):

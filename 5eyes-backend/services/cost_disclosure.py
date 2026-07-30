@@ -89,9 +89,12 @@ def build_cost_disclosure(db: Session, mandate: Any) -> dict[str, Any]:
     # override_ter_bps) -- live nachgeschlagen (kein Snapshot), damit eine
     # spaetere Korrektur der Konditionen sofort im naechsten Kostenausweis
     # wirkt. Betrifft NUR diesen Tenant, das globale Produkt bleibt unveraendert.
+    # mandate.tenant_id=NULL -> DEFAULT_TENANT_ID ('main'), gleiches Muster wie
+    # services/auth.py::_resolve_tenant_id_for_user + portfolio_engine-Filter.
     ter_bps_overrides: dict[str, int] = {}
-    tenant_id = getattr(mandate, "tenant_id", None)
-    if tenant_id and rows:
+    if rows:
+        from models.tenant import DEFAULT_TENANT_ID
+        tenant_id = getattr(mandate, "tenant_id", None) or DEFAULT_TENANT_ID
         jurisdiction = getattr(mandate, "jurisdiction", None) or "CH"
         product_ids = {product.id for _, product in rows}
         override_entries = (

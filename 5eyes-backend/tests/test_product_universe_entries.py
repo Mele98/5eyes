@@ -53,7 +53,7 @@ def session_factory(tmp_path):
 def _seed(SF, *, tenant_id="firm-a", other_tenant_id="firm-b"):
     now = _now()
     with SF() as s:
-        for tid in (tenant_id, other_tenant_id):
+        for tid in (tenant_id, other_tenant_id, "main"):
             s.add(Tenant(
                 id=tid, display_name=tid, slug=tid,
                 hosting_tier="tier2", license_status="active",
@@ -72,6 +72,19 @@ def _seed(SF, *, tenant_id="firm-a", other_tenant_id="firm-b"):
         s.add(User(
             id="admin-b", username="admin-b", password_hash="h",
             full_name="Admin B", role="admin", is_active=1, tenant_id=other_tenant_id,
+            created_at=now, updated_at=now,
+        ))
+        # 2026-07-29 (UI-Verifikation): Admin ohne tenant_id (z.B. frisch
+        # gebootstrapped, vor dem naechsten Boot-Backfill) -- muss ueber
+        # DEFAULT_TENANT_ID ('main') fallback nutzbar bleiben.
+        s.add(User(
+            id="admin-null-tenant", username="admin-null-tenant", password_hash="h",
+            full_name="Admin Null-Tenant", role="admin", is_active=1, tenant_id=None,
+            created_at=now, updated_at=now,
+        ))
+        s.add(User(
+            id="admin-main-tenant", username="admin-main-tenant", password_hash="h",
+            full_name="Admin Main-Tenant", role="admin", is_active=1, tenant_id="main",
             created_at=now, updated_at=now,
         ))
         s.add(Product(
@@ -98,6 +111,8 @@ def _login_as(user_id):
         "admin-a": ("firm-a", "admin"),
         "advisor-a": ("firm-a", "advisor"),
         "admin-b": ("firm-b", "admin"),
+        "admin-null-tenant": (None, "admin"),
+        "admin-main-tenant": ("main", "admin"),
     }
     tenant_id, role = with_session_user_map[user_id]
     user = User(id=user_id, username=user_id, password_hash="h",
@@ -230,5 +245,54 @@ def test_jurisdiction_filter_query_param(client, session_factory):
         assert len(listed_ch.json()) == 1
         listed_de = client.get("/product-universe", params={"jurisdiction": "DE"})
         assert listed_de.json() == []
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+
+def test_admin_without_tenant_id_can_create_and_list(client, session_factory):
+    """2026-07-29 (UI-Verifikation, echter Bug via Browser-Test gefunden):
+    ein Admin ohne tenant_id (z.B. frisch via /auth/bootstrap-admin
+    angelegt, vor dem naechsten Boot-Backfill) durfte das Feature vorher
+    gar nicht nutzen (422 'Benutzer ohne Tenant...'). Muss stattdessen wie
+    ueberall im Code auf DEFAULT_TENANT_ID ('main') fallen."""
+    _seed(session_factory)
+    _login_as("admin-null-tenant")
+    try:
+        created = client.post("/product-universe", json={
+            "jurisdiction": "CH", "product_id": "prod-1",
+        })
+        assert created.status_code == 201, created.text
+        assert created.json()["tenant_id"] == "main"
+
+        listed = client.get("/product-universe")
+        assert listed.status_code == 200
+        assert len(listed.json()) == 1
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+
+def test_null_tenant_and_main_tenant_share_the_same_effective_scope(client, session_factory):
+    """Ein Admin mit tenant_id=NULL und einer mit tenant_id='main' muessen
+    dieselben Eintraege sehen/verwalten koennen -- beide loesen auf densel-
+    ben effektiven Tenant auf."""
+    _seed(session_factory)
+    _login_as("admin-null-tenant")
+    try:
+        created = client.post("/product-universe", json={
+            "jurisdiction": "CH", "product_id": "prod-1",
+        })
+        entry_id = created.json()["id"]
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+    _login_as("admin-main-tenant")
+    try:
+        listed = client.get("/product-universe")
+        assert len(listed.json()) == 1
+        assert listed.json()[0]["id"] == entry_id
+
+        updated = client.put(f"/product-universe/{entry_id}", json={"override_ter_bps": 9})
+        assert updated.status_code == 200, updated.text
+        assert updated.json()["override_ter_bps"] == 9
     finally:
         app.dependency_overrides.pop(get_current_user, None)
