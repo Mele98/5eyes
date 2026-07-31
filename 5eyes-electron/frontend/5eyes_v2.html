@@ -2288,7 +2288,7 @@ async function teamRender(){
    +'<input id="team-name" placeholder="Voller Name" style="'+inp+'">'
    +'<input id="team-user" placeholder="Benutzername" style="'+inp+'">'
    +'<input id="team-email" type="email" placeholder="E-Mail (optional — für direkten Versand)" style="'+inp+'">'
-   +'<select id="team-role" style="'+inp+'"><option value="advisor">Berater</option><option value="admin">Firmen-Admin</option><option value="readonly">Nur-Lesen</option></select>'
+   +'<select id="team-role" style="'+inp+'"><option value="advisor">Berater</option><option value="admin">Firmen-Admin</option><option value="portfolio_management">Portfolio Management</option><option value="readonly">Nur-Lesen</option></select>'
    +'<button class="btn-p" style="width:100%" onclick="teamInvite()">Einladungslink erzeugen</button></div>'
    +'<div id="team-invite-box" style="display:none;margin-top:10px;padding:8px 10px;border:1px solid var(--g4);border-radius:6px;background:rgba(201,168,76,0.07)"><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.06em;color:var(--n4);margin-bottom:4px">Einladungslink (einmalig kopieren · 7 Tage gültig)</div><div id="team-invite-link" style="font-family:ui-monospace,Menlo,Consolas,monospace;font-size:10px;word-break:break-all;color:var(--g3);margin-bottom:6px"></div><button class="btn" style="width:100%" onclick="teamCopyInvite()">Link kopieren</button></div>'
    +'<div id="team-msg" style="font-size:11px;min-height:14px;margin-top:8px"></div>';
@@ -15338,7 +15338,8 @@ function showNewClientScreen(firstName, lastName, mType, meta) {
 var ADMIN_ROLE_META = {
   admin:    { label: 'Administrator', tone: 'danger',  rights: 'Globale Kundensicht · Benutzer & Systemdaten verwalten · CMA/House-Matrix ändern' },
   advisor:  { label: 'Berater',       tone: 'info',    rights: 'Eigene Kunden & Mandate anlegen/bearbeiten · keine Systemverwaltung' },
-  readonly: { label: 'Lesend',        tone: 'neutral', rights: 'Nur Ansicht · keine Schreibrechte' }
+  readonly: { label: 'Lesend',        tone: 'neutral', rights: 'Nur Ansicht · keine Schreibrechte' },
+  portfolio_management: { label: 'Portfolio Management', tone: 'warn', rights: 'Kapitalmarktannahmen pro Jurisdiktion freigeben (data_derived → committee_approved) · keine sonstige Systemverwaltung' }
 };
 function adminRoleLabel(role){ return (ADMIN_ROLE_META[role] && ADMIN_ROLE_META[role].label) || role || '—'; }
 function adminRoleBadge(role){
@@ -15448,6 +15449,7 @@ function adminRenderUserTable() {
       + '<option value="advisor"' + (u.role==='advisor'?' selected':'') + '>Berater</option>'
       + '<option value="readonly"' + (u.role==='readonly'?' selected':'') + '>Lesend</option>'
       + '<option value="admin"' + (u.role==='admin'?' selected':'') + '>Administrator</option>'
+      + '<option value="portfolio_management"' + (u.role==='portfolio_management'?' selected':'') + '>Portfolio Management</option>'
       + '</select></div>'
       + '<label class="admin-switch" style="padding-bottom:5px"' + (isSelf ? ' title="Eigenes Konto kann nicht deaktiviert werden"' : '') + '><input type="checkbox" id="ul-active-' + sid + '"' + (u.is_active ? ' checked' : '') + (isSelf ? ' disabled' : '') + '><span class="admin-switch-track"></span><span>Aktiv</span></label>'
       + '</div>'
@@ -24690,6 +24692,7 @@ function openStammdatenModal(){
               <option value="">Alle Rollen</option>
               <option value="admin">Administrator</option>
               <option value="advisor">Berater</option>
+              <option value="portfolio_management">Portfolio Management</option>
               <option value="readonly">Lesend</option>
             </select>
             <label class="admin-switch" title="Auch deaktivierte Konten anzeigen"><input type="checkbox" id="ul-show-inactive" checked onchange="adminFilterUserList()"><span class="admin-switch-track"></span><span>Inaktive zeigen</span></label>
@@ -24719,6 +24722,7 @@ function openStammdatenModal(){
                 <option value="advisor">Berater (advisor)</option>
                 <option value="readonly">Lesend (readonly)</option>
                 <option value="admin">Administrator (admin)</option>
+                <option value="portfolio_management">Portfolio Management</option>
               </select>
               <div id="nu-role-hint" style="font-size:9px;margin-top:3px;color:var(--n5)"></div>
             </div>

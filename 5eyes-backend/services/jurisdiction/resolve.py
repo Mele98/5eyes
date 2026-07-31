@@ -26,6 +26,7 @@ from __future__ import annotations
 from sqlalchemy.orm import Session
 
 from models.allocation import BuildingBlock, CapitalMarketAssumption
+from models.jurisdiction import JurisdictionHomeBiasDefault
 from services.jurisdiction.exceptions import (
     JurisdictionNotApprovedError,
     JurisdictionReferenceDataMissingError,
@@ -64,13 +65,21 @@ def resolve_cma_for_jurisdiction(
     db: Session,
     jurisdiction: str | None,
     require_committee_approved: bool = False,
+    tenant_id: str | None = None,
 ) -> CapitalMarketAssumption:
     """Loest die aktuelle CapitalMarketAssumption-Zeile fuer eine Jurisdiktion auf.
 
     - jurisdiction in (None, "CH"): exakt die heutige Query (siehe
       _ch_current_cma_query), CH-Bestandsverhalten bleibt unveraendert.
+      tenant_id wird fuer CH IGNORIERT (kein Tenant-Override auf dem
+      CH-Pfad in dieser Ausbaustufe).
     - andere jurisdiction: zusaetzlich nach
       CapitalMarketAssumption.jurisdiction == jurisdiction gefiltert.
+      2026-07-31 (Tenant-Override): wenn tenant_id gesetzt ist, wird ZUERST
+      eine Zeile mit CapitalMarketAssumption.tenant_id == tenant_id gesucht
+      (Tenant-spezifischer Override, gleiches Prinzip wie ProductUniverseEntry).
+      Existiert keine solche Zeile, faellt die Suche auf die firmenweite
+      Zeile (tenant_id IS NULL) derselben Jurisdiktion zurueck.
 
     Wirft:
     - JurisdictionReferenceDataMissingError, wenn keine passende Zeile
@@ -83,15 +92,25 @@ def resolve_cma_for_jurisdiction(
     if jurisdiction in (None, "CH"):
         cma = _ch_current_cma_query(db).first()
     else:
-        cma = _ch_current_cma_query(db).filter(
+        jurisdiction_query = _ch_current_cma_query(db).filter(
             CapitalMarketAssumption.jurisdiction == jurisdiction,
-        ).first()
+        )
+        cma = None
+        if tenant_id:
+            cma = jurisdiction_query.filter(
+                CapitalMarketAssumption.tenant_id == tenant_id,
+            ).first()
+        if cma is None:
+            cma = jurisdiction_query.filter(
+                CapitalMarketAssumption.tenant_id.is_(None),
+            ).first()
 
     if cma is None:
         raise JurisdictionReferenceDataMissingError(
             f"Keine aktuelle CapitalMarketAssumption-Referenzzeile fuer Jurisdiktion "
             f"'{label}' gefunden (is_current=1, deleted_at IS NULL"
             + ("" if jurisdiction in (None, "CH") else f", jurisdiction='{jurisdiction}'")
+            + (f", tenant_id='{tenant_id}' oder firmenweit" if tenant_id and jurisdiction not in (None, "CH") else "")
             + "). Es wird bewusst keine erfundene Zahl zurueckgegeben."
         )
 
@@ -168,3 +187,55 @@ def resolve_building_blocks_for_jurisdiction(
             f"keine erfundene Zusammensetzung zurueckgegeben."
         )
     return rows
+
+
+def resolve_home_bias_defaults(
+    db: Session,
+    jurisdiction: str | None,
+    preference_key: str,
+    preference_value: str,
+) -> list[tuple[str, int, str]]:
+    """Loest die Home-Bias-Split-Zeilen (sub_asset_class, split_bps, rationale)
+    fuer eine Jurisdiktion + Praeferenz-Kombination auf, sortiert nach
+    sort_order (NULL zuletzt).
+
+    2026-07-31 (Deutschland-Anbindung): liest models/jurisdiction.py::
+    JurisdictionHomeBiasDefault -- die generische Gegenstelle zu den heute
+    hartcodierten eq_splits/bond_splits/re_splits-Tupeln in
+    services/portfolio_engine.py::_build_sub_allocations (z.B.
+    preference_key="equitiesGeo", preference_value="Deutschland Fokus").
+
+    - jurisdiction in (None, "CH"): wirft ValueError -- CH liest weiterhin
+      NIE aus dieser Tabelle, die hartcodierten Python-Tupel in
+      _build_sub_allocations bleiben fuer CH die alleinige Quelle
+      (Constraint: CH-Pfad bleibt byte-identisch). Ein Aufruf mit
+      jurisdiction in (None, "CH") ist ein Programmierfehler des Aufrufers,
+      kein normaler Laufzeitfall.
+    - andere jurisdiction: leeres Ergebnis -> JurisdictionReferenceDataMissingError
+      (nie eine erfundene Zusammensetzung zurueckgeben).
+    """
+    if jurisdiction in (None, "CH"):
+        raise ValueError(
+            "resolve_home_bias_defaults() darf fuer jurisdiction in (None, 'CH') "
+            "nicht aufgerufen werden -- der CH-Pfad nutzt weiterhin ausschliesslich "
+            "die hartcodierten Splits in services/portfolio_engine.py::_build_sub_allocations."
+        )
+
+    rows = (
+        db.query(JurisdictionHomeBiasDefault)
+        .filter(
+            JurisdictionHomeBiasDefault.jurisdiction_code == jurisdiction,
+            JurisdictionHomeBiasDefault.preference_key == preference_key,
+            JurisdictionHomeBiasDefault.preference_value == preference_value,
+            JurisdictionHomeBiasDefault.deleted_at.is_(None),
+        )
+        .order_by(JurisdictionHomeBiasDefault.sort_order.asc().nulls_last())
+        .all()
+    )
+    if not rows:
+        raise JurisdictionReferenceDataMissingError(
+            f"Keine Home-Bias-Default-Zeilen fuer Jurisdiktion '{jurisdiction}' "
+            f"(preference_key='{preference_key}', preference_value='{preference_value}') "
+            f"gefunden. Es wird bewusst keine erfundene Zusammensetzung zurueckgegeben."
+        )
+    return [(row.sub_asset_class, row.split_bps, row.rationale_text or "") for row in rows]

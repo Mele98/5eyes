@@ -430,6 +430,11 @@ def ensure_runtime_columns() -> None:
             ('bonds_home_ig_vol_bps', 'INTEGER'),
             ('real_estate_home_return_bps', 'INTEGER'),
             ('real_estate_home_vol_bps', 'INTEGER'),
+            # 2026-07-31 (Tenant-Override): NULL = firmenweite CMA-Zeile
+            # (Default). Gesetzt = Tenant-spezifischer Override, hat Vorrang
+            # vor der firmenweiten Zeile derselben Jurisdiktion. CH-Pfad
+            # ignoriert diese Spalte weiterhin komplett.
+            ('tenant_id', 'TEXT'),
             # Optimizer-Phase 1: Skewness + Excess-Kurtosis pro Bucket fuer
             # Cornish-Fisher fat-tail Sampling. NULL/0 -> Normal-Verteilung
             # (backwards-compat). Werte in bps (z.B. -5000 = -0.5 skew).
@@ -1037,6 +1042,23 @@ def ensure_default_ch_jurisdiction() -> None:
         pass
 
 
+def ensure_default_de_jurisdiction() -> None:
+    """Deutschland-Anbindung (2026-07-31, Entscheid Auftraggeber): legt die
+    DE-JurisdictionProfile-Zeile + Home-Bias-Default-Zeilen an (siehe
+    services/jurisdiction/de_seed.py::ensure_de_jurisdiction_seed -- dort die
+    volle Herleitung/Begruendung der Werte). Idempotent, defensiv wie
+    ensure_default_ch_jurisdiction() direkt darueber -- beruehrt NIE eine
+    CH-Zeile und blockiert den Boot nie."""
+    try:
+        from services.jurisdiction.de_seed import ensure_de_jurisdiction_seed
+
+        with SessionLocal() as db:
+            ensure_de_jurisdiction_seed(db)
+            db.commit()
+    except Exception:
+        pass
+
+
 def ensure_client_login_user_tenant_backfill(engine_to_use=None) -> None:
     """SEC-1 (2026-07-04): weist Bestands-Client-Login-User (role='client') mit
     tenant_id IS NULL den Tenant ihres verlinkten Clients zu.
@@ -1213,6 +1235,8 @@ def init_db() -> None:
     # Default-Jurisdiktion 'CH' anlegen wenn nicht da (analog zu
     # ensure_default_tenant() direkt darueber).
     ensure_default_ch_jurisdiction()
+    # Deutschland-Anbindung (2026-07-31): zweite Jurisdiktion, analog CH.
+    ensure_default_de_jurisdiction()
     # SEC-1 (2026-07-04): Client-Login-User mit NULL-Tenant praezise auf den
     # Tenant ihres verlinkten Clients ziehen — MUSS vor dem generischen
     # ensure_tenant_backfill() laufen, das sonst pauschal nach 'main' zieht.

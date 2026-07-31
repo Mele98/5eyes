@@ -248,6 +248,18 @@ def require_advisor(current_user: User = Depends(get_current_user)) -> User:
     return current_user
 
 
+def require_portfolio_management(current_user: User = Depends(get_current_user)) -> User:
+    """2026-07-31 (CMA-Freigabe-Gate, Entscheid Auftraggeber): schmale, dedizierte
+    Rolle fuer die Freigabe von Kapitalmarktannahmen (CapitalMarketAssumption.status
+    "data_derived" -> "committee_approved"). admin/super_admin duerfen das
+    weiterhin ebenfalls (Erweiterung, kein Ersatz) -- eine vollstaendige Bank-
+    Rollenstruktur (Front/Backoffice/Portfoliomanagement systemweit) ist bewusst
+    NICHT Teil dieses Gates, sondern ein separates, spaeteres Vorhaben."""
+    if current_user.role not in ("admin", "super_admin", "portfolio_management"):
+        raise HTTPException(status_code=403, detail="Nur für Portfolio Management / Administratoren")
+    return current_user
+
+
 def has_global_client_access(current_user: User) -> bool:
     return current_user.role == "admin"
 

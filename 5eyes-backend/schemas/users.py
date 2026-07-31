@@ -8,7 +8,7 @@ class UserCreate(BaseModel):
     password: str
     full_name: str
     email: Optional[EmailStr] = None
-    role: Literal["admin", "advisor", "readonly"] = "advisor"
+    role: Literal["admin", "advisor", "readonly", "portfolio_management"] = "advisor"
 
     @field_validator('username', 'full_name')
     @classmethod
@@ -29,7 +29,7 @@ class UserCreate(BaseModel):
 class UserUpdate(BaseModel):
     full_name: Optional[str] = None
     email: Optional[EmailStr] = None
-    role: Optional[Literal["admin", "advisor", "readonly"]] = None
+    role: Optional[Literal["admin", "advisor", "readonly", "portfolio_management"]] = None
     is_active: Optional[bool] = None
 
 
@@ -133,7 +133,7 @@ class InviteCreate(BaseModel):
     username: str
     full_name: str
     email: Optional[EmailStr] = None
-    role: Literal["admin", "advisor", "readonly"] = "advisor"
+    role: Literal["admin", "advisor", "readonly", "portfolio_management"] = "advisor"
 
     @field_validator('username', 'full_name')
     @classmethod

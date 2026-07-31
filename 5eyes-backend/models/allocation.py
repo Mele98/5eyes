@@ -322,6 +322,15 @@ class CapitalMarketAssumption(Base):
     bonds_home_ig_vol_bps = Column(Integer)
     real_estate_home_return_bps = Column(Integer)
     real_estate_home_vol_bps = Column(Integer)
+    # 2026-07-31 (Tenant-Override, Entscheid Auftraggeber): NULL = firmenweite
+    # CMA-Zeile fuer diese Jurisdiktion (Default). Gesetzt = eine einzelne
+    # Verwaltung (Tenant) hat fuer diese Jurisdiktion eigene Kapitalmarkt-
+    # annahmen hinterlegt, die Vorrang vor der firmenweiten Zeile haben --
+    # gleiches Override-Prinzip wie ProductUniverseEntry (models/review.py),
+    # nur fuer CMA-Zahlen statt Fonds. KEINE Aenderung am CH-Pfad: fuer
+    # jurisdiction in (None, "CH") wird tenant_id von der Engine nicht
+    # beruecksichtigt (siehe services/jurisdiction/resolve.py).
+    tenant_id = Column(String, ForeignKey("tenants.id"))
 
 
 class BuildingBlock(Base):
