@@ -11316,6 +11316,20 @@ function adminShowSection(secId) {
   if (secId === 'sec-product-universe' && typeof loadAdminProductUniverseEntries === 'function') {
     loadAdminProductUniverseEntries();
   }
+  // WP5 (2026-07-31, Laender-Skalierung Admin-UI): Jurisdiktionen + Home-
+  // Bias-Defaults frisch laden; die CMA-Jurisdiktions-Dropdown wird mit-
+  // befuellt, sobald die Profile bereits einmal geladen wurden (sonst holt
+  // sie sich die Liste beim ersten Betreten von sec-jurisdictions selbst).
+  if (secId === 'sec-jurisdictions' && typeof loadAdminJurisdictions === 'function') {
+    loadAdminJurisdictions();
+  }
+  if (secId === 'sec-home-bias-defaults') {
+    if (typeof loadAdminJurisdictions === 'function' && !adminJurisdictionState.profiles.length) loadAdminJurisdictions();
+    if (typeof loadAdminHomeBiasDefaults === 'function') loadAdminHomeBiasDefaults();
+  }
+  if (secId === 'sec-cma' && typeof loadAdminJurisdictions === 'function' && !adminJurisdictionState.profiles.length) {
+    loadAdminJurisdictions();
+  }
 }
 function adminSwitchTab(tabId) { adminShowSection(tabId.replace('tab-', 'sec-')); }
 
@@ -11455,6 +11469,380 @@ async function adminDeleteProductUniverseEntry(entryId){
     loadAdminProductUniverseEntries();
   } catch(e) {
     if (errBox) { errBox.style.display = 'block'; errBox.textContent = parseApiError(e, 'Eintrag konnte nicht geloescht werden.'); }
+  }
+}
+
+// ====================================================================
+// WP5 (2026-07-31, Laender-Skalierung Admin-UI): Jurisdiktions-Stammdaten
+// (sec-jurisdictions) + Home-Bias-Defaults (sec-home-bias-defaults) + CMA-
+// Jurisdiktions-Erweiterung (sec-cma). Backend: routers/jurisdiction.py
+// (WP3), services/jurisdiction/* (WP1/WP2/WP4). CH bleibt in allen drei
+// Bereichen strukturell gesperrt bzw. unveraendert (Default-Pfad).
+// ====================================================================
+var adminJurisdictionState = { profiles: [], editingCode: null };
+
+var ADMIN_JURISDICTION_STATUS_META = {
+  draft:             { label: 'Entwurf',              tone: 'neutral' },
+  pending_ic_review: { label: 'IC-Pruefung ausstehend', tone: 'warn' },
+  approved:          { label: 'Freigegeben',           tone: 'ok' },
+  retired:           { label: 'Zurueckgezogen',        tone: 'danger' },
+};
+function adminJurisdictionStatusBadge(status){
+  var m = ADMIN_JURISDICTION_STATUS_META[status] || { label: status || '—', tone: 'neutral' };
+  return '<span class="admin-badge ' + m.tone + ' no-dot">' + escapeHtml(m.label) + '</span>';
+}
+
+// require_portfolio_management-Endpunkte (CMA-Kandidat berechnen + freigeben)
+// sind in der UI nur fuer admin/super_admin/portfolio_management sichtbar --
+// analog zum bestehenden currentUser.role-Sichtbarkeits-Muster (siehe
+// hideLogin() fuer btn-admin-open/btn-prov/btn-team).
+function adminCanManagePortfolioCommittee(){
+  return !!(currentUser && ['admin', 'super_admin', 'portfolio_management'].indexOf(currentUser.role) !== -1);
+}
+
+async function loadAdminJurisdictions(){
+  var tbody = document.getElementById('jur-list-tbody');
+  var errBox = document.getElementById('jur-error');
+  if (errBox) { errBox.style.display = 'none'; errBox.textContent = ''; }
+  if (tbody) tbody.innerHTML = '<tr><td colspan="6">Laedt...</td></tr>';
+  try {
+    var profiles = await API.get('/jurisdictions');
+    adminJurisdictionState.profiles = Array.isArray(profiles) ? profiles : [];
+    adminRenderJurisdictionsTable();
+    adminPopulateJurisdictionSelects();
+  } catch(e) {
+    if (tbody) tbody.innerHTML = '<tr><td colspan="6">Fehler</td></tr>';
+    if (errBox) { errBox.style.display = 'block'; errBox.textContent = parseApiError(e, 'Jurisdiktionen konnten nicht geladen werden.'); }
+  }
+}
+
+// Speist die Jurisdiktions-Dropdowns in sec-home-bias-defaults + sec-cma aus
+// der geladenen Profil-Liste. CH ist immer die erste Option (Default).
+function adminPopulateJurisdictionSelects(){
+  var profiles = adminJurisdictionState.profiles.slice().sort(function(a,b){
+    if (a.code === 'CH') return -1;
+    if (b.code === 'CH') return 1;
+    return String(a.code||'').localeCompare(String(b.code||''));
+  });
+  var optsHtml = profiles.map(function(p){
+    return '<option value="' + escapeHtml(p.code) + '">' + escapeHtml(p.display_name) + ' (' + escapeHtml(p.code) + ')</option>';
+  }).join('');
+  ['hbd-filter-jurisdiction', 'cma-filter-jurisdiction'].forEach(function(id){
+    var sel = document.getElementById(id);
+    if (!sel) return;
+    var current = sel.value;
+    sel.innerHTML = optsHtml || '<option value="CH">Schweiz (CH)</option>';
+    if (current && profiles.some(function(p){ return p.code === current; })) sel.value = current;
+    else sel.value = 'CH';
+  });
+}
+
+function adminRenderJurisdictionsTable(){
+  var tbody = document.getElementById('jur-list-tbody');
+  if (!tbody) return;
+  var rows = adminJurisdictionState.profiles;
+  if (!rows.length) { tbody.innerHTML = '<tr><td colspan="6" style="color:var(--n4)">Keine Jurisdiktionen vorhanden.</td></tr>'; return; }
+  var html = '';
+  rows.forEach(function(p){
+    var isCh = p.code === 'CH';
+    var editing = adminJurisdictionState.editingCode === p.code;
+    html += '<tr>'
+      + '<td><strong>' + escapeHtml(p.code) + '</strong></td>'
+      + '<td>' + (editing
+          ? '<input class="fi" id="jur-edit-name-' + escapeHtml(p.code) + '" value="' + escapeHtml(p.display_name) + '" style="font-size:11px">'
+          : escapeHtml(p.display_name)) + '</td>'
+      + '<td>' + escapeHtml(p.home_currency) + '</td>'
+      + '<td>' + (editing
+          ? ('<select class="fsel" id="jur-edit-status-' + escapeHtml(p.code) + '" style="font-size:11px">'
+              + Object.keys(ADMIN_JURISDICTION_STATUS_META).map(function(k){
+                  return '<option value="' + k + '"' + (p.status === k ? ' selected' : '') + '>' + ADMIN_JURISDICTION_STATUS_META[k].label + '</option>';
+                }).join('')
+              + '</select>')
+          : (adminJurisdictionStatusBadge(p.status) + (p.is_provisional ? ' <span class="admin-badge warn no-dot">provisorisch</span>' : ''))) + '</td>'
+      + '<td>' + (editing
+          ? '<input type="checkbox" id="jur-edit-active-' + escapeHtml(p.code) + '" ' + (p.is_active ? 'checked' : '') + '>'
+          : (p.is_active ? '<span class="admin-badge ok no-dot">aktiv</span>' : '<span class="admin-badge neutral no-dot">inaktiv</span>')) + '</td>'
+      + '<td style="text-align:right;white-space:nowrap">'
+        + (isCh
+            ? '<span class="admin-icon-btn" style="opacity:.5;cursor:not-allowed" title="Schweiz-Jurisdiktion ist gesperrt">Gesperrt</span>'
+            : (editing
+                ? ('<button class="admin-icon-btn" onclick="adminSaveJurisdiction(\'' + jsAttrArg(p.code) + '\')">Speichern</button> '
+                   + '<button class="admin-icon-btn" onclick="adminCancelEditJurisdiction()">Abbrechen</button>')
+                : '<button class="admin-icon-btn" onclick="adminEditJurisdiction(\'' + jsAttrArg(p.code) + '\')">Bearbeiten</button>'))
+      + '</td>'
+      + '</tr>';
+    if (editing) {
+      html += '<tr><td colspan="6" style="padding-top:0">'
+        + '<label style="font-size:9px;color:var(--n4);display:block;margin:2px 0 2px">Notiz</label>'
+        + '<input class="fi" id="jur-edit-notes-' + escapeHtml(p.code) + '" value="' + escapeHtml(p.notes || '') + '" style="font-size:11px;width:100%">'
+        + '</td></tr>';
+    }
+  });
+  tbody.innerHTML = html;
+}
+
+function adminEditJurisdiction(code){
+  adminJurisdictionState.editingCode = code;
+  adminRenderJurisdictionsTable();
+}
+function adminCancelEditJurisdiction(){
+  adminJurisdictionState.editingCode = null;
+  adminRenderJurisdictionsTable();
+}
+
+async function adminSaveJurisdiction(code){
+  var errBox = document.getElementById('jur-error');
+  if (errBox) { errBox.style.display = 'none'; errBox.textContent = ''; }
+  var nameEl = document.getElementById('jur-edit-name-' + code);
+  var statusEl = document.getElementById('jur-edit-status-' + code);
+  var activeEl = document.getElementById('jur-edit-active-' + code);
+  var notesEl = document.getElementById('jur-edit-notes-' + code);
+  var payload = {};
+  if (nameEl) payload.display_name = nameEl.value.trim();
+  if (statusEl) payload.status = statusEl.value;
+  if (activeEl) payload.is_active = activeEl.checked ? 1 : 0;
+  if (notesEl) payload.notes = notesEl.value.trim() || null;
+  try {
+    await API.put('/jurisdictions/' + encodeURIComponent(code), payload);
+    adminJurisdictionState.editingCode = null;
+    await loadAdminJurisdictions();
+  } catch(e) {
+    if (errBox) { errBox.style.display = 'block'; errBox.textContent = parseApiError(e, 'Jurisdiktion konnte nicht gespeichert werden.'); }
+  }
+}
+
+// ── Home-Bias-Defaults (sec-home-bias-defaults) ─────────────────────────────
+var adminHomeBiasState = { rows: [] };
+
+async function loadAdminHomeBiasDefaults(){
+  var sel = document.getElementById('hbd-filter-jurisdiction');
+  var code = sel ? sel.value : 'CH';
+  var hint = document.getElementById('hbd-ch-hint');
+  var content = document.getElementById('hbd-content');
+  var errBox = document.getElementById('hbd-error');
+  if (errBox) { errBox.style.display = 'none'; errBox.textContent = ''; }
+  if (code === 'CH') {
+    if (hint) hint.style.display = 'block';
+    if (content) content.style.display = 'none';
+    return;
+  }
+  if (hint) hint.style.display = 'none';
+  if (content) content.style.display = 'block';
+  var tbody = document.getElementById('hbd-list-tbody');
+  if (tbody) tbody.innerHTML = '<tr><td colspan="6">Laedt...</td></tr>';
+  try {
+    var rows = await API.get('/jurisdictions/' + encodeURIComponent(code) + '/home-bias-defaults');
+    adminHomeBiasState.rows = Array.isArray(rows) ? rows : [];
+    adminRenderHomeBiasDefaultsTable(code);
+  } catch(e) {
+    if (tbody) tbody.innerHTML = '<tr><td colspan="6">Fehler</td></tr>';
+    if (errBox) { errBox.style.display = 'block'; errBox.textContent = parseApiError(e, 'Home-Bias-Defaults konnten nicht geladen werden.'); }
+  }
+}
+
+function adminRenderHomeBiasDefaultsTable(code){
+  var tbody = document.getElementById('hbd-list-tbody');
+  if (!tbody) return;
+  var rows = adminHomeBiasState.rows;
+  if (!rows.length) { tbody.innerHTML = '<tr><td colspan="6" style="color:var(--n4)">Keine Home-Bias-Defaults fuer ' + escapeHtml(code) + '.</td></tr>'; return; }
+  var sorted = rows.slice().sort(function(a,b){
+    var ak = String(a.preference_key || '') + '' + String(a.preference_value || '');
+    var bk = String(b.preference_key || '') + '' + String(b.preference_value || '');
+    return ak.localeCompare(bk);
+  });
+  var html = '';
+  sorted.forEach(function(row){
+    var rid = escapeHtml(row.id);
+    html += '<tr>'
+      + '<td>' + escapeHtml(row.preference_key) + '</td>'
+      + '<td>' + escapeHtml(row.preference_value) + '</td>'
+      + '<td>' + escapeHtml(row.sub_asset_class) + '</td>'
+      + '<td><input class="fi" type="number" min="0" max="10000" id="hbd-split-' + rid + '" value="' + escapeHtml(row.split_bps) + '" style="font-size:11px;width:90px"></td>'
+      + '<td>' + (row.is_provisional ? '<span class="admin-badge warn no-dot">provisorisch</span>' : '<span class="admin-badge ok no-dot">final</span>') + '</td>'
+      + '<td style="text-align:right;white-space:nowrap">'
+        + '<button class="admin-icon-btn" onclick="adminUpdateHomeBiasDefault(\'' + jsAttrArg(code) + '\',\'' + jsAttrArg(row.id) + '\')">Speichern</button> '
+        + '<button class="admin-icon-btn danger" onclick="adminDeleteHomeBiasDefault(\'' + jsAttrArg(code) + '\',\'' + jsAttrArg(row.id) + '\')">Loeschen</button>'
+      + '</td>'
+      + '</tr>';
+  });
+  tbody.innerHTML = html;
+}
+
+async function adminCreateHomeBiasDefault(){
+  var sel = document.getElementById('hbd-filter-jurisdiction');
+  var code = sel ? sel.value : '';
+  var errBox = document.getElementById('hbd-error');
+  if (errBox) { errBox.style.display = 'none'; errBox.textContent = ''; }
+  if (!code || code === 'CH') {
+    if (errBox) { errBox.style.display = 'block'; errBox.textContent = 'Bitte zuerst eine Nicht-CH-Jurisdiktion waehlen.'; }
+    return;
+  }
+  var key = ((document.getElementById('hbd-new-key')||{}).value || '').trim();
+  var value = ((document.getElementById('hbd-new-value')||{}).value || '').trim();
+  var subclass = ((document.getElementById('hbd-new-subclass')||{}).value || '').trim();
+  var splitRaw = (document.getElementById('hbd-new-split')||{}).value || '';
+  var split = parseInt(splitRaw, 10);
+  if (!key || !value || !subclass || !isFinite(split) || split < 0 || split > 10000) {
+    if (errBox) { errBox.style.display = 'block'; errBox.textContent = 'Bitte alle Felder gueltig ausfuellen (Split 0-10000 Bps).'; }
+    return;
+  }
+  try {
+    await API.post('/jurisdictions/' + encodeURIComponent(code) + '/home-bias-defaults', {
+      preference_key: key,
+      preference_value: value,
+      sub_asset_class: subclass,
+      split_bps: split,
+    });
+    document.getElementById('hbd-new-key').value = '';
+    document.getElementById('hbd-new-value').value = '';
+    document.getElementById('hbd-new-subclass').value = '';
+    document.getElementById('hbd-new-split').value = '';
+    loadAdminHomeBiasDefaults();
+  } catch(e) {
+    if (errBox) { errBox.style.display = 'block'; errBox.textContent = parseApiError(e, 'Home-Bias-Default konnte nicht angelegt werden.'); }
+  }
+}
+
+async function adminUpdateHomeBiasDefault(code, rowId){
+  var errBox = document.getElementById('hbd-error');
+  if (errBox) { errBox.style.display = 'none'; errBox.textContent = ''; }
+  var input = document.getElementById('hbd-split-' + rowId);
+  var raw = input ? input.value : '';
+  var split = parseInt(raw, 10);
+  if (!isFinite(split) || split < 0 || split > 10000) {
+    if (errBox) { errBox.style.display = 'block'; errBox.textContent = 'Split muss zwischen 0 und 10000 Bps liegen.'; }
+    return;
+  }
+  try {
+    await API.put('/jurisdictions/' + encodeURIComponent(code) + '/home-bias-defaults/' + encodeURIComponent(rowId), { split_bps: split });
+    loadAdminHomeBiasDefaults();
+  } catch(e) {
+    if (errBox) { errBox.style.display = 'block'; errBox.textContent = parseApiError(e, 'Home-Bias-Default konnte nicht gespeichert werden.'); }
+  }
+}
+
+async function adminDeleteHomeBiasDefault(code, rowId){
+  if (!adminConfirmRisk('Home-Bias-Default entfernen', 'Diese Zeile faellt bei der naechsten Ziel-Allokations-Berechnung fuer diese Jurisdiktion weg. Nur entfernen, wenn ein Ersatz existiert oder die Praeferenz absichtlich nicht mehr unterstuetzt wird.')) return;
+  var errBox = document.getElementById('hbd-error');
+  if (errBox) { errBox.style.display = 'none'; errBox.textContent = ''; }
+  try {
+    await API.del('/jurisdictions/' + encodeURIComponent(code) + '/home-bias-defaults/' + encodeURIComponent(rowId));
+    loadAdminHomeBiasDefaults();
+  } catch(e) {
+    if (errBox) { errBox.style.display = 'block'; errBox.textContent = parseApiError(e, 'Home-Bias-Default konnte nicht geloescht werden.'); }
+  }
+}
+
+// ── CMA-Jurisdiktions-Erweiterung (sec-cma) ─────────────────────────────────
+var adminCmaJurisdictionState = { code: 'CH', current: null };
+
+var ADMIN_CMA_STATUS_META = {
+  provisional:        { label: 'Provisorisch',      tone: 'warn' },
+  data_derived:        { label: 'Daten-abgeleitet',  tone: 'info' },
+  committee_approved: { label: 'IC-freigegeben',     tone: 'ok' },
+};
+function adminCmaStatusBadge(status){
+  var m = ADMIN_CMA_STATUS_META[status] || { label: status || '—', tone: 'neutral' };
+  return '<span class="admin-badge ' + m.tone + ' no-dot">' + escapeHtml(m.label) + '</span>';
+}
+
+function adminCmaJurisdictionChanged(){
+  var sel = document.getElementById('cma-filter-jurisdiction');
+  var code = sel ? sel.value : 'CH';
+  adminCmaJurisdictionState.code = code;
+  var chForm = document.getElementById('cma-ch-form');
+  var nonChPanel = document.getElementById('cma-nonch-panel');
+  if (code === 'CH') {
+    if (chForm) chForm.style.display = '';
+    if (nonChPanel) nonChPanel.style.display = 'none';
+    return;
+  }
+  if (chForm) chForm.style.display = 'none';
+  if (nonChPanel) nonChPanel.style.display = 'block';
+  loadAdminCmaForJurisdiction(code);
+}
+
+async function loadAdminCmaForJurisdiction(code){
+  if (!code || code === 'CH') return;
+  var summary = document.getElementById('cma-nonch-summary');
+  var errBox = document.getElementById('cma-nonch-error');
+  if (errBox) { errBox.style.display = 'none'; errBox.textContent = ''; }
+  if (summary) summary.innerHTML = 'Laedt…';
+  var computeBtn = document.getElementById('btn-cma-compute-candidate');
+  if (computeBtn) computeBtn.style.display = adminCanManagePortfolioCommittee() ? 'inline-block' : 'none';
+  try {
+    var cma = await API.get('/capital-market-assumptions/current?jurisdiction=' + encodeURIComponent(code));
+    adminCmaJurisdictionState.current = cma;
+    adminRenderCmaJurisdictionSummary(cma);
+  } catch(e) {
+    adminCmaJurisdictionState.current = null;
+    if (summary) {
+      summary.innerHTML = '<div class="admin-empty">'
+        + '<div class="admin-empty-title">Noch keine Kapitalmarktannahmen fuer ' + escapeHtml(code) + '</div>'
+        + '<div class="admin-empty-body">Mit &quot;Kandidat aus Marktdaten berechnen&quot; einen ersten Kandidaten erzeugen.</div>'
+        + '</div>';
+    }
+  }
+}
+
+function adminRenderCmaJurisdictionSummary(cma){
+  var summary = document.getElementById('cma-nonch-summary');
+  if (!summary || !cma) return;
+  var isApproved = cma.status === 'committee_approved';
+  var badge = adminCmaStatusBadge(cma.status);
+  var warn = isApproved
+    ? ''
+    : ('<div class="admin-risk-note warn"><strong>PROVISORISCH</strong> Diese Annahmen sind noch nicht durch das Investment Committee freigegeben (Status: '
+        + escapeHtml(cma.status || '-') + ') und duerfen NICHT in finale Kundendokumente einfliessen.</div>');
+  var approveBtn = (!isApproved && adminCanManagePortfolioCommittee())
+    ? '<button class="btn-p admin-primary-btn" onclick="adminApproveCma(\'' + jsAttrArg(cma.id) + '\')">Freigeben</button>'
+    : '';
+  summary.innerHTML = warn
+    + '<div class="admin-summary-panel">'
+      + '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">' + badge + '<strong>' + escapeHtml(cma.assumption_set_name || '') + '</strong> v' + escapeHtml(cma.version) + '</div>'
+      + '<div style="font-size:9.5px;color:var(--n5);margin-top:4px">Berechnet: ' + escapeHtml(adminFormatDateTime(cma.computed_at)) + (cma.computed_by ? (' · von ' + escapeHtml(cma.computed_by)) : '') + '</div>'
+      + (cma.source_detail ? ('<div style="font-size:9.5px;color:var(--n5);margin-top:4px">Quelle: ' + escapeHtml(cma.source_detail) + '</div>') : '')
+      + '<div style="margin-top:8px">' + approveBtn + '</div>'
+    + '</div>';
+}
+
+async function adminComputeCmaCandidate(){
+  var code = adminCmaJurisdictionState.code;
+  var errBox = document.getElementById('cma-nonch-error');
+  if (errBox) { errBox.style.display = 'none'; errBox.textContent = ''; }
+  if (!code || code === 'CH') return;
+  if (!adminConfirmRisk(
+    'Kandidat aus Marktdaten berechnen?',
+    'Erzeugt eine neue, NICHT aktive Kapitalmarktannahme aus echten Marktdaten (Zinskurve + Aktienbewertung). Muss anschliessend vom Investment Committee freigegeben werden, bevor sie in Kundendokumente einfliessen darf.'
+  )) return;
+  var btn = document.getElementById('btn-cma-compute-candidate');
+  if (btn) { btn.disabled = true; btn.textContent = 'Berechnet...'; }
+  try {
+    var cma = await API.post('/jurisdictions/' + encodeURIComponent(code) + '/cma/compute-candidate', {});
+    adminCmaJurisdictionState.current = cma;
+    adminRenderCmaJurisdictionSummary(cma);
+    try { if (window.showAppSuccess) showAppSuccess('Kandidat berechnet (Status: ' + cma.status + ')', {title:'Kapitalmarktannahmen'}); } catch(noticeErr){}
+  } catch(e) {
+    if (errBox) { errBox.style.display = 'block'; errBox.textContent = parseApiError(e, 'Kandidat konnte nicht berechnet werden.'); }
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Kandidat aus Marktdaten berechnen'; }
+  }
+}
+
+async function adminApproveCma(id){
+  var errBox = document.getElementById('cma-nonch-error');
+  if (errBox) { errBox.style.display = 'none'; errBox.textContent = ''; }
+  if (!adminConfirmRisk(
+    'Kapitalmarktannahme freigeben?',
+    'Setzt den Status auf "IC-freigegeben" und aktiviert diese Version sofort. Erst danach duerfen diese Annahmen in finale Kundendokumente einfliessen.'
+  )) return;
+  try {
+    var cma = await API.post('/capital-market-assumptions/' + encodeURIComponent(id) + '/approve', {});
+    adminCmaJurisdictionState.current = cma;
+    adminRenderCmaJurisdictionSummary(cma);
+    try { if (window.showAppSuccess) showAppSuccess('Freigegeben.', {title:'Kapitalmarktannahmen'}); } catch(noticeErr){}
+  } catch(e) {
+    if (errBox) { errBox.style.display = 'block'; errBox.textContent = parseApiError(e, 'Freigabe fehlgeschlagen.'); }
   }
 }
 
@@ -24180,6 +24568,8 @@ function openStammdatenModal(){
         <button id="asec-returns" onclick="adminShowSection('sec-returns')" class="admin-sec-btn" data-admin-category="daten">Jahresrenditen</button>
         <button id="asec-acprices" onclick="adminShowSection('sec-acprices')" class="admin-sec-btn" data-admin-category="daten">Tageskurse</button>
         <button id="asec-product-universe" onclick="adminShowSection('sec-product-universe')" class="admin-sec-btn" data-admin-category="daten">Fonds-Universum</button>
+        <button id="asec-jurisdictions" onclick="adminShowSection('sec-jurisdictions')" class="admin-sec-btn" data-admin-category="daten">Jurisdiktionen</button>
+        <button id="asec-home-bias-defaults" onclick="adminShowSection('sec-home-bias-defaults')" class="admin-sec-btn" data-admin-category="daten">Home-Bias-Defaults</button>
 
         <div class="admin-nav-label" data-admin-category="annahmen">Kapitalmarkt-Annahmen</div>
         <button id="asec-cma" onclick="adminShowSection('sec-cma')" class="admin-sec-btn" data-admin-category="annahmen">Annahmen</button>
@@ -24476,6 +24866,51 @@ function openStammdatenModal(){
           <div id="pu-error" style="display:none;color:var(--neg);font-size:10px"></div>
         </div>
 
+        <!-- ══ SEC: JURISDIKTIONEN (WP5, 2026-07-31) ══ -->
+        <div id="sec-jurisdictions" class="admin-sec-panel" style="display:none;gap:14px;">
+          <div class="admin-section-title">Jurisdiktionen</div>
+          <div class="admin-section-sub">Stammdaten pro Land (Waehrung, Freigabestatus). Die Schweiz-Zeile ist strukturell gesperrt — Anlagephilosophie, Kapitalmarktannahmen und Home-Bias fuer CH sind im Code hinterlegt und werden nie ueber diese Verwaltung veraendert.</div>
+          <div style="display:flex;justify-content:flex-end">
+            <button class="btn" style="background:var(--bg2);color:var(--n6)" onclick="loadAdminJurisdictions()">Aktualisieren</button>
+          </div>
+          <div id="jur-list-wrap" class="admin-tbl-wrap">
+            <table class="admin-tbl">
+              <thead><tr><th>Code</th><th>Bezeichnung</th><th>Waehrung</th><th>Status</th><th>Aktiv</th><th></th></tr></thead>
+              <tbody id="jur-list-tbody"><tr><td colspan="6">Laedt...</td></tr></tbody>
+            </table>
+          </div>
+          <div id="jur-error" style="display:none;color:var(--neg);font-size:10px"></div>
+        </div>
+
+        <!-- ══ SEC: HOME-BIAS-DEFAULTS (WP5, 2026-07-31) ══ -->
+        <div id="sec-home-bias-defaults" class="admin-sec-panel" style="display:none;gap:14px;">
+          <div class="admin-section-title">Home-Bias-Defaults</div>
+          <div class="admin-section-sub">Normalisierte Split-Vorgaben (Bps) zwischen Heimmarkt- und globaler Variante pro Sub-Anlageklasse, gruppiert nach Praeferenz-Key/-Wert (z.B. equitiesGeo/default). Schweiz nutzt dafuer keine Datenbank-Zeilen — die Splits sind hartcodiert in der Engine.</div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <label style="font-size:9px;color:var(--n4)">Jurisdiktion:</label>
+            <select class="fsel" id="hbd-filter-jurisdiction" style="font-size:11px;width:auto" onchange="loadAdminHomeBiasDefaults()"><option value="CH">Schweiz (CH)</option></select>
+            <button class="btn" style="background:var(--bg2);color:var(--n6)" onclick="loadAdminHomeBiasDefaults()">Aktualisieren</button>
+          </div>
+          <div id="hbd-ch-hint" class="admin-risk-note" style="display:none"><strong>Hinweis</strong> Schweiz nutzt hartcodierte Werte, keine DB-Zeilen — hier nicht editierbar.</div>
+          <div id="hbd-content" style="display:none">
+            <div class="admin-risk-note warn"><strong>Fachliche Wirkung</strong> Diese Splits steuern, wie die Empfehlungs-Engine innerhalb einer Sub-Anlageklasse zwischen Heimmarkt- und globaler Variante gewichtet — nur fuer Mandate mit dieser Jurisdiktion.</div>
+            <div style="display:grid;grid-template-columns:140px 160px 1fr 110px auto;gap:8px;align-items:end;">
+              <div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Praeferenz-Key</label><input class="fi" id="hbd-new-key" placeholder="z.B. equitiesGeo" style="font-size:11px"></div>
+              <div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Praeferenz-Wert</label><input class="fi" id="hbd-new-value" placeholder="z.B. default" style="font-size:11px"></div>
+              <div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Sub-Anlageklasse</label><input class="fi" id="hbd-new-subclass" placeholder="z.B. Aktien Deutschland Fokus" style="font-size:11px"></div>
+              <div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Split (Bps)</label><input class="fi" id="hbd-new-split" type="number" min="0" max="10000" style="font-size:11px"></div>
+              <button class="btn-p admin-primary-btn" onclick="adminCreateHomeBiasDefault()" id="btn-hbd-create">Hinzufuegen</button>
+            </div>
+            <div id="hbd-list-wrap" class="admin-tbl-wrap">
+              <table class="admin-tbl">
+                <thead><tr><th>Praeferenz-Key</th><th>Praeferenz-Wert</th><th>Sub-Anlageklasse</th><th>Split (Bps)</th><th>Status</th><th></th></tr></thead>
+                <tbody id="hbd-list-tbody"><tr><td colspan="6">Laedt...</td></tr></tbody>
+              </table>
+            </div>
+          </div>
+          <div id="hbd-error" style="display:none;color:var(--neg);font-size:10px"></div>
+        </div>
+
         <!-- ══ SEC: CMA ANNAHMEN ══ -->
         <div id="sec-cma" class="admin-sec-panel" style="display:none;gap:14px;">
           <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;">
@@ -24491,17 +24926,39 @@ function openStammdatenModal(){
               <button class="btn-p admin-primary-btn" onclick="saveAdminCapitalMarketAssumptions()" id="btn-admin-cma-save">Speichern</button>
             </div>
           </div>
-          <div id="admin-cma-summary" class="admin-summary-panel">Annahmen werden geladen…</div>
-          <div style="display:grid;grid-template-columns:1fr 140px 140px;gap:10px;">
-            <div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Set-Name</label><input class="fi" id="admin-cma-name" placeholder="Standard" style="font-size:11px"></div>
-            <div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Gültig ab</label><input class="fi" id="admin-cma-valid-from" type="date" style="font-size:11px"></div>
-            <div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Gültig bis</label><input class="fi" id="admin-cma-valid-until" type="date" style="font-size:11px"></div>
+          <!-- WP5 (2026-07-31, Laender-Skalierung): Jurisdiktions-Filter. CH bleibt
+               Default -- die bestehenden Eingabefelder/Speichern-Flow darunter (cma-ch-form)
+               sind fachlich AUSSCHLIESSLICH fuer CH gedacht (bonds_chf_ig_*/equity_ch_*/
+               real_estate_ch_* Spalten). Fuer jede andere Jurisdiktion werden diese Felder
+               ausgeblendet und stattdessen cma-nonch-panel gezeigt -- so kann "Speichern"
+               (das immer ohne jurisdiction-Query-Param, also gegen CH, sendet) nie versehentlich
+               fuer eine andere Jurisdiktion gedacht sein. -->
+          <div style="display:flex;gap:8px;align-items:center;">
+            <label style="font-size:9px;color:var(--n4)">Jurisdiktion:</label>
+            <select class="fsel" id="cma-filter-jurisdiction" style="font-size:11px;width:auto" onchange="adminCmaJurisdictionChanged()"><option value="CH">Schweiz (CH)</option></select>
           </div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
-            <div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Quelle</label><input class="fi" id="admin-cma-source" placeholder="Portfolio Management intern" style="font-size:11px"></div>
-            <div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Notiz</label><input class="fi" id="admin-cma-notes" placeholder="Investment Committee April 2026" style="font-size:11px"></div>
+          <div id="cma-ch-form">
+            <div id="admin-cma-summary" class="admin-summary-panel">Annahmen werden geladen…</div>
+            <div style="display:grid;grid-template-columns:1fr 140px 140px;gap:10px;">
+              <div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Set-Name</label><input class="fi" id="admin-cma-name" placeholder="Standard" style="font-size:11px"></div>
+              <div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Gültig ab</label><input class="fi" id="admin-cma-valid-from" type="date" style="font-size:11px"></div>
+              <div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Gültig bis</label><input class="fi" id="admin-cma-valid-until" type="date" style="font-size:11px"></div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+              <div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Quelle</label><input class="fi" id="admin-cma-source" placeholder="Portfolio Management intern" style="font-size:11px"></div>
+              <div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Notiz</label><input class="fi" id="admin-cma-notes" placeholder="Investment Committee April 2026" style="font-size:11px"></div>
+            </div>
+            <div id="admin-cma-error" style="display:none;color:var(--neg);font-size:10px"></div>
           </div>
-          <div id="admin-cma-error" style="display:none;color:var(--neg);font-size:10px"></div>
+          <div id="cma-nonch-panel" style="display:none">
+            <div class="admin-section-sub">Kapitalmarktannahmen fuer diese Jurisdiktion werden NICHT manuell in diesen Feldern gepflegt, sondern ausschliesslich aus echten Marktdaten berechnet (Nelson-Siegel-Zinskurve + KGV-Mean-Reversion) und anschliessend durch das Investment Committee freigegeben.</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+              <button class="btn-p admin-primary-btn" id="btn-cma-compute-candidate" style="display:none" onclick="adminComputeCmaCandidate()">Kandidat aus Marktdaten berechnen</button>
+              <button class="btn" style="background:var(--bg2);color:var(--n6)" onclick="loadAdminCmaForJurisdiction(adminCmaJurisdictionState.code)">Aktualisieren</button>
+            </div>
+            <div id="cma-nonch-summary" style="margin-top:10px">Laedt…</div>
+            <div id="cma-nonch-error" style="display:none;color:var(--neg);font-size:10px;margin-top:6px"></div>
+          </div>
         </div>
 
         <!-- ══ SEC: RENDITE & VOLATILITÄT ══ -->

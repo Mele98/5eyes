@@ -8,6 +8,10 @@ Test prueft nur die HTML-Struktur/Navigation, keine Fachlogik.
 
 2026-07-29 (Laender-Skalierung): 18. Sektion "Fonds-Universum"
 (sec-product-universe) unter der bestehenden Kategorie "daten" ergaenzt.
+
+2026-07-31 (Deutschland-Anbindung, WP5): 19./20. Sektion "Jurisdiktionen"
+(sec-jurisdictions) und "Home-Bias-Defaults" (sec-home-bias-defaults),
+ebenfalls unter "daten".
 """
 from __future__ import annotations
 
@@ -32,6 +36,8 @@ EXPECTED_SECTIONS = {
     "sec-returns": "asec-returns",
     "sec-acprices": "asec-acprices",
     "sec-product-universe": "asec-product-universe",
+    "sec-jurisdictions": "asec-jurisdictions",
+    "sec-home-bias-defaults": "asec-home-bias-defaults",
     "sec-cma": "asec-cma",
     "sec-cma-rv": "asec-cma-rv",
     "sec-cma-inf": "asec-cma-inf",
@@ -56,6 +62,8 @@ EXPECTED_CATEGORY_BY_BUTTON = {
     "asec-returns": "daten",
     "asec-acprices": "daten",
     "asec-product-universe": "daten",
+    "asec-jurisdictions": "daten",
+    "asec-home-bias-defaults": "daten",
     "asec-cma": "annahmen",
     "asec-cma-rv": "annahmen",
     "asec-cma-inf": "annahmen",
@@ -90,7 +98,7 @@ def _admin_sidebar_block(html: str) -> str:
     return html[start:end]
 
 
-def test_all_18_sections_still_present():
+def test_all_20_sections_still_present():
     html = _html()
     for sec_id, asec_id in EXPECTED_SECTIONS.items():
         assert f'id="{sec_id}"' in html, f"Sektion {sec_id} fehlt im Admin-Panel"
@@ -98,7 +106,7 @@ def test_all_18_sections_still_present():
         assert f"adminShowSection('{sec_id}')" in html, (
             f"Nav-Button {asec_id} ist nicht mehr an adminShowSection('{sec_id}') gebunden"
         )
-    assert len(EXPECTED_SECTIONS) == 18
+    assert len(EXPECTED_SECTIONS) == 20
 
 
 def test_every_nav_button_has_exactly_one_category():
@@ -136,5 +144,5 @@ def test_category_labels_present_and_grounded_in_real_sections():
 def test_no_orphan_admin_sec_btn_without_category():
     sidebar = _admin_sidebar_block(_html())
     all_buttons = re.findall(r'<button\s+id="(asec-[\w-]+)"', sidebar)
-    assert len(all_buttons) == 18
+    assert len(all_buttons) == 20
     assert set(all_buttons) == set(EXPECTED_CATEGORY_BY_BUTTON)

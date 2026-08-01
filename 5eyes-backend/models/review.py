@@ -215,6 +215,20 @@ class Product(Base):
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
     deleted_at = Column(String)
+    # 2026-08-01 (Laender-Skalierung, Cross-Jurisdiktions-Leck-Fix): Land, fuer
+    # das dieses Produkt kuratiert wurde (z.B. "CH", "DE"). NULL = "CH"
+    # (Backwards-Compat, gleiches Nullable-Pattern wie Mandate.jurisdiction).
+    # ZWECK: _filter_products_by_universe() in services/portfolio_engine.py
+    # nutzt dieses Feld als FALLBACK-Filter, wenn fuer ein Mandat KEINE
+    # ProductUniverseEntry-Zeilen existieren (der Normalfall) -- ohne dieses
+    # Feld wuerde ein CH-Mandat ohne eigene Kuratierung automatisch JEDES
+    # in der Installation angelegte Nicht-CH-Produkt sehen (echtes, per
+    # Integrationstest gefundenes Datenleck: tests/test_de_onboarding_
+    # integration.py::test_ch_mandate_unaffected_by_coexisting_de_fixtures_
+    # in_same_db). Aendert NICHTS am CH-Verhalten, solange kein Produkt
+    # explizit mit jurisdiction != "CH"/NULL angelegt wird (Golden-Snapshot-
+    # Test bleibt gruen, da das Bestandskatalog komplett NULL ist).
+    jurisdiction = Column(String)
 
     suitability = relationship("ProductSuitability", back_populates="product")
     price_history = relationship("PriceHistory", back_populates="product")

@@ -193,13 +193,20 @@ def test_r2_portfolio_engine_target_allocation_uses_for_update():
 def test_r2_allocation_update_cma_uses_for_update():
     """2026-07-25 (Generalaudit, Wave 11): update_cma war die einzige
     is_current-Supersede-Stelle im Codebase OHNE with_for_update() --
-    nachgetragen, analog zu allen anderen Anchor-Lookups oben."""
+    nachgetragen, analog zu allen anderen Anchor-Lookups oben.
+
+    2026-07-31 (WP3, Jurisdiktions-Verwaltung): die Query wird jetzt bedingt
+    um jurisdiction/tenant_id-Filter erweitert und deshalb in einer
+    Zwischenvariable (`prev_query`) statt direkt in `prev` aufgebaut -- die
+    Regex ankert daher auf den `is_current == 1`-Filter (statt auf die exakte
+    `prev = ...`-Zuweisung), um diesen weiterhin harmlosen Strukturwandel
+    nicht mit einer echten Regression zu verwechseln."""
     src = _read_source("routers/allocation.py")
     snippet = re.search(
-        r"prev = db\.query\(CapitalMarketAssumption\)\.filter\([^)]*?\)[\s\S]*?\.first\(\)",
+        r"db\.query\(CapitalMarketAssumption\)\.filter\(\s*CapitalMarketAssumption\.is_current == 1[\s\S]{0,600}?\.first\(\)",
         src,
     )
-    assert snippet, "CapitalMarketAssumption anchor lookup nicht gefunden"
+    assert snippet, "CapitalMarketAssumption anchor lookup (is_current==1) nicht gefunden"
     assert "with_for_update" in snippet.group(0), (
         "CapitalMarketAssumption anchor-lookup muss with_for_update() haben."
     )

@@ -23,6 +23,7 @@ from models.allocation import (
     OptimizerRun,
     TargetAllocation,
 )
+from models.jurisdiction import JurisdictionProfile
 from models.mandates import Mandate
 from models.profiling import RiskAssessment
 from models.review import (
@@ -47,6 +48,18 @@ from services.cashflow_timeline import (
 from services.wealth_cashflows import derive_wealth_cashflows, mortgage_interest_adjustment_series
 from services.product_market_data import resolve_market_profile, validate_default_product_market_coverage
 from services.planning_horizon import life_expectancy_year_for
+from services.jurisdiction.de_seed import (
+    DE_DEFAULT_BONDS_DURATION,
+    DE_DEFAULT_EQUITIES_GEO,
+    DE_DEFAULT_REALESTATE_MARKET,
+)
+from services.jurisdiction.exceptions import JurisdictionReferenceDataMissingError
+from services.jurisdiction.resolve import (
+    resolve_building_blocks_for_jurisdiction,
+    resolve_cma_for_jurisdiction,
+    resolve_home_bias_defaults,
+    resolve_mandate_jurisdiction,
+)
 from services.risk_matrix import (
     RiskBudgetExceeded,
     assert_risk_budget_ok,
@@ -1501,6 +1514,97 @@ _ASSET_CLASS_LABEL_TO_BUCKET = {
     "Liquiditaet": "liquidity",
 }
 
+# WP2 (Engine-Wiring Jurisdiktion, 2026-07-31): der hartcodierte CH-Kontext
+# fuer die chf_only-/Hedging-/Home-Bias-Produktfilter (siehe
+# _product_matches_constraints, _product_score, _product_is_chf_or_fx_hedged
+# und _resolve_jurisdiction_context()). Wird IMMER 1:1 fuer CH verwendet --
+# das garantiert, dass die dortigen String-Vergleiche exakt "CHF"/"Schweiz"
+# bleiben, unabhaengig von der DB (Constraint 1: CH-Pfad byte-identisch).
+_CH_JURISDICTION_CONTEXT: dict[str, str] = {
+    "jurisdiction": "CH",
+    "home_currency": "CHF",
+    "home_equity_label": "Schweiz",
+}
+
+# Bekannte Sub-Asset-Class-Label-Praefixe (siehe eq_splits/bond_splits/
+# re_splits in _build_sub_allocations sowie services/jurisdiction/de_seed.py)
+# -- verwendet von _bare_market_token(), um aus einem vollen Home-Bias-Label
+# (z.B. "Aktien Deutschland") das reine Land/Markt-Token ("Deutschland")
+# abzuleiten, analog zum CH-Bestandswert "Schweiz" (bare Token, matcht per
+# Substring sowohl Aktien- als auch Immobilien-Sub-Klassen in _product_score).
+_SUB_ASSET_CLASS_LABEL_PREFIXES = ("Aktien ", "Obligationen ", "Immobilien ")
+
+
+def _bare_market_token(label: str) -> str:
+    """Entfernt ein bekanntes Asset-Class-Praefix von einem Home-Bias-Label.
+
+    "Aktien Deutschland" -> "Deutschland". Label ohne bekanntes Praefix
+    werden unveraendert zurueckgegeben (defensiv, kein Crash bei
+    unerwarteten Label-Formen)."""
+    for prefix in _SUB_ASSET_CLASS_LABEL_PREFIXES:
+        if label.startswith(prefix):
+            return label[len(prefix):]
+    return label
+
+
+def _resolve_home_equity_label(db: Session, jurisdiction: str) -> str:
+    """Staerkstes (hoechstgewichtetes) Label aus den equitiesGeo-Home-Bias-
+    DEFAULT-Splits einer Nicht-CH-Jurisdiktion (z.B. "Aktien Deutschland").
+
+    Pragmatische, dokumentierte Wahl (die Aufgabenstellung raeumt hier
+    explizit Wahlfreiheit ein): der equitiesGeo-DEFAULT ("<Land> Fokus")
+    enthaelt naturgemaess den Heimmarkt mit dem hoechsten split_bps-Gewicht
+    -- unabhaengig davon, welche equitiesGeo-Praeferenz das Mandat tatsaechlich
+    gewaehlt hat. Wird u.a. fuer den Small/Mid-Cap-Satelliten in
+    _build_sub_allocations() benoetigt (Ersatz fuer das CH-hartcodierte
+    "Aktien Schweiz").
+
+    NUR fuer jurisdiction NICHT in (None, "CH") aufrufen -- ruft
+    resolve_home_bias_defaults() auf, die fuer CH einen ValueError wirft.
+    """
+    splits = resolve_home_bias_defaults(db, jurisdiction, "equitiesGeo", DE_DEFAULT_EQUITIES_GEO)
+    return max(splits, key=lambda item: item[1])[0]
+
+
+def _resolve_jurisdiction_context(db: Session, mandate: Mandate, jurisdiction: str | None) -> dict:
+    """WP2 (2026-07-31): kleiner, EINMAL pro generate_target_allocation()/
+    generate_recommendation_run()-Lauf aufgeloester Kontext fuer die
+    chf_only-/Hedging-/Home-Bias-Produktfilter (_product_matches_constraints,
+    _product_score, _product_is_chf_or_fx_hedged).
+
+    - jurisdiction in (None, "CH"): IMMER der hartcodierte _CH_JURISDICTION_
+      CONTEXT (Constraint 1: CH-Pfad byte-identisch, unabhaengig vom DB-Inhalt).
+    - andere jurisdiction: home_currency bevorzugt aus mandate.base_currency
+      (die Mandats-Fuehrungswaehrung ist die naheliegendste, bereits
+      vorhandene Quelle fuer "in welcher Waehrung ist dieses Mandat zuhause");
+      ohne gesetzte base_currency Fallback auf
+      JurisdictionProfile.home_currency (Stammdaten-Zeile der Jurisdiktion).
+      home_equity_label: bare Markt-Token (siehe _bare_market_token()) aus
+      _resolve_home_equity_label() -- z.B. "Deutschland".
+    """
+    if jurisdiction in (None, "CH"):
+        return dict(_CH_JURISDICTION_CONTEXT)
+
+    home_currency = str(getattr(mandate, "base_currency", None) or "").strip().upper()
+    if not home_currency:
+        profile = db.query(JurisdictionProfile).filter(
+            JurisdictionProfile.code == jurisdiction,
+        ).first()
+        home_currency = str(getattr(profile, "home_currency", None) or "").strip().upper()
+    if not home_currency:
+        raise JurisdictionReferenceDataMissingError(
+            f"Keine Heimwaehrung fuer Jurisdiktion '{jurisdiction}' ermittelbar "
+            "(weder mandate.base_currency noch JurisdictionProfile.home_currency gesetzt)."
+        )
+
+    home_equity_label = _bare_market_token(_resolve_home_equity_label(db, jurisdiction))
+
+    return {
+        "jurisdiction": jurisdiction,
+        "home_currency": home_currency,
+        "home_equity_label": home_equity_label,
+    }
+
 
 def _cholesky(matrix: list[list[float]]) -> list[list[float]]:
     """Lower-triangular Cholesky decomposition of a positive-definite matrix.
@@ -1736,19 +1840,53 @@ def _asset_class_expected_metrics(cma: CapitalMarketAssumption) -> tuple[dict[st
 
     Sprint U-P2 Fix C6: zusaetzlich werden NS/KGV/RP-Adjustments angewendet
     (vorher nur im Optimizer-Solver aktiv).
+
+    WP2 (Engine-Wiring Jurisdiktion, 2026-07-31): fuer cma.jurisdiction NICHT
+    in (None, "CH") werden statt der equity_ch_*/bonds_chf_ig_*/real_estate_ch_*-
+    Spalten die generischen equity_home_*/bonds_home_ig_*/real_estate_home_*-
+    Spalten DERSELBEN CMA-Zeile gelesen (additive Spalten aus WP1, siehe
+    models/allocation.py). Die Jurisdiktion wird bewusst aus cma.jurisdiction
+    abgeleitet statt als eigener Parameter durchgereicht -- die beiden
+    Aufrufer (siehe unten) haben ohnehin nur `cma` im Scope, und cma.jurisdiction
+    ist nach WP1 die Quelle der Wahrheit fuer "zu welcher Jurisdiktion gehoert
+    diese CMA-Zeile". alternatives_*/liquidity_* bleiben jurisdiktionsunabhaengige,
+    generische Marktannahmen (kein Home-*-Gegenstueck im Schema) -- unveraendert.
+    Fehlende equity_home_*/bonds_home_ig_*/real_estate_home_*-Werte (z.B. eine
+    "provisional"-CMA-Zeile ohne PE-Proxy) fallen auf dieselben generischen
+    Sentinel-Defaults zurueck wie der CH-Zweig (500/180/350/1200/350/700 bps) --
+    das sind KEINE fuer eine neue Jurisdiktion erfundenen Zahlen, sondern die
+    bereits bestehenden, jurisdiktionsunabhaengigen Engine-Sicherheitsnetz-Werte.
     """
+    if getattr(cma, "jurisdiction", None) in (None, "CH"):
+        returns = {
+            "equities": int(round(((cma.equity_ch_return_bps or 500) + (cma.equity_intl_return_bps or 650)) / 2)),
+            "bonds": int(round(((cma.bonds_chf_ig_return_bps or 180) + (cma.bonds_fx_hedged_return_bps or 220)) / 2)),
+            "real_estate": int(cma.real_estate_ch_return_bps or 350),
+            "alternatives": int(cma.alternatives_gold_return_bps or 120),
+            "liquidity": int(cma.liquidity_return_bps or 80),
+        }
+        returns = _apply_cma_market_adjustments(returns, cma)
+        vols = {
+            "equities": int(round(((cma.equity_ch_vol_bps or 1200) + (cma.equity_intl_vol_bps or 1450)) / 2)),
+            "bonds": int(round(((cma.bonds_chf_ig_vol_bps or 350) + (cma.bonds_fx_hedged_vol_bps or 450)) / 2)),
+            "real_estate": int(cma.real_estate_ch_vol_bps or 700),
+            "alternatives": int(cma.alternatives_gold_vol_bps or 950),
+            "liquidity": int(cma.liquidity_vol_bps or 20),
+        }
+        return returns, vols
+
     returns = {
-        "equities": int(round(((cma.equity_ch_return_bps or 500) + (cma.equity_intl_return_bps or 650)) / 2)),
-        "bonds": int(round(((cma.bonds_chf_ig_return_bps or 180) + (cma.bonds_fx_hedged_return_bps or 220)) / 2)),
-        "real_estate": int(cma.real_estate_ch_return_bps or 350),
+        "equities": int(cma.equity_home_return_bps if cma.equity_home_return_bps is not None else 500),
+        "bonds": int(cma.bonds_home_ig_return_bps if cma.bonds_home_ig_return_bps is not None else 180),
+        "real_estate": int(cma.real_estate_home_return_bps if cma.real_estate_home_return_bps is not None else 350),
         "alternatives": int(cma.alternatives_gold_return_bps or 120),
         "liquidity": int(cma.liquidity_return_bps or 80),
     }
     returns = _apply_cma_market_adjustments(returns, cma)
     vols = {
-        "equities": int(round(((cma.equity_ch_vol_bps or 1200) + (cma.equity_intl_vol_bps or 1450)) / 2)),
-        "bonds": int(round(((cma.bonds_chf_ig_vol_bps or 350) + (cma.bonds_fx_hedged_vol_bps or 450)) / 2)),
-        "real_estate": int(cma.real_estate_ch_vol_bps or 700),
+        "equities": int(cma.equity_home_vol_bps if cma.equity_home_vol_bps is not None else 1200),
+        "bonds": int(cma.bonds_home_ig_vol_bps if cma.bonds_home_ig_vol_bps is not None else 350),
+        "real_estate": int(cma.real_estate_home_vol_bps if cma.real_estate_home_vol_bps is not None else 700),
         "alternatives": int(cma.alternatives_gold_vol_bps or 950),
         "liquidity": int(cma.liquidity_vol_bps or 20),
     }
@@ -3781,12 +3919,46 @@ def _preference_choice(value, fallback: str) -> str:
     return _norm_text(raw).strip()
 
 
-def _build_sub_allocations(targets: dict[str, int], preferences: dict) -> list[dict]:
+def _build_sub_allocations(
+    targets: dict[str, int],
+    preferences: dict,
+    jurisdiction: str = "CH",
+    db: Session | None = None,
+) -> list[dict]:
+    """Baut die Sub-Allokation (Sub-Asset-Class-Gewichte) aus Bucket-Targets +
+    Anlagepraeferenzen.
+
+    WP2 (Engine-Wiring Jurisdiktion, 2026-07-31): jurisdiction in (None, "CH")
+    verwendet unveraendert die hartcodierten CH-Home-Bias-Splits (Constraint 1:
+    CH-Pfad byte-identisch). Fuer andere jurisdiction kommen die Home-Bias-
+    Splits stattdessen aus resolve_home_bias_defaults() (services/jurisdiction/
+    resolve.py) -- dafuer wird zusaetzlich ein db-Parameter benoetigt (siehe
+    ValueError unten, falls db fehlt).
+
+    Die generischen Filter (geo_prefs.noEm, overweight_tilts, bondsHighYield/
+    Emerging) operieren auf den literalen Sub-Asset-Class-Labels "Aktien
+    Schwellenlaender" / "Aktien Global" / "Obligationen High Yield" /
+    "Obligationen Emerging" -- diese Labels sind laut services/jurisdiction/
+    de_seed.py bewusst IDENTISCH fuer CH und DE (nur die Heimmarkt-Labels
+    "Aktien Schweiz"/"Obligationen CHF IG"/"Obligationen Global Hedged"/
+    "Immobilien Schweiz" wurden fuer DE uebersetzt) -- die Filter bleiben also
+    OHNE Aenderung generisch fuer beide Jurisdiktionen anwendbar. Die zwei
+    Stellen, die tatsaechlich ein CH-spezifisches Heimmarkt-Label hartcodieren
+    (equities_smid-Satellit "Aktien Schweiz", IG-Bond-Filter "Obligationen CHF
+    IG"/"Obligationen Global Hedged") werden daher pro Jurisdiktion getrennt
+    aufgebaut (siehe Kommentare unten).
+    """
     prefs = _normalize_preferences(preferences)
     asset_prefs = prefs["assetClasses"]
     geo_prefs = prefs["geo"]
     tilts = prefs["tilts"]
     sub_allocations: list[dict] = []
+    is_ch = jurisdiction in (None, "CH")
+    if not is_ch and db is None:
+        raise ValueError(
+            "_build_sub_allocations() braucht fuer jurisdiction != 'CH' einen "
+            "db-Parameter (fuer resolve_home_bias_defaults())."
+        )
 
     def _flag_enabled(name: str, default: bool = False) -> bool:
         value = asset_prefs.get(name)
@@ -3834,38 +4006,73 @@ def _build_sub_allocations(targets: dict[str, int], preferences: dict) -> list[d
             "Anlagepraeferenzen unvollstaendig: Bei Aktien muss mindestens ein Segment aktiv sein."
         )
 
-    equities_geo = _preference_choice(asset_prefs.get("equitiesGeo"), "Schweiz Fokus")
-    if geo_prefs.get("noEm") and equities_geo == "Schwellenlaender":
-        raise ValueError(
-            "Anlagepraeferenzen widerspruechlich: Schwellenlaender-Fokus ist gewaehlt, "
-            "aber Kein EM-Exposure ist aktiv."
-        )
-    if equities_geo == "Global":
-        eq_splits = [("Aktien Global", 6500, "Globaler Kernbaustein"), ("Aktien Schweiz", 1500, "Heimmarkt-Anker"), ("Aktien Europa", 1000, "Europa-Diversifikation"), ("Aktien Schwellenlaender", 1000, "Wachstumsbaustein")]
-    elif equities_geo == "Europa":
-        eq_splits = [("Aktien Europa", 4000, "Europa-Fokus gemaess Mandat"), ("Aktien Global", 2500, "Globaler Kernbaustein"), ("Aktien Schweiz", 2500, "Heimmarkt-Anker"), ("Aktien Schwellenlaender", 1000, "Wachstumsbaustein")]
-    elif equities_geo == "Schwellenlaender":
-        eq_splits = [("Aktien Global", 4000, "Globaler Kernbaustein"), ("Aktien Schweiz", 2000, "Heimmarkt-Anker"), ("Aktien Europa", 1500, "Europa-Diversifikation"), ("Aktien Schwellenlaender", 2500, "Mandatierter EM-Fokus")]
+    if is_ch:
+        equities_geo = _preference_choice(asset_prefs.get("equitiesGeo"), "Schweiz Fokus")
+        if geo_prefs.get("noEm") and equities_geo == "Schwellenlaender":
+            raise ValueError(
+                "Anlagepraeferenzen widerspruechlich: Schwellenlaender-Fokus ist gewaehlt, "
+                "aber Kein EM-Exposure ist aktiv."
+            )
+        if equities_geo == "Global":
+            eq_splits = [("Aktien Global", 6500, "Globaler Kernbaustein"), ("Aktien Schweiz", 1500, "Heimmarkt-Anker"), ("Aktien Europa", 1000, "Europa-Diversifikation"), ("Aktien Schwellenlaender", 1000, "Wachstumsbaustein")]
+        elif equities_geo == "Europa":
+            eq_splits = [("Aktien Europa", 4000, "Europa-Fokus gemaess Mandat"), ("Aktien Global", 2500, "Globaler Kernbaustein"), ("Aktien Schweiz", 2500, "Heimmarkt-Anker"), ("Aktien Schwellenlaender", 1000, "Wachstumsbaustein")]
+        elif equities_geo == "Schwellenlaender":
+            eq_splits = [("Aktien Global", 4000, "Globaler Kernbaustein"), ("Aktien Schweiz", 2000, "Heimmarkt-Anker"), ("Aktien Europa", 1500, "Europa-Diversifikation"), ("Aktien Schwellenlaender", 2500, "Mandatierter EM-Fokus")]
+        else:
+            eq_splits = [("Aktien Schweiz", 4500, "Mandatierter Schweiz-Fokus"), ("Aktien Global", 4000, "Globaler Kernbaustein"), ("Aktien Europa", 1000, "Europa-Diversifikation"), ("Aktien Schwellenlaender", 500, "Wachstumsbaustein")]
+        if geo_prefs.get("noEm"):
+            remainder = 0
+            filtered = []
+            for label, split_bps, rationale in eq_splits:
+                if label == "Aktien Schwellenlaender":
+                    remainder += split_bps
+                else:
+                    filtered.append((label, split_bps, rationale))
+            if filtered and remainder:
+                label, split_bps, rationale = filtered[0]
+                filtered[0] = (label, split_bps + remainder, rationale + "; EM ausgeschlossen")
+            eq_splits = filtered
+        if equities_smid:
+            for idx, item in enumerate(eq_splits):
+                if item[0] == "Aktien Schweiz":
+                    eq_splits[idx] = (item[0], max(0, item[1] - 1000), item[2])
+                    eq_splits.append(("Aktien Schweiz Small/Mid", 1000, "Mandatierter Small-/Mid-Cap-Baustein"))
+                    break
     else:
-        eq_splits = [("Aktien Schweiz", 4500, "Mandatierter Schweiz-Fokus"), ("Aktien Global", 4000, "Globaler Kernbaustein"), ("Aktien Europa", 1000, "Europa-Diversifikation"), ("Aktien Schwellenlaender", 500, "Wachstumsbaustein")]
-    if geo_prefs.get("noEm"):
-        remainder = 0
-        filtered = []
-        for label, split_bps, rationale in eq_splits:
-            if label == "Aktien Schwellenlaender":
-                remainder += split_bps
-            else:
-                filtered.append((label, split_bps, rationale))
-        if filtered and remainder:
-            label, split_bps, rationale = filtered[0]
-            filtered[0] = (label, split_bps + remainder, rationale + "; EM ausgeschlossen")
-        eq_splits = filtered
-    if equities_smid:
-        for idx, item in enumerate(eq_splits):
-            if item[0] == "Aktien Schweiz":
-                eq_splits[idx] = (item[0], max(0, item[1] - 1000), item[2])
-                eq_splits.append(("Aktien Schweiz Small/Mid", 1000, "Mandatierter Small-/Mid-Cap-Baustein"))
-                break
+        # Nicht-CH (WP2, 2026-07-31): Home-Bias-Splits kommen 1:1 aus
+        # resolve_home_bias_defaults() (services/jurisdiction/resolve.py) --
+        # KEINE erfundenen Zahlen, siehe services/jurisdiction/de_seed.py fuer
+        # die DE-Seed-Werte (mechanische CH-Spiegelung, is_provisional=1).
+        equities_geo = _preference_choice(asset_prefs.get("equitiesGeo"), DE_DEFAULT_EQUITIES_GEO)
+        if geo_prefs.get("noEm") and equities_geo == "Schwellenlaender":
+            raise ValueError(
+                "Anlagepraeferenzen widerspruechlich: Schwellenlaender-Fokus ist gewaehlt, "
+                "aber Kein EM-Exposure ist aktiv."
+            )
+        eq_splits = list(resolve_home_bias_defaults(db, jurisdiction, "equitiesGeo", equities_geo))
+        # Heimmarkt-Label fuer den Small/Mid-Satelliten unten: staerkstes Label
+        # der equitiesGeo-DEFAULT-Variante (siehe _resolve_home_equity_label()
+        # Docstring fuer die Begruendung dieser pragmatischen Wahl).
+        home_equity_label = _resolve_home_equity_label(db, jurisdiction)
+        if geo_prefs.get("noEm"):
+            remainder = 0
+            filtered = []
+            for label, split_bps, rationale in eq_splits:
+                if label == "Aktien Schwellenlaender":
+                    remainder += split_bps
+                else:
+                    filtered.append((label, split_bps, rationale))
+            if filtered and remainder:
+                label, split_bps, rationale = filtered[0]
+                filtered[0] = (label, split_bps + remainder, rationale + "; EM ausgeschlossen")
+            eq_splits = filtered
+        if equities_smid:
+            for idx, item in enumerate(eq_splits):
+                if item[0] == home_equity_label:
+                    eq_splits[idx] = (item[0], max(0, item[1] - 1000), item[2])
+                    eq_splits.append((f"{home_equity_label} Small/Mid", 1000, "Mandatierter Small-/Mid-Cap-Baustein"))
+                    break
 
     overweight_tilts = [key for key, value in tilts.items() if value == "overweight"]
     if overweight_tilts and targets["equities"] > 0:
@@ -3903,15 +4110,33 @@ def _build_sub_allocations(targets: dict[str, int], preferences: dict) -> list[d
             "Anlagepraeferenzen widerspruechlich: Obligationen Emerging Markets ist aktiv, "
             "aber Kein EM-Exposure ist aktiv."
         )
-    bonds_duration = _preference_choice(asset_prefs.get("bondsDuration"), "Langfristig")
-    if bonds_duration == "Kurzfristig":
-        bond_splits = [("Obligationen CHF IG", 7000, "Kurzfristige CHF-Qualitaet"), ("Obligationen Global Hedged", 2500, "Ergaenzende Diversifikation"), ("Obligationen High Yield", 300, "Renditebeimischung"), ("Obligationen Emerging", 200, "Diversifikation")]
-    elif bonds_duration == "Gemischt":
-        bond_splits = [("Obligationen CHF IG", 6000, "Gemischter CHF-Kern"), ("Obligationen Global Hedged", 3000, "Globale Diversifikation"), ("Obligationen High Yield", 500, "Renditebeimischung"), ("Obligationen Emerging", 500, "Diversifikation")]
+    if is_ch:
+        bonds_duration = _preference_choice(asset_prefs.get("bondsDuration"), "Langfristig")
+        if bonds_duration == "Kurzfristig":
+            bond_splits = [("Obligationen CHF IG", 7000, "Kurzfristige CHF-Qualitaet"), ("Obligationen Global Hedged", 2500, "Ergaenzende Diversifikation"), ("Obligationen High Yield", 300, "Renditebeimischung"), ("Obligationen Emerging", 200, "Diversifikation")]
+        elif bonds_duration == "Gemischt":
+            bond_splits = [("Obligationen CHF IG", 6000, "Gemischter CHF-Kern"), ("Obligationen Global Hedged", 3000, "Globale Diversifikation"), ("Obligationen High Yield", 500, "Renditebeimischung"), ("Obligationen Emerging", 500, "Diversifikation")]
+        else:
+            bond_splits = [("Obligationen CHF IG", 5500, "Langfristiger CHF-Kern"), ("Obligationen Global Hedged", 3500, "Globale Diversifikation"), ("Obligationen High Yield", 500, "Renditebeimischung"), ("Obligationen Emerging", 500, "Diversifikation")]
+        if not _flag_enabled("bondsInvestmentGrade", True):
+            bond_splits = [item for item in bond_splits if item[0] not in ("Obligationen CHF IG", "Obligationen Global Hedged")]
     else:
-        bond_splits = [("Obligationen CHF IG", 5500, "Langfristiger CHF-Kern"), ("Obligationen Global Hedged", 3500, "Globale Diversifikation"), ("Obligationen High Yield", 500, "Renditebeimischung"), ("Obligationen Emerging", 500, "Diversifikation")]
-    if not _flag_enabled("bondsInvestmentGrade", True):
-        bond_splits = [item for item in bond_splits if item[0] not in ("Obligationen CHF IG", "Obligationen Global Hedged")]
+        # Nicht-CH (WP2, 2026-07-31): siehe eq_splits-Kommentar oben. Fuer den
+        # bondsInvestmentGrade-Filter gibt es KEIN generisches, jurisdiktions-
+        # unabhaengiges Home-IG-Label (die DE-Labels "Obligationen EUR IG"/
+        # "Obligationen Global EUR-Hedged" unterscheiden sich bewusst von den
+        # CH-Labels). Generalisierung (dokumentierte, pragmatische Wahl): die
+        # beiden NICHT-Home-Sleeves "Obligationen High Yield"/"Obligationen
+        # Emerging" sind laut de_seed.py IMMER identisch benannt -- daher wird
+        # bondsInvestmentGrade=aus stattdessen als "behalte nur HY/EM-Sleeves"
+        # ausgedrueckt (Komplement derselben Filterwirkung wie im CH-Zweig).
+        bonds_duration = _preference_choice(asset_prefs.get("bondsDuration"), DE_DEFAULT_BONDS_DURATION)
+        bond_splits = list(resolve_home_bias_defaults(db, jurisdiction, "bondsDuration", bonds_duration))
+        if not _flag_enabled("bondsInvestmentGrade", True):
+            bond_splits = [
+                item for item in bond_splits
+                if item[0] in ("Obligationen High Yield", "Obligationen Emerging")
+            ]
     if not _flag_enabled("bondsHighYield", False):
         bond_splits = [item for item in bond_splits if item[0] != "Obligationen High Yield"]
     if not _flag_enabled("bondsEmerging", False) or geo_prefs.get("noEm"):
@@ -3936,13 +4161,18 @@ def _build_sub_allocations(targets: dict[str, int], preferences: dict) -> list[d
                 "produktiven Beratungsuniversum nicht als handelbare Zielallokation umgesetzt werden."
             )
 
-    realestate_market = _preference_choice(asset_prefs.get("realestateMarket"), "Schweiz")
-    if realestate_market == "Ausland":
-        re_splits = [("Immobilien Global", 7000, "Auslandsfokus fuer Immobilien"), ("Immobilien Schweiz", 3000, "Heimmarkt-Stabilisator")]
-    elif realestate_market == "Gemischt":
-        re_splits = [("Immobilien Schweiz", 5000, "Gemischter Immobilienbaustein"), ("Immobilien Global", 5000, "Gemischter Immobilienbaustein")]
+    if is_ch:
+        realestate_market = _preference_choice(asset_prefs.get("realestateMarket"), "Schweiz")
+        if realestate_market == "Ausland":
+            re_splits = [("Immobilien Global", 7000, "Auslandsfokus fuer Immobilien"), ("Immobilien Schweiz", 3000, "Heimmarkt-Stabilisator")]
+        elif realestate_market == "Gemischt":
+            re_splits = [("Immobilien Schweiz", 5000, "Gemischter Immobilienbaustein"), ("Immobilien Global", 5000, "Gemischter Immobilienbaustein")]
+        else:
+            re_splits = [("Immobilien Schweiz", 8000, "Schweizer Immobilienfokus"), ("Immobilien Global", 2000, "Ergaenzende Diversifikation")]
     else:
-        re_splits = [("Immobilien Schweiz", 8000, "Schweizer Immobilienfokus"), ("Immobilien Global", 2000, "Ergaenzende Diversifikation")]
+        # Nicht-CH (WP2, 2026-07-31): siehe eq_splits-Kommentar oben.
+        realestate_market = _preference_choice(asset_prefs.get("realestateMarket"), DE_DEFAULT_REALESTATE_MARKET)
+        re_splits = list(resolve_home_bias_defaults(db, jurisdiction, "realestateMarket", realestate_market))
     if realestate_direct:
         re_splits = [
             (label, bps, rationale + "; Direktimmobilien werden ueber das Gesamtvermoegen beruecksichtigt")
@@ -4260,7 +4490,58 @@ def _validate_default_products(defaults: list[tuple]) -> None:
             raise ValueError(f"Negativer TER fuer {name}: {ter_bps}.")
 
 
-def ensure_runtime_reference_data(db: Session, user_id: str) -> tuple[OptimizerPolicy, CapitalMarketAssumption]:
+def ensure_runtime_reference_data(
+    db: Session,
+    user_id: str,
+    jurisdiction: str = "CH",
+    tenant_id: str | None = None,
+) -> tuple[OptimizerPolicy, CapitalMarketAssumption]:
+    """Stellt Policy/House-Matrix/BuildingBlocks/CMA fuer die Engine bereit.
+
+    WP2 (Engine-Wiring Jurisdiktion, 2026-07-31):
+    - jurisdiction in (None, "CH"): EXAKT das heutige Verhalten (siehe
+      _ensure_runtime_reference_data_ch()) -- seedet die CH-Default-Policy/
+      -House-Matrix/-BuildingBlocks/-CMA, falls noch nicht vorhanden
+      (Constraint 1: CH-Pfad byte-identisch).
+    - andere jurisdiction: es wird bewusst NICHTS geseedet (kein
+      automatischer CH-Fondskatalog/-CMA fuer eine neue Jurisdiktion).
+      policy bleibt die globale, jurisdiktionsunabhaengige OptimizerPolicy
+      (es gibt in dieser Ausbaustufe keine jurisdiktionseigene Policy/
+      House-Matrix -- explizit ausserhalb des Scopes dieses Arbeitspakets,
+      siehe Abschlussbericht). Existiert noch keine globale Policy (z.B.
+      weil noch nie ein CH-Mandat verarbeitet wurde), ist das ein
+      Bootstrap-Fehler, den wir NICHT mit einer erfundenen Policy
+      uebertuenchen. cma kommt aus resolve_cma_for_jurisdiction()
+      (require_committee_approved=False -- die Provisorik-Kennzeichnung
+      erfolgt separat, siehe generate_recommendation_run()::
+      provisional_data_warning). resolve_building_blocks_for_jurisdiction()
+      wird zusaetzlich als Fail-Fast-Validierung aufgerufen (wirft
+      JurisdictionReferenceDataMissingError, wenn fuer diese Jurisdiktion+
+      Policy keine BuildingBlock-Referenzzeilen existieren) -- ihr
+      Rueckgabewert ist NICHT Teil der Rueckgabe dieser Funktion (die
+      jurisdiktionsbewusste Filterung der BuildingBlock-Query selbst, die
+      an anderer Stelle fuer die Risky-Fraction-Gewichtung gelesen wird,
+      ist NICHT Teil dieses Arbeitspakets, siehe Abschlussbericht).
+    """
+    if jurisdiction in (None, "CH"):
+        return _ensure_runtime_reference_data_ch(db, user_id)
+
+    policy = db.query(OptimizerPolicy).filter(OptimizerPolicy.is_current == 1).first()
+    if policy is None:
+        raise JurisdictionReferenceDataMissingError(
+            "Keine globale OptimizerPolicy vorhanden -- fuer Jurisdiktion "
+            f"'{jurisdiction}' kann ensure_runtime_reference_data() keine eigene "
+            "Policy erzeugen (policy bleibt in dieser Ausbaustufe die globale, "
+            "jurisdiktionsunabhaengige Policy; siehe WP2-Doku)."
+        )
+    cma = resolve_cma_for_jurisdiction(
+        db, jurisdiction, require_committee_approved=False, tenant_id=tenant_id,
+    )
+    resolve_building_blocks_for_jurisdiction(db, policy.id, jurisdiction, investment_universe=None)
+    return policy, cma
+
+
+def _ensure_runtime_reference_data_ch(db: Session, user_id: str) -> tuple[OptimizerPolicy, CapitalMarketAssumption]:
     now = _now()
     today = _today()
     # max_risky_fraction_bps pro Profil (ASIP-Konvention, U-P23.2/3, 2026-05-26):
@@ -4393,9 +4674,26 @@ def ensure_runtime_reference_data(db: Session, user_id: str) -> tuple[OptimizerP
     return policy, cma
 
 
-def ensure_default_products(db: Session) -> None:
-    active_products = db.query(Product).filter(Product.is_active == 1, Product.deleted_at.is_(None)).count()
-    if active_products:
+def ensure_default_products(db: Session, jurisdiction: str = "CH") -> None:
+    """WP2 (Engine-Wiring Jurisdiktion, 2026-07-31): der bestehende CH-
+    Fondskatalog-Seed wird NUR fuer jurisdiction in (None, "CH") ausgefuehrt
+    (Constraint 1: CH-Pfad byte-identisch). Fuer andere jurisdiction wird
+    bewusst NICHTS geseedet -- Fonds kommen fuer Nicht-CH ausschliesslich
+    ueber ProductUniverseEntry (siehe _filter_products_by_universe())."""
+    if jurisdiction not in (None, "CH"):
+        return
+    # 2026-08-01 (Cross-Jurisdiktions-Leck-Fix): der Idempotenz-Check muss
+    # CH-spezifisch sein (Product.jurisdiction in (None,"CH")), NICHT "gibt
+    # es irgendein aktives Produkt in der gesamten Installation" -- sonst
+    # wuerde der CH-Katalog NIE geseedet, wenn zuvor bereits Nicht-CH-
+    # Produkte (z.B. via Deutschland-Anbindung) angelegt wurden, und ein
+    # CH-Mandat faende danach ueberhaupt keine passenden Produkte mehr.
+    active_ch_products = db.query(Product).filter(
+        Product.is_active == 1,
+        Product.deleted_at.is_(None),
+        (Product.jurisdiction.is_(None)) | (Product.jurisdiction == "CH"),
+    ).count()
+    if active_ch_products:
         return
     now = _now()
     defaults = [
@@ -6306,7 +6604,12 @@ def generate_target_allocation(
     preferences: dict | None,
 ) -> dict:
     now = _now()
-    policy, cma = ensure_runtime_reference_data(db, user_id)
+    # WP2 (Engine-Wiring Jurisdiktion, 2026-07-31): einmal pro Lauf aufgeloest,
+    # an ensure_runtime_reference_data()/_build_sub_allocations() durchgereicht.
+    jurisdiction = resolve_mandate_jurisdiction(mandate)
+    policy, cma = ensure_runtime_reference_data(
+        db, user_id, jurisdiction=jurisdiction, tenant_id=getattr(mandate, "tenant_id", None) or None,
+    )
     # rp-ueberarbeitung: Strategie-Readiness-Gate (Knowledge-/Erfahrungs-Antworten
     # vollstaendig). Audit-Master hatte den Check nur in den Routern; durch das
     # Aufrufen hier ist er auch fuer direkte Service-Aufrufe wirksam.
@@ -6451,7 +6754,7 @@ def generate_target_allocation(
 
     targets = _rebalance_to_total(targets, minimums, maximums)
     risky_map = _building_block_risky_map(db, policy.id, getattr(mandate, "investment_universe", None))
-    sub_allocations = _build_sub_allocations(targets, prefs)
+    sub_allocations = _build_sub_allocations(targets, prefs, jurisdiction=jurisdiction, db=db)
     if not optimizer_replaced_targets:
         sub_allocations, targets = _apply_illiquid_cap(sub_allocations, targets, max_illiquid_bps, reasoning)
     sub_allocations, asset_risky_weights, risky_fraction_total_bps = _enrich_sub_allocations_with_risk(sub_allocations, risky_map)
@@ -6464,7 +6767,7 @@ def generate_target_allocation(
         risk_budget_asset_weights = bucket_risky_fraction_bps_from_building_blocks(_building_block_rows)
         targets, minimums, maximums = _house_matrix_mid_targets(house_matrix, policy)
         targets = _rebalance_to_total(targets, minimums, maximums)
-        sub_allocations = _build_sub_allocations(targets, prefs)
+        sub_allocations = _build_sub_allocations(targets, prefs, jurisdiction=jurisdiction, db=db)
         sub_allocations, targets = _apply_illiquid_cap(sub_allocations, targets, max_illiquid_bps, reasoning)
         sub_allocations, asset_risky_weights, risky_fraction_total_bps = _enrich_sub_allocations_with_risk(sub_allocations, risky_map)
         realized_risky_bps = risky_fraction_total_bps  # Validierung 2026-06-11 (#AA-1): sub-allocation-gewichtet (konsistent zur Enforcement-Cascade via asset_risky_weights), statt ungewichtetem BB-Bucket-Mittel
@@ -6531,7 +6834,7 @@ def generate_target_allocation(
                         "im Beratungsgespräch prüfen."
                     )
             targets = _rebalance_to_total(targets, minimums, maximums)
-            sub_allocations = _build_sub_allocations(targets, prefs)
+            sub_allocations = _build_sub_allocations(targets, prefs, jurisdiction=jurisdiction, db=db)
             sub_allocations, targets = _apply_illiquid_cap(sub_allocations, targets, max_illiquid_bps, reasoning)
             sub_allocations, asset_risky_weights, risky_fraction_total_bps = _enrich_sub_allocations_with_risk(sub_allocations, risky_map)
             realized_risky_bps = risky_fraction_total_bps  # Validierung 2026-06-11 (#AA-1): sub-allocation-gewichtet (konsistent zur Enforcement-Cascade via asset_risky_weights), statt ungewichtetem BB-Bucket-Mittel
@@ -7006,7 +7309,10 @@ def evaluate_goal_sensitivity(
             "(erlaubt: -10..+10)."
         )
 
-    policy, cma = ensure_runtime_reference_data(db, user_id)
+    jurisdiction = resolve_mandate_jurisdiction(mandate)
+    policy, cma = ensure_runtime_reference_data(
+        db, user_id, jurisdiction=jurisdiction, tenant_id=getattr(mandate, "tenant_id", None) or None,
+    )
     assessment = db.query(RiskAssessment).filter(
         RiskAssessment.mandate_id == mandate.id,
         RiskAssessment.is_current == 1,
@@ -7174,6 +7480,8 @@ def build_target_payload_from_allocation(
     )
     # Sprint B1: Mandanten-Default-Building-Blocks als Fallback (rebuild path).
     prefs = _merge_mandate_defaults_into_prefs(prefs, mandate)
+    # WP2 (Engine-Wiring Jurisdiktion, 2026-07-31): siehe generate_target_allocation.
+    jurisdiction = resolve_mandate_jurisdiction(mandate)
     score_bucket = _risk_score_bucket(assessment)
     house_matrix = _house_matrix_or_default(db, policy, score_bucket)
     # Sprint B3 (2026-06-07): Multi-Currency-Conversion (siehe _load_allocation_inputs).
@@ -7332,7 +7640,7 @@ def build_target_payload_from_allocation(
         getattr(mandate, "investment_universe", None),
     )
     risky_map = _building_block_risky_map(db, policy.id, getattr(mandate, "investment_universe", None))
-    sub_allocations = _build_sub_allocations(targets, prefs)
+    sub_allocations = _build_sub_allocations(targets, prefs, jurisdiction=jurisdiction, db=db)
     sub_allocations, asset_risky_weights, risky_fraction_total_bps = _enrich_sub_allocations_with_risk(sub_allocations, risky_map)
     persisted_risky_bps = getattr(allocation, "risky_fraction_bps_at_generation", None)
     if persisted_risky_bps is not None:
@@ -7628,7 +7936,10 @@ def build_recommendation_payload_from_run(
     user_id: str,
     preferences: dict | None,
 ) -> dict:
-    policy, cma = ensure_runtime_reference_data(db, user_id)
+    jurisdiction = resolve_mandate_jurisdiction(mandate)
+    policy, cma = ensure_runtime_reference_data(
+        db, user_id, jurisdiction=jurisdiction, tenant_id=getattr(mandate, "tenant_id", None) or None,
+    )
     assessment = db.query(RiskAssessment).filter(
         RiskAssessment.mandate_id == mandate.id,
         RiskAssessment.is_current == 1,
@@ -7816,7 +8127,16 @@ def _product_matches_constraints(
     score_bucket: int,
     *,
     ignore_suitability: bool = False,
+    jurisdiction_ctx: dict | None = None,
 ) -> bool:
+    """WP2 (Engine-Wiring Jurisdiktion, 2026-07-31): jurisdiction_ctx (siehe
+    _resolve_jurisdiction_context()) parametrisiert die chf_only-/Hedging-
+    Pruefungen ueber home_currency statt hartcodiertem "CHF". Ohne
+    jurisdiction_ctx (z.B. bestehende Aufrufer/Tests) wird
+    _CH_JURISDICTION_CONTEXT verwendet -- home_currency="CHF", exakt das
+    bisherige Verhalten (Constraint 1: CH-Pfad byte-identisch)."""
+    ctx = jurisdiction_ctx or _CH_JURISDICTION_CONTEXT
+    home_currency = ctx["home_currency"]
     product_prefs = prefs["product"]
     geo_prefs = prefs["geo"]
     policy_prefs = prefs["policy"]
@@ -7839,11 +8159,11 @@ def _product_matches_constraints(
         return False
     if product_prefs.get("noLeverage") and _product_is_leveraged(product):
         return False
-    if chf_only and product.currency != "CHF":
+    if chf_only and product.currency != home_currency:
         return False
     if geo_prefs.get("noUsd") and product.currency == "USD":
         return False
-    if geo_prefs.get("hedgingRequired") and not _product_is_chf_or_fx_hedged(product):
+    if geo_prefs.get("hedgingRequired") and not _product_is_chf_or_fx_hedged(product, home_currency):
         return False
     if policy_prefs.get("esg") in ("best_in_class", "impact", "net_zero") and asset_class != "Liquiditaet":
         if str(product.sfdr_class or "") not in ("8", "9"):
@@ -7897,17 +8217,31 @@ def _product_is_derivative(product: Product) -> bool:
     )
 
 
-def _product_is_chf_or_fx_hedged(product: Product) -> bool:
-    if str(product.currency or "").upper() == "CHF":
+def _product_is_chf_or_fx_hedged(product: Product, home_currency: str = "CHF") -> bool:
+    """WP2 (Engine-Wiring Jurisdiktion, 2026-07-31): home_currency default
+    "CHF" reproduziert exakt das bisherige CH-Verhalten (Constraint 1).
+    Fuer Nicht-CH wird die aufgeloeste Heimwaehrung (siehe
+    _resolve_jurisdiction_context()) durchgereicht, z.B. "EUR" -> Marker
+    "eur-hedg"/"eur hedg" statt "chf-hedg"/"chf hedg"."""
+    home = (home_currency or "CHF").upper()
+    if str(product.currency or "").upper() == home:
         return True
     text = _product_descriptor_text(product)
-    return any(marker in text for marker in ("hedged", "chf-hedg", "chf hedg", "abgesichert"))
+    home_lower = home.lower()
+    markers = ("hedged", f"{home_lower}-hedg", f"{home_lower} hedg", "abgesichert")
+    return any(marker in text for marker in markers)
 
 
-def _product_score(product: Product, sub_asset_class: str, prefs: dict) -> int:
+def _product_score(product: Product, sub_asset_class: str, prefs: dict, jurisdiction_ctx: dict | None = None) -> int:
+    """WP2 (Engine-Wiring Jurisdiktion, 2026-07-31): siehe
+    _product_matches_constraints() -- ohne jurisdiction_ctx exakt das
+    bisherige CH-Verhalten (home_currency="CHF", home_equity_label="Schweiz")."""
+    ctx = jurisdiction_ctx or _CH_JURISDICTION_CONTEXT
+    home_currency = ctx["home_currency"]
+    home_equity_label = ctx["home_equity_label"]
     score = 1000
     score -= int(product.ter_bps or 0)
-    if product.currency == "CHF":
+    if product.currency == home_currency:
         score += 40
     if product.sub_asset_class == sub_asset_class:
         score += 200
@@ -7916,9 +8250,9 @@ def _product_score(product: Product, sub_asset_class: str, prefs: dict) -> int:
     policy_prefs = prefs["policy"]
     geo_prefs = prefs["geo"]
     tilts = prefs["tilts"]
-    if policy_prefs.get("homeBias") == "ch_focus" and ("Schweiz" in (product.sub_asset_class or "") or product.currency == "CHF"):
+    if policy_prefs.get("homeBias") == "ch_focus" and (home_equity_label in (product.sub_asset_class or "") or product.currency == home_currency):
         score += 35
-    if (geo_prefs.get("hedgingRequired") or policy_prefs.get("hedging") in ("hedged", "risk_budget")) and _product_is_chf_or_fx_hedged(product):
+    if (geo_prefs.get("hedgingRequired") or policy_prefs.get("hedging") in ("hedged", "risk_budget")) and _product_is_chf_or_fx_hedged(product, home_currency):
         score += 20
     if str(product.sfdr_class or "") in ("8", "9"):
         score += 25
@@ -8025,7 +8359,18 @@ def _filter_products_by_universe(db: Session, mandate: Mandate, products: list) 
     Tenants+Jurisdiktion ein, WENN mindestens ein Eintrag existiert.
 
     Rueckwaerts-kompatibel: existiert fuer (tenant_id, jurisdiction) KEIN
-    Eintrag, bleibt `products` unveraendert (voller Katalog, wie bisher).
+    Eintrag, wird NICHT einfach der komplette globale Katalog zurueckgegeben
+    -- stattdessen (2026-08-01, Cross-Jurisdiktions-Leck-Fix) auf
+    Product.jurisdiction in (None, mandate_jurisdiction) gefiltert. Grund:
+    ein per Integrationstest gefundenes echtes Datenleck
+    (tests/test_de_onboarding_integration.py::
+    test_ch_mandate_unaffected_by_coexisting_de_fixtures_in_same_db) --
+    OHNE diesen Filter sieht ein CH-Mandat ohne eigene Fonds-Kuratierung
+    automatisch JEDES in der Installation angelegte Nicht-CH-Produkt, sobald
+    eine zweite Jurisdiktion (z.B. Deutschland) eigene Produkte anlegt.
+    Aendert NICHTS am CH-Verhalten, solange kein Produkt explizit mit
+    jurisdiction != "CH"/NULL angelegt wird (Bestandskatalog ist komplett
+    NULL -> Filter ist ein No-Op, Golden-Snapshot-Test bleibt gruen).
 
     mandate.tenant_id=NULL wird wie ueberall im Code (siehe
     services/auth.py::_resolve_tenant_id_for_user) auf DEFAULT_TENANT_ID
@@ -8042,7 +8387,10 @@ def _filter_products_by_universe(db: Session, mandate: Mandate, products: list) 
         ProductUniverseEntry.deleted_at.is_(None),
     ).all()
     if not entries:
-        return products
+        return [
+            product for product in products
+            if getattr(product, "jurisdiction", None) in (None, jurisdiction)
+        ]
     allowed_product_ids = {entry.product_id for entry in entries}
     return [product for product in products if product.id in allowed_product_ids]
 
@@ -8056,9 +8404,14 @@ def generate_recommendation_run(
     run_type: str = "Optimizer",
     depot_bank: str | None = None,
 ) -> dict:
-    ensure_default_products(db)
+    # WP2 (Engine-Wiring Jurisdiktion, 2026-07-31): einmal pro Lauf aufgeloest.
+    jurisdiction = resolve_mandate_jurisdiction(mandate)
+    ensure_default_products(db, jurisdiction=jurisdiction)
     prefs = _normalize_preferences(preferences)
-    policy, cma = ensure_runtime_reference_data(db, user_id)
+    policy, cma = ensure_runtime_reference_data(
+        db, user_id, jurisdiction=jurisdiction, tenant_id=getattr(mandate, "tenant_id", None) or None,
+    )
+    jurisdiction_ctx = _resolve_jurisdiction_context(db, mandate, jurisdiction)
     assessment = db.query(RiskAssessment).filter(
         RiskAssessment.mandate_id == mandate.id,
         RiskAssessment.is_current == 1,
@@ -8096,6 +8449,25 @@ def generate_recommendation_run(
 
     previous_holdings_by_product = _latest_holdings_by_product_for_mandate(db, mandate.id)
 
+    # WP2 (Engine-Wiring Jurisdiktion, 2026-07-31, Aufgabe 6): fuer Nicht-CH-
+    # Jurisdiktionen ohne IC-Freigabe (cma.status != "committee_approved")
+    # wird ein sichtbarer Provisorik-Hinweis auf dem Run persistiert (NIE
+    # stillschweigend, siehe Constraint 3). Fuer CH bleibt das Feld IMMER
+    # NULL (unveraendertes Verhalten, kein neuer Status-Pflichtfeld-Zwang
+    # auf dem CH-Bestand).
+    provisional_data_warning = None
+    if jurisdiction not in (None, "CH") and getattr(cma, "status", None) != "committee_approved":
+        provisional_data_warning = json.dumps({
+            "jurisdiction": jurisdiction,
+            "cma_status": getattr(cma, "status", None),
+            "message": (
+                f"Kapitalmarktannahmen fuer Jurisdiktion '{jurisdiction}' sind noch nicht "
+                "vom Investment Committee freigegeben (status="
+                f"{getattr(cma, 'status', None)!r}). Diese Empfehlung ist PROVISORISCH und "
+                "darf ohne IC-Freigabe nicht als finales Kundendokument verwendet werden."
+            ),
+        }, ensure_ascii=False)
+
     now = _now()
     run = RecommendationRun(
         id=new_uuid(),
@@ -8112,6 +8484,7 @@ def generate_recommendation_run(
         fee_assumptions_json=policy.fee_model_json,
         other_assets_included=1,
         result_status="Draft",
+        provisional_data_warning=provisional_data_warning,
         created_by=user_id,
         created_at=now,
         updated_at=now,
@@ -8133,7 +8506,10 @@ def generate_recommendation_run(
     missing_sub_classes: list[dict] = []
 
     for sub in sub_allocations:
-        matching = [product for product in products if _product_matches_constraints(product, prefs, score_bucket)]
+        matching = [
+            product for product in products
+            if _product_matches_constraints(product, prefs, score_bucket, jurisdiction_ctx=jurisdiction_ctx)
+        ]
         exact = [product for product in matching if str(product.sub_asset_class or "") == str(sub["sub_asset_class"])]
         used_fallback = False
         used_suitability_override = False
@@ -8145,7 +8521,9 @@ def generate_recommendation_run(
             relaxed_matching = [
                 product
                 for product in products
-                if _product_matches_constraints(product, prefs, score_bucket, ignore_suitability=True)
+                if _product_matches_constraints(
+                    product, prefs, score_bucket, ignore_suitability=True, jurisdiction_ctx=jurisdiction_ctx,
+                )
             ]
             candidates = [
                 product for product in relaxed_matching
@@ -8166,7 +8544,11 @@ def generate_recommendation_run(
                 "target_weight_bps": int(sub["target_weight_bps"]),
             })
             continue
-        ranked = sorted(candidates, key=lambda product: _product_score(product, sub["sub_asset_class"], prefs), reverse=True)
+        ranked = sorted(
+            candidates,
+            key=lambda product: _product_score(product, sub["sub_asset_class"], prefs, jurisdiction_ctx=jurisdiction_ctx),
+            reverse=True,
+        )
         best = ranked[0]
         target_amount = int(round(investable_advisory_wealth_rappen * int(sub["target_weight_bps"]) / 10000))
         rationale = sub["rationale"]

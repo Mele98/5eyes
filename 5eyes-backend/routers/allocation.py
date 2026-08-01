@@ -25,6 +25,8 @@ from schemas.allocation import (
 from schemas.review import ReportNotesResponse, ReportNotesUpdate
 from services.auth import get_current_user, get_mandate_for_user_or_404, require_advisor, require_admin
 from services.audit import log
+from services.jurisdiction.exceptions import JurisdictionReferenceDataMissingError
+from services.jurisdiction.resolve import resolve_cma_for_jurisdiction
 from services.portfolio_engine import (
     build_target_payload_from_allocation,
     ensure_runtime_reference_data,
@@ -309,14 +311,31 @@ def get_current_building_blocks(
 @router.get("/capital-market-assumptions/current",
             response_model=CapitalMarketAssumptionResponse)
 def get_current_cma(
+    # 2026-07-31 (WP3): bewusst PLAIN defaults statt fastapi.Query(...) --
+    # tests/test_runtime_contracts.py ruft diesen Endpoint direkt als Python-
+    # Funktion auf (body=..., db=..., current_user=...) unter Umgehung der
+    # FastAPI-Dependency-Injection; mit Query(...) als Default wuerde der
+    # ungeloeste Query-Sentinel statt "CH"/None durchgereicht. Scalar-Typ-
+    # Parameter ohne Body-Model werden von FastAPI ohnehin automatisch als
+    # Query-Parameter behandelt (siehe FastAPI-Doku), Query(...) ist hier
+    # nicht notwendig.
+    jurisdiction: str = "CH",
+    tenant_id: Optional[str] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    cma = db.query(CapitalMarketAssumption).filter(
-        CapitalMarketAssumption.is_current == 1,
-        CapitalMarketAssumption.deleted_at.is_(None)
-    ).first()
-    if not cma:
+    """2026-07-31 (WP3, Jurisdiktions-Verwaltung): optionaler jurisdiction/
+    tenant_id Query-Parameter, Default "CH" -- unveraendertes Verhalten fuer
+    alle bestehenden Aufrufer (kein Query-Parameter gesetzt = exakt die
+    bisherige Query, siehe services/jurisdiction/resolve.py::
+    resolve_cma_for_jurisdiction, das fuer jurisdiction in (None,'CH') die
+    identische Query ohne jurisdiction-Filter faehrt und tenant_id ignoriert)."""
+    jur = jurisdiction if jurisdiction not in (None, "") else "CH"
+    resolved_jurisdiction = None if jur == "CH" else jur
+    try:
+        cma = resolve_cma_for_jurisdiction(db, resolved_jurisdiction, tenant_id=tenant_id)
+    except JurisdictionReferenceDataMissingError:
+        # Byte-identische 404-Message zum bisherigen CH-Verhalten.
         raise HTTPException(status_code=404, detail="Keine Kapitalmarktannahmen gefunden")
     return cma
 
@@ -325,6 +344,10 @@ def get_current_cma(
             response_model=CapitalMarketAssumptionResponse)
 def update_cma(
     body: CapitalMarketAssumptionCreate,
+    # 2026-07-31 (WP3): siehe Kommentar in get_current_cma() -- bewusst PLAIN
+    # defaults statt fastapi.Query(...) fuer Direktaufruf-Kompatibilitaet.
+    jurisdiction: str = "CH",
+    tenant_id: Optional[str] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin)
 ):
@@ -333,19 +356,39 @@ def update_cma(
     rp-ueberarbeitung: nicht im Body gesetzte Felder werden von der vorigen
     Version uebernommen, damit ein partial-Update keine zuvor gepflegten
     sub_asset_class/correlation/etc. Werte unbeabsichtigt loescht.
+
+    2026-07-31 (WP3, Jurisdiktions-Verwaltung): optionaler jurisdiction/
+    tenant_id Query-Parameter, Default "CH". Fuer jurisdiction="CH" (Default)
+    bleibt die Vorgaenger-Suche UNVERAENDERT (kein jurisdiction-Filter noetig,
+    weil bestehende CH-Zeilen jurisdiction IS NULL haben und das vor WP3 die
+    einzigen is_current=1-Zeilen ueberhaupt waren) -- die Versionierungslogik
+    selbst (Snapshot/Supersede/version+1) ist NICHT angefasst. Fuer eine
+    andere jurisdiction wird die Vorgaenger-Suche zusaetzlich auf
+    (jurisdiction, tenant_id) eingeschraenkt, damit ein DE-Update nicht
+    versehentlich die CH-Zeile (oder eine andere Jurisdiktion/Tenant)
+    superseded.
     """
     now = _now()
     payload = body.model_dump(exclude_unset=True)
+    jur = jurisdiction if jurisdiction not in (None, "") else "CH"
     # Archive previous
     # 2026-07-25 (Generalaudit, Wave 11): with_for_update() ergaenzt --
     # fehlte hier als einzige is_current-Supersede-Stelle im gesamten
     # Codebase (anders als OptimizerPolicy/TargetAllocation/RiskAssessment/
     # ClientKnowledge). Zwei nahezu gleichzeitige Admin-Edits (Doppelklick/
     # Retry) haetten sonst zwei CMA-Versionen mit is_current=1 erzeugen koennen.
-    prev = db.query(CapitalMarketAssumption).filter(
+    prev_query = db.query(CapitalMarketAssumption).filter(
         CapitalMarketAssumption.is_current == 1,
         CapitalMarketAssumption.deleted_at.is_(None)
-    ).with_for_update().first()
+    )
+    if jur != "CH":
+        prev_query = prev_query.filter(CapitalMarketAssumption.jurisdiction == jur)
+        prev_query = prev_query.filter(
+            CapitalMarketAssumption.tenant_id.is_(None)
+            if not tenant_id
+            else CapitalMarketAssumption.tenant_id == tenant_id
+        )
+    prev = prev_query.with_for_update().first()
     prev_dict: dict = {}
     prev_version = 0
     if prev:
@@ -363,6 +406,9 @@ def update_cma(
         updated_at=now,
         **merged
     )
+    if jur != "CH":
+        cma.jurisdiction = jur
+        cma.tenant_id = tenant_id or None
     db.add(cma)
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="capital_market_assumptions", record_id=cma.id, action="CREATE")

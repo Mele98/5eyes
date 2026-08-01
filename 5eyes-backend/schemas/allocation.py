@@ -427,6 +427,24 @@ class CapitalMarketAssumptionResponse(BaseResponse):
     source: Optional[str]
     notes: Optional[str]
     created_at: str
+    # WP3 (Jurisdiktions-Verwaltung + CMA-Freigabe, 2026-07-31): additive
+    # Felder aus WP1 (models/allocation.py::CapitalMarketAssumption), damit
+    # /jurisdictions/{code}/cma/compute-candidate und
+    # /capital-market-assumptions/{id}/approve die vollstaendige Zeile
+    # zurueckgeben koennen. NULL fuer alle Bestands-CH-Zeilen (Backwards-
+    # Compat, kein Verhaltens-Change fuer bestehende Response-Konsumenten).
+    jurisdiction: Optional[str] = None
+    status: Optional[str] = None
+    source_detail: Optional[str] = None
+    computed_at: Optional[str] = None
+    computed_by: Optional[str] = None
+    equity_home_return_bps: Optional[int] = None
+    equity_home_vol_bps: Optional[int] = None
+    bonds_home_ig_return_bps: Optional[int] = None
+    bonds_home_ig_vol_bps: Optional[int] = None
+    real_estate_home_return_bps: Optional[int] = None
+    real_estate_home_vol_bps: Optional[int] = None
+    tenant_id: Optional[str] = None
 
 
 class SubAssetClassAssumptionResponse(BaseModel):

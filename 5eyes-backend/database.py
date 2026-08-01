@@ -510,6 +510,9 @@ def ensure_runtime_columns() -> None:
             ('credit_rating', 'TEXT'),
             ('esg_score_x10', 'INTEGER'),
             ('liquidity_tier', 'TEXT'),
+            # 2026-08-01 (Laender-Skalierung, Cross-Jurisdiktions-Leck-Fix):
+            # siehe models/review.py::Product.jurisdiction. NULL = "CH".
+            ('jurisdiction', 'TEXT'),
         ],
     }
     inspector = inspect(engine)

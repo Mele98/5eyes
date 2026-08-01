@@ -186,3 +186,66 @@ def test_other_tenant_entries_do_not_restrict(session_factory):
         products = db.query(Product).filter(Product.id.in_(ids)).all()
         result = _filter_products_by_universe(db, mandate, products)
     assert {p.id for p in result} == set(ids)
+
+
+# ---------------------------------------------------------------------------
+# 2026-08-01 (Cross-Jurisdiktions-Leck-Fix): der Fallback ("kein Eintrag ->
+# voller Katalog") ist seit der Deutschland-Anbindung KEIN reines No-Op mehr,
+# sondern filtert zusaetzlich nach Product.jurisdiction in (None, jurisdiction)
+# -- sonst wuerde ein CH-Mandat ohne eigene Kuratierung automatisch jedes in
+# der Installation angelegte Nicht-CH-Produkt sehen, sobald eine zweite
+# Jurisdiktion eigene Produkte anlegt (per Integrationstest gefunden:
+# tests/test_de_onboarding_integration.py::
+# test_ch_mandate_unaffected_by_coexisting_de_fixtures_in_same_db).
+# ---------------------------------------------------------------------------
+
+
+def _tagged_product(session_factory, pid, *, jurisdiction):
+    now = _now()
+    with session_factory() as s:
+        s.add(Product(
+            id=pid, product_name=pid, asset_class="Aktien",
+            product_type="ETF", currency="CHF", is_active=1,
+            jurisdiction=jurisdiction, created_at=now, updated_at=now,
+        ))
+        s.commit()
+
+
+def test_ch_fallback_excludes_products_explicitly_tagged_for_another_jurisdiction(session_factory):
+    ids = _products(session_factory)  # 3x jurisdiction=NULL ("CH")
+    _tagged_product(session_factory, "prod-de-1", jurisdiction="DE")
+    mandate = _mandate(tenant_id="firm-puf-filter", jurisdiction="CH")
+    with session_factory() as db:
+        products = db.query(Product).all()
+        result = _filter_products_by_universe(db, mandate, products)
+    result_ids = {p.id for p in result}
+    assert result_ids == set(ids)
+    assert "prod-de-1" not in result_ids
+
+
+def test_de_fallback_only_sees_null_or_own_jurisdiction_products(session_factory):
+    _tagged_product(session_factory, "prod-null-1", jurisdiction=None)
+    _tagged_product(session_factory, "prod-ch-1", jurisdiction="CH")
+    _tagged_product(session_factory, "prod-de-1", jurisdiction="DE")
+    mandate = _mandate(tenant_id="firm-puf-filter", jurisdiction="DE")
+    with session_factory() as db:
+        products = db.query(Product).all()
+        result = _filter_products_by_universe(db, mandate, products)
+    result_ids = {p.id for p in result}
+    # NULL gilt ueberall als "kein Jurisdiktions-Tag" (Bestandsprodukte) und
+    # bleibt sichtbar; das explizit CH-getaggte Produkt wird ausgeblendet.
+    assert result_ids == {"prod-null-1", "prod-de-1"}
+    assert "prod-ch-1" not in result_ids
+
+
+def test_untagged_bestandskatalog_stays_fully_visible_to_ch_mandate(session_factory):
+    """Reiner Backwards-Compat-Beweis: solange KEIN Produkt jemals ein
+    jurisdiction-Tag bekommen hat (heutiger Bestandszustand jeder
+    Installation), bleibt das Fallback-Verhalten fuer CH exakt wie vor
+    diesem Fix -- voller, unveraenderter Katalog."""
+    ids = _products(session_factory, count=5)
+    mandate = _mandate(tenant_id="firm-puf-filter", jurisdiction="CH")
+    with session_factory() as db:
+        products = db.query(Product).filter(Product.id.in_(ids)).all()
+        result = _filter_products_by_universe(db, mandate, products)
+    assert {p.id for p in result} == set(ids)

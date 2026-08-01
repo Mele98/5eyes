@@ -36,6 +36,10 @@ from routers.client_portal import router as client_portal_router
 from routers.cost_disclosure import router as cost_disclosure_router  # FIDLEG Art. 8/9 (2026-06-08)
 from routers.clients import router as clients_router
 from routers.health import router as health_router
+from routers.jurisdiction import (  # WP3 (2026-07-31) — Jurisdiktions-Verwaltung + CMA-Freigabe
+    cma_approval_router,
+    router as jurisdiction_router,
+)
 from routers.mandates import router as mandates_router
 from routers.market_data import router as market_data_router
 from routers.prices import router as prices_router
@@ -150,6 +154,8 @@ app.include_router(tenants_router)  # Sprint T4 (2026-06-08)
 app.include_router(tax_router)
 app.include_router(client_portal_router)  # Sprint U-36 (2026-06-06)
 app.include_router(protocol_bausteine_router)  # Bug-#13a (2026-06-07)
+app.include_router(jurisdiction_router)  # WP3 (2026-07-31)
+app.include_router(cma_approval_router)  # WP3 (2026-07-31)
 app.include_router(cost_disclosure_router)  # FIDLEG Art. 8/9 Ex-ante (2026-06-08)
 
 

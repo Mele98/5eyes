@@ -125,7 +125,104 @@ def render_advisory_report_pdf(
                     "ermittelt werden."
                 ],
             }
+    # WP4 (2026-07-31): Provisorik-Gate. Fuer CH (jurisdiction in (None, "CH"))
+    # liefert der Resolver IMMER None -- unveraendertes Verhalten, kein neuer
+    # Key im Payload, bestehende Tests bleiben gruen. Fuer Nicht-CH-Mandate
+    # ohne IC-freigegebene CapitalMarketAssumption wird ein sichtbares
+    # Warnbanner auf dem Cover platziert (Variante (b): Berater darf intern
+    # weiterarbeiten, aber die Dokument-Qualitaet ist fuer den Endkunden nie
+    # stillschweigend verschleiert, siehe Constraint 3).
+    provisional_notice = _resolve_advisory_report_provisional_notice(db, mandate)
+    if provisional_notice is not None:
+        payload["provisional_notice"] = provisional_notice
     return render_advisory_report_pdf_from_payload(payload, watermark_mode=watermark_mode)
+
+
+def _resolve_advisory_report_provisional_notice(
+    db: Session, mandate: Mandate,
+) -> dict[str, Any] | None:
+    """WP4: liefert None fuer CH ODER eine bereits IC-freigegebene Nicht-CH-CMA.
+
+    Andernfalls ein dict {jurisdiction, cma_status, message}, das im PDF als
+    sichtbares "PROVISORISCH -- NICHT IC-FREIGEGEBEN"-Banner erscheint.
+
+    Primaere Quelle ist `RecommendationRun.provisional_data_warning` (von WP2
+    beim Generieren der Empfehlung persistiert) -- das spiegelt exakt die
+    CMA-Zeile, die fuer die im Bericht gezeigten Zahlen tatsaechlich
+    verwendet wurde, unabhaengig von spaeteren CMA-Aenderungen. Existiert
+    (noch) kein Empfehlungslauf, wird die aktuelle Referenzzeile live
+    geprueft (`resolve_cma_for_jurisdiction`); fehlen sogar Referenzdaten
+    komplett, ist das ebenfalls ein sichtbarer Provisorik-Fall (NIE
+    stillschweigend als "ok" behandeln).
+    """
+    import json
+
+    from services.jurisdiction.exceptions import JurisdictionReferenceDataMissingError
+    from services.jurisdiction.resolve import (
+        resolve_cma_for_jurisdiction,
+        resolve_mandate_jurisdiction,
+    )
+
+    jurisdiction = resolve_mandate_jurisdiction(mandate)
+    if jurisdiction in (None, "CH"):
+        return None
+
+    from models.review import RecommendationRun
+
+    latest_run = (
+        db.query(RecommendationRun)
+        .filter(RecommendationRun.mandate_id == mandate.id)
+        .order_by(RecommendationRun.created_at.desc())
+        .first()
+    )
+    if latest_run is not None:
+        raw_warning = getattr(latest_run, "provisional_data_warning", None)
+        if not raw_warning:
+            # Empfehlung wurde mit einer committee_approved-CMA generiert.
+            return None
+        try:
+            parsed = json.loads(raw_warning)
+        except (TypeError, ValueError):
+            parsed = {}
+        message = str(parsed.get("message") or "").strip() or (
+            f"Kapitalmarktannahmen fuer Jurisdiktion '{jurisdiction}' sind noch "
+            "nicht vom Investment Committee freigegeben."
+        )
+        return {
+            "jurisdiction": jurisdiction,
+            "cma_status": parsed.get("cma_status"),
+            "message": message,
+        }
+
+    # Kein Empfehlungslauf vorhanden (z.B. Bericht vor der ersten Empfehlung
+    # angefragt) -- direkte Live-Pruefung der aktuellen CMA-Referenzzeile.
+    tenant_id = getattr(mandate, "tenant_id", None)
+    try:
+        cma = resolve_cma_for_jurisdiction(db, jurisdiction, tenant_id=tenant_id)
+    except JurisdictionReferenceDataMissingError:
+        return {
+            "jurisdiction": jurisdiction,
+            "cma_status": None,
+            "message": (
+                f"Fuer Jurisdiktion '{jurisdiction}' liegen keine "
+                "Kapitalmarkt-Referenzdaten vor. Dieser Bericht ist "
+                "PROVISORISCH und darf nicht als finales Kundendokument "
+                "verwendet werden."
+            ),
+        }
+    cma_status = getattr(cma, "status", None)
+    if cma_status == "committee_approved":
+        return None
+    return {
+        "jurisdiction": jurisdiction,
+        "cma_status": cma_status,
+        "message": (
+            f"Kapitalmarktannahmen fuer Jurisdiktion '{jurisdiction}' sind "
+            f"noch nicht vom Investment Committee freigegeben (status="
+            f"{cma_status!r}). Dieser Bericht ist PROVISORISCH und darf "
+            "ohne IC-Freigabe nicht als finales Kundendokument verwendet werden."
+        ),
+    }
 
 
 def render_advisory_report_pdf_from_payload(
@@ -221,7 +318,10 @@ def _build_all_flowables(
     # sichtbar. Geschuetzte Sektionen (cover/disclaimer/cost_disclosure/
     # suitability_*/beratungsprotokoll) bleiben bewusst unconditional.
     flowables: list[Any] = []
-    flowables.extend(_build_cover_flowables(payload.get("cover") or {}, styles))
+    flowables.extend(_build_cover_flowables(
+        payload.get("cover") or {}, styles,
+        provisional_notice=payload.get("provisional_notice"),
+    ))
     flowables.append(PageBreak())
     flowables.append(_toc_anchor(toc_collector, "disclaimer", "Rechtliche Hinweise"))
     flowables.extend(_build_disclaimer_flowables(payload.get("disclaimer") or {}, styles))
@@ -338,8 +438,14 @@ class _PageCounter:
 # Sektion 1 — Cover
 # ---------------------------------------------------------------------------
 
-def _build_cover_flowables(cover: dict, styles: dict) -> list[Any]:
+def _build_cover_flowables(
+    cover: dict,
+    styles: dict,
+    *,
+    provisional_notice: dict[str, Any] | None = None,
+) -> list[Any]:
     """Editorial Cover-Layout:
+    - WP4-Provisorik-Banner (nur Nicht-CH ohne IC-Freigabe, sonst nichts)
     - Wordmark oben
     - Display-Titel + Subtitle (Mitte oben)
     - 2×2-Grid mit Berater/Mandate/Datum (unten)
@@ -356,6 +462,14 @@ def _build_cover_flowables(cover: dict, styles: dict) -> list[Any]:
     report_date = _format_swiss_date(str(cover.get("report_date") or ""))
 
     out: list[Any] = []
+
+    # WP4 (2026-07-31): fuer CH ist provisional_notice IMMER None (siehe
+    # _resolve_advisory_report_provisional_notice) -- dieser Block ist damit
+    # fuer den CH-Bestand ein No-Op, kein zusaetzliches Element im Flowable-
+    # Baum, byte-identisches Cover.
+    if provisional_notice:
+        out.append(_build_provisional_notice_banner(provisional_notice, styles))
+        out.append(Spacer(1, 8 * mm))
 
     # Wordmark + Tagline (oben)
     out.append(Paragraph("<b>5eyes</b>", _ar_paragraph_style(
@@ -435,6 +549,41 @@ def _kvp(styles: dict, label: str, value: str):
         ("BOTTOMPADDING", (0, 1), (-1, -1), 0),
     ]))
     return inner
+
+
+def _build_provisional_notice_banner(notice: dict[str, Any], styles: dict) -> Table:
+    """WP4 (2026-07-31): sichtbares Warnbanner fuer Nicht-CH-Berichte ohne
+    IC-freigegebene Kapitalmarktannahmen. Wird ausschliesslich vom Cover
+    aufgerufen wenn `provisional_notice` gesetzt ist (siehe
+    `_resolve_advisory_report_provisional_notice`) -- fuer CH nie."""
+    from reportlab.lib.colors import HexColor
+
+    heading = Paragraph(
+        _escape("PROVISORISCH — NICHT IC-FREIGEGEBEN"),
+        _ar_paragraph_style(
+            styles["body"], font=FONT_SANS_BOLD, color=COLOR_STATUS_ROT,
+        ),
+    )
+    message = str(notice.get("message") or "").strip() or (
+        "Diese Kapitalmarktannahmen sind noch nicht vom Investment Committee "
+        "freigegeben."
+    )
+    body = Paragraph(
+        _escape(message),
+        _ar_paragraph_style(styles["caption"], color=COLOR_INK_MUTED),
+    )
+    banner = Table([[heading], [body]], colWidths=[None])
+    banner.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), HexColor("#F0D9D9")),
+        ("BOX", (0, 0), (-1, -1), 0.6, COLOR_STATUS_ROT),
+        ("LEFTPADDING", (0, 0), (-1, -1), 10),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+        ("TOPPADDING", (0, 0), (0, 0), 8),
+        ("BOTTOMPADDING", (0, 0), (0, 0), 2),
+        ("TOPPADDING", (0, 1), (-1, -1), 2),
+        ("BOTTOMPADDING", (0, 1), (-1, -1), 8),
+    ]))
+    return banner
 
 
 # ---------------------------------------------------------------------------
