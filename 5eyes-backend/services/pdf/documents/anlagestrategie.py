@@ -9,6 +9,8 @@ from reportlab.lib.units import mm
 from reportlab.platypus import PageBreak, Paragraph, Spacer, Table, TableStyle
 
 from services.pdf.base import AnlagestrategieData, PDFContext
+from services.pdf.provisional_notice import make_provisional_notice_flowables
+from services.pdf.styles import PAGE_SIZE
 from services.pdf.components.cover import make_cover_page, make_section_cover
 from services.pdf.components.effektives_portfolio import make_effektives_portfolio_section
 from services.pdf.components.eignungspruefung import make_eignungspruefung_section
@@ -351,6 +353,12 @@ def _build_anlagestrategie_flowables_template_order(
         ctx,
         client_address_lines=list(getattr(data, "client_address_lines", []) or []),
         client_phone=getattr(data, "client_phone", None),
+    ))
+    # WP-B (2026-08-01): Provisorik-Banner direkt unter dem Cover-Block,
+    # noch vor dem PageBreak. Fuer CH ist ctx.provisional_notice IMMER
+    # None -> No-Op, byte-identisches Cover (Constraint 1).
+    flowables.extend(make_provisional_notice_flowables(
+        ctx.provisional_notice, table_width=PAGE_SIZE[0] - 24 * mm,
     ))
     flowables.append(PageBreak())
 

@@ -80,6 +80,30 @@ def _build_pdf_context(mandate: Mandate, current_user: User, db: Session) -> PDF
     )
 
 
+def _attach_provisional_notice(ctx: PDFContext, db: Session, mandate: Mandate) -> PDFContext:
+    """WP-B (2026-08-01): haengt das Provisorik-Warnbanner-Dict (falls
+    vorhanden) an einen bereits gebauten PDFContext.
+
+    Bewusst NICHT in `_build_pdf_context()` selbst -- jener Helper wird von
+    ALLEN PDF-Endpoints genutzt (auch risikoprofil/vertrag/contract_signoff/
+    protokoll/depotcheck, die nicht CMA-abhaengig sind und ausserhalb des
+    WP-B-Scopes liegen). Ein zusaetzlicher DB-Query dort waere fuer diese
+    Dokumenttypen reiner Overhead ohne Wirkung. Nur die 5 betroffenen
+    Endpoints rufen diese Funktion explizit auf.
+
+    Fuer CH ist `resolve_pdf_provisional_notice` ein DB-freier Kurzschluss,
+    daher hier trotzdem risikofrei aufrufbar.
+    """
+    from dataclasses import replace
+
+    from services.pdf.provisional_notice import resolve_pdf_provisional_notice
+
+    notice = resolve_pdf_provisional_notice(db, mandate)
+    if notice is None:
+        return ctx
+    return replace(ctx, provisional_notice=notice)
+
+
 def _audit_hash_for_mandate(mandate: Mandate) -> str:
     """SHA-256 ueber stabile Mandate-Felder fuer Reporting-Audit-Trail.
 
@@ -742,6 +766,7 @@ def get_anlagestrategie_pdf(
     """Generiert Anlagestrategie-PDF fuer das Mandat."""
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
     ctx = _build_pdf_context(mandate, current_user, db)
+    ctx = _attach_provisional_notice(ctx, db, mandate)
     data = _build_anlagestrategie_data(mandate, db)
     pdf_bytes = ReportLabRenderer().render_anlagestrategie(ctx, data)
     safe_name = "".join(c if c.isalnum() else "_" for c in ctx.mandate_name)[:40]
@@ -766,6 +791,7 @@ def get_assetallocation_pdf(
     """Reines Asset-Allocation-PDF fuer die Asset-Allocation-Maske."""
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
     ctx = _build_pdf_context(mandate, current_user, db)
+    ctx = _attach_provisional_notice(ctx, db, mandate)
     data = _build_anlagestrategie_data(mandate, db)
     pdf_bytes = ReportLabRenderer().render_asset_allocation(ctx, data)
     safe_name = "".join(c if c.isalnum() else "_" for c in ctx.mandate_name)[:40]
@@ -1062,6 +1088,7 @@ def get_portfolio_pdf(
     """Sprint 11 Phase 6: Portfolio-PDF mit Positionen + Soll-vs-IST + Drift."""
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
     ctx = _build_pdf_context(mandate, current_user, db)
+    ctx = _attach_provisional_notice(ctx, db, mandate)
     data = _build_portfolio_data(mandate, db)
     pdf_bytes = ReportLabRenderer().render_portfolio(ctx, data)
     safe_name = "".join(c if c.isalnum() else "_" for c in ctx.mandate_name)[:40]
@@ -1793,6 +1820,7 @@ def get_backtest_pdf(
     """
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
     ctx = _build_pdf_context(mandate, current_user, db)
+    ctx = _attach_provisional_notice(ctx, db, mandate)
     bm_inputs = {
         "equities": benchmark_equities_bps,
         "bonds": benchmark_bonds_bps,
@@ -1877,6 +1905,7 @@ def get_cost_disclosure_pdf(
 
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
     ctx = _build_pdf_context(mandate, current_user, db)
+    ctx = _attach_provisional_notice(ctx, db, mandate)
     payload = build_cost_disclosure(db, mandate)
     data = CostDisclosurePDFData(
         mandate_number=str(getattr(mandate, "mandate_number", "") or "") or None,

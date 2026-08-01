@@ -25,6 +25,13 @@ class PDFContext:
     # Werte werden via services.currency.convert_rappen umgerechnet wenn
     # base_currency != CHF (interne Basis-Currency ist CHF/Rappen).
     base_currency: str = "CHF"
+    # WP-B (2026-08-01): {jurisdiction, cma_status, message}-Dict aus
+    # services.pdf.provisional_notice.resolve_pdf_provisional_notice, sonst
+    # None. Nur von den 5 CMA-/Allokations-abhaengigen Dokumenttypen
+    # (Anlagestrategie, Asset Allocation, Portfolio, Kostenausweis,
+    # Backtest) gesetzt/gerendert -- fuer CH IMMER None (kein DB-Zugriff,
+    # siehe resolve_pdf_provisional_notice).
+    provisional_notice: Mapping[str, object] | None = None
 
 
 @dataclass(frozen=True)

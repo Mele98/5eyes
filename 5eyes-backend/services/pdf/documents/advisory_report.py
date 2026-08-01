@@ -146,83 +146,17 @@ def _resolve_advisory_report_provisional_notice(
     Andernfalls ein dict {jurisdiction, cma_status, message}, das im PDF als
     sichtbares "PROVISORISCH -- NICHT IC-FREIGEGEBEN"-Banner erscheint.
 
-    Primaere Quelle ist `RecommendationRun.provisional_data_warning` (von WP2
-    beim Generieren der Empfehlung persistiert) -- das spiegelt exakt die
-    CMA-Zeile, die fuer die im Bericht gezeigten Zahlen tatsaechlich
-    verwendet wurde, unabhaengig von spaeteren CMA-Aenderungen. Existiert
-    (noch) kein Empfehlungslauf, wird die aktuelle Referenzzeile live
-    geprueft (`resolve_cma_for_jurisdiction`); fehlen sogar Referenzdaten
-    komplett, ist das ebenfalls ein sichtbarer Provisorik-Fall (NIE
-    stillschweigend als "ok" behandeln).
+    WP-B (2026-08-01): duenner Wrapper um die generalisierte
+    `services.pdf.provisional_notice.resolve_pdf_provisional_notice` (dort
+    jetzt Single-Source-of-Truth fuer alle 6 CMA-/Allokations-abhaengigen
+    PDF-Dokumenttypen, siehe dortige Docstring fuer die vollstaendige
+    Erklaerung der Primaer-/Fallback-Quelle). Name/Signatur bewusst
+    unveraendert -- `tests/test_provisional_pdf_gate.py` importiert diese
+    Funktion direkt.
     """
-    import json
+    from services.pdf.provisional_notice import resolve_pdf_provisional_notice
 
-    from services.jurisdiction.exceptions import JurisdictionReferenceDataMissingError
-    from services.jurisdiction.resolve import (
-        resolve_cma_for_jurisdiction,
-        resolve_mandate_jurisdiction,
-    )
-
-    jurisdiction = resolve_mandate_jurisdiction(mandate)
-    if jurisdiction in (None, "CH"):
-        return None
-
-    from models.review import RecommendationRun
-
-    latest_run = (
-        db.query(RecommendationRun)
-        .filter(RecommendationRun.mandate_id == mandate.id)
-        .order_by(RecommendationRun.created_at.desc())
-        .first()
-    )
-    if latest_run is not None:
-        raw_warning = getattr(latest_run, "provisional_data_warning", None)
-        if not raw_warning:
-            # Empfehlung wurde mit einer committee_approved-CMA generiert.
-            return None
-        try:
-            parsed = json.loads(raw_warning)
-        except (TypeError, ValueError):
-            parsed = {}
-        message = str(parsed.get("message") or "").strip() or (
-            f"Kapitalmarktannahmen fuer Jurisdiktion '{jurisdiction}' sind noch "
-            "nicht vom Investment Committee freigegeben."
-        )
-        return {
-            "jurisdiction": jurisdiction,
-            "cma_status": parsed.get("cma_status"),
-            "message": message,
-        }
-
-    # Kein Empfehlungslauf vorhanden (z.B. Bericht vor der ersten Empfehlung
-    # angefragt) -- direkte Live-Pruefung der aktuellen CMA-Referenzzeile.
-    tenant_id = getattr(mandate, "tenant_id", None)
-    try:
-        cma = resolve_cma_for_jurisdiction(db, jurisdiction, tenant_id=tenant_id)
-    except JurisdictionReferenceDataMissingError:
-        return {
-            "jurisdiction": jurisdiction,
-            "cma_status": None,
-            "message": (
-                f"Fuer Jurisdiktion '{jurisdiction}' liegen keine "
-                "Kapitalmarkt-Referenzdaten vor. Dieser Bericht ist "
-                "PROVISORISCH und darf nicht als finales Kundendokument "
-                "verwendet werden."
-            ),
-        }
-    cma_status = getattr(cma, "status", None)
-    if cma_status == "committee_approved":
-        return None
-    return {
-        "jurisdiction": jurisdiction,
-        "cma_status": cma_status,
-        "message": (
-            f"Kapitalmarktannahmen fuer Jurisdiktion '{jurisdiction}' sind "
-            f"noch nicht vom Investment Committee freigegeben (status="
-            f"{cma_status!r}). Dieser Bericht ist PROVISORISCH und darf "
-            "ohne IC-Freigabe nicht als finales Kundendokument verwendet werden."
-        ),
-    }
+    return resolve_pdf_provisional_notice(db, mandate)
 
 
 def render_advisory_report_pdf_from_payload(

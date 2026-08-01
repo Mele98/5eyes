@@ -14,12 +14,15 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
+from reportlab.lib.units import mm
 from reportlab.platypus import PageBreak
 
 from services.pdf.base import CostDisclosurePDFData, PDFContext
 from services.pdf.components.kostenausweis import build_kostenausweis_flowables
 from services.pdf.components.single_report_disclaimer import make_single_report_cover
 from services.pdf.components.advisory_palette import make_advisory_styles
+from services.pdf.provisional_notice import make_provisional_notice_flowables
+from services.pdf.styles import PAGE_SIZE
 
 
 def build_cost_disclosure_flowables(
@@ -46,6 +49,13 @@ def build_cost_disclosure_flowables(
             "Gesamtkosten im ersten Jahr inkl. Berechnungsbasis",
             "FIDLEG Art. 8/9 und FIDLEV Art. 8/14 — Annahmen und Datenquellen",
         ],
+    ))
+    # WP-B (2026-08-01): Provisorik-Banner direkt unter dem Cover-Block,
+    # noch vor dem PageBreak. Fuer CH ist ctx.provisional_notice IMMER
+    # None -> No-Op (Constraint 1).
+    page_width, _ = PAGE_SIZE
+    flowables.extend(make_provisional_notice_flowables(
+        ctx.provisional_notice, table_width=page_width - 24 * mm,
     ))
     flowables.append(PageBreak())
 

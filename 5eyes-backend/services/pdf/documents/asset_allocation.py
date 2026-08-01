@@ -13,6 +13,7 @@ from services.pdf.components.single_report_disclaimer import (
     make_single_report_cover,
     make_single_report_disclaimer,
 )
+from services.pdf.provisional_notice import make_provisional_notice_flowables
 from services.pdf.styles import (
     COLOR_BORDER,
     COLOR_TABLE_HEADER_BG,
@@ -52,6 +53,13 @@ def build_asset_allocation_flowables(
             "Subanlageklassen und Zielbetraege fuer die Umsetzung",
             "Dokumentierter Auszug fuer die Besprechung der Strategie",
         ],
+    ))
+    # WP-B (2026-08-01): Provisorik-Banner direkt unter dem Cover-Block,
+    # noch vor dem PageBreak. Fuer CH ist ctx.provisional_notice IMMER
+    # None -> No-Op (Constraint 1).
+    page_width, _ = PAGE_SIZE
+    flowables.extend(make_provisional_notice_flowables(
+        ctx.provisional_notice, table_width=page_width - 24 * mm,
     ))
     flowables.append(PageBreak())
     flowables.extend(make_single_report_disclaimer(

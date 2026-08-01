@@ -1260,14 +1260,19 @@ def _building_block_risky_map(
     db: Session,
     policy_id: str,
     investment_universe: str | None = None,
+    jurisdiction: str | None = "CH",
 ) -> dict[tuple[str, str], int]:
     """Sprint B4 (2026-05-07): respektiert mandate.investment_universe.
 
     Wenn ein Universum gewaehlt ist und BuildingBlocks fuer dieses Universum
     existieren, werden NUR diese geladen. Sonst Fallback auf alle aktiven BBs
     (backwards-compat fuer bestehende Mandate ohne explizite Universum-Wahl).
+
+    WP-A (2026-08-01, Risky-Fraction-Gewichtung jurisdiktions-bewusst):
+    jurisdiction wird 1:1 an _building_block_rows_for_policy() durchgereicht,
+    siehe dort fuer die CH-vs-Nicht-CH-Semantik.
     """
-    rows = _building_block_rows_for_policy(db, policy_id, investment_universe)
+    rows = _building_block_rows_for_policy(db, policy_id, investment_universe, jurisdiction)
     return {
         (_norm_text(row.asset_class), _norm_text(row.sub_asset_class)): int(row.risky_fraction_bps or 0)
         for row in rows
@@ -1278,18 +1283,38 @@ def _building_block_rows_for_policy(
     db: Session,
     policy_id: str,
     investment_universe: str | None = None,
+    jurisdiction: str | None = "CH",
 ) -> list[BuildingBlock]:
-    base_query = db.query(BuildingBlock).filter(
-        BuildingBlock.policy_id == policy_id,
-        BuildingBlock.is_active == 1,
+    """Laedt die aktiven BuildingBlock-Zeilen einer Policy fuer die
+    Risky-Fraction-Gewichtung.
+
+    WP-A (2026-08-01, Risky-Fraction-Gewichtung jurisdiktions-bewusst):
+    - jurisdiction in (None, "CH") (Default, Constraint 1 der Welle):
+      EXAKT die heutige Query/Fallback-Logik -- KEIN BuildingBlock.jurisdiction-
+      Filter, byte-identisch zum Bestandsverhalten (Golden-Snapshot-Beweis).
+    - andere jurisdiction: delegiert an
+      services.jurisdiction.resolve.resolve_building_blocks_for_jurisdiction(),
+      damit die dortige Fail-Fast-Semantik (leeres Ergebnis fuer diese
+      Jurisdiktion+Policy -> JurisdictionReferenceDataMissingError statt
+      stillschweigend 0 oder — schlimmer — CH+DE gemischte Gewichte) auch
+      fuer die tatsaechliche Risky-Fraction-Berechnung gilt, nicht nur fuer
+      die bisherige isolierte Validierung in ensure_runtime_reference_data().
+    """
+    if jurisdiction in (None, "CH"):
+        base_query = db.query(BuildingBlock).filter(
+            BuildingBlock.policy_id == policy_id,
+            BuildingBlock.is_active == 1,
+        )
+        universe = (investment_universe or "").strip() or None
+        rows = []
+        if universe:
+            rows = base_query.filter(BuildingBlock.universe == universe).all()
+        if not rows:
+            rows = base_query.all()
+        return rows
+    return resolve_building_blocks_for_jurisdiction(
+        db, policy_id, jurisdiction, investment_universe=investment_universe,
     )
-    universe = (investment_universe or "").strip() or None
-    rows = []
-    if universe:
-        rows = base_query.filter(BuildingBlock.universe == universe).all()
-    if not rows:
-        rows = base_query.all()
-    return rows
 
 
 def _asset_risky_weight_fallbacks() -> dict[str, int]:
@@ -4518,10 +4543,23 @@ def ensure_runtime_reference_data(
       wird zusaetzlich als Fail-Fast-Validierung aufgerufen (wirft
       JurisdictionReferenceDataMissingError, wenn fuer diese Jurisdiktion+
       Policy keine BuildingBlock-Referenzzeilen existieren) -- ihr
-      Rueckgabewert ist NICHT Teil der Rueckgabe dieser Funktion (die
-      jurisdiktionsbewusste Filterung der BuildingBlock-Query selbst, die
-      an anderer Stelle fuer die Risky-Fraction-Gewichtung gelesen wird,
-      ist NICHT Teil dieses Arbeitspakets, siehe Abschlussbericht).
+      Rueckgabewert ist NICHT Teil der Rueckgabe dieser Funktion.
+
+      WP-A (2026-08-01, Risky-Fraction-Gewichtung jurisdiktions-bewusst):
+      _building_block_rows_for_policy()/_building_block_risky_map() (die
+      eigentlichen Konsumenten fuer die Risky-Fraction-Gewichtung) filtern
+      inzwischen selbst nach jurisdiction (delegieren fuer Nicht-CH an genau
+      dieselbe resolve_building_blocks_for_jurisdiction()) -- die Validierung
+      hier ist also auf dem Happy-Path redundant geworden. Sie bleibt trotzdem
+      bewusst stehen (Wahl statt Entfernen, siehe WP-A-Spec): sie feuert
+      fruehestmoeglich, BEVOR House-Matrix/Strategie-Readiness/Cashflow-Laden
+      etc. ueberhaupt laufen, und mehrere Aufrufer von
+      build_target_payload_from_allocation() (z.B. routers/allocation.py
+      GET-Reload-Pfad) rufen ensure_runtime_reference_data() ohne jurisdiction
+      auf (Default "CH", ausserhalb des Scopes dieses Arbeitspakets) -- ohne
+      diese frueh feuernde Kopie waere fuer NEUE, noch unvalidierte
+      Code-Pfade kein Fail-Fast garantiert. Entfernen erschien deshalb
+      riskanter als die (bewusste, harmlose) Doppelvalidierung.
     """
     if jurisdiction in (None, "CH"):
         return _ensure_runtime_reference_data_ch(db, user_id)
@@ -6699,10 +6737,14 @@ def generate_target_allocation(
     apply_stochastic = optimizer_mode == "stochastic"
     house_targets_before_optimizer = dict(targets)
     # Phase 5.1: Building-Block-Aware Risky-Fractions fuer Solver
+    # WP-A (2026-08-01): jurisdiction durchgereicht, damit ein DE-Mandat NUR
+    # aus DE-spezifischen BuildingBlock-Zeilen gewichtet wird, nicht aus dem
+    # gemischten CH+DE-Bestand derselben policy_id.
     _building_block_rows = _building_block_rows_for_policy(
         db,
         policy.id,
         getattr(mandate, "investment_universe", None),
+        jurisdiction,
     )
 
     optimizer_result = _run_stochastic_optimizer_pass(
@@ -6753,7 +6795,7 @@ def generate_target_allocation(
     max_illiquid_bps = _parse_bps_percent(prefs["limits"].get("maxIlliquid"))
 
     targets = _rebalance_to_total(targets, minimums, maximums)
-    risky_map = _building_block_risky_map(db, policy.id, getattr(mandate, "investment_universe", None))
+    risky_map = _building_block_risky_map(db, policy.id, getattr(mandate, "investment_universe", None), jurisdiction)
     sub_allocations = _build_sub_allocations(targets, prefs, jurisdiction=jurisdiction, db=db)
     if not optimizer_replaced_targets:
         sub_allocations, targets = _apply_illiquid_cap(sub_allocations, targets, max_illiquid_bps, reasoning)
@@ -7634,12 +7676,14 @@ def build_target_payload_from_allocation(
         maximums["liquidity"] = saa_liq_ceil_bps
         targets = _rebalance_to_total(targets, minimums, maximums)
 
+    # WP-A (2026-08-01): jurisdiction durchgereicht (siehe generate_target_allocation).
     building_block_rows = _building_block_rows_for_policy(
         db,
         policy.id,
         getattr(mandate, "investment_universe", None),
+        jurisdiction,
     )
-    risky_map = _building_block_risky_map(db, policy.id, getattr(mandate, "investment_universe", None))
+    risky_map = _building_block_risky_map(db, policy.id, getattr(mandate, "investment_universe", None), jurisdiction)
     sub_allocations = _build_sub_allocations(targets, prefs, jurisdiction=jurisdiction, db=db)
     sub_allocations, asset_risky_weights, risky_fraction_total_bps = _enrich_sub_allocations_with_risk(sub_allocations, risky_map)
     persisted_risky_bps = getattr(allocation, "risky_fraction_bps_at_generation", None)

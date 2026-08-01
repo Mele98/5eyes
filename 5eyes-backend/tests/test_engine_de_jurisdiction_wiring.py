@@ -46,7 +46,7 @@ from models import (  # noqa: F401
     allocation, clients, jurisdiction, mandates, profiling, review, snapshots, tenant, users, wealth,
 )
 configure_mappers()
-from models.allocation import BuildingBlock, CapitalMarketAssumption
+from models.allocation import BuildingBlock, CapitalMarketAssumption, OptimizerPolicy
 from models.clients import Client
 from models.mandates import Mandate
 from models.profiling import RiskAssessment, RiskAssessmentAnswer
@@ -55,7 +55,10 @@ from models.tenant import Tenant
 from models.users import User
 from models.wealth import Cashflow, Goal, WealthPosition
 from services.jurisdiction.de_seed import DE_CODE, ensure_de_jurisdiction_seed
+from services.jurisdiction.exceptions import JurisdictionReferenceDataMissingError
 from services.portfolio_engine import (
+    _building_block_risky_map,
+    _building_block_rows_for_policy,
     ensure_default_products,
     ensure_runtime_reference_data,
     generate_recommendation_run,
@@ -384,3 +387,118 @@ def test_ensure_default_products_ch_idempotent_when_ch_products_already_exist(se
         ensure_default_products(s, jurisdiction="CH")
         second_count = s.query(Product).filter(Product.is_active == 1, Product.deleted_at.is_(None)).count()
         assert second_count == first_count, "Zweiter Aufruf darf den CH-Katalog nicht duplizieren"
+
+
+# ---------------------------------------------------------------------------
+# WP-A (2026-08-01): BuildingBlock-Risky-Fraction-Gewichtung wird
+# jurisdiktions-bewusst. Vorher lasen _building_block_rows_for_policy()/
+# _building_block_risky_map() IMMER den gesamten (CH+DE gemischten)
+# BuildingBlock-Bestand einer policy_id, unabhaengig von der Jurisdiktion
+# des Mandats -- resolve_building_blocks_for_jurisdiction() wurde in
+# ensure_runtime_reference_data() nur als isolierte Fail-Fast-Validierung
+# aufgerufen, ihr Rueckgabewert floss aber NIE in die tatsaechliche
+# Risky-Fraction-Berechnung ein.
+# ---------------------------------------------------------------------------
+
+def test_building_block_risky_map_de_jurisdiction_excludes_colliding_ch_row(session_factory):
+    """Direkter Unit-Beweis auf den beiden eigentlichen Konsumenten: ein
+    CH-Bestand (jurisdiction IS NULL) und eine DE-Zeile fuer denselben
+    policy_id + denselben (asset_class, sub_asset_class)-Schluessel, aber mit
+    stark abweichendem risky_fraction_bps. jurisdiction='DE' darf NUR den
+    DE-Wert liefern, nicht den kollidierenden CH-Wert (egal in welcher
+    Reihenfolge die Zeilen aus der DB kommen)."""
+    now = _now()
+    with session_factory() as s:
+        policy, _cma = ensure_runtime_reference_data(s, "unit-advisor")
+        s.add(BuildingBlock(
+            id="unit-ch-collision", policy_id=policy.id,
+            asset_class="Aktien", sub_asset_class="Aktien Deutschland",
+            universe="Standard", advisory=1, risky_fraction_bps=111,
+            is_active=1, jurisdiction=None,
+            created_at=now, updated_at=now,
+        ))
+        s.add(BuildingBlock(
+            id="unit-de-row", policy_id=policy.id,
+            asset_class="Aktien", sub_asset_class="Aktien Deutschland",
+            universe="Standard", advisory=1, risky_fraction_bps=7000,
+            is_active=1, jurisdiction=DE_CODE,
+            created_at=now, updated_at=now,
+        ))
+        s.commit()
+
+        de_rows = _building_block_rows_for_policy(s, policy.id, None, "DE")
+        assert de_rows, "resolve_building_blocks_for_jurisdiction lieferte keine DE-Zeilen"
+        assert all(row.jurisdiction == DE_CODE for row in de_rows), (
+            "DE-Filter liess eine CH-Zeile (jurisdiction IS NULL) durch"
+        )
+
+        de_risky_map = _building_block_risky_map(s, policy.id, None, "DE")
+        assert de_risky_map[("Aktien", "Aktien Deutschland")] == 7000, (
+            f"DE-Risky-Map uebernahm den kollidierenden CH-Wert statt 7000: {de_risky_map}"
+        )
+
+        # CH-Pfad bleibt unveraendert (Constraint 1): KEIN Jurisdiktionsfilter,
+        # sieht also weiterhin auch die DE-Zeile (Bestandsverhalten).
+        ch_rows = _building_block_rows_for_policy(s, policy.id, None, "CH")
+        assert any(row.id == "unit-ch-collision" for row in ch_rows)
+        assert any(row.id == "unit-de-row" for row in ch_rows)
+
+
+def test_de_mandate_target_allocation_risky_fraction_uses_only_de_rows(session_factory):
+    """End-to-End-Bug-Beweis (Aufgabe 6 der WP-A-Spec): fuer dieselbe
+    policy_id existieren GLEICHZEITIG eine CH-Zeile (jurisdiction IS NULL)
+    und die DE-spezifische Zeile aus _seed_de_building_blocks() mit demselben
+    sub_asset_class-Label ("Aktien Deutschland"), aber unterschiedlichem
+    risky_fraction_bps. generate_target_allocation() fuer das DE-Mandat darf
+    in den enrichten sub_allocations NUR den DE-Wert (7000) zeigen, nicht den
+    kollidierenden CH-Wert (111) aus dem gemischten Bestand."""
+    advisor_id, mid, _tenant_id = _seed_de_mandate(
+        session_factory, suffix="mixed-risky", cma_status="committee_approved",
+    )
+    with session_factory() as s:
+        policy = s.query(OptimizerPolicy).filter(OptimizerPolicy.is_current == 1).first()
+        now = _now()
+        s.add(BuildingBlock(
+            id="ch-collision-aktien-deutschland", policy_id=policy.id,
+            asset_class="Aktien", sub_asset_class="Aktien Deutschland",
+            universe="Standard", advisory=1, risky_fraction_bps=111,
+            is_active=1, jurisdiction=None,
+            created_at=now, updated_at=now,
+        ))
+        s.commit()
+
+        mandate = s.query(Mandate).filter(Mandate.id == mid).first()
+        result = generate_target_allocation(s, mandate, advisor_id, preferences=None)
+
+    de_subs = [
+        item for item in result["sub_allocations"]
+        if item.get("sub_asset_class") == "Aktien Deutschland"
+    ]
+    assert de_subs, "Erwartet eine 'Aktien Deutschland'-Sub-Allocation im DE-Ergebnis"
+    for item in de_subs:
+        assert item["risky_fraction_bps"] == 7000, (
+            "DE-Mandat uebernahm den kollidierenden CH-Wert (111) statt des "
+            f"DE-spezifischen Werts (7000) aus dem gemischten CH+DE-Bestand: {item}"
+        )
+
+
+def test_de_mandate_without_de_building_blocks_fails_fast(session_factory):
+    """Aufgabe 4 der WP-A-Spec: ein DE-Mandat mit einer gueltigen
+    (committee_approved) DE-CMA, aber OHNE eigene DE-BuildingBlock-Zeilen
+    (nur der CH-Bootstrap-Bestand der globalen Policy existiert noch), muss
+    beim Generieren der Ziel-Allokation sauber mit
+    JurisdictionReferenceDataMissingError scheitern -- NICHT stillschweigend
+    mit 0 oder mit den falschen (CH-)Gewichten weiterrechnen."""
+    advisor_id, mid, _tenant_id = _seed_de_mandate(
+        session_factory, suffix="missing-de-bb", cma_status="committee_approved",
+    )
+    with session_factory() as s:
+        de_rows = s.query(BuildingBlock).filter(BuildingBlock.jurisdiction == DE_CODE).all()
+        assert de_rows, "Fixture-Vorbedingung verletzt: DE-BuildingBlocks muessen zuerst existieren"
+        for row in de_rows:
+            row.is_active = 0
+        s.commit()
+
+        mandate = s.query(Mandate).filter(Mandate.id == mid).first()
+        with pytest.raises(JurisdictionReferenceDataMissingError):
+            generate_target_allocation(s, mandate, advisor_id, preferences=None)

@@ -18,10 +18,12 @@ from services.pdf.components.drawdown_chart import make_drawdown_chart
 from services.pdf.components.header import _esc, make_wealtharchitekten_header
 from services.pdf.components.text_sections import make_disclaimer_section
 from services.pdf.components.wealth_chart import make_wealth_chart
+from services.pdf.provisional_notice import make_provisional_notice_flowables
 from services.pdf.styles import (
     BUCKET_LABELS_DE,
     FONT_BOLD,
     FONT_DEFAULT,
+    PAGE_SIZE,
     make_paragraph_styles,
 )
 
@@ -44,6 +46,13 @@ def build_backtest_flowables(ctx: PDFContext, data: BacktestData) -> list:
         ctx,
         document_title="Strategie-Backtest",
         document_subtitle="Historische Rendite- und Drawdown-Analyse",
+    ))
+    # WP-B (2026-08-01): Provisorik-Banner direkt unter dem Cover-Block,
+    # noch vor dem PageBreak. Fuer CH ist ctx.provisional_notice IMMER
+    # None -> No-Op (Constraint 1).
+    page_width, _ = PAGE_SIZE
+    flowables.extend(make_provisional_notice_flowables(
+        ctx.provisional_notice, table_width=page_width - 24 * mm,
     ))
     flowables.append(PageBreak())
 
