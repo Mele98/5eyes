@@ -5,6 +5,7 @@ from database import get_db, new_uuid
 from models.users import User
 from models.clients import Client
 from models.mandates import Mandate
+from models.tenant import Tenant
 from schemas.mandates import MandateCreate, MandateUpdate, MandateResponse
 from services.auth import get_client_for_user_or_404, get_current_user, get_mandate_for_user_or_404, require_advisor
 from services.audit import log
@@ -55,6 +56,14 @@ def create_mandate(
     # dingung fuer spaetere NOT-NULL-Constraint + Entfernen der 'OR IS NULL'-Klausel.
     mandate_tenant_id = getattr(client, "tenant_id", None) or getattr(current_user, "tenant_id", None)
     assert_within_quota(db, mandate_tenant_id, "mandates")
+    # 2026-08-01 (Onboarding, Entscheid Auftraggeber): explizite Wahl geht
+    # vor; sonst Default aus dem Standort der lizenznehmenden Firma
+    # (Tenant.home_jurisdiction) -- Firmen mit Kunden in mehreren Laendern
+    # koennen jederzeit ein anderes Land pro Mandat waehlen (body.jurisdiction).
+    mandate_jurisdiction = body.jurisdiction
+    if not mandate_jurisdiction and mandate_tenant_id:
+        tenant = db.query(Tenant).filter(Tenant.id == mandate_tenant_id).first()
+        mandate_jurisdiction = getattr(tenant, "home_jurisdiction", None) if tenant else None
     mandate = Mandate(
         id=new_uuid(),
         client_id=client_id,
@@ -67,6 +76,7 @@ def create_mandate(
         depot_bank=body.depot_bank,
         depot_account_number=body.depot_account_number,
         investment_universe=body.investment_universe or "Standard",
+        jurisdiction=mandate_jurisdiction,
         opened_at=body.opened_at or date.today().isoformat(),
         created_at=now,
         updated_at=now,

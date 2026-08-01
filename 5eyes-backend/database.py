@@ -248,6 +248,9 @@ def ensure_runtime_columns() -> None:
             # 2026-07-27 (Retrozessions-Feature): Firmenweite Vorbelegung,
             # siehe models/tenant.py.
             ('default_retrocession_reimbursement', 'INTEGER', 0),
+            # 2026-08-01 (Onboarding): Land der lizenznehmenden Firma, siehe
+            # models/tenant.py. NULL = "CH" (kein DB-Default fuer TEXT-Spalten).
+            ('home_jurisdiction', 'TEXT'),
         ],
         # 2026-07-27 (Retrozessions-Feature): siehe models/review.py.
         'conflict_of_interest_disclosures': [

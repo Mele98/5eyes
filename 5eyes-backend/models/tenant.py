@@ -93,6 +93,15 @@ class Tenant(Base):
     # pro Kunde/Mandat individuell ueberschreibbar (der Verzicht ist ein
     # individueller Rechtsakt, keine reine Firmenpolicy).
     default_retrocession_reimbursement = Column(Integer, nullable=False, default=0)
+    # 2026-08-01 (Onboarding, Entscheid Auftraggeber): Land, in dem die
+    # lizenznehmende Firma domiziliert ist (z.B. "CH", "DE"). Wird bei der
+    # Ersteinrichtung (Tier 1: /auth/bootstrap-admin) bzw. bei der Tenant-
+    # Erstellung (Tier 2: POST /tenants) gesetzt und dient als DEFAULT fuer
+    # neue Mandate (Mandate.jurisdiction), wenn dort kein explizites Land
+    # gewaehlt wird -- Firmen mit Kunden in mehreren Laendern koennen das pro
+    # Mandat weiterhin ueberschreiben (bestehendes Verhalten unveraendert).
+    # NULL = "CH" (gleiches Nullable-Pattern wie ueberall in diesem Bereich).
+    home_jurisdiction = Column(String)
 
     is_active = Column(Integer, nullable=False, default=1)
     created_at = Column(String, nullable=False)

@@ -32,6 +32,10 @@ class TenantCreate(BaseModel):
     # 2026-07-27 (Retrozessions-Feature): firmenweite Vorbelegung fuer neue
     # Interessenkonflikt-Offenlegungen, siehe models/tenant.py.
     default_retrocession_reimbursement: bool = False
+    # 2026-08-01 (Onboarding): Land der lizenznehmenden Firma, siehe
+    # models/tenant.py. None = "CH" (Default fuer bestehende/neue Firmen
+    # ohne explizite Angabe).
+    home_jurisdiction: Optional[str] = None
 
     @field_validator("hosting_tier")
     @classmethod
@@ -66,6 +70,7 @@ class TenantUpdate(BaseModel):
     storage_quota_mb: Optional[int] = Field(default=None, ge=1)
     is_active: Optional[int] = Field(default=None, ge=0, le=1)
     default_retrocession_reimbursement: Optional[bool] = None
+    home_jurisdiction: Optional[str] = None
 
     @field_validator("hosting_tier")
     @classmethod
@@ -103,6 +108,7 @@ class TenantResponse(BaseModel):
     max_mandates: Optional[int] = None
     storage_quota_mb: Optional[int] = None
     default_retrocession_reimbursement: int = 0
+    home_jurisdiction: Optional[str] = None
     is_active: int
     created_at: str
     updated_at: str
@@ -112,3 +118,17 @@ class UserAssignTenantRequest(BaseModel):
     """Request-Body fuer PUT /users/{user_id}/tenant."""
 
     tenant_id: str = Field(..., min_length=1, max_length=100)
+
+
+class TenantSelfServiceUpdate(BaseModel):
+    """2026-08-01 (Onboarding): Request-Body fuer PUT /tenants/me.
+
+    Bewusst SCHMALER als TenantUpdate (kein hosting_tier/license_status/
+    max_users etc.) -- ein normaler Firmen-Admin (nicht super_admin) darf
+    NUR die eigene Firmenidentitaet/den eigenen Standort pflegen, keine
+    Lizenz-/Kapazitaets-Parameter. Funktioniert TIER-UNABHAENGIG (im
+    Gegensatz zu PUT /tenants/{id}, das in Tier 1/3 per
+    settings.tenant_admin_ui_enabled deaktiviert ist)."""
+
+    display_name: Optional[str] = Field(default=None, min_length=1, max_length=200)
+    home_jurisdiction: Optional[str] = None

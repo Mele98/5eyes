@@ -31,6 +31,11 @@ class MandateCreate(BaseModel):
     # 2026-07-25 (Generalaudit): Phase-0-Gate fehlte fuer Mandate -- analog
     # zu Client/Cashflow/Goal/WealthPosition/WealthInflow nachgezogen.
     data_classification: Literal["synthetic", "real"] = "synthetic"
+    # 2026-08-01 (Onboarding): explizites Land fuer dieses Mandat -- fuer
+    # Firmen mit Kunden in mehreren Laendern. None = Default aus
+    # Tenant.home_jurisdiction (routers/mandates.py::create_mandate), sonst
+    # "CH" (Backwards-Compat, siehe models/mandates.py::Mandate.jurisdiction).
+    jurisdiction: Optional[str] = None
 
 
 class MandateUpdate(BaseModel):

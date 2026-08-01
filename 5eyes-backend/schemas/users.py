@@ -93,6 +93,14 @@ class BootstrapAdminRequest(BaseModel):
     password: str
     full_name: str
     email: Optional[str] = None
+    # 2026-08-01 (Onboarding, Entscheid Auftraggeber): Firmenidentitaet/
+    # -Standort werden bei der Ersteinrichtung erfasst, weil bis dahin die
+    # Default-Tenant-Zeile ("Default Tenant", NULL-Jurisdiktion) sonst
+    # dauerhaft ungepflegt bliebe -- siehe routers/auth.py::bootstrap_admin.
+    # Beide optional (Ersteinrichtung darf nicht daran scheitern, dass ein
+    # Feld vergessen wurde; Nachpflege ist ueber PUT /tenants/me moeglich).
+    company_name: Optional[str] = None
+    home_jurisdiction: Optional[str] = None
 
     @field_validator('username', 'full_name')
     @classmethod

@@ -1990,6 +1990,18 @@ function arrMax(a){var m=-Infinity;for(var i=0;i<a.length;i++){var n=Number(a[i]
       <div style="font-size:12px;color:var(--g3);line-height:1.6;margin-bottom:16px;">Ersteinrichtung: Lege den ersten lokalen Admin-Benutzer an. Dieser Schritt ist nur verfügbar, solange noch kein Benutzer existiert.</div>
       <div style="display:grid;gap:12px;">
         <div>
+          <label style="font-size:11px;color:var(--g3);display:block;margin-bottom:4px;">Firmenname</label>
+          <input id="bootstrap-company-name" type="text" autocomplete="organization" style="width:100%;box-sizing:border-box;background:var(--bg2);border:1px solid var(--b1);border-radius:6px;padding:9px 12px;color:var(--n8);font-size:13px;outline:none;" placeholder="Mueller Vermoegensverwaltung AG" />
+        </div>
+        <div>
+          <label style="font-size:11px;color:var(--g3);display:block;margin-bottom:4px;">Land Ihrer Firma (Sitz/Lizenznehmer)</label>
+          <select id="bootstrap-home-jurisdiction" style="width:100%;box-sizing:border-box;background:var(--bg2);border:1px solid var(--b1);border-radius:6px;padding:9px 12px;color:var(--n8);font-size:13px;outline:none;">
+            <option value="CH">Schweiz (CH)</option>
+            <option value="DE">Deutschland (DE)</option>
+          </select>
+          <div style="font-size:9.5px;color:var(--g3);opacity:0.75;margin-top:3px;">Bestimmt den Standard-Rechtsraum fuer neue Mandate (pro Mandat spaeter anpassbar, z.B. bei Kunden in einem anderen Land).</div>
+        </div>
+        <div>
           <label style="font-size:11px;color:var(--g3);display:block;margin-bottom:4px;">Vollständiger Name</label>
           <input id="bootstrap-full-name" type="text" autocomplete="name" style="width:100%;box-sizing:border-box;background:var(--bg2);border:1px solid var(--b1);border-radius:6px;padding:9px 12px;color:var(--n8);font-size:13px;outline:none;" placeholder="Max Muster" />
         </div>
@@ -2184,7 +2196,7 @@ async function provRender(){
   try{ tenants=await API.get('/tenants'); }
   catch(e){ body.innerHTML='<div style="font-size:11px;color:var(--neg);line-height:1.6">Tenant-Verwaltung nicht verfügbar: '+escapeHtml(String(e.detail||e.message||e).slice(0,160))+'<br><br>Benötigt Operator-Rolle <b>super_admin</b> + <b>TENANT_ADMIN_UI_ENABLED=true</b> (Tier-2/Staging).</div>'; return; }
   var opts=(tenants||[]).map(function(t){return '<option value="'+escapeHtml(t.id)+'">'+escapeHtml(t.display_name||t.id)+'</option>';}).join('');
-  var rows=(tenants||[]).map(function(t){return '<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--b1);font-size:11px"><span>'+escapeHtml(t.display_name||t.id)+' <span style="color:var(--n4)">('+escapeHtml(t.slug||'')+')</span></span><span style="color:var(--n4)">'+escapeHtml(t.hosting_tier||'')+' · '+escapeHtml(t.license_status||'')+'</span></div>';}).join('')||'<div style="font-size:10px;color:var(--n4)">Noch keine Firmen.</div>';
+  var rows=(tenants||[]).map(function(t){return '<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--b1);font-size:11px"><span>'+escapeHtml(t.display_name||t.id)+' <span style="color:var(--n4)">('+escapeHtml(t.slug||'')+')</span></span><span style="color:var(--n4)">'+escapeHtml(t.home_jurisdiction||'CH')+' · '+escapeHtml(t.hosting_tier||'')+' · '+escapeHtml(t.license_status||'')+'</span></div>';}).join('')||'<div style="font-size:10px;color:var(--n4)">Noch keine Firmen.</div>';
   var inp='width:100%;box-sizing:border-box;padding:7px 9px;border:1px solid var(--b1);border-radius:6px;font-size:12px;margin-bottom:6px';
   body.innerHTML=''
    +'<div style="font-size:9px;text-transform:uppercase;letter-spacing:0.06em;color:var(--n4);margin-bottom:4px">Firmen ('+(tenants||[]).length+')</div>'
@@ -2193,6 +2205,7 @@ async function provRender(){
    +'<div style="font-size:9px;text-transform:uppercase;letter-spacing:0.06em;color:var(--n4);margin-bottom:6px">Neue Firma</div>'
    +'<input id="prov-t-name" placeholder="Firmenname" style="'+inp+'">'
    +'<input id="prov-t-slug" placeholder="slug (z.B. firma-a)" style="'+inp+'">'
+   +'<select id="prov-t-jurisdiction" style="'+inp+'"><option value="CH">Schweiz (CH)</option><option value="DE">Deutschland (DE)</option></select>'
    +'<button class="btn-p" style="width:100%" onclick="provCreateTenant()">Firma anlegen</button></div>'
    +'<div style="border-top:1px solid var(--b1);padding-top:10px">'
    +'<div style="font-size:9px;text-transform:uppercase;letter-spacing:0.06em;color:var(--n4);margin-bottom:6px">Neuer Mitarbeiter</div>'
@@ -2210,7 +2223,8 @@ async function provRender(){
 function provMsg(t,ok){var m=document.getElementById('prov-msg');if(m){m.style.color=ok?'var(--pos)':'var(--neg)';m.textContent=t;}}
 async function provCreateTenant(){
   var n=(document.getElementById('prov-t-name')||{}).value, s=(document.getElementById('prov-t-slug')||{}).value;
-  try{ await API.post('/tenants',{display_name:String(n||'').trim(),slug:String(s||'').trim()}); provMsg('Firma angelegt.',true); await provRender(); }
+  var jur=(document.getElementById('prov-t-jurisdiction')||{}).value||'CH';
+  try{ await API.post('/tenants',{display_name:String(n||'').trim(),slug:String(s||'').trim(),home_jurisdiction:jur}); provMsg('Firma angelegt.',true); await provRender(); }
   catch(e){ provMsg('Fehler: '+String(e.detail||e.message||e).slice(0,150),false); }
 }
 async function provCreateEmployee(){
@@ -5265,6 +5279,8 @@ async function doBootstrapAdmin() {
   const email = document.getElementById('bootstrap-email').value.trim();
   const password = document.getElementById('bootstrap-password').value;
   const passwordConfirm = document.getElementById('bootstrap-password-confirm').value;
+  const companyName = (document.getElementById('bootstrap-company-name')||{value:''}).value.trim();
+  const homeJurisdiction = (document.getElementById('bootstrap-home-jurisdiction')||{value:''}).value;
   const errEl = document.getElementById('bootstrap-error');
   const btn = document.getElementById('btn-bootstrap-submit');
   if (errEl) errEl.textContent = '';
@@ -5278,7 +5294,10 @@ async function doBootstrapAdmin() {
   }
   if (btn) { btn.disabled = true; btn.textContent = 'Wird erstellt…'; }
   try {
-    const data = await API.post('/auth/bootstrap-admin', { full_name: fullName, username, email: email || null, password });
+    const data = await API.post('/auth/bootstrap-admin', {
+      full_name: fullName, username, email: email || null, password,
+      company_name: companyName || null, home_jurisdiction: homeJurisdiction || null,
+    });
     bootstrapStatusCache = { setup_required: false, can_create_admin: false };
     await API.setToken(data.access_token);
     currentUser = data.user;

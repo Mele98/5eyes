@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from datetime import datetime, timezone, timedelta
 from database import get_db, new_uuid
+from models.tenant import Tenant
 from models.users import User, AdviserRegistration
 from schemas.users import (
     AdviserRegistrationCreate, AdviserRegistrationResponse, BootstrapAdminRequest,
@@ -153,6 +154,22 @@ def bootstrap_admin(body: BootstrapAdminRequest, request: Request, db: Session =
         updated_at=now,
     )
     db.add(admin)
+    # 2026-08-01 (Onboarding, Entscheid Auftraggeber): Firmenidentitaet/
+    # -Standort der Default-Tenant-Zeile ('main', von database.py::
+    # ensure_default_tenant() bereits beim Boot angelegt) hier mitpflegen,
+    # falls angegeben -- sonst bliebe sie dauerhaft "Default Tenant" mit
+    # NULL-Jurisdiktion. Bewusst optional/best-effort: die Ersteinrichtung
+    # darf nicht am Tenant-Update scheitern, und eine spaetere Korrektur ist
+    # jederzeit ueber PUT /tenants/me moeglich.
+    if body.company_name or body.home_jurisdiction:
+        from models.tenant import DEFAULT_TENANT_ID
+        tenant = db.query(Tenant).filter(Tenant.id == DEFAULT_TENANT_ID).first()
+        if tenant is not None:
+            if body.company_name:
+                tenant.display_name = body.company_name.strip()
+            if body.home_jurisdiction:
+                tenant.home_jurisdiction = body.home_jurisdiction.strip()
+            tenant.updated_at = now
     db.commit()
     db.refresh(admin)
     login_attempt_guard.register_success(guard_key)
