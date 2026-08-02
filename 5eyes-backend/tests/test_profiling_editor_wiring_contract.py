@@ -90,7 +90,11 @@ def test_html_bridge_reuses_same_token_handoff_as_advisory_report_bridge():
     # openReportingApp (Advisory-Report) UND openProfilingEditor muessen
     # dieselbe Token-/Base-URL-Aufloesung nutzen -- keine zweite, evtl.
     # driftende Kopie der Handoff-Logik.
-    assert html.count("await resolveReportingAppUrl(path)") == 2
+    # 2026-08-02 (Integration): mittlerweile teilen sich 9 Editor-Bridges diese
+    # Funktion (openReportingApp, openProfilingEditor, openGoalsEditor,
+    # openCashflowEditor, openAllocationEditor, openMandateEditor,
+    # openCrmEditor, openCrmEditorForClient, openWealthInflowEditor).
+    assert html.count("await resolveReportingAppUrl(path)") == 9
 
 
 def test_profiling_editor_entry_point_is_reachable_from_risikoprofil_section():

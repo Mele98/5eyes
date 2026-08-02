@@ -2712,6 +2712,7 @@ function _wireSollIstHover(){
     <div class="sb-hd">
       <span class="sb-lbl">Mandate <span id="alert-count" style="background:var(--neg);color:#fff;border-radius:2px;padding:1px 5px;font-size:8px;margin-left:4px">2</span></span>
       <button class="sb-btn" id="pb" onclick="toggleP()">Alle anzeigen</button>
+      <button class="sb-btn" id="btn-crm-react-editor" onclick="openCrmEditor()" title="Kunden-CRM (React, Beta)">CRM (Beta)</button>
     </div>
     <div class="sb-search"><input type="text" id="client-search" placeholder="Kunde suchen…" oninput="filterClientRegister(this.value)" aria-label="Kunde suchen"></div>
     <div class="sb-az" id="sb-az"></div>
@@ -2735,7 +2736,7 @@ function _wireSollIstHover(){
 
     <!-- PAGE: STAMMDATEN -->
     <div id="page-sd" class="page">
-      <div class="ph"><div><div class="ph-t">Stammdaten</div><div class="ph-s">Familie Mueller-Weber · Advisory · aktiv seit 15.03.2021</div></div><div class="ph-r"><button class="btn" onclick="openStammdatenModal()">Bearbeiten</button><button class="btn-p" onclick="go('vg')">Verm&ouml;gen &rarr;</button></div></div>
+      <div class="ph"><div><div class="ph-t">Stammdaten</div><div class="ph-s">Familie Mueller-Weber · Advisory · aktiv seit 15.03.2021</div></div><div class="ph-r"><button class="btn" onclick="openStammdatenModal()">Bearbeiten</button><button class="btn-p" onclick="go('vg')">Verm&ouml;gen &rarr;</button><details class="ph-more"><summary title="Weitere Stammdaten-Optionen" aria-label="Weitere Stammdaten-Optionen">&#8943;</summary><div class="ph-more-menu"><button class="btn" id="btn-sd-mandate-react-editor" onclick="openMandateEditor();this.closest('details').removeAttribute('open')" title="Mandat-Editor (React, Beta)">Editor (Beta)</button><button class="btn" id="btn-sd-crm-react-editor" onclick="openCrmEditorForClient();this.closest('details').removeAttribute('open')" title="Kunden-CRM (React, Beta)">CRM (Beta)</button></div></details></div></div>
       <div class="pad">
         <div class="card mb">
           <div class="chd"><span class="cht">Ihr Gesamtvermögen</span><span style="font-size:9px;color:var(--n4);margin-left:8px">Beratungsbasis + holistischer Überblick</span><div class="chr"><button class="btn btn-sm" onclick="om('m-aw')">+ Position</button></div></div>
@@ -2777,7 +2778,7 @@ function _wireSollIstHover(){
 
     <!-- PAGE: VERMOEGEN -->
     <div id="page-vg" class="page">
-      <div class="ph"><div><div class="ph-t">Verm&ouml;gen</div><div class="ph-s">Was geh&ouml;rt zur Beratung &middot; was nur zum Gesamtbild &middot; Verbindlichkeiten</div></div><div class="ph-r"><button class="btn" onclick="om('m-aw')">+ Position</button><button class="btn-p" onclick="go('cf')">Weiter zu Cashflows &amp; Zielen &rarr;</button></div></div>
+      <div class="ph"><div><div class="ph-t">Verm&ouml;gen</div><div class="ph-s">Was geh&ouml;rt zur Beratung &middot; was nur zum Gesamtbild &middot; Verbindlichkeiten</div></div><div class="ph-r"><button class="btn" onclick="om('m-aw')">+ Position</button><button class="btn-p" onclick="go('cf')">Weiter zu Cashflows &amp; Zielen &rarr;</button><details class="ph-more"><summary title="Weitere Verm&ouml;gens-Optionen" aria-label="Weitere Verm&ouml;gens-Optionen">&#8943;</summary><div class="ph-more-menu"><button class="btn" id="btn-vg-wealthinflow-react-editor" onclick="openWealthInflowEditor();this.closest('details').removeAttribute('open')" title="Verm&ouml;genszufl&uuml;sse-Editor (React, Beta)">Zufl&uuml;sse-Editor (Beta)</button></div></details></div></div>
       <div class="pad">
         <div data-slot="wealth"></div>
       </div>
@@ -2786,7 +2787,7 @@ function _wireSollIstHover(){
 
     <!-- PAGE: CASHFLOWS -->
     <div id="page-cf" class="page">
-      <div class="ph"><div><div class="ph-t">Einnahmen, Ausgaben und Ziele</div><div class="ph-s">Zahlungsstr&ouml;me ordnen &middot; Ziele priorisieren &middot; IST-Situation verstehen</div></div><div class="ph-r"><button class="btn" onclick="openNewCashflow('Income')">Einnahme erfassen</button><button class="btn" onclick="openNewCashflow('Expense')">Ausgabe erfassen</button><button class="btn" onclick="om('m-nz')">Ziel erfassen</button><button class="btn-p" onclick="go('rp')">Weiter zum Risikoprofil &rarr;</button></div></div>
+      <div class="ph"><div><div class="ph-t">Einnahmen, Ausgaben und Ziele</div><div class="ph-s">Zahlungsstr&ouml;me ordnen &middot; Ziele priorisieren &middot; IST-Situation verstehen</div></div><div class="ph-r"><button class="btn" onclick="openNewCashflow('Income')">Einnahme erfassen</button><button class="btn" onclick="openNewCashflow('Expense')">Ausgabe erfassen</button><button class="btn" onclick="om('m-nz')">Ziel erfassen</button><button class="btn-p" onclick="go('rp')">Weiter zum Risikoprofil &rarr;</button><details class="ph-more"><summary title="Weitere Cashflow- &amp; Ziele-Optionen" aria-label="Weitere Cashflow- &amp; Ziele-Optionen">&#8943;</summary><div class="ph-more-menu"><button class="btn" id="btn-cf-goals-react-editor" onclick="openGoalsEditor();this.closest('details').removeAttribute('open')" title="Ziele-Editor (React, Beta)">Ziele-Editor (Beta)</button><button class="btn" id="btn-cf-cashflow-react-editor" onclick="openCashflowEditor();this.closest('details').removeAttribute('open')" title="Cashflow-Editor (React, Beta)">Cashflow-Editor (Beta)</button></div></details></div></div>
       <div class="pad">
         <div>Pr&uuml;fen Sie zuerst die laufenden Einnahmen und Ausgaben. Danach ordnen Sie die Ziele nach ihrer Bedeutung f&uuml;r die Planung.</div>
         <div class="g2" data-slot="cashflows"></div>
@@ -3201,7 +3202,7 @@ function _wireSollIstHover(){
 
     <!-- PAGE: ALLOKATION -->
     <div id="page-al" class="page">
-      <div class="ph"><div><div class="ph-t">Asset Allokation</div><div class="ph-s">SOLL-Strategie aus Risikoprofil, Zielen und Beratungsvermögen — stochastisch optimiert</div></div><div class="ph-r aa-actions"><button class="btn" id="btn-aa-pref-open" onclick="openAllocationPreferencesModal()">Anlagepräferenzen</button><button class="btn-g" id="btn-aa-calc" onclick="calculateInvestmentStrategy()">Anlagestrategie berechnen</button><button class="btn" id="btn-aa-pdf" onclick="downloadServerPdf('assetallocation')" title="Asset-Allocation-PDF (Server)">PDF</button><button class="btn-p aa-commit-action" id="btn-portfolio-umsetzen" onclick="openPortfolioUmsetzenModal()" style="display:none">Portfolio umsetzen</button><details class="aa-more"><summary title="Weitere Optionen" aria-label="Weitere Asset-Allocation-Optionen">⋯</summary><div class="aa-more-menu"><button class="btn" id="btn-aa-backtest" onclick="openStrategyBacktest();this.closest('details').removeAttribute('open')" title="Backtest der SOLL-Strategie auf historischen Jahresrenditen (Wealth-Index, Drawdown, CAGR, Sharpe)">Strategie-Backtest</button><button class="btn" id="btn-aa-params-open" onclick="openAllocationParametersModal();this.closest('details').removeAttribute('open')">Parameter</button><button class="btn" onclick="openMandateSettingsModal();this.closest('details').removeAttribute('open')" title="Mandat-Einstellungen: Mortalitaet, Rentenalter, Lebenserwartung">Mandat-Einstellungen</button><button class="btn" onclick="openAllocationEngineModal();this.closest('details').removeAttribute('open')">Soll-Quoten</button></div></details></div></div>
+      <div class="ph"><div><div class="ph-t">Asset Allokation</div><div class="ph-s">SOLL-Strategie aus Risikoprofil, Zielen und Beratungsvermögen — stochastisch optimiert</div></div><div class="ph-r aa-actions"><button class="btn" id="btn-aa-pref-open" onclick="openAllocationPreferencesModal()">Anlagepräferenzen</button><button class="btn-g" id="btn-aa-calc" onclick="calculateInvestmentStrategy()">Anlagestrategie berechnen</button><button class="btn" id="btn-aa-pdf" onclick="downloadServerPdf('assetallocation')" title="Asset-Allocation-PDF (Server)">PDF</button><button class="btn-p aa-commit-action" id="btn-portfolio-umsetzen" onclick="openPortfolioUmsetzenModal()" style="display:none">Portfolio umsetzen</button><details class="aa-more"><summary title="Weitere Optionen" aria-label="Weitere Asset-Allocation-Optionen">⋯</summary><div class="aa-more-menu"><button class="btn" id="btn-aa-backtest" onclick="openStrategyBacktest();this.closest('details').removeAttribute('open')" title="Backtest der SOLL-Strategie auf historischen Jahresrenditen (Wealth-Index, Drawdown, CAGR, Sharpe)">Strategie-Backtest</button><button class="btn" id="btn-aa-params-open" onclick="openAllocationParametersModal();this.closest('details').removeAttribute('open')">Parameter</button><button class="btn" onclick="openMandateSettingsModal();this.closest('details').removeAttribute('open')" title="Mandat-Einstellungen: Mortalitaet, Rentenalter, Lebenserwartung">Mandat-Einstellungen</button><button class="btn" onclick="openAllocationEngineModal();this.closest('details').removeAttribute('open')">Soll-Quoten</button><button class="btn" id="btn-al-react-editor" onclick="openAllocationEditor();this.closest('details').removeAttribute('open')" title="Asset-Allokation-Editor (React, Beta)">Editor (Beta)</button></div></details></div></div>
       <div id="al-dirty-banner" class="strip strip-w" style="display:none">
         <div>
           <div class="st">Strategie veraltet</div>
@@ -12235,6 +12236,130 @@ async function openProfilingEditor(){
     return;
   }
   var path = '/mandates/' + encodeURIComponent(mid) + '/risikoprofil-editor';
+  var url = await resolveReportingAppUrl(path);
+  window.open(url, '_blank', 'noopener');
+}
+
+// Track #64 / ADR-008 Track 2: Migration Goal-Wizard.
+// Oeffnet den neuen React-Ziele-Editor (Track #64) in einem neuen Browser-Tab
+// statt des Inline-HTML-Ziel-Wizards. Ruft exakt dieselben Backend-Endpunkte
+// auf wie das Inline-Ziele-Modal (GET/POST/PUT/DELETE /mandates/{id}/goals) --
+// keine Fachlogik-Aenderung, nur die Praesentationsschicht wandert.
+// Uebergangs-Strategie gemaess ADR-008 Track 2: die Inline-Ziele-Erfassung
+// (Modal "m-nz") bleibt vorerst aktiv (Zwei-Stack-Betrieb).
+async function openGoalsEditor(){
+  var mid = typeof getActiveMandateId==='function' ? getActiveMandateId() : null;
+  if(!mid){
+    if(window.showAppError) showAppError('Bitte zuerst ein Mandat oeffnen.');
+    else alert('Bitte zuerst ein Mandat oeffnen.');
+    return;
+  }
+  var path = '/mandates/' + encodeURIComponent(mid) + '/goals-editor';
+  var url = await resolveReportingAppUrl(path);
+  window.open(url, '_blank', 'noopener');
+}
+
+// Roadmap #68 / ADR-008 Track 2: Migration Cashflow-Workflow.
+// Oeffnet den neuen React-Cashflow-Editor (haengt am KUNDEN, nicht am Mandat)
+// in einem neuen Browser-Tab statt des Inline-HTML-Workflows. Der Editor ruft
+// exakt dieselben Backend-Endpunkte auf wie der Inline-Workflow
+// (/clients/{id}/cashflows, /clients/{id}/cashflows-derived) --
+// keine Fachlogik-Aenderung, nur die Praesentationsschicht wandert.
+// Uebergangs-Strategie gemaess ADR-008 Track 2: der Inline-Workflow bleibt
+// vorerst aktiv (Zwei-Stack-Betrieb), bis die React-Seite im Alltag erprobt ist.
+async function openCashflowEditor(){
+  var cid = typeof getActiveClientId==='function' ? getActiveClientId() : null;
+  if(!cid){
+    if(window.showAppError) showAppError('Bitte zuerst einen Kunden oeffnen.');
+    else alert('Bitte zuerst einen Kunden oeffnen.');
+    return;
+  }
+  var path = '/clients/' + encodeURIComponent(cid) + '/cashflow-editor';
+  var url = await resolveReportingAppUrl(path);
+  window.open(url, '_blank', 'noopener');
+}
+
+// Roadmap #67 / ADR-008 Track 2: Migration Asset-Allocation-Editor.
+// Oeffnet den neuen React-Allocation-Editor (Schema-First-Migration) in einem
+// neuen Browser-Tab statt der Inline-HTML-Sektion. Der Editor ruft exakt
+// dieselben Backend-Endpunkte auf wie die Inline-Sektion (POST
+// /mandates/{id}/target-allocation/generate, .../sensitivity) -- keine
+// Fachlogik-Aenderung, nur die Praesentationsschicht wandert.
+// Uebergangs-Strategie gemaess ADR-008 Track 2: die Inline-Sektion bleibt
+// vorerst aktiv (Zwei-Stack-Betrieb), bis die React-Seite im Alltag erprobt ist.
+async function openAllocationEditor(){
+  var mid = typeof getActiveMandateId==='function' ? getActiveMandateId() : null;
+  if(!mid){
+    if(window.showAppError) showAppError('Bitte zuerst ein Mandat oeffnen.');
+    else alert('Bitte zuerst ein Mandat oeffnen.');
+    return;
+  }
+  var path = '/mandates/' + encodeURIComponent(mid) + '/allocation-editor';
+  var url = await resolveReportingAppUrl(path);
+  window.open(url, '_blank', 'noopener');
+}
+
+// ADR-008 Track 2 / Roadmap #65: Migration Mandate-Edit.
+// Oeffnet den neuen React-Mandate-Editor in einem neuen Browser-Tab statt des
+// Inline-HTML-Mandate-Settings-Modals. Der Editor ruft exakt dieselben
+// Backend-Endpunkte auf wie openMandateSettingsModal()/saveMandateSettings()
+// (GET/PUT /mandates/{id}) -- keine Fachlogik-Aenderung, nur die
+// Praesentationsschicht wandert. Uebergangs-Strategie gemaess ADR-008 Track 2:
+// das Inline-Mandate-Settings-Modal bleibt vorerst aktiv (Zwei-Stack-Betrieb).
+async function openMandateEditor(){
+  var mid = typeof getActiveMandateId==='function' ? getActiveMandateId() : null;
+  if(!mid){
+    if(window.showAppError) showAppError('Bitte zuerst ein Mandat oeffnen.');
+    else alert('Bitte zuerst ein Mandat oeffnen.');
+    return;
+  }
+  var path = '/mandates/' + encodeURIComponent(mid) + '/mandate-editor';
+  var url = await resolveReportingAppUrl(path);
+  window.open(url, '_blank', 'noopener');
+}
+
+// Roadmap #66 / ADR-008 Track 2: Migration Kunden-CRM.
+// Oeffnet den neuen React-CRM-Editor (Suche/Filter/Stammdaten-Bearbeitung,
+// Track #66) in einem neuen Browser-Tab. Der Editor ruft dieselben
+// Backend-Endpunkte auf wie das Stammdaten-Modul (GET/PUT /clients) --
+// keine Fachlogik-Aenderung, nur die Praesentationsschicht wandert.
+// Uebergangs-Strategie gemaess ADR-008 Track 2: die Sidebar-Kundenliste
+// und das Stammdaten-Modal bleiben vorerst aktiv (Zwei-Stack-Betrieb).
+async function openCrmEditor(){
+  var path = '/crm-editor';
+  var url = await resolveReportingAppUrl(path);
+  window.open(url, '_blank', 'noopener');
+}
+
+// Per-Client-Variante: oeffnet den React-CRM-Editor direkt mit dem aktuell
+// aktiven Kunden vorselektiert (Deep-Link, analog getActiveMandateId() bei
+// openProfilingEditor()).
+async function openCrmEditorForClient(){
+  var cid = typeof getActiveClientId==='function' ? getActiveClientId() : null;
+  if(!cid){
+    if(window.showAppError) showAppError('Bitte zuerst einen Kunden oeffnen.');
+    else alert('Bitte zuerst einen Kunden oeffnen.');
+    return;
+  }
+  var path = '/clients/' + encodeURIComponent(cid) + '/crm-editor';
+  var url = await resolveReportingAppUrl(path);
+  window.open(url, '_blank', 'noopener');
+}
+
+// Roadmap #54 / ADR-008 Track 2: Migration Vermoegenszufluesse-Editor.
+// Oeffnet den neuen React-Editor (WealthInflowEditor) in einem neuen Browser-
+// Tab statt des Inline-CRUD-Modals. Ruft dieselben Backend-Endpunkte auf wie
+// das Inline-CRUD (GET/POST /clients/{id}/wealth-inflows, PUT/DELETE
+// /wealth-inflows/{id}) -- keine Fachlogik-Aenderung. Adressiert per
+// Client-ID (nicht Mandats-ID), weil die Route am Kunden haengt.
+async function openWealthInflowEditor(){
+  var cid = typeof getActiveClientId==='function' ? getActiveClientId() : null;
+  if(!cid){
+    if(window.showAppError) showAppError('Bitte zuerst einen Kunden oeffnen.');
+    else alert('Bitte zuerst einen Kunden oeffnen.');
+    return;
+  }
+  var path = '/clients/' + encodeURIComponent(cid) + '/wealth-inflows-editor';
   var url = await resolveReportingAppUrl(path);
   window.open(url, '_blank', 'noopener');
 }
