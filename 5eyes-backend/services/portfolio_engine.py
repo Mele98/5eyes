@@ -610,243 +610,66 @@ from services.portfolio_engine_live_rebalancing import (  # noqa: F401,E402
 )
 
 
-def _building_block_risky_map(
-    db: Session,
-    policy_id: str,
-    investment_universe: str | None = None,
-    jurisdiction: str | None = "CH",
-) -> dict[tuple[str, str], int]:
-    """Sprint B4 (2026-05-07): respektiert mandate.investment_universe.
-
-    Wenn ein Universum gewaehlt ist und BuildingBlocks fuer dieses Universum
-    existieren, werden NUR diese geladen. Sonst Fallback auf alle aktiven BBs
-    (backwards-compat fuer bestehende Mandate ohne explizite Universum-Wahl).
-
-    WP-A (2026-08-01, Risky-Fraction-Gewichtung jurisdiktions-bewusst):
-    jurisdiction wird 1:1 an _building_block_rows_for_policy() durchgereicht,
-    siehe dort fuer die CH-vs-Nicht-CH-Semantik.
-    """
-    rows = _building_block_rows_for_policy(db, policy_id, investment_universe, jurisdiction)
-    return {
-        (_norm_text(row.asset_class), _norm_text(row.sub_asset_class)): int(row.risky_fraction_bps or 0)
-        for row in rows
-    }
-
-
-def _building_block_rows_for_policy(
-    db: Session,
-    policy_id: str,
-    investment_universe: str | None = None,
-    jurisdiction: str | None = "CH",
-) -> list[BuildingBlock]:
-    """Laedt die aktiven BuildingBlock-Zeilen einer Policy fuer die
-    Risky-Fraction-Gewichtung.
-
-    WP-A (2026-08-01, Risky-Fraction-Gewichtung jurisdiktions-bewusst):
-    - jurisdiction in (None, "CH") (Default, Constraint 1 der Welle):
-      EXAKT die heutige Query/Fallback-Logik -- KEIN BuildingBlock.jurisdiction-
-      Filter, byte-identisch zum Bestandsverhalten (Golden-Snapshot-Beweis).
-    - andere jurisdiction: delegiert an
-      services.jurisdiction.resolve.resolve_building_blocks_for_jurisdiction(),
-      damit die dortige Fail-Fast-Semantik (leeres Ergebnis fuer diese
-      Jurisdiktion+Policy -> JurisdictionReferenceDataMissingError statt
-      stillschweigend 0 oder — schlimmer — CH+DE gemischte Gewichte) auch
-      fuer die tatsaechliche Risky-Fraction-Berechnung gilt, nicht nur fuer
-      die bisherige isolierte Validierung in ensure_runtime_reference_data().
-    """
-    if jurisdiction in (None, "CH"):
-        base_query = db.query(BuildingBlock).filter(
-            BuildingBlock.policy_id == policy_id,
-            BuildingBlock.is_active == 1,
-        )
-        universe = (investment_universe or "").strip() or None
-        rows = []
-        if universe:
-            rows = base_query.filter(BuildingBlock.universe == universe).all()
-        if not rows:
-            rows = base_query.all()
-        return rows
-    return resolve_building_blocks_for_jurisdiction(
-        db, policy_id, jurisdiction, investment_universe=investment_universe,
-    )
+# ADR-014 Schritt 8 (2026-08-03, letzter Schritt): House-Matrix/Tilt-Cluster
+# (am staerksten verflochten, 24 Namen) extrahiert nach
+# services/portfolio_engine_house_matrix.py (0 Zeilen Fachlogik-Aenderung,
+# Byte-fuer-Byte-Kopie, per Diff-Skript verifiziert). Diese Extraktion
+# schliesst den ADR-014-Split ab: portfolio_engine.py enthaelt danach nur
+# noch CORE-Helfer + die 5 Orchestratoren (generate_target_allocation,
+# evaluate_goal_sensitivity, build_target_payload_from_allocation,
+# build_recommendation_payload_from_run, generate_recommendation_run).
+# _apply_goal_and_reserve_tilts ruft weiterhin unveraendert in den
+# Reserve-Cluster (_compute_reserve_for_inputs, Schritt 4) hinein -- die
+# zentrale Cross-Bucket-Bruecke funktioniert dank Re-Export-Kette
+# unveraendert. _house_matrix_or_default/_baseline_target_bands/
+# _build_sub_allocations/_enrich_sub_allocations_with_risk/
+# _building_block_risky_map werden extern importiert von
+# services/backtest_ab.py UND routers/wealth.py (calculate_max_pension_
+# spending) -- der zweite Konsument wurde beim Draften dieses Schritts
+# gefunden, nicht im urspruenglichen ADR-014 gelistet.
+from services.portfolio_engine_house_matrix import (  # noqa: F401,E402
+    _apply_band_preferences,
+    _apply_external_exposure_tilts,
+    _apply_goal_and_reserve_tilts,
+    _apply_illiquid_cap,
+    _asset_risky_weight_fallbacks,
+    _baseline_target_bands,
+    _building_block_risky_map,
+    _building_block_rows_for_policy,
+    _build_sub_allocations,
+    _enforce_risk_budget,
+    _enrich_sub_allocations_with_risk,
+    _growth_goals_for_equity_tilt,
+    _has_manual_target_overrides,
+    _house_matrix_mid_targets,
+    _house_matrix_or_default,
+    _normalize_house_matrix_defaults,
+    _normalize_splits,
+    _preference_choice,
+    _rebalance_to_total,
+    _renditeziel_equity_tilt_bps,
+    _risk_budget_from_targets,
+    _seed_building_blocks,
+    _seed_house_matrix_rows,
+    _validate_house_matrix_defaults,
+)
 
 
-def _asset_risky_weight_fallbacks() -> dict[str, int]:
-    return DEFAULT_ASSET_RISKY_WEIGHTS_BPS.copy()
 
 
-def _apply_band_preferences(
-    bands: dict | None,
-    targets: dict[str, int],
-    minimums: dict[str, int],
-    maximums: dict[str, int],
-    reasoning: list[str],
-) -> None:
-    if not bands:
-        return
-    applied = []
-    for raw_key, override in bands.items():
-        bucket = _bucket_key(raw_key)
-        if not bucket or not isinstance(override, dict):
-            continue
-        minimum = _coerce_band_bps(override.get("min_bps"))
-        target = _coerce_band_bps(override.get("target_bps"))
-        maximum = _coerce_band_bps(override.get("max_bps"))
-        if minimum is not None:
-            minimums[bucket] = minimum
-        if target is not None:
-            targets[bucket] = target
-        if maximum is not None:
-            maximums[bucket] = maximum
-        applied.append(BUCKET_LABELS[bucket])
-    if not applied:
-        return
-    for key in BUCKET_FIELDS:
-        values = (minimums[key], targets[key], maximums[key])
-        if min(values) < 0 or max(values) > 10000:
-            raise ValueError(f"Bandbreiten fuer {BUCKET_LABELS[key]} muessen zwischen 0% und 100% liegen.")
-        if not (minimums[key] <= targets[key] <= maximums[key]):
-            raise ValueError(
-                f"Bandbreiten fuer {BUCKET_LABELS[key]} sind inkonsistent: Min {minimums[key]} / Ziel {targets[key]} / Max {maximums[key]}."
-            )
-    total = sum(int(targets[key]) for key in BUCKET_FIELDS)
-    if total != 10000:
-        raise ValueError(f"Mandatsspezifische Zielquoten muessen 100% ergeben (aktuell {total / 100:.2f}%).")
-    reasoning.append("Mandatsspezifische Soll-Quoten und Bandbreiten werden als Simulations-Constraint beruecksichtigt.")
 
 
-def _has_manual_target_overrides(bands: dict | None) -> bool:
-    if not isinstance(bands, dict):
-        return False
-    return any(
-        isinstance(override, dict) and _coerce_band_bps(override.get("target_bps")) is not None
-        for override in bands.values()
-    )
 
 
-def _rebalance_to_total(targets: dict[str, int], minimums: dict[str, int], maximums: dict[str, int]) -> dict[str, int]:
-    adjusted = {key: int(targets[key]) for key in BUCKET_FIELDS}
-    for key in BUCKET_FIELDS:
-        adjusted[key] = max(minimums[key], min(maximums[key], adjusted[key]))
-
-    def _room_up(name: str) -> int:
-        return maximums[name] - adjusted[name]
-
-    def _room_down(name: str) -> int:
-        return adjusted[name] - minimums[name]
-
-    current_total = sum(adjusted.values())
-    delta = 10000 - current_total
-    if delta > 0:
-        for key in ("bonds", "liquidity", "equities", "real_estate", "alternatives"):
-            if delta <= 0:
-                break
-            step = min(delta, _room_up(key))
-            if step > 0:
-                adjusted[key] += step
-                delta -= step
-    elif delta < 0:
-        delta = abs(delta)
-        for key in ("equities", "alternatives", "real_estate", "bonds", "liquidity"):
-            if delta <= 0:
-                break
-            step = min(delta, _room_down(key))
-            if step > 0:
-                adjusted[key] -= step
-                delta -= step
-    final_total = sum(adjusted.values())
-    if final_total != 10000:
-        raise ValueError(
-            f"Target allocation cannot be normalized to 10000 bps within min/max bounds "
-            f"(total={final_total}, targets={adjusted})."
-        )
-    return adjusted
 
 
-def _enrich_sub_allocations_with_risk(
-    sub_allocations: list[dict],
-    risky_map: dict[tuple[str, str], int],
-) -> tuple[list[dict], dict[str, int], int]:
-    enriched: list[dict] = []
-    weighted_totals = {key: 0 for key in BUCKET_FIELDS}
-    weight_totals = {key: 0 for key in BUCKET_FIELDS}
-    total_risky_fraction_bps = 0
-    for sub in sub_allocations:
-        bucket = _bucket_key(sub.get("asset_class"))
-        if not bucket:
-            continue
-        risky_fraction_bps = risky_map.get(
-            (_norm_text(sub.get("asset_class")), _norm_text(sub.get("sub_asset_class"))),
-            _asset_risky_weight_fallbacks().get(bucket, 0),
-        )
-        weight = int(sub.get("target_weight_bps") or 0)
-        weighted_totals[bucket] += int(round(weight * risky_fraction_bps))
-        weight_totals[bucket] += weight
-        total_risky_fraction_bps += int(round(weight * risky_fraction_bps / 10000))
-        enriched.append({**sub, "risky_fraction_bps": int(risky_fraction_bps)})
-    asset_risky_weights = _asset_risky_weight_fallbacks()
-    for bucket in BUCKET_FIELDS:
-        if weight_totals[bucket] > 0:
-            asset_risky_weights[bucket] = int(round(weighted_totals[bucket] / weight_totals[bucket]))
-    return enriched, asset_risky_weights, total_risky_fraction_bps
 
 
-def _risk_budget_from_targets(targets: dict[str, int], asset_risky_weights: dict[str, int]) -> int:
-    return int(round(sum(int(targets[key]) * int(asset_risky_weights.get(key, 0)) for key in BUCKET_FIELDS) / 10000))
 
 
-def _enforce_risk_budget(
-    targets: dict[str, int],
-    minimums: dict[str, int],
-    maximums: dict[str, int],
-    asset_risky_weights: dict[str, int],
-    risk_budget_bps: int,
-    allow_best_effort: bool = False,
-) -> tuple[dict[str, int], int]:
-    adjusted = {key: int(targets[key]) for key in BUCKET_FIELDS}
-    current_risk = _risk_budget_from_targets(adjusted, asset_risky_weights)
-    loops = 0
-    while current_risk > risk_budget_bps and loops < 400:
-        loops += 1
-        receiver = "bonds" if adjusted["bonds"] < maximums["bonds"] else ("liquidity" if adjusted["liquidity"] < maximums["liquidity"] else None)
-        if not receiver:
-            break
-        receiver_room = maximums[receiver] - adjusted[receiver]
-        if receiver_room <= 0:
-            break
-        donors = [
-            key for key in ("equities", "alternatives", "real_estate", "bonds")
-            if adjusted[key] > minimums[key] and asset_risky_weights.get(key, 0) > asset_risky_weights.get(receiver, 0)
-        ]
-        if not donors:
-            break
-        donor = sorted(
-            donors,
-            key=lambda key: (asset_risky_weights.get(key, 0), adjusted[key] - minimums[key]),
-            reverse=True,
-        )[0]
-        step = min(100, adjusted[donor] - minimums[donor], receiver_room)
-        if step <= 0:
-            break
-        adjusted[donor] -= step
-        adjusted[receiver] += step
-        current_risk = _risk_budget_from_targets(adjusted, asset_risky_weights)
-    if current_risk > risk_budget_bps:
-        if allow_best_effort:
-            # Validierung 2026-06-11 (#AA-1): strukturell unerreichbares Budget
-            # (Mindestquoten lassen die Risky-Fraction nicht unter den Cap). Statt
-            # hart zu werfen die konservativste ERREICHBARE Allokation zurueckgeben;
-            # der Aufrufer (letzte Eskalationsstufe) behandelt die Ueberschreitung
-            # graceful (Compliance-Warnung) statt die SAA-Generierung abzubrechen.
-            return adjusted, current_risk
-        overshoot_bps = current_risk - risk_budget_bps
-        raise ValueError(
-            f"Risikobudget konnte nicht eingehalten werden: "
-            f"Ist={current_risk} bps, Limit={risk_budget_bps} bps, "
-            f"Überschreitung={overshoot_bps} bps. "
-            f"Bitte Mindestquoten der Anlageklassen prüfen oder Kundenprofil korrigieren."
-        )
-    return adjusted, current_risk
+
+
+
 
 
 _DEFAULT_CORRELATION_MATRIX: list[list[float]] = [
@@ -1074,29 +897,6 @@ from services.portfolio_engine_cma import (  # noqa: F401,E402
 
 
 
-def _growth_goals_for_equity_tilt(goals: list[Goal]) -> list[Goal]:
-    has_hard_protection_goal = any(
-        _goal_hardness_key(goal) == "hart"
-        and _norm_text(goal.goal_type) in (
-            "Kapitalerhalt",
-            "Vermoegensziel",
-            "Pensionsausgabe",
-            "Wiederkehrende_Ausgabe",
-        )
-        for goal in goals
-    )
-    eligible = []
-    for goal in goals:
-        goal_type = _norm_text(goal.goal_type)
-        hardness_key = _goal_hardness_key(goal)
-        if hardness_key == "opportunistisch":
-            continue
-        if goal_type in ("Vermoegensziel", "Maximierung"):
-            eligible.append(goal)
-            continue
-        if goal_type == "Renditeziel" and not has_hard_protection_goal:
-            eligible.append(goal)
-    return eligible
 
 
 
@@ -1159,327 +959,10 @@ from services.portfolio_engine_mc_simulation import (  # noqa: F401,E402
 
 
 
-def _normalize_splits(
-    splits: list[tuple[str, int, str]],
-) -> list[tuple[str, int, str]]:
-    """Skaliert Sub-Asset-Class-Splits proportional auf Summe 10000.
-
-    C4: Vor dem Fix wurde nach Filterung (z.B. !bondsHighYield, !noEm)
-    der Rest dem letzten Eintrag zugeschlagen ('letzter bekommt
-    remainder'), was diesen unbeabsichtigt uebergewichtete. Hier
-    skalieren wir proportional, der Rundungsrest geht an den
-    groessten Eintrag (stabil und reproduzierbar).
-    """
-    if not splits:
-        return []
-    total = sum(int(bps) for _, bps, _ in splits)
-    if total == 10000 or total <= 0:
-        return list(splits)
-    scaled: list[tuple[str, int, str]] = []
-    accumulated = 0
-    for label, bps, rationale in splits:
-        new_bps = int(round(int(bps) * 10000 / total))
-        scaled.append((label, new_bps, rationale))
-        accumulated += new_bps
-    delta = 10000 - accumulated
-    if delta != 0 and scaled:
-        idx_max = max(range(len(scaled)), key=lambda i: scaled[i][1])
-        label, bps, rationale = scaled[idx_max]
-        scaled[idx_max] = (label, bps + delta, rationale)
-    return scaled
 
 
-def _preference_choice(value, fallback: str) -> str:
-    """Normalisiert UI- und Legacy-Werte auf die internen ASCII-Vergleiche."""
-    raw = value if value not in (None, "") else fallback
-    return _norm_text(raw).strip()
 
 
-def _build_sub_allocations(
-    targets: dict[str, int],
-    preferences: dict,
-    jurisdiction: str = "CH",
-    db: Session | None = None,
-) -> list[dict]:
-    """Baut die Sub-Allokation (Sub-Asset-Class-Gewichte) aus Bucket-Targets +
-    Anlagepraeferenzen.
-
-    WP2 (Engine-Wiring Jurisdiktion, 2026-07-31): jurisdiction in (None, "CH")
-    verwendet unveraendert die hartcodierten CH-Home-Bias-Splits (Constraint 1:
-    CH-Pfad byte-identisch). Fuer andere jurisdiction kommen die Home-Bias-
-    Splits stattdessen aus resolve_home_bias_defaults() (services/jurisdiction/
-    resolve.py) -- dafuer wird zusaetzlich ein db-Parameter benoetigt (siehe
-    ValueError unten, falls db fehlt).
-
-    Die generischen Filter (geo_prefs.noEm, overweight_tilts, bondsHighYield/
-    Emerging) operieren auf den literalen Sub-Asset-Class-Labels "Aktien
-    Schwellenlaender" / "Aktien Global" / "Obligationen High Yield" /
-    "Obligationen Emerging" -- diese Labels sind laut services/jurisdiction/
-    de_seed.py bewusst IDENTISCH fuer CH und DE (nur die Heimmarkt-Labels
-    "Aktien Schweiz"/"Obligationen CHF IG"/"Obligationen Global Hedged"/
-    "Immobilien Schweiz" wurden fuer DE uebersetzt) -- die Filter bleiben also
-    OHNE Aenderung generisch fuer beide Jurisdiktionen anwendbar. Die zwei
-    Stellen, die tatsaechlich ein CH-spezifisches Heimmarkt-Label hartcodieren
-    (equities_smid-Satellit "Aktien Schweiz", IG-Bond-Filter "Obligationen CHF
-    IG"/"Obligationen Global Hedged") werden daher pro Jurisdiktion getrennt
-    aufgebaut (siehe Kommentare unten).
-    """
-    prefs = _normalize_preferences(preferences)
-    asset_prefs = prefs["assetClasses"]
-    geo_prefs = prefs["geo"]
-    tilts = prefs["tilts"]
-    sub_allocations: list[dict] = []
-    is_ch = jurisdiction in (None, "CH")
-    if not is_ch and db is None:
-        raise ValueError(
-            "_build_sub_allocations() braucht fuer jurisdiction != 'CH' einen "
-            "db-Parameter (fuer resolve_home_bias_defaults())."
-        )
-
-    def _flag_enabled(name: str, default: bool = False) -> bool:
-        value = asset_prefs.get(name)
-        if value is None:
-            return default
-        if isinstance(value, str):
-            return value.strip().lower() not in ("", "0", "false", "nein", "no", "off")
-        return bool(value)
-
-    def _append_split(asset_class: str, bucket_weight: int, splits: list[tuple[str, int, str]]):
-        if bucket_weight <= 0 or not splits:
-            return
-        # C4: Splits auf Summe 10000 normalisieren bevor verteilt wird,
-        # damit Filter (HY/EM raus etc.) keine Uebergewichtung des
-        # letzten Eintrags erzeugen.
-        normalized = _normalize_splits(splits)
-        remaining = bucket_weight
-        for idx, (label, split_bps, rationale) in enumerate(normalized):
-            if idx == len(normalized) - 1:
-                weight = remaining
-            else:
-                weight = int(round(bucket_weight * split_bps / 10000))
-                remaining -= weight
-            if weight <= 0:
-                continue
-            sub_allocations.append(
-                {
-                    "asset_class": asset_class,
-                    "sub_asset_class": label,
-                    "target_weight_bps": weight,
-                    "rationale": rationale,
-                }
-            )
-
-    equities_large_cap = _flag_enabled("equitiesLargeCap", True)
-    equities_smid = _flag_enabled("equitiesSmid", False)
-    if targets["equities"] > 0 and not equities_large_cap:
-        if equities_smid:
-            raise ValueError(
-                "Anlagepraeferenzen nicht umsetzbar: Aktien Large Cap ist ausgeschaltet, "
-                "aber das aktuelle strategische Universum enthaelt nur einen Small-/Mid-Cap-Satelliten. "
-                "Bitte Large Cap aktivieren oder ein vollstaendiges Small-/Mid-Cap-Universum hinterlegen."
-            )
-        raise ValueError(
-            "Anlagepraeferenzen unvollstaendig: Bei Aktien muss mindestens ein Segment aktiv sein."
-        )
-
-    if is_ch:
-        equities_geo = _preference_choice(asset_prefs.get("equitiesGeo"), "Schweiz Fokus")
-        if geo_prefs.get("noEm") and equities_geo == "Schwellenlaender":
-            raise ValueError(
-                "Anlagepraeferenzen widerspruechlich: Schwellenlaender-Fokus ist gewaehlt, "
-                "aber Kein EM-Exposure ist aktiv."
-            )
-        if equities_geo == "Global":
-            eq_splits = [("Aktien Global", 6500, "Globaler Kernbaustein"), ("Aktien Schweiz", 1500, "Heimmarkt-Anker"), ("Aktien Europa", 1000, "Europa-Diversifikation"), ("Aktien Schwellenlaender", 1000, "Wachstumsbaustein")]
-        elif equities_geo == "Europa":
-            eq_splits = [("Aktien Europa", 4000, "Europa-Fokus gemaess Mandat"), ("Aktien Global", 2500, "Globaler Kernbaustein"), ("Aktien Schweiz", 2500, "Heimmarkt-Anker"), ("Aktien Schwellenlaender", 1000, "Wachstumsbaustein")]
-        elif equities_geo == "Schwellenlaender":
-            eq_splits = [("Aktien Global", 4000, "Globaler Kernbaustein"), ("Aktien Schweiz", 2000, "Heimmarkt-Anker"), ("Aktien Europa", 1500, "Europa-Diversifikation"), ("Aktien Schwellenlaender", 2500, "Mandatierter EM-Fokus")]
-        else:
-            eq_splits = [("Aktien Schweiz", 4500, "Mandatierter Schweiz-Fokus"), ("Aktien Global", 4000, "Globaler Kernbaustein"), ("Aktien Europa", 1000, "Europa-Diversifikation"), ("Aktien Schwellenlaender", 500, "Wachstumsbaustein")]
-        if geo_prefs.get("noEm"):
-            remainder = 0
-            filtered = []
-            for label, split_bps, rationale in eq_splits:
-                if label == "Aktien Schwellenlaender":
-                    remainder += split_bps
-                else:
-                    filtered.append((label, split_bps, rationale))
-            if filtered and remainder:
-                label, split_bps, rationale = filtered[0]
-                filtered[0] = (label, split_bps + remainder, rationale + "; EM ausgeschlossen")
-            eq_splits = filtered
-        if equities_smid:
-            for idx, item in enumerate(eq_splits):
-                if item[0] == "Aktien Schweiz":
-                    eq_splits[idx] = (item[0], max(0, item[1] - 1000), item[2])
-                    eq_splits.append(("Aktien Schweiz Small/Mid", 1000, "Mandatierter Small-/Mid-Cap-Baustein"))
-                    break
-    else:
-        # Nicht-CH (WP2, 2026-07-31): Home-Bias-Splits kommen 1:1 aus
-        # resolve_home_bias_defaults() (services/jurisdiction/resolve.py) --
-        # KEINE erfundenen Zahlen, siehe services/jurisdiction/de_seed.py fuer
-        # die DE-Seed-Werte (mechanische CH-Spiegelung, is_provisional=1).
-        equities_geo = _preference_choice(asset_prefs.get("equitiesGeo"), DE_DEFAULT_EQUITIES_GEO)
-        if geo_prefs.get("noEm") and equities_geo == "Schwellenlaender":
-            raise ValueError(
-                "Anlagepraeferenzen widerspruechlich: Schwellenlaender-Fokus ist gewaehlt, "
-                "aber Kein EM-Exposure ist aktiv."
-            )
-        eq_splits = list(resolve_home_bias_defaults(db, jurisdiction, "equitiesGeo", equities_geo))
-        # Heimmarkt-Label fuer den Small/Mid-Satelliten unten: staerkstes Label
-        # der equitiesGeo-DEFAULT-Variante (siehe _resolve_home_equity_label()
-        # Docstring fuer die Begruendung dieser pragmatischen Wahl).
-        home_equity_label = _resolve_home_equity_label(db, jurisdiction)
-        if geo_prefs.get("noEm"):
-            remainder = 0
-            filtered = []
-            for label, split_bps, rationale in eq_splits:
-                if label == "Aktien Schwellenlaender":
-                    remainder += split_bps
-                else:
-                    filtered.append((label, split_bps, rationale))
-            if filtered and remainder:
-                label, split_bps, rationale = filtered[0]
-                filtered[0] = (label, split_bps + remainder, rationale + "; EM ausgeschlossen")
-            eq_splits = filtered
-        if equities_smid:
-            for idx, item in enumerate(eq_splits):
-                if item[0] == home_equity_label:
-                    eq_splits[idx] = (item[0], max(0, item[1] - 1000), item[2])
-                    eq_splits.append((f"{home_equity_label} Small/Mid", 1000, "Mandatierter Small-/Mid-Cap-Baustein"))
-                    break
-
-    overweight_tilts = [key for key, value in tilts.items() if value == "overweight"]
-    if overweight_tilts and targets["equities"] > 0:
-        theme_map = {
-            "defense": "Thema Verteidigung",
-            "fossil": "Thema Fossile Energie",
-            "tobacco": "Thema Tabak",
-            "alcohol": "Thema Alkohol",
-            "gaming": "Thema Gluecksspiel",
-            "nuclear": "Thema Kernenergie",
-        }
-        # #AA-7 Fix (2026-06-12): eq_splits leben im Per-Bucket-Raum (sie summieren
-        # zu 10000 und werden in _append_split renormalisiert). Der Theme-Tilt muss
-        # daher relativ zu 10000 statt zur Portfolio-Aktienquote targets["equities"]
-        # definiert werden — sonst haengt die EFFEKTIVE Themen-Gewichtung von der
-        # Aktienquote des Risikoprofils ab (eq=8000 -> ~12%, eq=2000 -> ~3%), statt
-        # konsistent zu sein. Cap 1200 (= 12% des Aktien-Buckets) bleibt die Obergrenze.
-        theme_total = min(int(round(10000 * 0.15)), 1200)
-        if theme_total > 0:
-            slice_per_theme = max(100, int(round(theme_total / len(overweight_tilts))))
-            for idx, item in enumerate(eq_splits):
-                if item[0] == "Aktien Global":
-                    reduction = min(item[1], slice_per_theme * len(overweight_tilts))
-                    eq_splits[idx] = (item[0], item[1] - reduction, item[2] + "; Kernbaustein zugunsten thematischer Tilts reduziert")
-                    break
-            for tilt in overweight_tilts:
-                label = theme_map.get(tilt)
-                if label:
-                    eq_splits.append((label, slice_per_theme, "Positiver Tilt gemaess Mandatsvorgabe"))
-
-    _append_split("Aktien", targets["equities"], eq_splits)
-
-    if geo_prefs.get("noEm") and asset_prefs.get("bondsEmerging"):
-        raise ValueError(
-            "Anlagepraeferenzen widerspruechlich: Obligationen Emerging Markets ist aktiv, "
-            "aber Kein EM-Exposure ist aktiv."
-        )
-    if is_ch:
-        bonds_duration = _preference_choice(asset_prefs.get("bondsDuration"), "Langfristig")
-        if bonds_duration == "Kurzfristig":
-            bond_splits = [("Obligationen CHF IG", 7000, "Kurzfristige CHF-Qualitaet"), ("Obligationen Global Hedged", 2500, "Ergaenzende Diversifikation"), ("Obligationen High Yield", 300, "Renditebeimischung"), ("Obligationen Emerging", 200, "Diversifikation")]
-        elif bonds_duration == "Gemischt":
-            bond_splits = [("Obligationen CHF IG", 6000, "Gemischter CHF-Kern"), ("Obligationen Global Hedged", 3000, "Globale Diversifikation"), ("Obligationen High Yield", 500, "Renditebeimischung"), ("Obligationen Emerging", 500, "Diversifikation")]
-        else:
-            bond_splits = [("Obligationen CHF IG", 5500, "Langfristiger CHF-Kern"), ("Obligationen Global Hedged", 3500, "Globale Diversifikation"), ("Obligationen High Yield", 500, "Renditebeimischung"), ("Obligationen Emerging", 500, "Diversifikation")]
-        if not _flag_enabled("bondsInvestmentGrade", True):
-            bond_splits = [item for item in bond_splits if item[0] not in ("Obligationen CHF IG", "Obligationen Global Hedged")]
-    else:
-        # Nicht-CH (WP2, 2026-07-31): siehe eq_splits-Kommentar oben. Fuer den
-        # bondsInvestmentGrade-Filter gibt es KEIN generisches, jurisdiktions-
-        # unabhaengiges Home-IG-Label (die DE-Labels "Obligationen EUR IG"/
-        # "Obligationen Global EUR-Hedged" unterscheiden sich bewusst von den
-        # CH-Labels). Generalisierung (dokumentierte, pragmatische Wahl): die
-        # beiden NICHT-Home-Sleeves "Obligationen High Yield"/"Obligationen
-        # Emerging" sind laut de_seed.py IMMER identisch benannt -- daher wird
-        # bondsInvestmentGrade=aus stattdessen als "behalte nur HY/EM-Sleeves"
-        # ausgedrueckt (Komplement derselben Filterwirkung wie im CH-Zweig).
-        bonds_duration = _preference_choice(asset_prefs.get("bondsDuration"), DE_DEFAULT_BONDS_DURATION)
-        bond_splits = list(resolve_home_bias_defaults(db, jurisdiction, "bondsDuration", bonds_duration))
-        if not _flag_enabled("bondsInvestmentGrade", True):
-            bond_splits = [
-                item for item in bond_splits
-                if item[0] in ("Obligationen High Yield", "Obligationen Emerging")
-            ]
-    if not _flag_enabled("bondsHighYield", False):
-        bond_splits = [item for item in bond_splits if item[0] != "Obligationen High Yield"]
-    if not _flag_enabled("bondsEmerging", False) or geo_prefs.get("noEm"):
-        bond_splits = [item for item in bond_splits if item[0] != "Obligationen Emerging"]
-    if targets["bonds"] > 0 and not bond_splits:
-        raise ValueError(
-            "Anlagepraeferenzen unvollstaendig: Die Obligationen-Auswahl schliesst alle "
-            "umsetzbaren Segmente aus. Bitte Investment Grade, High Yield oder Emerging Markets aktivieren."
-        )
-    _append_split("Obligationen", targets["bonds"], bond_splits)
-
-    realestate_funds = _flag_enabled("realestateFunds", True)
-    realestate_direct = _flag_enabled("realestateDirect", False)
-    if targets["real_estate"] > 0:
-        if not realestate_funds and not realestate_direct:
-            raise ValueError(
-                "Anlagepraeferenzen unvollstaendig: Bei Immobilien muss Fonds/REIT oder Direkt aktiv sein."
-            )
-        if realestate_direct and not realestate_funds:
-            raise ValueError(
-                "Anlagepraeferenzen nicht umsetzbar: Direktimmobilien-only kann im aktuellen "
-                "produktiven Beratungsuniversum nicht als handelbare Zielallokation umgesetzt werden."
-            )
-
-    if is_ch:
-        realestate_market = _preference_choice(asset_prefs.get("realestateMarket"), "Schweiz")
-        if realestate_market == "Ausland":
-            re_splits = [("Immobilien Global", 7000, "Auslandsfokus fuer Immobilien"), ("Immobilien Schweiz", 3000, "Heimmarkt-Stabilisator")]
-        elif realestate_market == "Gemischt":
-            re_splits = [("Immobilien Schweiz", 5000, "Gemischter Immobilienbaustein"), ("Immobilien Global", 5000, "Gemischter Immobilienbaustein")]
-        else:
-            re_splits = [("Immobilien Schweiz", 8000, "Schweizer Immobilienfokus"), ("Immobilien Global", 2000, "Ergaenzende Diversifikation")]
-    else:
-        # Nicht-CH (WP2, 2026-07-31): siehe eq_splits-Kommentar oben.
-        realestate_market = _preference_choice(asset_prefs.get("realestateMarket"), DE_DEFAULT_REALESTATE_MARKET)
-        re_splits = list(resolve_home_bias_defaults(db, jurisdiction, "realestateMarket", realestate_market))
-    if realestate_direct:
-        re_splits = [
-            (label, bps, rationale + "; Direktimmobilien werden ueber das Gesamtvermoegen beruecksichtigt")
-            for label, bps, rationale in re_splits
-        ]
-    _append_split("Immobilien", targets["real_estate"], re_splits)
-
-    alt_splits = []
-    explicit_alt_keys = {"altsGold", "altsLiquidAlts", "altsHedge", "altsPe", "altsCrypto"}.intersection(asset_prefs.keys())
-    if _flag_enabled("altsGold", False):
-        alt_splits.append(("Gold / Rohstoffe", 4000, "Stabilisierender Sachwertbaustein"))
-    if _flag_enabled("altsLiquidAlts", False):
-        alt_splits.append(("Liquid Alternatives", 2000, "Diversifizierende Alternative"))
-    if _flag_enabled("altsHedge", False):
-        alt_splits.append(("Hedge Funds", 1500, "Alternative Renditequelle"))
-    if _flag_enabled("altsPe", False):
-        alt_splits.append(("Private Equity", 1500, "Illiquider Wachstumsbaustein"))
-    if _flag_enabled("altsCrypto", False):
-        alt_splits.append(("Krypto", 1000, "Satellit gemaess Mandatsvorgabe"))
-    if not alt_splits:
-        if targets["alternatives"] > 0 and explicit_alt_keys:
-            raise ValueError(
-                "Anlagepraeferenzen unvollstaendig: Bei Alternativen Anlagen muss mindestens "
-                "ein Instrument aktiv sein."
-            )
-        alt_splits.append(("Gold / Rohstoffe", 10000, "Standardbaustein fuer Alternative Anlagen"))
-    _append_split("Alternative", targets["alternatives"], alt_splits)
-
-    liquidity_label = asset_prefs.get("liquidityInstrument") or "Geldmarktfonds"
-    _append_split("Liquiditaet", targets["liquidity"], [(liquidity_label, 10000, "Liquiditaetsreserve gemaess Mandatsvorgabe")])
-    return sub_allocations
 
 
 # 3eyes-Methodik (drei augen.pdf): Illiquiditaet ist eine Eigenschaft des
@@ -1489,267 +972,16 @@ def _build_sub_allocations(
 _ILLIQUID_SUB_ASSET_CLASSES = {"private equity"}
 
 
-def _apply_illiquid_cap(
-    sub_allocations: list[dict],
-    targets: dict[str, int],
-    max_illiquid_bps: int | None,
-    reasoning: list[str],
-) -> tuple[list[dict], dict[str, int]]:
-    """Deckelt den ECHT illiquiden Anteil (Private Equity) auf max_illiquid_bps.
-
-    Methodik-konform (3eyes): nur der illiquide Baustein wird reduziert, nicht
-    die ganze Alternatives-Quote. Der freiwerdende Anteil wird primaer innerhalb
-    der Alternativen zu liquiden Sleeves (Gold, Liquid Alts, ...) verschoben — die
-    Alternatives-Quote bleibt dann unveraendert, nur ihre Zusammensetzung wird
-    liquider. Gibt es keinen liquiden Alt-Sleeve, wandert der Rest in die Liquiditaet.
-    """
-    if max_illiquid_bps is None:
-        return sub_allocations, targets
-    illiquid = [
-        sub for sub in sub_allocations
-        if _norm_text(sub.get("sub_asset_class")).strip().lower() in _ILLIQUID_SUB_ASSET_CLASSES
-    ]
-    illiquid_bps = sum(int(sub.get("target_weight_bps") or 0) for sub in illiquid)
-    if illiquid_bps <= max_illiquid_bps or illiquid_bps <= 0:
-        return sub_allocations, targets
-
-    freed = 0
-    scale = max_illiquid_bps / illiquid_bps
-    for sub in illiquid:
-        old = int(sub.get("target_weight_bps") or 0)
-        new = int(round(old * scale))
-        freed += old - new
-        sub["target_weight_bps"] = new
-    if freed <= 0:
-        return sub_allocations, targets
-
-    liquid_alts = [
-        sub for sub in sub_allocations
-        if _norm_text(sub.get("asset_class")) == _norm_text("Alternative")
-        and _norm_text(sub.get("sub_asset_class")).strip().lower() not in _ILLIQUID_SUB_ASSET_CLASSES
-    ]
-    if liquid_alts:
-        # Innerhalb der Alternativen umschichten: PE -> liquide Sleeves. Alternatives-Quote bleibt.
-        receiver = max(liquid_alts, key=lambda s: int(s.get("target_weight_bps") or 0))
-        receiver["target_weight_bps"] = int(receiver.get("target_weight_bps") or 0) + freed
-        reasoning.append(
-            "Mandatsgrenze fuer illiquide Anlagen: Private Equity gedeckelt, "
-            "freiwerdender Anteil innerhalb der Alternativen zu liquiden Bausteinen verschoben."
-        )
-    else:
-        # Kein liquider Alt-Sleeve vorhanden -> raus aus Alternativen in die Liquiditaet.
-        targets["alternatives"] = max(0, int(targets["alternatives"]) - freed)
-        targets["liquidity"] = int(targets["liquidity"]) + freed
-        liq_sub = next(
-            (s for s in sub_allocations if _norm_text(s.get("asset_class")) == _norm_text("Liquiditaet")),
-            None,
-        )
-        if liq_sub is not None:
-            liq_sub["target_weight_bps"] = int(liq_sub.get("target_weight_bps") or 0) + freed
-        else:
-            sub_allocations.append({
-                "asset_class": "Liquiditaet",
-                "sub_asset_class": "Geldmarktfonds",
-                "target_weight_bps": freed,
-                "rationale": "Liquiditaetsreserve nach Deckelung illiquider Anlagen",
-            })
-        reasoning.append(
-            "Mandatsgrenze fuer illiquide Anlagen: Private Equity gedeckelt, "
-            "freiwerdender Anteil in die Liquiditaet umgeschichtet (kein liquider Alternativ-Baustein aktiv)."
-        )
-    return sub_allocations, targets
 
 
-def _house_matrix_or_default(db: Session, policy: OptimizerPolicy, score_bucket: int) -> HouseMatrix:
-    hm = db.query(HouseMatrix).filter(
-        HouseMatrix.policy_id == policy.id,
-        HouseMatrix.score_from <= score_bucket,
-        HouseMatrix.score_to >= score_bucket,
-        HouseMatrix.is_active == 1,
-    ).first()
-    if hm:
-        return hm
-    raise ValueError(f"HouseMatrix unvollstaendig fuer Score {score_bucket}")
 
 
-def _validate_house_matrix_defaults(defaults: list[tuple]) -> None:
-    covered_scores: list[int] = []
-    for entry in defaults:
-        (
-            score_from,
-            score_to,
-            profile_name,
-            liq_min,
-            liq_target,
-            liq_max,
-            bonds_min,
-            bonds_target,
-            bonds_max,
-            eq_min,
-            eq_target,
-            eq_max,
-            re_min,
-            re_target,
-            re_max,
-            alt_min,
-            alt_target,
-            alt_max,
-            risky,
-            equity_floor,
-        ) = entry
-        if profile_name not in ALLOWED_HOUSE_MATRIX_PROFILES:
-            raise ValueError(f"Unzulaessiger House-Matrix-Profilname: {profile_name}.")
-        if score_from > score_to:
-            raise ValueError(f"Ungueltige Score-Range fuer {profile_name}: {score_from}-{score_to}.")
-        covered_scores.extend(range(score_from, score_to + 1))
-        target_total = liq_target + bonds_target + eq_target + re_target + alt_target
-        if target_total != 10000:
-            raise ValueError(f"House-Matrix-Targets fuer {profile_name} ({score_from}-{score_to}) summieren sich auf {target_total} statt 10000 Bps.")
-        if not 0 <= risky <= 10000:
-            raise ValueError(
-                f"House-Matrix-Risky-Fraction fuer {profile_name} ({score_from}-{score_to}) liegt ausserhalb von 0-10000 Bps."
-            )
-        bounds = (
-            ("Liquiditaet", liq_min, liq_target, liq_max),
-            ("Obligationen", bonds_min, bonds_target, bonds_max),
-            ("Aktien", eq_min, eq_target, eq_max),
-            ("Immobilien", re_min, re_target, re_max),
-            ("Alternative", alt_min, alt_target, alt_max),
-        )
-        for label, minimum, target, maximum in bounds:
-            if not minimum <= target <= maximum:
-                raise ValueError(
-                    f"House-Matrix-Band verletzt fuer {profile_name} ({score_from}-{score_to}) in {label}: {minimum}/{target}/{maximum}."
-                )
-        if equity_floor and not (eq_min <= equity_floor <= eq_max):
-            raise ValueError(
-                f"House-Matrix-Aktienminimum fuer {profile_name} ({score_from}-{score_to}) ist ausserhalb des Bandes: {equity_floor}."
-            )
-    if sorted(covered_scores) != list(range(1, 11)):
-        raise ValueError("House-Matrix-Defaults muessen jeden Score von 1 bis 10 genau einmal abdecken.")
 
 
-def _normalize_house_matrix_defaults(defaults: list[tuple]) -> list[tuple]:
-    normalized: list[tuple] = []
-    for entry in defaults:
-        values = list(entry)
-        target_indexes = {
-            "liquidity": 4,
-            "bonds": 7,
-            "equities": 10,
-            "real_estate": 13,
-            "alternatives": 16,
-        }
-        max_indexes = {
-            "liquidity": 5,
-            "bonds": 8,
-            "equities": 11,
-            "real_estate": 14,
-            "alternatives": 17,
-        }
-        total = sum(int(values[index]) for index in target_indexes.values())
-        delta = 10000 - total
-        if delta != 0:
-            # Fachtabellen koennen gerundete Prozentsaetze enthalten; die Runtime braucht dennoch exakt 100%.
-            for bucket in ("liquidity", "bonds", "alternatives", "real_estate", "equities"):
-                target_idx = target_indexes[bucket]
-                max_idx = max_indexes[bucket]
-                room = int(values[max_idx]) - int(values[target_idx])
-                if delta > 0 and room <= 0:
-                    continue
-                if delta < 0 and int(values[target_idx]) <= 0:
-                    continue
-                step = delta
-                if delta > 0:
-                    step = min(delta, room)
-                else:
-                    step = max(delta, -int(values[target_idx]))
-                if step == 0:
-                    continue
-                values[target_idx] = int(values[target_idx]) + int(step)
-                delta -= int(step)
-                if delta == 0:
-                    break
-        if delta != 0:
-            raise ValueError(
-                f"House-Matrix-Defaults fuer {values[2]} ({values[0]}-{values[1]}) koennen nicht auf 10000 Bps normalisiert werden."
-            )
-        normalized.append(tuple(values))
-    return normalized
 
 
-def _seed_house_matrix_rows(db: Session, policy_id: str, defaults: list[tuple], now: str) -> None:
-    for (
-        score_from,
-        score_to,
-        profile_name,
-        liq_min,
-        liq_target,
-        liq_max,
-        bonds_min,
-        bonds_target,
-        bonds_max,
-        eq_min,
-        eq_target,
-        eq_max,
-        re_min,
-        re_target,
-        re_max,
-        alt_min,
-        alt_target,
-        alt_max,
-        risky,
-        equity_floor,
-    ) in defaults:
-        db.add(
-            HouseMatrix(
-                id=new_uuid(),
-                policy_id=policy_id,
-                score_from=score_from,
-                score_to=score_to,
-                profile_name=profile_name,
-                liq_min_bps=liq_min,
-                liq_target_bps=liq_target,
-                liq_max_bps=liq_max,
-                bonds_min_bps=bonds_min,
-                bonds_target_bps=bonds_target,
-                bonds_max_bps=bonds_max,
-                equity_min_bps=eq_min,
-                equity_target_bps=eq_target,
-                equity_max_bps=eq_max,
-                real_estate_min_bps=re_min,
-                real_estate_target_bps=re_target,
-                real_estate_max_bps=re_max,
-                alt_min_bps=alt_min,
-                alt_target_bps=alt_target,
-                alt_max_bps=alt_max,
-                equity_minimum_bps=equity_floor,
-                max_risky_fraction_bps=risky,
-                is_active=1,
-                created_at=now,
-                updated_at=now,
-            )
-        )
 
 
-def _seed_building_blocks(db: Session, policy_id: str, building_blocks: list[tuple], now: str) -> None:
-    for asset_class, sub_asset_class, risky_fraction in building_blocks:
-        db.add(
-            BuildingBlock(
-                id=new_uuid(),
-                policy_id=policy_id,
-                asset_class=asset_class,
-                sub_asset_class=sub_asset_class,
-                universe="Standard",
-                advisory=1,
-                risky_fraction_bps=risky_fraction,
-                contribution_standard_bps=risky_fraction,
-                contribution_alternative_bps=risky_fraction,
-                is_active=1,
-                created_at=now,
-                updated_at=now,
-            )
-        )
 
 
 def _validate_default_products(defaults: list[tuple]) -> None:
@@ -2239,38 +1471,8 @@ def _load_allocation_inputs(
     }
 
 
-def _baseline_target_bands(house_matrix: HouseMatrix, policy: OptimizerPolicy) -> tuple[dict, dict, dict]:
-    targets = {
-        "equities": int(house_matrix.equity_target_bps),
-        "bonds": int(house_matrix.bonds_target_bps),
-        "real_estate": int(house_matrix.real_estate_target_bps),
-        "alternatives": int(house_matrix.alt_target_bps),
-        "liquidity": int(house_matrix.liq_target_bps),
-    }
-    minimums = {
-        "equities": max(int(house_matrix.equity_min_bps), int(house_matrix.equity_minimum_bps or 0)),
-        "bonds": int(house_matrix.bonds_min_bps),
-        "real_estate": int(house_matrix.real_estate_min_bps),
-        "alternatives": int(house_matrix.alt_min_bps),
-        "liquidity": max(int(house_matrix.liq_min_bps), int(policy.min_liquidity_bps or 0)),
-    }
-    maximums = {
-        "equities": int(house_matrix.equity_max_bps),
-        "bonds": int(house_matrix.bonds_max_bps),
-        "real_estate": min(int(house_matrix.real_estate_max_bps), int(policy.max_real_estate_bps or 10000)),
-        "alternatives": min(int(house_matrix.alt_max_bps), int(policy.max_alternatives_bps or 10000)),
-        "liquidity": int(house_matrix.liq_max_bps),
-    }
-    return targets, minimums, maximums
 
 
-def _house_matrix_mid_targets(house_matrix: HouseMatrix, policy: OptimizerPolicy) -> tuple[dict[str, int], dict[str, int], dict[str, int]]:
-    _targets, minimums, maximums = _baseline_target_bands(house_matrix, policy)
-    midpoint_targets = {
-        bucket: int(round((int(minimums[bucket]) + int(maximums[bucket])) / 2))
-        for bucket in BUCKET_FIELDS
-    }
-    return _rebalance_to_total(midpoint_targets, minimums, maximums), minimums, maximums
 
 
 def _current_planning_inflation_bps(db: Session, mandate: Mandate) -> int | None:
@@ -2289,207 +1491,10 @@ def _current_planning_inflation_bps(db: Session, mandate: Mandate) -> int | None
     return None
 
 
-def _apply_external_exposure_tilts(
-    targets: dict,
-    minimums: dict,
-    total_summary,
-    house_matrix: HouseMatrix,
-    manual_target_override: bool,
-    reasoning: list[str],
-) -> None:
-    if manual_target_override:
-        return
-
-    external_real_estate_bps = _bps(total_summary.amounts_rappen["real_estate"], max(1, total_summary.total_rappen))
-    if external_real_estate_bps > 3000:
-        reduction = min(500, int(round((external_real_estate_bps - 3000) * 0.25)))
-        targets["real_estate"] = max(minimums["real_estate"], targets["real_estate"] - reduction)
-        reasoning.append("Das hohe Immobilien-Exposure im Gesamtvermoegen reduziert den Immobilienanteil im Beratungsvermoegen.")
-
-    external_equity_bps = _bps(total_summary.amounts_rappen["equities"], max(1, total_summary.total_rappen))
-    if external_equity_bps > 5000:
-        reduction = min(400, int(round((external_equity_bps - 5000) * 0.2)))
-        targets["equities"] = max(int(house_matrix.equity_minimum_bps or minimums["equities"]), targets["equities"] - reduction)
-        targets["bonds"] = min(int(house_matrix.bonds_max_bps), targets["bonds"] + reduction)
-        reasoning.append("Bereits bestehende Aktienexposures im Gesamtvermoegen werden auf die Advisory-Strategie angerechnet.")
 
 
-def _renditeziel_equity_tilt_bps(
-    *,
-    target_return_bps: int,
-    current_equity_bps: int,
-    min_equity_bps: int,
-    max_equity_bps: int,
-) -> int:
-    """Sprint 2026-06-08 Option C: Equity-Tilt fuer Renditeziel-Goals.
-
-    Returns signed delta in bps:
-    - positiv = Equity-Erhoehung (Wachstums-Tilt fuer hohes Target)
-    - negativ = Equity-Reduktion (Defensiv-Tilt fuer niedriges Target)
-    - 0 = kein Tilt
-
-    Logik (target in bps):
-    - target < 250 bps (< 2.5% p.a.): Defensiv-Tilt von max 150 bps
-    - target 250-400: kein Tilt (Standard-Bereich)
-    - target 400-600: Wachstums-Tilt von max 150 bps
-    - target > 600: Wachstums-Tilt von max 200 bps
-
-    Resultat wird automatisch an die House-Matrix-Bandbreiten geclippt:
-    - Equity-Erhoehung max = max_equity_bps - current_equity_bps (room nach oben)
-    - Equity-Reduktion max = current_equity_bps - min_equity_bps (room nach unten)
-
-    Strategietreue gewahrt: Tilt verlaesst NIE die Bandbreiten des Risikoprofils.
-    """
-    if target_return_bps <= 0:
-        return 0
-
-    # Raw Tilt-Magnitude basierend auf Target
-    if target_return_bps < 250:
-        raw_tilt = -150  # defensiver Tilt
-    elif target_return_bps < 400:
-        raw_tilt = 0  # Standard-Bereich, kein Tilt
-    elif target_return_bps < 600:
-        raw_tilt = 150  # leichter Wachstums-Tilt
-    else:
-        raw_tilt = 200  # staerkerer Wachstums-Tilt
-
-    if raw_tilt == 0:
-        return 0
-
-    if raw_tilt > 0:
-        # Wachstums-Tilt: clippen auf room nach oben
-        room_up = max(0, int(max_equity_bps) - int(current_equity_bps))
-        return min(raw_tilt, room_up)
-    # Defensiv-Tilt: clippen auf room nach unten
-    room_down = max(0, int(current_equity_bps) - int(min_equity_bps))
-    return -min(abs(raw_tilt), room_down)
 
 
-def _apply_goal_and_reserve_tilts(
-    targets: dict,
-    minimums: dict,
-    maximums: dict,
-    goals: list[Goal],
-    limits_prefs: dict,
-    asset_class_prefs: dict,
-    recurring_net_cashflow_rappen: int,
-    recurring_cashflow_projection_series_rappen: list[int],
-    advisory_wealth_rappen: int,
-    reasoning: list[str],
-    unlocked_other_assets_rappen: int = 0,
-    inflow_projection_series_rappen: list[int] | None = None,
-) -> tuple[int, int]:
-    # C7: Reserve-Berechnung wird zentral in _compute_reserve_for_inputs gehandelt
-    # (StrategyContext-Konsolidierung), Goal-Tilts auf Bandbreiten passieren hier.
-    saa_liq_ceiling_bps: int = min(int(maximums["liquidity"]), _SAA_LIQUIDITY_HARD_CAP_BPS)
-    reserve_needed_rappen, external_reserve_rappen = _compute_reserve_for_inputs(
-        goals=goals,
-        limits_prefs=limits_prefs,
-        asset_class_prefs=asset_class_prefs,
-        recurring_net_cashflow_rappen=recurring_net_cashflow_rappen,
-        recurring_cashflow_projection_series_rappen=recurring_cashflow_projection_series_rappen,
-        advisory_wealth_rappen=advisory_wealth_rappen,
-        saa_liquidity_ceiling_bps=saa_liq_ceiling_bps,
-        reasoning=reasoning,
-        unlocked_other_assets_rappen=unlocked_other_assets_rappen,
-        inflow_projection_series_rappen=inflow_projection_series_rappen,
-    )
-    # Goal-spezifische Bandbreiten-Tilts (Reduktion Aktien fuer kurze Vermoegensziele)
-    for goal in goals:
-        years = _goal_projection_years(goal)
-        goal_type = _norm_text(goal.goal_type)
-        if goal_type in ("Kapitalerhalt", "Vermoegensziel") and years <= 5:
-            eq_reduction = min(200, max(0, targets["equities"] - minimums["equities"]))
-            if eq_reduction > 0:
-                targets["equities"] -= eq_reduction
-                targets["liquidity"] += eq_reduction // 2
-                targets["bonds"] += eq_reduction - eq_reduction // 2
-                reasoning.append(f"Das Vermoegensziel '{goal.label}' mit kurzem Horizont reduziert den Aktienanteil leicht.")
-
-    # Sprint 2026-06-08 Option C: Goal-Tilt fuer Renditeziele.
-    # SAA bleibt Risikoprofil-bound (FINMA/Strategietreue), aber innerhalb der
-    # House-Matrix-Bandbreiten reagiert sie auf das Renditeziel-Target:
-    # - Niedriges Target (<2.5%): leichte Aktien-Reduktion (Kapitalerhalt-Tilt)
-    # - Mittleres Target (2.5-4%): kein Tilt (Standard)
-    # - Hohes Target (>4%): leichte Aktien-Erhoehung (Wachstums-Tilt)
-    # Max ±200 bps pro Goal, immer geclippt an den Bandbreiten (min/max).
-    # Opportunistische Renditeziele tilten NICHT (Hardness-Filter, ADR-konform).
-    for goal in goals:
-        goal_type = _norm_text(goal.goal_type)
-        if goal_type != "Renditeziel":
-            continue
-        hardness = _norm_text(goal.hardness).lower()
-        # ADR: nur Primaer-Renditeziele tilten (Hart wird im Frontend geblockt;
-        # Opportunistisch ist nicht-tilt-wuerdig per Anlagephilosophie).
-        if hardness not in ("primaer", "primary"):
-            continue
-        target_bps = int(getattr(goal, "target_return_bps", None) or 0)
-        if target_bps <= 0:
-            continue
-        eq_shift = _renditeziel_equity_tilt_bps(
-            target_return_bps=target_bps,
-            current_equity_bps=int(targets.get("equities", 0)),
-            min_equity_bps=int(minimums.get("equities", 0)),
-            max_equity_bps=int(maximums.get("equities", 10000)),
-        )
-        if eq_shift == 0:
-            continue
-        if eq_shift > 0:
-            # Wachstums-Tilt: Equity hoch, Bonds runter
-            bonds_floor = int(minimums.get("bonds", 0))
-            bonds_available = max(0, int(targets.get("bonds", 0)) - bonds_floor)
-            eq_shift_capped = min(eq_shift, bonds_available)
-            if eq_shift_capped > 0:
-                targets["equities"] += eq_shift_capped
-                targets["bonds"] -= eq_shift_capped
-                reasoning.append(
-                    f"Renditeziel '{goal.label}' ({target_bps/100:.2f}% p.a.) "
-                    f"hebt den Aktienanteil um {eq_shift_capped} bps an (innerhalb der "
-                    f"Bandbreiten, Strategietreue gewahrt)."
-                )
-        else:
-            # Defensiver Tilt: Equity runter, Bonds hoch
-            shift_abs = abs(eq_shift)
-            bonds_ceiling = int(maximums.get("bonds", 10000))
-            bonds_room = max(0, bonds_ceiling - int(targets.get("bonds", 0)))
-            shift_capped = min(shift_abs, bonds_room)
-            if shift_capped > 0:
-                targets["equities"] -= shift_capped
-                targets["bonds"] += shift_capped
-                reasoning.append(
-                    f"Renditeziel '{goal.label}' ({target_bps/100:.2f}% p.a.) "
-                    f"senkt den Aktienanteil um {shift_capped} bps zugunsten Bonds "
-                    f"(innerhalb der Bandbreiten)."
-                )
-
-    if advisory_wealth_rappen <= 0 or reserve_needed_rappen <= 0:
-        return reserve_needed_rappen, 0
-
-    # Auch fuer Tilt-Logik: capped_bps berechnen
-    uncapped_required_liquidity_bps = _bps(reserve_needed_rappen, advisory_wealth_rappen)
-    saa_required_bps = min(uncapped_required_liquidity_bps, saa_liq_ceiling_bps)
-
-    if saa_required_bps <= targets["liquidity"]:
-        return reserve_needed_rappen, external_reserve_rappen
-
-    shift = saa_required_bps - targets["liquidity"]
-    remaining = max(0, shift)
-    for donor in ("bonds", "equities", "alternatives", "real_estate"):
-        if remaining <= 0:
-            break
-        donor_floor = minimums[donor]
-        available = max(0, targets[donor] - donor_floor)
-        step = min(remaining, available)
-        if step <= 0:
-            continue
-        targets[donor] -= step
-        remaining -= step
-
-    funded = shift - remaining
-    if funded > 0:
-        targets["liquidity"] += funded
-        reasoning.append("Die strategische Liquiditaetsquote wird aus der Zielallokation finanziert.")
-    return reserve_needed_rappen, external_reserve_rappen
 
 
 def _investable_advisory_wealth_rappen(advisory_wealth_rappen: int, external_reserve_rappen: int) -> int:

@@ -1,9 +1,82 @@
 # ADR-014: Engine-God-Modul `portfolio_engine.py` — Split-Plan
 
-- **Status:** Accepted (Plan), Implementation: Not started
-- **Datum:** 2026-08-02
+- **Status:** Accepted, Implementation: **Complete** (alle 8 Schritte
+  umgesetzt, 2026-08-03)
+- **Datum:** 2026-08-02 (Plan) / 2026-08-03 (Umsetzung abgeschlossen)
 - **Sprint:** Welle 3.2 (Umsetzungsplan-Verbesserungen §3.2, siehe
   `docs/planning/2026-07-18-umsetzungsplan-verbesserungen.md`)
+
+## Umsetzungs-Ergebnis (2026-08-03)
+
+Alle 8 Schritte in der geplanten Reihenfolge umgesetzt, jeder Schritt
+einzeln committet und gepusht (`git log`-Suchbegriff
+`refactor(engine): ADR-014 Schritt`), jeder Schritt einzeln durch
+`test_golden_snapshot_ch_regression.py` (byte-identisch) + alle
+Test-Dateien, die `services.portfolio_engine` importieren + volle
+Backend-Suite + Security-Gate verhaltens-bewiesen:
+
+| # | Cluster | Ziel-Datei | Status |
+|---|---|---|---|
+| 1 | Gesamtvermoegen | `portfolio_engine_gesamtvermoegen.py` | ✅ |
+| 2 | Live-Rebalancing | `portfolio_engine_live_rebalancing.py` | ✅ |
+| 3 | CMA-Verarbeitung | `portfolio_engine_cma.py` | ✅ |
+| 4 | Reserve | `portfolio_engine_reserve.py` | ✅ |
+| 5 | MC-Simulation | `portfolio_engine_mc_simulation.py` | ✅ |
+| 6 | Optimizer-Integration | `portfolio_engine_optimizer_integration.py` | ✅ |
+| 7 | Payload-Bau Phase B | `portfolio_engine_payload.py` | ✅ |
+| 8 | House-Matrix/Tilt | `portfolio_engine_house_matrix.py` | ✅ |
+
+**`portfolio_engine.py`: 8'820 → ~3'671 Zeilen** (CORE-Helfer + die 5
+Orchestratoren `generate_target_allocation`, `evaluate_goal_sensitivity`,
+`build_target_payload_from_allocation`, `build_recommendation_payload_
+from_run`, `generate_recommendation_run` — exakt wie im Plan vorgesehen).
+
+**Methodik-Korrektur waehrend der Umsetzung:** die ersten Extraktionen
+(Schritte 1-4) nutzten manuelle Zeilennummer-Grenzen. Schritt 5 (MC-
+Simulation) deckte auf, dass eine Kontiguitaets-ANNAHME zwischen zwei
+Zielfunktionen falsch war (2 unbeteiligte Funktionen sassen dazwischen und
+wurden versehentlich mitgeloescht) — sofort vom Golden-Snapshot-Test
+gefangen (`NameError`), zurueckgesetzt, mit vollstaendigem `def`-Scan
+korrekt neu gemacht. Schritt 7 (Payload-Bau Phase B) deckte einen
+zweiten, subtileren Fehlermodus auf: ein Kontiguitaets-Scan, der nur
+`def`-Zeilen prueft, uebersieht Import-Re-Export-Bloecke aus fruehen
+Schritten, die mitten im geplanten Loeschbereich stehen koennen — ebenfalls
+vom Golden-Snapshot-Test gefangen. Ab Schritt 7 wurde auf eine **AST-
+basierte Funktions-Span-Extraktion** (Python's `ast`-Modul liefert exakte
+Zeilenspannen pro Funktion, unabhaengig davon, was dazwischen steht)
+umgestellt — Schritt 8 (der am staerksten verflochtene, riskanteste
+Cluster) lief damit beim ersten Versuch fehlerfrei durch.
+
+**Externe Konsumenten ueber das urspruengliche ADR hinaus gefunden**
+(alle bereits vor der jeweiligen Extraktion per Lazy-Import/Re-Export
+transparent gehalten, keine Aenderung an den Konsumenten noetig):
+`routers/clients.py` (Gesamtvermoegen-Cluster), `routers/wealth.py`
+(CMA- UND House-Matrix-Cluster, `calculate_max_pension_spending`),
+`services/optimizer/scenario_engine.py` (CMA-Cluster).
+
+**Text-Scan-Test-Nachziehungen** (Tests, die `portfolio_engine.py` als
+Roh-Text lesen statt zu importieren, brechen bei Code-Umzug auch ohne
+Verhaltensaenderung — jeweils auf Scan ueber alle `portfolio_engine*.py`-
+Submodule per Glob umgestellt, analog zueinander):
+`test_liquidity_zero_engine_lock.py` (Schritt 5),
+`test_tax_solver_wiring.py` (Schritt 6),
+`test_frontend_goal_soll_ist.py` (Schritt 7). 5 weitere verdaechtigte
+Testdateien (`test_bb_risky_fractions_audit.py`,
+`test_house_matrix_risk_budget_consistency.py`,
+`test_house_matrix_yaml_loader.py`, `test_liquidity_cascade_warning.py`,
+`test_liquidity_hard_cap_in_fallback.py`) wurden vor Schritt 8 verifiziert
+und stellten sich als falsch-positiv heraus (ihre geprueften Muster liegen
+in CORE-Referenzdaten-Bootstrap oder im Haupt-Orchestrator, beide bleiben
+in `portfolio_engine.py`).
+
+**Ein Monkeypatch-Test-Fund** (Schritt 5):
+`test_portfolio_engine_regressions.py` patchte
+`services.portfolio_engine._monte_carlo_simulations`, aber
+`_run_allocation_monte_carlo` ruft diesen Namen nach der Extraktion als
+modul-lokalen Namen in `portfolio_engine_mc_simulation` auf — das
+Monkeypatch auf dem Re-Export-Modul alleine wirkt sich nicht auf den
+tatsaechlichen Aufruf aus (getrennte Modul-Namespaces). Fix: beide Module
+patchen.
 
 ## Kontext
 
