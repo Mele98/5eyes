@@ -35,7 +35,16 @@ def test_goal_soll_ist_is_graceful_when_ist_missing():
 
 def test_backend_exposes_current_goal_analysis():
     # Codex-Backend-Vertrag: das Payload fuehrt current_goal_analysis.
-    pe = (Path(__file__).resolve().parents[1] / "services" / "portfolio_engine.py").read_text(encoding="utf-8")
+    # ADR-014 (Engine-God-Modul-Split): median_achievement_pct/
+    # pessimistic_shortfall_rappen leben seit Schritt 7 (Payload-Bau Phase B)
+    # in services/portfolio_engine_payload.py (_merge_goal_analysis_with_
+    # monte_carlo), nicht mehr in portfolio_engine.py -- Scan analog zu
+    # test_liquidity_zero_engine_lock.py auf alle portfolio_engine*.py
+    # Submodule ausgeweitet.
+    services_dir = Path(__file__).resolve().parents[1] / "services"
+    pe = "\n".join(
+        p.read_text(encoding="utf-8") for p in sorted(services_dir.glob("portfolio_engine*.py"))
+    )
     assert '"current_goal_analysis"' in pe
     assert "median_achievement_pct" in pe
     assert "pessimistic_shortfall_rappen" in pe
