@@ -39,9 +39,18 @@ def test_resolve_and_construct_regime_without_config() -> None:
 
 
 def test_engine_no_longer_imports_taxconfig() -> None:
-    """Source-Lock: der tote Import und die falsche Konstruktion sind entfernt."""
-    engine = Path(__file__).resolve().parents[1] / "services" / "portfolio_engine.py"
-    src = engine.read_text(encoding="utf-8")
+    """Source-Lock: der tote Import und die falsche Konstruktion sind entfernt.
+
+    ADR-014 (Engine-God-Modul-Split, ab 2026-08-02): _build_tax_solver_kwargs
+    lebt seit Schritt 6 (Optimizer-Integration) in
+    services/portfolio_engine_optimizer_integration.py, nicht mehr in
+    portfolio_engine.py -- Scan daher ueber portfolio_engine.py + alle
+    portfolio_engine_*.py Submodule, analog zu test_liquidity_zero_engine_lock.py.
+    """
+    services_dir = Path(__file__).resolve().parents[1] / "services"
+    src = "\n".join(
+        p.read_text(encoding="utf-8") for p in sorted(services_dir.glob("portfolio_engine*.py"))
+    )
     assert "from services.tax.base import TaxConfig" not in src
     assert "regime_cls(TaxConfig(" not in src
     assert "regime_cls()" in src
