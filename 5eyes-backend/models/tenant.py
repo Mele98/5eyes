@@ -51,6 +51,20 @@ ALLOWED_LICENSE_STATUS = (
 # Default-Tenant-Marker (verwendet in Tier 1 + 3 — single-Row-Setup)
 DEFAULT_TENANT_ID = "main"
 
+# Presentation-Mode (HUD-Polish, 2026-08-02): rein UI-seitige "Maske" der
+# App -- Wealthmanagement zeigt zusaetzliche Depotueberwachungs-Funktionen
+# (Depot-Check, Live-Preise), Consulting blendet diese aus (reine
+# Anlageberatung ohne laufende Depotueberwachung). KEINE Compliance-/
+# Engine-Wirkung, bewusst getrennt von mandate_type (das hat reale
+# Scoring-Wirkung, siehe FZK-Cap in 5eyes_v2.html).
+PRESENTATION_MODE_WEALTHMANAGEMENT = "wealthmanagement"
+PRESENTATION_MODE_CONSULTING = "consulting"
+
+ALLOWED_PRESENTATION_MODES = (
+    PRESENTATION_MODE_WEALTHMANAGEMENT,
+    PRESENTATION_MODE_CONSULTING,
+)
+
 
 class Tenant(Base):
     """Tenant = Beratungsfirma / Lizenz-Nehmer.
@@ -102,6 +116,12 @@ class Tenant(Base):
     # Mandat weiterhin ueberschreiben (bestehendes Verhalten unveraendert).
     # NULL = "CH" (gleiches Nullable-Pattern wie ueberall in diesem Bereich).
     home_jurisdiction = Column(String)
+    # 2026-08-02 (HUD-Polish): firmenweiter Default fuer die UI-"Maske"
+    # (siehe PRESENTATION_MODE_* oben). NULL = "wealthmanagement" (Default,
+    # zeigt alle bestehenden Funktionen unveraendert -- reines Opt-in fuer
+    # den schlankeren Consulting-Modus). Pro Sitzung im Frontend
+    # ueberschreibbar (localStorage), dies ist nur der Firmen-Default.
+    default_presentation_mode = Column(String)
 
     is_active = Column(Integer, nullable=False, default=1)
     created_at = Column(String, nullable=False)

@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from models.tenant import (
     ALLOWED_LICENSE_STATUS,
+    ALLOWED_PRESENTATION_MODES,
     ALLOWED_TIERS,
     LICENSE_STATUS_TRIAL,
     TIER_1_SELF_HOSTED,
@@ -36,6 +37,9 @@ class TenantCreate(BaseModel):
     # models/tenant.py. None = "CH" (Default fuer bestehende/neue Firmen
     # ohne explizite Angabe).
     home_jurisdiction: Optional[str] = None
+    # 2026-08-02 (HUD-Polish): firmenweiter Default fuer die UI-"Maske",
+    # siehe models/tenant.py. None = "wealthmanagement".
+    default_presentation_mode: Optional[str] = None
 
     @field_validator("hosting_tier")
     @classmethod
@@ -55,6 +59,17 @@ class TenantCreate(BaseModel):
             )
         return v
 
+    @field_validator("default_presentation_mode")
+    @classmethod
+    def _validate_presentation_mode(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        if v not in ALLOWED_PRESENTATION_MODES:
+            raise ValueError(
+                f"default_presentation_mode muss eines von {ALLOWED_PRESENTATION_MODES} sein, war: {v!r}"
+            )
+        return v
+
 
 class TenantUpdate(BaseModel):
     """Request-Body fuer PUT /tenants/{id} (Partial-Update)."""
@@ -71,6 +86,7 @@ class TenantUpdate(BaseModel):
     is_active: Optional[int] = Field(default=None, ge=0, le=1)
     default_retrocession_reimbursement: Optional[bool] = None
     home_jurisdiction: Optional[str] = None
+    default_presentation_mode: Optional[str] = None
 
     @field_validator("hosting_tier")
     @classmethod
@@ -88,6 +104,15 @@ class TenantUpdate(BaseModel):
             return None
         if v not in ALLOWED_LICENSE_STATUS:
             raise ValueError(f"license_status ungueltig: {v!r}")
+        return v
+
+    @field_validator("default_presentation_mode")
+    @classmethod
+    def _validate_presentation_mode(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        if v not in ALLOWED_PRESENTATION_MODES:
+            raise ValueError(f"default_presentation_mode ungueltig: {v!r}")
         return v
 
 
@@ -109,6 +134,7 @@ class TenantResponse(BaseModel):
     storage_quota_mb: Optional[int] = None
     default_retrocession_reimbursement: int = 0
     home_jurisdiction: Optional[str] = None
+    default_presentation_mode: Optional[str] = None
     is_active: int
     created_at: str
     updated_at: str
@@ -132,3 +158,13 @@ class TenantSelfServiceUpdate(BaseModel):
 
     display_name: Optional[str] = Field(default=None, min_length=1, max_length=200)
     home_jurisdiction: Optional[str] = None
+    default_presentation_mode: Optional[str] = None
+
+    @field_validator("default_presentation_mode")
+    @classmethod
+    def _validate_presentation_mode(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        if v not in ALLOWED_PRESENTATION_MODES:
+            raise ValueError(f"default_presentation_mode ungueltig: {v!r}")
+        return v

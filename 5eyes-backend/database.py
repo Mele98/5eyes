@@ -251,6 +251,10 @@ def ensure_runtime_columns() -> None:
             # 2026-08-01 (Onboarding): Land der lizenznehmenden Firma, siehe
             # models/tenant.py. NULL = "CH" (kein DB-Default fuer TEXT-Spalten).
             ('home_jurisdiction', 'TEXT'),
+            # 2026-08-02 (HUD-Polish): firmenweiter Default fuer die UI-
+            # "Maske" (Wealthmanagement/Consulting), siehe models/tenant.py.
+            # NULL = "wealthmanagement".
+            ('default_presentation_mode', 'TEXT'),
         ],
         # 2026-07-27 (Retrozessions-Feature): siehe models/review.py.
         'conflict_of_interest_disclosures': [

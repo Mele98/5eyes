@@ -101,6 +101,20 @@ class BootstrapAdminRequest(BaseModel):
     # Feld vergessen wurde; Nachpflege ist ueber PUT /tenants/me moeglich).
     company_name: Optional[str] = None
     home_jurisdiction: Optional[str] = None
+    # 2026-08-02 (HUD-Polish): optionaler Firmen-Default fuer die UI-"Maske"
+    # (Wealthmanagement/Consulting), siehe models/tenant.py. Ebenfalls
+    # optional/best-effort wie oben.
+    default_presentation_mode: Optional[str] = None
+
+    @field_validator('default_presentation_mode')
+    @classmethod
+    def _validate_presentation_mode(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        from models.tenant import ALLOWED_PRESENTATION_MODES
+        if v not in ALLOWED_PRESENTATION_MODES:
+            raise ValueError(f"default_presentation_mode ungueltig: {v!r}")
+        return v
 
     @field_validator('username', 'full_name')
     @classmethod
@@ -181,3 +195,9 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserResponse
+    # 2026-08-02 (HUD-Polish): Firmen-Default fuer die UI-"Maske"
+    # (Wealthmanagement/Consulting), damit JEDER eingeloggte User (nicht
+    # nur admin/super_admin, siehe GET /tenants/me) den Firmen-Default ohne
+    # weiteren Request kennt. None = "wealthmanagement" (siehe
+    # models/tenant.py::default_presentation_mode).
+    tenant_default_presentation_mode: Optional[str] = None

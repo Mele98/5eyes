@@ -148,6 +148,7 @@ def create_tenant(
         storage_quota_mb=body.storage_quota_mb,
         default_retrocession_reimbursement=1 if body.default_retrocession_reimbursement else 0,
         home_jurisdiction=body.home_jurisdiction,
+        default_presentation_mode=body.default_presentation_mode,
         is_active=1,
         created_at=now,
         updated_at=now,

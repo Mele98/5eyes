@@ -67,6 +67,13 @@ body{font-family:var(--f-s);}
   --b1:rgba(226,236,247,0.09); --b2:rgba(226,236,247,0.18);
   --chart-axis:#7d93b8; --chart-grid:rgba(226,236,247,0.10);
 }
+/* HUD-Polish (2026-08-02): Wealthmanagement/Consulting-"Maske". Elemente,
+   die nur in der Wealthmanagement-Ansicht sichtbar sind (laufende Depot-
+   ueberwachung: Depot-Check, Live-Preise), werden mit data-wm-only
+   markiert und im Consulting-Modus ausgeblendet. Rein visuell/CSS -- keine
+   Engine-/Compliance-Wirkung, siehe models/tenant.py::
+   default_presentation_mode. */
+html[data-presentation-mode="consulting"] [data-wm-only]{display:none!important;}
 *{box-sizing:border-box;margin:0;padding:0;}
 html,body{height:100%;overflow:hidden;font-family:var(--f-s);font-size:13px;line-height:1.5;color:var(--n9);background:var(--bg);}
 
@@ -193,7 +200,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 .ss{font-size:10px;color:var(--n5);}
 
 /* CARD */
-.card{background:var(--surface);border:1px solid var(--b1);border-radius:var(--r3);overflow:hidden;margin-bottom:12px;box-shadow:0 14px 36px rgba(15,30,52,0.04);}
+.card{background:var(--surface);border:1px solid var(--b1);border-radius:var(--r3);overflow:hidden;margin-bottom:12px;box-shadow:0 14px 36px rgba(15,30,52,0.07);}
 .card:last-child{margin-bottom:0;}
 .chd{padding:10px 16px 8px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--b1);background:var(--n0);}
 .cht{font-size:10px;font-weight:600;color:var(--n7);letter-spacing:0.05em;text-transform:uppercase;}
@@ -1039,6 +1046,17 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
   try{
     var v=localStorage.getItem('5eyes_theme');
     if(v==='dark'||v==='light')document.documentElement.dataset.theme=v;
+  }catch(e){}
+})();
+// HUD-Polish (2026-08-02): analog zum Dark-Mode-Vorbild oben -- die
+// Presentation-Mode-Praeferenz (Wealthmanagement/Consulting-"Maske") wird
+// ebenfalls SOFORT gesetzt, damit data-wm-only-Elemente nicht erst sichtbar
+// aufblitzen und dann verschwinden. Persistenz-Key/Logik siehe
+// PRESENTATION_MODE_STORAGE_KEY/applyPresentationMode() weiter unten.
+(function(){
+  try{
+    var v=localStorage.getItem('5eyes_presentation_mode');
+    if(v==='consulting'||v==='wealthmanagement')document.documentElement.dataset.presentationMode=v;
   }catch(e){}
 })();
 </script>
@@ -2061,6 +2079,10 @@ function arrMax(a){var m=-Infinity;for(var i=0;i<a.length;i++){var n=Number(a[i]
     <span id="current-user-label" style="font-size:11px;color:var(--g3);margin-right:4px"></span>
     <!-- Roadmap #74: Dark-Mode-Toggle. Icon + Persistenz siehe toggleTheme() weiter unten im Script-Bereich. -->
     <button class="t-btn" id="btn-theme-toggle" onclick="toggleTheme()" style="background:rgba(201,168,76,0.12);color:var(--g4);padding:5px 9px" title="Dark Mode umschalten" aria-label="Dark Mode umschalten">&#9789;</button>
+    <!-- HUD-Polish (2026-08-02): Wealthmanagement/Consulting-"Maske". Logik
+         siehe togglePresentationMode()/applyPresentationMode() weiter unten
+         im Script-Bereich. -->
+    <button class="t-btn" id="btn-presentation-mode-toggle" onclick="togglePresentationMode()" style="background:rgba(201,168,76,0.12);color:var(--g4)" title="Ansicht umschalten">Wealthmanagement</button>
     <button class="t-btn" onclick="om('m-nc')">+ Mandat</button>
     <button class="t-btn" id="btn-admin-open" onclick="openAdminModal()" style="display:none;background:rgba(201,168,76,0.12);color:var(--g4)" title="System-Administration">&#9881;</button>
     <button class="t-btn" id="btn-prov" onclick="openProvisioning()" style="display:none;background:rgba(201,168,76,0.12);color:var(--g4)" title="Firmen & Mitarbeiter (Operator)">Firmen</button>
@@ -2430,6 +2452,7 @@ async function doInviteAccept(){
     var res=await API.post('/auth/invite/accept',{token:window.__inviteToken,password:pw});
     if(res&&res.access_token){ await API.setToken(res.access_token); }
     if(res&&res.user){ currentUser=res.user; }
+    currentTenantDefaultPresentationMode=(res&&res.tenant_default_presentation_mode)||null;
     _stripInviteParam();
     try{cm('m-invite');}catch(e){}
     try{ if(typeof hideLogin==='function') hideLogin(); }catch(e){}
@@ -3612,11 +3635,11 @@ function _wireSollIstHover(){
 
     <!-- PAGE: PORTFOLIO -->
     <div id="page-po" class="page">
-      <div class="ph"><div><div class="ph-t">Portfolio &mdash; ETFs &amp; Fonds</div><div class="ph-s">Umsetzung Ihrer Asset Allokation in konkrete Produkte (ISIN)</div></div><div class="ph-r"><button class="btn-g" id="btn-po-refresh" onclick="refreshPortfolioFromStoredState()">Portfolio generieren</button><button class="btn" id="btn-po-pdf" onclick="downloadServerPdf('portfolio')" title="Portfolio-PDF erstellen">PDF</button><button class="btn btn-report" id="btn-po-advisory-report" onclick="openReportingApp()" title="Institutioneller Advisory-Report in neuem Browser-Tab">Advisory-Report</button><details class="ph-more"><summary title="Weitere Portfolio-Optionen" aria-label="Weitere Portfolio-Optionen">⋯</summary><div class="ph-more-menu"><button class="btn" id="btn-po-add-position" onclick="openPortfolioPositionHelper();this.closest('details').removeAttribute('open')">+ Bestand</button><button class="btn" id="btn-po-live-prices" onclick="refreshLivePricesForMandate();this.closest('details').removeAttribute('open')" title="Live-EOD-Preise via Marktdaten-Aggregator (yfinance/stooq) holen und Portfolio neu laden">Live-Preise</button><button class="btn" onclick="openImplementationRecipe();this.closest('details').removeAttribute('open')">Anlagerezept drucken</button><button class="btn" id="btn-po-depot-check" onclick="openDepotCheck();this.closest('details').removeAttribute('open')" title="Depot-Check: Diversifikation, Konzentration, Drift, Stress-Replays">Depot-Check</button><button class="btn" id="btn-po-cost-disclosure" onclick="openCostDisclosureModal();this.closest('details').removeAttribute('open')" title="FIDLEG Art. 8/9 Ex-ante Kostenausweis vor Auftragsausfuehrung">Kostenausweis</button></div></details></div></div>
+      <div class="ph"><div><div class="ph-t">Portfolio &mdash; ETFs &amp; Fonds</div><div class="ph-s">Umsetzung Ihrer Asset Allokation in konkrete Produkte (ISIN)</div></div><div class="ph-r"><button class="btn-g" id="btn-po-refresh" onclick="refreshPortfolioFromStoredState()">Portfolio generieren</button><button class="btn" id="btn-po-pdf" onclick="downloadServerPdf('portfolio')" title="Portfolio-PDF erstellen">PDF</button><button class="btn btn-report" id="btn-po-advisory-report" onclick="openReportingApp()" title="Institutioneller Advisory-Report in neuem Browser-Tab">Advisory-Report</button><details class="ph-more"><summary title="Weitere Portfolio-Optionen" aria-label="Weitere Portfolio-Optionen">⋯</summary><div class="ph-more-menu"><button class="btn" id="btn-po-add-position" onclick="openPortfolioPositionHelper();this.closest('details').removeAttribute('open')">+ Bestand</button><button class="btn" id="btn-po-live-prices" data-wm-only="1" onclick="refreshLivePricesForMandate();this.closest('details').removeAttribute('open')" title="Live-EOD-Preise via Marktdaten-Aggregator (yfinance/stooq) holen und Portfolio neu laden">Live-Preise</button><button class="btn" onclick="openImplementationRecipe();this.closest('details').removeAttribute('open')">Anlagerezept drucken</button><button class="btn" id="btn-po-depot-check" data-wm-only="1" onclick="openDepotCheck();this.closest('details').removeAttribute('open')" title="Depot-Check: Diversifikation, Konzentration, Drift, Stress-Replays">Depot-Check</button><button class="btn" id="btn-po-cost-disclosure" onclick="openCostDisclosureModal();this.closest('details').removeAttribute('open')" title="FIDLEG Art. 8/9 Ex-ante Kostenausweis vor Auftragsausfuehrung">Kostenausweis</button></div></details></div></div>
       <div class="pad">
         <div style="background:var(--chrome-n8);border-radius:var(--r2);padding:10px 14px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">
           <div><div style="font-size:9px;font-weight:500;letter-spacing:0.08em;text-transform:uppercase;color:rgba(255,255,255,0.4);margin-bottom:2px">Beratungsvermögen total</div><div id="po-advisory-wealth" style="font-family:var(--f-d);font-size:19px;color:#fff">CHF 2'848'000</div></div>
-          <div style="display:flex;gap:16px"><div style="text-align:right"><div style="font-size:9px;color:rgba(255,255,255,0.4)">Letzte Preisqualität</div><div id="po-price-quality" style="font-size:13px;font-weight:500;color:#d4b06a">Live</div><div id="po-price-quality-sub" style="font-size:9px;color:rgba(255,255,255,0.55);margin-top:2px">Daten werden geladen</div></div><div style="text-align:right"><div style="font-size:9px;color:rgba(255,255,255,0.4)">Positionen</div><div id="po-position-count" style="font-size:13px;font-weight:500;color:#fff">14</div></div><div style="text-align:right"><div style="font-size:9px;color:rgba(255,255,255,0.4)">Ø TER p.a.</div><div id="po-average-ter" style="font-size:13px;font-weight:500;color:#fff">0.22%</div></div></div>
+          <div style="display:flex;gap:16px"><div style="text-align:right" data-wm-only="1"><div style="font-size:9px;color:rgba(255,255,255,0.4)">Letzte Preisqualität</div><div id="po-price-quality" style="font-size:13px;font-weight:500;color:#d4b06a">Live</div><div id="po-price-quality-sub" style="font-size:9px;color:rgba(255,255,255,0.55);margin-top:2px">Daten werden geladen</div></div><div style="text-align:right"><div style="font-size:9px;color:rgba(255,255,255,0.4)">Positionen</div><div id="po-position-count" style="font-size:13px;font-weight:500;color:#fff">14</div></div><div style="text-align:right"><div style="font-size:9px;color:rgba(255,255,255,0.4)">Ø TER p.a.</div><div id="po-average-ter" style="font-size:13px;font-weight:500;color:#fff">0.22%</div></div></div>
         </div>
         <div id="po-engine-warnings" style="display:none;background:#fff7ed;border:1px solid rgba(194,65,12,0.18);border-radius:var(--r);padding:10px 12px;margin-bottom:10px"></div>
         <!-- Bug-#5 (2026-06-07): Portfolio zeigt SOLL-Empfehlung,
@@ -5036,6 +5059,10 @@ const API = {
 };
 
 let currentUser = null;
+// HUD-Polish (2026-08-02): Firmen-Default fuer die Wealthmanagement/
+// Consulting-"Maske", geliefert bei jedem Login (TokenResponse.
+// tenant_default_presentation_mode), gelesen von initPresentationModeFromLogin().
+let currentTenantDefaultPresentationMode = null;
 let liveClients = [];
 let bootstrapStatusCache = null;
 
@@ -5210,6 +5237,7 @@ async function doLogin() {
     const data = await API.post('/auth/login', loginPayload);
     await API.setToken(data.access_token);
     currentUser = data.user;
+    currentTenantDefaultPresentationMode = data.tenant_default_presentation_mode || null;
     hideLogin();
     try {
       await initApp();
@@ -5301,6 +5329,7 @@ async function doBootstrapAdmin() {
     bootstrapStatusCache = { setup_required: false, can_create_admin: false };
     await API.setToken(data.access_token);
     currentUser = data.user;
+    currentTenantDefaultPresentationMode = data.tenant_default_presentation_mode || null;
     hideLogin();
     await initApp();
   } catch(e) {
@@ -5730,6 +5759,7 @@ async function initApp() {
   var step='Grundlayout';
   try {
     updateThemeToggleIcon(); // Roadmap #74: Icon passend zur (frueh via Inline-Script gesetzten) Theme-Praeferenz
+    initPresentationModeFromLogin(); // HUD-Polish: Wealthmanagement/Consulting-Maske, Firmen-Default bzw. Session-Override
     initPrefSummaryText();
     initDomLayout();
     step='Startseite';
@@ -5949,6 +5979,63 @@ function updateThemeToggleIcon(){
   btn.innerHTML=isDark?'&#9728;':'&#9789;';
   btn.title=isDark?'Zu Light Mode wechseln':'Zu Dark Mode wechseln';
   btn.setAttribute('aria-label',btn.title);
+}
+// HUD-Polish (2026-08-02): Wealthmanagement/Consulting-"Maske". Identische
+// Systematik wie THEME_STORAGE_KEY/applyTheme() oben (Early-Apply-Snippet
+// siehe Anfang von <body>). "Wealthmanagement" (Default, NULL) zeigt alle
+// bestehenden Funktionen unveraendert; "Consulting" blendet reine
+// Depotueberwachungs-Funktionen aus (data-wm-only-Elemente, siehe CSS-Regel
+// html[data-presentation-mode="consulting"]). Rein visuell -- keine
+// Compliance-/Engine-Wirkung, bewusst getrennt von mandate_type.
+var PRESENTATION_MODE_STORAGE_KEY='5eyes_presentation_mode';
+function getStoredPresentationMode(){
+  try{
+    var v=localStorage.getItem(PRESENTATION_MODE_STORAGE_KEY);
+    return (v==='consulting'||v==='wealthmanagement')?v:null;
+  }catch(e){ return null; }
+}
+function setStoredPresentationMode(mode){
+  try{ localStorage.setItem(PRESENTATION_MODE_STORAGE_KEY,mode); }catch(e){}
+}
+function getCurrentPresentationMode(){
+  return (document.documentElement.dataset.presentationMode==='consulting')?'consulting':'wealthmanagement';
+}
+function applyPresentationMode(mode,persist){
+  var m=(mode==='consulting')?'consulting':'wealthmanagement';
+  document.documentElement.dataset.presentationMode=m;
+  if(persist!==false)setStoredPresentationMode(m);
+  updatePresentationModeToggleLabel();
+}
+function togglePresentationMode(){
+  applyPresentationMode(getCurrentPresentationMode()==='consulting'?'wealthmanagement':'consulting',true);
+}
+function updatePresentationModeToggleLabel(){
+  var btn=document.getElementById('btn-presentation-mode-toggle');
+  if(!btn)return;
+  var isConsulting=getCurrentPresentationMode()==='consulting';
+  btn.textContent=isConsulting?'Consulting':'Wealthmanagement';
+  btn.title=isConsulting
+    ?'Ansicht: Consulting (Depotüberwachung ausgeblendet) — klicken für Wealthmanagement'
+    :'Ansicht: Wealthmanagement (mit Depot-Check & Live-Preisen) — klicken für Consulting';
+  btn.setAttribute('aria-label',btn.title);
+}
+// Initialisiert die Praeferenz nach dem Login: Session-Override
+// (localStorage) hat Vorrang; ohne Override greift der von der API beim
+// Login mitgelieferte Firmen-Default (TokenResponse.
+// tenant_default_presentation_mode, siehe routers/auth.py). Wird von
+// initApp() aufgerufen (siehe dort) -- best-effort, darf initApp() nicht
+// zum Absturz bringen.
+function initPresentationModeFromLogin(){
+  try{
+    if(getStoredPresentationMode()){
+      updatePresentationModeToggleLabel();
+      return;
+    }
+    var tenantDefault=(typeof currentTenantDefaultPresentationMode!=='undefined')?currentTenantDefaultPresentationMode:null;
+    applyPresentationMode(tenantDefault==='consulting'?'consulting':'wealthmanagement',false);
+  }catch(e){
+    updatePresentationModeToggleLabel();
+  }
 }
 // Chart.js rendert auf <canvas> und kennt daher keine CSS-Variablen -- Farben
 // muessen als aufgeloeste Strings uebergeben werden. --chart-axis/--chart-grid

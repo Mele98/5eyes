@@ -63,13 +63,29 @@ def _bootstrap_required(db: Session) -> bool:
     return existing_user is None
 
 
-def _issue_token_response(user: User) -> TokenResponse:
+def _issue_token_response(user: User, db: Session | None = None) -> TokenResponse:
     # Sprint T2 (2026-06-08): Token enthaelt jetzt tid-Claim via
     # issue_token_for_user. Backwards-Compat: User ohne tenant_id bekommt
     # tid='main'.
     from services.auth import issue_token_for_user
     token = issue_token_for_user(user)
-    return TokenResponse(access_token=token, user=UserResponse.model_validate(user))
+    # 2026-08-02 (HUD-Polish): Firmen-Default fuer die UI-"Maske" wird bei
+    # JEDEM Login mitgeliefert (nicht nur admin/super_admin via GET
+    # /tenants/me), siehe schemas/users.py::TokenResponse. Best-effort --
+    # fehlt der Tenant (sollte nie passieren), bleibt das Feld None
+    # ("wealthmanagement"-Default, unveraendertes Verhalten).
+    tenant_mode = None
+    if db is not None:
+        from models.tenant import DEFAULT_TENANT_ID, Tenant
+        tenant_id = getattr(user, "tenant_id", None) or DEFAULT_TENANT_ID
+        tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+        if tenant is not None:
+            tenant_mode = tenant.default_presentation_mode
+    return TokenResponse(
+        access_token=token,
+        user=UserResponse.model_validate(user),
+        tenant_default_presentation_mode=tenant_mode,
+    )
 
 
 def _totp_replay_check_and_record(user: User) -> bool:
@@ -161,7 +177,7 @@ def bootstrap_admin(body: BootstrapAdminRequest, request: Request, db: Session =
     # NULL-Jurisdiktion. Bewusst optional/best-effort: die Ersteinrichtung
     # darf nicht am Tenant-Update scheitern, und eine spaetere Korrektur ist
     # jederzeit ueber PUT /tenants/me moeglich.
-    if body.company_name or body.home_jurisdiction:
+    if body.company_name or body.home_jurisdiction or body.default_presentation_mode:
         from models.tenant import DEFAULT_TENANT_ID
         tenant = db.query(Tenant).filter(Tenant.id == DEFAULT_TENANT_ID).first()
         if tenant is not None:
@@ -169,12 +185,14 @@ def bootstrap_admin(body: BootstrapAdminRequest, request: Request, db: Session =
                 tenant.display_name = body.company_name.strip()
             if body.home_jurisdiction:
                 tenant.home_jurisdiction = body.home_jurisdiction.strip()
+            if body.default_presentation_mode:
+                tenant.default_presentation_mode = body.default_presentation_mode
             tenant.updated_at = now
     db.commit()
     db.refresh(admin)
     login_attempt_guard.register_success(guard_key)
     logger.info('Bootstrap admin created | username=%s', admin.username)
-    return _issue_token_response(admin)
+    return _issue_token_response(admin, db)
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -251,7 +269,7 @@ def login(body: LoginRequest, request: Request, db: Session = Depends(get_db)):
         table_name="users", record_id=user.id, action="LOGIN")
     db.commit()
 
-    return _issue_token_response(user)
+    return _issue_token_response(user, db)
 
 
 @router.get("/me", response_model=UserResponse)
@@ -726,7 +744,7 @@ def invite_accept(body: InviteAccept, request: Request, db: Session = Depends(ge
         table_name="users", record_id=user.id, action="INVITE_ACCEPT")
     db.commit()
     db.refresh(user)
-    return _issue_token_response(user)
+    return _issue_token_response(user, db)
 
 
 def _resolve_invite(db: Session, token: str) -> User:
