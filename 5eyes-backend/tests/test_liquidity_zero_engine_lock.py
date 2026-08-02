@@ -9,7 +9,18 @@ wieder ins Bucket-Wachstum einfliesst.
 """
 from pathlib import Path
 
-ENGINE = (Path(__file__).resolve().parents[1] / "services" / "portfolio_engine.py").read_text(encoding="utf-8")
+# ADR-014 (Engine-God-Modul-Split, ab 2026-08-02): der Engine-Code lebt nicht
+# mehr nur in portfolio_engine.py, sondern zunehmend in per-Cluster
+# Submodulen (services/portfolio_engine_<cluster>.py, z.B. beide hier
+# gesperrten Vorkommen -- deterministischer UND Monte-Carlo-Pfad -- liegen
+# nach Schritt 5 beide in portfolio_engine_mc_simulation.py). Damit dieser
+# Lock unabhaengig davon greift, WELCHE Datei den Code aktuell haelt, wird
+# ueber portfolio_engine.py + alle portfolio_engine_*.py Submodule gescannt.
+_SERVICES_DIR = Path(__file__).resolve().parents[1] / "services"
+ENGINE = "\n".join(
+    p.read_text(encoding="utf-8")
+    for p in sorted(_SERVICES_DIR.glob("portfolio_engine*.py"))
+)
 
 
 def test_liquidity_returns_zeroed_in_both_paths():

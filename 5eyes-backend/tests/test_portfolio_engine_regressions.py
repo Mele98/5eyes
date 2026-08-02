@@ -16,6 +16,7 @@ from models.allocation import CapitalMarketAssumption
 from models.review import PriceHistory, Product
 from models.users import User  # noqa: F401
 import services.portfolio_engine as portfolio_engine
+import services.portfolio_engine_mc_simulation as _pe_mc_simulation
 from services.portfolio_engine import (
     PortfolioSummary,
     _asset_class_expected_metrics,
@@ -171,6 +172,13 @@ def test_reference_price_snapshot_keeps_same_day_price_even_if_fetched_later(ses
 
 def test_run_allocation_monte_carlo_seed_changes_for_transaction_cost_and_correlation(monkeypatch):
     monkeypatch.setattr(portfolio_engine, "_monte_carlo_simulations", lambda prefs: 1)
+    # ADR-014 Schritt 5: _run_allocation_monte_carlo lebt jetzt in
+    # services/portfolio_engine_mc_simulation.py und ruft _monte_carlo_simulations
+    # dort als Modul-lokalen Namen auf -- das Monkeypatch auf dem
+    # portfolio_engine-Re-Export-Modul allein wirkt sich darauf NICHT aus
+    # (separate Modul-Namespaces). Beide Module patchen, damit der Test
+    # unabhaengig von der internen Aufloesung deterministisch bleibt.
+    monkeypatch.setattr(_pe_mc_simulation, "_monte_carlo_simulations", lambda prefs: 1)
 
     advisory_summary = PortfolioSummary(
         amounts_rappen={
@@ -787,6 +795,13 @@ def test_build_simulation_payload_uses_target_start_value_without_changing_curre
 
 def test_run_allocation_monte_carlo_uses_target_start_value_for_target_path_and_downside_baseline(monkeypatch):
     monkeypatch.setattr(portfolio_engine, "_monte_carlo_simulations", lambda prefs: 1)
+    # ADR-014 Schritt 5: _run_allocation_monte_carlo lebt jetzt in
+    # services/portfolio_engine_mc_simulation.py und ruft _monte_carlo_simulations
+    # dort als Modul-lokalen Namen auf -- das Monkeypatch auf dem
+    # portfolio_engine-Re-Export-Modul allein wirkt sich darauf NICHT aus
+    # (separate Modul-Namespaces). Beide Module patchen, damit der Test
+    # unabhaengig von der internen Aufloesung deterministisch bleibt.
+    monkeypatch.setattr(_pe_mc_simulation, "_monte_carlo_simulations", lambda prefs: 1)
 
     result = portfolio_engine._run_allocation_monte_carlo(
         advisory_summary=PortfolioSummary(
