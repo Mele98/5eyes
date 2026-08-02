@@ -24,6 +24,7 @@ Jeder ADR folgt einem schlanken Schema:
 | [004](ADR-004-editorial-no-recharts.md) | Editorial-Design ohne Chart-Library | Accepted | U-12/U-14 |
 | [005](ADR-005-free-data-pipeline.md) | Gratis-Marktdaten-Pipeline (CHF 0/Jahr) | Accepted | U-30 |
 | [006](ADR-006-drift-tests.md) | Drift-Tests als Konsistenz-Wall | Accepted | (querschnittlich) |
+| [014](ADR-014-engine-module-split-plan.md) | Engine-God-Modul `portfolio_engine.py` — Split-Plan | Accepted (Plan) | Welle 3.2 |
 
 ## Wann einen neuen ADR schreiben?
 

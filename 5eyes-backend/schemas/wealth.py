@@ -607,6 +607,11 @@ class PlanningAssumptionCreate(BaseModel):
     inflation_assumption_bps: Optional[int] = Field(default=None, ge=-1000, le=3000)
     pension_indexation_bps: Optional[int] = Field(default=None, ge=-1000, le=3000)
     notes: Optional[str] = None
+    # sec-f4 (2026-08-02): Phase-0-Gate (enforce_data_classification) fehlte fuer
+    # Planning-Assumptions komplett -- analog zu Wealth-Inflow/Cashflow/Goal
+    # nachgezogen. PlanningAssumption-Model hat keine data_classification-Spalte,
+    # Feld dient nur der Enforcement und wird vor dem Persistieren gepoppt.
+    data_classification: Literal["synthetic", "real"] = "synthetic"
 
 
 class PlanningAssumptionResponse(BaseResponse):

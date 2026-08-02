@@ -846,6 +846,10 @@ def upsert_planning_assumptions(
     now = _now()
     today = date.today().isoformat()
     payload = body.model_dump(exclude_unset=True)
+    # sec-f4 (2026-08-02): Phase-0-Gate fehlte fuer Planning-Assumptions -- analog
+    # create_wealth_inflow/update_wealth_inflow nachgezogen (PlanningAssumption-
+    # Model hat keine data_classification-Spalte, Feld dient nur der Enforcement).
+    enforce_data_classification(payload.pop("data_classification", None))
     # 2026-07-25 (Generalaudit, Wave 13): with_for_update() ergaenzt -- fehlte
     # hier, obwohl der Sibling-Endpoint create_planning_assumptions (unten)
     # denselben Anchor-Lookup bereits korrekt lockt (Race-Hardening, analog
@@ -862,6 +866,12 @@ def upsert_planning_assumptions(
         # werden aus der vorigen Version uebernommen.
         full: dict = {}
         for field_name in PlanningAssumptionCreate.model_fields:
+            # sec-f4 (2026-08-02): data_classification ist ein reines Enforcement-
+            # Feld ohne Spalten-Pendant auf dem PlanningAssumption-Model -- oben
+            # bereits aus payload gepoppt, hier ebenfalls auslassen, sonst wuerde
+            # PlanningAssumption(**full) mit einem unbekannten Kwarg fehlschlagen.
+            if field_name == "data_classification":
+                continue
             full[field_name] = getattr(existing, field_name, None)
         full.update(payload)
         prev_id = existing.id
@@ -917,6 +927,11 @@ def create_planning_assumptions(
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
     now = _now()
     today = date.today().isoformat()
+    data = body.model_dump()
+    # sec-f4 (2026-08-02): Phase-0-Gate fehlte fuer Planning-Assumptions -- analog
+    # create_wealth_inflow nachgezogen (PlanningAssumption-Model hat keine
+    # data_classification-Spalte, Feld dient nur der Enforcement).
+    enforce_data_classification(data.pop("data_classification", None))
     # Supersede previous (Race-Hardening, siehe profiling.py).
     prev = db.query(PlanningAssumption).filter(
         PlanningAssumption.mandate_id == mandate_id,
@@ -940,7 +955,7 @@ def create_planning_assumptions(
         supersedes_id=prev_id,
         created_at=now,
         updated_at=now,
-        **body.model_dump()
+        **data
     )
     db.add(pa)
     log(db, user_id=current_user.id, user_name=current_user.full_name,
