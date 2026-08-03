@@ -98,3 +98,34 @@ def test_sr_implementation_decision_trade_list_gated_and_verb_neutralized():
     assert "_reviewIsDiscretionaryMandate()&&!!(live" in body.replace(" ", "")
     assert "_reviewIsIlliquidAssetClass(item.assetKey)" in body
     assert "'Beobachten'" in body
+
+
+# ===========================================================================
+# 2026-08-03 (User-Direktive): _reviewIsDiscretionaryMandate() beruecksichtigt
+# zusaetzlich den Wealthmanagement/Consulting-Praesentationsmodus. mandate_type
+# bleibt die Compliance-Untergrenze (UND, nie ODER) -- Consulting-Modus zeigt
+# am Review-Ende immer die Ziel-/Empfehlungssprache ("wie es sein sollte"),
+# auch bei einem Vermoegensverwaltungsmandat; Wealthmanagement-Modus zeigt bei
+# einem Vermoegensverwaltungsmandat zusaetzlich die operative Rebalancing-/
+# Handelsliste-Schnittstelle.
+# ===========================================================================
+
+
+def test_discretionary_helper_also_requires_wealthmanagement_presentation_mode():
+    body = _function_body(_html(), "function _reviewIsDiscretionaryMandate(")
+    assert "getCurrentPresentationMode()" in body
+    assert "'wealthmanagement'" in body
+    # UND-Verknuepfung: Praesentationsmodus darf Ausfuehrungsbefugnis nur
+    # zusaetzlich einschraenken, nie mandate_type ueberschreiben/ersetzen.
+    assert "hasExecutionAuthority&&getCurrentPresentationMode()==='wealthmanagement'" in body.replace(" ", "")
+
+
+def test_discretionary_helper_still_checks_mandate_type_as_floor():
+    """Regressionsschutz: die Compliance-Untergrenze (mandate_type) darf beim
+    Hinzufuegen des Praesentationsmodus-Checks nicht verloren gehen -- sonst
+    koennte eine reine Anlageberatung (keine Ausfuehrungsbefugnis) im
+    Wealthmanagement-Praesentationsmodus faelschlich eine Handelsliste zeigen."""
+    body = _function_body(_html(), "function _reviewIsDiscretionaryMandate(")
+    assert "mandate_type" in body
+    assert "Vermögensverwaltung" in body
+    assert "hasExecutionAuthority=mandateType==='Vermögensverwaltung'" in body.replace(" ", "")

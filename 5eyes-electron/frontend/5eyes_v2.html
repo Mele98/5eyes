@@ -5986,8 +5986,17 @@ function updateThemeToggleIcon(){
 // siehe Anfang von <body>). "Wealthmanagement" (Default, NULL) zeigt alle
 // bestehenden Funktionen unveraendert; "Consulting" blendet reine
 // Depotueberwachungs-Funktionen aus (data-wm-only-Elemente, siehe CSS-Regel
-// html[data-presentation-mode="consulting"]). Rein visuell -- keine
-// Compliance-/Engine-Wirkung, bewusst getrennt von mandate_type.
+// html[data-presentation-mode="consulting"]). Rein visuell/CSS -- keine
+// Engine-Wirkung (Zielallokation, Berechnungen unveraendert).
+// Update (2026-08-03, User-Direktive): am Review-&-Abschluss-Ende IST der
+// Modus jetzt mit mandate_type verknuepft -- siehe _reviewIsDiscretionaryMandate()
+// weiter unten: Consulting-Modus zeigt dort immer die Ziel-/Empfehlungssprache
+// ("wie es sein sollte"), Wealthmanagement-Modus zeigt bei einem
+// Vermoegensverwaltungsmandat zusaetzlich die operative Rebalancing-/
+// Handelsliste-Schnittstelle. mandate_type bleibt dabei die Compliance-
+// Untergrenze (UND-Verknuepfung, nie ODER) -- der Praesentationsmodus kann
+// die operative Ansicht nur zusaetzlich ausblenden, nie Ausfuehrungsbefugnis
+// vortaeuschen, die real nicht besteht.
 var PRESENTATION_MODE_STORAGE_KEY='5eyes_presentation_mode';
 function getStoredPresentationMode(){
   try{
@@ -26671,7 +26680,17 @@ function _reviewIsIlliquidAssetClass(assetKey){
 }
 function _reviewIsDiscretionaryMandate(){
   var mandateType=(currentMandateData&&currentMandateData.mandate_type)||'';
-  return mandateType==='Vermögensverwaltung';
+  var hasExecutionAuthority=mandateType==='Vermögensverwaltung';
+  // HUD-Polish (2026-08-03, User-Direktive): der Wealthmanagement/Consulting-
+  // Praesentationsmodus steuert zusaetzlich, ob die operative Rebalancing-/
+  // Handelsliste-Sprache am Ende des Beratungsprozesses gezeigt wird.
+  // mandate_type bleibt die COMPLIANCE-UNTERGRENZE -- eine Anlageberatung
+  // ohne Ausfuehrungsbefugnis zeigt NIE eine Handelsliste, unabhaengig vom
+  // Praesentationsmodus. Der Praesentationsmodus kann die operative Ansicht
+  // zusaetzlich AUSBLENDEN (Consulting-Modus zeigt nur die Ziel-/SOLL-
+  // Empfehlung, "wie es sein sollte"), aber nie Ausfuehrungsbefugnis
+  // vortaeuschen, die real nicht besteht (daher UND, nicht ODER).
+  return hasExecutionAuthority && getCurrentPresentationMode()==='wealthmanagement';
 }
 function reviewBandStateMeta(bucket,assetKey){
   var target=Number(bucket&&bucket.target_weight_bps||0);
