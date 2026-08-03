@@ -1,6 +1,35 @@
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import Optional
 from schemas.common import BaseResponse
+
+# Zulaessiges Vokabular fuer AllocationPreferencesPayload.tilts/.bands.
+# Sicherheits-Fix (2026-08-03, Berater-Audit "Restriktionen & Tilts"): unbekannte
+# Keys/Values wurden bisher STILLSCHWEIGEND ignoriert (kein Fehler, keine Wirkung) --
+# ein Tippfehler im Frontend (z.B. "tabacco" statt "tobacco") fuehrte dazu, dass eine
+# vom Berater gesetzte Restriktion/Tilt komplett wirkungslos blieb, ohne jede
+# Rueckmeldung. Diese Vokabulare sind bewusst dupliziert (statt aus services.*
+# importiert), damit schemas/ als reine Leaf-Schicht ohne Abhaengigkeit auf services/
+# bleibt; sie muessen synchron gehalten werden mit:
+# - services/portfolio_engine_house_matrix.py (Themen-Keys der Tilts, ~Zeile 640)
+# - services/portfolio_engine_payload.py (thematic_map + tilt_mode, ~Zeile 813-829)
+# - services/portfolio_engine.py:_bucket_key (Bucket-Aliase der Bands, ~Zeile 415-429)
+_VALID_TILT_KEYS = frozenset({"fossil", "defense", "tobacco", "alcohol", "gaming", "nuclear"})
+_VALID_TILT_VALUES = frozenset({"exclude", "underweight", "neutral", "overweight"})
+_VALID_BAND_KEYS = frozenset(
+    {
+        "equities",
+        "bonds",
+        "real_estate",
+        "alternatives",
+        "liquidity",
+        "Aktien",
+        "Obligationen",
+        "Immobilien",
+        "Alternative",
+        "Liquiditaet",
+        "Liquidität",
+    }
+)
 
 
 class TargetAllocationCreate(BaseModel):
@@ -485,6 +514,30 @@ class AllocationPreferencesPayload(BaseModel):
     assetClasses: dict = Field(default_factory=dict)
     bands: dict[str, AllocationBandOverridePayload] = Field(default_factory=dict)
     simulation: dict = Field(default_factory=dict)
+
+    @field_validator("tilts")
+    @classmethod
+    def validate_tilts(cls, value: dict) -> dict:
+        for key, mode in value.items():
+            if key not in _VALID_TILT_KEYS:
+                raise ValueError(
+                    f"Unbekannter Tilt-Key '{key}' (erlaubt: {sorted(_VALID_TILT_KEYS)})"
+                )
+            if mode not in _VALID_TILT_VALUES:
+                raise ValueError(
+                    f"Unbekannter Tilt-Modus '{mode}' fuer '{key}' (erlaubt: {sorted(_VALID_TILT_VALUES)})"
+                )
+        return value
+
+    @field_validator("bands")
+    @classmethod
+    def validate_band_keys(cls, value: dict) -> dict:
+        for key in value:
+            if key not in _VALID_BAND_KEYS:
+                raise ValueError(
+                    f"Unbekannter Bandbreiten-Key '{key}' (erlaubt: {sorted(_VALID_BAND_KEYS)})"
+                )
+        return value
 
 
 class BuildingBlockResponse(BaseResponse):

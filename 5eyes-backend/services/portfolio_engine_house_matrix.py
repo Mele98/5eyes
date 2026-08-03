@@ -213,6 +213,61 @@ def _apply_band_preferences(
     reasoning.append("Mandatsspezifische Soll-Quoten und Bandbreiten werden als Simulations-Constraint beruecksichtigt.")
 
 
+def _apply_band_min_max_overrides(
+    bands: dict | None,
+    minimums: dict[str, int],
+    maximums: dict[str, int],
+) -> bool:
+    """Wendet NUR die harten Mindest-/Maximalgrenzen (min_bps/max_bps) eines
+    Bandbreiten-Overrides an, OHNE target_bps und OHNE die
+    Summe-muss-10000-Validierung von `_apply_band_preferences`.
+
+    Sicherheits-Fix (2026-08-03): wird verwendet, wenn der Risikobudget-
+    Fallback `targets`/`minimums`/`maximums` per `_house_matrix_mid_targets`
+    komplett auf die Haus-Matrix-Bandbreiten-Mitte zuruecksetzt. Vorher ging
+    dabei eine bereits erfolgreich per `_apply_band_preferences` angewendete
+    Mandats-Restriktion (z.B. "Aktien max. 20%") stillschweigend verloren --
+    der Reset ersetzte minimums/maximums komplett durch die Haus-Matrix-
+    Defaults, ohne den Override erneut anzuwenden (live reproduziert:
+    Berater-Maximum 2000 bps, Endresultat 3500 bps, keine Warnung).
+
+    Warum NICHT einfach `_apply_band_preferences` erneut aufrufen: dessen
+    Summe-10000-Validierung bezieht sich auf `targets`, die bereits von der
+    NEUEN Haus-Matrix-Mitte stammen -- ein `target_bps`-Override, der beim
+    ERSTEN Aufruf (gegen die urspruengliche Baseline) exakt auf 10000 bps
+    aufging, kann nach einem Baseline-Wechsel eine andere, dann invalide
+    Summe ergeben und wuerde faelschlich einen ValueError werfen, selbst
+    wenn der Override selbst unveraendert und weiterhin gueltig ist. Die
+    harten Grenzen (min/max) sind dagegen baseline-unabhaengige Invarianten
+    (eine vom Berater gesetzte Restriktion wie "nicht mehr als 20%" gilt
+    unabhaengig davon, welche Baseline die anderen Buckets gerade haben) und
+    werden hier separat, ohne Summen-Constraint, wiederhergestellt. Der
+    nachfolgende `_rebalance_to_total()`-Aufruf bringt `targets` unter
+    Beachtung dieser (wiederhergestellten) Grenzen wieder auf 10000 bps.
+
+    Returns True, wenn mindestens eine Grenze wiederhergestellt wurde (fuer
+    einen praezisen Reasoning-Hinweis beim Aufrufer).
+    """
+    from services.portfolio_engine import _bucket_key, _coerce_band_bps
+
+    if not bands:
+        return False
+    restored = False
+    for raw_key, override in (bands or {}).items():
+        bucket = _bucket_key(raw_key)
+        if not bucket or not isinstance(override, dict):
+            continue
+        minimum = _coerce_band_bps(override.get("min_bps"))
+        maximum = _coerce_band_bps(override.get("max_bps"))
+        if minimum is not None:
+            minimums[bucket] = minimum
+            restored = True
+        if maximum is not None:
+            maximums[bucket] = maximum
+            restored = True
+    return restored
+
+
 def _has_manual_target_overrides(bands: dict | None) -> bool:
     from services.portfolio_engine import _coerce_band_bps
 
@@ -716,6 +771,7 @@ def _apply_illiquid_cap(
     targets: dict[str, int],
     max_illiquid_bps: int | None,
     reasoning: list[str],
+    maximums: dict[str, int] | None = None,
 ) -> tuple[list[dict], dict[str, int]]:
     """Deckelt den ECHT illiquiden Anteil (Private Equity) auf max_illiquid_bps.
 
@@ -724,6 +780,18 @@ def _apply_illiquid_cap(
     der Alternativen zu liquiden Sleeves (Gold, Liquid Alts, ...) verschoben — die
     Alternatives-Quote bleibt dann unveraendert, nur ihre Zusammensetzung wird
     liquider. Gibt es keinen liquiden Alt-Sleeve, wandert der Rest in die Liquiditaet.
+
+    `maximums` (optional, Rueckwaerts-kompatibel None): Sicherheits-Fix
+    (2026-08-03) -- ohne liquiden Alt-Sleeve floss der freiwerdende Anteil
+    bisher UNGEPRUEFT in `targets["liquidity"]`, auch wenn eine vom Berater
+    gesetzte Bandbreiten-Restriktion (`_apply_band_preferences`) die
+    Liquiditaet bereits auf ein niedrigeres Maximum begrenzt hatte. Wird
+    `maximums` mitgegeben, wird der Illiquid-Cap-Zielwert VORAB (vor dem
+    Herunterskalieren der PE-Sub-Allokation) an die verfuegbare Liquiditaets-
+    Kapazitaet angepasst, statt hinterher zu "reparieren" (das wuerde die
+    bereits skalierte PE-Sub-Allokation inkonsistent machen). Konsequenz:
+    der Mandats-Cap fuer illiquide Anlagen wird in diesem Randfall ggf. nicht
+    zu 100% erreicht -- Prioritaet hat die explizite Bandbreiten-Restriktion.
     """
     from services.portfolio_engine import _ILLIQUID_SUB_ASSET_CLASSES, _norm_text
 
@@ -737,8 +805,22 @@ def _apply_illiquid_cap(
     if illiquid_bps <= max_illiquid_bps or illiquid_bps <= 0:
         return sub_allocations, targets
 
+    liquid_alts = [
+        sub for sub in sub_allocations
+        if _norm_text(sub.get("asset_class")) == _norm_text("Alternative")
+        and _norm_text(sub.get("sub_asset_class")).strip().lower() not in _ILLIQUID_SUB_ASSET_CLASSES
+    ]
+    effective_max_illiquid_bps = max_illiquid_bps
+    liquidity_capped = False
+    if not liquid_alts and maximums is not None:
+        liquidity_room = max(0, int(maximums.get("liquidity", 10000)) - int(targets["liquidity"]))
+        adjusted = max(max_illiquid_bps, illiquid_bps - liquidity_room)
+        if adjusted > max_illiquid_bps:
+            liquidity_capped = True
+        effective_max_illiquid_bps = adjusted
+
     freed = 0
-    scale = max_illiquid_bps / illiquid_bps
+    scale = effective_max_illiquid_bps / illiquid_bps
     for sub in illiquid:
         old = int(sub.get("target_weight_bps") or 0)
         new = int(round(old * scale))
@@ -747,11 +829,13 @@ def _apply_illiquid_cap(
     if freed <= 0:
         return sub_allocations, targets
 
-    liquid_alts = [
-        sub for sub in sub_allocations
-        if _norm_text(sub.get("asset_class")) == _norm_text("Alternative")
-        and _norm_text(sub.get("sub_asset_class")).strip().lower() not in _ILLIQUID_SUB_ASSET_CLASSES
-    ]
+    if liquidity_capped:
+        reasoning.append(
+            "Die Mandatsgrenze fuer illiquide Anlagen (Private Equity) konnte wegen der "
+            "gesetzten Liquiditaets-Maximalgrenze nicht vollstaendig erreicht werden; "
+            "die Bandbreiten-Restriktion hat Vorrang."
+        )
+
     if liquid_alts:
         # Innerhalb der Alternativen umschichten: PE -> liquide Sleeves. Alternatives-Quote bleibt.
         receiver = max(liquid_alts, key=lambda s: int(s.get("target_weight_bps") or 0))
@@ -1017,6 +1101,7 @@ def _house_matrix_mid_targets(house_matrix: HouseMatrix, policy: OptimizerPolicy
 def _apply_external_exposure_tilts(
     targets: dict,
     minimums: dict,
+    maximums: dict,
     total_summary,
     house_matrix: HouseMatrix,
     manual_target_override: bool,
@@ -1036,8 +1121,21 @@ def _apply_external_exposure_tilts(
     external_equity_bps = _bps(total_summary.amounts_rappen["equities"], max(1, total_summary.total_rappen))
     if external_equity_bps > 5000:
         reduction = min(400, int(round((external_equity_bps - 5000) * 0.2)))
-        targets["equities"] = max(int(house_matrix.equity_minimum_bps or minimums["equities"]), targets["equities"] - reduction)
-        targets["bonds"] = min(int(house_matrix.bonds_max_bps), targets["bonds"] + reduction)
+        # Sicherheits-Fix (2026-08-03): Boden UND Decke muessen die AKTUELLEN
+        # minimums/maximums respektieren (die ggf. per Bandbreiten-Override
+        # verschaerft wurden), nicht die statischen House-Matrix-Werte.
+        # Diese Funktion laeuft weiterhin, wenn NUR min_bps/max_bps (kein
+        # target_bps) gesetzt wurde, da _has_manual_target_overrides()
+        # (siehe manual_target_override oben) reine Min/Max-Overrides ohne
+        # Zielquote nicht erfasst -- vorher konnte eine Bonds-Maximal-
+        # Restriktion hier unbemerkt ueberschritten werden (live
+        # reproduziert). Boden = das STRENGERE (hoehere) von House-Matrix-
+        # Absolutfloor und aktuellem minimums["equities"], damit ein per
+        # Override angehobenes Minimum nicht durch den statischen, ggf.
+        # niedrigeren House-Matrix-Floor unterlaufen wird.
+        equity_floor = max(int(house_matrix.equity_minimum_bps or 0), int(minimums["equities"]))
+        targets["equities"] = max(equity_floor, targets["equities"] - reduction)
+        targets["bonds"] = min(int(maximums["bonds"]), targets["bonds"] + reduction)
         reasoning.append("Bereits bestehende Aktienexposures im Gesamtvermoegen werden auf die Advisory-Strategie angerechnet.")
 
 
@@ -1135,6 +1233,23 @@ def _apply_goal_and_reserve_tilts(
         goal_type = _norm_text(goal.goal_type)
         if goal_type in ("Kapitalerhalt", "Vermoegensziel") and years <= 5:
             eq_reduction = min(200, max(0, targets["equities"] - minimums["equities"]))
+            if eq_reduction > 0:
+                # Sicherheits-Fix (2026-08-03): die Empfaenger-Seite (bonds/
+                # liquidity) war bisher NICHT gegen die aktuellen Maximal-
+                # grenzen geclippt -- im Unterschied zum Renditeziel-Tilt
+                # direkt unterhalb, der das fuer seine bonds-Empfaenger-Seite
+                # bereits korrekt tut (bonds_available-Berechnung). Eine vom
+                # Berater gesetzte Bandbreiten-Restriktion auf bonds/liquidity
+                # (_apply_band_preferences, laeuft VOR diesem Tilt) konnte
+                # dadurch hier verletzt werden -- das nachgelagerte
+                # _rebalance_to_total()-Sicherheitsnetz haelt zwar am Ende
+                # die Grenzen ein, aber durch eine vom Tilt nicht beabsich-
+                # tigte, im Reasoning-Text nicht sichtbare Umverteilung in
+                # ANDERE Buckets. Hier bereits an der Quelle korrekt clippen,
+                # symmetrisch zum Spender (equities via minimums).
+                liquidity_room = max(0, int(maximums.get("liquidity", 10000)) - int(targets["liquidity"]))
+                bonds_room = max(0, int(maximums.get("bonds", 10000)) - int(targets["bonds"]))
+                eq_reduction = min(eq_reduction, 2 * liquidity_room, 2 * bonds_room)
             if eq_reduction > 0:
                 targets["equities"] -= eq_reduction
                 targets["liquidity"] += eq_reduction // 2

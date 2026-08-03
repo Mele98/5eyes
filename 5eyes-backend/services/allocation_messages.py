@@ -134,11 +134,17 @@ MESSAGE_TEMPLATES: dict[str, dict[str, Any]] = {
     },
     WARN_FALLBACK: {
         "severity": SEVERITY_WARNING,
-        "title": "Optimierer auf Bandbreiten-Mitte zurückgesetzt",
+        "title": "Allokation auf Bandbreiten-Mitte zurückgesetzt",
         "body_advisor": (
-            "Der stochastische Optimierer konnte unter den aktuellen Constraints nicht "
-            "konvergieren. Die Strategie verwendet stattdessen den Bandbreiten-Mittelwert "
-            "des Risikoprofils. Bitte Ziele, Bandbreiten und Liquiditätsreserve prüfen."
+            # Sicherheits-Fix (2026-08-03): dieser Text feuerte bisher IMMER,
+            # wenn der Risikobudget-Fallback greift -- auch im normalen
+            # House-Matrix-Modus (Default), in dem gar kein stochastischer
+            # Optimierer laeuft. Die vorherige Formulierung beschrieb damit
+            # in der Mehrheit der Faelle den falschen Mechanismus.
+            "Die berechnete Ziel-Allokation ueberschritt das Risikobudget Ihres "
+            "Risikoprofils. Die Strategie verwendet stattdessen den Bandbreiten-Mittelwert "
+            "des Risikoprofils als Basis (manuell gesetzte Mindest-/Maximalgrenzen bleiben "
+            "dabei in Kraft). Bitte Ziele, Bandbreiten und Liquiditätsreserve prüfen."
         ),
         "body_client": (
             "Wir verwenden für Sie die bewährte Standardallokation Ihres Risikoprofils. "

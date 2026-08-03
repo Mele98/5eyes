@@ -628,6 +628,7 @@ from services.portfolio_engine_live_rebalancing import (  # noqa: F401,E402
 # spending) -- der zweite Konsument wurde beim Draften dieses Schritts
 # gefunden, nicht im urspruenglichen ADR-014 gelistet.
 from services.portfolio_engine_house_matrix import (  # noqa: F401,E402
+    _apply_band_min_max_overrides,
     _apply_band_preferences,
     _apply_external_exposure_tilts,
     _apply_goal_and_reserve_tilts,
@@ -1839,7 +1840,15 @@ def generate_target_allocation(
     _apply_band_preferences(prefs["bands"], targets, minimums, maximums, reasoning)
     if manual_target_override:
         reasoning.append("Explizit gesetzte Soll-Quoten uebersteuern automatische Exposure-Tilts; harte Risiko- und Liquiditaetsregeln bleiben aktiv.")
-    _apply_external_exposure_tilts(targets, minimums, total_summary, house_matrix, manual_target_override, reasoning)
+    # Sicherheits-Fix (2026-08-03, Berater-Audit "Restriktionen & Tilts", Befund 4):
+    # mehrere unabhaengige Tilt-Mechanismen (Exposure-Anrechnung, Renditeziel,
+    # Wachstums-Cashflow) koennen sich gegenseitig ganz oder teilweise aufheben --
+    # jeder einzelne ist fachlich legitim, aber ohne den NETTO-Effekt wusste der
+    # Berater nicht, dass z.B. ein reduzierender und ein erhoehender Tilt sich
+    # gegenseitig neutralisiert haben. Baseline VOR allen Tilts fuer den
+    # Netto-Effekt-Reasoning-Satz unten.
+    targets_before_tilts = dict(targets)
+    _apply_external_exposure_tilts(targets, minimums, maximums, total_summary, house_matrix, manual_target_override, reasoning)
     reserve_needed_rappen, external_reserve_rappen = _apply_goal_and_reserve_tilts(
         targets=targets,
         minimums=minimums,
@@ -1923,11 +1932,36 @@ def generate_target_allocation(
         and reserve_needed_rappen == 0
         and targets["bonds"] - minimums["bonds"] >= 100
         and targets["liquidity"] - minimums["liquidity"] >= 50
+        # Sicherheits-Fix (2026-08-03): die Empfaenger-Seite (equities) war
+        # bisher NICHT gegen die aktuelle Maximalgrenze geprueft -- eine vom
+        # Berater gesetzte Bandbreiten-Restriktion auf equities konnte durch
+        # diesen Tilt unbemerkt ueberschritten werden (live reproduziert).
+        # Symmetrisch zu den Spender-Bedingungen oben (bonds/liquidity
+        # Mindestabstand), hier der Empfaenger-Hoechstabstand.
+        and maximums["equities"] - targets["equities"] >= 150
     ):
         targets["equities"] += 150
         targets["bonds"] -= 100
         targets["liquidity"] -= 50
         reasoning.append("Positiver laufender Cashflow und langfristige Wachstumsziele ermoeglichen einen moderaten Equity-Tilt.")
+
+    if not optimizer_replaced_targets:
+        tilt_deltas_bps = {
+            bucket: targets[bucket] - targets_before_tilts[bucket]
+            for bucket in targets_before_tilts
+            if targets[bucket] != targets_before_tilts[bucket]
+        }
+        if tilt_deltas_bps:
+            delta_text = ", ".join(
+                f"{BUCKET_LABELS.get(bucket, bucket)} {delta:+d} bps"
+                for bucket, delta in sorted(tilt_deltas_bps.items())
+            )
+            reasoning.append(
+                f"Netto-Effekt aller Exposure-Tilts (Anrechnung Gesamtvermoegen, "
+                f"Rendite-/Zielhorizont, Wachstums-Cashflow) gegenueber der "
+                f"House-Matrix-Baseline: {delta_text}. Einzelne Tilts koennen sich "
+                f"dabei teilweise oder vollstaendig aufheben."
+            )
 
     # 3eyes-konform: Illiquiditaet wird auf Baustein-Ebene (Private Equity) gedeckelt,
     # nicht pauschal auf der ganzen Alternatives-Quote (Gold/Liquid Alts sind liquide).
@@ -1938,7 +1972,7 @@ def generate_target_allocation(
     risky_map = _building_block_risky_map(db, policy.id, getattr(mandate, "investment_universe", None), jurisdiction)
     sub_allocations = _build_sub_allocations(targets, prefs, jurisdiction=jurisdiction, db=db)
     if not optimizer_replaced_targets:
-        sub_allocations, targets = _apply_illiquid_cap(sub_allocations, targets, max_illiquid_bps, reasoning)
+        sub_allocations, targets = _apply_illiquid_cap(sub_allocations, targets, max_illiquid_bps, reasoning, maximums=maximums)
     sub_allocations, asset_risky_weights, risky_fraction_total_bps = _enrich_sub_allocations_with_risk(sub_allocations, risky_map)
     realized_risky_bps = risky_fraction_total_bps  # Validierung 2026-06-11 (#AA-1/#AA-3): sub-allocation-gewichtet (konsistent zur Enforcement-Cascade), statt ungewichtetem BB-Bucket-Mittel
     risk_budget_fallback = False
@@ -1948,9 +1982,32 @@ def generate_target_allocation(
         risk_budget_fallback = True
         risk_budget_asset_weights = bucket_risky_fraction_bps_from_building_blocks(_building_block_rows)
         targets, minimums, maximums = _house_matrix_mid_targets(house_matrix, policy)
+        # Sicherheits-Fix (2026-08-03, Berater-Audit "Restriktionen & Tilts"):
+        # _house_matrix_mid_targets() ersetzt minimums/maximums komplett durch
+        # die Haus-Matrix-Defaults -- eine bereits weiter oben erfolgreich per
+        # _apply_band_preferences() angewendete Mandats-Restriktion (z.B.
+        # "Aktien max. 20%") ging dadurch beim Risikobudget-Fallback
+        # stillschweigend verloren (live reproduziert: Berater-Maximum 2000
+        # bps, Endresultat 3500 bps, KEINE Warnung). Die harten Grenzen
+        # (min_bps/max_bps) werden hier wiederhergestellt -- OHNE die
+        # Summe-10000-Validierung von _apply_band_preferences erneut
+        # auszufuehren, da ein target_bps-Override, der gegen die
+        # URSPRUENGLICHE Baseline exakt aufging, gegen die NEUE
+        # Haus-Matrix-Mitte-Baseline eine andere (dann faelschlich als
+        # invalide erkannte) Summe ergeben kann. Der nachfolgende
+        # _rebalance_to_total()-Aufruf bringt targets unter Beachtung dieser
+        # wiederhergestellten Grenzen wieder auf 10000 bps.
+        bands_restored = _apply_band_min_max_overrides(prefs["bands"], minimums, maximums)
+        if bands_restored:
+            reasoning.append(
+                "Risikobudget-Fallback: die automatische Ziel-Allokation wurde auf die "
+                "Bandbreiten-Mitte des Risikoprofils zurueckgesetzt; Ihre manuell gesetzten "
+                "Mindest-/Maximalgrenzen bleiben dabei in Kraft (die genaue Ziel-Allokation "
+                "kann sich innerhalb dieser Grenzen verschieben)."
+            )
         targets = _rebalance_to_total(targets, minimums, maximums)
         sub_allocations = _build_sub_allocations(targets, prefs, jurisdiction=jurisdiction, db=db)
-        sub_allocations, targets = _apply_illiquid_cap(sub_allocations, targets, max_illiquid_bps, reasoning)
+        sub_allocations, targets = _apply_illiquid_cap(sub_allocations, targets, max_illiquid_bps, reasoning, maximums=maximums)
         sub_allocations, asset_risky_weights, risky_fraction_total_bps = _enrich_sub_allocations_with_risk(sub_allocations, risky_map)
         realized_risky_bps = risky_fraction_total_bps  # Validierung 2026-06-11 (#AA-1): sub-allocation-gewichtet (konsistent zur Enforcement-Cascade via asset_risky_weights), statt ungewichtetem BB-Bucket-Mittel
         try:
@@ -2017,7 +2074,7 @@ def generate_target_allocation(
                     )
             targets = _rebalance_to_total(targets, minimums, maximums)
             sub_allocations = _build_sub_allocations(targets, prefs, jurisdiction=jurisdiction, db=db)
-            sub_allocations, targets = _apply_illiquid_cap(sub_allocations, targets, max_illiquid_bps, reasoning)
+            sub_allocations, targets = _apply_illiquid_cap(sub_allocations, targets, max_illiquid_bps, reasoning, maximums=maximums)
             sub_allocations, asset_risky_weights, risky_fraction_total_bps = _enrich_sub_allocations_with_risk(sub_allocations, risky_map)
             realized_risky_bps = risky_fraction_total_bps  # Validierung 2026-06-11 (#AA-1): sub-allocation-gewichtet (konsistent zur Enforcement-Cascade via asset_risky_weights), statt ungewichtetem BB-Bucket-Mittel
             if int(realized_risky_bps) > int(risk_budget_bps):
