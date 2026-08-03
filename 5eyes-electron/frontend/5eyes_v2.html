@@ -7026,6 +7026,13 @@ function syncAllocationPendingViews(){
   renderAllocationCashflowTimeline(null);
 }
 
+function deriveQuotenFromAllocation(allocation){
+  var colors={Aktien:'#1e4b8f',Obligationen:'#78601a',Immobilien:'#2c5080',Alternative:'#4a6080',Liquiditaet:'#166534'};
+  return ((allocation&&allocation.buckets)||[]).map(function(bucket){
+    var key=String(bucket.asset_class||'');
+    return {key:normalizeBandKey(key),n:assetDisplayName(key),c:colors[key]||'#5a6878',ist:Number(bucket.current_weight_bps||0)/100,min:Number(bucket.band_min_bps||0)/100,ziel:Number(bucket.target_weight_bps||0)/100,max:Number(bucket.band_max_bps||0)/100};
+  });
+}
 function buildQT(id){
   ensureAllocationRuntimePanels();
   const t=document.getElementById(id);if(!t)return;
@@ -7034,6 +7041,14 @@ function buildQT(id){
     allocationBandBaseline={};
     return;
   }
+  // Sicherheits-Fix (2026-08-03, Berater-Audit "Restriktionen & Tilts"): quoten
+  // wurde bisher NUR von applyAllocationEngineResult() aktuell gehalten. Zwei
+  // andere Pfade (loadSrPage, refreshReviewUI) setzen strategyState.allocation
+  // direkt, ohne quoten nachzuziehen -- buildQT() zeigte dann veraltete
+  // Min/Ziel/Max-Werte einer FRUEHEREN Allokation an. Fix: quoten wird bei
+  // jedem Aufruf frisch aus strategyState.allocation.buckets abgeleitet, statt
+  // sich auf die separat gepflegte Modul-Variable zu verlassen.
+  quoten=deriveQuotenFromAllocation(strategyState.allocation);
   const prefs=loadAllocationPreferences();
   const activeBands=prefs&&prefs.bands?prefs.bands:{};
   allocationBandBaseline={};
@@ -17763,63 +17778,6 @@ function openAllocationPreferencesModal(){
   if(prefCardTitle)prefCardTitle.textContent='Anlagepräferenzen';
   om('m-aa-pref');
 }
-function renderAllocationPreferenceSummary(prefs){
-  if(!prefs)return;
-  var esgLabels={
-    none:'Keine ESG-Präferenz',
-    esg_integration:'ESG-Integration',
-    best_in_class:'Best-in-Class',
-    negative_screening:'Negativ-Screening',
-    impact:'Impact Investing',
-    net_zero:'Paris-aligned / Net Zero'
-  };
-  var universeLabels={standard:'Standard',extended:'Erweitert',funds_only:'Nur Fonds/ETFs',listed_only:'Nur kotierte Instrumente'};
-  var homeBiasLabels={none:'Kein Heimmarkt-Bias',ch_focus:'CH-Fokus bevorzugt',europe_focus:'Europa-Fokus',global:'Global neutral'};
-  var hedgingLabels={none:'Keine FX-Vorgabe',hedged:'FX-gehedgt bevorzugt',chf_only:'Nur CHF-Instrumente',risk_budget:'FX ausserhalb Risiko-Budget'};
-  var altPrefs=['Gold / Rohstoffe','Liquid Alternatives','Hedge Funds','Private Equity','Krypto'].filter(function(label,idx){
-    return [prefs.assetClasses.altsGold,prefs.assetClasses.altsLiquidAlts,prefs.assetClasses.altsHedge,prefs.assetClasses.altsPe,prefs.assetClasses.altsCrypto][idx];
-  });
-  var summary=[
-    esgLabels[prefs.policy.esg]||'ESG-Integration',
-    'Universum: '+(universeLabels[prefs.policy.universe]||'Standard'),
-    'Heimmarkt: '+(homeBiasLabels[prefs.policy.homeBias]||'CH-Fokus bevorzugt'),
-    hedgingLabels[prefs.policy.hedging]||'Keine FX-Vorgabe'
-  ];
-  var focus=[
-    'Aktien: '+(prefs.assetClasses.equitiesGeo||'Schweiz Fokus'),
-    'Obligationen: '+(prefs.assetClasses.bondsDuration||'Langfristig'),
-    'Immobilien: '+(prefs.assetClasses.realestateMarket||'Schweiz'),
-    'Alternative: '+(altPrefs.length?altPrefs.join(' + '):'keine Schwerpunkte'),
-    'Liquidität: '+(prefs.assetClasses.liquidityInstrument||'Geldmarktfonds'),
-    'Simulation: '+String((prefs.simulation&&prefs.simulation.horizonYears)||'10')+' J / '
-      +(prefs.simulation&&prefs.simulation.rebalanceMode==='calendar'?'jaehrlich':(prefs.simulation&&prefs.simulation.rebalanceMode==='none'?'ohne Rebalancing':'bei Bandbruch'))
-      +' / Stress '+String((prefs.simulation&&prefs.simulation.stressMultiplier)||'1.0')+'x'
-      +' / MC '+String((prefs.simulation&&prefs.simulation.monteCarloRuns)||'750')
-  ];
-  var restrictions=buildAllocationRestrictionItems(prefs);
-  renderPreferenceChips('sd-pref-summary',summary,'summary');
-  renderPreferenceChips('sr-pref-focus-chips',focus,'summary');
-  renderPreferenceChips('sr-pref-restriction-chips',restrictions,'restriction');
-  updateBandOverrideStatus(prefs.bands||{});
-}
-function persistAllocationPreferences(prefs){
-  prefs=prefs||collectAllocationPreferencesFromUI();
-  var key=getAllocationPreferenceKey();
-  allocationPreferencesCache[key]=prefs;
-  if(currentPersona)currentPersona.allocation_preferences=prefs;
-  try{localStorage.setItem(allocationPreferenceStoragePrefix+key,JSON.stringify(prefs));}catch(e){}
-  renderAllocationPreferenceSummary(prefs);
-  updateAllocationPreferencesEntryButton();
-  updateBandOverrideStatus(prefs.bands||{});
-  var status=document.getElementById('aa-pref-status');
-  if(status)status.textContent='Mandatspräferenzen lokal aktualisiert: '+new Date().toLocaleTimeString('de-CH',{hour:'2-digit',minute:'2-digit'});
-}
-function syncAllocationPreferences(){
-  ensureAllocationRuntimePanels();
-  applyAllocationPreferencesToUI(loadAllocationPreferences());
-  updateAllocationPreferencesEntryButton();
-  buildQT('qt-modal');
-}
 function setInputValue(id,value){
   var el=document.getElementById(id);
   if(el)el.value=value==null?'':String(value);
@@ -18046,6 +18004,12 @@ function persistAllocationPreferences(prefs){
   if(currentPersona)currentPersona.allocation_preferences=prefs;
   try{localStorage.setItem(allocationPreferenceStoragePrefix+key,JSON.stringify(prefs));}catch(e){}
   renderAllocationPreferenceSummary(prefs);
+  // Sicherheits-Fix (2026-08-03, Berater-Audit "Restriktionen & Tilts"): war
+  // durch eine tote Duplikat-Definition dieser Funktion (per Hoisting
+  // ueberschrieben) verloren gegangen -- ohne diesen Aufruf zeigte der
+  // "Anlagepraeferenzen"-Button-Tooltip nach dem Speichern eine veraltete
+  // Anzahl aktiver Restriktionen/Tilts.
+  updateAllocationPreferencesEntryButton();
   updateBandOverrideStatus(prefs.bands||{});
   var status=document.getElementById('aa-pref-status');
   if(status)status.textContent='Mandatspräferenzen lokal aktualisiert: '+new Date().toLocaleTimeString('de-CH',{hour:'2-digit',minute:'2-digit'});
@@ -18053,6 +18017,7 @@ function persistAllocationPreferences(prefs){
 function syncAllocationPreferences(){
   ensureAllocationRuntimePanels();
   applyAllocationPreferencesToUI(loadAllocationPreferences());
+  updateAllocationPreferencesEntryButton();
   buildQT('qt-modal');
 }
 function bindAllocationPreferenceControls(){
@@ -20635,10 +20600,7 @@ function applyAllocationEngineResult(result){
     var key=String(bucket.asset_class||'');
     return {n:assetDisplayName(key),c:colors[key]||'#5a6878',ist:Number(bucket.current_weight_bps||0)/100,soll:Number(bucket.target_weight_bps||0)/100,chf:Math.round((Number(bucket.current_amount_rappen||0))/100),chfTarget:Math.round((Number(bucket.target_amount_rappen||0))/100)};
   });
-  quoten=(result.buckets||[]).map(function(bucket){
-    var key=String(bucket.asset_class||'');
-    return {key:normalizeBandKey(key),n:assetDisplayName(key),c:colors[key]||'#5a6878',ist:Number(bucket.current_weight_bps||0)/100,min:Number(bucket.band_min_bps||0)/100,ziel:Number(bucket.target_weight_bps||0)/100,max:Number(bucket.band_max_bps||0)/100};
-  });
+  quoten=deriveQuotenFromAllocation(result);
   buildAT();buildQT('qt-modal');syncAllocationDonutFromStrategyState();
   // Robustheit (2026-06-12): Ein Rendering-Fehler in den Projektionscharts (z.B.
   // ein Chart.js-interner Stack-Overflow bei einer Dataset-/Scale-Kombination)
