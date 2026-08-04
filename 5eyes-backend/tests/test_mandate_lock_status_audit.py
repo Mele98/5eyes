@@ -240,12 +240,31 @@ def test_labels_present_for_every_reason():
 
 
 def test_db_error_returns_editable_degraded():
-    """Schema-Mismatch beim OptimizerRun-Query -> kein Crash, kein Lock."""
+    """Mega-Audit (2026-08-04, Fail-closed analog Commit 23585cf): eine
+    Schema-Mismatch-Exception bei BEIDEN Teilabfragen bedeutet, dass ein
+    Optimizer-Divergenz- oder Risk-Budget-Lock unentdeckt geblieben sein
+    KANN -- vorher wurde das faelschlich als is_editable=True verkauft
+    (Fail-open). Ohne bekannte Lock-Reasons + degraded -> is_editable=None
+    (unbekannt), NICHT True."""
     db = MagicMock()
     db.query.side_effect = RuntimeError("table missing")
     result = audit_mandate_editability(db, _mandate())
-    # Mandate-Felder werden noch gepruefte (deleted/closed/status) — fail-safe.
-    assert result["is_editable"] is True
+    assert result["is_editable"] is None
+    assert result["audit_degraded"] is True
+    assert result["lock_reasons"] == []
+
+
+def test_known_lock_reason_stays_locked_even_when_degraded():
+    """Ein bereits bekannter Lock-Reason (z.B. soft-deleted) bleibt ein
+    Lock-Reason, auch wenn eine ANDERE Teilabfrage fehlschlaegt -- degraded
+    darf ein bekanntes Ergebnis nicht verwischen."""
+    mandate = _mandate(deleted_at="2026-08-01T00:00:00Z")
+    db = MagicMock()
+    db.query.side_effect = RuntimeError("table missing")
+    result = audit_mandate_editability(db, mandate)
+    assert result["is_editable"] is False
+    assert result["audit_degraded"] is True
+    assert REASON_DELETED in result["lock_reasons"]
 
 
 def test_latest_optimizer_status_exposed():
@@ -278,5 +297,6 @@ def test_build_mandate_lock_status_degraded_on_error():
     db = MagicMock()
     db.query.side_effect = RuntimeError("simulated")
     result = _build_mandate_lock_status(db, _mandate())
-    assert result["is_editable"] is True
+    assert result["is_editable"] is None
+    assert result["audit_degraded"] is True
     assert result["fidleg_basis"] == "Art. 16 / Art. 11 FIDLEG"

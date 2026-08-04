@@ -138,7 +138,12 @@ def audit_mandate_liquidity_cascade(
             .first()
         )
     except Exception:  # noqa: BLE001
-        return empty
+        # Mega-Audit (2026-08-04): "unknown"/warning_required=False war schon
+        # vor diesem Fix ehrlich (keine falsche "normal"-Behauptung) -- aber
+        # eine DB-Exception ist NICHT dasselbe wie "noch keine Allokation
+        # vorhanden". audit_degraded macht diesen Unterschied fuer
+        # nachgelagerte Konsumenten sichtbar.
+        return {**empty, "audit_degraded": True}
 
     if active_ta is None:
         return empty

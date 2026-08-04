@@ -131,7 +131,13 @@ def audit_recommendation_methodology(
             .all()
         )
     except Exception:  # noqa: BLE001
-        return empty
+        # Fail-closed (Mega-Audit 2026-08-04, analog Commit 23585cf): eine
+        # DB-/Schema-Exception ist NICHT dasselbe wie "noch kein Run
+        # vorhanden" -- hier wissen wir schlicht nichts, also KEINE
+        # Konformitaet behaupten. is_compliant=None + audit_degraded=True,
+        # der PDF-Renderer (_recommendation_block) zeigt darauf bereits
+        # "Pruefung nicht moeglich" (amber) statt Gruen.
+        return {**empty, "is_compliant": None, "audit_degraded": True}
 
     if not runs:
         return empty

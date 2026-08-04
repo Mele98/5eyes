@@ -75,9 +75,13 @@ def audit_mandate_editability(
       'fidleg_basis': 'Art. 16 / Art. 11 FIDLEG',
     }
 
-    Robust gegen Schema-Mismatch -> degraded (is_editable=True).
+    Robust gegen Schema-Mismatch -> degraded (Mega-Audit 2026-08-04:
+    is_editable=None statt faelschlich True, wenn keine bekannten
+    Lock-Reasons vorliegen UND eine Teilabfrage fehlgeschlagen ist;
+    audit_degraded=True macht das fuer Konsumenten sichtbar).
     """
     lock_reasons: list[str] = []
+    degraded = False
     status = getattr(mandate, "status", None)
     deleted_at = getattr(mandate, "deleted_at", None)
     closed_at = getattr(mandate, "closed_at", None)
@@ -104,7 +108,11 @@ def audit_mandate_editability(
             if latest_optimizer_status in {"diverged", "diverged_infeasible"}:
                 lock_reasons.append(REASON_OPTIMIZER_DIVERGED)
     except Exception:  # noqa: BLE001
+        # Mega-Audit (2026-08-04): eine fehlgeschlagene Abfrage bedeutet
+        # NICHT "kein Optimizer-Divergenz-Lock" -- wir wissen es schlicht
+        # nicht. audit_degraded macht das sichtbar statt es zu verschweigen.
         latest_optimizer_status = None
+        degraded = True
 
     try:
         from models.allocation import TargetAllocation
@@ -125,7 +133,9 @@ def audit_mandate_editability(
                 except (TypeError, ValueError):
                     pass
     except Exception:  # noqa: BLE001
-        pass
+        # Mega-Audit (2026-08-04): analog oben -- Risk-Budget-Verletzung
+        # koennte unentdeckt geblieben sein, nicht stillschweigend verwerfen.
+        degraded = True
 
     # Dedupe (defensiv falls Quellen sich ueberlappen).
     seen = set()
@@ -135,11 +145,24 @@ def audit_mandate_editability(
             deduped.append(r)
             seen.add(r)
 
+    # Mega-Audit (2026-08-04, Fail-closed analog Commit 23585cf): ein bereits
+    # bekannter Lock-Reason bleibt ein Lock-Reason, unabhaengig von degraded.
+    # Aber "keine bekannten Reasons" darf bei degraded NICHT als "editable=True"
+    # verkauft werden -- wir wissen dann schlicht nicht, ob ein Reason existiert.
+    is_editable: Optional[bool]
+    if deduped:
+        is_editable = False
+    elif degraded:
+        is_editable = None
+    else:
+        is_editable = True
+
     return {
-        "is_editable": len(deduped) == 0,
+        "is_editable": is_editable,
         "lock_reasons": deduped,
         "lock_reason_labels": {r: REASON_LABELS[r] for r in deduped},
         "mandate_status": status,
         "latest_optimizer_status": latest_optimizer_status,
+        "audit_degraded": degraded,
         "fidleg_basis": "Art. 16 / Art. 11 FIDLEG",
     }

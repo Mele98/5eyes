@@ -218,6 +218,104 @@ def test_degraded_suitability_renders_pruefung_nicht_moeglich():
     assert "Pruefung nicht moeglich" in text
 
 
+def test_mandate_lock_builder_fails_closed_on_audit_exception(monkeypatch):
+    """Mega-Audit (2026-08-04): analog Commit 23585cf, jetzt auch fuer
+    Mandate-Lock-Status. Vorher: is_editable=True bei jedem Audit-Fehler."""
+    import services.mandate_lock_audit as mla
+    from services.advisory_report import _build_mandate_lock_status
+
+    def _boom(_db, _mandate):
+        raise RuntimeError("audit kaputt")
+
+    monkeypatch.setattr(mla, "audit_mandate_editability", _boom)
+    result = _build_mandate_lock_status(db=None, mandate=None)
+
+    assert result["is_editable"] is None, "Fail-open: behauptet faelschlich editierbar"
+    assert result["audit_degraded"] is True
+
+
+def test_liquidity_cascade_builder_fails_closed_on_audit_exception(monkeypatch):
+    import services.liquidity_cascade_audit as lca
+    from services.advisory_report import _build_liquidity_cascade
+
+    def _boom(_db, _mandate):
+        raise RuntimeError("audit kaputt")
+
+    monkeypatch.setattr(lca, "audit_mandate_liquidity_cascade", _boom)
+    result = _build_liquidity_cascade(db=None, mandate=None)
+
+    assert result["stage"] == "unknown"
+    assert result["audit_degraded"] is True
+
+
+def test_degraded_mandate_lock_renders_pruefung_nicht_moeglich():
+    payload = _make_minimal_payload()
+    payload["mandate_lock_status"] = {
+        "is_editable": None,
+        "lock_reasons": [],
+        "lock_reason_labels": {},
+        "mandate_status": None,
+        "latest_optimizer_status": None,
+        "audit_degraded": True,
+        "fidleg_basis": "Art. 16 / Art. 11 FIDLEG",
+    }
+    text = _render_text(payload)
+    assert "Pruefung nicht moeglich" in text
+
+
+def test_editable_mandate_lock_does_not_show_degraded_hint():
+    """Gegenprobe: ein sauberes, editierbares Payload zeigt den Fail-closed-
+    Hinweis NICHT."""
+    payload = _make_minimal_payload()
+    payload["mandate_lock_status"] = {
+        "is_editable": True,
+        "lock_reasons": [],
+        "lock_reason_labels": {},
+        "mandate_status": "Aktiv",
+        "latest_optimizer_status": "converged",
+        "fidleg_basis": "Art. 16 / Art. 11 FIDLEG",
+    }
+    text = _render_text(payload)
+    assert "Pruefung nicht moeglich" not in text
+
+
+def test_degraded_liquidity_cascade_renders_pruefung_nicht_moeglich():
+    payload = _make_minimal_payload()
+    payload["liquidity_cascade"] = {
+        "stage": "unknown",
+        "stage_label": "Liquidity-Cascade-Stage kann nicht bestimmt werden.",
+        "liquidity_bps": None,
+        "hard_cap_bps": 300,
+        "emergency_cap_bps": 1000,
+        "over_hard_cap_by_bps": None,
+        "warning_required": False,
+        "beratungsgespraech_pruefen": False,
+        "audit_degraded": True,
+        "fidleg_basis": "Art. 11 / Art. 13 FIDLEG",
+    }
+    text = _render_text(payload)
+    assert "Pruefung nicht moeglich" in text
+
+
+def test_normal_liquidity_cascade_does_not_show_degraded_hint():
+    """Gegenprobe: eine echte 'noch keine Allokation'-Situation (kein
+    audit_degraded) zeigt den Fail-closed-Hinweis NICHT."""
+    payload = _make_minimal_payload()
+    payload["liquidity_cascade"] = {
+        "stage": "unknown",
+        "stage_label": "Liquidity-Cascade-Stage kann nicht bestimmt werden.",
+        "liquidity_bps": None,
+        "hard_cap_bps": 300,
+        "emergency_cap_bps": 1000,
+        "over_hard_cap_by_bps": None,
+        "warning_required": False,
+        "beratungsgespraech_pruefen": False,
+        "fidleg_basis": "Art. 11 / Art. 13 FIDLEG",
+    }
+    text = _render_text(payload)
+    assert "Pruefung nicht moeglich" not in text
+
+
 def test_compliant_suitability_does_not_show_degraded_hint():
     """Gegenprobe: ein sauberes, konformes Payload zeigt den Fail-closed-
     Hinweis NICHT (sonst wuerde der Test oben nichts beweisen)."""

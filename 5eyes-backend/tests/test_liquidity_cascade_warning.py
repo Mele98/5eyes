@@ -210,11 +210,15 @@ def test_audit_fidleg_basis_stable():
 
 
 def test_audit_db_error_returns_unknown_degraded():
+    """Mega-Audit (2026-08-04): audit_degraded unterscheidet jetzt explizit
+    einen echten Query-Fehler von "noch keine Allokation vorhanden" (beide
+    zeigten vorher identisch stage=unknown, ohne diese Unterscheidung)."""
     db = MagicMock()
     db.query.side_effect = RuntimeError("table missing")
     result = audit_mandate_liquidity_cascade(db, _mandate())
     assert result["stage"] == STAGE_UNKNOWN
     assert result["warning_required"] is False
+    assert result["audit_degraded"] is True
 
 
 # ---------------------------------------------------------------------------
@@ -237,3 +241,4 @@ def test_build_liquidity_cascade_degraded_on_error():
     result = _build_liquidity_cascade(db, _mandate())
     assert result["stage"] == "unknown"
     assert result["warning_required"] is False
+    assert result["audit_degraded"] is True

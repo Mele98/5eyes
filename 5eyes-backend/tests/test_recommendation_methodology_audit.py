@@ -238,12 +238,27 @@ def test_audit_counts_methods_correctly():
 
 
 def test_audit_db_error_returns_degraded():
+    """Mega-Audit (2026-08-04, Fail-closed analog Commit 23585cf): eine
+    DB-Exception ist NICHT dasselbe wie "noch kein Run vorhanden" -- vorher
+    behauptete diese Funktion hier faelschlich is_compliant=True (Fail-open).
+    """
     db = MagicMock()
     db.query.side_effect = RuntimeError("table missing")
     result = audit_recommendation_methodology(db, _stub_mandate())
     assert result["total_runs"] == 0
-    assert result["is_compliant"] is True
+    assert result["is_compliant"] is None
+    assert result["audit_degraded"] is True
     assert result["fidleg_basis"] == "Art. 16 FIDLEG"
+
+
+def test_audit_no_runs_at_all_stays_compliant_and_not_degraded():
+    """Gegenprobe: ein Mandat ohne jeden Run (legitimer Zustand, keine
+    Exception) bleibt unveraendert is_compliant=True, NICHT degraded."""
+    db = _stub_db([])
+    result = audit_recommendation_methodology(db, _stub_mandate())
+    assert result["total_runs"] == 0
+    assert result["is_compliant"] is True
+    assert result.get("audit_degraded") is not True
 
 
 # ---------------------------------------------------------------------------
@@ -265,4 +280,5 @@ def test_build_recommendation_methodology_degraded_on_error():
     db.query.side_effect = RuntimeError("simulated")
     result = _build_recommendation_methodology(db, _stub_mandate())
     assert result["total_runs"] == 0
-    assert result["is_compliant"] is True
+    assert result["is_compliant"] is None
+    assert result["audit_degraded"] is True

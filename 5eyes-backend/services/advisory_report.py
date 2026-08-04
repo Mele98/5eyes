@@ -3051,12 +3051,16 @@ def _build_mandate_lock_status(
         from services.mandate_lock_audit import audit_mandate_editability
         return audit_mandate_editability(db, mandate)
     except Exception:  # noqa: BLE001
+        # Fail-closed (Mega-Audit 2026-08-04, analog Commit 23585cf): ein
+        # Totalausfall des Audits (z.B. Import-Fehler) darf NIE als
+        # "editierbar" verkauft werden -- is_editable=None statt True.
         return {
-            "is_editable": True,
+            "is_editable": None,
             "lock_reasons": [],
             "lock_reason_labels": {},
             "mandate_status": None,
             "latest_optimizer_status": None,
+            "audit_degraded": True,
             "fidleg_basis": "Art. 16 / Art. 11 FIDLEG",
         }
 
@@ -3078,10 +3082,14 @@ def _build_liquidity_cascade(
         from services.liquidity_cascade_audit import audit_mandate_liquidity_cascade
         return audit_mandate_liquidity_cascade(db, mandate)
     except Exception:  # noqa: BLE001
+        # Mega-Audit (2026-08-04): audit_degraded ergaenzt, damit ein
+        # Totalausfall (z.B. Import-Fehler) von "noch keine Allokation
+        # vorhanden" unterscheidbar bleibt.
         return {
             "stage": "unknown",
             "stage_label": "Liquidity-Cascade-Stage kann nicht bestimmt werden.",
             "liquidity_bps": None,
+            "audit_degraded": True,
             "hard_cap_bps": 300,
             "emergency_cap_bps": 1000,
             "over_hard_cap_by_bps": None,

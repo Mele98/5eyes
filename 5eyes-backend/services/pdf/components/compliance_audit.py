@@ -192,11 +192,19 @@ def _recommendation_block(data: dict, styles) -> list:
 
 
 def _mandate_lock_block(data: dict, styles) -> list:
+    # Fail-closed (Mega-Audit 2026-08-04, analog Commit 23585cf): expliziter
+    # audit_degraded-Marker -> "Pruefung nicht moeglich" (amber), NIE
+    # faelschlich Gruen/editierbar.
+    is_degraded = bool(data.get("audit_degraded"))
     is_editable = bool(data.get("is_editable", True))
     pill = (
-        _pill("editierbar", "#E5EEDF", "#4E6F58", styles)
-        if is_editable
-        else _pill("Read-only", "#F0D9D9", "#9E4747", styles)
+        _pill(*PILL_PENDING, styles=styles)
+        if is_degraded
+        else (
+            _pill("editierbar", "#E5EEDF", "#4E6F58", styles)
+            if is_editable
+            else _pill("Read-only", "#F0D9D9", "#9E4747", styles)
+        )
     )
     out = [
         _block_header("Mandate-Lock-Status", pill, styles),
@@ -207,7 +215,11 @@ def _mandate_lock_block(data: dict, styles) -> list:
     ]
     reasons = list(data.get("lock_reasons") or [])
     labels = data.get("lock_reason_labels") or {}
-    if reasons:
+    if is_degraded:
+        out.append(_muted_note(
+            "Pruefung nicht moeglich: Mandate-Lock-Audit fehlgeschlagen. "
+            "Editierbarkeit konnte NICHT bestaetigt werden.", styles))
+    elif reasons:
         out.append(Spacer(1, 2 * mm))
         out.append(_bullet_list(
             "Lock-Reasons",
@@ -216,13 +228,17 @@ def _mandate_lock_block(data: dict, styles) -> list:
         ))
     else:
         out.append(_muted_note("Keine Read-only-Reasons im Audit-Payload.", styles))
-    return [_panel(out, styles, accent=COLOR_STATUS_GRUEN if is_editable else COLOR_STATUS_ROT)]
+    accent = COLOR_ACCENT if is_degraded else (COLOR_STATUS_GRUEN if is_editable else COLOR_STATUS_ROT)
+    return [_panel(out, styles, accent=accent)]
 
 
 def _liquidity_block(data: dict, styles) -> list:
+    # Fail-closed (Mega-Audit 2026-08-04): audit_degraded -> "Pruefung nicht
+    # moeglich" (amber), NIE faelschlich "normal"/keine Warnung.
+    is_degraded = bool(data.get("audit_degraded"))
     stage = str(data.get("stage") or "unknown")
     warning_required = bool(data.get("warning_required"))
-    pill = _stage_pill(stage, warning_required, styles)
+    pill = _pill(*PILL_PENDING, styles=styles) if is_degraded else _stage_pill(stage, warning_required, styles)
     over = data.get("over_hard_cap_by_bps")
     out = [
         _block_header("Liquidity-Cascade", pill, styles),
@@ -233,7 +249,11 @@ def _liquidity_block(data: dict, styles) -> list:
             ("Ueber Hard-Cap", _bps_or_dash(over)),
         ], styles),
     ]
-    if warning_required or stage == "emergency":
+    if is_degraded:
+        out.append(_muted_note(
+            "Pruefung nicht moeglich: Liquidity-Cascade-Audit fehlgeschlagen. "
+            "Stage konnte NICHT bestimmt werden.", styles))
+    elif warning_required or stage == "emergency":
         out.append(Spacer(1, 2 * mm))
         out.append(_warning_box(
             "Liquidity-Cascade-Warnung",
@@ -241,7 +261,8 @@ def _liquidity_block(data: dict, styles) -> list:
             "Liquiditaetsbedarf im Beratungsgespraech dokumentiert pruefen.",
             styles,
         ))
-    return [_panel(out, styles, accent=COLOR_STATUS_ROT if warning_required else COLOR_GOLD)]
+    accent = COLOR_ACCENT if is_degraded else (COLOR_STATUS_ROT if warning_required else COLOR_GOLD)
+    return [_panel(out, styles, accent=accent)]
 
 
 def _engine_configuration_block(data: dict, styles) -> list:
