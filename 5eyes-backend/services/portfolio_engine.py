@@ -3011,11 +3011,20 @@ def build_target_payload_from_allocation(
     if current_run and not normalized_legacy_liquidity:
         # C6: Live-Rebalancing nutzt investierbare Basis (Beratungsvermoegen
         # abzueglich externer Reserve), konsistent mit target_amount_rappen.
+        # Mega-Audit (2026-08-04): fx_source/target_currency (oben in dieser
+        # Funktion bereits fuer die WealthPosition-FX-Konvertierung
+        # aufgesetzt) auch hier durchreichen, damit Preise aus PriceHistory
+        # (in product.currency, z.B. USD) korrekt auf die Mandats-
+        # Basiswaehrung umgerechnet werden -- vorher wurde jede
+        # Fremdwaehrungsposition unkonvertiert bewertet (siehe
+        # services.portfolio_engine_live_rebalancing._convert_price_rappen_to_target_currency).
         live_rebalancing = build_live_rebalancing_payload(
             db=db,
             allocation=allocation,
             run=current_run,
             advisory_wealth_rappen=investable_advisory_wealth_rappen,
+            fx_source=fx_source,
+            target_currency=target_currency,
         )
     # C8: aktueller input snapshot fuer Drift-Vergleich.
     current_snapshot_hash = _compute_input_snapshot_hash(
@@ -3239,12 +3248,26 @@ def build_recommendation_payload_from_run(
     )
     live_rebalancing = None
     if not stale_recommendation_targets:
+        # Mega-Audit (2026-08-04): fx_source/target_currency ergaenzt, damit
+        # Preise aus PriceHistory (in product.currency, z.B. USD) korrekt auf
+        # die Mandats-Basiswaehrung umgerechnet werden -- siehe
+        # services.portfolio_engine_live_rebalancing._convert_price_rappen_to_target_currency.
+        # Diese Funktion hat (anders als build_target_payload_from_allocation)
+        # keine eigene fx_source-Herleitung -- frisch aufgesetzt.
+        from services.currency.fx_rates import FXRateSource
+        try:
+            _brpfr_fx_source = FXRateSource.from_db(db)
+        except Exception:
+            _brpfr_fx_source = FXRateSource()
+        _brpfr_target_currency = str(getattr(mandate, "base_currency", "CHF") or "CHF").upper()
         live_rebalancing = build_live_rebalancing_payload(
             db=db,
             allocation=allocation,
             run=run,
             advisory_wealth_rappen=investable_advisory_wealth_rappen,
             positions=positions,
+            fx_source=_brpfr_fx_source,
+            target_currency=_brpfr_target_currency,
         )
     live_positions_by_id = {
         item["id"]: item for item in ((live_rebalancing or {}).get("position_drifts") or [])
@@ -3708,11 +3731,22 @@ def generate_recommendation_run(
             }
         )
 
+    # Mega-Audit (2026-08-04): fx_source/target_currency ergaenzt, siehe
+    # Kommentar am generate_target_allocation-Aufruf-Pendant weiter oben in
+    # dieser Datei.
+    from services.currency.fx_rates import FXRateSource
+    try:
+        _run_fx_source = FXRateSource.from_db(db)
+    except Exception:
+        _run_fx_source = FXRateSource()
+    _run_target_currency = str(getattr(mandate, "base_currency", "CHF") or "CHF").upper()
     live_rebalancing = build_live_rebalancing_payload(
         db=db,
         allocation=allocation,
         run=run,
         advisory_wealth_rappen=investable_advisory_wealth_rappen,
+        fx_source=_run_fx_source,
+        target_currency=_run_target_currency,
     )
     live_positions_by_id = {
         item["id"]: item for item in ((live_rebalancing or {}).get("position_drifts") or [])

@@ -166,6 +166,46 @@ def _value_from_units_milli(units_milli: int | None, price_rappen: int | None, f
     return max(0, int(round(units_milli * price_rappen / 1000)))
 
 
+def _convert_price_rappen_to_target_currency(
+    price_rappen: int | None,
+    product_currency: str | None,
+    fx_source,
+    target_currency: str,
+) -> int | None:
+    """Mega-Audit (2026-08-04): Preise aus PriceHistory/Marktdaten-Pipeline
+    sind in product.currency notiert (z.B. USD fuer einen US-ETF), nicht
+    zwingend im Mandats-Basiswaehrung. Diese Funktion wurde bisher NIE
+    aufgerufen -- _value_from_units_milli multiplizierte units_milli direkt
+    mit dem unkonvertierten price_rappen, was den Marktwert einer echten
+    Fremdwaehrungsposition systematisch verzerrte (Audit-Beispiel: ein
+    USD-ETF wurde um ~15% ueberzeichnet dargestellt).
+
+    Bewusst NICHT angewendet auf holding.market_value_rappen/
+    avg_cost_price_rappen (manuelle Depotbestand-Eingabe) -- das Eingabe-
+    Formular (5eyes_v2.html, formatInputCHF) geht von einer CHF-Eingabe
+    durch den Berater aus, unabhaengig von product.currency. Das ist ein
+    separates, im Mega-Audit als DACH/i18n-Thema (base_currency-Hardcoding)
+    dokumentiertes Problem, nicht Teil dieses Fixes.
+
+    Analog zu services.portfolio_engine._convert_position_amount_to_target_currency
+    (WealthPosition-FX-Fix, 2026-07-27): fx_source=None -> Backwards-Compat,
+    keine Konvertierung (Aufrufer kennt FX-Kontext nicht). Unbekannte/gleiche
+    Currency -> Betrag unveraendert. FX-Fehler -> defensiver Fallback auf
+    unkonvertierten Betrag, kein Crash.
+    """
+    if price_rappen is None or fx_source is None:
+        return price_rappen
+    source_ccy = str(product_currency or "CHF").upper().strip() or "CHF"
+    target_ccy = str(target_currency or "CHF").upper().strip() or "CHF"
+    if source_ccy == target_ccy:
+        return price_rappen
+    try:
+        rate = fx_source.cross_rate(source_ccy, target_ccy)
+    except (ValueError, AttributeError):
+        return price_rappen
+    return int(round(price_rappen * float(rate)))
+
+
 def _canonical_asset_class_label(value: str | None) -> str:
     from services.portfolio_engine import BUCKET_LABELS, _bucket_key
 
@@ -256,12 +296,31 @@ def _build_live_rebalancing_entry(
     target_weight_bps: int,
     stale_after_days: int,
     today: date,
+    fx_source=None,
+    target_currency: str = "CHF",
 ) -> tuple[dict, dict]:
     latest_price_rappen = int(latest_price.price_rappen or 0) if latest_price else None
     reference_price_date = reference_price.price_date if reference_price else None
     reference_price_rappen = int(reference_price.price_rappen or 0) if reference_price else None
     reference_price_source = getattr(reference_price, "source", None) if reference_price else None
     reference_price_fetched_at = getattr(reference_price, "fetched_at", None) if reference_price else None
+
+    # Mega-Audit (2026-08-04): beide Preise stammen aus PriceHistory/
+    # Marktdaten-Pipeline (product.currency) -- VOR einer moeglichen
+    # avg_cost_price_rappen-Ueberschreibung unten (die ist eine manuelle,
+    # CHF-angenommene Berater-Eingabe, siehe Docstring von
+    # _convert_price_rappen_to_target_currency, und wird bewusst NICHT
+    # konvertiert).
+    fx_converted = bool(
+        fx_source is not None
+        and str(product.currency or "CHF").upper().strip() != str(target_currency or "CHF").upper().strip()
+    )
+    latest_price_rappen = _convert_price_rappen_to_target_currency(
+        latest_price_rappen, product.currency, fx_source, target_currency,
+    )
+    reference_price_rappen = _convert_price_rappen_to_target_currency(
+        reference_price_rappen, product.currency, fx_source, target_currency,
+    )
 
     holding_present = False
     holding_source = None
@@ -356,6 +415,8 @@ def _build_live_rebalancing_entry(
         "implied_units_milli": implied_units_milli,
         "current_market_value_rappen": current_market_value_rappen,
         "price_change_bps": price_change_bps,
+        "fx_converted": fx_converted,
+        "product_currency": product.currency,
     }
     stats = {
         "current_total_value_rappen": current_market_value_rappen,
@@ -366,6 +427,7 @@ def _build_live_rebalancing_entry(
         "recalibrated_positions_count": 1 if reference_recalibrated else 0,
         "holding_positions_count": 1 if holding_present else 0,
         "implied_positions_count": 0 if holding_present else 1,
+        "fx_converted_positions_count": 1 if fx_converted else 0,
     }
     return entry, stats
 
@@ -501,6 +563,8 @@ def build_live_rebalancing_payload(
     run: RecommendationRun,
     advisory_wealth_rappen: int,
     positions: list[RecommendationPosition] | None = None,
+    fx_source=None,
+    target_currency: str = "CHF",
 ) -> dict | None:
     from services.portfolio_engine import _amount_from_weight_bps
 
@@ -524,6 +588,7 @@ def build_live_rebalancing_payload(
         "recalibrated_positions_count": 0,
         "holding_positions_count": 0,
         "implied_positions_count": 0,
+        "fx_converted_positions_count": 0,
     }
 
     for position in recommendation_positions:
@@ -553,6 +618,8 @@ def build_live_rebalancing_payload(
             target_weight_bps=target_weight_bps,
             stale_after_days=sources["stale_after_days"],
             today=sources["today"],
+            fx_source=fx_source,
+            target_currency=target_currency,
         )
         entries.append(entry)
         aggregate["current_total_value_rappen"] += stats["current_total_value_rappen"]
@@ -561,6 +628,7 @@ def build_live_rebalancing_payload(
         aggregate["priced_positions_count"] += stats["priced_positions_count"]
         aggregate["as_of_dates"].extend(stats["as_of_dates"])
         aggregate["recalibrated_positions_count"] += stats["recalibrated_positions_count"]
+        aggregate["fx_converted_positions_count"] += stats["fx_converted_positions_count"]
         aggregate["holding_positions_count"] += stats["holding_positions_count"]
         aggregate["implied_positions_count"] += stats["implied_positions_count"]
 
@@ -586,7 +654,8 @@ def build_live_rebalancing_payload(
             f"Echte Bestandsbasis fuer {aggregate['holding_positions_count']} Position(en); "
             f"{aggregate['implied_positions_count']} Position(en) weiterhin implizit aus Zielbetrag und Referenzpreis zum Run-Zeitpunkt. "
             "Live-Werte aus dem letzten verfuegbaren Preis-Snapshot."
-        ) + (" Referenzanker wurden fuer einzelne Proxy-/Synthetic-Positionen auf das aktuelle Preisregime rekalibriert." if aggregate["recalibrated_positions_count"] else ""),
+        ) + (" Referenzanker wurden fuer einzelne Proxy-/Synthetic-Positionen auf das aktuelle Preisregime rekalibriert." if aggregate["recalibrated_positions_count"] else "")
+        + (f" {aggregate['fx_converted_positions_count']} Position(en) mit Fremdwaehrungs-Kursen wurden auf {target_currency} umgerechnet." if aggregate["fx_converted_positions_count"] else ""),
         "live_total_value_rappen": live_total_value_rappen,
         "priced_positions_count": aggregate["priced_positions_count"],
         "stale_positions_count": aggregate["stale_positions_count"],
@@ -598,6 +667,7 @@ def build_live_rebalancing_payload(
         "action_summary": action_summary,
         "market_data_quality": sources["market_data_quality"],
         "recalibrated_positions_count": aggregate["recalibrated_positions_count"],
+        "fx_converted_positions_count": aggregate["fx_converted_positions_count"],
         "bucket_drifts": bucket_drifts,
         "position_drifts": position_drifts,
     }
