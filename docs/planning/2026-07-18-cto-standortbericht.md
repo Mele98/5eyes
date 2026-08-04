@@ -1,5 +1,7 @@
 # 5eyes WealthArchitekten — CTO-Standortbericht
 
+> ⚠️ **ERSETZT** durch [2026-08-04-mega-audit-standortbericht.md](./2026-08-04-mega-audit-standortbericht.md) — dieses Dokument bleibt als historisches Archiv erhalten, ist aber nicht mehr die aktuelle Wahrheitsquelle. Mehrere hier genannte Status-Angaben wurden im Mega-Audit als überholt/falsch identifiziert.
+
 **Stand:** 18. Juli 2026 · Branch `develop` @ `45d810c`
 **Basis:** 668 Backend-Module, 398 Test-Dateien, 5 verifizierte Prüfstränge (Architektur, Fachengine, Compliance/Reporting, Qualität/Tests, Backlog). Alle Befunde per Code-Lektüre (Read/Grep) an `develop` belegt, ergänzt um Master-Roadmap, 3eyes-Parity-Plan und Commit-Historie (172 Commits seit dem letzten Standortaudit).
 **Web-Version:** https://claude.ai/code/artifact/64106171-9612-46d2-bf12-237cfdd1c66a

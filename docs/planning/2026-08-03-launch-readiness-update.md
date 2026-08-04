@@ -1,5 +1,7 @@
 # 5eyes WealthArchitekten — Launch-Readiness-Update
 
+> ⚠️ **ERSETZT** durch [2026-08-04-mega-audit-standortbericht.md](./2026-08-04-mega-audit-standortbericht.md). **Wichtige Korrektur:** RES-1 (teilweise), RES-2/goals-1/OPT-2 (vollständig gefixt seit 24.7., hier fälschlich als "bewusst offen" gelistet) und AUTH-01 (hier fälschlich als "gefixt" gelistet, tatsächlich weiterhin offen) — siehe Mega-Audit-Anhang "Was seit dem Vortag korrigiert wurde".
+
 **Stand:** 3. August 2026 · Branch `develop` @ `b4201c0`
 **Basis:** Update des [CTO-Standortberichts vom 18. Juli](./2026-07-18-cto-standortbericht.md). 146 Commits seither. Alle Status-Angaben unten per Code-Lektüre (Read/Grep) am aktuellen `develop`-Stand verifiziert, nicht aus dem Juli-Bericht übernommen.
 
