@@ -52,9 +52,9 @@ jobs:
   pytest:
     name: Backend Tests
     runs-on: ubuntu-latest
-    # 2026-06-08: Backend-Suite ist ueber 3400 Tests gewachsen (Stage 9 +
-    # Codex' PDF-Audit + Bug-Sprint). Lokal ~9min, CI-Runner braucht laenger
-    # wegen pip-Install. 15min war bisher knapp, Timeouts wurden Standard.
+    # 2026-08-04 (Mega-Audit-Nachlauf, war seit 2026-06-08 stale bei "3400
+    # Tests"): Backend-Suite liegt inzwischen bei ueber 5000 Tests. Lokal
+    # ~17min, CI-Runner braucht laenger wegen pip-Install. 30min Puffer.
     timeout-minutes: 30
 
     strategy:
