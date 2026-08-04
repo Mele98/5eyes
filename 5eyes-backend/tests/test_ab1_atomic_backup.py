@@ -102,7 +102,7 @@ def test_aborted_on_integrity_failure_leaves_no_final_backup(
     _seed_db(src)
     target_dir = tmp_path / "backups"
 
-    monkeypatch.setattr(backup_mod, "_integrity_check_ok", lambda _p: False)
+    monkeypatch.setattr(backup_mod, "_integrity_check_ok", lambda _p, **_kw: False)
 
     with pytest.raises(ValueError, match="integrity_check"):
         backup_database(target_dir=target_dir, source_db_path=src, retain_days=0)

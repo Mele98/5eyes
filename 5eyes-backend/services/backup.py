@@ -35,6 +35,9 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+from config import settings
+from database import SQLCIPHER_AVAILABLE, _sqlcipher_enabled, sqlcipher3
+
 logger = logging.getLogger(__name__)
 
 
@@ -78,6 +81,7 @@ def backup_database(
     retain_days: int = 30,
     keep_minimum: int = 3,
     timestamp: datetime | None = None,
+    db_key: str | None = None,
 ) -> BackupResult:
     """Erzeugt ein atomares Backup der SQLite-DB.
 
@@ -96,6 +100,10 @@ def backup_database(
         wuerde.
     timestamp
         Optional zum Testen — sonst now(UTC).
+    db_key
+        Optional -- SQLCipher-Key fuer Source (und damit auch Ziel-Kopie).
+        Default: `settings.db_key` (identisch zum laufenden Server).
+        Nur relevant wenn `settings.db_use_sqlcipher=True`.
 
     Returns
     -------
@@ -118,7 +126,7 @@ def backup_database(
     # Wirklich atomares Backup: Temp-Datei -> integrity_check -> os.replace.
     # Die Integritaetspruefung passiert VOR dem sichtbaren Rename (in
     # _perform_atomic_copy); erst ein "ok" macht das Backup sichtbar.
-    _perform_atomic_copy(src, target)
+    _perform_atomic_copy(src, target, db_key=db_key)
 
     # Sidecar ERST nach dem Backup-Rename, ebenfalls via Temp+Replace,
     # damit Backup + Sidecar aus Lesersicht atomar erscheinen.
@@ -160,6 +168,7 @@ def restore_database(
     *,
     target_db_path: str | Path,
     verify_hash: bool = True,
+    db_key: str | None = None,
 ) -> RestoreResult:
     """Stellt eine DB aus einem Backup wieder her.
 
@@ -172,6 +181,9 @@ def restore_database(
     verify_hash
         Wenn True und ein `.sha256`-Sidecar existiert, wird der Hash
         des Backups vor dem Restore verifiziert.
+    db_key
+        Optional -- SQLCipher-Key des Backups. Default: `settings.db_key`.
+        Nur relevant wenn `settings.db_use_sqlcipher=True`.
 
     Returns
     -------
@@ -206,7 +218,7 @@ def restore_database(
     # Einspielen in die produktive DB ebenfalls via Temp+os.replace
     # (inkl. integrity_check der Kopie) — abgebrochener Restore hinterlaesst
     # die Live-DB unveraendert.
-    _perform_atomic_copy(src, target)
+    _perform_atomic_copy(src, target, db_key=db_key)
 
     bytes_restored = target.stat().st_size
     logger.info(
@@ -278,12 +290,48 @@ def _fsync_dir(directory: Path) -> None:
         os.close(fd)
 
 
-def _integrity_check_ok(db_path: Path) -> bool:
+def _open_connection(path_or_uri: str, *, uri: bool, db_key: str | None) -> sqlite3.Connection:
+    """Oeffnet eine SQLite- oder SQLCipher-Connection, je nach Konfiguration.
+
+    Mega-Audit (2026-08-04): Der Modul-Docstring behauptete SQLCipher-
+    Kompatibilitaet ("Bytes 1:1"), tatsaechlich importierte die gesamte
+    Datei ausschliesslich das stdlib `sqlite3`-Modul -- ein `sqlite3.connect()`
+    gegen eine SQLCipher-verschluesselte DB kann die Datei nicht lesen
+    (kein PRAGMA key), jeder Backup-/Restore-Versuch waere mit einer
+    verschluesselten Produktions-DB fehlgeschlagen.
+
+    Bei aktivem SQLCipher (`settings.db_use_sqlcipher` + Key) wird
+    `sqlcipher3` verwendet und Key + Cipher-Pragmas exakt nach dem in
+    `database.py` (create_app_engine/attach_sqlite_pragmas,
+    bootstrap_sqlite_schema) etablierten Muster gesetzt. Source UND Ziel
+    bekommen denselben Key/dieselben Cipher-Parameter, damit
+    `Connection.backup()` verschluesselte Seiten 1:1 kopieren kann.
+    Ohne SQLCipher: unveraendertes Verhalten (stdlib sqlite3).
+    """
+    key = db_key if db_key is not None else settings.db_key
+    if _sqlcipher_enabled(db_key=key):
+        if not SQLCIPHER_AVAILABLE:
+            raise RuntimeError(
+                "DB_USE_SQLCIPHER=true ist gesetzt, aber sqlcipher3 ist nicht "
+                "installiert -- Backup/Restore einer verschluesselten Datenbank "
+                "ist nicht moeglich. Installiere sqlcipher3-binary oder sqlcipher3."
+            )
+        conn = sqlcipher3.connect(path_or_uri, uri=uri)
+        conn.execute("PRAGMA key = ?", [key or ""])
+        conn.execute("PRAGMA cipher_page_size = 4096")
+        conn.execute("PRAGMA kdf_iter = 256000")
+        conn.execute("PRAGMA cipher_hmac_algorithm = HMAC_SHA512")
+        conn.execute("PRAGMA cipher_kdf_algorithm = PBKDF2_HMAC_SHA512")
+        return conn
+    return sqlite3.connect(path_or_uri, uri=uri)
+
+
+def _integrity_check_ok(db_path: Path, *, db_key: str | None = None) -> bool:
     """Oeffnet die (fertig geschriebene) DB read-only und prueft
     `PRAGMA integrity_check`. True nur bei exakt "ok".
     """
     uri = f"file:{db_path.as_posix()}?mode=ro"
-    conn = sqlite3.connect(uri, uri=True)
+    conn = _open_connection(uri, uri=True, db_key=db_key)
     try:
         rows = conn.execute("PRAGMA integrity_check").fetchall()
     finally:
@@ -291,7 +339,7 @@ def _integrity_check_ok(db_path: Path) -> bool:
     return len(rows) == 1 and str(rows[0][0]).lower() == "ok"
 
 
-def _perform_atomic_copy(source: Path, target: Path) -> None:
+def _perform_atomic_copy(source: Path, target: Path, *, db_key: str | None = None) -> None:
     """Wirklich atomares Kopieren einer SQLite-DB (AB-1).
 
     Ablauf:
@@ -305,7 +353,8 @@ def _perform_atomic_copy(source: Path, target: Path) -> None:
     Auch wenn die Source-DB gerade beschrieben wird, liefert die
     Online-Backup-API einen konsistenten Snapshot. WAL-Journal-Inhalte
     werden mitkopiert. Source wird bewusst URI-mode read-only (`?mode=ro`)
-    geoeffnet. Funktioniert mit normalem SQLite und SQLCipher (Bytes 1:1).
+    geoeffnet. Funktioniert mit normalem SQLite und SQLCipher (Bytes 1:1,
+    ueber `_open_connection` -- siehe dort).
     """
     target_dir = target.parent
     target_dir.mkdir(parents=True, exist_ok=True)
@@ -319,9 +368,9 @@ def _perform_atomic_copy(source: Path, target: Path) -> None:
 
     try:
         source_uri = f"file:{source.as_posix()}?mode=ro"
-        src_conn = sqlite3.connect(source_uri, uri=True)
+        src_conn = _open_connection(source_uri, uri=True, db_key=db_key)
         try:
-            dst_conn = sqlite3.connect(str(temp))
+            dst_conn = _open_connection(str(temp), uri=False, db_key=db_key)
             try:
                 src_conn.backup(dst_conn)
             finally:
@@ -330,7 +379,7 @@ def _perform_atomic_copy(source: Path, target: Path) -> None:
             src_conn.close()
 
         # Integritaet der frisch geschriebenen Kopie verifizieren.
-        if not _integrity_check_ok(temp):
+        if not _integrity_check_ok(temp, db_key=db_key):
             raise ValueError(
                 f"integrity_check fehlgeschlagen fuer Backup-Temp {temp.name}"
             )
