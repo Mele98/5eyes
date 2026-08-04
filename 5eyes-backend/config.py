@@ -141,8 +141,13 @@ class Settings(BaseSettings):
     market_data_validation_symbols: str = ''  # kommaseparierte Liste
     market_data_validation_threshold_bps: int = 300
     market_data_daily_refresh_enabled: bool = True
+    # Mega-Audit (2026-08-04): lag per Werkseinstellung exakt auf derselben
+    # Uhrzeit wie price_scheduler_hour/minute (06:00:00) -- beide Jobs feuerten
+    # zeitgleich gegen dieselben unauthentifizierten Provider (yfinance/stooq)
+    # und verdoppelten die Last genau im Risiko-Zeitfenster. 20 Min. Versatz
+    # entzerrt das, ohne die Jobs inhaltlich zu aendern.
     market_data_daily_refresh_hour: int = 6
-    market_data_daily_refresh_minute: int = 0
+    market_data_daily_refresh_minute: int = 20
     market_data_daily_refresh_max_symbols: int = 500
 
     # P22 — Webhook-Notifier fuer Validation-Alerts. Default leer = no-op.

@@ -30,7 +30,7 @@ Admin-Trigger via `POST /admin/system/fx-rates/refresh-now`.
 APScheduler BackgroundScheduler (price_updater.py)
         │
         ├── daily_price_refresh         (06:00 Europe/Zurich)
-        ├── daily_market_data_refresh   (06:00 Europe/Zurich)
+        ├── daily_market_data_refresh   (06:20 Europe/Zurich)
         ├── daily_cache_purge           (configurable hour)
         └── weekly_market_data_validation (configurable day_of_week)
 ```
@@ -45,7 +45,7 @@ werden gebuendelt, parallele Runs verhindert.
 ```python
 market_data_daily_refresh_enabled: bool = True
 market_data_daily_refresh_hour: int = 6
-market_data_daily_refresh_minute: int = 0
+market_data_daily_refresh_minute: int = 20  # Versatz zu price_scheduler_hour/minute (06:00), siehe Mega-Audit 2026-08-04
 market_data_daily_refresh_max_symbols: int = 500
 ```
 

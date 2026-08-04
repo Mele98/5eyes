@@ -37,6 +37,21 @@ def test_settings_default_hour_in_range():
     assert 0 <= int(settings.market_data_daily_refresh_hour) <= 23
 
 
+def test_daily_refresh_does_not_collide_with_legacy_price_scheduler_by_default():
+    """Mega-Audit (2026-08-04): Werkseinstellung liess beide taeglichen
+    Refresh-Jobs (price_scheduler_hour/minute UND market_data_daily_refresh_
+    hour/minute) exakt zur selben Uhrzeit (06:00:00) feuern -- verdoppelte
+    Last gegen dieselben unauthentifizierten Provider im selben Zeitfenster.
+    """
+    from config import settings
+    legacy = (int(settings.price_scheduler_hour), int(settings.price_scheduler_minute))
+    modern = (int(settings.market_data_daily_refresh_hour), int(settings.market_data_daily_refresh_minute))
+    assert legacy != modern, (
+        f"price_scheduler ({legacy}) und market_data_daily_refresh ({modern}) "
+        "feuern zur selben Uhrzeit -- Last-Verdopplung gegen dieselben Provider."
+    )
+
+
 def test_run_daily_market_data_refresh_callable():
     from services.market_data_daily_refresh import run_daily_market_data_refresh
     assert callable(run_daily_market_data_refresh)
