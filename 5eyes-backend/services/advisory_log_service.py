@@ -25,6 +25,7 @@ from models.users import User
 from services.advisory_log_integrity import (
     compute_integrity_hash,
     compute_retain_until,
+    verify_integrity_hash,
 )
 
 
@@ -424,6 +425,30 @@ def _safe_int(value, default: int = 0) -> int:
         return default
 
 
+def verify_entry_integrity(entry: AdvisoryLog) -> bool | None:
+    """Prueft den gespeicherten integrity_hash gegen die aktuellen Feldwerte.
+
+    Mega-Audit (2026-08-04): `verify_integrity_hash()` wurde seit U-FINMA-2.1
+    berechnet und persistiert, aber NIRGENDS beim Lesen tatsaechlich
+    aufgerufen (nur in Tests) -- der Manipulationsschutz existierte nur auf
+    dem Papier. Wird jetzt bei jeder Serialisierung mitgeliefert.
+
+    Returns
+    -------
+    None
+        Kein Hash vorhanden (Legacy-Eintrag vor U-FINMA-2.1) -- nichts zu
+        verifizieren, KEIN Manipulationsverdacht.
+    True/False
+        Hash vorhanden und stimmt/stimmt nicht mit dem aktuellen Inhalt
+        ueberein.
+    """
+    if not entry.integrity_hash:
+        return None
+    return verify_integrity_hash(
+        payload=build_hash_payload(entry), expected_hash=entry.integrity_hash,
+    )
+
+
 def serialize_response(entry: AdvisoryLog) -> dict:
     """Wandelt AdvisoryLog-Row in API-Response-Dict (JSON-Felder → Listen)."""
     return {
@@ -456,6 +481,7 @@ def serialize_response(entry: AdvisoryLog) -> dict:
         "conflict_disclosure_ids": _load_json(entry.conflict_disclosure_ids_json),
         "suitability_check_id": entry.suitability_check_id,
         "integrity_hash": entry.integrity_hash,
+        "integrity_verified": verify_entry_integrity(entry),
         "retain_until": entry.retain_until,
         "version": entry.version,
         "supersedes_id": entry.supersedes_id,

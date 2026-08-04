@@ -402,3 +402,58 @@ def test_tampering_description_invalidates_hash(http_client):
     assert verify_integrity_hash(
         payload=build_hash_payload(tampered), expected_hash=original_hash
     ) is False
+
+
+# ---------------------------------------------------------------------------
+# Mega-Audit (2026-08-04): verify_integrity_hash() wurde seit U-FINMA-2.1 nur
+# beim Schreiben berechnet, aber NIE beim Lesen tatsaechlich aufgerufen (nur
+# in Tests wie oben) -- der Manipulationsschutz existierte nur auf dem
+# Papier. serialize_response() liefert jetzt ein `integrity_verified`-Feld,
+# das bei jedem GET tatsaechlich geprueft wird.
+# ---------------------------------------------------------------------------
+
+def test_get_single_reports_integrity_verified_true_for_untampered_entry(http_client):
+    client, _, mandate, _session = http_client
+    log_id = client.post(
+        f"/mandates/{mandate.id}/advisory-log", json=_valid_payload(),
+    ).json()["id"]
+    body = client.get(f"/mandates/{mandate.id}/advisory-log/{log_id}").json()
+    assert body["integrity_verified"] is True
+
+
+def test_get_single_reports_integrity_verified_false_for_tampered_entry(http_client):
+    client, _, mandate, session = http_client
+    log_id = client.post(
+        f"/mandates/{mandate.id}/advisory-log", json=_valid_payload(),
+    ).json()["id"]
+
+    entry = session.query(AdvisoryLog).filter_by(id=log_id).one()
+    entry.description = "Manipulierter Inhalt nach Speicherung, Hash passt nicht mehr."
+    session.commit()
+
+    body = client.get(f"/mandates/{mandate.id}/advisory-log/{log_id}").json()
+    assert body["integrity_verified"] is False
+
+
+def test_get_single_reports_integrity_verified_none_for_legacy_entry_without_hash(http_client):
+    """Eintraege von vor U-FINMA-2.1 haben integrity_hash=None -- das ist
+    KEIN Manipulationsverdacht, sondern "nichts zu verifizieren"."""
+    client, _, mandate, session = http_client
+    log_id = client.post(
+        f"/mandates/{mandate.id}/advisory-log", json=_valid_payload(),
+    ).json()["id"]
+
+    entry = session.query(AdvisoryLog).filter_by(id=log_id).one()
+    entry.integrity_hash = None
+    session.commit()
+
+    body = client.get(f"/mandates/{mandate.id}/advisory-log/{log_id}").json()
+    assert body["integrity_verified"] is None
+
+
+def test_get_list_also_reports_integrity_verified(http_client):
+    client, _, mandate, _session = http_client
+    client.post(f"/mandates/{mandate.id}/advisory-log", json=_valid_payload())
+    listing = client.get(f"/mandates/{mandate.id}/advisory-log").json()
+    assert len(listing) == 1
+    assert listing[0]["integrity_verified"] is True

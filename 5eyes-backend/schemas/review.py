@@ -218,6 +218,7 @@ class AdvisoryLogResponse(BaseResponse):
     conflict_disclosure_ids: list[str] = Field(default_factory=list)
     suitability_check_id: Optional[str] = None
     integrity_hash: Optional[str] = None
+    integrity_verified: Optional[bool] = None
     retain_until: Optional[str] = None
     version: int = 1
     supersedes_id: Optional[str] = None
