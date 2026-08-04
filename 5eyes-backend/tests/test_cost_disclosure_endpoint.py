@@ -93,7 +93,9 @@ def auth_client(session_factory, advisor_user):
     app.dependency_overrides.clear()
 
 
-def _seed_mandate(session_factory, advisor_user, mandate_id: str = "mdt-cd") -> str:
+def _seed_mandate(
+    session_factory, advisor_user, mandate_id: str = "mdt-cd", *, base_currency: str = "CHF",
+) -> str:
     with session_factory() as db:
         db.add(advisor_user)
         db.add(Client(
@@ -105,7 +107,7 @@ def _seed_mandate(session_factory, advisor_user, mandate_id: str = "mdt-cd") -> 
         ))
         db.add(Mandate(
             id=mandate_id, client_id="cli-cd", mandate_number="M-CD",
-            mandate_type="Anlageberatung", status="Aktiv", base_currency="CHF",
+            mandate_type="Anlageberatung", status="Aktiv", base_currency=base_currency,
             advisory_language="DE", opened_at="2026-06-08",
             created_at=_now(), updated_at=_now(),
         ))
@@ -246,6 +248,34 @@ def test_endpoint_voll_befuellt_bei_recommendation_mit_ter(
     assert body["totals"]["one_time_rappen"] > 0
     # Vollstaendigkeit: alle Service-Fees + TER 100% -> is_complete=True
     assert body["is_complete"] is True
+
+
+# ---------------------------------------------------------------------------
+# Mega-Audit (2026-08-04): "currency" war hartcodiert "CHF", unabhaengig von
+# mandate.base_currency -- ein EUR-/USD-Mandat zeigte den korrekten Betrag
+# mit falscher Waehrungs-Beschriftung im Kostenausweis.
+# ---------------------------------------------------------------------------
+
+def test_endpoint_pending_reflects_mandate_base_currency(auth_client, advisor_user, session_factory):
+    mandate_id = _seed_mandate(session_factory, advisor_user, base_currency="EUR")
+    resp = auth_client.get(f"/mandates/{mandate_id}/cost-disclosure/ex-ante")
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["currency"] == "EUR"
+
+
+def test_endpoint_voll_befuellt_reflects_mandate_base_currency(
+    auth_client, advisor_user, session_factory
+):
+    mandate_id = _seed_mandate(session_factory, advisor_user, base_currency="EUR")
+    _seed_recommendation_with_ter(
+        session_factory, advisor_user, mandate_id,
+        target_amount_rappen=1_000_000_00,
+        ter_bps=50,
+        fee_assumptions={"default_advisory_fee_bps": 25},
+    )
+    resp = auth_client.get(f"/mandates/{mandate_id}/cost-disclosure/ex-ante")
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["currency"] == "EUR"
 
 
 def test_endpoint_ter_unvollstaendig_meldet_warnung(

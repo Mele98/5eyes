@@ -63,10 +63,13 @@ def build_cost_disclosure(db: Session, mandate: Any) -> dict[str, Any]:
         .order_by(RecommendationRun.created_at.desc())
         .first()
     )
+    currency = str(getattr(mandate, "base_currency", None) or "CHF").upper().strip() or "CHF"
+
     if latest_run is None:
         return _pending_payload(
             "Noch keine Portfolioempfehlung vorhanden; ein konkreter "
-            "Ex-ante-Kostenausweis kann noch nicht berechnet werden."
+            "Ex-ante-Kostenausweis kann noch nicht berechnet werden.",
+            currency=currency,
         )
 
     fee_model = _parse_fee_model(getattr(latest_run, "fee_assumptions_json", None))
@@ -190,6 +193,7 @@ def build_cost_disclosure(db: Session, mandate: Any) -> dict[str, Any]:
         inducements=inducements,
         source_run_id=str(latest_run.id),
         as_of=str(getattr(latest_run, "created_at", "") or ""),
+        currency=currency,
     )
 
 
@@ -202,13 +206,18 @@ def calculate_cost_disclosure(
     inducements: Iterable[Mapping[str, Any]] | None = None,
     source_run_id: str | None = None,
     as_of: str | None = None,
+    currency: str = "CHF",
 ) -> dict[str, Any]:
     """Calculate one-time, annual and first-year cost totals.
 
     Product TER is calculated on the invested product volume. Service fees are
-    calculated on advisory wealth. Totals are expressed as CHF amounts and as
-    equivalent basis points of advisory wealth.
+    calculated on advisory wealth. Totals are expressed as amounts in
+    `currency` (Mega-Audit 2026-08-04: vorher hartcodiert "CHF", unabhaengig
+    von mandate.base_currency -- eine EUR-/USD-Mandats-Anzeige zeigte den
+    korrekten Betrag mit falscher Waehrungs-Beschriftung) and as equivalent
+    basis points of advisory wealth (bps sind waehrungsunabhaengig).
     """
+    currency = str(currency or "CHF").upper().strip() or "CHF"
     fee_data = _parse_fee_model(fee_model)
     clean_positions = [
         {
@@ -233,7 +242,8 @@ def calculate_cost_disclosure(
     if invested_amount <= 0 and advisory_wealth <= 0:
         return _pending_payload(
             "Keine belastbare Anlagebasis vorhanden; Kosten können noch "
-            "nicht als Betrag ausgewiesen werden."
+            "nicht als Betrag ausgewiesen werden.",
+            currency=currency,
         )
 
     items: list[dict[str, Any]] = []
@@ -360,7 +370,18 @@ def calculate_cost_disclosure(
         if amount <= 0:
             continue
         frequency_raw = str(inducement.get("frequency") or "").strip().lower()
-        is_annual = frequency_raw in ("", "jährlich", "jaehrlich", "annual", "annually", "yearly")
+        # Mega-Audit (2026-08-04): ein LEERER Frequenz-Wert wurde bisher als
+        # "jährlich" gewertet -- eine unbelegte Annahme, die die zurück-
+        # erstattete Vergütung vom Total abzog (mindert die ausgewiesenen
+        # Kosten), obwohl der Berater nie bestätigt hat, dass sie tatsächlich
+        # jährlich wiederkehrt. Verstösst gegen das eigene "nie stillschweigend
+        # Null/günstig"-Prinzip (Moduldocstring). Fix: nur eine EXPLIZIT als
+        # jährlich erfasste Frequenz zählt als jährlich; ein leerer Wert wird
+        # wie eine unbekannte Frequenz behandelt (konservativ NICHT ins Total
+        # gerechnet, mit Warnung statt stillschweigender Annahme).
+        frequency_unspecified = frequency_raw == ""
+        is_annual = frequency_raw in ("jährlich", "jaehrlich", "annual", "annually", "yearly")
+        frequency_display = "jährlich" if is_annual else (frequency_raw or "nicht erfasst")
         reimbursed = bool(inducement.get("reimbursed_to_client"))
         provider = str(inducement.get("provider") or "Produktanbieter").strip() or "Produktanbieter"
         if reimbursed:
@@ -368,7 +389,7 @@ def calculate_cost_disclosure(
                 "key": "retrocession_reimbursed",
                 "label": f"Rückerstattung Vergütung von Dritten ({provider})",
                 "category": "Vergütungen von Dritten",
-                "frequency": "jährlich" if is_annual else frequency_raw,
+                "frequency": frequency_display,
                 "rate_bps": None,
                 "amount_rappen": -amount,
                 "basis_rappen": advisory_wealth,
@@ -377,7 +398,13 @@ def calculate_cost_disclosure(
                 "is_estimate": False,
                 "included_in_total": is_annual,
             })
-            if not is_annual:
+            if frequency_unspecified:
+                warnings.append(
+                    f"Eine zurückerstattete Vergütung von Dritten ({provider}) hat keine "
+                    "erfasste Frequenz -- konservativ NICHT im Total verrechnet "
+                    "(Frequenz beim Produkt/Retrozession ergänzen)."
+                )
+            elif not is_annual:
                 warnings.append(
                     f"Eine zurückerstattete Vergütung von Dritten ({provider}) mit "
                     "nicht-jährlicher Frequenz ist offengelegt, aber nicht im Total verrechnet."
@@ -387,7 +414,7 @@ def calculate_cost_disclosure(
                 "key": "retrocession_disclosed",
                 "label": f"Vergütung von Dritten, einbehalten ({provider})",
                 "category": "Vergütungen von Dritten",
-                "frequency": "jährlich" if is_annual else frequency_raw,
+                "frequency": frequency_display,
                 "rate_bps": None,
                 "amount_rappen": amount,
                 "basis_rappen": advisory_wealth,
@@ -416,7 +443,7 @@ def calculate_cost_disclosure(
 
     return {
         "data_pending": False,
-        "currency": "CHF",
+        "currency": currency,
         "as_of": as_of,
         "source_run_id": source_run_id,
         "fidleg_basis": "Art. 8/9 FIDLEG; Art. 8/14 FIDLEV",
@@ -519,10 +546,10 @@ def _safe_int(value: Any) -> int:
         return 0
 
 
-def _pending_payload(note: str) -> dict[str, Any]:
+def _pending_payload(note: str, *, currency: str = "CHF") -> dict[str, Any]:
     return {
         "data_pending": True,
-        "currency": "CHF",
+        "currency": str(currency or "CHF").upper().strip() or "CHF",
         "as_of": None,
         "source_run_id": None,
         "fidleg_basis": "Art. 8/9 FIDLEG; Art. 8/14 FIDLEV",

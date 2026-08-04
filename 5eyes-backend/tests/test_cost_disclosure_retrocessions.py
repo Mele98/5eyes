@@ -97,6 +97,29 @@ def test_non_annual_reimbursed_retrocession_excluded_from_total_with_warning():
     assert any("nicht-jährlicher" in w or "verrechnet" in w for w in data["warnings"])
 
 
+def test_missing_frequency_on_reimbursed_retrocession_excluded_from_total_with_warning():
+    """Mega-Audit (2026-08-04): ein LEERER Frequenz-Wert wurde bisher als
+    'jährlich' gewertet und mindert damit stillschweigend das Kosten-Total
+    -- obwohl der Berater die Frequenz nie bestaetigt hat. Fix: nur eine
+    EXPLIZIT jährliche Frequenz zaehlt; ein fehlender Wert bleibt konservativ
+    aussen vor (analog zur bereits bestehenden 'einmalig'-Behandlung)."""
+    baseline = calculate_cost_disclosure(
+        advisory_wealth_rappen=100_000_000, positions=_POSITIONS, fee_model=_FEE,
+    )
+    with_retro = calculate_cost_disclosure(
+        advisory_wealth_rappen=100_000_000, positions=_POSITIONS, fee_model=_FEE,
+        inducements=[{"amount_rappen": 10_000,
+                      "reimbursed_to_client": True, "provider": "Y"}],
+    )
+    items = _retro_items(with_retro)
+    assert len(items) == 1
+    assert items[0]["included_in_total"] is False
+    assert items[0]["frequency"] == "nicht erfasst"
+    # Total bleibt UNVERAENDERT -- keine unbelegte Kostenreduktion.
+    assert with_retro["totals"]["annual_rappen"] == baseline["totals"]["annual_rappen"]
+    assert any("keine erfasste Frequenz" in w for w in with_retro["warnings"])
+
+
 def test_multiple_inducements_mixed_reimbursement():
     data = calculate_cost_disclosure(
         advisory_wealth_rappen=100_000_000, positions=_POSITIONS, fee_model=_FEE,
