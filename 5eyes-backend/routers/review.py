@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import bindparam, text
 from sqlalchemy.exc import IntegrityError
 from datetime import date, datetime, timezone
+from config import settings
 from database import get_db, new_uuid
 from models.users import User
 from models.mandates import Mandate
@@ -47,6 +48,7 @@ from services.openfigi_client import preview_openfigi_mapping
 from services.portfolio_engine import build_recommendation_payload_from_run, generate_recommendation_run
 from services.product_market_data import resolve_market_profile
 from services.review_engine import _add_months, refresh_system_review_triggers
+from services.suitability_audit import audit_mandate_suitability
 
 router = APIRouter(tags=["Review & Dokumente"])
 products_router = APIRouter(prefix="/products", tags=["Produkte"])
@@ -1668,6 +1670,23 @@ def create_recommendation_run(
         raise HTTPException(status_code=409, detail="Bitte zuerst ein aktuelles Risikoprofil speichern.")
     if assessment.final_score_x10 is None and assessment.override_score_x10 is None:
         raise HTTPException(status_code=409, detail="Risikoprofil unvollstaendig. Bitte Fragebogen vollstaendig ausfuellen.")
+    # Mega-Audit (2026-08-04): die obige Pruefung deckt nur VOLLSTAENDIGKEIT
+    # ab, nicht die 365-Tage-Freshness aus audit_mandate_suitability -- ein
+    # Mandat mit vollstaendigem, aber veraltetem Risikoprofil erzeugte hier
+    # bisher klaglos eine Empfehlung, unabhaengig vom Suitability-Gate-Flag
+    # in routers/allocation.py::generate_target_allocation_endpoint.
+    # Identisches Opt-in-Gate (Welle 2.1), hier ergaenzt.
+    if settings.require_suitability_before_recommendation:
+        suitability = audit_mandate_suitability(db, mandate)
+        if not suitability.get("is_compliant", True):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "FIDLEG: Eignungsprüfung fehlt oder ist nicht aktuell — "
+                    "Empfehlung blockiert "
+                    "(require_suitability_before_recommendation=True)."
+                ),
+            )
     if body.assessment_id and body.assessment_id != assessment.id:
         raise HTTPException(status_code=422, detail=(
             "assessment_id muss auf das aktuelle Risikoprofil zeigen "
@@ -1735,6 +1754,22 @@ def generate_recommendation_run_endpoint(
     current_user: User = Depends(require_advisor)
 ):
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    # Mega-Audit (2026-08-04): dieser Endpoint hatte bisher UEBERHAUPT
+    # keinen Suitability-Bezug -- weder Vollstaendigkeit noch Freshness --
+    # und war damit der breiteste der drei gefundenen Umgehungspfade des
+    # FIDLEG-Suitability-Gates (Welle 2.1, routers/allocation.py). Identisches
+    # Opt-in-Gate hier ergaenzt.
+    if settings.require_suitability_before_recommendation:
+        suitability = audit_mandate_suitability(db, mandate)
+        if not suitability.get("is_compliant", True):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "FIDLEG: Eignungsprüfung fehlt oder ist nicht aktuell — "
+                    "Empfehlung blockiert "
+                    "(require_suitability_before_recommendation=True)."
+                ),
+            )
     try:
         result = generate_recommendation_run(
             db=db,

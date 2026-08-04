@@ -218,6 +218,24 @@ def create_target_allocation(
         assessment = require_strategy_ready_assessment(db, mandate_id)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
+    # Mega-Audit (2026-08-04): require_strategy_ready_assessment prueft nur
+    # VOLLSTAENDIGKEIT (alle 11 Fragen beantwortet), NICHT die 365-Tage-
+    # Freshness, die audit_mandate_suitability zusaetzlich verlangt -- ein
+    # Mandat mit vollstaendigem, aber Jahre altem Risikoprofil passierte
+    # dieses Gate bisher klaglos. Identisches Opt-in-Gate wie in
+    # generate_target_allocation_endpoint (Welle 2.1), hier ergaenzt, damit
+    # der direkte POST-Pfad es nicht mehr umgehen kann.
+    if settings.require_suitability_before_recommendation:
+        suitability = audit_mandate_suitability(db, mandate)
+        if not suitability.get("is_compliant", True):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "FIDLEG: Eignungsprüfung fehlt oder ist nicht aktuell — "
+                    "Speichern blockiert "
+                    "(require_suitability_before_recommendation=True)."
+                ),
+            )
     if body.based_on_assessment_id and body.based_on_assessment_id != assessment.id:
         raise HTTPException(status_code=422, detail=(
             "based_on_assessment_id muss auf das aktuelle Risikoprofil zeigen "
