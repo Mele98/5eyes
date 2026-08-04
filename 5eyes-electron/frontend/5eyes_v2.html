@@ -6278,18 +6278,6 @@ function isDemoMandateId(id){
 }
 
 // DELETE
-function dcf(btn){
-  var row=btn.closest('.cf-row'),cfId=row?row.dataset.cfid:null;
-  var cid=getActiveClientId();
-  var isDemo=isDemoClientId(cfId)||isDemoClientId(cid);
-  if(!confirm(isDemo?'Eintrag entfernen (Demo)?':'Cashflow wirklich löschen?'))return;
-  if(!isDemo){
-    if(!cid){console.error('dcf DELETE skipped: no active client id');return;}
-    API.del('/clients/'+cid+'/cashflows/'+cfId)
-      .then(function(){refreshCashflowsUI(cid);markStrategyDirty('Cashflow gelöscht: Strategie neu berechnen.', true);})
-      .catch(function(e){console.error('dcf DELETE failed:',e.status,e.message);});
-  } else if(row) row.remove();
-}
 // DRAG GOALS
 function setupDrag(){
   const list=document.getElementById('zl');if(!list)return;
@@ -21834,13 +21822,6 @@ function allocationTimelineThinYears(labels,maxTicks){
   if(out[out.length-1]!==list[L-1])out.push(list[L-1]);
   return out;
 }
-function isAllocationTimelineCashflow(item){
-  if(!item)return false;
-  if(Object.prototype.hasOwnProperty.call(item,'is_active')&&Number(item.is_active||0)===0)return false;
-  var type=String(item.cashflow_type||item.type||'');
-  if(type!=='Income'&&type!=='Expense')return false;
-  return true;
-}
 function allocationTimelineIsOneOff(item){
   return !!(isOneOffCashflow(item&&item.frequency)||String(item&&item.nature||'').toLowerCase()==='einmalig');
 }
@@ -22208,7 +22189,7 @@ function openNewCashflow(cashflowType){
   var modal=document.getElementById('m-acf');
   if(modal)modal.classList.add('open');
 }
-async function openCashflowEditor(cashflowId){
+async function openCashflowRowEditor(cashflowId){
   var cashflow=(currentCashflows||[]).find(function(item){return String(item.id||'')===String(cashflowId||'');});
   if(!cashflow){
     var _cid=getActiveClientId();
@@ -22679,7 +22660,7 @@ async function refreshCashflowsUI(cid){
       if(btn.classList.contains('e')){
         btn.onclick=function(ev){
           if(ev)ev.preventDefault();
-          openCashflowEditor(cashflowId);
+          openCashflowRowEditor(cashflowId);
         };
       }else{
         btn.onclick=function(ev){
@@ -22702,7 +22683,7 @@ async function refreshCashflowsUI(cid){
       if(btn.classList.contains('e')){
         btn.onclick=function(ev){
           if(ev)ev.preventDefault();
-          openCashflowEditor(cashflowId);
+          openCashflowRowEditor(cashflowId);
         };
       }else{
         btn.onclick=function(ev){
@@ -26146,25 +26127,6 @@ cm=function(id){
   if(id==='m-nz')currentGoalEditId=null;
   return _cmGoalTiming(id);
 };
-function dg(btn){
-  var g=btn.closest('.goal'),gId=g?g.dataset.goalid:null;
-  var mid=getActiveMandateId();
-  var isDemo=isDemoClientId(gId)||isDemoMandateId(mid);
-  if(!confirm(isDemo?'Ziel entfernen (Demo)?':'Ziel wirklich l\u00f6schen?'))return;
-  if(!isDemo){
-    if(!mid){console.error('dg DELETE skipped: no active mandate id');return;}
-    API.del('/mandates/'+mid+'/goals/'+gId)
-      .then(function(){
-        currentGoals=(currentGoals||[]).filter(function(goal){return String(goal.id||'')!==String(gId||'');});
-        refreshGoalsUI(mid);
-        markStrategyDirty('Ziel gel\u00f6scht: Strategie neu berechnen.', true);
-      })
-      .catch(function(e){console.error('dg DELETE failed:',e.status,e.message);});
-  } else {
-    currentGoals=(currentGoals||[]).filter(function(goal){return String(goal.id||'')!==String(gId||'');});
-    renderGoalList(currentGoals,true);
-  }
-}
 function strategyGoalTargetText(goal){
   var type=goal&&goal.goal_type||'';
   if(isReturnGoalType(type)){
