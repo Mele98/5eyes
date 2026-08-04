@@ -260,6 +260,74 @@ def test_disable_locks_out_after_repeated_wrong_codes(session_factory, monkeypat
         assert db.get(User, "brute2").totp_enabled == 1
 
 
+# ── AUTH-01 (2026-08-04, Mega-Audit): require_2fa wurde bisher NUR fuer die
+# Status-Anzeige gelesen (/auth/2fa/status) -- ein User ohne aktives 2FA
+# konnte sich trotz require_2fa=True normal einloggen und ein voll
+# funktionsfaehiges Token nutzen. Fix analog AUTH-02 (must_change_password):
+# get_current_user blockt alle Endpoints ausser 2FA-Setup/Enable + /me/logout,
+# solange 2FA-Pflicht besteht aber nicht aktiv ist.
+
+def test_require_2fa_login_still_succeeds_but_other_endpoints_blocked(client, session_factory, monkeypatch):
+    from config import settings
+    monkeypatch.setattr(settings, "require_2fa", True)
+    _seed_user(session_factory, "req1", "pw")  # kein TOTP eingerichtet
+
+    login = client.post("/auth/login", json={"username": "req1", "password": "pw"})
+    assert login.status_code == 200
+    token = login.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    blocked = client.get("/clients", headers=headers)
+    assert blocked.status_code == 403
+    assert "2FA" in blocked.json()["detail"]
+
+
+def test_require_2fa_allows_setup_me_and_logout_while_unenrolled(client, session_factory, monkeypatch):
+    from config import settings
+    monkeypatch.setattr(settings, "require_2fa", True)
+    _seed_user(session_factory, "req2", "pw")
+
+    login = client.post("/auth/login", json={"username": "req2", "password": "pw"})
+    assert login.status_code == 200
+    headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+
+    assert client.get("/auth/me", headers=headers).status_code == 200
+    assert client.get("/auth/2fa/status", headers=headers).status_code == 200
+    setup = client.post("/auth/2fa/setup", headers=headers)
+    assert setup.status_code == 200
+    assert client.post("/auth/logout", headers=headers).status_code == 200
+
+
+def test_require_2fa_gate_clears_once_enrollment_completes(client, session_factory, monkeypatch):
+    from config import settings
+    monkeypatch.setattr(settings, "require_2fa", True)
+    _seed_user(session_factory, "req3", "pw")
+
+    login = client.post("/auth/login", json={"username": "req3", "password": "pw"})
+    headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+
+    assert client.get("/clients", headers=headers).status_code == 403
+
+    setup = client.post("/auth/2fa/setup", headers=headers).json()
+    code = totp.totp_at(setup["secret"], time.time())
+    enable = client.post("/auth/2fa/enable", json={"code": code}, headers=headers)
+    assert enable.status_code == 200
+
+    assert client.get("/clients", headers=headers).status_code == 200
+
+
+def test_require_2fa_off_by_default_unaffected(client, session_factory):
+    """Backwards-Compat: ohne require_2fa aendert sich fuer unenrollte User
+    nichts (Standard-Default ist False)."""
+    from config import settings
+    assert settings.require_2fa is False
+    _seed_user(session_factory, "req4", "pw")
+
+    login = client.post("/auth/login", json={"username": "req4", "password": "pw"})
+    headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+    assert client.get("/clients", headers=headers).status_code == 200
+
+
 def test_enable_succeeds_after_lockout_window_key_isolated_per_user(session_factory, monkeypatch):
     """Lockout auf User A trifft NICHT User B (kein Cross-Account-Leak)."""
     from config import settings

@@ -210,6 +210,30 @@ def get_current_user(
                 detail=("Passwort muss geaendert werden, bevor weitere Aktionen "
                         "moeglich sind (must_change_password)."),
             )
+    # AUTH-01 (2026-08-04, Mega-Audit): settings.require_2fa serverseitig
+    # erzwingen. Bisher wurde das Flag AUSSCHLIESSLICH fuer die Status-Anzeige
+    # gelesen (/auth/2fa/status) -- ein User ohne aktives 2FA konnte sich trotz
+    # require_2fa=True normal einloggen und erhielt ein voll funktionsfaehiges
+    # Token, keine Enforcement fand statt. Analog AUTH-02 (must_change_password,
+    # siehe oben): User mit fehlendem/inaktivem 2FA duerfen NUR die 2FA-Setup/
+    # Enable-Endpoints + /me + /logout aufrufen, bis 2FA aktiv ist -> sonst 403.
+    # Verhindert Aussperren (Setup bleibt erreichbar) und schliesst die Luecke,
+    # dass das Pflicht-Flag ohne jede Wirkung war.
+    if (
+        getattr(settings, "require_2fa", False)
+        and not getattr(user, "totp_enabled", 0)
+        and request is not None
+    ):
+        path = (getattr(getattr(request, "url", None), "path", "") or "").rstrip("/")
+        if not path.endswith((
+            "/auth/2fa/status", "/auth/2fa/setup", "/auth/2fa/enable",
+            "/auth/me", "/auth/logout",
+        )):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=("2FA-Einrichtung ist Pflicht (require_2fa), aber noch nicht "
+                        "aktiv -- bitte zuerst unter /auth/2fa/setup einrichten."),
+            )
     if user.role == "super_admin":
         # Super-admins are unscoped by default: RLS sees no tenant and returns
         # no tenant-owned rows unless an operator path explicitly enables bypass.
