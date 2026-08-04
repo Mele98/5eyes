@@ -67,6 +67,18 @@ class Settings(BaseSettings):
     login_max_attempts: int = 5
     login_window_seconds: int = 60
     login_lockout_seconds: int = 600
+    # AUTH-03 (Mega-Audit 2026-08-04): X-Forwarded-For wurde bisher IMMER als
+    # Klartext-Wahrheit fuer den Rate-Limit-Guard-Key genommen -- ohne einen
+    # tatsaechlich davorstehenden Reverse-Proxy kann JEDER Client den Header
+    # selbst setzen und bekommt pro Request einen frischen Guard-Key (voller
+    # Rate-Limit-Bypass auf Login/Bootstrap-Admin/Password-Reset/Invite).
+    # trusted_proxy_count = Anzahl der Reverse-Proxy-Hops, denen VOR dieser
+    # Instanz vertraut wird. 0 (Default, Tier-1 ohne Proxy) = XFF komplett
+    # ignorieren, echte TCP-Peer-Adresse (request.client.host) verwenden.
+    # >0 (Tier-2/3 hinter N Reverse-Proxies): Rightmost-Hop-Parsing -- der
+    # N-te Eintrag von RECHTS ist der echte Client, alles rechts davon sind
+    # die eigenen (vertrauenswuerdigen) Proxy-Hops.
+    trusted_proxy_count: int = 0
 
     # CORS / Electron
     cors_origins: list[str] = Field(
@@ -365,6 +377,13 @@ class Settings(BaseSettings):
     def validate_app_port(cls, value: int) -> int:
         if not 1 <= value <= 65535:
             raise ValueError('app_port must be between 1 and 65535')
+        return value
+
+    @field_validator('trusted_proxy_count')
+    @classmethod
+    def validate_trusted_proxy_count(cls, value: int) -> int:
+        if value < 0:
+            raise ValueError('trusted_proxy_count must be >= 0')
         return value
 
     @field_validator('price_scheduler_hour')

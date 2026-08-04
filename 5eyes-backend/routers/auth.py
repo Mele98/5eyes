@@ -110,14 +110,35 @@ def _totp_replay_check_and_record(user: User) -> bool:
     return False
 
 
-def _login_guard_key(request: Request, username: str) -> str:
-    forwarded_for = str(request.headers.get("x-forwarded-for") or "").strip()
-    if forwarded_for:
-        first_hop = forwarded_for.split(",")[0].strip()
-        if first_hop:
-            return first_hop
+def _extract_client_ip(request: Request) -> str:
+    """AUTH-03 (Mega-Audit 2026-08-04): liefert die vertrauenswuerdige
+    Client-IP fuer Rate-Limit-Guard-Keys. Ohne konfigurierten Reverse-Proxy
+    (trusted_proxy_count=0, Default) wird X-Forwarded-For komplett ignoriert
+    -- der Header ist sonst clientseitig frei waehlbar und erlaubt jedem
+    Angreifer, sich pro Request einen frischen Guard-Key zu erschleichen
+    (voller Rate-Limit-Bypass). Bei trusted_proxy_count=N (Tier-2/3 hinter N
+    eigenen Reverse-Proxies) wird der N-te Hop von RECHTS genommen -- alles
+    rechts davon haben die eigenen, vertrauenswuerdigen Proxies angehaengt.
+    """
+    from config import settings as _settings
+    proxy_count = int(getattr(_settings, "trusted_proxy_count", 0) or 0)
+    if proxy_count > 0:
+        forwarded_for = str(request.headers.get("x-forwarded-for") or "").strip()
+        if forwarded_for:
+            hops = [h.strip() for h in forwarded_for.split(",") if h.strip()]
+            if len(hops) >= proxy_count:
+                candidate = hops[-proxy_count]
+                if candidate:
+                    return candidate
     if request.client and request.client.host:
         return str(request.client.host)
+    return ""
+
+
+def _login_guard_key(request: Request, username: str) -> str:
+    client_ip = _extract_client_ip(request)
+    if client_ip:
+        return client_ip
     return username
 
 # ── Auth ───────────────────────────────────────────────────────────────────────

@@ -98,12 +98,19 @@ def test_bootstrap_admin_rate_limited_after_repeated_attempts(client, monkeypatc
 
 def test_bootstrap_admin_lockout_is_per_source_not_global(client, monkeypatch):
     """Der Lockout haengt am Guard-Key (IP via X-Forwarded-For) — eine andere
-    Quelle darf durch den Lockout einer anderen NICHT blockiert werden."""
+    Quelle darf durch den Lockout einer anderen NICHT blockiert werden.
+
+    AUTH-03 (Mega-Audit 2026-08-04): X-Forwarded-For wird nur vertraut, wenn
+    ein Reverse-Proxy explizit konfiguriert ist (trusted_proxy_count>0) --
+    genau das simuliert dieser Test (Tier-2/3-Deployment hinter einem eigenen
+    Proxy). Der Default (trusted_proxy_count=0, kein Proxy) wird separat in
+    test_bootstrap_admin_xff_ignored_by_default_prevents_bypass verifiziert."""
     from config import settings
     monkeypatch.setattr(settings, "login_rate_limit_enabled", True, raising=False)
     monkeypatch.setattr(settings, "login_max_attempts", 2, raising=False)
     monkeypatch.setattr(settings, "login_window_seconds", 300, raising=False)
     monkeypatch.setattr(settings, "login_lockout_seconds", 600, raising=False)
+    monkeypatch.setattr(settings, "trusted_proxy_count", 1, raising=False)
 
     attacker_headers = {"X-Forwarded-For": "10.0.0.9"}
     r0 = client.post(
@@ -134,3 +141,38 @@ def test_bootstrap_admin_lockout_is_per_source_not_global(client, monkeypatch):
     # Bereits abgeschlossene Ersteinrichtung -> 409, NICHT 429 (andere Quelle
     # ist nicht gesperrt).
     assert r3.status_code == 409
+
+
+def test_bootstrap_admin_xff_spoofing_does_not_bypass_rate_limit_by_default(client, monkeypatch):
+    """AUTH-03 (Mega-Audit 2026-08-04): Ohne konfigurierten Reverse-Proxy
+    (trusted_proxy_count=0, Werkseinstellung) darf ein Angreifer NICHT durch
+    einen frei waehlbaren X-Forwarded-For-Header pro Request einen neuen
+    Guard-Key erschleichen und damit das Rate-Limit umgehen."""
+    from config import settings
+    monkeypatch.setattr(settings, "login_rate_limit_enabled", True, raising=False)
+    monkeypatch.setattr(settings, "login_max_attempts", 2, raising=False)
+    monkeypatch.setattr(settings, "login_window_seconds", 300, raising=False)
+    monkeypatch.setattr(settings, "login_lockout_seconds", 600, raising=False)
+    assert settings.trusted_proxy_count == 0
+
+    r0 = client.post(
+        "/auth/bootstrap-admin",
+        json={"username": "root", "password": "pw12345678", "full_name": "Root"},
+        headers={"X-Forwarded-For": "10.0.0.9"},
+    )
+    assert r0.status_code == 201
+    r1 = client.post(
+        "/auth/bootstrap-admin",
+        json={"username": "root2", "password": "pw12345678", "full_name": "Root2"},
+        headers={"X-Forwarded-For": "10.0.0.9"},
+    )
+    assert r1.status_code == 409
+
+    # Angreifer wechselt den XFF-Header pro Request -- OHNE vertrauenswuerdigen
+    # Proxy darf das KEINEN frischen Guard-Key erzeugen: bleibt gesperrt.
+    spoofed = client.post(
+        "/auth/bootstrap-admin",
+        json={"username": "root3", "password": "pw12345678", "full_name": "Root3"},
+        headers={"X-Forwarded-For": "203.0.113.42"},
+    )
+    assert spoofed.status_code == 429
