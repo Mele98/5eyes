@@ -112,6 +112,13 @@ class Settings(BaseSettings):
     price_scheduler_minute: int = 0
     price_refresh_max_attempts: int = 2
     price_refresh_retry_delay_seconds: float = 1.0
+    # Mega-Audit (2026-08-04): der Stooq-Fallback-Batch-Loop
+    # (price_updater._fetch_stooq_symbol_points) feuerte bisher eine
+    # ungebremste Serie von HTTP-GETs ab -- am staerksten genau dann, wenn
+    # der PRIMARY-Provider (yfinance) bereits ausfaellt und ALLE Symbole auf
+    # Stooq zurueckfallen. Kleine feste Pause zwischen Requests, Default
+    # konservativ (nicht gemessen, siehe PR-Kommentar).
+    stooq_batch_throttle_seconds: float = 0.3
 
     # Market data provider strategy
     price_refresh_primary_provider: str = 'yfinance'

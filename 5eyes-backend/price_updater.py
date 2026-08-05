@@ -260,7 +260,13 @@ def _fetch_stooq_symbol_points(
 ) -> tuple[dict[str, tuple[str, int, str]], dict[str, str]]:
     symbol_points: dict[str, tuple[str, int, str]] = {}
     symbol_errors: dict[str, str] = {}
-    for symbol in symbols:
+    for index, symbol in enumerate(symbols):
+        # Mega-Audit (2026-08-04): ohne diese Pause feuert dieser Loop eine
+        # ungebremste Serie von HTTP-GETs gegen Stooq ab -- am staerksten
+        # genau dann, wenn der PRIMARY-Provider bereits ausfaellt und ALLE
+        # Symbole hierher zurueckfallen. Keine Pause vor dem ERSTEN Request.
+        if index > 0 and settings.stooq_batch_throttle_seconds > 0:
+            time.sleep(settings.stooq_batch_throttle_seconds)
         try:
             currency = None
             products = product_by_symbol.get(symbol) or []

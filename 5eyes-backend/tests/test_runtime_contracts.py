@@ -1264,6 +1264,53 @@ def test_refresh_all_prices_uses_stooq_fallback_for_external_profiles(session_fa
     assert price.price_rappen == 6256
 
 
+def test_stooq_batch_fetch_throttles_between_requests_not_before_first(monkeypatch):
+    """Mega-Audit (2026-08-04): der Stooq-Fallback-Batch-Loop feuerte bisher
+    eine ungebremste Serie von HTTP-GETs ab -- am staerksten genau dann, wenn
+    der PRIMARY-Provider bereits ausfaellt und ALLE Symbole hier landen.
+    Diese Pruefung darf NIE real schlafen (time.sleep gemockt)."""
+    import price_updater as price_updater_module
+
+    sleep_calls: list[float] = []
+    monkeypatch.setattr(price_updater_module.time, "sleep", lambda s: sleep_calls.append(s))
+    monkeypatch.setattr(price_updater_module.settings, "stooq_batch_throttle_seconds", 0.3, raising=False)
+
+    def fake_stooq(symbol, *, currency=None):
+        return price_updater_module.PricePoint(
+            price_date="2026-03-27", price_rappen=1000, currency="USD", source="stooq",
+        )
+
+    monkeypatch.setattr(price_updater_module, "fetch_stooq_price", fake_stooq)
+
+    symbols = ["AAA", "BBB", "CCC"]
+    resolved, failures = price_updater_module._fetch_stooq_symbol_points(
+        symbols, product_by_symbol={},
+    )
+
+    assert len(resolved) == 3
+    assert failures == {}
+    # 3 Symbole -> genau 2 Pausen (keine Pause vor dem ersten Request).
+    assert sleep_calls == [0.3, 0.3]
+
+
+def test_stooq_batch_fetch_throttle_disabled_when_zero(monkeypatch):
+    import price_updater as price_updater_module
+
+    sleep_calls: list[float] = []
+    monkeypatch.setattr(price_updater_module.time, "sleep", lambda s: sleep_calls.append(s))
+    monkeypatch.setattr(price_updater_module.settings, "stooq_batch_throttle_seconds", 0.0, raising=False)
+
+    def fake_stooq(symbol, *, currency=None):
+        return price_updater_module.PricePoint(
+            price_date="2026-03-27", price_rappen=1000, currency="USD", source="stooq",
+        )
+
+    monkeypatch.setattr(price_updater_module, "fetch_stooq_price", fake_stooq)
+
+    price_updater_module._fetch_stooq_symbol_points(["AAA", "BBB"], product_by_symbol={})
+    assert sleep_calls == []
+
+
 def test_delete_cashflow_marks_record_inactive(session_factory, advisor_user):
     client_id, _ = seed_client_and_mandate(session_factory, advisor_user)
 
