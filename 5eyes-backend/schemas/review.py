@@ -423,6 +423,38 @@ class ProductResponse(BaseResponse):
     updated_at: str
 
 
+class ProductBulkImportRequest(BaseModel):
+    """Fondsuniversum Bulk-API-Import (2026-08-05): programmatische
+    Schnittstelle fuer externe Asset-Manager-Systeme -- Feldmenge ist
+    identisch zu ProductCreate (auch hier gibt es bewusst kein
+    tenant_id-Feld, siehe ProductCreate/create_product)."""
+    products: list[ProductCreate]
+
+    @model_validator(mode="after")
+    def validate_batch_size(self):
+        if not self.products:
+            raise ValueError("products darf nicht leer sein")
+        if len(self.products) > 1000:
+            raise ValueError("Maximal 1000 Fonds pro Import-Aufruf")
+        return self
+
+
+class ProductImportResultItem(BaseModel):
+    row: int
+    status: Literal["created", "updated", "failed"]
+    product_id: Optional[str] = None
+    product_name: Optional[str] = None
+    error: Optional[str] = None
+
+
+class ProductImportResponse(BaseModel):
+    processed: int
+    created: int
+    updated: int
+    failed: int
+    items: list[ProductImportResultItem] = Field(default_factory=list)
+
+
 class ProductUniverseEntryCreate(BaseModel):
     jurisdiction: str
     product_id: str

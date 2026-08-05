@@ -1,7 +1,10 @@
+import csv
+import io
 import logging
 from collections.abc import Callable
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Response, UploadFile
+from pydantic import ValidationError
 from sqlalchemy.orm import Session
 from sqlalchemy import bindparam, or_, text
 from sqlalchemy.exc import IntegrityError
@@ -25,6 +28,7 @@ from schemas.review import (
     ContractDocumentCreate, ContractDocumentSign, ContractDocumentResponse,
     ConflictDisclosureCreate, ConflictDisclosureResponse,
     ProductCreate, ProductUpdate, ProductResponse,
+    ProductBulkImportRequest, ProductImportResponse, ProductImportResultItem,
     ProductMarketOverrideRequest, ProductMarketOverrideResponse,
     ProductIdMappingPreviewRequest, ProductIdMappingPreviewResponse,
     ProductIdMappingApplyRequest, ProductIdMappingApplyResponse,
@@ -1141,6 +1145,199 @@ def create_product(
     db.commit()
     db.refresh(product)
     return product
+
+
+_PRODUCT_IMPORT_CSV_FIELDS = (
+    "product_name", "provider", "product_type", "asset_class", "sub_asset_class",
+    "currency", "isin", "symbol", "ter_bps", "sfdr_class", "esg_rating", "liquidity_tier",
+)
+_PRODUCT_IMPORT_MAX_ROWS = 1000
+_PRODUCT_IMPORT_MAX_FILE_BYTES = 2 * 1024 * 1024
+
+
+def _format_validation_error(exc: ValidationError) -> str:
+    parts = []
+    for err in exc.errors():
+        loc = ".".join(str(p) for p in err.get("loc", ()))
+        msg = err.get("msg", "ungueltig")
+        parts.append(f"{loc}: {msg}" if loc else msg)
+    return "; ".join(parts) or "Validierungsfehler"
+
+
+def _normalize_csv_import_row(raw: dict) -> dict:
+    """CSV-Header werden case-insensitiv auf die ProductCreate-Feldnamen
+    gemappt; unbekannte Spalten (z.B. ein Spoofing-Versuch per
+    'tenant_id'-Spalte) werden stillschweigend verworfen -- dieselbe
+    Anti-Spoofing-Logik wie bei ProductCreate (siehe create_product),
+    nur eine Ebene frueher. Leere Zellen werden zu None (sonst wuerde
+    z.B. ein leeres ter_bps-Feld als leerer String statt als 'nicht
+    angegeben' interpretiert)."""
+    normalized: dict = {}
+    for key, value in raw.items():
+        if key is None:
+            continue
+        field = str(key).strip().lower()
+        if field not in _PRODUCT_IMPORT_CSV_FIELDS:
+            continue
+        if isinstance(value, str):
+            value = value.strip()
+        normalized[field] = value if value else None
+    return normalized
+
+
+def _import_products(rows: list[dict], db: Session, current_user: User) -> ProductImportResponse:
+    """Gemeinsame Import-Logik fuer CSV- und JSON-Bulk-Import (Fondsuniversum,
+    2026-08-05, User-Direktive: "Schnittstelle machen ... damit jedes
+    Assetmanagement seine eigene Fonds der Software fuettern kann").
+
+    - tenant_id wird IMMER serverseitig aus current_user gestempelt (siehe
+      create_product) -- nie aus der Zeile uebernommen.
+    - Upsert-Verhalten: hat eine Zeile eine ISIN (oder ersatzweise ein
+      Symbol) und existiert bereits ein Produkt MIT DERSELBEN tenant_id UND
+      ISIN/Symbol, wird es aktualisiert statt dupliziert -- ein Asset
+      Manager kann seinen Fondskatalog also monatlich neu hochladen, ohne
+      dass sich die Liste jedes Mal verdoppelt. Der Abgleich ist strikt
+      tenant-gescoped, sodass ein Re-Upload NIE ein Produkt eines anderen
+      Tenants ueberschreiben kann (identisch zur Isolationsgarantie von
+      _active_products_query).
+    - Eine fehlerhafte Zeile bricht den gesamten Import NICHT ab (partial
+      success) -- die Fehlermeldung landet stattdessen im Item-Report,
+      damit ein Asset Manager mit 300 Fonds nicht wegen einer einzigen
+      Tippfehler-Zeile neu anfangen muss.
+    """
+    tenant_id = _resolve_tenant_id_for_user(current_user)
+    now = _now()
+    items: list[ProductImportResultItem] = []
+    created = 0
+    updated = 0
+    for idx, raw in enumerate(rows, start=1):
+        name_hint = str(raw.get("product_name") or "").strip() or None
+        try:
+            body = ProductCreate(**raw)
+        except ValidationError as exc:
+            items.append(ProductImportResultItem(
+                row=idx, status="failed", product_name=name_hint,
+                error=_format_validation_error(exc),
+            ))
+            continue
+        payload = body.model_dump()
+        existing = None
+        if payload.get("isin"):
+            existing = db.query(Product).filter(
+                Product.tenant_id == tenant_id, Product.isin == payload["isin"],
+                Product.deleted_at.is_(None),
+            ).first()
+        elif payload.get("symbol"):
+            existing = db.query(Product).filter(
+                Product.tenant_id == tenant_id, Product.symbol == payload["symbol"],
+                Product.deleted_at.is_(None),
+            ).first()
+        if existing is not None:
+            for field, value in payload.items():
+                setattr(existing, field, value)
+            existing.updated_at = now
+            items.append(ProductImportResultItem(
+                row=idx, status="updated", product_id=existing.id, product_name=existing.product_name,
+            ))
+            updated += 1
+        else:
+            product = Product(
+                id=new_uuid(), is_active=1, tenant_id=tenant_id,
+                created_at=now, updated_at=now, **payload,
+            )
+            db.add(product)
+            items.append(ProductImportResultItem(
+                row=idx, status="created", product_id=product.id, product_name=product.product_name,
+            ))
+            created += 1
+    if created or updated:
+        log(db, user_id=current_user.id, user_name=current_user.full_name,
+            table_name="products", record_id="bulk-import", action="CREATE",
+            new_value=f"{created} erstellt, {updated} aktualisiert")
+        db.commit()
+    failed = len(rows) - created - updated
+    return ProductImportResponse(processed=len(rows), created=created, updated=updated, failed=failed, items=items)
+
+
+@products_router.post("/import", response_model=ProductImportResponse, status_code=201)
+def import_products_bulk(
+    body: ProductBulkImportRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Fondsuniversum Bulk-API-Import: fuer externe Asset-Manager-Systeme,
+    die ihren Fondskatalog programmatisch pushen wollen. Nutzt dieselbe
+    Bearer-Token-Authentifizierung wie jeder andere Endpoint (kein
+    separates API-Key-System noetig) -- ein Asset Manager erhaelt einen
+    Tenant-User-Account, meldet sich ueber POST /auth/login an und ruft
+    diesen Endpoint mit dem erhaltenen Token auf. Siehe _import_products
+    fuer die Upsert-/Isolationslogik."""
+    rows = [p.model_dump() for p in body.products]
+    return _import_products(rows, db, current_user)
+
+
+@products_router.post("/import/csv", response_model=ProductImportResponse, status_code=201)
+def import_products_csv(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Fondsuniversum CSV-Import: erlaubt einem Asset Manager, seinen
+    Fondskatalog per Datei-Upload statt Einzel-Erfassung einzuspielen.
+    Spalten-Reihenfolge ist egal (Header-basiertes Mapping), Trennzeichen
+    wird automatisch erkannt (Komma oder Semikolon -- Schweizer/deutsches
+    Excel exportiert standardmaessig mit Semikolon). Siehe
+    /products/import/csv/template fuer die erwarteten Spaltennamen."""
+    raw_bytes = file.file.read()
+    if len(raw_bytes) > _PRODUCT_IMPORT_MAX_FILE_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"CSV-Datei zu gross (max. {_PRODUCT_IMPORT_MAX_FILE_BYTES // 1024} KB)",
+        )
+    try:
+        text_content = raw_bytes.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        raise HTTPException(status_code=422, detail="CSV-Datei muss UTF-8-kodiert sein")
+    try:
+        dialect = csv.Sniffer().sniff(text_content[:2048], delimiters=",;\t")
+    except csv.Error:
+        dialect = csv.excel
+    reader = csv.DictReader(io.StringIO(text_content), dialect=dialect)
+    if not reader.fieldnames:
+        raise HTTPException(status_code=422, detail="CSV-Datei hat keine Kopfzeile")
+    rows = [_normalize_csv_import_row(raw) for raw in reader]
+    if not rows:
+        raise HTTPException(status_code=422, detail="CSV-Datei enthaelt keine Datenzeilen")
+    if len(rows) > _PRODUCT_IMPORT_MAX_ROWS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Maximal {_PRODUCT_IMPORT_MAX_ROWS} Fonds pro Import (erhalten: {len(rows)})",
+        )
+    return _import_products(rows, db, current_user)
+
+
+@products_router.get("/import/csv/template")
+def download_products_csv_template(
+    current_user: User = Depends(require_admin),
+):
+    """CSV-Vorlage mit den vom Import erwarteten Spaltennamen -- je ein
+    Beispiel fuer einen kotierten (mit ISIN/Symbol) und einen
+    nicht-kotierten Fonds (ISIN/Symbol leer)."""
+    header = ",".join(_PRODUCT_IMPORT_CSV_FIELDS)
+    example_listed = (
+        "Global Equity UCITS ETF,Beispiel Asset Management,Fonds,Aktien,"
+        "Global,CHF,IE00BEXAMPLE1,GEQC,25,8,AA,daily"
+    )
+    example_unlisted = (
+        "Privatmarkt-Anlagestiftung,Beispiel Asset Management,Fonds,Alternative,"
+        "Private Equity,CHF,,,150,,,illiquid"
+    )
+    csv_content = "\n".join([header, example_listed, example_unlisted]) + "\n"
+    return Response(
+        content=csv_content,
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=fondsuniversum-import-vorlage.csv"},
+    )
 
 
 @products_router.put("/{product_id}", response_model=ProductResponse)

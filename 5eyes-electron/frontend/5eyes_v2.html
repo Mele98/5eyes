@@ -11561,6 +11561,101 @@ async function adminCreateFund(){
   }
 }
 
+// 2026-08-05 (User-Direktive, Fondsuniversum-Import): CSV-Bulk-Import fuer
+// Asset Manager mit grossen Fondskatalogen. Nutzt bewusst rohes fetch()
+// statt API.post() -- API.fetch() setzt IMMER 'Content-Type: application/json'
+// (siehe API.fetch oben), das wuerde den multipart/form-data-Boundary der
+// Datei-Upload zerstoeren. Mirrort den bereits etablierten Roh-fetch-Pattern
+// von downloadServerPdf() (Token aus API.getToken(), Basis-URL aus
+// API.baseUrl()).
+function adminRenderFundImportResult(result){
+  var box = document.getElementById('pf-import-result');
+  if (!box) return;
+  box.style.display = 'block';
+  var summary = '<div style="margin-bottom:6px"><strong>' + result.processed + '</strong> Zeilen verarbeitet — '
+    + result.created + ' neu, ' + result.updated + ' aktualisiert'
+    + (result.failed ? ', <span style="color:var(--neg)">' + result.failed + ' fehlgeschlagen</span>' : '') + '.</div>';
+  var failedItems = (result.items || []).filter(function(i){ return i.status === 'failed'; });
+  var html = summary;
+  if (failedItems.length) {
+    html += '<div style="max-height:160px;overflow-y:auto;border:1px solid var(--b1);border-radius:var(--r2)">'
+      + '<table class="admin-tbl"><thead><tr><th>Zeile</th><th>Fonds</th><th>Fehler</th></tr></thead><tbody>';
+    failedItems.forEach(function(item){
+      html += '<tr><td>' + item.row + '</td><td>' + escapeHtml(item.product_name || '—') + '</td>'
+        + '<td style="color:var(--neg)">' + escapeHtml(item.error || '') + '</td></tr>';
+    });
+    html += '</tbody></table></div>';
+  }
+  box.innerHTML = html;
+}
+async function adminImportFundsCsv(){
+  var errBox = document.getElementById('pf-import-error');
+  var resultBox = document.getElementById('pf-import-result');
+  var fileInput = document.getElementById('pf-import-file');
+  if (errBox) { errBox.style.display = 'none'; errBox.textContent = ''; }
+  if (resultBox) { resultBox.style.display = 'none'; resultBox.innerHTML = ''; }
+  var file = fileInput && fileInput.files && fileInput.files[0];
+  if (!file) {
+    if (errBox) { errBox.style.display = 'block'; errBox.textContent = 'Bitte zuerst eine CSV-Datei auswaehlen.'; }
+    return;
+  }
+  var btn = document.getElementById('btn-pf-import');
+  if (btn) { btn.disabled = true; btn.textContent = 'Importiere...'; }
+  try {
+    var token = await API.getToken();
+    var base = await API.baseUrl();
+    var form = new FormData();
+    form.append('file', file, file.name);
+    var res = await fetch(base + '/products/import/csv', {
+      method: 'POST',
+      headers: token ? {'Authorization': 'Bearer ' + token} : {},
+      body: form,
+    });
+    var txt = await res.text();
+    var parsed = null;
+    try { parsed = JSON.parse(txt); } catch(e) {}
+    if (!res.ok) {
+      var detail = (parsed && parsed.detail) ? (typeof parsed.detail === 'string' ? parsed.detail : JSON.stringify(parsed.detail)) : txt;
+      throw new Error(detail || ('HTTP ' + res.status));
+    }
+    adminRenderFundImportResult(parsed);
+    fileInput.value = '';
+    if (parsed && (parsed.created || parsed.updated)) {
+      adminProductUniverseState.products = [];
+      adminSearchFunds();
+    }
+  } catch(e) {
+    if (errBox) { errBox.style.display = 'block'; errBox.textContent = 'Import fehlgeschlagen: ' + (e && e.message ? e.message : String(e)); }
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Importieren'; }
+  }
+}
+async function adminDownloadFundImportTemplate(){
+  try {
+    var token = await API.getToken();
+    var base = await API.baseUrl();
+    var res = await fetch(base + '/products/import/csv/template', {
+      headers: token ? {'Authorization': 'Bearer ' + token} : {},
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    var blob = await res.blob();
+    var url = URL.createObjectURL(blob);
+    var filename = 'fondsuniversum-import-vorlage.csv';
+    try {
+      var disp = res.headers.get('Content-Disposition') || '';
+      var match = disp.match(/filename="?([^"]+)"?/i);
+      if (match && match[1]) filename = match[1];
+    } catch(e) {}
+    var a = document.createElement('a');
+    a.href = url; a.download = filename; document.body.appendChild(a); a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  } catch(e) {
+    if (window.showAppError) showAppError('Vorlage konnte nicht heruntergeladen werden.');
+    else alert('Vorlage konnte nicht heruntergeladen werden.');
+  }
+}
+
 async function loadAdminProductUniverseEntries(){
   var tbody = document.getElementById('pu-list-tbody');
   var errBox = document.getElementById('pu-error');
@@ -25285,6 +25380,22 @@ function openStammdatenModal(){
               <tbody id="pf-search-tbody"><tr><td colspan="5" style="color:var(--n4)">Suchbegriff eingeben oder direkt suchen fuer den vollen Katalog.</td></tr></tbody>
             </table>
           </div>
+
+          <!-- 2026-08-05 (User-Direktive: "Schnittstelle machen ... damit
+               jedes Assetmanagement seine eigene Fonds der Software
+               fuettern kann"): Bulk-Import per CSV fuer Asset Manager mit
+               grossen Fondskatalogen (Einzel-Erfassung oben bleibt fuer
+               Einzelfaelle). Backend: POST /products/import/csv. -->
+          <div class="admin-section-title">Fonds-Import (CSV)</div>
+          <div class="admin-section-sub">Ganzen Fondskatalog auf einmal hochladen -- Kopfzeile mit Spaltennamen, Komma oder Semikolon als Trennzeichen. Ein erneuter Upload aktualisiert bestehende Fonds anhand ISIN/Symbol, statt sie zu duplizieren.</div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <input type="file" id="pf-import-file" accept=".csv,text/csv" style="font-size:11px">
+            <button class="btn-p admin-primary-btn" onclick="adminImportFundsCsv()" id="btn-pf-import">Importieren</button>
+            <button class="btn" style="background:var(--bg2);color:var(--n6)" onclick="adminDownloadFundImportTemplate()">Vorlage herunterladen</button>
+          </div>
+          <div id="pf-import-error" style="display:none;color:var(--neg);font-size:10px"></div>
+          <div id="pf-import-result" style="display:none;font-size:11px"></div>
+          <div class="admin-section-sub" style="margin-top:2px">Programmatische Anbindung fuer Asset-Manager-Systeme: <code>POST /products/import</code> (JSON, gleicher Bearer-Token wie der Login) nimmt bis zu 1000 Fonds pro Aufruf entgegen. Feldschema wie beim CSV-Import.</div>
 
           <div class="admin-section-title">Fonds-Universum pro Jurisdiktion</div>
           <div class="admin-section-sub">Kuratierte Positivliste, welche Fonds fuer diese Verwaltung in einem Land zulaessig sind bzw. eigene, ausgehandelte Konditionen haben. Ohne Eintraege fuer ein Land bleibt der volle Produktkatalog unveraendert nutzbar.</div>

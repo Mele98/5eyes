@@ -167,6 +167,271 @@ def test_search_matches_product_name_provider_isin_symbol(session_factory):
     assert by_symbol == {"Dritter Fonds"}
 
 
+def test_bulk_import_json_creates_multiple_products(session_factory):
+    _seed_tenants(session_factory, ["firm-a"])
+    try:
+        with _client_for(session_factory, user_id="u-a", tenant_id="firm-a") as client:
+            resp = client.post("/products/import", json={"products": [
+                {"product_name": "Fonds Eins", "product_type": "Fonds", "asset_class": "Aktien", "currency": "CHF"},
+                {"product_name": "Fonds Zwei", "product_type": "Fonds", "asset_class": "Obligationen", "currency": "CHF"},
+            ]})
+            assert resp.status_code == 201, resp.text
+            body = resp.json()
+            listed = client.get("/products").json()
+    finally:
+        app.dependency_overrides.clear()
+    assert body["processed"] == 2
+    assert body["created"] == 2
+    assert body["updated"] == 0
+    assert body["failed"] == 0
+    assert all(item["status"] == "created" for item in body["items"])
+    by_name = {p["product_name"]: p for p in listed}
+    assert {"Fonds Eins", "Fonds Zwei"} <= set(by_name)
+    assert by_name["Fonds Eins"]["tenant_id"] == "firm-a"
+
+
+def test_bulk_import_upserts_on_matching_isin_same_tenant(session_factory):
+    """Re-Upload desselben Fondskatalogs (z.B. monatlich) darf keine
+    Duplikate erzeugen -- ein Match auf (tenant_id, isin) aktualisiert
+    das bestehende Produkt statt ein zweites anzulegen."""
+    _seed_tenants(session_factory, ["firm-a"])
+    try:
+        with _client_for(session_factory, user_id="u-a", tenant_id="firm-a") as client:
+            first = client.post("/products/import", json={"products": [
+                {"product_name": "UBS Fund V1", "product_type": "Fonds", "asset_class": "Aktien",
+                 "currency": "CHF", "isin": "CH0001111111", "ter_bps": 20},
+            ]})
+            assert first.status_code == 201, first.text
+            product_id = first.json()["items"][0]["product_id"]
+
+            second = client.post("/products/import", json={"products": [
+                {"product_name": "UBS Fund V2 (umbenannt)", "product_type": "Fonds", "asset_class": "Aktien",
+                 "currency": "CHF", "isin": "CH0001111111", "ter_bps": 25},
+            ]})
+            assert second.status_code == 201, second.text
+            body = second.json()
+            listed = client.get("/products?q=CH0001111111").json()
+    finally:
+        app.dependency_overrides.clear()
+    assert body["created"] == 0
+    assert body["updated"] == 1
+    assert body["items"][0]["status"] == "updated"
+    assert body["items"][0]["product_id"] == product_id
+    assert len(listed) == 1
+    assert listed[0]["product_name"] == "UBS Fund V2 (umbenannt)"
+    assert listed[0]["ter_bps"] == 25
+
+
+def test_bulk_import_upsert_never_crosses_tenant_boundary(session_factory):
+    """Ein Re-Upload von Firma A mit derselben ISIN darf NIE ein Produkt
+    von Firma B aktualisieren -- der Match ist strikt tenant-gescoped."""
+    _seed_tenants(session_factory, ["firm-a", "firm-b"])
+    other_id = _add_product(
+        session_factory, product_name="Firma B Original",
+        tenant_id="firm-b", isin="CH0009999999",
+    )
+    try:
+        with _client_for(session_factory, user_id="u-a", tenant_id="firm-a") as client:
+            resp = client.post("/products/import", json={"products": [
+                {"product_name": "Firma A Version", "product_type": "Fonds", "asset_class": "Aktien",
+                 "currency": "CHF", "isin": "CH0009999999"},
+            ]})
+            assert resp.status_code == 201, resp.text
+            body = resp.json()
+    finally:
+        app.dependency_overrides.clear()
+    assert body["created"] == 1
+    assert body["updated"] == 0
+    with session_factory() as s:
+        untouched = s.get(Product, other_id)
+        assert untouched.product_name == "Firma B Original"
+        assert untouched.tenant_id == "firm-b"
+
+
+def test_bulk_import_json_rejects_invalid_row_at_request_level(session_factory):
+    """JSON-API validiert strikt beim Request-Parsing (ProductCreate hat
+    ein Literal fuer asset_class) -- anders als beim CSV-Import (siehe
+    dort) gibt es hier kein Teilerfolg-Verhalten, das ist beabsichtigt:
+    ein programmatischer API-Aufrufer soll sofort und eindeutig scheitern."""
+    _seed_tenants(session_factory, ["firm-a"])
+    try:
+        with _client_for(session_factory, user_id="u-a", tenant_id="firm-a") as client:
+            resp = client.post("/products/import", json={"products": [
+                {"product_name": "Schlecht", "product_type": "Fonds", "asset_class": "Bitcoin", "currency": "CHF"},
+            ]})
+    finally:
+        app.dependency_overrides.clear()
+    assert resp.status_code == 422
+
+
+def test_bulk_import_json_rejects_empty_products_list(session_factory):
+    _seed_tenants(session_factory, ["firm-a"])
+    try:
+        with _client_for(session_factory, user_id="u-a", tenant_id="firm-a") as client:
+            resp = client.post("/products/import", json={"products": []})
+    finally:
+        app.dependency_overrides.clear()
+    assert resp.status_code == 422
+
+
+def test_import_endpoints_require_admin_role(session_factory):
+    _seed_tenants(session_factory, ["firm-a"])
+    try:
+        with _client_for(session_factory, user_id="u-a", tenant_id="firm-a", role="advisor") as client:
+            resp = client.post("/products/import", json={"products": [
+                {"product_name": "X", "product_type": "Fonds", "asset_class": "Aktien", "currency": "CHF"},
+            ]})
+    finally:
+        app.dependency_overrides.clear()
+    assert resp.status_code == 403
+
+
+def test_csv_import_creates_listed_and_unlisted_funds(session_factory):
+    _seed_tenants(session_factory, ["firm-a"])
+    csv_bytes = (
+        "product_name,provider,product_type,asset_class,sub_asset_class,currency,"
+        "isin,symbol,ter_bps,sfdr_class,esg_rating,liquidity_tier\n"
+        "Global Equity ETF,Beispiel AM,Fonds,Aktien,Global,CHF,IE00BTEST001,GEQC,25,8,AA,daily\n"
+        "Privatmarktfonds,Beispiel AM,Fonds,Alternative,Private Equity,CHF,,,150,,,illiquid\n"
+    ).encode("utf-8")
+    try:
+        with _client_for(session_factory, user_id="u-a", tenant_id="firm-a") as client:
+            resp = client.post(
+                "/products/import/csv",
+                files={"file": ("funds.csv", csv_bytes, "text/csv")},
+            )
+            assert resp.status_code == 201, resp.text
+            body = resp.json()
+            listed = client.get("/products").json()
+    finally:
+        app.dependency_overrides.clear()
+    assert body["processed"] == 2
+    assert body["created"] == 2
+    assert body["failed"] == 0
+    by_name = {p["product_name"]: p for p in listed}
+    assert by_name["Global Equity ETF"]["isin"] == "IE00BTEST001"
+    assert by_name["Privatmarktfonds"]["isin"] is None
+    assert by_name["Privatmarktfonds"]["symbol"] is None
+    assert all(p["tenant_id"] == "firm-a" for p in by_name.values())
+
+
+def test_csv_import_detects_semicolon_delimiter(session_factory):
+    """Schweizer/deutsches Excel exportiert CSV standardmaessig mit
+    Semikolon als Trennzeichen -- muss automatisch erkannt werden."""
+    _seed_tenants(session_factory, ["firm-a"])
+    csv_bytes = (
+        "product_name;provider;product_type;asset_class;sub_asset_class;currency;"
+        "isin;symbol;ter_bps;sfdr_class;esg_rating;liquidity_tier\n"
+        "Schweizer Obligationenfonds;Beispiel AM;Fonds;Obligationen;CH-Bonds;CHF;;;45;;;daily\n"
+    ).encode("utf-8")
+    try:
+        with _client_for(session_factory, user_id="u-a", tenant_id="firm-a") as client:
+            resp = client.post(
+                "/products/import/csv",
+                files={"file": ("funds.csv", csv_bytes, "text/csv")},
+            )
+    finally:
+        app.dependency_overrides.clear()
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["created"] == 1
+    assert body["items"][0]["product_name"] == "Schweizer Obligationenfonds"
+
+
+def test_csv_import_partial_failure_reports_row_and_continues(session_factory):
+    """Eine fehlerhafte Zeile (ungueltige asset_class) darf den restlichen
+    Import NICHT abbrechen -- partial success, Fehler landet im Report."""
+    _seed_tenants(session_factory, ["firm-a"])
+    csv_bytes = (
+        "product_name,product_type,asset_class,currency\n"
+        "Guter Fonds,Fonds,Aktien,CHF\n"
+        "Schlechter Fonds,Fonds,Bitcoin,CHF\n"
+    ).encode("utf-8")
+    try:
+        with _client_for(session_factory, user_id="u-a", tenant_id="firm-a") as client:
+            resp = client.post(
+                "/products/import/csv",
+                files={"file": ("funds.csv", csv_bytes, "text/csv")},
+            )
+    finally:
+        app.dependency_overrides.clear()
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["processed"] == 2
+    assert body["created"] == 1
+    assert body["failed"] == 1
+    failed_item = next(i for i in body["items"] if i["status"] == "failed")
+    assert failed_item["row"] == 2
+    assert failed_item["product_name"] == "Schlechter Fonds"
+    assert "asset_class" in failed_item["error"]
+
+
+def test_csv_import_ignores_tenant_id_column_spoofing_attempt(session_factory):
+    _seed_tenants(session_factory, ["firm-a", "firm-b"])
+    csv_bytes = (
+        "product_name,product_type,asset_class,currency,tenant_id\n"
+        "Gespoofter Fonds,Fonds,Aktien,CHF,firm-b\n"
+    ).encode("utf-8")
+    try:
+        with _client_for(session_factory, user_id="u-a", tenant_id="firm-a") as client:
+            resp = client.post(
+                "/products/import/csv",
+                files={"file": ("funds.csv", csv_bytes, "text/csv")},
+            )
+            assert resp.status_code == 201, resp.text
+            listed = client.get("/products").json()
+    finally:
+        app.dependency_overrides.clear()
+    product = next(p for p in listed if p["product_name"] == "Gespoofter Fonds")
+    assert product["tenant_id"] == "firm-a"
+
+
+def test_csv_import_rejects_too_many_rows(session_factory):
+    _seed_tenants(session_factory, ["firm-a"])
+    header = "product_name,product_type,asset_class,currency\n"
+    rows = "".join(f"Fonds {i},Fonds,Aktien,CHF\n" for i in range(1001))
+    csv_bytes = (header + rows).encode("utf-8")
+    try:
+        with _client_for(session_factory, user_id="u-a", tenant_id="firm-a") as client:
+            resp = client.post(
+                "/products/import/csv",
+                files={"file": ("funds.csv", csv_bytes, "text/csv")},
+            )
+    finally:
+        app.dependency_overrides.clear()
+    assert resp.status_code == 422
+
+
+def test_csv_import_rejects_oversized_file(session_factory):
+    _seed_tenants(session_factory, ["firm-a"])
+    oversized = b"product_name,product_type,asset_class,currency\n" + b"x" * (2 * 1024 * 1024 + 1)
+    try:
+        with _client_for(session_factory, user_id="u-a", tenant_id="firm-a") as client:
+            resp = client.post(
+                "/products/import/csv",
+                files={"file": ("funds.csv", oversized, "text/csv")},
+            )
+    finally:
+        app.dependency_overrides.clear()
+    assert resp.status_code == 413
+
+
+def test_csv_template_download_has_expected_headers(session_factory):
+    _seed_tenants(session_factory, ["firm-a"])
+    try:
+        with _client_for(session_factory, user_id="u-a", tenant_id="firm-a") as client:
+            resp = client.get("/products/import/csv/template")
+    finally:
+        app.dependency_overrides.clear()
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("text/csv")
+    first_line = resp.text.splitlines()[0]
+    assert first_line == (
+        "product_name,provider,product_type,asset_class,sub_asset_class,currency,"
+        "isin,symbol,ter_bps,sfdr_class,esg_rating,liquidity_tier"
+    )
+
+
 def test_unlisted_fund_without_isin_or_symbol_is_valid(session_factory):
     """Nicht-kotierte Fonds (kein ISIN/Symbol, keine Live-Bepreisung) sind
     ein voll gueltiges Produkt -- isin/symbol sind bereits optional."""
