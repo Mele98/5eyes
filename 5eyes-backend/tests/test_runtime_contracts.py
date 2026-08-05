@@ -439,6 +439,27 @@ def test_eodhd_reference_preview_scores_exact_isin_and_currency_matches(monkeypa
     assert result["candidates"][0]["match_score"] > result["candidates"][1]["match_score"]
 
 
+def test_eodhd_preview_rate_limit_error_maps_to_http_429(monkeypatch):
+    """Mega-Audit (2026-08-04): eodhd_client wirft jetzt typisiert
+    RateLimitError statt generischem RuntimeError bei HTTP 429 -- der
+    Router muss das explizit auf 429 statt eines unbehandelten 500 mappen
+    (RateLimitError erbt NICHT von RuntimeError)."""
+    from routers.review import _preview_eodhd_or_raise
+    from services.market_data.exceptions import RateLimitError
+
+    def _boom(**_kwargs):
+        raise RateLimitError("EODHD 429 Too Many Requests")
+
+    monkeypatch.setattr("routers.review.preview_eodhd_reference", _boom)
+
+    with pytest.raises(HTTPException) as exc_info:
+        _preview_eodhd_or_raise(
+            product=None, isin="CH0001341608", symbol=None,
+            product_name=None, exchange_code=None, currency=None,
+        )
+    assert exc_info.value.status_code == 429
+
+
 def test_price_quality_exposes_isin_only_direct_lookup(session_factory):
     with session_factory() as session:
         session.add(

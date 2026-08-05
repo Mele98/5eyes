@@ -16,9 +16,11 @@ for path in (BACKEND_ROOT, TESTS_ROOT):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
+from services.market_data.exceptions import RateLimitError
 from services.twelvedata_client import (
     TWELVEDATA_TIME_SERIES_URL,
     _extract_series_payload,
+    _request_json,
     _to_rappen,
     fetch_twelvedata_latest_prices,
 )
@@ -123,6 +125,64 @@ def test_fetch_returns_empty_for_whitespace_symbols(monkeypatch):
     monkeypatch.setattr(tdc.settings, "twelvedata_api_key", "test-key", raising=False)
     result = fetch_twelvedata_latest_prices(["  ", "", None])  # type: ignore[list-item]
     assert result == ({}, {})
+
+
+# ---------------------------------------------------------------------------
+# Mega-Audit (2026-08-04): HTTP 429 wurde bisher wie jeder andere
+# Netzwerkfehler generisch in RuntimeError gewrappt -- keine Rate-Limit-
+# Erkennung im Gegensatz zu den modernen Providern (services/market_data/).
+# ---------------------------------------------------------------------------
+
+def test_request_json_raises_rate_limit_error_on_http_429(monkeypatch):
+    from urllib.error import HTTPError
+    from services import twelvedata_client as tdc
+
+    def _fake_urlopen(request, timeout=15):
+        raise HTTPError(request.full_url, 429, "Too Many Requests", {}, None)
+
+    monkeypatch.setattr(tdc, "urlopen", _fake_urlopen)
+    with pytest.raises(RateLimitError, match="429"):
+        _request_json("https://api.twelvedata.com/time_series?symbol=AAPL")
+
+
+def test_request_json_non_429_http_error_stays_runtime_error(monkeypatch):
+    from urllib.error import HTTPError
+    from services import twelvedata_client as tdc
+
+    def _fake_urlopen(request, timeout=15):
+        raise HTTPError(request.full_url, 503, "Service Unavailable", {}, None)
+
+    monkeypatch.setattr(tdc, "urlopen", _fake_urlopen)
+    with pytest.raises(RuntimeError) as exc_info:
+        _request_json("https://api.twelvedata.com/time_series?symbol=AAPL")
+    assert not isinstance(exc_info.value, RateLimitError)
+
+
+def test_fetch_raises_rate_limit_error_on_json_embedded_code_429(monkeypatch):
+    """Twelve Data meldet ein erreichtes Rate-Limit als HTTP 200 mit
+    "status":"error"/"code":429 im JSON-Body -- kein echter HTTP-429."""
+    from services import twelvedata_client as tdc
+
+    monkeypatch.setattr(tdc.settings, "twelvedata_api_key", "test-key", raising=False)
+    monkeypatch.setattr(
+        tdc, "_request_json",
+        lambda url: {"status": "error", "code": 429, "message": "You have run out of API credits."},
+    )
+    with pytest.raises(RateLimitError, match="Rate-Limit"):
+        fetch_twelvedata_latest_prices(["AAPL"])
+
+
+def test_fetch_non_429_json_error_stays_runtime_error(monkeypatch):
+    from services import twelvedata_client as tdc
+
+    monkeypatch.setattr(tdc.settings, "twelvedata_api_key", "test-key", raising=False)
+    monkeypatch.setattr(
+        tdc, "_request_json",
+        lambda url: {"status": "error", "code": 400, "message": "Invalid symbol"},
+    )
+    with pytest.raises(RuntimeError) as exc_info:
+        fetch_twelvedata_latest_prices(["AAPL"])
+    assert not isinstance(exc_info.value, RateLimitError)
 
 
 # ---------------------------------------------------------------------------

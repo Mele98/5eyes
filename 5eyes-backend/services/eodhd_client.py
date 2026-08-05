@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import json
 from typing import Any
+from urllib.error import HTTPError
 from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
 
 from config import settings
+from services.market_data.exceptions import RateLimitError
 
 
 EODHD_SEARCH_URL = "https://eodhd.com/api/search/{query}"
@@ -32,6 +34,15 @@ def _request_json(url: str) -> Any:
     try:
         with urlopen(request, timeout=15) as response:
             payload = response.read().decode("utf-8")
+    except HTTPError as exc:
+        # Mega-Audit (2026-08-04): HTTP 429 wurde bisher identisch zu jedem
+        # anderen Netzwerkfehler in ein generisches RuntimeError gewrappt --
+        # der Aufrufer konnte Rate-Limits nicht von echten Ausfaellen
+        # unterscheiden, im Gegensatz zu den modernen Providern in
+        # services/market_data/ (RateLimitError-Vertrag).
+        if exc.code == 429:
+            raise RateLimitError("EODHD 429 Too Many Requests") from exc
+        raise RuntimeError(f"EODHD Request fehlgeschlagen: HTTP {exc.code}") from exc
     except Exception as exc:
         raise RuntimeError(f"EODHD Request fehlgeschlagen: {exc}") from exc
     try:

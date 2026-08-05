@@ -44,6 +44,7 @@ from services.audit import log
 from services.advisory_report_cache import invalidate_mandate as invalidate_advisory_cache
 from services.data_classification import enforce_data_classification
 from services.eodhd_client import preview_eodhd_reference
+from services.market_data.exceptions import RateLimitError
 from services.openfigi_client import preview_openfigi_mapping
 from services.portfolio_engine import build_recommendation_payload_from_run, generate_recommendation_run
 from services.product_market_data import resolve_market_profile
@@ -394,6 +395,12 @@ def _preview_eodhd_or_raise(
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
+    except RateLimitError as exc:
+        # Mega-Audit (2026-08-04): eodhd_client wirft jetzt typisiert
+        # RateLimitError statt generischem RuntimeError bei HTTP 429 --
+        # RateLimitError erbt NICHT von RuntimeError, also eigener Catch
+        # (sonst unbehandelter 500 statt aussagekraeftigem 429).
+        raise HTTPException(status_code=429, detail=str(exc))
     except RuntimeError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
 
