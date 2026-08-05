@@ -19,6 +19,7 @@ if str(BACKEND_ROOT) not in sys.path:
 
 from database import Base, get_db
 from main import app
+from models.users import User
 from services.login_guard import login_attempt_guard
 
 
@@ -176,3 +177,62 @@ def test_bootstrap_admin_xff_spoofing_does_not_bypass_rate_limit_by_default(clie
         headers={"X-Forwarded-For": "203.0.113.42"},
     )
     assert spoofed.status_code == 429
+
+
+def test_concurrent_bootstrap_requests_create_exactly_one_admin(session_factory, monkeypatch):
+    """AUTH-05 (Mega-Audit 2026-08-04): _bootstrap_required() (Check) und
+    db.add(admin)+commit() (Write) waren zwei getrennte Schritte -- zwei
+    nahezu gleichzeitige Requests konnten beide den Check bestehen, bevor
+    irgendeiner committet, und wuerden dann zwei "erste" Admins anlegen.
+
+    Ruft bootstrap_admin() direkt (nicht via TestClient/HTTP) mit zwei
+    ECHTEN, unabhaengigen DB-Sessions aus zwei echten Threads auf --
+    TestClient ueber mehrere Threads gleichzeitig ist nicht garantiert
+    threadsicher, die reine Funktion + eigene Sessions schon. Ein
+    threading.Barrier zwingt beide Threads, den Check so gleichzeitig wie
+    moeglich zu erreichen; ohne den _bootstrap_admin_lock waere das ein
+    exploitierbares Zeitfenster fuer zwei "erste" Admins."""
+    import threading
+
+    from fastapi import HTTPException
+
+    from routers.auth import bootstrap_admin
+    from schemas.users import BootstrapAdminRequest
+
+    class _FakeClient:
+        def __init__(self, host):
+            self.host = host
+
+    class _FakeRequest:
+        def __init__(self, host):
+            self.headers = {}
+            self.client = _FakeClient(host)
+
+    barrier = threading.Barrier(2)
+    outcomes: list[str] = []
+    lock = threading.Lock()
+
+    def _attempt(username, host):
+        barrier.wait(timeout=5)
+        with session_factory() as db:
+            body = BootstrapAdminRequest(username=username, password="pw12345678", full_name="Root")
+            try:
+                bootstrap_admin(body, _FakeRequest(host), db=db)
+                with lock:
+                    outcomes.append("201")
+            except HTTPException as exc:
+                with lock:
+                    outcomes.append(str(exc.status_code))
+
+    t1 = threading.Thread(target=_attempt, args=("root_thread_a", "10.1.1.1"))
+    t2 = threading.Thread(target=_attempt, args=("root_thread_b", "10.1.1.2"))
+    t1.start()
+    t2.start()
+    t1.join(timeout=10)
+    t2.join(timeout=10)
+
+    assert sorted(outcomes) == ["201", "409"], outcomes
+
+    with session_factory() as s:
+        admin_count = s.query(User).filter(User.role == "admin").count()
+    assert admin_count == 1

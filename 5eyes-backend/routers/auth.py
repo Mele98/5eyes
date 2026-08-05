@@ -1,6 +1,7 @@
 import hashlib
 import logging
 import secrets
+import threading
 import time
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -61,6 +62,21 @@ def _bootstrap_required(db: Session) -> bool:
         .first()
     )
     return existing_user is None
+
+
+# AUTH-05 (Mega-Audit 2026-08-04): TOCTOU-Race fuer "genau 1 Bootstrap-Admin".
+# _bootstrap_required() (Check) und das anschliessende db.add(admin)+commit()
+# (Write) sind zwei getrennte Schritte -- zwei nahezu gleichzeitige POST
+# /auth/bootstrap-admin-Requests koennten beide den Check bestehen, bevor
+# irgendeiner committet, und wuerden dann zwei "erste" Admins anlegen. Dieser
+# Lock serialisiert den Check+Write-Block INNERHALB eines Prozesses (Tier-1:
+# Electron spawnt genau einen Backend-Prozess -- deckt den realistischen Fall
+# vollstaendig ab). Deckt NICHT mehrere Worker-Prozesse hinter einem
+# Load-Balancer ab (Tier-2/3) -- dort muesste zusaetzlich ein DB-seitiger
+# Singleton-Constraint eingefuehrt werden, was eine Schema-Migration braucht
+# und bewusst nicht Teil dieses Fixes ist (Ersteinrichtung findet in der
+# Praxis typischerweise vor dem Hochskalieren auf mehrere Worker statt).
+_bootstrap_admin_lock = threading.Lock()
 
 
 def _issue_token_response(user: User, db: Session | None = None) -> TokenResponse:
@@ -168,49 +184,52 @@ def bootstrap_admin(body: BootstrapAdminRequest, request: Request, db: Session =
             headers={"Retry-After": str(decision.retry_after_seconds)},
         )
 
-    if not _bootstrap_required(db):
-        failure = login_attempt_guard.register_failure(guard_key)
-        if not failure.allowed:
-            raise HTTPException(
-                status_code=429,
-                detail=failure.reason or "Zu viele Versuche. Bitte später erneut versuchen.",
-                headers={"Retry-After": str(failure.retry_after_seconds)},
-            )
-        raise HTTPException(status_code=409, detail='Ersteinrichtung bereits abgeschlossen')
+    # AUTH-05: Check (_bootstrap_required) und Write (add+commit) muessen
+    # atomar wirken -- siehe Kommentar bei _bootstrap_admin_lock oben.
+    with _bootstrap_admin_lock:
+        if not _bootstrap_required(db):
+            failure = login_attempt_guard.register_failure(guard_key)
+            if not failure.allowed:
+                raise HTTPException(
+                    status_code=429,
+                    detail=failure.reason or "Zu viele Versuche. Bitte später erneut versuchen.",
+                    headers={"Retry-After": str(failure.retry_after_seconds)},
+                )
+            raise HTTPException(status_code=409, detail='Ersteinrichtung bereits abgeschlossen')
 
-    now = _now()
-    admin = User(
-        id=new_uuid(),
-        username=body.username.strip(),
-        password_hash=hash_password(body.password),
-        full_name=body.full_name.strip(),
-        email=(body.email or None),
-        role='admin',
-        is_active=1,
-        created_at=now,
-        updated_at=now,
-    )
-    db.add(admin)
-    # 2026-08-01 (Onboarding, Entscheid Auftraggeber): Firmenidentitaet/
-    # -Standort der Default-Tenant-Zeile ('main', von database.py::
-    # ensure_default_tenant() bereits beim Boot angelegt) hier mitpflegen,
-    # falls angegeben -- sonst bliebe sie dauerhaft "Default Tenant" mit
-    # NULL-Jurisdiktion. Bewusst optional/best-effort: die Ersteinrichtung
-    # darf nicht am Tenant-Update scheitern, und eine spaetere Korrektur ist
-    # jederzeit ueber PUT /tenants/me moeglich.
-    if body.company_name or body.home_jurisdiction or body.default_presentation_mode:
-        from models.tenant import DEFAULT_TENANT_ID
-        tenant = db.query(Tenant).filter(Tenant.id == DEFAULT_TENANT_ID).first()
-        if tenant is not None:
-            if body.company_name:
-                tenant.display_name = body.company_name.strip()
-            if body.home_jurisdiction:
-                tenant.home_jurisdiction = body.home_jurisdiction.strip()
-            if body.default_presentation_mode:
-                tenant.default_presentation_mode = body.default_presentation_mode
-            tenant.updated_at = now
-    db.commit()
-    db.refresh(admin)
+        now = _now()
+        admin = User(
+            id=new_uuid(),
+            username=body.username.strip(),
+            password_hash=hash_password(body.password),
+            full_name=body.full_name.strip(),
+            email=(body.email or None),
+            role='admin',
+            is_active=1,
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(admin)
+        # 2026-08-01 (Onboarding, Entscheid Auftraggeber): Firmenidentitaet/
+        # -Standort der Default-Tenant-Zeile ('main', von database.py::
+        # ensure_default_tenant() bereits beim Boot angelegt) hier mitpflegen,
+        # falls angegeben -- sonst bliebe sie dauerhaft "Default Tenant" mit
+        # NULL-Jurisdiktion. Bewusst optional/best-effort: die Ersteinrichtung
+        # darf nicht am Tenant-Update scheitern, und eine spaetere Korrektur ist
+        # jederzeit ueber PUT /tenants/me moeglich.
+        if body.company_name or body.home_jurisdiction or body.default_presentation_mode:
+            from models.tenant import DEFAULT_TENANT_ID
+            tenant = db.query(Tenant).filter(Tenant.id == DEFAULT_TENANT_ID).first()
+            if tenant is not None:
+                if body.company_name:
+                    tenant.display_name = body.company_name.strip()
+                if body.home_jurisdiction:
+                    tenant.home_jurisdiction = body.home_jurisdiction.strip()
+                if body.default_presentation_mode:
+                    tenant.default_presentation_mode = body.default_presentation_mode
+                tenant.updated_at = now
+        db.commit()
+        db.refresh(admin)
     login_attempt_guard.register_success(guard_key)
     logger.info('Bootstrap admin created | username=%s', admin.username)
     return _issue_token_response(admin, db)
