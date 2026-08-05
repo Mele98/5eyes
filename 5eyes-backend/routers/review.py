@@ -3,7 +3,7 @@ from collections.abc import Callable
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
-from sqlalchemy import bindparam, text
+from sqlalchemy import bindparam, or_, text
 from sqlalchemy.exc import IntegrityError
 from datetime import date, datetime, timezone
 from config import settings
@@ -39,7 +39,7 @@ from schemas.review import (
     RecommendationGenerateRequest, RecommendationGenerateResponse,
 )
 from price_updater import summarize_price_quality
-from services.auth import get_accessible_client_ids, get_accessible_mandate_ids, get_client_for_user_or_404, get_current_user, get_mandate_for_user_or_404, has_global_client_access, require_advisor, require_admin
+from services.auth import get_accessible_client_ids, get_accessible_mandate_ids, get_client_for_user_or_404, get_current_user, get_mandate_for_user_or_404, has_global_client_access, require_advisor, require_admin, _resolve_tenant_id_for_user
 from services.audit import log
 from services.advisory_report_cache import invalidate_mandate as invalidate_advisory_cache
 from services.data_classification import enforce_data_classification
@@ -196,8 +196,18 @@ def _validate_recommendation_for_finalization(db: Session, mandate: Mandate, run
     return errors, warnings
 
 
-def _active_products_query(db: Session):
-    return db.query(Product).filter(Product.deleted_at.is_(None), Product.is_active == 1)
+def _active_products_query(db: Session, tenant_id: str | None = None):
+    """Fondsuniversum (2026-08-05): zeigt den globalen/geteilten Katalog
+    (Product.tenant_id IS NULL) plus die privaten Fonds des UEBERGEBENEN
+    Tenants -- NIE die privaten Fonds anderer Tenants. tenant_id=None
+    (Default) zeigt NUR den globalen Katalog, unveraendert wie vor dieser
+    Aenderung (Backwards-Compat fuer Aufrufer ohne User-Kontext)."""
+    q = db.query(Product).filter(Product.deleted_at.is_(None), Product.is_active == 1)
+    if tenant_id:
+        q = q.filter(or_(Product.tenant_id.is_(None), Product.tenant_id == tenant_id))
+    else:
+        q = q.filter(Product.tenant_id.is_(None))
+    return q
 
 
 def _get_trigger_or_404(mandate_id: str, trigger_id: str, db: Session) -> ReviewTrigger:
@@ -425,9 +435,9 @@ def _select_preview_candidate(
     return candidates[candidate_index]
 
 
-def _collect_product_market_data_status(db: Session) -> dict:
+def _collect_product_market_data_status(db: Session, tenant_id: str | None = None) -> dict:
     products = (
-        _active_products_query(db)
+        _active_products_query(db, tenant_id=tenant_id)
         .order_by(Product.product_name.asc())
         .all()
     )
@@ -1049,18 +1059,28 @@ def list_products(
             "Sprint U-95 (2026-06-05)."
         ),
     ),
+    q: str | None = Query(
+        default=None,
+        description=(
+            "Freitext-Suche ueber Produktname/Anbieter/ISIN/Symbol "
+            "(case-insensitive, Substring). Fondsuniversum (2026-08-05)."
+        ),
+    ),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """Sprint U-95 (2026-06-05): ESG/SFDR-Filter ergaenzt.
+    Fondsuniversum (2026-08-05): Freitext-Suche (q) + Tenant-Scoping ergaenzt
+    -- zeigt den globalen Katalog PLUS die eigenen, privat erfassten Fonds
+    des aufrufenden Users' Tenants (nie die eines anderen Tenants).
 
     Berater kann nach SFDR-Klassifizierung (Art. 6/8/9) und ESG-Rating
     filtern um Anlageprodukte zu finden die zu den ESG-Preferences des
     Kunden passen. Filter sind additiv (AND-Verknuepfung).
     """
-    q = _active_products_query(db)
+    query = _active_products_query(db, tenant_id=_resolve_tenant_id_for_user(current_user))
     if asset_class:
-        q = q.filter(Product.asset_class == asset_class)
+        query = query.filter(Product.asset_class == asset_class)
     if sfdr_class is not None:
         normalized = str(sfdr_class).strip()
         if normalized not in _SFDR_VALID_CLASSES:
@@ -1071,7 +1091,7 @@ def list_products(
                     f"erhalten: {sfdr_class!r}"
                 ),
             )
-        q = q.filter(Product.sfdr_class == normalized)
+        query = query.filter(Product.sfdr_class == normalized)
     if esg_rating is not None:
         normalized_rating = str(esg_rating).strip()
         if not normalized_rating:
@@ -1080,8 +1100,18 @@ def list_products(
                 detail="esg_rating darf nicht leer sein.",
             )
         # Case-insensitive Match (ESG-Ratings haben Schreibweise-Varianten wie 'AAA'/'aaa')
-        q = q.filter(Product.esg_rating.ilike(normalized_rating))
-    return q.order_by(Product.asset_class, Product.product_name).all()
+        query = query.filter(Product.esg_rating.ilike(normalized_rating))
+    if q is not None:
+        needle = str(q).strip()
+        if needle:
+            pattern = f"%{needle}%"
+            query = query.filter(or_(
+                Product.product_name.ilike(pattern),
+                Product.provider.ilike(pattern),
+                Product.isin.ilike(pattern),
+                Product.symbol.ilike(pattern),
+            ))
+    return query.order_by(Product.asset_class, Product.product_name).all()
 
 
 @products_router.post("", response_model=ProductResponse, status_code=201)
@@ -1090,9 +1120,18 @@ def create_product(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin)
 ):
+    """Fondsuniversum (2026-08-05, User-Direktive): manuell erfasste Fonds
+    (kotiert MIT isin/symbol, oder nicht-kotiert OHNE -- beide Felder sind
+    bereits optional auf Product) werden serverseitig dem Tenant des
+    erfassenden Admins zugeordnet -- NIE aus dem Client-Payload uebernommen
+    (ProductCreate hat gar kein tenant_id-Feld), sonst waere ein Tenant-
+    Spoofing moeglich (Firma A koennte sich als Firma B ausgeben). So kann
+    jedes Assetmanagement seine eigenen Fonds erfassen, ohne dass sie fuer
+    andere Tenants sichtbar werden (siehe _active_products_query)."""
     now = _now()
     product = Product(
         id=new_uuid(), is_active=1,
+        tenant_id=_resolve_tenant_id_for_user(current_user),
         created_at=now, updated_at=now,
         **body.model_dump()
     )
@@ -1173,7 +1212,7 @@ def get_product_market_data_status(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    return _collect_product_market_data_status(db)
+    return _collect_product_market_data_status(db, tenant_id=_resolve_tenant_id_for_user(current_user))
 
 
 @products_router.post("/openfigi/resolve", response_model=ProductIdMappingPreviewResponse)
@@ -1247,7 +1286,7 @@ def auto_apply_product_id_mappings(
     current_user: User = Depends(require_admin),
 ):
     products = (
-        _active_products_query(db)
+        _active_products_query(db, tenant_id=_resolve_tenant_id_for_user(current_user))
         .filter(
             Product.isin.is_not(None),
             (Product.symbol.is_(None) | (Product.symbol == "")),
@@ -1425,7 +1464,7 @@ def auto_apply_product_reference_data(
     current_user: User = Depends(require_admin),
 ):
     products = (
-        _active_products_query(db)
+        _active_products_query(db, tenant_id=_resolve_tenant_id_for_user(current_user))
         .filter(
             (Product.reference_data_provider.is_(None) | (Product.reference_data_provider == "")),
         )

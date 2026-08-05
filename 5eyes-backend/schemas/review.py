@@ -415,6 +415,10 @@ class ProductResponse(BaseResponse):
     esg_score_x10: Optional[int] = None
     liquidity_tier: Optional[str] = None
     is_active: int
+    # 2026-08-05 (Fondsuniversum): NULL = globaler/geteilter Katalog,
+    # gesetzt = privater Fonds dieses Tenants (server-derived, siehe
+    # models/review.py::Product.tenant_id).
+    tenant_id: Optional[str] = None
     created_at: str
     updated_at: str
 

@@ -11434,6 +11434,7 @@ function adminShowSection(secId) {
   // beim Betreten der Sektion laden (frisch, kein Cache -- Liste ist klein).
   if (secId === 'sec-product-universe' && typeof loadAdminProductUniverseEntries === 'function') {
     loadAdminProductUniverseEntries();
+    if (typeof adminSearchFunds === 'function') adminSearchFunds();
   }
   // WP5 (2026-07-31, Laender-Skalierung Admin-UI): Jurisdiktionen + Home-
   // Bias-Defaults frisch laden; die CMA-Jurisdiktions-Dropdown wird mit-
@@ -11460,6 +11461,105 @@ function adminSwitchTab(tabId) { adminShowSection(tabId.replace('tab-', 'sec-'))
 // services/cost_disclosure.py::build_cost_disclosure.
 // ====================================================================
 var adminProductUniverseState = { entries: [], products: [] };
+
+// 2026-08-05 (User-Direktive, Fondsuniversum): Suche + eigene Fonds
+// erfassen. Nutzt dieselbe adminProductUniverseState.products-Cache wie das
+// bestehende Fonds-Universum-Panel, damit ein frisch erfasster Fonds sofort
+// im "Produkt"-Dropdown der Positivliste (pu-new-product) verfuegbar ist.
+function adminToggleFundCreateForm(){
+  var form = document.getElementById('pf-create-form');
+  if (!form) return;
+  var willShow = form.style.display === 'none';
+  form.style.display = willShow ? 'block' : 'none';
+  if (willShow) {
+    var nameInput = document.getElementById('pf-name');
+    if (nameInput) nameInput.focus();
+  }
+}
+function adminRenderFundSearchTable(products){
+  var tbody = document.getElementById('pf-search-tbody');
+  if (!tbody) return;
+  if (!products.length) {
+    tbody.innerHTML = '<tr><td colspan="5" style="color:var(--n4)">Keine Fonds gefunden.</td></tr>';
+    return;
+  }
+  var html = '';
+  products.forEach(function(p){
+    var idBits = [p.isin, p.symbol].filter(Boolean).join(' / ') || '—';
+    var isListed = !!(p.isin || p.symbol);
+    var origin = p.tenant_id
+      ? '<span class="tag ta" title="Nur fuer Ihre Verwaltung sichtbar">Eigener Fonds</span>'
+      : '<span class="tag tn">Global</span>';
+    html += '<tr>'
+      + '<td>' + escapeHtml(p.product_name || '') + (isListed ? '' : ' <span style="font-size:9px;color:var(--n4)">(nicht kotiert)</span>') + '</td>'
+      + '<td>' + escapeHtml(p.provider || '—') + '</td>'
+      + '<td>' + escapeHtml(p.asset_class || '—') + '</td>'
+      + '<td style="font-size:10px;color:var(--n5)">' + escapeHtml(idBits) + '</td>'
+      + '<td>' + origin + '</td>'
+      + '</tr>';
+  });
+  tbody.innerHTML = html;
+}
+async function adminSearchFunds(){
+  var errBox = document.getElementById('pf-error');
+  var tbody = document.getElementById('pf-search-tbody');
+  if (errBox) { errBox.style.display = 'none'; errBox.textContent = ''; }
+  if (tbody) tbody.innerHTML = '<tr><td colspan="5">Suche laeuft...</td></tr>';
+  var query = (document.getElementById('pf-search-input')||{}).value || '';
+  try {
+    var path = '/products' + (query.trim() ? ('?q=' + encodeURIComponent(query.trim())) : '');
+    var products = await API.get(path);
+    products = Array.isArray(products) ? products : [];
+    adminRenderFundSearchTable(products);
+  } catch(e) {
+    if (tbody) tbody.innerHTML = '<tr><td colspan="5">Fehler</td></tr>';
+    if (errBox) { errBox.style.display = 'block'; errBox.textContent = parseApiError(e, 'Suche fehlgeschlagen.'); }
+  }
+}
+async function adminCreateFund(){
+  var errBox = document.getElementById('pf-error');
+  if (errBox) { errBox.style.display = 'none'; errBox.textContent = ''; }
+  function val(id){ var el = document.getElementById(id); return el ? String(el.value||'').trim() : ''; }
+  var name = val('pf-name');
+  if (!name) {
+    if (errBox) { errBox.style.display = 'block'; errBox.textContent = 'Bitte einen Namen fuer den Fonds angeben.'; }
+    return;
+  }
+  var payload = {
+    product_name: name,
+    provider: val('pf-provider') || null,
+    product_type: val('pf-product-type') || 'Fonds',
+    asset_class: val('pf-asset-class') || 'Aktien',
+    sub_asset_class: val('pf-sub-asset-class') || null,
+    currency: val('pf-currency') || 'CHF',
+    isin: val('pf-isin') || null,
+    symbol: val('pf-symbol') || null,
+  };
+  var terRaw = val('pf-ter');
+  if (terRaw !== '') {
+    var terVal = parseInt(terRaw, 10);
+    if (!isFinite(terVal) || terVal < 0) {
+      if (errBox) { errBox.style.display = 'block'; errBox.textContent = 'TER muss eine nicht-negative Zahl (Bps) sein.'; }
+      return;
+    }
+    payload.ter_bps = terVal;
+  }
+  try {
+    var created = await API.post('/products', payload);
+    ['pf-name','pf-provider','pf-sub-asset-class','pf-isin','pf-symbol','pf-ter'].forEach(function(id){
+      var el = document.getElementById(id); if (el) el.value = '';
+    });
+    var currencyEl = document.getElementById('pf-currency'); if (currencyEl) currencyEl.value = 'CHF';
+    adminToggleFundCreateForm();
+    // Cache um den neu erfassten Fonds ergaenzen, damit er sofort im
+    // Positivlisten-Dropdown (pu-new-product) waehlbar ist, ohne Reload.
+    adminProductUniverseState.products.push(created);
+    adminPopulateProductUniverseProductSelect();
+    adminSearchFunds();
+  } catch(e) {
+    if (errBox) { errBox.style.display = 'block'; errBox.textContent = parseApiError(e, 'Fonds konnte nicht erfasst werden.'); }
+  }
+}
 
 async function loadAdminProductUniverseEntries(){
   var tbody = document.getElementById('pu-list-tbody');
@@ -25146,6 +25246,46 @@ function openStammdatenModal(){
 
         <!-- ══ SEC: FONDS-UNIVERSUM (2026-07-29, Laender-Skalierung) ══ -->
         <div id="sec-product-universe" class="admin-sec-panel" style="display:none;gap:14px;">
+          <!-- 2026-08-05 (User-Direktive, Fondsuniversum): Suche + eigene
+               Fonds erfassen -- vorher gab es fuer POST /products (existiert
+               im Backend seit U-P10) gar keine UI, und keine Freitext-Suche
+               ueber den Produktkatalog. Jeder Tenant sieht hier den globalen
+               Katalog PLUS seine eigenen, privat erfassten Fonds (siehe
+               routers/review.py::_active_products_query). -->
+          <div class="admin-section-title">Fonds durchsuchen</div>
+          <div class="admin-section-sub">Globaler Katalog plus Ihre eigenen erfassten Fonds. Suche wirkt auf Produktname, Anbieter, ISIN und Symbol.</div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <input class="fi" id="pf-search-input" placeholder="Suchen: Name, Anbieter, ISIN, Symbol ..." style="font-size:11px;flex:1" onkeydown="if(event.key==='Enter')adminSearchFunds()">
+            <button class="btn" style="background:var(--bg2);color:var(--n6)" onclick="adminSearchFunds()">Suchen</button>
+            <button class="btn-p admin-primary-btn" onclick="adminToggleFundCreateForm()" id="btn-pf-toggle-create">+ Neuen Fonds erfassen</button>
+          </div>
+          <div id="pf-create-form" style="display:none;border:1px solid var(--b1);border-radius:var(--r2);padding:12px;background:var(--bg)">
+            <div class="admin-section-sub" style="margin-bottom:8px">ISIN und Symbol leer lassen fuer nicht-kotierte Fonds (kein automatischer Kurs-Refresh; Bestandswerte werden manuell im Mandat erfasst).</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+              <div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Name*</label><input class="fi" id="pf-name" style="font-size:11px"></div>
+              <div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Anbieter</label><input class="fi" id="pf-provider" style="font-size:11px"></div>
+              <div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Produkttyp*</label><select class="fsel" id="pf-product-type" style="font-size:11px"><option value="ETF">ETF</option><option value="Fonds">Fonds</option><option value="Immobilienfonds">Immobilienfonds</option><option value="Aktie">Aktie</option><option value="Obligation">Obligation</option><option value="Cash">Cash</option><option value="Sonstiges">Sonstiges</option></select></div>
+              <div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Anlageklasse*</label><select class="fsel" id="pf-asset-class" style="font-size:11px"><option value="Aktien">Aktien</option><option value="Obligationen">Obligationen</option><option value="Immobilien">Immobilien</option><option value="Alternative">Alternative</option><option value="Liquidität">Liquidität</option></select></div>
+              <div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Sub-Anlageklasse</label><input class="fi" id="pf-sub-asset-class" style="font-size:11px"></div>
+              <div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Waehrung</label><input class="fi" id="pf-currency" value="CHF" style="font-size:11px"></div>
+              <div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">TER (Bps, optional)</label><input class="fi" type="number" min="0" id="pf-ter" style="font-size:11px"></div>
+              <div></div>
+              <div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">ISIN (optional, kotiert)</label><input class="fi" id="pf-isin" style="font-size:11px"></div>
+              <div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Symbol (optional, kotiert)</label><input class="fi" id="pf-symbol" style="font-size:11px"></div>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:10px">
+              <button class="btn-p admin-primary-btn" onclick="adminCreateFund()" id="btn-pf-create">Fonds erfassen</button>
+              <button class="btn" style="background:var(--bg2);color:var(--n6)" onclick="adminToggleFundCreateForm()">Abbrechen</button>
+            </div>
+          </div>
+          <div id="pf-error" style="display:none;color:var(--neg);font-size:10px"></div>
+          <div id="pf-search-wrap" class="admin-tbl-wrap">
+            <table class="admin-tbl">
+              <thead><tr><th>Name</th><th>Anbieter</th><th>Anlageklasse</th><th>ISIN/Symbol</th><th>Herkunft</th></tr></thead>
+              <tbody id="pf-search-tbody"><tr><td colspan="5" style="color:var(--n4)">Suchbegriff eingeben oder direkt suchen fuer den vollen Katalog.</td></tr></tbody>
+            </table>
+          </div>
+
           <div class="admin-section-title">Fonds-Universum pro Jurisdiktion</div>
           <div class="admin-section-sub">Kuratierte Positivliste, welche Fonds fuer diese Verwaltung in einem Land zulaessig sind bzw. eigene, ausgehandelte Konditionen haben. Ohne Eintraege fuer ein Land bleibt der volle Produktkatalog unveraendert nutzbar.</div>
           <div class="admin-risk-note warn"><strong>Fachliche Wirkung</strong> Sobald mindestens ein Eintrag fuer ein Land existiert, werden Portfolio-Empfehlungen fuer Mandate mit dieser Jurisdiktion NUR noch aus dieser Liste befuellt.</div>

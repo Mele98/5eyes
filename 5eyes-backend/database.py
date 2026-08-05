@@ -617,6 +617,10 @@ def ensure_runtime_columns() -> None:
         ensure_column(conn, "contract_documents", "signature_client_signer_name", "TEXT")
         ensure_column(conn, "contract_documents", "signature_client_signed_at", "TEXT")
         ensure_column(conn, "contract_documents", "signature_client_ip", "TEXT")
+        # Fondsuniversum (2026-08-05, User-Direktive): NULL = globaler Katalog
+        # (unveraendert), gesetzt = privater Fonds eines Tenants. ensure_column
+        # ist idempotent -> ergaenzt bestehende SQLite-DBs additiv.
+        ensure_column(conn, "products", "tenant_id", "TEXT")
 
 
 def run_advisory_log_migration(target_engine: Engine = engine) -> None:

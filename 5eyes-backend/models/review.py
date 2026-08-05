@@ -244,6 +244,16 @@ class Product(Base):
     # explizit mit jurisdiction != "CH"/NULL angelegt wird (Golden-Snapshot-
     # Test bleibt gruen, da das Bestandskatalog komplett NULL ist).
     jurisdiction = Column(String)
+    # 2026-08-05 (User-Direktive, Fondsuniversum): "jedes Assetmanagement
+    # seine eigenen Fonds der Software fuettern". NULL = globaler/geteilter
+    # Katalog (Marktdaten-Pipeline-Seed, Default-Produktliste in
+    # services/portfolio_engine.py -- UNVERAENDERT, diese Funktion setzt nie
+    # tenant_id). Gesetzt = privat fuer genau diesen Tenant, ueber
+    # routers/review.py::create_product serverseitig aus current_user
+    # abgeleitet (NIE vom Client-Payload uebernommen -- sonst Tenant-Spoofing
+    # moeglich). Gleiches additives, rueckwaerts-kompatibles Nullable-Muster
+    # wie jurisdiction oben.
+    tenant_id = Column(String, ForeignKey("tenants.id"))
 
     suitability = relationship("ProductSuitability", back_populates="product")
     price_history = relationship("PriceHistory", back_populates="product")
