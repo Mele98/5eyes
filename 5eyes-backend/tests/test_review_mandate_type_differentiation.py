@@ -81,11 +81,31 @@ def test_hero_downgrades_illiquid_violations_out_of_red_bucket():
 def test_hero_branches_badge_headline_cta_on_mandate_type():
     body = _function_body(_html(), "function renderReviewHero(")
     assert "_reviewIsDiscretionaryMandate()" in body
-    assert "EMPFEHLUNG PRÜFEN" in body
-    assert "weicht vom vereinbarten Band ab" in body
+    assert "ZUR INFORMATION" in body
+    assert "weicht von der Zielallokation ab" in body
     # Handelsliste-Button darf im Advisory-Zweig nicht mehr auftauchen --
     # aber im discretionary-Zweig weiterhin erlaubt sein.
     assert "openTradeList()" in body  # noch vorhanden (discretionary-Zweig)
+
+
+# ===========================================================================
+# 2026-08-05 (User-Direktive, HUD-Fix): der Alarm-Rot-Zustand ("aktive
+# Rebalancing"-Framing, Badge "EMPFEHLUNG PRÜFEN") erschien bisher auch fuer
+# Consulting/reine Anlageberatung -- Consulting hat aber keine aktive
+# Depot-Ueberwachung (Anlagephilosophie) und sollte "keine aktive
+# anzusehende Rebalancings" zeigen. Fix: der rote 'violated'-Zweig ist jetzt
+# EXPLIZIT auf isDiscretionary&&violated.length>0 gegated (vorher lief
+# violated.length>0 fuer beide Mandatstypen in denselben roten Zweig, nur
+# der Badge-/Headline-Text unterschied sich). Der neue informative Zweig
+# (Consulting) bleibt bei gelber statt roter Einordnung.
+# ===========================================================================
+
+
+def test_hero_red_alarm_branch_gated_by_discretionary_not_just_violated():
+    body = _function_body(_html(), "function renderReviewHero(")
+    assert "isDiscretionary&&violated.length>0" in body.replace(" ", "")
+    assert "isDiscretionary&&tight.length>0" in body.replace(" ", "")
+    assert "!isDiscretionary&&(violated.length>0||tight.length>0)" in body.replace(" ", "")
 
 
 def test_action_summary_trade_list_gated_by_discretionary():

@@ -23874,29 +23874,37 @@ function renderReviewHero(state){
     badge='KEIN STRATEGIEBILD';headline='Noch keine Strategie gespeichert';
     summary='Bitte zuerst eine Asset Allokation generieren, um den Portfolio-Status zu berechnen.';
     ctaHtml='<button class="btn btn-sm" onclick="go(\'al\')">Zur Asset Allokation</button>';
-  } else if(violated.length>0){
+  } else if(isDiscretionary&&violated.length>0){
+    // HUD-Fix (2026-08-05, User-Direktive): der Alarm-Rot-Zustand ("aktive
+    // Rebalancing"-Framing) ist NUR fuer Vermoegensverwaltung im
+    // Wealthmanagement-Modus zulaessig -- Consulting hat keine aktive
+    // Depot-Ueberwachung (Anlagephilosophie), siehe Zweig weiter unten.
     statusKey='red';bg='var(--neg-lt)';borderColor='rgba(139,30,30,0.25)';dotColor='var(--neg)';
-    badge=isDiscretionary?'HANDLUNGSBEDARF':'EMPFEHLUNG PRÜFEN';
+    badge='HANDLUNGSBEDARF';
     var top=violated.slice().sort(function(a,b){return Math.abs(Number(b.deltaWeightBps||0))-Math.abs(Number(a.deltaWeightBps||0));})[0];
-    if(isDiscretionary){
-      headline=violated.length===1?'Bandverletzung bei '+top.assetClass:String(violated.length)+' Bandverletzungen — Rebalancing erforderlich';
-    } else {
-      headline=violated.length===1?top.assetClass+' weicht vom vereinbarten Band ab':String(violated.length)+' Anlageklassen weichen vom vereinbarten Band ab';
-    }
+    headline=violated.length===1?'Bandverletzung bei '+top.assetClass:String(violated.length)+' Bandverletzungen — Rebalancing erforderlich';
     summary=top.assetClass+': IST '+formatBpsPercent(top.currentWeightBps)+' / SOLL '+formatBpsPercent(top.targetWeightBps)+' — ausserhalb der vereinbarten Bandbreite. '+top.meta.action+'.';
-    if(isDiscretionary){
-      var live=liveRebalancingPayload(allocation);
-      var hasTradeList=!!(live&&Array.isArray(live.position_drifts)&&live.position_drifts.some(function(r){return String(r&&r.rebalance_action||'').toUpperCase()!=='HOLD';}));
-      ctaHtml='<button class="btn-p btn-sm" onclick="openDecisionTemplateModal(\'\')">Entscheidungsvorlage</button>'+(hasTradeList?'<button class="btn btn-sm" onclick="openTradeList()">Handelsliste</button>':'');
-    } else {
-      ctaHtml='<button class="btn-p btn-sm" onclick="openDecisionTemplateModal(\'\')">Entscheidungsvorlage</button>';
-    }
-  } else if(tight.length>0){
+    var live=liveRebalancingPayload(allocation);
+    var hasTradeList=!!(live&&Array.isArray(live.position_drifts)&&live.position_drifts.some(function(r){return String(r&&r.rebalance_action||'').toUpperCase()!=='HOLD';}));
+    ctaHtml='<button class="btn-p btn-sm" onclick="openDecisionTemplateModal(\'\')">Entscheidungsvorlage</button>'+(hasTradeList?'<button class="btn btn-sm" onclick="openTradeList()">Handelsliste</button>':'');
+  } else if(isDiscretionary&&tight.length>0){
     statusKey='yellow';bg='var(--warn-lt)';borderColor='rgba(122,82,0,0.2)';dotColor='var(--warn)';
     badge='IM BLICK BEHALTEN';
     headline=tight[0].assetClass+' nähert sich der Bandgrenze';
     summary=tight.length+' Anlageklasse'+(tight.length>1?'n nähern sich':' nähert sich')+' der Bandgrenze. Heute empfehlen wir eine Prüfung und Protokollierung.';
     ctaHtml='<button class="btn-p btn-sm" onclick="om(\'m-ne\')">Entscheid protokollieren</button>';
+  } else if(!isDiscretionary&&(violated.length>0||tight.length>0)){
+    // HUD-Fix (2026-08-05, User-Direktive): Consulting hat keine aktive
+    // anzusehende Rebalancings -- kein Alarm-Rot, keine "EMPFEHLUNG PRÜFEN"-
+    // Dringlichkeit. Gleiche Fakten bleiben sichtbar (nichts verschwiegen),
+    // aber informativ statt alarmierend eingeordnet (max. gelbe Einordnung).
+    statusKey='yellow';bg='var(--warn-lt)';borderColor='rgba(122,82,0,0.2)';dotColor='var(--warn)';
+    badge='ZUR INFORMATION';
+    var infoRows=violated.concat(tight);
+    var topInfo=infoRows.slice().sort(function(a,b){return Math.abs(Number(b.deltaWeightBps||0))-Math.abs(Number(a.deltaWeightBps||0));})[0];
+    headline=infoRows.length===1?topInfo.assetClass+' weicht von der Zielallokation ab':String(infoRows.length)+' Anlageklassen weichen von der Zielallokation ab';
+    summary=topInfo.assetClass+': aktuell '+formatBpsPercent(topInfo.currentWeightBps)+' / Ziel '+formatBpsPercent(topInfo.targetWeightBps)+'. '+topInfo.meta.action+'.';
+    ctaHtml='<button class="btn-p btn-sm" onclick="openDecisionTemplateModal(\'\')">Entscheidungsvorlage</button>';
   } else {
     statusKey='green';bg='var(--pos-lt)';borderColor='rgba(14,107,65,0.2)';dotColor='var(--pos)';
     badge='PORTFOLIO IM BAND';
