@@ -20557,7 +20557,12 @@ function renderSrImplementationDecision(entry){
     driftItems.slice(0,3).forEach(function(item,idx){
       // Illiquide Anlageklassen (Immobilien) sind nicht "reduzierbar/aufstockbar"
       // per Transaktion -- neutrale Beobachtungs-Sprache statt Handelsverb.
-      var verb=_reviewIsIlliquidAssetClass(item.assetKey)?'Beobachten':(Number(item.deltaWeightBps||0)>0?'Reduzieren':'Aufstocken');
+      // 2026-08-05 (HUD-Konsistenz, User-Direktive: "Consulting hat keine
+      // aktive anzusehende Rebalancings"): im Consulting-Modus (keine
+      // Ausfuehrungsbefugnis) IMMER die neutrale Beobachtungs-Sprache, auch
+      // fuer liquide Anlageklassen -- identische Gate-Logik wie hasTradeList
+      // oben und wie renderReviewHero() (isDiscretionary&&...).
+      var verb=(!_reviewIsDiscretionaryMandate()||_reviewIsIlliquidAssetClass(item.assetKey))?'Beobachten':(Number(item.deltaWeightBps||0)>0?'Reduzieren':'Aufstocken');
       cards.push('<div style="border:1px solid var(--b1);border-radius:var(--r2);padding:10px">'
         +'<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px"><div style="width:20px;height:20px;border-radius:50%;background:'+item.meta.tone+';color:#fff;font-size:10px;font-weight:600;display:flex;align-items:center;justify-content:center">'+String(idx+1)+'</div><span style="font-size:11px;font-weight:500;color:var(--n8)">'+escapeHtml(verb)+'</span></div>'
         +'<div style="font-size:10px;color:var(--n8);font-weight:500;margin-bottom:3px">'+escapeHtml(item.assetClass)+'</div>'

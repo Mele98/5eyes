@@ -120,6 +120,17 @@ def test_sr_implementation_decision_trade_list_gated_and_verb_neutralized():
     assert "'Beobachten'" in body
 
 
+def test_sr_implementation_decision_verb_gated_by_discretionary_not_just_illiquid():
+    """2026-08-05 (HUD-Konsistenz, User-Direktive: "Consulting hat keine
+    aktive anzusehende Rebalancings"): auch bei LIQUIDEN Anlageklassen darf
+    im Consulting-Modus (keine Ausfuehrungsbefugnis) nie 'Reduzieren'/
+    'Aufstocken' erscheinen -- vorher war der Handelsverb-Text nur ueber
+    Illiquiditaet neutralisiert, nicht ueber den Mandatstyp/Praesentations-
+    modus (identische Luecke wie beim urspruenglichen rv-hero-Bug)."""
+    body = _function_body(_html(), "function renderSrImplementationDecision(")
+    assert "!_reviewIsDiscretionaryMandate()||_reviewIsIlliquidAssetClass(item.assetKey)" in body.replace(" ", "")
+
+
 # ===========================================================================
 # 2026-08-03 (User-Direktive): _reviewIsDiscretionaryMandate() beruecksichtigt
 # zusaetzlich den Wealthmanagement/Consulting-Praesentationsmodus. mandate_type
