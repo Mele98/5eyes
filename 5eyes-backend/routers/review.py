@@ -1,7 +1,7 @@
 import logging
 from collections.abc import Callable
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import bindparam, text
 from sqlalchemy.exc import IntegrityError
@@ -927,16 +927,32 @@ def create_document(
 def sign_document(
     mandate_id: str, doc_id: str,
     body: ContractDocumentSign,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor)
 ):
+    # 2026-08-05 (User-Direktive, E-Signing): schreibt jetzt zusaetzlich zu
+    # den bestehenden Checkbox-Flags das tatsaechliche Signatur-Artefakt
+    # (Bild + Name + Zeitstempel + IP) fuer genau den Unterzeichner, der in
+    # diesem Aufruf gesetzt ist -- siehe ContractDocumentSign-Docstring.
+    from routers.auth import _extract_client_ip
     _get_mandate_or_404(mandate_id, db, current_user)
     doc = _get_document_or_404(mandate_id, doc_id, db)
     now = _now()
+    signer_ip = _extract_client_ip(request)
+    signer_name = body.signer_name.strip()
     if body.signed_by_advisor:
         doc.signed_by_advisor = 1
+        doc.signature_advisor_image = body.signature_image
+        doc.signature_advisor_signer_name = signer_name
+        doc.signature_advisor_signed_at = now
+        doc.signature_advisor_ip = signer_ip
     if body.signed_by_client:
         doc.signed_by_client = 1
+        doc.signature_client_image = body.signature_image
+        doc.signature_client_signer_name = signer_name
+        doc.signature_client_signed_at = now
+        doc.signature_client_ip = signer_ip
     if not doc.signed_at:
         doc.signed_at = now
     doc.status = (

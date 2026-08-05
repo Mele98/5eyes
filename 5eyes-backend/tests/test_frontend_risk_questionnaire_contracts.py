@@ -118,7 +118,11 @@ def test_frontend_uses_safe_dom_bindings_for_dynamic_review_and_document_actions
     html = HTML_PATH.read_text(encoding="utf-8")
 
     assert 'data-doc-action="print"' in html
-    assert 'data-doc-action="sign"' in html
+    # 2026-08-05 (User-Direktive, E-Signing): die einzelne "sign"-Aktion wurde
+    # in getrennte Berater-/Kunde-Aktionen aufgeteilt (je eigenes
+    # Signatur-Bild, siehe ContractDocumentSign-Docstring in schemas/review.py).
+    assert 'data-doc-action="sign-advisor"' in html
+    assert 'data-doc-action="sign-client"' in html
     assert 'data-trigger-action="review"' in html
     assert 'data-trigger-action="template"' in html
     assert "renderRowsSafe(" in html

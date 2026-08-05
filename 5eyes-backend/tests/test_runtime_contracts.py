@@ -3872,6 +3872,19 @@ def test_create_trigger_normalizes_review_frequency_aliases_v2(session_factory, 
     assert result.frequency == "jährlich"
 
 
+class _FakeSignRequest:
+    """Minimaler Request-Stub fuer direkte sign_document()-Aufrufe in Tests
+    (analog zu tests/test_auth05_bootstrap_admin_rate_limit.py::_FakeRequest) --
+    _extract_client_ip() braucht nur .headers.get(...) und .client.host."""
+    def __init__(self, host="127.0.0.1"):
+        self.headers = {}
+        self.client = type("C", (), {"host": host})()
+
+
+_ADVISOR_SIGNATURE_PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+_CLIENT_SIGNATURE_PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+
+
 def test_sign_document_preserves_initial_signed_at(session_factory, advisor_user, monkeypatch):
     _, mandate_id = seed_client_and_mandate(session_factory, advisor_user)
 
@@ -3896,7 +3909,12 @@ def test_sign_document_preserves_initial_signed_at(session_factory, advisor_user
         first_sign = sign_document(
             mandate_id=mandate_id,
             doc_id=doc.id,
-            body=ContractDocumentSign(signed_by_advisor=True),
+            body=ContractDocumentSign(
+                signed_by_advisor=True,
+                signature_image=_ADVISOR_SIGNATURE_PNG,
+                signer_name="Anna Berater",
+            ),
+            request=_FakeSignRequest("10.0.0.5"),
             db=session,
             current_user=advisor_user,
         )
@@ -3906,7 +3924,12 @@ def test_sign_document_preserves_initial_signed_at(session_factory, advisor_user
         second_sign = sign_document(
             mandate_id=mandate_id,
             doc_id=doc.id,
-            body=ContractDocumentSign(signed_by_client=True),
+            body=ContractDocumentSign(
+                signed_by_client=True,
+                signature_image=_CLIENT_SIGNATURE_PNG,
+                signer_name="Daniel Kunde",
+            ),
+            request=_FakeSignRequest("10.0.0.9"),
             db=session,
             current_user=advisor_user,
         )
@@ -3918,6 +3941,50 @@ def test_sign_document_preserves_initial_signed_at(session_factory, advisor_user
     assert second_sign.signed_by_advisor == 1
     assert second_sign.signed_by_client == 1
     assert second_sign.status == "Unterzeichnet"
+    # 2026-08-05 (User-Direktive, E-Signing): echtes Signatur-Artefakt pro
+    # Unterzeichner wird gespeichert, nicht nur die Checkbox-Flags.
+    assert second_sign.signature_advisor_image == _ADVISOR_SIGNATURE_PNG
+    assert second_sign.signature_advisor_signer_name == "Anna Berater"
+    assert second_sign.signature_advisor_signed_at == "2026-04-19T09:15:00.000Z"
+    assert second_sign.signature_client_image == _CLIENT_SIGNATURE_PNG
+    assert second_sign.signature_client_signer_name == "Daniel Kunde"
+    assert second_sign.signature_client_signed_at == "2026-04-19T11:45:00.000Z"
+
+
+def test_sign_document_requires_signature_image():
+    with pytest.raises(Exception):
+        ContractDocumentSign(signed_by_advisor=True, signature_image="", signer_name="Anna Berater")
+
+
+def test_sign_document_rejects_non_image_data_uri():
+    with pytest.raises(Exception):
+        ContractDocumentSign(
+            signed_by_advisor=True,
+            signature_image="not-a-data-uri",
+            signer_name="Anna Berater",
+        )
+
+
+def test_sign_document_rejects_both_signers_in_one_call():
+    with pytest.raises(Exception):
+        ContractDocumentSign(
+            signed_by_advisor=True,
+            signed_by_client=True,
+            signature_image=_ADVISOR_SIGNATURE_PNG,
+            signer_name="Anna Berater",
+        )
+
+
+def test_sign_document_rejects_neither_signer():
+    with pytest.raises(Exception):
+        ContractDocumentSign(signature_image=_ADVISOR_SIGNATURE_PNG, signer_name="Anna Berater")
+
+
+def test_sign_document_rejects_blank_signer_name():
+    with pytest.raises(Exception):
+        ContractDocumentSign(
+            signed_by_advisor=True, signature_image=_ADVISOR_SIGNATURE_PNG, signer_name="   ",
+        )
 
 
 def test_refresh_system_review_triggers_creates_review_and_goal_alerts(session_factory, advisor_user):

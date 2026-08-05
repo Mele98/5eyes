@@ -240,13 +240,30 @@ class ContractDocumentCreate(BaseModel):
 
 
 class ContractDocumentSign(BaseModel):
+    """2026-08-05 (User-Direktive, E-Signing): signed_by_advisor/client waren
+    reine Checkbox-Flags ohne echte Signatur. signature_image + signer_name
+    sind jetzt Pflicht -- ein Aufruf signiert GENAU EINEN Unterzeichner
+    (Berater ODER Kunde), weil jeder sein eigenes Signatur-Bild hat; beide in
+    einem Aufruf waere nicht eindeutig zuordenbar."""
     signed_by_advisor: bool = False
     signed_by_client: bool = False
+    signature_image: str
+    signer_name: str
 
     @model_validator(mode="after")
-    def at_least_one(self):
-        if not self.signed_by_advisor and not self.signed_by_client:
-            raise ValueError("Mindestens ein Unterzeichner muss angegeben werden")
+    def exactly_one_signer_with_real_signature(self):
+        if self.signed_by_advisor == self.signed_by_client:
+            raise ValueError(
+                "Genau ein Unterzeichner (Berater ODER Kunde) muss pro Aufruf "
+                "gesetzt sein -- Berater und Kunde haben je ein eigenes "
+                "Signatur-Bild und signieren daher getrennt."
+            )
+        if not self.signature_image.strip().startswith("data:image/"):
+            raise ValueError("signature_image muss eine data:image/...-URI sein")
+        if len(self.signature_image) > 500_000:
+            raise ValueError("Signatur-Bild zu gross (max. ca. 500 KB)")
+        if not self.signer_name.strip():
+            raise ValueError("Der Name des Unterzeichners ist erforderlich")
         return self
 
 
@@ -259,6 +276,12 @@ class ContractDocumentResponse(BaseResponse):
     signed_by_advisor: int
     signed_by_client: int
     signed_at: Optional[str]
+    signature_advisor_image: Optional[str] = None
+    signature_advisor_signer_name: Optional[str] = None
+    signature_advisor_signed_at: Optional[str] = None
+    signature_client_image: Optional[str] = None
+    signature_client_signer_name: Optional[str] = None
+    signature_client_signed_at: Optional[str] = None
     version: int
     supersedes_id: Optional[str]
     pdf_path: Optional[str]

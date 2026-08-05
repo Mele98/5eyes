@@ -43,6 +43,21 @@ class ContractDocument(Base):
     signed_by_advisor = Column(Integer, nullable=False, default=0)
     signed_by_client = Column(Integer, nullable=False, default=0)
     signed_at = Column(String)
+    # 2026-08-05 (User-Direktive, E-Signing): signed_by_advisor/client waren
+    # reine Checkbox-Flags ohne jede tatsaechliche Signatur -- jeder
+    # authentifizierte Advisor-User konnte sie fuer jeden setzen, ohne dass
+    # je eine Unterschrift erfasst wurde. Jetzt zusaetzlich ein echtes
+    # Signatur-Artefakt pro Unterzeichner (Canvas-gezeichnetes PNG als
+    # data:-URI, analog zum bestehenden QR-Code-data:-URI-Muster in
+    # routers/auth.py::twofa_setup).
+    signature_advisor_image = Column(String)
+    signature_advisor_signer_name = Column(String)
+    signature_advisor_signed_at = Column(String)
+    signature_advisor_ip = Column(String)
+    signature_client_image = Column(String)
+    signature_client_signer_name = Column(String)
+    signature_client_signed_at = Column(String)
+    signature_client_ip = Column(String)
     version = Column(Integer, nullable=False, default=1)
     supersedes_id = Column(String)
     created_by = Column(String, ForeignKey("users.id"), nullable=False)

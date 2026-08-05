@@ -4935,7 +4935,7 @@ function _wireSollIstHover(){
 <div class="overlay" id="m-es"><div class="modal"><div class="mhd"><div class="mtitle">Stammdaten bearbeiten</div><button class="mx" onclick="cm('m-es')">✕</button></div><div class="mbody"><div class="frow"><div class="fg"><label class="fl">Anrede</label><select class="fsel" id="es-salutation"><option value="">—</option><option value="Herr">Herr</option><option value="Frau">Frau</option><option value="Divers">Divers</option></select></div><div class="fg"><label class="fl">Vorname *</label><input class="fi" id="es-firstname" placeholder="Andreas"></div><div class="fg"><label class="fl">Nachname *</label><input class="fi" id="es-lastname" placeholder="Müller"></div></div><div class="frow"><div class="fg"><label class="fl">Geburtsdatum</label><input class="fi" id="es-dob" type="date"></div><div class="fg"><label class="fl">Kanton</label><input class="fi" id="es-canton" placeholder="ZH" maxlength="2"></div></div><div class="frow"><div class="fg"><label class="fl">Anlagehorizont Start</label><input class="fi" id="es-horizon-start" type="date"></div><div class="fg"><label class="fl">Anlagehorizont Ende</label><input class="fi" id="es-horizon-end" type="date"></div></div><div id="es-horizon-hint" style="font-size:10px;color:var(--n5);line-height:1.5;margin:-2px 0 10px">Der Mandatshorizont dient als gesprächsnaher Leitwert für Risiko- und Strategieableitung und ergänzt die Zielhorizonte.</div><div class="frow"><div class="fg"><label class="fl">Haushalt</label><select class="fsel" id="es-household"><option value="Einzelperson">Einzelperson</option><option value="Paar">Paar</option><option value="Familie">Familie</option></select></div><div class="fg"><label class="fl">Sprache</label><select class="fsel" id="es-lang"><option value="DE">Deutsch (DE)</option><option value="FR">Französisch (FR)</option><option value="IT">Italienisch (IT)</option><option value="EN">Englisch (EN)</option></select></div></div><div id="es-civil-warning" style="display:none;background:var(--warn-lt);border:1px solid rgba(180,83,9,0.2);border-radius:var(--r);padding:8px 10px;margin:-2px 0 10px;font-size:10px;color:var(--warn)">Haushalt "Paar" und Zivilstand "Ledig" prüfen: bitte Konstellation kurz bestätigen.</div><div class="frow"><div class="fg"><label class="fl">Zivilstand</label><select class="fsel" id="es-civil"><option value="">—</option><option value="Ledig">Ledig</option><option value="Verheiratet">Verheiratet</option><option value="Eingetragene Partnerschaft">Eingetragene Partnerschaft</option><option value="Geschieden">Geschieden</option><option value="Verwitwet">Verwitwet</option><option value="Getrennt">Getrennt</option></select></div><div class="fg"><label class="fl">Beruf</label><input class="fi" id="es-profession" placeholder="z.B. CFO"></div><div class="fg"><label class="fl">Arbeitgeber</label><input class="fi" id="es-employer" placeholder="z.B. Muster AG"></div></div></div>
 
 <div id="es-error" style="display:none;color:var(--neg);font-size:11px;padding:4px 0;margin-top:4px"></div>
-<div class="mfooter"><button class="btn" onclick="cm('m-es')">Abbrechen</button><button class="btn-p" id="btn-es-save" onclick="saveClientData()">Speichern</button></div></div></div><div class="overlay" id="m-ne"><div class="modal"><div class="mhd"><div class="mtitle">Protokolleintrag</div><button class="mx" onclick="cm('m-ne')">✕</button></div><div class="mbody"><div class="frow"><div class="fg"><label class="fl">Datum</label><input class="fi" type="date" value="2026-03-15"></div><div class="fg"><label class="fl">Entscheid</label><select class="fsel"><option>Keine Transaktion</option><option>Kauf</option><option>Verkauf</option><option>Umschichtung</option></select></div></div><div class="frow"><div class="fg"><label class="fl">Anlass</label><input class="fi" placeholder="Jahres-Review / Drift / ..."></div></div><div class="frow"><div class="fg"><label class="fl">Begründung</label><textarea class="fta" rows="3"></textarea></div></div></div><div class="mfooter"><button class="btn" onclick="cm('m-ne')">Abbrechen</button><button class="btn-p" onclick="cm('m-ne')">Speichern</button></div></div></div>
+<div class="mfooter"><button class="btn" onclick="cm('m-es')">Abbrechen</button><button class="btn-p" id="btn-es-save" onclick="saveClientData()">Speichern</button></div></div></div><div class="overlay" id="m-ne"><div class="modal"><div class="mhd"><div class="mtitle">Protokolleintrag</div><button class="mx" onclick="cm('m-ne')">✕</button></div><div class="mbody"><div class="frow"><div class="fg"><label class="fl">Datum</label><input class="fi" type="date" value="2026-03-15"></div><div class="fg"><label class="fl">Entscheid</label><select class="fsel"><option>Keine Transaktion</option><option>Kauf</option><option>Verkauf</option><option>Umschichtung</option></select></div></div><div class="frow"><div class="fg"><label class="fl">Anlass</label><input class="fi" placeholder="Jahres-Review / Drift / ..."></div></div><div class="frow"><div class="fg"><label class="fl">Begründung</label><textarea class="fta" rows="3"></textarea></div></div></div><div class="mfooter"><button class="btn" onclick="cm('m-ne')">Abbrechen</button><button class="btn-p" onclick="cm('m-ne')">Speichern</button></div></div></div><div class="overlay" id="m-esign"><div class="modal"><div class="mhd"><div class="mtitle">Dokument signieren</div><button class="mx" onclick="cm('m-esign')">✕</button></div><div class="mbody"><div class="frow"><div class="fg"><label class="fl">Unterzeichner</label><div id="esign-signer-role-label" style="font-size:13px;font-weight:600;color:var(--n7)">—</div></div></div><div class="frow"><div class="fg"><label class="fl">Name</label><input class="fi" id="esign-signer-name" placeholder="Vor- und Nachname"></div></div><div class="frow"><div class="fg" style="width:100%"><label class="fl">Unterschrift (mit Maus oder Finger zeichnen)</label><div style="border:1px solid var(--b1);border-radius:var(--r);background:#fff"><canvas id="esign-canvas" width="480" height="160" style="width:100%;height:160px;display:block;cursor:crosshair;touch-action:none"></canvas></div><div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;gap:10px"><span style="font-size:9px;color:var(--n4);line-height:1.5">Elektronische Unterschrift zur Dokumentation im Beratungsdossier — kein qualifiziertes elektronisches Signaturzertifikat.</span><button type="button" class="btn btn-sm" onclick="clearEsignCanvas()">Löschen</button></div></div></div><div id="esign-error" style="display:none;color:var(--neg);font-size:10px;margin-top:6px"></div></div><div class="mfooter"><button class="btn" onclick="cm('m-esign')">Abbrechen</button><button class="btn-p" id="btn-esign-save" onclick="submitEsignSignature()">Signieren</button></div></div></div>
 <div class="overlay" id="m-nt"><div class="modal"><div class="mhd"><div class="mtitle">Trigger definieren</div><button class="mx" onclick="cm('m-nt')">✕</button></div><div class="mbody"><div class="frow"><div class="fg"><label class="fl">Trigger-Typ</label><select class="fsel"><option>Zeitbasiert</option><option>Bandbreite / Drift</option><option>Event-basiert</option></select></div></div><div class="frow"><div class="fg"><label class="fl">Bezeichnung</label><input class="fi" placeholder="Jahres-Review"></div><div class="fg"><label class="fl">Schwellenwert</label><input class="fi" placeholder="±5% oder 12 Monate"></div></div></div><div class="mfooter"><button class="btn" onclick="cm('m-nt')">Abbrechen</button><button class="btn-p" onclick="cm('m-nt')">Aktivieren</button></div></div></div>
 <div class="overlay" id="m-ap"><div class="modal"><div class="mhd"><div class="mtitle">Bestand zu Empfehlungstitel</div><button class="mx" onclick="cm('m-ap')">✕</button></div><div class="mbody"><div id="ap-empty-state" style="display:none;background:var(--bg);border:1px solid var(--b1);border-radius:var(--r);padding:10px 12px;font-size:11px;color:var(--n6);line-height:1.6">Portfolio-Bestände bauen auf einem vorhandenen Rezept auf. Bitte zuerst die Strategie berechnen und ein aktuelles Anlagerezept laden.</div><div id="ap-form-wrap"><div style="background:var(--bg);border:1px solid var(--b1);border-radius:var(--r);padding:9px 10px;margin-bottom:10px;font-size:10px;line-height:1.6;color:var(--n6)">Hier wird der effektive Depotbestand zum Empfehlungstitel hinterlegt. Wenn ein Bestand vorhanden ist, basiert Live-Drift auf diesem Holding statt auf einer Rekonstruktion aus dem Zielbetrag.</div><div class="frow"><div class="fg"><label class="fl">Empfehlungstitel</label><select class="fsel" id="ap-position-id" onchange="syncPortfolioHoldingSelection()"></select></div></div><div id="ap-product-meta" style="font-size:10px;color:var(--n5);margin:-2px 0 10px"></div><div class="frow"><div class="fg"><label class="fl">Depotbank / Institut</label><input class="fi" id="ap-depot-bank" placeholder="z.B. UBS AG Zürich"></div><div class="fg"><label class="fl">Konto / Depotnummer</label><input class="fi" id="ap-custody-account" placeholder="optional"></div></div><div class="frow"><div class="fg"><label class="fl">Bestand (Stück)</label><input class="fi" id="ap-units" placeholder="z.B. 128.750"></div><div class="fg"><label class="fl">Bestandsmarktwert (CHF)</label><input class="fi" id="ap-market-value" placeholder="optional, z.B. 415'600"></div></div><div class="frow"><div class="fg"><label class="fl">Einstand / Durchschnittskurs (CHF)</label><input class="fi" id="ap-cost-price" placeholder="optional"></div><div class="fg"><label class="fl">Standdatum</label><input class="fi" id="ap-as-of" type="date"></div></div><div class="frow"><div class="fg"><label class="fl">Quelle</label><select class="fsel" id="ap-source"><option value="manual">Manuell</option><option value="custody_import">Custody-Import</option></select></div><div class="fg"><label class="fl">Bewertungsbasis</label><div id="ap-basis-note" style="font-size:10px;color:var(--n5);padding:9px 0">Noch kein Bestand hinterlegt.</div></div></div><div class="frow"><div class="fg"><label class="fl">Notizen</label><textarea class="fta" id="ap-notes" rows="3" placeholder="optional"></textarea></div></div></div><div id="ap-error" style="display:none;color:var(--neg);font-size:11px;padding:4px 0;margin-top:4px"></div></div><div class="mfooter"><button class="btn" onclick="cm('m-ap')">Abbrechen</button><button class="btn" id="btn-ap-delete" style="display:none" onclick="deletePortfolioHolding()">Bestand löschen</button><button class="btn-p" id="btn-ap-save" onclick="savePortfolioHolding()">Speichern</button></div></div></div>
 <div class="overlay" id="m-ums"><div class="modal"><div class="mhd"><div class="mtitle">Anlagerezept für Kunde</div><button class="mx" onclick="cm('m-ums')">✕</button></div><div class="mbody"><div style="background:var(--n0);border:1px solid rgba(29,78,216,0.2);border-radius:var(--r);padding:10px;margin-bottom:10px;font-size:11px;line-height:1.6">Basierend auf Soll-Allokation: Anlageprodukte werden aus dem Anlageuniversum gesucht und ein Bericht erstellt. Erst nach Bestätigung wird der Bericht an die Depotbank übermittelt.</div><div class="frow"><div class="fg"><label class="fl">Depotbank für Umsetzung</label><select class="fsel" id="recipe-depot-bank"><option>UBS AG Zürich</option><option>ZKB</option></select></div></div><div id="recipe-status" style="font-size:10px;color:var(--n4);margin-top:4px">Vor dem Druck wird das aktuelle Rezept live neu aufgebaut.</div></div><div class="mfooter"><button class="btn" onclick="cm('m-ums')">Abbrechen</button><button class="btn-p" onclick="confirmImplementationRecipe()">Umsetzung bestätigen</button></div></div></div>
@@ -23708,11 +23708,21 @@ function renderDocumentGrid(documents){
     return;
   }
   grid.innerHTML=createCard+docs.map(function(doc){
+    // 2026-08-05 (User-Direktive, E-Signing): beide Unterzeichner (Berater +
+    // Kunde) bekommen je eine eigene Signieren-Aktion statt nur Berater --
+    // Kunde-Signatur hatte bisher gar keine UI.
     var signedAdvisor=Number(doc.signed_by_advisor||0)===1;
-    var action=signedAdvisor
-      ? '<span class="tag tg">signiert</span>'
-      : '<button type="button" data-doc-action="sign" class="btn btn-sm">Berater signieren</button>';
-    return '<div class="doc-card rv-output-item" data-docid="'+escapeHtml(doc.id||'')+'"><div><div class="rv-output-title">'+escapeHtml(doc.title||doc.document_type||'Dokument')+'</div><div class="rv-output-sub">'+escapeHtml((doc.document_type||'Dokument')+' / '+(doc.status||'Entwurf'))+'</div></div><div class="rv-output-status">'+(signedAdvisor?'<span class="tag tg">Berater</span>':'<span class="tag ta">Entwurf</span>')+'</div><div class="rv-output-actions"><button type="button" data-doc-action="print" class="btn-p btn-sm">Kapitel drucken</button>'+action+'</div></div>';
+    var signedClient=Number(doc.signed_by_client||0)===1;
+    var advisorAction=signedAdvisor
+      ? '<span class="tag tg" title="'+escapeHtml(doc.signature_advisor_signer_name||'')+'">Berater ✓</span>'
+      : '<button type="button" data-doc-action="sign-advisor" class="btn btn-sm">Berater signieren</button>';
+    var clientAction=signedClient
+      ? '<span class="tag tg" title="'+escapeHtml(doc.signature_client_signer_name||'')+'">Kunde ✓</span>'
+      : '<button type="button" data-doc-action="sign-client" class="btn btn-sm">Kunde signieren</button>';
+    var statusTag=(signedAdvisor&&signedClient)
+      ? '<span class="tag tg">Unterzeichnet</span>'
+      : ((signedAdvisor||signedClient)?'<span class="tag ta">Teilweise unterzeichnet</span>':'<span class="tag ta">Entwurf</span>');
+    return '<div class="doc-card rv-output-item" data-docid="'+escapeHtml(doc.id||'')+'"><div><div class="rv-output-title">'+escapeHtml(doc.title||doc.document_type||'Dokument')+'</div><div class="rv-output-sub">'+escapeHtml((doc.document_type||'Dokument')+' / '+(doc.status||'Entwurf'))+'</div></div><div class="rv-output-status">'+statusTag+'</div><div class="rv-output-actions"><button type="button" data-doc-action="print" class="btn-p btn-sm">Kapitel drucken</button>'+advisorAction+clientAction+'</div></div>';
   }).join('');
   Array.prototype.forEach.call(grid.querySelectorAll('.doc-card'),function(card,idx){
     var doc=docs[idx];
@@ -23725,11 +23735,18 @@ function renderDocumentGrid(documents){
         printDocumentTypeReport(String(doc.document_type||'Dokument'));
       };
     }
-    var signBtn=card.querySelector('button[data-doc-action="sign"]');
-    if(signBtn){
-      signBtn.onclick=function(ev){
+    var signAdvisorBtn=card.querySelector('button[data-doc-action="sign-advisor"]');
+    if(signAdvisorBtn){
+      signAdvisorBtn.onclick=function(ev){
         if(ev)ev.preventDefault();
         signDocumentAsAdvisor(doc.id||'');
+      };
+    }
+    var signClientBtn=card.querySelector('button[data-doc-action="sign-client"]');
+    if(signClientBtn){
+      signClientBtn.onclick=function(ev){
+        if(ev)ev.preventDefault();
+        signDocumentAsClient(doc.id||'');
       };
     }
   });
@@ -24273,24 +24290,135 @@ async function saveContractDocumentDraft(){
     setTimeout(function(){cm('m-contract-edit');},700);
   }
 }
-async function signDocumentAsAdvisor(docId){
+// 2026-08-05 (User-Direktive, E-Signing): signDocumentAsAdvisor() setzte
+// bisher nur signed_by_advisor=true per API-Call -- keine echte Unterschrift
+// wurde je erfasst, jeder authentifizierte Advisor-User konnte das fuer
+// JEDES Dokument toggeln. Client-Signierung hatte ueberhaupt keine UI.
+// Ersetzt durch eine Canvas-Signatur-Erfassung (m-esign-Modal), die ein
+// echtes Signatur-Bild + Namen an das Backend schickt (services/review.py::
+// sign_document, ContractDocumentSign verlangt signature_image+signer_name).
+var esignState={docId:null,role:null,drawing:false,hasDrawn:false,lastX:0,lastY:0};
+
+function _esignCanvasCtx(){
+  var canvas=document.getElementById('esign-canvas');
+  return canvas?canvas.getContext('2d'):null;
+}
+function clearEsignCanvas(){
+  var canvas=document.getElementById('esign-canvas');
+  var ctx=_esignCanvasCtx();
+  if(!canvas||!ctx)return;
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  esignState.hasDrawn=false;
+}
+function _esignCanvasPoint(canvas,ev){
+  var rect=canvas.getBoundingClientRect();
+  var clientX=(ev.touches&&ev.touches[0])?ev.touches[0].clientX:ev.clientX;
+  var clientY=(ev.touches&&ev.touches[0])?ev.touches[0].clientY:ev.clientY;
+  return {
+    x:(clientX-rect.left)*(canvas.width/rect.width),
+    y:(clientY-rect.top)*(canvas.height/rect.height)
+  };
+}
+function initEsignCanvas(){
+  var canvas=document.getElementById('esign-canvas');
+  var ctx=_esignCanvasCtx();
+  if(!canvas||!ctx||canvas.dataset.esignBound==='1')return;
+  canvas.dataset.esignBound='1';
+  ctx.lineWidth=2;
+  ctx.lineCap='round';
+  ctx.strokeStyle='#1a1a2e';
+  function start(ev){
+    ev.preventDefault();
+    var p=_esignCanvasPoint(canvas,ev);
+    esignState.drawing=true;
+    esignState.lastX=p.x;esignState.lastY=p.y;
+  }
+  function move(ev){
+    if(!esignState.drawing)return;
+    ev.preventDefault();
+    var p=_esignCanvasPoint(canvas,ev);
+    ctx.beginPath();
+    ctx.moveTo(esignState.lastX,esignState.lastY);
+    ctx.lineTo(p.x,p.y);
+    ctx.stroke();
+    esignState.lastX=p.x;esignState.lastY=p.y;
+    esignState.hasDrawn=true;
+  }
+  function end(ev){
+    if(ev)ev.preventDefault();
+    esignState.drawing=false;
+  }
+  canvas.addEventListener('mousedown',start);
+  canvas.addEventListener('mousemove',move);
+  window.addEventListener('mouseup',end);
+  canvas.addEventListener('touchstart',start,{passive:false});
+  canvas.addEventListener('touchmove',move,{passive:false});
+  canvas.addEventListener('touchend',end,{passive:false});
+}
+function openSignatureModal(docId,role){
+  if(!docId||(role!=='advisor'&&role!=='client'))return;
+  esignState.docId=docId;
+  esignState.role=role;
+  var label=document.getElementById('esign-signer-role-label');
+  var nameInput=document.getElementById('esign-signer-name');
+  var errEl=document.getElementById('esign-error');
+  if(label)label.textContent=role==='advisor'?'Berater':'Kunde';
+  if(nameInput){
+    if(role==='advisor'){
+      nameInput.value=(typeof currentUser!=='undefined'&&currentUser)?(currentUser.full_name||currentUser.username||''):'';
+    } else {
+      nameInput.value=(typeof currentPersona!=='undefined'&&currentPersona)?((currentPersona.first_name||currentPersona.name||'')+' '+(currentPersona.last_name||'')).trim():'';
+    }
+  }
+  if(errEl){errEl.style.display='none';errEl.textContent='';}
+  om('m-esign');
+  setTimeout(function(){
+    initEsignCanvas();
+    clearEsignCanvas();
+  },0);
+}
+async function submitEsignSignature(){
+  var errEl=document.getElementById('esign-error');
+  var nameInput=document.getElementById('esign-signer-name');
+  var canvas=document.getElementById('esign-canvas');
+  function showErr(msg){
+    if(errEl){errEl.textContent=msg;errEl.style.display='block';}
+  }
+  var name=(nameInput&&nameInput.value||'').trim();
+  if(!name){showErr('Bitte den Namen des Unterzeichners eingeben.');return;}
+  if(!esignState.hasDrawn){showErr('Bitte zuerst unterschreiben.');return;}
+  if(!esignState.docId){showErr('Kein Dokument ausgewaehlt.');return;}
+  var dataUri=canvas.toDataURL('image/png');
   var mid=getActiveMandateId();
-  if(!docId)return;
+  var payload={signer_name:name,signature_image:dataUri};
+  payload[esignState.role==='advisor'?'signed_by_advisor':'signed_by_client']=true;
+  var docId=esignState.docId;
   if(mid&&!isDemoMandateId(mid)){
     try{
-      await API.post('/mandates/'+mid+'/documents/'+docId+'/sign',{signed_by_advisor:true});
+      await API.post('/mandates/'+mid+'/documents/'+docId+'/sign',payload);
+      cm('m-esign');
       await refreshReviewUI(mid);
     }catch(e){
-      console.error('signDocumentAsAdvisor:',e);
+      console.error('submitEsignSignature:',e);
+      showErr('Signatur konnte nicht gespeichert werden. Bitte erneut versuchen.');
     }
   } else {
+    var flagField=esignState.role==='advisor'?'signed_by_advisor':'signed_by_client';
     currentReviewState.documents=(currentReviewState.documents||[]).map(function(doc){
       if(String(doc.id||'')!==String(docId||''))return doc;
-      return Object.assign({},doc,{signed_by_advisor:1,status:'Unterzeichnet'});
+      var updated={};
+      updated[flagField]=1;
+      updated['signature_'+esignState.role+'_signer_name']=name;
+      var bothSigned=(esignState.role==='advisor'?1:Number(doc.signed_by_client||0))&&(esignState.role==='client'?1:Number(doc.signed_by_advisor||0));
+      updated.status=bothSigned?'Unterzeichnet':'Teilweise unterzeichnet';
+      return Object.assign({},doc,updated);
     });
+    cm('m-esign');
     renderReviewState(currentReviewState);
   }
 }
+function signDocumentAsAdvisor(docId){openSignatureModal(docId,'advisor');}
+function signDocumentAsClient(docId){openSignatureModal(docId,'client');}
 async function documentDecisionTemplate(){
   var btn=document.getElementById('btn-ed-save');
   var mid=getActiveMandateId();

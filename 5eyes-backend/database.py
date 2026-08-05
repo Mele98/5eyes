@@ -604,6 +604,19 @@ def ensure_runtime_columns() -> None:
         ensure_column(conn, "risk_assessments", "client_signed_at", "TEXT")
         ensure_column(conn, "risk_assessments", "client_signed_method", "TEXT")
         ensure_column(conn, "risk_assessments", "client_signed_ref", "TEXT")
+        # E-Signing (2026-08-05, User-Direktive): echtes Signatur-Artefakt pro
+        # Unterzeichner auf ContractDocument, statt der bisherigen reinen
+        # Checkbox-Flags (signed_by_advisor/client). ensure_column ist
+        # idempotent -> ergaenzt die Spalten auf bestehenden SQLite-DBs beim
+        # naechsten Start, ohne bestehende Vertragsdokumente zu beruehren.
+        ensure_column(conn, "contract_documents", "signature_advisor_image", "TEXT")
+        ensure_column(conn, "contract_documents", "signature_advisor_signer_name", "TEXT")
+        ensure_column(conn, "contract_documents", "signature_advisor_signed_at", "TEXT")
+        ensure_column(conn, "contract_documents", "signature_advisor_ip", "TEXT")
+        ensure_column(conn, "contract_documents", "signature_client_image", "TEXT")
+        ensure_column(conn, "contract_documents", "signature_client_signer_name", "TEXT")
+        ensure_column(conn, "contract_documents", "signature_client_signed_at", "TEXT")
+        ensure_column(conn, "contract_documents", "signature_client_ip", "TEXT")
 
 
 def run_advisory_log_migration(target_engine: Engine = engine) -> None:
