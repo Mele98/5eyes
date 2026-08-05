@@ -78,6 +78,20 @@ Monkeypatch auf dem Re-Export-Modul alleine wirkt sich nicht auf den
 tatsaechlichen Aufruf aus (getrennte Modul-Namespaces). Fix: beide Module
 patchen.
 
+**Korrektur (Mega-Audit 2026-08-04, verifiziert per grep):** dieses ADR
+behauptet unten (Reserve-Abschnitt, Zeile ~217/237/291/431) sowie in der
+Tabelle "Reserve haenge von 5 Goal-Metadaten-Helfern ab" (`_goal_projection_
+years`, `_annualize_goal_amount`, `_goal_hardness_key`,
+`_goal_probability_factor`, `_goal_pension_state_funded`). Das ist nur fuer
+2 der 5 Namen zutreffend (`_goal_projection_years`, `_annualize_goal_amount`).
+`_goal_hardness_key` ist KEINE Reserve-Abhaengigkeit -- siehe die
+ausfuehrliche Herleitung im Modul-Docstring von
+`services/portfolio_engine_reserve.py`, die diese Diskrepanz beim
+tatsaechlichen Extrahieren (Schritt 4) aufgedeckt und korrekt umgesetzt hat.
+Der Plan unten bleibt als historischer Stand unveraendert; die Umsetzung
+folgte der hier verlinkten, verifizierten Korrektur, nicht dem urspruenglichen
+Plantext.
+
 ## Kontext
 
 `5eyes-backend/services/portfolio_engine.py` ist **8'820 Zeilen** gross und

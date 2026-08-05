@@ -142,7 +142,10 @@ Geplanter Folge-Sprint:
 - hypothesis wird **nicht** zur requirements.txt hinzugefuegt
   (User-Konvention: keine neuen Dependencies ohne Auth)
 - Property-Tests werden **nicht** zur Coverage-Gate hinzugefuegt
-  (rechnen wir nicht in den 82%-Floor ein)
+  (Mega-Audit 2026-08-04: es gibt bewusst KEINEN Coverage-Floor, siehe
+  pyproject.toml -- `--cov-fail-under` wird erst nach Baseline-Messung
+  gesetzt; Property-Test-Ergebnisse fliessen also in gar keine harte
+  Schwelle ein)
 - Stateful-Testing (hypothesis.stateful) wird heute nicht
   konfiguriert (komplexer Setup-Aufwand, Folge-Sprint)
 
