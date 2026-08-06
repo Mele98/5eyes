@@ -886,7 +886,7 @@ CREATE TABLE IF NOT EXISTS house_matrix (
     score_from              INTEGER NOT NULL CHECK(score_from BETWEEN 1 AND 10),
     score_to                INTEGER NOT NULL CHECK(score_to BETWEEN 1 AND 10),
     profile_name            TEXT NOT NULL CHECK(profile_name IN (
-                                'Kapitalschutz','Defensiv','Ausgewogen','Wachstum','Dynamisch','Aktien')),
+                                'Kapitalschutz','Defensiv','Ausgewogen','Wachstumsorientiert','Dynamisch','Aktien')),
     liq_min_bps             INTEGER NOT NULL CHECK(liq_min_bps BETWEEN 0 AND 10000),
     liq_target_bps          INTEGER NOT NULL CHECK(liq_target_bps BETWEEN 0 AND 10000),
     liq_max_bps             INTEGER NOT NULL CHECK(liq_max_bps BETWEEN 0 AND 10000),
