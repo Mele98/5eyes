@@ -3812,7 +3812,7 @@ function _wireSollIstHover(){
           </div>
 
           <div class="card" style="margin-bottom:14px">
-            <div class="chd"><span class="cht">Was wir heute beschliessen</span><span style="font-size:9px;color:var(--n4);margin-left:8px">Konkrete Massnahmen aus dem heutigen Gespraech</span><div class="chr"><button id="sr-recipe-print" class="btn-g" onclick="printAdvisoryProtocol()">Beratungsprotokoll drucken</button></div></div>
+            <div class="chd"><span class="cht" id="sr-implementation-title">Was wir heute beschliessen</span><span id="sr-implementation-sub" style="font-size:9px;color:var(--n4);margin-left:8px">Konkrete Massnahmen aus dem heutigen Gespraech</span><div class="chr"><button id="sr-recipe-print" class="btn-g" onclick="printAdvisoryProtocol()">Beratungsprotokoll drucken</button></div></div>
             <div class="cbody">
               <div id="sr-implementation-steps" style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:10px"><div style="grid-column:1/-1;font-size:10px;color:var(--n4)">Noch keine Massnahme festgehalten. Im Review-Schritt einen Eintrag hinzufuegen.</div></div>
               <div style="display:flex;justify-content:space-between;align-items:center;padding-top:8px;border-top:1px solid var(--b1)">
@@ -20551,34 +20551,54 @@ function renderSrImplementationDecision(entry){
     .sort(function(a,b){return Math.abs(Number(b.deltaWeightBps||0))-Math.abs(Number(a.deltaWeightBps||0))});
   var live=liveRebalancingPayload(allocation)||liveRebalancingPayload(recommendation);
   // 2026-07-24: Handelsliste nur bei Ausfuehrungsbefugnis (Vermoegensverwaltung).
-  var hasTradeList=_reviewIsDiscretionaryMandate()&&!!(live&&Array.isArray(live.position_drifts)&&live.position_drifts.some(function(row){return String(row&&row.rebalance_action||'').toUpperCase()!=='HOLD';}));
+  var isDiscretionary=_reviewIsDiscretionaryMandate();
+  var hasTradeList=isDiscretionary&&!!(live&&Array.isArray(live.position_drifts)&&live.position_drifts.some(function(row){return String(row&&row.rebalance_action||'').toUpperCase()!=='HOLD';}));
+  // 2026-08-06 (User-Direktive: "komplett verschiedene HUDS"): WM-Karten sind
+  // nummerierte Umsetzungsschritte mit Handelsverb (Reduzieren/Aufstocken/
+  // Beobachten fuer illiquide Klassen); Consulting-Karten sind unnummerierte
+  // Empfehlungszeilen ohne Handelsverb -- reviewBandStateMeta() liefert dafuer
+  // bereits eine mandatstyp-bewusste Beschreibung (.action), z.B. "Empfehlung
+  // anpassen" statt "Rebalancing erforderlich".
+  var titleEl=document.getElementById('sr-implementation-title');
+  var subEl=document.getElementById('sr-implementation-sub');
+  if(titleEl)titleEl.textContent=isDiscretionary?'Was wir heute umsetzen':'Unsere Empfehlung im Detail';
+  if(subEl)subEl.textContent=isDiscretionary?'Konkrete Massnahmen aus dem heutigen Gespraech':'Empfehlung pro Anlageklasse, zur Besprechung mit dem Kunden';
   var cards=[];
   if(driftItems.length){
     driftItems.slice(0,3).forEach(function(item,idx){
-      // Illiquide Anlageklassen (Immobilien) sind nicht "reduzierbar/aufstockbar"
-      // per Transaktion -- neutrale Beobachtungs-Sprache statt Handelsverb.
-      // 2026-08-05 (HUD-Konsistenz, User-Direktive: "Consulting hat keine
-      // aktive anzusehende Rebalancings"): im Consulting-Modus (keine
-      // Ausfuehrungsbefugnis) IMMER die neutrale Beobachtungs-Sprache, auch
-      // fuer liquide Anlageklassen -- identische Gate-Logik wie hasTradeList
-      // oben und wie renderReviewHero() (isDiscretionary&&...).
-      var verb=(!_reviewIsDiscretionaryMandate()||_reviewIsIlliquidAssetClass(item.assetKey))?'Beobachten':(Number(item.deltaWeightBps||0)>0?'Reduzieren':'Aufstocken');
-      cards.push('<div style="border:1px solid var(--b1);border-radius:var(--r2);padding:10px">'
-        +'<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px"><div style="width:20px;height:20px;border-radius:50%;background:'+item.meta.tone+';color:#fff;font-size:10px;font-weight:600;display:flex;align-items:center;justify-content:center">'+String(idx+1)+'</div><span style="font-size:11px;font-weight:500;color:var(--n8)">'+escapeHtml(verb)+'</span></div>'
-        +'<div style="font-size:10px;color:var(--n8);font-weight:500;margin-bottom:3px">'+escapeHtml(item.assetClass)+'</div>'
-        +'<div style="font-size:10px;color:var(--n6)">IST '+escapeHtml(formatBpsPercent(item.currentWeightBps))+' → SOLL '+escapeHtml(formatBpsPercent(item.targetWeightBps))+' · Delta '+escapeHtml(formatSignedBpsPercent(item.deltaWeightBps))+'</div>'
-        +'<div style="margin-top:5px"><span class="tag '+item.meta.tagClass+'">'+escapeHtml(item.meta.label)+'</span></div>'
-        +'</div>');
+      if(isDiscretionary){
+        // Illiquide Anlageklassen (Immobilien) sind nicht "reduzierbar/aufstockbar"
+        // per Transaktion -- neutrale Beobachtungs-Sprache statt Handelsverb.
+        var verb=_reviewIsIlliquidAssetClass(item.assetKey)?'Beobachten':(Number(item.deltaWeightBps||0)>0?'Reduzieren':'Aufstocken');
+        cards.push('<div style="border:1px solid var(--b1);border-radius:var(--r2);padding:10px">'
+          +'<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px"><div style="width:20px;height:20px;border-radius:50%;background:'+item.meta.tone+';color:#fff;font-size:10px;font-weight:600;display:flex;align-items:center;justify-content:center">'+String(idx+1)+'</div><span style="font-size:11px;font-weight:500;color:var(--n8)">'+escapeHtml(verb)+'</span></div>'
+          +'<div style="font-size:10px;color:var(--n8);font-weight:500;margin-bottom:3px">'+escapeHtml(item.assetClass)+'</div>'
+          +'<div style="font-size:10px;color:var(--n6)">IST '+escapeHtml(formatBpsPercent(item.currentWeightBps))+' → SOLL '+escapeHtml(formatBpsPercent(item.targetWeightBps))+' · Delta '+escapeHtml(formatSignedBpsPercent(item.deltaWeightBps))+'</div>'
+          +'<div style="margin-top:5px"><span class="tag '+item.meta.tagClass+'">'+escapeHtml(item.meta.label)+'</span></div>'
+          +'</div>');
+      } else {
+        // Consulting: keine nummerierten Umsetzungsschritte (impliziert keine
+        // Ausfuehrung), stattdessen eine Empfehlungszeile mit der bereits
+        // mandatstyp-bewussten .action-Beschreibung aus reviewBandStateMeta().
+        cards.push('<div style="border:1px solid var(--b1);border-radius:var(--r2);padding:10px">'
+          +'<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:6px"><span class="tag '+item.meta.tagClass+'">'+escapeHtml(item.meta.label)+'</span><span style="font-size:10px;font-weight:600;color:'+item.meta.tone+'">'+escapeHtml(formatSignedBpsPercent(item.deltaWeightBps))+'</span></div>'
+          +'<div style="font-size:10px;color:var(--n8);font-weight:500;margin-bottom:3px">'+escapeHtml(item.assetClass)+'</div>'
+          +'<div style="font-size:10px;color:var(--n6);margin-bottom:4px">Aktuell '+escapeHtml(formatBpsPercent(item.currentWeightBps))+' · Ziel '+escapeHtml(formatBpsPercent(item.targetWeightBps))+'</div>'
+          +'<div style="font-size:10px;color:var(--n5)">'+escapeHtml(item.meta.action)+'</div>'
+          +'</div>');
+      }
     });
   }
   if(!cards.length){
-    cards.push('<div style="grid-column:1/-1;border:1px solid rgba(14,107,65,0.2);border-radius:var(--r2);padding:12px;background:var(--pos-lt)"><div style="font-size:11px;color:var(--n8);font-weight:500;margin-bottom:4px">Alle Anlageklassen im Band</div><div style="font-size:10px;color:var(--n6)">Heute kein Rebalancing erforderlich. Governance, Eignung und Dokumentation stehen im Vordergrund.</div></div>');
+    cards.push(isDiscretionary
+      ? '<div style="grid-column:1/-1;border:1px solid rgba(14,107,65,0.2);border-radius:var(--r2);padding:12px;background:var(--pos-lt)"><div style="font-size:11px;color:var(--n8);font-weight:500;margin-bottom:4px">Alle Anlageklassen im Band</div><div style="font-size:10px;color:var(--n6)">Heute kein Rebalancing erforderlich. Governance, Eignung und Dokumentation stehen im Vordergrund.</div></div>'
+      : '<div style="grid-column:1/-1;border:1px solid rgba(14,107,65,0.2);border-radius:var(--r2);padding:12px;background:var(--pos-lt)"><div style="font-size:11px;color:var(--n8);font-weight:500;margin-bottom:4px">Empfehlung entspricht der Zielallokation</div><div style="font-size:10px;color:var(--n6)">Alle Anlageklassen liegen im empfohlenen Band. Heute stehen Beratungsgespraech und Dokumentation im Vordergrund.</div></div>');
   }
   steps.innerHTML=cards.join('');
   var meta=document.getElementById('sr-decision-meta');
   if(meta){
     var when=activeEntry?formatDateSwiss(activeEntry.entry_date||activeEntry.created_at||''):'—';
-    meta.innerHTML='Beratungsprotokoll vom <strong>'+escapeHtml(when)+'</strong>'+(hasTradeList?' · <button class="btn btn-sm" onclick="openTradeList()" style="vertical-align:middle;margin-left:6px">Handelsliste</button>':'');
+    meta.innerHTML=(isDiscretionary?'Beratungsprotokoll vom ':'Empfehlung vom ')+'<strong>'+escapeHtml(when)+'</strong>'+(hasTradeList?' · <button class="btn btn-sm" onclick="openTradeList()" style="vertical-align:middle;margin-left:6px">Handelsliste</button>':'');
   }
 }
 function renderSrApiSummary(risk,allocation,recommendation,cashflow,triggers){
@@ -23466,7 +23486,13 @@ function normalizeReviewLayout(){
   if(!primaryStory){primaryStory=document.createElement('section');primaryStory.id='rv-primary-story';}
   primaryStory.className='rv-primary-story';
   var storyHeading=rvSectionHeader('rv-story-heading','Beratung','Strategie & Entscheid','Die wesentlichen Aussagen fuer das Kundengespraech, ohne technische Zwischenschritte.');
-  [storyHeading,summaryStory,implementationCard].forEach(function(node){if(node)primaryStory.appendChild(node);});
+  // 2026-08-06 (User-Direktive, HUD-Masken-Neugestaltung): Dokumente/E-Signing
+  // (rv-documents-card) waren vorher NUR in der eingeklappten "Vertiefung"-
+  // Disclosure erreichbar -- Signieren gehoert aber zu jedem Beratungstermin,
+  // nicht zu "bei Bedarf". Jetzt Teil der immer sichtbaren Haupt-Sektion,
+  // unabhaengig vom Praesentationsmodus (beide Mandatsformen brauchen
+  // signierte Dokumente).
+  [storyHeading,summaryStory,implementationCard,utility.docsCard].forEach(function(node){if(node)primaryStory.appendChild(node);});
   // Bug-#10 (2026-06-07): Vertiefung-Sektion zeigt nur SOLL-/Methodik-
   // Details, keine Portfolio-IST/SOLL-Vergleichs-UI mehr. Portfolio-
   // Vergleich (Bug-#9) und Strategie-Spiegel (Bug-#11) sind weg —
@@ -23493,7 +23519,7 @@ function normalizeReviewLayout(){
   var finalGrid=document.getElementById('rv-final-grid');
   if(!finalGrid){finalGrid=document.createElement('div');finalGrid.id='rv-final-grid';}
   finalGrid.className='rv-final-grid';
-  [utility.suitabilityCard,utility.conflictCard,utility.readinessCard,utility.docsCard].forEach(function(node){
+  [utility.suitabilityCard,utility.conflictCard,utility.readinessCard].forEach(function(node){
     if(node)finalGrid.appendChild(node);
   });
   var governanceDisclosure=rvDisclosure('rv-governance-disclosure','Dokumente & interne Abschlusskontrolle','Protokoll, Ausgaben, Eignungspruefung und Governance anzeigen');
@@ -24059,6 +24085,111 @@ function renderReviewCockpit(state){
   renderReviewDetailsAccordion(result);
 }
 
+function _rvHeroChipsHtml(chips){
+  return chips.length?'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">'+chips.map(function(c){return '<span style="font-size:10.5px;font-weight:600;color:var(--n7);background:rgba(15,23,42,0.06);border-radius:999px;padding:5px 13px">'+escapeHtml(c)+'</span>';}).join('')+'</div>':'';
+}
+function _rvHeroCommonChips(allocation,rows,violated,tight){
+  var chips=[];
+  if(rows.length)chips.push(String(rows.length-violated.length-tight.length)+'/'+String(rows.length)+' Anlageklassen im Band');
+  var retBps=allocation?Number(allocation.expected_return_bps||0):0;
+  if(retBps)chips.push('Rendite p.a. '+((retBps/100).toFixed(1))+'%');
+  var projRappen=allocation?simulationTerminalRappen(allocation,'target_mix_series_rappen',7):0;
+  if(projRappen>0)chips.push('Prognose '+formatCompactCHF(projRappen/100));
+  return chips;
+}
+function _rvSuitabilityPreflightSummary(state){
+  var checks=(state&&state.suitability)||(currentReviewState&&currentReviewState.suitability)||[];
+  var recent=checks.some(function(item){return reviewIsRecent(item.checked_at||item.created_at,1);});
+  return {
+    recent:recent,
+    headline:recent?'Für dieses Meeting bereits dokumentiert':'Heute zu prüfen vor jeder Empfehlung',
+    note:recent?'Die letzte Eignungsprüfung wurde für das heutige Meeting erfasst.':'Wenn sich hier etwas geändert hat, bitte jetzt die Eignungsprüfung dokumentieren.'
+  };
+}
+function _rvHeroWealthmanagementHtml(rows,violated,tight,allocation){
+  var statusKey,bg,borderColor,dotColor,badge,headline,summary,ctaHtml;
+  if(violated.length>0){
+    statusKey='red';bg='var(--neg-lt)';borderColor='rgba(139,30,30,0.25)';dotColor='var(--neg)';
+    badge='HANDLUNGSBEDARF';
+    var top=violated.slice().sort(function(a,b){return Math.abs(Number(b.deltaWeightBps||0))-Math.abs(Number(a.deltaWeightBps||0));})[0];
+    headline=violated.length===1?'Bandverletzung bei '+top.assetClass:String(violated.length)+' Bandverletzungen — Rebalancing erforderlich';
+    summary=top.assetClass+': IST '+formatBpsPercent(top.currentWeightBps)+' / SOLL '+formatBpsPercent(top.targetWeightBps)+' — ausserhalb der vereinbarten Bandbreite. '+top.meta.action+'.';
+    var live=liveRebalancingPayload(allocation);
+    var hasTradeList=!!(live&&Array.isArray(live.position_drifts)&&live.position_drifts.some(function(r){return String(r&&r.rebalance_action||'').toUpperCase()!=='HOLD';}));
+    ctaHtml='<button class="btn-p btn-sm" onclick="openDecisionTemplateModal(\'\')">Entscheidungsvorlage</button>'+(hasTradeList?'<button class="btn btn-sm" onclick="openTradeList()">Handelsliste</button>':'');
+  } else if(tight.length>0){
+    statusKey='yellow';bg='var(--warn-lt)';borderColor='rgba(122,82,0,0.2)';dotColor='var(--warn)';
+    badge='IM BLICK BEHALTEN';
+    headline=tight[0].assetClass+' nähert sich der Bandgrenze';
+    summary=tight.length+' Anlageklasse'+(tight.length>1?'n nähern sich':' nähert sich')+' der Bandgrenze. Heute empfehlen wir eine Prüfung und Protokollierung.';
+    ctaHtml='<button class="btn-p btn-sm" onclick="om(\'m-ne\')">Entscheid protokollieren</button>';
+  } else {
+    statusKey='green';bg='var(--pos-lt)';borderColor='rgba(14,107,65,0.2)';dotColor='var(--pos)';
+    badge='PORTFOLIO IM BAND';
+    headline='Ihre Strategie entwickelt sich wie vereinbart';
+    summary='Alle '+(rows.length||0)+' Anlageklassen liegen im vereinbarten Band. Heute stehen Umsetzung, Entscheid und Dokumentation im Vordergrund.';
+    ctaHtml='<button class="btn-p btn-sm" onclick="om(\'m-ne\')">Entscheid protokollieren</button>';
+  }
+  var chips=_rvHeroCommonChips(allocation,rows,violated,tight);
+  return {bg:bg,borderColor:borderColor,html:
+    '<div style="padding:24px 28px">'
+    +'<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">'
+    +'<div style="width:9px;height:9px;border-radius:50%;background:'+dotColor+';flex-shrink:0"></div>'
+    +'<div style="font-size:10px;font-weight:800;letter-spacing:0.12em;text-transform:uppercase;color:'+dotColor+'">'+escapeHtml(badge)+'</div>'
+    +'<div style="font-size:9px;font-weight:700;letter-spacing:0.07em;text-transform:uppercase;color:var(--n5);margin-left:10px;padding:2px 9px;border-radius:999px;background:rgba(15,23,42,0.06)">Portfolio-Führung</div>'
+    +'<div style="font-size:10px;color:var(--n4);margin-left:auto">'+new Date().toLocaleDateString('de-CH',{day:'2-digit',month:'long',year:'numeric'})+'</div>'
+    +'</div>'
+    +'<div style="font-size:23px;font-weight:700;color:var(--n8);margin-bottom:8px;line-height:1.25;max-width:820px">'+escapeHtml(headline)+'</div>'
+    +'<div style="font-size:13px;color:var(--n6);line-height:1.65;margin-bottom:14px;max-width:760px">'+escapeHtml(summary)+'</div>'
+    +_rvHeroChipsHtml(chips)
+    +'<div style="display:flex;gap:8px;flex-wrap:wrap">'+ctaHtml+'</div>'
+    +'</div>'
+  };
+}
+function _rvHeroConsultingHtml(rows,violated,tight,allocation,state){
+  var infoRows=violated.concat(tight);
+  var statusKey,bg,dotColor,badge,headline,summary;
+  if(infoRows.length>0){
+    // HUD-Fix (2026-08-05/06, User-Direktive): Consulting hat keine aktive
+    // anzusehende Rebalancings -- kein Alarm-Rot, keine Dringlichkeit.
+    // Gleiche Fakten bleiben sichtbar (nichts verschwiegen), aber informativ
+    // statt alarmierend eingeordnet (max. gelb/informativ, nie rot).
+    statusKey='info';bg='var(--warn-lt)';dotColor='var(--warn)';
+    badge='ANPASSUNG EMPFOHLEN';
+    var topInfo=infoRows.slice().sort(function(a,b){return Math.abs(Number(b.deltaWeightBps||0))-Math.abs(Number(a.deltaWeightBps||0));})[0];
+    headline=infoRows.length===1?topInfo.assetClass+' weicht von der Zielallokation ab':String(infoRows.length)+' Anlageklassen weichen von der Zielallokation ab';
+    summary=topInfo.assetClass+': aktuell '+formatBpsPercent(topInfo.currentWeightBps)+' / Ziel '+formatBpsPercent(topInfo.targetWeightBps)+'. '+topInfo.meta.action+'.';
+  } else {
+    statusKey='ok';bg='var(--pos-lt)';dotColor='var(--pos)';
+    badge='EMPFEHLUNG AKTUELL';
+    headline='Unsere Empfehlung entspricht weiterhin der vereinbarten Strategie';
+    summary='Alle '+(rows.length||0)+' Anlageklassen liegen im empfohlenen Band. Heute stehen Beratungsgespräch und Dokumentation im Vordergrund.';
+  }
+  var chips=_rvHeroCommonChips(allocation,rows,violated,tight);
+  var suitability=_rvSuitabilityPreflightSummary(state);
+  return {bg:'var(--surface)',borderColor:'var(--b1)',html:
+    '<div style="display:grid;grid-template-columns:minmax(0,1.5fr) minmax(220px,1fr)">'
+    +'<div style="padding:24px 28px;background:'+bg+';border-right:1px solid var(--b1)">'
+    +'<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">'
+    +'<div style="width:9px;height:9px;border-radius:50%;background:'+dotColor+';flex-shrink:0"></div>'
+    +'<div style="font-size:10px;font-weight:800;letter-spacing:0.12em;text-transform:uppercase;color:'+dotColor+'">'+escapeHtml(badge)+'</div>'
+    +'<div style="font-size:9px;font-weight:700;letter-spacing:0.07em;text-transform:uppercase;color:var(--n5);margin-left:10px;padding:2px 9px;border-radius:999px;background:rgba(15,23,42,0.06)">Anlageempfehlung</div>'
+    +'<div style="font-size:10px;color:var(--n4);margin-left:auto">'+new Date().toLocaleDateString('de-CH',{day:'2-digit',month:'long',year:'numeric'})+'</div>'
+    +'</div>'
+    +'<div style="font-size:23px;font-weight:700;color:var(--n8);margin-bottom:8px;line-height:1.25">'+escapeHtml(headline)+'</div>'
+    +'<div style="font-size:13px;color:var(--n6);line-height:1.65;margin-bottom:14px">'+escapeHtml(summary)+'</div>'
+    +_rvHeroChipsHtml(chips)
+    +'<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn-p btn-sm" onclick="om(\'m-ne\')">Empfehlung protokollieren</button></div>'
+    +'</div>'
+    +'<div style="padding:24px 22px;display:flex;flex-direction:column;gap:8px">'
+    +'<div style="font-size:9px;font-weight:800;letter-spacing:0.1em;text-transform:uppercase;color:var(--n4)">Eignungsprüfung</div>'
+    +'<div style="font-size:13px;font-weight:600;color:var(--n8)">'+escapeHtml(suitability.headline)+'</div>'
+    +'<div style="font-size:11px;color:var(--n6);line-height:1.55">'+escapeHtml(suitability.note)+'</div>'
+    +'<div style="margin-top:auto"><button class="btn btn-sm" onclick="om(\'m-new-suitability\')">Eignungsprüfung erfassen</button></div>'
+    +'</div>'
+    +'</div>'
+  };
+}
 function renderReviewHero(state){
   var pad=document.getElementById('page-rv');
   pad=pad?pad.querySelector('.pad'):null;
@@ -24082,74 +24213,32 @@ function renderReviewHero(state){
   var violated=rows.filter(function(r){return r.meta.tagClass==='tr2'&&!_reviewIsIlliquidAssetClass(r.assetKey);});
   var tight=rows.filter(function(r){return r.meta.tagClass==='ta'||(r.meta.tagClass==='tr2'&&_reviewIsIlliquidAssetClass(r.assetKey));});
   var isDiscretionary=_reviewIsDiscretionaryMandate();
-  var cashflowInfo=currentCashflowCoverageInfo();
-  var netMonthlyChf=Math.round(Math.abs(cashflowInfo.netRappen)/12/100);
-  var netSign=cashflowInfo.netRappen>=0?'+':'-';
-  var statusKey,bg,borderColor,dotColor,badge,headline,summary,ctaHtml;
+  hero.dataset.rvMask=isDiscretionary?'wealthmanagement':'consulting';
   if(!allocation){
-    statusKey='none';bg='var(--surface)';borderColor='var(--b1)';dotColor='var(--n4)';
-    badge='KEIN STRATEGIEBILD';headline='Noch keine Strategie gespeichert';
-    summary='Bitte zuerst eine Asset Allokation generieren, um den Portfolio-Status zu berechnen.';
-    ctaHtml='<button class="btn btn-sm" onclick="go(\'al\')">Zur Asset Allokation</button>';
-  } else if(isDiscretionary&&violated.length>0){
-    // HUD-Fix (2026-08-05, User-Direktive): der Alarm-Rot-Zustand ("aktive
-    // Rebalancing"-Framing) ist NUR fuer Vermoegensverwaltung im
-    // Wealthmanagement-Modus zulaessig -- Consulting hat keine aktive
-    // Depot-Ueberwachung (Anlagephilosophie), siehe Zweig weiter unten.
-    statusKey='red';bg='var(--neg-lt)';borderColor='rgba(139,30,30,0.25)';dotColor='var(--neg)';
-    badge='HANDLUNGSBEDARF';
-    var top=violated.slice().sort(function(a,b){return Math.abs(Number(b.deltaWeightBps||0))-Math.abs(Number(a.deltaWeightBps||0));})[0];
-    headline=violated.length===1?'Bandverletzung bei '+top.assetClass:String(violated.length)+' Bandverletzungen — Rebalancing erforderlich';
-    summary=top.assetClass+': IST '+formatBpsPercent(top.currentWeightBps)+' / SOLL '+formatBpsPercent(top.targetWeightBps)+' — ausserhalb der vereinbarten Bandbreite. '+top.meta.action+'.';
-    var live=liveRebalancingPayload(allocation);
-    var hasTradeList=!!(live&&Array.isArray(live.position_drifts)&&live.position_drifts.some(function(r){return String(r&&r.rebalance_action||'').toUpperCase()!=='HOLD';}));
-    ctaHtml='<button class="btn-p btn-sm" onclick="openDecisionTemplateModal(\'\')">Entscheidungsvorlage</button>'+(hasTradeList?'<button class="btn btn-sm" onclick="openTradeList()">Handelsliste</button>':'');
-  } else if(isDiscretionary&&tight.length>0){
-    statusKey='yellow';bg='var(--warn-lt)';borderColor='rgba(122,82,0,0.2)';dotColor='var(--warn)';
-    badge='IM BLICK BEHALTEN';
-    headline=tight[0].assetClass+' nähert sich der Bandgrenze';
-    summary=tight.length+' Anlageklasse'+(tight.length>1?'n nähern sich':' nähert sich')+' der Bandgrenze. Heute empfehlen wir eine Prüfung und Protokollierung.';
-    ctaHtml='<button class="btn-p btn-sm" onclick="om(\'m-ne\')">Entscheid protokollieren</button>';
-  } else if(!isDiscretionary&&(violated.length>0||tight.length>0)){
-    // HUD-Fix (2026-08-05, User-Direktive): Consulting hat keine aktive
-    // anzusehende Rebalancings -- kein Alarm-Rot, keine "EMPFEHLUNG PRÜFEN"-
-    // Dringlichkeit. Gleiche Fakten bleiben sichtbar (nichts verschwiegen),
-    // aber informativ statt alarmierend eingeordnet (max. gelbe Einordnung).
-    statusKey='yellow';bg='var(--warn-lt)';borderColor='rgba(122,82,0,0.2)';dotColor='var(--warn)';
-    badge='ZUR INFORMATION';
-    var infoRows=violated.concat(tight);
-    var topInfo=infoRows.slice().sort(function(a,b){return Math.abs(Number(b.deltaWeightBps||0))-Math.abs(Number(a.deltaWeightBps||0));})[0];
-    headline=infoRows.length===1?topInfo.assetClass+' weicht von der Zielallokation ab':String(infoRows.length)+' Anlageklassen weichen von der Zielallokation ab';
-    summary=topInfo.assetClass+': aktuell '+formatBpsPercent(topInfo.currentWeightBps)+' / Ziel '+formatBpsPercent(topInfo.targetWeightBps)+'. '+topInfo.meta.action+'.';
-    ctaHtml='<button class="btn-p btn-sm" onclick="openDecisionTemplateModal(\'\')">Entscheidungsvorlage</button>';
-  } else {
-    statusKey='green';bg='var(--pos-lt)';borderColor='rgba(14,107,65,0.2)';dotColor='var(--pos)';
-    badge='PORTFOLIO IM BAND';
-    headline='Ihre Strategie entwickelt sich wie vereinbart';
-    summary='Alle '+(rows.length||0)+' Anlageklassen liegen im vereinbarten Band. Heute stehen Empfehlung, Entscheid und Dokumentation im Vordergrund.';
-    ctaHtml='<button class="btn-p btn-sm" onclick="om(\'m-ne\')">Entscheid protokollieren</button>';
+    hero.dataset.rvMask='none';
+    hero.style.cssText='background:var(--surface);border:1px solid var(--b1);border-radius:var(--r2);padding:24px 28px;margin-bottom:14px';
+    hero.innerHTML='<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">'
+      +'<div style="width:8px;height:8px;border-radius:50%;background:var(--n4);flex-shrink:0"></div>'
+      +'<div style="font-size:9px;font-weight:800;letter-spacing:0.12em;text-transform:uppercase;color:var(--n4)">KEIN STRATEGIEBILD</div>'
+      +'</div>'
+      +'<div style="font-size:17px;font-weight:700;color:var(--n8);margin-bottom:6px">Noch keine Strategie gespeichert</div>'
+      +'<div style="font-size:11px;color:var(--n6);line-height:1.65;margin-bottom:12px">Bitte zuerst eine Asset Allokation generieren, um den Portfolio-Status zu berechnen.</div>'
+      +'<div><button class="btn btn-sm" onclick="go(\'al\')">Zur Asset Allokation</button></div>';
+    return;
   }
-  var chips=[];
-  if(rows.length)chips.push(String(rows.length-violated.length-tight.length)+'/'+String(rows.length)+' Anlageklassen im Band');
-  var retBps=allocation?Number(allocation.expected_return_bps||0):0;
-  if(retBps)chips.push('Rendite p.a. '+((retBps/100).toFixed(1))+'%');
-  var projRappen=allocation?simulationTerminalRappen(allocation,'target_mix_series_rappen',7):0;
-  if(projRappen>0)chips.push('Prognose '+formatCompactCHF(projRappen/100));
-  var cfVisual='';
-  // 2026-07-24: groessere Typografie + prominentere Kennzahlen-Chips, damit
-  // die Hero-Kachel als eigenstaendige "Kopfaussage" auf voller Seitenbreite
-  // funktioniert (Storytelling: Status + Kernaussage + Zahlen, dann CTA).
-  hero.style.cssText='background:'+bg+';border:1px solid '+borderColor+';border-radius:var(--r2);padding:24px 28px;margin-bottom:14px';
-  hero.innerHTML='<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">'
-    +'<div style="width:9px;height:9px;border-radius:50%;background:'+dotColor+';flex-shrink:0"></div>'
-    +'<div style="font-size:10px;font-weight:800;letter-spacing:0.12em;text-transform:uppercase;color:'+dotColor+'">'+escapeHtml(badge)+'</div>'
-    +'<div style="font-size:10px;color:var(--n4);margin-left:auto">'+new Date().toLocaleDateString('de-CH',{day:'2-digit',month:'long',year:'numeric'})+'</div>'
-    +'</div>'
-    +'<div style="font-size:23px;font-weight:700;color:var(--n8);margin-bottom:8px;line-height:1.25;max-width:820px">'+escapeHtml(headline)+'</div>'
-    +'<div style="font-size:13px;color:var(--n6);line-height:1.65;margin-bottom:14px;max-width:760px">'+escapeHtml(summary)+'</div>'
-    +cfVisual
-    +(chips.length?'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">'+chips.map(function(c){return '<span style="font-size:10.5px;font-weight:600;color:var(--n7);background:rgba(15,23,42,0.06);border-radius:999px;padding:5px 13px">'+escapeHtml(c)+'</span>';}).join('')+'</div>':'')
-    +'<div style="display:flex;gap:8px;flex-wrap:wrap">'+ctaHtml+'</div>';
+  // 2026-08-06 (User-Direktive: "komplett verschiedene HUDS"): Wealthmanagement
+  // (Ausfuehrungsbefugnis) und Consulting (reine Anlageberatung) bekommen ab
+  // hier zwei eigenstaendig aufgebaute Karten -- nicht nur unterschiedlicher
+  // Text in derselben Struktur, sondern unterschiedliche Layouts (WM:
+  // einspaltige Status-Ampel mit Handelsliste-Zugriff; Consulting: zweispaltig
+  // mit Eignungspruefung-Status gleichrangig neben der Empfehlung, nie rot/
+  // alarmierend, nie Handelsliste/Entscheidungsvorlage mit Ausfuehrungs-
+  // Optionen).
+  var built=isDiscretionary
+    ? _rvHeroWealthmanagementHtml(rows,violated,tight,allocation)
+    : _rvHeroConsultingHtml(rows,violated,tight,allocation,state);
+  hero.style.cssText='background:'+built.bg+';border:1px solid '+built.borderColor+';border-radius:var(--r2);padding:0;margin-bottom:14px;overflow:hidden';
+  hero.innerHTML=built.html;
 }
 function renderReviewState(state){
   var triggers=(state&&state.triggers)||[];

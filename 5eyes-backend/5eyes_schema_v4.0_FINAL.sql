@@ -967,7 +967,7 @@ CREATE TABLE IF NOT EXISTS contract_documents (
     checksum_sha256 TEXT,
     pdf_generated_at TEXT,
     status          TEXT NOT NULL DEFAULT 'Entwurf'
-                    CHECK(status IN ('Entwurf','Bereit','Unterzeichnet','Archiviert')),
+                    CHECK(status IN ('Entwurf','Bereit','Teilweise unterzeichnet','Unterzeichnet','Archiviert')),
     signed_by_advisor INTEGER NOT NULL DEFAULT 0 CHECK(signed_by_advisor IN (0,1)),
     signed_by_client  INTEGER NOT NULL DEFAULT 0 CHECK(signed_by_client IN (0,1)),
     signed_at       TEXT,

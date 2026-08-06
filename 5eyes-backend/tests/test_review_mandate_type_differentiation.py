@@ -79,33 +79,51 @@ def test_hero_downgrades_illiquid_violations_out_of_red_bucket():
 
 
 def test_hero_branches_badge_headline_cta_on_mandate_type():
-    body = _function_body(_html(), "function renderReviewHero(")
-    assert "_reviewIsDiscretionaryMandate()" in body
-    assert "ZUR INFORMATION" in body
-    assert "weicht von der Zielallokation ab" in body
-    # Handelsliste-Button darf im Advisory-Zweig nicht mehr auftauchen --
-    # aber im discretionary-Zweig weiterhin erlaubt sein.
-    assert "openTradeList()" in body  # noch vorhanden (discretionary-Zweig)
+    """2026-08-06 (User-Direktive, 'komplett verschiedene HUDS'):
+    renderReviewHero() ist jetzt ein reiner Dispatcher, der je nach
+    isDiscretionary eine von zwei eigenstaendigen Builder-Funktionen
+    aufruft, statt intern zu verzweigen."""
+    dispatcher = _function_body(_html(), "function renderReviewHero(")
+    assert "_reviewIsDiscretionaryMandate()" in dispatcher
+    assert "_rvHeroWealthmanagementHtml(" in dispatcher
+    assert "_rvHeroConsultingHtml(" in dispatcher
+    consulting_body = _function_body(_html(), "function _rvHeroConsultingHtml(")
+    assert "ANPASSUNG EMPFOHLEN" in consulting_body
+    assert "weicht von der Zielallokation ab" in consulting_body
+    # Handelsliste/Entscheidungsvorlage (Ausfuehrungs-Optionen) duerfen im
+    # Consulting-Builder gar nicht mehr auftauchen -- aber im
+    # Wealthmanagement-Builder weiterhin erlaubt sein.
+    assert "openTradeList()" not in consulting_body
+    assert "openDecisionTemplateModal(" not in consulting_body
+    wm_body = _function_body(_html(), "function _rvHeroWealthmanagementHtml(")
+    assert "openTradeList()" in wm_body
 
 
 # ===========================================================================
-# 2026-08-05 (User-Direktive, HUD-Fix): der Alarm-Rot-Zustand ("aktive
-# Rebalancing"-Framing, Badge "EMPFEHLUNG PRÜFEN") erschien bisher auch fuer
+# 2026-08-05/06 (User-Direktive, HUD-Fix + Masken-Neugestaltung): der
+# Alarm-Rot-Zustand ("aktive Rebalancing"-Framing) erschien bisher auch fuer
 # Consulting/reine Anlageberatung -- Consulting hat aber keine aktive
 # Depot-Ueberwachung (Anlagephilosophie) und sollte "keine aktive
-# anzusehende Rebalancings" zeigen. Fix: der rote 'violated'-Zweig ist jetzt
-# EXPLIZIT auf isDiscretionary&&violated.length>0 gegated (vorher lief
-# violated.length>0 fuer beide Mandatstypen in denselben roten Zweig, nur
-# der Badge-/Headline-Text unterschied sich). Der neue informative Zweig
-# (Consulting) bleibt bei gelber statt roter Einordnung.
+# anzusehende Rebalancings" zeigen. Fix (05.08.): der rote 'violated'-Zweig
+# war EXPLIZIT auf isDiscretionary&&violated.length>0 gegated. Fix (06.08.,
+# "komplett verschiedene HUDS"): diese Gate-Logik ist jetzt keine
+# if/else-Verzweigung mehr INNERHALB einer Funktion, sondern die
+# Funktionsauswahl selbst im Dispatcher -- der Consulting-Builder kennt den
+# roten Alarm-Zustand technisch gar nicht (kein 'var bg=...--neg-lt' Zweig).
 # ===========================================================================
 
 
-def test_hero_red_alarm_branch_gated_by_discretionary_not_just_violated():
-    body = _function_body(_html(), "function renderReviewHero(")
-    assert "isDiscretionary&&violated.length>0" in body.replace(" ", "")
-    assert "isDiscretionary&&tight.length>0" in body.replace(" ", "")
-    assert "!isDiscretionary&&(violated.length>0||tight.length>0)" in body.replace(" ", "")
+def test_hero_red_alarm_branch_only_reachable_via_wealthmanagement_builder():
+    dispatcher = _function_body(_html(), "function renderReviewHero(")
+    flat = dispatcher.replace(" ", "").replace("\n", "")
+    assert "isDiscretionary?_rvHeroWealthmanagementHtml(" in flat
+    assert ":_rvHeroConsultingHtml(" in flat
+    wm_body = _function_body(_html(), "function _rvHeroWealthmanagementHtml(")
+    assert "HANDLUNGSBEDARF" in wm_body
+    assert "neg-lt" in wm_body  # roter Alarm-Hintergrund existiert nur hier
+    consulting_body = _function_body(_html(), "function _rvHeroConsultingHtml(")
+    assert "HANDLUNGSBEDARF" not in consulting_body
+    assert "neg-lt" not in consulting_body  # Consulting-Builder kann NIE rot/alarmierend sein
 
 
 def test_action_summary_trade_list_gated_by_discretionary():
@@ -115,7 +133,8 @@ def test_action_summary_trade_list_gated_by_discretionary():
 
 def test_sr_implementation_decision_trade_list_gated_and_verb_neutralized():
     body = _function_body(_html(), "function renderSrImplementationDecision(")
-    assert "_reviewIsDiscretionaryMandate()&&!!(live" in body.replace(" ", "")
+    assert "isDiscretionary=_reviewIsDiscretionaryMandate()" in body.replace(" ", "")
+    assert "isDiscretionary&&!!(live" in body.replace(" ", "")
     assert "_reviewIsIlliquidAssetClass(item.assetKey)" in body
     assert "'Beobachten'" in body
 
@@ -124,11 +143,14 @@ def test_sr_implementation_decision_verb_gated_by_discretionary_not_just_illiqui
     """2026-08-05 (HUD-Konsistenz, User-Direktive: "Consulting hat keine
     aktive anzusehende Rebalancings"): auch bei LIQUIDEN Anlageklassen darf
     im Consulting-Modus (keine Ausfuehrungsbefugnis) nie 'Reduzieren'/
-    'Aufstocken' erscheinen -- vorher war der Handelsverb-Text nur ueber
-    Illiquiditaet neutralisiert, nicht ueber den Mandatstyp/Praesentations-
-    modus (identische Luecke wie beim urspruenglichen rv-hero-Bug)."""
+    'Aufstocken' erscheinen. 2026-08-06 (Masken-Neugestaltung): Consulting
+    zeigt fuer diese Karten inzwischen gar keinen Handelsverb-Zweig mehr,
+    sondern eine eigene Empfehlungszeile mit reviewBandStateMeta().action --
+    die Gate-Bedingung ist jetzt die Wahl zwischen den beiden Kartentypen
+    (if(isDiscretionary){...}else{...}), nicht mehr ein Verb-Ternary."""
     body = _function_body(_html(), "function renderSrImplementationDecision(")
-    assert "!_reviewIsDiscretionaryMandate()||_reviewIsIlliquidAssetClass(item.assetKey)" in body.replace(" ", "")
+    assert "if(isDiscretionary){" in body.replace(" ", "")
+    assert "item.meta.action" in body  # Consulting-Zweig nutzt die mandatstyp-bewusste Beschreibung
 
 
 # ===========================================================================
