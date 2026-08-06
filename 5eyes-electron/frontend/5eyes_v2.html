@@ -17358,6 +17358,14 @@ function resetAdvisoryLogModal(){
     currentWealthPositions=clientScopedItems(items,currentClientId);
     var keepVisibleStrategy=typeof hasVisibleStrategyOutputs==='function'&&hasVisibleStrategyOutputs();
     var advisoryProjection=wealthProjectionInputs('advisory');
+    // 2026-08-06 (User-Direktive, Cashflow-/Ziele-Audit): TOTAL/alloc starten
+    // als hartcodierte Demo-Werte (siehe deren Deklaration) und wurden HIER
+    // nur bei startRappen>0 aktualisiert -- ein Mandant/Client-Wechsel zu
+    // jemandem OHNE Vermoegen liess TOTAL/alloc auf dem Stand des zuletzt
+    // betrachteten Mandanten (oder dem Demo-Default) stehen. Explizites
+    // Zuruecksetzen im else-Zweig verhindert sowohl erfundene Zahlen bei
+    // einem frischen Mandanten als auch eine potenzielle Uebernahme von
+    // Zahlen eines ANDEREN, zuvor betrachteten Mandanten.
     if(advisoryProjection.startRappen>0&&!keepVisibleStrategy){
       TOTAL=Math.round(advisoryProjection.startRappen/100);
       var _pEq=Math.round(Number(advisoryProjection.bucketWeightsBps.equities||0))/100;
@@ -17380,6 +17388,11 @@ function resetAdvisoryLogModal(){
         strategyState.allocation.buckets.forEach(function(b){var dn=_kMap[String(b.asset_class||'')];if(dn)_sBkt[dn]=Number(b.target_weight_bps||0)/100;});
         alloc.forEach(function(r){if(_sBkt[r.n]!=null)r.soll=_sBkt[r.n];});
       }
+      if(typeof syncAllocationDonutFromStrategyState==='function')syncAllocationDonutFromStrategyState();
+      if(typeof buildAT==='function')buildAT();
+    } else if(!keepVisibleStrategy){
+      TOTAL=0;
+      alloc=[{n:'Nicht klassifiziert',c:'#9ca3af',ist:100,soll:100,chf:0}];
       if(typeof syncAllocationDonutFromStrategyState==='function')syncAllocationDonutFromStrategyState();
       if(typeof buildAT==='function')buildAT();
     }
@@ -22977,7 +22990,29 @@ function refreshBaselineChartFromClientDataForced(){
   var totalProjection=buildCurrentWealthProjection('total',null,null);
   var advisoryProjection=buildCurrentWealthProjection('advisory',null,totalProjection.labels);
   var hasTimelineFlows=(Array.isArray(totalProjection.netCashflowSeriesRappen)?totalProjection.netCashflowSeriesRappen:[]).some(function(value){return Number(value||0)!==0;});
-  if(!totalProjection.startRappen&&!advisoryProjection.startRappen&&!Number(totalProjection.annualNetCashflowRappen||0)&&!hasTimelineFlows)return;
+  if(!totalProjection.startRappen&&!advisoryProjection.startRappen&&!Number(totalProjection.annualNetCashflowRappen||0)&&!hasTimelineFlows){
+    // 2026-08-06 (User-Direktive, Cashflow-/Ziele-Audit): initCharts() setzt
+    // beim allerersten Aufbau der Canvas einen hartcodierten Demo-Pfad
+    // (TOTAL||2848000, siehe dort) als Platzhalter fuer "Aktueller
+    // Gesamtvermoegenspfad"/"Aktueller Beratungsvermoegenspfad". Ohne diesen
+    // Clear-Zweig blieb dieser erfundene Pfad fuer JEDEN echten Mandanten
+    // ohne Vermoegen/Cashflows unveraendert sichtbar -- live gefunden: ein
+    // frisch angelegter Mandant ohne jede Position zeigte eine freundlich
+    // aussehende, aber komplett erfundene Wachstumskurve CHF 2.8 -> 5.1 Mio,
+    // ohne jede Demo-Kennzeichnung.
+    if(charts.ist&&charts.ist.data){
+      charts.ist.data.labels=[];
+      charts.ist.data.datasets=[];
+      charts.ist.update();
+    }
+    if(charts.aaCurrent&&charts.aaCurrent.data){
+      charts.aaCurrent.data.labels=[];
+      charts.aaCurrent.data.datasets=[];
+      charts.aaCurrent.update();
+    }
+    renderCurrentWealthOnlyProjectionSummary({labels:[],projectedRappen:0,expectedReturnBps:0});
+    return;
+  }
   var labels=totalProjection.labels;
   if(charts.ist&&charts.ist.data){
     charts.ist.data.labels=labels;
@@ -26192,7 +26227,14 @@ function syncGoalModalState(){
     if(hint)hint.textContent='Verm\u00f6gensziele k\u00f6nnen \u00fcber Datum oder Horizont terminiert werden.';
   }else if(isReturnGoalType(type)){
     setSelectValue('nz-ongoing','false');
-    if(!currentGoalEditId)setSelectValue('nz-prio','3');
+    // 2026-08-06 (User-Direktive, Ziele-Audit): NUR den fachlich unzulaessigen
+    // Zustand ('Hart', bei Renditezielen verboten) auf einen gueltigen Default
+    // korrigieren -- vorher wurde 'nz-prio' bei JEDEM syncGoalModalState()-
+    // Aufruf unconditional auf '3' (Opportunistisch) zurueckgesetzt, auch
+    // NACHDEM der Nutzer bereits '2' (Primaer, fachlich fuer Renditeziele
+    // ausdruecklich zulaessig, siehe nz-hardness-warn-Text) gewaehlt hatte --
+    // 'Primaer' liess sich fuer ein neues Renditeziel dadurch nie speichern.
+    if(!currentGoalEditId&&getInputValue('nz-prio')==='1')setSelectValue('nz-prio','3');
     if(hint)hint.textContent='Renditeziele speichern eine Zielrendite p.a. und optional ein Review-Datum.';
   }else if(isMaxGoalType(type)){
     setSelectValue('nz-ongoing','false');
