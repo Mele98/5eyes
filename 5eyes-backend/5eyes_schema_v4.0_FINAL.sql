@@ -571,7 +571,7 @@ CREATE TABLE IF NOT EXISTS wealth_positions (
     mortgage_interest_rate_bps  INTEGER,
     mortgage_maturity_date      TEXT,
     mortgage_amortization_rappen INTEGER NOT NULL DEFAULT 0 CHECK(mortgage_amortization_rappen >= 0),
-    mortgage_amortization_type  TEXT CHECK(mortgage_amortization_type IN ('Direkt','Indirekt (3a)','Keine')),
+    mortgage_amortization_type  TEXT CHECK(mortgage_amortization_type IN ('Direkt','Indirekt (Säule 3a)','Keine')),
     mortgage_linked_property_id TEXT,
     asset_subtype               TEXT,
     asset_expected_return_bps   INTEGER,
