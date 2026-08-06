@@ -224,7 +224,10 @@ def test_bulk_import_upserts_on_matching_isin_same_tenant(session_factory):
 
 def test_bulk_import_upsert_never_crosses_tenant_boundary(session_factory):
     """Ein Re-Upload von Firma A mit derselben ISIN darf NIE ein Produkt
-    von Firma B aktualisieren -- der Match ist strikt tenant-gescoped."""
+    von Firma B aktualisieren -- der Match ist strikt tenant-gescoped.
+    products.isin ist aber GLOBAL eindeutig (siehe create_product), daher
+    wird die Zeile korrekt als Konflikt gemeldet statt eine zweite,
+    kollidierende Kopie der ISIN anzulegen (Live-Smoketest-Fund, 2026-08-05)."""
     _seed_tenants(session_factory, ["firm-a", "firm-b"])
     other_id = _add_product(
         session_factory, product_name="Firma B Original",
@@ -240,12 +243,167 @@ def test_bulk_import_upsert_never_crosses_tenant_boundary(session_factory):
             body = resp.json()
     finally:
         app.dependency_overrides.clear()
-    assert body["created"] == 1
+    assert body["created"] == 0
     assert body["updated"] == 0
+    assert body["failed"] == 1
     with session_factory() as s:
         untouched = s.get(Product, other_id)
         assert untouched.product_name == "Firma B Original"
         assert untouched.tenant_id == "firm-b"
+
+
+def test_bulk_import_upserts_unlisted_fund_on_matching_name_same_tenant(session_factory):
+    """Live-Smoketest-Fund (2026-08-05): ein nicht-kotierter Fonds hat weder
+    ISIN noch Symbol -- ohne Namens-Fallback wuerde jeder Re-Upload eines
+    Private-Markets-Katalogs (genau die Fondsklasse, fuer die dieser Import
+    gebaut wurde) Duplikate erzeugen statt zu aktualisieren."""
+    _seed_tenants(session_factory, ["firm-a"])
+    try:
+        with _client_for(session_factory, user_id="u-a", tenant_id="firm-a") as client:
+            first = client.post("/products/import", json={"products": [
+                {"product_name": "Privatmarktfonds X", "product_type": "Fonds",
+                 "asset_class": "Alternative", "currency": "CHF", "ter_bps": 150},
+            ]})
+            assert first.status_code == 201, first.text
+            product_id = first.json()["items"][0]["product_id"]
+
+            second = client.post("/products/import", json={"products": [
+                {"product_name": "Privatmarktfonds X", "product_type": "Fonds",
+                 "asset_class": "Alternative", "currency": "CHF", "ter_bps": 180},
+            ]})
+            assert second.status_code == 201, second.text
+            body = second.json()
+            listed = client.get("/products?q=Privatmarktfonds+X").json()
+    finally:
+        app.dependency_overrides.clear()
+    assert body["created"] == 0
+    assert body["updated"] == 1
+    assert body["items"][0]["product_id"] == product_id
+    assert len(listed) == 1
+    assert listed[0]["ter_bps"] == 180
+
+
+def test_bulk_import_unlisted_name_match_never_overwrites_already_listed_fund(session_factory):
+    """Ein gleichnamiger, aber bereits KOTIERTER Fonds darf durch einen
+    Re-Upload ohne ISIN/Symbol nie versehentlich ueberschrieben werden --
+    der Namens-Fallback matcht nur gegen andere ebenfalls-nicht-kotierte
+    Zeilen."""
+    _seed_tenants(session_factory, ["firm-a"])
+    listed_id = _add_product(
+        session_factory, product_name="Doppelgaenger Fonds",
+        tenant_id="firm-a", isin="CH0LISTED0001",
+    )
+    try:
+        with _client_for(session_factory, user_id="u-a", tenant_id="firm-a") as client:
+            resp = client.post("/products/import", json={"products": [
+                {"product_name": "Doppelgaenger Fonds", "product_type": "Fonds",
+                 "asset_class": "Aktien", "currency": "CHF"},
+            ]})
+            assert resp.status_code == 201, resp.text
+            body = resp.json()
+    finally:
+        app.dependency_overrides.clear()
+    assert body["created"] == 1
+    assert body["updated"] == 0
+    with session_factory() as s:
+        listed = s.get(Product, listed_id)
+        assert listed.isin == "CH0LISTED0001"
+
+
+def test_create_product_duplicate_isin_same_tenant_returns_409_not_500(session_factory):
+    """Live-Smoketest-Fund (2026-08-05): products.isin hat einen globalen
+    Unique-Index -- ohne Vorab-Check crasht ein zweiter Fonds mit derselben
+    ISIN mit einem rohen 500 (IntegrityError) statt einer verstaendlichen
+    Fehlermeldung. Reproduziert live beim manuellen Erfassen im Fonds-
+    universum-Panel."""
+    _seed_tenants(session_factory, ["firm-a"])
+    _add_product(session_factory, product_name="Erster Fonds", tenant_id="firm-a", isin="CH0DUP00001")
+    try:
+        with _client_for(session_factory, user_id="u-a", tenant_id="firm-a") as client:
+            resp = client.post("/products", json={
+                "product_name": "Zweiter Fonds, gleiche ISIN",
+                "product_type": "Fonds", "asset_class": "Aktien",
+                "currency": "CHF", "isin": "CH0DUP00001",
+            })
+    finally:
+        app.dependency_overrides.clear()
+    assert resp.status_code == 409, resp.text
+    assert "CH0DUP00001" in resp.json()["detail"]
+
+
+def test_create_product_duplicate_isin_across_tenants_returns_409_not_500(session_factory):
+    """Dieselbe ISIN-Kollision, aber von einem VOELLIG ANDEREN Tenant --
+    Firma B kann Firma As privaten Fonds gar nicht sehen (Isolation bleibt
+    korrekt), bekommt aber trotzdem eine klare 409 statt eines Absturzes,
+    weil die ISIN global (nicht tenant-gescoped) eindeutig sein muss."""
+    _seed_tenants(session_factory, ["firm-a", "firm-b"])
+    _add_product(session_factory, product_name="Firma A Fonds", tenant_id="firm-a", isin="CH0DUP00002")
+    try:
+        with _client_for(session_factory, user_id="u-b", tenant_id="firm-b") as client:
+            resp = client.post("/products", json={
+                "product_name": "Firma B Fonds, gleiche ISIN",
+                "product_type": "Fonds", "asset_class": "Aktien",
+                "currency": "CHF", "isin": "CH0DUP00002",
+            })
+    finally:
+        app.dependency_overrides.clear()
+    assert resp.status_code == 409, resp.text
+
+
+def test_bulk_import_isin_conflict_with_other_tenant_fails_row_not_whole_batch(session_factory):
+    """Ein ISIN-Konflikt mit einem PRIVATEN Fonds eines anderen Tenants darf
+    nur DIESE Zeile als 'failed' melden -- die restlichen Zeilen desselben
+    Imports muessen trotzdem durchlaufen (partial success bleibt erhalten,
+    kein roher 500 fuer den gesamten Batch)."""
+    _seed_tenants(session_factory, ["firm-a", "firm-b"])
+    _add_product(session_factory, product_name="Firma A Fonds", tenant_id="firm-a", isin="CH0DUP00003")
+    try:
+        with _client_for(session_factory, user_id="u-b", tenant_id="firm-b") as client:
+            resp = client.post("/products/import", json={"products": [
+                {"product_name": "Kollisions-Fonds", "product_type": "Fonds",
+                 "asset_class": "Aktien", "currency": "CHF", "isin": "CH0DUP00003"},
+                {"product_name": "Unbeteiligter Fonds", "product_type": "Fonds",
+                 "asset_class": "Obligationen", "currency": "CHF"},
+            ]})
+            assert resp.status_code == 201, resp.text
+            body = resp.json()
+    finally:
+        app.dependency_overrides.clear()
+    assert body["processed"] == 2
+    assert body["created"] == 1
+    assert body["failed"] == 1
+    failed_item = next(i for i in body["items"] if i["status"] == "failed")
+    assert failed_item["product_name"] == "Kollisions-Fonds"
+    assert "CH0DUP00003" in failed_item["error"]
+    created_item = next(i for i in body["items"] if i["status"] == "created")
+    assert created_item["product_name"] == "Unbeteiligter Fonds"
+
+
+def test_bulk_import_duplicate_isin_within_same_batch_same_tenant_collapses_via_upsert(session_factory):
+    """Zwei Zeilen IM SELBEN Import, selber Tenant, dieselbe (neue) ISIN --
+    das ist kein Tenant-Konflikt (siehe die beiden anderen ISIN-Konflikt-
+    Tests), sondern faellt unter dieselbe Upsert-Logik wie ein Re-Upload:
+    die zweite Zeile aktualisiert die von der ersten Zeile soeben
+    angelegte Zeile, statt als Fehler oder Duplikat zu enden."""
+    _seed_tenants(session_factory, ["firm-a"])
+    try:
+        with _client_for(session_factory, user_id="u-a", tenant_id="firm-a") as client:
+            resp = client.post("/products/import", json={"products": [
+                {"product_name": "Fonds A", "product_type": "Fonds",
+                 "asset_class": "Aktien", "currency": "CHF", "isin": "CH0DUP00004", "ter_bps": 10},
+                {"product_name": "Fonds A (korrigiert)", "product_type": "Fonds",
+                 "asset_class": "Aktien", "currency": "CHF", "isin": "CH0DUP00004", "ter_bps": 20},
+            ]})
+            assert resp.status_code == 201, resp.text
+            body = resp.json()
+    finally:
+        app.dependency_overrides.clear()
+    assert body["created"] == 1
+    assert body["updated"] == 1
+    assert body["failed"] == 0
+    assert body["items"][0]["status"] == "created"
+    assert body["items"][1]["status"] == "updated"
+    assert body["items"][1]["product_id"] == body["items"][0]["product_id"]
 
 
 def test_bulk_import_json_rejects_invalid_row_at_request_level(session_factory):

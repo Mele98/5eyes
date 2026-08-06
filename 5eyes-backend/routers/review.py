@@ -1131,7 +1131,24 @@ def create_product(
     (ProductCreate hat gar kein tenant_id-Feld), sonst waere ein Tenant-
     Spoofing moeglich (Firma A koennte sich als Firma B ausgeben). So kann
     jedes Assetmanagement seine eigenen Fonds erfassen, ohne dass sie fuer
-    andere Tenants sichtbar werden (siehe _active_products_query)."""
+    andere Tenants sichtbar werden (siehe _active_products_query).
+
+    2026-08-05 (Live-Smoketest-Fund): products.isin hat einen GLOBALEN
+    Unique-Index (ux_products_isin_active, ueber alle Tenants hinweg --
+    eine ISIN identifiziert ein real existierendes Wertpapier, unabhaengig
+    davon, welcher Tenant es erfasst hat). Ohne diesen Vorab-Check wuerde
+    ein Kollisionsversuch (auch durch einen VOELLIG ANDEREN Tenant, dessen
+    private Eintraege man gar nicht sehen kann) mit einem rohen 500 statt
+    einer verstaendlichen Fehlermeldung crashen."""
+    if body.isin:
+        conflict = db.query(Product).filter(
+            Product.isin == body.isin, Product.deleted_at.is_(None),
+        ).first()
+        if conflict is not None:
+            raise HTTPException(
+                status_code=409,
+                detail=f"ISIN {body.isin} ist bereits einem Fonds zugeordnet.",
+            )
     now = _now()
     product = Product(
         id=new_uuid(), is_active=1,
@@ -1196,10 +1213,14 @@ def _import_products(rows: list[dict], db: Session, current_user: User) -> Produ
       Symbol) und existiert bereits ein Produkt MIT DERSELBEN tenant_id UND
       ISIN/Symbol, wird es aktualisiert statt dupliziert -- ein Asset
       Manager kann seinen Fondskatalog also monatlich neu hochladen, ohne
-      dass sich die Liste jedes Mal verdoppelt. Der Abgleich ist strikt
-      tenant-gescoped, sodass ein Re-Upload NIE ein Produkt eines anderen
-      Tenants ueberschreiben kann (identisch zur Isolationsgarantie von
-      _active_products_query).
+      dass sich die Liste jedes Mal verdoppelt. Fehlen BEIDE (nicht-kotierter
+      Fonds), wird ersatzweise auf den Produktnamen abgeglichen (nur gegen
+      andere ebenfalls-nicht-kotierte Zeilen desselben Tenants) -- sonst
+      wuerde ausgerechnet die Fondsklasse, fuer die dieser Import gebaut
+      wurde, bei jedem Re-Upload dupliziert. Der Abgleich ist in jedem Fall
+      strikt tenant-gescoped, sodass ein Re-Upload NIE ein Produkt eines
+      anderen Tenants ueberschreiben kann (identisch zur Isolationsgarantie
+      von _active_products_query).
     - Eine fehlerhafte Zeile bricht den gesamten Import NICHT ab (partial
       success) -- die Fehlermeldung landet stattdessen im Item-Report,
       damit ein Asset Manager mit 300 Fonds nicht wegen einer einzigen
@@ -1232,6 +1253,21 @@ def _import_products(rows: list[dict], db: Session, current_user: User) -> Produ
                 Product.tenant_id == tenant_id, Product.symbol == payload["symbol"],
                 Product.deleted_at.is_(None),
             ).first()
+        else:
+            # 2026-08-05 (Live-Smoketest-Fund): ein nicht-kotierter Fonds hat
+            # weder ISIN noch Symbol als Abgleichs-Schluessel -- ohne diesen
+            # Fallback wuerde JEDER Re-Upload eines Private-Markets-Katalogs
+            # (genau die Fondsklasse, fuer die dieser Import extra gebaut
+            # wurde) den nicht-kotierten Fonds duplizieren statt zu
+            # aktualisieren. Name ist der einzig sinnvolle Ersatz-Schluessel;
+            # bewusst nur gegen ANDERE ebenfalls-nicht-kotierte Zeilen
+            # desselben Tenants gematcht, damit ein gleichnamiger, aber
+            # bereits kotierter Fonds nie versehentlich ueberschrieben wird.
+            existing = db.query(Product).filter(
+                Product.tenant_id == tenant_id, Product.product_name == payload["product_name"],
+                Product.isin.is_(None), Product.symbol.is_(None),
+                Product.deleted_at.is_(None),
+            ).first()
         if existing is not None:
             for field, value in payload.items():
                 setattr(existing, field, value)
@@ -1241,11 +1277,30 @@ def _import_products(rows: list[dict], db: Session, current_user: User) -> Produ
             ))
             updated += 1
         else:
+            # 2026-08-05 (Live-Smoketest-Fund): products.isin ist GLOBAL
+            # eindeutig (ux_products_isin_active, siehe create_product) --
+            # der obige existing-Lookup ist tenant-gescoped und findet daher
+            # NIE die ISIN eines anderen Tenants. Ohne diesen zusaetzlichen,
+            # ungescopten Check wuerde der INSERT weiter unten mit einem
+            # rohen IntegrityError abbrechen und (weil der Commit erst am
+            # Ende des gesamten Batches passiert) den KOMPLETTEN Import
+            # ruinieren statt nur diese eine Zeile als Fehler zu melden.
+            if payload.get("isin"):
+                global_conflict = db.query(Product).filter(
+                    Product.isin == payload["isin"], Product.deleted_at.is_(None),
+                ).first()
+                if global_conflict is not None:
+                    items.append(ProductImportResultItem(
+                        row=idx, status="failed", product_name=name_hint,
+                        error=f"ISIN {payload['isin']} ist bereits einem Fonds zugeordnet.",
+                    ))
+                    continue
             product = Product(
                 id=new_uuid(), is_active=1, tenant_id=tenant_id,
                 created_at=now, updated_at=now, **payload,
             )
             db.add(product)
+            db.flush()
             items.append(ProductImportResultItem(
                 row=idx, status="created", product_id=product.id, product_name=product.product_name,
             ))
