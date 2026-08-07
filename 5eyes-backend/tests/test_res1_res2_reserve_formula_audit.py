@@ -171,3 +171,40 @@ def test_res2_normal_case_unaffected_by_cap():
     )
     assert needed == 10_000_00
     assert external == 0
+
+
+# ---------------------------------------------------------------------------
+# RES-1-Nachtrag (2026-08-07, CEO/CFO/CIO-Audit): Cashflow-Defizit und
+# Ziel-Reserve muessen sich ADDIEREN, nicht per max() konkurrieren.
+# ---------------------------------------------------------------------------
+
+def test_cashflow_shortfall_and_goal_reserve_add_up_not_max():
+    """Ein Kunde mit sowohl einem Cashflow-Defizit (running-min -50k) ALS
+    AUCH einem separaten Nahziel (Hauskauf 80k) braucht Bargeld fuer BEIDE
+    Posten -- nicht nur fuer den groesseren. Erwartete Reserve: 50k+80k=130k,
+    NICHT max(50k,80k)=80k."""
+    goals = [_near_term_goal("Hauskauf", 80_000_00)]
+    needed, _ = _compute_reserve_for_inputs(
+        goals=goals, limits_prefs={}, asset_class_prefs={},
+        recurring_net_cashflow_rappen=0,
+        recurring_cashflow_projection_series_rappen=[-50_000_00, 10_000_00, 10_000_00],
+        advisory_wealth_rappen=10_000_000_00,
+        saa_liquidity_ceiling_bps=300,
+    )
+    assert needed == 130_000_00, f"Erwartet 130'000 (additiv), got {needed / 100}"
+
+
+def test_manual_reserve_floor_still_max_combined_not_added():
+    """Die manuelle Reserve-Vorgabe bleibt ein FLOOR (max()), kein
+    zusaetzlicher Geldabfluss -- wird NICHT zum computed_liquidity_need
+    hinzuaddiert."""
+    goals = [_near_term_goal("Kleinziel", 10_000_00)]
+    needed, _ = _compute_reserve_for_inputs(
+        goals=goals, limits_prefs={"minReserve": "200000"}, asset_class_prefs={},
+        recurring_net_cashflow_rappen=0,
+        recurring_cashflow_projection_series_rappen=[],
+        advisory_wealth_rappen=10_000_000_00,
+        saa_liquidity_ceiling_bps=300,
+    )
+    # computed_liquidity_need=10k < manual floor 200k -> Floor gewinnt, keine Addition.
+    assert needed == 200_000_00, f"Erwartet Floor 200'000, got {needed / 100}"

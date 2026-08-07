@@ -70,13 +70,19 @@ def build_kostenausweis_flowables(
         ])
         return out
 
+    # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): data["currency"] wird bereits von
+    # services.cost_disclosure aus mandate.base_currency berechnet -- vorher
+    # ignoriert, format_chf_rappen() zeigte fuer EUR-/USD-Mandate faelschlich
+    # immer "CHF" im FIDLEG-Pflichtdokument.
+    currency = str(data.get("currency") or "CHF").upper().strip() or "CHF"
     totals = data.get("totals") or {}
-    out.append(_summary_metrics(data, totals, styles, compact=compact))
+    out.append(_summary_metrics(data, totals, styles, currency=currency, compact=compact))
     out.append(Spacer(1, (3 if compact else 5) * mm))
     out.append(_cost_table(
         list(data.get("cost_items") or []),
         totals,
         styles,
+        currency=currency,
         compact=compact,
     ))
 
@@ -90,12 +96,12 @@ def build_kostenausweis_flowables(
     return out
 
 
-def _summary_metrics(data: dict, totals: dict, styles, *, compact: bool) -> Table:
+def _summary_metrics(data: dict, totals: dict, styles, *, currency: str = "CHF", compact: bool) -> Table:
     metrics = [
-        ("ANLAGEBASIS", format_chf_rappen(data.get("advisory_wealth_rappen"))),
-        ("EINMALIG", format_chf_rappen(totals.get("one_time_rappen"))),
-        ("LAUFEND P.A.", format_chf_rappen(totals.get("annual_rappen"))),
-        ("ERSTES JAHR", format_chf_rappen(totals.get("first_year_rappen"))),
+        ("ANLAGEBASIS", format_chf_rappen(data.get("advisory_wealth_rappen"), currency=currency)),
+        ("EINMALIG", format_chf_rappen(totals.get("one_time_rappen"), currency=currency)),
+        ("LAUFEND P.A.", format_chf_rappen(totals.get("annual_rappen"), currency=currency)),
+        ("ERSTES JAHR", format_chf_rappen(totals.get("first_year_rappen"), currency=currency)),
     ]
     cells = []
     for label, value in metrics:
@@ -130,6 +136,7 @@ def _cost_table(
     totals: dict,
     styles,
     *,
+    currency: str = "CHF",
     compact: bool,
 ) -> Table:
     rows: list[list[Any]] = [[
@@ -151,7 +158,7 @@ def _cost_table(
             Paragraph(_escape(format_bps_as_pct(item.get("rate_bps"), decimals=2)), _style(
                 styles["caption_mono"], color=COLOR_INK,
             )),
-            Paragraph(_escape(format_chf_rappen(item.get("amount_rappen"))), _style(
+            Paragraph(_escape(format_chf_rappen(item.get("amount_rappen"), currency=currency)), _style(
                 styles["caption_mono"], color=COLOR_INK,
             )),
             Paragraph(_escape(str(item.get("basis_label") or "—")), _style(
@@ -165,6 +172,7 @@ def _cost_table(
             totals.get("one_time_bps"),
             totals.get("one_time_rappen"),
             styles,
+            currency=currency,
             strong=False,
         ),
         _total_row(
@@ -172,6 +180,7 @@ def _cost_table(
             totals.get("annual_bps"),
             totals.get("annual_rappen"),
             styles,
+            currency=currency,
             strong=False,
         ),
         _total_row(
@@ -179,6 +188,7 @@ def _cost_table(
             totals.get("first_year_bps"),
             totals.get("first_year_rappen"),
             styles,
+            currency=currency,
             strong=True,
         ),
     ])
@@ -214,7 +224,7 @@ def _cost_table(
     return table
 
 
-def _total_row(label: str, bps: Any, amount: Any, styles, *, strong: bool) -> list[Any]:
+def _total_row(label: str, bps: Any, amount: Any, styles, *, currency: str = "CHF", strong: bool) -> list[Any]:
     font = FONT_SANS_BOLD if strong else FONT_SANS
     return [
         Paragraph(_escape(label), _style(styles["caption"], font=font, color=COLOR_INK)),
@@ -222,7 +232,7 @@ def _total_row(label: str, bps: Any, amount: Any, styles, *, strong: bool) -> li
         Paragraph(_escape(format_bps_as_pct(bps, decimals=2)), _style(
             styles["caption_mono"], font=font, color=COLOR_INK,
         )),
-        Paragraph(_escape(format_chf_rappen(amount)), _style(
+        Paragraph(_escape(format_chf_rappen(amount, currency=currency)), _style(
             styles["caption_mono"], font=font, color=COLOR_INK,
         )),
         Paragraph(

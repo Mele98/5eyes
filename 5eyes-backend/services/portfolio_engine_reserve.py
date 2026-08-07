@@ -353,12 +353,13 @@ def _compute_reserve_for_inputs(
         cumulative += cashflow_value + (near_term_inflow_series[idx] if idx < len(near_term_inflow_series) else 0)
         running_min = min(running_min, cumulative)
     near_term_shortfall_rappen = max(0, -running_min)
+    cashflow_liquidity_component = 0
     if near_term_shortfall_rappen > 0:
-        reserve_candidates.append(near_term_shortfall_rappen)
+        cashflow_liquidity_component = near_term_shortfall_rappen
         if reasoning is not None:
             reasoning.append("Zeitlich datierte Netto-Cashflows erhoehen die erforderliche Liquiditaetsreserve fuer die naechsten Jahre.")
     elif recurring_net_cashflow_rappen < 0 and near_term_inflows <= 0:
-        reserve_candidates.append(abs(recurring_net_cashflow_rappen) * 3)
+        cashflow_liquidity_component = abs(recurring_net_cashflow_rappen) * 3
         if reasoning is not None:
             reasoning.append("Negativer laufender Netto-Cashflow erhoeht die erforderliche Liquiditaetsreserve.")
 
@@ -427,8 +428,19 @@ def _compute_reserve_for_inputs(
                 elif years <= 7:
                     goal_reserve_sum += int(round(target_amount * 0.5))
 
-    if goal_reserve_sum > 0:
-        reserve_candidates.append(goal_reserve_sum)
+    # 2026-08-07 (CEO/CFO/CIO-Audit, RES-1-Nachtrag): der Cashflow-
+    # Liquiditaetsbedarf (aus geloggten laufenden Ein-/Ausgaben) und der
+    # Ziel-Reserve-Bedarf (aus separat erfassten Nahzielen) sind ZWEI
+    # UNABHAENGIGE Geldabfluesse -- sie muessen sich ADDIEREN, nicht per
+    # max() konkurrieren. Sonst wird bei gleichzeitigem Cashflow-Defizit UND
+    # Nahziel systematisch unterreserviert (der Kunde braucht Bargeld fuer
+    # BEIDE, nicht nur fuer den groesseren Posten). Nur die reinen Floor-
+    # Kandidaten (manuelle Reserve, Liquiditaets-Praeferenz -- beides ein
+    # Mindestbetrag, kein zusaetzlicher Geldabfluss) bleiben max()-kombiniert
+    # gegen den kombinierten Bedarf.
+    computed_liquidity_need = cashflow_liquidity_component + goal_reserve_sum
+    if computed_liquidity_need > 0:
+        reserve_candidates.append(computed_liquidity_need)
     reserve_needed_rappen = max(reserve_candidates)
     external_reserve_rappen = 0
     if reserve_needed_rappen <= 0 or advisory_wealth_rappen <= 0:

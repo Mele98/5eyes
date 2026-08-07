@@ -291,6 +291,11 @@ def _compute_advisory_report_inner(
         "schema_version": 2,
         "mandate_id": str(getattr(mandate, "id", "") or ""),
         "generated_at": generated_at,
+        # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): immer verfuegbares Top-Level-
+        # Feld (unabhaengig von ausgeblendeten Sektionen wie "ausgangslage"),
+        # damit die PDF-Rendering-Schicht Betraege korrekt beschriften kann
+        # statt hartcodiert "CHF" zu zeigen.
+        "mandate_currency": str(getattr(mandate, "base_currency", "") or "CHF").upper().strip() or "CHF",
         # --- Sektion 1
         "cover": _build_cover(mandate, client, advisor, generated_at),
         # --- Sektion 2

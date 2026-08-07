@@ -129,6 +129,9 @@ def test_compute_returns_expected_top_level_structure(session_factory):
     assert report["generated_at"].endswith("Z")
     expected_order = [
         "schema_version", "mandate_id", "generated_at",
+        # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): immer verfuegbares
+        # Top-Level-Feld fuer FX-korrekte Betrags-Beschriftung im PDF.
+        "mandate_currency",
         "cover", "disclaimer", "inhaltsverzeichnis", "ausgangslage",
         "positionen", "pruefpunkte", "erkenntnisse",
         "asset_allocation", "risikowaehrungen", "branchen",
@@ -1404,6 +1407,7 @@ def test_endpoint_returns_full_report_structure(session_factory):
     data = response.json()
     expected = [
         "schema_version", "mandate_id", "generated_at",
+        "mandate_currency",
         "cover", "disclaimer", "inhaltsverzeichnis", "ausgangslage",
         "positionen", "pruefpunkte", "erkenntnisse",
         "asset_allocation", "risikowaehrungen", "branchen",

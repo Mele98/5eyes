@@ -275,12 +275,18 @@ def _run_stochastic_optimizer_pass(
             rf_per_bucket = None
 
     # Sprint 4 Phase 3: Mortalitaets-Felder aus Mandate-Objekt extrahieren
+    # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): BFS_2020_2022 ist eine Schweizer
+    # Sterbetafel -- fuer ein DE/AT-Mandat (mandate.jurisdiction != CH) waere
+    # das simulierte Sterbealter systematisch falsch (keine DE/AT-Sterbetafel
+    # vorhanden). "Kein Mortalitaets-Cutoff" ist die konservative, richtige
+    # Wahl statt einer falschen Schweizer Annahme.
     mortality_kwargs = {}
     if mandate is not None:
         cby = getattr(mandate, "client_birth_year", None)
         csex = getattr(mandate, "client_sex", None)
         ums = bool(getattr(mandate, "use_mortality_simulation", 0))
-        if ums and cby and csex in ("M", "F"):
+        jurisdiction = str(getattr(mandate, "jurisdiction", None) or "CH")
+        if ums and cby and csex in ("M", "F") and jurisdiction == "CH":
             mortality_kwargs = {
                 "client_birth_year": int(cby),
                 "client_sex": str(csex),

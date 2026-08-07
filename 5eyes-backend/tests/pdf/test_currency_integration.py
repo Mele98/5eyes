@@ -73,14 +73,17 @@ def test_chf_amount_format():
     assert formatted == "CHF 123'456"
 
 
-def test_eur_amount_format_converts():
-    """_fmt_amount mit EUR konvertiert via Default-FX-Rate (0.95).
-    123'456 CHF / 0.95 ≈ 129'954 EUR."""
+def test_eur_amount_format_does_not_double_convert():
+    """Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): rappen ist bereits in
+    mandate.base_currency (siehe portfolio_engine._load_allocation_inputs,
+    target_currency=mandate.base_currency) -- _fmt_amount darf NICHT
+    zusaetzlich CHF->EUR konvertieren, sonst zeigt ein EUR-Mandat einen um
+    ~5.3% ueberhoehten Betrag im FIDLEG-Pflichtdokument. Frueher nahm dieser
+    Test faelschlich an, 123'456 CHF/0.95 ≈ 129'954 EUR sei korrekt --
+    das war der Bug selbst, nicht die erwartete Ausgabe."""
     from services.pdf.documents.anlagestrategie import _fmt_amount
     formatted = _fmt_amount(12345600, "EUR")
-    assert formatted.startswith("EUR ")
-    # Wert sollte > CHF-Wert sein (CHF schwacher als EUR-Equivalent)
-    assert "129'" in formatted or "130'" in formatted
+    assert formatted == "EUR 123'456"
 
 
 def test_zero_amount_in_eur():

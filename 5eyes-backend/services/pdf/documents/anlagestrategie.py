@@ -864,13 +864,17 @@ def _section_title_with_fallback(title: str, fallback_text: str, styles):
 
 
 def _format_amount(rappen: int, currency: str = "CHF") -> str:
-    """Schweizer-Format mit Tausender-Trenner."""
+    """Schweizer-Format mit Tausender-Trenner.
+
+    Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): `rappen` ist NIE intern CHF --
+    die Engine (portfolio_engine._load_allocation_inputs) rechnet
+    advisory_wealth_rappen/bucket_amounts_rappen/etc. bereits in
+    mandate.base_currency. Ein zusaetzliches convert_rappen(rappen,"CHF",
+    currency) konvertierte einen EUR-/USD-Betrag ein zweites Mal und zeigte
+    im FIDLEG-Pflichtdokument einen falschen (verzerrten) Betrag.
+    """
     try:
-        if currency == "CHF":
-            value = rappen / 100.0
-        else:
-            from services.currency.converter import convert_rappen
-            value = convert_rappen(rappen, "CHF", currency) / 100.0
+        value = rappen / 100.0
         return f"{currency} {value:,.0f}".replace(",", "'")
     except Exception:
         return f"CHF {rappen/100.0:,.0f}".replace(",", "'")

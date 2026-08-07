@@ -439,6 +439,10 @@ class AuditLog(Base):
     mandate_id = Column(String)
     client_id = Column(String)
     integrity_hash = Column(String(64))
+    # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit, DSG Art. 32): Quell-IP fuer
+    # sensible Aktionen (Login, Passwort-Reset, Export, Loeschung) -- vorher
+    # nur im App-Log, nicht im auditierbaren, hash-verketteten Audit-Trail.
+    ip_address = Column(String)
     created_at = Column(String, nullable=False)
 
 

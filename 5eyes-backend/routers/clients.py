@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
@@ -151,14 +151,16 @@ def update_client(
 @router.delete("/{client_id}", status_code=204)
 def delete_client(
     client_id: str,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor)
 ):
+    from routers.auth import _extract_client_ip
     client = _get_client_or_404(client_id, db, current_user)
     client.deleted_at = _now()
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="clients", record_id=client_id, action="DELETE",
-        client_id=client_id)
+        client_id=client_id, ip_address=_extract_client_ip(request))
     db.commit()
 
 
@@ -679,6 +681,7 @@ def create_client_login(
 @router.get("/{client_id}/data-export")
 def export_data(
     client_id: str,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor),
 ):
@@ -695,6 +698,7 @@ def export_data(
         integrity_hash, sodass spaeter nachvollziehbar bleibt, welcher
         Berater wann welche Daten herausgegeben hat (FINMA-konform).
     """
+    from routers.auth import _extract_client_ip
     from services.data_export import export_client_data
 
     client = _get_client_or_404(client_id, db, current_user)
@@ -709,6 +713,7 @@ def export_data(
         client_id=client.id,
         new_value=f"DSG-Export schema_v{payload['schema_version']}, "
                   f"{sum(payload['manifest'].values())} Datensaetze",
+        ip_address=_extract_client_ip(request),
     )
     db.commit()
     return payload

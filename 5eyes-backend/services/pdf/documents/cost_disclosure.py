@@ -70,13 +70,10 @@ def build_cost_disclosure_flowables(
 
 
 def _format_amount(rappen: int, currency: str) -> str:
+    # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): rappen (advisory_wealth_rappen)
+    # ist bereits in mandate.base_currency. Kein zweites
+    # convert_rappen("CHF"->currency) -- sonst doppelte FX-Konvertierung.
     if not rappen:
         return ""
     value = rappen / 100.0
-    try:
-        if currency != "CHF":
-            from services.currency.converter import convert_rappen
-            value = convert_rappen(int(rappen), "CHF", currency) / 100.0
-    except Exception:
-        pass
     return f"{currency} {value:,.0f}".replace(",", "'")

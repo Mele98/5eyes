@@ -699,7 +699,8 @@ def ensure_audit_log_actions(target_engine: Engine = engine) -> None:
         ddl_text = str(ddl or '').upper()
         has_password_reset = 'PASSWORD_RESET' in ddl_text
         has_integrity_hash = 'INTEGRITY_HASH' in ddl_text
-        if has_password_reset and has_integrity_hash:
+        has_ip_address = 'IP_ADDRESS' in ddl_text
+        if has_password_reset and has_integrity_hash and has_ip_address:
             return
 
         conn.execute(text('ALTER TABLE audit_log RENAME TO audit_log__old'))
@@ -717,22 +718,66 @@ def ensure_audit_log_actions(target_engine: Engine = engine) -> None:
                 mandate_id TEXT,
                 client_id TEXT,
                 integrity_hash TEXT,
+                ip_address TEXT,
                 created_at TEXT NOT NULL
             )
         """))
-        conn.execute(text("""
+        # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): frueher wurden hier NUR die
+        # Spalten aus audit_log__old kopiert, die diese Migration bereits
+        # kannte -- ein bereits vorhandenes ip_address (aus einem frueheren
+        # Lauf dieser selben Migration, z.B. bei erneuter Ausfuehrung nach
+        # einem Teil-Upgrade) wuerde sonst stillschweigend verworfen. Daher
+        # dynamisch anhand der tatsaechlichen Spalten von audit_log__old.
+        old_columns = {
+            row[1] for row in conn.execute(text("PRAGMA table_info(audit_log__old)"))
+        }
+        ip_address_select = "ip_address" if "ip_address" in old_columns else "NULL AS ip_address"
+        conn.execute(text(f"""
             INSERT INTO audit_log (
                 id, user_id, user_name, table_name, record_id, action,
-                field_name, old_value, new_value, mandate_id, client_id, integrity_hash, created_at
+                field_name, old_value, new_value, mandate_id, client_id,
+                integrity_hash, ip_address, created_at
             )
             SELECT
                 id, user_id, user_name, table_name, record_id, action,
                 field_name, old_value, new_value, mandate_id, client_id,
                 NULL AS integrity_hash,
+                {ip_address_select},
                 created_at
             FROM audit_log__old
         """))
         conn.execute(text('DROP TABLE audit_log__old'))
+
+
+def ensure_audit_log_triggers(target_engine: Engine = engine) -> None:
+    """Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): ensure_audit_log_actions()
+    baut audit_log per RENAME+Neuaufbau um (siehe oben). SQLite bindet
+    Trigger an die UMBENANNTE Tabelle (audit_log__old) und verwirft sie beim
+    abschliessenden DROP TABLE audit_log__old -- die neu angelegte
+    audit_log-Tabelle hat danach GAR KEINEN Schutz mehr vor UPDATE/DELETE,
+    obwohl 5eyes_schema_v4.0_FINAL.sql die Tabelle ausdruecklich als
+    unveraenderlich deklariert (trg_audit_log_no_update/no_delete). Da JEDE
+    Installation beim ersten Start durch ensure_audit_log_actions() migriert
+    wird (die Rohschema-Datei hat noch kein integrity_hash), war dieser
+    Schutz in JEDER bisherigen Installation nach dem ersten Start weg --
+    unbemerkt, weil kein Test die Trigger tatsaechlich ausloeste. Diese
+    Funktion stellt beide Trigger idempotent wieder her (unabhaengig davon,
+    ob ensure_audit_log_actions() in diesem Lauf ueberhaupt etwas migriert
+    hat) und muss nach JEDEM Start aufgerufen werden."""
+    inspector = inspect(target_engine)
+    if not inspector.has_table('audit_log'):
+        return
+    with target_engine.begin() as conn:
+        conn.execute(text("""
+            CREATE TRIGGER IF NOT EXISTS trg_audit_log_no_update
+            BEFORE UPDATE ON audit_log FOR EACH ROW
+            BEGIN SELECT RAISE(ABORT, 'audit_log is immutable'); END
+        """))
+        conn.execute(text("""
+            CREATE TRIGGER IF NOT EXISTS trg_audit_log_no_delete
+            BEFORE DELETE ON audit_log FOR EACH ROW
+            BEGIN SELECT RAISE(ABORT, 'audit_log is immutable'); END
+        """))
 
 
 SEED_ASSET_CLASS_RETURNS = [
@@ -1254,6 +1299,10 @@ def init_db() -> None:
     # U-38: Indexes nach ensure_audit_log_actions, weil das die Tabelle
     # ggf. komplett neu baut (Index-Drift-Risk).
     ensure_audit_log_indexes()
+    # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Immutability-Trigger nach JEDEM
+    # Start sicherstellen -- ensure_audit_log_actions() kann sie beim
+    # Tabellen-Neuaufbau verwerfen (siehe Docstring dort).
+    ensure_audit_log_triggers()
     # Sprint T1 (2026-06-08): Default-Tenant 'main' anlegen wenn nicht da.
     # Backwards-Compat: tenant_id-Columns sind NULLABLE, aber die Existenz
     # der 'main'-Row erlaubt T2-Sprint die Auth-Layer-Migration.

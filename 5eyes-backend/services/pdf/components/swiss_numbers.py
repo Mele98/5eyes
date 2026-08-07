@@ -7,8 +7,14 @@ fuer Anzeige in Beratungs-PDFs.
 from __future__ import annotations
 
 
-def format_chf_rappen(rappen: int | None, *, with_unit: bool = True) -> str:
-    """`1234500` → `CHF 12'345`. None / 0 → '—' falls with_unit, sonst '0'."""
+def format_chf_rappen(rappen: int | None, *, with_unit: bool = True, currency: str = "CHF") -> str:
+    """`1234500` → `CHF 12'345`. None / 0 → '—' falls with_unit, sonst '0'.
+
+    `currency` (2026-08-07, CEO/CFO/CIO-Audit): Beträge sind intern immer
+    Rappen/Cents der Mandats-Waehrung (nicht zwingend CHF) -- der Aufrufer
+    muss `mandate.base_currency` durchreichen, sonst zeigt ein EUR-/USD-
+    Mandat im FIDLEG-Pflichtdokument faelschlich "CHF" an.
+    """
     if rappen is None:
         return "—" if with_unit else "0"
     try:
@@ -16,7 +22,8 @@ def format_chf_rappen(rappen: int | None, *, with_unit: bool = True) -> str:
     except (TypeError, ValueError):
         return "—" if with_unit else "0"
     formatted = f"{value:,.0f}".replace(",", "'")
-    return f"CHF {formatted}" if with_unit else formatted
+    unit = str(currency or "CHF").upper().strip() or "CHF"
+    return f"{unit} {formatted}" if with_unit else formatted
 
 
 def format_bps_as_pct(bps: int | None, *, decimals: int = 1) -> str:

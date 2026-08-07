@@ -251,6 +251,11 @@ def _build_all_flowables(
     # eine "ausgeblendete" Sektion im PDF trotzdem als fast leere Seite
     # sichtbar. Geschuetzte Sektionen (cover/disclaimer/cost_disclosure/
     # suitability_*/beratungsprotokoll) bleiben bewusst unconditional.
+    # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Betraege im Payload sind bereits
+    # in mandate.base_currency berechnet (siehe
+    # services.advisory_report._compute_advisory_report_inner). Ohne dieses
+    # Feld zeigten mehrere Sektionen hartcodiert "CHF" fuer EUR-/USD-Mandate.
+    currency = str(payload.get("mandate_currency") or "CHF").upper().strip() or "CHF"
     flowables: list[Any] = []
     flowables.extend(_build_cover_flowables(
         payload.get("cover") or {}, styles,
@@ -274,7 +279,7 @@ def _build_all_flowables(
         flowables.append(PageBreak())
     if "positionen" in payload:
         flowables.append(_toc_anchor(toc_collector, "positionen", "Übersicht Ihrer Positionen"))
-        flowables.extend(_build_positionen_flowables(payload.get("positionen") or {}, styles))
+        flowables.extend(_build_positionen_flowables(payload.get("positionen") or {}, styles, currency=currency))
         flowables.append(PageBreak())
     if "pruefpunkte" in payload:
         flowables.append(_toc_anchor(toc_collector, "pruefpunkte", "Was wir im Depotcheck prüfen"))
@@ -298,7 +303,7 @@ def _build_all_flowables(
         flowables.append(PageBreak())
     if "goal_based_investing" in payload:
         flowables.append(_toc_anchor(toc_collector, "goal_based_investing", "Zielbasierte Optimierung"))
-        flowables.extend(_build_goals_flowables(payload.get("goal_based_investing") or {}, styles))
+        flowables.extend(_build_goals_flowables(payload.get("goal_based_investing") or {}, styles, currency=currency))
         flowables.append(PageBreak())
     if "risikoprofilierung" in payload:
         flowables.append(_toc_anchor(toc_collector, "risikoprofilierung", "Risikoprofilierung"))
@@ -611,13 +616,17 @@ def _build_ausgangslage_flowables(ausgangslage: dict, styles: dict) -> list[Any]
     client_info = ausgangslage.get("client_info") or {}
     wealth = ausgangslage.get("wealth_summary") or {}
     metrics = ausgangslage.get("key_metrics") or {}
+    # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Betraege in dieser Sektion sind
+    # bereits in mandate.base_currency -- referenzwaehrung ist hier schon
+    # vorhanden, statt hartcodiert "CHF" anzuzeigen.
+    currency = str(client_info.get("referenzwaehrung") or "CHF").upper().strip() or "CHF"
 
     page_width, _ = PAGE_SIZE
     inner_width = page_width - MARGIN_LEFT - MARGIN_RIGHT
     col_w = (inner_width - 6 * mm) / 2
 
-    left_col = _build_client_info_block(client_info, styles)
-    right_col = _build_wealth_summary_block(wealth, styles)
+    left_col = _build_client_info_block(client_info, styles, currency=currency)
+    right_col = _build_wealth_summary_block(wealth, styles, currency=currency)
 
     grid = Table(
         [[left_col, right_col]],
@@ -641,7 +650,7 @@ def _build_ausgangslage_flowables(ausgangslage: dict, styles: dict) -> list[Any]
     return out
 
 
-def _build_client_info_block(client_info: dict, styles: dict):
+def _build_client_info_block(client_info: dict, styles: dict, *, currency: str = "CHF"):
     """Linke Spalte der Sektion 4 — 7 Label-Wert-Paare in einer Tabelle."""
     horizont = client_info.get("anlagehorizont_jahre")
     rows = [
@@ -654,7 +663,7 @@ def _build_client_info_block(client_info: dict, styles: dict):
         ("Anlageziel", _safe_string(client_info.get("anlageziel"))),
         (
             "Liquiditätsbedarf",
-            format_chf_rappen(client_info.get("liquiditaetsbedarf_rappen")),
+            format_chf_rappen(client_info.get("liquiditaetsbedarf_rappen"), currency=currency),
         ),
         ("Steuerdomizil", _safe_string(client_info.get("steuerdomizil"))),
         ("Referenzwährung", _safe_string(client_info.get("referenzwaehrung"))),
@@ -662,14 +671,14 @@ def _build_client_info_block(client_info: dict, styles: dict):
     return _label_value_table(rows, styles)
 
 
-def _build_wealth_summary_block(wealth: dict, styles: dict):
+def _build_wealth_summary_block(wealth: dict, styles: dict, *, currency: str = "CHF"):
     """Rechte Spalte der Sektion 4 — 5 Vermögens-Kategorien."""
     rows = [
-        ("Gesamtvermögen", format_chf_rappen(wealth.get("gesamtvermoegen_rappen"))),
-        ("Beratungsvermögen", format_chf_rappen(wealth.get("beratungsvermoegen_rappen"))),
-        ("Immobilien", format_chf_rappen(wealth.get("immobilien_rappen"))),
-        ("Vorsorge", format_chf_rappen(wealth.get("vorsorge_rappen"))),
-        ("Kredite", format_chf_rappen(wealth.get("kredite_rappen"))),
+        ("Gesamtvermögen", format_chf_rappen(wealth.get("gesamtvermoegen_rappen"), currency=currency)),
+        ("Beratungsvermögen", format_chf_rappen(wealth.get("beratungsvermoegen_rappen"), currency=currency)),
+        ("Immobilien", format_chf_rappen(wealth.get("immobilien_rappen"), currency=currency)),
+        ("Vorsorge", format_chf_rappen(wealth.get("vorsorge_rappen"), currency=currency)),
+        ("Kredite", format_chf_rappen(wealth.get("kredite_rappen"), currency=currency)),
     ]
     return _label_value_table(rows, styles)
 
@@ -769,7 +778,7 @@ def _kpi_card(label: str, value: str, styles: dict) -> Table:
 # Sektion 5 — Übersicht Positionen
 # ---------------------------------------------------------------------------
 
-def _build_positionen_flowables(positionen: dict, styles: dict) -> list[Any]:
+def _build_positionen_flowables(positionen: dict, styles: dict, *, currency: str = "CHF") -> list[Any]:
     """Positionen gruppiert nach Anlageklasse (Bucket). Jede Gruppe als
     Tabelle mit Produkt-Name / Anteil / Wert. Total unten."""
     out: list[Any] = []
@@ -796,7 +805,7 @@ def _build_positionen_flowables(positionen: dict, styles: dict) -> list[Any]:
         return out
 
     for group in groups:
-        out.extend(_build_position_group(group, styles))
+        out.extend(_build_position_group(group, styles, currency=currency))
         out.append(Spacer(1, 4 * mm))
 
     total_rappen = positionen.get("total_rappen") or 0
@@ -804,7 +813,7 @@ def _build_positionen_flowables(positionen: dict, styles: dict) -> list[Any]:
         out.append(_hr())
         out.append(Spacer(1, 2 * mm))
         out.append(Paragraph(
-            f"Total: <b>{format_chf_rappen(total_rappen)}</b>",
+            f"Total: <b>{format_chf_rappen(total_rappen, currency=currency)}</b>",
             _ar_paragraph_style(
                 styles["body"], color=COLOR_INK, font=FONT_SANS_BOLD,
             ),
@@ -812,7 +821,7 @@ def _build_positionen_flowables(positionen: dict, styles: dict) -> list[Any]:
     return out
 
 
-def _build_position_group(group: dict, styles: dict) -> list[Any]:
+def _build_position_group(group: dict, styles: dict, *, currency: str = "CHF") -> list[Any]:
     """Ein Bucket: Header (Label + Share + Total) + Positions-Tabelle."""
     out: list[Any] = []
     label = _safe_string(group.get("label"))
@@ -822,7 +831,7 @@ def _build_position_group(group: dict, styles: dict) -> list[Any]:
     header_text = (
         f"<b>{_escape(label)}</b>"
         f"  &mdash; {format_bps_as_pct(share_bps)}"
-        f"  &middot; {format_chf_rappen(total_rappen)}"
+        f"  &middot; {format_chf_rappen(total_rappen, currency=currency)}"
     )
     out.append(Paragraph(header_text, _ar_paragraph_style(
         styles["body"], color=COLOR_INK,
@@ -893,7 +902,7 @@ def _build_position_group(group: dict, styles: dict) -> list[Any]:
                 ),
             ),
             Paragraph(
-                format_chf_rappen(pos.get("market_value_rappen")),
+                format_chf_rappen(pos.get("market_value_rappen"), currency=currency),
                 _ar_paragraph_style(
                     styles["caption"], color=COLOR_INK,
                 ),
@@ -1278,7 +1287,7 @@ _GOAL_STATUS_PILL = {
 }
 
 
-def _build_goals_flowables(gbi: dict, styles: dict) -> list[Any]:
+def _build_goals_flowables(gbi: dict, styles: dict, *, currency: str = "CHF") -> list[Any]:
     """Goals-Tabelle + Achievement-Score-KPI + MC-Chart/-Hinweis."""
     out: list[Any] = []
     out.append(Paragraph("Sektion 11", styles["kicker"]))
@@ -1308,7 +1317,7 @@ def _build_goals_flowables(gbi: dict, styles: dict) -> list[Any]:
         out.append(Spacer(1, 5 * mm))
 
     if goals:
-        out.append(_goals_table(goals, styles, mc_classifications))
+        out.append(_goals_table(goals, styles, mc_classifications, currency=currency))
     else:
         out.append(Paragraph(
             "<i>Keine Ziele erfasst.</i>",
@@ -1347,6 +1356,8 @@ def _goals_table(
     goals: list[dict],
     styles: dict,
     mc_classifications: list[dict] | None = None,
+    *,
+    currency: str = "CHF",
 ) -> Table:
     """Goal-Achievability-Tabelle mit 8 Spalten.
 
@@ -1386,7 +1397,7 @@ def _goals_table(
         goal_type = _safe_string(g.get("goal_type"))
         hardness = _safe_string(g.get("hardness")) or "—"
         target_date = _safe_string(g.get("target_date")) or "—"
-        target = format_chf_rappen(g.get("target_amount_rappen"))
+        target = format_chf_rappen(g.get("target_amount_rappen"), currency=currency)
         status = str(g.get("status") or "data_pending").lower()
         mc_status = str(
             (mc_by_goal_id.get(str(g.get("goal_id") or "")) or {}).get("status")

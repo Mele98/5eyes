@@ -409,17 +409,30 @@ def _expected_death_year_offset_from_mandate(mandate) -> int | None:
     Sterbe-Zeitpunkt als Years-from-now ab.
     - Priorität 1: life_expectancy_year (manuell gepflegt im Mandate)
     - Priorität 2: BFS-Default basierend auf client_birth_year + client_sex
-                   (median life expectancy aus BFS_2020_2022)
+                   (median life expectancy aus BFS_2020_2022) -- NUR fuer
+                   CH-Mandate (siehe Jurisdiktions-Gate unten)
     - Sonst None (kein Cutoff)
+
+    Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): BFS_2020_2022 ist eine Schweizer
+    Sterbetafel. Fuer ein DE/AT-Mandat (mandate.jurisdiction != CH) haette
+    sie das Sterbealter systematisch falsch geschaetzt und damit das
+    Verzehr-/Depletion-Risiko in der Monte-Carlo-Simulation verzerrt. Da
+    aktuell keine DE/AT-Sterbetafel vorliegt, ist "kein Cutoff" (konservativ,
+    unbefristeter Horizont) die richtige Wahl, statt eine falsche Zahl zu
+    zeigen. Bewusst NUR die direkte mandate.jurisdiction-Prüfung (wie an den
+    2 anderen bestehenden Stellen in dieser Codebase) -- NICHT der noch nicht
+    freigegebene services.jurisdiction.resolve-Resolver (siehe dessen
+    Modul-Docstring: WP2, exklusiver Schreibzugriff noetig).
     """
     from datetime import date as _date
     today_year = _date.today().year
     life_expectancy_year = int(getattr(mandate, "life_expectancy_year", 0) or 0)
     if life_expectancy_year and life_expectancy_year > today_year:
         return life_expectancy_year - today_year
+    jurisdiction = str(getattr(mandate, "jurisdiction", None) or "CH")
     birth_year = int(getattr(mandate, "client_birth_year", 0) or 0)
     sex = str(getattr(mandate, "client_sex", "") or "")
-    if birth_year and sex in ("M", "F"):
+    if jurisdiction == "CH" and birth_year and sex in ("M", "F"):
         try:
             from services.mortality.bfs import BFS_2020_2022
             current_age = max(0, today_year - birth_year)

@@ -286,7 +286,8 @@ def login(body: LoginRequest, request: Request, db: Session = Depends(get_db)):
             if consume_recovery_code(user, code):
                 db.commit()
                 log(db, user_id=user.id, user_name=user.full_name,
-                    table_name="users", record_id=user.id, action="2FA_RECOVERY_USED")
+                    table_name="users", record_id=user.id, action="2FA_RECOVERY_USED",
+                    ip_address=_extract_client_ip(request))
                 db.commit()
             else:
                 failure = login_attempt_guard.register_failure(guard_key)
@@ -306,7 +307,8 @@ def login(body: LoginRequest, request: Request, db: Session = Depends(get_db)):
     db.refresh(user)
 
     log(db, user_id=user.id, user_name=user.full_name,
-        table_name="users", record_id=user.id, action="LOGIN")
+        table_name="users", record_id=user.id, action="LOGIN",
+        ip_address=_extract_client_ip(request))
     db.commit()
 
     return _issue_token_response(user, db)
@@ -340,6 +342,7 @@ class _ChangePassword(_BaseModel):
 @router.post("/change-password")
 def change_password(
     body: _ChangePassword,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -372,7 +375,8 @@ def change_password(
     if not was_forced_change:
         current_user.token_revoked_before = _now()
     log(db, user_id=current_user.id, user_name=current_user.full_name,
-        table_name="users", record_id=current_user.id, action="PASSWORD_CHANGE")
+        table_name="users", record_id=current_user.id, action="PASSWORD_CHANGE",
+        ip_address=_extract_client_ip(request))
     db.commit()
     return {"message": "Passwort erfolgreich geaendert."}
 
@@ -554,13 +558,14 @@ def password_reset_request(body: _PasswordResetRequest, request: Request,
     db.commit()
     send_password_reset_email(user.email, user.full_name, _reset_link_for(request, token))
     log(db, user_id=user.id, user_name=user.full_name,
-        table_name="users", record_id=user.id, action="PASSWORD_RESET_REQUEST")
+        table_name="users", record_id=user.id, action="PASSWORD_RESET_REQUEST",
+        ip_address=_extract_client_ip(request))
     db.commit()
     return generic
 
 
 @router.post("/password-reset/confirm")
-def password_reset_confirm(body: _PasswordResetConfirm, db: Session = Depends(get_db)):
+def password_reset_confirm(body: _PasswordResetConfirm, request: Request, db: Session = Depends(get_db)):
     """Setzt das Passwort per gueltigem, nicht abgelaufenem, einmaligem Token."""
     if len((body.new_password or "")) < 8:
         raise HTTPException(status_code=400, detail="Passwort muss mindestens 8 Zeichen haben.")
@@ -586,7 +591,8 @@ def password_reset_confirm(body: _PasswordResetConfirm, db: Session = Depends(ge
     # Vorgang ueber einen separaten E-Mail-Link, nie ein Onboarding-Zwischenschritt.
     user.token_revoked_before = _now()
     log(db, user_id=user.id, user_name=user.full_name,
-        table_name="users", record_id=user.id, action="PASSWORD_RESET_CONFIRM")
+        table_name="users", record_id=user.id, action="PASSWORD_RESET_CONFIRM",
+        ip_address=_extract_client_ip(request))
     db.commit()
     return {"message": "Passwort erfolgreich gesetzt. Sie koennen sich jetzt anmelden."}
 

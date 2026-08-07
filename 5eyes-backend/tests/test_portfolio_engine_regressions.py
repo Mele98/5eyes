@@ -513,10 +513,13 @@ def test_compute_reserve_requirements_matches_goal_and_external_reserve_logic():
 
     # #AA-8 (2026-06-12): distinkte Spending-Goals summieren (statt max()).
     # Steuern 40k (sicher, <=3J -> voll) + Ausbildung 20k/J (4-7J -> 50% = 10k)
-    # = 50k erwartete Reserve. Floor-Kandidaten (minReserve 10k / liqTarget 15k /
-    # near-term 2.5k) bleiben via max() darunter. External = 50k - SAA-Anteil 20k = 30k.
-    assert reserve_needed_rappen == 5000000
-    assert external_reserve_rappen == 3000000
+    # = 50k Ziel-Reserve. Bugfix 2026-08-07 (CEO/CFO/CIO-Audit, RES-1-Nachtrag):
+    # der Cashflow-Liquiditaetsbedarf (near-term running-min 2.5k) ist ein
+    # EIGENSTAENDIGER Geldabfluss und ADDIERT sich zur Ziel-Reserve (statt via
+    # max() zu konkurrieren) -> 50k + 2.5k = 52.5k. Floor-Kandidaten (minReserve
+    # 10k / liqTarget 15k) bleiben darunter. External = 52.5k - SAA-Anteil 20k = 32.5k.
+    assert reserve_needed_rappen == 5250000
+    assert external_reserve_rappen == 3250000
 
 
 def test_target_allocation_reserve_warning_detects_rebuilt_external_reserve_drift():

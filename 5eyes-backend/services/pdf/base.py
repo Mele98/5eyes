@@ -21,9 +21,12 @@ class PDFContext:
     advisor_org: str | None = None
     audit_hash: str | None = None
     locale: str = "de-CH"
-    # Sprint 9 Phase 4: Mandate-Currency fuer Report-Anzeige
-    # Werte werden via services.currency.convert_rappen umgerechnet wenn
-    # base_currency != CHF (interne Basis-Currency ist CHF/Rappen).
+    # Sprint 9 Phase 4: Mandate-Currency fuer Report-Anzeige.
+    # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): rappen-Betraege, die in die
+    # Daten-Bundles unten einfliessen, sind bereits in mandate.base_currency
+    # berechnet (portfolio_engine._load_allocation_inputs, target_currency=
+    # mandate.base_currency) -- KEINE interne CHF-Basis mehr, KEINE weitere
+    # FX-Konvertierung beim Formatieren.
     base_currency: str = "CHF"
     # WP-B (2026-08-01): {jurisdiction, cma_status, message}-Dict aus
     # services.pdf.provisional_notice.resolve_pdf_provisional_notice, sonst

@@ -289,12 +289,13 @@ def _format_thousands(rappen: int) -> str:
 
 
 def _format_chf(rappen: int, currency: str = "CHF") -> str:
+    # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): rappen ist bereits in
+    # mandate.base_currency (initial_value_rappen kommt aus
+    # advisory_wealth_at_generation_rappen, siehe
+    # backtest_strategy._resolve_initial_value_rappen). Kein zweites
+    # convert_rappen("CHF"->currency) -- sonst doppelte FX-Konvertierung.
     try:
-        if currency == "CHF":
-            value = int(rappen or 0) / 100.0
-        else:
-            from services.currency.converter import convert_rappen
-            value = convert_rappen(int(rappen or 0), "CHF", currency) / 100.0
+        value = int(rappen or 0) / 100.0
         return f"{currency} {value:,.0f}".replace(",", "'")
     except Exception:
         return f"CHF {int(rappen or 0) / 100.0:,.0f}".replace(",", "'")
