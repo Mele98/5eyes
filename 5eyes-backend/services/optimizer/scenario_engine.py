@@ -244,8 +244,19 @@ def build_scenario_paths_with_weights(
     z_uncorrelated = rng.standard_normal(size=(n_paths, horizon_years, N_BUCKETS))
 
     shift_vector = build_shift_vector(N_BUCKETS, strength=float(is_shift_strength))
-    weights = compute_likelihood_weights(z_uncorrelated, shift_vector)
     z_shifted = apply_mean_shift(z_uncorrelated, shift_vector)
+    # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): compute_likelihood_weights() braucht
+    # die tatsaechlich gezogene PROPOSAL-Stichprobe (z_shifted ~ N(shift_vector, I)),
+    # nicht das rohe z_uncorrelated ~ N(0, I) davor -- w(x) = exp(-mu·x + 0.5|mu|^2)
+    # ist als Funktion des SAMPLES x definiert, nicht des Pre-Shift-Werts. Numerisch
+    # verifiziert: mit z_uncorrelated war mean(w) ~3.5 statt ~1.0 (default shift,
+    # horizon=5) -- ein globaler exp(|mu|^2*T)-Bias-Faktor. Fuer alle bestehenden
+    # Konsumenten (shortfall_/chance_/volatility_objective) folgenlos, weil die
+    # Normalisierung Sum(f*w)/Sum(w) jede globale Konstante exakt herauskuerzt --
+    # aber das dokumentierte Invariant E[w]=1 (siehe importance_sampling.py-Docstring
+    # + test_likelihood_weights_sum_to_n_asymptotically) gilt am Call-Site erst mit
+    # diesem Fix tatsaechlich.
+    weights = compute_likelihood_weights(z_shifted, shift_vector)
 
     # Cholesky + Cornish-Fisher + Itô-Korrektur — gleiche Pipeline wie
     # build_scenario_paths, aber auf den geshifteten Z

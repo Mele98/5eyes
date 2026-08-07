@@ -114,6 +114,26 @@ def test_wrapper_unbiased_estimator_for_terminal_wealth():
         )
 
 
+def test_wrapper_weights_average_to_one():
+    """Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): compute_likelihood_weights() wurde
+    bisher mit dem PRE-shift z_uncorrelated statt dem tatsaechlich gezogenen
+    POST-shift Sample aufgerufen -- E[w] war dadurch exp(|shift|^2 * horizon)
+    statt der dokumentierten 1.0 (importance_sampling.py-Docstring +
+    test_likelihood_weights_sum_to_n_asymptotically). Fuer die bestehenden
+    normalisierten Konsumenten (siehe test_wrapper_unbiased_estimator_for_
+    terminal_wealth, die durch w.sum() teilt) war das folgenlos, weil sich ein
+    globaler konstanter Bias in jedem Sum(f*w)/Sum(w)-Verhaeltnis exakt
+    heraus-kuerzt -- aber genau DESHALB hat keiner der bisherigen Tests den
+    Bug gefangen. Dieser Test prueft die ROHEN (nicht normalisierten) Gewichte
+    direkt am Wrapper, dort wo der Bug tatsaechlich sass."""
+    inputs = _trivial_inputs()
+    _, weights = build_scenario_paths_with_weights(
+        inputs, horizon_years=5, n_paths=50_000, seed=123, use_importance_sampling=True,
+    )
+    mean_weight = float(weights.mean())
+    assert abs(mean_weight - 1.0) < 0.05, f"E[w] = {mean_weight:.4f}, sollte ~1.0 sein"
+
+
 def test_wrapper_default_off():
     """Default-Parameter ist use_importance_sampling=False."""
     inputs = _trivial_inputs()
