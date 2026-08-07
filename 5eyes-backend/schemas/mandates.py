@@ -71,6 +71,11 @@ class MandateUpdate(BaseModel):
     # erlaubt selektive Overrides der TaxConfig-Defaults.
     tax_jurisdiction: Optional[str] = None
     tax_overrides_json: Optional[str] = None
+    # Roadmap #39 (Standpunkt 2026-08-07): geschaetzte Vermoegenssteuer als
+    # optionale Ausgabe in der Cashflow-Projektion einrechnen. None = keine
+    # Aenderung; explizites False/True setzt das Flag. Nutzt tax_jurisdiction
+    # oben fuer die Regime-Auflösung (kein zusaetzliches Feld noetig).
+    tax_estimate_in_cashflow_enabled: Optional[bool] = None
     # 2026-07-27 (HUD-Konfiguration): JSON-Array von Sektions-Keys aus dem
     # Advisory-Report-Aggregator, die fuer dieses Mandat ausgeblendet werden
     # sollen. NULL = alles sichtbar (Backwards-Compat). Gleiches Muster wie
@@ -129,6 +134,8 @@ class MandateResponse(BaseResponse):
     # Sprint U-P3 (2026-05-19): Steuersitz fuer tax-aware Allocation
     tax_jurisdiction: Optional[str] = None
     tax_overrides_json: Optional[str] = None
+    # Roadmap #39 (Standpunkt 2026-08-07): siehe MandateUpdate.
+    tax_estimate_in_cashflow_enabled: Optional[bool] = False
     # 2026-07-27 (HUD-Konfiguration): siehe MandateUpdate.
     hidden_report_sections: Optional[str] = None
     # 2026-07-27 (Laender-Skalierung): siehe MandateUpdate.

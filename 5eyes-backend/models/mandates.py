@@ -61,6 +61,13 @@ class Mandate(Base):
     # DIESES Mandat ausgeblendet werden sollen. NULL = alles sichtbar
     # (Backwards-Compat, unveraendertes Verhalten fuer alle Bestandsmandate).
     hidden_report_sections = Column(String)
+    # Roadmap #39 (Standpunkt 2026-08-07): geschaetzte Vermoegenssteuer als
+    # optionale, abgeleitete jaehrliche Ausgabe in der deterministischen
+    # Cashflow-Projektion (services.wealth_cashflows.derive_tax_cashflow).
+    # Default 0 = aus (Backwards-Compat, unveraendertes Verhalten fuer alle
+    # Bestandsmandate). Nutzt denselben tax_jurisdiction/tax_overrides_json
+    # wie der steuer-bewusste Optimizer-Pfad (Single-Source-of-Truth).
+    tax_estimate_in_cashflow_enabled = Column(Integer, default=0)
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
     deleted_at = Column(String)

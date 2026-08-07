@@ -45,7 +45,7 @@ from services.cashflow_timeline import (
     recurring_net_cashflow_series,
     totals_for_year,
 )
-from services.wealth_cashflows import derive_wealth_cashflows, mortgage_interest_adjustment_series
+from services.wealth_cashflows import derive_tax_cashflow, derive_wealth_cashflows, mortgage_interest_adjustment_series
 from services.product_market_data import resolve_market_profile, validate_default_product_market_coverage
 from services.planning_horizon import life_expectancy_year_for
 from services.jurisdiction.de_seed import (
@@ -1373,7 +1373,12 @@ def _load_allocation_inputs(
     # 2026-06-14: vermögensgetriebene Cashflows (Hypothekarzins, Amortisation,
     # Miet-/Zinserträge) auch in die Engine-Projektion/Reserve einspeisen, damit
     # Strategie-Verzehr und Cashflow-Ansicht 1:1 dieselben Posten sehen.
-    cashflows = list(cashflows) + derive_wealth_cashflows(all_positions)
+    # Roadmap #39 (2026-08-07): optional geschaetzte Vermoegenssteuer dito.
+    cashflows = (
+        list(cashflows)
+        + derive_wealth_cashflows(all_positions)
+        + derive_tax_cashflow(mandate, total_wealth_rappen)
+    )
     goals = db.query(Goal).filter(
         Goal.mandate_id == mandate.id,
         Goal.deleted_at.is_(None),
@@ -2771,7 +2776,12 @@ def build_target_payload_from_allocation(
     # rechnete build_target_payload_from_allocation mit unvollständigen Cashflows
     # (inkonsistent zu _load_allocation_inputs). Reserve/Empfehlung sehen damit
     # dieselben Cashflows wie Cashflow-Ansicht und Engine-Projektion.
-    cashflows = list(cashflows) + derive_wealth_cashflows(all_positions)
+    # Roadmap #39 (2026-08-07): optional geschaetzte Vermoegenssteuer dito.
+    cashflows = (
+        list(cashflows)
+        + derive_wealth_cashflows(all_positions)
+        + derive_tax_cashflow(mandate, total_wealth_rappen)
+    )
 
     goals = db.query(Goal).filter(
         Goal.mandate_id == mandate.id,

@@ -44,6 +44,37 @@ def test_both_engine_paths_feed_derived_cashflows():
     )
 
 
+# ── Roadmap #39 (2026-08-07): dito fuer die optionale Steuer-Schaetzung ──
+
+def test_both_engine_paths_feed_tax_estimate_cashflow():
+    """Gleiche Bugklasse wie #94 oben: wenn nur EIN Ladepfad derive_tax_cashflow
+    aufruft, sehen Cashflow-Ansicht und Strategie-Verzehr/Reserve wieder
+    unterschiedliche Netto-Cashflows -- genau der Fehler, den #94 fuer die
+    vermögensgetriebenen Cashflows bereits einmal gefixt hat."""
+    src_load = inspect.getsource(pe._load_allocation_inputs)
+    src_build = inspect.getsource(pe.build_target_payload_from_allocation)
+    assert "derive_tax_cashflow(mandate, total_wealth_rappen)" in src_load, (
+        "_load_allocation_inputs speist die geschätzte Vermögenssteuer nicht ein"
+    )
+    assert "derive_tax_cashflow(mandate, total_wealth_rappen)" in src_build, (
+        "build_target_payload_from_allocation speist die geschätzte "
+        "Vermögenssteuer nicht ein (inkonsistent zu _load_allocation_inputs)"
+    )
+
+
+def test_advisory_report_reserve_recompute_also_feeds_tax_estimate_cashflow():
+    """Dritter Pfad (services/advisory_report.py::_recompute_reserve_reasoning)
+    dokumentiert sich selbst als 'dieselben Inputs wie build_target_payload_
+    from_allocation' -- muss die geschätzte Vermögenssteuer also ebenfalls
+    einspeisen, sonst driftet die Reserve-Nachrechnung im Report von der
+    Engine-Reserve ab."""
+    import services.advisory_report as ar
+    src = inspect.getsource(ar._recompute_reserve_reasoning)
+    assert "derive_tax_cashflow(mandate, total_wealth_rappen)" in src, (
+        "_recompute_reserve_reasoning speist die geschätzte Vermögenssteuer nicht ein"
+    )
+
+
 def _add_mortgage(session_factory, client_id, value=400_000_00, rate_bps=200,
                   amort_rappen=0, amort_type=None):
     with session_factory() as s:

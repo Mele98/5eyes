@@ -3983,6 +3983,10 @@ function _wireSollIstHover(){
         <div style="font-size:9.5px;color:var(--n5);line-height:1.4;margin-top:2px">Aktiviert Steuer-Drag im Solver-MC (Vermögens-, Dividenden- und Kapitalgewinnsteuer je nach Regime). Erfordert OPTIMIZER_MODE=stochastic.</div>
       </div>
     </div>
+    <div class="fg" style="margin-top:8px">
+      <label class="fl" style="cursor:pointer"><input type="checkbox" id="ms-tax-estimate-cashflow" style="vertical-align:middle;margin-right:6px">Geschätzte Vermögenssteuer in Cashflow-Projektion einrechnen</label>
+      <div style="font-size:9.5px;color:var(--n5);line-height:1.4;margin-top:2px;padding-left:22px">Fügt eine jährliche Ausgabe "Vermögenssteuer (geschätzt)" auf Basis des Gesamtvermögens und des oben gewählten Steuerregimes hinzu — Pauschal-Schätzung, keine Erwerbseinkommensteuer. Erfordert ein gesetztes Steuerregime oben.</div>
+    </div>
 
     <!-- 2026-07-29 (HUD-Konfiguration): Sektionen im Advisory-Report ausblendbar -->
     <div style="font-size:11px;font-weight:600;color:var(--n6);text-transform:uppercase;letter-spacing:0.06em;margin:14px 0 6px 0">Report-Sektionen (PDF)</div>
@@ -17756,7 +17760,7 @@ async function openMandateSettingsModal(){
     return;
   }
   // Felder leeren
-  ['ms-birth-year','ms-sex','ms-use-mortality','ms-retirement-year','ms-life-expectancy-year','ms-tax-jurisdiction','ms-jurisdiction'].forEach(function(id){
+  ['ms-birth-year','ms-sex','ms-use-mortality','ms-retirement-year','ms-life-expectancy-year','ms-tax-jurisdiction','ms-tax-estimate-cashflow','ms-jurisdiction'].forEach(function(id){
     var el = document.getElementById(id);
     if(!el) return;
     if(el.type==='checkbox') el.checked = false;
@@ -17777,6 +17781,8 @@ async function openMandateSettingsModal(){
       // Sprint U-P3: Steuersitz
       var taxJ = document.getElementById('ms-tax-jurisdiction');
       if(taxJ && m.tax_jurisdiction != null) taxJ.value = m.tax_jurisdiction;
+      // Roadmap #39 (2026-08-07): geschaetzte Vermoegenssteuer in Cashflow-Projektion
+      if(m.tax_estimate_in_cashflow_enabled) document.getElementById('ms-tax-estimate-cashflow').checked = true;
       // 2026-07-29 (Laender-Skalierung): Jurisdiktion (NULL = "CH")
       var jur = document.getElementById('ms-jurisdiction');
       if(jur && m.jurisdiction != null) jur.value = m.jurisdiction;
@@ -17824,6 +17830,8 @@ async function saveMandateSettings(){
     life_expectancy_year: parseIntOrNull('ms-life-expectancy-year'),
     // Sprint U-P3: Steuersitz fuer tax-aware Allokation
     tax_jurisdiction: (taxJEl && taxJEl.value) || null,
+    // Roadmap #39 (2026-08-07): geschaetzte Vermoegenssteuer in Cashflow-Projektion
+    tax_estimate_in_cashflow_enabled: !!document.getElementById('ms-tax-estimate-cashflow').checked,
     // 2026-07-29 (Laender-Skalierung): Jurisdiktion (leer = "CH")
     jurisdiction: (jurEl && jurEl.value) || null,
     // 2026-07-29 (HUD-Konfiguration): NULL statt "[]" wenn nichts ausgeblendet

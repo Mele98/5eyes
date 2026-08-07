@@ -393,6 +393,8 @@ def ensure_runtime_columns() -> None:
             # (kein DB-Default möglich fuer TEXT-Spalten in dieser Migration-
             # Helper-Funktion) -- Code interpretiert NULL als "CH".
             ('jurisdiction', 'TEXT'),
+            # Roadmap #39 (Standpunkt 2026-08-07): siehe models/mandates.py.
+            ('tax_estimate_in_cashflow_enabled', 'INTEGER', 0),
         ],
         'cashflows': [
             ('gross_amount_rappen', 'INTEGER'),

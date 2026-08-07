@@ -3153,7 +3153,7 @@ def _recompute_reserve_reasoning(
         _simulation_horizon_years,
         _wealth_inflow_series_rappen,
     )
-    from services.wealth_cashflows import derive_wealth_cashflows
+    from services.wealth_cashflows import derive_tax_cashflow, derive_wealth_cashflows
 
     prefs = _normalize_preferences(_allocation_snapshot_preferences(ta))
     goals = list(_cached_active_goals(db, mandate))
@@ -3180,9 +3180,29 @@ def _recompute_reserve_reasoning(
         if int(getattr(pos, "is_available_for_goal_funding", 0) or 0) == 1
         and str(getattr(pos, "assignment", "")) == "Anderes Vermögen"
     )
+    # Roadmap #39 (2026-08-07): Gesamtvermoegen (netto, wie in portfolio_engine.py
+    # _load_allocation_inputs/build_target_payload_from_allocation) als Basis fuer
+    # die geschaetzte Vermoegenssteuer -- dieselbe Formel wie dort, damit diese
+    # "Nachrechnung" nicht von einer schmaleren Beratungsvermoegen-Basis ausgeht
+    # (haette die Steuer sonst unterschaetzt statt nur inkonsistent zu sein).
+    total_liabilities_rappen = sum(
+        int(getattr(pos, "current_value_rappen", 0) or 0)
+        for pos in positions
+        if str(getattr(pos, "assignment", "")) == "Verbindlichkeit"
+    )
+    total_assets_rappen = sum(
+        int(getattr(pos, "current_value_rappen", 0) or 0)
+        for pos in positions
+        if str(getattr(pos, "assignment", "")) != "Verbindlichkeit"
+    )
+    total_wealth_rappen = max(0, total_assets_rappen - total_liabilities_rappen)
 
     cashflows = list(_cached_active_cashflows(db, str(mandate.client_id)))
-    cashflows = cashflows + derive_wealth_cashflows(positions)
+    cashflows = (
+        cashflows
+        + derive_wealth_cashflows(positions)
+        + derive_tax_cashflow(mandate, total_wealth_rappen)
+    )
 
     # 2026-07-24 (Generalaudit): Fallback auf FXRateSource() statt None --
     # FXRateSource.from_db() faengt intern schon jeden Fehler ab und faellt

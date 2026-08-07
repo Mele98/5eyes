@@ -248,3 +248,69 @@ def derive_wealth_cashflows(positions: list) -> list[DerivedCashflow]:
                     f"Negativzins: {label}")
 
     return out
+
+
+def derive_tax_cashflow(mandate, total_wealth_rappen: int) -> list[DerivedCashflow]:
+    """Roadmap #39 (Standpunkt 2026-08-07): geschaetzte Vermoegenssteuer als
+    optionale, abgeleitete jaehrliche Ausgabe in der deterministischen
+    Cashflow-Projektion/Reserve-Berechnung.
+
+    Opt-in ueber mandate.tax_estimate_in_cashflow_enabled (Default 0 =
+    Backwards-Compat, kein Verhalten fuer Bestandsmandate).
+
+    Nutzt DENSELBEN Tax-Regime-Resolver wie der steuer-bewusste Optimizer-
+    Solver-Pfad (services.portfolio_engine_optimizer_integration.
+    _build_tax_solver_kwargs) -- Kanton-Override (tax_jurisdiction='CH-GE')
+    und manuelle tax_overrides_json wirken hier identisch, statt eine
+    zweite, potenziell abweichende Resolution-Logik zu bauen.
+
+    Scope bewusst NUR Vermoegenssteuer, NICHT Erwerbseinkommensteuer: das
+    CH-Tax-Modul (services/tax/regimes/ch.py) bildet explizit "Pauschal-
+    Mittelwerte fuer Asset-Allocation-Wirkung" ab, keine progressive
+    Einkommenssteuer-Tabelle -- eine "geschaetzte Einkommensteuer" waere ohne
+    echte Tarif-Stufen/Abzuege irrefuehrend genauer als sie tatsaechlich ist.
+
+    Liefert eine leere Liste (kein Render-Bruch) wenn: Flag aus, kein
+    Vermoegen, keine tax_jurisdiction gesetzt, oder die Regime-Auflösung
+    fehlschlaegt (fail-soft, identisch zum Solver-Pfad)."""
+    if not int(getattr(mandate, "tax_estimate_in_cashflow_enabled", 0) or 0):
+        return []
+    wealth = int(total_wealth_rappen or 0)
+    if wealth <= 0:
+        return []
+    try:
+        from services.portfolio_engine_optimizer_integration import _build_tax_solver_kwargs
+        tax_kwargs = _build_tax_solver_kwargs(mandate)
+        regime = tax_kwargs.get("tax_regime")
+        if regime is None or not getattr(regime, "supports_wealth_tax", False):
+            return []
+        from services.tax.base import TaxContext
+        ctx = TaxContext(
+            year_index=0,
+            calendar_year=int(tax_kwargs.get("base_calendar_year", 0)) or 2026,
+            wealth_rappen=float(wealth),
+            age=None,
+        )
+        result = regime.annual_wealth_tax(ctx)
+        amount = int(round(result.amount_rappen))
+    except Exception:  # noqa: BLE001 - Steuer-Schaetzung darf Cashflow-Projektion nie killen
+        return []
+    if amount <= 0:
+        return []
+    mandate_id = str(getattr(mandate, "id", "") or "")
+    return [DerivedCashflow(
+        id=f"derived:wealth_tax:{mandate_id}",
+        client_id=str(getattr(mandate, "client_id", "") or ""),
+        cashflow_type="Expense",
+        label=f"Vermögenssteuer (geschätzt, {getattr(regime, 'display_name', 'Pauschal')})",
+        amount_rappen=amount,
+        currency=str(getattr(mandate, "base_currency", "") or "CHF"),
+        source="tax_estimate",
+        origin_position_id=None,
+        origin_position_type="TaxEstimate",
+        notes=(
+            "Pauschale Schaetzung auf Basis des aktuellen Gesamtvermoegens "
+            "(kein progressiver Tarif, keine Erwerbseinkommensteuer). "
+            "Kann von der tatsaechlichen Steuerrechnung abweichen."
+        ),
+    )]
