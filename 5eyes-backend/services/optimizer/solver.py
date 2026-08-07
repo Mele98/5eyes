@@ -34,6 +34,7 @@ from .constraints import (
     DEFAULT_BUCKET_RISKY_FRACTION,
     HouseMatrixBands,
     bands_from_house_matrix_row,
+    bounds_collapse_warnings,
     build_bounds,
     build_constraint_set,
     is_feasible,
@@ -150,6 +151,10 @@ class OptimizerContext:
     base_calendar_year: int = 2026
     mandate_age_at_start: int | None = None
     is_retired: bool = False
+    # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): siehe constraints.bounds_collapse_warnings
+    # -- nicht-leer, wenn eine House-Matrix-Bandbreite durch einen globalen
+    # Cap/Floor stillschweigend auf einen Punkt kollabiert wurde.
+    bounds_collapse_warnings: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -291,6 +296,7 @@ def build_optimizer_context(
         scenario_weights = None  # uniform sample-mean
     aggregated_liability = aggregate_liability_path(liabilities, horizon_years)
     bands = bands_from_house_matrix_row(house_matrix_row)
+    collapse_warnings = bounds_collapse_warnings(bands)
     bounds, scipy_constraints = build_constraint_set(
         bands,
         score_x10,
@@ -349,6 +355,7 @@ def build_optimizer_context(
         base_calendar_year=int(base_calendar_year),
         mandate_age_at_start=mandate_age_at_start,
         is_retired=bool(is_retired),
+        bounds_collapse_warnings=tuple(collapse_warnings),
     )
 
 
@@ -1235,7 +1242,7 @@ def run_solver(
             reasoning=[
                 "Alle Solver-Multi-Starts divergierten und GA-Fallback ebenso. "
                 "Fallback auf House-Matrix-Mittelwert (siehe OWNER-DECISION OD-5)."
-            ],
+            ] + list(context.bounds_collapse_warnings),
             n_paths=n_paths,
             n_starts_attempted=len(initials),
             goal_achievability=tuple(goal_achievability),
@@ -1275,7 +1282,7 @@ def run_solver(
         context.advisory_wealth_rappen,
         weights=context.scenario_weights,
     )
-    reasoning: list[str] = []
+    reasoning: list[str] = list(context.bounds_collapse_warnings)
     method_used = "SLSQP+DE-Fallback" if used_ga_fallback else "SLSQP"
     reasoning.append(f"Stochastic Solver ({method_used}): {total_iters} iterations across "
                       f"{len(initials)} multi-starts.")

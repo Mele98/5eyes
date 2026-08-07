@@ -153,6 +153,51 @@ def build_bounds(bands: HouseMatrixBands) -> list[tuple[float, float]]:
     return out
 
 
+def bounds_collapse_warnings(bands: HouseMatrixBands) -> list[str]:
+    """Erkennt House-Matrix-Bandbreiten, die von build_bounds() wegen eines
+    globalen Caps/Floors auf einen einzelnen Punkt zusammengepresst wuerden.
+
+    Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): build_bounds() wendet MAX_REAL_ESTATE/
+    MAX_ALTERNATIVES/MIN_LIQUIDITY an und faengt ein daraus resultierendes
+    lo > hi mit `min(lo, hi)` ab -- STILLSCHWEIGEND, ohne dass der Aufrufer
+    je erfaehrt, dass eine explizit in der House-Matrix konfigurierte
+    Bandbreite (z.B. ein hoeheres Immobilien-Minimum fuer ein bestimmtes
+    Risikoprofil) dabei ueberschrieben wurde. Dieselbe Bugklasse wie RES-1
+    (Risikobudget-Fallback verwarf manuelle Bandbreiten-Restriktionen
+    stillschweigend) -- hier zusaetzlich reproduzierbar, weil die DB (siehe
+    5eyes_schema_v4.0_FINAL.sql) real_estate_min_bps/alt_min_bps nur auf
+    0..10000 prueft, NICHT auf die niedrigeren globalen Caps (2000/1000bps).
+    Ein Admin kann ueber POST .../house-matrix-rows also durchaus eine Zeile
+    mit real_estate_min_bps=2500 speichern, die der Solver dann klanglos auf
+    exakt 2000bps zusammendrueckt. Diese Funktion macht den Konflikt sichtbar
+    (Aufrufer haengt die Warnungen in OptimizerResult.reasoning), aendert
+    aber NICHT das (konservative, absichtlich harte) Cap-Verhalten selbst.
+    """
+    warnings: list[str] = []
+    re_lo, _re_hi = bands.real_estate
+    if re_lo > MAX_REAL_ESTATE:
+        warnings.append(
+            f"House-Matrix-Minimum Immobilien ({re_lo * 10000:.0f}bps) liegt über dem "
+            f"globalen Cap ({int(MAX_REAL_ESTATE * 10000)}bps) — Solver wurde auf den "
+            "Cap-Wert begrenzt, das konfigurierte Minimum wurde NICHT eingehalten."
+        )
+    alt_lo, _alt_hi = bands.alternatives
+    if alt_lo > MAX_ALTERNATIVES:
+        warnings.append(
+            f"House-Matrix-Minimum Alternative Anlagen ({alt_lo * 10000:.0f}bps) liegt über "
+            f"dem globalen Cap ({int(MAX_ALTERNATIVES * 10000)}bps) — Solver wurde auf den "
+            "Cap-Wert begrenzt, das konfigurierte Minimum wurde NICHT eingehalten."
+        )
+    _liq_lo, liq_hi = bands.liquidity
+    if liq_hi < MIN_LIQUIDITY:
+        warnings.append(
+            f"House-Matrix-Maximum Liquidität ({liq_hi * 10000:.0f}bps) liegt unter dem "
+            f"globalen Floor ({int(MIN_LIQUIDITY * 10000)}bps) — Solver wurde auf den "
+            "House-Matrix-Wert begrenzt, der globale Liquiditäts-Floor wurde NICHT eingehalten."
+        )
+    return warnings
+
+
 def build_sum_to_one_constraint() -> dict:
     """Equality-Constraint: Σ w_i = 1.0"""
     return {

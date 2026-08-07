@@ -370,6 +370,44 @@ def test_solver_respects_house_matrix_bands():
         assert feasible, f"Converged status but infeasible: {reasons}"
 
 
+def test_solver_warns_when_house_matrix_minimum_exceeds_global_cap():
+    """Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): eine House-Matrix-Zeile mit
+    real_estate_min_bps=2500 (> globalem Cap von 2000bps) wurde bisher
+    STILLSCHWEIGEND auf (2000, 2000) zusammengepresst -- der Berater hätte
+    nie erfahren, dass die konfigurierte Immobilien-Mindestquote nicht
+    eingehalten wurde. run_solver().reasoning muss den Konflikt jetzt
+    benennen (siehe services.optimizer.constraints.bounds_collapse_warnings)."""
+    cma = _make_cma()
+    house_matrix = _make_house_matrix_row()
+    house_matrix.real_estate_min_bps = 2500
+    house_matrix.real_estate_max_bps = 3000
+    goal = _make_maximierung_goal()
+
+    result = run_solver(
+        cma=cma, goals=[goal], house_matrix_row=house_matrix, score_x10=70,
+        advisory_wealth_rappen=500_000_00, cashflow_series_rappen=[0] * 5,
+        horizon_years=5, n_paths=200, seed=42,
+    )
+    assert any("Immobilien" in r and "2500" in r for r in result.reasoning), result.reasoning
+    # Und die tatsaechliche Allokation darf den globalen Cap trotzdem nie ueberschreiten.
+    assert result.weights_bps["real_estate"] <= 2000 + 5  # kleine Rundungstoleranz
+
+
+def test_solver_no_bounds_collapse_warning_for_normal_house_matrix():
+    """Gegenprobe: eine unauffaellige House-Matrix (Standard-Fixture) darf
+    keine Kollaps-Warnung erzeugen."""
+    cma = _make_cma()
+    house_matrix = _make_house_matrix_row()
+    goal = _make_pension_goal()
+
+    result = run_solver(
+        cma=cma, goals=[goal], house_matrix_row=house_matrix, score_x10=70,
+        advisory_wealth_rappen=500_000_00, cashflow_series_rappen=[5_000_00] * 10,
+        horizon_years=10, n_paths=200, seed=42,
+    )
+    assert not any("liegt über dem globalen" in r or "liegt unter dem globalen" in r for r in result.reasoning)
+
+
 def test_solver_respects_risky_fraction_cap_at_low_score():
     """Score=20 (= 20% risky) -> Solver muss konservativ bleiben."""
     cma = _make_cma()

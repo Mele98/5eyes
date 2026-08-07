@@ -29,6 +29,7 @@ from services.optimizer.constraints import (
     MAX_REAL_ESTATE,
     MIN_LIQUIDITY,
     bands_from_house_matrix_row,
+    bounds_collapse_warnings,
     build_bounds,
     build_constraint_set,
     build_risky_fraction_constraint,
@@ -442,6 +443,90 @@ def test_build_bounds_lo_clamped_to_hi_when_inverted():
     eq_idx = BUCKET_ORDER.index("equities")
     lo, hi = bounds[eq_idx]
     assert lo <= hi
+
+
+# ============================================================================
+# Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): bounds_collapse_warnings
+#
+# build_bounds() clamped ein House-Matrix-Minimum, das über einem globalen
+# Cap/Floor liegt, bisher STILLSCHWEIGEND auf den Cap-Wert (min(lo, hi) in
+# der "Sicherheits-Sanity"-Zeile) -- ohne dass der Aufrufer je erfuhr, dass
+# eine explizit konfigurierte Bandbreite dabei ueberschrieben wurde. Reine
+# Cap-Reduktionen des MAX (House-Matrix erlaubt mehr als der globale Cap,
+# lo bleibt darunter) sind dagegen normal/erwartet und duerfen KEINE
+# Warnung ausloesen -- siehe test_build_bounds_re_cap_applied_to_more_
+# aggressive_house_matrix (lo=0.0) oben, das unveraendert bleibt.
+# ============================================================================
+
+
+def test_bounds_collapse_warnings_empty_when_no_conflict():
+    """Normalfall (RE max 30% > Cap 20%, aber min=0): keine Warnung."""
+    bands = HouseMatrixBands(
+        equities=(0.4, 0.7), bonds=(0.2, 0.5),
+        real_estate=(0.0, 0.30), alternatives=(0.0, 0.05),
+        liquidity=(0.02, 0.10),
+    )
+    assert bounds_collapse_warnings(bands) == []
+
+
+def test_bounds_collapse_warnings_real_estate_minimum_above_cap():
+    """House-Matrix verlangt 25% RE-Minimum, globaler Cap ist 20% --
+    build_bounds() presst das auf (0.20, 0.20) zusammen; die Warnfunktion
+    muss das jetzt melden."""
+    bands = HouseMatrixBands(
+        equities=(0.3, 0.6), bonds=(0.1, 0.4),
+        real_estate=(0.25, 0.30),  # min > MAX_REAL_ESTATE
+        alternatives=(0.0, 0.05), liquidity=(0.02, 0.10),
+    )
+    bounds = build_bounds(bands)
+    re_idx = BUCKET_ORDER.index("real_estate")
+    assert bounds[re_idx] == (MAX_REAL_ESTATE, MAX_REAL_ESTATE)  # stillschweigend kollabiert
+
+    warnings = bounds_collapse_warnings(bands)
+    assert len(warnings) == 1
+    assert "Immobilien" in warnings[0]
+    assert "2500" in warnings[0] and "2000" in warnings[0]
+
+
+def test_bounds_collapse_warnings_alternatives_minimum_above_cap():
+    bands = HouseMatrixBands(
+        equities=(0.3, 0.6), bonds=(0.1, 0.4),
+        real_estate=(0.0, 0.20),
+        alternatives=(0.15, 0.20),  # min > MAX_ALTERNATIVES (10%)
+        liquidity=(0.02, 0.10),
+    )
+    warnings = bounds_collapse_warnings(bands)
+    assert len(warnings) == 1
+    assert "Alternative" in warnings[0]
+
+
+def test_bounds_collapse_warnings_liquidity_max_below_floor():
+    """House-Matrix erlaubt maximal 1% Liquiditaet, globaler Floor ist 2% --
+    build_bounds() presst auf den House-Matrix-Wert (0.01, 0.01) zusammen,
+    der globale Floor wird NICHT eingehalten."""
+    bands = HouseMatrixBands(
+        equities=(0.4, 0.7), bonds=(0.2, 0.5),
+        real_estate=(0.0, 0.10), alternatives=(0.0, 0.05),
+        liquidity=(0.0, 0.01),  # max < MIN_LIQUIDITY
+    )
+    bounds = build_bounds(bands)
+    liq_idx = BUCKET_ORDER.index("liquidity")
+    assert bounds[liq_idx] == (0.01, 0.01)
+
+    warnings = bounds_collapse_warnings(bands)
+    assert len(warnings) == 1
+    assert "Liquidität" in warnings[0]
+
+
+def test_bounds_collapse_warnings_multiple_conflicts_all_reported():
+    bands = HouseMatrixBands(
+        equities=(0.2, 0.5), bonds=(0.1, 0.3),
+        real_estate=(0.25, 0.30),
+        alternatives=(0.15, 0.20),
+        liquidity=(0.0, 0.01),
+    )
+    warnings = bounds_collapse_warnings(bands)
+    assert len(warnings) == 3
 
 
 # ============================================================================
