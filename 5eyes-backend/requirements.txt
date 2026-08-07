@@ -2,6 +2,9 @@ fastapi==0.115.0
 uvicorn[standard]==0.30.6
 sqlalchemy==2.0.35
 psycopg[binary]>=3.2,<4
+# Roadmap #90: versionierte Schema-Migrationen fuer Postgres-Produktion
+# (SQLite-Dev/Test-Pfad bleibt unveraendert bei create_all).
+alembic==1.19.0
 pydantic==2.9.2
 pydantic-settings==2.5.2
 # Sprint A merge: develop fuehrt EmailStr ein, braucht email-validator.

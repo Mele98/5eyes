@@ -1298,6 +1298,38 @@ def migrate_house_matrix_real_estate_cap_20(engine_to_use=None) -> int:
     return updated
 
 
+def _create_or_migrate_schema(active_url: str) -> None:
+    """Roadmap #90: Baseline-Migration + init_db-Switch create_all<->alembic.
+
+    SQLite (Dev/Test/Electron-Desktop, alle 5200+ Tests): unveraendert
+    Base.metadata.create_all() -- kein Risiko fuer den bestehenden, sehr gut
+    getesteten Pfad.
+
+    Postgres (echte Produktion): alembic upgrade head statt create_all, damit
+    Schema-Aenderungen ab jetzt ueber versionierte Migrationen laufen statt
+    ueber implizite create_all-Diffs. Die Baseline-Revision (alembic/versions/
+    c91f2c722881_baseline_schema.py) wurde aus genau demselben Base.metadata
+    generiert -- eine frische Postgres-DB landet exakt beim selben Schema wie
+    create_all es fuer SQLite erzeugt. `alembic upgrade head` ist idempotent
+    (kein Effekt, wenn die DB schon auf dem neuesten Stand ist), also sicher
+    bei jedem App-Start erneut aufzurufen -- wie create_all().
+
+    Alle nachfolgenden ensure_*()-Aufrufe in init_db() bleiben fuer BEIDE
+    Dialekte unveraendert bestehen (sie pruefen ihre Ziel-Spalten/Tabellen via
+    inspect() vor jeder Aenderung und sind bereits dialekt-generisch).
+    """
+    if not is_postgres_database_url(active_url):
+        Base.metadata.create_all(bind=engine)
+        return
+    from alembic import command
+    from alembic.config import Config as AlembicConfig
+
+    alembic_ini = Path(__file__).resolve().parent / "alembic.ini"
+    alembic_cfg = AlembicConfig(str(alembic_ini))
+    alembic_cfg.set_main_option("sqlalchemy.url", active_url)
+    command.upgrade(alembic_cfg, "head")
+
+
 def init_db() -> None:
     active_url = build_database_url(db_path=settings.db_path, db_key=getattr(settings, 'db_key', None))
     if settings.db_bootstrap_schema_on_startup and is_sqlite_database_url(active_url):
@@ -1308,7 +1340,7 @@ def init_db() -> None:
     # WP1 (2026-07-30): dito fuer die neuen Jurisdiktions-Tabellen.
     import models.jurisdiction  # noqa: F401
 
-    Base.metadata.create_all(bind=engine)
+    _create_or_migrate_schema(active_url)
     ensure_runtime_columns()
     migrate_house_matrix_real_estate_cap_20()
     ensure_snapshot_tables()

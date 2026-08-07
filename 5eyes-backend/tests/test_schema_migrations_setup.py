@@ -1,4 +1,12 @@
-"""Sprint U-41 (2026-06-06): Drift-Schutz fuer alembic-Setup-Doku."""
+"""Sprint U-41 (2026-06-06) + Folge-Sprint Roadmap #90 (2026-08-07):
+Drift-Schutz fuer alembic-Setup-Doku.
+
+test_documents_alembic_not_in_requirements hiess urspruenglich anders (siehe
+Git-History) und pruefte die U-41-Entscheidung "alembic noch NICHT in
+requirements.txt". Roadmap #90 ist genau der in U-41 angekuendigte
+Folge-Sprint, der das umsetzt (init_db-Switch create_all<->alembic fuer
+Postgres) -- die Entscheidung ist jetzt umgekehrt, der Test prueft das
+Gegenteil."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -22,9 +30,13 @@ def test_documents_opt_in_strategy():
     assert "pip install alembic" in text
 
 
-def test_documents_alembic_not_in_requirements():
+def test_documents_alembic_now_in_requirements():
+    """Roadmap #90 (2026-08-07): U-41 verschob dies bewusst auf einen
+    Folge-Sprint ("NICHT in requirements.txt bis konkret gebraucht") --
+    #90 IST dieser Folge-Sprint (Postgres-Produktion braucht den
+    init_db-Switch create_all<->alembic)."""
     pkg = REQUIREMENTS.read_text(encoding="utf-8")
-    assert "alembic" not in pkg.lower()
+    assert "alembic" in pkg.lower()
 
 
 def test_documents_init_workflow():

@@ -2,11 +2,19 @@
 
 Migrations-Workflow fuer das 5eyes-Backend-Schema mit alembic.
 
-**Stand:** 2026-06-06
-**Roadmap-Punkt:** #41 (DB, ~1 Tag)
-**Status:** Opt-in Setup-Anleitung. Heute laeuft Schema-Init via
-SQLAlchemy `Base.metadata.create_all` (init_db) — kein expliziter
-Migrations-Pfad fuer bestehende DBs.
+**Stand:** 2026-08-07 (Folge-Sprint zu U-41 vom 2026-06-06)
+**Roadmap-Punkt:** #90 (Standpunkt 2026-08-07) — vormals #41
+**Status:** Der Init-Sprint (Setup + Baseline-Migration + init_db-Switch)
+ist **umgesetzt** — siehe `docs/deploy/postgres-migrations.md` fuer die
+Betriebs-Anleitung. Betrifft NUR Postgres-Produktion: SQLite (Dev/Test/
+Electron-Desktop) laeuft unveraendert weiter ueber `Base.metadata.
+create_all` (init_db) — kein Verhaltenswechsel fuer den bestehenden,
+sehr gut getesteten Pfad.
+
+Der Rest dieses Dokuments (Setup-Schritte, Per-Sprint-Migrations-
+Workflow, SQLite-Batch-Pattern) bleibt als Referenz gueltig -- die
+tatsaechliche env.py/Baseline-Migration im Repo (`5eyes-backend/alembic/`)
+ist die kanonische, ausfuehrbare Version der hier skizzierten Beispiele.
 
 ---
 
@@ -121,21 +129,32 @@ def upgrade():
 Pflicht-Pattern in jeder SQLite-Migration. Postgres (siehe #42)
 braucht das nicht.
 
-## Bewusst NICHT in Scope (U-41)
+## Umgesetzt seit Roadmap #90 (2026-08-07)
 
-- alembic als Dependency in requirements.txt
-- Auto-Migration beim App-Startup (Risiko: Production-Schema-
-  Aenderung ohne Backup)
-- Backup-vor-Migration-Hook (separater Sprint)
-- Rollback-Tests (per-Sprint)
-- Postgres-spezifische Migrations (siehe #42)
+- ✅ alembic als Dependency in requirements.txt (nur fuer den Postgres-Pfad
+  relevant -- SQLite importiert das Modul nie, siehe
+  `database.py::_create_or_migrate_schema`).
+- ✅ Auto-Migration beim App-Startup -- ABER nur fuer Postgres, und nur
+  gegen die eingecheckte, review-te Baseline-Revision. Fuer eine FRISCHE
+  Postgres-DB (keine bestehenden Daten) ist "ohne Backup" kein Risiko, weil
+  nichts zu verlieren ist. Fuer kuenftige Migrationen auf einer Postgres-DB
+  MIT echten Kundendaten bleibt das Restrisiko unten bewusst offen.
+
+## Bewusst NICHT in Scope (weiterhin, nach Roadmap #90)
+
+- Backup-vor-Migration-Hook (separater Sprint) -- vor der ERSTEN echten
+  Schema-Aenderung auf einer produktiven Postgres-DB mit Kundendaten
+  einplanen (siehe `docs/deploy/disaster-recovery-plan.md`).
+- Rollback-Tests als CI-Pflichtschritt (per-Sprint; die Baseline selbst hat
+  einen Downgrade-Test, siehe test_alembic_baseline_migration.py).
+- CI-Migration-Lint (`alembic check`).
 
 ## Folge-Sprints
 
-- **erste echte Migration** sobald ein Sprint Schema aendert
-- **Backup-vor-Migration-Hook** (`scripts/migrate.py`)
-- **CI-Migration-Lint** (`alembic check`)
-- **#42 Postgres**: alembic ist Voraussetzung
+- **erste echte Migration** sobald ein Sprint das Postgres-Schema aendert
+  (Anleitung: `docs/deploy/postgres-migrations.md`).
+- **Backup-vor-Migration-Hook** (`scripts/migrate.py`).
+- **CI-Migration-Lint** (`alembic check`).
 
 ## Weiterfuehrendes
 
