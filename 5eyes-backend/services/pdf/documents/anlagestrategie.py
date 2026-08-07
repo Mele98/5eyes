@@ -22,6 +22,11 @@ from services.pdf.components.header import make_wealtharchitekten_header
 from services.pdf.components.produkte import make_produkte_section
 from services.pdf.components.risiko_metriken import make_risiko_metriken_section
 from services.pdf.components.risikoprofil_box import make_risikoprofil_box
+from services.pdf.components.sollist_vergleich import (
+    make_sollist_goal_comparison_table,
+    make_sollist_kennzahlen_table,
+    make_sollist_section_title,
+)
 from services.pdf.components.saa_bar_table import make_saa_bar_table
 from services.pdf.components.saa_donut import (
     make_saa_donut_with_legend,
@@ -552,12 +557,44 @@ def _build_anlagestrategie_flowables_template_order(
         ))
     else:
         empty_section("Risikoindikatoren", "Noch keine Monte-Carlo-Simulation gespeichert.")
+
+    # Roadmap #57/#58 (Standpunkt 2026-08-07): SOLL/IST-Vergleich direkt nach
+    # den SOLL-Risiko-Metriken -- dieselbe Sektion, die der Berater im
+    # Bildschirm-Popup als Kennzahlen-Tabelle sieht (Roadmap #35/#37). Werte
+    # kommen aus demselben engine_payload["monte_carlo"], das oben schon fuer
+    # die SOLL-Metriken geladen wird (siehe routers/pdf_reports.py).
+    sollist_kennzahlen = make_sollist_kennzahlen_table(
+        target_median_end_rappen=data.target_median_end_rappen,
+        target_p90_end_rappen=data.target_p90_end_rappen,
+        target_p10_end_rappen=data.target_p10_end_rappen,
+        current_median_end_rappen=data.current_median_end_rappen,
+        current_p90_end_rappen=data.current_p90_end_rappen,
+        current_p10_end_rappen=data.current_p10_end_rappen,
+        target_cagr_bps=data.median_cagr_bps,
+        current_cagr_bps=data.current_annualized_return_p50_bps,
+        target_volatility_1y_bps=data.target_volatility_1y_bps,
+        current_volatility_1y_bps=data.current_volatility_1y_bps,
+        risk_free_bps=data.risk_free_bps,
+        currency=ctx.base_currency,
+    )
+    if sollist_kennzahlen:
+        flowables.append(Spacer(1, 6 * mm))
+        flowables.append(make_sollist_section_title())
+        flowables.extend(sollist_kennzahlen)
+
     flowables.append(Spacer(1, 4 * mm))
     if data.goal_analysis:
         flowables.extend(make_ziele_section(
             data.goal_analysis,
             base_currency=ctx.base_currency,
         ))
+        sollist_goals = make_sollist_goal_comparison_table(
+            data.goal_analysis, data.current_goal_analysis,
+        )
+        if sollist_goals:
+            flowables.append(Spacer(1, 6 * mm))
+            flowables.append(make_sollist_section_title())
+            flowables.extend(sollist_goals)
     else:
         empty_section("Zielerreichung", "Noch keine Zielerreichungsanalyse gespeichert.")
     flowables.extend(_make_strategy_reasoning_section(data, styles))

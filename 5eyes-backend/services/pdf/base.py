@@ -162,6 +162,47 @@ class AnlagestrategieData:
     hardness. Leer wenn keine quantifizierbaren Goals oder Stage 3 nicht
     aktiv (house_matrix-Modus ohne Solver-Lauf)."""
 
+    # ---- Roadmap #57/#58 (Standpunkt 2026-08-07): SOLL/IST-Vergleich +
+    # Risiko-Kennzahlen ins PDF. Im Frontend (Roadmap #35-38) laengst da,
+    # im gedruckten Beratungsprotokoll bisher nicht -- alle Werte kommen aus
+    # demselben engine_payload["monte_carlo"], das die PDF-Erzeugung ohnehin
+    # schon fuer die SOLL-Risiko-Metriken-Sektion laedt (kein zweiter,
+    # teurer Engine-Lauf noetig).
+
+    current_goal_analysis: list = field(default_factory=list)
+    """IST-Pendant zu goal_analysis -- gleiche Struktur (u.a. goal_id, label,
+    median_achievement_pct, pessimistic_shortfall_rappen), aber gegen die
+    heutige IST-Allokation simuliert statt gegen die SOLL-Strategie."""
+
+    target_median_end_rappen: int | None = None
+    target_p90_end_rappen: int | None = None
+    target_p10_end_rappen: int | None = None
+    """Endwerte der SOLL-Monte-Carlo-Pfade (target_p50/p90/p10_series_rappen,
+    letztes Jahr) INKLUSIVE der externen Reserve, die die Optimizer-Simulation
+    aus dem investierten Kapital herausrechnet -- Backend rechnet sie fuer die
+    Anzeige wieder dazu (identisch zur Frontend-Logik in aaShowProjection())."""
+
+    current_median_end_rappen: int | None = None
+    current_p90_end_rappen: int | None = None
+    current_p10_end_rappen: int | None = None
+    """Endwerte der IST-Monte-Carlo-Pfade -- OHNE Reserve-Aufschlag (die
+    externe Reserve ist ein SOLL-Strategie-Konzept, nicht IST-Bestandsgroesse)."""
+
+    current_annualized_return_p50_bps: int | None = None
+    """IST-Pendant zu median_cagr_bps (oben, bereits bestehend -- das ist
+    target_annualized_return_p50_bps aus derselben Monte-Carlo-Quelle)."""
+
+    target_volatility_1y_bps: int | None = None
+    current_volatility_1y_bps: int | None = None
+    """1-Jahres-Volatilitaet aus der Monte-Carlo-Pfadsimulation (NICHT
+    identisch zu cma_expected_vol_bps oben, das die theoretische CMA-Vola
+    ist -- hier die tatsaechlich simulierte Pfad-Statistik, Basis fuer die
+    Sharpe-Ratio)."""
+
+    risk_free_bps: int = 80
+    """Sharpe-Ratio-Referenzsatz. Konvention identisch zum Frontend
+    (aaShowProjection() _RF_BPS=80 = liquidity_return_bps-Konvention)."""
+
 
 @dataclass(frozen=True)
 class VertragData:

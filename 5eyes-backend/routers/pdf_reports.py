@@ -681,17 +681,60 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
     max_dd_bps = None
     var_95_bps = None
     median_cagr_bps = None
+    # Roadmap #57/#58 (Standpunkt 2026-08-07): SOLL/IST-Vergleich + Risiko-
+    # Kennzahlen ins PDF -- dieselbe engine_payload["monte_carlo"], die oben
+    # schon fuer die SOLL-Metriken geladen wird, hat die current_*-Gegenstuecke
+    # bereits fertig berechnet (siehe _run_allocation_monte_carlo Return).
+    current_goal_analysis: list = []
+    target_median_end_rappen = None
+    target_p90_end_rappen = None
+    target_p10_end_rappen = None
+    current_median_end_rappen = None
+    current_p90_end_rappen = None
+    current_p10_end_rappen = None
+    current_cagr_bps = None
+    target_vol_1y_bps = None
+    current_vol_1y_bps = None
     if engine_payload is not None:
         mc = engine_payload.get("monte_carlo") or {}
         try:
             max_dd_bps = int(mc.get("target_max_drawdown_p50_bps", 0) or 0) or None
             var_95_bps = int(mc.get("target_var_95_1y_bps", 0) or 0) or None
             median_cagr_bps = int(mc.get("target_annualized_return_p50_bps", 0) or 0) or None
+            current_cagr_bps = int(mc.get("current_annualized_return_p50_bps", 0) or 0) or None
+            target_vol_1y_bps = int(mc.get("target_volatility_1y_bps", 0) or 0) or None
+            current_vol_1y_bps = int(mc.get("current_volatility_1y_bps", 0) or 0) or None
+
+            # Die SOLL-Endwerte netten die externe Reserve aus dem investierten
+            # Kapital heraus (Optimizer-Konvention) -- fuer eine mit dem
+            # Frontend konsistente Anzeige wieder dazu addieren (siehe
+            # aaShowProjection() in 5eyes_v2.html). IST hat dieses Konzept
+            # nicht (keine SOLL-Strategie-Reserve-Ausklammerung).
+            reserve_rappen = int(engine_payload.get("external_reserve_rappen", 0) or 0)
+
+            def _last(series_key: str, add_reserve: bool = False) -> int | None:
+                series = mc.get(series_key)
+                if not isinstance(series, list) or not series:
+                    return None
+                value = int(series[-1] or 0)
+                if add_reserve and value:
+                    value += reserve_rappen
+                return value
+
+            target_median_end_rappen = _last("target_p50_series_rappen", add_reserve=True)
+            target_p90_end_rappen = _last("target_p90_series_rappen", add_reserve=True)
+            target_p10_end_rappen = _last("target_p10_series_rappen", add_reserve=True)
+            current_median_end_rappen = _last("current_p50_series_rappen")
+            current_p90_end_rappen = _last("current_p90_series_rappen")
+            current_p10_end_rappen = _last("current_p10_series_rappen")
         except (TypeError, ValueError) as exc:
             logger.warning(
                 "PDF MC-metrics parse failed for mandate %s: %s",
                 getattr(mandate, "id", "?"), exc,
             )
+        raw_current_goal_analysis = engine_payload.get("current_goal_analysis")
+        if isinstance(raw_current_goal_analysis, list):
+            current_goal_analysis = [item for item in raw_current_goal_analysis if isinstance(item, dict)]
 
     horizon = int(getattr(mandate, "investment_horizon_years", 10) or 10)
 
@@ -750,6 +793,16 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
         allocation_preferences=allocation_preferences,
         limiting_factor=limiting_factor,
         goal_achievability=goal_achievability,
+        current_goal_analysis=current_goal_analysis,
+        target_median_end_rappen=target_median_end_rappen,
+        target_p90_end_rappen=target_p90_end_rappen,
+        target_p10_end_rappen=target_p10_end_rappen,
+        current_median_end_rappen=current_median_end_rappen,
+        current_p90_end_rappen=current_p90_end_rappen,
+        current_p10_end_rappen=current_p10_end_rappen,
+        current_annualized_return_p50_bps=current_cagr_bps,
+        target_volatility_1y_bps=target_vol_1y_bps,
+        current_volatility_1y_bps=current_vol_1y_bps,
     )
 
 
