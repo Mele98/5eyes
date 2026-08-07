@@ -137,9 +137,21 @@ def compute_brinson_attribution(
     )
 
     buckets_out: list[BucketAttribution] = []
-    total_alloc = 0
-    total_select = 0
-    total_inter = 0
+    # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): die Totals wurden bisher aus den
+    # bereits PRO BUCKET floor-dividierten (// 10000) Effekten aufsummiert.
+    # Da jede Bucket-Division bis zu 9999/10000 bps verwirft (und Pythons
+    # Floor-Division bei negativen Zwischenergebnissen zusaetzlich staerker
+    # nach unten rundet als eine kaufmaennische Rundung), stimmte die
+    # dokumentierte Identitaet "Total Excess = Allocation + Selection +
+    # Interaction" nicht mehr exakt -- verifiziert mit einem 3-Bucket-
+    # Beispiel: total_excess=23 vs. alloc+select+inter=20 (3bps Differenz).
+    # Fix: die EXAKTEN (nicht dividierten) Zaehler ueber alle Buckets
+    # aufsummieren und erst einmal am Ende durch 10000 teilen -- identisches
+    # Prinzip wie in _weighted_total_bps(). Die pro-Bucket-Anzeige-Werte
+    # bleiben einzeln gerundet (fuer die UI-Tabelle), nur die Totals sind
+    # jetzt exakt konsistent zur Total-Excess-Berechnung.
+    alloc_numerator_total = 0
+    select_numerator_total = 0
 
     for key in bucket_keys:
         w_p = int(portfolio_weights_bps.get(key, 0) or 0)
@@ -148,9 +160,12 @@ def compute_brinson_attribution(
         r_b = int(bench_returns.get(key, 0) or 0)
 
         # Brinson-Formeln, jeweils /10000 da Multiplikation zweier bps-Werte
-        alloc = (w_p - w_b) * r_b // 10000
-        select = w_b * (r_p - r_b) // 10000
-        inter = (w_p - w_b) * (r_p - r_b) // 10000
+        alloc_numerator = (w_p - w_b) * r_b
+        select_numerator = w_b * (r_p - r_b)
+        inter_numerator = (w_p - w_b) * (r_p - r_b)
+        alloc = alloc_numerator // 10000
+        select = select_numerator // 10000
+        inter = inter_numerator // 10000
 
         buckets_out.append(BucketAttribution(
             bucket=key,
@@ -162,13 +177,24 @@ def compute_brinson_attribution(
             selection_effect_bps=int(select),
             interaction_effect_bps=int(inter),
         ))
-        total_alloc += int(alloc)
-        total_select += int(select)
-        total_inter += int(inter)
+        alloc_numerator_total += alloc_numerator
+        select_numerator_total += select_numerator
 
     total_p = _weighted_total_bps(portfolio_weights_bps, portfolio_returns_bps)
     total_b = _weighted_total_bps(benchmark_weights_bps, bench_returns)
     total_excess = total_p - total_b
+
+    # Bugfix 2026-08-07, Fortsetzung: alloc/select unabhaengig runden, aber
+    # total_inter als RESIDUUM aus total_excess ableiten statt selbst zu
+    # runden -- drei unabhaengig geflooreete Kategorie-Summen (alloc/select/
+    # inter) summieren sich im Allgemeinen NICHT exakt zur einmal geflooreten
+    # Kombi-Summe (verifiziert: 2bps Differenz bei w_p-w_b=-7, r_p-r_b=+5).
+    # Interaction ist laut Docstring ohnehin der "Restterm, oft klein" --
+    # als Residuum garantiert die Identitaet "Total Excess = Allocation +
+    # Selection + Interaction" IMMER exakt, statt nur ungefaehr.
+    total_alloc = alloc_numerator_total // 10000
+    total_select = select_numerator_total // 10000
+    total_inter = total_excess - total_alloc - total_select
 
     return AttributionResult(
         buckets=tuple(buckets_out),

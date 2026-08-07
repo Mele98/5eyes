@@ -249,3 +249,71 @@ def test_bucket_attribution_is_frozen():
     )
     with pytest.raises(Exception):
         b.bucket = "bonds"  # type: ignore[misc]
+
+
+# ---------------------------------------------------------------------------
+# Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Totals muessen EXAKT mit
+# "Total Excess = Allocation + Selection + Interaction" uebereinstimmen --
+# vorher summierten sich bereits PRO BUCKET floor-dividierte Effekte auf, was
+# bei mehreren Buckets mit kleinen Resten zu einer unbegrenzt wachsenden
+# Diskrepanz fuehrte (verifiziert: 3bps bei einem einfachen 3-Bucket-
+# Beispiel). Fix: total_inter wird als RESIDUUM aus total_excess -
+# total_alloc - total_select abgeleitet, nicht selbst gerundet -- dadurch
+# ist component_sum == total_excess eine Identitaet der Integer-Arithmetik,
+# nicht nur eine empirisch beobachtete Naeherung. Erste Fix-Iteration (alle
+# drei Komponenten unabhaengig aus akkumulierten Zaehlern gerundet) hielt das
+# NICHT ein -- ein Sweep-Test (unten) fand dabei noch 2bps Differenz.
+# ---------------------------------------------------------------------------
+
+def test_totals_reconcile_with_total_excess_within_one_bp():
+    portfolio_weights = {"equities": 3334, "bonds": 3333, "real_estate": 3333}
+    benchmark_weights = {"equities": 3333, "bonds": 3334, "real_estate": 3333}
+    portfolio_returns = {"equities": 550, "bonds": 210, "real_estate": 310}
+    benchmark_returns = {"equities": 500, "bonds": 200, "real_estate": 300}
+
+    result = compute_brinson_attribution(
+        portfolio_weights_bps=portfolio_weights,
+        benchmark_weights_bps=benchmark_weights,
+        portfolio_returns_bps=portfolio_returns,
+        benchmark_returns_bps=benchmark_returns,
+    )
+    component_sum = (
+        result.total_allocation_effect_bps
+        + result.total_selection_effect_bps
+        + result.total_interaction_effect_bps
+    )
+    assert result.total_excess_return_bps == component_sum
+
+
+def test_totals_reconcile_across_many_random_bucket_combinations():
+    """Property-artiger Sweep (keine hypothesis-Abhaengigkeit): viele
+    Kombinationen kleiner, teils negativer Gewichts-/Rendite-Differenzen
+    muessen die Diskrepanz IMMER exakt auf 0 halten (vorher: unbegrenzt
+    wachsend mit der Anzahl Buckets; erste Fix-Iteration liess noch bis zu
+    2bp durch)."""
+    import itertools
+
+    weight_deltas = [-7, -3, -1, 0, 1, 3, 7]
+    return_deltas = [-11, -5, 0, 5, 11]
+    worst_mismatch = 0
+    for wd, rd in itertools.product(weight_deltas, return_deltas):
+        portfolio_weights = {"equities": 4000 + wd, "bonds": 3000 - wd, "real_estate": 2000, "alternatives": 600, "liquidity": 400}
+        benchmark_weights = {"equities": 4000, "bonds": 3000, "real_estate": 2000, "alternatives": 600, "liquidity": 400}
+        portfolio_returns = {"equities": 500 + rd, "bonds": 150 - rd, "real_estate": 250, "alternatives": 300, "liquidity": 50}
+        benchmark_returns = {"equities": 500, "bonds": 150, "real_estate": 250, "alternatives": 300, "liquidity": 50}
+
+        result = compute_brinson_attribution(
+            portfolio_weights_bps=portfolio_weights,
+            benchmark_weights_bps=benchmark_weights,
+            portfolio_returns_bps=portfolio_returns,
+            benchmark_returns_bps=benchmark_returns,
+        )
+        component_sum = (
+            result.total_allocation_effect_bps
+            + result.total_selection_effect_bps
+            + result.total_interaction_effect_bps
+        )
+        mismatch = abs(result.total_excess_return_bps - component_sum)
+        worst_mismatch = max(worst_mismatch, mismatch)
+
+    assert worst_mismatch == 0, f"Rundungs-Diskrepanz gefunden: {worst_mismatch}bp"
