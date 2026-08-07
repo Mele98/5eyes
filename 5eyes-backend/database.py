@@ -639,6 +639,12 @@ def run_advisory_log_migration(target_engine: Engine = engine) -> None:
             conn.execute(text(
                 "ALTER TABLE advisory_log ADD COLUMN status TEXT NOT NULL DEFAULT 'Empfohlen'"
             ))
+        # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Kosten-Offenlegungs-Snapshot,
+        # siehe models/review.py::AdvisoryLog.cost_disclosure_snapshot_json.
+        if "cost_disclosure_snapshot_json" not in existing:
+            conn.execute(text(
+                "ALTER TABLE advisory_log ADD COLUMN cost_disclosure_snapshot_json TEXT"
+            ))
         conn.commit()
 
 
@@ -700,7 +706,14 @@ def ensure_audit_log_actions(target_engine: Engine = engine) -> None:
         has_password_reset = 'PASSWORD_RESET' in ddl_text
         has_integrity_hash = 'INTEGRITY_HASH' in ddl_text
         has_ip_address = 'IP_ADDRESS' in ddl_text
-        if has_password_reset and has_integrity_hash and has_ip_address:
+        # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Marker fuer die erweiterte
+        # action-CHECK-Liste (siehe 5eyes_schema_v4.0_FINAL.sql) -- ohne
+        # diesen 4. Marker wuerden bereits migrierte Installationen (die
+        # anderen 3 Marker bereits erfuellt) NIE die erweiterte Liste
+        # erhalten und weiterhin bei jedem Admin-Endpunkt mit einem der 26
+        # fehlenden action-Werte crashen.
+        has_expanded_actions = 'UPSERT' in ddl_text
+        if has_password_reset and has_integrity_hash and has_ip_address and has_expanded_actions:
             return
 
         conn.execute(text('ALTER TABLE audit_log RENAME TO audit_log__old'))
@@ -711,7 +724,16 @@ def ensure_audit_log_actions(target_engine: Engine = engine) -> None:
                 user_name TEXT NOT NULL,
                 table_name TEXT NOT NULL,
                 record_id TEXT NOT NULL,
-                action TEXT NOT NULL CHECK(action IN ('CREATE','UPDATE','DELETE','LOGIN','EXPORT','PASSWORD_RESET')),
+                action TEXT NOT NULL CHECK(action IN (
+                    'CREATE','UPDATE','DELETE','LOGIN','EXPORT','PASSWORD_RESET',
+                    '2FA_DISABLE','2FA_ENABLE','2FA_RECOVERY_REGEN','2FA_RECOVERY_USED',
+                    'ACTIVATE','APPROVE','BACKFILL','BACKUP','CLONE','DB_OPTIMIZE',
+                    'FOUNDATION_EXAMPLE','FOUNDATION_PURGE','INVITE','INVITE_ACCEPT',
+                    'INVITE_RESEND','INVITE_REVOKE','MARKET_DATA_PURGE',
+                    'MARKET_DATA_REFRESH','OPTIMIZER_MODE_CHANGE','PASSWORD_CHANGE',
+                    'PASSWORD_RESET_CONFIRM','PASSWORD_RESET_REQUEST','REPLACE',
+                    'REPLACE_ALL','SENSITIVITY','SUPPORT_BUNDLE','UPSERT'
+                )),
                 field_name TEXT,
                 old_value TEXT,
                 new_value TEXT,

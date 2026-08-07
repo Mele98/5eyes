@@ -1,11 +1,12 @@
 from datetime import datetime, timezone
 from uuid import uuid4
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from database import get_db
 from services.auth import get_current_user, get_mandate_for_user_or_404, require_advisor
 from services.audit import log
+from routers.auth import _extract_client_ip
 from models.snapshots import StrategySnapshot, AssetClassAnnualReturn
 from models.mandates import Mandate
 from schemas.snapshots import StrategySnapshotCreate, StrategySnapshotResponse, DriftResult
@@ -89,6 +90,7 @@ def _compute_cumulative(weights: dict, returns_by_year: dict, years: list) -> li
 def create_snapshot(
     mandate_id: str,
     body: StrategySnapshotCreate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user=Depends(require_advisor),
 ):
@@ -131,6 +133,7 @@ def create_snapshot(
         record_id=snap.id,
         action="CREATE",
         mandate_id=mandate_id,
+        ip_address=_extract_client_ip(request),
     )
     db.commit()
     db.refresh(snap)

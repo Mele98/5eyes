@@ -299,6 +299,65 @@ def lookup_symbol_for_provider(profile: dict[str, Any] | None, provider_name: st
     return provider_lookup_symbol(raw_symbol or raw_lookup, exchange_code, provider_name) or raw_lookup
 
 
+# Bugfix 2026-08-07 (CEO/CFO/CIO-Audit, MD-01): price_updater.py uebernahm den
+# vom Provider tatsaechlich gemeldeten Kurs immer unter product.currency
+# (Stammdaten), OHNE jemals gegen die Boerse zu pruefen, an der das Produkt
+# laut exchange_code notiert ist -- bei einem Stammdaten-Tippfehler (z.B.
+# "CHF" fuer einen an der XETRA (DE) notierten Titel) waere der Kurs silent
+# falsch bewertet/etikettiert. Sicherer Fix OHNE zusaetzlichen Netzwerk-Call
+# (kein Rate-Limit-Risiko fuer den Batch-Refresh-Job): rein lokaler Abgleich
+# exchange_code -> erwartete Waehrung, als Datenqualitaets-Warnung im
+# read-only Admin-Status-Endpoint (_collect_product_market_data_status) --
+# NICHT in der Live-Preis-Pipeline selbst, um deren Verhalten unveraendert
+# zu lassen. Nur fuer lookup_mode="direct" mit aufgeloestem exchange_code
+# sinnvoll -- bei "proxy"-Lookups (siehe DEFAULT_PRODUCT_MARKET_CATALOG) ist
+# der Kurs bewusst von einem andersartigen Stellvertreter-Wertpapier, ein
+# Waehrungs-Abgleich dort waere irrefuehrend.
+EXCHANGE_CURRENCY_BY_CODE: dict[str, str] = {
+    "SW": "CHF", "VX": "CHF",
+    "TO": "CAD", "V": "CAD",
+    "L": "GBP",
+    "DE": "EUR", "F": "EUR", "PA": "EUR", "AS": "EUR", "BR": "EUR",
+    "MC": "EUR", "MI": "EUR", "IR": "EUR", "VI": "EUR", "HE": "EUR",
+    "ST": "SEK",
+    "OL": "NOK",
+    "CO": "DKK",
+    "HK": "HKD",
+    "T": "JPY",
+    "AX": "AUD",
+    "NZ": "NZD",
+}
+
+
+def expected_currency_for_exchange(exchange_code: Any) -> str | None:
+    normalized = normalize_exchange_code(exchange_code)
+    if not normalized:
+        return None
+    if normalized in US_EXCHANGE_CODES:
+        return "USD"
+    return EXCHANGE_CURRENCY_BY_CODE.get(normalized)
+
+
+def currency_mismatch_warning(product: Any) -> str | None:
+    """None wenn kein Mismatch (oder nicht pruefbar -- z.B. proxy/synthetic/
+    kein exchange_code). Sonst eine Berater-lesbare Warnung."""
+    profile = resolve_market_profile(product)
+    if str(profile.get("lookup_mode") or "") != "direct":
+        return None
+    exchange_code = profile.get("exchange_code")
+    expected = expected_currency_for_exchange(exchange_code)
+    if not expected:
+        return None
+    actual = str(profile.get("currency") or "").strip().upper()
+    if not actual or actual == expected:
+        return None
+    return (
+        f"Stammdaten-Waehrung '{actual}' passt nicht zur Boerse "
+        f"'{normalize_exchange_code(exchange_code)}' (dort ueblich: '{expected}'). "
+        "Bitte Produkt-Stammdaten pruefen."
+    )
+
+
 def provider_market_warning(provider_name: str, exchange_code: Any) -> str | None:
     provider = str(provider_name or "").strip().lower()
     normalized_exchange = normalize_exchange_code(exchange_code)

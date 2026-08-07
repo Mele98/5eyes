@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -37,6 +37,8 @@ from schemas.tenants import (
 )
 from services.audit import log
 from services.auth import require_admin, require_super_admin
+# Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Quell-IP fuer Tenant-Admin-Aktionen.
+from routers.auth import _extract_client_ip
 
 router = APIRouter(prefix="/tenants", tags=["Tenants"])
 
@@ -85,6 +87,7 @@ def get_my_tenant(
 @router.put("/me", response_model=TenantResponse)
 def update_my_tenant(
     body: TenantSelfServiceUpdate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
@@ -107,6 +110,7 @@ def update_my_tenant(
     log(
         db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="tenants", record_id=tenant.id, action="UPDATE",
+        ip_address=_extract_client_ip(request),
     )
     db.commit()
     db.refresh(tenant)
@@ -120,6 +124,7 @@ def update_my_tenant(
 )
 def create_tenant(
     body: TenantCreate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_super_admin),
 ):
@@ -161,6 +166,7 @@ def create_tenant(
         table_name="tenants",
         record_id=tenant.id,
         action="CREATE",
+        ip_address=_extract_client_ip(request),
     )
     try:
         db.commit()
@@ -217,6 +223,7 @@ def get_tenant(
 def update_tenant(
     tenant_id: str,
     body: TenantUpdate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_super_admin),
 ):
@@ -243,6 +250,7 @@ def update_tenant(
         table_name="tenants",
         record_id=tenant.id,
         action="UPDATE",
+        ip_address=_extract_client_ip(request),
     )
     db.commit()
     db.refresh(tenant)
@@ -253,6 +261,7 @@ def update_tenant(
 def assign_user_to_tenant(
     tenant_id: str,
     user_id: str,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_super_admin),
 ):
@@ -318,6 +327,7 @@ def assign_user_to_tenant(
         table_name="users",
         record_id=user.id,
         action="UPDATE",
+        ip_address=_extract_client_ip(request),
     )
     db.commit()
     return {

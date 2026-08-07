@@ -28,6 +28,17 @@ def _now() -> str:
     return datetime.datetime.now(datetime.UTC).isoformat().replace("+00:00", "Z")
 
 
+class _FakeClient:
+    def __init__(self, host="127.0.0.1"):
+        self.host = host
+
+
+class _FakeRequest:
+    def __init__(self, host="127.0.0.1"):
+        self.headers = {}
+        self.client = _FakeClient(host)
+
+
 @pytest.fixture
 def session_factory(tmp_path):
     engine = create_engine(
@@ -66,7 +77,7 @@ def test_mandate_inherits_tenant_from_client(session_factory):
         db.commit()
         m = create_mandate(
             client_id="c-a", body=MandateCreate(mandate_number="M-001"),
-            db=db, current_user=adv,
+            request=_FakeRequest(), db=db, current_user=adv,
         )
         assert m.tenant_id == "firm-A"
 
@@ -79,6 +90,6 @@ def test_mandate_falls_back_to_user_tenant(session_factory):
         db.commit()
         m = create_mandate(
             client_id="c-b", body=MandateCreate(mandate_number="M-002"),
-            db=db, current_user=adv,
+            request=_FakeRequest(), db=db, current_user=adv,
         )
         assert m.tenant_id == "firm-B"

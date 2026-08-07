@@ -45,13 +45,16 @@ from schemas.review import (
 from price_updater import summarize_price_quality
 from services.auth import get_accessible_client_ids, get_accessible_mandate_ids, get_client_for_user_or_404, get_current_user, get_mandate_for_user_or_404, has_global_client_access, require_advisor, require_admin, _resolve_tenant_id_for_user
 from services.audit import log
+# Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Quell-IP fuer Review-/Suitability-/
+# Empfehlungs-Aenderungen im Audit-Log.
+from routers.auth import _extract_client_ip
 from services.advisory_report_cache import invalidate_mandate as invalidate_advisory_cache
 from services.data_classification import enforce_data_classification
 from services.eodhd_client import preview_eodhd_reference
 from services.market_data.exceptions import RateLimitError
 from services.openfigi_client import preview_openfigi_mapping
 from services.portfolio_engine import build_recommendation_payload_from_run, generate_recommendation_run
-from services.product_market_data import resolve_market_profile
+from services.product_market_data import currency_mismatch_warning, resolve_market_profile
 from services.review_engine import _add_months, refresh_system_review_triggers
 from services.suitability_audit import audit_mandate_suitability
 
@@ -447,12 +450,24 @@ def _collect_product_market_data_status(db: Session, tenant_id: str | None = Non
     )
     openfigi_pending = []
     reference_pending = []
+    # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit, MD-01): Stammdaten-Waehrung vs.
+    # Boerse-des-Symbols abgleichen (rein lokal, kein Netzwerk-Call).
+    currency_mismatches = []
     openfigi_mapped_count = 0
     reference_synced_count = 0
     lookup_mode_override_count = 0
     symbol_count = 0
     isin_only_count = 0
     for product in products:
+        mismatch_warning = currency_mismatch_warning(product)
+        if mismatch_warning:
+            currency_mismatches.append({
+                "product_id": product.id,
+                "product_name": product.product_name,
+                "currency": product.currency,
+                "exchange_code": product.exchange_code,
+                "warning": mismatch_warning,
+            })
         has_symbol = not _is_blank(product.symbol)
         has_isin = not _is_blank(product.isin)
         if not _is_blank(product.lookup_mode_override):
@@ -502,9 +517,11 @@ def _collect_product_market_data_status(db: Session, tenant_id: str | None = Non
         "reference_synced_count": reference_synced_count,
         "openfigi_pending_count": len(openfigi_pending),
         "reference_pending_count": len(reference_pending),
+        "currency_mismatch_count": len(currency_mismatches),
         "samples": {
             "openfigi_pending": openfigi_pending[:8],
             "reference_pending": reference_pending[:8],
+            "currency_mismatches": currency_mismatches[:8],
         },
         "price_quality": summarize_price_quality(db),
     }
@@ -583,6 +600,7 @@ def list_triggers(
 def create_trigger(
     mandate_id: str,
     body: ReviewTriggerCreate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor)
 ):
@@ -604,7 +622,7 @@ def create_trigger(
     db.add(trigger)
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="review_triggers", record_id=trigger.id, action="CREATE",
-        mandate_id=mandate_id)
+        mandate_id=mandate_id, ip_address=_extract_client_ip(request))
     try:
         db.commit()
     except IntegrityError as exc:
@@ -634,6 +652,7 @@ def refresh_system_triggers(
 def resolve_trigger(
     mandate_id: str, trigger_id: str,
     body: ReviewTriggerResolve,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor)
 ):
@@ -651,7 +670,8 @@ def resolve_trigger(
         trigger.status = "Aktiv"
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="review_triggers", record_id=trigger_id, action="UPDATE",
-        field_name="status", new_value=trigger.status, mandate_id=mandate_id)
+        field_name="status", new_value=trigger.status, mandate_id=mandate_id,
+        ip_address=_extract_client_ip(request))
     db.commit()
     db.refresh(trigger)
     return trigger
@@ -712,6 +732,7 @@ def get_advisory_log_entry(
 def create_advisory_log_entry(
     mandate_id: str,
     body: AdvisoryLogCreate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor)
 ):
@@ -725,7 +746,7 @@ def create_advisory_log_entry(
     if body.recommendation_run_id:
         _get_recommendation_run_or_404(mandate_id, body.recommendation_run_id, db, current_user)
     entry = create_advisory_log(
-        db, mandate_id=mandate_id, advisor=current_user, payload=body,
+        db, mandate_id=mandate_id, advisor=current_user, payload=body, mandate=mandate,
     )
     db.flush()
     log(
@@ -738,6 +759,7 @@ def create_advisory_log_entry(
         mandate_id=mandate_id,
         client_id=mandate.client_id,
         new_value=entry.integrity_hash,
+        ip_address=_extract_client_ip(request),
     )
     try:
         db.commit()
@@ -773,6 +795,7 @@ _STATUS_TRANSITIONS = {
 )
 def create_advisory_log_from_report_generation(
     mandate_id: str,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor),
 ):
@@ -796,7 +819,7 @@ def create_advisory_log_from_report_generation(
     )
     payload = AdvisoryLogCreate(**payload_dict)
     entry = create_advisory_log(
-        db, mandate_id=mandate_id, advisor=current_user, payload=payload,
+        db, mandate_id=mandate_id, advisor=current_user, payload=payload, mandate=mandate,
     )
     db.flush()
     log(
@@ -810,6 +833,7 @@ def create_advisory_log_from_report_generation(
         new_value=entry.integrity_hash,
         mandate_id=mandate_id,
         client_id=mandate.client_id,
+        ip_address=_extract_client_ip(request),
     )
     db.commit()
     db.refresh(entry)
@@ -822,6 +846,7 @@ def update_advisory_log_entry(
     mandate_id: str,
     log_id: str,
     body: AdvisoryLogUpdate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor)
 ):
@@ -884,6 +909,7 @@ def update_advisory_log_entry(
         old_value=str(entry.version),
         new_value=str(new_entry.version),
         mandate_id=mandate_id,
+        ip_address=_extract_client_ip(request),
     )
     db.commit()
     db.refresh(new_entry)
@@ -909,6 +935,7 @@ def list_documents(
 def create_document(
     mandate_id: str,
     body: ContractDocumentCreate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor)
 ):
@@ -930,7 +957,7 @@ def create_document(
     db.add(doc)
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="contract_documents", record_id=doc.id, action="CREATE",
-        mandate_id=mandate_id)
+        mandate_id=mandate_id, ip_address=_extract_client_ip(request))
     db.commit()
     db.refresh(doc)
     return doc
@@ -949,7 +976,6 @@ def sign_document(
     # den bestehenden Checkbox-Flags das tatsaechliche Signatur-Artefakt
     # (Bild + Name + Zeitstempel + IP) fuer genau den Unterzeichner, der in
     # diesem Aufruf gesetzt ist -- siehe ContractDocumentSign-Docstring.
-    from routers.auth import _extract_client_ip
     _get_mandate_or_404(mandate_id, db, current_user)
     doc = _get_document_or_404(mandate_id, doc_id, db)
     now = _now()
@@ -977,7 +1003,8 @@ def sign_document(
     doc.updated_at = now
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="contract_documents", record_id=doc_id, action="UPDATE",
-        field_name="status", new_value=doc.status, mandate_id=mandate_id)
+        field_name="status", new_value=doc.status, mandate_id=mandate_id,
+        ip_address=signer_ip)
     db.commit()
     db.refresh(doc)
     return doc
@@ -1006,6 +1033,7 @@ def list_conflicts(
 def create_conflict(
     mandate_id: str,
     body: ConflictDisclosureCreate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor)
 ):
@@ -1032,7 +1060,8 @@ def create_conflict(
     db.add(conflict)
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="conflict_of_interest_disclosures", record_id=conflict.id,
-        action="CREATE", mandate_id=mandate_id, client_id=mandate.client_id)
+        action="CREATE", mandate_id=mandate_id, client_id=mandate.client_id,
+        ip_address=_extract_client_ip(request))
     db.commit()
     db.refresh(conflict)
     return conflict
@@ -1968,6 +1997,7 @@ def list_recommendations(
 def create_recommendation_run(
     mandate_id: str,
     body: RecommendationRunCreate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor)
 ):
@@ -2053,7 +2083,8 @@ def create_recommendation_run(
     db.add(run)
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="recommendation_runs", record_id=run.id, action="CREATE",
-        mandate_id=mandate_id, client_id=mandate.client_id)
+        mandate_id=mandate_id, client_id=mandate.client_id,
+        ip_address=_extract_client_ip(request))
     db.commit()
     db.refresh(run)
     return run
@@ -2064,6 +2095,7 @@ def create_recommendation_run(
 def generate_recommendation_run_endpoint(
     mandate_id: str,
     body: RecommendationGenerateRequest,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor)
 ):
@@ -2105,7 +2137,8 @@ def generate_recommendation_run_endpoint(
     )
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="recommendation_runs", record_id=result["run"].id, action="CREATE",
-        mandate_id=mandate_id, client_id=mandate.client_id)
+        mandate_id=mandate_id, client_id=mandate.client_id,
+        ip_address=_extract_client_ip(request))
     db.commit()
     db.refresh(result["run"])
     return result
@@ -2188,6 +2221,7 @@ def get_recommendation_payload_by_id(
                              response_model=RecommendationRunResponse)
 def finalize_recommendation(
     mandate_id: str, run_id: str,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor)
 ):
@@ -2217,7 +2251,7 @@ def finalize_recommendation(
         table_name="recommendation_runs", record_id=run_id, action="UPDATE",
         field_name="result_status",
         new_value=("Final; Warnungen: " + " | ".join(warnings)) if warnings else "Final",
-        mandate_id=mandate_id)
+        mandate_id=mandate_id, ip_address=_extract_client_ip(request))
     db.commit()
     db.refresh(run)
     return run

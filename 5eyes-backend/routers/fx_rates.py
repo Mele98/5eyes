@@ -7,7 +7,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -15,6 +15,9 @@ from database import get_db, new_uuid
 from models.fx_rate import FXRate
 from models.users import User
 from services.audit import log
+# Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Quell-IP fuer FX-Rate-Aenderungen
+# (wirken global auf ALLE Tenants).
+from routers.auth import _extract_client_ip
 from services.auth import get_current_user, require_advisor
 from services.currency.fx_rates import DEFAULT_FX_RATES, FXRateSource
 
@@ -85,6 +88,7 @@ def list_current_fx_rates(
 @router.put("/fx-rates", response_model=list[FXRateResponse])
 def upsert_fx_rates(
     payload: FXRatesPayload,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor),
 ):
@@ -161,6 +165,7 @@ def upsert_fx_rates(
             table_name="fx_rates", record_id=row.id, action="UPSERT",
             field_name=ccy, old_value=old_rate_display,
             new_value=f"{float(entry.rate):.4f}",
+            ip_address=_extract_client_ip(request),
         )
 
     db.commit()

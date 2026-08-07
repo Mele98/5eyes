@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from datetime import date, datetime, timezone
 from typing import Optional
@@ -25,6 +25,9 @@ from schemas.allocation import (
 from schemas.review import ReportNotesResponse, ReportNotesUpdate
 from services.auth import get_current_user, get_mandate_for_user_or_404, require_advisor, require_admin
 from services.audit import log
+# Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Quell-IP fuer CMA-/Policy-/Allokations-
+# Aenderungen im Audit-Log.
+from routers.auth import _extract_client_ip
 from services.jurisdiction.exceptions import JurisdictionReferenceDataMissingError
 from services.jurisdiction.resolve import resolve_cma_for_jurisdiction
 from services.portfolio_engine import (
@@ -199,6 +202,7 @@ def get_current_allocation_payload(
 def create_target_allocation(
     mandate_id: str,
     body: TargetAllocationCreate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor)
 ):
@@ -271,7 +275,8 @@ def create_target_allocation(
     db.add(ta)
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="target_allocations", record_id=ta.id, action="CREATE",
-        mandate_id=mandate_id, client_id=mandate.client_id)
+        mandate_id=mandate_id, client_id=mandate.client_id,
+        ip_address=_extract_client_ip(request))
     db.commit()
     db.refresh(ta)
     return ta
@@ -362,6 +367,7 @@ def get_current_cma(
             response_model=CapitalMarketAssumptionResponse)
 def update_cma(
     body: CapitalMarketAssumptionCreate,
+    request: Request,
     # 2026-07-31 (WP3): siehe Kommentar in get_current_cma() -- bewusst PLAIN
     # defaults statt fastapi.Query(...) fuer Direktaufruf-Kompatibilitaet.
     jurisdiction: str = "CH",
@@ -429,7 +435,8 @@ def update_cma(
         cma.tenant_id = tenant_id or None
     db.add(cma)
     log(db, user_id=current_user.id, user_name=current_user.full_name,
-        table_name="capital_market_assumptions", record_id=cma.id, action="CREATE")
+        table_name="capital_market_assumptions", record_id=cma.id, action="CREATE",
+        ip_address=_extract_client_ip(request))
     db.commit()
     db.refresh(cma)
     return cma
@@ -440,6 +447,7 @@ def update_cma(
 def generate_target_allocation_endpoint(
     mandate_id: str,
     body: TargetAllocationGenerateRequest,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor)
 ):
@@ -474,7 +482,8 @@ def generate_target_allocation_endpoint(
     refresh_system_review_triggers(db, mandate, current_user.id)
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="target_allocations", record_id=result["target_allocation"].id, action="CREATE",
-        mandate_id=mandate_id, client_id=mandate.client_id)
+        mandate_id=mandate_id, client_id=mandate.client_id,
+        ip_address=_extract_client_ip(request))
     db.commit()
     db.refresh(result["target_allocation"])
     return result
@@ -485,6 +494,7 @@ def generate_target_allocation_endpoint(
 def goal_target_sensitivity(
     mandate_id: str,
     body: AllocationSensitivityRequest,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor),
 ):
@@ -520,7 +530,8 @@ def goal_target_sensitivity(
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="goals", record_id=body.goal_id, action="SENSITIVITY",
         new_value=str(body.target_delta_pct),
-        mandate_id=mandate_id, client_id=mandate.client_id)
+        mandate_id=mandate_id, client_id=mandate.client_id,
+        ip_address=_extract_client_ip(request))
     db.commit()
     return result
 
@@ -639,6 +650,7 @@ def get_report_notes(
 def put_report_notes(
     mandate_id: str,
     body: ReportNotesUpdate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor),
 ):
@@ -738,9 +750,10 @@ def put_report_notes(
         user_name=current_user.full_name,
         table_name="mandate_report_notes",
         record_id=notes.id,
-        action="update",
+        action="UPDATE",
         mandate_id=mandate.id,
         client_id=mandate.client_id,
+        ip_address=_extract_client_ip(request),
     )
     db.commit()
     db.refresh(notes)
@@ -988,6 +1001,7 @@ def get_optimizer_policy_detail(
 @router.post("/admin/optimizer-policies", response_model=OptimizerPolicyDetailResponse, status_code=201)
 def create_optimizer_policy(
     body: OptimizerPolicyCreate,
+    request: Request,
     activate: bool = False,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
@@ -1034,7 +1048,7 @@ def create_optimizer_policy(
 
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="optimizer_policies", record_id=policy.id, action="CREATE",
-        new_value=body.policy_name)
+        new_value=body.policy_name, ip_address=_extract_client_ip(request))
     db.commit()
     db.refresh(policy)
     return get_optimizer_policy_detail(policy.id, db, current_user)
@@ -1044,6 +1058,7 @@ def create_optimizer_policy(
 def update_optimizer_policy(
     policy_id: str,
     body: OptimizerPolicyUpdate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
@@ -1068,7 +1083,8 @@ def update_optimizer_policy(
     policy.updated_at = now
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="optimizer_policies", record_id=policy_id, action="UPDATE",
-        new_value=", ".join(f"{k}={v}" for k, v in payload.items()))
+        new_value=", ".join(f"{k}={v}" for k, v in payload.items()),
+        ip_address=_extract_client_ip(request))
     db.commit()
     db.refresh(policy)
     return policy
@@ -1079,6 +1095,7 @@ def update_optimizer_policy(
 def replace_house_matrix_rows(
     policy_id: str,
     body: HouseMatrixRowsReplace,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
@@ -1112,7 +1129,7 @@ def replace_house_matrix_rows(
     policy.updated_at = now
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="house_matrix", record_id=policy_id, action="REPLACE_ALL",
-        new_value=f"{len(body.rows)} rows")
+        new_value=f"{len(body.rows)} rows", ip_address=_extract_client_ip(request))
     db.commit()
     return get_optimizer_policy_detail(policy_id, db, current_user)
 
@@ -1121,6 +1138,7 @@ def replace_house_matrix_rows(
              response_model=OptimizerPolicyResponse)
 def activate_optimizer_policy(
     policy_id: str,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
@@ -1144,7 +1162,8 @@ def activate_optimizer_policy(
     policy.valid_to = None
     policy.updated_at = now
     log(db, user_id=current_user.id, user_name=current_user.full_name,
-        table_name="optimizer_policies", record_id=policy_id, action="ACTIVATE")
+        table_name="optimizer_policies", record_id=policy_id, action="ACTIVATE",
+        ip_address=_extract_client_ip(request))
     db.commit()
     db.refresh(policy)
     return policy
@@ -1154,6 +1173,7 @@ def activate_optimizer_policy(
              response_model=OptimizerPolicyDetailResponse, status_code=201)
 def clone_optimizer_policy(
     policy_id: str,
+    request: Request,
     new_name: str | None = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
@@ -1224,6 +1244,7 @@ def clone_optimizer_policy(
 
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="optimizer_policies", record_id=clone.id, action="CLONE",
-        old_value=source.id, new_value=clone.policy_name)
+        old_value=source.id, new_value=clone.policy_name,
+        ip_address=_extract_client_ip(request))
     db.commit()
     return get_optimizer_policy_detail(clone.id, db, current_user)

@@ -293,7 +293,10 @@ def test_put_writes_audit_log_entry(http_client):
     e = entries[0]
     assert e.user_id == advisor.id
     assert e.user_name == "Anna Beispiel"
-    assert e.action == "update"
+    # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): war "update" (Kleinschreibung) --
+    # verstiess gegen den CHECK(action IN ('CREATE','UPDATE',...)) Constraint
+    # im Rohschema, haette auf einer echten Bootstrap-DB gecrasht.
+    assert e.action == "UPDATE"
     assert e.mandate_id == mandate.id
 
 

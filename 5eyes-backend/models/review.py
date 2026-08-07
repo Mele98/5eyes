@@ -126,6 +126,19 @@ class AdvisoryLog(Base):
     # Wurden Ex-ante Kosten kommuniziert? (FIDLEG Pflicht)
     cost_disclosure_given = Column(Integer, nullable=False, default=0)
 
+    # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): cost_disclosure_given war bisher
+    # ein reines Selbst-Attest-Flag ohne Nachweis, WELCHE Zahlen dem Kunden
+    # tatsaechlich gezeigt wurden (FIDLEG Art. 25/26 Interessenkonflikt-/
+    # Kostenoffenlegung). Kompakter JSON-Snapshot der zum Zeitpunkt der
+    # Beratung via services.cost_disclosure.build_cost_disclosure()
+    # berechneten Kostenzahlen. Bewusst NICHT Teil von
+    # services.advisory_log_integrity.compute_integrity_hash() -- der
+    # Feld-Order dort ist per Docstring ein fester Hash-Vertrag, der ohne
+    # explizite Migrations-Strategie nicht erweitert werden darf (sonst
+    # gelten alle historischen Eintraege beim naechsten Read-Verify
+    # faelschlich als manipuliert).
+    cost_disclosure_snapshot_json = Column(String)
+
     # Offengelegte Interessenkonflikte (JSON-Array of conflict_of_interest_disclosures.id)
     conflict_disclosure_ids_json = Column(String)
 

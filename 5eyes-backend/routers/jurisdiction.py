@@ -30,7 +30,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 
 from database import get_db, new_uuid
@@ -47,6 +47,8 @@ from schemas.jurisdiction import (
 )
 from services.audit import log
 from services.auth import require_admin, require_advisor, require_portfolio_management
+# Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Quell-IP fuer Jurisdiktions-/CMA-Admin-Aktionen.
+from routers.auth import _extract_client_ip
 from services.jurisdiction.data_pipeline import (
     InsufficientYieldCurveDataError,
     NoYieldCurveSourceConfiguredError,
@@ -118,6 +120,7 @@ def get_jurisdiction(
 def update_jurisdiction(
     code: str,
     body: JurisdictionProfileUpdate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
@@ -128,7 +131,8 @@ def update_jurisdiction(
         setattr(profile, field_name, value)
     profile.updated_at = _now()
     log(db, user_id=current_user.id, user_name=current_user.full_name,
-        table_name="jurisdiction_profiles", record_id=profile.id, action="UPDATE")
+        table_name="jurisdiction_profiles", record_id=profile.id, action="UPDATE",
+        ip_address=_extract_client_ip(request))
     db.commit()
     db.refresh(profile)
     return profile
@@ -165,6 +169,7 @@ def list_home_bias_defaults(
 def create_home_bias_default(
     code: str,
     body: JurisdictionHomeBiasDefaultCreate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
@@ -196,7 +201,8 @@ def create_home_bias_default(
     )
     db.add(row)
     log(db, user_id=current_user.id, user_name=current_user.full_name,
-        table_name="jurisdiction_home_bias_defaults", record_id=row.id, action="CREATE")
+        table_name="jurisdiction_home_bias_defaults", record_id=row.id, action="CREATE",
+        ip_address=_extract_client_ip(request))
     db.commit()
     db.refresh(row)
     return row
@@ -210,6 +216,7 @@ def update_home_bias_default(
     code: str,
     row_id: str,
     body: JurisdictionHomeBiasDefaultUpdate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
@@ -220,7 +227,8 @@ def update_home_bias_default(
         setattr(row, field_name, value)
     row.updated_at = _now()
     log(db, user_id=current_user.id, user_name=current_user.full_name,
-        table_name="jurisdiction_home_bias_defaults", record_id=row.id, action="UPDATE")
+        table_name="jurisdiction_home_bias_defaults", record_id=row.id, action="UPDATE",
+        ip_address=_extract_client_ip(request))
     db.commit()
     db.refresh(row)
     return row
@@ -230,6 +238,7 @@ def update_home_bias_default(
 def delete_home_bias_default(
     code: str,
     row_id: str,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
@@ -237,7 +246,8 @@ def delete_home_bias_default(
     row = _get_home_bias_row_or_404(code, row_id, db)
     row.deleted_at = _now()
     log(db, user_id=current_user.id, user_name=current_user.full_name,
-        table_name="jurisdiction_home_bias_defaults", record_id=row.id, action="DELETE")
+        table_name="jurisdiction_home_bias_defaults", record_id=row.id, action="DELETE",
+        ip_address=_extract_client_ip(request))
     db.commit()
     return None
 
@@ -248,6 +258,7 @@ def delete_home_bias_default(
 @router.post("/{code}/cma/compute-candidate", response_model=CapitalMarketAssumptionResponse)
 def compute_cma_candidate(
     code: str,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_portfolio_management),
 ):
@@ -266,7 +277,8 @@ def compute_cma_candidate(
         raise HTTPException(status_code=400, detail=str(exc))
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="capital_market_assumptions", record_id=cma.id, action="CREATE",
-        new_value=f"data_pipeline candidate jurisdiction={code} status={cma.status}")
+        new_value=f"data_pipeline candidate jurisdiction={code} status={cma.status}",
+        ip_address=_extract_client_ip(request))
     db.commit()
     db.refresh(cma)
     return cma
@@ -299,6 +311,7 @@ def _current_cma_scope_query(db: Session, jurisdiction: str | None, tenant_id: s
 )
 def approve_capital_market_assumption(
     id: str,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_portfolio_management),
 ):
@@ -335,7 +348,8 @@ def approve_capital_market_assumption(
     cma.updated_at = _now()
 
     log(db, user_id=current_user.id, user_name=current_user.full_name,
-        table_name="capital_market_assumptions", record_id=cma.id, action="APPROVE")
+        table_name="capital_market_assumptions", record_id=cma.id, action="APPROVE",
+        ip_address=_extract_client_ip(request))
     db.commit()
     db.refresh(cma)
     return cma

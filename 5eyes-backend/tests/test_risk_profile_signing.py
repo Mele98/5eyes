@@ -45,6 +45,17 @@ def _now() -> str:
     return datetime.datetime.now(datetime.UTC).isoformat().replace("+00:00", "Z")
 
 
+class _FakeClient:
+    def __init__(self, host="127.0.0.1"):
+        self.host = host
+
+
+class _FakeRequest:
+    def __init__(self, host="127.0.0.1"):
+        self.headers = {}
+        self.client = _FakeClient(host)
+
+
 def _days_ago(days: int) -> str:
     return (datetime.datetime.now(datetime.UTC) - datetime.timedelta(days=days)).isoformat()
 
@@ -115,7 +126,8 @@ def test_advisor_sign_sets_three_fields(session_factory):
         db.commit()
 
         res = sign_risk_profile(
-            mandate_id="m1", body=RiskProfileSignRequest(note="Kunde hat unterschrieben"),
+            mandate_id="m1", request=_FakeRequest(),
+            body=RiskProfileSignRequest(note="Kunde hat unterschrieben"),
             db=db, current_user=adv,
         )
         assert res["risk_assessment_id"] == "ra1"
@@ -135,7 +147,7 @@ def test_advisor_sign_without_body_ref_is_none(session_factory):
                     _risk_assessment("ra1", "m1")])
         db.commit()
 
-        res = sign_risk_profile(mandate_id="m1", body=None, db=db, current_user=adv)
+        res = sign_risk_profile(mandate_id="m1", request=_FakeRequest(), body=None, db=db, current_user=adv)
         assert res["client_signed_method"] == "advisor_recorded"
         ra = db.query(RiskAssessment).filter(RiskAssessment.id == "ra1").one()
         assert ra.client_signed_ref is None
@@ -147,7 +159,7 @@ def test_advisor_sign_404_without_current_profile(session_factory):
         db.add_all([adv, _client("c1"), _mandate("m1", "c1")])  # kein RiskAssessment
         db.commit()
         with pytest.raises(HTTPException) as ei:
-            sign_risk_profile(mandate_id="m1", body=None, db=db, current_user=adv)
+            sign_risk_profile(mandate_id="m1", request=_FakeRequest(), body=None, db=db, current_user=adv)
         assert ei.value.status_code == 404
 
 
@@ -160,7 +172,7 @@ def test_advisor_sign_404_for_foreign_mandate(session_factory):
                     _mandate("m2", "c2"), _risk_assessment("ra2", "m2")])
         db.commit()
         with pytest.raises(HTTPException) as ei:
-            sign_risk_profile(mandate_id="m2", body=None, db=db, current_user=adv)
+            sign_risk_profile(mandate_id="m2", request=_FakeRequest(), body=None, db=db, current_user=adv)
         assert ei.value.status_code == 404
 
 
@@ -179,7 +191,7 @@ def test_portal_sign_own_mandate_sets_portal_method(session_factory):
         ])
         db.commit()
 
-        res = client_portal_sign_risk_profile(mandate_id="m1", db=db, current_user=cu)
+        res = client_portal_sign_risk_profile(mandate_id="m1", request=_FakeRequest(), db=db, current_user=cu)
         assert res["risk_assessment_id"] == "ra1"
         assert res["client_signed_method"] == "portal"
 
@@ -204,7 +216,7 @@ def test_portal_sign_foreign_mandate_blocked(session_factory):
         db.commit()
 
         with pytest.raises(HTTPException) as ei:
-            client_portal_sign_risk_profile(mandate_id="m2", db=db, current_user=cu)
+            client_portal_sign_risk_profile(mandate_id="m2", request=_FakeRequest(), db=db, current_user=cu)
         assert ei.value.status_code == 404
 
         foreign = db.query(RiskAssessment).filter(RiskAssessment.id == "ra2").one()
@@ -222,7 +234,7 @@ def test_portal_sign_404_without_current_profile(session_factory):
         ])
         db.commit()
         with pytest.raises(HTTPException) as ei:
-            client_portal_sign_risk_profile(mandate_id="m1", db=db, current_user=cu)
+            client_portal_sign_risk_profile(mandate_id="m1", request=_FakeRequest(), db=db, current_user=cu)
         assert ei.value.status_code == 404
 
 

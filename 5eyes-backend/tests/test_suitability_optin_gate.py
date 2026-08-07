@@ -139,6 +139,17 @@ def _seed_mandate(session_factory) -> tuple[str, str, str]:
     return advisor_id, cid, mid
 
 
+class _FakeClient:
+    def __init__(self, host="127.0.0.1"):
+        self.host = host
+
+
+class _FakeRequest:
+    def __init__(self, host="127.0.0.1"):
+        self.headers = {}
+        self.client = _FakeClient(host)
+
+
 def _call_generate(session_factory, advisor_id: str, mid: str):
     with session_factory() as s:
         advisor = s.query(User).filter(User.id == advisor_id).first()
@@ -146,6 +157,7 @@ def _call_generate(session_factory, advisor_id: str, mid: str):
         return alloc.generate_target_allocation_endpoint(
             mandate_id=mid,
             body=TargetAllocationGenerateRequest(),
+            request=_FakeRequest(),
             db=s,
             current_user=advisor,
         )

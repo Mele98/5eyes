@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from typing import Optional
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
@@ -14,6 +14,8 @@ from models.users import User
 from schemas.review import AuditLogEntry, AuditLogPage
 from services.audit import log as audit_log
 from services.auth import require_admin, require_advisor, require_super_admin, get_mandate_for_user_or_404
+# Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Quell-IP fuer Admin-Aktionen im Audit-Log.
+from routers.auth import _extract_client_ip
 from services.foundation_example import upsert_foundation_example_case
 from services.foundation_purge import purge_demo_client_data, purge_foundation_example_data
 from services.maintenance import (
@@ -142,6 +144,7 @@ def database_integrity(
 
 @router.post('/recommendation-runs/cleanup')
 def cleanup_recommendation_runs_endpoint(
+    request: Request,
     body: dict | None = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
@@ -188,6 +191,7 @@ def cleanup_recommendation_runs_endpoint(
             f"runs={result.deleted_runs} "
             f"positions={result.deleted_positions}"
         ),
+        ip_address=_extract_client_ip(request),
     )
     db.commit()
     return result.to_dict()
@@ -195,6 +199,7 @@ def cleanup_recommendation_runs_endpoint(
 
 @router.post('/db/backup')
 def backup_database(
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
@@ -207,6 +212,7 @@ def backup_database(
         record_id=str(result.get("backup_path") or result.get("filename") or "backup"),
         action="BACKUP",
         new_value=str(result.get("size_bytes") or result.get("bytes") or ""),
+        ip_address=_extract_client_ip(request),
     )
     db.commit()
     return result
@@ -214,6 +220,7 @@ def backup_database(
 
 @router.post('/support-bundle')
 def create_support_bundle_endpoint(
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
@@ -226,6 +233,7 @@ def create_support_bundle_endpoint(
         record_id=str(result.get("bundle_path") or result.get("filename") or "support_bundle"),
         action="SUPPORT_BUNDLE",
         new_value=str(result.get("size_bytes") or result.get("bytes") or ""),
+        ip_address=_extract_client_ip(request),
     )
     db.commit()
     return result
@@ -247,6 +255,7 @@ def get_optimizer_mode(current_user: User = Depends(require_admin)):
 @router.put('/optimizer-mode')
 def set_optimizer_mode(
     body: dict,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
@@ -270,6 +279,7 @@ def set_optimizer_mode(
             field_name="optimizer_mode",
             old_value=old_value,
             new_value=requested,
+            ip_address=_extract_client_ip(request),
         )
         db.commit()
     return {
@@ -338,6 +348,7 @@ def get_annual_returns(
 
 @router.post('/annual-returns/backfill')
 def backfill_annual_returns_endpoint(
+    request: Request,
     from_year: int | None = None,
     to_year: int | None = None,
     overwrite: bool = True,
@@ -379,6 +390,7 @@ def backfill_annual_returns_endpoint(
         record_id=f"{fy}-{ty}",
         action="BACKFILL",
         new_value=f"rows_written={result['summary']['rows_written']} errors={result['summary']['error_count']}",
+        ip_address=_extract_client_ip(request),
         created_at=datetime.utcnow().isoformat(),
     ))
     db.commit()
@@ -390,6 +402,7 @@ def upsert_annual_return(
     year: int,
     asset_class: str,
     body: dict,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
@@ -442,6 +455,7 @@ def upsert_annual_return(
         field_name="return_bps",
         old_value=old_value,
         new_value=str(return_bps),
+        ip_address=_extract_client_ip(request),
     )
     db.commit()
     return {'year': year, 'asset_class': asset_class, 'return_bps': return_bps}
@@ -475,6 +489,7 @@ def get_asset_class_prices_status(
 
 @router.post('/asset-class-prices/backfill')
 def backfill_asset_class_prices_endpoint(
+    request: Request,
     from_year: int | None = None,
     to_year: int | None = None,
     overwrite: bool = True,
@@ -514,6 +529,7 @@ def backfill_asset_class_prices_endpoint(
         record_id=f"{fy}-{ty}",
         action="BACKFILL",
         new_value=f"rows_written={result['summary']['rows_written']} errors={result['summary']['error_count']}",
+        ip_address=_extract_client_ip(request),
         created_at=datetime.utcnow().isoformat(),
     ))
     db.commit()
@@ -522,6 +538,7 @@ def backfill_asset_class_prices_endpoint(
 
 @router.post('/market-data/refresh-now')
 def refresh_market_data_now(
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
@@ -541,6 +558,7 @@ def refresh_market_data_now(
         record_id=str(result.get("run_id") or result.get("started_at") or "refresh"),
         action="MARKET_DATA_REFRESH",
         new_value=str(result.get("status") or "ok"),
+        ip_address=_extract_client_ip(request),
     )
     db.commit()
     return result
@@ -548,6 +566,7 @@ def refresh_market_data_now(
 
 @router.post('/fx-rates/refresh-now')
 def refresh_fx_rates_now(
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
@@ -573,6 +592,7 @@ def refresh_fx_rates_now(
         action="MARKET_DATA_REFRESH",
         field_name="fx_only_refresh",
         new_value=f"fx_added={result.get('fx_added', 0)} status={result.get('status', 'ok')}",
+        ip_address=_extract_client_ip(request),
     )
     db.commit()
     return result
@@ -595,6 +615,7 @@ def get_provider_health_registry(
 
 @router.post('/market-data/provider-health/reset')
 def reset_provider_health_registry(
+    request: Request,
     body: dict | None = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
@@ -613,6 +634,7 @@ def reset_provider_health_registry(
         field_name="provider_health_events",
         old_value=f"deleted={deleted}",
         new_value="reset",
+        ip_address=_extract_client_ip(request),
     )
     db.commit()
     return {"deleted": deleted, "provider_name": provider_name, "status": "reset"}
@@ -636,6 +658,7 @@ def get_market_data_purge_history(
 
 @router.post('/market-data/purge-now')
 def purge_market_data_cache_now(
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor),
 ):
@@ -652,6 +675,7 @@ def purge_market_data_cache_now(
         record_id=str(result.get("run_id") or result.get("started_at") or "purge"),
         action="MARKET_DATA_PURGE",
         new_value=str(result.get("rows_deleted") or result.get("status") or "ok"),
+        ip_address=_extract_client_ip(request),
     )
     db.commit()
     return result
@@ -659,6 +683,7 @@ def purge_market_data_cache_now(
 
 @router.post('/db/optimize')
 def optimize_database(
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
@@ -672,6 +697,7 @@ def optimize_database(
         record_id="optimize",
         action="DB_OPTIMIZE",
         new_value=str(result.get("status") or "ok"),
+        ip_address=_extract_client_ip(request),
     )
     db.commit()
     return result
@@ -679,6 +705,7 @@ def optimize_database(
 
 @router.post('/foundation-example')
 def create_foundation_example(
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
@@ -701,6 +728,7 @@ def create_foundation_example(
         record_id=str(payload.get("mandate_id") or payload.get("client_id") or "foundation_example"),
         action="FOUNDATION_EXAMPLE",
         new_value=str(payload.get("status") or "created"),
+        ip_address=_extract_client_ip(request),
     )
     db.commit()
     return payload
@@ -708,6 +736,7 @@ def create_foundation_example(
 
 @router.post('/foundation-example/purge')
 def purge_foundation_example(
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
@@ -723,6 +752,7 @@ def purge_foundation_example(
             "status": result.get("status"),
             "deleted": result.get("deleted", {}),
         }),
+        ip_address=_extract_client_ip(request),
     )
     db.commit()
     return result
@@ -731,6 +761,7 @@ def purge_foundation_example(
 @router.post('/clients/{client_id}/purge-demo')
 def purge_demo_client(
     client_id: str,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
@@ -746,6 +777,7 @@ def purge_demo_client(
             "status": result.get("status"),
             "deleted": result.get("deleted", {}),
         }),
+        ip_address=_extract_client_ip(request),
     )
     db.commit()
     return result

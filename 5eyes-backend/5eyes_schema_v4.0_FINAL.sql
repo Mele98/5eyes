@@ -1023,6 +1023,8 @@ CREATE TABLE IF NOT EXISTS advisory_log (
     risk_warnings_given_json     TEXT,
     conflict_disclosure_ids_json TEXT,
     cost_disclosure_given        INTEGER NOT NULL DEFAULT 0 CHECK(cost_disclosure_given IN (0,1)),
+    -- Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): siehe models/review.py::AdvisoryLog.
+    cost_disclosure_snapshot_json TEXT,
     suitability_check_id         TEXT REFERENCES suitability_checks(id) ON UPDATE CASCADE,
     integrity_hash               TEXT,
     retain_until                 TEXT,
@@ -1173,7 +1175,23 @@ CREATE TABLE IF NOT EXISTS audit_log (
     user_name   TEXT NOT NULL,
     table_name  TEXT NOT NULL,
     record_id   TEXT NOT NULL,
-    action      TEXT NOT NULL CHECK(action IN ('CREATE','UPDATE','DELETE','LOGIN','EXPORT','PASSWORD_RESET')),
+    -- Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): die urspruengliche Liste deckte
+    -- nur 6 der 32 codebase-weit tatsaechlich genutzten action-Werte ab --
+    -- praktisch jeder Admin-Endpunkt (Policy aktivieren/klonen, House-Matrix
+    -- ersetzen, FX-Upsert, 2FA-Aktionen, Invites, Marktdaten-Refresh/-Purge
+    -- etc.) crashte auf einer echten Bootstrap-DB mit IntegrityError, weil
+    -- die pytest-Suite meist Base.metadata.create_all() (keine CHECK-
+    -- Constraints) statt dieses Rohschemas nutzt.
+    action      TEXT NOT NULL CHECK(action IN (
+        'CREATE','UPDATE','DELETE','LOGIN','EXPORT','PASSWORD_RESET',
+        '2FA_DISABLE','2FA_ENABLE','2FA_RECOVERY_REGEN','2FA_RECOVERY_USED',
+        'ACTIVATE','APPROVE','BACKFILL','BACKUP','CLONE','DB_OPTIMIZE',
+        'FOUNDATION_EXAMPLE','FOUNDATION_PURGE','INVITE','INVITE_ACCEPT',
+        'INVITE_RESEND','INVITE_REVOKE','MARKET_DATA_PURGE',
+        'MARKET_DATA_REFRESH','OPTIMIZER_MODE_CHANGE','PASSWORD_CHANGE',
+        'PASSWORD_RESET_CONFIRM','PASSWORD_RESET_REQUEST','REPLACE',
+        'REPLACE_ALL','SENSITIVITY','SUPPORT_BUNDLE','UPSERT'
+    )),
     field_name  TEXT,
     old_value   TEXT,
     new_value   TEXT,

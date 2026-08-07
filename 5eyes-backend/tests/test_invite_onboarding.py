@@ -120,9 +120,20 @@ def test_invite_link_ignores_attacker_host_header_when_public_base_url_configure
     assert "evil-attacker.test" not in captured["link"]
 
 
-def test_invite_link_falls_back_to_forwarded_host_when_public_base_url_unset(
+def test_invite_link_ignores_forwarded_host_header_when_public_base_url_unset(
     client, monkeypatch,
 ):
+    """Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): _invite_link_for() las den
+    X-Forwarded-Host/-Proto-Fallback bisher UNBEDINGT (kein
+    trusted_proxy_count-Check) -- exakt dieselbe Schwaeche wie der
+    urspruengliche AUTH-03-Fund. Ein Angreifer konnte damit den in der
+    Einladungs-E-Mail versendeten Link auf eine fremde Domain umleiten,
+    solange public_base_url nicht konfiguriert war. Fallback jetzt identisch
+    zu _reset_link_for: reines request.base_url, ignoriert Forwarded-Header
+    (siehe test_invite_link_ignores_attacker_host_header_when_public_base_url_configured
+    fuer den Fall MIT konfigurierter public_base_url, und
+    test_account_recovery.py::test_reset_link_falls_back_to_host_header_when_public_base_url_unset
+    fuer das analoge, bereits gehaertete Reset-Link-Verhalten)."""
     from config import settings
     monkeypatch.setattr(settings, "public_base_url", None)
 
@@ -138,12 +149,11 @@ def test_invite_link_falls_back_to_forwarded_host_when_public_base_url_unset(
     r = client.post(
         "/users/invite",
         json={"username": "legacy.behavior", "full_name": "Legacy Behavior", "role": "advisor"},
-        headers={"X-Forwarded-Host": "app.legit-deployment.test", "X-Forwarded-Proto": "https"},
+        headers={"X-Forwarded-Host": "evil-attacker.test", "X-Forwarded-Proto": "https"},
     )
     assert r.status_code == 201, r.text
-    # Backwards-Compat: unveraendertes Fallback-Verhalten (kein public_base_url
-    # konfiguriert).
-    assert captured["link"].startswith("https://app.legit-deployment.test/")
+    assert "evil-attacker.test" not in captured["link"]
+    assert "/app/5eyes_v2.html?invite=" in captured["link"]
 
 
 def test_invite_preview_returns_display_info(client):

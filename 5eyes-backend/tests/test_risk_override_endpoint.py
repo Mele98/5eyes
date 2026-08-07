@@ -42,6 +42,17 @@ def session_factory(tmp_path):
         engine.dispose()
 
 
+class _FakeClient:
+    def __init__(self, host="127.0.0.1"):
+        self.host = host
+
+
+class _FakeRequest:
+    def __init__(self, host="127.0.0.1"):
+        self.headers = {}
+        self.client = _FakeClient(host)
+
+
 def _answers() -> list[dict]:
     return [
         {
@@ -103,6 +114,7 @@ def test_risk_override_endpoint_persists_and_keeps_assessment_strategy_ready(ses
 
         assessment = create_risk_assessment(
             mandate_id="mandate-override",
+            request=_FakeRequest(),
             body=RiskAssessmentCreate(
                 q_income_points=3,
                 q_obligations_points=3,
@@ -125,6 +137,7 @@ def test_risk_override_endpoint_persists_and_keeps_assessment_strategy_ready(ses
         saved = override_risk_assessment(
             mandate_id="mandate-override",
             ra_id=assessment.id,
+            request=_FakeRequest(),
             body=RiskAssessmentOverride(
                 override_score_x10=70,
                 override_profile=profile_for_score_x10(70),

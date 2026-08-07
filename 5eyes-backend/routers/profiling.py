@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session, selectinload
 from datetime import date, datetime, timezone
@@ -17,6 +17,9 @@ from schemas.profiling import (
 )
 from services.auth import get_client_for_user_or_404, get_current_user, get_mandate_for_user_or_404, require_advisor
 from services.audit import log
+# Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Quell-IP fuer FIDLEG-Eignungspruefungs-
+# Datensaetze (Risikoprofil, Signatur, Suitability-Check).
+from routers.auth import _extract_client_ip
 from services.data_classification import enforce_data_classification
 from services.portfolio_engine import risk_assessment_ready_for_strategy
 from services.risk_scoring import canonicalize_horizon_label, compute_scores, profile_for_score_x10
@@ -61,6 +64,7 @@ def list_knowledge(
 def create_knowledge(
     client_id: str,
     body: KnowledgeCreate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor)
 ):
@@ -109,7 +113,7 @@ def create_knowledge(
     db.add(knowledge)
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="client_knowledge", record_id=knowledge.id, action="CREATE",
-        client_id=client_id)
+        client_id=client_id, ip_address=_extract_client_ip(request))
     db.commit()
     db.refresh(knowledge)
     return knowledge
@@ -155,6 +159,7 @@ def get_current_risk_assessment(
 def create_risk_assessment(
     mandate_id: str,
     body: RiskAssessmentCreate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor)
 ):
@@ -285,7 +290,8 @@ def create_risk_assessment(
 
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="risk_assessments", record_id=ra.id, action="CREATE",
-        mandate_id=mandate_id, client_id=mandate.client_id)
+        mandate_id=mandate_id, client_id=mandate.client_id,
+        ip_address=_extract_client_ip(request))
     db.commit()
     return db.query(RiskAssessment).options(
         selectinload(RiskAssessment.answers)
@@ -298,6 +304,7 @@ def override_risk_assessment(
     mandate_id: str,
     ra_id: str,
     body: RiskAssessmentOverride,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor)
 ):
@@ -328,7 +335,8 @@ def override_risk_assessment(
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="risk_assessments", record_id=ra_id, action="UPDATE",
         field_name="override", new_value=body.override_profile,
-        mandate_id=mandate_id, client_id=mandate.client_id)
+        mandate_id=mandate_id, client_id=mandate.client_id,
+        ip_address=_extract_client_ip(request))
     db.commit()
     db.refresh(ra)
     return ra
@@ -341,6 +349,7 @@ class RiskProfileSignRequest(BaseModel):
 @router.post("/mandates/{mandate_id}/risk-profile/sign")
 def sign_risk_profile(
     mandate_id: str,
+    request: Request,
     body: RiskProfileSignRequest | None = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor)
@@ -368,7 +377,8 @@ def sign_risk_profile(
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="risk_assessments", record_id=ra.id, action="UPDATE",
         field_name="client_signed", new_value="advisor_recorded",
-        mandate_id=mandate_id, client_id=mandate.client_id)
+        mandate_id=mandate_id, client_id=mandate.client_id,
+        ip_address=_extract_client_ip(request))
     db.commit()
     return {
         "risk_assessment_id": ra.id,
@@ -396,6 +406,7 @@ def list_suitability_checks(
 def create_suitability_check(
     mandate_id: str,
     body: SuitabilityCheckCreate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor)
 ):
@@ -427,7 +438,8 @@ def create_suitability_check(
     db.add(check)
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="suitability_checks", record_id=check.id, action="CREATE",
-        mandate_id=mandate_id, client_id=mandate.client_id)
+        mandate_id=mandate_id, client_id=mandate.client_id,
+        ip_address=_extract_client_ip(request))
     db.commit()
     db.refresh(check)
     return check

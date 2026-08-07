@@ -71,6 +71,16 @@ def _load_json(raw: str | None) -> list:
     return parsed if isinstance(parsed, list) else []
 
 
+def _load_json_object(raw: str | None) -> dict | None:
+    if not raw:
+        return None
+    try:
+        parsed = json.loads(raw)
+    except (TypeError, ValueError):
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
 def build_hash_payload(entry: AdvisoryLog) -> dict:
     """Snapshot der hash-relevanten Felder für `compute_integrity_hash`."""
     return {
@@ -99,20 +109,56 @@ def build_hash_payload(entry: AdvisoryLog) -> dict:
     }
 
 
+def _build_cost_disclosure_snapshot(db: Session, mandate) -> str | None:
+    """Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): kompakter Snapshot der
+    Kostenzahlen zum Zeitpunkt der Beratung -- cost_disclosure_given war
+    bisher ein reines Selbst-Attest-Flag ohne Nachweis, WELCHE Zahlen
+    tatsaechlich gezeigt wurden. Fail-soft: schlaegt die Berechnung fehl
+    (z.B. keine Empfehlung vorhanden), wird kein Snapshot gespeichert --
+    das Flag selbst bleibt trotzdem gueltig (Berater hat das Gespraech
+    dokumentiert, auch wenn die Engine gerade keine Zahlen liefern konnte)."""
+    if mandate is None:
+        return None
+    try:
+        from services.cost_disclosure import build_cost_disclosure
+        payload = build_cost_disclosure(db, mandate)
+    except Exception:
+        return None
+    totals = payload.get("totals") or {}
+    snapshot = {
+        "generated_at": _now_iso(),
+        "currency": payload.get("currency"),
+        "advisory_wealth_rappen": payload.get("advisory_wealth_rappen"),
+        "one_time_rappen": totals.get("one_time_rappen"),
+        "annual_rappen": totals.get("annual_rappen"),
+        "first_year_rappen": totals.get("first_year_rappen"),
+    }
+    return json.dumps(snapshot, ensure_ascii=False)
+
+
 def create_advisory_log(
     db: Session,
     *,
     mandate_id: str,
     advisor: User,
     payload,
+    mandate=None,
 ) -> AdvisoryLog:
     """Persist einen neuen AdvisoryLog-Eintrag mit Hash + retain_until.
 
-    `payload` ist eine `AdvisoryLogCreate`-Instanz.
+    `payload` ist eine `AdvisoryLogCreate`-Instanz. `mandate` (optional) wird
+    fuer den Kosten-Offenlegungs-Snapshot benoetigt, wenn
+    payload.cost_disclosure_given=True -- ohne Mandate-Objekt wird das Flag
+    weiterhin gespeichert, aber ohne Zahlen-Snapshot.
     """
     now = _now_iso()
     entry_datetime = payload.entry_datetime
     entry_date = payload.entry_date or entry_datetime[:10]
+    cost_disclosure_snapshot_json = (
+        _build_cost_disclosure_snapshot(db, mandate)
+        if payload.cost_disclosure_given
+        else None
+    )
 
     entry = AdvisoryLog(
         id=new_uuid(),
@@ -139,6 +185,7 @@ def create_advisory_log(
         topics_json=_dump_json(payload.topics),
         risk_warnings_given_json=_dump_json(payload.risk_warnings_given),
         cost_disclosure_given=1 if payload.cost_disclosure_given else 0,
+        cost_disclosure_snapshot_json=cost_disclosure_snapshot_json,
         conflict_disclosure_ids_json=_dump_json(payload.conflict_disclosure_ids),
         suitability_check_id=payload.suitability_check_id,
         retain_until=compute_retain_until(entry_datetime),
@@ -208,6 +255,7 @@ def supersede_advisory_log(
             else previous.risk_warnings_given_json
         ),
         cost_disclosure_given=previous.cost_disclosure_given,
+        cost_disclosure_snapshot_json=previous.cost_disclosure_snapshot_json,
         conflict_disclosure_ids_json=previous.conflict_disclosure_ids_json,
         suitability_check_id=previous.suitability_check_id,
         retain_until=previous.retain_until,
@@ -478,6 +526,7 @@ def serialize_response(entry: AdvisoryLog) -> dict:
         "topics": _load_json(entry.topics_json),
         "risk_warnings_given": _load_json(entry.risk_warnings_given_json),
         "cost_disclosure_given": entry.cost_disclosure_given,
+        "cost_disclosure_snapshot": _load_json_object(entry.cost_disclosure_snapshot_json),
         "conflict_disclosure_ids": _load_json(entry.conflict_disclosure_ids_json),
         "suitability_check_id": entry.suitability_check_id,
         "integrity_hash": entry.integrity_hash,

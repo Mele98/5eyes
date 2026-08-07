@@ -59,6 +59,17 @@ def _current_policy_id(session_factory, mid: str) -> str:
 # ===========================================================================
 
 
+class _FakeClient:
+    def __init__(self, host="127.0.0.1"):
+        self.host = host
+
+
+class _FakeRequest:
+    def __init__(self, host="127.0.0.1"):
+        self.headers = {}
+        self.client = _FakeClient(host)
+
+
 def _target_allocation_body() -> TargetAllocationCreate:
     return TargetAllocationCreate(
         target_equities_bps=4000, target_bonds_bps=3000, target_real_estate_bps=1000,
@@ -85,7 +96,7 @@ def test_create_target_allocation_gate_off_proceeds(session_factory, monkeypatch
         policy_id = _current_policy_id(session_factory, mid)
         body = _target_allocation_body()
         body.policy_id = policy_id
-        result = alloc.create_target_allocation(mandate_id=mid, body=body, db=s, current_user=advisor)
+        result = alloc.create_target_allocation(mandate_id=mid, body=body, request=_FakeRequest(), db=s, current_user=advisor)
         assert result.id
 
 
@@ -103,7 +114,7 @@ def test_create_target_allocation_gate_on_noncompliant_blocks_409(session_factor
         body = _target_allocation_body()
         body.policy_id = policy_id
         with pytest.raises(HTTPException) as exc_info:
-            alloc.create_target_allocation(mandate_id=mid, body=body, db=s, current_user=advisor)
+            alloc.create_target_allocation(mandate_id=mid, body=body, request=_FakeRequest(), db=s, current_user=advisor)
         assert exc_info.value.status_code == 409
         assert "FIDLEG" in exc_info.value.detail
 
@@ -121,7 +132,7 @@ def test_create_target_allocation_gate_on_compliant_proceeds(session_factory, mo
         policy_id = _current_policy_id(session_factory, mid)
         body = _target_allocation_body()
         body.policy_id = policy_id
-        result = alloc.create_target_allocation(mandate_id=mid, body=body, db=s, current_user=advisor)
+        result = alloc.create_target_allocation(mandate_id=mid, body=body, request=_FakeRequest(), db=s, current_user=advisor)
         assert result.id
 
 
@@ -142,7 +153,7 @@ def test_create_recommendation_run_gate_off_proceeds(session_factory, monkeypatc
         advisor = s.query(User).filter(User.id == advisor_id).first()
         policy_id = _current_policy_id(session_factory, mid)
         body = RecommendationRunCreate(run_type="Optimizer", policy_id=policy_id)
-        result = review.create_recommendation_run(mandate_id=mid, body=body, db=s, current_user=advisor)
+        result = review.create_recommendation_run(mandate_id=mid, body=body, request=_FakeRequest(), db=s, current_user=advisor)
         assert result.id
 
 
@@ -159,7 +170,7 @@ def test_create_recommendation_run_gate_on_noncompliant_blocks_409(session_facto
         policy_id = _current_policy_id(session_factory, mid)
         body = RecommendationRunCreate(run_type="Optimizer", policy_id=policy_id)
         with pytest.raises(HTTPException) as exc_info:
-            review.create_recommendation_run(mandate_id=mid, body=body, db=s, current_user=advisor)
+            review.create_recommendation_run(mandate_id=mid, body=body, request=_FakeRequest(), db=s, current_user=advisor)
         assert exc_info.value.status_code == 409
         assert "FIDLEG" in exc_info.value.detail
 
@@ -176,7 +187,7 @@ def test_create_recommendation_run_gate_on_compliant_proceeds(session_factory, m
         advisor = s.query(User).filter(User.id == advisor_id).first()
         policy_id = _current_policy_id(session_factory, mid)
         body = RecommendationRunCreate(run_type="Optimizer", policy_id=policy_id)
-        result = review.create_recommendation_run(mandate_id=mid, body=body, db=s, current_user=advisor)
+        result = review.create_recommendation_run(mandate_id=mid, body=body, request=_FakeRequest(), db=s, current_user=advisor)
         assert result.id
 
 
@@ -198,7 +209,7 @@ def test_generate_recommendation_run_gate_off_proceeds(session_factory, monkeypa
         advisor = s.query(User).filter(User.id == advisor_id).first()
         body = RecommendationGenerateRequest()
         result = review.generate_recommendation_run_endpoint(
-            mandate_id=mid, body=body, db=s, current_user=advisor,
+            mandate_id=mid, body=body, request=_FakeRequest(), db=s, current_user=advisor,
         )
         assert result["run"].id
 
@@ -216,7 +227,7 @@ def test_generate_recommendation_run_gate_on_noncompliant_blocks_409(session_fac
         body = RecommendationGenerateRequest()
         with pytest.raises(HTTPException) as exc_info:
             review.generate_recommendation_run_endpoint(
-                mandate_id=mid, body=body, db=s, current_user=advisor,
+                mandate_id=mid, body=body, request=_FakeRequest(), db=s, current_user=advisor,
             )
         assert exc_info.value.status_code == 409
         assert "FIDLEG" in exc_info.value.detail
@@ -234,6 +245,6 @@ def test_generate_recommendation_run_gate_on_compliant_proceeds(session_factory,
         advisor = s.query(User).filter(User.id == advisor_id).first()
         body = RecommendationGenerateRequest()
         result = review.generate_recommendation_run_endpoint(
-            mandate_id=mid, body=body, db=s, current_user=advisor,
+            mandate_id=mid, body=body, request=_FakeRequest(), db=s, current_user=advisor,
         )
         assert result["run"].id

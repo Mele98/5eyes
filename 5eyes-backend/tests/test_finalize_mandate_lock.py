@@ -30,6 +30,17 @@ def _iso(dt: datetime) -> str:
     return dt.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 
 
+class _FakeClient:
+    def __init__(self, host="127.0.0.1"):
+        self.host = host
+
+
+class _FakeRequest:
+    def __init__(self, host="127.0.0.1"):
+        self.headers = {}
+        self.client = _FakeClient(host)
+
+
 def _make_policy(session_factory, created_by) -> str:
     pid = new_uuid()
     now = _iso(datetime.now(timezone.utc))
@@ -126,7 +137,7 @@ def test_finalize_succeeds_and_supersedes_prior_final_run(session_factory):
     with session_factory() as db:
         advisor = db.query(User).filter(User.id == advisor_id).first()
         result = finalize_recommendation(
-            mandate_id=mid, run_id=second_run_id, db=db, current_user=advisor,
+            mandate_id=mid, run_id=second_run_id, request=_FakeRequest(), db=db, current_user=advisor,
         )
         assert result.result_status == "Final"
 
@@ -150,6 +161,6 @@ def test_finalize_first_run_for_mandate_with_no_prior_final(session_factory):
     with session_factory() as db:
         advisor = db.query(User).filter(User.id == advisor_id).first()
         result = finalize_recommendation(
-            mandate_id=mid, run_id=run_id, db=db, current_user=advisor,
+            mandate_id=mid, run_id=run_id, request=_FakeRequest(), db=db, current_user=advisor,
         )
         assert result.result_status == "Final"

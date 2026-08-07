@@ -884,6 +884,7 @@ def test_risk_assessment_runtime_endpoint_logic_returns_scored_payload(session_f
 
     with session_factory() as session:
         result = create_risk_assessment(
+            request=_FakeSignRequest(),
             mandate_id=mandate_id,
             body=payload,
             db=session,
@@ -918,6 +919,7 @@ def test_risk_assessment_fzk_caps_final_score_before_persisting(session_factory,
         session.commit()
 
         result = create_risk_assessment(
+            request=_FakeSignRequest(),
             mandate_id=mandate_id,
             body=payload,
             db=session,
@@ -946,6 +948,7 @@ def test_risk_assessment_current_includes_raw_points_and_answers(session_factory
 
     with session_factory() as session:
         create_risk_assessment(
+            request=_FakeSignRequest(),
             mandate_id=mandate_id,
             body=payload,
             db=session,
@@ -988,6 +991,7 @@ def test_generate_target_allocation_requires_complete_risk_questionnaire(session
     with session_factory() as session:
         with pytest.raises(HTTPException) as exc:
             create_risk_assessment(
+                request=_FakeSignRequest(),
                 mandate_id=mandate_id,
                 body=payload,
                 db=session,
@@ -1838,6 +1842,7 @@ def test_get_current_allocation_payload_returns_404_without_creating_runtime_ref
 
     with session_factory() as session:
         create_risk_assessment(
+            request=_FakeSignRequest(),
             mandate_id=mandate_id,
             body=assessment_payload,
             db=session,
@@ -1935,6 +1940,7 @@ def test_create_target_allocation_rejects_archived_policy(session_factory, advis
 
         with pytest.raises(HTTPException) as exc:
             create_target_allocation(
+                request=_FakeSignRequest(),
                 mandate_id=mandate_id,
                 body=TargetAllocationCreate(
                     target_equities_bps=6000,
@@ -1986,6 +1992,7 @@ def test_create_target_allocation_requires_strategy_ready_assessment(session_fac
 
         with pytest.raises(HTTPException) as exc:
             create_target_allocation(
+                request=_FakeSignRequest(),
                 mandate_id=mandate_id,
                 body=TargetAllocationCreate(
                     target_equities_bps=6000,
@@ -2047,6 +2054,7 @@ def test_update_cma_preserves_existing_optional_fields_when_omitted(session_fact
                 valid_from="2026-04-21",
                 equity_ch_return_bps=800,
             ),
+            request=_FakeSignRequest(),
             db=session,
             current_user=advisor_user,
         )
@@ -2179,6 +2187,7 @@ def test_generate_target_allocation_reflects_cashflow_and_goal_constraints(sessi
 
     with session_factory() as session:
         create_risk_assessment(
+            request=_FakeSignRequest(),
             mandate_id=mandate_id,
             body=payload,
             db=session,
@@ -2310,6 +2319,7 @@ def test_generate_target_allocation_respects_manual_band_overrides(session_facto
 
     with session_factory() as session:
         create_risk_assessment(
+            request=_FakeSignRequest(),
             mandate_id=mandate_id,
             body=payload,
             db=session,
@@ -2382,6 +2392,7 @@ def test_generate_target_allocation_uses_weighted_risk_budget(session_factory, a
 
     with session_factory() as session:
         create_risk_assessment(
+            request=_FakeSignRequest(),
             mandate_id=mandate_id,
             body=payload,
             db=session,
@@ -2445,6 +2456,7 @@ def test_current_payload_rebuild_uses_stored_allocation_preferences(session_fact
 
     with session_factory() as session:
         create_risk_assessment(
+            request=_FakeSignRequest(),
             mandate_id=mandate_id,
             body=payload,
             db=session,
@@ -2535,6 +2547,7 @@ def test_generate_target_allocation_uses_dated_cashflow_series(session_factory, 
 
     with session_factory() as session:
         create_risk_assessment(
+            request=_FakeSignRequest(),
             mandate_id=mandate_id,
             body=payload,
             db=session,
@@ -2659,6 +2672,7 @@ def test_generate_target_allocation_exposes_simulation_and_asset_assumptions(ses
 
     with session_factory() as session:
         create_risk_assessment(
+            request=_FakeSignRequest(),
             mandate_id=mandate_id,
             body=payload,
             db=session,
@@ -2766,6 +2780,7 @@ def test_generate_target_allocation_goal_analysis_exposes_timing_and_return_targ
 
     with session_factory() as session:
         create_risk_assessment(
+            request=_FakeSignRequest(),
             mandate_id=mandate_id,
             body=payload,
             db=session,
@@ -2913,6 +2928,7 @@ def test_generate_target_allocation_clamps_monte_carlo_runs(session_factory, adv
 
     with session_factory() as session:
         create_risk_assessment(
+            request=_FakeSignRequest(),
             mandate_id=mandate_id,
             body=payload,
             db=session,
@@ -2974,6 +2990,7 @@ def test_build_target_payload_from_allocation_exposes_monte_carlo(session_factor
 
     with session_factory() as session:
         create_risk_assessment(
+            request=_FakeSignRequest(),
             mandate_id=mandate_id,
             body=payload,
             db=session,
@@ -3065,6 +3082,7 @@ def test_generate_recommendation_run_builds_product_positions(session_factory, a
 
     with session_factory() as session:
         create_risk_assessment(
+            request=_FakeSignRequest(),
             mandate_id=mandate_id,
             body=payload,
             db=session,
@@ -3218,6 +3236,7 @@ def test_recommendation_payload_prefers_actual_holdings_for_live_drift(session_f
 
     with session_factory() as session:
         create_risk_assessment(
+            request=_FakeSignRequest(),
             mandate_id=mandate_id,
             body=payload,
             db=session,
@@ -3341,6 +3360,7 @@ def test_recommendation_payload_marks_implied_units_from_holding_market_value(se
 
     with session_factory() as session:
         create_risk_assessment(
+            request=_FakeSignRequest(),
             mandate_id=mandate_id,
             body=payload,
             db=session,
@@ -3519,6 +3539,7 @@ def test_generate_recommendation_run_carries_holdings_forward_by_product(session
 
     with session_factory() as session:
         create_risk_assessment(
+            request=_FakeSignRequest(),
             mandate_id=mandate_id,
             body=payload,
             db=session,
@@ -3619,6 +3640,7 @@ def test_deleted_holding_does_not_resurface_from_older_runs(session_factory, adv
 
     with session_factory() as session:
         create_risk_assessment(
+            request=_FakeSignRequest(),
             mandate_id=mandate_id,
             body=payload,
             db=session,
@@ -3733,6 +3755,7 @@ def test_review_engine_emits_market_data_trigger_for_missing_prices(session_fact
 
     with session_factory() as session:
         create_risk_assessment(
+            request=_FakeSignRequest(),
             mandate_id=mandate_id,
             body=payload,
             db=session,
@@ -3817,6 +3840,7 @@ def test_advisory_log_accepts_schema_allowed_decision_value(session_factory, adv
 
     with session_factory() as session:
         result = create_advisory_log_entry(
+            request=_FakeSignRequest(),
             mandate_id=mandate_id,
             body=payload,
             db=session,
@@ -3839,6 +3863,7 @@ def _obsolete_create_trigger_normalizes_review_frequency_aliases(session_factory
 
     with session_factory() as session:
         result = create_trigger(
+            request=_FakeSignRequest(),
             mandate_id=mandate_id,
             body=ReviewTriggerCreate(
                 trigger_type="Zeit",
@@ -3858,6 +3883,7 @@ def test_create_trigger_normalizes_review_frequency_aliases_v2(session_factory, 
 
     with session_factory() as session:
         result = create_trigger(
+            request=_FakeSignRequest(),
             mandate_id=mandate_id,
             body=ReviewTriggerCreate(
                 trigger_type="Zeit",
@@ -3890,6 +3916,7 @@ def test_sign_document_preserves_initial_signed_at(session_factory, advisor_user
 
     with session_factory() as session:
         doc = create_document(
+            request=_FakeSignRequest(),
             mandate_id=mandate_id,
             body=ContractDocumentCreate(
                 document_type="Anlagestrategie",
@@ -4005,6 +4032,7 @@ def test_refresh_system_review_triggers_creates_review_and_goal_alerts(session_f
 
     with session_factory() as session:
         create_risk_assessment(
+            request=_FakeSignRequest(),
             mandate_id=mandate_id,
             body=payload,
             db=session,
@@ -4118,6 +4146,7 @@ def test_refresh_system_review_triggers_reuses_supplied_allocation_payload(sessi
 
     with session_factory() as session:
         create_risk_assessment(
+            request=_FakeSignRequest(),
             mandate_id=mandate_id,
             body=RiskAssessmentCreate(
                 q_income_points=3,
@@ -4197,6 +4226,7 @@ def test_refresh_system_review_triggers_ignores_unconfigured_zero_bands(session_
 
     with session_factory() as session:
         create_risk_assessment(
+            request=_FakeSignRequest(),
             mandate_id=mandate_id,
             body=RiskAssessmentCreate(
                 q_income_points=3,
@@ -4290,6 +4320,7 @@ def test_refresh_system_review_triggers_resolves_drift_when_portfolio_returns_in
 
     with session_factory() as session:
         create_risk_assessment(
+            request=_FakeSignRequest(),
             mandate_id=mandate_id,
             body=payload,
             db=session,
@@ -4401,6 +4432,7 @@ def test_generate_recommendation_run_endpoint_reuses_result_allocation_payload(s
         monkeypatch.setattr(review_router, "refresh_system_review_triggers", fake_refresh)
 
         result = generate_recommendation_run_endpoint(
+            request=_FakeSignRequest(),
             mandate_id=mandate_id,
             body=RecommendationGenerateRequest(),
             db=session,
@@ -4601,6 +4633,7 @@ def test_snapshot_endpoints_block_foreign_mandate_access(session_factory, adviso
         created = create_snapshot(
             mandate_id=foreign_mandate_id,
             body=snapshot_payload,
+            request=_FakeSignRequest(),
             db=session,
             current_user=other_advisor_user,
         )
@@ -4618,6 +4651,7 @@ def test_snapshot_endpoints_block_foreign_mandate_access(session_factory, adviso
             create_snapshot(
                 mandate_id=foreign_mandate_id,
                 body=snapshot_payload,
+                request=_FakeSignRequest(),
                 db=session,
                 current_user=advisor_user,
             )
@@ -4688,6 +4722,7 @@ def test_fzk_risk_assessment_override_rejects_scores_above_cap(session_factory, 
         session.commit()
 
         assessment = create_risk_assessment(
+            request=_FakeSignRequest(),
             mandate_id="mandate-fzk-1",
             body=RiskAssessmentCreate(
                 q_income_points=4,
@@ -4709,6 +4744,7 @@ def test_fzk_risk_assessment_override_rejects_scores_above_cap(session_factory, 
             override_risk_assessment(
                 mandate_id="mandate-fzk-1",
                 ra_id=assessment.id,
+                request=_FakeSignRequest(),
                 body=RiskAssessmentOverride(
                     override_score_x10=80,
                     override_profile=profile_for_score_x10(80),

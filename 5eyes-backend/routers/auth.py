@@ -672,17 +672,18 @@ _INVITE_TTL_DAYS = 7
 
 def _invite_link_for(request: Request, token: str) -> str:
     """Baut den Einladungslink aus der OEFFENTLICHEN Origin. Bevorzugt IMMER
-    das vertrauenswuerdige config.public_base_url (siehe _trusted_public_base_url);
-    nur wenn das nicht konfiguriert ist, Fallback auf X-Forwarded-*/Host-Header
-    (Client-kontrollierbar -- siehe Generalaudit-Fund 2026-07-25), damit die
-    E-Mail einen extern erreichbaren Link enthaelt statt der internen
-    127.0.0.1-Adresse."""
+    das vertrauenswuerdige config.public_base_url (siehe _trusted_public_base_url).
+
+    Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): der fruehere Fallback las
+    X-Forwarded-Host/-Proto UNBEDINGT (kein trusted_proxy_count-Check) --
+    exakt dieselbe Schwaeche wie der urspruengliche AUTH-03-Fund (Client-
+    kontrollierbare Header ohne konfigurierten Reverse-Proxy). Fallback jetzt
+    identisch zu _reset_link_for: reines request.base_url (respektiert KEINE
+    Forwarded-Header), damit ein Angreifer den in der Einladungs-E-Mail
+    versendeten Link nicht auf eine fremde Domain umleiten kann, solange
+    public_base_url nicht konfiguriert ist."""
     trusted = _trusted_public_base_url()
-    if trusted is not None:
-        return f"{trusted}/app/5eyes_v2.html?invite={token}"
-    proto = str(request.headers.get("x-forwarded-proto") or request.url.scheme or "https").split(",")[0].strip()
-    host = str(request.headers.get("x-forwarded-host") or request.headers.get("host") or request.url.netloc or "").split(",")[0].strip()
-    base = f"{proto}://{host}" if host else str(request.base_url).rstrip("/")
+    base = trusted if trusted is not None else str(request.base_url).rstrip("/")
     return f"{base}/app/5eyes_v2.html?invite={token}"
 
 

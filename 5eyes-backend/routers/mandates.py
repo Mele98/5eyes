@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from datetime import date, datetime, timezone
 from database import get_db, new_uuid
@@ -9,6 +9,8 @@ from models.tenant import Tenant
 from schemas.mandates import MandateCreate, MandateUpdate, MandateResponse
 from services.auth import get_client_for_user_or_404, get_current_user, get_mandate_for_user_or_404, require_advisor
 from services.audit import log
+# Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Quell-IP fuer Mandat-Aenderungen.
+from routers.auth import _extract_client_ip
 from services.data_classification import enforce_data_classification
 from services.quota import assert_within_quota
 
@@ -39,6 +41,7 @@ def list_mandates(
 def create_mandate(
     client_id: str,
     body: MandateCreate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor)
 ):
@@ -84,7 +87,7 @@ def create_mandate(
     db.add(mandate)
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="mandates", record_id=mandate.id, action="CREATE",
-        client_id=client_id)
+        client_id=client_id, ip_address=_extract_client_ip(request))
     db.commit()
     db.refresh(mandate)
     return mandate
@@ -103,6 +106,7 @@ def get_mandate(
 def update_mandate(
     mandate_id: str,
     body: MandateUpdate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor)
 ):
@@ -122,7 +126,7 @@ def update_mandate(
     mandate.updated_at = _now()
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="mandates", record_id=mandate_id, action="UPDATE",
-        client_id=mandate.client_id)
+        client_id=mandate.client_id, ip_address=_extract_client_ip(request))
     db.commit()
     db.refresh(mandate)
     return mandate

@@ -215,6 +215,9 @@ class AdvisoryLogResponse(BaseResponse):
     topics: list[str] = Field(default_factory=list)
     risk_warnings_given: list[str] = Field(default_factory=list)
     cost_disclosure_given: int = 0
+    # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Snapshot der tatsaechlich
+    # gezeigten Kostenzahlen (siehe models/review.py::AdvisoryLog).
+    cost_disclosure_snapshot: Optional[dict] = None
     conflict_disclosure_ids: list[str] = Field(default_factory=list)
     suitability_check_id: Optional[str] = None
     integrity_hash: Optional[str] = None

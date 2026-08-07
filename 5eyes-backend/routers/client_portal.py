@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from database import get_db
@@ -24,6 +24,9 @@ from models.profiling import RiskAssessment
 from models.users import User
 from services.advisory_report import compute_advisory_report
 from services.audit import log
+# Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Quell-IP fuer die Kunden-Unterschrift
+# (rechtlich relevant -- Eignungspruefungs-Nachweis).
+from routers.auth import _extract_client_ip
 from services.auth import get_linked_client_for_user_or_404, require_client
 
 
@@ -116,6 +119,7 @@ def client_portal_mandate_report(
 @router.post("/mandates/{mandate_id}/risk-profile/sign")
 def client_portal_sign_risk_profile(
     mandate_id: str,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_client),
 ):
@@ -166,7 +170,8 @@ def client_portal_sign_risk_profile(
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="risk_assessments", record_id=ra.id, action="UPDATE",
         field_name="client_signed", new_value="portal",
-        mandate_id=mandate_id, client_id=client.id)
+        mandate_id=mandate_id, client_id=client.id,
+        ip_address=_extract_client_ip(request))
     db.commit()
     return {
         "risk_assessment_id": ra.id,
