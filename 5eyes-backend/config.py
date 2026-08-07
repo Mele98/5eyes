@@ -199,6 +199,20 @@ class Settings(BaseSettings):
     backup_scheduler_hour: int = 3
     backup_scheduler_minute: int = 0
 
+    # Roadmap #15 (Off-Site-Backup-Replikation, 2026-08-07): das lokale,
+    # verschluesselte SQLCipher-Backup (siehe backup_dir oben) schuetzt nicht
+    # gegen einen Ausfall des Standorts selbst (Hardware/RZ-Ausfall). Opt-in
+    # Kopie via rsync-ueber-SSH an einen zweiten CH-Standort. Default AUS --
+    # erfordert einen bereits eingerichteten SSH-Zugang zum Ziel-Host.
+    backup_offsite_enabled: bool = False
+    # rsync-Zielangabe, z.B. "5eyes-offsite@backup-host.ch:/srv/5eyes-offsite/"
+    backup_offsite_target: str = ''
+    backup_offsite_ssh_key_path: str = ''
+    backup_offsite_ssh_port: int = 22
+    # Sekunden, nach denen ein haengender rsync-Versuch abgebrochen wird --
+    # ein Netzwerk-Hang darf den Backup-Scheduler nie blockieren.
+    backup_offsite_timeout_seconds: int = 120
+
     # U-19 — Aggregator-Cache (Roadmap-Punkt 19). compute_advisory_report
     # macht 17 Sektionen mit je mehreren DB-Queries; der Sub-App-User klickt
     # durch Sektionen und triggert pro Sektionsanzeige einen vollen Recompute.

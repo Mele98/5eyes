@@ -27,9 +27,19 @@
 
 ## 3. Backup-Strategie
 - Täglich automatisiert (Scheduler vorhanden) + vor Deploys ad-hoc.
-- **Verschlüsselt**, **CH-Off-Site** (zweites CH-RZ, Roadmap #15).
+- **Verschlüsselt**, **CH-Off-Site**: seit 2026-08-07 automatisiert
+  (`services/backup.py::replicate_offsite`, opt-in via `backup_offsite_enabled`
+  + `backup_offsite_target`, siehe unten). Kopiert das bereits SQLCipher-
+  verschlüsselte lokale Backup + Sidecar per `rsync` über SSH an ein zweites
+  CH-RZ, direkt im Anschluss an den täglichen lokalen Backup-Lauf. Fail-soft:
+  ein Offsite-Fehler kann das bereits erfolgreiche lokale Backup nicht
+  gefährden, wird aber geloggt (`Scheduled offsite-backup-replication failed`).
+  **Voraussetzung zum Aktivieren:** SSH-Zugang zum Ziel-Host (Key-Auth)
+  einmalig einrichten, dann die 4 Settings setzen — kein Deploy-Schritt sonst.
 - Retention dokumentieren (z. B. 7 täglich / 4 wöchentlich / 12 monatlich).
-- Integrität: Backup-Datei nach Erstellung verifizieren (Öffnen/Checksumme).
+- Integrität: Backup-Datei nach Erstellung verifizieren (Öffnen/Checksumme);
+  die `.sha256`-Sidecar wird mit an den Off-Site-Standort kopiert, damit die
+  Off-Site-Kopie unabhängig vom Primär-Host verifizierbar ist.
 
 ## 4. Restore-Prozedur (Kurz)
 1. Ausfall feststellen, Incident eröffnen (Zeit, Umfang, betroffene Tenants).
@@ -58,6 +68,7 @@
   Datensicherheitsverletzung mit hohem Risiko (revDSG).
 
 ## 7. Offene technische Voraussetzungen (Roadmap)
-Off-Site-Replikation (#15), Postgres + PITR (#8), Monitoring/Alerting (#14),
-Secret-Management (#13). Bis dahin: tägliches lokales Backup + manuelle Off-Site-Kopie
-+ dokumentierter Drill.
+Postgres + PITR (#8), Monitoring/Alerting (#14), Secret-Management (#13).
+Off-Site-Replikation (#15) ist seit 2026-08-07 gebaut (siehe Abschnitt 3),
+aber **noch nicht scharf geschaltet** — braucht einmalig einen echten
+Ziel-Host + SSH-Zugang, dann `backup_offsite_enabled=true` setzen.

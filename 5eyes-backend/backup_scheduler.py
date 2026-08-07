@@ -32,7 +32,7 @@ def _run_backup_job() -> None:
     """APScheduler-Wrapper: lazy-import + Exceptions schlucken, damit ein
     Backup-Fehler den Scheduler nicht killt."""
     try:
-        from services.backup import backup_database
+        from services.backup import backup_database, replicate_offsite
 
         result = backup_database(
             target_dir=settings.backup_dir,
@@ -47,6 +47,26 @@ def _run_backup_job() -> None:
             result.retained_files,
             result.pruned_files,
         )
+
+        # Roadmap #15 (Off-Site-Backup-Replikation): erst NACH einem
+        # erfolgreichen lokalen Backup versuchen, das lokale Backup ist die
+        # primaere Schutzmassnahme und darf nie von einem Offsite-Problem
+        # abhaengen (replicate_offsite() wirft nie, siehe Docstring dort).
+        if settings.backup_offsite_enabled:
+            offsite = replicate_offsite(
+                result.path,
+                settings.backup_offsite_target,
+                ssh_key_path=settings.backup_offsite_ssh_key_path,
+                ssh_port=settings.backup_offsite_ssh_port,
+                timeout_seconds=settings.backup_offsite_timeout_seconds,
+            )
+            if offsite.ok:
+                logger.info("Scheduled offsite-backup-replication ok | target=%s", offsite.target)
+            else:
+                logger.warning(
+                    "Scheduled offsite-backup-replication failed | target=%s detail=%s",
+                    offsite.target, offsite.detail,
+                )
     except Exception:  # noqa: BLE001 — Scheduler soll nicht crashen
         logger.exception("Scheduled DB-backup failed")
 

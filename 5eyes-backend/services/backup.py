@@ -29,7 +29,9 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import shutil
 import sqlite3
+import subprocess
 import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -72,6 +74,20 @@ class RestoreResult:
     target_path: Path
     bytes_restored: int
     hash_verified: bool
+
+
+@dataclass(frozen=True)
+class OffsiteReplicationResult:
+    """Ergebnis eines Off-Site-Replikations-Versuchs (Roadmap #15).
+
+    ok=False bedeutet NICHT, dass das lokale Backup fehlgeschlagen ist --
+    die Replikation ist ein zusaetzlicher, best-effort Schritt NACH einem
+    bereits erfolgreichen lokalen Backup (siehe replicate_offsite()-Docstring).
+    """
+
+    ok: bool
+    target: str
+    detail: str
 
 
 def backup_database(
@@ -498,3 +514,91 @@ def _prune_old_backups(
             except OSError as exc:
                 logger.warning("Konnte altes Backup nicht loeschen: %s (%s)", f, exc)
     return pruned
+
+
+def replicate_offsite(
+    backup_path: str | Path,
+    target: str,
+    *,
+    ssh_key_path: str | None = None,
+    ssh_port: int = 22,
+    timeout_seconds: int = 120,
+) -> OffsiteReplicationResult:
+    """Kopiert ein bereits erstelltes lokales Backup an einen zweiten CH-Standort.
+
+    Roadmap #15 (2026-08-07): das lokale SQLCipher-Backup schuetzt gegen
+    Datenverlust durch Anwendungsfehler/versehentliches Loeschen, aber NICHT
+    gegen einen Ausfall des Standorts selbst (Hardware/RZ). Diese Funktion
+    ergaenzt eine Off-Site-Kopie via `rsync` ueber SSH -- die Datei ist
+    (bei aktivem SQLCipher) bereits verschluesselt, bevor sie den Host
+    verlaesst; SSH verschluesselt zusaetzlich den Transport.
+
+    Parameter
+    ---------
+    backup_path
+        Pfad zur lokalen Backup-Datei (aus `backup_database().path`). Die
+        `.sha256`-Sidecar-Datei wird automatisch mitkopiert, falls vorhanden,
+        damit der Remote-Host die Integritaet unabhaengig pruefen kann.
+    target
+        rsync-Ziel, z.B. "5eyes-offsite@backup-host.ch:/srv/5eyes-offsite/".
+        Muss auf ein Verzeichnis zeigen (trailing slash empfohlen).
+    ssh_key_path
+        Optionaler Pfad zu einem privaten SSH-Key. Leer/None -> rsync nutzt
+        die Default-SSH-Konfiguration des Users (~/.ssh/config).
+    timeout_seconds
+        Hartes Zeitlimit -- ein haengender Netzwerk-Transfer darf den
+        (taeglichen) Backup-Scheduler nie blockieren.
+
+    Fail-soft by design
+    --------------------
+    Wirft NIE eine Exception. Jeder Fehler (rsync fehlt, SSH-Auth
+    fehlgeschlagen, Netzwerk-Timeout, falsches Ziel) liefert
+    `OffsiteReplicationResult(ok=False, detail=...)` und wird geloggt --
+    das bereits erfolgreiche LOKALE Backup darf dadurch nie nachtraeglich als
+    Fehlschlag erscheinen. Aufrufer (z.B. backup_scheduler.py) entscheidet,
+    ob/wie ein wiederholtes Offsite-Versagen eskaliert wird (z.B. Alerting).
+    """
+    backup_path = Path(backup_path).expanduser().resolve()
+    if not backup_path.exists():
+        return OffsiteReplicationResult(
+            ok=False, target=target,
+            detail=f"Backup-Datei nicht gefunden: {backup_path}",
+        )
+    if not target or not target.strip():
+        return OffsiteReplicationResult(
+            ok=False, target=target,
+            detail="Kein Offsite-Ziel konfiguriert (backup_offsite_target leer).",
+        )
+    if shutil.which("rsync") is None:
+        return OffsiteReplicationResult(
+            ok=False, target=target,
+            detail="rsync ist auf diesem Host nicht installiert.",
+        )
+
+    sidecar = backup_path.with_suffix(backup_path.suffix + ".sha256")
+    sources = [str(backup_path)] + ([str(sidecar)] if sidecar.exists() else [])
+
+    ssh_cmd = f"ssh -p {int(ssh_port)}"
+    if ssh_key_path and ssh_key_path.strip():
+        ssh_cmd += f" -i {ssh_key_path.strip()}"
+
+    cmd = ["rsync", "-az", "--timeout", str(int(timeout_seconds)), "-e", ssh_cmd, *sources, target]
+    try:
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        logger.warning("Offsite-Backup-Replikation fehlgeschlagen (%s): %s", target, exc)
+        return OffsiteReplicationResult(ok=False, target=target, detail=str(exc))
+
+    if proc.returncode != 0:
+        detail = (proc.stderr or proc.stdout or f"rsync exit code {proc.returncode}").strip()
+        logger.warning("Offsite-Backup-Replikation fehlgeschlagen (%s): %s", target, detail)
+        return OffsiteReplicationResult(ok=False, target=target, detail=detail)
+
+    logger.info("Offsite-Backup-Replikation ok | source=%s target=%s", backup_path, target)
+    return OffsiteReplicationResult(ok=True, target=target, detail="ok")
