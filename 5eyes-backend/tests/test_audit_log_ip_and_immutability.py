@@ -37,6 +37,7 @@ from database import (
 )
 from models import allocation, clients, mandates, profiling, review, snapshots, tenant, users, wealth  # noqa: F401
 from models.review import AuditLog
+from models.users import User
 from sqlalchemy.orm import configure_mappers
 from services.audit import log
 
@@ -114,9 +115,76 @@ def test_fresh_bootstrap_audit_log_is_immutable_after_migration(tmp_path, monkey
         with pytest.raises(IntegrityError, match="immutable"):
             conn.execute(text("UPDATE audit_log SET action='DELETE' WHERE id=:id"), {"id": entry_id})
 
+
+def _now_iso() -> str:
+    import datetime
+    return datetime.datetime.now(datetime.UTC).isoformat().replace("+00:00", "Z")
+
+
+def test_tenant_id_is_derived_from_user_and_included_in_hash(tmp_path, monkeypatch):
+    """Roadmap #21 (2026-08-08): tenant_id wird beim Schreiben aus user_id
+    hergeleitet (kein Call-Site muss angepasst werden) und ist Teil der
+    Integritaets-Pruefsumme -- ein manipulierter tenant_id-Wert muss einen
+    anderen Hash ergeben."""
+    engine, session_local = _fresh_engine(tmp_path, monkeypatch, "audit_tenant")
+    ensure_audit_log_actions(engine)
+    ensure_audit_log_triggers(engine)
+    with session_local() as session:
+        session.add(User(
+            id="u1", username="u1", password_hash="h", full_name="Admin", role="admin",
+            is_active=1, tenant_id="firm-A", created_at=_now_iso(), updated_at=_now_iso(),
+        ))
+        session.commit()
+        log(session, user_id="u1", user_name="Admin", table_name="users", record_id="u1", action="LOGIN")
+        session.commit()
+        entry = session.query(AuditLog).one()
+    assert entry.tenant_id == "firm-A"
+
+    from services.audit import _audit_integrity_payload
+    import hashlib
+    tampered = _audit_integrity_payload(
+        entry_id=entry.id, user_id=entry.user_id, user_name=entry.user_name,
+        table_name=entry.table_name, record_id=entry.record_id, action=entry.action,
+        field_name=entry.field_name, old_value=entry.old_value, new_value=entry.new_value,
+        mandate_id=entry.mandate_id, client_id=entry.client_id, created_at=entry.created_at,
+        previous_hash="", ip_address=entry.ip_address, tenant_id="firm-B",
+    )
+    assert entry.integrity_hash != hashlib.sha256(tampered.encode("utf-8")).hexdigest()
+
+
+def test_tenant_id_stays_null_when_user_lookup_misses(tmp_path, monkeypatch):
+    """Client-Portal-Logins u.ae. uebergeben eine user_id, die KEINE Zeile in
+    users hat -- muss weiterhin klaglos funktionieren (tenant_id bleibt NULL,
+    keine Regression gegenueber dem bisherigen Verhalten)."""
+    engine, session_local = _fresh_engine(tmp_path, monkeypatch, "audit_tenant_miss")
+    ensure_audit_log_actions(engine)
+    ensure_audit_log_triggers(engine)
+    with session_local() as session:
+        log(session, user_id="no-such-user", user_name="Client", table_name="risk_assessments",
+            record_id="ra1", action="UPDATE")
+        session.commit()
+        entry = session.query(AuditLog).one()
+    assert entry.tenant_id is None
+
+
+def test_tenant_id_survives_rename_rebuild_migration(tmp_path, monkeypatch):
+    """Reproduziert dieselbe Bugklasse wie der Trigger-Verlust oben: eine
+    per ensure_runtime_columns nachgezogene tenant_id-Spalte darf die
+    RENAME+Neuaufbau-Migration in ensure_audit_log_actions() nicht
+    unbemerkt wieder verwerfen."""
+    engine, session_local = _fresh_engine(tmp_path, monkeypatch, "audit_tenant_rebuild")
     with engine.begin() as conn:
-        with pytest.raises(IntegrityError, match="immutable"):
-            conn.execute(text("DELETE FROM audit_log WHERE id=:id"), {"id": entry_id})
+        existing = {row[1] for row in conn.execute(text("PRAGMA table_info(audit_log)"))}
+        assert "tenant_id" in existing, "ensure_runtime_columns haette tenant_id schon ergaenzt haben muessen"
+        conn.execute(text(
+            "INSERT INTO audit_log (id, user_name, table_name, record_id, action, created_at, tenant_id) "
+            "VALUES ('pre-existing', 'Admin', 'users', 'u1', 'LOGIN', '2026-01-01T00:00:00Z', 'firm-A')"
+        ))
+    ensure_audit_log_actions(engine)  # loest die RENAME+Neuaufbau-Migration aus
+    ensure_audit_log_triggers(engine)
+    with session_local() as session:
+        entry = session.query(AuditLog).filter(AuditLog.id == "pre-existing").one()
+    assert entry.tenant_id == "firm-A", "tenant_id wurde von der RENAME-Migration verworfen"
 
 
 def test_ensure_audit_log_triggers_is_idempotent(tmp_path, monkeypatch):

@@ -73,8 +73,10 @@ def upgrade() -> None:
     sa.Column('integrity_hash', sa.String(length=64), nullable=True),
     sa.Column('ip_address', sa.String(), nullable=True),
     sa.Column('created_at', sa.String(), nullable=False),
+    sa.Column('tenant_id', sa.String(), nullable=True),
     sa.PrimaryKeyConstraint('id')
     )
+    op.create_index('idx_audit_tenant', 'audit_log', ['tenant_id'], unique=False)
     op.create_table('fx_rates',
     sa.Column('id', sa.String(), nullable=False),
     sa.Column('currency', sa.String(), nullable=False),
@@ -1301,6 +1303,7 @@ def downgrade() -> None:
     op.drop_index(op.f('ix_login_attempts_key'), table_name='login_attempts')
     op.drop_table('login_attempts')
     op.drop_table('fx_rates')
+    op.drop_index('idx_audit_tenant', table_name='audit_log')
     op.drop_table('audit_log')
     op.drop_index('ix_acph_class_date', table_name='asset_class_price_history')
     op.drop_table('asset_class_price_history')

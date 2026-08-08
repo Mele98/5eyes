@@ -523,6 +523,17 @@ def ensure_runtime_columns() -> None:
             # siehe models/review.py::Product.jurisdiction. NULL = "CH".
             ('jurisdiction', 'TEXT'),
         ],
+        # Roadmap #21 (2026-08-08): tenant_id direkt am Eintrag gespeichert
+        # (statt nur ueber client_id/mandate_id/user_id transitiv abgeleitet)
+        # -- siehe services/audit.py::log() + routers/system.py::get_audit_log.
+        # Schliesst die Luecke, dass ein Firmen-Admin bisher NUR eigene
+        # Aktionen ODER Aktionen mit eigenem Client-/Mandats-Bezug sah, aber
+        # NICHT die Aktionen ANDERER Admins der eigenen Firma auf tenant-
+        # weiten (nicht client-/mandats-gebundenen) Tabellen (z.B. house_matrix,
+        # optimizer_policies, tax_parameter_sets).
+        'audit_log': [
+            ('tenant_id', 'TEXT'),
+        ],
     }
     inspector = inspect(engine)
     # WP1 (Home-Bias/CMA-Parametrisierung pro Jurisdiktion, 2026-07-30):
@@ -743,7 +754,8 @@ def ensure_audit_log_actions(target_engine: Engine = engine) -> None:
                 client_id TEXT,
                 integrity_hash TEXT,
                 ip_address TEXT,
-                created_at TEXT NOT NULL
+                created_at TEXT NOT NULL,
+                tenant_id TEXT
             )
         """))
         # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): frueher wurden hier NUR die
@@ -752,22 +764,28 @@ def ensure_audit_log_actions(target_engine: Engine = engine) -> None:
         # Lauf dieser selben Migration, z.B. bei erneuter Ausfuehrung nach
         # einem Teil-Upgrade) wuerde sonst stillschweigend verworfen. Daher
         # dynamisch anhand der tatsaechlichen Spalten von audit_log__old.
+        # Roadmap #21 (2026-08-08): tenant_id nach demselben Muster -- sonst
+        # wuerde diese RENAME-Migration eine bereits per ensure_runtime_columns
+        # nachgezogene tenant_id-Spalte beim naechsten Lauf wieder verwerfen
+        # (identische Bugklasse wie der Trigger-Verlust oben).
         old_columns = {
             row[1] for row in conn.execute(text("PRAGMA table_info(audit_log__old)"))
         }
         ip_address_select = "ip_address" if "ip_address" in old_columns else "NULL AS ip_address"
+        tenant_id_select = "tenant_id" if "tenant_id" in old_columns else "NULL AS tenant_id"
         conn.execute(text(f"""
             INSERT INTO audit_log (
                 id, user_id, user_name, table_name, record_id, action,
                 field_name, old_value, new_value, mandate_id, client_id,
-                integrity_hash, ip_address, created_at
+                integrity_hash, ip_address, created_at, tenant_id
             )
             SELECT
                 id, user_id, user_name, table_name, record_id, action,
                 field_name, old_value, new_value, mandate_id, client_id,
                 NULL AS integrity_hash,
                 {ip_address_select},
-                created_at
+                created_at,
+                {tenant_id_select}
             FROM audit_log__old
         """))
         conn.execute(text('DROP TABLE audit_log__old'))
@@ -981,6 +999,13 @@ def ensure_audit_log_indexes(target_engine: Engine = engine) -> None:
         conn.execute(text(
             "CREATE INDEX IF NOT EXISTS idx_audit_time "
             "ON audit_log(created_at)"
+        ))
+        # Roadmap #21 (2026-08-08): beschleunigt den tenant_id-Scope in
+        # routers/system.py::get_audit_log (siehe additive_columns['audit_log']
+        # in ensure_runtime_columns fuer die Spalte selbst).
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_audit_tenant "
+            "ON audit_log(tenant_id)"
         ))
 
 

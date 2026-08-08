@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 from models.review import AuditLog
+from models.users import User
 from database import new_uuid
 
 
@@ -22,6 +23,7 @@ def _audit_integrity_payload(
     created_at: str,
     previous_hash: str,
     ip_address: str | None = None,
+    tenant_id: str | None = None,
 ) -> str:
     # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): ip_address wird ANS ENDE
     # angehaengt, nicht dazwischen eingefuegt -- so bleibt der Hash
@@ -30,6 +32,9 @@ def _audit_integrity_payload(
     # Mechanismus verkettet ueber previous_hash (ein reiner Hex-String),
     # nicht ueber ein festes Payload-Format, daher ist ein gemischter
     # Verlauf (alte + neue Formatversion) unproblematisch.
+    # Roadmap #21 (2026-08-08): tenant_id wird -- wie schon ip_address (siehe
+    # Kommentar oben) -- ANS ENDE angehaengt, damit der Hash historischer
+    # Eintraege (vor dieser Migration, ohne tenant_id) unveraendert bleibt.
     return "|".join(
         [
             str(entry_id or ""),
@@ -46,6 +51,7 @@ def _audit_integrity_payload(
             str(created_at),
             str(previous_hash or ""),
             str(ip_address or ""),
+            str(tenant_id or ""),
         ]
     )
 
@@ -64,8 +70,17 @@ def log(
     mandate_id: str | None = None,
     client_id: str | None = None,
     ip_address: str | None = None,
+    tenant_id: str | None = None,
 ) -> None:
-    """Write an immutable audit log entry. Call after every mutating operation."""
+    """Write an immutable audit log entry. Call after every mutating operation.
+
+    Roadmap #21 (2026-08-08): tenant_id wird, wenn nicht explizit uebergeben,
+    aus user_id hergeleitet (Lookup gegen users.tenant_id). Callers muessen
+    dafuer NICHT angepasst werden -- user_id ist an jedem bestehenden
+    Call-Site bereits ein Pflichtparameter. Bleibt None fuer Aktionen ohne
+    echten users-Eintrag (z.B. Client-Portal-Logins) -- unveraendert zum
+    bisherigen Verhalten, keine Regression.
+    """
     created_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
     previous_entry = (
         db.query(AuditLog)
@@ -77,6 +92,11 @@ def log(
     stored_old_value = str(old_value) if old_value is not None else None
     stored_new_value = str(new_value) if new_value is not None else None
     stored_ip_address = str(ip_address) if ip_address else None
+    resolved_tenant_id = tenant_id
+    if resolved_tenant_id is None:
+        actor = db.query(User).filter(User.id == user_id).first()
+        resolved_tenant_id = getattr(actor, "tenant_id", None) if actor is not None else None
+    stored_tenant_id = str(resolved_tenant_id) if resolved_tenant_id else None
     payload = _audit_integrity_payload(
         entry_id=entry_id,
         user_id=user_id,
@@ -92,6 +112,7 @@ def log(
         created_at=created_at,
         previous_hash=previous_hash,
         ip_address=stored_ip_address,
+        tenant_id=stored_tenant_id,
     )
     integrity_hash = hashlib.sha256(payload.encode("utf-8")).hexdigest()
     entry = AuditLog(
@@ -108,6 +129,7 @@ def log(
         client_id=client_id,
         integrity_hash=integrity_hash,
         ip_address=stored_ip_address,
+        tenant_id=stored_tenant_id,
         created_at=created_at,
     )
     db.add(entry)

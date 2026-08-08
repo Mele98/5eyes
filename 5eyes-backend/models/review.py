@@ -457,6 +457,13 @@ class AuditLog(Base):
     # nur im App-Log, nicht im auditierbaren, hash-verketteten Audit-Trail.
     ip_address = Column(String)
     created_at = Column(String, nullable=False)
+    # Roadmap #21 (2026-08-08): tenant_id des HANDELNDEN Users zum Zeitpunkt
+    # des Eintrags (nicht ueber client_id/mandate_id/user_id transitiv zur
+    # Laufzeit hergeleitet) -- siehe services/audit.py::log() (Ableitung
+    # beim Schreiben) und routers/system.py::get_audit_log (Scope beim
+    # Lesen). NULL bei Altdaten (vor dieser Migration) und bei System-/
+    # Operator-Aktionen ohne Tenant-Bezug.
+    tenant_id = Column(String)
 
 
 class MandateReportNotes(Base):

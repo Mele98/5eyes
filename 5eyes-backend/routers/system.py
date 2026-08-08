@@ -86,14 +86,18 @@ def get_audit_log(
 
     # E1 (2026-06-14): Mandanten-Trennung — super_admin (Operator) sieht das ganze
     # Audit-Log; ein Firmen-Admin NUR Eintraege zu EIGENEN Clients/Mandaten plus
-    # eigene Aktionen. (audit_log hat keine tenant_id -> Scope ueber accessible IDs;
-    # fremde System-/Operator-Aktionen ohne client/mandate-Bezug bleiben unsichtbar.)
+    # eigene Aktionen, PLUS (Roadmap #21, 2026-08-08) alle Eintraege mit
+    # tenant_id == eigener Tenant -- schliesst die Luecke, dass Aktionen ANDERER
+    # Admins der eigenen Firma auf tenant-weiten, nicht client-/mandats-
+    # gebundenen Tabellen (house_matrix, optimizer_policies, tax_parameter_sets,
+    # ...) bisher unsichtbar waren (nur user_id==self traf dort je zu). Fremde
+    # System-/Operator-Aktionen ohne jeden dieser Bezuege bleiben unsichtbar.
     _user_tid = getattr(current_user, "tenant_id", None)
     if getattr(current_user, "role", None) != "super_admin" and _user_tid and str(_user_tid).strip():
         from services.auth import get_accessible_client_ids, get_accessible_mandate_ids
         cids = list(get_accessible_client_ids(db, current_user))
         mids = list(get_accessible_mandate_ids(db, current_user))
-        conds = [AuditLog.user_id == current_user.id]
+        conds = [AuditLog.user_id == current_user.id, AuditLog.tenant_id == _user_tid]
         if cids:
             conds.append(AuditLog.client_id.in_(cids))
         if mids:

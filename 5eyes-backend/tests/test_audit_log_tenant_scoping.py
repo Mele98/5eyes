@@ -58,6 +58,11 @@ def _seed(db):
     db.add_all([
         User(id="admin-a", username="admin-a", password_hash="h", full_name="A", role="admin",
              is_active=1, tenant_id="firm-A", created_at=_now(), updated_at=_now()),
+        # Roadmap #21 (2026-08-08): zweiter Admin DERSELBEN Firma -- prueft
+        # die Luecke, dass firm-weite (nicht client-/mandats-gebundene)
+        # Aktionen ANDERER Admins der eigenen Firma bisher unsichtbar waren.
+        User(id="admin-a2", username="admin-a2", password_hash="h", full_name="A2", role="admin",
+             is_active=1, tenant_id="firm-A", created_at=_now(), updated_at=_now()),
         User(id="op", username="op", password_hash="h", full_name="Op", role="super_admin",
              is_active=1, tenant_id="main", created_at=_now(), updated_at=_now()),
         _client("c-a", "firm-A"), _client("c-b", "firm-B"),
@@ -65,6 +70,13 @@ def _seed(db):
         _entry("e-b", client_id="c-b", user_id="someone"),          # firm-B client (fremd)
         _entry("e-own", client_id=None, user_id="admin-a", table_name="users", action="LOGIN"),  # eigene Aktion
         _entry("e-foreign-sys", client_id=None, user_id="other-op", table_name="system", action="UPDATE"),
+        # Firm-weite Konfigurationsaenderung eines ANDEREN Admins derselben
+        # Firma, ohne Client-/Mandats-Bezug -- nur ueber tenant_id sichtbar.
+        _entry("e-a-tenantwide", client_id=None, user_id="admin-a2", table_name="house_matrix",
+               action="UPDATE", tenant_id="firm-A"),
+        # Dasselbe fuer firm-B -- MUSS fuer admin-a unsichtbar bleiben.
+        _entry("e-b-tenantwide", client_id=None, user_id="someone-b", table_name="house_matrix",
+               action="UPDATE", tenant_id="firm-B"),
     ])
     db.commit()
 
@@ -92,3 +104,18 @@ def test_super_admin_sees_full_audit(session_factory):
                              current_user=db.get(User, "op"))
         ids = _ids(page)
         assert {"e-a", "e-b", "e-own", "e-foreign-sys"}.issubset(ids)
+
+
+def test_admin_sees_tenant_wide_actions_of_other_admins_same_firm(session_factory):
+    """Roadmap #21 (2026-08-08): vor diesem Fix haette admin-a den Eintrag
+    e-a-tenantwide NICHT gesehen (user_id war admin-a2, nicht admin-a; kein
+    client_id/mandate_id) -- eine firmenweite Konfigurationsaenderung (z.B.
+    house_matrix) eines Kollegen war fuer den Rest der eigenen Firma
+    unsichtbar. tenant_id am Eintrag schliesst diese Luecke."""
+    with session_factory() as db:
+        _seed(db)
+        page = get_audit_log(limit=50, offset=0, action=None, q=None, db=db,
+                             current_user=db.get(User, "admin-a"))
+        ids = _ids(page)
+        assert "e-a-tenantwide" in ids, "eigene Firma, tenant-weite Aktion muss sichtbar sein"
+        assert "e-b-tenantwide" not in ids, "LEAK: fremde Firma, tenant-weite Aktion sichtbar"
