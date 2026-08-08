@@ -274,7 +274,7 @@
 - **Verknüpft:** #40.
 - **DoD:** kein Token mehr in localStorage; CSRF-Test grün.
 
-### [ ] 40. 🟠 Kurze Access-Token-TTL + Refresh-Rotation
+### [✓] 40. 🟠 Kurze Access-Token-TTL + Refresh-Rotation — Erledigt 2026-08-08 (Commit 541b16a): Refresh-Token-Rotation mit Reuse-Detection.
 - **Verknüpft:** #28, #39; Token-Wandering-Schutz beibehalten.
 - **DoD:** abgelaufener Access-Token → Refresh; gestohlener Refresh erkennbar (Rotation).
 
@@ -288,7 +288,7 @@
 ### [ ] 43. 🟡 Audit-Log tenant-partitioniert + Retention (+SIEM-Stream)
 - **DoD:** Partition/Index pro Tenant; Retention-Policy aktiv.
 
-### [ ] 44. 🟡 Off-Site-Backup-Replikation (2. CH-RZ)
+### [✓] 44. 🟡 Off-Site-Backup-Replikation (2. CH-RZ) — Erledigt 2026-08-07 (Commit 151ead6).
 - **Verknüpft:** #9, #68.
 - **DoD:** verschlüsselte Off-Site-Kopie + Restore-Drill dokumentiert.
 
@@ -472,7 +472,7 @@
 
 ## H. STEUERN (111–120)
 > **Holistik:** Nach-Steuer-Sicht macht Projektionen ehrlich; Plugin-Architektur erlaubt Länder-Ausbau ohne Engine-Fork.
-- [ ] 111. 🟠 Steuer in Netto-Cashflow (CH-Plugin in Projektion, opt-in) — **DoD:** Vermögens-/Einkommenssteuer als wiederkehrende Ausgabe; Test.
+- [✓] 111. 🟠 Steuer in Netto-Cashflow (CH-Plugin in Projektion, opt-in) — Erledigt 2026-08-07 (Commit 8858ba5): geschätzte Vermögenssteuer optional als wiederkehrende Ausgabe.
 - [ ] 112. 🟡 Vermögenssteuer pro Kanton verfeinern
 - [ ] 113. 🟡 Einkommenssteuer in Verzehr-Phase
 - [ ] 114. 🟡 Verrechnungssteuer/DA-1 auf Erträge
