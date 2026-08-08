@@ -390,7 +390,7 @@
 - **DoD:** Test: Ziel mit Scope Gesamtvermögen nutzt total-Pfad; Determinismus.
 - **UMGESETZT (User-Entscheid: real 0 %):** Für Vermögensziele (Kapitalerhalt/Vermoegensziel) mit `goal_scope="Gesamtvermögen"` werden externe Assets (Gesamt- minus Beratungsvermögen) **konservativ nur mit Teuerung** (realer Zuwachs 0 %, keine Vola) zur Projektion addiert — in deterministischem UND MC-Pfad **identisch** (kein Drift, B4-Falle vermieden). Default-Scope (Beratungsvermögen) unverändert. Ausgaben-/Renditeziele bleiben scope-neutral (Ausgaben liquiditätsgetrieben — illiquide Eigenheime zahlen keine kurzfristige Ausgabe). Helfer `_external_assets_inflation_value` + `_goal_uses_total_scope` in `portfolio_engine.py`. Locks: `test_goal_scope_gesamtvermoegen.py` (6), B4-Tests auf Default-Scope umgestellt.
 
-### [ ] 84. 🟠 Miete inflationsindexiert (optional)
+### [✓] 84. 🟠 Miete inflationsindexiert (optional) — Bereits erledigt (Doc war veraltet)
 - **Können:** Flag pro Immobilie „Miete inflationsgebunden" → abgeleiteter Mietertrag `is_inflation_linked=1`.
 - **Verknüpft:** #100/#101 (Inflation), #34 derived cashflows.
 - **DoD:** Test: indexierte Miete wächst mit Teuerung in Projektion.
