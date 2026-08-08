@@ -10,3 +10,7 @@ from . import login_attempt  # noqa: F401,E402
 # Roadmap #28 (2026-08-08): Refresh-Token-Rotation -- dito, Tabelle
 # refresh_tokens muss an Base.metadata registriert sein.
 from . import refresh_token  # noqa: F401,E402
+
+# Weiterleitung ans Asset Management (2026-08-08) -- dito, Tabelle
+# portfolio_handoffs muss an Base.metadata registriert sein.
+from . import portfolio_handoff  # noqa: F401,E402

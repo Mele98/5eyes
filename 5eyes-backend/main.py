@@ -42,6 +42,7 @@ from routers.jurisdiction import (  # WP3 (2026-07-31) — Jurisdiktions-Verwalt
 )
 from routers.mandates import router as mandates_router
 from routers.market_data import router as market_data_router
+from routers.portfolio_handoff import router as portfolio_handoff_router
 from routers.prices import router as prices_router
 from routers.profiling import router as profiling_router
 from routers.protocol_bausteine import router as protocol_bausteine_router  # Bug-#13a (2026-06-07)
@@ -143,6 +144,7 @@ app.include_router(review_router)
 app.include_router(products_router)
 app.include_router(product_universe_router)
 app.include_router(recommendations_router)
+app.include_router(portfolio_handoff_router)
 app.include_router(dashboard_router)
 app.include_router(prices_router)
 app.include_router(snapshots_router)

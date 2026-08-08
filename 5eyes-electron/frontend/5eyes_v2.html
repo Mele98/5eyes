@@ -21104,9 +21104,138 @@ function openTradeList(){
     +'<th style="'+thR+'">Soll-%</th>'
     +'</tr></thead>'
     +'<tbody>'+rows+'</tbody>'
-    +'</table></div>';
+    +'</table></div>'
+    +'<div id="m-tl-handoff"></div>';
   body.innerHTML=html;
   om('m-tl');
+  var runId=result&&result.run&&result.run.id?String(result.run.id):null;
+  _tlHandoffCtx={mandateId:getActiveMandateId(),runId:runId};
+  renderPortfolioHandoffSection();
+}
+// 2026-08-08 (User-Direktive): Weiterleitung ans Asset Management. 5eyes
+// haelt keine echten Depots -- die Umsetzung der Handelsliste erfolgt extern
+// (Depotbank/internes Asset Management). Dieser Block schafft den
+// auditierbaren Nachweis DASS und WANN die Handelsliste tatsaechlich
+// weitergeleitet wurde (Rechenschaftsablegung, Art. 400 OR), inkl. Status-
+// Verlauf (Gesendet -> Ausgefuehrt/Storniert). Nur fuer discretionaere
+// Mandate sichtbar (_reviewIsDiscretionaryMandate(), identisches Gate wie
+// die Handelsliste selbst) -- reine Anlageberatung hat keine
+// Ausfuehrungsbefugnis und darf diese Aktion nicht anbieten.
+var _tlHandoffCtx=null;
+function renderPortfolioHandoffSection(){
+  var host=document.getElementById('m-tl-handoff');
+  if(!host)return;
+  if(!_tlHandoffCtx||!_tlHandoffCtx.mandateId||!_tlHandoffCtx.runId||!_reviewIsDiscretionaryMandate()){
+    host.innerHTML='';
+    return;
+  }
+  host.innerHTML='<hr style="margin:14px 0;border-color:var(--b1)">'
+    +'<div style="font-size:11px;font-weight:700;color:var(--n6);margin-bottom:8px">Weiterleitung ans Asset Management</div>'
+    +'<div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">'
+    +'<input id="tl-ho-recipient" placeholder="Empfänger (z.B. Bank XY Trading Desk)" style="flex:1;min-width:200px;padding:6px 8px;font-size:11px">'
+    +'<input id="tl-ho-channel" placeholder="Kanal (optional)" style="width:140px;padding:6px 8px;font-size:11px">'
+    +'</div>'
+    +'<textarea id="tl-ho-note" placeholder="Notiz (optional)" style="width:100%;min-height:36px;padding:6px 8px;font-size:11px;margin-bottom:8px"></textarea>'
+    +'<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">'
+    +'<button class="btn-g" id="tl-ho-submit" onclick="submitPortfolioHandoff()">An Asset Management weiterleiten</button>'
+    +'<span id="tl-ho-feedback" style="font-size:10px"></span>'
+    +'</div>'
+    +'<div id="tl-ho-history" style="font-size:10px;color:var(--n5)">Lade Verlauf…</div>';
+  loadPortfolioHandoffHistory();
+}
+async function submitPortfolioHandoff(){
+  if(!_tlHandoffCtx||!_tlHandoffCtx.mandateId||!_tlHandoffCtx.runId)return;
+  var recipientEl=document.getElementById('tl-ho-recipient');
+  var channelEl=document.getElementById('tl-ho-channel');
+  var noteEl=document.getElementById('tl-ho-note');
+  var fb=document.getElementById('tl-ho-feedback');
+  var recipient=(recipientEl&&recipientEl.value||'').trim();
+  if(recipient.length<2){
+    if(fb){fb.style.color='var(--neg)';fb.textContent='Bitte Empfänger angeben.';}
+    return;
+  }
+  var btn=document.getElementById('tl-ho-submit');
+  if(btn){btn.disabled=true;btn.textContent='Wird gesendet…';}
+  var payload={recipient_name:recipient};
+  var channel=(channelEl&&channelEl.value||'').trim();
+  if(channel)payload.recipient_channel=channel;
+  var note=(noteEl&&noteEl.value||'').trim();
+  if(note)payload.note=note;
+  if(fb){fb.style.color='var(--n5)';fb.textContent='';}
+  try{
+    await API.post('/mandates/'+_tlHandoffCtx.mandateId+'/recommendations/'+_tlHandoffCtx.runId+'/portfolio-handoffs',payload);
+    if(recipientEl)recipientEl.value='';
+    if(channelEl)channelEl.value='';
+    if(noteEl)noteEl.value='';
+    if(fb){fb.style.color='var(--pos)';fb.textContent='✓ Weitergeleitet.';}
+    try{showAppSuccess('Handelsliste an Asset Management weitergeleitet',{title:'Weiterleitung'});}catch(noticeErr){}
+    await loadPortfolioHandoffHistory();
+  }catch(e){
+    var msg='Fehler: '+(e.detail||e.message||'?');
+    if(fb){fb.style.color='var(--neg)';fb.textContent=msg;}
+    try{showAppError(msg,{title:'Weiterleitung fehlgeschlagen'});}catch(noticeErr){}
+  }finally{
+    if(btn){btn.disabled=false;btn.textContent='An Asset Management weiterleiten';}
+  }
+}
+function _handoffStatusColor(status){
+  if(status==='Ausgeführt')return 'var(--pos)';
+  if(status==='Storniert')return 'var(--neg)';
+  return 'var(--warn)';
+}
+function renderPortfolioHandoffHistory(items){
+  var host=document.getElementById('tl-ho-history');
+  if(!host)return;
+  if(!items||!items.length){host.innerHTML='<div style="color:var(--n5)">Noch keine Weiterleitung.</div>';return;}
+  host.innerHTML=items.map(function(h){
+    var color=_handoffStatusColor(h.status);
+    var when=String(h.created_at||'').slice(0,16).replace('T',' ');
+    var actions='';
+    if(h.status==='Gesendet'){
+      actions='<button class="btn" style="padding:2px 8px;font-size:9px;margin-left:6px" onclick="markPortfolioHandoffExecuted(\''+h.id+'\')">Ausführung bestätigen</button>'
+        +'<button class="btn" style="padding:2px 8px;font-size:9px;margin-left:4px;color:var(--neg)" onclick="cancelPortfolioHandoffPrompt(\''+h.id+'\')">Stornieren</button>';
+    }
+    return '<div style="padding:6px 0;border-bottom:1px solid var(--b1)">'
+      +'<span style="font-weight:700;color:'+color+'">'+escapeHtml(h.status||'')+'</span>'
+      +' &middot; '+escapeHtml(String(h.position_count||0))+' Positionen'
+      +' &middot; an '+escapeHtml(h.recipient_name||'')
+      +(h.recipient_channel?(' ('+escapeHtml(h.recipient_channel)+')'):'')
+      +' &middot; '+escapeHtml(when)
+      +actions
+      +'</div>';
+  }).join('');
+}
+async function loadPortfolioHandoffHistory(){
+  var host=document.getElementById('tl-ho-history');
+  if(!host||!_tlHandoffCtx||!_tlHandoffCtx.mandateId)return;
+  try{
+    var list=await API.get('/mandates/'+_tlHandoffCtx.mandateId+'/portfolio-handoffs');
+    renderPortfolioHandoffHistory(Array.isArray(list)?list:[]);
+  }catch(e){
+    host.textContent='Verlauf konnte nicht geladen werden.';
+  }
+}
+async function markPortfolioHandoffExecuted(handoffId){
+  if(!_tlHandoffCtx||!_tlHandoffCtx.mandateId)return;
+  try{
+    await API.post('/mandates/'+_tlHandoffCtx.mandateId+'/portfolio-handoffs/'+handoffId+'/mark-executed',{});
+    await loadPortfolioHandoffHistory();
+    try{showAppSuccess('Ausführung bestätigt',{title:'Weiterleitung'});}catch(noticeErr){}
+  }catch(e){
+    try{showAppError('Fehler: '+(e.detail||e.message||'?'),{title:'Bestätigung fehlgeschlagen'});}catch(noticeErr){}
+  }
+}
+async function cancelPortfolioHandoffPrompt(handoffId){
+  var reason=window.prompt('Grund für die Stornierung:');
+  if(!reason||!reason.trim())return;
+  if(!_tlHandoffCtx||!_tlHandoffCtx.mandateId)return;
+  try{
+    await API.post('/mandates/'+_tlHandoffCtx.mandateId+'/portfolio-handoffs/'+handoffId+'/cancel',{cancelled_reason:reason.trim()});
+    await loadPortfolioHandoffHistory();
+    try{showAppSuccess('Weiterleitung storniert',{title:'Weiterleitung'});}catch(noticeErr){}
+  }catch(e){
+    try{showAppError('Fehler: '+(e.detail||e.message||'?'),{title:'Stornierung fehlgeschlagen'});}catch(noticeErr){}
+  }
 }
 async function loadCurrentRiskAssessment(mid, renderUi){
   var requestedMandateId=mid!=null?String(mid):null;

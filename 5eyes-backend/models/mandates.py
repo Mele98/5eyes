@@ -86,3 +86,4 @@ class Mandate(Base):
     report_notes = relationship(
         "MandateReportNotes", back_populates="mandate", uselist=False
     )
+    portfolio_handoffs = relationship("PortfolioHandoff", back_populates="mandate")
