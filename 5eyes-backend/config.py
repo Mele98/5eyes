@@ -63,6 +63,12 @@ class Settings(BaseSettings):
     secret_key: str = DEFAULT_SECRET_KEY
     algorithm: str = 'HS256'
     access_token_expire_minutes: int = 480
+    # Roadmap #28 (Standpunkt 2026-08-07): Refresh-Token-Rotation. Deutlich
+    # laenger als access_token_expire_minutes -- der Sinn eines Refresh-Tokens
+    # ist gerade, ein KURZES Access-Token (kleines Leck-Zeitfenster) mit einem
+    # LANGEN, aber rotierenden (Reuse-Detection) Refresh-Token zu kombinieren,
+    # statt ein einzelnes langlebiges Access-Token zu haben.
+    refresh_token_expire_days: int = 30
     login_rate_limit_enabled: bool = True
     login_max_attempts: int = 5
     login_window_seconds: int = 60

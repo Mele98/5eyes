@@ -6,3 +6,7 @@
 # sind und von database.create_all() angelegt werden (ohne Eingriff in
 # database.py).
 from . import login_attempt  # noqa: F401,E402
+
+# Roadmap #28 (2026-08-08): Refresh-Token-Rotation -- dito, Tabelle
+# refresh_tokens muss an Base.metadata registriert sein.
+from . import refresh_token  # noqa: F401,E402

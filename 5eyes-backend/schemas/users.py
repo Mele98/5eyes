@@ -201,3 +201,12 @@ class TokenResponse(BaseModel):
     # weiteren Request kennt. None = "wealthmanagement" (siehe
     # models/tenant.py::default_presentation_mode).
     tenant_default_presentation_mode: Optional[str] = None
+    # Roadmap #28 (2026-08-08): Refresh-Token-Rotation. Optional, damit
+    # bestehende FE-Clients, die dieses Feld noch ignorieren, unveraendert
+    # weiterlaufen -- sie nutzen einfach weiter nur access_token bis zu
+    # dessen Ablauf (heutiges Verhalten, unveraendert).
+    refresh_token: Optional[str] = None
+
+
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str

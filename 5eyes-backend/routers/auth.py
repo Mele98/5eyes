@@ -13,7 +13,7 @@ from models.users import User, AdviserRegistration
 from schemas.users import (
     AdviserRegistrationCreate, AdviserRegistrationResponse, BootstrapAdminRequest,
     BootstrapStatusResponse, InviteAccept, InviteCreate, InvitePreview, InviteResponse,
-    LoginRequest, TokenResponse, UserCreate, UserPasswordReset,
+    LoginRequest, RefreshTokenRequest, TokenResponse, UserCreate, UserPasswordReset,
     UserUpdate, UserResponse,
 )
 from services.auth import (
@@ -29,6 +29,9 @@ from services.totp import (
 )
 from services.mailer import send_invite_email, send_password_reset_email
 from services.quota import assert_within_quota
+from services.refresh_tokens import (
+    RefreshTokenReuseDetected, issue_refresh_token, revoke_all_for_user, rotate_refresh_token,
+)
 from services.account_recovery import (
     ensure_account_recovery_columns, generate_recovery_codes, consume_recovery_code,
     remaining_recovery_codes, issue_reset_token, reset_token_valid, clear_reset_token,
@@ -79,7 +82,7 @@ def _bootstrap_required(db: Session) -> bool:
 _bootstrap_admin_lock = threading.Lock()
 
 
-def _issue_token_response(user: User, db: Session | None = None) -> TokenResponse:
+def _issue_token_response(user: User, db: Session | None = None, request: Request | None = None) -> TokenResponse:
     # Sprint T2 (2026-06-08): Token enthaelt jetzt tid-Claim via
     # issue_token_for_user. Backwards-Compat: User ohne tenant_id bekommt
     # tid='main'.
@@ -91,16 +94,30 @@ def _issue_token_response(user: User, db: Session | None = None) -> TokenRespons
     # fehlt der Tenant (sollte nie passieren), bleibt das Feld None
     # ("wealthmanagement"-Default, unveraendertes Verhalten).
     tenant_mode = None
+    refresh_token_raw = None
     if db is not None:
         from models.tenant import DEFAULT_TENANT_ID, Tenant
         tenant_id = getattr(user, "tenant_id", None) or DEFAULT_TENANT_ID
         tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
         if tenant is not None:
             tenant_mode = tenant.default_presentation_mode
+        # Roadmap #28 (2026-08-08): neue Refresh-Token-Familie bei jedem
+        # Login/Bootstrap/Invite-Accept. Fail-soft: ein Fehler beim Refresh-
+        # Token darf den eigentlichen Login nicht verhindern (Access-Token
+        # bleibt in jedem Fall gueltig, wie bisher).
+        try:
+            ip = _extract_client_ip(request) if request is not None else None
+            issued = issue_refresh_token(db, user, ip=ip)
+            db.commit()
+            refresh_token_raw = issued.raw_token
+        except Exception:  # noqa: BLE001
+            db.rollback()
+            refresh_token_raw = None
     return TokenResponse(
         access_token=token,
         user=UserResponse.model_validate(user),
         tenant_default_presentation_mode=tenant_mode,
+        refresh_token=refresh_token_raw,
     )
 
 
@@ -232,7 +249,7 @@ def bootstrap_admin(body: BootstrapAdminRequest, request: Request, db: Session =
         db.refresh(admin)
     login_attempt_guard.register_success(guard_key)
     logger.info('Bootstrap admin created | username=%s', admin.username)
-    return _issue_token_response(admin, db)
+    return _issue_token_response(admin, db, request)
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -311,7 +328,7 @@ def login(body: LoginRequest, request: Request, db: Session = Depends(get_db)):
         ip_address=_extract_client_ip(request))
     db.commit()
 
-    return _issue_token_response(user, db)
+    return _issue_token_response(user, db, request)
 
 
 @router.get("/me", response_model=UserResponse)
@@ -327,11 +344,71 @@ def logout(
     """AUTH-04 (2026-07-22): Logout war bisher ein No-op — ein gestohlenes
     Token blieb bis zum Ablauf gueltig. Setzt token_revoked_before = jetzt;
     get_current_user verweigert danach jedes Token mit iat < diesem Zeitpunkt
-    (401), unabhaengig von dessen exp."""
+    (401), unabhaengig von dessen exp.
+
+    Roadmap #28 (2026-08-08): revoziert zusaetzlich ALLE Refresh-Tokens
+    dieses Users (alle Sessions/Geraete) -- konsistent zum bestehenden
+    user-weiten (nicht nur session-weiten) token_revoked_before-Verhalten."""
     current_user.token_revoked_before = _now()
     current_user.updated_at = _now()
+    revoke_all_for_user(db, current_user.id)
     db.commit()
     return {"message": "Erfolgreich abgemeldet"}
+
+
+@router.post("/refresh", response_model=TokenResponse)
+def refresh_access_token(body: RefreshTokenRequest, request: Request, db: Session = Depends(get_db)):
+    """Roadmap #28 (Standpunkt 2026-08-07): tauscht einen gueltigen Refresh-
+    Token gegen ein neues Access-Token + einen NEUEN (rotierten) Refresh-
+    Token. Oeffentlicher Endpoint (kein Bearer-Access-Token noetig -- das
+    ist der Zweck: der alte Access-Token darf bereits abgelaufen sein).
+
+    Rate-limited wie /login (derselbe Guard, IP-basiert), da der Endpoint
+    ohne vorherige Authentifizierung erreichbar ist.
+    """
+    guard_key = _login_guard_key(request, "refresh")
+    decision = login_attempt_guard.check(guard_key)
+    if not decision.allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=decision.reason or "Zu viele Anfragen. Bitte später erneut versuchen.",
+            headers={"Retry-After": str(decision.retry_after_seconds)},
+        )
+    try:
+        result = rotate_refresh_token(db, body.refresh_token, ip=_extract_client_ip(request))
+    except RefreshTokenReuseDetected:
+        db.commit()
+        login_attempt_guard.register_failure(guard_key)
+        logger.warning(
+            "Refresh-token reuse detected | request_id=%s",
+            getattr(request.state, "request_id", "n/a"),
+        )
+        raise HTTPException(
+            status_code=401,
+            detail="Refresh-Token wurde bereits verwendet — bitte erneut anmelden.",
+        )
+    if result is None:
+        login_attempt_guard.register_failure(guard_key)
+        raise HTTPException(status_code=401, detail="Refresh-Token ungültig oder abgelaufen.")
+
+    user, issued = result
+    db.commit()
+    login_attempt_guard.register_success(guard_key)
+
+    tenant_mode = None
+    from models.tenant import DEFAULT_TENANT_ID, Tenant
+    tenant_id = getattr(user, "tenant_id", None) or DEFAULT_TENANT_ID
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    if tenant is not None:
+        tenant_mode = tenant.default_presentation_mode
+
+    from services.auth import issue_token_for_user
+    return TokenResponse(
+        access_token=issue_token_for_user(user),
+        user=UserResponse.model_validate(user),
+        tenant_default_presentation_mode=tenant_mode,
+        refresh_token=issued.raw_token,
+    )
 
 
 class _ChangePassword(_BaseModel):
@@ -374,6 +451,11 @@ def change_password(
     current_user.updated_at = _now()
     if not was_forced_change:
         current_user.token_revoked_before = _now()
+        # Roadmap #28 (2026-08-08): dito fuer Refresh-Tokens -- ein regulaerer
+        # Passwortwechsel muss auch rotierende Refresh-Token-Ketten beenden,
+        # sonst koennte ein altes, noch gueltiges Refresh-Token weiterhin
+        # frische Access-Tokens fuer das (kompromittiert vermutete) Konto holen.
+        revoke_all_for_user(db, current_user.id)
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="users", record_id=current_user.id, action="PASSWORD_CHANGE",
         ip_address=_extract_client_ip(request))
@@ -791,7 +873,7 @@ def invite_accept(body: InviteAccept, request: Request, db: Session = Depends(ge
         table_name="users", record_id=user.id, action="INVITE_ACCEPT")
     db.commit()
     db.refresh(user)
-    return _issue_token_response(user, db)
+    return _issue_token_response(user, db, request)
 
 
 def _resolve_invite(db: Session, token: str) -> User:
