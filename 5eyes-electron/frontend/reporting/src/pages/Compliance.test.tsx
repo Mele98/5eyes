@@ -11,6 +11,7 @@ import {
   makeRecommendationMethodology,
   makeMandateLockStatus,
   makeLiquidityCascade,
+  makeReserveExplainability,
 } from '@/test/fixtures';
 
 
@@ -21,6 +22,7 @@ function renderCompliance(overrides: Partial<Parameters<typeof Compliance>[0]> =
     recommendation: makeRecommendationMethodology(),
     mandateLock: makeMandateLockStatus(),
     liquidityCascade: makeLiquidityCascade(),
+    reserveExplainability: makeReserveExplainability(),
     ...overrides,
   };
   render(<Compliance {...props} />);
@@ -28,13 +30,14 @@ function renderCompliance(overrides: Partial<Parameters<typeof Compliance>[0]> =
 
 
 describe('Compliance-Dashboard', () => {
-  it('renders all 5 audit-cards', () => {
+  it('renders all 6 audit-cards', () => {
     renderCompliance();
     expect(screen.getByTestId('compliance-suitability')).toBeInTheDocument();
     expect(screen.getByTestId('compliance-methodology')).toBeInTheDocument();
     expect(screen.getByTestId('compliance-recommendation')).toBeInTheDocument();
     expect(screen.getByTestId('compliance-mandate-lock')).toBeInTheDocument();
     expect(screen.getByTestId('compliance-liquidity')).toBeInTheDocument();
+    expect(screen.getByTestId('compliance-reserve-explainability')).toBeInTheDocument();
   });
 
   it('renders overall status banner', () => {
@@ -153,5 +156,70 @@ describe('Compliance-Dashboard', () => {
     expect(screen.getByText(/Art. 11\/13\/16 FIDLEG/)).toBeInTheDocument();
     expect(screen.getByText(/Art. 16 FIDLEG/)).toBeInTheDocument();
     expect(screen.getByText(/Art. 11 \/ Art. 13 FIDLEG/)).toBeInTheDocument();
+  });
+
+  describe('reserve-explainability-card (Roadmap #61)', () => {
+    it('shows "kein Reservebedarf" with the default fixture (reserve_needed_rappen=0)', () => {
+      renderCompliance();
+      // Erscheint zweimal (Summary-Zeile + Narrativ-Text der Fixture) -- beides korrekt.
+      expect(screen.getAllByText(/Kein zusaetzlicher Liquiditaetsreserve-Bedarf/i).length).toBeGreaterThan(0);
+    });
+
+    it('shows the narrative list when composition is available and reserve is needed', () => {
+      renderCompliance({
+        reserveExplainability: {
+          ...makeReserveExplainability(),
+          reserve_needed_rappen: 50_000_00,
+          composition_available: true,
+          narrative: ['Negativer laufender Netto-Cashflow erhoeht die erforderliche Liquiditaetsreserve.'],
+        },
+      });
+      expect(screen.getByText(/Negativer laufender Netto-Cashflow/i)).toBeInTheDocument();
+    });
+
+    it('shows external reserve amount when recommended', () => {
+      renderCompliance({
+        reserveExplainability: {
+          ...makeReserveExplainability(),
+          reserve_needed_rappen: 100_000_00,
+          external_reserve_rappen: 40_000_00,
+          external_reserve_recommended: true,
+          external_reserve_reason: 'Der Liquiditaetsbedarf uebersteigt die strategische SAA-Liquiditaets-Obergrenze.',
+          composition_available: true,
+        },
+      });
+      expect(screen.getByText(/uebersteigt die strategische SAA-Liquiditaets-Obergrenze/i)).toBeInTheDocument();
+      expect(screen.getByText("CHF 40'000")).toBeInTheDocument();
+    });
+
+    it('shows drift warning instead of narrative when drift_detected', () => {
+      renderCompliance({
+        reserveExplainability: {
+          ...makeReserveExplainability(),
+          reserve_needed_rappen: 50_000_00,
+          composition_available: false,
+          drift_detected: true,
+          hinweis: 'Die Reserve-Zusammensetzung konnte nicht im Detail hergeleitet werden.',
+        },
+      });
+      expect(screen.getByText(/Herleitung nicht aktuell/i)).toBeInTheDocument();
+      expect(screen.getByText(/konnte nicht im Detail hergeleitet werden/i)).toBeInTheDocument();
+    });
+
+    it('shows the not-available fallback when available=false', () => {
+      renderCompliance({
+        reserveExplainability: {
+          ...makeReserveExplainability(),
+          available: false,
+          hinweis: 'Keine Reserve-Herleitung verfuegbar (keine aktive Soll-Allokation).',
+        },
+      });
+      expect(screen.getByText(/keine aktive Soll-Allokation/i)).toBeInTheDocument();
+    });
+
+    it('shows fidleg_basis for the reserve-explainability card', () => {
+      renderCompliance();
+      expect(screen.getByText(/Art. 8 \/ Art. 9 FIDLEG/)).toBeInTheDocument();
+    });
   });
 });

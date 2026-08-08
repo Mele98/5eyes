@@ -453,6 +453,7 @@ function renderSection(
         recommendation={data.recommendation_methodology}
         mandateLock={data.mandate_lock_status}
         liquidityCascade={data.liquidity_cascade}
+        reserveExplainability={data.reserve_explainability}
       />
     );
   }

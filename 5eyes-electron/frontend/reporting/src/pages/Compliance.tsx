@@ -1,25 +1,32 @@
 /**
  * Sektion 17 (UI) — Compliance-Audit Dashboard.
  *
- * Aggregiert die 5 neuen Backend-Sektionen 19-23 (PR #163, 2026-06-04)
- * in einer Berater-tauglichen Übersicht:
+ * Aggregiert Backend-Sektionen 19-23 (PR #163, 2026-06-04) + 28 (Roadmap
+ * #61, Standpunkt 2026-08-07) in einer Berater-tauglichen Übersicht:
  *   - 19 Suitability-Compliance (FIDLEG Art. 11/13/16)
  *   - 20 Methodology-Modelle (NS / KGV / Risikoprämien)
  *   - 21 Recommendation-Methodology (Optimizer-Run)
  *   - 22 Mandate-Lock-Status
  *   - 23 Liquidity-Cascade-Warning
+ *   - 28 Reserve-Erklaerbarkeit (WARUM Reservebedarf/externe Reserve) --
+ *     Backend (services/advisory_report.py::_build_reserve_explainability)
+ *     war seit seiner Einfuehrung fertig berechnet + getypt, aber nirgends
+ *     gerendert; dieselbe "computed but never surfaced"-Bugklasse wie das
+ *     E-Signing-Sichtbarkeitsproblem (d48c8d5) und der Waehrungs-Abgleich
+ *     im Admin-Panel (26fb1c5).
  *
  * Editorial-Stil: kompakte Status-Cards, keine Verkaufsargumente,
  * keine Garantieversprechen. FINMA-bewusst.
  */
 import { AmpelPill } from '@/components/AmpelPill';
 import { ReportPage } from '@/components/ReportPage';
-import { formatBpsAsPct } from '@/lib/format';
+import { formatBpsAsPct, formatChfRappen } from '@/lib/format';
 import type {
   LiquidityCascadeData,
   MandateLockStatusData,
   MethodologyModelsData,
   RecommendationMethodologyData,
+  ReserveExplainabilityData,
   SuitabilityComplianceData,
 } from '@/api/types';
 
@@ -29,6 +36,7 @@ interface ComplianceProps {
   recommendation: RecommendationMethodologyData;
   mandateLock: MandateLockStatusData;
   liquidityCascade: LiquidityCascadeData;
+  reserveExplainability: ReserveExplainabilityData;
 }
 
 export function Compliance({
@@ -37,6 +45,7 @@ export function Compliance({
   recommendation,
   mandateLock,
   liquidityCascade,
+  reserveExplainability,
 }: ComplianceProps) {
   // DL-2: defensiv gegen partielle/ältere Payloads (Aggregator liefert diese
   // Sektionen zwar immer, aber ein fehlendes Objekt soll die Seite nicht crashen).
@@ -61,6 +70,7 @@ export function Compliance({
       <RecommendationCard data={recommendation} />
       <MandateLockCard data={mandateLock} />
       <LiquidityCascadeCard data={liquidityCascade} />
+      <ReserveExplainabilityCard data={reserveExplainability} />
     </ReportPage>
   );
 }
@@ -310,6 +320,87 @@ function LiquidityCascadeCard({ data }: { data: LiquidityCascadeData }) {
           <p className="mt-1 text-ink-muted">{data.stage_label}</p>
         </div>
       ) : null}
+      <p className="mt-3 text-micro text-ink-subtle">{data.fidleg_basis}</p>
+    </ComplianceCard>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Sektion 28 (Roadmap #61): Reserve-Erklaerbarkeit
+// ---------------------------------------------------------------------------
+
+function ReserveExplainabilityCard({ data }: { data: ReserveExplainabilityData }) {
+  if (!data.available) {
+    return (
+      <ComplianceCard
+        testId="compliance-reserve-explainability"
+        title="Reserve-Herleitung"
+        status="nicht_beurteilbar"
+        summary="Keine Reserve-Herleitung verfuegbar"
+      >
+        <p className="text-caption text-ink-muted">{data.hinweis}</p>
+        <p className="mt-3 text-micro text-ink-subtle">{data.fidleg_basis}</p>
+      </ComplianceCard>
+    );
+  }
+
+  const hasReserve = (data.reserve_needed_rappen ?? 0) > 0;
+  const status = !hasReserve ? 'gruen' : data.composition_available ? 'gruen' : 'gelb';
+  const summary = !hasReserve
+    ? 'Kein zusaetzlicher Liquiditaetsreserve-Bedarf'
+    : `${formatChfRappen(data.reserve_needed_rappen)} Reservebedarf`;
+
+  return (
+    <ComplianceCard
+      testId="compliance-reserve-explainability"
+      title="Reserve-Herleitung"
+      status={status}
+      summary={summary}
+    >
+      {hasReserve ? (
+        <dl className="grid grid-cols-2 gap-x-6 gap-y-2 text-caption">
+          <dt className="text-ink-subtle">Reservebedarf</dt>
+          <dd className="font-mono text-ink">{formatChfRappen(data.reserve_needed_rappen)}</dd>
+          <dt className="text-ink-subtle">SAA-Liquiditaets-Obergrenze</dt>
+          <dd className="font-mono text-ink">{formatBpsAsPct(data.saa_liquidity_ceiling_bps)}</dd>
+          {data.external_reserve_recommended ? (
+            <>
+              <dt className="text-ink-subtle">Externe Reserve empfohlen</dt>
+              <dd className="font-mono text-ink">{formatChfRappen(data.external_reserve_rappen)}</dd>
+            </>
+          ) : null}
+          {data.other_assets_absorption_rappen ? (
+            <>
+              <dt className="text-ink-subtle">Absorbiert durch anderes Vermoegen</dt>
+              <dd className="font-mono text-ink">{formatChfRappen(data.other_assets_absorption_rappen)}</dd>
+            </>
+          ) : null}
+        </dl>
+      ) : null}
+
+      {data.external_reserve_reason ? (
+        <p className="mt-3 text-caption text-ink-muted">{data.external_reserve_reason}</p>
+      ) : null}
+
+      {data.composition_available && data.narrative.length > 0 ? (
+        <ul className="mt-3 list-disc space-y-1 pl-5 text-caption text-ink-muted">
+          {data.narrative.map((line, i) => (
+            <li key={i}>{line}</li>
+          ))}
+        </ul>
+      ) : null}
+
+      {data.drift_detected ? (
+        <div className="mt-3 border-l-2 border-status-gelb bg-status-gelb/5 p-3 text-caption text-ink">
+          <p className="font-semibold">Herleitung nicht aktuell.</p>
+          <p className="mt-1 text-ink-muted">{data.hinweis}</p>
+        </div>
+      ) : (
+        !data.composition_available && data.hinweis ? (
+          <p className="mt-3 text-caption text-ink-muted">{data.hinweis}</p>
+        ) : null
+      )}
+
       <p className="mt-3 text-micro text-ink-subtle">{data.fidleg_basis}</p>
     </ComplianceCard>
   );
