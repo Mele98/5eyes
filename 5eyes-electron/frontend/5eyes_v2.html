@@ -2219,9 +2219,14 @@ async function provRender(){
   catch(e){ body.innerHTML='<div style="font-size:11px;color:var(--neg);line-height:1.6">Tenant-Verwaltung nicht verfügbar: '+escapeHtml(String(e.detail||e.message||e).slice(0,160))+'<br><br>Benötigt Operator-Rolle <b>super_admin</b> + <b>TENANT_ADMIN_UI_ENABLED=true</b> (Tier-2/Staging).</div>'; return; }
   var opts=(tenants||[]).map(function(t){return '<option value="'+escapeHtml(t.id)+'">'+escapeHtml(t.display_name||t.id)+'</option>';}).join('');
   var rows=(tenants||[]).map(function(t){
-    var vvBadge=t.discretionary_management_licensed
-      ?'<span style="color:var(--pos)" title="FINIG-Bewilligung/AO-Anschluss bestätigt — darf Vermögensverwaltungsmandate anlegen">VV ✓</span>'
-      :'<span style="color:var(--n4)" title="Keine FINIG-Freischaltung — darf nur Anlageberatung anbieten">VV —</span>';
+    // 2026-08-09 (Live-Playwright-Fund): urspruenglich nur ein statisches
+    // Badge -- ein Operator konnte die Freischaltung nach der Erstanlage nur
+    // per Rohzugriff auf PUT /tenants/{id} aendern. Jetzt klickbar (super_admin
+    // -Kontext, dieselbe Berechtigung wie das Anlegen).
+    var vvLicensed=!!t.discretionary_management_licensed;
+    var vvBadge='<span style="cursor:pointer;text-decoration:underline dotted;color:'+(vvLicensed?'var(--pos)':'var(--n4)')+'" '
+      +'title="'+(vvLicensed?'FINIG-Bewilligung/AO-Anschluss bestätigt — darf Vermögensverwaltungsmandate anlegen. Klicken zum Zurückziehen.':'Keine FINIG-Freischaltung — darf nur Anlageberatung anbieten. Klicken zum Freischalten.')+'" '
+      +'onclick="provToggleVvLicense(\''+escapeHtml(t.id)+'\','+(vvLicensed?'true':'false')+')">VV '+(vvLicensed?'✓':'—')+'</span>';
     return '<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--b1);font-size:11px"><span>'+escapeHtml(t.display_name||t.id)+' <span style="color:var(--n4)">('+escapeHtml(t.slug||'')+')</span></span><span style="color:var(--n4)">'+escapeHtml(t.home_jurisdiction||'CH')+' · '+escapeHtml(t.hosting_tier||'')+' · '+escapeHtml(t.license_status||'')+' · '+vvBadge+'</span></div>';
   }).join('')||'<div style="font-size:10px;color:var(--n4)">Noch keine Firmen.</div>';
   var inp='width:100%;box-sizing:border-box;padding:7px 9px;border:1px solid var(--b1);border-radius:6px;font-size:12px;margin-bottom:6px';
@@ -2252,11 +2257,26 @@ async function provRender(){
    +'<div id="prov-msg" style="font-size:11px;min-height:14px;margin-top:8px"></div>';
 }
 function provMsg(t,ok){var m=document.getElementById('prov-msg');if(m){m.style.color=ok?'var(--pos)':'var(--neg)';m.textContent=t;}}
+async function provToggleVvLicense(tenantId,currentlyLicensed){
+  var next=!currentlyLicensed;
+  var verb=next?'freischalten':'zurückziehen';
+  if(!window.confirm('FINIG-Freischaltung für diese Firma '+verb+'? Betrifft alle künftigen Vermögensverwaltungsmandate dieser Firma.'))return;
+  try{
+    await API.put('/tenants/'+encodeURIComponent(tenantId),{discretionary_management_licensed:next});
+    await provRender();
+    provMsg(next?'FINIG-Freischaltung erteilt.':'FINIG-Freischaltung zurückgezogen.',true);
+  }catch(e){ provMsg('Fehler: '+String(e.detail||e.message||e).slice(0,150),false); }
+}
 async function provCreateTenant(){
   var n=(document.getElementById('prov-t-name')||{}).value, s=(document.getElementById('prov-t-slug')||{}).value;
   var jur=(document.getElementById('prov-t-jurisdiction')||{}).value||'CH';
   var vvLicensed=!!(document.getElementById('prov-t-vv-licensed')||{}).checked;
-  try{ await API.post('/tenants',{display_name:String(n||'').trim(),slug:String(s||'').trim(),home_jurisdiction:jur,discretionary_management_licensed:vvLicensed}); provMsg('Firma angelegt.',true); await provRender(); }
+  // 2026-08-09 (Live-Playwright-Fund): provRender() baut #m-prov-body und
+  // damit #prov-msg komplett neu -- ein provMsg()-Aufruf VOR dem Re-Render
+  // wird sofort durch den frischen (leeren) #prov-msg ueberschrieben und war
+  // fuer den Operator nie sichtbar. Reihenfolge daher: erst neu rendern, dann
+  // die Erfolgsmeldung in den NEUEN DOM schreiben.
+  try{ await API.post('/tenants',{display_name:String(n||'').trim(),slug:String(s||'').trim(),home_jurisdiction:jur,discretionary_management_licensed:vvLicensed}); await provRender(); provMsg('Firma angelegt.',true); }
   catch(e){ provMsg('Fehler: '+String(e.detail||e.message||e).slice(0,150),false); }
 }
 async function provCreateEmployee(){
@@ -2267,10 +2287,13 @@ async function provCreateEmployee(){
   var pw=(document.getElementById('prov-u-pw')||{}).value;
   var role=(document.getElementById('prov-u-role')||{}).value||'advisor';
   try{
-    var created=await API.post('/users',{username:String(user||'').trim(),password:String(pw||''),full_name:String(full||'').trim(),role:role});
+    var created=await API.post('/users',{username:String(user||'').trim(),password:String(pw||''),full_name:String(full||'').trim(),role:role,tenant_id:tid});
     await API.fetch('/tenants/'+encodeURIComponent(tid)+'/users/'+encodeURIComponent(created.id)+'/assign',{method:'PUT'});
-    provMsg('Mitarbeiter angelegt & Firma zugewiesen.',true);
+    // 2026-08-09 (Live-Playwright-Fund): siehe Kommentar in provCreateTenant()
+    // -- erst rendern, dann die Meldung in den neuen DOM schreiben, sonst
+    // loescht provRender() sie sofort wieder.
     await provRender();
+    provMsg('Mitarbeiter angelegt & Firma zugewiesen.',true);
   }catch(e){ provMsg('Fehler: '+String(e.detail||e.message||e).slice(0,150),false); }
 }
 // E1 (2026-06-14): Onboarding per Einladungslink — Account ohne Passwort,
@@ -2284,7 +2307,7 @@ async function provInviteEmployee(){
   var role=(document.getElementById('prov-u-role')||{}).value||'advisor';
   if(!String(user||'').trim()||!String(full||'').trim()){ provMsg('Name und Benutzername nötig.',false); return; }
   try{
-    var payload={username:String(user||'').trim(),full_name:String(full||'').trim(),role:role};
+    var payload={username:String(user||'').trim(),full_name:String(full||'').trim(),role:role,tenant_id:tid};
     if(String(email||'').trim()) payload.email=String(email||'').trim();
     var inv=await API.post('/users/invite',payload);
     try{ await API.fetch('/tenants/'+encodeURIComponent(tid)+'/users/'+encodeURIComponent(inv.user_id)+'/assign',{method:'PUT'}); }catch(_a){}

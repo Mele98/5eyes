@@ -9,6 +9,13 @@ class UserCreate(BaseModel):
     full_name: str
     email: Optional[EmailStr] = None
     role: Literal["admin", "advisor", "readonly", "portfolio_management"] = "advisor"
+    # 2026-08-09 (Live-Playwright-Fund, FINIG-Gate-Test): nur von super_admin
+    # ausgewertet (routers/auth.py::create_user) -- erlaubt dem Operator, einen
+    # Mitarbeiter DIREKT in der Ziel-Firma anzulegen (Quota wird dann korrekt
+    # gegen DIESE Firma geprueft statt gegen die eigene Operator-Firma, siehe
+    # Docstring am Router). Fuer regulaere admin-Aufrufer wirkungslos (sie
+    # erhalten immer ihre eigene tenant_id, wie bisher).
+    tenant_id: Optional[str] = None
 
     @field_validator('username', 'full_name')
     @classmethod
@@ -156,6 +163,9 @@ class InviteCreate(BaseModel):
     full_name: str
     email: Optional[EmailStr] = None
     role: Literal["admin", "advisor", "readonly", "portfolio_management"] = "advisor"
+    # 2026-08-09: siehe UserCreate.tenant_id -- identischer Grund (Quota-Check
+    # muss gegen die Ziel-Firma laufen, nicht die Operator-Firma).
+    tenant_id: Optional[str] = None
 
     @field_validator('username', 'full_name')
     @classmethod

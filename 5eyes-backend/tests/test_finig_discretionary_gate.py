@@ -250,3 +250,62 @@ def test_frontend_provisioning_has_finig_checkbox_wired():
     end = html.index("\n}", start)
     body = html[start:end]
     assert "discretionary_management_licensed:vvLicensed" in body
+
+
+# ===========================================================================
+# Live-Playwright-Fund (2026-08-09): Operator-Firma-Quota blockte
+# Mitarbeiter-Provisionierung fuer JEDE neu angelegte Firma; VV-Badge liess
+# sich nach der Erstanlage nicht mehr aendern. Siehe auch
+# test_super_admin_cross_tenant_provisioning.py fuer das Backend-Enforcement.
+# ===========================================================================
+
+
+def _html() -> str:
+    html_path = Path(__file__).resolve().parents[2] / "5eyes-electron" / "frontend" / "5eyes_v2.html"
+    return html_path.read_text(encoding="utf-8")
+
+
+def test_frontend_employee_provisioning_passes_target_tenant_id():
+    html = _html()
+    start = html.index("async function provCreateEmployee()")
+    end = html.index("\nasync function provInviteEmployee()", start)
+    body = html[start:end]
+    assert "tenant_id:tid" in body
+
+
+def test_frontend_invite_provisioning_passes_target_tenant_id():
+    html = _html()
+    start = html.index("async function provInviteEmployee()")
+    end = html.index("\nfunction provCopyInvite()", start)
+    body = html[start:end]
+    assert "tenant_id:tid" in body
+
+
+def test_frontend_vv_badge_is_toggleable_by_super_admin():
+    html = _html()
+    assert "async function provToggleVvLicense(tenantId,currentlyLicensed)" in html
+    start = html.index("async function provToggleVvLicense(tenantId,currentlyLicensed)")
+    end = html.index("\n}", start)
+    body = html[start:end]
+    assert "API.put('/tenants/" in body
+    assert "discretionary_management_licensed:next" in body
+    # Klickbares Badge in der Liste ruft die Toggle-Funktion mit dem
+    # aktuellen Zustand auf.
+    assert "onclick=\\'provToggleVvLicense(" in html or "onclick=\"provToggleVvLicense(" in html or "onclick='provToggleVvLicense(" in html
+
+
+def test_frontend_provisioning_success_messages_survive_rerender():
+    """provRender() baut #prov-msg komplett neu -- provMsg() muss NACH dem
+    Re-Render aufgerufen werden, sonst wird die Erfolgsmeldung sofort wieder
+    geloescht, bevor der Operator sie sieht (live im Browser gefunden)."""
+    html = _html()
+    for fn_start, fn_end_marker in (
+        ("async function provCreateTenant()", "\nasync function provCreateEmployee()"),
+        ("async function provCreateEmployee()", "\n// E1 (2026-06-14): Onboarding per Einladungslink"),
+    ):
+        start = html.index(fn_start)
+        end = html.index(fn_end_marker, start)
+        body = html[start:end]
+        render_idx = body.index("provRender()")
+        msg_idx = body.index("provMsg(", body.index("provRender()"))
+        assert render_idx < msg_idx, f"provRender() muss vor dem Erfolgs-provMsg() in {fn_start} stehen"

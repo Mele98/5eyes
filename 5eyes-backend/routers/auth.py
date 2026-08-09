@@ -717,6 +717,18 @@ def create_user(
         raise HTTPException(status_code=409, detail="Benutzername bereits vergeben")
     now = _now()
     tenant_id = getattr(current_user, "tenant_id", None)
+    # 2026-08-09 (Live-Playwright-Fund, FINIG-Gate-Test): ein super_admin, der
+    # einen Mitarbeiter fuer eine ANDERE (neu provisionierte) Firma anlegt,
+    # wurde bisher IMMER gegen die eigene Operator-Firma quota-geprueft -- war
+    # die (typischerweise winzige, oft max_users=1) Operator-Firma bereits
+    # ausgeschoepft, blockte das JEDE Mitarbeiter-Provisionierung fuer JEDE
+    # neue Firma, unabhaengig von deren eigener (oft leerer) Quota. Ein
+    # super_admin darf `body.tenant_id` explizit angeben, um direkt fuer die
+    # Ziel-Firma anzulegen -- Quota greift dann korrekt gegen diese. Regulaere
+    # admin-Aufrufer erhalten unveraendert immer ihre eigene tenant_id (kein
+    # Privilege-Escalation-Pfad, um fremde Firmen-Quotas zu pruefen/umgehen).
+    if current_user.role == "super_admin" and body.tenant_id:
+        tenant_id = body.tenant_id
     assert_within_quota(db, tenant_id, "users")
     user = User(
         id=new_uuid(),
@@ -728,7 +740,8 @@ def create_user(
         is_active=1,
         # E1 (2026-06-13): Mitarbeiter erbt den Tenant des anlegenden Admins ->
         # NIE NULL-tenant_id, harte Firmen-Trennung. Cross-Tenant-Zuweisung macht
-        # der super_admin ueber die Tenant-Admin-API (assign).
+        # der super_admin ueber die Tenant-Admin-API (assign) ODER direkt hier
+        # via body.tenant_id (siehe Kommentar oben).
         tenant_id=tenant_id,
         # E1 (2026-06-14): vom Admin angelegter Account -> Initial-Passwort muss
         # beim ersten Login geaendert werden.
@@ -791,6 +804,9 @@ def invite_user(
         raise HTTPException(status_code=409, detail="Benutzername bereits vergeben")
     now = _now()
     tenant_id = getattr(current_user, "tenant_id", None)
+    # 2026-08-09: siehe identischer Kommentar in create_user() oben.
+    if current_user.role == "super_admin" and body.tenant_id:
+        tenant_id = body.tenant_id
     assert_within_quota(db, tenant_id, "users")
     token = secrets.token_urlsafe(32)
     expires_at = (datetime.now(timezone.utc) + timedelta(days=_INVITE_TTL_DAYS)).strftime(

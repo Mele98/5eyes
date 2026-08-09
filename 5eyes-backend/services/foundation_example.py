@@ -695,14 +695,14 @@ def upsert_foundation_example_case(db: Session, user: User) -> dict:
     db.flush()
 
     answers = [
-        ("Kenntnisse", 1, "Finanzdienstleistungen: Beratung und Verwaltung", 0),
-        ("Kenntnisse", 2, "Finanzinstrumente: Anlagefonds und ETFs", 0),
-        ("Risikofaehigkeit", 3, "CHF 20'000 oder mehr", 4),
-        ("Risikofaehigkeit", 4, "Herkunft: Berufliche Taetigkeit, Vermoegensanlagen", 0),
-        ("Risikofaehigkeit", 5, "CHF 5'000 oder weniger", 4),
-        ("Risikofaehigkeit", 6, "CHF 2'000'000 oder mehr", 12),
-        ("Risikofaehigkeit", 7, "Mehr als 50 %", 12),
-        ("Risikofaehigkeit", 8, "Mehr als 12 Jahre - Matrix-Faktor", 0),
+        ("Kenntnisse & Erfahrungen", 1, "Finanzdienstleistungen: Beratung und Verwaltung", 0),
+        ("Kenntnisse & Erfahrungen", 2, "Finanzinstrumente: Anlagefonds und ETFs", 0),
+        ("Risikofähigkeit", 3, "CHF 20'000 oder mehr", 4),
+        ("Risikofähigkeit", 4, "Herkunft: Berufliche Taetigkeit, Vermoegensanlagen", 0),
+        ("Risikofähigkeit", 5, "CHF 5'000 oder weniger", 4),
+        ("Risikofähigkeit", 6, "CHF 2'000'000 oder mehr", 12),
+        ("Risikofähigkeit", 7, "Mehr als 50 %", 12),
+        ("Risikofähigkeit", 8, "Mehr als 12 Jahre - Matrix-Faktor", 0),
         ("Risikobereitschaft", 9, "Das investierte Kapital soll sich stetig vermehren.", 3),
         ("Risikobereitschaft", 10, "Ich strebe eine hoehere Rendite an und bin bereit, dafuer ein erhoehtes Risiko einzugehen.", 3),
         ("Risikobereitschaft", 11, "Ich kann den Verlust voruebergehend akzeptieren und halte an meinen Anlagen fest.", 3),
