@@ -2460,7 +2460,7 @@ async function doInviteAccept(){
   if(pw!==pw2){ if(msg){msg.style.color='var(--neg)';msg.textContent='Passwörter stimmen nicht überein.';} return; }
   try{
     var res=await API.post('/auth/invite/accept',{token:window.__inviteToken,password:pw});
-    if(res&&res.access_token){ await API.setToken(res.access_token); }
+    if(res&&res.access_token){ await API.setToken(res.access_token); await API.setRefreshToken(res.refresh_token||null); }
     if(res&&res.user){ currentUser=res.user; }
     currentTenantDefaultPresentationMode=(res&&res.tenant_default_presentation_mode)||null;
     _stripInviteParam();
@@ -5009,6 +5009,61 @@ const API = {
     }
     return this._token;
   },
+  // Roadmap #28 (2026-08-09 Frontend-Wiring): Refresh-Token bekommt einen
+  // EIGENEN Speicherplatz (Electron: zweite verschluesselte Datei via
+  // auth:*-refresh-token-IPC; Browser: eigener sessionStorage-Key) --
+  // identisches Muster zu setToken/getToken, absichtlich NICHT derselbe
+  // Slot (Access- und Refresh-Token haben unterschiedliche Lebensdauer und
+  // werden unabhaengig rotiert).
+  async setRefreshToken(t) {
+    this._refreshToken = t || null;
+    if (window.desktop && typeof window.desktop.setRefreshToken === 'function' && t) {
+      try { await window.desktop.setRefreshToken(t); } catch(e){}
+    } else if (window.desktop && typeof window.desktop.clearRefreshToken === 'function' && !t) {
+      try { await window.desktop.clearRefreshToken(); } catch(e){}
+    } else {
+      try { t ? sessionStorage.setItem('5eyes_refresh_token', t) : sessionStorage.removeItem('5eyes_refresh_token'); } catch(e){}
+    }
+  },
+  async getRefreshToken() {
+    if (this._refreshToken) return this._refreshToken;
+    if (window.desktop && typeof window.desktop.getRefreshToken === 'function') {
+      try { this._refreshToken = await window.desktop.getRefreshToken(); } catch(e){}
+    }
+    if (!this._refreshToken) { try { this._refreshToken = sessionStorage.getItem('5eyes_refresh_token'); } catch(e){} }
+    return this._refreshToken;
+  },
+  // Stiller Token-Refresh vor dem harten Logout-Fallback bei 401 (siehe
+  // fetch() unten). Dedupliziert parallele 401s auf einen einzigen
+  // /auth/refresh-Aufruf (mehrere gleichzeitige Requests mit demselben
+  // abgelaufenen Access-Token wuerden sonst mehrere Rotationen ausloesen —
+  // jede Rotation invalidiert den vorherigen Refresh-Token, das wuerde die
+  // spaeteren parallelen Refresh-Versuche als Reuse werten).
+  async _tryRefreshToken() {
+    if (this._refreshInFlight) return this._refreshInFlight;
+    this._refreshInFlight = (async () => {
+      try {
+        const rt = await this.getRefreshToken();
+        if (!rt) return false;
+        const base = await this.baseUrl();
+        const res = await fetch(base + '/auth/refresh', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({refresh_token: rt}),
+        });
+        if (!res.ok) { await this.setRefreshToken(null); return false; }
+        const data = await res.json();
+        if (data && data.access_token) {
+          await this.setToken(data.access_token);
+          await this.setRefreshToken(data.refresh_token || null);
+          return true;
+        }
+        return false;
+      } catch(e) { return false; }
+    })();
+    try { return await this._refreshInFlight; }
+    finally { this._refreshInFlight = null; }
+  },
   async fetch(path, options={}) {
     const base = await this.baseUrl();
     const token = await this.getToken();
@@ -5031,10 +5086,25 @@ const API = {
       clearTimeout(timeoutId);
     }
     const retryAfter = Number.parseInt(res.headers.get('Retry-After') || '0', 10) || null;
-    if (res.status === 401 && token && !path.startsWith('/auth/login') && !path.startsWith('/auth/bootstrap')) {
+    if (res.status === 401 && token && !path.startsWith('/auth/login') && !path.startsWith('/auth/bootstrap') && !path.startsWith('/auth/refresh')) {
+      // Roadmap #28 (2026-08-09 Frontend-Wiring): vor dem harten Logout
+      // erst still versuchen, den abgelaufenen Access-Token per Refresh-
+      // Token zu erneuern -- bisher starb jede Session exakt bei
+      // access_token_expire_minutes (Default 8h), obwohl die Refresh-
+      // Rotation serverseitig laengst existierte (Roadmap #28 Backend,
+      // 2026-08-07/08). _isRetryAfterRefresh verhindert eine zweite
+      // Refresh-Runde fuer denselben Aufruf (falls der NEUE Token aus
+      // einem anderen Grund als 401 abgelehnt wird).
+      if (!options._isRetryAfterRefresh) {
+        const refreshed = await API._tryRefreshToken();
+        if (refreshed) {
+          return API.fetch(path, {...options, _isRetryAfterRefresh: true});
+        }
+      }
       if (!API._handling401) {
         API._handling401 = true;
         await API.setToken(null);
+        await API.setRefreshToken(null);
         showLogin('Sitzung abgelaufen. Bitte erneut anmelden.');
         setTimeout(function(){ API._handling401 = false; }, 2000);
       }
@@ -5223,6 +5293,7 @@ async function checkBootstrapStatus() {
 async function doLogout() {
   try { await API.post('/auth/logout', {}); } catch(e) { console.error('[5eyes] logout:', e); }
   await API.setToken(null);
+  await API.setRefreshToken(null);
   currentUser = null;
   const label = document.getElementById('current-user-label');
   if (label) label.textContent = '';
@@ -5251,6 +5322,7 @@ async function doLogin() {
     if (totpCode) loginPayload.totp_code = totpCode;
     const data = await API.post('/auth/login', loginPayload);
     await API.setToken(data.access_token);
+    await API.setRefreshToken(data.refresh_token || null);
     currentUser = data.user;
     currentTenantDefaultPresentationMode = data.tenant_default_presentation_mode || null;
     hideLogin();
@@ -5343,6 +5415,7 @@ async function doBootstrapAdmin() {
     });
     bootstrapStatusCache = { setup_required: false, can_create_admin: false };
     await API.setToken(data.access_token);
+    await API.setRefreshToken(data.refresh_token || null);
     currentUser = data.user;
     currentTenantDefaultPresentationMode = data.tenant_default_presentation_mode || null;
     hideLogin();
@@ -9231,7 +9304,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     try {
       me = await API.get('/auth/me');
     } catch(e) {
+      // Falls /auth/me trotz vorhandenem Token scheitert, hat API.fetch()
+      // bereits intern einen stillen Refresh-Versuch unternommen (siehe
+      // API.fetch()-401-Handling oben) -- landet der Fehler HIER, ist auch
+      // der Refresh-Token ungueltig/abgelaufen, beide Tokens raeumen.
       await API.setToken(null);
+      await API.setRefreshToken(null);
     }
     if(me){
       currentUser = me;

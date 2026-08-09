@@ -259,7 +259,7 @@
 - **Verknüpft:** #40.
 - **DoD:** kein Token mehr in localStorage; CSRF-Test grün.
 
-### [✓] 40. 🟠 Kurze Access-Token-TTL + Refresh-Rotation — Erledigt 2026-08-08 (Commit 541b16a): Refresh-Token-Rotation mit Reuse-Detection.
+### [✓] 40. 🟠 Kurze Access-Token-TTL + Refresh-Rotation — Erledigt 2026-08-08 (Commit 541b16a): Refresh-Token-Rotation mit Reuse-Detection. **Nachtrag 2026-08-09:** FE-Wiring ergaenzt (Backend war fertig, Frontend rief es nie auf) — siehe #28 im 110er-Dokument fuer Details.
 - **Verknüpft:** #28, #39; Token-Wandering-Schutz beibehalten.
 - **DoD:** abgelaufener Access-Token → Refresh; gestohlener Refresh erkennbar (Rotation).
 

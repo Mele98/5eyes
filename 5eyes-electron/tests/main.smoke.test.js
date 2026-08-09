@@ -82,6 +82,11 @@ function check(name, fn) {
   await check('auth:get-token handler registriert', () => {
     assert.strictEqual(typeof ipcHandlers['auth:get-token'], 'function');
   });
+  await check('auth:get-refresh-token handler registriert (Roadmap #28 Frontend-Wiring)', () => {
+    assert.strictEqual(typeof ipcHandlers['auth:get-refresh-token'], 'function');
+    assert.strictEqual(typeof ipcHandlers['auth:set-refresh-token'], 'function');
+    assert.strictEqual(typeof ipcHandlers['auth:clear-refresh-token'], 'function');
+  });
 
   const savePdf = ipcHandlers['file:save-pdf'];
 
@@ -136,6 +141,30 @@ function check(name, fn) {
 
     state.encryptionAvailable = true;            // Recovery
     assert.strictEqual(getToken({}), 'secret-123', 'Token nach Recovery wieder lesbar');
+  });
+
+  // Roadmap #28 (2026-08-09 Frontend-Wiring): Refresh-Token bekommt eine
+  // EIGENE Datei, unabhaengig vom Access-Token (unterschiedliche Lebensdauer,
+  // unabhaengige Rotation).
+  const getRefreshToken = ipcHandlers['auth:get-refresh-token'];
+  const setRefreshToken = ipcHandlers['auth:set-refresh-token'];
+  const clearRefreshToken = ipcHandlers['auth:clear-refresh-token'];
+  const refreshTokenFile = path.join(tmpUserData, 'refresh-token.bin');
+
+  await check('Refresh-Token: eigener Speicherplatz, getrennt vom Access-Token', async () => {
+    state.encryptionAvailable = true;
+    assert.strictEqual(setToken({}, 'access-secret'), true);
+    assert.strictEqual(setRefreshToken({}, 'refresh-secret'), true);
+    assert.ok(fs.existsSync(refreshTokenFile), 'Refresh-Token-Datei sollte nach set existieren');
+    assert.notStrictEqual(refreshTokenFile, tokenFile, 'muss eine andere Datei als der Access-Token sein');
+
+    assert.strictEqual(getToken({}), 'access-secret');
+    assert.strictEqual(getRefreshToken({}), 'refresh-secret');
+
+    clearRefreshToken({});
+    assert.strictEqual(fs.existsSync(refreshTokenFile), false, 'clear muss nur die Refresh-Token-Datei loeschen');
+    assert.ok(fs.existsSync(tokenFile), 'Access-Token-Datei bleibt beim Refresh-Token-Clear unangetastet');
+    assert.strictEqual(getToken({}), 'access-secret', 'Access-Token unveraendert nach Refresh-Token-Clear');
   });
 
   // EM-2 (Review-LOW): Base64 mit Whitespace/Newlines (tolerant dekodiert) muss

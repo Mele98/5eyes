@@ -180,57 +180,76 @@ async function checkForUpdates() {
 }
 
 const AUTH_TOKEN_STORE_FILE = path.join(app.getPath('userData'), 'auth-token.bin');
+// Roadmap #28 (2026-08-08 Backend, 2026-08-09 Frontend): Refresh-Token
+// bekommt eine EIGENE, vom Access-Token getrennte Datei -- beide sind
+// unterschiedlich langlebige Secrets (Access-Token Minuten/Stunden,
+// Refresh-Token Tage) und werden unabhaengig voneinander rotiert/geleert
+// (z.B. Logout loescht beide, aber ein abgelaufener Access-Token allein
+// loescht den Refresh-Token NICHT -- der wird ja gerade benutzt, um einen
+// neuen Access-Token zu holen).
+const REFRESH_TOKEN_STORE_FILE = path.join(app.getPath('userData'), 'refresh-token.bin');
 
-function readStoredToken() {
+// Generische, dateibasierte Secret-Ablage (OS-Keychain/DPAPI via safeStorage)
+// -- extrahiert aus der urspruenglichen Access-Token-Implementierung, damit
+// der Refresh-Token denselben, bereits gehaerteten Mechanismus 1:1 wiederverwenden
+// kann statt ihn zu duplizieren (EM-5-Fix unten gilt dann fuer beide Secrets).
+function readStoredSecret(storeFile, label) {
   try {
-    if (!fs.existsSync(AUTH_TOKEN_STORE_FILE)) return null;
-    const raw = fs.readFileSync(AUTH_TOKEN_STORE_FILE);
+    if (!fs.existsSync(storeFile)) return null;
+    const raw = fs.readFileSync(storeFile);
     if (!raw || raw.length === 0) return null;
     if (safeStorage.isEncryptionAvailable()) {
       return safeStorage.decryptString(raw);
     }
     // EM-5: Encryption nur *vorübergehend* nicht verfügbar (z.B. Keychain/DPAPI noch
-    // nicht bereit). writeStoredToken persistiert NIE Klartext, die Datei ist also
+    // nicht bereit). writeStoredSecret persistiert NIE Klartext, die Datei ist also
     // immer ein gültiges Ciphertext. Datei daher NICHT löschen — nur ignorieren und
     // re-login erzwingen; sobald safeStorage wieder verfügbar ist, lässt sie sich
-    // erneut entschlüsseln. (Vorher: clearStoredToken() verwarf das Token unnötig.)
-    logLine('WARNING: safeStorage encryption not available — stored token will not be used this session. User must log in again.');
+    // erneut entschlüsseln. (Vorher: clearStoredSecret() verwarf das Secret unnötig.)
+    logLine(`WARNING: safeStorage encryption not available — stored ${label} will not be used this session. User must log in again.`);
     return null;
   } catch (error) {
     // Echte Entschlüsselungs-/Lesefehler eines vorhandenen Ciphertext: Datei ist
     // korrupt/fremd -> bereinigen, damit sie nicht bei jedem Start erneut scheitert.
-    logLine(`Failed to read stored token (clearing corrupt token file): ${error.message || error}`);
-    clearStoredToken();
+    logLine(`Failed to read stored ${label} (clearing corrupt file): ${error.message || error}`);
+    clearStoredSecret(storeFile, label);
     return null;
   }
 }
 
-function writeStoredToken(token) {
+function writeStoredSecret(storeFile, value, label) {
   try {
     if (!safeStorage.isEncryptionAvailable()) {
-      // Refuse to persist token as plaintext — user will need to log in each session.
-      logLine('WARNING: safeStorage encryption not available — token will not be persisted to disk.');
+      // Refuse to persist secret as plaintext — user will need to log in each session.
+      logLine(`WARNING: safeStorage encryption not available — ${label} will not be persisted to disk.`);
       return false;
     }
-    fs.mkdirSync(path.dirname(AUTH_TOKEN_STORE_FILE), { recursive: true });
-    const payload = safeStorage.encryptString(String(token || ''));
-    fs.writeFileSync(AUTH_TOKEN_STORE_FILE, payload);
+    fs.mkdirSync(path.dirname(storeFile), { recursive: true });
+    const payload = safeStorage.encryptString(String(value || ''));
+    fs.writeFileSync(storeFile, payload);
     return true;
   } catch (error) {
-    logLine(`Failed to store token: ${error.message || error}`);
+    logLine(`Failed to store ${label}: ${error.message || error}`);
     return false;
   }
 }
 
-function clearStoredToken() {
+function clearStoredSecret(storeFile, label) {
   try {
-    if (fs.existsSync(AUTH_TOKEN_STORE_FILE)) fs.unlinkSync(AUTH_TOKEN_STORE_FILE);
+    if (fs.existsSync(storeFile)) fs.unlinkSync(storeFile);
     return true;
   } catch (error) {
-    logLine(`Failed to clear stored token: ${error.message || error}`);
+    logLine(`Failed to clear stored ${label}: ${error.message || error}`);
     return false;
   }
 }
+
+function readStoredToken() { return readStoredSecret(AUTH_TOKEN_STORE_FILE, 'token'); }
+function writeStoredToken(token) { return writeStoredSecret(AUTH_TOKEN_STORE_FILE, token, 'token'); }
+function clearStoredToken() { return clearStoredSecret(AUTH_TOKEN_STORE_FILE, 'token'); }
+function readStoredRefreshToken() { return readStoredSecret(REFRESH_TOKEN_STORE_FILE, 'refresh token'); }
+function writeStoredRefreshToken(token) { return writeStoredSecret(REFRESH_TOKEN_STORE_FILE, token, 'refresh token'); }
+function clearStoredRefreshToken() { return clearStoredSecret(REFRESH_TOKEN_STORE_FILE, 'refresh token'); }
 
 app.setAppUserModelId('ch.5eyes.wealtharchitekten');
 
@@ -602,6 +621,11 @@ ipcMain.handle('shell:open-external', async (_event, targetUrl) => {
 ipcMain.handle('auth:get-token', () => readStoredToken());
 ipcMain.handle('auth:set-token', (_event, token) => writeStoredToken(token));
 ipcMain.handle('auth:clear-token', () => clearStoredToken());
+// Roadmap #28 (2026-08-09 Frontend-Wiring): Refresh-Token separat gespeichert,
+// siehe Kommentar bei REFRESH_TOKEN_STORE_FILE weiter oben.
+ipcMain.handle('auth:get-refresh-token', () => readStoredRefreshToken());
+ipcMain.handle('auth:set-refresh-token', (_event, token) => writeStoredRefreshToken(token));
+ipcMain.handle('auth:clear-refresh-token', () => clearStoredRefreshToken());
 ipcMain.handle('file:save-pdf', async (_event, payload) => {
   // EM-2: Handler-Body komplett in try/catch — fehlende Daten und fs-Fehler
   // (ENOSPC, EACCES/EPERM auf gewähltem Pfad) als strukturiertes Ergebnis
