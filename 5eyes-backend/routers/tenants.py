@@ -154,6 +154,7 @@ def create_tenant(
         default_retrocession_reimbursement=1 if body.default_retrocession_reimbursement else 0,
         home_jurisdiction=body.home_jurisdiction,
         default_presentation_mode=body.default_presentation_mode,
+        discretionary_management_licensed=1 if body.discretionary_management_licensed else 0,
         is_active=1,
         created_at=now,
         updated_at=now,

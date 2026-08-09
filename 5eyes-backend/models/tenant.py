@@ -122,6 +122,14 @@ class Tenant(Base):
     # den schlankeren Consulting-Modus). Pro Sitzung im Frontend
     # ueberschreibbar (localStorage), dies ist nur der Firmen-Default.
     default_presentation_mode = Column(String)
+    # 2026-08-09 (FINIG-Gate, User-Direktive "Consulting/Wealthmanagement
+    # rechtlich sauber halten"): siehe services/tenant_licensing.py fuer die
+    # rechtliche Begruendung. Default=1 -- Bestandsmandanten bleiben beim
+    # Anlegen dieser Spalte unveraendert funktionsfaehig (kein rueckwirkender
+    # Block). NEUE Tenants (schemas/tenants.py::TenantCreate) starten dagegen
+    # bewusst mit False (explizites Opt-in fuer die hoehere Bewilligungsstufe,
+    # kein Opt-out).
+    discretionary_management_licensed = Column(Integer, nullable=False, default=1)
 
     is_active = Column(Integer, nullable=False, default=1)
     created_at = Column(String, nullable=False)

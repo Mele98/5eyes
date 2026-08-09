@@ -2218,7 +2218,12 @@ async function provRender(){
   try{ tenants=await API.get('/tenants'); }
   catch(e){ body.innerHTML='<div style="font-size:11px;color:var(--neg);line-height:1.6">Tenant-Verwaltung nicht verfügbar: '+escapeHtml(String(e.detail||e.message||e).slice(0,160))+'<br><br>Benötigt Operator-Rolle <b>super_admin</b> + <b>TENANT_ADMIN_UI_ENABLED=true</b> (Tier-2/Staging).</div>'; return; }
   var opts=(tenants||[]).map(function(t){return '<option value="'+escapeHtml(t.id)+'">'+escapeHtml(t.display_name||t.id)+'</option>';}).join('');
-  var rows=(tenants||[]).map(function(t){return '<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--b1);font-size:11px"><span>'+escapeHtml(t.display_name||t.id)+' <span style="color:var(--n4)">('+escapeHtml(t.slug||'')+')</span></span><span style="color:var(--n4)">'+escapeHtml(t.home_jurisdiction||'CH')+' · '+escapeHtml(t.hosting_tier||'')+' · '+escapeHtml(t.license_status||'')+'</span></div>';}).join('')||'<div style="font-size:10px;color:var(--n4)">Noch keine Firmen.</div>';
+  var rows=(tenants||[]).map(function(t){
+    var vvBadge=t.discretionary_management_licensed
+      ?'<span style="color:var(--pos)" title="FINIG-Bewilligung/AO-Anschluss bestätigt — darf Vermögensverwaltungsmandate anlegen">VV ✓</span>'
+      :'<span style="color:var(--n4)" title="Keine FINIG-Freischaltung — darf nur Anlageberatung anbieten">VV —</span>';
+    return '<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--b1);font-size:11px"><span>'+escapeHtml(t.display_name||t.id)+' <span style="color:var(--n4)">('+escapeHtml(t.slug||'')+')</span></span><span style="color:var(--n4)">'+escapeHtml(t.home_jurisdiction||'CH')+' · '+escapeHtml(t.hosting_tier||'')+' · '+escapeHtml(t.license_status||'')+' · '+vvBadge+'</span></div>';
+  }).join('')||'<div style="font-size:10px;color:var(--n4)">Noch keine Firmen.</div>';
   var inp='width:100%;box-sizing:border-box;padding:7px 9px;border:1px solid var(--b1);border-radius:6px;font-size:12px;margin-bottom:6px';
   body.innerHTML=''
    +'<div style="font-size:9px;text-transform:uppercase;letter-spacing:0.06em;color:var(--n4);margin-bottom:4px">Firmen ('+(tenants||[]).length+')</div>'
@@ -2228,6 +2233,10 @@ async function provRender(){
    +'<input id="prov-t-name" placeholder="Firmenname" style="'+inp+'">'
    +'<input id="prov-t-slug" placeholder="slug (z.B. firma-a)" style="'+inp+'">'
    +'<select id="prov-t-jurisdiction" style="'+inp+'"><option value="CH">Schweiz (CH)</option><option value="DE">Deutschland (DE)</option></select>'
+   +'<div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:10px;padding:8px 9px;border:1px solid var(--b1);border-radius:6px;background:var(--n1)">'
+   +'<input type="checkbox" id="prov-t-vv-licensed" style="margin-top:2px">'
+   +'<label for="prov-t-vv-licensed" style="font-size:10px;color:var(--n5);line-height:1.5">Firma verfügt über eine <b>FINIG-Bewilligung</b> (Anschluss an eine Aufsichtsorganisation) für diskretionäre Vermögensverwaltung. Nur dann darf sie Mandate mit Typ «Vermögensverwaltung» anlegen — reine Anlageberatung ist immer möglich, unabhängig von dieser Bestätigung.</label>'
+   +'</div>'
    +'<button class="btn-p" style="width:100%" onclick="provCreateTenant()">Firma anlegen</button></div>'
    +'<div style="border-top:1px solid var(--b1);padding-top:10px">'
    +'<div style="font-size:9px;text-transform:uppercase;letter-spacing:0.06em;color:var(--n4);margin-bottom:6px">Neuer Mitarbeiter</div>'
@@ -2246,7 +2255,8 @@ function provMsg(t,ok){var m=document.getElementById('prov-msg');if(m){m.style.c
 async function provCreateTenant(){
   var n=(document.getElementById('prov-t-name')||{}).value, s=(document.getElementById('prov-t-slug')||{}).value;
   var jur=(document.getElementById('prov-t-jurisdiction')||{}).value||'CH';
-  try{ await API.post('/tenants',{display_name:String(n||'').trim(),slug:String(s||'').trim(),home_jurisdiction:jur}); provMsg('Firma angelegt.',true); await provRender(); }
+  var vvLicensed=!!(document.getElementById('prov-t-vv-licensed')||{}).checked;
+  try{ await API.post('/tenants',{display_name:String(n||'').trim(),slug:String(s||'').trim(),home_jurisdiction:jur,discretionary_management_licensed:vvLicensed}); provMsg('Firma angelegt.',true); await provRender(); }
   catch(e){ provMsg('Fehler: '+String(e.detail||e.message||e).slice(0,150),false); }
 }
 async function provCreateEmployee(){

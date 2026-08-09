@@ -281,6 +281,49 @@ def test_default_retrocession_reimbursement_roundtrips(session_factory, super_ad
         app.dependency_overrides.clear()
 
 
+def test_finig_gate_defaults_to_false_for_new_tenants(session_factory, super_admin, monkeypatch):
+    """2026-08-09 (FINIG-Gate): neue Firmen starten OHNE Freischaltung fuer
+    diskretionaere Vermoegensverwaltung (Opt-in, kein Opt-out) -- Gegenstueck
+    zu test_tenant_orm_default_is_licensed_for_backwards_compat in
+    test_finig_discretionary_gate.py (dort: ORM-Default=1 fuer Bestandscode-
+    pfade ohne explizite Angabe; hier: API-Schema-Default=False fuer echte
+    Neu-Provisionierung ueber POST /tenants)."""
+    client = _make_client_as(super_admin, session_factory, monkeypatch)
+    try:
+        create_resp = client.post(
+            "/tenants",
+            json={"display_name": "Neue Firma AG", "slug": "neue-firma",
+                  "hosting_tier": TIER_2_SHARED_CLOUD},
+        )
+        assert create_resp.status_code == 201, create_resp.text
+        assert create_resp.json()["discretionary_management_licensed"] == 0
+        tenant_id = create_resp.json()["id"]
+
+        update_resp = client.put(
+            f"/tenants/{tenant_id}",
+            json={"discretionary_management_licensed": True},
+        )
+        assert update_resp.status_code == 200, update_resp.text
+        assert update_resp.json()["discretionary_management_licensed"] == 1
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_finig_gate_can_be_set_explicitly_at_creation(session_factory, super_admin, monkeypatch):
+    client = _make_client_as(super_admin, session_factory, monkeypatch)
+    try:
+        create_resp = client.post(
+            "/tenants",
+            json={"display_name": "Lizenzierte Firma AG", "slug": "lizenzierte-firma",
+                  "hosting_tier": TIER_2_SHARED_CLOUD,
+                  "discretionary_management_licensed": True},
+        )
+        assert create_resp.status_code == 201, create_resp.text
+        assert create_resp.json()["discretionary_management_licensed"] == 1
+    finally:
+        app.dependency_overrides.clear()
+
+
 # ===========================================================================
 # 4. Slug-Konflikt
 # ===========================================================================

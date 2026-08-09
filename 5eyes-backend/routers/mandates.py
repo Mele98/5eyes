@@ -13,6 +13,7 @@ from services.audit import log
 from routers.auth import _extract_client_ip
 from services.data_classification import enforce_data_classification
 from services.quota import assert_within_quota
+from services.tenant_licensing import enforce_discretionary_management_license
 
 router = APIRouter(tags=["Mandate"])
 
@@ -59,14 +60,18 @@ def create_mandate(
     # dingung fuer spaetere NOT-NULL-Constraint + Entfernen der 'OR IS NULL'-Klausel.
     mandate_tenant_id = getattr(client, "tenant_id", None) or getattr(current_user, "tenant_id", None)
     assert_within_quota(db, mandate_tenant_id, "mandates")
+    tenant = db.query(Tenant).filter(Tenant.id == mandate_tenant_id).first() if mandate_tenant_id else None
+    # 2026-08-09 (FINIG-Gate): nur Firmen mit FINIG-Bewilligung/AO-Anschluss
+    # duerfen mandate_type="Vermögensverwaltung" ueberhaupt waehlen, siehe
+    # services/tenant_licensing.py.
+    enforce_discretionary_management_license(tenant, body.mandate_type)
     # 2026-08-01 (Onboarding, Entscheid Auftraggeber): explizite Wahl geht
     # vor; sonst Default aus dem Standort der lizenznehmenden Firma
     # (Tenant.home_jurisdiction) -- Firmen mit Kunden in mehreren Laendern
     # koennen jederzeit ein anderes Land pro Mandat waehlen (body.jurisdiction).
     mandate_jurisdiction = body.jurisdiction
-    if not mandate_jurisdiction and mandate_tenant_id:
-        tenant = db.query(Tenant).filter(Tenant.id == mandate_tenant_id).first()
-        mandate_jurisdiction = getattr(tenant, "home_jurisdiction", None) if tenant else None
+    if not mandate_jurisdiction and tenant:
+        mandate_jurisdiction = getattr(tenant, "home_jurisdiction", None)
     mandate = Mandate(
         id=new_uuid(),
         client_id=client_id,
@@ -121,6 +126,12 @@ def update_mandate(
     # muss VOR dem generischen setattr-Loop entfernt werden, sonst wuerde
     # setattr(mandate, "data_classification", ...) versucht.
     enforce_data_classification(updates.pop("data_classification", None))
+    if "mandate_type" in updates:
+        # 2026-08-09 (FINIG-Gate): auch beim nachtraeglichen Umstellen eines
+        # Mandats auf Vermögensverwaltung greift die Firmen-Freischaltung,
+        # siehe services/tenant_licensing.py + create_mandate oben.
+        mandate_tenant = db.query(Tenant).filter(Tenant.id == mandate.tenant_id).first() if mandate.tenant_id else None
+        enforce_discretionary_management_license(mandate_tenant, updates["mandate_type"])
     for field, value in updates.items():
         setattr(mandate, field, value)
     mandate.updated_at = _now()

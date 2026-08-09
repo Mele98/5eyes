@@ -255,6 +255,11 @@ def ensure_runtime_columns() -> None:
             # "Maske" (Wealthmanagement/Consulting), siehe models/tenant.py.
             # NULL = "wealthmanagement".
             ('default_presentation_mode', 'TEXT'),
+            # 2026-08-09 (FINIG-Gate): siehe models/tenant.py +
+            # services/tenant_licensing.py. Default 1 = Bestandsmandanten
+            # bleiben funktionsfaehig; neue Tenants starten via
+            # schemas/tenants.py::TenantCreate explizit mit False.
+            ('discretionary_management_licensed', 'INTEGER', 1),
         ],
         # 2026-07-27 (Retrozessions-Feature): siehe models/review.py.
         'conflict_of_interest_disclosures': [

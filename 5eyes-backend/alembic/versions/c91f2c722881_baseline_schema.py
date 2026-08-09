@@ -167,6 +167,7 @@ def upgrade() -> None:
     sa.Column('default_retrocession_reimbursement', sa.Integer(), nullable=False),
     sa.Column('home_jurisdiction', sa.String(), nullable=True),
     sa.Column('default_presentation_mode', sa.String(), nullable=True),
+    sa.Column('discretionary_management_licensed', sa.Integer(), nullable=False),
     sa.Column('is_active', sa.Integer(), nullable=False),
     sa.Column('created_at', sa.String(), nullable=False),
     sa.Column('updated_at', sa.String(), nullable=False),

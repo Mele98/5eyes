@@ -40,6 +40,13 @@ class TenantCreate(BaseModel):
     # 2026-08-02 (HUD-Polish): firmenweiter Default fuer die UI-"Maske",
     # siehe models/tenant.py. None = "wealthmanagement".
     default_presentation_mode: Optional[str] = None
+    # 2026-08-09 (FINIG-Gate): siehe models/tenant.py +
+    # services/tenant_licensing.py. Default False -- neue Firmen muessen die
+    # FINIG-Bewilligung/AO-Anschluss explizit bestaetigen, bevor sie
+    # mandate_type="Vermögensverwaltung" ueberhaupt waehlen duerfen (Opt-in,
+    # kein Opt-out). Bestandsfirmen sind ueber die DB-Migration bereits auf
+    # True gesetzt -- betrifft nur Firmen, die AB JETZT neu angelegt werden.
+    discretionary_management_licensed: bool = False
 
     @field_validator("hosting_tier")
     @classmethod
@@ -87,6 +94,10 @@ class TenantUpdate(BaseModel):
     default_retrocession_reimbursement: Optional[bool] = None
     home_jurisdiction: Optional[str] = None
     default_presentation_mode: Optional[str] = None
+    # 2026-08-09 (FINIG-Gate): nur super_admin darf das setzen (PUT /tenants/{id},
+    # nicht Teil von TenantSelfServiceUpdate -- eine Firma kann sich die
+    # Bewilligung nicht selbst attestieren).
+    discretionary_management_licensed: Optional[bool] = None
 
     @field_validator("hosting_tier")
     @classmethod
@@ -135,6 +146,7 @@ class TenantResponse(BaseModel):
     default_retrocession_reimbursement: int = 0
     home_jurisdiction: Optional[str] = None
     default_presentation_mode: Optional[str] = None
+    discretionary_management_licensed: int = 1
     is_active: int
     created_at: str
     updated_at: str

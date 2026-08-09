@@ -234,35 +234,20 @@
 
 > **Holistik:** Das Nadelöhr. Erst wenn die DB-Schicht der Trennung steht (RLS), dürfen echte Daten rein. Jede Aufgabe hier ist ein „muss" vor F.
 
-### [ ] 33. 🔴 Postgres-Adapter verifizieren
-- **Ziel:** DB-agnostisch (SQLite-Dev → Postgres-Prod) ohne Code-Fork.
-- **Können:** `DATABASE_URL` schaltet Dialekt; SQLite-spezifisches (ensure_runtime_columns, PRAGMA, sqlite3.backup) hinter Dialekt-Switch; gleiche Tests grün auf beiden.
-- **Umsetzung:** SQLAlchemy-Dialekt-Erkennung; Migrations-Pfad Alembic erwägen.
-- **Verknüpft:** #34–#37 bauen darauf; #38 Test-Matrix.
-- **DoD:** Voll-Suite grün gegen Postgres-Container.
+### [✓] 33. 🔴 Postgres-Adapter verifizieren — Bereits erledigt (ADR-012, Doc war veraltet)
+- **UMGESETZT:** `database.py::is_postgres_database_url`/`_create_or_migrate_schema` (Alembic statt create_all unter Postgres, Roadmap #90). CI-Job mit echtem `postgres:16`-Service (`.github/workflows/test.yml:105-145`), fuehrt die volle Suite + `tests/test_postgres_rls_adversarial.py` gegen echtes Postgres aus.
 
-### [ ] 34. 🔴 Row-Level-Security-Policies
-- **Ziel:** Vergessenes App-Filter wird *physisch* wirkungslos.
-- **Können:** Pro mandantenführender Tabelle `CREATE POLICY tenant_isolation USING (tenant_id = current_setting('app.tenant_id')::uuid)`.
-- **Verknüpft:** #35 (Session-Var), #33 (Postgres), #74 (Re-Audit).
-- **DoD:** Test: Query ohne App-Filter liefert via RLS trotzdem 0 Fremdzeilen.
+### [✓] 34. 🔴 Row-Level-Security-Policies — Bereits erledigt (ADR-012, Doc war veraltet)
+- **UMGESETZT:** `services/postgres_rls.py::rls_policy_sql()` — `ENABLE`/`FORCE ROW LEVEL SECURITY` + `CREATE POLICY tenant_isolation ... USING (...) WITH CHECK (...)` pro mandantenfuehrender Tabelle (`tenant_scoped_table_names()`). `_assert_rls_effective_role()` blockt den Boot in Staging/Prod, wenn die DB-Rolle superuser/BYPASSRLS ist. `tests/test_postgres_rls_adversarial.py` beweist: Query ohne App-Filter liefert via RLS 0 Fremdzeilen, Cross-Tenant-INSERT verletzt WITH CHECK, `operator_bypass()` noetig fuer bewussten Cross-Tenant-Zugriff.
 
-### [ ] 35. 🔴 `SET app.tenant_id` pro Connection
-- **Ziel:** RLS kennt den aktiven Tenant je Request.
-- **Umsetzung:** Request-Middleware/Session-Hook setzt `app.tenant_id` aus JWT `tid`; reset bei Connection-Rückgabe (Pool-Sicherheit!).
-- **Verknüpft:** #34, #52 (Pooling).
-- **DoD:** Test: zwei parallele Requests verschiedener Tenants leaken nicht über den Pool.
+### [✓] 35. 🔴 `SET app.tenant_id` pro Connection — Bereits erledigt (ADR-012, Doc war veraltet)
+- **UMGESETZT:** `services/auth.py::get_current_user` ruft `set_tenant_context()` (`services/tenant_context.py`) direkt nach Auth-Aufloesung. Pool-Sicherheit doppelt abgesichert: `attach_tenant_context_reset` resettet die GUC bei SQLAlchemy-Checkout/Checkin (`database.py:127-131`), UND `get_db()` ruft `reset_tenant_context()` im `finally`-Block. `test_postgres_rls_adversarial.py` beweist: Pool-Reuse resettet die GUC, ein frischer Checkout sieht 0 Fremdzeilen.
 
-### [ ] 36. 🔴 `tenant_id` NOT NULL nach Backfill
-- **Umsetzung:** `ensure_tenant_backfill()` (NULL→main, ✅) → unter Postgres `ALTER … SET NOT NULL`.
-- **Verknüpft:** #33.
-- **DoD:** Constraint aktiv; Insert ohne tenant_id schlägt fehl.
+### [✓] 36. 🔴 `tenant_id` NOT NULL nach Backfill — Bereits erledigt (ADR-012, Doc war veraltet)
+- **UMGESETZT:** `ensure_postgres_tenant_not_null()` (`services/postgres_rls.py`) macht Backfill + `ALTER COLUMN ... SET NOT NULL` bei jedem Postgres-Boot. SQLite bleibt bewusst nullable (Tier-1/3-Backwards-Compat, ADR-012 §5 dokumentiert den Split explizit).
 
-### [ ] 37. 🟠 Per-Tenant-Encryption-Key (at-rest)
-- **Ziel:** Bankgeheimnis-Mitigation.
-- **Können:** Master-KEK → per-Tenant-DEK; PII-Felder/DB at-rest verschlüsselt; Key-Rotation dokumentiert.
-- **Verknüpft:** #11, #95.
-- **DoD:** Key-Hierarchie dokumentiert; Rotation getestet.
+### [✓] 37. 🟠 Per-Tenant-Encryption-Key (at-rest) — Bereits erledigt (Doc war veraltet)
+- **UMGESETZT:** `services/tenant_crypto.py` (Master-KEK → per-Tenant-DEK), `Tenant.encrypted_dek`/`dek_version`/`dek_rotated_at` (models/tenant.py). Tests: `tests/test_tenant_crypto.py`.
 
 ### [ ] 38. 🟠 Test-Matrix SQLite+Postgres im CI
 - **DoD:** beide grün bei jedem PR.
@@ -299,9 +284,9 @@
 ### [ ] 46. 🟡 Brute-Force/Account-Lockout schärfen
 - **DoD:** N Fehlversuche → temporäre Sperre + Audit-Eintrag.
 
-### [ ] 47. 🟡 Lizenz-/Quota-Enforcement
-- **Können:** `tenants.quotas` (max User/Mandate) als Soft/Hard-Limit + Hinweis-UI.
-- **DoD:** Überschreiten blockiert/warnt korrekt.
+### [~] 47. 🟡 Lizenz-/Quota-Enforcement — Hard-Enforcement bereits erledigt (Doc war veraltet)
+- **UMGESETZT:** `services/quota.py::assert_within_quota` (max_users/max_mandates, 409 hart) an allen User-/Mandats-Anlegepunkten verdrahtet, inkl. Client-Portal-Logins (Generalaudit-Fix 2026-07-25). 8 Tests.
+- **Noch offen:** Soft-Limit-Warnschwelle + Hinweis-UI (0 Frontend-Feedback vor dem harten Block); `storage_quota_mb` unenforced (kein Storage-Feature vorhanden).
 
 ### [ ] 48. 🟡 Client-Portal Tenant-Check im RLS-Modell doppeln
 - **DoD:** `client.tenant_id==user.tenant_id` + RLS greifen beide.
