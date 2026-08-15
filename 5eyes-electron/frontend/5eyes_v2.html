@@ -2339,6 +2339,22 @@ async function teamRender(){
   var users=[];
   try{ users=await API.get('/users'); }
   catch(e){ body.innerHTML='<div style="font-size:11px;color:var(--neg);line-height:1.6">Mitarbeiterliste nicht verfügbar: '+escapeHtml(String(e.detail||e.message||e).slice(0,160))+'</div>'; return; }
+  // 2026-08-09 (Roadmap #24-Rest): Soft-Limit-Warnung VOR dem harten 409-Block
+  // beim Anlegen/Einladen (services/quota.py::assert_within_quota). Best-effort
+  // -- schlaegt /tenants/me fehl, zeigt die Mitarbeiterliste trotzdem normal.
+  var tenantInfo=null;
+  try{ tenantInfo=await API.get('/tenants/me'); }catch(e){}
+  var quotaBar='';
+  if(tenantInfo&&Number(tenantInfo.max_users||0)>0){
+    var qCur=Number(tenantInfo.current_users||0), qLim=Number(tenantInfo.max_users||0);
+    var qPct=Math.min(100,Math.round(qCur/qLim*100));
+    var qAtLimit=qCur>=qLim, qWarn=!qAtLimit&&(qCur/qLim)>=0.8;
+    var qColor=qAtLimit?'var(--neg)':(qWarn?'var(--warn)':'var(--pos)');
+    quotaBar='<div style="margin-bottom:10px;padding:8px 10px;border:1px solid var(--b1);border-radius:6px"><div style="display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:4px"><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.06em;color:var(--n4)">Mitarbeiter-Lizenzen</div><div style="font-size:10px;color:'+qColor+'">'+qCur+' / '+qLim+'</div></div><div style="height:8px;background:var(--bg2);border-radius:999px;overflow:hidden"><div style="width:'+qPct+'%;height:100%;background:'+qColor+'"></div></div>'
+      +(qAtLimit?'<div style="font-size:9px;color:var(--neg);margin-top:4px">Limit erreicht — weitere Mitarbeiter können erst nach Erhöhung durch den Operator angelegt werden.</div>'
+        :(qWarn?'<div style="font-size:9px;color:var(--warn);margin-top:4px">Fast ausgeschöpft — bitte bei Bedarf frühzeitig den Operator kontaktieren.</div>':''))
+      +'</div>';
+  }
   function roleLabel(r){ return r==='admin'?'Firmen-Admin':(r==='advisor'?'Berater':(r==='readonly'?'Nur-Lesen':escapeHtml(r||'')))}
   var rows=(users||[]).map(function(u){
     var pend = u.invite_pending ? ' <span style="color:var(--g4)">· Einladung offen</span>' : '';
@@ -2350,6 +2366,7 @@ async function teamRender(){
   }).join('')||'<div style="font-size:10px;color:var(--n4)">Noch keine Mitarbeiter.</div>';
   var inp='width:100%;box-sizing:border-box;padding:7px 9px;border:1px solid var(--b1);border-radius:6px;font-size:12px;margin-bottom:6px';
   body.innerHTML=''
+   +quotaBar
    +'<div style="font-size:9px;text-transform:uppercase;letter-spacing:0.06em;color:var(--n4);margin-bottom:4px">Mitarbeiter ('+(users||[]).length+')</div>'
    +'<div style="margin-bottom:12px">'+rows+'</div>'
    +'<div style="border-top:1px solid var(--b1);padding-top:10px">'
