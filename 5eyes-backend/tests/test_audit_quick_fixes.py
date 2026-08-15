@@ -39,6 +39,7 @@ from models.review import AuditLog
 from models.snapshots import StrategySnapshot
 from models.users import User
 from models.wealth import Cashflow, Goal, WealthPosition
+import services.portfolio_engine as pe
 from services.auth import get_current_user, require_advisor
 from services.portfolio_engine import (
     _goal_timing_label,
@@ -298,8 +299,13 @@ def test_f4_create_target_allocation_without_assessment_returns_409(
 
 
 def test_f4_create_target_allocation_with_assessment_succeeds(
-    auth_client, session_factory, advisor_user
+    auth_client, session_factory, advisor_user, monkeypatch
 ):
+    # 2026-08 (asset-allocation-stochastic-core): der manuelle POST-Pfad ist
+    # im stochastischen Modus (Produktions-Default) grundsaetzlich gesperrt
+    # (409, "Bitte den Engine-Generate-Pfad verwenden"). F4 testet das
+    # Assessment-Readiness-Gate, nicht diese Sperre -- daher house_matrix.
+    monkeypatch.setattr(pe.settings, "optimizer_mode", "house_matrix")
     _seed_runtime(session_factory, advisor_user.id)
     cid, mid = _make_client_and_mandate(session_factory, advisor_user.id)
     _add_assessment(session_factory, mid, advisor_user.id)

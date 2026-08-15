@@ -103,6 +103,25 @@ def _make_run(session_factory, mandate_id, allocation_id, assessment_id, created
     return rid
 
 
+def _allocation_policy_and_cma(session_factory, allocation_id):
+    """Policy/CMA, die die TargetAllocation tatsaechlich referenziert.
+
+    2026-08 (asset-allocation-stochastic-core): finalize_recommendation
+    verlangt jetzt, dass RecommendationRun.policy_id/capital_market_
+    assumptions_id mit denen der referenzierten TargetAllocation
+    uebereinstimmen (sonst 422). Ein aus separaten, unabhaengigen
+    _make_policy()/_make_cma()-Zeilen konstruierter Run ist daher kein
+    gueltiges Recommendation-Run-Fixture mehr -- der Run muss dieselbe
+    Policy/CMA referenzieren wie die Allocation, auf der er basiert.
+    """
+    from models.allocation import TargetAllocation
+    with session_factory() as s:
+        allocation = s.query(TargetAllocation).filter(
+            TargetAllocation.id == allocation_id
+        ).one()
+        return allocation.policy_id, allocation.capital_market_assumptions_id
+
+
 def _add_full_position(session_factory, run_id) -> None:
     """Fuegt genau eine Position mit 10000 bps hinzu, referenziert auf ein
     aktives Produkt -- erfuellt die Positions-/Gewichts-Checks in
@@ -127,8 +146,7 @@ def _add_full_position(session_factory, run_id) -> None:
 def test_finalize_succeeds_and_supersedes_prior_final_run(session_factory):
     advisor_id, _cid, mid, aid, _gid = _seed_realistic_mandate(session_factory, suffix="finalize-lock")
     alloc_id = _current_allocation_id(session_factory, mid, advisor_id)
-    policy = _make_policy(session_factory, advisor_id)
-    cma = _make_cma(session_factory)
+    policy, cma = _allocation_policy_and_cma(session_factory, alloc_id)
 
     first_run_id = _make_run(session_factory, mid, alloc_id, aid, advisor_id, policy, cma, result_status="Final")
     second_run_id = _make_run(session_factory, mid, alloc_id, aid, advisor_id, policy, cma, result_status="Draft")
@@ -152,8 +170,7 @@ def test_finalize_first_run_for_mandate_with_no_prior_final(session_factory):
     Final-Run. Normaler Einzel-Aufruf muss weiterhin problemlos funktionieren."""
     advisor_id, _cid, mid, aid, _gid = _seed_realistic_mandate(session_factory, suffix="finalize-first")
     alloc_id = _current_allocation_id(session_factory, mid, advisor_id)
-    policy = _make_policy(session_factory, advisor_id)
-    cma = _make_cma(session_factory)
+    policy, cma = _allocation_policy_and_cma(session_factory, alloc_id)
 
     run_id = _make_run(session_factory, mid, alloc_id, aid, advisor_id, policy, cma, result_status="Draft")
     _add_full_position(session_factory, run_id)

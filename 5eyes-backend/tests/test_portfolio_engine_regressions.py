@@ -11,6 +11,7 @@ from models import clients as _clients_models  # noqa: F401
 from models import mandates as _mandates_models  # noqa: F401
 from models import profiling as _profiling_models  # noqa: F401
 from models import snapshots as _snapshots_models  # noqa: F401
+from models import tenant as _tenant_models  # noqa: F401
 from models import wealth as _wealth_models  # noqa: F401
 from models.allocation import CapitalMarketAssumption
 from models.review import PriceHistory, Product
@@ -34,6 +35,7 @@ from services.portfolio_engine import (
     _target_allocation_context_warnings,
     _target_allocation_reserve_warnings,
 )
+from services.return_moments import arithmetic_moments_to_log_parameters
 
 
 @pytest.fixture()
@@ -396,7 +398,15 @@ def test_simulate_bucket_path_uses_geometric_growth_and_ignores_zero_bands():
         transaction_cost_bps=0,
     )
 
-    expected_total = int(round(100000 * math.exp(0.05 - 0.5 * 0.15 * 0.15)))
+    # 2026-08 (asset-allocation-stochastic-core, services/return_moments.py):
+    # CMA-Werte sind arithmetische (einfache) Momente, kein Log-Return direkt.
+    # exp(mu - 0.5*sigma^2) auf die rohen arithmetischen mu/sigma anzuwenden
+    # war die alte, mathematisch ungenaue Naeherung; die korrekte Umrechnung
+    # (Moment-Matching arithmetisch -> lognormal) liefert einen leicht
+    # anderen Erwartungswert. Referenziert daher die kanonische Umrechnung
+    # statt einer eigenen (jetzt veralteten) Formel.
+    log_location, _log_scale = arithmetic_moments_to_log_parameters(0.05, 0.15)
+    expected_total = int(round(100000 * math.exp(log_location)))
     assert totals == [100000, expected_total]
     assert events == []
 

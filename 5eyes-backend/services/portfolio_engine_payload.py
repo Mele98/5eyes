@@ -458,6 +458,8 @@ def _build_goal_analysis(
     reserve_needed_rappen: int,
     policy: OptimizerPolicy,
     expected_death_year_offset: int | None = None,
+    advisory_path_series_rappen: list[int] | None = None,
+    total_path_series_rappen: list[int] | None = None,
 ) -> list[dict]:
     """Sprint U-P5 Fix H12: expected_death_year_offset (Years from today)
     schneidet die contribution_series so dass keine Cashflows nach dem
@@ -469,6 +471,7 @@ def _build_goal_analysis(
     # Lazy Import (Zirkular-Import-Haertung, siehe Modul-Docstring).
     from services.portfolio_engine import (
         _external_assets_inflation_value,
+        _goal_probability_factor,
         _goal_reserve_for_goal,
         _goal_uses_total_scope,
         _norm_text,
@@ -520,14 +523,44 @@ def _build_goal_analysis(
                 hardness_key=hardness_key,
             )
         elif goal_type in ("Kapitalerhalt", "Vermoegensziel"):
-            target_rappen = _goal_target_wealth_rappen(goal, years, inflation_series_bps)
-            # #83: bei Gesamtvermoegen-Scope die externen Assets (nur Teuerung,
-            # real 0%) zum projizierten Beratungsvermoegen addieren. Default-Scope
-            # unveraendert. Wirkt auch im gespeicherten projected_value_rappen.
+            probability_factor = _goal_probability_factor(goal)
+            target_rappen = int(round(
+                _goal_target_wealth_rappen(goal, years, inflation_series_bps)
+                * probability_factor
+            ))
+            # Total-scope reporting consumes the exact deterministic total
+            # path already used by the visible projection. Expected-funding
+            # semantics remain advisory + p * external versus p * target.
             if _goal_uses_total_scope(goal):
-                projected_rappen += _external_assets_inflation_value(
-                    external_wealth_rappen, projection_years, inflation_series_bps
+                exact_path_available = (
+                    advisory_path_series_rappen is not None
+                    and total_path_series_rappen is not None
+                    and projection_years < len(advisory_path_series_rappen)
+                    and projection_years < len(total_path_series_rappen)
                 )
+                if exact_path_available:
+                    advisory_projected = int(
+                        advisory_path_series_rappen[projection_years]
+                    )
+                    total_projected = int(
+                        total_path_series_rappen[projection_years]
+                    )
+                    projected_rappen = int(round(
+                        advisory_projected
+                        + probability_factor
+                        * (total_projected - advisory_projected)
+                    ))
+                else:
+                    # Legacy/direct-call fallback. Production always supplies
+                    # both deterministic paths.
+                    projected_rappen += int(round(
+                        _external_assets_inflation_value(
+                            external_wealth_rappen,
+                            projection_years,
+                            inflation_series_bps,
+                        )
+                        * probability_factor
+                    ))
             denominator = max(1, target_rappen)
             funded_ratio_pct = int(round(min(200, max(-100, projected_rappen / denominator * 100))))
             success_rate_pct = 100 if projected_rappen >= target_rappen else 0

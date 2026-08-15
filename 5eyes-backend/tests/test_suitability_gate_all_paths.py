@@ -86,6 +86,11 @@ def _target_allocation_body() -> TargetAllocationCreate:
 def test_create_target_allocation_gate_off_proceeds(session_factory, monkeypatch):
     advisor_id, _cid, mid = _seed_mandate(session_factory)
     assert alloc.settings.require_suitability_before_recommendation is False
+    # 2026-08 (asset-allocation-stochastic-core): manuelles Erzeugen ist im
+    # stochastischen Modus (Produktions-Default) grundsaetzlich gesperrt
+    # (409, "Bitte den Engine-Generate-Pfad verwenden"). Dieser Test prueft
+    # das Suitability-Gate, nicht diese Sperre -- daher house_matrix-Modus.
+    monkeypatch.setattr(alloc.settings, "optimizer_mode", "house_matrix")
 
     def _fail_audit(*_a, **_k):  # pragma: no cover
         raise AssertionError("Audit darf bei ausgeschaltetem Flag nicht laufen")
@@ -121,6 +126,7 @@ def test_create_target_allocation_gate_on_noncompliant_blocks_409(session_factor
 
 def test_create_target_allocation_gate_on_compliant_proceeds(session_factory, monkeypatch):
     advisor_id, _cid, mid = _seed_mandate(session_factory)
+    monkeypatch.setattr(alloc.settings, "optimizer_mode", "house_matrix")
     monkeypatch.setattr(alloc.settings, "require_suitability_before_recommendation", True)
     monkeypatch.setattr(
         alloc, "audit_mandate_suitability",

@@ -24,20 +24,28 @@ from __future__ import annotations
 
 import hashlib
 import time
+from collections.abc import Mapping
+from copy import deepcopy
 from dataclasses import dataclass, field
+from numbers import Integral
 from typing import Iterable
 
 import numpy as np
 from scipy.optimize import OptimizeResult, differential_evolution, minimize
 
+from services.return_moments import ReturnMomentError
+
 from .constraints import (
     DEFAULT_BUCKET_RISKY_FRACTION,
     HouseMatrixBands,
+    OptimizerInputError,
+    bands_from_effective_bounds_bps,
     bands_from_house_matrix_row,
     bounds_collapse_warnings,
     build_bounds,
     build_constraint_set,
     is_feasible,
+    validate_risky_fraction_per_bucket,
 )
 from .goal_liabilities import (
     GoalLiability,
@@ -68,6 +76,16 @@ _ROBUSTIFIED_OBJECTIVE_TIE_REL_TOL = 0.05
 _ROBUSTIFIED_DERISK_REL_TOL = 0.10
 
 
+class SolverTechnicalError(RuntimeError):
+    """Explicitly classified technical failure of the numerical solver.
+
+    Only this exception (plus narrowly defined NumPy/floating-point errors)
+    may activate the audited House-Matrix safety net at the production
+    boundary. Domain/input errors and ordinary programming exceptions must
+    remain visible and fail closed.
+    """
+
+
 # ============================================================================
 # Result-Datenklasse
 # ============================================================================
@@ -95,6 +113,11 @@ class OptimizerResult:
     goal_achievability: tuple[dict, ...] = ()
     robustification: dict[str, object] | None = None
     restart_results: tuple[dict, ...] = ()
+    # Exact owned run-context snapshot used by the solver. compare=False is
+    # essential because OptimizerContext contains NumPy arrays whose equality
+    # is not scalar-valued. The context is intentionally not persisted as JSON;
+    # callers reuse it in-process for congruent metrics/explainability.
+    context: OptimizerContext | None = field(default=None, repr=False, compare=False)
 
 
 # ============================================================================
@@ -127,8 +150,13 @@ class OptimizerContext:
     bounds: list[tuple[float, float]]
     scipy_constraints: list[dict]
     score_x10: int
+    external_wealth_rappen: int = 0
     risky_fraction_per_bucket: dict[str, float] | None = None
     max_risky_fraction_bps: int | None = None
+    # Canonical snapshot of the exact Sub-Allocation rows used to derive CMA
+    # bucket metrics and scenario paths. Tuple ownership prevents later caller
+    # list mutations from changing the meaning of an already-built context.
+    sub_allocations: tuple[dict, ...] = ()
     # Phase 5c: optional Likelihood-Weights aus Importance Sampling.
     # Wenn None: trivialer sample-mean (Backwards-Compat). Wenn gesetzt:
     # shortfall_objective + volatility_objective berechnen weighted Estimator.
@@ -155,6 +183,19 @@ class OptimizerContext:
     # -- nicht-leer, wenn eine House-Matrix-Bandbreite durch einen globalen
     # Cap/Floor stillschweigend auf einen Punkt kollabiert wurde.
     bounds_collapse_warnings: tuple[str, ...] = ()
+    # Exact Markowitz inputs owned by the same context as the scenario paths.
+    # Appended (rather than inserted among older optional fields) to preserve
+    # the positional layout for legacy manual context construction.  The
+    # canonical builder always populates both arrays.
+    scenario_mu_bps: np.ndarray | None = None
+    scenario_cov_bps2: np.ndarray | None = None
+    # Canonical deterministic external net-funding path for total-scope goals.
+    # Index 0 is today; subsequent entries align with simulated goal years.
+    external_wealth_series_rappen: tuple[int, ...] = ()
+    # Longest scenario cube used to draw this context. Paired horizon
+    # sensitivities set the same value and retain only their own prefix in
+    # ``return_paths``.
+    scenario_horizon_years: int | None = None
 
 
 @dataclass(frozen=True)
@@ -169,20 +210,61 @@ class OptimizerEvaluation:
     terminal_wealth_p90_rappen: int | None = None
 
 
-def _weights_bps_to_array(weights_bps: dict[str, int]) -> np.ndarray:
-    """Konvertiert {bucket: bps} -> np.ndarray (5 Buckets, summe = 1).
-
-    Wird genutzt damit evaluate_weights deterministisch denselben Float-Vektor
-    erhaelt wie der Solver intern (ueber denselben Rounding-Pfad).
-    """
-    raw = np.array(
-        [int((weights_bps or {}).get(bucket, 0) or 0) / 10000.0 for bucket in BUCKET_ORDER],
+def _trusted_weights_bps_to_array(weights_bps: Mapping[str, int]) -> np.ndarray:
+    """Internal exact conversion for already-validated/generated bps weights."""
+    return np.array(
+        [int(weights_bps[bucket]) / 10000.0 for bucket in BUCKET_ORDER],
         dtype=np.float64,
     )
-    s = float(raw.sum())
-    if s > 1e-12:
-        raw = raw / s
-    return raw
+
+
+def _weights_bps_to_array(weights_bps: Mapping[str, int]) -> np.ndarray:
+    """Strict external conversion from exact integer bps to fractions.
+
+    External evaluations are audit operations, not allocation repair.  Missing
+    buckets, unknown keys, non-integer/out-of-range values, or a sum other than
+    exactly 10'000 bps are therefore hard input errors and are never silently
+    normalised.
+    """
+    if not isinstance(weights_bps, Mapping):
+        raise OptimizerInputError(
+            "weights_bps must be a mapping of optimizer bucket -> integer bps."
+        )
+    expected = set(BUCKET_ORDER)
+    actual = set(weights_bps.keys())
+    missing = sorted(expected - actual)
+    extra = sorted(actual - expected, key=str)
+    if missing or extra:
+        details = []
+        if missing:
+            details.append(f"missing={missing}")
+        if extra:
+            details.append(f"unknown={extra}")
+        raise OptimizerInputError(
+            "weights_bps must contain exactly the optimizer buckets ("
+            + ", ".join(details)
+            + ")."
+        )
+
+    parsed: dict[str, int] = {}
+    for bucket in BUCKET_ORDER:
+        raw = weights_bps[bucket]
+        if isinstance(raw, bool) or not isinstance(raw, Integral):
+            raise OptimizerInputError(
+                f"weights_bps[{bucket!r}] must be integer basis points."
+            )
+        value = int(raw)
+        if not 0 <= value <= 10000:
+            raise OptimizerInputError(
+                f"weights_bps[{bucket!r}] must stay within 0..10000 bps."
+            )
+        parsed[bucket] = value
+    total = sum(parsed.values())
+    if total != 10000:
+        raise OptimizerInputError(
+            f"weights_bps must sum exactly to 10000 bps (got {total})."
+        )
+    return _trusted_weights_bps_to_array(parsed)
 
 
 def _simulate_context_wealth(context: OptimizerContext, w: np.ndarray) -> np.ndarray:
@@ -201,6 +283,41 @@ def _simulate_context_wealth(context: OptimizerContext, w: np.ndarray) -> np.nda
     )
 
 
+def _annualized_twr_bps_per_path(
+    context: OptimizerContext,
+    w: np.ndarray,
+) -> np.ndarray:
+    """Cashflow-neutral annualized portfolio return for every scenario path."""
+    portfolio_factors = np.einsum(
+        "phb,b->ph", context.return_paths, np.asarray(w, dtype=np.float64)
+    )
+    safe_factors = np.maximum(portfolio_factors, 1e-12)
+    annualized = np.exp(np.mean(np.log(safe_factors), axis=1)) - 1.0
+    return annualized * 10000.0
+
+
+def _canonicalize_sub_allocations(
+    sub_allocations: list[dict] | tuple[dict, ...] | None,
+) -> tuple[dict, ...]:
+    """Take an owned, stable snapshot of the exact Sub-Allocation input.
+
+    The row order and all row fields are preserved deliberately: this is a
+    context snapshot, not a second source of allocation logic. Deep-copying
+    prevents a later post-solver cap/materialisation step from mutating the
+    scenario assumptions of a context that has already been evaluated.
+    """
+    if sub_allocations is None:
+        return ()
+    canonical: list[dict] = []
+    for index, row in enumerate(sub_allocations):
+        if not isinstance(row, Mapping):
+            raise OptimizerInputError(
+                f"sub_allocations[{index}] must be a mapping, got {type(row).__name__}."
+            )
+        canonical.append(deepcopy(dict(row)))
+    return tuple(canonical)
+
+
 def build_optimizer_context(
     *,
     cma,
@@ -209,8 +326,12 @@ def build_optimizer_context(
     score_x10: int,
     advisory_wealth_rappen: int,
     cashflow_series_rappen: Iterable[int],
+    external_wealth_rappen: int = 0,
+    external_wealth_series_rappen: Iterable[int] | None = None,
     sub_allocations: list[dict] | None = None,  # Sprint B1 (2026-06-07)
+    effective_bounds_bps: Mapping[str, tuple[int, int]] | None = None,
     horizon_years: int = 10,
+    scenario_horizon_years: int | None = None,
     n_paths: int = 2000,
     seed: int | None = None,
     inflation_series_bps: list[int] | None = None,
@@ -232,36 +353,133 @@ def build_optimizer_context(
     deterministische Seed aus `(cma_id, goal_ids, score_x10, horizon, n_paths)`
     abgeleitet — gleicher Pfad wie bisher in `run_solver`.
     """
+    horizon_years = int(max(1, horizon_years))
+    if scenario_horizon_years is not None and (
+        isinstance(scenario_horizon_years, bool)
+        or not isinstance(scenario_horizon_years, Integral)
+    ):
+        raise OptimizerInputError(
+            "scenario_horizon_years must be an exact integer."
+        )
+    common_scenario_horizon = (
+        horizon_years
+        if scenario_horizon_years is None
+        else int(scenario_horizon_years)
+    )
+    if common_scenario_horizon < horizon_years:
+        raise OptimizerInputError(
+            "scenario_horizon_years must be >= horizon_years."
+        )
+
     if seed is None:
         cma_id = getattr(cma, "id", "no-cma")
         goal_ids = "|".join(str(getattr(g, "id", "?")) for g in goals)
         seed = deterministic_seed(cma_id, goal_ids, score_x10, horizon_years, n_paths)
 
-    inputs = scenario_inputs_from_cma(cma, sub_allocations=sub_allocations)
+    canonical_sub_allocations = _canonicalize_sub_allocations(sub_allocations)
+    exact_risky_fractions = (
+        validate_risky_fraction_per_bucket(risky_fraction_per_bucket)
+        if risky_fraction_per_bucket is not None
+        else None
+    )
+
+    if effective_bounds_bps is None:
+        bands = bands_from_house_matrix_row(house_matrix_row)
+        collapse_warnings = bounds_collapse_warnings(bands)
+    else:
+        # Explicit effective mandate bands are a hard domain contract. Validate
+        # them before building expensive scenarios and reject contradictions
+        # instead of inheriting legacy House-Matrix clamp-and-warn behaviour.
+        bands = bands_from_effective_bounds_bps(effective_bounds_bps)
+        collapse_warnings = []
+    bounds, scipy_constraints = build_constraint_set(
+        bands,
+        score_x10,
+        risky_fraction_per_bucket=exact_risky_fractions,
+        max_risky_fraction_bps=max_risky_fraction_bps,
+    )
+    inputs = scenario_inputs_from_cma(
+        cma,
+        sub_allocations=list(canonical_sub_allocations) or None,
+    )
+    scenario_mu_bps = np.array(inputs.mu_bps, dtype=np.float64, copy=True)
+    scenario_cov_bps2 = np.array(
+        _covariance_bps_from_scenario_inputs(inputs.sigma_bps, inputs.cholesky),
+        dtype=np.float64,
+        copy=True,
+    )
+    if (
+        scenario_mu_bps.shape != (N_BUCKETS,)
+        or scenario_cov_bps2.shape != (N_BUCKETS, N_BUCKETS)
+        or not np.all(np.isfinite(scenario_mu_bps))
+        or not np.all(np.isfinite(scenario_cov_bps2))
+    ):
+        raise OptimizerInputError(
+            "CMA scenario inputs must be finite and match the optimizer bucket shape."
+        )
+    # Frozen dataclass alone does not freeze ndarray contents.  Read-only owned
+    # copies keep the retained context stable for solver, fallback and audit.
+    scenario_mu_bps.setflags(write=False)
+    scenario_cov_bps2.setflags(write=False)
     # Sprint B1 (2026-06-07): Cache-Key muss Sub-Allocation enthalten,
     # sonst liefert Cache stale Pfade wenn dieselbe cma_id mit anderem
     # Sub-Mix aufgerufen wird.
     cma_id_for_cache = str(getattr(cma, "id", "no-cma"))
-    if sub_allocations:
+    if canonical_sub_allocations:
         try:
             import hashlib
             import json as _json
-            sub_repr = _json.dumps(sub_allocations, sort_keys=True, default=str)
+            sub_repr = _json.dumps(
+                canonical_sub_allocations,
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+            )
             sub_hash = hashlib.sha256(sub_repr.encode("utf-8")).hexdigest()[:12]
             cma_id_for_cache = f"{cma_id_for_cache}::sub::{sub_hash}"
-        except Exception:
-            # Defensive: bei JSON-Fehler nur cma_id, kein Cache-Crash
-            pass
+        except (TypeError, ValueError) as exc:
+            raise OptimizerInputError(
+                "Canonical sub-allocations must be strictly JSON serializable "
+                "for an unambiguous scenario-cache identity."
+            ) from exc
 
     # Sprint P1 (2026-06-06): IS-Auto-Decision
     # ---------------------------------------
     # Wir muessen liabilities zuerst bauen, weil hardness fuer die Decision
     # benoetigt wird. ABER goals_to_liabilities ist deterministisch, also
     # safe vor der Scenario-Generierung aufzurufen.
+    canonical_external_wealth_series: tuple[int, ...] = ()
+    if external_wealth_series_rappen is not None:
+        try:
+            raw_external_series = list(external_wealth_series_rappen)
+        except TypeError as exc:
+            raise OptimizerInputError(
+                "external_wealth_series_rappen must be an iterable of integers."
+            ) from exc
+        if len(raw_external_series) < int(horizon_years) + 1:
+            raise OptimizerInputError(
+                "external_wealth_series_rappen must cover today and every "
+                "optimizer horizon year."
+            )
+        if any(
+            isinstance(value, bool) or not isinstance(value, Integral)
+            for value in raw_external_series
+        ):
+            raise OptimizerInputError(
+                "external_wealth_series_rappen must contain exact integer Rappen."
+            )
+        canonical_external_wealth_series = tuple(
+            int(value) for value in raw_external_series[: int(horizon_years) + 1]
+        )
+
     liabilities = goals_to_liabilities(
         goals,
         horizon_years=horizon_years,
         inflation_series_bps=inflation_series_bps,
+        external_wealth_rappen=external_wealth_rappen,
+        external_wealth_series_rappen=(
+            canonical_external_wealth_series or None
+        ),
     )
     has_hart_goal = any(
         str(getattr(liab, "hardness_key", "") or "").lower() == "hart"
@@ -272,41 +490,46 @@ def build_optimizer_context(
         has_hart_goal=has_hart_goal,
         is_retired=bool(is_retired),
     )
-    if is_active:
-        shift_vec = build_shift_vector(
-            N_BUCKETS,
-            strength=DEFAULT_TAIL_SHIFT_STRENGTH,
-        )
-        return_paths, scenario_weights = build_scenario_paths_with_weights_cached(
-            inputs,
-            cma_id=cma_id_for_cache,
-            horizon_years=horizon_years,
-            n_paths=n_paths,
-            seed=seed,
-            shift_vector=shift_vec,
-        )
-    else:
-        return_paths = build_scenario_paths_cached(
-            inputs,
-            cma_id=cma_id_for_cache,
-            horizon_years=horizon_years,
-            n_paths=n_paths,
-            seed=seed,
-        )
-        scenario_weights = None  # uniform sample-mean
+    try:
+        if is_active:
+            shift_vec = build_shift_vector(
+                N_BUCKETS,
+                strength=DEFAULT_TAIL_SHIFT_STRENGTH,
+            )
+            return_paths, scenario_weights = build_scenario_paths_with_weights_cached(
+                inputs,
+                cma_id=cma_id_for_cache,
+                horizon_years=common_scenario_horizon,
+                n_paths=n_paths,
+                seed=seed,
+                shift_vector=shift_vec,
+            )
+        else:
+            return_paths = build_scenario_paths_cached(
+                inputs,
+                cma_id=cma_id_for_cache,
+                horizon_years=common_scenario_horizon,
+                n_paths=n_paths,
+                seed=seed,
+            )
+            scenario_weights = None  # uniform sample-mean
+    except ReturnMomentError as exc:
+        raise OptimizerInputError(str(exc)) from exc
+    # Same seed is not enough when NumPy draws arrays with different horizon
+    # shapes: later paths get a different flattened RNG offset. Drawing both
+    # paired runs at the common max horizon and slicing here makes every path's
+    # overlapping years byte-identical.
+    return_paths = return_paths[:, :horizon_years, :]
     aggregated_liability = aggregate_liability_path(liabilities, horizon_years)
-    bands = bands_from_house_matrix_row(house_matrix_row)
-    collapse_warnings = bounds_collapse_warnings(bands)
-    bounds, scipy_constraints = build_constraint_set(
-        bands,
-        score_x10,
-        risky_fraction_per_bucket=risky_fraction_per_bucket,
-        max_risky_fraction_bps=max_risky_fraction_bps,
-    )
 
     # Sprint 4 Phase 3: Mortalitaets-Sampling wenn aktiviert
     death_indices = None
-    if use_mortality_simulation and client_birth_year and client_sex in ("M", "F"):
+    if use_mortality_simulation:
+        if not client_birth_year or client_sex not in ("M", "F"):
+            raise OptimizerInputError(
+                "Activated mortality simulation requires client_birth_year "
+                "and client_sex M/F."
+            )
         try:
             from datetime import date as _date
             from services.mortality.bfs import BFS_2020_2022
@@ -327,9 +550,10 @@ def build_optimizer_context(
                 current_age=current_age,
                 horizon_years=int(horizon_years),
             )
-        except Exception:
-            # Defensive: keine Mortality bei Fehler — Backwards-Compat
-            death_indices = None
+        except Exception as exc:
+            raise OptimizerInputError(
+                "Activated mortality simulation could not be evaluated."
+            ) from exc
 
     return OptimizerContext(
         cma_id=cma_id_for_cache,
@@ -344,8 +568,14 @@ def build_optimizer_context(
         bounds=list(bounds),
         scipy_constraints=list(scipy_constraints),
         score_x10=int(score_x10),
-        risky_fraction_per_bucket=risky_fraction_per_bucket,
+        scenario_mu_bps=scenario_mu_bps,
+        scenario_cov_bps2=scenario_cov_bps2,
+        external_wealth_rappen=max(0, int(external_wealth_rappen or 0)),
+        external_wealth_series_rappen=canonical_external_wealth_series,
+        scenario_horizon_years=common_scenario_horizon,
+        risky_fraction_per_bucket=exact_risky_fractions,
         max_risky_fraction_bps=max_risky_fraction_bps,
+        sub_allocations=canonical_sub_allocations,
         # Sprint P1 (2026-06-06): IS-Likelihood-Weights
         scenario_weights=scenario_weights,
         mortality_death_year_index_per_path=death_indices,
@@ -369,12 +599,14 @@ def _objective_from_array(context: OptimizerContext, w: np.ndarray) -> float:
     wenn gesetzt. Bei scenario_weights=None: trivialer sample-mean wie zuvor.
     """
     wealth = _simulate_context_wealth(context, w)
+    annualized_twr = _annualized_twr_bps_per_path(context, w)
     return float(combined_objective_two_phase(
         context.liabilities,
         wealth,
         initial_wealth_rappen=context.advisory_wealth_rappen,
         horizon_years=context.horizon_years,
         weights=context.scenario_weights,
+        annualized_return_bps_per_path=annualized_twr,
     ))
 
 
@@ -392,12 +624,14 @@ def evaluate_weights(
     w = _weights_bps_to_array(weights_bps)
     # Sprint U-P2 Fix C9: tax-aware Evaluation
     wealth = _simulate_context_wealth(context, w)
+    annualized_twr = _annualized_twr_bps_per_path(context, w)
     objective = combined_objective_two_phase(
         context.liabilities,
         wealth,
         initial_wealth_rappen=context.advisory_wealth_rappen,
         horizon_years=context.horizon_years,
         weights=context.scenario_weights,
+        annualized_return_bps_per_path=annualized_twr,
     )
     feasible, violations = is_feasible(
         w, bounds=context.bounds, constraints=context.scipy_constraints,
@@ -488,7 +722,11 @@ def _minimum_risk_allocation(
     if remaining <= 1e-12:
         return _normalize_to_bounds(weights, bounds)
 
-    rf_map = risky_fraction_per_bucket or DEFAULT_BUCKET_RISKY_FRACTION
+    rf_map = (
+        DEFAULT_BUCKET_RISKY_FRACTION
+        if risky_fraction_per_bucket is None
+        else risky_fraction_per_bucket
+    )
     bucket_order = sorted(
         range(len(bounds)),
         key=lambda i: (
@@ -628,6 +866,7 @@ def build_initial_guesses(
     score_x10: int,
     mu_bps: np.ndarray | None = None,
     cov_bps: np.ndarray | None = None,
+    risky_fraction_per_bucket: dict[str, float] | None = None,
 ) -> list[np.ndarray]:
     """Liefert Multi-Start-Initials, alle innerhalb der Bounds und summe~1.
 
@@ -656,7 +895,10 @@ def build_initial_guesses(
     candidates.append(_normalize_to_bounds(mid, bounds))
 
     # 2. Conservative: minimum risky fraction inside the hard bounds
-    cons = _minimum_risk_allocation(bounds)
+    cons = _minimum_risk_allocation(
+        bounds,
+        risky_fraction_per_bucket=risky_fraction_per_bucket,
+    )
     liq_idx = BUCKET_ORDER.index("liquidity")
     candidates.append(cons)
 
@@ -839,7 +1081,7 @@ def _finite_feasible_candidate(
         x = np.asarray(raw_x, dtype=np.float64)
     except (TypeError, ValueError):
         return None
-    if x.shape[0] != len(bounds):
+    if x.shape != (len(bounds),) or not np.all(np.isfinite(x)):
         return None
     candidate = _normalize_to_bounds(np.clip(x, 0.0, 1.0), bounds)
     feasible, _violations = is_feasible(
@@ -863,7 +1105,11 @@ def _candidate_risky_fraction(
     risky_fraction_per_bucket: dict[str, float] | None,
 ) -> float:
     """Compute realized risky fraction for robustified candidate tie-breaks."""
-    rf_map = risky_fraction_per_bucket or DEFAULT_BUCKET_RISKY_FRACTION
+    rf_map = (
+        DEFAULT_BUCKET_RISKY_FRACTION
+        if risky_fraction_per_bucket is None
+        else risky_fraction_per_bucket
+    )
     risky_vector = np.array(
         [float(rf_map.get(bucket, 0.0)) for bucket in BUCKET_ORDER],
         dtype=np.float64,
@@ -942,7 +1188,10 @@ def run_solver(
     score_x10: int,
     advisory_wealth_rappen: int,
     cashflow_series_rappen: Iterable[int],
+    external_wealth_rappen: int = 0,
+    external_wealth_series_rappen: Iterable[int] | None = None,
     horizon_years: int = 10,
+    scenario_horizon_years: int | None = None,
     n_paths: int = 2000,
     seed: int | None = None,
     inflation_series_bps: list[int] | None = None,
@@ -961,6 +1210,13 @@ def run_solver(
     is_retired: bool = False,
     # Sprint B1 (2026-06-07): Sub-Allocation-Aware Bucket-Returns
     sub_allocations: list[dict] | None = None,
+    # Strict mandate-specific solver bounds. None keeps the legacy
+    # House-Matrix extraction path byte-for-byte compatible.
+    effective_bounds_bps: Mapping[str, tuple[int, int]] | None = None,
+    # Optional already-built source-of-truth context. Productive callers use
+    # this to retain the exact context for validation/audited fallback and to
+    # prevent any downstream rebuild with lost inputs.
+    optimizer_context: OptimizerContext | None = None,
 ) -> OptimizerResult:
     """Mulvey-Light SLSQP Optimizer.
 
@@ -976,33 +1232,46 @@ def run_solver(
     den gleichen Wert liefert.
     """
     # ---- 1.-4. Context (Seed, Scenarios, Liabilities, Constraints) ----
-    context = build_optimizer_context(
-        cma=cma,
-        goals=list(goals),
-        house_matrix_row=house_matrix_row,
-        score_x10=score_x10,
-        advisory_wealth_rappen=advisory_wealth_rappen,
-        cashflow_series_rappen=cashflow_series_rappen,
-        horizon_years=horizon_years,
-        n_paths=n_paths,
-        seed=seed,
-        inflation_series_bps=inflation_series_bps,
-        risky_fraction_per_bucket=risky_fraction_per_bucket,
-        max_risky_fraction_bps=max_risky_fraction_bps,
-        client_birth_year=client_birth_year,
-        client_sex=client_sex,
-        use_mortality_simulation=use_mortality_simulation,
-        # Sprint U-P2 Fix C9
-        tax_regime=tax_regime,
-        dividend_yield_bps_per_bucket=dividend_yield_bps_per_bucket,
-        base_calendar_year=base_calendar_year,
-        mandate_age_at_start=mandate_age_at_start,
-        is_retired=is_retired,
-        # Sprint B1 (2026-06-07): Sub-Allocation
-        sub_allocations=sub_allocations,
-    )
+    context = optimizer_context
+    if context is None:
+        context = build_optimizer_context(
+            cma=cma,
+            goals=list(goals),
+            house_matrix_row=house_matrix_row,
+            score_x10=score_x10,
+            advisory_wealth_rappen=advisory_wealth_rappen,
+            cashflow_series_rappen=cashflow_series_rappen,
+            external_wealth_rappen=external_wealth_rappen,
+            external_wealth_series_rappen=external_wealth_series_rappen,
+            horizon_years=horizon_years,
+            scenario_horizon_years=scenario_horizon_years,
+            n_paths=n_paths,
+            seed=seed,
+            inflation_series_bps=inflation_series_bps,
+            risky_fraction_per_bucket=risky_fraction_per_bucket,
+            max_risky_fraction_bps=max_risky_fraction_bps,
+            client_birth_year=client_birth_year,
+            client_sex=client_sex,
+            use_mortality_simulation=use_mortality_simulation,
+            # Sprint U-P2 Fix C9
+            tax_regime=tax_regime,
+            dividend_yield_bps_per_bucket=dividend_yield_bps_per_bucket,
+            base_calendar_year=base_calendar_year,
+            mandate_age_at_start=mandate_age_at_start,
+            is_retired=is_retired,
+            # Sprint B1 (2026-06-07): Sub-Allocation
+            sub_allocations=sub_allocations,
+            effective_bounds_bps=effective_bounds_bps,
+        )
+    elif not isinstance(context, OptimizerContext):
+        raise OptimizerInputError(
+            "optimizer_context must be an OptimizerContext instance."
+        )
     # Lokale Aliase fuer Lesbarkeit der bestehenden Logik unten
     seed = context.seed
+    score_x10 = context.score_x10
+    horizon_years = context.horizon_years
+    n_paths = context.n_paths
     return_paths = context.return_paths
     liabilities = context.liabilities
     aggregated_liability = context.aggregated_liability_path
@@ -1014,32 +1283,29 @@ def run_solver(
         return _objective_from_array(context, w)
 
     # ---- 6. Multi-Start SLSQP ----
-    # PAR-5: zusaetzlicher Markowitz-Min-Varianz-Kandidat aus der CMA. Die
-    # ScenarioInputs (mu_bps, sigma_bps, cholesky) wurden intern bereits
-    # einmal in build_optimizer_context() berechnet; wir extrahieren sie
-    # hier defensiv erneut (reine CMA-Feldzugriffe, kein Monte-Carlo, daher
-    # billig) statt den frozen OptimizerContext um Felder zu erweitern.
-    # Bei jedem Fehler bleibt mu_bps/cov_bps None -> build_initial_guesses
-    # faellt automatisch auf die bisherigen 5 Kandidaten zurueck.
+    # PAR-5: zusaetzlicher Markowitz-Min-Varianz-Kandidat.  The retained
+    # OptimizerContext is the sole source of truth: re-reading the separately
+    # passed CMA here would allow the same context to produce different starts
+    # (and potentially a different local optimum) after a CMA mutation.
     mu_bps_for_markowitz: np.ndarray | None = None
     cov_bps_for_markowitz: np.ndarray | None = None
-    try:
-        _scenario_inputs_for_markowitz = scenario_inputs_from_cma(
-            cma, sub_allocations=sub_allocations,
-        )
-        mu_bps_for_markowitz = _scenario_inputs_for_markowitz.mu_bps
-        cov_bps_for_markowitz = _covariance_bps_from_scenario_inputs(
-            _scenario_inputs_for_markowitz.sigma_bps,
-            _scenario_inputs_for_markowitz.cholesky,
-        )
-    except Exception:  # noqa: BLE001 - defensiv, PAR-5 darf Solver nie crashen
-        mu_bps_for_markowitz = None
-        cov_bps_for_markowitz = None
+    if context.scenario_mu_bps is not None and context.scenario_cov_bps2 is not None:
+        candidate_mu = np.asarray(context.scenario_mu_bps, dtype=np.float64)
+        candidate_cov = np.asarray(context.scenario_cov_bps2, dtype=np.float64)
+        if (
+            candidate_mu.shape == (N_BUCKETS,)
+            and candidate_cov.shape == (N_BUCKETS, N_BUCKETS)
+            and np.all(np.isfinite(candidate_mu))
+            and np.all(np.isfinite(candidate_cov))
+        ):
+            mu_bps_for_markowitz = candidate_mu.copy()
+            cov_bps_for_markowitz = candidate_cov.copy()
 
     initials = build_initial_guesses(
         bounds, score_x10,
         mu_bps=mu_bps_for_markowitz,
         cov_bps=cov_bps_for_markowitz,
+        risky_fraction_per_bucket=context.risky_fraction_per_bucket,
     )
     best_result: OptimizeResult | None = None
     best_obj = float("inf")
@@ -1225,12 +1491,16 @@ def run_solver(
             bounds,
         )
         weights_bps = _weights_to_bps_dict(mid)
-        mid_wealth = _simulate_context_wealth(context, _weights_bps_to_array(weights_bps))
+        midpoint_w = _trusted_weights_bps_to_array(weights_bps)
+        mid_wealth = _simulate_context_wealth(context, midpoint_w)
         _penalty, goal_achievability = chance_constraint_penalty(
             mid_wealth,
             context.liabilities,
             context.advisory_wealth_rappen,
             weights=context.scenario_weights,
+            annualized_return_bps_per_path=_annualized_twr_bps_per_path(
+                context, midpoint_w
+            ),
         )
         return OptimizerResult(
             weights_bps=weights_bps,
@@ -1253,34 +1523,54 @@ def run_solver(
                 "final_reason": "no_finite_feasible_candidate",
             },
             restart_results=tuple(attempt_summaries),
+            context=context,
         )
 
     # Final clip + renorm + feasibility check
     final_w = _normalize_to_bounds(np.clip(best_result.x, 0.0, 1.0), bounds)
-    feasible, violation_reasons = is_feasible(
+    continuous_feasible, continuous_violation_reasons = is_feasible(
         final_w, bounds=bounds, constraints=scipy_constraints,
     )
 
-    if not feasible:
+    weights_bps = _weights_to_bps_dict(final_w)
+    rounded_w = _trusted_weights_bps_to_array(weights_bps)
+    rounded_feasible, rounded_violation_reasons = is_feasible(
+        rounded_w,
+        bounds=bounds,
+        constraints=scipy_constraints,
+    )
+
+    # The integer-bps allocation is the product returned to the engine. A
+    # continuous SLSQP point is therefore not allowed to retain a converged
+    # status if its deterministic rounding/correction violates any constraint.
+    if not continuous_feasible:
         status = "diverged_infeasible"
+        violation_reasons = list(continuous_violation_reasons)
+    elif not rounded_feasible:
+        status = "diverged_infeasible"
+        violation_reasons = list(rounded_violation_reasons)
     elif accepted_feasible_non_success:
         status = "converged_robustified"
+        violation_reasons = []
     else:
         status = "converged"
+        violation_reasons = []
 
-    weights_bps = _weights_to_bps_dict(final_w)
     # V3 Sprint 1b: objective_value via Context-Path neu bestimmen, damit
     # `evaluate_weights(ctx, result.weights_bps).objective_value` exakt
     # `result.objective_value` matcht (post-rounding kongruent).
     post_round_objective = _objective_from_array(
-        context, _weights_bps_to_array(weights_bps)
+        context, rounded_w
     )
-    final_wealth = _simulate_context_wealth(context, _weights_bps_to_array(weights_bps))
+    final_wealth = _simulate_context_wealth(context, rounded_w)
     _penalty, goal_achievability = chance_constraint_penalty(
         final_wealth,
         context.liabilities,
         context.advisory_wealth_rappen,
         weights=context.scenario_weights,
+        annualized_return_bps_per_path=_annualized_twr_bps_per_path(
+            context, rounded_w
+        ),
     )
     reasoning: list[str] = list(context.bounds_collapse_warnings)
     method_used = "SLSQP+DE-Fallback" if used_ga_fallback else "SLSQP"
@@ -1360,6 +1650,7 @@ def run_solver(
         goal_achievability=tuple(goal_achievability),
         robustification=robustification_payload,
         restart_results=tuple(attempt_summaries),
+        context=context,
     )
 
 

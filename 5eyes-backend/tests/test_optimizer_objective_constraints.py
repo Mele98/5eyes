@@ -62,6 +62,7 @@ def _make_liab(
     hardness: str = "primaer",
     weight_bps: int = 1000,
     horizon_years: int = 10,
+    liability_path_rappen: list[int] | None = None,
 ) -> GoalLiability:
     return GoalLiability(
         goal_id=goal_id,
@@ -70,7 +71,11 @@ def _make_liab(
         target_kind=target_kind,
         target_amount_rappen=target_amount_rappen,
         target_year_index=target_year_index,
-        liability_path_rappen=[0] * horizon_years,
+        liability_path_rappen=(
+            list(liability_path_rappen)
+            if liability_path_rappen is not None
+            else [0] * horizon_years
+        ),
         hardness_key=hardness,
         weight_bps=weight_bps,
     )
@@ -107,9 +112,14 @@ def test_shortfall_wealth_at_t_positive_when_target_missed():
     assert out[2] == 0
 
 
-def test_shortfall_outflow_stream_uses_end_wealth():
-    """outflow_stream: Lebensluecke = abs(end_wealth) wenn negativ."""
-    liab = _make_liab(target_kind="outflow_stream", target_amount_rappen=240_000_00, target_year_index=5)
+def test_shortfall_outflow_stream_uses_own_due_dates():
+    """outflow_stream evaluates gaps on its exact positive due dates."""
+    liab = _make_liab(
+        target_kind="outflow_stream",
+        target_amount_rappen=240_000_00,
+        target_year_index=5,
+        liability_path_rappen=[0] * 4 + [120_000_00] + [0] * 4 + [120_000_00],
+    )
     wealth = np.array([
         [100_000_00] * 5 + [-50_000_00] + [-50_000_00] * 5,  # Luecke 50k am Ende
         [100_000_00] * 11,                                     # alle erfuellt
@@ -119,6 +129,46 @@ def test_shortfall_outflow_stream_uses_end_wealth():
     assert out[0] == pytest.approx(50_000_00 ** 2)
     assert out[1] == 0
     assert out[2] == pytest.approx(100_000_00 ** 2)
+
+
+def test_outflow_stream_detects_interim_gap_even_if_later_inflow_recovers():
+    liab = _make_liab(
+        target_kind="outflow_stream",
+        target_amount_rappen=100_000_00,
+        target_year_index=2,
+        liability_path_rappen=[0, 100_000_00] + [0] * 8,
+    )
+    wealth = np.array([[100_000_00, 50_000_00, -20_000_00, 30_000_00] + [30_000_00] * 7])
+
+    out = shortfall_squared_per_path(
+        liab,
+        wealth,
+        initial_wealth_rappen=100_000_00,
+        horizon_years=10,
+    )
+
+    assert out[0] == pytest.approx(20_000_00 ** 2)
+
+
+def test_one_off_cashflow_is_not_counted_again_after_payment():
+    liab = _make_liab(
+        target_kind="cashflow_in_year",
+        target_amount_rappen=50_000_00,
+        target_year_index=2,
+        liability_path_rappen=[0, 50_000_00] + [0] * 8,
+    )
+    # Wealth at year 2 is already post-liability. A positive remainder means
+    # the 50k payment was funded and must not be demanded a second time.
+    wealth = np.array([[100_000_00, 80_000_00, 10_000_00] + [10_000_00] * 8])
+
+    out = shortfall_squared_per_path(
+        liab,
+        wealth,
+        initial_wealth_rappen=100_000_00,
+        horizon_years=10,
+    )
+
+    assert out[0] == 0
 
 
 def test_shortfall_return_rate_uses_implied_wealth_target():
@@ -139,6 +189,27 @@ def test_shortfall_return_rate_uses_implied_wealth_target():
     # Shortfall jetzt in Rappen (kommensurabel mit wealth_at_t):
     assert np.sqrt(out[0]) == pytest.approx(target_wealth - 150_000_00, rel=1e-6)
     assert np.sqrt(out[2]) == pytest.approx(target_wealth + 10_000_00, rel=1e-6)
+
+
+def test_return_goal_uses_cashflow_neutral_twr_when_supplied():
+    liab = _make_liab(
+        target_kind="return_rate",
+        target_amount_rappen=500,
+        target_year_index=10,
+    )
+    # End wealth doubled only because of savings. Market TWR is 0%, therefore
+    # a 5% return goal is still missed.
+    wealth = np.array([[100_000_00] * 10 + [200_000_00]], dtype=np.float64)
+
+    out = shortfall_squared_per_path(
+        liab,
+        wealth,
+        initial_wealth_rappen=100_000_00,
+        horizon_years=10,
+        annualized_return_bps_per_path=np.array([0.0]),
+    )
+
+    assert out[0] > 0
 
 
 def test_shortfall_return_rate_commensurate_with_wealth_at_t():
@@ -277,6 +348,40 @@ def test_combined_objective_includes_both_terms():
         primary_weight=2.0, volatility_weight=0.5,
     )
     assert combined == pytest.approx(2.0 * primary + chance)
+
+
+def test_combined_objective_without_goals_minimizes_terminal_wealth_variance():
+    """Ohne Goals bleibt Volatilitaet die echte sekundaere Objective."""
+    low_variance = np.array([
+        [100.0, 99.0],
+        [100.0, 100.0],
+        [100.0, 101.0],
+    ])
+    high_variance = np.array([
+        [100.0, 50.0],
+        [100.0, 100.0],
+        [100.0, 150.0],
+    ])
+    volatility_weight = 0.25
+
+    low = combined_objective_two_phase(
+        [],
+        low_variance,
+        initial_wealth_rappen=100.0,
+        horizon_years=1,
+        volatility_weight=volatility_weight,
+    )
+    high = combined_objective_two_phase(
+        [],
+        high_variance,
+        initial_wealth_rappen=100.0,
+        horizon_years=1,
+        volatility_weight=volatility_weight,
+    )
+
+    assert low == pytest.approx(volatility_weight * np.var(low_variance[:, -1]))
+    assert high == pytest.approx(volatility_weight * np.var(high_variance[:, -1]))
+    assert low < high
 
 
 # ============================================================================

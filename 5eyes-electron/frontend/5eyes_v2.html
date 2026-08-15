@@ -3375,7 +3375,7 @@ function _wireSollIstHover(){
                 <ul id="opt-reasoning-list" style="margin:6px 0 0 18px;padding:0;font-size:10px;color:var(--n6);line-height:1.5"></ul>
               </details>
               <details id="opt-achievability-block">
-                <summary style="font-size:11px;font-weight:500;cursor:pointer;color:var(--n6)">Zielerreichung</summary>
+                <summary style="font-size:11px;font-weight:500;cursor:pointer;color:var(--n6)">Zielerreichung (Entscheidungsmodell)</summary>
                 <table class="optimizer-table" id="opt-achievability-table">
                   <thead>
                     <tr>
@@ -6637,7 +6637,7 @@ function wealthProjectionInputs(scope){
   var returnMap={
     equities:Number(_acaMap['Aktien']&&_acaMap['Aktien'].expected_return_bps||ADMIN_CMA_DEFAULTS.equity_intl_return_bps||690),
     bonds:Number(_acaMap['Obligationen']&&_acaMap['Obligationen'].expected_return_bps||ADMIN_CMA_DEFAULTS.bonds_fx_hedged_return_bps||220),
-    realEstate:Number(_acaMap['Immobilien']&&_acaMap['Immobilien'].expected_return_bps||ADMIN_CMA_DEFAULTS.real_estate_ch_return_bps||330),
+    realEstate:Number(_acaMap['Immobilien']&&_acaMap['Immobilien'].expected_return_bps||ADMIN_CMA_DEFAULTS.real_estate_ch_return_bps||450),
     // 2026-06-17 (User-Fachentscheid): Liquidität wertet NICHT auf (Cash = 0%, sofern
     // nicht anders beschrieben). Echte Konto-Zinsen laufen ueber den abgeleiteten
     // Zinsertrag-Cashflow (kein Doppelzählen, kein Phantom-Wachstum) — konsistent zum
@@ -6661,8 +6661,9 @@ function wealthProjectionInputs(scope){
       +Number(mix.alternatives||0)*returnMap.alternatives)/10000;
     if(String(pos&&pos.position_type||'')==='Immobilien'){
       sockelGrossRappen+=value;  // Immobilie = Sockel (nicht verzehrt)
-      // Wertsteigerung p.a. (asset_expected_return_bps): 0 = flach, >0 = indexiert.
-      sockelIndexRappenBps+=value*Math.max(0,Number(pos&&pos.asset_expected_return_bps||0));
+      // Wertsteigerung p.a.: negative Annahmen bleiben sichtbar; nur <= -100%
+      // weist bereits der API-Vertrag als wirtschaftlich unmoeglich ab.
+      sockelIndexRappenBps+=value*Number(pos&&pos.asset_expected_return_bps||0);
     }else{
       consumableRappen+=value;   // verzehrbares Finanzvermoegen
       consumableReturnRappenBps+=Math.round(value*posReturnBps);
@@ -7347,6 +7348,9 @@ function buildSimulationEventsHtml(sim){
 }
 function buildMonteCarloSummaryHtml(mc){
   if(!mc)return engineRuntimeInfoBox('Monte-Carlo-Bandbreiten werden nach der ersten Berechnung angezeigt.');
+  var modelBasis=mc.model_basis||{};
+  var dynamics=String(modelBasis.portfolio_dynamics||'bands');
+  var tail=String(modelBasis.tail_model||'lognormal');
   var mcTargetP10=Array.isArray(mc.target_p10_series_rappen)&&mc.target_p10_series_rappen.length?mc.target_p10_series_rappen[mc.target_p10_series_rappen.length-1]:0;
   var mcTargetP50=Array.isArray(mc.target_p50_series_rappen)&&mc.target_p50_series_rappen.length?mc.target_p50_series_rappen[mc.target_p50_series_rappen.length-1]:0;
   var mcTargetP90=Array.isArray(mc.target_p90_series_rappen)&&mc.target_p90_series_rappen.length?mc.target_p90_series_rappen[mc.target_p90_series_rappen.length-1]:0;
@@ -7356,7 +7360,7 @@ function buildMonteCarloSummaryHtml(mc){
     'P50-Rendite: '+((Number(mc.target_annualized_return_p50_bps||0)/100).toFixed(2))+'% p.a. / Downside '+String(mc.target_downside_probability_pct||0)+'%',
     '1J Risiko: VaR 95 '+formatRiskLossBps(mc.target_var_95_1y_bps)+' / CVaR 95 '+formatRiskLossBps(mc.target_cvar_95_1y_bps)+' / Verlust-Wkeit '+formatProbabilityPct(mc.target_loss_probability_1y_pct),
     'Max Drawdown: P50 '+formatRiskLossBps(mc.target_max_drawdown_p50_bps)+' / Stress P95 '+formatRiskLossBps(mc.target_max_drawdown_p95_bps),
-    'Methodik: normalverteilte Jahresrenditen auf Basis der hinterlegten Rendite- und Volatilitaetsannahmen.'
+    'Methodik: Umsetzungsprojektion ('+dynamics+', '+tail+'); getrennt von der Allokationsentscheidung.'
   ]);
 }
 function buildMonteCarloGoalsHtml(mc){
@@ -9987,9 +9991,18 @@ function protokolliereEreignis(){
   // Auto-set Zuordnung type
     var typ = document.getElementById('maw-typ');
     if (!typ) return;
+    typ.disabled = false;
+    typ.removeAttribute('title');
     if (val === 'Hypothek') {
       typ.value = 'Verbindlichkeit';
+      typ.disabled = true;
       updateMortgageLinkedPropertyOptions();
+    } else if (val === 'Immobilien') {
+      // Direktimmobilien sind ein externer, nicht handelbarer Sockel. Kotierte
+      // Immobilienfonds/REITs werden als Depot-Exposure erfasst.
+      typ.value = 'Anderes Vermögen';
+      typ.disabled = true;
+      typ.title = 'Direktimmobilien gehören zum externen Gesamtvermögen.';
     } else if (val === 'Depot' || val === 'Liquiditaet') {
       typ.value = 'Beratungsvermögen';
     } else {
@@ -10575,7 +10588,7 @@ function adminPercentInputToBps(id) {
 var adminCurrentCapitalMarketAssumptions = null;
 var ADMIN_CMA_DEFAULTS = {
   assumption_set_name: 'House View Standard',
-  bonds_chf_ig_return_bps: 170,
+  bonds_chf_ig_return_bps: 220,
   bonds_chf_ig_vol_bps: 350,
   bonds_fx_hedged_return_bps: 220,
   bonds_fx_hedged_vol_bps: 430,
@@ -10583,13 +10596,13 @@ var ADMIN_CMA_DEFAULTS = {
   bonds_hy_vol_bps: 950,
   equity_ch_return_bps: 620,
   equity_ch_vol_bps: 1450,
-  equity_intl_return_bps: 690,
+  equity_intl_return_bps: 700,
   equity_intl_vol_bps: 1600,
   equity_em_return_bps: 760,
   equity_em_vol_bps: 1900,
-  real_estate_ch_return_bps: 330,
+  real_estate_ch_return_bps: 450,
   real_estate_ch_vol_bps: 820,
-  alternatives_gold_return_bps: 300,
+  alternatives_gold_return_bps: 120,
   alternatives_gold_vol_bps: 1200,
   liquidity_return_bps: 80,
   liquidity_vol_bps: 15
@@ -10604,20 +10617,20 @@ var ADMIN_CMA_DEFAULT_CORRELATION_MATRIX = [
 var ADMIN_CMA_SUBASSET_DEFAULTS = [
   { name: 'Aktien Schweiz', asset_class: 'Aktien', expected_return_bps: 620, expected_volatility_bps: 1450 },
   { name: 'Aktien Schweiz Small/Mid', asset_class: 'Aktien', expected_return_bps: 670, expected_volatility_bps: 1650 },
-  { name: 'Aktien Global', asset_class: 'Aktien', expected_return_bps: 690, expected_volatility_bps: 1600 },
+  { name: 'Aktien Global', asset_class: 'Aktien', expected_return_bps: 700, expected_volatility_bps: 1600 },
   { name: 'Aktien Europa', asset_class: 'Aktien', expected_return_bps: 640, expected_volatility_bps: 1550 },
   { name: 'Aktien Schwellenlaender', asset_class: 'Aktien', expected_return_bps: 760, expected_volatility_bps: 1900 },
-  { name: 'Obligationen CHF IG', asset_class: 'Obligationen', expected_return_bps: 170, expected_volatility_bps: 350 },
+  { name: 'Obligationen CHF IG', asset_class: 'Obligationen', expected_return_bps: 220, expected_volatility_bps: 350 },
   { name: 'Obligationen Global Hedged', asset_class: 'Obligationen', expected_return_bps: 220, expected_volatility_bps: 430 },
   { name: 'Obligationen High Yield', asset_class: 'Obligationen', expected_return_bps: 420, expected_volatility_bps: 950 },
   { name: 'Obligationen Emerging', asset_class: 'Obligationen', expected_return_bps: 400, expected_volatility_bps: 1100 },
-  { name: 'Immobilien Schweiz', asset_class: 'Immobilien', expected_return_bps: 330, expected_volatility_bps: 820 },
+  { name: 'Immobilien Schweiz', asset_class: 'Immobilien', expected_return_bps: 450, expected_volatility_bps: 820 },
   { name: 'Immobilien Global', asset_class: 'Immobilien', expected_return_bps: 410, expected_volatility_bps: 980 },
-  { name: 'Gold / Rohstoffe', asset_class: 'Alternative', expected_return_bps: 300, expected_volatility_bps: 1200 },
+  { name: 'Gold / Rohstoffe', asset_class: 'Alternative', expected_return_bps: 120, expected_volatility_bps: 1200 },
   { name: 'Liquid Alternatives', asset_class: 'Alternative', expected_return_bps: 320, expected_volatility_bps: 700 },
   { name: 'Hedge Funds', asset_class: 'Alternative', expected_return_bps: 420, expected_volatility_bps: 900 },
-  { name: 'Private Equity', asset_class: 'Alternative', expected_return_bps: 800, expected_volatility_bps: 2200 },
-  { name: 'Krypto', asset_class: 'Alternative', expected_return_bps: 1200, expected_volatility_bps: 4500 },
+  { name: 'Private Equity', asset_class: 'Alternative', expected_return_bps: 650, expected_volatility_bps: 2200 },
+  { name: 'Krypto', asset_class: 'Alternative', expected_return_bps: 800, expected_volatility_bps: 4500 },
   { name: 'Geldmarktfonds', asset_class: 'Liquiditaet', expected_return_bps: 80, expected_volatility_bps: 15 },
   { name: 'Festgeld', asset_class: 'Liquiditaet', expected_return_bps: 100, expected_volatility_bps: 10 }
 ];
@@ -17795,7 +17808,7 @@ function ensureAllocationRuntimePanels(){
         + '<div style="padding-top:8px;border-top:1px solid var(--b1);margin-top:10px"><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:6px">Marktdaten & Kapitalmarktannahmen</div><div id="aa-market-runtime" style="display:flex;flex-direction:column;gap:6px"></div></div>'
         + '<div style="padding-top:8px;border-top:1px solid var(--b1);margin-top:10px"><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:6px">Live-Drift & Rebalancing</div><div id="aa-live-summary" style="display:flex;flex-direction:column;gap:6px"></div><div id="aa-live-assets" style="display:flex;flex-direction:column;gap:5px;margin-top:8px"></div><div id="aa-live-positions" style="display:flex;flex-direction:column;gap:5px;margin-top:8px"></div></div>'
         + '<div style="padding-top:8px;border-top:1px solid var(--b1);margin-top:10px"><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:6px">Simulation & Rebalancing</div><div id="aa-sim-events" style="display:flex;flex-direction:column;gap:6px"></div></div>'
-        + '<div style="padding-top:8px;border-top:1px solid var(--b1);margin-top:10px"><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:6px">Monte Carlo</div><div id="aa-mc-summary" style="display:flex;flex-direction:column;gap:6px"></div><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin:10px 0 6px">Ziel-Pfadanalyse</div><div id="aa-mc-goals" style="display:flex;flex-direction:column;gap:6px"></div></div>'
+        + '<div style="padding-top:8px;border-top:1px solid var(--b1);margin-top:10px"><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:6px">Monte Carlo (Umsetzungsprojektion)</div><div id="aa-mc-summary" style="display:flex;flex-direction:column;gap:6px"></div><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin:10px 0 6px">Ziel-Pfadanalyse (Umsetzungsprojektion)</div><div id="aa-mc-goals" style="display:flex;flex-direction:column;gap:6px"></div></div>'
         + '</div></div>'
         + '<div class="card">'
         + '<div class="chd"><span class="cht">Building Blocks & Risk Weights</span><span style="font-size:9px;color:var(--n4)">Subanlageklassen, Zielquote und Risky Fraction</span></div>'
@@ -23359,7 +23372,9 @@ function renderCashflowProjection(data) {
 function buildWealthPositionPayload(cat,typ,note){
   var tMap={'Depot':'Depot','Liquiditaet':'Liquidität','Immobilien':'Immobilien','Vorsorge':'Vorsorge','Alternative':'Alternative','Hypothek':'Hypothek'};
   var posType=tMap[cat]||'Custom';
-  var assignment=posType==='Hypothek'?'Verbindlichkeit':typ;
+  var assignment=posType==='Hypothek'
+    ?'Verbindlichkeit'
+    :(posType==='Immobilien'?'Anderes Vermögen':typ);
   var akt=parseFloat(getInputValue('sc-akt'))||0;
   var obl=parseFloat(getInputValue('sc-obl'))||0;
   var imm=parseFloat(getInputValue('sc-imm'))||0;
@@ -25937,7 +25952,7 @@ function openStammdatenModal(){
             <div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Aktien EM Vol</label><input class="fi" id="admin-cma-equity-em-vol" type="number" step="0.1" style="font-size:11px"></div>
             <div style="background:var(--bg2);border-radius:var(--r);display:flex;align-items:center;padding:4px 8px;font-size:9px;color:var(--n4)">Weitere</div>
             <div></div>
-            <div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Immobilien CH Rendite</label><input class="fi" id="admin-cma-real-estate-return" type="number" step="0.1" style="font-size:11px"></div>
+            <div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Immobilien CH Gesamtrendite inkl. Ausschüttungen</label><input class="fi" id="admin-cma-real-estate-return" type="number" step="0.1" style="font-size:11px"></div>
             <div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Immobilien CH Vol</label><input class="fi" id="admin-cma-real-estate-vol" type="number" step="0.1" style="font-size:11px"></div>
             <div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Gold Rendite</label><input class="fi" id="admin-cma-gold-return" type="number" step="0.1" style="font-size:11px"></div>
             <div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Gold Vol</label><input class="fi" id="admin-cma-gold-vol" type="number" step="0.1" style="font-size:11px"></div>

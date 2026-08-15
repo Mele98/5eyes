@@ -212,3 +212,29 @@ def test_put_optimizer_mode_validates_and_audits(session_factory, monkeypatch):
         assert len(rows) == 1
         assert rows[0].old_value == "house_matrix"
         assert rows[0].new_value == "shadow_stochastic"
+
+
+def test_put_optimizer_mode_cannot_disable_stochastic_in_production(
+    session_factory, monkeypatch,
+):
+    old_mode = pe.settings.optimizer_mode
+    old_env = pe.settings.app_env
+    monkeypatch.setattr(pe.settings, "optimizer_mode", "stochastic")
+    monkeypatch.setattr(pe.settings, "app_env", "production")
+    try:
+        with _client_with_admin(session_factory, admin_id="admin-mode-prod") as client:
+            response = client.put(
+                "/admin/system/optimizer-mode",
+                json={"optimizer_mode": "house_matrix"},
+            )
+        assert response.status_code == 409, response.text
+        assert pe.settings.optimizer_mode == "stochastic"
+    finally:
+        app.dependency_overrides.clear()
+        pe.settings.optimizer_mode = old_mode
+        pe.settings.app_env = old_env
+
+    with session_factory() as session:
+        assert session.query(AuditLog).filter(
+            AuditLog.action == "OPTIMIZER_MODE_CHANGE"
+        ).count() == 0

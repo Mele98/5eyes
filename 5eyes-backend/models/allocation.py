@@ -57,6 +57,14 @@ class TargetAllocation(Base):
     risk_budget_bps_at_generation = Column(Integer)
     limiting_factor = Column(String)
     goal_achievability_json = Column(String)
+    # Immutable decision artefacts. These prevent a reload from rebuilding a
+    # historic stochastic allocation with today's BuildingBlocks/preferences.
+    sub_allocations_json = Column(String)
+    effective_constraints_json = Column(String)
+    allocation_context_hash = Column(String)
+    # Explicit provenance discriminator. New engine allocations set this to
+    # 1, so deleting all payloads cannot disguise a modern decision as legacy.
+    context_artifacts_required = Column(Integer, nullable=False, default=0)
     based_on_assessment_id = Column(String)
     capital_market_assumptions_id = Column(String, ForeignKey("capital_market_assumptions.id"))
     # C8: Audit-Anker fuer Reproduzierbarkeit / Drift-Erkennung.
@@ -159,6 +167,7 @@ class OptimizerRun(Base):
     reasoning_json = Column(String)  # JSON list[str]
     stress_evaluations_json = Column(String)  # JSON dict
     restart_results_json = Column(String)  # JSON list[dict] with Stage-9 start diagnostics
+    robustification_json = Column(String)  # JSON effective/rejected candidate audit envelope
     set_by = Column(String, ForeignKey("users.id"))
     created_at = Column(String, nullable=False)
 

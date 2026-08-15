@@ -70,3 +70,14 @@ def test_explicit_simulation_horizon_has_priority_over_life_default():
     client = _client(date_of_birth="1990-03-20", salutation="Frau")
     mandate = _mandate(client)
     assert _simulation_horizon_years({"horizonYears": "12"}, [], mandate) == 12
+
+
+def test_dated_pension_goal_extends_horizon_even_without_horizon_years():
+    future_year = date.today().year + 30
+    goal = SimpleNamespace(
+        horizon_years=None,
+        start_date=f"{date.today().year + 5}-01-01",
+        target_date=f"{future_year}-12-31",
+    )
+    horizon = _simulation_horizon_years({"horizonYears": "12"}, [goal], None)
+    assert horizon >= 30

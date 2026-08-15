@@ -248,7 +248,7 @@ def _advisory_wealth_positions(mandate: Mandate, db: Session) -> tuple[list[dict
 def _latest_target_allocation(mandate: Mandate, db: Session):
     from models.allocation import TargetAllocation
 
-    current = (
+    current_rows = (
         db.query(TargetAllocation)
         .filter(
             TargetAllocation.mandate_id == mandate.id,
@@ -256,19 +256,98 @@ def _latest_target_allocation(mandate: Mandate, db: Session):
             TargetAllocation.deleted_at.is_(None),
         )
         .order_by(TargetAllocation.version.desc(), TargetAllocation.created_at.desc())
-        .first()
+        .limit(2)
+        .all()
     )
-    if current is not None:
-        return current
-    return (
-        db.query(TargetAllocation)
-        .filter(
-            TargetAllocation.mandate_id == mandate.id,
-            TargetAllocation.deleted_at.is_(None),
+    if len(current_rows) > 1:
+        raise ValueError(
+            "Mehrere aktuelle Soll-Allokationen gefunden; vor der "
+            "PDF-Erstellung muss der Strategie-Stand bereinigt werden."
         )
-        .order_by(TargetAllocation.version.desc(), TargetAllocation.created_at.desc())
-        .first()
+    # A historic non-current allocation is an audit record, never a valid
+    # substitute for the customer's active strategy.
+    return current_rows[0] if current_rows else None
+
+
+def _require_strategy_decision_anchors(mandate: Mandate, db: Session):
+    """Load the exact, publishable decision chain for a strategy report."""
+    from models.allocation import CapitalMarketAssumption, OptimizerPolicy
+    from models.profiling import RiskAssessment
+
+    allocation = _latest_target_allocation(mandate, db)
+    if allocation is None:
+        raise ValueError(
+            "Keine aktuelle Soll-Allokation vorhanden; bitte die Strategie "
+            "neu berechnen, bevor ein Strategiebericht erstellt wird."
+        )
+    if int(getattr(allocation, "context_artifacts_required", 0) or 0) != 1:
+        raise ValueError(
+            "Die aktuelle Soll-Allokation ist ein Legacy-Artefakt ohne "
+            "vollstaendige Entscheidungskontexte; bitte Strategie neu berechnen."
+        )
+
+    policy_id = str(getattr(allocation, "policy_id", "") or "").strip()
+    policy = (
+        db.query(OptimizerPolicy).filter(OptimizerPolicy.id == policy_id).first()
+        if policy_id
+        else None
     )
+    if policy is None:
+        raise ValueError(
+            "Die von der Soll-Allokation referenzierte Optimizer-Policy fehlt; "
+            "bitte Strategie neu berechnen."
+        )
+    if int(getattr(policy, "is_current", 0) or 0) != 1:
+        raise ValueError(
+            "Die von der Soll-Allokation referenzierte Optimizer-Policy ist "
+            "nicht mehr aktuell; bitte Strategie neu berechnen."
+        )
+
+    assessment_id = str(
+        getattr(allocation, "based_on_assessment_id", "") or ""
+    ).strip()
+    assessment = (
+        db.query(RiskAssessment)
+        .filter(
+            RiskAssessment.id == assessment_id,
+            RiskAssessment.mandate_id == mandate.id,
+            RiskAssessment.deleted_at.is_(None),
+        )
+        .first()
+        if assessment_id
+        else None
+    )
+    if assessment is None:
+        raise ValueError(
+            "Das von der Soll-Allokation referenzierte Risikoprofil fehlt oder "
+            "gehoert nicht zu diesem Mandat; bitte Strategie neu berechnen."
+        )
+    if int(getattr(assessment, "is_current", 0) or 0) != 1:
+        raise ValueError(
+            "Das von der Soll-Allokation referenzierte Risikoprofil ist nicht "
+            "mehr aktuell; bitte Strategie neu berechnen."
+        )
+
+    cma_id = str(
+        getattr(allocation, "capital_market_assumptions_id", "") or ""
+    ).strip()
+    snapshot_cma = (
+        db.query(CapitalMarketAssumption)
+        .filter(
+            CapitalMarketAssumption.id == cma_id,
+            CapitalMarketAssumption.deleted_at.is_(None),
+        )
+        .first()
+        if cma_id
+        else None
+    )
+    if snapshot_cma is None:
+        raise ValueError(
+            "Der von der Soll-Allokation referenzierte CMA-Snapshot fehlt; "
+            "aktuelle Ersatzannahmen sind unzulaessig. Bitte Strategie neu "
+            "berechnen."
+        )
+    return allocation, policy, assessment, snapshot_cma
 
 
 def _knowledge_map_from_json(raw) -> dict[str, bool]:
@@ -296,7 +375,8 @@ def _knowledge_map_from_json(raw) -> dict[str, bool]:
 def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> AnlagestrategieData:
     """Extrahiert AnlagestrategieData aus DB-Models — Sprint 11 erweitert.
 
-    Defensive: fehlt etwas → Defaults, kein Crash. Reichlich getattr-Defaults.
+    Die Strategie-Anker sind fail-closed; nur optionale Anzeige-Sektionen
+    verwenden defensive Defaults.
 
     Sprint U-P1 Fix C2+C5: Risk-Metrics (expected_return, expected_vol, MC,
     Goal-Analysis) kommen jetzt aus build_target_payload_from_allocation
@@ -315,104 +395,53 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
     advisory_positions, current_allocation_bps, current_advisory_wealth = _advisory_wealth_positions(mandate, db)
 
     # ---- TargetAllocation + Engine-Payload (Single-Source-of-Truth) ----
-    try:
-        ta_obj = _latest_target_allocation(mandate, db)
-        if ta_obj is not None:
-            target_alloc_bps = _target_allocation_weights(ta_obj)
-            bucket_bands = _target_allocation_bands(ta_obj)
-            advisory_wealth = (
-                int(getattr(ta_obj, "advisory_wealth_at_generation_rappen", 0) or 0)
-                or current_advisory_wealth
-                or None
+    # Preflight before any defensive report enrichment: this is the immutable
+    # strategy decision chain, and failures must reach the route as HTTP 409.
+    ta_obj, policy, assessment_obj, snapshot_cma = (
+        _require_strategy_decision_anchors(mandate, db)
+    )
+    target_alloc_bps = _target_allocation_weights(ta_obj)
+    bucket_bands = _target_allocation_bands(ta_obj)
+    advisory_wealth = (
+        int(getattr(ta_obj, "advisory_wealth_at_generation_rappen", 0) or 0)
+        or current_advisory_wealth
+        or None
+    )
+    if advisory_wealth:
+        for bucket, bps in target_alloc_bps.items():
+            bucket_amounts[bucket] = int(advisory_wealth * bps / 10000)
+    prefs_raw = getattr(ta_obj, "preferences_json", None)
+    if prefs_raw:
+        parsed_prefs = json.loads(prefs_raw)
+        if not isinstance(parsed_prefs, dict):
+            raise ValueError(
+                "Die gespeicherten Strategie-Praeferenzen sind ungueltig; "
+                "bitte Strategie neu berechnen."
             )
-            # Bucket-Amounts ableiten aus advisory_wealth * weight
-            if advisory_wealth:
-                for bucket, bps in target_alloc_bps.items():
-                    bucket_amounts[bucket] = int(advisory_wealth * bps / 10000)
-            prefs_raw = getattr(ta_obj, "preferences_json", None)
-            if prefs_raw:
-                parsed_prefs = json.loads(prefs_raw)
-                if isinstance(parsed_prefs, dict):
-                    allocation_preferences = parsed_prefs
+        allocation_preferences = parsed_prefs
 
-            # Sprint U-P1 Fix C2+C5: korrekte Risk-Metrics aus Engine-Payload
-            try:
-                from services.portfolio_engine import build_target_payload_from_allocation
-                from models.profiling import RiskAssessment
-                from models.allocation import OptimizerPolicy, CapitalMarketAssumption
-                from services.portfolio_engine import ensure_runtime_reference_data
-                assessment_obj = db.query(RiskAssessment).filter(
-                    RiskAssessment.mandate_id == mandate.id,
-                    RiskAssessment.is_current == 1,
-                    RiskAssessment.deleted_at.is_(None),
-                ).first()
-                policy = db.query(OptimizerPolicy).filter(OptimizerPolicy.id == ta_obj.policy_id).first()
-                if policy and policy.is_current == 1 and assessment_obj:
-                    _runtime_policy, runtime_cma = ensure_runtime_reference_data(db, getattr(mandate, "advisor_id", None) or getattr(assessment_obj, "assessed_by", None) or "")
-                    # Sprint U-P6 Fix H6: Snapshot-CMA fuer reproduzierbare
-                    # Metrics — analog zum /current/payload-Endpoint.
-                    snapshot_cma = runtime_cma
-                    snapshot_cma_id = getattr(ta_obj, "capital_market_assumptions_id", None)
-                    if snapshot_cma_id:
-                        snap = db.query(CapitalMarketAssumption).filter(
-                            CapitalMarketAssumption.id == snapshot_cma_id,
-                        ).first()
-                        if snap is not None:
-                            snapshot_cma = snap
-                    engine_payload = build_target_payload_from_allocation(
-                        db=db,
-                        mandate=mandate,
-                        allocation=ta_obj,
-                        policy=policy,
-                        cma=snapshot_cma,
-                        assessment=assessment_obj,
-                        preferences=None,
-                    )
-            except Exception as exc:
-                logger.warning(
-                    "PDF engine-payload load failed for mandate %s: %s",
-                    getattr(mandate, "id", "?"), exc,
-                )
-    except Exception as exc:
-        logger.warning(
-            "PDF data-load section failed for mandate %s: %s",
-            getattr(mandate, "id", "?"), exc,
-        )
+    # Exact immutable anchors only. In particular, do not call the runtime
+    # reference-data seeder or use today's CMA as a replacement snapshot.
+    from services.portfolio_engine import build_target_payload_from_allocation
+
+    engine_payload = build_target_payload_from_allocation(
+        db=db,
+        mandate=mandate,
+        allocation=ta_obj,
+        policy=policy,
+        cma=snapshot_cma,
+        assessment=assessment_obj,
+        preferences=None,
+    )
 
     # ---- CMA-Werte aus Engine-Payload (echtes √(w'Σw) via _portfolio_volatility_bps) ----
-    if engine_payload is not None:
-        cma_return = int(engine_payload.get("expected_return_bps", 0) or 0)
-        cma_vol = int(engine_payload.get("expected_volatility_bps", 0) or 0)
-    else:
-        # Fallback (Legacy): lineare gewichtete Summe wenn Engine-Payload nicht ladbar.
-        # NOT MATHEMATICALLY CORRECT für Vola (ignoriert Korrelation) — nur als
-        # letzte Notlösung wenn z.B. RA fehlt. Berater bekommt Drift-Warning im UI.
-        try:
-            from models.allocation import CapitalMarketAssumption
-            cma = (
-                db.query(CapitalMarketAssumption)
-                .order_by(CapitalMarketAssumption.valid_from.desc())
-                .first()
-            )
-            if cma is not None:
-                weights_pct = {k: v / 10000.0 for k, v in target_alloc_bps.items()}
-                cma_return = int(
-                    weights_pct.get("equities", 0) * (getattr(cma, "equity_ch_return_bps", 0) or 0)
-                    + weights_pct.get("bonds", 0) * (getattr(cma, "bonds_chf_ig_return_bps", 0) or 0)
-                    + weights_pct.get("real_estate", 0) * (getattr(cma, "real_estate_ch_return_bps", 0) or 0)
-                    + weights_pct.get("liquidity", 0) * (getattr(cma, "liquidity_return_bps", 0) or 0)
-                )
-                cma_vol = int(
-                    weights_pct.get("equities", 0) * (getattr(cma, "equity_ch_vol_bps", 0) or 0)
-                    + weights_pct.get("bonds", 0) * (getattr(cma, "bonds_chf_ig_vol_bps", 0) or 0)
-                    + weights_pct.get("real_estate", 0) * (getattr(cma, "real_estate_ch_vol_bps", 0) or 0)
-                    + weights_pct.get("liquidity", 0) * (getattr(cma, "liquidity_vol_bps", 0) or 0)
-                )
-        except Exception as exc:
-            logger.warning(
-                "PDF data-load CMA-fallback failed for mandate %s: %s",
-                getattr(mandate, "id", "?"), exc,
-            )
+    if not isinstance(engine_payload, dict):
+        raise ValueError(
+            "Die Strategie-Engine lieferte kein gueltiges Ergebnis; bitte "
+            "Strategie neu berechnen."
+        )
+    cma_return = int(engine_payload.get("expected_return_bps", 0) or 0)
+    cma_vol = int(engine_payload.get("expected_volatility_bps", 0) or 0)
 
     # ---- Risk-Assessment ----
     risk_score_x10 = None
@@ -422,41 +451,39 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
     investment_horizon = None
     knowledge_services: dict = {}
     knowledge_instruments: dict = {}
-    try:
-        from models.profiling import RiskAssessment
-        ra = (
-            db.query(RiskAssessment)
-            .filter(RiskAssessment.mandate_id == mandate.id, RiskAssessment.is_current == 1)
-            .order_by(RiskAssessment.created_at.desc())
-            .first()
+    # The TargetAllocation's immutable assessment anchor is the sole source
+    # for every strategy risk field.  Re-querying "the latest current" row
+    # here can combine engine analytics from assessment A with the profile,
+    # knowledge or answers of assessment B when reference data is ambiguous.
+    ra = assessment_obj
+    risk_is_overridden = bool(getattr(ra, "is_overridden", 0))
+    score_raw = (
+        getattr(ra, "override_score_x10", None)
+        if risk_is_overridden
+        else getattr(ra, "final_score_x10", None)
+    )
+    if score_raw is None:
+        score_raw = getattr(ra, "final_score_x10", None) or getattr(
+            ra, "override_score_x10", None
         )
-        if ra is not None:
-            risk_is_overridden = bool(getattr(ra, "is_overridden", 0))
-            score_raw = (
-                getattr(ra, "override_score_x10", None)
-                if risk_is_overridden
-                else getattr(ra, "final_score_x10", None)
-            )
-            if score_raw is None:
-                score_raw = getattr(ra, "final_score_x10", None) or getattr(ra, "override_score_x10", None)
-            risk_score_x10 = int(score_raw) if score_raw is not None else None
-            risk_label = (
-                (getattr(ra, "override_profile", None) if risk_is_overridden else None)
-                or getattr(ra, "final_profile", None)
-                or getattr(ra, "risk_capacity_profile", None)
-            )
-            risk_override_reason = str(getattr(ra, "override_reason", "") or "").strip() or None
-            investment_horizon = int(getattr(ra, "investment_horizon_years", 0) or 0) or None
-            # Knowledge-JSONs parsen
-            for json_attr, target in [
-                ("knowledge_services_json", knowledge_services),
-                ("knowledge_instruments_json", knowledge_instruments),
-            ]:
-                target.update(_knowledge_map_from_json(getattr(ra, json_attr, None)))
-    except Exception as exc:
-        logger.warning(
-            "PDF data-load section failed for mandate %s: %s",
-            getattr(mandate, "id", "?"), exc,
+    risk_score_x10 = int(score_raw) if score_raw is not None else None
+    risk_label = (
+        (getattr(ra, "override_profile", None) if risk_is_overridden else None)
+        or getattr(ra, "final_profile", None)
+        or getattr(ra, "risk_capacity_profile", None)
+    )
+    risk_override_reason = (
+        str(getattr(ra, "override_reason", "") or "").strip() or None
+    )
+    investment_horizon = (
+        int(getattr(ra, "investment_horizon_years", 0) or 0) or None
+    )
+    for json_attr, target in [
+        ("knowledge_services_json", knowledge_services),
+        ("knowledge_instruments_json", knowledge_instruments),
+    ]:
+        target.update(
+            _knowledge_map_from_json(getattr(ra, json_attr, None))
         )
 
     # ---- Produkte (Recommendation) ----
@@ -538,33 +565,21 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
 
     # ---- Risk-Answers (Frage-Antwort fuer Eignungspruefung) ----
     risk_answers: list = []
-    try:
-        from models.profiling import RiskAssessment as _RA, RiskAssessmentAnswer
-        _ra = (
-            db.query(_RA)
-            .filter(_RA.mandate_id == mandate.id, _RA.is_current == 1)
-            .order_by(_RA.created_at.desc())
-            .first()
-        )
-        if _ra is not None:
-            ans_rows = (
-                db.query(RiskAssessmentAnswer)
-                .filter(RiskAssessmentAnswer.assessment_id == _ra.id)
-                .order_by(RiskAssessmentAnswer.question_number.asc())
-                .all()
-            )
-            for a in ans_rows:
-                risk_answers.append({
-                    "question_number": int(getattr(a, "question_number", 0) or 0),
-                    "question_section": str(getattr(a, "question_section", "") or ""),
-                    "answer_label": str(getattr(a, "answer_label", "") or ""),
-                    "answer_points": int(getattr(a, "answer_points", 0) or 0),
-                })
-    except Exception as exc:
-        logger.warning(
-            "PDF data-load risk_answers failed for mandate %s: %s",
-            getattr(mandate, "id", "?"), exc,
-        )
+    from models.profiling import RiskAssessmentAnswer
+
+    ans_rows = (
+        db.query(RiskAssessmentAnswer)
+        .filter(RiskAssessmentAnswer.assessment_id == assessment_obj.id)
+        .order_by(RiskAssessmentAnswer.question_number.asc())
+        .all()
+    )
+    for a in ans_rows:
+        risk_answers.append({
+            "question_number": int(getattr(a, "question_number", 0) or 0),
+            "question_section": str(getattr(a, "question_section", "") or ""),
+            "answer_label": str(getattr(a, "answer_label", "") or ""),
+            "answer_points": int(getattr(a, "answer_points", 0) or 0),
+        })
 
     # ---- Cashflow-Events + Goals-List (Seite 12 der Vorlage) ----
     cashflow_events: list = []
@@ -820,7 +835,10 @@ def get_anlagestrategie_pdf(
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
     ctx = _build_pdf_context(mandate, current_user, db)
     ctx = _attach_provisional_notice(ctx, db, mandate)
-    data = _build_anlagestrategie_data(mandate, db)
+    try:
+        data = _build_anlagestrategie_data(mandate, db)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     pdf_bytes = ReportLabRenderer().render_anlagestrategie(ctx, data)
     safe_name = "".join(c if c.isalnum() else "_" for c in ctx.mandate_name)[:40]
     filename = f"anlagestrategie_{safe_name}_{ctx.report_date.isoformat()}.pdf"
@@ -845,7 +863,10 @@ def get_assetallocation_pdf(
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
     ctx = _build_pdf_context(mandate, current_user, db)
     ctx = _attach_provisional_notice(ctx, db, mandate)
-    data = _build_anlagestrategie_data(mandate, db)
+    try:
+        data = _build_anlagestrategie_data(mandate, db)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     pdf_bytes = ReportLabRenderer().render_asset_allocation(ctx, data)
     safe_name = "".join(c if c.isalnum() else "_" for c in ctx.mandate_name)[:40]
     filename = f"assetallocation_{safe_name}_{ctx.report_date.isoformat()}.pdf"
@@ -1325,7 +1346,10 @@ def get_contract_signoff_pdf(
     """Final customer sign-off for the documented advisory decision."""
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
     ctx = _build_pdf_context(mandate, current_user, db)
-    data = _build_contract_signoff_data(mandate, db)
+    try:
+        data = _build_contract_signoff_data(mandate, db)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     pdf_bytes = ReportLabRenderer().render_contract_signoff(ctx, data)
     safe_name = "".join(c if c.isalnum() else "_" for c in ctx.mandate_name)[:40]
     filename = (
@@ -1757,7 +1781,10 @@ def get_depotcheck_pdf(
     """Depotcheck-PDF: reine Analyse des empfohlenen Zielportfolios."""
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
     ctx = _build_pdf_context(mandate, current_user, db)
-    data = _build_depotcheck_data(mandate, db)
+    try:
+        data = _build_depotcheck_data(mandate, db)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     pdf_bytes = ReportLabRenderer().render_depotcheck(ctx, data)
     safe_name = "".join(c if c.isalnum() else "_" for c in ctx.mandate_name)[:40]
     filename = f"depotcheck_{safe_name}_{ctx.report_date.isoformat()}.pdf"

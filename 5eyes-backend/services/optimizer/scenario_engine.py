@@ -35,6 +35,19 @@ from typing import Iterable
 
 import numpy as np
 
+from services.cma_validation import (
+    CMAValidationError,
+    NELSON_SIEGEL_DEFAULT_MATURITY_YEARS,
+    correlation_factor,
+    parse_correlation_matrix_json,
+    validate_equity_kgv_parameters,
+    validate_nelson_siegel_parameters,
+)
+from services.return_moments import (
+    arithmetic_moments_to_log_parameters,
+    bounded_cornish_fisher,
+)
+
 from .distributions import _MAX_EXCESS_KURT, _MAX_SKEW
 
 
@@ -80,14 +93,37 @@ def cornish_fisher_array(
     """
     s = np.clip(skew, -_MAX_SKEW, _MAX_SKEW)
     k = np.clip(excess_kurt, 0.0, _MAX_EXCESS_KURT)
-    z2 = z * z
-    z3 = z2 * z
-    return (
-        z
-        + (z2 - 1.0) * s / 6.0
-        + (z3 - 3.0 * z) * k / 24.0
-        - (2.0 * z3 - 5.0 * z) * (s * s) / 36.0
+    return np.asarray(bounded_cornish_fisher(z, s, k), dtype=np.float64)
+
+
+def _log_parameters_for_inputs(
+    inputs: ScenarioInputs,
+) -> tuple[np.ndarray, np.ndarray]:
+    mu = np.asarray(inputs.mu_bps, dtype=np.float64) / 10_000.0
+    sigma = np.asarray(inputs.sigma_bps, dtype=np.float64) / 10_000.0
+    skew = np.clip(
+        np.asarray(inputs.skew_bps, dtype=np.float64) / 10_000.0,
+        -_MAX_SKEW,
+        _MAX_SKEW,
     )
+    kurt = np.clip(
+        np.asarray(inputs.excess_kurt_bps, dtype=np.float64) / 10_000.0,
+        0.0,
+        _MAX_EXCESS_KURT,
+    )
+    locations = np.empty(N_BUCKETS, dtype=np.float64)
+    scales = np.empty(N_BUCKETS, dtype=np.float64)
+    for index in range(N_BUCKETS):
+        locations[index], scales[index] = (
+            arithmetic_moments_to_log_parameters(
+                float(mu[index]),
+                float(sigma[index]),
+                skew=float(skew[index]),
+                excess_kurtosis=float(kurt[index]),
+                use_cornish_fisher=True,
+            )
+        )
+    return locations, scales
 
 
 # ============================================================================
@@ -96,14 +132,12 @@ def cornish_fisher_array(
 
 
 def _safe_cholesky(corr_matrix: np.ndarray) -> np.ndarray:
-    """Cholesky mit Fallback auf Identity wenn Matrix nicht positiv-definit.
+    """Strict PSD correlation factor (legacy function name retained).
 
-    Konsistent zu services.portfolio_engine._build_cholesky_from_cma.
+    Invalid matrices are CMA domain errors. Singular but valid PSD matrices
+    use an eigen-factor and are not silently replaced with identity.
     """
-    try:
-        return np.linalg.cholesky(corr_matrix)
-    except np.linalg.LinAlgError:
-        return np.eye(corr_matrix.shape[0])
+    return correlation_factor(corr_matrix)
 
 
 def build_default_correlation_matrix() -> np.ndarray:
@@ -129,7 +163,9 @@ def build_scenario_paths(
     """Liefert (n_paths, horizon_years, 5) array von log-normal Returns.
 
     Pro Pfad pro Jahr pro Asset wird ein multiplikativer Faktor
-    R = exp(mu - 0.5 * sigma^2 + sigma * Z_correlated_cf) erzeugt.
+    R = exp(location + scale * Z_correlated_cf) erzeugt. ``location`` und
+    ``scale`` werden so kalibriert, dass die einfachen Returns exakt die
+    arithmetischen CMA-Momente ``mu`` und ``sigma`` besitzen.
 
     Antithetic Variates: wenn True, wird die zweite Haelfte der Pfade als
     -Z gespiegelt. Das reduziert Varianz fuer symmetrische Statistiken
@@ -167,10 +203,8 @@ def build_scenario_paths(
     else:
         Z_combined = Z_cf
 
-    # Itô-Korrektur + log-normal
-    mu = inputs.mu_bps / 10_000.0
-    sigma = inputs.sigma_bps / 10_000.0
-    log_returns = (mu - 0.5 * sigma * sigma) + sigma * Z_combined  # broadcasting
+    log_location, log_scale = _log_parameters_for_inputs(inputs)
+    log_returns = log_location + log_scale * Z_combined
     return_factors = np.exp(log_returns)
     return return_factors
 
@@ -264,9 +298,8 @@ def build_scenario_paths_with_weights(
     skew = inputs.skew_bps / 10_000.0
     kurt = inputs.excess_kurt_bps / 10_000.0
     z_cf = cornish_fisher_array(z_corr, skew, kurt)
-    mu = inputs.mu_bps / 10_000.0
-    sigma = inputs.sigma_bps / 10_000.0
-    log_returns = (mu - 0.5 * sigma * sigma) + sigma * z_cf
+    log_location, log_scale = _log_parameters_for_inputs(inputs)
+    log_returns = log_location + log_scale * z_cf
     return_factors = np.exp(log_returns)
     return return_factors, weights
 
@@ -562,102 +595,46 @@ def scenario_inputs_from_cma(cma, sub_allocations: list[dict] | None = None) -> 
     'target_weight_bps'. Konsistent zur Konvention in portfolio_engine.
     _weighted_bucket_metrics (Single-Source-of-Truth).
 
-    Backwards-Compat: ohne sub_allocations bleibt das alte Verhalten
-    (simpler average der Sub-CMA-Returns pro Bucket).
+    Backwards-Compat: ohne sub_allocations gelten die historischen
+    Bucket-Defaults. Deren Materialisierung erfolgt nun bewusst ueber dieselbe
+    Single-Source-of-Truth wie im Reporting.
 
-    Korrelation: nutzt cma.correlation_matrix_json wenn 5x5 vorhanden,
-    sonst default Swiss-market Matrix.
+    Korrelation: nur ein fehlendes/leer gespeichertes Payload nutzt die
+    Swiss-market Default-Matrix. Ein vorhandenes Payload wird strikt auf
+    Shape, endliche Werte, Range, Symmetrie und PSD validiert.
     """
-    import json
+    # Materialise through the same path as reporting. This is unconditional:
+    # a present corrupt Sub-CMA payload is invalid even without sleeves.
+    try:
+        from services.portfolio_engine import _weighted_bucket_metrics
+        sub_returns, sub_vols = _weighted_bucket_metrics(
+            cma,
+            sub_allocations,
+            strict=bool(sub_allocations),
+        )
+        bucket_returns = {b: float(sub_returns[b]) for b in BUCKET_ORDER}
+        bucket_vols = {b: float(sub_vols[b]) for b in BUCKET_ORDER}
+    except Exception as exc:
+        from .constraints import OptimizerInputError
 
-    # Sprint 6 Phase 2: Nelson-Siegel Yield-Curve fuer Bonds nutzen wenn
-    # CMA alle 4 NS-Params hat. Maturity-Default: 5J (mittlere Duration
-    # IG-Bonds). Berater kann via Update-Endpoint die Params setzen.
-    # Fallback: alte fix-Werte (Backwards-Compat).
-    bonds_return_from_ns = _compute_bonds_return_from_nelson_siegel(cma)
-
-    # Sprint 7: KGV-Mean-Reversion-Adjustment fuer Equity (bps p.a.).
-    # 0 wenn KGV-Params fehlen (Backwards-Compat).
-    equity_kgv_adjustment_bps = _compute_equity_kgv_adjustment(cma)
-
-    base_equity = _avg_or_zero([cma.equity_ch_return_bps, cma.equity_intl_return_bps])
-
-    # Sprint 8: Risikopraemien-Modell — RE + Alts als risk_free + premium.
-    # Nur aktiv wenn NS-Curve gesetzt (sonst kein risk_free-Anker).
-    # Backwards-Compat: fehlende Premia oder kein NS → fixe Werte.
-    re_return_from_premium = _compute_return_from_risk_premium(
-        cma, "real_estate_risk_premium_bps"
-    )
-    alt_return_from_premium = _compute_return_from_risk_premium(
-        cma, "alternatives_risk_premium_bps"
-    )
-
-    # Returns/Vols pro Bucket (aggregiert grob aus Sub-Klassen)
-    # Konsistent zur Aggregation in portfolio_engine._asset_class_expected_metrics
-    bucket_returns = {
-        "equities": base_equity + equity_kgv_adjustment_bps,
-        "bonds": (
-            bonds_return_from_ns
-            if bonds_return_from_ns is not None
-            else _avg_or_zero([
-                cma.bonds_chf_ig_return_bps, cma.bonds_fx_hedged_return_bps,
-            ])
-        ),
-        "real_estate": (
-            re_return_from_premium
-            if re_return_from_premium is not None
-            else _avg_or_zero([cma.real_estate_ch_return_bps])
-        ),
-        "alternatives": (
-            alt_return_from_premium
-            if alt_return_from_premium is not None
-            else _avg_or_zero([cma.alternatives_gold_return_bps])
-        ),
-        "liquidity": _avg_or_zero([cma.liquidity_return_bps]),
-    }
-    bucket_vols = {
-        "equities": _avg_or_zero([cma.equity_ch_vol_bps, cma.equity_intl_vol_bps]),
-        "bonds": _avg_or_zero([
-            cma.bonds_chf_ig_vol_bps, cma.bonds_fx_hedged_vol_bps,
-        ]),
-        "real_estate": _avg_or_zero([cma.real_estate_ch_vol_bps]),
-        "alternatives": _avg_or_zero([cma.alternatives_gold_vol_bps]),
-        "liquidity": _avg_or_zero([cma.liquidity_vol_bps]),
-    }
-
-    # Sprint B1 (2026-06-07): Sub-Allocation-Aware Override.
-    # Wenn sub_allocations gegeben, ueberschreibt _weighted_bucket_metrics
-    # die simpler-averaged Werte mit gewichteten Sub-Allocation-Metrics.
-    # Single-Source-of-Truth: portfolio_engine._weighted_bucket_metrics —
-    # damit Optimizer und Reporting konsistente Bucket-Metrics nutzen.
-    # Wichtig: NS/KGV/RP-Adjustments (oben) bleiben angewendet auf den
-    # Equity-Bucket nach Sub-Allocation-Override (Adjustments sind
-    # Market-Adjustments, unabhaengig von Sub-Mix).
-    if sub_allocations:
-        try:
-            from services.portfolio_engine import _weighted_bucket_metrics
-            sub_returns, sub_vols = _weighted_bucket_metrics(cma, sub_allocations)
-            # Apply KGV-Adjustment auf den Sub-weighted Equity-Return
-            sub_returns["equities"] = int(sub_returns["equities"]) + int(equity_kgv_adjustment_bps)
-            # NS/RP-Returns sind bucket-level (von der Curve, nicht sub-spezifisch);
-            # bei aktivem NS/RP wird der Sub-Aggregat-Wert ueberschrieben durch
-            # den NS/RP-Wert (Konsistenz zu portfolio_engine).
-            if bonds_return_from_ns is not None:
-                sub_returns["bonds"] = int(bonds_return_from_ns)
-            if re_return_from_premium is not None:
-                sub_returns["real_estate"] = int(re_return_from_premium)
-            if alt_return_from_premium is not None:
-                sub_returns["alternatives"] = int(alt_return_from_premium)
-            bucket_returns = {b: float(sub_returns[b]) for b in bucket_returns}
-            bucket_vols = {b: float(sub_vols[b]) for b in bucket_vols}
-        except Exception:
-            # Defensive: bei Import- oder Berechnungsfehler bleibt der
-            # alte (simpler-average) Pfad aktiv. Niemals Engine-Crash
-            # wegen Sub-Allocation-Format-Issues.
-            pass
+        if isinstance(exc, OptimizerInputError):
+            raise
+        raise OptimizerInputError(f"Invalid CMA model input: {exc}") from exc
 
     mu_bps = np.array([bucket_returns[b] for b in BUCKET_ORDER], dtype=np.float64)
     sigma_bps = np.array([bucket_vols[b] for b in BUCKET_ORDER], dtype=np.float64)
+    if not np.all(np.isfinite(mu_bps)) or np.any(mu_bps <= -10_000.0):
+        from .constraints import OptimizerInputError
+
+        raise OptimizerInputError(
+            "CMA expected returns must be finite and greater than -100%."
+        )
+    if not np.all(np.isfinite(sigma_bps)) or np.any(sigma_bps < 0.0):
+        from .constraints import OptimizerInputError
+
+        raise OptimizerInputError(
+            "CMA expected volatilities must be finite and non-negative."
+        )
 
     # Skew + Kurt: Phase 1 Felder pro Bucket aus CMA
     skew_bps = np.array([
@@ -670,18 +647,18 @@ def scenario_inputs_from_cma(cma, sub_allocations: list[dict] | None = None) -> 
     ], dtype=np.float64)
 
     # Korrelations-Matrix
-    correlation_json = getattr(cma, "correlation_matrix_json", None) or ""
-    correlation = build_default_correlation_matrix()
-    if correlation_json:
-        try:
-            parsed = json.loads(correlation_json)
-            if isinstance(parsed, list) and len(parsed) == N_BUCKETS:
-                arr = np.array(parsed, dtype=np.float64)
-                if arr.shape == (N_BUCKETS, N_BUCKETS):
-                    correlation = arr
-        except (ValueError, TypeError):
-            pass  # fall back to default
-    cholesky = _safe_cholesky(correlation)
+    try:
+        correlation = parse_correlation_matrix_json(
+            getattr(cma, "correlation_matrix_json", None),
+            default_matrix=build_default_correlation_matrix(),
+            dimension=N_BUCKETS,
+        )
+        assert correlation is not None
+        cholesky = _safe_cholesky(np.asarray(correlation, dtype=np.float64))
+    except CMAValidationError as exc:
+        from .constraints import OptimizerInputError
+
+        raise OptimizerInputError(f"Invalid CMA model input: {exc}") from exc
 
     return ScenarioInputs(
         mu_bps=mu_bps,
@@ -703,7 +680,7 @@ def _avg_or_zero(values: list) -> float:
 # Sprint 6 Phase 2: Default-Maturity fuer Bonds-Bucket-Return-Aggregation.
 # 5 Jahre = mittlere Duration eines IG-Bond-Universums (typisch 4-7).
 # Berater kann via separates Mandate-Feld spaeter ueberschreiben.
-_BONDS_DEFAULT_MATURITY_YEARS = 5.0
+_BONDS_DEFAULT_MATURITY_YEARS = NELSON_SIEGEL_DEFAULT_MATURITY_YEARS
 
 
 def _compute_return_from_risk_premium(cma, premium_field_name: str) -> float | None:
@@ -720,22 +697,41 @@ def _compute_return_from_risk_premium(cma, premium_field_name: str) -> float | N
     premium = getattr(cma, premium_field_name, None)
     if premium is None:
         return None
-    # NS-Params pruefen
-    beta0 = getattr(cma, "bonds_ns_beta0_bps", None)
-    beta1 = getattr(cma, "bonds_ns_beta1_bps", None)
-    if beta0 is None or beta1 is None:
-        return None  # ohne NS keine risk_free-Basis
+    # The risk-free anchor exists only when the *complete* NS group is active.
+    # Beta0+Beta1 alone is a partial/inactive group and must not activate a
+    # model that Bonds themselves are not using.
+    ns_parameters = validate_nelson_siegel_parameters(cma)
+    if ns_parameters is None:
+        return None
+    beta0, beta1, _, _ = ns_parameters
+    if isinstance(premium, bool):
+        raise CMAValidationError(f"{premium_field_name} muss eine Zahl sein.")
     try:
+        premium_bps = float(premium)
+        if not np.isfinite(premium_bps):
+            raise CMAValidationError(
+                f"{premium_field_name} muss endlich (finite) sein."
+            )
         from services.risk_premium.model import RiskPremiumModel
         # Short-Rate = beta0 + beta1 (kein Curvature-Effekt am Short-End)
-        risk_free_bps = float(beta0) + float(beta1)
+        risk_free_bps = beta0 + beta1
         model = RiskPremiumModel(
             asset_class=premium_field_name,
-            premium_bps=float(premium),
+            premium_bps=premium_bps,
         )
-        return model.expected_return_bps(risk_free_bps)
-    except Exception:
-        return None
+        result = float(model.expected_return_bps(risk_free_bps))
+    except CMAValidationError:
+        raise
+    except (ArithmeticError, TypeError, ValueError) as exc:
+        raise CMAValidationError(
+            f"Ungueltige {premium_field_name}-CMA-Parameter: {exc}"
+        ) from exc
+    if not np.isfinite(result) or result <= -10_000.0:
+        raise CMAValidationError(
+            f"{premium_field_name} erzeugt keinen endlichen, fachlich "
+            "gueltigen Return (> -100 %)."
+        )
+    return result
 
 
 # Sprint 7: Default-Horizont fuer KGV-Mean-Reversion-Adjustment.
@@ -751,22 +747,29 @@ def _compute_equity_kgv_adjustment(cma) -> float:
     Bei vollstaendigen Params: berechnet KGVMeanReversionModel-Adjustment
     fuer Default-Horizont 10J.
     """
-    kgv_curr_x10 = getattr(cma, "equity_kgv_current_x10", None)
-    kgv_fair_x10 = getattr(cma, "equity_kgv_fair_x10", None)
-    alpha_x100 = getattr(cma, "equity_kgv_alpha_x100", None)
-    if kgv_curr_x10 is None or kgv_fair_x10 is None or alpha_x100 is None:
+    parameters = validate_equity_kgv_parameters(cma)
+    if parameters is None:
         return 0.0
+    kgv_current, kgv_fair, alpha = parameters
     try:
         from services.equity_valuation.mean_reversion import KGVMeanReversionModel
         model = KGVMeanReversionModel(
-            kgv_current=float(kgv_curr_x10) / 10.0,
-            kgv_fair=float(kgv_fair_x10) / 10.0,
-            alpha=float(alpha_x100) / 100.0,
+            kgv_current=kgv_current,
+            kgv_fair=kgv_fair,
+            alpha=alpha,
         )
-        return model.expected_annual_return_adjustment_bps(_KGV_DEFAULT_HORIZON_YEARS)
-    except Exception:
-        # Defensive: invalid Params → kein Adjustment
-        return 0.0
+        adjustment = model.expected_annual_return_adjustment_bps(
+            _KGV_DEFAULT_HORIZON_YEARS
+        )
+    except (ArithmeticError, TypeError, ValueError) as exc:
+        raise CMAValidationError(
+            f"Ungueltige vollstaendige KGV-CMA-Parameter: {exc}"
+        ) from exc
+    if not np.isfinite(adjustment):
+        raise CMAValidationError(
+            "KGV-CMA-Parameter erzeugen kein endliches Return-Adjustment."
+        )
+    return float(adjustment)
 
 
 def _compute_bonds_return_from_nelson_siegel(cma) -> float | None:
@@ -778,24 +781,26 @@ def _compute_bonds_return_from_nelson_siegel(cma) -> float | None:
     Bei vollstaendigen NS-Params: berechnet yield_at(5J) als Bond-Return.
     Spaeter Erweiterungs-Pfad: pro Bond-Bucket eigene Maturity (kurz/mittel/lang).
     """
-    beta0 = getattr(cma, "bonds_ns_beta0_bps", None)
-    beta1 = getattr(cma, "bonds_ns_beta1_bps", None)
-    beta2 = getattr(cma, "bonds_ns_beta2_bps", None)
-    lam_x100 = getattr(cma, "bonds_ns_lambda_x100", None)
-    if beta0 is None or beta1 is None or beta2 is None or lam_x100 is None:
+    parameters = validate_nelson_siegel_parameters(cma)
+    if parameters is None:
         return None
-    lam = float(lam_x100) / 100.0
-    if lam <= 0:
-        return None
+    beta0, beta1, beta2, lambda_ = parameters
     try:
         from services.rates.nelson_siegel import NelsonSiegelCurve
         curve = NelsonSiegelCurve(
-            beta0_bps=float(beta0),
-            beta1_bps=float(beta1),
-            beta2_bps=float(beta2),
-            lambda_=lam,
+            beta0_bps=beta0,
+            beta1_bps=beta1,
+            beta2_bps=beta2,
+            lambda_=lambda_,
         )
-        return float(curve.yield_at(_BONDS_DEFAULT_MATURITY_YEARS))
-    except Exception:
-        # Defensive: bei invalid NS-Params → Fallback
-        return None
+        result = float(curve.yield_at(_BONDS_DEFAULT_MATURITY_YEARS))
+    except (ArithmeticError, TypeError, ValueError) as exc:
+        raise CMAValidationError(
+            f"Ungueltige vollstaendige Nelson-Siegel-CMA-Parameter: {exc}"
+        ) from exc
+    if not np.isfinite(result) or result <= -10_000.0:
+        raise CMAValidationError(
+            "Nelson-Siegel-CMA-Parameter erzeugen keinen endlichen, "
+            "fachlich gueltigen 5J-Return (> -100 %)."
+        )
+    return result

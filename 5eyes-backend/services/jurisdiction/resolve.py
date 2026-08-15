@@ -24,11 +24,13 @@ CH-Zahlen fuer ein anderes Land weiterzurechnen.
 from __future__ import annotations
 
 from sqlalchemy.orm import Session
+from sqlalchemy import or_
 
 from models.allocation import BuildingBlock, CapitalMarketAssumption
 from models.jurisdiction import JurisdictionHomeBiasDefault
 from services.jurisdiction.exceptions import (
     JurisdictionNotApprovedError,
+    JurisdictionReferenceDataConflictError,
     JurisdictionReferenceDataMissingError,
 )
 
@@ -50,14 +52,22 @@ def resolve_mandate_jurisdiction(mandate) -> str:
     return getattr(mandate, "jurisdiction", None) or "CH"
 
 
-def _ch_current_cma_query(db: Session):
-    """Exakte heutige Query aus
-    services/portfolio_engine.py::ensure_runtime_reference_data (verifiziert
-    per Read vor Implementierung dieses Moduls) -- KEIN jurisdiction-Filter,
-    damit Bestandszeilen mit jurisdiction IS NULL weiterhin gefunden werden."""
+def _current_cma_query(db: Session):
+    """Unscoped active-CMA base query; jurisdiction is added by callers."""
     return db.query(CapitalMarketAssumption).filter(
         CapitalMarketAssumption.is_current == 1,
         CapitalMarketAssumption.deleted_at.is_(None),
+    )
+
+
+def _ch_current_cma_query(db: Session):
+    """Current CH CMA, including legacy rows where jurisdiction is NULL."""
+    return _current_cma_query(db).filter(
+        or_(
+            CapitalMarketAssumption.jurisdiction.is_(None),
+            CapitalMarketAssumption.jurisdiction == "CH",
+        ),
+        CapitalMarketAssumption.tenant_id.is_(None),
     )
 
 
@@ -90,20 +100,37 @@ def resolve_cma_for_jurisdiction(
     """
     label = jurisdiction or "CH"
     if jurisdiction in (None, "CH"):
-        cma = _ch_current_cma_query(db).first()
+        candidates = _ch_current_cma_query(db).all()
+        if len(candidates) > 1:
+            raise JurisdictionReferenceDataConflictError(
+                "Mehrere aktuelle CH-CMA-Referenzzeilen gefunden; die "
+                "Modellauswahl ist nicht eindeutig."
+            )
+        cma = candidates[0] if candidates else None
     else:
-        jurisdiction_query = _ch_current_cma_query(db).filter(
+        jurisdiction_query = _current_cma_query(db).filter(
             CapitalMarketAssumption.jurisdiction == jurisdiction,
         )
         cma = None
         if tenant_id:
-            cma = jurisdiction_query.filter(
+            tenant_candidates = jurisdiction_query.filter(
                 CapitalMarketAssumption.tenant_id == tenant_id,
-            ).first()
+            ).all()
+            if len(tenant_candidates) > 1:
+                raise JurisdictionReferenceDataConflictError(
+                    f"Mehrere aktuelle {jurisdiction}-CMA-Zeilen fuer Tenant "
+                    f"{tenant_id} gefunden."
+                )
+            cma = tenant_candidates[0] if tenant_candidates else None
         if cma is None:
-            cma = jurisdiction_query.filter(
+            firmwide_candidates = jurisdiction_query.filter(
                 CapitalMarketAssumption.tenant_id.is_(None),
-            ).first()
+            ).all()
+            if len(firmwide_candidates) > 1:
+                raise JurisdictionReferenceDataConflictError(
+                    f"Mehrere aktuelle firmenweite {jurisdiction}-CMA-Zeilen gefunden."
+                )
+            cma = firmwide_candidates[0] if firmwide_candidates else None
 
     if cma is None:
         raise JurisdictionReferenceDataMissingError(
@@ -137,14 +164,66 @@ def _ch_building_block_rows(
     base_query = db.query(BuildingBlock).filter(
         BuildingBlock.policy_id == policy_id,
         BuildingBlock.is_active == 1,
+        or_(
+            BuildingBlock.jurisdiction.is_(None),
+            BuildingBlock.jurisdiction == "CH",
+        ),
     )
     universe = (investment_universe or "").strip() or None
     rows: list[BuildingBlock] = []
     if universe:
         rows = base_query.filter(BuildingBlock.universe == universe).all()
-    if not rows:
+        if not rows:
+            raise JurisdictionReferenceDataMissingError(
+                "Keine aktiven BuildingBlock-Referenzzeilen fuer das explizit "
+                f"gewaehlte Universum '{universe}' und Jurisdiktion 'CH' "
+                f"(policy_id='{policy_id}') gefunden."
+            )
+    else:
         rows = base_query.all()
-    return rows
+    return _prefer_exact_jurisdiction_rows(rows, "CH")
+
+
+def _prefer_exact_jurisdiction_rows(
+    rows: list[BuildingBlock],
+    jurisdiction: str,
+) -> list[BuildingBlock]:
+    """Merge shared and country-specific sleeves without order dependence.
+
+    ``jurisdiction IS NULL`` is the shared universe used by every country for
+    generic sleeves.  An explicit country row replaces the shared row with
+    the same economic identity; foreign country rows never reach this helper.
+    """
+    grouped: dict[tuple[str, str, str], list[BuildingBlock]] = {}
+    for row in rows:
+        key = (
+            str(getattr(row, "asset_class", "") or ""),
+            str(getattr(row, "sub_asset_class", "") or ""),
+            str(getattr(row, "universe", "") or ""),
+        )
+        grouped.setdefault(key, []).append(row)
+
+    selected: dict[tuple[str, str, str], BuildingBlock] = {}
+    for key, candidates in grouped.items():
+        exact = [
+            row for row in candidates
+            if getattr(row, "jurisdiction", None) == jurisdiction
+        ]
+        shared = [
+            row for row in candidates
+            if getattr(row, "jurisdiction", None) is None
+        ]
+        preferred = exact if exact else shared
+        if len(preferred) > 1:
+            scope = f"Jurisdiktion {jurisdiction}" if exact else "shared/NULL"
+            raise JurisdictionReferenceDataConflictError(
+                "Mehrere gleichrangige BuildingBlock-Zeilen fuer "
+                f"{key!r} im Scope {scope}; Risky-Fraction und Submix sind "
+                "nicht eindeutig."
+            )
+        if preferred:
+            selected[key] = preferred[0]
+    return list(selected.values())
 
 
 def resolve_building_blocks_for_jurisdiction(
@@ -160,8 +239,11 @@ def resolve_building_blocks_for_jurisdiction(
       (siehe _ch_building_block_rows) -- leeres Ergebnis ist hier ein
       gueltiger, unveraenderter Bestandsfall und wirft KEINEN Fehler
       (Constraint: CH-Pfad bleibt byte-identisch zum heutigen Verhalten).
-    - andere jurisdiction: zusaetzlich nach BuildingBlock.jurisdiction ==
-      jurisdiction gefiltert. Ein leeres Ergebnis wirft hier
+    - andere jurisdiction: shared rows (jurisdiction IS NULL) plus exact
+      country rows. Exact country rows deterministically override shared rows
+      with the same asset/sub-asset/universe identity. At least one exact row
+      is required, so an unsupported country cannot silently run on shared
+      data alone. Ein leeres Ergebnis wirft hier
       JurisdictionReferenceDataMissingError (fuer ein neues Land duerfen
       nie unbemerkt 0 Bausteine verwendet werden).
     """
@@ -171,22 +253,33 @@ def resolve_building_blocks_for_jurisdiction(
     base_query = db.query(BuildingBlock).filter(
         BuildingBlock.policy_id == policy_id,
         BuildingBlock.is_active == 1,
-        BuildingBlock.jurisdiction == jurisdiction,
+        or_(
+            BuildingBlock.jurisdiction.is_(None),
+            BuildingBlock.jurisdiction == jurisdiction,
+        ),
     )
     universe = (investment_universe or "").strip() or None
     rows: list[BuildingBlock] = []
     if universe:
         rows = base_query.filter(BuildingBlock.universe == universe).all()
-    if not rows:
+        if not rows:
+            raise JurisdictionReferenceDataMissingError(
+                "Keine aktiven BuildingBlock-Referenzzeilen fuer das explizit "
+                f"gewaehlte Universum '{universe}' und Jurisdiktion "
+                f"'{jurisdiction}' (policy_id='{policy_id}') gefunden."
+            )
+    else:
         rows = base_query.all()
 
-    if not rows:
+    if not rows or not any(
+        getattr(row, "jurisdiction", None) == jurisdiction for row in rows
+    ):
         raise JurisdictionReferenceDataMissingError(
             f"Keine aktiven BuildingBlock-Referenzzeilen fuer Jurisdiktion "
             f"'{jurisdiction}' (policy_id='{policy_id}') gefunden. Es wird bewusst "
             f"keine erfundene Zusammensetzung zurueckgegeben."
         )
-    return rows
+    return _prefer_exact_jurisdiction_rows(rows, jurisdiction)
 
 
 def resolve_home_bias_defaults(

@@ -30,6 +30,15 @@ def test_negative_return_is_allowed():
     assert cma.bonds_chf_ig_return_bps == -50
 
 
+@pytest.mark.parametrize("invalid_return", [-10_000, -20_000, True])
+def test_total_loss_or_boolean_return_is_rejected(invalid_return):
+    with pytest.raises(ValidationError):
+        CapitalMarketAssumptionCreate(
+            valid_from="2026-01-01",
+            equity_ch_return_bps=invalid_return,
+        )
+
+
 @pytest.mark.parametrize("field", [
     "equity_em_vol_bps", "liquidity_vol_bps", "real_estate_ch_vol_bps", "bonds_hy_vol_bps",
 ])

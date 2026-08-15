@@ -1,5 +1,6 @@
 import re
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import ValidationError
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 from datetime import date, datetime, timezone
@@ -20,12 +21,34 @@ from services.auth import get_client_for_user_or_404, get_current_user, get_mand
 from services.audit import log
 from services.cashflow_timeline import SUPPORTED_FREQUENCIES, normalize_frequency, normalize_nature
 from services.data_classification import enforce_data_classification
+from services.wealth_position_semantics import (
+    WealthPositionSemanticsError,
+    require_supported_mortgage_amortization,
+    require_supported_position_assignment,
+)
 
 router = APIRouter(tags=["Vermögen & Ziele"])
 
 
 def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+
+
+def _validate_position_projection_or_422(
+    position_type,
+    assignment,
+    amortization_rappen=0,
+    amortization_type=None,
+) -> None:
+    try:
+        require_supported_position_assignment(position_type, assignment)
+        require_supported_mortgage_amortization(
+            position_type,
+            amortization_rappen,
+            amortization_type,
+        )
+    except WealthPositionSemanticsError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 def _normalize_cashflow_date(value) -> str | None:
@@ -235,6 +258,27 @@ def _validate_goal_payload_semantics(payload: dict, existing: Goal | None = None
             raise HTTPException(status_code=422, detail="Maximierung darf keinen fixen Zielwert tragen")
 
 
+def _validate_complete_goal_state(payload: dict, existing: Goal | None = None) -> None:
+    """Apply the same complete domain contract as Generate/Reload."""
+    from services.goal_semantics import GoalInputError, validate_goal_model_input
+
+    field_names = (
+        "goal_family", "goal_type", "label", "rank", "weight_bps", "goal_scope",
+        "value_mode", "target_amount_rappen", "target_wealth_rappen",
+        "target_return_bps", "success_probability_min_x100", "start_date",
+        "horizon_years", "target_date", "is_ongoing", "frequency",
+        "hardness", "probability_pct", "pension_pillar",
+    )
+    complete = {
+        field: payload.get(field, getattr(existing, field, None))
+        for field in field_names
+    }
+    try:
+        validate_goal_model_input(complete)
+    except GoalInputError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
 def _normalize_goal_payload(data: dict, existing: Goal | None = None) -> dict:
     payload = dict(data)
     goal_type = payload.get("goal_type", getattr(existing, "goal_type", None))
@@ -253,9 +297,23 @@ def _normalize_goal_payload(data: dict, existing: Goal | None = None) -> dict:
         if not target_date and start_date:
             target_date = start_date
     elif goal_type in ("Wiederkehrende_Ausgabe", "Pensionsausgabe"):
-        payload["frequency"] = normalize_frequency(payload.get("frequency", getattr(existing, "frequency", None)))
-        if not payload["frequency"] or payload["frequency"] == "einmalig":
-            payload["frequency"] = "jährlich"
+        raw_frequency = payload.get(
+            "frequency",
+            getattr(existing, "frequency", None),
+        )
+        normalized_frequency = normalize_frequency(raw_frequency)
+        if (
+            normalized_frequency not in SUPPORTED_FREQUENCIES
+            or normalized_frequency == "einmalig"
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "Wiederkehrende und Pensions-Ziele benoetigen eine "
+                    "unterstuetzte wiederkehrende Frequenz."
+                ),
+            )
+        payload["frequency"] = normalized_frequency
         payload["is_ongoing"] = bool(payload.get("is_ongoing", getattr(existing, "is_ongoing", True)))
     else:
         payload["frequency"] = None
@@ -269,11 +327,15 @@ def _normalize_goal_payload(data: dict, existing: Goal | None = None) -> dict:
 
     raw_horizon = payload.get("horizon_years", getattr(existing, "horizon_years", None))
     payload["horizon_years"] = int(raw_horizon) if raw_horizon not in (None, "") else derived_horizon
-    if payload["horizon_years"] is None:
+    # A default horizon is a creation convenience, not permission to erase a
+    # persisted target's explicit timing through a partial update. Updates
+    # are validated against their complete merged state below.
+    if payload["horizon_years"] is None and existing is None:
         payload["horizon_years"] = 10
     payload["start_date"] = start_date
     payload["target_date"] = target_date
     _validate_goal_payload_semantics(payload, existing)
+    _validate_complete_goal_state(payload, existing)
     return payload
 
 
@@ -470,6 +532,12 @@ def create_wealth_position(
 ):
     data = body.model_dump()
     enforce_data_classification(data.pop("data_classification", None))
+    _validate_position_projection_or_422(
+        data.get("position_type"),
+        data.get("assignment"),
+        data.get("mortgage_amortization_rappen"),
+        data.get("mortgage_amortization_type"),
+    )
     client = get_client_for_user_or_404(client_id, db, current_user)
     now = _now()
     # Convert booleans to integers for SQLite
@@ -515,6 +583,18 @@ def update_wealth_position(
     ).first()
     if not wp:
         raise HTTPException(status_code=404, detail="Vermögensposition nicht gefunden")
+    _validate_position_projection_or_422(
+        wp.position_type,
+        updates.get("assignment", wp.assignment),
+        updates.get(
+            "mortgage_amortization_rappen",
+            wp.mortgage_amortization_rappen,
+        ),
+        updates.get(
+            "mortgage_amortization_type",
+            wp.mortgage_amortization_type,
+        ),
+    )
     # C10.2: exclude_unset erlaubt explizites Null-Setzen ("clear"). exclude_none
     # haette ein None-Update verschluckt und keine Felder gecleared.
     # C10.2: Wenn alloc_*-Felder im Update sind, muss die GEMERGTE Verteilung
@@ -523,6 +603,14 @@ def update_wealth_position(
     if any(f in updates for f in _ALLOC_FIELDS):
         merged = {f: int(updates.get(f, getattr(wp, f, 0)) or 0) for f in _ALLOC_FIELDS}
         total = sum(merged.values())
+        if wp.position_type != "Depot" and total != 0:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "alloc_*-Felder sind ausschliesslich für Depot-Positionen "
+                    "zulässig."
+                ),
+            )
         if total != 0 and total != 10000:
             raise HTTPException(
                 status_code=422,
@@ -999,8 +1087,18 @@ def create_wealth_inflow(
     enforce_data_classification(data.pop("data_classification", None))
     client = get_client_for_user_or_404(client_id, db, current_user)
     if body.mandate_id:
-        # Mandate-Ownership-Check
-        get_mandate_for_user_or_404(body.mandate_id, db, current_user)
+        # Ownership alone is insufficient: a mandate of another owned client
+        # would make the inflow disappear from both clients' engine queries.
+        inflow_mandate = get_mandate_for_user_or_404(
+            body.mandate_id,
+            db,
+            current_user,
+        )
+        if str(inflow_mandate.client_id) != str(client_id):
+            raise HTTPException(
+                status_code=422,
+                detail="Mandat und Vermoegenszufluss muessen zum selben Client gehoeren.",
+            )
     now = _now()
     inflow = WealthInflow(
         id=new_uuid(),
@@ -1037,6 +1135,18 @@ def update_wealth_inflow(
     # rls-3 (2026-07-23): Phase-0-Gate analog update_cashflow/update_goal/
     # update_wealth_position.
     enforce_data_classification(payload.pop("data_classification", None))
+    # Validate the complete post-update state. A partial PATCH-like PUT must
+    # not be able to turn a valid one-time inflow into an incomplete recurring
+    # row that the projection would otherwise silently omit.
+    merged_state = {
+        field: payload.get(field, getattr(inflow, field, None))
+        for field in WealthInflowCreate.model_fields
+        if field != "data_classification"
+    }
+    try:
+        WealthInflowCreate.model_validate(merged_state)
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     for key, value in payload.items():
         setattr(inflow, key, value)
     inflow.updated_at = _now()
@@ -1090,18 +1200,23 @@ def calculate_max_pension_spending(
         _build_sub_allocations, _enrich_sub_allocations_with_risk,
         _building_block_risky_map, _expected_metrics, _normalize_preferences,
         _current_planning_inflation_bps, _goal_inflation_series_bps,
+        require_strategy_ready_assessment,
     )
-    from models.profiling import RiskAssessment
+    from services.jurisdiction.resolve import resolve_mandate_jurisdiction
+    from services.return_moments import arithmetic_moments_to_log_parameters
 
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
-    policy, cma = ensure_runtime_reference_data(db, current_user.id)
-    assessment = db.query(RiskAssessment).filter(
-        RiskAssessment.mandate_id == mandate.id,
-        RiskAssessment.is_current == 1,
-        RiskAssessment.deleted_at.is_(None),
-    ).first()
-    if not assessment:
-        raise HTTPException(status_code=409, detail="Bitte zuerst ein aktuelles Risikoprofil speichern.")
+    jurisdiction = resolve_mandate_jurisdiction(mandate)
+    try:
+        policy, cma = ensure_runtime_reference_data(
+            db,
+            current_user.id,
+            jurisdiction=jurisdiction,
+            tenant_id=getattr(mandate, "tenant_id", None),
+        )
+        assessment = require_strategy_ready_assessment(db, mandate.id)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     inputs = _load_allocation_inputs(db, mandate, simulation_prefs={}, cma=cma)
     advisory_wealth_rappen = int(inputs["advisory_wealth_rappen"] or 0)
@@ -1115,8 +1230,18 @@ def calculate_max_pension_spending(
     house_matrix = _house_matrix_or_default(db, policy, score_bucket)
     prefs = _normalize_preferences(None)
     targets, _, _ = _baseline_target_bands(house_matrix, policy)
-    risky_map = _building_block_risky_map(db, policy.id)
-    sub_allocations = _build_sub_allocations(targets, prefs)
+    risky_map = _building_block_risky_map(
+        db,
+        policy.id,
+        getattr(mandate, "investment_universe", None),
+        jurisdiction,
+    )
+    sub_allocations = _build_sub_allocations(
+        targets,
+        prefs,
+        jurisdiction=jurisdiction,
+        db=db,
+    )
     sub_allocations, _, _ = _enrich_sub_allocations_with_risk(sub_allocations, risky_map)
     metrics = _expected_metrics(targets, cma, sub_allocations)
     expected_return_bps = int(metrics.get("expected_return_bps") or 0)
@@ -1129,11 +1254,13 @@ def calculate_max_pension_spending(
         infl_series = _goal_inflation_series_bps(cma, 10, date.today().year, planning_inflation_bps=None)
         inflation_bps = int(round(sum(infl_series) / max(1, len(infl_series))))
 
-    # Itô-Korrektur: log-Drift = mu - 0.5 * sigma^2
+    # Arithmetic CMA mean and simple-return volatility are mapped jointly to
+    # the matching lognormal location and scale.
     mu = expected_return_bps / 10000.0
     sigma = expected_vol_bps / 10000.0
     inflation = (inflation_bps or 0) / 10000.0
-    nominal_geometric_return = math.exp(mu - 0.5 * sigma * sigma) - 1.0
+    log_location, _log_scale = arithmetic_moments_to_log_parameters(mu, sigma)
+    nominal_geometric_return = math.exp(log_location) - 1.0
     real_return = (1.0 + nominal_geometric_return) / (1.0 + inflation) - 1.0
     real_return_bps = int(round(real_return * 10000))
 
@@ -1165,7 +1292,7 @@ def calculate_max_pension_spending(
 
     reasoning = [
         f"Beratungsvermögen heute: CHF {advisory_wealth_rappen / 100:,.0f}",
-        f"Erwartete Rendite (Itô-korrigiert): {nominal_geometric_return * 100:.2f}% p.a. nominal",
+        f"Modell-Medianrendite (CMA-momententreu): {nominal_geometric_return * 100:.2f}% p.a. nominal",
         f"Erwartete Inflation: {inflation * 100:.2f}% p.a.",
         f"Realer Erwartungswert: {real_return * 100:.2f}% p.a.",
         f"Auszahlungsperiode: {years_in_retirement} Jahre ({body.retirement_year}–{body.life_expectancy_year})",

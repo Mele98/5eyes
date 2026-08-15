@@ -94,7 +94,12 @@ import random
 from datetime import date
 from typing import TYPE_CHECKING
 
+from services.calendar_horizon import calendar_years_until
 from services.planning_horizon import life_expectancy_year_for
+from services.return_moments import (
+    arithmetic_moments_to_log_parameters,
+    bounded_cornish_fisher,
+)
 
 if TYPE_CHECKING:
     from models.allocation import CapitalMarketAssumption, OptimizerPolicy
@@ -118,7 +123,23 @@ def _simulation_horizon_years(
     except (TypeError, ValueError):
         requested = DEFAULT_SIMULATION_HORIZON_YEARS
         has_explicit_override = False
-    goal_horizon = max((int(goal.horizon_years or 0) for goal in goals), default=0)
+    def _dated_goal_horizon(goal) -> int:
+        candidates = [int(getattr(goal, "horizon_years", 0) or 0)]
+        for field in ("start_date", "target_date"):
+            raw_date = str(getattr(goal, field, "") or "").strip()[:10]
+            if not raw_date:
+                continue
+            try:
+                goal_date = date.fromisoformat(raw_date)
+            except ValueError:
+                continue
+            candidates.append(max(1, calendar_years_until(goal_date)))
+        return max(candidates)
+
+    # A dated liability must never be truncated merely because horizon_years
+    # was left NULL. This is especially important for pension/recurring goals,
+    # where target_date is the final due year rather than optional metadata.
+    goal_horizon = max((_dated_goal_horizon(goal) for goal in goals), default=0)
 
     # Ein expliziter Berater-Horizont hat Vorrang vor der automatischen
     # Lebenserwartung. Zielhorizonte werden dennoch nicht abgeschnitten.
@@ -285,7 +306,7 @@ def _simulate_bucket_path(
     rebalance_mode: str,
     transaction_cost_bps: int = 0,
     initial_deficit_rappen: int = 0,
-    vols_by_asset: dict[str, int] | None = None,  # rp-ueberarbeitung: Itô-Korrektur
+    vols_by_asset: dict[str, int] | None = None,  # momententreues Lognormal-Mapping
 ) -> tuple[list[int], list[dict]]:
     # Lazy Import (Zirkular-Import-Haertung, siehe Modul-Docstring).
     from services.portfolio_engine import BUCKET_FIELDS, BUCKET_LABELS
@@ -303,9 +324,16 @@ def _simulate_bucket_path(
         for key in BUCKET_FIELDS:
             r = int(returns_by_asset.get(key, 0)) / 10000
             if vols_by_asset:
-                # rp-ueberarbeitung: Itô-Korrektur (geometric brownian motion mean)
+                # Deterministic median under the same arithmetic CMA moments.
                 sigma = int(vols_by_asset.get(key, 0)) / 10000
-                growth = math.exp(r - 0.5 * sigma * sigma)
+                # CMA returns are arithmetic expected returns. Convert their
+                # gross factor to log space before applying volatility drag;
+                # using ``r`` directly would make 10% become exp(.10)-1.
+                log_location, _ = arithmetic_moments_to_log_parameters(
+                    r,
+                    sigma,
+                )
+                growth = math.exp(log_location)
             else:
                 growth = 1 + r
             values[key] = int(round(max(0, values[key]) * growth))
@@ -354,6 +382,104 @@ def _simulate_bucket_path(
     return totals, events
 
 
+def _coerce_external_foundation_projection(
+    projection: dict | None,
+    horizon_years: int,
+) -> tuple[list[int], list[int], list[int]] | None:
+    if projection is None:
+        return None
+    if not isinstance(projection, dict):
+        raise ValueError("external_foundation_projection must be an object")
+    expected_length = max(0, int(horizon_years)) + 1
+    property_series = projection.get("property_series_rappen")
+    liability_series = projection.get("liability_series_rappen")
+    pledged_asset_series = projection.get("pledged_asset_series_rappen")
+    if not all(
+        isinstance(series, list)
+        for series in (
+            property_series,
+            liability_series,
+            pledged_asset_series,
+        )
+    ):
+        raise ValueError(
+            "external_foundation_projection requires property, liability and "
+            "pledged-asset series"
+        )
+    if any(
+        len(series) != expected_length
+        for series in (
+            property_series,
+            liability_series,
+            pledged_asset_series,
+        )
+    ):
+        raise ValueError(
+            "external_foundation_projection length must match the simulation horizon"
+        )
+    if any(
+        type(value) is not int or value < 0
+        for series in (
+            property_series,
+            liability_series,
+            pledged_asset_series,
+        )
+        for value in series
+    ):
+        raise ValueError(
+            "external_foundation_projection values must be non-negative "
+            "integer Rappen"
+        )
+    return (
+        list(property_series),
+        list(liability_series),
+        list(pledged_asset_series),
+    )
+
+
+def _total_financial_summary_without_direct_property(
+    total_summary: PortfolioSummary,
+    property_start_rappen: int,
+    bucket_fields,
+) -> PortfolioSummary:
+    from services.portfolio_engine import PortfolioSummary as _PortfolioSummary
+
+    amounts = {
+        key: max(0, int(total_summary.amounts_rappen.get(key, 0)))
+        for key in bucket_fields
+    }
+    property_start = max(0, int(property_start_rappen or 0))
+    if property_start > amounts["real_estate"]:
+        raise ValueError(
+            "External direct-property principal exceeds the total real-estate bucket"
+        )
+    amounts["real_estate"] -= property_start
+    return _PortfolioSummary(
+        amounts_rappen=amounts,
+        total_rappen=sum(amounts.values()),
+    )
+
+
+def _combine_financial_and_foundation_series(
+    financial_series: list[int],
+    property_series: list[int],
+    liability_series: list[int],
+    pledged_asset_series: list[int],
+) -> list[int]:
+    return [
+        int(financial)
+        + int(property_value)
+        + int(pledged_asset)
+        - int(liability)
+        for financial, property_value, liability, pledged_asset in zip(
+            financial_series,
+            property_series,
+            liability_series,
+            pledged_asset_series,
+        )
+    ]
+
+
 def _build_simulation_payload(
     *,
     advisory_summary: PortfolioSummary,
@@ -369,6 +495,7 @@ def _build_simulation_payload(
     target_start_value_rappen: int | None = None,  # alias from rp-ueberarbeitung
     total_summary: PortfolioSummary | None = None,
     total_liabilities_rappen: int = 0,
+    external_foundation_projection: dict | None = None,
 ) -> dict:
     # Lazy Import (Zirkular-Import-Haertung, siehe Modul-Docstring).
     from services.portfolio_engine import (
@@ -377,10 +504,17 @@ def _build_simulation_payload(
         _real_series_from_nominal,
         _weighted_bucket_metrics,
     )
+    from services.portfolio_engine_gesamtvermoegen import (
+        _total_financial_target_weights,
+    )
 
     if target_start_value_rappen is not None and target_total_rappen is None:
         target_total_rappen = target_start_value_rappen
     horizon_years = max(1, len(cashflow_projection_series_rappen))
+    external_foundation = _coerce_external_foundation_projection(
+        external_foundation_projection,
+        horizon_years,
+    )
     stress_multiplier = _simulation_stress_multiplier(simulation_prefs)
     rebalance_mode = _simulation_rebalance_mode(simulation_prefs)
     transaction_cost_bps = _simulation_transaction_cost_bps(simulation_prefs)
@@ -406,11 +540,12 @@ def _build_simulation_payload(
         key: int(round(returns[key] + vols[key] * stress_multiplier))
         for key in BUCKET_FIELDS
     }
-    # 2026-06-17: Hauptpfade (current/target) nutzen dieselbe Itô-korrigierte
-    # geometrische Wachstumskonvention wie die Monte-Carlo-Simulation
-    # (growth = exp(r - 0.5*sigma^2)), damit die deterministische Hauptlinie zum
-    # MC-Median (p50) konvergiert statt darueber zu liegen. Liquiditaet (sigma=0)
-    # bleibt flach. Die Stress-Baender (downside/upside) bleiben arithmetisch.
+    # Hauptpfade (current/target) nutzen dieselbe momententreue lognormale
+    # Wachstumskonvention wie die Monte-Carlo-Simulation. Fuer arithmetische
+    # CMA-Momente gilt v=log(1+(sigma/(1+mu))^2) und der Medianfaktor ist
+    # exp(log(1+mu)-v/2). Dadurch konvergiert die deterministische Hauptlinie
+    # zum MC-Median; Mean und einfache Return-Volatilitaet bleiben zugleich die
+    # publizierten CMA-Momente.
     current_series, _ = _simulate_bucket_path(
         start_values=advisory_summary.amounts_rappen,
         returns_by_asset=returns,
@@ -457,39 +592,93 @@ def _build_simulation_payload(
         rebalance_mode=rebalance_mode,
         transaction_cost_bps=transaction_cost_bps,
     )
-    # Z8-W2 Phase 2: Total-Vermoegens-Pfad. IST = Total-Asset-Buckets ohne Rebalancing,
-    # SOLL = Total-Buckets so verteilt wie Strategie es vorschreibt. Beide tragen
-    # initial_deficit (Liabilities) als Schuldenstand mit, sodass die Series das
-    # echte Reinvermoegen zeigt.
+    # Total-wealth paths keep direct property outside the listed-real-estate
+    # bucket. Only financial assets receive CMA returns/rebalancing; the
+    # position-derived property series and outstanding mortgage principal are
+    # added afterwards. Rent remains exactly once in the common cashflow path.
     if total_summary is not None:
-        total_target_start = max(0, int(total_summary.total_rappen) - total_liabilities_rappen)
-        total_target_values = _target_bucket_values(total_target_start, targets)
-        total_current_series, _ = _simulate_bucket_path(
-            start_values=total_summary.amounts_rappen,
-            returns_by_asset=returns,
-            vols_by_asset=vols,
-            cashflow_series_rappen=cashflow_projection_series_rappen,
-            targets=targets,
-            minimums=minimums,
-            maximums=maximums,
-            start_year=start_year,
-            rebalance_mode="none",
-            transaction_cost_bps=0,
-            initial_deficit_rappen=total_liabilities_rappen,
-        )
-        total_target_series, _ = _simulate_bucket_path(
-            start_values=total_target_values,
-            returns_by_asset=returns,
-            vols_by_asset=vols,
-            cashflow_series_rappen=cashflow_projection_series_rappen,
-            targets=targets,
-            minimums=minimums,
-            maximums=maximums,
-            start_year=start_year,
-            rebalance_mode=rebalance_mode,
-            transaction_cost_bps=transaction_cost_bps,
-            initial_deficit_rappen=0,  # Liabilities werden bereits in target_start abgezogen
-        )
+        if external_foundation is not None:
+            property_series, liability_series, pledged_asset_series = (
+                external_foundation
+            )
+            financial_summary = _total_financial_summary_without_direct_property(
+                total_summary,
+                property_series[0],
+                BUCKET_FIELDS,
+            )
+            total_target_values = _target_bucket_values(
+                financial_summary.total_rappen,
+                _total_financial_target_weights(targets),
+            )
+            financial_current_series, _ = _simulate_bucket_path(
+                start_values=financial_summary.amounts_rappen,
+                returns_by_asset=returns,
+                vols_by_asset=vols,
+                cashflow_series_rappen=cashflow_projection_series_rappen,
+                targets=targets,
+                minimums=minimums,
+                maximums=maximums,
+                start_year=start_year,
+                rebalance_mode="none",
+                transaction_cost_bps=0,
+            )
+            financial_target_series, _ = _simulate_bucket_path(
+                start_values=total_target_values,
+                returns_by_asset=returns,
+                vols_by_asset=vols,
+                cashflow_series_rappen=cashflow_projection_series_rappen,
+                targets=targets,
+                minimums=minimums,
+                maximums=maximums,
+                start_year=start_year,
+                rebalance_mode=rebalance_mode,
+                transaction_cost_bps=transaction_cost_bps,
+            )
+            total_current_series = _combine_financial_and_foundation_series(
+                financial_current_series,
+                property_series,
+                liability_series,
+                pledged_asset_series,
+            )
+            total_target_series = _combine_financial_and_foundation_series(
+                financial_target_series,
+                property_series,
+                liability_series,
+                pledged_asset_series,
+            )
+        else:
+            # Backwards compatibility for direct low-level callers that have
+            # not supplied the position-derived foundation contract yet.
+            total_target_start = max(
+                0,
+                int(total_summary.total_rappen) - total_liabilities_rappen,
+            )
+            total_target_values = _target_bucket_values(total_target_start, targets)
+            total_current_series, _ = _simulate_bucket_path(
+                start_values=total_summary.amounts_rappen,
+                returns_by_asset=returns,
+                vols_by_asset=vols,
+                cashflow_series_rappen=cashflow_projection_series_rappen,
+                targets=targets,
+                minimums=minimums,
+                maximums=maximums,
+                start_year=start_year,
+                rebalance_mode="none",
+                transaction_cost_bps=0,
+                initial_deficit_rappen=total_liabilities_rappen,
+            )
+            total_target_series, _ = _simulate_bucket_path(
+                start_values=total_target_values,
+                returns_by_asset=returns,
+                vols_by_asset=vols,
+                cashflow_series_rappen=cashflow_projection_series_rappen,
+                targets=targets,
+                minimums=minimums,
+                maximums=maximums,
+                start_year=start_year,
+                rebalance_mode=rebalance_mode,
+                transaction_cost_bps=transaction_cost_bps,
+            )
     else:
         total_current_series = []
         total_target_series = []
@@ -656,6 +845,7 @@ def _monte_carlo_goal_summary(
     goal: Goal,
     *,
     path_values_by_year: list[list[int]],
+    total_path_values_by_year: list[list[int]] | None = None,
     annualized_return_samples_bps: list[int],
     inflation_series_bps: list[int],
     advisory_wealth_rappen: int,
@@ -679,12 +869,9 @@ def _monte_carlo_goal_summary(
     )
 
     index = _year_index_for_goal(goal, start_year, horizon_years)
-    # B4: MC-Pfade sind advisory-only. Keine Skalierung mit total/advisory mehr
-    # (frueher _goal_base_scale) - das war methodisch falsch, weil External
-    # Assets nicht wie Aktien wachsen. Goal wird gegen advisory_path bewertet,
-    # konsistent zu _build_goal_analysis.
-    # #83 (opt-in): goal_scope='Gesamtvermoegen' addiert externe Assets nur mit
-    # Teuerung (real 0%, keine Vola) -> deterministische Konstante, kein Drift.
+    # Advisory goals use the advised portfolio paths. Total-wealth goals can
+    # additionally consume the exact total paths (direct property, liabilities
+    # and pledged assets included) built by this same Monte-Carlo run.
     scaled_values = list(path_values_by_year[index])
     p10 = _percentile(scaled_values, 0.10)
     p25 = _percentile(scaled_values, 0.25)
@@ -789,24 +976,66 @@ def _monte_carlo_goal_summary(
                 hardness_key=hardness_key,
             )
     elif goal_type in ("Kapitalerhalt", "Vermoegensziel"):
-        target = _goal_target_wealth_rappen(goal, index, inflation_series_bps)
-        # #83: Gesamtvermoegen-Scope -> externe Assets (nur Teuerung, real 0%, KEINE
-        # Vola) deterministisch auf jeden MC-Pfad addieren. Konsistent zu
-        # _build_goal_analysis; da konstant, kein MC-Drift (B4-Falle vermieden).
+        probability_factor = _goal_probability_factor(goal)
+        target = int(round(
+            _goal_target_wealth_rappen(goal, index, inflation_series_bps)
+            * probability_factor
+        ))
+        # Total-scope goals use the exact pathwise external foundation instead
+        # of reconstructing it as a CPI-grown scalar.  Expected-funding
+        # semantics for contingent goals remain unchanged:
+        #   advisory + p * (total - advisory) >= p * target.
+        # At p=100% this is exactly the visible total-wealth path.
         if _goal_uses_total_scope(goal):
-            external_projected = _external_assets_inflation_value(
-                max(0, int(total_wealth_rappen or 0) - int(advisory_wealth_rappen or 0)),
-                index, inflation_series_bps,
-            )
-            if external_projected:
-                scaled_values = [value + external_projected for value in scaled_values]
-                p10 = _percentile(scaled_values, 0.10)
-                p25 = _percentile(scaled_values, 0.25)
-                p50 = _percentile(scaled_values, 0.50)
-                p90 = _percentile(scaled_values, 0.90)
-        success_rate_pct = int(round(sum(1 for value in scaled_values if value >= target) / max(1, len(scaled_values)) * 100))
-        funded_ratio_p50 = round(p50 / target, 4)
-        funded_ratio_pct = max(0, min(200, int(round(funded_ratio_p50 * 100))))
+            exact_total_values = None
+            if total_path_values_by_year is not None:
+                if index >= len(total_path_values_by_year):
+                    raise ValueError(
+                        "Total-wealth goal path does not cover the goal horizon"
+                    )
+                exact_total_values = list(total_path_values_by_year[index])
+                if len(exact_total_values) != len(scaled_values):
+                    raise ValueError(
+                        "Advisory and total goal paths must contain identical samples"
+                    )
+            if exact_total_values is not None:
+                scaled_values = [
+                    int(round(
+                        advisory_value
+                        + probability_factor * (total_value - advisory_value)
+                    ))
+                    for advisory_value, total_value in zip(
+                        scaled_values, exact_total_values, strict=True
+                    )
+                ]
+            else:
+                # Backwards compatibility for direct low-level callers that do
+                # not yet provide total paths. Production passes the exact path.
+                external_projected = _external_assets_inflation_value(
+                    max(
+                        0,
+                        int(total_wealth_rappen or 0)
+                        - int(advisory_wealth_rappen or 0),
+                    ),
+                    index,
+                    inflation_series_bps,
+                )
+                scaled_values = [
+                    int(round(value + external_projected * probability_factor))
+                    for value in scaled_values
+                ]
+            p10 = _percentile(scaled_values, 0.10)
+            p25 = _percentile(scaled_values, 0.25)
+            p50 = _percentile(scaled_values, 0.50)
+            p90 = _percentile(scaled_values, 0.90)
+        if target <= 0:
+            success_rate_pct = 100
+            funded_ratio_p50 = 2.0
+            funded_ratio_pct = 200
+        else:
+            success_rate_pct = int(round(sum(1 for value in scaled_values if value >= target) / max(1, len(scaled_values)) * 100))
+            funded_ratio_p50 = round(p50 / target, 4)
+            funded_ratio_pct = max(0, min(200, int(round(funded_ratio_p50 * 100))))
         score = _compute_goal_score(
             success_rate_pct=success_rate_pct,
             funded_ratio_pct=funded_ratio_pct,
@@ -921,18 +1150,25 @@ def _run_allocation_monte_carlo(
     target_start_value_rappen: int | None = None,  # alias from rp-ueberarbeitung
     total_summary: "PortfolioSummary | None" = None,
     total_liabilities_rappen: int = 0,
+    external_foundation_projection: dict | None = None,
 ) -> dict:
     # Lazy Import (Zirkular-Import-Haertung, siehe Modul-Docstring).
     from services.portfolio_engine import (
         BUCKET_FIELDS,
         _build_cholesky_from_cma,
-        _cornish_fisher_transform,
         _weighted_bucket_metrics,
+    )
+    from services.portfolio_engine_gesamtvermoegen import (
+        _total_financial_target_weights,
     )
 
     if target_start_value_rappen is not None and target_total_rappen is None:
         target_total_rappen = target_start_value_rappen
     horizon_years = max(1, len(cashflow_projection_series_rappen))
+    external_foundation = _coerce_external_foundation_projection(
+        external_foundation_projection,
+        horizon_years,
+    )
     simulations = _monte_carlo_simulations(simulation_prefs)
     stress_multiplier = _simulation_stress_multiplier(simulation_prefs)
     rebalance_mode = _simulation_rebalance_mode(simulation_prefs)
@@ -955,6 +1191,16 @@ def _run_allocation_monte_carlo(
     excess_kurt_per_bucket = [
         float(getattr(cma, f"{b}_excess_kurt_bps", 0) or 0) / 10000.0
         for b in BUCKET_FIELDS
+    ]
+    log_parameters = [
+        arithmetic_moments_to_log_parameters(
+            returns[bucket] / 10_000.0,
+            vols[bucket] / 10_000.0 * stress_multiplier,
+            skew=skew_per_bucket[index],
+            excess_kurtosis=excess_kurt_per_bucket[index],
+            use_cornish_fisher=use_tail_risk,
+        )
+        for index, bucket in enumerate(BUCKET_FIELDS)
     ]
     n_assets = len(BUCKET_FIELDS)
     transaction_cost_bps = _simulation_transaction_cost_bps(simulation_prefs)
@@ -1000,9 +1246,38 @@ def _run_allocation_monte_carlo(
     total_target_by_year: list[list[int]] = [[] for _ in range(horizon_years + 1)]
     total_liabilities_rappen = max(0, int(total_liabilities_rappen or 0))
     if total_summary is not None:
-        total_target_start = max(0, int(total_summary.total_rappen) - total_liabilities_rappen)
-        total_target_start_values = _target_bucket_values(total_target_start, targets)
+        if external_foundation is not None:
+            (
+                foundation_property_series,
+                foundation_liability_series,
+                foundation_pledged_asset_series,
+            ) = external_foundation
+            total_financial_summary = (
+                _total_financial_summary_without_direct_property(
+                    total_summary,
+                    foundation_property_series[0],
+                    BUCKET_FIELDS,
+                )
+            )
+            total_target_start = total_financial_summary.total_rappen
+        else:
+            foundation_property_series = [0] * (horizon_years + 1)
+            foundation_liability_series = [0] * (horizon_years + 1)
+            foundation_pledged_asset_series = [0] * (horizon_years + 1)
+            total_financial_summary = total_summary
+            total_target_start = max(
+                0,
+                int(total_summary.total_rappen) - total_liabilities_rappen,
+            )
+        total_target_start_values = _target_bucket_values(
+            total_target_start,
+            _total_financial_target_weights(targets),
+        )
     else:
+        foundation_property_series = [0] * (horizon_years + 1)
+        foundation_liability_series = [0] * (horizon_years + 1)
+        foundation_pledged_asset_series = [0] * (horizon_years + 1)
+        total_financial_summary = None
         total_target_start = 0
         total_target_start_values = {key: 0 for key in BUCKET_FIELDS}
     current_annualized_returns: list[int] = []
@@ -1029,15 +1304,36 @@ def _run_allocation_monte_carlo(
         # den Pfad-Total negativ (Vermoegen aufgezehrt).
         current_deficit = 0
         target_deficit = 0
-        # F23: parallele Total-Pfade. IST traegt Liabilities ab Start, SOLL hat
-        # sie schon im total_target_start abgezogen.
+        # Total paths simulate only financial assets when a position-derived
+        # foundation is supplied. Direct property and mortgage principal are
+        # deterministic additions below, outside CMA and rebalancing.
         if total_summary is not None:
-            total_current_values = {key: max(0, int(total_summary.amounts_rappen.get(key, 0))) for key in BUCKET_FIELDS}
+            total_current_values = {
+                key: max(
+                    0,
+                    int(total_financial_summary.amounts_rappen.get(key, 0)),
+                )
+                for key in BUCKET_FIELDS
+            }
             total_target_values = {key: max(0, int(total_target_start_values.get(key, 0))) for key in BUCKET_FIELDS}
-            total_current_deficit = total_liabilities_rappen
+            total_current_deficit = (
+                0 if external_foundation is not None else total_liabilities_rappen
+            )
             total_target_deficit = 0
-            total_current_by_year[0].append(sum(total_current_values.values()) - total_current_deficit)
-            total_target_by_year[0].append(sum(total_target_values.values()) - total_target_deficit)
+            total_current_by_year[0].append(
+                sum(total_current_values.values())
+                - total_current_deficit
+                + foundation_property_series[0]
+                + foundation_pledged_asset_series[0]
+                - foundation_liability_series[0]
+            )
+            total_target_by_year[0].append(
+                sum(total_target_values.values())
+                - total_target_deficit
+                + foundation_property_series[0]
+                + foundation_pledged_asset_series[0]
+                - foundation_liability_series[0]
+            )
         else:
             total_current_values = None
             total_target_values = None
@@ -1087,14 +1383,20 @@ def _run_allocation_monte_carlo(
             # Sprint U-P4 Fix M6: Cornish-Fisher-Transform fuer Tail-Risk
             if use_tail_risk:
                 corr = [
-                    _cornish_fisher_transform(corr[i], skew_per_bucket[i], excess_kurt_per_bucket[i])
+                    float(
+                        bounded_cornish_fisher(
+                            corr[i],
+                            skew_per_bucket[i],
+                            excess_kurt_per_bucket[i],
+                        )
+                    )
                     for i in range(n_assets)
                 ]
             for idx, key in enumerate(BUCKET_FIELDS):
-                mu = returns[key] / 10000
-                sigma = vols[key] / 10000 * stress_multiplier
-                mu_ln = mu - 0.5 * sigma * sigma  # Itô correction: E[exp(X)] = exp(mu) preserves arithmetic mean
-                growth_factor = math.exp(mu_ln + sigma * corr[idx])
+                log_location, log_scale = log_parameters[idx]
+                growth_factor = math.exp(
+                    log_location + log_scale * corr[idx]
+                )
                 current_values[key] = int(round(max(0, current_values[key]) * growth_factor))
                 target_values[key] = int(round(max(0, target_values[key]) * growth_factor))
                 if total_current_values is not None:
@@ -1161,8 +1463,20 @@ def _run_allocation_monte_carlo(
             current_by_year[year_index].append(sum(current_values.values()) - current_deficit)
             target_by_year[year_index].append(sum(target_values.values()) - target_deficit)
             if total_current_values is not None:
-                total_current_by_year[year_index].append(sum(total_current_values.values()) - total_current_deficit)
-                total_target_by_year[year_index].append(sum(total_target_values.values()) - total_target_deficit)
+                total_current_by_year[year_index].append(
+                    sum(total_current_values.values())
+                    - total_current_deficit
+                    + foundation_property_series[year_index]
+                    + foundation_pledged_asset_series[year_index]
+                    - foundation_liability_series[year_index]
+                )
+                total_target_by_year[year_index].append(
+                    sum(total_target_values.values())
+                    - total_target_deficit
+                    + foundation_property_series[year_index]
+                    + foundation_pledged_asset_series[year_index]
+                    - foundation_liability_series[year_index]
+                )
 
         # Sprint U-P1 Fix C1: Pfad-Indizierung explizit via _simulation_idx
         # statt [-1]. Vorher: target_by_year[1][-1] funktionierte zufaellig
@@ -1200,6 +1514,9 @@ def _run_allocation_monte_carlo(
         _monte_carlo_goal_summary(
             goal,
             path_values_by_year=target_by_year,
+            total_path_values_by_year=(
+                total_target_by_year if total_summary is not None else None
+            ),
             annualized_return_samples_bps=target_annualized_returns,
             inflation_series_bps=goal_inflation_series_bps,
             advisory_wealth_rappen=advisory_wealth_rappen,
@@ -1214,6 +1531,9 @@ def _run_allocation_monte_carlo(
         _monte_carlo_goal_summary(
             goal,
             path_values_by_year=current_by_year,
+            total_path_values_by_year=(
+                total_current_by_year if total_summary is not None else None
+            ),
             annualized_return_samples_bps=current_annualized_returns,
             inflation_series_bps=goal_inflation_series_bps,
             advisory_wealth_rappen=advisory_wealth_rappen,

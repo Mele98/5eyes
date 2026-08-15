@@ -55,6 +55,7 @@ import models.wealth  # noqa: E402,F401
 from models.allocation import BuildingBlock, CapitalMarketAssumption, OptimizerPolicy  # noqa: E402
 from services.jurisdiction.exceptions import (  # noqa: E402
     JurisdictionNotApprovedError,
+    JurisdictionReferenceDataConflictError,
     JurisdictionReferenceDataMissingError,
 )
 from services.jurisdiction.provisional_gate import assert_jurisdiction_ready  # noqa: E402
@@ -84,6 +85,7 @@ def _make_cma(
     row_id: str,
     *,
     jurisdiction: str | None = None,
+    tenant_id: str | None = None,
     status: str | None = "committee_approved",
     is_current: int = 1,
 ) -> CapitalMarketAssumption:
@@ -94,6 +96,7 @@ def _make_cma(
         valid_from="2026-01-01",
         is_current=is_current,
         jurisdiction=jurisdiction,
+        tenant_id=tenant_id,
         status=status,
         created_by="tester",
         created_at=NOW,
@@ -119,6 +122,7 @@ def _make_building_block(
     policy_id: str,
     *,
     jurisdiction: str | None = None,
+    sub_asset_class: str = "Aktien Schweiz",
     universe: str = "Standard",
     is_active: int = 1,
 ) -> BuildingBlock:
@@ -126,7 +130,7 @@ def _make_building_block(
         id=row_id,
         policy_id=policy_id,
         asset_class="Aktien",
-        sub_asset_class="Aktien Schweiz",
+        sub_asset_class=sub_asset_class,
         universe=universe,
         risky_fraction_bps=10000,
         is_active=is_active,
@@ -185,6 +189,57 @@ def test_resolve_cma_ch_none_matches_direct_query(db_session):
     assert direct is not None
     assert resolved_none.id == direct.id == "cma-ch-1"
     assert resolved_ch.id == direct.id
+
+
+@pytest.mark.parametrize("requested_jurisdiction", [None, "CH"])
+def test_resolve_cma_ch_scope_never_leaks_de_or_tenant_de(
+    db_session,
+    requested_jurisdiction,
+):
+    """Der CH-Resolver muss auch in einem realistisch gemischten Bestand
+    ausschliesslich firmenweite CH-Zeilen beruecksichtigen. Insbesondere
+    duerfen weder die firmenweite noch eine Tenant-DE-Zeile durch die
+    historische CH(NULL)-Kompatibilitaet in den CH-Pfad gelangen."""
+    db_session.add_all([
+        _make_cma("cma-ch-legacy", jurisdiction=None),
+        _make_cma("cma-de-firmwide", jurisdiction="DE"),
+        _make_cma("cma-de-tenant", jurisdiction="DE", tenant_id="tenant-de"),
+    ])
+    db_session.commit()
+
+    resolved = resolve_cma_for_jurisdiction(
+        db_session,
+        requested_jurisdiction,
+        tenant_id="tenant-de",
+    )
+
+    assert resolved.id == "cma-ch-legacy"
+    assert resolved.jurisdiction in (None, "CH")
+    assert resolved.tenant_id is None
+
+
+@pytest.mark.parametrize("requested_jurisdiction", [None, "CH"])
+def test_resolve_cma_ch_duplicate_current_rows_fail_closed(
+    db_session,
+    requested_jurisdiction,
+):
+    """Zwei aktuelle CH-Reihen (Legacy-NULL plus explizites CH) sind ein
+    mehrdeutiger Modellzustand. Der Resolver darf hier nicht per ungeordnetem
+    ``first()`` zufaellig eine Annahmenbasis waehlen, sondern muss fail-closed
+    abbrechen. Der konkrete Exception-Typ bleibt der Produktionsimplementierung
+    ueberlassen; die Meldung muss die Mehrdeutigkeit jedoch klar benennen."""
+    db_session.add_all([
+        _make_cma("cma-ch-legacy-duplicate", jurisdiction=None),
+        _make_cma("cma-ch-explicit-duplicate", jurisdiction="CH"),
+        _make_cma("cma-de-unrelated", jurisdiction="DE"),
+    ])
+    db_session.commit()
+
+    with pytest.raises(
+        JurisdictionReferenceDataConflictError,
+        match=r"(?i)(mehrdeutig|mehrere|multiple|ambig|eindeutig)",
+    ):
+        resolve_cma_for_jurisdiction(db_session, requested_jurisdiction)
 
 
 def test_resolve_cma_unknown_jurisdiction_without_data_raises(db_session):
@@ -296,6 +351,45 @@ def test_resolve_building_blocks_jurisdiction_filter_matches_only_that_jurisdict
 
     rows_de = resolve_building_blocks_for_jurisdiction(db_session, "policy-3", "DE")
     assert [r.id for r in rows_de] == ["bb-de-1"]
+
+
+@pytest.mark.parametrize("requested_jurisdiction", [None, "CH"])
+def test_resolve_building_blocks_ch_scope_excludes_de_rows(
+    db_session,
+    requested_jurisdiction,
+):
+    policy = _make_policy(f"policy-ch-scope-{requested_jurisdiction or 'none'}")
+    db_session.add(policy)
+    db_session.add_all([
+        _make_building_block(
+            f"bb-ch-legacy-{requested_jurisdiction or 'none'}",
+            policy.id,
+            jurisdiction=None,
+            sub_asset_class="Aktien Global Shared",
+        ),
+        _make_building_block(
+            f"bb-ch-explicit-{requested_jurisdiction or 'none'}",
+            policy.id,
+            jurisdiction="CH",
+            sub_asset_class="Aktien Schweiz Exact",
+        ),
+        _make_building_block(
+            f"bb-de-out-of-scope-{requested_jurisdiction or 'none'}",
+            policy.id,
+            jurisdiction="DE",
+            sub_asset_class="Aktien Deutschland Out",
+        ),
+    ])
+    db_session.commit()
+
+    rows = resolve_building_blocks_for_jurisdiction(
+        db_session,
+        policy.id,
+        requested_jurisdiction,
+    )
+
+    assert {row.jurisdiction for row in rows} == {None, "CH"}
+    assert all(row.id.startswith("bb-ch-") for row in rows)
 
 
 def test_resolve_building_blocks_inactive_row_ignored(db_session):

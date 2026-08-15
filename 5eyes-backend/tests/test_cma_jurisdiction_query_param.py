@@ -174,9 +174,9 @@ def test_get_current_cma_unknown_jurisdiction_404(client, session_factory):
 
 
 def test_update_cma_default_ch_unchanged_behavior(client, session_factory):
-    """CH-Pfad (kein jurisdiction-Query-Param): Versionierung bleibt exakt
-    wie vor WP3 -- Vorgaenger wird superseded, version+1, kein jurisdiction/
-    tenant_id auf der neuen Zeile gesetzt."""
+    """CH-Pfad (kein jurisdiction-Query-Param): Legacy-NULL wird sauber
+    superseded; neue Versionen tragen den expliziten CH-Scope und niemals
+    einen Tenant-Scope."""
     with session_factory() as s:
         s.add(_make_cma("cma-ch-old", jurisdiction=None, equity_ch_return_bps=600))
         s.commit()
@@ -190,13 +190,79 @@ def test_update_cma_default_ch_unchanged_behavior(client, session_factory):
         body = resp.json()
         assert body["version"] == 2
         assert body["equity_ch_return_bps"] == 700
-        assert body["jurisdiction"] is None
+        assert body["jurisdiction"] == "CH"
+        assert body["tenant_id"] is None
     finally:
         _logout()
 
     with session_factory() as s:
         old = s.query(CapitalMarketAssumption).filter(CapitalMarketAssumption.id == "cma-ch-old").first()
         assert old.is_current == 0
+
+
+@pytest.mark.parametrize("previous_ch_scope", [None, "CH"])
+def test_update_cma_ch_versions_only_ch_scope_and_never_copies_or_archives_de(
+    client,
+    session_factory,
+    previous_ch_scope,
+):
+    """Ein CH-Update darf in einem gemischten CMA-Bestand weder eine
+    firmenweite noch eine Tenant-DE-Zeile als Vorgaenger verwenden oder
+    archivieren. Das gilt fuer beide erlaubten CH-Bestandsformen: Legacy
+    ``jurisdiction IS NULL`` und explizites ``jurisdiction='CH'``."""
+    suffix = "legacy" if previous_ch_scope is None else "explicit"
+    with session_factory() as s:
+        s.add_all([
+            _make_cma(
+                f"cma-ch-old-{suffix}",
+                jurisdiction=previous_ch_scope,
+                equity_ch_return_bps=611,
+            ),
+            _make_cma(
+                f"cma-de-firmwide-{suffix}",
+                jurisdiction="DE",
+                equity_ch_return_bps=922,
+            ),
+            _make_cma(
+                f"cma-de-tenant-{suffix}",
+                jurisdiction="DE",
+                tenant_id="tenant-de",
+                equity_ch_return_bps=933,
+            ),
+        ])
+        s.commit()
+    _seed_users(session_factory)
+    _login_admin()
+    try:
+        resp = client.put(
+            "/capital-market-assumptions",
+            params={"jurisdiction": "CH", "tenant_id": "tenant-de"},
+            json={"valid_from": "2026-08-01", "notes": "CH-only update"},
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["jurisdiction"] == "CH"
+        assert body["tenant_id"] is None
+        assert body["version"] == 2
+        assert body["equity_ch_return_bps"] == 611
+    finally:
+        _logout()
+
+    with session_factory() as s:
+        old_ch = s.get(CapitalMarketAssumption, f"cma-ch-old-{suffix}")
+        de_firmwide = s.get(CapitalMarketAssumption, f"cma-de-firmwide-{suffix}")
+        de_tenant = s.get(CapitalMarketAssumption, f"cma-de-tenant-{suffix}")
+        assert old_ch.is_current == 0
+        assert de_firmwide.is_current == 1
+        assert de_tenant.is_current == 1
+
+        current_ch = s.query(CapitalMarketAssumption).filter(
+            CapitalMarketAssumption.is_current == 1,
+            CapitalMarketAssumption.jurisdiction == "CH",
+            CapitalMarketAssumption.tenant_id.is_(None),
+        ).all()
+        assert len(current_ch) == 1
+        assert current_ch[0].equity_ch_return_bps == 611
 
 
 def test_update_cma_de_creates_separate_versioned_row_without_touching_ch(client, session_factory):

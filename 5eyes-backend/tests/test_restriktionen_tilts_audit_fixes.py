@@ -336,7 +336,15 @@ def _run_engine(session_factory, mid, advisor_id, preferences=None):
         return pe.generate_target_allocation(s, m, advisor_id, preferences=preferences)
 
 
-def test_growth_cashflow_tilt_fires_without_manual_restriction(session_factory):
+def test_growth_cashflow_tilt_fires_without_manual_restriction(session_factory, monkeypatch):
+    # 2026-08 (asset-allocation-stochastic-core, config.py): Produktions-
+    # Default von optimizer_mode ist jetzt 'stochastic' statt 'house_matrix'.
+    # Der Wachstums-Cashflow-Tilt ist bewusst eine House-Matrix-Heuristik
+    # (siehe `not optimizer_replaced_targets`-Guard in generate_target_
+    # allocation) -- sie greift nur, wenn der Solver NICHT bereits konvergierte
+    # Ziele geliefert hat. Dieser Test prueft explizit den House-Matrix-Pfad.
+    import services.portfolio_engine as pe
+    monkeypatch.setattr(pe.settings, "optimizer_mode", "house_matrix")
     advisor_id, _cid, mid, _aid, _gid = _seed_realistic_mandate(session_factory, suffix="growthfire")
     result = _run_engine(session_factory, mid, advisor_id, preferences=None)
     reasoning = result.get("reasoning") or []
@@ -348,11 +356,15 @@ def test_growth_cashflow_tilt_fires_without_manual_restriction(session_factory):
     )
 
 
-def test_growth_cashflow_tilt_respects_manually_lowered_equity_maximum(session_factory):
+def test_growth_cashflow_tilt_respects_manually_lowered_equity_maximum(session_factory, monkeypatch):
     """Sicherheits-Fix (2026-08-03): mit einem Berater-Maximum, das nur noch
     50 bps Platz laesst (< 150 bps Tilt-Groesse), darf der Tilt NICHT
     feuern -- vorher wurde die Empfaenger-Seite (equities) gar nicht gegen
     das aktuelle Maximum geprueft."""
+    # house_matrix: siehe Kommentar in test_growth_cashflow_tilt_fires_without_
+    # manual_restriction -- dieser Test braucht denselben Heuristik-Pfad.
+    import services.portfolio_engine as pe
+    monkeypatch.setattr(pe.settings, "optimizer_mode", "house_matrix")
     advisor_id, _cid, mid, _aid, _gid = _seed_realistic_mandate(session_factory, suffix="growthcap")
     baseline = _run_engine(session_factory, mid, advisor_id, preferences=None)
     baseline_equities = next(b["target_weight_bps"] for b in baseline["buckets"] if b["asset_class"] == "Aktien")

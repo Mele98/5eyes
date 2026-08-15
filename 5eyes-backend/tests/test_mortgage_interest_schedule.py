@@ -14,8 +14,11 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 from types import SimpleNamespace
-from services.wealth_cashflows import mortgage_interest_schedule as sched
-from services.wealth_cashflows import mortgage_interest_adjustment_series as adj_series
+from services.wealth_cashflows import (
+    mortgage_amortization_adjustment_series,
+    mortgage_interest_adjustment_series as adj_series,
+    mortgage_interest_schedule as sched,
+)
 
 
 def _hyp(**kw):
@@ -52,6 +55,57 @@ def test_adjustment_series_ignores_non_mortgage_and_inactive():
     inactive = _hyp(is_active=0, mortgage_amortization_rappen=100_000_00,
                     mortgage_amortization_type="Direkt")
     assert adj_series([depot, inactive], 4, 2026) == [0, 0, 0, 0]
+
+
+def test_interest_adjustment_uses_same_fx_basis_as_base_cashflow():
+    class Fx:
+        @staticmethod
+        def cross_rate(source, target):
+            assert (source, target) == ("EUR", "CHF")
+            return 0.8
+
+    pos = _hyp(
+        currency="EUR",
+        mortgage_amortization_rappen=100_000_00,
+        mortgage_amortization_type="Direkt",
+    )
+
+    assert adj_series(
+        [pos],
+        3,
+        2026,
+        fx_source=Fx(),
+        target_currency="CHF",
+    ) == [0, 120_000, 240_000]
+
+
+def test_direct_amortization_is_capped_at_remaining_debt():
+    """The recurring input must stop once direct principal is fully repaid."""
+    pos = _hyp(
+        current_value_rappen=150_000_00,
+        mortgage_amortization_rappen=100_000_00,
+        mortgage_amortization_type="Direkt",
+    )
+
+    # The base cashflow contains -100k every year. This positive adjustment
+    # turns it into the possible schedule -100k, -50k, 0, 0.
+    assert mortgage_amortization_adjustment_series([pos], 4) == [
+        0,
+        50_000_00,
+        100_000_00,
+        100_000_00,
+    ]
+
+
+def test_indirect_amortization_is_not_capped_against_mortgage_principal():
+    """Indirect amortization is a savings contribution, not debt repayment."""
+    pos = _hyp(
+        current_value_rappen=100_000_00,
+        mortgage_amortization_rappen=20_000_00,
+        mortgage_amortization_type="Indirekt (Säule 3a)",
+    )
+
+    assert mortgage_amortization_adjustment_series([pos], 8) == [0] * 8
 
 
 def test_indirect_constant_interest_no_decay():

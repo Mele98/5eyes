@@ -36,16 +36,30 @@ vorhandenen LAZY Import aus `services.optimizer.scenario_engine` unveraendert
 (kein Modul-Top-Level-Import -- das war schon im Original so, siehe
 Sprint U-P2 Fix C6). `_expected_metrics()` behaelt ebenso ihren bereits
 vorhandenen lazy Import aus `services.risk_metrics_kpi` unveraendert.
+
+Strict-CMA-Haertung (2026-08-11): Leere optionale JSON-Felder behalten ihre
+historischen Defaults. Sobald ein Korrelations-/Sub-CMA-Payload vorhanden
+ist, wird es als verbindlicher Modelleingang strikt validiert und bei
+Fehlern nie durch Swiss Defaults/Identity ersetzt. Erwartete Renditen bleiben
+vorzeichenbehaftet; negative Netto-Erwartungen werden nicht auf 0 bps geklemmt.
 """
 from __future__ import annotations
 
 import json
 import math
+from numbers import Integral
 
 from sqlalchemy.orm import Session
 
 from config import settings
 from models.allocation import CapitalMarketAssumption
+from services.cma_validation import (
+    correlation_factor,
+    parse_correlation_matrix_json,
+    parse_sub_asset_class_assumptions_json,
+    validate_correlation_matrix,
+    validate_runtime_cma_completeness,
+)
 from services.jurisdiction.de_seed import DE_DEFAULT_EQUITIES_GEO
 from services.jurisdiction.resolve import resolve_home_bias_defaults
 
@@ -176,80 +190,42 @@ def _build_cholesky_from_cma(
     cma: CapitalMarketAssumption,
     crisis_strength: float = 0.0,
 ) -> list[list[float]]:
-    """Return lower-triangular Cholesky matrix for the 5 asset classes.
-    Uses CMA's correlation_matrix_json when available, else Swiss-market defaults.
+    """Return a correlation factor for the five asset classes.
 
-    Falls back gracefully if the custom matrix is not positive-definite:
-    custom → default Swiss-market → identity (uncorrelated).
+    An absent payload uses the canonical Swiss-market default.  A present
+    invalid payload is a CMA domain error and is never replaced by Swiss
+    defaults or identity.  Valid singular (PSD) matrices retain their
+    intended dependence through an eigen-factor.
 
     Sprint U-P4 Fix M5: optional crisis_strength in [0,1] biased Korrelationen
     Richtung +0.9 (alle Risky-Assets, Liquidity bleibt unkorreliert).
     """
     # Lazy Import (Zirkular-Import-Haertung, siehe Modul-Docstring).
-    from services.portfolio_engine import _DEFAULT_CORRELATION_MATRIX, logger
+    from services.portfolio_engine import _DEFAULT_CORRELATION_MATRIX
 
-    matrix = _DEFAULT_CORRELATION_MATRIX
-    used_custom = False
-    if cma.correlation_matrix_json:
-        try:
-            parsed = json.loads(cma.correlation_matrix_json)
-            if isinstance(parsed, list) and len(parsed) == 5 and all(len(row) == 5 for row in parsed):
-                matrix = [[float(v) for v in row] for row in parsed]
-                used_custom = True
-        except (ValueError, TypeError, KeyError):
-            pass
+    matrix = parse_correlation_matrix_json(
+        getattr(cma, "correlation_matrix_json", None),
+        default_matrix=_DEFAULT_CORRELATION_MATRIX,
+    )
+    assert matrix is not None  # default_matrix guarantees a matrix
 
     if crisis_strength > 0:
-        matrix = _crisis_stress_matrix(matrix, crisis_strength)
+        matrix = validate_correlation_matrix(
+            _crisis_stress_matrix([list(row) for row in matrix], crisis_strength)
+        )
 
-    L = _cholesky(matrix)
-
-    if not _is_valid_cholesky(L):
-        if used_custom:
-            logger.warning(
-                "Custom correlation matrix is not positive-definite; "
-                "falling back to default Swiss-market correlation matrix."
-            )
-            L = _cholesky(_DEFAULT_CORRELATION_MATRIX)
-        if not _is_valid_cholesky(L):
-            logger.warning(
-                "Default correlation matrix is also degenerate; "
-                "using identity matrix (uncorrelated assets) for Monte Carlo."
-            )
-            L = _identity_cholesky(len(_DEFAULT_CORRELATION_MATRIX))
-
-    return L
+    return correlation_factor(matrix).tolist()
 
 
 def _sub_asset_class_assumption_map(cma: CapitalMarketAssumption) -> dict[str, dict[str, int | str]]:
     # Lazy Import (Zirkular-Import-Haertung, siehe Modul-Docstring).
     from services.portfolio_engine import _DEFAULT_SUB_ASSET_CLASS_ASSUMPTIONS
 
-    assumptions: dict[str, dict[str, int | str]] = {}
-    raw_payload = cma.sub_asset_class_assumptions_json or ""
-    if raw_payload:
-        try:
-            parsed = json.loads(raw_payload)
-            if isinstance(parsed, dict):
-                for sub_asset_class, raw in parsed.items():
-                    if not isinstance(raw, dict):
-                        continue
-                    assumptions[str(sub_asset_class)] = {
-                        "asset_class": str(raw.get("asset_class") or _DEFAULT_SUB_ASSET_CLASS_ASSUMPTIONS.get(str(sub_asset_class), {}).get("asset_class") or ""),
-                        "expected_return_bps": int(raw.get("expected_return_bps") or 0),
-                        "expected_volatility_bps": int(raw.get("expected_volatility_bps") or 0),
-                    }
-        except (TypeError, ValueError, json.JSONDecodeError):
-            assumptions = {}
-
-    for sub_asset_class, defaults in _DEFAULT_SUB_ASSET_CLASS_ASSUMPTIONS.items():
-        item = assumptions.get(sub_asset_class) or {}
-        assumptions[sub_asset_class] = {
-            "asset_class": str(item.get("asset_class") or defaults["asset_class"]),
-            "expected_return_bps": int(item.get("expected_return_bps") or defaults["expected_return_bps"]),
-            "expected_volatility_bps": int(item.get("expected_volatility_bps") or defaults["expected_volatility_bps"]),
-        }
-    return assumptions
+    return parse_sub_asset_class_assumptions_json(
+        getattr(cma, "sub_asset_class_assumptions_json", None),
+        defaults=_DEFAULT_SUB_ASSET_CLASS_ASSUMPTIONS,
+        require_complete=True,
+    )
 
 
 def _sub_asset_class_metrics(
@@ -314,7 +290,16 @@ def _apply_cma_market_adjustments(returns: dict[str, int], cma: CapitalMarketAss
     return adjusted
 
 
-def _asset_class_expected_metrics(cma: CapitalMarketAssumption) -> tuple[dict[str, int], dict[str, int]]:
+def _cma_value_or_default(value, default: int) -> int:
+    """Preserve an explicit 0 bps CMA; only NULL means 'use fallback'."""
+    return int(default if value is None else value)
+
+
+def _asset_class_expected_metrics(
+    cma: CapitalMarketAssumption,
+    *,
+    apply_market_adjustments: bool = True,
+) -> tuple[dict[str, int], dict[str, int]]:
     """Reine CMA-Bucket-Defaults. KEIN Mischen mit Sub-Asset-Class-Annahmen.
 
     C3: Vor dem Fix wurden die Bucket-Returns mit dem ungewichteten Mittel
@@ -344,21 +329,44 @@ def _asset_class_expected_metrics(cma: CapitalMarketAssumption) -> tuple[dict[st
     das sind KEINE fuer eine neue Jurisdiktion erfundenen Zahlen, sondern die
     bereits bestehenden, jurisdiktionsunabhaengigen Engine-Sicherheitsnetz-Werte.
     """
+    validate_runtime_cma_completeness(cma)
     if getattr(cma, "jurisdiction", None) in (None, "CH"):
         returns = {
-            "equities": int(round(((cma.equity_ch_return_bps or 500) + (cma.equity_intl_return_bps or 650)) / 2)),
-            "bonds": int(round(((cma.bonds_chf_ig_return_bps or 180) + (cma.bonds_fx_hedged_return_bps or 220)) / 2)),
-            "real_estate": int(cma.real_estate_ch_return_bps or 350),
-            "alternatives": int(cma.alternatives_gold_return_bps or 120),
-            "liquidity": int(cma.liquidity_return_bps or 80),
+            "equities": int(round((
+                _cma_value_or_default(cma.equity_ch_return_bps, 500)
+                + _cma_value_or_default(cma.equity_intl_return_bps, 650)
+            ) / 2)),
+            "bonds": int(round((
+                _cma_value_or_default(cma.bonds_chf_ig_return_bps, 180)
+                + _cma_value_or_default(cma.bonds_fx_hedged_return_bps, 220)
+            ) / 2)),
+            "real_estate": _cma_value_or_default(
+                cma.real_estate_ch_return_bps,
+                350,
+            ),
+            "alternatives": _cma_value_or_default(
+                cma.alternatives_gold_return_bps,
+                120,
+            ),
+            "liquidity": _cma_value_or_default(cma.liquidity_return_bps, 80),
         }
-        returns = _apply_cma_market_adjustments(returns, cma)
+        if apply_market_adjustments:
+            returns = _apply_cma_market_adjustments(returns, cma)
         vols = {
-            "equities": int(round(((cma.equity_ch_vol_bps or 1200) + (cma.equity_intl_vol_bps or 1450)) / 2)),
-            "bonds": int(round(((cma.bonds_chf_ig_vol_bps or 350) + (cma.bonds_fx_hedged_vol_bps or 450)) / 2)),
-            "real_estate": int(cma.real_estate_ch_vol_bps or 700),
-            "alternatives": int(cma.alternatives_gold_vol_bps or 950),
-            "liquidity": int(cma.liquidity_vol_bps or 20),
+            "equities": int(round((
+                _cma_value_or_default(cma.equity_ch_vol_bps, 1200)
+                + _cma_value_or_default(cma.equity_intl_vol_bps, 1450)
+            ) / 2)),
+            "bonds": int(round((
+                _cma_value_or_default(cma.bonds_chf_ig_vol_bps, 350)
+                + _cma_value_or_default(cma.bonds_fx_hedged_vol_bps, 450)
+            ) / 2)),
+            "real_estate": _cma_value_or_default(cma.real_estate_ch_vol_bps, 700),
+            "alternatives": _cma_value_or_default(
+                cma.alternatives_gold_vol_bps,
+                950,
+            ),
+            "liquidity": _cma_value_or_default(cma.liquidity_vol_bps, 20),
         }
         return returns, vols
 
@@ -366,16 +374,20 @@ def _asset_class_expected_metrics(cma: CapitalMarketAssumption) -> tuple[dict[st
         "equities": int(cma.equity_home_return_bps if cma.equity_home_return_bps is not None else 500),
         "bonds": int(cma.bonds_home_ig_return_bps if cma.bonds_home_ig_return_bps is not None else 180),
         "real_estate": int(cma.real_estate_home_return_bps if cma.real_estate_home_return_bps is not None else 350),
-        "alternatives": int(cma.alternatives_gold_return_bps or 120),
-        "liquidity": int(cma.liquidity_return_bps or 80),
+        "alternatives": _cma_value_or_default(
+            cma.alternatives_gold_return_bps,
+            120,
+        ),
+        "liquidity": _cma_value_or_default(cma.liquidity_return_bps, 80),
     }
-    returns = _apply_cma_market_adjustments(returns, cma)
+    if apply_market_adjustments:
+        returns = _apply_cma_market_adjustments(returns, cma)
     vols = {
         "equities": int(cma.equity_home_vol_bps if cma.equity_home_vol_bps is not None else 1200),
         "bonds": int(cma.bonds_home_ig_vol_bps if cma.bonds_home_ig_vol_bps is not None else 350),
         "real_estate": int(cma.real_estate_home_vol_bps if cma.real_estate_home_vol_bps is not None else 700),
-        "alternatives": int(cma.alternatives_gold_vol_bps or 950),
-        "liquidity": int(cma.liquidity_vol_bps or 20),
+        "alternatives": _cma_value_or_default(cma.alternatives_gold_vol_bps, 950),
+        "liquidity": _cma_value_or_default(cma.liquidity_vol_bps, 20),
     }
     return returns, vols
 
@@ -383,6 +395,8 @@ def _asset_class_expected_metrics(cma: CapitalMarketAssumption) -> tuple[dict[st
 def _weighted_bucket_metrics(
     cma: CapitalMarketAssumption,
     sub_allocations: list[dict] | None,
+    *,
+    strict: bool = False,
 ) -> tuple[dict[str, int], dict[str, int]]:
     """Bucket-Return/Vol gewichtet aus tatsaechlichen Sub-Allocations.
 
@@ -400,11 +414,18 @@ def _weighted_bucket_metrics(
     # Lazy Import (Zirkular-Import-Haertung, siehe Modul-Docstring).
     from services.portfolio_engine import _ASSET_CLASS_LABEL_TO_BUCKET
 
-    fallback_returns, fallback_vols = _asset_class_expected_metrics(cma)
-    if not sub_allocations:
-        return fallback_returns, fallback_vols
-
+    # Start from raw bucket assumptions. Market adjustments are applied once,
+    # after any sub-asset weighting, so Solver, expected metrics and reporting
+    # cannot double-apply (or omit) KGV/NS/risk-premium adjustments.
+    fallback_returns, fallback_vols = _asset_class_expected_metrics(
+        cma,
+        apply_market_adjustments=False,
+    )
+    # Parse before the no-sleeve return: a present malformed Sub-CMA payload
+    # is corrupted model input even when this call only needs bucket totals.
     assumptions = _sub_asset_class_assumption_map(cma)
+    if not sub_allocations:
+        return _apply_cma_market_adjustments(fallback_returns, cma), fallback_vols
     weighted_ret_bps: dict[str, int] = {key: 0 for key in fallback_returns}
     weighted_vol_bps: dict[str, int] = {key: 0 for key in fallback_vols}
     weight_sum: dict[str, int] = {key: 0 for key in fallback_returns}
@@ -412,18 +433,74 @@ def _weighted_bucket_metrics(
     # echte Block-Diagonal-Berechnung
     bucket_sub_vols: dict[str, list[tuple[int, int]]] = {key: [] for key in fallback_vols}
 
-    for item in sub_allocations:
+    for index, item in enumerate(sub_allocations):
+        if not isinstance(item, dict):
+            if strict:
+                raise ValueError(
+                    f"sub_allocations[{index}] must be an object"
+                )
+            continue
         asset_class_label = str(item.get("asset_class") or "")
         sub_label = str(item.get("sub_asset_class") or "")
-        weight = max(0, int(item.get("target_weight_bps") or 0))
+        # Stochastic materialisation keeps the exact within-bucket blueprint
+        # alongside integer portfolio bps. Use that blueprint for CMA metrics
+        # so rounding a bucket to tradable bps cannot change the assumptions
+        # on which it was optimized.
+        metric_weight = (
+            item.get("within_bucket_weight_bps")
+            if item.get("within_bucket_weight_bps") is not None
+            else item.get("target_weight_bps")
+        )
         bucket = _ASSET_CLASS_LABEL_TO_BUCKET.get(asset_class_label)
+        if strict and not bucket:
+            raise ValueError(
+                f"sub_allocations[{index}] has unknown asset_class "
+                f"{asset_class_label!r}"
+            )
+        if strict and not sub_label:
+            raise ValueError(
+                f"sub_allocations[{index}] is missing sub_asset_class"
+            )
+        if strict and metric_weight is None:
+            raise ValueError(
+                f"sub_allocations[{index}] is missing a metric weight"
+            )
+        try:
+            weight = int(metric_weight or 0)
+        except (TypeError, ValueError) as exc:
+            if strict:
+                raise ValueError(
+                    f"sub_allocations[{index}] has an invalid metric weight"
+                ) from exc
+            continue
+        if strict and (
+            isinstance(metric_weight, bool)
+            or not isinstance(metric_weight, Integral)
+            or weight <= 0
+        ):
+            raise ValueError(
+                f"sub_allocations[{index}] metric weight must be a positive "
+                "integer number of basis points"
+            )
         if not bucket or weight <= 0:
             continue
         sub = assumptions.get(sub_label)
         if sub:
+            assumption_asset_class = str(sub.get("asset_class") or "")
+            if strict and assumption_asset_class != asset_class_label:
+                raise ValueError(
+                    f"sub_allocations[{index}] assigns {sub_label!r} to "
+                    f"{asset_class_label!r}, but its CMA asset class is "
+                    f"{assumption_asset_class!r}"
+                )
             ret_bps = int(sub.get("expected_return_bps") or 0)
             vol_bps = int(sub.get("expected_volatility_bps") or 0)
         else:
+            if strict:
+                raise ValueError(
+                    f"sub_allocations[{index}] has no CMA assumption for "
+                    f"{sub_label!r}"
+                )
             ret_bps = fallback_returns[bucket]
             vol_bps = fallback_vols[bucket]
         weighted_ret_bps[bucket] += ret_bps * weight
@@ -456,7 +533,35 @@ def _weighted_bucket_metrics(
             vols[bucket] = int(round(math.sqrt(max(0.0, variance))))
         else:
             vols[bucket] = int(round(weighted_vol_bps[bucket] / ws))
-    return returns, vols
+    return _apply_cma_market_adjustments(returns, cma), vols
+
+
+def _validate_sub_cma_universe(
+    cma: CapitalMarketAssumption,
+    allowed_sub_asset_classes: set[str],
+) -> None:
+    """Reject configured assumptions that no active model sleeve can consume.
+
+    Jurisdiction-specific labels are valid, but a fully shaped typo must not
+    be persisted and then silently ignored while the real sleeve uses a bucket
+    default. Runtime callers derive ``allowed_sub_asset_classes`` from the
+    active BuildingBlock/sub-allocation universe.
+    """
+    # Parse/validate first, then inspect only explicitly configured labels.
+    # The materialised map also contains inherited canonical defaults, which
+    # need not all be active in every jurisdiction/universe.
+    _sub_asset_class_assumption_map(cma)
+    raw_payload = getattr(cma, "sub_asset_class_assumptions_json", None)
+    if raw_payload is None or raw_payload == "":
+        return
+    configured = json.loads(raw_payload)
+    allowed = {str(label).strip() for label in allowed_sub_asset_classes if str(label).strip()}
+    unknown = sorted(str(label).strip() for label in configured if str(label).strip() not in allowed)
+    if unknown:
+        raise ValueError(
+            "Sub-CMA assumptions are not referenced by the active model "
+            f"universe: {unknown}."
+        )
 
 
 def _bucket_expected_metrics(
@@ -529,9 +634,14 @@ def _expected_metrics(
     vol_bps = _portfolio_volatility_bps(targets, vols, cma)
     # Sprint U-P2 Fix M2: Net-of-fees Return
     weighted_ter_bps = _portfolio_weighted_ter_bps(sub_allocations, products)
-    net_return_bps = max(0, gross_return_bps - weighted_ter_bps)
+    # Expected return is signed model output. A loss expectation must not be
+    # relabelled as 0%, including after TER drag.
+    net_return_bps = gross_return_bps - weighted_ter_bps
     # Sprint U-P2 Fix L2: Sharpe-Ratio = (Netto-Return − Risk-Free) / Vola
-    risk_free_bps = int(getattr(cma, "liquidity_return_bps", 80) or 80)
+    risk_free_bps = _cma_value_or_default(
+        getattr(cma, "liquidity_return_bps", None),
+        80,
+    )
     sharpe_x100 = 0
     if vol_bps > 0:
         sharpe_x100 = int(round(((net_return_bps - risk_free_bps) / vol_bps) * 100))

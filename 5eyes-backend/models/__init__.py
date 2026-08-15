@@ -14,3 +14,9 @@ from . import refresh_token  # noqa: F401,E402
 # Weiterleitung ans Asset Management (2026-08-08) -- dito, Tabelle
 # portfolio_handoffs muss an Base.metadata registriert sein.
 from . import portfolio_handoff  # noqa: F401,E402
+
+# FX ist seit dem fail-closed Modellpfad ein zwingender Bestandteil jedes
+# Allocation-Schemas.  Die Registrierung hier stellt sicher, dass auch
+# isolierte Base.metadata.create_all()-Setups (Tests/SQLite-Desktop) dieselbe
+# Tabelle besitzen wie Alembic/Postgres.
+from . import fx_rate  # noqa: F401,E402

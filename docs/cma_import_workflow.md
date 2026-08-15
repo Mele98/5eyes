@@ -52,6 +52,17 @@ Optional-Spalten (`source`, `notes`, `valid_until`) duerfen leer sein.
 Numerische Spalten duerfen einzeln leer sein — dann wird der Wert in der
 DB `NULL`.
 
+### Renditebasis (verbindlich)
+
+Alle CMA-`*_return_bps` sind erwartete **nominale Total Returns**. Sie
+enthalten Ausschüttungen, Coupons beziehungsweise Dividenden und dürfen nicht
+zusätzlich als Cashflow auf denselben investierten Principal gerechnet werden.
+Für `real_estate_ch_return_bps` ist deshalb eine Total-Return-Reihe des
+kotierten Schweizer Immobilienfonds-/Immobilienaktien-Universums zu verwenden,
+nicht ein Price-Index. Direkte Liegenschaften sind davon getrennt: Sie werden
+als externes Gesamtvermögen mit eigener Wertsteigerung und separat erfasstem
+Mietertrag modelliert.
+
 ## Schritt-fuer-Schritt
 
 ### 1. Excel-Vorbereitung
@@ -64,7 +75,8 @@ DB `NULL`.
    - **Equity CH**: Schweizer Aktien
    - **Equity Intl**: Welt-Aktien ex-CH (oder DM)
    - **Equity EM**: Emerging Markets Equity
-   - **Real Estate CH**: Schweizer Immobilien (SXI Real Estate)
+   - **Real Estate CH**: Schweizer Immobilienfonds/-AG
+     (SXI Real Estate **Total Return**, inkl. Ausschüttungen)
    - **Alternatives Gold**: Gold-Spot
    - **Liquidity**: Schweizer Geldmarkt
 3. In Excel-Sheet eintragen, als CSV exportieren.

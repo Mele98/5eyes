@@ -12,6 +12,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pytest
+
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
@@ -63,10 +65,11 @@ def test_zero_amount_short_circuits():
     assert _convert_position_amount_to_target_currency(pos, fx, "CHF") == 0
 
 
-def test_unknown_currency_falls_back_to_raw_amount():
+def test_unknown_currency_with_fx_source_fails_instead_of_silent_parity():
     pos = _position(current_value_rappen=100_000, currency="XXX")
     fx = FXRateSource()
-    assert _convert_position_amount_to_target_currency(pos, fx, "CHF") == 100_000
+    with pytest.raises(ValueError, match="stille 1:1-Konvertierung"):
+        _convert_position_amount_to_target_currency(pos, fx, "CHF")
 
 
 def test_missing_currency_defaults_to_chf():

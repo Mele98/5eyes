@@ -41,6 +41,7 @@ from models.mandates import Mandate
 from models.profiling import RiskAssessment
 from models.users import User
 from services.auth import get_current_user, require_advisor
+import services.portfolio_engine as pe
 from services.portfolio_engine import ensure_runtime_reference_data
 from tests.risk_fixture_helpers import CURRENT_RISK_SCHEMA_MARKERS, add_current_risk_answers, noop_lifespan
 
@@ -184,8 +185,13 @@ def test_c2_create_target_allocation_with_mismatched_assessment_returns_422(
 
 
 def test_c2_create_target_allocation_happy_path_returns_201(
-    auth_client, session_factory, advisor
+    auth_client, session_factory, advisor, monkeypatch
 ):
+    # 2026-08 (asset-allocation-stochastic-core): der manuelle POST-Pfad ist
+    # im stochastischen Modus (Produktions-Default) grundsaetzlich gesperrt
+    # (409). C2 testet den Strategie-Readiness-Happy-Path, nicht diese Sperre
+    # -- daher house_matrix.
+    monkeypatch.setattr(pe.settings, "optimizer_mode", "house_matrix")
     _seed_runtime(session_factory, advisor.id)
     cid, mid = _make_client_and_mandate(session_factory, advisor)
     aid = _add_assessment(session_factory, mid, advisor.id)

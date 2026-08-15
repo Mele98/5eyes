@@ -1,7 +1,6 @@
-"""Regression: der deterministische Hauptpfad nutzt dieselbe Itô-korrigierte
-geometrische Wachstumskonvention wie die Monte-Carlo-Simulation
-(growth = exp(r - 0.5*sigma^2)), damit die Hauptlinie zum MC-Median (p50)
-konvergiert statt als arithmetische (1+r)-Linie darueber zu liegen.
+"""Regression: der deterministische Hauptpfad nutzt dieselbe momentenkalibrierte
+geometrische Wachstumskonvention wie die Monte-Carlo-Simulation, damit die
+Hauptlinie zum MC-Median (p50) konvergiert.
 
 Vorher (2026-06-17 davor): _build_simulation_payload uebergab vols_by_asset NICHT
 -> deterministischer Pfad = (1+r)^t (kein Vol-Drag) -> Hauptlinie lag ueber dem
@@ -29,7 +28,10 @@ def _run(vols):
 
 def test_ito_geometric_growth_when_vols_present():
     series = _run({"equities": 2000})               # sigma = 20%
-    expected = round(1_000_000 * math.exp((0.05 - 0.5 * 0.20 * 0.20) * 10))
+    variance_ln = math.log1p((0.20 / 1.05) ** 2)
+    expected = round(
+        1_000_000 * math.exp((math.log1p(0.05) - 0.5 * variance_ln) * 10)
+    )
     # +-1 Rappen pro Jahr Rundungstoleranz.
     assert abs(series[-1] - expected) <= 12
 
@@ -41,7 +43,7 @@ def test_arithmetic_growth_when_no_vols():
 
 
 def test_vol_drag_makes_main_path_lower_than_arithmetic():
-    """Der Vol-Drag (-0.5 sigma^2) MUSS den Hauptpfad unter die naive
+    """Der momententreue Vol-Drag MUSS den Hauptpfad unter die naive
     (1+r)-Linie druecken — sonst liegt die Linie wieder ueber dem MC-Median."""
     with_vols = _run({"equities": 2000})[-1]
     without_vols = _run(None)[-1]
@@ -50,7 +52,7 @@ def test_vol_drag_makes_main_path_lower_than_arithmetic():
 
 def test_zero_vol_bucket_stays_on_arithmetic_path():
     """Liquiditaet (sigma=0) darf durch die Itô-Konvention NICHT veraendert werden:
-    exp(r - 0) == exp(r); bei r=0 bleibt sie exakt flach (Leart-IST-Regression)."""
+    bei r=0 bleibt sie exakt flach (Leart-IST-Regression)."""
     flat = _simulate_bucket_path(
         start_values={"liquidity": 500_000},
         returns_by_asset={"liquidity": 0},

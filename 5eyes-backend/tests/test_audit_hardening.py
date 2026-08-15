@@ -35,6 +35,11 @@ from models.review import (
 from models.mandates import Mandate
 from models.clients import Client
 from models.users import User
+# capital_market_assumptions.tenant_id hat eine FK auf tenants.id; ohne diesen
+# Import kennt Base.metadata die tenants-Tabelle nicht und create_all() bricht
+# ab, wenn diese Datei als einzige/erste Testdatei eines pytest-Laufs geladen
+# wird (analog test_golden_snapshot_ch_regression.py).
+from models import tenant  # noqa: F401
 from services.portfolio_engine import (
     _holdings_snapshot_for_run,
     _latest_holdings_by_product_for_mandate,
@@ -155,14 +160,31 @@ def test_r2_profiling_create_knowledge_uses_for_update():
 
 
 def test_r2_profiling_create_risk_assessment_uses_for_update():
-    src = _read_source("routers/profiling.py")
-    snippet = re.search(
-        r"prev = db\.query\(RiskAssessment\)\.filter\([^)]*\)[\s\S]*?\.first\(\)",
-        src,
+    """Die inline `prev = db.query(RiskAssessment)...`-Lookup wurde in den
+    gemeinsamen `_current_risk_assessment_or_none()`-Helper (services/
+    portfolio_engine.py) ausgelagert -- dieser Test prueft daher, dass
+    create_risk_assessment() ihn mit for_update=True aufruft, und dass der
+    Helper selbst bei for_update=True with_for_update() anwendet."""
+    router_src = _read_source("routers/profiling.py")
+    create_snippet = re.search(
+        r"def create_risk_assessment[\s\S]*?\n(?=@router\.|def )",
+        router_src,
     )
-    assert snippet, "RiskAssessment anchor lookup nicht gefunden"
-    assert "with_for_update" in snippet.group(0), (
-        "RiskAssessment anchor-lookup muss with_for_update() haben."
+    assert create_snippet, "create_risk_assessment() nicht gefunden"
+    assert re.search(
+        r"_current_risk_assessment_or_none\(\s*db,\s*mandate_id,\s*for_update=True,?\s*\)",
+        create_snippet.group(0),
+    ), "create_risk_assessment() muss den RiskAssessment-Anker mit for_update=True lesen."
+
+    helper_src = _read_source("services/portfolio_engine.py")
+    helper_snippet = re.search(
+        r"def _current_risk_assessment_or_none\([\s\S]*?\n\n\n",
+        helper_src,
+    )
+    assert helper_snippet, "_current_risk_assessment_or_none() nicht gefunden"
+    assert "with_for_update" in helper_snippet.group(0), (
+        "_current_risk_assessment_or_none() muss bei for_update=True "
+        "with_for_update() anwenden."
     )
 
 
@@ -179,14 +201,26 @@ def test_r2_wealth_planning_assumption_uses_for_update():
 
 
 def test_r2_portfolio_engine_target_allocation_uses_for_update():
+    """Die inline `previous_current = db.query(TargetAllocation)...`-Lookup
+    wurde in den gemeinsamen `_current_target_allocation_or_none()`-Helper
+    (services/portfolio_engine.py) ausgelagert -- dieser Test prueft daher,
+    dass generate_target_allocation() ihn mit for_update=True aufruft, und
+    dass der Helper selbst bei for_update=True with_for_update() anwendet."""
     src = _read_source("services/portfolio_engine.py")
-    snippet = re.search(
-        r"previous_current = db\.query\(TargetAllocation\)\.filter\([^)]*?\)[\s\S]*?\.first\(\)",
+    call_snippet = re.search(
+        r"previous_current = _current_target_allocation_or_none\(\s*db,\s*mandate\.id,\s*for_update=True,?\s*\)",
         src,
     )
-    assert snippet, "previous_current TargetAllocation lookup nicht gefunden"
-    assert "with_for_update" in snippet.group(0), (
-        "TargetAllocation previous_current-lookup muss with_for_update() haben."
+    assert call_snippet, "previous_current TargetAllocation lookup nicht gefunden"
+
+    helper_snippet = re.search(
+        r"def _current_target_allocation_or_none\([\s\S]*?\n\n\n",
+        src,
+    )
+    assert helper_snippet, "_current_target_allocation_or_none() nicht gefunden"
+    assert "with_for_update" in helper_snippet.group(0), (
+        "_current_target_allocation_or_none() muss bei for_update=True "
+        "with_for_update() anwenden."
     )
 
 
@@ -201,9 +235,14 @@ def test_r2_allocation_update_cma_uses_for_update():
     Regex ankert daher auf den `is_current == 1`-Filter (statt auf die exakte
     `prev = ...`-Zuweisung), um diesen weiterhin harmlosen Strukturwandel
     nicht mit einer echten Regression zu verwechseln."""
+    # 2026-08 (asset-allocation-stochastic-core): die Vorgaenger-Suche baut
+    # jetzt auf .all() statt .first(), um -- analog zu den anderen Ankern
+    # oben -- mehrere gleichzeitig aktuelle Zeilen als Konflikt zu erkennen
+    # statt eine davon stillschweigend zu ignorieren; with_for_update()
+    # bleibt dabei erhalten.
     src = _read_source("routers/allocation.py")
     snippet = re.search(
-        r"db\.query\(CapitalMarketAssumption\)\.filter\(\s*CapitalMarketAssumption\.is_current == 1[\s\S]{0,600}?\.first\(\)",
+        r"prev_query = db\.query\(CapitalMarketAssumption\)\.filter\(\s*CapitalMarketAssumption\.is_current == 1[\s\S]{0,900}?\.with_for_update\(\)\.all\(\)",
         src,
     )
     assert snippet, "CapitalMarketAssumption anchor lookup (is_current==1) nicht gefunden"

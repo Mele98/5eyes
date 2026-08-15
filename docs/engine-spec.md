@@ -1,7 +1,7 @@
 # 5eyes Engine Specification — Mathematische Grundlage
 
 **Status:** Living Document
-**Version:** 1.0.0 (2026-06-06, A1 Sprint)
+**Version:** 2.0.0 (2026-08-11, momententreue Return-/Foundation-Methodik)
 **Scope:** Formale Spec der Stochastic-Optimizer-Engine fuer externen Audit (Codex, FINMA) und Implementations-Selbstpruefung
 **Out-of-Scope:** PDF-Rendering, Datenaggregation, Frontend-State
 
@@ -15,8 +15,8 @@
 | `T`            | Anzahl Jahre (`horizon_years`, typisch 10-30)               |
 | `B`            | Anzahl Asset-Buckets (5: Liquidity, Bonds, Equities, RE, Alt) |
 | `w_b`          | Allocation-Gewicht in Bucket b (decimal, summe = 1.0)      |
-| `μ_b`          | Erwarteter log-return Bucket b p.a. (decimal)              |
-| `σ_b`          | Vola Bucket b p.a. (decimal)                               |
+| `μ_b`          | Arithmetischer Erwartungswert des einfachen Bucket-Returns p.a. |
+| `σ_b`          | Standardabweichung des einfachen Bucket-Returns p.a.       |
 | `s_b`          | Skewness Bucket b (decimal, clamped [-1,1])                |
 | `k_b`          | Excess Kurtosis Bucket b (decimal, clamped [0,8])          |
 | `Z_{p,t,b}`    | Standard-Normal Pfad p, Jahr t, Bucket b                   |
@@ -57,7 +57,7 @@ Werte ausserhalb -> NaN-Propagation moeglich. Clamping verhindert Singularitaete
 
 ---
 
-### 1.2 Korrelations-Struktur (Cholesky)
+### 1.2 Korrelations-Struktur (strikte PSD-Faktorisierung)
 
 Korrelations-Matrix `Σ ∈ R^{B×B}` wird via Cholesky-Decomposition `Σ = L · L^T` zerlegt.
 
@@ -68,8 +68,15 @@ Z_corr = einsum("phb, kb -> phk", Z_iid, L)
 
 **Code:** `services/optimizer/scenario_engine.py:151-155`
 
-**Fallback bei nicht-positiv-definiter Matrix:** Identity (uncorrelated).
-**Code:** `_safe_cholesky` Zeile 98.
+Eine vorhandene Korrelationsmatrix muss 5x5, endlich, symmetrisch, in
+`[-1,1]`, auf der Diagonale 1 und positiv semidefinit sein. Ungueltige
+Matrizen sind ein Domainfehler; sie werden weder durch den CH-Default noch
+durch eine Identity-Matrix ersetzt. Positiv definite Matrizen nutzen
+Cholesky, singulaere aber gueltige PSD-Matrizen eine Eigenwert-Faktorisierung.
+Nur ein tatsaechlich fehlendes Payload verwendet den versionierten Default.
+
+**Code:** `services/cma_validation.py` (`validate_correlation_matrix`,
+`correlation_factor`).
 
 **Source-of-Truth Korrelationsmatrix:** `services/portfolio_engine.py:_DEFAULT_CORRELATION_MATRIX`. Identische Werte in scenario_engine + portfolio_engine erzwungen (Sprint U-P0 Fix C7).
 
@@ -82,7 +89,8 @@ Z_corr = einsum("phb, kb -> phk", Z_iid, L)
 | **Alt**        | 0.30     | 0.10   | 0.20  | 1.00   | 0.00  |
 | **Liq**        | 0.00     | 0.05   | 0.00  | 0.00   | 1.00  |
 
-**Test:** `tests/test_optimizer_scenario_engine.py:correlation_*`.
+**Test:** `tests/test_cma_strict_runtime_contract.py` und
+`tests/test_optimizer_scenario_engine.py:correlation_*`.
 
 ---
 
@@ -102,15 +110,24 @@ Standard-Variance-Reduction (Glasserman 2004 Sec 4.2):
 
 ---
 
-### 1.4 Itô-Korrektur + Log-Normal-Returns
+### 1.4 Momententreues Lognormal-Mapping
 
-Aus Z* werden multiplikative Return-Faktoren:
+Die CMA publiziert Mittelwert und Volatilität des **einfachen** Returns. Beide
+Momente werden gemeinsam auf Log-Parameter abgebildet:
 
 ```
-R_{p,t,b} = exp(μ_b - 0.5·σ_b² + σ_b · Z*_{p,t,b})
+v_b = log(1 + (σ_b / (1 + μ_b))²)
+s_b = sqrt(v_b)
+m_b = log(1 + μ_b) - 0.5·v_b
+R_{p,t,b} = exp(m_b + s_b · Z*_{p,t,b})
 ```
 
-Die `- 0.5·σ_b²` ist die Itô-Korrektur fuer log-normal Drift-Korrektur. Ohne sie waere `E[R] = exp(μ + 0.5·σ²)` statt `exp(μ)`.
+Damit gelten im Normalmodell gleichzeitig `E[R-1] = μ_b` und
+`Std[R-1] = σ_b`. Die frühere Verwendung von `σ_b` direkt als Log-Volatilität
+erhielt zwar näherungsweise den Mittelwert, überschätzte aber die einfache
+Return-Volatilität. Bei Cornish-Fisher-Tails wird die Innovation auf `[-8, 8]`
+begrenzt; Location und Scale werden danach deterministisch mittels
+Gauss-Hermite-Quadratur auf dieselben beiden CMA-Momente kalibriert.
 
 **Code:** `services/optimizer/scenario_engine.py:171-174`
 
@@ -130,6 +147,17 @@ seed = hash_truncate(SHA256(cma_id || goal_ids || score || horizon || n_paths))
 - Identische Inputs -> identischer Seed -> identische Pfade
 - 63-Bit-Trunc (NumPy `uint64`-Konvention)
 - Verifizierbar via Hash-Vergleich
+
+Ein identischer Seed allein garantiert bei unterschiedlich geformten
+NumPy-Arrays kein pfadweises gemeinsames Praefix. Horizon-Sensitivitaeten
+ziehen deshalb beide Laeufe mit demselben maximalen Szenariohorizont und
+schneiden erst danach auf den jeweiligen Laufhorizont. Wiederkehrende
+Cashflows und Inflation werden bis zu diesem Maximalhorizont fortgeschrieben,
+nicht mit Null aufgefuellt. Der Basishorizont umfasst dabei auch das spaeteste
+`start_date`/`target_date` eines aktiven Ziels; ein NULL-`horizon_years` darf
+eine datierte Pensions- oder Ausgabenverpflichtung nicht abschneiden. Bei einer
+Renditeziel-Sensitivitaet bildet jedes andere aktive Ziel eine unveraenderliche
+Untergrenze fuer den modifizierten Laufhorizont.
 
 **Test:** `tests/test_optimizer_context.py:test_build_context_with_explicit_seed_is_deterministic`.
 
@@ -218,8 +246,11 @@ W_{p, t+1} = grown_p,t + CF_t - L_t
    ```
 4. Cashflow + Liability-Outflow
 
-**WICHTIGE EINSCHRAENKUNG (Sprint P1 Audit):**
-`TaxContext.wealth_rappen` ist der **MEDIAN ueber positive Pfade**, nicht per-Pfad. Das ist eine Vereinfachung — fuer CH-HNW mit Vermoegenssteuer 0.3-0.9% nicht ideal. Behoben in Sprint B2 (P3 Per-Pfad-Tax).
+**WICHTIGE EINSCHRAENKUNG:**
+`TaxContext.wealth_rappen` ist der **MEDIAN ueber positive Pfade**, nicht
+per-Pfad. Das ist eine Vereinfachung fuer CH-HNW mit Vermoegenssteuer.
+Die API weist diese Basis deshalb als `median_rate_<Regime>` aus; eine echte
+Per-Pfad-Tarifierung ist ein separates, versionierungspflichtiges Modellupdate.
 
 **Code-Zeile:** `services/optimizer/scenario_engine.py:401`
 
@@ -506,6 +537,22 @@ class OptimizerResult:
     stress_results: dict | None  # 3 Krisen-Szenarien (1929, 2008, 2020)
 ```
 
+### 7.7 Persistenz, Replay und Fail-Closed-Grenzen
+
+Neue Allokationen binden den vollstaendigen strategischen Eingabekontext in
+`strategy_inputs_v4_complete_goals`: Vermoegenspositionen, Cashflows,
+Inflation, Foundation-/Totalpfade, Solver-Cashflows, versionierte FX-Basis,
+Mandatsparameter und alle rechenwirksamen Goal-Felder einschliesslich
+`weight_bps` und `pension_pillar`. Beim Reload wird dieser Hash **vor** jeder
+neuen Pfad- oder Goal-Analyse geprueft. Drift liefert einen Domainkonflikt
+(HTTP 409); alte Targets werden nicht mit einer neuen Analyse kombiniert.
+
+Unveraenderte historische v1-v3-Artefakte bleiben lesbar. Felder, die eine
+alte Hash-Version damals nicht gebunden hat, koennen rueckwirkend naturgemaess
+nicht kryptografisch bewiesen werden; die Vollstaendigkeitsgarantie gilt ab
+v4. Live-Sensitivitaet ist bewusst kein historischer Replay. Sie publiziert
+separate Baseline-/Modified-Hashes und die gemeinsame Szenario-Praefixbasis.
+
 ---
 
 ## 8. Stress-Szenarien (Audit-Erweiterung)
@@ -570,7 +617,7 @@ Diese Vereinfachungen sind **bewusste Scope-Entscheidungen**, nicht Bugs. Roadma
 | Cholesky correlation             | Glasserman (2004), "Monte Carlo Methods in Financial Engineering", Ch. 2            |
 | Antithetic Variates              | Glasserman (2004), Sec 4.2                                                          |
 | Mean-Shift Importance Sampling   | Glasserman (2004), Sec 4.6                                                          |
-| Itô-Korrektur log-normal         | Hull (2017), "Options, Futures, and Other Derivatives", Ch. 14                      |
+| Momententreues Lognormal-Mapping | Hull (2017), "Options, Futures, and Other Derivatives", Ch. 14                      |
 | Multi-Period ALM                 | Mulvey + Ziemba (1995), "Asset and Liability Allocation in a Global Environment"    |
 | Goal-Based Investing             | Brunel (2011), "Goals-Based Wealth Management"                                      |
 | Performance Attribution          | Brinson + Hood + Beebower (1986), "Determinants of Portfolio Performance"           |

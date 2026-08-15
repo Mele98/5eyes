@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from datetime import date, datetime, timezone
+from types import SimpleNamespace
 from database import get_db, new_uuid
 from models.users import User
 from models.clients import Client
@@ -14,6 +15,10 @@ from routers.auth import _extract_client_ip
 from services.data_classification import enforce_data_classification
 from services.quota import assert_within_quota
 from services.tenant_licensing import enforce_discretionary_management_license
+from services.mandate_model_inputs import (
+    MandateModelInputError,
+    validate_mandate_model_inputs,
+)
 
 router = APIRouter(tags=["Mandate"])
 
@@ -72,6 +77,12 @@ def create_mandate(
     mandate_jurisdiction = body.jurisdiction
     if not mandate_jurisdiction and tenant:
         mandate_jurisdiction = getattr(tenant, "home_jurisdiction", None)
+    try:
+        validate_mandate_model_inputs(
+            body.model_copy(update={"jurisdiction": mandate_jurisdiction})
+        )
+    except MandateModelInputError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     mandate = Mandate(
         id=new_uuid(),
         client_id=client_id,
@@ -85,6 +96,14 @@ def create_mandate(
         depot_account_number=body.depot_account_number,
         investment_universe=body.investment_universe or "Standard",
         jurisdiction=mandate_jurisdiction,
+        client_birth_year=body.client_birth_year,
+        client_sex=body.client_sex,
+        use_mortality_simulation=int(bool(body.use_mortality_simulation)),
+        tax_jurisdiction=body.tax_jurisdiction,
+        tax_overrides_json=body.tax_overrides_json,
+        tax_estimate_in_cashflow_enabled=int(
+            bool(body.tax_estimate_in_cashflow_enabled)
+        ),
         opened_at=body.opened_at or date.today().isoformat(),
         created_at=now,
         updated_at=now,
@@ -126,6 +145,24 @@ def update_mandate(
     # muss VOR dem generischen setattr-Loop entfernt werden, sonst wuerde
     # setattr(mandate, "data_classification", ...) versucht.
     enforce_data_classification(updates.pop("data_classification", None))
+    feature_input_fields = (
+        "jurisdiction",
+        "client_birth_year",
+        "client_sex",
+        "use_mortality_simulation",
+        "tax_jurisdiction",
+        "tax_overrides_json",
+        "tax_estimate_in_cashflow_enabled",
+        "default_building_blocks_json",
+    )
+    merged_feature_inputs = SimpleNamespace(**{
+        field: updates.get(field, getattr(mandate, field, None))
+        for field in feature_input_fields
+    })
+    try:
+        validate_mandate_model_inputs(merged_feature_inputs)
+    except MandateModelInputError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     if "mandate_type" in updates:
         # 2026-08-09 (FINIG-Gate): auch beim nachtraeglichen Umstellen eines
         # Mandats auf Vermögensverwaltung greift die Firmen-Freischaltung,

@@ -244,21 +244,65 @@ def test_b1_cache_konsistenz_gleiche_sub_allocations():
 
 
 # ===========================================================================
-# 5. Defensive: Bad Sub-Allocation Format
+# 5. Strict optimizer context: supplied Sub-Allocation format
 # ===========================================================================
 
 
-def test_b1_invalid_sub_alloc_fallback_zu_default():
-    """Defensive: bei korrupter Sub-Allocation faellt Engine auf alte Behavior."""
-    from services.optimizer.scenario_engine import scenario_inputs_from_cma
-    cma = _cma()
-    # Korruptes Format — fehlende Keys
-    bad_sub = [{"asset_class": "Aktien"}]  # kein target_weight_bps
-    inputs_bad = scenario_inputs_from_cma(cma, sub_allocations=bad_sub)
-    inputs_default = scenario_inputs_from_cma(cma)
-    # Bei bad-format: Weighted-Metrics-Helper liefert Fallback-Defaults,
-    # daher sind Werte gleich (oder ueber NS/KGV-Adjustments ergaenzt).
-    assert inputs_bad.mu_bps.shape == inputs_default.mu_bps.shape
+@pytest.mark.parametrize(
+    "bad_sub_allocations",
+    [
+        pytest.param(
+            [{
+                "asset_class": "Aktien",
+                "sub_asset_class": "Aktien Schweiz",
+            }],
+            id="missing-weight",
+        ),
+        pytest.param(
+            [{
+                "asset_class": "Aktien",
+                "target_weight_bps": 1000,
+            }],
+            id="missing-sub-asset-class",
+        ),
+        pytest.param(
+            [{
+                "asset_class": "Aktien",
+                "sub_asset_class": "Nicht existente Aktienklasse",
+                "target_weight_bps": 1000,
+            }],
+            id="unknown-sub-asset-class",
+        ),
+        pytest.param(
+            [{
+                "asset_class": "Obligationen",
+                "sub_asset_class": "Aktien Schweiz",
+                "target_weight_bps": 1000,
+            }],
+            id="asset-class-sub-class-mismatch",
+        ),
+    ],
+)
+def test_b1_invalid_supplied_sub_alloc_rejected_by_optimizer_context(
+    bad_sub_allocations,
+):
+    """A non-empty supplied sleeve plan is a hard, never-fallback contract."""
+    from services.optimizer.constraints import OptimizerInputError
+    from services.optimizer.solver import build_optimizer_context
+
+    with pytest.raises(OptimizerInputError):
+        build_optimizer_context(
+            cma=_cma(id="cma-b1-invalid-supplied-sub-allocation"),
+            goals=[_goal()],
+            house_matrix_row=_hm_ausgewogen(),
+            score_x10=55,
+            advisory_wealth_rappen=1_000_000_00,
+            cashflow_series_rappen=[0] * 11,
+            horizon_years=10,
+            n_paths=50,
+            seed=123,
+            sub_allocations=bad_sub_allocations,
+        )
 
 
 # ===========================================================================

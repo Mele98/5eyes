@@ -15,7 +15,7 @@ if str(BACKEND_ROOT) not in sys.path:
 
 from database import Base
 from models import (  # noqa: F401
-    allocation, clients, mandates, profiling, review, snapshots, users, wealth,
+    allocation, clients, mandates, profiling, review, snapshots, tenant, users, wealth,
 )
 
 configure_mappers()
@@ -33,6 +33,7 @@ from services.portfolio_engine import (
     ensure_runtime_reference_data,
     generate_target_allocation,
 )
+from services.risk_scoring import profile_for_score_x10
 
 
 def _now() -> str:
@@ -144,10 +145,10 @@ def _seed_risk_cap_case(
         risk_willingness_profile="Wachstumsorientiert",
         risk_willingness_score_x10=final_score_x10,
         final_score_x10=final_score_x10,
-        final_profile="Wachstumsorientiert",
+        final_profile=profile_for_score_x10(final_score_x10),
         is_overridden=1,
         override_score_x10=override_score_x10,
-        override_profile="Wachstumsorientiert",
+        override_profile=profile_for_score_x10(override_score_x10),
         override_reason="Test override fuer dokumentierte Strategie-Freigabe",
         override_client_confirmed=1,
         override_warning_delivered=1,

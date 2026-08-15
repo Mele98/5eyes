@@ -360,7 +360,13 @@ def test_generate_persists_achievability_and_reload_returns_same(session_factory
 
     def _fake_solver_pass(**kwargs):
         targets = kwargs["targets"]
-        targets.update({"equities": 6995, "bonds": 2705, "real_estate": 100, "alternatives": 100, "liquidity": 100})
+        targets.update({
+            "equities": 6995,
+            "bonds": 2605,
+            "real_estate": 100,
+            "alternatives": 100,
+            "liquidity": 200,
+        })
         return OptimizerResult(
             weights_bps=dict(targets),
             objective_value=123.0,

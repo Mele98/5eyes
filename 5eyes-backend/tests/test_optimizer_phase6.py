@@ -13,12 +13,16 @@ Verifiziert:
 """
 from __future__ import annotations
 
+import copy
 import datetime
+import json
 import sys
 import uuid
 from datetime import date, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
+import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -38,6 +42,7 @@ from models import (  # noqa: F401
 configure_mappers()
 
 import services.portfolio_engine as pe
+from models.allocation import HouseMatrix
 from models.clients import Client
 from models.mandates import Mandate
 from models.profiling import RiskAssessment
@@ -208,6 +213,799 @@ def test_stress_evaluations_none_in_house_matrix_mode(session_factory, monkeypat
 # ============================================================================
 # evaluate_goal_sensitivity (unit-level)
 # ============================================================================
+
+
+def _capture_sensitivity_solver_calls(monkeypatch) -> list[dict]:
+    """Replace the expensive solver and retain immutable call snapshots."""
+    import services.optimizer.solver as optimizer_solver
+    from services.optimizer.goal_liabilities import goals_to_liabilities
+
+    calls: list[dict] = []
+
+    def fake_run_solver(**kwargs):
+        context = kwargs.get("optimizer_context")
+        liabilities = (
+            list(context.liabilities)
+            if context is not None
+            else goals_to_liabilities(
+                kwargs["goals"],
+                horizon_years=int(kwargs["horizon_years"]),
+                inflation_series_bps=kwargs.get("inflation_series_bps"),
+                external_wealth_rappen=int(
+                    kwargs.get("external_wealth_rappen") or 0
+                ),
+                external_wealth_series_rappen=kwargs.get(
+                    "external_wealth_series_rappen"
+                ),
+            )
+        )
+        calls.append({
+            "horizon_years": int(kwargs["horizon_years"]),
+            "scenario_horizon_years": kwargs.get("scenario_horizon_years"),
+            "context_horizon_years": (
+                int(context.horizon_years) if context is not None else None
+            ),
+            "return_paths": (
+                np.array(context.return_paths, copy=True)
+                if context is not None
+                else None
+            ),
+            "cashflow_series_rappen": (
+                list(context.cashflow_series_rappen)
+                if context is not None
+                else list(kwargs["cashflow_series_rappen"])
+            ),
+            "liabilities": [
+                {
+                    "goal_id": str(liability.goal_id),
+                    "liability_path_rappen": list(
+                        liability.liability_path_rappen
+                    ),
+                }
+                for liability in liabilities
+            ],
+            "goals": [
+                {
+                    "id": str(goal.id),
+                    "goal_type": goal.goal_type,
+                    "target_amount_rappen": goal.target_amount_rappen,
+                    "target_wealth_rappen": goal.target_wealth_rappen,
+                    "target_return_bps": goal.target_return_bps,
+                    "horizon_years": goal.horizon_years,
+                    "start_date": goal.start_date,
+                    "target_date": goal.target_date,
+                    "full_state": {
+                        column.name: copy.deepcopy(
+                            getattr(goal, column.name, None)
+                        )
+                        for column in Goal.__table__.columns
+                    },
+                }
+                for goal in kwargs["goals"]
+            ],
+            "sub_allocations": copy.deepcopy(kwargs.get("sub_allocations")),
+            "risky_fraction_per_bucket": copy.deepcopy(
+                kwargs.get("risky_fraction_per_bucket")
+            ),
+            "effective_bounds_bps": copy.deepcopy(
+                kwargs.get("effective_bounds_bps")
+            ),
+        })
+        return SimpleNamespace(
+            objective_value=float(len(calls)),
+            weights_bps={
+                "liquidity": 2000,
+                "bonds": 3000,
+                "equities": 4000,
+                "real_estate": 500,
+                "alternatives": 500,
+            },
+            status="converged",
+        )
+
+    monkeypatch.setattr(optimizer_solver, "run_solver", fake_run_solver)
+    return calls
+
+
+def _captured_goal(call: dict, goal_id: str) -> dict:
+    return next(goal for goal in call["goals"] if goal["id"] == goal_id)
+
+
+def test_sensitivity_pension_shifts_both_dates_without_mutating_goal(
+    session_factory, monkeypatch,
+):
+    """Recurring-goal shifts move the full period, not only its end date."""
+    monkeypatch.setattr(pe.settings, "optimizer_mode", "stochastic")
+    advisor_id, _cid, mid, _aid, gid = _seed_mandate(session_factory)
+    calls = _capture_sensitivity_solver_calls(monkeypatch)
+
+    with session_factory() as s:
+        mandate = s.query(Mandate).filter(Mandate.id == mid).first()
+        persisted_goal = s.query(Goal).filter(Goal.id == gid).one()
+        original_start = persisted_goal.start_date
+        original_end = persisted_goal.target_date
+
+        out = evaluate_goal_sensitivity(
+            db=s,
+            mandate=mandate,
+            user_id=advisor_id,
+            goal_id=gid,
+            target_delta_pct=0,
+            horizon_delta_years=2,
+        )
+
+        # The live SQLAlchemy entity and its persisted state stay untouched.
+        assert persisted_goal.start_date == original_start
+        assert persisted_goal.target_date == original_end
+        s.expire_all()
+        reloaded_goal = s.query(Goal).filter(Goal.id == gid).one()
+        assert reloaded_goal.start_date == original_start
+        assert reloaded_goal.target_date == original_end
+
+    assert len(calls) == 2
+    baseline_goal = _captured_goal(calls[0], gid)
+    modified_goal = _captured_goal(calls[1], gid)
+    assert baseline_goal["start_date"] == original_start
+    assert baseline_goal["target_date"] == original_end
+
+    start_before = date.fromisoformat(original_start)
+    end_before = date.fromisoformat(original_end)
+    start_after = date.fromisoformat(modified_goal["start_date"])
+    end_after = date.fromisoformat(modified_goal["target_date"])
+    assert start_after.year == start_before.year + 2
+    assert end_after.year == end_before.year + 2
+    assert (start_after.month, start_after.day) == (
+        start_before.month,
+        start_before.day,
+    )
+    assert (end_after.month, end_after.day) == (end_before.month, end_before.day)
+    assert (
+        end_after.year - start_after.year,
+        end_after.month - start_after.month,
+        end_after.day - start_after.day,
+    ) == (
+        end_before.year - start_before.year,
+        end_before.month - start_before.month,
+        end_before.day - start_before.day,
+    )
+
+    assert out["analysis_basis"] == (
+        "live_reoptimization_common_scenarios_current_inputs_v3"
+    )
+    assert out["solver_horizon_years_baseline"] == calls[0]["horizon_years"]
+    assert out["solver_horizon_years_new"] == calls[1]["horizon_years"]
+    assert calls[1]["horizon_years"] == calls[0]["horizon_years"] + 2
+    assert calls[0]["cashflow_series_rappen"] == calls[1][
+        "cashflow_series_rappen"
+    ][: calls[0]["horizon_years"]]
+    assert len(calls[1]["cashflow_series_rappen"]) == calls[1]["horizon_years"]
+
+
+def test_sensitivity_open_ended_pension_shift_preserves_stream_duration(
+    session_factory, monkeypatch,
+):
+    """Moving an open-ended pension must move the run end with its start."""
+    monkeypatch.setattr(pe.settings, "optimizer_mode", "stochastic")
+    advisor_id, _cid, mid, _aid, gid = _seed_mandate(
+        session_factory,
+        suffix="open-ended-pension",
+    )
+    with session_factory() as session:
+        goal = session.query(Goal).filter(Goal.id == gid).one()
+        goal.target_date = None
+        goal.is_ongoing = 1
+        session.commit()
+
+    calls = _capture_sensitivity_solver_calls(monkeypatch)
+    with session_factory() as session:
+        mandate = session.query(Mandate).filter(Mandate.id == mid).one()
+        persisted_goal = session.query(Goal).filter(Goal.id == gid).one()
+        out = evaluate_goal_sensitivity(
+            db=session,
+            mandate=mandate,
+            user_id=advisor_id,
+            goal_id=gid,
+            target_delta_pct=0,
+            horizon_delta_years=2,
+        )
+        assert persisted_goal.target_date is None
+        session.expire_all()
+        assert session.query(Goal).filter(Goal.id == gid).one().target_date is None
+
+    assert len(calls) == 2
+    baseline, modified = calls
+    baseline_goal = _captured_goal(baseline, gid)
+    modified_goal = _captured_goal(modified, gid)
+    assert baseline_goal["target_date"] is None
+    assert modified_goal["target_date"] is not None
+    assert date.fromisoformat(modified_goal["start_date"]).year == (
+        date.fromisoformat(baseline_goal["start_date"]).year + 2
+    )
+    assert modified["horizon_years"] == baseline["horizon_years"] + 2
+    baseline_liability = next(
+        liability
+        for liability in baseline["liabilities"]
+        if liability["goal_id"] == gid
+    )
+    modified_liability = next(
+        liability
+        for liability in modified["liabilities"]
+        if liability["goal_id"] == gid
+    )
+    baseline_stream_years = sum(
+        value > 0 for value in baseline_liability["liability_path_rappen"]
+    )
+    modified_stream_years = sum(
+        value > 0 for value in modified_liability["liability_path_rappen"]
+    )
+    assert modified_stream_years == baseline_stream_years
+    assert (
+        date.fromisoformat(modified_goal["target_date"]).year
+        - date.fromisoformat(modified_goal["start_date"]).year
+        + 1
+    ) == baseline_stream_years
+    assert out["solver_horizon_years_new"] == (
+        out["solver_horizon_years_baseline"] + 2
+    )
+
+
+def test_sensitivity_open_ended_pension_negative_shift_preserves_stream_duration(
+    session_factory, monkeypatch,
+):
+    """Moving an open pension earlier shortens the run but not its stream."""
+    monkeypatch.setattr(pe.settings, "optimizer_mode", "stochastic")
+    advisor_id, _cid, mid, _aid, gid = _seed_mandate(
+        session_factory,
+        suffix="open-ended-pension-negative",
+    )
+    with session_factory() as session:
+        goal = session.query(Goal).filter(Goal.id == gid).one()
+        goal.target_date = None
+        goal.is_ongoing = 1
+        for other_goal in session.query(Goal).filter(
+            Goal.mandate_id == mid,
+            Goal.id != gid,
+        ).all():
+            # Isolate the open-ended stream.  The fixture's separate 10-year
+            # wealth goal is a legitimate unaffected-goal floor and is tested
+            # independently below; leaving it active would make 10 years the
+            # correct modified solver horizon.
+            other_goal.is_active = 0
+        session.commit()
+
+    calls = _capture_sensitivity_solver_calls(monkeypatch)
+    with session_factory() as session:
+        mandate = session.query(Mandate).filter(Mandate.id == mid).one()
+        out = evaluate_goal_sensitivity(
+            db=session,
+            mandate=mandate,
+            user_id=advisor_id,
+            goal_id=gid,
+            target_delta_pct=0,
+            horizon_delta_years=-2,
+        )
+
+    assert len(calls) == 2
+    baseline, modified = calls
+    baseline_goal = _captured_goal(baseline, gid)
+    modified_goal = _captured_goal(modified, gid)
+    assert date.fromisoformat(modified_goal["start_date"]).year == (
+        date.fromisoformat(baseline_goal["start_date"]).year - 2
+    )
+    assert baseline["horizon_years"] == 10
+    assert modified["horizon_years"] == 8
+    baseline_liability = next(
+        liability
+        for liability in baseline["liabilities"]
+        if liability["goal_id"] == gid
+    )
+    modified_liability = next(
+        liability
+        for liability in modified["liabilities"]
+        if liability["goal_id"] == gid
+    )
+    assert sum(
+        value > 0 for value in baseline_liability["liability_path_rappen"]
+    ) == 6
+    assert sum(
+        value > 0 for value in modified_liability["liability_path_rappen"]
+    ) == 6
+    assert modified["cashflow_series_rappen"] == baseline[
+        "cashflow_series_rappen"
+    ][: modified["horizon_years"]]
+    assert out["solver_horizon_years_new"] == 8
+
+
+def test_sensitivity_open_ended_negative_shift_respects_unaffected_goal_floor(
+    session_factory, monkeypatch,
+):
+    """An independent 10-year goal pins the run, not the pension duration."""
+    monkeypatch.setattr(pe.settings, "optimizer_mode", "stochastic")
+    advisor_id, _cid, mid, _aid, gid = _seed_mandate(
+        session_factory,
+        suffix="open-ended-negative-multi-goal",
+    )
+    with session_factory() as session:
+        pension = session.query(Goal).filter(Goal.id == gid).one()
+        pension.target_date = None
+        pension.is_ongoing = 1
+        wealth_goal = session.query(Goal).filter(
+            Goal.mandate_id == mid,
+            Goal.id != gid,
+            Goal.goal_type == "Vermoegensziel",
+        ).one()
+        wealth_goal_id = wealth_goal.id
+        session.commit()
+
+    calls = _capture_sensitivity_solver_calls(monkeypatch)
+    with session_factory() as session:
+        mandate = session.query(Mandate).filter(Mandate.id == mid).one()
+        persisted_pension = session.query(Goal).filter(Goal.id == gid).one()
+        evaluate_goal_sensitivity(
+            db=session,
+            mandate=mandate,
+            user_id=advisor_id,
+            goal_id=gid,
+            target_delta_pct=0,
+            horizon_delta_years=-2,
+        )
+        assert persisted_pension.target_date is None
+        session.expire_all()
+        assert session.query(Goal).filter(Goal.id == gid).one().target_date is None
+
+    assert len(calls) == 2
+    baseline, modified = calls
+    assert baseline["horizon_years"] == 10
+    assert modified["horizon_years"] == 10
+    baseline_pension = _captured_goal(baseline, gid)
+    modified_pension = _captured_goal(modified, gid)
+    assert date.fromisoformat(modified_pension["start_date"]).year == (
+        date.fromisoformat(baseline_pension["start_date"]).year - 2
+    )
+    assert baseline_pension["target_date"] is None
+    assert modified_pension["target_date"] is not None
+
+    baseline_liability = next(
+        liability
+        for liability in baseline["liabilities"]
+        if liability["goal_id"] == gid
+    )
+    modified_liability = next(
+        liability
+        for liability in modified["liabilities"]
+        if liability["goal_id"] == gid
+    )
+    assert sum(
+        value > 0 for value in baseline_liability["liability_path_rappen"]
+    ) == 6
+    assert sum(
+        value > 0 for value in modified_liability["liability_path_rappen"]
+    ) == 6
+    assert baseline["cashflow_series_rappen"] == modified[
+        "cashflow_series_rappen"
+    ]
+
+    baseline_wealth_goal = _captured_goal(baseline, wealth_goal_id)
+    modified_wealth_goal = _captured_goal(modified, wealth_goal_id)
+    assert baseline_wealth_goal["full_state"] == modified_wealth_goal["full_state"]
+
+
+def test_sensitivity_incomplete_current_assessment_fails_before_solver(
+    session_factory, monkeypatch,
+):
+    """Sensitivity has the same strategy-ready assessment gate as Generate."""
+    monkeypatch.setattr(pe.settings, "optimizer_mode", "stochastic")
+    advisor_id, _cid, mid, aid, gid = _seed_mandate(
+        session_factory,
+        suffix="incomplete-assessment",
+    )
+    with session_factory() as session:
+        assessment = session.query(RiskAssessment).filter(
+            RiskAssessment.id == aid
+        ).one()
+        assessment.knowledge_services_json = None
+        session.commit()
+
+    calls = _capture_sensitivity_solver_calls(monkeypatch)
+    with session_factory() as session:
+        mandate = session.query(Mandate).filter(Mandate.id == mid).one()
+        with pytest.raises(ValueError, match="unvollstaendig"):
+            evaluate_goal_sensitivity(
+                db=session,
+                mandate=mandate,
+                user_id=advisor_id,
+                goal_id=gid,
+                target_delta_pct=0,
+            )
+
+    assert calls == []
+
+
+def test_sensitivity_without_allocation_basis_fails_before_solver(
+    session_factory, monkeypatch,
+):
+    """Sensitivity must share Generate's minimum economic-data contract."""
+    monkeypatch.setattr(pe.settings, "optimizer_mode", "stochastic")
+    advisor_id, client_id, mid, _aid, gid = _seed_mandate(
+        session_factory,
+        suffix="sensitivity-no-basis",
+    )
+    with session_factory() as session:
+        for position in session.query(WealthPosition).filter(
+            WealthPosition.client_id == client_id
+        ).all():
+            position.is_active = 0
+        for cashflow in session.query(Cashflow).filter(
+            Cashflow.client_id == client_id
+        ).all():
+            cashflow.is_active = 0
+        session.commit()
+
+    calls = _capture_sensitivity_solver_calls(monkeypatch)
+    with session_factory() as session:
+        mandate = session.query(Mandate).filter(Mandate.id == mid).one()
+        with pytest.raises(ValueError, match=r"Keine Verm.gensbasis"):
+            evaluate_goal_sensitivity(
+                db=session,
+                mandate=mandate,
+                user_id=advisor_id,
+                goal_id=gid,
+                target_delta_pct=0,
+            )
+
+    assert calls == []
+
+
+def test_sensitivity_does_not_silently_disable_incomplete_mortality(
+    session_factory, monkeypatch,
+):
+    monkeypatch.setattr(pe.settings, "optimizer_mode", "stochastic")
+    advisor_id, _cid, mid, _aid, gid = _seed_mandate(
+        session_factory,
+        suffix="incomplete-mortality",
+    )
+    with session_factory() as session:
+        mandate = session.query(Mandate).filter(Mandate.id == mid).one()
+        mandate.jurisdiction = "CH"
+        mandate.use_mortality_simulation = 1
+        mandate.client_birth_year = 1980
+        mandate.client_sex = None
+        session.commit()
+
+    calls = _capture_sensitivity_solver_calls(monkeypatch)
+    with session_factory() as session:
+        mandate = session.query(Mandate).filter(Mandate.id == mid).one()
+        with pytest.raises(
+            ValueError,
+            match="requires client_birth_year.*client_sex M/F",
+        ):
+            evaluate_goal_sensitivity(
+                db=session,
+                mandate=mandate,
+                user_id=advisor_id,
+                goal_id=gid,
+                target_delta_pct=0,
+            )
+
+    assert calls == []
+
+
+def test_sensitivity_requires_tax_jurisdiction_for_activated_estimate(
+    session_factory, monkeypatch,
+):
+    monkeypatch.setattr(pe.settings, "optimizer_mode", "stochastic")
+    advisor_id, _cid, mid, _aid, gid = _seed_mandate(
+        session_factory,
+        suffix="incomplete-tax-estimate",
+    )
+    with session_factory() as session:
+        mandate = session.query(Mandate).filter(Mandate.id == mid).one()
+        mandate.tax_estimate_in_cashflow_enabled = 1
+        mandate.tax_jurisdiction = None
+        session.commit()
+
+    calls = _capture_sensitivity_solver_calls(monkeypatch)
+    with session_factory() as session:
+        mandate = session.query(Mandate).filter(Mandate.id == mid).one()
+        with pytest.raises(ValueError, match="Steuerbasis"):
+            evaluate_goal_sensitivity(
+                db=session,
+                mandate=mandate,
+                user_id=advisor_id,
+                goal_id=gid,
+                target_delta_pct=0,
+            )
+
+    assert calls == []
+
+
+def test_sensitivity_return_goal_changes_return_target_and_solver_horizon(
+    session_factory, monkeypatch,
+):
+    """Renditeziel deltas affect return bps and the modified solver horizon."""
+    monkeypatch.setattr(pe.settings, "optimizer_mode", "stochastic")
+    advisor_id, _cid, mid, _aid, _gid = _seed_mandate(session_factory)
+
+    with session_factory() as s:
+        return_goal = s.query(Goal).filter(
+            Goal.mandate_id == mid,
+            Goal.goal_type == "Vermoegensziel",
+        ).one()
+        return_goal.goal_family = "Rendite"
+        return_goal.goal_type = "Renditeziel"
+        return_goal.target_amount_rappen = None
+        return_goal.target_wealth_rappen = None
+        return_goal.target_return_bps = 500
+        # Match the existing 30-year pension floor so +3 genuinely extends
+        # the shared solver horizon instead of remaining below that floor.
+        return_goal.horizon_years = 30
+        s.commit()
+        return_goal_id = return_goal.id
+
+    calls = _capture_sensitivity_solver_calls(monkeypatch)
+    with session_factory() as s:
+        mandate = s.query(Mandate).filter(Mandate.id == mid).first()
+        persisted_goal = s.query(Goal).filter(Goal.id == return_goal_id).one()
+        out = evaluate_goal_sensitivity(
+            db=s,
+            mandate=mandate,
+            user_id=advisor_id,
+            goal_id=return_goal_id,
+            target_delta_pct=20,
+            horizon_delta_years=3,
+        )
+        assert persisted_goal.target_return_bps == 500
+        assert persisted_goal.horizon_years == 30
+
+    assert len(calls) == 2
+    baseline_goal = _captured_goal(calls[0], return_goal_id)
+    modified_goal = _captured_goal(calls[1], return_goal_id)
+    assert baseline_goal["target_return_bps"] == 500
+    assert modified_goal["target_return_bps"] == 600
+    assert baseline_goal["horizon_years"] == 30
+    assert modified_goal["horizon_years"] == 33
+    assert calls[1]["horizon_years"] == calls[0]["horizon_years"] + 3
+
+    assert out["target_return_bps_baseline"] == 500
+    assert out["target_return_bps_new"] == 600
+    assert out["solver_horizon_years_baseline"] == calls[0]["horizon_years"]
+    assert out["solver_horizon_years_new"] == calls[1]["horizon_years"]
+
+
+def test_sensitivity_return_horizon_cannot_clip_another_goal(
+    session_factory,
+    monkeypatch,
+):
+    """Shortening a return goal must retain a later pension liability."""
+    monkeypatch.setattr(pe.settings, "optimizer_mode", "stochastic")
+    advisor_id, _cid, mid, _aid, _pension_goal_id = _seed_mandate(
+        session_factory,
+        suffix="return-horizon-floor",
+    )
+    with session_factory() as session:
+        return_goal = session.query(Goal).filter(
+            Goal.mandate_id == mid,
+            Goal.goal_type == "Vermoegensziel",
+        ).one()
+        return_goal.goal_family = "Rendite"
+        return_goal.goal_type = "Renditeziel"
+        return_goal.target_wealth_rappen = None
+        return_goal.target_return_bps = 500
+        return_goal.horizon_years = 30
+        session.commit()
+        return_goal_id = return_goal.id
+
+    calls = _capture_sensitivity_solver_calls(monkeypatch)
+    with session_factory() as session:
+        mandate = session.query(Mandate).filter(Mandate.id == mid).one()
+        out = evaluate_goal_sensitivity(
+            db=session,
+            mandate=mandate,
+            user_id=advisor_id,
+            goal_id=return_goal_id,
+            target_delta_pct=0,
+            horizon_delta_years=-10,
+        )
+
+    assert len(calls) == 2
+    assert calls[1]["horizon_years"] >= 30
+    assert out["solver_horizon_years_new"] >= 30
+
+
+def test_sensitivity_horizon_uses_common_scenario_prefix_and_full_cashflows(
+    session_factory, monkeypatch,
+):
+    """A longer counterfactual extends inputs and reuses the exact path prefix."""
+    monkeypatch.setattr(pe.settings, "optimizer_mode", "stochastic")
+    monkeypatch.setattr(pe, "_OPTIMIZER_N_PATHS_DEFAULT", 12)
+    advisor_id, _cid, mid, _aid, _gid = _seed_mandate(
+        session_factory,
+        suffix="common-prefix",
+    )
+
+    with session_factory() as s:
+        return_goal = s.query(Goal).filter(
+            Goal.mandate_id == mid,
+            Goal.goal_type == "Vermoegensziel",
+        ).one()
+        return_goal.goal_family = "Rendite"
+        return_goal.goal_type = "Renditeziel"
+        return_goal.target_amount_rappen = None
+        return_goal.target_wealth_rappen = None
+        return_goal.target_return_bps = 500
+        # Start at the existing pension horizon; the perturbation must extend
+        # cashflows and scenarios by exactly three additional annual buckets.
+        return_goal.horizon_years = 30
+        s.commit()
+        goal_id = return_goal.id
+
+    calls = _capture_sensitivity_solver_calls(monkeypatch)
+    with session_factory() as s:
+        mandate = s.query(Mandate).filter(Mandate.id == mid).one()
+        out = evaluate_goal_sensitivity(
+            db=s,
+            mandate=mandate,
+            user_id=advisor_id,
+            goal_id=goal_id,
+            target_delta_pct=0,
+            horizon_delta_years=3,
+        )
+
+    assert len(calls) == 2
+    baseline, modified = calls
+    assert baseline["scenario_horizon_years"] == modified["horizon_years"]
+    assert modified["scenario_horizon_years"] == modified["horizon_years"]
+    baseline_cf = baseline["cashflow_series_rappen"]
+    modified_cf = modified["cashflow_series_rappen"]
+    assert baseline_cf == modified_cf[: baseline["horizon_years"]]
+    assert len(modified_cf) == modified["horizon_years"]
+    assert any(int(value) != 0 for value in modified_cf[len(baseline_cf) :])
+    assert out["live_model_input_hash"] == out["baseline_model_input_hash"]
+    assert out["baseline_model_input_hash"] != out["modified_model_input_hash"]
+    assert out["fx_basis"]["basis_id"] == "default_fx_rates_2026_v1"
+    assert out["fx_basis"]["uses_versioned_defaults"] is True
+
+
+def test_sensitivity_live_hash_binds_current_house_matrix_bounds(
+    session_factory,
+    monkeypatch,
+):
+    """No-TA live context must hash its House-derived effective bounds."""
+    monkeypatch.setattr(pe.settings, "optimizer_mode", "stochastic")
+    advisor_id, _cid, mid, _aid, goal_id = _seed_mandate(
+        session_factory,
+        suffix="house-bounds-hash",
+    )
+    _capture_sensitivity_solver_calls(monkeypatch)
+
+    with session_factory() as session:
+        mandate = session.query(Mandate).filter(Mandate.id == mid).one()
+        first = evaluate_goal_sensitivity(
+            db=session,
+            mandate=mandate,
+            user_id=advisor_id,
+            goal_id=goal_id,
+            target_delta_pct=0,
+        )
+        house_row = session.query(HouseMatrix).filter(
+            HouseMatrix.score_from <= 7,
+            HouseMatrix.score_to >= 7,
+        ).one()
+        house_row.equity_max_bps = int(house_row.equity_max_bps) - 1
+        session.commit()
+
+        second = evaluate_goal_sensitivity(
+            db=session,
+            mandate=mandate,
+            user_id=advisor_id,
+            goal_id=goal_id,
+            target_delta_pct=0,
+        )
+
+    assert first["constraint_basis"] == "live_canonical_stochastic_context"
+    assert second["constraint_basis"] == "live_canonical_stochastic_context"
+    assert first["live_model_input_hash"] != second["live_model_input_hash"]
+
+
+def test_sensitivity_without_allocation_uses_exact_generate_live_context(
+    session_factory,
+    monkeypatch,
+):
+    """No-TA sensitivity must use Generate's canonical mandate plan.
+
+    In particular, mandate-default geography and PE choices may not degrade to
+    bucket-average building-block risk fractions merely because no allocation
+    has been persisted yet.
+    """
+    monkeypatch.setattr(pe.settings, "optimizer_mode", "stochastic")
+    advisor_id, _cid, mid, _aid, goal_id = _seed_mandate(
+        session_factory,
+        suffix="live-canonical-plan",
+    )
+    sensitivity_calls = _capture_sensitivity_solver_calls(monkeypatch)
+    generate_contexts: list[dict] = []
+
+    def fake_generate_optimizer(**kwargs):
+        generate_contexts.append({
+            "sub_allocations": copy.deepcopy(kwargs["sub_allocations"]),
+            "risky_fraction_per_bucket": copy.deepcopy(
+                kwargs["risky_fraction_per_bucket"]
+            ),
+            "effective_bounds_bps": copy.deepcopy(
+                kwargs["effective_bounds_bps"]
+            ),
+        })
+        return None
+
+    monkeypatch.setattr(
+        pe,
+        "_run_stochastic_optimizer_pass",
+        fake_generate_optimizer,
+    )
+
+    with session_factory() as session:
+        mandate = session.query(Mandate).filter(Mandate.id == mid).one()
+        mandate.default_building_blocks_json = json.dumps({
+            "equitiesGeo": "Global",
+            "altsGold": True,
+            "altsPe": True,
+        })
+        session.flush()
+
+        generate_target_allocation(
+            session,
+            mandate,
+            advisor_id,
+            preferences=None,
+        )
+        assert len(generate_contexts) == 1
+
+        # Keep the generated artifact as history, but deliberately exercise
+        # the path where there is no active allocation context to reuse.
+        current = session.query(pe.TargetAllocation).filter(
+            pe.TargetAllocation.mandate_id == mid,
+            pe.TargetAllocation.is_current == 1,
+        ).one()
+        current.is_current = 0
+        session.flush()
+
+        out = evaluate_goal_sensitivity(
+            db=session,
+            mandate=mandate,
+            user_id=advisor_id,
+            goal_id=goal_id,
+            target_delta_pct=0,
+        )
+
+    assert len(sensitivity_calls) == 2
+    expected = generate_contexts[0]
+    assert any(
+        row["sub_asset_class"] == "Private Equity"
+        for row in expected["sub_allocations"]
+    )
+    from services.optimizer.constraints import (
+        MAX_ALTERNATIVES,
+        MAX_REAL_ESTATE,
+        MIN_LIQUIDITY,
+    )
+
+    assert expected["effective_bounds_bps"]["real_estate"][1] <= int(
+        round(MAX_REAL_ESTATE * 10000)
+    )
+    assert expected["effective_bounds_bps"]["alternatives"][1] <= int(
+        round(MAX_ALTERNATIVES * 10000)
+    )
+    assert expected["effective_bounds_bps"]["liquidity"][0] >= int(
+        round(MIN_LIQUIDITY * 10000)
+    )
+    for call in sensitivity_calls:
+        assert call["sub_allocations"] == expected["sub_allocations"]
+        assert (
+            call["risky_fraction_per_bucket"]
+            == expected["risky_fraction_per_bucket"]
+        )
+        assert call["effective_bounds_bps"] == expected["effective_bounds_bps"]
+    assert out["constraint_basis"] == "live_canonical_stochastic_context"
 
 
 def test_sensitivity_returns_expected_schema(session_factory, monkeypatch):

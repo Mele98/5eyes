@@ -2,6 +2,10 @@
 
 Master-Spec: docs/planning/2026-05-05-stochastic-optimizer-spec.md (Sec 6)
 
+All Rappen shortfalls entering the optimizer objective are divided by the
+single context scale ``max(1, initial_wealth_rappen)`` before squaring. This
+makes the primary term dimensionless while retaining absolute goal priority.
+
 Primary Objective (Advisory-Methodik Slide 18, Priorität 1):
     L(w) = Σ_g h_g · w_g · (1/N) · Σ_n max(0, target_g - wealth_g(w, n))^2
 
@@ -13,8 +17,8 @@ Hardness-Weights (OWNER-DECISION OD-1, vom User bestaetigt):
 
 Pro Goal-Typ wird Shortfall anders berechnet:
 - "wealth_at_t":      max(0, target - wealth[t])^2
-- "cashflow_in_year": max(0, target - wealth[t])^2  (selbe Logik)
-- "outflow_stream":   max(0, -wealth[end])^2  (Lebensluecke nach allen Outflows)
+- "cashflow_in_year": max(0, -wealth[t])^2 (Outflow ist bereits abgezogen)
+- "outflow_stream":   max(0, -min_t wealth[t])^2 (jeder Outflow muss finanzierbar sein)
 - "return_rate":      max(0, target_bps - annualized_return_bps)^2
 - "maximize":         0  (kein Shortfall, nur in Vol-Min relevant)
 """
@@ -119,17 +123,75 @@ def _annualized_return_bps_per_path(
     return annualized_bps
 
 
+def _context_scale_rappen(value: float) -> float:
+    """Return the finite, positive common normalization scale."""
+    raw = float(value)
+    if not np.isfinite(raw):
+        raise ValueError("initial_wealth_rappen must be finite")
+    return max(1.0, raw)
+
+
+def _squared_rappen_shortfall(
+    shortfall_rappen: np.ndarray,
+    *,
+    normalization_scale_rappen: float | None,
+) -> np.ndarray:
+    """Square a Rappen shortfall after optional context normalization.
+
+    ``None`` intentionally preserves the historic raw-rappen helper contract
+    for direct callers. The optimizer objective and explainability path always
+    pass the common context scale ``max(1, initial_wealth_rappen)``.
+    """
+    scale = (
+        1.0
+        if normalization_scale_rappen is None
+        else _context_scale_rappen(normalization_scale_rappen)
+    )
+    relative_shortfall = np.asarray(shortfall_rappen, dtype=np.float64) / scale
+    return relative_shortfall * relative_shortfall
+
+
+def _positive_due_wealth_indices(
+    liability: GoalLiability,
+    *,
+    n_wealth_columns: int,
+) -> np.ndarray:
+    """Map this goal's positive liability entries to wealth-path columns.
+
+    ``liability_path_rappen[0]`` is paid in year one and is observed in
+    ``wealth_paths[:, 1]``. Unrelated negative wealth before or after this
+    goal's payment window must not make this goal fail.
+
+    The supplied wealth path is aggregate across all goals. Exact causal
+    attribution between simultaneous liabilities would require per-goal
+    counterfactual wealth paths; this helper intentionally does not invent an
+    ordering or allocation rule from the aggregate series.
+    """
+    indices = [
+        path_index + 1
+        for path_index, amount in enumerate(liability.liability_path_rappen or ())
+        if float(amount or 0) > 0.0 and path_index + 1 < int(n_wealth_columns)
+    ]
+    return np.asarray(indices, dtype=np.intp)
+
+
 def shortfall_squared_per_path(
     liability: GoalLiability,
     wealth_paths: np.ndarray,
     *,
     initial_wealth_rappen: float,
     horizon_years: int,
+    annualized_return_bps_per_path: np.ndarray | None = None,
+    normalization_scale_rappen: float | None = None,
 ) -> np.ndarray:
     """Liefert shortfall^2 pro Szenario-Pfad fuer ein Goal, shape (n_paths,).
 
     Wealth-Pfade kommen aus simulate_wealth_paths mit Liability bereits
     subtrahiert.
+
+    Mit ``normalization_scale_rappen`` wird der Rappen-Fehlbetrag vor dem
+    Quadrieren durch diese gemeinsame Context-Skala geteilt. ``None`` behaelt
+    fuer direkte Diagnose-Caller den historischen Roh-Rappen-Wert bei.
     """
     n_paths = wealth_paths.shape[0]
 
@@ -145,28 +207,75 @@ def shortfall_squared_per_path(
         # >= target  <=>  end_wealth >= initial·(1+target)^h). IDENTISCH zu
         # goal_probability_per_path -> primaeres Objective & Chance-Constraint
         # (P-Ampel) nutzen jetzt dieselbe Renditeziel-Definition.
-        target_return = float(liability.target_amount_rappen) / 10000.0
         horizon = max(1, min(
             int(liability.target_year_index or (wealth_paths.shape[1] - 1)),
             wealth_paths.shape[1] - 1,
         ))
+        target_return = float(liability.target_amount_rappen) / 10000.0
         target_wealth = max(1.0, float(initial_wealth_rappen)) * ((1.0 + target_return) ** horizon)
-        shortfall = np.maximum(0.0, target_wealth - wealth_paths[:, horizon])
-        return shortfall * shortfall
+        if annualized_return_bps_per_path is None:
+            comparison_wealth = wealth_paths[:, horizon]
+        else:
+            twr = np.asarray(
+                annualized_return_bps_per_path, dtype=np.float64
+            ).reshape(-1)
+            if twr.shape != (n_paths,):
+                raise ValueError(
+                    "annualized_return_bps_per_path must match n_paths "
+                    f"({twr.shape} != {(n_paths,)})"
+                )
+            comparison_wealth = max(1.0, float(initial_wealth_rappen)) * np.power(
+                np.maximum(0.0, 1.0 + twr / 10000.0), horizon
+            )
+        shortfall = np.maximum(0.0, target_wealth - comparison_wealth)
+        return _squared_rappen_shortfall(
+            shortfall,
+            normalization_scale_rappen=normalization_scale_rappen,
+        )
 
-    if liability.target_kind in ("wealth_at_t", "cashflow_in_year"):
+    if liability.target_kind == "wealth_at_t":
         target = float(liability.target_amount_rappen)
         idx = max(1, min(int(liability.target_year_index), wealth_paths.shape[1] - 1))
         wealth_at_t = wealth_paths[:, idx]
         shortfall = np.maximum(0.0, target - wealth_at_t)
-        return shortfall * shortfall
+        return _squared_rappen_shortfall(
+            shortfall,
+            normalization_scale_rappen=normalization_scale_rappen,
+        )
+
+    if liability.target_kind == "cashflow_in_year":
+        # The one-off expense is already part of liability_path and therefore
+        # already subtracted in the simulated wealth at T. Requiring the same
+        # amount again here would double-count the goal.
+        due_indices = _positive_due_wealth_indices(
+            liability,
+            n_wealth_columns=wealth_paths.shape[1],
+        )
+        if due_indices.size == 0:
+            return np.zeros(n_paths, dtype=np.float64)
+        minimum_due_wealth = np.min(wealth_paths[:, due_indices], axis=1)
+        shortfall = np.maximum(0.0, -minimum_due_wealth)
+        return _squared_rappen_shortfall(
+            shortfall,
+            normalization_scale_rappen=normalization_scale_rappen,
+        )
 
     if liability.target_kind == "outflow_stream":
-        # Outflows sind im liability_path bereits aus dem Wealth abgezogen.
-        # Wenn end_wealth negativ -> Lebensluecke = abs(end_wealth)
-        end_wealth = wealth_paths[:, -1]
-        shortfall = np.maximum(0.0, -end_wealth)
-        return shortfall * shortfall
+        # Every scheduled payment must be fundable when due. Looking only at
+        # terminal wealth can hide an interim funding gap that a later inflow
+        # happens to repair.
+        due_indices = _positive_due_wealth_indices(
+            liability,
+            n_wealth_columns=wealth_paths.shape[1],
+        )
+        if due_indices.size == 0:
+            return np.zeros(n_paths, dtype=np.float64)
+        minimum_due_wealth = np.min(wealth_paths[:, due_indices], axis=1)
+        shortfall = np.maximum(0.0, -minimum_due_wealth)
+        return _squared_rappen_shortfall(
+            shortfall,
+            normalization_scale_rappen=normalization_scale_rappen,
+        )
 
     return np.zeros(n_paths, dtype=np.float64)
 
@@ -175,6 +284,7 @@ def goal_probability_per_path(
     wealth_paths: np.ndarray,
     goal: GoalLiability,
     initial_value_rappen: int,
+    annualized_return_bps_per_path: np.ndarray | None = None,
 ) -> np.ndarray:
     """Returns an int array with 1 where the goal is achieved, else 0."""
     n_paths = wealth_paths.shape[0]
@@ -182,13 +292,39 @@ def goal_probability_per_path(
         return np.zeros(0, dtype=np.int8)
     if goal.target_kind == "maximize":
         return np.ones(n_paths, dtype=np.int8)
-    if goal.target_kind in ("wealth_at_t", "cashflow_in_year"):
+    if goal.target_kind == "wealth_at_t":
         idx = max(1, min(int(goal.target_year_index), wealth_paths.shape[1] - 1))
         target = float(goal.target_amount_rappen or 0)
         return (wealth_paths[:, idx] >= target).astype(np.int8)
+    if goal.target_kind == "cashflow_in_year":
+        due_indices = _positive_due_wealth_indices(
+            goal,
+            n_wealth_columns=wealth_paths.shape[1],
+        )
+        if due_indices.size == 0:
+            return np.ones(n_paths, dtype=np.int8)
+        return np.all(wealth_paths[:, due_indices] >= 0, axis=1).astype(np.int8)
     if goal.target_kind == "outflow_stream":
-        return (wealth_paths[:, -1] >= 0).astype(np.int8)
+        due_indices = _positive_due_wealth_indices(
+            goal,
+            n_wealth_columns=wealth_paths.shape[1],
+        )
+        if due_indices.size == 0:
+            return np.ones(n_paths, dtype=np.int8)
+        return np.all(wealth_paths[:, due_indices] >= 0, axis=1).astype(np.int8)
     if goal.target_kind == "return_rate":
+        if annualized_return_bps_per_path is not None:
+            twr = np.asarray(
+                annualized_return_bps_per_path, dtype=np.float64
+            ).reshape(-1)
+            if twr.shape != (n_paths,):
+                raise ValueError(
+                    "annualized_return_bps_per_path must match n_paths "
+                    f"({twr.shape} != {(n_paths,)})"
+                )
+            return (
+                twr >= float(goal.target_amount_rappen or 0)
+            ).astype(np.int8)
         horizon = max(1, min(int(goal.target_year_index or (wealth_paths.shape[1] - 1)), wealth_paths.shape[1] - 1))
         target_return = float(goal.target_amount_rappen or 0) / 10000.0
         target_wealth = float(max(1, int(initial_value_rappen or 0))) * ((1.0 + target_return) ** horizon)
@@ -203,6 +339,7 @@ def chance_constraint_penalty(
     lambda_chance: float = LAMBDA_CHANCE_DEFAULT,
     *,
     weights: np.ndarray | None = None,
+    annualized_return_bps_per_path: np.ndarray | None = None,
 ) -> tuple[float, list[dict]]:
     """Return chance-constraint penalty and per-goal achievability rows.
 
@@ -233,7 +370,12 @@ def chance_constraint_penalty(
         weights_arr = None
         weight_sum = None
     for goal in goal_liabilities:
-        per_path = goal_probability_per_path(wealth_paths, goal, initial_value_rappen)
+        per_path = goal_probability_per_path(
+            wealth_paths,
+            goal,
+            initial_value_rappen,
+            annualized_return_bps_per_path=annualized_return_bps_per_path,
+        )
         if per_path.size == 0:
             probability = 0.0
         elif weights_arr is None:
@@ -271,8 +413,14 @@ def shortfall_objective(
     initial_wealth_rappen: float,
     horizon_years: int,
     weights: np.ndarray | None = None,
+    annualized_return_bps_per_path: np.ndarray | None = None,
 ) -> float:
-    """Primaere Objective L(w): weight-gewichteter MSE-Shortfall.
+    """Primaere Objective L(w): gewichteter dimensionsloser MSE-Shortfall.
+
+    Jeder Rappen-Fehlbetrag wird vor dem Quadrieren durch die gemeinsame
+    Context-Skala ``max(1, initial_wealth_rappen)`` geteilt. Damit bleibt die
+    absolute Rangfolge der Fehlbetraege sowie die Hardness-/Goal-Gewichtung
+    erhalten, waehrend Primary- und Chance-Terme einheitenfrei sind.
 
     L(w) = Σ_g h_g · g_g · mean_n(shortfall(g, n)^2)
 
@@ -298,6 +446,7 @@ def shortfall_objective(
     n_paths = wealth_paths.shape[0]
     if n_paths <= 0:
         return 0.0
+    context_scale_rappen = _context_scale_rappen(initial_wealth_rappen)
     # Normalisierung: bei weights=None → uniform; sonst weighted (NOT mean von w,
     # sondern Sum(per_path · w) / Sum(w) als unverzerrter Estimator).
     if weights is None:
@@ -319,6 +468,8 @@ def shortfall_objective(
             liab, wealth_paths,
             initial_wealth_rappen=initial_wealth_rappen,
             horizon_years=horizon_years,
+            annualized_return_bps_per_path=annualized_return_bps_per_path,
+            normalization_scale_rappen=context_scale_rappen,
         )
         if weights is None:
             mean_sq = float(np.sum(per_path) * inv_n)
@@ -371,6 +522,9 @@ def volatility_objective(
 class GoalShortfallContribution:
     """Beitrag eines einzelnen Goals zum Gesamt-Shortfall-Objective.
 
+    Objective-Beitraege sind dimensionslos: jeder Rappen-Fehlbetrag wird vor
+    dem Quadrieren mit derselben Initialvermoegens-Skala normalisiert.
+
     'Contribution under aggregate wealth path' (Plan §5.4):
         contribution = h_g · g_g · mean_n(shortfall(g, n)^2)
     Das ist NICHT eine teure marginale Counterfactual-Berechnung
@@ -398,6 +552,7 @@ def shortfall_contributions(
     *,
     initial_wealth_rappen: float,
     horizon_years: int,
+    annualized_return_bps_per_path: np.ndarray | None = None,
 ) -> list[GoalShortfallContribution]:
     """Pro Goal: Mean-Shortfall² und gewichteter Beitrag zum Objective.
 
@@ -410,6 +565,7 @@ def shortfall_contributions(
     n_paths = wealth_paths.shape[0]
     if n_paths <= 0:
         return rows
+    context_scale_rappen = _context_scale_rappen(initial_wealth_rappen)
     inv_n = 1.0 / n_paths
     for liab in liabilities:
         per_path = shortfall_squared_per_path(
@@ -417,6 +573,8 @@ def shortfall_contributions(
             wealth_paths,
             initial_wealth_rappen=initial_wealth_rappen,
             horizon_years=horizon_years,
+            annualized_return_bps_per_path=annualized_return_bps_per_path,
+            normalization_scale_rappen=context_scale_rappen,
         )
         mean_sq = float(np.sum(per_path) * inv_n)
         h_weight = _effective_hardness_weight(liab.hardness_key)
@@ -442,26 +600,29 @@ def combined_objective_two_phase(
     primary_weight: float = 1.0,
     volatility_weight: float = 1e-12,
     lambda_chance: float = LAMBDA_CHANCE_DEFAULT,
-    epsilon: float = 1.0,
+    epsilon: float = 1e-12,
     weights: np.ndarray | None = None,
+    annualized_return_bps_per_path: np.ndarray | None = None,
 ) -> float:
     """Kombination Primary + tiny Volatility-Term.
 
     Nuetzlich als single-phase Approximation: L(w) + ε · Var(w). Wenn
-    Goals erfuellt sind, dominiert der vol-Term und Solver minimiert Vol.
-    Sonst dominiert Primary. Vorteil: nur ein Solve-Run, kein 2-Phase Switch.
+    Goals erfuellt sind oder keine Goals existieren, dominiert der vol-Term
+    und der Solver minimiert die Varianz des terminalen Vermoegens. Sonst
+    dominiert Primary. Vorteil: nur ein Solve-Run, kein 2-Phase Switch.
 
-    primary_weight: skaliert L(w)
+    primary_weight: skaliert das dimensionslose L(w)
     volatility_weight: typischerweise 1e-12 weil Var(wealth) in rappen^2 sehr gross ist
+    epsilon: numerische Nulltoleranz fuer den Phase-2-Switch; 1e-12 verhindert
+             nach der Dimensionsnormalisierung ein vorzeitiges Umschalten.
     """
     liability_list = list(liabilities)
-    if not liability_list:
-        return 0.0
     primary = shortfall_objective(
         liability_list, wealth_paths,
         initial_wealth_rappen=initial_wealth_rappen,
         horizon_years=horizon_years,
         weights=weights,
+        annualized_return_bps_per_path=annualized_return_bps_per_path,
     )
     chance, _achievability = chance_constraint_penalty(
         wealth_paths,
@@ -474,6 +635,7 @@ def combined_objective_two_phase(
         # -> falsche Strafterme -> falsch gewichtete Optimierung. Konsistent mit
         # _objective_from_array/evaluate_weights (solver.py), die weights setzen.
         weights=weights,
+        annualized_return_bps_per_path=annualized_return_bps_per_path,
     )
     vol = volatility_objective(wealth_paths, weights=weights) if primary + chance < float(epsilon) else 0.0
     return primary_weight * primary + chance + volatility_weight * vol

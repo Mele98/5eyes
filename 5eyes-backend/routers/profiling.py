@@ -21,7 +21,10 @@ from services.audit import log
 # Datensaetze (Risikoprofil, Signatur, Suitability-Check).
 from routers.auth import _extract_client_ip
 from services.data_classification import enforce_data_classification
-from services.portfolio_engine import risk_assessment_ready_for_strategy
+from services.portfolio_engine import (
+    _current_risk_assessment_or_none,
+    risk_assessment_ready_for_strategy,
+)
 from services.risk_scoring import canonicalize_horizon_label, compute_scores, profile_for_score_x10
 
 router = APIRouter(tags=["Risikoprofilierung"])
@@ -143,13 +146,10 @@ def get_current_risk_assessment(
     current_user: User = Depends(get_current_user)
 ):
     _get_mandate_or_404(mandate_id, db, current_user)
-    ra = db.query(RiskAssessment).options(
-        selectinload(RiskAssessment.answers)
-    ).filter(
-        RiskAssessment.mandate_id == mandate_id,
-        RiskAssessment.is_current == 1,
-        RiskAssessment.deleted_at.is_(None)
-    ).first()
+    try:
+        ra = _current_risk_assessment_or_none(db, mandate_id, eager_answers=True)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     if not ra:
         raise HTTPException(status_code=404, detail="Keine aktuelle Risikoprofilierung gefunden")
     return ra
@@ -208,11 +208,14 @@ def create_risk_assessment(
         )
 
     # Supersede previous (Race-Hardening, siehe ClientKnowledge oben).
-    prev = db.query(RiskAssessment).filter(
-        RiskAssessment.mandate_id == mandate_id,
-        RiskAssessment.is_current == 1,
-        RiskAssessment.deleted_at.is_(None)
-    ).with_for_update().first()
+    try:
+        prev = _current_risk_assessment_or_none(
+            db,
+            mandate_id,
+            for_update=True,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     prev_id = None
     prev_version = 0
     if prev:
@@ -359,11 +362,10 @@ def sign_risk_profile(
     ueber das Portal signiert). Reine DOKUMENTATION der Bestaetigung — aendert
     die Eignungs-Konformitaet (Audit is_compliant) NICHT."""
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
-    ra = db.query(RiskAssessment).filter(
-        RiskAssessment.mandate_id == mandate_id,
-        RiskAssessment.is_current == 1,
-        RiskAssessment.deleted_at.is_(None)
-    ).first()
+    try:
+        ra = _current_risk_assessment_or_none(db, mandate_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     if not ra:
         raise HTTPException(status_code=404, detail="Keine aktuelle Risikoprofilierung gefunden")
 

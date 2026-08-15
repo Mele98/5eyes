@@ -66,6 +66,66 @@ def test_wealth_position_rejects_negative_rental_income():
         )
 
 
+def test_direct_real_estate_create_requires_other_wealth_scope():
+    """Direktimmobilien are a fixed total-wealth foundation, not SAA assets."""
+    with pytest.raises(
+        ValidationError,
+        match=r"Direktimmobilien.*Anderes Vermögen",
+    ):
+        WealthPositionCreate(
+            label="Renditeliegenschaft",
+            position_type="Immobilien",
+            assignment="Beratungsvermögen",
+            current_value_rappen=1_000_000_00,
+            property_rental_income_rappen=30_000_00,
+        )
+
+
+def test_direct_real_estate_create_accepts_external_total_wealth_scope():
+    position = WealthPositionCreate(
+        label="Renditeliegenschaft",
+        position_type="Immobilien",
+        assignment="Anderes Vermögen",
+        current_value_rappen=1_000_000_00,
+        property_rental_income_rappen=30_000_00,
+    )
+
+    assert position.assignment == "Anderes Vermögen"
+
+
+@pytest.mark.parametrize("invalid_return", [True, -10_000, -20_000])
+def test_direct_real_estate_rejects_invalid_price_return(invalid_return):
+    with pytest.raises(ValidationError):
+        WealthPositionCreate(
+            label="Renditeliegenschaft",
+            position_type="Immobilien",
+            assignment="Anderes Vermögen",
+            current_value_rappen=1_000_000_00,
+            asset_expected_return_bps=invalid_return,
+        )
+
+
+def test_non_depot_position_rejects_depot_allocation_fields():
+    with pytest.raises(ValidationError, match=r"alloc_\*-Felder"):
+        WealthPositionCreate(
+            label="Renditeliegenschaft",
+            position_type="Immobilien",
+            assignment="Anderes Vermögen",
+            current_value_rappen=1_000_000_00,
+            alloc_equities_bps=10_000,
+        )
+
+
+def test_positive_mortgage_amortization_requires_explicit_mode():
+    with pytest.raises(ValidationError, match="Amortisation.*Typ"):
+        WealthPositionCreate(
+            label="Hypo",
+            position_type="Hypothek",
+            assignment="Verbindlichkeit",
+            mortgage_amortization_rappen=10_000_00,
+        )
+
+
 def test_wealth_position_rejects_negative_mortgage_amortization():
     with pytest.raises(ValidationError):
         WealthPositionCreate(

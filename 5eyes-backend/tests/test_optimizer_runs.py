@@ -342,6 +342,10 @@ def test_run_persists_restart_results_json(session_factory, monkeypatch):
         assert first["seed"] == run.seed
         assert isinstance(first["elapsed_ms"], int)
         assert "reason" in first
+        if run.robustification_json is not None:
+            robustification = json.loads(run.robustification_json)
+            assert isinstance(robustification, dict)
+            assert "final_reason" in robustification
 
 
 # ============================================================================
@@ -400,6 +404,7 @@ def test_endpoint_returns_runs_sorted_descending(session_factory, monkeypatch):
             assert run["seed"] > 0
             assert "weights_bps_json" in run
             assert "restart_results_json" in run
+            assert "robustification_json" in run
             restart_results = json.loads(run["restart_results_json"])
             assert isinstance(restart_results, list)
             assert restart_results[0]["seed"] == run["seed"]

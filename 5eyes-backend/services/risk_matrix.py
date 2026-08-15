@@ -21,17 +21,14 @@ class RiskBudgetExceeded(ValueError):
 
 
 def score_bucket_from_assessment(assessment) -> int:
-    raw_score = (
-        getattr(assessment, "override_score_x10", None)
-        if getattr(assessment, "is_overridden", 0) and getattr(assessment, "override_score_x10", None) is not None
-        else getattr(assessment, "final_score_x10", None)
+    from services.risk_assessment_semantics import (
+        risk_score_bucket_from_validated_score,
+        validate_risk_assessment_model_input,
     )
-    if raw_score is None:
-        raise ValueError(
-            "Risikoprofil-Score fehlt (final_score_x10 + override_score_x10 sind beide None). "
-            "Bitte Risikoprofilierung abschliessen oder Override mit Begruendung setzen."
-        )
-    return max(1, min(10, int(round(int(raw_score) / 10))))
+
+    return risk_score_bucket_from_validated_score(
+        validate_risk_assessment_model_input(assessment)
+    )
 
 
 def max_risky_fraction_for_mandate(

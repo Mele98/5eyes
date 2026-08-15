@@ -48,7 +48,7 @@ def session_factory(tmp_path):
 
 
 @pytest.mark.parametrize("score_x10,profile", [
-    (10, "Sicherheit"),   # Kapitalschutz (Score-Bucket 1) — crashte frueher (#AA-1)
+    (10, "Kapitalschutz"),   # Kapitalschutz (Score-Bucket 1) — crashte frueher (#AA-1)
     (35, "Defensiv"),     # Defensiv (Score 3-4) — spurious Fallback (#AA-3)
     (55, "Ausgewogen"),   # Ausgewogen (Score 5-6) — spurious Fallback (#AA-3)
 ])

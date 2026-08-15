@@ -53,7 +53,14 @@ from services.data_classification import enforce_data_classification
 from services.eodhd_client import preview_eodhd_reference
 from services.market_data.exceptions import RateLimitError
 from services.openfigi_client import preview_openfigi_mapping
-from services.portfolio_engine import build_recommendation_payload_from_run, generate_recommendation_run
+from services.portfolio_engine import (
+    _current_target_allocation_or_none,
+    build_recommendation_payload_from_run,
+    build_target_payload_from_allocation,
+    generate_recommendation_run,
+    require_strategy_ready_assessment,
+    ensure_runtime_reference_data,
+)
 from services.product_market_data import currency_mismatch_warning, resolve_market_profile
 from services.review_engine import _add_months, refresh_system_review_triggers
 from services.suitability_audit import audit_mandate_suitability
@@ -176,6 +183,31 @@ def _validate_recommendation_for_finalization(db: Session, mandate: Mandate, run
         errors.append("Empfehlung hat keine gueltige CMA-Version.")
     elif not cma.is_current:
         errors.append("Empfehlung basiert nicht auf der aktuellen CMA-Version.")
+    if allocation and policy and str(allocation.policy_id) != str(policy.id):
+        errors.append("Soll-Allokation und RecommendationRun referenzieren verschiedene Policies.")
+    if (
+        allocation
+        and cma
+        and str(getattr(allocation, "capital_market_assumptions_id", "") or "")
+        != str(cma.id)
+    ):
+        errors.append("Soll-Allokation und RecommendationRun referenzieren verschiedene CMA.")
+    if not errors and allocation and assessment and policy and cma:
+        try:
+            build_target_payload_from_allocation(
+                db=db,
+                mandate=mandate,
+                allocation=allocation,
+                policy=policy,
+                cma=cma,
+                assessment=assessment,
+                preferences=None,
+            )
+        except ValueError as exc:
+            errors.append(
+                "Der verankerte Allocation-Kontext ist nicht mehr integer: "
+                f"{exc}"
+            )
     positions = db.query(RecommendationPosition).filter(RecommendationPosition.run_id == run.id).all()
     if not positions:
         errors.append("Empfehlung enthaelt keine Positionen.")
@@ -2005,15 +2037,10 @@ def create_recommendation_run(
     # C1: Hard-Gate. Auch der direkte Draft-Create muss auf einem aktuellen,
     # strategie-fertigen Risikoprofil + aktueller Policy + aktueller CMA basieren
     # und darf keine fremden / stale TargetAllocation referenzieren.
-    assessment = db.query(RiskAssessment).filter(
-        RiskAssessment.mandate_id == mandate_id,
-        RiskAssessment.is_current == 1,
-        RiskAssessment.deleted_at.is_(None),
-    ).first()
-    if not assessment:
-        raise HTTPException(status_code=409, detail="Bitte zuerst ein aktuelles Risikoprofil speichern.")
-    if assessment.final_score_x10 is None and assessment.override_score_x10 is None:
-        raise HTTPException(status_code=409, detail="Risikoprofil unvollstaendig. Bitte Fragebogen vollstaendig ausfuellen.")
+    try:
+        assessment = require_strategy_ready_assessment(db, mandate_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     # Mega-Audit (2026-08-04): die obige Pruefung deckt nur VOLLSTAENDIGKEIT
     # ab, nicht die 365-Tage-Freshness aus audit_mandate_suitability -- ein
     # Mandat mit vollstaendigem, aber veraltetem Risikoprofil erzeugte hier
@@ -2036,18 +2063,20 @@ def create_recommendation_run(
             "assessment_id muss auf das aktuelle Risikoprofil zeigen "
             f"(erwartet {assessment.id})."
         ))
-    policy = db.query(OptimizerPolicy).filter(
-        OptimizerPolicy.id == body.policy_id,
-        OptimizerPolicy.is_current == 1,
-    ).first()
-    if not policy:
-        raise HTTPException(status_code=404, detail="Optimizer Policy nicht gefunden oder nicht aktuell")
-    cma = db.query(CapitalMarketAssumption).filter(
-        CapitalMarketAssumption.is_current == 1,
-        CapitalMarketAssumption.deleted_at.is_(None),
-    ).first()
-    if not cma:
-        raise HTTPException(status_code=409, detail="Keine aktuellen Kapitalmarktannahmen.")
+    try:
+        policy, cma = ensure_runtime_reference_data(
+            db,
+            current_user.id,
+            jurisdiction=getattr(mandate, "jurisdiction", None) or "CH",
+            tenant_id=getattr(mandate, "tenant_id", None) or None,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if str(body.policy_id or "") != str(policy.id):
+        raise HTTPException(
+            status_code=422,
+            detail=f"policy_id muss auf die aktuelle Policy zeigen (erwartet {policy.id}).",
+        )
     if body.capital_market_assumptions_id and body.capital_market_assumptions_id != cma.id:
         raise HTTPException(status_code=422, detail=(
             "capital_market_assumptions_id muss auf die aktuellen CMA zeigen "
@@ -2063,6 +2092,48 @@ def create_recommendation_run(
             raise HTTPException(status_code=409, detail=(
                 "target_allocation_id gehoert nicht zu diesem Mandat oder ist gelöscht."
             ))
+        if int(getattr(ta, "is_current", 0) or 0) != 1:
+            raise HTTPException(
+                status_code=409,
+                detail="target_allocation_id muss auf die aktuelle Soll-Allokation zeigen.",
+            )
+        anchor_mismatches = []
+        if str(getattr(ta, "policy_id", "") or "") != str(policy.id):
+            anchor_mismatches.append("Optimizer Policy")
+        if str(getattr(ta, "capital_market_assumptions_id", "") or "") != str(cma.id):
+            anchor_mismatches.append("CMA")
+        if str(getattr(ta, "based_on_assessment_id", "") or "") != str(assessment.id):
+            anchor_mismatches.append("Risikoprofil")
+        if anchor_mismatches:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Die Soll-Allokation stimmt nicht mit den Run-Ankern ueberein: "
+                    + ", ".join(anchor_mismatches)
+                    + ". Bitte Strategie neu berechnen."
+                ),
+            )
+        if int(getattr(ta, "is_current", 0) or 0) != 1:
+            raise HTTPException(
+                status_code=409,
+                detail="target_allocation_id muss auf die aktuelle Soll-Allokation zeigen.",
+            )
+        anchor_mismatches = []
+        if str(getattr(ta, "policy_id", "") or "") != str(policy.id):
+            anchor_mismatches.append("Optimizer Policy")
+        if str(getattr(ta, "capital_market_assumptions_id", "") or "") != str(cma.id):
+            anchor_mismatches.append("CMA")
+        if str(getattr(ta, "based_on_assessment_id", "") or "") != str(assessment.id):
+            anchor_mismatches.append("Risikoprofil")
+        if anchor_mismatches:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Die Soll-Allokation stimmt nicht mit den Run-Ankern ueberein: "
+                    + ", ".join(anchor_mismatches)
+                    + ". Bitte Strategie neu berechnen."
+                ),
+            )
     payload = body.model_dump()
     payload.pop("other_assets_included", None)
     if not payload.get("assessment_id"):
@@ -2152,11 +2223,10 @@ def get_current_recommendation_payload(
     current_user: User = Depends(get_current_user)
 ):
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
-    current_allocation = db.query(TargetAllocation).filter(
-        TargetAllocation.mandate_id == mandate_id,
-        TargetAllocation.is_current == 1,
-        TargetAllocation.deleted_at.is_(None),
-    ).order_by(TargetAllocation.version.desc(), TargetAllocation.created_at.desc()).first()
+    try:
+        current_allocation = _current_target_allocation_or_none(db, mandate_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     if not current_allocation:
         raise HTTPException(status_code=409, detail="Keine aktuelle Soll-Allokation gefunden.")
     runs = db.query(RecommendationRun).filter(

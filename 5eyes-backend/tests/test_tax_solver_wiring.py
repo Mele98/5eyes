@@ -13,8 +13,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 import services.tax  # noqa: F401  -- löst @register_regime für alle Regimes aus
 from services.tax.registry import resolve_regime_class
+from services.optimizer.constraints import OptimizerInputError
 
 
 def test_taxconfig_symbol_does_not_exist() -> None:
@@ -78,6 +81,33 @@ def test_no_jurisdiction_yields_empty_kwargs() -> None:
     assert _build_tax_solver_kwargs(_mandate(tax_jurisdiction="")) == {}
 
 
+def test_tax_overrides_without_jurisdiction_fail_closed() -> None:
+    with pytest.raises(OptimizerInputError, match="Steuerbasis"):
+        _build_tax_solver_kwargs(
+            _mandate(
+                tax_jurisdiction=None,
+                tax_overrides_json='{"wealth_tax_bps_pa": 12}',
+            )
+        )
+
+
+def test_tax_cashflow_activation_without_jurisdiction_fails_closed() -> None:
+    with pytest.raises(OptimizerInputError, match="Steuerbasis"):
+        _build_tax_solver_kwargs(
+            _mandate(
+                tax_jurisdiction=None,
+                tax_estimate_in_cashflow_enabled=1,
+            )
+        )
+
+
+def test_configured_unknown_tax_jurisdiction_fails_closed() -> None:
+    from services.optimizer.constraints import OptimizerInputError
+
+    with pytest.raises(OptimizerInputError, match="Steuerbasis"):
+        _build_tax_solver_kwargs(_mandate(tax_jurisdiction="XX-UNKNOWN"))
+
+
 def test_jurisdiction_ch_reaches_solver_with_regime() -> None:
     """TAX-3: gesetztes tax_jurisdiction -> nicht-None tax_regime an run_solver."""
     kw = _build_tax_solver_kwargs(_mandate(tax_jurisdiction="CH"))
@@ -94,11 +124,9 @@ def test_canton_factory_used_for_region_id() -> None:
     assert kw["tax_regime"].region_code == "GE"
 
 
-def test_unknown_canton_falls_back_to_base_regime() -> None:
-    """Unbekannte Region crasht nicht, sondern faellt auf das Basis-CH-Regime zurueck."""
-    kw = _build_tax_solver_kwargs(_mandate(tax_jurisdiction="CH-XX"))
-    assert kw.get("tax_regime") is not None
-    assert kw["tax_regime"].country_code == "CH"
+def test_unknown_canton_fails_closed() -> None:
+    with pytest.raises(OptimizerInputError, match="Steuerbasis"):
+        _build_tax_solver_kwargs(_mandate(tax_jurisdiction="CH-XX"))
 
 
 def test_base_calendar_year_from_opened_at_not_hardcoded() -> None:

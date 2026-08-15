@@ -27,10 +27,12 @@ Sechs methodische Festlegungen (alle 2026-06-17/18 umgesetzt + test-abgesichert)
    frühere Härtegrad-Gewichtung (hart 10× / primär 1× / opp 0.2×) bleibt als opt-in via
    `OPTIMIZER_GOAL_WEIGHTING=hardness` erhalten. `_effective_hardness_weight`.
 
-3. **Deterministischer Hauptpfad = MC-Median-Konvention (Itô).**
+3. **Deterministischer Hauptpfad = momententreue MC-Median-Konvention.**
    Der angezeigte SOLL/IST-Hauptpfad nutzte `1+r` (arithmetisch) und lag damit
    optimistisch über dem MC-Median-Fächer, in dem er dargestellt wird. Jetzt
-   `exp(r − ½σ²)` → Hauptlinie sitzt im Fächer-Zentrum; „Median-Rendite (CAGR)" stimmt.
+   Mit `v=log(1+(σ/(1+r))²)` gilt der Medianfaktor
+   `exp(log(1+r) − ½v)`. Die Hauptlinie sitzt im Fächer-Zentrum; arithmetischer
+   CMA-Mittelwert und einfache Return-Volatilität bleiben beide exakt kalibriert.
 
 4. **Liquidität wertet in der Projektion nicht auf (Cash = 0 %).**
    `returns["liquidity"]=0`, `vols["liquidity"]=0` in deterministischem UND MC-Pfad.

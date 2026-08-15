@@ -269,6 +269,15 @@ def set_optimizer_mode(
             status_code=422,
             detail=f"optimizer_mode muss einer von {', '.join(sorted(OPTIMIZER_MODE_VALUES))} sein.",
         )
+    if settings.app_env == "production" and requested != "stochastic":
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "In Produktion ist stochastic das verbindliche aktive Modell; "
+                "House Matrix bleibt ausschliesslich ein kontrollierter "
+                "technischer Ergebnis-Fallback."
+            ),
+        )
     old_value = str(settings.optimizer_mode or '').strip().lower()
     changed = requested != old_value
     if changed:
