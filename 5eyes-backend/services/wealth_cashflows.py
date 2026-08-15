@@ -23,8 +23,15 @@ die cashflow_timeline.totals_for_year/contribution_for_year via getattr liest.
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, asdict
 from typing import Optional
+
+from services.wealth_position_semantics import (
+    is_direct_real_estate_position,
+    is_liquidity_position,
+    is_mortgage_position,
+)
 
 
 @dataclass
@@ -94,6 +101,41 @@ def _year_of(date_str) -> int | None:
     return None
 
 
+def _convert_position_rappen(
+    amount_rappen: int,
+    position,
+    fx_source,
+    target_currency: str,
+) -> int:
+    amount = int(amount_rappen or 0)
+    if amount == 0:
+        return amount
+    source_currency = str(
+        getattr(position, "currency", "") or "CHF"
+    ).upper().strip()
+    target = str(target_currency or "CHF").upper().strip()
+    if source_currency == target:
+        return amount
+    if fx_source is None:
+        raise ValueError(
+            f"Keine FX-Quelle fuer Hypothekenpfad "
+            f"{source_currency}->{target}; eine stille 1:1-Konvertierung "
+            "ist nicht zulaessig."
+        )
+    try:
+        rate = float(fx_source.cross_rate(source_currency, target))
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise ValueError(
+            f"Fehlender FX-Kurs {source_currency}/{target} für Hypothekenpfad."
+        ) from exc
+    if not math.isfinite(rate) or rate <= 0.0:
+        raise ValueError(
+            f"Ungueltiger FX-Kurs {source_currency}/{target} fuer "
+            f"Hypothekenpfad: {rate}."
+        )
+    return int(round(amount * rate))
+
+
 def mortgage_interest_schedule(
     *,
     debt_rappen: int,
@@ -143,7 +185,14 @@ def mortgage_interest_schedule(
     return schedule
 
 
-def mortgage_interest_adjustment_series(positions: list, horizon_years: int, start_year: int) -> list[int]:
+def mortgage_interest_adjustment_series(
+    positions: list,
+    horizon_years: int,
+    start_year: int,
+    *,
+    fx_source=None,
+    target_currency: str = "CHF",
+) -> list[int]:
     """Jahres-Anpassung der Zinslast für die PROJEKTION (Rappen, additiv auf das
     Netto-Cashflow-Series). Pro Jahr i: Summe über Hypotheken von
     (Zins_heute − Zins_Jahr_i). Positiv = weniger Zinslast (direkte Amortisation
@@ -176,8 +225,61 @@ def mortgage_interest_adjustment_series(positions: list, horizon_years: int, sta
             continue
         base = s[0]  # entspricht dem statischen 'heutigen' Hypothekarzins
         for i in range(n):
-            adj[i] += base - s[i]
+            adj[i] += _convert_position_rappen(
+                base - s[i],
+                pos,
+                fx_source,
+                target_currency,
+            )
     return adj
+
+
+def mortgage_amortization_adjustment_series(
+    positions: list,
+    horizon_years: int,
+    *,
+    fx_source=None,
+    target_currency: str = "CHF",
+) -> list[int]:
+    """Correct the recurring direct-amortization cashflow after payoff.
+
+    ``derive_wealth_cashflows`` exposes the entered annual amount so the
+    current cashflow view stays transparent.  A direct mortgage can, however,
+    pay at most its remaining principal.  This series is added to the negative
+    base cashflow and therefore contains the positive overstatement to reverse.
+    Indirect amortization remains a recurring transfer into the pledged-asset
+    series and is deliberately not capped here.
+    """
+    n = max(0, int(horizon_years or 0))
+    adjustment = [0] * n
+    for pos in positions or []:
+        if getattr(pos, "deleted_at", None):
+            continue
+        if int(getattr(pos, "is_active", 1) or 0) != 1:
+            continue
+        if str(getattr(pos, "position_type", "") or "") != "Hypothek":
+            continue
+        if not _is_direct_amortization(
+            getattr(pos, "mortgage_amortization_type", None)
+        ):
+            continue
+        debt = abs(int(getattr(pos, "current_value_rappen", 0) or 0))
+        annual = abs(
+            int(getattr(pos, "mortgage_amortization_rappen", 0) or 0)
+        )
+        if annual <= 0:
+            continue
+        remaining = debt
+        for index in range(n):
+            actual_payment = min(annual, remaining)
+            adjustment[index] += _convert_position_rappen(
+                annual - actual_payment,
+                pos,
+                fx_source,
+                target_currency,
+            )
+            remaining -= actual_payment
+    return adjustment
 
 
 def derive_wealth_cashflows(positions: list) -> list[DerivedCashflow]:
@@ -217,14 +319,14 @@ def derive_wealth_cashflows(positions: list) -> list[DerivedCashflow]:
                 origin_assignment=assignment,
             ))
 
-        if ptype == "Hypothek":
+        if is_mortgage_position(ptype):
             _mk("mortgage_interest", "Expense",
                 _rate_amount(value, getattr(pos, "mortgage_interest_rate_bps", 0)),
                 f"Hypothekarzins: {label}")
             _mk("mortgage_amortization", "Expense",
                 abs(int(getattr(pos, "mortgage_amortization_rappen", 0) or 0)),
                 f"Amortisation: {label}")
-        elif ptype == "Immobilien":
+        elif is_direct_real_estate_position(ptype):
             # Mieteinnahme nur ableiten, wenn die Liegenschaft auch einen Wert > 0 hat.
             # Sonst entstünde Einkommen ohne Substanz (Wert 0 + Miete = Dateneingabe-
             # Fehler / Inkonsistenz): die IST-Cashflow-Projektion zeigte Mieterträge,
@@ -234,7 +336,7 @@ def derive_wealth_cashflows(positions: list) -> list[DerivedCashflow]:
                     abs(int(getattr(pos, "property_rental_income_rappen", 0) or 0)),
                     f"Mieteinnahmen: {label}",
                     inflation_linked=int(getattr(pos, "property_rental_inflation_linked", 0) or 0))
-        elif ptype == "Liquidität":
+        elif is_liquidity_position(ptype):
             interest = _rate_amount(value, getattr(pos, "liquidity_interest_rate_bps", 0))
             if interest >= 0:
                 _mk("liquidity_interest", "Income", interest,
@@ -270,31 +372,34 @@ def derive_tax_cashflow(mandate, total_wealth_rappen: int) -> list[DerivedCashfl
     Einkommenssteuer-Tabelle -- eine "geschaetzte Einkommensteuer" waere ohne
     echte Tarif-Stufen/Abzuege irrefuehrend genauer als sie tatsaechlich ist.
 
-    Liefert eine leere Liste (kein Render-Bruch) wenn: Flag aus, kein
-    Vermoegen, keine tax_jurisdiction gesetzt, oder die Regime-Auflösung
-    fehlschlaegt (fail-soft, identisch zum Solver-Pfad)."""
+    Liefert eine leere Liste wenn: Flag aus, kein Vermoegen, keine
+    tax_jurisdiction gesetzt oder das explizit konfigurierte Regime keine
+    Vermoegenssteuer unterstuetzt. Eine konfigurierte, aber nicht aufloesbare
+    Steuerbasis ist dagegen ein Domainfehler und wird bewusst nicht als
+    steuerfreier Cashflow verschluckt (identisch zum Solver-Pfad)."""
     if not int(getattr(mandate, "tax_estimate_in_cashflow_enabled", 0) or 0):
         return []
+    # Resolve the activated tax basis before wealth-dependent early returns.
+    # Zero wealth must not hide a persisted, unusable opt-in configuration.
+    from services.portfolio_engine_optimizer_integration import _build_tax_solver_kwargs
+
+    tax_kwargs = _build_tax_solver_kwargs(mandate)
     wealth = int(total_wealth_rappen or 0)
     if wealth <= 0:
         return []
-    try:
-        from services.portfolio_engine_optimizer_integration import _build_tax_solver_kwargs
-        tax_kwargs = _build_tax_solver_kwargs(mandate)
-        regime = tax_kwargs.get("tax_regime")
-        if regime is None or not getattr(regime, "supports_wealth_tax", False):
-            return []
-        from services.tax.base import TaxContext
-        ctx = TaxContext(
-            year_index=0,
-            calendar_year=int(tax_kwargs.get("base_calendar_year", 0)) or 2026,
-            wealth_rappen=float(wealth),
-            age=None,
-        )
-        result = regime.annual_wealth_tax(ctx)
-        amount = int(round(result.amount_rappen))
-    except Exception:  # noqa: BLE001 - Steuer-Schaetzung darf Cashflow-Projektion nie killen
+    regime = tax_kwargs.get("tax_regime")
+    if regime is None or not getattr(regime, "supports_wealth_tax", False):
         return []
+    from services.tax.base import TaxContext
+
+    ctx = TaxContext(
+        year_index=0,
+        calendar_year=int(tax_kwargs.get("base_calendar_year", 0)) or 2026,
+        wealth_rappen=float(wealth),
+        age=None,
+    )
+    result = regime.annual_wealth_tax(ctx)
+    amount = int(round(result.amount_rappen))
     if amount <= 0:
         return []
     mandate_id = str(getattr(mandate, "id", "") or "")

@@ -69,7 +69,10 @@ def _hm_wachstum():
 def _hm_konservativ():
     return SimpleNamespace(
         profile_name="Konservativ",
-        equity_min_bps=500, equity_max_bps=2500, equity_target_bps=1500,
+        # A score-20 mandate must be able to reach the 20% hard risk cap. With
+        # 50% bonds and only 20% max liquidity, a positive equity floor makes
+        # the fixture structurally infeasible before optimization.
+        equity_min_bps=0, equity_max_bps=2500, equity_target_bps=1500,
         bonds_min_bps=5000, bonds_max_bps=8000, bonds_target_bps=6500,
         real_estate_min_bps=0, real_estate_max_bps=1500, real_estate_target_bps=500,
         alt_min_bps=0, alt_max_bps=500, alt_target_bps=200,

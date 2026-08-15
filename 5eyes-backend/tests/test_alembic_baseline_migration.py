@@ -19,6 +19,7 @@ Verifiziert:
 """
 from __future__ import annotations
 
+from io import StringIO
 import sys
 from pathlib import Path
 
@@ -50,6 +51,15 @@ import models.tax  # noqa: E402,F401
 import models.tenant  # noqa: E402,F401
 import models.users  # noqa: E402,F401
 import models.wealth  # noqa: E402,F401
+
+
+# Operational tables intentionally use raw SQL services instead of ORM
+# entities.  They are nevertheless part of the Alembic-owned PostgreSQL
+# schema and therefore expected in a fully upgraded database.
+ALEMBIC_ONLY_RUNTIME_TABLES = {
+    "provider_health_events",
+    "market_data_purge_history",
+}
 
 
 def test_sqlite_url_dispatches_to_create_all(monkeypatch):
@@ -99,7 +109,7 @@ def test_baseline_migration_matches_current_models(tmp_path):
     migrated_tables = set(inspect(engine).get_table_names()) - {"alembic_version"}
     engine.dispose()
 
-    expected_tables = set(Base.metadata.tables.keys())
+    expected_tables = set(Base.metadata.tables.keys()) | ALEMBIC_ONLY_RUNTIME_TABLES
     missing_from_migration = expected_tables - migrated_tables
     extra_in_migration = migrated_tables - expected_tables
     assert not missing_from_migration, (
@@ -108,6 +118,77 @@ def test_baseline_migration_matches_current_models(tmp_path):
     )
     assert not extra_in_migration, (
         f"Tabellen in der Baseline-Migration, aber nicht mehr in Base.metadata: {extra_in_migration}."
+    )
+
+
+def test_head_migration_matches_target_allocation_model_columns(tmp_path):
+    """Decision artefacts must exist in the versioned production schema.
+
+    Postgres is created exclusively through ``alembic upgrade head``.  A
+    SQLite runtime-column repair therefore cannot compensate for a missing
+    Alembic revision.  Applying the complete revision chain to an empty DB
+    and comparing it with the ORM catches that deployment-only failure.
+    """
+    from alembic import command
+    from alembic.config import Config as AlembicConfig
+
+    db_file = tmp_path / "alembic_target_allocation_columns.db"
+    db_url = f"sqlite:///{db_file}"
+
+    cfg = AlembicConfig(str(BACKEND_ROOT / "alembic.ini"))
+    cfg.set_main_option("sqlalchemy.url", db_url)
+    cfg.set_main_option("script_location", str(BACKEND_ROOT / "alembic"))
+    command.upgrade(cfg, "head")
+
+    engine = create_engine(db_url)
+    migrated_columns = {
+        column["name"] for column in inspect(engine).get_columns("target_allocations")
+    }
+    engine.dispose()
+
+    expected_columns = set(Base.metadata.tables["target_allocations"].columns.keys())
+    assert migrated_columns == expected_columns, (
+        "Alembic head und TargetAllocation-ORM haben unterschiedliche Spalten: "
+        f"missing={expected_columns - migrated_columns}, "
+        f"extra={migrated_columns - expected_columns}"
+    )
+    engine = create_engine(db_url)
+    optimizer_run_columns = {
+        column["name"] for column in inspect(engine).get_columns("optimizer_runs")
+    }
+    engine.dispose()
+    assert optimizer_run_columns == set(
+        Base.metadata.tables["optimizer_runs"].columns.keys()
+    )
+
+
+def test_head_emits_postgres_ddl_for_allocation_decision_artifacts():
+    """The production dialect must receive all three additive columns."""
+    from alembic import command
+    from alembic.config import Config as AlembicConfig
+
+    output = StringIO()
+    cfg = AlembicConfig(str(BACKEND_ROOT / "alembic.ini"), output_buffer=output)
+    cfg.set_main_option(
+        "sqlalchemy.url", "postgresql://migration-test:unused@localhost/unused"
+    )
+    cfg.set_main_option("script_location", str(BACKEND_ROOT / "alembic"))
+    command.upgrade(cfg, "head", sql=True)
+
+    ddl = output.getvalue().lower()
+    for column_name in (
+        "sub_allocations_json",
+        "effective_constraints_json",
+        "allocation_context_hash",
+        "context_artifacts_required",
+    ):
+        expected_type = "integer" if column_name == "context_artifacts_required" else "varchar"
+        assert (
+            f"alter table target_allocations add column {column_name} {expected_type}" in ddl
+        ), f"Postgres-DDL fuer {column_name} fehlt"
+    assert (
+        "alter table optimizer_runs add column robustification_json varchar"
+        in ddl
     )
 
 

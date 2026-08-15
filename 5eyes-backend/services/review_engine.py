@@ -10,15 +10,60 @@ from models.profiling import RiskAssessment
 from models.review import AdvisoryLog, RecommendationPosition, RecommendationRun, ReviewTrigger
 from price_updater import summarize_price_quality
 from services.portfolio_engine import (
+    StaleAllocationInputError,
+    _current_risk_assessment_or_none,
+    _current_target_allocation_or_none,
+    _build_bucket_response,
+    _norm_text,
+    _summarize_positions,
+    _validate_active_wealth_position_semantics,
     build_target_payload_from_allocation,
     ensure_runtime_reference_data,
 )
+from services.jurisdiction.resolve import resolve_mandate_jurisdiction
 
 
 SYSTEM_TRIGGER_REVIEW = "Jahres-Review (System)"
 SYSTEM_TRIGGER_DRIFT = "Bandbreitenverletzung (System)"
 SYSTEM_TRIGGER_GOALS = "Zielerreichung gefaehrdet (System)"
 SYSTEM_TRIGGER_MARKET_DATA = "Marktdaten veraltet (System)"
+
+
+def _build_current_drift_buckets(
+    db: Session,
+    mandate: Mandate,
+    allocation: TargetAllocation,
+) -> list[dict]:
+    """Build live bucket weights without recalculating strategy analytics."""
+    from models.wealth import WealthPosition
+    from services.currency.fx_rates import FXRateSource
+
+    positions = db.query(WealthPosition).filter(
+        WealthPosition.client_id == mandate.client_id,
+        WealthPosition.deleted_at.is_(None),
+        WealthPosition.is_active == 1,
+    ).all()
+    _validate_active_wealth_position_semantics(positions)
+    advisory_positions = [
+        position
+        for position in positions
+        if _norm_text(getattr(position, "assignment", None))
+        == "Beratungsvermoegen"
+    ]
+    fx_source = FXRateSource.from_db_for_model(db)
+    target_currency = str(
+        getattr(mandate, "base_currency", "CHF") or "CHF"
+    ).upper().strip()
+    summary = _summarize_positions(
+        advisory_positions,
+        fx_source=fx_source,
+        target_currency=target_currency,
+    )
+    return _build_bucket_response(
+        allocation,
+        summary.amounts_rappen,
+        summary.total_rappen,
+    )
 
 
 def _now() -> str:
@@ -143,30 +188,42 @@ def refresh_system_review_triggers(
     )
     review_trigger.updated_at = now
 
-    assessment = db.query(RiskAssessment).filter(
-        RiskAssessment.mandate_id == mandate.id,
-        RiskAssessment.is_current == 1,
-        RiskAssessment.deleted_at.is_(None),
-    ).first()
-    allocation = db.query(TargetAllocation).filter(
-        TargetAllocation.mandate_id == mandate.id,
-        TargetAllocation.is_current == 1,
-        TargetAllocation.deleted_at.is_(None),
-    ).first()
+    assessment = _current_risk_assessment_or_none(db, mandate.id)
+    allocation = _current_target_allocation_or_none(db, mandate.id)
 
     if assessment and allocation:
         payload = allocation_payload
+        goal_analysis_trusted = payload is not None
         if payload is None:
-            policy, cma = ensure_runtime_reference_data(db, user_id)
-            payload = build_target_payload_from_allocation(
-                db=db,
-                mandate=mandate,
-                allocation=allocation,
-                policy=policy,
-                cma=cma,
-                assessment=assessment,
-                preferences=None,
+            policy, cma = ensure_runtime_reference_data(
+                db,
+                user_id,
+                jurisdiction=resolve_mandate_jurisdiction(mandate),
+                tenant_id=getattr(mandate, "tenant_id", None),
             )
+            try:
+                payload = build_target_payload_from_allocation(
+                    db=db,
+                    mandate=mandate,
+                    allocation=allocation,
+                    policy=policy,
+                    cma=cma,
+                    assessment=assessment,
+                    preferences=None,
+                )
+                goal_analysis_trusted = True
+            except StaleAllocationInputError:
+                # Changed holdings are exactly what drift monitoring observes.
+                # Keep the strategy/reload gate strict, calculate only current
+                # bucket weights here, and never publish stale goal analytics.
+                payload = {
+                    "buckets": _build_current_drift_buckets(
+                        db,
+                        mandate,
+                        allocation,
+                    )
+                }
+                goal_analysis_trusted = False
 
         live_rebalancing = payload.get("live_rebalancing") or {}
         drift_source = live_rebalancing.get("bucket_drifts") or payload.get("buckets", [])
@@ -231,6 +288,8 @@ def refresh_system_review_triggers(
             goal for goal in payload.get("goal_analysis", [])
             if int(goal.get("achievement_score") or 0) < 45
         ]
+        if not goal_analysis_trusted:
+            endangered_goals = None
         if endangered_goals:
             goal_trigger = _get_or_create_system_trigger(
                 db=db,
@@ -249,7 +308,7 @@ def refresh_system_review_triggers(
             )
             goal_trigger.triggered_notes = "Mindestens ein Ziel liegt gemaess Goal Engine unter 45% Zielerreichung."
             goal_trigger.updated_at = now
-        else:
+        elif endangered_goals is not None:
             _resolve_system_trigger(
                 db=db,
                 mandate_id=mandate.id,

@@ -14,6 +14,8 @@ import uuid
 import datetime
 from pathlib import Path
 
+import pytest
+
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
@@ -73,6 +75,157 @@ def test_advisory_report_reserve_recompute_also_feeds_tax_estimate_cashflow():
     assert "derive_tax_cashflow(mandate, total_wealth_rappen)" in src, (
         "_recompute_reserve_reasoning speist die geschätzte Vermögenssteuer nicht ein"
     )
+
+
+@pytest.mark.parametrize(
+    ("assignment", "expected_solver_interest_bps"),
+    [
+        pytest.param("Beratungsvermögen", 0, id="advisory-interest-is-return"),
+        pytest.param("Anderes Vermögen", 10000, id="external-interest-is-cashflow"),
+    ],
+)
+def test_liquidity_interest_is_not_double_counted_in_solver_cashflows(
+    session_factory,
+    assignment,
+    expected_solver_interest_bps,
+):
+    """Portfolio interest stays visible, but only external interest funds goals.
+
+    The advised portfolio's CMA total return already contains its liquidity
+    return. Its derived interest remains part of reporting/reserve cashflows,
+    but must not enter the stochastic solver a second time. Interest from
+    assets outside the advised portfolio is genuine external funding and must
+    therefore remain in both series.
+    """
+    advisor_id, client_id, mandate_id, _aid, _gid = _seed_realistic_mandate(
+        session_factory,
+        suffix=f"interest-{expected_solver_interest_bps}",
+    )
+    interest_rappen = 1_000_00
+    position_id = f"pos-interest-{uuid.uuid4().hex[:8]}"
+
+    with session_factory() as session:
+        mandate = session.query(Mandate).filter(Mandate.id == mandate_id).one()
+        mandate.tax_estimate_in_cashflow_enabled = 0
+        _policy, cma = pe.ensure_runtime_reference_data(session, advisor_id)
+        baseline = pe._load_allocation_inputs(session, mandate, {}, cma=cma)
+
+        session.add(WealthPosition(
+            id=position_id,
+            client_id=client_id,
+            label=f"Zinskonto {assignment}",
+            position_type="Liquidität",
+            assignment=assignment,
+            current_value_rappen=100_000_00,
+            currency="CHF",
+            valuation_date=datetime.date.today().isoformat(),
+            liquidity_interest_rate_bps=100,
+            is_active=1,
+            created_at=_now(),
+            updated_at=_now(),
+        ))
+        session.flush()
+        with_interest = pe._load_allocation_inputs(session, mandate, {}, cma=cma)
+
+    reporting_delta = [
+        int(current) - int(original)
+        for current, original in zip(
+            with_interest["cashflow_projection_series_rappen"],
+            baseline["cashflow_projection_series_rappen"],
+        )
+    ]
+    solver_delta = [
+        int(current) - int(original)
+        for current, original in zip(
+            with_interest["optimizer_cashflow_projection_series_rappen"],
+            baseline["optimizer_cashflow_projection_series_rappen"],
+        )
+    ]
+    assert reporting_delta and set(reporting_delta) == {interest_rappen}
+    assert solver_delta == [
+        interest_rappen * expected_solver_interest_bps // 10000
+    ] * len(reporting_delta)
+    derived_interest = next(
+        cashflow
+        for cashflow in with_interest["cashflows"]
+        if getattr(cashflow, "origin_position_id", None) == position_id
+    )
+    assert derived_interest.amount_rappen == interest_rappen
+    assert derived_interest.origin_assignment == assignment
+
+
+def test_solver_removes_only_advisory_share_of_total_wealth_tax(
+    session_factory,
+):
+    """External wealth tax remains a solver cashflow when only advisory wealth grows."""
+    from services.wealth_cashflows import derive_tax_cashflow
+
+    advisor_id, client_id, mandate_id, _aid, _gid = _seed_realistic_mandate(
+        session_factory,
+        suffix="tax-scope-500-500",
+    )
+    with session_factory() as session:
+        session.add(WealthPosition(
+            id=f"pos-external-tax-{uuid.uuid4().hex[:8]}",
+            client_id=client_id,
+            label="Externes Vermögen",
+            position_type="Depot",
+            assignment="Anderes Vermögen",
+            current_value_rappen=500_000_00,
+            currency="CHF",
+            valuation_date=datetime.date.today().isoformat(),
+            is_active=1,
+            created_at=_now(),
+            updated_at=_now(),
+        ))
+        mandate = session.query(Mandate).filter(Mandate.id == mandate_id).one()
+        mandate.tax_jurisdiction = "CH"
+        mandate.tax_overrides_json = None
+        mandate.tax_estimate_in_cashflow_enabled = 0
+        _policy, cma = pe.ensure_runtime_reference_data(session, advisor_id)
+        session.flush()
+        baseline = pe._load_allocation_inputs(session, mandate, {}, cma=cma)
+
+        assert baseline["advisory_wealth_rappen"] == 500_000_00
+        assert baseline["total_wealth_rappen"] == 1_000_000_00
+        mandate.tax_estimate_in_cashflow_enabled = 1
+        with_tax = pe._load_allocation_inputs(session, mandate, {}, cma=cma)
+
+        total_tax_rappen = derive_tax_cashflow(
+            mandate,
+            with_tax["total_wealth_rappen"],
+        )[0].amount_rappen
+        advisory_tax_rappen = derive_tax_cashflow(
+            mandate,
+            with_tax["advisory_wealth_rappen"],
+        )[0].amount_rappen
+
+    external_tax_rappen = total_tax_rappen - advisory_tax_rappen
+    assert total_tax_rappen == 400_000
+    assert advisory_tax_rappen == 200_000
+    assert external_tax_rappen == 200_000
+    reporting_delta = [
+        int(current) - int(original)
+        for current, original in zip(
+            with_tax["cashflow_projection_series_rappen"],
+            baseline["cashflow_projection_series_rappen"],
+        )
+    ]
+    solver_delta = [
+        int(current) - int(original)
+        for current, original in zip(
+            with_tax["optimizer_cashflow_projection_series_rappen"],
+            baseline["optimizer_cashflow_projection_series_rappen"],
+        )
+    ]
+    assert reporting_delta and set(reporting_delta) == {-total_tax_rappen}
+    assert solver_delta == [-external_tax_rappen] * len(reporting_delta)
+    persisted_reporting_tax = next(
+        cashflow
+        for cashflow in with_tax["cashflows"]
+        if getattr(cashflow, "source", None) == "tax_estimate"
+    )
+    assert persisted_reporting_tax.amount_rappen == total_tax_rappen
 
 
 def _add_mortgage(session_factory, client_id, value=400_000_00, rate_bps=200,

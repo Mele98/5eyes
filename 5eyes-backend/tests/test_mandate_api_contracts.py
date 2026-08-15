@@ -18,6 +18,7 @@ from database import Base, get_db
 from main import app
 from models.users import User
 from services.auth import get_current_user
+from tests.risk_fixture_helpers import noop_lifespan
 
 
 def _utc_now_iso() -> str:
@@ -54,13 +55,14 @@ def advisor_user():
 
 
 @pytest.fixture()
-def auth_client(session_factory, advisor_user):
+def auth_client(session_factory, advisor_user, monkeypatch):
     def override_db():
         with session_factory() as session:
             yield session
 
     app.dependency_overrides[get_db] = override_db
     app.dependency_overrides[get_current_user] = lambda: advisor_user
+    monkeypatch.setattr(app.router, "lifespan_context", noop_lifespan)
     with TestClient(app) as client:
         yield client
     app.dependency_overrides.clear()
@@ -88,6 +90,91 @@ def _create_mandate(auth_client: TestClient, client_id: str, number: str = "FOUN
     )
     assert response.status_code == 201, response.text
     return response.json()["id"]
+
+
+def _direct_property_payload(*, assignment: str) -> dict:
+    return {
+        "label": "Renditeliegenschaft",
+        "position_type": "Immobilien",
+        "assignment": assignment,
+        "current_value_rappen": 1_000_000_00,
+        "property_rental_income_rappen": 30_000_00,
+        "property_rental_inflation_linked": 0,
+    }
+
+
+def test_direct_real_estate_create_api_rejects_advisory_scope(
+    auth_client,
+    advisor_user,
+):
+    """Direct property is total-wealth context, never a tradable SAA asset."""
+    client_id = _create_client(auth_client, advisor_user)
+
+    response = auth_client.post(
+        f"/clients/{client_id}/wealth-positions",
+        json=_direct_property_payload(assignment="Beratungsvermögen"),
+    )
+
+    assert response.status_code == 422, response.text
+    detail = str(response.json().get("detail"))
+    assert "Direktimmobilien" in detail
+    assert "Anderes Vermögen" in detail
+
+
+def test_direct_real_estate_update_api_validates_merged_existing_position(
+    auth_client,
+    advisor_user,
+):
+    """A partial update must combine its assignment with the stored type."""
+    client_id = _create_client(auth_client, advisor_user)
+    created = auth_client.post(
+        f"/clients/{client_id}/wealth-positions",
+        json=_direct_property_payload(assignment="Anderes Vermögen"),
+    )
+    assert created.status_code == 201, created.text
+    position_id = created.json()["id"]
+
+    response = auth_client.put(
+        f"/clients/{client_id}/wealth-positions/{position_id}",
+        json={"assignment": "Beratungsvermögen"},
+    )
+
+    assert response.status_code == 422, response.text
+    detail = str(response.json().get("detail"))
+    assert "Direktimmobilien" in detail
+    assert "Anderes Vermögen" in detail
+    reloaded = auth_client.get(f"/clients/{client_id}/wealth-positions")
+    assert reloaded.status_code == 200, reloaded.text
+    assert reloaded.json()[0]["assignment"] == "Anderes Vermögen"
+
+
+@pytest.mark.parametrize("invalid_assignment", [None, "banana"])
+def test_wealth_position_update_rejects_invalid_assignment_without_mutation(
+    auth_client,
+    advisor_user,
+    invalid_assignment,
+):
+    client_id = _create_client(auth_client, advisor_user)
+    created = auth_client.post(
+        f"/clients/{client_id}/wealth-positions",
+        json={
+            "label": "Konto",
+            "position_type": "Liquidität",
+            "assignment": "Anderes Vermögen",
+            "current_value_rappen": 100_000_00,
+        },
+    )
+    assert created.status_code == 201, created.text
+
+    response = auth_client.put(
+        f"/clients/{client_id}/wealth-positions/{created.json()['id']}",
+        json={"assignment": invalid_assignment},
+    )
+
+    assert response.status_code == 422, response.text
+    reloaded = auth_client.get(f"/clients/{client_id}/wealth-positions")
+    assert reloaded.status_code == 200, reloaded.text
+    assert reloaded.json()[0]["assignment"] == "Anderes Vermögen"
 
 
 def test_create_mandate_persists_investment_universe(auth_client, advisor_user):
@@ -134,6 +221,34 @@ def test_update_mandate_roundtrips_building_block_defaults(auth_client, advisor_
     reload_response = auth_client.get(f"/mandates/{mandate['id']}")
     assert reload_response.status_code == 200, reload_response.text
     assert json.loads(reload_response.json()["default_building_blocks_json"]) == defaults
+
+
+@pytest.mark.parametrize(
+    "defaults",
+    [
+        {"equitiesGeo": "Glboal"},
+        {"altsPe": "false"},
+        {"someUnknownKey": True},
+    ],
+)
+def test_update_mandate_rejects_invalid_building_block_defaults(
+    auth_client, advisor_user, defaults,
+):
+    client_id = _create_client(auth_client, advisor_user)
+    mandate = auth_client.post(
+        f"/clients/{client_id}/mandates",
+        json={
+            "mandate_number": (
+                "BAD-PREF-"
+                + str(abs(hash(json.dumps(defaults, sort_keys=True))))
+            )
+        },
+    ).json()
+    response = auth_client.put(
+        f"/mandates/{mandate['id']}",
+        json={"default_building_blocks_json": json.dumps(defaults)},
+    )
+    assert response.status_code == 422, response.text
 
 
 def test_create_mandate_hidden_report_sections_defaults_to_null(auth_client, advisor_user):
@@ -413,3 +528,156 @@ def test_goal_update_cannot_leave_stale_amount_when_switching_to_return_goal(aut
 
     assert response.status_code == 422, response.text
     assert "Zielbetrag" in response.text
+
+
+def test_create_mandate_persists_complete_activated_model_inputs(
+    auth_client,
+    advisor_user,
+):
+    client_id = _create_client(auth_client, advisor_user)
+
+    response = auth_client.post(
+        f"/clients/{client_id}/mandates",
+        json={
+            "mandate_number": "FOUND-M-FEATURES-VALID",
+            "mandate_type": "Anlageberatung",
+            "jurisdiction": "CH",
+            "client_birth_year": 1980,
+            "client_sex": "F",
+            "use_mortality_simulation": True,
+            "tax_jurisdiction": "CH-ZH",
+            "tax_overrides_json": '{"wealth_tax_bps_pa": 12}',
+            "tax_estimate_in_cashflow_enabled": True,
+        },
+    )
+
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["client_birth_year"] == 1980
+    assert body["client_sex"] == "F"
+    assert body["use_mortality_simulation"] is True
+    assert body["tax_jurisdiction"] == "CH-ZH"
+    assert body["tax_overrides_json"] == '{"wealth_tax_bps_pa": 12}'
+    assert body["tax_estimate_in_cashflow_enabled"] is True
+
+
+@pytest.mark.parametrize(
+    ("feature_fields", "expected_detail"),
+    [
+        (
+            {
+                "jurisdiction": "DE",
+                "client_birth_year": 1980,
+                "client_sex": "M",
+                "use_mortality_simulation": True,
+            },
+            "CH",
+        ),
+        (
+            {
+                "jurisdiction": "CH",
+                "client_birth_year": 1980,
+                "use_mortality_simulation": True,
+            },
+            "client_sex",
+        ),
+        (
+            {
+                "jurisdiction": "CH",
+                "client_birth_year": 2200,
+                "client_sex": "F",
+                "use_mortality_simulation": True,
+            },
+            "client_birth_year",
+        ),
+        (
+            {"tax_estimate_in_cashflow_enabled": True},
+            "tax_jurisdiction",
+        ),
+        (
+            {"tax_overrides_json": '{"wealth_tax_bps_pa": 12}'},
+            "tax_jurisdiction",
+        ),
+    ],
+)
+def test_create_mandate_rejects_incomplete_activated_model_inputs(
+    auth_client,
+    advisor_user,
+    feature_fields,
+    expected_detail,
+):
+    client_id = _create_client(auth_client, advisor_user)
+    payload = {
+        "mandate_number": f"FOUND-M-FEATURES-{expected_detail}-{len(feature_fields)}",
+        "mandate_type": "Anlageberatung",
+        **feature_fields,
+    }
+
+    response = auth_client.post(f"/clients/{client_id}/mandates", json=payload)
+
+    assert response.status_code == 422, response.text
+    assert expected_detail in response.text
+
+
+def test_update_mandate_validates_merged_mortality_inputs_without_mutation(
+    auth_client,
+    advisor_user,
+):
+    client_id = _create_client(auth_client, advisor_user)
+    mandate_id = _create_mandate(
+        auth_client,
+        client_id,
+        "FOUND-M-FEATURES-MORTALITY-UPDATE",
+    )
+    enabled = auth_client.put(
+        f"/mandates/{mandate_id}",
+        json={
+            "jurisdiction": "CH",
+            "client_birth_year": 1980,
+            "client_sex": "M",
+            "use_mortality_simulation": True,
+        },
+    )
+    assert enabled.status_code == 200, enabled.text
+
+    rejected = auth_client.put(
+        f"/mandates/{mandate_id}",
+        json={"jurisdiction": "DE"},
+    )
+
+    assert rejected.status_code == 422, rejected.text
+    assert "CH" in rejected.text
+    reloaded = auth_client.get(f"/mandates/{mandate_id}")
+    assert reloaded.status_code == 200, reloaded.text
+    assert reloaded.json()["jurisdiction"] == "CH"
+
+
+def test_update_mandate_validates_merged_tax_estimate_inputs_without_mutation(
+    auth_client,
+    advisor_user,
+):
+    client_id = _create_client(auth_client, advisor_user)
+    mandate_id = _create_mandate(
+        auth_client,
+        client_id,
+        "FOUND-M-FEATURES-TAX-UPDATE",
+    )
+    enabled = auth_client.put(
+        f"/mandates/{mandate_id}",
+        json={
+            "tax_jurisdiction": "CH",
+            "tax_estimate_in_cashflow_enabled": True,
+        },
+    )
+    assert enabled.status_code == 200, enabled.text
+
+    rejected = auth_client.put(
+        f"/mandates/{mandate_id}",
+        json={"tax_jurisdiction": None},
+    )
+
+    assert rejected.status_code == 422, rejected.text
+    assert "tax_jurisdiction" in rejected.text
+    reloaded = auth_client.get(f"/mandates/{mandate_id}")
+    assert reloaded.status_code == 200, reloaded.text
+    assert reloaded.json()["tax_jurisdiction"] == "CH"

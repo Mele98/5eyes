@@ -135,7 +135,7 @@ def test_scenario_paths_different_seeds_produce_different_arrays():
 
 
 def test_scenario_paths_with_zero_vol_returns_constant_factor():
-    """sigma=0 -> exp(mu - 0) = exp(mu), kein Random-Effekt."""
+    """sigma=0 -> exp(log1p(mu)) = 1 + mu, kein Random-Effekt."""
     inputs = ScenarioInputs(
         mu_bps=np.full(N_BUCKETS, 500, dtype=np.float64),
         sigma_bps=np.zeros(N_BUCKETS, dtype=np.float64),
@@ -144,9 +144,45 @@ def test_scenario_paths_with_zero_vol_returns_constant_factor():
         cholesky=np.eye(N_BUCKETS),
     )
     paths = build_scenario_paths(inputs, horizon_years=3, n_paths=10, seed=42)
-    # Alle Returns sollten exp(0.05) ~= 1.0513 sein
-    expected = math.exp(0.05)
+    # Eine arithmetische CMA-Rendite von 5% ergibt exakt Faktor 1.05.
+    expected = 1.05
     assert np.allclose(paths, expected, rtol=1e-10)
+
+
+def test_normal_lognormal_paths_preserve_arithmetic_cma_mean_and_volatility():
+    inputs = _identity_inputs(mu=500, sigma=2000)
+    paths = build_scenario_paths(
+        inputs,
+        horizon_years=1,
+        n_paths=200_000,
+        seed=9127,
+        antithetic=False,
+    )
+    simple_returns = paths[:, 0, 0] - 1.0
+
+    assert float(np.mean(simple_returns)) == pytest.approx(0.05, abs=0.0015)
+    assert float(np.std(simple_returns)) == pytest.approx(0.20, abs=0.0020)
+
+
+def test_tail_paths_preserve_cma_moments_after_cornish_fisher_transform():
+    inputs = ScenarioInputs(
+        mu_bps=np.full(N_BUCKETS, 500, dtype=np.float64),
+        sigma_bps=np.full(N_BUCKETS, 3000, dtype=np.float64),
+        skew_bps=np.full(N_BUCKETS, -10_000, dtype=np.float64),
+        excess_kurt_bps=np.full(N_BUCKETS, 80_000, dtype=np.float64),
+        cholesky=np.eye(N_BUCKETS),
+    )
+    paths = build_scenario_paths(
+        inputs,
+        horizon_years=1,
+        n_paths=250_000,
+        seed=4129,
+        antithetic=False,
+    )
+    simple_returns = paths[:, 0, 0] - 1.0
+
+    assert float(np.mean(simple_returns)) == pytest.approx(0.05, abs=0.003)
+    assert float(np.std(simple_returns)) == pytest.approx(0.30, abs=0.004)
 
 
 def test_scenario_paths_antithetic_doubles_paths():

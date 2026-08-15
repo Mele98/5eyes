@@ -31,6 +31,17 @@ def _make_assessment(
     ra.knowledge_instruments_json = "{}" if with_schema_markers else None
     ra.income_sources_json = "[]" if with_schema_markers else None
     ra.answers = []
+    # validate_risk_assessment_model_input() (services/risk_assessment_semantics.py)
+    # verlangt final_profile/override_profile konsistent zum jeweiligen Score --
+    # ohne explizites Setzen liefert MagicMock ein Kind-Mock zurueck, das nie
+    # matcht. Auto-Ableitung haelt diesen Helper fuer alle Call-Sites in
+    # diesem File konsistent, statt jede Stelle einzeln nachzuziehen.
+    ra.final_profile = (
+        profile_for_score_x10(final_score_x10) if final_score_x10 is not None else ""
+    )
+    ra.override_profile = (
+        profile_for_score_x10(override_score_x10) if override_score_x10 is not None else ""
+    )
     return ra
 
 
@@ -41,7 +52,14 @@ def test_score_bucket_zero_maps_to_bucket_1_not_10():
 
 
 def test_score_bucket_uses_override_when_overridden():
-    ra = _make_assessment(is_overridden=1, override_score_x10=70, final_score_x10=30)
+    ra = _make_assessment(
+        is_overridden=1,
+        override_score_x10=70,
+        final_score_x10=30,
+        override_reason=VALID_OVERRIDE_REASON,
+        override_client_confirmed=1,
+        override_warning_delivered=1,
+    )
     assert _risk_score_bucket(ra) == 7
 
 
@@ -50,10 +68,17 @@ def test_score_bucket_uses_final_when_not_overridden():
     assert _risk_score_bucket(ra) == 3
 
 
-def test_score_bucket_uses_final_when_override_score_is_none():
-    """is_overridden=1 but override_score_x10=None should still use final score."""
+def test_score_bucket_raises_when_overridden_flag_set_without_override_score():
+    """is_overridden=1 ohne override_score_x10 ist kein gueltiger Zustand -- die
+    API (schemas.profiling.RiskAssessmentOverride) verlangt override_score_x10
+    als Pflichtfeld, sobald ueberhaupt overridden wird; ein DB-Datensatz mit
+    is_overridden=1 und override_score_x10=NULL ist daher korrupt/unvollstaendig
+    und muss fail-closed abgelehnt werden statt still auf final_score
+    zurueckzufallen (analog test_overridden_flag_without_override_score_still_needs_answers
+    fuer risk_assessment_ready_for_strategy)."""
     ra = _make_assessment(is_overridden=1, override_score_x10=None, final_score_x10=50)
-    assert _risk_score_bucket(ra) == 5
+    with pytest.raises(ValueError, match="override_score_x10"):
+        _risk_score_bucket(ra)
 
 
 def test_score_bucket_all_valid_scores_stay_in_range():

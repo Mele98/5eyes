@@ -119,46 +119,81 @@ def test_mortality_active_produces_death_indices_array():
     assert (ctx.mortality_death_year_index_per_path <= 20).all()
 
 
-def test_mortality_missing_sex_falls_back_to_none():
-    """use_mortality=True aber sex=None → kein Sampling (defensive)."""
+def test_mortality_missing_sex_fails_closed():
+    """Aktivierte Mortalitaet ohne Geschlecht ist unvollstaendiger Modellinput."""
+    from services.optimizer.constraints import OptimizerInputError
     from services.optimizer.solver import build_optimizer_context
 
-    ctx = build_optimizer_context(
-        cma=_MockCMA(),
-        goals=[],
-        house_matrix_row=_MockHouseMatrixRow(),
-        score_x10=50,
-        advisory_wealth_rappen=1_000_000_00,
-        cashflow_series_rappen=[0] * 10,
-        horizon_years=10,
-        n_paths=100,
-        seed=42,
-        client_birth_year=1965,
-        client_sex=None,
-        use_mortality_simulation=True,
-    )
-    assert ctx.mortality_death_year_index_per_path is None
+    with pytest.raises(OptimizerInputError, match="requires client_birth_year"):
+        build_optimizer_context(
+            cma=_MockCMA(),
+            goals=[],
+            house_matrix_row=_MockHouseMatrixRow(),
+            score_x10=50,
+            advisory_wealth_rappen=1_000_000_00,
+            cashflow_series_rappen=[0] * 10,
+            horizon_years=10,
+            n_paths=100,
+            seed=42,
+            client_birth_year=1965,
+            client_sex=None,
+            use_mortality_simulation=True,
+        )
 
 
-def test_mortality_invalid_sex_falls_back_to_none():
-    """Ungueltiges Sex ('X') → kein Sampling."""
+def test_mortality_invalid_sex_fails_closed():
+    """Aktivierte Mortalitaet akzeptiert ausschliesslich M/F."""
+    from services.optimizer.constraints import OptimizerInputError
     from services.optimizer.solver import build_optimizer_context
 
-    ctx = build_optimizer_context(
-        cma=_MockCMA(),
-        goals=[],
-        house_matrix_row=_MockHouseMatrixRow(),
-        score_x10=50,
-        advisory_wealth_rappen=1_000_000_00,
-        cashflow_series_rappen=[0] * 10,
-        horizon_years=10,
-        n_paths=100,
-        seed=42,
-        client_birth_year=1965,
-        client_sex="X",  # invalid
-        use_mortality_simulation=True,
-    )
-    assert ctx.mortality_death_year_index_per_path is None
+    with pytest.raises(OptimizerInputError, match="requires client_birth_year"):
+        build_optimizer_context(
+            cma=_MockCMA(),
+            goals=[],
+            house_matrix_row=_MockHouseMatrixRow(),
+            score_x10=50,
+            advisory_wealth_rappen=1_000_000_00,
+            cashflow_series_rappen=[0] * 10,
+            horizon_years=10,
+            n_paths=100,
+            seed=42,
+            client_birth_year=1965,
+            client_sex="X",  # invalid
+            use_mortality_simulation=True,
+        )
+
+
+def test_mortality_sampler_error_fails_closed(monkeypatch):
+    """Ein defekter Sampler darf nicht unbemerkt Mortalitaet deaktivieren."""
+    from services.mortality import sampler
+    from services.optimizer.constraints import OptimizerInputError
+    from services.optimizer.solver import build_optimizer_context
+
+    def _broken_sampler(**_kwargs):
+        raise RuntimeError("mortality table unavailable")
+
+    monkeypatch.setattr(sampler, "sample_age_at_death", _broken_sampler)
+
+    with pytest.raises(
+        OptimizerInputError,
+        match="mortality simulation could not be evaluated",
+    ) as exc_info:
+        build_optimizer_context(
+            cma=_MockCMA(),
+            goals=[],
+            house_matrix_row=_MockHouseMatrixRow(),
+            score_x10=50,
+            advisory_wealth_rappen=1_000_000_00,
+            cashflow_series_rappen=[0] * 10,
+            horizon_years=10,
+            n_paths=100,
+            seed=42,
+            client_birth_year=1965,
+            client_sex="M",
+            use_mortality_simulation=True,
+        )
+
+    assert isinstance(exc_info.value.__cause__, RuntimeError)
 
 
 def test_evaluate_weights_with_mortality_returns_different_terminal_wealth():

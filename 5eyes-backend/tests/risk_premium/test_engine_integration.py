@@ -61,6 +61,46 @@ def test_premium_without_ns_falls_back():
     assert inputs.mu_bps[3] == 300
 
 
+def test_premium_with_partial_ns_falls_back():
+    """Beta0+Beta1 allein aktivieren keinen inkonsistenten RP-Sonderpfad."""
+    from services.optimizer.scenario_engine import scenario_inputs_from_cma
+
+    class _CMAPremiumPartialNs(_BaseCMA):
+        bonds_ns_beta0_bps = 400
+        bonds_ns_beta1_bps = -100
+        real_estate_risk_premium_bps = 200
+        alternatives_risk_premium_bps = 300
+
+    inputs = scenario_inputs_from_cma(_CMAPremiumPartialNs())
+    assert inputs.mu_bps[2] == 400
+    assert inputs.mu_bps[3] == 300
+
+
+def test_premium_with_complete_invalid_ns_fails_closed():
+    """Ein Premium darf eine vollstaendige kaputte NS-Gruppe nicht verstecken."""
+    from services.cma_validation import CMAValidationError
+    from services.optimizer.constraints import OptimizerInputError
+    from services.optimizer.scenario_engine import (
+        _compute_return_from_risk_premium,
+        scenario_inputs_from_cma,
+    )
+
+    class _CMAPremiumInvalidNs(_BaseCMA):
+        bonds_ns_beta0_bps = 400
+        bonds_ns_beta1_bps = -100
+        bonds_ns_beta2_bps = 50
+        bonds_ns_lambda_x100 = 0
+        real_estate_risk_premium_bps = 200
+
+    with pytest.raises(CMAValidationError, match="bonds_ns_lambda_x100"):
+        _compute_return_from_risk_premium(
+            _CMAPremiumInvalidNs(),
+            "real_estate_risk_premium_bps",
+        )
+    with pytest.raises(OptimizerInputError, match="bonds_ns_lambda_x100"):
+        scenario_inputs_from_cma(_CMAPremiumInvalidNs())
+
+
 def test_premium_with_ns_active_re_return():
     """Premium + NS → re_return = NS.short_rate + premium."""
     from services.optimizer.scenario_engine import scenario_inputs_from_cma

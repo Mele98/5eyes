@@ -460,7 +460,7 @@ def test_f23_integration_total_p10_below_p90_per_year(session_factory):
 
 # Note: deterministisch (_simulate_bucket_path) und MC-Inline-Loop sind
 # unterschiedliche Code-Pfade. Bei vol=0 fallen sie nicht exakt zusammen, weil
-# (1) deterministic nutzt (1+r/10000) linear vs MC exp(mu-0.5*sigma^2), und
+# (1) deterministic nutzt lineares 1+r vs momententreues Lognormal-Mapping, und
 # (2) per-bucket int-Rounding akkumuliert anders. Ein 1:1-Konsistenz-Test war
 # zu naiv und faellt aus. Stattdessen: die individuellen Tests oben pruefen
 # Verhalten direkt (start values, Lebensluecke, Quantil-Ordnung).

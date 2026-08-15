@@ -1,6 +1,10 @@
 from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import Optional, Literal
 from schemas.common import BaseResponse
+from services.wealth_position_semantics import (
+    require_supported_mortgage_amortization,
+    require_supported_position_assignment,
+)
 
 
 # ── Wealth Position ────────────────────────────────────────────────────────────
@@ -54,7 +58,12 @@ class WealthPositionCreate(BaseModel):
     mortgage_linked_property_id: Optional[str] = None
     # Alternative
     asset_subtype: Optional[str] = None
-    asset_expected_return_bps: Optional[int] = None
+    asset_expected_return_bps: Optional[int] = Field(
+        default=None,
+        gt=-10_000,
+        le=100_000,
+        strict=True,
+    )
     asset_liquidity: Optional[str] = None
     asset_valuation_method: Optional[str] = None
     asset_location: Optional[str] = None
@@ -76,6 +85,15 @@ class WealthPositionCreate(BaseModel):
 
     @model_validator(mode="after")
     def validate_depot_alloc(self):
+        require_supported_position_assignment(
+            self.position_type,
+            self.assignment,
+        )
+        require_supported_mortgage_amortization(
+            self.position_type,
+            self.mortgage_amortization_rappen,
+            self.mortgage_amortization_type,
+        )
         if self.position_type == "Depot":
             total = (
                 self.alloc_equities_bps + self.alloc_bonds_bps
@@ -84,6 +102,18 @@ class WealthPositionCreate(BaseModel):
             )
             if total != 10000:
                 raise ValueError(f"Depot Allokation muss 10000 BP ergeben (aktuell: {total})")
+        elif any(
+            (
+                self.alloc_equities_bps,
+                self.alloc_bonds_bps,
+                self.alloc_real_estate_bps,
+                self.alloc_liquidity_bps,
+                self.alloc_alternatives_bps,
+            )
+        ):
+            raise ValueError(
+                "alloc_*-Felder sind ausschliesslich für Depot-Positionen zulässig."
+            )
         if self.position_type == "Hypothek":
             if self.assignment != "Verbindlichkeit":
                 raise ValueError("Hypothek muss assignment='Verbindlichkeit' haben")
@@ -121,7 +151,12 @@ class WealthPositionUpdate(BaseModel):
     mortgage_amortization_type: Optional[str] = None
     mortgage_linked_property_id: Optional[str] = None
     asset_subtype: Optional[str] = None
-    asset_expected_return_bps: Optional[int] = None
+    asset_expected_return_bps: Optional[int] = Field(
+        default=None,
+        gt=-10_000,
+        le=100_000,
+        strict=True,
+    )
     asset_liquidity: Optional[str] = None
     asset_valuation_method: Optional[str] = None
     asset_location: Optional[str] = None
@@ -313,7 +348,7 @@ class MaxPensionSpendingResponse(BaseModel):
     value_mode: str
     expected_return_bps: int
     expected_volatility_bps: int
-    real_return_bps: int  # Ito-korrigierter realer Erwartungswert
+    real_return_bps: int  # realer Modell-Medianwert aus CMA-Momenten
     inflation_bps: int
     advisory_wealth_rappen: int
     safety_margin_pct: int
@@ -347,6 +382,13 @@ class WealthInflowCreate(BaseModel):
                 raise ValueError("is_recurring=1 erfordert frequency 'jaehrlich' oder 'monatlich'")
             if not self.duration_years:
                 raise ValueError("is_recurring=1 erfordert duration_years")
+        else:
+            if self.frequency not in (None, "einmalig"):
+                raise ValueError(
+                    "is_recurring=0 erlaubt nur frequency 'einmalig' oder leer"
+                )
+            if self.duration_years is not None:
+                raise ValueError("is_recurring=0 erlaubt keine duration_years")
         return self
 
 
@@ -475,6 +517,15 @@ def _validate_goal_field_isolation(goal, *, require_targets: bool) -> None:
         forbid("target_return_bps", "target_wealth_rappen")
         if require_targets and not _has_value(getattr(goal, "frequency", None)):
             raise ValueError("Cashflow-Ziel benötigt frequency")
+        if _has_value(getattr(goal, "frequency", None)):
+            _validate_frequency_field(getattr(goal, "frequency", None))
+            from services.cashflow_timeline import normalize_frequency
+
+            if normalize_frequency(getattr(goal, "frequency", None)) == "einmalig":
+                raise ValueError(
+                    "Wiederkehrende und Pensions-Ziele erlauben keine "
+                    "einmalige Frequenz"
+                )
     elif key in {"kapitalerhalt", "vermoegensziel"}:
         forbid("target_return_bps", "target_amount_rappen", "frequency")
         if require_targets and not _has_value(getattr(goal, "target_wealth_rappen", None)):

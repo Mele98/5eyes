@@ -83,12 +83,15 @@ unkorreliert). Optional lässt sich ein **Krisen-Korrelationsmodus** zuschalten,
 der die Korrelationen der Risky-Assets Richtung +0,9 zieht (Diversifikations-
 Zusammenbruch im Stress), während Liquidität als Safe-Haven unkorreliert bleibt.
 
-**Log-Normal-Wachstum mit Itô-Korrektur.** Der Jahres-Wachstumsfaktor je
-Anlageklasse ist `exp(μ_ln + σ · Z)` mit `μ_ln = μ − ½σ²`. Die Itô-/Konvexitäts-
-Korrektur `−½σ²` stellt sicher, dass der arithmetische Erwartungswert der
-(log-normalen) Rendite dem CMA-Erwartungswert entspricht und die Volatilität den
-Median nicht systematisch nach oben verzerrt. Ein optionaler Stress-Multiplikator
-skaliert σ.
+**Momententreues Log-Normal-Wachstum.** Die CMA-Werte `μ` und `σ` sind
+Mittelwert und Standardabweichung des einfachen Returns. Mit
+`v = log(1 + (σ/(1+μ))²)`, `σ_ln = sqrt(v)` und
+`μ_ln = log(1+μ) − ½v` lautet der Jahresfaktor
+`exp(μ_ln + σ_ln · Z)`. Dadurch entsprechen sowohl Erwartungswert als auch
+einfache Return-Volatilität exakt den CMA-Momenten. Bei Cornish-Fisher-Tails
+werden Location und Scale nach Begrenzung der Innovation numerisch auf dieselben
+Momente kalibriert. Ein optionaler Stress-Multiplikator skaliert die einfache
+CMA-Volatilität vor dieser Abbildung.
 
 **Cornish-Fisher-Fat-Tails.** Bei aktivierter Tail-Risk-Option werden die
 korrelierten Normal-Samples je Anlageklasse über eine **Cornish-Fisher-Expansion

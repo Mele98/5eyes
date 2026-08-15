@@ -16,6 +16,8 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 import services.tax  # noqa: F401,E402  -- loest @register_regime fuer alle Regimes aus
+import pytest  # noqa: E402
+from services.optimizer.constraints import OptimizerInputError  # noqa: E402
 from services.wealth_cashflows import derive_tax_cashflow  # noqa: E402
 
 
@@ -48,10 +50,11 @@ def test_zero_or_negative_wealth_returns_empty_list():
     assert derive_tax_cashflow(mandate, -100) == []
 
 
-def test_no_tax_jurisdiction_returns_empty_list():
-    """Kein tax_jurisdiction gesetzt -> Regime-Resolver liefert None -> kein Cashflow."""
+def test_enabled_tax_estimate_without_jurisdiction_fails_closed():
+    """Aktivierte Steuerschaetzung braucht eine explizite Steuerbasis."""
     mandate = _mandate(tax_jurisdiction=None)
-    assert derive_tax_cashflow(mandate, 1_000_000_00) == []
+    with pytest.raises(OptimizerInputError, match="Steuerbasis"):
+        derive_tax_cashflow(mandate, 1_000_000_00)
 
 
 def test_ch_default_wealth_tax_computed_correctly():
@@ -77,11 +80,13 @@ def test_canton_override_changes_amount():
     assert amount_ge > amount_ch
 
 
-def test_unknown_canton_falls_back_without_crash():
+def test_unknown_canton_fails_closed_instead_of_using_country_average():
+    import pytest
+    from services.optimizer.constraints import OptimizerInputError
+
     mandate = _mandate(tax_jurisdiction="CH-XX")
-    rows = derive_tax_cashflow(mandate, 1_000_000_00)
-    assert len(rows) == 1
-    assert rows[0].amount_rappen > 0
+    with pytest.raises(OptimizerInputError, match="Steuerbasis"):
+        derive_tax_cashflow(mandate, 1_000_000_00)
 
 
 def test_tax_overrides_json_applied():
@@ -94,25 +99,41 @@ def test_tax_overrides_json_applied():
     assert rows[0].amount_rappen == 1_000_000  # CHF 10'000 = 1.0% von 1 Mio
 
 
-def test_generic_regime_without_wealth_tax_returns_empty():
-    """Ein Land ohne registriertes Regime faellt auf GenericFlatRateRegime
-    zurueck (wealth_tax_bps_pa=0 Default) -- supports_wealth_tax=False,
-    also kein Cashflow-Eintrag statt CHF 0."""
+def test_unknown_generic_regime_without_explicit_overrides_fails_closed():
+    """Unbekannte Jurisdiktion darf nicht wie steuerfrei behandelt werden."""
+    import pytest
+    from services.optimizer.constraints import OptimizerInputError
+
     mandate = _mandate(tax_jurisdiction="XX-UNKNOWN-COUNTRY")
-    assert derive_tax_cashflow(mandate, 1_000_000_00) == []
+    with pytest.raises(OptimizerInputError, match="Steuerbasis"):
+        derive_tax_cashflow(mandate, 1_000_000_00)
 
 
-def test_negative_wealth_tax_override_never_produces_income():
-    """RT-2-Schutz (siehe services/tax/regimes/generic.py::_make_result):
-    ein versehentlich negativer Override darf niemals als 'Einnahme'
-    (negative Ausgabe) in der Cashflow-Projektion auftauchen."""
+def test_negative_wealth_tax_override_fails_closed_before_cashflow_projection():
+    """Eine ungueltige Rate darf nicht als steuerfreie Projektion erscheinen."""
     import json
+    import pytest
+    from services.optimizer.constraints import OptimizerInputError
+
     mandate = _mandate(
         tax_jurisdiction="CH",
         tax_overrides_json=json.dumps({"wealth_tax_bps_pa": -500.0}),
     )
-    rows = derive_tax_cashflow(mandate, 1_000_000_00)
-    assert rows == []  # amount wird auf 0 geflort -> kein Eintrag
+    with pytest.raises(OptimizerInputError, match="Steuerbasis"):
+        derive_tax_cashflow(mandate, 1_000_000_00)
+
+
+def test_over_hundred_percent_wealth_tax_override_fails_closed_before_projection():
+    import json
+    import pytest
+    from services.optimizer.constraints import OptimizerInputError
+
+    mandate = _mandate(
+        tax_jurisdiction="CH",
+        tax_overrides_json=json.dumps({"wealth_tax_bps_pa": 10_001.0}),
+    )
+    with pytest.raises(OptimizerInputError, match="Steuerbasis"):
+        derive_tax_cashflow(mandate, 1_000_000_00)
 
 
 def test_currency_matches_mandate_base_currency():

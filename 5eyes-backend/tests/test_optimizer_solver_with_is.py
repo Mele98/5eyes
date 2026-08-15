@@ -16,6 +16,15 @@ from services.optimizer.goal_liabilities import GoalLiability
 from services.optimizer.solver import OptimizerContext, _objective_from_array, _weights_bps_to_array
 
 
+_VALID_WEIGHTS_BPS = {
+    "equities": 6500,
+    "bonds": 3000,
+    "real_estate": 0,
+    "alternatives": 300,
+    "liquidity": 200,
+}
+
+
 def _make_minimal_context(*, scenario_weights=None) -> OptimizerContext:
     """Minimal-Context fuer Objective-Tests."""
     n_paths = 100
@@ -71,7 +80,7 @@ def test_context_accepts_scenario_weights_field():
 def test_objective_from_array_none_weights_unchanged():
     """scenario_weights=None liefert identisches Objective wie ohne weights-Mechanik."""
     ctx = _make_minimal_context()
-    w = _weights_bps_to_array({"liquidity": 200, "bonds": 3000, "equity_ch": 3500, "equity_intl": 3000, "alternatives": 300})
+    w = _weights_bps_to_array(_VALID_WEIGHTS_BPS)
     obj_none = _objective_from_array(ctx, w)
     assert obj_none > 0
 
@@ -80,7 +89,7 @@ def test_objective_from_array_ones_weights_matches_none():
     """scenario_weights=ones(n) gleiches Ergebnis wie =None (Sanity)."""
     ctx_none = _make_minimal_context(scenario_weights=None)
     ctx_ones = _make_minimal_context(scenario_weights=np.ones(100))
-    w = _weights_bps_to_array({"liquidity": 200, "bonds": 3000, "equity_ch": 3500, "equity_intl": 3000, "alternatives": 300})
+    w = _weights_bps_to_array(_VALID_WEIGHTS_BPS)
     o_none = _objective_from_array(ctx_none, w)
     o_ones = _objective_from_array(ctx_ones, w)
     # Relative Toleranz wegen Objective-Magnitude (Rappen²)
@@ -92,7 +101,7 @@ def test_objective_from_array_skewed_weights_differs():
     ctx_none = _make_minimal_context(scenario_weights=None)
     skewed = np.linspace(0.3, 1.7, 100)  # Mean ≈ 1.0
     ctx_skewed = _make_minimal_context(scenario_weights=skewed)
-    w = _weights_bps_to_array({"liquidity": 200, "bonds": 3000, "equity_ch": 3500, "equity_intl": 3000, "alternatives": 300})
+    w = _weights_bps_to_array(_VALID_WEIGHTS_BPS)
     o_none = _objective_from_array(ctx_none, w)
     o_skewed = _objective_from_array(ctx_skewed, w)
     assert abs(o_none - o_skewed) > 1e-6, (

@@ -43,14 +43,18 @@ def test_cf_quantile_with_zero_skew_zero_kurt_returns_input():
         assert cornish_fisher_quantile(z, 0.0, 0.0) == pytest.approx(z, abs=1e-12)
 
 
-def test_log_return_with_zero_skew_kurt_matches_classical_lognormal():
-    """log_return Formel mit skew=0/kurt=0 muss exakt klassisch lognormal sein."""
+def test_log_return_with_zero_skew_kurt_matches_arithmetic_moment_mapping():
+    """The lognormal parameters preserve arithmetic CMA mean and volatility."""
     z = 1.5
     mu_bps = 700  # 7% expected return
     sigma_bps = 1500  # 15% vol
     mu = mu_bps / 10000.0
     sigma = sigma_bps / 10000.0
-    expected = math.exp(mu - 0.5 * sigma * sigma + sigma * z)
+    variance_ln = math.log1p((sigma / (1.0 + mu)) ** 2)
+    sigma_ln = math.sqrt(variance_ln)
+    expected = math.exp(
+        math.log1p(mu) - 0.5 * variance_ln + sigma_ln * z
+    )
     actual = standard_normal_to_log_return(z, mu_bps, sigma_bps)
     assert actual == pytest.approx(expected, rel=1e-12)
 
@@ -217,7 +221,7 @@ def test_log_returns_aktien_typical_distribution():
     p01 = returns_cf[int(n * 0.01)]
     # P5 Return: Normal-Lognormal waere ca. exp(0.07-0.5*0.15^2-1.645*0.15) = 0.825 (also -17.5%)
     # CF mit fat tails: tiefer
-    assert p05 < 0.83, f"P5 Return muss <-17% sein bei fat tails, got {p05:.4f}"
+    assert p05 < 0.835, f"P5 Return muss <-16.5% sein bei fat tails, got {p05:.4f}"
     assert p01 < 0.75, f"P1 Return muss <-25% sein bei fat tails, got {p01:.4f}"
 
 

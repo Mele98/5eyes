@@ -1,6 +1,12 @@
-from pydantic import BaseModel, Field, field_validator, model_validator
-from typing import Optional
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from typing import Literal, Optional
 from schemas.common import BaseResponse
+from services.cma_validation import (
+    parse_correlation_matrix_json,
+    parse_sub_asset_class_assumptions_json,
+    validate_equity_kgv_parameters,
+    validate_nelson_siegel_parameters,
+)
 
 # Zulaessiges Vokabular fuer AllocationPreferencesPayload.tilts/.bands.
 # Sicherheits-Fix (2026-08-03, Berater-Audit "Restriktionen & Tilts"): unbekannte
@@ -28,6 +34,57 @@ _VALID_BAND_KEYS = frozenset(
         "Alternative",
         "Liquiditaet",
         "Liquidität",
+    }
+)
+
+# Restliche Sektionen von AllocationPreferencesPayload -- gleicher Sicherheits-Fix
+# wie oben (2026-08, Fortsetzung "Restriktionen & Tilts"): vorher wurden diese
+# Sektionen als ungeprueftes dict durchgereicht, ein Tippfehler blieb wirkungslos
+# ohne Fehlermeldung. Vokabular muss synchron gehalten werden mit den Konsumenten
+# in services/portfolio_engine_house_matrix.py, services/portfolio_engine_payload.py
+# und services/portfolio_engine_mc_simulation.py.
+_VALID_POLICY_KEYS = frozenset({"esg", "universe", "homeBias", "hedging"})
+_VALID_PRODUCT_KEYS = frozenset(
+    {"noDerivatives", "noLeverage", "noStructured", "listedOnly", "fundsOnly"}
+)
+_VALID_LIMITS_KEYS = frozenset(
+    {"singlePosition", "singleIssuer", "minReserve", "maxIlliquid"}
+)
+_VALID_GEO_KEYS = frozenset(
+    {"chFocus", "noEm", "hedgingRequired", "chfOnly", "noUsd"}
+)
+_VALID_ASSET_CLASS_KEYS = frozenset(
+    {
+        "equitiesGeo",
+        "equitiesLargeCap",
+        "equitiesSmid",
+        "bondsDuration",
+        "bondsInvestmentGrade",
+        "bondsHighYield",
+        "bondsEmerging",
+        "realestateMarket",
+        "realestateFunds",
+        "realestateDirect",
+        "altsGold",
+        "altsLiquidAlts",
+        "altsHedge",
+        "altsPe",
+        "altsCrypto",
+        "liquidityInstrument",
+        "liquidityReserveTarget",
+    }
+)
+_VALID_SIMULATION_KEYS = frozenset(
+    {
+        "horizonYears",
+        "stressMultiplier",
+        "rebalanceMode",
+        "monteCarloRuns",
+        "transactionCostBps",
+        "crisisMode",
+        "crisisStrength",
+        "tailRisk",
+        "cornishFisher",
     }
 )
 
@@ -104,6 +161,10 @@ class TargetAllocationResponse(BaseResponse):
     risk_budget_bps_at_generation: Optional[int] = None
     limiting_factor: Optional[str] = None
     goal_achievability_json: Optional[str] = None
+    sub_allocations_json: Optional[str] = None
+    effective_constraints_json: Optional[str] = None
+    allocation_context_hash: Optional[str] = None
+    context_artifacts_required: int = 0
     based_on_assessment_id: Optional[str]
     capital_market_assumptions_id: Optional[str] = None
     # C8 audit anchors
@@ -113,6 +174,14 @@ class TargetAllocationResponse(BaseResponse):
     total_wealth_at_generation_rappen: Optional[int] = None
     reserve_needed_at_generation_rappen: Optional[int] = None
     external_reserve_at_generation_rappen: Optional[int] = None
+    # Active allocation decision audit. These fields already exist on the ORM
+    # model; declaring them here prevents FastAPI's response_model filtering
+    # from hiding the Optimizer panel in the client.
+    optimization_method: Optional[str] = None
+    optimization_objective_value_milli: Optional[int] = None
+    optimization_iterations: Optional[int] = None
+    optimization_seed: Optional[int] = None
+    optimization_status: Optional[str] = None
     # Phase 6: persistierte Stress-Auswertungen als JSON-String. None bei
     # house_matrix-Modus. FE deserialisiert clientseitig.
     stress_evaluations_json: Optional[str] = None
@@ -151,6 +220,7 @@ class OptimizerRunResponse(BaseResponse):
     reasoning_json: Optional[str] = None
     stress_evaluations_json: Optional[str] = None
     restart_results_json: Optional[str] = None
+    robustification_json: Optional[str] = None
     set_by: Optional[str] = None
     created_at: str
 
@@ -347,8 +417,98 @@ class CapitalMarketAssumptionCreate(BaseModel):
     # Wenn gesetzt UND NS-Curve aktiv: re_return = NS.short_rate + premium.
     real_estate_risk_premium_bps: Optional[int] = None
     alternatives_risk_premium_bps: Optional[int] = None
+    equities_skewness_bps: Optional[int] = None
+    equities_excess_kurt_bps: Optional[int] = None
+    bonds_skewness_bps: Optional[int] = None
+    bonds_excess_kurt_bps: Optional[int] = None
+    real_estate_skewness_bps: Optional[int] = None
+    real_estate_excess_kurt_bps: Optional[int] = None
+    alternatives_skewness_bps: Optional[int] = None
+    alternatives_excess_kurt_bps: Optional[int] = None
+    liquidity_skewness_bps: Optional[int] = None
+    liquidity_excess_kurt_bps: Optional[int] = None
     source: Optional[str] = "Portfolio Management intern"
+    source_date: Optional[str] = None
     notes: Optional[str] = None
+    # Jurisdiction-aware CMA fields are writable/versioned model inputs, not
+    # response-only metadata. Omitting them here made a partial DE update drop
+    # all home-market moments in the next current snapshot.
+    status: Optional[Literal[
+        "provisional", "data_derived", "committee_approved"
+    ]] = None
+    source_detail: Optional[str] = None
+    computed_at: Optional[str] = None
+    computed_by: Optional[str] = None
+    equity_home_return_bps: Optional[int] = None
+    equity_home_vol_bps: Optional[int] = None
+    bonds_home_ig_return_bps: Optional[int] = None
+    bonds_home_ig_vol_bps: Optional[int] = None
+    real_estate_home_return_bps: Optional[int] = None
+    real_estate_home_vol_bps: Optional[int] = None
+
+    @field_validator(
+        "bonds_chf_ig_return_bps",
+        "bonds_chf_ig_vol_bps",
+        "bonds_fx_hedged_return_bps",
+        "bonds_fx_hedged_vol_bps",
+        "bonds_hy_return_bps",
+        "bonds_hy_vol_bps",
+        "equity_ch_return_bps",
+        "equity_ch_vol_bps",
+        "equity_intl_return_bps",
+        "equity_intl_vol_bps",
+        "equity_em_return_bps",
+        "equity_em_vol_bps",
+        "real_estate_ch_return_bps",
+        "real_estate_ch_vol_bps",
+        "alternatives_gold_return_bps",
+        "alternatives_gold_vol_bps",
+        "liquidity_return_bps",
+        "liquidity_vol_bps",
+        "equity_home_return_bps",
+        "equity_home_vol_bps",
+        "bonds_home_ig_return_bps",
+        "bonds_home_ig_vol_bps",
+        "real_estate_home_return_bps",
+        "real_estate_home_vol_bps",
+        "real_estate_risk_premium_bps",
+        "alternatives_risk_premium_bps",
+        "equities_skewness_bps",
+        "equities_excess_kurt_bps",
+        "bonds_skewness_bps",
+        "bonds_excess_kurt_bps",
+        "real_estate_skewness_bps",
+        "real_estate_excess_kurt_bps",
+        "alternatives_skewness_bps",
+        "alternatives_excess_kurt_bps",
+        "liquidity_skewness_bps",
+        "liquidity_excess_kurt_bps",
+        mode="before",
+    )
+    @classmethod
+    def _reject_boolean_market_inputs(cls, value):
+        if isinstance(value, bool):
+            raise ValueError("CMA-Renditen müssen als Basispunkte erfasst werden.")
+        return value
+
+    @field_validator(
+        "bonds_ns_beta0_bps",
+        "bonds_ns_beta1_bps",
+        "bonds_ns_beta2_bps",
+        "bonds_ns_lambda_x100",
+        "equity_kgv_current_x10",
+        "equity_kgv_fair_x10",
+        "equity_kgv_alpha_x100",
+        mode="before",
+    )
+    @classmethod
+    def _reject_boolean_advanced_model_parameters(cls, value):
+        if isinstance(value, bool):
+            raise ValueError(
+                "Advanced-CMA-Modellparameter müssen numerisch skaliert "
+                "erfasst werden."
+            )
+        return value
 
     @model_validator(mode="after")
     def _validate_cma(self):
@@ -359,57 +519,33 @@ class CapitalMarketAssumptionCreate(BaseModel):
             "bonds_chf_ig_vol_bps", "bonds_fx_hedged_vol_bps", "bonds_hy_vol_bps",
             "equity_ch_vol_bps", "equity_intl_vol_bps", "equity_em_vol_bps",
             "real_estate_ch_vol_bps", "alternatives_gold_vol_bps", "liquidity_vol_bps",
+            "equity_home_vol_bps", "bonds_home_ig_vol_bps",
+            "real_estate_home_vol_bps",
         )
         for f in _vol_fields:
             v = getattr(self, f, None)
             if v is not None and v < 0:
                 raise ValueError(f"{f} darf nicht negativ sein (Volatilität >= 0).")
+        for field_name in type(self).model_fields:
+            if not field_name.endswith("_return_bps"):
+                continue
+            value = getattr(self, field_name, None)
+            if value is not None and value <= -10_000:
+                raise ValueError(
+                    f"{field_name} muss grösser als -100 % sein."
+                )
         if self.valid_until is not None and self.valid_from and self.valid_until < self.valid_from:
             raise ValueError("valid_until darf nicht vor valid_from liegen.")
-        # 2026-07-24 (Formel-Audit): correlation_matrix_json wurde bisher NUR
-        # auf Shape (5x5) geprueft (services/portfolio_engine.py::
-        # _build_cholesky_from_cma), NICHT auf Werte-Range. Der einzige
-        # Laufzeit-Fallback (_is_valid_cholesky) prueft nur numerische
-        # Entartung, nicht ob es fachlich ueberhaupt eine gueltige
-        # Korrelationsmatrix ist -- ein Tippfehler wie 1.05 statt 0.95 kann
-        # eine weiterhin positiv-definite, also "gueltige" Matrix ergeben und
-        # laeuft unbemerkt in die Simulation. Hier auf Pydantic-Ebene
-        # abgefangen, VOR dem DB-Write (analog SCHEMA-03).
-        if self.correlation_matrix_json:
-            import json as _json
-            try:
-                parsed = _json.loads(self.correlation_matrix_json)
-            except (ValueError, TypeError) as exc:
-                raise ValueError(f"correlation_matrix_json ist kein gültiges JSON: {exc}")
-            if not (
-                isinstance(parsed, list) and len(parsed) == 5
-                and all(isinstance(row, list) and len(row) == 5 for row in parsed)
-            ):
-                raise ValueError(
-                    "correlation_matrix_json muss eine 5x5-Matrix (Liste von 5 Listen "
-                    "mit je 5 Zahlen) sein."
-                )
-            for i, row in enumerate(parsed):
-                for j, v in enumerate(row):
-                    if not isinstance(v, (int, float)) or isinstance(v, bool):
-                        raise ValueError(f"correlation_matrix_json[{i}][{j}] muss eine Zahl sein.")
-                    if v < -1.0 or v > 1.0:
-                        raise ValueError(
-                            f"correlation_matrix_json[{i}][{j}]={v} liegt ausserhalb "
-                            "des gültigen Korrelationsbereichs [-1, 1]."
-                        )
-                if abs(float(row[i]) - 1.0) > 1e-6:
-                    raise ValueError(
-                        f"correlation_matrix_json Diagonale [{i}][{i}]={row[i]} muss "
-                        "1.0 sein (Korrelation eines Assets mit sich selbst)."
-                    )
-            for i in range(5):
-                for j in range(5):
-                    if abs(float(parsed[i][j]) - float(parsed[j][i])) > 1e-6:
-                        raise ValueError(
-                            f"correlation_matrix_json ist nicht symmetrisch bei "
-                            f"[{i}][{j}]={parsed[i][j]} vs [{j}][{i}]={parsed[j][i]}."
-                        )
+        # Shared strict parser: missing optional payloads remain valid, while
+        # any present malformed/non-finite/non-PSD model input fails before DB
+        # persistence. Runtime engines call the exact same parser.
+        parse_correlation_matrix_json(self.correlation_matrix_json)
+        parse_sub_asset_class_assumptions_json(
+            self.sub_asset_class_assumptions_json,
+            require_complete=False,
+        )
+        validate_nelson_siegel_parameters(self)
+        validate_equity_kgv_parameters(self)
         return self
 
 
@@ -453,7 +589,18 @@ class CapitalMarketAssumptionResponse(BaseResponse):
     # Sprint 8: Risikopraemien fuer RE + Alternatives
     real_estate_risk_premium_bps: Optional[int] = None
     alternatives_risk_premium_bps: Optional[int] = None
+    equities_skewness_bps: Optional[int] = None
+    equities_excess_kurt_bps: Optional[int] = None
+    bonds_skewness_bps: Optional[int] = None
+    bonds_excess_kurt_bps: Optional[int] = None
+    real_estate_skewness_bps: Optional[int] = None
+    real_estate_excess_kurt_bps: Optional[int] = None
+    alternatives_skewness_bps: Optional[int] = None
+    alternatives_excess_kurt_bps: Optional[int] = None
+    liquidity_skewness_bps: Optional[int] = None
+    liquidity_excess_kurt_bps: Optional[int] = None
     source: Optional[str]
+    source_date: Optional[str] = None
     notes: Optional[str]
     created_at: str
     # WP3 (Jurisdiktions-Verwaltung + CMA-Freigabe, 2026-07-31): additive
@@ -485,6 +632,10 @@ class SubAssetClassAssumptionResponse(BaseModel):
 
 
 class AllocationBandOverridePayload(BaseModel):
+    # extra="forbid": ein Tippfehler im Feldnamen (z.B. "target_bp" statt
+    # "target_bps") ueberlebte bisher unbemerkt als wirkungslose Zusatz-Info.
+    model_config = ConfigDict(extra="forbid")
+
     # bps im gueltigen Bereich 0..10000 (0..100%). Ohne diese Guards erreichten
     # negative/ueberzogene/verdrehte Band-Overrides den Optimizer und erzeugten eine
     # unloesbare oder korrupte Restriktion.
@@ -506,6 +657,10 @@ class AllocationBandOverridePayload(BaseModel):
 
 
 class AllocationPreferencesPayload(BaseModel):
+    # extra="forbid": ein unbekannter Top-Level-Key blieb bisher stillschweigend
+    # wirkungslos liegen (z.B. Tippfehler oder veraltetes Frontend-Feld).
+    model_config = ConfigDict(extra="forbid")
+
     policy: dict = Field(default_factory=dict)
     tilts: dict = Field(default_factory=dict)
     product: dict = Field(default_factory=dict)
@@ -514,6 +669,16 @@ class AllocationPreferencesPayload(BaseModel):
     assetClasses: dict = Field(default_factory=dict)
     bands: dict[str, AllocationBandOverridePayload] = Field(default_factory=dict)
     simulation: dict = Field(default_factory=dict)
+
+    @field_validator("policy")
+    @classmethod
+    def validate_policy(cls, value: dict) -> dict:
+        for key in value:
+            if key not in _VALID_POLICY_KEYS:
+                raise ValueError(
+                    f"Unbekannter Policy-Key '{key}' (erlaubt: {sorted(_VALID_POLICY_KEYS)})"
+                )
+        return value
 
     @field_validator("tilts")
     @classmethod
@@ -529,6 +694,46 @@ class AllocationPreferencesPayload(BaseModel):
                 )
         return value
 
+    @field_validator("product")
+    @classmethod
+    def validate_product(cls, value: dict) -> dict:
+        for key in value:
+            if key not in _VALID_PRODUCT_KEYS:
+                raise ValueError(
+                    f"Unbekannter Product-Key '{key}' (erlaubt: {sorted(_VALID_PRODUCT_KEYS)})"
+                )
+        return value
+
+    @field_validator("limits")
+    @classmethod
+    def validate_limits(cls, value: dict) -> dict:
+        for key in value:
+            if key not in _VALID_LIMITS_KEYS:
+                raise ValueError(
+                    f"Unbekannter Limits-Key '{key}' (erlaubt: {sorted(_VALID_LIMITS_KEYS)})"
+                )
+        return value
+
+    @field_validator("geo")
+    @classmethod
+    def validate_geo(cls, value: dict) -> dict:
+        for key in value:
+            if key not in _VALID_GEO_KEYS:
+                raise ValueError(
+                    f"Unbekannter Geo-Key '{key}' (erlaubt: {sorted(_VALID_GEO_KEYS)})"
+                )
+        return value
+
+    @field_validator("assetClasses")
+    @classmethod
+    def validate_asset_classes(cls, value: dict) -> dict:
+        for key in value:
+            if key not in _VALID_ASSET_CLASS_KEYS:
+                raise ValueError(
+                    f"Unbekannter AssetClasses-Key '{key}' (erlaubt: {sorted(_VALID_ASSET_CLASS_KEYS)})"
+                )
+        return value
+
     @field_validator("bands")
     @classmethod
     def validate_band_keys(cls, value: dict) -> dict:
@@ -536,6 +741,16 @@ class AllocationPreferencesPayload(BaseModel):
             if key not in _VALID_BAND_KEYS:
                 raise ValueError(
                     f"Unbekannter Bandbreiten-Key '{key}' (erlaubt: {sorted(_VALID_BAND_KEYS)})"
+                )
+        return value
+
+    @field_validator("simulation")
+    @classmethod
+    def validate_simulation(cls, value: dict) -> dict:
+        for key in value:
+            if key not in _VALID_SIMULATION_KEYS:
+                raise ValueError(
+                    f"Unbekannter Simulation-Key '{key}' (erlaubt: {sorted(_VALID_SIMULATION_KEYS)})"
                 )
         return value
 
@@ -589,12 +804,30 @@ class AllocationSensitivityRequest(BaseModel):
 class AllocationSensitivityResponse(BaseModel):
     goal_id: str
     delta_pct: int
+    analysis_basis: str = (
+        "live_reoptimization_common_scenarios_current_inputs_v3"
+    )
+    allocation_context_hash: Optional[str] = None
+    live_model_input_hash: Optional[str] = None
+    baseline_model_input_hash: Optional[str] = None
+    modified_model_input_hash: Optional[str] = None
+    scenario_pairing_basis: Optional[str] = None
+    fx_basis: Optional[dict] = None
+    capital_market_assumptions_id: Optional[str] = None
+    solver_seed: Optional[int] = None
+    wealth_basis: Optional[str] = None
+    constraint_basis: Optional[str] = None
+    external_foundation_basis: Optional[str] = None
     # Sprint U-P5 Fix H9: Horizon-Delta exponiert
     horizon_delta_years: int = 0
     horizon_years_baseline: Optional[int] = None
     horizon_years_new: Optional[int] = None
+    solver_horizon_years_baseline: Optional[int] = None
+    solver_horizon_years_new: Optional[int] = None
     target_amount_rappen_baseline: int
     target_amount_rappen_new: int
+    target_return_bps_baseline: Optional[int] = None
+    target_return_bps_new: Optional[int] = None
     objective_value_milli_baseline: Optional[int]
     objective_value_milli_new: Optional[int]
     delta_objective_pct: Optional[float]
@@ -619,6 +852,7 @@ class AllocationSubBucketResponse(BaseModel):
     asset_class: str
     sub_asset_class: str
     target_weight_bps: int
+    within_bucket_weight_bps: Optional[int] = None
     risky_fraction_bps: Optional[int] = None
     rationale: str
 
@@ -705,6 +939,7 @@ class MonteCarloGoalSummaryResponse(BaseModel):
 
 
 class MonteCarloResponse(BaseModel):
+    model_basis: dict = Field(default_factory=dict)
     simulations: int
     seed: int
     horizon_years: int
@@ -915,6 +1150,9 @@ class TargetAllocationGenerateResponse(BaseModel):
     risky_fraction_headroom_bps: int
     limiting_factor: Optional[str] = None
     goal_achievability: list[dict] = Field(default_factory=list)
+    goal_achievability_basis_id: Optional[str] = None
+    goal_analysis_basis_id: str = "implementation_projection_v2"
+    model_basis: dict = Field(default_factory=dict)
     messages: list[dict] = Field(default_factory=list)
     asset_class_risky_weights_bps: dict[str, int]
     expected_return_bps: int

@@ -30,6 +30,7 @@ from services.optimizer.scenario_engine import BUCKET_ORDER
 from services.optimizer.solver import (
     OptimizerContext,
     OptimizerEvaluation,
+    OptimizerInputError,
     build_optimizer_context,
     deterministic_seed,
     evaluate_weights,
@@ -144,6 +145,31 @@ def test_build_context_different_seeds_produce_different_paths():
     assert not np.array_equal(a.return_paths, b.return_paths)
 
 
+def test_common_scenario_horizon_produces_exact_path_prefix():
+    short = _ctx(
+        horizon_years=7,
+        scenario_horizon_years=12,
+        cashflow_series_rappen=[20_000_00] * 7,
+        n_paths=64,
+        seed=9876,
+    )
+    long = _ctx(
+        horizon_years=12,
+        scenario_horizon_years=12,
+        cashflow_series_rappen=[20_000_00] * 12,
+        n_paths=64,
+        seed=9876,
+    )
+    assert short.scenario_horizon_years == 12
+    assert long.scenario_horizon_years == 12
+    np.testing.assert_array_equal(short.return_paths, long.return_paths[:, :7, :])
+
+
+def test_common_scenario_horizon_cannot_be_shorter_than_run():
+    with pytest.raises(OptimizerInputError, match="scenario_horizon_years"):
+        _ctx(horizon_years=10, scenario_horizon_years=9)
+
+
 def test_build_context_carries_score_and_risky_fraction_map():
     rf = {"equities": 0.85, "bonds": 0.20, "real_estate": 0.55,
           "alternatives": 0.55, "liquidity": 0.0}
@@ -231,13 +257,13 @@ def test_evaluate_weights_terminal_wealth_quantiles_are_int_rappen():
     assert ev.terminal_wealth_p50_rappen <= ev.terminal_wealth_p90_rappen
 
 
-def test_evaluate_weights_normalizes_unsummed_input():
-    """Wenn Caller nicht exakt 10000 bps liefert, werden die Gewichte normiert."""
+def test_evaluate_weights_rejects_unsummed_input():
+    """Audit evaluations must never repair an external allocation silently."""
     ctx = _ctx()
     raw = {"equities": 600, "bonds": 300, "real_estate": 50,
            "alternatives": 30, "liquidity": 20}  # Summe = 1000 statt 10000
-    ev = evaluate_weights(ctx, raw)
-    assert sum(ev.weights_bps.values()) == 10000
+    with pytest.raises(ValueError, match="sum exactly to 10000"):
+        evaluate_weights(ctx, raw)
 
 
 def test_run_solver_objective_value_matches_evaluate_weights_post_round():

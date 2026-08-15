@@ -108,6 +108,7 @@ from __future__ import annotations
 
 import json
 import time
+from dataclasses import is_dataclass, replace
 from types import SimpleNamespace
 
 from sqlalchemy.orm import Session
@@ -123,14 +124,11 @@ from services.risk_matrix import (
 
 def _assessment_score_x10(assessment) -> int:
     """0-100 Score-Wert aus Assessment, konsistent zu _risk_score_bucket-Logik."""
-    raw = (
-        assessment.override_score_x10
-        if getattr(assessment, "is_overridden", 0) and assessment.override_score_x10 is not None
-        else getattr(assessment, "final_score_x10", None)
+    from services.risk_assessment_semantics import (
+        validate_risk_assessment_model_input,
     )
-    if raw is None:
-        raw = 10
-    return max(0, min(100, int(raw)))
+
+    return validate_risk_assessment_model_input(assessment)
 
 
 _CONVERGED_OPTIMIZER_STATUSES = {
@@ -139,7 +137,6 @@ _CONVERGED_OPTIMIZER_STATUSES = {
     "converged_with_soft_tau",
 }
 
-
 def _optimizer_status_is_converged(status: str | None) -> bool:
     return str(status or "").strip() in _CONVERGED_OPTIMIZER_STATUSES
 
@@ -147,40 +144,46 @@ def _optimizer_status_is_converged(status: str | None) -> bool:
 def _build_tax_solver_kwargs(mandate) -> dict:
     """Baut die tax-*-kwargs fuer run_solver aus dem Mandat (Sprint U-P2 Fix C9).
 
-    Leeres Dict, wenn keine tax_jurisdiction gesetzt ist ODER beim Laden ein
-    Fehler auftritt (fail-soft: der Solver laeuft dann tax-naiv statt zu crashen).
-    Bewusst extrahiert, damit die Wiring (tax_regime erreicht run_solver) direkt
-    testbar ist und ein Re-Break (#39/46) nicht erneut still durchrutscht.
+    Leeres Dict nur wenn keine tax_jurisdiction gesetzt ist. Eine konfigurierte,
+    aber nicht aufloesbare Steuerbasis ist ein Domainfehler: der Optimizer darf
+    nicht still tax-naiv weiterlaufen oder dadurch in die House Matrix fallen.
     """
-    # Lazy Import (Zirkular-Import-Haertung, siehe Modul-Docstring).
-    from services.portfolio_engine import logger
-
     tax_kwargs: dict = {}
     try:
+        from services.mandate_model_inputs import validate_tax_model_inputs
+
+        validate_tax_model_inputs(mandate)
         jurisdiction = str(getattr(mandate, "tax_jurisdiction", "") or "").strip()
+        tax_overrides_json = getattr(mandate, "tax_overrides_json", None)
+        from services.tax.overrides import parse_overrides_json
+
+        tax_overrides = parse_overrides_json(tax_overrides_json)
         if not jurisdiction:
+            if tax_overrides:
+                raise ValueError(
+                    "tax overrides require an explicit tax jurisdiction"
+                )
             return tax_kwargs
         from services.tax.registry import resolve_regime_class
         regime_cls = resolve_regime_class(jurisdiction)
-        tax_overrides_json = getattr(mandate, "tax_overrides_json", None)
+        from services.tax.regimes.generic import GenericFlatRateRegime
+
+        if regime_cls is GenericFlatRateRegime and not tax_overrides:
+            raise ValueError(
+                "unsupported tax jurisdiction requires explicit overrides"
+            )
         # TAX-1: Bei region-spezifischer ID (z.B. 'CH-GE') die Kanton-Factory nutzen —
         # sonst liefert regime_cls() nur den Landes-Pauschalwert (CH 40 statt GE 85 bps).
-        # Unbekannte Region -> Basis-Regime (kein Crash).
+        # A configured region is part of the model basis. Falling back to a
+        # country average would silently change tax drag and can alter the
+        # selected allocation, therefore unknown regions fail closed.
         region = jurisdiction.split("-", 1)[1].strip() if "-" in jurisdiction else ""
         if region and hasattr(regime_cls, "for_canton"):
-            try:
-                regime_instance = regime_cls.for_canton(region)
-            except (ValueError, KeyError) as region_exc:
-                logger.warning(
-                    "Unbekannte Tax-Region '%s' (%s) — nutze Basis-Regime",
-                    jurisdiction, region_exc,
-                )
-                regime_instance = regime_cls()
+            regime_instance = regime_cls.for_canton(region)
         else:
             regime_instance = regime_cls()
-        if tax_overrides_json:
-            from services.tax.overrides import apply_overrides
-            regime_instance = apply_overrides(regime_instance, tax_overrides_json)
+        if tax_overrides:
+            regime_instance = regime_instance.with_overrides(tax_overrides)
         tax_kwargs["tax_regime"] = regime_instance
         # TAX-2: 'valid_from_year' existiert NICHT auf dem Mandat-Model (frueher:
         # getattr-Default 0 -> current_year hartcodiert 2026). Echtes Bewertungsjahr
@@ -198,9 +201,14 @@ def _build_tax_solver_kwargs(mandate) -> dict:
         retirement_year = int(getattr(mandate, "retirement_year", 0) or 0)
         if retirement_year and current_year >= retirement_year:
             tax_kwargs["is_retired"] = True
-    except Exception as exc:  # noqa: BLE001 - tax loading darf Solver nicht killen
-        logger.warning("Tax-Regime nicht ladbar (%s) — Solver laeuft tax-naiv", exc)
-        return {}
+    except Exception as exc:  # noqa: BLE001 - translate to stable domain error
+        from services.optimizer.constraints import OptimizerInputError
+
+        raise OptimizerInputError(
+            "Die konfigurierte Steuerbasis kann nicht aufgeloest werden; "
+            "die Modellrechnung wird nicht mit einer stillen tax-naiven Annahme "
+            "ausgefuehrt."
+        ) from exc
     return tax_kwargs
 
 
@@ -220,6 +228,11 @@ def _run_stochastic_optimizer_pass(
     maximums: dict[str, int],
     reasoning: list[str],
     building_blocks_rows: list | None = None,
+    sub_allocations: list[dict] | None = None,
+    risky_fraction_per_bucket: dict[str, float] | None = None,
+    effective_bounds_bps: dict[str, tuple[int, int]] | None = None,
+    external_wealth_rappen: int = 0,
+    external_wealth_series_rappen: list[int] | None = None,
     mandate=None,  # Sprint 4 Phase 3: fuer BFS-Mortalitaets-Sampling
 ):
     """Solver in Shadow- oder Stochastic-Modus aufrufen.
@@ -231,9 +244,10 @@ def _run_stochastic_optimizer_pass(
                                           aktive Allokation.
     Andere Modi -> None.
 
-    Returns OptimizerResult oder None (wenn Modus nicht relevant oder Solver
-    crashed). Bei diverged/fallback bleibt House-Matrix-Default unabhaengig
-    vom Modus.
+    Returns OptimizerResult oder None (wenn Modus nicht relevant). Bei einer
+    explizit klassifizierten technischen/numerischen Solver-Stoerung sowie
+    bei diverged/fallback bleibt die House Matrix aktiv. Domain-, CMA- und
+    Programmierfehler werden nicht als fachlich gueltiger Fallback maskiert.
     """
     # Lazy Import (Zirkular-Import-Haertung, siehe Modul-Docstring).
     from services.portfolio_engine import _OPTIMIZER_N_PATHS_DEFAULT, logger
@@ -250,24 +264,53 @@ def _run_stochastic_optimizer_pass(
         return None
 
     try:
+        from numpy.linalg import LinAlgError
         from services.optimizer.constraints import (
             bucket_risky_fractions_from_building_blocks,
         )
-        from services.optimizer.solver import run_solver
+        from services.optimizer.solver import (
+            OptimizerResult,
+            SolverTechnicalError,
+            build_optimizer_context,
+            deterministic_seed,
+            run_solver,
+        )
     except ImportError as exc:
         logger.warning("Stochastic optimizer module not importable: %s", exc)
-        reasoning.append(
-            "Stochastic Optimizer-Modul nicht verfuegbar — House-Matrix-Default bleibt."
+        fallback_reason = (
+            "Stochastic Optimizer-Modul nicht verfuegbar — "
+            "House-Matrix-Default bleibt aktiv."
         )
-        return None
+        reasoning.append(fallback_reason)
+        return SimpleNamespace(
+            weights_bps={bucket: int(value) for bucket, value in targets.items()},
+            objective_value=float("inf"),
+            iterations=0,
+            seed=0,
+            status="fallback_house_matrix",
+            method="fallback_house_matrix",
+            constraint_violations=["optimizer_module_unavailable"],
+            reasoning=[fallback_reason],
+            n_paths=0,
+            n_starts_attempted=0,
+            stress_evaluations=None,
+            goal_achievability=(),
+            robustification={
+                "enabled": True,
+                "stage": "fallback_house_matrix",
+                "final_reason": "optimizer_module_unavailable",
+            },
+            restart_results=(),
+            context=None,
+        )
 
     score_x10 = _assessment_score_x10(assessment)
     horizon = max(10, int(len(cashflow_projection_series_rappen) or 10))
     # Phase 5.1: Risky-Fractions aus BuildingBlock-DB statt fester Defaults.
     # Genauer pro Mandant weil unterschiedliche Policies unterschiedliche
     # Sub-Asset-Klassen-Werte haben koennen (z.B. EM-Aktien ein/aus).
-    rf_per_bucket = None
-    if building_blocks_rows is not None:
+    rf_per_bucket = risky_fraction_per_bucket
+    if rf_per_bucket is None and building_blocks_rows is not None:
         try:
             rf_per_bucket = bucket_risky_fractions_from_building_blocks(building_blocks_rows)
         except Exception as exc:  # noqa: BLE001
@@ -280,18 +323,16 @@ def _run_stochastic_optimizer_pass(
     # das simulierte Sterbealter systematisch falsch (keine DE/AT-Sterbetafel
     # vorhanden). "Kein Mortalitaets-Cutoff" ist die konservative, richtige
     # Wahl statt einer falschen Schweizer Annahme.
-    mortality_kwargs = {}
-    if mandate is not None:
-        cby = getattr(mandate, "client_birth_year", None)
-        csex = getattr(mandate, "client_sex", None)
-        ums = bool(getattr(mandate, "use_mortality_simulation", 0))
-        jurisdiction = str(getattr(mandate, "jurisdiction", None) or "CH")
-        if ums and cby and csex in ("M", "F") and jurisdiction == "CH":
-            mortality_kwargs = {
-                "client_birth_year": int(cby),
-                "client_sex": str(csex),
-                "use_mortality_simulation": True,
-            }
+    from services.mandate_model_inputs import (
+        MandateModelInputError,
+        mortality_solver_kwargs_from_mandate,
+    )
+    from services.optimizer.constraints import OptimizerInputError
+
+    try:
+        mortality_kwargs = mortality_solver_kwargs_from_mandate(mandate)
+    except MandateModelInputError as exc:
+        raise OptimizerInputError(str(exc)) from exc
 
     # Sprint U-P2 Fix C9: tax-aware Solver — wenn das Mandat eine
     # tax_jurisdiction hat, wird das passende TaxRegime aufgeloest und
@@ -299,32 +340,157 @@ def _run_stochastic_optimizer_pass(
     # → simulate_wealth_paths laeuft tax-naiv (wie vorher).
     tax_kwargs = _build_tax_solver_kwargs(mandate)
 
+    optimizer_context = None
     try:
         t0 = time.perf_counter()
-        result = run_solver(
+        context_kwargs = dict(
             cma=cma,
             goals=list(goals),
             house_matrix_row=house_matrix,
             score_x10=score_x10,
             advisory_wealth_rappen=advisory_wealth_rappen,
             cashflow_series_rappen=cashflow_projection_series_rappen,
+            external_wealth_rappen=max(0, int(external_wealth_rappen or 0)),
+            external_wealth_series_rappen=external_wealth_series_rappen,
             horizon_years=horizon,
             n_paths=_OPTIMIZER_N_PATHS_DEFAULT,
             inflation_series_bps=inflation_series_bps,
             risky_fraction_per_bucket=rf_per_bucket,
             max_risky_fraction_bps=int(house_matrix.max_risky_fraction_bps),
+            sub_allocations=sub_allocations,
+            effective_bounds_bps=effective_bounds_bps,
             **mortality_kwargs,
             **tax_kwargs,
         )
+        # Build once, retain the object, and pass it into the solver. Solver,
+        # activation validation, explainability, shadow comparison and an
+        # audited House fallback now all share this exact object identity.
+        optimizer_context = build_optimizer_context(**context_kwargs)
+        result = run_solver(
+            **context_kwargs,
+            optimizer_context=optimizer_context,
+        )
         elapsed_ms = int(round((time.perf_counter() - t0) * 1000))
         object.__setattr__(result, "elapsed_ms", elapsed_ms)
-    except Exception as exc:  # noqa: BLE001 - never crash allocation flow
+    except (SolverTechnicalError, FloatingPointError, LinAlgError) as exc:
+        # The House Matrix is a last-resort safety net for an explicitly
+        # classified solver-infrastructure/numerical failure. Invalid domain
+        # input, CMA errors and ordinary RuntimeError programming defects are
+        # deliberately outside this allowlist and therefore fail closed.
         logger.warning("Stochastic optimizer crashed: %s", exc, exc_info=True)
-        reasoning.append(
+        fallback_reason = (
             f"Stochastic Optimizer Fehler ({type(exc).__name__}) — "
             "House-Matrix-Default bleibt aktiv."
         )
-        return None
+        reasoning.append(fallback_reason)
+        fallback_seed = deterministic_seed(
+            getattr(cma, "id", "no-cma"),
+            "|".join(str(getattr(goal, "id", "?")) for goal in goals),
+            score_x10,
+            horizon,
+            _OPTIMIZER_N_PATHS_DEFAULT,
+        )
+        return OptimizerResult(
+            weights_bps={bucket: int(value) for bucket, value in targets.items()},
+            objective_value=float("inf"),
+            iterations=0,
+            seed=int(fallback_seed),
+            status="fallback_house_matrix",
+            method="fallback_house_matrix",
+            constraint_violations=[f"solver_exception:{type(exc).__name__}"],
+            reasoning=[fallback_reason],
+            n_paths=_OPTIMIZER_N_PATHS_DEFAULT,
+            n_starts_attempted=0,
+            robustification={
+                "enabled": True,
+                "stage": "fallback_house_matrix",
+                "final_reason": "solver_exception",
+            },
+            context=optimizer_context,
+        )
+
+    # Defense in depth: ``run_solver`` validates its rounded integer-bps
+    # result, but the productive boundary must not trust a status string on
+    # its own (this also protects against future solver implementations and
+    # test doubles).  Validate exactly the candidate that would be published.
+    if _optimizer_status_is_converged(result.status):
+        activation_violations: list[str] = []
+        candidate = {
+            bucket: int((getattr(result, "weights_bps", {}) or {}).get(bucket, 0) or 0)
+            for bucket in ("equities", "bonds", "real_estate", "alternatives", "liquidity")
+        }
+        if sum(candidate.values()) != 10000:
+            activation_violations.append(
+                f"sum_to_one:{sum(candidate.values())}bps"
+            )
+        if effective_bounds_bps is not None:
+            for bucket, value in candidate.items():
+                lower, upper = effective_bounds_bps[bucket]
+                if value < int(lower) or value > int(upper):
+                    activation_violations.append(
+                        f"{bucket}_bounds:{value} not in [{int(lower)},{int(upper)}]"
+                    )
+        context = getattr(result, "context", None)
+        if context is not None:
+            try:
+                from services.optimizer.solver import evaluate_weights
+
+                evaluation = evaluate_weights(context, candidate)
+                if not evaluation.feasible:
+                    activation_violations.extend(
+                        str(item) for item in evaluation.constraint_violations
+                    )
+            except Exception as exc:  # noqa: BLE001 - reject unverifiable output
+                activation_violations.append(
+                    f"activation_evaluation_error:{type(exc).__name__}"
+                )
+        elif rf_per_bucket is not None:
+            realized_risk = sum(
+                candidate[bucket] * float(rf_per_bucket.get(bucket, 0.0))
+                for bucket in candidate
+            )
+            cap = int(getattr(house_matrix, "max_risky_fraction_bps", 10000) or 10000)
+            if realized_risk > cap + 1e-8:
+                activation_violations.append(
+                    f"risky_fraction:{realized_risk:.6f}>{cap}bps"
+                )
+
+        if activation_violations:
+            rejection_reason = (
+                "Der stochastische Kandidat wurde nach der Abschlussvalidierung "
+                "verworfen; die House-Matrix bleibt als kontrollierter Fallback aktiv."
+            )
+            reasoning.append(rejection_reason)
+            original_robustification = dict(
+                getattr(result, "robustification", None) or {}
+            )
+            original_robustification.update(
+                {
+                    "stage": "fallback_house_matrix",
+                    "final_reason": "activation_validation_failed",
+                    "rejected_status": str(getattr(result, "status", "")),
+                    "rejected_weights_bps": candidate,
+                }
+            )
+            updates = {
+                "status": "fallback_house_matrix",
+                "method": "fallback_house_matrix",
+                "constraint_violations": list(
+                    getattr(result, "constraint_violations", []) or []
+                )
+                + [f"activation_validation:{item}" for item in activation_violations],
+                "reasoning": list(getattr(result, "reasoning", []) or [])
+                + [rejection_reason],
+                "robustification": original_robustification,
+            }
+            if is_dataclass(result):
+                elapsed_ms = getattr(result, "elapsed_ms", None)
+                result = replace(result, **updates)
+                if elapsed_ms is not None:
+                    object.__setattr__(result, "elapsed_ms", elapsed_ms)
+            else:
+                for key, value in updates.items():
+                    setattr(result, key, value)
 
     if _optimizer_status_is_converged(result.status):
         if apply_targets:
@@ -365,6 +531,132 @@ def _run_stochastic_optimizer_pass(
         )
 
     return result
+
+
+def _synchronize_fallback_optimizer_result(
+    optimizer_result,
+    active_weights_bps: dict[str, int],
+    *,
+    force_fallback: bool = False,
+):
+    """Evaluate an active House fallback on the exact stochastic context.
+
+    A failed Solver may carry achievability/stress values for an internal
+    midpoint candidate.  Once the caller activates different deterministic
+    House weights, publishing or persisting those candidate analytics as if
+    they described the active recommendation is an audit error.  This helper
+    replaces weights and all weight-dependent analytics with an evaluation of
+    the actually active fallback allocation.
+
+    If the active fallback violates the same hard context, no recommendation
+    is persisted: a House fallback may absorb numerical failure, never a
+    logically impossible mandate constraint.
+    """
+    if optimizer_result is None:
+        return optimizer_result
+    if (
+        not force_fallback
+        and _optimizer_status_is_converged(
+            str(getattr(optimizer_result, "status", "") or "")
+        )
+    ):
+        return optimizer_result
+
+    active = {
+        bucket: int((active_weights_bps or {}).get(bucket, 0) or 0)
+        for bucket in _COMPARISON_BUCKETS
+    }
+    context = getattr(optimizer_result, "context", None)
+    if context is None:
+        # Import-/bootstrap failure: there is no stochastic context to evaluate.
+        # Keep analytics empty and make the persisted weights truthful.
+        updates = {
+            "weights_bps": active,
+            "objective_value": float("inf"),
+            "status": "fallback_house_matrix",
+            "method": "fallback_house_matrix",
+            "stress_evaluations": None,
+            "goal_achievability": (),
+        }
+    else:
+        from services.optimizer.constraints import OptimizerInputError
+        from services.optimizer.objective import chance_constraint_penalty
+        from services.optimizer.solver import (
+            _annualized_twr_bps_per_path,
+            _simulate_context_wealth,
+            _weights_bps_to_array,
+            evaluate_weights,
+        )
+
+        evaluation = evaluate_weights(context, active)
+        if not evaluation.feasible:
+            raise OptimizerInputError(
+                "House-Matrix-Fallback verletzt die harten Mandats-Constraints: "
+                + "; ".join(evaluation.constraint_violations)
+            )
+        active_array = _weights_bps_to_array(active)
+        wealth_paths = _simulate_context_wealth(context, active_array)
+        _penalty, achievability = chance_constraint_penalty(
+            wealth_paths,
+            context.liabilities,
+            context.advisory_wealth_rappen,
+            weights=context.scenario_weights,
+            annualized_return_bps_per_path=_annualized_twr_bps_per_path(
+                context, active_array
+            ),
+        )
+        stress_evaluations = None
+        try:
+            from services.optimizer.stress_scenarios import (
+                evaluate_stress_scenarios,
+                stress_results_to_dict,
+            )
+
+            stress_evaluations = stress_results_to_dict(
+                evaluate_stress_scenarios(
+                    weights=active_array,
+                    initial_wealth_rappen=context.advisory_wealth_rappen,
+                    cashflow_series_rappen=context.cashflow_series_rappen,
+                    liability_path_rappen=context.aggregated_liability_path,
+                    horizon_years=context.horizon_years,
+                )
+            )
+        except Exception:  # noqa: BLE001 - stress is secondary audit detail
+            stress_evaluations = None
+        original_violations = list(
+            getattr(optimizer_result, "constraint_violations", []) or []
+        )
+        fallback_audit = dict(
+            getattr(optimizer_result, "robustification", None) or {}
+        )
+        if original_violations:
+            fallback_audit[
+                "rejected_candidate_constraint_violations"
+            ] = original_violations
+        fallback_audit["effective_allocation_feasible"] = True
+        updates = {
+            "weights_bps": active,
+            "objective_value": float(evaluation.objective_value),
+            "status": "fallback_house_matrix",
+            "method": "fallback_house_matrix",
+            # Active analytics describe the effective House allocation. Keep
+            # rejected-candidate violations in an explicitly scoped audit
+            # field instead of publishing them as active violations.
+            "constraint_violations": [],
+            "robustification": fallback_audit,
+            "stress_evaluations": stress_evaluations,
+            "goal_achievability": tuple(achievability),
+        }
+
+    if is_dataclass(optimizer_result):
+        elapsed_ms = getattr(optimizer_result, "elapsed_ms", None)
+        synchronized = replace(optimizer_result, **updates)
+        if elapsed_ms is not None:
+            object.__setattr__(synchronized, "elapsed_ms", elapsed_ms)
+        return synchronized
+    for key, value in updates.items():
+        setattr(optimizer_result, key, value)
+    return optimizer_result
 
 
 def _optimizer_audit_fields(optimizer_result) -> dict:
@@ -630,20 +922,22 @@ def _build_shadow_comparison_with_evaluations(
     horizon = max(10, int(len(cashflow_projection_series_rappen) or 10))
 
     try:
-        context = build_optimizer_context(
-            cma=cma,
-            goals=list(goals),
-            house_matrix_row=house_matrix_row,
-            score_x10=score_x10,
-            advisory_wealth_rappen=advisory_wealth_rappen,
-            cashflow_series_rappen=cashflow_projection_series_rappen,
-            horizon_years=horizon,
-            n_paths=_OPTIMIZER_N_PATHS_DEFAULT,
-            seed=int(optimizer_result.seed or 0) or None,
-            inflation_series_bps=inflation_series_bps,
-            risky_fraction_per_bucket=rf_per_bucket,
-            max_risky_fraction_bps=int(house_matrix_row.max_risky_fraction_bps),
-        )
+        context = getattr(optimizer_result, "context", None)
+        if context is None:
+            context = build_optimizer_context(
+                cma=cma,
+                goals=list(goals),
+                house_matrix_row=house_matrix_row,
+                score_x10=score_x10,
+                advisory_wealth_rappen=advisory_wealth_rappen,
+                cashflow_series_rappen=cashflow_projection_series_rappen,
+                horizon_years=horizon,
+                n_paths=_OPTIMIZER_N_PATHS_DEFAULT,
+                seed=int(optimizer_result.seed or 0) or None,
+                inflation_series_bps=inflation_series_bps,
+                risky_fraction_per_bucket=rf_per_bucket,
+                max_risky_fraction_bps=int(house_matrix_row.max_risky_fraction_bps),
+            )
         active_evaluation = evaluate_weights(context, active_weights_bps)
         # Shadow-Weights nur bewerten wenn der Solver konvergiert ist;
         # sonst sind die Solver-Weights die House-Matrix-Mid und Vergleich
@@ -698,11 +992,25 @@ def _build_shadow_optimization_payload(
         bucket: int((optimizer_result.weights_bps or {}).get(bucket, 0) or 0)
         for bucket in _COMPARISON_BUCKETS
     }
+    context = getattr(optimizer_result, "context", None)
+    exact_risky_map = getattr(context, "risky_fraction_per_bucket", None)
     try:
-        shadow_risky_bps = compute_portfolio_risky_fraction_bps(
-            shadow_weights,
-            building_blocks_rows or [],
-        )
+        if exact_risky_map is not None:
+            shadow_risky_bps = int(round(sum(
+                int(shadow_weights.get(bucket, 0) or 0)
+                * float(exact_risky_map.get(bucket, 0.0) or 0.0)
+                for bucket in _COMPARISON_BUCKETS
+            )))
+            active_risky_fraction_bps = int(round(sum(
+                int(active_weights_bps.get(bucket, 0) or 0)
+                * float(exact_risky_map.get(bucket, 0.0) or 0.0)
+                for bucket in _COMPARISON_BUCKETS
+            )))
+        else:
+            shadow_risky_bps = compute_portfolio_risky_fraction_bps(
+                shadow_weights,
+                building_blocks_rows or [],
+            )
     except Exception as exc:  # noqa: BLE001
         logger.warning("Shadow payload: risky-fraction computation failed: %s", exc)
         shadow_risky_bps = int(active_risky_fraction_bps)
@@ -801,8 +1109,9 @@ def _build_optimizer_explainability(
             constraint_slacks as _constraint_slacks,
         )
         from services.optimizer.objective import shortfall_contributions
-        from services.optimizer.scenario_engine import simulate_wealth_paths
         from services.optimizer.solver import (
+            _annualized_twr_bps_per_path,
+            _simulate_context_wealth,
             _weights_bps_to_array,
             build_optimizer_context,
         )
@@ -825,20 +1134,22 @@ def _build_optimizer_explainability(
     horizon = max(10, int(len(cashflow_projection_series_rappen) or 10))
 
     try:
-        context = build_optimizer_context(
-            cma=cma,
-            goals=list(goals),
-            house_matrix_row=house_matrix_row,
-            score_x10=score_x10,
-            advisory_wealth_rappen=advisory_wealth_rappen,
-            cashflow_series_rappen=cashflow_projection_series_rappen,
-            horizon_years=horizon,
-            n_paths=_OPTIMIZER_N_PATHS_DEFAULT,
-            seed=int(optimizer_result.seed or 0) or None,
-            inflation_series_bps=inflation_series_bps,
-            risky_fraction_per_bucket=rf_per_bucket,
-            max_risky_fraction_bps=int(house_matrix_row.max_risky_fraction_bps),
-        )
+        context = getattr(optimizer_result, "context", None)
+        if context is None:
+            context = build_optimizer_context(
+                cma=cma,
+                goals=list(goals),
+                house_matrix_row=house_matrix_row,
+                score_x10=score_x10,
+                advisory_wealth_rappen=advisory_wealth_rappen,
+                cashflow_series_rappen=cashflow_projection_series_rappen,
+                horizon_years=horizon,
+                n_paths=_OPTIMIZER_N_PATHS_DEFAULT,
+                seed=int(optimizer_result.seed or 0) or None,
+                inflation_series_bps=inflation_series_bps,
+                risky_fraction_per_bucket=rf_per_bucket,
+                max_risky_fraction_bps=int(house_matrix_row.max_risky_fraction_bps),
+            )
     except Exception as exc:  # noqa: BLE001 - never crash allocation flow
         logger.warning(
             "Explainability: context build failed (%s); returning empty lists.", exc,
@@ -849,8 +1160,8 @@ def _build_optimizer_explainability(
         active_weights_bps,
         bounds=context.bounds,
         score_x10=context.score_x10,
-        risky_fraction_per_bucket=rf_per_bucket,
-        max_risky_fraction_bps=int(house_matrix_row.max_risky_fraction_bps),
+        risky_fraction_per_bucket=context.risky_fraction_per_bucket,
+        max_risky_fraction_bps=context.max_risky_fraction_bps,
     )
     constraints_payload = [
         {
@@ -868,18 +1179,15 @@ def _build_optimizer_explainability(
     drivers_payload: list[dict] = []
     try:
         active_w = _weights_bps_to_array(active_weights_bps)
-        wealth_paths = simulate_wealth_paths(
-            initial_wealth_rappen=context.advisory_wealth_rappen,
-            weights=active_w,
-            return_paths=context.return_paths,
-            cashflow_series_rappen=context.cashflow_series_rappen,
-            liability_path_rappen=context.aggregated_liability_path,
-        )
+        wealth_paths = _simulate_context_wealth(context, active_w)
         contribution_rows = shortfall_contributions(
             context.liabilities,
             wealth_paths,
             initial_wealth_rappen=context.advisory_wealth_rappen,
             horizon_years=context.horizon_years,
+            annualized_return_bps_per_path=_annualized_twr_bps_per_path(
+                context, active_w
+            ),
         )
         for rank, row in enumerate(contribution_rows, start=1):
             drivers_payload.append({
@@ -994,6 +1302,20 @@ def _persist_optimizer_run(
             logger.warning("OptimizerRun: restart_results_json failed (%s)", exc)
             restart_results_json = None
 
+    robustification_json: str | None = None
+    robustification = getattr(optimizer_result, "robustification", None)
+    if robustification:
+        try:
+            robustification_json = json.dumps(
+                dict(robustification),
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=False,
+            )
+        except (TypeError, ValueError) as exc:
+            logger.warning("OptimizerRun: robustification_json failed (%s)", exc)
+            robustification_json = None
+
     run = OptimizerRun(
         id=new_uuid(),
         mandate_id=mandate_id,
@@ -1013,6 +1335,7 @@ def _persist_optimizer_run(
         reasoning_json=reasoning_json,
         stress_evaluations_json=stress_evaluations_json,
         restart_results_json=restart_results_json,
+        robustification_json=robustification_json,
         set_by=user_id,
         created_at=now,
     )

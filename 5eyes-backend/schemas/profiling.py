@@ -113,8 +113,11 @@ class RiskAssessmentOverride(BaseModel):
             validate_override_reason_quality,
         )
         validate_override_reason_quality(self.override_reason)
-        assert 10 <= self.override_score_x10 <= 100, \
-            "override_score_x10 muss zwischen 10 (Score 1) und 100 (Score 10) liegen"
+        if not 10 <= self.override_score_x10 <= 100:
+            raise ValueError(
+                "override_score_x10 muss zwischen 10 (Score 1) und 100 "
+                "(Score 10) liegen"
+            )
         expected_profile = profile_for_score_x10(self.override_score_x10)
         if expected_profile != self.override_profile:
             raise ValueError(

@@ -209,8 +209,14 @@ def test_f3_legacy_allocation_without_cma_id_no_warning(session_factory):
     with session_factory() as s:
         mandate = s.query(Mandate).filter(Mandate.id == mid).first()
         result = generate_target_allocation(s, mandate, advisor_id, preferences=None)
-        # Legacy-Zustand simulieren
-        result["target_allocation"].capital_market_assumptions_id = None
+        # Einen echten Pre-Context-Legacy-Zustand simulieren. Nur die CMA-ID
+        # eines neuen, gehashten Datensatzes zu nullen waere dagegen Tampering.
+        allocation = result["target_allocation"]
+        allocation.capital_market_assumptions_id = None
+        allocation.context_artifacts_required = 0
+        allocation.sub_allocations_json = None
+        allocation.effective_constraints_json = None
+        allocation.allocation_context_hash = None
         s.commit()
     with session_factory() as s:
         mandate = s.query(Mandate).filter(Mandate.id == mid).first()

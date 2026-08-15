@@ -25,7 +25,7 @@ erste Projektionen für neue Installationen.
 | Obligationen CHF IG | 170 (1.70%) | 220 (2.20%) | CHF-Bundesobl ~1% + IG-Spread; realistischer |
 | Aktien Global | 690 (6.90%) | 700 (7.00%) | CMA: ~7.0-7.5%, konservativer Mittelpunkt |
 | Obligationen Emerging | 480 (4.80%) | 400 (4.00%) | EM-Spread überschätzt; CHF-Hedging teuer |
-| Immobilien Schweiz | 330 (3.30%) | 450 (4.50%) | SFIX historisch 4-5%, Cap Rate ~3.5% |
+| Immobilien Schweiz | 330 (3.30%) | 450 (4.50%) | SXI Real Estate Funds Total Return historisch ca. 4-5%; Ausschüttungen sind enthalten |
 
 ---
 

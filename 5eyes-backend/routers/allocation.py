@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
+from sqlalchemy import or_
 from datetime import date, datetime, timezone
 from typing import Optional
 import json
@@ -29,8 +30,13 @@ from services.audit import log
 # Aenderungen im Audit-Log.
 from routers.auth import _extract_client_ip
 from services.jurisdiction.exceptions import JurisdictionReferenceDataMissingError
-from services.jurisdiction.resolve import resolve_cma_for_jurisdiction
+from services.jurisdiction.resolve import (
+    resolve_cma_for_jurisdiction,
+    resolve_mandate_jurisdiction,
+)
 from services.portfolio_engine import (
+    _current_risk_assessment_or_none,
+    _current_target_allocation_or_none,
     build_target_payload_from_allocation,
     ensure_runtime_reference_data,
     evaluate_goal_sensitivity,
@@ -104,11 +110,10 @@ def get_current_allocation(
     current_user: User = Depends(get_current_user)
 ):
     _get_mandate_or_404(mandate_id, db, current_user)
-    ta = db.query(TargetAllocation).filter(
-        TargetAllocation.mandate_id == mandate_id,
-        TargetAllocation.is_current == 1,
-        TargetAllocation.deleted_at.is_(None)
-    ).first()
+    try:
+        ta = _current_target_allocation_or_none(db, mandate_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     if not ta:
         raise HTTPException(status_code=404, detail="Keine Soll-Allokation gefunden")
     return ta
@@ -147,11 +152,10 @@ def get_current_allocation_payload(
     current_user: User = Depends(get_current_user)
 ):
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
-    ta = db.query(TargetAllocation).filter(
-        TargetAllocation.mandate_id == mandate_id,
-        TargetAllocation.is_current == 1,
-        TargetAllocation.deleted_at.is_(None)
-    ).first()
+    try:
+        ta = _current_target_allocation_or_none(db, mandate_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     if not ta:
         raise HTTPException(status_code=404, detail="Keine Soll-Allokation gefunden")
     # rp-ueberarbeitung: pruefe ob die referenzierte Policy noch aktuell ist,
@@ -165,36 +169,40 @@ def get_current_allocation_payload(
             status_code=404,
             detail="Soll-Allokation referenziert eine nicht-aktuelle Optimizer Policy."
         )
-    assessment = db.query(RiskAssessment).filter(
-        RiskAssessment.mandate_id == mandate_id,
-        RiskAssessment.is_current == 1,
-        RiskAssessment.deleted_at.is_(None),
-    ).first()
+    try:
+        assessment = _current_risk_assessment_or_none(db, mandate_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     if not assessment:
         raise HTTPException(status_code=409, detail="Bitte zuerst ein aktuelles Risikoprofil speichern.")
-    policy, current_cma = ensure_runtime_reference_data(db, current_user.id)
+    try:
+        policy, current_cma = ensure_runtime_reference_data(
+            db,
+            current_user.id,
+            jurisdiction=resolve_mandate_jurisdiction(mandate),
+            tenant_id=getattr(mandate, "tenant_id", None),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     # Sprint U-P6 Fix H6: CMA-Reload-Asymmetrie behoben — Metrics/MC werden
     # mit der zum Generate-Zeitpunkt persistierten CMA berechnet, nicht mit
     # der aktuellen. Vorher: Bands aus Snapshot, Returns/Vola aus aktueller CMA
     # → silent Drift wenn CMA-Update zwischen Generate und Reload. Drift-Warning
     # in _strategy_drift_warnings macht die Differenz weiterhin sichtbar.
-    snapshot_cma = current_cma
-    snapshot_cma_id = getattr(ta, "capital_market_assumptions_id", None)
-    if snapshot_cma_id:
-        snapshot_cma_obj = db.query(CapitalMarketAssumption).filter(
-            CapitalMarketAssumption.id == snapshot_cma_id,
-        ).first()
-        if snapshot_cma_obj is not None:
-            snapshot_cma = snapshot_cma_obj
-    return build_target_payload_from_allocation(
-        db=db,
-        mandate=mandate,
-        allocation=ta,
-        policy=policy,
-        cma=snapshot_cma,
-        assessment=assessment,
-        preferences=None,
-    )
+    try:
+        return build_target_payload_from_allocation(
+            db=db,
+            mandate=mandate,
+            allocation=ta,
+            policy=ta_policy,
+            cma=current_cma,
+            assessment=assessment,
+            preferences=None,
+        )
+    except ValueError as exc:
+        # Invalid legacy/raw position semantics and persisted-context integrity
+        # failures are repairable domain conflicts, not opaque server errors.
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.post("/mandates/{mandate_id}/target-allocation",
@@ -245,15 +253,27 @@ def create_target_allocation(
             "based_on_assessment_id muss auf das aktuelle Risikoprofil zeigen "
             f"(erwartet {assessment.id})."
         ))
+    if settings.optimizer_mode != "house_matrix":
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Manuell erzeugte Soll-Allokationen sind im stochastischen Modus "
+                "nicht zulaessig. Bitte den Engine-Generate-Pfad verwenden; "
+                "manuelle Leitplanken werden dort als harte Bands uebergeben."
+            ),
+        )
     now = _now()
     # Sprint U-P0 Fix C8: with_for_update verhindert Race-Condition (zwei
     # gleichzeitige POSTs → zwei is_current=1 Rows). Konsistent zur
     # generate_target_allocation-Pfad-Logik in portfolio_engine.py:5134.
-    prev = db.query(TargetAllocation).filter(
-        TargetAllocation.mandate_id == mandate_id,
-        TargetAllocation.is_current == 1,
-        TargetAllocation.deleted_at.is_(None)
-    ).with_for_update().first()
+    try:
+        prev = _current_target_allocation_or_none(
+            db,
+            mandate_id,
+            for_update=True,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     prev_version = 0
     if prev:
         prev.is_current = 0
@@ -405,19 +425,45 @@ def update_cma(
         CapitalMarketAssumption.is_current == 1,
         CapitalMarketAssumption.deleted_at.is_(None)
     )
-    if jur != "CH":
+    if jur == "CH":
+        prev_query = prev_query.filter(
+            or_(
+                CapitalMarketAssumption.jurisdiction.is_(None),
+                CapitalMarketAssumption.jurisdiction == "CH",
+            ),
+            CapitalMarketAssumption.tenant_id.is_(None),
+        )
+    else:
         prev_query = prev_query.filter(CapitalMarketAssumption.jurisdiction == jur)
         prev_query = prev_query.filter(
             CapitalMarketAssumption.tenant_id.is_(None)
             if not tenant_id
             else CapitalMarketAssumption.tenant_id == tenant_id
         )
-    prev = prev_query.with_for_update().first()
+    previous_rows = prev_query.with_for_update().all()
+    if len(previous_rows) > 1:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Mehrere aktuelle CMA-Versionen fuer {jur} und den gewaehlten "
+                "Tenant-Scope gefunden; Update blockiert, bis der "
+                "Referenzdatenkonflikt bereinigt ist."
+            ),
+        )
+    prev = previous_rows[0] if previous_rows else None
     prev_dict: dict = {}
     prev_version = 0
     if prev:
-        for field_name in CapitalMarketAssumptionCreate.model_fields:
-            prev_dict[field_name] = getattr(prev, field_name, None)
+        immutable_or_scope_fields = {
+            "id", "version", "is_current", "created_by", "created_at",
+            "updated_at", "deleted_at", "jurisdiction", "tenant_id",
+        }
+        # Preserve every persisted model input, including optimizer-effective
+        # tail moments and future additive CMA columns.  Copying only Pydantic
+        # request fields silently erased model inputs on a partial version bump.
+        for column in CapitalMarketAssumption.__table__.columns:
+            if column.name not in immutable_or_scope_fields:
+                prev_dict[column.name] = getattr(prev, column.name, None)
         prev.is_current = 0
         prev_version = prev.version
     merged = {**prev_dict, **payload}
@@ -430,7 +476,10 @@ def update_cma(
         updated_at=now,
         **merged
     )
-    if jur != "CH":
+    if jur == "CH":
+        cma.jurisdiction = "CH"
+        cma.tenant_id = None
+    else:
         cma.jurisdiction = jur
         cma.tenant_id = tenant_id or None
     db.add(cma)

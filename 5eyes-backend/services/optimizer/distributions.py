@@ -24,6 +24,11 @@ from __future__ import annotations
 import math
 import random
 
+from services.return_moments import (
+    arithmetic_moments_to_log_parameters,
+    bounded_cornish_fisher,
+)
+
 
 _MAX_SKEW = 1.0
 _MAX_EXCESS_KURT = 8.0
@@ -52,14 +57,7 @@ def cornish_fisher_quantile(z: float, skew: float, excess_kurt: float) -> float:
     """
     s = _clamp_skew(skew)
     k = _clamp_kurt(excess_kurt)
-    z2 = z * z
-    z3 = z2 * z
-    return (
-        z
-        + (z2 - 1.0) * s / 6.0
-        + (z3 - 3.0 * z) * k / 24.0
-        - (2.0 * z3 - 5.0 * z) * s * s / 36.0
-    )
+    return float(bounded_cornish_fisher(z, s, k))
 
 
 def sample_cornish_fisher(rng: random.Random, skew: float, excess_kurt: float) -> float:
@@ -76,12 +74,18 @@ def standard_normal_to_log_return(
     skew: float = 0.0,
     excess_kurt: float = 0.0,
 ) -> float:
-    """Konvertiert Standard-Normal-Stichprobe in Log-Return mit Itô-Korrektur.
+    """Mappt arithmetische CMA-Momente auf einen Log-Return.
 
-    log(R) = mu - 0.5 * sigma^2 + sigma * z_tilde
+    Fuer Normal-Innovationen gilt mit
+    ``v = log(1 + (sigma / (1 + mu))**2)``:
+    ``log(R) = log(1 + mu) - v/2 + sqrt(v) * z``.
+    Der Tail-Pfad kalibriert Location und Scale numerisch auf dieselben beiden
+    einfachen Return-Momente.
 
-    mu_bps und sigma_bps sind in basis points (z.B. 700 = 7%). Itô-Korrektur
-    sorgt dafuer dass E[R] = exp(mu) auch unter der Log-Normal-Verteilung gilt.
+    mu_bps ist eine arithmetische erwartete Rendite in Basispunkten
+    (z.B. 700 = 7%). Die Umrechnung sorgt dafür, dass E[R] = 1 + mu unter
+    der Log-Normal-Verteilung gilt und die einfache Return-Volatilitaet
+    ebenfalls ``sigma`` entspricht.
     Quelle: Hull "Options, Futures and Other Derivatives" Ch. 14.
 
     Wenn skew=0 und excess_kurt=0: identisch zur klassischen Log-Normal-MC,
@@ -89,8 +93,17 @@ def standard_normal_to_log_return(
     """
     mu = mu_bps / 10000.0
     sigma = sigma_bps / 10000.0
+    s = _clamp_skew(skew)
+    k = _clamp_kurt(excess_kurt)
+    location, scale = arithmetic_moments_to_log_parameters(
+        mu,
+        sigma,
+        skew=s,
+        excess_kurtosis=k,
+        use_cornish_fisher=True,
+    )
     z_tilde = cornish_fisher_quantile(z, skew, excess_kurt)
-    return math.exp(mu - 0.5 * sigma * sigma + sigma * z_tilde)
+    return math.exp(location + scale * z_tilde)
 
 
 def estimate_distribution_moments(samples: list[float]) -> dict[str, float]:

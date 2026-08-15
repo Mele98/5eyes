@@ -2291,7 +2291,19 @@ def test_generate_target_allocation_reflects_cashflow_and_goal_constraints(sessi
     assert result["target_allocation"].mandate_id == mandate_id
     assert result["reserve_needed_rappen"] >= 15000000
     liquidity_bucket = next(bucket for bucket in result["buckets"] if bucket["asset_class"] == "Liquiditaet")
-    assert liquidity_bucket["target_weight_bps"] <= 300
+    # The 3% SAA reserve is CHF-denominated on the original advisory base.
+    # After the external reserve is removed, the same CHF 18k is correctly
+    # normalized to 390 bps of the smaller investable base.
+    persisted_constraints = json.loads(
+        result["target_allocation"].effective_constraints_json
+    )
+    assert persisted_constraints["reserve_floor_bps"] == 390
+    assert liquidity_bucket["target_weight_bps"] >= 390
+    assert round(
+        result["investable_advisory_wealth_rappen"]
+        * liquidity_bucket["target_weight_bps"]
+        / 10000
+    ) >= 18_000_00
     assert result["external_reserve_rappen"] > 0
     assert any(
         "Liquiditaetsbedarf" in reason
@@ -2368,7 +2380,10 @@ def test_generate_target_allocation_respects_manual_band_overrides(session_facto
         )
 
     target = result["target_allocation"]
-    assert int(target.target_equities_bps) == 6500
+    # In stochastic mode the manual target is a starting preference; the
+    # hard contract is the persisted band. The solver may choose any feasible
+    # point inside it.
+    assert 6000 <= int(target.target_equities_bps) <= 7200
     assert int(target.band_equities_min_bps) == 6000
     assert int(target.band_equities_max_bps) == 7200
     assert any("Bandbreiten" in reason for reason in result["reasoning"])

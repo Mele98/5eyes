@@ -230,13 +230,14 @@ class Settings(BaseSettings):
     # Optimizer (siehe docs/planning/2026-05-05-stochastic-optimizer-spec.md
     # und claude-bericht-Advisory-Methodik-assetallocation-optimierung-v3-codeplan.md).
     # Gueltige Werte:
-    # - 'house_matrix' (default): produktiver Pfad; Solver wird nicht ausgefuehrt.
+    # - 'house_matrix': expliziter Legacy-/Notbetrieb; Solver wird nicht ausgefuehrt.
     # - 'iterative': reservierter Legacy-/Experimentmodus, faellt auf house_matrix.
     # - 'shadow_stochastic': Solver laeuft parallel; House-Matrix bleibt aktive
     #   Zielallokation. Solver-Ergebnis wird nur als Methodenvergleich geliefert
     #   und NICHT auf der TargetAllocation als optimization_* persistiert.
-    # - 'stochastic': Solver darf die Zielallokation ersetzen, wenn converged.
-    optimizer_mode: str = 'house_matrix'
+    # - 'stochastic' (default): finales Produktionsmodell. House Matrix liefert
+    #   Initialisierung/Policy-Bounds und bleibt auditierter technischer Fallback.
+    optimizer_mode: str = 'stochastic'
 
     # Mean-Shift Importance Sampling fuer Tail-Risk im stochastic Optimizer
     # (Phase 5 der Stochastic-Optimizer-Spec). Default OFF, opt-in via
@@ -347,7 +348,7 @@ class Settings(BaseSettings):
     @classmethod
     def validate_optimizer_mode(cls, value: str) -> str:
         normalized = value.strip().lower()
-        allowed = {'house_matrix', 'iterative', 'shadow_stochastic', 'stochastic'}
+        allowed = {'house_matrix', 'shadow_stochastic', 'stochastic'}
         if normalized not in allowed:
             raise ValueError(f"optimizer_mode must be one of: {', '.join(sorted(allowed))}")
         return normalized
@@ -514,6 +515,11 @@ class Settings(BaseSettings):
 
     @model_validator(mode='after')
     def validate_security(self):
+        if self.app_env == 'production' and self.optimizer_mode != 'stochastic':
+            raise ValueError(
+                'production requires optimizer_mode=stochastic; house_matrix '
+                'is reserved for the audited internal solver fallback.'
+            )
         if self.app_env in {'staging', 'production'} and self.secret_key == DEFAULT_SECRET_KEY:
             raise ValueError('secret_key must be overridden outside development/test')
         uses_postgres = bool(

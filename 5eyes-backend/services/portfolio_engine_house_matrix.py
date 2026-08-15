@@ -149,17 +149,12 @@ def _building_block_rows_for_policy(
       die bisherige isolierte Validierung in ensure_runtime_reference_data().
     """
     if jurisdiction in (None, "CH"):
-        base_query = db.query(BuildingBlock).filter(
-            BuildingBlock.policy_id == policy_id,
-            BuildingBlock.is_active == 1,
+        return resolve_building_blocks_for_jurisdiction(
+            db,
+            policy_id,
+            "CH",
+            investment_universe=investment_universe,
         )
-        universe = (investment_universe or "").strip() or None
-        rows = []
-        if universe:
-            rows = base_query.filter(BuildingBlock.universe == universe).all()
-        if not rows:
-            rows = base_query.all()
-        return rows
     return resolve_building_blocks_for_jurisdiction(
         db, policy_id, jurisdiction, investment_universe=investment_universe,
     )
@@ -329,24 +324,58 @@ def _enrich_sub_allocations_with_risk(
     enriched: list[dict] = []
     weighted_totals = {key: 0 for key in BUCKET_FIELDS}
     weight_totals = {key: 0 for key in BUCKET_FIELDS}
-    total_risky_fraction_bps = 0
     for sub in sub_allocations:
         bucket = _bucket_key(sub.get("asset_class"))
         if not bucket:
             continue
-        risky_fraction_bps = risky_map.get(
-            (_norm_text(sub.get("asset_class")), _norm_text(sub.get("sub_asset_class"))),
-            _asset_risky_weight_fallbacks().get(bucket, 0),
+        stored_risky_fraction = sub.get("risky_fraction_bps")
+        key = (
+            _norm_text(sub.get("asset_class")),
+            _norm_text(sub.get("sub_asset_class")),
         )
-        weight = int(sub.get("target_weight_bps") or 0)
-        weighted_totals[bucket] += int(round(weight * risky_fraction_bps))
-        weight_totals[bucket] += weight
-        total_risky_fraction_bps += int(round(weight * risky_fraction_bps / 10000))
+        raw_risky_fraction = (
+            stored_risky_fraction
+            if stored_risky_fraction is not None
+            else risky_map.get(key)
+        )
+        if (
+            isinstance(raw_risky_fraction, bool)
+            or not isinstance(raw_risky_fraction, int)
+            or not 0 <= raw_risky_fraction <= 10_000
+        ):
+            from services.optimizer.constraints import OptimizerInputError
+
+            raise OptimizerInputError(
+                "Fuer die verwendete Sub-Asset-Klasse fehlt eine gueltige "
+                "BuildingBlock-Risikofraktion (0..10000 bps): "
+                f"{key}."
+            )
+        risky_fraction_bps = raw_risky_fraction
+        portfolio_weight = int(sub.get("target_weight_bps") or 0)
+        mix_weight = int(
+            sub.get("within_bucket_weight_bps")
+            if sub.get("within_bucket_weight_bps") is not None
+            else portfolio_weight
+        )
+        weighted_totals[bucket] += mix_weight * int(risky_fraction_bps)
+        weight_totals[bucket] += mix_weight
         enriched.append({**sub, "risky_fraction_bps": int(risky_fraction_bps)})
     asset_risky_weights = _asset_risky_weight_fallbacks()
     for bucket in BUCKET_FIELDS:
         if weight_totals[bucket] > 0:
             asset_risky_weights[bucket] = int(round(weighted_totals[bucket] / weight_totals[bucket]))
+    portfolio_weights = {bucket: 0 for bucket in BUCKET_FIELDS}
+    for row in enriched:
+        bucket = _bucket_key(row.get("asset_class"))
+        if bucket in portfolio_weights:
+            portfolio_weights[bucket] += int(row.get("target_weight_bps") or 0)
+    # Round once from the exact integer bucket coefficients. This is the same
+    # functional used for solver input, final audit and persistence; summing
+    # separately rounded sleeve contributions can differ at a binding cap.
+    total_risky_fraction_bps = _risk_budget_from_targets(
+        portfolio_weights,
+        asset_risky_weights,
+    )
     return enriched, asset_risky_weights, total_risky_fraction_bps
 
 
@@ -524,9 +553,17 @@ def _build_sub_allocations(
         value = asset_prefs.get(name)
         if value is None:
             return default
-        if isinstance(value, str):
-            return value.strip().lower() not in ("", "0", "false", "nein", "no", "off")
-        return bool(value)
+        if type(value) is not bool:
+            raise ValueError(
+                f"Anlagepraeferenz {name} muss true oder false sein; "
+                f"erhalten: {value!r}."
+            )
+        return value
+
+    if "noEm" in geo_prefs and type(geo_prefs["noEm"]) is not bool:
+        raise ValueError(
+            "Anlagepraeferenz noEm muss true oder false sein."
+        )
 
     def _append_split(asset_class: str, bucket_weight: int, splits: list[tuple[str, int, str]]):
         if bucket_weight <= 0 or not splits:
@@ -568,6 +605,12 @@ def _build_sub_allocations(
 
     if is_ch:
         equities_geo = _preference_choice(asset_prefs.get("equitiesGeo"), "Schweiz Fokus")
+        if equities_geo not in {
+            "Schweiz Fokus", "Global", "Europa", "Schwellenlaender",
+        }:
+            raise ValueError(
+                f"Unbekannte CH-Aktienpraeferenz {equities_geo!r}."
+            )
         if geo_prefs.get("noEm") and equities_geo == "Schwellenlaender":
             raise ValueError(
                 "Anlagepraeferenzen widerspruechlich: Schwellenlaender-Fokus ist gewaehlt, "
@@ -672,6 +715,10 @@ def _build_sub_allocations(
         )
     if is_ch:
         bonds_duration = _preference_choice(asset_prefs.get("bondsDuration"), "Langfristig")
+        if bonds_duration not in {"Langfristig", "Kurzfristig", "Gemischt"}:
+            raise ValueError(
+                f"Unbekannte Obligationen-Laufzeitpraeferenz {bonds_duration!r}."
+            )
         if bonds_duration == "Kurzfristig":
             bond_splits = [("Obligationen CHF IG", 7000, "Kurzfristige CHF-Qualitaet"), ("Obligationen Global Hedged", 2500, "Ergaenzende Diversifikation"), ("Obligationen High Yield", 300, "Renditebeimischung"), ("Obligationen Emerging", 200, "Diversifikation")]
         elif bonds_duration == "Gemischt":
@@ -723,6 +770,10 @@ def _build_sub_allocations(
 
     if is_ch:
         realestate_market = _preference_choice(asset_prefs.get("realestateMarket"), "Schweiz")
+        if realestate_market not in {"Schweiz", "Ausland", "Gemischt"}:
+            raise ValueError(
+                f"Unbekannte CH-Immobilienpraeferenz {realestate_market!r}."
+            )
         if realestate_market == "Ausland":
             re_splits = [("Immobilien Global", 7000, "Auslandsfokus fuer Immobilien"), ("Immobilien Schweiz", 3000, "Heimmarkt-Stabilisator")]
         elif realestate_market == "Gemischt":
@@ -868,15 +919,315 @@ def _apply_illiquid_cap(
     return sub_allocations, targets
 
 
+def _canonicalize_sub_allocation_mix(
+    sub_allocations: list[dict],
+) -> list[dict]:
+    """Return a deterministic, bucket-relative sub-allocation plan.
+
+    ``_build_sub_allocations`` materialises portfolio weights.  The stochastic
+    optimizer, however, needs a *fixed* composition per bucket: otherwise a
+    later change of a bucket weight can silently change the CMA and risky-
+    fraction inputs that were used to optimise it.  This helper normalises
+    every populated bucket to exactly 10'000 bps while preserving labels,
+    rationale and ordering.
+
+    The returned ``target_weight_bps`` therefore means "bps within this
+    bucket".  It must be materialised with
+    ``_materialize_sub_allocation_plan`` before it is exposed or persisted.
+    ``scenario_inputs_from_cma`` and the risky-fraction aggregation both
+    normalise within buckets already, so this canonical representation is
+    also their safest input format.
+    """
+    from services.portfolio_engine import _bucket_key
+
+    by_bucket: dict[str, list[dict]] = {}
+    bucket_order: list[str] = []
+    for item in sub_allocations or []:
+        bucket = _bucket_key(item.get("asset_class"))
+        raw_weight = (
+            item.get("within_bucket_weight_bps")
+            if item.get("within_bucket_weight_bps") is not None
+            else item.get("target_weight_bps")
+        )
+        weight = max(0, int(raw_weight or 0))
+        if not bucket or weight <= 0:
+            continue
+        if bucket not in by_bucket:
+            by_bucket[bucket] = []
+            bucket_order.append(bucket)
+        by_bucket[bucket].append(dict(item))
+
+    canonical: list[dict] = []
+    for bucket in bucket_order:
+        rows = by_bucket[bucket]
+        source_weights = [
+            max(
+                0,
+                int(
+                    row.get("within_bucket_weight_bps")
+                    if row.get("within_bucket_weight_bps") is not None
+                    else row.get("target_weight_bps")
+                    or 0
+                ),
+            )
+            for row in rows
+        ]
+        total = sum(source_weights)
+        if total <= 0:
+            continue
+        scaled: list[dict] = []
+        remainders: list[int] = []
+        for row, source_weight in zip(rows, source_weights):
+            numerator = source_weight * 10000
+            weight = numerator // total
+            remainders.append(numerator % total)
+            scaled.append({
+                **row,
+                "target_weight_bps": weight,
+                "within_bucket_weight_bps": weight,
+            })
+        residual = 10000 - sum(
+            int(row["target_weight_bps"]) for row in scaled
+        )
+        order = sorted(
+            range(len(scaled)),
+            key=lambda idx: (
+                -remainders[idx],
+                int(scaled[idx].get("risky_fraction_bps") or 0),
+                idx,
+            ),
+        )
+        for idx in order[:residual]:
+            scaled[idx]["target_weight_bps"] += 1
+            scaled[idx]["within_bucket_weight_bps"] += 1
+        canonical.extend(scaled)
+    return canonical
+
+
+def _materialize_sub_allocation_plan(
+    plan: list[dict],
+    targets: dict[str, int],
+) -> list[dict]:
+    """Scale a canonical per-bucket plan to final portfolio target weights.
+
+    Rounding is resolved inside every bucket, so the sub-weights reproduce
+    each final bucket target exactly.  This is the key invariant that keeps
+    solver CMA/risk inputs and all downstream metrics on the same sub-mix.
+    """
+    from services.portfolio_engine import BUCKET_FIELDS, _bucket_key
+
+    by_bucket: dict[str, list[dict]] = {bucket: [] for bucket in BUCKET_FIELDS}
+    for item in plan or []:
+        bucket = _bucket_key(item.get("asset_class"))
+        if bucket in by_bucket:
+            by_bucket[bucket].append(dict(item))
+
+    materialized: list[dict] = []
+    for bucket in BUCKET_FIELDS:
+        bucket_target = max(0, int(targets.get(bucket, 0) or 0))
+        rows = by_bucket[bucket]
+        if not rows:
+            continue
+        mix_weights = [
+            max(
+                0,
+                int(
+                    row.get("within_bucket_weight_bps")
+                    if row.get("within_bucket_weight_bps") is not None
+                    else row.get("target_weight_bps")
+                    or 0
+                ),
+            )
+            for row in rows
+        ]
+        plan_total = sum(mix_weights)
+        if plan_total <= 0:
+            continue
+        if bucket_target == 0:
+            # Preserve the exact sleeve blueprint for a currently empty
+            # bucket. Its maximum may still be positive, so sensitivity/replay
+            # must not fall back to generic CMA/risk assumptions later.
+            materialized.extend({
+                **row,
+                "target_weight_bps": 0,
+                "within_bucket_weight_bps": mix_weight,
+            } for row, mix_weight in zip(rows, mix_weights))
+            continue
+        scaled: list[dict] = []
+        remainders: list[int] = []
+        for row, mix_weight in zip(rows, mix_weights):
+            numerator = bucket_target * mix_weight
+            weight = numerator // plan_total
+            remainders.append(numerator % plan_total)
+            scaled.append({
+                **row,
+                "target_weight_bps": weight,
+                "within_bucket_weight_bps": mix_weight,
+            })
+        residual = bucket_target - sum(
+            int(row["target_weight_bps"]) for row in scaled
+        )
+        order = sorted(
+            range(len(scaled)),
+            key=lambda idx: (
+                -remainders[idx],
+                int(scaled[idx].get("risky_fraction_bps") or 0),
+                idx,
+            ),
+        )
+        for idx in order[:residual]:
+            scaled[idx]["target_weight_bps"] += 1
+        # Keep zero-weight sleeves as immutable context rows. They contribute
+        # nothing to the active portfolio but retain the accepted model mix.
+        materialized.extend(scaled)
+    return materialized
+
+
+def _build_stochastic_sub_allocation_plan(
+    *,
+    targets: dict[str, int],
+    minimums: dict[str, int],
+    maximums: dict[str, int],
+    preferences: dict,
+    max_illiquid_bps: int | None,
+    reasoning: list[str],
+    jurisdiction: str = "CH",
+    db: Session | None = None,
+) -> tuple[list[dict], dict[str, int]]:
+    """Build the immutable sub-allocation plan used by the stochastic model.
+
+    The plan is calibrated at the largest simultaneously reachable bucket
+    weights.  Consequently an absolute ``maxIlliquid`` limit remains valid
+    for *every* allocation inside the effective bounds, while the sub-mix is
+    constant during optimisation and downstream reporting.
+
+    If the alternatives universe is entirely illiquid (for example PE-only),
+    composition cannot absorb the cap.  In that case the alternatives upper
+    bound itself is tightened.  A conflicting minimum is a domain error: it
+    must not be hidden by a House-Matrix fallback that would violate the same
+    hard mandate rule.
+    """
+    from services.portfolio_engine import (
+        BUCKET_FIELDS,
+        _ILLIQUID_SUB_ASSET_CLASSES,
+        _norm_text,
+    )
+    from services.optimizer.constraints import OptimizerInputError
+
+    effective_maximums = {
+        bucket: int(maximums[bucket]) for bucket in BUCKET_FIELDS
+    }
+    minimum_total = sum(int(minimums[bucket]) for bucket in BUCKET_FIELDS)
+    if minimum_total > 10000:
+        raise OptimizerInputError(
+            "Mandatsspezifische Mindestquoten sind unloesbar: ihre Summe "
+            f"betraegt {minimum_total / 100:.2f}% statt hoechstens 100%."
+        )
+
+    reference_targets: dict[str, int] = {}
+    for bucket in BUCKET_FIELDS:
+        other_minimums = sum(
+            int(minimums[other]) for other in BUCKET_FIELDS if other != bucket
+        )
+        simultaneously_reachable = max(0, 10000 - other_minimums)
+        reference_targets[bucket] = min(
+            int(effective_maximums[bucket]), simultaneously_reachable
+        )
+
+    raw = _build_sub_allocations(
+        reference_targets,
+        preferences,
+        jurisdiction=jurisdiction,
+        db=db,
+    )
+
+    if max_illiquid_bps is not None:
+        alternatives_reference = max(0, int(reference_targets["alternatives"]))
+        alt_rows = [
+            row for row in raw
+            if _norm_text(row.get("asset_class")) == _norm_text("Alternative")
+        ]
+        illiquid_rows = [
+            row for row in alt_rows
+            if _norm_text(row.get("sub_asset_class")).strip().lower()
+            in _ILLIQUID_SUB_ASSET_CLASSES
+        ]
+        liquid_rows = [row for row in alt_rows if row not in illiquid_rows]
+        illiquid_at_reference = sum(
+            max(0, int(row.get("target_weight_bps") or 0)) for row in illiquid_rows
+        )
+
+        if (
+            alternatives_reference > 0
+            and illiquid_at_reference > max_illiquid_bps
+            and illiquid_rows
+            and not liquid_rows
+        ):
+            # General formula L/q_illiquid, evaluated without floats:
+            # max_alt = floor(L * alt_reference / illiquid_at_reference).
+            cap_for_alternatives = max(
+                0,
+                int(max_illiquid_bps) * alternatives_reference // illiquid_at_reference,
+            )
+            effective_maximums["alternatives"] = min(
+                effective_maximums["alternatives"], cap_for_alternatives
+            )
+            if int(minimums["alternatives"]) > effective_maximums["alternatives"]:
+                raise OptimizerInputError(
+                    "Mandatsvorgaben sind unloesbar: Das Mindestgewicht fuer "
+                    "Alternative Anlagen ist mit der maximal erlaubten "
+                    "Illiquiditaet nicht vereinbar."
+                )
+            reference_targets["alternatives"] = min(
+                reference_targets["alternatives"],
+                effective_maximums["alternatives"],
+            )
+            raw = _build_sub_allocations(
+                reference_targets,
+                preferences,
+                jurisdiction=jurisdiction,
+                db=db,
+            )
+            reasoning.append(
+                "Die Obergrenze fuer Alternative Anlagen wurde so reduziert, "
+                "dass das PE-only-Universum die Illiquiditaetsgrenze in jeder "
+                "zulaessigen Solver-Allokation einhaelt."
+            )
+
+        # Mixed alternatives: reduce PE at the worst-case reachable alternatives
+        # weight and redistribute within the bucket.  The canonicalised mix is
+        # then safe at all lower weights as well.
+        raw, reference_targets = _apply_illiquid_cap(
+            raw,
+            reference_targets,
+            max_illiquid_bps,
+            reasoning,
+            maximums=effective_maximums,
+        )
+
+    if sum(int(effective_maximums[bucket]) for bucket in BUCKET_FIELDS) < 10000:
+        raise OptimizerInputError(
+            "Mandatsspezifische Maximalquoten sind unloesbar: ihre Summe "
+            "reicht nicht fuer eine voll investierte Allokation von 100%."
+        )
+
+    return _canonicalize_sub_allocation_mix(raw), effective_maximums
+
+
 def _house_matrix_or_default(db: Session, policy: OptimizerPolicy, score_bucket: int) -> HouseMatrix:
-    hm = db.query(HouseMatrix).filter(
+    candidates = db.query(HouseMatrix).filter(
         HouseMatrix.policy_id == policy.id,
         HouseMatrix.score_from <= score_bucket,
         HouseMatrix.score_to >= score_bucket,
         HouseMatrix.is_active == 1,
-    ).first()
-    if hm:
-        return hm
+    ).all()
+    if len(candidates) > 1:
+        raise ValueError(
+            f"HouseMatrix ist fuer Score {score_bucket} mehrdeutig; "
+            "aktive Score-Bereiche ueberlappen sich."
+        )
+    if candidates:
+        return candidates[0]
     raise ValueError(f"HouseMatrix unvollstaendig fuer Score {score_bucket}")
 
 

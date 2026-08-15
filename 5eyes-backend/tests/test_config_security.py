@@ -86,24 +86,46 @@ def test_recent_log_default_must_not_exceed_max():
         )
 
 
-def test_optimizer_mode_defaults_to_house_matrix():
-    """Default optimizer_mode soll house_matrix sein (kein Verhaltens-Change)."""
+def test_optimizer_mode_defaults_to_stochastic():
+    """Stochastik ist das finale Produktionsmodell; House bleibt Fallback."""
     settings = Settings(
         app_env='development',
         secret_key=DEFAULT_SECRET_KEY,
     )
-    assert settings.optimizer_mode == 'house_matrix'
+    assert settings.optimizer_mode == 'stochastic'
 
 
-def test_optimizer_mode_accepts_iterative_and_stochastic():
+def test_optimizer_mode_accepts_explicit_nonproduction_modes():
     """Erlaubte Werte fuer optimizer_mode."""
-    for mode in ('house_matrix', 'iterative', 'stochastic'):
+    for mode in ('house_matrix', 'shadow_stochastic', 'stochastic'):
         settings = Settings(
             app_env='development',
             secret_key=DEFAULT_SECRET_KEY,
             optimizer_mode=mode,
         )
         assert settings.optimizer_mode == mode
+
+
+def test_optimizer_mode_rejects_unimplemented_iterative_mode():
+    with pytest.raises(ValueError, match='optimizer_mode'):
+        Settings(
+            app_env='development',
+            secret_key=DEFAULT_SECRET_KEY,
+            optimizer_mode='iterative',
+        )
+
+
+@pytest.mark.parametrize('mode', ['house_matrix', 'shadow_stochastic'])
+def test_production_requires_active_stochastic_model(mode):
+    with pytest.raises(ValueError, match='optimizer_mode=stochastic'):
+        Settings(
+            app_env='production',
+            secret_key='prod-secret',
+            db_use_sqlcipher=True,
+            db_key='prod-db-key',
+            cors_origins=PRODUCTION_CORS_ORIGINS,
+            optimizer_mode=mode,
+        )
 
 
 def test_optimizer_mode_rejects_unknown_value():

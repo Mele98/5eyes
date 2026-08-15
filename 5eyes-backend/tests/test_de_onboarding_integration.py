@@ -233,6 +233,28 @@ def _seed_de_mandate(session_factory, *, suffix: str, cma_status: str) -> dict:
             real_estate_home_return_bps=420, real_estate_home_vol_bps=800,
             alternatives_gold_return_bps=120, alternatives_gold_vol_bps=1200,
             liquidity_return_bps=80, liquidity_vol_bps=15,
+            sub_asset_class_assumptions_json=json.dumps({
+                "Aktien Deutschland": {
+                    "asset_class": "Aktien",
+                    "expected_return_bps": 650,
+                    "expected_volatility_bps": 1500,
+                },
+                "Obligationen EUR IG": {
+                    "asset_class": "Obligationen",
+                    "expected_return_bps": 200,
+                    "expected_volatility_bps": 380,
+                },
+                "Obligationen Global EUR-Hedged": {
+                    "asset_class": "Obligationen",
+                    "expected_return_bps": 200,
+                    "expected_volatility_bps": 380,
+                },
+                "Immobilien Deutschland": {
+                    "asset_class": "Immobilien",
+                    "expected_return_bps": 420,
+                    "expected_volatility_bps": 800,
+                },
+            }),
             source="Test-Fixture (WP6 Integrationstest)",
             created_by=advisor_id, created_at=now, updated_at=now,
         ))
@@ -292,7 +314,7 @@ def _seed_de_mandate(session_factory, *, suffix: str, cma_status: str) -> dict:
             q_investment_goal_points=3, q_risk_preference_points=4, q_risk_behavior_points=3,
             risk_willingness_total=10, risk_willingness_profile="DE-Test",
             risk_willingness_score_x10=50,
-            final_score_x10=50, final_profile="DE-Test",
+            final_score_x10=50, final_profile="Ausgewogen",
             is_overridden=0,
             knowledge_services_json="{}",
             knowledge_instruments_json="{}",
@@ -406,7 +428,7 @@ def _seed_ch_mandate(session_factory, *, suffix: str) -> dict:
             q_investment_goal_points=3, q_risk_preference_points=4, q_risk_behavior_points=3,
             risk_willingness_total=10, risk_willingness_profile="CH-Test",
             risk_willingness_score_x10=50,
-            final_score_x10=50, final_profile="CH-Test",
+            final_score_x10=50, final_profile="Ausgewogen",
             is_overridden=0,
             knowledge_services_json="{}",
             knowledge_instruments_json="{}",

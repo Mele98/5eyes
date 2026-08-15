@@ -35,8 +35,10 @@ from services.optimizer.solver import (
     OptimizerResult,
     _covariance_bps_from_scenario_inputs,
     _markowitz_min_variance_candidate,
+    build_optimizer_context,
     build_initial_guesses,
     deterministic_seed,
+    evaluate_weights,
     run_solver,
 )
 
@@ -604,19 +606,41 @@ def test_solver_full_run_with_par5_markowitz_candidate_still_valid():
 
 
 def test_solver_empty_goals_returns_feasible_allocation():
-    """Mandant ohne Goals -> Solver sollte trotzdem feasible weights liefern."""
+    """Ohne Goals wird deterministisch terminale Wealth-Varianz minimiert."""
     cma = _make_cma()
     house_matrix = _make_house_matrix_row()
+    solver_kwargs = {
+        "cma": cma,
+        "goals": [],
+        "house_matrix_row": house_matrix,
+        "score_x10": 70,
+        "advisory_wealth_rappen": 500_000_00,
+        "cashflow_series_rappen": [0] * 5,
+        "horizon_years": 5,
+        "n_paths": 200,
+        "seed": 42,
+    }
 
-    result = run_solver(
-        cma=cma, goals=[], house_matrix_row=house_matrix, score_x10=70,
-        advisory_wealth_rappen=500_000_00, cashflow_series_rappen=[0] * 5,
-        horizon_years=5, n_paths=200, seed=42,
-    )
-    # Weights muessen valid sein
+    result = run_solver(**solver_kwargs)
+    repeated = run_solver(**solver_kwargs)
+
     assert sum(result.weights_bps.values()) == 10000
-    # Mit keinem Goal ist objective ~0
-    assert result.objective_value < 1.0
+    assert result.objective_value > 0.0
+    assert repeated.weights_bps == result.weights_bps
+    assert repeated.objective_value == pytest.approx(result.objective_value)
+
+    context = build_optimizer_context(**solver_kwargs)
+    clearly_riskier = {
+        "equities": 7000,
+        "bonds": 2000,
+        "real_estate": 0,
+        "alternatives": 0,
+        "liquidity": 1000,
+    }
+    riskier_evaluation = evaluate_weights(context, clearly_riskier)
+
+    assert riskier_evaluation.feasible, riskier_evaluation.constraint_violations
+    assert result.objective_value < riskier_evaluation.objective_value
 
 
 def test_solver_handles_short_horizon_one_year():
