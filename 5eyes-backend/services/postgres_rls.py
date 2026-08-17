@@ -1,6 +1,8 @@
 """PostgreSQL row-level-security setup for tenant-owned tables."""
 from __future__ import annotations
 
+import importlib
+import pkgutil
 import re
 from collections.abc import Iterable
 
@@ -15,22 +17,29 @@ _IDENTIFIER_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 
 
 def import_tenant_models() -> None:
-    """Import ORM modules so Base.metadata knows all tenant-owned tables."""
+    """Import every ORM module so Base.metadata knows all tenant-owned tables.
 
-    import models.allocation  # noqa: F401
-    import models.client_login  # noqa: F401
-    import models.clients  # noqa: F401
-    import models.fx_rate  # noqa: F401
-    import models.mandates  # noqa: F401
-    import models.market_data_cache  # noqa: F401
-    import models.market_data_validation_log  # noqa: F401
-    import models.profiling  # noqa: F401
-    import models.protocol_bausteine  # noqa: F401
-    import models.review  # noqa: F401
-    import models.snapshots  # noqa: F401
-    import models.tenant  # noqa: F401
-    import models.users  # noqa: F401
-    import models.wealth  # noqa: F401
+    RLS-CI-guard hardening (2026-08-17): this used to be a hand-maintained
+    list of ``import models.X`` statements. A prior security audit flagged it
+    as fragile -- a future model file with a ``tenant_id`` column that
+    nobody remembered to add to this list would be invisible to
+    ``Base.metadata`` and therefore to ``tenant_scoped_table_names()`` /
+    ``ensure_postgres_rls_policies()``, silently shipping without an RLS
+    policy. The check would still "pass" because it only ever verified the
+    tables already on the list, never "every table that should be on it".
+
+    Fix: walk the ``models`` package directory at runtime via ``pkgutil`` and
+    import every submodule found there. Any new ``models/*.py`` file is
+    picked up automatically on the next run -- there is no list left to
+    forget to update. See ``tests/test_rls_dynamic_table_coverage_guard.py``
+    for the unit test proving this (and the live-Postgres integration test
+    that asserts every discovered table actually has a ``pg_policies`` row).
+    """
+
+    import models as _models_pkg
+
+    for module_info in pkgutil.iter_modules(_models_pkg.__path__, prefix=f"{_models_pkg.__name__}."):
+        importlib.import_module(module_info.name)
 
 
 def tenant_scoped_table_names() -> tuple[str, ...]:
@@ -139,6 +148,54 @@ def ensure_postgres_rls_policies(
             return _execute_policy_ddl(conn, resolved)
     _assert_rls_effective_role(connectable)
     return _execute_policy_ddl(connectable, resolved)
+
+
+def tenant_tables_missing_rls_policies(
+    connectable: Engine | Connection,
+    *,
+    table_names: Iterable[str] | None = None,
+    schema: str | None = None,
+) -> list[str]:
+    """CI/ops guard: which dynamically-discovered tenant tables have NO
+    ``pg_policies`` row at all right now?
+
+    This is the coverage check the 2026-08-17 audit asked for: instead of
+    trusting a fixed list of "tables we already know are covered", it asks
+    Postgres's own catalog which of the tables ``tenant_scoped_table_names()``
+    discovers *right now* (by introspecting ``Base.metadata`` -- see
+    ``import_tenant_models()``) actually have a policy applied. A future
+    model with a ``tenant_id`` column that ships without a call to
+    ``ensure_postgres_rls_policies()`` for it shows up here, loudly, instead
+    of silently passing.
+
+    Returns an empty list on SQLite/non-Postgres dialects (RLS is a Postgres
+    concept). ``schema`` optionally restricts the ``pg_policies`` lookup to
+    one schema (tests that spin up a throwaway per-test schema should pass
+    it; production callers on the default ``public`` schema can leave it
+    unset).
+    """
+
+    if not _is_postgres(connectable):
+        return []
+
+    resolved = tuple(table_names or tenant_scoped_table_names())
+    if not resolved:
+        return []
+
+    query = "SELECT DISTINCT tablename FROM pg_policies WHERE tablename = ANY(:names)"
+    params: dict[str, object] = {"names": list(resolved)}
+    if schema is not None:
+        query += " AND schemaname = :schema"
+        params["schema"] = schema
+
+    if isinstance(connectable, Engine):
+        with connectable.connect() as conn:
+            rows = conn.execute(text(query), params).all()
+    else:
+        rows = connectable.execute(text(query), params).all()
+
+    covered = {row[0] for row in rows}
+    return sorted(set(resolved) - covered)
 
 
 def _execute_tenant_not_null(conn: Connection, table_names: Iterable[str], default_tenant_id: str) -> list[str]:
