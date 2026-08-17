@@ -12546,8 +12546,14 @@ async function resolveReportingAppUrl(path){
   // faellt sonst auf 127.0.0.1:8000 zurueck.
   var apiBase = 'http://127.0.0.1:8000';
   try {
-    if (window.API && typeof window.API.baseUrl === 'function') {
-      apiBase = await window.API.baseUrl();
+    // Bugfix A3-Pilot (2026-08-17): API ist ein top-level `const` (siehe
+    // Zeile ~5000), NICHT an das window-Objekt gehaengt. Der Zugriff darauf
+    // ueber das window-Objekt war daher immer undefined -> dieser Zweig
+    // griff nie, es wurde immer der 127.0.0.1:8000-Fallback verwendet,
+    // selbst wenn das Backend auf einem anderen Host/Port lief
+    // (Advisory-Report- und Risikoprofil-Editor-Buttons brachen dann).
+    if (typeof API !== 'undefined' && API && typeof API.baseUrl === 'function') {
+      apiBase = await API.baseUrl();
     }
   } catch(e) { /* fallback bleibt */ }
   var base = String(apiBase).replace(/\/$/, '') + '/reporting';
