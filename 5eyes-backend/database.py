@@ -351,6 +351,9 @@ def ensure_runtime_columns() -> None:
             # die Column idempotent auf Live-DBs, sonst koennen Tier-2-
             # Endpoints den tenant-Scope nicht setzen.
             ('tenant_id', 'TEXT'),
+            # DSG Art. 32 (2026-08-15): siehe models/clients.py.
+            ('erased_at', 'TEXT'),
+            ('erasure_reason', 'TEXT'),
         ],
         # Sprint U-37 (2026-06-03): Notes-Versionierungs-Log.
         # Append-only JSON-Array von Edit-Snapshots fuer FINMA-Audit
@@ -736,7 +739,16 @@ def ensure_audit_log_actions(target_engine: Engine = engine) -> None:
         # erhalten und weiterhin bei jedem Admin-Endpunkt mit einem der 26
         # fehlenden action-Werte crashen.
         has_expanded_actions = 'UPSERT' in ddl_text
-        if has_password_reset and has_integrity_hash and has_ip_address and has_expanded_actions:
+        # DSG Art. 32 (2026-08-15): eigener Marker fuer die neue
+        # 'CLIENT_ERASE'-Action -- bereits migrierte Installationen (alle 4
+        # anderen Marker bereits erfuellt) wuerden diese neue Action sonst
+        # NIE erhalten und der Erase-Endpoint crasht auf ihnen dauerhaft mit
+        # IntegrityError (identische Bugklasse wie has_expanded_actions oben).
+        has_erasure_action = 'CLIENT_ERASE' in ddl_text
+        if (
+            has_password_reset and has_integrity_hash and has_ip_address
+            and has_expanded_actions and has_erasure_action
+        ):
             return
 
         conn.execute(text('ALTER TABLE audit_log RENAME TO audit_log__old'))
@@ -750,9 +762,9 @@ def ensure_audit_log_actions(target_engine: Engine = engine) -> None:
                 action TEXT NOT NULL CHECK(action IN (
                     'CREATE','UPDATE','DELETE','LOGIN','EXPORT','PASSWORD_RESET',
                     '2FA_DISABLE','2FA_ENABLE','2FA_RECOVERY_REGEN','2FA_RECOVERY_USED',
-                    'ACTIVATE','APPROVE','BACKFILL','BACKUP','CLONE','DB_OPTIMIZE',
-                    'FOUNDATION_EXAMPLE','FOUNDATION_PURGE','INVITE','INVITE_ACCEPT',
-                    'INVITE_RESEND','INVITE_REVOKE','MARKET_DATA_PURGE',
+                    'ACTIVATE','APPROVE','BACKFILL','BACKUP','CLIENT_ERASE','CLONE',
+                    'DB_OPTIMIZE','FOUNDATION_EXAMPLE','FOUNDATION_PURGE','INVITE',
+                    'INVITE_ACCEPT','INVITE_RESEND','INVITE_REVOKE','MARKET_DATA_PURGE',
                     'MARKET_DATA_REFRESH','OPTIMIZER_MODE_CHANGE','PASSWORD_CHANGE',
                     'PASSWORD_RESET_CONFIRM','PASSWORD_RESET_REQUEST','REPLACE',
                     'REPLACE_ALL','SENSITIVITY','SUPPORT_BUNDLE','UPSERT'

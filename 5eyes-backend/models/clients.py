@@ -37,6 +37,16 @@ class Client(Base):
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
     deleted_at = Column(String)
+    # DSG Art. 32 (Loeschungsanspruch, Sprint 2026-08-15): gesetzt durch
+    # POST /clients/{id}/erase (services/client_erasure.py). Unterscheidet
+    # eine echte, irreversible PII-Anonymisierung von einem gewoehnlichen
+    # Soft-Delete (deleted_at allein) -- verhindert insbesondere, dass eine
+    # spaetere "Undelete"-Funktion (deleted_at=NULL) faelschlich Daten
+    # wiederherstellt, die gar nicht mehr existieren. erasure_reason ist
+    # die vom Admin dokumentierte Begruendung (FIDLEG-Audit-tauglich,
+    # siehe services/override_reason_quality.py).
+    erased_at = Column(String)
+    erasure_reason = Column(String)
 
     advisor = relationship("User", back_populates="clients")
     nationalities = relationship("ClientNationality", back_populates="client")
