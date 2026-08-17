@@ -12324,8 +12324,6 @@ var ADMIN_POLICY_BUCKETS = [
   {key:'alt', label:'Alternative'},
 ];
 
-function adminPolicyEscape(s){ return String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
-
 async function adminLoadPolicies(includeHistoric){
   var url = '/admin/optimizer-policies' + (includeHistoric ? '?include_historic=true' : '');
   try {
@@ -12334,7 +12332,7 @@ async function adminLoadPolicies(includeHistoric){
     adminRenderPolicyList();
   } catch(e){
     var el = document.getElementById('admin-policy-list');
-    if(el) el.innerHTML = '<div style="color:var(--neg);font-size:11px">Fehler beim Laden: ' + adminPolicyEscape(e && (e.detail||e.message) || '?') + '</div>';
+    if(el) el.innerHTML = '<div style="color:var(--neg);font-size:11px">Fehler beim Laden: ' + escapeHtml(e && (e.detail||e.message) || '?') + '</div>';
   }
 }
 
@@ -12345,7 +12343,7 @@ function adminRenderPolicyList(){
     var badge = p.is_current ? '<span style="background:rgba(22,101,52,0.12);color:var(--pos);padding:1px 6px;border-radius:6px;font-size:9px;font-weight:600;margin-left:6px">AKTIV</span>' : '';
     var sel = p.id === adminPolicyState.selectedId ? ';background:var(--bg2);font-weight:600' : '';
     return '<div onclick="adminPolicyOpen(\''+p.id+'\')" style="cursor:pointer;padding:6px 10px;border:1px solid var(--b1);border-radius:6px;margin-bottom:4px'+sel+'">'
-      + adminPolicyEscape(p.policy_name) + ' <span style="color:var(--n5);font-size:10px">v'+p.version+'</span>' + badge
+      + escapeHtml(p.policy_name) + ' <span style="color:var(--n5);font-size:10px">v'+p.version+'</span>' + badge
       + '</div>';
   }).join('');
   el.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><div style="font-weight:600">Vorhandene Policies</div>'
@@ -12393,7 +12391,7 @@ function adminRenderPolicyGrid(){
   adminPolicyState.rows.forEach(function(row, rowIdx){
     html += '<tr>'
       + '<td style="padding:4px;border:1px solid var(--b1);font-weight:600">'+row.score_from+'–'+row.score_to+'</td>'
-      + '<td style="padding:4px;border:1px solid var(--b1)"><input class="fi" id="pol-name-'+rowIdx+'" value="'+adminPolicyEscape(row.profile_name)+'" style="font-size:10px;width:100%;border:none"></td>';
+      + '<td style="padding:4px;border:1px solid var(--b1)"><input class="fi" id="pol-name-'+rowIdx+'" value="'+escapeHtml(row.profile_name)+'" style="font-size:10px;width:100%;border:none"></td>';
     ADMIN_POLICY_BUCKETS.forEach(function(b){
       html += '<td style="padding:2px;border:1px solid var(--b1)"><input class="fi pol-bps" data-row="'+rowIdx+'" data-field="'+b.key+'_min_bps" type="number" min="0" max="10000" value="'+row[b.key+'_min_bps']+'" style="font-size:10px;width:50px;text-align:right;border:none" onchange="adminPolicyValidateRow('+rowIdx+')"></td>';
       html += '<td style="padding:2px;border:1px solid var(--b1);background:var(--bg)"><input class="fi pol-bps" data-row="'+rowIdx+'" data-field="'+b.key+'_target_bps" type="number" min="0" max="10000" value="'+row[b.key+'_target_bps']+'" style="font-size:10px;width:50px;text-align:right;border:none;font-weight:600" onchange="adminPolicyValidateRow('+rowIdx+')"></td>';
@@ -12520,7 +12518,6 @@ async function adminPolicyActivate(){
 // ====================================================================
 // Sprint U-P14 (2026-05-20): Depot-Check Frontend
 // ====================================================================
-function dcEscape(s){ return String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function dcFmtPct(bps){ return (Number(bps||0)/100).toFixed(1) + '%'; }
 function dcFmtCHF(rappen){ return (Number(rappen||0)/100).toLocaleString('de-CH', {maximumFractionDigits: 0}) + ' CHF'; }
 var DC_BUCKET_COLORS = {
@@ -13077,7 +13074,7 @@ function dcRenderBucketDrift(buckets){
     else statusBadge = '<span style="color:var(--n5)">—</span>';
     var color = DC_BUCKET_COLORS[key] || '#5a6878';
     html += '<tr>'
-      + '<td style="padding:4px 6px;border:1px solid var(--b1)"><span style="display:inline-block;width:8px;height:8px;background:'+color+';border-radius:50%;margin-right:6px"></span>' + dcEscape(b.label || key) + '</td>'
+      + '<td style="padding:4px 6px;border:1px solid var(--b1)"><span style="display:inline-block;width:8px;height:8px;background:'+color+';border-radius:50%;margin-right:6px"></span>' + escapeHtml(b.label || key) + '</td>'
       + '<td style="padding:4px 6px;border:1px solid var(--b1);text-align:right;font-weight:600">' + ist.toFixed(1) + '%</td>'
       + '<td style="padding:4px 6px;border:1px solid var(--b1);text-align:right">' + soll.toFixed(1) + '%</td>'
       + '<td style="padding:4px 6px;border:1px solid var(--b1);text-align:right;color:'+(Math.abs(drift)>2 ? 'var(--neg)' : 'var(--n6)')+'">' + (drift >= 0 ? '+' : '') + drift.toFixed(1) + '%</td>'
@@ -13102,7 +13099,7 @@ function dcRenderExposureList(elId, expBps){
     var pct = (kv[1] / 100).toFixed(1);
     var color = DC_GENERIC_COLORS[idx % DC_GENERIC_COLORS.length];
     return '<div style="display:flex;justify-content:space-between;align-items:center;padding:2px 0">'
-      + '<div style="display:flex;align-items:center;gap:6px"><span style="display:inline-block;width:8px;height:8px;background:'+color+';border-radius:50%"></span>' + dcEscape(kv[0]) + '</div>'
+      + '<div style="display:flex;align-items:center;gap:6px"><span style="display:inline-block;width:8px;height:8px;background:'+color+';border-radius:50%"></span>' + escapeHtml(kv[0]) + '</div>'
       + '<div style="font-weight:600">' + pct + '%</div>'
       + '</div>'
       + '<div style="height:3px;background:var(--bg2);border-radius:2px;overflow:hidden;margin-bottom:4px"><div style="width:'+pct+'%;background:'+color+';height:100%"></div></div>';
@@ -13120,8 +13117,8 @@ function dcRenderTopPositions(positions){
   positions.forEach(function(p, idx){
     html += '<tr>'
       + '<td style="padding:4px;border:1px solid var(--b1)">' + (idx+1) + '</td>'
-      + '<td style="padding:4px;border:1px solid var(--b1)"><div style="font-weight:600">'+dcEscape(p.product_name)+'</div>'+(p.isin?'<div style="font-size:9px;color:var(--n5)">ISIN '+dcEscape(p.isin)+'</div>':'')+'</td>'
-      + '<td style="padding:4px;border:1px solid var(--b1);font-size:9.5px;color:var(--n6)">'+dcEscape(p.asset_class)+(p.sub_asset_class?' · '+dcEscape(p.sub_asset_class):'')+'</td>'
+      + '<td style="padding:4px;border:1px solid var(--b1)"><div style="font-weight:600">'+escapeHtml(p.product_name)+'</div>'+(p.isin?'<div style="font-size:9px;color:var(--n5)">ISIN '+escapeHtml(p.isin)+'</div>':'')+'</td>'
+      + '<td style="padding:4px;border:1px solid var(--b1);font-size:9.5px;color:var(--n6)">'+escapeHtml(p.asset_class)+(p.sub_asset_class?' · '+escapeHtml(p.sub_asset_class):'')+'</td>'
       + '<td style="padding:4px;border:1px solid var(--b1);text-align:right">' + dcFmtCHF(p.amount_rappen) + '</td>'
       + '<td style="padding:4px;border:1px solid var(--b1);text-align:right;font-weight:600">' + dcFmtPct(p.weight_bps) + '</td>'
       + '<td style="padding:4px;border:1px solid var(--b1);text-align:right;color:var(--n6)">' + (p.ter_bps ? (p.ter_bps/100).toFixed(2)+'%' : '—') + '</td>'
@@ -13161,8 +13158,8 @@ function dcRenderStressReplays(stress){
     var ret = (s.cumulative_return_bps || 0)/100;
     var dd = (s.max_drawdown_bps || 0)/100;
     html += '<tr>'
-      + '<td style="padding:4px;border:1px solid var(--b1);font-weight:600">'+dcEscape(s.label)+'</td>'
-      + '<td style="padding:4px;border:1px solid var(--b1);color:var(--n6);font-size:9.5px">'+dcEscape(s.period)+'</td>'
+      + '<td style="padding:4px;border:1px solid var(--b1);font-weight:600">'+escapeHtml(s.label)+'</td>'
+      + '<td style="padding:4px;border:1px solid var(--b1);color:var(--n6);font-size:9.5px">'+escapeHtml(s.period)+'</td>'
       + '<td style="padding:4px;border:1px solid var(--b1);text-align:right;color:'+(ret<0?'var(--neg)':'var(--pos)')+';font-weight:600">'+(ret>=0?'+':'')+ret.toFixed(1)+'%</td>'
       + '<td style="padding:4px;border:1px solid var(--b1);text-align:right;color:var(--neg);font-weight:600">-'+dd.toFixed(1)+'%</td>'
       + '<td style="padding:4px;border:1px solid var(--b1);text-align:right;color:var(--n6)">'+(s.recovery_months ? s.recovery_months + ' Mt.' : '—')+'</td>'
@@ -13180,7 +13177,7 @@ function dcRenderWarnings(warnings){
     return;
   }
   var html = '<div style="background:rgba(146,64,14,0.08);border-left:3px solid var(--neg);padding:8px 10px;border-radius:4px;margin-top:8px"><div style="font-size:10px;font-weight:700;color:var(--n8);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.06em">Hinweise &amp; Risiken</div>';
-  html += warnings.map(function(w){ return '<div style="font-size:10.5px;color:var(--n7);padding:2px 0">⚠ ' + dcEscape(w) + '</div>'; }).join('');
+  html += warnings.map(function(w){ return '<div style="font-size:10.5px;color:var(--n7);padding:2px 0">⚠ ' + escapeHtml(w) + '</div>'; }).join('');
   html += '</div>';
   el.innerHTML = html;
 }
@@ -13228,8 +13225,8 @@ function abPopulatePolicySelects(policies){
     return;
   }
   var html = policies.map(function(p){
-    var label = dcEscape(p.policy_name) + ' v' + p.version + (p.is_current ? ' · aktiv' : '');
-    return '<option value="' + dcEscape(p.id) + '">' + label + '</option>';
+    var label = escapeHtml(p.policy_name) + ' v' + p.version + (p.is_current ? ' · aktiv' : '');
+    return '<option value="' + escapeHtml(p.id) + '">' + label + '</option>';
   }).join('');
   selA.innerHTML = html;
   selB.innerHTML = html;
@@ -13284,8 +13281,8 @@ function abRender(data){
   if(meta){
     var pa = data.policy_a || {}, pb = data.policy_b || {};
     meta.innerHTML = 'Score-Bucket <b>' + (data.score_bucket || '—') + '</b> · CMA v' + (data.cma_version || '—')
-      + ' · <b>A:</b> ' + dcEscape(pa.policy_name||'') + ' v' + (pa.version||'?') + ' (' + dcEscape(pa.profile_name||'') + ')'
-      + ' · <b>B:</b> ' + dcEscape(pb.policy_name||'') + ' v' + (pb.version||'?') + ' (' + dcEscape(pb.profile_name||'') + ')';
+      + ' · <b>A:</b> ' + escapeHtml(pa.policy_name||'') + ' v' + (pa.version||'?') + ' (' + escapeHtml(pa.profile_name||'') + ')'
+      + ' · <b>B:</b> ' + escapeHtml(pb.policy_name||'') + ' v' + (pb.version||'?') + ' (' + escapeHtml(pb.profile_name||'') + ')';
   }
   abRenderRiskMetrics(data.policy_a || {}, data.policy_b || {}, data.risk_metrics_diff || {});
   abRenderBucketsDiff(data.buckets_diff || {});
@@ -13295,7 +13292,7 @@ function abRender(data){
 
 function abMetricBox(label, aValue, bValue, deltaText, deltaColor){
   return '<div style="padding:8px;background:var(--bg);border:1px solid var(--b1);border-radius:6px">'
-    + '<div style="font-size:9px;color:var(--n5);text-transform:uppercase;letter-spacing:0.06em">' + dcEscape(label) + '</div>'
+    + '<div style="font-size:9px;color:var(--n5);text-transform:uppercase;letter-spacing:0.06em">' + escapeHtml(label) + '</div>'
     + '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:4px">'
     +   '<div><span style="font-size:9px;color:var(--n5)">A</span> <span style="font-size:13px;font-weight:700">' + aValue + '</span></div>'
     +   '<div><span style="font-size:9px;color:var(--n5)">B</span> <span style="font-size:13px;font-weight:700">' + bValue + '</span></div>'
@@ -13360,7 +13357,7 @@ function abRenderBucketsDiff(buckets){
     var dColor = Math.abs(delta) >= 200 ? 'var(--neg)' : 'var(--n6)';
     var color = (DC_BUCKET_COLORS && DC_BUCKET_COLORS[key]) || '#5a6878';
     html += '<tr>'
-      + '<td style="padding:4px 6px;border:1px solid var(--b1)"><span style="display:inline-block;width:8px;height:8px;background:'+color+';border-radius:50%;margin-right:6px"></span>' + dcEscape(b.label || AB_BUCKET_LABELS[key] || key) + '</td>'
+      + '<td style="padding:4px 6px;border:1px solid var(--b1)"><span style="display:inline-block;width:8px;height:8px;background:'+color+';border-radius:50%;margin-right:6px"></span>' + escapeHtml(b.label || AB_BUCKET_LABELS[key] || key) + '</td>'
       + '<td style="padding:4px 6px;border:1px solid var(--b1);text-align:right">' + a_pct + '</td>'
       + '<td style="padding:4px 6px;border:1px solid var(--b1);text-align:right">' + b_pct + '</td>'
       + '<td style="padding:4px 6px;border:1px solid var(--b1);text-align:right;color:'+dColor+';font-weight:600">' + dText + '</td>'
@@ -13400,7 +13397,7 @@ function abRenderStressDiff(scenarios){
     // Höherer Drawdown ist schlechter, also positiv → negativ
     var dDDColor = dDD<0 ? 'var(--pos)' : (dDD>0 ? 'var(--neg)' : 'var(--n5)');
     html += '<tr>'
-      + '<td style="padding:4px 6px;border:1px solid var(--b1)"><div style="font-weight:600">' + dcEscape(s.label||'') + '</div><div style="font-size:9.5px;color:var(--n5)">' + dcEscape(s.period||'') + '</div></td>'
+      + '<td style="padding:4px 6px;border:1px solid var(--b1)"><div style="font-weight:600">' + escapeHtml(s.label||'') + '</div><div style="font-size:9.5px;color:var(--n5)">' + escapeHtml(s.period||'') + '</div></td>'
       + '<td style="padding:4px 6px;border:1px solid var(--b1);text-align:right;color:'+aCumColor+'">' + (aCum>=0?'+':'') + (aCum/100).toFixed(1) + '%</td>'
       + '<td style="padding:4px 6px;border:1px solid var(--b1);text-align:right;color:'+bCumColor+'">' + (bCum>=0?'+':'') + (bCum/100).toFixed(1) + '%</td>'
       + '<td style="padding:4px 6px;border:1px solid var(--b1);text-align:right;font-weight:600;color:'+dCumColor+'">' + (dCum>=0?'+':'') + (dCum/100).toFixed(1) + '%</td>'
@@ -13421,7 +13418,7 @@ function abRenderWarnings(warnings){
     return;
   }
   var html = '<div style="background:rgba(146,64,14,0.08);border-left:3px solid var(--neg);padding:8px 10px;border-radius:4px;margin-top:8px"><div style="font-size:10px;font-weight:700;color:var(--n8);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.06em">Hinweise</div>';
-  html += warnings.map(function(w){ return '<div style="font-size:10.5px;color:var(--n7);padding:2px 0">⚠ ' + dcEscape(w) + '</div>'; }).join('');
+  html += warnings.map(function(w){ return '<div style="font-size:10.5px;color:var(--n7);padding:2px 0">⚠ ' + escapeHtml(w) + '</div>'; }).join('');
   html += '</div>';
   el.innerHTML = html;
 }
@@ -13566,7 +13563,7 @@ function btBuildSubAssetGrid(){
     list.forEach(function(sa){
       var inputId = 'bt-bm-sub-' + sa.key;
       html += '<div style="display:grid;grid-template-columns:1fr 70px 18px;gap:6px;align-items:center;padding:2px 0">'
-        + '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+dcEscape(sa.label)+'">'+dcEscape(sa.label)+'</span>'
+        + '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+escapeHtml(sa.label)+'">'+escapeHtml(sa.label)+'</span>'
         + '<input class="fi bt-bm-sub-pct" id="'+inputId+'" data-sa-key="'+sa.key+'" type="number" min="0" max="100" step="0.1" value="0" style="font-size:10.5px;padding:2px 4px;text-align:right" oninput="btUpdateSubAssetSum()">'
         + '<span style="color:var(--n5)">%</span>'
         + '</div>';
@@ -13914,18 +13911,18 @@ function btRenderMetricsTable(data, showRebal, showNoRebal){
   cols.forEach(function(c){
     html += '<th style="padding:5px;text-align:right;border:1px solid var(--b1)">'
       + '<span style="display:inline-block;width:10px;height:10px;background:'+c.color+';border-radius:50%;margin-right:5px;' + (c.dash ? 'border:1.5px dashed #fff;background:transparent;outline:2px solid '+c.color+';outline-offset:-2px;' : '') + '"></span>'
-      + dcEscape(c.label) + '</th>';
+      + escapeHtml(c.label) + '</th>';
   });
   html += '</tr></thead><tbody>';
   rows.forEach(function(row){
     html += '<tr>';
-    html += '<td style="padding:4px 6px;border:1px solid var(--b1);font-weight:600">' + dcEscape(row.label) + '</td>';
+    html += '<td style="padding:4px 6px;border:1px solid var(--b1);font-weight:600">' + escapeHtml(row.label) + '</td>';
     cols.forEach(function(c){
       var v = row.fn(c.metrics);
       var style = 'padding:4px 6px;border:1px solid var(--b1);text-align:right';
       if(row.hi === 'bold') style += ';font-weight:700';
       if(row.neg) style += ';color:var(--neg)';
-      html += '<td style="'+style+'">' + dcEscape(String(v)) + '</td>';
+      html += '<td style="'+style+'">' + escapeHtml(String(v)) + '</td>';
     });
     html += '</tr>';
   });
@@ -13975,7 +13972,7 @@ function btRenderWarnings(warnings){
   if(!el) return;
   if(!warnings || !warnings.length){ el.innerHTML = ''; return; }
   var html = '<div style="background:rgba(146,64,14,0.08);border-left:3px solid var(--neg);padding:8px 10px;border-radius:4px;margin-top:8px"><div style="font-size:10px;font-weight:700;color:var(--n8);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.06em">Hinweise</div>';
-  html += warnings.map(function(w){ return '<div style="font-size:10.5px;color:var(--n7);padding:2px 0">⚠ ' + dcEscape(w) + '</div>'; }).join('');
+  html += warnings.map(function(w){ return '<div style="font-size:10.5px;color:var(--n7);padding:2px 0">⚠ ' + escapeHtml(w) + '</div>'; }).join('');
   html += '</div>';
   el.innerHTML = html;
 }
@@ -14071,7 +14068,7 @@ function btRenderLineChart(container, series, opts){
   series.forEach(function(s, idx){
     var yy = legendY + idx * 14;
     svg += '<line x1="' + legendX + '" y1="' + yy + '" x2="' + (legendX+18) + '" y2="' + yy + '" stroke="' + s.color + '" stroke-width="2"' + (s.dash ? ' stroke-dasharray="5 3"' : '') + '/>';
-    svg += '<text x="' + (legendX+24) + '" y="' + (yy+3) + '" font-size="9.5" fill="#334155" font-family="system-ui">' + dcEscape(s.label) + '</text>';
+    svg += '<text x="' + (legendX+24) + '" y="' + (yy+3) + '" font-size="9.5" fill="#334155" font-family="system-ui">' + escapeHtml(s.label) + '</text>';
   });
 
   // Interaktiver Hover-Layer (Live-Tooltips fuer Kundengespraech):
@@ -14167,7 +14164,7 @@ function btAttachChartHover(container, meta){
       }
       rows.push('<div style="display:flex;align-items:center;gap:6px;margin-top:2px">'
         + '<span style="width:8px;height:8px;border-radius:50%;background:' + s.color + ';display:inline-block;flex:none"></span>'
-        + '<span style="flex:1">' + dcEscape(s.label) + '</span>'
+        + '<span style="flex:1">' + escapeHtml(s.label) + '</span>'
         + '<span style="font-weight:600;white-space:nowrap">' + valStr + '</span>'
         + (deltaStr ? '<span style="color:#64748b;min-width:48px;text-align:right;white-space:nowrap">' + deltaStr + '</span>' : '')
         + '</div>');
@@ -22715,6 +22712,7 @@ function openNewCashflow(cashflowType){
 }
 async function openCashflowRowEditor(cashflowId){
   var cashflow=(currentCashflows||[]).find(function(item){return String(item.id||'')===String(cashflowId||'');});
+  var _loadErr=null;
   if(!cashflow){
     var _cid=getActiveClientId();
     if(_cid&&!isDemoClientId(_cid)){
@@ -22722,10 +22720,18 @@ async function openCashflowRowEditor(cashflowId){
         var _cfs=await API.get('/clients/'+_cid+'/cashflows');
         if(Array.isArray(_cfs)){currentCashflows=_cfs.slice();}
         cashflow=currentCashflows.find(function(item){return String(item.id||'')===String(cashflowId||'');});
-      }catch(_e){console.warn('openCashflowEditor refresh:',_e);}
+      }catch(_e){
+        _loadErr=_e;
+        console.warn('openCashflowEditor refresh:',_e);
+      }
     }
   }
-  if(!cashflow)return;
+  if(!cashflow){
+    if(_loadErr){
+      try{showAppError(parseApiError(_loadErr,'Cashflow konnte nicht geladen werden.'),{title:'Bearbeiten nicht möglich'});}catch(noticeErr){}
+    }
+    return;
+  }
   currentCashflowEditId=cashflow.id;
   setInputValue('acf-label',cashflow.label||'');
   setSelectValue('acf-cftype',cashflow.cashflow_type||'Income');
@@ -23564,7 +23570,10 @@ async function refreshWealthUI(cid){
       }
     }catch(chartErr){console.warn('IST-Chart-Refresh nach Wealth-Edit:',chartErr);}
     syncAllocationPendingViews();
-  }catch(e){console.warn('refreshWealthUI:',e);}
+  }catch(e){
+    console.warn('refreshWealthUI:',e);
+    try{showAppWarn('Vermögensübersicht konnte nicht aktualisiert werden – angezeigte Werte und Positionen sind möglicherweise veraltet. Bitte Seite neu laden.',{title:'Aktualisierung fehlgeschlagen'});}catch(noticeErr){}
+  }
 }
 
 function getDecisionChoiceMeta(choice, bucket) {
@@ -24781,17 +24790,29 @@ async function saveAdvisoryLogEntry(){
   if(mid&&!isDemoMandateId(mid)){
     try{
       await API.post('/mandates/'+mid+'/advisory-log',payload);
+      var triggerResolveFailed=false;
+      var triggerResolveErr=null;
       if(payload.trigger_id){
         try{
           await API.put('/mandates/'+mid+'/triggers/'+payload.trigger_id+'/resolve',
             {decision:payload.decision||'Kein Handlungsbedarf',triggered_notes:payload.title});
-        }catch(e){console.warn('Trigger-Resolve:',e);}
+        }catch(e){
+          triggerResolveFailed=true;
+          triggerResolveErr=e;
+          console.warn('Trigger-Resolve:',e);
+        }
       }
-      showModalFeedback('ne-error',btn,'✓ Protokolleintrag gespeichert',false);
       await refreshReviewUI(mid);
       renderSrImplementationDecision(null);
-      try{showAppSuccess('Protokolleintrag gespeichert',{title:'Review-Entscheid dokumentiert'});}catch(noticeErr){}
-      setTimeout(function(){cm('m-ne');},500);
+      if(triggerResolveFailed){
+        var trigErrMsg='Protokolleintrag wurde gespeichert, aber der Compliance-Trigger konnte NICHT als erledigt markiert werden ('+parseApiError(triggerResolveErr,'unbekannter Fehler')+'). Bitte erneut versuchen oder eskalieren.';
+        showModalFeedback('ne-error',btn,'⚠ '+trigErrMsg,true);
+        try{showAppError(trigErrMsg,{title:'Compliance-Trigger nicht aufgelöst'});}catch(noticeErr){}
+      } else {
+        showModalFeedback('ne-error',btn,'✓ Protokolleintrag gespeichert',false);
+        try{showAppSuccess('Protokolleintrag gespeichert',{title:'Review-Entscheid dokumentiert'});}catch(noticeErr){}
+        setTimeout(function(){cm('m-ne');},500);
+      }
     }catch(e){
       var alErr='Fehler: '+(e.detail||e.message||'?');
       showModalFeedback('ne-error',btn,alErr,true);
