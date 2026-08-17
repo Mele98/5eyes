@@ -36,12 +36,27 @@ class WealthPositionCreate(BaseModel):
     # Immobilien
     property_address: Optional[str] = None
     property_zip_city: Optional[str] = None
-    property_usage: Optional[str] = None
+    # Bugfix A3-Pilot (2026-08-17): DB-CHECK (5eyes_schema_v4.0_FINAL.sql,
+    # ~Zeile 559f.): property_usage TEXT CHECK(property_usage IN
+    # ('Selbstgenutzt','Renditeobjekt','Ferienimmobilie','Gemischt')).
+    # Vorher Optional[str] -- ein ungueltiger Wert kam an Pydantic vorbei
+    # und crashte erst beim db.commit() mit unbehandeltem 500
+    # (IntegrityError) statt sauberem 422.
+    property_usage: Optional[Literal[
+        "Selbstgenutzt", "Renditeobjekt", "Ferienimmobilie", "Gemischt"
+    ]] = None
     # 2026-07-25 (Generalaudit): siehe current_value_rappen.
     property_rental_income_rappen: int = Field(default=0, ge=0, le=10_000_000_000_000)
     property_rental_inflation_linked: int = 0
     # Vorsorge
-    pension_type: Optional[str] = None
+    # Bugfix A3-Pilot (2026-08-17): DB-CHECK (~Zeile 562f.): pension_type
+    # TEXT CHECK(pension_type IN
+    # ('BVG','Säule 3a','Freizügigkeit','Säule 3b','Lebensversicherung')).
+    # Konkret reproduziert: pension_type="3a" (statt "Säule 3a") passierte
+    # Pydantic und crashte erst beim db.commit() mit 500.
+    pension_type: Optional[Literal[
+        "BVG", "Säule 3a", "Freizügigkeit", "Säule 3b", "Lebensversicherung"
+    ]] = None
     pension_institution: Optional[str] = None
     pension_technical_rate_bps: Optional[int] = None
     pension_retirement_age: Optional[int] = None
@@ -49,14 +64,33 @@ class WealthPositionCreate(BaseModel):
     pension_wef_possible: bool = False
     # Hypothek
     mortgage_bank: Optional[str] = None
-    mortgage_type: Optional[str] = None
+    # Bugfix A3-Pilot (2026-08-17): DB-CHECK (~Zeile 570): mortgage_type
+    # TEXT CHECK(mortgage_type IN ('Festhypothek','SARON','Gemischt')).
+    mortgage_type: Optional[Literal[
+        "Festhypothek", "SARON", "Gemischt"
+    ]] = None
     mortgage_interest_rate_bps: Optional[int] = None
     mortgage_maturity_date: Optional[str] = None
     # 2026-07-25 (Generalaudit): siehe current_value_rappen.
     mortgage_amortization_rappen: int = Field(default=0, ge=0, le=10_000_000_000_000)
-    mortgage_amortization_type: Optional[str] = None
+    # Bugfix A3-Pilot (2026-08-17): DB-CHECK (~Zeile 574):
+    # mortgage_amortization_type TEXT CHECK(mortgage_amortization_type IN
+    # ('Direkt','Indirekt (Säule 3a)','Keine')). Exaktes Match inkl.
+    # Klammerzusatz -- Kurzform "Indirekt" (ohne Klammer) ist NICHT erlaubt,
+    # das war im DB-CHECK schon immer so (siehe auch project-Memory
+    # 5eyes_wealth_view_audit_2026_08_06: Default fehlte hier frueher komplett
+    # im CHECK und crashte das Speichern).
+    mortgage_amortization_type: Optional[Literal[
+        "Direkt", "Indirekt (Säule 3a)", "Keine"
+    ]] = None
     mortgage_linked_property_id: Optional[str] = None
     # Alternative
+    # HINWEIS (2026-08-17): asset_subtype hat KEIN DB-CHECK (siehe
+    # 5eyes_schema_v4.0_FINAL.sql ~Zeile 576: "asset_subtype TEXT," ohne
+    # CHECK-Klausel, ebenso in der Alembic-Baseline). Bewusst NICHT auf
+    # Literal umgestellt -- ein erfundenes Enum wuerde eine NEUE Inkonsistenz
+    # zur DB schaffen (Werte, die die DB akzeptieren wuerde, aber Pydantic
+    # ablehnt). Bleibt Freitext, bis die DB selbst eine CHECK-Klausel bekommt.
     asset_subtype: Optional[str] = None
     asset_expected_return_bps: Optional[int] = Field(
         default=None,

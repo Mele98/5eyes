@@ -189,6 +189,36 @@ def test_mainapp_open_reporting_app_uses_window_open_with_noopener():
     assert "noopener" in func_block
 
 
+def test_resolve_reporting_app_url_does_not_reference_window_api():
+    """Bugfix A3-Pilot (2026-08-17): `API` ist ein top-level `const API = {...}`
+    (siehe 5eyes_v2.html, ca. Zeile 5000) — NICHT an `window` gehaengt. Ein
+    `window.API`-Check ist daher immer `undefined` und der Zweig greift nie,
+    wodurch resolveReportingAppUrl() IMMER auf den hartcodierten
+    127.0.0.1:8000-Fallback zurueckfiel, selbst wenn das Backend auf einem
+    anderen Host/Port lief. Betroffen: Advisory-Report- und
+    Risikoprofil-Editor-Buttons.
+
+    Regressionstest: helper MUSS die bare `API`-Bindung referenzieren (wie
+    an den anderen Call-Sites im File, z.B. `await API.baseUrl()` bei
+    openProfilingEditor), NICHT `window.API`.
+    """
+    html = _read_mainapp()
+    helper_start = html.find("async function resolveReportingAppUrl(")
+    assert helper_start > 0, "resolveReportingAppUrl() fehlt"
+    helper_end = html.find("\n}\n", helper_start)
+    helper_block = html[helper_start:helper_end]
+
+    assert "window.API" not in helper_block, (
+        "window.API ist immer undefined (API ist ein top-level const, nicht "
+        "an window gehaengt) -- der Backend-URL-Fallback wuerde sonst "
+        "silently IMMER greifen"
+    )
+    assert "API.baseUrl" in helper_block, (
+        "resolveReportingAppUrl() muss die echte Backend-URL ueber die "
+        "bare API-Bindung (API.baseUrl()) aufloesen"
+    )
+
+
 # ---------------------------------------------------------------------------
 # 4. Branding-Compliance bleibt
 # ---------------------------------------------------------------------------
