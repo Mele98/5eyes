@@ -55,7 +55,13 @@ jobs:
     # 2026-08-04 (Mega-Audit-Nachlauf, war seit 2026-06-08 stale bei "3400
     # Tests"): Backend-Suite liegt inzwischen bei ueber 5000 Tests. Lokal
     # ~17min, CI-Runner braucht laenger wegen pip-Install. 30min Puffer.
-    timeout-minutes: 30
+    # 2026-08-18: PR #374 (Stochastic-Optimizer-Produktionsdefault + Audit-
+    # Nachlauf) bringt die Suite auf 5991 Tests (+~1000) und lief in CI
+    # gegen das 30min-Limit (bei 21% via "operation was canceled" gekillt --
+    # kein Testfehler). Lokal (ohne -v/--cov, die hier zusaetzlichen Overhead
+    # erzeugen) 5991 Tests zweimal grün in ~24min. 60min Puffer fuer
+    # Coverage-Instrumentierung + weiteres Wachstum.
+    timeout-minutes: 60
 
     strategy:
       fail-fast: false
