@@ -56,12 +56,23 @@ jobs:
     # Tests"): Backend-Suite liegt inzwischen bei ueber 5000 Tests. Lokal
     # ~17min, CI-Runner braucht laenger wegen pip-Install. 30min Puffer.
     # 2026-08-18: PR #374 (Stochastic-Optimizer-Produktionsdefault + Audit-
-    # Nachlauf) bringt die Suite auf 5991 Tests (+~1000) und lief in CI
-    # gegen das 30min-Limit (bei 21% via "operation was canceled" gekillt --
-    # kein Testfehler). Lokal (ohne -v/--cov, die hier zusaetzlichen Overhead
-    # erzeugen) 5991 Tests zweimal grün in ~24min. 60min Puffer fuer
-    # Coverage-Instrumentierung + weiteres Wachstum.
-    timeout-minutes: 60
+    # Nachlauf) bringt die Suite auf 5991 Tests (+~1000). Lokal (ohne -v/
+    # --cov) 5991 Tests zweimal gruen in ~24min. In CI zweimal unabhaengig
+    # am Timeout gescheitert -- nicht an einem Testfehler ("operation was
+    # canceled", nie ein FAILED): Lauf 1 bei 21%/30min, Lauf 2 bei 39%/60min.
+    # Beide Datenpunkte extrapolieren konsistent auf ~150min fuer die volle
+    # Suite -- ein strukturelle ~6x-Faktor, kein Zufalls-Ausreisser. Vermutete
+    # Ursache: coverage.py's Line-Tracing trifft die Python-seitigen Monte-
+    # Carlo-/Optimizer-Schleifen (viele Python-Level-Iterationen um NumPy-
+    # Calls) besonders hart; -v addiert Log-Streaming-Overhead obendrauf.
+    # Sofort-Fix hier: -v entfernt (kein Funktionsverlust, --tb=short zeigt
+    # Fehler weiterhin), Timeout auf Basis der beiden echten Messpunkte
+    # grosszuegig auf 120min gesetzt. ECHTER Fix ist noch offen (siehe
+    # docs/planning/2026-08-17-consolidated-pr-description.md): entweder
+    # pytest-xdist einfuehren (braucht Parallel-Sicherheits-Audit der Suite,
+    # nicht blind aktiviert) oder Coverage-Tracking aus dem PR-Gate in einen
+    # separaten, nicht-blockierenden Job verschieben.
+    timeout-minutes: 120
 
     strategy:
       fail-fast: false
@@ -88,7 +99,7 @@ jobs:
       - name: Run pytest with coverage
         working-directory: 5eyes-backend
         run: |
-          python -m pytest tests/ -v --tb=short --maxfail=5 \
+          python -m pytest tests/ --tb=short --maxfail=5 \
             --cov=services --cov=routers --cov=schemas --cov=models \
             --cov-report=term-missing --cov-report=xml
 
