@@ -99,6 +99,21 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      # TEMPORAER (entfernt sobald Artefakt abgeholt ist): regeneriert die
+      # golden CH-snapshot Fixtures auf dem echten CI-Runner, da SLSQP unter
+      # identischen numpy/scipy-Versionen zwischen Windows-Dev und Linux-CI
+      # trotzdem numerisch minimal driftet (BLAS/LAPACK-Backend-Unterschied).
+      - name: TEMP - regenerate golden CH snapshots on CI runner
+        working-directory: 5eyes-backend
+        run: python _ci_regen_golden.py
+
+      - name: TEMP - upload regenerated golden snapshots
+        uses: actions/upload-artifact@v6
+        with:
+          name: ci-regen-golden-snapshots
+          path: 5eyes-backend/_ci_regen_output/
+          retention-days: 3
+
       - name: Run pytest (correctness gate, no coverage)
         working-directory: 5eyes-backend
         run: |

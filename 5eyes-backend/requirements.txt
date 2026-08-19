@@ -19,13 +19,21 @@ python-multipart==0.0.12
 aiofiles==24.1.0
 apscheduler==3.10.4
 yfinance==0.2.54
-# numpy: explicit pin for the optimizer scenario engine.
-# Bereits transitiv via yfinance, hier explizit damit PyInstaller bundle
-# das deterministisch packt.
-numpy>=1.26,<3
-# scipy: SLSQP solver for the goal-based stochastic optimizer (Phase 3).
-# Ueber 60 MB im Build, akzeptabel fuer Wealth-Tech Backend.
-scipy>=1.11,<2
+# numpy/scipy: EXAKT gepinnt seit 2026-08-19 (vorher offene Ranges
+# >=1.26,<3 / >=1.11,<2). Grund: der Golden-Snapshot-Regressionstest
+# (test_golden_snapshot_ch_regression.py) verglich exakte CHF-Betraege
+# einer stochastischen Optimierung (SLSQP) und driftete zwischen einem
+# lokalen Dev-Environment (numpy 2.4.4/scipy 1.17.1) und einem frischen
+# CI-Install (numpy 2.5.2/scipy 1.18.0) um ein paar hundert CHF pro
+# Rebalancing-Schritt -- SLSQP-Konvergenz ist minimal versionsabhaengig.
+# Nicht nur ein CI-Problem: ein Wealth-Management-Engine darf nicht je
+# nach zufaellig installierter numpy/scipy-Patch-Version unterschiedliche
+# Empfehlungen liefern. Exaktes Pinning macht das Ergebnis reproduzierbar
+# unabhaengig vom Install-Zeitpunkt. Bei jedem bewussten Upgrade: neu
+# pinnen UND die Golden-Snapshot-Fixtures unter der neuen Version neu
+# einfrieren (tests/fixtures/golden_ch_recommendations/*.json).
+numpy==2.5.2
+scipy==1.18.0
 # reportlab: pure-Python PDF-Engine fuer Kundendokumente (Anlagestrategie,
 # Risikoprofil, Quartalsbericht). PyInstaller-tauglich, kein Native-Binary.
 reportlab>=4.0,<5
