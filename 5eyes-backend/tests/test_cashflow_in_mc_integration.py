@@ -314,13 +314,8 @@ def test_f7_positive_cf_kann_wealth_aus_luecke_holen():
 # ===========================================================================
 
 
-def test_f5_backwards_compat_ohne_fx_source_keine_konversion():
-    """Sprint B3 (2026-06-07): Default-Verhalten OHNE fx_source bleibt
-    unveraendert — USD wird als CHF behandelt (Backwards-Compat).
-
-    Das ist die bewusste Default-Politik damit existierende Aufrufer die
-    fx_source nicht kennen, weiter funktionieren.
-    """
+def test_f5_fremdwaehrung_ohne_fx_source_fails_closed():
+    """Ein Fremdwaehrungs-Cashflow darf ohne Kursbasis nicht 1:1 einfliessen."""
     from datetime import date
     from types import SimpleNamespace
     from services.cashflow_timeline import net_cashflow_series
@@ -332,11 +327,8 @@ def test_f5_backwards_compat_ohne_fx_source_keine_konversion():
         cashflow_type="Income", is_inflation_linked=0,
     )
     today_year = date.today().year
-    series = net_cashflow_series([usd_income], years=3, start_year=today_year)
-    # Default-Pfad (kein fx_source): USD wird als CHF behandelt
-    assert series[0] == 100_000_00, (
-        "Backwards-Compat verletzt: Default-Pfad sollte USD unkonvertiert lassen"
-    )
+    with pytest.raises(ValueError, match="Keine FX-Quelle"):
+        net_cashflow_series([usd_income], years=3, start_year=today_year)
 
 
 def test_f5_b3_mit_fx_source_konvertiert_usd_zu_chf():
@@ -420,9 +412,8 @@ def test_f5_b3_chf_unveraendert_wenn_fx_source_gesetzt():
     assert series[0] == 100_000_00
 
 
-def test_f5_b3_unbekannte_currency_defensiv_kein_crash():
-    """Sprint B3: Unbekannte Currency-Codes duerfen NIEMALS einen Crash
-    verursachen — defensiver Fallback auf 'wie target_currency'."""
+def test_f5_b3_unbekannte_currency_fails_closed():
+    """Unbekannte Codes duerfen nie als Zielwaehrung (1:1) behandelt werden."""
     from datetime import date
     from types import SimpleNamespace
     from services.cashflow_timeline import net_cashflow_series
@@ -436,11 +427,10 @@ def test_f5_b3_unbekannte_currency_defensiv_kein_crash():
         cashflow_type="Income", is_inflation_linked=0,
     )
     today_year = date.today().year
-    series = net_cashflow_series(
-        [weird_income], years=2, start_year=today_year, fx_source=fx,
-    )
-    # Defensive: kein Crash, Betrag wird unkonvertiert genutzt
-    assert series[0] == 100_000_00
+    with pytest.raises(ValueError, match="Keine gueltige FX-Rate"):
+        net_cashflow_series(
+            [weird_income], years=2, start_year=today_year, fx_source=fx,
+        )
 
 
 def test_f5_b3_leere_currency_default_zu_chf():

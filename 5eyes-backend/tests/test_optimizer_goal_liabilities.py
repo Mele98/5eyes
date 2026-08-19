@@ -53,6 +53,8 @@ def _make_goal(
     rank: int = 2,
     weight_bps: int | None = None,
     value_mode: str = "nominal",
+    goal_scope: str = "Beratungsvermoegen",
+    pension_pillar: str | None = None,
 ):
     """Mock-Goal als SimpleNamespace (kein DB-Objekt noetig)."""
     return SimpleNamespace(
@@ -71,6 +73,8 @@ def _make_goal(
         rank=rank,
         weight_bps=weight_bps,
         value_mode=value_mode,
+        goal_scope=goal_scope,
+        pension_pillar=pension_pillar,
     )
 
 
@@ -109,6 +113,137 @@ def test_vermoegensziel_nominal_no_inflation_applied():
     liab = goal_to_liability(goal, horizon_years=10, inflation_series_bps=[200] * 10)
     assert liab.target_kind == "wealth_at_t"
     assert liab.target_amount_rappen == 1_000_000_00
+
+
+def test_total_wealth_goal_credits_inflation_projected_external_assets():
+    goal = _make_goal(
+        goal_type="Vermoegensziel",
+        target_wealth_rappen=1_500_000_00,
+        horizon_years=10,
+        value_mode="nominal",
+        goal_scope="Gesamtvermoegen",
+    )
+
+    liab = goal_to_liability(
+        goal,
+        horizon_years=10,
+        inflation_series_bps=[200] * 10,
+        external_wealth_rappen=800_000_00,
+    )
+
+    external_projected = int(round(800_000_00 * (1.02 ** 10)))
+    assert liab.target_kind == "wealth_at_t"
+    assert liab.target_amount_rappen == 1_500_000_00 - external_projected
+    assert "Gesamtvermoegensziel" in str(liab.evaluation_note)
+
+
+def test_total_wealth_goal_uses_exact_external_series_value_at_target_year():
+    goal = _make_goal(
+        goal_type="Vermoegensziel",
+        target_wealth_rappen=150_000_000,
+        horizon_years=3,
+        value_mode="nominal",
+        goal_scope="Gesamtvermoegen",
+    )
+
+    liability = goal_to_liability(
+        goal,
+        horizon_years=3,
+        inflation_series_bps=[2500, 2500, 2500],
+        external_wealth_rappen=60_000_000,
+        external_wealth_series_rappen=[
+            60_000_000,
+            75_000_000,
+            90_000_000,
+            110_000_000,
+        ],
+    )
+
+    # The exact year-3 value wins over the legacy CPI reconstruction
+    # (60m * 1.25^3 = 117.1875m).
+    assert liability.target_year_index == 3
+    assert liability.target_amount_rappen == 40_000_000
+
+
+def test_goals_to_liabilities_forwards_exact_external_series():
+    goal = _make_goal(
+        goal_type="Kapitalerhalt",
+        target_wealth_rappen=100_000_000,
+        horizon_years=2,
+        value_mode="nominal",
+        goal_scope="Gesamtvermoegen",
+    )
+
+    liabilities = goals_to_liabilities(
+        [goal],
+        horizon_years=2,
+        external_wealth_rappen=10_000_000,
+        external_wealth_series_rappen=[10_000_000, 25_000_000, 40_000_000],
+    )
+
+    assert len(liabilities) == 1
+    assert liabilities[0].target_amount_rappen == 60_000_000
+
+
+def test_direct_and_indirect_amortization_series_have_same_net_goal_credit():
+    goal = _make_goal(
+        goal_type="Vermoegensziel",
+        target_wealth_rappen=150_000_000,
+        horizon_years=2,
+        value_mode="nominal",
+        goal_scope="Gesamtvermoegen",
+    )
+    property_series = [100_000_000, 100_000_000, 100_000_000]
+
+    # Direct amortization: debt falls by 10m per year.
+    direct_liability = [40_000_000, 30_000_000, 20_000_000]
+    direct_pledged = [0, 0, 0]
+    direct_external = [
+        property_series[i] + direct_pledged[i] - direct_liability[i]
+        for i in range(3)
+    ]
+
+    # Indirect amortization: debt stays flat while the pledged asset receives
+    # the same 10m transfers.  Net external wealth is therefore identical.
+    indirect_liability = [40_000_000, 40_000_000, 40_000_000]
+    indirect_pledged = [0, 10_000_000, 20_000_000]
+    indirect_external = [
+        property_series[i] + indirect_pledged[i] - indirect_liability[i]
+        for i in range(3)
+    ]
+
+    assert direct_external == indirect_external == [60_000_000, 70_000_000, 80_000_000]
+
+    direct = goal_to_liability(
+        goal,
+        horizon_years=2,
+        external_wealth_series_rappen=direct_external,
+    )
+    indirect = goal_to_liability(
+        goal,
+        horizon_years=2,
+        external_wealth_series_rappen=indirect_external,
+    )
+
+    assert direct.target_amount_rappen == indirect.target_amount_rappen == 70_000_000
+
+
+def test_ahv_pension_is_state_funded_not_portfolio_liability():
+    goal = _make_goal(
+        goal_type="Pensionsausgabe",
+        target_amount_rappen=30_000_00,
+        horizon_years=10,
+        is_ongoing=1,
+        frequency="jaehrlich",
+        pension_pillar="AHV",
+    )
+
+    liab = goal_to_liability(goal, horizon_years=10)
+
+    assert liab.target_kind == "state_funded"
+    assert liab.target_amount_rappen == 0
+    assert liab.liability_path_rappen == [0] * 10
+    assert liab.success_probability_min_x100 == 10000
     assert liab.liability_path_rappen == [0] * 10
 
 
@@ -186,8 +321,8 @@ def test_einmalige_ausgabe_real_value_mode_inflated():
     assert liab.target_amount_rappen == pytest.approx(expected, abs=10)
 
 
-def test_einmalige_ausgabe_beyond_horizon_clamped():
-    """Goal in 15J aber horizon=10 -> auf horizon=10 geclamped."""
+def test_einmalige_ausgabe_beyond_horizon_is_not_pulled_into_last_year():
+    """Goal in 15J but horizon=10 has no in-horizon payment."""
     today = date.today()
     target = (today + timedelta(days=365 * 15)).isoformat()
     goal = _make_goal(
@@ -196,8 +331,9 @@ def test_einmalige_ausgabe_beyond_horizon_clamped():
         target_date=target,
     )
     liab = goal_to_liability(goal, horizon_years=10)
-    assert liab.target_year_index == 10
-    assert liab.liability_path_rappen[9] == 100_000_00
+    assert liab.target_year_index == 15
+    assert liab.liability_path_rappen == [0] * 10
+    assert "ausserhalb" in str(liab.evaluation_note).lower()
 
 
 # ============================================================================
@@ -377,6 +513,60 @@ def test_conditional_goal_prorata_weights_liability():
                        target_date=td, value_mode="nominal")
     gnone.probability_pct = None
     assert goal_to_liability(gnone, horizon_years=5).target_amount_rappen == 10_000_000
+
+
+def test_conditional_total_wealth_applies_probability_after_external_assets():
+    goal = _make_goal(
+        goal_type="Vermoegensziel",
+        target_wealth_rappen=150_000_000,
+        horizon_years=1,
+        value_mode="nominal",
+        goal_scope="Gesamtvermoegen",
+    )
+    goal.probability_pct = 50
+
+    liability = goal_to_liability(
+        goal,
+        horizon_years=1,
+        external_wealth_rappen=80_000_000,
+    )
+
+    # Expected funding = 50% * (1.5m target - 0.8m external), not
+    # max(0, 50% * 1.5m - 0.8m) == 0.
+    assert liability.target_amount_rappen == 35_000_000
+
+
+def test_recurring_spending_after_horizon_creates_no_last_year_outflow():
+    start = (date.today() + timedelta(days=365 * 25)).isoformat()
+    end = (date.today() + timedelta(days=365 * 30)).isoformat()
+    goal = _make_goal(
+        goal_type="Pensionsausgabe",
+        target_amount_rappen=36_000_00,
+        frequency="jaehrlich",
+        start_date=start,
+        target_date=end,
+    )
+
+    liability = goal_to_liability(goal, horizon_years=10)
+
+    assert liability.target_year_index > 10
+    assert liability.target_amount_rappen == 0
+    assert liability.liability_path_rappen == [0] * 10
+    assert "ausserhalb" in str(liability.evaluation_note).lower()
+
+
+def test_one_off_spending_after_horizon_creates_no_last_year_outflow():
+    target = (date.today() + timedelta(days=365 * 25)).isoformat()
+    goal = _make_goal(
+        goal_type="Einmalige_Ausgabe",
+        target_amount_rappen=100_000_00,
+        target_date=target,
+    )
+
+    liability = goal_to_liability(goal, horizon_years=10)
+
+    assert liability.target_year_index > 10
+    assert liability.liability_path_rappen == [0] * 10
 
 
 # ============================================================================

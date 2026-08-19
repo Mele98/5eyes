@@ -23,7 +23,9 @@ Inequality-Convention (scipy):
 """
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
+from numbers import Integral, Real
 
 import numpy as np
 
@@ -60,6 +62,10 @@ DEFAULT_BUCKET_RISKY_FRACTION = {
 MAX_REAL_ESTATE = 0.20
 MAX_ALTERNATIVES = 0.10
 MIN_LIQUIDITY = 0.02
+
+
+class OptimizerInputError(ValueError):
+    """Hard optimizer input/domain error that must not become a silent fallback."""
 
 
 @dataclass(frozen=True)
@@ -125,6 +131,273 @@ def bands_from_house_matrix_row(row) -> HouseMatrixBands:
         alternatives=_band("alt_min_bps", "alt_max_bps"),
         liquidity=_band("liq_min_bps", "liq_max_bps"),
     )
+
+
+def bands_from_effective_bounds_bps(
+    effective_bounds_bps: Mapping[str, tuple[int, int]],
+) -> HouseMatrixBands:
+    """Build strict solver bands from the caller's effective mandate bounds.
+
+    This is deliberately stricter than :func:`bands_from_house_matrix_row`.
+    The legacy House-Matrix path remains fail-soft for backwards compatibility,
+    while an explicitly supplied mandate constraint set must never be repaired
+    silently. Values are integer basis points and every optimizer bucket must be
+    present exactly once.
+
+    ``effective`` means final: the caller must already have applied the global
+    real-estate/alternatives caps and liquidity floor.  This function never
+    rewrites an explicit mandate bound.  Any deviation from those immutable
+    guardrails, or a box that cannot sum to 100%, raises
+    ``OptimizerInputError`` before scenario generation.
+    """
+    if not isinstance(effective_bounds_bps, Mapping):
+        raise OptimizerInputError(
+            "effective_bounds_bps must be a mapping of bucket -> (min_bps, max_bps)."
+        )
+
+    expected = set(BUCKET_ORDER)
+    actual = set(effective_bounds_bps.keys())
+    missing = sorted(expected - actual)
+    extra = sorted(actual - expected, key=str)
+    if missing or extra:
+        details = []
+        if missing:
+            details.append(f"missing={missing}")
+        if extra:
+            details.append(f"unknown={extra}")
+        raise OptimizerInputError(
+            "effective_bounds_bps must contain exactly the optimizer buckets ("
+            + ", ".join(details)
+            + ")."
+        )
+
+    parsed: dict[str, tuple[int, int]] = {}
+    for bucket in BUCKET_ORDER:
+        pair = effective_bounds_bps[bucket]
+        if not isinstance(pair, (tuple, list)) or len(pair) != 2:
+            raise OptimizerInputError(
+                f"effective_bounds_bps[{bucket!r}] must be a (min_bps, max_bps) pair."
+            )
+        raw_lo, raw_hi = pair
+        if (
+            isinstance(raw_lo, bool)
+            or isinstance(raw_hi, bool)
+            or not isinstance(raw_lo, Integral)
+            or not isinstance(raw_hi, Integral)
+        ):
+            raise OptimizerInputError(
+                f"effective_bounds_bps[{bucket!r}] values must be integer basis points."
+            )
+        lo = int(raw_lo)
+        hi = int(raw_hi)
+        if not (0 <= lo <= 10000) or not (0 <= hi <= 10000):
+            raise OptimizerInputError(
+                f"effective_bounds_bps[{bucket!r}] must stay within 0..10000 bps "
+                f"(got {lo}..{hi})."
+            )
+        if lo > hi:
+            raise OptimizerInputError(
+                f"effective_bounds_bps[{bucket!r}] has min_bps > max_bps "
+                f"({lo} > {hi})."
+            )
+        parsed[bucket] = (lo, hi)
+
+    # Explicit effective bounds are already the final domain contract.  The
+    # legacy House-Matrix path may still clamp in build_bounds(), but doing the
+    # same here would make the solver optimise different bounds than the caller
+    # supplied and audited.
+    re_lo, re_hi = parsed["real_estate"]
+    global_re_cap_bps = int(round(MAX_REAL_ESTATE * 10000))
+    if re_hi > global_re_cap_bps:
+        raise OptimizerInputError(
+            "effective real_estate maximum exceeds the global cap "
+            f"({re_hi} > {global_re_cap_bps} bps)."
+        )
+
+    alt_lo, alt_hi = parsed["alternatives"]
+    global_alt_cap_bps = int(round(MAX_ALTERNATIVES * 10000))
+    if alt_hi > global_alt_cap_bps:
+        raise OptimizerInputError(
+            "effective alternatives maximum exceeds the global cap "
+            f"({alt_hi} > {global_alt_cap_bps} bps)."
+        )
+
+    liq_lo, liq_hi = parsed["liquidity"]
+    global_liq_floor_bps = int(round(MIN_LIQUIDITY * 10000))
+    if liq_lo < global_liq_floor_bps:
+        raise OptimizerInputError(
+            "effective liquidity minimum is below the global floor "
+            f"({liq_lo} < {global_liq_floor_bps} bps)."
+        )
+
+    minimum_sum = sum(lo for lo, _hi in parsed.values())
+    maximum_sum = sum(hi for _lo, hi in parsed.values())
+    if minimum_sum > 10000 or maximum_sum < 10000:
+        raise OptimizerInputError(
+            "effective_bounds_bps cannot satisfy sum-to-10000 "
+            f"(sum(min)={minimum_sum}, sum(max)={maximum_sum})."
+        )
+
+    def _fraction_pair(bucket: str) -> tuple[float, float]:
+        lo, hi = parsed[bucket]
+        return (lo / 10000.0, hi / 10000.0)
+
+    return HouseMatrixBands(
+        equities=_fraction_pair("equities"),
+        bonds=_fraction_pair("bonds"),
+        real_estate=_fraction_pair("real_estate"),
+        alternatives=_fraction_pair("alternatives"),
+        liquidity=_fraction_pair("liquidity"),
+    )
+
+
+def validate_risky_fraction_per_bucket(
+    risky_fraction_per_bucket: Mapping[str, float],
+) -> dict[str, float]:
+    """Validate and own an exact risky-fraction map.
+
+    A supplied map is a hard model input, not a sparse override.  Every
+    optimizer bucket must be represented by one finite fraction in ``[0, 1]``;
+    otherwise a missing/NaN value could silently weaken the mandate risk cap.
+    """
+    if not isinstance(risky_fraction_per_bucket, Mapping):
+        raise OptimizerInputError(
+            "risky_fraction_per_bucket must be a mapping of bucket -> fraction."
+        )
+
+    expected = set(BUCKET_ORDER)
+    actual = set(risky_fraction_per_bucket.keys())
+    missing = sorted(expected - actual)
+    extra = sorted(actual - expected, key=str)
+    if missing or extra:
+        details = []
+        if missing:
+            details.append(f"missing={missing}")
+        if extra:
+            details.append(f"unknown={extra}")
+        raise OptimizerInputError(
+            "risky_fraction_per_bucket must contain exactly the optimizer buckets ("
+            + ", ".join(details)
+            + ")."
+        )
+
+    validated: dict[str, float] = {}
+    for bucket in BUCKET_ORDER:
+        raw = risky_fraction_per_bucket[bucket]
+        if isinstance(raw, bool) or not isinstance(raw, Real):
+            raise OptimizerInputError(
+                f"risky_fraction_per_bucket[{bucket!r}] must be numeric."
+            )
+        value = float(raw)
+        if not np.isfinite(value):
+            raise OptimizerInputError(
+                f"risky_fraction_per_bucket[{bucket!r}] must be finite."
+            )
+        if not 0.0 <= value <= 1.0:
+            raise OptimizerInputError(
+                f"risky_fraction_per_bucket[{bucket!r}] must be within 0..1 "
+                f"(got {value})."
+            )
+        validated[bucket] = value
+    return validated
+
+
+def _validated_risky_cap_fraction(
+    score_x10: int,
+    max_risky_fraction_bps: int | None,
+) -> float:
+    if max_risky_fraction_bps is not None:
+        if (
+            isinstance(max_risky_fraction_bps, bool)
+            or not isinstance(max_risky_fraction_bps, Integral)
+        ):
+            raise OptimizerInputError(
+                "max_risky_fraction_bps must be integer basis points."
+            )
+        cap_bps = int(max_risky_fraction_bps)
+        if not 0 <= cap_bps <= 10000:
+            raise OptimizerInputError(
+                "max_risky_fraction_bps must stay within 0..10000 bps."
+            )
+        return cap_bps / 10000.0
+
+    if isinstance(score_x10, bool) or not isinstance(score_x10, Real):
+        raise OptimizerInputError("score_x10 must be numeric within 0..100.")
+    score = float(score_x10)
+    if not np.isfinite(score) or not 0.0 <= score <= 100.0:
+        raise OptimizerInputError("score_x10 must be finite and within 0..100.")
+    return score / 100.0
+
+
+def minimum_achievable_risky_fraction(
+    bounds: list[tuple[float, float]],
+    risky_fraction_per_bucket: Mapping[str, float],
+) -> float:
+    """Analytic minimum of ``sum(w_i * rf_i)`` under box + sum-to-one.
+
+    Start at every lower bound, then assign the remaining weight greedily to
+    buckets ordered by increasing risky fraction.  The objective is linear, so
+    this is the exact box-constrained simplex optimum (fractional knapsack).
+    """
+    if len(bounds) != N_BUCKETS:
+        raise OptimizerInputError(
+            f"bounds must contain exactly {N_BUCKETS} optimizer buckets."
+        )
+    rf_map = validate_risky_fraction_per_bucket(risky_fraction_per_bucket)
+    lows = np.array([float(pair[0]) for pair in bounds], dtype=np.float64)
+    highs = np.array([float(pair[1]) for pair in bounds], dtype=np.float64)
+    if (
+        not np.all(np.isfinite(lows))
+        or not np.all(np.isfinite(highs))
+        or np.any(lows < 0.0)
+        or np.any(highs > 1.0)
+        or np.any(lows > highs)
+    ):
+        raise OptimizerInputError("bounds contain an invalid or non-finite interval.")
+
+    remaining = 1.0 - float(np.sum(lows))
+    if remaining < -1e-12 or float(np.sum(highs)) < 1.0 - 1e-12:
+        raise OptimizerInputError(
+            "optimizer bounds cannot satisfy the sum-to-one constraint."
+        )
+
+    weights = lows.copy()
+    rf = np.array([rf_map[bucket] for bucket in BUCKET_ORDER], dtype=np.float64)
+    for idx in sorted(range(N_BUCKETS), key=lambda item: (rf[item], item)):
+        if remaining <= 1e-12:
+            break
+        addition = min(remaining, float(highs[idx] - weights[idx]))
+        if addition > 0.0:
+            weights[idx] += addition
+            remaining -= addition
+    if remaining > 1e-10:
+        raise OptimizerInputError(
+            "optimizer bounds cannot satisfy the sum-to-one constraint."
+        )
+    return float(np.dot(weights, rf))
+
+
+def validate_risky_constraint_feasibility(
+    *,
+    bounds: list[tuple[float, float]],
+    score_x10: int,
+    risky_fraction_per_bucket: Mapping[str, float] | None,
+    max_risky_fraction_bps: int | None,
+) -> None:
+    """Reject a structurally impossible risk cap before scenario generation."""
+    rf_map = (
+        dict(DEFAULT_BUCKET_RISKY_FRACTION)
+        if risky_fraction_per_bucket is None
+        else validate_risky_fraction_per_bucket(risky_fraction_per_bucket)
+    )
+    cap = _validated_risky_cap_fraction(score_x10, max_risky_fraction_bps)
+    minimum = minimum_achievable_risky_fraction(bounds, rf_map)
+    if minimum > cap + 1e-12:
+        raise OptimizerInputError(
+            "risky-fraction cap is infeasible under the effective bounds "
+            f"(minimum achievable={minimum * 10000:.2f} bps, "
+            f"cap={cap * 10000:.2f} bps)."
+        )
 
 
 def build_bounds(bands: HouseMatrixBands) -> list[tuple[float, float]]:
@@ -217,12 +490,13 @@ def build_risky_fraction_constraint(
     score_x10: 0..100 (Score×10). 70 -> max 70% risky.
     risky_fraction_per_bucket: optional override; default DEFAULT_BUCKET_RISKY_FRACTION
     """
-    rf_map = risky_fraction_per_bucket or DEFAULT_BUCKET_RISKY_FRACTION
+    rf_map = (
+        dict(DEFAULT_BUCKET_RISKY_FRACTION)
+        if risky_fraction_per_bucket is None
+        else validate_risky_fraction_per_bucket(risky_fraction_per_bucket)
+    )
     rf_array = np.array([rf_map.get(b, 0.0) for b in BUCKET_ORDER], dtype=np.float64)
-    if max_risky_fraction_bps is not None:
-        cap = max(0.0, min(1.0, float(max_risky_fraction_bps) / 10000.0))
-    else:
-        cap = max(0.0, min(1.0, float(score_x10) / 100.0))
+    cap = _validated_risky_cap_fraction(score_x10, max_risky_fraction_bps)
     return {
         "type": "ineq",
         "fun": lambda w: float(cap - float(np.dot(w, rf_array))),
@@ -243,6 +517,12 @@ def build_constraint_set(
         constraints: list of dicts (sum-to-one + risky-fraction)
     """
     bounds = build_bounds(bands)
+    validate_risky_constraint_feasibility(
+        bounds=bounds,
+        score_x10=score_x10,
+        risky_fraction_per_bucket=risky_fraction_per_bucket,
+        max_risky_fraction_bps=max_risky_fraction_bps,
+    )
     constraints = [
         build_sum_to_one_constraint(),
         build_risky_fraction_constraint(
@@ -354,17 +634,20 @@ def constraint_slacks(
     binding_threshold_bps: Slack-Schwelle in bps, ab der eine Constraint als
         'bindend' gilt (default 25 bps = 0.25 Prozentpunkte).
     """
-    rf_map = risky_fraction_per_bucket or DEFAULT_BUCKET_RISKY_FRACTION
+    rf_map = (
+        dict(DEFAULT_BUCKET_RISKY_FRACTION)
+        if risky_fraction_per_bucket is None
+        else validate_risky_fraction_per_bucket(risky_fraction_per_bucket)
+    )
     w = np.array(
         [int((weights_bps or {}).get(bucket, 0) or 0) / 10000.0 for bucket in BUCKET_ORDER],
         dtype=np.float64,
     )
     rf = np.array([float(rf_map.get(b, 0.0)) for b in BUCKET_ORDER], dtype=np.float64)
     risk_used_bps = int(round(float(np.dot(w, rf)) * 10000))
-    if max_risky_fraction_bps is not None:
-        risk_limit_bps = int(max(0, min(10000, int(max_risky_fraction_bps))))
-    else:
-        risk_limit_bps = int(round(max(0.0, min(1.0, float(score_x10) / 100.0)) * 10000))
+    risk_limit_bps = int(round(
+        _validated_risky_cap_fraction(score_x10, max_risky_fraction_bps) * 10000
+    ))
     risk_slack_bps = risk_limit_bps - risk_used_bps
 
     rows: list[ConstraintSlack] = [
@@ -425,6 +708,13 @@ def is_feasible(
     """
     reasons = []
     weights = np.asarray(weights, dtype=np.float64)
+
+    if weights.shape != (N_BUCKETS,):
+        return False, [
+            f"weights shape invalid (expected {(N_BUCKETS,)}, got {weights.shape})"
+        ]
+    if not np.all(np.isfinite(weights)):
+        return False, ["weights contain NaN or infinite values"]
 
     # Bounds
     for i, (lo, hi) in enumerate(bounds):

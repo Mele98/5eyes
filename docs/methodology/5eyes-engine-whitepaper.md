@@ -65,10 +65,13 @@ Die Engine zieht tausende mehrjährige Pfade (`scenario_engine.py`):
 Szenario-Engine. Die *dargestellten* Vermögensverläufe (`portfolio_engine._build_simulation_payload`)
 verwenden eine eigene, deterministisch geseedete Pfadschar (SHA256-Seed über Mandat/CMA/
 Horizont/Targets). Der **deterministische Hauptpfad** nutzt seit 2026-06-17 dieselbe
-**Itô-korrigierte geometrische Wachstumskonvention** wie der Monte-Carlo-Median
-(`growth = exp(r − ½σ²)`), sodass die Hauptlinie **im Zentrum des MC-Median-Fächers**
-liegt statt optimistisch darüber. So sind „Hauptszenario" und Median-Band konsistent und
-die ausgewiesene „Median-Rendite (CAGR)" stimmt mit der dargestellten Kurve überein.
+**momententreue geometrische Wachstumskonvention** wie der Monte-Carlo-Median.
+Mit `v=log(1+(σ/(1+r))²)` ist
+`growth = exp(log(1+r) − ½v)`, sodass die Hauptlinie **im Zentrum des
+MC-Median-Fächers** liegt statt optimistisch darüber. Arithmetischer CMA-Mittelwert
+und einfache Return-Volatilität werden dabei gleichzeitig erhalten. So sind
+„Hauptszenario" und Median-Band konsistent und die ausgewiesene
+„Median-Rendite (CAGR)" stimmt mit der dargestellten Kurve überein.
 
 ## 4. Zielmodellierung (Goal → Liability)
 
@@ -195,9 +198,11 @@ Liquidität — die Renditen je Baustein bleiben unverändert.
 ## 11. Mortalität & Horizont
 
 Der Projektions-/Optimierungs-Horizont reicht bis zur **Lebenserwartung**
-(Geburtsjahr + 83 [Mann] / + 85 [Frau], bei Paaren das längere) bzw. dem letzten
-erfassten Cashflow — der Vermögensverzehr nach der Pensionierung wird also vollständig
-abgebildet. Optional zerschneiden **BFS-Sterbewahrscheinlichkeiten** die MC-Pfade für
+(Geburtsjahr + 83 [Mann] / + 85 [Frau], bei Paaren das längere), dem letzten
+erfassten Cashflow oder dem spätesten Start-/Zieldatum eines aktiven Ziels —
+der Vermögensverzehr nach der Pensionierung wird also vollständig abgebildet.
+Ein fehlendes numerisches Ziel-`horizon_years` kürzt ein datiertes Ziel nicht.
+Optional zerschneiden **BFS-Sterbewahrscheinlichkeiten** die MC-Pfade für
 realistischere Langlebigkeits-Szenarien.
 
 **Sequence-of-Returns-/Verzehr-Risiko (Kennzahl).** Für den Verzehr weist die Engine aus

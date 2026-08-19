@@ -31,20 +31,50 @@ if TYPE_CHECKING:
     from services.portfolio_engine import PortfolioSummary
 
 
+_TOTAL_FINANCIAL_BUCKETS = (
+    "equities",
+    "bonds",
+    "real_estate",
+    "alternatives",
+    "liquidity",
+)
+
+
+def _total_financial_target_weights(target_weights_bps: dict) -> dict[str, int]:
+    """Normalize the investable SAA once for display and all total paths."""
+    raw = {
+        key: max(0, int((target_weights_bps or {}).get(key, 0) or 0))
+        for key in _TOTAL_FINANCIAL_BUCKETS
+    }
+    total = sum(raw.values())
+    if total <= 0:
+        return {key: 0 for key in _TOTAL_FINANCIAL_BUCKETS}
+    normalized = {
+        key: int(round(value * 10_000 / total))
+        for key, value in raw.items()
+    }
+    residual = 10_000 - sum(normalized.values())
+    if residual:
+        largest = max(_TOTAL_FINANCIAL_BUCKETS, key=lambda key: raw[key])
+        normalized[largest] += residual
+    return normalized
+
+
 def _build_total_wealth_allocation(
     total_summary: PortfolioSummary,
     total_liabilities_rappen: int,
     total_wealth_rappen: int,
     target_weights_bps: dict,
+    direct_property_rappen: int | None = None,
 ) -> dict:
     """Gesamtvermögens-Allokation mit der Immobilie als fixem Fundament (Sockel).
 
     Produkt-Entscheid 2026-07-13: IST und SOLL werden auf dem GESAMTvermögen
     dargestellt ("mit allem"), nicht nur auf dem Beratungsvermögen. Die Immobilie
-    (real_estate) ist ein konstanter, nicht-optimierbarer Block ("Fundament",
-    netto Hypothek) — identisch in IST und SOLL. Nur das liquide Finanzvermögen
-    (der Rest) wird über die Asset-Klassen optimiert; die Ziel-% werden dafür ohne
-    real_estate renormiert, weil das Haus die Immobilienquote bereits stellt.
+    aus direkten Liegenschaften ist ein konstanter, nicht-optimierbarer Block
+    ("Fundament", netto Hypothek) — identisch in IST und SOLL. Kotierte
+    Immobilienfonds/REITs bleiben dagegen Teil des investierbaren Finanzmixes
+    und erhalten die normale SAA-Immobilienquote.
 
     REIN ADDITIV: beeinflusst Optimizer/Reserve/Ziele NICHT — nur die Anzeige.
     Der Optimizer/die Reserve rechnen unverändert auf dem Beratungsvermögen.
@@ -55,42 +85,56 @@ def _build_total_wealth_allocation(
     amounts = {k: max(0, int(total_summary.amounts_rappen.get(k, 0))) for k in BUCKET_FIELDS}
     liabilities = max(0, int(total_liabilities_rappen or 0))
     total_base = max(0, int(total_wealth_rappen or 0))
-    # Fundament = Immobilie netto Hypothek (konstant). Hypothek zuerst gegen die
-    # Immobilie verrechnen; ein Überhang (Hypothek > Immobilie) mindert den Finanzteil.
+    # Only position_type='Immobilien' is the fixed direct-property foundation.
+    # Listed funds/REITs inside depots remain an investable real-estate sleeve.
     real_estate_gross = amounts["real_estate"]
-    foundation_rappen = max(0, real_estate_gross - liabilities)
-    liab_remaining = max(0, liabilities - real_estate_gross)
+    direct_property_gross = (
+        real_estate_gross
+        if direct_property_rappen is None
+        else max(0, int(direct_property_rappen or 0))
+    )
+    if direct_property_gross > real_estate_gross:
+        raise ValueError(
+            "Direktimmobilien-Sockel übersteigt den Immobilien-Gesamtbetrag."
+        )
+    listed_real_estate_rappen = real_estate_gross - direct_property_gross
+    foundation_rappen = max(0, direct_property_gross - liabilities)
+    liab_remaining = max(0, liabilities - direct_property_gross)
     financial_base_rappen = max(0, total_base - foundation_rappen)
 
     # IST (heutiger Mix, total): Fundament + heutige Finanz-Buckets; ein Rest-
     # Hypothek-Überhang wird von der Liquidität abgezogen (Netto-Konsistenz).
     current_amounts = dict(amounts)
-    current_amounts["real_estate"] = foundation_rappen
-    if liab_remaining:
-        current_amounts["liquidity"] = max(0, current_amounts["liquidity"] - liab_remaining)
+    current_amounts["real_estate"] = (
+        listed_real_estate_rappen + foundation_rappen
+    )
+    for key in ("liquidity", "bonds", "alternatives", "equities", "real_estate"):
+        if liab_remaining <= 0:
+            break
+        removable = min(liab_remaining, current_amounts[key])
+        current_amounts[key] -= removable
+        liab_remaining -= removable
 
-    # SOLL (Ziel, total): Fundament identisch; Ziel-% ohne real_estate renormiert
-    # auf den Finanzteil (das Haus stellt die Immobilienquote bereits).
-    tgt = {k: int((target_weights_bps or {}).get(k, 0) or 0) for k in BUCKET_FIELDS}
-    non_re_sum = sum(v for k, v in tgt.items() if k != "real_estate")
+    # SOLL (Ziel, total): the fixed foundation stays in place. The financial
+    # part follows the full investable SAA, including listed real estate.
+    tgt = _total_financial_target_weights(target_weights_bps)
     target_amounts = {k: 0 for k in BUCKET_FIELDS}
     target_amounts["real_estate"] = foundation_rappen
-    if non_re_sum > 0 and financial_base_rappen > 0:
+    if sum(tgt.values()) > 0 and financial_base_rappen > 0:
         for k in BUCKET_FIELDS:
-            if k == "real_estate":
-                continue
-            target_amounts[k] = int(round(financial_base_rappen * tgt[k] / non_re_sum))
+            target_amounts[k] += int(
+                round(financial_base_rappen * tgt[k] / 10_000)
+            )
         # Rundungsrest dem grössten Finanz-Bucket zuschlagen -> Summe exakt = Finanzbasis.
-        fin_keys = [k for k in BUCKET_FIELDS if k != "real_estate"]
-        residual = financial_base_rappen - sum(target_amounts[k] for k in fin_keys)
-        if residual and fin_keys:
-            biggest = max(fin_keys, key=lambda k: target_amounts[k])
+        allocated_financial = sum(target_amounts.values()) - foundation_rappen
+        residual = financial_base_rappen - allocated_financial
+        if residual:
+            biggest = max(BUCKET_FIELDS, key=lambda k: tgt[k])
             target_amounts[biggest] += residual
     else:
         # Kein Finanzziel / kein liquider Teil → keine Umschichtung (Fallback = IST).
         for k in BUCKET_FIELDS:
-            if k != "real_estate":
-                target_amounts[k] = current_amounts[k]
+            target_amounts[k] = current_amounts[k]
 
     base = max(1, total_base)
     allocation = []
@@ -101,7 +145,15 @@ def _build_total_wealth_allocation(
             "target_weight_bps": _bps(target_amounts[key], base),
             "current_amount_rappen": int(current_amounts[key]),
             "target_amount_rappen": int(target_amounts[key]),
-            "is_foundation": key == "real_estate",
+            "is_foundation": key == "real_estate" and direct_property_gross > 0,
+            "foundation_component_rappen": (
+                int(foundation_rappen) if key == "real_estate" else 0
+            ),
+            "investable_component_rappen": (
+                int(current_amounts[key] - foundation_rappen)
+                if key == "real_estate"
+                else int(current_amounts[key])
+            ),
         })
     return {
         "basis": "gesamtvermoegen",
@@ -159,38 +211,77 @@ def _wealth_inflow_series_rappen(
     if not series or not inflows:
         return series
     for infl in inflows:
-        if not getattr(infl, "is_active", 1):
+        active = getattr(infl, "is_active", 1)
+        if isinstance(active, bool) or not isinstance(active, int) or active not in (0, 1):
+            raise ValueError("Vermoegenszufluss: is_active muss exakt 0 oder 1 sein.")
+        if active == 0:
             continue
-        try:
-            base_amount = int(infl.amount_rappen or 0)
-            if base_amount <= 0:
-                continue
-            year = int(infl.expected_year or 0)
-            offset = year - int(start_year or 0)
-            if offset < 0 or offset >= len(series):
-                continue
-            recurring = int(getattr(infl, "is_recurring", 0) or 0) == 1
-            freq = str(getattr(infl, "frequency", "") or "").strip().lower()
-            duration = int(getattr(infl, "duration_years", 0) or 0) if recurring else 0
-            value_mode = str(getattr(infl, "value_mode", "nominal") or "nominal").strip().lower()
-            is_real = value_mode == "real"
+        base_amount = getattr(infl, "amount_rappen", None)
+        year = getattr(infl, "expected_year", None)
+        recurring_raw = getattr(infl, "is_recurring", None)
+        duration_raw = getattr(infl, "duration_years", None)
+        if isinstance(base_amount, bool) or not isinstance(base_amount, int) or base_amount <= 0:
+            raise ValueError("Vermoegenszufluss: amount_rappen muss eine positive Ganzzahl sein.")
+        if isinstance(year, bool) or not isinstance(year, int) or not 1900 <= year <= 2200:
+            raise ValueError("Vermoegenszufluss: expected_year muss zwischen 1900 und 2200 liegen.")
+        if (
+            isinstance(recurring_raw, bool)
+            or not isinstance(recurring_raw, int)
+            or recurring_raw not in (0, 1)
+        ):
+            raise ValueError("Vermoegenszufluss: is_recurring muss exakt 0 oder 1 sein.")
+        recurring = recurring_raw == 1
+        freq = str(getattr(infl, "frequency", "") or "").strip().lower()
+        value_mode = str(getattr(infl, "value_mode", "") or "").strip().lower()
+        if value_mode not in {"nominal", "real"}:
+            raise ValueError("Vermoegenszufluss: value_mode muss nominal oder real sein.")
+        if recurring:
+            if freq not in {"jaehrlich", "monatlich"}:
+                raise ValueError(
+                    "Vermoegenszufluss: wiederkehrend erfordert frequency "
+                    "jaehrlich oder monatlich."
+                )
+            if (
+                isinstance(duration_raw, bool)
+                or not isinstance(duration_raw, int)
+                or not 1 <= duration_raw <= 99
+            ):
+                raise ValueError(
+                    "Vermoegenszufluss: wiederkehrend erfordert duration_years "
+                    "zwischen 1 und 99."
+                )
+            duration = duration_raw
+        else:
+            if freq not in {"", "einmalig"}:
+                raise ValueError(
+                    "Vermoegenszufluss: einmalig darf keine wiederkehrende "
+                    "frequency besitzen."
+                )
+            if duration_raw not in (None, 0):
+                raise ValueError(
+                    "Vermoegenszufluss: einmalig darf keine duration_years besitzen."
+                )
+            duration = 0
 
-            def _amount_at_offset(off: int, base: int) -> int:
-                if not is_real or not inflation_series_bps:
-                    return base
-                # kumulativ ueber Jahre
-                cum = 1.0
-                for k in range(min(off, len(inflation_series_bps))):
-                    cum *= (1.0 + (int(inflation_series_bps[k]) / 10000.0))
-                return int(round(base * cum))
-
-            if recurring:
-                annual_base = base_amount * 12 if freq == "monatlich" else base_amount
-                last = min(len(series) - 1, offset + max(0, duration) - 1)
-                for off in range(offset, last + 1):
-                    series[off] += _amount_at_offset(off, annual_base)
-            else:
-                series[offset] += _amount_at_offset(offset, base_amount)
-        except (TypeError, ValueError, AttributeError):
+        offset = year - int(start_year or 0)
+        if offset < 0 or offset >= len(series):
             continue
+
+        is_real = value_mode == "real"
+
+        def _amount_at_offset(off: int, base: int) -> int:
+            if not is_real or not inflation_series_bps:
+                return base
+            cum = 1.0
+            for k in range(min(off, len(inflation_series_bps))):
+                cum *= (1.0 + (int(inflation_series_bps[k]) / 10000.0))
+            return int(round(base * cum))
+
+        if recurring:
+            annual_base = base_amount * 12 if freq == "monatlich" else base_amount
+            last = min(len(series) - 1, offset + duration - 1)
+            for off in range(offset, last + 1):
+                series[off] += _amount_at_offset(off, annual_base)
+        else:
+            series[offset] += _amount_at_offset(offset, base_amount)
     return series

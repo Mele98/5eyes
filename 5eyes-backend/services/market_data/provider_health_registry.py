@@ -68,9 +68,16 @@ def _ensure_column(conn, column_name: str, sql_type: str) -> None:
 
 
 def ensure_provider_health_table(target_engine: Engine | None = None) -> None:
-    """Create/upgrade provider_health_events idempotently."""
+    """Create/upgrade ``provider_health_events`` for SQLite installs.
+
+    PostgreSQL receives this table through Alembic.  The guard is required
+    here as well as during application bootstrap because registry operations
+    call the helper lazily before reading or writing health events.
+    """
     if target_engine is None:
         from database import engine as target_engine  # lazy to avoid import cycles
+    if target_engine.dialect.name != "sqlite":
+        return
 
     with target_engine.begin() as conn:
         conn.execute(text("""
@@ -215,13 +222,15 @@ def list_provider_health(
             params[key] = name
             placeholders.append(f":{key}")
         where = f"WHERE provider_name IN ({', '.join(placeholders)})"
+    bind = db.get_bind()
+    tie_breaker = "rowid" if bind.dialect.name == "sqlite" else "id"
     rows = db.execute(text(f"""
         SELECT id, provider_name, status, reason, operation, error_type,
                consecutive_errors, observed_at, unhealthy_until, recovered_at,
                source, created_at, updated_at
         FROM provider_health_events
         {where}
-        ORDER BY observed_at DESC, updated_at DESC, rowid DESC
+        ORDER BY observed_at DESC, updated_at DESC, {tie_breaker} DESC
         LIMIT :limit
     """), params).mappings().all()
     return [dict(row) for row in rows]

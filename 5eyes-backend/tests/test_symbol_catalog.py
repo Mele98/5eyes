@@ -157,6 +157,17 @@ def test_smi_stooq_provider_present():
     assert any(ps.data_starts is not None and ps.data_starts <= 1988 for ps in stooq)
 
 
+@pytest.mark.parametrize("key", ["Immobilien_CH", "Immobilien_Welt"])
+def test_listed_real_estate_sources_are_total_return_including_distributions(key):
+    """Listed RE CMA inputs already include distributions; rent is not added."""
+    sub_asset = get_sub_asset(key)
+
+    assert sub_asset.tr_start_year == sub_asset.index_start_year
+    assert sub_asset.pre_tr_dividend_yield_bps == 0
+    assert sub_asset.provider_symbols
+    assert all(symbol.is_total_return for symbol in sub_asset.provider_symbols)
+
+
 # ============================================================
 # Helper-API
 # ============================================================

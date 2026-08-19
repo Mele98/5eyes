@@ -9,6 +9,7 @@ from models.clients import Client, ClientNationality, ClientOptHistory
 from models.wealth import Cashflow, WealthPosition, WealthInflow
 from schemas.clients import (
     ClientCreate, ClientUpdate, ClientResponse,
+    ClientErasureRequest, ClientErasureResponse,
     NationalityCreate, NationalityResponse,
     OptHistoryCreate, OptHistoryResponse,
     WealthSummaryResponse, CashflowSummaryResponse,
@@ -20,10 +21,12 @@ from services.auth import (
     get_current_user,
     has_global_client_access,
     hash_password,
+    require_admin,
     require_advisor,
 )
 from services.audit import log
 from services.cashflow_timeline import totals_for_year
+from services.client_erasure import erase_client_personal_data
 from services.data_classification import enforce_data_classification
 from services.planning_horizon import life_expectancy_year_for
 from services.quota import assert_within_quota
@@ -162,6 +165,49 @@ def delete_client(
         table_name="clients", record_id=client_id, action="DELETE",
         client_id=client_id, ip_address=_extract_client_ip(request))
     db.commit()
+
+
+def _get_client_for_erasure_or_404(client_id: str, db: Session, current_user: User) -> Client:
+    """Lookup fuer DSG-Art.-32-Erasure: bewusst OHNE deleted_at-Filter
+    (im Unterschied zu get_client_for_user_or_404) -- eine Loeschungs-
+    anfrage trifft haeufig gerade einen bereits (soft-)geloeschten
+    Kunden, dessen Personendaten trotzdem noch vollstaendig in der DB
+    liegen. Tenant-Scoping bleibt bestehen (kein globaler Admin darf
+    Kunden eines fremden Tenants anonymisieren)."""
+    query = db.query(Client).filter(Client.id == client_id)
+    query = _apply_tenant_filter_to_client_query(query, current_user)
+    client = query.first()
+    if not client:
+        raise HTTPException(status_code=404, detail="Kunde nicht gefunden")
+    return client
+
+
+@router.post("/{client_id}/erase", response_model=ClientErasureResponse)
+def erase_client(
+    client_id: str,
+    body: ClientErasureRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """DSG Art. 32 -- Loeschungsanspruch. Anonymisiert irreversibel alle
+    direkt identifizierenden Personendaten dieses Kunden (siehe
+    services/client_erasure.py fuer die vollstaendige rechtliche und
+    technische Begruendung des Umfangs). Admin-only, Pflichtbegruendung
+    (schemas.clients.ClientErasureRequest), idempotent-sicher (409 bei
+    Doppelaufruf). Die Aktion selbst wird -- wie jede sensible Aktion --
+    unveraenderlich im Audit-Log protokolliert (wer hat wann wen aus
+    welchem Grund geloescht)."""
+    from routers.auth import _extract_client_ip
+    _get_client_for_erasure_or_404(client_id, db, current_user)
+    result = erase_client_personal_data(db, client_id, reason=body.reason)
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="clients", record_id=client_id, action="CLIENT_ERASE",
+        client_id=client_id,
+        new_value=str({"reason": body.reason, "redacted": result["redacted"]}),
+        ip_address=_extract_client_ip(request))
+    db.commit()
+    return result
 
 
 # ── Nationalities ──────────────────────────────────────────────────────────────

@@ -41,8 +41,27 @@ config = context.config
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
+#
+# disable_existing_loggers=False (Bugfix, gefunden bei Merge des stochastischen
+# Optimizer-Branches 2026-08): logging.config.fileConfig()'s DEFAULT ist
+# disable_existing_loggers=True. alembic.ini deklariert nur "root",
+# "sqlalchemy" und "alembic" als Logger -- jeder andere zu diesem Zeitpunkt
+# bereits existierende Logger (z.B. jedes services/*-Modul, das beim App-Start
+# oder bei Testkollektion bereits `logging.getLogger(__name__)` aufgerufen
+# hat) wuerde sonst permanent `.disabled = True` gesetzt und faellt fuer den
+# Rest des Prozesses lautlos aus -- unabhaengig von Level/Handlern/caplog.
+# _create_or_migrate_schema() in database.py ruft command.upgrade() (und
+# damit dieses env.py) bei JEDEM Postgres-Produktions-App-Start auf: ohne
+# diesen Fix wuerde jeder Start beliebige, bereits importierte Logger fuer
+# die gesamte Prozesslaufzeit stummschalten (lautloser Logging-Blackout).
+# Reproduzierbar im Backend-Test-Suite gefunden: tests/test_alembic_baseline_
+# migration.py ruft dieselbe command.upgrade()-Kette auf und schaltete damit
+# services.pdf.fonts/services.telemetry fuer den Rest des Testlaufs stumm
+# (tests/test_pdf_font_embedding.py::test_missing_ttf_files_degrade_without_crash,
+# tests/test_telemetry_opt_in.py::test_capture_exception_no_op_when_inactive,
+# tests/test_telemetry_opt_in.py::test_capture_message_no_op_when_inactive).
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 target_metadata = Base.metadata
 

@@ -55,7 +55,27 @@ jobs:
     # 2026-08-04 (Mega-Audit-Nachlauf, war seit 2026-06-08 stale bei "3400
     # Tests"): Backend-Suite liegt inzwischen bei ueber 5000 Tests. Lokal
     # ~17min, CI-Runner braucht laenger wegen pip-Install. 30min Puffer.
-    timeout-minutes: 30
+    # 2026-08-18/19: PR #374 (Stochastic-Optimizer-Produktionsdefault +
+    # Audit-Nachlauf) bringt die Suite auf 5991 Tests (+~1000). Drei CI-
+    # Laeufe unter --cov=services/routers/schemas/models scheiterten
+    # (30min@21%, 60min@39%, 120min mit einer 21-minuetigen KOMPLETTEN
+    # Stille direkt nach 48% -- "operation was canceled", nie ein FAILED).
+    # Verdaechtigt: test_golden_snapshot_ch_regression.py (naechste Datei
+    # in der Kollektionsreihenfolge, rechenintensivste Monte-Carlo-Datei
+    # der Suite). Lokal (Windows) mit IDENTISCHEN --cov-Flags einzeln
+    # gemessen: nur 26s->37s (1.4x), UND die volle Suite lokal mit exakt
+    # denselben Flags lief sauber durch genau diese Datei und weit darueber
+    # hinaus durch -- kein Haenger reproduzierbar. Schluss: das ist ein
+    # Linux/CI-Runner-spezifisches Coverage-Instrumentierungs-Problem
+    # (vermutlich coverage.py + sqlite/multiprocessing-Interaktion unter
+    # Linux), kein Code-Bug in diesem PR. Fix: Coverage-Tracking aus dem
+    # BLOCKIERENDEN Pytest-Lauf entfernt (siehe Schritte unten) -- die
+    # Korrektheits-Pruefung (was den PR mergebar macht) laeuft jetzt ohne
+    # --cov und faellt damit auf die schnelle, verlaessliche lokale Zeit
+    # (~20-25min) zurueck. Coverage laeuft als eigener, NICHT blockierender
+    # Schritt danach (continue-on-error) mit eigenem Timeout, damit ein
+    # erneuter Coverage-Haenger den PR nicht mehr blockieren kann.
+    timeout-minutes: 90
 
     strategy:
       fail-fast: false
@@ -79,10 +99,25 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run pytest with coverage
+      - name: Run pytest (correctness gate, no coverage)
         working-directory: 5eyes-backend
         run: |
-          python -m pytest tests/ -v --tb=short --maxfail=5 \
+          python -m pytest tests/ --tb=short --maxfail=5
+
+      # Nicht blockierend (continue-on-error) mit eigenem Timeout: Coverage-
+      # Instrumentierung ist auf diesem Runner nachweislich (siehe Kommentar
+      # oben am Job) fuer einen Teil der Suite unverhaeltnismaessig langsam/
+      # haengt -- ein erneutes Auftreten darf den PR-mergebar-Status nicht
+      # mehr blockieren. Best-effort: liefert das Coverage-Artefact wenn es
+      # rechtzeitig durchlaeuft, sonst wird dieser Schritt einfach als
+      # fehlgeschlagen markiert und ignoriert.
+      - name: Run pytest with coverage (best-effort, non-blocking)
+        if: always()
+        working-directory: 5eyes-backend
+        continue-on-error: true
+        timeout-minutes: 60
+        run: |
+          python -m pytest tests/ --tb=short \
             --cov=services --cov=routers --cov=schemas --cov=models \
             --cov-report=term-missing --cov-report=xml
 
@@ -93,6 +128,7 @@ jobs:
           name: coverage-${{ matrix.python-version }}
           path: 5eyes-backend/coverage.xml
           retention-days: 14
+          if-no-files-found: warn
 
       - name: Upload pytest log on failure
         if: failure()

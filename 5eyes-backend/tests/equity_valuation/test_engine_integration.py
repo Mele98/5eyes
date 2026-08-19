@@ -102,18 +102,31 @@ def test_partial_kgv_params_no_adjustment():
     assert inputs.mu_bps[0] == base_equity
 
 
-def test_kgv_invalid_params_no_adjustment():
-    """KGV-Current=0 ist invalid → defensive Fallback auf 0 Adjustment."""
+@pytest.mark.parametrize(
+    "field_name, invalid_value",
+    [
+        ("equity_kgv_current_x10", 0),
+        ("equity_kgv_fair_x10", 0),
+        ("equity_kgv_alpha_x100", -1),
+        ("equity_kgv_alpha_x100", 101),
+        ("equity_kgv_current_x10", float("nan")),
+    ],
+)
+def test_complete_invalid_kgv_params_fail_closed(field_name, invalid_value):
+    """Eine vollstaendige, ungueltige KGV-Gruppe ist kein Fixed-CMA-Fallback."""
+    from services.optimizer.constraints import OptimizerInputError
     from services.optimizer.scenario_engine import scenario_inputs_from_cma
 
     class _CMAInvalid(_BaseCMA):
-        equity_kgv_current_x10 = 0  # invalid
+        equity_kgv_current_x10 = 220
         equity_kgv_fair_x10 = 170
         equity_kgv_alpha_x100 = 15
 
-    inputs = scenario_inputs_from_cma(_CMAInvalid())
-    base_equity = (600 + 700) / 2
-    assert inputs.mu_bps[0] == base_equity
+    cma = _CMAInvalid()
+    setattr(cma, field_name, invalid_value)
+
+    with pytest.raises(OptimizerInputError, match=field_name):
+        scenario_inputs_from_cma(cma)
 
 
 def test_kgv_only_affects_equities_bucket():

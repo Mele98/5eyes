@@ -31,12 +31,14 @@ from models.users import User
 from schemas.tenants import (
     TenantCreate,
     TenantResponse,
+    TenantSelfResponse,
     TenantSelfServiceUpdate,
     TenantUpdate,
     UserAssignTenantRequest,
 )
 from services.audit import log
 from services.auth import require_admin, require_super_admin
+from services.quota import compute_tenant_usage
 # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Quell-IP fuer Tenant-Admin-Aktionen.
 from routers.auth import _extract_client_ip
 
@@ -65,7 +67,7 @@ def _check_tenant_admin_ui_enabled() -> None:
         )
 
 
-@router.get("/me", response_model=TenantResponse)
+@router.get("/me", response_model=TenantSelfResponse)
 def get_my_tenant(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
@@ -74,14 +76,21 @@ def get_my_tenant(
     tenant_id) -- TIER-UNABHAENGIG, im Gegensatz zu GET /tenants/{id}
     (Tier 2 only via _check_tenant_admin_ui_enabled). Muss VOR der
     /{tenant_id}-Route registriert sein, sonst matcht FastAPI 'me' als
-    tenant_id-Pfadparameter."""
+    tenant_id-Pfadparameter.
+
+    2026-08-09 (Roadmap #24-Rest): liefert zusaetzlich die aktuelle
+    Auslastung (current_users/current_mandates), damit das Frontend eine
+    Soft-Limit-Warnung VOR dem harten 409-Block anzeigen kann."""
     tenant_id = getattr(current_user, "tenant_id", None) or DEFAULT_TENANT_ID
     tenant = db.query(Tenant).filter(
         Tenant.id == tenant_id, Tenant.deleted_at.is_(None),
     ).first()
     if tenant is None:
         raise HTTPException(status_code=404, detail="Eigene Firma nicht gefunden")
-    return tenant
+    usage = compute_tenant_usage(db, tenant_id)
+    payload = TenantResponse.model_validate(tenant).model_dump()
+    payload.update(usage)
+    return TenantSelfResponse(**payload)
 
 
 @router.put("/me", response_model=TenantResponse)

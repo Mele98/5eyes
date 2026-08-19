@@ -1,11 +1,9 @@
-"""WP-G (2026-07-30): Golden-Snapshot-Baseline fuer den Schweiz-Pfad (jurisdiction
-IS NULL / "CH").
+"""Golden-Snapshot-Baseline fuer den Schweiz-Pfad (jurisdiction IS NULL / "CH").
 
-Zweck: Bevor irgendjemand an services/portfolio_engine.py, models/allocation.py
-oder models/review.py etwas aendert (z.B. die parallel laufenden Home-Bias/CMA-
-Jurisdiktions-Arbeitspakete), soll dieser Test automatisch beweisen, dass der
-bestehende Schweiz-Pfad exakt gleich bleibt. Reiner Diff-Gate-Test, keine neue
-Fachlogik.
+Die Baseline friert den fachlich freigegebenen stochastischen Kern inklusive
+aktiver Methode/Status ein. Damit darf eine kuenftige Aenderung weder unbemerkt
+auf die House Matrix zurueckfallen noch Ziel-, Suballokations- oder
+Implementierungsgewichte verschieben.
 
 Vorgehen: fuer 6 Kombinationen aus Risikoprofil-Score (unterschiedliche
 _risk_score_bucket-Buckets) und Anlagepraeferenzen (equitiesGeo-Varianten,
@@ -23,26 +21,14 @@ ueber getrennte Testlaeufe/DBs hinweg) -- Begruendung pro Feld:
   Wir bauen daher gezielt ein reduziertes, benanntes Snapshot-Dict aus den
   Ergebnis-Dicts von generate_target_allocation()/generate_recommendation_run()
   statt die rohen ORM-Objekte/Positions-Payloads zu dumpen.
-- Monte-Carlo-abgeleitete Kennzahlen (TargetAllocation.mc_exp_vol_bps,
-  mc_exp_return_bps, mc_max_drawdown_bps, mc_var_95_bps, sowie generell
-  result["monte_carlo"]/result["goal_analysis"]/result["current_goal_analysis"]):
-  `_run_allocation_monte_carlo` seedet den RNG u.a. mit `cma.id` (siehe
-  services/portfolio_engine.py `_monte_carlo_seed(mandate_id, cma.id, ...)`).
-  `ensure_runtime_reference_data` erzeugt die CapitalMarketAssumption-Zeile bei
-  jedem Testlauf mit einer frischen `new_uuid()` (kein fixer Default-Datensatz),
-  weil jede Test-DB leer startet. Der Seed und damit diese Kennzahlen
-  unterscheiden sich deshalb zwischen dem eingefrorenen Fixture-Lauf und jedem
-  spaeteren Testlauf, OBWOHL die eigentliche Fachlogik (Ziel-Buckets,
-  Sub-Allokationen, Produktselektion, Gewichte) 100% identisch bleibt. Diese
-  Felder sind also "nicht deterministisch" im Sinne dieses Tests, nicht weil
-  der Code nicht-deterministisch waere, sondern weil ihr Zufalls-Seed an eine
-  pro-Testlauf neu erzeugte DB-ID haengt. Wir pruefen stattdessen weiterhin
-  alle Werte, die NICHT vom CMA-Zeilen-Zufalls-Seed abhaengen: targets_bps,
-  bands_bps, risky_fraction_bps, limiting_factor, expected_return_bps,
-  expected_volatility_bps (letztere kommen aus den *numerischen* CMA-Feldern,
-  die als feste Konstanten in ensure_runtime_reference_data stehen -- nur die
-  Zeilen-ID ist zufaellig, nicht der Inhalt), sowie die komplette
-  Produktselektion/Gewichtung (positions, sub_allocations, totals, warnings).
+- Monte-Carlo-abgeleitete Implementierungskennzahlen (TargetAllocation.mc_*,
+  result["monte_carlo"]/result["goal_analysis"]): Sie besitzen eigene, breite
+  statistische Vertrags-Suites und gehoeren nicht in diesen kompakten
+  Produkt-/Gewichts-Snapshot. Die CMA-ID wird hier dennoch explizit fixiert,
+  weil sie auch den aktiven stochastischen Entscheidungs-Seed bindet. Eingefroren
+  werden Methode/Status/Engine-Version, targets_bps, bands_bps,
+  risky_fraction_bps, limiting_factor, erwartete Momente sowie die komplette
+  Produktselektion und -gewichtung.
 - live_rebalancing / reasoning-Freitext: bewusst nicht Teil des Snapshots
   (siehe DEVIATIONS im Task-Report) -- Fokus liegt spec-gemaess auf
   sub_allocations, Produktgewichten und Gesamtsummen.
@@ -51,6 +37,18 @@ Sanity-Check (siehe Kommentar `SANITY_CHECK_INSTRUCTIONS` unten): dieser Test
 wurde manuell verifiziert, dass er ROT wird, wenn man den CH-Default
 "Schweiz Fokus" (equities_geo-Default in _build_sub_allocations) lokal
 aendert. Die testweise Aenderung wurde NICHT committet.
+
+WICHTIG (2026-08-19): Diese Fixtures sind SLSQP-Konvergenzergebnisse und
+duerfen NUR auf dem Linux-CI-Runner regeneriert werden, nie lokal unter
+Windows. Trotz exakt gepinnter numpy/scipy-Versionen (requirements.txt)
+liefert der Solver auf Windows minimal andere Werte als auf Linux
+(vermutlich unterschiedliche BLAS/LAPACK-Backends je Wheel-Plattform,
+z.B. expected_return_bps 396 vs. 397) -- lokal unter Windows neu
+eingefrorene Fixtures faellen daher reproduzierbar in CI durch. Zum
+Regenerieren: temporaeren CI-Schritt einbauen, der _build_ch_snapshot()
+fuer alle COMBOS aufruft und das Ergebnis als Artefakt hochlaedt (siehe
+Git-Historie des Merge-Commits fuer ein Beispiel), dann das Artefakt
+herunterladen und in tests/fixtures/golden_ch_recommendations/ kopieren.
 """
 from __future__ import annotations
 
@@ -91,6 +89,7 @@ from services.portfolio_engine import (
     generate_recommendation_run,
     generate_target_allocation,
 )
+from services.risk_scoring import profile_for_score_x10
 
 FIXTURES_DIR = TESTS_ROOT / "fixtures" / "golden_ch_recommendations"
 
@@ -220,7 +219,7 @@ def _seed_ch_mandate(session_factory, *, suffix: str, score_x10: int) -> tuple[s
             q_investment_goal_points=3, q_risk_preference_points=4, q_risk_behavior_points=3,
             risk_willingness_total=10, risk_willingness_profile="Golden-Test",
             risk_willingness_score_x10=score_x10,
-            final_score_x10=score_x10, final_profile="Golden-Test",
+            final_score_x10=score_x10, final_profile=profile_for_score_x10(score_x10),
             is_overridden=0,
             knowledge_services_json="{}",
             knowledge_instruments_json="{}",
@@ -249,7 +248,11 @@ def _seed_ch_mandate(session_factory, *, suffix: str, score_x10: int) -> tuple[s
                 created_at=now,
             ))
         s.commit()
-        ensure_runtime_reference_data(s, advisor_id)
+        _policy, cma = ensure_runtime_reference_data(s, advisor_id)
+        # Der stochastische Seed bindet die CMA-ID. Ein Golden-Test muss daher
+        # auch diese fachliche Eingabe deterministisch halten; andernfalls
+        # prueft er bloss zwei unterschiedliche Szenario-Stichproben.
+        cma.id = f"golden-cma-{suffix}"
         s.commit()
     return advisor_id, cid, mid, aid
 
@@ -269,9 +272,15 @@ def _build_ch_snapshot(session_factory, combo: dict) -> dict:
         mandate = s.query(Mandate).filter(Mandate.id == mid).first()
         ta_result = generate_target_allocation(s, mandate, advisor_id, preferences=preferences)
         allocation = ta_result["target_allocation"]
+        assert allocation.optimization_method == "stochastic"
+        assert allocation.optimization_status in {"converged", "converged_robustified"}
+        effective_constraints = json.loads(allocation.effective_constraints_json or "{}")
         target_allocation_snapshot = {
             "score_bucket": ta_result["score_bucket"],
             "house_matrix_profile": ta_result["house_matrix_profile"],
+            "optimization_method": allocation.optimization_method,
+            "optimization_status": allocation.optimization_status,
+            "engine_version": effective_constraints.get("engine_version"),
             "targets_bps": {
                 "equities": allocation.target_equities_bps,
                 "bonds": allocation.target_bonds_bps,

@@ -54,6 +54,30 @@ def assert_within_quota(db: Session, tenant_id: str | None, kind: QuotaKind) -> 
     raise ValueError(f"Unknown quota kind: {kind!r}")
 
 
+def compute_tenant_usage(db: Session, tenant_id: str | None) -> dict[str, int]:
+    """Aktuelle Belegung (users/mandates) fuer die Soft-Limit-Warn-UI
+    (Roadmap #24-Rest, 2026-08-09). Unabhaengig von assert_within_quota --
+    wird auch gebraucht, wenn die Quota unlimitiert ist (NULL/0), um dem
+    Firmen-Admin trotzdem die aktuelle Auslastung zu zeigen. Identische
+    Zaehl-Logik wie assert_within_quota (bewusst dupliziert statt dort
+    mitgezogen, um den Hot-Path der Enforcement-Funktion nicht mit einer
+    zweiten, dort ungenutzten Zaehlung zu belasten)."""
+    tid = str(tenant_id or "").strip()
+    if not tid:
+        return {"current_users": 0, "current_mandates": 0}
+    current_users = (
+        db.query(User)
+        .filter(User.tenant_id == tid, User.deleted_at.is_(None))
+        .count()
+    )
+    current_mandates = (
+        db.query(Mandate)
+        .filter(Mandate.tenant_id == tid, Mandate.deleted_at.is_(None))
+        .count()
+    )
+    return {"current_users": current_users, "current_mandates": current_mandates}
+
+
 def _quota_limit(value: object) -> int | None:
     try:
         limit = int(value or 0)

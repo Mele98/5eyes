@@ -155,7 +155,11 @@ generate_target_allocation()    ← Haupt-Entrypoint (von /target-allocation/gen
   → _build_sub_asset_class_*()  ← Subanlageklassen-Gewichtung
 ```
 
-**Nie** die Log-Normal-Formel ändern: `value *= exp(μ - 0.5σ² + σZ)` (Itô-Korrektur, absichtlich so).
+**Log-Normal-Vertrag:** CMA-`μ` und `σ` sind arithmetischer Mittelwert und
+Standardabweichung des einfachen Returns. Daher gilt mit
+`v=log(1+(σ/(1+μ))²)`:
+`value *= exp(log(1+μ) - 0.5v + sqrt(v)Z)`. Weder `μ` noch `σ` dürfen direkt
+als Log-Parameter verwendet werden.
 **Nie** die Korrelationsmatrix-Dimensionen ändern ohne Cholesky-Fallback zu prüfen.
 
 ---

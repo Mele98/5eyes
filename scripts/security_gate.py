@@ -52,6 +52,10 @@ SECURITY_TESTS: list[str] = [
     "tests/test_data_classification_gate_config.py",
     "tests/test_data_classification_gate_profiling_mandate.py",
     "tests/test_data_classification_gate_review.py",
+    # Roadmap #91 (2026-08-09): fehlte im Gate, obwohl der Test schon
+    # existierte -- eine Regression in der Planning-Assumption-Sperre haette
+    # nur die volle 3900+-Test-Suite gefangen, nicht das schnelle CI-Gate.
+    "tests/test_planning_assumption_data_classification_gate.py",
     "tests/test_password_change_revokes_tokens.py",
     "tests/test_data_export.py",
     "tests/test_foundation_demo_purge.py",

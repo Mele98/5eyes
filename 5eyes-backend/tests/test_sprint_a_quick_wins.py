@@ -26,7 +26,7 @@ if str(BACKEND_ROOT) not in sys.path:
 from database import Base, get_db
 from main import app
 from models import (  # noqa: F401
-    allocation, clients, mandates, profiling, review, snapshots, users, wealth,
+    allocation, clients, mandates, profiling, review, snapshots, tenant, users, wealth,
 )
 configure_mappers()
 
@@ -37,6 +37,7 @@ from models.profiling import RiskAssessment, RiskAssessmentAnswer
 from models.users import User
 from models.wealth import Cashflow, Goal, WealthInflow, WealthPosition
 from services.auth import get_current_user, require_advisor
+from tests.risk_fixture_helpers import CURRENT_RISK_SCHEMA_MARKERS, add_current_risk_answers
 
 
 def _now() -> str:
@@ -104,15 +105,15 @@ def _seed_mandate(session_factory, suffix: str = ""):
             risk_willingness_score_x10=70,
             final_score_x10=70, final_profile="Wachstumsorientiert",
             is_overridden=0,
+            # 2026-08 (asset-allocation-stochastic-core): calculate_max_pension_
+            # spending() prueft jetzt require_strategy_ready_assessment() (volle
+            # Vollstaendigkeits-Gate) statt nur "existiert ein Assessment" --
+            # das verlangt vollstaendige Schema-Marker + alle 11 Antworten.
+            **CURRENT_RISK_SCHEMA_MARKERS,
             assessed_at=now, assessed_by=advisor_id,
             created_at=now, updated_at=now,
         ))
-        for q in (3, 5, 6, 7, 8, 9, 10, 11):
-            s.add(RiskAssessmentAnswer(
-                id=str(uuid.uuid4()), assessment_id=aid,
-                question_number=q, question_section="Risikoprofil",
-                answer_label=f"A{q}", answer_points=2, created_at=now,
-            ))
+        add_current_risk_answers(s, aid, now)
         s.commit()
         from services.portfolio_engine import ensure_runtime_reference_data
         ensure_runtime_reference_data(s, advisor_id)
@@ -189,6 +190,42 @@ def test_a1_wealth_inflow_recurring_validation(session_factory, cleanup_override
     assert resp.status_code == 422
 
 
+def test_a1_wealth_inflow_update_validates_merged_recurring_state(
+    session_factory,
+    cleanup_overrides,
+):
+    """A partial update cannot create an incomplete recurring inflow."""
+    advisor_id, cid, _mid, _ = _seed_mandate(session_factory)
+    with session_factory() as session:
+        advisor = session.query(User).filter(User.id == advisor_id).first()
+    client = _client_with_user(session_factory, advisor)
+    created = client.post(
+        f"/clients/{cid}/wealth-inflows",
+        json={
+            "label": "Einmalige Erbschaft",
+            "source_type": "Erbschaft",
+            "amount_rappen": 10_000_000,
+            "expected_year": 2030,
+            "is_recurring": 0,
+            "value_mode": "nominal",
+        },
+    )
+    assert created.status_code == 201, created.text
+    inflow_id = created.json()["id"]
+
+    response = client.put(
+        f"/wealth-inflows/{inflow_id}",
+        json={"is_recurring": 1},
+    )
+    assert response.status_code == 422, response.text
+
+    listed = client.get(f"/clients/{cid}/wealth-inflows")
+    row = next(item for item in listed.json() if item["id"] == inflow_id)
+    assert row["is_recurring"] == 0
+    assert row["frequency"] is None
+    assert row["duration_years"] is None
+
+
 def test_a1_inflow_series_one_time():
     """Helper: einmaliger Inflow im erwarteten Jahr."""
     from types import SimpleNamespace
@@ -213,6 +250,23 @@ def test_a1_inflow_series_recurring_annual():
     assert s[6] == 1_200_000
     assert s[7] == 0
     assert sum(s) == 4_800_000
+
+
+def test_a1_inflow_series_rejects_incomplete_recurring_record():
+    """Raw/legacy invalid inflows fail closed instead of disappearing."""
+    from types import SimpleNamespace
+
+    inflows = [SimpleNamespace(
+        is_active=1,
+        amount_rappen=1_200_000,
+        expected_year=2029,
+        is_recurring=1,
+        frequency=None,
+        duration_years=None,
+        value_mode="nominal",
+    )]
+    with pytest.raises(ValueError, match="wiederkehrend erfordert"):
+        pe._wealth_inflow_series_rappen(inflows, 10, 2026, None)
 
 
 def test_a1_inflow_real_value_mode_inflation_adjusted():

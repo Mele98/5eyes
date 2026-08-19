@@ -48,7 +48,16 @@ def _iso(dt: datetime) -> str:
 
 
 def _seed_admin_and_mandate(session_factory, suffix: str) -> tuple[str, str, str]:
-    """Erzeugt Mandat via realistischen Seed + ergaenzt Policy-FK."""
+    """Erzeugt Mandat via realistischen Seed + ergaenzt Policy-FK.
+
+    is_current=0: dies ist nur eine synthetische FK-Zielzeile fuer
+    RecommendationRun.policy_id in diesen Cleanup-Tests (unabhaengig von der
+    global-einzigen "aktuellen" Policy aus dem _seed_realistic_mandate-
+    Bootstrap). is_current=1 wuerde -- da dieser Helper pro Testfall/Tenant
+    mehrfach mit unterschiedlichem suffix aufgerufen wird -- mehrere
+    gleichzeitig "aktuelle" OptimizerPolicy-Zeilen anhaeufen und den neuen
+    Eindeutigkeits-Guard in ensure_runtime_reference_data() verletzen.
+    """
     from models.allocation import OptimizerPolicy
 
     advisor_id, _cid, mandate_id, _aid, _gid = _seed_realistic_mandate(session_factory, suffix=suffix)
@@ -58,7 +67,7 @@ def _seed_admin_and_mandate(session_factory, suffix: str) -> tuple[str, str, str
         if not s.query(OptimizerPolicy).filter(OptimizerPolicy.id == policy_id).first():
             s.add(OptimizerPolicy(
                 id=policy_id, policy_name=f"U104-{suffix}",
-                version=1, is_current=1, valid_from=now_iso,
+                version=1, is_current=0, valid_from=now_iso,
                 optimizer_engine="goal_based_v1",
                 max_real_estate_bps=2000, max_alternatives_bps=1000,
                 min_liquidity_bps=0, created_by=advisor_id,

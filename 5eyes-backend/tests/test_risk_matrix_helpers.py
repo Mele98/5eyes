@@ -26,41 +26,87 @@ from services.risk_matrix import (
     compute_portfolio_risky_fraction_bps,
     score_bucket_from_assessment,
 )
+from services.risk_scoring import profile_for_score_x10
 
 
 # ---------------------------------------------------------------------------
 # score_bucket_from_assessment
+#
+# score_bucket_from_assessment() delegates to validate_risk_assessment_model_
+# input() (services/risk_assessment_semantics.py), das final_profile/
+# override_profile konsistent zum jeweiligen Score verlangt -- Fixtures
+# bauen daher ab hier bewusst vollstaendige, konsistente Assessments statt
+# nur der Score-Felder.
 # ---------------------------------------------------------------------------
 
+VALID_OVERRIDE_REASON = "Kundenwunsch ausdruecklich dokumentiert und begruendet"
+
+
 def test_score_uses_override_when_overridden():
-    a = SimpleNamespace(is_overridden=1, override_score_x10=70, final_score_x10=40)
+    a = SimpleNamespace(
+        is_overridden=1,
+        override_score_x10=70,
+        override_profile=profile_for_score_x10(70),
+        override_reason=VALID_OVERRIDE_REASON,
+        override_client_confirmed=1,
+        override_warning_delivered=1,
+        final_score_x10=40,
+        final_profile=profile_for_score_x10(40),
+    )
     assert score_bucket_from_assessment(a) == 7
 
 
 def test_score_falls_back_to_final_when_not_overridden():
-    a = SimpleNamespace(is_overridden=0, override_score_x10=70, final_score_x10=40)
+    a = SimpleNamespace(
+        is_overridden=0,
+        override_score_x10=70,
+        final_score_x10=40,
+        final_profile=profile_for_score_x10(40),
+    )
     assert score_bucket_from_assessment(a) == 4
 
 
-def test_score_falls_back_to_final_when_override_none():
-    a = SimpleNamespace(is_overridden=1, override_score_x10=None, final_score_x10=80)
-    assert score_bucket_from_assessment(a) == 8
+def test_score_raises_when_overridden_flag_set_without_override_score():
+    """is_overridden=1 ohne override_score_x10 ist kein gueltiger Zustand --
+    schemas.profiling.RiskAssessmentOverride verlangt override_score_x10 als
+    Pflichtfeld, sobald ueberhaupt overridden wird. Ein Datensatz mit
+    is_overridden=1 und override_score_x10=NULL ist daher korrupt und muss
+    fail-closed abgelehnt werden statt still auf final_score zurueckzufallen."""
+    a = SimpleNamespace(
+        is_overridden=1,
+        override_score_x10=None,
+        final_score_x10=80,
+        final_profile=profile_for_score_x10(80),
+    )
+    with pytest.raises(ValueError, match="override_score_x10"):
+        score_bucket_from_assessment(a)
 
 
 def test_score_raises_when_both_scores_none():
     a = SimpleNamespace(is_overridden=0, override_score_x10=None, final_score_x10=None)
-    with pytest.raises(ValueError, match="Risikoprofil-Score"):
+    with pytest.raises(ValueError, match="final_score_x10"):
         score_bucket_from_assessment(a)
 
 
 def test_score_clamps_to_1_minimum():
-    a = SimpleNamespace(is_overridden=0, override_score_x10=None, final_score_x10=5)
+    a = SimpleNamespace(
+        is_overridden=0,
+        override_score_x10=None,
+        final_score_x10=5,
+        final_profile=profile_for_score_x10(5),
+    )
     assert score_bucket_from_assessment(a) == 1
 
 
-def test_score_clamps_to_10_maximum():
+def test_score_raises_above_100_instead_of_clamping():
+    """Frueher clampte score_bucket_from_assessment out-of-range Scores
+    stillschweigend auf Bucket 10; seit der Konsolidierung in
+    validate_risk_assessment_model_input() wird ein unmoegliches
+    final_score_x10 (>100) stattdessen fail-closed abgelehnt, statt es wie
+    einen gueltigen Maximalwert zu behandeln."""
     a = SimpleNamespace(is_overridden=0, override_score_x10=None, final_score_x10=120)
-    assert score_bucket_from_assessment(a) == 10
+    with pytest.raises(ValueError, match="final_score_x10"):
+        score_bucket_from_assessment(a)
 
 
 # ---------------------------------------------------------------------------

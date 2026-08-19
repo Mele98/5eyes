@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 from typing import Optional, Literal
 from schemas.common import BaseResponse
 
@@ -93,6 +93,30 @@ class ClientResponse(BaseResponse):
     notes: Optional[str]
     created_at: str
     updated_at: str
+
+
+class ClientErasureRequest(BaseModel):
+    """DSG Art. 32 -- Pflichtbegruendung fuer eine Loeschungs-/Erasure-
+    Anfrage. Wiederverwendet dieselbe Qualitaets-Pruefung wie
+    Risikoprofil-Overrides (min. 20 Zeichen, keine Floskel, >=3
+    bedeutungsvolle Worte) -- eine so folgenreiche, irreversible Aktion
+    verdient dieselbe FIDLEG-Audit-Tauglichkeit wie ein Profil-Override.
+    """
+    reason: str
+
+    @model_validator(mode="after")
+    def _validate_reason_quality(self):
+        from services.override_reason_quality import validate_override_reason_quality
+        validate_override_reason_quality(self.reason)
+        return self
+
+
+class ClientErasureResponse(BaseModel):
+    status: str
+    client_id: str
+    mandate_ids: list[str]
+    redacted: dict[str, int]
+    erased_at: str
 
 
 class NationalityCreate(BaseModel):

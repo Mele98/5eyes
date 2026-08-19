@@ -235,11 +235,15 @@ def _seed_realistic_mandate_for_perf(s):
         ))
 
     # 3 Ziele
+    # 2026-08 (asset-allocation-stochastic-core): _validate_active_goal_inputs()
+    # verlangt jetzt einen kanonischen goal_type (services/portfolio_engine.py
+    # _SUPPORTED_GOAL_TYPE_KEYS) statt eines beliebigen Anzeige-Labels; die
+    # Ziel-ANZEIGE bleibt label, nur goal_type wird kanonisch.
     for rank, label in enumerate(["Pension", "Liegenschaft", "Reserve"]):
         s.add(Goal(
             id=str(uuid.uuid4()), mandate_id=mandate.id, client_id=client.id,
-            goal_family="Vermoegensaufbau", goal_type=label, label=label,
-            target_amount_rappen=10_000_000, target_date="2041-03-14",
+            goal_family="Vermoegensaufbau", goal_type="vermoegensziel", label=label,
+            target_wealth_rappen=10_000_000, target_date="2041-03-14",
             hardness="Primaer", rank=rank + 1, is_active=1,
             created_at=_NOW, updated_at=_NOW,
         ))
@@ -259,7 +263,7 @@ def _seed_realistic_mandate_for_perf(s):
         q_risk_behavior_points=2,
         risk_willingness_total=9, risk_willingness_profile="Ausgewogen",
         risk_willingness_score_x10=60,
-        final_score_x10=68, final_profile="Ausgewogen",
+        final_score_x10=68, final_profile="Wachstumsorientiert",
         is_overridden=0,
         **CURRENT_RISK_SCHEMA_MARKERS,
         assessed_at=_NOW, assessed_by=advisor.id,

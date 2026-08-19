@@ -26,6 +26,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from .scenario_engine import ScenarioInputs, build_scenario_paths
+from services.return_moments import RETURN_MOMENT_MODEL_VERSION
 
 
 # ============================================================================
@@ -143,7 +144,15 @@ def build_scenario_paths_cached(
     # IS-aware key: 'STD' marker damit IS- und Non-IS-Eintraege getrennt
     # gecacht werden. build_scenario_paths_with_weights_cached nutzt ein
     # anderes Marker-Praefix.
-    key = ("STD", str(cma_id), int(horizon_years), int(n_paths), int(seed), bool(antithetic))
+    key = (
+        "STD",
+        str(cma_id),
+        RETURN_MOMENT_MODEL_VERSION,
+        int(horizon_years),
+        int(n_paths),
+        int(seed),
+        bool(antithetic),
+    )
     cached = cache.get(key)
     if cached is not None:
         return cached
@@ -211,8 +220,8 @@ def build_scenario_paths_with_weights_cached(
     # IS-aktiv: shift_vector als tuple zur Hash-Stabilitaet
     shift_tuple = tuple(float(x) for x in np.asarray(shift_vector).reshape(-1))
     key = (
-        "IS",
-        str(cma_id), int(horizon_years), int(n_paths), int(seed),
+        "IS", str(cma_id), RETURN_MOMENT_MODEL_VERSION,
+        int(horizon_years), int(n_paths), int(seed),
         bool(antithetic), shift_tuple,
     )
     cached = cache.get(key)

@@ -71,7 +71,9 @@ def test_ns_params_override_fixed_bond_returns():
     expected_yield_5y = curve.yield_at(5.0)
 
     bonds_return = inputs.mu_bps[1]
-    assert abs(bonds_return - expected_yield_5y) < 0.01
+    # Bucket-CMA-Metriken sind persistierbare Integer-bps; der gemeinsame
+    # Reporting/Optimizer-Pfad rundet das NS-Ergebnis genau einmal.
+    assert bonds_return == round(expected_yield_5y)
 
 
 def test_ns_params_value_realistic_5y_yield():
@@ -98,8 +100,9 @@ def test_partial_ns_params_fall_back_to_fixed():
     assert inputs.mu_bps[1] == 225.0
 
 
-def test_zero_lambda_falls_back_to_fixed():
-    """lambda = 0 → ungueltig, Fallback auf fix-Werte."""
+def test_complete_ns_with_zero_lambda_fails_closed():
+    """Eine vollstaendige, ungueltige NS-Gruppe ist kein Fixed-CMA-Fallback."""
+    from services.optimizer.constraints import OptimizerInputError
     from services.optimizer.scenario_engine import scenario_inputs_from_cma
 
     class _CMAZeroLambda(_CMAFixedBonds):
@@ -108,8 +111,32 @@ def test_zero_lambda_falls_back_to_fixed():
         bonds_ns_beta2_bps = 50
         bonds_ns_lambda_x100 = 0
 
-    inputs = scenario_inputs_from_cma(_CMAZeroLambda())
-    assert inputs.mu_bps[1] == 225.0
+    with pytest.raises(OptimizerInputError, match="bonds_ns_lambda_x100"):
+        scenario_inputs_from_cma(_CMAZeroLambda())
+
+
+@pytest.mark.parametrize(
+    "field_name, invalid_value",
+    [
+        ("bonds_ns_beta0_bps", float("nan")),
+        ("bonds_ns_beta1_bps", float("inf")),
+        ("bonds_ns_beta2_bps", float("-inf")),
+        ("bonds_ns_lambda_x100", float("nan")),
+    ],
+)
+def test_complete_ns_with_non_finite_raw_value_fails_closed(
+    field_name,
+    invalid_value,
+):
+    """Auch direkt aus einer korrupten DB gelesene Werte duerfen nicht downgraden."""
+    from services.optimizer.constraints import OptimizerInputError
+    from services.optimizer.scenario_engine import scenario_inputs_from_cma
+
+    cma = _CMANelsonSiegel()
+    setattr(cma, field_name, invalid_value)
+
+    with pytest.raises(OptimizerInputError, match=field_name):
+        scenario_inputs_from_cma(cma)
 
 
 def test_other_buckets_unchanged_by_ns():

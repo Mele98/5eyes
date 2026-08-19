@@ -35,7 +35,10 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v6
         with:
-          python-version: '3.11'
+          # 3.12 (statt vorher 3.11) fuer Konsistenz mit dem Backend-Tests-Job:
+          # numpy==2.5.2 (2026-08-19 exakt gepinnt, siehe requirements.txt)
+          # erfordert Python >=3.12.
+          python-version: '3.12'
           cache: 'pip'
           cache-dependency-path: '5eyes-backend/requirements.txt'
 

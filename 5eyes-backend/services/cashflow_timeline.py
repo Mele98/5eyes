@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from calendar import monthrange
 from datetime import date
 
@@ -197,15 +198,13 @@ def _convert_cf_amount_to_target_currency(
 ) -> int:
     """Sprint B3 (2026-06-07): Konvertiert cf.amount_rappen zu target_currency.
 
-    Wenn fx_source=None: Backwards-Compat-Pfad — currency wird ignoriert,
-    Betrag bleibt wie ist (alte Behavior, Aufrufer kennt FX nicht).
-
-    Wenn fx_source gesetzt: liest cf.currency (default 'CHF'), konvertiert
-    via FXRateSource.cross_rate. Unbekannte Currencies werden defensiv als
-    target_currency behandelt (kein Crash, geloggt).
+    Gleiche Waehrung bleibt unveraendert. Fuer jede echte Fremdwaehrungs-
+    Konvertierung ist eine explizite FX-Quelle erforderlich. Unbekannte
+    Waehrungen und ungueltige effektive Kurse sind Modellinputfehler; eine
+    stille 1:1-Annahme ist nicht zulaessig.
     """
     raw_amount = int(getattr(cf, "amount_rappen", 0) or 0)
-    if raw_amount == 0 or fx_source is None:
+    if raw_amount == 0:
         return raw_amount
     cf_currency = str(getattr(cf, "currency", "") or "CHF").upper().strip()
     if not cf_currency:
@@ -213,13 +212,27 @@ def _convert_cf_amount_to_target_currency(
     target = str(target_currency or "CHF").upper().strip()
     if cf_currency == target:
         return raw_amount
+    label = str(getattr(cf, "label", "") or "").strip()
+    if fx_source is None:
+        raise ValueError(
+            f"Keine FX-Quelle fuer Cashflow '{label or cf_currency}' "
+            f"({cf_currency}->{target}); eine stille 1:1-Konvertierung ist "
+            "nicht zulaessig."
+        )
     try:
-        rate = fx_source.cross_rate(cf_currency, target)
-    except (ValueError, AttributeError):
-        # Defensive: unbekannte Currency -> behandle als target_currency.
-        # Logging im Aufrufer (cashflow_timeline ist Pure-Func, kein Logger).
-        return raw_amount
-    return int(round(raw_amount * float(rate)))
+        rate = float(fx_source.cross_rate(cf_currency, target))
+    except (ValueError, TypeError, AttributeError) as exc:
+        raise ValueError(
+            f"Keine gueltige FX-Rate fuer Cashflow "
+            f"'{label or cf_currency}' ({cf_currency}->{target}); eine "
+            "stille 1:1-Konvertierung ist nicht zulaessig."
+        ) from exc
+    if not math.isfinite(rate) or rate <= 0.0:
+        raise ValueError(
+            f"Ungueltige FX-Rate fuer Cashflow '{label or cf_currency}' "
+            f"({cf_currency}->{target}): {rate}."
+        )
+    return int(round(raw_amount * rate))
 
 
 def totals_for_year(
@@ -234,9 +247,9 @@ def totals_for_year(
     """Aggregiert alle Cashflows fuer ein Ziel-Jahr.
 
     Sprint B3 (2026-06-07) — Multi-Currency-Support:
-        fx_source (optional, default None): FXRateSource-Instanz. Wenn gesetzt,
-        wird jeder Cashflow von seiner cf.currency auf target_currency (default
-        'CHF') konvertiert. Wenn None: Backwards-Compat, currency wird ignoriert.
+        fx_source (optional fuer reine Zielwaehrungs-Cashflows): FXRateSource-
+        Instanz. Fremdwaehrungs-Cashflows erfordern eine Quelle und werden von
+        cf.currency auf target_currency (default 'CHF') konvertiert.
 
         target_currency: Ziel-Waehrung fuer die aggregierten Totals (Default CHF).
     """

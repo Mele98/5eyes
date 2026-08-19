@@ -123,33 +123,51 @@ def test_b1_explicit_prefs_override_defaults():
     assert out["assetClasses"]["equitiesGeo"] == "Schweiz Fokus"
 
 
-def test_b1_corrupt_json_graceful():
-    """B1: korrupter JSON in default_building_blocks_json -> kein Crash."""
+def test_b1_corrupt_json_fails_closed():
+    """Korrupte persistierte Präferenzen dürfen nicht ignoriert werden."""
     m = SimpleNamespace(default_building_blocks_json="{not-valid-json")
     prefs = pe._normalize_preferences(None)
-    out = pe._merge_mandate_defaults_into_prefs(prefs, m)
-    assert out["assetClasses"] == {}
+    with pytest.raises(ValueError, match="gueltiges JSON"):
+        pe._merge_mandate_defaults_into_prefs(prefs, m)
 
 
-def test_b1_non_dict_json_ignored():
-    """B1: JSON-Liste statt dict -> ignoriert."""
+def test_b1_non_dict_json_fails_closed():
+    """Eine JSON-Liste ist keine belegbare Building-Block-Konfiguration."""
     m = SimpleNamespace(default_building_blocks_json=json.dumps(["not", "a", "dict"]))
     prefs = pe._normalize_preferences(None)
-    out = pe._merge_mandate_defaults_into_prefs(prefs, m)
-    assert out["assetClasses"] == {}
+    with pytest.raises(ValueError, match="JSON-Objekt"):
+        pe._merge_mandate_defaults_into_prefs(prefs, m)
 
 
-def test_b1_unknown_keys_filtered():
-    """B1: unbekannte Keys werden NICHT gemerged (Schutz vor falscher Eingabe)."""
+def test_b1_unknown_keys_fail_closed():
+    """Ein Tippfehler darf nicht als scheinbar akzeptierte Präferenz gelten."""
     m = SimpleNamespace(default_building_blocks_json=json.dumps({
         "equitiesGeo": "Global",
         "someUnknownKey": "wert",
     }))
     prefs = pe._normalize_preferences(None)
-    out = pe._merge_mandate_defaults_into_prefs(prefs, m)
-    assert out["assetClasses"]["equitiesGeo"] == "Global"
-    assert "someUnknownKey" not in out["assetClasses"]
-    assert "someUnknownKey" not in out["geo"]
+    with pytest.raises(ValueError, match="someUnknownKey"):
+        pe._merge_mandate_defaults_into_prefs(prefs, m)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"equitiesGeo": "Glboal"},
+        {"altsPe": "false"},
+        {"noEm": 1},
+    ],
+)
+def test_b1_invalid_values_fail_closed(payload):
+    mandate = SimpleNamespace(
+        jurisdiction="CH",
+        default_building_blocks_json=json.dumps(payload),
+    )
+    with pytest.raises(ValueError):
+        pe._merge_mandate_defaults_into_prefs(
+            pe._normalize_preferences(None),
+            mandate,
+        )
 
 
 def test_b1_mandate_update_schema_accepts_json():

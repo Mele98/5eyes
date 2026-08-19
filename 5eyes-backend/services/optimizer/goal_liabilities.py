@@ -28,8 +28,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date
+from typing import Sequence
 
 from models.wealth import Goal
+from services.calendar_horizon import calendar_years_until
 from services.cashflow_timeline import normalize_frequency
 
 
@@ -44,10 +46,12 @@ class GoalLiability:
 
     target_kind:
         "wealth_at_t"          - Pfad-Wealth in Jahr T muss >= target sein
-        "cashflow_in_year"     - Wealth in Jahr T muss >= einmal-Outflow sein
+        "cashflow_in_year"     - einmaliger Outflow ist im Pfad abgezogen;
+                                 Wealth direkt danach muss >= 0 sein
         "outflow_stream"       - kumulierte Outflows ueber Jahre 1..T abdeckbar
         "return_rate"          - annualized Return ueber Horizont >= target_bps
         "maximize"             - keine Constraint, nur in Vol-Min relevant
+        "state_funded"         - extern/staatlich gedeckt; keine Portfolio-Liability
     """
     goal_id: str
     label: str
@@ -141,7 +145,12 @@ def _parse_iso(value: str | None) -> date | None:
         return None
 
 
-def _resolve_target_year_index(goal: Goal, *, horizon_years: int) -> int:
+def _resolve_target_year_index(
+    goal: Goal,
+    *,
+    horizon_years: int,
+    clamp_to_horizon: bool = True,
+) -> int:
     """Bestimmt 1-based Jahr-Index fuer Bewertung bzw. Outflow-Start.
 
     Semantik je nach Goal-Typ:
@@ -162,14 +171,13 @@ def _resolve_target_year_index(goal: Goal, *, horizon_years: int) -> int:
     else:
         anchor = target_date
     if anchor:
-        delta_days = (anchor - date.today()).days
-        if delta_days <= 0:
-            years = 1
-        else:
-            years = max(1, int((delta_days + 364) // 365))
+        years = max(1, calendar_years_until(anchor))
     else:
         years = max(1, int(goal.horizon_years or 1))
-    return max(1, min(years, int(horizon_years)))
+    years = max(1, years)
+    if clamp_to_horizon:
+        return min(years, int(horizon_years))
+    return years
 
 
 def _outflow_duration_years(goal: Goal, *, target_year_index: int, horizon_years: int) -> int:
@@ -181,6 +189,8 @@ def _outflow_duration_years(goal: Goal, *, target_year_index: int, horizon_years
     """
     start_date = _parse_iso(goal.start_date)
     target_date = _parse_iso(goal.target_date)
+    if target_year_index > horizon_years:
+        return 0
     if start_date and target_date and target_date >= start_date:
         full_years = target_date.year - start_date.year + 1
         # ab target_year_index laufen, max bis horizon_years
@@ -211,7 +221,13 @@ _GOAL_TYPE_NORMS = {
 
 def _norm_goal_type(goal_type: str | None) -> str:
     raw = str(goal_type or "").strip().lower().replace(" ", "_")
-    return _GOAL_TYPE_NORMS.get(raw, "Maximierung")
+    normalized = _GOAL_TYPE_NORMS.get(raw)
+    if normalized is None:
+        raise ValueError(
+            f"Unbekannter Zieltyp {goal_type!r}; eine stille Umdeutung zu "
+            "'Maximierung' ist nicht zulaessig."
+        )
+    return normalized
 
 
 def _annualize_amount_rappen(goal: Goal) -> int:
@@ -268,6 +284,21 @@ def _is_real_value_mode(goal: Goal) -> bool:
     return str(getattr(goal, "value_mode", "nominal") or "nominal").strip().lower() == "real"
 
 
+def _uses_total_wealth_scope(goal: Goal) -> bool:
+    """True for the explicit Gesamtvermoegen goal scope."""
+    return "gesamt" in str(
+        getattr(goal, "goal_scope", "") or ""
+    ).strip().lower()
+
+
+def _is_state_funded_pension(goal: Goal) -> bool:
+    """AHV pension goals are funded outside the advised portfolio."""
+    return (
+        _norm_goal_type(getattr(goal, "goal_type", None)) == "Pensionsausgabe"
+        and str(getattr(goal, "pension_pillar", "") or "").strip() == "AHV"
+    )
+
+
 # ============================================================================
 # Per-Type Builders
 # ============================================================================
@@ -295,13 +326,50 @@ def _build_wealth_target(
     *,
     horizon_years: int,
     inflation_series_bps: list[int] | None,
+    external_wealth_rappen: int = 0,
+    external_wealth_series_rappen: Sequence[int] | None = None,
 ) -> GoalLiability:
     """Kapitalerhalt / Vermoegensziel: Wealth-Schwelle in Zieljahr."""
     target = max(0, int(goal.target_wealth_rappen or 0))
     target_year = _resolve_target_year_index(goal, horizon_years=horizon_years)
     if _is_real_value_mode(goal):
         target = _inflate_at_year(target, target_year, inflation_series_bps)
-    target = int(round(target * _goal_probability_factor(goal)))  # bedingte Goals pro-rata
+    note = None
+    if _uses_total_wealth_scope(goal):
+        # The simulated wealth path contains advised assets only.  Reporting
+        # treats external assets conservatively as deterministic, zero-real-
+        # growth wealth.  Convert the total-wealth goal to the exact residual
+        # that the advised portfolio must fund so optimizer and reporting use
+        # the same economic base.
+        if external_wealth_series_rappen is not None:
+            if target_year >= len(external_wealth_series_rappen):
+                raise ValueError(
+                    "External-wealth series does not cover the goal horizon"
+                )
+            external_projected = int(
+                external_wealth_series_rappen[target_year]
+            )
+            note = (
+                "Gesamtvermoegensziel: die kanonische externe Vermoegens-, "
+                "Verbindlichkeits- und Transfer-Serie wurde angerechnet."
+            )
+        else:
+            external_projected = _inflate_at_year(
+                max(0, int(external_wealth_rappen or 0)),
+                target_year,
+                inflation_series_bps,
+            )
+            note = (
+                "Gesamtvermoegensziel: externe Vermoegenswerte wurden "
+                "deterministisch mit Inflation angerechnet."
+            )
+        target = max(0, target - external_projected)
+    # Expected-funding semantics for contingent goals: first determine the
+    # actual advisory funding gap, then apply the occurrence probability.  If
+    # probability were applied before external assets, a 50%-contingent total-
+    # wealth goal could incorrectly collapse to zero although a positive
+    # advisory residual remains.
+    target = int(round(target * _goal_probability_factor(goal)))
     return GoalLiability(
         goal_id=str(goal.id),
         label=str(goal.label or ""),
@@ -313,6 +381,7 @@ def _build_wealth_target(
         hardness_key=_hardness_key(goal),
         weight_bps=_weight_bps(goal),
         success_probability_min_x100=_success_probability_min_x100(goal, default_value=8000),
+        evaluation_note=note,
     )
 
 
@@ -324,13 +393,23 @@ def _build_einmalige_ausgabe(
 ) -> GoalLiability:
     """Einmalige_Ausgabe: Outflow im Zieljahr."""
     amount = max(0, int(goal.target_amount_rappen or 0))
-    target_year = _resolve_target_year_index(goal, horizon_years=horizon_years)
+    target_year = _resolve_target_year_index(
+        goal,
+        horizon_years=horizon_years,
+        clamp_to_horizon=False,
+    )
     if _is_real_value_mode(goal):
         amount = _inflate_at_year(amount, target_year, inflation_series_bps)
     amount = int(round(amount * _goal_probability_factor(goal)))  # bedingte Goals pro-rata
     path = [0] * horizon_years
     if 1 <= target_year <= horizon_years:
         path[target_year - 1] = amount
+    note = None
+    if target_year > horizon_years:
+        note = (
+            "Zahlungszeitpunkt liegt ausserhalb des Optimizer-Horizonts "
+            f"(Horizont: {horizon_years} Jahre); keine In-Horizon-Liability."
+        )
     return GoalLiability(
         goal_id=str(goal.id),
         label=str(goal.label or ""),
@@ -342,6 +421,7 @@ def _build_einmalige_ausgabe(
         hardness_key=_hardness_key(goal),
         weight_bps=_weight_bps(goal),
         success_probability_min_x100=_success_probability_min_x100(goal, default_value=8000),
+        evaluation_note=note,
     )
 
 
@@ -357,7 +437,11 @@ def _build_recurring_outflow(
     weil sowohl Lohn- als auch Lebenshaltungs-Indizes mehrjaehrig wachsen.
     """
     annual = _annualize_amount_rappen(goal)
-    target_year = _resolve_target_year_index(goal, horizon_years=horizon_years)
+    target_year = _resolve_target_year_index(
+        goal,
+        horizon_years=horizon_years,
+        clamp_to_horizon=False,
+    )
     duration = _outflow_duration_years(
         goal, target_year_index=target_year, horizon_years=horizon_years,
     )
@@ -379,7 +463,12 @@ def _build_recurring_outflow(
     full_duration = _outflow_duration_years(
         goal, target_year_index=1, horizon_years=99999,
     )
-    if duration < full_duration:
+    if target_year > horizon_years:
+        note = (
+            "Zahlungsbeginn liegt ausserhalb des Optimizer-Horizonts "
+            f"(Horizont: {horizon_years} Jahre); keine In-Horizon-Liability."
+        )
+    elif duration < full_duration:
         note = f"Bewertet fuer {duration} von {full_duration} Jahren (Horizont: {horizon_years})."
     return GoalLiability(
         goal_id=str(goal.id),
@@ -412,6 +501,32 @@ def _build_maximierung(goal: Goal, *, horizon_years: int) -> GoalLiability:
     )
 
 
+def _build_state_funded_pension(
+    goal: Goal,
+    *,
+    horizon_years: int,
+) -> GoalLiability:
+    """Represent an AHV goal truthfully without charging the portfolio."""
+    return GoalLiability(
+        goal_id=str(goal.id),
+        label=str(goal.label or ""),
+        goal_type="Pensionsausgabe",
+        target_kind="state_funded",
+        target_amount_rappen=0,
+        target_year_index=_resolve_target_year_index(
+            goal, horizon_years=horizon_years
+        ),
+        liability_path_rappen=[0] * horizon_years,
+        hardness_key=_hardness_key(goal),
+        weight_bps=_weight_bps(goal),
+        success_probability_min_x100=10000,
+        evaluation_note=(
+            "Staatlich finanzierte AHV-Leistung; keine Finanzierung aus dem "
+            "Beratungsportfolio erforderlich."
+        ),
+    )
+
+
 # ============================================================================
 # Public Dispatch
 # ============================================================================
@@ -422,6 +537,8 @@ def goal_to_liability(
     *,
     horizon_years: int,
     inflation_series_bps: list[int] | None = None,
+    external_wealth_rappen: int = 0,
+    external_wealth_series_rappen: Sequence[int] | None = None,
 ) -> GoalLiability:
     """Dispatch: Goal-Objekt -> GoalLiability fuer Optimizer.
 
@@ -434,11 +551,18 @@ def goal_to_liability(
     goal_type = _norm_goal_type(goal.goal_type)
     horizon_years = max(1, int(horizon_years))
 
+    if _is_state_funded_pension(goal):
+        return _build_state_funded_pension(goal, horizon_years=horizon_years)
+
     if goal_type == "Renditeziel":
         return _build_renditeziel(goal, horizon_years=horizon_years)
     if goal_type in ("Kapitalerhalt", "Vermoegensziel"):
         return _build_wealth_target(
-            goal, horizon_years=horizon_years, inflation_series_bps=inflation_series_bps,
+            goal,
+            horizon_years=horizon_years,
+            inflation_series_bps=inflation_series_bps,
+            external_wealth_rappen=external_wealth_rappen,
+            external_wealth_series_rappen=external_wealth_series_rappen,
         )
     if goal_type == "Einmalige_Ausgabe":
         return _build_einmalige_ausgabe(
@@ -450,8 +574,7 @@ def goal_to_liability(
         )
     if goal_type == "Maximierung":
         return _build_maximierung(goal, horizon_years=horizon_years)
-    # Unknown -> default to Maximierung
-    return _build_maximierung(goal, horizon_years=horizon_years)
+    raise ValueError(f"Nicht unterstuetzter Zieltyp {goal_type!r}.")
 
 
 def goals_to_liabilities(
@@ -459,6 +582,8 @@ def goals_to_liabilities(
     *,
     horizon_years: int,
     inflation_series_bps: list[int] | None = None,
+    external_wealth_rappen: int = 0,
+    external_wealth_series_rappen: Sequence[int] | None = None,
 ) -> list[GoalLiability]:
     """Konvertiert Goal-Liste in Liability-Liste."""
     return [
@@ -466,6 +591,8 @@ def goals_to_liabilities(
             goal,
             horizon_years=horizon_years,
             inflation_series_bps=inflation_series_bps,
+            external_wealth_rappen=external_wealth_rappen,
+            external_wealth_series_rappen=external_wealth_series_rappen,
         )
         for goal in goals
     ]

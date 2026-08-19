@@ -9,16 +9,20 @@ Der TargetAllocation-Datensatz speichert ab jetzt zusaetzlich:
   - reserve_needed_at_generation_rappen
   - external_reserve_at_generation_rappen
 
-build_target_payload_from_allocation nutzt _strategy_drift_warnings()
-um ALLE Drift-Quellen (Assessment, CMA, Inputs, Preferences, Reserve,
-Legacy-Anker) zentral als reasoning-Hinweise auszugeben.
+build_target_payload_from_allocation blockiert Input-Snapshot-Drift, bevor
+alte Targets mit aktuellen Pfaden kombiniert werden koennen. Nicht-hybride
+Drift-Quellen (Assessment, CMA, Preferences, Reserve, Legacy-Anker) bleiben
+zentral in _strategy_drift_warnings() als reasoning-Hinweise sichtbar.
 """
 from __future__ import annotations
+import copy
 import sys
 import datetime
+import hashlib
 import json
 import uuid
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import create_engine
@@ -31,7 +35,7 @@ if str(BACKEND_ROOT) not in sys.path:
 from sqlalchemy.orm import configure_mappers
 from database import Base
 from models import (  # noqa: F401
-    allocation, clients, mandates, profiling, review, snapshots, users, wealth,
+    allocation, clients, mandates, profiling, review, snapshots, tenant, users, wealth,
 )
 configure_mappers()
 
@@ -161,6 +165,358 @@ def test_c8_input_snapshot_hash_changes_on_value_change():
     assert h1 != h2
 
 
+def test_c8_v2_hash_binds_external_property_and_mortgage_projection_inputs():
+    """Total-path assumptions must not drift silently under the same anchor."""
+    from types import SimpleNamespace
+
+    property_position = SimpleNamespace(
+        id="house",
+        current_value_rappen=1_000_000,
+        assignment="Anderes Vermögen",
+        position_type="Immobilien",
+        currency="CHF",
+        asset_expected_return_bps=100,
+        property_rental_income_rappen=20_000,
+        property_rental_inflation_linked=0,
+    )
+    changed_property = SimpleNamespace(
+        **{
+            **vars(property_position),
+            "asset_expected_return_bps": 900,
+        }
+    )
+    mortgage = SimpleNamespace(
+        id="mortgage",
+        current_value_rappen=500_000,
+        assignment="Verbindlichkeit",
+        position_type="Hypothek",
+        currency="CHF",
+        mortgage_amortization_rappen=10_000,
+        mortgage_amortization_type="Direkt",
+    )
+    changed_mortgage = SimpleNamespace(
+        **{
+            **vars(mortgage),
+            "mortgage_amortization_type": "Indirekt (Säule 3a)",
+        }
+    )
+
+    def _hash(positions):
+        return _compute_input_snapshot_hash(
+            advisory_positions=[],
+            all_positions=positions,
+            cashflows=[],
+            goals=[],
+            advisory_wealth_rappen=0,
+            total_wealth_rappen=500_000,
+        )
+
+    base = _hash([property_position, mortgage])
+    assert base != _hash([changed_property, mortgage])
+    assert base != _hash([property_position, changed_mortgage])
+
+
+def _z6_v3_hash_fixture():
+    """Minimaler, aber vollstaendiger Projektionskontext fuer Hash-Vertraege."""
+    position = SimpleNamespace(
+        id="depot-v3",
+        current_value_rappen=2_000_000,
+        assignment="Beratungsvermoegen",
+        position_type="Depot",
+        currency="USD",
+        alloc_equities_bps=6000,
+        alloc_bonds_bps=2500,
+        alloc_real_estate_bps=500,
+        alloc_liquidity_bps=500,
+        alloc_alternatives_bps=500,
+        property_usage="",
+    )
+    cashflow = SimpleNamespace(
+        id="cf-v3",
+        cashflow_type="Einnahme",
+        amount_rappen=120_000,
+        frequency="jaehrlich",
+        nature="wiederkehrend",
+        valid_from="2026-01-01",
+        valid_until=None,
+        currency="USD",
+        is_inflation_linked=1,
+    )
+    goal = SimpleNamespace(
+        id="goal-v3",
+        mandate_id="mandate-v3",
+        client_id="client-v3",
+        goal_family="Vermoegen",
+        goal_type="Zielvermoegen",
+        label="Kapitalziel",
+        target_amount_rappen=0,
+        target_wealth_rappen=3_000_000,
+        target_return_bps=0,
+        start_date="2026-01-01",
+        target_date="2029-12-31",
+        horizon_years=3,
+        is_ongoing=0,
+        frequency="einmalig",
+        hardness="Primaer",
+        rank=1,
+        weight_bps=7500,
+        goal_scope="Gesamtvermoegen",
+        value_mode="real",
+        probability_pct=100,
+        success_probability_min_x100=8000,
+        pension_pillar=None,
+        linked_position_id=None,
+        is_active=1,
+        is_inflation_linked=1,
+        duration_years=0,
+    )
+    inflow = SimpleNamespace(
+        id="inflow-v3",
+        mandate_id="mandate-v3",
+        label="Erbschaft",
+        source_type="Erbschaft",
+        amount_rappen=400_000,
+        expected_year=2028,
+        is_recurring=0,
+        frequency="einmalig",
+        duration_years=None,
+        value_mode="real",
+    )
+    projection_context = {
+        "goal_inflation_series_bps": [100, 110, 120, 130],
+        "cashflow_inflation_series_bps": [90, 100, 115, 125],
+        "fx_signature": [
+            ["CHF", 100_000_000],
+            ["USD", 88_000_000],
+        ],
+        "external_foundation_projection": {
+            "property_series_rappen": [1_000_000, 1_020_000, 1_040_400, 1_061_208],
+            "liability_series_rappen": [500_000, 480_000, 460_000, 440_000],
+            "pledged_asset_series_rappen": [0, 0, 0, 0],
+        },
+        "optimizer_cashflow_projection_series_rappen": [0, 100_000, 105_000, 110_000],
+        "mandate_projection_inputs": {
+            "tax_jurisdiction": "CH-ZH",
+            "tax_overrides_json": '{"wealth_tax_rate_bps": 12}',
+            "tax_estimate_in_cashflow_enabled": 1,
+            "use_mortality_simulation": 1,
+            "client_birth_year": 1980,
+            "client_sex": "F",
+            "life_expectancy_year": 2075,
+            "retirement_year": 2045,
+        },
+    }
+    return position, cashflow, goal, inflow, projection_context
+
+
+def _z6_v3_hash(*, projection_context, inflow):
+    position, cashflow, goal, _, _ = _z6_v3_hash_fixture()
+    return _compute_input_snapshot_hash(
+        advisory_positions=[position],
+        all_positions=[position],
+        cashflows=[cashflow],
+        goals=[goal],
+        wealth_inflows=[inflow],
+        projection_context=projection_context,
+        snapshot_version="strategy_inputs_v3_projection_context",
+        advisory_wealth_rappen=2_000_000,
+        total_wealth_rappen=2_500_000,
+    )
+
+
+def _z6_v4_hash(*, goal):
+    position, cashflow, _, inflow, projection_context = _z6_v3_hash_fixture()
+    return _compute_input_snapshot_hash(
+        advisory_positions=[position],
+        all_positions=[position],
+        cashflows=[cashflow],
+        goals=[goal],
+        wealth_inflows=[inflow],
+        projection_context=projection_context,
+        advisory_wealth_rappen=2_000_000,
+        total_wealth_rappen=2_500_000,
+    )
+
+
+def test_c8_v3_projection_hash_stays_byte_exact_for_historical_allocations():
+    """The v4 rollout may not invalidate an unchanged persisted v3 anchor."""
+    _, _, _, inflow, projection_context = _z6_v3_hash_fixture()
+
+    assert _z6_v3_hash(
+        projection_context=projection_context,
+        inflow=inflow,
+    ) == "39123f7e7b51f7ff75dc0051f1249e381bf0afe7fba64feb69db8f6f4102d499"
+
+
+@pytest.mark.parametrize(
+    ("field", "changed_value"),
+    [
+        ("goal_family", "Cashflow"),
+        ("goal_type", "Pensionsausgabe"),
+        ("label", "Neues Kapitalziel"),
+        ("rank", 2),
+        ("weight_bps", 2500),
+        ("goal_scope", "Beratungsvermoegen"),
+        ("value_mode", "nominal"),
+        ("target_amount_rappen", 1),
+        ("target_wealth_rappen", 3_000_001),
+        ("target_return_bps", 1),
+        ("success_probability_min_x100", 8100),
+        ("start_date", "2027-01-01"),
+        ("horizon_years", 4),
+        ("target_date", "2030-12-31"),
+        ("is_ongoing", 1),
+        ("frequency", "jaehrlich"),
+        ("hardness", "Hart"),
+        ("probability_pct", 80),
+        ("pension_pillar", "AHV"),
+        ("linked_position_id", "pillar-position"),
+    ],
+)
+def test_c8_v4_hash_binds_every_canonical_goal_input(field, changed_value):
+    """Every goal input consumed by objective/reporting owns the v4 anchor."""
+    _, _, goal, _, _ = _z6_v3_hash_fixture()
+    changed_goal = SimpleNamespace(**{**vars(goal), field: changed_value})
+
+    assert _z6_v4_hash(goal=goal) != _z6_v4_hash(goal=changed_goal)
+
+
+@pytest.mark.parametrize(
+    ("path", "changed_value"),
+    [
+        (("goal_inflation_series_bps", 2), 999),
+        (("cashflow_inflation_series_bps", 1), 777),
+        (("fx_signature", 1, 1), 91_000_000),
+        (
+            ("external_foundation_projection", "property_series_rappen", 2),
+            1_055_000,
+        ),
+        (("optimizer_cashflow_projection_series_rappen", 2), 205_000),
+        (
+            ("mandate_projection_inputs", "tax_jurisdiction"),
+            "DE-BY",
+        ),
+        (
+            ("mandate_projection_inputs", "client_birth_year"),
+            1970,
+        ),
+        (
+            ("mandate_projection_inputs", "life_expectancy_year"),
+            2085,
+        ),
+    ],
+    ids=[
+        "goal-inflation",
+        "cashflow-inflation",
+        "fx-signature",
+        "external-foundation",
+        "optimizer-cashflow",
+        "tax-mandate-input",
+        "stochastic-mortality-mandate-input",
+        "deterministic-mortality-mandate-input",
+    ],
+)
+def test_c8_v3_hash_binds_effective_projection_context(path, changed_value):
+    """Jeder effektiv verwendete Projektionsinput muss Drift ausloesen."""
+    _, _, _, inflow, projection_context = _z6_v3_hash_fixture()
+    base = _z6_v3_hash(
+        projection_context=projection_context,
+        inflow=inflow,
+    )
+    changed_context = copy.deepcopy(projection_context)
+    target = changed_context
+    for key in path[:-1]:
+        target = target[key]
+    target[path[-1]] = changed_value
+
+    assert base != _z6_v3_hash(
+        projection_context=changed_context,
+        inflow=inflow,
+    )
+
+
+def test_c8_v3_hash_binds_wealth_inflow():
+    """Ein geaenderter Vermoegenszufluss darf denselben Hash nicht behalten."""
+    _, _, _, inflow, projection_context = _z6_v3_hash_fixture()
+    changed_inflow = SimpleNamespace(
+        **{
+            **vars(inflow),
+            "amount_rappen": inflow.amount_rappen + 1,
+        }
+    )
+
+    assert _z6_v3_hash(
+        projection_context=projection_context,
+        inflow=inflow,
+    ) != _z6_v3_hash(
+        projection_context=projection_context,
+        inflow=changed_inflow,
+    )
+
+
+def test_c8_v2_hash_contract_stays_exact_without_projection_context():
+    """Ohne Projektionskontext bleibt der bestehende v2-Hash bytegenau."""
+    position, _, _, inflow, _ = _z6_v3_hash_fixture()
+    expected_payload = {
+        "advisory_wealth_rappen": 2_000_000,
+        "total_wealth_rappen": 2_500_000,
+        "positions": [
+            (
+                "depot-v3",
+                2_000_000,
+                "Beratungsvermoegen",
+                "Depot",
+                6000,
+                2500,
+                500,
+                500,
+                500,
+                "",
+                "USD",
+                "",
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                "",
+                "",
+                "",
+                "",
+                0,
+            )
+        ],
+        "cashflows": [],
+        "goals": [],
+        "snapshot_version": "strategy_inputs_v2_foundation",
+    }
+    expected = hashlib.sha256(
+        json.dumps(expected_payload, sort_keys=True).encode("utf-8")
+    ).hexdigest()
+
+    without_new_kwargs = _compute_input_snapshot_hash(
+        advisory_positions=[position],
+        all_positions=[position],
+        cashflows=[],
+        goals=[],
+        advisory_wealth_rappen=2_000_000,
+        total_wealth_rappen=2_500_000,
+    )
+    with_inflows_but_no_context = _compute_input_snapshot_hash(
+        advisory_positions=[position],
+        all_positions=[position],
+        cashflows=[],
+        goals=[],
+        wealth_inflows=[inflow],
+        advisory_wealth_rappen=2_000_000,
+        total_wealth_rappen=2_500_000,
+    )
+
+    assert without_new_kwargs == expected
+    assert with_inflows_but_no_context == expected
+
+
 def test_c8_generate_persists_all_anchors(session_factory):
     """generate_target_allocation muss alle neuen Anker setzen."""
     advisor_id, cid, mid, aid = _seed(session_factory)
@@ -258,9 +614,8 @@ def test_c8_drift_warnings_preferences_change_warns():
     assert any("Mandatspraeferenzen" in m for m in msgs), msgs
 
 
-def test_c8_payload_includes_drift_warnings_after_input_change(session_factory):
-    """Erzeuge Allokation, aendere Wealth-Position-Wert, build_payload muss
-    Input-Drift-Warning ausgeben."""
+def test_c8_payload_fails_closed_after_input_change(session_factory):
+    """Alte Targets duerfen nie mit neu berechneten Pfaden kombiniert werden."""
     advisor_id, cid, mid, aid = _seed(session_factory)
     with session_factory() as s:
         mandate = s.query(Mandate).filter(Mandate.id == mid).first()
@@ -282,9 +637,8 @@ def test_c8_payload_includes_drift_warnings_after_input_change(session_factory):
         ).first()
         assessment = s.query(RiskAssessment).filter(RiskAssessment.id == aid).first()
         policy, cma = ensure_runtime_reference_data(s, advisor_id)
-        payload = build_target_payload_from_allocation(
-            db=s, mandate=mandate, allocation=allocation,
-            policy=policy, cma=cma, assessment=assessment, preferences=None,
-        )
-    reasoning = " ".join(payload.get("reasoning") or [])
-    assert "Vermoegen, Cashflows oder Ziele" in reasoning, reasoning
+        with pytest.raises(ValueError, match="veraltet|neu berechnen"):
+            build_target_payload_from_allocation(
+                db=s, mandate=mandate, allocation=allocation,
+                policy=policy, cma=cma, assessment=assessment, preferences=None,
+            )

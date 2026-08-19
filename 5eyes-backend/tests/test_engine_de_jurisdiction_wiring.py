@@ -191,6 +191,28 @@ def _seed_de_mandate(session_factory, *, suffix: str, cma_status: str) -> tuple[
             real_estate_home_return_bps=420, real_estate_home_vol_bps=800,
             alternatives_gold_return_bps=120, alternatives_gold_vol_bps=1200,
             liquidity_return_bps=80, liquidity_vol_bps=15,
+            sub_asset_class_assumptions_json=json.dumps({
+                "Aktien Deutschland": {
+                    "asset_class": "Aktien",
+                    "expected_return_bps": 650,
+                    "expected_volatility_bps": 1500,
+                },
+                "Obligationen EUR IG": {
+                    "asset_class": "Obligationen",
+                    "expected_return_bps": 200,
+                    "expected_volatility_bps": 380,
+                },
+                "Obligationen Global EUR-Hedged": {
+                    "asset_class": "Obligationen",
+                    "expected_return_bps": 200,
+                    "expected_volatility_bps": 380,
+                },
+                "Immobilien Deutschland": {
+                    "asset_class": "Immobilien",
+                    "expected_return_bps": 420,
+                    "expected_volatility_bps": 800,
+                },
+            }),
             source="Test-Fixture (IC-Freigabe simuliert)",
             created_by=advisor_id, created_at=now, updated_at=now,
         ))
@@ -250,7 +272,7 @@ def _seed_de_mandate(session_factory, *, suffix: str, cma_status: str) -> tuple[
             q_investment_goal_points=3, q_risk_preference_points=4, q_risk_behavior_points=3,
             risk_willingness_total=10, risk_willingness_profile="DE-Test",
             risk_willingness_score_x10=50,
-            final_score_x10=50, final_profile="DE-Test",
+            final_score_x10=50, final_profile="Ausgewogen",
             is_overridden=0,
             knowledge_services_json="{}",
             knowledge_instruments_json="{}",
@@ -401,12 +423,13 @@ def test_ensure_default_products_ch_idempotent_when_ch_products_already_exist(se
 # ---------------------------------------------------------------------------
 
 def test_building_block_risky_map_de_jurisdiction_excludes_colliding_ch_row(session_factory):
-    """Direkter Unit-Beweis auf den beiden eigentlichen Konsumenten: ein
-    CH-Bestand (jurisdiction IS NULL) und eine DE-Zeile fuer denselben
-    policy_id + denselben (asset_class, sub_asset_class)-Schluessel, aber mit
-    stark abweichendem risky_fraction_bps. jurisdiction='DE' darf NUR den
-    DE-Wert liefern, nicht den kollidierenden CH-Wert (egal in welcher
-    Reihenfolge die Zeilen aus der DB kommen)."""
+    """Direkter Cross-Jurisdiction-Beweis auf Resolver und Risky-Map.
+
+    Eine jurisdiktionsneutrale Shared-Zeile (NULL), eine explizite CH-Zeile
+    und eine DE-Zeile leben unter derselben Policy. CH sieht NULL/CH, niemals
+    DE. DE sieht die bewusst geteilten NULL-Sleeves plus DE, aber niemals
+    explizites CH; bei einem gleichen logischen Schluessel muss der exakte
+    DE-Wert die Shared-Zeile deterministisch ueberschreiben."""
     now = _now()
     with session_factory() as s:
         policy, _cma = ensure_runtime_reference_data(s, "unit-advisor")
@@ -424,24 +447,44 @@ def test_building_block_risky_map_de_jurisdiction_excludes_colliding_ch_row(sess
             is_active=1, jurisdiction=DE_CODE,
             created_at=now, updated_at=now,
         ))
+        s.add(BuildingBlock(
+            id="unit-ch-explicit", policy_id=policy.id,
+            asset_class="Aktien", sub_asset_class="Aktien Deutschland",
+            universe="Standard", advisory=1, risky_fraction_bps=222,
+            is_active=1, jurisdiction="CH",
+            created_at=now, updated_at=now,
+        ))
         s.commit()
 
         de_rows = _building_block_rows_for_policy(s, policy.id, None, "DE")
         assert de_rows, "resolve_building_blocks_for_jurisdiction lieferte keine DE-Zeilen"
-        assert all(row.jurisdiction == DE_CODE for row in de_rows), (
-            "DE-Filter liess eine CH-Zeile (jurisdiction IS NULL) durch"
-        )
+        assert all(row.jurisdiction in (None, DE_CODE) for row in de_rows)
+        assert not any(row.id == "unit-ch-explicit" for row in de_rows)
+        collision_rows = [
+            row for row in de_rows
+            if row.asset_class == "Aktien" and row.sub_asset_class == "Aktien Deutschland"
+        ]
+        assert [row.id for row in collision_rows] == ["unit-de-row"]
 
         de_risky_map = _building_block_risky_map(s, policy.id, None, "DE")
         assert de_risky_map[("Aktien", "Aktien Deutschland")] == 7000, (
             f"DE-Risky-Map uebernahm den kollidierenden CH-Wert statt 7000: {de_risky_map}"
         )
 
-        # CH-Pfad bleibt unveraendert (Constraint 1): KEIN Jurisdiktionsfilter,
-        # sieht also weiterhin auch die DE-Zeile (Bestandsverhalten).
+        # CH akzeptiert beide historischen Darstellungen (NULL und "CH"),
+        # darf aber die DE-Zeile derselben Policy nicht einmischen. Bei einer
+        # Kollision gewinnt die explizite CH-Zeile vor der Shared-NULL-Zeile.
         ch_rows = _building_block_rows_for_policy(s, policy.id, None, "CH")
-        assert any(row.id == "unit-ch-collision" for row in ch_rows)
-        assert any(row.id == "unit-de-row" for row in ch_rows)
+        assert all(row.jurisdiction in (None, "CH") for row in ch_rows)
+        assert not any(row.id == "unit-de-row" for row in ch_rows)
+        ch_collision_rows = [
+            row for row in ch_rows
+            if row.asset_class == "Aktien" and row.sub_asset_class == "Aktien Deutschland"
+        ]
+        assert [row.id for row in ch_collision_rows] == ["unit-ch-explicit"]
+
+        ch_risky_map = _building_block_risky_map(s, policy.id, None, "CH")
+        assert ch_risky_map[("Aktien", "Aktien Deutschland")] == 222
 
 
 def test_de_mandate_target_allocation_risky_fraction_uses_only_de_rows(session_factory):

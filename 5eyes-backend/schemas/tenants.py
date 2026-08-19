@@ -152,6 +152,19 @@ class TenantResponse(BaseModel):
     updated_at: str
 
 
+class TenantSelfResponse(TenantResponse):
+    """2026-08-09 (Roadmap #24-Rest, Soft-Limit-Warn-UI): Response fuer
+    GET /tenants/me -- erweitert TenantResponse um die aktuelle Auslastung,
+    damit das Frontend eine Warnschwelle (z.B. ab 80%) anzeigen kann, BEVOR
+    der harte 409-Block (services/quota.py::assert_within_quota) greift.
+    Nur hier, nicht auf TenantResponse selbst, da list_tenants/get_tenant
+    (Operator-Endpoints) das nicht pro Zeile brauchen und die zusaetzlichen
+    COUNT-Queries dort unnoetigen Overhead waeren."""
+
+    current_users: int = 0
+    current_mandates: int = 0
+
+
 class UserAssignTenantRequest(BaseModel):
     """Request-Body fuer PUT /users/{user_id}/tenant."""
 

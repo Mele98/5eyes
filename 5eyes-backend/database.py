@@ -305,6 +305,10 @@ def ensure_runtime_columns() -> None:
             ('risk_budget_bps_at_generation', 'INTEGER'),
             ('limiting_factor', 'TEXT'),
             ('goal_achievability_json', 'TEXT'),
+            ('sub_allocations_json', 'TEXT'),
+            ('effective_constraints_json', 'TEXT'),
+            ('allocation_context_hash', 'TEXT'),
+            ('context_artifacts_required', 'INTEGER', 0),
             # Phase 6: persistierte Stress-Auswertungen (Phase 5.2) als JSON-String.
             # NULL bei house_matrix-Modus oder Pre-Optimizer-Allocations.
             ('stress_evaluations_json', 'TEXT'),
@@ -347,6 +351,9 @@ def ensure_runtime_columns() -> None:
             # die Column idempotent auf Live-DBs, sonst koennen Tier-2-
             # Endpoints den tenant-Scope nicht setzen.
             ('tenant_id', 'TEXT'),
+            # DSG Art. 32 (2026-08-15): siehe models/clients.py.
+            ('erased_at', 'TEXT'),
+            ('erasure_reason', 'TEXT'),
         ],
         # Sprint U-37 (2026-06-03): Notes-Versionierungs-Log.
         # Append-only JSON-Array von Edit-Snapshots fuer FINMA-Audit
@@ -501,6 +508,7 @@ def ensure_runtime_columns() -> None:
             # U-9 Stage-9 Telemetry: pro Solver-Start n_paths/n_starts/Seed/
             # Status/elapsed_ms/reason auditierbar persistieren.
             ('restart_results_json', 'TEXT'),
+            ('robustification_json', 'TEXT'),
         ],
         'products': [
             ('lookup_mode_override', 'TEXT'),
@@ -731,7 +739,16 @@ def ensure_audit_log_actions(target_engine: Engine = engine) -> None:
         # erhalten und weiterhin bei jedem Admin-Endpunkt mit einem der 26
         # fehlenden action-Werte crashen.
         has_expanded_actions = 'UPSERT' in ddl_text
-        if has_password_reset and has_integrity_hash and has_ip_address and has_expanded_actions:
+        # DSG Art. 32 (2026-08-15): eigener Marker fuer die neue
+        # 'CLIENT_ERASE'-Action -- bereits migrierte Installationen (alle 4
+        # anderen Marker bereits erfuellt) wuerden diese neue Action sonst
+        # NIE erhalten und der Erase-Endpoint crasht auf ihnen dauerhaft mit
+        # IntegrityError (identische Bugklasse wie has_expanded_actions oben).
+        has_erasure_action = 'CLIENT_ERASE' in ddl_text
+        if (
+            has_password_reset and has_integrity_hash and has_ip_address
+            and has_expanded_actions and has_erasure_action
+        ):
             return
 
         conn.execute(text('ALTER TABLE audit_log RENAME TO audit_log__old'))
@@ -745,9 +762,9 @@ def ensure_audit_log_actions(target_engine: Engine = engine) -> None:
                 action TEXT NOT NULL CHECK(action IN (
                     'CREATE','UPDATE','DELETE','LOGIN','EXPORT','PASSWORD_RESET',
                     '2FA_DISABLE','2FA_ENABLE','2FA_RECOVERY_REGEN','2FA_RECOVERY_USED',
-                    'ACTIVATE','APPROVE','BACKFILL','BACKUP','CLONE','DB_OPTIMIZE',
-                    'FOUNDATION_EXAMPLE','FOUNDATION_PURGE','INVITE','INVITE_ACCEPT',
-                    'INVITE_RESEND','INVITE_REVOKE','MARKET_DATA_PURGE',
+                    'ACTIVATE','APPROVE','BACKFILL','BACKUP','CLIENT_ERASE','CLONE',
+                    'DB_OPTIMIZE','FOUNDATION_EXAMPLE','FOUNDATION_PURGE','INVITE',
+                    'INVITE_ACCEPT','INVITE_RESEND','INVITE_REVOKE','MARKET_DATA_PURGE',
                     'MARKET_DATA_REFRESH','OPTIMIZER_MODE_CHANGE','PASSWORD_CHANGE',
                     'PASSWORD_RESET_CONFIRM','PASSWORD_RESET_REQUEST','REPLACE',
                     'REPLACE_ALL','SENSITIVITY','SUPPORT_BUNDLE','UPSERT'
@@ -1036,7 +1053,15 @@ PURGE_HISTORY_COLUMN_SQL_TYPES: dict[str, str] = {
 
 
 def ensure_purge_history_table(target_engine: Engine = engine) -> None:
-    """Create/upgrade market_data_purge_history idempotently."""
+    """Create/upgrade ``market_data_purge_history`` for SQLite installs.
+
+    PostgreSQL is provisioned exclusively by Alembic.  In particular, this
+    helper must not execute SQLite's ``AUTOINCREMENT`` or ``PRAGMA`` syntax on
+    a production connection.  Keeping the no-op here (rather than only in
+    ``init_db``) also protects the lazy calls made by the purge service.
+    """
+    if target_engine.dialect.name != "sqlite":
+        return
     with target_engine.begin() as conn:
         conn.execute(text("""
             CREATE TABLE IF NOT EXISTS market_data_purge_history (
@@ -1346,9 +1371,10 @@ def _create_or_migrate_schema(active_url: str) -> None:
     (kein Effekt, wenn die DB schon auf dem neuesten Stand ist), also sicher
     bei jedem App-Start erneut aufzurufen -- wie create_all().
 
-    Alle nachfolgenden ensure_*()-Aufrufe in init_db() bleiben fuer BEIDE
-    Dialekte unveraendert bestehen (sie pruefen ihre Ziel-Spalten/Tabellen via
-    inspect() vor jeder Aenderung und sind bereits dialekt-generisch).
+    Die nachfolgenden Legacy-Schemareparaturen gehoeren ausschliesslich zum
+    SQLite-Pfad: sie enthalten u.a. PRAGMA, sqlite_master, AUTOINCREMENT und
+    SQLite-Trigger-Syntax. PostgreSQL erhaelt das vollstaendige Schema
+    stattdessen ueber additive Alembic-Revisionen.
     """
     if not is_postgres_database_url(active_url):
         Base.metadata.create_all(bind=engine)
@@ -1362,21 +1388,13 @@ def _create_or_migrate_schema(active_url: str) -> None:
     command.upgrade(alembic_cfg, "head")
 
 
-def init_db() -> None:
-    active_url = build_database_url(db_path=settings.db_path, db_key=getattr(settings, 'db_key', None))
-    if settings.db_bootstrap_schema_on_startup and is_sqlite_database_url(active_url):
-        bootstrap_sqlite_schema(db_path=settings.db_path, db_key=getattr(settings, 'db_key', None))
-
-    # Import von Tenant-Model VOR create_all, damit das Table angelegt wird.
-    import models.tenant  # noqa: F401
-    # WP1 (2026-07-30): dito fuer die neuen Jurisdiktions-Tabellen.
-    import models.jurisdiction  # noqa: F401
-
-    _create_or_migrate_schema(active_url)
+def _run_sqlite_legacy_schema_maintenance() -> None:
+    """Run the backwards-compatible schema repair path for SQLite only."""
     ensure_runtime_columns()
     migrate_house_matrix_real_estate_cap_20()
     ensure_snapshot_tables()
     from services.market_data.provider_health_registry import ensure_provider_health_table
+
     ensure_provider_health_table(engine)
     ensure_purge_history_table(engine)
     run_risk_assessment_answer_migration(engine)
@@ -1389,6 +1407,21 @@ def init_db() -> None:
     # Start sicherstellen -- ensure_audit_log_actions() kann sie beim
     # Tabellen-Neuaufbau verwerfen (siehe Docstring dort).
     ensure_audit_log_triggers()
+
+
+def init_db() -> None:
+    active_url = build_database_url(db_path=settings.db_path, db_key=getattr(settings, 'db_key', None))
+    if settings.db_bootstrap_schema_on_startup and is_sqlite_database_url(active_url):
+        bootstrap_sqlite_schema(db_path=settings.db_path, db_key=getattr(settings, 'db_key', None))
+
+    # Import von Tenant-Model VOR create_all, damit das Table angelegt wird.
+    import models.tenant  # noqa: F401
+    # WP1 (2026-07-30): dito fuer die neuen Jurisdiktions-Tabellen.
+    import models.jurisdiction  # noqa: F401
+
+    _create_or_migrate_schema(active_url)
+    if is_sqlite_database_url(active_url):
+        _run_sqlite_legacy_schema_maintenance()
     # Sprint T1 (2026-06-08): Default-Tenant 'main' anlegen wenn nicht da.
     # Backwards-Compat: tenant_id-Columns sind NULLABLE, aber die Existenz
     # der 'main'-Row erlaubt T2-Sprint die Auth-Layer-Migration.

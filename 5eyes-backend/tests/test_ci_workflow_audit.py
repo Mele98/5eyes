@@ -103,8 +103,16 @@ def test_pytest_job_has_timeout(workflow_yaml):
 
     2026-06-08 von 15 auf 30 erhoeht: Backend-Suite ueber 3400 Tests
     gewachsen (Stage 9 + PDF-Audit + Bug-Sprint), 15min wurde knapp.
+
+    2026-08-19 von 30 auf 90 erhoeht: PR #374 brachte die Suite auf 5991
+    Tests; ausserdem laeuft der Job jetzt zweistufig (schneller blockierender
+    Korrektheits-Lauf ohne Coverage + separater, nicht-blockierender
+    Coverage-Lauf mit eigenem 60min-Timeout innerhalb desselben Jobs) --
+    siehe .github/workflows/test.yml Job-Kommentar fuer die volle
+    Root-Cause-Analyse (Coverage-Instrumentierung haengte reproduzierbar
+    NUR auf dem Linux-CI-Runner, lokal dreimal bestaetigt unauffaellig).
     """
-    assert workflow_yaml["jobs"]["pytest"].get("timeout-minutes") == 30
+    assert workflow_yaml["jobs"]["pytest"].get("timeout-minutes") == 90
 
 
 def test_pytest_uses_python_3_12(workflow_yaml):

@@ -205,10 +205,18 @@ def test_build_context_konservativ_aktiviert_is(monkeypatch):
     from services.optimizer.solver import build_optimizer_context
     monkeypatch.setattr(settings, "mc_importance_sampling_enabled", False, raising=False)
     monkeypatch.setattr(settings, "mc_importance_sampling_auto_enable", True, raising=False)
+    # The growth-profile fixture has a 45% equity floor and cannot satisfy a
+    # 20% risky cap. Use feasible bands so this test isolates IS activation.
+    house = _house_matrix()
+    house.equity_min_bps = 0
+    house.bonds_min_bps = 0
+    house.real_estate_min_bps = 0
+    house.alt_min_bps = 0
+    house.liq_max_bps = 8000
     ctx = build_optimizer_context(
         cma=_cma(id="cma-konservativ-p1"),
         goals=[_goal()],
-        house_matrix_row=_house_matrix(),
+        house_matrix_row=house,
         score_x10=20,
         advisory_wealth_rappen=1_000_000_00,
         cashflow_series_rappen=[0] * 11,

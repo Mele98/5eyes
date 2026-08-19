@@ -55,10 +55,11 @@ def test_leart_foundation_is_constant_and_netted():
 
     by = _by_class(r)
     imm = by["Immobilien"]
-    # KERN-INVARIANTE: das Fundament ist in IST und SOLL identisch (konstant).
+    # KERN-INVARIANTE: der Fundament-Anteil ist in IST/SOLL identisch; die
+    # SOLL-Zeile darf zusätzlich kotiertes RE-Exposure enthalten.
     assert imm["current_amount_rappen"] == 200 * K
-    assert imm["target_amount_rappen"] == 200 * K
-    assert imm["current_weight_bps"] == imm["target_weight_bps"]
+    assert imm["target_amount_rappen"] == 215 * K
+    assert imm["foundation_component_rappen"] == 200 * K
     assert imm["is_foundation"] is True
     # 200/350 ≈ 57.14 %
     assert 5713 <= imm["current_weight_bps"] <= 5715
@@ -81,19 +82,44 @@ def test_leart_foundation_is_constant_and_netted():
     assert sum(row["target_amount_rappen"] for row in r["allocation"]) == 350 * K
 
 
-def test_financial_target_renormalized_excluding_real_estate():
-    # Das Haus stellt die Immobilienquote; der Finanzteil verteilt sich auf die
-    # Nicht-Immobilien-Klassen (Ziel-% ohne real_estate renormiert).
+def test_financial_target_keeps_listed_real_estate_sleeve():
+    # Das Haus ist der fixe Sockel; kotierte Immobilien bleiben trotzdem eine
+    # investierbare SAA-Komponente des Finanzteils.
     summary = _summary(liquidity_k=150, real_estate_k=500)
     targets = {"equities": 6000, "bonds": 2000, "real_estate": 1000,
                "alternatives": 500, "liquidity": 500}
     r = _build_total_wealth_allocation(summary, 300 * K, 350 * K, targets)
     by = _by_class(r)
-    # non-RE Summe = 9000 bps; Finanzbasis 150k: Aktien = 150k*6000/9000 = 100k
-    # (± Rundungsrest, der dem grössten Finanz-Bucket zugeschlagen wird).
-    assert abs(by["Aktien"]["target_amount_rappen"] - 100 * K) <= 2
-    # Immobilien-Zielbetrag stammt NICHT aus dem 1000-bps-Ziel, sondern = Fundament.
-    assert by["Immobilien"]["target_amount_rappen"] == 200 * K
+    # Finanzbasis 150k: Aktien 60%=90k, listed RE 10%=15k; dazu 200k Sockel.
+    assert abs(by["Aktien"]["target_amount_rappen"] - 90 * K) <= 2
+    assert by["Immobilien"]["target_amount_rappen"] == 215 * K
+
+
+def test_mixed_direct_property_and_listed_real_estate_are_split():
+    summary = _summary(liquidity_k=100, real_estate_k=550)
+    targets = {
+        "equities": 6000,
+        "bonds": 2000,
+        "real_estate": 1000,
+        "alternatives": 500,
+        "liquidity": 500,
+    }
+
+    result = _build_total_wealth_allocation(
+        summary,
+        total_liabilities_rappen=300 * K,
+        total_wealth_rappen=350 * K,
+        target_weights_bps=targets,
+        direct_property_rappen=500 * K,
+    )
+    real_estate = _by_class(result)["Immobilien"]
+
+    # Current RE = 200k net house foundation + 50k listed exposure.
+    assert real_estate["current_amount_rappen"] == 250 * K
+    assert real_estate["foundation_component_rappen"] == 200 * K
+    assert real_estate["investable_component_rappen"] == 50 * K
+    # Target financial base is 150k, hence 15k listed RE plus foundation.
+    assert real_estate["target_amount_rappen"] == 215 * K
 
 
 def test_no_property_behaves_as_pure_financial():
