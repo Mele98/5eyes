@@ -22,16 +22,19 @@ yfinance==0.2.54
 # numpy/scipy: EXAKT gepinnt seit 2026-08-19 (vorher offene Ranges
 # >=1.26,<3 / >=1.11,<2). Grund: der Golden-Snapshot-Regressionstest
 # (test_golden_snapshot_ch_regression.py) verglich exakte CHF-Betraege
-# einer stochastischen Optimierung (SLSQP) und driftete zwischen einem
-# lokalen Dev-Environment (numpy 2.4.4/scipy 1.17.1) und einem frischen
-# CI-Install (numpy 2.5.2/scipy 1.18.0) um ein paar hundert CHF pro
-# Rebalancing-Schritt -- SLSQP-Konvergenz ist minimal versionsabhaengig.
-# Nicht nur ein CI-Problem: ein Wealth-Management-Engine darf nicht je
-# nach zufaellig installierter numpy/scipy-Patch-Version unterschiedliche
-# Empfehlungen liefern. Exaktes Pinning macht das Ergebnis reproduzierbar
-# unabhaengig vom Install-Zeitpunkt. Bei jedem bewussten Upgrade: neu
-# pinnen UND die Golden-Snapshot-Fixtures unter der neuen Version neu
-# einfrieren (tests/fixtures/golden_ch_recommendations/*.json).
+# einer stochastischen Optimierung (SLSQP). Pinning allein loeste die
+# beobachtete Drift NICHT vollstaendig: dieselben Versionen (2.5.2/1.18.0)
+# liefern auf Windows-Dev minimal andere SLSQP-Konvergenzwerte als auf dem
+# Linux-CI-Runner (ein paar Rappen bis wenige CHF pro Rebalancing-Schritt,
+# z.B. expected_return_bps 396 vs. 397) -- vermutlich unterschiedliche
+# BLAS/LAPACK-Backends in den jeweiligen Wheels. Pinning bleibt trotzdem
+# sinnvoll: es eliminiert die Versions-Achse der Variabilitaet und macht
+# CI-Laeufe untereinander deterministisch reproduzierbar; die verbleibende
+# Plattform-Achse wird dadurch aufgefangen, dass die Golden-Fixtures IMMER
+# auf dem Linux-CI-Runner erzeugt/aktualisiert werden (nicht lokal unter
+# Windows) -- siehe Kommentar in test_golden_snapshot_ch_regression.py.
+# Bei jedem bewussten numpy/scipy-Upgrade: neu pinnen UND die Fixtures
+# per CI-Regenerierung neu einfrieren (tests/fixtures/golden_ch_recommendations/*.json).
 numpy==2.5.2
 scipy==1.18.0
 # reportlab: pure-Python PDF-Engine fuer Kundendokumente (Anlagestrategie,

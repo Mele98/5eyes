@@ -37,6 +37,18 @@ Sanity-Check (siehe Kommentar `SANITY_CHECK_INSTRUCTIONS` unten): dieser Test
 wurde manuell verifiziert, dass er ROT wird, wenn man den CH-Default
 "Schweiz Fokus" (equities_geo-Default in _build_sub_allocations) lokal
 aendert. Die testweise Aenderung wurde NICHT committet.
+
+WICHTIG (2026-08-19): Diese Fixtures sind SLSQP-Konvergenzergebnisse und
+duerfen NUR auf dem Linux-CI-Runner regeneriert werden, nie lokal unter
+Windows. Trotz exakt gepinnter numpy/scipy-Versionen (requirements.txt)
+liefert der Solver auf Windows minimal andere Werte als auf Linux
+(vermutlich unterschiedliche BLAS/LAPACK-Backends je Wheel-Plattform,
+z.B. expected_return_bps 396 vs. 397) -- lokal unter Windows neu
+eingefrorene Fixtures faellen daher reproduzierbar in CI durch. Zum
+Regenerieren: temporaeren CI-Schritt einbauen, der _build_ch_snapshot()
+fuer alle COMBOS aufruft und das Ergebnis als Artefakt hochlaedt (siehe
+Git-Historie des Merge-Commits fuer ein Beispiel), dann das Artefakt
+herunterladen und in tests/fixtures/golden_ch_recommendations/ kopieren.
 """
 from __future__ import annotations
 
