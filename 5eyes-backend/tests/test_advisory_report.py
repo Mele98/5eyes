@@ -45,6 +45,7 @@ from models.users import User
 from models.wealth import Cashflow, Goal, WealthPosition
 from services.advisory_report import compute_advisory_report
 from services.portfolio_engine import ensure_runtime_reference_data
+from tests.risk_fixture_helpers import derive_current_risk_fields
 
 
 @pytest.fixture()
@@ -467,24 +468,20 @@ def _make_optimizer_policy(s, advisor_id: str) -> OptimizerPolicy:
 
 def _make_strategy_ready_assessment(s, *, mandate_id: str, advisor_id: str) -> None:
     aid = str(uuid.uuid4())
-    s.add(RiskAssessment(
-        id=aid, mandate_id=mandate_id, version=1, is_current=1,
-        valid_from=_NOW,
-        q_income_points=2, q_obligations_points=3,
-        q_savings_points=8, q_wealth_points=8,
-        risk_capacity_total=21,
-        risk_capacity_profile="Wachstumsorientiert",
-        risk_capacity_score_x10=70,
-        investment_horizon_years=15,
-        investment_horizon_label="12 bis 17 Jahre",
+    risk_fields = derive_current_risk_fields(
+        q_income_points=2,
+        q_obligations_points=3,
+        q_savings_points=8,
+        q_wealth_points=8,
+        investment_horizon_label="Mehr als 12 Jahre",
         q_investment_goal_points=3,
         q_risk_preference_points=4,
         q_risk_behavior_points=3,
-        risk_willingness_total=10,
-        risk_willingness_profile="Wachstumsorientiert",
-        risk_willingness_score_x10=70,
-        final_score_x10=70,
-        final_profile="Wachstumsorientiert",
+    )
+    s.add(RiskAssessment(
+        id=aid, mandate_id=mandate_id, version=1, is_current=1,
+        valid_from=_NOW,
+        **risk_fields,
         is_overridden=0,
         knowledge_services_json="{}",
         knowledge_instruments_json="{}",
@@ -818,6 +815,18 @@ def test_asset_allocation_carries_drift_and_band_info(session_factory):
             target_amount_rappen=1_000_000_00,
             asset_class="Aktien",
         )
+        # Die Recommendation hat bereits eine globale Current-Policy erzeugt.
+        # Fuer die neue TargetAllocation deshalb einen echten Policy-Rollover
+        # abbilden: zuerst den bisherigen Anker schliessen und flushen, danach
+        # erst den neuen Current-Anker einfuegen.
+        current_policy = s.query(OptimizerPolicy).filter(
+            OptimizerPolicy.is_current == 1,
+        ).one()
+        current_policy.is_current = 0
+        current_policy.valid_to = _NOW
+        current_policy.updated_at = _NOW
+        s.flush()
+
         # TargetAllocation pflegen (für Bucket-Band-Info)
         pol2 = OptimizerPolicy(
             id=str(uuid.uuid4()),

@@ -11,6 +11,7 @@ import uuid
 from datetime import datetime, timezone
 
 import pytest
+from sqlalchemy import text
 
 import services.portfolio_engine as pe
 from models.allocation import (
@@ -101,6 +102,10 @@ def test_duplicate_current_optimizer_policy_fails_closed_for_every_jurisdiction(
     jurisdiction,
 ):
     with session_factory() as session:
+        # Simulate a legacy/pre-migration database to retain coverage for the
+        # service-level defence in depth.  Current schemas reject the second
+        # row at the partial unique index before this selector can run.
+        session.execute(text("DROP INDEX ux_optimizer_one_current"))
         session.add_all(
             [
                 _policy(f"policy-{jurisdiction.lower()}-a-{uuid.uuid4()}"),
@@ -277,4 +282,3 @@ def test_generate_accepts_explicit_standard_universe_when_standard_rows_exist(
 
     assert len(solver_calls) == 1
     assert result["target_allocation"].is_current == 1
-

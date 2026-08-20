@@ -12,6 +12,7 @@ import uuid
 from datetime import datetime, timezone
 
 import pytest
+from sqlalchemy import text
 
 import services.portfolio_engine as pe
 from models.allocation import (
@@ -320,6 +321,11 @@ def test_anlagestrategie_uses_exact_assessment_anchor_for_all_risk_fields(
     )
 
     with session_factory() as session:
+        # Modern databases reject a second current RA at the partial unique
+        # index.  Remove that index only in this isolated fixture to retain a
+        # defense-in-depth regression for damaged/pre-migration databases: the
+        # PDF must still source every field from the allocation's exact anchor.
+        session.execute(text("DROP INDEX ux_risk_one_current"))
         allocation = session.query(TargetAllocation).filter(
             TargetAllocation.id == generated["target_allocation"].id
         ).one()

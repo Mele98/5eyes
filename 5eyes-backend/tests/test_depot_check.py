@@ -161,6 +161,14 @@ def _make_rec_position(
 
 def _make_optimizer_policy(s, advisor_id: str = "adv-1") -> OptimizerPolicy:
     """Minimale OptimizerPolicy für RecommendationRun.policy_id FK."""
+    # Der Current-Anker ist global eindeutig. Falls der Test eine neue Policy
+    # braucht, wird die bisherige Version wie im Produkt-Lifecycle abgelöst.
+    s.query(OptimizerPolicy).filter(
+        OptimizerPolicy.is_current == 1,
+    ).update(
+        {OptimizerPolicy.is_current: 0},
+        synchronize_session=False,
+    )
     pol = OptimizerPolicy(
         id=str(uuid.uuid4()),
         policy_name="test-policy",

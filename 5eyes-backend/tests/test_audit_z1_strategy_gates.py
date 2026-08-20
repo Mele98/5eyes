@@ -29,6 +29,7 @@ if str(BACKEND_ROOT) not in sys.path:
 
 from database import Base, get_db
 from main import app
+from models import tenant as _tenant_model  # noqa: F401
 from models.allocation import (
     BuildingBlock,
     CapitalMarketAssumption,
@@ -43,7 +44,12 @@ from models.users import User
 from services.auth import get_current_user, require_advisor
 import services.portfolio_engine as pe
 from services.portfolio_engine import ensure_runtime_reference_data
-from tests.risk_fixture_helpers import CURRENT_RISK_SCHEMA_MARKERS, add_current_risk_answers, noop_lifespan
+from tests.risk_fixture_helpers import (
+    CURRENT_RISK_SCHEMA_MARKERS,
+    add_current_risk_answers,
+    derive_current_risk_fields,
+    noop_lifespan,
+)
 
 
 def _now() -> str:
@@ -112,20 +118,24 @@ def _seed_runtime(session_factory, advisor_id):
 def _add_assessment(session_factory, mid, advisor_id, *, ready=True, is_current=1):
     aid = str(uuid.uuid4())
     now = _now()
+    risk_fields = derive_current_risk_fields(
+        q_income_points=2,
+        q_obligations_points=3,
+        q_savings_points=2,
+        q_wealth_points=2,
+        investment_horizon_label="8 bis 11 Jahre",
+        q_investment_goal_points=3,
+        q_risk_preference_points=3,
+        q_risk_behavior_points=3,
+    )
+    if not ready:
+        risk_fields["final_score_x10"] = None
+        risk_fields["final_profile"] = None
     with session_factory() as s:
         s.add(RiskAssessment(
             id=aid, mandate_id=mid, version=1, is_current=is_current,
             valid_from=now[:10],
-            q_income_points=2, q_obligations_points=3,
-            q_savings_points=6, q_wealth_points=6,
-            risk_capacity_total=17, risk_capacity_profile="Wachstumsorientiert",
-            risk_capacity_score_x10=60,
-            investment_horizon_years=10, investment_horizon_label="8 bis 11 Jahre",
-            q_investment_goal_points=3, q_risk_preference_points=3, q_risk_behavior_points=3,
-            risk_willingness_total=9, risk_willingness_profile="Ausgewogen",
-            risk_willingness_score_x10=60,
-            final_score_x10=60 if ready else None,
-            final_profile="Ausgewogen" if ready else None,
+            **risk_fields,
             is_overridden=0,
             **CURRENT_RISK_SCHEMA_MARKERS,
             assessed_at=now, assessed_by=advisor_id,

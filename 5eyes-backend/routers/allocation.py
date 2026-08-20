@@ -278,6 +278,9 @@ def create_target_allocation(
     if prev:
         prev.is_current = 0
         prev_version = prev.version
+        # Release the existing partial-unique anchor before inserting the new
+        # version; database uniqueness is immediate, not deferred.
+        db.flush()
     payload = body.model_dump()
     if not payload.get("based_on_assessment_id"):
         payload["based_on_assessment_id"] = assessment.id
@@ -1064,6 +1067,10 @@ def create_optimizer_policy(
             prev.is_current = 0
             prev.valid_to = now
             prev.updated_at = now
+            # The new active row is inserted below.  Persist deactivation
+            # first so the immediate partial unique index never sees two
+            # current policies in a single flush.
+            db.flush()
 
     policy = OptimizerPolicy(
         id=new_uuid(),
@@ -1205,6 +1212,10 @@ def activate_optimizer_policy(
         prev.is_current = 0
         prev.valid_to = now
         prev.updated_at = now
+        # SQLAlchemy orders same-table UPDATEs by primary key.  Without this
+        # boundary it can activate ``policy`` before clearing ``prev`` and
+        # trip the immediate global-current unique index.
+        db.flush()
 
     policy.is_current = 1
     policy.valid_from = now

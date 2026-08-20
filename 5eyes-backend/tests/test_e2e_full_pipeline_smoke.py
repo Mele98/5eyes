@@ -299,7 +299,7 @@ def test_e2e_voller_pipeline_smoke(auth_client, advisor_user):
             "goal_family": "Cashflow", "goal_type": "Pensionsausgabe",
             "label": "Pension", "rank": 1, "target_amount_rappen": 60_000_00,
             "frequency": "jährlich", "start_date": "2030-01-01",
-            "hardness": "Hart", "value_mode": "real",
+            "is_ongoing": 1, "hardness": "Hart", "value_mode": "real",
         },
     )
     assert g1_resp.status_code == 201, g1_resp.text

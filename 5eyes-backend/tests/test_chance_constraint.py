@@ -16,7 +16,7 @@ if str(BACKEND_ROOT) not in sys.path:
 
 from database import Base
 from models import (  # noqa: F401
-    allocation, clients, mandates, profiling, review, snapshots, users, wealth,
+    allocation, clients, mandates, profiling, review, snapshots, tenant, users, wealth,
 )
 
 configure_mappers()
@@ -247,18 +247,18 @@ def _seed_return_goal_case(session):
         q_savings_points=12,
         q_wealth_points=12,
         risk_capacity_total=32,
-        risk_capacity_profile="Wachstumsorientiert",
+        risk_capacity_profile="Dynamisch",
         investment_horizon_years=15,
         investment_horizon_label="Mehr als 12 Jahre",
-        risk_capacity_score_x10=70,
+        risk_capacity_score_x10=100,
         q_investment_goal_points=4,
         q_risk_preference_points=4,
         q_risk_behavior_points=4,
         risk_willingness_total=12,
-        risk_willingness_profile="Wachstumsorientiert",
-        risk_willingness_score_x10=70,
-        final_score_x10=70,
-        final_profile="Wachstumsorientiert",
+        risk_willingness_profile="Aktien",
+        risk_willingness_score_x10=100,
+        final_score_x10=100,
+        final_profile="Aktien",
         is_overridden=1,
         override_score_x10=70,
         override_profile="Wachstumsorientiert",

@@ -408,7 +408,10 @@ def test_schema_rejects_unknown_tilt_key():
 
 
 def test_schema_rejects_unknown_tilt_value():
-    with pytest.raises(pydantic.ValidationError, match="Tilt-Modus"):
+    with pytest.raises(
+        pydantic.ValidationError,
+        match=r"tilts\.fossil.*ungueltigen Wert",
+    ):
         AllocationPreferencesPayload(tilts={"fossil": "ban"})
 
 

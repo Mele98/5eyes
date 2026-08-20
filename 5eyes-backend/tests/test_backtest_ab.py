@@ -90,13 +90,13 @@ def _seed_mandate_with_assessment(session_factory):
             id=aid, mandate_id=mid, version=1, is_current=1, valid_from=today,
             q_income_points=2, q_obligations_points=3,
             q_savings_points=8, q_wealth_points=8,
-            risk_capacity_total=21, risk_capacity_profile="Wachstumsorientiert",
-            risk_capacity_score_x10=70,
-            investment_horizon_years=15, investment_horizon_label="12 bis 17 Jahre",
+            risk_capacity_total=21, risk_capacity_profile="Dynamisch",
+            risk_capacity_score_x10=100,
+            investment_horizon_years=15, investment_horizon_label="Mehr als 12 Jahre",
             q_investment_goal_points=3, q_risk_preference_points=4, q_risk_behavior_points=3,
             risk_willingness_total=10, risk_willingness_profile="Wachstumsorientiert",
-            risk_willingness_score_x10=70,
-            final_score_x10=70, final_profile="Wachstumsorientiert",
+            risk_willingness_score_x10=80,
+            final_score_x10=80, final_profile="Wachstumsorientiert",
             is_overridden=0,
             knowledge_services_json="{}", knowledge_instruments_json="{}",
             income_sources_json='["Berufliche Taetigkeit"]',
@@ -198,7 +198,7 @@ def test_run_ab_backtest_returns_full_diff_structure(session_factory):
         result = run_ab_backtest(s, mandate, policy_a_id, policy_b_id)
 
     assert result["mandate_id"] == mid
-    assert result["score_bucket"] == 7  # final_score_x10=70 -> bucket 7
+    assert result["score_bucket"] == 8  # truthful long-horizon derivation: final=80
     assert result["policy_a"]["policy_id"] == policy_a_id
     assert result["policy_b"]["policy_id"] == policy_b_id
 

@@ -34,6 +34,15 @@ def _make_policy(session_factory, created_by, *, is_current: bool) -> str:
     pid = new_uuid()
     now = _iso(datetime.now(timezone.utc))
     with session_factory() as s:
+        if is_current:
+            # _seed_realistic_mandate legt bereits die aktuelle globale Policy
+            # an. Eine explizite Test-Policy ersetzt sie deshalb per Rollover.
+            s.query(OptimizerPolicy).filter(
+                OptimizerPolicy.is_current == 1,
+            ).update(
+                {OptimizerPolicy.is_current: 0},
+                synchronize_session=False,
+            )
         s.add(OptimizerPolicy(
             id=pid, policy_name="Test-Policy", version=1,
             is_current=(1 if is_current else 0), valid_from=now,

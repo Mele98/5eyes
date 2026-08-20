@@ -139,6 +139,101 @@ def _create_api_goal(auth_client: TestClient, mandate_id: str) -> dict:
     return response.json()
 
 
+def test_api_rejects_finite_recurring_goal_without_end_date(
+    auth_client,
+    advisor_user,
+):
+    mandate_id = _create_api_mandate(
+        auth_client,
+        advisor_user,
+        "finite-recurring-no-end",
+    )
+
+    response = auth_client.post(
+        f"/mandates/{mandate_id}/goals",
+        json={
+            "goal_family": "Cashflow",
+            "goal_type": "Wiederkehrende_Ausgabe",
+            "label": "Befristete Ausgabe ohne Enddatum",
+            "rank": 1,
+            "weight_bps": 5000,
+            "goal_scope": "Beratungsvermögen",
+            "value_mode": "nominal",
+            "target_amount_rappen": 120_000,
+            "start_date": "2030-01-01",
+            "is_ongoing": False,
+            "frequency": "jährlich",
+            "hardness": "Primär",
+        },
+    )
+
+    assert response.status_code == 422, response.text
+    assert "target_date" in response.text or "Enddatum" in response.text
+
+
+def test_api_rejects_non_recurring_goal_with_start_date_only(
+    auth_client,
+    advisor_user,
+):
+    mandate_id = _create_api_mandate(
+        auth_client,
+        advisor_user,
+        "wealth-start-only",
+    )
+
+    response = auth_client.post(
+        f"/mandates/{mandate_id}/goals",
+        json={
+            "goal_family": "Vermögen",
+            "goal_type": "Vermögensziel",
+            "label": "Vermögensziel ohne Bewertungsanker",
+            "rank": 1,
+            "weight_bps": 5000,
+            "goal_scope": "Beratungsvermögen",
+            "value_mode": "nominal",
+            "target_wealth_rappen": 50_000_000,
+            "start_date": "2030-01-01",
+            "hardness": "Primär",
+        },
+    )
+
+    assert response.status_code == 422, response.text
+    assert "target_date" in response.text or "horizon" in response.text
+
+
+def test_api_accepts_open_ended_recurring_goal_with_start_date(
+    auth_client,
+    advisor_user,
+):
+    mandate_id = _create_api_mandate(
+        auth_client,
+        advisor_user,
+        "open-recurring-start",
+    )
+
+    response = auth_client.post(
+        f"/mandates/{mandate_id}/goals",
+        json={
+            "goal_family": "Cashflow",
+            "goal_type": "Wiederkehrende_Ausgabe",
+            "label": "Offene wiederkehrende Ausgabe",
+            "rank": 1,
+            "weight_bps": 5000,
+            "goal_scope": "Beratungsvermögen",
+            "value_mode": "nominal",
+            "target_amount_rappen": 120_000,
+            "start_date": "2030-01-01",
+            "is_ongoing": True,
+            "frequency": "jährlich",
+            "hardness": "Primär",
+        },
+    )
+
+    assert response.status_code == 201, response.text
+    assert response.json()["start_date"] == "2030-01-01"
+    assert response.json()["target_date"] is None
+
+
 API_INVALID_UPDATES = (
     ("family_type_mismatch", {"goal_family": "Cashflow"}),
     ("hardness", {"hardness": "Beliebig"}),
@@ -156,6 +251,14 @@ API_INVALID_UPDATES = (
     (
         "required_anchor_removed",
         {"target_date": None, "horizon_years": None},
+    ),
+    (
+        "start_date_is_not_a_wealth_timing_anchor",
+        {
+            "start_date": "2030-01-01",
+            "target_date": None,
+            "horizon_years": None,
+        },
     ),
     ("pension_pillar_on_non_pension", {"pension_pillar": "AHV"}),
 )
@@ -231,7 +334,12 @@ RAW_INVALID_CASES = (
     ("forbidden_maximize_target", r"target_amount_rappen|Zielwert|Maximierung"),
     ("missing_one_time_anchor", r"target_date|horizon|Zeithorizont|Datum"),
     ("missing_recurring_anchor", r"start_date|target_date|horizon|Zeithorizont|Datum"),
+    ("finite_recurring_without_end", r"target_date|Enddatum|is_ongoing"),
     ("missing_wealth_anchor", r"target_date|horizon|Zeithorizont|Datum"),
+    ("start_only_capital_preservation", r"target_date|horizon|Zeithorizont|Datum"),
+    ("start_only_wealth_target", r"target_date|horizon|Zeithorizont|Datum"),
+    ("start_only_one_time_expense", r"target_date|horizon|Zeithorizont|Datum"),
+    ("start_only_return_target", r"target_date|horizon|Zeithorizont|Datum"),
     ("unknown_pension_pillar", r"pension_pillar|Vorsorge|Saeule|Säule"),
     ("pension_pillar_on_non_pension", r"pension_pillar|Pensionsausgabe|Saeule|Säule"),
 )
@@ -303,6 +411,9 @@ def _mutate_raw_goal(goal: Goal, case: str) -> None:
         goal.start_date = None
         goal.target_date = None
         goal.horizon_years = None
+    elif case == "finite_recurring_without_end":
+        goal.is_ongoing = 0
+        goal.target_date = None
     elif case == "missing_wealth_anchor":
         goal.goal_family = "Vermögen"
         goal.goal_type = "Vermögensziel"
@@ -313,6 +424,38 @@ def _mutate_raw_goal(goal: Goal, case: str) -> None:
         goal.target_date = None
         goal.horizon_years = None
         goal.pension_pillar = None
+    elif case in {
+        "start_only_capital_preservation",
+        "start_only_wealth_target",
+        "start_only_one_time_expense",
+        "start_only_return_target",
+    }:
+        goal.start_date = "2051-08-20"
+        goal.target_date = None
+        goal.horizon_years = None
+        goal.is_ongoing = 0
+        goal.frequency = None
+        goal.pension_pillar = None
+        goal.target_amount_rappen = None
+        goal.target_wealth_rappen = None
+        goal.target_return_bps = None
+        if case == "start_only_capital_preservation":
+            goal.goal_family = "Vermögen"
+            goal.goal_type = "Kapitalerhalt"
+            goal.target_wealth_rappen = 10_000_000
+        elif case == "start_only_wealth_target":
+            goal.goal_family = "Vermögen"
+            goal.goal_type = "Vermögensziel"
+            goal.target_wealth_rappen = 10_000_000
+        elif case == "start_only_one_time_expense":
+            goal.goal_family = "Cashflow"
+            goal.goal_type = "Einmalige_Ausgabe"
+            goal.target_amount_rappen = 1_000_000
+        else:
+            goal.goal_family = "Rendite"
+            goal.goal_type = "Renditeziel"
+            goal.hardness = "Opportunistisch"
+            goal.target_return_bps = 450
     elif case == "unknown_pension_pillar":
         goal.pension_pillar = "XYZ"
     elif case == "pension_pillar_on_non_pension":

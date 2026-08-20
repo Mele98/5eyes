@@ -34,6 +34,7 @@ from services.portfolio_engine import (
     generate_target_allocation,
 )
 from services.risk_scoring import profile_for_score_x10
+from tests.risk_fixture_helpers import derive_current_risk_fields
 
 
 def _now() -> str:
@@ -91,6 +92,23 @@ def _seed_risk_cap_case(
     max_risky_bps: int = 7000,
 ):
     now = _now()
+    willingness_source = {
+        20: (1, 1, 2),
+        70: (3, 3, 3),
+    }.get(final_score_x10)
+    if willingness_source is None:
+        raise AssertionError(f"Kein fachliches Test-Fixture fuer Score {final_score_x10}")
+    risk_fields = derive_current_risk_fields(
+        q_income_points=4,
+        q_obligations_points=4,
+        q_savings_points=12,
+        q_wealth_points=12,
+        investment_horizon_label="Mehr als 12 Jahre",
+        q_investment_goal_points=willingness_source[0],
+        q_risk_preference_points=willingness_source[1],
+        q_risk_behavior_points=willingness_source[2],
+    )
+    assert risk_fields["final_score_x10"] == final_score_x10
     advisor_id = "advisor-riskcap"
     client_id = "client-riskcap"
     mandate_id = "mandate-riskcap"
@@ -129,23 +147,7 @@ def _seed_risk_cap_case(
         version=1,
         is_current=1,
         valid_from=now[:10],
-        q_income_points=4,
-        q_obligations_points=4,
-        q_savings_points=12,
-        q_wealth_points=12,
-        risk_capacity_total=32,
-        risk_capacity_profile="Wachstumsorientiert",
-        investment_horizon_years=15,
-        investment_horizon_label="Mehr als 12 Jahre",
-        risk_capacity_score_x10=final_score_x10,
-        q_investment_goal_points=4,
-        q_risk_preference_points=4,
-        q_risk_behavior_points=4,
-        risk_willingness_total=12,
-        risk_willingness_profile="Wachstumsorientiert",
-        risk_willingness_score_x10=final_score_x10,
-        final_score_x10=final_score_x10,
-        final_profile=profile_for_score_x10(final_score_x10),
+        **risk_fields,
         is_overridden=1,
         override_score_x10=override_score_x10,
         override_profile=profile_for_score_x10(override_score_x10),

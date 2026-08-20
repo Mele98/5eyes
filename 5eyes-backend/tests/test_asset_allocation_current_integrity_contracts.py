@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 
 import pytest
 from fastapi import HTTPException
+from sqlalchemy import text
 
 import routers.allocation as allocation_router
 import services.portfolio_engine as pe
@@ -268,6 +269,11 @@ def test_duplicate_current_risk_assessment_blocks_generate_and_payload(
     _generate(session_factory, mandate_id, advisor_id, _preferences())
 
     with session_factory() as session:
+        # Defense in depth for pre-migration/externally damaged databases: the
+        # new partial unique index normally blocks this state at INSERT time.
+        # Drop it only inside this isolated SQLite fixture so the service-level
+        # exact-one resolver remains independently verified.
+        session.execute(text("DROP INDEX ux_risk_one_current"))
         source = session.query(RiskAssessment).filter(
             RiskAssessment.id == assessment_id
         ).one()
@@ -329,6 +335,10 @@ def test_duplicate_current_target_allocation_blocks_current_endpoints_and_genera
     )
 
     with session_factory() as session:
+        # See the RiskAssessment sibling above.  Database uniqueness has its
+        # own migration/ORM tests; this contract deliberately emulates a
+        # legacy database without the index and verifies consumer fail-closed.
+        session.execute(text("DROP INDEX ux_target_alloc_one_current"))
         source = session.query(TargetAllocation).filter(
             TargetAllocation.id == generated["target_allocation"].id
         ).one()

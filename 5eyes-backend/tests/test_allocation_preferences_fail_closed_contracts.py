@@ -312,6 +312,23 @@ def _persist_unknown_preference(
     return allocation
 
 
+def _persist_raw_preferences(
+    session,
+    allocation_id: str,
+    raw_preferences: str,
+) -> TargetAllocation:
+    """Persist a deliberately damaged snapshot with a matching context hash."""
+
+    allocation = session.query(TargetAllocation).filter(
+        TargetAllocation.id == allocation_id
+    ).one()
+    allocation.preferences_json = raw_preferences
+    _rehash_allocation_context(allocation)
+    session.commit()
+    session.refresh(allocation)
+    return allocation
+
+
 def test_complete_optimizer_and_reporting_allowlist_remains_accepted():
     parsed = AllocationPreferencesPayload.model_validate(
         copy.deepcopy(COMPLETE_VALID_PREFERENCES)
@@ -395,6 +412,214 @@ def test_existing_value_spellings_and_input_types_remain_accepted(section, key, 
         {section: {key: value}}
     ).model_dump()
     assert parsed[section][key] == value
+
+
+@pytest.mark.parametrize(
+    ("fragment", "invalid_key"),
+    [
+        pytest.param({"policy": {"esg": "typo"}}, "esg", id="policy-choice"),
+        pytest.param({"tilts": {"fossil": ["exclude"]}}, "fossil", id="tilt-type"),
+        pytest.param(
+            {"product": {"noDerivatives": "false"}},
+            "noDerivatives",
+            id="product-bool",
+        ),
+        pytest.param(
+            {"product": {"fundsOnly": "false"}},
+            "fundsOnly",
+            id="funds-only-truthy-string",
+        ),
+        pytest.param(
+            {"limits": {"maxIlliquid": "not-a-number"}},
+            "maxIlliquid",
+            id="max-illiquid-number",
+        ),
+        pytest.param(
+            {"limits": {"maxIlliquid": "101%"}},
+            "maxIlliquid",
+            id="max-illiquid-range",
+        ),
+        pytest.param(
+            {"limits": {"singlePosition": True}},
+            "singlePosition",
+            id="single-position-bool",
+        ),
+        pytest.param(
+            {"limits": {"singleIssuer": -0.1}},
+            "singleIssuer",
+            id="single-issuer-range",
+        ),
+        pytest.param(
+            {"limits": {"minReserve": "CHF invalid"}},
+            "minReserve",
+            id="reserve-number",
+        ),
+        pytest.param(
+            {"geo": {"hedgingRequired": 1}},
+            "hedgingRequired",
+            id="geo-bool",
+        ),
+        pytest.param(
+            {"assetClasses": {"equitiesGeo": "Mars"}},
+            "equitiesGeo",
+            id="equity-choice",
+        ),
+        pytest.param(
+            {"assetClasses": {"altsPe": "yes"}},
+            "altsPe",
+            id="asset-class-bool",
+        ),
+        pytest.param(
+            {"assetClasses": {"liquidityReserveTarget": -1}},
+            "liquidityReserveTarget",
+            id="liquidity-reserve-range",
+        ),
+        pytest.param(
+            {"bands": {"equities": {"max_bps": True}}},
+            "max_bps",
+            id="band-bps-bool",
+        ),
+        pytest.param(
+            {"bands": {"equities": {"max_bps": "5000"}}},
+            "max_bps",
+            id="band-bps-string",
+        ),
+        pytest.param(
+            {"simulation": {"horizonYears": 0}},
+            "horizonYears",
+            id="horizon-range",
+        ),
+        pytest.param(
+            {"simulation": {"stressMultiplier": "NaN"}},
+            "stressMultiplier",
+            id="stress-finite",
+        ),
+        pytest.param(
+            {"simulation": {"stressMultiplier": 3}},
+            "stressMultiplier",
+            id="stress-range",
+        ),
+        pytest.param(
+            {"simulation": {"rebalanceMode": "weekly"}},
+            "rebalanceMode",
+            id="rebalance-choice",
+        ),
+        pytest.param(
+            {"simulation": {"monteCarloRuns": 0}},
+            "monteCarloRuns",
+            id="mc-range",
+        ),
+        pytest.param(
+            {"simulation": {"transactionCostBps": 201}},
+            "transactionCostBps",
+            id="transaction-cost-range",
+        ),
+        pytest.param(
+            {"simulation": {"crisisStrength": 1.1}},
+            "crisisStrength",
+            id="crisis-range",
+        ),
+        pytest.param(
+            {"simulation": {"tailRisk": "sometimes"}},
+            "tailRisk",
+            id="tail-risk-value",
+        ),
+    ],
+)
+def test_optimizer_effective_preference_values_fail_closed(fragment, invalid_key):
+    with pytest.raises(ValueError, match=invalid_key):
+        AllocationPreferencesPayload.model_validate(fragment)
+
+
+@pytest.mark.parametrize("invalid_preferences", [[], "", False])
+def test_falsey_non_object_runtime_preferences_are_not_treated_as_defaults(
+    invalid_preferences,
+):
+    with pytest.raises(ValueError):
+        pe._normalize_preferences(invalid_preferences)
+
+
+@pytest.mark.parametrize(
+    ("fragment", "invalid_key"),
+    [
+        pytest.param(
+            {"limits": {"maxIlliquid": "not-a-number"}},
+            "maxIlliquid",
+            id="max-illiquid",
+        ),
+        pytest.param(
+            {"product": {"fundsOnly": "false"}},
+            "fundsOnly",
+            id="truthy-bool-string",
+        ),
+        pytest.param(
+            {"policy": {"esg": "typo"}},
+            "esg",
+            id="policy-choice",
+        ),
+    ],
+)
+def test_generate_api_rejects_invalid_preference_values_with_422(
+    monkeypatch,
+    fragment,
+    invalid_key,
+):
+    advisor = SimpleNamespace(
+        id="advisor-preferences-value-contract",
+        role="advisor",
+        tenant_id=None,
+        full_name="Preferences Value Contract",
+    )
+
+    def _override_db():
+        yield None
+
+    monkeypatch.setattr(app.router, "lifespan_context", noop_lifespan)
+    app.dependency_overrides[get_db] = _override_db
+    app.dependency_overrides[require_advisor] = lambda: advisor
+    try:
+        with TestClient(app, raise_server_exceptions=False) as client:
+            response = client.post(
+                "/mandates/not-looked-up/target-allocation/generate",
+                json={"preferences": fragment},
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 422, response.text
+    assert invalid_key in response.text
+
+
+def test_direct_generate_rejects_invalid_preference_value_before_solver(
+    session_factory,
+    monkeypatch,
+):
+    monkeypatch.setattr(pe.settings, "optimizer_mode", "stochastic")
+    advisor_id, _client_id, mandate_id, _assessment_id, _goal_id = (
+        _seed_realistic_mandate(
+            session_factory,
+            suffix="prefs-runtime-invalid-value",
+        )
+    )
+    solver_calls = []
+
+    def _unexpected_solver(**kwargs):
+        solver_calls.append(kwargs)
+        raise AssertionError("solver must not receive invalid preferences")
+
+    monkeypatch.setattr(solver_module, "run_solver", _unexpected_solver)
+
+    with session_factory() as session:
+        mandate = session.query(Mandate).filter(Mandate.id == mandate_id).one()
+        with pytest.raises(ValueError, match="maxIlliquid"):
+            pe.generate_target_allocation(
+                session,
+                mandate,
+                advisor_id,
+                preferences={"limits": {"maxIlliquid": "not-a-number"}},
+            )
+
+    assert solver_calls == []
 
 
 @pytest.mark.parametrize(("fragment", "unknown_key"), UNKNOWN_KEY_CASES)
@@ -493,6 +718,18 @@ def test_direct_generate_rejects_unknown_runtime_keys_before_solver(
             "mysteryPersistedSimulation",
             id="sensitivity-nested",
         ),
+        pytest.param(
+            "reload",
+            {"limits": {"maxIlliquid": "not-a-number"}},
+            "maxIlliquid",
+            id="reload-invalid-value",
+        ),
+        pytest.param(
+            "sensitivity",
+            {"limits": {"maxIlliquid": "not-a-number"}},
+            "maxIlliquid",
+            id="sensitivity-invalid-value",
+        ),
     ],
 )
 def test_persisted_unknown_preferences_fail_closed_on_reload_and_sensitivity(
@@ -551,6 +788,81 @@ def test_persisted_unknown_preferences_fail_closed_on_reload_and_sensitivity(
             _unexpected_sensitivity_solver,
         )
         with pytest.raises(ValueError, match=unknown_key):
+            pe.evaluate_goal_sensitivity(
+                session,
+                mandate,
+                advisor_id,
+                goal_id,
+                target_delta_pct=0,
+            )
+
+
+@pytest.mark.parametrize("consumer", ["reload", "sensitivity"])
+@pytest.mark.parametrize(
+    ("raw_preferences", "message"),
+    [
+        pytest.param("{broken", "gueltiges JSON", id="invalid-json"),
+        pytest.param("", "gueltiges JSON", id="blank-json"),
+        pytest.param("[]", "JSON-Objekt", id="json-array"),
+        pytest.param("null", "JSON-Objekt", id="json-null"),
+    ],
+)
+def test_damaged_persisted_preferences_fail_closed_on_reload_and_sensitivity(
+    session_factory,
+    monkeypatch,
+    consumer,
+    raw_preferences,
+    message,
+):
+    monkeypatch.setattr(pe.settings, "optimizer_mode", "stochastic")
+    advisor_id, _client_id, mandate_id, _assessment_id, goal_id = (
+        _seed_realistic_mandate(
+            session_factory,
+            suffix=f"prefs-damaged-{consumer}-{message.lower().replace(' ', '-')}",
+        )
+    )
+    _install_solver_double(
+        monkeypatch,
+        weights_bps={
+            "equities": 5000,
+            "bonds": 3000,
+            "real_estate": 500,
+            "alternatives": 1000,
+            "liquidity": 500,
+        },
+    )
+    generated = _generate(
+        session_factory,
+        mandate_id,
+        advisor_id,
+        _preferences(),
+    )
+    allocation_id = generated["target_allocation"].id
+
+    with session_factory() as session:
+        allocation = _persist_raw_preferences(
+            session,
+            allocation_id,
+            raw_preferences,
+        )
+        if consumer == "reload":
+            with pytest.raises(ValueError, match=message):
+                _reload_payload(session, allocation)
+            return
+
+        mandate = session.query(Mandate).filter(Mandate.id == mandate_id).one()
+
+        def _unexpected_sensitivity_solver(**_kwargs):
+            raise AssertionError(
+                "sensitivity solver must not receive damaged preferences"
+            )
+
+        monkeypatch.setattr(
+            solver_module,
+            "run_solver",
+            _unexpected_sensitivity_solver,
+        )
+        with pytest.raises(ValueError, match=message):
             pe.evaluate_goal_sensitivity(
                 session,
                 mandate,

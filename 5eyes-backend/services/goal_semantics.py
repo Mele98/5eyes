@@ -198,7 +198,18 @@ def validate_goal_model_input(goal: Any) -> None:
     frequency_raw = _get(goal, "frequency")
     frequency = normalize_frequency(frequency_raw)
 
-    def require_timing() -> None:
+    def require_evaluation_timing() -> None:
+        # Non-recurring goals are evaluated at target_date or at an explicit
+        # model horizon.  start_date is not consumed as their evaluation
+        # anchor by the liability builders and therefore must not make an
+        # otherwise anchorless raw/legacy row look valid.
+        if horizon is None and target_date is None:
+            raise GoalInputError(
+                f"{prefix}: Ziel benoetigt horizon_years oder target_date; "
+                "start_date allein ist fuer diesen Zieltyp kein Timing-Anker."
+            )
+
+    def require_stream_timing() -> None:
         if horizon is None and target_date is None and start is None:
             raise GoalInputError(
                 f"{prefix}: Ziel benoetigt horizon_years, target_date oder start_date."
@@ -219,7 +230,7 @@ def validate_goal_model_input(goal: Any) -> None:
         forbid(target_wealth, "target_wealth_rappen")
         if frequency_raw not in (None, "") or ongoing:
             raise GoalInputError(f"{prefix}: Renditeziel darf nicht wiederkehrend sein.")
-        require_timing()
+        require_evaluation_timing()
     elif goal_type in {"kapitalerhalt", "vermoegensziel"}:
         if target_wealth is None or target_wealth <= 0:
             raise GoalInputError(f"{prefix}: positives Zielvermoegen fehlt.")
@@ -227,7 +238,7 @@ def validate_goal_model_input(goal: Any) -> None:
         forbid(target_return, "target_return_bps")
         if frequency_raw not in (None, "") or ongoing:
             raise GoalInputError(f"{prefix}: Vermoegensziel darf nicht wiederkehrend sein.")
-        require_timing()
+        require_evaluation_timing()
     elif goal_type == "einmalige_ausgabe":
         if target_amount is None or target_amount <= 0:
             raise GoalInputError(f"{prefix}: positiver Zielbetrag fehlt.")
@@ -235,7 +246,7 @@ def validate_goal_model_input(goal: Any) -> None:
         forbid(target_return, "target_return_bps")
         if frequency_raw not in (None, "") or ongoing:
             raise GoalInputError(f"{prefix}: einmalige Ausgabe darf nicht wiederkehrend sein.")
-        require_timing()
+        require_evaluation_timing()
     elif goal_type in {"wiederkehrende_ausgabe", "pensionsausgabe"}:
         if target_amount is None or target_amount <= 0:
             raise GoalInputError(f"{prefix}: positiver Zielbetrag fehlt.")
@@ -243,7 +254,12 @@ def validate_goal_model_input(goal: Any) -> None:
         forbid(target_return, "target_return_bps")
         if frequency not in SUPPORTED_FREQUENCIES or frequency == "einmalig":
             raise GoalInputError(f"{prefix}: ungueltige wiederkehrende Frequenz.")
-        require_timing()
+        require_stream_timing()
+        if not ongoing and target_date is None:
+            raise GoalInputError(
+                f"{prefix}: ein endliches wiederkehrendes Ziel benoetigt "
+                "target_date; ohne Enddatum muss is_ongoing=1 sein."
+            )
     elif goal_type == "maximierung":
         forbid(target_amount, "target_amount_rappen")
         forbid(target_wealth, "target_wealth_rappen")
