@@ -956,10 +956,56 @@ def list_documents(
     current_user: User = Depends(get_current_user)
 ):
     _get_mandate_or_404(mandate_id, db, current_user)
-    return db.query(ContractDocument).filter(
+    rows = db.query(ContractDocument).filter(
         ContractDocument.mandate_id == mandate_id,
         ContractDocument.deleted_at.is_(None)
     ).order_by(ContractDocument.created_at.desc()).all()
+    # Dokumenten-Archiv (2026-08-20): has_pdf/created_by_name sind auf
+    # ContractDocument selbst nicht vorhanden -- werden hier fuer die Liste
+    # angereichert, ohne pdf_base64 (potenziell mehrere MB je Version) je
+    # in die Listen-Antwort zu ziehen. Siehe ContractDocumentResponse-
+    # Docstring-Kommentar in schemas/review.py.
+    creator_ids = {row.created_by for row in rows if row.created_by}
+    creator_names = {
+        u.id: u.full_name
+        for u in (db.query(User).filter(User.id.in_(creator_ids)).all() if creator_ids else [])
+    }
+    return [
+        ContractDocumentResponse.model_validate(row).model_copy(update={
+            "has_pdf": bool(row.pdf_base64),
+            "created_by_name": creator_names.get(row.created_by),
+        })
+        for row in rows
+    ]
+
+
+@router.get("/mandates/{mandate_id}/documents/{doc_id}/pdf")
+def get_document_pdf(
+    mandate_id: str, doc_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Liefert die archivierten PDF-Bytes genau dieser Version zurueck.
+
+    Dokumenten-Archiv (2026-08-20): getrennt von /reports/*.pdf
+    (routers/pdf_reports.py), die IMMER frisch aus den aktuellen Daten
+    rendern -- dieser Endpoint liefert stattdessen die zum
+    Generierungszeitpunkt tatsaechlich abgelegten Bytes einer aelteren
+    Version unveraendert zurueck (FINMA-Nachweis: "was wurde dem Kunden
+    damals gezeigt").
+    """
+    import base64
+    _get_mandate_or_404(mandate_id, db, current_user)
+    doc = _get_document_or_404(mandate_id, doc_id, db)
+    if not doc.pdf_base64:
+        raise HTTPException(status_code=404, detail="Fuer dieses Dokument liegt kein PDF vor.")
+    safe_title = "".join(c if c.isalnum() else "_" for c in doc.title)[:40]
+    filename = f"{safe_title}_v{doc.version}.pdf"
+    return Response(
+        content=base64.b64decode(doc.pdf_base64),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
 
 
 @router.post("/mandates/{mandate_id}/documents",

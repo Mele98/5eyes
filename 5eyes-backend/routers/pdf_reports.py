@@ -10,7 +10,7 @@ import json
 import logging
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy.orm import Session
 
 from database import get_db
@@ -19,7 +19,9 @@ from models.clients import Client
 logger = logging.getLogger(__name__)
 from models.mandates import Mandate
 from models.users import User
+from routers.auth import _extract_client_ip
 from services.auth import get_current_user, get_mandate_for_user_or_404
+from services.document_archive import archive_generated_pdf, content_hash_for
 from services.pdf import ReportLabRenderer
 from services.pdf.base import (
     AnlagestrategieData,
@@ -828,6 +830,7 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
 )
 def get_anlagestrategie_pdf(
     mandate_id: str,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -840,6 +843,12 @@ def get_anlagestrategie_pdf(
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     pdf_bytes = ReportLabRenderer().render_anlagestrategie(ctx, data)
+    archive_generated_pdf(
+        db, mandate_id=mandate.id, document_type="Anlagestrategie",
+        title="Anlagestrategie / Vertrag", pdf_bytes=pdf_bytes,
+        content_hash=content_hash_for(data),
+        current_user=current_user, ip_address=_extract_client_ip(request),
+    )
     safe_name = "".join(c if c.isalnum() else "_" for c in ctx.mandate_name)[:40]
     filename = f"anlagestrategie_{safe_name}_{ctx.report_date.isoformat()}.pdf"
     return Response(
@@ -884,6 +893,7 @@ def get_assetallocation_pdf(
 )
 def get_risikoprofil_pdf(
     mandate_id: str,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -1000,6 +1010,12 @@ def get_risikoprofil_pdf(
     )
 
     pdf_bytes = ReportLabRenderer().render_risikoprofil(ctx, risk_data)
+    archive_generated_pdf(
+        db, mandate_id=mandate.id, document_type="Risikoprofilierung",
+        title="Risikoprofil", pdf_bytes=pdf_bytes,
+        content_hash=content_hash_for(risk_data),
+        current_user=current_user, ip_address=_extract_client_ip(request),
+    )
     safe_name = "".join(c if c.isalnum() else "_" for c in ctx.mandate_name)[:40]
     filename = f"risikoprofil_{safe_name}_{ctx.report_date.isoformat()}.pdf"
     return Response(
@@ -1156,6 +1172,7 @@ def _build_portfolio_data(mandate: Mandate, db: Session) -> PortfolioData:
 )
 def get_portfolio_pdf(
     mandate_id: str,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -1165,6 +1182,12 @@ def get_portfolio_pdf(
     ctx = _attach_provisional_notice(ctx, db, mandate)
     data = _build_portfolio_data(mandate, db)
     pdf_bytes = ReportLabRenderer().render_portfolio(ctx, data)
+    archive_generated_pdf(
+        db, mandate_id=mandate.id, document_type="Anlagerezept",
+        title="Portfolio-/Umsetzungsplan", pdf_bytes=pdf_bytes,
+        content_hash=content_hash_for(data),
+        current_user=current_user, ip_address=_extract_client_ip(request),
+    )
     safe_name = "".join(c if c.isalnum() else "_" for c in ctx.mandate_name)[:40]
     filename = f"portfolio_{safe_name}_{ctx.report_date.isoformat()}.pdf"
     return Response(
@@ -1488,6 +1511,7 @@ def _build_protokoll_data(mandate: Mandate, db: Session) -> ProtokollData:
 )
 def get_protokoll_pdf(
     mandate_id: str,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -1496,6 +1520,12 @@ def get_protokoll_pdf(
     ctx = _build_pdf_context(mandate, current_user, db)
     data = _build_protokoll_data(mandate, db)
     pdf_bytes = ReportLabRenderer().render_protokoll(ctx, data)
+    archive_generated_pdf(
+        db, mandate_id=mandate.id, document_type="Beratungsprotokoll",
+        title="Beratungsprotokoll", pdf_bytes=pdf_bytes,
+        content_hash=content_hash_for(data),
+        current_user=current_user, ip_address=_extract_client_ip(request),
+    )
     safe_name = "".join(c if c.isalnum() else "_" for c in ctx.mandate_name)[:40]
     filename = f"protokoll_{safe_name}_{ctx.report_date.isoformat()}.pdf"
     return Response(

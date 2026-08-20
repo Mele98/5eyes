@@ -37,7 +37,27 @@ class ContractDocument(Base):
     title = Column(String, nullable=False)
     content_json = Column(String)
     pdf_path = Column(String)
+    # Dokumenten-Archiv (Kundenfeedback 2026-08-20, FINMA-Nachweis): die
+    # tatsaechlichen PDF-Bytes dieser Version, base64-kodiert -- analog zum
+    # bestehenden data:-URI-Muster fuer Signaturen/QR-Codes (siehe
+    # signature_advisor_image oben). pdf_path/checksum_sha256 existierten
+    # zwar schon vorher im Schema, wurden aber nie befuellt (jeder Report-
+    # Endpoint in routers/pdf_reports.py rendert bislang nur in-memory Bytes
+    # direkt an den Client, ohne DB-Spur). services/document_archive.py
+    # befuellt jetzt alle drei Felder bei jeder Generierung.
+    pdf_base64 = Column(String)
     checksum_sha256 = Column(String)
+    # Dokumenten-Archiv (2026-08-20): SHA-256 ueber die zugrundeliegenden
+    # Fachdaten (das *Data-Dataclass aus services/pdf/base.py, VOR dem
+    # Rendern), NICHT ueber die PDF-Bytes selbst. Grund: ReportLab betttet
+    # pro Rendering einen wechselnden Font-Subset-Tag ein (siehe services/
+    # pdf/reportlab_renderer.py) -- zwei Renderings mit IDENTISCHEM Inhalt
+    # ergeben trotzdem unterschiedliche PDF-Bytes. checksum_sha256 bleibt
+    # die Integritaets-Pruefsumme der tatsaechlich archivierten Bytes;
+    # content_hash entscheidet, ob sich der Fachinhalt seit der letzten
+    # Version ueberhaupt geaendert hat (services/document_archive.py::
+    # archive_generated_pdf dedupliziert darueber).
+    content_hash = Column(String)
     pdf_generated_at = Column(String)
     status = Column(String, nullable=False, default="Entwurf")
     signed_by_advisor = Column(Integer, nullable=False, default=0)

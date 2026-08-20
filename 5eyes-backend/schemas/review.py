@@ -289,7 +289,15 @@ class ContractDocumentResponse(BaseResponse):
     supersedes_id: Optional[str]
     pdf_path: Optional[str]
     checksum_sha256: Optional[str]
+    # Dokumenten-Archiv (2026-08-20): NICHT pdf_base64 hier -- die Liste
+    # bleibt bewusst leicht (kann pro Mandat viele Versionen enthalten),
+    # die eigentlichen Bytes gibt es nur einzeln ueber
+    # GET /mandates/{id}/documents/{doc_id}/pdf. has_pdf zeigt der Liste,
+    # ob fuer diesen Eintrag ueberhaupt ein Download existiert (Alteintraege
+    # aus create_document ohne PDF haben keinen).
+    has_pdf: bool = False
     created_by: str
+    created_by_name: Optional[str] = None
     created_at: str
     updated_at: str
 

@@ -5,9 +5,11 @@ Implementiert das PDFRenderer-Protocol mit ReportLab's Platypus-Framework
 """
 from __future__ import annotations
 
+from functools import partial
 from io import BytesIO
 
 from reportlab.lib.units import mm
+from reportlab.pdfgen.canvas import Canvas
 from reportlab.platypus import SimpleDocTemplate
 
 from services.pdf.base import (
@@ -154,9 +156,19 @@ class ReportLabRenderer:
             subject=title,
         )
         footer_cb = make_footer_callback(ctx)
+        # Dokumenten-Archiv (2026-08-20): invariant=1 unterdrueckt ReportLabs
+        # sonst standardmaessig sekundengenau eingebetteten, UNSICHTBAREN
+        # PDF-Metadaten-Zeitstempel (/CreationDate, /ModDate, interne
+        # Objekt-IDs) -- betrifft NICHT den sichtbaren Seiteninhalt (z.B. das
+        # gedruckte Datum im Footer bleibt unveraendert echt). Ohne das waere
+        # jeder erneute Klick auf denselben unveraenderten Report ein
+        # byte-unterschiedliches PDF, was die Checksum-Deduplizierung in
+        # services/document_archive.py (jede Version nur einmal archivieren)
+        # unwirksam machen wuerde.
         doc.build(
             build_flowables(),
             onFirstPage=footer_cb,
             onLaterPages=footer_cb,
+            canvasmaker=partial(Canvas, invariant=1),
         )
         return buffer.getvalue()
