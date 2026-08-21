@@ -145,13 +145,13 @@ def _seed_mandate(session_factory, suffix: str = "") -> tuple[str, str, str, str
             id=aid, mandate_id=mid, version=1, is_current=1, valid_from=now[:10],
             q_income_points=2, q_obligations_points=3,
             q_savings_points=8, q_wealth_points=8,
-            risk_capacity_total=21, risk_capacity_profile="Wachstumsorientiert",
-            risk_capacity_score_x10=70,
-            investment_horizon_years=15, investment_horizon_label="12 bis 17 Jahre",
+            risk_capacity_total=21, risk_capacity_profile="Dynamisch",
+            risk_capacity_score_x10=100,
+            investment_horizon_years=15, investment_horizon_label="Mehr als 12 Jahre",
             q_investment_goal_points=3, q_risk_preference_points=4, q_risk_behavior_points=3,
             risk_willingness_total=10, risk_willingness_profile="Wachstumsorientiert",
-            risk_willingness_score_x10=70,
-            final_score_x10=70, final_profile="Wachstumsorientiert",
+            risk_willingness_score_x10=80,
+            final_score_x10=80, final_profile="Wachstumsorientiert",
             is_overridden=0,
             **CURRENT_RISK_SCHEMA_MARKERS,
             assessed_at=now, assessed_by=advisor_id,
@@ -769,6 +769,100 @@ def test_sensitivity_return_goal_changes_return_target_and_solver_horizon(
     assert out["target_return_bps_baseline"] == 500
     assert out["target_return_bps_new"] == 600
     assert out["solver_horizon_years_baseline"] == calls[0]["horizon_years"]
+    assert out["solver_horizon_years_new"] == calls[1]["horizon_years"]
+
+
+@pytest.mark.parametrize(
+    "goal_type,goal_family",
+    [
+        ("Vermoegensziel", "Vermoegen"),
+        ("Kapitalerhalt", "Vermoegen"),
+        ("Einmalige_Ausgabe", "Cashflow"),
+        ("Renditeziel", "Rendite"),
+    ],
+)
+@pytest.mark.parametrize("horizon_delta_years", [-2, 2])
+def test_sensitivity_shifts_target_date_only_goal_horizon(
+    session_factory,
+    monkeypatch,
+    goal_type,
+    goal_family,
+    horizon_delta_years,
+):
+    """A target-date-only goal must not turn horizon_delta into a no-op."""
+    monkeypatch.setattr(pe.settings, "optimizer_mode", "stochastic")
+    advisor_id, _cid, mid, _aid, pension_goal_id = _seed_mandate(
+        session_factory,
+        suffix=(
+            f"date-only-{goal_type.lower()}-"
+            f"{'plus' if horizon_delta_years > 0 else 'minus'}"
+        ),
+    )
+
+    with session_factory() as session:
+        pension = session.query(Goal).filter(Goal.id == pension_goal_id).one()
+        pension.is_active = 0
+        goal = session.query(Goal).filter(
+            Goal.mandate_id == mid,
+            Goal.goal_type == "Vermoegensziel",
+        ).one()
+        goal.goal_type = goal_type
+        goal.goal_family = goal_family
+        goal.horizon_years = None
+        goal.start_date = None
+        goal.frequency = None
+        goal.is_ongoing = 0
+        goal.pension_pillar = None
+        if goal_type in {"Vermoegensziel", "Kapitalerhalt"}:
+            goal.target_amount_rappen = None
+            goal.target_return_bps = None
+        elif goal_type == "Einmalige_Ausgabe":
+            goal.target_amount_rappen = 100_000_00
+            goal.target_wealth_rappen = None
+            goal.target_return_bps = None
+        else:
+            goal.hardness = "Opportunistisch"
+            goal.target_amount_rappen = None
+            goal.target_wealth_rappen = None
+            goal.target_return_bps = 500
+        original_target_date = str(goal.target_date)
+        goal_id = str(goal.id)
+        session.commit()
+
+    calls = _capture_sensitivity_solver_calls(monkeypatch)
+    with session_factory() as session:
+        mandate = session.query(Mandate).filter(Mandate.id == mid).one()
+        persisted = session.query(Goal).filter(Goal.id == goal_id).one()
+        out = evaluate_goal_sensitivity(
+            db=session,
+            mandate=mandate,
+            user_id=advisor_id,
+            goal_id=goal_id,
+            target_delta_pct=0,
+            horizon_delta_years=horizon_delta_years,
+        )
+        assert persisted.target_date == original_target_date
+        assert persisted.horizon_years is None
+        session.expire_all()
+        reloaded = session.query(Goal).filter(Goal.id == goal_id).one()
+        assert reloaded.target_date == original_target_date
+        assert reloaded.horizon_years is None
+
+    assert len(calls) == 2
+    baseline_goal = _captured_goal(calls[0], goal_id)
+    modified_goal = _captured_goal(calls[1], goal_id)
+    before = date.fromisoformat(original_target_date)
+    after = date.fromisoformat(modified_goal["target_date"])
+    assert baseline_goal["target_date"] == original_target_date
+    assert (after.year, after.month, after.day) == (
+        before.year + horizon_delta_years,
+        before.month,
+        before.day,
+    )
+    assert modified_goal["horizon_years"] is None
+    assert calls[1]["horizon_years"] == (
+        calls[0]["horizon_years"] + horizon_delta_years
+    )
     assert out["solver_horizon_years_new"] == calls[1]["horizon_years"]
 
 

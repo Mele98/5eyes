@@ -61,6 +61,30 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
+def _tamper_risk_derivation_to_aggressive_final(session, assessment_id: str) -> None:
+    """Persist conservative source facts behind a forged Aktien result."""
+    assessment = session.query(RiskAssessment).filter(
+        RiskAssessment.id == assessment_id
+    ).one()
+    assessment.q_income_points = 0
+    assessment.q_obligations_points = 0
+    assessment.q_savings_points = 0
+    assessment.q_wealth_points = 0
+    assessment.investment_horizon_label = "Mehr als 12 Jahre"
+    assessment.risk_capacity_total = 0
+    assessment.risk_capacity_profile = "Risikoarm"
+    assessment.risk_capacity_score_x10 = 30
+    assessment.q_investment_goal_points = 1
+    assessment.q_risk_preference_points = 1
+    assessment.q_risk_behavior_points = 1
+    assessment.risk_willingness_total = 3
+    assessment.risk_willingness_profile = "Kapitalschutz"
+    assessment.risk_willingness_score_x10 = 10
+    assessment.final_score_x10 = 100
+    assessment.final_profile = "Aktien"
+    session.commit()
+
+
 def _add_raw_inflow(
     session,
     *,
@@ -87,6 +111,78 @@ def _add_raw_inflow(
     )
     session.add(inflow)
     return inflow
+
+
+@pytest.mark.parametrize("entrypoint", ["generate", "sensitivity"])
+def test_live_solver_entrypoints_reject_tampered_risk_score_derivation(
+    session_factory,
+    monkeypatch,
+    entrypoint,
+):
+    """A forged aggressive final score must stop before stochastic solving."""
+    monkeypatch.setattr(pe.settings, "optimizer_mode", "stochastic")
+    advisor_id, _client_id, mandate_id, assessment_id, goal_id = (
+        _seed_realistic_mandate(
+            session_factory,
+            suffix=f"risk-derivation-{entrypoint}",
+        )
+    )
+    calls = _install_solver_double(monkeypatch, weights_bps=FINAL_WEIGHTS)
+
+    with session_factory() as session:
+        _tamper_risk_derivation_to_aggressive_final(session, assessment_id)
+        mandate = session.query(Mandate).filter(Mandate.id == mandate_id).one()
+
+        with pytest.raises(ValueError, match=r"final_score_x10.*Herleitung"):
+            if entrypoint == "generate":
+                pe.generate_target_allocation(
+                    session,
+                    mandate,
+                    advisor_id,
+                    preferences=_preferences(),
+                )
+            else:
+                pe.evaluate_goal_sensitivity(
+                    session,
+                    mandate,
+                    advisor_id,
+                    goal_id,
+                    target_delta_pct=10,
+                )
+
+    assert calls == []
+
+
+def test_reload_rejects_tampered_risk_score_derivation(
+    session_factory,
+    monkeypatch,
+):
+    """A persisted allocation cannot be republished over a forged score."""
+    monkeypatch.setattr(pe.settings, "optimizer_mode", "stochastic")
+    advisor_id, _client_id, mandate_id, assessment_id, _goal_id = (
+        _seed_realistic_mandate(
+            session_factory,
+            suffix="risk-derivation-reload",
+        )
+    )
+    calls = _install_solver_double(monkeypatch, weights_bps=FINAL_WEIGHTS)
+    generated = _generate(
+        session_factory,
+        mandate_id,
+        advisor_id,
+        _preferences(),
+    )
+    assert len(calls) == 1
+
+    with session_factory() as session:
+        _tamper_risk_derivation_to_aggressive_final(session, assessment_id)
+        allocation = session.query(TargetAllocation).filter(
+            TargetAllocation.id == generated["target_allocation"].id
+        ).one()
+        with pytest.raises(ValueError, match=r"final_score_x10.*Herleitung"):
+            _reload_payload(session, allocation)
+
+    assert len(calls) == 1
 
 
 def _add_raw_position(

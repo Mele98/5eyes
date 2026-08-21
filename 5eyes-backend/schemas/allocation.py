@@ -1,3 +1,5 @@
+import math
+
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from typing import Literal, Optional
 from schemas.common import BaseResponse
@@ -87,6 +89,156 @@ _VALID_SIMULATION_KEYS = frozenset(
         "cornishFisher",
     }
 )
+
+_VALID_POLICY_VALUES = {
+    "esg": frozenset(
+        {
+            "none",
+            "best_in_class",
+            "impact",
+            "net_zero",
+            "esg_integration",
+            "negative_screening",
+        }
+    ),
+    "universe": frozenset({"funds_only", "listed_only", "standard", "extended"}),
+    "homeBias": frozenset({"ch_focus", "none", "europe_focus", "global"}),
+    "hedging": frozenset({"none", "hedged", "chf_only", "risk_budget"}),
+}
+_VALID_ASSET_CLASS_CHOICES = {
+    # CH, backwards-compatible umlaut spelling, and the currently supported
+    # DE jurisdiction vocabulary.
+    "equitiesGeo": frozenset(
+        {
+            "Schweiz Fokus",
+            "Deutschland Fokus",
+            "Global",
+            "Europa",
+            "Schwellenländer",
+            "Schwellenlaender",
+        }
+    ),
+    "bondsDuration": frozenset({"Langfristig", "Kurzfristig", "Gemischt"}),
+    "realestateMarket": frozenset({"Schweiz", "Deutschland", "Ausland", "Gemischt"}),
+    "liquidityInstrument": frozenset({"Geldmarktfonds", "Kontoguthaben", "Festgeld"}),
+}
+_ASSET_CLASS_BOOLEAN_KEYS = frozenset(
+    {
+        "equitiesLargeCap",
+        "equitiesSmid",
+        "bondsInvestmentGrade",
+        "bondsHighYield",
+        "bondsEmerging",
+        "realestateFunds",
+        "realestateDirect",
+        "altsGold",
+        "altsLiquidAlts",
+        "altsHedge",
+        "altsPe",
+        "altsCrypto",
+    }
+)
+_VALID_REBALANCE_MODES = frozenset(
+    {"band", "bands", "calendar", "jaehrlich", "none", "off", "aus"}
+)
+_VALID_BOOLEAN_SPELLINGS = frozenset(
+    {"1", "true", "yes", "on", "0", "false", "no", "off"}
+)
+
+
+def _validate_choice(*, section: str, key: str, value, allowed: frozenset[str]) -> None:
+    if not isinstance(value, str) or value not in allowed:
+        raise ValueError(
+            f"{section}.{key} hat den ungueltigen Wert {value!r} "
+            f"(erlaubt: {sorted(allowed)})"
+        )
+
+
+def _validate_strict_bool(*, section: str, key: str, value) -> None:
+    if type(value) is not bool:
+        raise ValueError(f"{section}.{key} muss true oder false sein")
+
+
+def _parse_finite_number(
+    *,
+    section: str,
+    key: str,
+    value,
+    allow_empty: bool = False,
+    percent: bool = False,
+    currency: bool = False,
+) -> float | None:
+    if value is None or (isinstance(value, str) and not value.strip()):
+        if allow_empty:
+            return None
+        raise ValueError(f"{section}.{key} muss eine Zahl sein")
+    if type(value) is bool or not isinstance(value, (int, float, str)):
+        raise ValueError(f"{section}.{key} muss eine Zahl sein")
+    raw = str(value).strip()
+    if currency:
+        raw = raw.replace("CHF", "")
+    if percent:
+        raw = raw.replace("%", "")
+    raw = raw.replace("'", "").replace(" ", "").replace(",", ".")
+    try:
+        parsed = float(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{section}.{key} muss eine Zahl sein") from exc
+    if not math.isfinite(parsed):
+        raise ValueError(f"{section}.{key} muss eine endliche Zahl sein")
+    return parsed
+
+
+def _validate_number_range(
+    *,
+    section: str,
+    key: str,
+    value,
+    minimum: float,
+    maximum: float | None = None,
+    allow_empty: bool = False,
+    percent: bool = False,
+    currency: bool = False,
+) -> None:
+    parsed = _parse_finite_number(
+        section=section,
+        key=key,
+        value=value,
+        allow_empty=allow_empty,
+        percent=percent,
+        currency=currency,
+    )
+    if parsed is None:
+        return
+    if parsed < minimum or (maximum is not None and parsed > maximum):
+        upper = f" und {maximum:g}" if maximum is not None else ""
+        raise ValueError(
+            f"{section}.{key} muss zwischen {minimum:g}{upper} liegen"
+        )
+
+
+def _validate_integer_range(
+    *,
+    section: str,
+    key: str,
+    value,
+    minimum: int,
+    maximum: int,
+) -> None:
+    if type(value) is int:
+        parsed = value
+    elif isinstance(value, str):
+        raw = value.strip()
+        digits = raw[1:] if raw[:1] in {"+", "-"} else raw
+        if not digits or not digits.isdigit():
+            raise ValueError(f"{section}.{key} muss eine ganze Zahl sein")
+        parsed = int(raw)
+    else:
+        raise ValueError(f"{section}.{key} muss eine ganze Zahl sein")
+    if parsed < minimum or parsed > maximum:
+        raise ValueError(
+            f"{section}.{key} muss zwischen {minimum} und {maximum} liegen"
+        )
 
 
 class TargetAllocationCreate(BaseModel):
@@ -643,6 +795,13 @@ class AllocationBandOverridePayload(BaseModel):
     target_bps: Optional[int] = Field(default=None, ge=0, le=10000)
     max_bps: Optional[int] = Field(default=None, ge=0, le=10000)
 
+    @field_validator("min_bps", "target_bps", "max_bps", mode="before")
+    @classmethod
+    def validate_strict_bps_type(cls, value):
+        if value is not None and type(value) is not int:
+            raise ValueError("Band-bps muessen ganze Zahlen sein")
+        return value
+
     @model_validator(mode="after")
     def validate_band_order(self):
         lo, tg, hi = self.min_bps, self.target_bps, self.max_bps
@@ -673,11 +832,17 @@ class AllocationPreferencesPayload(BaseModel):
     @field_validator("policy")
     @classmethod
     def validate_policy(cls, value: dict) -> dict:
-        for key in value:
+        for key, item in value.items():
             if key not in _VALID_POLICY_KEYS:
                 raise ValueError(
                     f"Unbekannter Policy-Key '{key}' (erlaubt: {sorted(_VALID_POLICY_KEYS)})"
                 )
+            _validate_choice(
+                section="policy",
+                key=key,
+                value=item,
+                allowed=_VALID_POLICY_VALUES[key],
+            )
         return value
 
     @field_validator("tilts")
@@ -688,49 +853,90 @@ class AllocationPreferencesPayload(BaseModel):
                 raise ValueError(
                     f"Unbekannter Tilt-Key '{key}' (erlaubt: {sorted(_VALID_TILT_KEYS)})"
                 )
-            if mode not in _VALID_TILT_VALUES:
-                raise ValueError(
-                    f"Unbekannter Tilt-Modus '{mode}' fuer '{key}' (erlaubt: {sorted(_VALID_TILT_VALUES)})"
-                )
+            _validate_choice(
+                section="tilts",
+                key=key,
+                value=mode,
+                allowed=_VALID_TILT_VALUES,
+            )
         return value
 
     @field_validator("product")
     @classmethod
     def validate_product(cls, value: dict) -> dict:
-        for key in value:
+        for key, item in value.items():
             if key not in _VALID_PRODUCT_KEYS:
                 raise ValueError(
                     f"Unbekannter Product-Key '{key}' (erlaubt: {sorted(_VALID_PRODUCT_KEYS)})"
                 )
+            _validate_strict_bool(section="product", key=key, value=item)
         return value
 
     @field_validator("limits")
     @classmethod
     def validate_limits(cls, value: dict) -> dict:
-        for key in value:
+        for key, item in value.items():
             if key not in _VALID_LIMITS_KEYS:
                 raise ValueError(
                     f"Unbekannter Limits-Key '{key}' (erlaubt: {sorted(_VALID_LIMITS_KEYS)})"
+                )
+            if key in {"singlePosition", "singleIssuer", "maxIlliquid"}:
+                _validate_number_range(
+                    section="limits",
+                    key=key,
+                    value=item,
+                    minimum=0,
+                    maximum=100,
+                    allow_empty=True,
+                    percent=True,
+                )
+            else:
+                _validate_number_range(
+                    section="limits",
+                    key=key,
+                    value=item,
+                    minimum=0,
+                    allow_empty=True,
+                    currency=True,
                 )
         return value
 
     @field_validator("geo")
     @classmethod
     def validate_geo(cls, value: dict) -> dict:
-        for key in value:
+        for key, item in value.items():
             if key not in _VALID_GEO_KEYS:
                 raise ValueError(
                     f"Unbekannter Geo-Key '{key}' (erlaubt: {sorted(_VALID_GEO_KEYS)})"
                 )
+            _validate_strict_bool(section="geo", key=key, value=item)
         return value
 
     @field_validator("assetClasses")
     @classmethod
     def validate_asset_classes(cls, value: dict) -> dict:
-        for key in value:
+        for key, item in value.items():
             if key not in _VALID_ASSET_CLASS_KEYS:
                 raise ValueError(
                     f"Unbekannter AssetClasses-Key '{key}' (erlaubt: {sorted(_VALID_ASSET_CLASS_KEYS)})"
+                )
+            if key in _ASSET_CLASS_BOOLEAN_KEYS:
+                _validate_strict_bool(section="assetClasses", key=key, value=item)
+            elif key == "liquidityReserveTarget":
+                _validate_number_range(
+                    section="assetClasses",
+                    key=key,
+                    value=item,
+                    minimum=0,
+                    allow_empty=True,
+                    currency=True,
+                )
+            else:
+                _validate_choice(
+                    section="assetClasses",
+                    key=key,
+                    value=item,
+                    allowed=_VALID_ASSET_CLASS_CHOICES[key],
                 )
         return value
 
@@ -747,11 +953,70 @@ class AllocationPreferencesPayload(BaseModel):
     @field_validator("simulation")
     @classmethod
     def validate_simulation(cls, value: dict) -> dict:
-        for key in value:
+        for key, item in value.items():
             if key not in _VALID_SIMULATION_KEYS:
                 raise ValueError(
                     f"Unbekannter Simulation-Key '{key}' (erlaubt: {sorted(_VALID_SIMULATION_KEYS)})"
                 )
+            if key == "horizonYears":
+                _validate_integer_range(
+                    section="simulation",
+                    key=key,
+                    value=item,
+                    minimum=1,
+                    maximum=120,
+                )
+            elif key == "stressMultiplier":
+                _validate_number_range(
+                    section="simulation",
+                    key=key,
+                    value=item,
+                    minimum=0.25,
+                    maximum=2.5,
+                )
+            elif key == "rebalanceMode":
+                _validate_choice(
+                    section="simulation",
+                    key=key,
+                    value=item,
+                    allowed=_VALID_REBALANCE_MODES,
+                )
+            elif key == "monteCarloRuns":
+                # The runtime intentionally clamps legacy low/high requests to
+                # 250..2500 paths. Preserve that public compatibility while
+                # rejecting zero, negative, fractional and absurd payloads.
+                _validate_integer_range(
+                    section="simulation",
+                    key=key,
+                    value=item,
+                    minimum=1,
+                    maximum=1_000_000,
+                )
+            elif key == "transactionCostBps":
+                _validate_integer_range(
+                    section="simulation",
+                    key=key,
+                    value=item,
+                    minimum=0,
+                    maximum=200,
+                )
+            elif key in {"crisisMode", "crisisStrength"}:
+                if key == "crisisMode" and type(item) is bool:
+                    continue
+                _validate_number_range(
+                    section="simulation",
+                    key=key,
+                    value=item,
+                    minimum=0,
+                    maximum=1,
+                )
+            else:
+                if type(item) is bool:
+                    continue
+                if not isinstance(item, str) or item.strip().lower() not in _VALID_BOOLEAN_SPELLINGS:
+                    raise ValueError(
+                        f"simulation.{key} muss true/false oder eine bekannte Bool-Schreibweise sein"
+                    )
         return value
 
 

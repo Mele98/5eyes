@@ -25,6 +25,7 @@ if str(BACKEND_ROOT) not in sys.path:
 
 from database import Base, get_db, new_uuid
 from main import app
+from models import tenant as _tenant_model  # noqa: F401
 from models.allocation import (
     BuildingBlock,
     CapitalMarketAssumption,
@@ -46,7 +47,12 @@ from services.portfolio_engine import (
     build_target_payload_from_allocation,
     ensure_runtime_reference_data,
 )
-from tests.risk_fixture_helpers import CURRENT_RISK_SCHEMA_MARKERS, add_current_risk_answers, noop_lifespan
+from tests.risk_fixture_helpers import (
+    CURRENT_RISK_SCHEMA_MARKERS,
+    add_current_risk_answers,
+    derive_current_risk_fields,
+    noop_lifespan,
+)
 
 
 def _utc_now_iso() -> str:
@@ -126,19 +132,38 @@ def _add_assessment(session_factory, mandate_id: str, advisor_id: str,
                     final_score_x10: int = 60, profile: str = "Ausgewogen") -> str:
     aid = str(uuid.uuid4())
     now = _utc_now_iso()
+    if final_score_x10 == 60:
+        source = dict(
+            q_income_points=2,
+            q_obligations_points=3,
+            q_savings_points=2,
+            q_wealth_points=2,
+            investment_horizon_label="8 bis 11 Jahre",
+            q_investment_goal_points=3,
+            q_risk_preference_points=3,
+            q_risk_behavior_points=3,
+        )
+    elif final_score_x10 == 80:
+        source = dict(
+            q_income_points=2,
+            q_obligations_points=3,
+            q_savings_points=6,
+            q_wealth_points=6,
+            investment_horizon_label="Mehr als 12 Jahre",
+            q_investment_goal_points=3,
+            q_risk_preference_points=4,
+            q_risk_behavior_points=3,
+        )
+    else:
+        raise AssertionError(f"Kein fachliches Test-Fixture fuer Score {final_score_x10}")
+    risk_fields = derive_current_risk_fields(**source)
+    assert risk_fields["final_score_x10"] == final_score_x10
+    assert risk_fields["final_profile"] == profile
     with session_factory() as s:
         s.add(RiskAssessment(
             id=aid, mandate_id=mandate_id, version=1, is_current=1,
             valid_from=now[:10],
-            q_income_points=2, q_obligations_points=3,
-            q_savings_points=6, q_wealth_points=6,
-            risk_capacity_total=17, risk_capacity_profile="Wachstumsorientiert",
-            risk_capacity_score_x10=60,
-            investment_horizon_years=10, investment_horizon_label="8 bis 11 Jahre",
-            q_investment_goal_points=3, q_risk_preference_points=3, q_risk_behavior_points=3,
-            risk_willingness_total=9, risk_willingness_profile="Ausgewogen",
-            risk_willingness_score_x10=60,
-            final_score_x10=final_score_x10, final_profile=profile,
+            **risk_fields,
             is_overridden=0,
             **CURRENT_RISK_SCHEMA_MARKERS,
             assessed_at=now, assessed_by=advisor_id,

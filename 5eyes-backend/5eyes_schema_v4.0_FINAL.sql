@@ -762,7 +762,7 @@ CREATE TABLE IF NOT EXISTS optimizer_policies (
     CHECK(valid_to IS NULL OR valid_to >= valid_from)
 );
 CREATE UNIQUE INDEX IF NOT EXISTS ux_optimizer_one_current
-    ON optimizer_policies(policy_name) WHERE is_current = 1;
+    ON optimizer_policies(is_current) WHERE is_current = 1;
 
 -- ============================================================
 -- 14. SOLL-ALLOKATION (FIX v4: Composite FK für based_on_assessment_id)

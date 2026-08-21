@@ -20,11 +20,12 @@ Verifiziert:
 from __future__ import annotations
 
 from io import StringIO
+import logging
 import sys
 from pathlib import Path
 
 import pytest
-from sqlalchemy import create_engine, inspect
+from sqlalchemy import create_engine, inspect, text
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
@@ -119,6 +120,48 @@ def test_baseline_migration_matches_current_models(tmp_path):
     assert not extra_in_migration, (
         f"Tabellen in der Baseline-Migration, aber nicht mehr in Base.metadata: {extra_in_migration}."
     )
+
+
+def test_alembic_upgrade_preserves_existing_application_logger(tmp_path):
+    """Running migrations in-process must not disable application logging.
+
+    Alembic's ``fileConfig`` defaults to ``disable_existing_loggers=True``.
+    That global mutation only becomes visible in the complete test process (or
+    when the application invokes Alembic in-process), where service loggers
+    already exist before the migration starts.
+    """
+    from alembic import command
+    from alembic.config import Config as AlembicConfig
+
+    db_file = tmp_path / "alembic_logging_isolation.db"
+    cfg = AlembicConfig(str(BACKEND_ROOT / "alembic.ini"))
+    cfg.set_main_option("sqlalchemy.url", f"sqlite:///{db_file}")
+    cfg.set_main_option("script_location", str(BACKEND_ROOT / "alembic"))
+
+    app_logger = logging.getLogger("services.alembic_logging_isolation_probe")
+    original_disabled = app_logger.disabled
+    original_level = app_logger.level
+    original_propagate = app_logger.propagate
+    output = StringIO()
+    probe_handler = logging.StreamHandler(output)
+    app_logger.disabled = False
+    app_logger.setLevel(logging.WARNING)
+    app_logger.propagate = False
+    app_logger.addHandler(probe_handler)
+
+    try:
+        command.upgrade(cfg, "head")
+
+        assert app_logger.disabled is False
+        assert probe_handler in app_logger.handlers
+        app_logger.warning("application logger survived Alembic")
+        assert "application logger survived Alembic" in output.getvalue()
+    finally:
+        app_logger.removeHandler(probe_handler)
+        probe_handler.close()
+        app_logger.disabled = original_disabled
+        app_logger.setLevel(original_level)
+        app_logger.propagate = original_propagate
 
 
 def test_head_migration_matches_target_allocation_model_columns(tmp_path):

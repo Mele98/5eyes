@@ -23,6 +23,19 @@ warmer Python-Import-Cache):
     generate_target_allocation():  siehe Kommentar bei BUDGET_GENERATE_S
     compute_advisory_report():      siehe Kommentar bei BUDGET_REPORT_S
 
+2026-08-21-Nachtrag (Peer-Review-Nachlauf stochastischer Optimizer, PR #375):
+generate_target_allocation() ruft jetzt zusaetzlich die strikte Risikoprofil-
+Neuherleitung (services/risk_assessment_semantics.py::_validate_persisted_
+derivation) sowie eine deutlich strengere Preference-Werte-/Typ-/Bereichs-
+validierung auf (schemas/allocation.py) -- echte, gewollte Mehrarbeit fuer
+staerkere Fail-Closed-Garantien, keine Ineffizienz. Neue lokale Baseline
+(3 Laeufe): 2.46s / 2.40s / 2.67s (vorher 1.90s/1.95s/2.08s, ca. +25-30%).
+Der GitHub-Actions-Runner lief bei diesem PR zusaetzlich deutlich langsamer
+als der lokale Rechner (6.138s gemessen bei einem Einzellauf, obwohl lokal
+nie ueber 2.7s) -- das Budget unten ist daher bewusst NICHT nur 3x die
+lokale Baseline, sondern mit Sicherheitsabstand ÜBER dem real beobachteten
+CI-Wert gesetzt.
+
 Falls dieser Test auf einem deutlich langsameren CI-Runner dauerhaft
 flakt, ist die richtige Reaktion: Budget anheben (mit neuer Baseline-
 Messung dokumentieren), NICHT den Test loeschen — er ist die einzige
@@ -80,9 +93,19 @@ _NOW = "2026-07-22T09:00:00.000Z"
 #   kombiniert (beide seriell):   1.98s / 2.07s / 2.26s
 # Budget = ca. 3x das langsamste der 3 gemessenen Laeufe (deckt eine
 # 10x-Regression zuverlaessig, flakt nicht bei normaler System-Last):
-BUDGET_GENERATE_S = 6.0
+#
+# 2026-08-21-Nachtrag (PR #375, siehe Modul-Docstring): neue lokale Baseline
+# nach der strikten Risikoprofil-/Preference-Validierung:
+#   generate_target_allocation(): 2.46s / 2.40s / 2.67s
+#   compute_advisory_report():    0.077s / 0.083s / 0.071s  (unveraendert)
+#   kombiniert:                   2.19s / 2.10s / 2.72s
+# GitHub-Actions-CI lief bei diesem PR spuerbar langsamer als lokal
+# (generate=6.138s, kombiniert=7.006s in einem Einzellauf) -- Budget daher
+# mit Sicherheitsabstand ueber dem real beobachteten CI-Wert gesetzt, nicht
+# nur 3x lokal:
+BUDGET_GENERATE_S = 9.0
 BUDGET_REPORT_S = 1.0
-BUDGET_COMBINED_S = 7.0
+BUDGET_COMBINED_S = 10.5
 
 
 class _QueryCounter:
@@ -258,12 +281,12 @@ def _seed_realistic_mandate_for_perf(s):
         q_savings_points=3, q_wealth_points=3,
         risk_capacity_total=11, risk_capacity_profile="Wachstumsorientiert",
         risk_capacity_score_x10=75,
-        investment_horizon_years=15, investment_horizon_label="Langfristig",
+        investment_horizon_years=15, investment_horizon_label="Mehr als 12 Jahre",
         q_investment_goal_points=4, q_risk_preference_points=3,
         q_risk_behavior_points=2,
-        risk_willingness_total=9, risk_willingness_profile="Ausgewogen",
-        risk_willingness_score_x10=60,
-        final_score_x10=68, final_profile="Wachstumsorientiert",
+        risk_willingness_total=9, risk_willingness_profile="Wachstumsorientiert",
+        risk_willingness_score_x10=70,
+        final_score_x10=70, final_profile="Wachstumsorientiert",
         is_overridden=0,
         **CURRENT_RISK_SCHEMA_MARKERS,
         assessed_at=_NOW, assessed_by=advisor.id,

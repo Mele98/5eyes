@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, ForeignKey
+from sqlalchemy import Column, String, Integer, ForeignKey, Index, text
 from sqlalchemy.orm import relationship
 from database import Base
 
@@ -33,6 +33,15 @@ class ClientKnowledge(Base):
 
 class RiskAssessment(Base):
     __tablename__ = "risk_assessments"
+    __table_args__ = (
+        Index(
+            "ux_risk_one_current",
+            "mandate_id",
+            unique=True,
+            sqlite_where=text("is_current = 1 AND deleted_at IS NULL"),
+            postgresql_where=text("is_current = 1 AND deleted_at IS NULL"),
+        ),
+    )
 
     id = Column(String, primary_key=True)
     mandate_id = Column(String, ForeignKey("mandates.id"), nullable=False)

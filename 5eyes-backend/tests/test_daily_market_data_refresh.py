@@ -15,7 +15,7 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 from database import Base
-from models import allocation, clients, mandates, profiling, review, snapshots, users, wealth  # noqa: F401
+from models import allocation, clients, mandates, profiling, review, snapshots, tenant, users, wealth  # noqa: F401
 from models.allocation import OptimizerPolicy
 from models.clients import Client
 from models.mandates import Mandate
@@ -114,6 +114,15 @@ def _seed_position_product(db_session, product_id: str = "prod-1", *, current_am
         created_at=_now(),
         updated_at=_now(),
     ))
+    # OptimizerPolicy.is_current ist global eindeutig. Mehrere Produkte in
+    # demselben Test simulieren daher einen Policy-Rollover, statt parallele
+    # Current-Policies zu erzeugen.
+    db_session.query(OptimizerPolicy).filter(
+        OptimizerPolicy.is_current == 1,
+    ).update(
+        {OptimizerPolicy.is_current: 0},
+        synchronize_session=False,
+    )
     db_session.add(OptimizerPolicy(
         id=policy_id,
         policy_name="Policy",

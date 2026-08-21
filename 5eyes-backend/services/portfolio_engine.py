@@ -458,7 +458,11 @@ def _normalize_preferences(preferences: dict | None) -> dict:
     # dict durch -- ein Tippfehler blieb dort stillschweigend wirkungslos.
     from schemas.allocation import AllocationPreferencesPayload
 
-    validated = AllocationPreferencesPayload.model_validate(preferences or {})
+    # Only an absent value means "use defaults".  Falsey non-objects ([], "")
+    # are malformed trust-boundary input and must not collapse to {}.
+    validated = AllocationPreferencesPayload.model_validate(
+        {} if preferences is None else preferences
+    )
     return validated.model_dump()
 
 
@@ -466,13 +470,25 @@ def _allocation_snapshot_preferences(allocation: TargetAllocation | None) -> dic
     if allocation is None:
         return None
     raw = getattr(allocation, "preferences_json", None)
-    if not raw:
+    # NULL is the sole legacy "no snapshot" representation.  A present but
+    # malformed value is damaged persisted model input, not a default request.
+    if raw is None:
         return None
+    if not str(raw).strip():
+        raise ValueError(
+            "Persistierte Allocation-Praeferenzen enthalten kein gueltiges JSON."
+        )
     try:
         parsed = json.loads(str(raw))
-    except (TypeError, ValueError, json.JSONDecodeError):
-        return None
-    return parsed if isinstance(parsed, dict) else None
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise ValueError(
+            "Persistierte Allocation-Praeferenzen enthalten kein gueltiges JSON."
+        ) from exc
+    if not isinstance(parsed, dict):
+        raise ValueError(
+            "Persistierte Allocation-Praeferenzen muessen ein JSON-Objekt sein."
+        )
+    return parsed
 
 
 def _merge_mandate_defaults_into_prefs(prefs: dict, mandate) -> dict:
@@ -3732,6 +3748,10 @@ def generate_target_allocation(
     if previous_current:
         previous_current.is_current = 0
         previous_version = int(previous_current.version or 0)
+        # The database-level partial unique index is immediate.  Persist the
+        # old anchor transition before the replacement TargetAllocation is
+        # added later in this unit of work.
+        db.flush()
 
     # C8: Audit-Anker zur Reproduzierbarkeit + spaeteren Drift-Erkennung.
     preferences_json_snapshot = json.dumps(prefs, sort_keys=True, default=str)
@@ -4465,13 +4485,19 @@ def evaluate_goal_sensitivity(
 
         goal_type = _norm_text(active_target_goal.goal_type)
         if horizon_delta_years:
+            # A date-only wealth, one-time or return goal derives its model
+            # horizon from target_date.  Shifting only horizon_years made the
+            # requested counterfactual a no-op whenever that nullable field
+            # was absent.  Move every explicit evaluation/end date; recurring
+            # goals additionally move their start below so their duration is
+            # preserved.
+            new_target_date = _shift_iso_year(
+                original_target_date,
+                horizon_delta_years,
+            )
             if goal_type in ("Wiederkehrende_Ausgabe", "Pensionsausgabe"):
                 new_start_date = _shift_iso_year(
                     original_start_date,
-                    horizon_delta_years,
-                )
-                new_target_date = _shift_iso_year(
-                    original_target_date,
                     horizon_delta_years,
                 )
 

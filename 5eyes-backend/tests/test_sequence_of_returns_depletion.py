@@ -123,12 +123,13 @@ def _seed_accumulation_mandate(session_factory):
         s.add(RiskAssessment(
             id=aid, mandate_id=mid, version=1, is_current=1, valid_from=now[:10],
             q_income_points=2, q_obligations_points=3, q_savings_points=6, q_wealth_points=6,
-            risk_capacity_total=17, risk_capacity_profile="Wachstumsorientiert",
-            risk_capacity_score_x10=60, investment_horizon_years=10,
+            risk_capacity_total=17, risk_capacity_profile="Dynamisch",
+            risk_capacity_score_x10=70, investment_horizon_years=10,
             investment_horizon_label="8 bis 11 Jahre",
             q_investment_goal_points=3, q_risk_preference_points=3, q_risk_behavior_points=3,
-            risk_willingness_total=9, risk_willingness_profile="Ausgewogen",
-            risk_willingness_score_x10=60, final_score_x10=60, final_profile="Ausgewogen",
+            risk_willingness_total=9, risk_willingness_profile="Wachstumsorientiert",
+            risk_willingness_score_x10=70, final_score_x10=70,
+            final_profile="Wachstumsorientiert",
             is_overridden=0, **CURRENT_RISK_SCHEMA_MARKERS,
             assessed_at=now, assessed_by=advisor_id, created_at=now, updated_at=now,
         ))

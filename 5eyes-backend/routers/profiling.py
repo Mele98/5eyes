@@ -223,6 +223,10 @@ def create_risk_assessment(
         prev.valid_to = today
         prev_id = prev.id
         prev_version = prev.version
+        # Partial unique indexes are checked immediately.  Flush the old
+        # RiskAssessment anchor first so SQLAlchemy cannot order the new
+        # INSERT ahead of the superseding UPDATE within one unit of work.
+        db.flush()
 
     ra = RiskAssessment(
         id=new_uuid(),

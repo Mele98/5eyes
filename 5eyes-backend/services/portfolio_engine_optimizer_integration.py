@@ -440,7 +440,11 @@ def _run_stochastic_optimizer_pass(
                     activation_violations.extend(
                         str(item) for item in evaluation.constraint_violations
                     )
-            except Exception as exc:  # noqa: BLE001 - reject unverifiable output
+            except (SolverTechnicalError, FloatingPointError, LinAlgError) as exc:
+                # Only explicitly classified technical/numerical failures may
+                # turn a converged result into the audited House safety net.
+                # Domain/input and ordinary programming exceptions propagate
+                # fail-closed instead of being disguised as invalid weights.
                 activation_violations.append(
                     f"activation_evaluation_error:{type(exc).__name__}"
                 )

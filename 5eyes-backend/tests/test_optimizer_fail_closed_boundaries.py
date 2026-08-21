@@ -116,6 +116,183 @@ def test_only_explicit_numerical_solver_errors_use_audited_house_fallback(
     assert reasoning and type(error).__name__ in reasoning[-1]
 
 
+@pytest.mark.parametrize(
+    "raised",
+    [
+        pytest.param(RuntimeError("objective defect"), id="runtime-error"),
+        pytest.param(ValueError("invalid domain state"), id="value-error"),
+        pytest.param(
+            CMAValidationError("invalid CMA in objective"),
+            id="cma-validation-error",
+        ),
+    ],
+)
+def test_slsqp_wrapper_propagates_nontechnical_exceptions(monkeypatch, raised):
+    def _raise_from_minimize(*_args, **_kwargs):
+        raise raised
+
+    monkeypatch.setattr(solver_module, "minimize", _raise_from_minimize)
+
+    with pytest.raises(type(raised), match=str(raised)):
+        solver_module._solve_single_start(
+            lambda _weights: 0.0,
+            np.full(5, 0.2),
+            [(0.0, 1.0)] * 5,
+            [],
+        )
+
+
+def test_nonconverged_candidate_recheck_does_not_hide_objective_error():
+    result = solver_module.OptimizeResult(
+        x=np.full(5, 0.2),
+        fun=1.0,
+        success=False,
+        status=9,
+        message="iteration limit reached",
+        nit=1,
+    )
+
+    def _raise_from_objective(_weights):
+        raise RuntimeError("candidate recheck defect")
+
+    with pytest.raises(RuntimeError, match="candidate recheck defect"):
+        solver_module._finite_feasible_candidate(
+            result,
+            _raise_from_objective,
+            [(0.0, 1.0)] * 5,
+            [],
+        )
+
+
+def test_robustification_does_not_hide_objective_error():
+    selected = np.array([0.50, 0.20, 0.10, 0.05, 0.15])
+
+    def _raise_from_objective(_weights):
+        raise RuntimeError("robustification defect")
+
+    with pytest.raises(RuntimeError, match="robustification defect"):
+        solver_module._derisk_candidate_near_best(
+            selected,
+            objective_fn=_raise_from_objective,
+            objective_value=1.0,
+            bounds=[(0.0, 1.0)] * 5,
+            constraints=[],
+            risky_fraction_per_bucket={
+                "equities": 1.0,
+                "bonds": 0.25,
+                "real_estate": 0.5,
+                "alternatives": 0.5,
+                "liquidity": 0.0,
+            },
+        )
+
+
+def _invoke_activation_evaluation_boundary(monkeypatch, raised: BaseException):
+    context = SimpleNamespace(seed=42, n_paths=8)
+    monkeypatch.setattr(pe, "_OPTIMIZER_N_PATHS_DEFAULT", 8)
+    monkeypatch.setattr(
+        solver_module,
+        "build_optimizer_context",
+        lambda **_kwargs: context,
+    )
+    solver_result = SimpleNamespace(
+        weights_bps=dict(HOUSE_TARGETS),
+        objective_value=1.0,
+        iterations=1,
+        seed=42,
+        status="converged",
+        method="stochastic",
+        constraint_violations=[],
+        reasoning=[],
+        n_paths=8,
+        n_starts_attempted=1,
+        robustification={},
+        context=context,
+    )
+    monkeypatch.setattr(
+        solver_module,
+        "run_solver",
+        lambda **_kwargs: solver_result,
+    )
+
+    def _raise_from_evaluation(*_args, **_kwargs):
+        raise raised
+
+    monkeypatch.setattr(solver_module, "evaluate_weights", _raise_from_evaluation)
+    reasoning: list[str] = []
+    result = _run_stochastic_optimizer_pass(
+        optimizer_mode="stochastic",
+        apply_targets=True,
+        cma=SimpleNamespace(id="activation-boundary-cma"),
+        goals=[],
+        house_matrix=SimpleNamespace(max_risky_fraction_bps=10_000),
+        assessment=SimpleNamespace(
+            final_score_x10=50, final_profile="Ausgewogen", is_overridden=0
+        ),
+        advisory_wealth_rappen=100_000_00,
+        cashflow_projection_series_rappen=[0] * 10,
+        inflation_series_bps=[100] * 10,
+        targets=dict(HOUSE_TARGETS),
+        minimums={bucket: 0 for bucket in BUCKETS},
+        maximums={bucket: 10_000 for bucket in BUCKETS},
+        reasoning=reasoning,
+        risky_fraction_per_bucket={bucket: 0.5 for bucket in BUCKETS},
+        effective_bounds_bps={bucket: (0, 10_000) for bucket in BUCKETS},
+    )
+    return result
+
+
+@pytest.mark.parametrize(
+    "raised",
+    [
+        pytest.param(RuntimeError("activation defect"), id="runtime-error"),
+        pytest.param(ValueError("invalid activation state"), id="value-error"),
+        pytest.param(
+            CMAValidationError("invalid CMA during activation"),
+            id="cma-validation-error",
+        ),
+    ],
+)
+def test_activation_evaluation_propagates_nontechnical_exceptions(
+    monkeypatch,
+    raised,
+):
+    with pytest.raises(type(raised), match=str(raised)):
+        _invoke_activation_evaluation_boundary(monkeypatch, raised)
+
+
+@pytest.mark.parametrize(
+    "raised",
+    [
+        pytest.param(
+            lambda: solver_module.SolverTechnicalError("evaluation unavailable"),
+            id="explicit-solver-technical-error",
+        ),
+        pytest.param(
+            lambda: FloatingPointError("non-finite activation evaluation"),
+            id="floating-point-error",
+        ),
+        pytest.param(
+            lambda: np.linalg.LinAlgError("activation factorization failed"),
+            id="linear-algebra-error",
+        ),
+    ],
+)
+def test_activation_evaluation_technical_errors_use_audited_house_fallback(
+    monkeypatch,
+    raised,
+):
+    error = raised()
+    result = _invoke_activation_evaluation_boundary(monkeypatch, error)
+
+    assert result.status == "fallback_house_matrix"
+    assert result.method == "fallback_house_matrix"
+    assert result.weights_bps == HOUSE_TARGETS
+    assert result.constraint_violations == [
+        f"activation_validation:activation_evaluation_error:{type(error).__name__}"
+    ]
+
+
 class _CompleteCMA:
     id = "strict-cache-cma"
     jurisdiction = "CH"

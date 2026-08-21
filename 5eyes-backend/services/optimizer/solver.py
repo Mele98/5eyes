@@ -959,28 +959,22 @@ def _solve_single_start(
     max_iter: int = 50,
     ftol: float = 1e-6,
 ) -> OptimizeResult:
-    """Ein einzelner SLSQP-Solve. Konvertiert OptimizeResult-typ Errors zu
-    diverged-OptimizeResult statt crash."""
-    try:
-        return minimize(
-            objective_fn,
-            x0=x0,
-            method="SLSQP",
-            bounds=bounds,
-            constraints=constraints,
-            options={"maxiter": max_iter, "ftol": ftol, "disp": False},
-        )
-    except Exception as e:  # noqa: BLE001 - we want to handle solver crashes gracefully
-        # Konstruiere Fake-OptimizeResult mit success=False
-        result = OptimizeResult(
-            x=x0,
-            fun=float("inf"),
-            success=False,
-            status=99,
-            message=f"solver-crash: {type(e).__name__}: {e}",
-            nit=0,
-        )
-        return result
+    """Run one SLSQP start without reclassifying exceptions as divergence.
+
+    A returned ``OptimizeResult(success=False)`` is an expected numerical
+    non-convergence and the multi-start caller can continue.  An exception is
+    different: it may be a domain/programming defect and must reach the strict
+    production boundary, which alone owns the explicit technical-error
+    allowlist for the audited House fallback.
+    """
+    return minimize(
+        objective_fn,
+        x0=x0,
+        method="SLSQP",
+        bounds=bounds,
+        constraints=constraints,
+        options={"maxiter": max_iter, "ftol": ftol, "disp": False},
+    )
 
 
 def _solve_via_genetic_algorithm(
@@ -1031,34 +1025,27 @@ def _solve_via_genetic_algorithm(
                 penalty += 1e9 * abs(val) ** 2  # quadratisch, gross genug zu dominieren
         return base + penalty
 
-    try:
-        result = differential_evolution(
-            penalized_objective,
-            bounds=bounds,
-            seed=int(seed) & 0x7FFFFFFF,  # DE seed ist int32
-            maxiter=max_iter,
-            popsize=popsize,
-            tol=1e-6,
-            polish=False,  # SLSQP-Polish skip (haben wir schon versucht)
-            disp=False,
-        )
-        # Manuelle Renormalization auf result.x
-        x = np.asarray(result.x, dtype=np.float64)
-        s = float(np.sum(x))
-        if s > 1e-12:
-            x = x / s
-        result.x = x
-        result.message = f"DE: {result.message}"
-        return result
-    except Exception as e:  # noqa: BLE001
-        return OptimizeResult(
-            x=np.array([(lo + hi) / 2.0 for lo, hi in bounds]),
-            fun=float("inf"),
-            success=False,
-            status=99,
-            message=f"DE-crash: {type(e).__name__}: {e}",
-            nit=0,
-        )
+    # As with SLSQP, only a returned non-success result is convergence state.
+    # Exceptions must retain their type so domain/programming errors cannot be
+    # laundered into a normal House fallback by the caller.
+    result = differential_evolution(
+        penalized_objective,
+        bounds=bounds,
+        seed=int(seed) & 0x7FFFFFFF,  # DE seed ist int32
+        maxiter=max_iter,
+        popsize=popsize,
+        tol=1e-6,
+        polish=False,  # SLSQP-Polish skip (haben wir schon versucht)
+        disp=False,
+    )
+    # Manuelle Renormalization auf result.x
+    x = np.asarray(result.x, dtype=np.float64)
+    s = float(np.sum(x))
+    if s > 1e-12:
+        x = x / s
+    result.x = x
+    result.message = f"DE: {result.message}"
+    return result
 
 
 def _finite_feasible_candidate(
@@ -1091,10 +1078,9 @@ def _finite_feasible_candidate(
     )
     if not feasible:
         return None
-    try:
-        objective = float(objective_fn(candidate))
-    except Exception:  # noqa: BLE001 - candidate validation must be defensive
-        return None
+    # A non-finite value is a rejected candidate.  An exception is not a
+    # candidate property and therefore must not be hidden as non-convergence.
+    objective = float(objective_fn(candidate))
     if not np.isfinite(objective):
         return None
     return candidate, objective
@@ -1160,10 +1146,7 @@ def _derisk_candidate_near_best(
         )
         if not feasible:
             continue
-        try:
-            trial_objective = float(objective_fn(trial))
-        except Exception:  # noqa: BLE001 - robustification must be defensive
-            continue
+        trial_objective = float(objective_fn(trial))
         if not np.isfinite(trial_objective) or trial_objective > objective_limit:
             continue
         trial_key = (

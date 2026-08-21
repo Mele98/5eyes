@@ -1,10 +1,19 @@
-from sqlalchemy import Column, String, Integer, ForeignKey
+from sqlalchemy import Column, String, Integer, ForeignKey, Index, text
 from sqlalchemy.orm import relationship
 from database import Base
 
 
 class OptimizerPolicy(Base):
     __tablename__ = "optimizer_policies"
+    __table_args__ = (
+        Index(
+            "ux_optimizer_one_current",
+            "is_current",
+            unique=True,
+            sqlite_where=text("is_current = 1"),
+            postgresql_where=text("is_current = 1"),
+        ),
+    )
 
     id = Column(String, primary_key=True)
     policy_name = Column(String, nullable=False)
@@ -32,6 +41,15 @@ class OptimizerPolicy(Base):
 
 class TargetAllocation(Base):
     __tablename__ = "target_allocations"
+    __table_args__ = (
+        Index(
+            "ux_target_alloc_one_current",
+            "mandate_id",
+            unique=True,
+            sqlite_where=text("is_current = 1 AND deleted_at IS NULL"),
+            postgresql_where=text("is_current = 1 AND deleted_at IS NULL"),
+        ),
+    )
 
     id = Column(String, primary_key=True)
     mandate_id = Column(String, ForeignKey("mandates.id"), nullable=False)

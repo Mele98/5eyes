@@ -82,18 +82,16 @@ def test_ga_fallback_deterministic_with_seed():
     assert np.allclose(a.x, b.x)
 
 
-def test_ga_fallback_handles_objective_crash():
-    """Wenn objective_fn crashed: DE-Wrapper liefert success=False, kein crash."""
+def test_ga_fallback_propagates_objective_programming_error():
+    """Objective-/Domainfehler duerfen nicht als DE-Divergenz maskiert werden."""
     def crashing_obj(w):
         raise RuntimeError("simulated crash")
 
     bounds, constraints = build_constraint_set(_wide_bounds(), score_x10=70)
-    # DE wird crashen sobald die Objective einmal gerufen wird
-    result = _solve_via_genetic_algorithm(
-        crashing_obj, bounds, constraints, seed=42, max_iter=10, popsize=5,
-    )
-    assert result.success is False
-    assert "DE-crash" in str(result.message)
+    with pytest.raises(RuntimeError, match="simulated crash"):
+        _solve_via_genetic_algorithm(
+            crashing_obj, bounds, constraints, seed=42, max_iter=10, popsize=5,
+        )
 
 
 def test_ga_fallback_penalty_pushes_away_from_risky_fraction_violation():

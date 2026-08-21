@@ -30,7 +30,7 @@ if str(BACKEND_ROOT) not in sys.path:
 from sqlalchemy.orm import configure_mappers
 from database import Base
 from models import (  # noqa: F401
-    allocation, clients, mandates, profiling, review, snapshots, users, wealth,
+    allocation, clients, mandates, profiling, review, snapshots, tenant, users, wealth,
 )
 configure_mappers()
 
@@ -44,7 +44,11 @@ from services.portfolio_engine import (
     ensure_runtime_reference_data,
     generate_target_allocation,
 )
-from tests.risk_fixture_helpers import CURRENT_RISK_SCHEMA_MARKERS, add_current_risk_answers
+from tests.risk_fixture_helpers import (
+    CURRENT_RISK_SCHEMA_MARKERS,
+    add_current_risk_answers,
+    derive_current_risk_fields,
+)
 
 
 def _now() -> str:
@@ -106,18 +110,20 @@ def _seed_full(session_factory, *, advisory_value_rappen: int = 100_000_000):
             alloc_real_estate_bps=1000, alloc_liquidity_bps=1000, alloc_alternatives_bps=1000,
             is_active=1, created_at=now, updated_at=now,
         ))
+        risk_fields = derive_current_risk_fields(
+            q_income_points=2,
+            q_obligations_points=3,
+            q_savings_points=2,
+            q_wealth_points=2,
+            investment_horizon_label="8 bis 11 Jahre",
+            q_investment_goal_points=3,
+            q_risk_preference_points=3,
+            q_risk_behavior_points=3,
+        )
         s.add(RiskAssessment(
             id=aid, mandate_id=mid, version=1, is_current=1,
             valid_from=now[:10],
-            q_income_points=2, q_obligations_points=3,
-            q_savings_points=6, q_wealth_points=6,
-            risk_capacity_total=17, risk_capacity_profile="Wachstumsorientiert",
-            risk_capacity_score_x10=60,
-            investment_horizon_years=10, investment_horizon_label="8 bis 11 Jahre",
-            q_investment_goal_points=3, q_risk_preference_points=3, q_risk_behavior_points=3,
-            risk_willingness_total=9, risk_willingness_profile="Ausgewogen",
-            risk_willingness_score_x10=60,
-            final_score_x10=60, final_profile="Ausgewogen",
+            **risk_fields,
             is_overridden=0,
             **CURRENT_RISK_SCHEMA_MARKERS,
             assessed_at=now, assessed_by=advisor_id,
@@ -214,18 +220,20 @@ def test_c6_target_amounts_equal_advisory_when_no_reserve(session_factory):
             alloc_real_estate_bps=1000, alloc_liquidity_bps=1000, alloc_alternatives_bps=1000,
             is_active=1, created_at=now, updated_at=now,
         ))
+        risk_fields = derive_current_risk_fields(
+            q_income_points=2,
+            q_obligations_points=3,
+            q_savings_points=2,
+            q_wealth_points=2,
+            investment_horizon_label="8 bis 11 Jahre",
+            q_investment_goal_points=3,
+            q_risk_preference_points=3,
+            q_risk_behavior_points=3,
+        )
         s.add(RiskAssessment(
             id=aid, mandate_id=mid, version=1, is_current=1,
             valid_from=now[:10],
-            q_income_points=2, q_obligations_points=3,
-            q_savings_points=6, q_wealth_points=6,
-            risk_capacity_total=17, risk_capacity_profile="Wachstumsorientiert",
-            risk_capacity_score_x10=60,
-            investment_horizon_years=10, investment_horizon_label="8 bis 11 Jahre",
-            q_investment_goal_points=3, q_risk_preference_points=3, q_risk_behavior_points=3,
-            risk_willingness_total=9, risk_willingness_profile="Ausgewogen",
-            risk_willingness_score_x10=60,
-            final_score_x10=60, final_profile="Ausgewogen",
+            **risk_fields,
             is_overridden=0,
             **CURRENT_RISK_SCHEMA_MARKERS,
             assessed_at=now, assessed_by=advisor_id,

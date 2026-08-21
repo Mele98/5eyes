@@ -1388,9 +1388,77 @@ def _create_or_migrate_schema(active_url: str) -> None:
     command.upgrade(alembic_cfg, "head")
 
 
+_SQLITE_CURRENT_ANCHOR_INDEXES: tuple[tuple[str, str, str, str], ...] = (
+    (
+        "ux_risk_one_current",
+        "risk_assessments",
+        "mandate_id",
+        "is_current = 1 AND deleted_at IS NULL",
+    ),
+    (
+        "ux_target_alloc_one_current",
+        "target_allocations",
+        "mandate_id",
+        "is_current = 1 AND deleted_at IS NULL",
+    ),
+    (
+        "ux_optimizer_one_current",
+        "optimizer_policies",
+        "is_current",
+        "is_current = 1",
+    ),
+)
+
+
+def _canonical_sqlite_ddl(value: str | None) -> str:
+    canonical = re.sub(r'["`\[\]]', "", str(value or "").lower())
+    canonical = re.sub(r"\s+", " ", canonical).strip().rstrip(";")
+    return canonical.replace(" (", "(").replace("( ", "(").replace(" )", ")")
+
+
+def ensure_current_anchor_unique_indexes(engine_to_use=None) -> None:
+    """Repair current-anchor index drift on existing SQLite databases.
+
+    ``CREATE INDEX IF NOT EXISTS`` does not replace a same-named index whose
+    columns changed.  Older desktop databases therefore retain the historical
+    OptimizerPolicy index on ``policy_name`` even after the reference schema
+    moves to the runtime's global-current contract.  Rebuild only mismatched
+    definitions; creation intentionally fails when corrupt duplicate current
+    anchors exist instead of choosing an arbitrary row to archive.
+    """
+    eng = engine_to_use if engine_to_use is not None else engine
+    if eng.dialect.name != "sqlite":
+        return
+
+    with eng.begin() as conn:
+        existing_tables = set(inspect(conn).get_table_names())
+        for index_name, table_name, column_name, predicate in (
+            _SQLITE_CURRENT_ANCHOR_INDEXES
+        ):
+            if table_name not in existing_tables:
+                continue
+            expected = (
+                f"CREATE UNIQUE INDEX {index_name} ON {table_name}"
+                f"({column_name}) WHERE {predicate}"
+            )
+            existing = conn.execute(
+                text(
+                    "SELECT sql FROM sqlite_master "
+                    "WHERE type = 'index' AND name = :index_name"
+                ),
+                {"index_name": index_name},
+            ).scalar_one_or_none()
+            if _canonical_sqlite_ddl(existing) == _canonical_sqlite_ddl(expected):
+                continue
+            if existing is not None:
+                conn.execute(text(f"DROP INDEX {index_name}"))
+            conn.execute(text(expected))
+
+
 def _run_sqlite_legacy_schema_maintenance() -> None:
     """Run the backwards-compatible schema repair path for SQLite only."""
     ensure_runtime_columns()
+    ensure_current_anchor_unique_indexes()
     migrate_house_matrix_real_estate_cap_20()
     ensure_snapshot_tables()
     from services.market_data.provider_health_registry import ensure_provider_health_table
