@@ -257,6 +257,33 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 .rv-output-sub{font-size:9px;color:var(--n5);line-height:1.45;}
 .rv-output-status{display:flex;gap:5px;align-items:center;justify-content:flex-end;flex-wrap:wrap;}
 .rv-output-actions{display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap;}
+.sd-archive-filterbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px;}
+.sd-archive-search{flex:1 1 220px;min-width:160px;font-size:11px;padding:7px 10px;border:1px solid var(--b2);border-radius:var(--r2);background:var(--surface);color:var(--n8);}
+.sd-archive-search:focus{outline:none;border-color:var(--pri);}
+.sd-archive-type-filter{display:flex;gap:6px;flex-wrap:wrap;}
+.sd-archive-chip{font-size:9px;font-weight:600;padding:5px 10px;border-radius:999px;border:1px solid var(--b2);background:var(--surface);color:var(--n6);cursor:pointer;white-space:nowrap;}
+.sd-archive-chip:hover{border-color:var(--b3,var(--b2));background:var(--bg);}
+.sd-archive-chip.active{background:var(--pri);border-color:var(--pri);color:#fff;}
+.sd-archive-group{border:1px solid var(--b1);border-radius:var(--r2);background:var(--surface);overflow:hidden;margin-bottom:8px;}
+.sd-archive-group:last-child{margin-bottom:0;}
+.sd-archive-group>summary{list-style:none;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;cursor:pointer;background:var(--surface);}
+.sd-archive-group>summary::-webkit-details-marker{display:none;}
+.sd-archive-group[open]>summary{border-bottom:1px solid var(--b1);background:var(--bg);}
+.sd-archive-group-head-main{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+.sd-archive-group-title{font-size:11px;font-weight:700;color:var(--n8);}
+.sd-archive-group-count{font-size:9px;color:var(--n4);}
+.sd-archive-group-latest{font-size:9px;color:var(--n5);}
+.sd-archive-group-icon{font-size:16px;color:var(--n4);transition:transform .15s ease;flex-shrink:0;}
+.sd-archive-group[open] .sd-archive-group-icon{transform:rotate(45deg);}
+.sd-archive-group-actions{display:flex;align-items:center;gap:8px;}
+.sd-archive-row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--b1);background:var(--bg);}
+.sd-archive-row:last-child{border-bottom:none;}
+.sd-archive-row-main{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;}
+.sd-archive-version{font-family:var(--f-d);font-size:10px;font-weight:700;color:var(--n7);}
+.sd-archive-date{font-size:10px;color:var(--n6);}
+.sd-archive-author{font-size:9px;color:var(--n4);}
+.sd-archive-empty{padding:8px 12px;font-size:10px;color:var(--n4);background:var(--bg);}
+.sd-archive-no-match{padding:14px 12px;font-size:10px;color:var(--n4);text-align:center;}
 .rv-decision-grid{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(280px,.85fr);gap:10px;align-items:start;margin-bottom:10px;}
 .rv-final-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(320px,.9fr);gap:10px;align-items:start;margin-bottom:14px;}
 .rv-decision-grid>.card,.rv-final-grid>.card{margin-bottom:0!important;}
@@ -2823,7 +2850,28 @@ function _wireSollIstHover(){
           <div class="sd-pref-next" style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:10px;padding-top:10px;border-top:1px solid var(--b1)"><span style="font-size:10px;color:var(--n5)">Diese Übersicht dient nur der Orientierung.</span><button class="btn" onclick="go('al')">Zur Asset Allokation</button></div>
         </div>
       </div>
-            </div></div><div class="cnav"><span class="cni">Stammdaten vollständig</span><button class="btn-p" onclick="go('vg')">Verm&ouml;gen &rarr;</button></div>
+            </div>
+        <!-- Dokumenten-Archiv (Kundenfeedback 2026-08-20): sachliche Ablage
+             mit History statt Workflow-Status (siehe renderStammdaten
+             DocumentArchive) -- Berater muessen nicht mehr fuer jedes PDF
+             durch die ganze Journey bis Review klicken, und jede erzeugte
+             Version bleibt unveraendert nachvollziehbar (FINMA). Auch
+             ID sd-output-hub, da renderStammdatenDocumentArchive() denselben
+             currentReviewState.documents-Datenfluss wie renderReviewOutputHub
+             nutzt (nur der Renderer ist bewusst getrennt). -->
+        <div class="card" style="margin-top:14px">
+          <div class="chd"><span class="cht">Dokumente</span><span style="font-size:9px;color:var(--n4);margin-left:8px">Ablage &amp; Historie &middot; jede Version unveränderlich gespeichert</span></div>
+          <div class="cbody">
+          <div class="sd-archive-filterbar">
+            <input type="text" id="sd-archive-search" class="sd-archive-search" placeholder="Suchen (Version, Datum, Ersteller)…" oninput="onSdArchiveFilterChange()">
+            <div class="sd-archive-type-filter" id="sd-archive-type-filter"></div>
+          </div>
+          <div id="sd-output-hub">
+            <div style="font-size:10px;color:var(--n4);line-height:1.6">Die Ausgaben werden geladen.</div>
+          </div>
+          </div>
+        </div>
+      </div><div class="cnav"><span class="cni">Stammdaten vollständig</span><button class="btn-p" onclick="go('vg')">Verm&ouml;gen &rarr;</button></div>
     </div>
 
     <!-- PAGE: VERMOEGEN -->
@@ -21710,25 +21758,43 @@ function _pdfBtnLoading(btn, on, label){
 // Sprint 5 Phase 3 (2026-05-17): Server-PDF-Download via PDF-Engine-API.
 // reportType: 'anlagestrategie' | 'assetallocation' | 'risikoprofil' | 'portfolio' | 'vertrag' | 'protokoll'
 async function downloadServerPdf(reportType, queryString){
+  var mid=getActiveMandateId();
+  if(!mid){
+    if(window.showAppError){showAppError('Bitte zuerst ein Mandat oeffnen.');}
+    else{alert('Bitte zuerst ein Mandat oeffnen.');}
+    return;
+  }
+  if(reportType!=='anlagestrategie'&&reportType!=='assetallocation'&&reportType!=='risikoprofil'&&reportType!=='portfolio'&&reportType!=='vertrag'&&reportType!=='protokoll'&&reportType!=='depotcheck'&&reportType!=='backtest'&&reportType!=='cost-disclosure'){
+    console.error('downloadServerPdf: unknown reportType', reportType);return;
+  }
+  var path='/mandates/'+encodeURIComponent(mid)+'/reports/'+reportType+'.pdf';
+  if(queryString){
+    path += (queryString.indexOf('?')===0 ? queryString : '?' + queryString);
+  }
+  return _fetchAndSavePdf(path, reportType);
+}
+// Dokumenten-Archiv (2026-08-20): oeffnet die tatsaechlich abgelegten Bytes
+// einer konkreten (auch aelteren) Version aus GET /mandates/{id}/documents/
+// {docId}/pdf -- getrennt von downloadServerPdf(), das IMMER frisch aus den
+// aktuellen Daten rendert. Teilt sich die komplette Fetch-/Speicher-Logik
+// (_fetchAndSavePdf) mit downloadServerPdf, nur der Pfad ist anders.
+async function downloadArchivedDocumentPdf(docId, filenamePrefix){
+  var mid=getActiveMandateId();
+  if(!mid||!docId){
+    if(window.showAppError){showAppError('Bitte zuerst ein Mandat oeffnen.');}
+    else{alert('Bitte zuerst ein Mandat oeffnen.');}
+    return;
+  }
+  var path='/mandates/'+encodeURIComponent(mid)+'/documents/'+encodeURIComponent(docId)+'/pdf';
+  return _fetchAndSavePdf(path, filenamePrefix||'dokument');
+}
+async function _fetchAndSavePdf(path, filenamePrefix){
   // U-25: ausloesenden Button erfassen, Double-Click-Guard + Loading-State
   var _trigBtn = null;
   try { _trigBtn = (typeof event !== 'undefined' && event) ? (event.currentTarget || event.target) : null; } catch(e){}
   if(_trigBtn && _trigBtn.classList && _trigBtn.classList.contains('is-loading')) return;
   _pdfBtnLoading(_trigBtn, true, 'PDF wird generiert…');
   try{
-    var mid=getActiveMandateId();
-    if(!mid){
-      if(window.showAppError){showAppError('Bitte zuerst ein Mandat oeffnen.');}
-      else{alert('Bitte zuerst ein Mandat oeffnen.');}
-      return;
-    }
-    if(reportType!=='anlagestrategie'&&reportType!=='assetallocation'&&reportType!=='risikoprofil'&&reportType!=='portfolio'&&reportType!=='vertrag'&&reportType!=='protokoll'&&reportType!=='depotcheck'&&reportType!=='backtest'&&reportType!=='cost-disclosure'){
-      console.error('downloadServerPdf: unknown reportType', reportType);return;
-    }
-    var path='/mandates/'+encodeURIComponent(mid)+'/reports/'+reportType+'.pdf';
-    if(queryString){
-      path += (queryString.indexOf('?')===0 ? queryString : '?' + queryString);
-    }
     var token=await API.getToken();
     var headers={};
     if(token)headers['Authorization']='Bearer '+token;
@@ -21782,7 +21848,7 @@ async function downloadServerPdf(reportType, queryString){
     // als Popup blockiert. Loesung: download via versteckten <a>-Klick —
     // User-initiierte Action wird nicht blockiert.
     // Plus: Filename aus Content-Disposition-Header extrahieren falls da.
-    var filename = reportType + '_' + (new Date().toISOString().slice(0,10).replace(/-/g,'')) + '.pdf';
+    var filename = filenamePrefix + '_' + (new Date().toISOString().slice(0,10).replace(/-/g,'')) + '.pdf';
     try {
       var disp = res.headers.get('Content-Disposition') || '';
       var match = disp.match(/filename="?([^"]+)"?/i);
@@ -23979,6 +24045,114 @@ function renderReviewOutputHub(state){
     +outputRow('Weitere Dokumente','Risikoprofil, Eignung, Override und Sonstiges.',statusChip(!!risk,risk?'Risikoprofil bereit':'Risikoprofil fehlt'),'Risikoprofil',"downloadServerPdf('risikoprofil')",'<button class="btn btn-sm" onclick="om(\'m-rep\')">Sonstiges</button>')
     +'</div>';
 }
+// Dokumenten-Archiv Stammdaten (Kundenfeedback 2026-08-20): bewusst KEIN
+// Wiederverwenden von renderReviewOutputHub() -- der User will hier
+// ausdruecklich KEINE Workflow-Status-Sprache ("bereit"/"Entscheid offen"),
+// sondern eine sachliche, FINMA-taugliche Ablage: welche Dokumentversionen
+// existieren wirklich (Datum, Ersteller, Version), nicht "ist die Aufgabe
+// erledigt". Quelle: dieselben currentReviewState.documents wie im Review-
+// Hub (jetzt tatsaechlich befuellt, siehe services/document_archive.py),
+// gruppiert nach den 4 Kern-Dokumenttypen.
+var SD_ARCHIVE_TYPES=[
+  {type:'Anlagerezept',label:'Portfolio-/Umsetzungsplan',generateLabel:'Erzeugen',generateAction:'printPortfolioPlan()'},
+  {type:'Anlagestrategie',label:'Anlagestrategie / Vertrag',generateLabel:'Erzeugen',generateAction:'printContractOrStrategy()'},
+  {type:'Beratungsprotokoll',label:'Beratungsprotokoll',generateLabel:'Erzeugen',generateAction:'printAdvisoryProtocol()'},
+  {type:'Risikoprofilierung',label:'Risikoprofil',generateLabel:'Erzeugen',generateAction:"downloadServerPdf('risikoprofil')"}
+];
+function formatDocumentDate(iso){
+  if(!iso)return '—';
+  var d=new Date(iso);
+  if(isNaN(d.getTime()))return String(iso).slice(0,10);
+  return d.toLocaleDateString('de-CH',{year:'numeric',month:'2-digit',day:'2-digit'})+' '+d.toLocaleTimeString('de-CH',{hour:'2-digit',minute:'2-digit'});
+}
+// Aufklappbare Register + Filter (2026-08-20, Nutzer-Feedback): jeder
+// Dokumenttyp ist ein eigenes <details>-Register (Muster wie
+// .rv-review-disclosure im Review), Suchfeld + Typ-Chips filtern client-
+// seitig ueber den zwischengespeicherten Dokument-Bestand -- kein erneuter
+// Server-Roundtrip pro Tastenanschlag.
+var _sdArchiveDocsCache=[];
+var sdArchiveFilter={search:'',type:'all'};
+function onSdArchiveFilterChange(){
+  var input=document.getElementById('sd-archive-search');
+  sdArchiveFilter.search=(input?input.value:'').trim().toLowerCase();
+  renderStammdatenDocumentArchive(_sdArchiveDocsCache);
+}
+function setSdArchiveTypeFilter(type){
+  sdArchiveFilter.type=type;
+  renderStammdatenDocumentArchive(_sdArchiveDocsCache);
+}
+function resetSdArchiveFilters(){
+  var input=document.getElementById('sd-archive-search');
+  if(input)input.value='';
+  sdArchiveFilter={search:'',type:'all'};
+  renderStammdatenDocumentArchive(_sdArchiveDocsCache);
+}
+function renderSdArchiveTypeFilterChips(counts){
+  var bar=document.getElementById('sd-archive-type-filter');
+  if(!bar)return;
+  var totalCount=SD_ARCHIVE_TYPES.reduce(function(sum,cat){return sum+(counts[cat.type]||0);},0);
+  var chips=[{type:'all',label:'Alle',count:totalCount}].concat(
+    SD_ARCHIVE_TYPES.map(function(cat){return {type:cat.type,label:cat.label,count:counts[cat.type]||0};})
+  );
+  bar.innerHTML=chips.map(function(c){
+    var active=sdArchiveFilter.type===c.type;
+    return '<button type="button" class="sd-archive-chip'+(active?' active':'')+'" onclick="setSdArchiveTypeFilter(\''+c.type+'\')">'
+      +escapeHtml(c.label)+' <span style="opacity:.75">('+c.count+')</span></button>';
+  }).join('');
+}
+function renderStammdatenDocumentArchive(documents){
+  var root=document.getElementById('sd-output-hub');
+  if(!root)return;
+  if(Array.isArray(documents))_sdArchiveDocsCache=documents;
+  var docs=_sdArchiveDocsCache;
+  var searchTerm=sdArchiveFilter.search;
+  var counts={};
+  docs.forEach(function(d){if(d&&d.document_type)counts[d.document_type]=(counts[d.document_type]||0)+1;});
+  renderSdArchiveTypeFilterChips(counts);
+
+  var visibleGroupCount=0;
+  var html=SD_ARCHIVE_TYPES.filter(function(cat){
+    return sdArchiveFilter.type==='all'||sdArchiveFilter.type===cat.type;
+  }).map(function(cat){
+    var allVersions=docs.filter(function(d){return d&&d.document_type===cat.type;})
+      .sort(function(a,b){return Number(b.version||0)-Number(a.version||0);});
+    var versions=!searchTerm?allVersions:allVersions.filter(function(d){
+      var haystack=[cat.label,'v'+String(d.version||1),formatDocumentDate(d.created_at),d.created_by_name||''].join(' ').toLowerCase();
+      return haystack.indexOf(searchTerm)>=0;
+    });
+    // Bei aktiver Suche: Register ohne Treffer ganz ausblenden statt leer anzuzeigen.
+    if(searchTerm&&!versions.length)return '';
+    visibleGroupCount++;
+    var rowsHtml=versions.length
+      ? versions.map(function(d){
+          var canOpen=!!d.has_pdf;
+          return '<div class="sd-archive-row">'
+            +'<div class="sd-archive-row-main">'
+            +'<span class="sd-archive-version">v'+escapeHtml(String(d.version||1))+'</span>'
+            +'<span class="sd-archive-date">'+escapeHtml(formatDocumentDate(d.created_at))+'</span>'
+            +'<span class="sd-archive-author">'+escapeHtml(d.created_by_name||'—')+'</span>'
+            +'</div>'
+            +'<div class="sd-archive-row-actions">'
+            +(canOpen?'<button class="btn btn-sm" onclick="downloadArchivedDocumentPdf(\''+escapeHtml(d.id)+'\',\''+cat.type+'\')">Öffnen</button>':'<span style="font-size:9px;color:var(--n4)">kein PDF hinterlegt</span>')
+            +'</div></div>';
+        }).join('')
+      : '<div class="sd-archive-empty">Noch keine Version erzeugt.</div>';
+    var latestLabel=allVersions.length?('zuletzt '+escapeHtml(formatDocumentDate(allVersions[0].created_at))):'';
+    // Register bei aktiver Suche automatisch offen, sonst eingeklappt.
+    var openAttr=searchTerm?' open':'';
+    return '<details class="sd-archive-group"'+openAttr+'>'
+      +'<summary>'
+      +'<span class="sd-archive-group-head-main"><span class="sd-archive-group-title">'+escapeHtml(cat.label)+'</span>'
+      +'<span class="sd-archive-group-count">'+allVersions.length+(allVersions.length===1?' Version':' Versionen')+'</span>'
+      +(latestLabel?'<span class="sd-archive-group-latest">'+latestLabel+'</span>':'')+'</span>'
+      +'<span class="sd-archive-group-actions"><button class="btn btn-sm" onclick="event.preventDefault();event.stopPropagation();'+cat.generateAction+'">'+escapeHtml(cat.generateLabel)+'</button>'
+      +'<span class="sd-archive-group-icon" aria-hidden="true">+</span></span>'
+      +'</summary>'
+      +rowsHtml
+      +'</details>';
+  }).join('');
+  root.innerHTML=visibleGroupCount?html:'<div class="sd-archive-no-match">Keine Dokumente für diesen Filter. <button class="btn btn-sm" onclick="resetSdArchiveFilters()">Filter zurücksetzen</button></div>';
+}
 function renderReadinessChecklist(state){
   var root=document.getElementById('rv-readiness-check');
   if(!root)return;
@@ -24589,6 +24763,7 @@ function renderReviewState(state){
   renderAdvisoryLogList((state&&state.logs)||[]);
   renderReviewActionSummary(state||{});
   renderReviewOutputHub(state||{});
+  renderStammdatenDocumentArchive((state&&state.documents)||[]);
   renderSrImplementationDecision(null);
   renderConflictDisclosurePanel(conflicts);
   renderSuitabilityChecks((state&&state.suitability)||[]);

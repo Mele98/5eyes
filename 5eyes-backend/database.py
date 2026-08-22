@@ -647,6 +647,12 @@ def ensure_runtime_columns() -> None:
         # (unveraendert), gesetzt = privater Fonds eines Tenants. ensure_column
         # ist idempotent -> ergaenzt bestehende SQLite-DBs additiv.
         ensure_column(conn, "products", "tenant_id", "TEXT")
+        # Dokumenten-Archiv (2026-08-20, Kundenfeedback): siehe
+        # models/review.py::ContractDocument.pdf_base64. ensure_column ist
+        # idempotent -> ergaenzt bestehende SQLite-DBs additiv beim naechsten
+        # Start, ohne vorhandene Vertragsdokumente zu beruehren.
+        ensure_column(conn, "contract_documents", "pdf_base64", "TEXT")
+        ensure_column(conn, "contract_documents", "content_hash", "TEXT")
 
 
 def run_advisory_log_migration(target_engine: Engine = engine) -> None:
