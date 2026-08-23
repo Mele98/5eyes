@@ -1731,6 +1731,35 @@ def _ensure_runtime_reference_data_ch(db: Session, user_id: str) -> tuple[Optimi
     return policy, cma
 
 
+# 2026-08-22 (Live-Fund Holger Mueller, hedgingRequired=true): fuer jede
+# unhedged (USD/EUR) Sub-Asset-Class im Default-Katalog braucht es ein CHF-
+# gehedgtes Pendant. Ohne das schliesst _product_matches_constraints() in
+# services/portfolio_engine_payload.py bei aktivem hedgingRequired ALLE
+# unhedged Kandidaten aus -- die Sub-Allokation faellt dann still auf den
+# naechstbesten Asset-Class-Fallback zurueck (meist das eine CH-Kernprodukt),
+# und die vom Mandat explizit gewuenschte Diversifikation/Themen-Tilts gehen
+# verloren, obwohl passende Sub-Asset-Class-Namen technisch existieren.
+# Gleiche sub_asset_class wie das unhedged Pendant (Pflicht fuer den
+# Exact-Match in generate_recommendation_run()), TER +8..12bps fuer die
+# Hedging-Kosten. Geteilte Konstante: sowohl ensure_default_products()
+# (Frisch-Installation) als auch ensure_hedged_product_variants() (additiver
+# Backfill fuer bereits bestehende Installationen wie Holger Muellers echtes
+# Mandat) referenzieren dieselbe Liste, damit beide Pfade nie auseinander
+# driften koennen.
+HEDGED_PRODUCT_VARIANTS: list[tuple] = [
+    ("iShares Core MSCI World UCITS ETF CHF Hedged", "BlackRock", "ETF", "Aktien", "Aktien Global", "CHF", 30, "8", "A"),
+    ("Vanguard FTSE Developed Europe ETF CHF Hedged", "Vanguard", "ETF", "Aktien", "Aktien Europa", "CHF", 22, "8", "A"),
+    ("iShares Core MSCI EM IMI ETF CHF Hedged", "BlackRock", "ETF", "Aktien", "Aktien Schwellenlaender", "CHF", 30, "8", "BBB"),
+    ("VanEck Defense UCITS ETF CHF Hedged", "VanEck", "ETF", "Aktien", "Thema Verteidigung", "CHF", 65, "6", "BBB"),
+    ("Energy Select Sector ETF CHF Hedged", "State Street", "ETF", "Aktien", "Thema Fossile Energie", "CHF", 55, "6", "BBB"),
+    ("Consumer Staples Tobacco Tilt ETF CHF Hedged", "WisdomTree", "ETF", "Aktien", "Thema Tabak", "CHF", 68, "6", "BBB"),
+    ("Roundhill Sports Betting ETF CHF Hedged", "Roundhill", "ETF", "Aktien", "Thema Gluecksspiel", "CHF", 85, "6", "BB"),
+    ("VanEck Uranium and Nuclear ETF CHF Hedged", "VanEck", "ETF", "Aktien", "Thema Kernenergie", "CHF", 71, "6", "BBB"),
+    ("EM Local Bond Opportunities CHF Hedged", "JPMorgan", "Fonds", "Obligationen", "Obligationen Emerging", "CHF", 72, "6", "BBB"),
+    ("iShares Developed Markets Property Yield CHF Hedged", "BlackRock", "ETF", "Immobilien", "Immobilien Global", "CHF", 48, "8", "BBB"),
+]
+
+
 def ensure_default_products(db: Session, jurisdiction: str = "CH") -> None:
     """WP2 (Engine-Wiring Jurisdiktion, 2026-07-31): der bestehende CH-
     Fondskatalog-Seed wird NUR fuer jurisdiction in (None, "CH") ausgefuehrt
@@ -1776,6 +1805,7 @@ def ensure_default_products(db: Session, jurisdiction: str = "CH") -> None:
         ("Man AHL TargetRisk", "Man Group", "Fonds", "Alternative", "Hedge Funds", "USD", 145, "6", "BB"),
         ("Partners Group Listed PE", "Partners Group", "Fonds", "Alternative", "Private Equity", "CHF", 165, "6", "BB"),
         ("21Shares Core Bitcoin ETP", "21Shares", "ETF", "Alternative", "Krypto", "USD", 125, "6", "BB"),
+        *HEDGED_PRODUCT_VARIANTS,
         ("UBS Geldmarktfonds CHF", "UBS", "Fonds", "Liquidität", "Geldmarktfonds", "CHF", 8, "8", "A"),
         ("Kontoguthaben CHF", "Hausbank", "Cash", "Liquidität", "Kontoguthaben", "CHF", 0, None, None),
         ("Festgeld CHF 12M", "Hausbank", "Cash", "Liquidität", "Festgeld", "CHF", 0, None, None),
@@ -1803,17 +1833,89 @@ def ensure_default_products(db: Session, jurisdiction: str = "CH") -> None:
         created.append(product)
     db.flush()
     for product in created:
-        risk_band = (1, 10)
-        if product.sub_asset_class in ("Aktien Schwellenlaender", "Thema Verteidigung", "Thema Fossile Energie", "Thema Tabak", "Thema Alkohol", "Thema Gluecksspiel", "Thema Kernenergie"):
-            risk_band = (6, 10)
-        elif product.sub_asset_class in ("Private Equity", "Krypto", "Hedge Funds"):
-            risk_band = (7, 10)
-        elif product.asset_class == "Aktien":
-            risk_band = (4, 10)
-        elif product.asset_class == "Immobilien":
-            risk_band = (4, 10)
-        elif product.sub_asset_class == "Obligationen Emerging":
-            risk_band = (5, 10)
+        risk_band = _default_product_risk_band(product)
+        db.add(
+            ProductSuitability(
+                id=new_uuid(),
+                product_id=product.id,
+                profile_from=risk_band[0],
+                profile_to=risk_band[1],
+                advisory_allowed=1,
+                discretionary_allowed=1,
+                requires_appropriateness=0,
+                requires_override=0,
+                max_position_bps=2500 if product.asset_class == "Aktien" else 4000,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+    db.flush()
+
+
+def _default_product_risk_band(product: "Product") -> tuple[int, int]:
+    """Suitability-Risikoband fuer den Default-Produktkatalog, gekeyed nach
+    sub_asset_class/asset_class -- geteilt zwischen ensure_default_products()
+    und ensure_hedged_product_variants(), damit ein CHF-gehedgtes Pendant
+    immer dasselbe Risikoband erhaelt wie sein unhedged Original."""
+    if product.sub_asset_class in ("Aktien Schwellenlaender", "Thema Verteidigung", "Thema Fossile Energie", "Thema Tabak", "Thema Alkohol", "Thema Gluecksspiel", "Thema Kernenergie"):
+        return (6, 10)
+    if product.sub_asset_class in ("Private Equity", "Krypto", "Hedge Funds"):
+        return (7, 10)
+    if product.asset_class == "Aktien":
+        return (4, 10)
+    if product.asset_class == "Immobilien":
+        return (4, 10)
+    if product.sub_asset_class == "Obligationen Emerging":
+        return (5, 10)
+    return (1, 10)
+
+
+def ensure_hedged_product_variants(db: Session) -> None:
+    """Additiver Backfill der CHF-gehedgten Produktvarianten (siehe
+    HEDGED_PRODUCT_VARIANTS) fuer bereits bestehende Installationen.
+
+    ensure_default_products() seedet nur, wenn der CH-Katalog komplett leer
+    ist (Idempotenz-Check ueber Zeilenzahl) -- auf einer bereits laufenden
+    Installation wie einem echten Berater-Desktop laeuft dieser Pfad also
+    NIE erneut, selbst wenn HEDGED_PRODUCT_VARIANTS um neue Eintraege
+    erweitert wird. Diese Funktion prueft stattdessen JEDEN Eintrag einzeln
+    per product_name (analog zum ensure_column()-Muster in database.py) und
+    legt nur die tatsaechlich fehlenden Produkte + deren Suitability-Zeile
+    an. Sicher bei jedem Start aufzurufen, auch parallel zu
+    ensure_default_products() (kein Konflikt, da beide denselben
+    product_name-Vertrag nutzen)."""
+    existing_names = {
+        row[0]
+        for row in db.query(Product.product_name).filter(
+            Product.product_name.in_([name for name, *_ in HEDGED_PRODUCT_VARIANTS]),
+        ).all()
+    }
+    missing = [entry for entry in HEDGED_PRODUCT_VARIANTS if entry[0] not in existing_names]
+    if not missing:
+        return
+    now = _now()
+    created = []
+    for name, provider, product_type, asset_class, sub_asset_class, currency, ter_bps, sfdr_class, esg_rating in missing:
+        product = Product(
+            id=new_uuid(),
+            product_name=name,
+            provider=provider,
+            product_type=product_type,
+            asset_class=asset_class,
+            sub_asset_class=sub_asset_class,
+            currency=currency,
+            ter_bps=ter_bps,
+            sfdr_class=sfdr_class,
+            esg_rating=esg_rating,
+            is_active=1,
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(product)
+        created.append(product)
+    db.flush()
+    for product in created:
+        risk_band = _default_product_risk_band(product)
         db.add(
             ProductSuitability(
                 id=new_uuid(),
@@ -6448,6 +6550,13 @@ def generate_recommendation_run(
     # WP2 (Engine-Wiring Jurisdiktion, 2026-07-31): einmal pro Lauf aufgeloest.
     jurisdiction = resolve_mandate_jurisdiction(mandate)
     ensure_default_products(db, jurisdiction=jurisdiction)
+    # 2026-08-22 (hedgingRequired-Katalogluecke): additiver Backfill, laeuft
+    # unabhaengig davon ob ensure_default_products() oben tatsaechlich
+    # geseedet hat (der ist idempotent pro-Produkt, nicht "Katalog leer?").
+    # Gleiche Jurisdiktions-Gate wie ensure_default_products() -- die
+    # HEDGED_PRODUCT_VARIANTS sind CH-spezifische Sub-Asset-Class-Namen.
+    if jurisdiction in (None, "CH"):
+        ensure_hedged_product_variants(db)
     prefs = _normalize_preferences(preferences)
     policy, cma = ensure_runtime_reference_data(
         db, user_id, jurisdiction=jurisdiction, tenant_id=getattr(mandate, "tenant_id", None) or None,
