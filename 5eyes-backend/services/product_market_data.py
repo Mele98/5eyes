@@ -223,6 +223,61 @@ DEFAULT_PRODUCT_MARKET_CATALOG: dict[str, dict[str, Any]] = {
         "lookup_symbol": "IBIT",
         "pricing_note": "Bitcoin-Proxy ueber den liquiden Spot-ETF-Markt.",
     },
+    # 2026-08-22 (hedgingRequired-Katalogluecke, siehe portfolio_engine.py::
+    # ensure_default_products): CHF-gehedgte Pendants teilen sich denselben
+    # Basiswert/Index wie ihr unhedged Original -- reiner Waehrungs-Hedge,
+    # daher gleicher Proxy-Lookup wie das Original (die Kursverlaufsform ist
+    # praktisch identisch, nur die Basiswaehrung unterscheidet sich).
+    "iShares Core MSCI World UCITS ETF CHF Hedged": {
+        "lookup_mode": "proxy",
+        "lookup_symbol": "URTH",
+        "pricing_note": "World-Equity Proxy fuer die CHF-gehedgte Share Class.",
+    },
+    "Vanguard FTSE Developed Europe ETF CHF Hedged": {
+        "lookup_mode": "proxy",
+        "lookup_symbol": "VGK",
+        "pricing_note": "Europa-Proxy fuer die CHF-gehedgte Share Class.",
+    },
+    "iShares Core MSCI EM IMI ETF CHF Hedged": {
+        "lookup_mode": "proxy",
+        "lookup_symbol": "IEMG",
+        "pricing_note": "Emerging-Markets IMI Proxy fuer die CHF-gehedgte Share Class.",
+    },
+    "VanEck Defense UCITS ETF CHF Hedged": {
+        "lookup_mode": "proxy",
+        "lookup_symbol": "ITA",
+        "pricing_note": "Defense-Proxy fuer die CHF-gehedgte Share Class.",
+    },
+    "Energy Select Sector ETF CHF Hedged": {
+        "lookup_mode": "direct",
+        "lookup_symbol": "XLE",
+        "pricing_note": "Direkter Marktpreis ueber das gelistete Produkt (CHF-gehedgte Share Class).",
+    },
+    "Consumer Staples Tobacco Tilt ETF CHF Hedged": {
+        "lookup_mode": "proxy",
+        "lookup_symbol": "PM",
+        "pricing_note": "Tobacco-Tilt Proxy fuer die CHF-gehedgte Share Class.",
+    },
+    "Roundhill Sports Betting ETF CHF Hedged": {
+        "lookup_mode": "direct",
+        "lookup_symbol": "BETZ",
+        "pricing_note": "Direkter Marktpreis ueber das gelistete Produkt (CHF-gehedgte Share Class).",
+    },
+    "VanEck Uranium and Nuclear ETF CHF Hedged": {
+        "lookup_mode": "proxy",
+        "lookup_symbol": "NLR",
+        "pricing_note": "Nuclear-Proxy fuer die CHF-gehedgte Share Class.",
+    },
+    "EM Local Bond Opportunities CHF Hedged": {
+        "lookup_mode": "proxy",
+        "lookup_symbol": "EMLC",
+        "pricing_note": "EM Local Bond Proxy fuer die CHF-gehedgte Share Class.",
+    },
+    "iShares Developed Markets Property Yield CHF Hedged": {
+        "lookup_mode": "proxy",
+        "lookup_symbol": "REET",
+        "pricing_note": "Property-Yield Proxy fuer die CHF-gehedgte Share Class.",
+    },
     "UBS Geldmarktfonds CHF": {
         "lookup_mode": "synthetic_par",
         "synthetic_price_rappen": 100,

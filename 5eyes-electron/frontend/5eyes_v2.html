@@ -24556,8 +24556,22 @@ function renderReviewDetailsAccordion(result){
     'Optimizer-Status: '+String(ta.optimization_status||result.optimization_status||'-')
   ];
   var reasoning=Array.isArray(result.reasoning)?result.reasoning.slice(0,5):[];
+  // Produktumsetzungs-Hinweise (2026-08-22, Fund Holger Mueller): waren
+  // bisher ausschliesslich in renderRecommendationWarnings() gesammelt und
+  // NIRGENDS gerendert (nur strategyState.internalImplementationNotes /
+  // ein ungenutztes dataset-Attribut). Fallback-/Suitability-Override-
+  // Faelle bei der Produktselektion (z.B. "kein hedgingRequired-konformes
+  // Produkt gefunden, Core-Fallback verwendet") blieben dadurch fuer den
+  // Berater komplett unsichtbar. Hier im Solver-Trace-Bereich ergaenzt --
+  // interner Beratungs-/Audit-Kontext, bewusst NICHT in der Kundenansicht
+  // (siehe renderRecommendationWarnings()-Kommentar zur Client/Internal-
+  // Trennung).
+  var implementationNotes=(typeof strategyState!=='undefined'&&strategyState&&Array.isArray(strategyState.internalImplementationNotes))
+    ?strategyState.internalImplementationNotes.filter(Boolean)
+    :[];
   body.innerHTML='<div>'+bits.map(function(bit){return '<div>'+escapeHtml(bit)+'</div>';}).join('')+'</div>'
-    +(reasoning.length?'<div style="margin-top:8px;border-top:1px solid var(--b1);padding-top:8px">'+reasoning.map(function(line){return '<div>- '+escapeHtml(line)+'</div>';}).join('')+'</div>':'');
+    +(reasoning.length?'<div style="margin-top:8px;border-top:1px solid var(--b1);padding-top:8px">'+reasoning.map(function(line){return '<div>- '+escapeHtml(line)+'</div>';}).join('')+'</div>':'')
+    +(implementationNotes.length?'<div style="margin-top:8px;border-top:1px solid var(--b1);padding-top:8px"><div style="font-weight:600;color:var(--n7);margin-bottom:3px">Produktumsetzung — interne Hinweise</div>'+implementationNotes.map(function(line){return '<div style="color:var(--warn,#7a5200)">⚠ '+escapeHtml(line)+'</div>';}).join('')+'</div>':'');
 }
 function renderReviewCockpit(state){
   var result=(state&&state.allocation)||((strategyState&&strategyState.allocation)||null);

@@ -55,8 +55,8 @@
     },
     {
       "asset_class": "Aktien",
-      "currency": "EUR",
-      "product_name": "Vanguard FTSE Developed Europe ETF",
+      "currency": "CHF",
+      "product_name": "Vanguard FTSE Developed Europe ETF CHF Hedged",
       "provider": "Vanguard",
       "rationale": "Europa-Diversifikation",
       "source_sub_asset_classes": [
@@ -65,7 +65,7 @@
       "sub_asset_class": "Aktien Europa",
       "target_amount_rappen": 2010000,
       "target_weight_bps": 402,
-      "ter_bps": 12
+      "ter_bps": 22
     },
     {
       "asset_class": "Alternative",
@@ -83,8 +83,8 @@
     },
     {
       "asset_class": "Aktien",
-      "currency": "USD",
-      "product_name": "iShares Core MSCI World UCITS ETF",
+      "currency": "CHF",
+      "product_name": "iShares Core MSCI World UCITS ETF CHF Hedged",
       "provider": "BlackRock",
       "rationale": "Globaler Kernbaustein",
       "source_sub_asset_classes": [
@@ -93,7 +93,7 @@
       "sub_asset_class": "Aktien Global",
       "target_amount_rappen": 8040000,
       "target_weight_bps": 1608,
-      "ter_bps": 20
+      "ter_bps": 30
     },
     {
       "asset_class": "Aktien",
@@ -112,8 +112,8 @@
     },
     {
       "asset_class": "Immobilien",
-      "currency": "USD",
-      "product_name": "iShares Developed Markets Property Yield",
+      "currency": "CHF",
+      "product_name": "iShares Developed Markets Property Yield CHF Hedged",
       "provider": "BlackRock",
       "rationale": "Ergaenzende Diversifikation",
       "source_sub_asset_classes": [
@@ -122,7 +122,7 @@
       "sub_asset_class": "Immobilien Global",
       "target_amount_rappen": 510000,
       "target_weight_bps": 102,
-      "ter_bps": 38
+      "ter_bps": 48
     },
     {
       "asset_class": "Obligationen",
@@ -251,7 +251,7 @@
   "target_allocation_warnings": [],
   "totals": {
     "advisory_wealth_rappen": 50000000,
-    "average_ter_bps": 22,
+    "average_ter_bps": 24,
     "average_ter_coverage_bps": 10000,
     "expected_return_bps": 397,
     "expected_volatility_bps": 651,
