@@ -768,6 +768,52 @@ def _product_matches_constraints(
     return True
 
 
+def _suitability_block_hint(
+    products: list[Product],
+    sub_asset_class: str,
+    prefs: dict,
+    score_bucket: int,
+    *,
+    jurisdiction_ctx: dict | None = None,
+) -> str | None:
+    """Erklaert dem Berater, WARUM eine exakte Sub-Anlageklasse nicht umgesetzt
+    wurde, wenn der Grund die Eignungspruefung ist (statt einer echten
+    Katalogluecke): existiert ein Produkt fuer diese Sub-Anlageklasse, das nur
+    an score_bucket scheitert, wird das dafuer benoetigte Mindest-Risikoprofil
+    (Bucket + Score) genannt, damit gezielt ein dokumentierter
+    Risikoprofil-Override (siehe _risk_assessment_has_documented_override)
+    erwogen werden kann -- statt einer nichtssagenden "kein Produkt
+    verfuegbar"-Meldung. Reine Katalogluecken (kein Produkt existiert
+    ueberhaupt fuer diese Sub-Anlageklasse) liefern None."""
+    candidates = [
+        product for product in products
+        if str(product.sub_asset_class or "") == str(sub_asset_class)
+        and _product_matches_constraints(
+            product, prefs, score_bucket, ignore_suitability=True, jurisdiction_ctx=jurisdiction_ctx,
+        )
+    ]
+    required_buckets = [
+        min(
+            int(rule.profile_from or 1)
+            for rule in product.suitability
+            if int(rule.advisory_allowed or 0) == 1
+        )
+        for product in candidates
+        if any(int(rule.advisory_allowed or 0) == 1 for rule in product.suitability)
+    ]
+    required_buckets = [bucket for bucket in required_buckets if bucket > score_bucket]
+    if not required_buckets:
+        return None
+    required_bucket = min(required_buckets)
+    required_score = max(0, required_bucket * 10 - 5)
+    return (
+        f"Passendes Produkt im Katalog vorhanden, aber ausserhalb des zugelassenen "
+        f"Risikoprofil-Bands (aktuell Bucket {score_bucket}, benoetigt mind. Bucket "
+        f"{required_bucket}). Nur mit dokumentiertem Risikoprofil-Override "
+        f"(Score >= {required_score}) umsetzbar."
+    )
+
+
 def _product_descriptor_text(product: Product) -> str:
     fields = (
         product.product_name,
