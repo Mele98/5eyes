@@ -1,0 +1,106 @@
+"""Multi-Source Market Data Aggregator (Phase 1).
+
+Plan: docs/planning/2026-05-09-multi-source-data-aggregator-spec.md (folgt).
+Memory: project_5eyes_data_pipeline.md.
+
+Phase 1: Provider-Adapter-Pattern (Interface + Dataclasses + Exceptions).
+Spaetere Phasen fuegen konkrete Provider hinzu (yfinance, stooq, alphavantage,
+twelvedata, openfigi, fred, ecb, snb).
+"""
+from __future__ import annotations
+
+from .base import (
+    Bar,
+    MarketDataProvider,
+    ProductInfo,
+)
+from .exceptions import (
+    MarketDataError,
+    ProviderError,
+    RateLimitError,
+    SymbolNotFound,
+)
+from .aggregator import MarketDataAggregator
+from .cache import CachedAggregator, DEFAULT_TTL_SECONDS
+from .factory import build_default_aggregator
+from .health import HealthState
+from .legacy_compat import fetch_latest_prices_via_aggregator
+from .notifier import (
+    DEFAULT_TIMEOUT_SECONDS as ALERT_WEBHOOK_DEFAULT_TIMEOUT,
+    build_alert_payload,
+    notify_validation_alerts,
+    post_alert,
+)
+from .scheduled import daily_cache_purge_job, weekly_validation_job
+from .etf import (
+    ETFAggregator,
+    ETFInfo,
+    ETFProvider,
+    JustetfScraper,
+    SwissfunddataScraper,
+    build_default_etf_aggregator,
+)
+from .macro import (
+    ECBMacroProvider,
+    FREDMacroProvider,
+    MacroPoint,
+    MacroProvider,
+    SNBMacroProvider,
+)
+from .providers import (
+    AlphaVantageProvider,
+    OpenFIGIProvider,
+    StooqProvider,
+    TwelveDataProvider,
+    YFinanceProvider,
+)
+from .validation import (
+    DEFAULT_THRESHOLD_BPS,
+    ProviderQuote,
+    ValidationResult,
+    validate_batch,
+    validate_symbol,
+)
+
+__all__ = [
+    "Bar",
+    "MarketDataProvider",
+    "ProductInfo",
+    "MarketDataError",
+    "ProviderError",
+    "RateLimitError",
+    "SymbolNotFound",
+    "AlphaVantageProvider",
+    "OpenFIGIProvider",
+    "StooqProvider",
+    "TwelveDataProvider",
+    "YFinanceProvider",
+    "MarketDataAggregator",
+    "CachedAggregator",
+    "DEFAULT_TTL_SECONDS",
+    "HealthState",
+    "build_default_aggregator",
+    "fetch_latest_prices_via_aggregator",
+    "daily_cache_purge_job",
+    "weekly_validation_job",
+    "ALERT_WEBHOOK_DEFAULT_TIMEOUT",
+    "build_alert_payload",
+    "notify_validation_alerts",
+    "post_alert",
+    "DEFAULT_THRESHOLD_BPS",
+    "ProviderQuote",
+    "ValidationResult",
+    "validate_batch",
+    "validate_symbol",
+    "MacroPoint",
+    "MacroProvider",
+    "FREDMacroProvider",
+    "ECBMacroProvider",
+    "SNBMacroProvider",
+    "ETFInfo",
+    "ETFProvider",
+    "ETFAggregator",
+    "build_default_etf_aggregator",
+    "JustetfScraper",
+    "SwissfunddataScraper",
+]

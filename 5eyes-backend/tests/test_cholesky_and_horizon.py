@@ -1,7 +1,7 @@
 """
 Tests für:
 1. _is_valid_cholesky / _identity_cholesky / _build_cholesky_from_cma
-   (portfolio_engine.py) — Fallback-Kaskade bei nicht-positiv-definiter Matrix
+   (portfolio_engine.py) — strict CMA validation and PSD factorisation
 2. Horizon-Matrix Default 0 für unbekannte Labels (risk_scoring.py)
 """
 import json
@@ -9,7 +9,9 @@ import math
 from types import SimpleNamespace
 
 import pytest
+import numpy as np
 
+from services.cma_validation import CMAValidationError
 from services.portfolio_engine import (
     _cholesky,
     _identity_cholesky,
@@ -92,33 +94,28 @@ def test_build_cholesky_valid_custom_matrix_used():
         assert abs(L[i][i] - 1.0) < 1e-9
 
 
-def test_build_cholesky_singular_custom_falls_back_to_default(caplog):
-    """When custom matrix is not positive-definite, falls back to Swiss-market defaults."""
-    import logging
-    # All-ones 5×5: rank 1, not positive-definite
+def test_build_cholesky_singular_psd_custom_matrix_is_preserved():
+    """A singular but PSD correlation is valid and keeps its dependence."""
+    # All-ones 5×5: rank 1, positive semidefinite.
     singular = [[1.0] * 5 for _ in range(5)]
     cma = _make_cma(correlation_matrix_json=json.dumps(singular))
-    with caplog.at_level(logging.WARNING, logger="services.portfolio_engine"):
-        L = _build_cholesky_from_cma(cma)
-    assert _is_valid_cholesky(L), "Fallback to default must produce a valid decomposition"
-    assert len(L) == 5
-    assert any("not positive-definite" in r.message for r in caplog.records)
+    factor = np.asarray(_build_cholesky_from_cma(cma))
+    np.testing.assert_allclose(factor @ factor.T, singular, atol=1e-10)
 
 
-def test_build_cholesky_invalid_json_falls_back_to_default():
-    """Malformed JSON in correlation_matrix_json → silently use default matrix."""
+def test_build_cholesky_invalid_json_is_domain_error():
+    """Malformed present JSON must not silently select another model."""
     cma = _make_cma(correlation_matrix_json="not-valid-json{{{")
-    L = _build_cholesky_from_cma(cma)
-    assert _is_valid_cholesky(L)
+    with pytest.raises(CMAValidationError, match="correlation_matrix_json"):
+        _build_cholesky_from_cma(cma)
 
 
-def test_build_cholesky_wrong_size_json_ignored():
-    """A 3×3 custom matrix (wrong size) must be ignored — default used instead."""
+def test_build_cholesky_wrong_size_json_is_domain_error():
+    """A present 3×3 payload is invalid, not an instruction to use defaults."""
     small = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
     cma = _make_cma(correlation_matrix_json=json.dumps(small))
-    L = _build_cholesky_from_cma(cma)
-    assert _is_valid_cholesky(L)
-    assert len(L) == 5
+    with pytest.raises(CMAValidationError, match="5x5"):
+        _build_cholesky_from_cma(cma)
 
 
 # ── Horizon-matrix default = 0 ────────────────────────────────────────────────

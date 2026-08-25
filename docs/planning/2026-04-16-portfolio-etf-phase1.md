@@ -5,7 +5,7 @@
 - Datum: 2026-04-16
 - Owner: Emanuele
 - Branch-Vorschlag: `codex/portfolio-etf-phase1`
-- Referenz-Bild: `C:\Users\Emanuele\Desktop\Consulting Firma\3eyes\Optimierungen\3eyes\Portfolioübersicht.jpg`
+- Referenz-Bild: `C:\Users\Emanuele\Desktop\Consulting Firma\Advisory-Methodik\Optimierungen\Advisory-Methodik\Portfolioübersicht.jpg`
 
 ---
 

@@ -1,0 +1,1652 @@
+"""SLSQP-Solver mit Multi-Start fuer den Stochastic Optimizer.
+
+Master-Spec: docs/planning/2026-05-05-stochastic-optimizer-spec.md (Sec 8)
+
+Workflow:
+1. Compute deterministic seed aus (mandate, cma, goals, score) - reproduzierbar
+2. Build scenario paths (NumPy vektorisiert, Cornish-Fisher fat-tails)
+3. Convert goals -> liabilities + aggregate liability path
+4. Setup constraints aus House-Matrix + globale Caps
+5. Multi-Start: 3-5 Initial-Allocations (House-Matrix-Mid, Conservative,
+   Aggressive, Risky-Fraction-Edge, gleichverteilt) + optional PAR-5:
+   ein zusaetzlicher Markowitz-Min-Varianz-Kandidat aus der CMA (additiv,
+   siehe build_initial_guesses/_markowitz_min_variance_candidate)
+6. SLSQP pro Initial-Allocation
+7. Pick best result (lowest objective)
+8. Validate feasibility, return OptimizerResult mit Audit-Trace
+
+Fallback-Strategie (OWNER-DECISION OD-5):
+- Wenn alle Multi-Starts divergieren: status="fallback_house_matrix" mit
+  reasoning. Caller kann dann House-Matrix-Default verwenden.
+- Wenn Solver konvergiert aber Allocation infeasible: status="diverged_infeasible".
+"""
+from __future__ import annotations
+
+import hashlib
+import time
+from collections.abc import Mapping
+from copy import deepcopy
+from dataclasses import dataclass, field
+from numbers import Integral
+from typing import Iterable
+
+import numpy as np
+from scipy.optimize import OptimizeResult, differential_evolution, minimize
+
+from services.return_moments import ReturnMomentError
+
+from .constraints import (
+    DEFAULT_BUCKET_RISKY_FRACTION,
+    HouseMatrixBands,
+    OptimizerInputError,
+    bands_from_effective_bounds_bps,
+    bands_from_house_matrix_row,
+    bounds_collapse_warnings,
+    build_bounds,
+    build_constraint_set,
+    is_feasible,
+    validate_risky_fraction_per_bucket,
+)
+from .goal_liabilities import (
+    GoalLiability,
+    aggregate_liability_path,
+    goals_to_liabilities,
+)
+from .objective import chance_constraint_penalty, combined_objective_two_phase
+from .scenario_cache import (
+    build_scenario_paths_cached,
+    build_scenario_paths_with_weights_cached,
+)
+from .importance_sampling import (
+    DEFAULT_TAIL_SHIFT_STRENGTH,
+    build_shift_vector,
+    decide_is_for_context,
+    make_default_weights,
+)
+from .scenario_engine import (
+    BUCKET_ORDER,
+    N_BUCKETS,
+    build_scenario_paths,
+    scenario_inputs_from_cma,
+    simulate_wealth_paths,
+)
+
+
+_ROBUSTIFIED_OBJECTIVE_TIE_REL_TOL = 0.05
+_ROBUSTIFIED_DERISK_REL_TOL = 0.10
+
+
+class SolverTechnicalError(RuntimeError):
+    """Explicitly classified technical failure of the numerical solver.
+
+    Only this exception (plus narrowly defined NumPy/floating-point errors)
+    may activate the audited House-Matrix safety net at the production
+    boundary. Domain/input errors and ordinary programming exceptions must
+    remain visible and fail closed.
+    """
+
+
+# ============================================================================
+# Result-Datenklasse
+# ============================================================================
+
+
+@dataclass(frozen=True)
+class OptimizerResult:
+    """Allocation + Audit-Trace aus dem Optimizer.
+
+    weights_bps: Bucket-Gewichte in bps (summe ~ 10000), in BUCKET_ORDER-Reihenfolge.
+    stress_evaluations: optional dict[scenario_name, StressResult-dict] aus
+        Phase 5.2 Stress-Audit. None bei fallback-Modus.
+    """
+    weights_bps: dict[str, int]
+    objective_value: float
+    iterations: int
+    seed: int
+    status: str  # "converged" | "converged_robustified" | "diverged" | "diverged_infeasible" | "fallback_house_matrix"
+    method: str  # "stochastic" | "fallback_house_matrix"
+    constraint_violations: list[str] = field(default_factory=list)
+    reasoning: list[str] = field(default_factory=list)
+    n_paths: int = 0
+    n_starts_attempted: int = 0
+    stress_evaluations: dict[str, dict] | None = None
+    goal_achievability: tuple[dict, ...] = ()
+    robustification: dict[str, object] | None = None
+    restart_results: tuple[dict, ...] = ()
+    # Exact owned run-context snapshot used by the solver. compare=False is
+    # essential because OptimizerContext contains NumPy arrays whose equality
+    # is not scalar-valued. The context is intentionally not persisted as JSON;
+    # callers reuse it in-process for congruent metrics/explainability.
+    context: OptimizerContext | None = field(default=None, repr=False, compare=False)
+
+
+# ============================================================================
+# V3 Sprint 1b (2026-05-08): OptimizerContext + Evaluation
+#
+# Plan §5.2: Wiederverwendbare Evaluation beliebiger Gewichtungen unter
+# denselben Szenarien, damit House-Matrix und Solver-Vorschlag Apples-to-
+# Apples bewertet werden koennen.
+# ============================================================================
+
+
+@dataclass(frozen=True)
+class OptimizerContext:
+    """Gemeinsame Inputs fuer Solver und externe Evaluation.
+
+    Wenn zwei Aufrufer mit identischem Context arbeiten (gleiche cma_id,
+    gleicher seed, gleiche n_paths), erhalten sie identische Szenarien und
+    Liability-Pfade. Damit ist `evaluate_weights(ctx, w_a)` vergleichbar mit
+    `evaluate_weights(ctx, w_b)`.
+    """
+    cma_id: str
+    seed: int
+    horizon_years: int
+    n_paths: int
+    advisory_wealth_rappen: int
+    cashflow_series_rappen: list[int]
+    return_paths: np.ndarray
+    liabilities: list[GoalLiability]
+    aggregated_liability_path: np.ndarray
+    bounds: list[tuple[float, float]]
+    scipy_constraints: list[dict]
+    score_x10: int
+    external_wealth_rappen: int = 0
+    risky_fraction_per_bucket: dict[str, float] | None = None
+    max_risky_fraction_bps: int | None = None
+    # Canonical snapshot of the exact Sub-Allocation rows used to derive CMA
+    # bucket metrics and scenario paths. Tuple ownership prevents later caller
+    # list mutations from changing the meaning of an already-built context.
+    sub_allocations: tuple[dict, ...] = ()
+    # Phase 5c: optional Likelihood-Weights aus Importance Sampling.
+    # Wenn None: trivialer sample-mean (Backwards-Compat). Wenn gesetzt:
+    # shortfall_objective + volatility_objective berechnen weighted Estimator.
+    # Aktivierung: Caller (build_optimizer_context oder ext. Pfad) liefert
+    # weights vom build_scenario_paths_with_weights-Wrapper.
+    scenario_weights: np.ndarray | None = None
+    # Sprint 4 Phase 3 (2026-05-17): Optional mortalitaets-Sampling.
+    # Wenn None: keine Mortality (Backwards-Compat). Wenn gesetzt: shape
+    # (n_paths,) integer-Array, pro Pfad year_index ab dem cashflow=0.
+    # Aktivierung: Caller liefert den Array aus
+    # services.mortality.sample_age_at_death + death_year_index_from_age.
+    mortality_death_year_index_per_path: np.ndarray | None = None
+    # Sprint U-P2 Fix C9 (2026-05-19): tax-aware Solver-Pfad. Vorher liefen
+    # MC + Objective im Solver tax-naiv — Schweizer Vermoegenssteuer-Drag
+    # blieb unsichtbar. Wenn tax_regime gesetzt ist, wendet simulate_wealth_paths
+    # pro Jahr die TaxRegime-Logik an (Dividenden-, Kapitalgewinn-, Vermoegens-,
+    # Erbschaftssteuer je nach Plugin).
+    tax_regime: object | None = None
+    dividend_yield_bps_per_bucket: np.ndarray | None = None
+    base_calendar_year: int = 2026
+    mandate_age_at_start: int | None = None
+    is_retired: bool = False
+    # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): siehe constraints.bounds_collapse_warnings
+    # -- nicht-leer, wenn eine House-Matrix-Bandbreite durch einen globalen
+    # Cap/Floor stillschweigend auf einen Punkt kollabiert wurde.
+    bounds_collapse_warnings: tuple[str, ...] = ()
+    # Exact Markowitz inputs owned by the same context as the scenario paths.
+    # Appended (rather than inserted among older optional fields) to preserve
+    # the positional layout for legacy manual context construction.  The
+    # canonical builder always populates both arrays.
+    scenario_mu_bps: np.ndarray | None = None
+    scenario_cov_bps2: np.ndarray | None = None
+    # Canonical deterministic external net-funding path for total-scope goals.
+    # Index 0 is today; subsequent entries align with simulated goal years.
+    external_wealth_series_rappen: tuple[int, ...] = ()
+    # Longest scenario cube used to draw this context. Paired horizon
+    # sensitivities set the same value and retain only their own prefix in
+    # ``return_paths``.
+    scenario_horizon_years: int | None = None
+
+
+@dataclass(frozen=True)
+class OptimizerEvaluation:
+    """Bewertung einer konkreten Allocation unter einem OptimizerContext."""
+    weights_bps: dict[str, int]
+    objective_value: float
+    feasible: bool
+    constraint_violations: list[str] = field(default_factory=list)
+    terminal_wealth_p10_rappen: int | None = None
+    terminal_wealth_p50_rappen: int | None = None
+    terminal_wealth_p90_rappen: int | None = None
+
+
+def _trusted_weights_bps_to_array(weights_bps: Mapping[str, int]) -> np.ndarray:
+    """Internal exact conversion for already-validated/generated bps weights."""
+    return np.array(
+        [int(weights_bps[bucket]) / 10000.0 for bucket in BUCKET_ORDER],
+        dtype=np.float64,
+    )
+
+
+def _weights_bps_to_array(weights_bps: Mapping[str, int]) -> np.ndarray:
+    """Strict external conversion from exact integer bps to fractions.
+
+    External evaluations are audit operations, not allocation repair.  Missing
+    buckets, unknown keys, non-integer/out-of-range values, or a sum other than
+    exactly 10'000 bps are therefore hard input errors and are never silently
+    normalised.
+    """
+    if not isinstance(weights_bps, Mapping):
+        raise OptimizerInputError(
+            "weights_bps must be a mapping of optimizer bucket -> integer bps."
+        )
+    expected = set(BUCKET_ORDER)
+    actual = set(weights_bps.keys())
+    missing = sorted(expected - actual)
+    extra = sorted(actual - expected, key=str)
+    if missing or extra:
+        details = []
+        if missing:
+            details.append(f"missing={missing}")
+        if extra:
+            details.append(f"unknown={extra}")
+        raise OptimizerInputError(
+            "weights_bps must contain exactly the optimizer buckets ("
+            + ", ".join(details)
+            + ")."
+        )
+
+    parsed: dict[str, int] = {}
+    for bucket in BUCKET_ORDER:
+        raw = weights_bps[bucket]
+        if isinstance(raw, bool) or not isinstance(raw, Integral):
+            raise OptimizerInputError(
+                f"weights_bps[{bucket!r}] must be integer basis points."
+            )
+        value = int(raw)
+        if not 0 <= value <= 10000:
+            raise OptimizerInputError(
+                f"weights_bps[{bucket!r}] must stay within 0..10000 bps."
+            )
+        parsed[bucket] = value
+    total = sum(parsed.values())
+    if total != 10000:
+        raise OptimizerInputError(
+            f"weights_bps must sum exactly to 10000 bps (got {total})."
+        )
+    return _trusted_weights_bps_to_array(parsed)
+
+
+def _simulate_context_wealth(context: OptimizerContext, w: np.ndarray) -> np.ndarray:
+    return simulate_wealth_paths(
+        initial_wealth_rappen=context.advisory_wealth_rappen,
+        weights=w,
+        return_paths=context.return_paths,
+        cashflow_series_rappen=context.cashflow_series_rappen,
+        liability_path_rappen=context.aggregated_liability_path,
+        death_year_index_per_path=context.mortality_death_year_index_per_path,
+        tax_regime=context.tax_regime,
+        dividend_yield_bps_per_bucket=context.dividend_yield_bps_per_bucket,
+        base_calendar_year=context.base_calendar_year,
+        mandate_age_at_start=context.mandate_age_at_start,
+        is_retired=context.is_retired,
+    )
+
+
+def _annualized_twr_bps_per_path(
+    context: OptimizerContext,
+    w: np.ndarray,
+) -> np.ndarray:
+    """Cashflow-neutral annualized portfolio return for every scenario path."""
+    portfolio_factors = np.einsum(
+        "phb,b->ph", context.return_paths, np.asarray(w, dtype=np.float64)
+    )
+    safe_factors = np.maximum(portfolio_factors, 1e-12)
+    annualized = np.exp(np.mean(np.log(safe_factors), axis=1)) - 1.0
+    return annualized * 10000.0
+
+
+def _canonicalize_sub_allocations(
+    sub_allocations: list[dict] | tuple[dict, ...] | None,
+) -> tuple[dict, ...]:
+    """Take an owned, stable snapshot of the exact Sub-Allocation input.
+
+    The row order and all row fields are preserved deliberately: this is a
+    context snapshot, not a second source of allocation logic. Deep-copying
+    prevents a later post-solver cap/materialisation step from mutating the
+    scenario assumptions of a context that has already been evaluated.
+    """
+    if sub_allocations is None:
+        return ()
+    canonical: list[dict] = []
+    for index, row in enumerate(sub_allocations):
+        if not isinstance(row, Mapping):
+            raise OptimizerInputError(
+                f"sub_allocations[{index}] must be a mapping, got {type(row).__name__}."
+            )
+        canonical.append(deepcopy(dict(row)))
+    return tuple(canonical)
+
+
+def build_optimizer_context(
+    *,
+    cma,
+    goals: list,
+    house_matrix_row,
+    score_x10: int,
+    advisory_wealth_rappen: int,
+    cashflow_series_rappen: Iterable[int],
+    external_wealth_rappen: int = 0,
+    external_wealth_series_rappen: Iterable[int] | None = None,
+    sub_allocations: list[dict] | None = None,  # Sprint B1 (2026-06-07)
+    effective_bounds_bps: Mapping[str, tuple[int, int]] | None = None,
+    horizon_years: int = 10,
+    scenario_horizon_years: int | None = None,
+    n_paths: int = 2000,
+    seed: int | None = None,
+    inflation_series_bps: list[int] | None = None,
+    risky_fraction_per_bucket: dict[str, float] | None = None,
+    max_risky_fraction_bps: int | None = None,
+    client_birth_year: int | None = None,
+    client_sex: str | None = None,
+    use_mortality_simulation: bool = False,
+    # Sprint U-P2 Fix C9: tax-aware Solver-Optionen
+    tax_regime: object | None = None,
+    dividend_yield_bps_per_bucket: np.ndarray | None = None,
+    base_calendar_year: int = 2026,
+    mandate_age_at_start: int | None = None,
+    is_retired: bool = False,
+) -> OptimizerContext:
+    """Baut den Solver-Context (Scenarios, Liabilities, Bounds, Constraints).
+
+    Identische Inputs liefern identische Contexts. Wenn `seed=None`, wird der
+    deterministische Seed aus `(cma_id, goal_ids, score_x10, horizon, n_paths)`
+    abgeleitet — gleicher Pfad wie bisher in `run_solver`.
+    """
+    horizon_years = int(max(1, horizon_years))
+    if scenario_horizon_years is not None and (
+        isinstance(scenario_horizon_years, bool)
+        or not isinstance(scenario_horizon_years, Integral)
+    ):
+        raise OptimizerInputError(
+            "scenario_horizon_years must be an exact integer."
+        )
+    common_scenario_horizon = (
+        horizon_years
+        if scenario_horizon_years is None
+        else int(scenario_horizon_years)
+    )
+    if common_scenario_horizon < horizon_years:
+        raise OptimizerInputError(
+            "scenario_horizon_years must be >= horizon_years."
+        )
+
+    if seed is None:
+        cma_id = getattr(cma, "id", "no-cma")
+        goal_ids = "|".join(str(getattr(g, "id", "?")) for g in goals)
+        seed = deterministic_seed(cma_id, goal_ids, score_x10, horizon_years, n_paths)
+
+    canonical_sub_allocations = _canonicalize_sub_allocations(sub_allocations)
+    exact_risky_fractions = (
+        validate_risky_fraction_per_bucket(risky_fraction_per_bucket)
+        if risky_fraction_per_bucket is not None
+        else None
+    )
+
+    if effective_bounds_bps is None:
+        bands = bands_from_house_matrix_row(house_matrix_row)
+        collapse_warnings = bounds_collapse_warnings(bands)
+    else:
+        # Explicit effective mandate bands are a hard domain contract. Validate
+        # them before building expensive scenarios and reject contradictions
+        # instead of inheriting legacy House-Matrix clamp-and-warn behaviour.
+        bands = bands_from_effective_bounds_bps(effective_bounds_bps)
+        collapse_warnings = []
+    bounds, scipy_constraints = build_constraint_set(
+        bands,
+        score_x10,
+        risky_fraction_per_bucket=exact_risky_fractions,
+        max_risky_fraction_bps=max_risky_fraction_bps,
+    )
+    inputs = scenario_inputs_from_cma(
+        cma,
+        sub_allocations=list(canonical_sub_allocations) or None,
+    )
+    scenario_mu_bps = np.array(inputs.mu_bps, dtype=np.float64, copy=True)
+    scenario_cov_bps2 = np.array(
+        _covariance_bps_from_scenario_inputs(inputs.sigma_bps, inputs.cholesky),
+        dtype=np.float64,
+        copy=True,
+    )
+    if (
+        scenario_mu_bps.shape != (N_BUCKETS,)
+        or scenario_cov_bps2.shape != (N_BUCKETS, N_BUCKETS)
+        or not np.all(np.isfinite(scenario_mu_bps))
+        or not np.all(np.isfinite(scenario_cov_bps2))
+    ):
+        raise OptimizerInputError(
+            "CMA scenario inputs must be finite and match the optimizer bucket shape."
+        )
+    # Frozen dataclass alone does not freeze ndarray contents.  Read-only owned
+    # copies keep the retained context stable for solver, fallback and audit.
+    scenario_mu_bps.setflags(write=False)
+    scenario_cov_bps2.setflags(write=False)
+    # Sprint B1 (2026-06-07): Cache-Key muss Sub-Allocation enthalten,
+    # sonst liefert Cache stale Pfade wenn dieselbe cma_id mit anderem
+    # Sub-Mix aufgerufen wird.
+    cma_id_for_cache = str(getattr(cma, "id", "no-cma"))
+    if canonical_sub_allocations:
+        try:
+            import hashlib
+            import json as _json
+            sub_repr = _json.dumps(
+                canonical_sub_allocations,
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+            )
+            sub_hash = hashlib.sha256(sub_repr.encode("utf-8")).hexdigest()[:12]
+            cma_id_for_cache = f"{cma_id_for_cache}::sub::{sub_hash}"
+        except (TypeError, ValueError) as exc:
+            raise OptimizerInputError(
+                "Canonical sub-allocations must be strictly JSON serializable "
+                "for an unambiguous scenario-cache identity."
+            ) from exc
+
+    # Sprint P1 (2026-06-06): IS-Auto-Decision
+    # ---------------------------------------
+    # Wir muessen liabilities zuerst bauen, weil hardness fuer die Decision
+    # benoetigt wird. ABER goals_to_liabilities ist deterministisch, also
+    # safe vor der Scenario-Generierung aufzurufen.
+    canonical_external_wealth_series: tuple[int, ...] = ()
+    if external_wealth_series_rappen is not None:
+        try:
+            raw_external_series = list(external_wealth_series_rappen)
+        except TypeError as exc:
+            raise OptimizerInputError(
+                "external_wealth_series_rappen must be an iterable of integers."
+            ) from exc
+        if len(raw_external_series) < int(horizon_years) + 1:
+            raise OptimizerInputError(
+                "external_wealth_series_rappen must cover today and every "
+                "optimizer horizon year."
+            )
+        if any(
+            isinstance(value, bool) or not isinstance(value, Integral)
+            for value in raw_external_series
+        ):
+            raise OptimizerInputError(
+                "external_wealth_series_rappen must contain exact integer Rappen."
+            )
+        canonical_external_wealth_series = tuple(
+            int(value) for value in raw_external_series[: int(horizon_years) + 1]
+        )
+
+    liabilities = goals_to_liabilities(
+        goals,
+        horizon_years=horizon_years,
+        inflation_series_bps=inflation_series_bps,
+        external_wealth_rappen=external_wealth_rappen,
+        external_wealth_series_rappen=(
+            canonical_external_wealth_series or None
+        ),
+    )
+    has_hart_goal = any(
+        str(getattr(liab, "hardness_key", "") or "").lower() == "hart"
+        for liab in liabilities
+    )
+    is_active, is_reason = decide_is_for_context(
+        score_x10=int(score_x10),
+        has_hart_goal=has_hart_goal,
+        is_retired=bool(is_retired),
+    )
+    try:
+        if is_active:
+            shift_vec = build_shift_vector(
+                N_BUCKETS,
+                strength=DEFAULT_TAIL_SHIFT_STRENGTH,
+            )
+            return_paths, scenario_weights = build_scenario_paths_with_weights_cached(
+                inputs,
+                cma_id=cma_id_for_cache,
+                horizon_years=common_scenario_horizon,
+                n_paths=n_paths,
+                seed=seed,
+                shift_vector=shift_vec,
+            )
+        else:
+            return_paths = build_scenario_paths_cached(
+                inputs,
+                cma_id=cma_id_for_cache,
+                horizon_years=common_scenario_horizon,
+                n_paths=n_paths,
+                seed=seed,
+            )
+            scenario_weights = None  # uniform sample-mean
+    except ReturnMomentError as exc:
+        raise OptimizerInputError(str(exc)) from exc
+    # Same seed is not enough when NumPy draws arrays with different horizon
+    # shapes: later paths get a different flattened RNG offset. Drawing both
+    # paired runs at the common max horizon and slicing here makes every path's
+    # overlapping years byte-identical.
+    return_paths = return_paths[:, :horizon_years, :]
+    aggregated_liability = aggregate_liability_path(liabilities, horizon_years)
+
+    # Sprint 4 Phase 3: Mortalitaets-Sampling wenn aktiviert
+    death_indices = None
+    if use_mortality_simulation:
+        if not client_birth_year or client_sex not in ("M", "F"):
+            raise OptimizerInputError(
+                "Activated mortality simulation requires client_birth_year "
+                "and client_sex M/F."
+            )
+        try:
+            from datetime import date as _date
+            from services.mortality.bfs import BFS_2020_2022
+            from services.mortality.sampler import (
+                death_year_index_from_age,
+                sample_age_at_death,
+            )
+            current_age = max(0, int(_date.today().year - int(client_birth_year)))
+            death_ages = sample_age_at_death(
+                n_paths=int(n_paths),
+                current_age=current_age,
+                sex=client_sex,
+                table=BFS_2020_2022,
+                seed=int(seed),
+            )
+            death_indices = death_year_index_from_age(
+                death_ages,
+                current_age=current_age,
+                horizon_years=int(horizon_years),
+            )
+        except Exception as exc:
+            raise OptimizerInputError(
+                "Activated mortality simulation could not be evaluated."
+            ) from exc
+
+    return OptimizerContext(
+        cma_id=cma_id_for_cache,
+        seed=int(seed),
+        horizon_years=int(horizon_years),
+        n_paths=int(n_paths),
+        advisory_wealth_rappen=int(advisory_wealth_rappen or 0),
+        cashflow_series_rappen=list(cashflow_series_rappen),
+        return_paths=return_paths,
+        liabilities=list(liabilities),
+        aggregated_liability_path=aggregated_liability,
+        bounds=list(bounds),
+        scipy_constraints=list(scipy_constraints),
+        score_x10=int(score_x10),
+        scenario_mu_bps=scenario_mu_bps,
+        scenario_cov_bps2=scenario_cov_bps2,
+        external_wealth_rappen=max(0, int(external_wealth_rappen or 0)),
+        external_wealth_series_rappen=canonical_external_wealth_series,
+        scenario_horizon_years=common_scenario_horizon,
+        risky_fraction_per_bucket=exact_risky_fractions,
+        max_risky_fraction_bps=max_risky_fraction_bps,
+        sub_allocations=canonical_sub_allocations,
+        # Sprint P1 (2026-06-06): IS-Likelihood-Weights
+        scenario_weights=scenario_weights,
+        mortality_death_year_index_per_path=death_indices,
+        # Sprint U-P2 Fix C9: tax-aware Felder
+        tax_regime=tax_regime,
+        dividend_yield_bps_per_bucket=dividend_yield_bps_per_bucket,
+        base_calendar_year=int(base_calendar_year),
+        mandate_age_at_start=mandate_age_at_start,
+        is_retired=bool(is_retired),
+        bounds_collapse_warnings=tuple(collapse_warnings),
+    )
+
+
+def _objective_from_array(context: OptimizerContext, w: np.ndarray) -> float:
+    """Internes Objective fuer einen w-Array unter dem Context.
+
+    Wird vom Solver-Closure genutzt, damit der Optimierungslauf exakt die
+    gleichen Scenarios sieht wie evaluate_weights spaeter.
+
+    Phase 5c: respektiert context.scenario_weights (IS-Likelihood-Ratios)
+    wenn gesetzt. Bei scenario_weights=None: trivialer sample-mean wie zuvor.
+    """
+    wealth = _simulate_context_wealth(context, w)
+    annualized_twr = _annualized_twr_bps_per_path(context, w)
+    return float(combined_objective_two_phase(
+        context.liabilities,
+        wealth,
+        initial_wealth_rappen=context.advisory_wealth_rappen,
+        horizon_years=context.horizon_years,
+        weights=context.scenario_weights,
+        annualized_return_bps_per_path=annualized_twr,
+    ))
+
+
+def evaluate_weights(
+    context: OptimizerContext,
+    weights_bps: dict[str, int],
+) -> OptimizerEvaluation:
+    """Bewertet eine konkrete bps-Allocation unter dem Context.
+
+    Liefert:
+    - objective_value: shortfall_objective unter den Scenarios des Context
+    - feasible / constraint_violations: gegen bounds + scipy_constraints
+    - terminal_wealth_p10/p50/p90: Endvermoegen-Quantile in Rappen
+    """
+    w = _weights_bps_to_array(weights_bps)
+    # Sprint U-P2 Fix C9: tax-aware Evaluation
+    wealth = _simulate_context_wealth(context, w)
+    annualized_twr = _annualized_twr_bps_per_path(context, w)
+    objective = combined_objective_two_phase(
+        context.liabilities,
+        wealth,
+        initial_wealth_rappen=context.advisory_wealth_rappen,
+        horizon_years=context.horizon_years,
+        weights=context.scenario_weights,
+        annualized_return_bps_per_path=annualized_twr,
+    )
+    feasible, violations = is_feasible(
+        w, bounds=context.bounds, constraints=context.scipy_constraints,
+    )
+    terminal = wealth[:, -1] if wealth.size else np.array([], dtype=np.float64)
+    if terminal.size:
+        p10, p50, p90 = np.percentile(terminal, [10, 50, 90])
+        p10_i = int(round(float(p10)))
+        p50_i = int(round(float(p50)))
+        p90_i = int(round(float(p90)))
+    else:
+        p10_i = p50_i = p90_i = None
+
+    return OptimizerEvaluation(
+        weights_bps=_weights_to_bps_dict(w),
+        objective_value=float(objective),
+        feasible=bool(feasible),
+        constraint_violations=list(violations),
+        terminal_wealth_p10_rappen=p10_i,
+        terminal_wealth_p50_rappen=p50_i,
+        terminal_wealth_p90_rappen=p90_i,
+    )
+
+
+# ============================================================================
+# Deterministic Seed
+# ============================================================================
+
+
+def deterministic_seed(*parts) -> int:
+    """Reproduzierbarer 63-bit Seed aus String-Parts.
+
+    Konsistent zu portfolio_engine._monte_carlo_seed-Idee, aber unabhaengig.
+    SHA-256 verkleinert auf 63 bit (numpy default_rng nimmt unsigned 64-bit;
+    63-bit reicht und vermeidet Vorzeichen-Verwirrung).
+    """
+    h = hashlib.sha256()
+    for p in parts:
+        h.update(str(p).encode("utf-8"))
+        h.update(b"\x00")
+    return int.from_bytes(h.digest()[:8], "big") & 0x7FFFFFFFFFFFFFFF
+
+
+# ============================================================================
+# Initial Guesses fuer Multi-Start
+# ============================================================================
+
+
+def _normalize_to_bounds(w: np.ndarray, bounds: list[tuple[float, float]]) -> np.ndarray:
+    """Projeziert w auf bounds und re-normalisiert zu sum=1.
+
+    Best-effort: clipped auf bounds, dann skaliert zu sum=1, dann erneut
+    geclipped. Bei pathologischen Bounds-Sets kann das nicht-feasible bleiben -
+    der is_feasible-Check im Solver faengt das ab.
+    """
+    lo = np.array([b[0] for b in bounds])
+    hi = np.array([b[1] for b in bounds])
+    w = np.clip(w, lo, hi)
+    s = w.sum()
+    if s > 0:
+        w = w / s
+        w = np.clip(w, lo, hi)
+        s = w.sum()
+        if s > 0:
+            w = w / s
+    return w
+
+
+def _is_within_bounds(w: np.ndarray, bounds: list[tuple[float, float]], tol: float = 1e-6) -> bool:
+    """Prueft Bounds-Compliance + sum=1 (gewuenscht fuer SLSQP-Initial)."""
+    if abs(np.sum(w) - 1.0) > tol:
+        return False
+    for i, (lo, hi) in enumerate(bounds):
+        if w[i] < lo - tol or w[i] > hi + tol:
+            return False
+    return True
+
+
+def _minimum_risk_allocation(
+    bounds: list[tuple[float, float]],
+    risky_fraction_per_bucket: dict[str, float] | None = None,
+) -> np.ndarray:
+    """Construct the lowest-risk feasible point inside the allocation bounds."""
+    lo = np.array([b[0] for b in bounds], dtype=np.float64)
+    hi = np.array([b[1] for b in bounds], dtype=np.float64)
+    weights = lo.copy()
+    remaining = 1.0 - float(weights.sum())
+    if remaining <= 1e-12:
+        return _normalize_to_bounds(weights, bounds)
+
+    rf_map = (
+        DEFAULT_BUCKET_RISKY_FRACTION
+        if risky_fraction_per_bucket is None
+        else risky_fraction_per_bucket
+    )
+    bucket_order = sorted(
+        range(len(bounds)),
+        key=lambda i: (
+            float(rf_map.get(BUCKET_ORDER[i], 0.0)),
+            0 if BUCKET_ORDER[i] == "liquidity" else 1,
+            i,
+        ),
+    )
+    for idx in bucket_order:
+        capacity = max(0.0, float(hi[idx] - weights[idx]))
+        add = min(remaining, capacity)
+        weights[idx] += add
+        remaining -= add
+        if remaining <= 1e-12:
+            break
+    return _normalize_to_bounds(weights, bounds)
+
+
+def _covariance_bps_from_scenario_inputs(
+    sigma_bps: np.ndarray,
+    cholesky: np.ndarray,
+) -> np.ndarray | None:
+    """Baut die Kovarianzmatrix (bps^2-Einheiten) aus Vol-Vektor + Cholesky.
+
+    `cholesky` ist die Cholesky-Zerlegung der (dimensionslosen) Korrelations-
+    matrix (siehe scenario_engine.scenario_inputs_from_cma / _safe_cholesky).
+    Es gilt L @ L.T = Korrelation, also:
+
+        Cov = D @ Korrelation @ D = (D @ L) @ (D @ L).T,  D = diag(sigma_bps)
+
+    Diese Konstruktion ist per Definition PSD (kein Risiko einer nicht-
+    positiv-definiten Matrix durch Rundungsfehler in einer separat
+    gespeicherten Korrelationsmatrix). Bei Shape-Mismatch oder NaN/Inf wird
+    None zurueckgegeben (Caller behandelt das als "Markowitz-Kandidat
+    nicht verfuegbar", kein Crash).
+    """
+    try:
+        sigma = np.asarray(sigma_bps, dtype=np.float64)
+        chol = np.asarray(cholesky, dtype=np.float64)
+        n = sigma.shape[0]
+        if chol.shape != (n, n):
+            return None
+        d_chol = np.diag(sigma) @ chol
+        cov = d_chol @ d_chol.T
+        if not np.all(np.isfinite(cov)):
+            return None
+        return cov
+    except Exception:  # noqa: BLE001 - defensive, darf Solver nie crashen
+        return None
+
+
+def _markowitz_min_variance_candidate(
+    bounds: list[tuple[float, float]],
+    mu_bps: np.ndarray | None,
+    cov_bps: np.ndarray | None,
+) -> np.ndarray | None:
+    """PAR-5 (3eyes-Parity): Markowitz-informierter Multi-Start-Kandidat.
+
+    Loest ein kleines quadratisches Programm auf der Effizienzgrenze:
+
+        minimiere   w^T * Cov * w                 (Portfolio-Varianz)
+        unter       sum(w) == 1
+                    w^T * mu >= target_return      (Mindest-Rendite)
+                    lo_i <= w_i <= hi_i             (dieselben Bucket-Bands)
+
+    `target_return` ist die erwartete Rendite des bereits vorhandenen
+    Mid-of-Bounds-Kandidaten - so bleibt der Markowitz-Punkt konsistent zum
+    House-Matrix-Risikoniveau statt einen willkuerlichen neuen Rendite-
+    Zielwert einzufuehren. Das Ergebnis liegt (naeherungsweise, siehe unten)
+    auf der Markowitz-Effizienzgrenze innerhalb der Bucket-Bands - analog zu
+    3eyes, das ebenfalls von der Effizienzgrenze aus startet.
+
+    Dies ist ein echtes QP via scipy.optimize.minimize(method="SLSQP"),
+    nicht nur eine Naeherung - scipy ist bereits Kern-Dependency des Solvers
+    (siehe _solve_single_start weiter unten im selben Modul).
+
+    Guard (Punkt 5 des Auftrags): bei jedem Fehler (Shape-Mismatch, NaN/Inf,
+    SLSQP-Exception, degenerierte/nicht handhabbare Kovarianz) wird None
+    zurueckgegeben. Der Aufrufer laesst den Kandidaten dann einfach weg -
+    kein Crash des gesamten Solver-Laufs.
+    """
+    if mu_bps is None or cov_bps is None:
+        return None
+    n = len(bounds)
+    try:
+        mu = np.asarray(mu_bps, dtype=np.float64)
+        cov = np.asarray(cov_bps, dtype=np.float64)
+        if mu.shape != (n,) or cov.shape != (n, n):
+            return None
+        if not np.all(np.isfinite(mu)) or not np.all(np.isfinite(cov)):
+            return None
+
+        mid = np.array([(lo + hi) / 2.0 for lo, hi in bounds], dtype=np.float64)
+        x0 = _normalize_to_bounds(mid, bounds)
+        target_return = float(x0 @ mu)
+
+        def _variance(w: np.ndarray) -> float:
+            return float(w @ cov @ w)
+
+        def _variance_grad(w: np.ndarray) -> np.ndarray:
+            return 2.0 * (cov @ w)
+
+        cons = [
+            {
+                "type": "eq",
+                "fun": lambda w: float(np.sum(w) - 1.0),
+                "jac": lambda w: np.ones_like(w),
+            },
+            {
+                "type": "ineq",
+                "fun": lambda w: float(w @ mu - target_return),
+                "jac": lambda w: mu,
+            },
+        ]
+        result = minimize(
+            _variance,
+            x0=x0,
+            jac=_variance_grad,
+            method="SLSQP",
+            bounds=bounds,
+            constraints=cons,
+            options={"maxiter": 100, "ftol": 1e-9, "disp": False},
+        )
+        raw_x = getattr(result, "x", None)
+        if raw_x is None:
+            return None
+        candidate = np.asarray(raw_x, dtype=np.float64)
+        if candidate.shape != (n,) or not np.all(np.isfinite(candidate)):
+            return None
+        return _normalize_to_bounds(np.clip(candidate, 0.0, 1.0), bounds)
+    except Exception:  # noqa: BLE001 - defensive, darf Solver nie crashen
+        return None
+
+
+def build_initial_guesses(
+    bounds: list[tuple[float, float]],
+    score_x10: int,
+    mu_bps: np.ndarray | None = None,
+    cov_bps: np.ndarray | None = None,
+    risky_fraction_per_bucket: dict[str, float] | None = None,
+) -> list[np.ndarray]:
+    """Liefert Multi-Start-Initials, alle innerhalb der Bounds und summe~1.
+
+    OWNER-DECISION OD-5: Multi-Start verbessert SLSQP-Robustheit gegen
+    Lokal-Minima. Erzeugte Kandidaten:
+    1. Mid-of-bounds (zentral)
+    2. Conservative: max Liquiditaet, min Risiko
+    3. Aggressive: max Equities, in Bounds
+    4. Risk-cap-edge: Risky-Fraction-Limit voll ausnutzen
+    5. Equal: 1/n pro Bucket (Default-Diversifikation)
+    6. PAR-5 (optional, additiv): Markowitz-Min-Varianz-Punkt aus CMA
+       (expected returns `mu_bps` + Kovarianz `cov_bps`), nur wenn beide
+       Parameter uebergeben werden und das QP loesbar ist. Backwards-Compat:
+       ohne mu_bps/cov_bps (Default None) bleibt das Verhalten exakt wie
+       zuvor (Kandidaten 1-5, unveraendert).
+
+    Infeasible-Kandidaten (z.B. wegen pathologischer Bounds) werden gefiltert.
+    Mindestens 1 Kandidat (Mid-of-Bounds) wird auch dann zurueckgegeben wenn
+    er nicht 100% feasible ist - damit der Solver nie ohne Start dasteht.
+    """
+    n = len(bounds)
+    candidates: list[np.ndarray] = []
+
+    # 1. Mid-of-bounds
+    mid = np.array([(lo + hi) / 2.0 for lo, hi in bounds])
+    candidates.append(_normalize_to_bounds(mid, bounds))
+
+    # 2. Conservative: minimum risky fraction inside the hard bounds
+    cons = _minimum_risk_allocation(
+        bounds,
+        risky_fraction_per_bucket=risky_fraction_per_bucket,
+    )
+    liq_idx = BUCKET_ORDER.index("liquidity")
+    candidates.append(cons)
+
+    # 3. Aggressive: maximize equities first
+    aggr = np.array([lo for lo, _ in bounds])
+    eq_idx = BUCKET_ORDER.index("equities")
+    aggr[eq_idx] = bounds[eq_idx][1]
+    leftover = 1.0 - aggr.sum()
+    if leftover > 0:
+        bonds_idx = BUCKET_ORDER.index("bonds")
+        addable_bonds = min(leftover, bounds[bonds_idx][1] - aggr[bonds_idx])
+        aggr[bonds_idx] += addable_bonds
+        leftover -= addable_bonds
+        if leftover > 0:
+            addable_liq = min(leftover, bounds[liq_idx][1] - aggr[liq_idx])
+            aggr[liq_idx] += addable_liq
+    candidates.append(_normalize_to_bounds(aggr, bounds))
+
+    # 4. Risk-Cap-Edge: knapp unter Risky-Fraction-Cap
+    risk_target = max(0.0, min(1.0, score_x10 / 100.0)) * 0.95
+    edge = np.array([lo for lo, _ in bounds])
+    bonds_idx = BUCKET_ORDER.index("bonds")
+    edge[eq_idx] = min(bounds[eq_idx][1], risk_target)
+    edge[bonds_idx] = max(bounds[bonds_idx][0], 1 - edge.sum() + edge[bonds_idx])
+    candidates.append(_normalize_to_bounds(edge, bounds))
+
+    # 5. Equal-weight - kann infeasible werden bei strikten Bounds
+    eq = np.full(n, 1.0 / n)
+    candidates.append(_normalize_to_bounds(eq, bounds))
+
+    # 6. PAR-5 (additiv, optional): Markowitz-Min-Varianz-Punkt aus der CMA.
+    # Nur hinzugefuegt wenn mu_bps/cov_bps uebergeben wurden UND das QP
+    # ein brauchbares Ergebnis liefert - sonst bleibt das Set bei 5
+    # Kandidaten (identisch zum bisherigen Verhalten).
+    markowitz = _markowitz_min_variance_candidate(bounds, mu_bps, cov_bps)
+    if markowitz is not None:
+        candidates.append(markowitz)
+
+    # Filter feasible Kandidaten; wenn alle infeasible: behalte mindestens
+    # Mid-of-Bounds als Best-Effort-Start.
+    feasible = [w for w in candidates if _is_within_bounds(w, bounds, tol=1e-3)]
+    if not feasible:
+        feasible = [candidates[0]]
+    return feasible
+
+
+# ============================================================================
+# SLSQP Solver
+# ============================================================================
+
+
+def _solve_single_start(
+    objective_fn,
+    x0: np.ndarray,
+    bounds: list[tuple[float, float]],
+    constraints: list[dict],
+    *,
+    max_iter: int = 50,
+    ftol: float = 1e-6,
+) -> OptimizeResult:
+    """Run one SLSQP start without reclassifying exceptions as divergence.
+
+    A returned ``OptimizeResult(success=False)`` is an expected numerical
+    non-convergence and the multi-start caller can continue.  An exception is
+    different: it may be a domain/programming defect and must reach the strict
+    production boundary, which alone owns the explicit technical-error
+    allowlist for the audited House fallback.
+    """
+    return minimize(
+        objective_fn,
+        x0=x0,
+        method="SLSQP",
+        bounds=bounds,
+        constraints=constraints,
+        options={"maxiter": max_iter, "ftol": ftol, "disp": False},
+    )
+
+
+def _solve_via_genetic_algorithm(
+    objective_fn,
+    bounds: list[tuple[float, float]],
+    constraints: list[dict],
+    *,
+    seed: int,
+    max_iter: int = 60,
+    popsize: int = 15,
+) -> OptimizeResult:
+    """Phase 5.3 GA-Fallback: scipy.optimize.differential_evolution.
+
+    Robuster als SLSQP gegen lokal-Minima und Konvergenz-Probleme bei
+    nicht-glatten Objectives. Nachteile: 5-10x langsamer, kein Gradient-Use.
+
+    Wir nutzen DE mit Penalty fuer Constraint-Verletzung (DE selbst hat
+    keine native ineq-constraints in alten scipy-Versionen). Equality-
+    Constraint sum=1 wird durch Renormalisation enforciert.
+
+    seed wird durchgereicht fuer Reproduzierbarkeit.
+    """
+    sum_to_one_cons = next(
+        (c for c in constraints if c["type"] == "eq"),
+        None,
+    )
+    ineq_constraints = [c for c in constraints if c["type"] == "ineq"]
+
+    def penalized_objective(w: np.ndarray) -> float:
+        # Renormalize zu sum=1 (Equality enforcement)
+        s = float(np.sum(w))
+        if s > 1e-12:
+            w = w / s
+        # Bound clamping (DE hat boundary handling, aber doppelt sicher)
+        lo = np.array([b[0] for b in bounds])
+        hi = np.array([b[1] for b in bounds])
+        w = np.clip(w, lo, hi)
+        s = float(np.sum(w))
+        if s > 1e-12:
+            w = w / s
+        # Base objective
+        base = float(objective_fn(w))
+        # Penalty fuer Inequality-Verletzungen
+        penalty = 0.0
+        for cons in ineq_constraints:
+            val = float(cons["fun"](w))
+            if val < 0:
+                penalty += 1e9 * abs(val) ** 2  # quadratisch, gross genug zu dominieren
+        return base + penalty
+
+    # As with SLSQP, only a returned non-success result is convergence state.
+    # Exceptions must retain their type so domain/programming errors cannot be
+    # laundered into a normal House fallback by the caller.
+    result = differential_evolution(
+        penalized_objective,
+        bounds=bounds,
+        seed=int(seed) & 0x7FFFFFFF,  # DE seed ist int32
+        maxiter=max_iter,
+        popsize=popsize,
+        tol=1e-6,
+        polish=False,  # SLSQP-Polish skip (haben wir schon versucht)
+        disp=False,
+    )
+    # Manuelle Renormalization auf result.x
+    x = np.asarray(result.x, dtype=np.float64)
+    s = float(np.sum(x))
+    if s > 1e-12:
+        x = x / s
+    result.x = x
+    result.message = f"DE: {result.message}"
+    return result
+
+
+def _finite_feasible_candidate(
+    result: OptimizeResult,
+    objective_fn,
+    bounds: list[tuple[float, float]],
+    constraints: list[dict],
+) -> tuple[np.ndarray, float] | None:
+    """Return a normalized candidate when SciPy reports non-success but gave one.
+
+    Stage 9 hardens the optimizer against SLSQP status false-positives such as
+    "Inequality constraints incompatible" on non-smooth chance-constraint
+    objectives. A candidate is accepted only after an independent strict
+    feasibility check against bounds, sum-to-one and risk-cap constraints.
+    """
+    raw_x = getattr(result, "x", None)
+    if raw_x is None:
+        return None
+    try:
+        x = np.asarray(raw_x, dtype=np.float64)
+    except (TypeError, ValueError):
+        return None
+    if x.shape != (len(bounds),) or not np.all(np.isfinite(x)):
+        return None
+    candidate = _normalize_to_bounds(np.clip(x, 0.0, 1.0), bounds)
+    feasible, _violations = is_feasible(
+        candidate,
+        bounds=bounds,
+        constraints=constraints,
+    )
+    if not feasible:
+        return None
+    # A non-finite value is a rejected candidate.  An exception is not a
+    # candidate property and therefore must not be hidden as non-convergence.
+    objective = float(objective_fn(candidate))
+    if not np.isfinite(objective):
+        return None
+    return candidate, objective
+
+
+def _candidate_risky_fraction(
+    weights: np.ndarray,
+    risky_fraction_per_bucket: dict[str, float] | None,
+) -> float:
+    """Compute realized risky fraction for robustified candidate tie-breaks."""
+    rf_map = (
+        DEFAULT_BUCKET_RISKY_FRACTION
+        if risky_fraction_per_bucket is None
+        else risky_fraction_per_bucket
+    )
+    risky_vector = np.array(
+        [float(rf_map.get(bucket, 0.0)) for bucket in BUCKET_ORDER],
+        dtype=np.float64,
+    )
+    return float(np.dot(weights, risky_vector))
+
+
+def _derisk_candidate_near_best(
+    selected_weights: np.ndarray,
+    *,
+    objective_fn,
+    objective_value: float,
+    bounds: list[tuple[float, float]],
+    constraints: list[dict],
+    risky_fraction_per_bucket: dict[str, float] | None,
+) -> tuple[np.ndarray, float] | None:
+    """Move robustified candidates toward the lowest-risk feasible start.
+
+    This is used only after SciPy reported non-success. At that point the
+    objective is already numerically fragile, so 3eyes' "so viel Risiko wie
+    noetig" rule is a better deterministic tie-break than accepting a
+    platform-specific high-risk candidate by a tiny objective edge.
+    """
+    conservative_anchor = _minimum_risk_allocation(
+        bounds,
+        risky_fraction_per_bucket,
+    )
+    objective_limit = objective_value + max(
+        abs(objective_value) * _ROBUSTIFIED_DERISK_REL_TOL,
+        1e-9,
+    )
+    best_weights = selected_weights
+    best_objective = float(objective_value)
+    best_key = (
+        _candidate_risky_fraction(best_weights, risky_fraction_per_bucket),
+        float(best_weights[BUCKET_ORDER.index("equities")]),
+        best_objective,
+    )
+    for alpha in np.linspace(0.05, 1.0, 20):
+        trial = _normalize_to_bounds(
+            ((1.0 - float(alpha)) * selected_weights) + (float(alpha) * conservative_anchor),
+            bounds,
+        )
+        feasible, _violations = is_feasible(
+            trial,
+            bounds=bounds,
+            constraints=constraints,
+        )
+        if not feasible:
+            continue
+        trial_objective = float(objective_fn(trial))
+        if not np.isfinite(trial_objective) or trial_objective > objective_limit:
+            continue
+        trial_key = (
+            _candidate_risky_fraction(trial, risky_fraction_per_bucket),
+            float(trial[BUCKET_ORDER.index("equities")]),
+            trial_objective,
+        )
+        if trial_key < best_key:
+            best_weights = trial
+            best_objective = trial_objective
+            best_key = trial_key
+    if np.allclose(best_weights, selected_weights, atol=1e-9, rtol=0.0):
+        return None
+    return best_weights, best_objective
+
+
+def run_solver(
+    *,
+    cma,
+    goals: list,
+    house_matrix_row,
+    score_x10: int,
+    advisory_wealth_rappen: int,
+    cashflow_series_rappen: Iterable[int],
+    external_wealth_rappen: int = 0,
+    external_wealth_series_rappen: Iterable[int] | None = None,
+    horizon_years: int = 10,
+    scenario_horizon_years: int | None = None,
+    n_paths: int = 2000,
+    seed: int | None = None,
+    inflation_series_bps: list[int] | None = None,
+    risky_fraction_per_bucket: dict[str, float] | None = None,
+    max_risky_fraction_bps: int | None = None,
+    max_iter: int = 50,
+    ftol: float = 1e-6,
+    client_birth_year: int | None = None,
+    client_sex: str | None = None,
+    use_mortality_simulation: bool = False,
+    # Sprint U-P2 Fix C9: tax-aware Solver-Optionen (Backwards-Compat: alle None)
+    tax_regime: object | None = None,
+    dividend_yield_bps_per_bucket: np.ndarray | None = None,
+    base_calendar_year: int = 2026,
+    mandate_age_at_start: int | None = None,
+    is_retired: bool = False,
+    # Sprint B1 (2026-06-07): Sub-Allocation-Aware Bucket-Returns
+    sub_allocations: list[dict] | None = None,
+    # Strict mandate-specific solver bounds. None keeps the legacy
+    # House-Matrix extraction path byte-for-byte compatible.
+    effective_bounds_bps: Mapping[str, tuple[int, int]] | None = None,
+    # Optional already-built source-of-truth context. Productive callers use
+    # this to retain the exact context for validation/audited fallback and to
+    # prevent any downstream rebuild with lost inputs.
+    optimizer_context: OptimizerContext | None = None,
+) -> OptimizerResult:
+    """Mulvey-Light SLSQP Optimizer.
+
+    Returns OptimizerResult mit weights_bps + Audit-Trace.
+
+    Bei Solver-Divergenz aller Multi-Starts: status='fallback_house_matrix'
+    mit House-Matrix-Mid als weights (OWNER-DECISION OD-5).
+
+    V3 Sprint 1b: Solver baut intern einen OptimizerContext und nutzt
+    `_objective_from_array` als Closure. Nach finalem Rounding wird
+    `objective_value` ueber `evaluate_weights` neu bestimmt, damit ein
+    externer Aufruf von `evaluate_weights(ctx, result.weights_bps)` exakt
+    den gleichen Wert liefert.
+    """
+    # ---- 1.-4. Context (Seed, Scenarios, Liabilities, Constraints) ----
+    context = optimizer_context
+    if context is None:
+        context = build_optimizer_context(
+            cma=cma,
+            goals=list(goals),
+            house_matrix_row=house_matrix_row,
+            score_x10=score_x10,
+            advisory_wealth_rappen=advisory_wealth_rappen,
+            cashflow_series_rappen=cashflow_series_rappen,
+            external_wealth_rappen=external_wealth_rappen,
+            external_wealth_series_rappen=external_wealth_series_rappen,
+            horizon_years=horizon_years,
+            scenario_horizon_years=scenario_horizon_years,
+            n_paths=n_paths,
+            seed=seed,
+            inflation_series_bps=inflation_series_bps,
+            risky_fraction_per_bucket=risky_fraction_per_bucket,
+            max_risky_fraction_bps=max_risky_fraction_bps,
+            client_birth_year=client_birth_year,
+            client_sex=client_sex,
+            use_mortality_simulation=use_mortality_simulation,
+            # Sprint U-P2 Fix C9
+            tax_regime=tax_regime,
+            dividend_yield_bps_per_bucket=dividend_yield_bps_per_bucket,
+            base_calendar_year=base_calendar_year,
+            mandate_age_at_start=mandate_age_at_start,
+            is_retired=is_retired,
+            # Sprint B1 (2026-06-07): Sub-Allocation
+            sub_allocations=sub_allocations,
+            effective_bounds_bps=effective_bounds_bps,
+        )
+    elif not isinstance(context, OptimizerContext):
+        raise OptimizerInputError(
+            "optimizer_context must be an OptimizerContext instance."
+        )
+    # Lokale Aliase fuer Lesbarkeit der bestehenden Logik unten
+    seed = context.seed
+    score_x10 = context.score_x10
+    horizon_years = context.horizon_years
+    n_paths = context.n_paths
+    return_paths = context.return_paths
+    liabilities = context.liabilities
+    aggregated_liability = context.aggregated_liability_path
+    bounds = context.bounds
+    scipy_constraints = context.scipy_constraints
+
+    # ---- 5. Objective Closure ueber den Context ----
+    def objective_fn(w: np.ndarray) -> float:
+        return _objective_from_array(context, w)
+
+    # ---- 6. Multi-Start SLSQP ----
+    # PAR-5: zusaetzlicher Markowitz-Min-Varianz-Kandidat.  The retained
+    # OptimizerContext is the sole source of truth: re-reading the separately
+    # passed CMA here would allow the same context to produce different starts
+    # (and potentially a different local optimum) after a CMA mutation.
+    mu_bps_for_markowitz: np.ndarray | None = None
+    cov_bps_for_markowitz: np.ndarray | None = None
+    if context.scenario_mu_bps is not None and context.scenario_cov_bps2 is not None:
+        candidate_mu = np.asarray(context.scenario_mu_bps, dtype=np.float64)
+        candidate_cov = np.asarray(context.scenario_cov_bps2, dtype=np.float64)
+        if (
+            candidate_mu.shape == (N_BUCKETS,)
+            and candidate_cov.shape == (N_BUCKETS, N_BUCKETS)
+            and np.all(np.isfinite(candidate_mu))
+            and np.all(np.isfinite(candidate_cov))
+        ):
+            mu_bps_for_markowitz = candidate_mu.copy()
+            cov_bps_for_markowitz = candidate_cov.copy()
+
+    initials = build_initial_guesses(
+        bounds, score_x10,
+        mu_bps=mu_bps_for_markowitz,
+        cov_bps=cov_bps_for_markowitz,
+        risky_fraction_per_bucket=context.risky_fraction_per_bucket,
+    )
+    best_result: OptimizeResult | None = None
+    best_obj = float("inf")
+    best_feasible_result: OptimizeResult | None = None
+    best_feasible_w: np.ndarray | None = None
+    best_feasible_obj = float("inf")
+    best_feasible_source = ""
+    finite_feasible_candidates: list[dict[str, object]] = []
+    attempt_summaries: list[dict[str, object]] = []
+    total_iters = 0
+    used_ga_fallback = False
+    accepted_feasible_non_success = False
+    robustification_derisked = False
+
+    for x0 in initials:
+        attempt_started = time.perf_counter()
+        result = _solve_single_start(
+            objective_fn, x0, bounds, scipy_constraints,
+            max_iter=max_iter, ftol=ftol,
+        )
+        elapsed_ms = int(round((time.perf_counter() - attempt_started) * 1000))
+        total_iters += int(getattr(result, "nit", 0) or 0)
+        candidate = _finite_feasible_candidate(
+            result,
+            objective_fn,
+            bounds,
+            scipy_constraints,
+        )
+        if candidate is not None:
+            candidate_w, candidate_obj = candidate
+            finite_feasible_candidates.append({
+                "result": result,
+                "weights": candidate_w,
+                "objective": candidate_obj,
+                "source": "slsqp",
+                "risky_fraction": _candidate_risky_fraction(
+                    candidate_w,
+                    context.risky_fraction_per_bucket,
+                ),
+            })
+            if candidate_obj < best_feasible_obj:
+                best_feasible_obj = candidate_obj
+                best_feasible_result = result
+                best_feasible_w = candidate_w
+                best_feasible_source = "slsqp"
+            if bool(getattr(result, "success", False)) and candidate_obj < best_obj:
+                result.x = candidate_w
+                best_obj = candidate_obj
+                best_result = result
+        attempt_summaries.append({
+            "attempt": len(attempt_summaries) + 1,
+            "stage": "slsqp",
+            "status": "converged" if bool(getattr(result, "success", False)) else "non_success",
+            "solver_status": int(getattr(result, "status", 0) or 0),
+            "message": str(getattr(result, "message", "") or "")[:240],
+            "reason": (
+                "solver_success"
+                if bool(getattr(result, "success", False))
+                else "solver_no_convergence"
+            ),
+            "objective_value": (
+                float(candidate[1]) if candidate is not None else None
+            ),
+            "feasible_candidate": candidate is not None,
+            "n_paths": int(n_paths),
+            "n_starts": int(len(initials)),
+            "seed": int(seed),
+            "elapsed_ms": elapsed_ms,
+        })
+
+    # ---- 6b. Phase 5.3 GA-Fallback wenn alle SLSQP-Starts divergiert ----
+    if best_result is None:
+        attempt_started = time.perf_counter()
+        ga_result = _solve_via_genetic_algorithm(
+            objective_fn, bounds, scipy_constraints, seed=seed,
+        )
+        elapsed_ms = int(round((time.perf_counter() - attempt_started) * 1000))
+        total_iters += int(getattr(ga_result, "nit", 0) or 0)
+        candidate = _finite_feasible_candidate(
+            ga_result,
+            objective_fn,
+            bounds,
+            scipy_constraints,
+        )
+        if candidate is not None:
+            candidate_w, candidate_obj = candidate
+            finite_feasible_candidates.append({
+                "result": ga_result,
+                "weights": candidate_w,
+                "objective": candidate_obj,
+                "source": "differential_evolution",
+                "risky_fraction": _candidate_risky_fraction(
+                    candidate_w,
+                    context.risky_fraction_per_bucket,
+                ),
+            })
+            if candidate_obj < best_feasible_obj:
+                best_feasible_obj = candidate_obj
+                best_feasible_result = ga_result
+                best_feasible_w = candidate_w
+                best_feasible_source = "differential_evolution"
+            if bool(getattr(ga_result, "success", False)) and candidate_obj < float("inf"):
+                ga_result.x = candidate_w
+                best_obj = candidate_obj
+                best_result = ga_result
+                used_ga_fallback = True
+        attempt_summaries.append({
+            "attempt": len(attempt_summaries) + 1,
+            "stage": "differential_evolution",
+            "status": "converged" if bool(getattr(ga_result, "success", False)) else "non_success",
+            "solver_status": int(getattr(ga_result, "status", 0) or 0),
+            "message": str(getattr(ga_result, "message", "") or "")[:240],
+            "reason": (
+                "ga_success"
+                if bool(getattr(ga_result, "success", False))
+                else "ga_no_convergence"
+            ),
+            "objective_value": (
+                float(candidate[1]) if candidate is not None else None
+            ),
+            "feasible_candidate": candidate is not None,
+            "n_paths": int(n_paths),
+            "n_starts": int(len(initials)),
+            "seed": int(seed),
+            "elapsed_ms": elapsed_ms,
+        })
+
+    if best_result is None and finite_feasible_candidates:
+        objective_floor = min(
+            float(candidate["objective"])
+            for candidate in finite_feasible_candidates
+        )
+        objective_limit = objective_floor + max(
+            abs(objective_floor) * _ROBUSTIFIED_OBJECTIVE_TIE_REL_TOL,
+            1e-9,
+        )
+        near_best_candidates = [
+            candidate
+            for candidate in finite_feasible_candidates
+            if float(candidate["objective"]) <= objective_limit
+        ]
+        # 3eyes-Logik: so viel Risiko wie noetig, aber bei praktisch
+        # gleichwertiger Zielerreichung die defensivere Allocation nehmen.
+        chosen_candidate = min(
+            near_best_candidates,
+            key=lambda candidate: (
+                float(candidate["risky_fraction"]),
+                float(np.asarray(candidate["weights"])[BUCKET_ORDER.index("equities")]),
+                float(candidate["objective"]),
+            ),
+        )
+        best_feasible_result = chosen_candidate["result"]  # type: ignore[assignment]
+        best_feasible_w = np.asarray(
+            chosen_candidate["weights"],
+            dtype=np.float64,
+        )
+        best_feasible_obj = float(chosen_candidate["objective"])
+        best_feasible_source = str(chosen_candidate["source"])
+        derisked = _derisk_candidate_near_best(
+            best_feasible_w,
+            objective_fn=objective_fn,
+            objective_value=best_feasible_obj,
+            bounds=bounds,
+            constraints=scipy_constraints,
+            risky_fraction_per_bucket=context.risky_fraction_per_bucket,
+        )
+        if derisked is not None:
+            best_feasible_w, best_feasible_obj = derisked
+            robustification_derisked = True
+
+    if best_result is None and best_feasible_result is not None and best_feasible_w is not None:
+        best_result = best_feasible_result
+        best_result.x = best_feasible_w
+        best_obj = best_feasible_obj
+        accepted_feasible_non_success = True
+        used_ga_fallback = best_feasible_source == "differential_evolution"
+
+    # ---- 7. Status & Output ----
+    if best_result is None:
+        # Auch GA divergiert -> Fallback House-Matrix
+        mid = _normalize_to_bounds(
+            np.array([(lo + hi) / 2.0 for lo, hi in bounds]),
+            bounds,
+        )
+        weights_bps = _weights_to_bps_dict(mid)
+        midpoint_w = _trusted_weights_bps_to_array(weights_bps)
+        mid_wealth = _simulate_context_wealth(context, midpoint_w)
+        _penalty, goal_achievability = chance_constraint_penalty(
+            mid_wealth,
+            context.liabilities,
+            context.advisory_wealth_rappen,
+            weights=context.scenario_weights,
+            annualized_return_bps_per_path=_annualized_twr_bps_per_path(
+                context, midpoint_w
+            ),
+        )
+        return OptimizerResult(
+            weights_bps=weights_bps,
+            objective_value=float("inf"),
+            iterations=total_iters,
+            seed=seed,
+            status="fallback_house_matrix",
+            method="fallback_house_matrix",
+            reasoning=[
+                "Alle Solver-Multi-Starts divergierten und GA-Fallback ebenso. "
+                "Fallback auf House-Matrix-Mittelwert (siehe OWNER-DECISION OD-5)."
+            ] + list(context.bounds_collapse_warnings),
+            n_paths=n_paths,
+            n_starts_attempted=len(initials),
+            goal_achievability=tuple(goal_achievability),
+            robustification={
+                "enabled": True,
+                "stage": "fallback_house_matrix",
+                "attempts": attempt_summaries,
+                "final_reason": "no_finite_feasible_candidate",
+            },
+            restart_results=tuple(attempt_summaries),
+            context=context,
+        )
+
+    # Final clip + renorm + feasibility check
+    final_w = _normalize_to_bounds(np.clip(best_result.x, 0.0, 1.0), bounds)
+    continuous_feasible, continuous_violation_reasons = is_feasible(
+        final_w, bounds=bounds, constraints=scipy_constraints,
+    )
+
+    weights_bps = _weights_to_bps_dict(final_w)
+    rounded_w = _trusted_weights_bps_to_array(weights_bps)
+    rounded_feasible, rounded_violation_reasons = is_feasible(
+        rounded_w,
+        bounds=bounds,
+        constraints=scipy_constraints,
+    )
+
+    # The integer-bps allocation is the product returned to the engine. A
+    # continuous SLSQP point is therefore not allowed to retain a converged
+    # status if its deterministic rounding/correction violates any constraint.
+    if not continuous_feasible:
+        status = "diverged_infeasible"
+        violation_reasons = list(continuous_violation_reasons)
+    elif not rounded_feasible:
+        status = "diverged_infeasible"
+        violation_reasons = list(rounded_violation_reasons)
+    elif accepted_feasible_non_success:
+        status = "converged_robustified"
+        violation_reasons = []
+    else:
+        status = "converged"
+        violation_reasons = []
+
+    # V3 Sprint 1b: objective_value via Context-Path neu bestimmen, damit
+    # `evaluate_weights(ctx, result.weights_bps).objective_value` exakt
+    # `result.objective_value` matcht (post-rounding kongruent).
+    post_round_objective = _objective_from_array(
+        context, rounded_w
+    )
+    final_wealth = _simulate_context_wealth(context, rounded_w)
+    _penalty, goal_achievability = chance_constraint_penalty(
+        final_wealth,
+        context.liabilities,
+        context.advisory_wealth_rappen,
+        weights=context.scenario_weights,
+        annualized_return_bps_per_path=_annualized_twr_bps_per_path(
+            context, rounded_w
+        ),
+    )
+    reasoning: list[str] = list(context.bounds_collapse_warnings)
+    method_used = "SLSQP+DE-Fallback" if used_ga_fallback else "SLSQP"
+    reasoning.append(f"Stochastic Solver ({method_used}): {total_iters} iterations across "
+                      f"{len(initials)} multi-starts.")
+    # Sprint P1 (2026-06-06): IS-Status im Audit-Trail
+    if context.scenario_weights is not None:
+        reasoning.append(
+            "Importance Sampling AKTIV (Tail-Schutz fuer Shortfall-Berechnung). "
+            "Achievability-Wahrscheinlichkeiten sind likelihood-ratio-gewichtet."
+        )
+    else:
+        reasoning.append(
+            "Importance Sampling INAKTIV (Standard-MC, uniformer Sample-Mean)."
+        )
+    robustification_payload: dict[str, object] | None = None
+    if accepted_feasible_non_success:
+        robustification_payload = {
+            "enabled": True,
+            "stage": "finite_feasible_candidate",
+            "attempts": attempt_summaries,
+            "final_reason": (
+                "strict_feasibility_check_passed_risk_tiebreak_derisked"
+                if robustification_derisked
+                else "strict_feasibility_check_passed_risk_tiebreak"
+            ),
+        }
+        reasoning.append(
+            "Stage-9 Robustifizierung: SciPy meldete keinen stabilen Erfolg, "
+            "lieferte aber eine finite Allokation, die Risk-Cap, Bandbreiten "
+            "und Sum-to-one strikt erfuellt. Ergebnis als robustifizierter "
+            "Solver-Run akzeptiert."
+        )
+    reasoning.append(f"Best objective L(w*) = {post_round_objective:.6e}")
+    if violation_reasons:
+        reasoning.append("Constraint-Verletzungen am Optimum:")
+        reasoning.extend(f"  - {r}" for r in violation_reasons)
+
+    # Phase 5.2: Stress-Szenarien als Audit-Erweiterung. Berechnet die End-
+    # Wealth in 3 historischen Krisen-Pfaden, damit der Berater sehen kann
+    # wie die Allocation in 1929/2008/2020 abgeschnitten haette.
+    stress_evals: dict[str, dict] | None = None
+    try:
+        from .stress_scenarios import (
+            evaluate_stress_scenarios,
+            stress_results_to_dict,
+        )
+        stress_results = evaluate_stress_scenarios(
+            weights=final_w,
+            initial_wealth_rappen=advisory_wealth_rappen,
+            cashflow_series_rappen=list(cashflow_series_rappen),
+            liability_path_rappen=aggregated_liability,
+            horizon_years=horizon_years,
+        )
+        stress_evals = stress_results_to_dict(stress_results)
+        for name, r in stress_results.items():
+            reasoning.append(
+                f"Stress '{name}': End-Vermoegen {r.end_wealth_rappen // 100:,} CHF, "
+                f"Max Drawdown {r.max_drawdown_bps / 100:.1f}%."
+            )
+    except Exception as exc:  # noqa: BLE001
+        # Stress-Eval ist nice-to-have - kein Solver-Crash deswegen
+        reasoning.append(f"Stress-Auswertung fehlgeschlagen: {type(exc).__name__}")
+
+    return OptimizerResult(
+        weights_bps=weights_bps,
+        objective_value=post_round_objective,
+        iterations=total_iters,
+        seed=seed,
+        status=status,
+        method="stochastic",
+        constraint_violations=violation_reasons,
+        reasoning=reasoning,
+        n_paths=n_paths,
+        n_starts_attempted=len(initials),
+        stress_evaluations=stress_evals,
+        goal_achievability=tuple(goal_achievability),
+        robustification=robustification_payload,
+        restart_results=tuple(attempt_summaries),
+        context=context,
+    )
+
+
+def _weights_to_bps_dict(weights: np.ndarray) -> dict[str, int]:
+    """Konvertiert weight-array (0..1) in {bucket: bps}-dict.
+
+    Stellt sicher dass Summe genau 10000 ist (Rounding-Fix auf groesstes Bucket).
+    """
+    bps_floats = weights * 10000.0
+    bps_ints = [int(round(v)) for v in bps_floats]
+    diff = 10000 - sum(bps_ints)
+    if diff != 0:
+        # Korrektur auf den groessten Bucket
+        max_idx = int(np.argmax(weights))
+        bps_ints[max_idx] += diff
+    return {bucket: bps_ints[i] for i, bucket in enumerate(BUCKET_ORDER)}

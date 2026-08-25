@@ -13,10 +13,11 @@ if str(BACKEND_ROOT) not in sys.path:
 from database import Base, get_db
 from main import app
 from models.clients import Client
-from models.wealth import Cashflow
+from models.wealth import Cashflow, WealthInflow
+from models.allocation import CapitalMarketAssumption
 from models.users import User
 from services.auth import get_current_user
-import uuid, datetime
+import uuid, datetime, json
 
 
 def _utc_now_iso() -> str:
@@ -167,3 +168,315 @@ def test_cashflow_projection_segments_one_off_flows(session_factory, auth_client
     assert rows[0]["capital_outflow_rappen"] == 0
     assert rows[2]["capital_inflow_rappen"] == 5_000_000
     assert rows[2]["net_rappen"] == 3_000_000
+
+
+# ---------------------------------------------------------------------------
+# Zeitraum-Fix (2026-06-12): Projektions-Horizont aus Stammdaten bis Lebensende,
+# damit der Vermoegensverzehr nach Pensionierung sichtbar ist (statt hartes 40).
+# ---------------------------------------------------------------------------
+
+def _make_client_full(session_factory, advisor_id: str, **fields) -> str:
+    cid = str(uuid.uuid4())
+    now = _utc_now_iso()
+    with session_factory() as s:
+        s.add(Client(
+            id=cid, client_number="CF-" + cid[:6], first_name="Leart", last_name="Test",
+            advisor_id=advisor_id, created_at=now, updated_at=now, **fields,
+        ))
+        s.commit()
+    return cid
+
+
+def test_horizon_derives_to_life_end_from_birthdate(session_factory, auth_client, advisor_user):
+    """Ohne Override: unbekannte Anrede nutzt konservativ Geburtsjahr +85."""
+    cid = _make_client_full(
+        session_factory,
+        advisor_user.id,
+        date_of_birth="1970-05-01",
+    )
+    rows = auth_client.get(f"/clients/{cid}/cashflow-projection").json()["years"]
+    assert rows[-1]["year"] == 2055
+
+
+def test_horizon_for_couple_uses_later_calendar_life_expectancy(
+    session_factory, auth_client, advisor_user,
+):
+    cid = _make_client_full(
+        session_factory,
+        advisor_user.id,
+        date_of_birth="1960-03-20",
+        salutation="Herr",
+        partner_date_of_birth="1955-04-10",
+        partner_salutation="Frau",
+        household_type="Paar",
+    )
+    rows = auth_client.get(f"/clients/{cid}/cashflow-projection").json()["years"]
+    # Mann: 2043, Frau: 2040. Der Haushalt wird nicht 2040 abgeschnitten.
+    assert rows[-1]["year"] == 2043
+
+
+def test_horizon_uses_investment_horizon_end_without_birthdate(session_factory, auth_client, advisor_user):
+    """investment_horizon_end (Stammdatum) wird als Lebensende-Quelle genutzt."""
+    cid = _make_client_full(session_factory, advisor_user.id, investment_horizon_end="2058-06-30")
+    rows = auth_client.get(f"/clients/{cid}/cashflow-projection").json()["years"]
+    assert rows[-1]["year"] == 2058
+
+
+def test_explicit_override_beats_stammdaten(session_factory, auth_client, advisor_user):
+    """Expliziter Berater-Override (?horizon_years=) hat Vorrang vor der Ableitung."""
+    cid = _make_client_full(session_factory, advisor_user.id, date_of_birth="1970-01-01")
+    rows = auth_client.get(f"/clients/{cid}/cashflow-projection?horizon_years=5").json()["years"]
+    assert len(rows) == 5
+
+
+def test_horizon_falls_back_to_40_without_stammdaten(session_factory, auth_client, advisor_user):
+    """Ohne Geburtsdatum/Horizont-Ende/Mandat -> konservatives Default 40."""
+    cid = _make_client(session_factory, advisor_user.id)
+    rows = auth_client.get(f"/clients/{cid}/cashflow-projection").json()["years"]
+    assert len(rows) == 40
+
+
+def _add_cashflow_dated(session_factory, client_id, amount_rappen, cf_type,
+                        valid_from, valid_until, frequency="jährlich"):
+    now = _utc_now_iso()
+    with session_factory() as s:
+        s.add(Cashflow(
+            id=str(uuid.uuid4()), client_id=client_id,
+            cashflow_type=cf_type, label="Dated CF", nature="wiederkehrend",
+            amount_rappen=amount_rappen, frequency=frequency,
+            valid_from=valid_from, valid_until=valid_until,
+            is_active=1, created_at=now, updated_at=now,
+        ))
+        s.commit()
+
+
+def test_horizon_covers_all_cashflows_beyond_life_expectancy(session_factory, auth_client, advisor_user):
+    """Leart-Szenario: AHV/Verzehr laufen via valid_until ueber die reine
+    Lebenserwartung (Geburt+85) hinaus -> die Projektion MUSS bis zum letzten
+    Cashflow-Jahr reichen, sonst wird der Vermoegensverzehr abgeschnitten."""
+    cid = _make_client_full(session_factory, advisor_user.id, date_of_birth="1965-01-01")
+    # Geburt 1965 + 85 = 2050; Cashflow laeuft aber bis 2060.
+    _add_cashflow_dated(session_factory, cid, 3_500_000, "Income",
+                        valid_from="2030-01-01", valid_until="2060-01-01")
+    rows = auth_client.get(f"/clients/{cid}/cashflow-projection").json()["years"]
+    assert rows[-1]["year"] == 2060
+
+
+# ---------------------------------------------------------------------------
+# CF-1/CF-2 (2026-07-16): Cashflow-Ansicht mit der Strategie-Engine angleichen —
+# Inflation (is_inflation_linked), FX (Fremdwaehrung -> CHF), Wealth-Inflows.
+# Sonst divergiert die dem Berater/Kunden gezeigte Tabelle von den Strategie-
+# Zahlen (FIDLEG-Vertrauensrisiko).
+# ---------------------------------------------------------------------------
+
+def _add_current_cma(session_factory, advisor_id: str, inflation_bps_by_year: dict) -> None:
+    """Legt eine aktuell gueltige CMA (is_current=1) mit Inflationspfad an."""
+    now = _utc_now_iso()
+    with session_factory() as s:
+        s.add(CapitalMarketAssumption(
+            id=str(uuid.uuid4()),
+            assumption_set_name="Test-CMA",
+            version=1,
+            valid_from="2026-01-01",
+            is_current=1,
+            inflation_path_json=json.dumps({str(k): int(v) for k, v in inflation_bps_by_year.items()}),
+            created_by=advisor_id,
+            created_at=now,
+            updated_at=now,
+        ))
+        s.commit()
+
+
+def _add_cashflow_flags(session_factory, client_id, amount_rappen, cf_type="Income",
+                        frequency="jährlich", is_inflation_linked=0, currency="CHF"):
+    now = _utc_now_iso()
+    with session_factory() as s:
+        s.add(Cashflow(
+            id=str(uuid.uuid4()), client_id=client_id,
+            cashflow_type=cf_type, label="Flagged CF", nature="wiederkehrend",
+            amount_rappen=amount_rappen, frequency=frequency,
+            currency=currency, is_inflation_linked=is_inflation_linked,
+            is_active=1, created_at=now, updated_at=now,
+        ))
+        s.commit()
+
+
+def test_inflation_linked_cashflow_grows_over_years(session_factory, auth_client, advisor_user):
+    """Ein is_inflation_linked=1 Cashflow erscheint im Startjahr nominal (Faktor 1.0)
+    und in spaeteren Jahren aufgezinst — konsistent mit der Strategie-Engine."""
+    start_year = datetime.date.today().year
+    cid = _make_client(session_factory, advisor_user.id)
+    _add_current_cma(session_factory, advisor_user.id, {start_year: 200})  # 2.0% p.a.
+    _add_cashflow_flags(session_factory, cid, 10_000_000, "Income", is_inflation_linked=1)
+
+    rows = auth_client.get(f"/clients/{cid}/cashflow-projection?horizon_years=15").json()["years"]
+
+    # Startjahr (offset 0): nominal, kein Aufzinsen (User-Input ist Heute-Wert).
+    assert rows[0]["recurring_income_rappen"] == 10_000_000
+    # Jahr 10 (offset 9): kumuliert (1.02)^9 aufgezinst.
+    expected_y10 = round(10_000_000 * (1.02 ** 9))
+    assert rows[9]["recurring_income_rappen"] == expected_y10
+    assert rows[9]["recurring_income_rappen"] > rows[0]["recurring_income_rappen"]
+    # Monoton steigend ueber den Horizont.
+    series = [r["recurring_income_rappen"] for r in rows]
+    assert series == sorted(series)
+
+
+def test_non_inflation_linked_cashflow_stays_nominal(session_factory, auth_client, advisor_user):
+    """Kontrolle: is_inflation_linked=0 bleibt nominal, auch wenn eine CMA existiert."""
+    start_year = datetime.date.today().year
+    cid = _make_client(session_factory, advisor_user.id)
+    _add_current_cma(session_factory, advisor_user.id, {start_year: 200})
+    _add_cashflow_flags(session_factory, cid, 10_000_000, "Income", is_inflation_linked=0)
+
+    rows = auth_client.get(f"/clients/{cid}/cashflow-projection?horizon_years=15").json()["years"]
+    assert all(r["recurring_income_rappen"] == 10_000_000 for r in rows)
+
+
+def test_foreign_currency_cashflow_converted_to_chf(session_factory, auth_client, advisor_user):
+    """Ein USD-Cashflow wird zum FX-Kurs auf CHF konvertiert (Default USD=0.88 CHF)."""
+    cid = _make_client(session_factory, advisor_user.id)
+    # USD 100'000 (in Cents). is_inflation_linked=0 -> reiner FX-Effekt.
+    _add_cashflow_flags(session_factory, cid, 10_000_000, "Income",
+                        is_inflation_linked=0, currency="USD")
+
+    rows = auth_client.get(f"/clients/{cid}/cashflow-projection?horizon_years=3").json()["years"]
+    # 10_000_000 * 0.88 = 8_800_000 CHF-Rappen.
+    assert rows[0]["recurring_income_rappen"] == 8_800_000
+    assert rows[0]["income_rappen"] == 8_800_000
+
+
+def test_wealth_inflow_appears_in_projection(session_factory, auth_client, advisor_user):
+    """Erwartete Vermoegenszufluesse (WealthInflow) erscheinen als Zufluss im
+    Erwartungsjahr — analog zur Engine, die sie in die Projektion addiert."""
+    start_year = datetime.date.today().year
+    cid = _make_client(session_factory, advisor_user.id)
+    now = _utc_now_iso()
+    with session_factory() as s:
+        s.add(WealthInflow(
+            id=str(uuid.uuid4()), client_id=cid,
+            label="Erbschaft", source_type="Erbschaft",
+            amount_rappen=5_000_000, expected_year=start_year + 2,
+            is_recurring=0, value_mode="nominal",
+            is_active=1, created_at=now, updated_at=now,
+        ))
+        s.commit()
+
+    rows = auth_client.get(f"/clients/{cid}/cashflow-projection?horizon_years=6").json()["years"]
+    # Offset 2 = expected_year: Zufluss sichtbar.
+    assert rows[2]["capital_inflow_rappen"] == 5_000_000
+    assert rows[2]["income_rappen"] == 5_000_000
+    assert rows[2]["net_rappen"] == 5_000_000
+    # Andere Jahre: kein Zufluss.
+    assert rows[0]["capital_inflow_rappen"] == 0
+    assert rows[1]["capital_inflow_rappen"] == 0
+    assert rows[3]["capital_inflow_rappen"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Indexierungs-Schalter (2026-07-19, 3eyes-like): Globaler Master-Toggle
+# ?indexation=true|false. true (Default) = is_inflation_linked-Cashflows werden
+# per CMA-Inflationspfad aufgezinst (heutiges Verhalten). false = alles nominal
+# (keine Aufzinsung, auch nicht fuer Wealth-Inflows). FX bleibt unabhaengig aktiv.
+# ---------------------------------------------------------------------------
+
+def test_indexation_default_true_matches_explicit_true(session_factory, auth_client, advisor_user):
+    """Default (kein Param) == ?indexation=true: Aufzinsung ist an."""
+    start_year = datetime.date.today().year
+    cid = _make_client(session_factory, advisor_user.id)
+    _add_current_cma(session_factory, advisor_user.id, {start_year: 200})
+    _add_cashflow_flags(session_factory, cid, 10_000_000, "Income", is_inflation_linked=1)
+
+    default_rows = auth_client.get(
+        f"/clients/{cid}/cashflow-projection?horizon_years=15"
+    ).json()["years"]
+    true_rows = auth_client.get(
+        f"/clients/{cid}/cashflow-projection?horizon_years=15&indexation=true"
+    ).json()["years"]
+    assert default_rows == true_rows
+
+
+def test_indexation_false_keeps_inflation_linked_cashflow_nominal(
+    session_factory, auth_client, advisor_user,
+):
+    """indexation=false: is_inflation_linked=1 bleibt in ALLEN Jahren nominal;
+    indexation=true zinst die spaeteren Jahre auf -> true > false."""
+    start_year = datetime.date.today().year
+    cid = _make_client(session_factory, advisor_user.id)
+    _add_current_cma(session_factory, advisor_user.id, {start_year: 200})  # 2.0% p.a.
+    _add_cashflow_flags(session_factory, cid, 10_000_000, "Income", is_inflation_linked=1)
+
+    off_rows = auth_client.get(
+        f"/clients/{cid}/cashflow-projection?horizon_years=15&indexation=false"
+    ).json()["years"]
+    on_rows = auth_client.get(
+        f"/clients/{cid}/cashflow-projection?horizon_years=15&indexation=true"
+    ).json()["years"]
+
+    # AUS: alle Jahre nominal (== Nominalwert), kein Aufzinsen.
+    assert all(r["recurring_income_rappen"] == 10_000_000 for r in off_rows)
+    # AN vs AUS: Startjahr identisch (Faktor 1.0), spaetere Jahre AN > AUS.
+    assert on_rows[0]["recurring_income_rappen"] == off_rows[0]["recurring_income_rappen"]
+    assert on_rows[9]["recurring_income_rappen"] > off_rows[9]["recurring_income_rappen"]
+    assert on_rows[-1]["recurring_income_rappen"] > off_rows[-1]["recurring_income_rappen"]
+
+
+def test_indexation_false_applies_to_expenses_too(session_factory, auth_client, advisor_user):
+    """Der globale Schalter gilt auch fuer Ausgaben: is_inflation_linked=1 Expense
+    bleibt bei indexation=false nominal, waechst bei true."""
+    start_year = datetime.date.today().year
+    cid = _make_client(session_factory, advisor_user.id)
+    _add_current_cma(session_factory, advisor_user.id, {start_year: 200})
+    _add_cashflow_flags(session_factory, cid, 4_000_000, "Expense", is_inflation_linked=1)
+
+    off_rows = auth_client.get(
+        f"/clients/{cid}/cashflow-projection?horizon_years=15&indexation=false"
+    ).json()["years"]
+    on_rows = auth_client.get(
+        f"/clients/{cid}/cashflow-projection?horizon_years=15&indexation=true"
+    ).json()["years"]
+
+    assert all(r["recurring_expense_rappen"] == 4_000_000 for r in off_rows)
+    assert on_rows[9]["recurring_expense_rappen"] > off_rows[9]["recurring_expense_rappen"]
+
+
+def test_indexation_false_keeps_fx_conversion_active(session_factory, auth_client, advisor_user):
+    """FX ist keine Indexierung: ein USD-Cashflow wird auch bei indexation=false
+    weiterhin zu CHF konvertiert."""
+    cid = _make_client(session_factory, advisor_user.id)
+    _add_cashflow_flags(session_factory, cid, 10_000_000, "Income",
+                        is_inflation_linked=0, currency="USD")
+
+    rows = auth_client.get(
+        f"/clients/{cid}/cashflow-projection?horizon_years=3&indexation=false"
+    ).json()["years"]
+    # FX bleibt aktiv: 10_000_000 * 0.88 = 8_800_000.
+    assert rows[0]["recurring_income_rappen"] == 8_800_000
+
+
+def test_indexation_false_wealth_inflow_nominal(session_factory, auth_client, advisor_user):
+    """Wealth-Inflows mit value_mode='real' werden bei indexation=false NICHT
+    aufgezinst (nominal); bei true zinst der CMA-Pfad sie auf -> true >= false."""
+    start_year = datetime.date.today().year
+    cid = _make_client(session_factory, advisor_user.id)
+    _add_current_cma(session_factory, advisor_user.id, {start_year: 200})
+    now = _utc_now_iso()
+    with session_factory() as s:
+        s.add(WealthInflow(
+            id=str(uuid.uuid4()), client_id=cid,
+            label="Rente", source_type="Rente",
+            amount_rappen=5_000_000, expected_year=start_year + 5,
+            is_recurring=0, value_mode="real",
+            is_active=1, created_at=now, updated_at=now,
+        ))
+        s.commit()
+
+    off_rows = auth_client.get(
+        f"/clients/{cid}/cashflow-projection?horizon_years=10&indexation=false"
+    ).json()["years"]
+    on_rows = auth_client.get(
+        f"/clients/{cid}/cashflow-projection?horizon_years=10&indexation=true"
+    ).json()["years"]
+    # Bei true wird der real-Zufluss per Inflationspfad hochskaliert -> >= nominal.
+    assert on_rows[5]["capital_inflow_rappen"] >= off_rows[5]["capital_inflow_rappen"]
+    assert off_rows[5]["capital_inflow_rappen"] == 5_000_000

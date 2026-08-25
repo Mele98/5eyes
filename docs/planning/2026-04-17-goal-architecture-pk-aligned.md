@@ -1,4 +1,4 @@
-# Spec: Goal-Architektur PK-/Swiss Life-aligned
+# Spec: Goal-Architektur PK-/Referenzanbieter-aligned
 
 ## Meta
 
@@ -11,7 +11,7 @@
 
 ## Ziel
 
-5eyes soll die Zielarchitektur so darstellen und verarbeiten wie Swiss Life / 3eyes und institutionelle
+5eyes soll die Zielarchitektur so darstellen und verarbeiten wie Referenzanbieter / Advisory-Methodik und institutionelle
 Pensionskassen es tun: **Verpflichtungen und Kapitalerhalt kommen vor Rendite**.
 Das Renditeziel ist ein weiches, opportunistisches Ziel — kein Hauptanker der Strategie.
 Drei konkrete Bugs werden in dieser Spec behoben, plus eine klare Hierarchie im Scoring und in der
@@ -61,7 +61,7 @@ growth_goals = [goal for goal in goals if _norm_text(goal.goal_type) in
     ("Vermoegensziel", "Maximierung", "Renditeziel")]
 ```
 `Renditeziel` beeinflusst hier die Aktienquoten-Erhöhung gleichgestellt mit `Vermögensziel` und
-`Maximierung`. Das widerspricht der Swiss Life / PK-Logik: Renditeziel ist weich; Kapitalerhalt
+`Maximierung`. Das widerspricht der Referenzanbieter / PK-Logik: Renditeziel ist weich; Kapitalerhalt
 ist hart. Die Portfolio-Konstruktion muss die Härtegrade respektieren.
 
 ---
@@ -87,7 +87,7 @@ ist hart. Die Portfolio-Konstruktion muss die Härtegrade respektieren.
 
 ## Fachlogik
 
-**Quelle:** Swiss Life / 3eyes SLAM-Methodologie, PK-ALM-Praxis, IPS-Standard
+**Quelle:** Referenzanbieter / Advisory-Methodik CMA-Methodik, PK-ALM-Praxis, IPS-Standard
 
 ### Verbindliche Hierarchie
 

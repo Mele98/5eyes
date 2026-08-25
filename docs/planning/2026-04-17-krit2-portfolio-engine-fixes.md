@@ -280,5 +280,5 @@ ALLOWED_HOUSE_MATRIX_PROFILES = ("Kapitalschutz", "Defensiv", "Ausgewogen", "Wac
 
 - JPMorgan Long-Term Capital Market Assumptions 2024
 - BlackRock Investment Institute 2024 CMAs
-- SLAM (Swiss Life Asset Management) via 3rd-eyes Schulungsdokumentation
+- CMA (Kapitalmarktannahmen-Provider) via Advisory-Methodik Schulungsdokumentation
 - Pictet Secular Outlook 2024

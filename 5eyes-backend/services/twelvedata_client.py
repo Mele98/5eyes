@@ -3,10 +3,12 @@ from __future__ import annotations
 import json
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any
+from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from config import settings
+from services.market_data.exceptions import RateLimitError
 
 
 TWELVEDATA_TIME_SERIES_URL = "https://api.twelvedata.com/time_series"
@@ -28,6 +30,14 @@ def _request_json(url: str) -> Any:
     try:
         with urlopen(request, timeout=15) as response:
             payload = response.read().decode("utf-8")
+    except HTTPError as exc:
+        # Mega-Audit (2026-08-04): siehe eodhd_client._request_json -- HTTP
+        # 429 wurde bisher wie jeder andere Netzwerkfehler generisch
+        # gewrappt, keine Rate-Limit-Erkennung im Gegensatz zu den modernen
+        # Providern (services/market_data/, RateLimitError-Vertrag).
+        if exc.code == 429:
+            raise RateLimitError("Twelve Data 429 Too Many Requests") from exc
+        raise RuntimeError(f"Twelve Data Request fehlgeschlagen: HTTP {exc.code}") from exc
     except Exception as exc:
         raise RuntimeError(f"Twelve Data Request fehlgeschlagen: {exc}") from exc
     try:
@@ -65,6 +75,12 @@ def fetch_twelvedata_latest_prices(symbols: list[str]) -> tuple[dict[str, dict[s
 
     if isinstance(decoded, dict) and str(decoded.get("status") or "").lower() == "error":
         message = decoded.get("message") or decoded.get("code") or "unbekannter Fehler"
+        # Mega-Audit (2026-08-04): Twelve Data meldet ein erreichtes Rate-
+        # Limit als HTTP 200 mit "status":"error"/"code":429 im JSON-Body
+        # (kein echter HTTP-429) -- ohne diese Pruefung war das nicht von
+        # jedem anderen API-Fehler (falsches Symbol, Auth) unterscheidbar.
+        if decoded.get("code") == 429:
+            raise RateLimitError(f"Twelve Data Rate-Limit erreicht: {message}")
         raise RuntimeError(f"Twelve Data Zeitreihe fehlgeschlagen: {message}")
 
     resolved: dict[str, dict[str, Any]] = {}

@@ -1,6 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel
 from sqlalchemy.orm import Session, selectinload
 from datetime import date, datetime, timezone
+from types import SimpleNamespace
 from database import get_db, new_uuid
 from models.users import User
 from models.mandates import Mandate
@@ -15,6 +17,14 @@ from schemas.profiling import (
 )
 from services.auth import get_client_for_user_or_404, get_current_user, get_mandate_for_user_or_404, require_advisor
 from services.audit import log
+# Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Quell-IP fuer FIDLEG-Eignungspruefungs-
+# Datensaetze (Risikoprofil, Signatur, Suitability-Check).
+from routers.auth import _extract_client_ip
+from services.data_classification import enforce_data_classification
+from services.portfolio_engine import (
+    _current_risk_assessment_or_none,
+    risk_assessment_ready_for_strategy,
+)
 from services.risk_scoring import canonicalize_horizon_label, compute_scores, profile_for_score_x10
 
 router = APIRouter(tags=["Risikoprofilierung"])
@@ -57,19 +67,24 @@ def list_knowledge(
 def create_knowledge(
     client_id: str,
     body: KnowledgeCreate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor)
 ):
+    enforce_data_classification(body.data_classification)
     client = get_client_for_user_or_404(client_id, db, current_user)
     now = _now()
     today = date.today().isoformat()
 
     # Supersede previous current
+    # Race-Hardening: pessimistic Lock auf den Anchor-Record. Auf Postgres
+    # serialisiert das parallele "is_current=0; insert is_current=1"-Wechsel.
+    # SQLite ignoriert FOR UPDATE (Single-Writer ohnehin serialisiert).
     prev = db.query(ClientKnowledge).filter(
         ClientKnowledge.client_id == client_id,
         ClientKnowledge.is_current == 1,
         ClientKnowledge.deleted_at.is_(None)
-    ).first()
+    ).with_for_update().first()
     prev_id = None
     prev_version = 0
     if prev:
@@ -101,7 +116,7 @@ def create_knowledge(
     db.add(knowledge)
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="client_knowledge", record_id=knowledge.id, action="CREATE",
-        client_id=client_id)
+        client_id=client_id, ip_address=_extract_client_ip(request))
     db.commit()
     db.refresh(knowledge)
     return knowledge
@@ -131,13 +146,10 @@ def get_current_risk_assessment(
     current_user: User = Depends(get_current_user)
 ):
     _get_mandate_or_404(mandate_id, db, current_user)
-    ra = db.query(RiskAssessment).options(
-        selectinload(RiskAssessment.answers)
-    ).filter(
-        RiskAssessment.mandate_id == mandate_id,
-        RiskAssessment.is_current == 1,
-        RiskAssessment.deleted_at.is_(None)
-    ).first()
+    try:
+        ra = _current_risk_assessment_or_none(db, mandate_id, eager_answers=True)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     if not ra:
         raise HTTPException(status_code=404, detail="Keine aktuelle Risikoprofilierung gefunden")
     return ra
@@ -147,9 +159,11 @@ def get_current_risk_assessment(
 def create_risk_assessment(
     mandate_id: str,
     body: RiskAssessmentCreate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor)
 ):
+    enforce_data_classification(body.data_classification)
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
     now = _now()
     today = date.today().isoformat()
@@ -172,12 +186,36 @@ def create_risk_assessment(
         final_score_x10 = 75
         final_profile = profile_for_score_x10(final_score_x10)
 
-    # Supersede previous
-    prev = db.query(RiskAssessment).filter(
-        RiskAssessment.mandate_id == mandate_id,
-        RiskAssessment.is_current == 1,
-        RiskAssessment.deleted_at.is_(None)
-    ).first()
+    knowledge_services_json = body.knowledge_services_json if body.knowledge_services_json is not None else "{}"
+    knowledge_instruments_json = body.knowledge_instruments_json if body.knowledge_instruments_json is not None else "{}"
+    income_sources_json = body.income_sources_json if body.income_sources_json is not None else "[]"
+    readiness_probe = SimpleNamespace(
+        final_score_x10=final_score_x10,
+        override_score_x10=None,
+        is_overridden=0,
+        knowledge_services_json=knowledge_services_json,
+        knowledge_instruments_json=knowledge_instruments_json,
+        income_sources_json=income_sources_json,
+        answers=[SimpleNamespace(**ans) for ans in (body.answers or [])],
+    )
+    if not risk_assessment_ready_for_strategy(readiness_probe):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Risikoprofil unvollstaendig. Bitte alle bewerteten Fragen "
+                "anklicken und das Risikoprofil erneut speichern."
+            ),
+        )
+
+    # Supersede previous (Race-Hardening, siehe ClientKnowledge oben).
+    try:
+        prev = _current_risk_assessment_or_none(
+            db,
+            mandate_id,
+            for_update=True,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     prev_id = None
     prev_version = 0
     if prev:
@@ -185,6 +223,10 @@ def create_risk_assessment(
         prev.valid_to = today
         prev_id = prev.id
         prev_version = prev.version
+        # Partial unique indexes are checked immediately.  Flush the old
+        # RiskAssessment anchor first so SQLAlchemy cannot order the new
+        # INSERT ahead of the superseding UPDATE within one unit of work.
+        db.flush()
 
     ra = RiskAssessment(
         id=new_uuid(),
@@ -214,6 +256,10 @@ def create_risk_assessment(
         final_score_x10=final_score_x10,
         final_profile=final_profile,
         is_overridden=0,
+        # Kenntnisse & Erfahrungen (Referenzmodell Eignungspruefung Seite 1) — FE sendet, Backend muss persistieren
+        knowledge_services_json=knowledge_services_json,
+        knowledge_instruments_json=knowledge_instruments_json,
+        income_sources_json=income_sources_json,
         assessed_at=now,
         assessed_by=current_user.id,
         created_at=now,
@@ -221,25 +267,38 @@ def create_risk_assessment(
     )
     db.add(ra)
 
-    # Store individual answers if provided
+    # Store individual answers if provided. Unausgefuellte/leere Antwortzeilen
+    # ueberspringen: das FE sendet teils nicht angeklickte (Zusatz-)Fragen mit
+    # NULL-Werten mit. Die Spalten question_number/answer_label/answer_points sind
+    # NOT NULL -> sonst IntegrityError -> 500 ("Interner Serverfehler") beim
+    # Speichern. Konsistent mit dem Vollstaendigkeits-Gate, das solche
+    # unvollstaendigen Antworten ohnehin ignoriert.
     if body.answers:
         for ans in body.answers:
+            question_number = ans.get("question_number")
+            answer_label = ans.get("answer_label")
+            answer_points = ans.get("answer_points")
+            if question_number is None or answer_points is None:
+                continue
+            if answer_label is None or not str(answer_label).strip():
+                continue
             db.add(RiskAssessmentAnswer(
                 id=new_uuid(),
                 assessment_id=ra.id,
-                question_number=ans.get("question_number"),
+                question_number=question_number,
                 question_section=_canonical_risk_answer_section(
-                    ans.get("question_number"),
+                    question_number,
                     ans.get("question_section"),
                 ),
-                answer_label=ans.get("answer_label"),
-                answer_points=ans.get("answer_points"),
+                answer_label=answer_label,
+                answer_points=answer_points,
                 created_at=now,
             ))
 
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="risk_assessments", record_id=ra.id, action="CREATE",
-        mandate_id=mandate_id, client_id=mandate.client_id)
+        mandate_id=mandate_id, client_id=mandate.client_id,
+        ip_address=_extract_client_ip(request))
     db.commit()
     return db.query(RiskAssessment).options(
         selectinload(RiskAssessment.answers)
@@ -252,6 +311,7 @@ def override_risk_assessment(
     mandate_id: str,
     ra_id: str,
     body: RiskAssessmentOverride,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor)
 ):
@@ -266,7 +326,7 @@ def override_risk_assessment(
     if str(mandate.mandate_type or "").strip().upper() == "FZK" and int(body.override_score_x10 or 0) > 75:
         raise HTTPException(
             status_code=422,
-            detail="FZK-Mandat: Override-Score darf 75 nicht überschreiten (FIDLEG)",
+            detail="FZK-Mandat: Override-Score darf 75 (= 7.5/10) nicht überschreiten (FIDLEG).",
         )
 
     ra.is_overridden = 1
@@ -282,10 +342,55 @@ def override_risk_assessment(
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="risk_assessments", record_id=ra_id, action="UPDATE",
         field_name="override", new_value=body.override_profile,
-        mandate_id=mandate_id, client_id=mandate.client_id)
+        mandate_id=mandate_id, client_id=mandate.client_id,
+        ip_address=_extract_client_ip(request))
     db.commit()
     db.refresh(ra)
     return ra
+
+
+class RiskProfileSignRequest(BaseModel):
+    note: str | None = None
+
+
+@router.post("/mandates/{mandate_id}/risk-profile/sign")
+def sign_risk_profile(
+    mandate_id: str,
+    request: Request,
+    body: RiskProfileSignRequest | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_advisor)
+):
+    """FIDLEG-Eignungspruefung: Berater erfasst die Kunden-Signatur des
+    aktuellen Risikoprofils (Fallback A / 'old-school', wenn der Kunde nicht
+    ueber das Portal signiert). Reine DOKUMENTATION der Bestaetigung — aendert
+    die Eignungs-Konformitaet (Audit is_compliant) NICHT."""
+    mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    try:
+        ra = _current_risk_assessment_or_none(db, mandate_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if not ra:
+        raise HTTPException(status_code=404, detail="Keine aktuelle Risikoprofilierung gefunden")
+
+    note = (body.note if body else None)
+    signed_at = _now()
+    ra.client_signed_at = signed_at
+    ra.client_signed_method = "advisor_recorded"
+    ra.client_signed_ref = note
+    ra.updated_at = signed_at
+
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="risk_assessments", record_id=ra.id, action="UPDATE",
+        field_name="client_signed", new_value="advisor_recorded",
+        mandate_id=mandate_id, client_id=mandate.client_id,
+        ip_address=_extract_client_ip(request))
+    db.commit()
+    return {
+        "risk_assessment_id": ra.id,
+        "client_signed_at": ra.client_signed_at,
+        "client_signed_method": ra.client_signed_method,
+    }
 
 
 # ── Suitability Checks ─────────────────────────────────────────────────────────
@@ -307,6 +412,7 @@ def list_suitability_checks(
 def create_suitability_check(
     mandate_id: str,
     body: SuitabilityCheckCreate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor)
 ):
@@ -338,7 +444,8 @@ def create_suitability_check(
     db.add(check)
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="suitability_checks", record_id=check.id, action="CREATE",
-        mandate_id=mandate_id, client_id=mandate.client_id)
+        mandate_id=mandate_id, client_id=mandate.client_id,
+        ip_address=_extract_client_ip(request))
     db.commit()
     db.refresh(check)
     return check

@@ -46,6 +46,7 @@ from routers.review import (
 from routers.review import auto_apply_product_id_mappings, auto_apply_product_reference_data
 from routers.snapshots import create_snapshot, get_drift, list_snapshots
 from routers.wealth import (
+    _goal_horizon_from_date,
     create_cashflow,
     create_goal,
     create_wealth_position,
@@ -245,20 +246,37 @@ def seed_foreign_client_and_mandate(session_factory, other_advisor_user) -> tupl
 
 def complete_risk_questionnaire_answers() -> list[dict]:
     return [
-        {"question_number": 3, "answer_label": "Regelmaessiges Einkommen hoch", "answer_points": 4},
+        {"question_number": 1, "answer_label": "Finanzdienstleistungen: Beratung und Verwaltung", "answer_points": 0},
+        {"question_number": 2, "answer_label": "Finanzinstrumente: Anlagefonds und ETFs", "answer_points": 0},
+        {"question_number": 3, "answer_label": "CHF 12'000 bis 20'000", "answer_points": 3},
         {"question_number": 4, "answer_label": "Herkunft: Berufliche Taetigkeit", "answer_points": 0},
-        {"question_number": 5, "answer_label": "Verpflichtungen tief", "answer_points": 4},
-        {"question_number": 6, "answer_label": "Freies Vermoegen hoch", "answer_points": 12},
-        {"question_number": 7, "answer_label": "Sparquote hoch", "answer_points": 12},
-        {"question_number": 8, "answer_label": "Mehr als 12 Jahre", "answer_points": 0},
-        {"question_number": 9, "answer_label": "Wachstum", "answer_points": 4},
-        {"question_number": 10, "answer_label": "Hohe Schwankungen akzeptiert", "answer_points": 4},
-        {"question_number": 11, "answer_label": "Verluste aussitzen", "answer_points": 4},
+        {"question_number": 5, "answer_label": "CHF 3'000 bis 5'000", "answer_points": 3},
+        {"question_number": 6, "answer_label": "CHF 1'000'000 bis 2'000'000", "answer_points": 9},
+        {"question_number": 7, "answer_label": "25 bis 50 %", "answer_points": 9},
+        {"question_number": 8, "answer_label": "Mehr als 12 Jahre - Matrix-Faktor", "answer_points": 0},
+        {"question_number": 9, "answer_label": "Das investierte Kapital soll sich stetig vermehren.", "answer_points": 3},
+        {
+            "question_number": 10,
+            "answer_label": "Ich strebe eine hoehere Rendite an und bin bereit, dafuer ein erhoehtes Risiko einzugehen.",
+            "answer_points": 3,
+        },
+        {
+            "question_number": 11,
+            "answer_label": "Ich kann den Verlust voruebergehend akzeptieren und halte an meinen Anlagen fest.",
+            "answer_points": 3,
+        },
     ]
 
 
 def test_runtime_routes_expose_frontend_contracts():
-    route_map = {(route.path, tuple(sorted(route.methods or []))) for route in app.routes}
+    # Bug-#6 (2026-06-07): app.routes enthaelt nun Mount-Eintraege
+    # (StaticFiles /reporting/assets), die kein `methods`-Attribut haben.
+    # Wir filtern auf die API-Routen.
+    route_map = {
+        (route.path, tuple(sorted(route.methods or [])))
+        for route in app.routes
+        if hasattr(route, "methods")
+    }
 
     assert ("/mandates/{mandate_id}/risk-assessments", ("POST",)) in route_map
     assert ("/clients/{client_id}/cashflows/{cf_id}", ("DELETE",)) in route_map
@@ -419,6 +437,27 @@ def test_eodhd_reference_preview_scores_exact_isin_and_currency_matches(monkeypa
     assert result["candidates"][0]["exchange_code"] == "SW"
     assert result["candidates"][0]["currency"] == "CHF"
     assert result["candidates"][0]["match_score"] > result["candidates"][1]["match_score"]
+
+
+def test_eodhd_preview_rate_limit_error_maps_to_http_429(monkeypatch):
+    """Mega-Audit (2026-08-04): eodhd_client wirft jetzt typisiert
+    RateLimitError statt generischem RuntimeError bei HTTP 429 -- der
+    Router muss das explizit auf 429 statt eines unbehandelten 500 mappen
+    (RateLimitError erbt NICHT von RuntimeError)."""
+    from routers.review import _preview_eodhd_or_raise
+    from services.market_data.exceptions import RateLimitError
+
+    def _boom(**_kwargs):
+        raise RateLimitError("EODHD 429 Too Many Requests")
+
+    monkeypatch.setattr("routers.review.preview_eodhd_reference", _boom)
+
+    with pytest.raises(HTTPException) as exc_info:
+        _preview_eodhd_or_raise(
+            product=None, isin="CH0001341608", symbol=None,
+            product_name=None, exchange_code=None, currency=None,
+        )
+    assert exc_info.value.status_code == 429
 
 
 def test_price_quality_exposes_isin_only_direct_lookup(session_factory):
@@ -845,6 +884,7 @@ def test_risk_assessment_runtime_endpoint_logic_returns_scored_payload(session_f
 
     with session_factory() as session:
         result = create_risk_assessment(
+            request=_FakeSignRequest(),
             mandate_id=mandate_id,
             body=payload,
             db=session,
@@ -879,6 +919,7 @@ def test_risk_assessment_fzk_caps_final_score_before_persisting(session_factory,
         session.commit()
 
         result = create_risk_assessment(
+            request=_FakeSignRequest(),
             mandate_id=mandate_id,
             body=payload,
             db=session,
@@ -902,24 +943,12 @@ def test_risk_assessment_current_includes_raw_points_and_answers(session_factory
         q_investment_goal_points=3,
         q_risk_preference_points=3,
         q_risk_behavior_points=4,
-        answers=[
-            {
-                "question_number": 1,
-                "question_section": "Kenntnisse & Erfahrungen",
-                "answer_label": "Aktien, Anlagefonds",
-                "answer_points": 2,
-            },
-            {
-                "question_number": 12,
-                "question_section": "Risikobereitschaft",
-                "answer_label": "Langfristig investiert, eventuell nachkaufen",
-                "answer_points": 4,
-            },
-        ],
+        answers=complete_risk_questionnaire_answers(),
     )
 
     with session_factory() as session:
         create_risk_assessment(
+            request=_FakeSignRequest(),
             mandate_id=mandate_id,
             body=payload,
             db=session,
@@ -938,9 +967,9 @@ def test_risk_assessment_current_includes_raw_points_and_answers(session_factory
     assert current.q_investment_goal_points == 3
     assert current.q_risk_preference_points == 3
     assert current.q_risk_behavior_points == 4
-    assert [answer.question_number for answer in current.answers] == [1, 12]
-    assert current.answers[0].answer_label == "Aktien, Anlagefonds"
-    assert current.answers[1].answer_points == 4
+    assert [answer.question_number for answer in current.answers] == list(range(1, 12))
+    assert current.answers[0].answer_label.startswith("Finanzdienstleistungen:")
+    assert current.answers[-1].answer_points == 3
 
 
 def test_generate_target_allocation_requires_complete_risk_questionnaire(session_factory, advisor_user):
@@ -960,21 +989,16 @@ def test_generate_target_allocation_requires_complete_risk_questionnaire(session
     )
 
     with session_factory() as session:
-        create_risk_assessment(
-            mandate_id=mandate_id,
-            body=payload,
-            db=session,
-            current_user=advisor_user,
-        )
-        mandate = session.query(Mandate).filter(Mandate.id == mandate_id).one()
-
-        with pytest.raises(ValueError, match="Risikoprofil unvollstaendig"):
-            generate_target_allocation(
+        with pytest.raises(HTTPException) as exc:
+            create_risk_assessment(
+                request=_FakeSignRequest(),
+                mandate_id=mandate_id,
+                body=payload,
                 db=session,
-                mandate=mandate,
-                user_id=advisor_user.id,
-                preferences={},
+                current_user=advisor_user,
             )
+    assert exc.value.status_code == 422
+    assert "Risikoprofil unvollstaendig" in str(exc.value.detail)
 
 
 def test_foundation_example_case_is_generation_ready_and_idempotent(session_factory, advisor_user):
@@ -1242,6 +1266,53 @@ def test_refresh_all_prices_uses_stooq_fallback_for_external_profiles(session_fa
     assert summary["inserted"] == 1
     assert price.source == "stooq"
     assert price.price_rappen == 6256
+
+
+def test_stooq_batch_fetch_throttles_between_requests_not_before_first(monkeypatch):
+    """Mega-Audit (2026-08-04): der Stooq-Fallback-Batch-Loop feuerte bisher
+    eine ungebremste Serie von HTTP-GETs ab -- am staerksten genau dann, wenn
+    der PRIMARY-Provider bereits ausfaellt und ALLE Symbole hier landen.
+    Diese Pruefung darf NIE real schlafen (time.sleep gemockt)."""
+    import price_updater as price_updater_module
+
+    sleep_calls: list[float] = []
+    monkeypatch.setattr(price_updater_module.time, "sleep", lambda s: sleep_calls.append(s))
+    monkeypatch.setattr(price_updater_module.settings, "stooq_batch_throttle_seconds", 0.3, raising=False)
+
+    def fake_stooq(symbol, *, currency=None):
+        return price_updater_module.PricePoint(
+            price_date="2026-03-27", price_rappen=1000, currency="USD", source="stooq",
+        )
+
+    monkeypatch.setattr(price_updater_module, "fetch_stooq_price", fake_stooq)
+
+    symbols = ["AAA", "BBB", "CCC"]
+    resolved, failures = price_updater_module._fetch_stooq_symbol_points(
+        symbols, product_by_symbol={},
+    )
+
+    assert len(resolved) == 3
+    assert failures == {}
+    # 3 Symbole -> genau 2 Pausen (keine Pause vor dem ersten Request).
+    assert sleep_calls == [0.3, 0.3]
+
+
+def test_stooq_batch_fetch_throttle_disabled_when_zero(monkeypatch):
+    import price_updater as price_updater_module
+
+    sleep_calls: list[float] = []
+    monkeypatch.setattr(price_updater_module.time, "sleep", lambda s: sleep_calls.append(s))
+    monkeypatch.setattr(price_updater_module.settings, "stooq_batch_throttle_seconds", 0.0, raising=False)
+
+    def fake_stooq(symbol, *, currency=None):
+        return price_updater_module.PricePoint(
+            price_date="2026-03-27", price_rappen=1000, currency="USD", source="stooq",
+        )
+
+    monkeypatch.setattr(price_updater_module, "fetch_stooq_price", fake_stooq)
+
+    price_updater_module._fetch_stooq_symbol_points(["AAA", "BBB"], product_by_symbol={})
+    assert sleep_calls == []
 
 
 def test_delete_cashflow_marks_record_inactive(session_factory, advisor_user):
@@ -1599,7 +1670,10 @@ def test_create_goal_derives_horizon_and_frequency_from_timing_fields(session_fa
     assert result.frequency == "monatlich"
     assert result.is_ongoing == 1
     assert result.start_date == f"{current_year + 4}-08-01"
-    assert result.horizon_years == 5
+    # Deterministisch statt Magic-Number: der Horizont wird per _goal_horizon_from_date
+    # aus dem Start-/Zieldatum abgeleitet (ceil der Tages-Differenz zu heute). Ein
+    # hartkodierter Wert war zeitabhaengig-flaky (kippt je nach heutigem Monat).
+    assert result.horizon_years == _goal_horizon_from_date(date(current_year + 4, 8, 1))
 
 
 def test_planning_assumptions_ui_get_and_put_support_inflation_bps(session_factory, advisor_user):
@@ -1768,6 +1842,7 @@ def test_get_current_allocation_payload_returns_404_without_creating_runtime_ref
 
     with session_factory() as session:
         create_risk_assessment(
+            request=_FakeSignRequest(),
             mandate_id=mandate_id,
             body=assessment_payload,
             db=session,
@@ -1865,6 +1940,7 @@ def test_create_target_allocation_rejects_archived_policy(session_factory, advis
 
         with pytest.raises(HTTPException) as exc:
             create_target_allocation(
+                request=_FakeSignRequest(),
                 mandate_id=mandate_id,
                 body=TargetAllocationCreate(
                     target_equities_bps=6000,
@@ -1916,6 +1992,7 @@ def test_create_target_allocation_requires_strategy_ready_assessment(session_fac
 
         with pytest.raises(HTTPException) as exc:
             create_target_allocation(
+                request=_FakeSignRequest(),
                 mandate_id=mandate_id,
                 body=TargetAllocationCreate(
                     target_equities_bps=6000,
@@ -1977,6 +2054,7 @@ def test_update_cma_preserves_existing_optional_fields_when_omitted(session_fact
                 valid_from="2026-04-21",
                 equity_ch_return_bps=800,
             ),
+            request=_FakeSignRequest(),
             db=session,
             current_user=advisor_user,
         )
@@ -2017,7 +2095,9 @@ def test_create_goal_uses_target_date_for_one_off_goal(session_factory, advisor_
     assert result.frequency is None
     assert result.is_ongoing == 0
     assert result.start_date == f"{current_year + 2}-06-30"
-    assert result.horizon_years == 3
+    # Deterministisch: Horizont aus dem Zieldatum abgeleitet (ceil Tages-Differenz),
+    # nicht hartkodiert — sonst zeitabhaengig-flaky (kippt je nach heutigem Monat).
+    assert result.horizon_years == _goal_horizon_from_date(date(current_year + 2, 6, 30))
 
 
 def test_create_wealth_position_rejects_free_text_mortgage_link(session_factory, advisor_user):
@@ -2107,6 +2187,7 @@ def test_generate_target_allocation_reflects_cashflow_and_goal_constraints(sessi
 
     with session_factory() as session:
         create_risk_assessment(
+            request=_FakeSignRequest(),
             mandate_id=mandate_id,
             body=payload,
             db=session,
@@ -2210,7 +2291,19 @@ def test_generate_target_allocation_reflects_cashflow_and_goal_constraints(sessi
     assert result["target_allocation"].mandate_id == mandate_id
     assert result["reserve_needed_rappen"] >= 15000000
     liquidity_bucket = next(bucket for bucket in result["buckets"] if bucket["asset_class"] == "Liquiditaet")
-    assert liquidity_bucket["target_weight_bps"] <= 300
+    # The 3% SAA reserve is CHF-denominated on the original advisory base.
+    # After the external reserve is removed, the same CHF 18k is correctly
+    # normalized to 390 bps of the smaller investable base.
+    persisted_constraints = json.loads(
+        result["target_allocation"].effective_constraints_json
+    )
+    assert persisted_constraints["reserve_floor_bps"] == 390
+    assert liquidity_bucket["target_weight_bps"] >= 390
+    assert round(
+        result["investable_advisory_wealth_rappen"]
+        * liquidity_bucket["target_weight_bps"]
+        / 10000
+    ) >= 18_000_00
     assert result["external_reserve_rappen"] > 0
     assert any(
         "Liquiditaetsbedarf" in reason
@@ -2238,6 +2331,7 @@ def test_generate_target_allocation_respects_manual_band_overrides(session_facto
 
     with session_factory() as session:
         create_risk_assessment(
+            request=_FakeSignRequest(),
             mandate_id=mandate_id,
             body=payload,
             db=session,
@@ -2286,7 +2380,10 @@ def test_generate_target_allocation_respects_manual_band_overrides(session_facto
         )
 
     target = result["target_allocation"]
-    assert int(target.target_equities_bps) == 6500
+    # In stochastic mode the manual target is a starting preference; the
+    # hard contract is the persisted band. The solver may choose any feasible
+    # point inside it.
+    assert 6000 <= int(target.target_equities_bps) <= 7200
     assert int(target.band_equities_min_bps) == 6000
     assert int(target.band_equities_max_bps) == 7200
     assert any("Bandbreiten" in reason for reason in result["reasoning"])
@@ -2310,6 +2407,7 @@ def test_generate_target_allocation_uses_weighted_risk_budget(session_factory, a
 
     with session_factory() as session:
         create_risk_assessment(
+            request=_FakeSignRequest(),
             mandate_id=mandate_id,
             body=payload,
             db=session,
@@ -2355,6 +2453,97 @@ def test_generate_target_allocation_uses_weighted_risk_budget(session_factory, a
     assert all(item["risky_fraction_bps"] is not None for item in equities_sub)
 
 
+def test_current_payload_rebuild_uses_stored_allocation_preferences(session_factory, advisor_user):
+    client_id, mandate_id = seed_client_and_mandate(session_factory, advisor_user)
+
+    payload = RiskAssessmentCreate(
+        q_income_points=4,
+        q_obligations_points=4,
+        q_savings_points=12,
+        q_wealth_points=12,
+        investment_horizon_label="Mehr als 12 Jahre",
+        investment_horizon_years=15,
+        q_investment_goal_points=4,
+        q_risk_preference_points=4,
+        q_risk_behavior_points=4,
+        answers=complete_risk_questionnaire_answers(),
+    )
+
+    with session_factory() as session:
+        create_risk_assessment(
+            request=_FakeSignRequest(),
+            mandate_id=mandate_id,
+            body=payload,
+            db=session,
+            current_user=advisor_user,
+        )
+        session.add(
+            WealthPosition(
+                id="depot-pref-snapshot-1",
+                client_id=client_id,
+                label="Depot Preference Snapshot",
+                position_type="Depot",
+                assignment="Beratungsvermögen",
+                current_value_rappen=100000000,
+                currency="CHF",
+                alloc_equities_bps=7000,
+                alloc_bonds_bps=1500,
+                alloc_real_estate_bps=500,
+                alloc_liquidity_bps=500,
+                alloc_alternatives_bps=500,
+                is_active=1,
+                created_at="2026-03-27T00:00:00.000Z",
+                updated_at="2026-03-27T00:00:00.000Z",
+            )
+        )
+        session.flush()
+        mandate = session.query(Mandate).filter(Mandate.id == mandate_id).one()
+        generated = generate_target_allocation(
+            db=session,
+            mandate=mandate,
+            user_id=advisor_user.id,
+            preferences={
+                "policy": {},
+                "tilts": {},
+                "product": {},
+                "limits": {},
+                "geo": {},
+                "assetClasses": {
+                    "equitiesGeo": "Schwellenländer",
+                    "bondsHighYield": True,
+                    "bondsEmerging": True,
+                },
+            },
+        )
+        allocation = generated["target_allocation"]
+        policy, cma = ensure_runtime_reference_data(session, advisor_user.id)
+        assessment = session.query(RiskAssessment).filter(
+            RiskAssessment.mandate_id == mandate_id,
+            RiskAssessment.is_current == 1,
+        ).one()
+        rebuilt = build_target_payload_from_allocation(
+            db=session,
+            mandate=mandate,
+            allocation=allocation,
+            policy=policy,
+            cma=cma,
+            assessment=assessment,
+            preferences=None,
+        )
+
+    generated_em = next(
+        item for item in generated["sub_allocations"]
+        if item["sub_asset_class"] == "Aktien Schwellenlaender"
+    )
+    rebuilt_em = next(
+        item for item in rebuilt["sub_allocations"]
+        if item["sub_asset_class"] == "Aktien Schwellenlaender"
+    )
+    assert rebuilt_em["target_weight_bps"] == generated_em["target_weight_bps"]
+    assert rebuilt_em["target_weight_bps"] >= 1000
+    assert not any("Mandatspraeferenzen" in item for item in rebuilt["reasoning"])
+
+
 def test_generate_target_allocation_uses_dated_cashflow_series(session_factory, advisor_user):
     client_id, mandate_id = seed_client_and_mandate(session_factory, advisor_user)
 
@@ -2373,6 +2562,7 @@ def test_generate_target_allocation_uses_dated_cashflow_series(session_factory, 
 
     with session_factory() as session:
         create_risk_assessment(
+            request=_FakeSignRequest(),
             mandate_id=mandate_id,
             body=payload,
             db=session,
@@ -2384,7 +2574,7 @@ def test_generate_target_allocation_uses_dated_cashflow_series(session_factory, 
                 client_id=client_id,
                 label="Depot Hauptbank",
                 position_type="Depot",
-                assignment="BeratungsvermÃ¶gen",
+                assignment="Beratungsvermögen",
                 current_value_rappen=50000000,
                 currency="CHF",
                 alloc_equities_bps=6000,
@@ -2450,10 +2640,10 @@ def test_generate_target_allocation_uses_dated_cashflow_series(session_factory, 
                     mandate_id=mandate_id,
                     client_id=client_id,
                     goal_family="Vermoegen",
-                    goal_type="VermÃ¶gensziel",
+                    goal_type="Vermögensziel",
                     label="Familienvermögen",
                     rank=1,
-                    goal_scope="BeratungsvermÃ¶gen",
+                    goal_scope="Beratungsvermögen",
                     value_mode="nominal",
                     target_wealth_rappen=180000000,
                     horizon_years=9,
@@ -2497,6 +2687,7 @@ def test_generate_target_allocation_exposes_simulation_and_asset_assumptions(ses
 
     with session_factory() as session:
         create_risk_assessment(
+            request=_FakeSignRequest(),
             mandate_id=mandate_id,
             body=payload,
             db=session,
@@ -2604,6 +2795,7 @@ def test_generate_target_allocation_goal_analysis_exposes_timing_and_return_targ
 
     with session_factory() as session:
         create_risk_assessment(
+            request=_FakeSignRequest(),
             mandate_id=mandate_id,
             body=payload,
             db=session,
@@ -2615,7 +2807,7 @@ def test_generate_target_allocation_goal_analysis_exposes_timing_and_return_targ
                 client_id=client_id,
                 label="Depot Analyse",
                 position_type="Depot",
-                assignment="BeratungsvermÃƒÂ¶gen",
+                assignment="Beratungsvermögen",
                 current_value_rappen=60000000,
                 currency="CHF",
                 alloc_equities_bps=6000,
@@ -2638,7 +2830,7 @@ def test_generate_target_allocation_goal_analysis_exposes_timing_and_return_targ
                     goal_type="Einmalige_Ausgabe",
                     label="Eigenmittel",
                     rank=1,
-                    goal_scope="BeratungsvermÃ¶gen",
+                    goal_scope="Beratungsvermögen",
                     value_mode="nominal",
                     target_amount_rappen=35000000,
                     start_date="2028-06-30",
@@ -2656,13 +2848,13 @@ def test_generate_target_allocation_goal_analysis_exposes_timing_and_return_targ
                     goal_type="Pensionsausgabe",
                     label="Pensionsbedarf",
                     rank=2,
-                    goal_scope="BeratungsvermÃ¶gen",
+                    goal_scope="Beratungsvermögen",
                     value_mode="nominal",
                     target_amount_rappen=800000,
                     start_date="2032-01-01",
                     target_date="2040-12-31",
                     frequency="monatlich",
-                    hardness="PrimÃ¤r",
+                    hardness="Primär",
                     is_active=1,
                     created_at="2026-03-27T00:00:00.000Z",
                     updated_at="2026-03-27T00:00:00.000Z",
@@ -2675,7 +2867,7 @@ def test_generate_target_allocation_goal_analysis_exposes_timing_and_return_targ
                     goal_type="Renditeziel",
                     label="Renditeziel",
                     rank=3,
-                    goal_scope="GesamtvermÃ¶gen",
+                    goal_scope="Gesamtvermögen",
                     value_mode="nominal",
                     target_return_bps=450,
                     target_date="2034-12-31",
@@ -2751,6 +2943,7 @@ def test_generate_target_allocation_clamps_monte_carlo_runs(session_factory, adv
 
     with session_factory() as session:
         create_risk_assessment(
+            request=_FakeSignRequest(),
             mandate_id=mandate_id,
             body=payload,
             db=session,
@@ -2762,7 +2955,7 @@ def test_generate_target_allocation_clamps_monte_carlo_runs(session_factory, adv
                 client_id=client_id,
                 label="Depot Clamp",
                 position_type="Depot",
-                assignment="BeratungsvermÃ¶gen",
+                assignment="Beratungsvermögen",
                 current_value_rappen=50000000,
                 currency="CHF",
                 alloc_equities_bps=5000,
@@ -2812,6 +3005,7 @@ def test_build_target_payload_from_allocation_exposes_monte_carlo(session_factor
 
     with session_factory() as session:
         create_risk_assessment(
+            request=_FakeSignRequest(),
             mandate_id=mandate_id,
             body=payload,
             db=session,
@@ -2823,7 +3017,7 @@ def test_build_target_payload_from_allocation_exposes_monte_carlo(session_factor
                 client_id=client_id,
                 label="Depot Payload",
                 position_type="Depot",
-                assignment="BeratungsvermÃ¶gen",
+                assignment="Beratungsvermögen",
                 current_value_rappen=80000000,
                 currency="CHF",
                 alloc_equities_bps=5000,
@@ -2845,11 +3039,11 @@ def test_build_target_payload_from_allocation_exposes_monte_carlo(session_factor
                 goal_type="Vermoegensziel",
                 label="Kapitalausbau",
                 rank=1,
-                goal_scope="BeratungsvermÃ¶gen",
+                goal_scope="Beratungsvermögen",
                 value_mode="nominal",
                 target_wealth_rappen=120000000,
                 target_date="2035-12-31",
-                hardness="PrimÃ¤r",
+                hardness="Primär",
                 is_active=1,
                 created_at="2026-03-27T00:00:00.000Z",
                 updated_at="2026-03-27T00:00:00.000Z",
@@ -2903,6 +3097,7 @@ def test_generate_recommendation_run_builds_product_positions(session_factory, a
 
     with session_factory() as session:
         create_risk_assessment(
+            request=_FakeSignRequest(),
             mandate_id=mandate_id,
             body=payload,
             db=session,
@@ -3056,6 +3251,7 @@ def test_recommendation_payload_prefers_actual_holdings_for_live_drift(session_f
 
     with session_factory() as session:
         create_risk_assessment(
+            request=_FakeSignRequest(),
             mandate_id=mandate_id,
             body=payload,
             db=session,
@@ -3067,7 +3263,7 @@ def test_recommendation_payload_prefers_actual_holdings_for_live_drift(session_f
                 client_id=client_id,
                 label="Depot Holdings",
                 position_type="Depot",
-                assignment="BeratungsvermÃ¶gen",
+                assignment="Beratungsvermögen",
                 current_value_rappen=80000000,
                 currency="CHF",
                 alloc_equities_bps=6500,
@@ -3179,6 +3375,7 @@ def test_recommendation_payload_marks_implied_units_from_holding_market_value(se
 
     with session_factory() as session:
         create_risk_assessment(
+            request=_FakeSignRequest(),
             mandate_id=mandate_id,
             body=payload,
             db=session,
@@ -3190,7 +3387,7 @@ def test_recommendation_payload_marks_implied_units_from_holding_market_value(se
                 client_id=client_id,
                 label="Depot Tiny Holding",
                 position_type="Depot",
-                assignment="BeratungsvermÃ¶gen",
+                assignment="Beratungsvermögen",
                 current_value_rappen=80000000,
                 currency="CHF",
                 alloc_equities_bps=6500,
@@ -3217,7 +3414,7 @@ def test_recommendation_payload_marks_implied_units_from_holding_market_value(se
             user_id=advisor_user.id,
             preferences={"policy": {}, "tilts": {}, "product": {}, "limits": {}, "geo": {}, "assetClasses": {}},
             target_allocation_id=allocation["target_allocation"].id,
-            depot_bank="UBS AG ZÃ¼rich",
+            depot_bank="UBS AG Zürich",
         )
         first_position = result["positions"][0]
         session.add(
@@ -3238,7 +3435,7 @@ def test_recommendation_payload_marks_implied_units_from_holding_market_value(se
                 run_id=result["run"].id,
                 recommendation_position_id=first_position["id"],
                 product_id=first_position["product_id"],
-                depot_bank="UBS AG ZÃ¼rich",
+                depot_bank="UBS AG Zürich",
                 custody_account_number="CH-DEPOT-TINY-1",
                 as_of_date=date.today().isoformat(),
                 market_value_rappen=1,
@@ -3357,6 +3554,7 @@ def test_generate_recommendation_run_carries_holdings_forward_by_product(session
 
     with session_factory() as session:
         create_risk_assessment(
+            request=_FakeSignRequest(),
             mandate_id=mandate_id,
             body=payload,
             db=session,
@@ -3368,7 +3566,7 @@ def test_generate_recommendation_run_carries_holdings_forward_by_product(session
                 client_id=client_id,
                 label="Depot Carry",
                 position_type="Depot",
-                assignment="BeratungsvermÃ¶gen",
+                assignment="Beratungsvermögen",
                 current_value_rappen=80000000,
                 currency="CHF",
                 alloc_equities_bps=6500,
@@ -3457,6 +3655,7 @@ def test_deleted_holding_does_not_resurface_from_older_runs(session_factory, adv
 
     with session_factory() as session:
         create_risk_assessment(
+            request=_FakeSignRequest(),
             mandate_id=mandate_id,
             body=payload,
             db=session,
@@ -3468,7 +3667,7 @@ def test_deleted_holding_does_not_resurface_from_older_runs(session_factory, adv
                 client_id=client_id,
                 label="Depot Delete Carry",
                 position_type="Depot",
-                assignment="BeratungsvermÃ¶gen",
+                assignment="Beratungsvermögen",
                 current_value_rappen=80000000,
                 currency="CHF",
                 alloc_equities_bps=6500,
@@ -3571,6 +3770,7 @@ def test_review_engine_emits_market_data_trigger_for_missing_prices(session_fact
 
     with session_factory() as session:
         create_risk_assessment(
+            request=_FakeSignRequest(),
             mandate_id=mandate_id,
             body=payload,
             db=session,
@@ -3620,36 +3820,57 @@ def test_review_engine_emits_market_data_trigger_for_missing_prices(session_fact
     assert "ohne Preis" in str(market_trigger.triggered_value or "")
 
 
+def _valid_finma_advisory_payload(**overrides) -> dict:
+    """U-FINMA-2.1: AdvisoryLogCreate verlangt jetzt FIDLEG-Pflichtfelder."""
+    base = dict(
+        entry_type="Sonstiges",
+        title="Smoke Log",
+        description="Runtime contract test mit ausreichender Laenge fuer Validation.",
+        entry_datetime="2026-03-27T14:00:00.000Z",
+        duration_minutes=45,
+        communication_channel="persoenlich",
+        language="de",
+        topics=["Sonstiges"],
+        risk_warnings_given=[],
+        cost_disclosure_given=False,
+    )
+    base.update(overrides)
+    return base
+
+
 def test_advisory_log_rejects_non_schema_decision_values():
     with pytest.raises(ValidationError):
-        AdvisoryLogCreate(
-            entry_type="Sonstiges",
-            title="Smoke Log",
-            decision="Umschichtung",
-        )
+        AdvisoryLogCreate(**_valid_finma_advisory_payload(decision="Umschichtung"))
 
 
 def test_advisory_log_accepts_schema_allowed_decision_value(session_factory, advisor_user):
     _, mandate_id = seed_client_and_mandate(session_factory, advisor_user)
 
     payload = AdvisoryLogCreate(
-        entry_type="Sonstiges",
-        title="Smoke Log",
-        decision="Strategie angepasst",
-        description="Runtime contract test",
-        entry_date="2026-03-27",
+        **_valid_finma_advisory_payload(
+            decision="Strategie angepasst",
+            entry_date="2026-03-27",
+        )
     )
 
     with session_factory() as session:
         result = create_advisory_log_entry(
+            request=_FakeSignRequest(),
             mandate_id=mandate_id,
             body=payload,
             db=session,
             current_user=advisor_user,
         )
 
-    assert result.mandate_id == mandate_id
-    assert result.decision == "Strategie angepasst"
+    # U-FINMA-2.1: Endpoint returnt jetzt ein dict via serialize_response
+    if isinstance(result, dict):
+        assert result["mandate_id"] == mandate_id
+        assert result["decision"] == "Strategie angepasst"
+        assert result["integrity_hash"] is not None
+        assert result["version"] == 1
+    else:
+        assert result.mandate_id == mandate_id
+        assert result.decision == "Strategie angepasst"
 
 
 def _obsolete_create_trigger_normalizes_review_frequency_aliases(session_factory, advisor_user):
@@ -3657,6 +3878,7 @@ def _obsolete_create_trigger_normalizes_review_frequency_aliases(session_factory
 
     with session_factory() as session:
         result = create_trigger(
+            request=_FakeSignRequest(),
             mandate_id=mandate_id,
             body=ReviewTriggerCreate(
                 trigger_type="Zeit",
@@ -3676,6 +3898,7 @@ def test_create_trigger_normalizes_review_frequency_aliases_v2(session_factory, 
 
     with session_factory() as session:
         result = create_trigger(
+            request=_FakeSignRequest(),
             mandate_id=mandate_id,
             body=ReviewTriggerCreate(
                 trigger_type="Zeit",
@@ -3690,11 +3913,25 @@ def test_create_trigger_normalizes_review_frequency_aliases_v2(session_factory, 
     assert result.frequency == "jährlich"
 
 
+class _FakeSignRequest:
+    """Minimaler Request-Stub fuer direkte sign_document()-Aufrufe in Tests
+    (analog zu tests/test_auth05_bootstrap_admin_rate_limit.py::_FakeRequest) --
+    _extract_client_ip() braucht nur .headers.get(...) und .client.host."""
+    def __init__(self, host="127.0.0.1"):
+        self.headers = {}
+        self.client = type("C", (), {"host": host})()
+
+
+_ADVISOR_SIGNATURE_PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+_CLIENT_SIGNATURE_PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+
+
 def test_sign_document_preserves_initial_signed_at(session_factory, advisor_user, monkeypatch):
     _, mandate_id = seed_client_and_mandate(session_factory, advisor_user)
 
     with session_factory() as session:
         doc = create_document(
+            request=_FakeSignRequest(),
             mandate_id=mandate_id,
             body=ContractDocumentCreate(
                 document_type="Anlagestrategie",
@@ -3714,7 +3951,12 @@ def test_sign_document_preserves_initial_signed_at(session_factory, advisor_user
         first_sign = sign_document(
             mandate_id=mandate_id,
             doc_id=doc.id,
-            body=ContractDocumentSign(signed_by_advisor=True),
+            body=ContractDocumentSign(
+                signed_by_advisor=True,
+                signature_image=_ADVISOR_SIGNATURE_PNG,
+                signer_name="Anna Berater",
+            ),
+            request=_FakeSignRequest("10.0.0.5"),
             db=session,
             current_user=advisor_user,
         )
@@ -3724,7 +3966,12 @@ def test_sign_document_preserves_initial_signed_at(session_factory, advisor_user
         second_sign = sign_document(
             mandate_id=mandate_id,
             doc_id=doc.id,
-            body=ContractDocumentSign(signed_by_client=True),
+            body=ContractDocumentSign(
+                signed_by_client=True,
+                signature_image=_CLIENT_SIGNATURE_PNG,
+                signer_name="Daniel Kunde",
+            ),
+            request=_FakeSignRequest("10.0.0.9"),
             db=session,
             current_user=advisor_user,
         )
@@ -3736,6 +3983,50 @@ def test_sign_document_preserves_initial_signed_at(session_factory, advisor_user
     assert second_sign.signed_by_advisor == 1
     assert second_sign.signed_by_client == 1
     assert second_sign.status == "Unterzeichnet"
+    # 2026-08-05 (User-Direktive, E-Signing): echtes Signatur-Artefakt pro
+    # Unterzeichner wird gespeichert, nicht nur die Checkbox-Flags.
+    assert second_sign.signature_advisor_image == _ADVISOR_SIGNATURE_PNG
+    assert second_sign.signature_advisor_signer_name == "Anna Berater"
+    assert second_sign.signature_advisor_signed_at == "2026-04-19T09:15:00.000Z"
+    assert second_sign.signature_client_image == _CLIENT_SIGNATURE_PNG
+    assert second_sign.signature_client_signer_name == "Daniel Kunde"
+    assert second_sign.signature_client_signed_at == "2026-04-19T11:45:00.000Z"
+
+
+def test_sign_document_requires_signature_image():
+    with pytest.raises(Exception):
+        ContractDocumentSign(signed_by_advisor=True, signature_image="", signer_name="Anna Berater")
+
+
+def test_sign_document_rejects_non_image_data_uri():
+    with pytest.raises(Exception):
+        ContractDocumentSign(
+            signed_by_advisor=True,
+            signature_image="not-a-data-uri",
+            signer_name="Anna Berater",
+        )
+
+
+def test_sign_document_rejects_both_signers_in_one_call():
+    with pytest.raises(Exception):
+        ContractDocumentSign(
+            signed_by_advisor=True,
+            signed_by_client=True,
+            signature_image=_ADVISOR_SIGNATURE_PNG,
+            signer_name="Anna Berater",
+        )
+
+
+def test_sign_document_rejects_neither_signer():
+    with pytest.raises(Exception):
+        ContractDocumentSign(signature_image=_ADVISOR_SIGNATURE_PNG, signer_name="Anna Berater")
+
+
+def test_sign_document_rejects_blank_signer_name():
+    with pytest.raises(Exception):
+        ContractDocumentSign(
+            signed_by_advisor=True, signature_image=_ADVISOR_SIGNATURE_PNG, signer_name="   ",
+        )
 
 
 def test_refresh_system_review_triggers_creates_review_and_goal_alerts(session_factory, advisor_user):
@@ -3756,6 +4047,7 @@ def test_refresh_system_review_triggers_creates_review_and_goal_alerts(session_f
 
     with session_factory() as session:
         create_risk_assessment(
+            request=_FakeSignRequest(),
             mandate_id=mandate_id,
             body=payload,
             db=session,
@@ -3869,6 +4161,7 @@ def test_refresh_system_review_triggers_reuses_supplied_allocation_payload(sessi
 
     with session_factory() as session:
         create_risk_assessment(
+            request=_FakeSignRequest(),
             mandate_id=mandate_id,
             body=RiskAssessmentCreate(
                 q_income_points=3,
@@ -3948,6 +4241,7 @@ def test_refresh_system_review_triggers_ignores_unconfigured_zero_bands(session_
 
     with session_factory() as session:
         create_risk_assessment(
+            request=_FakeSignRequest(),
             mandate_id=mandate_id,
             body=RiskAssessmentCreate(
                 q_income_points=3,
@@ -4041,6 +4335,7 @@ def test_refresh_system_review_triggers_resolves_drift_when_portfolio_returns_in
 
     with session_factory() as session:
         create_risk_assessment(
+            request=_FakeSignRequest(),
             mandate_id=mandate_id,
             body=payload,
             db=session,
@@ -4152,6 +4447,7 @@ def test_generate_recommendation_run_endpoint_reuses_result_allocation_payload(s
         monkeypatch.setattr(review_router, "refresh_system_review_triggers", fake_refresh)
 
         result = generate_recommendation_run_endpoint(
+            request=_FakeSignRequest(),
             mandate_id=mandate_id,
             body=RecommendationGenerateRequest(),
             db=session,
@@ -4221,7 +4517,7 @@ def test_dashboard_summary_and_active_triggers_are_scoped_to_advisor(session_fac
                 mandate_id=mandate_id,
                 trigger_type="Zeit",
                 trigger_name="Eigen",
-                status="AusgelÃ¶st",
+                status="Ausgelöst",
                 is_system=0,
                 calendar_exported=0,
                 created_at="2026-03-27T00:00:00.000Z",
@@ -4234,7 +4530,7 @@ def test_dashboard_summary_and_active_triggers_are_scoped_to_advisor(session_fac
                 mandate_id=foreign_mandate_id,
                 trigger_type="Zeit",
                 trigger_name="Fremd",
-                status="AusgelÃ¶st",
+                status="Ausgelöst",
                 is_system=0,
                 calendar_exported=0,
                 created_at="2026-03-27T00:00:00.000Z",
@@ -4352,6 +4648,7 @@ def test_snapshot_endpoints_block_foreign_mandate_access(session_factory, adviso
         created = create_snapshot(
             mandate_id=foreign_mandate_id,
             body=snapshot_payload,
+            request=_FakeSignRequest(),
             db=session,
             current_user=other_advisor_user,
         )
@@ -4369,6 +4666,7 @@ def test_snapshot_endpoints_block_foreign_mandate_access(session_factory, adviso
             create_snapshot(
                 mandate_id=foreign_mandate_id,
                 body=snapshot_payload,
+                request=_FakeSignRequest(),
                 db=session,
                 current_user=advisor_user,
             )
@@ -4439,6 +4737,7 @@ def test_fzk_risk_assessment_override_rejects_scores_above_cap(session_factory, 
         session.commit()
 
         assessment = create_risk_assessment(
+            request=_FakeSignRequest(),
             mandate_id="mandate-fzk-1",
             body=RiskAssessmentCreate(
                 q_income_points=4,
@@ -4460,6 +4759,7 @@ def test_fzk_risk_assessment_override_rejects_scores_above_cap(session_factory, 
             override_risk_assessment(
                 mandate_id="mandate-fzk-1",
                 ra_id=assessment.id,
+                request=_FakeSignRequest(),
                 body=RiskAssessmentOverride(
                     override_score_x10=80,
                     override_profile=profile_for_score_x10(80),

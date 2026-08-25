@@ -180,56 +180,85 @@ async function checkForUpdates() {
 }
 
 const AUTH_TOKEN_STORE_FILE = path.join(app.getPath('userData'), 'auth-token.bin');
+// Roadmap #28 (2026-08-08 Backend, 2026-08-09 Frontend): Refresh-Token
+// bekommt eine EIGENE, vom Access-Token getrennte Datei -- beide sind
+// unterschiedlich langlebige Secrets (Access-Token Minuten/Stunden,
+// Refresh-Token Tage) und werden unabhaengig voneinander rotiert/geleert
+// (z.B. Logout loescht beide, aber ein abgelaufener Access-Token allein
+// loescht den Refresh-Token NICHT -- der wird ja gerade benutzt, um einen
+// neuen Access-Token zu holen).
+const REFRESH_TOKEN_STORE_FILE = path.join(app.getPath('userData'), 'refresh-token.bin');
 
-function readStoredToken() {
+// Generische, dateibasierte Secret-Ablage (OS-Keychain/DPAPI via safeStorage)
+// -- extrahiert aus der urspruenglichen Access-Token-Implementierung, damit
+// der Refresh-Token denselben, bereits gehaerteten Mechanismus 1:1 wiederverwenden
+// kann statt ihn zu duplizieren (EM-5-Fix unten gilt dann fuer beide Secrets).
+function readStoredSecret(storeFile, label) {
   try {
-    if (!fs.existsSync(AUTH_TOKEN_STORE_FILE)) return null;
-    const raw = fs.readFileSync(AUTH_TOKEN_STORE_FILE);
+    if (!fs.existsSync(storeFile)) return null;
+    const raw = fs.readFileSync(storeFile);
     if (!raw || raw.length === 0) return null;
     if (safeStorage.isEncryptionAvailable()) {
       return safeStorage.decryptString(raw);
     }
-    clearStoredToken();
-    // Encryption unavailable — refuse to return a plaintext token.
-    // The stored file may be unencrypted; do not expose it. Force re-login.
-    logLine('WARNING: safeStorage encryption not available — stored token will not be used. User must log in again.');
+    // EM-5: Encryption nur *vorübergehend* nicht verfügbar (z.B. Keychain/DPAPI noch
+    // nicht bereit). writeStoredSecret persistiert NIE Klartext, die Datei ist also
+    // immer ein gültiges Ciphertext. Datei daher NICHT löschen — nur ignorieren und
+    // re-login erzwingen; sobald safeStorage wieder verfügbar ist, lässt sie sich
+    // erneut entschlüsseln. (Vorher: clearStoredSecret() verwarf das Secret unnötig.)
+    logLine(`WARNING: safeStorage encryption not available — stored ${label} will not be used this session. User must log in again.`);
     return null;
   } catch (error) {
-    logLine(`Failed to read stored token: ${error.message || error}`);
+    // Echte Entschlüsselungs-/Lesefehler eines vorhandenen Ciphertext: Datei ist
+    // korrupt/fremd -> bereinigen, damit sie nicht bei jedem Start erneut scheitert.
+    logLine(`Failed to read stored ${label} (clearing corrupt file): ${error.message || error}`);
+    clearStoredSecret(storeFile, label);
     return null;
   }
 }
 
-function writeStoredToken(token) {
+function writeStoredSecret(storeFile, value, label) {
   try {
     if (!safeStorage.isEncryptionAvailable()) {
-      // Refuse to persist token as plaintext — user will need to log in each session.
-      logLine('WARNING: safeStorage encryption not available — token will not be persisted to disk.');
+      // Refuse to persist secret as plaintext — user will need to log in each session.
+      logLine(`WARNING: safeStorage encryption not available — ${label} will not be persisted to disk.`);
       return false;
     }
-    fs.mkdirSync(path.dirname(AUTH_TOKEN_STORE_FILE), { recursive: true });
-    const payload = safeStorage.encryptString(String(token || ''));
-    fs.writeFileSync(AUTH_TOKEN_STORE_FILE, payload);
+    fs.mkdirSync(path.dirname(storeFile), { recursive: true });
+    const payload = safeStorage.encryptString(String(value || ''));
+    fs.writeFileSync(storeFile, payload);
     return true;
   } catch (error) {
-    logLine(`Failed to store token: ${error.message || error}`);
+    logLine(`Failed to store ${label}: ${error.message || error}`);
     return false;
   }
 }
 
-function clearStoredToken() {
+function clearStoredSecret(storeFile, label) {
   try {
-    if (fs.existsSync(AUTH_TOKEN_STORE_FILE)) fs.unlinkSync(AUTH_TOKEN_STORE_FILE);
+    if (fs.existsSync(storeFile)) fs.unlinkSync(storeFile);
     return true;
   } catch (error) {
-    logLine(`Failed to clear stored token: ${error.message || error}`);
+    logLine(`Failed to clear stored ${label}: ${error.message || error}`);
     return false;
   }
 }
+
+function readStoredToken() { return readStoredSecret(AUTH_TOKEN_STORE_FILE, 'token'); }
+function writeStoredToken(token) { return writeStoredSecret(AUTH_TOKEN_STORE_FILE, token, 'token'); }
+function clearStoredToken() { return clearStoredSecret(AUTH_TOKEN_STORE_FILE, 'token'); }
+function readStoredRefreshToken() { return readStoredSecret(REFRESH_TOKEN_STORE_FILE, 'refresh token'); }
+function writeStoredRefreshToken(token) { return writeStoredSecret(REFRESH_TOKEN_STORE_FILE, token, 'refresh token'); }
+function clearStoredRefreshToken() { return clearStoredSecret(REFRESH_TOKEN_STORE_FILE, 'refresh token'); }
 
 app.setAppUserModelId('ch.5eyes.wealtharchitekten');
 
-if (!app.requestSingleInstanceLock()) {
+// EM-4: Single-Instance-Lock-Ergebnis festhalten. app.quit() ist asynchron, daher
+// darf der whenReady-Bootstrap (Backend-Spawn + Fenster) bei fehlendem Lock NICHT
+// laufen — sonst startet eine zweite Instanz kurzzeitig ein zweites Backend/Fenster,
+// bevor quit greift.
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
+if (!hasSingleInstanceLock) {
   app.quit();
 }
 
@@ -256,6 +285,13 @@ function attachBackendProcessLogging(proc) {
   };
   forward(proc.stdout, 'stdout');
   forward(proc.stderr, 'stderr');
+  // EM-1: 'error' MUSS behandelt werden — sonst wird ein Spawn-Fehler (dev: python
+  // nicht auf PATH -> ENOENT; packaged: exe von AV/EACCES blockiert) als uncaught
+  // Exception geworfen und crasht den Electron-Main-Prozess, bevor irgendein Dialog
+  // erscheint. Mit Listener läuft waitForBackendReady stattdessen sauber in den Timeout.
+  proc.on('error', (err) => {
+    logLine(`Backend-Prozess konnte nicht gestartet werden: ${err && err.message ? err.message : err}`);
+  });
 }
 
 async function resolveFreePort(host) {
@@ -275,12 +311,18 @@ async function resolveFreePort(host) {
 }
 
 async function isTcpPortInUse(host, port) {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     const server = net.createServer();
     server.unref();
     server.once('error', (error) => {
-      if (error && error.code === 'EADDRINUSE') resolve(true);
-      else reject(error);
+      // EM-6: jeder Bind-Fehler bedeutet "Port nicht sicher nutzbar" -> als belegt
+      // melden, damit pickBackendRuntime auf einen freien Ephemeral-Port ausweicht.
+      // Vorher rejectete ein Nicht-EADDRINUSE-Fehler die Promise und riss den
+      // gesamten Bootstrap (-> App-Quit) mit, statt nur den Port-Fallback zu nehmen.
+      if (error && error.code !== 'EADDRINUSE') {
+        logLine(`Port-Probe ${host}:${port} fehlgeschlagen (${error.code || error.message || error}) — behandle Port als belegt.`);
+      }
+      resolve(true);
     });
     server.listen({ host, port }, () => {
       server.close(() => resolve(false));
@@ -394,18 +436,51 @@ function spawnBackendProcess() {
   backendManagedByApp = true;
 }
 
+// EM-7-Fix: child.killed bedeutet NUR "ein Signal wurde erfolgreich gesendet",
+// nicht "der Prozess ist beendet". Für die SIGKILL-Eskalation muss echte
+// Lebendigkeit geprüft werden: exitCode/signalCode sind null, solange der
+// Prozess läuft, und werden beim Beenden gesetzt.
+function backendProcessStillAlive(proc) {
+  return !!proc && proc.exitCode === null && proc.signalCode === null;
+}
+
 function terminateBackendProcess() {
   if (!backendManagedByApp || !backendProcess || backendProcess.killed) {
     return;
   }
 
   const pid = backendProcess.pid;
+  const proc = backendProcess;
   try {
     logLine(`Terminating managed backend process pid=${pid}`);
     if (process.platform === 'win32') {
-      spawnSync('taskkill', ['/pid', String(pid), '/t', '/f'], { windowsHide: true });
+      // EM-7: spawnSync-Ergebnis auswerten — taskkill kann fehlschlagen (Prozess
+      // schon weg, fehlende Rechte). status/error explizit loggen statt blind
+      // anzunehmen, dass terminiert wurde.
+      const result = spawnSync('taskkill', ['/pid', String(pid), '/t', '/f'], { windowsHide: true });
+      if (result.error) {
+        logLine(`taskkill spawn failed for pid=${pid}: ${result.error.message || result.error}`);
+      } else if (result.status !== 0) {
+        const stderr = result.stderr ? String(result.stderr).trim() : '';
+        logLine(`taskkill exited status=${result.status} for pid=${pid}${stderr ? ` (${stderr})` : ''}`);
+      }
     } else {
-      backendProcess.kill('SIGTERM');
+      // EM-7: POSIX-Eskalation SIGTERM -> SIGKILL. Nach kurzer Gnadenfrist
+      // hart killen, falls der Prozess SIGTERM ignoriert.
+      proc.kill('SIGTERM');
+      setTimeout(() => {
+        try {
+          // EM-7-Fix: NICHT proc.killed prüfen — das ist nach kill('SIGTERM')
+          // sofort true (= "Signal gesendet", nicht "Prozess tot"), wodurch die
+          // Eskalation nie feuerte. Echte Lebendigkeit über exit-/signalCode.
+          if (backendProcessStillAlive(proc)) {
+            logLine(`Backend pid=${pid} did not exit on SIGTERM — escalating to SIGKILL`);
+            proc.kill('SIGKILL');
+          }
+        } catch (escErr) {
+          logLine(`SIGKILL escalation failed for pid=${pid}: ${escErr.message || escErr}`);
+        }
+      }, 2000).unref();
     }
   } catch (error) {
     logLine(`Failed to terminate backend process: ${error.message || error}`);
@@ -413,6 +488,14 @@ function terminateBackendProcess() {
     backendProcess = null;
     backendManagedByApp = false;
   }
+}
+
+function sanitizePdfFilename(name) {
+  const fallback = `report_${new Date().toISOString().slice(0, 10)}.pdf`;
+  const raw = String(name || fallback).trim() || fallback;
+  const base = path.basename(raw).replace(/[<>:"/\\|?*\x00-\x1F]/g, '_');
+  const withExtension = base.toLowerCase().endsWith('.pdf') ? base : `${base}.pdf`;
+  return withExtension.slice(0, 180) || fallback;
 }
 
 async function waitForBackendReady() {
@@ -450,6 +533,9 @@ async function createMainWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
+      experimentalFeatures: false,
       devTools: !app.isPackaged,
     },
   });
@@ -476,7 +562,21 @@ async function createMainWindow() {
     }
   });
 
-  await mainWindow.loadFile(resolveFrontendPath());
+  mainWindow.webContents.on('console-message', (_event, level, message, line, sourceId) => {
+    const severity = ['verbose', 'info', 'warning', 'error'][level] || String(level);
+    logLine(`Renderer ${severity}: ${message} (${sourceId || 'unknown'}:${line || 0})`);
+  });
+
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    logLine(`Renderer process gone: ${JSON.stringify(details || {})}`);
+  });
+
+  // Intro bei jedem echten Desktop-Start zeigen. Das Query-Flag umgeht nur
+  // den persistenten Renderer-Sessionstatus; Reloads innerhalb derselben
+  // laufenden App werden dadurch nicht zusätzlich ausgelöst.
+  await mainWindow.loadFile(resolveFrontendPath(), {
+    query: { intro: '1' },
+  });
 }
 
 async function bootstrap() {
@@ -521,6 +621,47 @@ ipcMain.handle('shell:open-external', async (_event, targetUrl) => {
 ipcMain.handle('auth:get-token', () => readStoredToken());
 ipcMain.handle('auth:set-token', (_event, token) => writeStoredToken(token));
 ipcMain.handle('auth:clear-token', () => clearStoredToken());
+// Roadmap #28 (2026-08-09 Frontend-Wiring): Refresh-Token separat gespeichert,
+// siehe Kommentar bei REFRESH_TOKEN_STORE_FILE weiter oben.
+ipcMain.handle('auth:get-refresh-token', () => readStoredRefreshToken());
+ipcMain.handle('auth:set-refresh-token', (_event, token) => writeStoredRefreshToken(token));
+ipcMain.handle('auth:clear-refresh-token', () => clearStoredRefreshToken());
+ipcMain.handle('file:save-pdf', async (_event, payload) => {
+  // EM-2: Handler-Body komplett in try/catch — fehlende Daten und fs-Fehler
+  // (ENOSPC, EACCES/EPERM auf gewähltem Pfad) als strukturiertes Ergebnis
+  // zurückgeben statt als rejected Promise, das der Renderer als unbehandelte
+  // Exception sieht.
+  try {
+    const filename = sanitizePdfFilename(payload && payload.filename);
+    const base64 = String((payload && payload.base64) || '');
+    if (!base64) {
+      return { ok: false, error: 'PDF-Daten fehlen.' };
+    }
+    // Base64 validieren: zuerst Whitespace/Zeilenumbrüche entfernen (manche Renderer
+    // chunken Base64), DANN Round-Trip-Vergleich. So werden valide, nur anders
+    // formatierte PDFs akzeptiert, echter Müll (Nicht-Base64) aber weiterhin
+    // abgelehnt — Buffer.from ist beim Dekodieren tolerant und würde sonst Bytes
+    // aus Garbage erzeugen.
+    const compact = base64.replace(/\s+/g, '');
+    const buffer = Buffer.from(compact, 'base64');
+    if (buffer.length === 0 || buffer.toString('base64').replace(/=+$/, '') !== compact.replace(/=+$/, '')) {
+      return { ok: false, error: 'PDF-Daten sind ungültig (kein valides Base64).' };
+    }
+    const target = await dialog.showSaveDialog(mainWindow || undefined, {
+      title: 'PDF speichern',
+      defaultPath: path.join(app.getPath('downloads'), filename),
+      filters: [{ name: 'PDF', extensions: ['pdf'] }],
+    });
+    if (target.canceled || !target.filePath) {
+      return { ok: false, canceled: true };
+    }
+    await fs.promises.writeFile(target.filePath, buffer);
+    return { ok: true, path: target.filePath };
+  } catch (error) {
+    logLine(`file:save-pdf failed: ${error && error.message ? error.message : error}`);
+    return { ok: false, error: String((error && error.message) || error) };
+  }
+});
 ipcMain.handle('updates:get-state', () => ({ ...updateState }));
 ipcMain.handle('updates:check', async () => checkForUpdates());
 ipcMain.handle('updates:install-downloaded', async () => {
@@ -531,7 +672,47 @@ ipcMain.handle('updates:install-downloaded', async () => {
   return { ok: false, message: 'No downloaded update available.' };
 });
 
+// Sprint U-61 (2026-06-01): Globaler Security-Hook fuer alle WebContents.
+// Greift auch fuer kuenftige Fenster/PDF-Viewer/etc. — zentraler Audit-Punkt.
+app.on('web-contents-created', (_event, contents) => {
+  // 1. Permission-Requests (geolocation, notifications, midi, media, ...)
+  //    -> default deny. Whitelist hinzufuegen wenn ein konkreter Use-Case kommt.
+  contents.session.setPermissionRequestHandler((_wc, _permission, callback) => {
+    callback(false);
+  });
+
+  // 2. Globaler will-navigate-Filter (zusaetzlich zum window-spezifischen Hook).
+  contents.on('will-navigate', (event, url) => {
+    const localEntry = `file://${resolveFrontendPath().replace(/\\/g, '/')}`;
+    if (url !== localEntry) {
+      event.preventDefault();
+      if (isSafeExternalUrl(url)) {
+        shell.openExternal(url);
+      }
+    }
+  });
+
+  // 3. setWindowOpenHandler global — alle Popups/window.open() -> deny + Shell.
+  contents.setWindowOpenHandler(({ url }) => {
+    if (isSafeExternalUrl(url)) {
+      shell.openExternal(url);
+    }
+    return { action: 'deny' };
+  });
+
+  // 4. WebView-Attachments blockieren (FINMA: keine eingebetteten Renderer).
+  contents.on('will-attach-webview', (event, webPreferences, _params) => {
+    event.preventDefault();
+    delete webPreferences.preload;
+    webPreferences.nodeIntegration = false;
+    webPreferences.contextIsolation = true;
+    webPreferences.sandbox = true;
+  });
+});
+
 app.whenReady().then(async () => {
+  // EM-4: zweite Instanz hat keinen Lock — Bootstrap überspringen (quit läuft bereits).
+  if (!hasSingleInstanceLock) return;
   try {
     logLine(`App starting | version=${app.getVersion()} packaged=${app.isPackaged}`);
     configureAutoUpdates();
@@ -570,3 +751,9 @@ app.on('activate', async () => {
     await createMainWindow();
   }
 });
+
+// Nur für Tests exportiert (Electron ignoriert module.exports am Entrypoint).
+// Erlaubt das deterministische Prüfen der EM-7-Lebendigkeitslogik.
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports.backendProcessStillAlive = backendProcessStillAlive;
+}

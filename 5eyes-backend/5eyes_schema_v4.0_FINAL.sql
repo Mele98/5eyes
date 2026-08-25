@@ -45,7 +45,7 @@ CREATE TABLE IF NOT EXISTS users (
     full_name           TEXT NOT NULL,
     email               TEXT COLLATE NOCASE,
     role                TEXT NOT NULL DEFAULT 'advisor'
-                        CHECK(role IN ('admin', 'advisor', 'readonly')),
+                        CHECK(role IN ('admin', 'advisor', 'readonly', 'super_admin', 'portfolio_management', 'client')),
     is_active           INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0,1)),
     last_login_at       TEXT,
     created_at          TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
@@ -571,7 +571,7 @@ CREATE TABLE IF NOT EXISTS wealth_positions (
     mortgage_interest_rate_bps  INTEGER,
     mortgage_maturity_date      TEXT,
     mortgage_amortization_rappen INTEGER NOT NULL DEFAULT 0 CHECK(mortgage_amortization_rappen >= 0),
-    mortgage_amortization_type  TEXT CHECK(mortgage_amortization_type IN ('Direkt','Indirekt (3a)','Keine')),
+    mortgage_amortization_type  TEXT CHECK(mortgage_amortization_type IN ('Direkt','Indirekt (Säule 3a)','Keine')),
     mortgage_linked_property_id TEXT,
     asset_subtype               TEXT,
     asset_expected_return_bps   INTEGER,
@@ -762,7 +762,7 @@ CREATE TABLE IF NOT EXISTS optimizer_policies (
     CHECK(valid_to IS NULL OR valid_to >= valid_from)
 );
 CREATE UNIQUE INDEX IF NOT EXISTS ux_optimizer_one_current
-    ON optimizer_policies(policy_name) WHERE is_current = 1;
+    ON optimizer_policies(is_current) WHERE is_current = 1;
 
 -- ============================================================
 -- 14. SOLL-ALLOKATION (FIX v4: Composite FK für based_on_assessment_id)
@@ -886,7 +886,7 @@ CREATE TABLE IF NOT EXISTS house_matrix (
     score_from              INTEGER NOT NULL CHECK(score_from BETWEEN 1 AND 10),
     score_to                INTEGER NOT NULL CHECK(score_to BETWEEN 1 AND 10),
     profile_name            TEXT NOT NULL CHECK(profile_name IN (
-                                'Kapitalschutz','Defensiv','Ausgewogen','Wachstum','Dynamisch','Aktien')),
+                                'Kapitalschutz','Defensiv','Ausgewogen','Wachstumsorientiert','Dynamisch','Aktien')),
     liq_min_bps             INTEGER NOT NULL CHECK(liq_min_bps BETWEEN 0 AND 10000),
     liq_target_bps          INTEGER NOT NULL CHECK(liq_target_bps BETWEEN 0 AND 10000),
     liq_max_bps             INTEGER NOT NULL CHECK(liq_max_bps BETWEEN 0 AND 10000),
@@ -967,7 +967,7 @@ CREATE TABLE IF NOT EXISTS contract_documents (
     checksum_sha256 TEXT,
     pdf_generated_at TEXT,
     status          TEXT NOT NULL DEFAULT 'Entwurf'
-                    CHECK(status IN ('Entwurf','Bereit','Unterzeichnet','Archiviert')),
+                    CHECK(status IN ('Entwurf','Bereit','Teilweise unterzeichnet','Unterzeichnet','Archiviert')),
     signed_by_advisor INTEGER NOT NULL DEFAULT 0 CHECK(signed_by_advisor IN (0,1)),
     signed_by_client  INTEGER NOT NULL DEFAULT 0 CHECK(signed_by_client IN (0,1)),
     signed_at       TEXT,
@@ -1011,6 +1011,28 @@ CREATE TABLE IF NOT EXISTS advisory_log (
     -- FIX v4: document_id jetzt als Composite FK
     document_id     TEXT,
     entry_date      TEXT NOT NULL DEFAULT (date('now')),
+    -- U-FINMA-2.1 (2026-05-28): FIDLEG-Art.-16+17-Pflichtfelder
+    entry_datetime               TEXT,
+    duration_minutes             INTEGER,
+    communication_channel        TEXT CHECK(communication_channel IS NULL OR communication_channel IN
+                                     ('persoenlich','video','telefon','schriftlich','hybrid')),
+    language                     TEXT CHECK(language IS NULL OR language IN ('de','fr','it','en')),
+    location                     TEXT,
+    participants_json            TEXT,
+    topics_json                  TEXT,
+    risk_warnings_given_json     TEXT,
+    conflict_disclosure_ids_json TEXT,
+    cost_disclosure_given        INTEGER NOT NULL DEFAULT 0 CHECK(cost_disclosure_given IN (0,1)),
+    -- Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): siehe models/review.py::AdvisoryLog.
+    cost_disclosure_snapshot_json TEXT,
+    suitability_check_id         TEXT REFERENCES suitability_checks(id) ON UPDATE CASCADE,
+    integrity_hash               TEXT,
+    retain_until                 TEXT,
+    version                      INTEGER NOT NULL DEFAULT 1,
+    supersedes_id                TEXT REFERENCES advisory_log(id),
+    superseded_by_id             TEXT REFERENCES advisory_log(id),
+    last_read_at                 TEXT,
+    last_read_by                 TEXT REFERENCES users(id),
     created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
     updated_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
     FOREIGN KEY (trigger_id, mandate_id) REFERENCES review_triggers(id, mandate_id) ON UPDATE CASCADE,
@@ -1020,6 +1042,9 @@ CREATE TABLE IF NOT EXISTS advisory_log (
 CREATE INDEX IF NOT EXISTS idx_advisory_log_mandate ON advisory_log(mandate_id, entry_date DESC);
 CREATE INDEX IF NOT EXISTS idx_advisory_log_trigger ON advisory_log(trigger_id);
 CREATE INDEX IF NOT EXISTS idx_advisory_log_document ON advisory_log(document_id);
+CREATE INDEX IF NOT EXISTS idx_advisory_log_active ON advisory_log(mandate_id, superseded_by_id);
+CREATE INDEX IF NOT EXISTS idx_advisory_log_retain ON advisory_log(retain_until);
+CREATE INDEX IF NOT EXISTS idx_advisory_log_suitability ON advisory_log(suitability_check_id);
 
 -- ============================================================
 -- 19. PRODUKTE & SUITABILITY
@@ -1150,7 +1175,25 @@ CREATE TABLE IF NOT EXISTS audit_log (
     user_name   TEXT NOT NULL,
     table_name  TEXT NOT NULL,
     record_id   TEXT NOT NULL,
-    action      TEXT NOT NULL CHECK(action IN ('CREATE','UPDATE','DELETE','LOGIN','EXPORT','PASSWORD_RESET')),
+    -- Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): die urspruengliche Liste deckte
+    -- nur 6 der 32 codebase-weit tatsaechlich genutzten action-Werte ab --
+    -- praktisch jeder Admin-Endpunkt (Policy aktivieren/klonen, House-Matrix
+    -- ersetzen, FX-Upsert, 2FA-Aktionen, Invites, Marktdaten-Refresh/-Purge
+    -- etc.) crashte auf einer echten Bootstrap-DB mit IntegrityError, weil
+    -- die pytest-Suite meist Base.metadata.create_all() (keine CHECK-
+    -- Constraints) statt dieses Rohschemas nutzt.
+    action      TEXT NOT NULL CHECK(action IN (
+        'CREATE','UPDATE','DELETE','LOGIN','EXPORT','PASSWORD_RESET',
+        '2FA_DISABLE','2FA_ENABLE','2FA_RECOVERY_REGEN','2FA_RECOVERY_USED',
+        'ACTIVATE','APPROVE','BACKFILL','BACKUP','CLIENT_ERASE','CLONE',
+        'DB_OPTIMIZE','FOUNDATION_EXAMPLE','FOUNDATION_PURGE','INVITE',
+        'INVITE_ACCEPT','INVITE_RESEND','INVITE_REVOKE','MARKET_DATA_PURGE',
+        'MARKET_DATA_REFRESH','OPTIMIZER_MODE_CHANGE','PASSWORD_CHANGE',
+        'PASSWORD_RESET_CONFIRM','PASSWORD_RESET_REQUEST','REPLACE',
+        'REPLACE_ALL','SENSITIVITY','SUPPORT_BUNDLE','UPSERT'
+        -- DSG Art. 32 (2026-08-15): 'CLIENT_ERASE' hinzugefuegt fuer
+        -- POST /clients/{id}/erase (services/client_erasure.py).
+    )),
     field_name  TEXT,
     old_value   TEXT,
     new_value   TEXT,
@@ -1162,6 +1205,37 @@ CREATE INDEX IF NOT EXISTS idx_audit_record ON audit_log(table_name, record_id);
 CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_log(user_id);
 CREATE INDEX IF NOT EXISTS idx_audit_time ON audit_log(created_at);
 CREATE INDEX IF NOT EXISTS idx_audit_mandate ON audit_log(mandate_id);
+-- U-38 (2026-06-01): Composite-Index fuer typische FINMA-Compliance-Queries
+-- "alle Audit-Eintraege fuer Mandat X auf Tabelle Y" (DSG-Export, Audit-
+-- Trail-Verifikation). idx_audit_mandate allein reicht nicht weil SQLite
+-- danach noch table_name filtern muss.
+CREATE INDEX IF NOT EXISTS idx_audit_mandate_table ON audit_log(mandate_id, table_name);
+
+-- ============================================================
+-- 22b. ADVISORY-REPORT BERATER-OVERRIDES (Sprint U-P28)
+-- ============================================================
+
+-- Eine Zeile pro Mandat (UNIQUE) mit Berater-individuellen Texten fuer den
+-- Advisory-Report. Leere Felder fallen auf den Auto-Default-Text des
+-- Aggregators zurueck.
+CREATE TABLE IF NOT EXISTS mandate_report_notes (
+    id                              TEXT PRIMARY KEY,
+    mandate_id                      TEXT NOT NULL UNIQUE REFERENCES mandates(id) ON UPDATE CASCADE,
+    aa_anmerkungen                  TEXT,
+    waehrungen_erklaerung           TEXT,
+    branchen_analyse                TEXT,
+    vorgehen_block_optimierungen    TEXT,
+    vorgehen_block_zielstrategie    TEXT,
+    vorgehen_offene_fragen_json     TEXT,
+    vorgehen_naechster_termin       TEXT,
+    vorgehen_todos_json             TEXT,
+    vorgehen_dokumente_json         TEXT,
+    last_edited_by                  TEXT NOT NULL REFERENCES users(id) ON UPDATE CASCADE,
+    last_edited_at                  TEXT NOT NULL,
+    created_at                      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    updated_at                      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+CREATE INDEX IF NOT EXISTS idx_mandate_report_notes_mandate ON mandate_report_notes(mandate_id);
 
 -- ============================================================
 -- 23. SYSTEM KONFIGURATION

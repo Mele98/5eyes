@@ -47,6 +47,9 @@ ensureMainEntrypoint();
 const addDataArg = isWindows
   ? '5eyes_schema_v4.0_FINAL.sql;.'
   : '5eyes_schema_v4.0_FINAL.sql:.';
+const fontDataArg = isWindows
+  ? 'assets/fonts;assets/fonts'
+  : 'assets/fonts:assets/fonts';
 
 const hiddenImports = [
   'uvicorn.logging',
@@ -85,6 +88,26 @@ const hiddenImports = [
   'starlette',
   'fastapi',
   'bcrypt',
+  'services.pdf.documents.anlagestrategie',
+  // U-6: advisory_report + depotcheck + backtest fehlten — sie waren
+  // seit Sprint U-P26 hinzugekommen und ohne expliziten Hidden-Import
+  // wurde der PyInstaller-EXE-Build mit ModuleNotFoundError bei
+  // Advisory-Report-Requests laufzeitlich crashen.
+  'services.pdf.documents.advisory_report',
+  'services.pdf.documents.asset_allocation',
+  'services.pdf.documents.backtest',
+  'services.pdf.documents.depotcheck',
+  'services.pdf.documents.portfolio',
+  'services.pdf.documents.protokoll',
+  'services.pdf.documents.risikoprofil',
+  'services.pdf.documents.vertrag',
+  'services.market_data.annual_returns_backfill',
+  'services.market_data.asset_class_price_backfill',
+  // U-6: advisory_report-Aggregator + advisory_log_service werden
+  // lazy aus routers.pdf_reports / routers.allocation importiert —
+  // PyInstaller statisch-Analyse uebersieht das.
+  'services.advisory_report',
+  'services.advisory_log_service',
 ];
 
 const collectSubmodules = [
@@ -106,6 +129,14 @@ const collectSubmodules = [
   'requests',
   'urllib3',
   'anyio',
+  'services.pdf',
+  // U-6: defensive Erweiterung — neue Module unter routers/, services/,
+  // models/ koennen so dazukommen ohne build-backend.js anfassen zu
+  // muessen. PyInstaller scannt rekursiv und nimmt alle Sub-Module
+  // automatisch mit.
+  'services',
+  'routers',
+  'models',
 ];
 
 const pyInstallerArgs = [
@@ -116,6 +147,8 @@ const pyInstallerArgs = [
   '5eyes-api',
   '--add-data',
   addDataArg,
+  '--add-data',
+  fontDataArg,
 ];
 
 for (const mod of hiddenImports) {

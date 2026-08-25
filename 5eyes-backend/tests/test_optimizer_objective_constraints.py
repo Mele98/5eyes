@@ -1,0 +1,806 @@
+"""Tests fuer services/optimizer/objective.py und constraints.py.
+
+Verifiziert:
+- Shortfall pro Goal-Typ matcht erwarteter Logik
+- Hardness-Multiplier (10/1/0.2) wirkt korrekt in Aggregation
+- Volatility-Objective berechnet Var(end_wealth)
+- HouseMatrixBands extrahiert aus DB-Row
+- Globale Caps (RE 20%, Alts 10%, Liq 2%) ueberschreiben House-Matrix-Bands
+- Risky-Fraction-Constraint korrekt
+- is_feasible erkennt alle Verletzungen
+"""
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+from types import SimpleNamespace
+
+import numpy as np
+import pytest
+
+BACKEND_ROOT = Path(__file__).resolve().parents[1]
+if str(BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(BACKEND_ROOT))
+
+from services.optimizer.constraints import (
+    DEFAULT_BUCKET_RISKY_FRACTION,
+    HouseMatrixBands,
+    MAX_ALTERNATIVES,
+    MAX_REAL_ESTATE,
+    MIN_LIQUIDITY,
+    bands_from_house_matrix_row,
+    bounds_collapse_warnings,
+    build_bounds,
+    build_constraint_set,
+    build_risky_fraction_constraint,
+    build_sum_to_one_constraint,
+    is_feasible,
+)
+from services.optimizer.goal_liabilities import GoalLiability
+from services.optimizer.objective import (
+    HARDNESS_WEIGHT,
+    chance_constraint_penalty,
+    combined_objective_two_phase,
+    shortfall_objective,
+    shortfall_squared_per_path,
+    volatility_objective,
+)
+from services.optimizer.scenario_engine import BUCKET_ORDER, N_BUCKETS
+
+
+# ============================================================================
+# Helpers
+# ============================================================================
+
+
+def _make_liab(
+    *,
+    goal_id: str = "g1",
+    target_kind: str = "wealth_at_t",
+    target_amount_rappen: int = 1_000_000_00,
+    target_year_index: int = 5,
+    hardness: str = "primaer",
+    weight_bps: int = 1000,
+    horizon_years: int = 10,
+    liability_path_rappen: list[int] | None = None,
+) -> GoalLiability:
+    return GoalLiability(
+        goal_id=goal_id,
+        label=f"Test {goal_id}",
+        goal_type="Vermoegensziel",
+        target_kind=target_kind,
+        target_amount_rappen=target_amount_rappen,
+        target_year_index=target_year_index,
+        liability_path_rappen=(
+            list(liability_path_rappen)
+            if liability_path_rappen is not None
+            else [0] * horizon_years
+        ),
+        hardness_key=hardness,
+        weight_bps=weight_bps,
+    )
+
+
+# ============================================================================
+# shortfall_squared_per_path
+# ============================================================================
+
+
+def test_shortfall_wealth_at_t_zero_when_target_met():
+    liab = _make_liab(target_kind="wealth_at_t", target_amount_rappen=500_000_00, target_year_index=5)
+    # 3 paths, alle erreichen >= 500k in Jahr 5
+    wealth = np.array([
+        [100_000_00] * 5 + [500_000_00] + [600_000_00] * 5,
+        [100_000_00] * 5 + [550_000_00] + [600_000_00] * 5,
+        [100_000_00] * 5 + [600_000_00] + [600_000_00] * 5,
+    ], dtype=np.float64)
+    out = shortfall_squared_per_path(liab, wealth, initial_wealth_rappen=100_000_00, horizon_years=10)
+    assert np.allclose(out, 0)
+
+
+def test_shortfall_wealth_at_t_positive_when_target_missed():
+    liab = _make_liab(target_kind="wealth_at_t", target_amount_rappen=500_000_00, target_year_index=5)
+    wealth = np.array([
+        [100_000_00] * 5 + [400_000_00] + [400_000_00] * 5,  # missed by 100k
+        [100_000_00] * 5 + [500_000_00] + [500_000_00] * 5,  # exact
+        [100_000_00] * 5 + [600_000_00] + [600_000_00] * 5,  # over
+    ], dtype=np.float64)
+    out = shortfall_squared_per_path(liab, wealth, initial_wealth_rappen=100_000_00, horizon_years=10)
+    expected_first = 100_000_00 ** 2  # squared shortfall
+    assert out[0] == pytest.approx(expected_first)
+    assert out[1] == 0
+    assert out[2] == 0
+
+
+def test_shortfall_outflow_stream_uses_own_due_dates():
+    """outflow_stream evaluates gaps on its exact positive due dates."""
+    liab = _make_liab(
+        target_kind="outflow_stream",
+        target_amount_rappen=240_000_00,
+        target_year_index=5,
+        liability_path_rappen=[0] * 4 + [120_000_00] + [0] * 4 + [120_000_00],
+    )
+    wealth = np.array([
+        [100_000_00] * 5 + [-50_000_00] + [-50_000_00] * 5,  # Luecke 50k am Ende
+        [100_000_00] * 11,                                     # alle erfuellt
+        [100_000_00] * 10 + [-100_000_00],                     # Luecke 100k am Ende
+    ], dtype=np.float64)
+    out = shortfall_squared_per_path(liab, wealth, initial_wealth_rappen=100_000_00, horizon_years=10)
+    assert out[0] == pytest.approx(50_000_00 ** 2)
+    assert out[1] == 0
+    assert out[2] == pytest.approx(100_000_00 ** 2)
+
+
+def test_outflow_stream_detects_interim_gap_even_if_later_inflow_recovers():
+    liab = _make_liab(
+        target_kind="outflow_stream",
+        target_amount_rappen=100_000_00,
+        target_year_index=2,
+        liability_path_rappen=[0, 100_000_00] + [0] * 8,
+    )
+    wealth = np.array([[100_000_00, 50_000_00, -20_000_00, 30_000_00] + [30_000_00] * 7])
+
+    out = shortfall_squared_per_path(
+        liab,
+        wealth,
+        initial_wealth_rappen=100_000_00,
+        horizon_years=10,
+    )
+
+    assert out[0] == pytest.approx(20_000_00 ** 2)
+
+
+def test_one_off_cashflow_is_not_counted_again_after_payment():
+    liab = _make_liab(
+        target_kind="cashflow_in_year",
+        target_amount_rappen=50_000_00,
+        target_year_index=2,
+        liability_path_rappen=[0, 50_000_00] + [0] * 8,
+    )
+    # Wealth at year 2 is already post-liability. A positive remainder means
+    # the 50k payment was funded and must not be demanded a second time.
+    wealth = np.array([[100_000_00, 80_000_00, 10_000_00] + [10_000_00] * 8])
+
+    out = shortfall_squared_per_path(
+        liab,
+        wealth,
+        initial_wealth_rappen=100_000_00,
+        horizon_years=10,
+    )
+
+    assert out[0] == 0
+
+
+def test_shortfall_return_rate_uses_implied_wealth_target():
+    """#2 (2026-06-12): Renditeziel-Shortfall in RAPPEN via impliziertem
+    Wealth-Target = initial·(1+r)^h (statt bps²) — einheitenkonsistent zu
+    wealth_at_t und identisch zur Chance-Constraint goal_probability_per_path.
+    5%-Ziel ueber 10 J -> Target = 100k·1.05^10 = 162'889."""
+    liab = _make_liab(target_kind="return_rate", target_amount_rappen=500, target_year_index=10)  # 5% Ziel
+    target_wealth = 100_000_00 * (1.05 ** 10)  # ~162'889_46 rappen
+    wealth = np.array([
+        [100_000_00] * 10 + [150_000_00],   # unter Target
+        [100_000_00] * 10 + [200_000_00],   # ueber Target
+        [100_000_00] * 10 + [-10_000_00],   # eingebrochen
+    ], dtype=np.float64)
+    out = shortfall_squared_per_path(liab, wealth, initial_wealth_rappen=100_000_00, horizon_years=10)
+    assert out[1] == 0  # ueber dem impliziten Wealth-Target
+    assert out[0] > 0   # unter dem Target
+    # Shortfall jetzt in Rappen (kommensurabel mit wealth_at_t):
+    assert np.sqrt(out[0]) == pytest.approx(target_wealth - 150_000_00, rel=1e-6)
+    assert np.sqrt(out[2]) == pytest.approx(target_wealth + 10_000_00, rel=1e-6)
+
+
+def test_return_goal_uses_cashflow_neutral_twr_when_supplied():
+    liab = _make_liab(
+        target_kind="return_rate",
+        target_amount_rappen=500,
+        target_year_index=10,
+    )
+    # End wealth doubled only because of savings. Market TWR is 0%, therefore
+    # a 5% return goal is still missed.
+    wealth = np.array([[100_000_00] * 10 + [200_000_00]], dtype=np.float64)
+
+    out = shortfall_squared_per_path(
+        liab,
+        wealth,
+        initial_wealth_rappen=100_000_00,
+        horizon_years=10,
+        annualized_return_bps_per_path=np.array([0.0]),
+    )
+
+    assert out[0] > 0
+
+
+def test_shortfall_return_rate_commensurate_with_wealth_at_t():
+    """#2 Kern: ein Renditeziel und ein aequivalentes wealth_at_t-Ziel liefern
+    fuer denselben Pfad IDENTISCHE Shortfall² — vorher war return_rate in bps²
+    (~1e4) gegen wealth in Rappen² (~1e16) im Objective faktisch unsichtbar."""
+    horizon = 10
+    initial = 100_000_00
+    implied = int(initial * (1.05 ** horizon))
+    wealth = np.array([[initial] * horizon + [120_000_00]], dtype=np.float64)
+    rr = _make_liab(target_kind="return_rate", target_amount_rappen=500, target_year_index=horizon)
+    wt = _make_liab(target_kind="wealth_at_t", target_amount_rappen=implied, target_year_index=horizon)
+    out_rr = shortfall_squared_per_path(rr, wealth, initial_wealth_rappen=initial, horizon_years=horizon)
+    out_wt = shortfall_squared_per_path(wt, wealth, initial_wealth_rappen=initial, horizon_years=horizon)
+    # rel=1e-6: minimale Differenz nur durch int-Rundung des wealth_at_t-Targets
+    # (Objective nutzt float target_wealth) — Kommensurabilitaet ist der Punkt.
+    assert out_rr[0] == pytest.approx(out_wt[0], rel=1e-6)
+
+
+def test_shortfall_maximize_always_zero():
+    liab = _make_liab(target_kind="maximize")
+    wealth = np.array([[100, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 1100]], dtype=np.float64)
+    out = shortfall_squared_per_path(liab, wealth, initial_wealth_rappen=100, horizon_years=10)
+    assert np.allclose(out, 0)
+
+
+def test_shortfall_unknown_kind_returns_zero():
+    liab = _make_liab(target_kind="weltraum_goal")
+    wealth = np.zeros((3, 11))
+    out = shortfall_squared_per_path(liab, wealth, initial_wealth_rappen=100, horizon_years=10)
+    assert np.allclose(out, 0)
+
+
+# ============================================================================
+# shortfall_objective Aggregation
+# ============================================================================
+
+
+def test_objective_equal_weighting_is_default(monkeypatch):
+    """Methodik-Default: alle Ziele gleich wichtig (Mittelung). Ein 'hartes' und
+    ein 'opportunistisches' Ziel mit identischem Shortfall ergeben dasselbe
+    Objective — der Haertegrad spielt im Default KEINE Rolle."""
+    monkeypatch.delenv("OPTIMIZER_GOAL_WEIGHTING", raising=False)
+    hart = _make_liab(goal_id="h", hardness="hart", weight_bps=10000,
+                       target_kind="wealth_at_t", target_amount_rappen=1_000_000,
+                       target_year_index=5)
+    opp = _make_liab(goal_id="o", hardness="opportunistisch", weight_bps=10000,
+                      target_kind="wealth_at_t", target_amount_rappen=1_000_000,
+                      target_year_index=5)
+    wealth = np.full((10, 11), 999_000, dtype=np.float64)
+    obj_hart = shortfall_objective([hart], wealth, initial_wealth_rappen=500_000, horizon_years=10)
+    obj_opp = shortfall_objective([opp], wealth, initial_wealth_rappen=500_000, horizon_years=10)
+    assert obj_hart == pytest.approx(obj_opp)
+
+
+def test_objective_sums_hardness_weighted_shortfalls(monkeypatch):
+    """Optionales Feature: bei OPTIMIZER_GOAL_WEIGHTING=hardness wird ein hartes
+    Ziel 50x staerker bestraft als ein opportunistisches (10 / 0.2)."""
+    monkeypatch.setenv("OPTIMIZER_GOAL_WEIGHTING", "hardness")
+    hart = _make_liab(goal_id="h", hardness="hart", weight_bps=10000,
+                       target_kind="wealth_at_t", target_amount_rappen=1_000_000,
+                       target_year_index=5)
+    opp = _make_liab(goal_id="o", hardness="opportunistisch", weight_bps=10000,
+                      target_kind="wealth_at_t", target_amount_rappen=1_000_000,
+                      target_year_index=5)
+    # Beide Goals werden um 1000 verfehlt (Wealth=999000 in Jahr 5)
+    wealth = np.full((10, 11), 999_000, dtype=np.float64)
+    obj_hart = shortfall_objective([hart], wealth, initial_wealth_rappen=500_000, horizon_years=10)
+    obj_opp = shortfall_objective([opp], wealth, initial_wealth_rappen=500_000, horizon_years=10)
+    # hart soll 50x staerker bestraft sein (10 / 0.2 = 50)
+    assert obj_hart == pytest.approx(50 * obj_opp)
+
+
+def test_objective_zero_when_all_goals_met():
+    liab = _make_liab(target_kind="wealth_at_t", target_amount_rappen=500_000, target_year_index=3)
+    wealth = np.full((5, 11), 600_000, dtype=np.float64)  # alle ueber Ziel
+    obj = shortfall_objective([liab], wealth, initial_wealth_rappen=100_000, horizon_years=10)
+    assert obj == 0.0
+
+
+def test_objective_empty_liabilities_returns_zero():
+    wealth = np.full((5, 11), 100_000, dtype=np.float64)
+    assert shortfall_objective([], wealth, initial_wealth_rappen=100_000, horizon_years=10) == 0.0
+
+
+def test_objective_proportional_to_squared_shortfall():
+    liab = _make_liab(hardness="primaer", weight_bps=10000,
+                       target_kind="wealth_at_t", target_amount_rappen=1_000_000,
+                       target_year_index=5)
+    # Path 1: shortfall 1000^2 = 1M
+    # Path 2: shortfall 2000^2 = 4M  -> 4x
+    wealth_a = np.full((1, 11), 999_000, dtype=np.float64)
+    wealth_b = np.full((1, 11), 998_000, dtype=np.float64)
+    obj_a = shortfall_objective([liab], wealth_a, initial_wealth_rappen=500_000, horizon_years=10)
+    obj_b = shortfall_objective([liab], wealth_b, initial_wealth_rappen=500_000, horizon_years=10)
+    assert obj_b == pytest.approx(4 * obj_a)
+
+
+# ============================================================================
+# Volatility-Objective
+# ============================================================================
+
+
+def test_volatility_objective_zero_for_constant_paths():
+    wealth = np.full((10, 11), 500_000, dtype=np.float64)
+    assert volatility_objective(wealth) == 0.0
+
+
+def test_volatility_objective_matches_numpy_var():
+    wealth = np.array([
+        [0] * 10 + [100],
+        [0] * 10 + [200],
+        [0] * 10 + [300],
+    ], dtype=np.float64)
+    expected = np.var([100, 200, 300])
+    assert volatility_objective(wealth) == pytest.approx(expected)
+
+
+def test_combined_objective_includes_both_terms():
+    liab = _make_liab(hardness="primaer", weight_bps=10000,
+                       target_kind="wealth_at_t", target_amount_rappen=1_000_000_00,
+                       target_year_index=5)
+    wealth = np.array([
+        [100_000_00] * 11,
+        [200_000_00] * 11,
+        [300_000_00] * 11,
+    ], dtype=np.float64)
+    primary = shortfall_objective([liab], wealth, initial_wealth_rappen=100_000_00, horizon_years=10)
+    chance, _achievability = chance_constraint_penalty(
+        wealth,
+        [liab],
+        initial_value_rappen=100_000_00,
+    )
+    combined = combined_objective_two_phase(
+        [liab], wealth, initial_wealth_rappen=100_000_00, horizon_years=10,
+        primary_weight=2.0, volatility_weight=0.5,
+    )
+    assert combined == pytest.approx(2.0 * primary + chance)
+
+
+def test_combined_objective_without_goals_minimizes_terminal_wealth_variance():
+    """Ohne Goals bleibt Volatilitaet die echte sekundaere Objective."""
+    low_variance = np.array([
+        [100.0, 99.0],
+        [100.0, 100.0],
+        [100.0, 101.0],
+    ])
+    high_variance = np.array([
+        [100.0, 50.0],
+        [100.0, 100.0],
+        [100.0, 150.0],
+    ])
+    volatility_weight = 0.25
+
+    low = combined_objective_two_phase(
+        [],
+        low_variance,
+        initial_wealth_rappen=100.0,
+        horizon_years=1,
+        volatility_weight=volatility_weight,
+    )
+    high = combined_objective_two_phase(
+        [],
+        high_variance,
+        initial_wealth_rappen=100.0,
+        horizon_years=1,
+        volatility_weight=volatility_weight,
+    )
+
+    assert low == pytest.approx(volatility_weight * np.var(low_variance[:, -1]))
+    assert high == pytest.approx(volatility_weight * np.var(high_variance[:, -1]))
+    assert low < high
+
+
+# ============================================================================
+# HARDNESS_WEIGHT Konsistenz mit Spec
+# ============================================================================
+
+
+def test_hardness_weights_match_owner_decision_od_1():
+    """OD-1 vom User bestaetigt: hart=10, primaer=1, opportunistisch=0.2."""
+    assert HARDNESS_WEIGHT["hart"] == 10.0
+    assert HARDNESS_WEIGHT["primaer"] == 1.0
+    assert HARDNESS_WEIGHT["opportunistisch"] == 0.2
+
+
+# ============================================================================
+# HouseMatrixBands extraction
+# ============================================================================
+
+
+def test_bands_from_house_matrix_row_extracts_correctly():
+    row = SimpleNamespace(
+        equity_min_bps=4000, equity_max_bps=7000,
+        bonds_min_bps=2000, bonds_max_bps=5000,
+        real_estate_min_bps=0, real_estate_max_bps=2000,
+        alt_min_bps=0, alt_max_bps=1000,
+        liq_min_bps=200, liq_max_bps=2000,
+    )
+    bands = bands_from_house_matrix_row(row)
+    assert bands.equities == (0.40, 0.70)
+    assert bands.bonds == (0.20, 0.50)
+    assert bands.real_estate == (0.0, 0.20)
+    assert bands.alternatives == (0.0, 0.10)
+    assert bands.liquidity == (0.02, 0.20)
+
+
+def test_opt2_missing_max_defaults_to_full_not_zero():
+    """OPT-2: fehlende/None-Obergrenze -> volle Range (1.0), NICHT 0.
+
+    Vorher kollabierte `int(getattr(..., 10000) or 0)` eine None-Obergrenze auf 0
+    und hätte die Anlageklasse im Solver auf ~0 gezwungen."""
+    # max-Attribute fehlen ganz bzw. sind None -> Default 10000 (= 1.0).
+    row = SimpleNamespace(
+        equity_min_bps=3000, equity_max_bps=None,
+        bonds_min_bps=2000,  # bonds_max_bps fehlt komplett
+        real_estate_min_bps=0, real_estate_max_bps=2000,
+        alt_min_bps=0, alt_max_bps=1000,
+        liq_min_bps=0, liq_max_bps=2000,
+    )
+    bands = bands_from_house_matrix_row(row)
+    assert bands.equities == (0.30, 1.0), "None-max -> volle Range"
+    assert bands.bonds == (0.20, 1.0), "fehlendes max -> volle Range"
+
+
+def test_opt2_explicit_zero_max_stays_zero():
+    """OPT-2: ein EXPLIZITES max=0 bleibt 0 (legitim 'diese Klasse nicht halten')."""
+    row = SimpleNamespace(
+        equity_min_bps=0, equity_max_bps=7000,
+        bonds_min_bps=0, bonds_max_bps=5000,
+        real_estate_min_bps=0, real_estate_max_bps=2000,
+        alt_min_bps=0, alt_max_bps=0,  # Alternatives explizit gesperrt
+        liq_min_bps=0, liq_max_bps=2000,
+    )
+    bands = bands_from_house_matrix_row(row)
+    assert bands.alternatives == (0.0, 0.0), "explizites max=0 bleibt 0"
+
+
+def test_equity_minimum_bps_raises_floor_above_equity_min_bps():
+    """2026-07-24 (Formel-Audit): der deterministische Pfad rechnet die
+    Aktien-Untergrenze aus max(equity_min_bps, equity_minimum_bps) ein
+    (z.B. eine haertere, ziel-getriebene Mindestquote). Der Optimizer-
+    Constraint-Aufbau muss dieselbe (staerkere) Untergrenze respektieren,
+    sonst liesse der Solver eine niedrigere Aktienquote zu als der
+    deterministische Pfad vorsieht."""
+    row = SimpleNamespace(
+        equity_min_bps=3000, equity_max_bps=8000, equity_minimum_bps=5500,
+        bonds_min_bps=0, bonds_max_bps=5000,
+        real_estate_min_bps=0, real_estate_max_bps=2000,
+        alt_min_bps=0, alt_max_bps=1000,
+        liq_min_bps=0, liq_max_bps=2000,
+    )
+    bands = bands_from_house_matrix_row(row)
+    assert bands.equities == (0.55, 0.80), (
+        "equity_minimum_bps (55%) ist staerker als equity_min_bps (30%) und muss gewinnen"
+    )
+
+
+def test_equity_minimum_bps_does_not_lower_floor_when_weaker():
+    """equity_minimum_bps < equity_min_bps darf die (staerkere) equity_min_bps-
+    Untergrenze NICHT abschwaechen -- max(), nicht Ersetzung."""
+    row = SimpleNamespace(
+        equity_min_bps=4000, equity_max_bps=8000, equity_minimum_bps=1000,
+        bonds_min_bps=0, bonds_max_bps=5000,
+        real_estate_min_bps=0, real_estate_max_bps=2000,
+        alt_min_bps=0, alt_max_bps=1000,
+        liq_min_bps=0, liq_max_bps=2000,
+    )
+    bands = bands_from_house_matrix_row(row)
+    assert bands.equities == (0.40, 0.80)
+
+
+def test_equity_minimum_bps_absent_keeps_prior_behavior():
+    """Fehlt equity_minimum_bps ganz (Mock/altes Schema ohne das Feld) --
+    unveraendertes Verhalten, kein AttributeError."""
+    row = SimpleNamespace(
+        equity_min_bps=4000, equity_max_bps=7000,
+        bonds_min_bps=2000, bonds_max_bps=5000,
+        real_estate_min_bps=0, real_estate_max_bps=2000,
+        alt_min_bps=0, alt_max_bps=1000,
+        liq_min_bps=200, liq_max_bps=2000,
+    )
+    bands = bands_from_house_matrix_row(row)
+    assert bands.equities == (0.40, 0.70)
+
+
+# ============================================================================
+# build_bounds: globale Caps ueberschreiben House-Matrix
+# ============================================================================
+
+
+def test_build_bounds_re_cap_applied_to_more_aggressive_house_matrix():
+    """Wenn House-Matrix RE max=30%, globaler Cap 20% wins."""
+    bands = HouseMatrixBands(
+        equities=(0.4, 0.7), bonds=(0.2, 0.5),
+        real_estate=(0.0, 0.30),  # House-Matrix erlaubt 30%
+        alternatives=(0.0, 0.05), liquidity=(0.02, 0.10),
+    )
+    bounds = build_bounds(bands)
+    re_idx = BUCKET_ORDER.index("real_estate")
+    assert bounds[re_idx] == (0.0, MAX_REAL_ESTATE)
+
+
+def test_build_bounds_alts_cap_applied():
+    bands = HouseMatrixBands(
+        equities=(0.0, 1.0), bonds=(0.0, 1.0),
+        real_estate=(0.0, 0.20),
+        alternatives=(0.0, 0.30),  # 30% wuerde Cap 10% verletzen
+        liquidity=(0.02, 1.0),
+    )
+    bounds = build_bounds(bands)
+    alt_idx = BUCKET_ORDER.index("alternatives")
+    assert bounds[alt_idx] == (0.0, MAX_ALTERNATIVES)
+
+
+def test_build_bounds_liquidity_floor_applied():
+    """Wenn House-Matrix Liq min=0%, globaler Floor 2% wins."""
+    bands = HouseMatrixBands(
+        equities=(0.4, 0.7), bonds=(0.2, 0.5),
+        real_estate=(0.0, 0.10), alternatives=(0.0, 0.05),
+        liquidity=(0.0, 0.20),  # 0% min wuerde Floor 2% verletzen
+    )
+    bounds = build_bounds(bands)
+    liq_idx = BUCKET_ORDER.index("liquidity")
+    assert bounds[liq_idx] == (MIN_LIQUIDITY, 0.20)
+
+
+def test_build_bounds_lo_clamped_to_hi_when_inverted():
+    """Bei kaputter House-Matrix lo>hi: lo wird auf hi geclamped, kein Crash."""
+    bands = HouseMatrixBands(
+        equities=(0.8, 0.6),  # lo>hi (kaputt)
+        bonds=(0.0, 0.5), real_estate=(0.0, 0.10),
+        alternatives=(0.0, 0.05), liquidity=(0.02, 0.20),
+    )
+    bounds = build_bounds(bands)
+    eq_idx = BUCKET_ORDER.index("equities")
+    lo, hi = bounds[eq_idx]
+    assert lo <= hi
+
+
+# ============================================================================
+# Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): bounds_collapse_warnings
+#
+# build_bounds() clamped ein House-Matrix-Minimum, das über einem globalen
+# Cap/Floor liegt, bisher STILLSCHWEIGEND auf den Cap-Wert (min(lo, hi) in
+# der "Sicherheits-Sanity"-Zeile) -- ohne dass der Aufrufer je erfuhr, dass
+# eine explizit konfigurierte Bandbreite dabei ueberschrieben wurde. Reine
+# Cap-Reduktionen des MAX (House-Matrix erlaubt mehr als der globale Cap,
+# lo bleibt darunter) sind dagegen normal/erwartet und duerfen KEINE
+# Warnung ausloesen -- siehe test_build_bounds_re_cap_applied_to_more_
+# aggressive_house_matrix (lo=0.0) oben, das unveraendert bleibt.
+# ============================================================================
+
+
+def test_bounds_collapse_warnings_empty_when_no_conflict():
+    """Normalfall (RE max 30% > Cap 20%, aber min=0): keine Warnung."""
+    bands = HouseMatrixBands(
+        equities=(0.4, 0.7), bonds=(0.2, 0.5),
+        real_estate=(0.0, 0.30), alternatives=(0.0, 0.05),
+        liquidity=(0.02, 0.10),
+    )
+    assert bounds_collapse_warnings(bands) == []
+
+
+def test_bounds_collapse_warnings_real_estate_minimum_above_cap():
+    """House-Matrix verlangt 25% RE-Minimum, globaler Cap ist 20% --
+    build_bounds() presst das auf (0.20, 0.20) zusammen; die Warnfunktion
+    muss das jetzt melden."""
+    bands = HouseMatrixBands(
+        equities=(0.3, 0.6), bonds=(0.1, 0.4),
+        real_estate=(0.25, 0.30),  # min > MAX_REAL_ESTATE
+        alternatives=(0.0, 0.05), liquidity=(0.02, 0.10),
+    )
+    bounds = build_bounds(bands)
+    re_idx = BUCKET_ORDER.index("real_estate")
+    assert bounds[re_idx] == (MAX_REAL_ESTATE, MAX_REAL_ESTATE)  # stillschweigend kollabiert
+
+    warnings = bounds_collapse_warnings(bands)
+    assert len(warnings) == 1
+    assert "Immobilien" in warnings[0]
+    assert "2500" in warnings[0] and "2000" in warnings[0]
+
+
+def test_bounds_collapse_warnings_alternatives_minimum_above_cap():
+    bands = HouseMatrixBands(
+        equities=(0.3, 0.6), bonds=(0.1, 0.4),
+        real_estate=(0.0, 0.20),
+        alternatives=(0.15, 0.20),  # min > MAX_ALTERNATIVES (10%)
+        liquidity=(0.02, 0.10),
+    )
+    warnings = bounds_collapse_warnings(bands)
+    assert len(warnings) == 1
+    assert "Alternative" in warnings[0]
+
+
+def test_bounds_collapse_warnings_liquidity_max_below_floor():
+    """House-Matrix erlaubt maximal 1% Liquiditaet, globaler Floor ist 2% --
+    build_bounds() presst auf den House-Matrix-Wert (0.01, 0.01) zusammen,
+    der globale Floor wird NICHT eingehalten."""
+    bands = HouseMatrixBands(
+        equities=(0.4, 0.7), bonds=(0.2, 0.5),
+        real_estate=(0.0, 0.10), alternatives=(0.0, 0.05),
+        liquidity=(0.0, 0.01),  # max < MIN_LIQUIDITY
+    )
+    bounds = build_bounds(bands)
+    liq_idx = BUCKET_ORDER.index("liquidity")
+    assert bounds[liq_idx] == (0.01, 0.01)
+
+    warnings = bounds_collapse_warnings(bands)
+    assert len(warnings) == 1
+    assert "Liquidität" in warnings[0]
+
+
+def test_bounds_collapse_warnings_multiple_conflicts_all_reported():
+    bands = HouseMatrixBands(
+        equities=(0.2, 0.5), bonds=(0.1, 0.3),
+        real_estate=(0.25, 0.30),
+        alternatives=(0.15, 0.20),
+        liquidity=(0.0, 0.01),
+    )
+    warnings = bounds_collapse_warnings(bands)
+    assert len(warnings) == 3
+
+
+# ============================================================================
+# Sum-to-one + Risky-Fraction Constraints
+# ============================================================================
+
+
+def test_sum_to_one_constraint_zero_at_unit_sum():
+    cons = build_sum_to_one_constraint()
+    w = np.array([0.5, 0.3, 0.05, 0.05, 0.10])
+    assert cons["fun"](w) == pytest.approx(0.0)
+
+
+def test_sum_to_one_constraint_violates_when_sum_off():
+    cons = build_sum_to_one_constraint()
+    w = np.array([0.5, 0.3, 0.10, 0.05, 0.10])  # sum = 1.05
+    assert cons["fun"](w) == pytest.approx(0.05)
+
+
+def test_risky_fraction_constraint_feasible_at_low_score():
+    """score=70 (max 70% risky), w mit 50% equities (rf=0.8) + 30% bonds (rf=0.25)
+    = 0.50*0.8 + 0.30*0.25 + 0*... = 0.475. Cap 0.70 -> feasible (cap-actual = 0.225)."""
+    cons = build_risky_fraction_constraint(score_x10=70)
+    w = np.array([0.5, 0.3, 0.05, 0.05, 0.10])
+    val = cons["fun"](w)
+    assert val > 0  # feasible (ineq: f(w) >= 0)
+
+
+def test_risky_fraction_constraint_violates_at_high_risky():
+    """score=30 (nur 30% risky erlaubt), w mit 70% equities -> Verletzung."""
+    cons = build_risky_fraction_constraint(score_x10=30)
+    w = np.array([0.7, 0.1, 0.0, 0.0, 0.2])
+    val = cons["fun"](w)
+    # Equities 0.7 * 0.8 = 0.56 risky, Cap 0.30 -> verletzt um -0.26
+    assert val < 0
+
+
+# ============================================================================
+# is_feasible
+# ============================================================================
+
+
+def test_is_feasible_passes_for_valid_allocation():
+    bands = HouseMatrixBands(
+        equities=(0.4, 0.7), bonds=(0.2, 0.5),
+        real_estate=(0.0, 0.20), alternatives=(0.0, 0.10),
+        liquidity=(0.02, 0.20),
+    )
+    bounds, constraints = build_constraint_set(bands, score_x10=70)
+    w = np.array([0.5, 0.3, 0.05, 0.05, 0.10])
+    feasible, reasons = is_feasible(w, bounds=bounds, constraints=constraints)
+    assert feasible
+    assert reasons == []
+
+
+def test_is_feasible_catches_band_violation():
+    bands = HouseMatrixBands(
+        equities=(0.4, 0.7), bonds=(0.2, 0.5),
+        real_estate=(0.0, 0.20), alternatives=(0.0, 0.10),
+        liquidity=(0.02, 0.20),
+    )
+    bounds, constraints = build_constraint_set(bands, score_x10=70)
+    w = np.array([0.8, 0.1, 0.0, 0.0, 0.10])  # Equities ueber max
+    feasible, reasons = is_feasible(w, bounds=bounds, constraints=constraints)
+    assert not feasible
+    assert any("equities above max" in r for r in reasons)
+
+
+def test_is_feasible_catches_sum_violation():
+    bands = HouseMatrixBands(
+        equities=(0.4, 0.7), bonds=(0.2, 0.5),
+        real_estate=(0.0, 0.20), alternatives=(0.0, 0.10),
+        liquidity=(0.02, 0.20),
+    )
+    bounds, constraints = build_constraint_set(bands, score_x10=70)
+    w = np.array([0.5, 0.3, 0.10, 0.05, 0.10])  # sum = 1.05
+    feasible, reasons = is_feasible(w, bounds=bounds, constraints=constraints)
+    assert not feasible
+    assert any("sum-to-one" in r for r in reasons)
+
+
+def test_is_feasible_catches_risky_fraction_violation():
+    bands = HouseMatrixBands(
+        equities=(0.0, 1.0), bonds=(0.0, 1.0),
+        real_estate=(0.0, 0.20), alternatives=(0.0, 0.10),
+        liquidity=(0.02, 0.20),
+    )
+    bounds, constraints = build_constraint_set(bands, score_x10=20)  # nur 20% risky
+    w = np.array([0.7, 0.1, 0.0, 0.0, 0.20])  # zu viel equities
+    feasible, reasons = is_feasible(w, bounds=bounds, constraints=constraints)
+    assert not feasible
+    assert any("ineq constraint" in r for r in reasons)
+
+
+def test_default_risky_fractions_match_reference_method_slide_17():
+    """OD-6: Werte aus Advisory-Methodik-Slide 17."""
+    assert DEFAULT_BUCKET_RISKY_FRACTION["equities"] == 0.80
+    assert DEFAULT_BUCKET_RISKY_FRACTION["bonds"] == 0.25
+    assert DEFAULT_BUCKET_RISKY_FRACTION["real_estate"] == 0.60
+    assert DEFAULT_BUCKET_RISKY_FRACTION["alternatives"] == 0.60
+    assert DEFAULT_BUCKET_RISKY_FRACTION["liquidity"] == 0.0
+
+
+# ============================================================================
+# Phase 5.1: Building-Block-Aware Risky-Fractions
+# ============================================================================
+
+
+def test_bucket_risky_fractions_from_building_blocks_aggregates_means():
+    """Mehrere BuildingBlock-Sub-Klassen pro Bucket -> Mittelwert."""
+    from services.optimizer.constraints import bucket_risky_fractions_from_building_blocks
+    rows = [
+        SimpleNamespace(asset_class="Aktien", risky_fraction_bps=7000),    # 0.70
+        SimpleNamespace(asset_class="Aktien", risky_fraction_bps=8000),    # 0.80
+        SimpleNamespace(asset_class="Aktien", risky_fraction_bps=10000),   # 1.00
+        SimpleNamespace(asset_class="Obligationen", risky_fraction_bps=2000),  # 0.20
+        SimpleNamespace(asset_class="Obligationen", risky_fraction_bps=4000),  # 0.40
+        SimpleNamespace(asset_class="Liquiditaet", risky_fraction_bps=0),
+    ]
+    out = bucket_risky_fractions_from_building_blocks(rows)
+    # equities mean: (0.70 + 0.80 + 1.00) / 3 = 0.833...
+    assert out["equities"] == pytest.approx(0.8333, abs=1e-4)
+    # bonds mean: (0.20 + 0.40) / 2 = 0.30
+    assert out["bonds"] == pytest.approx(0.30, abs=1e-4)
+    # liquidity = 0
+    assert out["liquidity"] == 0.0
+    # real_estate, alternatives keine BuildingBlocks -> Default
+    assert out["real_estate"] == DEFAULT_BUCKET_RISKY_FRACTION["real_estate"]
+    assert out["alternatives"] == DEFAULT_BUCKET_RISKY_FRACTION["alternatives"]
+
+
+def test_bucket_risky_fractions_handles_german_umlaut_liquiditaet():
+    """Sowohl 'Liquiditaet' (ascii) als auch 'Liquidität' (umlaut) als Asset-Class."""
+    from services.optimizer.constraints import bucket_risky_fractions_from_building_blocks
+    rows = [
+        SimpleNamespace(asset_class="Liquidität", risky_fraction_bps=0),
+        SimpleNamespace(asset_class="Liquiditaet", risky_fraction_bps=0),
+    ]
+    out = bucket_risky_fractions_from_building_blocks(rows)
+    assert out["liquidity"] == 0.0
+
+
+def test_bucket_risky_fractions_empty_rows_returns_all_defaults():
+    """Keine BuildingBlocks -> alle Defaults."""
+    from services.optimizer.constraints import bucket_risky_fractions_from_building_blocks
+    out = bucket_risky_fractions_from_building_blocks([])
+    for bucket in BUCKET_ORDER:
+        assert out[bucket] == DEFAULT_BUCKET_RISKY_FRACTION[bucket]
+
+
+def test_bucket_risky_fractions_ignores_unknown_asset_class():
+    """Unbekannte asset_class wird ignoriert (kein Crash)."""
+    from services.optimizer.constraints import bucket_risky_fractions_from_building_blocks
+    rows = [
+        SimpleNamespace(asset_class="Krypto-Yield-Farming", risky_fraction_bps=10000),
+        SimpleNamespace(asset_class="Aktien", risky_fraction_bps=8000),
+    ]
+    out = bucket_risky_fractions_from_building_blocks(rows)
+    assert out["equities"] == 0.80
+    # andere Buckets fallen auf Default zurueck
+    assert out["liquidity"] == DEFAULT_BUCKET_RISKY_FRACTION["liquidity"]
+
+
+def test_bucket_risky_fractions_skips_none_values():
+    """risky_fraction_bps=None wird ignoriert (DB-Schemata erlauben NULL)."""
+    from services.optimizer.constraints import bucket_risky_fractions_from_building_blocks
+    rows = [
+        SimpleNamespace(asset_class="Aktien", risky_fraction_bps=None),
+        SimpleNamespace(asset_class="Aktien", risky_fraction_bps=8000),
+    ]
+    out = bucket_risky_fractions_from_building_blocks(rows)
+    assert out["equities"] == 0.80  # nur der eine 8000 zaehlt

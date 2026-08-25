@@ -11,11 +11,13 @@ from models import clients as _clients_models  # noqa: F401
 from models import mandates as _mandates_models  # noqa: F401
 from models import profiling as _profiling_models  # noqa: F401
 from models import snapshots as _snapshots_models  # noqa: F401
+from models import tenant as _tenant_models  # noqa: F401
 from models import wealth as _wealth_models  # noqa: F401
 from models.allocation import CapitalMarketAssumption
 from models.review import PriceHistory, Product
 from models.users import User  # noqa: F401
 import services.portfolio_engine as portfolio_engine
+import services.portfolio_engine_mc_simulation as _pe_mc_simulation
 from services.portfolio_engine import (
     PortfolioSummary,
     _asset_class_expected_metrics,
@@ -33,6 +35,7 @@ from services.portfolio_engine import (
     _target_allocation_context_warnings,
     _target_allocation_reserve_warnings,
 )
+from services.return_moments import arithmetic_moments_to_log_parameters
 
 
 @pytest.fixture()
@@ -90,6 +93,25 @@ def _make_cma(**overrides) -> CapitalMarketAssumption:
     }
     defaults.update(overrides)
     return CapitalMarketAssumption(**defaults)
+
+
+def _make_product(**overrides) -> Product:
+    defaults = {
+        "id": "product-test",
+        "product_name": "Test Product",
+        "provider": "Test Issuer",
+        "product_type": "ETF",
+        "asset_class": "Aktien",
+        "sub_asset_class": "Aktien Global",
+        "currency": "USD",
+        "ter_bps": 20,
+        "sfdr_class": "8",
+        "is_active": 1,
+        "created_at": "2026-04-20T00:00:00.000Z",
+        "updated_at": "2026-04-20T00:00:00.000Z",
+    }
+    defaults.update(overrides)
+    return Product(**defaults)
 
 
 def test_asset_class_expected_metrics_respects_cma_bucket_fields():
@@ -152,6 +174,13 @@ def test_reference_price_snapshot_keeps_same_day_price_even_if_fetched_later(ses
 
 def test_run_allocation_monte_carlo_seed_changes_for_transaction_cost_and_correlation(monkeypatch):
     monkeypatch.setattr(portfolio_engine, "_monte_carlo_simulations", lambda prefs: 1)
+    # ADR-014 Schritt 5: _run_allocation_monte_carlo lebt jetzt in
+    # services/portfolio_engine_mc_simulation.py und ruft _monte_carlo_simulations
+    # dort als Modul-lokalen Namen auf -- das Monkeypatch auf dem
+    # portfolio_engine-Re-Export-Modul allein wirkt sich darauf NICHT aus
+    # (separate Modul-Namespaces). Beide Module patchen, damit der Test
+    # unabhaengig von der internen Aufloesung deterministisch bleibt.
+    monkeypatch.setattr(_pe_mc_simulation, "_monte_carlo_simulations", lambda prefs: 1)
 
     advisory_summary = PortfolioSummary(
         amounts_rappen={
@@ -369,7 +398,15 @@ def test_simulate_bucket_path_uses_geometric_growth_and_ignores_zero_bands():
         transaction_cost_bps=0,
     )
 
-    expected_total = int(round(100000 * math.exp(0.05 - 0.5 * 0.15 * 0.15)))
+    # 2026-08 (asset-allocation-stochastic-core, services/return_moments.py):
+    # CMA-Werte sind arithmetische (einfache) Momente, kein Log-Return direkt.
+    # exp(mu - 0.5*sigma^2) auf die rohen arithmetischen mu/sigma anzuwenden
+    # war die alte, mathematisch ungenaue Naeherung; die korrekte Umrechnung
+    # (Moment-Matching arithmetisch -> lognormal) liefert einen leicht
+    # anderen Erwartungswert. Referenziert daher die kanonische Umrechnung
+    # statt einer eigenen (jetzt veralteten) Formel.
+    log_location, _log_scale = arithmetic_moments_to_log_parameters(0.05, 0.15)
+    expected_total = int(round(100000 * math.exp(log_location)))
     assert totals == [100000, expected_total]
     assert events == []
 
@@ -484,8 +521,15 @@ def test_compute_reserve_requirements_matches_goal_and_external_reserve_logic():
         saa_liq_ceiling_bps=2000,
     )
 
-    assert reserve_needed_rappen == 4000000
-    assert external_reserve_rappen == 2000000
+    # #AA-8 (2026-06-12): distinkte Spending-Goals summieren (statt max()).
+    # Steuern 40k (sicher, <=3J -> voll) + Ausbildung 20k/J (4-7J -> 50% = 10k)
+    # = 50k Ziel-Reserve. Bugfix 2026-08-07 (CEO/CFO/CIO-Audit, RES-1-Nachtrag):
+    # der Cashflow-Liquiditaetsbedarf (near-term running-min 2.5k) ist ein
+    # EIGENSTAENDIGER Geldabfluss und ADDIERT sich zur Ziel-Reserve (statt via
+    # max() zu konkurrieren) -> 50k + 2.5k = 52.5k. Floor-Kandidaten (minReserve
+    # 10k / liqTarget 15k) bleiben darunter. External = 52.5k - SAA-Anteil 20k = 32.5k.
+    assert reserve_needed_rappen == 5250000
+    assert external_reserve_rappen == 3250000
 
 
 def test_target_allocation_reserve_warning_detects_rebuilt_external_reserve_drift():
@@ -531,6 +575,120 @@ def test_target_allocation_context_warns_when_cma_changed():
     assert warnings == [
         "Hinweis: Kapitalmarktannahmen haben sich seit Allocation-Erstellung geaendert. Bitte Strategie neu berechnen."
     ]
+
+
+def test_product_constraints_apply_policy_and_structure_preferences():
+    structured = _make_product(
+        product_name="Barrier Reverse Convertible",
+        product_type="Strukturiertes Produkt",
+        currency="CHF",
+    )
+    usd_unhedged = _make_product(product_name="MSCI World ETF", currency="USD")
+    usd_hedged = _make_product(product_name="MSCI World CHF Hedged ETF", currency="USD")
+
+    no_structured = portfolio_engine._normalize_preferences({"product": {"noStructured": True}})
+    assert portfolio_engine._product_matches_constraints(structured, no_structured, score_bucket=8) is False
+
+    chf_only = portfolio_engine._normalize_preferences({"policy": {"hedging": "chf_only"}})
+    assert portfolio_engine._product_matches_constraints(usd_unhedged, chf_only, score_bucket=8) is False
+
+    hedging_required = portfolio_engine._normalize_preferences({"geo": {"hedgingRequired": True}})
+    assert portfolio_engine._product_matches_constraints(usd_unhedged, hedging_required, score_bucket=8) is False
+    assert portfolio_engine._product_matches_constraints(usd_hedged, hedging_required, score_bucket=8) is True
+
+
+def test_recommendation_concentration_limits_are_hard_constraints():
+    product_a = _make_product(id="product-a", product_name="Issuer A Core", provider="Issuer A")
+    product_b = _make_product(id="product-b", product_name="Issuer A Satellite", provider="Issuer A")
+
+    with pytest.raises(ValueError, match="Einzelpositionslimite"):
+        portfolio_engine._validate_recommendation_concentration_limits(
+            {"product-a": {"product": product_a, "target_weight_bps": 2500}},
+            {"limits": {"singlePosition": "20"}},
+        )
+
+    with pytest.raises(ValueError, match="Einzelemittentenlimite"):
+        portfolio_engine._validate_recommendation_concentration_limits(
+            {
+                "product-a": {"product": product_a, "target_weight_bps": 1200},
+                "product-b": {"product": product_b, "target_weight_bps": 1400},
+            },
+            {"limits": {"singleIssuer": "25"}},
+        )
+
+
+def test_build_sub_allocations_rejects_unimplemented_or_empty_preference_sets():
+    targets = {
+        "equities": 6000,
+        "bonds": 2000,
+        "real_estate": 1000,
+        "alternatives": 500,
+        "liquidity": 500,
+    }
+
+    with pytest.raises(ValueError, match="Aktien Large Cap ist ausgeschaltet"):
+        _build_sub_allocations(
+            targets,
+            {"assetClasses": {"equitiesLargeCap": False, "equitiesSmid": True, "altsGold": True}},
+        )
+
+    with pytest.raises(ValueError, match="Obligationen-Auswahl"):
+        _build_sub_allocations(
+            targets,
+            {
+                "assetClasses": {
+                    "bondsInvestmentGrade": False,
+                    "bondsHighYield": False,
+                    "bondsEmerging": False,
+                    "altsGold": True,
+                }
+            },
+        )
+
+    with pytest.raises(ValueError, match="Direktimmobilien-only"):
+        _build_sub_allocations(
+            targets,
+            {"assetClasses": {"realestateFunds": False, "realestateDirect": True, "altsGold": True}},
+        )
+
+    with pytest.raises(ValueError, match="Alternativen Anlagen"):
+        _build_sub_allocations(
+            targets,
+            {
+                "assetClasses": {
+                    "altsGold": False,
+                    "altsLiquidAlts": False,
+                    "altsHedge": False,
+                    "altsPe": False,
+                    "altsCrypto": False,
+                }
+            },
+        )
+
+
+def test_build_sub_allocations_respects_investment_grade_bond_toggle():
+    targets = {
+        "equities": 0,
+        "bonds": 3000,
+        "real_estate": 0,
+        "alternatives": 0,
+        "liquidity": 0,
+    }
+
+    sub_allocations = _build_sub_allocations(
+        targets,
+        {
+            "assetClasses": {
+                "bondsInvestmentGrade": False,
+                "bondsHighYield": True,
+                "bondsEmerging": True,
+            }
+        },
+    )
+
+    bond_labels = {item["sub_asset_class"] for item in sub_allocations if item["asset_class"] == "Obligationen"}
+    assert bond_labels == {"Obligationen High Yield", "Obligationen Emerging"}
+    assert sum(int(item["target_weight_bps"]) for item in sub_allocations) == 3000
 
 
 def test_implementation_steps_use_actual_bucket_amounts_when_available():
@@ -650,6 +808,13 @@ def test_build_simulation_payload_uses_target_start_value_without_changing_curre
 
 def test_run_allocation_monte_carlo_uses_target_start_value_for_target_path_and_downside_baseline(monkeypatch):
     monkeypatch.setattr(portfolio_engine, "_monte_carlo_simulations", lambda prefs: 1)
+    # ADR-014 Schritt 5: _run_allocation_monte_carlo lebt jetzt in
+    # services/portfolio_engine_mc_simulation.py und ruft _monte_carlo_simulations
+    # dort als Modul-lokalen Namen auf -- das Monkeypatch auf dem
+    # portfolio_engine-Re-Export-Modul allein wirkt sich darauf NICHT aus
+    # (separate Modul-Namespaces). Beide Module patchen, damit der Test
+    # unabhaengig von der internen Aufloesung deterministisch bleibt.
+    monkeypatch.setattr(_pe_mc_simulation, "_monte_carlo_simulations", lambda prefs: 1)
 
     result = portfolio_engine._run_allocation_monte_carlo(
         advisory_summary=PortfolioSummary(

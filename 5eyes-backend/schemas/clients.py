@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 from typing import Optional, Literal
 from schemas.common import BaseResponse
 
@@ -30,10 +30,14 @@ class ClientCreate(BaseModel):
     is_qualified_investor: bool = False
     advisor_id: str
     notes: Optional[str] = None
+    data_classification: Literal["synthetic", "real"] = "synthetic"
 
 
 class ClientUpdate(BaseModel):
-    salutation: Optional[str] = None
+    # SCHEMA-05: Update nutzt dieselben Literal-Enums wie Create — vorher waren
+    # salutation/language/household_type/client_classification freie str und
+    # umgingen die FIDLEG-Wertelisten bei PATCH.
+    salutation: Optional[Literal["Herr", "Frau", "Divers"]] = None
     first_name: Optional[str] = None
     last_name: Optional[str] = None
     date_of_birth: Optional[str] = None
@@ -44,18 +48,21 @@ class ClientUpdate(BaseModel):
     civil_status: Optional[str] = None
     profession: Optional[str] = None
     employer: Optional[str] = None
-    language: Optional[str] = None
+    language: Optional[Literal["DE", "FR", "IT", "EN"]] = None
     partner_salutation: Optional[str] = None
     partner_first_name: Optional[str] = None
     partner_last_name: Optional[str] = None
     partner_date_of_birth: Optional[str] = None
     partner_profession: Optional[str] = None
-    household_type: Optional[str] = None
-    client_classification: Optional[str] = None
+    household_type: Optional[Literal["Einzelperson", "Paar", "Familie"]] = None
+    client_classification: Optional[Literal[
+        "Privatkunde", "Professioneller Kunde", "Institutioneller Kunde"
+    ]] = None
     is_professional_opt_out: Optional[bool] = None
     is_qualified_investor: Optional[bool] = None
     advisor_id: Optional[str] = None
     notes: Optional[str] = None
+    data_classification: Optional[Literal["synthetic", "real"]] = None
 
 
 class ClientResponse(BaseResponse):
@@ -86,6 +93,30 @@ class ClientResponse(BaseResponse):
     notes: Optional[str]
     created_at: str
     updated_at: str
+
+
+class ClientErasureRequest(BaseModel):
+    """DSG Art. 32 -- Pflichtbegruendung fuer eine Loeschungs-/Erasure-
+    Anfrage. Wiederverwendet dieselbe Qualitaets-Pruefung wie
+    Risikoprofil-Overrides (min. 20 Zeichen, keine Floskel, >=3
+    bedeutungsvolle Worte) -- eine so folgenreiche, irreversible Aktion
+    verdient dieselbe FIDLEG-Audit-Tauglichkeit wie ein Profil-Override.
+    """
+    reason: str
+
+    @model_validator(mode="after")
+    def _validate_reason_quality(self):
+        from services.override_reason_quality import validate_override_reason_quality
+        validate_override_reason_quality(self.reason)
+        return self
+
+
+class ClientErasureResponse(BaseModel):
+    status: str
+    client_id: str
+    mandate_ids: list[str]
+    redacted: dict[str, int]
+    erased_at: str
 
 
 class NationalityCreate(BaseModel):

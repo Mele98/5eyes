@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, ForeignKey
+from sqlalchemy import Column, String, Integer, ForeignKey, Index, text
 from sqlalchemy.orm import relationship
 from database import Base
 
@@ -33,6 +33,15 @@ class ClientKnowledge(Base):
 
 class RiskAssessment(Base):
     __tablename__ = "risk_assessments"
+    __table_args__ = (
+        Index(
+            "ux_risk_one_current",
+            "mandate_id",
+            unique=True,
+            sqlite_where=text("is_current = 1 AND deleted_at IS NULL"),
+            postgresql_where=text("is_current = 1 AND deleted_at IS NULL"),
+        ),
+    )
 
     id = Column(String, primary_key=True)
     mandate_id = Column(String, ForeignKey("mandates.id"), nullable=False)
@@ -71,11 +80,18 @@ class RiskAssessment(Base):
     override_client_confirmed = Column(Integer, default=0)
     override_warning_delivered = Column(Integer, default=0)
     override_warning_document_id = Column(String)
-    # Kenntnisse & Erfahrungen - SwissLife W305.03 Seite 1 (kein Score, nur Compliance)
+    # Kenntnisse & Erfahrungen - Referenzmodell Eignungspruefung Seite 1 (kein Score, nur Compliance)
     knowledge_services_json = Column(String)    # {"Vermögensverwaltung":{"known":0,"informed":1},...}
     knowledge_instruments_json = Column(String) # {"Anlagefonds":{"known":1,"informed":1},...}
     # Herkunft des Einkommens - Frage 2, rein informativ (kein Score)
     income_sources_json = Column(String)        # ["Berufliche Tätigkeit","Rente"]
+    # FIDLEG-Eignungspruefung: Kunden-Signatur des Risikoprofils (2026-07-19).
+    # Reine DOKUMENTATION der Kunden-Bestaetigung — aendert NICHT die
+    # Eignungs-Konformitaet (is_compliant im Audit). Modell B (Kundenportal:
+    # method='portal') oder Fallback A (Berater erfasst: method='advisor_recorded').
+    client_signed_at = Column(String)           # ISO-UTC; None = noch nicht signiert
+    client_signed_method = Column(String)       # 'portal' | 'advisor_recorded'
+    client_signed_ref = Column(String)          # Portal-User-ID bzw. Berater-Notiz
     assessed_at = Column(String, nullable=False)
     assessed_by = Column(String, ForeignKey("users.id"), nullable=False)
     created_at = Column(String, nullable=False)

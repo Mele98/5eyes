@@ -223,6 +223,61 @@ DEFAULT_PRODUCT_MARKET_CATALOG: dict[str, dict[str, Any]] = {
         "lookup_symbol": "IBIT",
         "pricing_note": "Bitcoin-Proxy ueber den liquiden Spot-ETF-Markt.",
     },
+    # 2026-08-22 (hedgingRequired-Katalogluecke, siehe portfolio_engine.py::
+    # ensure_default_products): CHF-gehedgte Pendants teilen sich denselben
+    # Basiswert/Index wie ihr unhedged Original -- reiner Waehrungs-Hedge,
+    # daher gleicher Proxy-Lookup wie das Original (die Kursverlaufsform ist
+    # praktisch identisch, nur die Basiswaehrung unterscheidet sich).
+    "iShares Core MSCI World UCITS ETF CHF Hedged": {
+        "lookup_mode": "proxy",
+        "lookup_symbol": "URTH",
+        "pricing_note": "World-Equity Proxy fuer die CHF-gehedgte Share Class.",
+    },
+    "Vanguard FTSE Developed Europe ETF CHF Hedged": {
+        "lookup_mode": "proxy",
+        "lookup_symbol": "VGK",
+        "pricing_note": "Europa-Proxy fuer die CHF-gehedgte Share Class.",
+    },
+    "iShares Core MSCI EM IMI ETF CHF Hedged": {
+        "lookup_mode": "proxy",
+        "lookup_symbol": "IEMG",
+        "pricing_note": "Emerging-Markets IMI Proxy fuer die CHF-gehedgte Share Class.",
+    },
+    "VanEck Defense UCITS ETF CHF Hedged": {
+        "lookup_mode": "proxy",
+        "lookup_symbol": "ITA",
+        "pricing_note": "Defense-Proxy fuer die CHF-gehedgte Share Class.",
+    },
+    "Energy Select Sector ETF CHF Hedged": {
+        "lookup_mode": "direct",
+        "lookup_symbol": "XLE",
+        "pricing_note": "Direkter Marktpreis ueber das gelistete Produkt (CHF-gehedgte Share Class).",
+    },
+    "Consumer Staples Tobacco Tilt ETF CHF Hedged": {
+        "lookup_mode": "proxy",
+        "lookup_symbol": "PM",
+        "pricing_note": "Tobacco-Tilt Proxy fuer die CHF-gehedgte Share Class.",
+    },
+    "Roundhill Sports Betting ETF CHF Hedged": {
+        "lookup_mode": "direct",
+        "lookup_symbol": "BETZ",
+        "pricing_note": "Direkter Marktpreis ueber das gelistete Produkt (CHF-gehedgte Share Class).",
+    },
+    "VanEck Uranium and Nuclear ETF CHF Hedged": {
+        "lookup_mode": "proxy",
+        "lookup_symbol": "NLR",
+        "pricing_note": "Nuclear-Proxy fuer die CHF-gehedgte Share Class.",
+    },
+    "EM Local Bond Opportunities CHF Hedged": {
+        "lookup_mode": "proxy",
+        "lookup_symbol": "EMLC",
+        "pricing_note": "EM Local Bond Proxy fuer die CHF-gehedgte Share Class.",
+    },
+    "iShares Developed Markets Property Yield CHF Hedged": {
+        "lookup_mode": "proxy",
+        "lookup_symbol": "REET",
+        "pricing_note": "Property-Yield Proxy fuer die CHF-gehedgte Share Class.",
+    },
     "UBS Geldmarktfonds CHF": {
         "lookup_mode": "synthetic_par",
         "synthetic_price_rappen": 100,
@@ -297,6 +352,65 @@ def lookup_symbol_for_provider(profile: dict[str, Any] | None, provider_name: st
     raw_symbol = str(payload.get("symbol") or "").strip() or None
     exchange_code = payload.get("exchange_code")
     return provider_lookup_symbol(raw_symbol or raw_lookup, exchange_code, provider_name) or raw_lookup
+
+
+# Bugfix 2026-08-07 (CEO/CFO/CIO-Audit, MD-01): price_updater.py uebernahm den
+# vom Provider tatsaechlich gemeldeten Kurs immer unter product.currency
+# (Stammdaten), OHNE jemals gegen die Boerse zu pruefen, an der das Produkt
+# laut exchange_code notiert ist -- bei einem Stammdaten-Tippfehler (z.B.
+# "CHF" fuer einen an der XETRA (DE) notierten Titel) waere der Kurs silent
+# falsch bewertet/etikettiert. Sicherer Fix OHNE zusaetzlichen Netzwerk-Call
+# (kein Rate-Limit-Risiko fuer den Batch-Refresh-Job): rein lokaler Abgleich
+# exchange_code -> erwartete Waehrung, als Datenqualitaets-Warnung im
+# read-only Admin-Status-Endpoint (_collect_product_market_data_status) --
+# NICHT in der Live-Preis-Pipeline selbst, um deren Verhalten unveraendert
+# zu lassen. Nur fuer lookup_mode="direct" mit aufgeloestem exchange_code
+# sinnvoll -- bei "proxy"-Lookups (siehe DEFAULT_PRODUCT_MARKET_CATALOG) ist
+# der Kurs bewusst von einem andersartigen Stellvertreter-Wertpapier, ein
+# Waehrungs-Abgleich dort waere irrefuehrend.
+EXCHANGE_CURRENCY_BY_CODE: dict[str, str] = {
+    "SW": "CHF", "VX": "CHF",
+    "TO": "CAD", "V": "CAD",
+    "L": "GBP",
+    "DE": "EUR", "F": "EUR", "PA": "EUR", "AS": "EUR", "BR": "EUR",
+    "MC": "EUR", "MI": "EUR", "IR": "EUR", "VI": "EUR", "HE": "EUR",
+    "ST": "SEK",
+    "OL": "NOK",
+    "CO": "DKK",
+    "HK": "HKD",
+    "T": "JPY",
+    "AX": "AUD",
+    "NZ": "NZD",
+}
+
+
+def expected_currency_for_exchange(exchange_code: Any) -> str | None:
+    normalized = normalize_exchange_code(exchange_code)
+    if not normalized:
+        return None
+    if normalized in US_EXCHANGE_CODES:
+        return "USD"
+    return EXCHANGE_CURRENCY_BY_CODE.get(normalized)
+
+
+def currency_mismatch_warning(product: Any) -> str | None:
+    """None wenn kein Mismatch (oder nicht pruefbar -- z.B. proxy/synthetic/
+    kein exchange_code). Sonst eine Berater-lesbare Warnung."""
+    profile = resolve_market_profile(product)
+    if str(profile.get("lookup_mode") or "") != "direct":
+        return None
+    exchange_code = profile.get("exchange_code")
+    expected = expected_currency_for_exchange(exchange_code)
+    if not expected:
+        return None
+    actual = str(profile.get("currency") or "").strip().upper()
+    if not actual or actual == expected:
+        return None
+    return (
+        f"Stammdaten-Waehrung '{actual}' passt nicht zur Boerse "
+        f"'{normalize_exchange_code(exchange_code)}' (dort ueblich: '{expected}'). "
+        "Bitte Produkt-Stammdaten pruefen."
+    )
 
 
 def provider_market_warning(provider_name: str, exchange_code: Any) -> str | None:

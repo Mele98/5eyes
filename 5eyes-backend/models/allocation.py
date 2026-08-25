@@ -1,10 +1,19 @@
-from sqlalchemy import Column, String, Integer, ForeignKey
+from sqlalchemy import Column, String, Integer, ForeignKey, Index, text
 from sqlalchemy.orm import relationship
 from database import Base
 
 
 class OptimizerPolicy(Base):
     __tablename__ = "optimizer_policies"
+    __table_args__ = (
+        Index(
+            "ux_optimizer_one_current",
+            "is_current",
+            unique=True,
+            sqlite_where=text("is_current = 1"),
+            postgresql_where=text("is_current = 1"),
+        ),
+    )
 
     id = Column(String, primary_key=True)
     policy_name = Column(String, nullable=False)
@@ -16,6 +25,9 @@ class OptimizerPolicy(Base):
     max_real_estate_bps = Column(Integer, nullable=False, default=2000)
     max_alternatives_bps = Column(Integer, nullable=False, default=1000)
     min_liquidity_bps = Column(Integer, nullable=False, default=0)
+    # Deprecated since audit-B4 (2026-05-01): goals are always evaluated against
+    # advisory_wealth (ASIP §3.2). Field is retained for schema compatibility but
+    # has no effect on scoring. Do not read or write from new code.
     allow_other_assets_for_goals = Column(Integer, nullable=False, default=1)
     fee_model_json = Column(String)
     notes = Column(String)
@@ -29,6 +41,15 @@ class OptimizerPolicy(Base):
 
 class TargetAllocation(Base):
     __tablename__ = "target_allocations"
+    __table_args__ = (
+        Index(
+            "ux_target_alloc_one_current",
+            "mandate_id",
+            unique=True,
+            sqlite_where=text("is_current = 1 AND deleted_at IS NULL"),
+            postgresql_where=text("is_current = 1 AND deleted_at IS NULL"),
+        ),
+    )
 
     id = Column(String, primary_key=True)
     mandate_id = Column(String, ForeignKey("mandates.id"), nullable=False)
@@ -50,23 +71,169 @@ class TargetAllocation(Base):
     band_liquidity_min_bps = Column(Integer, nullable=False)
     band_liquidity_max_bps = Column(Integer, nullable=False)
     risky_fraction_bps = Column(Integer)
-    external_reserve_at_generation_rappen = Column(Integer)
+    risky_fraction_bps_at_generation = Column(Integer)
+    risk_budget_bps_at_generation = Column(Integer)
+    limiting_factor = Column(String)
+    goal_achievability_json = Column(String)
+    # Immutable decision artefacts. These prevent a reload from rebuilding a
+    # historic stochastic allocation with today's BuildingBlocks/preferences.
+    sub_allocations_json = Column(String)
+    effective_constraints_json = Column(String)
+    allocation_context_hash = Column(String)
+    # Explicit provenance discriminator. New engine allocations set this to
+    # 1, so deleting all payloads cannot disguise a modern decision as legacy.
+    context_artifacts_required = Column(Integer, nullable=False, default=0)
     based_on_assessment_id = Column(String)
     capital_market_assumptions_id = Column(String, ForeignKey("capital_market_assumptions.id"))
+    # C8: Audit-Anker fuer Reproduzierbarkeit / Drift-Erkennung.
+    preferences_json = Column(String)
+    input_snapshot_hash = Column(String)
+    advisory_wealth_at_generation_rappen = Column(Integer)
+    total_wealth_at_generation_rappen = Column(Integer)
+    reserve_needed_at_generation_rappen = Column(Integer)
+    external_reserve_at_generation_rappen = Column(Integer)
+    # AR-2 (FIDLEG-Report): persistierte Monte-Carlo-Risiko-Kennzahlen auf
+    # Beratungsvermoegens-Ebene (target_*), erzeugt beim Strategie-Lauf. Der
+    # Report liest sie in _build_key_metrics; NULL bei Alt-TAs -> Karte zeigt "—".
+    # Semantik/Quelle (aus _run_allocation_monte_carlo, alle in bps):
+    #   mc_exp_vol_bps      <- target_volatility_1y_bps        (1-J-Vola, stddev der 1-J-Returns)
+    #   mc_exp_return_bps   <- target_annualized_return_p50_bps (annualisierter Median-Return)
+    #   mc_max_drawdown_bps <- target_max_drawdown_p50_bps     (Median Max-Drawdown)
+    #   mc_var_95_bps       <- target_var_95_1y_bps            (1-J-VaR95, positiver Loss)
+    mc_exp_vol_bps = Column(Integer)
+    mc_exp_return_bps = Column(Integer)
+    mc_max_drawdown_bps = Column(Integer)
+    mc_var_95_bps = Column(Integer)
     policy_id = Column(String, ForeignKey("optimizer_policies.id"), nullable=False)
     set_by = Column(String, ForeignKey("users.id"), nullable=False)
     set_at = Column(String, nullable=False)
     approved_by = Column(String, ForeignKey("users.id"))
     approved_at = Column(String)
+    # Optimizer-Audit-Anchor (Spec 2026-05-05). Wenn None: Allocation
+    # kommt aus House-Matrix-Default (vor-Optimizer Baseline).
+    optimization_method = Column(String)  # 'house_matrix' | 'iterative' | 'stochastic'
+    optimization_objective_value_milli = Column(Integer)  # objective in milli (Praezision)
+    optimization_iterations = Column(Integer)
+    optimization_seed = Column(Integer)
+    optimization_status = Column(String)  # 'converged' | 'converged_robustified' | 'diverged' | 'timeout' | 'fallback_house_matrix'
+    # Phase 6: persistierte Stress-Auswertungen aus dem Solver (Phase 5.2),
+    # JSON-serialisiertes dict[scenario_name, dict]. NULL bei house_matrix-Modus.
+    # Damit kann das FE-Optimizer-Panel auch beim Reload (GET-Endpoint) die
+    # Stress-Tabelle ohne erneuten Solver-Lauf rendern.
+    stress_evaluations_json = Column(String)
+    # Phase 6.2: persistierter Reasoning-Trace des Solvers (list[str] als JSON).
+    # Nur die optimizer-spezifischen Zeilen werden gespeichert; die generischen
+    # House-Matrix-Sätze und dynamischen Drift-Warnings werden im Read-Pfad
+    # frisch berechnet. NULL bei house_matrix-Modus.
+    optimizer_reasoning_json = Column(String)
+    # V3 Sprint 2.1 (2026-05-09 / Plan §4.1): Verknuepfung zur optimizer_runs-
+    # Zeile, die diese TA produziert hat. NULL bei house_matrix-Modus oder
+    # bei shadow_stochastic (TA bleibt House-Matrix-basiert; der Run gehoert
+    # nicht zur TA — nur stochastic-Modus aktualisiert die TA aus dem Solver).
+    optimization_run_id = Column(String, ForeignKey("optimizer_runs.id"))
+    # Stochastic Goal Engine Stage 5: persistierter Shadow-Vergleich fuer
+    # Admin-/Compliance-Auswertung. Nur im shadow_stochastic-Modus befuellt.
+    shadow_optimization_json = Column(String)
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
     deleted_at = Column(String)
 
     mandate = relationship("Mandate", back_populates="target_allocations")
     policy = relationship("OptimizerPolicy")
+    optimization_run = relationship("OptimizerRun", foreign_keys=[optimization_run_id])
+
+
+class OptimizerRun(Base):
+    """V3 Sprint 2 (Plan §4.1): persistierter Audit-Trail aller Solver-Laufe.
+
+    Im Gegensatz zur TargetAllocation, die nur den jeweils aktiven Stand
+    haelt, sammelt diese Tabelle JEDEN Solver-Lauf — auch shadow_stochastic
+    Laufe, die die TargetAllocation nicht ersetzen. Damit ist eine Advisory-Methodik-
+    artige Risk-Engine-Historie moeglich (mehrere Runs, Seeds, Szenarien,
+    Versionen).
+
+    Persistenz-Trigger (siehe portfolio_engine._persist_optimizer_run):
+    - 'shadow_stochastic'-Modus + Solver lief: ja
+    - 'stochastic'-Modus + Solver lief: ja
+    - 'house_matrix' / 'iterative': nein (Solver lief nicht)
+
+    Verknuepfung optional zu target_allocation_id: bei stochastic-Modus
+    zeigt sie auf die zugehoerige TA; bei shadow_stochastic ist sie NULL,
+    weil die TA House-Matrix-basiert ist und nicht zum Run gehoert.
+    """
+    __tablename__ = "optimizer_runs"
+
+    id = Column(String, primary_key=True)
+    mandate_id = Column(String, ForeignKey("mandates.id"), nullable=False)
+    # use_alter=True bricht den Zyklus optimizer_runs <-> target_allocations
+    # fuer SQLAlchemy DROP-Sortierung in Tests. Production-Lauf unbeeinflusst.
+    target_allocation_id = Column(
+        String, ForeignKey("target_allocations.id", use_alter=True, name="fk_optimizer_runs_target_allocation"),
+    )
+    run_at = Column(String, nullable=False)
+    optimizer_mode = Column(String, nullable=False)  # 'shadow_stochastic' | 'stochastic'
+    role = Column(String, nullable=False)  # 'shadow' | 'active'
+    method = Column(String, nullable=False)  # 'stochastic' | 'fallback_house_matrix'
+    status = Column(String, nullable=False)  # converged | converged_robustified | diverged | diverged_infeasible | fallback_house_matrix
+    seed = Column(Integer, nullable=False)
+    n_paths = Column(Integer, nullable=False, default=0)
+    n_iterations = Column(Integer, nullable=False, default=0)
+    n_starts_attempted = Column(Integer, nullable=False, default=0)
+    objective_value_milli = Column(Integer)
+    weights_bps_json = Column(String, nullable=False)  # {"equities":...,"bonds":...,...}
+    constraint_violations_json = Column(String)  # JSON list[str]
+    reasoning_json = Column(String)  # JSON list[str]
+    stress_evaluations_json = Column(String)  # JSON dict
+    restart_results_json = Column(String)  # JSON list[dict] with Stage-9 start diagnostics
+    robustification_json = Column(String)  # JSON effective/rejected candidate audit envelope
+    set_by = Column(String, ForeignKey("users.id"))
+    created_at = Column(String, nullable=False)
+
+    mandate = relationship("Mandate")
+    target_allocation = relationship("TargetAllocation", foreign_keys=[target_allocation_id])
 
 
 class CapitalMarketAssumption(Base):
+    """Kapitalmarktannahmen (CMA) -- versioniert pro assumption_set_name.
+
+    Roadmap #51 (CMA-Werte-Pflegeprozess, 2026-07-23): dokumentiert hier den
+    Pflegeprozess fuer eine neue CMA-Version, damit Versionierung, Quelle/
+    Datum-Dokumentation und die Konservativitaets-Maxime (Memory
+    feedback_conservative_values: "immer der tiefere Wert bei Rendite-
+    erwartungen", relevant fuer Ruhestandsgelder) nicht nur Konvention,
+    sondern nachvollziehbar sind.
+
+    Ablauf einer neuen CMA-Version (z.B. neues Quartals-CMA-Update):
+      1. Vorherige aktuelle Zeile ermitteln (gleicher assumption_set_name,
+         is_current=1, deleted_at IS NULL) -- siehe
+         services/cma_import.py:diff_against_current / apply_cma_row fuer
+         das etablierte Muster.
+      2. Neue Zeile mit version = alte version + 1 anlegen, is_current=1.
+         Die alte Zeile bekommt is_current=0 (NICHT geloescht -- Audit-Trail
+         bleibt erhalten). valid_from = Datum, ab dem die neue Annahme in der
+         Engine wirkt (scenario_inputs_from_cma liest nur is_current=1).
+      3. Quelle/Datum dokumentieren (Roadmap #51 Kernforderung):
+         - source: Herkunft der Zahlen, z.B. "Pictet CMA 2026Q3" oder bei
+           manueller/konservativer Schaetzung "konservativ manuell".
+         - source_date: ISO-Datum der zugrunde liegenden Publikation (kann
+           von valid_from abweichen -- z.B. Research-Papier vom 2026-06-15,
+           aber Inkraftsetzung im System erst valid_from=2026-07-01).
+         - notes: Methodik-Anmerkungen (z.B. Abweichungen vom Original,
+           angewandte konservative Abschlaege).
+      4. VOR dem Speichern validate_cma_conservative(cma_new, cma_previous)
+         aus services/cma_import.py aufrufen (dry-run-freundlich, blockiert
+         NICHT): warnt fuer jedes *_return_bps-Feld, das in der neuen Version
+         HOEHER (optimistischer) liegt als in der Vorgaenger-Version. Eine
+         Warnung bedeutet nicht automatisch "falsch" -- der Berater/Admin
+         kann bewusst abweichen (z.B. begruendete Neubewertung der
+         Marktlage) -- aber die Abweichung von der Konservativitaets-Maxime
+         muss sichtbar auffallen und im Zweifel per `notes` begruendet werden.
+         Diese Funktion aendert NIE automatisch Werte, sie ist reines
+         Warnsystem (kein hartes Gate).
+      5. CSV-Import: services/cma_import.py:import_cma_csv() automatisiert
+         Schritte 1-4 fuer Batch-Updates (mehrere Buckets pro Zeile).
+    """
+
     __tablename__ = "capital_market_assumptions"
 
     id = Column(String, primary_key=True)
@@ -96,12 +263,101 @@ class CapitalMarketAssumption(Base):
     inflation_path_json = Column(String)
     correlation_matrix_json = Column(String)
     sub_asset_class_assumptions_json = Column(String)
+    # Optimizer-Phase 1 (Spec 2026-05-05): Skewness und Excess-Kurtosis pro
+    # Bucket. Default None bzw. 0 -> Cornish-Fisher faellt auf Normal zurueck
+    # (backwards-compat, kein Verhaltens-Change ohne CMA-Daten). Werte in bps
+    # (z.B. equities_skewness_bps=-5000 = -0.5 skew, excess_kurt_bps=25000 = 2.5).
+    equities_skewness_bps = Column(Integer)
+    equities_excess_kurt_bps = Column(Integer)
+    bonds_skewness_bps = Column(Integer)
+    bonds_excess_kurt_bps = Column(Integer)
+    real_estate_skewness_bps = Column(Integer)
+    real_estate_excess_kurt_bps = Column(Integer)
+    alternatives_skewness_bps = Column(Integer)
+    alternatives_excess_kurt_bps = Column(Integer)
+    liquidity_skewness_bps = Column(Integer)
+    liquidity_excess_kurt_bps = Column(Integer)
+    # Sprint 6 Phase 2 (2026-05-17): Nelson-Siegel Yield-Curve fuer Bonds.
+    # Wenn alle 4 Felder gesetzt (!= None): scenario_inputs_from_cma nutzt
+    # die NS-Curve fuer Bond-Returns (yield_at(maturity)) statt der fixen
+    # bonds_*_return_bps Werte. lambda_x100 = lambda * 100 (Integer-DB).
+    # Beispiel ZH-CHF-Kurve 2024: beta0=400, beta1=-200, beta2=80, lambda=60 (=0.6).
+    bonds_ns_beta0_bps = Column(Integer)
+    bonds_ns_beta1_bps = Column(Integer)
+    bonds_ns_beta2_bps = Column(Integer)
+    bonds_ns_lambda_x100 = Column(Integer)
+    # Sprint 7 (2026-05-17): KGV-Mean-Reversion fuer Equity-Returns.
+    # Wenn alle 3 Felder gesetzt: scenario_inputs_from_cma addiert ein
+    # KGV-MR-Adjustment auf equity_*_return_bps. Werte als Integer skaliert:
+    # kgv_*_x10 = KGV * 10 (z.B. 220 = 22.0), alpha_x100 = alpha*100 (15 = 0.15).
+    # Beispiel SPX 2026: kgv_current=220, kgv_fair=170, alpha=15.
+    equity_kgv_current_x10 = Column(Integer)
+    equity_kgv_fair_x10 = Column(Integer)
+    equity_kgv_alpha_x100 = Column(Integer)
+    # Sprint 8 (2026-05-17): Risikopraemien-Modell fuer RE + Alternatives.
+    # Wenn gesetzt UND NS-Curve aktiv: re_return = NS.short_rate + premium.
+    # Typische Werte: real_estate 150-250 bps, alternatives 200-400 bps.
+    real_estate_risk_premium_bps = Column(Integer)
+    alternatives_risk_premium_bps = Column(Integer)
     source = Column(String, default="Portfolio Management intern")
+    # Roadmap #51 (2026-07-23): ISO-Datum der Quellpublikation (z.B. Datum des
+    # zitierten CMA-Reports), NICHT identisch mit valid_from (= Inkraftsetzung
+    # im System). NULL = nicht dokumentiert (Altbestand / manuelle Annahme
+    # ohne explizites Publikationsdatum). Additive Spalte, siehe
+    # database.py:ensure_runtime_columns() fuer die Migration auf Alt-DBs.
+    source_date = Column(String)
     notes = Column(String)
     created_by = Column(String, ForeignKey("users.id"), nullable=False)
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
     deleted_at = Column(String)
+    # WP1 (Home-Bias/CMA-Parametrisierung pro Jurisdiktion, 2026-07-30):
+    # Laender-Code fuer diese CMA-Zeile (z.B. "CH", "DE"). NULL = "CH"
+    # (Backwards-Compat, gleiches Nullable-Pattern wie Mandate.jurisdiction
+    # in models/mandates.py -- Code interpretiert NULL ueberall als "CH").
+    # KEIN DB-Default (additive Migration in database.py::ensure_runtime_
+    # columns() unterstuetzt nur int_default fuer TEXT-Spalten nicht).
+    jurisdiction = Column(String)
+    # Governance-Status DIESER Zeile (nicht der Jurisdiktion als Ganzes,
+    # siehe models/jurisdiction.py::JurisdictionProfile.status fuer letzteres).
+    # Erlaubte Werte (Validierung folgt in einem spaeteren Schema/Router-
+    # Paket, hier nur die Spalte):
+    #   "provisional"        -- keine/unsichere Daten
+    #   "data_derived"        -- automatisch aus echten Marktdaten berechnet,
+    #                            mit Quellenangabe (source_detail)
+    #   "committee_approved" -- vom Investment Committee geprueft
+    # NUR "committee_approved"-Zeilen duerfen (spaeteres Arbeitspaket) in
+    # Kundendokumente einfliessen. NULL = nicht klassifiziert (kein DB-
+    # Default fuer neue Inserts von aussen; Bestandszeilen werden per
+    # idempotentem Backfill in database.py auf 'committee_approved' gesetzt,
+    # weil sie bereits IC-freigegebene CH-Zahlen repraesentieren).
+    status = Column(String)
+    # Freitext/JSON zur Datenherkunft, z.B. "FRED-Serie DGS10 vom 2026-07-29,
+    # Nelson-Siegel-Fit" -- Pflichtangabe (fachlich, nicht DB-erzwungen) fuer
+    # status="data_derived".
+    source_detail = Column(String)
+    computed_at = Column(String)
+    computed_by = Column(String)
+    # Generische Home-Bias-Gegenstuecke zu equity_ch_*/bonds_chf_ig_*/
+    # real_estate_ch_* fuer Nicht-CH-Jurisdiktionen. Die bestehenden CH-
+    # Spalten oben bleiben UNVERAENDERT und werden weiterhin ausschliesslich
+    # vom CH-Pfad gelesen -- diese neuen Spalten sind additiv und werden von
+    # der Engine in diesem Arbeitspaket noch NICHT gelesen (spaeteres WP).
+    equity_home_return_bps = Column(Integer)
+    equity_home_vol_bps = Column(Integer)
+    bonds_home_ig_return_bps = Column(Integer)
+    bonds_home_ig_vol_bps = Column(Integer)
+    real_estate_home_return_bps = Column(Integer)
+    real_estate_home_vol_bps = Column(Integer)
+    # 2026-07-31 (Tenant-Override, Entscheid Auftraggeber): NULL = firmenweite
+    # CMA-Zeile fuer diese Jurisdiktion (Default). Gesetzt = eine einzelne
+    # Verwaltung (Tenant) hat fuer diese Jurisdiktion eigene Kapitalmarkt-
+    # annahmen hinterlegt, die Vorrang vor der firmenweiten Zeile haben --
+    # gleiches Override-Prinzip wie ProductUniverseEntry (models/review.py),
+    # nur fuer CMA-Zahlen statt Fonds. KEINE Aenderung am CH-Pfad: fuer
+    # jurisdiction in (None, "CH") wird tenant_id von der Engine nicht
+    # beruecksichtigt (siehe services/jurisdiction/resolve.py).
+    tenant_id = Column(String, ForeignKey("tenants.id"))
 
 
 class BuildingBlock(Base):
@@ -119,6 +375,18 @@ class BuildingBlock(Base):
     is_active = Column(Integer, nullable=False, default=1)
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
+    # WP1 (Home-Bias/CMA-Parametrisierung pro Jurisdiktion, 2026-07-30):
+    # NULL = "CH" (Backwards-Compat, gleiches Nullable-Pattern wie
+    # Mandate.jurisdiction / CapitalMarketAssumption.jurisdiction).
+    jurisdiction = Column(String)
+    # 1 = dieser Baustein ist noch nicht IC-geprueft (analog zu
+    # CapitalMarketAssumption.status="provisional", aber als einfaches
+    # Boolean-Flag statt Tri-State, da BuildingBlock keine Kapitalmarkt-
+    # Zahlen enthaelt). int-Default 0 ist zulaessig (INTEGER-Spalte).
+    is_provisional = Column(Integer, nullable=False, default=0)
+    # Semantischer Tag (z.B. "core", "satellite", "home_bias_overlay") --
+    # reine Kennzeichnung, keine Logik in diesem Arbeitspaket.
+    role = Column(String)
 
     policy = relationship("OptimizerPolicy", back_populates="building_blocks")
 

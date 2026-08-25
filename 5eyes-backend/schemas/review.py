@@ -36,30 +36,98 @@ class ReviewTriggerResponse(BaseResponse):
     updated_at: str
 
 
+CommunicationChannel = Literal[
+    "persoenlich", "video", "telefon", "schriftlich", "hybrid"
+]
+AdvisoryLanguage = Literal["de", "fr", "it", "en"]
+AdvisoryStatus = Literal[
+    "Empfohlen", "Beschlossen", "Umgesetzt", "Abgelehnt", "Überarbeitung nötig"
+]
+AdvisoryEntryType = Literal[
+    "Jahresreview", "Quartalscheck", "Strategie-Anpassung",
+    "Override-Entscheid", "Ereignis-Reaktion", "Drift-Entscheid",
+    "Zieländerung", "Restriktionsänderung",
+    "Initialer Beratungsabschluss", "Eignungsprüfung", "Sonstiges"
+]
+AdvisoryDecision = Literal[
+    "Keine Transaktion",
+    "Transaktion empfohlen",
+    "Strategie angepasst",
+    "Profil angepasst",
+    "Override bestätigt",
+    "Kein Handlungsbedarf",
+]
+
+
+class AdvisoryParticipant(BaseModel):
+    """Ein Anwesender neben dem Berater. FINMA-Tracking für Datenschutz +
+    Auskunftspflicht."""
+    role: Literal["client", "co_advisor", "partner", "guardian", "third_party"]
+    name: str = Field(min_length=2, max_length=200)
+    note: Optional[str] = None
+
+
 class AdvisoryLogCreate(BaseModel):
-    entry_type: Literal[
-        "Jahresreview", "Quartalscheck", "Strategie-Anpassung",
-        "Override-Entscheid", "Ereignis-Reaktion", "Drift-Entscheid",
-        "Zieländerung", "Restriktionsänderung",
-        "Initialer Beratungsabschluss", "Eignungsprüfung", "Sonstiges"
-    ]
-    title: str
-    description: Optional[str] = None
-    decision: Optional[Literal[
-        "Keine Transaktion",
-        "Transaktion empfohlen",
-        "Strategie angepasst",
-        "Profil angepasst",
-        "Override bestätigt",
-        "Kein Handlungsbedarf",
-    ]] = None
+    """Pflicht-Felder für FINMA-konformes Beratungsprotokoll (Sprint U-FINMA-2.1).
+
+    Mindestlängen: `description` ≥ 30, `decision` ≥ 10 (außer bei reinem
+    Diskussions-Eintrag), `topics` ≥ 1.
+    """
+    entry_type: AdvisoryEntryType
+    title: str = Field(min_length=3, max_length=200)
+    description: str = Field(
+        min_length=30, max_length=20_000,
+        description=(
+            "Inhalt des Gesprächs: besprochene Themen, Argumente, "
+            "Kundenposition. Min 30 Zeichen für FINMA-Nachvollziehbarkeit."
+        ),
+    )
+    decision: Optional[AdvisoryDecision] = None
     trigger_id: Optional[str] = None
     recommendation_run_id: Optional[str] = None
-    status: Optional[Literal["Empfohlen", "Beschlossen", "Umgesetzt", "Abgelehnt", "Überarbeitung nötig"]] = None
+    status: Optional[AdvisoryStatus] = None
     client_signed: bool = False
     client_signed_at: Optional[str] = None
     document_id: Optional[str] = None
-    entry_date: Optional[str] = None
+    entry_date: Optional[str] = None  # Legacy, akzeptiert für Backwards-Compat
+
+    # --- FINMA-Erweiterung (Pflichtfelder ab U-FINMA-2.1) ---
+    entry_datetime: str = Field(
+        description="ISO-Zeitpunkt des Gesprächs (Y-m-dTH:M:S.fZ).",
+    )
+    duration_minutes: int = Field(
+        ge=1, le=600,
+        description="Dauer 1-600 Minuten. Sehr kurze oder lange Termine "
+        "sollten manuell begründet sein.",
+    )
+    communication_channel: CommunicationChannel = Field(
+        description="Medium des Gesprächs. Entscheidet über Hinweispflichten.",
+    )
+    language: AdvisoryLanguage = "de"
+    location: Optional[str] = Field(default=None, max_length=200)
+    participants: list[AdvisoryParticipant] = Field(
+        default_factory=list,
+        description="Anwesende neben dem Berater.",
+    )
+    topics: list[str] = Field(
+        min_length=1, max_length=20,
+        description="Strukturierte Themen-Liste (min 1 Eintrag).",
+    )
+    risk_warnings_given: list[str] = Field(
+        default_factory=list,
+        description="Konkret erteilte Risiko-Hinweise (FIDLEG-Pflicht).",
+    )
+    cost_disclosure_given: bool = Field(
+        description="Ex-ante Kosten kommuniziert? FIDLEG-Pflicht.",
+    )
+    conflict_disclosure_ids: list[str] = Field(
+        default_factory=list,
+        description="IDs der offengelegten ConflictOfInterestDisclosures.",
+    )
+    suitability_check_id: Optional[str] = None
+    # 2026-07-25 (Generalaudit): Phase-0-Gate fehlte fuer Beratungsprotokoll --
+    # enthaelt Freitext-Gespraechsinhalt, sensibelste Kategorie neben Risk-Profiling.
+    data_classification: Literal["synthetic", "real"] = "synthetic"
 
     @model_validator(mode="after")
     def validate_signature(self):
@@ -67,16 +135,55 @@ class AdvisoryLogCreate(BaseModel):
             raise ValueError("client_signed_at ist Pflicht wenn client_signed=True")
         return self
 
+    @model_validator(mode="after")
+    def validate_decision_required_when_status(self):
+        """Wenn Status angegeben und nicht 'Empfohlen' → Entscheid muss da sein."""
+        if self.status and self.status != "Empfohlen" and not self.decision:
+            raise ValueError(
+                "decision ist Pflicht wenn status != 'Empfohlen' "
+                "(FIDLEG: Entscheid muss dokumentiert sein)"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def validate_topics_non_empty(self):
+        cleaned = [t.strip() for t in self.topics if t and t.strip()]
+        if not cleaned:
+            raise ValueError("Mindestens ein Thema muss angegeben werden")
+        if any(len(t) < 3 for t in cleaned):
+            raise ValueError("Themen müssen mindestens 3 Zeichen lang sein")
+        return self
+
 
 class AdvisoryLogUpdate(BaseModel):
-    status: Optional[Literal["Empfohlen", "Beschlossen", "Umgesetzt", "Abgelehnt", "Überarbeitung nötig"]] = None
+    """Update erzeugt eine *neue* Version, der alte Eintrag wird marked-as-
+    superseded (kein In-Place-Update — FINMA-Audit-Trail-Pflicht)."""
+    status: Optional[AdvisoryStatus] = None
     recommendation_run_id: Optional[str] = None
     description: Optional[str] = None
+    decision: Optional[AdvisoryDecision] = None
+    client_signed: Optional[bool] = None
+    client_signed_at: Optional[str] = None
+    risk_warnings_given: Optional[list[str]] = None
+    topics: Optional[list[str]] = None
 
     @model_validator(mode="after")
     def at_least_one_field(self):
-        if self.status is None and self.recommendation_run_id is None and self.description is None:
-            raise ValueError("Mindestens ein Feld muss angegeben werden")
+        for field in (
+            "status", "recommendation_run_id", "description", "decision",
+            "client_signed", "risk_warnings_given", "topics",
+        ):
+            if getattr(self, field) is not None:
+                return self
+        raise ValueError("Mindestens ein Feld muss angegeben werden")
+
+    @model_validator(mode="after")
+    def validate_description_min_length(self):
+        if self.description is not None and len(self.description) < 30:
+            raise ValueError(
+                "description muss mindestens 30 Zeichen lang sein "
+                "(FINMA-Nachvollziehbarkeit)"
+            )
         return self
 
 
@@ -98,6 +205,30 @@ class AdvisoryLogResponse(BaseResponse):
     created_at: str
     updated_at: str
 
+    # FINMA-Erweiterung
+    entry_datetime: Optional[str] = None
+    duration_minutes: Optional[int] = None
+    communication_channel: Optional[str] = None
+    language: Optional[str] = None
+    location: Optional[str] = None
+    participants: list[dict] = Field(default_factory=list)
+    topics: list[str] = Field(default_factory=list)
+    risk_warnings_given: list[str] = Field(default_factory=list)
+    cost_disclosure_given: int = 0
+    # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Snapshot der tatsaechlich
+    # gezeigten Kostenzahlen (siehe models/review.py::AdvisoryLog).
+    cost_disclosure_snapshot: Optional[dict] = None
+    conflict_disclosure_ids: list[str] = Field(default_factory=list)
+    suitability_check_id: Optional[str] = None
+    integrity_hash: Optional[str] = None
+    integrity_verified: Optional[bool] = None
+    retain_until: Optional[str] = None
+    version: int = 1
+    supersedes_id: Optional[str] = None
+    superseded_by_id: Optional[str] = None
+    last_read_at: Optional[str] = None
+    last_read_by: Optional[str] = None
+
 
 class ContractDocumentCreate(BaseModel):
     document_type: Literal[
@@ -107,16 +238,35 @@ class ContractDocumentCreate(BaseModel):
     ]
     title: str
     content_json: Optional[str] = None
+    # 2026-07-25 (Generalaudit): Phase-0-Gate fehlte fuer Vertragsdokumente.
+    data_classification: Literal["synthetic", "real"] = "synthetic"
 
 
 class ContractDocumentSign(BaseModel):
+    """2026-08-05 (User-Direktive, E-Signing): signed_by_advisor/client waren
+    reine Checkbox-Flags ohne echte Signatur. signature_image + signer_name
+    sind jetzt Pflicht -- ein Aufruf signiert GENAU EINEN Unterzeichner
+    (Berater ODER Kunde), weil jeder sein eigenes Signatur-Bild hat; beide in
+    einem Aufruf waere nicht eindeutig zuordenbar."""
     signed_by_advisor: bool = False
     signed_by_client: bool = False
+    signature_image: str
+    signer_name: str
 
     @model_validator(mode="after")
-    def at_least_one(self):
-        if not self.signed_by_advisor and not self.signed_by_client:
-            raise ValueError("Mindestens ein Unterzeichner muss angegeben werden")
+    def exactly_one_signer_with_real_signature(self):
+        if self.signed_by_advisor == self.signed_by_client:
+            raise ValueError(
+                "Genau ein Unterzeichner (Berater ODER Kunde) muss pro Aufruf "
+                "gesetzt sein -- Berater und Kunde haben je ein eigenes "
+                "Signatur-Bild und signieren daher getrennt."
+            )
+        if not self.signature_image.strip().startswith("data:image/"):
+            raise ValueError("signature_image muss eine data:image/...-URI sein")
+        if len(self.signature_image) > 500_000:
+            raise ValueError("Signatur-Bild zu gross (max. ca. 500 KB)")
+        if not self.signer_name.strip():
+            raise ValueError("Der Name des Unterzeichners ist erforderlich")
         return self
 
 
@@ -129,11 +279,25 @@ class ContractDocumentResponse(BaseResponse):
     signed_by_advisor: int
     signed_by_client: int
     signed_at: Optional[str]
+    signature_advisor_image: Optional[str] = None
+    signature_advisor_signer_name: Optional[str] = None
+    signature_advisor_signed_at: Optional[str] = None
+    signature_client_image: Optional[str] = None
+    signature_client_signer_name: Optional[str] = None
+    signature_client_signed_at: Optional[str] = None
     version: int
     supersedes_id: Optional[str]
     pdf_path: Optional[str]
     checksum_sha256: Optional[str]
+    # Dokumenten-Archiv (2026-08-20): NICHT pdf_base64 hier -- die Liste
+    # bleibt bewusst leicht (kann pro Mandat viele Versionen enthalten),
+    # die eigentlichen Bytes gibt es nur einzeln ueber
+    # GET /mandates/{id}/documents/{doc_id}/pdf. has_pdf zeigt der Liste,
+    # ob fuer diesen Eintrag ueberhaupt ein Download existiert (Alteintraege
+    # aus create_document ohne PDF haben keinen).
+    has_pdf: bool = False
     created_by: str
+    created_by_name: Optional[str] = None
     created_at: str
     updated_at: str
 
@@ -150,6 +314,13 @@ class ConflictDisclosureCreate(BaseModel):
     inducement_frequency: Optional[str] = None
     mitigation_action: Optional[str] = None
     document_id: Optional[str] = None
+    # 2026-07-27 (Retrozessions-Feature): explizit None = "nicht angegeben",
+    # Router fuellt aus Tenant.default_retrocession_reimbursement auf --
+    # unterscheidet sich damit bewusst von einem expliziten False.
+    reimbursed_to_client: Optional[bool] = None
+    waiver_document_id: Optional[str] = None
+    # 2026-07-25 (Generalaudit): Phase-0-Gate fehlte fuer Interessenkonflikte.
+    data_classification: Literal["synthetic", "real"] = "synthetic"
 
 
 class ConflictDisclosureResponse(BaseResponse):
@@ -163,6 +334,8 @@ class ConflictDisclosureResponse(BaseResponse):
     disclosed_at: Optional[str]
     client_acknowledged: int
     mitigation_action: Optional[str]
+    reimbursed_to_client: int = 0
+    waiver_document_id: Optional[str] = None
     disclosed_by: str
     created_at: str
     updated_at: str
@@ -177,9 +350,45 @@ class ProductCreate(BaseModel):
     asset_class: Literal["Aktien", "Obligationen", "Immobilien", "Alternative", "Liquidität"]
     sub_asset_class: Optional[str] = None
     currency: str = "CHF"
-    ter_bps: Optional[int] = None
+    # 2026-07-25 (Generalaudit): kein Bounds-Check -- ter_bps fliesst in den
+    # FIDLEG-Kostenausweis JEDES Kunden ein, der das Produkt haelt. Ein
+    # Tippfehler (negativ/zusaetzliche Nullen) korrumpiert den Kostenausweis
+    # systemweit (analog zum bereits gefixten return_bps-Fund). Bounds
+    # grosszuegig (0-10%), um legitime teure Alternative-Produkte nicht
+    # zu blockieren.
+    ter_bps: Optional[int] = Field(default=None, ge=0, le=1000)
     sfdr_class: Optional[Literal["6", "8", "9"]] = None
     esg_rating: Optional[str] = None
+    # Sprint U-P10: Diversifikations-Tiefe (alle optional, Default via Proxy)
+    country_exposure_json: Optional[str] = None
+    sector_exposure_json: Optional[str] = None
+    currency_exposure_json: Optional[str] = None
+    duration_years_x10: Optional[int] = None
+    credit_rating: Optional[str] = None
+    esg_score_x10: Optional[int] = None
+    liquidity_tier: Optional[str] = None
+
+
+class ProductUpdate(BaseModel):
+    """Sprint U-P10: Berater editiert Produkt-Metadaten (Admin-RBAC).
+    Alle Felder optional — nur gesetzte werden geupdated."""
+    product_name: Optional[str] = None
+    provider: Optional[str] = None
+    asset_class: Optional[Literal["Aktien", "Obligationen", "Immobilien", "Alternative", "Liquidität"]] = None
+    sub_asset_class: Optional[str] = None
+    currency: Optional[str] = None
+    # 2026-07-25 (Generalaudit): siehe ProductCreate.
+    ter_bps: Optional[int] = Field(default=None, ge=0, le=1000)
+    sfdr_class: Optional[Literal["6", "8", "9"]] = None
+    esg_rating: Optional[str] = None
+    country_exposure_json: Optional[str] = None
+    sector_exposure_json: Optional[str] = None
+    currency_exposure_json: Optional[str] = None
+    duration_years_x10: Optional[int] = None
+    credit_rating: Optional[str] = None
+    esg_score_x10: Optional[int] = None
+    liquidity_tier: Optional[str] = None
+    is_active: Optional[int] = None
 
 
 class ProductResponse(BaseResponse):
@@ -208,7 +417,72 @@ class ProductResponse(BaseResponse):
     ter_bps: Optional[int]
     sfdr_class: Optional[str]
     esg_rating: Optional[str]
+    # Sprint U-P10: Diversifikations-Tiefe
+    country_exposure_json: Optional[str] = None
+    sector_exposure_json: Optional[str] = None
+    currency_exposure_json: Optional[str] = None
+    duration_years_x10: Optional[int] = None
+    credit_rating: Optional[str] = None
+    esg_score_x10: Optional[int] = None
+    liquidity_tier: Optional[str] = None
     is_active: int
+    # 2026-08-05 (Fondsuniversum): NULL = globaler/geteilter Katalog,
+    # gesetzt = privater Fonds dieses Tenants (server-derived, siehe
+    # models/review.py::Product.tenant_id).
+    tenant_id: Optional[str] = None
+    created_at: str
+    updated_at: str
+
+
+class ProductBulkImportRequest(BaseModel):
+    """Fondsuniversum Bulk-API-Import (2026-08-05): programmatische
+    Schnittstelle fuer externe Asset-Manager-Systeme -- Feldmenge ist
+    identisch zu ProductCreate (auch hier gibt es bewusst kein
+    tenant_id-Feld, siehe ProductCreate/create_product)."""
+    products: list[ProductCreate]
+
+    @model_validator(mode="after")
+    def validate_batch_size(self):
+        if not self.products:
+            raise ValueError("products darf nicht leer sein")
+        if len(self.products) > 1000:
+            raise ValueError("Maximal 1000 Fonds pro Import-Aufruf")
+        return self
+
+
+class ProductImportResultItem(BaseModel):
+    row: int
+    status: Literal["created", "updated", "failed"]
+    product_id: Optional[str] = None
+    product_name: Optional[str] = None
+    error: Optional[str] = None
+
+
+class ProductImportResponse(BaseModel):
+    processed: int
+    created: int
+    updated: int
+    failed: int
+    items: list[ProductImportResultItem] = Field(default_factory=list)
+
+
+class ProductUniverseEntryCreate(BaseModel):
+    jurisdiction: str
+    product_id: str
+    override_ter_bps: Optional[int] = None
+
+
+class ProductUniverseEntryUpdate(BaseModel):
+    override_ter_bps: Optional[int] = None
+
+
+class ProductUniverseEntryResponse(BaseResponse):
+    id: str
+    tenant_id: str
+    jurisdiction: str
+    product_id: str
+    override_ter_bps: Optional[int]
+    created_by: str
     created_at: str
     updated_at: str
 
@@ -457,6 +731,11 @@ class RecommendationPositionResponse(BaseResponse):
     product_id: str
     target_weight_bps: int
     target_amount_rappen: Optional[int]
+    reference_price_rappen: Optional[int] = None
+    reference_price_date: Optional[str] = None
+    reference_price_source: Optional[str] = None
+    reference_lookup_mode: Optional[str] = None
+    reference_price_fetched_at: Optional[str] = None
     rationale: Optional[str]
     created_at: str
     updated_at: str
@@ -539,6 +818,9 @@ class RecommendationPositionDetailResponse(BaseModel):
     source_sub_asset_classes: list[str] = []
     reference_price_date: Optional[str] = None
     reference_price_rappen: Optional[int] = None
+    reference_price_source: Optional[str] = None
+    reference_lookup_mode: Optional[str] = None
+    reference_price_fetched_at: Optional[str] = None
     reference_recalibrated: Optional[bool] = None
     latest_price_date: Optional[str] = None
     latest_price_rappen: Optional[int] = None
@@ -563,6 +845,8 @@ class RecommendationPositionDetailResponse(BaseModel):
     rebalance_amount_rappen: Optional[int] = None
     price_change_bps: Optional[int] = None
     rebalance_action: Optional[str] = None
+    rebalance_action_code: Optional[str] = None
+    rebalance_action_label: Optional[str] = None
 
 
 class RecommendationGenerateResponse(BaseModel):
@@ -571,10 +855,14 @@ class RecommendationGenerateResponse(BaseModel):
     warnings: list[str]
     implementation_steps: list[str]
     advisory_wealth_rappen: int
+    investable_advisory_wealth_rappen: Optional[int] = None
     expected_return_bps: int
     expected_volatility_bps: int
     average_ter_bps: int
+    average_ter_coverage_bps: int = 0
+    missing_ter_positions_count: int = 0
     target_allocation_id: str
+    context_status: str = "current"
     market_data_quality: dict = Field(default_factory=dict)
     live_rebalancing: Optional[LiveRebalancingResponse] = None
 
@@ -602,3 +890,57 @@ class AuditLogPage(BaseModel):
     limit: int
     offset: int
     entries: list[AuditLogEntry]
+
+
+# ---------------------------------------------------------------------------
+# Sprint U-P28: Berater-Overrides für den Advisory-Report.
+#
+# Jedes Feld ist optional — leer/None bedeutet: der Aggregator nimmt den
+# Auto-Default-Text. So bleiben Mandate ohne gepflegte Notizen voll
+# kompatibel zum alten Verhalten.
+
+
+class ReportNotesUpdate(BaseModel):
+    """PUT /mandates/{id}/report-notes — Upsert-Payload."""
+
+    aa_anmerkungen: Optional[str] = None
+    waehrungen_erklaerung: Optional[str] = None
+    branchen_analyse: Optional[str] = None
+    vorgehen_block_optimierungen: Optional[str] = None
+    vorgehen_block_zielstrategie: Optional[str] = None
+    vorgehen_offene_fragen: Optional[list[str]] = None
+    vorgehen_naechster_termin: Optional[str] = None
+    vorgehen_todos: Optional[list[str]] = None
+    vorgehen_dokumente: Optional[list[str]] = None
+
+
+class ReportNotesHistoryEntry(BaseResponse):
+    """Sprint U-37b (2026-06-04): Ein Edit-Snapshot aus
+    previous_versions_json."""
+
+    edited_at: str
+    edited_by: str
+    changes: dict[str, dict[str, Optional[str]]] = Field(default_factory=dict)
+
+
+class ReportNotesResponse(BaseResponse):
+    """GET /mandates/{id}/report-notes — leere Felder bleiben None."""
+
+    id: Optional[str] = None
+    mandate_id: str
+    aa_anmerkungen: Optional[str] = None
+    waehrungen_erklaerung: Optional[str] = None
+    branchen_analyse: Optional[str] = None
+    vorgehen_block_optimierungen: Optional[str] = None
+    vorgehen_block_zielstrategie: Optional[str] = None
+    vorgehen_offene_fragen: list[str] = Field(default_factory=list)
+    vorgehen_naechster_termin: Optional[str] = None
+    vorgehen_todos: list[str] = Field(default_factory=list)
+    vorgehen_dokumente: list[str] = Field(default_factory=list)
+    last_edited_by: Optional[str] = None
+    last_edited_at: Optional[str] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+    # Sprint U-37b: Append-only History aller Edit-Snapshots,
+    # neueste zuerst. Schliesst Lücke aus PR #140 Review-Befund.
+    previous_versions: list[ReportNotesHistoryEntry] = Field(default_factory=list)

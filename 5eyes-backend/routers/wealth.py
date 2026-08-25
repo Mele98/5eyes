@@ -1,20 +1,31 @@
+import re
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import ValidationError
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from datetime import date, datetime, timezone
 from database import get_db, new_uuid
 from models.users import User
 from models.mandates import Mandate
 from models.clients import Client
-from models.wealth import WealthPosition, Cashflow, Goal, PlanningAssumption
+from models.wealth import WealthPosition, Cashflow, Goal, PlanningAssumption, WealthInflow
 from schemas.wealth import (
     WealthPositionCreate, WealthPositionUpdate, WealthPositionResponse,
     CashflowCreate, CashflowUpdate, CashflowResponse,
     GoalCreate, GoalUpdate, GoalResponse,
     PlanningAssumptionCreate, PlanningAssumptionResponse,
+    WealthInflowCreate, WealthInflowUpdate, WealthInflowResponse,
+    MaxPensionSpendingRequest, MaxPensionSpendingResponse,
 )
 from services.auth import get_client_for_user_or_404, get_current_user, get_mandate_for_user_or_404, require_advisor
 from services.audit import log
 from services.cashflow_timeline import SUPPORTED_FREQUENCIES, normalize_frequency, normalize_nature
+from services.data_classification import enforce_data_classification
+from services.wealth_position_semantics import (
+    WealthPositionSemanticsError,
+    require_supported_mortgage_amortization,
+    require_supported_position_assignment,
+)
 
 router = APIRouter(tags=["Vermögen & Ziele"])
 
@@ -23,18 +34,42 @@ def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 
 
+def _validate_position_projection_or_422(
+    position_type,
+    assignment,
+    amortization_rappen=0,
+    amortization_type=None,
+) -> None:
+    try:
+        require_supported_position_assignment(position_type, assignment)
+        require_supported_mortgage_amortization(
+            position_type,
+            amortization_rappen,
+            amortization_type,
+        )
+    except WealthPositionSemanticsError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
 def _normalize_cashflow_date(value) -> str | None:
+    """C10.3: Normalisiert YYYY-MM nach YYYY-MM-01, erlaubt YYYY-MM-DD,
+    leeren String -> None. Alles andere -> 422."""
     raw = str(value or "").strip()
     if not raw:
         return None
-    if len(raw) >= 7 and raw[4:5] == "-" and len(raw[:7]) == 7 and raw[:7].count("-") == 1 and len(raw) == 7:
-        raw = raw[:7] + "-01"
-    raw = raw[:10]
+    # YYYY-MM (Monat-Praezision) -> ersten Tag des Monats
+    if len(raw) == 7 and raw[4:5] == "-" and raw[:4].isdigit() and raw[5:7].isdigit():
+        candidate = raw + "-01"
+    else:
+        candidate = raw[:10]
     try:
-        date.fromisoformat(raw)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=f"Ungueltiges Datum: {raw}") from exc
-    return raw or None
+        date.fromisoformat(candidate)
+    except (TypeError, ValueError):
+        raise HTTPException(
+            status_code=422,
+            detail=f"Ungueltiges Datumsformat: {value!r} (erwartet YYYY-MM-DD oder YYYY-MM)",
+        )
+    return candidate
 
 
 def _normalize_cashflow_timing_precision(value) -> str | None:
@@ -128,6 +163,122 @@ def _goal_horizon_from_date(target: date | None) -> int | None:
     return max(1, int((delta_days + 364) // 365))
 
 
+def _goal_type_key(value) -> str:
+    raw = str(value or "").strip().lower().replace(" ", "_")
+    return (
+        raw.replace("ä", "ae")
+        .replace("ö", "oe")
+        .replace("ü", "ue")
+        .replace("Ã¤", "ae")
+        .replace("Ã¶", "oe")
+        .replace("Ã¼", "ue")
+    )
+
+
+def _goal_hardness_key(value) -> str:
+    raw = str(value or "").strip().lower()
+    return (
+        raw.replace("ä", "ae")
+        .replace("ö", "oe")
+        .replace("ü", "ue")
+        .replace("Ã¤", "ae")
+        .replace("Ã¶", "oe")
+        .replace("Ã¼", "ue")
+    )
+
+
+def _goal_effective(payload: dict, existing: Goal | None, field: str):
+    if field in payload:
+        return payload.get(field)
+    return getattr(existing, field, None) if existing is not None else None
+
+
+def _goal_int_or_none(value) -> int | None:
+    if value in (None, ""):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=422, detail="Ungültiger Zahlenwert im Ziel")
+
+
+def _validate_goal_payload_semantics(payload: dict, existing: Goal | None = None) -> None:
+    """Zieltyp-spezifische Feldisolierung und fachliche Guardrails.
+
+    GoalCreate validiert bereits viele Fälle. Diese zentrale Prüfung schützt
+    zusätzlich partielle Updates, damit alte Betragsfelder nicht unbemerkt in
+    einen neuen Zieltyp hineinragen.
+    """
+    goal_type = _goal_type_key(_goal_effective(payload, existing, "goal_type"))
+    if goal_type not in {
+        "kapitalerhalt",
+        "vermoegensziel",
+        "einmalige_ausgabe",
+        "wiederkehrende_ausgabe",
+        "pensionsausgabe",
+        "renditeziel",
+        "maximierung",
+    }:
+        raise HTTPException(status_code=422, detail="Unbekannter Zieltyp")
+
+    horizon_years = _goal_int_or_none(_goal_effective(payload, existing, "horizon_years"))
+    if horizon_years is not None and horizon_years < 1:
+        raise HTTPException(status_code=422, detail="Zeithorizont muss mindestens 1 Jahr betragen")
+
+    target_amount = _goal_int_or_none(_goal_effective(payload, existing, "target_amount_rappen"))
+    target_wealth = _goal_int_or_none(_goal_effective(payload, existing, "target_wealth_rappen"))
+    target_return = _goal_int_or_none(_goal_effective(payload, existing, "target_return_bps"))
+    hardness = _goal_hardness_key(_goal_effective(payload, existing, "hardness") or "Primär")
+
+    if goal_type == "renditeziel":
+        if hardness == "hart":
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "Renditeziel darf nicht als 'hart' definiert werden. "
+                    "Echte Bedarfsziele (Entnahme/Mindestvermögen) sind hart."
+                ),
+            )
+        if target_return is None or target_return <= 0:
+            raise HTTPException(status_code=422, detail="Renditeziel benötigt eine positive Zielrendite")
+        if target_amount is not None or target_wealth is not None:
+            raise HTTPException(status_code=422, detail="Renditeziel darf keinen Zielbetrag oder Zielvermögen tragen")
+    elif goal_type in {"einmalige_ausgabe", "wiederkehrende_ausgabe", "pensionsausgabe"}:
+        if target_amount is None or target_amount <= 0:
+            raise HTTPException(status_code=422, detail="Cashflow-Ziel benötigt einen positiven Zielbetrag")
+        if target_return is not None or target_wealth is not None:
+            raise HTTPException(status_code=422, detail="Cashflow-Ziel darf keine Zielrendite oder Zielvermögen tragen")
+    elif goal_type in {"kapitalerhalt", "vermoegensziel"}:
+        if target_wealth is None or target_wealth <= 0:
+            raise HTTPException(status_code=422, detail="Vermögensziel benötigt ein positives Zielvermögen")
+        if target_return is not None or target_amount is not None:
+            raise HTTPException(status_code=422, detail="Vermögensziel darf keine Zielrendite oder Cashflow-Zielbetrag tragen")
+    elif goal_type == "maximierung":
+        if target_return is not None or target_amount is not None or target_wealth is not None:
+            raise HTTPException(status_code=422, detail="Maximierung darf keinen fixen Zielwert tragen")
+
+
+def _validate_complete_goal_state(payload: dict, existing: Goal | None = None) -> None:
+    """Apply the same complete domain contract as Generate/Reload."""
+    from services.goal_semantics import GoalInputError, validate_goal_model_input
+
+    field_names = (
+        "goal_family", "goal_type", "label", "rank", "weight_bps", "goal_scope",
+        "value_mode", "target_amount_rappen", "target_wealth_rappen",
+        "target_return_bps", "success_probability_min_x100", "start_date",
+        "horizon_years", "target_date", "is_ongoing", "frequency",
+        "hardness", "probability_pct", "pension_pillar",
+    )
+    complete = {
+        field: payload.get(field, getattr(existing, field, None))
+        for field in field_names
+    }
+    try:
+        validate_goal_model_input(complete)
+    except GoalInputError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
 def _normalize_goal_payload(data: dict, existing: Goal | None = None) -> dict:
     payload = dict(data)
     goal_type = payload.get("goal_type", getattr(existing, "goal_type", None))
@@ -146,9 +297,23 @@ def _normalize_goal_payload(data: dict, existing: Goal | None = None) -> dict:
         if not target_date and start_date:
             target_date = start_date
     elif goal_type in ("Wiederkehrende_Ausgabe", "Pensionsausgabe"):
-        payload["frequency"] = normalize_frequency(payload.get("frequency", getattr(existing, "frequency", None)))
-        if not payload["frequency"] or payload["frequency"] == "einmalig":
-            payload["frequency"] = "jährlich"
+        raw_frequency = payload.get(
+            "frequency",
+            getattr(existing, "frequency", None),
+        )
+        normalized_frequency = normalize_frequency(raw_frequency)
+        if (
+            normalized_frequency not in SUPPORTED_FREQUENCIES
+            or normalized_frequency == "einmalig"
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "Wiederkehrende und Pensions-Ziele benoetigen eine "
+                    "unterstuetzte wiederkehrende Frequenz."
+                ),
+            )
+        payload["frequency"] = normalized_frequency
         payload["is_ongoing"] = bool(payload.get("is_ongoing", getattr(existing, "is_ongoing", True)))
     else:
         payload["frequency"] = None
@@ -162,17 +327,160 @@ def _normalize_goal_payload(data: dict, existing: Goal | None = None) -> dict:
 
     raw_horizon = payload.get("horizon_years", getattr(existing, "horizon_years", None))
     payload["horizon_years"] = int(raw_horizon) if raw_horizon not in (None, "") else derived_horizon
-    if payload["horizon_years"] is None:
+    # A default horizon is a creation convenience, not permission to erase a
+    # persisted target's explicit timing through a partial update. Updates
+    # are validated against their complete merged state below.
+    if payload["horizon_years"] is None and existing is None:
         payload["horizon_years"] = 10
-    if int(payload["horizon_years"] or 0) < 1:
-        raise HTTPException(status_code=400, detail="horizon_years muss >= 1 sein")
     payload["start_date"] = start_date
     payload["target_date"] = target_date
+    _validate_goal_payload_semantics(payload, existing)
+    _validate_complete_goal_state(payload, existing)
     return payload
 
 
 def _get_mandate_or_404(mandate_id: str, db: Session, current_user: User) -> Mandate:
     return get_mandate_for_user_or_404(mandate_id, db, current_user)
+
+
+def _invalidate_achievement_scores_for_mandate(
+    mandate_id: str,
+    db: Session,
+) -> int:
+    """Sprint 2026-06-08 Fix B: Achievability-Scores nach Goal-Edit auf NULL.
+
+    Wenn ein Goal hinzugefuegt/geaendert/geloescht wird, sind die persistierten
+    `achievement_score`-Werte aller Goals dieses Mandats potenziell veraltet:
+    - Ein neues Goal aendert die Konkurrenz um Reserve-/Wachstums-Kapazitaet
+    - Geaendertes Goal-Target aendert die Shortfall-Berechnung
+    - Sogar geloeschte Goals beeinflussen die Achievability anderer Goals
+
+    Methodisch sauber: NULL setzen statt veralteten Score zeigen. UI rendert
+    dann "—" mit dem bestehenden "Strategie neu berechnen"-Banner statt
+    falscher Prozent-Werte (Trust-Foundation).
+
+    Wir aendern KEINE Allocation (Strategietreue: SAA = Risikoprofil-bound,
+    ADR-003 anti-market-timing). Nur die persistierten Achievability-Anzeigen
+    werden invalidiert.
+
+    Returns: Anzahl der Goals deren Score auf NULL gesetzt wurde.
+    """
+    updated = db.query(Goal).filter(
+        Goal.mandate_id == mandate_id,
+        Goal.is_active == 1,
+        Goal.deleted_at.is_(None),
+        Goal.achievement_score.isnot(None),
+    ).update(
+        {Goal.achievement_score: None},
+        synchronize_session=False,
+    )
+    return int(updated or 0)
+
+
+def _resolve_goal_rank_conflict(
+    mandate_id: str,
+    requested_rank: int,
+    db: Session,
+    existing_id: str | None = None,
+) -> int:
+    """Sprint 2026-06-06 Fix: Bei Goal-Rank-Conflict auto-shift auf naechsten freien Rang.
+
+    Hintergrund: Frontend mapped Haerte → Rang (Hart=1, Primaer=2, Opp=3). Mit der
+    naiv-eindeutigen Rang-Pruefung konnte der Berater max 3 Goals erfassen (eines pro
+    Haerte). Beim 4. Goal kam 409. Das war ein UX-Blocker.
+
+    Loesung: Rang ist KEINE Haerte-Klassifikation (das ist `hardness`), sondern reine
+    UI-Sortier-Hilfe. Wenn der gewuenschte Rang belegt ist, vergibt das Backend
+    `max(existing_rank) + 1` (append-at-end). Die Haerte bleibt im `hardness`-Feld
+    semantisch korrekt — nur die visuelle Sortier-Position aendert sich.
+
+    Args:
+        mandate_id: Mandate fuer den Scope
+        requested_rank: Vom Frontend gewuenschter Rang
+        db: SQLAlchemy Session
+        existing_id: Beim Edit der ID des Goals selbst (damit es nicht mit sich
+            kollidiert)
+
+    Returns:
+        Den final zu nutzenden Rang. Gleich requested_rank falls frei, sonst
+        max(other_ranks) + 1.
+    """
+    query = db.query(Goal).filter(
+        Goal.mandate_id == mandate_id,
+        Goal.rank == requested_rank,
+        Goal.is_active == 1,
+        Goal.deleted_at.is_(None),
+    )
+    if existing_id is not None:
+        query = query.filter(Goal.id != existing_id)
+    if not query.first():
+        return int(requested_rank)
+    # Conflict: finde max benutzten Rang (excl. self) und vergebe max+1.
+    max_query = db.query(func.max(Goal.rank)).filter(
+        Goal.mandate_id == mandate_id,
+        Goal.is_active == 1,
+        Goal.deleted_at.is_(None),
+    )
+    if existing_id is not None:
+        max_query = max_query.filter(Goal.id != existing_id)
+    max_rank = max_query.scalar()
+    return int(max_rank or 0) + 1
+
+
+_AMORTIZATION_LABEL_RE = re.compile(r"\b(tilgung|amortisation|amortization)\b", re.IGNORECASE)
+
+
+def _is_amortization_label(label) -> bool:
+    if not label:
+        return False
+    return bool(_AMORTIZATION_LABEL_RE.search(str(label)))
+
+
+def _has_active_mortgage_liability(client_id: str, db: Session) -> bool:
+    return db.query(WealthPosition).filter(
+        WealthPosition.client_id == client_id,
+        WealthPosition.assignment == "Verbindlichkeit",
+        WealthPosition.position_type == "Hypothek",
+        WealthPosition.is_active == 1,
+        WealthPosition.deleted_at.is_(None),
+    ).first() is not None
+
+
+def _validate_no_mortgage_amortization_double_count(
+    client_id: str, payload: dict, db: Session, existing: Cashflow | None = None,
+) -> None:
+    """B3: Hypothek-Tilgung darf nicht als Cashflow erfasst werden, wenn fuer
+    denselben Kunden eine aktive Hypothek-Liability existiert.
+
+    Bilanziell ist Tilgung eine Reklassifikation (Vermoegen sinkt, Liability
+    sinkt um denselben Betrag) - kein Aufwand. Wenn als Expense-Cashflow
+    erfasst, sinkt das Vermoegen scheinbar doppelt -> falsche Reserve, falsche
+    Asset-Allokation.
+
+    Quellen: Swiss GAAP FER 16 §28-32, ASIP Standard 2.3, OR 957a.
+    """
+    cashflow_type = payload.get("cashflow_type")
+    if cashflow_type is None and existing is not None:
+        cashflow_type = existing.cashflow_type
+    if str(cashflow_type or "") != "Expense":
+        return
+    label = payload.get("label")
+    if label is None and existing is not None:
+        label = existing.label
+    if not _is_amortization_label(label):
+        return
+    if not _has_active_mortgage_liability(client_id, db):
+        return
+    raise HTTPException(
+        status_code=422,
+        detail=(
+            "Hypothek-Tilgung darf nicht als Cashflow erfasst werden. "
+            "Tilgung ist bilanziell eine Reklassifikation (Vermoegen und Liability "
+            "sinken um denselben Betrag), kein Aufwand. Bitte nur Hypothek-Zinsen "
+            "als Cashflow erfassen; die Tilgung wird ueber die Liability-Position "
+            "verfolgt."
+        ),
+    )
 
 
 def _validate_mortgage_link(client_id: str, data: dict, db: Session) -> None:
@@ -198,15 +506,20 @@ def _validate_mortgage_link(client_id: str, data: dict, db: Session) -> None:
 @router.get("/clients/{client_id}/wealth-positions", response_model=list[WealthPositionResponse])
 def list_wealth_positions(
     client_id: str,
+    include_inactive: bool = False,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    """C10.1: Standardmaessig nur aktive Positionen. include_inactive=true
+    fuer Admin-/Audit-Sicht."""
     get_client_for_user_or_404(client_id, db, current_user)
-    return db.query(WealthPosition).filter(
+    query = db.query(WealthPosition).filter(
         WealthPosition.client_id == client_id,
-        WealthPosition.is_active == 1,
         WealthPosition.deleted_at.is_(None)
-    ).order_by(WealthPosition.assignment, WealthPosition.position_type).all()
+    )
+    if not include_inactive:
+        query = query.filter(WealthPosition.is_active == 1)
+    return query.order_by(WealthPosition.assignment, WealthPosition.position_type).all()
 
 
 @router.post("/clients/{client_id}/wealth-positions",
@@ -217,9 +530,16 @@ def create_wealth_position(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor)
 ):
+    data = body.model_dump()
+    enforce_data_classification(data.pop("data_classification", None))
+    _validate_position_projection_or_422(
+        data.get("position_type"),
+        data.get("assignment"),
+        data.get("mortgage_amortization_rappen"),
+        data.get("mortgage_amortization_type"),
+    )
     client = get_client_for_user_or_404(client_id, db, current_user)
     now = _now()
-    data = body.model_dump()
     # Convert booleans to integers for SQLite
     for bool_field in ("pension_wef_possible", "is_available_for_goal_funding"):
         if bool_field in data and data[bool_field] is not None:
@@ -239,6 +559,12 @@ def create_wealth_position(
     return wp
 
 
+_ALLOC_FIELDS = (
+    "alloc_equities_bps", "alloc_bonds_bps", "alloc_real_estate_bps",
+    "alloc_liquidity_bps", "alloc_alternatives_bps",
+)
+
+
 @router.put("/clients/{client_id}/wealth-positions/{wp_id}",
             response_model=WealthPositionResponse)
 def update_wealth_position(
@@ -247,6 +573,8 @@ def update_wealth_position(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor)
 ):
+    updates = body.model_dump(exclude_unset=True)
+    enforce_data_classification(updates.pop("data_classification", None))
     get_client_for_user_or_404(client_id, db, current_user)
     wp = db.query(WealthPosition).filter(
         WealthPosition.id == wp_id,
@@ -255,12 +583,50 @@ def update_wealth_position(
     ).first()
     if not wp:
         raise HTTPException(status_code=404, detail="Vermögensposition nicht gefunden")
-    updates = body.model_dump(exclude_unset=True)
+    _validate_position_projection_or_422(
+        wp.position_type,
+        updates.get("assignment", wp.assignment),
+        updates.get(
+            "mortgage_amortization_rappen",
+            wp.mortgage_amortization_rappen,
+        ),
+        updates.get(
+            "mortgage_amortization_type",
+            wp.mortgage_amortization_type,
+        ),
+    )
+    # C10.2: exclude_unset erlaubt explizites Null-Setzen ("clear"). exclude_none
+    # haette ein None-Update verschluckt und keine Felder gecleared.
+    # C10.2: Wenn alloc_*-Felder im Update sind, muss die GEMERGTE Verteilung
+    # eine konsistente Summe ergeben (entweder alle 0 = Default-Mix wird genutzt
+    # oder Summe = 10000). Partial-Updates duerfen keine 7000-Summe erzeugen.
+    if any(f in updates for f in _ALLOC_FIELDS):
+        merged = {f: int(updates.get(f, getattr(wp, f, 0)) or 0) for f in _ALLOC_FIELDS}
+        total = sum(merged.values())
+        if wp.position_type != "Depot" and total != 0:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "alloc_*-Felder sind ausschliesslich für Depot-Positionen "
+                    "zulässig."
+                ),
+            )
+        if total != 0 and total != 10000:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"Allokation muss zusammen 10000 bps oder alle 0 ergeben "
+                    f"(aktuelle Summe: {total}). Bitte alle alloc_*-Felder zusammen "
+                    f"updaten oder auf 0 zuruecksetzen."
+                ),
+            )
     _validate_mortgage_link(client_id, updates, db)
     for field, value in updates.items():
         if isinstance(value, bool):
             value = 1 if value else 0
         setattr(wp, field, value)
+    # C10.2: updated_at darf nach Update nicht stale bleiben.
+    wp.updated_at = _now()
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="wealth_positions", record_id=wp_id, action="UPDATE",
         client_id=client_id)
@@ -295,14 +661,20 @@ def delete_wealth_position(
 @router.get("/clients/{client_id}/cashflows", response_model=list[CashflowResponse])
 def list_cashflows(
     client_id: str,
+    include_inactive: bool = False,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    """C10.1: Standardmaessig nur aktive Cashflows. include_inactive=true
+    fuer Admin-/Audit-Sicht."""
     get_client_for_user_or_404(client_id, db, current_user)
-    return db.query(Cashflow).filter(
+    query = db.query(Cashflow).filter(
         Cashflow.client_id == client_id,
         Cashflow.deleted_at.is_(None)
-    ).order_by(Cashflow.cashflow_type, Cashflow.label).all()
+    )
+    if not include_inactive:
+        query = query.filter(Cashflow.is_active == 1)
+    return query.order_by(Cashflow.cashflow_type, Cashflow.label).all()
 
 
 @router.post("/clients/{client_id}/cashflows",
@@ -313,9 +685,12 @@ def create_cashflow(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor)
 ):
+    payload = body.model_dump()
+    enforce_data_classification(payload.pop("data_classification", None))
     client = get_client_for_user_or_404(client_id, db, current_user)
     now = _now()
-    data = _normalize_cashflow_payload(body.model_dump())
+    data = _normalize_cashflow_payload(payload)
+    _validate_no_mortgage_amortization_double_count(client_id, data, db)
     cf = Cashflow(
         id=new_uuid(), client_id=client_id,
         is_active=1, created_at=now, updated_at=now,
@@ -360,6 +735,8 @@ def update_cashflow(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor)
 ):
+    updates = body.model_dump(exclude_unset=True)
+    enforce_data_classification(updates.pop("data_classification", None))
     get_client_for_user_or_404(client_id, db, current_user)
     cf = db.query(Cashflow).filter(
         Cashflow.id == cf_id,
@@ -368,7 +745,8 @@ def update_cashflow(
     ).first()
     if not cf:
         raise HTTPException(status_code=404, detail="Cashflow nicht gefunden")
-    updates = _normalize_cashflow_payload(body.model_dump(exclude_unset=True), cf)
+    updates = _normalize_cashflow_payload(updates, cf)
+    _validate_no_mortgage_amortization_double_count(client_id, updates, db, existing=cf)
     for field, value in updates.items():
         if isinstance(value, bool):
             value = 1 if value else 0
@@ -405,18 +783,14 @@ def create_goal(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor)
 ):
+    payload = body.model_dump()
+    enforce_data_classification(payload.pop("data_classification", None))
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
-    data = _normalize_goal_payload(body.model_dump())
-    # Check rank uniqueness
-    existing_rank = db.query(Goal).filter(
-        Goal.mandate_id == mandate_id,
-        Goal.rank == data["rank"],
-        Goal.is_active == 1,
-        Goal.deleted_at.is_(None)
-    ).first()
-    if existing_rank:
-        raise HTTPException(status_code=409,
-            detail=f"Rang {data['rank']} ist bereits vergeben. Bitte anderen Rang wählen.")
+    data = _normalize_goal_payload(payload)
+    # Sprint 2026-06-06 Fix: Rang-Konflikt auto-aufloesen statt 409. Hintergrund:
+    # Frontend mapped Haerte->Rang naiv (Hart=1, Primaer=2, Opp=3), so dass max
+    # 3 Goals erfassbar waren. Loesung: bei Conflict auto-shift auf max+1.
+    data["rank"] = _resolve_goal_rank_conflict(mandate_id, int(data["rank"]), db)
     now = _now()
     goal = Goal(
         id=new_uuid(),
@@ -429,6 +803,9 @@ def create_goal(
         **{k: v for k, v in data.items() if k not in ("is_ongoing",)}
     )
     db.add(goal)
+    # Sprint 2026-06-08 Fix B: Achievability-Scores anderer Goals invalidieren —
+    # neues Goal aendert die Reserve-/Wachstums-Konkurrenz.
+    _invalidate_achievement_scores_for_mandate(mandate_id, db)
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="goals", record_id=goal.id, action="CREATE",
         mandate_id=mandate_id, client_id=mandate.client_id)
@@ -444,6 +821,8 @@ def update_goal(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor)
 ):
+    updates = body.model_dump(exclude_unset=True)
+    enforce_data_classification(updates.pop("data_classification", None))
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
     goal = db.query(Goal).filter(
         Goal.id == goal_id,
@@ -452,23 +831,20 @@ def update_goal(
     ).first()
     if not goal:
         raise HTTPException(status_code=404, detail="Ziel nicht gefunden")
-    updates = _normalize_goal_payload(body.model_dump(exclude_unset=True), goal)
+    updates = _normalize_goal_payload(updates, goal)
     new_rank = updates.get("rank")
     if new_rank is not None and int(new_rank) != int(goal.rank or 0):
-        existing_rank = db.query(Goal).filter(
-            Goal.mandate_id == mandate_id,
-            Goal.rank == new_rank,
-            Goal.id != goal_id,
-            Goal.is_active == 1,
-            Goal.deleted_at.is_(None)
-        ).first()
-        if existing_rank:
-            raise HTTPException(status_code=409,
-                detail=f"Rang {new_rank} ist bereits vergeben. Bitte anderen Rang wählen.")
+        # Sprint 2026-06-06 Fix: Rang-Konflikt beim Update auto-aufloesen statt 409.
+        updates["rank"] = _resolve_goal_rank_conflict(
+            mandate_id, int(new_rank), db, existing_id=goal_id,
+        )
     for field, value in updates.items():
         if isinstance(value, bool):
             value = 1 if value else 0
         setattr(goal, field, value)
+    # Sprint 2026-06-08 Fix B: Achievability invalidieren — Goal-Target-Aenderung
+    # macht alle gespeicherten Scores potenziell stale.
+    _invalidate_achievement_scores_for_mandate(mandate_id, db)
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="goals", record_id=goal_id, action="UPDATE",
         mandate_id=mandate_id, client_id=mandate.client_id)
@@ -493,6 +869,9 @@ def delete_goal(
         raise HTTPException(status_code=404, detail="Ziel nicht gefunden")
     goal.deleted_at = _now()
     goal.is_active = 0
+    # Sprint 2026-06-08 Fix B: Achievability invalidieren — geloeschtes Goal
+    # aendert Reserve-/Wachstums-Konkurrenz der verbleibenden Goals.
+    _invalidate_achievement_scores_for_mandate(mandate_id, db)
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="goals", record_id=goal_id, action="DELETE",
         mandate_id=mandate_id, client_id=mandate.client_id)
@@ -555,35 +934,49 @@ def upsert_planning_assumptions(
     now = _now()
     today = date.today().isoformat()
     payload = body.model_dump(exclude_unset=True)
+    # sec-f4 (2026-08-02): Phase-0-Gate fehlte fuer Planning-Assumptions -- analog
+    # create_wealth_inflow/update_wealth_inflow nachgezogen (PlanningAssumption-
+    # Model hat keine data_classification-Spalte, Feld dient nur der Enforcement).
+    enforce_data_classification(payload.pop("data_classification", None))
+    # 2026-07-25 (Generalaudit, Wave 13): with_for_update() ergaenzt -- fehlte
+    # hier, obwohl der Sibling-Endpoint create_planning_assumptions (unten)
+    # denselben Anchor-Lookup bereits korrekt lockt (Race-Hardening, analog
+    # profiling.py). Zwei nahezu gleichzeitige PUT-Requests (Doppelklick/
+    # Retry) haetten zwei is_current=1-Versionen erzeugen koennen.
     existing = db.query(PlanningAssumption).filter(
         PlanningAssumption.mandate_id == mandate_id,
         PlanningAssumption.is_current == 1,
         PlanningAssumption.deleted_at.is_(None)
-    ).order_by(PlanningAssumption.version.desc()).first()
+    ).with_for_update().order_by(PlanningAssumption.version.desc()).first()
     if existing:
+        # rp-ueberarbeitung: Upsert legt eine NEUE Version an (versioning), nicht
+        # eine UPDATE in-place. Felder die im neuen Body nicht gesetzt sind,
+        # werden aus der vorigen Version uebernommen.
+        full: dict = {}
+        for field_name in PlanningAssumptionCreate.model_fields:
+            # sec-f4 (2026-08-02): data_classification ist ein reines Enforcement-
+            # Feld ohne Spalten-Pendant auf dem PlanningAssumption-Model -- oben
+            # bereits aus payload gepoppt, hier ebenfalls auslassen, sonst wuerde
+            # PlanningAssumption(**full) mit einem unbekannten Kwarg fehlschlagen.
+            if field_name == "data_classification":
+                continue
+            full[field_name] = getattr(existing, field_name, None)
+        full.update(payload)
+        prev_id = existing.id
+        prev_version = int(existing.version or 0)
         existing.is_current = 0
         existing.valid_to = today
-        record_payload = {
-            "retirement_age_primary": existing.retirement_age_primary,
-            "retirement_age_partner": existing.retirement_age_partner,
-            "life_expectancy_primary": existing.life_expectancy_primary,
-            "life_expectancy_partner": existing.life_expectancy_partner,
-            "inflation_assumption_bps": existing.inflation_assumption_bps,
-            "pension_indexation_bps": existing.pension_indexation_bps,
-            "notes": existing.notes,
-        }
-        record_payload.update(payload)
         pa = PlanningAssumption(
             id=new_uuid(),
             mandate_id=mandate_id,
             client_id=mandate.client_id,
-            version=int(existing.version or 0) + 1,
+            version=prev_version + 1,
             is_current=1,
             valid_from=today,
-            supersedes_id=existing.id,
+            supersedes_id=prev_id,
             created_at=now,
             updated_at=now,
-            **record_payload,
+            **full,
         )
         db.add(pa)
         log(db, user_id=current_user.id, user_name=current_user.full_name,
@@ -622,12 +1015,17 @@ def create_planning_assumptions(
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
     now = _now()
     today = date.today().isoformat()
-    # Supersede previous
+    data = body.model_dump()
+    # sec-f4 (2026-08-02): Phase-0-Gate fehlte fuer Planning-Assumptions -- analog
+    # create_wealth_inflow nachgezogen (PlanningAssumption-Model hat keine
+    # data_classification-Spalte, Feld dient nur der Enforcement).
+    enforce_data_classification(data.pop("data_classification", None))
+    # Supersede previous (Race-Hardening, siehe profiling.py).
     prev = db.query(PlanningAssumption).filter(
         PlanningAssumption.mandate_id == mandate_id,
         PlanningAssumption.is_current == 1,
         PlanningAssumption.deleted_at.is_(None)
-    ).first()
+    ).with_for_update().first()
     prev_version = 0
     prev_id = None
     if prev:
@@ -645,7 +1043,7 @@ def create_planning_assumptions(
         supersedes_id=prev_id,
         created_at=now,
         updated_at=now,
-        **body.model_dump()
+        **data
     )
     db.add(pa)
     log(db, user_id=current_user.id, user_name=current_user.full_name,
@@ -654,3 +1052,271 @@ def create_planning_assumptions(
     db.commit()
     db.refresh(pa)
     return pa
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Sprint A1 (2026-05-06): WealthInflow CRUD
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get("/clients/{client_id}/wealth-inflows", response_model=list[WealthInflowResponse])
+def list_wealth_inflows(
+    client_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    get_client_for_user_or_404(client_id, db, current_user)
+    return db.query(WealthInflow).filter(
+        WealthInflow.client_id == client_id,
+        WealthInflow.deleted_at.is_(None),
+    ).order_by(WealthInflow.expected_year.asc(), WealthInflow.created_at.asc()).all()
+
+
+@router.post("/clients/{client_id}/wealth-inflows",
+             response_model=WealthInflowResponse, status_code=201)
+def create_wealth_inflow(
+    client_id: str,
+    body: WealthInflowCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_advisor),
+):
+    data = body.model_dump()
+    # rls-3 (2026-07-23): Phase-0-Gate fehlte fuer Wealth-Inflows -- analog zu
+    # create_cashflow/create_goal/create_wealth_position nachgezogen
+    # (WealthInflow-Model hat keine data_classification-Spalte, Feld dient nur
+    # der Enforcement).
+    enforce_data_classification(data.pop("data_classification", None))
+    client = get_client_for_user_or_404(client_id, db, current_user)
+    if body.mandate_id:
+        # Ownership alone is insufficient: a mandate of another owned client
+        # would make the inflow disappear from both clients' engine queries.
+        inflow_mandate = get_mandate_for_user_or_404(
+            body.mandate_id,
+            db,
+            current_user,
+        )
+        if str(inflow_mandate.client_id) != str(client_id):
+            raise HTTPException(
+                status_code=422,
+                detail="Mandat und Vermoegenszufluss muessen zum selben Client gehoeren.",
+            )
+    now = _now()
+    inflow = WealthInflow(
+        id=new_uuid(),
+        client_id=client_id,
+        created_at=now,
+        updated_at=now,
+        **data,
+    )
+    db.add(inflow)
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="wealth_inflows", record_id=inflow.id, action="CREATE",
+        client_id=client_id, mandate_id=body.mandate_id)
+    db.commit()
+    db.refresh(inflow)
+    return inflow
+
+
+@router.put("/wealth-inflows/{inflow_id}", response_model=WealthInflowResponse)
+def update_wealth_inflow(
+    inflow_id: str,
+    body: WealthInflowUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_advisor),
+):
+    inflow = db.query(WealthInflow).filter(
+        WealthInflow.id == inflow_id,
+        WealthInflow.deleted_at.is_(None),
+    ).first()
+    if not inflow:
+        raise HTTPException(status_code=404, detail="Vermögenszufluss nicht gefunden")
+    # Ownership via client
+    get_client_for_user_or_404(inflow.client_id, db, current_user)
+    payload = body.model_dump(exclude_unset=True)
+    # rls-3 (2026-07-23): Phase-0-Gate analog update_cashflow/update_goal/
+    # update_wealth_position.
+    enforce_data_classification(payload.pop("data_classification", None))
+    # Validate the complete post-update state. A partial PATCH-like PUT must
+    # not be able to turn a valid one-time inflow into an incomplete recurring
+    # row that the projection would otherwise silently omit.
+    merged_state = {
+        field: payload.get(field, getattr(inflow, field, None))
+        for field in WealthInflowCreate.model_fields
+        if field != "data_classification"
+    }
+    try:
+        WealthInflowCreate.model_validate(merged_state)
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    for key, value in payload.items():
+        setattr(inflow, key, value)
+    inflow.updated_at = _now()
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="wealth_inflows", record_id=inflow.id, action="UPDATE",
+        client_id=inflow.client_id, mandate_id=inflow.mandate_id)
+    db.commit()
+    db.refresh(inflow)
+    return inflow
+
+
+@router.delete("/wealth-inflows/{inflow_id}", status_code=204)
+def delete_wealth_inflow(
+    inflow_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_advisor),
+):
+    inflow = db.query(WealthInflow).filter(
+        WealthInflow.id == inflow_id,
+        WealthInflow.deleted_at.is_(None),
+    ).first()
+    if not inflow:
+        raise HTTPException(status_code=404, detail="Vermögenszufluss nicht gefunden")
+    get_client_for_user_or_404(inflow.client_id, db, current_user)
+    inflow.deleted_at = _now()
+    inflow.is_active = 0
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="wealth_inflows", record_id=inflow.id, action="DELETE",
+        client_id=inflow.client_id, mandate_id=inflow.mandate_id)
+    db.commit()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Sprint A2 (2026-05-06): Max-Pension-Spending Rechner
+# Advisory-Methodik-Pattern: invertierte Frage — "wieviel kannst du im Ruhestand
+# ausgeben?" Berater erfasst Vermögen + Vorsorge → System rechnet Annuitaet.
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.post("/mandates/{mandate_id}/goals/calculate-max-pension-spending",
+             response_model=MaxPensionSpendingResponse)
+def calculate_max_pension_spending(
+    mandate_id: str,
+    body: MaxPensionSpendingRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_advisor),
+):
+    import math
+    from services.portfolio_engine import (
+        ensure_runtime_reference_data, _load_allocation_inputs,
+        _baseline_target_bands, _house_matrix_or_default, _risk_score_bucket,
+        _build_sub_allocations, _enrich_sub_allocations_with_risk,
+        _building_block_risky_map, _expected_metrics, _normalize_preferences,
+        _current_planning_inflation_bps, _goal_inflation_series_bps,
+        require_strategy_ready_assessment,
+    )
+    from services.jurisdiction.resolve import resolve_mandate_jurisdiction
+    from services.return_moments import arithmetic_moments_to_log_parameters
+
+    mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
+    jurisdiction = resolve_mandate_jurisdiction(mandate)
+    try:
+        policy, cma = ensure_runtime_reference_data(
+            db,
+            current_user.id,
+            jurisdiction=jurisdiction,
+            tenant_id=getattr(mandate, "tenant_id", None),
+        )
+        assessment = require_strategy_ready_assessment(db, mandate.id)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    inputs = _load_allocation_inputs(db, mandate, simulation_prefs={}, cma=cma)
+    advisory_wealth_rappen = int(inputs["advisory_wealth_rappen"] or 0)
+    if advisory_wealth_rappen <= 0:
+        raise HTTPException(
+            status_code=409,
+            detail="Beratungsvermögen muss > 0 CHF sein für die Max-Spending-Berechnung.",
+        )
+
+    score_bucket = _risk_score_bucket(assessment)
+    house_matrix = _house_matrix_or_default(db, policy, score_bucket)
+    prefs = _normalize_preferences(None)
+    targets, _, _ = _baseline_target_bands(house_matrix, policy)
+    risky_map = _building_block_risky_map(
+        db,
+        policy.id,
+        getattr(mandate, "investment_universe", None),
+        jurisdiction,
+    )
+    sub_allocations = _build_sub_allocations(
+        targets,
+        prefs,
+        jurisdiction=jurisdiction,
+        db=db,
+    )
+    sub_allocations, _, _ = _enrich_sub_allocations_with_risk(sub_allocations, risky_map)
+    metrics = _expected_metrics(targets, cma, sub_allocations)
+    expected_return_bps = int(metrics.get("expected_return_bps") or 0)
+    expected_vol_bps = int(metrics.get("expected_volatility_bps") or 0)
+
+    inflation_bps = _current_planning_inflation_bps(db, mandate)
+    if inflation_bps is None:
+        # Fallback aus CMA inflation_path_json (Mittelwert ueber 10J)
+        from datetime import date
+        infl_series = _goal_inflation_series_bps(cma, 10, date.today().year, planning_inflation_bps=None)
+        inflation_bps = int(round(sum(infl_series) / max(1, len(infl_series))))
+
+    # Arithmetic CMA mean and simple-return volatility are mapped jointly to
+    # the matching lognormal location and scale.
+    mu = expected_return_bps / 10000.0
+    sigma = expected_vol_bps / 10000.0
+    inflation = (inflation_bps or 0) / 10000.0
+    log_location, _log_scale = arithmetic_moments_to_log_parameters(mu, sigma)
+    nominal_geometric_return = math.exp(log_location) - 1.0
+    real_return = (1.0 + nominal_geometric_return) / (1.0 + inflation) - 1.0
+    real_return_bps = int(round(real_return * 10000))
+
+    years_in_retirement = max(1, int(body.life_expectancy_year - body.retirement_year))
+
+    # Annuitaeten-Formel (real): W = wealth * r / (1 - (1+r)^-n)
+    # bei r ≈ 0: linear: W = wealth / n
+    if abs(real_return) < 1e-6:
+        annual_real_chf_rappen = int(round(advisory_wealth_rappen / years_in_retirement))
+    else:
+        denom = 1.0 - (1.0 + real_return) ** (-years_in_retirement)
+        annual_real_chf_rappen = int(round(advisory_wealth_rappen * real_return / denom))
+
+    # Safety-Margin (default 0% — Berater entscheidet pro Kundengespraech)
+    safety_factor = 1.0 - (body.safety_margin_pct / 100.0)
+    annual_real_chf_rappen = max(0, int(round(annual_real_chf_rappen * safety_factor)))
+    monthly_real_chf_rappen = annual_real_chf_rappen // 12
+
+    # Bei value_mode=nominal: real annuity hochrechnen mit erwarteter Inflation
+    # zum Zeitpunkt retirement_year (mittlere Position der Auszahlungsperiode)
+    annual_chf_rappen_out = annual_real_chf_rappen
+    monthly_chf_rappen_out = monthly_real_chf_rappen
+    if body.value_mode == "nominal":
+        # Praktisch: ein Berater der "nominal" wählt will heute-Wert. Inflation
+        # mid-period: 0.5 * years_in_retirement
+        infl_factor = (1.0 + inflation) ** (years_in_retirement / 2.0)
+        annual_chf_rappen_out = int(round(annual_real_chf_rappen * infl_factor))
+        monthly_chf_rappen_out = annual_chf_rappen_out // 12
+
+    reasoning = [
+        f"Beratungsvermögen heute: CHF {advisory_wealth_rappen / 100:,.0f}",
+        f"Modell-Medianrendite (CMA-momententreu): {nominal_geometric_return * 100:.2f}% p.a. nominal",
+        f"Erwartete Inflation: {inflation * 100:.2f}% p.a.",
+        f"Realer Erwartungswert: {real_return * 100:.2f}% p.a.",
+        f"Auszahlungsperiode: {years_in_retirement} Jahre ({body.retirement_year}–{body.life_expectancy_year})",
+        f"Annuität ({body.value_mode}): CHF {annual_chf_rappen_out / 100:,.0f}/Jahr ≈ CHF {monthly_chf_rappen_out / 100:,.0f}/Monat",
+    ]
+    if body.safety_margin_pct:
+        reasoning.append(f"Sicherheits-Discount: {body.safety_margin_pct}% — Hedge gegen Sequence-of-Returns-Risiko.")
+    reasoning.append(
+        "Hinweis: Annuitäts-Berechnung mit erwarteter Rendite. Phase-7 wird MC-basiertes "
+        "Sustainable-Withdrawal-Rate (P10/P50) anbieten — die hier ist deterministisch."
+    )
+
+    return {
+        "max_monthly_chf_rappen": monthly_chf_rappen_out,
+        "max_annual_chf_rappen": annual_chf_rappen_out,
+        "retirement_year": body.retirement_year,
+        "life_expectancy_year": body.life_expectancy_year,
+        "years_in_retirement": years_in_retirement,
+        "value_mode": body.value_mode,
+        "expected_return_bps": expected_return_bps,
+        "expected_volatility_bps": expected_vol_bps,
+        "real_return_bps": real_return_bps,
+        "inflation_bps": int(inflation_bps or 0),
+        "advisory_wealth_rappen": advisory_wealth_rappen,
+        "safety_margin_pct": body.safety_margin_pct,
+        "reasoning": reasoning,
+    }

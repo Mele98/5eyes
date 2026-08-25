@@ -149,9 +149,7 @@ def test_audit_log_limit_capped_at_200(session_factory, admin_client):
 
     response = admin_client.get("/admin/system/audit-log?limit=999")
 
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["limit"] == 200
+    assert response.status_code == 422
 
 
 def test_audit_log_requires_admin(session_factory, forbidden_client):
@@ -222,6 +220,7 @@ def test_audit_log_integrity_hash_covers_content_fields(session_factory):
         client_id=entry.client_id,
         created_at=entry.created_at,
         previous_hash="",
+        ip_address=entry.ip_address,
     )
     tampered_payload = _audit_integrity_payload(
         entry_id=entry.id,
@@ -237,6 +236,7 @@ def test_audit_log_integrity_hash_covers_content_fields(session_factory):
         client_id=entry.client_id,
         created_at=entry.created_at,
         previous_hash="",
+        ip_address=entry.ip_address,
     )
 
     assert entry.integrity_hash == hashlib.sha256(expected_payload.encode("utf-8")).hexdigest()

@@ -1,0 +1,806 @@
+"""Vektorisierte Szenario-Engine fuer den Optimizer.
+
+Master-Spec: docs/planning/2026-05-05-stochastic-optimizer-spec.md (Sec 7,9)
+
+Kontrast zur bestehenden services.portfolio_engine._run_allocation_monte_carlo:
+diese ist eine *isolierte* NumPy-Implementierung speziell fuer den Optimizer.
+Die existing MC-Engine bleibt unangetastet (Audit-konsistent, alle Z/B/W2.5
+Tests gruen). Der Optimizer ruft AUSSCHLIESSLICH diese Engine, nicht die
+existing.
+
+Vorteile dieser Engine:
+1. NumPy-vektorisiert -> 50-100x schneller als python-loop
+2. Cornish-Fisher fat-tail Sampling pro Bucket
+3. Antithetic Variates fuer Variance Reduction
+4. Deterministischer Seed via numpy Generator
+5. Liability-Pfad als zusaetzlicher Outflow-Subtrahierter
+
+Convention:
+- bucket order: ('equities', 'bonds', 'real_estate', 'alternatives', 'liquidity')
+- weights[i] = Anteil von bucket i (summe = 1.0)
+- horizon_years = Anzahl Jahre simuliert
+- return_paths shape: (n_paths, horizon_years, 5) - multiplikative Faktoren
+  (1.05 = +5% Jahres-Return)
+- wealth_paths shape: (n_paths, horizon_years + 1) - in Rappen (kann negativ
+  werden = Lebensluecke)
+
+Lebensluecke: konsistent zur existing W2.5-Logik. Wenn wealth nach Cashflow
+& Liability negativ wird, wachst es NICHT (kein Zins-auf-Schuld) sondern
+bleibt nominal stehen bis Cashflow positiv wird.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Iterable
+
+import numpy as np
+
+from services.cma_validation import (
+    CMAValidationError,
+    NELSON_SIEGEL_DEFAULT_MATURITY_YEARS,
+    correlation_factor,
+    parse_correlation_matrix_json,
+    validate_equity_kgv_parameters,
+    validate_nelson_siegel_parameters,
+)
+from services.return_moments import (
+    arithmetic_moments_to_log_parameters,
+    bounded_cornish_fisher,
+)
+
+from .distributions import _MAX_EXCESS_KURT, _MAX_SKEW
+
+
+# Konsistent zu services.portfolio_engine.BUCKET_FIELDS
+BUCKET_ORDER = ("equities", "bonds", "real_estate", "alternatives", "liquidity")
+N_BUCKETS = len(BUCKET_ORDER)
+
+
+@dataclass(frozen=True)
+class ScenarioInputs:
+    """Compactes Input-Tupel fuer die Engine.
+
+    Vermeidet Abhaengigkeit von SQLAlchemy Models in der Engine selbst -
+    der Caller extrahiert die Werte aus CapitalMarketAssumption.
+
+    Alle bps-Werte sind integer, Cholesky-Matrix ist (5,5) ndarray.
+    skew/kurt sind in bps (z.B. -5000 = -0.5 skew). Wenn None, fallback 0.
+    """
+    mu_bps: np.ndarray  # shape (5,)
+    sigma_bps: np.ndarray  # shape (5,)
+    skew_bps: np.ndarray  # shape (5,) - 0 wenn nicht gesetzt
+    excess_kurt_bps: np.ndarray  # shape (5,) - 0 wenn nicht gesetzt
+    cholesky: np.ndarray  # shape (5, 5) lower-triangular
+
+
+# ============================================================================
+# Cornish-Fisher in NumPy (Vektor-Variante der distributions.py)
+# ============================================================================
+
+
+def cornish_fisher_array(
+    z: np.ndarray,
+    skew: np.ndarray,
+    excess_kurt: np.ndarray,
+) -> np.ndarray:
+    """NumPy-Variante von distributions.cornish_fisher_quantile.
+
+    z: shape (...) standard-normal Stichproben
+    skew, excess_kurt: shape (n_assets,) oder broadcastable
+
+    Clamping konsistent zu distributions._clamp_skew/_clamp_kurt:
+    s in [-1, 1], k in [0, 8].
+    """
+    s = np.clip(skew, -_MAX_SKEW, _MAX_SKEW)
+    k = np.clip(excess_kurt, 0.0, _MAX_EXCESS_KURT)
+    return np.asarray(bounded_cornish_fisher(z, s, k), dtype=np.float64)
+
+
+def _log_parameters_for_inputs(
+    inputs: ScenarioInputs,
+) -> tuple[np.ndarray, np.ndarray]:
+    mu = np.asarray(inputs.mu_bps, dtype=np.float64) / 10_000.0
+    sigma = np.asarray(inputs.sigma_bps, dtype=np.float64) / 10_000.0
+    skew = np.clip(
+        np.asarray(inputs.skew_bps, dtype=np.float64) / 10_000.0,
+        -_MAX_SKEW,
+        _MAX_SKEW,
+    )
+    kurt = np.clip(
+        np.asarray(inputs.excess_kurt_bps, dtype=np.float64) / 10_000.0,
+        0.0,
+        _MAX_EXCESS_KURT,
+    )
+    locations = np.empty(N_BUCKETS, dtype=np.float64)
+    scales = np.empty(N_BUCKETS, dtype=np.float64)
+    for index in range(N_BUCKETS):
+        locations[index], scales[index] = (
+            arithmetic_moments_to_log_parameters(
+                float(mu[index]),
+                float(sigma[index]),
+                skew=float(skew[index]),
+                excess_kurtosis=float(kurt[index]),
+                use_cornish_fisher=True,
+            )
+        )
+    return locations, scales
+
+
+# ============================================================================
+# Build Scenario Paths
+# ============================================================================
+
+
+def _safe_cholesky(corr_matrix: np.ndarray) -> np.ndarray:
+    """Strict PSD correlation factor (legacy function name retained).
+
+    Invalid matrices are CMA domain errors. Singular but valid PSD matrices
+    use an eigen-factor and are not silently replaced with identity.
+    """
+    return correlation_factor(corr_matrix)
+
+
+def build_default_correlation_matrix() -> np.ndarray:
+    """Default 5x5 Korrelationsmatrix (CH-Markt, konservativ).
+
+    Sprint U-P0 Fix C7: Single-Source-of-Truth aus portfolio_engine importieren.
+    Vorher waren hier andere Werte hartcodiert (equity-bonds=-0.10 vs -0.20
+    in portfolio_engine), was zwei divergierende Engine-Pfade produzierte.
+    Reihenfolge: equities, bonds, real_estate, alternatives, liquidity.
+    """
+    from services.portfolio_engine import _DEFAULT_CORRELATION_MATRIX
+    return np.array(_DEFAULT_CORRELATION_MATRIX)
+
+
+def build_scenario_paths(
+    inputs: ScenarioInputs,
+    *,
+    horizon_years: int,
+    n_paths: int,
+    seed: int,
+    antithetic: bool = True,
+) -> np.ndarray:
+    """Liefert (n_paths, horizon_years, 5) array von log-normal Returns.
+
+    Pro Pfad pro Jahr pro Asset wird ein multiplikativer Faktor
+    R = exp(location + scale * Z_correlated_cf) erzeugt. ``location`` und
+    ``scale`` werden so kalibriert, dass die einfachen Returns exakt die
+    arithmetischen CMA-Momente ``mu`` und ``sigma`` besitzen.
+
+    Antithetic Variates: wenn True, wird die zweite Haelfte der Pfade als
+    -Z gespiegelt. Das reduziert Varianz fuer symmetrische Statistiken
+    (Mean, Median) und ist Standard in Mulvey/Ziemba-MC.
+
+    Determinismus: gleicher seed + gleiche inputs -> identische Output-Array.
+    Wir nutzen np.random.default_rng(seed) (PCG64), nicht legacy RandomState.
+    """
+    horizon_years = int(max(1, horizon_years))
+    n_paths = int(max(1, n_paths))
+
+    if antithetic:
+        half = (n_paths + 1) // 2  # round up; antithetic ergaenzt zur Gesamtzahl
+    else:
+        half = n_paths
+
+    rng = np.random.default_rng(np.uint64(seed))
+    # Independent standard normals: shape (half, horizon, n_buckets)
+    Z = rng.standard_normal(size=(half, horizon_years, N_BUCKETS))
+
+    # Apply Cholesky correlation per (path, year) - shape stays (half, horizon, n_buckets)
+    # Z @ chol.T (broadcasted): np.einsum is most explicit
+    Z_corr = np.einsum("phb,kb->phk", Z, inputs.cholesky)
+
+    # Cornish-Fisher per asset (broadcasting)
+    skew = inputs.skew_bps / 10_000.0  # bps -> decimal
+    kurt = inputs.excess_kurt_bps / 10_000.0
+    Z_cf = cornish_fisher_array(Z_corr, skew, kurt)
+
+    if antithetic:
+        # Antithetic: -Z (auch durch Cholesky, sollte gleich sein)
+        Z_anti_corr = -Z_corr
+        Z_anti_cf = cornish_fisher_array(Z_anti_corr, skew, kurt)
+        Z_combined = np.concatenate([Z_cf, Z_anti_cf], axis=0)[:n_paths]
+    else:
+        Z_combined = Z_cf
+
+    log_location, log_scale = _log_parameters_for_inputs(inputs)
+    log_returns = log_location + log_scale * Z_combined
+    return_factors = np.exp(log_returns)
+    return return_factors
+
+
+def build_scenario_paths_with_weights(
+    inputs: ScenarioInputs,
+    *,
+    horizon_years: int,
+    n_paths: int,
+    seed: int,
+    antithetic: bool = True,
+    use_importance_sampling: bool = False,
+    is_shift_strength: float = 0.5,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Liefert Pfade + Likelihood-Weights (Phase 5b Stochastic-Optimizer-Spec).
+
+    Wenn use_importance_sampling=False, identisch zu build_scenario_paths()
+    + weights = ones(n_paths) (trivialer Estimator).
+
+    Wenn use_importance_sampling=True, biased die Sampling-Verteilung in
+    die Tail-Region (default: negativer Equity-Shift), und gibt
+    Likelihood-Ratio-Weights pro Pfad. Downstream-Objective muss die
+    gewichtete Erwartung berechnen statt der ungewichteten Sample-Mean.
+
+    Parameters
+    ----------
+    inputs, horizon_years, n_paths, seed, antithetic
+        Wie in build_scenario_paths().
+    use_importance_sampling : bool
+        Default False. Wenn True, aktiviert Mean-Shift-IS mit Default-Shift
+        (Equity-Buckets nach negativ, siehe importance_sampling.py).
+    is_shift_strength : float
+        Shift-Magnitude in Standard-Deviationen. Nur relevant wenn
+        use_importance_sampling=True. Typisch 0.3-1.0. Default 0.5.
+
+    Returns
+    -------
+    paths : np.ndarray
+        Shape (n_paths, horizon_years, n_buckets) — log-normal return factors.
+    weights : np.ndarray
+        Shape (n_paths,) — Likelihood-Ratio. Bei IS off: alle 1.0.
+
+    Notes
+    -----
+    Antithetic + Importance Sampling werden NICHT kombiniert. Wenn IS aktiv,
+    wird antithetic intern auf False gesetzt (Mean-Shift biased die Stichprobe
+    asymmetrisch, antithetic-Spiegelung wuerde das aufheben).
+    """
+    from .importance_sampling import (
+        apply_mean_shift,
+        build_shift_vector,
+        compute_likelihood_weights,
+        make_default_weights,
+    )
+
+    n_paths = int(max(1, n_paths))
+
+    if not use_importance_sampling:
+        paths = build_scenario_paths(
+            inputs,
+            horizon_years=horizon_years,
+            n_paths=n_paths,
+            seed=seed,
+            antithetic=antithetic,
+        )
+        return paths, make_default_weights(n_paths)
+
+    # IS-Pfad: antithetic deaktivieren (siehe Notes), Pfade mit Mean-Shift
+    horizon_years = int(max(1, horizon_years))
+    rng = np.random.default_rng(np.uint64(seed))
+    z_uncorrelated = rng.standard_normal(size=(n_paths, horizon_years, N_BUCKETS))
+
+    shift_vector = build_shift_vector(N_BUCKETS, strength=float(is_shift_strength))
+    z_shifted = apply_mean_shift(z_uncorrelated, shift_vector)
+    # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): compute_likelihood_weights() braucht
+    # die tatsaechlich gezogene PROPOSAL-Stichprobe (z_shifted ~ N(shift_vector, I)),
+    # nicht das rohe z_uncorrelated ~ N(0, I) davor -- w(x) = exp(-mu·x + 0.5|mu|^2)
+    # ist als Funktion des SAMPLES x definiert, nicht des Pre-Shift-Werts. Numerisch
+    # verifiziert: mit z_uncorrelated war mean(w) ~3.5 statt ~1.0 (default shift,
+    # horizon=5) -- ein globaler exp(|mu|^2*T)-Bias-Faktor. Fuer alle bestehenden
+    # Konsumenten (shortfall_/chance_/volatility_objective) folgenlos, weil die
+    # Normalisierung Sum(f*w)/Sum(w) jede globale Konstante exakt herauskuerzt --
+    # aber das dokumentierte Invariant E[w]=1 (siehe importance_sampling.py-Docstring
+    # + test_likelihood_weights_sum_to_n_asymptotically) gilt am Call-Site erst mit
+    # diesem Fix tatsaechlich.
+    weights = compute_likelihood_weights(z_shifted, shift_vector)
+
+    # Cholesky + Cornish-Fisher + Itô-Korrektur — gleiche Pipeline wie
+    # build_scenario_paths, aber auf den geshifteten Z
+    z_corr = np.einsum("phb,kb->phk", z_shifted, inputs.cholesky)
+    skew = inputs.skew_bps / 10_000.0
+    kurt = inputs.excess_kurt_bps / 10_000.0
+    z_cf = cornish_fisher_array(z_corr, skew, kurt)
+    log_location, log_scale = _log_parameters_for_inputs(inputs)
+    log_returns = log_location + log_scale * z_cf
+    return_factors = np.exp(log_returns)
+    return return_factors, weights
+
+
+# ============================================================================
+# Simulate Wealth Paths
+# ============================================================================
+
+
+def _compute_per_path_wealth_tax_drag(
+    grown: np.ndarray,
+    *,
+    tax_regime,
+    ctx_template_kwargs: dict,
+    tax_mode: str,
+    n_bins: int = 20,
+) -> np.ndarray:
+    """Sprint B2 (2026-06-07): Liefert per-Pfad Wealth-Tax-Drag-Faktor.
+
+    Returns shape (n_paths,) Float-Array mit dem multiplikativen Drag
+    pro Pfad (z.B. 0.997 = 0.3% Steuer). Bei Pfaden mit wealth <= 0:
+    1.0 (kein Drag).
+
+    Modi:
+    - 'median': MEDIAN ueber alle positive wealth → 1 Steuer-Rate fuer alle
+      (Backwards-Compat, schnellster Pfad)
+    - 'binned': Quantil-Binning in n_bins Schritten, pro Bin eine Rate.
+      Empfohlen fuer HNW-Mandate mit progressivem Tarif (CH-Vermoegenssteuer).
+      ~n_bins × 1 Tax-Call/Jahr statt 1 (Median) oder n_paths (Per-Path).
+    - 'per_path': Eine Tax-Rate pro Pfad (volle Genauigkeit, langsam).
+      Nur fuer Audit/Vergleichstests.
+    """
+    from services.tax.base import TaxContext
+
+    n_paths = grown.shape[0]
+    drag = np.ones(n_paths, dtype=np.float64)
+    positive_mask = grown > 0
+    if not positive_mask.any():
+        return drag
+
+    if tax_mode == "median":
+        ctx = TaxContext(
+            wealth_rappen=float(np.median(grown[positive_mask])),
+            **ctx_template_kwargs,
+        )
+        wt = tax_regime.annual_wealth_tax(ctx)
+        if wt.effective_bps > 0:
+            drag = np.where(positive_mask, 1.0 - wt.effective_bps / 10000.0, 1.0)
+        return drag
+
+    if tax_mode == "per_path":
+        # Loop per Pfad — langsam aber maximal genau
+        for p in range(n_paths):
+            if not positive_mask[p]:
+                continue
+            ctx = TaxContext(
+                wealth_rappen=float(grown[p]),
+                **ctx_template_kwargs,
+            )
+            wt = tax_regime.annual_wealth_tax(ctx)
+            if wt.effective_bps > 0:
+                drag[p] = 1.0 - wt.effective_bps / 10000.0
+        return drag
+
+    # 'binned' (Default-Empfehlung fuer B2)
+    pos_wealth = grown[positive_mask]
+    n_bins_eff = min(int(n_bins), int(pos_wealth.size))
+    if n_bins_eff <= 1:
+        # Edge: nur ein positiver Pfad → wie per_path
+        ctx = TaxContext(
+            wealth_rappen=float(pos_wealth[0]),
+            **ctx_template_kwargs,
+        )
+        wt = tax_regime.annual_wealth_tax(ctx)
+        if wt.effective_bps > 0:
+            drag = np.where(positive_mask, 1.0 - wt.effective_bps / 10000.0, 1.0)
+        return drag
+    # Quantil-Bins
+    quantiles = np.linspace(0, 1, n_bins_eff + 1)
+    bin_edges = np.quantile(pos_wealth, quantiles)
+    # Bin-Repraesentant: Median pro Bin
+    bin_rates = np.zeros(n_bins_eff, dtype=np.float64)
+    for b in range(n_bins_eff):
+        in_bin = (pos_wealth >= bin_edges[b]) & (pos_wealth <= bin_edges[b + 1])
+        if not in_bin.any():
+            continue
+        bin_repr = float(np.median(pos_wealth[in_bin]))
+        ctx = TaxContext(
+            wealth_rappen=bin_repr,
+            **ctx_template_kwargs,
+        )
+        wt = tax_regime.annual_wealth_tax(ctx)
+        bin_rates[b] = float(wt.effective_bps)
+    # Assign Pfad zu Bin via digitize (auf positiven Pfaden)
+    bin_idx = np.clip(
+        np.digitize(grown, bin_edges) - 1, 0, n_bins_eff - 1,
+    )
+    # Drag fuer positive Pfade: 1 - rate/10000; negative bleiben 1.0
+    rates_per_path = np.where(positive_mask, bin_rates[bin_idx], 0.0)
+    drag = 1.0 - rates_per_path / 10000.0
+    return drag
+
+
+def simulate_wealth_paths(
+    *,
+    initial_wealth_rappen: int,
+    weights: np.ndarray,
+    return_paths: np.ndarray,
+    cashflow_series_rappen: Iterable[int],
+    liability_path_rappen: Iterable[int] | None = None,
+    tax_regime=None,
+    dividend_yield_bps_per_bucket: np.ndarray | None = None,
+    base_calendar_year: int = 2026,
+    mandate_age_at_start: int | None = None,
+    is_retired: bool = False,
+    death_year_index_per_path: np.ndarray | None = None,
+    tax_mode: str = "median",
+    tax_n_bins: int = 20,
+) -> np.ndarray:
+    """Simuliert Wealth-Pfad ueber alle Szenarien — optional steuer-aware.
+
+    weights: shape (5,), summe ~ 1.0 (Toleranz: keine Constraint hier)
+    return_paths: shape (n_paths, horizon, 5) aus build_scenario_paths
+    cashflow_series_rappen: shape (horizon,) - Netto-Cashflow pro Jahr
+        (positiv = Income > Expense)
+    liability_path_rappen: shape (horizon,) - Goal-Outflows pro Jahr
+        (positiv = Outflow). Wird vom Cashflow subtrahiert (also wealth wird
+        kleiner). None = kein Goal-Outflow.
+    tax_regime: TaxRegime-Instanz fuer steuer-aware Simulation. None =
+        keine Steuern (Backwards-Compat zur Vor-Sprint-3-Version).
+        Spec: docs/planning/2026-05-17-sprint-3-tax-plugin-system.md
+    dividend_yield_bps_per_bucket: shape (5,), Dividend-Yield pro Bucket
+        in bps. Nur relevant wenn tax_regime != None. Bestimmt das
+        Dividenden-Einkommen pro Jahr (= wealth * weights @ yields).
+    base_calendar_year: Start-Kalender-Jahr fuer Tax-Year-Versioning
+        (TaxContext.calendar_year = base_calendar_year + t).
+    mandate_age_at_start: optionales Alter des Mandanten zu t=0 fuer
+        altersabhaengige Steuern (CH-Pension-Lumpsum, AHV-Alter).
+    is_retired: Decumulation-Phase Flag (CH-Pillar-3a-Befreiung).
+    death_year_index_per_path: optional shape (n_paths,) integer-Array
+        mit Sterbe-Jahr-Index pro Pfad. Wenn gesetzt, werden Cashflow
+        und Liability nach death_year_index auf 0 gesetzt (pro Pfad).
+        Spec: docs/planning/2026-05-17-sprint-4-bfs-mortality.md
+        Konvention: death_year_index[p]=5 → Pfad p lebt in t=0..4 (cashflow
+        aktiv), ab t=5 cashflow=0. Wachstum laeuft weiter (Erbschaft, aber
+        keine weiteren Einnahmen/Ausgaben).
+
+    Returns: (n_paths, horizon + 1) wealth array. wealth[:, 0] = initial,
+    wealth[:, t+1] = wealth nach Wachstum (- Steuern wenn aktiv) + Cashflow
+    - Liability im Jahr t.
+
+    Steuer-Order pro Jahr (wenn tax_regime aktiv):
+    1. Wachstum: prev * portfolio_factor
+    2. Dividenden-Steuer auf Yield-Komponente des Wachstums
+       (nur wenn dividend_yield_bps_per_bucket gesetzt)
+    3. Vermoegenssteuer auf Wealth nach Wachstum
+       (nur wenn tax_regime.supports_wealth_tax)
+    4. Cashflow + Liability
+
+    Lebensluecke (W2.5-konsistent): wealth kann negativ werden. Bei
+    negativem wealth wird KEIN Zins-Effekt angewendet (deficit waechst nicht
+    durch Schuldzinsen - nur durch weitere negative Cashflows). Steuern
+    werden ebenfalls nur auf positives Wealth angewendet.
+    """
+    return_paths = np.asarray(return_paths, dtype=np.float64)
+    weights = np.asarray(weights, dtype=np.float64).reshape(N_BUCKETS)
+    n_paths, horizon, n_buckets = return_paths.shape
+    if n_buckets != N_BUCKETS:
+        raise ValueError(f"return_paths last dim must be {N_BUCKETS}, got {n_buckets}")
+
+    cashflow = np.asarray(list(cashflow_series_rappen), dtype=np.float64)
+    if cashflow.shape != (horizon,):
+        # Pad/trim auf horizon
+        padded = np.zeros(horizon, dtype=np.float64)
+        copy_len = min(horizon, cashflow.size)
+        padded[:copy_len] = cashflow[:copy_len]
+        cashflow = padded
+
+    if liability_path_rappen is None:
+        liability = np.zeros(horizon, dtype=np.float64)
+    else:
+        liability = np.asarray(list(liability_path_rappen), dtype=np.float64)
+        if liability.shape != (horizon,):
+            padded = np.zeros(horizon, dtype=np.float64)
+            copy_len = min(horizon, liability.size)
+            padded[:copy_len] = liability[:copy_len]
+            liability = padded
+
+    # Mortalitaets-Maske: pro Pfad cashflow/liability auf 0 nach Tod
+    if death_year_index_per_path is not None:
+        death_idx = np.asarray(death_year_index_per_path, dtype=np.int32)
+        if death_idx.shape != (n_paths,):
+            raise ValueError(
+                f"death_year_index_per_path must be shape ({n_paths},), got {death_idx.shape}"
+            )
+        # Maske: shape (n_paths, horizon), True wenn Pfad lebt in Jahr t
+        t_range = np.arange(horizon, dtype=np.int32)
+        alive_mask = t_range[None, :] < death_idx[:, None]
+        cashflow_per_path = cashflow[None, :] * alive_mask
+        liability_per_path = liability[None, :] * alive_mask
+    else:
+        cashflow_per_path = None  # Sentinel: nutze 1D cashflow direkt
+        liability_per_path = None
+
+    # Dividend-Yield pro Bucket vorbereiten — fuer Vektor-Dividenden-Berechnung
+    dividend_yield_weighted_bps = 0.0
+    if dividend_yield_bps_per_bucket is not None and tax_regime is not None:
+        dy = np.asarray(dividend_yield_bps_per_bucket, dtype=np.float64)
+        if dy.shape != (N_BUCKETS,):
+            raise ValueError(
+                f"dividend_yield_bps_per_bucket must be shape ({N_BUCKETS},), got {dy.shape}"
+            )
+        dividend_yield_weighted_bps = float(np.dot(weights, dy))  # gewichteter bps
+
+    wealth = np.empty((n_paths, horizon + 1), dtype=np.float64)
+    wealth[:, 0] = float(initial_wealth_rappen)
+
+    # Lazy-Import: vermeidet Zirkular-Dependency wenn TaxRegime services.tax nicht importiert ist
+    if tax_regime is not None:
+        from services.tax.base import TaxContext
+
+    for t in range(horizon):
+        # Portfolio-Faktor pro Pfad: gewichtete Summe der Asset-Returns
+        portfolio_factor = np.einsum("pb,b->p", return_paths[:, t, :], weights)
+        prev = wealth[:, t]
+        # Wachstum nur fuer positive Wealth; negative bleibt nominal (W2.5)
+        grown = np.where(prev > 0, prev * portfolio_factor, prev)
+
+        if tax_regime is not None:
+            # Sprint B2 (2026-06-07): per-Pfad-Tax-Modes statt nur Median.
+            # 'median' = Backwards-Compat, 'binned' = besserer Default fuer
+            # progressive Tarife (CH-Vermoegenssteuer), 'per_path' = volle
+            # Genauigkeit fuer Audit-Tests.
+            age_t = (mandate_age_at_start + t) if mandate_age_at_start is not None else None
+            ctx_template_kwargs = dict(
+                year_index=t,
+                calendar_year=base_calendar_year + t,
+                age=age_t,
+                is_retired=is_retired,
+            )
+            # Dividenden-Steuer-Drag bleibt repraesentativ (Yield ist ein
+            # Asset-Charakteristikum, nicht wealth-skaliert wie Vermoegensteuer).
+            # Reprasentations-Context: median wealth (wie pre-B2).
+            positive_mask_for_div = grown > 0
+            if dividend_yield_weighted_bps > 0 and positive_mask_for_div.any():
+                ctx_for_div = TaxContext(
+                    wealth_rappen=float(np.median(grown[positive_mask_for_div])),
+                    **ctx_template_kwargs,
+                )
+                div_income_repr = ctx_for_div.wealth_rappen * dividend_yield_weighted_bps / 10000.0
+                div_tax_result = tax_regime.dividend_tax(ctx_for_div, div_income_repr)
+                div_drag_bps = div_tax_result.effective_bps * dividend_yield_weighted_bps / 10000.0
+                grown = np.where(
+                    grown > 0,
+                    grown * (1.0 - div_drag_bps / 10000.0),
+                    grown,
+                )
+
+            # 3. Vermoegenssteuer pro Pfad — KERN-VERBESSERUNG B2
+            if tax_regime.supports_wealth_tax:
+                drag = _compute_per_path_wealth_tax_drag(
+                    grown,
+                    tax_regime=tax_regime,
+                    ctx_template_kwargs=ctx_template_kwargs,
+                    tax_mode=tax_mode,
+                    n_bins=tax_n_bins,
+                )
+                # drag ist 1.0 fuer wealth <= 0 (kein Effekt)
+                grown = grown * drag
+
+        if cashflow_per_path is not None:
+            wealth[:, t + 1] = grown + cashflow_per_path[:, t] - liability_per_path[:, t]
+        else:
+            wealth[:, t + 1] = grown + cashflow[t] - liability[t]
+
+    return wealth
+
+
+# ============================================================================
+# Helper: Inputs aus CMA-like Object (loose duck-typing)
+# ============================================================================
+
+
+def scenario_inputs_from_cma(cma, sub_allocations: list[dict] | None = None) -> ScenarioInputs:
+    """Extrahiert ScenarioInputs aus einem CMA-Objekt (oder Mock mit gleichen Attributen).
+
+    Sprint B1 (2026-06-07): sub_allocations enables Sub-Allocation-Aware
+    Bucket-Returns. Wenn list[dict] uebergeben wird, werden Bucket-Returns
+    und -Vols nach den realen Sub-Gewichten berechnet (statt Durchschnitt
+    aller verfuegbaren Sub-CMA-Werte).
+
+    sub_allocations: list[dict] mit Keys 'asset_class', 'sub_asset_class',
+    'target_weight_bps'. Konsistent zur Konvention in portfolio_engine.
+    _weighted_bucket_metrics (Single-Source-of-Truth).
+
+    Backwards-Compat: ohne sub_allocations gelten die historischen
+    Bucket-Defaults. Deren Materialisierung erfolgt nun bewusst ueber dieselbe
+    Single-Source-of-Truth wie im Reporting.
+
+    Korrelation: nur ein fehlendes/leer gespeichertes Payload nutzt die
+    Swiss-market Default-Matrix. Ein vorhandenes Payload wird strikt auf
+    Shape, endliche Werte, Range, Symmetrie und PSD validiert.
+    """
+    # Materialise through the same path as reporting. This is unconditional:
+    # a present corrupt Sub-CMA payload is invalid even without sleeves.
+    try:
+        from services.portfolio_engine import _weighted_bucket_metrics
+        sub_returns, sub_vols = _weighted_bucket_metrics(
+            cma,
+            sub_allocations,
+            strict=bool(sub_allocations),
+        )
+        bucket_returns = {b: float(sub_returns[b]) for b in BUCKET_ORDER}
+        bucket_vols = {b: float(sub_vols[b]) for b in BUCKET_ORDER}
+    except Exception as exc:
+        from .constraints import OptimizerInputError
+
+        if isinstance(exc, OptimizerInputError):
+            raise
+        raise OptimizerInputError(f"Invalid CMA model input: {exc}") from exc
+
+    mu_bps = np.array([bucket_returns[b] for b in BUCKET_ORDER], dtype=np.float64)
+    sigma_bps = np.array([bucket_vols[b] for b in BUCKET_ORDER], dtype=np.float64)
+    if not np.all(np.isfinite(mu_bps)) or np.any(mu_bps <= -10_000.0):
+        from .constraints import OptimizerInputError
+
+        raise OptimizerInputError(
+            "CMA expected returns must be finite and greater than -100%."
+        )
+    if not np.all(np.isfinite(sigma_bps)) or np.any(sigma_bps < 0.0):
+        from .constraints import OptimizerInputError
+
+        raise OptimizerInputError(
+            "CMA expected volatilities must be finite and non-negative."
+        )
+
+    # Skew + Kurt: Phase 1 Felder pro Bucket aus CMA
+    skew_bps = np.array([
+        int(getattr(cma, f"{b}_skewness_bps", 0) or 0)
+        for b in BUCKET_ORDER
+    ], dtype=np.float64)
+    excess_kurt_bps = np.array([
+        int(getattr(cma, f"{b}_excess_kurt_bps", 0) or 0)
+        for b in BUCKET_ORDER
+    ], dtype=np.float64)
+
+    # Korrelations-Matrix
+    try:
+        correlation = parse_correlation_matrix_json(
+            getattr(cma, "correlation_matrix_json", None),
+            default_matrix=build_default_correlation_matrix(),
+            dimension=N_BUCKETS,
+        )
+        assert correlation is not None
+        cholesky = _safe_cholesky(np.asarray(correlation, dtype=np.float64))
+    except CMAValidationError as exc:
+        from .constraints import OptimizerInputError
+
+        raise OptimizerInputError(f"Invalid CMA model input: {exc}") from exc
+
+    return ScenarioInputs(
+        mu_bps=mu_bps,
+        sigma_bps=sigma_bps,
+        skew_bps=skew_bps,
+        excess_kurt_bps=excess_kurt_bps,
+        cholesky=cholesky,
+    )
+
+
+def _avg_or_zero(values: list) -> float:
+    """Mittelwert der nicht-None-Werte; 0 wenn alle None."""
+    valid = [int(v) for v in values if v is not None]
+    if not valid:
+        return 0.0
+    return float(sum(valid) / len(valid))
+
+
+# Sprint 6 Phase 2: Default-Maturity fuer Bonds-Bucket-Return-Aggregation.
+# 5 Jahre = mittlere Duration eines IG-Bond-Universums (typisch 4-7).
+# Berater kann via separates Mandate-Feld spaeter ueberschreiben.
+_BONDS_DEFAULT_MATURITY_YEARS = NELSON_SIEGEL_DEFAULT_MATURITY_YEARS
+
+
+def _compute_return_from_risk_premium(cma, premium_field_name: str) -> float | None:
+    """Sprint 8: Risk-Asset-Return = NS.short_rate + premium.
+
+    Returns None wenn:
+    - premium-Feld nicht gesetzt im CMA
+    - NS-Curve nicht aktiv (kein risk_free-Anker)
+    Caller faellt dann auf fixe Werte zurueck (Backwards-Compat).
+
+    Bei Aktivierung: nutzt NelsonSiegelCurve.short_rate_bps() (= y(0+) =
+    beta0 + beta1) als risk_free Anker und addiert das Premium.
+    """
+    premium = getattr(cma, premium_field_name, None)
+    if premium is None:
+        return None
+    # The risk-free anchor exists only when the *complete* NS group is active.
+    # Beta0+Beta1 alone is a partial/inactive group and must not activate a
+    # model that Bonds themselves are not using.
+    ns_parameters = validate_nelson_siegel_parameters(cma)
+    if ns_parameters is None:
+        return None
+    beta0, beta1, _, _ = ns_parameters
+    if isinstance(premium, bool):
+        raise CMAValidationError(f"{premium_field_name} muss eine Zahl sein.")
+    try:
+        premium_bps = float(premium)
+        if not np.isfinite(premium_bps):
+            raise CMAValidationError(
+                f"{premium_field_name} muss endlich (finite) sein."
+            )
+        from services.risk_premium.model import RiskPremiumModel
+        # Short-Rate = beta0 + beta1 (kein Curvature-Effekt am Short-End)
+        risk_free_bps = beta0 + beta1
+        model = RiskPremiumModel(
+            asset_class=premium_field_name,
+            premium_bps=premium_bps,
+        )
+        result = float(model.expected_return_bps(risk_free_bps))
+    except CMAValidationError:
+        raise
+    except (ArithmeticError, TypeError, ValueError) as exc:
+        raise CMAValidationError(
+            f"Ungueltige {premium_field_name}-CMA-Parameter: {exc}"
+        ) from exc
+    if not np.isfinite(result) or result <= -10_000.0:
+        raise CMAValidationError(
+            f"{premium_field_name} erzeugt keinen endlichen, fachlich "
+            "gueltigen Return (> -100 %)."
+        )
+    return result
+
+
+# Sprint 7: Default-Horizont fuer KGV-Mean-Reversion-Adjustment.
+# 10 Jahre ist sinnvoller Planungshorizont. Berater kann via separate
+# scenario_inputs_from_cma-Wrapper-Funktion overriden (TODO Phase 3).
+_KGV_DEFAULT_HORIZON_YEARS = 10
+
+
+def _compute_equity_kgv_adjustment(cma) -> float:
+    """Sprint 7: Equity-Return-Adjustment aus KGV-Mean-Reversion in bps.
+
+    Returns 0.0 wenn CMA NICHT alle 3 KGV-Params hat (Backwards-Compat).
+    Bei vollstaendigen Params: berechnet KGVMeanReversionModel-Adjustment
+    fuer Default-Horizont 10J.
+    """
+    parameters = validate_equity_kgv_parameters(cma)
+    if parameters is None:
+        return 0.0
+    kgv_current, kgv_fair, alpha = parameters
+    try:
+        from services.equity_valuation.mean_reversion import KGVMeanReversionModel
+        model = KGVMeanReversionModel(
+            kgv_current=kgv_current,
+            kgv_fair=kgv_fair,
+            alpha=alpha,
+        )
+        adjustment = model.expected_annual_return_adjustment_bps(
+            _KGV_DEFAULT_HORIZON_YEARS
+        )
+    except (ArithmeticError, TypeError, ValueError) as exc:
+        raise CMAValidationError(
+            f"Ungueltige vollstaendige KGV-CMA-Parameter: {exc}"
+        ) from exc
+    if not np.isfinite(adjustment):
+        raise CMAValidationError(
+            "KGV-CMA-Parameter erzeugen kein endliches Return-Adjustment."
+        )
+    return float(adjustment)
+
+
+def _compute_bonds_return_from_nelson_siegel(cma) -> float | None:
+    """Sprint 6 Phase 2: Bond-Return aus Nelson-Siegel-Curve falls vorhanden.
+
+    Returns None wenn CMA NICHT alle 4 NS-Params hat → Caller faellt auf
+    fixed bonds_*_return_bps zurueck (Backwards-Compat).
+
+    Bei vollstaendigen NS-Params: berechnet yield_at(5J) als Bond-Return.
+    Spaeter Erweiterungs-Pfad: pro Bond-Bucket eigene Maturity (kurz/mittel/lang).
+    """
+    parameters = validate_nelson_siegel_parameters(cma)
+    if parameters is None:
+        return None
+    beta0, beta1, beta2, lambda_ = parameters
+    try:
+        from services.rates.nelson_siegel import NelsonSiegelCurve
+        curve = NelsonSiegelCurve(
+            beta0_bps=beta0,
+            beta1_bps=beta1,
+            beta2_bps=beta2,
+            lambda_=lambda_,
+        )
+        result = float(curve.yield_at(_BONDS_DEFAULT_MATURITY_YEARS))
+    except (ArithmeticError, TypeError, ValueError) as exc:
+        raise CMAValidationError(
+            f"Ungueltige vollstaendige Nelson-Siegel-CMA-Parameter: {exc}"
+        ) from exc
+    if not np.isfinite(result) or result <= -10_000.0:
+        raise CMAValidationError(
+            "Nelson-Siegel-CMA-Parameter erzeugen keinen endlichen, "
+            "fachlich gueltigen 5J-Return (> -100 %)."
+        )
+    return result

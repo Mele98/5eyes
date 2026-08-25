@@ -25,6 +25,11 @@ class WealthPosition(Base):
     property_zip_city = Column(String)
     property_usage = Column(String)
     property_rental_income_rappen = Column(Integer, nullable=False, default=0)
+    # 2026-06-18 (#84): Miete teuerungsindexiert -> abgeleiteter Mietertrag-Cashflow
+    # wird is_inflation_linked=1 (waechst in der Projektion mit der Teuerung).
+    # server_default="0": DB-seitiger Default, damit auch rohe SQL-Inserts (ohne diese
+    # Spalte) und Bestandszeilen 0 erhalten (nicht nur ORM-Inserts via Python-default).
+    property_rental_inflation_linked = Column(Integer, nullable=False, server_default="0", default=0)
     pension_type = Column(String)
     pension_institution = Column(String)
     pension_technical_rate_bps = Column(Integer)
@@ -83,6 +88,36 @@ class Cashflow(Base):
     client = relationship("Client", back_populates="cashflows")
 
 
+class WealthInflow(Base):
+    """Erwarteter Vermögenszufluss (Erbschaft, Bonus, Saeule3b, Verkaufserlös, ...).
+
+    Sprint A1 (2026-05-06): in Advisory-Methodik ein eigenes Konzept; bei uns vorher
+    nur als pos-Cashflow modellierbar. First-class fuer:
+    - Reserve-Berechnung: Inflow in Year T reduziert Reserve-Bedarf fuer
+      Outflows ≤ T
+    - cashflow_projection: positive Beitrag im erwarteten Jahr
+    - FE-Visualisierung als gruener Marker
+    """
+    __tablename__ = "wealth_inflows"
+
+    id = Column(String, primary_key=True)
+    client_id = Column(String, ForeignKey("clients.id"), nullable=False)
+    mandate_id = Column(String, ForeignKey("mandates.id"))  # optional, falls Mandate-spezifisch
+    label = Column(String, nullable=False)
+    source_type = Column(String, nullable=False)  # 'Erbschaft' | 'Bonus' | 'Saeule3b' | 'Verkaufserloes' | 'Andere'
+    amount_rappen = Column(Integer, nullable=False)
+    expected_year = Column(Integer, nullable=False)
+    is_recurring = Column(Integer, nullable=False, default=0)
+    frequency = Column(String)  # 'einmalig' | 'jaehrlich' | 'monatlich'
+    duration_years = Column(Integer)  # bei recurring
+    value_mode = Column(String, nullable=False, default="nominal")  # 'nominal' | 'real'
+    notes = Column(String)
+    is_active = Column(Integer, nullable=False, default=1)
+    created_at = Column(String, nullable=False)
+    updated_at = Column(String, nullable=False)
+    deleted_at = Column(String)
+
+
 class Goal(Base):
     __tablename__ = "goals"
 
@@ -99,12 +134,20 @@ class Goal(Base):
     target_amount_rappen = Column(Integer)
     target_wealth_rappen = Column(Integer)
     target_return_bps = Column(Integer)
+    success_probability_min_x100 = Column(Integer)
     start_date = Column(String)
     horizon_years = Column(Integer)
     target_date = Column(String)
     is_ongoing = Column(Integer, nullable=False, default=0)
     frequency = Column(String)
     hardness = Column(String, nullable=False, default="Primär")
+    # Sprint B6 (2026-05-08): Bedingte Goals — Eintrittswahrscheinlichkeit 0-100.
+    # NULL/None wird in Engine als 100 (sicher eintretend) interpretiert.
+    probability_pct = Column(Integer, nullable=True, default=100)
+    # Sprint B3 (2026-05-08): Vorsorge-Differenziert. Ordnet Pensionsausgabe-Goals
+    # einer konkreten Saeule zu (AHV / BVG / 3a / 1e / FZG). NULL bei nicht-
+    # Pensionsausgabe-Goals oder unspezifizierter Saeule (audit-konsistent zu pre-B3).
+    pension_pillar = Column(String, nullable=True)
     linked_position_id = Column(String)
     notes = Column(String)
     is_active = Column(Integer, nullable=False, default=1)

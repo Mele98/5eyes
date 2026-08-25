@@ -3,6 +3,15 @@
     if (window.desktop && typeof window.desktop.getBackendBaseUrl === 'function') {
       return window.desktop.getBackendBaseUrl();
     }
+    // Browser-Hosting (Tunnel/Server, 2026-06-18): ohne Electron-Bridge wird die
+    // App ueber das Backend ausgeliefert -> die API ist SAME-ORIGIN wie das HTML,
+    // NICHT 127.0.0.1 (das waere der localhost des Remote-Browsers -> "Backend
+    // nicht erreichbar"). Nur der echte file://-Electron-Dev-Fall faellt auf
+    // 127.0.0.1:8000 zurueck.
+    if (typeof window !== 'undefined' && window.location &&
+        (window.location.protocol === 'http:' || window.location.protocol === 'https:')) {
+      return window.location.origin;
+    }
     return 'http://127.0.0.1:8000';
   }
 

@@ -1,0 +1,202 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Editoriale Hierarchie: Default-Body-Style — sparsam, ruhig. */
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    @apply bg-canvas text-ink font-sans;
+    font-feature-settings: 'kern' 1, 'liga' 1;
+  }
+
+  /* Sprint U-50 (2026-06-06): Dark-Mode-Tokens.
+   * Bewusst gedaempfte Variante mit Navy-Hintergrund + Offwhite-Text,
+   * NICHT schwarz/weiss-Hochkontrast. Bleibt Swiss-Private-Banking-
+   * Aesthetik treu. */
+  html.dark {
+    color-scheme: dark;
+  }
+  html.dark body {
+    background-color: #0F1C2E;
+    color: #FAFAF6;
+  }
+  html.dark .bg-canvas {
+    background-color: #0F1C2E;
+  }
+  html.dark .bg-canvas-panel,
+  html.dark .bg-canvas-subtle {
+    background-color: #16263A;
+  }
+  html.dark .text-ink {
+    color: #FAFAF6;
+  }
+  html.dark .text-ink-muted {
+    color: #C5CDDA;
+  }
+  html.dark .text-ink-subtle {
+    color: #8E99AC;
+  }
+  html.dark .border-rule,
+  html.dark .border-rule-strong {
+    border-color: #2A3B52;
+  }
+
+  /* Tabellen: dünne Linien, ruhiges Padding (kein Excel-Look) */
+  table {
+    @apply w-full border-collapse;
+  }
+  th {
+    @apply text-left text-caption font-semibold text-ink-muted;
+    @apply border-b border-rule pb-2 pt-1;
+  }
+  td {
+    @apply text-body text-ink py-3 align-top;
+    @apply border-b border-rule;
+  }
+
+  /* Code-Snippets im Scaffold (z.B. Endpoint-Beispiel) */
+  code {
+    @apply font-mono text-caption;
+  }
+}
+
+@layer components {
+  /* Section-Title — institutionell, ruhig */
+  .section-title {
+    @apply font-serif text-h2 text-ink mt-section mb-block;
+  }
+
+  /* Status-Pill für Erkenntnisse-Ampel */
+  .status-pill {
+    @apply inline-flex items-center px-3 py-1 rounded-pill;
+    @apply text-micro uppercase tracking-wider font-semibold;
+  }
+  .status-pill-gruen {
+    @apply bg-canvas-subtle text-status-gruen;
+  }
+  .status-pill-gelb {
+    @apply bg-canvas-subtle text-status-gelb;
+  }
+  .status-pill-rot {
+    @apply bg-canvas-subtle text-status-rot;
+  }
+  .status-pill-neutral {
+    @apply bg-canvas-subtle text-status-neutral;
+  }
+}
+
+/* ============================================================================
+ * Print-Layout (Sprint U-47, Roadmap-Punkt 47, 2026-06-01)
+ *
+ * Sub-App-Bildschirm ist editorial A4-aequivalent — Strg+P soll ein
+ * institutionell sauberes PDF erzeugen ohne Sidebar/Navigations-Chrome.
+ *
+ * Konventionen:
+ *  - .no-print              -> Element wird im Druck ausgeblendet
+ *                              (Sidebar, Buttons, NotesDrawer, etc.)
+ *  - .print-only            -> Element nur im Druck sichtbar
+ *  - .page-break-before     -> erzwingt page-break VOR diesem Element
+ *  - .page-break-after      -> erzwingt page-break NACH diesem Element
+ *  - .page-break-avoid      -> verhindert page-break IN diesem Element
+ *
+ * A4-Margins: 20mm allseitig — passt zu MARGIN_LEFT/RIGHT/TOP/BOTTOM
+ * im Server-PDF (services/pdf/components/advisory_palette.py).
+ * ============================================================================ */
+
+.print-only {
+  display: none;
+}
+
+@media print {
+  /* A4 mit 20mm Default-Margins — gleich wie Server-PDF */
+  @page {
+    size: A4;
+    margin: 20mm;
+  }
+
+  /* Weisser Hintergrund, kein editorial Off-White-Tint */
+  body {
+    @apply bg-white;
+    /* Farb-Treue im Druck — sonst wandelt Browser unsere Status-Farben
+       in Pastell-Toene um. Wichtig fuer Ampel-Pills + p50-Linie. */
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* Sidebar, Buttons, Drawer etc. — alles was nicht in den Bericht gehoert */
+  .no-print {
+    display: none !important;
+  }
+
+  /* Sprint U-52 (2026-06-02): Cover-Animation print-aware.
+     framer-motion setzt inline opacity/transform-Werte beim
+     initial-State. Wenn der Print-Snapshot vor Animation-Ende
+     ausgeloest wird, waeren Cover-Titel + Subtitle UNSICHTBAR. */
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0s !important;
+    animation-delay: 0s !important;
+    transition-duration: 0s !important;
+    transition-delay: 0s !important;
+  }
+  [data-testid] {
+    opacity: 1 !important;
+    transform: none !important;
+  }
+
+  /* U-47: Komplementaer: Elemente, die NUR im Druck sichtbar sind */
+  .print-only {
+    display: block !important;
+  }
+
+  /* U-47: Page-Break-Helper */
+  .page-break-before {
+    page-break-before: always;
+    break-before: page;
+  }
+  .page-break-after {
+    page-break-after: always;
+    break-after: page;
+  }
+  .page-break-avoid {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  /* U-47: Tabellen-Rows + figures sollten nicht mitten im Druck-Layout
+     getrennt werden (default fuer Editorial-Look). */
+  tr, figure, .status-pill {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  /* U-47: Externe URLs werden im Druck ausgeschrieben — FINMA-Audit-Trail
+     fuer Print-Variante des Berichts. */
+  a[href^="http"]::after {
+    content: " (" attr(href) ")";
+    font-size: 0.85em;
+    color: #5a6577;
+  }
+}
+
+/* Sprint U-52: a11y + Print-Safety-Net via prefers-reduced-motion. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  [data-testid] {
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}

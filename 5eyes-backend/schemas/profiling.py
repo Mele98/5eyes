@@ -17,6 +17,10 @@ class KnowledgeCreate(BaseModel):
     exp_alternatives: EXP_OPTIONS = "Keine"
     exp_structured: EXP_OPTIONS = "Keine"
     next_review_at: Optional[str] = None
+    # 2026-07-25 (Generalaudit): Phase-0-Gate (enforce_data_classification)
+    # fehlte fuer Kenntnisse-&-Erfahrungen -- analog zu Client/Cashflow/Goal/
+    # WealthPosition/WealthInflow nachgezogen.
+    data_classification: Literal["synthetic", "real"] = "synthetic"
 
 
 class KnowledgeResponse(BaseResponse):
@@ -60,20 +64,32 @@ class RiskAssessmentCreate(BaseModel):
     q_risk_behavior_points: int     # 1–4
     # Answers for full documentation
     answers: Optional[list[dict]] = None
-    # Kenntnisse & Erfahrungen (SwissLife W305.03 Seite 1) - optional, kein Score
+    # Kenntnisse & Erfahrungen (Referenzmodell Eignungspruefung Seite 1) - optional, kein Score
     knowledge_services_json: Optional[str] = None
     knowledge_instruments_json: Optional[str] = None
+    # 2026-07-25 (Generalaudit): Phase-0-Gate fehlte fuer Risikoprofilierung --
+    # die sensibelste Datenkategorie der App (Einkommen/Vermoegen/
+    # Verpflichtungen/Risikoantworten). Analog zu Client/Cashflow/Goal/
+    # WealthPosition/WealthInflow/Knowledge nachgezogen.
+    data_classification: Literal["synthetic", "real"] = "synthetic"
     income_sources_json: Optional[str] = None
 
     @model_validator(mode="after")
     def validate_points(self):
-        assert 0 <= self.q_income_points <= 4, "q_income_points muss zwischen 0 und 4 liegen"
-        assert 0 <= self.q_obligations_points <= 4
-        assert 0 <= self.q_savings_points <= 12
-        assert 0 <= self.q_wealth_points <= 12
-        assert 1 <= self.q_investment_goal_points <= 4
-        assert 1 <= self.q_risk_preference_points <= 4
-        assert 1 <= self.q_risk_behavior_points <= 4
+        # SCHEMA-01: explizit raise statt assert — assert wird unter `python -O`
+        # gestrippt, wodurch die FINMA-Punkte-Ranges still ungeprüft blieben.
+        _ranges = [
+            ("q_income_points", self.q_income_points, 0, 4),
+            ("q_obligations_points", self.q_obligations_points, 0, 4),
+            ("q_savings_points", self.q_savings_points, 0, 12),
+            ("q_wealth_points", self.q_wealth_points, 0, 12),
+            ("q_investment_goal_points", self.q_investment_goal_points, 1, 4),
+            ("q_risk_preference_points", self.q_risk_preference_points, 1, 4),
+            ("q_risk_behavior_points", self.q_risk_behavior_points, 1, 4),
+        ]
+        for name, val, lo, hi in _ranges:
+            if not (lo <= val <= hi):
+                raise ValueError(f"{name} muss zwischen {lo} und {hi} liegen (erhalten: {val}).")
         return self
 
 
@@ -90,8 +106,18 @@ class RiskAssessmentOverride(BaseModel):
 
     @model_validator(mode="after")
     def validate_override_score(self):
-        assert 10 <= self.override_score_x10 <= 100, \
-            "override_score_x10 muss zwischen 10 (Score 1) und 100 (Score 10) liegen"
+        # Sprint U-28+U-29 (2026-06-03): Qualitaets-Check ausgelagert
+        # nach services.override_reason_quality (Mindestlaenge 20, Phrase-
+        # Blacklist, MIN_MEANINGFUL_WORDS=3).
+        from services.override_reason_quality import (
+            validate_override_reason_quality,
+        )
+        validate_override_reason_quality(self.override_reason)
+        if not 10 <= self.override_score_x10 <= 100:
+            raise ValueError(
+                "override_score_x10 muss zwischen 10 (Score 1) und 100 "
+                "(Score 10) liegen"
+            )
         expected_profile = profile_for_score_x10(self.override_score_x10)
         if expected_profile != self.override_profile:
             raise ValueError(

@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-import shutil
 import zipfile
 from collections import deque
 from datetime import datetime, timezone
@@ -16,6 +15,7 @@ from sqlalchemy.orm import Session
 from config import DEFAULT_SECRET_KEY, settings
 from core.logging_setup import resolve_log_file
 from database import SQLCIPHER_AVAILABLE, resolve_db_file
+from services import backup as backup_engine
 
 
 _SENSITIVE_SETTING_KEYS = {
@@ -50,7 +50,11 @@ def utc_now_iso() -> str:
 
 
 def ensure_backup_dir() -> Path:
-    backup_dir = resolve_db_file(settings.db_path).parent / 'backups'
+    # AB-2: Single Source of Truth = settings.backup_dir. Manuelle
+    # (maintenance) und geplante (backup_scheduler -> services.backup) Pfade
+    # nutzen damit dasselbe Verzeichnis, statt db_path.parent/'backups', das
+    # sobald db_path ODER backup_dir ueberschrieben wird divergierte.
+    backup_dir = Path(settings.backup_dir).expanduser().resolve()
     backup_dir.mkdir(parents=True, exist_ok=True)
     return backup_dir
 
@@ -107,46 +111,49 @@ def create_backup() -> dict[str, Any]:
     if not db_file.exists():
         raise FileNotFoundError(f'Datenbankdatei nicht gefunden: {db_file}')
 
+    # AB-2: Delegation an die EINE, atomare, WAL-aware Backup-Engine
+    # (services.backup.backup_database). Kein shutil.copy2 + manuelles WAL/SHM
+    # mehr — die Online-Backup-API liefert einen konsistenten Snapshot.
+    # Verzeichnis + Dateinamensmuster (5eyes-backup-%Y%m%d-%H%M%S.db) sind damit
+    # identisch zum Scheduler-Pfad; das alte T…Z-Muster entfaellt.
     backup_dir = ensure_backup_dir()
-    stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
-    backup_path = backup_dir / f'5eyes-backup-{stamp}.db'
-    shutil.copy2(db_file, backup_path)
+    result = backup_engine.backup_database(
+        target_dir=backup_dir,
+        source_db_path=db_file,
+    )
 
-    sidecars: list[dict[str, str | int]] = []
-    for suffix in ('-wal', '-shm'):
-        sidecar = Path(str(db_file) + suffix)
-        if sidecar.exists():
-            target = backup_dir / f'{backup_path.name}{suffix}'
-            shutil.copy2(sidecar, target)
-            sidecars.append({
-                'file': str(target),
-                'sha256': _sha256(target),
-                'size_bytes': target.stat().st_size,
-            })
+    backup_path = result.path
+    created_at = result.timestamp.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
 
+    # Manifest aus dem BackupResult ableiten (Metadaten fuer Support-Bundle /
+    # UI). Der SHA256-Sidecar wird bereits von der Engine geschrieben.
     manifest = {
-        'created_at': utc_now_iso(),
+        'created_at': created_at,
         'db_file': str(backup_path),
-        'db_sha256': _sha256(backup_path),
-        'db_size_bytes': backup_path.stat().st_size,
-        'sidecars': sidecars,
+        'db_sha256': result.sha256,
+        'db_size_bytes': result.bytes_written,
+        'sidecars': [],
     }
     manifest_path = backup_dir / f'{backup_path.name}.json'
     manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding='utf-8')
 
     return {
         'status': 'ok',
-        'created_at': manifest['created_at'],
+        'created_at': created_at,
         'backup_file': str(backup_path),
         'manifest_file': str(manifest_path),
-        'sha256': manifest['db_sha256'],
+        'sha256': result.sha256,
+        'size_bytes': result.bytes_written,
     }
 
 
 def list_backups() -> dict[str, Any]:
+    # AB-2: Enumeration ueber die Engine (services.backup.list_backups), damit
+    # maintenance.list_backups und backup.list_backups ueber dasselbe
+    # Verzeichnis exakt dieselbe Menge liefern (u.a. *.partial-Ausschluss).
     backup_dir = ensure_backup_dir()
     backups: list[dict[str, Any]] = []
-    for db_file in sorted(backup_dir.glob('5eyes-backup-*.db'), reverse=True):
+    for db_file in backup_engine.list_backups(backup_dir):
         manifest_file = backup_dir / f'{db_file.name}.json'
         manifest = None
         if manifest_file.exists():
@@ -237,10 +244,21 @@ def create_support_bundle() -> dict[str, Any]:
     }
 
 
+_INTEGRITY_CHECK_MAX_PROBLEMS = 50
+
+
 def run_integrity_check(db: Session) -> dict[str, Any]:
+    # AB-6 (2026-07-23): PRAGMA integrity_check ohne Problem-Cap laeuft auf
+    # einer stark korrupten, grossen DB potenziell sehr lange und liefert ein
+    # unbeschraenktes Result-Set komplett ins Memory (.fetchall()). Mit N als
+    # Argument bricht SQLite nach spaetestens N gefundenen Problemen ab; das
+    # Python-seitige Slicing ist ein zusaetzliches Sicherheitsnetz, falls der
+    # SQLite-Build das Argument ignoriert.
     quick = db.execute(text('PRAGMA quick_check')).scalar()
-    integrity_rows = db.execute(text('PRAGMA integrity_check')).fetchall()
-    integrity = [row[0] for row in integrity_rows]
+    integrity_rows = db.execute(
+        text(f'PRAGMA integrity_check({_INTEGRITY_CHECK_MAX_PROBLEMS})')
+    ).fetchall()
+    integrity = [row[0] for row in integrity_rows][:_INTEGRITY_CHECK_MAX_PROBLEMS]
     return {
         'status': 'ok' if quick == 'ok' and integrity == ['ok'] else 'warning',
         'quick_check': quick,
@@ -259,6 +277,19 @@ def run_optimize(db: Session) -> dict[str, Any]:
     }
 
 
+def _backups_colocated_with_db() -> bool:
+    """AB-5 (2026-07-23): Backups im selben Verzeichnis wie die Live-DB
+    schuetzen nicht gegen Disk-Verlust/-Korruption (siehe services/backup.py
+    Docstring-Warnung). Best-effort-Vergleich, defensiv gegen jeden Pfad-
+    Fehler (Compliance-Status darf dadurch nie crashen)."""
+    try:
+        db_dir = resolve_db_file(settings.db_path).parent.resolve()
+        backup_dir = Path(settings.backup_dir).expanduser().resolve()
+        return db_dir == backup_dir
+    except Exception:
+        return False
+
+
 def build_compliance_status() -> dict[str, Any]:
     db_encryption_enabled = bool(settings.db_use_sqlcipher and settings.db_key)
     warnings: list[str] = []
@@ -268,6 +299,9 @@ def build_compliance_status() -> dict[str, Any]:
         warnings.append('DB-Verschluesselung ist aktuell nicht aktiviert. Fuer reale Kundendaten sollte SQLCipher mit DB_KEY aktiviert werden.')
     if not settings.login_rate_limit_enabled:
         warnings.append('Login-Rate-Limit ist deaktiviert.')
+    backups_colocated = _backups_colocated_with_db()
+    if backups_colocated:
+        warnings.append('Backups liegen im selben Verzeichnis wie die Live-Datenbank. Bei Datenverlust des Datentraegers (Disk-Ausfall, Ordner-Loeschung) sind DB und Backup gleichzeitig betroffen — separates Verzeichnis/Medium empfohlen.')
     return {
         'status': 'ok' if not warnings else 'warning',
         'environment': settings.app_env,
@@ -282,6 +316,7 @@ def build_compliance_status() -> dict[str, Any]:
             'support_bundle_redacts_logs': True,
             'browser_token_fallback_storage': 'sessionStorage',
             'electron_token_storage': 'safeStorage',
+            'backups_colocated_with_db': backups_colocated,
         },
         'warnings': warnings,
     }

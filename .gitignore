@@ -8,6 +8,16 @@ venv/
 dist/
 build/
 *.spec
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+# Sprint U-106 (2026-06-05): Mutation-Testing-Cache
+.mutmut-cache/
+mutmut-stats.txt
+# Sprint U-107 (2026-06-05): hypothesis property-based-testing cache
+.hypothesis/
 
 # Node / Electron
 node_modules/
@@ -32,8 +42,12 @@ node_modules/
 
 # Temporary debug scripts
 tmp_*
+.tmp_*
 tmp/
 extracted_check.js
+
+# Claude Code agent worktrees / local session dir
+.claude/
 
 # OS
 .DS_Store

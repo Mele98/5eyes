@@ -140,11 +140,22 @@ def _seed_review_context(session_factory, advisor_user) -> tuple[str, str]:
 
 
 def _create_advisory_entry(auth_client: TestClient, mandate_id: str, **extra):
+    # Sprint U-FINMA-2.1: AdvisoryLogCreate verlangt jetzt FIDLEG-Pflichtfelder
     payload = {
         "entry_type": "Jahresreview",
         "title": "Review 2026",
-        "description": "Strategie mit Kunde besprochen",
+        "description": (
+            "Strategie mit Kunde besprochen, Allokation ueberprueft, "
+            "naechste Schritte definiert."
+        ),
         "decision": "Transaktion empfohlen",
+        "entry_datetime": "2026-05-28T14:00:00.000Z",
+        "duration_minutes": 60,
+        "communication_channel": "persoenlich",
+        "language": "de",
+        "topics": ["Strategie", "Allokation"],
+        "risk_warnings_given": ["Marktrisiko"],
+        "cost_disclosure_given": True,
     }
     payload.update(extra)
     return auth_client.post(f"/mandates/{mandate_id}/advisory-log", json=payload)
@@ -172,6 +183,7 @@ def test_advisory_log_create_with_run_id(session_factory, auth_client, advisor_u
 
 
 def test_advisory_log_status_transition_empfohlen_to_beschlossen(session_factory, auth_client, advisor_user):
+    """U-FINMA-2.1: PUT erzeugt neue Version; Status-Check auf der neuen ID."""
     mandate_id, _ = _seed_review_context(session_factory, advisor_user)
     create_response = _create_advisory_entry(auth_client, mandate_id)
     entry_id = create_response.json()["id"]
@@ -184,14 +196,19 @@ def test_advisory_log_status_transition_empfohlen_to_beschlossen(session_factory
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "Beschlossen"
+    assert data["supersedes_id"] == entry_id
 
     with session_factory() as s:
-        entry = s.query(AdvisoryLog).filter(AdvisoryLog.id == entry_id).first()
-        assert entry is not None
-        assert entry.status == "Beschlossen"
+        new_entry = s.query(AdvisoryLog).filter(AdvisoryLog.id == data["id"]).first()
+        assert new_entry is not None
+        assert new_entry.status == "Beschlossen"
+        # Alte Version ist superseded
+        old = s.query(AdvisoryLog).filter(AdvisoryLog.id == entry_id).first()
+        assert old.superseded_by_id == data["id"]
 
 
 def test_advisory_log_status_transition_beschlossen_to_umgesetzt(session_factory, auth_client, advisor_user):
+    """U-FINMA-2.1: zweistufige Versions-Geschichte."""
     mandate_id, _ = _seed_review_context(session_factory, advisor_user)
     create_response = _create_advisory_entry(
         auth_client,
@@ -208,14 +225,18 @@ def test_advisory_log_status_transition_beschlossen_to_umgesetzt(session_factory
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "Umgesetzt"
+    assert data["version"] == 2
 
     with session_factory() as s:
-        entry = s.query(AdvisoryLog).filter(AdvisoryLog.id == entry_id).first()
-        assert entry is not None
-        assert entry.status == "Umgesetzt"
+        new_entry = s.query(AdvisoryLog).filter(AdvisoryLog.id == data["id"]).first()
+        assert new_entry is not None
+        assert new_entry.status == "Umgesetzt"
 
 
 def test_advisory_log_status_transition_empfohlen_to_abgelehnt_requires_description(session_factory, auth_client, advisor_user):
+    """U-FINMA-2.1: 422 ohne description bei Statuswechsel auf Abgelehnt.
+    Da der erste PUT fehlschlägt, ist die Version nicht superseded
+    und kann mit zweitem (validen) PUT korrigiert werden."""
     mandate_id, _ = _seed_review_context(session_factory, advisor_user)
     create_response = _create_advisory_entry(auth_client, mandate_id)
     entry_id = create_response.json()["id"]
@@ -230,7 +251,10 @@ def test_advisory_log_status_transition_empfohlen_to_abgelehnt_requires_descript
 
     response = auth_client.put(
         f"/mandates/{mandate_id}/advisory-log/{entry_id}",
-        json={"status": "Abgelehnt", "description": "Kunde lehnt Empfehlung nach Rücksprache ab."},
+        json={
+            "status": "Abgelehnt",
+            "description": "Kunde lehnt Empfehlung nach Rücksprache ab — Risiko zu hoch.",
+        },
     )
 
     assert response.status_code == 200
@@ -238,25 +262,33 @@ def test_advisory_log_status_transition_empfohlen_to_abgelehnt_requires_descript
 
 
 def test_advisory_log_status_transition_umgesetzt_to_ueberarbeitung_noetig(session_factory, auth_client, advisor_user):
+    """U-FINMA-2.1: dreistufige Versions-Geschichte — PUT folgt jeweils der
+    aktuellsten Version-ID."""
     mandate_id, _ = _seed_review_context(session_factory, advisor_user)
     create_response = _create_advisory_entry(
         auth_client,
         mandate_id,
         status="Beschlossen",
     )
-    entry_id = create_response.json()["id"]
-    auth_client.put(
-        f"/mandates/{mandate_id}/advisory-log/{entry_id}",
+    v1_id = create_response.json()["id"]
+    v2 = auth_client.put(
+        f"/mandates/{mandate_id}/advisory-log/{v1_id}",
         json={"status": "Umgesetzt"},
-    )
+    ).json()
+    v2_id = v2["id"]
 
     response = auth_client.put(
-        f"/mandates/{mandate_id}/advisory-log/{entry_id}",
-        json={"status": "Überarbeitung nötig", "description": "Umsetzung muss wegen Preisänderung neu geprüft werden."},
+        f"/mandates/{mandate_id}/advisory-log/{v2_id}",
+        json={
+            "status": "Überarbeitung nötig",
+            "description": "Umsetzung muss wegen Preisänderung neu geprüft und angepasst werden.",
+        },
     )
 
     assert response.status_code == 200
-    assert response.json()["status"] == "Überarbeitung nötig"
+    v3 = response.json()
+    assert v3["status"] == "Überarbeitung nötig"
+    assert v3["version"] == 3
 
 
 def test_resolve_trigger_rolls_recurring_time_trigger_forward(session_factory, auth_client, advisor_user):
@@ -289,28 +321,42 @@ def test_resolve_trigger_rolls_recurring_time_trigger_forward(session_factory, a
 
 
 def test_advisory_log_description_update_is_audited(session_factory, auth_client, advisor_user):
-    mandate_id, _ = _seed_review_context(session_factory, advisor_user)
-    create_response = _create_advisory_entry(auth_client, mandate_id, description="Alt")
-    entry_id = create_response.json()["id"]
+    """U-FINMA-2.1: Update erzeugt neuen Audit-Log-Eintrag mit field_name=version.
+    Beide Eintrags-Versionen (v1+v2) verbleiben persistent — der Wechsel ist
+    durch das Audit-Log + integrity_hash nachvollziehbar."""
+    mandate_id, _ = _seed_review_context(
+        session_factory,
+        advisor_user,
+    )
+    create_response = _create_advisory_entry(
+        auth_client,
+        mandate_id,
+        description=(
+            "Initiale Beratung — Strategie diskutiert, Allokation prinzipiell ok."
+        ),
+    )
+    v1_id = create_response.json()["id"]
 
     response = auth_client.put(
-        f"/mandates/{mandate_id}/advisory-log/{entry_id}",
-        json={"description": "Neu dokumentierte Begründung"},
+        f"/mandates/{mandate_id}/advisory-log/{v1_id}",
+        json={"description": "Neu dokumentierte Begruendung nach Rueckfragen des Kunden."},
     )
 
     assert response.status_code == 200
+    v2_id = response.json()["id"]
     with session_factory() as s:
         audit_entry = (
             s.query(AuditLog)
             .filter(
                 AuditLog.table_name == "advisory_log",
-                AuditLog.record_id == entry_id,
-                AuditLog.field_name == "description",
+                AuditLog.record_id == v2_id,
+                AuditLog.action == "UPDATE",
             )
             .order_by(AuditLog.created_at.desc())
             .first()
         )
 
     assert audit_entry is not None
-    assert audit_entry.old_value == "Alt"
-    assert audit_entry.new_value == "Neu dokumentierte Begründung"
+    assert audit_entry.field_name == "version"
+    assert audit_entry.old_value == "1"
+    assert audit_entry.new_value == "2"

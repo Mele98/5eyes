@@ -37,12 +37,47 @@ class ContractDocument(Base):
     title = Column(String, nullable=False)
     content_json = Column(String)
     pdf_path = Column(String)
+    # Dokumenten-Archiv (Kundenfeedback 2026-08-20, FINMA-Nachweis): die
+    # tatsaechlichen PDF-Bytes dieser Version, base64-kodiert -- analog zum
+    # bestehenden data:-URI-Muster fuer Signaturen/QR-Codes (siehe
+    # signature_advisor_image oben). pdf_path/checksum_sha256 existierten
+    # zwar schon vorher im Schema, wurden aber nie befuellt (jeder Report-
+    # Endpoint in routers/pdf_reports.py rendert bislang nur in-memory Bytes
+    # direkt an den Client, ohne DB-Spur). services/document_archive.py
+    # befuellt jetzt alle drei Felder bei jeder Generierung.
+    pdf_base64 = Column(String)
     checksum_sha256 = Column(String)
+    # Dokumenten-Archiv (2026-08-20): SHA-256 ueber die zugrundeliegenden
+    # Fachdaten (das *Data-Dataclass aus services/pdf/base.py, VOR dem
+    # Rendern), NICHT ueber die PDF-Bytes selbst. Grund: ReportLab betttet
+    # pro Rendering einen wechselnden Font-Subset-Tag ein (siehe services/
+    # pdf/reportlab_renderer.py) -- zwei Renderings mit IDENTISCHEM Inhalt
+    # ergeben trotzdem unterschiedliche PDF-Bytes. checksum_sha256 bleibt
+    # die Integritaets-Pruefsumme der tatsaechlich archivierten Bytes;
+    # content_hash entscheidet, ob sich der Fachinhalt seit der letzten
+    # Version ueberhaupt geaendert hat (services/document_archive.py::
+    # archive_generated_pdf dedupliziert darueber).
+    content_hash = Column(String)
     pdf_generated_at = Column(String)
     status = Column(String, nullable=False, default="Entwurf")
     signed_by_advisor = Column(Integer, nullable=False, default=0)
     signed_by_client = Column(Integer, nullable=False, default=0)
     signed_at = Column(String)
+    # 2026-08-05 (User-Direktive, E-Signing): signed_by_advisor/client waren
+    # reine Checkbox-Flags ohne jede tatsaechliche Signatur -- jeder
+    # authentifizierte Advisor-User konnte sie fuer jeden setzen, ohne dass
+    # je eine Unterschrift erfasst wurde. Jetzt zusaetzlich ein echtes
+    # Signatur-Artefakt pro Unterzeichner (Canvas-gezeichnetes PNG als
+    # data:-URI, analog zum bestehenden QR-Code-data:-URI-Muster in
+    # routers/auth.py::twofa_setup).
+    signature_advisor_image = Column(String)
+    signature_advisor_signer_name = Column(String)
+    signature_advisor_signed_at = Column(String)
+    signature_advisor_ip = Column(String)
+    signature_client_image = Column(String)
+    signature_client_signer_name = Column(String)
+    signature_client_signed_at = Column(String)
+    signature_client_ip = Column(String)
     version = Column(Integer, nullable=False, default=1)
     supersedes_id = Column(String)
     created_by = Column(String, ForeignKey("users.id"), nullable=False)
@@ -55,6 +90,18 @@ class ContractDocument(Base):
 
 
 class AdvisoryLog(Base):
+    """Beratungsprotokoll-Eintrag (FINMA / FIDLEG Art. 16+17).
+
+    Pro Mandanten-Termin **ein Eintrag** mit allen pflichtgemäßen Angaben:
+    Zeitpunkt + Dauer, Kommunikationskanal, Anwesende, besprochene Themen,
+    erteilte Risiko-/Kostenhinweise, Eignungsprüfungs-Bezug, Entscheid, Hash.
+
+    Versions-Geschichte: Updates erstellen *neue* Zeile mit höherer `version`
+    und `supersedes_id` zeigt auf den Vorgänger. Der jüngste Eintrag einer
+    Kette ist `superseded_by_id IS NULL`. Damit keine Daten je verloren gehen
+    (FINMA-Pflicht: Aufbewahrung 10 Jahre, Integritäts-Audit).
+    """
+
     __tablename__ = "advisory_log"
 
     id = Column(String, primary_key=True)
@@ -74,8 +121,67 @@ class AdvisoryLog(Base):
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
 
+    # --- FINMA-Erweiterung (Sprint U-FINMA-2.1, 2026-05-28) ---
+    # Zeitpunkt + Dauer (FIDLEG Art. 16)
+    entry_datetime = Column(String)  # ISO Y-m-dTH:M:S.fZ — präziser als entry_date
+    duration_minutes = Column(Integer)
+
+    # Kommunikationsmedium (entscheidet über Hinweispflichten)
+    # Erlaubt: 'persoenlich' | 'video' | 'telefon' | 'schriftlich' | 'hybrid'
+    communication_channel = Column(String)
+
+    # Beratungs-Sprache + Ort (für Remote-vs-in-person-Audit)
+    language = Column(String)  # 'de' | 'fr' | 'it' | 'en'
+    location = Column(String)
+
+    # Anwesende neben Berater (JSON-Array: [{"role": "client", "name": "..."}, ...])
+    participants_json = Column(String)
+
+    # Strukturierte Themen-Liste (JSON-Array of strings)
+    topics_json = Column(String)
+
+    # Erteilte Risiko-Hinweise (JSON-Array of strings)
+    risk_warnings_given_json = Column(String)
+
+    # Wurden Ex-ante Kosten kommuniziert? (FIDLEG Pflicht)
+    cost_disclosure_given = Column(Integer, nullable=False, default=0)
+
+    # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): cost_disclosure_given war bisher
+    # ein reines Selbst-Attest-Flag ohne Nachweis, WELCHE Zahlen dem Kunden
+    # tatsaechlich gezeigt wurden (FIDLEG Art. 25/26 Interessenkonflikt-/
+    # Kostenoffenlegung). Kompakter JSON-Snapshot der zum Zeitpunkt der
+    # Beratung via services.cost_disclosure.build_cost_disclosure()
+    # berechneten Kostenzahlen. Bewusst NICHT Teil von
+    # services.advisory_log_integrity.compute_integrity_hash() -- der
+    # Feld-Order dort ist per Docstring ein fester Hash-Vertrag, der ohne
+    # explizite Migrations-Strategie nicht erweitert werden darf (sonst
+    # gelten alle historischen Eintraege beim naechsten Read-Verify
+    # faelschlich als manipuliert).
+    cost_disclosure_snapshot_json = Column(String)
+
+    # Offengelegte Interessenkonflikte (JSON-Array of conflict_of_interest_disclosures.id)
+    conflict_disclosure_ids_json = Column(String)
+
+    # Bezug zur Eignungsprüfung zum Zeitpunkt der Beratung
+    suitability_check_id = Column(String, ForeignKey("suitability_checks.id"), nullable=True)
+
+    # Integritäts-Hash über Eintragsinhalt (FINMA-Audit-Trail)
+    integrity_hash = Column(String(64))
+
+    # Aufbewahrungs-Pflicht (= entry_datetime + 10 Jahre, ISO-Date)
+    retain_until = Column(String)
+
+    # Versions-Geschichte
+    version = Column(Integer, nullable=False, default=1)
+    supersedes_id = Column(String, ForeignKey("advisory_log.id"), nullable=True)
+    superseded_by_id = Column(String, ForeignKey("advisory_log.id"), nullable=True)
+
+    # Read-Audit (FINMA verlangt Access-Tracking bei sensiblen Daten)
+    last_read_at = Column(String)
+    last_read_by = Column(String, ForeignKey("users.id"), nullable=True)
+
     mandate = relationship("Mandate", back_populates="advisory_log")
-    advisor = relationship("User")
+    advisor = relationship("User", foreign_keys=[advisor_id])
     recommendation_run = relationship("RecommendationRun")
 
 
@@ -95,6 +201,16 @@ class ConflictOfInterestDisclosure(Base):
     client_acknowledged_at = Column(String)
     mitigation_action = Column(String)
     document_id = Column(String)
+    # 2026-07-27 (Retrozessions-Feature): FIDLEG/BGE 132 III 460 verlangt
+    # Herausgabe von Retrozessionen an den Kunden, AUSSER er hat vorgaengig,
+    # in Kenntnis der ungefaehren Groessenordnung, gueltig darauf verzichtet.
+    # reimbursed_to_client=1 -> Retrozession wird tatsaechlich zurueckerstattet
+    # (mindert den ausgewiesenen Kostenausweis). =0 -> Verzicht dokumentiert,
+    # Berater behaelt sie (bleibt aber offenlegungspflichtig, siehe
+    # services/cost_disclosure.py). waiver_document_id referenziert das
+    # unterschriebene Verzichts-Dokument fuer Beweiszwecke.
+    reimbursed_to_client = Column(Integer, nullable=False, default=0)
+    waiver_document_id = Column(String)
     disclosed_by = Column(String, ForeignKey("users.id"), nullable=False)
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
@@ -132,13 +248,91 @@ class Product(Base):
     ter_bps = Column(Integer)
     sfdr_class = Column(String)
     esg_rating = Column(String)
+    # Sprint U-P10 (2026-05-20): Depot-Check / Diversifikations-Tiefe.
+    # JSON-Strings mit {ISO-Code/Sektor: bps}. Σ jeder JSON-Map = 10000 bps (100%).
+    # Wenn NULL: Engine nutzt Default-Proxy aus sub_asset_class (siehe
+    # services/product_exposures.py).
+    country_exposure_json = Column(String)   # {"CH": 4500, "US": 3500, "EU": 2000}
+    sector_exposure_json = Column(String)    # GICS: {"Tech": 2500, "Financial": 1500, ...}
+    currency_exposure_json = Column(String)  # {"CHF": 5000, "USD": 3000, "EUR": 2000}
+    duration_years_x10 = Column(Integer)     # Bonds: 50 = 5.0 Jahre Duration
+    credit_rating = Column(String)           # 'AAA','AA','A','BBB','BB','B','CCC','NR'
+    esg_score_x10 = Column(Integer)          # 0-1000 = 0.0-100.0 (numerischer Score)
+    liquidity_tier = Column(String)          # 'daily','weekly','monthly','illiquid'
     is_active = Column(Integer, nullable=False, default=1)
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
     deleted_at = Column(String)
+    # 2026-08-01 (Laender-Skalierung, Cross-Jurisdiktions-Leck-Fix): Land, fuer
+    # das dieses Produkt kuratiert wurde (z.B. "CH", "DE"). NULL = "CH"
+    # (Backwards-Compat, gleiches Nullable-Pattern wie Mandate.jurisdiction).
+    # ZWECK: _filter_products_by_universe() in services/portfolio_engine.py
+    # nutzt dieses Feld als FALLBACK-Filter, wenn fuer ein Mandat KEINE
+    # ProductUniverseEntry-Zeilen existieren (der Normalfall) -- ohne dieses
+    # Feld wuerde ein CH-Mandat ohne eigene Kuratierung automatisch JEDES
+    # in der Installation angelegte Nicht-CH-Produkt sehen (echtes, per
+    # Integrationstest gefundenes Datenleck: tests/test_de_onboarding_
+    # integration.py::test_ch_mandate_unaffected_by_coexisting_de_fixtures_
+    # in_same_db). Aendert NICHTS am CH-Verhalten, solange kein Produkt
+    # explizit mit jurisdiction != "CH"/NULL angelegt wird (Golden-Snapshot-
+    # Test bleibt gruen, da das Bestandskatalog komplett NULL ist).
+    jurisdiction = Column(String)
+    # 2026-08-05 (User-Direktive, Fondsuniversum): "jedes Assetmanagement
+    # seine eigenen Fonds der Software fuettern". NULL = globaler/geteilter
+    # Katalog (Marktdaten-Pipeline-Seed, Default-Produktliste in
+    # services/portfolio_engine.py -- UNVERAENDERT, diese Funktion setzt nie
+    # tenant_id). Gesetzt = privat fuer genau diesen Tenant, ueber
+    # routers/review.py::create_product serverseitig aus current_user
+    # abgeleitet (NIE vom Client-Payload uebernommen -- sonst Tenant-Spoofing
+    # moeglich). Gleiches additives, rueckwaerts-kompatibles Nullable-Muster
+    # wie jurisdiction oben.
+    tenant_id = Column(String, ForeignKey("tenants.id"))
 
     suitability = relationship("ProductSuitability", back_populates="product")
     price_history = relationship("PriceHistory", back_populates="product")
+
+
+class ProductUniverseEntry(Base):
+    """2026-07-27 (Laender-Skalierung, Fonds-Kuratierung): kuratierte
+    Positivliste "welche Fonds sind fuer Tenant X in Jurisdiktion Y zulaessig"
+    -- ersetzt fuer den Optimizer den kompletten globalen Produktkatalog
+    durch eine engere Auswahl, SOBALD mindestens ein Eintrag fuer ein
+    (tenant_id, jurisdiction)-Paar existiert. Deckt zwei Anwendungsfaelle ab:
+    (1) eine Verwaltung will fuer ein bestimmtes Land NUR dort zulaessige/
+    vertriebene Fonds als Kandidaten haben, (2) eine Verwaltung hat eigene
+    Fonds oder ausgehandelte, tiefere Gebuehren-Konditionen fuer ein Produkt
+    (override_ter_bps ersetzt product.ter_bps fuer die Kostenberechnung
+    dieses Tenants -- siehe services/cost_disclosure.py).
+
+    Rueckwaerts-kompatibel: existiert fuer ein (tenant_id, jurisdiction)-Paar
+    KEIN Eintrag (der Normalfall fuer alle Bestandsmandate/CH), bleibt der
+    volle globale Katalog unveraendert nutzbar -- diese Tabelle greift nur,
+    wenn ein Admin explizit mindestens einen Eintrag anlegt.
+    """
+    __tablename__ = "product_universe_entries"
+    __table_args__ = (
+        Index(
+            "ix_product_universe_tenant_jurisdiction",
+            "tenant_id", "jurisdiction",
+        ),
+    )
+
+    id = Column(String, primary_key=True)
+    tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False)
+    jurisdiction = Column(String, nullable=False)  # z.B. "CH", "DE"
+    product_id = Column(String, ForeignKey("products.id"), nullable=False)
+    # NULL = nutze product.ter_bps unveraendert. Gesetzt = diese Verwaltung
+    # hat fuer dieses Produkt eine eigene, ausgehandelte Gebuehr -- ersetzt
+    # product.ter_bps AUSSCHLIESSLICH fuer diesen Tenant in der Kosten-
+    # berechnung (services/cost_disclosure.py), das globale Produkt selbst
+    # bleibt unveraendert (kein Cross-Tenant-Seiteneffekt).
+    override_ter_bps = Column(Integer)
+    created_by = Column(String, ForeignKey("users.id"), nullable=False)
+    created_at = Column(String, nullable=False)
+    updated_at = Column(String, nullable=False)
+    deleted_at = Column(String)
+
+    product = relationship("Product")
 
 
 class ProductSuitability(Base):
@@ -193,6 +387,13 @@ class RecommendationRun(Base):
     optimizer_version = Column(String)
     weighting_regime = Column(String)
     fee_assumptions_json = Column(String)
+    # WP1 (Home-Bias/CMA-Parametrisierung pro Jurisdiktion, 2026-07-30): JSON-
+    # Warnhinweis, wenn dieser Lauf provisorische (noch nicht IC-geprueft,
+    # siehe CapitalMarketAssumption.status) CMA- oder Home-Bias-Daten
+    # verwendet hat. NULL = keine provisorischen Daten beteiligt (Backwards-
+    # Compat -- alle Bestandslaeufe sind CH und damit committee_approved).
+    # Befuellung ist NICHT Teil dieses Arbeitspakets (spaeteres WP).
+    provisional_data_warning = Column(String)
     other_assets_included = Column(Integer, nullable=False, default=0)
     result_status = Column(String, nullable=False, default="Draft")
     created_by = Column(String, ForeignKey("users.id"), nullable=False)
@@ -211,6 +412,16 @@ class RecommendationPosition(Base):
     product_id = Column(String, ForeignKey("products.id"), nullable=False)
     target_weight_bps = Column(Integer, nullable=False)
     target_amount_rappen = Column(Integer)
+    # Sprint U-P20 (2026-05-24): Echte IST-Holdings des Kunden. NULL =
+    # noch nicht gepflegt (Berater hat Empfehlung erstellt, Kunde hat noch
+    # nichts gekauft). depot_check.py liest dieses Feld als IST-Amount
+    # statt auf target_amount zurueckzufallen (= echter IST/SOLL-Drift).
+    current_amount_rappen = Column(Integer)
+    reference_price_rappen = Column(Integer)
+    reference_price_date = Column(String)
+    reference_price_source = Column(String)
+    reference_lookup_mode = Column(String)
+    reference_price_fetched_at = Column(String)
     rationale = Column(String)
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
@@ -261,4 +472,64 @@ class AuditLog(Base):
     mandate_id = Column(String)
     client_id = Column(String)
     integrity_hash = Column(String(64))
+    # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit, DSG Art. 32): Quell-IP fuer
+    # sensible Aktionen (Login, Passwort-Reset, Export, Loeschung) -- vorher
+    # nur im App-Log, nicht im auditierbaren, hash-verketteten Audit-Trail.
+    ip_address = Column(String)
     created_at = Column(String, nullable=False)
+    # Roadmap #21 (2026-08-08): tenant_id des HANDELNDEN Users zum Zeitpunkt
+    # des Eintrags (nicht ueber client_id/mandate_id/user_id transitiv zur
+    # Laufzeit hergeleitet) -- siehe services/audit.py::log() (Ableitung
+    # beim Schreiben) und routers/system.py::get_audit_log (Scope beim
+    # Lesen). NULL bei Altdaten (vor dieser Migration) und bei System-/
+    # Operator-Aktionen ohne Tenant-Bezug.
+    tenant_id = Column(String)
+
+
+class MandateReportNotes(Base):
+    """Berater-individuelle Texte für den Advisory-Report (Sprint U-P28).
+
+    Eine Zeile pro Mandat (UNIQUE auf mandate_id). Wird durch den Aggregator
+    `services.advisory_report` konsumiert; jedes leere Feld fällt auf den
+    Auto-Default-Text der jeweiligen Sektion zurück. Das PDF (U-P26) und die
+    React-Sub-App lesen denselben Aggregator — Single Source of Truth.
+
+    Auditierbar über `last_edited_by` + `last_edited_at`.
+    """
+
+    __tablename__ = "mandate_report_notes"
+
+    id = Column(String, primary_key=True)
+    mandate_id = Column(String, ForeignKey("mandates.id"), nullable=False, unique=True)
+
+    # Sektion „Asset Allocation": überschreibt den Drift-Auto-Text
+    aa_anmerkungen = Column(String)
+
+    # Sektion „Risikowährungen": überschreibt den CHF-Anteil-Auto-Text
+    waehrungen_erklaerung = Column(String)
+
+    # Sektion „Branchen": überschreibt die Sektor-Drift-Auto-Analyse
+    branchen_analyse = Column(String)
+
+    # Sektion „Weiteres Vorgehen": Berater-Texte + strukturierte Listen
+    vorgehen_block_optimierungen = Column(String)
+    vorgehen_block_zielstrategie = Column(String)
+    vorgehen_offene_fragen_json = Column(String)  # JSON-Array["frage1","frage2"]
+    vorgehen_naechster_termin = Column(String)    # ISO-Datum oder freier Text
+    vorgehen_todos_json = Column(String)          # JSON-Array["todo1",...]
+    vorgehen_dokumente_json = Column(String)      # JSON-Array["Dok 1",...]
+
+    # Audit-Anchor (FINMA-relevant)
+    last_edited_by = Column(String, ForeignKey("users.id"), nullable=False)
+    last_edited_at = Column(String, nullable=False)
+    created_at = Column(String, nullable=False)
+    updated_at = Column(String, nullable=False)
+
+    # Sprint U-37 (2026-06-03): Append-only Versionierungs-Log.
+    # JSON-Array von Snapshots: [{edited_at, edited_by, changes: {field:
+    # {old, new}}}, ...]. FINMA-Audit-Anforderung "was stand wann im
+    # Bericht". NULL bei Pre-U-37-Notes.
+    previous_versions_json = Column(String)
+
+    mandate = relationship("Mandate", back_populates="report_notes")
+    editor = relationship("User")

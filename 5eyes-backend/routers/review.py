@@ -1,26 +1,34 @@
+import csv
+import io
 import logging
 from collections.abc import Callable
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Response, UploadFile
+from pydantic import ValidationError
 from sqlalchemy.orm import Session
-from sqlalchemy import bindparam, text
+from sqlalchemy import bindparam, or_, text
 from sqlalchemy.exc import IntegrityError
 from datetime import date, datetime, timezone
+from config import settings
 from database import get_db, new_uuid
 from models.users import User
 from models.mandates import Mandate
 from models.review import (
     ReviewTrigger, AdvisoryLog, ContractDocument,
     ConflictOfInterestDisclosure, Product, ProductSuitability,
+    ProductUniverseEntry,
     RecommendationRun, RecommendationPosition, RecommendationHolding, AuditLog
 )
-from models.allocation import OptimizerPolicy
+from models.allocation import CapitalMarketAssumption, OptimizerPolicy, TargetAllocation
+from models.profiling import RiskAssessment
+from models.tenant import Tenant
 from schemas.review import (
     ReviewTriggerCreate, ReviewTriggerResolve, ReviewTriggerResponse,
     AdvisoryLogCreate, AdvisoryLogUpdate, AdvisoryLogResponse,
     ContractDocumentCreate, ContractDocumentSign, ContractDocumentResponse,
     ConflictDisclosureCreate, ConflictDisclosureResponse,
-    ProductCreate, ProductResponse,
+    ProductCreate, ProductUpdate, ProductResponse,
+    ProductBulkImportRequest, ProductImportResponse, ProductImportResultItem,
     ProductMarketOverrideRequest, ProductMarketOverrideResponse,
     ProductIdMappingPreviewRequest, ProductIdMappingPreviewResponse,
     ProductIdMappingApplyRequest, ProductIdMappingApplyResponse,
@@ -28,19 +36,34 @@ from schemas.review import (
     ProductReferencePreviewRequest, ProductReferencePreviewResponse,
     ProductReferenceApplyRequest, ProductReferenceApplyResponse,
     ProductReferenceBatchApplyRequest, ProductReferenceBatchApplyResponse,
+    ProductUniverseEntryCreate, ProductUniverseEntryUpdate, ProductUniverseEntryResponse,
     RecommendationRunCreate, RecommendationRunResponse,
     RecommendationPositionCreate, RecommendationPositionResponse,
     RecommendationHoldingUpsert, RecommendationHoldingResponse,
     RecommendationGenerateRequest, RecommendationGenerateResponse,
 )
 from price_updater import summarize_price_quality
-from services.auth import get_accessible_client_ids, get_accessible_mandate_ids, get_client_for_user_or_404, get_current_user, get_mandate_for_user_or_404, has_global_client_access, require_advisor, require_admin
+from services.auth import get_accessible_client_ids, get_accessible_mandate_ids, get_client_for_user_or_404, get_current_user, get_mandate_for_user_or_404, has_global_client_access, require_advisor, require_admin, _resolve_tenant_id_for_user
 from services.audit import log
+# Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Quell-IP fuer Review-/Suitability-/
+# Empfehlungs-Aenderungen im Audit-Log.
+from routers.auth import _extract_client_ip
+from services.advisory_report_cache import invalidate_mandate as invalidate_advisory_cache
+from services.data_classification import enforce_data_classification
 from services.eodhd_client import preview_eodhd_reference
+from services.market_data.exceptions import RateLimitError
 from services.openfigi_client import preview_openfigi_mapping
-from services.portfolio_engine import build_recommendation_payload_from_run, generate_recommendation_run
-from services.product_market_data import resolve_market_profile
+from services.portfolio_engine import (
+    _current_target_allocation_or_none,
+    build_recommendation_payload_from_run,
+    build_target_payload_from_allocation,
+    generate_recommendation_run,
+    require_strategy_ready_assessment,
+    ensure_runtime_reference_data,
+)
+from services.product_market_data import currency_mismatch_warning, resolve_market_profile
 from services.review_engine import _add_months, refresh_system_review_triggers
+from services.suitability_audit import audit_mandate_suitability
 
 router = APIRouter(tags=["Review & Dokumente"])
 products_router = APIRouter(prefix="/products", tags=["Produkte"])
@@ -111,8 +134,119 @@ def _get_product_or_404(product_id: str, db: Session) -> Product:
     return product
 
 
-def _active_products_query(db: Session):
-    return db.query(Product).filter(Product.deleted_at.is_(None), Product.is_active == 1)
+def _validate_recommendation_for_finalization(db: Session, mandate: Mandate, run: RecommendationRun) -> tuple[list[str], list[str]]:
+    errors: list[str] = []
+    warnings: list[str] = []
+    if run.result_status != "Draft":
+        errors.append("Nur Draft-Empfehlungen koennen finalisiert werden.")
+    assessment = db.query(RiskAssessment).filter(
+        RiskAssessment.id == run.assessment_id,
+        RiskAssessment.mandate_id == mandate.id,
+        RiskAssessment.deleted_at.is_(None),
+    ).first() if run.assessment_id else None
+    if not assessment:
+        errors.append("Empfehlung hat kein gueltiges Risikoprofil.")
+    elif not assessment.is_current:
+        errors.append("Empfehlung basiert nicht auf dem aktuellen Risikoprofil.")
+    allocation = db.query(TargetAllocation).filter(
+        TargetAllocation.id == run.target_allocation_id,
+        TargetAllocation.mandate_id == mandate.id,
+        TargetAllocation.deleted_at.is_(None),
+    ).first() if run.target_allocation_id else None
+    if not allocation:
+        errors.append("Empfehlung hat keine gueltige Soll-Allokation.")
+    elif not allocation.is_current:
+        # Analog zum Risikoprofil-Gate oben: eine finalisierte Empfehlung MUSS auf der
+        # aktuellen Soll-Allokation basieren. Sonst wird der Run zwar Final, ist aber
+        # ueber get_current_recommendation_payload (filtert auf is_current-Allokation)
+        # nicht mehr auffindbar -> verwaister Final-Zustand.
+        errors.append("Empfehlung basiert nicht auf der aktuellen Soll-Allokation.")
+    elif assessment and allocation.based_on_assessment_id and allocation.based_on_assessment_id != assessment.id:
+        errors.append("Soll-Allokation und Risikoprofil der Empfehlung passen nicht zusammen.")
+    policy = db.query(OptimizerPolicy).filter(
+        OptimizerPolicy.id == run.policy_id,
+    ).first() if run.policy_id else None
+    if not policy:
+        errors.append("Empfehlung hat keine gueltige Policy-Version.")
+    elif not policy.is_current:
+        # 2026-07-24 (Generalaudit): dasselbe Muster wie der Risikoprofil-/
+        # Soll-Allokation-Guard oben (F4, PROAKTIV-AUDIT Runde 4) -- eine
+        # finalisierte Empfehlung darf nicht auf einer bereits ersetzten
+        # Policy-Version basieren, sonst ist der Final-Zustand fachlich
+        # veraltet ohne dass das erkennbar waere.
+        errors.append("Empfehlung basiert nicht auf der aktuellen Policy-Version.")
+    cma = db.query(CapitalMarketAssumption).filter(
+        CapitalMarketAssumption.id == run.capital_market_assumptions_id,
+        CapitalMarketAssumption.deleted_at.is_(None),
+    ).first() if run.capital_market_assumptions_id else None
+    if not cma:
+        errors.append("Empfehlung hat keine gueltige CMA-Version.")
+    elif not cma.is_current:
+        errors.append("Empfehlung basiert nicht auf der aktuellen CMA-Version.")
+    if allocation and policy and str(allocation.policy_id) != str(policy.id):
+        errors.append("Soll-Allokation und RecommendationRun referenzieren verschiedene Policies.")
+    if (
+        allocation
+        and cma
+        and str(getattr(allocation, "capital_market_assumptions_id", "") or "")
+        != str(cma.id)
+    ):
+        errors.append("Soll-Allokation und RecommendationRun referenzieren verschiedene CMA.")
+    if not errors and allocation and assessment and policy and cma:
+        try:
+            build_target_payload_from_allocation(
+                db=db,
+                mandate=mandate,
+                allocation=allocation,
+                policy=policy,
+                cma=cma,
+                assessment=assessment,
+                preferences=None,
+            )
+        except ValueError as exc:
+            errors.append(
+                "Der verankerte Allocation-Kontext ist nicht mehr integer: "
+                f"{exc}"
+            )
+    positions = db.query(RecommendationPosition).filter(RecommendationPosition.run_id == run.id).all()
+    if not positions:
+        errors.append("Empfehlung enthaelt keine Positionen.")
+        return errors, warnings
+    total_weight = sum(int(position.target_weight_bps or 0) for position in positions)
+    if total_weight < 9900 or total_weight > 10100:
+        errors.append(f"Positionsgewichte summieren auf {total_weight} bps statt ca. 10000 bps.")
+    product_ids = [position.product_id for position in positions if position.product_id]
+    products = {product.id: product for product in db.query(Product).filter(Product.id.in_(product_ids)).all()} if product_ids else {}
+    for position in positions:
+        product = products.get(position.product_id)
+        if not product or product.deleted_at is not None or int(product.is_active or 0) != 1:
+            errors.append(f"Produkt {position.product_id} ist nicht aktiv oder nicht verfuegbar.")
+            continue
+        if product.ter_bps is None:
+            warnings.append(f"TER fehlt fuer {product.product_name}.")
+        profile = resolve_market_profile(product)
+        if not (profile.get("lookup_symbol") or profile.get("isin")):
+            warnings.append(f"Marktdaten-Mapping fehlt fuer {product.product_name}.")
+    quality = summarize_price_quality(db, product_ids)
+    if int(quality.get("missing_prices_count") or 0):
+        warnings.append("Mindestens eine Position hat keinen aktuellen Marktpreis.")
+    if int(quality.get("stale_positions_count") or 0):
+        warnings.append("Mindestens ein Marktpreis ist veraltet.")
+    return errors, warnings
+
+
+def _active_products_query(db: Session, tenant_id: str | None = None):
+    """Fondsuniversum (2026-08-05): zeigt den globalen/geteilten Katalog
+    (Product.tenant_id IS NULL) plus die privaten Fonds des UEBERGEBENEN
+    Tenants -- NIE die privaten Fonds anderer Tenants. tenant_id=None
+    (Default) zeigt NUR den globalen Katalog, unveraendert wie vor dieser
+    Aenderung (Backwards-Compat fuer Aufrufer ohne User-Kontext)."""
+    q = db.query(Product).filter(Product.deleted_at.is_(None), Product.is_active == 1)
+    if tenant_id:
+        q = q.filter(or_(Product.tenant_id.is_(None), Product.tenant_id == tenant_id))
+    else:
+        q = q.filter(Product.tenant_id.is_(None))
+    return q
 
 
 def _get_trigger_or_404(mandate_id: str, trigger_id: str, db: Session) -> ReviewTrigger:
@@ -310,6 +444,12 @@ def _preview_eodhd_or_raise(
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
+    except RateLimitError as exc:
+        # Mega-Audit (2026-08-04): eodhd_client wirft jetzt typisiert
+        # RateLimitError statt generischem RuntimeError bei HTTP 429 --
+        # RateLimitError erbt NICHT von RuntimeError, also eigener Catch
+        # (sonst unbehandelter 500 statt aussagekraeftigem 429).
+        raise HTTPException(status_code=429, detail=str(exc))
     except RuntimeError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
 
@@ -334,20 +474,32 @@ def _select_preview_candidate(
     return candidates[candidate_index]
 
 
-def _collect_product_market_data_status(db: Session) -> dict:
+def _collect_product_market_data_status(db: Session, tenant_id: str | None = None) -> dict:
     products = (
-        _active_products_query(db)
+        _active_products_query(db, tenant_id=tenant_id)
         .order_by(Product.product_name.asc())
         .all()
     )
     openfigi_pending = []
     reference_pending = []
+    # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit, MD-01): Stammdaten-Waehrung vs.
+    # Boerse-des-Symbols abgleichen (rein lokal, kein Netzwerk-Call).
+    currency_mismatches = []
     openfigi_mapped_count = 0
     reference_synced_count = 0
     lookup_mode_override_count = 0
     symbol_count = 0
     isin_only_count = 0
     for product in products:
+        mismatch_warning = currency_mismatch_warning(product)
+        if mismatch_warning:
+            currency_mismatches.append({
+                "product_id": product.id,
+                "product_name": product.product_name,
+                "currency": product.currency,
+                "exchange_code": product.exchange_code,
+                "warning": mismatch_warning,
+            })
         has_symbol = not _is_blank(product.symbol)
         has_isin = not _is_blank(product.isin)
         if not _is_blank(product.lookup_mode_override):
@@ -397,9 +549,11 @@ def _collect_product_market_data_status(db: Session) -> dict:
         "reference_synced_count": reference_synced_count,
         "openfigi_pending_count": len(openfigi_pending),
         "reference_pending_count": len(reference_pending),
+        "currency_mismatch_count": len(currency_mismatches),
         "samples": {
             "openfigi_pending": openfigi_pending[:8],
             "reference_pending": reference_pending[:8],
+            "currency_mismatches": currency_mismatches[:8],
         },
         "price_quality": summarize_price_quality(db),
     }
@@ -478,6 +632,7 @@ def list_triggers(
 def create_trigger(
     mandate_id: str,
     body: ReviewTriggerCreate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor)
 ):
@@ -499,7 +654,7 @@ def create_trigger(
     db.add(trigger)
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="review_triggers", record_id=trigger.id, action="CREATE",
-        mandate_id=mandate_id)
+        mandate_id=mandate_id, ip_address=_extract_client_ip(request))
     try:
         db.commit()
     except IntegrityError as exc:
@@ -516,7 +671,7 @@ def create_trigger(
 def refresh_system_triggers(
     mandate_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_advisor)
 ):
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
     triggers = refresh_system_review_triggers(db, mandate, current_user.id)
@@ -529,6 +684,7 @@ def refresh_system_triggers(
 def resolve_trigger(
     mandate_id: str, trigger_id: str,
     body: ReviewTriggerResolve,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor)
 ):
@@ -546,7 +702,8 @@ def resolve_trigger(
         trigger.status = "Aktiv"
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="review_triggers", record_id=trigger_id, action="UPDATE",
-        field_name="status", new_value=trigger.status, mandate_id=mandate_id)
+        field_name="status", new_value=trigger.status, mandate_id=mandate_id,
+        ip_address=_extract_client_ip(request))
     db.commit()
     db.refresh(trigger)
     return trigger
@@ -557,13 +714,49 @@ def resolve_trigger(
 @router.get("/mandates/{mandate_id}/advisory-log", response_model=list[AdvisoryLogResponse])
 def list_advisory_log(
     mandate_id: str,
+    include_history: bool = False,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    """Sprint U-FINMA-2.1: Listet die *aktuellen* (non-superseded) Einträge.
+
+    Mit `?include_history=true` werden alle Versionen geliefert (für
+    Compliance-Audit). Default: nur aktuelle Köpfe der Versions-Ketten.
+    """
+    from services.advisory_log_service import serialize_response
+
     _get_mandate_or_404(mandate_id, db, current_user)
-    return db.query(AdvisoryLog).filter(
-        AdvisoryLog.mandate_id == mandate_id
-    ).order_by(AdvisoryLog.entry_date.desc()).all()
+    q = db.query(AdvisoryLog).filter(AdvisoryLog.mandate_id == mandate_id)
+    if not include_history:
+        q = q.filter(AdvisoryLog.superseded_by_id.is_(None))
+    rows = q.order_by(AdvisoryLog.entry_date.desc()).all()
+    return [serialize_response(r) for r in rows]
+
+
+@router.get(
+    "/mandates/{mandate_id}/advisory-log/{log_id}",
+    response_model=AdvisoryLogResponse,
+)
+def get_advisory_log_entry(
+    mandate_id: str,
+    log_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Sprint U-FINMA-2.1: Einzelner Eintrag mit Read-Audit-Tracking."""
+    from services.advisory_log_service import mark_read, serialize_response
+
+    _get_mandate_or_404(mandate_id, db, current_user)
+    entry = db.query(AdvisoryLog).filter(
+        AdvisoryLog.id == log_id,
+        AdvisoryLog.mandate_id == mandate_id,
+    ).first()
+    if not entry:
+        raise HTTPException(status_code=404, detail="Advisory-Log-Eintrag nicht gefunden")
+    mark_read(db, entry=entry, reader=current_user)
+    db.commit()
+    db.refresh(entry)
+    return serialize_response(entry)
 
 
 @router.post("/mandates/{mandate_id}/advisory-log",
@@ -571,37 +764,50 @@ def list_advisory_log(
 def create_advisory_log_entry(
     mandate_id: str,
     body: AdvisoryLogCreate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor)
 ):
+    """Sprint U-FINMA-2.1: FINMA-konforme Eintragserstellung mit Hash,
+    Aufbewahrungs-Datum und vollem Audit-Log.
+    """
+    from services.advisory_log_service import create_advisory_log, serialize_response
+
+    enforce_data_classification(body.data_classification)
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
-    now = _now()
     if body.recommendation_run_id:
         _get_recommendation_run_or_404(mandate_id, body.recommendation_run_id, db, current_user)
-    excluded = {"client_signed", "entry_date", "status"}
-    entry = AdvisoryLog(
-        id=new_uuid(), mandate_id=mandate_id,
-        advisor_id=current_user.id,
-        entry_date=body.entry_date or date.today().isoformat(),
-        client_signed=1 if body.client_signed else 0,
-        status=body.status or "Empfohlen",
-        created_at=now, updated_at=now,
-        **{k: v for k, v in body.model_dump().items()
-           if k not in excluded}
+    entry = create_advisory_log(
+        db, mandate_id=mandate_id, advisor=current_user, payload=body, mandate=mandate,
     )
-    db.add(entry)
-    log(db, user_id=current_user.id, user_name=current_user.full_name,
-        table_name="advisory_log", record_id=entry.id, action="CREATE",
-        mandate_id=mandate_id, client_id=mandate.client_id)
+    db.flush()
+    log(
+        db,
+        user_id=current_user.id,
+        user_name=current_user.full_name,
+        table_name="advisory_log",
+        record_id=entry.id,
+        action="CREATE",
+        mandate_id=mandate_id,
+        client_id=mandate.client_id,
+        new_value=entry.integrity_hash,
+        ip_address=_extract_client_ip(request),
+    )
     try:
         db.commit()
     except IntegrityError as exc:
         db.rollback()
         if "advisory_log" in str(exc).lower() and "decision" in str(exc).lower():
-            raise HTTPException(status_code=422, detail="Ungültiger Advisory-Entscheid für das aktuelle Schema")
+            raise HTTPException(
+                status_code=422,
+                detail="Ungültiger Advisory-Entscheid für das aktuelle Schema",
+            )
         raise
     db.refresh(entry)
-    return entry
+    # U-19: Cache invalidieren — Beratungsprotokoll-Sektion zeigt diesen
+    # Eintrag ab dem naechsten GET, statt 60s zu warten.
+    invalidate_advisory_cache(mandate_id)
+    return serialize_response(entry)
 
 
 # ── Contract Documents ─────────────────────────────────────────────────────────
@@ -615,14 +821,75 @@ _STATUS_TRANSITIONS = {
 }
 
 
+@router.post(
+    "/mandates/{mandate_id}/advisory-log/from-report-generation",
+    response_model=AdvisoryLogResponse, status_code=201,
+)
+def create_advisory_log_from_report_generation(
+    mandate_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_advisor),
+):
+    """Sprint U-FINMA-2.2: Erzeugt ein Beratungsprotokoll mit pre-filled
+    Defaults — Topics aus Mandat-Kontext, Risk-Warnings aus aktiven
+    Suitability-Mismatches. Berater editiert anschliessend via PUT.
+
+    Endpoint ist explizit — Auto-Log passiert NICHT beim normalen
+    Report-Abruf (sonst Audit-Spam).
+    """
+    from services.advisory_log_service import (
+        build_auto_log_payload,
+        create_advisory_log,
+        serialize_response,
+    )
+
+    mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    payload_dict = build_auto_log_payload(
+        db, mandate=mandate, advisor=current_user,
+        entry_datetime=_now(),
+    )
+    payload = AdvisoryLogCreate(**payload_dict)
+    entry = create_advisory_log(
+        db, mandate_id=mandate_id, advisor=current_user, payload=payload, mandate=mandate,
+    )
+    db.flush()
+    log(
+        db,
+        user_id=current_user.id,
+        user_name=current_user.full_name,
+        table_name="advisory_log",
+        record_id=entry.id,
+        action="CREATE",
+        field_name="auto_generated",
+        new_value=entry.integrity_hash,
+        mandate_id=mandate_id,
+        client_id=mandate.client_id,
+        ip_address=_extract_client_ip(request),
+    )
+    db.commit()
+    db.refresh(entry)
+    invalidate_advisory_cache(mandate_id)
+    return serialize_response(entry)
+
+
 @router.put("/mandates/{mandate_id}/advisory-log/{log_id}", response_model=AdvisoryLogResponse)
 def update_advisory_log_entry(
     mandate_id: str,
     log_id: str,
     body: AdvisoryLogUpdate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor)
 ):
+    """Sprint U-FINMA-2.1: Update erzeugt eine *neue Version*, der alte
+    Eintrag wird markiert als superseded (FINMA-Pflicht: keine destructive
+    Updates am Beratungsprotokoll).
+    """
+    from services.advisory_log_service import (
+        serialize_response, supersede_advisory_log,
+    )
+
     _get_mandate_or_404(mandate_id, db, current_user)
     entry = db.query(AdvisoryLog).filter(
         AdvisoryLog.id == log_id,
@@ -630,8 +897,15 @@ def update_advisory_log_entry(
     ).first()
     if not entry:
         raise HTTPException(status_code=404, detail="Advisory-Log-Eintrag nicht gefunden")
+    if entry.superseded_by_id:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Dieser Eintrag wurde bereits durch eine neuere Version ersetzt. "
+                f"Aktuelle Version: {entry.superseded_by_id}"
+            ),
+        )
 
-    now = _now()
     if body.status is not None:
         current_status = entry.status or "Empfohlen"
         allowed = _STATUS_TRANSITIONS.get(current_status, set())
@@ -648,43 +922,31 @@ def update_advisory_log_entry(
                 status_code=422,
                 detail=f"Status '{body.status}' erfordert einen Kommentar in description.",
             )
-        log(
-            db,
-            user_id=current_user.id,
-            user_name=current_user.full_name,
-            table_name="advisory_log",
-            record_id=log_id,
-            action="UPDATE",
-            field_name="status",
-            old_value=entry.status,
-            new_value=body.status,
-            mandate_id=mandate_id,
+    if body.recommendation_run_id:
+        _get_recommendation_run_or_404(
+            mandate_id, body.recommendation_run_id, db, current_user,
         )
-        entry.status = body.status
-    if body.recommendation_run_id is not None:
-        if body.recommendation_run_id:
-            _get_recommendation_run_or_404(mandate_id, body.recommendation_run_id, db, current_user)
-        entry.recommendation_run_id = body.recommendation_run_id
-    if body.description is not None:
-        if body.description != entry.description:
-            log(
-                db,
-                user_id=current_user.id,
-                user_name=current_user.full_name,
-                table_name="advisory_log",
-                record_id=log_id,
-                action="UPDATE",
-                field_name="description",
-                old_value=entry.description,
-                new_value=body.description,
-                mandate_id=entry.mandate_id,
-            )
-        entry.description = body.description
 
-    entry.updated_at = now
+    new_entry = supersede_advisory_log(
+        db, previous=entry, advisor=current_user, update=body,
+    )
+    log(
+        db,
+        user_id=current_user.id,
+        user_name=current_user.full_name,
+        table_name="advisory_log",
+        record_id=new_entry.id,
+        action="UPDATE",
+        field_name="version",
+        old_value=str(entry.version),
+        new_value=str(new_entry.version),
+        mandate_id=mandate_id,
+        ip_address=_extract_client_ip(request),
+    )
     db.commit()
-    db.refresh(entry)
-    return entry
+    db.refresh(new_entry)
+    invalidate_advisory_cache(mandate_id)
+    return serialize_response(new_entry)
 
 
 @router.get("/mandates/{mandate_id}/documents", response_model=list[ContractDocumentResponse])
@@ -694,10 +956,56 @@ def list_documents(
     current_user: User = Depends(get_current_user)
 ):
     _get_mandate_or_404(mandate_id, db, current_user)
-    return db.query(ContractDocument).filter(
+    rows = db.query(ContractDocument).filter(
         ContractDocument.mandate_id == mandate_id,
         ContractDocument.deleted_at.is_(None)
     ).order_by(ContractDocument.created_at.desc()).all()
+    # Dokumenten-Archiv (2026-08-20): has_pdf/created_by_name sind auf
+    # ContractDocument selbst nicht vorhanden -- werden hier fuer die Liste
+    # angereichert, ohne pdf_base64 (potenziell mehrere MB je Version) je
+    # in die Listen-Antwort zu ziehen. Siehe ContractDocumentResponse-
+    # Docstring-Kommentar in schemas/review.py.
+    creator_ids = {row.created_by for row in rows if row.created_by}
+    creator_names = {
+        u.id: u.full_name
+        for u in (db.query(User).filter(User.id.in_(creator_ids)).all() if creator_ids else [])
+    }
+    return [
+        ContractDocumentResponse.model_validate(row).model_copy(update={
+            "has_pdf": bool(row.pdf_base64),
+            "created_by_name": creator_names.get(row.created_by),
+        })
+        for row in rows
+    ]
+
+
+@router.get("/mandates/{mandate_id}/documents/{doc_id}/pdf")
+def get_document_pdf(
+    mandate_id: str, doc_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Liefert die archivierten PDF-Bytes genau dieser Version zurueck.
+
+    Dokumenten-Archiv (2026-08-20): getrennt von /reports/*.pdf
+    (routers/pdf_reports.py), die IMMER frisch aus den aktuellen Daten
+    rendern -- dieser Endpoint liefert stattdessen die zum
+    Generierungszeitpunkt tatsaechlich abgelegten Bytes einer aelteren
+    Version unveraendert zurueck (FINMA-Nachweis: "was wurde dem Kunden
+    damals gezeigt").
+    """
+    import base64
+    _get_mandate_or_404(mandate_id, db, current_user)
+    doc = _get_document_or_404(mandate_id, doc_id, db)
+    if not doc.pdf_base64:
+        raise HTTPException(status_code=404, detail="Fuer dieses Dokument liegt kein PDF vor.")
+    safe_title = "".join(c if c.isalnum() else "_" for c in doc.title)[:40]
+    filename = f"{safe_title}_v{doc.version}.pdf"
+    return Response(
+        content=base64.b64decode(doc.pdf_base64),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
 
 
 @router.post("/mandates/{mandate_id}/documents",
@@ -705,10 +1013,16 @@ def list_documents(
 def create_document(
     mandate_id: str,
     body: ContractDocumentCreate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor)
 ):
     _get_mandate_or_404(mandate_id, db, current_user)
+    fields = body.model_dump()
+    # 2026-07-25 (Generalaudit): data_classification hat kein DB-Spalten-
+    # Aequivalent auf ContractDocument (nur Enforcement) -- vor dem Spread
+    # in den Konstruktor entfernen, sonst TypeError: unexpected keyword arg.
+    enforce_data_classification(fields.pop("data_classification", None))
     now = _now()
     doc = ContractDocument(
         id=new_uuid(), mandate_id=mandate_id,
@@ -716,12 +1030,12 @@ def create_document(
         signed_by_advisor=0, signed_by_client=0,
         created_by=current_user.id,
         created_at=now, updated_at=now,
-        **body.model_dump()
+        **fields
     )
     db.add(doc)
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="contract_documents", record_id=doc.id, action="CREATE",
-        mandate_id=mandate_id)
+        mandate_id=mandate_id, ip_address=_extract_client_ip(request))
     db.commit()
     db.refresh(doc)
     return doc
@@ -732,16 +1046,31 @@ def create_document(
 def sign_document(
     mandate_id: str, doc_id: str,
     body: ContractDocumentSign,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor)
 ):
+    # 2026-08-05 (User-Direktive, E-Signing): schreibt jetzt zusaetzlich zu
+    # den bestehenden Checkbox-Flags das tatsaechliche Signatur-Artefakt
+    # (Bild + Name + Zeitstempel + IP) fuer genau den Unterzeichner, der in
+    # diesem Aufruf gesetzt ist -- siehe ContractDocumentSign-Docstring.
     _get_mandate_or_404(mandate_id, db, current_user)
     doc = _get_document_or_404(mandate_id, doc_id, db)
     now = _now()
+    signer_ip = _extract_client_ip(request)
+    signer_name = body.signer_name.strip()
     if body.signed_by_advisor:
         doc.signed_by_advisor = 1
+        doc.signature_advisor_image = body.signature_image
+        doc.signature_advisor_signer_name = signer_name
+        doc.signature_advisor_signed_at = now
+        doc.signature_advisor_ip = signer_ip
     if body.signed_by_client:
         doc.signed_by_client = 1
+        doc.signature_client_image = body.signature_image
+        doc.signature_client_signer_name = signer_name
+        doc.signature_client_signed_at = now
+        doc.signature_client_ip = signer_ip
     if not doc.signed_at:
         doc.signed_at = now
     doc.status = (
@@ -752,7 +1081,8 @@ def sign_document(
     doc.updated_at = now
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="contract_documents", record_id=doc_id, action="UPDATE",
-        field_name="status", new_value=doc.status, mandate_id=mandate_id)
+        field_name="status", new_value=doc.status, mandate_id=mandate_id,
+        ip_address=signer_ip)
     db.commit()
     db.refresh(doc)
     return doc
@@ -781,22 +1111,35 @@ def list_conflicts(
 def create_conflict(
     mandate_id: str,
     body: ConflictDisclosureCreate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor)
 ):
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    fields = body.model_dump()
+    # 2026-07-25 (Generalaudit): siehe create_document -- kein DB-Spalten-
+    # Aequivalent auf ConflictOfInterestDisclosure, nur Enforcement.
+    enforce_data_classification(fields.pop("data_classification", None))
+    # 2026-07-27 (Retrozessions-Feature): reimbursed_to_client=None bedeutet
+    # "nicht angegeben" -- aus der firmenweiten Tenant-Vorbelegung auffuellen
+    # (Spalte ist NOT NULL, kann nicht als None persistiert werden).
+    if fields.get("reimbursed_to_client") is None:
+        tenant_id = getattr(mandate, "tenant_id", None)
+        tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first() if tenant_id else None
+        fields["reimbursed_to_client"] = bool(getattr(tenant, "default_retrocession_reimbursement", 0)) if tenant else False
     now = _now()
     conflict = ConflictOfInterestDisclosure(
         id=new_uuid(), mandate_id=mandate_id,
         disclosed_by=current_user.id,
         disclosed_to_client=0, client_acknowledged=0,
         created_at=now, updated_at=now,
-        **body.model_dump()
+        **fields
     )
     db.add(conflict)
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="conflict_of_interest_disclosures", record_id=conflict.id,
-        action="CREATE", mandate_id=mandate_id, client_id=mandate.client_id)
+        action="CREATE", mandate_id=mandate_id, client_id=mandate.client_id,
+        ip_address=_extract_client_ip(request))
     db.commit()
     db.refresh(conflict)
     return conflict
@@ -804,16 +1147,82 @@ def create_conflict(
 
 # ── Products ───────────────────────────────────────────────────────────────────
 
+_SFDR_VALID_CLASSES = frozenset({"6", "8", "9"})
+
+
 @products_router.get("", response_model=list[ProductResponse])
 def list_products(
     asset_class: str = None,
+    sfdr_class: str | None = Query(
+        default=None,
+        description=(
+            "SFDR-Klassifizierung (Sustainable Finance Disclosure Regulation). "
+            "Erlaubte Werte: '6' (Standard, keine ESG-Werbung), "
+            "'8' (ESG-Werbung mit nachhaltigen Merkmalen), "
+            "'9' (Nachhaltigkeits-Ziel als Anlage-Ziel). "
+            "Sprint U-95 (2026-06-05)."
+        ),
+    ),
+    esg_rating: str | None = Query(
+        default=None,
+        description=(
+            "ESG-Rating-Filter (case-insensitive exact match). "
+            "Sprint U-95 (2026-06-05)."
+        ),
+    ),
+    q: str | None = Query(
+        default=None,
+        description=(
+            "Freitext-Suche ueber Produktname/Anbieter/ISIN/Symbol "
+            "(case-insensitive, Substring). Fondsuniversum (2026-08-05)."
+        ),
+    ),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    q = _active_products_query(db)
+    """Sprint U-95 (2026-06-05): ESG/SFDR-Filter ergaenzt.
+    Fondsuniversum (2026-08-05): Freitext-Suche (q) + Tenant-Scoping ergaenzt
+    -- zeigt den globalen Katalog PLUS die eigenen, privat erfassten Fonds
+    des aufrufenden Users' Tenants (nie die eines anderen Tenants).
+
+    Berater kann nach SFDR-Klassifizierung (Art. 6/8/9) und ESG-Rating
+    filtern um Anlageprodukte zu finden die zu den ESG-Preferences des
+    Kunden passen. Filter sind additiv (AND-Verknuepfung).
+    """
+    query = _active_products_query(db, tenant_id=_resolve_tenant_id_for_user(current_user))
     if asset_class:
-        q = q.filter(Product.asset_class == asset_class)
-    return q.order_by(Product.asset_class, Product.product_name).all()
+        query = query.filter(Product.asset_class == asset_class)
+    if sfdr_class is not None:
+        normalized = str(sfdr_class).strip()
+        if normalized not in _SFDR_VALID_CLASSES:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"sfdr_class muss einer von {sorted(_SFDR_VALID_CLASSES)} sein, "
+                    f"erhalten: {sfdr_class!r}"
+                ),
+            )
+        query = query.filter(Product.sfdr_class == normalized)
+    if esg_rating is not None:
+        normalized_rating = str(esg_rating).strip()
+        if not normalized_rating:
+            raise HTTPException(
+                status_code=422,
+                detail="esg_rating darf nicht leer sein.",
+            )
+        # Case-insensitive Match (ESG-Ratings haben Schreibweise-Varianten wie 'AAA'/'aaa')
+        query = query.filter(Product.esg_rating.ilike(normalized_rating))
+    if q is not None:
+        needle = str(q).strip()
+        if needle:
+            pattern = f"%{needle}%"
+            query = query.filter(or_(
+                Product.product_name.ilike(pattern),
+                Product.provider.ilike(pattern),
+                Product.isin.ilike(pattern),
+                Product.symbol.ilike(pattern),
+            ))
+    return query.order_by(Product.asset_class, Product.product_name).all()
 
 
 @products_router.post("", response_model=ProductResponse, status_code=201)
@@ -822,15 +1231,304 @@ def create_product(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin)
 ):
+    """Fondsuniversum (2026-08-05, User-Direktive): manuell erfasste Fonds
+    (kotiert MIT isin/symbol, oder nicht-kotiert OHNE -- beide Felder sind
+    bereits optional auf Product) werden serverseitig dem Tenant des
+    erfassenden Admins zugeordnet -- NIE aus dem Client-Payload uebernommen
+    (ProductCreate hat gar kein tenant_id-Feld), sonst waere ein Tenant-
+    Spoofing moeglich (Firma A koennte sich als Firma B ausgeben). So kann
+    jedes Assetmanagement seine eigenen Fonds erfassen, ohne dass sie fuer
+    andere Tenants sichtbar werden (siehe _active_products_query).
+
+    2026-08-05 (Live-Smoketest-Fund): products.isin hat einen GLOBALEN
+    Unique-Index (ux_products_isin_active, ueber alle Tenants hinweg --
+    eine ISIN identifiziert ein real existierendes Wertpapier, unabhaengig
+    davon, welcher Tenant es erfasst hat). Ohne diesen Vorab-Check wuerde
+    ein Kollisionsversuch (auch durch einen VOELLIG ANDEREN Tenant, dessen
+    private Eintraege man gar nicht sehen kann) mit einem rohen 500 statt
+    einer verstaendlichen Fehlermeldung crashen."""
+    if body.isin:
+        conflict = db.query(Product).filter(
+            Product.isin == body.isin, Product.deleted_at.is_(None),
+        ).first()
+        if conflict is not None:
+            raise HTTPException(
+                status_code=409,
+                detail=f"ISIN {body.isin} ist bereits einem Fonds zugeordnet.",
+            )
     now = _now()
     product = Product(
         id=new_uuid(), is_active=1,
+        tenant_id=_resolve_tenant_id_for_user(current_user),
         created_at=now, updated_at=now,
         **body.model_dump()
     )
     db.add(product)
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="products", record_id=product.id, action="CREATE")
+    db.commit()
+    db.refresh(product)
+    return product
+
+
+_PRODUCT_IMPORT_CSV_FIELDS = (
+    "product_name", "provider", "product_type", "asset_class", "sub_asset_class",
+    "currency", "isin", "symbol", "ter_bps", "sfdr_class", "esg_rating", "liquidity_tier",
+)
+_PRODUCT_IMPORT_MAX_ROWS = 1000
+_PRODUCT_IMPORT_MAX_FILE_BYTES = 2 * 1024 * 1024
+
+
+def _format_validation_error(exc: ValidationError) -> str:
+    parts = []
+    for err in exc.errors():
+        loc = ".".join(str(p) for p in err.get("loc", ()))
+        msg = err.get("msg", "ungueltig")
+        parts.append(f"{loc}: {msg}" if loc else msg)
+    return "; ".join(parts) or "Validierungsfehler"
+
+
+def _normalize_csv_import_row(raw: dict) -> dict:
+    """CSV-Header werden case-insensitiv auf die ProductCreate-Feldnamen
+    gemappt; unbekannte Spalten (z.B. ein Spoofing-Versuch per
+    'tenant_id'-Spalte) werden stillschweigend verworfen -- dieselbe
+    Anti-Spoofing-Logik wie bei ProductCreate (siehe create_product),
+    nur eine Ebene frueher. Leere Zellen werden zu None (sonst wuerde
+    z.B. ein leeres ter_bps-Feld als leerer String statt als 'nicht
+    angegeben' interpretiert)."""
+    normalized: dict = {}
+    for key, value in raw.items():
+        if key is None:
+            continue
+        field = str(key).strip().lower()
+        if field not in _PRODUCT_IMPORT_CSV_FIELDS:
+            continue
+        if isinstance(value, str):
+            value = value.strip()
+        normalized[field] = value if value else None
+    return normalized
+
+
+def _import_products(rows: list[dict], db: Session, current_user: User) -> ProductImportResponse:
+    """Gemeinsame Import-Logik fuer CSV- und JSON-Bulk-Import (Fondsuniversum,
+    2026-08-05, User-Direktive: "Schnittstelle machen ... damit jedes
+    Assetmanagement seine eigene Fonds der Software fuettern kann").
+
+    - tenant_id wird IMMER serverseitig aus current_user gestempelt (siehe
+      create_product) -- nie aus der Zeile uebernommen.
+    - Upsert-Verhalten: hat eine Zeile eine ISIN (oder ersatzweise ein
+      Symbol) und existiert bereits ein Produkt MIT DERSELBEN tenant_id UND
+      ISIN/Symbol, wird es aktualisiert statt dupliziert -- ein Asset
+      Manager kann seinen Fondskatalog also monatlich neu hochladen, ohne
+      dass sich die Liste jedes Mal verdoppelt. Fehlen BEIDE (nicht-kotierter
+      Fonds), wird ersatzweise auf den Produktnamen abgeglichen (nur gegen
+      andere ebenfalls-nicht-kotierte Zeilen desselben Tenants) -- sonst
+      wuerde ausgerechnet die Fondsklasse, fuer die dieser Import gebaut
+      wurde, bei jedem Re-Upload dupliziert. Der Abgleich ist in jedem Fall
+      strikt tenant-gescoped, sodass ein Re-Upload NIE ein Produkt eines
+      anderen Tenants ueberschreiben kann (identisch zur Isolationsgarantie
+      von _active_products_query).
+    - Eine fehlerhafte Zeile bricht den gesamten Import NICHT ab (partial
+      success) -- die Fehlermeldung landet stattdessen im Item-Report,
+      damit ein Asset Manager mit 300 Fonds nicht wegen einer einzigen
+      Tippfehler-Zeile neu anfangen muss.
+    """
+    tenant_id = _resolve_tenant_id_for_user(current_user)
+    now = _now()
+    items: list[ProductImportResultItem] = []
+    created = 0
+    updated = 0
+    for idx, raw in enumerate(rows, start=1):
+        name_hint = str(raw.get("product_name") or "").strip() or None
+        try:
+            body = ProductCreate(**raw)
+        except ValidationError as exc:
+            items.append(ProductImportResultItem(
+                row=idx, status="failed", product_name=name_hint,
+                error=_format_validation_error(exc),
+            ))
+            continue
+        payload = body.model_dump()
+        existing = None
+        if payload.get("isin"):
+            existing = db.query(Product).filter(
+                Product.tenant_id == tenant_id, Product.isin == payload["isin"],
+                Product.deleted_at.is_(None),
+            ).first()
+        elif payload.get("symbol"):
+            existing = db.query(Product).filter(
+                Product.tenant_id == tenant_id, Product.symbol == payload["symbol"],
+                Product.deleted_at.is_(None),
+            ).first()
+        else:
+            # 2026-08-05 (Live-Smoketest-Fund): ein nicht-kotierter Fonds hat
+            # weder ISIN noch Symbol als Abgleichs-Schluessel -- ohne diesen
+            # Fallback wuerde JEDER Re-Upload eines Private-Markets-Katalogs
+            # (genau die Fondsklasse, fuer die dieser Import extra gebaut
+            # wurde) den nicht-kotierten Fonds duplizieren statt zu
+            # aktualisieren. Name ist der einzig sinnvolle Ersatz-Schluessel;
+            # bewusst nur gegen ANDERE ebenfalls-nicht-kotierte Zeilen
+            # desselben Tenants gematcht, damit ein gleichnamiger, aber
+            # bereits kotierter Fonds nie versehentlich ueberschrieben wird.
+            existing = db.query(Product).filter(
+                Product.tenant_id == tenant_id, Product.product_name == payload["product_name"],
+                Product.isin.is_(None), Product.symbol.is_(None),
+                Product.deleted_at.is_(None),
+            ).first()
+        if existing is not None:
+            for field, value in payload.items():
+                setattr(existing, field, value)
+            existing.updated_at = now
+            items.append(ProductImportResultItem(
+                row=idx, status="updated", product_id=existing.id, product_name=existing.product_name,
+            ))
+            updated += 1
+        else:
+            # 2026-08-05 (Live-Smoketest-Fund): products.isin ist GLOBAL
+            # eindeutig (ux_products_isin_active, siehe create_product) --
+            # der obige existing-Lookup ist tenant-gescoped und findet daher
+            # NIE die ISIN eines anderen Tenants. Ohne diesen zusaetzlichen,
+            # ungescopten Check wuerde der INSERT weiter unten mit einem
+            # rohen IntegrityError abbrechen und (weil der Commit erst am
+            # Ende des gesamten Batches passiert) den KOMPLETTEN Import
+            # ruinieren statt nur diese eine Zeile als Fehler zu melden.
+            if payload.get("isin"):
+                global_conflict = db.query(Product).filter(
+                    Product.isin == payload["isin"], Product.deleted_at.is_(None),
+                ).first()
+                if global_conflict is not None:
+                    items.append(ProductImportResultItem(
+                        row=idx, status="failed", product_name=name_hint,
+                        error=f"ISIN {payload['isin']} ist bereits einem Fonds zugeordnet.",
+                    ))
+                    continue
+            product = Product(
+                id=new_uuid(), is_active=1, tenant_id=tenant_id,
+                created_at=now, updated_at=now, **payload,
+            )
+            db.add(product)
+            db.flush()
+            items.append(ProductImportResultItem(
+                row=idx, status="created", product_id=product.id, product_name=product.product_name,
+            ))
+            created += 1
+    if created or updated:
+        log(db, user_id=current_user.id, user_name=current_user.full_name,
+            table_name="products", record_id="bulk-import", action="CREATE",
+            new_value=f"{created} erstellt, {updated} aktualisiert")
+        db.commit()
+    failed = len(rows) - created - updated
+    return ProductImportResponse(processed=len(rows), created=created, updated=updated, failed=failed, items=items)
+
+
+@products_router.post("/import", response_model=ProductImportResponse, status_code=201)
+def import_products_bulk(
+    body: ProductBulkImportRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Fondsuniversum Bulk-API-Import: fuer externe Asset-Manager-Systeme,
+    die ihren Fondskatalog programmatisch pushen wollen. Nutzt dieselbe
+    Bearer-Token-Authentifizierung wie jeder andere Endpoint (kein
+    separates API-Key-System noetig) -- ein Asset Manager erhaelt einen
+    Tenant-User-Account, meldet sich ueber POST /auth/login an und ruft
+    diesen Endpoint mit dem erhaltenen Token auf. Siehe _import_products
+    fuer die Upsert-/Isolationslogik."""
+    rows = [p.model_dump() for p in body.products]
+    return _import_products(rows, db, current_user)
+
+
+@products_router.post("/import/csv", response_model=ProductImportResponse, status_code=201)
+def import_products_csv(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Fondsuniversum CSV-Import: erlaubt einem Asset Manager, seinen
+    Fondskatalog per Datei-Upload statt Einzel-Erfassung einzuspielen.
+    Spalten-Reihenfolge ist egal (Header-basiertes Mapping), Trennzeichen
+    wird automatisch erkannt (Komma oder Semikolon -- Schweizer/deutsches
+    Excel exportiert standardmaessig mit Semikolon). Siehe
+    /products/import/csv/template fuer die erwarteten Spaltennamen."""
+    raw_bytes = file.file.read()
+    if len(raw_bytes) > _PRODUCT_IMPORT_MAX_FILE_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"CSV-Datei zu gross (max. {_PRODUCT_IMPORT_MAX_FILE_BYTES // 1024} KB)",
+        )
+    try:
+        text_content = raw_bytes.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        raise HTTPException(status_code=422, detail="CSV-Datei muss UTF-8-kodiert sein")
+    try:
+        dialect = csv.Sniffer().sniff(text_content[:2048], delimiters=",;\t")
+    except csv.Error:
+        dialect = csv.excel
+    reader = csv.DictReader(io.StringIO(text_content), dialect=dialect)
+    if not reader.fieldnames:
+        raise HTTPException(status_code=422, detail="CSV-Datei hat keine Kopfzeile")
+    rows = [_normalize_csv_import_row(raw) for raw in reader]
+    if not rows:
+        raise HTTPException(status_code=422, detail="CSV-Datei enthaelt keine Datenzeilen")
+    if len(rows) > _PRODUCT_IMPORT_MAX_ROWS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Maximal {_PRODUCT_IMPORT_MAX_ROWS} Fonds pro Import (erhalten: {len(rows)})",
+        )
+    return _import_products(rows, db, current_user)
+
+
+@products_router.get("/import/csv/template")
+def download_products_csv_template(
+    current_user: User = Depends(require_admin),
+):
+    """CSV-Vorlage mit den vom Import erwarteten Spaltennamen -- je ein
+    Beispiel fuer einen kotierten (mit ISIN/Symbol) und einen
+    nicht-kotierten Fonds (ISIN/Symbol leer)."""
+    header = ",".join(_PRODUCT_IMPORT_CSV_FIELDS)
+    example_listed = (
+        "Global Equity UCITS ETF,Beispiel Asset Management,Fonds,Aktien,"
+        "Global,CHF,IE00BEXAMPLE1,GEQC,25,8,AA,daily"
+    )
+    example_unlisted = (
+        "Privatmarkt-Anlagestiftung,Beispiel Asset Management,Fonds,Alternative,"
+        "Private Equity,CHF,,,150,,,illiquid"
+    )
+    csv_content = "\n".join([header, example_listed, example_unlisted]) + "\n"
+    return Response(
+        content=csv_content,
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=fondsuniversum-import-vorlage.csv"},
+    )
+
+
+@products_router.put("/{product_id}", response_model=ProductResponse)
+def update_product(
+    product_id: str,
+    body: ProductUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Sprint U-P10: Admin editiert Produkt-Metadaten + Diversifikations-Tiefe.
+
+    Alle Felder optional; nur gesetzte werden ueberschrieben. JSON-Strings
+    (country/sector/currency_exposure_json) werden NICHT validiert hier —
+    der Depot-Check-Engine fault-tolerant via product_exposures._parse_or_proxy.
+    """
+    product = db.query(Product).filter(
+        Product.id == product_id, Product.deleted_at.is_(None),
+    ).first()
+    if not product:
+        raise HTTPException(status_code=404, detail=f"Product {product_id} nicht gefunden")
+    payload = body.model_dump(exclude_none=True)
+    if not payload:
+        return product
+    for field, value in payload.items():
+        setattr(product, field, value)
+    product.updated_at = _now()
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="products", record_id=product_id, action="UPDATE",
+        new_value=", ".join(f"{k}" for k in payload.keys()))
     db.commit()
     db.refresh(product)
     return product
@@ -873,7 +1571,7 @@ def get_product_market_data_status(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    return _collect_product_market_data_status(db)
+    return _collect_product_market_data_status(db, tenant_id=_resolve_tenant_id_for_user(current_user))
 
 
 @products_router.post("/openfigi/resolve", response_model=ProductIdMappingPreviewResponse)
@@ -947,7 +1645,7 @@ def auto_apply_product_id_mappings(
     current_user: User = Depends(require_admin),
 ):
     products = (
-        _active_products_query(db)
+        _active_products_query(db, tenant_id=_resolve_tenant_id_for_user(current_user))
         .filter(
             Product.isin.is_not(None),
             (Product.symbol.is_(None) | (Product.symbol == "")),
@@ -1125,7 +1823,7 @@ def auto_apply_product_reference_data(
     current_user: User = Depends(require_admin),
 ):
     products = (
-        _active_products_query(db)
+        _active_products_query(db, tenant_id=_resolve_tenant_id_for_user(current_user))
         .filter(
             (Product.reference_data_provider.is_(None) | (Product.reference_data_provider == "")),
         )
@@ -1235,6 +1933,128 @@ def auto_apply_product_reference_data(
     }
 
 
+# ── Fonds-Universum (Laender-Skalierung, Fonds-Kuratierung) ────────────────────
+# 2026-07-27: Kuratierte Positivliste je Tenant+Jurisdiktion. Ohne Eintraege
+# fuer ein (tenant_id, jurisdiction)-Paar bleibt der volle Produktkatalog
+# unveraendert nutzbar (Backwards-Compat) -- siehe models/review.py Docstring.
+
+product_universe_router = APIRouter(prefix="/product-universe", tags=["Fonds-Universum"])
+
+
+def _effective_tenant_id(user: User) -> str:
+    """Sprint T2 (2026-06-08) etabliertes Muster (siehe services/auth.py
+    ::_resolve_tenant_id_for_user): user.tenant_id ist in Stage 9 nullable
+    (Backwards-Compat, Single-Tenant-Boot-Backfill setzt es i.d.R. auf
+    DEFAULT_TENANT_ID='main'). NULL als Fehler zu behandeln wuerde admins
+    VOR dem naechsten Boot-Zyklus komplett aussperren -- stattdessen wie
+    ueberall sonst im Code auf 'main' fallen lassen."""
+    from models.tenant import DEFAULT_TENANT_ID
+    raw = getattr(user, "tenant_id", None)
+    return raw.strip() if raw and isinstance(raw, str) and raw.strip() else DEFAULT_TENANT_ID
+
+
+def _get_product_universe_entry_or_404(entry_id: str, tenant_id: str | None, db: Session) -> ProductUniverseEntry:
+    entry = db.query(ProductUniverseEntry).filter(
+        ProductUniverseEntry.id == entry_id,
+        ProductUniverseEntry.deleted_at.is_(None),
+    ).first()
+    if not entry:
+        raise HTTPException(status_code=404, detail=f"ProductUniverseEntry {entry_id} nicht gefunden")
+    if entry.tenant_id != tenant_id:
+        raise HTTPException(status_code=404, detail=f"ProductUniverseEntry {entry_id} nicht gefunden")
+    return entry
+
+
+@product_universe_router.get("", response_model=list[ProductUniverseEntryResponse])
+def list_product_universe_entries(
+    jurisdiction: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    tenant_id = _effective_tenant_id(current_user)
+    q = db.query(ProductUniverseEntry).filter(
+        ProductUniverseEntry.tenant_id == tenant_id,
+        ProductUniverseEntry.deleted_at.is_(None),
+    )
+    if jurisdiction is not None:
+        q = q.filter(ProductUniverseEntry.jurisdiction == jurisdiction)
+    return q.order_by(ProductUniverseEntry.jurisdiction, ProductUniverseEntry.created_at).all()
+
+
+@product_universe_router.post("", response_model=ProductUniverseEntryResponse, status_code=201)
+def create_product_universe_entry(
+    body: ProductUniverseEntryCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    tenant_id = _effective_tenant_id(current_user)
+    product = db.query(Product).filter(
+        Product.id == body.product_id, Product.deleted_at.is_(None),
+    ).first()
+    if not product:
+        raise HTTPException(status_code=404, detail=f"Product {body.product_id} nicht gefunden")
+    existing = db.query(ProductUniverseEntry).filter(
+        ProductUniverseEntry.tenant_id == tenant_id,
+        ProductUniverseEntry.jurisdiction == body.jurisdiction,
+        ProductUniverseEntry.product_id == body.product_id,
+        ProductUniverseEntry.deleted_at.is_(None),
+    ).first()
+    if existing:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Eintrag fuer Produkt {body.product_id} in Jurisdiktion {body.jurisdiction!r} existiert bereits.",
+        )
+    now = _now()
+    entry = ProductUniverseEntry(
+        id=new_uuid(),
+        tenant_id=tenant_id,
+        jurisdiction=body.jurisdiction,
+        product_id=body.product_id,
+        override_ter_bps=body.override_ter_bps,
+        created_by=current_user.id,
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(entry)
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="product_universe_entries", record_id=entry.id, action="CREATE")
+    db.commit()
+    db.refresh(entry)
+    return entry
+
+
+@product_universe_router.put("/{entry_id}", response_model=ProductUniverseEntryResponse)
+def update_product_universe_entry(
+    entry_id: str,
+    body: ProductUniverseEntryUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    entry = _get_product_universe_entry_or_404(entry_id, _effective_tenant_id(current_user), db)
+    entry.override_ter_bps = body.override_ter_bps
+    entry.updated_at = _now()
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="product_universe_entries", record_id=entry.id, action="UPDATE",
+        field_name="override_ter_bps", new_value=str(body.override_ter_bps))
+    db.commit()
+    db.refresh(entry)
+    return entry
+
+
+@product_universe_router.delete("/{entry_id}", status_code=204)
+def delete_product_universe_entry(
+    entry_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    entry = _get_product_universe_entry_or_404(entry_id, _effective_tenant_id(current_user), db)
+    entry.deleted_at = _now()
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="product_universe_entries", record_id=entry.id, action="DELETE")
+    db.commit()
+    return None
+
+
 # ── Recommendations ────────────────────────────────────────────────────────────
 
 @recommendations_router.get("/mandates/{mandate_id}/recommendations",
@@ -1255,15 +2075,117 @@ def list_recommendations(
 def create_recommendation_run(
     mandate_id: str,
     body: RecommendationRunCreate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor)
 ):
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
-    policy = db.query(OptimizerPolicy).filter(
-        OptimizerPolicy.id == body.policy_id
-    ).first()
-    if not policy:
-        raise HTTPException(status_code=404, detail="Optimizer Policy nicht gefunden")
+    # C1: Hard-Gate. Auch der direkte Draft-Create muss auf einem aktuellen,
+    # strategie-fertigen Risikoprofil + aktueller Policy + aktueller CMA basieren
+    # und darf keine fremden / stale TargetAllocation referenzieren.
+    try:
+        assessment = require_strategy_ready_assessment(db, mandate_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    # Mega-Audit (2026-08-04): die obige Pruefung deckt nur VOLLSTAENDIGKEIT
+    # ab, nicht die 365-Tage-Freshness aus audit_mandate_suitability -- ein
+    # Mandat mit vollstaendigem, aber veraltetem Risikoprofil erzeugte hier
+    # bisher klaglos eine Empfehlung, unabhaengig vom Suitability-Gate-Flag
+    # in routers/allocation.py::generate_target_allocation_endpoint.
+    # Identisches Opt-in-Gate (Welle 2.1), hier ergaenzt.
+    if settings.require_suitability_before_recommendation:
+        suitability = audit_mandate_suitability(db, mandate)
+        if not suitability.get("is_compliant", True):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "FIDLEG: Eignungsprüfung fehlt oder ist nicht aktuell — "
+                    "Empfehlung blockiert "
+                    "(require_suitability_before_recommendation=True)."
+                ),
+            )
+    if body.assessment_id and body.assessment_id != assessment.id:
+        raise HTTPException(status_code=422, detail=(
+            "assessment_id muss auf das aktuelle Risikoprofil zeigen "
+            f"(erwartet {assessment.id})."
+        ))
+    try:
+        policy, cma = ensure_runtime_reference_data(
+            db,
+            current_user.id,
+            jurisdiction=getattr(mandate, "jurisdiction", None) or "CH",
+            tenant_id=getattr(mandate, "tenant_id", None) or None,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if str(body.policy_id or "") != str(policy.id):
+        raise HTTPException(
+            status_code=422,
+            detail=f"policy_id muss auf die aktuelle Policy zeigen (erwartet {policy.id}).",
+        )
+    if body.capital_market_assumptions_id and body.capital_market_assumptions_id != cma.id:
+        raise HTTPException(status_code=422, detail=(
+            "capital_market_assumptions_id muss auf die aktuellen CMA zeigen "
+            f"(erwartet {cma.id})."
+        ))
+    if body.target_allocation_id:
+        ta = db.query(TargetAllocation).filter(
+            TargetAllocation.id == body.target_allocation_id,
+            TargetAllocation.mandate_id == mandate_id,
+            TargetAllocation.deleted_at.is_(None),
+        ).first()
+        if not ta:
+            raise HTTPException(status_code=409, detail=(
+                "target_allocation_id gehoert nicht zu diesem Mandat oder ist gelöscht."
+            ))
+        if int(getattr(ta, "is_current", 0) or 0) != 1:
+            raise HTTPException(
+                status_code=409,
+                detail="target_allocation_id muss auf die aktuelle Soll-Allokation zeigen.",
+            )
+        anchor_mismatches = []
+        if str(getattr(ta, "policy_id", "") or "") != str(policy.id):
+            anchor_mismatches.append("Optimizer Policy")
+        if str(getattr(ta, "capital_market_assumptions_id", "") or "") != str(cma.id):
+            anchor_mismatches.append("CMA")
+        if str(getattr(ta, "based_on_assessment_id", "") or "") != str(assessment.id):
+            anchor_mismatches.append("Risikoprofil")
+        if anchor_mismatches:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Die Soll-Allokation stimmt nicht mit den Run-Ankern ueberein: "
+                    + ", ".join(anchor_mismatches)
+                    + ". Bitte Strategie neu berechnen."
+                ),
+            )
+        if int(getattr(ta, "is_current", 0) or 0) != 1:
+            raise HTTPException(
+                status_code=409,
+                detail="target_allocation_id muss auf die aktuelle Soll-Allokation zeigen.",
+            )
+        anchor_mismatches = []
+        if str(getattr(ta, "policy_id", "") or "") != str(policy.id):
+            anchor_mismatches.append("Optimizer Policy")
+        if str(getattr(ta, "capital_market_assumptions_id", "") or "") != str(cma.id):
+            anchor_mismatches.append("CMA")
+        if str(getattr(ta, "based_on_assessment_id", "") or "") != str(assessment.id):
+            anchor_mismatches.append("Risikoprofil")
+        if anchor_mismatches:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Die Soll-Allokation stimmt nicht mit den Run-Ankern ueberein: "
+                    + ", ".join(anchor_mismatches)
+                    + ". Bitte Strategie neu berechnen."
+                ),
+            )
+    payload = body.model_dump()
+    payload.pop("other_assets_included", None)
+    if not payload.get("assessment_id"):
+        payload["assessment_id"] = assessment.id
+    if not payload.get("capital_market_assumptions_id"):
+        payload["capital_market_assumptions_id"] = cma.id
     now = _now()
     run = RecommendationRun(
         id=new_uuid(),
@@ -1273,12 +2195,13 @@ def create_recommendation_run(
         other_assets_included=1 if body.other_assets_included else 0,
         created_by=current_user.id,
         created_at=now, updated_at=now,
-        **{k: v for k, v in body.model_dump().items() if k != "other_assets_included"}
+        **payload,
     )
     db.add(run)
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="recommendation_runs", record_id=run.id, action="CREATE",
-        mandate_id=mandate_id, client_id=mandate.client_id)
+        mandate_id=mandate_id, client_id=mandate.client_id,
+        ip_address=_extract_client_ip(request))
     db.commit()
     db.refresh(run)
     return run
@@ -1289,10 +2212,27 @@ def create_recommendation_run(
 def generate_recommendation_run_endpoint(
     mandate_id: str,
     body: RecommendationGenerateRequest,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor)
 ):
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    # Mega-Audit (2026-08-04): dieser Endpoint hatte bisher UEBERHAUPT
+    # keinen Suitability-Bezug -- weder Vollstaendigkeit noch Freshness --
+    # und war damit der breiteste der drei gefundenen Umgehungspfade des
+    # FIDLEG-Suitability-Gates (Welle 2.1, routers/allocation.py). Identisches
+    # Opt-in-Gate hier ergaenzt.
+    if settings.require_suitability_before_recommendation:
+        suitability = audit_mandate_suitability(db, mandate)
+        if not suitability.get("is_compliant", True):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "FIDLEG: Eignungsprüfung fehlt oder ist nicht aktuell — "
+                    "Empfehlung blockiert "
+                    "(require_suitability_before_recommendation=True)."
+                ),
+            )
     try:
         result = generate_recommendation_run(
             db=db,
@@ -1314,7 +2254,8 @@ def generate_recommendation_run_endpoint(
     )
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="recommendation_runs", record_id=result["run"].id, action="CREATE",
-        mandate_id=mandate_id, client_id=mandate.client_id)
+        mandate_id=mandate_id, client_id=mandate.client_id,
+        ip_address=_extract_client_ip(request))
     db.commit()
     db.refresh(result["run"])
     return result
@@ -1328,12 +2269,57 @@ def get_current_recommendation_payload(
     current_user: User = Depends(get_current_user)
 ):
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    try:
+        current_allocation = _current_target_allocation_or_none(db, mandate_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if not current_allocation:
+        raise HTTPException(status_code=409, detail="Keine aktuelle Soll-Allokation gefunden.")
     runs = db.query(RecommendationRun).filter(
         RecommendationRun.mandate_id == mandate_id
     ).order_by(RecommendationRun.created_at.desc()).all()
     if not runs:
         raise HTTPException(status_code=404, detail="Keine Empfehlung gefunden")
-    run = next((item for item in runs if item.result_status == "Final"), None) or runs[0]
+    runs_for_current_allocation = [
+        item for item in runs
+        if str(item.target_allocation_id or "") == str(current_allocation.id or "")
+        and item.result_status != "Superseded"
+    ]
+    if not runs_for_current_allocation:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Die gespeicherte Portfolio-Empfehlung basiert nicht auf der aktuellen "
+                "Soll-Allokation. Bitte Empfehlung neu berechnen."
+            ),
+        )
+    run = (
+        next((item for item in runs_for_current_allocation if item.result_status == "Final"), None)
+        or next((item for item in runs_for_current_allocation if item.result_status == "Draft"), None)
+        or runs_for_current_allocation[0]
+    )
+    try:
+        return build_recommendation_payload_from_run(
+            db=db,
+            mandate=mandate,
+            run=run,
+            user_id=current_user.id,
+            preferences=None,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+
+@recommendations_router.get("/mandates/{mandate_id}/recommendations/{run_id}/payload",
+                            response_model=RecommendationGenerateResponse)
+def get_recommendation_payload_by_id(
+    mandate_id: str,
+    run_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    run = _get_recommendation_run_or_404(mandate_id, run_id, db, current_user)
     try:
         return build_recommendation_payload_from_run(
             db=db,
@@ -1351,20 +2337,37 @@ def get_current_recommendation_payload(
                              response_model=RecommendationRunResponse)
 def finalize_recommendation(
     mandate_id: str, run_id: str,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor)
 ):
+    mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    # 2026-07-26 (Generalaudit-Nachtrag): sperrt die Mandats-Zeile fuer die
+    # Dauer der Transaktion. Der Bulk-UPDATE unten (alle anderen "Final"-Runs
+    # -> "Superseded") schuetzt NUR, wenn bereits ein Final-Run existiert --
+    # bei der ERSTEN Finalisierung eines Mandats (noch kein Final-Run) matcht
+    # das Bulk-UPDATE 0 Zeilen, und zwei nahezu gleichzeitige Finalize-Calls
+    # fuer zwei verschiedene Runs koennten dann BEIDE "Final" werden (zwei
+    # gleichzeitig gueltige, unterschiedliche Empfehlungen fuer denselben
+    # Kunden). Das Sperren der Mandate-Zeile serialisiert JEDEN Finalize-Call
+    # fuer dasselbe Mandat, unabhaengig vom Vorzustand.
+    db.query(Mandate).filter(Mandate.id == mandate_id).with_for_update().first()
     run = _get_recommendation_run_or_404(mandate_id, run_id, db, current_user)
-    # Supersede previous final runs
+    errors, warnings = _validate_recommendation_for_finalization(db, mandate, run)
+    if errors:
+        raise HTTPException(status_code=422, detail="; ".join(errors))
     db.query(RecommendationRun).filter(
         RecommendationRun.mandate_id == mandate_id,
         RecommendationRun.result_status == "Final",
         RecommendationRun.id != run_id
     ).update({"result_status": "Superseded"})
     run.result_status = "Final"
+    run.updated_at = _now()
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="recommendation_runs", record_id=run_id, action="UPDATE",
-        field_name="result_status", new_value="Final", mandate_id=mandate_id)
+        field_name="result_status",
+        new_value=("Final; Warnungen: " + " | ".join(warnings)) if warnings else "Final",
+        mandate_id=mandate_id, ip_address=_extract_client_ip(request))
     db.commit()
     db.refresh(run)
     return run
@@ -1504,23 +2507,14 @@ def dashboard_summary(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Aggregated dashboard: all clients with wealth, active alerts count."""
-    if has_global_client_access(current_user):
-        rows = db.execute(text("SELECT * FROM v_client_wealth_summary ORDER BY client_name")).fetchall()
-        trigger_stmt = text(
-            "SELECT COUNT(*) FROM v_active_triggers WHERE status IN :active_statuses"
-        ).bindparams(bindparam("active_statuses", expanding=True))
-        trigger_count = db.execute(trigger_stmt, {"active_statuses": ACTIVE_TRIGGER_STATUS_VALUES}).scalar()
-        clients = [dict(r._mapping) for r in rows]
-        for c in clients:
-            c["net_worth_chf"] = (c.get("net_worth_rappen") or 0) / 100
-            c["advisory_wealth_chf"] = (c.get("advisory_wealth_rappen") or 0) / 100
-        return {
-            "clients": clients,
-            "active_alerts": trigger_count,
-            "total_clients": len(clients),
-        }
+    """Aggregated dashboard: all clients with wealth, active alerts count.
 
+    SECURITY (Mandanten-Trennung): KEIN ungescopter Admin-Zweig mehr. Auch
+    globale Admins laufen ueber get_accessible_client_ids/-mandate_ids — diese
+    ueberspringen den advisor_id-Filter, wenden aber IMMER den Tenant-Filter an.
+    Ein Firma-A-Admin sieht so alle Clients SEINES Tenants, aber nie fremde.
+    (Legacy-Admin ohne tenant_id: Tier-1-Single-Tenant, sieht weiter alles.)
+    """
     client_ids = get_accessible_client_ids(db, current_user)
     mandate_ids = get_accessible_mandate_ids(db, current_user)
     if not client_ids:
@@ -1562,9 +2556,9 @@ def active_triggers(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    if has_global_client_access(current_user):
-        rows = db.execute(text("SELECT * FROM v_active_triggers")).fetchall()
-        return [dict(r._mapping) for r in rows]
+    # SECURITY (Mandanten-Trennung): kein ungescopter Admin-Zweig — alle laufen
+    # ueber get_accessible_mandate_ids (tenant-gefiltert, advisor-Filter fuer
+    # Admins uebersprungen).
     mandate_ids = get_accessible_mandate_ids(db, current_user)
     if not mandate_ids:
         return []

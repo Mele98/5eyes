@@ -297,6 +297,39 @@ def test_market_data_status_endpoint_exposes_override_count(session_factory, adm
     assert payload["lookup_mode_override_count"] == 1
 
 
+def test_market_data_status_endpoint_exposes_currency_mismatches(session_factory, admin_client):
+    """Bugfix 2026-08-07 (CEO/CFO/CIO-Audit, MD-01): der Endpoint berechnete
+    currency_mismatch_count/samples.currency_mismatches bereits korrekt
+    (services.product_market_data.currency_mismatch_warning), aber es gab
+    keinen Test, der das am Endpoint verifiziert -- und das Frontend hat den
+    Wert bis zu diesem Fix nie gerendert (nur abgerufen, nie angezeigt)."""
+    seed_product(
+        session_factory,
+        id="product-currency-mismatch",
+        product_name="Falsch etikettiertes XETRA-Produkt",
+        symbol="ABC",
+        exchange_code="DE",
+        currency="CHF",  # Stammdaten-Fehler: XETRA notiert in EUR
+    )
+    seed_product(
+        session_factory,
+        id="product-currency-ok",
+        product_name="Korrekt etikettiertes Produkt",
+        symbol="UBSG",
+        exchange_code="SW",
+        currency="CHF",
+    )
+
+    response = admin_client.get("/products/market-data/status")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["currency_mismatch_count"] == 1
+    mismatches = payload["samples"]["currency_mismatches"]
+    assert len(mismatches) == 1
+    assert mismatches[0]["product_id"] == "product-currency-mismatch"
+    assert "EUR" in mismatches[0]["warning"] and "CHF" in mismatches[0]["warning"]
+
+
 def test_resolve_market_profile_explicit_suffix_override_keeps_symbol_without_double_suffix():
     profile = resolve_market_profile(
         P(

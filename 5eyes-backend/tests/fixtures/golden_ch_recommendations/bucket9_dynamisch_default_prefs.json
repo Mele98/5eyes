@@ -1,0 +1,275 @@
+{
+  "combo": {
+    "name": "bucket9_dynamisch_default_prefs",
+    "preferences": null,
+    "score_x10": 90
+  },
+  "implementation_steps": [
+    "Aktien aufbauen: ca. CHF 175'000",
+    "Liquiditaet reduzieren: ca. CHF 90'000",
+    "Obligationen reduzieren: ca. CHF 75'000",
+    "Alternative reduzieren: ca. CHF 40'000",
+    "Immobilien aufbauen: ca. CHF 30'000"
+  ],
+  "positions": [
+    {
+      "asset_class": "Obligationen",
+      "currency": "CHF",
+      "product_name": "Swisscanto Bond CHF",
+      "provider": "Swisscanto",
+      "rationale": "Langfristiger CHF-Kern",
+      "source_sub_asset_classes": [
+        "Obligationen CHF IG"
+      ],
+      "sub_asset_class": "Obligationen CHF IG",
+      "target_amount_rappen": 4585000,
+      "target_weight_bps": 917,
+      "ter_bps": 32
+    },
+    {
+      "asset_class": "Immobilien",
+      "currency": "CHF",
+      "product_name": "Swisscanto Real Estate Fund",
+      "provider": "Swisscanto",
+      "rationale": "Schweizer Immobilienfokus",
+      "source_sub_asset_classes": [
+        "Immobilien Schweiz"
+      ],
+      "sub_asset_class": "Immobilien Schweiz",
+      "target_amount_rappen": 2400000,
+      "target_weight_bps": 480,
+      "ter_bps": 52
+    },
+    {
+      "asset_class": "Liquidität",
+      "currency": "CHF",
+      "product_name": "UBS Geldmarktfonds CHF",
+      "provider": "UBS",
+      "rationale": "Liquiditaetsreserve gemaess Mandatsvorgabe",
+      "source_sub_asset_classes": [
+        "Geldmarktfonds"
+      ],
+      "sub_asset_class": "Geldmarktfonds",
+      "target_amount_rappen": 1000000,
+      "target_weight_bps": 200,
+      "ter_bps": 8
+    },
+    {
+      "asset_class": "Aktien",
+      "currency": "CHF",
+      "product_name": "Vanguard FTSE Developed Europe ETF CHF Hedged",
+      "provider": "Vanguard",
+      "rationale": "Europa-Diversifikation",
+      "source_sub_asset_classes": [
+        "Aktien Europa"
+      ],
+      "sub_asset_class": "Aktien Europa",
+      "target_amount_rappen": 3750000,
+      "target_weight_bps": 750,
+      "ter_bps": 22
+    },
+    {
+      "asset_class": "Alternative",
+      "currency": "CHF",
+      "product_name": "ZKB Gold ETF",
+      "provider": "ZKB",
+      "rationale": "Standardbaustein fuer Alternative Anlagen",
+      "source_sub_asset_classes": [
+        "Gold / Rohstoffe"
+      ],
+      "sub_asset_class": "Gold / Rohstoffe",
+      "target_amount_rappen": 1000000,
+      "target_weight_bps": 200,
+      "ter_bps": 40
+    },
+    {
+      "asset_class": "Aktien",
+      "currency": "CHF",
+      "product_name": "iShares Core MSCI EM IMI ETF CHF Hedged",
+      "provider": "BlackRock",
+      "rationale": "Wachstumsbaustein",
+      "source_sub_asset_classes": [
+        "Aktien Schwellenlaender"
+      ],
+      "sub_asset_class": "Aktien Schwellenlaender",
+      "target_amount_rappen": 1875000,
+      "target_weight_bps": 375,
+      "ter_bps": 30
+    },
+    {
+      "asset_class": "Aktien",
+      "currency": "CHF",
+      "product_name": "iShares Core MSCI World UCITS ETF CHF Hedged",
+      "provider": "BlackRock",
+      "rationale": "Globaler Kernbaustein",
+      "source_sub_asset_classes": [
+        "Aktien Global"
+      ],
+      "sub_asset_class": "Aktien Global",
+      "target_amount_rappen": 15000000,
+      "target_weight_bps": 3000,
+      "ter_bps": 30
+    },
+    {
+      "asset_class": "Aktien",
+      "currency": "CHF",
+      "product_name": "iShares Core SPI ETF",
+      "provider": "BlackRock",
+      "rationale": "Mandatierter Schweiz-Fokus",
+      "source_sub_asset_classes": [
+        "Aktien Schweiz"
+      ],
+      "sub_asset_class": "Aktien Schweiz",
+      "target_amount_rappen": 16875000,
+      "target_weight_bps": 3375,
+      "ter_bps": 10
+    },
+    {
+      "asset_class": "Immobilien",
+      "currency": "CHF",
+      "product_name": "iShares Developed Markets Property Yield CHF Hedged",
+      "provider": "BlackRock",
+      "rationale": "Ergaenzende Diversifikation",
+      "source_sub_asset_classes": [
+        "Immobilien Global"
+      ],
+      "sub_asset_class": "Immobilien Global",
+      "target_amount_rappen": 600000,
+      "target_weight_bps": 120,
+      "ter_bps": 48
+    },
+    {
+      "asset_class": "Obligationen",
+      "currency": "CHF",
+      "product_name": "iShares Global Aggregate Bond CHF Hedged",
+      "provider": "BlackRock",
+      "rationale": "Globale Diversifikation",
+      "source_sub_asset_classes": [
+        "Obligationen Global Hedged"
+      ],
+      "sub_asset_class": "Obligationen Global Hedged",
+      "target_amount_rappen": 2915000,
+      "target_weight_bps": 583,
+      "ter_bps": 10
+    }
+  ],
+  "recommendation_warnings": [],
+  "sub_allocations": [
+    {
+      "asset_class": "Aktien",
+      "rationale": "Europa-Diversifikation",
+      "sub_asset_class": "Aktien Europa",
+      "target_weight_bps": 750
+    },
+    {
+      "asset_class": "Aktien",
+      "rationale": "Globaler Kernbaustein",
+      "sub_asset_class": "Aktien Global",
+      "target_weight_bps": 3000
+    },
+    {
+      "asset_class": "Aktien",
+      "rationale": "Mandatierter Schweiz-Fokus",
+      "sub_asset_class": "Aktien Schweiz",
+      "target_weight_bps": 3375
+    },
+    {
+      "asset_class": "Aktien",
+      "rationale": "Wachstumsbaustein",
+      "sub_asset_class": "Aktien Schwellenlaender",
+      "target_weight_bps": 375
+    },
+    {
+      "asset_class": "Alternative",
+      "rationale": "Standardbaustein fuer Alternative Anlagen",
+      "sub_asset_class": "Gold / Rohstoffe",
+      "target_weight_bps": 200
+    },
+    {
+      "asset_class": "Immobilien",
+      "rationale": "Ergaenzende Diversifikation",
+      "sub_asset_class": "Immobilien Global",
+      "target_weight_bps": 120
+    },
+    {
+      "asset_class": "Immobilien",
+      "rationale": "Schweizer Immobilienfokus",
+      "sub_asset_class": "Immobilien Schweiz",
+      "target_weight_bps": 480
+    },
+    {
+      "asset_class": "Liquiditaet",
+      "rationale": "Liquiditaetsreserve gemaess Mandatsvorgabe",
+      "sub_asset_class": "Geldmarktfonds",
+      "target_weight_bps": 200
+    },
+    {
+      "asset_class": "Obligationen",
+      "rationale": "Langfristiger CHF-Kern",
+      "sub_asset_class": "Obligationen CHF IG",
+      "target_weight_bps": 917
+    },
+    {
+      "asset_class": "Obligationen",
+      "rationale": "Globale Diversifikation",
+      "sub_asset_class": "Obligationen Global Hedged",
+      "target_weight_bps": 583
+    }
+  ],
+  "target_allocation": {
+    "advisory_wealth_rappen": 50000000,
+    "bands_bps": {
+      "alternatives": [
+        200,
+        600
+      ],
+      "bonds": [
+        500,
+        1500
+      ],
+      "equities": [
+        7500,
+        8500
+      ],
+      "liquidity": [
+        200,
+        200
+      ],
+      "real_estate": [
+        300,
+        2000
+      ]
+    },
+    "engine_version": "stochastic_core_v2",
+    "expected_return_bps": 559,
+    "expected_volatility_bps": 1171,
+    "external_reserve_rappen": 0,
+    "house_matrix_profile": "Dynamisch",
+    "investable_advisory_wealth_rappen": 50000000,
+    "limiting_factor": "liquiditaetsreserve",
+    "optimization_method": "stochastic",
+    "optimization_status": "converged",
+    "reserve_needed_rappen": 0,
+    "risky_fraction_bps": 6551,
+    "score_bucket": 9,
+    "targets_bps": {
+      "alternatives": 200,
+      "bonds": 1500,
+      "equities": 7500,
+      "liquidity": 200,
+      "real_estate": 600
+    }
+  },
+  "target_allocation_warnings": [],
+  "totals": {
+    "advisory_wealth_rappen": 50000000,
+    "average_ter_bps": 23,
+    "average_ter_coverage_bps": 10000,
+    "expected_return_bps": 559,
+    "expected_volatility_bps": 1171,
+    "investable_advisory_wealth_rappen": 50000000,
+    "missing_ter_positions_count": 0,
+    "sum_target_amount_rappen": 50000000,
+    "sum_target_weight_bps": 10000
+  }
+}

@@ -1,0 +1,174 @@
+"""ReportLab-basierter PDF-Renderer.
+
+Implementiert das PDFRenderer-Protocol mit ReportLab's Platypus-Framework
+(Flowables, Document-Templates). Pure-Python — keine externen Binaries.
+"""
+from __future__ import annotations
+
+from functools import partial
+from io import BytesIO
+
+from reportlab.lib.units import mm
+from reportlab.pdfgen.canvas import Canvas
+from reportlab.platypus import SimpleDocTemplate
+
+from services.pdf.base import (
+    AnlagestrategieData,
+    PDFContext,
+    RisikoprofilData,
+)
+from services.pdf.fonts import register_editorial_fonts
+from services.pdf.styles import (
+    MARGIN_BOTTOM,
+    MARGIN_LEFT,
+    MARGIN_RIGHT,
+    MARGIN_TOP,
+    PAGE_SIZE,
+)
+
+
+class ReportLabRenderer:
+    """Konkrete PDFRenderer-Implementierung mit ReportLab."""
+
+    def render_anlagestrategie(
+        self, ctx: PDFContext, data: AnlagestrategieData
+    ) -> bytes:
+        # Lazy-Import des Document-Builders fuer Test-Isolation
+        from services.pdf.documents.anlagestrategie import build_anlagestrategie_flowables
+        return self._render_to_bytes(
+            ctx=ctx,
+            title="Anlagestrategie",
+            build_flowables=lambda: build_anlagestrategie_flowables(ctx, data),
+        )
+
+    def render_asset_allocation(
+        self, ctx: PDFContext, data: AnlagestrategieData
+    ) -> bytes:
+        """Reine Asset-Allocation-Uebersicht, nicht das Gesamtdokument."""
+        from services.pdf.documents.asset_allocation import build_asset_allocation_flowables
+        return self._render_to_bytes(
+            ctx=ctx,
+            title="Asset Allocation",
+            build_flowables=lambda: build_asset_allocation_flowables(ctx, data),
+        )
+
+    def render_risikoprofil(
+        self, ctx: PDFContext, data: RisikoprofilData
+    ) -> bytes:
+        from services.pdf.documents.risikoprofil import build_risikoprofil_flowables
+        return self._render_to_bytes(
+            ctx=ctx,
+            title="Risikoprofil",
+            build_flowables=lambda: build_risikoprofil_flowables(ctx, data),
+        )
+
+    def render_portfolio(self, ctx: PDFContext, data) -> bytes:
+        """Sprint 11 Phase 6: Portfolio-PDF (Positionen + Drift)."""
+        from services.pdf.documents.portfolio import build_portfolio_flowables
+        return self._render_to_bytes(
+            ctx=ctx,
+            title="Portfolio",
+            build_flowables=lambda: build_portfolio_flowables(ctx, data),
+        )
+
+    def render_vertrag(self, ctx: PDFContext, data) -> bytes:
+        """Sprint 12: Vertrags-PDF (ContractDocument)."""
+        from services.pdf.documents.vertrag import build_vertrag_flowables
+        return self._render_to_bytes(
+            ctx=ctx,
+            title=str(getattr(data, "document_title", "Vertrag")),
+            build_flowables=lambda: build_vertrag_flowables(ctx, data),
+        )
+
+    def render_contract_signoff(self, ctx: PDFContext, data) -> bytes:
+        """Final advisory sign-off with customer and advisor signatures."""
+        from services.pdf.documents.contract_signoff import (
+            build_contract_signoff_flowables,
+        )
+
+        return self._render_to_bytes(
+            ctx=ctx,
+            title="Beratungsentscheid und Kundenbestaetigung",
+            build_flowables=lambda: build_contract_signoff_flowables(ctx, data),
+        )
+
+    def render_protokoll(self, ctx: PDFContext, data) -> bytes:
+        """Beratungsprotokoll-PDF (AdvisoryLog)."""
+        from services.pdf.documents.protokoll import build_protokoll_flowables
+        return self._render_to_bytes(
+            ctx=ctx,
+            title="Beratungsprotokoll",
+            build_flowables=lambda: build_protokoll_flowables(ctx, data),
+        )
+
+    def render_depotcheck(self, ctx: PDFContext, data) -> bytes:
+        """Depotcheck-PDF als reine Analyse des empfohlenen Zielportfolios."""
+        from services.pdf.documents.depotcheck import build_depotcheck_flowables
+        return self._render_to_bytes(
+            ctx=ctx,
+            title="Depot-Check",
+            build_flowables=lambda: build_depotcheck_flowables(ctx, data),
+        )
+
+    def render_cost_disclosure(self, ctx: PDFContext, data) -> bytes:
+        """FIDLEG Art. 8/9 Ex-ante Kostenausweis als Standalone-PDF."""
+        from services.pdf.documents.cost_disclosure import (
+            build_cost_disclosure_flowables,
+        )
+        return self._render_to_bytes(
+            ctx=ctx,
+            title="Ex-ante Kostenausweis",
+            build_flowables=lambda: build_cost_disclosure_flowables(ctx, data),
+        )
+
+    def render_backtest(self, ctx: PDFContext, data) -> bytes:
+        """Sprint U-P17c (2026-05-22): Strategie-Backtest-PDF
+        (Wealth-Index + Drawdown + Kennzahlen-Tabelle, optional Benchmark)."""
+        from services.pdf.documents.backtest import build_backtest_flowables
+        return self._render_to_bytes(
+            ctx=ctx,
+            title="Strategie-Backtest",
+            build_flowables=lambda: build_backtest_flowables(ctx, data),
+        )
+
+    def _render_to_bytes(
+        self,
+        *,
+        ctx: PDFContext,
+        title: str,
+        build_flowables,
+    ) -> bytes:
+        """Gemeinsamer Render-Loop fuer alle Dokument-Typen."""
+        from services.pdf.components.footer import make_footer_callback
+
+        register_editorial_fonts()
+        buffer = BytesIO()
+        metadata_brand = ctx.advisor_org or ctx.advisor_name or "Emanuele Konzelmann"
+        doc = SimpleDocTemplate(
+            buffer,
+            pagesize=PAGE_SIZE,
+            topMargin=MARGIN_TOP,
+            bottomMargin=MARGIN_BOTTOM + 12 * mm,  # extra Platz fuer Footer
+            leftMargin=MARGIN_LEFT,
+            rightMargin=MARGIN_RIGHT,
+            title=f"{metadata_brand} - {title} - {ctx.mandate_name}",
+            author=ctx.advisor_name,
+            subject=title,
+        )
+        footer_cb = make_footer_callback(ctx)
+        # Dokumenten-Archiv (2026-08-20): invariant=1 unterdrueckt ReportLabs
+        # sonst standardmaessig sekundengenau eingebetteten, UNSICHTBAREN
+        # PDF-Metadaten-Zeitstempel (/CreationDate, /ModDate, interne
+        # Objekt-IDs) -- betrifft NICHT den sichtbaren Seiteninhalt (z.B. das
+        # gedruckte Datum im Footer bleibt unveraendert echt). Ohne das waere
+        # jeder erneute Klick auf denselben unveraenderten Report ein
+        # byte-unterschiedliches PDF, was die Checksum-Deduplizierung in
+        # services/document_archive.py (jede Version nur einmal archivieren)
+        # unwirksam machen wuerde.
+        doc.build(
+            build_flowables(),
+            onFirstPage=footer_cb,
+            onLaterPages=footer_cb,
+            canvasmaker=partial(Canvas, invariant=1),
+        )
+        return buffer.getvalue()

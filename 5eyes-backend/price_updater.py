@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import logging
+import random
 import time
 from io import StringIO
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any
+from urllib.parse import quote
 from urllib.request import urlopen
 
 import csv
@@ -24,6 +26,7 @@ from services.product_market_data import (
     resolve_market_profile,
 )
 from services.twelvedata_client import fetch_twelvedata_latest_prices
+from services.market_data.legacy_compat import fetch_latest_prices_via_aggregator
 
 try:
     import yfinance as yf
@@ -76,6 +79,25 @@ def to_rappen(amount: Any) -> int:
     return int(value * 100)
 
 
+def _retry_backoff_seconds(attempt: int, base_delay: float) -> float:
+    """MD-05: exponentielles Backoff + Jitter statt fixer Sleep-Dauer.
+
+    Vorher: time.sleep(retry_delay_seconds) unveraendert bei jedem Versuch ->
+    bei Rate-Limits/temporaeren Ausfaellen wird der Provider im selben Takt
+    erneut angefragt (kein Backoff), und bei vielen parallelen Retries (z.B.
+    Batch-Refresh ueber mehrere Prozesse) entsteht ein Thundering-Herd-Effekt
+    (alle schlagen synchron zur selben Sekunde erneut auf).
+
+    attempt ist 1-indiziert (der Versuch, der gerade fehlgeschlagen ist).
+    Verdoppelt den Basis-Delay pro Versuch und addiert zufaelligen Jitter
+    (0..50% des Basis-Delays), damit parallele Retries entzerrt werden.
+    """
+    base = max(0.0, float(base_delay or 0.0))
+    backoff = base * (2 ** max(0, int(attempt) - 1))
+    jitter = random.uniform(0.0, base * 0.5) if base > 0 else 0.0
+    return backoff + jitter
+
+
 def fetch_latest_price(product: Product) -> PricePoint:
     market_profile = resolve_market_profile(product)
     if market_profile.get("lookup_mode") == "synthetic_par":
@@ -110,9 +132,15 @@ def fetch_latest_price(product: Product) -> PricePoint:
             if raw_price is None:
                 raise ValueError(f"Ungültiger Schlusskurs für {lookup_symbol}")
 
+            price_rappen = to_rappen(raw_price)
+            # MD-02: nicht-positiver Kurs ist kein gültiger Preis -> als Fehlversuch
+            # behandeln (Retry/last_error), nicht als 0-Kurs zurückgeben.
+            if price_rappen <= 0:
+                raise ValueError(f"Nicht-positiver Schlusskurs ({raw_price}) für {lookup_symbol}")
+
             return PricePoint(
                 price_date=getattr(last_index, "strftime", lambda x: str(last_index))("%Y-%m-%d"),
-                price_rappen=to_rappen(raw_price),
+                price_rappen=price_rappen,
                 currency=(product.currency or "CHF"),
             )
         except Exception as exc:
@@ -125,7 +153,8 @@ def fetch_latest_price(product: Product) -> PricePoint:
                 exc,
             )
             if attempt < settings.price_refresh_max_attempts:
-                time.sleep(settings.price_refresh_retry_delay_seconds)
+                # MD-05: exponentielles Backoff + Jitter statt fixer Sleep-Dauer.
+                time.sleep(_retry_backoff_seconds(attempt, settings.price_refresh_retry_delay_seconds))
 
     raise RuntimeError(f"Preisabruf für {lookup_symbol} fehlgeschlagen: {last_error}") from last_error
 
@@ -177,7 +206,7 @@ def _stooq_symbol(symbol: str) -> str:
 
 def fetch_stooq_price(symbol: str, *, currency: str | None = None) -> PricePoint:
     stooq_symbol = _stooq_symbol(symbol)
-    url = f"https://stooq.com/q/l/?s={stooq_symbol}&f=sd2t2ohlcvn&e=csv"
+    url = f"https://stooq.com/q/l/?s={quote(stooq_symbol, safe='')}&f=sd2t2ohlcvn&e=csv"
     with urlopen(url, timeout=10) as response:
         payload = response.read().decode("utf-8", errors="replace")
     rows = [row for row in csv.reader(StringIO(payload)) if row]
@@ -231,7 +260,13 @@ def _fetch_stooq_symbol_points(
 ) -> tuple[dict[str, tuple[str, int, str]], dict[str, str]]:
     symbol_points: dict[str, tuple[str, int, str]] = {}
     symbol_errors: dict[str, str] = {}
-    for symbol in symbols:
+    for index, symbol in enumerate(symbols):
+        # Mega-Audit (2026-08-04): ohne diese Pause feuert dieser Loop eine
+        # ungebremste Serie von HTTP-GETs gegen Stooq ab -- am staerksten
+        # genau dann, wenn der PRIMARY-Provider bereits ausfaellt und ALLE
+        # Symbole hierher zurueckfallen. Keine Pause vor dem ERSTEN Request.
+        if index > 0 and settings.stooq_batch_throttle_seconds > 0:
+            time.sleep(settings.stooq_batch_throttle_seconds)
         try:
             currency = None
             products = product_by_symbol.get(symbol) or []
@@ -244,20 +279,62 @@ def _fetch_stooq_symbol_points(
     return symbol_points, symbol_errors
 
 
+def _collect_symbol_points(
+    resolved: dict[str, dict[str, Any]],
+    *,
+    default_source: str,
+) -> tuple[dict[str, tuple[str, int, str]], dict[str, str]]:
+    """MD-02: Provider-Payloads in symbol_points überführen, OHNE einen fehlenden
+    Preis via 'or 0' als gültigen 0-Kurs zu maskieren. Nicht-positive oder nicht
+    parsebare price_rappen landen in symbol_errors, damit das Produkt sauber als
+    'failed' gezählt wird statt einen 0-Kurs zu persistieren.
+    """
+    symbol_points: dict[str, tuple[str, int, str]] = {}
+    symbol_errors: dict[str, str] = {}
+    for symbol, payload in resolved.items():
+        raw = payload.get("price_rappen")
+        try:
+            price_rappen = int(raw)
+        except (TypeError, ValueError):
+            price_rappen = 0
+        source = str(payload.get("source") or default_source)
+        if price_rappen <= 0:
+            symbol_errors[symbol] = (
+                f"Ungültiger Kurs (price_rappen={raw!r}) von {source} verworfen."
+            )
+            continue
+        symbol_points[symbol] = (
+            str(payload.get("price_date") or ""),
+            price_rappen,
+            source,
+        )
+    return symbol_points, symbol_errors
+
+
 def _fetch_twelvedata_symbol_points(symbols: list[str]) -> tuple[dict[str, tuple[str, int, str]], dict[str, str]]:
     try:
         resolved, failures = fetch_twelvedata_latest_prices(symbols)
     except Exception as exc:
         return {}, {symbol: str(exc) for symbol in symbols}
-    symbol_points = {
-        symbol: (
-            str(payload.get("price_date") or ""),
-            int(payload.get("price_rappen") or 0),
-            str(payload.get("source") or "twelvedata"),
-        )
-        for symbol, payload in resolved.items()
-    }
-    symbol_errors = {symbol: str(message) for symbol, message in failures.items()}
+    symbol_points, symbol_errors = _collect_symbol_points(resolved, default_source="twelvedata")
+    for symbol, message in failures.items():
+        symbol_errors.setdefault(symbol, str(message))
+    return symbol_points, symbol_errors
+
+
+def _fetch_aggregator_symbol_points(symbols: list[str]) -> tuple[dict[str, tuple[str, int, str]], dict[str, str]]:
+    """P14: Multi-Source-Aggregator-Pfad (yfinance + stooq + alphavantage + ...).
+
+    Drop-in fuer die direkten Provider-Pfade. Wird gewaehlt wenn
+    PRICE_REFRESH_PRIMARY_PROVIDER (oder _FALLBACK_) = "aggregator".
+    """
+    try:
+        resolved, failures = fetch_latest_prices_via_aggregator(symbols)
+    except Exception as exc:  # noqa: BLE001
+        return {}, {symbol: str(exc) for symbol in symbols}
+    symbol_points, symbol_errors = _collect_symbol_points(resolved, default_source="aggregator")
+    for symbol, message in failures.items():
+        symbol_errors.setdefault(symbol, str(message))
     return symbol_points, symbol_errors
 
 
@@ -286,6 +363,8 @@ def _fetch_primary_symbol_points(
         return _fetch_twelvedata_symbol_points(symbols)
     if provider == "stooq":
         return _fetch_stooq_symbol_points(symbols, product_by_symbol=product_by_symbol)
+    if provider == "aggregator":
+        return _fetch_aggregator_symbol_points(symbols)
     return {}, {symbol: f"Preisprovider {provider or 'unbekannt'} ist nicht implementiert." for symbol in symbols}
 
 
@@ -303,6 +382,8 @@ def _fetch_fallback_symbol_points(
         return _fetch_yfinance_symbol_points(symbols)
     if provider == "twelvedata":
         return _fetch_twelvedata_symbol_points(symbols)
+    if provider == "aggregator":
+        return _fetch_aggregator_symbol_points(symbols)
     return {}, {symbol: f"Fallback-Provider {provider} ist nicht implementiert." for symbol in symbols}
 
 
@@ -377,6 +458,18 @@ def fetch_latest_prices_batch(products: list[Product]) -> tuple[dict[str, PriceP
         for symbol, message in fallback_errors.items():
             symbol_errors[symbol] = symbol_errors.get(symbol) or message
 
+    # MD-02: zentrales Safety-Net über ALLE Provider (auch yfinance/stooq/Fallback) —
+    # ein nicht-positiver price_rappen ist nie ein gültiger Kurs. Aus symbol_points
+    # entfernen und als Fehler markieren, damit kein 0-Kurs in resolved_points/DB
+    # gelangt.
+    for symbol in list(symbol_points.keys()):
+        point_date, point_rappen, point_source = symbol_points[symbol]
+        if point_rappen <= 0:
+            del symbol_points[symbol]
+            symbol_errors[symbol] = symbol_errors.get(symbol) or (
+                f"Ungültiger Kurs (price_rappen={point_rappen}) von {point_source} verworfen."
+            )
+
     for primary_symbol, mapped_products in primary_symbols.items():
         if primary_symbol in symbol_points:
             price_date, price_rappen, price_source = symbol_points[primary_symbol]
@@ -420,6 +513,13 @@ def fetch_latest_prices_batch(products: list[Product]) -> tuple[dict[str, PriceP
 
 
 def upsert_price_history(db: Session, product: Product, price_point: PricePoint) -> tuple[PriceHistory, str]:
+    # MD-02: letzte Verteidigungslinie — nie einen nicht-positiven Kurs persistieren,
+    # egal über welchen Pfad er hereinkommt. Callers fangen das pro Produkt ab.
+    if price_point.price_rappen <= 0:
+        raise ValueError(
+            f"Ungültiger Kurs (price_rappen={price_point.price_rappen}) für "
+            f"Produkt {product.id} — wird nicht gespeichert."
+        )
     existing = (
         db.query(PriceHistory)
         .filter(
@@ -587,6 +687,201 @@ def summarize_price_quality(
     }
 
 
+def _product_ids_for_mandate(db: Session, mandate_id: str) -> list[str]:
+    """Sprint U-P11b (2026-05-22): Liefert die Product-IDs, die im
+    letzten RecommendationRun dieses Mandates verwendet wurden.
+
+    Wenn das Mandat noch keinen RecommendationRun hat, liefert die
+    Funktion eine leere Liste (kein Crash).
+    """
+    from models.review import RecommendationPosition, RecommendationRun
+
+    latest_run = (
+        db.query(RecommendationRun)
+        .filter(RecommendationRun.mandate_id == mandate_id)
+        .order_by(RecommendationRun.created_at.desc())
+        .first()
+    )
+    if latest_run is None:
+        return []
+    pids = (
+        db.query(RecommendationPosition.product_id)
+        .filter(RecommendationPosition.run_id == latest_run.id)
+        .distinct()
+        .all()
+    )
+    return [pid for (pid,) in pids if pid]
+
+
+def _is_stale_redundant_fetch(
+    price_point: "PricePoint",
+    existing_latest_row: Any,
+    today: date,
+    stale_after_days: int,
+) -> tuple[bool, int | None]:
+    """MD-03: erkennt einen erfolgreichen, aber veralteten Fetch.
+
+    Gibt (is_stale, age_days) zurück. is_stale=True nur wenn der gefetchte Kurs
+    älter als stale_after_days ist UND STRIKT älter als der bereits gespeicherte
+    jüngste Kurs — dann ist er eine Regression auf ein älteres Datum und soll als
+    'stale' gezählt werden statt still als inserted/updated.
+
+    Bewusst `<` statt `<=`: eine Preis-KORREKTUR für dasselbe (alte) Datum bleibt
+    so ein legitimes Update. Existiert noch gar kein Kurs, wird auch ein alter
+    Wert gespeichert (besser als nichts) -> is_stale=False.
+    """
+    fetched_date = parse_iso_date(price_point.price_date)
+    if fetched_date is None:
+        return False, None
+    age_days = (today - fetched_date).days
+    if age_days <= stale_after_days:
+        return False, age_days
+    latest_date = (
+        parse_iso_date(existing_latest_row.price_date) if existing_latest_row else None
+    )
+    if latest_date is not None and fetched_date < latest_date:
+        return True, age_days
+    return False, age_days
+
+
+def refresh_prices_for_mandate(db: Session, mandate_id: str) -> dict[str, Any]:
+    """Sprint U-P11b (2026-05-22): Per-Mandate Live-Preise-Refresh.
+
+    Engerer Scope als refresh_all_prices: nur die Products, die im
+    aktuellsten RecommendationRun dieses Mandates auftauchen, werden
+    via Marktdaten-Aggregator (yfinance/stooq-Fallback) geholt und
+    in price_history persistiert.
+
+    Idempotent (UPSERT-Pattern aus upsert_price_history bleibt).
+
+    Returns Summary analog refresh_all_prices: processed, inserted,
+    updated, unchanged, failed, failures, mandate_id, started_at,
+    finished_at.
+
+    Wenn das Mandat noch keinen RecommendationRun hat: leeres
+    Summary mit warning.
+    """
+    product_ids = _product_ids_for_mandate(db, mandate_id)
+    summary: dict[str, Any] = {
+        "mandate_id": mandate_id,
+        "processed": 0,
+        "inserted": 0,
+        "updated": 0,
+        "unchanged": 0,
+        "reused_fresh": 0,
+        "stale": 0,
+        "failed": 0,
+        "failures": [],
+        "started_at": utc_now_iso(),
+        "provider": PRICE_SOURCE,
+        "fallback_provider": FALLBACK_PRICE_SOURCE,
+        "warnings": [],
+    }
+    if not product_ids:
+        summary["finished_at"] = utc_now_iso()
+        summary["warnings"].append(
+            "Kein Recommendation-Run für dieses Mandat — bitte zuerst die "
+            "Anlagestrategie berechnen und Portfolio aufbauen."
+        )
+        return summary
+
+    products = (
+        db.query(Product)
+        .filter(
+            Product.id.in_(product_ids),
+            Product.is_active == 1,
+            Product.deleted_at.is_(None),
+        )
+        .order_by(Product.product_name.asc())
+        .all()
+    )
+    summary["processed"] = len(products)
+    if not products:
+        summary["finished_at"] = utc_now_iso()
+        summary["warnings"].append(
+            "Keine aktiven Produkte im aktuellsten Recommendation-Run."
+        )
+        return summary
+
+    existing_latest = latest_price_snapshot(db, [product.id for product in products])
+    today = date.today()
+    stale_after_days = 5
+    points, failures = fetch_latest_prices_batch(products)
+
+    for product in products:
+        price_point = points.get(product.id)
+        if price_point is None:
+            latest_existing = existing_latest.get(product.id)
+            latest_date = parse_iso_date(latest_existing.price_date) if latest_existing else None
+            latest_age_days = (today - latest_date).days if latest_date else None
+            if latest_existing and latest_age_days is not None and latest_age_days <= stale_after_days:
+                summary["reused_fresh"] += 1
+                summary["unchanged"] += 1
+                continue
+            failure = failures.get(product.id) or {
+                "lookup_symbol": resolve_lookup_symbol(product),
+                "lookup_mode": resolve_market_profile(product).get("lookup_mode"),
+                "error": "Unbekannter Preisfehler",
+            }
+            summary["failed"] += 1
+            summary["failures"].append({
+                "product_id": product.id,
+                "product_name": product.product_name,
+                "lookup_symbol": failure.get("lookup_symbol"),
+                "lookup_mode": failure.get("lookup_mode"),
+                "error": failure.get("error"),
+            })
+            continue
+
+        # MD-03: erfolgreicher, aber veralteter Fetch nicht still als frischen
+        # Kurs verbuchen. Älter als stale_after_days UND nicht neuer als Bestand
+        # -> als 'stale' zählen und überspringen.
+        latest_existing = existing_latest.get(product.id)
+        is_stale, fetched_age = _is_stale_redundant_fetch(
+            price_point, latest_existing, today, stale_after_days
+        )
+        if is_stale:
+            summary["stale"] += 1
+            summary["failures"].append({
+                "product_id": product.id,
+                "product_name": product.product_name,
+                "lookup_symbol": resolve_lookup_symbol(product),
+                "lookup_mode": resolve_market_profile(product).get("lookup_mode"),
+                "error": (
+                    f"Kurs veraltet ({fetched_age}d > {stale_after_days}d) und nicht "
+                    "neuer als gespeicherter Wert — übersprungen."
+                ),
+            })
+            continue
+
+        try:
+            with db.begin_nested():
+                _, outcome = upsert_price_history(db, product, price_point)
+        except ValueError as exc:
+            # MD-02: ungültiger Kurs (<=0) -> als Fehler zählen, Batch läuft weiter.
+            logger.warning("Price upsert rejected for product %s: %s", product.id, exc)
+            summary["failed"] += 1
+            summary["failures"].append({
+                "product_id": product.id,
+                "product_name": product.product_name,
+                "lookup_symbol": resolve_lookup_symbol(product),
+                "lookup_mode": resolve_market_profile(product).get("lookup_mode"),
+                "error": str(exc),
+            })
+            continue
+
+        if outcome == "inserted":
+            summary["inserted"] += 1
+        elif outcome == "updated":
+            summary["updated"] += 1
+        else:
+            summary["unchanged"] += 1
+
+    db.commit()
+    summary["finished_at"] = utc_now_iso()
+    return summary
+
+
 def refresh_all_prices(db: Session) -> dict[str, Any]:
     global _last_refresh_summary
 
@@ -603,6 +898,7 @@ def refresh_all_prices(db: Session) -> dict[str, Any]:
         "updated": 0,
         "unchanged": 0,
         "reused_fresh": 0,
+        "stale": 0,
         "failed": 0,
         "failures": [],
         "started_at": utc_now_iso(),
@@ -644,8 +940,42 @@ def refresh_all_prices(db: Session) -> dict[str, Any]:
             )
             continue
 
-        with db.begin_nested():
-            _, outcome = upsert_price_history(db, product, price_point)
+        # MD-03: erfolgreicher, aber veralteter Fetch nicht still als frischen
+        # Kurs verbuchen. Älter als stale_after_days UND nicht neuer als Bestand
+        # -> als 'stale' zählen und überspringen.
+        latest_existing = existing_latest.get(product.id)
+        is_stale, fetched_age = _is_stale_redundant_fetch(
+            price_point, latest_existing, today, stale_after_days
+        )
+        if is_stale:
+            summary["stale"] += 1
+            summary["failures"].append({
+                "product_id": product.id,
+                "product_name": product.product_name,
+                "lookup_symbol": resolve_lookup_symbol(product),
+                "lookup_mode": resolve_market_profile(product).get("lookup_mode"),
+                "error": (
+                    f"Kurs veraltet ({fetched_age}d > {stale_after_days}d) und nicht "
+                    "neuer als gespeicherter Wert — übersprungen."
+                ),
+            })
+            continue
+
+        try:
+            with db.begin_nested():
+                _, outcome = upsert_price_history(db, product, price_point)
+        except ValueError as exc:
+            # MD-02: ungültiger Kurs (<=0) -> als Fehler zählen, Batch läuft weiter.
+            logger.warning("Price upsert rejected for product %s: %s", product.id, exc)
+            summary["failed"] += 1
+            summary["failures"].append({
+                "product_id": product.id,
+                "product_name": product.product_name,
+                "lookup_symbol": resolve_lookup_symbol(product),
+                "lookup_mode": resolve_market_profile(product).get("lookup_mode"),
+                "error": str(exc),
+            })
+            continue
 
         if outcome == "inserted":
             summary["inserted"] += 1
@@ -724,6 +1054,7 @@ def start_price_scheduler() -> None:
         id="daily_price_refresh",
         replace_existing=True,
     )
+    _register_market_data_jobs(scheduler)
     scheduler.start()
     logger.info(
         "Price scheduler started for %02d:%02d %s",
@@ -731,6 +1062,117 @@ def start_price_scheduler() -> None:
         settings.price_scheduler_minute,
         settings.price_scheduler_timezone,
     )
+
+
+def _daily_cache_purge_wrapper() -> int:
+    """Wrapper fuer APScheduler, importiert spaet damit ImportError nicht
+    den ganzen Scheduler killt."""
+    try:
+        from services.market_data import daily_cache_purge_job
+        return daily_cache_purge_job(SessionLocal)
+    except Exception:  # noqa: BLE001
+        logger.exception("daily_cache_purge_job failed")
+        return 0
+
+
+def _weekly_validation_wrapper() -> tuple[int, int]:
+    """Wrapper fuer APScheduler."""
+    try:
+        from services.market_data import weekly_validation_job
+        raw = str(settings.market_data_validation_symbols or "").strip()
+        symbols = [s.strip() for s in raw.split(",") if s.strip()]
+        if not symbols:
+            logger.info("weekly_validation_job: keine Symbole konfiguriert — skip")
+            return (0, 0)
+        return weekly_validation_job(
+            symbols=symbols,
+            session_factory=SessionLocal,
+            threshold_bps=settings.market_data_validation_threshold_bps,
+            webhook_url=(settings.market_data_alert_webhook_url or None),
+            webhook_timeout_seconds=settings.market_data_alert_webhook_timeout_seconds,
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception("weekly_validation_job failed")
+        return (0, 0)
+
+
+def _daily_market_data_refresh_wrapper() -> dict[str, Any]:
+    """Wrapper fuer den taeglichen U-31 Marktdaten-Refresh."""
+    try:
+        from services.market_data_daily_refresh import run_daily_market_data_refresh
+        with SessionLocal() as db:
+            return run_daily_market_data_refresh(db)
+    except Exception:  # noqa: BLE001
+        logger.exception("daily_market_data_refresh failed")
+        return {
+            "status": "failed",
+            "products_refreshed": 0,
+            "prices_added": 0,
+            "fx_added": 0,
+            "errors": [{"scope": "scheduler", "reason": "daily_market_data_refresh failed"}],
+            "finished_at": utc_now_iso(),
+        }
+
+
+def _register_market_data_jobs(target_scheduler: Any) -> None:
+    """P15/U-31 — registriert Market-Data-Jobs am Price-Scheduler."""
+    if CronTrigger is None:
+        return
+    if settings.market_data_daily_refresh_enabled:
+        target_scheduler.add_job(
+            _daily_market_data_refresh_wrapper,
+            trigger=CronTrigger(
+                hour=settings.market_data_daily_refresh_hour,
+                minute=settings.market_data_daily_refresh_minute,
+                timezone=settings.price_scheduler_timezone,
+            ),
+            id="daily_market_data_refresh",
+            replace_existing=True,
+            misfire_grace_time=7200,
+        )
+        logger.info(
+            "daily_market_data_refresh registered for %02d:%02d %s",
+            settings.market_data_daily_refresh_hour,
+            settings.market_data_daily_refresh_minute,
+            settings.price_scheduler_timezone,
+        )
+    if settings.market_data_cache_purge_enabled:
+        target_scheduler.add_job(
+            _daily_cache_purge_wrapper,
+            trigger=CronTrigger(
+                hour=settings.market_data_cache_purge_hour,
+                minute=settings.market_data_cache_purge_minute,
+                timezone=settings.price_scheduler_timezone,
+            ),
+            id="daily_cache_purge",
+            replace_existing=True,
+            misfire_grace_time=3600,
+        )
+        logger.info(
+            "daily_cache_purge registered for %02d:%02d %s",
+            settings.market_data_cache_purge_hour,
+            settings.market_data_cache_purge_minute,
+            settings.price_scheduler_timezone,
+        )
+    if settings.market_data_validation_enabled:
+        target_scheduler.add_job(
+            _weekly_validation_wrapper,
+            trigger=CronTrigger(
+                day_of_week=settings.market_data_validation_day_of_week,
+                hour=settings.market_data_validation_hour,
+                minute=settings.market_data_validation_minute,
+                timezone=settings.price_scheduler_timezone,
+            ),
+            id="weekly_market_data_validation",
+            replace_existing=True,
+        )
+        logger.info(
+            "weekly_market_data_validation registered for %s %02d:%02d %s",
+            settings.market_data_validation_day_of_week,
+            settings.market_data_validation_hour,
+            settings.market_data_validation_minute,
+            settings.price_scheduler_timezone,
+        )
 
 
 def stop_price_scheduler() -> None:

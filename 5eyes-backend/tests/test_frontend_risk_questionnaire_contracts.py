@@ -57,6 +57,51 @@ def test_asset_allocation_expand_click_uses_data_attribute_binding():
     assert "toggleSubAllocationGroup(decodeURIComponent(" in html
 
 
+def test_asset_allocation_header_keeps_only_core_actions_visible():
+    html = HTML_PATH.read_text(encoding="utf-8")
+    header = html.split('<div id="page-al" class="page">', 1)[1].split('<div id="al-dirty-banner"', 1)[0]
+    visible_actions = header.split('<details class="aa-more"', 1)[0]
+    more_menu = header.split('<details class="aa-more"', 1)[1].split("</details>", 1)[0]
+    fallback = html.split("function ensureAssetAllocationQuickActions(){", 1)[1].split(
+        "function ensureAllocationControlModalsMounted", 1
+    )[0]
+
+    assert 'id="btn-aa-pref-open"' in visible_actions
+    assert 'id="btn-aa-calc"' in visible_actions
+    assert 'id="btn-aa-pdf"' in visible_actions
+    assert 'id="btn-portfolio-umsetzen"' in visible_actions
+    assert 'id="btn-aa-backtest"' not in visible_actions
+    assert 'id="btn-aa-params-open"' not in visible_actions
+    assert "openMandateSettingsModal()" not in visible_actions
+    assert "openAllocationEngineModal()" not in visible_actions
+
+    assert 'id="btn-aa-backtest"' in more_menu
+    assert "Strategie-Backtest" in more_menu
+    assert 'id="btn-aa-params-open"' in more_menu
+    assert "openMandateSettingsModal()" in more_menu
+    assert "openAllocationEngineModal()" in more_menu
+    assert "header.insertBefore(paramBtn" not in fallback
+
+
+def test_risk_profile_header_uses_single_server_pdf_action():
+    html = HTML_PATH.read_text(encoding="utf-8")
+    header = html.split('<div id="page-rp" class="page">', 1)[1].split('<div class="pad">', 1)[0]
+    visible_actions = header.split('<details class="ph-more"', 1)[0]
+    more_menu = header.split('<details class="ph-more"', 1)[1].split("</details>", 1)[0]
+    risk_modal = html.split('<div class="overlay" id="m-rp-print">', 1)[1].split("<script>", 1)[0]
+
+    assert 'id="btn-rp-server-pdf"' in header
+    assert "downloadServerPdf('risikoprofil')" in header
+    assert 'id="btn-rp-server-pdf"' not in visible_actions
+    assert 'id="btn-rp-server-pdf"' in more_menu
+    assert ">PDF</button>" in more_menu
+    assert "PDF (Browser)" not in header
+    assert "PDF (Server)" not in header
+    assert "om('m-rp-print')" not in header
+    assert "Browser-Druck" not in risk_modal
+    assert "printReport({pages:['rp']})" not in risk_modal
+
+
 def test_frontend_willingness_profile_labels_stay_in_sync_with_backend():
     html = HTML_PATH.read_text(encoding="utf-8")
 
@@ -73,7 +118,11 @@ def test_frontend_uses_safe_dom_bindings_for_dynamic_review_and_document_actions
     html = HTML_PATH.read_text(encoding="utf-8")
 
     assert 'data-doc-action="print"' in html
-    assert 'data-doc-action="sign"' in html
+    # 2026-08-05 (User-Direktive, E-Signing): die einzelne "sign"-Aktion wurde
+    # in getrennte Berater-/Kunde-Aktionen aufgeteilt (je eigenes
+    # Signatur-Bild, siehe ContractDocumentSign-Docstring in schemas/review.py).
+    assert 'data-doc-action="sign-advisor"' in html
+    assert 'data-doc-action="sign-client"' in html
     assert 'data-trigger-action="review"' in html
     assert 'data-trigger-action="template"' in html
     assert "renderRowsSafe(" in html
