@@ -100,7 +100,7 @@
       "currency": "CHF",
       "product_name": "iShares Core SPI ETF",
       "provider": "BlackRock",
-      "rationale": "Mandatierter Schweiz-Fokus | Wachstumsbaustein; Fallback aus Aktien Schwellenlaender, da keine geeignete exakte Produktabdeckung verfuegbar war",
+      "rationale": "Mandatierter Schweiz-Fokus | Wachstumsbaustein; Fallback aus Aktien Schwellenlaender, da keine geeignete exakte Produktabdeckung verfuegbar war; Passendes Produkt im Katalog vorhanden, aber ausserhalb des zugelassenen Risikoprofil-Bands (aktuell Bucket 5, benoetigt mind. Bucket 6). Nur mit dokumentiertem Risikoprofil-Override (Score >= 55) umsetzbar.",
       "source_sub_asset_classes": [
         "Aktien Schweiz",
         "Aktien Schwellenlaender"
@@ -140,7 +140,7 @@
     }
   ],
   "recommendation_warnings": [
-    "Aktien Schwellenlaender: exakte Produktumsetzung nicht moeglich, Core-Fallback verwendet."
+    "Aktien Schwellenlaender: exakte Produktumsetzung nicht moeglich. Passendes Produkt im Katalog vorhanden, aber ausserhalb des zugelassenen Risikoprofil-Bands (aktuell Bucket 5, benoetigt mind. Bucket 6). Nur mit dokumentiertem Risikoprofil-Override (Score >= 55) umsetzbar."
   ],
   "sub_allocations": [
     {

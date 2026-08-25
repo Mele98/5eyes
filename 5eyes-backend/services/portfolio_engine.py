@@ -1328,6 +1328,7 @@ from services.portfolio_engine_payload import (  # noqa: F401,E402
     _product_is_structured,
     _product_matches_constraints,
     _product_score,
+    _suitability_block_hint,
     _ter_coverage_bps,
     _validate_recommendation_concentration_limits,
 )
@@ -6712,6 +6713,11 @@ def generate_recommendation_run(
         exact = [product for product in matching if str(product.sub_asset_class or "") == str(sub["sub_asset_class"])]
         used_fallback = False
         used_suitability_override = False
+        suitability_block_hint = None
+        if not exact:
+            suitability_block_hint = _suitability_block_hint(
+                products, sub["sub_asset_class"], prefs, score_bucket, jurisdiction_ctx=jurisdiction_ctx,
+            )
         candidates = exact
         if not candidates:
             candidates = [product for product in matching if _norm_text(product.asset_class) == _norm_text(sub["asset_class"])]
@@ -6753,7 +6759,11 @@ def generate_recommendation_run(
         rationale = sub["rationale"]
         if used_fallback:
             rationale = rationale + f"; Fallback aus {sub['sub_asset_class']}, da keine geeignete exakte Produktabdeckung verfuegbar war"
-            warnings.append(f"{sub['sub_asset_class']}: exakte Produktumsetzung nicht moeglich, Core-Fallback verwendet.")
+            if suitability_block_hint:
+                rationale = rationale + f"; {suitability_block_hint}"
+                warnings.append(f"{sub['sub_asset_class']}: exakte Produktumsetzung nicht moeglich. {suitability_block_hint}")
+            else:
+                warnings.append(f"{sub['sub_asset_class']}: exakte Produktumsetzung nicht moeglich, Core-Fallback verwendet.")
         if used_suitability_override:
             rationale = rationale + "; Produkt-Suitability ausserhalb Standardband, Beratung/Override dokumentieren"
             warnings.append(
