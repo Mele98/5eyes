@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, ForeignKey, UniqueConstraint, Index
+from sqlalchemy import Column, String, Integer, ForeignKey, UniqueConstraint, Index, text
 from sqlalchemy.orm import relationship
 from database import Base
 
@@ -314,6 +314,20 @@ class ProductUniverseEntry(Base):
         Index(
             "ix_product_universe_tenant_jurisdiction",
             "tenant_id", "jurisdiction",
+        ),
+        # REC-008 (Codex-Audit 2026-08-25): der Create-Endpoint prueft vor dem
+        # Insert per SELECT, ob bereits ein aktiver Eintrag existiert -- ohne
+        # DB-seitige Absicherung koennten zwei nahezu gleichzeitige Requests
+        # fuer dasselbe (tenant_id, jurisdiction, product_id) beide den
+        # Precheck bestehen und beide einfuegen (nichtdeterministische TER
+        # je nachdem, welche Zeile eine spaetere Abfrage zuerst liefert).
+        # Siehe alembic/versions/f2c8a4e9b1d3_*.py fuer den Postgres-Pfad.
+        Index(
+            "ux_product_universe_active_entry",
+            "tenant_id", "jurisdiction", "product_id",
+            unique=True,
+            sqlite_where=text("deleted_at IS NULL"),
+            postgresql_where=text("deleted_at IS NULL"),
         ),
     )
 
