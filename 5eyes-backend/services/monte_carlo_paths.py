@@ -161,11 +161,13 @@ def compute_quantile_paths(
         }
 
     cashflow_series = _annual_cashflow_series(db, mandate, horizon_years)
+    sub_allocations = _sub_allocations_from_ta(ta)
     return _compute_paths_core(
         initial_wealth_rappen=int(initial_wealth_rappen),
         horizon_years=int(horizon_years),
         weights=weights,
         cma=cma,
+        sub_allocations=sub_allocations,
         cashflow_series=cashflow_series,
         n_paths=int(n_paths),
         seed=int(seed),
@@ -256,6 +258,38 @@ def _weights_from_ta(ta) -> np.ndarray:
     return raw
 
 
+def _sub_allocations_from_ta(ta) -> list[dict] | None:
+    """REP-001 (Codex-Audit 2026-08-25): scenario_inputs_from_cma() akzeptiert
+    seit Sprint B1 ein optionales sub_allocations-Argument, um Bucket-Returns/
+    -Vols nach den REALEN Sub-Gewichten zu gewichten statt nach dem
+    generischen Bucket-Durchschnitt -- _compute_paths_core() gab dieses
+    Argument bisher nie weiter. Monte-Carlo-Projektionen ignorierten damit
+    jede Sub-Allokations-Tilt-Entscheidung (Themen-Tilts, EM-Uebergewichtung,
+    Hedged-vs-unhedged-Wahl etc.) komplett -- unabhaengig vom DB-Backend.
+
+    Fail-soft (Modul-Prinzip, siehe Docstring oben): ein fehlendes oder nicht
+    parsebares sub_allocations_json fuehrt NICHT zu data_pending/Crash,
+    sondern zum dokumentierten Backwards-Compat-Verhalten von
+    scenario_inputs_from_cma() (historische Bucket-Defaults) -- exakt das
+    Verhalten von vor diesem Fix, nur noch fuer den (seltenen) Fehlerfall
+    statt immer.
+    """
+    import json
+
+    raw = getattr(ta, "sub_allocations_json", None)
+    if not raw:
+        return None
+    try:
+        parsed = json.loads(raw)
+    except (TypeError, ValueError):
+        logger.warning("sub_allocations_json auf TargetAllocation %s nicht parsebar.", getattr(ta, "id", "?"))
+        return None
+    if not isinstance(parsed, list) or not all(isinstance(row, dict) for row in parsed):
+        logger.warning("sub_allocations_json auf TargetAllocation %s hat unerwartete Form.", getattr(ta, "id", "?"))
+        return None
+    return parsed
+
+
 def _annual_cashflow_series(
     db: Session, mandate: Mandate, horizon_years: int
 ) -> list[int]:
@@ -287,7 +321,19 @@ def _annual_cashflow_series(
         elif "expense" in cf_type:
             annual_net -= amount
         else:
-            annual_net += amount  # unbekannt: neutral als positiv werten
+            # REP-003 (Codex-Audit 2026-08-25): das Schema laesst nur
+            # "Income"/"Expense" zu (schemas/wealth.py), aber die DB-Spalte
+            # selbst hat keinen CHECK-Constraint -- ein unbekannter/legacy
+            # Wert wurde bisher als Income gewertet (Vorzeichen still
+            # gekippt, Vermoegenstrajektorie zu optimistisch). "Neutral"
+            # heisst hier: NICHT mitzaehlen statt zu raten, konsistent mit
+            # dem fail-soft-Prinzip dieses Moduls (kein Crash, aber auch
+            # kein stillschweigend falsches Vorzeichen).
+            logger.warning(
+                "Unbekannter cashflow_type %r bei Cashflow %s -- wird bei der "
+                "Monte-Carlo-Netto-Cashflow-Berechnung nicht gezaehlt.",
+                getattr(cf, "cashflow_type", None), getattr(cf, "id", "?"),
+            )
     return [annual_net for _ in range(horizon_years)]
 
 
@@ -300,6 +346,7 @@ def _compute_paths_core(
     cashflow_series: list[int],
     n_paths: int,
     seed: int,
+    sub_allocations: list[dict] | None = None,
 ) -> dict[str, Any]:
     """Reine Engine-Schicht — keine DB-Zugriffe. Direkt testbar."""
     from services.optimizer.scenario_engine import (
@@ -308,7 +355,26 @@ def _compute_paths_core(
         simulate_wealth_paths,
     )
 
-    inputs = scenario_inputs_from_cma(cma)
+    try:
+        inputs = scenario_inputs_from_cma(cma, sub_allocations)
+    except ValueError:
+        if sub_allocations is None:
+            raise
+        # REP-001 Fail-soft (Modul-Prinzip, siehe Docstring oben): eine
+        # persistierte sub_allocations_json kann Sub-Asset-Classes
+        # enthalten, fuer die die aktuelle CMA (noch) keine Kennzahlen hat
+        # -- z.B. waehrend eine Jurisdiktion (DE) sukzessive CMA-Abdeckung
+        # aufbaut. scenario_inputs_from_cma() validiert das im Strict-Modus
+        # hart (richtig fuer den Optimizer-Entscheidungspfad). Fuer diese
+        # Reporting-Sektion darf das aber nicht den kompletten Advisory-
+        # Report zum Absturz bringen -- Rueckfall auf die historischen
+        # Bucket-Defaults, exakt das Verhalten von vor diesem Fix.
+        logger.warning(
+            "sub_allocations mit CMA nicht vereinbar (%s) -- Monte-Carlo "
+            "faellt auf Bucket-Defaults ohne Sub-Allokations-Gewichtung zurueck.",
+            sub_allocations,
+        )
+        inputs = scenario_inputs_from_cma(cma, None)
     return_paths = build_scenario_paths(
         inputs,
         horizon_years=horizon_years,

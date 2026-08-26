@@ -304,6 +304,59 @@ def test_core_different_seed_produces_different_paths(session_factory):
     assert a["p50"] != b["p50"]
 
 
+def test_core_sub_allocations_shift_the_projection(session_factory):
+    """REP-001 (Codex-Audit 2026-08-25): scenario_inputs_from_cma() gewichtet
+    Bucket-Returns/-Vols nach den REALEN Sub-Gewichten, wenn sub_allocations
+    uebergeben wird -- _compute_paths_core() gab dieses Argument bisher nie
+    weiter. Ein 100% EM-Aktien-Sub-Allokation (equity_em_return_bps=700) muss
+    andere Pfade liefern als der generische Bucket-Default (Durchschnitt aus
+    equity_ch=550/equity_intl=580/equity_em=700)."""
+    with session_factory() as s:
+        advisor = _seed_advisor(s)
+        cma = _seed_cma(s, advisor)
+        s.commit()
+        weights = np.array([0.4, 0.35, 0.1, 0.1, 0.05])
+
+        without_sub_allocations = _compute_paths_core(
+            initial_wealth_rappen=10_000_000, horizon_years=15,
+            weights=weights, cma=cma, cashflow_series=[0] * 15,
+            n_paths=1000, seed=42,
+        )
+        with_em_tilt = _compute_paths_core(
+            initial_wealth_rappen=10_000_000, horizon_years=15,
+            weights=weights, cma=cma, cashflow_series=[0] * 15,
+            n_paths=1000, seed=42,
+            sub_allocations=[
+                {"asset_class": "Aktien", "sub_asset_class": "Aktien Schwellenlaender", "target_weight_bps": 10000},
+            ],
+        )
+    assert without_sub_allocations["p50"] != with_em_tilt["p50"], (
+        "sub_allocations aendert das Ergebnis nicht -- Verdrahtung fehlt."
+    )
+
+
+def test_core_falls_back_to_bucket_defaults_when_cma_lacks_sub_asset_class(session_factory):
+    """Regressions-Lock: eine sub_allocations_json mit einer Sub-Asset-Class,
+    fuer die die aktuelle CMA keine Kennzahlen hat (z.B. waehrend eine
+    Jurisdiktion CMA-Abdeckung sukzessive aufbaut), darf NICHT den ganzen
+    Advisory-Report zum Absturz bringen -- Fail-soft-Rueckfall auf die
+    historischen Bucket-Defaults."""
+    with session_factory() as s:
+        advisor = _seed_advisor(s)
+        cma = _seed_cma(s, advisor)
+        s.commit()
+        weights = np.array([0.4, 0.35, 0.1, 0.1, 0.05])
+        result = _compute_paths_core(
+            initial_wealth_rappen=10_000_000, horizon_years=10,
+            weights=weights, cma=cma, cashflow_series=[0] * 10,
+            n_paths=200, seed=42,
+            sub_allocations=[
+                {"asset_class": "Aktien", "sub_asset_class": "Aktien Deutschland", "target_weight_bps": 10000},
+            ],
+        )
+    assert result["data_pending"] is False
+
+
 def test_core_initial_value_matches_initial_wealth(session_factory):
     """wealth_paths[:, 0] == initial fuer ALLE Pfade -> alle Quantile bei
     t=0 sind initial_wealth."""
@@ -448,3 +501,94 @@ def test_compute_uses_default_n_paths_and_seed_when_unspecified(session_factory)
         )
     assert result["n_paths"] == DEFAULT_N_PATHS
     assert result["seed"] == DEFAULT_SEED
+
+
+def test_compute_end_to_end_wires_sub_allocations_json_from_ta(session_factory):
+    """REP-001: eine echte TargetAllocation mit sub_allocations_json muss
+    ueber compute_quantile_paths() bis in _compute_paths_core() durchreichen
+    und das Ergebnis gegenueber einer TA ohne sub_allocations_json
+    veraendern."""
+    import json
+
+    with session_factory() as s:
+        advisor = _seed_advisor(s)
+        client, mandate = _seed_client_with_mandate(s, advisor)
+        _seed_ta(s, mandate, advisor)
+        _seed_cma(s, advisor)
+        _seed_wealth_and_cashflows(s, client)
+        s.commit()
+        baseline = compute_quantile_paths(
+            s, mandate, initial_wealth_rappen=50_000_000, horizon_years=15, n_paths=1000,
+        )
+
+    with session_factory() as s:
+        advisor = _seed_advisor(s)
+        client, mandate = _seed_client_with_mandate(s, advisor)
+        # Zweite Session, dieselbe SQLite-Datei -> die is_current=1-Policy aus
+        # dem baseline-Block oben existiert bereits (ux_optimizer_one_current
+        # laesst nur eine aktuelle Policy zu), wiederverwenden statt eine
+        # zweite anzulegen.
+        existing_policy = s.query(OptimizerPolicy).filter(OptimizerPolicy.is_current == 1).first()
+        ta = _seed_ta(s, mandate, advisor, policy=existing_policy)
+        ta.sub_allocations_json = json.dumps([
+            {"asset_class": "Aktien", "sub_asset_class": "Aktien Schwellenlaender", "target_weight_bps": 10000},
+        ])
+        _seed_wealth_and_cashflows(s, client)
+        s.commit()
+        with_tilt = compute_quantile_paths(
+            s, mandate, initial_wealth_rappen=50_000_000, horizon_years=15, n_paths=1000,
+        )
+
+    assert baseline["p50"] != with_tilt["p50"]
+
+
+class _FakeTA:
+    def __init__(self, sub_allocations_json):
+        self.id = "fake-ta"
+        self.sub_allocations_json = sub_allocations_json
+
+
+def test_sub_allocations_from_ta_parses_valid_json():
+    from services.monte_carlo_paths import _sub_allocations_from_ta
+
+    ta = _FakeTA('[{"asset_class": "Aktien", "sub_asset_class": "Aktien Schweiz", "target_weight_bps": 10000}]')
+    result = _sub_allocations_from_ta(ta)
+    assert result == [{"asset_class": "Aktien", "sub_asset_class": "Aktien Schweiz", "target_weight_bps": 10000}]
+
+
+def test_sub_allocations_from_ta_returns_none_when_missing():
+    from services.monte_carlo_paths import _sub_allocations_from_ta
+
+    assert _sub_allocations_from_ta(_FakeTA(None)) is None
+    assert _sub_allocations_from_ta(_FakeTA("")) is None
+
+
+def test_sub_allocations_from_ta_fails_soft_on_malformed_json():
+    """Kaputtes JSON darf NICHT crashen -- Backwards-Compat-Fallback
+    (historische Bucket-Defaults), konsistent mit dem fail-soft-Prinzip
+    dieses Moduls."""
+    from services.monte_carlo_paths import _sub_allocations_from_ta
+
+    assert _sub_allocations_from_ta(_FakeTA("{not valid json")) is None
+    assert _sub_allocations_from_ta(_FakeTA('"just a string"')) is None
+    assert _sub_allocations_from_ta(_FakeTA('[1, 2, 3]')) is None
+
+
+def test_annual_cashflow_series_excludes_unknown_cashflow_type(session_factory):
+    """REP-003 (Codex-Audit 2026-08-25): ein unbekannter cashflow_type wurde
+    bisher als Income gewertet (Vorzeichen still gekippt) -- muss jetzt
+    neutral bleiben (nicht mitgezaehlt), nicht als positive Income."""
+    from services.monte_carlo_paths import _annual_cashflow_series
+
+    with session_factory() as s:
+        advisor = _seed_advisor(s)
+        client, mandate = _seed_client_with_mandate(s, advisor)
+        s.add(Cashflow(
+            id=str(uuid.uuid4()), client_id=client.id,
+            cashflow_type="Sonstiges", label="Unbekannt",
+            amount_rappen=1_000_000, frequency="jaehrlich",
+            is_active=1, created_at=_NOW, updated_at=_NOW,
+        ))
+        s.commit()
+        series = _annual_cashflow_series(s, mandate, horizon_years=5)
+    assert series == [0] * 5
