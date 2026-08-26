@@ -498,6 +498,7 @@ class Settings(BaseSettings):
     def validate_backup_keep_minimum(cls, value: int) -> int:
         if value < 1:
             raise ValueError('backup_keep_minimum muss >= 1 sein (Katastrophen-Schutz)')
+        return value
 
     @field_validator('aggregator_cache_ttl_seconds')
     @classmethod

@@ -219,11 +219,18 @@ def test_supersede_carries_snapshot_forward(session_factory, monkeypatch):
     assert new_entry.cost_disclosure_snapshot_json == original.cost_disclosure_snapshot_json
 
 
-def test_hash_payload_does_not_include_snapshot_field():
-    """Der Integritaets-Hash-Feld-Order ist ein fester Vertrag (siehe
-    services.advisory_log_integrity Docstring) -- der Snapshot darf dort
-    NICHT auftauchen, sonst wuerden alle historischen Eintraege beim
-    naechsten Read-Verify faelschlich als manipuliert markiert."""
+def test_hash_payload_includes_snapshot_field():
+    """REC-007 (Codex-Audit 2026-08-25): cost_disclosure_given ist nur ein
+    Bool-Flag ("ein Kostenausweis wurde gezeigt"); die tatsaechlich
+    ausgewiesenen Kostenzahlen liegen im Snapshot. Bis zu diesem Fix fehlte
+    der Snapshot im Integritaets-Hash -- eine nachtraegliche Aenderung der
+    gezeigten Kosten liess integrity_hash unveraendert (aendert diesen Test
+    von "darf NICHT auftauchen" auf "MUSS auftauchen"). Die urspruengliche
+    Sorge ("historische Eintraege werden beim naechsten Read-Verify
+    faelschlich als manipuliert markiert") ist durch database.py::
+    migrate_advisory_log_hash_scheme_cost_disclosure_snapshot() abgedeckt:
+    diese Migration validiert jede Bestandszeile zuerst gegen den alten
+    Hash-Vertrag, bevor sie unter dem neuen neu signiert wird."""
     from services.advisory_log_service import build_hash_payload
     entry = AdvisoryLog(
         id="x", mandate_id="m1", advisor_id="a1", entry_type="Sonstiges",
@@ -232,5 +239,4 @@ def test_hash_payload_does_not_include_snapshot_field():
         version=1, created_at=_NOW, updated_at=_NOW, entry_date="2026-05-28",
     )
     payload = build_hash_payload(entry)
-    assert "cost_disclosure_snapshot_json" not in payload
-    assert "cost_disclosure_snapshot" not in payload
+    assert payload.get("cost_disclosure_snapshot_json") == '{"annual_rappen": 999}'

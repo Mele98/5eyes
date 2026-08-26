@@ -86,6 +86,19 @@ def test_hash_changes_with_version_increment():
     assert h1 != h2
 
 
+def test_hash_changes_when_cost_disclosure_snapshot_changes():
+    """REC-007 (Codex-Audit 2026-08-25): cost_disclosure_given war bislang
+    im Hash, der eigentliche Kostenzahlen-Snapshot nicht -- eine
+    nachtraegliche Aenderung der ausgewiesenen Kosten blieb unerkannt."""
+    h1 = compute_integrity_hash(payload=_base_payload(
+        cost_disclosure_snapshot_json='{"annual_rappen": 1200}',
+    ))
+    h2 = compute_integrity_hash(payload=_base_payload(
+        cost_disclosure_snapshot_json='{"annual_rappen": 900}',
+    ))
+    assert h1 != h2
+
+
 def test_hash_robust_against_missing_fields():
     """Fehlende Felder werden als leere Strings behandelt — kein Crash."""
     minimal = {

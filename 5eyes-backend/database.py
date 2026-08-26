@@ -1,3 +1,4 @@
+import hashlib
 import sqlite3
 import re
 import sys
@@ -194,8 +195,49 @@ def bootstrap_sqlite_schema(
         conn.commit()
 
 
+class SchemaNotReadyError(RuntimeError):
+    """OPS-005: DB ist erreichbar, aber Schema/Migrationsstand passt nicht
+    zur laufenden Code-Version (z.B. Migration noch nicht abgeschlossen)."""
+
+
+def _expected_alembic_head() -> str | None:
+    """OPS-005 (Codex-Audit 2026-08-25): einmalig ermittelter Soll-Revisions-
+    Kopf der eingecheckten Migrationskette -- Vergleichswert fuer
+    database_healthcheck(), damit die Readiness-Probe eine noch nicht
+    angewendete/laufende Postgres-Migration erkennt statt nur die
+    Verbindung zu pruefen."""
+    from alembic.config import Config as AlembicConfig
+    from alembic.script import ScriptDirectory
+
+    alembic_ini = Path(__file__).resolve().parent / "alembic.ini"
+    alembic_cfg = AlembicConfig(str(alembic_ini))
+    return ScriptDirectory.from_config(alembic_cfg).get_current_head()
+
+
 def database_healthcheck(db: Session) -> dict[str, str]:
+    """SELECT 1 beweist nur, dass die Verbindung offen ist -- nicht, dass
+    das Schema zur laufenden Code-Version passt. OPS-005 (Codex-Audit
+    2026-08-25): unter Postgres mit mehreren Workern kann ein Worker schon
+    Traffic annehmen, waehrend ein anderer noch mitten in `alembic upgrade
+    head` steckt (siehe PG-004/PG-005) -- die alte Readiness-Probe haette
+    das nicht gesehen. Zusaetzlich zur Verbindungspruefung: Postgres
+    vergleicht die angewendete `alembic_version` gegen den erwarteten Kopf
+    der Migrationskette; SQLite (kein Alembic-Pfad, siehe
+    _create_or_migrate_schema) liest stattdessen eine Kern-Tabelle, um ein
+    fehlendes/kaputtes Schema von einer bloss langsamen Verbindung zu
+    unterscheiden."""
     db.execute(text('SELECT 1'))
+    bind = db.get_bind()
+    if is_postgres_database_url(str(bind.url)):
+        applied = db.execute(text('SELECT version_num FROM alembic_version')).scalar()
+        expected = _expected_alembic_head()
+        if applied != expected:
+            raise SchemaNotReadyError(
+                f"Schema nicht auf dem erwarteten Stand (angewendet={applied!r}, "
+                f"erwartet={expected!r}) -- Migration laeuft noch oder wurde nicht ausgefuehrt."
+            )
+    else:
+        db.execute(text('SELECT 1 FROM mandates LIMIT 1'))
     return {'database': 'ok'}
 
 
@@ -653,6 +695,98 @@ def ensure_runtime_columns() -> None:
         # Start, ohne vorhandene Vertragsdokumente zu beruehren.
         ensure_column(conn, "contract_documents", "pdf_base64", "TEXT")
         ensure_column(conn, "contract_documents", "content_hash", "TEXT")
+
+
+_ADVISORY_LOG_HASH_FIELDS_PRE_REC007: tuple[str, ...] = (
+    "mandate_id", "advisor_id", "entry_type", "entry_datetime",
+    "duration_minutes", "communication_channel", "language", "location",
+    "title", "description", "decision", "status", "participants_json",
+    "topics_json", "risk_warnings_given_json", "cost_disclosure_given",
+    "conflict_disclosure_ids_json", "suitability_check_id",
+    "recommendation_run_id", "client_signed", "client_signed_at", "version",
+)
+
+
+def _advisory_log_hash_text(row: dict, fields: tuple[str, ...]) -> str:
+    """Reproduziert services.advisory_log_integrity.compute_integrity_hash()
+    aus einem rohen DB-Row-Dict, ohne die Model-Klasse zu instanziieren
+    (diese Migration laeuft mit einer rohen Engine-Connection, vor jedem
+    ORM-Session-Setup)."""
+    parts = []
+    for key in fields:
+        value = row.get(key)
+        if value is None:
+            parts.append("")
+        elif isinstance(value, bool) or key in ("cost_disclosure_given", "client_signed"):
+            parts.append("1" if value else "0")
+        else:
+            parts.append(str(value))
+    return "\x1f".join(parts)
+
+
+def migrate_advisory_log_hash_scheme_cost_disclosure_snapshot(target_engine: Engine = engine) -> None:
+    """REC-007 (Codex-Audit 2026-08-25): cost_disclosure_snapshot_json wurde
+    dem Integritaets-Hash-Feld-Vertrag hinzugefuegt (siehe
+    services/advisory_log_integrity.py::compute_integrity_hash) -- eine
+    nachtraegliche Aenderung der tatsaechlich gezeigten Kostenzahlen liess
+    integrity_hash vorher unveraendert. Bestehende Zeilen wurden mit dem
+    ALTEN Feld-Vertrag signiert; ein blindes Neuberechnen wuerde nicht
+    unterscheiden koennen zwischen "Zeile ist unveraendert, nur das Hash-
+    Schema wurde erweitert" und "Zeile wurde tatsaechlich manipuliert".
+
+    Diese Migration prueft daher JEDE Zeile zuerst gegen den ALTEN
+    Feld-Vertrag (_ADVISORY_LOG_HASH_FIELDS_PRE_REC007) -- nur wenn diese
+    Pruefung noch stimmt (Zeile war unter dem alten Schema intakt), wird der
+    Hash unter dem NEUEN Vertrag neu berechnet. Zeilen, die schon unter dem
+    alten Schema nicht mehr passten (echter Manipulationsverdacht oder ganz
+    ohne Hash), werden NICHT angefasst -- der bestehende Alarm bleibt
+    sichtbar statt durch die Migration verdeckt zu werden. Idempotent: eine
+    bereits migrierte Zeile (Hash passt schon zum neuen Vertrag) wird beim
+    naechsten Lauf uebersprungen.
+    """
+    from services.advisory_log_integrity import compute_integrity_hash
+
+    # Nur der SQLite-Legacy-Pfad ruft diese Funktion auf (siehe
+    # _run_sqlite_legacy_schema_maintenance) -- Postgres erhaelt das
+    # vollstaendige Schema inkl. dieser Spalte bereits ueber die
+    # Alembic-Baseline, kein Backfill noetig.
+    inspector = inspect(target_engine)
+    if not inspector.has_table('advisory_log'):
+        return
+
+    with target_engine.begin() as conn:
+        existing_columns = {
+            row[1] for row in conn.execute(text("PRAGMA table_info(advisory_log)")).fetchall()
+        }
+        if "cost_disclosure_snapshot_json" not in existing_columns:
+            return
+        rows = conn.execute(text(
+            "SELECT id, mandate_id, advisor_id, entry_type, entry_datetime, "
+            "duration_minutes, communication_channel, language, location, title, "
+            "description, decision, status, participants_json, topics_json, "
+            "risk_warnings_given_json, cost_disclosure_given, "
+            "cost_disclosure_snapshot_json, conflict_disclosure_ids_json, "
+            "suitability_check_id, recommendation_run_id, client_signed, "
+            "client_signed_at, version, integrity_hash FROM advisory_log "
+            "WHERE integrity_hash IS NOT NULL"
+        )).mappings().fetchall()
+        for row in rows:
+            row = dict(row)
+            stored_hash = row.get("integrity_hash")
+            old_scheme_hash = hashlib.sha256(
+                _advisory_log_hash_text(row, _ADVISORY_LOG_HASH_FIELDS_PRE_REC007).encode("utf-8")
+            ).hexdigest()
+            if old_scheme_hash != stored_hash:
+                # Entweder schon migriert (neuer Vertrag) oder echter
+                # Manipulationsverdacht -- in beiden Faellen nicht anfassen.
+                continue
+            new_hash = compute_integrity_hash(payload=row)
+            if new_hash == stored_hash:
+                continue
+            conn.execute(
+                text("UPDATE advisory_log SET integrity_hash = :hash WHERE id = :id"),
+                {"hash": new_hash, "id": row["id"]},
+            )
 
 
 def run_advisory_log_migration(target_engine: Engine = engine) -> None:
@@ -1473,6 +1607,7 @@ def _run_sqlite_legacy_schema_maintenance() -> None:
     ensure_purge_history_table(engine)
     run_risk_assessment_answer_migration(engine)
     run_advisory_log_migration(engine)
+    migrate_advisory_log_hash_scheme_cost_disclosure_snapshot(engine)
     ensure_audit_log_actions()
     # U-38: Indexes nach ensure_audit_log_actions, weil das die Tabelle
     # ggf. komplett neu baut (Index-Drift-Risk).

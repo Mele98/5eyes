@@ -8,8 +8,17 @@
 # Aufruf (PowerShell):   .\docs\deploy\start-external.ps1
 # Beenden: dieses Fenster mit Strg+C; das Backend-Fenster separat schliessen.
 #
-# WICHTIG: Schliesse vorher die normale Electron-App (sonst teilen sich zwei
-# Backends dieselbe DB). Phase-0 = ALLOW_REAL_CLIENT_DATA=false (Banner aktiv).
+# OPS-001 (Codex-Audit 2026-08-25): ALLOW_REAL_CLIENT_DATA=false blockt nur
+# NEUE Schreibzugriffe, die sich selbst als "real" klassifizieren
+# (services/data_classification.py) — es macht weder die bereits
+# vorhandene Electron-Desktop-DB unsichtbar noch verhindert es, dass dieses
+# Skript sie oeffnet. Ohne explizites DB_PATH zeigt dieses Skript daher
+# standardmaessig auf eine SEPARATE Datei (~\5eyes\external-demo.db), NIE
+# auf die produktive Desktop-DB — ein oeffentlicher Cloudflare-Quick-Tunnel
+# gegen echte Mandantendaten passiert damit nicht mehr aus Versehen.
+# Fuer den bewussten Fall (z.B. echter externer Zugriff fuer eine Firma)
+# $env:DB_PATH VOR dem Aufruf explizit setzen — das Skript warnt dann hart
+# und verlangt eine getippte Bestaetigung.
 # =============================================================================
 $ErrorActionPreference = 'Stop'
 
@@ -19,6 +28,27 @@ $home5   = Join-Path $env:USERPROFILE '5eyes'
 if (-not (Test-Path $home5)) { New-Item -ItemType Directory -Path $home5 | Out-Null }
 $secretFile = Join-Path $home5 '.external-secret.txt'
 $cfExe      = Join-Path $home5 'cloudflared.exe'
+$realDbPath = Join-Path $home5 '5eyes.db'
+
+if (-not $env:DB_PATH) {
+  # Kein DB_PATH gesetzt -> sicherer Default: eigene Staging-DB, niemals
+  # die produktive Desktop-DB. seed_external_demo.py kann diese Datei
+  # separat mit synthetischen Demo-Mandaten befuellen.
+  $env:DB_PATH = Join-Path $home5 'external-demo.db'
+  Write-Host "DB_PATH nicht gesetzt -> nutze separate Staging-DB: $($env:DB_PATH)" -ForegroundColor Cyan
+} elseif ((Resolve-Path -LiteralPath $env:DB_PATH -ErrorAction SilentlyContinue).Path -eq $realDbPath) {
+  Write-Host '====================================================================' -ForegroundColor Red
+  Write-Host ' WARNUNG: DB_PATH zeigt auf die produktive Electron-Desktop-DB!'      -ForegroundColor Red
+  Write-Host ' Der Cloudflare-Tunnel macht diese DB oeffentlich erreichbar (nur'    -ForegroundColor Red
+  Write-Host ' Login/2FA schuetzen sie). ALLOW_REAL_CLIENT_DATA blockt dabei NUR'   -ForegroundColor Red
+  Write-Host ' neue Schreibzugriffe, keine Lesezugriffe auf bestehende Kundendaten.' -ForegroundColor Red
+  Write-Host '====================================================================' -ForegroundColor Red
+  $confirm = Read-Host 'Tippe GENAU "ich verstehe das risiko" zum Fortfahren'
+  if ($confirm -ne 'ich verstehe das risiko') {
+    Write-Host 'Abgebrochen.' -ForegroundColor Yellow
+    exit 1
+  }
+}
 
 # --- Python finden ---
 $pyCmd = Get-Command python -ErrorAction SilentlyContinue

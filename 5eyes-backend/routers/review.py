@@ -1056,6 +1056,22 @@ def sign_document(
     # diesem Aufruf gesetzt ist -- siehe ContractDocumentSign-Docstring.
     _get_mandate_or_404(mandate_id, db, current_user)
     doc = _get_document_or_404(mandate_id, doc_id, db)
+    # REC-006 (Codex-Audit 2026-08-25): dieser Endpoint hatte keinerlei
+    # Status-Gate -- ein zweiter Aufruf mit signed_by_advisor/signed_by_client
+    # ueberschrieb klaglos Bild/Name/Zeitstempel/IP einer bereits geleisteten
+    # Signatur. Fuer FINMA-E-Signing muss eine einmal geleistete Signatur
+    # unveraenderlich bleiben -- ein Korrektur-Bedarf gehoert in einen neuen
+    # Signaturvorgang (Dokument zuruecksetzen), nicht in ein stilles Ueberschreiben.
+    if body.signed_by_advisor and doc.signed_by_advisor:
+        raise HTTPException(
+            status_code=409,
+            detail="Dokument wurde bereits vom Berater unterzeichnet -- Signatur ist unveraenderlich.",
+        )
+    if body.signed_by_client and doc.signed_by_client:
+        raise HTTPException(
+            status_code=409,
+            detail="Dokument wurde bereits vom Kunden unterzeichnet -- Signatur ist unveraenderlich.",
+        )
     now = _now()
     signer_ip = _extract_client_ip(request)
     signer_name = body.signer_name.strip()
@@ -2395,8 +2411,12 @@ def add_position(
     current_user: User = Depends(require_advisor)
 ):
     run = _get_recommendation_run_or_404(mandate_id, run_id, db, current_user)
-    if run.result_status == "Final":
-        raise HTTPException(status_code=400, detail="Finalisierte Runs können nicht mehr geändert werden")
+    # REC-004 (Codex-Audit 2026-08-25): der Gate blockte bisher nur "Final",
+    # nicht "Superseded" -- ein durch finalize_recommendation() abgeloester
+    # Run (siehe Bulk-UPDATE oben, Zeile ~2361) blieb ueber diesen Endpoint
+    # trotzdem mutierbar, obwohl er kein aktiver Empfehlungsstand mehr ist.
+    if run.result_status in ("Final", "Superseded"):
+        raise HTTPException(status_code=400, detail="Finalisierte oder abgeloeste Runs können nicht mehr geändert werden")
     product = _get_product_or_404(body.product_id, db)
     now = _now()
     pos = RecommendationPosition(

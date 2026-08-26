@@ -100,6 +100,7 @@ def build_hash_payload(entry: AdvisoryLog) -> dict:
         "topics_json": entry.topics_json,
         "risk_warnings_given_json": entry.risk_warnings_given_json,
         "cost_disclosure_given": entry.cost_disclosure_given,
+        "cost_disclosure_snapshot_json": entry.cost_disclosure_snapshot_json,
         "conflict_disclosure_ids_json": entry.conflict_disclosure_ids_json,
         "suitability_check_id": entry.suitability_check_id,
         "recommendation_run_id": entry.recommendation_run_id,
