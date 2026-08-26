@@ -41,6 +41,36 @@ def test_development_can_still_run_without_sqlcipher():
     assert settings.app_env == 'development'
 
 
+def test_backup_keep_minimum_validator_returns_the_validated_value():
+    """OPS-003 (Codex-Audit 2026-08-25): der Validator warf zwar bei
+    ungueltigen Werten, hatte aber kein `return value` -- Pydantic
+    uebernahm dadurch `None` als validierten Wert. services/backup.py::
+    _prune_old_backups() rechnet `all_backups[keep_minimum:]`; mit
+    `keep_minimum=None` schuetzt dieser Slice KEINE der neuesten Backups
+    mehr (statt die konfigurierte Mindestanzahl auszunehmen), das
+    Katastrophen-Schutznetz war also lautlos deaktiviert."""
+    settings = Settings(
+        app_env='development',
+        secret_key=DEFAULT_SECRET_KEY,
+        db_use_sqlcipher=False,
+        db_key=None,
+        backup_keep_minimum=5,
+    )
+
+    assert settings.backup_keep_minimum == 5
+
+
+def test_backup_keep_minimum_still_rejects_values_below_one():
+    with pytest.raises(ValueError, match='backup_keep_minimum'):
+        Settings(
+            app_env='development',
+            secret_key=DEFAULT_SECRET_KEY,
+            db_use_sqlcipher=False,
+            db_key=None,
+            backup_keep_minimum=0,
+        )
+
+
 def test_staging_rejects_default_secret_key():
     """staging muss secret_key explizit setzen (kein Placeholder)."""
     with pytest.raises(ValueError, match='secret_key'):

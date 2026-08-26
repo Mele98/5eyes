@@ -720,8 +720,14 @@ class RecommendationRunResponse(BaseResponse):
 
 class RecommendationPositionCreate(BaseModel):
     product_id: str
-    target_weight_bps: int
-    target_amount_rappen: Optional[int] = None
+    # REC-002 (Codex-Audit 2026-08-25): _validate_recommendation_for_
+    # finalization() prueft nur die SUMME aller Positionsgewichte
+    # (9900-10100 bps) -- eine einzelne negative oder absurd grosse
+    # Position blieb unbemerkt, solange andere Positionen sie rechnerisch
+    # kompensierten. Bounds hier am API-Rand (0-10000bps = 0-100% einer
+    # Einzelposition) schliessen die Luecke unabhaengig vom Summen-Check.
+    target_weight_bps: int = Field(ge=0, le=10000)
+    target_amount_rappen: Optional[int] = Field(default=None, ge=0)
     rationale: Optional[str] = None
 
 

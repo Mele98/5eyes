@@ -38,12 +38,23 @@ from main import app  # noqa: E402
 # Hilfsmittel: DB-Stub via dependency_overrides
 # ---------------------------------------------------------------------------
 
+class _FakeBind:
+    """OPS-005: database_healthcheck() liest bind.url um Postgres/SQLite
+    zu unterscheiden -- die Stubs bilden hier absichtlich eine SQLite-
+    Verbindung nach, damit sie den (schon vorher getesteten) SELECT-1-Pfad
+    nehmen, nicht den zusaetzlichen Alembic-Head-Vergleich fuer Postgres."""
+    url = "sqlite:///:memory:"
+
+
 class _FakeOKSession:
     """DB-Session-Stub: SELECT 1 funktioniert."""
     def execute(self, *args, **kwargs):  # noqa: D401
         result = MagicMock()
         result.scalar.return_value = 1
         return result
+
+    def get_bind(self):
+        return _FakeBind()
 
     def close(self):
         pass
@@ -53,6 +64,9 @@ class _FakeBrokenSession:
     """DB-Session-Stub: SELECT 1 wirft OperationalError."""
     def execute(self, *args, **kwargs):
         raise OperationalError("SELECT 1", {}, Exception("simulated DB outage"))
+
+    def get_bind(self):
+        return _FakeBind()
 
     def close(self):
         pass
@@ -199,6 +213,102 @@ def test_health_db_returns_200_when_ok(client_ok_db):
     body = r.json()
     assert body["status"] == "ok"
     assert body.get("database") == "ok"
+
+
+# ---------------------------------------------------------------------------
+# OPS-005 (Codex-Audit 2026-08-25): SELECT 1 allein bewies nur die
+# Verbindung, nicht dass das Schema zur laufenden Code-Version passt --
+# unter Postgres mit mehreren Workern konnte ein Worker "ready" melden,
+# waehrend die Migration eines anderen Workers noch lief.
+# ---------------------------------------------------------------------------
+
+class _FakePostgresBind:
+    url = "postgresql+psycopg://user:pw@localhost/fivetest"
+
+
+class _FakePostgresSessionMismatchedSchema:
+    """Verbindung ok, aber alembic_version passt nicht zum erwarteten Kopf."""
+    def execute(self, *args, **kwargs):
+        result = MagicMock()
+        result.scalar.return_value = "some-old-revision"
+        return result
+
+    def get_bind(self):
+        return _FakePostgresBind()
+
+    def close(self):
+        pass
+
+
+class _FakeSqliteSessionMissingCoreTable:
+    """Verbindung ok, aber das Kern-Tabellen-Read schlaegt fehl (kaputtes
+    Schema statt bloss langsamer Verbindung)."""
+    def execute(self, *args, **kwargs):
+        sql = str(args[0]) if args else ""
+        if "mandates" in sql:
+            raise OperationalError(sql, {}, Exception("no such table: mandates"))
+        result = MagicMock()
+        result.scalar.return_value = 1
+        return result
+
+    def get_bind(self):
+        return _FakeBind()
+
+    def close(self):
+        pass
+
+
+@pytest.fixture
+def client_postgres_schema_mismatch():
+    app.dependency_overrides[get_db] = _override_with(_FakePostgresSessionMismatchedSchema)
+    with TestClient(app) as c:
+        yield c
+    app.dependency_overrides.pop(get_db, None)
+
+
+@pytest.fixture
+def client_sqlite_missing_core_table():
+    app.dependency_overrides[get_db] = _override_with(_FakeSqliteSessionMissingCoreTable)
+    with TestClient(app) as c:
+        yield c
+    app.dependency_overrides.pop(get_db, None)
+
+
+def test_health_ready_returns_503_when_postgres_schema_not_at_expected_head(
+    client_postgres_schema_mismatch,
+):
+    """Kernfix OPS-005: ein Postgres-Worker mit veralteter/laufender
+    Migration muss NICHT mehr 'ready' melden."""
+    with patch(
+        "database._expected_alembic_head",
+        return_value="the-real-current-head",
+    ):
+        r = client_postgres_schema_mismatch.get("/health/ready")
+    assert r.status_code == 503
+    detail = r.json().get("detail", {})
+    assert detail.get("reason") == "schema_not_ready"
+
+
+def test_health_ready_returns_503_when_sqlite_core_table_unreadable(
+    client_sqlite_missing_core_table,
+):
+    """SELECT 1 allein kann eine offene Verbindung gegen eine leere/kaputte
+    SQLite-Datei nicht von einer echten, initialisierten DB unterscheiden."""
+    r = client_sqlite_missing_core_table.get("/health/ready")
+    assert r.status_code == 503
+
+
+def test_health_ready_returns_200_when_postgres_schema_matches_expected_head(
+    client_postgres_schema_mismatch,
+):
+    """Gegenprobe: stimmt die angewendete Revision mit dem erwarteten Kopf
+    ueberein, bleibt die Postgres-Probe gruen wie zuvor."""
+    with patch(
+        "database._expected_alembic_head",
+        return_value="some-old-revision",
+    ):
+        r = client_postgres_schema_mismatch.get("/health/ready")
+    assert r.status_code == 200
 
 
 # ---------------------------------------------------------------------------

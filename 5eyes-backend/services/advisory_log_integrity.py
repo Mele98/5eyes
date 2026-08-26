@@ -51,6 +51,15 @@ def compute_integrity_hash(*, payload: dict) -> str:
         "topics_json",
         "risk_warnings_given_json",
         "cost_disclosure_given",
+        # REC-007 (Codex-Audit 2026-08-25): cost_disclosure_given ist nur ein
+        # Bool-Flag ("wurde ein Kostenausweis gezeigt"); die eigentlichen
+        # gezeigten Kostenzahlen liegen in cost_disclosure_snapshot_json
+        # (Bugfix 2026-08-07, CEO/CFO/CIO-Audit) und waren bislang NICHT im
+        # Integritaets-Hash -- eine nachtraegliche Aenderung der ausgewiesenen
+        # Kosten haette integrity_hash unveraendert gelassen. Migration fuer
+        # bereits gespeicherte Zeilen: database.py::
+        # migrate_advisory_log_hash_scheme_cost_disclosure_snapshot().
+        "cost_disclosure_snapshot_json",
         "conflict_disclosure_ids_json",
         "suitability_check_id",
         "recommendation_run_id",

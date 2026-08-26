@@ -21,7 +21,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from config import settings
-from database import database_healthcheck, get_db
+from database import SchemaNotReadyError, database_healthcheck, get_db
 from price_updater import get_price_runtime_status
 
 router = APIRouter(prefix="/health", tags=["Health"])
@@ -67,6 +67,16 @@ def health_ready(db: Session = Depends(get_db)) -> dict:
     payload = {"status": "ready", **_base_payload()}
     try:
         payload["database"] = database_healthcheck(db).get("database", "ok")
+    except SchemaNotReadyError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "status": "not_ready",
+                "reason": "schema_not_ready",
+                "error": str(exc).split("\n", 1)[0][:200],
+                **_base_payload(),
+            },
+        ) from exc
     except SQLAlchemyError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

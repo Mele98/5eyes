@@ -3993,6 +3993,111 @@ def test_sign_document_preserves_initial_signed_at(session_factory, advisor_user
     assert second_sign.signature_client_signed_at == "2026-04-19T11:45:00.000Z"
 
 
+def test_sign_document_rejects_overwriting_an_existing_advisor_signature(session_factory, advisor_user, monkeypatch):
+    """REC-006 (Codex-Audit 2026-08-25): ein zweiter Aufruf mit
+    signed_by_advisor=True fuer dieselbe bereits signierte Seite muss
+    abgelehnt werden -- vorher wurde Bild/Name/Zeitstempel/IP klaglos
+    ueberschrieben."""
+    _, mandate_id = seed_client_and_mandate(session_factory, advisor_user)
+
+    with session_factory() as session:
+        doc = create_document(
+            request=_FakeSignRequest(),
+            mandate_id=mandate_id,
+            body=ContractDocumentCreate(
+                document_type="Anlagestrategie",
+                title="Strategie 2026",
+            ),
+            db=session,
+            current_user=advisor_user,
+        )
+        monkeypatch.setattr(review_router, "_now", lambda: "2026-04-19T09:15:00.000Z")
+
+        sign_document(
+            mandate_id=mandate_id,
+            doc_id=doc.id,
+            body=ContractDocumentSign(
+                signed_by_advisor=True,
+                signature_image=_ADVISOR_SIGNATURE_PNG,
+                signer_name="Anna Berater",
+            ),
+            request=_FakeSignRequest("10.0.0.5"),
+            db=session,
+            current_user=advisor_user,
+        )
+
+        with pytest.raises(HTTPException) as exc_info:
+            sign_document(
+                mandate_id=mandate_id,
+                doc_id=doc.id,
+                body=ContractDocumentSign(
+                    signed_by_advisor=True,
+                    signature_image=_CLIENT_SIGNATURE_PNG,
+                    signer_name="Jemand Anderes",
+                ),
+                request=_FakeSignRequest("10.0.0.99"),
+                db=session,
+                current_user=advisor_user,
+            )
+        assert exc_info.value.status_code == 409
+
+        # Original-Signatur unangetastet.
+        assert doc.signature_advisor_image == _ADVISOR_SIGNATURE_PNG
+        assert doc.signature_advisor_signer_name == "Anna Berater"
+        assert doc.signature_advisor_ip == "10.0.0.5"
+
+
+def test_sign_document_rejects_overwriting_an_existing_client_signature(session_factory, advisor_user, monkeypatch):
+    """Gegenprobe fuer die Kundenseite."""
+    _, mandate_id = seed_client_and_mandate(session_factory, advisor_user)
+
+    with session_factory() as session:
+        doc = create_document(
+            request=_FakeSignRequest(),
+            mandate_id=mandate_id,
+            body=ContractDocumentCreate(
+                document_type="Anlagestrategie",
+                title="Strategie 2026",
+            ),
+            db=session,
+            current_user=advisor_user,
+        )
+        monkeypatch.setattr(review_router, "_now", lambda: "2026-04-19T09:15:00.000Z")
+
+        sign_document(
+            mandate_id=mandate_id,
+            doc_id=doc.id,
+            body=ContractDocumentSign(
+                signed_by_client=True,
+                signature_image=_CLIENT_SIGNATURE_PNG,
+                signer_name="Daniel Kunde",
+            ),
+            request=_FakeSignRequest("10.0.0.9"),
+            db=session,
+            current_user=advisor_user,
+        )
+
+        with pytest.raises(HTTPException) as exc_info:
+            sign_document(
+                mandate_id=mandate_id,
+                doc_id=doc.id,
+                body=ContractDocumentSign(
+                    signed_by_client=True,
+                    signature_image=_ADVISOR_SIGNATURE_PNG,
+                    signer_name="Jemand Anderes",
+                ),
+                request=_FakeSignRequest("10.0.0.100"),
+                db=session,
+                current_user=advisor_user,
+            )
+        assert exc_info.value.status_code == 409
+
+        # Original-Signatur unangetastet.
+        assert doc.signature_client_image == _CLIENT_SIGNATURE_PNG
+        assert doc.signature_client_signer_name == "Daniel Kunde"
+        assert doc.signature_client_ip == "10.0.0.9"
+
+
 def test_sign_document_requires_signature_image():
     with pytest.raises(Exception):
         ContractDocumentSign(signed_by_advisor=True, signature_image="", signer_name="Anna Berater")
