@@ -65,7 +65,10 @@ APP_HOST=0.0.0.0
 APP_PORT=8000
 
 # Postgres
-DATABASE_URL=postgresql://postgres:<PASSWORD>@localhost:5432/fiveyes
+# +psycopg (nicht bare postgresql://) ist Pflicht: requirements.txt installiert
+# psycopg[binary] v3, kein psycopg2. SQLAlchemy versucht bei bare postgresql://
+# per Default psycopg2 zu laden -> Verbindung schlaegt beim ersten Deploy fehl.
+DATABASE_URL=postgresql+psycopg://postgres:<PASSWORD>@localhost:5432/fiveyes
 
 # Tier 3 = single-tenant, kein Admin-UI
 TENANCY_MODE=single
