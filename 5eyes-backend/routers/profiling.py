@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 from datetime import date, datetime, timezone
 from types import SimpleNamespace
@@ -295,11 +296,27 @@ def create_risk_assessment(
                 created_at=now,
             ))
 
-    log(db, user_id=current_user.id, user_name=current_user.full_name,
-        table_name="risk_assessments", record_id=ra.id, action="CREATE",
-        mandate_id=mandate_id, client_id=mandate.client_id,
-        ip_address=_extract_client_ip(request))
-    db.commit()
+    # CON-001 (Codex-Audit 2026-08-25): with_for_update() oben serialisiert
+    # zwei parallele Create-Aufrufe korrekt unter Postgres, ist aber unter
+    # SQLite ein stiller No-Op (SQLAlchemy-Dialekt unterstuetzt FOR UPDATE
+    # dort nicht) -- zwei nahezu gleichzeitige Requests koennen den
+    # Partial-Unique-Index (genau ein is_current=1 pro Mandat) trotzdem
+    # treffen. Der Verlierer bekam bisher einen rohen IntegrityError -> 500
+    # statt eines sauberen 409. log() unten fuehrt selbst eine Query aus,
+    # die einen Autoflush der noch ausstehenden INSERT ausloesen kann --
+    # der try-Block muss deshalb log() mit umfassen, nicht nur commit().
+    try:
+        log(db, user_id=current_user.id, user_name=current_user.full_name,
+            table_name="risk_assessments", record_id=ra.id, action="CREATE",
+            mandate_id=mandate_id, client_id=mandate.client_id,
+            ip_address=_extract_client_ip(request))
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Ein anderes Risikoprofil wurde gleichzeitig gespeichert -- bitte Seite neu laden und erneut versuchen.",
+        )
     return db.query(RiskAssessment).options(
         selectinload(RiskAssessment.answers)
     ).filter(RiskAssessment.id == ra.id).one()

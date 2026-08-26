@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
+from sqlalchemy.exc import IntegrityError
 from datetime import date, datetime, timezone
 from typing import Optional
 import json
@@ -296,11 +297,25 @@ def create_target_allocation(
         **payload
     )
     db.add(ta)
-    log(db, user_id=current_user.id, user_name=current_user.full_name,
-        table_name="target_allocations", record_id=ta.id, action="CREATE",
-        mandate_id=mandate_id, client_id=mandate.client_id,
-        ip_address=_extract_client_ip(request))
-    db.commit()
+    # CON-001 (Codex-Audit 2026-08-25): with_for_update() oben (Sprint U-P0
+    # Fix C8) serialisiert zwei parallele Create-Aufrufe korrekt unter
+    # Postgres, ist aber unter SQLite ein stiller No-Op -- der Verlierer
+    # eines Partial-Unique-Index-Treffers bekam bisher 500 statt 409. log()
+    # unten fuehrt selbst eine Query aus, die einen Autoflush der noch
+    # ausstehenden INSERT ausloesen kann -- der try-Block muss log() mit
+    # umfassen, nicht nur commit().
+    try:
+        log(db, user_id=current_user.id, user_name=current_user.full_name,
+            table_name="target_allocations", record_id=ta.id, action="CREATE",
+            mandate_id=mandate_id, client_id=mandate.client_id,
+            ip_address=_extract_client_ip(request))
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Eine andere Soll-Allokation wurde gleichzeitig gespeichert -- bitte Seite neu laden und erneut versuchen.",
+        )
     db.refresh(ta)
     return ta
 
@@ -531,12 +546,24 @@ def generate_target_allocation_endpoint(
         )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
-    refresh_system_review_triggers(db, mandate, current_user.id)
-    log(db, user_id=current_user.id, user_name=current_user.full_name,
-        table_name="target_allocations", record_id=result["target_allocation"].id, action="CREATE",
-        mandate_id=mandate_id, client_id=mandate.client_id,
-        ip_address=_extract_client_ip(request))
-    db.commit()
+    # CON-001 (Codex-Audit 2026-08-25): siehe create_target_allocation oben --
+    # derselbe Partial-Unique-Index-Race, mit demselben SQLite-Luecken-Risiko.
+    # refresh_system_review_triggers()/log() fuehren eigene Queries aus, die
+    # einen Autoflush der noch ausstehenden INSERT ausloesen koennen -- der
+    # try-Block muss beide mit umfassen, nicht nur commit().
+    try:
+        refresh_system_review_triggers(db, mandate, current_user.id)
+        log(db, user_id=current_user.id, user_name=current_user.full_name,
+            table_name="target_allocations", record_id=result["target_allocation"].id, action="CREATE",
+            mandate_id=mandate_id, client_id=mandate.client_id,
+            ip_address=_extract_client_ip(request))
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Eine andere Soll-Allokation wurde gleichzeitig generiert -- bitte Seite neu laden und erneut versuchen.",
+        )
     db.refresh(result["target_allocation"])
     return result
 
@@ -1102,10 +1129,24 @@ def create_optimizer_policy(
         )
         db.add(hm)
 
-    log(db, user_id=current_user.id, user_name=current_user.full_name,
-        table_name="optimizer_policies", record_id=policy.id, action="CREATE",
-        new_value=body.policy_name, ip_address=_extract_client_ip(request))
-    db.commit()
+    # CON-001 (Codex-Audit 2026-08-25): with_for_update() oben serialisiert
+    # zwei parallele activate=True-Creates korrekt unter Postgres, ist aber
+    # unter SQLite ein stiller No-Op -- der Verlierer der globalen
+    # Current-Policy-Unique-Constraint bekam bisher 500 statt 409. log()
+    # unten fuehrt selbst eine Query aus, die einen Autoflush der noch
+    # ausstehenden INSERT ausloesen kann -- der try-Block muss log() mit
+    # umfassen, nicht nur commit().
+    try:
+        log(db, user_id=current_user.id, user_name=current_user.full_name,
+            table_name="optimizer_policies", record_id=policy.id, action="CREATE",
+            new_value=body.policy_name, ip_address=_extract_client_ip(request))
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Eine andere Policy wurde gleichzeitig aktiviert -- bitte Seite neu laden und erneut versuchen.",
+        )
     db.refresh(policy)
     return get_optimizer_policy_detail(policy.id, db, current_user)
 
@@ -1221,10 +1262,22 @@ def activate_optimizer_policy(
     policy.valid_from = now
     policy.valid_to = None
     policy.updated_at = now
-    log(db, user_id=current_user.id, user_name=current_user.full_name,
-        table_name="optimizer_policies", record_id=policy_id, action="ACTIVATE",
-        ip_address=_extract_client_ip(request))
-    db.commit()
+    # CON-001 (Codex-Audit 2026-08-25): siehe create_optimizer_policy oben --
+    # derselbe SQLite-Luecken-Risiko fuer die globale Current-Policy-
+    # Unique-Constraint. log() unten fuehrt selbst eine Query aus, die einen
+    # Autoflush der noch ausstehenden UPDATE/INSERT ausloesen kann -- der
+    # try-Block muss log() mit umfassen, nicht nur commit().
+    try:
+        log(db, user_id=current_user.id, user_name=current_user.full_name,
+            table_name="optimizer_policies", record_id=policy_id, action="ACTIVATE",
+            ip_address=_extract_client_ip(request))
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Eine andere Policy wurde gleichzeitig aktiviert -- bitte Seite neu laden und erneut versuchen.",
+        )
     db.refresh(policy)
     return policy
 
