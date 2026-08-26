@@ -71,6 +71,49 @@ def _get_handoff_or_404(mandate_id: str, handoff_id: str, db: Session, current_u
     return handoff
 
 
+def _atomically_close_handoff_or_409(
+    db: Session, handoff_id: str, mandate_id: str, *, updates: dict,
+) -> None:
+    """REC-005 (Codex-Audit 2026-08-25): mark-executed/cancel lasen den
+    Endzustand bisher per Plain-SELECT und pruefen ihn erst danach in
+    Python -- zwei nahezu gleichzeitige Aufrufe (Doppelklick, zwei Tabs)
+    konnten beide denselben OFFENEN Zustand lesen, bevor eine der beiden
+    Transaktionen committet, und beide Endzustaende schreiben ("Last write
+    wins" statt der erwarteten 409-Ablehnung).
+
+    with_for_update() haette hier NICHT geholfen: SQLite (der aktuelle
+    Produktivpfad, Electron-Desktop) ignoriert FOR UPDATE stillschweigend
+    (SQLAlchemy-Dialekt unterstuetzt die Klausel gar nicht). Stattdessen ein
+    atomares bedingtes UPDATE (WHERE id=... AND status=OPEN_STATUS) -- die
+    Bedingung wird von der DB selbst als Teil EINES Statements ausgewertet,
+    unabhaengig vom Backend. Matcht die WHERE-Klausel 0 Zeilen, hat eine
+    andere Transaktion den Zustand bereits geaendert -> 409, konsistent mit
+    dem vorherigen Verhalten bei explizit falschem Vorzustand.
+    """
+    result = db.query(PortfolioHandoff).filter(
+        PortfolioHandoff.id == handoff_id,
+        PortfolioHandoff.mandate_id == mandate_id,
+        PortfolioHandoff.status == _OPEN_STATUS,
+    # synchronize_session='fetch' (statt False): identifiziert die
+    # betroffene(n) Zeile(n) und aktualisiert bereits in dieser Session
+    # geladene ORM-Objekte -- sonst haette ein vorheriges _get_handoff_or_404()
+    # (siehe Aufrufer) weiterhin den veralteten Status im Speicher, auch nach
+    # dem Bulk-UPDATE.
+    ).update(updates, synchronize_session="fetch")
+    if result == 0:
+        # Mandats-/Existenz-Pruefung ist bereits durch den Aufrufer erfolgt
+        # (dieser wird nach einer erfolgreichen _get_handoff_or_404() weiter
+        # oben aufgerufen) -- hier nur noch der aktuelle Status fuer die
+        # Fehlermeldung, kein current_user noetig.
+        current_status = db.query(PortfolioHandoff.status).filter(
+            PortfolioHandoff.id == handoff_id,
+        ).scalar()
+        raise HTTPException(
+            status_code=409,
+            detail=f"Weiterleitung ist bereits im Endzustand '{current_status}'.",
+        )
+
+
 @router.get(
     "/mandates/{mandate_id}/portfolio-handoffs",
     response_model=list[PortfolioHandoffResponse],
@@ -171,34 +214,30 @@ def mark_portfolio_handoff_executed(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor),
 ):
-    handoff = _get_handoff_or_404(mandate_id, handoff_id, db, current_user)
-    if handoff.status != _OPEN_STATUS:
-        raise HTTPException(
-            status_code=409,
-            detail=f"Weiterleitung ist bereits im Endzustand '{handoff.status}'.",
-        )
+    _get_handoff_or_404(mandate_id, handoff_id, db, current_user)
     now = _now()
-    handoff.status = "Ausgeführt"
-    handoff.executed_at = now
-    handoff.executed_by = current_user.id
-    handoff.executed_note = body.executed_note
-    handoff.updated_at = now
+    _atomically_close_handoff_or_409(db, handoff_id, mandate_id, updates={
+        "status": "Ausgeführt",
+        "executed_at": now,
+        "executed_by": current_user.id,
+        "executed_note": body.executed_note,
+        "updated_at": now,
+    })
     log(
         db,
         user_id=current_user.id,
         user_name=current_user.full_name,
         table_name="portfolio_handoffs",
-        record_id=handoff.id,
+        record_id=handoff_id,
         action="UPDATE",
         field_name="status",
         old_value=_OPEN_STATUS,
-        new_value=handoff.status,
+        new_value="Ausgeführt",
         mandate_id=mandate_id,
         ip_address=_extract_client_ip(request),
     )
     db.commit()
-    db.refresh(handoff)
-    return handoff
+    return db.query(PortfolioHandoff).filter(PortfolioHandoff.id == handoff_id).first()
 
 
 @router.post(
@@ -213,31 +252,27 @@ def cancel_portfolio_handoff(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor),
 ):
-    handoff = _get_handoff_or_404(mandate_id, handoff_id, db, current_user)
-    if handoff.status != _OPEN_STATUS:
-        raise HTTPException(
-            status_code=409,
-            detail=f"Weiterleitung ist bereits im Endzustand '{handoff.status}'.",
-        )
+    _get_handoff_or_404(mandate_id, handoff_id, db, current_user)
     now = _now()
-    handoff.status = "Storniert"
-    handoff.cancelled_at = now
-    handoff.cancelled_by = current_user.id
-    handoff.cancelled_reason = body.cancelled_reason
-    handoff.updated_at = now
+    _atomically_close_handoff_or_409(db, handoff_id, mandate_id, updates={
+        "status": "Storniert",
+        "cancelled_at": now,
+        "cancelled_by": current_user.id,
+        "cancelled_reason": body.cancelled_reason,
+        "updated_at": now,
+    })
     log(
         db,
         user_id=current_user.id,
         user_name=current_user.full_name,
         table_name="portfolio_handoffs",
-        record_id=handoff.id,
+        record_id=handoff_id,
         action="UPDATE",
         field_name="status",
         old_value=_OPEN_STATUS,
-        new_value=handoff.status,
+        new_value="Storniert",
         mandate_id=mandate_id,
         ip_address=_extract_client_ip(request),
     )
     db.commit()
-    db.refresh(handoff)
-    return handoff
+    return db.query(PortfolioHandoff).filter(PortfolioHandoff.id == handoff_id).first()

@@ -1413,6 +1413,17 @@ _SQLITE_CURRENT_ANCHOR_INDEXES: tuple[tuple[str, str, str, str], ...] = (
         "is_current",
         "is_current = 1",
     ),
+    # REC-008 (Codex-Audit 2026-08-25): siehe models/review.py::
+    # ProductUniverseEntry -- kein "current anchor" im engeren Sinn, aber
+    # dasselbe Reparatur-Bedarf-Muster (neue partielle Unique-Index-
+    # Definition, die create_all() auf bereits existierenden SQLite-
+    # Tabellen nicht rueckwirkend ergaenzt).
+    (
+        "ux_product_universe_active_entry",
+        "product_universe_entries",
+        "tenant_id, jurisdiction, product_id",
+        "deleted_at IS NULL",
+    ),
 )
 
 

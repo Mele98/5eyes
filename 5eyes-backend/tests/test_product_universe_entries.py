@@ -180,6 +180,88 @@ def test_duplicate_entry_conflicts(client, session_factory):
         app.dependency_overrides.pop(get_current_user, None)
 
 
+def test_db_level_unique_index_blocks_duplicate_active_entry(session_factory):
+    """REC-008 (Codex-Audit 2026-08-25): der Create-Endpoint prueft Duplikate
+    per SELECT vor dem INSERT (siehe test_duplicate_entry_conflicts) -- das
+    schuetzt NICHT gegen zwei nahezu gleichzeitige Requests, die beide den
+    Precheck bestehen, bevor eine der beiden Transaktionen committet. Dieser
+    Test umgeht den Endpoint bewusst und schreibt zwei Zeilen direkt per ORM,
+    um die eigentliche DB-seitige Absicherung
+    (ux_product_universe_active_entry) isoliert zu pruefen."""
+    from sqlalchemy.exc import IntegrityError
+
+    from database import new_uuid
+    from models.review import ProductUniverseEntry
+
+    _seed(session_factory)
+    now = _now()
+    with session_factory() as s:
+        s.add(ProductUniverseEntry(
+            id=new_uuid(), tenant_id="firm-a", jurisdiction="CH", product_id="prod-1",
+            created_by="admin-a", created_at=now, updated_at=now,
+        ))
+        s.commit()
+
+        s.add(ProductUniverseEntry(
+            id=new_uuid(), tenant_id="firm-a", jurisdiction="CH", product_id="prod-1",
+            created_by="admin-a", created_at=now, updated_at=now,
+        ))
+        with pytest.raises(IntegrityError):
+            s.commit()
+
+
+def test_db_level_unique_index_allows_recreation_after_soft_delete(session_factory):
+    """Gegenprobe: die Unique-Index-Bedingung ist WHERE deleted_at IS NULL --
+    ein soft-deleted Eintrag darf einer neuen aktiven Zeile fuer dieselbe
+    (tenant, jurisdiction, product)-Kombination nicht im Weg stehen."""
+    from database import new_uuid
+    from models.review import ProductUniverseEntry
+
+    _seed(session_factory)
+    now = _now()
+    with session_factory() as s:
+        s.add(ProductUniverseEntry(
+            id=new_uuid(), tenant_id="firm-a", jurisdiction="CH", product_id="prod-1",
+            created_by="admin-a", created_at=now, updated_at=now, deleted_at=now,
+        ))
+        s.commit()
+
+        s.add(ProductUniverseEntry(
+            id=new_uuid(), tenant_id="firm-a", jurisdiction="CH", product_id="prod-1",
+            created_by="admin-a", created_at=now, updated_at=now,
+        ))
+        s.commit()  # darf NICHT wegen Unique-Index scheitern
+
+
+def test_concurrent_create_requests_get_409_not_500(session_factory):
+    """End-to-End-Nachweis: zwei nahezu gleichzeitige Requests (zwei separate
+    Sessions, wie zwei echte HTTP-Aufrufe) fuer dieselbe (tenant,
+    jurisdiction, product)-Kombination duerfen nicht beide durchkommen --
+    und die zweite darf nicht mit einem rohen 500 (IntegrityError) crashen."""
+    from fastapi import HTTPException
+
+    from routers.review import create_product_universe_entry
+    from schemas.review import ProductUniverseEntryCreate
+
+    _seed(session_factory)
+    admin = User(id="admin-a", username="admin-a", password_hash="h",
+                 full_name="Admin A", role="admin", is_active=1, tenant_id="firm-a")
+
+    with session_factory() as session_a, session_factory() as session_b:
+        first = create_product_universe_entry(
+            body=ProductUniverseEntryCreate(jurisdiction="CH", product_id="prod-1"),
+            db=session_a, current_user=admin,
+        )
+        assert first.tenant_id == "firm-a"
+
+        with pytest.raises(HTTPException) as exc:
+            create_product_universe_entry(
+                body=ProductUniverseEntryCreate(jurisdiction="CH", product_id="prod-1"),
+                db=session_b, current_user=admin,
+            )
+        assert exc.value.status_code == 409
+
+
 def test_other_tenant_cannot_see_or_modify_entry(client, session_factory):
     _seed(session_factory)
     _login_as("admin-a")

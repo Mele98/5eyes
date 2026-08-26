@@ -323,6 +323,54 @@ def test_cancel_requires_reason_and_blocks_after_execution(session_factory, advi
     assert exc.value.status_code == 409
 
 
+def test_concurrent_mark_executed_and_cancel_do_not_both_succeed(session_factory, advisor_user, monkeypatch):
+    """REC-005 (Codex-Audit 2026-08-25): simuliert zwei nahezu gleichzeitige
+    Aufrufe (Doppelklick, zwei Tabs) ueber ZWEI unabhaengige DB-Sessions
+    (wie zwei echte HTTP-Requests) gegen denselben offenen Handoff. Vor dem
+    Fix haette Session B den Vorzustand noch als 'Gesendet' im Speicher
+    gehabt und ihren eigenen Endzustand klaglos durchgesetzt (Last-Write-
+    Wins). Das atomare UPDATE...WHERE status=OPEN muss das verhindern --
+    nur EINE Transition darf durchkommen, die andere bekommt 409."""
+    _seed_mandate_and_run(session_factory, advisor_user)
+    _patch_engine(monkeypatch, [_drift("prod-1", 50_000)])
+
+    with session_factory() as setup_session:
+        created = _create_handoff(setup_session, advisor_user)
+        handoff_id = created.id
+
+    # Zwei unabhaengige Sessions, wie zwei separate HTTP-Requests.
+    with session_factory() as session_a, session_factory() as session_b:
+        # Beide "sehen" den offenen Zustand, bevor irgendeine committet.
+        _get_handoff_or_404 = portfolio_handoff_router._get_handoff_or_404
+        seen_by_a = _get_handoff_or_404("mandate-1", handoff_id, session_a, advisor_user)
+        seen_by_b = _get_handoff_or_404("mandate-1", handoff_id, session_b, advisor_user)
+        assert seen_by_a.status == seen_by_b.status == "Gesendet"
+
+        executed = mark_portfolio_handoff_executed(
+            mandate_id="mandate-1", handoff_id=handoff_id,
+            body=PortfolioHandoffMarkExecuted(executed_note="Bank bestaetigt"),
+            request=_FakeRequest(), db=session_a, current_user=advisor_user,
+        )
+        assert executed.status == "Ausgeführt"
+
+        with pytest.raises(HTTPException) as exc:
+            cancel_portfolio_handoff(
+                mandate_id="mandate-1", handoff_id=handoff_id,
+                body=PortfolioHandoffCancel(cancelled_reason="Zu spaet"),
+                request=_FakeRequest(), db=session_b, current_user=advisor_user,
+            )
+        assert exc.value.status_code == 409
+        assert "Ausgeführt" in str(exc.value.detail)
+
+    # Endgueltiger Zustand: genau EINE Transition hat gewonnen, nicht
+    # "der letzte Schreiber".
+    with session_factory() as verify_session:
+        final = verify_session.query(PortfolioHandoff).filter(PortfolioHandoff.id == handoff_id).first()
+        assert final.status == "Ausgeführt"
+        assert final.cancelled_at is None
+        assert final.cancelled_reason is None
+
+
 def test_cancel_open_handoff_records_reason(session_factory, advisor_user, monkeypatch):
     _seed_mandate_and_run(session_factory, advisor_user)
     _patch_engine(monkeypatch, [_drift("prod-1", 50_000)])

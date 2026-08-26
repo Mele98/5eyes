@@ -2018,7 +2018,18 @@ def create_product_universe_entry(
     db.add(entry)
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="product_universe_entries", record_id=entry.id, action="CREATE")
-    db.commit()
+    # REC-008 (Codex-Audit 2026-08-25): der Precheck oben ist TOCTOU-anfaellig
+    # -- ux_product_universe_active_entry (DB-seitig, siehe models/review.py)
+    # ist die eigentliche Absicherung. Ein Race, der den Precheck passiert,
+    # faellt hier als sauberer 409 statt als 500/IntegrityError durch.
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail=f"Eintrag fuer Produkt {body.product_id} in Jurisdiktion {body.jurisdiction!r} existiert bereits.",
+        )
     db.refresh(entry)
     return entry
 
