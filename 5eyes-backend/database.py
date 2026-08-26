@@ -1702,6 +1702,46 @@ def init_db() -> None:
     ensure_tenant_backfill()
     # Postgres/RLS: SQLite bleibt unveraendert; PostgreSQL erzwingt die
     # Tenant-Isolation zusaetzlich auf Datenbankebene.
-    from services.postgres_rls import ensure_postgres_rls_policies, ensure_postgres_tenant_not_null
-    ensure_postgres_tenant_not_null(engine)
+    # PG-003 (Codex-Audit 2026-08-25): ensure_postgres_tenant_not_null() lief
+    # bisher OHNE table_names-Filter -- also ueber ALLE 8 tenant-gescopten
+    # Tabellen inkl. capital_market_assumptions/products. Diese beiden sind
+    # aber bewusst GLOBAL/geteilt gedacht (tenant_id IS NULL bedeutet "fuer
+    # alle Mandanten", siehe ensure_default_products()); ein Blanket-Backfill
+    # nach 'main' + anschliessendes NOT NULL haette diese Semantik
+    # UNUMKEHRBAR zerstoert.
+    #
+    # User-Entscheid 2026-08-26: statt implizitem globalem Teilen soll jeder
+    # Tenant unter Postgres explizit provisionierte eigene Kopien bekommen.
+    # Fuer products ist das machbar (services/portfolio_engine.py::
+    # ensure_default_products() um tenant_id erweitert, siehe
+    # provision_tenant_product_catalog() unten). Fuer capital_market_
+    # assumptions/optimizer_policies GEHT das mit dem heutigen Schema NICHT
+    # ohne groessere Aenderung: beide haben eine GLOBALE (nicht tenant-
+    # gescopte) Unique-Constraint auf is_current allein (ux_optimizer_one_
+    # current, analog fuer CMA) -- es kann installationsweit nur EINE
+    # aktuelle Policy/CMA geben, nicht eine pro Tenant. Eine echte Pro-Tenant-
+    # Policy/CMA braeuchte eine Schema-Migration (Unique-Index auf
+    # (tenant_id, is_current) statt is_current) UND Anpassung jeder Stelle,
+    # die heute "WHERE is_current == 1" als global-eindeutig annimmt
+    # (portfolio_engine.py, advisory_report.py, monte_carlo_paths.py, u.v.m.)
+    # -- ein eigenstaendiges Architektur-Vorhaben, bewusst NICHT Teil dieses
+    # Fixes. Bis dahin bleiben CMA/Policy global (unveraendertes Verhalten);
+    # der NOT-NULL-Backfill unten schliesst sie weiterhin aus.
+    #
+    # Backfill jetzt auf genau dieselben vier Tabellen beschraenkt, die
+    # ensure_tenant_backfill() (SQLite, direkt darueber) bereits als sicher
+    # erwiesen hat -- product_universe_entries ist ohnehin NOT NULL im
+    # Schema, audit_log wird bewusst NIE automatisch zugewiesen (Audit-
+    # Provenienz darf nicht geraten werden).
+    #
+    # Gleiche tenancy_mode-Guard wie ensure_tenant_backfill(): in "multi"
+    # waere ein Blanket-'main'-Backfill (statt NULL-bleibt-NULL) das
+    # gleiche Risiko einer falschen Mandanten-Zuordnung durch die Migration
+    # selbst, das dort bereits dokumentiert ist.
+    if str(getattr(settings, "tenancy_mode", "single") or "single").strip().lower() != "multi":
+        from services.postgres_rls import ensure_postgres_tenant_not_null
+        ensure_postgres_tenant_not_null(
+            engine, table_names=("users", "clients", "mandates", "protocol_bausteine"),
+        )
+    from services.postgres_rls import ensure_postgres_rls_policies
     ensure_postgres_rls_policies(engine)
