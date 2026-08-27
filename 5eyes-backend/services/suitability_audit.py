@@ -73,20 +73,22 @@ def _current_risk_assessment(db: Session, mandate_id: Any):
     bereitschaft — die von Art. 12 verlangten Elemente. None NUR wenn schlicht
     keins existiert. Ein Schema-/DB-Fehler wird NICHT verschluckt (er darf nicht
     als 'kein Profil' = non-compliant fehlgedeutet werden), sondern propagiert
-    und wird im Audit als 'degraded' behandelt."""
-    from models.profiling import RiskAssessment
-    return (
-        db.query(RiskAssessment)
-        .filter(
-            RiskAssessment.mandate_id == mandate_id,
-            RiskAssessment.is_current == 1,
-        )
-        .order_by(
-            RiskAssessment.valid_from.desc(),
-            RiskAssessment.version.desc(),
-        )
-        .first()
-    )
+    und wird im Audit als 'degraded' behandelt.
+
+    FIDLEG-STATE-003 (Codex-Audit 2026-08-27): delegiert bewusst an den bereits
+    vorhandenen, strengeren Kern-Resolver _current_risk_assessment_or_none()
+    (services/portfolio_engine.py) statt eine eigene, schwaechere Query zu
+    pflegen. Der Kern-Resolver filtert zusaetzlich deleted_at IS NULL — ohne
+    diesen Filter konnte hier ein SOFT-DELETED RiskAssessment (is_current=1,
+    aber geloescht) faelschlich als aktuelles/gueltiges Profil durchgehen und
+    das Mandat als konform (is_compliant=True) auf Basis veralteter/geloeschter
+    Daten ausweisen. Der Kern-Resolver wirft zudem ValueError bei mehreren
+    mehrdeutigen 'aktuellen' Zeilen; das wird vom Caller (audit_mandate_
+    suitability) bereits ueber den bestehenden 'except Exception' -> degraded-
+    Pfad abgefangen (read-only Audit-Pfad, kein harter 409 wie bei den
+    mutierenden Router-Aufrufern)."""
+    from services.portfolio_engine import _current_risk_assessment_or_none
+    return _current_risk_assessment_or_none(db, mandate_id)
 
 
 def _parse_iso(value: Any) -> Optional[datetime]:
