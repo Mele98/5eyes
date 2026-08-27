@@ -20,7 +20,7 @@ from models.review import (
     RecommendationRun, RecommendationPosition, RecommendationHolding, AuditLog
 )
 from models.allocation import CapitalMarketAssumption, OptimizerPolicy, TargetAllocation
-from models.profiling import RiskAssessment
+from models.profiling import RiskAssessment, SuitabilityCheck
 from models.tenant import Tenant
 from schemas.review import (
     ReviewTriggerCreate, ReviewTriggerResolve, ReviewTriggerResponse,
@@ -269,6 +269,40 @@ def _get_document_or_404(mandate_id: str, doc_id: str, db: Session) -> ContractD
     if not document:
         raise HTTPException(status_code=404, detail="Dokument nicht gefunden")
     return document
+
+
+# TEN-COMP-002 (Codex-Audit 2026-08-27): Beratungsprotokoll-Erstellung nahm
+# trigger_id/document_id/conflict_disclosure_ids/suitability_check_id bisher
+# ungeprueft entgegen -- ein Berater konnte Evidence-IDs eines FREMDEN
+# Mandats anhaengen, der Integrity-Hash haette diesen inkonsistenten Zustand
+# klaglos signiert. Analog zu _get_recommendation_run_or_404 wird jede
+# angegebene ID jetzt gegen dasselbe Mandat geprueft, bevor der Eintrag
+# entsteht.
+def _get_conflict_disclosure_or_404(
+    mandate_id: str, disclosure_id: str, db: Session,
+) -> ConflictOfInterestDisclosure:
+    disclosure = db.query(ConflictOfInterestDisclosure).filter(
+        ConflictOfInterestDisclosure.id == disclosure_id,
+        ConflictOfInterestDisclosure.mandate_id == mandate_id,
+        ConflictOfInterestDisclosure.deleted_at.is_(None),
+    ).first()
+    if not disclosure:
+        raise HTTPException(
+            status_code=404, detail="Interessenkonflikt-Offenlegung nicht gefunden",
+        )
+    return disclosure
+
+
+def _get_suitability_check_or_404(
+    mandate_id: str, check_id: str, db: Session,
+) -> SuitabilityCheck:
+    check = db.query(SuitabilityCheck).filter(
+        SuitabilityCheck.id == check_id,
+        SuitabilityCheck.mandate_id == mandate_id,
+    ).first()
+    if not check:
+        raise HTTPException(status_code=404, detail="Geeignetheitspruefung nicht gefunden")
+    return check
 
 
 def _normalize_holding_date(value: str | None) -> str | None:
@@ -777,6 +811,16 @@ def create_advisory_log_entry(
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
     if body.recommendation_run_id:
         _get_recommendation_run_or_404(mandate_id, body.recommendation_run_id, db, current_user)
+    # TEN-COMP-002: Evidence-Anker muessen alle zum SELBEN Mandat gehoeren --
+    # sonst signiert der Integrity-Hash ein inkonsistentes Beweis-Bündel.
+    if body.trigger_id:
+        _get_trigger_or_404(mandate_id, body.trigger_id, db)
+    if body.document_id:
+        _get_document_or_404(mandate_id, body.document_id, db)
+    for disclosure_id in body.conflict_disclosure_ids:
+        _get_conflict_disclosure_or_404(mandate_id, disclosure_id, db)
+    if body.suitability_check_id:
+        _get_suitability_check_or_404(mandate_id, body.suitability_check_id, db)
     entry = create_advisory_log(
         db, mandate_id=mandate_id, advisor=current_user, payload=body, mandate=mandate,
     )

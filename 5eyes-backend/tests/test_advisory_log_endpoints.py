@@ -36,7 +36,11 @@ configure_mappers()
 from main import app  # noqa: E402
 from models.clients import Client  # noqa: E402
 from models.mandates import Mandate  # noqa: E402
-from models.review import AdvisoryLog, AuditLog  # noqa: E402
+from models.profiling import SuitabilityCheck  # noqa: E402
+from models.review import (  # noqa: E402
+    AdvisoryLog, AuditLog, ConflictOfInterestDisclosure, ContractDocument,
+    ReviewTrigger,
+)
 from models.users import User  # noqa: E402
 from services.advisory_log_integrity import (  # noqa: E402
     compute_integrity_hash,
@@ -100,6 +104,94 @@ def _seed(session) -> tuple[User, Mandate]:
     session.add_all([advisor, client, mandate])
     session.commit()
     return advisor, mandate
+
+
+def _seed_other_mandate(session, advisor: User) -> Mandate:
+    """Zweites, unabhaengiges Mandat -- fuer TEN-COMP-002 Cross-Mandate-Tests."""
+    other_client = Client(
+        id=str(uuid.uuid4()),
+        client_number=f"C-{uuid.uuid4().hex[:6]}",
+        first_name="Fremd",
+        last_name="Mandant",
+        advisor_id=advisor.id,
+        country_of_residence="CH",
+        created_at=_NOW,
+        updated_at=_NOW,
+    )
+    other_mandate = Mandate(
+        id=str(uuid.uuid4()),
+        client_id=other_client.id,
+        mandate_number=f"M-{uuid.uuid4().hex[:6]}",
+        mandate_type="Anlageberatung",
+        opened_at=_NOW,
+        created_at=_NOW,
+        updated_at=_NOW,
+    )
+    session.add_all([other_client, other_mandate])
+    session.commit()
+    return other_mandate
+
+
+def _make_trigger(session, mandate: Mandate) -> ReviewTrigger:
+    trigger = ReviewTrigger(
+        id=str(uuid.uuid4()),
+        mandate_id=mandate.id,
+        trigger_type="Drift",
+        trigger_name="SAA-Abweichung",
+        status="Aktiv",
+        created_at=_NOW,
+        updated_at=_NOW,
+    )
+    session.add(trigger)
+    session.commit()
+    return trigger
+
+
+def _make_document(session, mandate: Mandate, advisor: User) -> ContractDocument:
+    document = ContractDocument(
+        id=str(uuid.uuid4()),
+        mandate_id=mandate.id,
+        document_type="Vertrag",
+        title="Beratungsvertrag",
+        created_by=advisor.id,
+        created_at=_NOW,
+        updated_at=_NOW,
+    )
+    session.add(document)
+    session.commit()
+    return document
+
+
+def _make_disclosure(session, mandate: Mandate, advisor: User) -> ConflictOfInterestDisclosure:
+    disclosure = ConflictOfInterestDisclosure(
+        id=str(uuid.uuid4()),
+        mandate_id=mandate.id,
+        conflict_type="Retrozession",
+        description="Vertriebsentschaedigung des Produktanbieters.",
+        disclosed_by=advisor.id,
+        created_at=_NOW,
+        updated_at=_NOW,
+    )
+    session.add(disclosure)
+    session.commit()
+    return disclosure
+
+
+def _make_suitability_check(session, mandate: Mandate, advisor: User) -> SuitabilityCheck:
+    check = SuitabilityCheck(
+        id=str(uuid.uuid4()),
+        mandate_id=mandate.id,
+        client_id=mandate.client_id,
+        duty_type="Angemessenheit",
+        result="Geeignet",
+        checked_by=advisor.id,
+        checked_at=_NOW,
+        created_at=_NOW,
+        updated_at=_NOW,
+    )
+    session.add(check)
+    session.commit()
+    return check
 
 
 @pytest.fixture()
@@ -457,3 +549,116 @@ def test_get_list_also_reports_integrity_verified(http_client):
     listing = client.get(f"/mandates/{mandate.id}/advisory-log").json()
     assert len(listing) == 1
     assert listing[0]["integrity_verified"] is True
+
+
+# ---------------------------------------------------------------------------
+# TEN-COMP-002 (Codex-Audit 2026-08-27): Evidence-Anker (trigger_id,
+# document_id, conflict_disclosure_ids, suitability_check_id) muessen zum
+# SELBEN Mandat gehoeren wie das Beratungsprotokoll -- sonst signiert der
+# Integrity-Hash ein Beweis-Buendel, das aus einem fremden Mandat stammt.
+# Nur recommendation_run_id war bisher geprueft; die anderen vier liefen
+# ungeprueft durch. Diese Tests decken je einen negativen Fall (fremdes
+# Mandat -> 404) plus einen positiven Regressionstest (gueltige, gleiche
+# Mandats-IDs funktionieren weiterhin) ab.
+# ---------------------------------------------------------------------------
+
+def test_post_rejects_trigger_id_from_other_mandate(http_client):
+    client, advisor, mandate, session = http_client
+    other_mandate = _seed_other_mandate(session, advisor)
+    foreign_trigger = _make_trigger(session, other_mandate)
+
+    payload = _valid_payload()
+    payload["trigger_id"] = foreign_trigger.id
+    resp = client.post(f"/mandates/{mandate.id}/advisory-log", json=payload)
+    assert resp.status_code == 404
+
+
+def test_post_accepts_trigger_id_from_same_mandate(http_client):
+    client, advisor, mandate, session = http_client
+    trigger = _make_trigger(session, mandate)
+
+    payload = _valid_payload()
+    payload["trigger_id"] = trigger.id
+    resp = client.post(f"/mandates/{mandate.id}/advisory-log", json=payload)
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["trigger_id"] == trigger.id
+
+
+def test_post_rejects_document_id_from_other_mandate(http_client):
+    client, advisor, mandate, session = http_client
+    other_mandate = _seed_other_mandate(session, advisor)
+    foreign_document = _make_document(session, other_mandate, advisor)
+
+    payload = _valid_payload()
+    payload["document_id"] = foreign_document.id
+    resp = client.post(f"/mandates/{mandate.id}/advisory-log", json=payload)
+    assert resp.status_code == 404
+
+
+def test_post_accepts_document_id_from_same_mandate(http_client):
+    client, advisor, mandate, session = http_client
+    document = _make_document(session, mandate, advisor)
+
+    payload = _valid_payload()
+    payload["document_id"] = document.id
+    resp = client.post(f"/mandates/{mandate.id}/advisory-log", json=payload)
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["document_id"] == document.id
+
+
+def test_post_rejects_conflict_disclosure_id_from_other_mandate(http_client):
+    client, advisor, mandate, session = http_client
+    other_mandate = _seed_other_mandate(session, advisor)
+    foreign_disclosure = _make_disclosure(session, other_mandate, advisor)
+
+    payload = _valid_payload()
+    payload["conflict_disclosure_ids"] = [foreign_disclosure.id]
+    resp = client.post(f"/mandates/{mandate.id}/advisory-log", json=payload)
+    assert resp.status_code == 404
+
+
+def test_post_rejects_one_foreign_id_among_valid_conflict_disclosure_ids(http_client):
+    """Auch wenn nur EINE von mehreren IDs fremd ist, muss der ganze Request
+    scheitern -- keine Teilvalidierung."""
+    client, advisor, mandate, session = http_client
+    own_disclosure = _make_disclosure(session, mandate, advisor)
+    other_mandate = _seed_other_mandate(session, advisor)
+    foreign_disclosure = _make_disclosure(session, other_mandate, advisor)
+
+    payload = _valid_payload()
+    payload["conflict_disclosure_ids"] = [own_disclosure.id, foreign_disclosure.id]
+    resp = client.post(f"/mandates/{mandate.id}/advisory-log", json=payload)
+    assert resp.status_code == 404
+
+
+def test_post_accepts_conflict_disclosure_ids_from_same_mandate(http_client):
+    client, advisor, mandate, session = http_client
+    disclosure = _make_disclosure(session, mandate, advisor)
+
+    payload = _valid_payload()
+    payload["conflict_disclosure_ids"] = [disclosure.id]
+    resp = client.post(f"/mandates/{mandate.id}/advisory-log", json=payload)
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["conflict_disclosure_ids"] == [disclosure.id]
+
+
+def test_post_rejects_suitability_check_id_from_other_mandate(http_client):
+    client, advisor, mandate, session = http_client
+    other_mandate = _seed_other_mandate(session, advisor)
+    foreign_check = _make_suitability_check(session, other_mandate, advisor)
+
+    payload = _valid_payload()
+    payload["suitability_check_id"] = foreign_check.id
+    resp = client.post(f"/mandates/{mandate.id}/advisory-log", json=payload)
+    assert resp.status_code == 404
+
+
+def test_post_accepts_suitability_check_id_from_same_mandate(http_client):
+    client, advisor, mandate, session = http_client
+    check = _make_suitability_check(session, mandate, advisor)
+
+    payload = _valid_payload()
+    payload["suitability_check_id"] = check.id
+    resp = client.post(f"/mandates/{mandate.id}/advisory-log", json=payload)
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["suitability_check_id"] == check.id
