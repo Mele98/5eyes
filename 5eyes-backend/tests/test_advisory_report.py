@@ -675,6 +675,114 @@ def test_positionen_aggregates_recommendation_positions_with_shares(session_fact
 
 
 # ---------------------------------------------------------------------------
+# REP-002 (Codex-Audit 2026-08-25): client_facing gating der RecommendationRun-
+# Auswahl -- Kundenportal darf nie einen Draft/Superseded-Run oder einen Final-
+# Run einer ueberholten TargetAllocation zeigen.
+# ---------------------------------------------------------------------------
+
+def test_client_facing_hides_draft_run(session_factory):
+    """Ohne client_facing (Berater/PDF/React) bleibt der Draft-Run sichtbar --
+    MIT client_facing=True (Kundenportal) gilt er als nicht vorhanden."""
+    with session_factory() as s:
+        mandate, client, advisor = _seed_minimal_mandate(s)
+        _make_rec_run_with_position(
+            s, mandate_id=mandate.id, client_id=client.id, advisor_id=advisor.id,
+            target_amount_rappen=100_000_00,
+        )  # result_status="Draft" per Default in _make_rec_run_with_position
+        s.commit()
+        advisor_view = compute_advisory_report(s, mandate, advisor=advisor)
+        client_view = compute_advisory_report(s, mandate, advisor=advisor, client_facing=True)
+    assert advisor_view["positionen"]["has_recommendation_run"] is True
+    assert client_view["positionen"]["has_recommendation_run"] is False
+
+
+def test_client_facing_shows_final_run_without_ta_binding(session_factory):
+    """Ein Final-Run ohne target_allocation_id (Altbestand) bleibt fuer den
+    Kunden sichtbar -- keine Bindung heisst nicht automatisch 'ungueltig'."""
+    with session_factory() as s:
+        mandate, client, advisor = _seed_minimal_mandate(s)
+        pol = _make_optimizer_policy(s, advisor.id)
+        run = RecommendationRun(
+            id=str(uuid.uuid4()), mandate_id=mandate.id, client_id=client.id,
+            policy_id=pol.id, run_type="Standard", result_status="Final",
+            created_by=advisor.id, created_at=_NOW, updated_at=_NOW,
+        )
+        s.add(run)
+        s.flush()
+        _make_rec_run_with_position(
+            s, mandate_id=mandate.id, client_id=client.id, advisor_id=advisor.id,
+            target_amount_rappen=250_000_00, run=run,
+        )
+        s.commit()
+        client_view = compute_advisory_report(s, mandate, advisor=advisor, client_facing=True)
+    assert client_view["positionen"]["has_recommendation_run"] is True
+    assert client_view["positionen"]["total_rappen"] == 250_000_00
+
+
+def test_client_facing_hides_final_run_bound_to_stale_ta(session_factory):
+    """Ein Final-Run, der an eine INZWISCHEN NICHT MEHR aktuelle
+    TargetAllocation gebunden ist, darf im Kundenportal nicht mehr auftauchen
+    -- selbst wenn er der neueste RecommendationRun des Mandats ist."""
+    with session_factory() as s:
+        mandate, client, advisor = _seed_minimal_mandate(s)
+        stale_ta = _make_ta_with_goals(s, mandate_id=mandate.id, advisor_id=advisor.id)
+        stale_run = RecommendationRun(
+            id=str(uuid.uuid4()), mandate_id=mandate.id, client_id=client.id,
+            policy_id=stale_ta.policy_id, run_type="Standard", result_status="Final",
+            target_allocation_id=stale_ta.id,
+            created_by=advisor.id, created_at=_NOW, updated_at=_NOW,
+        )
+        s.add(stale_run)
+        s.flush()
+        _make_rec_run_with_position(
+            s, mandate_id=mandate.id, client_id=client.id, advisor_id=advisor.id,
+            target_amount_rappen=100_000_00, run=stale_run,
+        )
+        # Neue aktuelle TA ersetzt die alte -- der Final-Run bleibt an die
+        # ALTE TA gebunden (typisch nach einer Neuallokation). OptimizerPolicy
+        # ist global-singleton (nur eine is_current=1-Zeile) -- die alte muss
+        # deaktiviert werden, bevor _make_ta_with_goals eine neue erzeugt.
+        stale_ta.is_current = 0
+        old_policy = s.query(OptimizerPolicy).filter(
+            OptimizerPolicy.id == stale_ta.policy_id
+        ).first()
+        old_policy.is_current = 0
+        new_ta = _make_ta_with_goals(s, mandate_id=mandate.id, advisor_id=advisor.id)
+        s.commit()
+        advisor_view = compute_advisory_report(s, mandate, advisor=advisor)
+        client_view = compute_advisory_report(s, mandate, advisor=advisor, client_facing=True)
+    # Berater-Pfad unveraendert: zeigt weiterhin den neuesten Run.
+    assert advisor_view["positionen"]["has_recommendation_run"] is True
+    # Kundenportal: der einzige Run ist final, aber an eine ueberholte TA
+    # gebunden -- gilt fuer den Kunden als "keine Empfehlung vorhanden".
+    assert client_view["positionen"]["has_recommendation_run"] is False
+
+
+def test_client_facing_shows_final_run_bound_to_current_ta(session_factory):
+    """Ein Final-Run, der an die AKTUELLE TargetAllocation gebunden ist, bleibt
+    fuer den Kunden sichtbar."""
+    with session_factory() as s:
+        mandate, client, advisor = _seed_minimal_mandate(s)
+        current_ta = _make_ta_with_goals(s, mandate_id=mandate.id, advisor_id=advisor.id)
+        run = RecommendationRun(
+            id=str(uuid.uuid4()), mandate_id=mandate.id, client_id=client.id,
+            policy_id=current_ta.policy_id, run_type="Standard", result_status="Final",
+            target_allocation_id=current_ta.id,
+            created_by=advisor.id, created_at=_NOW, updated_at=_NOW,
+        )
+        s.add(run)
+        s.flush()
+        _make_rec_run_with_position(
+            s, mandate_id=mandate.id, client_id=client.id, advisor_id=advisor.id,
+            target_amount_rappen=333_000_00, run=run,
+        )
+        s.commit()
+        client_view = compute_advisory_report(s, mandate, advisor=advisor, client_facing=True)
+    assert client_view["positionen"]["has_recommendation_run"] is True
+    assert client_view["positionen"]["total_rappen"] == 333_000_00
+
+
+# ---------------------------------------------------------------------------
 # Sektion 6: Prüfpunkte (statisch)
 # ---------------------------------------------------------------------------
 

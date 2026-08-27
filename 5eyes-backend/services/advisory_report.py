@@ -28,6 +28,7 @@ import json
 from datetime import datetime, timezone
 from typing import Any, Mapping
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from models.clients import Client
@@ -59,18 +60,36 @@ def _aggregator_cache_get(db: Session, key: Any, factory) -> Any:
 
 
 def _cached_latest_recommendation_run(db: Session, mandate: Mandate) -> Any:
-    """U-18: einmal pro compute() statt 4x (Sektionen 5, 8-10, 13)."""
+    """U-18: einmal pro compute() statt 4x (Sektionen 5, 8-10, 13).
+
+    REP-002 (Codex-Audit 2026-08-25): im client_facing-Modus (siehe
+    compute_advisory_report()) wird NUR ein Final-Run beruecksichtigt, der
+    entweder keine Target-Allocation-Bindung traegt (Altbestand vor dieser
+    Bindung) oder an die AKTUELLE TargetAllocation gebunden ist -- ein
+    Draft/Superseded-Run oder ein Final-Run einer inzwischen ueberholten
+    Allokation darf nie in den Kundenportal-Report gelangen. Der Berater-
+    /PDF-/React-Pfad bleibt unveraendert (zeigt weiterhin den neuesten Run
+    egal welchen Status, fuer die Vorschau vor der Finalisierung).
+    """
     from models.review import RecommendationRun
-    return _aggregator_cache_get(
-        db,
-        ("latest_run", mandate.id),
-        lambda: (
-            db.query(RecommendationRun)
-            .filter(RecommendationRun.mandate_id == mandate.id)
-            .order_by(RecommendationRun.created_at.desc())
-            .first()
-        ),
-    )
+    cache = db.info.get(_CACHE_KEY) or {}
+    client_facing = bool(cache.get("_client_facing"))
+
+    def _factory():
+        query = db.query(RecommendationRun).filter(RecommendationRun.mandate_id == mandate.id)
+        if client_facing:
+            query = query.filter(RecommendationRun.result_status == "Final")
+            current_ta = _cached_current_ta(db, mandate)
+            if current_ta is not None:
+                query = query.filter(
+                    or_(
+                        RecommendationRun.target_allocation_id.is_(None),
+                        RecommendationRun.target_allocation_id == current_ta.id,
+                    )
+                )
+        return query.order_by(RecommendationRun.created_at.desc()).first()
+
+    return _aggregator_cache_get(db, ("latest_run", mandate.id, client_facing), _factory)
 
 
 def _cached_latest_rec_positions(db: Session, mandate: Mandate) -> list[Any]:
@@ -186,6 +205,7 @@ def compute_advisory_report(
     mandate: Mandate,
     *,
     advisor: User | None = None,
+    client_facing: bool = False,
 ) -> dict[str, Any]:
     """Aggregate the full 15-section advisory report payload for a mandate.
 
@@ -199,6 +219,14 @@ def compute_advisory_report(
     advisor
         Optional. The advisor on record (used for cover.advisor_name).
         Falls back to "—" when None.
+    client_facing
+        REP-002 (Codex-Audit 2026-08-25): True nur fuer den tatsaechlichen
+        Kundenportal-Konsumenten (routers/client_portal.py). Beschraenkt die
+        zugrundeliegende RecommendationRun-Auswahl auf einen Final-Run, der
+        an die aktuelle TargetAllocation gebunden ist (siehe
+        _cached_latest_recommendation_run). Default False -- Berater-/PDF-/
+        React-Vorschaupfade zeigen weiterhin den neuesten Run unabhaengig
+        vom Status, unveraendertes Verhalten.
 
     Returns
     -------
@@ -214,7 +242,7 @@ def compute_advisory_report(
     # db.info[_CACHE_KEY] zu und liefern jeden Eintrag nur 1x pro compute().
     # Try/Finally garantiert dass der Cache am Ende sauber abgeraeumt wird,
     # auch im Exception-Pfad.
-    db.info[_CACHE_KEY] = {}
+    db.info[_CACHE_KEY] = {"_client_facing": client_facing}
     try:
         result = _compute_advisory_report_inner(db, mandate, advisor=advisor)
         return _apply_hidden_sections_filter(result, mandate)
