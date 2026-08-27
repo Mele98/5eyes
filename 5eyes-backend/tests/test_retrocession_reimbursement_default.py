@@ -166,3 +166,21 @@ def test_explicit_false_is_not_overridden_by_tenant_default_true(client, session
         assert resp.json()["reimbursed_to_client"] == 0
     finally:
         app.dependency_overrides.pop(get_current_user, None)
+
+
+def test_negative_inducement_amount_is_rejected(client, session_factory):
+    """TEN-COMP-003 (Codex-Audit 2026-08-25): inducement_amount_rappen hatte
+    keine untere Schranke -- ein negativer Betrag wurde im Kostenausweis-Total
+    stillschweigend uebersprungen, tauchte aber unveraendert (negativ) in der
+    Interessenkonflikt-Uebersicht des Reports auf. Muss bereits an der API-
+    Grenze mit 422 abgelehnt werden, nicht erst downstream gefiltert."""
+    advisor_id, mid = _seed_mandate(session_factory, tenant_id=None)
+    _login_as(advisor_id)
+    try:
+        resp = client.post(
+            f"/mandates/{mid}/conflicts",
+            json=_conflict_payload(inducement_amount_rappen=-999_999_999_999),
+        )
+        assert resp.status_code == 422, resp.text
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)

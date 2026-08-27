@@ -310,7 +310,7 @@ class ConflictDisclosureCreate(BaseModel):
     ]
     description: str
     inducement_provider: Optional[str] = None
-    inducement_amount_rappen: Optional[int] = None
+    inducement_amount_rappen: Optional[int] = Field(default=None, ge=0)
     inducement_frequency: Optional[str] = None
     mitigation_action: Optional[str] = None
     document_id: Optional[str] = None

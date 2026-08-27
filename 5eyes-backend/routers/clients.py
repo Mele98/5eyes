@@ -644,6 +644,10 @@ def create_client_login(
         raise HTTPException(status_code=422, detail="username erforderlich")
     if len(password) < 8:
         raise HTTPException(status_code=422, detail="password muss mindestens 8 Zeichen lang sein")
+    # SEC-006 (Codex-Audit 2026-08-25): bcrypt akzeptiert nur maximal 72 Bytes
+    # und wirft sonst ein ValueError beim Hashen (unbehandelter 500).
+    if len(password.encode("utf-8")) > 72:
+        raise HTTPException(status_code=422, detail="password darf maximal 72 Bytes lang sein")
 
     existing_user = db.query(User).filter(
         User.username == username,
