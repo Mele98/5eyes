@@ -8,15 +8,16 @@
   "scripts": {
     "start": "electron .",
     "dev": "electron .",
-    "test": "node tests/main.smoke.test.js",
+    "test": "node tests/main.smoke.test.js && node tests/bundle-secret-scan.test.js",
     "build:backend": "node scripts/build-backend.js",
     "build:reporting": "cd frontend/reporting && npm run build",
-    "pack": "npm run preflight:release && npm run build:reporting && npm run build:backend && electron-builder --dir",
-    "dist:win": "npm run preflight:release && npm run build:reporting && npm run build:backend && electron-builder --win nsis",
-    "dist:win:portable": "npm run preflight:release && npm run build:reporting && npm run build:backend && electron-builder --win portable",
-    "dist:mac": "npm run preflight:release && npm run build:reporting && npm run build:backend && electron-builder --mac dmg",
-    "dist:linux": "npm run preflight:release && npm run build:reporting && npm run build:backend && electron-builder --linux AppImage",
-    "preflight:release": "node scripts/release-check.js"
+    "pack": "npm run preflight:release && npm run build:reporting && npm run build:backend && npm run scan:bundle-secrets && electron-builder --dir",
+    "dist:win": "npm run preflight:release && npm run build:reporting && npm run build:backend && npm run scan:bundle-secrets && electron-builder --win nsis",
+    "dist:win:portable": "npm run preflight:release && npm run build:reporting && npm run build:backend && npm run scan:bundle-secrets && electron-builder --win portable",
+    "dist:mac": "npm run preflight:release && npm run build:reporting && npm run build:backend && npm run scan:bundle-secrets && electron-builder --mac dmg",
+    "dist:linux": "npm run preflight:release && npm run build:reporting && npm run build:backend && npm run scan:bundle-secrets && electron-builder --linux AppImage",
+    "preflight:release": "node scripts/release-check.js",
+    "scan:bundle-secrets": "node scripts/bundle-secret-scan.js"
   },
   "devDependencies": {
     "electron": "^33.2.1",

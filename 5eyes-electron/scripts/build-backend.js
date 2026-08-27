@@ -194,7 +194,16 @@ if (!fs.existsSync(distExe)) {
 }
 
 copyIfExists(distExe, path.join(bundleBackendDir, '5eyes-api.exe'));
-copyIfExists(path.join(backendRoot, '.env'), path.join(bundleBackendDir, '.env'));
+// DESK-002 (Codex-Audit 2026-08-26): frueher wurde ein evtl. vorhandenes
+// 5eyes-backend/.env (mit echten SECRET_KEY/DB_KEY/API-Key-Werten des
+// Build-Rechners) 1:1 in den Bundle-Ordner kopiert. package.json packt
+// bundle/backend komplett per extraResources in JEDEN Installer, der auf
+// diesem Rechner gebaut wird -- damit haetten echte Produktionsgeheimnisse
+// in jeder ausgelieferten .exe gesteckt. Ein .env mit echten Werten darf
+// NIE gebaut, kopiert oder ausgeliefert werden. Nur die secret-freie
+// .env.example (Platzhalter-Werte) bleibt Teil des Bundles;
+// scripts/bundle-secret-scan.js prueft das nach diesem Build-Schritt
+// zusaetzlich als harte Absicherung.
 copyIfExists(path.join(backendRoot, '.env.example'), path.join(bundleBackendDir, '.env.example'));
 copyIfExists(path.join(backendRoot, 'README_price_updater.md'), path.join(bundleBackendDir, 'README_price_updater.md'));
 console.log(`Backend bundle ready at ${path.join(bundleBackendDir, '5eyes-api.exe')}`);
