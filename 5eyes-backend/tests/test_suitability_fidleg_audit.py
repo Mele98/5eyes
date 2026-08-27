@@ -171,10 +171,15 @@ def _stub_mandate(mid: str = "MX-TEST", mandate_type: str = "Anlageberatung"):
     return m
 
 
-def _stub_db(ra=None, *, advisory_log_count: int = 0, raise_on: str | None = None):
-    """Stub-DB: AdvisoryLog.count() -> advisory_log_count, RiskAssessment.first()
-    -> ra. raise_on='risk' laesst die RiskAssessment-Query werfen (Infra-Fehler);
-    raise_on='all' laesst jede Query werfen."""
+def _stub_db(ra=None, *, advisory_log_count: int = 0, raise_on: str | None = None,
+             ra_list=None):
+    """Stub-DB: AdvisoryLog.count() -> advisory_log_count; RiskAssessment-Query
+    spiegelt die Kern-Resolver-Kette (services.portfolio_engine.
+    _current_risk_assessment_or_none: .filter(...).all()) statt der frueheren
+    .order_by(...).first(). raise_on='risk' laesst die RiskAssessment-Query
+    werfen (Infra-Fehler); raise_on='all' laesst jede Query werfen. ra_list
+    erlaubt mehrere ('mehrdeutige') Kandidaten-Zeilen fuer den Ambiguous-
+    Current-Anchor-Fall (der Kern-Resolver wirft dann ValueError)."""
     db = MagicMock()
 
     log_query = MagicMock()
@@ -183,11 +188,11 @@ def _stub_db(ra=None, *, advisory_log_count: int = 0, raise_on: str | None = Non
 
     ra_query = MagicMock()
     ra_query.filter.return_value = ra_query
-    ra_query.order_by.return_value = ra_query
     if raise_on in ("risk", "all"):
-        ra_query.first.side_effect = RuntimeError("table missing")
+        ra_query.all.side_effect = RuntimeError("table missing")
     else:
-        ra_query.first.return_value = ra
+        candidates = ra_list if ra_list is not None else ([ra] if ra is not None else [])
+        ra_query.all.return_value = candidates
 
     def query_router(model):
         if raise_on == "all":
@@ -267,6 +272,22 @@ def test_audit_db_error_returns_degraded_fail_closed():
     assert result["audit_degraded"] is True
     assert result["is_compliant"] is None
     assert result["fidleg_basis"] == "Art. 10 / Art. 12 FIDLEG"
+
+
+def test_audit_ambiguous_current_risk_assessment_is_degraded_not_crash():
+    """FIDLEG-STATE-003 Regressionstest: _current_risk_assessment() delegiert an
+    den Kern-Resolver services.portfolio_engine._current_risk_assessment_or_none,
+    der bei MEHREREN gleichzeitig 'aktuellen' RiskAssessment-Zeilen (Anker
+    mehrdeutig) ValueError wirft. Der read-only Audit-Pfad darf dabei NICHT mit
+    einer unbehandelten Exception crashen, sondern muss (wie beim Schema-/
+    DB-Fehler) fail-closed auf 'degraded' gehen."""
+    ra_a = _risk_assessment(id="ra-a", version=1)
+    ra_b = _risk_assessment(id="ra-b", version=2)
+    db = _stub_db(ra_list=[ra_a, ra_b])
+    result = audit_mandate_suitability(db, _stub_mandate())
+    assert result["audit_degraded"] is True
+    assert result["is_compliant"] is None
+    assert result["suitability_basis"] == "degraded"
 
 
 # ---------------------------------------------------------------------------

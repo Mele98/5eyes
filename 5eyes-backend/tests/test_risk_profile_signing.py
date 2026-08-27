@@ -250,14 +250,16 @@ def _stub_mandate(mandate_type="Anlageberatung"):
 
 
 def _stub_db_with_ra(ra):
+    """RiskAssessment-Query spiegelt den Kern-Resolver (services.portfolio_engine.
+    _current_risk_assessment_or_none: .filter(...).all()), den suitability_audit.
+    _current_risk_assessment seit FIDLEG-STATE-003 wiederverwendet."""
     db = MagicMock()
     log_query = MagicMock()
     log_query.filter.return_value = log_query
     log_query.count.return_value = 0
     ra_query = MagicMock()
     ra_query.filter.return_value = ra_query
-    ra_query.order_by.return_value = ra_query
-    ra_query.first.return_value = ra
+    ra_query.all.return_value = [ra] if ra is not None else []
 
     def router(model):
         name = getattr(model, "__name__", str(model))
@@ -304,3 +306,51 @@ def test_audit_is_compliant_unaffected_by_signature():
     assert unsigned["is_compliant"] is True
     assert signed["is_compliant"] is True
     assert unsigned["is_compliant"] == signed["is_compliant"]
+
+
+# ---------------------------------------------------------------------------
+# (e) FIDLEG-STATE-003: soft-deleted RiskAssessment darf nicht als 'aktuelles'
+#     Profil durchgehen (Kern-Resolver-Wiederverwendung, real-DB-Regression)
+# ---------------------------------------------------------------------------
+
+def test_audit_ignores_soft_deleted_current_risk_assessment(session_factory):
+    """Ein RiskAssessment mit is_current=1 aber gesetztem deleted_at (soft-
+    deleted) darf NICHT als gueltiges/aktuelles Profil gewertet werden -- sonst
+    meldet der FIDLEG-Audit is_compliant=True auf Basis geloeschter Daten
+    (FIDLEG-STATE-003). Die DB erlaubt das bewusst (der partielle Unique-Index
+    ux_risk_one_current greift nur WHERE deleted_at IS NULL), das ist also ein
+    realistischer Zustand, kein Konstruktionsartefakt."""
+    with session_factory() as db:
+        adv = _advisor()
+        ra = _risk_assessment("ra-deleted", "m1")
+        ra.deleted_at = _now()
+        db.add_all([adv, _client("c1"), _mandate("m1", "c1"), ra])
+        db.commit()
+
+        mandate = db.query(Mandate).filter_by(id="m1").one()
+        result = audit_mandate_suitability(db, mandate)
+
+        assert result["is_compliant"] is False
+        assert result["risk_assessment_id"] is None
+        assert len(result["logs_without_suitability"]) == 1
+        assert result["logs_without_suitability"][0]["reason"] == "no_current_risk_assessment"
+
+
+def test_audit_uses_current_risk_assessment_when_older_one_is_soft_deleted(session_factory):
+    """Wenn NEBEN einer soft-deleted 'aktuellen' Zeile ein echtes aktuelles
+    Profil existiert, muss der Audit dieses (nicht-geloeschte) Profil finden --
+    reine Bestaetigung, dass der Fix nicht zu ueberkonservativ ist."""
+    with session_factory() as db:
+        adv = _advisor()
+        deleted_ra = _risk_assessment("ra-old-deleted", "m1", assessed_at=_days_ago(500))
+        deleted_ra.deleted_at = _now()
+        deleted_ra.is_current = 0
+        live_ra = _risk_assessment("ra-live", "m1", assessed_at=_days_ago(10))
+        db.add_all([adv, _client("c1"), _mandate("m1", "c1"), deleted_ra, live_ra])
+        db.commit()
+
+        mandate = db.query(Mandate).filter_by(id="m1").one()
+        result = audit_mandate_suitability(db, mandate)
+
+        assert result["risk_assessment_id"] == "ra-live"
+        assert result["is_compliant"] is True
