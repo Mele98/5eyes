@@ -17,6 +17,12 @@ const assert = require('assert');
 const tmpUserData = fs.mkdtempSync(path.join(os.tmpdir(), '5eyes-userdata-'));
 const tmpDownloads = fs.mkdtempSync(path.join(os.tmpdir(), '5eyes-downloads-'));
 
+// DESK-001-Tests brauchen einen deterministischen, unwahrscheinlich belegten
+// Port fuer den Fake-Backend-Dienst -- nicht den echten Default (8000), um
+// keine Kollision mit einer evtl. lokal laufenden echten Backend-Instanz zu
+// riskieren.
+process.env.APP_PORT = process.env.APP_PORT || '58421';
+
 // ── Test-steuerbarer State ───────────────────────────────────────────────────
 const state = {
   encryptionAvailable: true,
@@ -194,6 +200,44 @@ function check(name, fn) {
     assert.strictEqual(alive({ killed: true, exitCode: 0, signalCode: null }), false);
     assert.strictEqual(alive({ killed: true, exitCode: null, signalCode: 'SIGTERM' }), false);
     assert.strictEqual(alive(null), false);
+  });
+
+  // ── DESK-001 (Codex-Audit 2026-08-26): gepackte App darf niemals einen
+  // bereits laufenden Fremdprozess als Backend uebernehmen, nur weil er den
+  // (nicht-geheimen) app-String auf /health/ready spiegelt. ─────────────────
+  await check('DESK-001 Dev-Modus uebernimmt kompatiblen Fake-Dienst wie bisher', async () => {
+    const http = require('http');
+    const fakeServer = http.createServer((req, res) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ app: '5Eyes WealthArchitekten API', status: 'ok' }));
+    });
+    await new Promise((resolve) => fakeServer.listen(58421, '127.0.0.1', resolve));
+    try {
+      electronStub.app.isPackaged = false;
+      const runtime = await mainExports.pickBackendRuntime();
+      assert.strictEqual(runtime.ready, true, 'Dev-Modus soll den kompatiblen Fake-Dienst uebernehmen');
+      assert.strictEqual(runtime.port, 58421);
+    } finally {
+      await new Promise((resolve) => fakeServer.close(resolve));
+    }
+  });
+
+  await check('DESK-001 gepackte App ignoriert denselben Fake-Dienst und weicht aus', async () => {
+    const http = require('http');
+    const fakeServer = http.createServer((req, res) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ app: '5Eyes WealthArchitekten API', status: 'ok' }));
+    });
+    await new Promise((resolve) => fakeServer.listen(58421, '127.0.0.1', resolve));
+    try {
+      electronStub.app.isPackaged = true;
+      const runtime = await mainExports.pickBackendRuntime();
+      assert.notStrictEqual(runtime.ready, true, 'Gepackte App darf den Fake-Dienst NICHT als ready uebernehmen');
+      assert.notStrictEqual(runtime.port, 58421, 'Gepackte App muss auf einen anderen Port als den belegten ausweichen (eigener Kindprozess)');
+    } finally {
+      electronStub.app.isPackaged = false;
+      await new Promise((resolve) => fakeServer.close(resolve));
+    }
   });
 
   console.log(failed === 0 ? '\nALL GREEN' : `\n${failed} FAILED`);

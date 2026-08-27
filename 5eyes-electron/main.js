@@ -377,10 +377,25 @@ async function probeBackend(host, port) {
 }
 
 async function pickBackendRuntime() {
-  const defaultProbe = await probeBackend(DEFAULT_BACKEND_HOST, DEFAULT_BACKEND_PORT);
-  if (defaultProbe.ready) {
-    logLine(`Reusing compatible backend already running at ${defaultProbe.baseUrl}`);
-    return defaultProbe;
+  // DESK-001 (Codex-Audit 2026-08-26): in einer gepackten (installierten)
+  // App gibt es dank app.requestSingleInstanceLock() (siehe oben) nie einen
+  // legitimen Grund, einen bereits laufenden Fremdprozess als "unseren"
+  // Backend zu uebernehmen -- /health/ready ist unauthentisiert und der
+  // dort gemeldete app-String ist kein Secret (er steht im Backend-Quellcode).
+  // Ein beliebiger lokaler Prozess, der diesen String zurueckgibt, wurde
+  // bisher klaglos uebernommen und bekam anschliessend gespeicherte Access-/
+  // Refresh-Tokens per IPC zugespielt. Die gepackte App spawnt deshalb IMMER
+  // ihren eigenen Kindprozess -- nie eine bereits laufende Fremdinstanz.
+  // Der Dev-Modus (app.isPackaged=false) behaelt den Reuse-Komfort (z.B.
+  // Backend separat per `python main.py` fuer schnellere Iteration
+  // gestartet); ein vollstaendiger, TOCTOU-freier Nonce-/Socket-Handshake
+  // fuer BEIDE Modi bleibt ein separates, groesseres Folge-Vorhaben.
+  if (!app.isPackaged) {
+    const defaultProbe = await probeBackend(DEFAULT_BACKEND_HOST, DEFAULT_BACKEND_PORT);
+    if (defaultProbe.ready) {
+      logLine(`Reusing compatible backend already running at ${defaultProbe.baseUrl}`);
+      return defaultProbe;
+    }
   }
 
   const portInUse = await isTcpPortInUse(DEFAULT_BACKEND_HOST, DEFAULT_BACKEND_PORT);
@@ -756,4 +771,7 @@ app.on('activate', async () => {
 // Erlaubt das deterministische Prüfen der EM-7-Lebendigkeitslogik.
 if (typeof module !== 'undefined' && module.exports) {
   module.exports.backendProcessStillAlive = backendProcessStillAlive;
+  // DESK-001: erlaubt das deterministische Pruefen, dass eine gepackte App
+  // niemals einen bereits laufenden Fremdprozess als Backend uebernimmt.
+  module.exports.pickBackendRuntime = pickBackendRuntime;
 }
