@@ -22,6 +22,11 @@ This desktop shell starts the local FastAPI backend, verifies that the reachable
   - bundles the Python FastAPI backend into `5eyes-api.exe` via PyInstaller
   - checks that `main.py` has an executable entrypoint before building
   - optionally includes SQLCipher when `BUILD_WITH_SQLCIPHER=1`
+  - never copies a real `5eyes-backend/.env` into the bundle (secret-free
+    `.env.example` only — see "Secrets are never bundled" below)
+- `scripts/bundle-secret-scan.js`
+  - scans `bundle/backend` after `build:backend` and fails the build if a
+    real `.env` file or an embedded private key is found
 - `frontend/5eyes_v2.html`
   - frontend including login flow, bootstrap flow for the first admin, and admin maintenance modal
 
@@ -32,7 +37,7 @@ This desktop shell starts the local FastAPI backend, verifies that the reachable
 - The backend scheduler only needs to run while the app is open.
 - SQLCipher is controlled centrally through `DB_USE_SQLCIPHER=true` and `DB_KEY=...` in `.env`.
 - Electron writes a local support log to `%APPDATA%/5Eyes WealthArchitekten/logs/electron.log` (or the platform equivalent).
-- The packaged backend looks for a `.env` file next to the bundled backend executable first, then falls back to the normal project locations.
+- The packaged backend looks for a `.env` file next to the bundled backend executable first, then falls back to the normal project locations. The build never ships a real `.env` there — see "Secrets are never bundled" below.
 - The frontend contains an in-app bootstrap flow for the first admin account if the database has no users yet.
 - For a fully offline release, run `python vendor_assets.py` successfully before the final installer build.
 
@@ -127,8 +132,33 @@ npm run dist:win
 What happens during this command:
 1. `scripts/build-backend.js` runs PyInstaller in `5eyes-backend/`
 2. PyInstaller builds `5eyes-api.exe`
-3. the executable plus `.env` / `.env.example` are copied to `5eyes-electron/bundle/backend/`
-4. `electron-builder` packages the app and produces an NSIS installer in `5eyes-electron/dist/`
+3. the executable plus the secret-free `.env.example` template are copied to `5eyes-electron/bundle/backend/` — a real `5eyes-backend/.env`, if one exists on the build machine, is intentionally **not** copied
+4. `scripts/bundle-secret-scan.js` scans `5eyes-electron/bundle/backend/` and aborts the build if it finds a real `.env` file or an embedded private key
+5. `electron-builder` packages the app and produces an NSIS installer in `5eyes-electron/dist/`
+
+### Secrets are never bundled
+
+`bundle/backend` is packaged wholesale into every installer via
+`extraResources` in `package.json`, so it must never contain real secret
+values. `SECRET_KEY` / `DB_KEY` / API keys are **not** generated or
+provisioned by the build. Instead:
+
+- `5eyes-backend/.env.example` ships as a secret-free template with
+  placeholder values (`SECRET_KEY=CHANGE_ME_IN_PRODUCTION_USE_STRONG_RANDOM_KEY`,
+  empty `DB_KEY`).
+- `config.py` refuses to start in `staging`/`production` if `secret_key`
+  is still the placeholder default, and refuses `DB_USE_SQLCIPHER=true`
+  without a non-empty `DB_KEY` — see `5eyes-backend/config.py`.
+- Before a real deployment, an operator manually creates a `.env` with
+  real, machine-specific values (see `docs/deployment/tier1-self-hosted.md`
+  for the exact keys) and places it next to the installed
+  `5eyes-api.exe` (or the location `resolve_env_file()` in
+  `5eyes-backend/config.py` checks). This `.env` is created **after**
+  installation, on the target machine — it is never part of the build or
+  the installer artifact.
+- `scripts/bundle-secret-scan.js` is a hard backstop: it fails the build
+  if a `.env` (or anything that looks like an embedded private key) ends
+  up in `bundle/backend` regardless of how it got there.
 
 ## Quick smoke test
 
@@ -166,6 +196,14 @@ This warns you when:
 - the frontend still contains external CDN/font references
 
 Set `STRICT_RELEASE=1` to fail the preflight on unresolved release placeholders.
+
+`preflight:release` runs **before** `build:backend` in `npm run dist:*`,
+so it cannot inspect anything the backend build produces. A separate step,
+`npm run scan:bundle-secrets` (`scripts/bundle-secret-scan.js`), runs
+**after** `build:backend` for exactly that reason — it scans the actual
+built `bundle/backend` output for a real `.env` file or an embedded
+private key and fails the build if it finds one. See "Secrets are never
+bundled" above.
 
 ### Windows code-signing placeholders
 
