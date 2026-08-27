@@ -30,6 +30,11 @@ class UserCreate(BaseModel):
     def validate_password(cls, value: str) -> str:
         if len(value) < 10:
             raise ValueError('password must be at least 10 characters long')
+        # SEC-006 (Codex-Audit 2026-08-25): bcrypt akzeptiert nur maximal 72
+        # Bytes und wirft sonst ein ValueError beim Hashen (unbehandelter 500
+        # statt einer klaren 422-Fehlermeldung an den Client).
+        if len(value.encode('utf-8')) > 72:
+            raise ValueError('password must not exceed 72 bytes')
         return value
 
 
@@ -136,6 +141,11 @@ class BootstrapAdminRequest(BaseModel):
     def validate_password(cls, value: str) -> str:
         if len(value) < 10:
             raise ValueError('password must be at least 10 characters long')
+        # SEC-006 (Codex-Audit 2026-08-25): bcrypt akzeptiert nur maximal 72
+        # Bytes und wirft sonst ein ValueError beim Hashen (unbehandelter 500
+        # statt einer klaren 422-Fehlermeldung an den Client).
+        if len(value.encode('utf-8')) > 72:
+            raise ValueError('password must not exceed 72 bytes')
         return value
 
 
@@ -153,6 +163,11 @@ class UserPasswordReset(BaseModel):
     def validate_password(cls, value: str) -> str:
         if len(value) < 10:
             raise ValueError('password must be at least 10 characters long')
+        # SEC-006 (Codex-Audit 2026-08-25): bcrypt akzeptiert nur maximal 72
+        # Bytes und wirft sonst ein ValueError beim Hashen (unbehandelter 500
+        # statt einer klaren 422-Fehlermeldung an den Client).
+        if len(value.encode('utf-8')) > 72:
+            raise ValueError('password must not exceed 72 bytes')
         return value
 
 
@@ -198,6 +213,11 @@ class InviteAccept(BaseModel):
     def validate_password(cls, value: str) -> str:
         if len(value) < 10:
             raise ValueError('password must be at least 10 characters long')
+        # SEC-006 (Codex-Audit 2026-08-25): bcrypt akzeptiert nur maximal 72
+        # Bytes und wirft sonst ein ValueError beim Hashen (unbehandelter 500
+        # statt einer klaren 422-Fehlermeldung an den Client).
+        if len(value.encode('utf-8')) > 72:
+            raise ValueError('password must not exceed 72 bytes')
         return value
 
 

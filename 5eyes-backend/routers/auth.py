@@ -432,6 +432,10 @@ def change_password(
         raise HTTPException(status_code=400, detail="Aktuelles Passwort ist falsch.")
     if len(body.new_password or "") < 8:
         raise HTTPException(status_code=422, detail="Neues Passwort muss mindestens 8 Zeichen haben.")
+    # SEC-006 (Codex-Audit 2026-08-25): bcrypt akzeptiert nur maximal 72 Bytes
+    # und wirft sonst ein ValueError beim Hashen (unbehandelter 500).
+    if len((body.new_password or "").encode("utf-8")) > 72:
+        raise HTTPException(status_code=422, detail="Neues Passwort darf maximal 72 Bytes lang sein.")
     if body.new_password == body.current_password:
         raise HTTPException(status_code=422, detail="Neues Passwort muss sich vom aktuellen unterscheiden.")
     # 2026-07-25 (Generalaudit): analog zu AUTH-04 (Logout) -- ein bereits
@@ -651,6 +655,10 @@ def password_reset_confirm(body: _PasswordResetConfirm, request: Request, db: Se
     """Setzt das Passwort per gueltigem, nicht abgelaufenem, einmaligem Token."""
     if len((body.new_password or "")) < 8:
         raise HTTPException(status_code=400, detail="Passwort muss mindestens 8 Zeichen haben.")
+    # SEC-006 (Codex-Audit 2026-08-25): bcrypt akzeptiert nur maximal 72 Bytes
+    # und wirft sonst ein ValueError beim Hashen (unbehandelter 500).
+    if len((body.new_password or "").encode("utf-8")) > 72:
+        raise HTTPException(status_code=400, detail="Passwort darf maximal 72 Bytes lang sein.")
     ensure_account_recovery_columns(db)
     token_hash = hashlib.sha256((body.token or "").strip().encode("utf-8")).hexdigest()
     user = db.query(User).filter(
