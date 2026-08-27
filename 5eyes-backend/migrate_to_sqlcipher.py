@@ -1,5 +1,34 @@
 #!/usr/bin/env python3
-"""Migriert eine bestehende SQLite-Datenbank nach SQLCipher."""
+"""Migriert eine bestehende SQLite-Datenbank nach SQLCipher.
+
+GESPERRT (SEC-004, Codex-Audit 2026-08-26): dieses Tool hat nachgewiesene
+Sicherheits- und Korrektheitsluecken und darf NICHT produktiv verwendet
+werden, bis ein sicherer Ersatz existiert:
+
+  - `--key` landet im Klartext in der Prozessliste (argv ist auf den
+    meisten Systemen fuer andere lokale Prozesse/Nutzer sichtbar) und wird
+    am Ende zusaetzlich als Klartext ausgegeben.
+  - `shutil.copy2()` hinterlaesst ein VOLLSTAENDIGES Klartext-Backup der
+    Original-DB neben der verschluesselten Datei -- genau die Daten, die
+    verschluesselt werden sollten, liegen danach unverschluesselt daneben.
+  - Die Schema-Erstellung sortiert `ORDER BY type DESC, name`, das
+    erstellt Trigger VOR ihren Tabellen. Ein fehlschlagender Trigger wird
+    nur als Warnung geloggt (`except Exception: print(...)`) und die
+    Migration laeuft trotzdem weiter -- kritische Trigger wie die
+    Audit-Log-Unveraenderlichkeit koennen so lautlos verloren gehen.
+    `INSERT OR IGNORE` verschluckt zusaetzlich Constraint-Verletzungen bei
+    der Datenkopie.
+  - Die Erfolgspruefung ist nur `SELECT 1` + Tabellenanzahl -- sie haette
+    den oben beschriebenen Trigger-Verlust NICHT erkannt.
+
+Ein sicherer Ersatz braucht: Schluessel aus Secret-FD/Secret-Manager/
+interaktivem, nicht geloggtem Kanal statt argv/stdout; einen konsistenten
+Snapshot-Mechanismus (SQLite Online-Backup-API oder aequivalent) statt
+`shutil.copy2` auf eine potenziell aktive DB; dependency-sichere
+Schema-Reihenfolge; und eine Vollstaendigkeitspruefung, die Tabellen,
+Spalten, Indizes, Trigger, Views, FKs und Constraints VOR dem Cutover
+exakt gegen die Quelle vergleicht. Siehe docs/SQLCIPHER_PREP.md.
+"""
 import argparse
 import shutil
 import sqlite3
@@ -15,7 +44,27 @@ def main():
     parser = argparse.ArgumentParser(description='SQLite → SQLCipher Migration für 5Eyes')
     parser.add_argument('--db-path', default=None, help='Pfad zur bestehenden SQLite-DB')
     parser.add_argument('--key', required=True, help='SQLCipher Key / Passphrase')
+    parser.add_argument(
+        '--i-understand-this-tool-is-broken-and-unsafe',
+        action='store_true',
+        dest='acknowledge_unsafe',
+        help=(
+            'Erforderlich, um dieses gesperrte Tool trotzdem auszufuehren. '
+            'Siehe SEC-004 (Codex-Audit 2026-08-26) im Modul-Docstring fuer '
+            'die konkreten Luecken. Nur fuer manuelle Notfaelle mit vollem '
+            'Bewusstsein der Risiken -- kein produktiver Migrationspfad.'
+        ),
+    )
     args = parser.parse_args()
+
+    if not args.acknowledge_unsafe:
+        print('✗ Dieses Tool ist gesperrt (SEC-004, Codex-Audit 2026-08-26).')
+        print('  Es hat nachgewiesene Luecken: Key in argv/stdout sichtbar,')
+        print('  Klartext-Backup neben der DB, stille Trigger-Verluste durch')
+        print('  falsche Schema-Reihenfolge, unzureichende Erfolgspruefung.')
+        print('  Details im Modul-Docstring dieser Datei.')
+        print('  Bis ein sicherer Ersatz existiert: KEINE produktive Nutzung.')
+        sys.exit(1)
 
     try:
         import sqlcipher3  # type: ignore

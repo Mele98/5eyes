@@ -574,6 +574,60 @@ def test_csv_import_rejects_oversized_file(session_factory):
     assert resp.status_code == 413
 
 
+def test_csv_import_never_materializes_more_than_one_chunk_over_the_limit(session_factory):
+    """RESOURCE-001 (Codex-Audit 2026-08-27): frueher wurde der komplette
+    Upload per file.file.read() (ohne Groessenargument) materialisiert,
+    BEVOR die Groessenpruefung ueberhaupt lief. Dieser White-Box-Test ruft
+    den Router direkt auf mit einem file-like Objekt, das jeden read()-Aufruf
+    protokolliert -- beweist, dass (a) nie ohne Groessenargument gelesen wird
+    und (b) bei Ueberschreitung sofort abgebrochen wird, ohne den Rest eines
+    absichtlich SEHR grossen Streams zu lesen."""
+    import routers.review as review_router
+    from fastapi import HTTPException, UploadFile
+    from io import BytesIO
+    import pytest as _pytest
+
+    class _TrackingStream:
+        def __init__(self, total_size: int):
+            self._remaining = total_size
+            self.read_sizes: list[int | None] = []
+            self.calls = 0
+
+        def read(self, size: int | None = None):
+            self.calls += 1
+            self.read_sizes.append(size)
+            if size is None:
+                # Der alte (fehlerhafte) Aufrufstil -- muss durch den Fix
+                # nie mehr vorkommen.
+                raise AssertionError("read() ohne Groessenargument aufgerufen")
+            chunk_size = min(size, self._remaining)
+            self._remaining -= chunk_size
+            return b"x" * chunk_size
+
+    # 100 MiB "virtueller" Stream -- weit ueber dem 2-MiB-Limit. Wenn der Fix
+    # korrekt frueh abbricht, werden davon nur wenige Chunks tatsaechlich
+    # gelesen, nicht der komplette Stream.
+    huge_size = 100 * 1024 * 1024
+    tracking_stream = _TrackingStream(huge_size)
+    fake_upload = SimpleNamespace(file=tracking_stream, filename="huge.csv")
+
+    _seed_tenants(session_factory, ["firm-a"])
+    with session_factory() as db:
+        from models.users import User
+        current_user = db.query(User).filter_by(id="u-a").first()
+        if current_user is None:
+            current_user = SimpleNamespace(id="u-a", tenant_id="firm-a", role="admin")
+        with _pytest.raises(HTTPException) as exc:
+            review_router.import_products_csv(file=fake_upload, db=db, current_user=current_user)
+        assert exc.value.status_code == 413
+
+    bytes_actually_read = sum(s for s in tracking_stream.read_sizes if s)
+    # Es duerfen hoechstens ein paar Chunks ueber dem Limit gelesen worden
+    # sein (Limit + 1 Chunk Toleranz), NICHT der gesamte 100-MiB-Stream.
+    assert bytes_actually_read < (2 * 1024 * 1024) + (64 * 1024) * 2
+    assert all(size is not None for size in tracking_stream.read_sizes)
+
+
 def test_csv_template_download_has_expected_headers(session_factory):
     _seed_tenants(session_factory, ["firm-a"])
     try:
