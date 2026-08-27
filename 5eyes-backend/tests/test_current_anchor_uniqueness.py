@@ -39,7 +39,9 @@ from models.clients import Client  # noqa: E402
 from models.mandates import Mandate  # noqa: E402
 from models.profiling import RiskAssessment  # noqa: E402
 from models.users import User  # noqa: E402
+from fastapi import HTTPException  # noqa: E402
 import routers.allocation as allocation_router  # noqa: E402
+import routers.profiling as profiling_router  # noqa: E402
 from routers.allocation import (  # noqa: E402
     activate_optimizer_policy,
     create_optimizer_policy,
@@ -683,3 +685,147 @@ def test_active_policy_create_releases_previous_global_anchor_first(orm_engine):
         rows = session.query(OptimizerPolicy).order_by(OptimizerPolicy.id).all()
         assert sum(int(row.is_current) for row in rows) == 1
         assert next(row for row in rows if row.is_current == 1).policy_name == "Replacement"
+
+
+# ---------------------------------------------------------------------------
+# CON-001 (Codex-Audit 2026-08-25): with_for_update() serialisiert diese
+# Endpoints korrekt unter Postgres, ist aber unter SQLite ein stiller No-Op
+# (SQLAlchemy-Dialekt unterstuetzt FOR UPDATE dort nicht). Trifft der
+# Verlierer eines echten Races trotzdem den Partial-Unique-Index, muss der
+# Endpoint das jetzt als sauberen 409 abfangen statt mit einem rohen
+# IntegrityError/500 zu crashen. Diese Tests erzwingen genau diesen Fall,
+# indem sie den internen "gibt es schon eine aktuelle Zeile?"-Check auf eine
+# veraltete Antwort (None) monkeypatchen, waehrend bereits eine konkurrierende
+# aktuelle Zeile in der DB steht -- unabhaengig DAVON, WIE die Stale-Read
+# zustande kommt (echte Nebenlaeufigkeit vs. Test), ist die commit()-Absicherung
+# die eigentliche letzte Verteidigungslinie, die hier geprueft wird.
+# ---------------------------------------------------------------------------
+
+def test_create_risk_assessment_returns_409_not_500_on_current_anchor_race(orm_engine, monkeypatch):
+    _seed_advisor_and_mandate(orm_engine)
+    with Session(orm_engine) as session:
+        advisor = session.get(User, "advisor-anchor")
+        # Bereits vorhandene aktuelle Zeile, "erzeugt" durch eine parallele
+        # Transaktion, DIE der Stale-Read unten nicht sieht.
+        create_risk_assessment(
+            "mandate-anchor", _risk_payload(), _request_stub(),
+            db=session, current_user=advisor,
+        )
+        monkeypatch.setattr(
+            profiling_router, "_current_risk_assessment_or_none", lambda *a, **kw: None,
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            create_risk_assessment(
+                "mandate-anchor", _risk_payload(), _request_stub(),
+                db=session, current_user=advisor,
+            )
+        assert exc_info.value.status_code == 409
+
+    with Session(orm_engine) as session:
+        rows = session.query(RiskAssessment).filter(
+            RiskAssessment.mandate_id == "mandate-anchor",
+        ).all()
+        assert sum(int(row.is_current) for row in rows) == 1
+
+
+def test_create_target_allocation_returns_409_not_500_on_current_anchor_race(
+    orm_engine, monkeypatch,
+):
+    _seed_advisor_and_mandate(orm_engine)
+    monkeypatch.setattr(allocation_router.settings, "optimizer_mode", "house_matrix")
+    with Session(orm_engine) as session:
+        advisor = session.get(User, "advisor-anchor")
+        create_risk_assessment(
+            "mandate-anchor", _risk_payload(), _request_stub(),
+            db=session, current_user=advisor,
+        )
+        session.add(OptimizerPolicy(**_policy_row("policy-anchor", policy_name="Anchor")))
+        session.commit()
+        create_target_allocation(
+            "mandate-anchor", _target_payload("policy-anchor"), _request_stub(),
+            db=session, current_user=advisor,
+        )
+        monkeypatch.setattr(
+            allocation_router, "_current_target_allocation_or_none", lambda *a, **kw: None,
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            create_target_allocation(
+                "mandate-anchor", _target_payload("policy-anchor"), _request_stub(),
+                db=session, current_user=advisor,
+            )
+        assert exc_info.value.status_code == 409
+
+    with Session(orm_engine) as session:
+        rows = session.query(TargetAllocation).filter(
+            TargetAllocation.mandate_id == "mandate-anchor",
+        ).all()
+        assert sum(int(row.is_current) for row in rows) == 1
+
+
+class _StaleOptimizerPolicyQuery:
+    """Fake Query-Objekt fuer genau EINE Session-Instanz: simuliert einen
+    Stale-Read (`.first()` liefert None, obwohl eine andere Transaktion
+    zwischenzeitlich bereits eine aktuelle Policy gesetzt hat) fuer die
+    exakte .filter(...).with_for_update().first()-Kette, die
+    activate_optimizer_policy()/create_optimizer_policy() inline verwenden
+    (kein separater, importierbarer Helper wie bei RiskAssessment/
+    TargetAllocation -- daher dieser gezieltere Ersatz statt eines
+    Funktions-Monkeypatches)."""
+
+    def __init__(self, engine, conflicting_policy_id: str):
+        self._engine = engine
+        self._conflicting_policy_id = conflicting_policy_id
+
+    def filter(self, *args, **kwargs):
+        return self
+
+    def with_for_update(self):
+        return self
+
+    def first(self):
+        # Simuliert eine parallele Transaktion, die die konfliktende Policy
+        # zwischen unserem (Stale-)Read und unserem commit() bereits aktiv
+        # gesetzt hat.
+        with Session(self._engine) as other:
+            row = other.get(OptimizerPolicy, self._conflicting_policy_id)
+            row.is_current = 1
+            other.commit()
+        return None
+
+
+def test_activate_optimizer_policy_returns_409_not_500_on_current_anchor_race(
+    orm_engine, monkeypatch,
+):
+    _seed_advisor_and_mandate(orm_engine)
+    with Session(orm_engine) as session:
+        advisor = session.get(User, "advisor-anchor")
+        session.add(OptimizerPolicy(**_policy_row("policy-a", policy_name="A", is_current=0)))
+        session.add(OptimizerPolicy(**_policy_row("policy-b", policy_name="B", is_current=0)))
+        session.commit()
+
+        # Erster OptimizerPolicy-Query im Endpoint ist das harmlose
+        # Nachschlagen von policy-b selbst (id == policy_id) -- nur der
+        # ZWEITE ("gibt es schon eine aktuelle Policy?") soll den
+        # Stale-Read simulieren.
+        original_query = session.query
+        call_count = {"n": 0}
+
+        def _patched_query(model, *args, **kwargs):
+            if model is OptimizerPolicy:
+                call_count["n"] += 1
+                if call_count["n"] >= 2:
+                    return _StaleOptimizerPolicyQuery(orm_engine, "policy-a")
+            return original_query(model, *args, **kwargs)
+
+        monkeypatch.setattr(session, "query", _patched_query)
+
+        with pytest.raises(HTTPException) as exc_info:
+            activate_optimizer_policy(
+                "policy-b", _request_stub(), db=session, current_user=advisor,
+            )
+        assert exc_info.value.status_code == 409
+
+    with Session(orm_engine) as session:
+        rows = session.query(OptimizerPolicy).order_by(OptimizerPolicy.id).all()
+        assert sum(int(row.is_current) for row in rows) == 1
+        assert next(row for row in rows if row.is_current == 1).id == "policy-a"
