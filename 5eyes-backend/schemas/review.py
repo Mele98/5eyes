@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import Any, Optional, Literal
 from schemas.common import BaseResponse
 from schemas.allocation import AllocationPreferencesPayload, LiveRebalancingResponse
@@ -236,8 +236,16 @@ class ContractDocumentCreate(BaseModel):
         "Beratungsprotokoll", "Risikoprofilierung",
         "Override-Zustimmung", "Eignungsprüfung", "Sonstiges"
     ]
-    title: str
-    content_json: Optional[str] = None
+    title: str = Field(min_length=1, max_length=200)
+    # RESOURCE-002 (Codex-Audit 2026-08-27): content_json hatte keine
+    # Groessenschranke -- ein 4-MiB-String wurde klaglos akzeptiert und
+    # persistiert. 500_000 Zeichen (~500 KB) ist ein grosszuegiges Budget
+    # fuer strukturierten Vertragsinhalt; die weitergehende Forderung des
+    # Audits (striktes typisiertes Schema statt beliebiger JSON-String,
+    # normalisierte Notes-Tabelle, Pagination, Retention/Legal-Hold-Policy,
+    # Tenant-Speicherquota) ist ein groesseres, separates Vorhaben und
+    # bewusst NICHT Teil dieses Fixes.
+    content_json: Optional[str] = Field(default=None, max_length=500_000)
     # 2026-07-25 (Generalaudit): Phase-0-Gate fehlte fuer Vertragsdokumente.
     data_classification: Literal["synthetic", "real"] = "synthetic"
 
@@ -907,17 +915,41 @@ class AuditLogPage(BaseModel):
 
 
 class ReportNotesUpdate(BaseModel):
-    """PUT /mandates/{id}/report-notes — Upsert-Payload."""
+    """PUT /mandates/{id}/report-notes — Upsert-Payload.
 
-    aa_anmerkungen: Optional[str] = None
-    waehrungen_erklaerung: Optional[str] = None
-    branchen_analyse: Optional[str] = None
-    vorgehen_block_optimierungen: Optional[str] = None
-    vorgehen_block_zielstrategie: Optional[str] = None
-    vorgehen_offene_fragen: Optional[list[str]] = None
-    vorgehen_naechster_termin: Optional[str] = None
-    vorgehen_todos: Optional[list[str]] = None
-    vorgehen_dokumente: Optional[list[str]] = None
+    RESOURCE-002 (Codex-Audit 2026-08-27): alle neun Felder waren ohne
+    Zeichen-/Item-/Itemlaengengrenze -- ein 4-MiB-Freitext oder 200'000
+    To-dos wurden klaglos akzeptiert. jeder PUT haengt zudem einen
+    Vorher/Nachher-Snapshot an die append-only Historie an
+    (services/notes_versioning.py), die vollstaendig ausgeliefert wird --
+    wiederholte grosse Edits vervielfachen die gespeicherte/ausgelieferte
+    Groesse dauerhaft. Diese Feldschranken decken nur die akuteste
+    Einzelfeld-Groesse ab; die weitergehenden Forderungen des Audits
+    (normalisierte Notes-Tabelle, History-Pagination, Retention-/Legal-
+    Hold-Policy, Tenant-Speicherquota) sind ein groesseres, separates
+    Vorhaben und bewusst NICHT Teil dieses Fixes."""
+
+    aa_anmerkungen: Optional[str] = Field(default=None, max_length=20_000)
+    waehrungen_erklaerung: Optional[str] = Field(default=None, max_length=20_000)
+    branchen_analyse: Optional[str] = Field(default=None, max_length=20_000)
+    vorgehen_block_optimierungen: Optional[str] = Field(default=None, max_length=20_000)
+    vorgehen_block_zielstrategie: Optional[str] = Field(default=None, max_length=20_000)
+    vorgehen_offene_fragen: Optional[list[str]] = Field(default=None, max_length=200)
+    vorgehen_naechster_termin: Optional[str] = Field(default=None, max_length=500)
+    vorgehen_todos: Optional[list[str]] = Field(default=None, max_length=200)
+    vorgehen_dokumente: Optional[list[str]] = Field(default=None, max_length=200)
+
+    @field_validator(
+        "vorgehen_offene_fragen", "vorgehen_todos", "vorgehen_dokumente",
+    )
+    @classmethod
+    def validate_list_item_lengths(cls, value: Optional[list[str]]) -> Optional[list[str]]:
+        if value is None:
+            return value
+        for item in value:
+            if len(item) > 2_000:
+                raise ValueError("Listeneintrag darf maximal 2000 Zeichen lang sein")
+        return value
 
 
 class ReportNotesHistoryEntry(BaseResponse):
