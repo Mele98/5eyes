@@ -113,7 +113,10 @@ def client_portal_mandate_report(
     )
     if not mandate:
         raise HTTPException(status_code=404, detail="Mandat nicht gefunden.")
-    return compute_advisory_report(db, mandate)
+    # REP-002 (Codex-Audit 2026-08-25): Kundenportal darf ausschliesslich
+    # eine finalisierte, an die aktuelle Zielallokation gebundene Empfehlung
+    # zeigen -- niemals einen Entwurf oder eine ueberholte Version.
+    return compute_advisory_report(db, mandate, client_facing=True)
 
 
 @router.post("/mandates/{mandate_id}/risk-profile/sign")
