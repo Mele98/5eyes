@@ -361,3 +361,43 @@ def test_put_returns_404_for_unknown_mandate(http_client):
         json={"aa_anmerkungen": "x"},
     )
     assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# 10. RESOURCE-002 (Codex-Audit 2026-08-27): Feld-/Item-/Itemlaengengrenzen
+# ---------------------------------------------------------------------------
+
+def test_put_rejects_free_text_field_over_20000_chars(http_client):
+    client, _advisor, mandate, _session = http_client
+    resp = client.put(
+        f"/mandates/{mandate.id}/report-notes",
+        json={"aa_anmerkungen": "x" * 20_001},
+    )
+    assert resp.status_code == 422
+
+
+def test_put_accepts_free_text_field_at_exactly_20000_chars(http_client):
+    client, _advisor, mandate, _session = http_client
+    resp = client.put(
+        f"/mandates/{mandate.id}/report-notes",
+        json={"aa_anmerkungen": "x" * 20_000},
+    )
+    assert resp.status_code == 200
+
+
+def test_put_rejects_more_than_200_todo_items(http_client):
+    client, _advisor, mandate, _session = http_client
+    resp = client.put(
+        f"/mandates/{mandate.id}/report-notes",
+        json={"vorgehen_todos": ["item"] * 201},
+    )
+    assert resp.status_code == 422
+
+
+def test_put_rejects_single_todo_item_over_2000_chars(http_client):
+    client, _advisor, mandate, _session = http_client
+    resp = client.put(
+        f"/mandates/{mandate.id}/report-notes",
+        json={"vorgehen_todos": ["x" * 2001]},
+    )
+    assert resp.status_code == 422
