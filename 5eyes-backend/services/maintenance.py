@@ -18,6 +18,16 @@ from database import SQLCIPHER_AVAILABLE, resolve_db_file
 from services import backup as backup_engine
 
 
+# SEC-001 (Codex-Audit 2026-08-26): dieser Blocklist-Ansatz erfasste
+# database_url, tenant_master_kek, alphavantage_api_key,
+# market_data_alert_webhook_url und telemetry_dsn NICHT -- ein Canary-Test
+# zeigte, dass diese Werte (u.a. eingebettete DB-Credentials) unredigiert im
+# Support-Bundle landeten. Ein vollstaendiger Wechsel auf eine positive
+# Allowlist + SecretStr-Modellierung + strukturelles URL-Parsing ist ein
+# groesseres, separates Vorhaben; dieser Fix schliesst nur die konkret
+# nachgewiesenen Luecken und erweitert den generischen Substring-Fallback
+# unten um weitere Muster (kek/webhook/dsn/api_key), damit kuenftige,
+# aehnlich benannte Settings-Felder standardmaessig mit-redigiert werden.
 _SENSITIVE_SETTING_KEYS = {
     'secret_key',
     'db_key',
@@ -26,7 +36,13 @@ _SENSITIVE_SETTING_KEYS = {
     'openfigi_api_key',
     'fred_api_key',
     'six_api_key',
+    'alphavantage_api_key',
+    'database_url',
+    'tenant_master_kek',
+    'market_data_alert_webhook_url',
+    'telemetry_dsn',
 }
+_SENSITIVE_SETTING_SUBSTRINGS = ('password', 'secret', 'api_key', 'kek', 'webhook', 'dsn')
 _LOG_REDACTION_PATTERNS = (
     (
         re.compile(r'(?i)(authorization\s*:\s*bearer\s+)([A-Za-z0-9\-._~+/=]+)'),
@@ -72,8 +88,9 @@ def build_redacted_settings_snapshot() -> dict[str, Any]:
         if normalized in _SENSITIVE_SETTING_KEYS or normalized.endswith('_token'):
             if value:
                 snapshot[sensitive_key] = '***REDACTED***'
-        elif 'password' in normalized or 'secret' in normalized:
-            snapshot[sensitive_key] = '***REDACTED***'
+        elif any(pattern in normalized for pattern in _SENSITIVE_SETTING_SUBSTRINGS):
+            if value:
+                snapshot[sensitive_key] = '***REDACTED***'
     return snapshot
 
 

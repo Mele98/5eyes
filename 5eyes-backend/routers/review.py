@@ -1510,12 +1510,27 @@ def import_products_csv(
     wird automatisch erkannt (Komma oder Semikolon -- Schweizer/deutsches
     Excel exportiert standardmaessig mit Semikolon). Siehe
     /products/import/csv/template fuer die erwarteten Spaltennamen."""
-    raw_bytes = file.file.read()
-    if len(raw_bytes) > _PRODUCT_IMPORT_MAX_FILE_BYTES:
-        raise HTTPException(
-            status_code=413,
-            detail=f"CSV-Datei zu gross (max. {_PRODUCT_IMPORT_MAX_FILE_BYTES // 1024} KB)",
-        )
+    # RESOURCE-001 (Codex-Audit 2026-08-27): file.file.read() materialisierte
+    # den KOMPLETTEN Upload in den Prozessspeicher, BEVOR die Groessenpruefung
+    # ueberhaupt lief -- der bestehende 2-MiB-Grenzwert schuetzte damit nicht
+    # vor dem eigentlichen Speicherverbrauch. In Chunks lesen und sofort mit
+    # 413 abbrechen, sobald das Limit ueberschritten wird, ohne den Rest
+    # jemals zu materialisieren.
+    _CHUNK_SIZE = 64 * 1024
+    chunks: list[bytes] = []
+    total_read = 0
+    while True:
+        chunk = file.file.read(_CHUNK_SIZE)
+        if not chunk:
+            break
+        total_read += len(chunk)
+        if total_read > _PRODUCT_IMPORT_MAX_FILE_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"CSV-Datei zu gross (max. {_PRODUCT_IMPORT_MAX_FILE_BYTES // 1024} KB)",
+            )
+        chunks.append(chunk)
+    raw_bytes = b"".join(chunks)
     try:
         text_content = raw_bytes.decode("utf-8-sig")
     except UnicodeDecodeError:

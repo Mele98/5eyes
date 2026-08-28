@@ -523,6 +523,29 @@ class Settings(BaseSettings):
             )
         if self.app_env in {'staging', 'production'} and self.secret_key == DEFAULT_SECRET_KEY:
             raise ValueError('secret_key must be overridden outside development/test')
+        # SEC-002 (Codex-Audit 2026-08-26): der obige Check lehnte nur den EXAKTEN
+        # Default-Platzhalter ab -- ein triviales secret_key='x' wurde klaglos
+        # akzeptiert. HS256-JWTs mit einem erratbaren Schlüssel lassen sich mit
+        # jeder bekannten aktiven User-ID faelschen (get_current_user() laedt die
+        # Rolle zwar aus der DB, uebernimmt aber genau diese Rolle). Mindestens
+        # 32 Zeichen (~256 Bit fuer zufaelliges ASCII-Schlüsselmaterial) ist die
+        # von der JWT-Spezifikation fuer HS256 empfohlene Mindestlaenge. Volle
+        # Entropie-Pruefung, Secret-Manager/HSM-Herkunft, DB-/KEK-/Webhook-Key-
+        # Wiederverwendungs-Check und iss/aud/kid/Rotationsvertrag sind ein
+        # groesseres, separates Vorhaben (nicht Teil dieses Fixes).
+        if self.app_env in {'staging', 'production'} and len(self.secret_key) < 32:
+            raise ValueError(
+                'secret_key must be at least 32 characters long in staging/production '
+                '(HS256 minimum recommended key size)'
+            )
+        # SEC-002: algorithm war ein freier String -- ein versehentlich (oder
+        # boesartig ueber die Umgebung) gesetztes 'none' oder ein asymmetrischer
+        # Algorithmus wuerde von jwt.decode(algorithms=[settings.algorithm])
+        # unveraendert als erlaubt uebernommen. Diese App signiert/verifiziert
+        # ausschliesslich HS256 (siehe services/auth.py-Migrationskommentar zur
+        # jose->PyJWT-Umstellung); das wird jetzt als hartes Literal erzwungen.
+        if self.algorithm != 'HS256':
+            raise ValueError("algorithm must be 'HS256' (the only algorithm this app signs/verifies)")
         uses_postgres = bool(
             self.database_url
             and str(self.database_url).strip().lower().startswith(("postgresql://", "postgresql+"))
@@ -554,6 +577,19 @@ class Settings(BaseSettings):
                 f'access_token_expire_minutes={self.access_token_expire_minutes} '
                 f'exceeds 1440 (24h) in production. Reduziere TTL um '
                 f'Token-Diebstahl-Window zu begrenzen.'
+            )
+        # RECOV-002 (Codex-Audit 2026-08-27): smtp_use_tls war frei
+        # abschaltbar; services/mailer.py sendet bei False Login und
+        # Reset-/Invite-Mail (inkl. SMTP-Passwort) unverschluesselt. Der
+        # vollstaendige Fixvertrag (expliziter starttls/smtps-Transportmodus,
+        # fail-closed bei Zustellfehler statt nur Warnung) ist ein
+        # groesseres, separates Vorhaben -- dieser Fix schliesst nur die
+        # konkret nachgewiesene Klartext-SMTP-in-Produktion-Luecke.
+        if self.app_env in {'staging', 'production'} and self.smtp_enabled and not self.smtp_use_tls:
+            raise ValueError(
+                'smtp_use_tls must be true in staging/production when smtp_enabled=true '
+                '(plaintext SMTP would send reset/invite bearer tokens and the SMTP '
+                'password unencrypted)'
             )
         return self
 

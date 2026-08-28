@@ -42,6 +42,45 @@ def test_create_support_bundle_writes_zip(tmp_path, monkeypatch):
         assert '***REDACTED***' in redacted_log
 
 
+def test_create_support_bundle_redacts_sec001_previously_leaked_fields(tmp_path, monkeypatch):
+    """SEC-001 (Codex-Audit 2026-08-26): database_url, tenant_master_kek,
+    alphavantage_api_key, market_data_alert_webhook_url und telemetry_dsn
+    fehlten in der Blocklist und wurden unredigiert ins Support-Bundle
+    geschrieben -- database_url enthaelt im Realbetrieb eingebettete
+    DB-Credentials."""
+    db_file = tmp_path / '5eyes.db'
+    db_file.write_text('placeholder', encoding='utf-8')
+    log_dir = tmp_path / 'logs'
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_file = log_dir / '5eyes-app.log'
+    log_file.write_text('no sensitive lines here\n', encoding='utf-8')
+
+    monkeypatch.setattr(settings, 'db_path', str(db_file))
+    monkeypatch.setattr(settings, 'database_url', 'postgresql+psycopg://dbuser:DBPASS@dbhost/db')
+    monkeypatch.setattr(settings, 'tenant_master_kek', 'MASTER-KEK-VALUE')
+    monkeypatch.setattr(settings, 'alphavantage_api_key', 'ALPHA-KEY-VALUE')
+    monkeypatch.setattr(settings, 'market_data_alert_webhook_url', 'https://hooks.example/SECRET-WEBHOOK')
+    monkeypatch.setattr(settings, 'telemetry_dsn', 'https://PUBLIC:SECRET@telemetry/42')
+    monkeypatch.setattr('services.maintenance.resolve_log_file', lambda: log_file)
+
+    result = create_support_bundle()
+    bundle_path = Path(result['bundle_file'])
+
+    with zipfile.ZipFile(bundle_path, 'r') as zf:
+        payload = json.loads(zf.read('system-info.json').decode('utf-8'))
+        s = payload['settings']
+        assert s['database_url'] == '***REDACTED***'
+        assert s['tenant_master_kek'] == '***REDACTED***'
+        assert s['alphavantage_api_key'] == '***REDACTED***'
+        assert s['market_data_alert_webhook_url'] == '***REDACTED***'
+        assert s['telemetry_dsn'] == '***REDACTED***'
+        # Kein Rohwert darf irgendwo im JSON-Blob auftauchen (auch nicht als
+        # Substring in einem anderen Feld).
+        raw_json = zf.read('system-info.json').decode('utf-8')
+        for leaked in ('DBPASS', 'MASTER-KEK-VALUE', 'ALPHA-KEY-VALUE', 'SECRET-WEBHOOK', 'PUBLIC:SECRET'):
+            assert leaked not in raw_json
+
+
 def test_build_compliance_status_exposes_security_controls(monkeypatch):
     monkeypatch.setattr(settings, 'app_env', 'development')
     monkeypatch.setattr(settings, 'db_use_sqlcipher', False)
