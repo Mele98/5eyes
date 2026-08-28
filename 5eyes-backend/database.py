@@ -588,6 +588,12 @@ def ensure_runtime_columns() -> None:
         # optimizer_policies, tax_parameter_sets).
         'audit_log': [
             ('tenant_id', 'TEXT'),
+            # SEC-003 (Codex-Audit 2026-08-26): atomar vergebene Sequenz +
+            # persistierter Vorgaenger-Hash -- schliesst die Race-Luecke der
+            # bisherigen ORDER-BY-created_at-Ermittlung. NULL bei Altdaten,
+            # siehe Kommentar an models.review.AuditLog.sequence.
+            ('sequence', 'INTEGER'),
+            ('previous_hash', 'TEXT'),
         ],
     }
     inspector = inspect(engine)
@@ -661,6 +667,28 @@ def ensure_runtime_columns() -> None:
                     "WHERE status IS NULL"
                 )
             )
+
+        # SEC-003 (Codex-Audit 2026-08-26): audit_log_sequence_counter ist eine
+        # neue ORM-only-Tabelle (models.review.AuditLogSequenceCounter). In der
+        # realen Boot-Sequenz legt Base.metadata.create_all() sie an -- hier
+        # zusaetzlich idempotent per Raw-SQL, damit JEDER Aufrufer von
+        # ensure_runtime_columns() (u.a. mehrere bestehende Test-Fixtures, die
+        # die Rohschema-Datei direkt bootstrappen und create_all() nicht
+        # aufrufen) sich auf die Existenz verlassen kann, bevor
+        # services.audit.py::log() das erste Mal laeuft. CREATE TABLE IF NOT
+        # EXISTS + INSERT OR IGNORE sind beide von Natur aus idempotent.
+        conn.execute(
+            text(
+                "CREATE TABLE IF NOT EXISTS audit_log_sequence_counter ("
+                "id TEXT PRIMARY KEY, value INTEGER NOT NULL)"
+            )
+        )
+        conn.execute(
+            text(
+                "INSERT OR IGNORE INTO audit_log_sequence_counter (id, value) "
+                "VALUES ('singleton', 0)"
+            )
+        )
 
         # RiskAssessment - Kenntnisse & Erfahrungen (Referenzmodell Eignungspruefung, 2026-04-16)
         ensure_column(conn, "risk_assessments", "knowledge_services_json", "TEXT")
@@ -917,7 +945,9 @@ def ensure_audit_log_actions(target_engine: Engine = engine) -> None:
                 integrity_hash TEXT,
                 ip_address TEXT,
                 created_at TEXT NOT NULL,
-                tenant_id TEXT
+                tenant_id TEXT,
+                sequence INTEGER,
+                previous_hash TEXT
             )
         """))
         # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): frueher wurden hier NUR die
@@ -930,16 +960,26 @@ def ensure_audit_log_actions(target_engine: Engine = engine) -> None:
         # wuerde diese RENAME-Migration eine bereits per ensure_runtime_columns
         # nachgezogene tenant_id-Spalte beim naechsten Lauf wieder verwerfen
         # (identische Bugklasse wie der Trigger-Verlust oben).
+        # SEC-003 (Codex-Audit 2026-08-26): dito fuer sequence/previous_hash --
+        # ohne diese dynamische Uebernahme wuerde eine frische Installation
+        # (die diese RENAME-Migration beim ersten Start durchlaeuft) die per
+        # ensure_runtime_columns() bereits angelegten Sequenz-Spalten sofort
+        # wieder verlieren (real reproduziert waehrend der Implementierung
+        # dieses Fixes: Test schlug mit "no column named sequence" fehl, bis
+        # dieser Block ergaenzt wurde).
         old_columns = {
             row[1] for row in conn.execute(text("PRAGMA table_info(audit_log__old)"))
         }
         ip_address_select = "ip_address" if "ip_address" in old_columns else "NULL AS ip_address"
         tenant_id_select = "tenant_id" if "tenant_id" in old_columns else "NULL AS tenant_id"
+        sequence_select = "sequence" if "sequence" in old_columns else "NULL AS sequence"
+        previous_hash_select = "previous_hash" if "previous_hash" in old_columns else "NULL AS previous_hash"
         conn.execute(text(f"""
             INSERT INTO audit_log (
                 id, user_id, user_name, table_name, record_id, action,
                 field_name, old_value, new_value, mandate_id, client_id,
-                integrity_hash, ip_address, created_at, tenant_id
+                integrity_hash, ip_address, created_at, tenant_id,
+                sequence, previous_hash
             )
             SELECT
                 id, user_id, user_name, table_name, record_id, action,
@@ -947,7 +987,9 @@ def ensure_audit_log_actions(target_engine: Engine = engine) -> None:
                 NULL AS integrity_hash,
                 {ip_address_select},
                 created_at,
-                {tenant_id_select}
+                {tenant_id_select},
+                {sequence_select},
+                {previous_hash_select}
             FROM audit_log__old
         """))
         conn.execute(text('DROP TABLE audit_log__old'))

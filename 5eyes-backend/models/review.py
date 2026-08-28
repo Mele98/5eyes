@@ -498,6 +498,34 @@ class AuditLog(Base):
     # Lesen). NULL bei Altdaten (vor dieser Migration) und bei System-/
     # Operator-Aktionen ohne Tenant-Bezug.
     tenant_id = Column(String)
+    # SEC-003 (Codex-Audit 2026-08-26): log() bestimmte den Vorgaenger bisher
+    # ueber ORDER BY created_at DESC, id DESC OHNE Lock/Sequenz -- zwei nahezu
+    # gleichzeitige Aufrufe konnten beide denselben "letzten" Eintrag lesen und
+    # dadurch zwei Zeilen mit identischem previous_hash erzeugen (Gabelung
+    # statt linearer Kette). sequence + previous_hash werden jetzt ATOMAR ueber
+    # AuditLogSequenceCounter vergeben (siehe services/audit.py). NULL bei
+    # Altdaten (vor dieser Migration) -- die audit_log-Unveraenderlichkeits-
+    # Trigger verbieten ein rueckwirkendes Backfill dieser Zeilen (bewusst:
+    # kein Update auf immutable Zeilen, auch nicht fuer eine Migration). Der
+    # neue Sequenz-Vertrag gilt ab dem ersten Eintrag NACH dieser Migration;
+    # Altdaten bleiben ueber integrity_hash weiterhin manipulationssicher pro
+    # Zeile, beanspruchen aber keine rueckwirkende lineare Ketten-Garantie.
+    sequence = Column(Integer)
+    previous_hash = Column(String(64))
+
+
+# SEC-003 (Codex-Audit 2026-08-26): Singleton-Zaehlerzeile fuer die atomare
+# Sequenzvergabe in services/audit.py::log(). Eine einzelne Zeile (id=
+# 'singleton'), atomar per UPDATE value=value+1 inkrementiert -- der dabei
+# gehaltene Schreib-Lock (SQLite: ganze Datei bis Commit; PostgreSQL: Row-
+# Lock bis Commit) serialisiert konkurrierende log()-Aufrufe echt, weil die
+# Sequenzvergabe in DERSELBEN Transaktion wie der Rest der aufrufenden
+# Operation passiert (log() committet nie selbst).
+class AuditLogSequenceCounter(Base):
+    __tablename__ = "audit_log_sequence_counter"
+
+    id = Column(String, primary_key=True)
+    value = Column(Integer, nullable=False, default=0)
 
 
 class MandateReportNotes(Base):
