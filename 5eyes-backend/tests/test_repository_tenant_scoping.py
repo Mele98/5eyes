@@ -285,3 +285,77 @@ def test_user_mit_leerem_tenant_string_wie_legacy(session_factory):
         # Beide sichtbar (Legacy-Pfad)
         ids = set(get_accessible_client_ids(db, user))
         assert ids == {"c-a", "c-b"}
+
+
+# ===========================================================================
+# 6. TEN-COMP-001 (Codex-Audit 2026-08-27): tenant-loser GLOBALER Zugriff
+# muss im Strict-Modus fail-closed sein, nicht fail-open. Die urspruengliche
+# Audit-Reproduktion nutzte genau einen Admin (has_global_client_access=True)
+# ohne tenant_id -- vorher wurde in diesem Fall VOR dem Strict-Check "kein
+# Filter" (= Vollzugriff auf jeden Tenant) zurueckgegeben.
+# ===========================================================================
+
+
+def test_admin_ohne_tenant_id_wird_im_strict_modus_bei_client_geblockt(session_factory, monkeypatch):
+    from config import settings
+    monkeypatch.setattr(settings, "strict_tenant_isolation", True, raising=False)
+    with session_factory() as db:
+        admin = _make_user("admin-notenant", tenant_id=None, role="admin")
+        foreign_client = _make_client("c-foreign", advisor_id="u-other", tenant_id="firm-B")
+        db.add_all([admin, foreign_client])
+        db.commit()
+        with pytest.raises(HTTPException) as exc:
+            get_client_for_user_or_404("c-foreign", db, admin)
+        assert exc.value.status_code == 404
+
+
+def test_admin_ohne_tenant_id_wird_im_strict_modus_bei_mandate_geblockt(session_factory, monkeypatch):
+    from config import settings
+    monkeypatch.setattr(settings, "strict_tenant_isolation", True, raising=False)
+    with session_factory() as db:
+        admin = _make_user("admin-notenant2", tenant_id=None, role="admin")
+        foreign_client = _make_client("c-foreign2", advisor_id="u-other", tenant_id="firm-B")
+        foreign_mandate = _make_mandate("m-foreign", client_id="c-foreign2", tenant_id="firm-B")
+        db.add_all([admin, foreign_client, foreign_mandate])
+        db.commit()
+        with pytest.raises(HTTPException) as exc:
+            get_mandate_for_user_or_404("m-foreign", db, admin)
+        assert exc.value.status_code == 404
+
+
+def test_admin_ohne_tenant_id_bekommt_leere_accessible_ids_im_strict_modus(session_factory, monkeypatch):
+    from config import settings
+    monkeypatch.setattr(settings, "strict_tenant_isolation", True, raising=False)
+    with session_factory() as db:
+        admin = _make_user("admin-notenant3", tenant_id=None, role="admin")
+        other_client = _make_client("c-other", advisor_id="u-other", tenant_id="firm-B")
+        db.add_all([admin, other_client])
+        db.commit()
+        assert get_accessible_client_ids(db, admin) == []
+
+
+def test_legacy_advisor_ohne_tenant_id_bleibt_auch_im_strict_modus_unveraendert(session_factory, monkeypatch):
+    """Regressionsschutz: ein REGULAERER Berater (kein globaler Zugriff) ohne
+    tenant_id ist bereits durch den advisor_id-Filter sicher begrenzt -- die
+    is_global_access-Unterscheidung darf sein Verhalten NICHT aendern, auch
+    nicht im Strict-Modus (sonst waere Holgers reales Tier-1-Deployment
+    betroffen, falls dort je strict_tenant_isolation gesetzt wuerde)."""
+    from config import settings
+    monkeypatch.setattr(settings, "strict_tenant_isolation", True, raising=False)
+    with session_factory() as db:
+        advisor = _make_user("adv-notenant", tenant_id=None, role="advisor")
+        own_client = _make_client("c-own", advisor_id="adv-notenant", tenant_id=None)
+        db.add_all([advisor, own_client])
+        db.commit()
+        client = get_client_for_user_or_404("c-own", db, advisor)
+        assert client.id == "c-own"
+
+
+def test_super_admin_role_treated_as_global_access_helper_unchanged():
+    """Dokumentiert die bestehende has_global_client_access()-Semantik
+    (role=='admin' -> global) bleibt durch diesen Fix unangetastet -- siehe
+    PR-Beschreibung: die Verengung auf super_admin ist bewusst NICHT Teil
+    dieses Fixes (separates, groesseres Vorhaben)."""
+    from services.auth import has_global_client_access
+    admin = _make_user("plain-admin", tenant_id=None, role="admin")
+    assert has_global_client_access(admin) is True

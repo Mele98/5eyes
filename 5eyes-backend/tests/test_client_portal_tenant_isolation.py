@@ -101,3 +101,29 @@ def test_strict_mode_requires_matching_tenant(session_factory, monkeypatch):
         with pytest.raises(HTTPException) as ei:
             get_linked_client_for_user_or_404(user, db)
         assert ei.value.status_code == 404
+
+
+def test_strict_mode_user_ohne_tenant_id_blockiert_fremden_client(session_factory, monkeypatch):
+    """TEN-COMP-001 (Codex-Audit 2026-08-27): der urspruengliche Bug --
+    ein Client-Portal-User OHNE tenant_id (leer/NULL) umging im Strict-Modus
+    die Trennung komplett, weil der Check nur bei WAHRER User-tenant_id
+    griff. Muss jetzt genauso fail-closed sein wie ein User MIT tenant_id."""
+    monkeypatch.setattr(settings, "strict_tenant_isolation", True)
+    with session_factory() as db:
+        user = _seed(db, user_tid=None, client_tid="firm-B")
+        with pytest.raises(HTTPException) as ei:
+            get_linked_client_for_user_or_404(user, db)
+        assert ei.value.status_code == 404
+
+
+def test_strict_mode_both_null_tenant_still_blocked(session_factory, monkeypatch):
+    """Strict-Modus: 'NULL unsichtbar' gilt konsistent -- auch wenn BEIDE
+    Seiten (User und Client) tenant_id=NULL haben, gibt es im Strict-Modus
+    keine legitime NULL-Tenant-Entitaet (anders als im Default-BC-Modus,
+    siehe test_legacy_null_tenant_linkage_ok_in_bc)."""
+    monkeypatch.setattr(settings, "strict_tenant_isolation", True)
+    with session_factory() as db:
+        user = _seed(db, user_tid=None, client_tid=None)
+        with pytest.raises(HTTPException) as ei:
+            get_linked_client_for_user_or_404(user, db)
+        assert ei.value.status_code == 404
