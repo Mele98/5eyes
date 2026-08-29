@@ -55,6 +55,7 @@ from services.backtest_ab import run_ab_backtest
 from services.backtest_strategy import run_strategy_backtest
 from services.review_engine import refresh_system_review_triggers
 from services.suitability_audit import audit_mandate_suitability
+from services.solver_admission import admit as _admit_solver_slot
 
 router = APIRouter(tags=["Allokation"])
 
@@ -518,54 +519,58 @@ def generate_target_allocation_endpoint(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor)
 ):
-    mandate = _get_mandate_or_404(mandate_id, db, current_user)
-    # Welle 2.1 (2026-07): Opt-in FIDLEG-Hard-Gate. Default AUS
-    # (require_suitability_before_recommendation=False) → heutiges Verhalten,
-    # der Suitability-Check bleibt reiner Sichtbarkeits-Layer und blockiert
-    # NICHT. Nur wenn das Flag aktiv ist, wird VOR der Generierung geprueft,
-    # ob eine aktuelle/konforme Eignungspruefung vorliegt (FIDLEG Art. 11-13).
-    # Konservativ: blockiert ausschliesslich wenn audit_mandate_suitability
-    # is_compliant=False meldet (fehlende/nicht-konforme Pruefung).
-    if settings.require_suitability_before_recommendation:
-        suitability = audit_mandate_suitability(db, mandate)
-        if not suitability.get("is_compliant", True):
+    # RESOURCE-003 (Codex-Audit 2026-08-27): Admission-Check MUSS vor jedem
+    # Datenladen stehen, sonst hat ein abgelehnter Request die teure Arbeit
+    # (Mandats-Query, Suitability-Audit) schon bezahlt.
+    with _admit_solver_slot():
+        mandate = _get_mandate_or_404(mandate_id, db, current_user)
+        # Welle 2.1 (2026-07): Opt-in FIDLEG-Hard-Gate. Default AUS
+        # (require_suitability_before_recommendation=False) → heutiges Verhalten,
+        # der Suitability-Check bleibt reiner Sichtbarkeits-Layer und blockiert
+        # NICHT. Nur wenn das Flag aktiv ist, wird VOR der Generierung geprueft,
+        # ob eine aktuelle/konforme Eignungspruefung vorliegt (FIDLEG Art. 11-13).
+        # Konservativ: blockiert ausschliesslich wenn audit_mandate_suitability
+        # is_compliant=False meldet (fehlende/nicht-konforme Pruefung).
+        if settings.require_suitability_before_recommendation:
+            suitability = audit_mandate_suitability(db, mandate)
+            if not suitability.get("is_compliant", True):
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "FIDLEG: Eignungsprüfung fehlt oder ist nicht aktuell — "
+                        "Empfehlung blockiert "
+                        "(require_suitability_before_recommendation=True)."
+                    ),
+                )
+        try:
+            result = generate_target_allocation(
+                db=db,
+                mandate=mandate,
+                user_id=current_user.id,
+                preferences=body.preferences.model_dump() if body.preferences else None,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc))
+        # CON-001 (Codex-Audit 2026-08-25): siehe create_target_allocation oben --
+        # derselbe Partial-Unique-Index-Race, mit demselben SQLite-Luecken-Risiko.
+        # refresh_system_review_triggers()/log() fuehren eigene Queries aus, die
+        # einen Autoflush der noch ausstehenden INSERT ausloesen koennen -- der
+        # try-Block muss beide mit umfassen, nicht nur commit().
+        try:
+            refresh_system_review_triggers(db, mandate, current_user.id)
+            log(db, user_id=current_user.id, user_name=current_user.full_name,
+                table_name="target_allocations", record_id=result["target_allocation"].id, action="CREATE",
+                mandate_id=mandate_id, client_id=mandate.client_id,
+                ip_address=_extract_client_ip(request))
+            db.commit()
+        except IntegrityError:
+            db.rollback()
             raise HTTPException(
                 status_code=409,
-                detail=(
-                    "FIDLEG: Eignungsprüfung fehlt oder ist nicht aktuell — "
-                    "Empfehlung blockiert "
-                    "(require_suitability_before_recommendation=True)."
-                ),
+                detail="Eine andere Soll-Allokation wurde gleichzeitig generiert -- bitte Seite neu laden und erneut versuchen.",
             )
-    try:
-        result = generate_target_allocation(
-            db=db,
-            mandate=mandate,
-            user_id=current_user.id,
-            preferences=body.preferences.model_dump() if body.preferences else None,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
-    # CON-001 (Codex-Audit 2026-08-25): siehe create_target_allocation oben --
-    # derselbe Partial-Unique-Index-Race, mit demselben SQLite-Luecken-Risiko.
-    # refresh_system_review_triggers()/log() fuehren eigene Queries aus, die
-    # einen Autoflush der noch ausstehenden INSERT ausloesen koennen -- der
-    # try-Block muss beide mit umfassen, nicht nur commit().
-    try:
-        refresh_system_review_triggers(db, mandate, current_user.id)
-        log(db, user_id=current_user.id, user_name=current_user.full_name,
-            table_name="target_allocations", record_id=result["target_allocation"].id, action="CREATE",
-            mandate_id=mandate_id, client_id=mandate.client_id,
-            ip_address=_extract_client_ip(request))
-        db.commit()
-    except IntegrityError:
-        db.rollback()
-        raise HTTPException(
-            status_code=409,
-            detail="Eine andere Soll-Allokation wurde gleichzeitig generiert -- bitte Seite neu laden und erneut versuchen.",
-        )
-    db.refresh(result["target_allocation"])
-    return result
+        db.refresh(result["target_allocation"])
+        return result
 
 
 @router.post("/mandates/{mandate_id}/target-allocation/sensitivity",
@@ -587,31 +592,35 @@ def goal_target_sensitivity(
     FINMA-Trace: jeder Aufruf wird als SENSITIVITY-Eintrag im AuditLog
     persistiert (mandate, goal, delta).
     """
-    mandate = _get_mandate_or_404(mandate_id, db, current_user)
-    try:
-        result = evaluate_goal_sensitivity(
-            db=db,
-            mandate=mandate,
-            user_id=current_user.id,
-            goal_id=body.goal_id,
-            target_delta_pct=body.target_delta_pct,
-            # Sprint U-P5 Fix H9: Horizon-Perturbation optional
-            horizon_delta_years=getattr(body, "horizon_delta_years", 0),
-        )
-    except ValueError as exc:
-        msg = str(exc)
-        if "nicht gefunden" in msg.lower():
-            raise HTTPException(status_code=404, detail=msg)
-        raise HTTPException(status_code=409, detail=msg)
-    # Phase 6.3: AuditLog-Eintrag fuer FINMA-Trace. record_id = goal_id, weil
-    # die Sensitivity sich auf ein konkretes Goal bezieht; new_value = delta_pct
-    # damit forensisch nachvollziehbar ist welche Schieber bewegt wurden.
-    log(db, user_id=current_user.id, user_name=current_user.full_name,
-        table_name="goals", record_id=body.goal_id, action="SENSITIVITY",
-        new_value=str(body.target_delta_pct),
-        mandate_id=mandate_id, client_id=mandate.client_id,
-        ip_address=_extract_client_ip(request))
-    db.commit()
+    # RESOURCE-003 (Codex-Audit 2026-08-27): siehe generate_target_allocation_endpoint
+    # oben -- Admission-Check vor jedem Datenladen, Sensitivity ruft den
+    # Solver sogar zweimal (Baseline + Counterfactual) auf.
+    with _admit_solver_slot():
+        mandate = _get_mandate_or_404(mandate_id, db, current_user)
+        try:
+            result = evaluate_goal_sensitivity(
+                db=db,
+                mandate=mandate,
+                user_id=current_user.id,
+                goal_id=body.goal_id,
+                target_delta_pct=body.target_delta_pct,
+                # Sprint U-P5 Fix H9: Horizon-Perturbation optional
+                horizon_delta_years=getattr(body, "horizon_delta_years", 0),
+            )
+        except ValueError as exc:
+            msg = str(exc)
+            if "nicht gefunden" in msg.lower():
+                raise HTTPException(status_code=404, detail=msg)
+            raise HTTPException(status_code=409, detail=msg)
+        # Phase 6.3: AuditLog-Eintrag fuer FINMA-Trace. record_id = goal_id, weil
+        # die Sensitivity sich auf ein konkretes Goal bezieht; new_value = delta_pct
+        # damit forensisch nachvollziehbar ist welche Schieber bewegt wurden.
+        log(db, user_id=current_user.id, user_name=current_user.full_name,
+            table_name="goals", record_id=body.goal_id, action="SENSITIVITY",
+            new_value=str(body.target_delta_pct),
+            mandate_id=mandate_id, client_id=mandate.client_id,
+            ip_address=_extract_client_ip(request))
+        db.commit()
     return result
 
 

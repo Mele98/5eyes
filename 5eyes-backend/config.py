@@ -86,6 +86,16 @@ class Settings(BaseSettings):
     # die eigenen (vertrauenswuerdigen) Proxy-Hops.
     trusted_proxy_count: int = 0
 
+    # RESOURCE-003 (Codex-Audit 2026-08-27): die zwei schreibenden
+    # Solver-Endpunkte (target-allocation/generate, .../sensitivity) hatten
+    # keine Kapazitaetsgrenze -- ein fehlerhafter/boesartiger Advisor-Client
+    # konnte beliebig viele teure NumPy-Modelllaeufe gleichzeitig anstossen
+    # und damit die CPU/Speicher der Webworker fuer alle anderen Mandanten
+    # verdraengen. solver_max_concurrent begrenzt die PROZESSWEITE (nicht
+    # per-Tenant-faire) Anzahl gleichzeitig laufender Solver-Aufrufe; darueber
+    # hinausgehende Requests werden VOR dem Datenladen mit 429 abgelehnt.
+    solver_max_concurrent: int = 4
+
     # CORS / Electron
     cors_origins: list[str] = Field(
         default_factory=lambda: [
@@ -392,6 +402,7 @@ class Settings(BaseSettings):
         'recent_log_lines_default',
         'recent_log_lines_max',
         'market_data_daily_refresh_max_symbols',
+        'solver_max_concurrent',
     )
     @classmethod
     def validate_positive_numbers(cls, value: int) -> int:
