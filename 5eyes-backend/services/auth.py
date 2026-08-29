@@ -302,7 +302,7 @@ def _effective_strict_tenant_isolation(settings_obj) -> bool:
     return tier == "tier2" or mode == "multi"
 
 
-def _apply_tenant_filter_to_client_query(query, current_user: User):
+def _apply_tenant_filter_to_client_query(query, current_user: User, *, is_global_access: bool = False):
     """Sprint T3 (2026-06-08): Erweitert eine Client-Query um tenant_id-Filter.
 
     Backwards-Compat-Regeln:
@@ -313,13 +313,31 @@ def _apply_tenant_filter_to_client_query(query, current_user: User):
     Damit ist Tier 2 (Shared-Cloud) sicher: Berater aus Firma A sieht nie
     Clients von Firma B. Tier 1 (Self-Hosted) wo nur ein Tenant 'main'
     existiert: kein Sicherheits-Verlust.
+
+    is_global_access (TEN-COMP-001, Codex-Audit 2026-08-27): True nur, wenn
+    der Aufrufer KEINEN vorgelagerten Client.advisor_id-Ownership-Filter
+    angewendet hat (has_global_client_access()==True, z.B. role='admin').
+    Fuer einen regulaeren Berater ist advisor_id==current_user.id bereits
+    die primaere Sicherheitsgrenze -- eine fehlende tenant_id AUF DIESEM
+    Berater leakt dadurch nichts (er sieht ohnehin nur seine EIGENEN
+    Clients, unabhaengig vom tenant_id-Wert). Fuer globalen Zugriff (kein
+    advisor_id-Filter) ist die tenant_id-Pruefung dagegen die EINZIGE
+    Sicherheitsgrenze -- dort muss eine fehlende tenant_id im Strict-Modus
+    fail-closed behandelt werden (der urspruengliche Audit-Repro nutzte
+    genau diesen globalen Zugriffspfad).
     """
     user_tid = getattr(current_user, "tenant_id", None)
-    if not user_tid or not str(user_tid).strip():
-        return query  # Legacy-User: kein Filter
-    user_tid_clean = str(user_tid).strip()
-    from sqlalchemy import or_
+    from sqlalchemy import false, or_
     from config import settings as _settings
+    if not user_tid or not str(user_tid).strip():
+        # TEN-COMP-001: eine fehlende/leere tenant_id darf im Strict-Modus bei
+        # GLOBALEM Zugriff (kein advisor_id-Filter vorgelagert) NIE mehr
+        # sehen lassen als eine gesetzte -- bisher wurde hier VOR dem
+        # Strict-Check "kein Filter" (= alles sichtbar) zurueckgegeben.
+        if is_global_access and _effective_strict_tenant_isolation(_settings):
+            return query.filter(false())
+        return query  # advisor_id-scoped ODER Non-Strict: kein zusaetzlicher Filter
+    user_tid_clean = str(user_tid).strip()
     # E1 (2026-06-14): Strict-Modus -> NUR exakter Tenant-Match (NULL unsichtbar).
     if _effective_strict_tenant_isolation(_settings):
         return query.filter(Client.tenant_id == user_tid_clean)
@@ -329,19 +347,28 @@ def _apply_tenant_filter_to_client_query(query, current_user: User):
     )
 
 
-def _apply_tenant_filter_to_mandate_query(query, current_user: User):
+def _apply_tenant_filter_to_mandate_query(query, current_user: User, *, is_global_access: bool = False):
     """Sprint T3 (2026-06-08): Erweitert eine Mandate-Query um tenant_id-Filter.
 
     Mandate-Query MUSS bereits einen JOIN auf Client haben (siehe
     get_mandate_for_user_or_404). Filter wird auf Mandate.tenant_id
     angewendet — Mandate IST die Authoritative-Tenant-Ebene fuer Daten.
+
+    is_global_access: siehe identischer Docstring-Absatz in
+    _apply_tenant_filter_to_client_query() (TEN-COMP-001, Codex-Audit
+    2026-08-27).
     """
     user_tid = getattr(current_user, "tenant_id", None)
+    from sqlalchemy import false, or_
+    from config import settings as _settings
     if not user_tid or not str(user_tid).strip():
+        # TEN-COMP-001: siehe identischer Kommentar in
+        # _apply_tenant_filter_to_client_query() -- fail-closed im Strict-
+        # Modus NUR bei globalem Zugriff (kein advisor_id-Filter vorgelagert).
+        if is_global_access and _effective_strict_tenant_isolation(_settings):
+            return query.filter(false())
         return query
     user_tid_clean = str(user_tid).strip()
-    from sqlalchemy import or_
-    from config import settings as _settings
     if _effective_strict_tenant_isolation(_settings):
         return query.filter(Mandate.tenant_id == user_tid_clean)
     return query.filter(
@@ -354,10 +381,11 @@ def get_client_for_user_or_404(client_id: str, db: Session, current_user: User) 
         Client.id == client_id,
         Client.deleted_at.is_(None),
     )
-    if not has_global_client_access(current_user):
+    is_global_access = has_global_client_access(current_user)
+    if not is_global_access:
         query = query.filter(Client.advisor_id == current_user.id)
     # Sprint T3: Tenant-Scoping (zusaetzlich zum advisor_id-Filter)
-    query = _apply_tenant_filter_to_client_query(query, current_user)
+    query = _apply_tenant_filter_to_client_query(query, current_user, is_global_access=is_global_access)
     client = query.first()
     if not client:
         raise HTTPException(status_code=404, detail="Kunde nicht gefunden")
@@ -366,10 +394,11 @@ def get_client_for_user_or_404(client_id: str, db: Session, current_user: User) 
 
 def get_accessible_client_ids(db: Session, current_user: User) -> list[str]:
     query = db.query(Client.id).filter(Client.deleted_at.is_(None))
-    if not has_global_client_access(current_user):
+    is_global_access = has_global_client_access(current_user)
+    if not is_global_access:
         query = query.filter(Client.advisor_id == current_user.id)
     # Sprint T3: Tenant-Scoping
-    query = _apply_tenant_filter_to_client_query(query, current_user)
+    query = _apply_tenant_filter_to_client_query(query, current_user, is_global_access=is_global_access)
     return [row[0] for row in query.all()]
 
 
@@ -383,10 +412,11 @@ def get_mandate_for_user_or_404(mandate_id: str, db: Session, current_user: User
             Client.deleted_at.is_(None),
         )
     )
-    if not has_global_client_access(current_user):
+    is_global_access = has_global_client_access(current_user)
+    if not is_global_access:
         query = query.filter(Client.advisor_id == current_user.id)
     # Sprint T3: Tenant-Scoping auf Mandate-Ebene (Authoritative)
-    query = _apply_tenant_filter_to_mandate_query(query, current_user)
+    query = _apply_tenant_filter_to_mandate_query(query, current_user, is_global_access=is_global_access)
     mandate = query.first()
     if not mandate:
         raise HTTPException(status_code=404, detail="Mandat nicht gefunden")
@@ -402,10 +432,11 @@ def get_accessible_mandate_ids(db: Session, current_user: User) -> list[str]:
             Client.deleted_at.is_(None),
         )
     )
-    if not has_global_client_access(current_user):
+    is_global_access = has_global_client_access(current_user)
+    if not is_global_access:
         query = query.filter(Client.advisor_id == current_user.id)
     # Sprint T3: Tenant-Scoping
-    query = _apply_tenant_filter_to_mandate_query(query, current_user)
+    query = _apply_tenant_filter_to_mandate_query(query, current_user, is_global_access=is_global_access)
     return [row[0] for row in query.all()]
 
 
@@ -542,8 +573,15 @@ def get_linked_client_for_user_or_404(user: User, db: Session) -> Client:
         raise HTTPException(status_code=404, detail="Kunden-Datensatz nicht verfuegbar.")
     try:
         from config import settings as _settings
-        if _effective_strict_tenant_isolation(_settings) and _utid_s and _utid_s != _ctid_s:
-            raise HTTPException(status_code=404, detail="Kunden-Datensatz nicht verfuegbar.")
+        if _effective_strict_tenant_isolation(_settings):
+            # TEN-COMP-001 (Codex-Audit 2026-08-27): der Check oben griff nur,
+            # wenn _utid_s WAHR war -- ein Client-Portal-User OHNE tenant_id
+            # (NULL/leer) umging damit im Strict-Modus die Trennung komplett,
+            # statt strenger behandelt zu werden als ein User MIT tenant_id.
+            # Fail-closed: im Strict-Modus verlangt jede Linkage eine
+            # uebereinstimmende, nicht-leere tenant_id auf BEIDEN Seiten.
+            if not _utid_s or not _ctid_s or _utid_s != _ctid_s:
+                raise HTTPException(status_code=404, detail="Kunden-Datensatz nicht verfuegbar.")
     except HTTPException:
         raise
     except Exception:
