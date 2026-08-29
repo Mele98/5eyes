@@ -53,6 +53,21 @@ def client(session_factory):
     app.dependency_overrides.clear()
 
 
+@pytest.fixture(autouse=True)
+def _reset_login_attempt_guard():
+    """login_attempt_guard ist ein prozessweiter Singleton, dessen Zaehler
+    IP-basiert sind (siehe routers/auth.py::_login_guard_key) -- ohne
+    Reset zwischen Tests akkumulieren alle /auth/password-reset/request-
+    Aufrufe dieser Datei auf demselben Test-Client-IP-Schluessel und
+    tripppen irgendwann 429 unabhaengig vom (eindeutigen) Test-Username."""
+    from services.login_guard import login_attempt_guard
+    login_attempt_guard._failures.clear()
+    login_attempt_guard._locked_until.clear()
+    yield
+    login_attempt_guard._failures.clear()
+    login_attempt_guard._locked_until.clear()
+
+
 def _seed_user(SF, uid, password, email=None):
     with SF() as s:
         s.add(User(
@@ -151,6 +166,83 @@ def test_reset_link_falls_back_to_host_header_when_public_base_url_unset(
     # Backwards-Compat: unveraendertes Fallback-Verhalten (kein public_base_url
     # konfiguriert -- z.B. lokaler Tier-1-Desktop-Betrieb, kein Angriffsvektor).
     assert "/app/5eyes_v2.html?reset=" in captured["link"]
+
+
+def test_reset_link_not_sent_when_strict_mode_and_public_base_url_unset(
+    client, session_factory, monkeypatch,
+):
+    """RECOV-001 (Codex-Audit 2026-08-27): sobald das Deployment tatsaechlich
+    Multi-Tenant/extern erreichbar ist (hier simuliert per
+    strict_tenant_isolation), ist der Host-Header-Fallback NICHT mehr
+    harmlos -- ohne konfiguriertes public_base_url darf die Mail gar nicht
+    erst mit einer potenziell vergifteten Origin versendet werden."""
+    from config import settings
+    monkeypatch.setattr(settings, "public_base_url", None)
+    monkeypatch.setattr(settings, "strict_tenant_isolation", True, raising=False)
+    _seed_user(session_factory, "r4", "pw", email="user4@example.test")
+
+    import routers.auth as auth_router
+    send_calls = []
+    monkeypatch.setattr(
+        auth_router, "send_password_reset_email",
+        lambda *a, **kw: send_calls.append((a, kw)) or True,
+    )
+
+    r = client.post(
+        "/auth/password-reset/request",
+        json={"username": "r4"},
+        headers={"Host": "evil-attacker.test"},
+    )
+    assert r.status_code == 200  # Anti-Enumeration bleibt gewahrt
+    assert send_calls == []  # aber die Mail wurde NICHT versendet
+
+
+def test_reset_link_not_sent_when_serve_main_frontend_and_public_base_url_unset(
+    client, session_factory, monkeypatch,
+):
+    """Gleicher Fall wie oben, aber ueber das serve_main_frontend-Signal
+    (Browser-/Tunnel-Hosting) statt strict_tenant_isolation."""
+    from config import settings
+    monkeypatch.setattr(settings, "public_base_url", None)
+    monkeypatch.setattr(settings, "serve_main_frontend", True, raising=False)
+    _seed_user(session_factory, "r5", "pw", email="user5@example.test")
+
+    import routers.auth as auth_router
+    send_calls = []
+    monkeypatch.setattr(
+        auth_router, "send_password_reset_email",
+        lambda *a, **kw: send_calls.append((a, kw)) or True,
+    )
+
+    r = client.post(
+        "/auth/password-reset/request",
+        json={"username": "r5"},
+        headers={"Host": "evil-attacker.test"},
+    )
+    assert r.status_code == 200
+    assert send_calls == []
+
+
+def test_reset_link_still_sent_in_strict_mode_when_public_base_url_configured(
+    client, session_factory, monkeypatch,
+):
+    """Strict-Modus ist kein pauschales Versand-Verbot -- mit korrekt
+    konfiguriertem public_base_url funktioniert der Versand wie gewohnt."""
+    from config import settings
+    monkeypatch.setattr(settings, "public_base_url", "https://trusted.5eyes.example")
+    monkeypatch.setattr(settings, "strict_tenant_isolation", True, raising=False)
+    _seed_user(session_factory, "r6", "pw", email="user6@example.test")
+
+    captured = {}
+    import routers.auth as auth_router
+    monkeypatch.setattr(
+        auth_router, "send_password_reset_email",
+        lambda to_email, full_name, link: captured.update(link=link) or True,
+    )
+
+    r = client.post("/auth/password-reset/request", json={"username": "r6"})
+    assert r.status_code == 200
+    assert captured["link"].startswith("https://trusted.5eyes.example/")
 
 
 def test_reset_confirm_sets_new_password_and_is_single_use(client, session_factory):

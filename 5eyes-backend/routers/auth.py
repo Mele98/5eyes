@@ -608,9 +608,35 @@ def _trusted_public_base_url() -> str | None:
     return configured.rstrip("/") if configured else None
 
 
-def _reset_link_for(request: Request, token: str) -> str:
+def _link_origin_requires_trusted_base_url() -> bool:
+    """RECOV-001 (Codex-Audit 2026-08-27): fuer ein reines Tier-1-Electron-
+    Desktop-Deployment (Default) ist request.base_url immer localhost --
+    der Host-Header-Fallback ist dort harmlos und bewusste Backwards-
+    Kompatibilitaet (siehe bestehender Test
+    test_reset_link_falls_back_to_host_header_when_public_base_url_unset).
+    Sobald das Backend aber tatsaechlich extern erreichbar ist --
+    serve_main_frontend=True (Browser-/Tunnel-Hosting) oder Multi-Tenant/
+    Strict-Modus (Tier-2/Shared-Cloud) -- ist der Host-Header Client-
+    kontrolliert und ein Angreifer kann sich per gefaelschtem Host einen
+    authentisch versendeten Reset-/Invite-Link auf seine eigene Domain
+    umleiten lassen (siehe Audit-Reproduktion). In diesem Fall MUSS
+    public_base_url gesetzt sein, sonst wird die Mail gar nicht erst
+    versendet (fail-closed statt eine vergiftete Origin zu verschicken)."""
+    from config import settings as _settings
+    if bool(getattr(_settings, "serve_main_frontend", False)):
+        return True
+    return _effective_strict_tenant_isolation(_settings)
+
+
+def _reset_link_for(request: Request, token: str) -> str | None:
+    """Gibt None zurueck statt eines Links, wenn die Origin nicht
+    vertrauenswuerdig ist UND das Deployment das verlangt (siehe
+    _link_origin_requires_trusted_base_url) -- der Aufrufer darf die Mail
+    dann NICHT versenden."""
     base = _trusted_public_base_url()
     if base is None:
+        if _link_origin_requires_trusted_base_url():
+            return None
         base = str(request.base_url).rstrip("/") if request else ""
     return f"{base}/app/5eyes_v2.html?reset={token}"
 
@@ -642,7 +668,21 @@ def password_reset_request(body: _PasswordResetRequest, request: Request,
     token = issue_reset_token(user)
     user.updated_at = _now()
     db.commit()
-    send_password_reset_email(user.email, user.full_name, _reset_link_for(request, token))
+    reset_link = _reset_link_for(request, token)
+    if reset_link is None:
+        # RECOV-001 (Codex-Audit 2026-08-27): externes/Multi-Tenant-
+        # Deployment ohne konfiguriertes public_base_url -- die Origin aus
+        # dem Client-kontrollierten Host-Header ist hier nicht
+        # vertrauenswuerdig genug fuer einen Reset-Bearer-Link. Fail-closed:
+        # Mail wird NICHT versendet (der Token bleibt gueltig, aber ohne
+        # Mail unbenutzbar). Kein anderes Antwortverhalten (Anti-
+        # Enumeration bleibt gewahrt), nur ein Server-seitiges Warn-Log.
+        logger.warning(
+            "password_reset_request: public_base_url nicht konfiguriert, "
+            "Mail-Versand uebersprungen (fail-closed, siehe RECOV-001)."
+        )
+    else:
+        send_password_reset_email(user.email, user.full_name, reset_link)
     log(db, user_id=user.id, user_name=user.full_name,
         table_name="users", record_id=user.id, action="PASSWORD_RESET_REQUEST",
         ip_address=_extract_client_ip(request))
@@ -773,7 +813,7 @@ def _hash_invite_token(token: str) -> str:
 _INVITE_TTL_DAYS = 7
 
 
-def _invite_link_for(request: Request, token: str) -> str:
+def _invite_link_for(request: Request, token: str) -> str | None:
     """Baut den Einladungslink aus der OEFFENTLICHEN Origin. Bevorzugt IMMER
     das vertrauenswuerdige config.public_base_url (siehe _trusted_public_base_url).
 
@@ -784,8 +824,15 @@ def _invite_link_for(request: Request, token: str) -> str:
     identisch zu _reset_link_for: reines request.base_url (respektiert KEINE
     Forwarded-Header), damit ein Angreifer den in der Einladungs-E-Mail
     versendeten Link nicht auf eine fremde Domain umleiten kann, solange
-    public_base_url nicht konfiguriert ist."""
+    public_base_url nicht konfiguriert ist.
+
+    RECOV-001 (Codex-Audit 2026-08-27): gibt None zurueck statt eines Links,
+    wenn die Origin nicht vertrauenswuerdig ist UND das Deployment das
+    verlangt (siehe _link_origin_requires_trusted_base_url) -- der Aufrufer
+    darf die Mail dann NICHT versenden."""
     trusted = _trusted_public_base_url()
+    if trusted is None and _link_origin_requires_trusted_base_url():
+        return None
     base = trusted if trusted is not None else str(request.base_url).rstrip("/")
     return f"{base}/app/5eyes_v2.html?invite={token}"
 
@@ -842,7 +889,15 @@ def invite_user(
     db.commit()
     db.refresh(user)
     # E-Mail-Versand (best effort, config-gated) — bei Fehlschlag/aus: Link-Copy.
-    email_sent = send_invite_email(body.email, body.full_name, _invite_link_for(request, token))
+    # RECOV-001 (Codex-Audit 2026-08-27): _invite_link_for gibt None zurueck,
+    # wenn die Origin (Client-kontrollierter Host-Header) im externen/Multi-
+    # Tenant-Deployment nicht vertrauenswuerdig genug ist -- dann faellt der
+    # Admin bewusst auf denselben "email_sent=False -> Link-Copy"-Pfad
+    # zurueck, den es fuer deaktivierten SMTP bereits gibt (invite_token
+    # wird ohnehin im Response zurueckgegeben, dieser Endpoint ist
+    # admin-authentifiziert, keine Anti-Enumeration-Anforderung).
+    invite_link = _invite_link_for(request, token)
+    email_sent = send_invite_email(body.email, body.full_name, invite_link) if invite_link else False
     return InviteResponse(
         user_id=user.id, username=user.username,
         invite_token=token, invite_expires_at=expires_at, email_sent=email_sent,
@@ -1082,7 +1137,10 @@ def resend_invite(
         table_name="users", record_id=user.id, action="INVITE_RESEND")
     db.commit()
     db.refresh(user)
-    email_sent = send_invite_email(getattr(user, "email", None), user.full_name, _invite_link_for(request, token))
+    # RECOV-001 (Codex-Audit 2026-08-27): siehe identischer Kommentar in
+    # invite_user().
+    invite_link = _invite_link_for(request, token)
+    email_sent = send_invite_email(getattr(user, "email", None), user.full_name, invite_link) if invite_link else False
     return InviteResponse(
         user_id=user.id, username=user.username,
         invite_token=token, invite_expires_at=expires_at, email_sent=email_sent,
