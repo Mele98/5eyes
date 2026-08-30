@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
@@ -687,10 +687,17 @@ def _parse_json_list(raw: Optional[str]) -> list[str]:
     return [str(item) for item in parsed if item is not None]
 
 
-def _serialize_notes(notes: "MandateReportNotes") -> dict:
+def _serialize_notes(
+    notes: "MandateReportNotes", *, history_limit: int = 20, history_offset: int = 0
+) -> dict:
     # Sprint U-37b (2026-06-04): History aus previous_versions_json
     # exponieren — schliesst U-37 Review-Lücke aus PR #140.
-    from services.notes_versioning import load_history as _u37_load_history
+    # RESOURCE-002 Teil 2 (Codex-Audit 2026-08-27): paginiert statt komplett
+    # -- die Historie waechst append-only unbegrenzt (services/notes_versioning.py).
+    from services.notes_versioning import load_history_page as _u37_load_history_page
+    page, total = _u37_load_history_page(
+        notes, limit=history_limit, offset=history_offset
+    )
     return {
         "id": notes.id,
         "mandate_id": notes.mandate_id,
@@ -707,7 +714,8 @@ def _serialize_notes(notes: "MandateReportNotes") -> dict:
         "last_edited_at": notes.last_edited_at,
         "created_at": notes.created_at,
         "updated_at": notes.updated_at,
-        "previous_versions": _u37_load_history(notes),
+        "previous_versions": page,
+        "previous_versions_total": total,
     }
 
 
@@ -716,6 +724,14 @@ def get_report_notes(
     mandate_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    # RESOURCE-002 Teil 2 (Codex-Audit 2026-08-27): History-Pagination statt
+    # immer voller, unbegrenzt wachsender Liste. Default (20/0) ist
+    # rueckwaertskompatibel fuer bestehende Clients, die previous_versions
+    # gar nicht konsumieren (siehe reportNotes.ts) -- neuere Versionen bleiben
+    # ueber history_offset weiterhin abrufbar, previous_versions_total
+    # zeigt an ob mehr existiert (kein stilles Abschneiden).
+    history_limit: int = Query(default=20, ge=1, le=200),
+    history_offset: int = Query(default=0, ge=0),
 ):
     """U-P28: Berater-Overrides fuer den Advisory-Report.
 
@@ -731,7 +747,9 @@ def get_report_notes(
     )
     if notes is None:
         return ReportNotesResponse(mandate_id=mandate.id)
-    return ReportNotesResponse(**_serialize_notes(notes))
+    return ReportNotesResponse(
+        **_serialize_notes(notes, history_limit=history_limit, history_offset=history_offset)
+    )
 
 
 @router.put("/mandates/{mandate_id}/report-notes", response_model=ReportNotesResponse)

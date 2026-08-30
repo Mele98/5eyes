@@ -981,4 +981,9 @@ class ReportNotesResponse(BaseResponse):
     updated_at: Optional[str] = None
     # Sprint U-37b: Append-only History aller Edit-Snapshots,
     # neueste zuerst. Schliesst Lücke aus PR #140 Review-Befund.
+    # RESOURCE-002 Teil 2 (Codex-Audit 2026-08-27): standardmaessig nur eine
+    # Seite (siehe history_limit/history_offset im GET-Endpoint) statt der
+    # vollen, unbegrenzt wachsenden Historie. previous_versions_total macht
+    # das fuer den Client sichtbar (kein stilles Abschneiden).
     previous_versions: list[ReportNotesHistoryEntry] = Field(default_factory=list)
+    previous_versions_total: int = 0
