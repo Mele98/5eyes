@@ -58,6 +58,14 @@ def main() -> int:
         action="store_true",
         help="Restore: SHA256-Sidecar-Verifikation ueberspringen",
     )
+    parser.add_argument(
+        "--no-verify-hmac",
+        action="store_true",
+        help=(
+            "Restore: HMAC-Sidecar-Verifikation ueberspringen "
+            "(SEC-007; wirkungslos wenn kein backup_hmac_key konfiguriert ist)"
+        ),
+    )
     args = parser.parse_args()
 
     # Settings lazy laden, damit `--help` ohne .env funktioniert.
@@ -70,10 +78,12 @@ def main() -> int:
             backup_path=args.restore,
             target_db_path=target,
             verify_hash=not args.no_verify_hash,
+            verify_hmac=not args.no_verify_hmac,
         )
         print(
             f"RESTORE ok -> {result.target_path} "
-            f"({result.bytes_restored} bytes, hash_verified={result.hash_verified})"
+            f"({result.bytes_restored} bytes, hash_verified={result.hash_verified}, "
+            f"hmac_verified={result.hmac_verified})"
         )
         return 0
 
@@ -93,6 +103,7 @@ def main() -> int:
     print(
         f"BACKUP ok -> {result.path} "
         f"({result.bytes_written} bytes, sha256={result.sha256[:16]}..., "
+        f"hmac_signed={result.hmac_signed}, "
         f"retained={result.retained_files}, pruned={result.pruned_files})"
     )
     return 0

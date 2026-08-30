@@ -322,6 +322,18 @@ class Settings(BaseSettings):
     # env/vault (TENANT_MASTER_KEK); development can pass an explicit KEK in tests.
     tenant_master_kek: str = ''
 
+    # SEC-007 (Codex-Audit 2026-08-26): der bisherige `.sha256`-Sidecar neben
+    # jedem Backup ist UNKEYED -- er beweist nur Zufallsintegritaet, nicht
+    # Authentizitaet. Ein Angreifer mit Schreibrecht auf das Backup-Verzeichnis
+    # kann Backup UND Sidecar gemeinsam ersetzen; der Restore-Pfad wuerde das
+    # klaglos akzeptieren. Ist backup_hmac_key gesetzt (separat verwalteter
+    # Schluessel, NICHT identisch mit db_key/secret_key/tenant_master_kek),
+    # signiert services/backup.py zusaetzlich mit HMAC-SHA256 und der Restore
+    # verifiziert/scheitert fail-closed bei fehlendem oder falschem Sidecar.
+    # Default leer -> unveraendertes Verhalten (reiner Tier-1-Desktop-Betrieb,
+    # kein zusaetzliches Schluesselmaterial zu verwalten).
+    backup_hmac_key: str = ''
+
     # Browser-Hosting (2026-06-10): Haupt-App (5eyes_v2.html) ueber das Backend
     # ausliefern, damit ein einzelner Host/Tunnel die komplette App im Browser
     # bereitstellt (Remote-Demo/Tier-2). Default AUS — Tier-1/Electron laedt die

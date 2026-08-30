@@ -8,10 +8,15 @@ Locking-Garantien.
 Features
 --------
 * Atomares Backup waehrend der Server lauft (WAL-mode)
-* SHA256-Sidecar fuer Integritaets-Verifikation
+* SHA256-Sidecar fuer Integritaets-Verifikation (Zufallskorruption, UNKEYED)
+* Optionales HMAC-SHA256-Sidecar fuer Authentizitaets-Verifikation, wenn
+  `settings.backup_hmac_key` gesetzt ist (SEC-007, Codex-Audit 2026-08-26 --
+  der reine SHA256-Sidecar beweist keine Authentizitaet, ein Angreifer mit
+  Schreibrecht kann Backup+Sidecar gemeinsam ersetzen)
 * Retention-Policy: aeltere Backups werden geloescht
 * SQLCipher-aware (verschluesseltes Backup wird 1:1 kopiert, gleicher Key)
-* Restore-Pfad mit Hash-Verifikation
+* Restore-Pfad mit Hash-Verifikation, fail-closed HMAC-Verifikation wenn
+  konfiguriert
 * CLI-aufrufbar (siehe scripts/backup_now.py)
 
 Sicherheits-Hinweis
@@ -27,6 +32,7 @@ Sicherheits-Hinweis
 from __future__ import annotations
 
 import hashlib
+import hmac
 import logging
 import os
 import shutil
@@ -54,6 +60,11 @@ _TIMESTAMP_FORMAT = "%Y%m%d-%H%M%S"
 _PARTIAL_SUFFIX = ".partial"
 _PARTIAL_GLOB = "*" + _PARTIAL_SUFFIX
 
+# SEC-007: separates Sidecar-Suffix fuer die HMAC-Signatur (nicht ".sha256",
+# damit ein Angreifer, der nur den unkeyed Hash faelscht, nicht versehentlich
+# auch als "authentisch" durchgeht -- die beiden Dateien sind unabhaengig).
+_HMAC_SIDECAR_SUFFIX = ".hmac256"
+
 
 @dataclass(frozen=True)
 class BackupResult:
@@ -65,6 +76,10 @@ class BackupResult:
     timestamp: datetime
     retained_files: int
     pruned_files: int
+    # SEC-007: True nur wenn backup_hmac_key konfiguriert war und ein
+    # HMAC-Sidecar geschrieben wurde (Authentizitaets-, nicht nur Integritaets-
+    # Beweis).
+    hmac_signed: bool = False
 
 
 @dataclass(frozen=True)
@@ -74,6 +89,8 @@ class RestoreResult:
     target_path: Path
     bytes_restored: int
     hash_verified: bool
+    # SEC-007: True nur wenn ein HMAC-Sidecar tatsaechlich verifiziert wurde.
+    hmac_verified: bool = False
 
 
 @dataclass(frozen=True)
@@ -150,6 +167,19 @@ def backup_database(
     sidecar = target.with_suffix(target.suffix + ".sha256")
     _write_sidecar_atomically(sidecar, f"{sha}  {target.name}\n")
 
+    # SEC-007: zusaetzliches HMAC-Sidecar, nur wenn ein dedizierter
+    # Signaturschluessel konfiguriert ist -- macht das Backup faelschungssicher
+    # gegen einen Angreifer, der Schreibzugriff auf das Backup-Verzeichnis hat
+    # (der reine SHA256-Sidecar oben liesse sich zusammen mit dem Backup
+    # ersetzen).
+    hmac_key = (settings.backup_hmac_key or "").strip()
+    hmac_signed = False
+    if hmac_key:
+        hmac_hex = _hmac_sha256_file(target, hmac_key)
+        hmac_sidecar = target.with_suffix(target.suffix + _HMAC_SIDECAR_SUFFIX)
+        _write_sidecar_atomically(hmac_sidecar, f"{hmac_hex}  {target.name}\n")
+        hmac_signed = True
+
     pruned = _prune_old_backups(
         target_dir_path,
         retain_days=retain_days,
@@ -160,11 +190,12 @@ def backup_database(
 
     bytes_written = target.stat().st_size
     logger.info(
-        "DB-Backup ok | source=%s target=%s bytes=%d sha256=%s pruned=%d retained=%d",
+        "DB-Backup ok | source=%s target=%s bytes=%d sha256=%s hmac_signed=%s pruned=%d retained=%d",
         src,
         target,
         bytes_written,
         sha[:16],
+        hmac_signed,
         pruned,
         retained,
     )
@@ -176,6 +207,7 @@ def backup_database(
         timestamp=ts,
         retained_files=retained,
         pruned_files=pruned,
+        hmac_signed=hmac_signed,
     )
 
 
@@ -184,6 +216,7 @@ def restore_database(
     *,
     target_db_path: str | Path,
     verify_hash: bool = True,
+    verify_hmac: bool = True,
     db_key: str | None = None,
 ) -> RestoreResult:
     """Stellt eine DB aus einem Backup wieder her.
@@ -197,6 +230,15 @@ def restore_database(
     verify_hash
         Wenn True und ein `.sha256`-Sidecar existiert, wird der Hash
         des Backups vor dem Restore verifiziert.
+    verify_hmac
+        SEC-007: Wenn True UND `settings.backup_hmac_key` konfiguriert ist,
+        MUSS ein gueltiges `.hmac256`-Sidecar vorliegen -- fehlend oder
+        mismatched fuehrt zum Abbruch (fail-closed). Ein reiner SHA256-Match
+        allein beweist keine Authentizitaet (ein Angreifer mit Schreibrecht
+        auf das Backup-Verzeichnis koennte Backup+SHA256-Sidecar gemeinsam
+        ersetzen; das HMAC-Sidecar kann er ohne den separat verwalteten
+        Schluessel nicht faelschen). Ist kein backup_hmac_key konfiguriert,
+        ist dieser Parameter wirkungslos (unveraendertes Verhalten).
     db_key
         Optional -- SQLCipher-Key des Backups. Default: `settings.db_key`.
         Nur relevant wenn `settings.db_use_sqlcipher=True`.
@@ -229,6 +271,26 @@ def restore_database(
             )
         hash_verified = True
 
+    hmac_verified = False
+    hmac_key = (settings.backup_hmac_key or "").strip()
+    if verify_hmac and hmac_key:
+        hmac_sidecar = src.with_suffix(src.suffix + _HMAC_SIDECAR_SUFFIX)
+        if not hmac_sidecar.exists():
+            raise ValueError(
+                f"Kein HMAC-Sidecar fuer {src.name} — backup_hmac_key ist "
+                f"konfiguriert, Restore mit verify_hmac=True abgelehnt "
+                f"(fehlende Authentizitaetsgarantie; ein reiner SHA256-Match "
+                f"beweist keine Authentizitaet)."
+            )
+        expected_hmac = hmac_sidecar.read_text(encoding="utf-8").split()[0].strip()
+        actual_hmac = _hmac_sha256_file(src, hmac_key)
+        if not hmac.compare_digest(expected_hmac, actual_hmac):
+            raise ValueError(
+                f"HMAC-Mismatch fuer {src.name}: Backup ist entweder "
+                f"korrupt oder wurde manipuliert (Authentizitaet verletzt)."
+            )
+        hmac_verified = True
+
     target = Path(target_db_path).expanduser().resolve()
     target.parent.mkdir(parents=True, exist_ok=True)
     # Einspielen in die produktive DB ebenfalls via Temp+os.replace
@@ -238,17 +300,19 @@ def restore_database(
 
     bytes_restored = target.stat().st_size
     logger.info(
-        "DB-Restore ok | source=%s target=%s bytes=%d hash_verified=%s",
+        "DB-Restore ok | source=%s target=%s bytes=%d hash_verified=%s hmac_verified=%s",
         src,
         target,
         bytes_restored,
         hash_verified,
+        hmac_verified,
     )
 
     return RestoreResult(
         target_path=target,
         bytes_restored=bytes_restored,
         hash_verified=hash_verified,
+        hmac_verified=hmac_verified,
     )
 
 
@@ -466,6 +530,23 @@ def _sha256_file(path: Path, chunk_size: int = 1 << 16) -> str:
     return h.hexdigest()
 
 
+def _hmac_sha256_file(path: Path, key: str, chunk_size: int = 1 << 16) -> str:
+    """HMAC-SHA256-Hex eines beliebig grossen Files (streaming, SEC-007).
+
+    Anders als _sha256_file() beweist dies Authentizitaet (nur wer den
+    Schluessel kennt kann eine gueltige Signatur erzeugen), nicht nur
+    Zufallsintegritaet.
+    """
+    h = hmac.new(key.encode("utf-8"), digestmod=hashlib.sha256)
+    with path.open("rb") as f:
+        while True:
+            chunk = f.read(chunk_size)
+            if not chunk:
+                break
+            h.update(chunk)
+    return h.hexdigest()
+
+
 def _list_backup_files(target_dir: Path) -> list[Path]:
     """Alle regulaeren Backup-Dateien — *.partial werden ausgeschlossen."""
     return [
@@ -506,10 +587,13 @@ def _prune_old_backups(
         if f.stat().st_mtime < cutoff:
             try:
                 f.unlink()
-                # Sidecar auch wegrumen
+                # Sidecars auch wegraeumen
                 sidecar = f.with_suffix(f.suffix + ".sha256")
                 if sidecar.exists():
                     sidecar.unlink()
+                hmac_sidecar = f.with_suffix(f.suffix + _HMAC_SIDECAR_SUFFIX)
+                if hmac_sidecar.exists():
+                    hmac_sidecar.unlink()
                 pruned += 1
             except OSError as exc:
                 logger.warning("Konnte altes Backup nicht loeschen: %s (%s)", f, exc)
@@ -537,8 +621,10 @@ def replicate_offsite(
     ---------
     backup_path
         Pfad zur lokalen Backup-Datei (aus `backup_database().path`). Die
-        `.sha256`-Sidecar-Datei wird automatisch mitkopiert, falls vorhanden,
-        damit der Remote-Host die Integritaet unabhaengig pruefen kann.
+        `.sha256`- und `.hmac256`-Sidecar-Dateien werden automatisch
+        mitkopiert, falls vorhanden, damit der Remote-Host Integritaet UND
+        (bei konfiguriertem backup_hmac_key) Authentizitaet unabhaengig
+        pruefen kann.
     target
         rsync-Ziel, z.B. "5eyes-offsite@backup-host.ch:/srv/5eyes-offsite/".
         Muss auf ein Verzeichnis zeigen (trailing slash empfohlen).
@@ -576,7 +662,14 @@ def replicate_offsite(
         )
 
     sidecar = backup_path.with_suffix(backup_path.suffix + ".sha256")
-    sources = [str(backup_path)] + ([str(sidecar)] if sidecar.exists() else [])
+    # SEC-007: HMAC-Sidecar (falls vorhanden) ebenfalls mitkopieren, sonst
+    # kann der Remote-Host die Authentizitaet nicht unabhaengig pruefen.
+    hmac_sidecar = backup_path.with_suffix(backup_path.suffix + _HMAC_SIDECAR_SUFFIX)
+    sources = (
+        [str(backup_path)]
+        + ([str(sidecar)] if sidecar.exists() else [])
+        + ([str(hmac_sidecar)] if hmac_sidecar.exists() else [])
+    )
 
     ssh_cmd = f"ssh -p {int(ssh_port)}"
     if ssh_key_path and ssh_key_path.strip():
