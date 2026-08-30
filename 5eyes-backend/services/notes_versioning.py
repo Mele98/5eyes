@@ -130,3 +130,20 @@ def snapshot_to_history(
 def load_history(notes_obj: Any) -> list[dict[str, Any]]:
     """Liest die History eines Notes-Objects."""
     return _parse_history(getattr(notes_obj, "previous_versions_json", None))
+
+
+# RESOURCE-002 Teil 2 (Codex-Audit 2026-08-27): "Append-only ohne Compaction"
+# (siehe Modul-Docstring) bedeutet die Historie waechst unbegrenzt -- GET/PUT
+# lieferten bisher IMMER die volle Liste aus, was bei Mandaten mit vielen
+# Edits wiederholte O(Historiengroesse) Response-/Parse-Arbeit verursacht.
+# load_history_page() paginiert (neueste zuerst, wie load_history()), OHNE
+# etwas aus der DB zu loeschen oder unerreichbar zu machen -- die volle
+# Historie bleibt ueber offset weiterhin abrufbar (kein stilles Abschneiden
+# von Beweisdaten, siehe Fixvertrag Punkt 4).
+def load_history_page(
+    notes_obj: Any, *, limit: int = 20, offset: int = 0
+) -> tuple[list[dict[str, Any]], int]:
+    """Liest eine Seite der History. Gibt (page, total) zurueck."""
+    history = _parse_history(getattr(notes_obj, "previous_versions_json", None))
+    total = len(history)
+    return history[offset:offset + limit], total

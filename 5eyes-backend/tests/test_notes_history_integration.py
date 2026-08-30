@@ -218,3 +218,97 @@ def test_response_schema_defaults_history_to_empty_list():
     from schemas.review import ReportNotesResponse
     response = ReportNotesResponse(mandate_id="MX-1")
     assert response.previous_versions == []
+
+
+# ---------------------------------------------------------------------------
+# RESOURCE-002 Teil 2 (Codex-Audit 2026-08-27): History-Pagination.
+# Append-only ohne Compaction (Modul-Docstring notes_versioning.py) bedeutet
+# previous_versions_json waechst unbegrenzt -- GET lieferte bisher IMMER
+# alles aus. load_history_page()/_serialize_notes(history_limit=...) muessen
+# eine Seite liefern UND previous_versions_total zeigen, damit nichts
+# "still" verschwindet (Fixvertrag Punkt 4).
+# ---------------------------------------------------------------------------
+
+def _history_with_n_entries(n: int):
+    from types import SimpleNamespace
+    from services.notes_versioning import snapshot_to_history
+
+    notes = SimpleNamespace(
+        aa_anmerkungen="v0",
+        waehrungen_erklaerung=None,
+        branchen_analyse=None,
+        vorgehen_block_optimierungen=None,
+        vorgehen_block_zielstrategie=None,
+        vorgehen_offene_fragen_json=None,
+        vorgehen_naechster_termin=None,
+        vorgehen_todos_json=None,
+        vorgehen_dokumente_json=None,
+        previous_versions_json=None,
+    )
+    for i in range(n):
+        new_value = f"v{i + 1}"
+        snapshot_to_history(
+            notes, new_values={"aa_anmerkungen": new_value},
+            edited_by=f"u{i}", edited_at=f"2026-06-{i + 1:02d}T10:00:00Z",
+        )
+        notes.aa_anmerkungen = new_value
+    return notes
+
+
+def test_load_history_page_returns_bounded_slice_and_total():
+    from services.notes_versioning import load_history_page
+
+    notes = _history_with_n_entries(5)
+    page, total = load_history_page(notes, limit=2, offset=0)
+    assert total == 5
+    assert len(page) == 2
+    # DESC: neuester zuerst -> die letzten beiden Edits (i=4, i=3)
+    assert page[0]["edited_by"] == "u4"
+    assert page[1]["edited_by"] == "u3"
+
+
+def test_load_history_page_offset_reaches_older_entries():
+    from services.notes_versioning import load_history_page
+
+    notes = _history_with_n_entries(5)
+    page, total = load_history_page(notes, limit=2, offset=4)
+    assert total == 5
+    assert len(page) == 1  # nur noch der aelteste Eintrag uebrig
+    assert page[0]["edited_by"] == "u0"
+
+
+def test_load_history_page_default_matches_load_history_when_under_limit():
+    from services.notes_versioning import load_history, load_history_page
+
+    notes = _history_with_n_entries(3)
+    page, total = load_history_page(notes)  # Default limit=20
+    assert total == 3
+    assert page == load_history(notes)
+
+
+def test_serialize_notes_paginates_history_and_reports_total(monkeypatch):
+    from routers.allocation import _serialize_notes
+    from types import SimpleNamespace
+
+    base = _history_with_n_entries(5)
+    notes = MagicMock()
+    for f in (
+        "id", "mandate_id", "aa_anmerkungen", "last_edited_by", "last_edited_at",
+        "created_at", "updated_at",
+    ):
+        setattr(notes, f, "x")
+    for f in (
+        "waehrungen_erklaerung", "branchen_analyse", "vorgehen_block_optimierungen",
+        "vorgehen_block_zielstrategie", "vorgehen_offene_fragen_json",
+        "vorgehen_naechster_termin", "vorgehen_todos_json", "vorgehen_dokumente_json",
+    ):
+        setattr(notes, f, None)
+    notes.previous_versions_json = base.previous_versions_json
+
+    result = _serialize_notes(notes, history_limit=2, history_offset=0)
+    assert len(result["previous_versions"]) == 2
+    assert result["previous_versions_total"] == 5
+
+    result_default = _serialize_notes(notes)
+    assert len(result_default["previous_versions"]) == 5  # unter Default-Limit 20
+    assert result_default["previous_versions_total"] == 5

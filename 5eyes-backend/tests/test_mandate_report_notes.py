@@ -401,3 +401,63 @@ def test_put_rejects_single_todo_item_over_2000_chars(http_client):
         json={"vorgehen_todos": ["x" * 2001]},
     )
     assert resp.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# RESOURCE-002 Teil 2 (Codex-Audit 2026-08-27): History-Pagination End-to-End
+# gegen den echten GET-Endpoint (nicht nur _serialize_notes/notes_versioning
+# isoliert wie in test_notes_history_integration.py).
+# ---------------------------------------------------------------------------
+
+def test_get_paginates_history_by_default_and_reports_total(http_client):
+    client, _advisor, mandate, _session = http_client
+    for i in range(3):
+        client.put(
+            f"/mandates/{mandate.id}/report-notes",
+            json={"aa_anmerkungen": f"Version {i}"},
+        )
+    resp = client.get(f"/mandates/{mandate.id}/report-notes")
+    assert resp.status_code == 200
+    body = resp.json()
+    # 3 PUTs -> 2 tatsaechliche Aenderungen ab dem ersten Insert (das
+    # allererste PUT hat keinen "alten" Wert zum Snapshotten).
+    assert body["previous_versions_total"] == len(body["previous_versions"])
+    assert body["previous_versions_total"] >= 1
+
+
+def test_get_history_limit_query_param_bounds_page_size(http_client):
+    client, _advisor, mandate, _session = http_client
+    for i in range(5):
+        client.put(
+            f"/mandates/{mandate.id}/report-notes",
+            json={"aa_anmerkungen": f"Version {i}"},
+        )
+    resp = client.get(f"/mandates/{mandate.id}/report-notes?history_limit=2")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert len(body["previous_versions"]) == 2
+    assert body["previous_versions_total"] >= 4  # nichts wurde still verworfen
+
+
+def test_get_history_offset_reaches_older_entries(http_client):
+    client, _advisor, mandate, _session = http_client
+    for i in range(5):
+        client.put(
+            f"/mandates/{mandate.id}/report-notes",
+            json={"aa_anmerkungen": f"Version {i}"},
+        )
+    first_page = client.get(
+        f"/mandates/{mandate.id}/report-notes?history_limit=2&history_offset=0"
+    ).json()
+    second_page = client.get(
+        f"/mandates/{mandate.id}/report-notes?history_limit=2&history_offset=2"
+    ).json()
+    assert first_page["previous_versions"] != second_page["previous_versions"]
+
+
+def test_get_rejects_out_of_range_history_limit(http_client):
+    client, _advisor, mandate, _session = http_client
+    resp = client.get(f"/mandates/{mandate.id}/report-notes?history_limit=201")
+    assert resp.status_code == 422
+    resp2 = client.get(f"/mandates/{mandate.id}/report-notes?history_offset=-1")
+    assert resp2.status_code == 422
