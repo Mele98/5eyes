@@ -39,7 +39,7 @@ def _patch_post_schema_boot_steps(monkeypatch) -> None:
         "ensure_tenant_backfill",
     ):
         monkeypatch.setattr(database, name, lambda: None)
-    monkeypatch.setattr(postgres_rls, "ensure_postgres_tenant_not_null", lambda engine: None)
+    monkeypatch.setattr(postgres_rls, "ensure_postgres_tenant_not_null", lambda engine, **kwargs: None)
     monkeypatch.setattr(postgres_rls, "ensure_postgres_rls_policies", lambda engine: None)
 
 
@@ -86,6 +86,66 @@ def test_sqlite_init_db_keeps_legacy_schema_path(monkeypatch):
     database.init_db()
 
     assert calls == [("schema", sqlite_url), ("sqlite_legacy", None)]
+
+
+def test_postgres_tenant_not_null_backfill_excludes_global_reference_tables(monkeypatch):
+    """PG-003 (Codex-Audit 2026-08-25): der Backfill darf capital_market_
+    assumptions/products/product_universe_entries/audit_log NICHT anfassen
+    -- nur genau die vier Tabellen, die ensure_tenant_backfill() (SQLite)
+    bereits als sicher erwiesen hat. Ein Blanket-Backfill auf
+    capital_market_assumptions/products haette deren globale/geteilte
+    tenant_id=NULL-Semantik unumkehrbar zerstoert (NOT NULL-Constraint)."""
+    postgres_url = "postgresql://migration-test:unused@localhost/unused"
+    calls: list = []
+
+    monkeypatch.setattr(database, "build_database_url", lambda **kwargs: postgres_url)
+    monkeypatch.setattr(database, "_create_or_migrate_schema", lambda url: None)
+    for name in (
+        "ensure_default_tenant", "ensure_default_ch_jurisdiction",
+        "ensure_default_de_jurisdiction", "ensure_client_login_user_tenant_backfill",
+        "ensure_tenant_backfill",
+    ):
+        monkeypatch.setattr(database, name, lambda: None)
+    monkeypatch.setattr(
+        postgres_rls, "ensure_postgres_tenant_not_null",
+        lambda engine, **kwargs: calls.append(kwargs.get("table_names")),
+    )
+    monkeypatch.setattr(postgres_rls, "ensure_postgres_rls_policies", lambda engine: None)
+    monkeypatch.setattr(database.settings, "tenancy_mode", "single")
+
+    database.init_db()
+
+    assert calls == [("users", "clients", "mandates", "protocol_bausteine")]
+    for excluded in ("capital_market_assumptions", "products", "product_universe_entries", "audit_log"):
+        assert excluded not in calls[0]
+
+
+def test_postgres_tenant_not_null_backfill_skipped_entirely_in_multi_tenancy_mode(monkeypatch):
+    """Analog zu ensure_tenant_backfill() (SQLite): in tenancy_mode="multi"
+    ist ein Blanket-'main'-Backfill selbst fuer die vier "sicheren" Tabellen
+    ein Risiko (ein noch nicht auditierter Endpoint-Bug koennte NULL-Zeilen
+    stillschweigend der Firma zuweisen, die zufaellig 'main' heisst)."""
+    postgres_url = "postgresql://migration-test:unused@localhost/unused"
+    calls: list = []
+
+    monkeypatch.setattr(database, "build_database_url", lambda **kwargs: postgres_url)
+    monkeypatch.setattr(database, "_create_or_migrate_schema", lambda url: None)
+    for name in (
+        "ensure_default_tenant", "ensure_default_ch_jurisdiction",
+        "ensure_default_de_jurisdiction", "ensure_client_login_user_tenant_backfill",
+        "ensure_tenant_backfill",
+    ):
+        monkeypatch.setattr(database, name, lambda: None)
+    monkeypatch.setattr(
+        postgres_rls, "ensure_postgres_tenant_not_null",
+        lambda engine, **kwargs: calls.append(kwargs),
+    )
+    monkeypatch.setattr(postgres_rls, "ensure_postgres_rls_policies", lambda engine: None)
+    monkeypatch.setattr(database.settings, "tenancy_mode", "multi")
+
+    database.init_db()
+
+    assert calls == []
 
 
 def test_lazy_sqlite_schema_helpers_are_noops_for_postgres():
