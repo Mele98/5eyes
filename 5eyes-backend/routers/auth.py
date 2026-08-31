@@ -27,6 +27,7 @@ from services.totp import (
     generate_secret, provisioning_uri, qr_svg_data_uri, verify as totp_verify,
     _PERIOD as _TOTP_PERIOD_SECONDS,
 )
+from services.totp_secret_storage import store_totp_secret, load_totp_secret
 from services.mailer import send_invite_email, send_password_reset_email
 from services.quota import assert_within_quota
 from services.refresh_tokens import (
@@ -296,7 +297,7 @@ def login(body: LoginRequest, request: Request, db: Session = Depends(get_db)):
                 status_code=401, detail="2FA-Code erforderlich",
                 headers={"X-2FA-Required": "1"},
             )
-        if not totp_verify(user.totp_secret or "", code):
+        if not totp_verify(load_totp_secret(db, user), code):
             # #25 Fallback: 2FA-Recovery-Code (Backup, falls Authenticator weg).
             # Single-use — verbrauchter Code wird entfernt + persistiert.
             ensure_account_recovery_columns(db)
@@ -484,7 +485,11 @@ def twofa_setup(db: Session = Depends(get_db), current_user: User = Depends(get_
     if getattr(current_user, "totp_enabled", 0):
         raise HTTPException(status_code=409, detail="2FA ist bereits aktiv. Zuerst deaktivieren.")
     secret = generate_secret()
-    current_user.totp_secret = secret
+    # SEC-005 (Codex-Audit 2026-08-26): store_totp_secret() verschluesselt
+    # NUR wenn der User einen tenant_id mit echtem Tenant hat -- Tier-1
+    # bleibt unveraendert Klartext. `secret` (lokale Variable, Klartext)
+    # bleibt fuer otpauth_uri/QR unten unangetastet.
+    current_user.totp_secret = store_totp_secret(db, current_user, secret)
     current_user.updated_at = _now()
     db.commit()
     uri = provisioning_uri(secret, current_user.username or current_user.id, issuer="5eyes")
@@ -514,7 +519,7 @@ def twofa_enable(body: _TwoFACodeRequest, db: Session = Depends(get_db),
             detail=decision.reason or "Zu viele Fehlversuche. Bitte später erneut versuchen.",
             headers={"Retry-After": str(decision.retry_after_seconds)},
         )
-    if not totp_verify(current_user.totp_secret, body.code):
+    if not totp_verify(load_totp_secret(db, current_user), body.code):
         failure = login_attempt_guard.register_failure(guard_key)
         headers = {"Retry-After": str(failure.retry_after_seconds)} if failure.retry_after_seconds else None
         raise HTTPException(status_code=401, detail="2FA-Code falsch", headers=headers)
@@ -545,7 +550,7 @@ def twofa_disable(body: _TwoFACodeRequest, db: Session = Depends(get_db),
             detail=decision.reason or "Zu viele Fehlversuche. Bitte später erneut versuchen.",
             headers={"Retry-After": str(decision.retry_after_seconds)},
         )
-    if not totp_verify(current_user.totp_secret or "", body.code):
+    if not totp_verify(load_totp_secret(db, current_user), body.code):
         failure = login_attempt_guard.register_failure(guard_key)
         headers = {"Retry-After": str(failure.retry_after_seconds)} if failure.retry_after_seconds else None
         raise HTTPException(status_code=401, detail="2FA-Code falsch", headers=headers)
