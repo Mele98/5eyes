@@ -149,6 +149,10 @@ def create_backup() -> dict[str, Any]:
         'db_file': str(backup_path),
         'db_sha256': result.sha256,
         'db_size_bytes': result.bytes_written,
+        # SEC-007 (Codex-Audit 2026-08-26): True nur wenn backup_hmac_key
+        # konfiguriert war -- reiner db_sha256 oben beweist keine
+        # Authentizitaet, siehe services/backup.py.
+        'db_hmac_signed': result.hmac_signed,
         'sidecars': [],
     }
     manifest_path = backup_dir / f'{backup_path.name}.json'
