@@ -725,6 +725,13 @@ def password_reset_confirm(body: _PasswordResetConfirm, request: Request, db: Se
     # gibt es hier KEINE Ausnahme -- Reset ist immer ein bewusster, expliziter
     # Vorgang ueber einen separaten E-Mail-Link, nie ein Onboarding-Zwischenschritt.
     user.token_revoked_before = _now()
+    # AUTH-TEN-01 (Codex-Audit 2026-08-25): token_revoked_before widerruft nur
+    # Access-Tokens. Ein vorher ausgestellter Refresh-Token blieb bislang
+    # gueltig und konnte trotz Passwort-Reset weiterhin frische Access-Tokens
+    # holen -- genau der Angreifer, den der Reset aussperren soll, waere
+    # weiter drin. revoke_all_for_user() ist derselbe Aufruf, den
+    # change_password() bereits fuer den regulaeren Passwortwechsel macht.
+    revoke_all_for_user(db, user.id)
     log(db, user_id=user.id, user_name=user.full_name,
         table_name="users", record_id=user.id, action="PASSWORD_RESET_CONFIRM",
         ip_address=_extract_client_ip(request))
@@ -1064,6 +1071,12 @@ def reset_user_password(
     user.updated_at = _now()
     if not is_self or not was_forced_change:
         user.token_revoked_before = _now()
+        # AUTH-TEN-01 (Codex-Audit 2026-08-25): dieselbe Luecke wie
+        # password_reset_confirm oben -- token_revoked_before widerruft nur
+        # Access-Tokens, ein bereits ausgestelltes Refresh-Token ueberlebte
+        # bisher sowohl den Admin-Reset (fremder User) als auch den
+        # regulaeren Self-Reset ueber diesen Legacy-Endpoint.
+        revoke_all_for_user(db, user.id)
     log(
         db,
         user_id=current_user.id,
