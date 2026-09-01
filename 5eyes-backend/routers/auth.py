@@ -37,7 +37,7 @@ from services.account_recovery import (
     ensure_account_recovery_columns, generate_recovery_codes, consume_recovery_code,
     remaining_recovery_codes, issue_reset_token, reset_token_valid, clear_reset_token,
 )
-from sqlalchemy import or_
+from sqlalchemy import or_, update as _sa_update
 from pydantic import BaseModel as _BaseModel
 
 
@@ -712,8 +712,23 @@ def password_reset_confirm(body: _PasswordResetConfirm, request: Request, db: Se
     ).first()
     if not user or not reset_token_valid(user, body.token):
         raise HTTPException(status_code=400, detail="Ungueltiger oder abgelaufener Reset-Link.")
+    # AUTH-TEN-08 (Codex-Audit 2026-08-25): Reset-Token war bisher ein
+    # read-then-write-Einmalvertrag -- zwei parallele Requests mit demselben
+    # Token konnten beide die obige Pruefung bestehen, bevor irgendeiner
+    # committet. Atomarer CAS claimt den Token zuerst (WHERE id + exakter
+    # Hash, derselbe der oben gerade validiert wurde); rowcount=0 bedeutet
+    # ein konkurrierender Request war schneller -- derselbe generische
+    # 400-Fehler wie bei jedem anderen ungueltigen/verbrauchten Token
+    # (keine Unterscheidung noetig, beides bedeutet "Token nicht mehr gueltig").
+    claim = db.execute(
+        _sa_update(User)
+        .where(User.id == user.id, User.reset_token_hash == token_hash)
+        .values(reset_token_hash=None, reset_token_expires_at=None)
+    )
+    if claim.rowcount == 0:
+        raise HTTPException(status_code=400, detail="Ungueltiger oder abgelaufener Reset-Link.")
     user.password_hash = hash_password(body.new_password)
-    clear_reset_token(user)
+    clear_reset_token(user)  # ORM-Objekt synchron halten (Core-Update oben)
     user.must_change_password = 0
     user.updated_at = _now()
     # 2026-07-25 (Generalaudit, Wave 12): fehlte hier -- anders als der bereits
@@ -955,8 +970,24 @@ def invite_accept(body: InviteAccept, request: Request, db: Session = Depends(ge
     """Public: Mitarbeiter setzt sein Passwort per Token. Token wird verbraucht.
     Loggt direkt ein -> beim ersten Login erzwingt das 2FA-Gate das Enrollment."""
     user = _resolve_invite_guarded(db, body.token, request)
+    # AUTH-TEN-08 (Codex-Audit 2026-08-25): derselbe read-then-write-Einmal-
+    # vertrag-Race wie beim Passwort-Reset (siehe password_reset_confirm) --
+    # zwei parallele Requests mit demselben Invite-Token konnten bisher
+    # beide die Gueltigkeitspruefung in _resolve_invite bestehen. Atomarer
+    # CAS claimt den Token zuerst; ein konkurrierender Verlierer bekommt
+    # denselben 404 wie ein bereits verbrauchter Token (_resolve_invite
+    # findet dann ohnehin keine Zeile mehr -- aber DAS ist erst der naechste
+    # Request; FUER DIESEN Request muss das rowcount-Ergebnis entscheiden).
+    invite_token_hash = _hash_invite_token(str(body.token or "").strip())
+    claim = db.execute(
+        _sa_update(User)
+        .where(User.id == user.id, User.invite_token_hash == invite_token_hash)
+        .values(invite_token_hash=None, invite_expires_at=None)
+    )
+    if claim.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Einladungslink ungueltig oder bereits verwendet.")
     user.password_hash = hash_password(body.password)
-    user.invite_token_hash = None
+    user.invite_token_hash = None  # ORM-Objekt synchron halten (Core-Update oben)
     user.invite_expires_at = None
     user.must_change_password = 0
     user.updated_at = _now()
