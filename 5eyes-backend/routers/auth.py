@@ -1018,13 +1018,30 @@ def update_user(
         if body.role is not None:
             raise HTTPException(status_code=400, detail="Eigene Rolle kann nicht geändert werden")
     _ALLOWED_USER_UPDATE_FIELDS = {"full_name", "email", "role", "is_active"}
-    for field, value in body.model_dump(exclude_none=True).items():
-        if field not in _ALLOWED_USER_UPDATE_FIELDS:
-            continue
+    updates = {
+        f: v for f, v in body.model_dump(exclude_none=True).items()
+        if f in _ALLOWED_USER_UPDATE_FIELDS
+    }
+    # AUTH-TEN-03 (Codex-Audit 2026-08-25): Deaktivierung und Rollenaenderung
+    # sind sicherheitsrelevant genau wie ein Passwortwechsel (AUTH-TEN-01) --
+    # ohne Session-Widerruf blieb ein bereits ausgestelltes Access-/Refresh-
+    # Token nach beidem weiter gueltig und wechselte stillschweigend in den
+    # neuen Berechtigungsumfang, ohne dass sich der User erneut authentisieren
+    # musste. Erkennung VOR der Mutation, weil danach der alte Wert weg ist.
+    is_being_deactivated = "is_active" in updates and not updates["is_active"] and bool(user.is_active)
+    is_role_changing = "role" in updates and updates["role"] != user.role
+    needs_session_revocation = is_being_deactivated or is_role_changing
+
+    for field, value in updates.items():
         if field == "is_active":
             setattr(user, field, 1 if value else 0)
         else:
             setattr(user, field, value)
+
+    if needs_session_revocation:
+        user.token_revoked_before = _now()
+        revoke_all_for_user(db, user.id)
+
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="users", record_id=user_id, action="UPDATE")
     db.commit()
