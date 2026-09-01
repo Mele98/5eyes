@@ -39,6 +39,7 @@ from schemas.tenants import (
 from services.audit import log
 from services.auth import require_admin, require_super_admin
 from services.quota import compute_tenant_usage
+from services.refresh_tokens import revoke_all_for_user
 # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Quell-IP fuer Tenant-Admin-Aktionen.
 from routers.auth import _extract_client_ip
 
@@ -326,8 +327,18 @@ def assign_user_to_tenant(
                     "inkonsistent machen."
                 ),
             )
+    # AUTH-TEN-03 (Codex-Audit 2026-08-25): ein VOR der Zuweisung bereits
+    # ausgestellter Refresh-Token blieb bisher gueltig und wechselte
+    # stillschweigend in den neuen Mandanten-Scope, ohne dass sich der User
+    # erneut authentisieren musste -- Session-Uebernahme ohne Login. Widerruf
+    # nur wenn sich tenant_id tatsaechlich AENDERT (nicht bei einer No-Op-
+    # Neuzuweisung auf denselben Tenant).
+    tenant_actually_changing = str(getattr(user, "tenant_id", None) or "").strip() != str(tenant_id).strip()
     user.tenant_id = tenant_id
     user.updated_at = _now_iso()
+    if tenant_actually_changing:
+        user.token_revoked_before = _now_iso()
+        revoke_all_for_user(db, user.id)
     # Sprint T4: audit_log.action ist auf festes ENUM begrenzt; wir nutzen
     # 'UPDATE' weil der User-Datensatz aktualisiert wird (tenant_id-Spalte).
     log(
