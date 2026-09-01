@@ -20,7 +20,7 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from database import Base, get_db  # noqa: E402
+from database import Base, attach_sqlite_pragmas, build_connect_args, get_db  # noqa: E402
 from main import app  # noqa: E402
 from models.refresh_token import RefreshToken  # noqa: E402
 from models.users import User  # noqa: E402
@@ -159,6 +159,76 @@ def test_rotate_reused_token_raises_and_revokes_entire_family(session_factory):
         assert second_row.revoked_at is not None
         with pytest.raises(RefreshTokenReuseDetected):
             rotate_refresh_token(db, second.raw_token)
+
+
+# ---------------------------------------------------------------------------
+# AUTH-TEN-02 (Codex-Audit 2026-08-25): Zwei-Transaktionen-Race bei der
+# Rotation. Vor dem Fix konnten zwei parallele rotate_refresh_token()-Aufrufe
+# mit demselben Token BEIDE die read-then-write-Pruefung bestehen und je
+# einen eigenen Nachfolger erzeugen -- der atomare CAS (UPDATE ... WHERE
+# revoked_at IS NULL) macht das Revozieren zur exklusiven Bedingung: genau
+# ein Aufruf gewinnt, der andere erkennt rowcount=0 und behandelt das wie
+# einen Reuse-Versuch (ganze Familie stillgelegt, 401).
+# ---------------------------------------------------------------------------
+
+def test_concurrent_rotation_of_same_token_exactly_one_wins(tmp_path):
+    """Datei-basierte SQLite-DB mit denselben Pragmas wie database.py (WAL,
+    busy_timeout=5000) -- ohne busy_timeout wuerfe der zweite Writer sofort
+    ein 'database is locked' OperationalError statt (realistisch) zu warten
+    und dann rowcount=0 zu sehen. Siehe test_multi_tenant_concurrency.py fuer
+    denselben etablierten Pragma-Fixture-Vertrag."""
+    import threading
+
+    db_url = f"sqlite:///{tmp_path / 'refresh_race.db'}"
+    engine = create_engine(db_url, connect_args=build_connect_args(database_url=db_url), pool_timeout=30)
+    attach_sqlite_pragmas(engine)
+    SF = sessionmaker(autocommit=False, autoflush=False, expire_on_commit=False, bind=engine)
+    Base.metadata.create_all(bind=engine)
+
+    with SF() as seed_db:
+        user = _seed_user(SF)
+        first = issue_refresh_token(seed_db, user)
+        seed_db.commit()
+        raw_token = first.raw_token
+        family_id = first.row.family_id
+
+    barrier = threading.Barrier(2)
+    results: list = []
+    lock = threading.Lock()
+
+    def _attempt():
+        barrier.wait()
+        with SF() as db:
+            try:
+                outcome = rotate_refresh_token(db, raw_token)
+                db.commit()
+                with lock:
+                    results.append(("ok", outcome))
+            except RefreshTokenReuseDetected:
+                with lock:
+                    results.append(("reuse", None))
+
+    threads = [threading.Thread(target=_attempt) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=10)
+
+    assert len(results) == 2
+    outcomes = [kind for kind, _ in results]
+    # Exakt EIN Gewinner, exakt EIN Reuse -- niemals beide "ok" (das waere
+    # das urspruengliche Race: zwei gueltige Nachfolger aus demselben Token).
+    assert outcomes.count("ok") == 1, f"Erwartete genau 1 Gewinner, bekam: {outcomes}"
+    assert outcomes.count("reuse") == 1, f"Erwartete genau 1 Reuse-Ablehnung, bekam: {outcomes}"
+
+    with SF() as db:
+        family_rows = db.query(RefreshToken).filter(RefreshToken.family_id == family_id).all()
+        # Verlorener Wettlauf behandelt das wie Reuse -> GESAMTE Familie tot,
+        # inklusive des vom Gewinner frisch ausgestellten Nachfolgers.
+        assert all(r.revoked_at is not None for r in family_rows), (
+            "Nach einem Rotations-Wettlauf muss die komplette Familie "
+            "revoziert sein (Reuse-Vertrag), auch der Nachfolger des Gewinners."
+        )
 
 
 def test_revoke_family_only_touches_that_family(session_factory):

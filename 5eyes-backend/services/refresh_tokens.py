@@ -13,6 +13,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
+from sqlalchemy import update as _sa_update
 from sqlalchemy.orm import Session
 
 from config import settings
@@ -123,8 +124,36 @@ def rotate_refresh_token(
     if user is None or not user.is_active:
         return None
 
+    # AUTH-TEN-02 (Codex-Audit 2026-08-25): atomarer CAS statt read-then-write.
+    # Ohne dies koennten zwei parallele Rotationsversuche mit demselben Token
+    # BEIDE die revoked_at-Pruefung oben bestehen, bevor irgendeiner committet,
+    # und je einen eigenen Nachfolger erzeugen (das vom Audit reproduzierte
+    # Zwei-Transaktionen-Race). Die WHERE-Klausel macht das Revozieren zur
+    # exklusiven, atomaren Bedingung: unter SQLite serialisiert die Whole-DB-
+    # Schreibsperre (+ PRAGMA busy_timeout) konkurrierende Writer, unter
+    # PostgreSQL das Zeilen-Lock der UPDATE-Anweisung selbst -- in beiden
+    # Faellen sieht der zweite Writer nach Erhalt der Sperre bereits
+    # revoked_at IS NOT NULL und aktualisiert 0 Zeilen (rowcount=0 unten).
+    now_iso = _now()
+    result = db.execute(
+        _sa_update(RefreshToken)
+        .where(RefreshToken.id == row.id, RefreshToken.revoked_at.is_(None))
+        .values(revoked_at=now_iso)
+    )
+    if result.rowcount == 0:
+        # Race verloren -- ein konkurrierender Rotationsversuch war schneller.
+        # Gemaess demselben Reuse-Vertrag wie oben: ganze Familie stilllegen
+        # (inkl. des vom Gewinner ausgestellten Nachfolgers) und 401 ausloesen.
+        revoke_family(db, row.family_id)
+        db.commit()
+        raise RefreshTokenReuseDetected(
+            f"refresh token rotation race lost for family {row.family_id}"
+        )
+
     new_token = issue_refresh_token(db, user, family_id=row.family_id, ip=ip)
-    row.revoked_at = _now()
+    # ORM-Objekt synchron halten -- das obige db.execute(update(...)) ist ein
+    # Core-Statement und aktualisiert `row` im Identity-Map nicht automatisch.
+    row.revoked_at = now_iso
     row.replaced_by_id = new_token.row.id
     return user, new_token
 
