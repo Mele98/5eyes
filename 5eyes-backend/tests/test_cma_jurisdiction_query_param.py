@@ -310,3 +310,45 @@ def test_update_cma_de_first_version_has_no_previous_row(client, session_factory
         assert body["is_current"] == 1
     finally:
         _logout()
+
+
+# ── AUTH-TEN-04 (Codex-Audit 2026-08-25): der Test oben
+# (test_update_cma_de_first_version_has_no_previous_row) demonstriert die
+# eigentliche Luecke -- admin-a (tenant_id='main') aendert per frei
+# waehlbarem tenant_id-Query-Parameter die CMA von 'firm-a'. Das bleibt in
+# Tier-1 (Default) bewusst unveraendert moeglich; in einer echten Multi-
+# Tenant-Installation (strict_tenant_isolation) muss das jetzt
+# super_admin/portfolio_management erfordern.
+
+def test_update_cma_blocked_for_admin_when_strict_tenant_isolation(client, session_factory, monkeypatch):
+    from config import settings
+    monkeypatch.setattr(settings, "strict_tenant_isolation", True)
+    _seed_users(session_factory)
+    _login_admin()
+    try:
+        resp = client.put(
+            "/capital-market-assumptions",
+            params={"jurisdiction": "DE", "tenant_id": "firm-a"},
+            json={"valid_from": "2026-08-01", "bonds_chf_ig_return_bps": 180},
+        )
+        assert resp.status_code == 403, resp.text
+    finally:
+        _logout()
+
+
+def test_update_cma_allowed_for_super_admin_when_strict_tenant_isolation(client, session_factory, monkeypatch):
+    from config import settings
+    monkeypatch.setattr(settings, "strict_tenant_isolation", True)
+    _seed_users(session_factory)
+    user = User(id="super-a", username="super-a", password_hash="h", full_name="Super A",
+                role="super_admin", is_active=1, tenant_id=None)
+    app.dependency_overrides[get_current_user] = lambda: user
+    try:
+        resp = client.put(
+            "/capital-market-assumptions",
+            params={"jurisdiction": "DE", "tenant_id": "firm-a"},
+            json={"valid_from": "2026-08-01", "bonds_chf_ig_return_bps": 180},
+        )
+        assert resp.status_code == 200, resp.text
+    finally:
+        _logout()

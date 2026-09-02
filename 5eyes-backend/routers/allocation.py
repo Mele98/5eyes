@@ -25,7 +25,10 @@ from schemas.allocation import (
     OptimizerPolicyDetailResponse, HouseMatrixRowsReplace,
 )
 from schemas.review import ReportNotesResponse, ReportNotesUpdate
-from services.auth import get_current_user, get_mandate_for_user_or_404, require_advisor, require_admin
+from services.auth import (
+    get_current_user, get_mandate_for_user_or_404, require_advisor, require_admin,
+    require_portfolio_management,
+)
 from services.audit import log
 # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Quell-IP fuer CMA-/Policy-/Allokations-
 # Aenderungen im Audit-Log.
@@ -412,7 +415,11 @@ def update_cma(
     jurisdiction: str = "CH",
     tenant_id: Optional[str] = None,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin)
+    # AUTH-TEN-04 (Codex-Audit 2026-08-25): require_admin allein liess JEDEN
+    # firmengebundenen Admin ueber den frei waehlbaren tenant_id-Query-
+    # Parameter beliebige (fremde/globale) CMA-Zeilen aendern. Siehe
+    # require_portfolio_management()-Docstring fuer die Tier-1-Kompatibilitaet.
+    current_user: User = Depends(require_portfolio_management)
 ):
     """Admin only — update capital market assumptions (creates new version).
 

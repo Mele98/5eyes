@@ -236,3 +236,61 @@ def test_approve_does_not_affect_other_tenant_scope(client, session_factory):
         ).first()
         assert tenant_row.is_current == 1
         assert tenant_row.status == "committee_approved"
+
+
+# ── AUTH-TEN-04 (Codex-Audit 2026-08-25): CMA ist effektiv global, kein
+# Tenant-Datum -- ein firmengebundener 'admin' durfte es trotzdem in JEDER
+# Installation aendern/freigeben. In einer echten Multi-Tenant-Installation
+# (strict_tenant_isolation) braucht das jetzt super_admin/portfolio_management;
+# Tier-1 (Default, kein strict_tenant_isolation) bleibt komplett unveraendert
+# -- siehe test_admin_can_also_approve oben, das laeuft ohne diesen Override.
+
+def test_admin_blocked_from_approve_when_strict_tenant_isolation(client, session_factory, monkeypatch):
+    from config import settings
+    monkeypatch.setattr(settings, "strict_tenant_isolation", True)
+
+    with session_factory() as s:
+        s.add(_make_cma("cma-de-strict1", jurisdiction="DE", status="data_derived", is_current=0))
+        s.commit()
+    _seed_users(session_factory)
+
+    _login_as("admin-a", "admin")
+    try:
+        resp = client.post("/capital-market-assumptions/cma-de-strict1/approve")
+        assert resp.status_code == 403, resp.text
+    finally:
+        _logout()
+
+
+def test_super_admin_still_allowed_to_approve_when_strict_tenant_isolation(client, session_factory, monkeypatch):
+    from config import settings
+    monkeypatch.setattr(settings, "strict_tenant_isolation", True)
+
+    with session_factory() as s:
+        s.add(_make_cma("cma-de-strict2", jurisdiction="DE", status="data_derived", is_current=0))
+        s.commit()
+    _seed_users(session_factory)
+
+    _login_as("super-a", "super_admin")
+    try:
+        resp = client.post("/capital-market-assumptions/cma-de-strict2/approve")
+        assert resp.status_code == 200, resp.text
+    finally:
+        _logout()
+
+
+def test_portfolio_management_still_allowed_when_strict_tenant_isolation(client, session_factory, monkeypatch):
+    from config import settings
+    monkeypatch.setattr(settings, "strict_tenant_isolation", True)
+
+    with session_factory() as s:
+        s.add(_make_cma("cma-de-strict3", jurisdiction="DE", status="data_derived", is_current=0))
+        s.commit()
+    _seed_users(session_factory)
+
+    _login_as("pm-a", "portfolio_management")
+    try:
+        resp = client.post("/capital-market-assumptions/cma-de-strict3/approve")
+        assert resp.status_code == 200, resp.text
+    finally:
+        _logout()
