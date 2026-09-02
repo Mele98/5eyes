@@ -43,7 +43,7 @@ from schemas.review import (
     RecommendationGenerateRequest, RecommendationGenerateResponse,
 )
 from price_updater import summarize_price_quality
-from services.auth import get_accessible_client_ids, get_accessible_mandate_ids, get_client_for_user_or_404, get_current_user, get_mandate_for_user_or_404, has_global_client_access, require_advisor, require_admin, _resolve_tenant_id_for_user
+from services.auth import get_accessible_client_ids, get_accessible_mandate_ids, get_client_for_user_or_404, get_current_user, get_mandate_for_user_or_404, has_global_client_access, require_advisor, require_admin, _resolve_tenant_id_for_user, _effective_strict_tenant_isolation
 from services.audit import log
 # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Quell-IP fuer Review-/Suitability-/
 # Empfehlungs-Aenderungen im Audit-Log.
@@ -124,13 +124,29 @@ def _get_recommendation_run_or_404(
     return run
 
 
-def _get_product_or_404(product_id: str, db: Session) -> Product:
+def _get_product_or_404(product_id: str, db: Session, current_user: User | None = None) -> Product:
+    """AUTH-TEN-05 (Codex-Audit 2026-08-25): analog zu _active_products_query
+    oben -- ein Produkt mit gesetztem tenant_id ist PRIVAT fuer genau diesen
+    Tenant (siehe models/review.py::Product.tenant_id-Docstring). Dieser
+    Einzel-Lookup liess bisher trotzdem JEDEN Admin/Advisor (auch einer
+    ANDEREN Firma) ein fremdes privates Produkt aendern/mappen/als manuelle
+    Position referenzieren -- der zentrale Produktlookup hatte schlicht
+    keinen Tenant-Filter. Durchgesetzt nur in einer echten Multi-Tenant-
+    Installation (strict_tenant_isolation) -- Tier-1 (kein Tenant-Konzept,
+    ein einzelner Betreiber) bleibt komplett unveraendert. Fremde IDs
+    liefern 404 (nicht 403), damit die Existenz nicht geleakt wird."""
     product = db.query(Product).filter(
         Product.id == product_id,
         Product.deleted_at.is_(None),
     ).first()
     if not product:
         raise HTTPException(status_code=404, detail="Produkt nicht gefunden")
+    if current_user is not None and _effective_strict_tenant_isolation(settings):
+        product_tid = str(getattr(product, "tenant_id", None) or "").strip()
+        if product_tid:
+            user_tid = _resolve_tenant_id_for_user(current_user)
+            if product_tid != str(user_tid).strip():
+                raise HTTPException(status_code=404, detail="Produkt nicht gefunden")
     return product
 
 
@@ -1590,11 +1606,7 @@ def update_product(
     (country/sector/currency_exposure_json) werden NICHT validiert hier —
     der Depot-Check-Engine fault-tolerant via product_exposures._parse_or_proxy.
     """
-    product = db.query(Product).filter(
-        Product.id == product_id, Product.deleted_at.is_(None),
-    ).first()
-    if not product:
-        raise HTTPException(status_code=404, detail=f"Product {product_id} nicht gefunden")
+    product = _get_product_or_404(product_id, db, current_user)
     payload = body.model_dump(exclude_none=True)
     if not payload:
         return product
@@ -1616,7 +1628,7 @@ def set_product_market_override(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    product = _get_product_or_404(product_id, db)
+    product = _get_product_or_404(product_id, db, current_user)
     product.lookup_mode_override = body.lookup_mode_override or None
     product.lookup_symbol_override = body.lookup_symbol_override.strip() if body.lookup_symbol_override else None
     product.updated_at = _now()
@@ -1655,7 +1667,7 @@ def resolve_product_id_mapping(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    product = _get_product_or_404(body.product_id, db) if body.product_id else None
+    product = _get_product_or_404(body.product_id, db, current_user) if body.product_id else None
     return _preview_openfigi_or_raise(
         product=product,
         isin=body.isin,
@@ -1672,7 +1684,7 @@ def apply_product_id_mapping(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    product = _get_product_or_404(body.product_id, db)
+    product = _get_product_or_404(body.product_id, db, current_user)
     preview = _preview_openfigi_or_raise(
         product=product,
         isin=body.isin,
@@ -1832,7 +1844,7 @@ def resolve_product_reference_data(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    product = _get_product_or_404(body.product_id, db) if body.product_id else None
+    product = _get_product_or_404(body.product_id, db, current_user) if body.product_id else None
     return _preview_eodhd_or_raise(
         product=product,
         isin=body.isin,
@@ -1849,7 +1861,7 @@ def apply_product_reference_data(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    product = _get_product_or_404(body.product_id, db)
+    product = _get_product_or_404(body.product_id, db, current_user)
     preview = _preview_eodhd_or_raise(
         product=product,
         isin=body.isin,
@@ -2063,11 +2075,11 @@ def create_product_universe_entry(
     current_user: User = Depends(require_admin),
 ):
     tenant_id = _effective_tenant_id(current_user)
-    product = db.query(Product).filter(
-        Product.id == body.product_id, Product.deleted_at.is_(None),
-    ).first()
-    if not product:
-        raise HTTPException(status_code=404, detail=f"Product {body.product_id} nicht gefunden")
+    # AUTH-TEN-05 (Codex-Audit 2026-08-25): dieselbe zentrale, tenant-aware
+    # Produktlookup wie update_product() etc. -- sonst koennte Firma A ueber
+    # eine erratene/bekannte product_id ein PRIVATES Produkt von Firma B in
+    # die eigene Fondsuniversum-Kuratierung aufnehmen.
+    product = _get_product_or_404(body.product_id, db, current_user)
     existing = db.query(ProductUniverseEntry).filter(
         ProductUniverseEntry.tenant_id == tenant_id,
         ProductUniverseEntry.jurisdiction == body.jurisdiction,
@@ -2487,7 +2499,7 @@ def add_position(
     # trotzdem mutierbar, obwohl er kein aktiver Empfehlungsstand mehr ist.
     if run.result_status in ("Final", "Superseded"):
         raise HTTPException(status_code=400, detail="Finalisierte oder abgeloeste Runs können nicht mehr geändert werden")
-    product = _get_product_or_404(body.product_id, db)
+    product = _get_product_or_404(body.product_id, db, current_user)
     now = _now()
     pos = RecommendationPosition(
         id=new_uuid(), run_id=run_id,
