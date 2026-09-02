@@ -278,10 +278,30 @@ def require_portfolio_management(current_user: User = Depends(get_current_user))
     "data_derived" -> "committee_approved"). admin/super_admin duerfen das
     weiterhin ebenfalls (Erweiterung, kein Ersatz) -- eine vollstaendige Bank-
     Rollenstruktur (Front/Backoffice/Portfoliomanagement systemweit) ist bewusst
-    NICHT Teil dieses Gates, sondern ein separates, spaeteres Vorhaben."""
-    if current_user.role not in ("admin", "super_admin", "portfolio_management"):
-        raise HTTPException(status_code=403, detail="Nur für Portfolio Management / Administratoren")
-    return current_user
+    NICHT Teil dieses Gates, sondern ein separates, spaeteres Vorhaben.
+
+    AUTH-TEN-04 (Codex-Audit 2026-08-25): CapitalMarketAssumption ist heute
+    (echtes Per-Tenant-CMA ist ein separates, groesseres Architektur-Vorhaben --
+    siehe project_5eyes_gesamtvermoegen_allokation/OPTIMIZER_MODE-Notizen)
+    effektiv ein GLOBALES/geteiltes Datum, keine Tenant-Ressource. Ein
+    firmengebundener 'admin' durfte trotzdem via update_cma()/approve()
+    JEDE Jurisdiktion/JEDEN tenant_id-Query-Parameter aendern/freigeben --
+    in einer echten Multi-Tenant-Installation waere das eine Firma-A-aendert-
+    globale-Daten-Luecke. In Tier-1 (kein strict_tenant_isolation) bleibt
+    das Verhalten UNVERAENDERT -- der Bootstrap-Admin (role='admin', z.B.
+    der reale Einzelplatz-Betreiber) verwaltet CMA dort weiterhin wie
+    bisher, sonst waere er aus seiner eigenen Installation ausgesperrt."""
+    if current_user.role in ("super_admin", "portfolio_management"):
+        return current_user
+    if current_user.role == "admin":
+        from config import settings as _settings
+        if not _effective_strict_tenant_isolation(_settings):
+            return current_user
+        raise HTTPException(
+            status_code=403,
+            detail="Globale Kapitalmarktannahmen erfordern Super-Admin oder Portfolio Management.",
+        )
+    raise HTTPException(status_code=403, detail="Nur für Portfolio Management / Administratoren")
 
 
 def has_global_client_access(current_user: User) -> bool:
