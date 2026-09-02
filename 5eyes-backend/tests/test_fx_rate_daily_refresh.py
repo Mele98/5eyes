@@ -23,7 +23,7 @@ for path in (BACKEND_ROOT, TESTS_ROOT):
 from database import get_db
 from main import app
 from models.review import AuditLog
-from services.auth import require_admin
+from services.auth import require_admin, require_admin_or_platform_scope_for_global_reference_data
 from test_optimizer_shadow_mode import session_factory  # noqa: F401
 
 
@@ -36,7 +36,12 @@ def _client(session_factory) -> TestClient:
             db.close()
     admin = SimpleNamespace(id="admin-u99", full_name="Admin U99", email="admin@test.local")
     app.dependency_overrides[get_db] = override_get_db
+    # AUTH-TEN-06 (Codex-Audit 2026-08-25): /fx-rates/refresh-now nutzt jetzt
+    # require_admin_or_platform_scope_for_global_reference_data statt
+    # require_admin -- beide Overrides gesetzt (require_admin bleibt fuer
+    # andere Endpoints in diesem Modul falls je genutzt).
     app.dependency_overrides[require_admin] = lambda: admin
+    app.dependency_overrides[require_admin_or_platform_scope_for_global_reference_data] = lambda: admin
     return TestClient(app)
 
 

@@ -18,7 +18,7 @@ from services.audit import log
 # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Quell-IP fuer FX-Rate-Aenderungen
 # (wirken global auf ALLE Tenants).
 from routers.auth import _extract_client_ip
-from services.auth import get_current_user, require_advisor
+from services.auth import get_current_user, require_advisor_or_platform_scope_for_global_reference_data
 from services.currency.fx_rates import DEFAULT_FX_RATES, FXRateSource
 
 router = APIRouter(tags=["FX Rates"])
@@ -90,7 +90,7 @@ def upsert_fx_rates(
     payload: FXRatesPayload,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_advisor),
+    current_user: User = Depends(require_advisor_or_platform_scope_for_global_reference_data),
 ):
     """Upsert mehrere FX-Rates. Alte is_current=1 Werte werden auf
     is_current=0 + valid_until=now gesetzt (Versionierung)."""
