@@ -304,6 +304,62 @@ def require_portfolio_management(current_user: User = Depends(get_current_user))
     raise HTTPException(status_code=403, detail="Nur für Portfolio Management / Administratoren")
 
 
+def require_advisor_or_platform_scope_for_global_reference_data(
+    current_user: User = Depends(get_current_user),
+) -> User:
+    """AUTH-TEN-06 (Codex-Audit 2026-08-25): FX-Kurse (models/fx_rate.py)
+    sind GLOBAL -- sie wirken auf ALLE Tenants, nicht nur den des
+    aendernden Users (siehe routers/fx_rates.py-Modul-Docstring/-Kommentar).
+    require_advisor liess bisher JEDEN Berater (die niedrigste Schreib-
+    Rolle, nicht einmal admin-only) diese globalen Kurse aendern -- in
+    einer echten Multi-Tenant-Installation eine Firma-A-Berater-aendert-
+    globale-Daten-Luecke.
+
+    In einer echten Multi-Tenant-Installation (strict_tenant_isolation)
+    ist das jetzt auf super_admin/portfolio_management beschraenkt (IC-/
+    Reference-Writer-Rolle, analog require_portfolio_management fuer CMA).
+    Tier-1 (kein strict_tenant_isolation) bleibt komplett unveraendert --
+    FX-Pflege bleibt dort explizit eine Berater-Aufgabe (kein taeglicher
+    Admin-Login noetig), wie im Modul-Docstring von routers/fx_rates.py
+    dokumentiert."""
+    if current_user.role in ("super_admin", "portfolio_management"):
+        return current_user
+    if current_user.role in ("admin", "advisor"):
+        from config import settings as _settings
+        if not _effective_strict_tenant_isolation(_settings):
+            return current_user
+        raise HTTPException(
+            status_code=403,
+            detail="Globale FX-Kurse erfordern Super-Admin oder Portfolio Management.",
+        )
+    raise HTTPException(status_code=403, detail="Keine Schreibberechtigung")
+
+
+def require_admin_or_platform_scope_for_global_reference_data(
+    current_user: User = Depends(get_current_user),
+) -> User:
+    """AUTH-TEN-06 (Codex-Audit 2026-08-25): fuer Ops-Trigger auf denselben
+    globalen FX-Referenzdaten (POST /admin/system/fx-rates/refresh-now),
+    die bereits require_admin verlangten -- anders als die PUT-/fx-rates-
+    Variante oben (die vorher require_advisor war) wird hier auf Tier-1
+    KEINE neue Rolle hinzugefuegt (admin/super_admin bleiben exakt wie
+    zuvor erlaubt, kein advisor-Zugriff auf einen Admin-Ops-Endpoint).
+    Nur in einer echten Multi-Tenant-Installation (strict_tenant_isolation)
+    wird firmengebundener 'admin' ausgeschlossen -- dort braucht es
+    super_admin/portfolio_management (Platform-/IC-Rolle)."""
+    if current_user.role in ("super_admin", "portfolio_management"):
+        return current_user
+    if current_user.role == "admin":
+        from config import settings as _settings
+        if not _effective_strict_tenant_isolation(_settings):
+            return current_user
+        raise HTTPException(
+            status_code=403,
+            detail="Globale FX-Kurse erfordern Super-Admin oder Portfolio Management.",
+        )
+    raise HTTPException(status_code=403, detail="Nur für Administratoren")
+
+
 def has_global_client_access(current_user: User) -> bool:
     return current_user.role == "admin"
 

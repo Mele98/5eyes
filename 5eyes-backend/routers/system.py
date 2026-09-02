@@ -13,7 +13,13 @@ from models.snapshots import AssetClassAnnualReturn, AssetClassPriceHistory
 from models.users import User
 from schemas.review import AuditLogEntry, AuditLogPage
 from services.audit import log as audit_log
-from services.auth import require_admin, require_advisor, require_super_admin, get_mandate_for_user_or_404
+from services.auth import (
+    require_admin,
+    require_admin_or_platform_scope_for_global_reference_data,
+    require_advisor,
+    require_super_admin,
+    get_mandate_for_user_or_404,
+)
 # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Quell-IP fuer Admin-Aktionen im Audit-Log.
 from routers.auth import _extract_client_ip
 from services.foundation_example import upsert_foundation_example_case
@@ -581,7 +587,7 @@ def refresh_market_data_now(
 def refresh_fx_rates_now(
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_admin_or_platform_scope_for_global_reference_data),
 ):
     """Sprint U-99 (2026-06-05): FX-only Recovery-Trigger.
 
@@ -589,6 +595,14 @@ def refresh_fx_rates_now(
     oder Asset-Class-Proxy-Sweep). Sinnvoll wenn Berater Wochenend-Pflege
     der Reference-Data macht ohne den vollen Marktdaten-Refresh
     anzustossen.
+
+    AUTH-TEN-06 (Codex-Audit 2026-08-25): Endpoint pflegt globale
+    FX-Referenzdaten (kein tenant_id auf FXRate/AssetClassFxHistory) --
+    firmengebundener 'admin' durfte sie in JEDER Installation aendern.
+    Tier-1 (Default) bleibt exakt unveraendert (admin/super_admin wie
+    zuvor); in einer echten Multi-Tenant-Installation
+    (strict_tenant_isolation) ist admin jetzt ausgeschlossen --
+    super_admin/portfolio_management (Platform-/IC-Rolle) noetig.
     """
     try:
         from services.fx_rate_daily_refresh import run_daily_fx_refresh
