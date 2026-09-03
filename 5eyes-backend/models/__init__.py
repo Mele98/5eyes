@@ -20,3 +20,8 @@ from . import portfolio_handoff  # noqa: F401,E402
 # isolierte Base.metadata.create_all()-Setups (Tests/SQLite-Desktop) dieselbe
 # Tabelle besitzen wie Alembic/Postgres.
 from . import fx_rate  # noqa: F401,E402
+
+# AUTH-TEN-08 (Teil 2, Codex-Audit-Followup 2026-08-25): DB-seitiger
+# Bootstrap-Singleton -- dito, Tabelle bootstrap_lock muss an Base.metadata
+# registriert sein.
+from . import bootstrap_lock  # noqa: F401,E402
