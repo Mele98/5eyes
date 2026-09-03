@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from datetime import datetime, timezone, timedelta
 from database import get_db, new_uuid
+from models.bootstrap_lock import BootstrapLock
 from models.tenant import Tenant
 from models.users import User, AdviserRegistration
 from schemas.users import (
@@ -37,7 +38,8 @@ from services.account_recovery import (
     ensure_account_recovery_columns, generate_recovery_codes, consume_recovery_code,
     remaining_recovery_codes, issue_reset_token, reset_token_valid, clear_reset_token,
 )
-from sqlalchemy import or_, update as _sa_update
+from sqlalchemy import Integer as _sa_Integer, cast as _sa_cast, or_, update as _sa_update
+from sqlalchemy.exc import IntegrityError
 from pydantic import BaseModel as _BaseModel
 
 
@@ -76,10 +78,8 @@ def _bootstrap_required(db: Session) -> bool:
 # Lock serialisiert den Check+Write-Block INNERHALB eines Prozesses (Tier-1:
 # Electron spawnt genau einen Backend-Prozess -- deckt den realistischen Fall
 # vollstaendig ab). Deckt NICHT mehrere Worker-Prozesse hinter einem
-# Load-Balancer ab (Tier-2/3) -- dort muesste zusaetzlich ein DB-seitiger
-# Singleton-Constraint eingefuehrt werden, was eine Schema-Migration braucht
-# und bewusst nicht Teil dieses Fixes ist (Ersteinrichtung findet in der
-# Praxis typischerweise vor dem Hochskalieren auf mehrere Worker statt).
+# Load-Balancer ab (Tier-2/3) -- siehe AUTH-TEN-08 (Teil 2) unten fuer den
+# zusaetzlichen DB-seitigen Singleton, der genau diese Luecke schliesst.
 _bootstrap_admin_lock = threading.Lock()
 
 
@@ -122,25 +122,45 @@ def _issue_token_response(user: User, db: Session | None = None, request: Reques
     )
 
 
-def _totp_replay_check_and_record(user: User) -> bool:
+def _totp_replay_check_and_record(db: Session, user: User) -> bool:
     """AUTH-06: Anti-Replay fuer TOTP-Login. services/totp.verify() prueft nur,
     ob der Code zum aktuellen Zeitfenster (+/-1 Zeitschritt) passt — ohne
     Gedaechtnis kann derselbe (mitgelesene) Code beliebig oft im selben
     Zeitfenster wiederverwendet werden. Diese Funktion haelt den zuletzt
     akzeptierten HOTP-Zeitschritt am User fest (totp_last_counter) und liefert
     True, wenn der aktuelle Zeitschritt bereits verwendet wurde (Replay) — der
-    Aufrufer MUSS den Login dann verweigern. Sonst wird der Zeitschritt als
-    'zuletzt akzeptiert' auf dem (noch nicht committeten) User-Objekt vermerkt.
-    services/totp.py bleibt unveraendert."""
+    Aufrufer MUSS den Login dann verweigern. services/totp.py bleibt
+    unveraendert.
+
+    AUTH-TEN-08 (Teil 2, Codex-Audit-Followup 2026-08-25): war bisher ein
+    read-then-write-Vergleich auf dem (noch nicht committeten) ORM-Objekt --
+    zwei nahezu gleichzeitige Login-Versuche mit demselben (z.B. mitgelesenen)
+    Code luden denselben User mit identischem totp_last_counter, bestanden
+    BEIDE die counter<=last-Pruefung, bevor irgendeiner committete, und
+    haetten den Code damit zweimal akzeptiert. Atomarer CAS (UPDATE ... WHERE
+    totp_last_counter IS NULL OR < counter) macht das Akzeptieren selbst zur
+    exklusiven DB-Operation, analog zum Reset-/Invite-Token-Claim oben und der
+    Refresh-Token-Rotation (services/refresh_tokens.py, AUTH-TEN-02): nur der
+    Request, dessen UPDATE tatsaechlich eine Zeile trifft (rowcount==1), gilt
+    als Gewinner; der Verlierer sieht rowcount==0 und wird wie ein Replay
+    behandelt. CAST auf Integer statt Text-Vergleich, weil totp_last_counter
+    als TEXT gespeichert ist -- ein reiner String-Vergleich waere bei
+    wachsender Ziffernzahl (acht- vs. neunstelliger Zeitschritt) falsch."""
     counter = int(time.time() // _TOTP_PERIOD_SECONDS)
-    raw_last = getattr(user, "totp_last_counter", None)
-    try:
-        last = int(raw_last) if raw_last is not None else None
-    except (TypeError, ValueError):
-        last = None
-    if last is not None and counter <= last:
+    result = db.execute(
+        _sa_update(User)
+        .where(
+            User.id == user.id,
+            or_(
+                User.totp_last_counter.is_(None),
+                _sa_cast(User.totp_last_counter, _sa_Integer) < counter,
+            ),
+        )
+        .values(totp_last_counter=str(counter))
+    )
+    if result.rowcount == 0:
         return True
-    user.totp_last_counter = str(counter)
+    user.totp_last_counter = str(counter)  # ORM-Objekt synchron halten (Core-Update oben)
     return False
 
 
@@ -191,6 +211,21 @@ def _bootstrap_guard_key(request: Request) -> str:
     return "bootstrap-admin:" + _login_guard_key(request, "bootstrap")
 
 
+def _bootstrap_already_done(guard_key: str) -> HTTPException:
+    """Einheitlicher Fehler fuer 'Ersteinrichtung bereits abgeschlossen' --
+    verwendet sowohl vom fruehen _bootstrap_required()-Check als auch vom
+    AUTH-TEN-08-(Teil-2)-Singleton-Claim unten (siehe dort). Beides bedeutet
+    fuer den Aufrufer identisch: kein Bootstrap mehr moeglich."""
+    failure = login_attempt_guard.register_failure(guard_key)
+    if not failure.allowed:
+        return HTTPException(
+            status_code=429,
+            detail=failure.reason or "Zu viele Versuche. Bitte später erneut versuchen.",
+            headers={"Retry-After": str(failure.retry_after_seconds)},
+        )
+    return HTTPException(status_code=409, detail='Ersteinrichtung bereits abgeschlossen')
+
+
 @router.post('/bootstrap-admin', response_model=TokenResponse, status_code=201)
 def bootstrap_admin(body: BootstrapAdminRequest, request: Request, db: Session = Depends(get_db)):
     guard_key = _bootstrap_guard_key(request)
@@ -206,14 +241,7 @@ def bootstrap_admin(body: BootstrapAdminRequest, request: Request, db: Session =
     # atomar wirken -- siehe Kommentar bei _bootstrap_admin_lock oben.
     with _bootstrap_admin_lock:
         if not _bootstrap_required(db):
-            failure = login_attempt_guard.register_failure(guard_key)
-            if not failure.allowed:
-                raise HTTPException(
-                    status_code=429,
-                    detail=failure.reason or "Zu viele Versuche. Bitte später erneut versuchen.",
-                    headers={"Retry-After": str(failure.retry_after_seconds)},
-                )
-            raise HTTPException(status_code=409, detail='Ersteinrichtung bereits abgeschlossen')
+            raise _bootstrap_already_done(guard_key)
 
         now = _now()
         admin = User(
@@ -228,6 +256,15 @@ def bootstrap_admin(body: BootstrapAdminRequest, request: Request, db: Session =
             updated_at=now,
         )
         db.add(admin)
+        # AUTH-TEN-08 (Teil 2, Codex-Audit-Followup 2026-08-25): der obige
+        # threading.Lock deckt nur EINEN Backend-Prozess ab (Tier-1). Fuer
+        # mehrere Worker-Prozesse (Tier-2/3) braucht es einen DB-seitigen
+        # Singleton -- siehe models/bootstrap_lock.py. Der Insert landet im
+        # SELBEN Commit wie der neue Admin: gewinnt ein anderer Prozess das
+        # Rennen um die Primary-Key-Zeile 'singleton', wirft der Commit unten
+        # eine IntegrityError und rollt BEIDE Inserts (Admin + Lock-Zeile)
+        # zurueck -- kein verwaister Admin ohne Lock-Zeile.
+        db.add(BootstrapLock(id="singleton", created_at=now))
         # 2026-08-01 (Onboarding, Entscheid Auftraggeber): Firmenidentitaet/
         # -Standort der Default-Tenant-Zeile ('main', von database.py::
         # ensure_default_tenant() bereits beim Boot angelegt) hier mitpflegen,
@@ -246,7 +283,11 @@ def bootstrap_admin(body: BootstrapAdminRequest, request: Request, db: Session =
                 if body.default_presentation_mode:
                     tenant.default_presentation_mode = body.default_presentation_mode
                 tenant.updated_at = now
-        db.commit()
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            raise _bootstrap_already_done(guard_key)
         db.refresh(admin)
     login_attempt_guard.register_success(guard_key)
     logger.info('Bootstrap admin created | username=%s', admin.username)
@@ -301,7 +342,7 @@ def login(body: LoginRequest, request: Request, db: Session = Depends(get_db)):
             # #25 Fallback: 2FA-Recovery-Code (Backup, falls Authenticator weg).
             # Single-use — verbrauchter Code wird entfernt + persistiert.
             ensure_account_recovery_columns(db)
-            if consume_recovery_code(user, code):
+            if consume_recovery_code(db, user, code):
                 db.commit()
                 log(db, user_id=user.id, user_name=user.full_name,
                     table_name="users", record_id=user.id, action="2FA_RECOVERY_USED",
@@ -314,7 +355,7 @@ def login(body: LoginRequest, request: Request, db: Session = Depends(get_db)):
         else:
             # AUTH-06: gueltiger TOTP-Code — aber schon in diesem/einem
             # frueheren Zeitschritt verwendet (Replay, z.B. mitgelesener Code)?
-            if _totp_replay_check_and_record(user):
+            if _totp_replay_check_and_record(db, user):
                 failure = login_attempt_guard.register_failure(guard_key)
                 headers = {"Retry-After": str(failure.retry_after_seconds)} if failure.retry_after_seconds else None
                 raise HTTPException(status_code=401, detail="2FA-Code bereits verwendet", headers=headers)

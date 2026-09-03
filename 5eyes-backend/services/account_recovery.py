@@ -17,6 +17,8 @@ import json
 import secrets
 from datetime import datetime, timezone, timedelta
 
+from sqlalchemy import update as _sa_update
+
 RECOVERY_CODE_COUNT = 10
 RESET_TOKEN_TTL_HOURS = 2
 
@@ -77,23 +79,60 @@ def generate_recovery_codes(n: int = RECOVERY_CODE_COUNT):
     return codes, blob
 
 
-def consume_recovery_code(user, code: str) -> bool:
+def consume_recovery_code(db, user, code: str, *, max_attempts: int = 5) -> bool:
     """Prueft + verbraucht einen Recovery-Code. True bei Erfolg (Hash entfernt).
 
-    Der Aufrufer ist fuer das ``db.commit()`` zustaendig (Persistenz des Verbrauchs).
+    Der Aufrufer ist weiterhin fuer das finale ``db.commit()`` zustaendig
+    (Persistenz des Verbrauchs) -- diese Funktion fuehrt aber selbst schon
+    das atomare Claim-Update aus (Core-Statement, in derselben offenen
+    Transaktion), damit der Verbrauch nicht mehr read-then-write ist.
+
+    AUTH-TEN-08 (Teil 2, Codex-Audit-Followup 2026-08-25): bisher wurde nur
+    das (noch nicht committete) ORM-Objekt in-memory mutiert -- zwei nahezu
+    gleichzeitige Requests mit demselben Recovery-Code luden denselben User
+    mit identischem totp_recovery_codes-Blob, fanden beide den Hash, und
+    haetten den Code damit zweimal akzeptiert (der zuletzt committende
+    Request haette zudem den Verbrauch des jeweils anderen unbemerkt
+    ueberschrieben). Fix: Compare-And-Swap auf dem GESAMTEN JSON-Blob (die
+    Codes-Liste hat keine eigene Zeile pro Code, anders als Reset-/Invite-
+    Token) -- ``UPDATE ... WHERE id=:id AND totp_recovery_codes=:old_blob``.
+    Nur der Request, dessen UPDATE tatsaechlich eine Zeile trifft
+    (rowcount==1), gilt als Gewinner. Ein rowcount==0 bedeutet lediglich
+    "der Blob hat sich seit dem Lesen veraendert" -- das kann sowohl
+    "derselbe Code wurde parallel bereits verbraucht" (Replay, MUSS
+    abgelehnt werden) als auch "ein ANDERER Code wurde parallel verbraucht"
+    (legitime gleichzeitige Nutzung zweier Backup-Codes, DARF nicht
+    faelschlich abgelehnt werden) bedeuten -- ein kurzer Retry-Loop mit
+    frisch aus der DB nachgeladenem Blob unterscheidet beide Faelle korrekt,
+    ohne den legitimen Fall spuriös zu blockieren.
     """
-    blob = getattr(user, "totp_recovery_codes", None)
-    if not blob:
-        return False
-    try:
-        hashes = json.loads(blob)
-    except (ValueError, TypeError):
-        return False
+    from models.users import User
+
     target = _sha256((code or "").strip())
-    if target in hashes:
+    if not target:
+        return False
+    blob = getattr(user, "totp_recovery_codes", None)
+    for _ in range(max(1, max_attempts)):
+        if not blob:
+            return False
+        try:
+            hashes = json.loads(blob)
+        except (ValueError, TypeError):
+            return False
+        if target not in hashes:
+            return False
         hashes.remove(target)
-        user.totp_recovery_codes = json.dumps(hashes)
-        return True
+        new_blob = json.dumps(hashes)
+        result = db.execute(
+            _sa_update(User)
+            .where(User.id == user.id, User.totp_recovery_codes == blob)
+            .values(totp_recovery_codes=new_blob)
+        )
+        if result.rowcount == 1:
+            user.totp_recovery_codes = new_blob  # ORM-Objekt synchron halten (Core-Update oben)
+            return True
+        # Konflikt -- frischen Blob aus der DB nachladen und erneut versuchen.
+        blob = db.query(User.totp_recovery_codes).filter(User.id == user.id).scalar()
     return False
 
 
