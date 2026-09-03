@@ -1002,6 +1002,41 @@ def _validate_recommendation_concentration_limits(aggregated_positions: dict[str
             )
 
 
+def _tenant_visible_products_query(db: Session, mandate: Mandate):
+    """REC-001 (Codex-Audit, Empfehlungsgenerator ohne Tenant-Filter): der
+    Produktkandidaten-Pool fuer generate_recommendation_run() wurde bisher
+    OHNE jeden Tenant-Filter geladen (`db.query(Product).filter(deleted_at,
+    is_active)`) -- ein privates Produkt eines FREMDEN Tenants (Product.
+    tenant_id gesetzt, siehe models/review.py::Product.tenant_id-Docstring:
+    NULL=globaler/geteilter Katalog, gesetzt=privat fuer GENAU diesen
+    Tenant) konnte dadurch in die Empfehlung eines Mandats einfliessen, das
+    gar nicht zu diesem Tenant gehoert. _filter_products_by_universe()
+    direkt darunter schuetzt davor NICHT zuverlaessig: ohne kuratierte
+    ProductUniverseEntry-Positivliste (der Normalfall, u.a. Tier-1) filtert
+    sie nur nach Jurisdiktion, nicht nach Tenant.
+
+    Dies ist dieselbe Filterlogik wie routers/review.py::
+    _active_products_query() (dort der kanonische Produktresolver fuer
+    Listen-/Such-Endpunkte) -- services/*.py importiert bewusst NICHT aus
+    routers/*.py (Layering-Konvention dieser Codebase), daher hier dupliziert
+    statt importiert. tenant_id wird -- wie in _filter_products_by_universe()
+    -- vom MANDAT aufgeloest (nicht vom aufrufenden User: ein
+    Empfehlungslauf ist an ein Mandat/einen Kunden gebunden, nicht an den
+    Tenant des ausfuehrenden Beraters), mit demselben DEFAULT_TENANT_ID-
+    Fallback bei NULL.
+
+    Tier-1 (Bestand hat durchweg Product.tenant_id NULL) bleibt dadurch
+    BYTE-IDENTISCH: ein NULL-Produkt matcht `Product.tenant_id.is_(None)`
+    unabhaengig davon, worauf tenant_id aufgeloest wird."""
+    from models.tenant import DEFAULT_TENANT_ID
+    tenant_id = getattr(mandate, "tenant_id", None) or DEFAULT_TENANT_ID
+    return db.query(Product).filter(
+        Product.deleted_at.is_(None),
+        Product.is_active == 1,
+        (Product.tenant_id.is_(None)) | (Product.tenant_id == tenant_id),
+    )
+
+
 def _filter_products_by_universe(db: Session, mandate: Mandate, products: list) -> list:
     """2026-07-27 (Laender-Skalierung, Fonds-Kuratierung): schraenkt den
     Produktkandidaten-Pool auf die ProductUniverseEntry-Positivliste des
