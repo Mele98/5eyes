@@ -199,6 +199,21 @@ class Settings(BaseSettings):
     permissions_policy_enabled: bool = True
     hsts_enabled: bool = False
 
+    # RESOURCE-001 (Codex-Audit 2026-08-27, docs/audits/2026-08-27-request-
+    # ingestion-and-resource-governance-audit.md): globale Obergrenze fuer
+    # eingehende Request-Bodies, durchgesetzt von core.middleware.
+    # MaxBodySizeMiddleware BEVOR FastAPI/Starlette JSON oder Multipart
+    # parst. Vorher gab es ausser CORS+RequestContext keine Body-Schranke --
+    # ein unauthentifizierter Client konnte z.B. gegen den oeffentlichen
+    # /auth/password-reset/request-Endpoint einen beliebig grossen Body
+    # senden und wurde erst NACH vollstaendigem Puffern/Parsen abgelehnt.
+    # Default 10 MiB ist grosszuegig bemessen relativ zum groessten bekannten
+    # legitimen Payload (Fondsuniversum-CSV-Import, hart auf 2 MiB begrenzt,
+    # siehe routers/review.py::_PRODUCT_IMPORT_MAX_FILE_BYTES) und dem
+    # Bulk-JSON-Produktimport (max. 1000 Fonds), laesst aber genug Bounded-
+    # Headroom fuer normales Wachstum, ohne unbegrenzt zu sein.
+    max_request_body_bytes: int = 10 * 1024 * 1024
+
     # Sprint U-64 (2026-06-04): Telemetrie-Adapter (opt-in).
     telemetry_enabled: bool = False
     telemetry_dsn: str = ''
@@ -415,6 +430,7 @@ class Settings(BaseSettings):
         'recent_log_lines_max',
         'market_data_daily_refresh_max_symbols',
         'solver_max_concurrent',
+        'max_request_body_bytes',
     )
     @classmethod
     def validate_positive_numbers(cls, value: int) -> int:

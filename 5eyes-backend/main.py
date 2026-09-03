@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 
 from config import settings
 from core.logging_setup import configure_logging
-from core.middleware import RequestContextMiddleware
+from core.middleware import MaxBodySizeMiddleware, RequestContextMiddleware
 from database import init_db
 from price_updater import start_price_scheduler, stop_price_scheduler
 from backup_scheduler import start_backup_scheduler, stop_backup_scheduler
@@ -131,6 +131,13 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+# RESOURCE-001 (Codex-Audit 2026-08-27): zuletzt registriert, damit sie die
+# aeusserste Middleware ist (Starlette baut den Stack so, dass die zuletzt
+# per add_middleware() hinzugefuegte Schicht am weitesten aussen liegt,
+# direkt nach dem eingebauten ServerErrorMiddleware) -- Body-Groesse wird so
+# geprueft, bevor CORS/RequestContext/Routing ueberhaupt anfassen. Siehe
+# core/middleware.py::MaxBodySizeMiddleware fuer Details.
+app.add_middleware(MaxBodySizeMiddleware)
 
 app.include_router(health_router)
 app.include_router(auth_router)
