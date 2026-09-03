@@ -1329,6 +1329,7 @@ from services.portfolio_engine_payload import (  # noqa: F401,E402
     _product_matches_constraints,
     _product_score,
     _suitability_block_hint,
+    _tenant_visible_products_query,
     _ter_coverage_bps,
     _validate_recommendation_concentration_limits,
 )
@@ -1775,9 +1776,22 @@ def ensure_default_products(db: Session, jurisdiction: str = "CH") -> None:
     # wuerde der CH-Katalog NIE geseedet, wenn zuvor bereits Nicht-CH-
     # Produkte (z.B. via Deutschland-Anbindung) angelegt wurden, und ein
     # CH-Mandat faende danach ueberhaupt keine passenden Produkte mehr.
+    #
+    # REC-001-Nachtrag (Codex-Audit): derselbe Idempotenz-Check zaehlte bisher
+    # auch PRIVATE Produkte JEDES Tenants mit (Product.tenant_id gesetzt) als
+    # Beweis, dass "der globale CH-Katalog schon existiert". ensure_default_
+    # products() erzeugt aber AUSSCHLIESSLICH globale Produkte (tenant_id
+    # bleibt beim Anlegen unten immer NULL) -- ein einzelnes privates Produkt
+    # irgendeines Tenants (z.B. genau die Art von privatem Lockangebot, vor
+    # der REC-001 den Empfehlungsgenerator schuetzt) genuegte, um die Seed-
+    # Routine fuer ALLE Mandate (auch fremde Tenants und Tier-1) dauerhaft zu
+    # unterdruecken -- der globale Katalog wurde dann NIE angelegt. Filter
+    # jetzt zusaetzlich auf Product.tenant_id IS NULL, damit nur der
+    # tatsaechlich von dieser Funktion erzeugte globale Bestand zaehlt.
     active_ch_products = db.query(Product).filter(
         Product.is_active == 1,
         Product.deleted_at.is_(None),
+        Product.tenant_id.is_(None),
         (Product.jurisdiction.is_(None)) | (Product.jurisdiction == "CH"),
     ).count()
     if active_ch_products:
@@ -6693,7 +6707,11 @@ def generate_recommendation_run(
     db.flush()
 
     score_bucket = _risk_score_bucket(assessment)
-    products = db.query(Product).filter(Product.deleted_at.is_(None), Product.is_active == 1).all()
+    # REC-001 (Codex-Audit): vorher ohne Tenant-Filter -- private Produkte
+    # ANDERER Tenants konnten hier in die Empfehlung eines fremden Mandats
+    # einfliessen. Siehe _tenant_visible_products_query()-Docstring in
+    # services/portfolio_engine_payload.py fuer die volle Herleitung.
+    products = _tenant_visible_products_query(db, mandate).all()
     products = _filter_products_by_universe(db, mandate, products)
     sub_allocations = target_payload["sub_allocations"]
     advisory_wealth_rappen = int(target_payload["advisory_wealth_rappen"] or 0)
