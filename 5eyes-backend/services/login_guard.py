@@ -42,6 +42,7 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.schema import CreateIndex, CreateTable
 
 from config import settings
 
@@ -170,36 +171,37 @@ class LoginAttemptGuard:
     def _ensure_tables(self, conn) -> None:
         """Legt die Tabellen an, falls (noch) nicht vorhanden.
 
-        In der laufenden App erledigt das ``create_all`` beim Boot; fuer
-        standalone/Test-Engines oder sehr fruehe Aufrufe wird hier defensiv
-        idempotent nachgezogen (kein Eingriff in database.py).
+        In der laufenden App erledigt das ``create_all``/Alembic beim Boot
+        (siehe ``database.py::_create_or_migrate_schema``, dialekt-korrekt
+        fuer SQLite UND Postgres); fuer standalone/Test-Engines oder sehr
+        fruehe Aufrufe wird hier defensiv idempotent nachgezogen (kein
+        Eingriff in database.py).
+
+        AUTH-TEN-07 (Codex-Audit 2026-08-25): vorher rohes SQLite-DDL-Literal
+        (``... AUTOINCREMENT ...``) -- das ist keine gueltige PostgreSQL-
+        Syntax und wirft dort bei JEDEM Aufruf einen Syntaxfehler, VOR jeder
+        "existiert schon"-Pruefung. Da alle drei oeffentlichen Methoden
+        SQLAlchemyError abfangen und fail-open zurueckgeben, war der Guard
+        auf Postgres dadurch bei JEDEM Login-Versuch stillschweigend
+        wirkungslos. Jetzt ueber die echten ORM-Modelle (dieselbe Quelle wie
+        die Alembic-Baseline-Migration) -- SQLAlchemy compiliert das DDL pro
+        Dialekt korrekt.
+
+        ``CreateTable(..., if_not_exists=True)`` statt ``Table.create(...,
+        checkfirst=True)``: Letzteres prueft Existenz separat VOR dem CREATE
+        (TOCTOU-Race unter echter Nebenlaeufigkeit -- zwei parallele
+        Connections koennen beide "existiert nicht" sehen und beide CREATE
+        versuchen, die zweite crasht dann mit "already exists", was den
+        Guard fuer diesen Call fail-open macht). ``IF NOT EXISTS`` im DDL
+        selbst ist dagegen atomar auf Statement-Ebene (SQLite UND Postgres
+        unterstuetzen die Syntax).
         """
-        conn.execute(
-            text(
-                "CREATE TABLE IF NOT EXISTS login_attempts ("
-                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
-                "key VARCHAR NOT NULL, "
-                "event_at VARCHAR NOT NULL)"
-            )
-        )
-        conn.execute(
-            text(
-                "CREATE INDEX IF NOT EXISTS ix_login_attempts_key ON login_attempts (key)"
-            )
-        )
-        conn.execute(
-            text(
-                "CREATE INDEX IF NOT EXISTS ix_login_attempts_key_event_at "
-                "ON login_attempts (key, event_at)"
-            )
-        )
-        conn.execute(
-            text(
-                "CREATE TABLE IF NOT EXISTS login_lockouts ("
-                "key VARCHAR PRIMARY KEY, "
-                "locked_until VARCHAR NOT NULL)"
-            )
-        )
+        from models.login_attempt import LoginAttempt, LoginLockout
+
+        for table in (LoginAttempt.__table__, LoginLockout.__table__):
+            conn.execute(CreateTable(table, if_not_exists=True))
+            for index in table.indexes:
+                conn.execute(CreateIndex(index, if_not_exists=True))
 
     def _cleanup(self, conn, key: str, window_start_iso: str, now_iso: str) -> None:
         """Abgelaufene Fehlversuch-Zeilen + abgelaufene Lockouts entfernen."""

@@ -178,7 +178,7 @@ jobs:
         working-directory: 5eyes-backend
         env:
           POSTGRES_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/fiveeyes_rls
-        run: python -m pytest tests/test_postgres_rls_adversarial.py -q
+        run: python -m pytest tests/test_postgres_rls_adversarial.py tests/test_authten07_login_guard_postgres_ddl.py -q
 
   vitest:
     # Sprint U-53 (2026-06-04): Frontend Reporting Sub-App vitest in CI.
