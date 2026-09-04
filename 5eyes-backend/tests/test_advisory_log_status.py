@@ -18,7 +18,7 @@ from main import app
 from models.allocation import OptimizerPolicy
 from models.clients import Client
 from models.mandates import Mandate
-from models.review import AdvisoryLog, AuditLog, RecommendationRun, ReviewTrigger
+from models.review import AdvisoryLog, AuditLog, ContractDocument, RecommendationRun, ReviewTrigger
 from models.users import User
 from services.auth import get_current_user
 
@@ -360,3 +360,368 @@ def test_advisory_log_description_update_is_audited(session_factory, auth_client
     assert audit_entry.field_name == "version"
     assert audit_entry.old_value == "1"
     assert audit_entry.new_value == "2"
+
+
+# ---------------------------------------------------------------------------
+# REVIEW-STATE-002 (Codex-Audit 2026-08-27): manuelle Trigger-Erstellung
+# validiert Frequenz/Datum/Schwelle jetzt strikt statt unbekannte Werte
+# stillschweigend umzudeuten oder kaputte Daten unveraendert zu speichern.
+# ---------------------------------------------------------------------------
+
+def test_create_trigger_rejects_unknown_frequency(session_factory, auth_client, advisor_user):
+    mandate_id, _ = _seed_review_context(session_factory, advisor_user)
+
+    response = auth_client.post(
+        f"/mandates/{mandate_id}/triggers",
+        json={"trigger_type": "Zeit", "trigger_name": "Mein Trigger", "frequency": "weekly"},
+    )
+
+    assert response.status_code == 422
+    with session_factory() as s:
+        assert s.query(ReviewTrigger).filter(ReviewTrigger.mandate_id == mandate_id).count() == 0
+
+
+def test_create_trigger_rejects_invalid_next_due_at(session_factory, auth_client, advisor_user):
+    mandate_id, _ = _seed_review_context(session_factory, advisor_user)
+
+    response = auth_client.post(
+        f"/mandates/{mandate_id}/triggers",
+        json={
+            "trigger_type": "Zeit",
+            "trigger_name": "Mein Trigger",
+            "frequency": "jährlich",
+            "next_due_at": "not-a-date",
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_create_trigger_rejects_negative_threshold(session_factory, auth_client, advisor_user):
+    mandate_id, _ = _seed_review_context(session_factory, advisor_user)
+
+    response = auth_client.post(
+        f"/mandates/{mandate_id}/triggers",
+        json={"trigger_type": "Markt", "trigger_name": "Drift-Check", "threshold_bps": -999999},
+    )
+
+    assert response.status_code == 422
+    with session_factory() as s:
+        assert s.query(ReviewTrigger).filter(ReviewTrigger.mandate_id == mandate_id).count() == 0
+
+
+def test_create_trigger_rejects_bool_threshold(session_factory, auth_client, advisor_user):
+    mandate_id, _ = _seed_review_context(session_factory, advisor_user)
+
+    response = auth_client.post(
+        f"/mandates/{mandate_id}/triggers",
+        json={"trigger_type": "Markt", "trigger_name": "Drift-Check", "threshold_bps": True},
+    )
+
+    assert response.status_code == 422
+
+
+def test_create_trigger_rejects_threshold_on_zeit_trigger(session_factory, auth_client, advisor_user):
+    mandate_id, _ = _seed_review_context(session_factory, advisor_user)
+
+    response = auth_client.post(
+        f"/mandates/{mandate_id}/triggers",
+        json={
+            "trigger_type": "Zeit",
+            "trigger_name": "Mein Trigger",
+            "frequency": "jährlich",
+            "threshold_bps": 500,
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_create_trigger_rejects_frequency_on_markt_trigger(session_factory, auth_client, advisor_user):
+    mandate_id, _ = _seed_review_context(session_factory, advisor_user)
+
+    response = auth_client.post(
+        f"/mandates/{mandate_id}/triggers",
+        json={
+            "trigger_type": "Markt",
+            "trigger_name": "Drift-Check",
+            "threshold_bps": 500,
+            "frequency": "jährlich",
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_create_trigger_accepts_valid_zeit_trigger(session_factory, auth_client, advisor_user):
+    """Golden path: ein gueltiger Zeit-Trigger wird weiterhin angelegt --
+    die Haertung darf den normalen Beraterworkflow nicht blockieren."""
+    mandate_id, _ = _seed_review_context(session_factory, advisor_user)
+
+    response = auth_client.post(
+        f"/mandates/{mandate_id}/triggers",
+        json={"trigger_type": "Zeit", "trigger_name": "Eigener Review", "frequency": "quartalsweise"},
+    )
+
+    assert response.status_code == 201
+    data = response.json()
+    assert data["frequency"] == "quartalsweise"
+    assert data["status"] == "Aktiv"
+
+
+# ---------------------------------------------------------------------------
+# REVIEW-STATE-003 (Codex-Audit 2026-08-27): Resolve liest/persistiert jetzt
+# den Entscheid, prueft Faelligkeit vor der Mutation und ist nicht mehr
+# beliebig oft replaybar.
+# ---------------------------------------------------------------------------
+
+def _seed_time_trigger(session_factory, mandate_id: str, **overrides) -> str:
+    defaults = dict(
+        id="trigger-state003-1",
+        mandate_id=mandate_id,
+        trigger_type="Zeit",
+        trigger_name="Jahresreview",
+        frequency="jährlich",
+        status="Ausgelöst",
+        next_due_at="2026-04-01",
+        created_at="2026-04-01T00:00:00.000Z",
+        updated_at="2026-04-01T00:00:00.000Z",
+    )
+    defaults.update(overrides)
+    with session_factory() as s:
+        s.add(ReviewTrigger(**defaults))
+        s.commit()
+    return defaults["id"]
+
+
+def test_resolve_trigger_persists_decision_evidence(session_factory, auth_client, advisor_user):
+    mandate_id, _ = _seed_review_context(session_factory, advisor_user)
+    trigger_id = _seed_time_trigger(session_factory, mandate_id)
+
+    response = auth_client.put(
+        f"/mandates/{mandate_id}/triggers/{trigger_id}/resolve",
+        json={"decision": "Erledigt", "triggered_notes": "Review durchgeführt"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["resolution_decision"] == "Erledigt"
+    assert data["resolved_by"] == advisor_user.id
+    assert data["resolved_at"] is not None
+    assert data["previous_next_due_at"] == "2026-04-01"
+    with session_factory() as s:
+        row = s.query(ReviewTrigger).filter(ReviewTrigger.id == trigger_id).one()
+        assert row.resolution_decision == "Erledigt"
+        assert row.previous_next_due_at == "2026-04-01"
+
+
+def test_resolve_trigger_is_not_replayable(session_factory, auth_client, advisor_user):
+    """REVIEW-STATE-003 Kern-Repro: ein frueher zweiter Resolve-Aufruf darf
+    die Faelligkeit NICHT ein zweites Mal verschieben."""
+    mandate_id, _ = _seed_review_context(session_factory, advisor_user)
+    trigger_id = _seed_time_trigger(session_factory, mandate_id)
+
+    first = auth_client.put(
+        f"/mandates/{mandate_id}/triggers/{trigger_id}/resolve",
+        json={"decision": "Erledigt", "triggered_notes": "Review durchgeführt"},
+    )
+    assert first.status_code == 200
+    first_next_due = first.json()["next_due_at"]
+    assert first_next_due == "2027-04-01"
+
+    replay = auth_client.put(
+        f"/mandates/{mandate_id}/triggers/{trigger_id}/resolve",
+        json={"decision": "Erledigt", "triggered_notes": "Erneuter Versuch"},
+    )
+
+    assert replay.status_code == 409
+    with session_factory() as s:
+        row = s.query(ReviewTrigger).filter(ReviewTrigger.id == trigger_id).one()
+        assert row.next_due_at == first_next_due
+
+
+def test_resolve_trigger_rejects_not_yet_due_time_trigger(session_factory, auth_client, advisor_user):
+    mandate_id, _ = _seed_review_context(session_factory, advisor_user)
+    trigger_id = _seed_time_trigger(
+        session_factory,
+        mandate_id,
+        status="Aktiv",
+        next_due_at="2099-01-01",
+    )
+
+    response = auth_client.put(
+        f"/mandates/{mandate_id}/triggers/{trigger_id}/resolve",
+        json={"decision": "Erledigt"},
+    )
+
+    assert response.status_code == 409
+    with session_factory() as s:
+        row = s.query(ReviewTrigger).filter(ReviewTrigger.id == trigger_id).one()
+        assert row.next_due_at == "2099-01-01"
+        assert row.status == "Aktiv"
+        assert row.resolution_decision is None
+
+
+def test_resolve_trigger_rejects_already_resolved(session_factory, auth_client, advisor_user):
+    mandate_id, _ = _seed_review_context(session_factory, advisor_user)
+    trigger_id = _seed_time_trigger(
+        session_factory,
+        mandate_id,
+        status="Erledigt",
+        next_due_at=None,
+    )
+
+    response = auth_client.put(
+        f"/mandates/{mandate_id}/triggers/{trigger_id}/resolve",
+        json={"decision": "Erledigt"},
+    )
+
+    assert response.status_code == 409
+
+
+def test_resolve_trigger_einmalig_does_not_reschedule(session_factory, auth_client, advisor_user):
+    """Vorher wurde ein 'einmalig'-Trigger faelschlich auf 12 Monate
+    weiterverlaengert (trigger_frequency_months(...) or 12). Jetzt bleibt er
+    nach Resolve endgueltig 'Erledigt' ohne neue Faelligkeit."""
+    mandate_id, _ = _seed_review_context(session_factory, advisor_user)
+    trigger_id = _seed_time_trigger(session_factory, mandate_id, frequency="einmalig")
+
+    response = auth_client.put(
+        f"/mandates/{mandate_id}/triggers/{trigger_id}/resolve",
+        json={"decision": "Erledigt"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "Erledigt"
+    assert data["next_due_at"] is None
+
+
+def test_resolve_trigger_rejects_legacy_broken_frequency(session_factory, auth_client, advisor_user):
+    """Raw-/Legacy-Zeile mit einer nie ueber die API erzeugbaren Frequenz
+    (Direct-ORM-Insert simuliert Altbestand) muss fail-closed stoppen statt
+    stillschweigend auf 12 Monate zu defaulten."""
+    mandate_id, _ = _seed_review_context(session_factory, advisor_user)
+    trigger_id = _seed_time_trigger(session_factory, mandate_id, frequency="weekly")
+
+    response = auth_client.put(
+        f"/mandates/{mandate_id}/triggers/{trigger_id}/resolve",
+        json={"decision": "Erledigt"},
+    )
+
+    assert response.status_code == 409
+    with session_factory() as s:
+        row = s.query(ReviewTrigger).filter(ReviewTrigger.id == trigger_id).one()
+        assert row.status == "Ausgelöst"
+        assert row.resolution_decision is None
+
+
+def test_resolve_trigger_rejects_unknown_decision_value(session_factory, auth_client, advisor_user):
+    mandate_id, _ = _seed_review_context(session_factory, advisor_user)
+    trigger_id = _seed_time_trigger(session_factory, mandate_id)
+
+    response = auth_client.put(
+        f"/mandates/{mandate_id}/triggers/{trigger_id}/resolve",
+        json={"decision": "Irgendwas"},
+    )
+
+    assert response.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# FIDLEG-STATE-002 (Codex-Audit 2026-08-27): client_signed_at muss ein echter
+# ISO-Zeitstempel sein; ist ein signiertes ContractDocument verknuepft, wird
+# der Zeitpunkt aus dessen echter Kundensignatur abgeleitet statt aus einem
+# frei behaupteten Request-String.
+# ---------------------------------------------------------------------------
+
+def test_advisory_log_create_rejects_non_date_client_signed_at(session_factory, auth_client, advisor_user):
+    mandate_id, _ = _seed_review_context(session_factory, advisor_user)
+
+    response = _create_advisory_entry(
+        auth_client,
+        mandate_id,
+        client_signed=True,
+        client_signed_at="not-a-date",
+    )
+
+    assert response.status_code == 422
+
+
+def test_advisory_log_update_rejects_client_signed_without_timestamp(session_factory, auth_client, advisor_user):
+    """Vorher hatte AdvisoryLogUpdate ueberhaupt keinen Signatur-Validator --
+    client_signed=true ohne Zeitpunkt wurde klaglos in eine neue Version
+    uebernommen (repro: versioned_client_signed_at=None)."""
+    mandate_id, _ = _seed_review_context(session_factory, advisor_user)
+    create_response = _create_advisory_entry(auth_client, mandate_id)
+    entry_id = create_response.json()["id"]
+
+    response = auth_client.put(
+        f"/mandates/{mandate_id}/advisory-log/{entry_id}",
+        json={"client_signed": True},
+    )
+
+    assert response.status_code == 422
+
+
+def _create_signed_client_document(auth_client: TestClient, mandate_id: str) -> str:
+    create_response = auth_client.post(
+        f"/mandates/{mandate_id}/documents",
+        json={"document_type": "Sonstiges", "title": "Beratungsvertrag"},
+    )
+    assert create_response.status_code == 201
+    doc_id = create_response.json()["id"]
+    sign_response = auth_client.post(
+        f"/mandates/{mandate_id}/documents/{doc_id}/sign",
+        json={
+            "signed_by_client": True,
+            "signature_image": "data:image/png;base64,AAAA",
+            "signer_name": "Max Muster",
+        },
+    )
+    assert sign_response.status_code == 200
+    return doc_id
+
+
+def test_advisory_log_create_with_signed_document_derives_real_timestamp(session_factory, auth_client, advisor_user):
+    mandate_id, _ = _seed_review_context(session_factory, advisor_user)
+    doc_id = _create_signed_client_document(auth_client, mandate_id)
+    with session_factory() as s:
+        doc = s.query(ContractDocument).filter(ContractDocument.id == doc_id).one()
+        real_signed_at = doc.signature_client_signed_at
+    assert real_signed_at
+
+    response = _create_advisory_entry(
+        auth_client,
+        mandate_id,
+        document_id=doc_id,
+        client_signed=True,
+        # Ein frei erfundener Zeitpunkt -- muss vom Server verworfen und
+        # durch den echten Signatur-Zeitpunkt des Dokuments ersetzt werden.
+        client_signed_at="2020-01-01T00:00:00.000Z",
+    )
+
+    assert response.status_code == 201
+    data = response.json()
+    assert data["client_signed_at"] == real_signed_at
+    assert data["client_signed_at"] != "2020-01-01T00:00:00.000Z"
+
+
+def test_advisory_log_create_rejects_client_signed_with_unsigned_document(session_factory, auth_client, advisor_user):
+    mandate_id, _ = _seed_review_context(session_factory, advisor_user)
+    create_response = auth_client.post(
+        f"/mandates/{mandate_id}/documents",
+        json={"document_type": "Sonstiges", "title": "Beratungsvertrag"},
+    )
+    assert create_response.status_code == 201
+    doc_id = create_response.json()["id"]
+
+    response = _create_advisory_entry(
+        auth_client,
+        mandate_id,
+        document_id=doc_id,
+        client_signed=True,
+        client_signed_at="2026-05-28T14:00:00.000Z",
+    )
+
+    assert response.status_code == 422

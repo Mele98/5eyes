@@ -6,7 +6,7 @@ from collections.abc import Callable
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Response, UploadFile
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
-from sqlalchemy import bindparam, or_, text
+from sqlalchemy import bindparam, or_, text, update
 from sqlalchemy.exc import IntegrityError
 from datetime import date, datetime, timezone
 from config import settings
@@ -24,6 +24,7 @@ from models.profiling import RiskAssessment, SuitabilityCheck
 from models.tenant import Tenant
 from schemas.review import (
     ReviewTriggerCreate, ReviewTriggerResolve, ReviewTriggerResponse,
+    normalize_trigger_frequency, trigger_frequency_months,
     AdvisoryLogCreate, AdvisoryLogUpdate, AdvisoryLogResponse,
     ContractDocumentCreate, ContractDocumentSign, ContractDocumentResponse,
     ConflictDisclosureCreate, ConflictDisclosureResponse,
@@ -62,7 +63,11 @@ from services.portfolio_engine import (
     ensure_runtime_reference_data,
 )
 from services.product_market_data import currency_mismatch_warning, resolve_market_profile
-from services.review_engine import _add_months, refresh_system_review_triggers
+from services.review_engine import (
+    ReviewAnchorDataError,
+    _add_months,
+    refresh_system_review_triggers,
+)
 from services.suitability_audit import audit_mandate_suitability
 
 router = APIRouter(tags=["Review & Dokumente"])
@@ -609,57 +614,17 @@ def _collect_product_market_data_status(db: Session, tenant_id: str | None = Non
     }
 
 
-def _normalize_trigger_frequency(trigger_type: str, frequency: str | None, trigger_name: str | None = None) -> str | None:
-    if trigger_type == "Ereignis":
-        return "bei Ereignis"
-    raw = str(frequency or "").strip().lower()
-    name = str(trigger_name or "").strip().lower()
-    if not raw:
-        raw = name
-    normalized = (
-        raw.replace("ä", "ae")
-        .replace("ö", "oe")
-        .replace("ü", "ue")
-        .replace("Ã¤", "ae")
-        .replace("Ã¶", "oe")
-        .replace("Ã¼", "ue")
-    )
-    if "quart" in normalized or normalized.startswith("3 "):
-        return "quartalsweise"
-    if "halb" in normalized or normalized.startswith("6 "):
-        return "halbjährlich"
-    if "jahr" in normalized or normalized.startswith("12 "):
-        return "jährlich"
-    if "monat" in normalized or normalized.startswith("1 "):
-        return "monatlich"
-    if "einmal" in normalized:
-        return "einmalig"
-    if trigger_type == "Zeit":
-        return "jährlich"
-    return None
-
-
-def _trigger_frequency_months(frequency: str | None) -> int | None:
-    normalized = (
-        str(frequency or "")
-        .strip()
-        .lower()
-        .replace("ä", "ae")
-        .replace("ö", "oe")
-        .replace("ü", "ue")
-        .replace("Ã¤", "ae")
-        .replace("Ã¶", "oe")
-        .replace("Ã¼", "ue")
-    )
-    if normalized == "monatlich":
-        return 1
-    if "quart" in normalized:
-        return 3
-    if "halb" in normalized:
-        return 6
-    if "jahr" in normalized:
-        return 12
-    return None
+def _trigger_is_due(next_due_at: str | None, today: date) -> bool:
+    """REVIEW-STATE-003: ein Aktiv-aber-noch-nicht-faelliger Zeit-Trigger ist
+    NIE 'due' -- weder bei einem echten Datum in der Zukunft noch bei einem
+    fehlenden/kaputten next_due_at (fail-closed statt Crash oder Rateversuch).
+    """
+    if not next_due_at:
+        return False
+    try:
+        return date.fromisoformat(str(next_due_at)[:10]) <= today
+    except ValueError:
+        return False
 
 
 # ── Review Triggers ────────────────────────────────────────────────────────────
@@ -688,12 +653,12 @@ def create_trigger(
 ):
     _get_mandate_or_404(mandate_id, db, current_user)
     now = _now()
+    # REVIEW-STATE-002 (Codex-Audit 2026-08-27): jegliche Alias-Normalisierung
+    # und Feldisolierung passiert jetzt AUSSCHLIESSLICH im Schema
+    # (ReviewTriggerCreate.validate_type_specific_fields) -- ein unbekannter
+    # Frequenzwert wurde dort bereits mit 422 abgelehnt, statt hier
+    # kommentarlos auf "jährlich" umgedeutet zu werden.
     payload = body.model_dump()
-    payload["frequency"] = _normalize_trigger_frequency(
-        trigger_type=payload["trigger_type"],
-        frequency=payload.get("frequency"),
-        trigger_name=payload.get("trigger_name"),
-    )
     trigger = ReviewTrigger(
         id=new_uuid(), mandate_id=mandate_id,
         status="Aktiv", is_system=0,
@@ -724,7 +689,13 @@ def refresh_system_triggers(
     current_user: User = Depends(require_advisor)
 ):
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
-    triggers = refresh_system_review_triggers(db, mandate, current_user.id)
+    try:
+        triggers = refresh_system_review_triggers(db, mandate, current_user.id)
+    except ReviewAnchorDataError as exc:
+        # REVIEW-STATE-001: fail-closed statt eines stillen today()-Fallbacks
+        # bei beschaedigtem/mehrdeutigem Review-Anker.
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc))
     db.commit()
     return triggers
 
@@ -738,21 +709,111 @@ def resolve_trigger(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor)
 ):
+    """REVIEW-STATE-003 (Codex-Audit 2026-08-27): resolve() verwarf bisher
+    das Pflichtfeld `decision` komplett (nur `triggered_notes` wurde
+    gelesen), pruefte weder Status noch Faelligkeit vor der Mutation und war
+    dadurch beliebig oft replaybar -- jeder Aufruf verschob die naechste
+    Jahresfrist aus der aktuellen Serverzeit neu, ohne Entscheidnachweis.
+
+    Jetzt: (1) nur tatsaechlich ausgeloeste oder faellige Trigger duerfen
+    aufgeloest werden, (2) `decision` wird gelesen UND append-only mit
+    Actor/Zeitpunkt/vorherigem Faelligkeitsanker persistiert, (3) die Mutation
+    ist ein atomares Compare-and-Set gegen den zuvor gelesenen Status -- ein
+    paralleler oder frueher zweiter Resolve trifft auf 409 statt die Frist
+    ein zweites Mal zu verschieben.
+    """
     _get_mandate_or_404(mandate_id, db, current_user)
     trigger = _get_trigger_or_404(mandate_id, trigger_id, db)
     now = _now()
-    trigger.status = "Erledigt"
-    trigger.last_triggered_at = now
-    trigger.triggered_notes = body.triggered_notes
-    recurrence_months = None
+    today = date.today()
+
+    previous_status = trigger.status
+    previous_next_due_at = trigger.next_due_at
+
+    is_triggered = previous_status in ACTIVE_TRIGGER_STATUS_VALUES
+    is_due_time_trigger = (
+        trigger.trigger_type == "Zeit"
+        and previous_status == "Aktiv"
+        and _trigger_is_due(previous_next_due_at, today)
+    )
+    if not (is_triggered or is_due_time_trigger):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Trigger ist weder ausgelöst noch fällig -- Resolve ist nur für "
+                "tatsächlich ausgelöste oder fällige Trigger zulässig "
+                f"(aktueller Status: {previous_status!r}, nächste Fälligkeit: "
+                f"{previous_next_due_at!r})."
+            ),
+        )
+
+    new_status = "Erledigt"
+    new_next_due_at = None
     if trigger.trigger_type == "Zeit":
-        recurrence_months = _trigger_frequency_months(trigger.frequency) or 12
-    if recurrence_months:
-        trigger.next_due_at = _add_months(now[:10], recurrence_months)
-        trigger.status = "Aktiv"
+        canonical_frequency = normalize_trigger_frequency(trigger.frequency)
+        if canonical_frequency is None:
+            # Legacy/beschaedigte Frequenz -- NICHT stillschweigend auf 12
+            # Monate (oder irgendetwas anderes) defaulten. Das war der Kern
+            # des REVIEW-STATE-002-Bugs fuer Altbestand: ein unbekannter Wert
+            # verschwand einfach zu "jährlich".
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Trigger hat eine unbekannte oder beschädigte Frequenz "
+                    f"({trigger.frequency!r}) -- kann nicht automatisch verlängert "
+                    "werden. Bitte Trigger-Frequenz zuerst korrigieren."
+                ),
+            )
+
+        months = trigger_frequency_months(trigger.frequency)
+        if months is not None:
+            new_next_due_at = _add_months(previous_next_due_at or now[:10], months)
+            new_status = "Aktiv"
+        # canonical_frequency == "einmalig" -> months is None -> Trigger
+        # bleibt "Erledigt", keine neue Fälligkeit (vorher wurde ein
+        # "einmalig"-Trigger fälschlich auf 12 Monate weiterverlängert).
+
+    # Atomares Compare-and-Set: die WHERE-Klausel bindet die Mutation an
+    # exakt den Status, den wir oben geprüft haben. Ein paralleler zweiter
+    # Resolve-Aufruf (oder ein Replay nach einem bereits erfolgreichen
+    # Resolve) trifft auf rowcount=0 und bekommt 409, statt die Fälligkeit
+    # ein zweites Mal zu verschieben.
+    result = db.execute(
+        update(ReviewTrigger)
+        .where(
+            ReviewTrigger.id == trigger_id,
+            ReviewTrigger.mandate_id == mandate_id,
+            ReviewTrigger.status == previous_status,
+        )
+        .values(
+            status=new_status,
+            last_triggered_at=now,
+            triggered_notes=body.triggered_notes,
+            resolution_decision=body.decision,
+            resolved_by=current_user.id,
+            resolved_at=now,
+            previous_next_due_at=previous_next_due_at,
+            next_due_at=(
+                new_next_due_at if trigger.trigger_type == "Zeit" else trigger.next_due_at
+            ),
+            updated_at=now,
+        )
+    )
+    if result.rowcount != 1:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Trigger wurde inzwischen von einem anderen Vorgang aufgelöst -- "
+                "bitte neu laden."
+            ),
+        )
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="review_triggers", record_id=trigger_id, action="UPDATE",
-        field_name="status", new_value=trigger.status, mandate_id=mandate_id,
+        field_name="decision",
+        old_value=previous_next_due_at,
+        new_value=f"{body.decision} -> next_due_at={new_next_due_at}",
+        mandate_id=mandate_id,
         ip_address=_extract_client_ip(request))
     db.commit()
     db.refresh(trigger)
@@ -831,12 +892,41 @@ def create_advisory_log_entry(
     # sonst signiert der Integrity-Hash ein inkonsistentes Beweis-Bündel.
     if body.trigger_id:
         _get_trigger_or_404(mandate_id, body.trigger_id, db)
+    linked_document = None
     if body.document_id:
-        _get_document_or_404(mandate_id, body.document_id, db)
+        linked_document = _get_document_or_404(mandate_id, body.document_id, db)
     for disclosure_id in body.conflict_disclosure_ids:
         _get_conflict_disclosure_or_404(mandate_id, disclosure_id, db)
     if body.suitability_check_id:
         _get_suitability_check_or_404(mandate_id, body.suitability_check_id, db)
+    if body.client_signed and linked_document is not None:
+        # FIDLEG-STATE-002 (Codex-Audit 2026-08-27): wenn der Advisor beim
+        # Beratungsprotokoll explizit ein Vertragsdokument referenziert, MUSS
+        # dieses Dokument bereits echt vom Kunden signiert sein (Canvas-
+        # Signaturbild + Signer-Name + serverseitiger Zeitstempel + IP, siehe
+        # routers/review.py::sign_document / models/review.py::
+        # ContractDocument). Der behauptete client_signed_at-String wird
+        # DURCH den tatsaechlichen, serverseitig erfassten Signaturzeitpunkt
+        # ersetzt -- ein Advisor kann sich damit nicht mehr selbst einen
+        # frei erfundenen Zeitpunkt zuschreiben, sobald er sich auf ein
+        # konkretes Dokument beruft. Ohne document_id bleibt client_signed
+        # weiterhin ein (schwaecheres, aber jetzt wenigstens echtes
+        # Zeitstempel-) Advisor-Attest -- siehe schemas/review.py::
+        # AdvisoryLogCreate.validate_signature. Eine vollstaendige
+        # Neugestaltung des Bestaetigungs-Workflows ist ADV-WORKFLOW-002
+        # (separat, bewusst NICHT Teil dieses Fixes).
+        if not linked_document.signed_by_client or not linked_document.signature_client_signed_at:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "client_signed=true mit document_id verlangt, dass dieses "
+                    "Dokument bereits echt vom Kunden signiert wurde "
+                    "(signed_by_client)."
+                ),
+            )
+        body = body.model_copy(
+            update={"client_signed_at": linked_document.signature_client_signed_at}
+        )
     entry = create_advisory_log(
         db, mandate_id=mandate_id, advisor=current_user, payload=body, mandate=mandate,
     )
@@ -985,6 +1075,25 @@ def update_advisory_log_entry(
     if body.recommendation_run_id:
         _get_recommendation_run_or_404(
             mandate_id, body.recommendation_run_id, db, current_user,
+        )
+    if body.client_signed and entry.document_id:
+        # FIDLEG-STATE-002: dieselbe Regel wie beim Create (siehe
+        # create_advisory_log_entry) -- document_id ist bei Update nicht
+        # veraenderbar (AdvisoryLogUpdate hat kein eigenes document_id-Feld,
+        # es wird immer von `previous` uebernommen), daher hier gegen
+        # `entry.document_id` geprueft.
+        linked_document = _get_document_or_404(mandate_id, entry.document_id, db)
+        if not linked_document.signed_by_client or not linked_document.signature_client_signed_at:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "client_signed=true mit verknuepftem document_id verlangt, "
+                    "dass dieses Dokument bereits echt vom Kunden signiert "
+                    "wurde (signed_by_client)."
+                ),
+            )
+        body = body.model_copy(
+            update={"client_signed_at": linked_document.signature_client_signed_at}
         )
 
     new_entry = supersede_advisory_log(
@@ -2344,12 +2453,18 @@ def generate_recommendation_run_endpoint(
     except ValueError as exc:
         logger.warning("generate_recommendation_run failed for mandate %s: %s", mandate_id, exc)
         raise HTTPException(status_code=409, detail=str(exc))
-    refresh_system_review_triggers(
-        db,
-        mandate,
-        current_user.id,
-        allocation_payload=result.get("allocation_payload"),
-    )
+    try:
+        refresh_system_review_triggers(
+            db,
+            mandate,
+            current_user.id,
+            allocation_payload=result.get("allocation_payload"),
+        )
+    except ReviewAnchorDataError as exc:
+        # REVIEW-STATE-001: fail-closed statt eines stillen today()-Fallbacks
+        # bei beschaedigtem/mehrdeutigem Review-Anker.
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc))
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="recommendation_runs", record_id=result["run"].id, action="CREATE",
         mandate_id=mandate_id, client_id=mandate.client_id,

@@ -1,20 +1,202 @@
+from datetime import date, datetime
 from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import Any, Optional, Literal
 from schemas.common import BaseResponse
 from schemas.allocation import AllocationPreferencesPayload, LiveRebalancingResponse
 
 
+# ---------------------------------------------------------------------------
+# REVIEW-STATE-002 (Codex-Audit 2026-08-27): gemeinsame, strikte Taxonomie fuer
+# Review-Trigger-Frequenzen. Vorher akzeptierte `ReviewTriggerCreate.frequency`
+# jeden freien String; `routers/review.py::_normalize_trigger_frequency()`
+# mappte jeden NICHT erkannten Wert eines Zeit-Triggers (z.B. ein Tippfehler
+# wie "weekly") kommentarlos auf "jährlich" statt ihn abzulehnen. Diese
+# Funktionen sind jetzt die EINZIGE Stelle, die Alias-Normalisierung und
+# Monats-Arithmetik kennt -- Schema-Validierung (Create), Resolve
+# (routers/review.py) und ggf. Exporte muessen sie importieren statt eigene
+# Kopien zu pflegen (das war der Kern des Bugs: zwei leicht unterschiedliche
+# Implementierungen mit unterschiedlichem Fallback-Verhalten).
+# ---------------------------------------------------------------------------
+TriggerFrequency = Literal[
+    "monatlich", "quartalsweise", "halbjährlich", "jährlich", "einmalig"
+]
+
+_TRIGGER_FREQUENCY_MONTHS: dict[str, Optional[int]] = {
+    "monatlich": 1,
+    "quartalsweise": 3,
+    "halbjährlich": 6,
+    "jährlich": 12,
+    "einmalig": None,  # keine Wiederholung -- Trigger bleibt nach Resolve "Erledigt".
+}
+
+
+def normalize_trigger_frequency(raw: str | None) -> str | None:
+    """Alias-Normalisierung fuer Zeit-Trigger-Frequenzen.
+
+    Bildet bekannte deutsche/englische Aliase (inkl. Mojibake-tolerante
+    ASCII-Schreibweisen der Umlaute) auf die kanonische Taxonomie ab. Gibt
+    `None` zurueck, wenn der Wert auf KEINEN bekannten Alias abbildet -- ein
+    unbekannter Wert wird NIE mehr automatisch auf einen Default (z.B.
+    "jährlich") umgedeutet. Der Aufrufer muss `None` als Ablehnung behandeln,
+    nicht als "kein Wert angegeben, also Default".
+    """
+    value = str(raw or "").strip().lower()
+    if not value:
+        return None
+    if value in _TRIGGER_FREQUENCY_MONTHS:
+        return value
+    ascii_value = (
+        value.replace("ä", "ae").replace("ö", "oe").replace("ü", "ue")
+        .replace("Ã¤", "ae").replace("Ã¶", "oe").replace("Ã¼", "ue")
+    )
+    ascii_canonical = {
+        "monatlich": "monatlich",
+        "quartalsweise": "quartalsweise",
+        "halbjaehrlich": "halbjährlich",
+        "jaehrlich": "jährlich",
+        "einmalig": "einmalig",
+    }
+    if ascii_value in ascii_canonical:
+        return ascii_canonical[ascii_value]
+    if "quart" in ascii_value or ascii_value.startswith("3 ") or ascii_value == "quarterly":
+        return "quartalsweise"
+    if "halbjaehr" in ascii_value or ascii_value.startswith("6 ") or ascii_value in ("semiannual", "biannual"):
+        return "halbjährlich"
+    if "jaehr" in ascii_value or ascii_value.startswith("12 ") or ascii_value in ("yearly", "annual", "annually"):
+        return "jährlich"
+    if "monat" in ascii_value or ascii_value.startswith("1 ") or ascii_value == "monthly":
+        return "monatlich"
+    if "einmal" in ascii_value or ascii_value in ("once", "one-time", "onetime"):
+        return "einmalig"
+    return None
+
+
+def trigger_frequency_months(frequency: str | None) -> int | None:
+    """Anzahl Monate bis zur naechsten Faelligkeit fuer eine bereits
+    kanonische oder alias-normalisierbare Frequenz.
+
+    Returns
+    -------
+    int
+        Anzahl Monate bis zur naechsten Wiederholung.
+    None
+        Entweder eine explizit nicht-wiederkehrende Frequenz ("einmalig")
+        ODER eine unbekannte/beschaedigte Frequenz. Der Aufrufer MUSS
+        `normalize_trigger_frequency()` selbst pruefen, um diese beiden
+        Faelle zu unterscheiden -- diese Funktion allein reicht nicht, um
+        "einmalig" von "kaputt" zu trennen (REVIEW-STATE-003).
+    """
+    canonical = normalize_trigger_frequency(frequency)
+    if canonical is None:
+        return None
+    return _TRIGGER_FREQUENCY_MONTHS[canonical]
+
+
+def _parse_signature_timestamp(value: str) -> None:
+    """Validiert, dass `value` ein echter ISO-Datums-/Zeitstempel ist.
+
+    FIDLEG-STATE-002 (Codex-Audit 2026-08-27): `client_signed_at` akzeptierte
+    bisher JEDEN nichtleeren String (z.B. "not-a-date") als "Kundensignatur-
+    Zeitpunkt". Wirft `ValueError` bei allem, was weder ein ISO-Datum noch ein
+    ISO-Zeitstempel ist.
+    """
+    raw = str(value).strip()
+    if not raw:
+        raise ValueError("client_signed_at darf nicht leer sein")
+    normalized = raw[:-1] + "+00:00" if raw.endswith("Z") else raw
+    try:
+        datetime.fromisoformat(normalized)
+        return
+    except ValueError:
+        pass
+    try:
+        date.fromisoformat(raw[:10])
+        return
+    except ValueError:
+        raise ValueError(
+            f"client_signed_at ist kein gueltiges ISO-Datum/-Zeitstempel: {value!r}"
+        )
+
+
 class ReviewTriggerCreate(BaseModel):
     trigger_type: Literal["Zeit", "Markt", "Ereignis"]
-    trigger_name: str
-    threshold_bps: Optional[int] = None
+    trigger_name: str = Field(min_length=1, max_length=200)
+    # REVIEW-STATE-002: threshold_bps war ein unbegrenzter optionaler Integer
+    # -- ein stark negativer oder absurd grosser Wert (z.B. -999999) wurde
+    # klaglos gespeichert. 0-100'000 bps (0-1000%) deckt jede fachlich
+    # sinnvolle Bandbreitenverletzungs-Schwelle grosszuegig ab.
+    threshold_bps: Optional[int] = Field(default=None, ge=0, le=100_000)
     frequency: Optional[str] = None
     next_due_at: Optional[str] = None
 
+    @field_validator("threshold_bps", mode="before")
+    @classmethod
+    def reject_bool_threshold(cls, value):
+        # Pydantic behandelt bool als int-Subtyp -- ohne diesen expliziten
+        # Guard wuerde threshold_bps=True klaglos als 1 durchgehen.
+        if isinstance(value, bool):
+            raise ValueError("threshold_bps darf kein Bool-Wert sein")
+        return value
+
+    @model_validator(mode="after")
+    def validate_type_specific_fields(self):
+        """REVIEW-STATE-002: strikte Feldisolierung pro Triggerart.
+
+        Frequenz ist ausschliesslich fuer Zeit-Trigger zulaessig (und dort
+        Pflicht, strikt validiert -- ein unbekannter Wert wird abgelehnt,
+        NIE mehr stillschweigend zu 'jährlich' umgedeutet). threshold_bps ist
+        ausschliesslich fuer Markt-Trigger zulaessig (und dort Pflicht).
+        Ereignis-Trigger haben weder Frequenz noch Schwelle.
+        """
+        if self.trigger_type == "Zeit":
+            if self.threshold_bps is not None:
+                raise ValueError("threshold_bps ist nur fuer Markt-Trigger zulaessig")
+            canonical = normalize_trigger_frequency(self.frequency)
+            if canonical is None:
+                raise ValueError(
+                    f"Unbekannte oder fehlende Trigger-Frequenz {self.frequency!r} -- "
+                    "erlaubt: monatlich, quartalsweise, halbjährlich, jährlich, einmalig."
+                )
+            self.frequency = canonical
+        elif self.trigger_type == "Markt":
+            if self.frequency is not None:
+                raise ValueError("frequency ist nur fuer Zeit-Trigger zulaessig")
+            if self.threshold_bps is None:
+                raise ValueError("threshold_bps ist Pflicht fuer Markt-Trigger")
+        elif self.trigger_type == "Ereignis":
+            if self.frequency is not None:
+                raise ValueError("frequency ist nur fuer Zeit-Trigger zulaessig")
+            if self.threshold_bps is not None:
+                raise ValueError("threshold_bps ist nur fuer Markt-Trigger zulaessig")
+        if self.next_due_at is not None:
+            raw = self.next_due_at.strip()
+            try:
+                date.fromisoformat(raw[:10])
+            except ValueError:
+                raise ValueError(
+                    "next_due_at muss ein gueltiges ISO-Datum (YYYY-MM-DD) sein"
+                )
+            self.next_due_at = raw[:10]
+        return self
+
+
+# REVIEW-STATE-003 (Codex-Audit 2026-08-27): `decision` war zwar Pflichtfeld
+# im Request-Schema, wurde von der Route aber nie gelesen (nur
+# `triggered_notes`). Jetzt ein striktes Enum statt eines freien Strings --
+# der Wert wird tatsaechlich gelesen UND persistiert (siehe
+# routers/review.py::resolve_trigger + models/review.py::ReviewTrigger.
+# resolution_decision).
+ReviewTriggerDecision = Literal[
+    "Erledigt",              # Review/Pruefung durchgefuehrt, Trigger abgeschlossen
+    "Massnahme eingeleitet", # Markt-/Ereignis-Trigger: Aktion wurde eingeleitet
+    "Kein Handlungsbedarf",  # Geprueft, keine Aktion noetig
+    "Vertagt",               # bewusst und dokumentiert vertagt
+]
+
 
 class ReviewTriggerResolve(BaseModel):
-    decision: str
-    triggered_notes: Optional[str] = None
+    decision: ReviewTriggerDecision
+    triggered_notes: Optional[str] = Field(default=None, max_length=10_000)
 
 
 class ReviewTriggerResponse(BaseResponse):
@@ -34,6 +216,13 @@ class ReviewTriggerResponse(BaseResponse):
     is_system: int
     created_at: str
     updated_at: str
+    # REVIEW-STATE-003: append-only Evidence-Trail des letzten Resolve --
+    # NULL fuer noch nie aufgeloeste Trigger und fuer Alteintraege vor
+    # diesem Fix.
+    resolution_decision: Optional[str] = None
+    resolved_by: Optional[str] = None
+    resolved_at: Optional[str] = None
+    previous_next_due_at: Optional[str] = None
 
 
 CommunicationChannel = Literal[
@@ -49,6 +238,22 @@ AdvisoryEntryType = Literal[
     "Zieländerung", "Restriktionsänderung",
     "Initialer Beratungsabschluss", "Eignungsprüfung", "Sonstiges"
 ]
+
+# REVIEW-STATE-001 (Codex-Audit 2026-08-27): gemeinsame Taxonomie, welche
+# AdvisoryEntryType-Werte einen Review fachlich abschliessen und damit den
+# naechsten Jahresreview-Termin ankern duerfen (siehe die System-Trigger-
+# Refresh-Funktion in services/review_engine.py). Vorher suchte die Engine
+# nach den rein internen Legacy-Strings "Beratungsprotokoll"/"Anlageberatung", die im
+# oeffentlichen AdvisoryEntryType NIE vorkommen -- ein über die API erfasster
+# echter "Jahresreview" konnte den Termin dadurch nie ankern. "Quartalscheck"
+# und informelle Eintraege ankern bewusst NICHT (Testmatrix des Audits) --
+# nur ein tatsaechlicher Jahresreview oder der initiale Beratungsabschluss
+# gelten als vollstaendiger Review-Abschluss.
+ANNUAL_REVIEW_ANCHOR_ENTRY_TYPES: frozenset[str] = frozenset({
+    "Jahresreview",
+    "Initialer Beratungsabschluss",
+})
+
 AdvisoryDecision = Literal[
     "Keine Transaktion",
     "Transaktion empfohlen",
@@ -131,8 +336,17 @@ class AdvisoryLogCreate(BaseModel):
 
     @model_validator(mode="after")
     def validate_signature(self):
+        # FIDLEG-STATE-002 (Codex-Audit 2026-08-27): vorher genuegte JEDER
+        # nichtleere String (z.B. "not-a-date") als "Kundensignatur-
+        # Zeitpunkt". client_signed_at muss jetzt ein echter ISO-Datums-/
+        # Zeitstempel sein -- eine kryptografische Signatur wird das dadurch
+        # NICHT (siehe routers/review.py::create_advisory_log_entry fuer die
+        # staerkere Ableitung aus einem tatsaechlich signierten
+        # ContractDocument, wenn document_id gesetzt ist).
         if self.client_signed and not self.client_signed_at:
             raise ValueError("client_signed_at ist Pflicht wenn client_signed=True")
+        if self.client_signed_at:
+            _parse_signature_timestamp(self.client_signed_at)
         return self
 
     @model_validator(mode="after")
@@ -184,6 +398,21 @@ class AdvisoryLogUpdate(BaseModel):
                 "description muss mindestens 30 Zeichen lang sein "
                 "(FINMA-Nachvollziehbarkeit)"
             )
+        return self
+
+    @model_validator(mode="after")
+    def validate_signature(self):
+        # FIDLEG-STATE-002 (Codex-Audit 2026-08-27): AdvisoryLogUpdate hatte
+        # -- anders als AdvisoryLogCreate -- ueberhaupt KEINEN
+        # Signatur-Validator. `client_signed=true` ohne `client_signed_at`
+        # wurde klaglos in eine neue Version uebernommen (reproduziert:
+        # versioned_client_signed=1, versioned_client_signed_at=None).
+        # Dieselbe Regel wie beim Create: signed=True verlangt einen echten
+        # ISO-Zeitstempel, kein leerer/erfundener String.
+        if self.client_signed and not self.client_signed_at:
+            raise ValueError("client_signed_at ist Pflicht wenn client_signed=True")
+        if self.client_signed_at:
+            _parse_signature_timestamp(self.client_signed_at)
         return self
 
 

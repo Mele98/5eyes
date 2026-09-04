@@ -25,6 +25,22 @@ class ReviewTrigger(Base):
     updated_at = Column(String, nullable=False)
     deleted_at = Column(String)
 
+    # REVIEW-STATE-003 (Codex-Audit 2026-08-27): resolve_trigger() verwarf
+    # bisher das Pflichtfeld `decision` komplett (nur `triggered_notes` wurde
+    # gelesen) und besass keinerlei Evidence-/Versions-Vertrag -- derselbe
+    # Endpoint war beliebig oft wiederholbar und verschob bei jedem fruehen
+    # Replay die Jahresfrist aus der aktuellen Serverzeit neu, ohne dass je
+    # nachvollziehbar war, WER WANN WELCHEN Entscheid getroffen hat oder
+    # welcher Faelligkeitsanker vorher galt. Diese vier Spalten sind
+    # append-only befuellt (siehe routers/review.py::resolve_trigger) und
+    # NULL fuer noch nie aufgeloeste Trigger sowie fuer Alteintraege vor
+    # diesem Fix (additive Migration, siehe database.py::
+    # ensure_runtime_columns()['review_triggers']).
+    resolution_decision = Column(String)
+    resolved_by = Column(String, ForeignKey("users.id"))
+    resolved_at = Column(String)
+    previous_next_due_at = Column(String)
+
     mandate = relationship("Mandate", back_populates="review_triggers")
 
 

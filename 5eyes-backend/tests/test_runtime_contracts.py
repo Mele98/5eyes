@@ -76,6 +76,7 @@ from services.portfolio_engine import (
     generate_target_allocation,
 )
 from services.review_engine import (
+    ReviewAnchorDataError,
     SYSTEM_TRIGGER_DRIFT,
     SYSTEM_TRIGGER_GOALS,
     SYSTEM_TRIGGER_MARKET_DATA,
@@ -4221,7 +4222,18 @@ def test_refresh_system_review_triggers_creates_review_and_goal_alerts(session_f
     assert "Fr" in (goal_trigger.triggered_value or "")
 
 
-def test_refresh_system_review_triggers_ignores_informal_notes_for_review_anchor(session_factory, advisor_user):
+def test_refresh_system_review_triggers_ignores_legacy_raw_entry_type_for_review_anchor(session_factory, advisor_user):
+    """REVIEW-STATE-001 (Codex-Audit 2026-08-27): dieser Test hiess urspruenglich
+    `..._ignores_informal_notes_for_review_anchor` und bewies -- ungewollt --
+    genau den gemeldeten Bug: er fuegte per direktem ORM-Insert den NICHT
+    oeffentlichen Legacy-Wert "Beratungsprotokoll" ein (`AdvisoryEntryType`
+    laesst diesen String gar nicht zu) und behauptete, das sei ein gueltiger
+    Review-Anker. Nach dem Fix zaehlt "Beratungsprotokoll" NICHT mehr als
+    Anker -- die Engine faellt korrekt auf `mandate.opened_at` ("2026-03-27",
+    siehe seed_client_and_mandate) zurueck, nicht auf das Legacy-Datum. Ein
+    zukuenftiger Migrationspfad fuer Altbestand ist explizit ein separater,
+    operatorgebundener Schritt (siehe Fixvertrag im Audit), kein impliziter
+    Taxonomie-Alias."""
     _, mandate_id = seed_client_and_mandate(session_factory, advisor_user)
 
     with session_factory() as session:
@@ -4258,7 +4270,163 @@ def test_refresh_system_review_triggers_ignores_informal_notes_for_review_anchor
         triggers = refresh_system_review_triggers(session, mandate, advisor_user.id)
 
     review_trigger = next(trigger for trigger in triggers if trigger.trigger_name == SYSTEM_TRIGGER_REVIEW)
+    # Fallback auf mandate.opened_at ("2026-03-27") + 12 Monate -- NICHT das
+    # Legacy-Eintragsdatum "2026-04-10".
+    assert review_trigger.next_due_at == "2027-03-27"
+
+
+def test_refresh_system_review_triggers_anchors_on_public_jahresreview_entry_type(session_factory, advisor_user):
+    """REVIEW-STATE-001: ein ueber das oeffentliche AdvisoryEntryType-Schema
+    zulaessiger "Jahresreview"-Eintrag MUSS den naechsten Jahrestermin exakt
+    ankern -- das ist der eigentliche, vorher gebrochene Vertrag."""
+    _, mandate_id = seed_client_and_mandate(session_factory, advisor_user)
+
+    with session_factory() as session:
+        session.add(
+            AdvisoryLog(
+                id="advisory-log-public-review",
+                mandate_id=mandate_id,
+                entry_type="Jahresreview",
+                title="Jahresreview 2026",
+                status="Empfohlen",
+                advisor_id=advisor_user.id,
+                client_signed=0,
+                entry_date="2026-04-10",
+                created_at="2026-04-10T10:00:00.000Z",
+                updated_at="2026-04-10T10:00:00.000Z",
+            )
+        )
+        session.commit()
+        mandate = session.query(Mandate).filter(Mandate.id == mandate_id).one()
+        triggers = refresh_system_review_triggers(session, mandate, advisor_user.id)
+
+    review_trigger = next(trigger for trigger in triggers if trigger.trigger_name == SYSTEM_TRIGGER_REVIEW)
     assert review_trigger.next_due_at == "2027-04-10"
+
+
+def test_refresh_system_review_triggers_ignores_superseded_review_anchor(session_factory, advisor_user):
+    """REVIEW-STATE-001: ein durch ein Update ueberholter (superseded)
+    Jahresreview-Eintrag darf NICHT mehr als Anker zaehlen -- nur der
+    jeweils aktuelle Versionskopf (superseded_by_id IS NULL)."""
+    _, mandate_id = seed_client_and_mandate(session_factory, advisor_user)
+
+    with session_factory() as session:
+        # Reihenfolge bewusst wie services/advisory_log_service.py::
+        # supersede_advisory_log(): der Vorgaenger existiert zuerst
+        # eigenstaendig, die neue Version referenziert ihn per supersedes_id,
+        # erst danach wird der Vorgaenger per UPDATE auf superseded_by_id
+        # gesetzt -- sonst wuerde die FK-PRAGMA (foreign_keys=ON) einen
+        # zirkulaeren Insert ablehnen.
+        v1 = AdvisoryLog(
+            id="advisory-log-superseded",
+            mandate_id=mandate_id,
+            entry_type="Jahresreview",
+            title="Jahresreview 2026 (v1)",
+            status="Empfohlen",
+            advisor_id=advisor_user.id,
+            client_signed=0,
+            entry_date="2026-09-01",
+            version=1,
+            created_at="2026-09-01T10:00:00.000Z",
+            updated_at="2026-09-01T10:05:00.000Z",
+        )
+        session.add(v1)
+        session.commit()
+        session.add(
+            AdvisoryLog(
+                id="advisory-log-superseded-v2",
+                mandate_id=mandate_id,
+                entry_type="Jahresreview",
+                title="Jahresreview 2026 (v2)",
+                status="Empfohlen",
+                advisor_id=advisor_user.id,
+                client_signed=0,
+                entry_date="2026-04-10",
+                supersedes_id="advisory-log-superseded",
+                version=2,
+                created_at="2026-09-01T10:05:00.000Z",
+                updated_at="2026-09-01T10:05:00.000Z",
+            )
+        )
+        session.commit()
+        v1.superseded_by_id = "advisory-log-superseded-v2"
+        session.commit()
+        mandate = session.query(Mandate).filter(Mandate.id == mandate_id).one()
+        triggers = refresh_system_review_triggers(session, mandate, advisor_user.id)
+
+    review_trigger = next(trigger for trigger in triggers if trigger.trigger_name == SYSTEM_TRIGGER_REVIEW)
+    # Anker ist der aktuelle Kopf (entry_date 2026-04-10), NICHT der
+    # superseded Vorgaenger (entry_date 2026-09-01, waere per reiner
+    # Datums-Sortierung "neuer" gewesen).
+    assert review_trigger.next_due_at == "2027-04-10"
+
+
+def test_refresh_system_review_triggers_raises_on_ambiguous_tied_anchors(session_factory, advisor_user):
+    """REVIEW-STATE-001: zwei gleichrangige (identisches entry_date UND
+    created_at) aktuelle Abschlussanker duerfen NICHT per Datenbank-
+    Reihenfolge (".first()") stillschweigend aufgeloest werden."""
+    _, mandate_id = seed_client_and_mandate(session_factory, advisor_user)
+
+    with session_factory() as session:
+        session.add_all(
+            [
+                AdvisoryLog(
+                    id="advisory-log-tied-a",
+                    mandate_id=mandate_id,
+                    entry_type="Jahresreview",
+                    title="Jahresreview A",
+                    status="Empfohlen",
+                    advisor_id=advisor_user.id,
+                    client_signed=0,
+                    entry_date="2026-04-10",
+                    created_at="2026-04-10T10:00:00.000Z",
+                    updated_at="2026-04-10T10:00:00.000Z",
+                ),
+                AdvisoryLog(
+                    id="advisory-log-tied-b",
+                    mandate_id=mandate_id,
+                    entry_type="Initialer Beratungsabschluss",
+                    title="Jahresreview B",
+                    status="Empfohlen",
+                    advisor_id=advisor_user.id,
+                    client_signed=0,
+                    entry_date="2026-04-10",
+                    created_at="2026-04-10T10:00:00.000Z",
+                    updated_at="2026-04-10T10:00:00.000Z",
+                ),
+            ]
+        )
+        session.commit()
+        mandate = session.query(Mandate).filter(Mandate.id == mandate_id).one()
+        with pytest.raises(ReviewAnchorDataError):
+            refresh_system_review_triggers(session, mandate, advisor_user.id)
+
+
+def test_refresh_system_review_triggers_raises_on_invalid_persisted_anchor_date(session_factory, advisor_user):
+    """REVIEW-STATE-001: ein beschaedigter/Raw-Legacy-Anker mit ungueltigem
+    entry_date darf NICHT stillschweigend zu `today()` werden -- fail-closed
+    statt eines plausibel wirkenden, aber falschen neuen Termins."""
+    _, mandate_id = seed_client_and_mandate(session_factory, advisor_user)
+
+    with session_factory() as session:
+        session.add(
+            AdvisoryLog(
+                id="advisory-log-bad-date",
+                mandate_id=mandate_id,
+                entry_type="Jahresreview",
+                title="Jahresreview mit kaputtem Datum",
+                status="Empfohlen",
+                advisor_id=advisor_user.id,
+                client_signed=0,
+                entry_date="not-a-date",
+                created_at="2026-04-10T10:00:00.000Z",
+                updated_at="2026-04-10T10:00:00.000Z",
+            )
+        )
+        session.commit()
+        mandate = session.query(Mandate).filter(Mandate.id == mandate_id).one()
+        with pytest.raises(ReviewAnchorDataError):
+            refresh_system_review_triggers(session, mandate, advisor_user.id)
 
 
 def test_refresh_system_review_triggers_reuses_supplied_allocation_payload(session_factory, advisor_user, monkeypatch):

@@ -595,6 +595,19 @@ def ensure_runtime_columns() -> None:
             ('sequence', 'INTEGER'),
             ('previous_hash', 'TEXT'),
         ],
+        # REVIEW-STATE-003 (Codex-Audit 2026-08-27): resolve_trigger() verwarf
+        # bisher das Pflichtfeld `decision` komplett und besass keine
+        # Evidence-Spalten -- ein Resolve war beliebig oft wiederholbar und
+        # verschob die Faellligkeit stillschweigend, ohne dass je
+        # nachvollziehbar war, WER WANN WELCHEN Entscheid getroffen hat oder
+        # welcher Faelligkeitsanker davor galt. Siehe models/review.py::
+        # ReviewTrigger + routers/review.py::resolve_trigger().
+        'review_triggers': [
+            ('resolution_decision', 'TEXT'),
+            ('resolved_by', 'TEXT'),
+            ('resolved_at', 'TEXT'),
+            ('previous_next_due_at', 'TEXT'),
+        ],
     }
     inspector = inspect(engine)
     # WP1 (Home-Bias/CMA-Parametrisierung pro Jurisdiktion, 2026-07-30):

@@ -9,6 +9,7 @@ from models.mandates import Mandate
 from models.profiling import RiskAssessment
 from models.review import AdvisoryLog, RecommendationPosition, RecommendationRun, ReviewTrigger
 from price_updater import summarize_price_quality
+from schemas.review import ANNUAL_REVIEW_ANCHOR_ENTRY_TYPES
 from services.portfolio_engine import (
     StaleAllocationInputError,
     _current_risk_assessment_or_none,
@@ -27,6 +28,14 @@ SYSTEM_TRIGGER_REVIEW = "Jahres-Review (System)"
 SYSTEM_TRIGGER_DRIFT = "Bandbreitenverletzung (System)"
 SYSTEM_TRIGGER_GOALS = "Zielerreichung gefaehrdet (System)"
 SYSTEM_TRIGGER_MARKET_DATA = "Marktdaten veraltet (System)"
+
+
+class ReviewAnchorDataError(ValueError):
+    """REVIEW-STATE-001 (Codex-Audit 2026-08-27): wird geworfen, wenn der
+    naechste Jahresreview-Termin NICHT verlaesslich bestimmt werden kann
+    (fehlendes/ungueltiges Ankerdatum, mehrere gleichrangige Anker). Callers
+    (routers/allocation.py, routers/review.py) muessen dies fail-closed auf
+    409 mappen -- NIE mehr stillschweigend auf `today` zurueckfallen."""
 
 
 def _build_current_drift_buckets(
@@ -75,13 +84,25 @@ def _today() -> str:
 
 
 def _parse_iso_date(value: str | None) -> date:
+    """Strict ISO-date parser.
+
+    REVIEW-STATE-001 (Codex-Audit 2026-08-27): dieser Helper fiel bisher bei
+    JEDEM ungueltigen oder fehlenden Wert stillschweigend auf `date.today()`
+    zurueck -- ein beschaedigter Review-Anker (oder sogar ein kaputtes
+    `mandate.opened_at`) erzeugte dadurch eine plausibel wirkende, aber
+    fachlich falsche neue Frist. Wirft jetzt `ReviewAnchorDataError`
+    (fail-closed) statt zu raten. Nur die zwei kontrollierten Aufrufer in
+    diesem Modul (ein bereits validierter Review-Anker, bzw. `_now()[:10]`
+    aus `routers/review.py::resolve_trigger`) rufen dies je auf -- beide
+    liefern immer ein echtes Datum.
+    """
     raw = str(value or "").strip()[:10]
     if raw:
         try:
             return date.fromisoformat(raw)
         except ValueError:
             pass
-    return date.today()
+    raise ReviewAnchorDataError(f"Ungueltiges oder fehlendes Datum: {value!r}")
 
 
 def _add_months(value: str | None, months: int) -> str:
@@ -165,11 +186,61 @@ def refresh_system_review_triggers(
     now = _now()
     today = _today()
 
-    latest_log = db.query(AdvisoryLog).filter(
-        AdvisoryLog.mandate_id == mandate.id,
-        AdvisoryLog.entry_type.in_(("Beratungsprotokoll", "Anlageberatung")),
-    ).order_by(AdvisoryLog.entry_date.desc(), AdvisoryLog.created_at.desc()).first()
-    review_anchor = latest_log.entry_date if latest_log and latest_log.entry_date else mandate.opened_at
+    # REVIEW-STATE-001 (Codex-Audit 2026-08-27): vorher suchte diese Abfrage
+    # ausschliesslich nach den rein internen Legacy-Strings
+    # "Beratungsprotokoll"/"Anlageberatung" -- Werte, die im oeffentlichen
+    # AdvisoryEntryType (schemas/review.py) NIE vorkommen. Ein über die API
+    # erfasster echter "Jahresreview" konnte den Termin dadurch NIE ankern
+    # und die Engine fiel immer auf mandate.opened_at zurueck. Jetzt gegen
+    # dieselbe oeffentliche Taxonomie geprueft, die auch das Schema nutzt --
+    # UND nur gegen den jeweils aktuellen Versionskopf (superseded_by_id IS
+    # NULL), damit ein durch ein Update ueberholter Eintrag nicht mehr zaehlt.
+    anchor_candidates = (
+        db.query(AdvisoryLog)
+        .filter(
+            AdvisoryLog.mandate_id == mandate.id,
+            AdvisoryLog.entry_type.in_(ANNUAL_REVIEW_ANCHOR_ENTRY_TYPES),
+            AdvisoryLog.superseded_by_id.is_(None),
+        )
+        .order_by(AdvisoryLog.entry_date.desc(), AdvisoryLog.created_at.desc())
+        .all()
+    )
+    if anchor_candidates:
+        latest_anchor = anchor_candidates[0]
+        # Zwei (oder mehr) gleichrangige Abschlussanker duerfen NICHT per
+        # Datenbankreihenfolge (".first()") stillschweigend aufgeloest
+        # werden -- das ist explizit Teil des Fixvertrags.
+        tied = [
+            candidate for candidate in anchor_candidates
+            if candidate.entry_date == latest_anchor.entry_date
+            and candidate.created_at == latest_anchor.created_at
+        ]
+        if len(tied) > 1:
+            raise ReviewAnchorDataError(
+                f"Mandat {mandate.id}: {len(tied)} gleichrangige "
+                f"Review-Anker am {latest_anchor.entry_date!r} -- "
+                "Ambiguitaet muss manuell aufgeloest werden."
+            )
+        review_anchor = latest_anchor.entry_date
+        if not review_anchor:
+            raise ReviewAnchorDataError(
+                f"Mandat {mandate.id}: Review-Anker {latest_anchor.id} "
+                f"(entry_type={latest_anchor.entry_type!r}) hat kein entry_date."
+            )
+        # Fail-closed statt stillem today()-Fallback bei kaputtem Datum.
+        _parse_iso_date(review_anchor)
+    else:
+        # Noch kein qualifizierender Review-Abschluss dokumentiert -- das
+        # Mandatseroeffnungsdatum ist dann ein legitimer Erst-Anker (ein
+        # echtes, unveraendertes Fachdatum, KEIN "today()"-Rateversuch).
+        review_anchor = mandate.opened_at
+        if not review_anchor:
+            raise ReviewAnchorDataError(
+                f"Mandat {mandate.id} hat weder einen Review-Anker noch ein "
+                "opened_at -- Jahresreview-Frist kann nicht berechnet werden."
+            )
+        _parse_iso_date(review_anchor)
+
     review_trigger = _get_or_create_system_trigger(
         db=db,
         mandate_id=mandate.id,
@@ -182,9 +253,10 @@ def refresh_system_review_triggers(
     review_trigger.next_due_at = _add_months(review_anchor, 12)
     review_trigger.status = "Aktiv"
     review_trigger.triggered_value = None
+    # review_anchor ist an dieser Stelle immer gesetzt und bereits als echtes
+    # Datum verifiziert (siehe oben) -- kein bedingter today()-Fallback mehr.
     review_trigger.triggered_notes = (
         f"Letzter dokumentierter Review-Anker: {_parse_iso_date(review_anchor).isoformat()}"
-        if review_anchor else "System-Review-Intervall aktiv"
     )
     review_trigger.updated_at = now
 
