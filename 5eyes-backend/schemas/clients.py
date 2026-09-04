@@ -2,6 +2,16 @@ from pydantic import BaseModel, model_validator
 from typing import Optional, Literal
 from schemas.common import BaseResponse
 
+# FIDLEG-STATE-001 (2026-08-27-Audit, docs/audits/2026-08-27-client-
+# classification-and-compliance-state-audit.md): einzige gueltige Werteliste
+# fuer die FIDLEG-Kundenklassifikation. Wird sowohl bei der Ersterfassung
+# (ClientCreate) als auch beim beleggebundenen Opt-History-Uebergang
+# (OptHistoryCreate) verwendet, damit keine der beiden Stellen eine
+# abweichende oder freie Klassifikation zulassen kann.
+ClientClassification = Literal[
+    "Privatkunde", "Professioneller Kunde", "Institutioneller Kunde"
+]
+
 
 class ClientCreate(BaseModel):
     client_number: str
@@ -23,9 +33,7 @@ class ClientCreate(BaseModel):
     partner_date_of_birth: Optional[str] = None
     partner_profession: Optional[str] = None
     household_type: Literal["Einzelperson", "Paar", "Familie"] = "Einzelperson"
-    client_classification: Literal[
-        "Privatkunde", "Professioneller Kunde", "Institutioneller Kunde"
-    ] = "Privatkunde"
+    client_classification: ClientClassification = "Privatkunde"
     is_professional_opt_out: bool = False
     is_qualified_investor: bool = False
     advisor_id: str
@@ -37,6 +45,19 @@ class ClientUpdate(BaseModel):
     # SCHEMA-05: Update nutzt dieselben Literal-Enums wie Create — vorher waren
     # salutation/language/household_type/client_classification freie str und
     # umgingen die FIDLEG-Wertelisten bei PATCH.
+    #
+    # FIDLEG-STATE-001 (2026-08-27-Audit): client_classification,
+    # is_professional_opt_out und is_qualified_investor sind hier bewusst
+    # NICHT mehr vorhanden. Vorher konnte der allgemeine Client-PUT diese
+    # rechtlich bedeutsamen Felder ohne Beleg, Konsistenzpruefung und ohne
+    # jede Audit-Spur (history_rows=0) direkt umschreiben. Eine Aenderung
+    # dieser Felder muss ab sofort ausschliesslich ueber den beleggebundenen,
+    # append-only Uebergang POST /clients/{id}/opt-history laufen (siehe
+    # add_opt_history in routers/clients.py). Ein Client, der diese Felder
+    # trotzdem im PUT-Body mitschickt, bekommt keinen Fehler (Pydantic
+    # ignoriert unbekannte Felder), aber der Wert wird schlicht nicht
+    # angewendet -- das entspricht der im Audit-Fixvertrag vorgesehenen
+    # Option "in ClientUpdate ausdruecklich unveraenderbar machen".
     salutation: Optional[Literal["Herr", "Frau", "Divers"]] = None
     first_name: Optional[str] = None
     last_name: Optional[str] = None
@@ -55,11 +76,6 @@ class ClientUpdate(BaseModel):
     partner_date_of_birth: Optional[str] = None
     partner_profession: Optional[str] = None
     household_type: Optional[Literal["Einzelperson", "Paar", "Familie"]] = None
-    client_classification: Optional[Literal[
-        "Privatkunde", "Professioneller Kunde", "Institutioneller Kunde"
-    ]] = None
-    is_professional_opt_out: Optional[bool] = None
-    is_qualified_investor: Optional[bool] = None
     advisor_id: Optional[str] = None
     notes: Optional[str] = None
     data_classification: Optional[Literal["synthetic", "real"]] = None
@@ -133,9 +149,20 @@ class NationalityResponse(BaseResponse):
 
 
 class OptHistoryCreate(BaseModel):
+    # FIDLEG-STATE-001 (2026-08-27-Audit): from_classification/
+    # to_classification waren zuvor freie Strings -- der Router setzte
+    # to_classification ungeprueft auf den Client (reproduziert:
+    # `BROKEN-CLASS` ausserhalb jedes Enums), und from_classification wurde
+    # nie gegen den tatsaechlichen Clientzustand geprueft. Beide sind jetzt
+    # auf dieselbe FIDLEG-Werteliste wie Client.client_classification
+    # typisiert (422 bei ungueltigem Wert); die zusaetzliche Pruefung, dass
+    # from_classification mit dem aktuell gespeicherten Zustand des Clients
+    # uebereinstimmt (stale/falscher Ausgangszustand -> 409), erfolgt im
+    # Router (routers/clients.py::add_opt_history), da sie den DB-Zustand
+    # kennen muss.
     event_type: str
-    from_classification: str
-    to_classification: str
+    from_classification: ClientClassification
+    to_classification: ClientClassification
     client_requested: bool = True
     notes: Optional[str] = None
     document_id: Optional[str] = None

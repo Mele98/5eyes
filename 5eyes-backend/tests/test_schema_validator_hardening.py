@@ -165,8 +165,28 @@ def test_schema05_client_update_rejects_bad_enum():
         ClientUpdate(salutation="Mister")
     with pytest.raises(ValidationError):
         ClientUpdate(language="ES")
-    with pytest.raises(ValidationError):
-        ClientUpdate(client_classification="VIP")
+
+
+def test_fidlegstate001_client_update_ignores_classification_fields():
+    # FIDLEG-STATE-001: client_classification/is_professional_opt_out/
+    # is_qualified_investor sind seit dem Audit-Fix keine ClientUpdate-Felder
+    # mehr -- sie werden (statt einen ValidationError zu werfen) von Pydantic
+    # als unbekannte Extra-Felder stillschweigend verworfen und tauchen daher
+    # nie in model_dump(exclude_unset=True) auf. Das ist die im Fixvertrag
+    # vorgesehene "in ClientUpdate ausdruecklich unveraenderbar"-Variante:
+    # der allgemeine Client-Update-Router kann diese Felder dadurch gar nicht
+    # mehr anwenden, unabhaengig davon, was der Request-Body enthaelt.
+    update = ClientUpdate(
+        first_name="Erika",
+        client_classification="Professioneller Kunde",
+        is_professional_opt_out=True,
+        is_qualified_investor=True,
+    )
+    dumped = update.model_dump(exclude_unset=True)
+    assert "client_classification" not in dumped
+    assert "is_professional_opt_out" not in dumped
+    assert "is_qualified_investor" not in dumped
+    assert dumped == {"first_name": "Erika"}
 
 
 def test_schema05_mandate_update_rejects_bad_enum():
