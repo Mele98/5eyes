@@ -1600,6 +1600,14 @@ _SQLITE_CURRENT_ANCHOR_INDEXES: tuple[tuple[str, str, str, str], ...] = (
         "tenant_id, jurisdiction, product_id",
         "deleted_at IS NULL",
     ),
+    (
+        # FX-REF-001 (2026-09-04): globale Current-FX-Zeile pro Waehrung war
+        # bislang nur applikationsseitig (with_for_update()) geschuetzt.
+        "ux_fx_rate_one_current",
+        "fx_rates",
+        "currency",
+        "is_current = 1 AND valid_until IS NULL",
+    ),
 )
 
 
