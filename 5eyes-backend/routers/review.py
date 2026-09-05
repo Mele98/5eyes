@@ -1712,8 +1712,11 @@ def update_product(
     """Sprint U-P10: Admin editiert Produkt-Metadaten + Diversifikations-Tiefe.
 
     Alle Felder optional; nur gesetzte werden ueberschrieben. JSON-Strings
-    (country/sector/currency_exposure_json) werden NICHT validiert hier —
-    der Depot-Check-Engine fault-tolerant via product_exposures._parse_or_proxy.
+    (country/sector/currency_exposure_json) werden bereits am Schema-Rand
+    validiert (siehe schemas/review.py::ProductUpdate -- PROD-DOMAIN-001,
+    2026-09-05): Form (dict[str,number]), Non-Negativitaet, Summe ~10000bps.
+    services/product_exposures.py::_parse_or_proxy bleibt zusaetzlich
+    fault-tolerant fuer bereits vor dem Fix gespeicherte Legacy-Daten.
     """
     product = _get_product_or_404(product_id, db, current_user)
     payload = body.model_dump(exclude_none=True)
