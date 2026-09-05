@@ -56,7 +56,7 @@ from services.depot_check import compute_depot_check
 from services.backtest_stress import compute_stress_replays
 from services.backtest_ab import run_ab_backtest
 from services.backtest_strategy import run_strategy_backtest
-from services.review_engine import refresh_system_review_triggers
+from services.review_engine import ReviewAnchorDataError, refresh_system_review_triggers
 from services.suitability_audit import audit_mandate_suitability
 from services.solver_admission import admit as _admit_solver_slot
 
@@ -576,6 +576,12 @@ def generate_target_allocation_endpoint(
                 status_code=409,
                 detail="Eine andere Soll-Allokation wurde gleichzeitig generiert -- bitte Seite neu laden und erneut versuchen.",
             )
+        except ReviewAnchorDataError as exc:
+            # REVIEW-STATE-001 (Codex-Audit 2026-08-27): fail-closed statt
+            # eines stillen today()-Fallbacks bei beschaedigtem/mehrdeutigem
+            # Review-Anker -- die neue Soll-Allokation bleibt unbestaetigt.
+            db.rollback()
+            raise HTTPException(status_code=409, detail=str(exc))
         db.refresh(result["target_allocation"])
         return result
 
