@@ -4,7 +4,7 @@ Spec: docs/planning/2026-05-17-sprint-9-multi-currency.md Phase 2
 """
 from __future__ import annotations
 
-from sqlalchemy import Column, Integer, String
+from sqlalchemy import Column, Index, Integer, String, text
 
 from database import Base
 
@@ -18,9 +18,30 @@ class FXRate(Base):
     Versionierung: pro currency mehrere Eintraege moeglich, der mit
     is_current=1 wird vom FXRateSource genutzt. Historische Eintraege
     bleiben fuer Audit-Reproduzierbarkeit.
+
+    FX-REF-001 (2026-09-04, Marktpreis-/FX-Referenzintegritaetsaudit): das
+    "hoechstens eine Current-Zeile pro Waehrung"-Invariant wurde bislang
+    ausschliesslich in ``routers/fx_rates.py`` per ``with_for_update()``
+    durchgesetzt (Defense-in-depth, kein atomarer Garant). Der partial
+    Unique-Index unten spiegelt exakt das bereits etablierte Muster fuer
+    andere "current anchor"-Tabellen (siehe
+    ``alembic/versions/d4e8f1a9c2b7_current_anchor_unique_indexes.py`` und
+    ``database.py::_SQLITE_CURRENT_ANCHOR_INDEXES``) und macht die Invariante
+    DB-seitig atomar: ein zweiter gleichzeitiger Insert fuer dieselbe
+    Waehrung mit is_current=1 schlaegt mit IntegrityError fehl statt zwei
+    effektive Current-Zeilen zu hinterlassen.
     """
 
     __tablename__ = "fx_rates"
+    __table_args__ = (
+        Index(
+            "ux_fx_rate_one_current",
+            "currency",
+            unique=True,
+            sqlite_where=text("is_current = 1 AND valid_until IS NULL"),
+            postgresql_where=text("is_current = 1 AND valid_until IS NULL"),
+        ),
+    )
 
     id = Column(String, primary_key=True)
     currency = Column(String, nullable=False)  # ISO 3-Letter Code
