@@ -275,7 +275,27 @@ def add_opt_history(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor)
 ):
+    """FIDLEG-STATE-001 (2026-08-27-Audit): dies ist der einzige Pfad, ueber
+    den sich client_classification aendern darf (siehe ClientUpdate, die das
+    Feld bewusst nicht mehr besitzt). from_classification muss serverseitig
+    mit dem tatsaechlich gespeicherten Ausgangszustand uebereinstimmen --
+    vorher akzeptierte der Router jeden behaupteten Ausgangszustand
+    (reproduziert: claimed_from='Institutioneller Kunde' bei einem
+    tatsaechlichen Privatkunden) und stampfte den Client trotzdem auf
+    to_classification um. Ein stale/falscher from-Wert (z.B. durch eine
+    zwischenzeitliche parallele Aenderung) wird jetzt mit 409 abgelehnt,
+    statt eine fachlich unmoegliche History-Zeile zu erzeugen."""
     client = _get_client_or_404(client_id, db, current_user)
+    if body.from_classification != client.client_classification:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "from_classification stimmt nicht mit dem aktuellen "
+                f"Klassifikationsstatus des Kunden ueberein "
+                f"(aktuell: '{client.client_classification}', "
+                f"angegeben: '{body.from_classification}')."
+            ),
+        )
     now = _now()
     entry = ClientOptHistory(
         id=new_uuid(), client_id=client_id,
