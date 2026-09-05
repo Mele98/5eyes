@@ -1,8 +1,16 @@
 """Persist review-trigger resolution evidence (decision/actor/anchors).
 
 Revision ID: 8e9af7d00ffc
-Revises: c3d8f4a1e6b2
+Revises: fd74a3437c58
 Create Date: 2026-08-27
+
+Rebased onto fd74a3437c58 (2026-09-05): both this revision and
+fd74a3437c58_fx_rate_current_unique_index.py were developed in parallel
+against the same develop state and both originally declared down_revision
+c3d8f4a1e6b2, producing two Alembic heads once both PRs merged. Retargeted
+to a linear chain -- the two migrations touch unrelated tables
+(review_triggers vs fx_rates) so ordering between them has no functional
+effect.
 
 REVIEW-STATE-003 (Codex-Audit 2026-08-27): resolve_trigger() discarded the
 required `decision` field entirely (only `triggered_notes` was read), had no
@@ -23,7 +31,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = "8e9af7d00ffc"
-down_revision: Union[str, Sequence[str], None] = "c3d8f4a1e6b2"
+down_revision: Union[str, Sequence[str], None] = "fd74a3437c58"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
