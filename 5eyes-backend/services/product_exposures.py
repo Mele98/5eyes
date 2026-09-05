@@ -17,7 +17,10 @@ greifen die explizit gepflegten JSON-Strings statt der Proxys.
 from __future__ import annotations
 
 import json
+import logging
 from typing import Mapping
+
+logger = logging.getLogger(__name__)
 
 # ===== COUNTRY EXPOSURE (bps, sum = 10000) =====
 
@@ -172,14 +175,37 @@ def _parse_or_proxy(
     sub_asset_class: str | None,
 ) -> dict[str, int]:
     """Wenn raw_json gesetzt + parsable: nutze diesen Wert. Sonst Proxy aus
-    sub_asset_class. Fallback: leerer Dict."""
+    sub_asset_class. Fallback: leerer Dict.
+
+    2026-09-05 (Codex-Audit PROD-DOMAIN-001): schemas/review.py::ProductCreate/
+    ProductUpdate validieren jetzt am API-Rand, sodass NEUE Daten nie mehr
+    kaputtes/unparsebares JSON in die DB schreiben koennen. Diese Funktion
+    liest aber weiterhin JEDEN bestehenden Product-Datensatz -- inkl. evtl.
+    schon vor dem Fix gespeicherter, kaputter Legacy-Werte -- und darf dafuer
+    nicht crashen. Frueher wurde ein explizit gesetzter, aber kaputter Wert
+    (raw_json truthy, aber nicht parsebares JSON / kein dict) STILLSCHWEIGEND
+    wie "gar nicht gepflegt" behandelt und lautlos durch den Proxy ersetzt --
+    nicht von einem echten "Feld ist leer" zu unterscheiden. Jetzt wird dieser
+    Fall laut geloggt (er bedeutet: es gibt echte, aber verunreinigte Daten,
+    die ein Admin bereinigen sollte), auch wenn der Proxy-Fallback aus
+    Konsumenten-Sicht weiterhin greift, um Depot-Check/Kostenausweis nicht
+    crashen zu lassen."""
     if raw_json:
         try:
             parsed = json.loads(raw_json)
-            if isinstance(parsed, dict):
-                return {str(k): int(v) for k, v in parsed.items() if v is not None}
-        except (TypeError, ValueError, json.JSONDecodeError):
-            pass
+            if not isinstance(parsed, dict):
+                raise ValueError(f"erwartetes JSON-Objekt, erhalten {type(parsed).__name__}")
+            return {str(k): int(v) for k, v in parsed.items() if v is not None}
+        except (TypeError, ValueError, json.JSONDecodeError) as exc:
+            # Explizit gesetzt, aber kaputt/falsch geformt -- KEIN "nicht
+            # angegeben". Laut flaggen statt lautlos wie leer zu behandeln,
+            # bevor auf den Proxy zurueckgefallen wird.
+            logger.warning(
+                "product_exposures: gespeichertes Exposure-JSON ist explizit "
+                "gesetzt, aber ungueltig (%s) -- falle auf Proxy fuer "
+                "sub_asset_class=%r zurueck. Legacy-Daten bereinigen.",
+                exc, sub_asset_class,
+            )
     if not sub_asset_class:
         return {}
     return dict(proxy_map.get(str(sub_asset_class), {}))
