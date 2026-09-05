@@ -360,6 +360,54 @@ def require_admin_or_platform_scope_for_global_reference_data(
     raise HTTPException(status_code=403, detail="Nur für Administratoren")
 
 
+def require_reference_data_reader(current_user: User = Depends(get_current_user)) -> User:
+    """REF-READ-001 (Codex-Audit 2026-09-05): House-Matrix-, Optimizer-Policy-,
+    Building-Block- und CMA-Referenzdaten (routers/allocation.py:
+    GET /house-matrix/{score}, GET /optimizer-policies/current,
+    GET /building-blocks/current, GET /capital-market-assumptions/current)
+    enthalten interne Berater-/IC-Notizen und den vollen Produktkatalog/
+    Protokollformulierungen. Alle vier Endpoints haengen bisher an plain
+    get_current_user OHNE Rollen-Check -- ein role='client'-Login konnte
+    diese internen Daten lesen. Jede interne Rolle darf weiterhin lesen
+    (kein Verhaltensbruch fuer den legitimen Berater-/Admin-Pfad); nur
+    Client-Portal-User werden jetzt abgewiesen."""
+    if current_user.role in ("admin", "advisor", "super_admin", "portfolio_management"):
+        return current_user
+    raise HTTPException(status_code=403, detail="Keine Leseberechtigung fuer Referenzdaten")
+
+
+def enforce_cma_cross_tenant_read_scope(current_user: User, tenant_id: Optional[str]) -> None:
+    """REF-READ-001 (Codex-Audit 2026-09-05): GET /capital-market-assumptions/
+    current nahm den caller-gelieferten tenant_id-Query-Parameter bisher
+    ungeprueft entgegen -- jeder authentifizierte User konnte per
+    tenant_id=<fremde-firma> deren private CMA-Tenant-Override-Zeile lesen
+    (siehe services/jurisdiction/resolve.py::resolve_cma_for_jurisdiction()
+    Tenant-Override-Suche). Gleiches Scoping-Prinzip wie
+    require_portfolio_management (AUTH-TEN-04) und
+    require_advisor_or_platform_scope_for_global_reference_data (AUTH-TEN-06):
+    Tier-1 (kein strict_tenant_isolation) bleibt unveraendert -- der Bootstrap-
+    Admin/Berater der Einzelplatz-Installation liest dort weiterhin
+    firmenuebergreifend wie bisher (Backwards-Compat, siehe
+    test_cma_jurisdiction_query_param.py::
+    test_get_current_cma_de_tenant_override_takes_precedence). Nur in einer
+    echten Multi-Tenant-Installation (strict_tenant_isolation) muss ein
+    tenant_id-Parameter, der vom eigenen Tenant abweicht, Super-Admin oder
+    Portfolio Management erfordern."""
+    if not tenant_id:
+        return
+    if current_user.role in ("super_admin", "portfolio_management"):
+        return
+    own_tenant_id = _resolve_tenant_id_for_user(current_user)
+    if str(tenant_id) == str(own_tenant_id):
+        return
+    if not _effective_strict_tenant_isolation(settings):
+        return
+    raise HTTPException(
+        status_code=403,
+        detail="Kapitalmarktannahmen eines anderen Tenants erfordern Super-Admin oder Portfolio Management.",
+    )
+
+
 def has_global_client_access(current_user: User) -> bool:
     return current_user.role == "admin"
 
