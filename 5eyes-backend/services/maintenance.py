@@ -43,6 +43,32 @@ _SENSITIVE_SETTING_KEYS = {
     'telemetry_dsn',
 }
 _SENSITIVE_SETTING_SUBSTRINGS = ('password', 'secret', 'api_key', 'kek', 'webhook', 'dsn')
+# PRIV-006 (Codex-Audit 2026-08-14): GET /auth/invite/{token} (routers/auth.py)
+# traegt das Einladungs-Token als rohen URL-PFAD-Abschnitt (kein Query-Param,
+# kein Header). RequestContextMiddleware (core/middleware.py) loggt
+# request.url.path auf JEDEM Request unveraendert -- die o.g. Bearer- und
+# key=value-Muster greifen hier nicht (kein "Bearer "-Praefix, kein "="/":"),
+# also landete das Token bisher unredigiert im App-Log und damit auch im
+# Support-Bundle (create_support_bundle() faehrt dieselben Log-Zeilen durch
+# redact_log_lines()). Ein Einladungs-Token ist ein einmaliger Auth-Bypass
+# (setzt das Initialpasswort) -- ein geleaktes Token in einem geteilten
+# Support-Bundle/Log ist ein echter Account-Takeover-Vektor bis es
+# verbraucht/abgelaufen ist.
+#
+# Ein Grep ueber alle routers/*.py (Stand PRIV-006) zeigt /auth/invite/{token}
+# als EINZIGE Route, die einen sicherheitsrelevanten Wert direkt als
+# Pfadsegment traegt (andere {..}-Pfadparameter sind DB-IDs/Codes, keine
+# Secrets: house-matrix/{score}, annual-returns/{year}/{asset_class}, etc.).
+# Die Regel unten ist trotzdem pfad-generisch gehalten (matcht das Token
+# anhand seines Zeichensatzes, nicht seines konkreten Werts) und deckt damit
+# jede zukuenftige Route ab, die ebenfalls ".../invite/<token>" formt (z.B.
+# ein kuenftiger Alias-Pfad) -- ohne das gesamte Pfad-Logging-Modell
+# umzubauen (aus Scope). Der negative Lookahead auf "accept" schont den
+# separaten, tokenlosen POST /auth/invite/accept-Pfad (Token dort im Body,
+# nicht im Pfad).
+_INVITE_TOKEN_PATH_PATTERN = re.compile(
+    r'(?i)(/invite/)(?!accept\b)([A-Za-z0-9\-_.~]+)'
+)
 _LOG_REDACTION_PATTERNS = (
     (
         re.compile(r'(?i)(authorization\s*:\s*bearer\s+)([A-Za-z0-9\-._~+/=]+)'),
@@ -57,6 +83,10 @@ _LOG_REDACTION_PATTERNS = (
             r'(?i)\b(secret_key|db_key|password|passwd|token|access_token|refresh_token|api[_-]?key|twelvedata_api_key|eodhd_api_key|openfigi_api_key|fred_api_key|six_api_key)\b(\s*[=:]\s*)([^,\s]+)'
         ),
         r'\1\2***REDACTED***',
+    ),
+    (
+        _INVITE_TOKEN_PATH_PATTERN,
+        r'\1***REDACTED***',
     ),
 )
 
