@@ -86,6 +86,7 @@ def _add_run(
     days_old: int,
     n_positions: int = 0,
     product_id: str = "prod-u104",
+    result_status: str = "Draft",
 ) -> str:
     """Schreibt einen RecommendationRun mit created_at vor N Tagen."""
     from datetime import timedelta
@@ -99,7 +100,7 @@ def _add_run(
         s.add(RecommendationRun(
             id=run_id, mandate_id=mandate_id, client_id=client_id,
             policy_id=policy_id, run_type="Optimizer",
-            result_status="Draft", created_by=admin_id,
+            result_status=result_status, created_by=admin_id,
             created_at=created_at, updated_at=created_at,
         ))
         for _ in range(n_positions):
@@ -109,6 +110,31 @@ def _add_run(
             ))
         s.commit()
     return run_id
+
+
+def _add_advisory_log_referencing_run(
+    session_factory,
+    *,
+    mandate_id: str,
+    advisor_id: str,
+    run_id: str,
+) -> str:
+    """Schreibt einen AdvisoryLog-Eintrag (FINMA-Beratungsprotokoll), der per
+    recommendation_run_id auf `run_id` zeigt -- PRIV-003-Repro: dieser Verweis
+    darf den Cleanup nicht ins Leere laufen lassen."""
+    from models.review import AdvisoryLog
+
+    now_iso = _iso(datetime.now(timezone.utc))
+    log_id = new_uuid()
+    with session_factory() as s:
+        s.add(AdvisoryLog(
+            id=log_id, mandate_id=mandate_id, entry_type="Beratung",
+            title="U104 Beratungsgespraech", recommendation_run_id=run_id,
+            status="Empfohlen", advisor_id=advisor_id,
+            entry_date=now_iso, created_at=now_iso, updated_at=now_iso,
+        ))
+        s.commit()
+    return log_id
 
 
 def _add_product(session_factory, product_id: str = "prod-u104"):
@@ -188,6 +214,140 @@ def test_cleanup_with_no_old_runs_returns_zero(session_factory):
         result = cleanup_recommendation_runs(s)
     assert result.deleted_runs == 0
     assert result.deleted_positions == 0
+
+
+# ---------------------------------------------------------------------------
+# PRIV-003: Final/referenced Laeufe duerfen NICHT rein nach Alter geloescht
+# werden.
+# ---------------------------------------------------------------------------
+
+def test_final_run_survives_cleanup_despite_age(session_factory):
+    """Red vor dem Fix: ein 'Final'-Lauf (dem Kunden vorgelegt / vertraglich
+    relevant) wurde bisher wie jeder Draft-Lauf rein nach created_at
+    geloescht. Green nach dem Fix: result_status == 'Final' schuetzt den
+    Lauf unabhaengig vom Alter."""
+    admin_id, mid, pid = _seed_admin_and_mandate(session_factory, "finalold")
+    _add_product(session_factory)
+    final_run_id = _add_run(
+        session_factory, mandate_id=mid, policy_id=pid, admin_id=admin_id,
+        days_old=400, n_positions=2, result_status="Final",
+    )
+    draft_run_id = _add_run(
+        session_factory, mandate_id=mid, policy_id=pid, admin_id=admin_id,
+        days_old=400, n_positions=1, result_status="Draft",
+    )
+
+    with session_factory() as s:
+        result = cleanup_recommendation_runs(s)
+        s.commit()
+
+    # Nur der alte Draft-Lauf ist ein Loesch-Kandidat, der Final-Lauf nicht.
+    assert result.deleted_runs == 1
+    assert result.deleted_positions == 1
+
+    with session_factory() as s:
+        remaining_ids = {r.id for r in s.query(RecommendationRun).all()}
+    assert final_run_id in remaining_ids
+    assert draft_run_id not in remaining_ids
+
+
+def test_run_referenced_by_advisory_log_survives_cleanup(session_factory):
+    """Red vor dem Fix: ein per AdvisoryLog.recommendation_run_id noch aktiv
+    referenzierter Lauf (FINMA-Beratungsprotokoll, hash-geschuetzt, 10 Jahre
+    Aufbewahrung) wurde trotzdem rein nach Alter geloescht, obwohl der
+    Verweis danach ins Leere zeigt. Green nach dem Fix: referenzierte Laeufe
+    werden von der Loeschung ausgenommen."""
+    admin_id, mid, pid = _seed_admin_and_mandate(session_factory, "advlogref")
+    _add_product(session_factory)
+    referenced_run_id = _add_run(
+        session_factory, mandate_id=mid, policy_id=pid, admin_id=admin_id,
+        days_old=400, n_positions=2, result_status="Draft",
+    )
+    unreferenced_run_id = _add_run(
+        session_factory, mandate_id=mid, policy_id=pid, admin_id=admin_id,
+        days_old=400, n_positions=1, result_status="Draft",
+    )
+    _add_advisory_log_referencing_run(
+        session_factory, mandate_id=mid, advisor_id=admin_id, run_id=referenced_run_id,
+    )
+
+    with session_factory() as s:
+        result = cleanup_recommendation_runs(s)
+        s.commit()
+
+    assert result.deleted_runs == 1
+    assert result.deleted_positions == 1
+
+    with session_factory() as s:
+        remaining_ids = {r.id for r in s.query(RecommendationRun).all()}
+    assert referenced_run_id in remaining_ids
+    assert unreferenced_run_id not in remaining_ids
+
+
+def test_superseded_and_unreferenced_old_run_still_deleted(session_factory):
+    """Regression: der Normalfall (Draft/Superseded, kein Verweis, aelter
+    als Retention) muss weiterhin exakt wie vorher geloescht werden --
+    Tier-1 Alltagsverhalten bleibt unveraendert."""
+    admin_id, mid, pid = _seed_admin_and_mandate(session_factory, "supersededold")
+    _add_product(session_factory)
+    superseded_run_id = _add_run(
+        session_factory, mandate_id=mid, policy_id=pid, admin_id=admin_id,
+        days_old=400, n_positions=3, result_status="Superseded",
+    )
+
+    with session_factory() as s:
+        result = cleanup_recommendation_runs(s)
+        s.commit()
+
+    assert result.deleted_runs == 1
+    assert result.deleted_positions == 3
+    with session_factory() as s:
+        assert s.query(RecommendationRun).filter(
+            RecommendationRun.id == superseded_run_id
+        ).count() == 0
+
+
+def test_portfolio_handoff_reference_is_nulled_not_blocking(session_factory):
+    """PortfolioHandoff.recommendation_run_id ist laut Modell-Docstring
+    ABSICHTLICH nullable und darf die Bereinigung nicht blockieren -- der
+    Cleanup muss die FK vorab auf NULL setzen statt den Lauf zu schuetzen
+    (sonst IntegrityError unter PRAGMA foreign_keys=ON in der echten Tier-1
+    DB) und darf den eigentlichen Handoff-Datensatz nicht anfassen."""
+    from models.portfolio_handoff import PortfolioHandoff
+
+    admin_id, mid, pid = _seed_admin_and_mandate(session_factory, "handoffref")
+    _add_product(session_factory)
+    old_run_id = _add_run(
+        session_factory, mandate_id=mid, policy_id=pid, admin_id=admin_id,
+        days_old=400, n_positions=1, result_status="Draft",
+    )
+    handoff_id = new_uuid()
+    now_iso = _iso(datetime.now(timezone.utc))
+    with session_factory() as s:
+        s.add(PortfolioHandoff(
+            id=handoff_id, mandate_id=mid, recommendation_run_id=old_run_id,
+            trade_list_snapshot_json="[]", live_total_value_rappen=0,
+            position_count=0, recipient_name="Depotbank X",
+            status="Gesendet", created_by=admin_id,
+            created_at=now_iso, updated_at=now_iso,
+        ))
+        s.commit()
+
+    with session_factory() as s:
+        result = cleanup_recommendation_runs(s)
+        s.commit()
+
+    assert result.deleted_runs == 1
+
+    with session_factory() as s:
+        assert s.query(RecommendationRun).filter(
+            RecommendationRun.id == old_run_id
+        ).count() == 0
+        handoff = s.query(PortfolioHandoff).filter(
+            PortfolioHandoff.id == handoff_id
+        ).first()
+        assert handoff is not None  # der Handoff selbst bleibt bestehen
+        assert handoff.recommendation_run_id is None  # nur die Referenz wird genullt
 
 
 # ---------------------------------------------------------------------------

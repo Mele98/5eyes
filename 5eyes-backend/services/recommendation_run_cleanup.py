@@ -13,6 +13,32 @@ Sicherheits-Pattern:
   - Cascade ueber RecommendationPositions wird explizit gemacht (kein
     Vertrauen auf SQLAlchemy-relationship-cascade, da Model ohne
     cascade=delete-orphan definiert ist)
+
+PRIV-003 (Codex-Audit 2026-09-07): die Kandidaten-Auswahl filterte bisher
+NUR nach created_at/Tenant -- ein `Final`-Lauf (der bereits einem Kunden
+vorgelegt/vertraglich relevant sein kann) wurde nach 90 Tagen genauso
+geloescht wie ein `Draft`/`Superseded`-Lauf, und zwar UNABHAENGIG davon, ob
+ein AdvisoryLog-Eintrag (FINMA/FIDLEG-Beratungsprotokoll, 10 Jahre
+Aufbewahrung, siehe models/review.py::AdvisoryLog-Docstring) per
+recommendation_run_id noch auf genau diesen Lauf zeigt. Das widerspricht der
+in services/data_export.py::RETENTION_NOTES dokumentierten 10-Jahres-Frist
+fuer `recommendation_runs`. Zwei zusaetzliche Ausschluss-Kriterien:
+  1) result_status == 'Final' (kanonischer Wert lt. Schema-CHECK-Constraint
+     in 5eyes_schema_v4.0_FINAL.sql: 'Draft'|'Final'|'Rejected'|'Superseded')
+     wird NIE geloescht, unabhaengig vom Alter.
+  2) Laeufe, auf die noch ein AdvisoryLog per recommendation_run_id zeigt,
+     werden ebenfalls ausgenommen -- dieses Feld ist Teil des per
+     advisory_log_integrity.compute_integrity_hash() hash-geschuetzten
+     Beratungsprotokoll-Eintrags und damit ein aktiver Verweis, kein reines
+     Nice-to-have (im Unterschied zu PortfolioHandoff.recommendation_run_id,
+     das laut eigenem Modell-Docstring bewusst verwaisen darf -- siehe
+     models/portfolio_handoff.py -- dessen FK wird daher vor der Loeschung
+     explizit auf NULL gesetzt statt den Lauf zu schuetzen, damit dieselbe
+     Absicht auch unter PRAGMA foreign_keys=ON, wie sie
+     database.py::attach_sqlite_pragmas fuer die echte Tier-1-DB setzt,
+     nicht zu einem IntegrityError beim Bulk-DELETE fuehrt).
+  Draft/Superseded/Rejected-Laeufe ohne AdvisoryLog-Verweis werden weiterhin
+  exakt wie vorher rein nach Alter geloescht (Tier-1-Normalfall unveraendert).
 """
 from __future__ import annotations
 
@@ -24,7 +50,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from models.clients import Client
-from models.review import RecommendationPosition, RecommendationRun
+from models.review import AdvisoryLog, RecommendationPosition, RecommendationRun
 
 if TYPE_CHECKING:
     from models.users import User
@@ -34,6 +60,12 @@ if TYPE_CHECKING:
 # Compliance-Workflows mindestens fuer dieses Fenster aufbewahrt.
 DEFAULT_RETENTION_DAYS = 90
 MIN_RETENTION_DAYS = 30  # Sicherheitsschwelle gegen versehentliche Massenloeschung
+
+# PRIV-003: kanonischer Terminal-Status lt. Schema-CHECK-Constraint
+# (5eyes_schema_v4.0_FINAL.sql: 'Draft'|'Final'|'Rejected'|'Superseded').
+# Ein Final-Lauf wird von der altersbasierten Loeschung IMMER ausgenommen,
+# unabhaengig davon ob er zusaetzlich referenziert ist.
+PROTECTED_RESULT_STATUS = "Final"
 
 
 @dataclass(frozen=True)
@@ -135,8 +167,20 @@ def cleanup_recommendation_runs(
 
     # 1) Eindeutige Run-IDs identifizieren — als String-Sort funktioniert
     #    ISO8601 lexikografisch (deshalb das feste Z-Suffix-Format).
+    #
+    # PRIV-003: zusaetzlich zu Alter+Tenant ausgeschlossen:
+    #   - result_status == 'Final' (nie loeschbar allein durch Alter)
+    #   - jeder Lauf, auf den noch ein AdvisoryLog-Eintrag per
+    #     recommendation_run_id zeigt (aktiver, hash-geschuetzter Verweis
+    #     im FINMA-Beratungsprotokoll -- siehe Modul-Docstring oben).
+    referenced_run_ids_subquery = (
+        db.query(AdvisoryLog.recommendation_run_id)
+        .filter(AdvisoryLog.recommendation_run_id.isnot(None))
+    )
     candidate_query = db.query(RecommendationRun.id).filter(
-        RecommendationRun.created_at < cutoff_iso
+        RecommendationRun.created_at < cutoff_iso,
+        RecommendationRun.result_status != PROTECTED_RESULT_STATUS,
+        ~RecommendationRun.id.in_(referenced_run_ids_subquery),
     )
     if visible_client_ids is not None:
         candidate_query = candidate_query.filter(
@@ -158,6 +202,22 @@ def cleanup_recommendation_runs(
         deleted_positions = 0
 
     if not dry_run and candidate_run_ids:
+        # PRIV-003: PortfolioHandoff.recommendation_run_id ist laut eigenem
+        # Modell-Docstring (models/portfolio_handoff.py) ABSICHTLICH nullable
+        # und darf diese Bereinigung nicht blockieren -- der Handoff traegt
+        # seinen eigenen unveraenderlichen Trade-Snapshot und verliert beim
+        # Cleanup nur die Provenienz-Referenz. Ohne dieses explizite
+        # Vorab-Nullen wuerde der nachfolgende Bulk-DELETE unter
+        # PRAGMA foreign_keys=ON (siehe database.py::attach_sqlite_pragmas,
+        # in der echten Tier-1-DB aktiv) mit einem IntegrityError abbrechen,
+        # sobald irgendein Handoff auf einen Loesch-Kandidaten zeigt.
+        from models.portfolio_handoff import PortfolioHandoff
+
+        (
+            db.query(PortfolioHandoff)
+            .filter(PortfolioHandoff.recommendation_run_id.in_(candidate_run_ids))
+            .update({"recommendation_run_id": None}, synchronize_session=False)
+        )
         # Positions zuerst (FK-Constraint)
         (
             db.query(RecommendationPosition)
@@ -181,22 +241,25 @@ def cleanup_recommendation_runs(
             return query.filter(RecommendationRun.client_id.in_(visible_client_ids))
         return query
 
-    runs_remaining = (
-        _scope(db.query(func.count(RecommendationRun.id)))
-        .filter(RecommendationRun.created_at >= cutoff_iso)
-        .scalar()
-        if dry_run
-        else _scope(db.query(func.count(RecommendationRun.id))).scalar()
-    )
-    runs_remaining = int(runs_remaining or 0)
+    # PRIV-003: vorher wurde "verbleibend" ueber `created_at >= cutoff_iso`
+    # angenaehert -- das war aequivalent zu "nicht geloescht", SOLANGE jeder
+    # Kandidat unterhalb des Cutoffs tatsaechlich geloescht wurde. Seit
+    # Final-Status/AdvisoryLog-Referenzen Kandidaten von der Loeschung
+    # ausnehmen koennen, bleiben auch manche Laeufe UNTER dem Cutoff
+    # bestehen -- die Altersgrenze allein zaehlt sie im dry_run also
+    # faelschlich nicht als "verbleibend". Stattdessen direkt ueber
+    # candidate_run_ids ausschliessen: im dry_run (noch nicht geloescht)
+    # liefert das die korrekte Vorschau; im echten Lauf sind die Kandidaten
+    # ohnehin schon aus der Tabelle verschwunden, der Filter ist dann ein
+    # No-op und aendert nichts am Ergebnis.
+    def _remaining(query):
+        scoped = _scope(query)
+        if candidate_run_ids:
+            scoped = scoped.filter(~RecommendationRun.id.in_(candidate_run_ids))
+        return scoped
 
-    oldest_remaining_iso = (
-        _scope(db.query(func.min(RecommendationRun.created_at)))
-        .filter(RecommendationRun.created_at >= cutoff_iso)
-        .scalar()
-        if dry_run
-        else _scope(db.query(func.min(RecommendationRun.created_at))).scalar()
-    )
+    runs_remaining = int(_remaining(db.query(func.count(RecommendationRun.id))).scalar() or 0)
+    oldest_remaining_iso = _remaining(db.query(func.min(RecommendationRun.created_at))).scalar()
 
     return CleanupResult(
         dry_run=dry_run,
