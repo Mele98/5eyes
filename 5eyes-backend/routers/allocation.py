@@ -27,7 +27,8 @@ from schemas.allocation import (
 from schemas.review import ReportNotesResponse, ReportNotesUpdate
 from services.auth import (
     get_current_user, get_mandate_for_user_or_404, require_advisor, require_admin,
-    require_portfolio_management,
+    require_portfolio_management, require_reference_data_reader,
+    enforce_cma_cross_tenant_read_scope,
 )
 from services.audit import log
 # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Quell-IP fuer CMA-/Policy-/Allokations-
@@ -47,6 +48,7 @@ from services.portfolio_engine import (
     generate_target_allocation,
     require_strategy_ready_assessment,
 )
+from services.portfolio_engine_house_matrix import _building_block_rows_for_policy
 from services.advisory_report import compute_advisory_report
 from services.advisory_report_cache import (
     cached_compute_advisory_report,
@@ -328,7 +330,11 @@ def create_target_allocation(
 def get_house_matrix_for_score(
     score: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    # REF-READ-001 (Codex-Audit 2026-09-05): war plain get_current_user ohne
+    # Rollen-Check -- ein role='client'-Login konnte die interne House-Matrix
+    # (Bandbreiten/Profilnamen) lesen. Siehe require_reference_data_reader()
+    # Docstring in services/auth.py.
+    current_user: User = Depends(require_reference_data_reader)
 ):
     """Get house matrix band for a given risk score (1–10)."""
     if not 1 <= score <= 10:
@@ -351,7 +357,10 @@ def get_house_matrix_for_score(
 @router.get("/optimizer-policies/current")
 def get_current_policy(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    # REF-READ-001 (Codex-Audit 2026-09-05): war plain get_current_user ohne
+    # Rollen-Check -- ein role='client'-Login konnte die interne Optimizer-
+    # Policy (Notizen, Fee-Modell etc.) lesen.
+    current_user: User = Depends(require_reference_data_reader)
 ):
     policy = db.query(OptimizerPolicy).filter(OptimizerPolicy.is_current == 1).first()
     if not policy:
@@ -361,16 +370,41 @@ def get_current_policy(
 
 @router.get("/building-blocks/current", response_model=list[BuildingBlockResponse])
 def get_current_building_blocks(
+    # REF-BASIS-001 (Codex-Audit 2026-09-05): jurisdiction/investment_universe
+    # Query-Parameter, gleiches Default-Muster wie get_current_cma() ("CH" =
+    # unveraendertes Bestandsverhalten). Ohne Parameter identisch zum
+    # bisherigen Verhalten (alle aktiven Bloecke der aktuellen Policy).
+    jurisdiction: str = "CH",
+    investment_universe: Optional[str] = None,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    # REF-READ-001 (Codex-Audit 2026-09-05): war plain get_current_user ohne
+    # Rollen-Check -- ein role='client'-Login konnte den vollen internen
+    # Produktkatalog (Building Blocks) lesen.
+    current_user: User = Depends(require_reference_data_reader)
 ):
     policy = db.query(OptimizerPolicy).filter(OptimizerPolicy.is_current == 1).first()
     if not policy:
         raise HTTPException(status_code=404, detail="Keine aktive Optimizer Policy gefunden")
-    return db.query(BuildingBlock).filter(
-        BuildingBlock.policy_id == policy.id,
-        BuildingBlock.is_active == 1,
-    ).order_by(BuildingBlock.asset_class.asc(), BuildingBlock.sub_asset_class.asc()).all()
+    jur = jurisdiction if jurisdiction not in (None, "") else "CH"
+    # REF-BASIS-001: mirror der echten Solver-Referenzdaten-Aufloesung
+    # (services/portfolio_engine_house_matrix.py::_building_block_rows_for_policy,
+    # delegiert fuer jede Jurisdiktion -- inkl. CH -- an
+    # services/jurisdiction/resolve.py::resolve_building_blocks_for_jurisdiction).
+    # Vorher wurde hier eine reine policy_id+is_active-Query ohne jeden
+    # Jurisdiktions-/Universum-Filter und ohne Dedup von geteilten/exakten
+    # Overrides gefahren -- ein DE-Mandat haette (ausserhalb dieses Endpoints)
+    # nie diese Rohdaten gesehen, aber der generische Referenz-Endpoint
+    # zeigte den gemischten CH+DE-Bestand unsortiert. jurisdiction in
+    # (None, "CH") bleibt exakt das bisherige Bestandsverhalten (Sortierung
+    # nach asset_class/sub_asset_class via _prefer_exact_jurisdiction_rows'
+    # Ergebnis unten neu sortiert erhalten).
+    try:
+        rows = _building_block_rows_for_policy(
+            db, policy.id, investment_universe, jur,
+        )
+    except JurisdictionReferenceDataMissingError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return sorted(rows, key=lambda row: (row.asset_class, row.sub_asset_class))
 
 
 @router.get("/capital-market-assumptions/current",
@@ -387,7 +421,13 @@ def get_current_cma(
     jurisdiction: str = "CH",
     tenant_id: Optional[str] = None,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    # REF-READ-001 (Codex-Audit 2026-09-05): war plain get_current_user ohne
+    # Rollen-Check -- ein role='client'-Login konnte die internen
+    # Kapitalmarktannahmen lesen; der frei waehlbare tenant_id-Parameter
+    # erlaubte zusaetzlich JEDEM authentifizierten User, per fremder
+    # tenant_id die private CMA-Zeile eines ANDEREN Tenants zu lesen (siehe
+    # enforce_cma_cross_tenant_read_scope() unten).
+    current_user: User = Depends(require_reference_data_reader)
 ):
     """2026-07-31 (WP3, Jurisdiktions-Verwaltung): optionaler jurisdiction/
     tenant_id Query-Parameter, Default "CH" -- unveraendertes Verhalten fuer
@@ -395,6 +435,11 @@ def get_current_cma(
     bisherige Query, siehe services/jurisdiction/resolve.py::
     resolve_cma_for_jurisdiction, das fuer jurisdiction in (None,'CH') die
     identische Query ohne jurisdiction-Filter faehrt und tenant_id ignoriert)."""
+    # REF-READ-001: tenant_id-Ownership-Check VOR der eigentlichen Query --
+    # siehe enforce_cma_cross_tenant_read_scope()-Docstring in services/auth.py
+    # fuer das Tier-1-vs-strict_tenant_isolation-Scoping (identisches Prinzip
+    # zu AUTH-TEN-04/AUTH-TEN-06).
+    enforce_cma_cross_tenant_read_scope(current_user, tenant_id)
     jur = jurisdiction if jurisdiction not in (None, "") else "CH"
     resolved_jurisdiction = None if jur == "CH" else jur
     try:

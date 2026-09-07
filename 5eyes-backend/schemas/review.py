@@ -1,3 +1,4 @@
+import json
 from datetime import date, datetime
 from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import Any, Optional, Literal
@@ -578,6 +579,94 @@ class ConflictDisclosureResponse(BaseResponse):
     updated_at: str
 
 
+# 2026-09-05 (Codex-Audit PROD-DOMAIN-001): Diversifikations-Tiefe-Felder
+# (Sprint U-P10) hatten null JSON-Shape-/Non-Negativitaets-/Summen-Validierung
+# -- syntaktisch gueltiges, aber fachlich unmoegliches JSON (z.B. negative
+# oder >100%-Sektorgewichte) lief unveraendert bis in services/depot_check.py
+# und services/advisory_report.py durch und konnte in echten Kundenreports
+# landen. services/product_exposures.py::_parse_or_proxy fing nur *kaputtes*
+# JSON ab (und ersetzte es klammheimlich durch den Proxy) -- fachlich falsches,
+# aber parsebares JSON eben NICHT. Fix hier an der Wurzel: Schema lehnt
+# ungueltige Werte ab, bevor sie je die DB erreichen.
+#
+# Toleranz (±50 bps) uebernimmt dieselbe Konvention wie
+# schemas/snapshots.py::StrategySnapshotCreate.check_bps_sum ("Rundungsfehler
+# erlaubt") -- passender Praezedenzfall als der straffere ±5bps-Toleranzwert
+# in schemas/allocation.py::HouseMatrixRowCreate, weil Exposure-JSONs wie die
+# Snapshot-Buckets aus vielen einzeln gerundeten Teilbetraegen bestehen
+# koennen (z.B. 8-10 Laendergewichte statt nur 5 Buckets).
+_EXPOSURE_SUM_TOLERANCE_BPS = 50
+_EXPOSURE_KEY_MAX_LEN = 40
+
+# Kein kodifizierter kanonischer Schluessel-Katalog fuer Country-/Sektor-/
+# Waehrungscodes existiert in dieser Codebase als Enforcement-Enum -- die
+# Proxy-Tabellen in services/product_exposures.py (_COUNTRY_PROXIES_BY_SUB_CLASS
+# etc.) sind bewusst nur eine unvollstaendige Beispielsammlung (u.a. mit
+# Sammel-Buckets wie "RoW"/"EU"/"Global"), keine erschoepfende Enum -- ein
+# Berater muss z.B. auch ein Land taggen koennen, das dort nicht vorkommt.
+# Deshalb hier bewusst NUR Form-Validierung (dict[str, number], Schluessel
+# ein plausibler kurzer Code) statt einer harten Enum-Pruefung, um keine
+# legitimen Werte zu blockieren.
+_LIQUIDITY_TIERS = ("daily", "weekly", "monthly", "illiquid")
+_CREDIT_RATINGS = ("AAA", "AA", "A", "BBB", "BB", "B", "CCC", "NR")
+
+
+def _validate_exposure_json_field(value: Optional[str], field_name: str) -> Optional[str]:
+    """Validiert country_exposure_json/sector_exposure_json/currency_exposure_json.
+
+    None/"" bleibt erlaubt (= "nicht gepflegt", Engine nutzt Proxy aus
+    sub_asset_class). Ein explizit gesetzter, aber kaputter oder fachlich
+    unmoeglicher Wert (kein JSON-Objekt, negative Werte, Summe weit weg von
+    10000bps) wird jetzt HIER abgelehnt, statt spaeter von
+    services/product_exposures.py::_parse_or_proxy klammheimlich durch einen
+    Proxy ersetzt zu werden."""
+    if value is None or value == "":
+        return value
+    try:
+        parsed = json.loads(value)
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise ValueError(f"{field_name} ist kein gueltiges JSON: {exc}") from exc
+    if not isinstance(parsed, dict):
+        raise ValueError(
+            f"{field_name} muss ein JSON-Objekt sein (z.B. {{\"CH\": 10000}}), "
+            f"nicht {type(parsed).__name__}"
+        )
+    if not parsed:
+        # Explizit leeres Objekt = bewusst "keine Exposure-Daten" (Depot-Check
+        # zeigt dafuer 'unbekannt' an) -- unterscheidet sich von kaputtem JSON.
+        return value
+    total = 0.0
+    for key, raw_val in parsed.items():
+        if not isinstance(key, str) or not key.strip() or len(key) > _EXPOSURE_KEY_MAX_LEN:
+            raise ValueError(
+                f"{field_name}: Schluessel {key!r} ist kein gueltiger Code "
+                f"(nichtleerer String, max. {_EXPOSURE_KEY_MAX_LEN} Zeichen)"
+            )
+        if isinstance(raw_val, bool) or not isinstance(raw_val, (int, float)):
+            raise ValueError(f"{field_name}: Wert fuer {key!r} muss eine Zahl sein, ist {raw_val!r}")
+        if raw_val < 0:
+            raise ValueError(f"{field_name}: Wert fuer {key!r} ({raw_val}) darf nicht negativ sein")
+        total += raw_val
+    if abs(total - 10000) > _EXPOSURE_SUM_TOLERANCE_BPS:
+        raise ValueError(
+            f"{field_name}: Summe der Werte ({total:g}) weicht mehr als "
+            f"{_EXPOSURE_SUM_TOLERANCE_BPS} bps von 10000 (100%) ab"
+        )
+    return value
+
+
+def _validate_liquidity_tier(value: Optional[str]) -> Optional[str]:
+    if value is not None and value not in _LIQUIDITY_TIERS:
+        raise ValueError(f"liquidity_tier muss einer von {_LIQUIDITY_TIERS} sein, ist {value!r}")
+    return value
+
+
+def _validate_credit_rating(value: Optional[str]) -> Optional[str]:
+    if value is not None and value not in _CREDIT_RATINGS:
+        raise ValueError(f"credit_rating muss einer von {_CREDIT_RATINGS} sein, ist {value!r}")
+    return value
+
+
 class ProductCreate(BaseModel):
     isin: Optional[str] = None
     symbol: Optional[str] = None
@@ -600,10 +689,30 @@ class ProductCreate(BaseModel):
     country_exposure_json: Optional[str] = None
     sector_exposure_json: Optional[str] = None
     currency_exposure_json: Optional[str] = None
-    duration_years_x10: Optional[int] = None
+    # 2026-09-05 (PROD-DOMAIN-001): siehe models/review.py::Product Kommentare
+    # fuer die Domaenen (50 = 5.0 Jahre Duration; 0-1000 = 0.0-100.0 ESG-Score).
+    # Obergrenze bei Duration grosszuegig (100 Jahre) -- selbst Ultra-Long-
+    # Bonds/Perpetuals liegen deutlich darunter, blockiert aber Tippfehler
+    # (z.B. zusaetzliche Nullen) analog zum ter_bps-Fund.
+    duration_years_x10: Optional[int] = Field(default=None, ge=0, le=1000)
     credit_rating: Optional[str] = None
-    esg_score_x10: Optional[int] = None
+    esg_score_x10: Optional[int] = Field(default=None, ge=0, le=1000)
     liquidity_tier: Optional[str] = None
+
+    @field_validator("country_exposure_json", "sector_exposure_json", "currency_exposure_json")
+    @classmethod
+    def _validate_exposure_fields(cls, v, info):
+        return _validate_exposure_json_field(v, info.field_name)
+
+    @field_validator("liquidity_tier")
+    @classmethod
+    def _validate_liquidity_tier_field(cls, v):
+        return _validate_liquidity_tier(v)
+
+    @field_validator("credit_rating")
+    @classmethod
+    def _validate_credit_rating_field(cls, v):
+        return _validate_credit_rating(v)
 
 
 class ProductUpdate(BaseModel):
@@ -621,11 +730,30 @@ class ProductUpdate(BaseModel):
     country_exposure_json: Optional[str] = None
     sector_exposure_json: Optional[str] = None
     currency_exposure_json: Optional[str] = None
-    duration_years_x10: Optional[int] = None
+    # 2026-09-05 (PROD-DOMAIN-001): siehe ProductCreate.
+    duration_years_x10: Optional[int] = Field(default=None, ge=0, le=1000)
     credit_rating: Optional[str] = None
-    esg_score_x10: Optional[int] = None
+    esg_score_x10: Optional[int] = Field(default=None, ge=0, le=1000)
     liquidity_tier: Optional[str] = None
-    is_active: Optional[int] = None
+    # 2026-09-05 (PROD-DOMAIN-001): war Optional[int] ohne jede Schranke --
+    # is_active ist auf Product ein 0/1-Flag (models/review.py Column,
+    # nullable=False, default=1), kein beliebiger Integer.
+    is_active: Optional[int] = Field(default=None, ge=0, le=1)
+
+    @field_validator("country_exposure_json", "sector_exposure_json", "currency_exposure_json")
+    @classmethod
+    def _validate_exposure_fields(cls, v, info):
+        return _validate_exposure_json_field(v, info.field_name)
+
+    @field_validator("liquidity_tier")
+    @classmethod
+    def _validate_liquidity_tier_field(cls, v):
+        return _validate_liquidity_tier(v)
+
+    @field_validator("credit_rating")
+    @classmethod
+    def _validate_credit_rating_field(cls, v):
+        return _validate_credit_rating(v)
 
 
 class ProductResponse(BaseResponse):
