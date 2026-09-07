@@ -1033,6 +1033,11 @@ class BuildingBlockResponse(BaseResponse):
     is_active: int
     created_at: str
     updated_at: str
+    # REF-BASIS-001 (Codex-Audit 2026-09-05): additives Feld, damit
+    # GET /building-blocks/current sichtbar macht, ob eine Zeile eine
+    # geteilte (jurisdiction=None) oder laenderspezifische Referenzzeile ist
+    # -- identisches Nullable-Pattern wie CapitalMarketAssumptionResponse.jurisdiction.
+    jurisdiction: Optional[str] = None
 
 
 class TargetAllocationGenerateRequest(BaseModel):
