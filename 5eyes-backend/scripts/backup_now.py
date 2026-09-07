@@ -70,21 +70,32 @@ def main() -> int:
 
     # Settings lazy laden, damit `--help` ohne .env funktioniert.
     from config import settings  # noqa: WPS433
-    from services.backup import backup_database, restore_database
+    from services.backup import backup_database
+    from services.maintenance import restore_backup
 
     if args.restore:
         target = args.target or settings.db_path
-        result = restore_database(
+        # PRIV-005: restore_backup() (statt services.backup.restore_database
+        # direkt) wendet nach dem Restore automatisch jede DSG-Art.-32-
+        # Loeschung erneut an, die im wiederhergestellten Backup noch fehlt
+        # (Backup aelter als die Erasure) -- siehe services/maintenance.py.
+        result = restore_backup(
             backup_path=args.restore,
             target_db_path=target,
             verify_hash=not args.no_verify_hash,
             verify_hmac=not args.no_verify_hmac,
         )
+        reapply = result["erasure_reapply"]
         print(
-            f"RESTORE ok -> {result.target_path} "
-            f"({result.bytes_restored} bytes, hash_verified={result.hash_verified}, "
-            f"hmac_verified={result.hmac_verified})"
+            f"RESTORE ok -> {result['target_db_path']} "
+            f"({result['bytes_restored']} bytes, hash_verified={result['hash_verified']}, "
+            f"hmac_verified={result['hmac_verified']})"
         )
+        if reapply.get("reapplied"):
+            print(
+                f"PRIV-005: {len(reapply['reapplied'])} Erasure(n) aus dem Ledger "
+                f"erneut angewendet: {reapply['reapplied']}"
+            )
         return 0
 
     source = args.source or settings.db_path

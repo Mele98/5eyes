@@ -97,7 +97,10 @@ Was dieser Service NICHT tut
 """
 from __future__ import annotations
 
+import json
+import os
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Iterable
 
 from fastapi import HTTPException
@@ -108,6 +111,27 @@ from sqlalchemy.orm import Session
 # Fixer, wiedererkennbarer Redaction-Marker -- bewusst ASCII-only (keine
 # Mojibake-Risiken in Exporten/Logs, siehe frueherer Test-Fixture-Bugfix).
 REDACTION_MARKER = "[ERASED-DSG-ART-32]"
+
+# PRIV-005 (Codex-Audit): Ein DB-Backup ist ein volles Datei-Snapshot
+# (siehe services/backup.py::backup_database/_perform_atomic_copy). Ein
+# Restore ueberschreibt GENAU die eine Ziel-Datenbankdatei (os.replace auf
+# `target_db_path`) -- kein weiteres Verzeichnis, keine anderen Dateien.
+# Wuerde ``erased_at`` NUR in der Client-Zeile selbst leben, wuerde das
+# Wiedereinspielen eines Backups von VOR einer Erasure die geloeschten
+# Personendaten stillschweigend und spurlos wiederherstellen (der Restore
+# ueberschreibt ja exakt die Zeile, die den Loeschvermerk trug).
+#
+# Deshalb wird JEDE Erasure zusaetzlich in ein schreibendes, append-only
+# Ledger-File NEBEN der DB-Datei protokolliert (gleiches Verzeichnis wie
+# die DB, aber ein eigener Dateiname) -- dieses File liegt ausserhalb
+# dessen, was ein Restore ueberschreibt, und uebersteht ihn deshalb
+# unveraendert. services/maintenance.py::restore_backup() liest dieses
+# Ledger direkt NACH jedem Restore und wendet jede dort protokollierte
+# Erasure erneut an, falls die wiederhergestellte DB sie (weil das
+# restaurierte Backup aelter als die Loeschung ist) noch nicht enthaelt.
+# Tier-1-Normalfall (nie eine Erasure durchgefuehrt): Ledger existiert
+# nicht/ist leer -> reines No-Op, unveraendertes Restore-Verhalten.
+ERASURE_LEDGER_FILENAME = "erasure_ledger.jsonl"
 
 
 def _now() -> str:
@@ -178,6 +202,129 @@ def _redact(
     )
     result = db.execute(text(sql), params)
     return int(result.rowcount or 0)
+
+
+def _ledger_path(db: Session) -> Path:
+    """Bestimmt den Ledger-Pfad relativ zur tatsaechlich gebundenen DB-Datei
+    dieser Session (nicht relativ zu globalen Settings) -- so landet das
+    Ledger in Tests (die pro Test eine eigene tmp_path-DB verwenden) neben
+    der jeweiligen Test-DB, und in Produktion neben der echten DB-Datei,
+    unabhaengig davon, wie ``settings.db_path`` konfiguriert ist.
+    """
+    bind = db.get_bind()
+    db_file = getattr(getattr(bind, "url", None), "database", None) if bind is not None else None
+    if db_file:
+        return Path(db_file).expanduser().resolve().parent / ERASURE_LEDGER_FILENAME
+    # Fallback (z.B. In-Memory-DB ohne eigene Datei) -- Settings-Pfad als
+    # Referenz, analog zu services/maintenance.py::database_paths().
+    from config import settings
+    from database import resolve_db_file
+
+    return resolve_db_file(settings.db_path).parent / ERASURE_LEDGER_FILENAME
+
+
+def _append_ledger_entry(path: Path, entry: dict[str, Any]) -> None:
+    """Haengt einen Eintrag ans Erasure-Ledger an (JSONL, append-only).
+    Best-effort durable (fsync) -- analog zum Muster in
+    services/backup.py::_write_sidecar_atomically, hier aber bewusst als
+    echtes Append (kein Temp+Replace), da das Ledger ueber die Zeit waechst
+    und jeder frueherer Eintrag erhalten bleiben muss.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    line = json.dumps(entry, ensure_ascii=False, sort_keys=True) + "\n"
+    with open(path, "a", encoding="utf-8") as fh:
+        fh.write(line)
+        fh.flush()
+        os.fsync(fh.fileno())
+
+
+def _read_ledger_entries(path: Path) -> list[dict[str, Any]]:
+    """Liest alle Ledger-Eintraege. Fehlendes File -> leere Liste (Tier-1-
+    Normalfall). Defensiv gegen kaputte/abgeschnittene Zeilen (werden
+    uebersprungen statt den ganzen Restore-Vorgang zum Absturz zu bringen)."""
+    if not path.exists():
+        return []
+    entries: list[dict[str, Any]] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            entries.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+    return entries
+
+
+def reapply_erasures_after_restore(
+    target_db_path: str | Path, *, db_key: str | None = None
+) -> dict[str, Any]:
+    """PRIV-005: Nach einem DB-Restore (services/backup.py::restore_database)
+    aufzurufen. Liest das Erasure-Ledger neben ``target_db_path`` und wendet
+    jede dort protokollierte Erasure erneut an, deren Kunde in der frisch
+    wiederhergestellten DB noch NICHT als erased markiert ist (``erased_at``
+    IS NULL) -- das ist genau der Fall, wenn das restaurierte Backup aelter
+    als die urspruengliche Loeschung war.
+
+    Kunden, die in der wiederhergestellten DB bereits ``erased_at`` gesetzt
+    haben (Normalfall: Backup ist neuer als jede Erasure) oder gar nicht
+    mehr existieren, werden uebersprungen -- reines No-Op fuer den
+    Tier-1-Normalfall (kein Ledger vorhanden bzw. Backup ohnehin aktuell).
+    """
+    target = Path(target_db_path).expanduser().resolve()
+    ledger_path = target.parent / ERASURE_LEDGER_FILENAME
+    entries = _read_ledger_entries(ledger_path)
+
+    summary: dict[str, Any] = {
+        "ledger_file": str(ledger_path),
+        "entries_seen": len(entries),
+        "reapplied": [],
+        "already_erased": [],
+        "skipped_not_found": [],
+    }
+    if not entries:
+        return summary
+
+    from database import create_app_engine
+    from sqlalchemy.orm import sessionmaker
+
+    engine = create_app_engine(db_path=target, db_key=db_key)
+    session_factory = sessionmaker(
+        autocommit=False, autoflush=False, expire_on_commit=False, bind=engine
+    )
+    seen_client_ids: set[str] = set()
+    try:
+        with session_factory() as db:
+            for entry in entries:
+                client_id = entry.get("client_id")
+                if not client_id or client_id in seen_client_ids:
+                    continue
+                seen_client_ids.add(client_id)
+
+                row = db.execute(
+                    text("SELECT erased_at FROM clients WHERE id = :id"),
+                    {"id": client_id},
+                ).first()
+                if row is None:
+                    summary["skipped_not_found"].append(client_id)
+                    continue
+                if row[0]:
+                    summary["already_erased"].append(client_id)
+                    continue
+
+                original_reason = entry.get("reason", "")
+                reapply_reason = (
+                    "Automatische Wiederanwendung nach Restore eines Backups, "
+                    "das aelter als die urspruengliche DSG-Art.-32-Loeschung "
+                    f"ist (urspruenglicher Grund: {original_reason})"
+                )
+                erase_client_personal_data(db, client_id, reason=reapply_reason)
+                db.commit()
+                summary["reapplied"].append(client_id)
+    finally:
+        engine.dispose()
+
+    return summary
 
 
 def erase_client_personal_data(db: Session, client_id: str, *, reason: str) -> dict[str, Any]:
@@ -305,6 +452,21 @@ def erase_client_personal_data(db: Session, client_id: str, *, reason: str) -> d
         {"now": now, "reason": reason, "id": client_id},
     )
     db.flush()
+
+    # PRIV-005: Ledger-Eintrag NEBEN der DB-Datei, damit die Erasure einen
+    # Restore einer aelteren DB-Sicherung ueberlebt (siehe Modul-Docstring
+    # von ERASURE_LEDGER_FILENAME oben und reapply_erasures_after_restore()).
+    # Best-effort: ein Ledger-Schreibfehler (z.B. schreibgeschuetztes
+    # Verzeichnis) darf die eigentliche, bereits committete Erasure nicht
+    # rueckgaengig machen oder verschlucken -- daher separat abgesichert und
+    # NACH dem Flush der eigentlichen Aenderungen.
+    try:
+        _append_ledger_entry(
+            _ledger_path(db),
+            {"client_id": client_id, "reason": reason, "erased_at": now},
+        )
+    except OSError:
+        pass
 
     return {
         "status": "erased",

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
 import zipfile
 from collections import deque
@@ -16,6 +17,9 @@ from config import DEFAULT_SECRET_KEY, settings
 from core.logging_setup import resolve_log_file
 from database import SQLCIPHER_AVAILABLE, resolve_db_file
 from services import backup as backup_engine
+from services import client_erasure
+
+logger = logging.getLogger(__name__)
 
 
 # SEC-001 (Codex-Audit 2026-08-26): dieser Blocklist-Ansatz erfasste
@@ -195,6 +199,59 @@ def create_backup() -> dict[str, Any]:
         'manifest_file': str(manifest_path),
         'sha256': result.sha256,
         'size_bytes': result.bytes_written,
+    }
+
+
+def restore_backup(
+    backup_path: str | Path,
+    *,
+    target_db_path: str | Path | None = None,
+    verify_hash: bool = True,
+    verify_hmac: bool = True,
+    db_key: str | None = None,
+) -> dict[str, Any]:
+    """PRIV-005 (Codex-Audit): Wrapper um backup_engine.restore_database, der
+    NACH einem erfolgreichen Restore automatisch das Erasure-Ledger
+    (services/client_erasure.py) konsultiert und jede DSG-Art.-32-Loeschung
+    erneut anwendet, die im wiederhergestellten Snapshot noch fehlt (weil
+    das restaurierte Backup aelter ist als die Loeschung).
+
+    Hintergrund: ein Backup ist ein voller Datei-Snapshot der SQLite-DB;
+    ``erased_at``/die redigierten Felder lebten bisher NUR in dieser einen
+    Datei. Ein Restore einer Vor-Erasure-Sicherung wuerde die geloeschten
+    Personendaten deshalb bisher stillschweigend UND spurlos wiederher-
+    stellen (das Restore ueberschreibt exakt die Zeile, die den
+    Loeschvermerk trug). Das Ledger liegt bewusst NEBEN der DB-Datei
+    (gleiches Verzeichnis, eigener Dateiname) -- ausserhalb dessen, was
+    ``_perform_atomic_copy()`` beim Restore ueberschreibt (nur die eine
+    Zieldatei selbst) -- und uebersteht den Restore deshalb unveraendert.
+
+    Tier-1-Normalfall (Holger, nie eine Erasure durchgefuehrt): Ledger
+    existiert nicht bzw. ist leer -> ``erasure_reapply`` ist ein reines
+    No-Op, das Restore-Verhalten ist 1:1 wie vorher.
+    """
+    target = resolve_db_file(target_db_path) if target_db_path else resolve_db_file(settings.db_path)
+    result = backup_engine.restore_database(
+        backup_path=backup_path,
+        target_db_path=target,
+        verify_hash=verify_hash,
+        verify_hmac=verify_hmac,
+        db_key=db_key,
+    )
+    erasure_reapply = client_erasure.reapply_erasures_after_restore(target, db_key=db_key)
+    if erasure_reapply.get("reapplied"):
+        logger.info(
+            "PRIV-005: Erasure-Ledger nach Restore erneut angewendet | target=%s clients=%s",
+            target, erasure_reapply["reapplied"],
+        )
+
+    return {
+        'status': 'ok',
+        'target_db_path': str(result.target_path),
+        'bytes_restored': result.bytes_restored,
+        'hash_verified': result.hash_verified,
+        'hmac_verified': result.hmac_verified,
+        'erasure_reapply': erasure_reapply,
     }
 
 
