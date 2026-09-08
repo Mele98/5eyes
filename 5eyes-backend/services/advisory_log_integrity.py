@@ -12,10 +12,26 @@ Code-Pfaden).
 from __future__ import annotations
 
 import hashlib
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 # Aufbewahrungs-Pflicht in Jahren (FIDLEG Art. 17)
 RETENTION_YEARS: int = 10
+
+
+class AdvisoryLogDatetimeError(ValueError):
+    """ADV-WORKFLOW-003 (Codex-Audit): wird geworfen, wenn `entry_datetime`
+    NICHT als gueltiger ISO-Datums-/Zeitstempel interpretiert werden kann,
+    oder wenn die daraus abgeleitete Aufbewahrungsfrist ausserhalb des
+    darstellbaren Datumsbereichs liegen wuerde. Analog zu
+    services.review_engine.ReviewAnchorDataError (REVIEW-STATE-001):
+    Aufrufer muessen dies fail-closed behandeln (z.B. auf 409/422 mappen),
+    NIE mehr stillschweigend auf `datetime.now()` zurueckfallen -- ein
+    Beratungsprotokoll mit kaputtem Zeitstempel wuerde sonst mit einer
+    plausibel wirkenden, aber fachlich falschen Aufbewahrungsfrist
+    gespeichert. In der Praxis validiert schemas.review.AdvisoryLogCreate.
+    entry_datetime bereits am API-Rand -- diese Funktion bleibt trotzdem
+    strikt, falls sie je mit einem nicht schema-geprueften Wert aufgerufen
+    wird."""
 
 
 def compute_integrity_hash(*, payload: dict) -> str:
@@ -83,17 +99,25 @@ def compute_integrity_hash(*, payload: dict) -> str:
 def compute_retain_until(entry_datetime_iso: str) -> str:
     """`entry_datetime` + 10 Jahre als ISO-Date (YYYY-MM-DD).
 
-    Robust gegen Formate mit und ohne Z-Suffix. Bei ungültigem Input wird
-    `today + 10 Jahre` zurückgegeben (defensiver Fallback statt Crash).
+    Robust gegen Formate mit und ohne Z-Suffix. ADV-WORKFLOW-003
+    (Codex-Audit): frueher bei jedem leeren oder ungueltigen Input auf
+    `datetime.now()` zurueckgefallen (silent fallback) -- dieselbe
+    Bugklasse wie services.review_engine._parse_iso_date() vor
+    REVIEW-STATE-001. Wirft jetzt fail-closed `AdvisoryLogDatetimeError`
+    statt zu raten, auch wenn die resultierende Aufbewahrungsfrist
+    ausserhalb des darstellbaren Datumsbereichs liegen wuerde (z.B. bei
+    einem entry_datetime im Jahr 9999).
     """
-    if not entry_datetime_iso:
-        base = datetime.now(timezone.utc)
-    else:
-        normalized = str(entry_datetime_iso).replace("Z", "+00:00")
-        try:
-            base = datetime.fromisoformat(normalized)
-        except ValueError:
-            base = datetime.now(timezone.utc)
+    raw = str(entry_datetime_iso or "").strip()
+    if not raw:
+        raise AdvisoryLogDatetimeError("entry_datetime darf nicht leer sein")
+    normalized = raw[:-1] + "+00:00" if raw.endswith("Z") else raw
+    try:
+        base = datetime.fromisoformat(normalized)
+    except ValueError:
+        raise AdvisoryLogDatetimeError(
+            f"entry_datetime ist kein gueltiges ISO-Datum/-Zeitstempel: {entry_datetime_iso!r}"
+        ) from None
     # Für 10 Jahre: naive Jahr-Addition reicht (kein Schaltjahr-Issue, weil
     # wir nur Date-Teil persistieren).
     target_year = base.year + RETENTION_YEARS
@@ -101,7 +125,14 @@ def compute_retain_until(entry_datetime_iso: str) -> str:
     try:
         retain = base.replace(year=target_year)
     except ValueError:
-        retain = base.replace(year=target_year, day=28)
+        try:
+            retain = base.replace(year=target_year, day=28)
+        except ValueError:
+            raise AdvisoryLogDatetimeError(
+                f"entry_datetime {entry_datetime_iso!r} fuehrt zu einer "
+                f"Aufbewahrungsfrist ausserhalb des darstellbaren "
+                f"Datumsbereichs (Jahr {target_year})"
+            ) from None
     return retain.date().isoformat()
 
 

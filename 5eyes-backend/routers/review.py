@@ -882,6 +882,7 @@ def create_advisory_log_entry(
     """Sprint U-FINMA-2.1: FINMA-konforme Eintragserstellung mit Hash,
     Aufbewahrungs-Datum und vollem Audit-Log.
     """
+    from services.advisory_log_integrity import AdvisoryLogDatetimeError
     from services.advisory_log_service import create_advisory_log, serialize_response
 
     enforce_data_classification(body.data_classification)
@@ -927,9 +928,16 @@ def create_advisory_log_entry(
         body = body.model_copy(
             update={"client_signed_at": linked_document.signature_client_signed_at}
         )
-    entry = create_advisory_log(
-        db, mandate_id=mandate_id, advisor=current_user, payload=body, mandate=mandate,
-    )
+    try:
+        entry = create_advisory_log(
+            db, mandate_id=mandate_id, advisor=current_user, payload=body, mandate=mandate,
+        )
+    except AdvisoryLogDatetimeError as exc:
+        # ADV-WORKFLOW-003: fail-closed statt eines stillen now()-Fallbacks,
+        # falls entry_datetime trotz Schema-Validierung eine nicht
+        # darstellbare Aufbewahrungsfrist ergibt (z.B. Jahr 9999 + 10).
+        db.rollback()
+        raise HTTPException(status_code=422, detail=str(exc))
     db.flush()
     log(
         db,

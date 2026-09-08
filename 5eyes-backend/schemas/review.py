@@ -335,6 +335,24 @@ class AdvisoryLogCreate(BaseModel):
     # enthaelt Freitext-Gespraechsinhalt, sensibelste Kategorie neben Risk-Profiling.
     data_classification: Literal["synthetic", "real"] = "synthetic"
 
+    @field_validator("entry_datetime")
+    @classmethod
+    def validate_entry_datetime(cls, value: str) -> str:
+        # ADV-WORKFLOW-003 (Codex-Audit): entry_datetime hatte bislang KEINE
+        # Format-/Gueltigkeits-Pruefung -- jeder String (auch syntaktisch
+        # unmoegliche Werte wie "9999-99-99") wurde klaglos akzeptiert.
+        # Zwei nachgelagerte Stellen vertrauen blind auf ein gueltiges
+        # ISO-Format: services/advisory_log_integrity.py::
+        # compute_retain_until() (Aufbewahrungsfrist-Berechnung) und
+        # services/advisory_log_service.py::get_latest_active_entry()
+        # (Sortierung "letzter Termin" -- ein String, der lexikografisch
+        # nach allen echten ISO-Daten sortiert, wuerde dort faelschlich als
+        # neuester Eintrag gelten). Wiederverwendet denselben Validator wie
+        # client_signed_at (FIDLEG-STATE-002) -- beide Felder haben denselben
+        # ISO-Datums-/Zeitstempel-Vertrag.
+        _parse_signature_timestamp(value)
+        return value
+
     @model_validator(mode="after")
     def validate_signature(self):
         # FIDLEG-STATE-002 (Codex-Audit 2026-08-27): vorher genuegte JEDER
