@@ -200,6 +200,9 @@ def test_export_returns_expected_top_level_keys(session_factory):
         "legal_basis",
         "retention_notes",
         "manifest",
+        "complete",
+        "section_status",
+        "section_errors",
         "sections",
     }
     assert set(payload.keys()) == expected_top
@@ -441,3 +444,137 @@ def test_export_payload_is_json_serializable(session_factory):
     # Wirft TypeError wenn nicht serialisierbar
     blob = json.dumps(payload)
     assert len(blob) > 1000
+
+
+# ---------------------------------------------------------------------------
+# PRIV-002 (Codex-Audit 2026-08/09): Sektionsfehler duerfen nicht mehr
+# lautlos verschluckt werden -- der Export muss sichtbar "unvollstaendig"
+# melden statt faelschlich "vollstaendig erfolgreich" auszusehen.
+# ---------------------------------------------------------------------------
+
+def test_export_is_marked_complete_when_all_sections_succeed(session_factory):
+    """Regression: ein normaler, voll erfolgreicher Export bleibt unveraendert
+    'complete' -- die neuen Felder sind rein additiv und melden keine
+    Fehler, wenn keine aufgetreten sind."""
+    with session_factory() as s:
+        client, _, _ = _seed_full_client(s)
+        s.commit()
+        payload = export_client_data(s, client.id)
+
+    assert payload["complete"] is True
+    assert payload["section_errors"] == {}
+    assert payload["section_status"], "section_status darf nicht leer sein"
+    assert all(status == "ok" for status in payload["section_status"].values())
+    # Sektionen, die frueher den lautlosen except-Exception-Bug hatten,
+    # muessen im Status-Report auftauchen.
+    assert payload["section_status"]["wealth_positions"] == "ok"
+    assert payload["section_status"]["risk_assessments"] == "ok"
+    assert payload["section_status"]["audit_log"] == "ok"
+    # Bestehende Felder (sections/manifest) bleiben exakt wie vorher.
+    assert len(payload["sections"]["wealth_positions"]) == 1
+    assert payload["manifest"]["wealth_positions"] == 1
+
+
+def test_section_failure_is_reported_not_silently_swallowed(session_factory, monkeypatch):
+    """Vorher (Bug): eine Exception in einer Sektions-Query wurde von einem
+    breiten `except Exception: return []` verschluckt -- der Export sah
+    trotzdem vollstaendig erfolgreich aus (`manifest["wealth_positions"] == 0`
+    ist nicht von 'Kunde hat wirklich keine Positionen' unterscheidbar).
+
+    Danach (Fix): der Fehler wird sichtbar (`complete=False`,
+    `section_status`, `section_errors`), OHNE dass der Export crasht und
+    OHNE dass andere, erfolgreiche Sektionen beeintraechtigt werden."""
+    import services.data_export as de
+
+    def _boom(db, client_id):
+        raise RuntimeError("simulated DB failure with sensitive internal detail")
+
+    monkeypatch.setattr(de, "_query_wealth_positions", _boom)
+
+    with session_factory() as s:
+        client, _, _ = _seed_full_client(s)
+        s.commit()
+        payload = de.export_client_data(s, client.id)
+
+    # Fehler ist sichtbar, nicht mehr lautlos.
+    assert payload["complete"] is False
+    assert payload["section_status"]["wealth_positions"] == "error"
+    assert "wealth_positions" in payload["section_errors"]
+
+    # Fehlerbeschreibung ist generisch/unbedenklich -- kein Stacktrace,
+    # keine rohe Exception-Message im kundenseitigen Export.
+    error_text = payload["section_errors"]["wealth_positions"]
+    assert "simulated DB failure" not in error_text
+    assert "RuntimeError" not in error_text
+    assert "sensitive internal detail" not in error_text
+
+    # Resilienz bleibt: Export crasht nicht, betroffene Sektion bleibt als
+    # leere Liste wie zuvor (keine Strukturaenderung fuer Konsumenten).
+    assert payload["sections"]["wealth_positions"] == []
+    assert payload["manifest"]["wealth_positions"] == 0
+
+    # Andere Sektionen sind unbeeintraechtigt.
+    assert payload["section_status"]["cashflows"] == "ok"
+    assert len(payload["sections"]["cashflows"]) == 1
+    assert payload["section_status"]["goals"] == "ok"
+    assert len(payload["sections"]["goals"]) == 1
+    assert "cashflows" not in payload["section_errors"]
+
+
+def test_recommendation_holdings_are_exported(session_factory):
+    """PRIV-002-Nachfund: `_query_recommendation_holdings` filterte bisher
+    auf `RecommendationHolding.mandate_id`, eine Spalte, die auf diesem
+    Modell gar nicht existiert (nur `run_id` -> `RecommendationRun.mandate_id`).
+    Das warf bei JEDEM Kunden mit Recommendation-Holdings einen
+    AttributeError, der vom alten `except Exception: return []` lautlos
+    verschluckt wurde -- die Sektion war im DSG-Export faktisch immer leer.
+    Jetzt: korrekter Join ueber run_id, Holding taucht im Export auf UND
+    die Sektion ist als 'ok' markiert (nicht mehr 'error')."""
+    from models.allocation import OptimizerPolicy
+    from models.review import Product, RecommendationHolding, RecommendationPosition, RecommendationRun
+
+    with session_factory() as s:
+        client, mandate, advisor = _seed_full_client(s)
+        policy_id = str(uuid.uuid4())
+        prod_id = str(uuid.uuid4())
+        run_id = str(uuid.uuid4())
+        pos_id = str(uuid.uuid4())
+        hold_id = str(uuid.uuid4())
+        s.add(OptimizerPolicy(
+            id=policy_id, policy_name="Standard", version=1, is_current=1,
+            valid_from=_NOW[:10], optimizer_engine="TBI-V1",
+            max_real_estate_bps=2000, max_alternatives_bps=1500,
+            min_liquidity_bps=200, fee_model_json="{}",
+            created_by=advisor.id, created_at=_NOW, updated_at=_NOW,
+        ))
+        s.add(Product(
+            id=prod_id, product_name="Test ETF", provider="X",
+            product_type="ETF", asset_class="Aktien", currency="CHF",
+            is_active=1, created_at=_NOW, updated_at=_NOW,
+        ))
+        s.add(RecommendationRun(
+            id=run_id, mandate_id=mandate.id, client_id=client.id,
+            policy_id=policy_id, run_type="Optimizer", result_status="Final",
+            created_by=advisor.id, created_at=_NOW, updated_at=_NOW,
+        ))
+        s.add(RecommendationPosition(
+            id=pos_id, run_id=run_id, product_id=prod_id,
+            target_weight_bps=4000, target_amount_rappen=10_000_000,
+            created_at=_NOW, updated_at=_NOW,
+        ))
+        s.add(RecommendationHolding(
+            id=hold_id, run_id=run_id, recommendation_position_id=pos_id,
+            product_id=prod_id, units_milli=1000,
+            market_value_rappen=10_000_000, source="manual",
+            as_of_date=_NOW[:10], created_at=_NOW, updated_at=_NOW,
+        ))
+        s.commit()
+        payload = export_client_data(s, client.id)
+
+    assert payload["section_status"]["recommendation_holdings"] == "ok"
+    assert "recommendation_holdings" not in payload["section_errors"]
+    holdings = payload["sections"]["recommendation_holdings"]
+    assert len(holdings) == 1
+    assert holdings[0]["id"] == hold_id
+    assert holdings[0]["run_id"] == run_id
+    assert payload["complete"] is True

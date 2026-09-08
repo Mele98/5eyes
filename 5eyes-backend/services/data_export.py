@@ -100,6 +100,15 @@ def export_client_data(db: Session, client_id: str) -> dict[str, Any]:
       "manifest": {                            # Zeilen-Counts pro Sektion
         "clients": 1, "mandates": 2, ...
       },
+      "complete": true,                        # False sobald IRGENDEINE
+                                                # Sektion fehlgeschlagen ist
+                                                # (PRIV-002, siehe unten)
+      "section_status": {                      # "ok" | "error" pro Sektion,
+        "risk_assessments": "ok", ...          # die frueher einen Fehler
+      },                                        # lautlos verschluckt haette
+      "section_errors": {                      # nur befuellt fuer Sektionen
+        # "wealth_positions": "Sektion konnte nicht geladen werden ..."
+      },
       "sections": {
         "client":              {...},          # Stammdaten
         "client_nationalities": [...],
@@ -129,12 +138,37 @@ def export_client_data(db: Session, client_id: str) -> dict[str, Any]:
     }
 
     Wirft `ValueError` wenn der Kunde nicht existiert.
+
+    Fehlersichtbarkeit (PRIV-002, Codex-Audit 2026-08/09)
+    ------------------------------------------------------
+    Fast alle Sektionen (ausser "client", "client_nationalities",
+    "client_opt_history" und "mandates", die schon vorher ungefangene
+    Fehler nach oben durchgereicht haben) wurden frueher von einem
+    breiten `except Exception: return []` in der jeweiligen
+    `_query_*`-Funktion abgefangen. Ein DB-/Schema-Fehler in EINER
+    Sektion fuehrte damit lautlos zu einer leeren Liste -- der
+    Gesamt-Export sah trotzdem vollstaendig erfolgreich aus, obwohl er
+    unvollstaendig war. Fuer einen DSG-Art.-25-Auskunftsexport ist das
+    inakzeptabel.
+
+    Die Resilienz bleibt erhalten (ein Sektionsfehler crasht weiterhin
+    NICHT den gesamten Export), aber jetzt sichtbar ueber die drei
+    zusaetzlichen Top-Level-Felder `complete`, `section_status` und
+    `section_errors` (siehe Schema oben). Die Rohdaten in `sections`
+    und die Zeilen-Counts in `manifest` bleiben bei einem erfolgreichen
+    Export unveraendert -- rein additiv.
     """
     client = db.query(Client).filter(Client.id == client_id).first()
     if client is None:
         raise ValueError(f"Client {client_id!r} nicht gefunden.")
 
     mandate_ids = _collect_mandate_ids(db, client_id)
+    section_status: dict[str, str] = {}
+    section_errors: dict[str, str] = {}
+
+    def _s(name: str, builder) -> Any:
+        return _run_section(section_status, section_errors, name, builder)
+
     sections: dict[str, Any] = {
         "client": _serialize_one(client),
         "client_nationalities": _serialize_list(
@@ -147,28 +181,47 @@ def export_client_data(db: Session, client_id: str) -> dict[str, Any]:
             .filter(ClientOptHistory.client_id == client_id)
             .all()
         ),
-        "client_knowledge": _query_client_knowledge(db, client_id),
+        "client_knowledge": _s("client_knowledge", lambda: _query_client_knowledge(db, client_id)),
         "mandates": _query_mandates(db, client_id),
-        "risk_assessments": _query_risk_assessments(db, mandate_ids),
-        "risk_assessment_answers": _query_risk_assessment_answers(db, mandate_ids),
-        "suitability_checks": _query_suitability_checks(db, mandate_ids),
-        "target_allocations": _query_target_allocations(db, mandate_ids),
-        "recommendation_runs": _query_recommendation_runs(db, mandate_ids),
-        "recommendation_positions": _query_recommendation_positions(db, mandate_ids),
-        "recommendation_holdings": _query_recommendation_holdings(db, mandate_ids),
-        "advisory_log": _query_advisory_log(db, mandate_ids),
-        "wealth_positions": _query_wealth_positions(db, client_id),
-        "cashflows": _query_cashflows(db, client_id),
-        "wealth_inflows": _query_wealth_inflows(db, client_id),
-        "goals": _query_goals(db, mandate_ids),
-        "planning_assumptions": _query_planning_assumptions(db, mandate_ids),
-        "contract_documents": _query_contract_documents(db, mandate_ids),
-        "conflict_of_interest_disclosure": _query_conflict_disclosures(db, mandate_ids),
-        "mandate_report_notes": _query_mandate_report_notes(db, mandate_ids),
-        "review_trigger": _query_review_trigger(db, mandate_ids),
-        "strategy_snapshots": _query_strategy_snapshots(db, mandate_ids),
-        "protocol_baustein_selections": _query_protocol_baustein_selections(db, mandate_ids),
-        "audit_log": _query_audit_log(db, client_id, mandate_ids),
+        "risk_assessments": _s("risk_assessments", lambda: _query_risk_assessments(db, mandate_ids)),
+        "risk_assessment_answers": _s(
+            "risk_assessment_answers", lambda: _query_risk_assessment_answers(db, mandate_ids)
+        ),
+        "suitability_checks": _s("suitability_checks", lambda: _query_suitability_checks(db, mandate_ids)),
+        "target_allocations": _s("target_allocations", lambda: _query_target_allocations(db, mandate_ids)),
+        "recommendation_runs": _s("recommendation_runs", lambda: _query_recommendation_runs(db, mandate_ids)),
+        "recommendation_positions": _s(
+            "recommendation_positions", lambda: _query_recommendation_positions(db, mandate_ids)
+        ),
+        "recommendation_holdings": _s(
+            "recommendation_holdings", lambda: _query_recommendation_holdings(db, mandate_ids)
+        ),
+        "advisory_log": _s("advisory_log", lambda: _query_advisory_log(db, mandate_ids)),
+        "wealth_positions": _s("wealth_positions", lambda: _query_wealth_positions(db, client_id)),
+        "cashflows": _s("cashflows", lambda: _query_cashflows(db, client_id)),
+        "wealth_inflows": _s("wealth_inflows", lambda: _query_wealth_inflows(db, client_id)),
+        "goals": _s("goals", lambda: _query_goals(db, mandate_ids)),
+        "planning_assumptions": _s(
+            "planning_assumptions", lambda: _query_planning_assumptions(db, mandate_ids)
+        ),
+        "contract_documents": _s(
+            "contract_documents", lambda: _query_contract_documents(db, mandate_ids)
+        ),
+        "conflict_of_interest_disclosure": _s(
+            "conflict_of_interest_disclosure", lambda: _query_conflict_disclosures(db, mandate_ids)
+        ),
+        "mandate_report_notes": _s(
+            "mandate_report_notes", lambda: _query_mandate_report_notes(db, mandate_ids)
+        ),
+        "review_trigger": _s("review_trigger", lambda: _query_review_trigger(db, mandate_ids)),
+        "strategy_snapshots": _s(
+            "strategy_snapshots", lambda: _query_strategy_snapshots(db, mandate_ids)
+        ),
+        "protocol_baustein_selections": _s(
+            "protocol_baustein_selections",
+            lambda: _query_protocol_baustein_selections(db, mandate_ids),
+        ),
+        "audit_log": _s("audit_log", lambda: _query_audit_log(db, client_id, mandate_ids)),
     }
 
     manifest = {
@@ -192,6 +245,9 @@ def export_client_data(db: Session, client_id: str) -> dict[str, Any]:
         },
         "retention_notes": RETENTION_NOTES,
         "manifest": manifest,
+        "complete": all(status == "ok" for status in section_status.values()),
+        "section_status": section_status,
+        "section_errors": section_errors,
         "sections": sections,
     }
 
@@ -235,6 +291,47 @@ def _coerce_jsonable(value: Any) -> Any:
 
 
 # ---------------------------------------------------------------------------
+# Sektions-Ausfuehrung mit sichtbarem Fehler-Reporting (PRIV-002)
+# ---------------------------------------------------------------------------
+
+# Generische, unbedenkliche Fehlerbeschreibung fuer den Export -- absichtlich
+# OHNE Exception-Text/Stacktrace, da der Export einem Kunden (DSG Art. 25)
+# oder Berater ausgehaendigt werden kann und keine internen Details (Tabellen-
+# namen, Query-Strukturen, Stacktraces) preisgeben soll.
+_SECTION_ERROR_MESSAGE = (
+    "Sektion konnte nicht geladen werden (interner Fehler bei der "
+    "Datenabfrage). Der Export ist dadurch unvollstaendig -- bitte "
+    "Support kontaktieren und Export erneut anfordern."
+)
+
+
+def _run_section(
+    section_status: dict[str, str],
+    section_errors: dict[str, str],
+    name: str,
+    builder: Any,
+) -> Any:
+    """Fuehrt eine Sektions-Builder-Funktion aus und protokolliert Erfolg/
+    Fehler sichtbar, statt ihn wie vorher lautlos zu verschlucken.
+
+    Die Resilienz bleibt erhalten: ein Fehler in dieser einen Sektion
+    crasht weiterhin nicht den gesamten Export (`except Exception` faengt
+    ihn weiterhin ab). Neu ist nur, dass der Fehler jetzt im Rueckgabewert
+    von `export_client_data` sichtbar wird (`section_status`,
+    `section_errors`, `complete`), statt spurlos zu einer leeren Liste zu
+    werden, die wie ein vollstaendiger Export aussieht.
+    """
+    try:
+        result = builder()
+    except Exception:  # noqa: BLE001 -- bewusst breit, siehe Docstring
+        section_status[name] = "error"
+        section_errors[name] = _SECTION_ERROR_MESSAGE
+        return []
+    section_status[name] = "ok"
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Query-Helpers (lazy imports, defensive gegen fehlende Tabellen)
 # ---------------------------------------------------------------------------
 
@@ -259,31 +356,25 @@ def _query_mandates(db: Session, client_id: str) -> list[dict[str, Any]]:
 
 
 def _query_client_knowledge(db: Session, client_id: str) -> list[dict[str, Any]]:
-    try:
-        from models.profiling import ClientKnowledge
-        rows = (
-            db.query(ClientKnowledge)
-            .filter(ClientKnowledge.client_id == client_id)
-            .all()
-        )
-        return _serialize_list(rows)
-    except Exception:  # noqa: BLE001
-        return []
+    from models.profiling import ClientKnowledge
+    rows = (
+        db.query(ClientKnowledge)
+        .filter(ClientKnowledge.client_id == client_id)
+        .all()
+    )
+    return _serialize_list(rows)
 
 
 def _query_risk_assessments(db: Session, mandate_ids: list[str]) -> list[dict[str, Any]]:
     if not mandate_ids:
         return []
-    try:
-        from models.profiling import RiskAssessment
-        rows = (
-            db.query(RiskAssessment)
-            .filter(RiskAssessment.mandate_id.in_(mandate_ids))
-            .all()
-        )
-        return _serialize_list(rows)
-    except Exception:  # noqa: BLE001
-        return []
+    from models.profiling import RiskAssessment
+    rows = (
+        db.query(RiskAssessment)
+        .filter(RiskAssessment.mandate_id.in_(mandate_ids))
+        .all()
+    )
+    return _serialize_list(rows)
 
 
 def _query_risk_assessment_answers(
@@ -291,24 +382,21 @@ def _query_risk_assessment_answers(
 ) -> list[dict[str, Any]]:
     if not mandate_ids:
         return []
-    try:
-        from models.profiling import RiskAssessment, RiskAssessmentAnswer
-        assessment_ids = [
-            str(a.id)
-            for a in db.query(RiskAssessment)
-            .filter(RiskAssessment.mandate_id.in_(mandate_ids))
-            .all()
-        ]
-        if not assessment_ids:
-            return []
-        rows = (
-            db.query(RiskAssessmentAnswer)
-            .filter(RiskAssessmentAnswer.assessment_id.in_(assessment_ids))
-            .all()
-        )
-        return _serialize_list(rows)
-    except Exception:  # noqa: BLE001
+    from models.profiling import RiskAssessment, RiskAssessmentAnswer
+    assessment_ids = [
+        str(a.id)
+        for a in db.query(RiskAssessment)
+        .filter(RiskAssessment.mandate_id.in_(mandate_ids))
+        .all()
+    ]
+    if not assessment_ids:
         return []
+    rows = (
+        db.query(RiskAssessmentAnswer)
+        .filter(RiskAssessmentAnswer.assessment_id.in_(assessment_ids))
+        .all()
+    )
+    return _serialize_list(rows)
 
 
 def _query_suitability_checks(
@@ -316,16 +404,13 @@ def _query_suitability_checks(
 ) -> list[dict[str, Any]]:
     if not mandate_ids:
         return []
-    try:
-        from models.profiling import SuitabilityCheck
-        rows = (
-            db.query(SuitabilityCheck)
-            .filter(SuitabilityCheck.mandate_id.in_(mandate_ids))
-            .all()
-        )
-        return _serialize_list(rows)
-    except Exception:  # noqa: BLE001
-        return []
+    from models.profiling import SuitabilityCheck
+    rows = (
+        db.query(SuitabilityCheck)
+        .filter(SuitabilityCheck.mandate_id.in_(mandate_ids))
+        .all()
+    )
+    return _serialize_list(rows)
 
 
 def _query_target_allocations(
@@ -333,16 +418,13 @@ def _query_target_allocations(
 ) -> list[dict[str, Any]]:
     if not mandate_ids:
         return []
-    try:
-        from models.allocation import TargetAllocation
-        rows = (
-            db.query(TargetAllocation)
-            .filter(TargetAllocation.mandate_id.in_(mandate_ids))
-            .all()
-        )
-        return _serialize_list(rows)
-    except Exception:  # noqa: BLE001
-        return []
+    from models.allocation import TargetAllocation
+    rows = (
+        db.query(TargetAllocation)
+        .filter(TargetAllocation.mandate_id.in_(mandate_ids))
+        .all()
+    )
+    return _serialize_list(rows)
 
 
 def _query_recommendation_runs(
@@ -350,16 +432,13 @@ def _query_recommendation_runs(
 ) -> list[dict[str, Any]]:
     if not mandate_ids:
         return []
-    try:
-        from models.review import RecommendationRun
-        rows = (
-            db.query(RecommendationRun)
-            .filter(RecommendationRun.mandate_id.in_(mandate_ids))
-            .all()
-        )
-        return _serialize_list(rows)
-    except Exception:  # noqa: BLE001
-        return []
+    from models.review import RecommendationRun
+    rows = (
+        db.query(RecommendationRun)
+        .filter(RecommendationRun.mandate_id.in_(mandate_ids))
+        .all()
+    )
+    return _serialize_list(rows)
 
 
 def _query_recommendation_positions(
@@ -367,41 +446,51 @@ def _query_recommendation_positions(
 ) -> list[dict[str, Any]]:
     if not mandate_ids:
         return []
-    try:
-        from models.review import RecommendationPosition, RecommendationRun
-        run_ids = [
-            str(r.id)
-            for r in db.query(RecommendationRun)
-            .filter(RecommendationRun.mandate_id.in_(mandate_ids))
-            .all()
-        ]
-        if not run_ids:
-            return []
-        rows = (
-            db.query(RecommendationPosition)
-            .filter(RecommendationPosition.run_id.in_(run_ids))
-            .all()
-        )
-        return _serialize_list(rows)
-    except Exception:  # noqa: BLE001
+    from models.review import RecommendationPosition, RecommendationRun
+    run_ids = [
+        str(r.id)
+        for r in db.query(RecommendationRun)
+        .filter(RecommendationRun.mandate_id.in_(mandate_ids))
+        .all()
+    ]
+    if not run_ids:
         return []
+    rows = (
+        db.query(RecommendationPosition)
+        .filter(RecommendationPosition.run_id.in_(run_ids))
+        .all()
+    )
+    return _serialize_list(rows)
 
 
 def _query_recommendation_holdings(
     db: Session, mandate_ids: list[str]
 ) -> list[dict[str, Any]]:
+    """2026-09 (PRIV-002-Nachfund): `RecommendationHolding` hat KEINE
+    `mandate_id`-Spalte (nur `run_id` -> `RecommendationRun.mandate_id`).
+    Die vorherige Filterung auf `RecommendationHolding.mandate_id` warf
+    daher IMMER einen `AttributeError`, der vom alten breiten
+    `except Exception: return []` lautlos verschluckt wurde -- diese
+    Sektion war im DSG-Export faktisch seit jeher immer leer, fuer jeden
+    Kunden mit Recommendation-Holdings. Fix: gleiches Join-Muster wie
+    `_query_recommendation_positions` (ueber `run_id`)."""
     if not mandate_ids:
         return []
-    try:
-        from models.review import RecommendationHolding
-        rows = (
-            db.query(RecommendationHolding)
-            .filter(RecommendationHolding.mandate_id.in_(mandate_ids))
-            .all()
-        )
-        return _serialize_list(rows)
-    except Exception:  # noqa: BLE001
+    from models.review import RecommendationHolding, RecommendationRun
+    run_ids = [
+        str(r.id)
+        for r in db.query(RecommendationRun)
+        .filter(RecommendationRun.mandate_id.in_(mandate_ids))
+        .all()
+    ]
+    if not run_ids:
         return []
+    rows = (
+        db.query(RecommendationHolding)
+        .filter(RecommendationHolding.run_id.in_(run_ids))
+        .all()
+    )
+    return _serialize_list(rows)
 
 
 def _query_advisory_log(
@@ -409,70 +498,55 @@ def _query_advisory_log(
 ) -> list[dict[str, Any]]:
     if not mandate_ids:
         return []
-    try:
-        from models.review import AdvisoryLog
-        rows = (
-            db.query(AdvisoryLog)
-            .filter(AdvisoryLog.mandate_id.in_(mandate_ids))
-            .all()
-        )
-        return _serialize_list(rows)
-    except Exception:  # noqa: BLE001
-        return []
+    from models.review import AdvisoryLog
+    rows = (
+        db.query(AdvisoryLog)
+        .filter(AdvisoryLog.mandate_id.in_(mandate_ids))
+        .all()
+    )
+    return _serialize_list(rows)
 
 
 def _query_wealth_positions(db: Session, client_id: str) -> list[dict[str, Any]]:
-    try:
-        from models.wealth import WealthPosition
-        rows = (
-            db.query(WealthPosition)
-            .filter(WealthPosition.client_id == client_id)
-            .all()
-        )
-        return _serialize_list(rows)
-    except Exception:  # noqa: BLE001
-        return []
+    from models.wealth import WealthPosition
+    rows = (
+        db.query(WealthPosition)
+        .filter(WealthPosition.client_id == client_id)
+        .all()
+    )
+    return _serialize_list(rows)
 
 
 def _query_cashflows(db: Session, client_id: str) -> list[dict[str, Any]]:
-    try:
-        from models.wealth import Cashflow
-        rows = (
-            db.query(Cashflow)
-            .filter(Cashflow.client_id == client_id)
-            .all()
-        )
-        return _serialize_list(rows)
-    except Exception:  # noqa: BLE001
-        return []
+    from models.wealth import Cashflow
+    rows = (
+        db.query(Cashflow)
+        .filter(Cashflow.client_id == client_id)
+        .all()
+    )
+    return _serialize_list(rows)
 
 
 def _query_wealth_inflows(db: Session, client_id: str) -> list[dict[str, Any]]:
-    try:
-        from models.wealth import WealthInflow
-        rows = (
-            db.query(WealthInflow)
-            .filter(WealthInflow.client_id == client_id)
-            .all()
-        )
-        return _serialize_list(rows)
-    except Exception:  # noqa: BLE001
-        return []
+    from models.wealth import WealthInflow
+    rows = (
+        db.query(WealthInflow)
+        .filter(WealthInflow.client_id == client_id)
+        .all()
+    )
+    return _serialize_list(rows)
 
 
 def _query_goals(db: Session, mandate_ids: list[str]) -> list[dict[str, Any]]:
     if not mandate_ids:
         return []
-    try:
-        from models.wealth import Goal
-        rows = (
-            db.query(Goal)
-            .filter(Goal.mandate_id.in_(mandate_ids))
-            .all()
-        )
-        return _serialize_list(rows)
-    except Exception:  # noqa: BLE001
-        return []
+    from models.wealth import Goal
+    rows = (
+        db.query(Goal)
+        .filter(Goal.mandate_id.in_(mandate_ids))
+        .all()
+    )
+    return _serialize_list(rows)
 
 
 def _query_planning_assumptions(
@@ -480,16 +554,13 @@ def _query_planning_assumptions(
 ) -> list[dict[str, Any]]:
     if not mandate_ids:
         return []
-    try:
-        from models.wealth import PlanningAssumption
-        rows = (
-            db.query(PlanningAssumption)
-            .filter(PlanningAssumption.mandate_id.in_(mandate_ids))
-            .all()
-        )
-        return _serialize_list(rows)
-    except Exception:  # noqa: BLE001
-        return []
+    from models.wealth import PlanningAssumption
+    rows = (
+        db.query(PlanningAssumption)
+        .filter(PlanningAssumption.mandate_id.in_(mandate_ids))
+        .all()
+    )
+    return _serialize_list(rows)
 
 
 def _query_contract_documents(
@@ -497,16 +568,13 @@ def _query_contract_documents(
 ) -> list[dict[str, Any]]:
     if not mandate_ids:
         return []
-    try:
-        from models.review import ContractDocument
-        rows = (
-            db.query(ContractDocument)
-            .filter(ContractDocument.mandate_id.in_(mandate_ids))
-            .all()
-        )
-        return _serialize_list(rows)
-    except Exception:  # noqa: BLE001
-        return []
+    from models.review import ContractDocument
+    rows = (
+        db.query(ContractDocument)
+        .filter(ContractDocument.mandate_id.in_(mandate_ids))
+        .all()
+    )
+    return _serialize_list(rows)
 
 
 def _query_conflict_disclosures(
@@ -514,16 +582,13 @@ def _query_conflict_disclosures(
 ) -> list[dict[str, Any]]:
     if not mandate_ids:
         return []
-    try:
-        from models.review import ConflictOfInterestDisclosure
-        rows = (
-            db.query(ConflictOfInterestDisclosure)
-            .filter(ConflictOfInterestDisclosure.mandate_id.in_(mandate_ids))
-            .all()
-        )
-        return _serialize_list(rows)
-    except Exception:  # noqa: BLE001
-        return []
+    from models.review import ConflictOfInterestDisclosure
+    rows = (
+        db.query(ConflictOfInterestDisclosure)
+        .filter(ConflictOfInterestDisclosure.mandate_id.in_(mandate_ids))
+        .all()
+    )
+    return _serialize_list(rows)
 
 
 def _query_mandate_report_notes(
@@ -531,16 +596,13 @@ def _query_mandate_report_notes(
 ) -> list[dict[str, Any]]:
     if not mandate_ids:
         return []
-    try:
-        from models.review import MandateReportNotes
-        rows = (
-            db.query(MandateReportNotes)
-            .filter(MandateReportNotes.mandate_id.in_(mandate_ids))
-            .all()
-        )
-        return _serialize_list(rows)
-    except Exception:  # noqa: BLE001
-        return []
+    from models.review import MandateReportNotes
+    rows = (
+        db.query(MandateReportNotes)
+        .filter(MandateReportNotes.mandate_id.in_(mandate_ids))
+        .all()
+    )
+    return _serialize_list(rows)
 
 
 def _query_review_trigger(
@@ -548,16 +610,13 @@ def _query_review_trigger(
 ) -> list[dict[str, Any]]:
     if not mandate_ids:
         return []
-    try:
-        from models.review import ReviewTrigger
-        rows = (
-            db.query(ReviewTrigger)
-            .filter(ReviewTrigger.mandate_id.in_(mandate_ids))
-            .all()
-        )
-        return _serialize_list(rows)
-    except Exception:  # noqa: BLE001
-        return []
+    from models.review import ReviewTrigger
+    rows = (
+        db.query(ReviewTrigger)
+        .filter(ReviewTrigger.mandate_id.in_(mandate_ids))
+        .all()
+    )
+    return _serialize_list(rows)
 
 
 def _query_protocol_baustein_selections(
@@ -568,16 +627,13 @@ def _query_protocol_baustein_selections(
     fehlte bisher im Auskunfts-Export (DSG Art. 25)."""
     if not mandate_ids:
         return []
-    try:
-        from models.protocol_bausteine import MandateBausteinSelection
-        rows = (
-            db.query(MandateBausteinSelection)
-            .filter(MandateBausteinSelection.mandate_id.in_(mandate_ids))
-            .all()
-        )
-        return _serialize_list(rows)
-    except Exception:  # noqa: BLE001
-        return []
+    from models.protocol_bausteine import MandateBausteinSelection
+    rows = (
+        db.query(MandateBausteinSelection)
+        .filter(MandateBausteinSelection.mandate_id.in_(mandate_ids))
+        .all()
+    )
+    return _serialize_list(rows)
 
 
 def _query_strategy_snapshots(
@@ -585,31 +641,25 @@ def _query_strategy_snapshots(
 ) -> list[dict[str, Any]]:
     if not mandate_ids:
         return []
-    try:
-        from models.snapshots import StrategySnapshot
-        rows = (
-            db.query(StrategySnapshot)
-            .filter(StrategySnapshot.mandate_id.in_(mandate_ids))
-            .all()
-        )
-        return _serialize_list(rows)
-    except Exception:  # noqa: BLE001
-        return []
+    from models.snapshots import StrategySnapshot
+    rows = (
+        db.query(StrategySnapshot)
+        .filter(StrategySnapshot.mandate_id.in_(mandate_ids))
+        .all()
+    )
+    return _serialize_list(rows)
 
 
 def _query_audit_log(
     db: Session, client_id: str, mandate_ids: list[str]
 ) -> list[dict[str, Any]]:
     """Audit-Eintraege die diesen Kunden oder seine Mandate betreffen."""
-    try:
-        from models.review import AuditLog
-        from sqlalchemy import or_
-        query = db.query(AuditLog).filter(
-            or_(
-                AuditLog.client_id == client_id,
-                AuditLog.mandate_id.in_(mandate_ids) if mandate_ids else False,
-            )
+    from models.review import AuditLog
+    from sqlalchemy import or_
+    query = db.query(AuditLog).filter(
+        or_(
+            AuditLog.client_id == client_id,
+            AuditLog.mandate_id.in_(mandate_ids) if mandate_ids else False,
         )
-        return _serialize_list(query.all())
-    except Exception:  # noqa: BLE001
-        return []
+    )
+    return _serialize_list(query.all())
