@@ -11,6 +11,7 @@ from models.clients import Client
 from models.profiling import (
     ClientKnowledge, RiskAssessment, RiskAssessmentAnswer, SuitabilityCheck
 )
+from models.review import AdvisoryLog
 from schemas.profiling import (
     KnowledgeCreate, KnowledgeResponse,
     RiskAssessmentCreate, RiskAssessmentOverride, RiskAssessmentResponse,
@@ -21,6 +22,13 @@ from services.audit import log
 # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Quell-IP fuer FIDLEG-Eignungspruefungs-
 # Datensaetze (Risikoprofil, Signatur, Suitability-Check).
 from routers.auth import _extract_client_ip
+# TEN-COMP-002 Teil 2 (Codex-Audit 2026-08-27, Folgefund zu PR #388):
+# create_suitability_check() nahm recommendation_run_id/document_id bisher
+# ungeprueft von einem fremden Mandat entgegen -- analog zu
+# create_advisory_log_entry() in routers/review.py (Teil 1) werden diese
+# beiden Helper hier wiederverwendet (sie sind bereits generisch: db+id+
+# mandate_id, kein Router-State).
+from routers.review import _get_document_or_404, _get_recommendation_run_or_404
 from services.data_classification import enforce_data_classification
 from services.portfolio_engine import (
     _current_risk_assessment_or_none,
@@ -412,6 +420,55 @@ def sign_risk_profile(
 
 # ── Suitability Checks ─────────────────────────────────────────────────────────
 
+# TEN-COMP-002 Teil 2 (Codex-Audit 2026-08-27): dieselbe Bugklasse wie in
+# routers/review.py::create_advisory_log_entry (Teil 1, PR #388) -- eine
+# Geeignetheitspruefung konnte bisher recommendation_run_id, advisory_log_id,
+# knowledge_assessment_id, risk_assessment_id und document_id eines FREMDEN
+# Mandats referenzieren (jeder Berater mit >=2 Mandaten, auch auf einer
+# einzelnen SQLite-Installation ohne Tenant-Konzept). Jede angegebene ID wird
+# jetzt vor dem Anlegen gegen dasselbe Mandat (bzw. bei knowledge_assessment_id
+# gegen denselben Client, siehe ClientKnowledge-Docstring in models/profiling.py)
+# geprueft. recommendation_run_id/document_id nutzen die bereits generischen
+# Helper aus routers/review.py; fuer advisory_log_id/risk_assessment_id/
+# knowledge_assessment_id gibt es dort keine passenden Helper -- lokale
+# Mirrors nach demselben Muster (404, kein 403, um Existenz nicht zu leaken).
+
+def _get_advisory_log_or_404(mandate_id: str, log_id: str, db: Session) -> AdvisoryLog:
+    entry = db.query(AdvisoryLog).filter(
+        AdvisoryLog.id == log_id,
+        AdvisoryLog.mandate_id == mandate_id,
+    ).first()
+    if not entry:
+        raise HTTPException(status_code=404, detail="Beratungsprotokoll-Eintrag nicht gefunden")
+    return entry
+
+
+def _get_risk_assessment_or_404(mandate_id: str, assessment_id: str, db: Session) -> RiskAssessment:
+    assessment = db.query(RiskAssessment).filter(
+        RiskAssessment.id == assessment_id,
+        RiskAssessment.mandate_id == mandate_id,
+        RiskAssessment.deleted_at.is_(None),
+    ).first()
+    if not assessment:
+        raise HTTPException(status_code=404, detail="Risikoprofil nicht gefunden")
+    return assessment
+
+
+def _get_knowledge_assessment_or_404(client_id: str, knowledge_id: str, db: Session) -> ClientKnowledge:
+    # ClientKnowledge haengt am Client, nicht am Mandat (ein Client kann
+    # mehrere Mandate haben) -- Scoping daher gegen mandate.client_id statt
+    # mandate_id, sonst wuerde eine legitime Kenntnis-Erfassung desselben
+    # Kunden unter einem anderen seiner Mandate faelschlich abgelehnt.
+    knowledge = db.query(ClientKnowledge).filter(
+        ClientKnowledge.id == knowledge_id,
+        ClientKnowledge.client_id == client_id,
+        ClientKnowledge.deleted_at.is_(None),
+    ).first()
+    if not knowledge:
+        raise HTTPException(status_code=404, detail="Kenntnisse & Erfahrungen-Erfassung nicht gefunden")
+    return knowledge
+
+
 @router.get("/mandates/{mandate_id}/suitability-checks", response_model=list[SuitabilityCheckResponse])
 def list_suitability_checks(
     mandate_id: str,
@@ -435,6 +492,19 @@ def create_suitability_check(
 ):
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
     now = _now()
+    # TEN-COMP-002 Teil 2: Evidence-Anker muessen alle zum SELBEN Mandat
+    # (bzw. Client, bei knowledge_assessment_id) gehoeren -- siehe Kommentar
+    # oberhalb der Helper-Funktionen.
+    if body.recommendation_run_id:
+        _get_recommendation_run_or_404(mandate_id, body.recommendation_run_id, db, current_user)
+    if body.advisory_log_id:
+        _get_advisory_log_or_404(mandate_id, body.advisory_log_id, db)
+    if body.knowledge_assessment_id:
+        _get_knowledge_assessment_or_404(mandate.client_id, body.knowledge_assessment_id, db)
+    if body.risk_assessment_id:
+        _get_risk_assessment_or_404(mandate_id, body.risk_assessment_id, db)
+    if body.document_id:
+        _get_document_or_404(mandate_id, body.document_id, db)
     check = SuitabilityCheck(
         id=new_uuid(),
         mandate_id=mandate_id,
