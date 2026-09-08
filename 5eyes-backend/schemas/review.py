@@ -558,6 +558,20 @@ class ContractDocumentResponse(BaseResponse):
     updated_at: str
 
 
+# TEN-COMP-003 Teil 2 (Codex-Audit 2026-08-27, Folgeaudit): Teil 1 (ge=0) blockierte
+# nur einen direkt negativen Betrag. Der reproduzierte Angriff nutzt stattdessen einen
+# absurd GROSSEN positiven Betrag (z.B. 999'999'999'999 Rappen) kombiniert mit
+# reimbursed_to_client=True + jaehrlicher Frequenz -- services/cost_disclosure.py
+# zieht eine als "zurueckerstattet" markierte Position unbegrenzt vom Total ab, ohne
+# jeden Zahlungsnachweis. Eine harte obere Schranke je Retrozessions-Position ist ein
+# konservativer, additiver Plausibilitaets-Deckel (kein Ersatz fuer den bewusst
+# zurueckgestellten Zahlungsnachweis-/Belegdatenmodell-Entscheid). CHF 10 Mio. je
+# einzelner Position ist fuer eine reale Schweizer Vermoegensverwaltungs-Retrozession
+# um Groessenordnungen zu hoch angesetzt -- legitime Werte werden nie abgelehnt, aber
+# ein einzelner absurder Tippfehler/Angriffswert (Milliarden) wird es.
+INDUCEMENT_AMOUNT_RAPPEN_CEILING = 1_000_000_000  # CHF 10'000'000.00
+
+
 class ConflictDisclosureCreate(BaseModel):
     conflict_type: Literal[
         "Retrozession / Inducement", "Eigenhandel / Eigenbestand",
@@ -566,7 +580,9 @@ class ConflictDisclosureCreate(BaseModel):
     ]
     description: str
     inducement_provider: Optional[str] = None
-    inducement_amount_rappen: Optional[int] = Field(default=None, ge=0)
+    inducement_amount_rappen: Optional[int] = Field(
+        default=None, ge=0, le=INDUCEMENT_AMOUNT_RAPPEN_CEILING
+    )
     inducement_frequency: Optional[str] = None
     mitigation_action: Optional[str] = None
     document_id: Optional[str] = None
