@@ -189,6 +189,20 @@ const AUTH_TOKEN_STORE_FILE = path.join(app.getPath('userData'), 'auth-token.bin
 // neuen Access-Token zu holen).
 const REFRESH_TOKEN_STORE_FILE = path.join(app.getPath('userData'), 'refresh-token.bin');
 
+// DESK-003 (Codex-Audit 2026-08-26): safeStorage.isEncryptionAvailable() liefert
+// unter Linux bereits `true`, wenn Electron mangels GNOME-Keyring/KWallet auf das
+// `basic_text`-Backend zurueckfaellt -- das ist KEINE echte Verschluesselung,
+// sondern Klartext-Speicherung, die nur so aussieht. getSelectedStorageBackend()
+// (Electron >= 32, hier ^33.2.1 vorhanden) verraet das tatsaechlich gewaehlte
+// Backend und erlaubt es, `basic_text`/`unknown` als "nicht verfuegbar" zu werten.
+// Unter Windows (dpapi) und macOS (keychain_access) aendert sich dadurch nichts.
+function _isStrongEncryptionAvailable() {
+  if (!safeStorage.isEncryptionAvailable()) return false;
+  if (typeof safeStorage.getSelectedStorageBackend !== 'function') return true;
+  const backend = safeStorage.getSelectedStorageBackend();
+  return backend !== 'basic_text' && backend !== 'unknown';
+}
+
 // Generische, dateibasierte Secret-Ablage (OS-Keychain/DPAPI via safeStorage)
 // -- extrahiert aus der urspruenglichen Access-Token-Implementierung, damit
 // der Refresh-Token denselben, bereits gehaerteten Mechanismus 1:1 wiederverwenden
@@ -198,7 +212,7 @@ function readStoredSecret(storeFile, label) {
     if (!fs.existsSync(storeFile)) return null;
     const raw = fs.readFileSync(storeFile);
     if (!raw || raw.length === 0) return null;
-    if (safeStorage.isEncryptionAvailable()) {
+    if (_isStrongEncryptionAvailable()) {
       return safeStorage.decryptString(raw);
     }
     // EM-5: Encryption nur *vorübergehend* nicht verfügbar (z.B. Keychain/DPAPI noch
@@ -219,7 +233,7 @@ function readStoredSecret(storeFile, label) {
 
 function writeStoredSecret(storeFile, value, label) {
   try {
-    if (!safeStorage.isEncryptionAvailable()) {
+    if (!_isStrongEncryptionAvailable()) {
       // Refuse to persist secret as plaintext — user will need to log in each session.
       logLine(`WARNING: safeStorage encryption not available — ${label} will not be persisted to disk.`);
       return false;
@@ -774,4 +788,8 @@ if (typeof module !== 'undefined' && module.exports) {
   // DESK-001: erlaubt das deterministische Pruefen, dass eine gepackte App
   // niemals einen bereits laufenden Fremdprozess als Backend uebernimmt.
   module.exports.pickBackendRuntime = pickBackendRuntime;
+  // DESK-003: erlaubt das deterministische Pruefen, dass ein `basic_text`/
+  // `unknown` safeStorage-Backend (Linux ohne Keyring/KWallet) NICHT als
+  // echte Verschluesselung durchgeht.
+  module.exports._isStrongEncryptionAvailable = _isStrongEncryptionAvailable;
 }

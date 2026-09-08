@@ -26,6 +26,7 @@ process.env.APP_PORT = process.env.APP_PORT || '58421';
 // ── Test-steuerbarer State ───────────────────────────────────────────────────
 const state = {
   encryptionAvailable: true,
+  storageBackend: 'dpapi', // DESK-003: Default = starkes Backend (wie auf Windows/macOS)
   saveDialogResult: { canceled: true },
 };
 const ipcHandlers = {};
@@ -51,6 +52,7 @@ const electronStub = {
   ipcMain: { handle: (ch, fn) => { ipcHandlers[ch] = fn; } },
   safeStorage: {
     isEncryptionAvailable: () => state.encryptionAvailable,
+    getSelectedStorageBackend: () => state.storageBackend,
     encryptString: (s) => Buffer.from('enc:' + s, 'utf8'),
     decryptString: (buf) => String(buf).replace(/^enc:/, ''),
   },
@@ -238,6 +240,54 @@ function check(name, fn) {
       electronStub.app.isPackaged = false;
       await new Promise((resolve) => fakeServer.close(resolve));
     }
+  });
+
+  // ── DESK-003 (Codex-Audit 2026-08-26): safeStorage.isEncryptionAvailable()
+  // kann unter Linux `true` liefern, obwohl das gewaehlte Backend `basic_text`
+  // ist (kein GNOME-Keyring/KWallet -> Klartext-Speicherung). Der geschaerfte
+  // Gate `_isStrongEncryptionAvailable()` muss das als "nicht verfuegbar"
+  // werten, waehrend starke Backends (dpapi/keychain_access/gnome_libsecret/
+  // kwallet*) weiterhin durchgehen. ─────────────────────────────────────────
+  await check('DESK-003 _isStrongEncryptionAvailable exportiert', () => {
+    assert.strictEqual(typeof mainExports._isStrongEncryptionAvailable, 'function');
+  });
+
+  await check('DESK-003 starke Backends (dpapi/keychain_access/gnome_libsecret/kwallet*) gelten als verfuegbar', () => {
+    state.encryptionAvailable = true;
+    for (const backend of ['dpapi', 'keychain_access', 'gnome_libsecret', 'kwallet', 'kwallet5', 'kwallet6']) {
+      state.storageBackend = backend;
+      assert.strictEqual(mainExports._isStrongEncryptionAvailable(), true, `Backend ${backend} sollte als stark gelten`);
+    }
+    state.storageBackend = 'dpapi';
+  });
+
+  await check('DESK-003 basic_text/unknown gelten NICHT als verfuegbar (Linux-Fallback ohne Keyring)', () => {
+    state.encryptionAvailable = true;
+    for (const backend of ['basic_text', 'unknown']) {
+      state.storageBackend = backend;
+      assert.strictEqual(mainExports._isStrongEncryptionAvailable(), false, `Backend ${backend} sollte NICHT als stark gelten`);
+    }
+    state.storageBackend = 'dpapi';
+  });
+
+  await check('DESK-003 isEncryptionAvailable=false bleibt fuehrend, egal welches Backend gemeldet wird', () => {
+    state.encryptionAvailable = false;
+    state.storageBackend = 'gnome_libsecret';
+    assert.strictEqual(mainExports._isStrongEncryptionAvailable(), false);
+    state.encryptionAvailable = true;
+    state.storageBackend = 'dpapi';
+  });
+
+  await check('DESK-003 basic_text-Backend blockiert Token-Persistierung wie "encryption unavailable"', async () => {
+    state.encryptionAvailable = true;
+    state.storageBackend = 'basic_text';
+    const tokenFile2 = path.join(tmpUserData, 'auth-token.bin');
+    fs.rmSync(tokenFile2, { force: true });
+    const ok = setToken({}, 'weak-backend-secret');
+    assert.strictEqual(ok, false, 'Schreiben mit basic_text-Backend muss abgelehnt werden');
+    assert.strictEqual(fs.existsSync(tokenFile2), false, 'Es darf keine Klartext-Datei entstehen');
+    assert.strictEqual(getToken({}), null, 'Kein Secret verfuegbar, solange nur basic_text vorliegt');
+    state.storageBackend = 'dpapi';
   });
 
   console.log(failed === 0 ? '\nALL GREEN' : `\n${failed} FAILED`);
