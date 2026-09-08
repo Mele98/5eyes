@@ -8,8 +8,11 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
+import pytest
+
 from services.advisory_log_integrity import (  # noqa: E402
     RETENTION_YEARS,
+    AdvisoryLogDatetimeError,
     compute_integrity_hash,
     compute_retain_until,
     verify_integrity_hash,
@@ -171,20 +174,23 @@ def test_retain_until_handles_leap_day():
     assert r == "2034-02-28"
 
 
-def test_retain_until_falls_back_to_today_for_invalid_input():
-    from datetime import datetime, timedelta, timezone
-
-    r = compute_retain_until("not-a-date")
-    # Sollte ~heute + 10 Jahre sein
-    expected_year = datetime.now(timezone.utc).year + RETENTION_YEARS
-    assert r.startswith(str(expected_year)), (
-        f"Erwartet Jahr {expected_year}, gefunden {r}"
-    )
+def test_retain_until_rejects_invalid_input():
+    """ADV-WORKFLOW-003 (Codex-Audit): frueher fiel dies still auf
+    `today + 10 Jahre` zurueck (siehe Git-Historie dieses Tests) -- ein
+    kaputter Zeitstempel erzeugte dadurch eine plausibel wirkende, aber
+    fachlich falsche Aufbewahrungsfrist. Jetzt fail-closed."""
+    with pytest.raises(AdvisoryLogDatetimeError):
+        compute_retain_until("not-a-date")
 
 
-def test_retain_until_handles_empty_string():
-    from datetime import datetime, timezone
+def test_retain_until_rejects_empty_string():
+    with pytest.raises(AdvisoryLogDatetimeError):
+        compute_retain_until("")
 
-    r = compute_retain_until("")
-    expected_year = datetime.now(timezone.utc).year + RETENTION_YEARS
-    assert r.startswith(str(expected_year))
+
+def test_retain_until_rejects_year_out_of_representable_range():
+    """entry_datetime im Jahr 9999 (syntaktisch gueltiges ISO-Datum, laesst
+    sich aber nicht + 10 Jahre darstellen) darf nicht crashen, sondern muss
+    fail-closed die dedizierte Exception werfen."""
+    with pytest.raises(AdvisoryLogDatetimeError):
+        compute_retain_until("9999-01-01T00:00:00.000Z")

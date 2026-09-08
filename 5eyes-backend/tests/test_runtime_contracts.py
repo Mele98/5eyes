@@ -3844,6 +3844,31 @@ def test_advisory_log_rejects_non_schema_decision_values():
         AdvisoryLogCreate(**_valid_finma_advisory_payload(decision="Umschichtung"))
 
 
+def test_advisory_log_rejects_malformed_entry_datetime():
+    """ADV-WORKFLOW-003 (Codex-Audit): entry_datetime hatte KEINE Format-
+    Validierung -- ein syntaktisch unmoegliches Datum wie "9999-99-99" wurde
+    bislang klaglos akzeptiert."""
+    with pytest.raises(ValidationError):
+        AdvisoryLogCreate(**_valid_finma_advisory_payload(entry_datetime="9999-99-99"))
+
+
+def test_advisory_log_rejects_empty_entry_datetime():
+    with pytest.raises(ValidationError):
+        AdvisoryLogCreate(**_valid_finma_advisory_payload(entry_datetime=""))
+
+
+def test_advisory_log_accepts_well_formed_entry_datetime_variants():
+    """Regression: bestehende, wohlgeformte Varianten (mit/ohne Millisekunden,
+    mit/ohne Z-Suffix) muessen weiterhin akzeptiert werden."""
+    for value in (
+        "2026-03-27T14:00:00.000Z",
+        "2026-03-27T14:00:00Z",
+        "2026-03-27T14:00:00",
+        "2026-03-27",
+    ):
+        AdvisoryLogCreate(**_valid_finma_advisory_payload(entry_datetime=value))
+
+
 def test_advisory_log_accepts_schema_allowed_decision_value(session_factory, advisor_user):
     _, mandate_id = seed_client_and_mandate(session_factory, advisor_user)
 

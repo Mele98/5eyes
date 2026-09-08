@@ -303,6 +303,69 @@ def test_post_rejects_duration_out_of_range(http_client):
     assert resp.status_code == 422
 
 
+def test_post_rejects_garbage_entry_datetime(http_client):
+    """ADV-WORKFLOW-003 (Codex-Audit): entry_datetime hatte bislang KEINE
+    Format-Validierung -- ein syntaktisch unmoeglicher Wert wie "9999-99-99"
+    (kein gueltiges Datum, sortiert aber lexikografisch nach jedem echten
+    ISO-Datum) wurde klaglos akzeptiert und haette in
+    get_latest_active_entry() faelschlich als "neuester Termin" gegolten."""
+    client, _, mandate, _ = http_client
+    payload = _valid_payload()
+    payload["entry_datetime"] = "9999-99-99"
+    resp = client.post(
+        f"/mandates/{mandate.id}/advisory-log", json=payload,
+    )
+    assert resp.status_code == 422
+
+
+def test_post_rejects_non_date_entry_datetime_string(http_client):
+    client, _, mandate, _ = http_client
+    payload = _valid_payload()
+    payload["entry_datetime"] = "not-a-date"
+    resp = client.post(
+        f"/mandates/{mandate.id}/advisory-log", json=payload,
+    )
+    assert resp.status_code == 422
+
+
+def test_post_rejects_empty_entry_datetime(http_client):
+    client, _, mandate, _ = http_client
+    payload = _valid_payload()
+    payload["entry_datetime"] = ""
+    resp = client.post(
+        f"/mandates/{mandate.id}/advisory-log", json=payload,
+    )
+    assert resp.status_code == 422
+
+
+def test_post_rejects_entry_datetime_with_unrepresentable_retention(http_client):
+    """entry_datetime im Jahr 9999 ist ein syntaktisch gueltiges ISO-Datum
+    (besteht die Schema-Validierung), laesst sich aber nicht + 10 Jahre
+    darstellen. Muss fail-closed 422 liefern statt mit einem unbehandelten
+    Fehler zu crashen oder eine falsche Frist zu speichern."""
+    client, _, mandate, _ = http_client
+    payload = _valid_payload()
+    payload["entry_datetime"] = "9999-01-01T00:00:00.000Z"
+    resp = client.post(
+        f"/mandates/{mandate.id}/advisory-log", json=payload,
+    )
+    assert resp.status_code == 422
+
+
+def test_post_accepts_entry_datetime_without_milliseconds(http_client):
+    """Regression: normale, wohlgeformte Zeitstempel-Varianten (kein
+    Millisekunden-Teil, keine Z-Suffix) muessen weiterhin funktionieren --
+    die neue Validierung darf legitime Eintraege nicht blockieren."""
+    client, _, mandate, _ = http_client
+    payload = _valid_payload()
+    payload["entry_datetime"] = "2026-05-28T14:00:00"
+    resp = client.post(
+        f"/mandates/{mandate.id}/advisory-log", json=payload,
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["retain_until"] == "2036-05-28"
+
+
 def test_post_requires_decision_when_status_advanced(http_client):
     """Status != Empfohlen → decision Pflicht."""
     client, _, mandate, _ = http_client
