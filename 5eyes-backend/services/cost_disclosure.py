@@ -14,6 +14,22 @@ from sqlalchemy.orm import Session
 
 DEFAULT_TRANSACTION_COST_BPS = 15
 
+# TEN-COMP-003 Teil 2 (Codex-Audit 2026-08-27, Folgeaudit): Teil 1 (schemas/review.py
+# Field(ge=0)) blockierte nur einen direkt negativen inducement_amount_rappen. Der
+# reproduzierte Angriff nutzt stattdessen einen absurd GROSSEN positiven Betrag
+# kombiniert mit reimbursed_to_client=True + jaehrlicher Frequenz: dieser Wert wurde
+# unbegrenzt vom Total abgezogen und konnte den ausgewiesenen Kostenausweis beliebig
+# negativ machen -- ohne jeden Zahlungsnachweis, dass die Rueckerstattung tatsaechlich
+# stattgefunden hat. Die Schema-Schranke (le=) faengt das bereits an der API-Grenze ab;
+# diese zweite, unabhaengige Pruefung hier ist Verteidigung in der Tiefe fuer jeden
+# Aufrufer von calculate_cost_disclosure(), der die Schema-Validierung nicht
+# durchlaeuft (z.B. interne Neuberechnung aus persistierten Altdaten). Gleiches
+# konservatives Muster wie bei unbelegter Frequenz weiter unten: nicht stillschweigend
+# vertrauen, sondern von included_in_total ausschliessen + Warnung ausgeben. Der volle
+# Zahlungsnachweis-/Beleg-Datenmodell-Fix bleibt bewusst zurueckgestellt (Policy-
+# Entscheid, siehe Audit-Dokument).
+_INDUCEMENT_SANITY_CEILING_RAPPEN = 1_000_000_000  # CHF 10'000'000.00 je Position
+
 _ANNUAL_RATE_KEYS = (
     (
         ("default_advisory_fee_bps", "advisory_fee_bps"),
@@ -385,6 +401,11 @@ def calculate_cost_disclosure(
         reimbursed = bool(inducement.get("reimbursed_to_client"))
         provider = str(inducement.get("provider") or "Produktanbieter").strip() or "Produktanbieter"
         if reimbursed:
+            # TEN-COMP-003 Teil 2: ein unplausibel grosser "zurueckerstatteter" Betrag
+            # wird nie stillschweigend abgezogen, unabhaengig von der Frequenz -- es
+            # gibt in diesem Datenmodell (noch) keinen Zahlungsnachweis, der eine so
+            # grosse Rueckerstattung belegen wuerde.
+            amount_plausible = amount <= _INDUCEMENT_SANITY_CEILING_RAPPEN
             items.append({
                 "key": "retrocession_reimbursed",
                 "label": f"Rückerstattung Vergütung von Dritten ({provider})",
@@ -396,9 +417,16 @@ def calculate_cost_disclosure(
                 "basis_label": advisory_basis_label,
                 "source": "Interessenkonflikt-Offenlegung (Retrozession, zurückerstattet)",
                 "is_estimate": False,
-                "included_in_total": is_annual,
+                "included_in_total": is_annual and amount_plausible,
             })
-            if frequency_unspecified:
+            if not amount_plausible:
+                warnings.append(
+                    f"Eine zurückerstattete Vergütung von Dritten ({provider}) übersteigt "
+                    "den plausiblen Höchstbetrag je Position und wird konservativ NICHT im "
+                    "Total verrechnet, solange sie nicht durch einen Zahlungsnachweis "
+                    "belegt ist (Betrag prüfen/korrigieren)."
+                )
+            elif frequency_unspecified:
                 warnings.append(
                     f"Eine zurückerstattete Vergütung von Dritten ({provider}) hat keine "
                     "erfasste Frequenz -- konservativ NICHT im Total verrechnet "

@@ -120,6 +120,53 @@ def test_missing_frequency_on_reimbursed_retrocession_excluded_from_total_with_w
     assert any("keine erfasste Frequenz" in w for w in with_retro["warnings"])
 
 
+def test_absurdly_large_reimbursed_amount_excluded_from_total_with_warning():
+    """TEN-COMP-003 Teil 2 (Codex-Audit 2026-08-27, Folgeaudit): Teil 1 blockierte nur
+    einen direkt negativen inducement_amount_rappen (schemas/review.py Field(ge=0)).
+    Der reproduzierte Angriff nutzt stattdessen einen absurd GROSSEN positiven Betrag
+    (z.B. 999'999'999'999 Rappen) kombiniert mit reimbursed_to_client=True + jaehrlicher
+    Frequenz -- das Total durfte dadurch NICHT beliebig negativ werden. Diese Ebene
+    (calculate_cost_disclosure) ist Verteidigung in der Tiefe fuer Aufrufer, die die
+    Pydantic-Schema-Schranke nicht durchlaufen."""
+    baseline = calculate_cost_disclosure(
+        advisory_wealth_rappen=100_000_000, positions=_POSITIONS, fee_model=_FEE,
+    )
+    with_retro = calculate_cost_disclosure(
+        advisory_wealth_rappen=100_000_000, positions=_POSITIONS, fee_model=_FEE,
+        inducements=[{"amount_rappen": 999_999_999_999, "frequency": "jährlich",
+                      "reimbursed_to_client": True, "provider": "Bogus AG"}],
+    )
+    items = _retro_items(with_retro)
+    assert len(items) == 1
+    assert items[0]["included_in_total"] is False
+    # Insbesondere: das Total wird NICHT negativ / nicht absurd -- unveraendert
+    # gegenueber der Baseline ohne Retrozession.
+    assert with_retro["totals"]["annual_rappen"] == baseline["totals"]["annual_rappen"]
+    assert with_retro["totals"]["annual_rappen"] >= 0
+    assert with_retro["totals"]["first_year_rappen"] >= 0
+    assert any("Höchstbetrag" in w for w in with_retro["warnings"])
+
+
+def test_realistic_reimbursed_amount_still_reduces_total_regression():
+    """Regression: ein realistischer Rückerstattungsbetrag (deutlich unter der
+    Plausibilitäts-Obergrenze) muss weiterhin wie bisher vom Total abgezogen werden --
+    der neue Deckel darf legitime Werte nicht betreffen."""
+    baseline = calculate_cost_disclosure(
+        advisory_wealth_rappen=100_000_000, positions=_POSITIONS, fee_model=_FEE,
+    )
+    with_retro = calculate_cost_disclosure(
+        advisory_wealth_rappen=100_000_000, positions=_POSITIONS, fee_model=_FEE,
+        inducements=[{"amount_rappen": 120_000, "frequency": "jährlich",
+                      "reimbursed_to_client": True, "provider": "Fonds AG"}],
+    )
+    items = _retro_items(with_retro)
+    assert len(items) == 1
+    assert items[0]["amount_rappen"] == -120_000
+    assert items[0]["included_in_total"] is True
+    assert with_retro["totals"]["annual_rappen"] == baseline["totals"]["annual_rappen"] - 120_000
+    assert not any("Höchstbetrag" in w for w in with_retro["warnings"])
+
+
 def test_multiple_inducements_mixed_reimbursement():
     data = calculate_cost_disclosure(
         advisory_wealth_rappen=100_000_000, positions=_POSITIONS, fee_model=_FEE,
