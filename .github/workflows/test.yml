@@ -101,6 +101,19 @@ jobs:
 
       - name: Run pytest (correctness gate, no coverage)
         working-directory: 5eyes-backend
+        # OMP/OPENBLAS/MKL_NUM_THREADS=1 (2026-09-09): golden-snapshot-Test
+        # bucket5_ausgewogen_default_prefs flakte wiederholt auf CI (396 vs.
+        # 397 bps, ULP-Differenz), obwohl die Monte-Carlo-Inputs deterministisch
+        # geseedet sind (deterministic_seed()). Ursache: SLSQP's interne BLAS-
+        # Linearalgebra summiert unter Multi-Threading nicht garantiert in
+        # fixer Reihenfolge, und ephemere Runner haben wechselnde Kernzahlen.
+        # Single-Threaded BLAS erzwingt deterministische Summationsreihenfolge.
+        # Nur CI-Jobumgebung -- betrifft nie die ausgelieferte Windows-Electron-
+        # Desktop-App des echten Kunden.
+        env:
+          OMP_NUM_THREADS: "1"
+          OPENBLAS_NUM_THREADS: "1"
+          MKL_NUM_THREADS: "1"
         run: |
           python -m pytest tests/ --tb=short --maxfail=5
 
