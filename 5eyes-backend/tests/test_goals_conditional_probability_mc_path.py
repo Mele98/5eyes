@@ -81,14 +81,20 @@ def test_conditional_goal_matches_deterministic_reserve_scaling():
     assert summary["funded_ratio_p50"] == round(1 / 0.30, 4)
 
 
-def test_pension_state_funded_ahv_goal_unaffected_by_this_change():
-    """Regressionsschutz: der heute Nacht zuvor gefixte goals-1-Zweig (AHV,
-    unbedingt/100% wahrscheinlich) nutzt einen eigenen fruehen Guard und darf
-    durch diesen Folge-Fix nicht beeinflusst werden. (Ein BEDINGTES AHV-Goal
-    zeigt korrekterweise success=0 bei <100% Wahrscheinlichkeit -- das prueft
-    bereits test_conditional_ahv_goal_is_not_silently_100_percent in
-    test_goals1_ahv_mc_path_consistency.py, hier testen wir bewusst den
-    unbedingten Fall.)"""
+def test_pension_ahv_goal_scored_like_any_other_pensionsausgabe_goal():
+    """PENSION-AHV-001 (Phase 0, 2026-09) UPDATE: dieser Test hiess frueher
+    '..._unaffected_by_this_change' und ging davon aus, dass AHV-Goals einen
+    'eigenen fruehen Guard' im MC-Pfad haben, der IMMER success=100/score=100
+    erzwingt -- genau dieser Guard (pension_state_funded_goal, siehe
+    services/portfolio_engine_mc_simulation.py) wurde entfernt, weil er ein
+    unbelegtes Label-Fake war (siehe test_goals1_ahv_mc_path_consistency.py).
+
+    Die Assertions unten bleiben trotzdem gruen: der hier verwendete
+    Portfolio-Pfad (_SPREAD, konstant 24'000) entspricht bei is_ongoing=1 +
+    einjaehriger Ueberlappung (start_date/target_date beide 2027) exakt der
+    einjaehrigen Ziel-Summe -- das Ziel wird also GENUINE aus dem simulierten
+    Portfolio gedeckt, nicht mehr durch das AHV-Label. Beweis: eine
+    Pensionsausgabe OHNE pension_pillar liefert dieselbe Zahl."""
     goal = _conditional_expense_goal(None)
     goal.goal_type = "Pensionsausgabe"
     goal.pension_pillar = "AHV"
@@ -97,3 +103,13 @@ def test_pension_state_funded_ahv_goal_unaffected_by_this_change():
     summary = _summary_for(goal)
     assert summary["success_rate_pct"] == 100
     assert summary["score"] == 100
+
+    control = _conditional_expense_goal(None)
+    control.goal_type = "Pensionsausgabe"
+    control.pension_pillar = None
+    control.frequency = "jaehrlich"
+    control.is_ongoing = 1
+    control_summary = _summary_for(control)
+    assert control_summary["success_rate_pct"] == summary["success_rate_pct"]
+    assert control_summary["score"] == summary["score"]
+    assert control_summary["funded_ratio_p50"] == summary["funded_ratio_p50"]

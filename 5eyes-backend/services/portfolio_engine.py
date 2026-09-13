@@ -672,6 +672,63 @@ def _convert_position_amount_to_target_currency(pos, fx_source, target_currency:
     )
 
 
+# PENSION-AVAILABILITY-001 (Phase 0, 2026-09): Vorsorge-Positionen mit einer
+# NOCH NICHT erreichten Verfuegbarkeit (Pensionierungs-/Auszahlungsalter,
+# gesperrtes Kapital) duerfen nicht als heute liquidierbare Reserve gezaehlt
+# werden, nur weil is_available_for_goal_funding=1 gesetzt ist. Vorher summierte
+# der Schloss-Pool (unlocked_other_assets_rappen) JEDE "Anderes Vermoegen"-
+# Position mit diesem Flag 1:1, unabhaengig von position_type/pension_*-Feldern
+# -- eine Säule-3a-/Vorsorge-Position mit Kapitalbezug erst ab Alter 63 (noch
+# nicht erreicht) reduzierte den externen Reserve-Bedarf so, als waere das Geld
+# heute abrufbar. Minimaler Fix (kein neues Reconciliation-Modell): eine
+# Position zaehlt nur als "unlocked", wenn sie KEINE restriktiven
+# Vorsorge-Merkmale traegt (normale liquide "Anderes Vermoegen"-Position,
+# unveraendertes Verhalten) ODER wenn ein bereits vorhandenes Verfuegbarkeits-
+# Datum (liquidity_available_from) nachweislich in der Vergangenheit liegt.
+# Ohne date_of_birth-Verknuepfung koennen wir pension_retirement_age nicht in
+# ein konkretes Datum aufloesen -- das ist Phase 1 (Benefit-Reconciliation).
+# Bis dahin: fail-safe = NICHT verfuegbar, wenn Vorsorge-Metadata vorhanden ist
+# und kein bestaetigtes Verfuegbarkeitsdatum vorliegt.
+def _position_has_pension_restriction_metadata(pos) -> bool:
+    """True, wenn die Position Vorsorge-/Sperr-Merkmale traegt, die eine
+    zukuenftige statt heutige Verfuegbarkeit nahelegen."""
+    if _norm_text(getattr(pos, "position_type", "")) == "Vorsorge":
+        return True
+    if str(getattr(pos, "pension_type", "") or "").strip():
+        return True
+    if getattr(pos, "pension_retirement_age", None) not in (None, 0):
+        return True
+    if str(getattr(pos, "pension_payout_form", "") or "").strip():
+        return True
+    return False
+
+
+def _position_is_currently_unlocked_for_goal_funding(pos, *, as_of: "date | None" = None) -> bool:
+    """PENSION-AVAILABILITY-001: Gate fuer den Schloss-Pool
+    (unlocked_other_assets_rappen). Nur Positionen, die HEUTE tatsaechlich
+    zugreifbar sind, duerfen die externe Reserve mindern.
+
+    - Keine Vorsorge-Restriktions-Merkmale -> unveraendertes Verhalten
+      (regressionssicher fuer normale "Anderes Vermoegen"-Positionen).
+    - Vorsorge-Merkmale vorhanden + liquidity_available_from gesetzt UND
+      <= heute -> verfuegbar (Nachweis erbracht).
+    - Vorsorge-Merkmale vorhanden, aber kein/zukuenftiges
+      liquidity_available_from -> NICHT verfuegbar (konservativ, keine
+      automatische Deckung ohne Nachweis).
+    """
+    if int(getattr(pos, "is_available_for_goal_funding", 0) or 0) != 1:
+        return False
+    if _norm_text(getattr(pos, "assignment", "")) != "Anderes Vermoegen":
+        return False
+    if not _position_has_pension_restriction_metadata(pos):
+        return True
+    available_from = _parse_iso_date(getattr(pos, "liquidity_available_from", None))
+    if available_from is None:
+        return False
+    reference_date = as_of or date.today()
+    return available_from <= reference_date
+
+
 def _effective_fx_rate_signature(
     *,
     fx_source,
@@ -2024,11 +2081,14 @@ def _load_allocation_inputs(
     # Sprint B2 (2026-05-07): Anderes-Vermoegen-Schloss-Mechanismus.
     # is_available_for_goal_funding=1 erlaubt der Position, zur Reserve-Deckung
     # herangezogen zu werden (liquid: Verkauf, illiquid: Belehnung @ 100% LTV).
+    # PENSION-AVAILABILITY-001: nur Positionen ohne Vorsorge-Restriktion
+    # (unveraendert) oder mit bereits erreichtem liquidity_available_from
+    # zaehlen zum Schloss-Pool -- siehe
+    # _position_is_currently_unlocked_for_goal_funding().
     unlocked_other_assets_rappen = sum(
         _convert_position_amount_to_target_currency(pos, fx_source, target_currency)
         for pos in all_positions
-        if int(getattr(pos, "is_available_for_goal_funding", 0) or 0) == 1
-        and _norm_text(getattr(pos, "assignment", "")) == "Anderes Vermoegen"
+        if _position_is_currently_unlocked_for_goal_funding(pos)
     )
 
     cashflow_rows = db.query(Cashflow).filter(
@@ -5593,11 +5653,14 @@ def build_target_payload_from_allocation(
     total_wealth_rappen = max(0, total_summary.total_rappen - total_liabilities_rappen)
     _validate_active_wealth_position_semantics(all_positions)
     # Sprint B2: Anderes-Vermoegen-Schloss-Pool fuer Reserve-Reduktion (rebuild path).
+    # PENSION-AVAILABILITY-001: nur Positionen ohne Vorsorge-Restriktion
+    # (unveraendert) oder mit bereits erreichtem liquidity_available_from
+    # zaehlen zum Schloss-Pool -- siehe
+    # _position_is_currently_unlocked_for_goal_funding().
     unlocked_other_assets_rappen = sum(
         _convert_position_amount_to_target_currency(pos, fx_source, target_currency)
         for pos in all_positions
-        if int(getattr(pos, "is_available_for_goal_funding", 0) or 0) == 1
-        and _norm_text(getattr(pos, "assignment", "")) == "Anderes Vermoegen"
+        if _position_is_currently_unlocked_for_goal_funding(pos)
     )
 
     cashflow_rows = db.query(Cashflow).filter(

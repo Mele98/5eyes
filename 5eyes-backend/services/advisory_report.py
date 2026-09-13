@@ -3178,6 +3178,7 @@ def _recompute_reserve_reasoning(
         _compute_reserve_for_inputs,
         _inflation_path_series,
         _normalize_preferences,
+        _position_is_currently_unlocked_for_goal_funding,
         _simulation_horizon_years,
         _wealth_inflow_series_rappen,
     )
@@ -3202,11 +3203,15 @@ def _recompute_reserve_reasoning(
     )
     # Sprint B2 (portfolio_engine): Anderes-Vermoegen-Schloss-Pool, der die
     # externe Reserve reduzieren kann.
+    # PENSION-AVAILABILITY-001: dieselbe Verfuegbarkeits-Pruefung wie in
+    # portfolio_engine.py (nicht nur is_available_for_goal_funding=1, siehe
+    # _position_is_currently_unlocked_for_goal_funding) -- gesperrtes
+    # Vorsorgekapital ohne erreichtes liquidity_available_from darf auch in
+    # dieser Steuer-/Report-Nachrechnung nicht als heute verfuegbar zaehlen.
     unlocked_other_assets_rappen = sum(
         int(getattr(pos, "current_value_rappen", 0) or 0)
         for pos in positions
-        if int(getattr(pos, "is_available_for_goal_funding", 0) or 0) == 1
-        and str(getattr(pos, "assignment", "")) == "Anderes Vermögen"
+        if _position_is_currently_unlocked_for_goal_funding(pos)
     )
     # Roadmap #39 (2026-08-07): Gesamtvermoegen (netto, wie in portfolio_engine.py
     # _load_allocation_inputs/build_target_payload_from_allocation) als Basis fuer
