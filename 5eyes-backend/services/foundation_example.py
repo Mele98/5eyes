@@ -295,6 +295,14 @@ def upsert_foundation_example_case(db: Session, user: User) -> dict:
             life_expectancy_primary=92,
             life_expectancy_partner=94,
             inflation_assumption_bps=150,
+            # PENSION-INDEXATION-001: dieser Seed-Wert (100 bps) ist bewusst
+            # inert-aber-plausibel -- pension_indexation_bps wird von keinem
+            # Simulations-/Projektions-/Reporting-Pfad gelesen (s.
+            # schemas/wealth.py::PlanningAssumptionCreate.pension_indexation_bps).
+            # Er dient nur dazu, dass die Foundation-Fixture ein realistisch
+            # befuelltes PlanningAssumption-Objekt zeigt, NICHT dazu, dass er
+            # irgendein Foundation-Ergebnis (Cashflows/Zielprojektion/
+            # Advisory-vs-Total-Wealth) beeinflusst.
             pension_indexation_bps=100,
             notes="Foundation Case f\u00fcr dated cashflows, Zielprojektion und Advisory-vs-Total-Wealth-Logik.",
             created_at=now,
