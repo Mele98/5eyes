@@ -21148,7 +21148,17 @@ function applyAllocationEngineResult(result){
   setText('aa-proj-current-lossprob',formatProbabilityPct(mc&&mc.current_loss_probability_1y_pct));
   // #96 Verzehr-/Sequence-of-Returns-Risiko: Depletion-Wkeit (+ mittleres
   // Erschöpfungsjahr). 0% = kein Verzehr (z.B. reine Akkumulation).
-  var _fmtDepletion=function(pct,year){var p=Number(pct||0); if(!isFinite(p)||p<=0)return '0%'; return String(Math.round(p))+'%'+(year?(' (ab '+year+')'):''); };
+  // DECUM-DEPLETION-001: fehlend (null/undefined, z.B. altes Backend ohne die
+  // vier depletion-Felder) MUSS sich von einem echten, berechneten 0% Verzehr-
+  // Risiko unterscheiden lassen -- sonst liest der Berater ein stilles
+  // "kein Risiko" statt "nicht berechnet". Nur ein tatsaechliches 0/0.0 zeigt "0%".
+  var _fmtDepletion=function(pct,year){
+    if(pct===null||pct===undefined||pct==='')return 'n/a';
+    var p=Number(pct);
+    if(!isFinite(p))return 'n/a';
+    if(p<=0)return '0%';
+    return String(Math.round(p))+'%'+(year?(' (ab '+year+')'):'');
+  };
   setText('aa-proj-depletion',_fmtDepletion(mc&&mc.target_depletion_probability_pct, mc&&mc.target_depletion_median_year));
   setText('aa-proj-current-depletion',_fmtDepletion(mc&&mc.current_depletion_probability_pct, mc&&mc.current_depletion_median_year));
   // 2026-06-15 (#37): Endwert optimistisch (P90) / pessimistisch (P10), SOLL vs IST.
@@ -21187,7 +21197,14 @@ function applyAllocationEngineResult(result){
   _colorBetter('aa-proj-cvar95', mc&&mc.target_cvar_95_1y_bps, mc&&mc.current_cvar_95_1y_bps, false);
   _colorBetter('aa-proj-drawdown', mc&&mc.target_max_drawdown_p50_bps, mc&&mc.current_max_drawdown_p50_bps, false);
   _colorBetter('aa-proj-lossprob', mc&&mc.target_loss_probability_1y_pct, mc&&mc.current_loss_probability_1y_pct, false);
-  _colorBetter('aa-proj-depletion', mc&&mc.target_depletion_probability_pct, mc&&mc.current_depletion_probability_pct, false);
+  // DECUM-DEPLETION-001: Number(null)===0 wuerde _colorBetter ein fehlendes Feld
+  // als "0% Verzehr-Risiko" einfaerben lassen -- nur bei zwei echten Werten faerben.
+  if(mc&&mc.target_depletion_probability_pct!=null&&mc.current_depletion_probability_pct!=null){
+    _colorBetter('aa-proj-depletion', mc.target_depletion_probability_pct, mc.current_depletion_probability_pct, false);
+  }else{
+    var _depletionColorEl=document.getElementById('aa-proj-depletion');
+    if(_depletionColorEl)_depletionColorEl.style.color='var(--n7)';
+  }
   try{ renderGoalAchievementSollIst(result); }catch(_g36){}
   renderAllocationCashflowTimeline(result);
   renderOptimizerPanel(result);
@@ -24153,6 +24170,19 @@ function renderStammdatenDocumentArchive(documents){
   }).join('');
   root.innerHTML=visibleGroupCount?html:'<div class="sd-archive-no-match">Keine Dokumente für diesen Filter. <button class="btn btn-sm" onclick="resetSdArchiveFilters()">Filter zurücksetzen</button></div>';
 }
+// DECUM-READINESS-001: Anwendbarkeits-Signal fuer den Verzehr-/Reichweite-Check
+// im Readiness-Checklist. Es gibt (noch) keinen Backend-Contract, der sagt "dieses
+// Mandat ist ein Decumulation-Fall" -- als bestehendes, ueberall verfuegbares
+// Signal dient das Vorhandensein eines aktiven Pensionsausgabe-Ziels in
+// currentGoals (globale, mandatsaktuelle Zielliste, siehe refreshGoalsUI).
+function _reviewHasDecumulationRelevantGoal(){
+  var goals=(typeof currentGoals!=='undefined'&&Array.isArray(currentGoals))?currentGoals:[];
+  return goals.some(function(g){
+    if(!g||g.goal_type!=='Pensionsausgabe')return false;
+    if(Object.prototype.hasOwnProperty.call(g,'is_active')&&g.is_active===0)return false;
+    return true;
+  });
+}
 function renderReadinessChecklist(state){
   var root=document.getElementById('rv-readiness-check');
   if(!root)return;
@@ -24167,15 +24197,33 @@ function renderReadinessChecklist(state){
     {label:'Interessenkonflikte geprueft',done:conflicts.length>0,detail:conflicts.length?'Offenlegung oder Mitigation dokumentiert.':'Bitte pruefen und bei Bedarf erfassen.'}
   ];
   var dec=allocation&&allocation.decumulation;
-  if(dec&&dec.decumulation_mode){
-    var horizon=Number(dec.longevity_horizon_years||0);
-    var runwayYear=Number(dec.runway_p10_year||0);
-    var currentYear=new Date().getFullYear();
-    items.push({
-      label:'Reichweite bestaetigt',
-      done:!!(runwayYear&&horizon&&runwayYear>=currentYear+horizon),
-      detail:runwayYear?'P10 reicht bis '+String(runwayYear)+'.':'P10-Reichweite noch nicht verfuegbar.'
-    });
+  // DECUM-READINESS-001: solange die Reichweiten-/Runway-Pruefung nur bei
+  // vorhandenem allocation.decumulation.decumulation_mode aufgenommen wurde,
+  // fehlte der Punkt STILL fuer jedes Mandat, weil kein Produktionscode dieses
+  // Feld je befuellt (grep-bestaetigt) -- der Checklisten-Zaehler blieb bei 4
+  // Punkten und "Meeting ist bereit" konnte erscheinen, ohne dass die Reichweite
+  // je geprueft wurde. Fail-closed-Fix: sobald das Mandat ueberhaupt
+  // decumulation-relevant ist (aktives Pensionsausgabe-Ziel), wird der Punkt
+  // IMMER aufgenommen. Fehlt die Datenbasis (heute der Normalfall), zaehlt er
+  // als offen/nicht erledigt -- ein echter Backend-Contract fuer Runway/Readiness
+  // ist ein separates Vorhaben (Phase 1), dies ist nur der Fail-closed-Platzhalter.
+  if(_reviewHasDecumulationRelevantGoal()){
+    if(dec&&dec.decumulation_mode){
+      var horizon=Number(dec.longevity_horizon_years||0);
+      var runwayYear=Number(dec.runway_p10_year||0);
+      var currentYear=new Date().getFullYear();
+      items.push({
+        label:'Reichweite bestaetigt',
+        done:!!(runwayYear&&horizon&&runwayYear>=currentYear+horizon),
+        detail:runwayYear?'P10 reicht bis '+String(runwayYear)+'.':'P10-Reichweite noch nicht verfuegbar.'
+      });
+    }else{
+      items.push({
+        label:'Reichweite bestaetigt',
+        done:false,
+        detail:'Reichweite: nicht geprueft (Datenbasis fehlt).'
+      });
+    }
   }
   var doneCount=items.filter(function(item){return item.done;}).length;
   var totalCount=items.length;
