@@ -1468,6 +1468,132 @@ def test_create_cashflow_rejects_net_amount_above_gross(session_factory, advisor
     assert "Bruttobetrag" in exc_info.value.detail
 
 
+def test_create_cashflow_rejects_unreconciled_gross_tax_amount_triple(session_factory, advisor_user):
+    """WITHDRAWAL-AMOUNT-001 audit repro: amount=100, gross=350, tax=30 -- 350 - 30 = 320
+    != 100. A stored gross/tax pair like this would be presented to the advisor/client as
+    validated tax evidence even though it is arithmetically nonsensical relative to the
+    only value the model actually projects (amount_rappen)."""
+    client_id, _ = seed_client_and_mandate(session_factory, advisor_user)
+
+    payload = CashflowCreate(
+        cashflow_type="Expense",
+        label="Unreconciled Kapitalbezug",
+        amount_rappen=100,
+        gross_amount_rappen=350,
+        tax_amount_rappen=30,
+        frequency="einmalig",
+        nature="einmalig",
+        valid_from="2028-06-30",
+        valid_until="2028-06-30",
+        notes="Audit-Repro WITHDRAWAL-AMOUNT-001",
+    )
+
+    with session_factory() as session:
+        with pytest.raises(HTTPException) as exc_info:
+            create_cashflow(
+                client_id=client_id,
+                body=payload,
+                db=session,
+                current_user=advisor_user,
+            )
+
+    assert exc_info.value.status_code == 422
+    assert "Bruttobetrag" in exc_info.value.detail
+    assert "Kapitalbezugssteuer" in exc_info.value.detail
+
+
+def test_create_cashflow_accepts_reconciled_gross_tax_amount_triple(session_factory, advisor_user):
+    """Consistent triple (gross - tax == amount_rappen) must still be accepted:
+    350 - 30 = 320 == amount_rappen."""
+    client_id, _ = seed_client_and_mandate(session_factory, advisor_user)
+
+    payload = CashflowCreate(
+        cashflow_type="Expense",
+        label="Reconciled Kapitalbezug",
+        amount_rappen=320,
+        gross_amount_rappen=350,
+        tax_amount_rappen=30,
+        frequency="einmalig",
+        nature="einmalig",
+        valid_from="2028-06-30",
+        valid_until="2028-06-30",
+        notes="Reconciled triple",
+    )
+
+    with session_factory() as session:
+        result = create_cashflow(
+            client_id=client_id,
+            body=payload,
+            db=session,
+            current_user=advisor_user,
+        )
+
+    assert result.amount_rappen == 320
+    assert result.gross_amount_rappen == 350
+    assert result.tax_amount_rappen == 30
+
+
+def test_create_cashflow_amount_only_without_gross_or_tax_still_accepted(session_factory, advisor_user):
+    """Regression guard: the common case (only amount_rappen, no gross/tax evidence at
+    all) must remain unaffected by the new reconciliation check."""
+    client_id, _ = seed_client_and_mandate(session_factory, advisor_user)
+
+    payload = CashflowCreate(
+        cashflow_type="Income",
+        label="Plain Cashflow ohne Steuernachweis",
+        amount_rappen=100000,
+        frequency="monatlich",
+        nature="wiederkehrend",
+    )
+
+    with session_factory() as session:
+        result = create_cashflow(
+            client_id=client_id,
+            body=payload,
+            db=session,
+            current_user=advisor_user,
+        )
+
+    assert result.amount_rappen == 100000
+    assert result.gross_amount_rappen is None
+    assert result.tax_amount_rappen is None
+
+
+def test_create_cashflow_gross_without_tax_is_not_treated_as_implicit_zero_tax(session_factory, advisor_user):
+    """Edge case decision (WITHDRAWAL-AMOUNT-001 Phase 0): the schema default for an
+    omitted tax_amount_rappen is None, not 0 -- so an omitted tax field means "no tax
+    evidence provided", not "zero tax". Only gross_amount_rappen is set here, without
+    tax_amount_rappen; gross (350) is intentionally NOT equal to amount_rappen (320), i.e.
+    this would be rejected by our new reconciliation check if we incorrectly treated the
+    missing tax as an implicit 0. It must still pass, governed only by the pre-existing
+    'gross must not be smaller than the net amount' check (gross=350 >= amount=320)."""
+    client_id, _ = seed_client_and_mandate(session_factory, advisor_user)
+
+    payload = CashflowCreate(
+        cashflow_type="Expense",
+        label="Nur Bruttobetrag, keine Steuerangabe",
+        amount_rappen=320,
+        gross_amount_rappen=350,
+        frequency="einmalig",
+        nature="einmalig",
+        valid_from="2028-06-30",
+        valid_until="2028-06-30",
+        notes="Gross ohne Tax -- kein voller Abgleich erzwungen",
+    )
+
+    with session_factory() as session:
+        result = create_cashflow(
+            client_id=client_id,
+            body=payload,
+            db=session,
+            current_user=advisor_user,
+        )
+
+    assert result.amount_rappen == 320
+    assert result.gross_amount_rappen == 350
+    assert result.tax_amount_rappen is None
+
+
 def test_cashflow_summary_counts_only_current_year_cashflows(session_factory, advisor_user):
     client_id, _ = seed_client_and_mandate(session_factory, advisor_user)
     current_year = "2026-01-01"
