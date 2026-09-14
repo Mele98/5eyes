@@ -219,6 +219,44 @@ def test_c8_v2_hash_binds_external_property_and_mortgage_projection_inputs():
     assert base != _hash([property_position, changed_mortgage])
 
 
+def test_c8_v2_hash_binds_pension_availability_fields():
+    """PENSION-AVAILABILITY-001: _position_is_currently_unlocked_for_goal_funding()
+    liest pension_type/pension_retirement_age/pension_payout_form/
+    liquidity_available_from -- diese muessen im Hash stecken, sonst aendert
+    ein Wechsel von zukuenftigem auf vergangenes Verfuegbarkeitsdatum die
+    Reserve materiell, ohne dass die "Neuberechnung noetig"-Staleness-Warnung
+    greift."""
+    from types import SimpleNamespace
+
+    locked = SimpleNamespace(
+        id="pension-pos",
+        current_value_rappen=8_000_000,
+        assignment="Anderes Vermögen",
+        position_type="Vorsorge",
+        pension_type="3a",
+        pension_retirement_age=63,
+        pension_payout_form="Kapital",
+        is_available_for_goal_funding=1,
+        liquidity_available_from="2099-01-01",
+    )
+    now_available = SimpleNamespace(**{**vars(locked), "liquidity_available_from": "2020-01-01"})
+    different_payout = SimpleNamespace(**{**vars(locked), "pension_payout_form": "Rente"})
+    different_age = SimpleNamespace(**{**vars(locked), "pension_retirement_age": 65})
+    different_pension_type = SimpleNamespace(**{**vars(locked), "pension_type": "1e"})
+
+    def _hash(pos):
+        return _compute_input_snapshot_hash(
+            advisory_positions=[], all_positions=[pos], cashflows=[], goals=[],
+            advisory_wealth_rappen=0, total_wealth_rappen=8_000_000,
+        )
+
+    base = _hash(locked)
+    assert base != _hash(now_available)
+    assert base != _hash(different_payout)
+    assert base != _hash(different_age)
+    assert base != _hash(different_pension_type)
+
+
 def _z6_v3_hash_fixture():
     """Minimaler, aber vollstaendiger Projektionskontext fuer Hash-Vertraege."""
     position = SimpleNamespace(
@@ -345,10 +383,12 @@ def test_c8_v3_projection_hash_stays_byte_exact_for_historical_allocations():
     """The v4 rollout may not invalidate an unchanged persisted v3 anchor."""
     _, _, _, inflow, projection_context = _z6_v3_hash_fixture()
 
+    # PENSION-AVAILABILITY-001: Hash-Tupel um pension_type/-retirement_age/
+    # -payout_form/liquidity_available_from erweitert -> neuer Pin-Wert.
     assert _z6_v3_hash(
         projection_context=projection_context,
         inflow=inflow,
-    ) == "39123f7e7b51f7ff75dc0051f1249e381bf0afe7fba64feb69db8f6f4102d499"
+    ) == "44582c4732ef1831a3ac98c9ecf27e6ce35cc6244e275461456d3b2e49a5bd20"
 
 
 @pytest.mark.parametrize(
@@ -488,6 +528,12 @@ def test_c8_v2_hash_contract_stays_exact_without_projection_context():
                 "",
                 "",
                 0,
+                # PENSION-AVAILABILITY-001: neu im Hash, Fixture-Position hat
+                # keine Vorsorge-Attribute -> Defaults ("", 0, "", "").
+                "",
+                0,
+                "",
+                "",
             )
         ],
         "cashflows": [],

@@ -2553,6 +2553,17 @@ def _compute_input_snapshot_hash(
             str(getattr(p, "mortgage_maturity_date", "") or ""),
             str(getattr(p, "mortgage_linked_property_id", "") or ""),
             int(getattr(p, "is_available_for_goal_funding", 0) or 0),
+            # PENSION-AVAILABILITY-001: diese Felder steuern seit diesem Fix,
+            # ob eine Position im Reserve-Pool als heute verfuegbar zaehlt
+            # (_position_is_currently_unlocked_for_goal_funding). Ohne sie im
+            # Hash aendert z.B. ein liquidity_available_from-Wechsel von
+            # Zukunft auf Vergangenheit die Reserve materiell, ohne dass der
+            # "Neuberechnung noetig"-Staleness-Gate greift. (position_type
+            # ist bereits in _pos_v1 enthalten.)
+            str(getattr(p, "pension_type", "") or ""),
+            int(getattr(p, "pension_retirement_age", 0) or 0),
+            str(getattr(p, "pension_payout_form", "") or ""),
+            str(getattr(p, "liquidity_available_from", "") or ""),
         )
 
     def _cf_v1(c) -> tuple:
