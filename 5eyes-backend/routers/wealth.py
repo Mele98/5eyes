@@ -123,8 +123,17 @@ def _normalize_cashflow_payload(data: dict, existing: Cashflow | None = None) ->
     # gesetzt, bleibt es (wie bisher) ein reiner Hinweiswert ohne vollen Abgleich -- das
     # Schema behandelt ein fehlendes tax_amount_rappen als "nicht angegeben" (None), nicht
     # als 0, daher wird hier keine implizite Nullsteuer unterstellt.
+    # Code-Review-Nachtrag (2026-09): bei einem partiellen Update fallen nicht
+    # gesendete Felder auf den bestehenden DB-Wert zurueck (siehe payload.get(...,
+    # getattr(existing, ...)) oben). Eine bereits gespeicherte, unter der alten
+    # (laxeren) Validierung entstandene inkonsistente Kombination wuerde diese
+    # Pruefung sonst bei JEDEM kuenftigen Update auslösen -- selbst bei einem
+    # Update, das nur "label" aendert und Gross/Steuer gar nicht beruehrt. Die
+    # Reconciliation gilt deshalb nur, wenn die AKTUELLE Anfrage tatsaechlich
+    # mindestens eines der beiden Belegfelder setzt.
     if (
-        gross_amount_rappen is not None
+        ("gross_amount_rappen" in data or "tax_amount_rappen" in data)
+        and gross_amount_rappen is not None
         and tax_amount_rappen is not None
         and gross_amount_rappen - tax_amount_rappen != amount_rappen
     ):
