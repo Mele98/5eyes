@@ -5675,6 +5675,7 @@ async function loadClientById(clientId) {
   currentMandateId = null;
   currentMandateData = null;
   currentGoals = [];
+  _currentGoalsLoadedOnce = false;
   currentCashflows = [];
   currentCashflowSummary = null;
   currentWealthSummary = null;
@@ -5722,6 +5723,7 @@ async function loadClientById(clientId) {
       currentMandateId = null;
       currentMandateData = null;
       currentGoals = [];
+      _currentGoalsLoadedOnce = false;
       riskHorizonTouched = false;
       if (mandatesRes.status === 'fulfilled' && Array.isArray(mandatesRes.value) && mandatesRes.value.length > 0) {
         var activeMandate = mandatesRes.value.find(function(m){ return m && m.status === 'Aktiv'; }) || mandatesRes.value[0];
@@ -7925,6 +7927,12 @@ var currentCashflowSummary = null;
 var currentWealthSummary = null;
 var currentCashflowProjection = null;
 var currentGoals = [];
+// DECUM-READINESS-001 (Code-Review-Nachtrag): currentGoals ist immer ein Array,
+// nie null/undefined -- "noch nicht geladen" und "wirklich leer" sind daher am
+// Wert allein nicht unterscheidbar. Dieses Flag macht den Ladezustand explizit,
+// damit _reviewHasDecumulationRelevantGoal() bei einem Render VOR dem ersten
+// erfolgreichen refreshGoalsUI() nicht faelschlich "nicht anwendbar" annimmt.
+var _currentGoalsLoadedOnce = false;
 var currentPortfolioPositions = [];
 var portfolioExpandedRows = {};
 var portfolioTechnicalExpandedRows = {};
@@ -7941,6 +7949,7 @@ function fmtCHF(n){if(n===null||n===undefined)return '–';return 'CHF '+Math.ro
     currentMandateId=p.mandate_id||null;
     currentMandateData=(p.mandate_id||p.mandate_type)?{id:p.mandate_id||null, mandate_type:p.mandate_type||null}:null;
     currentGoals=[];
+    _currentGoalsLoadedOnce=false;
     currentCashflows=[];
     riskHorizonTouched=false;
     strategyState={allocation:null,recommendation:null,activeMandateId:currentMandateId,lastGeneratedAt:0,loading:false,dirty:true,risk:null,buildingBlocks:[],marketRuntime:null};
@@ -16326,6 +16335,7 @@ function showNewClientScreen(firstName, lastName, mType, meta) {
   };
   currentMandateData = {id: currentMandateId || null, mandate_type: mType};
   currentGoals = [];
+  _currentGoalsLoadedOnce = false;
   currentCashflows = [];
   currentInflows = [];
   currentCashflowSummary = null;
@@ -24176,6 +24186,14 @@ function renderStammdatenDocumentArchive(documents){
 // Signal dient das Vorhandensein eines aktiven Pensionsausgabe-Ziels in
 // currentGoals (globale, mandatsaktuelle Zielliste, siehe refreshGoalsUI).
 function _reviewHasDecumulationRelevantGoal(){
+  // Code-Review-Nachtrag: refreshGoalsUI() und refreshReviewUI() laufen beim
+  // initialen Mandatswechsel unawaited nebeneinander (siehe Aufrufer). Ohne
+  // dieses Flag koennte ein Render VOR dem ersten erfolgreichen
+  // refreshGoalsUI() currentGoals faelschlich als "leer = kein Pensionsausgabe-
+  // Ziel" lesen (Array vs. noch-nicht-geladen sind sonst nicht unterscheidbar)
+  // und den Reichweiten-Punkt fuer genau den Fall auslassen, den er absichern
+  // soll. Fail-closed: unbekannter Ladezustand zaehlt als "koennte zutreffen".
+  if(typeof _currentGoalsLoadedOnce!=='undefined'&&!_currentGoalsLoadedOnce)return true;
   var goals=(typeof currentGoals!=='undefined'&&Array.isArray(currentGoals))?currentGoals:[];
   return goals.some(function(g){
     if(!g||g.goal_type!=='Pensionsausgabe')return false;
@@ -27128,6 +27146,7 @@ async function refreshGoalsUI(mid){
   if(!mid||isDemoMandateId(mid)){
     renderGoalList(currentGoals,true);
     syncAllocationPendingViews();
+    _currentGoalsLoadedOnce=true;
     return;
   }
   try{
@@ -27137,6 +27156,7 @@ async function refreshGoalsUI(mid){
     renderGoalList(currentGoals,false);
     syncAllocationPendingViews();
     updateCfRiskContextSummary();
+    _currentGoalsLoadedOnce=true;
   }catch(e){
     console.warn('refreshGoalsUI:',e);
   }

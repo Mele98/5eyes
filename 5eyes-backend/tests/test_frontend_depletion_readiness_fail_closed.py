@@ -83,6 +83,37 @@ def test_decumulation_applicability_signal_exists():
     assert "goal_type!=='Pensionsausgabe'" in html
 
 
+def test_applicability_signal_fails_closed_before_goals_are_loaded():
+    """Code-Review-Nachtrag: refreshGoalsUI() und refreshReviewUI() laufen bei
+    Mandatswechsel unawaited nebeneinander (siehe z.B. loadClientDetail()).
+    currentGoals ist immer ein Array (nie null/undefined) -- "noch nicht
+    geladen" und "wirklich leer" waren daher am Wert allein nicht
+    unterscheidbar. Ein Render zwischen Mandatswechsel und dem ersten
+    erfolgreichen refreshGoalsUI() haette den Reichweiten-Punkt sonst genau
+    fuer den Fall auslassen koennen, den DECUM-READINESS-001 absichern soll."""
+    html = _html()
+    match = re.search(
+        r"function _reviewHasDecumulationRelevantGoal\(\)\{(.*?)\n\}",
+        html,
+        re.DOTALL,
+    )
+    assert match, "_reviewHasDecumulationRelevantGoal nicht gefunden -- wurde die Stelle umbenannt/verschoben?"
+    body = match.group(1)
+    assert "_currentGoalsLoadedOnce" in body
+    # Unbekannter/noch-nicht-geladener Zustand muss "koennte zutreffen" (true)
+    # zurueckgeben, nicht "nicht anwendbar" (false) -- das ist der Kern des
+    # Fail-closed-Vertrags.
+    assert re.search(r"if\(typeof _currentGoalsLoadedOnce!=='undefined'&&!_currentGoalsLoadedOnce\)return true;", body)
+    # Das Flag muss beim ersten erfolgreichen Laden auf true gesetzt werden,
+    # sonst bliebe der fail-closed-Zustand fuer immer aktiv.
+    assert "_currentGoalsLoadedOnce=true;" in html
+    # Und bei jedem Mandats-/Kundenwechsel zurueckgesetzt werden, sonst
+    # zeigte ein Wechsel auf ein anderes Mandat die STALE Anwendbarkeit des
+    # vorherigen Mandats.
+    reset_count = len(re.findall(r"_currentGoalsLoadedOnce\s*=\s*false;", html))
+    assert reset_count >= 4
+
+
 def test_readiness_checklist_always_adds_item_when_applicable():
     html = _html()
     match = re.search(
