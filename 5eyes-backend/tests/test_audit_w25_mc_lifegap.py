@@ -8,6 +8,13 @@ via accumulated_deficit traegt.
 
 Fix: in _run_allocation_monte_carlo wird pro Simulation current_deficit und
 target_deficit getrackt und beim Bilden der jaehrlichen Totals subtrahiert.
+
+DECUM-DEFICIT-001 (2026-09): die MC-Schleife ruft denselben
+_apply_cashflow_to_bucket_values-Helper wie der deterministische Pfad auf und
+uebergibt jetzt den jeweiligen outstanding-Defizit-Zaehler mit, damit ein
+positiver Cashflow ein bestehendes Defizit ZUERST tilgt statt daneben zu
+investieren. Siehe test_w25_decum_deficit_001_mc_target_repro_matches_audit_numbers
+unten fuer den End-zu-End-Beweis ueber die stochastische Schleife.
 """
 from __future__ import annotations
 
@@ -228,3 +235,54 @@ def test_w25_mc_p10_more_negative_than_p90_when_volatility_added(monkeypatch):
     assert p10_final <= p90_final
     # beide sind im negativen Bereich (Lebensluecke dominiert)
     assert p10_final < 0
+
+
+def test_w25_decum_deficit_001_mc_target_repro_matches_audit_numbers(monkeypatch):
+    """DECUM-DEFICIT-001 End-zu-End durch die stochastische MC-Schleife
+    (_run_allocation_monte_carlo), nicht nur den deterministischen Pfad.
+
+    Identischer Audit-Repro wie test_decum_deficit_001_simulate_bucket_path_
+    repro_matches_audit_numbers (tests/test_audit_z8_lifegap_series.py):
+    cashflows=[-100,+150,0], 100% Aktien, +10%/Jahr, Kalender-Rebalancing,
+    Volatilitaet=0 (deterministisch trotz MC-Schleife, da log_scale=0 ->
+    growth_factor ist pfadunabhaengig). Vor dem Fix waere target_p50[-1]=65
+    (Defizit eingefroren), nach dem Fix 55 (Defizit zuerst getilgt) --
+    identisch zum deterministischen Pfad und zu scenario_engine.
+    """
+    monkeypatch.setattr(pe, "_monte_carlo_simulations", lambda prefs: 10)
+
+    advisory_summary = PortfolioSummary(
+        amounts_rappen={key: 0 for key in BUCKET_FIELDS},
+        total_rappen=0,
+    )
+    targets = {key: (10000 if key == "equities" else 0) for key in BUCKET_FIELDS}
+    cma = _zero_return_cma()
+    cma.equity_ch_return_bps = 1000
+    cma.equity_intl_return_bps = 1000
+    # Vol bleibt 0 (siehe _zero_return_cma) -> log_scale=0 -> growth_factor
+    # ist deterministisch (pfadunabhaengig), obwohl wir durch die MC-Schleife
+    # laufen -- macht den Test exakt statt approximativ.
+
+    result = _run_allocation_monte_carlo(
+        advisory_summary=advisory_summary,
+        cashflow_projection_series_rappen=[-100, 150, 0],
+        goal_inflation_series_bps=[0, 0, 0],
+        targets=targets,
+        minimums=_flat_minmax(),
+        maximums=_flat_minmax(),
+        cma=cma,
+        goals=[],
+        advisory_wealth_rappen=0,
+        total_wealth_rappen=0,
+        policy=None,
+        mandate_id="mandate-test-decum-deficit-001",
+        simulation_prefs={"transactionCostBps": 0, "rebalanceMode": "calendar"},
+        start_year=2026,
+        target_total_rappen=0,
+    )
+
+    series = result["target_p50_series_rappen"]
+    assert series == pytest.approx([0, -100, 50, 55], abs=1), (
+        f"Erwartet [0,-100,50,55] (fixed), got {series} "
+        "(65 im letzten Element wuerde auf die alte, ungefixte Semantik hindeuten)"
+    )

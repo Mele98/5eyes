@@ -112,6 +112,35 @@ def _normalize_cashflow_payload(data: dict, existing: Cashflow | None = None) ->
         raise HTTPException(status_code=422, detail="Bruttobetrag darf nicht kleiner als der Nettozufluss sein")
     if gross_amount_rappen is not None and tax_amount_rappen is not None and tax_amount_rappen > gross_amount_rappen:
         raise HTTPException(status_code=422, detail="Kapitalbezugssteuer darf nicht grösser als der Bruttobetrag sein")
+    # WITHDRAWAL-AMOUNT-001: Wenn Brutto- UND Steuerbetrag BEIDE explizit gesetzt sind,
+    # wird dieses Paar dem Berater/Kunden als geprüfter Steuernachweis präsentiert --
+    # tatsächlich simuliert/projiziert wird aber ausschliesslich amount_rappen
+    # (services/cashflow_timeline.py liest gross_/tax_amount_rappen nie). Ein
+    # arithmetisch inkonsistentes Tripel würde also einen validierten Steuerbetrag für
+    # Geld vorgaukeln, das im Modell gar nicht abgezogen wird. Deshalb hier hart
+    # erzwingen: amount_rappen == gross_amount_rappen - tax_amount_rappen (Rappen sind
+    # bereits Integer, keine Rundungsambiguität). Ist nur EINES der beiden Felder
+    # gesetzt, bleibt es (wie bisher) ein reiner Hinweiswert ohne vollen Abgleich -- das
+    # Schema behandelt ein fehlendes tax_amount_rappen als "nicht angegeben" (None), nicht
+    # als 0, daher wird hier keine implizite Nullsteuer unterstellt.
+    # Code-Review-Nachtrag (2026-09): bei einem partiellen Update fallen nicht
+    # gesendete Felder auf den bestehenden DB-Wert zurueck (siehe payload.get(...,
+    # getattr(existing, ...)) oben). Eine bereits gespeicherte, unter der alten
+    # (laxeren) Validierung entstandene inkonsistente Kombination wuerde diese
+    # Pruefung sonst bei JEDEM kuenftigen Update auslösen -- selbst bei einem
+    # Update, das nur "label" aendert und Gross/Steuer gar nicht beruehrt. Die
+    # Reconciliation gilt deshalb nur, wenn die AKTUELLE Anfrage tatsaechlich
+    # mindestens eines der beiden Belegfelder setzt.
+    if (
+        ("gross_amount_rappen" in data or "tax_amount_rappen" in data)
+        and gross_amount_rappen is not None
+        and tax_amount_rappen is not None
+        and gross_amount_rappen - tax_amount_rappen != amount_rappen
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail="Bruttobetrag minus Kapitalbezugssteuer muss dem Nettozufluss (amount_rappen) entsprechen",
+        )
 
     if frequency == "einmalig" or nature == "einmalig":
         nature = "einmalig"

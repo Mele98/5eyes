@@ -54,6 +54,7 @@ from routers.wealth import (
     get_planning_assumptions_ui,
     list_wealth_positions,
     upsert_planning_assumptions,
+    update_cashflow,
     update_wealth_position,
 )
 from services.auth import get_client_for_user_or_404, get_mandate_for_user_or_404
@@ -96,7 +97,7 @@ from schemas.review import (
 )
 from schemas.review import ProductIdMappingBatchApplyRequest, ProductReferenceBatchApplyRequest
 from schemas.snapshots import StrategySnapshotCreate
-from schemas.wealth import CashflowCreate, GoalCreate, WealthPositionCreate, WealthPositionUpdate
+from schemas.wealth import CashflowCreate, CashflowUpdate, GoalCreate, WealthPositionCreate, WealthPositionUpdate
 from schemas.wealth import PlanningAssumptionCreate
 from services.risk_scoring import profile_for_score_x10
 
@@ -1468,6 +1469,221 @@ def test_create_cashflow_rejects_net_amount_above_gross(session_factory, advisor
     assert "Bruttobetrag" in exc_info.value.detail
 
 
+def test_create_cashflow_rejects_unreconciled_gross_tax_amount_triple(session_factory, advisor_user):
+    """WITHDRAWAL-AMOUNT-001 audit repro: amount=100, gross=350, tax=30 -- 350 - 30 = 320
+    != 100. A stored gross/tax pair like this would be presented to the advisor/client as
+    validated tax evidence even though it is arithmetically nonsensical relative to the
+    only value the model actually projects (amount_rappen)."""
+    client_id, _ = seed_client_and_mandate(session_factory, advisor_user)
+
+    payload = CashflowCreate(
+        cashflow_type="Expense",
+        label="Unreconciled Kapitalbezug",
+        amount_rappen=100,
+        gross_amount_rappen=350,
+        tax_amount_rappen=30,
+        frequency="einmalig",
+        nature="einmalig",
+        valid_from="2028-06-30",
+        valid_until="2028-06-30",
+        notes="Audit-Repro WITHDRAWAL-AMOUNT-001",
+    )
+
+    with session_factory() as session:
+        with pytest.raises(HTTPException) as exc_info:
+            create_cashflow(
+                client_id=client_id,
+                body=payload,
+                db=session,
+                current_user=advisor_user,
+            )
+
+    assert exc_info.value.status_code == 422
+    assert "Bruttobetrag" in exc_info.value.detail
+    assert "Kapitalbezugssteuer" in exc_info.value.detail
+
+
+def test_create_cashflow_accepts_reconciled_gross_tax_amount_triple(session_factory, advisor_user):
+    """Consistent triple (gross - tax == amount_rappen) must still be accepted:
+    350 - 30 = 320 == amount_rappen."""
+    client_id, _ = seed_client_and_mandate(session_factory, advisor_user)
+
+    payload = CashflowCreate(
+        cashflow_type="Expense",
+        label="Reconciled Kapitalbezug",
+        amount_rappen=320,
+        gross_amount_rappen=350,
+        tax_amount_rappen=30,
+        frequency="einmalig",
+        nature="einmalig",
+        valid_from="2028-06-30",
+        valid_until="2028-06-30",
+        notes="Reconciled triple",
+    )
+
+    with session_factory() as session:
+        result = create_cashflow(
+            client_id=client_id,
+            body=payload,
+            db=session,
+            current_user=advisor_user,
+        )
+
+    assert result.amount_rappen == 320
+    assert result.gross_amount_rappen == 350
+    assert result.tax_amount_rappen == 30
+
+
+def test_create_cashflow_amount_only_without_gross_or_tax_still_accepted(session_factory, advisor_user):
+    """Regression guard: the common case (only amount_rappen, no gross/tax evidence at
+    all) must remain unaffected by the new reconciliation check."""
+    client_id, _ = seed_client_and_mandate(session_factory, advisor_user)
+
+    payload = CashflowCreate(
+        cashflow_type="Income",
+        label="Plain Cashflow ohne Steuernachweis",
+        amount_rappen=100000,
+        frequency="monatlich",
+        nature="wiederkehrend",
+    )
+
+    with session_factory() as session:
+        result = create_cashflow(
+            client_id=client_id,
+            body=payload,
+            db=session,
+            current_user=advisor_user,
+        )
+
+    assert result.amount_rappen == 100000
+    assert result.gross_amount_rappen is None
+    assert result.tax_amount_rappen is None
+
+
+def test_create_cashflow_gross_without_tax_is_not_treated_as_implicit_zero_tax(session_factory, advisor_user):
+    """Edge case decision (WITHDRAWAL-AMOUNT-001 Phase 0): the schema default for an
+    omitted tax_amount_rappen is None, not 0 -- so an omitted tax field means "no tax
+    evidence provided", not "zero tax". Only gross_amount_rappen is set here, without
+    tax_amount_rappen; gross (350) is intentionally NOT equal to amount_rappen (320), i.e.
+    this would be rejected by our new reconciliation check if we incorrectly treated the
+    missing tax as an implicit 0. It must still pass, governed only by the pre-existing
+    'gross must not be smaller than the net amount' check (gross=350 >= amount=320)."""
+    client_id, _ = seed_client_and_mandate(session_factory, advisor_user)
+
+    payload = CashflowCreate(
+        cashflow_type="Expense",
+        label="Nur Bruttobetrag, keine Steuerangabe",
+        amount_rappen=320,
+        gross_amount_rappen=350,
+        frequency="einmalig",
+        nature="einmalig",
+        valid_from="2028-06-30",
+        valid_until="2028-06-30",
+        notes="Gross ohne Tax -- kein voller Abgleich erzwungen",
+    )
+
+    with session_factory() as session:
+        result = create_cashflow(
+            client_id=client_id,
+            body=payload,
+            db=session,
+            current_user=advisor_user,
+        )
+
+    assert result.amount_rappen == 320
+    assert result.gross_amount_rappen == 350
+    assert result.tax_amount_rappen is None
+
+
+def test_update_cashflow_untouched_gross_tax_does_not_retroactively_enforce_reconciliation(session_factory, advisor_user):
+    """Code-Review-Nachtrag zu WITHDRAWAL-AMOUNT-001: eine bereits gespeicherte,
+    unter der alten (laxeren) Validierung entstandene inkonsistente
+    Gross/Steuer/Netto-Kombination darf ein Update, das diese Felder gar nicht
+    beruehrt (hier: nur label), nicht retroactiv blockieren -- payload.get(...,
+    getattr(existing, ...)) wuerde sonst bei JEDEM kuenftigen Update auf diese
+    Zeile die neue Reconciliation-Pruefung gegen die geerbten Altwerte
+    auszuloesen."""
+    client_id, _ = seed_client_and_mandate(session_factory, advisor_user)
+
+    with session_factory() as session:
+        session.add(Cashflow(
+            id="cf-legacy-inconsistent",
+            client_id=client_id,
+            cashflow_type="Expense",
+            label="Alter Kapitalbezug (inkonsistent, vor diesem Fix erfasst)",
+            amount_rappen=100,
+            gross_amount_rappen=350,
+            tax_amount_rappen=30,
+            currency="CHF",
+            frequency="einmalig",
+            nature="einmalig",
+            valid_from="2028-06-30",
+            valid_until="2028-06-30",
+            timing_precision="day",
+            is_inflation_linked=0,
+            is_active=1,
+            created_at="2026-01-01T00:00:00.000Z",
+            updated_at="2026-01-01T00:00:00.000Z",
+        ))
+        session.commit()
+
+    with session_factory() as session:
+        result = update_cashflow(
+            client_id=client_id,
+            cf_id="cf-legacy-inconsistent",
+            body=CashflowUpdate(label="Umbenannt, Gross/Steuer nicht angefasst"),
+            db=session,
+            current_user=advisor_user,
+        )
+
+    assert result.label == "Umbenannt, Gross/Steuer nicht angefasst"
+    assert result.amount_rappen == 100
+    assert result.gross_amount_rappen == 350
+    assert result.tax_amount_rappen == 30
+
+
+def test_update_cashflow_touching_gross_still_enforces_reconciliation(session_factory, advisor_user):
+    """Regressionsguard zum vorigen Test: sobald die aktuelle Anfrage
+    tatsaechlich gross_amount_rappen oder tax_amount_rappen setzt, muss die
+    Reconciliation weiterhin greifen."""
+    client_id, _ = seed_client_and_mandate(session_factory, advisor_user)
+
+    with session_factory() as session:
+        session.add(Cashflow(
+            id="cf-legacy-inconsistent-2",
+            client_id=client_id,
+            cashflow_type="Expense",
+            label="Alter Kapitalbezug",
+            amount_rappen=100,
+            gross_amount_rappen=350,
+            tax_amount_rappen=30,
+            currency="CHF",
+            frequency="einmalig",
+            nature="einmalig",
+            valid_from="2028-06-30",
+            valid_until="2028-06-30",
+            timing_precision="day",
+            is_inflation_linked=0,
+            is_active=1,
+            created_at="2026-01-01T00:00:00.000Z",
+            updated_at="2026-01-01T00:00:00.000Z",
+        ))
+        session.commit()
+
+    with session_factory() as session:
+        with pytest.raises(HTTPException) as exc_info:
+            update_cashflow(
+                client_id=client_id,
+                cf_id="cf-legacy-inconsistent-2",
+                body=CashflowUpdate(gross_amount_rappen=360),
+                db=session,
+                current_user=advisor_user,
+            )
+
+    assert exc_info.value.status_code == 422
+    assert "Bruttobetrag" in exc_info.value.detail
+
+
 def test_cashflow_summary_counts_only_current_year_cashflows(session_factory, advisor_user):
     client_id, _ = seed_client_and_mandate(session_factory, advisor_user)
     current_year = "2026-01-01"
@@ -2774,8 +2990,31 @@ def test_generate_target_allocation_exposes_simulation_and_asset_assumptions(ses
     assert assumptions["Aktien"]["expected_return_bps"] > assumptions["Obligationen"]["expected_return_bps"]
     assert assumptions["Liquiditaet"]["market_data_role"].startswith("Live-Preise")
     assert any("Pfadsimulation" in item for item in result["reasoning"])
+    # DECUM-DEPLETION-001: die vier Verzehr-/Depletion-Felder (#96) MUSSEN den
+    # Pydantic-Response-Schema-Roundtrip ueberleben -- vorher verwarf pydantic
+    # v2 (extra="ignore" default, Felder waren nie deklariert) sie lautlos, und
+    # das Frontend las "undefined" als 0% Verzehr-Risiko (Falsch-Negativ).
+    for key in (
+        "target_depletion_probability_pct",
+        "target_depletion_median_year",
+        "current_depletion_probability_pct",
+        "current_depletion_median_year",
+    ):
+        assert key in result["monte_carlo"]
     validated = TargetAllocationGenerateResponse.model_validate(result)
     assert validated.monte_carlo.simulations == 900
+    assert validated.monte_carlo.target_depletion_probability_pct == result["monte_carlo"]["target_depletion_probability_pct"]
+    assert validated.monte_carlo.current_depletion_probability_pct == result["monte_carlo"]["current_depletion_probability_pct"]
+    assert validated.monte_carlo.target_depletion_median_year == result["monte_carlo"]["target_depletion_median_year"]
+    assert validated.monte_carlo.current_depletion_median_year == result["monte_carlo"]["current_depletion_median_year"]
+    # Reine Akkumulation in dieser Fixture -> kein Verzehr, aber die Felder muessen
+    # trotzdem als echte 0 / None ankommen (nicht als fehlend).
+    assert validated.monte_carlo.target_depletion_probability_pct == 0
+    assert validated.monte_carlo.target_depletion_median_year is None
+    # model_dump() muss die Felder ebenfalls ausgeben (API-Response-Serialisierung).
+    dumped = validated.monte_carlo.model_dump()
+    assert dumped["target_depletion_probability_pct"] == 0
+    assert dumped["target_depletion_median_year"] is None
 
 
 def test_generate_target_allocation_goal_analysis_exposes_timing_and_return_targets(session_factory, advisor_user):

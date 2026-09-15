@@ -282,6 +282,11 @@ def ensure_runtime_columns() -> None:
             ('token_revoked_before', 'TEXT'),
             # AUTH-06 (2026-07-22): letzter akzeptierter TOTP-Zeitschritt (Anti-Replay).
             ('totp_last_counter', 'TEXT'),
+            # SEC-TOTP-REPLAY-WINDOW (2026-09-15): sha256 des zuletzt akzeptierten
+            # TOTP-Codes -- totp_last_counter allein liess einen woertlichen
+            # Code-Replay durch, sobald die Uhr ins naechste (per +/-1-Drift-
+            # Toleranz weiterhin gueltige) Zeitfenster weiterrueckte.
+            ('totp_last_code_hash', 'TEXT'),
         ],
         'tenants': [
             ('encrypted_dek', 'TEXT'),

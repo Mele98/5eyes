@@ -35,6 +35,9 @@ from models.mandates import Mandate
 from models.profiling import RiskAssessment
 from models.users import User
 from models.wealth import Goal, WealthPosition
+from pydantic import ValidationError
+
+from schemas.allocation import MonteCarloResponse
 from services.portfolio_engine import (
     _sequence_of_returns_depletion,
     ensure_runtime_reference_data,
@@ -44,6 +47,35 @@ from tests.risk_fixture_helpers import (
     CURRENT_RISK_SCHEMA_MARKERS,
     add_current_risk_answers,
 )
+
+
+def _minimal_monte_carlo_kwargs(**overrides):
+    """Minimaler, schema-gueltiger MonteCarloResponse-Rumpf fuer isolierte
+    Schema-Tests (DECUM-DEPLETION-001) -- unabhaengig vom vollen Engine-Lauf."""
+    base = dict(
+        simulations=100,
+        seed=1,
+        horizon_years=1,
+        start_year=2026,
+        year_labels=[2026, 2027],
+        current_p10_series_rappen=[0, 0],
+        current_p50_series_rappen=[0, 0],
+        current_p90_series_rappen=[0, 0],
+        target_p10_series_rappen=[0, 0],
+        target_p50_series_rappen=[0, 0],
+        target_p90_series_rappen=[0, 0],
+        current_annualized_return_p50_bps=0,
+        target_annualized_return_p50_bps=0,
+        target_var_95_1y_bps=0,
+        target_cvar_95_1y_bps=0,
+        target_loss_probability_1y_pct=0,
+        target_max_drawdown_p50_bps=0,
+        target_max_drawdown_p95_bps=0,
+        target_downside_probability_pct=0,
+        goal_summaries=[],
+    )
+    base.update(overrides)
+    return base
 
 
 # ── Unit: die Kennzahl-Logik ─────────────────────────────────────────────────────
@@ -156,3 +188,73 @@ def test_engine_exposes_depletion_keys_and_accumulation_is_zero(session_factory)
     # Reine Akkumulation (kein Verzehr): das Vermoegen wird nie aufgezehrt.
     assert mc["target_depletion_probability_pct"] == 0
     assert mc["target_depletion_median_year"] is None
+
+
+# ── DECUM-DEPLETION-001: MonteCarloResponse-Schema-Vertrag ──────────────────────
+# Regressions-Lock fuer den Pydantic-Boundary-Bug: die vier depletion-Felder
+# wurden vom Engine-Rohdict berechnet, waren aber in MonteCarloResponse nie
+# deklariert -> pydantic v2's Default extra="ignore" verwarf sie lautlos beim
+# Response-Model-Bau, und das Frontend las das fehlende Feld als 0.
+
+def test_monte_carlo_response_survives_round_trip_with_real_depletion_values():
+    """Ein echter Verzehr-Fall (z.B. Pensionierungsmandat): 42% der Pfade
+    erschoepfen, medianes Erschoepfungsjahr 2041. Muss den Schema-Roundtrip
+    unveraendert und mit den korrekten Typen ueberleben."""
+    kwargs = _minimal_monte_carlo_kwargs(
+        target_depletion_probability_pct=42,
+        target_depletion_median_year=2041,
+        current_depletion_probability_pct=17,
+        current_depletion_median_year=2038,
+    )
+    model = MonteCarloResponse(**kwargs)
+    dumped = model.model_dump()
+    assert dumped["target_depletion_probability_pct"] == 42
+    assert dumped["target_depletion_median_year"] == 2041
+    assert dumped["current_depletion_probability_pct"] == 17
+    assert dumped["current_depletion_median_year"] == 2038
+    assert isinstance(dumped["target_depletion_probability_pct"], int)
+    assert isinstance(dumped["target_depletion_median_year"], int)
+
+
+def test_monte_carlo_response_survives_round_trip_with_none_depletion():
+    """Reine Akkumulation: probability=0 (echte Zahl, kein Verzehr-Pfad),
+    median_year=None (kein Pfad je erschoepft -- valider, haeufiger Fall,
+    KEINE fehlende Angabe). Beides muss als solches erhalten bleiben, nicht
+    stillschweigend verschwinden."""
+    kwargs = _minimal_monte_carlo_kwargs(
+        target_depletion_probability_pct=0,
+        target_depletion_median_year=None,
+        current_depletion_probability_pct=0,
+        current_depletion_median_year=None,
+    )
+    model = MonteCarloResponse(**kwargs)
+    dumped = model.model_dump()
+    assert dumped["target_depletion_probability_pct"] == 0
+    assert dumped["target_depletion_median_year"] is None
+    assert dumped["current_depletion_probability_pct"] == 0
+    assert dumped["current_depletion_median_year"] is None
+
+
+def test_monte_carlo_response_defaults_to_none_when_keys_absent():
+    """Simuliert ein Legacy-/Alt-Dict ohne die vier Schluessel (z.B. Cache aus
+    einer Version vor diesem Fix). Die Felder duerfen NICHT lautlos verworfen
+    werden -- sie muessen explizit als None im validierten Modell auftauchen,
+    damit das Frontend "nicht verfuegbar" statt "0%" anzeigen kann."""
+    kwargs = _minimal_monte_carlo_kwargs()
+    model = MonteCarloResponse(**kwargs)
+    dumped = model.model_dump()
+    assert "target_depletion_probability_pct" in dumped
+    assert dumped["target_depletion_probability_pct"] is None
+    assert dumped["target_depletion_median_year"] is None
+    assert dumped["current_depletion_probability_pct"] is None
+    assert dumped["current_depletion_median_year"] is None
+
+
+def test_monte_carlo_response_rejects_out_of_range_probability():
+    """Bounds-Schutz: eine depletion_probability_pct ausserhalb [0, 100] ist
+    ein Rechenfehler in der Engine, kein gueltiger Zustand -- muss beim
+    Schema-Bau auffallen statt als kaputte Prozentzahl bis zum Frontend
+    durchzurutschen."""
+    kwargs = _minimal_monte_carlo_kwargs(target_depletion_probability_pct=142)
+    with pytest.raises(ValidationError):
+        MonteCarloResponse(**kwargs)

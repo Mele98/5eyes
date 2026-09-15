@@ -139,6 +139,39 @@ def test_totp_next_time_step_code_still_accepted(client, session_factory, monkey
     assert second.status_code == 200
 
 
+def test_totp_same_code_rejected_across_window_boundary_within_tolerance(
+    client, session_factory, monkeypatch,
+):
+    """SEC-TOTP-REPLAY-WINDOW (2026-09-15): reproduziert die Luecke direkt.
+    Ein Code, der fuer Zeitschritt N generiert wurde, ist dank der +/-1-Drift-
+    Toleranz in services/totp.py::verify() bei Server-Zeitschritt N+1 immer
+    noch kryptografisch gueltig. Vorher liess die reine Zaehler-Monotonie
+    (last(N) < N+1) den woertlich IDENTISCHEN Code in diesem Fall faelschlich
+    ein zweites Mal durch. Jetzt muss der sha256-Hash-Vergleich das verhindern
+    -- derselbe Code bleibt abgelehnt, unabhaengig vom fortgeschrittenen
+    Zeitfenster."""
+    secret = totp.generate_secret()
+    _seed_user(session_factory, "auth06-u5", "pw", secret)
+    base_t = time.time()
+    code = totp.totp_at(secret, base_t)
+
+    first = client.post("/auth/login", json={
+        "username": "auth06-u5", "password": "pw", "totp_code": code,
+    })
+    assert first.status_code == 200
+
+    future_t = base_t + 31  # naechster Zeitschritt, aber noch innerhalb der
+    # +/-1-Drift-Toleranz von services/totp.py::verify() -- der ALTE Code
+    # besteht dort weiterhin (w=-1 trifft counter N wieder).
+    monkeypatch.setattr(time, "time", lambda: future_t)
+
+    replay = client.post("/auth/login", json={
+        "username": "auth06-u5", "password": "pw", "totp_code": code,
+    })
+    assert replay.status_code == 401
+    assert "verwendet" in replay.json()["detail"]
+
+
 def test_recovery_code_login_unaffected_by_totp_replay_guard(client, session_factory):
     """Recovery-Codes laufen ueber einen eigenen Single-Use-Mechanismus
     (consume_recovery_code) — die TOTP-Counter-Pruefung darf diesen Pfad

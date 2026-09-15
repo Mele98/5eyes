@@ -721,7 +721,29 @@ class PlanningAssumptionCreate(BaseModel):
     life_expectancy_primary: Optional[int] = Field(default=None, ge=40, le=120)
     life_expectancy_partner: Optional[int] = Field(default=None, ge=40, le=120)
     inflation_assumption_bps: Optional[int] = Field(default=None, ge=-1000, le=3000)
-    pension_indexation_bps: Optional[int] = Field(default=None, ge=-1000, le=3000)
+    # PENSION-INDEXATION-001 (Phase-0-Gate, 2026-09): der Kommentar oben
+    # ("fliesst direkt in MC-Simulation/Ziel-Projektion ein") gilt fuer
+    # dieses Feld NICHT. Repo-weiter Audit (Loader, Liability-Builder,
+    # Cashflow-Timeline, Optimizer, Reporting, PDF, Snapshots) fand KEINEN
+    # produktiven Konsumenten von pension_indexation_bps -- es wird nur
+    # gespeichert und roundgetrippt. Phase 1 (Renten-Indexierungsmethodik:
+    # nominal/real, Basisjahr, Cap/Floor, effektive Jahresreihe) ist eine
+    # eigene produkt-/aktuarielle Entscheidung, bewusst NICHT Teil dieses
+    # Fixes. Feld bleibt bewusst erhalten (statt entfernt, was eine groessere
+    # Migrations-Entscheidung waere) und ist unten explizit als nicht
+    # rechenwirksam markiert.
+    pension_indexation_bps: Optional[int] = Field(
+        default=None,
+        ge=-1000,
+        le=3000,
+        description=(
+            "NICHT rechenwirksam (Stand PENSION-INDEXATION-001): wird "
+            "persistiert und validiert, aber aktuell von KEINER "
+            "Monte-Carlo-Simulation, Ziel-Projektion oder keinem "
+            "Reporting-/PDF-Pfad konsumiert. Rein fuer kuenftige Verwendung "
+            "gespeichert -- hat null Effekt auf heutige Berechnungsergebnisse."
+        ),
+    )
     notes: Optional[str] = None
     # sec-f4 (2026-08-02): Phase-0-Gate (enforce_data_classification) fehlte fuer
     # Planning-Assumptions komplett -- analog zu Wealth-Inflow/Cashflow/Goal
@@ -741,7 +763,15 @@ class PlanningAssumptionResponse(BaseResponse):
     life_expectancy_primary: Optional[int]
     life_expectancy_partner: Optional[int]
     inflation_assumption_bps: Optional[int]
-    pension_indexation_bps: Optional[int]
+    # PENSION-INDEXATION-001: siehe PlanningAssumptionCreate.pension_indexation_bps
+    # -- nicht rechenwirksam, nur gespeichert/roundgetrippt.
+    pension_indexation_bps: Optional[int] = Field(
+        description=(
+            "NICHT rechenwirksam (Stand PENSION-INDEXATION-001): wird "
+            "persistiert, aber aktuell von keiner Simulation, Projektion "
+            "oder keinem Reporting-Pfad konsumiert."
+        ),
+    )
     notes: Optional[str]
     created_at: str
     updated_at: str

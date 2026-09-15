@@ -228,7 +228,17 @@ def test_direct_and_indirect_amortization_series_have_same_net_goal_credit():
     assert direct.target_amount_rappen == indirect.target_amount_rappen == 70_000_000
 
 
-def test_ahv_pension_is_state_funded_not_portfolio_liability():
+def test_ahv_pension_is_a_normal_portfolio_liability_now():
+    """PENSION-AHV-001 (Phase 0, 2026-09): vorher (siehe git history) wurde
+    ein AHV-Pensionsausgabe-Goal hier zu target_kind='state_funded' mit
+    target_amount_rappen=0 und success_probability_min_x100=10000 gebaut --
+    eine Liability, die der Optimizer komplett ignorieren konnte, obwohl es
+    keinerlei Beleg fuer eine tatsaechliche AHV-Rente gibt (kein
+    Betragsfeld in schemas/wealth.py GoalCreate/-Update). Fix: pension_pillar
+    aendert die Liability-Konstruktion nicht mehr -- ein AHV-Goal wird wie
+    jedes andere Wiederkehrende_Ausgabe/Pensionsausgabe-Goal via
+    _build_recurring_outflow() zu einem echten outflow_stream mit realem
+    Betrag und Erfolgs-Schwelle."""
     goal = _make_goal(
         goal_type="Pensionsausgabe",
         target_amount_rappen=30_000_00,
@@ -240,11 +250,27 @@ def test_ahv_pension_is_state_funded_not_portfolio_liability():
 
     liab = goal_to_liability(goal, horizon_years=10)
 
-    assert liab.target_kind == "state_funded"
-    assert liab.target_amount_rappen == 0
-    assert liab.liability_path_rappen == [0] * 10
-    assert liab.success_probability_min_x100 == 10000
-    assert liab.liability_path_rappen == [0] * 10
+    assert liab.target_kind == "outflow_stream"
+    assert liab.target_amount_rappen == 3_000_000
+    assert liab.liability_path_rappen == [0] * 9 + [3_000_000]
+    assert liab.target_year_index == 10
+    # Default-Erfolgsschwelle fuer outflow_stream-Goals (siehe
+    # _build_recurring_outflow), NICHT mehr die kuenstliche 100%
+    # (10000 x100) des fruehen state_funded-Sonderpfads.
+    assert liab.success_probability_min_x100 == 8000
+
+    # Regressionsschutz: identisch zu einem Goal OHNE pension_pillar --
+    # das Label allein darf die Liability nicht mehr veraendern.
+    goal_no_pillar = _make_goal(
+        goal_type="Pensionsausgabe",
+        target_amount_rappen=30_000_00,
+        horizon_years=10,
+        is_ongoing=1,
+        frequency="jaehrlich",
+        pension_pillar=None,
+    )
+    liab_no_pillar = goal_to_liability(goal_no_pillar, horizon_years=10)
+    assert liab == liab_no_pillar
 
 
 def test_vermoegensziel_real_applies_compound_inflation():

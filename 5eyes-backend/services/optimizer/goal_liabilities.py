@@ -292,11 +292,24 @@ def _uses_total_wealth_scope(goal: Goal) -> bool:
 
 
 def _is_state_funded_pension(goal: Goal) -> bool:
-    """AHV pension goals are funded outside the advised portfolio."""
-    return (
-        _norm_goal_type(getattr(goal, "goal_type", None)) == "Pensionsausgabe"
-        and str(getattr(goal, "pension_pillar", "") or "").strip() == "AHV"
-    )
+    """PENSION-AHV-001 (Phase 0, 2026-09): liefert IMMER False.
+
+    Frueher (siehe git history): True fuer pension_pillar='AHV' +
+    goal_type='Pensionsausgabe', wodurch der Optimizer fuer dieses Goal
+    target_kind='state_funded' setzte -- eine Liability mit target=0 und
+    success_probability_min_x100=10000, ausschliesslich weil das Label
+    'AHV' gesetzt war. Es existiert kein Feld/keine Reconciliation, die
+    eine tatsaechliche erwartete AHV-Rente erfasst (schemas/wealth.py
+    GoalCreate/-Update haben nur das reine Pillar-Label, keinen Betrag) --
+    die frueher automatisch erzeugte 100%-Deckung war also unbelegt.
+    Konservativer Fix: kein automatischer Staatsfinanzierungs-Bonus mehr;
+    ein AHV-Pensionsausgabe-Goal durchlaeuft denselben
+    _build_recurring_outflow()-Pfad wie jedes andere Wiederkehrende_Ausgabe/
+    Pensionsausgabe-Goal, bis eine echte Phase-1-Benefit-Reconciliation
+    existiert. _build_state_funded_pension() bleibt unten als vorbereiteter
+    Re-Entry-Punkt fuer Phase 1 stehen, wird aber aktuell nie mehr aufgerufen.
+    """
+    return False
 
 
 # ============================================================================
