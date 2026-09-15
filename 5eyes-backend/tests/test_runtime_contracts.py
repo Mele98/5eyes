@@ -2774,8 +2774,31 @@ def test_generate_target_allocation_exposes_simulation_and_asset_assumptions(ses
     assert assumptions["Aktien"]["expected_return_bps"] > assumptions["Obligationen"]["expected_return_bps"]
     assert assumptions["Liquiditaet"]["market_data_role"].startswith("Live-Preise")
     assert any("Pfadsimulation" in item for item in result["reasoning"])
+    # DECUM-DEPLETION-001: die vier Verzehr-/Depletion-Felder (#96) MUSSEN den
+    # Pydantic-Response-Schema-Roundtrip ueberleben -- vorher verwarf pydantic
+    # v2 (extra="ignore" default, Felder waren nie deklariert) sie lautlos, und
+    # das Frontend las "undefined" als 0% Verzehr-Risiko (Falsch-Negativ).
+    for key in (
+        "target_depletion_probability_pct",
+        "target_depletion_median_year",
+        "current_depletion_probability_pct",
+        "current_depletion_median_year",
+    ):
+        assert key in result["monte_carlo"]
     validated = TargetAllocationGenerateResponse.model_validate(result)
     assert validated.monte_carlo.simulations == 900
+    assert validated.monte_carlo.target_depletion_probability_pct == result["monte_carlo"]["target_depletion_probability_pct"]
+    assert validated.monte_carlo.current_depletion_probability_pct == result["monte_carlo"]["current_depletion_probability_pct"]
+    assert validated.monte_carlo.target_depletion_median_year == result["monte_carlo"]["target_depletion_median_year"]
+    assert validated.monte_carlo.current_depletion_median_year == result["monte_carlo"]["current_depletion_median_year"]
+    # Reine Akkumulation in dieser Fixture -> kein Verzehr, aber die Felder muessen
+    # trotzdem als echte 0 / None ankommen (nicht als fehlend).
+    assert validated.monte_carlo.target_depletion_probability_pct == 0
+    assert validated.monte_carlo.target_depletion_median_year is None
+    # model_dump() muss die Felder ebenfalls ausgeben (API-Response-Serialisierung).
+    dumped = validated.monte_carlo.model_dump()
+    assert dumped["target_depletion_probability_pct"] == 0
+    assert dumped["target_depletion_median_year"] is None
 
 
 def test_generate_target_allocation_goal_analysis_exposes_timing_and_return_targets(session_factory, advisor_user):

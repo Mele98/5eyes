@@ -1238,6 +1238,21 @@ class MonteCarloResponse(BaseModel):
     target_max_drawdown_p50_bps: int
     target_max_drawdown_p95_bps: int
     target_downside_probability_pct: int
+    # DECUM-DEPLETION-001: #96 Verzehr-/Sequence-of-Returns-Kennzahl. Die Engine
+    # (services/portfolio_engine_mc_simulation.py::_sequence_of_returns_depletion)
+    # liefert diese vier Felder immer im Rohdict, aber pydantic v2's Default
+    # extra="ignore" verwarf sie bisher lautlos, weil sie hier nie deklariert
+    # waren -- das Frontend las dann "undefined" und rechnete es als 0% Verzehr-
+    # Risiko (gefaehrlicher Falsch-Negativ). *_probability_pct ist Optional statt
+    # ein hartes int, obwohl die Engine sie nie als None liefert: so bleibt ein
+    # kuenftig fehlender Schluessel (z.B. Legacy-Cache) als "nicht verfuegbar"
+    # sichtbar statt lautlos zu 0 zu werden. *_median_year ist None, wenn KEIN
+    # simulierter Pfad vor Horizontende erschoepft war -- das ist ein valider,
+    # haeufiger Fall (v.a. in der Akkumulation), keine fehlende Angabe.
+    target_depletion_probability_pct: Optional[int] = Field(default=None, ge=0, le=100)
+    target_depletion_median_year: Optional[int] = None
+    current_depletion_probability_pct: Optional[int] = Field(default=None, ge=0, le=100)
+    current_depletion_median_year: Optional[int] = None
     goal_summaries: list[MonteCarloGoalSummaryResponse]
     current_goal_summaries: list[MonteCarloGoalSummaryResponse] = Field(default_factory=list)
 
