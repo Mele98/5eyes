@@ -910,6 +910,11 @@ def _monte_carlo_goal_summary(
     # 2026-07-24 (goals-1, Formel-Audit): siehe Kommentar an der Verzweigung
     # unten -- ein Flag statt der Bedingung zweimal zu wiederholen, weil sie
     # auch den pessimistic_shortfall_rappen-Block betrifft.
+    # PENSION-AHV-001 (Phase 0, 2026-09): _goal_pension_state_funded() liefert
+    # jetzt immer False (siehe services/portfolio_engine_reserve.py), also ist
+    # dieses Flag aktuell immer False und der elif-Zweig unten unerreichbar.
+    # Bewusst NICHT entfernt: er bleibt der vorgesehene Re-Entry-Punkt fuer
+    # eine kuenftige Phase-1-Benefit-Reconciliation (echter AHV/BVG-Betrag).
     pension_state_funded_goal = (
         goal_type in ("Einmalige_Ausgabe", "Wiederkehrende_Ausgabe", "Pensionsausgabe")
         and _goal_pension_state_funded(goal)

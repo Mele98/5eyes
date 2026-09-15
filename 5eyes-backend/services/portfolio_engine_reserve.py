@@ -205,12 +205,29 @@ def _goal_is_conditional(goal: object) -> bool:
 
 
 # Sprint B3 (2026-05-08): Vorsorge-Saeulen-Differenzierung.
-# AHV ist staatlich gedeckt -> kein Reserve-Beitrag aus dem Beratungsportfolio,
-# Goal-Score wird als 'voll erfuellt' gewertet (funded_ratio 100%).
-# BVG/3a/1e/FZG werden hier (Phase 1) nicht engine-seitig differenziert; sie
-# fungieren als Metadata fuer FE-Anzeige und spaetere Liability-Pfade.
+# pension_pillar bleibt reine Metadata fuer FE-Anzeige (Badge) und spaetere
+# Liability-Pfade; BVG/3a/1e/FZG wurden bereits in Phase 1 nicht
+# engine-seitig differenziert.
+#
+# PENSION-AHV-001 (Phase 0, 2026-09): AHV wurde hier zuvor als automatisch
+# 'voll erfuellt' behandelt -- ein AHV-Pensionsausgabe-Goal trug 0 zur
+# Liquiditaetsreserve bei und wurde im Scoring/MC-Pfad mit funded_ratio=100%
+# bewertet, ausschliesslich weil pension_pillar='AHV' gesetzt war. Es gibt
+# KEIN Feld/keinen Mechanismus, der eine tatsaechliche erwartete AHV-Rente
+# erfasst oder gegen das Ziel abgleicht (schemas/wealth.py GoalCreate/-Update
+# haben keinen Betrag/keine Reconciliation fuer diese Saeule) -- die
+# 100%-Deckung war also ein reiner Label-Fake ohne oekonomische Grundlage.
+# Repro: ein CHF 1'000'000/Jahr AHV-Goal ohne jegliches Portfolio-Vermoegen
+# ergab reserve_needed_external=0, MC-Erfolg=100%, funded_ratio=1.0.
+# Fix (konservativ, fail-safe): der automatische Staatsfinanzierungs-Bonus
+# entfaellt vollstaendig. Ein AHV-Pensionsausgabe-Goal durchlaeuft ab sofort
+# dieselbe Reserve-/Liability-/MC-Berechnung wie jedes andere Ausgabenziel,
+# bis eine echte Benefit-Reconciliation (Phase 1, eigenes Datenmodell)
+# existiert. PENSION_PILLAR_STATE_FUNDED bleibt als leeres Tuple stehen,
+# damit der Call-Site-Vertrag (pillar in PENSION_PILLAR_STATE_FUNDED)
+# unveraendert bleibt und ein zukuenftiger Phase-1-Wiedereinbau lokal bleibt.
 PENSION_PILLARS = ("AHV", "BVG", "3a", "1e", "FZG")
-PENSION_PILLAR_STATE_FUNDED = ("AHV",)
+PENSION_PILLAR_STATE_FUNDED: tuple[str, ...] = ()
 
 
 def _goal_pension_pillar(goal: object) -> str | None:
@@ -222,6 +239,14 @@ def _goal_pension_pillar(goal: object) -> str | None:
 
 
 def _goal_pension_state_funded(goal: object) -> bool:
+    """PENSION-AHV-001: liefert IMMER False (Phase 0).
+
+    Frueher: True fuer pension_pillar='AHV' + goal_type='Pensionsausgabe',
+    was das Goal ohne jeglichen Beleg als 100%-staatlich-gedeckt auswies.
+    Ohne eine Benefit-Reconciliation (Phase 1) ist der einzige oekonomisch
+    korrekte Default, ein solches Goal wie jedes andere Ausgabenziel zu
+    behandeln -- siehe Modul-Kommentar oberhalb von PENSION_PILLAR_STATE_FUNDED.
+    """
     # Lazy Import (Zirkular-Import-Haertung, siehe Modul-Docstring).
     from services.portfolio_engine import _norm_text
 
@@ -251,9 +276,14 @@ def _goal_reserve_for_goal(goal: Goal) -> int:
     nicht von der Reserve-Empfehlung abweicht.
     Sprint B6 (2026-05-08): Bedingte Goals — target * (probability_pct/100)
     bevor Mode-Faktor angewandt wird.
-    Sprint B3 (2026-05-08): AHV-Goals werden als 'voll erfuellt' gewertet
-    (Score 100%): wir liefern den vollen target zurueck, weil die staatliche
-    Saeule die Auszahlung deckt — kein Portfolio-Asset noetig.
+    PENSION-AHV-001 (Phase 0, 2026-09): frueher (Sprint B3) lieferten
+    AHV-Goals hier unconditionally den vollen target zurueck ('voll
+    erfuellt', Score 100%), weil pension_pillar='AHV' allein als Beleg fuer
+    staatliche Deckung galt. _goal_pension_state_funded() liefert jetzt
+    immer False, dieser Zweig ist also nur noch fuer eine kuenftige
+    Phase-1-Benefit-Reconciliation vorbereitet und wird aktuell nie mehr
+    True zurueckgeben -- AHV-Goals durchlaufen wie jedes andere Ausgabenziel
+    den normalen Reserve-Pfad unterhalb.
     """
     # Lazy Import (Zirkular-Import-Haertung, siehe Modul-Docstring).
     from services.portfolio_engine import _annualize_goal_amount, _goal_projection_years, _norm_text
@@ -373,8 +403,9 @@ def _compute_reserve_for_inputs(
         years = _goal_projection_years(goal)
         goal_type = _norm_text(goal.goal_type)
         if goal_type in ("Einmalige_Ausgabe", "Wiederkehrende_Ausgabe", "Pensionsausgabe"):
-            # Sprint B3: AHV-Goals sind staatlich gedeckt -> kein Reserve-Beitrag
-            # aus dem Beratungsportfolio. Reasoning erklaert die Auslassung.
+            # PENSION-AHV-001: _goal_pension_state_funded() liefert seit Phase 0
+            # immer False -- dieser Zweig ist totes Code fuer die kuenftige
+            # Phase-1-Benefit-Reconciliation und wird aktuell nie betreten.
             if _goal_pension_state_funded(goal):
                 if reasoning is not None:
                     pillar = _goal_pension_pillar(goal) or "AHV"

@@ -4813,7 +4813,7 @@ function _wireSollIstHover(){
             <option value="1e">1e-Plan</option>
             <option value="FZG">Freizügigkeit (FZG)</option>
           </select>
-          <div style="font-size:10px;color:var(--n5);margin-top:2px">AHV-Goals sind staatlich gedeckt — keine Portfolio-Reserve nötig.</div>
+          <div style="font-size:10px;color:var(--n5);margin-top:2px">PENSION-AHV-001: die Säule ist reine Kennzeichnung. Ohne belegte AHV-Leistung (Phase 1) benötigt das Ziel dieselbe Portfolio-Reserve wie jedes andere Ausgabenziel.</div>
         </div>
       </div>
       <details class="m-acf-field" id="nz-success-prob-field" data-goal-field="success-prob-min" data-stage6-id="m-acf-success-prob-min" style="margin-top:4px">
@@ -26561,7 +26561,7 @@ function goalBadgeHtml(goal){
   }
   var pillar=goal&&goal.pension_pillar;
   if(pillar&&['AHV','BVG','3a','1e','FZG'].indexOf(String(pillar))>=0){
-    var pillarTitle=pillar==='AHV'?'AHV: staatliche 1. Säule — keine Portfolio-Reserve':'Vorsorge-Säule '+pillar;
+    var pillarTitle=pillar==='AHV'?'AHV: staatliche 1. Säule (ohne Leistungsnachweis wie normales Ausgabenziel behandelt)':'Vorsorge-Säule '+pillar;
     badges.push('<span style="font-size:9px;font-weight:700;color:#0c4a6e;background:rgba(14,116,144,0.10);border-radius:999px;padding:2px 6px;white-space:nowrap" title="'+escapeHtml(pillarTitle)+'">'+escapeHtml(pillar)+'</span>');
   }
   return badges.join('');

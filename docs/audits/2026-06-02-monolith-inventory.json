@@ -19468,8 +19468,8 @@
     }
   ],
   "source_path": "5eyes-electron/frontend/5eyes_v2.html",
-  "source_sha256": "4fc8a4aff12c3cec3cfaf50de289fe5c2796c76393c86b27b73c4289195ada59",
-  "source_size_bytes": 1701567,
+  "source_sha256": "edcd45c6714707a22605e808c438a3922481ded43bfe27c432885e7b7555d3b8",
+  "source_size_bytes": 1701697,
   "sub_sections": [
     {
       "class": "admin-sec-btn",
