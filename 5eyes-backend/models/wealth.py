@@ -176,6 +176,11 @@ class PlanningAssumption(Base):
     life_expectancy_primary = Column(Integer)
     life_expectancy_partner = Column(Integer)
     inflation_assumption_bps = Column(Integer)
+    # PENSION-INDEXATION-001: persistiert, aber aktuell von KEINEM
+    # Simulations-/Projektions-/Reporting-Pfad konsumiert (repo-weiter Audit,
+    # 2026-09). Siehe schemas/wealth.py::PlanningAssumptionCreate.pension_indexation_bps
+    # fuer den vollen Hinweis. Nicht rechenwirksam, bis Phase 1 (Renten-
+    # Indexierungsmethodik) umgesetzt ist.
     pension_indexation_bps = Column(Integer)
     notes = Column(String)
     created_at = Column(String, nullable=False)

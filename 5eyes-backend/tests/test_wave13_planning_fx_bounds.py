@@ -27,7 +27,7 @@ from database import Base, get_db
 from main import app
 from models.users import User
 from services.auth import get_current_user
-from schemas.wealth import PlanningAssumptionCreate
+from schemas.wealth import PlanningAssumptionCreate, PlanningAssumptionResponse
 
 
 def _now_iso() -> str:
@@ -64,6 +64,28 @@ def test_planning_assumption_allows_omitted_fields():
     pa = PlanningAssumptionCreate()
     assert pa.retirement_age_primary is None
     assert pa.inflation_assumption_bps is None
+
+
+# ── PENSION-INDEXATION-001 (Phase-0-Gate, 2026-09) ─────────────────────────
+# pension_indexation_bps ist repo-weit verifiziert OHNE produktiven Konsumenten
+# (kein Loader/Liability-Builder/Cashflow-Timeline/Optimizer/Reporting/PDF/
+# Snapshot liest es). Bis Phase 1 (Renten-Indexierungsmethodik) umgesetzt ist,
+# muss das Feld ehrlich als nicht rechenwirksam dokumentiert sein, statt (wie
+# vorher durch den generischen Klassen-Kommentar impliziert) zu behaupten, es
+# fliesse in jede MC-Simulation/Ziel-Projektion ein.
+
+def test_pension_indexation_bps_create_field_documents_non_computational_status():
+    field = PlanningAssumptionCreate.model_fields["pension_indexation_bps"]
+    assert field.description is not None
+    assert "PENSION-INDEXATION-001" in field.description
+    assert "NICHT rechenwirksam" in field.description
+
+
+def test_pension_indexation_bps_response_field_documents_non_computational_status():
+    field = PlanningAssumptionResponse.model_fields["pension_indexation_bps"]
+    assert field.description is not None
+    assert "PENSION-INDEXATION-001" in field.description
+    assert "NICHT rechenwirksam" in field.description
 
 
 # ── FX-Rate upper bound (Endpoint-Ebene, kein Pydantic-Field) ──────────────
