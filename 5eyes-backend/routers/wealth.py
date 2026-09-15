@@ -501,6 +501,28 @@ def _validate_mortgage_link(client_id: str, data: dict, db: Session) -> None:
         )
 
 
+def _validate_goal_link(client_id: str, data: dict, db: Session) -> None:
+    """PENSION-POSITION-001 Option A (2026-09-15): Goal.linked_position_id war
+    bislang ein blankes Optional[str] ohne jede Validierung -- konnte auf eine
+    geloeschte, inaktive oder sogar fremde-Kunden-Position zeigen, ohne dass
+    das beim Speichern je auffiel. Spiegelt exakt _validate_mortgage_link()
+    oben: existiert, aktiv, gleicher Kunde -> sonst 422 statt stillem Datenmuell."""
+    linked_position_id = data.get("linked_position_id")
+    if not linked_position_id:
+        return
+    linked_position = db.query(WealthPosition).filter(
+        WealthPosition.id == linked_position_id,
+        WealthPosition.client_id == client_id,
+        WealthPosition.is_active == 1,
+        WealthPosition.deleted_at.is_(None),
+    ).first()
+    if not linked_position:
+        raise HTTPException(
+            status_code=422,
+            detail="Verknüpfte Vermögensposition muss eine aktive Position desselben Kunden sein",
+        )
+
+
 # ── Wealth Positions ───────────────────────────────────────────────────────────
 
 @router.get("/clients/{client_id}/wealth-positions", response_model=list[WealthPositionResponse])
@@ -787,6 +809,7 @@ def create_goal(
     enforce_data_classification(payload.pop("data_classification", None))
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
     data = _normalize_goal_payload(payload)
+    _validate_goal_link(mandate.client_id, data, db)
     # Sprint 2026-06-06 Fix: Rang-Konflikt auto-aufloesen statt 409. Hintergrund:
     # Frontend mapped Haerte->Rang naiv (Hart=1, Primaer=2, Opp=3), so dass max
     # 3 Goals erfassbar waren. Loesung: bei Conflict auto-shift auf max+1.
@@ -832,6 +855,7 @@ def update_goal(
     if not goal:
         raise HTTPException(status_code=404, detail="Ziel nicht gefunden")
     updates = _normalize_goal_payload(updates, goal)
+    _validate_goal_link(mandate.client_id, updates, db)
     new_rank = updates.get("rank")
     if new_rank is not None and int(new_rank) != int(goal.rank or 0):
         # Sprint 2026-06-06 Fix: Rang-Konflikt beim Update auto-aufloesen statt 409.
