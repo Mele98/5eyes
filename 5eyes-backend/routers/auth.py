@@ -122,15 +122,34 @@ def _issue_token_response(user: User, db: Session | None = None, request: Reques
     )
 
 
-def _totp_replay_check_and_record(db: Session, user: User) -> bool:
+def _totp_replay_check_and_record(db: Session, user: User, code: str) -> bool:
     """AUTH-06: Anti-Replay fuer TOTP-Login. services/totp.verify() prueft nur,
     ob der Code zum aktuellen Zeitfenster (+/-1 Zeitschritt) passt — ohne
-    Gedaechtnis kann derselbe (mitgelesene) Code beliebig oft im selben
-    Zeitfenster wiederverwendet werden. Diese Funktion haelt den zuletzt
-    akzeptierten HOTP-Zeitschritt am User fest (totp_last_counter) und liefert
-    True, wenn der aktuelle Zeitschritt bereits verwendet wurde (Replay) — der
-    Aufrufer MUSS den Login dann verweigern. services/totp.py bleibt
-    unveraendert.
+    Gedaechtnis kann derselbe (mitgelesene) Code beliebig oft wiederverwendet
+    werden. Diese Funktion haelt den zuletzt akzeptierten HOTP-Zeitschritt
+    (totp_last_counter) UND den sha256-Hash des zuletzt akzeptierten Codes
+    (totp_last_code_hash) am User fest und liefert True, wenn der Code als
+    Replay gilt — der Aufrufer MUSS den Login dann verweigern. services/totp.py
+    bleibt unveraendert.
+
+    SEC-TOTP-REPLAY-WINDOW (2026-09-15): die reine Zeitschritt-Monotonie
+    (totp_last_counter IS NULL OR < counter) reicht NICHT aus. Ein bei
+    Zeitschritt N verwendeter Code bleibt dank der +/-1-Drift-Toleranz in
+    services/totp.py::verify() auch bei Server-Zeitschritt N+1 noch
+    kryptografisch gueltig -- und die reine Zaehler-Pruefung last(N) < N+1
+    liess das Akzeptieren in genau diesem Fall faelschlich zu (empirisch durch
+    intermittierend fehlschlagende Tests bestaetigt, wenn ein Testlauf zufaellig
+    ueber eine Fensterrand-Grenze fiel). Fix: zusaetzlich zur Zaehler-Monotonie
+    muss sich der sha256-Hash des Codes vom zuletzt gespeicherten Hash
+    unterscheiden -- ein woertlich identischer Code wird damit unabhaengig vom
+    Fortschritt des Zeitfensters abgelehnt. Hashing analog reset_token_hash/
+    invite_token_hash (services/account_recovery.py::_sha256 bzw.
+    routers/auth.py::_hash_invite_token) -- der Klartext-Code landet nicht in
+    der DB. Die Zaehler-Pruefung bleibt zusaetzlich bestehen (nicht redundant):
+    sie faengt z.B. eine Uhr-Manipulation/Zaehler-Regression ab, bei der ein
+    aelterer, kryptografisch noch gueltiger Code (anderer Zeitschritt, anderer
+    Hash) erneut vorgelegt wird, waehrend bereits ein spaeterer Zeitschritt
+    akzeptiert wurde.
 
     AUTH-TEN-08 (Teil 2, Codex-Audit-Followup 2026-08-25): war bisher ein
     read-then-write-Vergleich auf dem (noch nicht committeten) ORM-Objekt --
@@ -145,8 +164,12 @@ def _totp_replay_check_and_record(db: Session, user: User) -> bool:
     als Gewinner; der Verlierer sieht rowcount==0 und wird wie ein Replay
     behandelt. CAST auf Integer statt Text-Vergleich, weil totp_last_counter
     als TEXT gespeichert ist -- ein reiner String-Vergleich waere bei
-    wachsender Ziffernzahl (acht- vs. neunstelliger Zeitschritt) falsch."""
+    wachsender Ziffernzahl (acht- vs. neunstelliger Zeitschritt) falsch. Der
+    neue Hash-Vergleich ist Teil DERSELBEN Core-UPDATE-WHERE-Klausel -- kein
+    separates read-then-write, damit die hier bereits gefixte Race bestehen
+    bleibt."""
     counter = int(time.time() // _TOTP_PERIOD_SECONDS)
+    code_hash = hashlib.sha256((code or "").encode("utf-8")).hexdigest()
     result = db.execute(
         _sa_update(User)
         .where(
@@ -155,12 +178,17 @@ def _totp_replay_check_and_record(db: Session, user: User) -> bool:
                 User.totp_last_counter.is_(None),
                 _sa_cast(User.totp_last_counter, _sa_Integer) < counter,
             ),
+            or_(
+                User.totp_last_code_hash.is_(None),
+                User.totp_last_code_hash != code_hash,
+            ),
         )
-        .values(totp_last_counter=str(counter))
+        .values(totp_last_counter=str(counter), totp_last_code_hash=code_hash)
     )
     if result.rowcount == 0:
         return True
     user.totp_last_counter = str(counter)  # ORM-Objekt synchron halten (Core-Update oben)
+    user.totp_last_code_hash = code_hash  # dito
     return False
 
 
@@ -355,7 +383,7 @@ def login(body: LoginRequest, request: Request, db: Session = Depends(get_db)):
         else:
             # AUTH-06: gueltiger TOTP-Code — aber schon in diesem/einem
             # frueheren Zeitschritt verwendet (Replay, z.B. mitgelesener Code)?
-            if _totp_replay_check_and_record(db, user):
+            if _totp_replay_check_and_record(db, user, code):
                 failure = login_attempt_guard.register_failure(guard_key)
                 headers = {"Retry-After": str(failure.retry_after_seconds)} if failure.retry_after_seconds else None
                 raise HTTPException(status_code=401, detail="2FA-Code bereits verwendet", headers=headers)

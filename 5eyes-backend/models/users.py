@@ -51,6 +51,17 @@ class User(Base):
     # demselben oder einem frueheren Zeitschritt wird abgelehnt. services/totp.py
     # bleibt unveraendert; die Speicherung/Pruefung lebt im Login-Flow.
     totp_last_counter = Column(String)
+    # SEC-TOTP-REPLAY-WINDOW (2026-09-15): totp_last_counter alleine erkennt
+    # keinen Replay, sobald die Server-Uhr in das naechste Zeitfenster
+    # weitergerueckt ist — services/totp.py::verify() akzeptiert denselben
+    # Code wegen der +/-1-Drift-Toleranz weiterhin, und die reine
+    # Zaehler-Monotonie (last < counter) laesst das Update dann zu. Diese
+    # Spalte haelt zusaetzlich sha256(zuletzt akzeptierter Code) fest (analog
+    # reset_token_hash/invite_token_hash oben — Klartext-Code wird NICHT
+    # gespeichert) und blockiert die woertliche Wiederverwendung desselben
+    # Codes unabhaengig vom Zeitfenster. Laufzeit-Migration bestehender DBs:
+    # database.ensure_runtime_columns.
+    totp_last_code_hash = Column(String)
 
     @property
     def invite_pending(self) -> bool:
