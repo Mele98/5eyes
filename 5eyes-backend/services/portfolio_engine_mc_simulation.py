@@ -258,19 +258,41 @@ def _weights_from_bucket_values(values: dict[str, int]) -> dict[str, int]:
     }
 
 
-def _apply_cashflow_to_bucket_values(values: dict[str, int], cashflow_rappen: int) -> int:
-    """Applies cashflow to bucket values. Returns deficit remainder if buckets are exhausted.
+def _apply_cashflow_to_bucket_values(
+    values: dict[str, int],
+    cashflow_rappen: int,
+    outstanding_deficit_rappen: int = 0,
+) -> int:
+    """Applies cashflow to bucket values. Returns the SIGNED delta to add to the
+    caller's deficit accumulator (``deficit += _apply_cashflow_to_bucket_values(...)``).
 
-    Positive cashflow lands in liquidity. Negative cashflow draws from buckets in order
-    (liquidity, bonds, equities, alternatives, real_estate). If all buckets are zero and
-    negative remainder still exists, returns it as positive int so the caller can
-    accumulate it as a separate deficit (Lebensluecke). For non-negative input or fully
-    funded outflow, returns 0.
+    DECUM-DEFICIT-001 (2026-09): previously a positive cashflow always landed
+    100% in the ``liquidity`` bucket, even while an accumulated deficit
+    (Lebensluecke) already existed from an earlier unmet outflow. That let a
+    later inflow get invested and earn market return while the old debt sat
+    frozen, un-repaid, until the terminal summation -- diverging from
+    services/optimizer/scenario_engine.py's already-correct convention
+    (``grown = where(prev > 0, prev * growth_factor, prev)`` then the
+    cashflow is added DIRECTLY to the single scalar wealth value, so a
+    positive inflow nets against negative wealth immediately, before any
+    further growth applies to it). This function now nets a positive
+    cashflow against ``outstanding_deficit_rappen`` FIRST (debt-first
+    repayment, no growth on money that is conceptually still owed); only the
+    residual (inflow minus repaid deficit, floored at zero) is invested into
+    the liquidity bucket. The two engine paths now agree.
+
+    Negative cashflow draws from buckets in order (liquidity, bonds,
+    equities, alternatives, real_estate). If all buckets are zero and a
+    negative remainder still exists, it is returned as a positive int so the
+    caller can accumulate it as additional deficit.
     """
     amount = int(cashflow_rappen or 0)
     if amount >= 0:
-        values["liquidity"] = int(values.get("liquidity", 0)) + amount
-        return 0
+        outstanding = max(0, int(outstanding_deficit_rappen or 0))
+        repayment = min(outstanding, amount)
+        residual = amount - repayment
+        values["liquidity"] = int(values.get("liquidity", 0)) + residual
+        return -repayment
     remaining = abs(amount)
     for key in ("liquidity", "bonds", "equities", "alternatives", "real_estate"):
         available = max(0, int(values.get(key, 0)))
@@ -337,8 +359,11 @@ def _simulate_bucket_path(
             else:
                 growth = 1 + r
             values[key] = int(round(max(0, values[key]) * growth))
-        deficit_rest = _apply_cashflow_to_bucket_values(values, int(contribution or 0))
-        accumulated_deficit += deficit_rest
+        # DECUM-DEFICIT-001: pass the outstanding deficit so a positive
+        # contribution nets against it debt-first (see function docstring).
+        accumulated_deficit += _apply_cashflow_to_bucket_values(
+            values, int(contribution or 0), accumulated_deficit
+        )
         weights = _weights_from_bucket_values(values)
         breached = []
         for key in BUCKET_FIELDS:
@@ -1422,11 +1447,24 @@ def _run_allocation_monte_carlo(
                 target_year1_market_value = target_post_growth
                 current_year1_market_value = current_post_growth
 
-            current_deficit += _apply_cashflow_to_bucket_values(current_values, int(contribution or 0))
-            target_deficit += _apply_cashflow_to_bucket_values(target_values, int(contribution or 0))
+            # DECUM-DEFICIT-001: each path passes its OWN outstanding deficit
+            # counter so a positive contribution nets against it debt-first,
+            # matching the deterministic _simulate_bucket_path convention.
+            # The four counters never cross-contaminate: each is threaded
+            # through independently for its own values dict.
+            current_deficit += _apply_cashflow_to_bucket_values(
+                current_values, int(contribution or 0), current_deficit
+            )
+            target_deficit += _apply_cashflow_to_bucket_values(
+                target_values, int(contribution or 0), target_deficit
+            )
             if total_current_values is not None:
-                total_current_deficit += _apply_cashflow_to_bucket_values(total_current_values, int(contribution or 0))
-                total_target_deficit += _apply_cashflow_to_bucket_values(total_target_values, int(contribution or 0))
+                total_current_deficit += _apply_cashflow_to_bucket_values(
+                    total_current_values, int(contribution or 0), total_current_deficit
+                )
+                total_target_deficit += _apply_cashflow_to_bucket_values(
+                    total_target_values, int(contribution or 0), total_target_deficit
+                )
 
             if rebalance_mode in ("bands", "calendar"):
                 target_weights = _weights_from_bucket_values(target_values)
