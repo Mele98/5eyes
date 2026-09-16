@@ -151,10 +151,16 @@ def test_b3_create_amortization_without_mortgage_allowed(
     assert resp.status_code == 201, resp.text
 
 
-def test_b3_create_zinsen_with_mortgage_allowed(
+def test_b3_create_zinsen_with_mortgage_blocked(
     auth_client, session_factory, advisor
 ):
-    """Hypothek-Zinsen sind echter Aufwand und MUESSEN als Cashflow erfasst werden."""
+    """PROPERTY-FLOW-DUPLICATION-001 (Audit 2026-09-14): korrigiert die
+    urspruengliche B3-Annahme. derive_wealth_cashflows() leitet Hypothekarzins
+    laengst automatisch aus JEDER aktiven Hypothek-Position ab
+    ("Hypothekarzins: {label}"-Expense) -- ein manueller "Hypothek-Zinsen"-
+    Cashflow ist daher KEIN zusaetzlich noetiger Aufwand mehr, sondern eine
+    Dublette, die den Zins doppelt zaehlt (Audit-Repro 1: manueller + derived
+    Zins ergaben zusammen 400 statt 200)."""
     cid = _make_client_with_mortgage(session_factory, advisor)
     resp = auth_client.post(
         f"/clients/{cid}/cashflows",
@@ -162,6 +168,26 @@ def test_b3_create_zinsen_with_mortgage_allowed(
             "cashflow_type": "Expense",
             "label": "Hypothek-Zinsen",
             "amount_rappen": 9_000_00,
+            "frequency": "jährlich",
+        },
+    )
+    assert resp.status_code == 422, resp.text
+    assert "Hypothekarzins" in resp.text or "Hypothek" in resp.text
+
+
+def test_b3_create_generic_interest_label_without_hypothek_word_allowed(
+    auth_client, session_factory, advisor
+):
+    """Regressionsschutz: ein Zins-Label OHNE das Wort 'Hypothek' (z.B. fuer
+    ein separates Liquiditaets-/Sparkonto) bleibt unveraendert erlaubt --
+    der Guard prueft explizit auf 'hypothek' UND 'zins' gemeinsam."""
+    cid = _make_client_with_mortgage(session_factory, advisor)
+    resp = auth_client.post(
+        f"/clients/{cid}/cashflows",
+        json={
+            "cashflow_type": "Expense",
+            "label": "Sparzins Belastung",
+            "amount_rappen": 500_00,
             "frequency": "jährlich",
         },
     )
@@ -193,13 +219,16 @@ def test_b3_create_income_with_amortization_label_allowed(
 def test_b3_update_label_to_amortization_returns_422(
     auth_client, session_factory, advisor
 ):
-    """Bestehender Cashflow wird auf 'Tilgung' umbenannt -> 422."""
+    """Bestehender Cashflow wird auf 'Tilgung' umbenannt -> 422. Startlabel
+    bewusst neutral (kein Hypothek-Zins-Label mehr, siehe
+    PROPERTY-FLOW-DUPLICATION-001 -- das waere seit dem Fix schon beim CREATE
+    blockiert)."""
     cid = _make_client_with_mortgage(session_factory, advisor)
     resp_create = auth_client.post(
         f"/clients/{cid}/cashflows",
         json={
             "cashflow_type": "Expense",
-            "label": "Hypothek-Zinsen",
+            "label": "Sonstige Ausgabe",
             "amount_rappen": 9_000_00,
             "frequency": "jährlich",
         },
