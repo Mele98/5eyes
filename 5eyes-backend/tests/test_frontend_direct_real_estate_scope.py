@@ -48,7 +48,8 @@ def test_frontend_listed_real_estate_defaults_match_backend_450_bps():
     subasset_defaults = html.split(
         "var ADMIN_CMA_SUBASSET_DEFAULTS = [", 1
     )[1].split("];", 1)[0]
-    projection_inputs = html.split("function wealthProjectionInputs(scope){", 1)[1].split(
+    # PROPERTY-UI-PROJECTION-001 (2026-09-14): Signatur um years erweitert.
+    projection_inputs = html.split("function wealthProjectionInputs(scope,years){", 1)[1].split(
         "function cashflowProjectionComponents(row){", 1
     )[0]
 

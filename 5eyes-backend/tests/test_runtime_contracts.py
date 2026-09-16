@@ -51,6 +51,7 @@ from routers.wealth import (
     create_goal,
     create_wealth_position,
     delete_cashflow,
+    delete_wealth_position,
     get_planning_assumptions_ui,
     list_wealth_positions,
     upsert_planning_assumptions,
@@ -2436,6 +2437,115 @@ def test_update_wealth_position_rejects_extreme_property_return_using_db_positio
     with session_factory() as session:
         prop = session.query(WealthPosition).filter(WealthPosition.id == "property-risk-1").first()
         assert prop.asset_expected_return_bps == 150
+
+
+def _seed_linked_property_and_mortgage(session_factory, client_id, advisor_user):
+    with session_factory() as session:
+        session.add(
+            WealthPosition(
+                id="property-1",
+                client_id=client_id,
+                label="Eigentumswohnung Zürich",
+                position_type="Immobilien",
+                assignment="Anderes Vermögen",
+                current_value_rappen=120000000,
+                currency="CHF",
+                property_usage="Selbstgenutzt",
+                is_active=1,
+                created_at="2026-03-27T00:00:00.000Z",
+                updated_at="2026-03-27T00:00:00.000Z",
+            )
+        )
+        session.commit()
+
+    with session_factory() as session:
+        result = create_wealth_position(
+            client_id=client_id,
+            body=WealthPositionCreate(
+                label="Hypothek Eigenheim",
+                position_type="Hypothek",
+                assignment="Verbindlichkeit",
+                current_value_rappen=78000000,
+                mortgage_bank="UBS",
+                mortgage_type="Festhypothek",
+                mortgage_linked_property_id="property-1",
+            ),
+            db=session,
+            current_user=advisor_user,
+        )
+    return result.id
+
+
+def test_delete_property_rejected_while_mortgage_still_linked_and_active(session_factory, advisor_user):
+    """MORTGAGE-LINK-001: der Write-time-Guard (_validate_mortgage_link) allein
+    verhindert keinen Orphan -- eine gueltig verknuepfte Immobilie durfte
+    bisher trotz aktiver Hypothek soft-deleted werden."""
+    client_id, _ = seed_client_and_mandate(session_factory, advisor_user)
+    _seed_linked_property_and_mortgage(session_factory, client_id, advisor_user)
+
+    with session_factory() as session:
+        with pytest.raises(HTTPException) as exc_info:
+            delete_wealth_position(
+                client_id=client_id,
+                wp_id="property-1",
+                db=session,
+                current_user=advisor_user,
+            )
+    assert exc_info.value.status_code == 422
+    assert "verknüpfte Hypothek" in exc_info.value.detail
+
+    # Property bleibt aktiv/undeleted -- kein Orphan-Link entstanden.
+    with session_factory() as session:
+        prop = session.query(WealthPosition).filter(WealthPosition.id == "property-1").first()
+        assert prop.deleted_at is None
+        assert prop.is_active == 1
+
+
+def test_deactivate_property_rejected_while_mortgage_still_linked_and_active(session_factory, advisor_user):
+    """Symmetrischer Guard fuer den Deactivate-Pfad (is_active=false via PUT),
+    nicht nur fuer Soft-Delete."""
+    client_id, _ = seed_client_and_mandate(session_factory, advisor_user)
+    _seed_linked_property_and_mortgage(session_factory, client_id, advisor_user)
+
+    with session_factory() as session:
+        with pytest.raises(HTTPException) as exc_info:
+            update_wealth_position(
+                client_id=client_id,
+                wp_id="property-1",
+                body=WealthPositionUpdate(is_active=False),
+                db=session,
+                current_user=advisor_user,
+            )
+    assert exc_info.value.status_code == 422
+    assert "verknüpfte Hypothek" in exc_info.value.detail
+
+
+def test_delete_property_allowed_once_mortgage_deactivated_first(session_factory, advisor_user):
+    """Nach Re-link/Deaktivierung der Hypothek ist der Delete-Pfad wieder frei
+    -- der Guard blockiert nur, solange eine aktive Hypothek verknuepft ist."""
+    client_id, _ = seed_client_and_mandate(session_factory, advisor_user)
+    mortgage_id = _seed_linked_property_and_mortgage(session_factory, client_id, advisor_user)
+
+    with session_factory() as session:
+        update_wealth_position(
+            client_id=client_id,
+            wp_id=mortgage_id,
+            body=WealthPositionUpdate(is_active=False),
+            db=session,
+            current_user=advisor_user,
+        )
+
+    with session_factory() as session:
+        delete_wealth_position(
+            client_id=client_id,
+            wp_id="property-1",
+            db=session,
+            current_user=advisor_user,
+        )
+
+    with session_factory() as session:
+        prop = session.query(WealthPosition).filter(WealthPosition.id == "property-1").first()
+        assert prop.deleted_at is not None
 
 
 def test_generate_target_allocation_reflects_cashflow_and_goal_constraints(session_factory, advisor_user):

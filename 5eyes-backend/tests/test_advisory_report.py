@@ -397,6 +397,75 @@ def test_ausgangslage_wealth_summary_aggregates_positions(session_factory):
     assert ws["kredite_rappen"] == 0
 
 
+def test_ausgangslage_wealth_summary_nets_mortgage_liability(session_factory):
+    """LIABILITY-PUBLICATION-001: eine gueltige (schema-valide, nichtnegative)
+    Hypothek darf nicht gleichzeitig als positives Vermoegen gezaehlt UND als
+    Kredit ausgelassen werden. Immobilie CHF 1'000'000 + Hypothek CHF 800'000
+    (assignment='Verbindlichkeit', current_value_rappen > 0, wie es die
+    Schema-Validierung fuer JEDE Position verlangt) muss Nettovermoegen
+    CHF 200'000 und Kredite CHF 800'000 ergeben -- nicht CHF 1'800'000
+    Gesamtvermoegen bei gleichzeitig CHF 0 Krediten."""
+    with session_factory() as s:
+        mandate, client, advisor = _seed_minimal_mandate(s)
+        s.add(WealthPosition(
+            id=str(uuid.uuid4()), client_id=client.id,
+            label="Liegenschaft Zürich", position_type="Immobilie",
+            assignment="Anderes Vermögen",
+            current_value_rappen=1_000_000_00, currency="CHF",
+            is_active=1, created_at=_NOW, updated_at=_NOW,
+        ))
+        s.add(WealthPosition(
+            id=str(uuid.uuid4()), client_id=client.id,
+            label="Hypothek Zürich", position_type="Hypothek",
+            assignment="Verbindlichkeit",
+            current_value_rappen=800_000_00, currency="CHF",
+            is_active=1, created_at=_NOW, updated_at=_NOW,
+        ))
+        s.commit()
+        report = compute_advisory_report(s, mandate, advisor=advisor)
+    ws = report["ausgangslage"]["wealth_summary"]
+    assert ws["kredite_rappen"] == 800_000_00
+    assert ws["immobilien_rappen"] == 1_000_000_00
+    assert ws["gesamtvermoegen_rappen"] == 200_000_00
+    # Brutto-/Liability-/Netto-Identitaet: Netto + Kredite == Bruttoaktiven
+    assert ws["gesamtvermoegen_rappen"] + ws["kredite_rappen"] == 1_000_000_00
+
+
+def test_ausgangslage_wealth_summary_multiple_assets_and_liabilities(session_factory):
+    """Mehrere Aktiven und Verbindlichkeiten gemeinsam: jede Verbindlichkeit
+    reduziert das Nettovermoegen und zaehlt zu Krediten, unabhaengig von
+    Positionstyp-Label oder Erfassungsreihenfolge."""
+    with session_factory() as s:
+        mandate, client, advisor = _seed_minimal_mandate(s)
+        s.add(WealthPosition(
+            id=str(uuid.uuid4()), client_id=client.id,
+            label="Depot UBS", position_type="Depot",
+            assignment="Beratungsvermögen",
+            current_value_rappen=500_000_00, currency="CHF",
+            is_active=1, created_at=_NOW, updated_at=_NOW,
+        ))
+        s.add(WealthPosition(
+            id=str(uuid.uuid4()), client_id=client.id,
+            label="Privatkredit", position_type="Darlehen",
+            assignment="Verbindlichkeit",
+            current_value_rappen=50_000_00, currency="CHF",
+            is_active=1, created_at=_NOW, updated_at=_NOW,
+        ))
+        s.add(WealthPosition(
+            id=str(uuid.uuid4()), client_id=client.id,
+            label="Hypothek", position_type="Hypothek",
+            assignment="Verbindlichkeit",
+            current_value_rappen=300_000_00, currency="CHF",
+            is_active=1, created_at=_NOW, updated_at=_NOW,
+        ))
+        s.commit()
+        report = compute_advisory_report(s, mandate, advisor=advisor)
+    ws = report["ausgangslage"]["wealth_summary"]
+    assert ws["kredite_rappen"] == 350_000_00
+    assert ws["gesamtvermoegen_rappen"] == 150_000_00
+    assert ws["beratungsvermoegen_rappen"] == 500_000_00
+
+
 def test_ausgangslage_cashflows_and_goals_listed(session_factory):
     with session_factory() as s:
         mandate, client, advisor = _seed_minimal_mandate(s)

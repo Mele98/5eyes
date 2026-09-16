@@ -1,3 +1,4 @@
+from datetime import date as _date
 from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import Optional, Literal
 from schemas.common import BaseResponse
@@ -6,6 +7,23 @@ from services.wealth_position_semantics import (
     require_supported_position_assignment,
     require_plausible_property_expected_return,
 )
+
+
+def _require_valid_iso_date_or_none(value: Optional[str], *, field_name: str) -> Optional[str]:
+    """PROPERTY-VALUATION-001 (Audit 2026-09-14): valuation_date akzeptierte
+    bisher jeden String (z.B. "2099-not-a-date"). Schliesst nur die
+    Eingabevalidierung -- die Bedeutung von valuation_date selbst (Bewertungs-
+    stichtag) bleibt unveraendert."""
+    if value is None or value == "":
+        return value
+    try:
+        _date.fromisoformat(value)
+    except ValueError as exc:
+        raise ValueError(
+            f"{field_name} muss ein gueltiges ISO-Datum (JJJJ-MM-TT) sein, "
+            f"erhalten: {value!r}"
+        ) from exc
+    return value
 
 
 # ── Wealth Position ────────────────────────────────────────────────────────────
@@ -25,6 +43,7 @@ class WealthPositionCreate(BaseModel):
     # ueber assignment, siehe services/portfolio_engine.py total_liabilities_rappen).
     current_value_rappen: int = Field(default=0, ge=0, le=10_000_000_000_000)
     currency: str = "CHF"
+    # PROPERTY-VALUATION-001 (Audit 2026-09-14): siehe _require_valid_iso_date_or_none.
     valuation_date: Optional[str] = None
     # Depot
     depot_bank: Optional[str] = None
@@ -48,7 +67,12 @@ class WealthPositionCreate(BaseModel):
     ]] = None
     # 2026-07-25 (Generalaudit): siehe current_value_rappen.
     property_rental_income_rappen: int = Field(default=0, ge=0, le=10_000_000_000_000)
-    property_rental_inflation_linked: int = 0
+    # PROPERTY-VALUATION-001 (Audit 2026-09-14): reines 0/1-Flag (inflations-
+    # indexiert oder nicht) -- vorher liess jeder Int-Wert (z.B. 999) durch und
+    # wirkte spaeter truthy. ge=0/le=1 schliesst den Garbage-Input-Fall, ohne
+    # das etablierte int-als-Flag-Muster dieses Feldes (siehe Response-Feld
+    # unten) auf bool umzustellen.
+    property_rental_inflation_linked: int = Field(default=0, ge=0, le=1)
     # Vorsorge
     # Bugfix A3-Pilot (2026-08-17): DB-CHECK (~Zeile 562f.): pension_type
     # TEXT CHECK(pension_type IN
@@ -136,6 +160,11 @@ class WealthPositionCreate(BaseModel):
     # die einzigen sensiblen Datensaetze, die das Phase-0-Gate umgehen konnten.
     data_classification: Literal["synthetic", "real"] = "synthetic"
 
+    @field_validator("valuation_date")
+    @classmethod
+    def validate_valuation_date(cls, value):
+        return _require_valid_iso_date_or_none(value, field_name="valuation_date")
+
     @model_validator(mode="after")
     def validate_depot_alloc(self):
         require_supported_position_assignment(
@@ -180,6 +209,12 @@ class WealthPositionUpdate(BaseModel):
     label: Optional[str] = None
     assignment: Optional[str] = None
     current_value_rappen: Optional[int] = Field(default=None, ge=0, le=10_000_000_000_000)
+    # PROPERTY-VALUATION-001 (Audit 2026-09-14): currency fehlte hier
+    # komplett -- ein mitgesendetes "currency" wurde von Pydantic still
+    # verworfen, bevor der Endpoint es je sah (dieselbe Fehlerklasse wie
+    # data_classification vor dessen eigenem Fix, siehe unten). Eine Position
+    # konnte damit ueber PUT nie auf eine andere Waehrung korrigiert werden.
+    currency: Optional[str] = None
     valuation_date: Optional[str] = None
     depot_bank: Optional[str] = None
     depot_account_number: Optional[str] = None
@@ -190,9 +225,14 @@ class WealthPositionUpdate(BaseModel):
     alloc_alternatives_bps: Optional[int] = None
     property_address: Optional[str] = None
     property_zip_city: Optional[str] = None
-    property_usage: Optional[str] = None
+    # PROPERTY-VALUATION-001: an WealthPositionCreate angeglichen (dort schon
+    # als Literal gehaertet, Bugfix A3-Pilot 2026-08-17) -- Update erlaubte
+    # bisher jeden String und crashte erst beim db.commit() mit 500.
+    property_usage: Optional[Literal[
+        "Selbstgenutzt", "Renditeobjekt", "Ferienimmobilie", "Gemischt"
+    ]] = None
     property_rental_income_rappen: Optional[int] = Field(default=None, ge=0, le=10_000_000_000_000)
-    property_rental_inflation_linked: Optional[int] = None
+    property_rental_inflation_linked: Optional[int] = Field(default=None, ge=0, le=1)
     pension_type: Optional[str] = None
     pension_institution: Optional[str] = None
     # PENSION-POSITION-001 Option A (2026-09-15): siehe WealthPositionCreate
@@ -228,6 +268,11 @@ class WealthPositionUpdate(BaseModel):
     notes: Optional[str] = None
     is_active: Optional[bool] = None
     data_classification: Optional[Literal["synthetic", "real"]] = None
+
+    @field_validator("valuation_date")
+    @classmethod
+    def validate_valuation_date(cls, value):
+        return _require_valid_iso_date_or_none(value, field_name="valuation_date")
 
 
 class WealthPositionResponse(BaseResponse):

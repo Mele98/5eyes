@@ -49,6 +49,24 @@ def test_adjustment_series_refi_cutover_is_negative():
     assert adj_series([pos], 4, 2026) == [0, 0, -2_000_000, -2_000_000]
 
 
+def test_adjustment_series_corrects_already_expired_fixed_mortgage():
+    """MORTGAGE-REFINANCE-001: Laufzeit ist bereits vor start_year abgelaufen.
+    Die Schedule zeigt korrekt den 3%-Refinanzierungssatz ab Jahr 0, waehrend
+    der statische Basis-Cashflow (derive_wealth_cashflows) weiterhin den
+    eingegebenen 1%-Altsatz zeigt. base=schedule[0] wuerde faelschlich 0
+    Korrektur ergeben (schedule[0] ist hier schon der Refi-Satz) -- die
+    Korrektur muss stattdessen den vollen Sprung 1% -> 3% ab Jahr 0 tragen,
+    damit Basis + Adjustment == Schedule gilt."""
+    pos = _hyp(
+        current_value_rappen=1_000_000_00,
+        mortgage_interest_rate_bps=100,
+        mortgage_maturity_date="2025-12-31",
+    )
+    # Schedule (bereits abgelaufen ab Jahr 0): [30000, 30000] * 100 = [3_000_000, 3_000_000]
+    # Statische Basis (immer eingegebener Satz): 1_000_000. Korrektur = base - s[i].
+    assert adj_series([pos], 2, 2026) == [-2_000_000, -2_000_000]
+
+
 def test_adjustment_series_ignores_non_mortgage_and_inactive():
     depot = _hyp(position_type="Depot", mortgage_amortization_rappen=100_000_00,
                  mortgage_amortization_type="Direkt")

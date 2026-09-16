@@ -205,6 +205,34 @@ def test_foundation_projection_reduces_only_direct_mortgage_debt():
     assert projection["pledged_asset_series_rappen"] == [0, 20_000, 40_000]
 
 
+def test_indirect_amortization_pledged_asset_keeps_growing_past_principal():
+    """MORTGAGE-INDIRECT-AMORTIZATION-001: after the pledged asset reaches the
+    mortgage principal, further indirect payments must not vanish from the
+    total-wealth view. Principal 100, annual indirect payment 50 (audit
+    2026-09-14 isolated repro): liability stays flat at 100 and the pledged
+    asset must keep growing 1:1 with the cash that funds it (0, 50, 100, 150,
+    200) instead of freezing at the principal (0, 50, 100, 100, 100), which
+    previously made the combined total keep falling forever after year 2."""
+    positions = [
+        _position(
+            id="indirect-mortgage",
+            position_type="Hypothek",
+            assignment="Verbindlichkeit",
+            current_value_rappen=100,
+            mortgage_amortization_rappen=50,
+            mortgage_amortization_type="Indirekt (Saeule 3a)",
+        ),
+    ]
+
+    projection = _foundation_projection(positions, horizon_years=4)
+
+    assert projection["liability_series_rappen"] == [100, 100, 100, 100, 100]
+    # Vor dem Fix endete diese Serie bei [0, 50, 100, 100, 100] (eingefroren
+    # am Principal), obwohl der zugrundeliegende Cashflow unveraendert
+    # 50/Jahr weiterzahlt. Jahr 3/4 muessen jetzt 150/200 statt 100/100 zeigen.
+    assert projection["pledged_asset_series_rappen"] == [0, 50, 100, 150, 200]
+
+
 def test_foundation_projection_keeps_non_mortgage_liabilities_in_total_wealth():
     """Every explicit liability reduces total wealth, even without mortgage fields."""
     positions = [

@@ -23,6 +23,7 @@ from services.cashflow_timeline import SUPPORTED_FREQUENCIES, normalize_frequenc
 from services.data_classification import enforce_data_classification
 from services.wealth_position_semantics import (
     WealthPositionSemanticsError,
+    is_direct_real_estate_position,
     require_plausible_property_expected_return,
     require_supported_mortgage_amortization,
     require_supported_position_assignment,
@@ -462,12 +463,37 @@ def _resolve_goal_rank_conflict(
 
 
 _AMORTIZATION_LABEL_RE = re.compile(r"\b(tilgung|amortisation|amortization)\b", re.IGNORECASE)
+# Mieteinnahmen werden von derive_wealth_cashflows() JEDER aktiven Immobilie
+# mit Wert > 0 automatisch als "Mieteinnahmen: {label}"-Income hinzugefuegt.
+_RENTAL_INCOME_LABEL_RE = re.compile(r"\bmiet\w*", re.IGNORECASE)
 
 
 def _is_amortization_label(label) -> bool:
     if not label:
         return False
     return bool(_AMORTIZATION_LABEL_RE.search(str(label)))
+
+
+def _is_mortgage_interest_label(label) -> bool:
+    """PROPERTY-FLOW-DUPLICATION-001 (Audit 2026-09-14): Hypothekarzins wird
+    von derive_wealth_cashflows() JEDER aktiven Hypothek automatisch als
+    "Hypothekarzins: {label}"-Expense hinzugefuegt -- ein manueller Zins-
+    Cashflow addiert sich daher genauso doppelt wie Tilgung. Verlangt
+    "hypothek" UND "zins" gemeinsam als Substrings (kein Regex-Wortgrenzen-
+    Check -- "Hypothekarzins" ist im Deutschen EIN zusammengesetztes Wort ohne
+    interne Wortgrenze vor "zins"), damit generische Liquiditaets-/Sparkonto-
+    Zinslabels ("Sparzins", "Zins Sparkonto") NICHT betroffen sind -- dort ist
+    ein manueller Zins-Cashflow weiterhin normal und gewuenscht."""
+    if not label:
+        return False
+    normalized = str(label).lower()
+    return "hypothek" in normalized and "zins" in normalized
+
+
+def _is_rental_income_label(label) -> bool:
+    if not label:
+        return False
+    return bool(_RENTAL_INCOME_LABEL_RE.search(str(label)))
 
 
 def _has_active_mortgage_liability(client_id: str, db: Session) -> bool:
@@ -480,41 +506,142 @@ def _has_active_mortgage_liability(client_id: str, db: Session) -> bool:
     ).first() is not None
 
 
+def _has_active_rental_property(client_id: str, db: Session) -> bool:
+    return db.query(WealthPosition).filter(
+        WealthPosition.client_id == client_id,
+        WealthPosition.position_type == "Immobilien",
+        WealthPosition.current_value_rappen > 0,
+        WealthPosition.is_active == 1,
+        WealthPosition.deleted_at.is_(None),
+    ).first() is not None
+
+
 def _validate_no_mortgage_amortization_double_count(
     client_id: str, payload: dict, db: Session, existing: Cashflow | None = None,
 ) -> None:
-    """B3: Hypothek-Tilgung darf nicht als Cashflow erfasst werden, wenn fuer
-    denselben Kunden eine aktive Hypothek-Liability existiert.
+    """B3 + PROPERTY-FLOW-DUPLICATION-001: Hypothek-Tilgung, Hypothekarzins
+    und Mieteinnahmen duerfen nicht manuell als Cashflow erfasst werden, wenn
+    fuer denselben Kunden bereits eine aktive Hypothek bzw. Immobilie
+    existiert, aus der derive_wealth_cashflows() denselben Flow automatisch
+    ableitet.
 
     Bilanziell ist Tilgung eine Reklassifikation (Vermoegen sinkt, Liability
-    sinkt um denselben Betrag) - kein Aufwand. Wenn als Expense-Cashflow
-    erfasst, sinkt das Vermoegen scheinbar doppelt -> falsche Reserve, falsche
-    Asset-Allokation.
+    sinkt um denselben Betrag) - kein Aufwand. Zins und Miete sind echte
+    Cashflows, aber bereits vollstaendig ueber die Position abgeleitet; ein
+    zusaetzlicher manueller Eintrag verdoppelt sie. Wenn doppelt erfasst,
+    sinkt/steigt das Vermoegen scheinbar doppelt -> falsche Reserve, falsche
+    Asset-Allokation, falsche Zielerreichung.
+
+    Bewusst NICHT umgesetzt (voller Fixvertrag des Audits): stabiler Flow-
+    Provenienz-Key, DB-Eindeutigkeit, linkgenaue (statt clientweite) Pruefung,
+    Migration bestehender Dubletten. Dieselbe clientweite "existiert
+    ueberhaupt eine aktive Hypothek/Immobilie"-Heuristik wie der bisherige
+    B3-Amortisations-Guard, nur symmetrisch auf Zins/Miete erweitert.
 
     Quellen: Swiss GAAP FER 16 §28-32, ASIP Standard 2.3, OR 957a.
     """
     cashflow_type = payload.get("cashflow_type")
     if cashflow_type is None and existing is not None:
         cashflow_type = existing.cashflow_type
-    if str(cashflow_type or "") != "Expense":
-        return
     label = payload.get("label")
     if label is None and existing is not None:
         label = existing.label
-    if not _is_amortization_label(label):
-        return
-    if not _has_active_mortgage_liability(client_id, db):
-        return
-    raise HTTPException(
-        status_code=422,
-        detail=(
-            "Hypothek-Tilgung darf nicht als Cashflow erfasst werden. "
-            "Tilgung ist bilanziell eine Reklassifikation (Vermoegen und Liability "
-            "sinken um denselben Betrag), kein Aufwand. Bitte nur Hypothek-Zinsen "
-            "als Cashflow erfassen; die Tilgung wird ueber die Liability-Position "
-            "verfolgt."
-        ),
-    )
+    effective_type = str(cashflow_type or "")
+
+    if effective_type == "Expense":
+        if _is_amortization_label(label) and _has_active_mortgage_liability(client_id, db):
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "Hypothek-Tilgung darf nicht als Cashflow erfasst werden. "
+                    "Tilgung ist bilanziell eine Reklassifikation (Vermoegen und Liability "
+                    "sinken um denselben Betrag), kein Aufwand. Die Tilgung wird ueber die "
+                    "Liability-Position verfolgt und automatisch abgeleitet."
+                ),
+            )
+        if _is_mortgage_interest_label(label) and _has_active_mortgage_liability(client_id, db):
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "Hypothekarzins darf nicht zusaetzlich manuell als Cashflow erfasst "
+                    "werden, solange eine aktive Hypothek fuer diesen Kunden existiert. "
+                    "Der Zins wird automatisch aus der Hypothek-Position abgeleitet -- ein "
+                    "zusaetzlicher manueller Eintrag wuerde ihn doppelt zaehlen."
+                ),
+            )
+    elif effective_type == "Income":
+        if _is_rental_income_label(label) and _has_active_rental_property(client_id, db):
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "Mieteinnahmen duerfen nicht zusaetzlich manuell als Cashflow erfasst "
+                    "werden, solange eine aktive Immobilie mit Wert > 0 fuer diesen Kunden "
+                    "existiert. Die Miete wird automatisch aus der Immobilien-Position "
+                    "abgeleitet -- ein zusaetzlicher manueller Eintrag wuerde sie doppelt "
+                    "zaehlen."
+                ),
+            )
+
+
+def _validate_no_manual_flow_duplicated_by_new_position(
+    client_id: str, position_type, assignment, current_value_rappen, db: Session,
+) -> None:
+    """PROPERTY-FLOW-DUPLICATION-001: Gegenrichtung zu
+    _validate_no_mortgage_amortization_double_count(). Ein manueller Tilgungs-,
+    Zins- oder Miet-Cashflow konnte bisher akzeptiert werden, BEVOR die
+    zugehoerige Hypothek/Immobilie angelegt wurde; danach begann
+    derive_wealth_cashflows() denselben Flow zusaetzlich abzuleiten, ohne dass
+    beim Anlegen der Position geprueft wurde. Audit-Repro: zuerst manueller
+    Tilgungsflow (10'000), dann Hypothek angelegt -> 20'000 statt 10'000."""
+    if str(position_type or "") == "Hypothek" and str(assignment or "") == "Verbindlichkeit":
+        conflicting = db.query(Cashflow).filter(
+            Cashflow.client_id == client_id,
+            Cashflow.cashflow_type == "Expense",
+            Cashflow.is_active == 1,
+            Cashflow.deleted_at.is_(None),
+        ).all()
+        for cf in conflicting:
+            if _is_amortization_label(cf.label):
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        "Es existiert bereits ein manueller Tilgungs-Cashflow "
+                        f"({cf.label!r}). Diese Hypothek wuerde denselben Flow zusaetzlich "
+                        "automatisch ableiten und doppelt zaehlen. Bitte den manuellen "
+                        "Cashflow zuerst entfernen."
+                    ),
+                )
+            if _is_mortgage_interest_label(cf.label):
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        "Es existiert bereits ein manueller Hypothekarzins-Cashflow "
+                        f"({cf.label!r}). Diese Hypothek wuerde denselben Flow zusaetzlich "
+                        "automatisch ableiten und doppelt zaehlen. Bitte den manuellen "
+                        "Cashflow zuerst entfernen."
+                    ),
+                )
+    elif (
+        str(position_type or "") == "Immobilien"
+        and int(current_value_rappen or 0) > 0
+    ):
+        conflicting = db.query(Cashflow).filter(
+            Cashflow.client_id == client_id,
+            Cashflow.cashflow_type == "Income",
+            Cashflow.is_active == 1,
+            Cashflow.deleted_at.is_(None),
+        ).all()
+        for cf in conflicting:
+            if _is_rental_income_label(cf.label):
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        "Es existiert bereits ein manueller Mietertrags-Cashflow "
+                        f"({cf.label!r}). Diese Immobilie wuerde denselben Flow zusaetzlich "
+                        "automatisch ableiten und doppelt zaehlen. Bitte den manuellen "
+                        "Cashflow zuerst entfernen."
+                    ),
+                )
 
 
 def _validate_mortgage_link(client_id: str, data: dict, db: Session) -> None:
@@ -532,6 +659,43 @@ def _validate_mortgage_link(client_id: str, data: dict, db: Session) -> None:
         raise HTTPException(
             status_code=422,
             detail="Verknüpfte Immobilie muss eine aktive Immobilien-Position desselben Kunden sein",
+        )
+
+
+def _active_mortgages_linked_to_property(
+    property_id: str, client_id: str, db: Session,
+) -> list[WealthPosition]:
+    return db.query(WealthPosition).filter(
+        WealthPosition.client_id == client_id,
+        WealthPosition.position_type == "Hypothek",
+        WealthPosition.mortgage_linked_property_id == property_id,
+        WealthPosition.is_active == 1,
+        WealthPosition.deleted_at.is_(None),
+    ).all()
+
+
+def _block_if_property_has_active_linked_mortgages(
+    wp: WealthPosition, client_id: str, db: Session,
+) -> None:
+    """MORTGAGE-LINK-001: ein Write-time-Guard (_validate_mortgage_link) allein
+    verhindert keinen Orphan -- eine gueltig verknuepfte Immobilie kann
+    anschliessend soft-deleted oder deaktiviert werden, waehrend die Hypothek
+    aktiv bleibt und weiter auf die nicht mehr existente/aktive Immobilie
+    zeigt. Symmetrischer Guard: Deactivate/Delete einer Immobilie mit noch
+    aktiv verknuepfter Hypothek wird abgelehnt, statt still einen Orphan-Link
+    entstehen zu lassen."""
+    if not is_direct_real_estate_position(wp.position_type):
+        return
+    linked = _active_mortgages_linked_to_property(wp.id, client_id, db)
+    if linked:
+        labels = ", ".join(sorted({str(m.label or m.id) for m in linked}))
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Immobilie kann nicht deaktiviert/gelöscht werden: noch aktiv "
+                f"verknüpfte Hypothek(en) vorhanden ({labels}). Bitte zuerst die "
+                "Hypothek(en) umverknüpfen, deaktivieren oder löschen."
+            ),
         )
 
 
@@ -602,6 +766,13 @@ def create_wealth_position(
         if bool_field in data and data[bool_field] is not None:
             data[bool_field] = 1 if data[bool_field] else 0
     _validate_mortgage_link(client_id, data, db)
+    _validate_no_manual_flow_duplicated_by_new_position(
+        client_id,
+        data.get("position_type"),
+        data.get("assignment"),
+        data.get("current_value_rappen"),
+        db,
+    )
     wp = WealthPosition(
         id=new_uuid(), client_id=client_id,
         is_active=1, created_at=now, updated_at=now,
@@ -682,6 +853,12 @@ def update_wealth_position(
                 ),
             )
     _validate_mortgage_link(client_id, updates, db)
+    if (
+        "is_active" in updates
+        and not updates["is_active"]
+        and int(getattr(wp, "is_active", 1) or 0) == 1
+    ):
+        _block_if_property_has_active_linked_mortgages(wp, client_id, db)
     for field, value in updates.items():
         if isinstance(value, bool):
             value = 1 if value else 0
@@ -710,6 +887,7 @@ def delete_wealth_position(
     ).first()
     if not wp:
         raise HTTPException(status_code=404, detail="Vermögensposition nicht gefunden")
+    _block_if_property_has_active_linked_mortgages(wp, client_id, db)
     wp.deleted_at = _now()
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="wealth_positions", record_id=wp_id, action="DELETE",
