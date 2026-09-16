@@ -656,17 +656,27 @@ def _build_wealth_summary(
     """Aggregiert WealthPositions des Kunden in die Berichts-Kategorien.
 
     Kategorien gemäss Spec §3:
-    - gesamtvermoegen_rappen (alle Positionen, alle Zuordnungen)
+    - gesamtvermoegen_rappen (Nettovermögen: alle Aktiven minus Verbindlichkeiten)
     - beratungsvermoegen_rappen (assignment="Beratungsvermögen")
     - immobilien_rappen (position_type contains "Immobilie")
     - vorsorge_rappen (position_type contains "Vorsorge"/"Pensionskasse"/"3a")
-    - kredite_rappen (negative Verbindlichkeiten)
+    - kredite_rappen (Summe der Verbindlichkeits-Positionen, immer >= 0)
     Plus Listen für cashflows und ziele (Goals).
+
+    LIABILITY-PUBLICATION-001 (Audit 2026-09-14): `current_value_rappen` ist
+    fuer JEDE Position nichtnegativ (Vorzeichen laeuft ueber `assignment`,
+    siehe schemas/wealth.py). Die Richtung einer Position (Aktivum vs.
+    Verbindlichkeit) muss deshalb ueber die kanonische Assignment-Klassifikation
+    (`is_liability_assignment`) bestimmt werden, nicht ueber Positionstyp-
+    Stichworte kombiniert mit einem (fuer Verbindlichkeiten nie erfuellbaren)
+    Betragsvorzeichen-Check. Eine gueltige Hypothek wurde sonst zugleich als
+    positives Vermoegen addiert und nie als Kredit ausgewiesen.
 
     U-18: cashflows + goals kommen aus dem call-scoped Cache. WealthPosition
     bleibt direkter Query (wird nur in dieser einen Sektion gebraucht).
     """
     from models.wealth import WealthPosition
+    from services.wealth_position_semantics import is_liability_assignment
     wp_rows = (
         db.query(WealthPosition)
         .filter(
@@ -683,17 +693,19 @@ def _build_wealth_summary(
     kredite = 0
     for wp in wp_rows:
         amount = _safe_int(getattr(wp, "current_value_rappen", 0))
-        gesamtvermoegen += amount
         assignment = str(getattr(wp, "assignment", "") or "").strip()
         position_type = str(getattr(wp, "position_type", "") or "").strip().lower()
+        if is_liability_assignment(assignment):
+            kredite += amount
+            gesamtvermoegen -= amount
+            continue
+        gesamtvermoegen += amount
         if assignment == "Beratungsvermögen":
             beratungsvermoegen += amount
         if "immobilie" in position_type:
             immobilien += amount
         if any(key in position_type for key in ("vorsorge", "pensionskasse", "3a", "saeule")):
             vorsorge += amount
-        if any(key in position_type for key in ("kredit", "hypothek", "darlehen")) and amount < 0:
-            kredite += abs(amount)
 
     cashflow_rows = _cached_active_cashflows(db, str(client.id))
     cashflows = [
@@ -3208,8 +3220,27 @@ def _recompute_reserve_reasoning(
     # _position_is_currently_unlocked_for_goal_funding) -- gesperrtes
     # Vorsorgekapital ohne erreichtes liquidity_available_from darf auch in
     # dieser Steuer-/Report-Nachrechnung nicht als heute verfuegbar zaehlen.
+    # PROPERTY-COLLATERAL-001: dieselbe Mortgage-Netting-Korrektur wie in
+    # portfolio_engine._unlocked_other_assets_rappen() (Single Source of
+    # Truth fuer diesen Schloss-Pool) -- eine freigegebene Direktimmobilie
+    # darf nicht brutto zaehlen, wenn bereits eine aktive Hypothek auf genau
+    # diese Immobilie verweist (mortgage_linked_property_id).
+    _mortgage_debt_by_property: dict[str, int] = {}
+    for _pos in positions:
+        if str(getattr(_pos, "position_type", "") or "") != "Hypothek":
+            continue
+        _linked_id = getattr(_pos, "mortgage_linked_property_id", None)
+        if not _linked_id:
+            continue
+        _mortgage_debt_by_property[_linked_id] = _mortgage_debt_by_property.get(
+            _linked_id, 0
+        ) + int(getattr(_pos, "current_value_rappen", 0) or 0)
     unlocked_other_assets_rappen = sum(
-        int(getattr(pos, "current_value_rappen", 0) or 0)
+        max(
+            0,
+            int(getattr(pos, "current_value_rappen", 0) or 0)
+            - _mortgage_debt_by_property.get(getattr(pos, "id", None), 0),
+        )
         for pos in positions
         if _position_is_currently_unlocked_for_goal_funding(pos)
     )

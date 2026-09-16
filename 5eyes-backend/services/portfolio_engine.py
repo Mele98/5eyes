@@ -1045,7 +1045,20 @@ def _build_external_foundation_projection(
                 # Indirect amortization transfers advisory cash into a pledged
                 # pension asset. It does not reduce the mortgage, but it is not
                 # consumption in the total-wealth view either.
-                pledged_asset_series[year] += min(value, amortization * year)
+                #
+                # MORTGAGE-INDIRECT-AMORTIZATION-001 (Audit 2026-09-14): the
+                # recurring derived amortization expense (wealth_cashflows.
+                # derive_wealth_cashflows) is deliberately NOT capped at the
+                # mortgage principal -- indirect amortization is an ongoing
+                # pension contribution, not debt repayment (see
+                # mortgage_amortization_adjustment_series docstring). Capping
+                # this pledged-asset series at `value` therefore made cash
+                # keep leaving the total-wealth view after the cap while its
+                # pledged counter-asset stopped growing, i.e. money vanished
+                # from the balance sheet. The pledged asset must grow exactly
+                # as far as the cash that funds it, with no artificial cap, so
+                # cash_out == pledged_asset_increase holds for every year.
+                pledged_asset_series[year] += amortization * year
 
     return {
         "property_series_rappen": property_series,
@@ -1063,13 +1076,33 @@ def _build_external_goal_funding_series(
 ) -> list[int]:
     """Build the optimizer's conservative external net-funding path.
 
-    External gross assets retain the established zero-real/CPI convention for
-    allocation selection. Liabilities and pledged indirect-amortization assets
-    use the exact canonical foundation series, so principal transfers cannot be
-    mistaken for consumption in total-scope goals.
+    Non-property external gross assets retain the established zero-real/CPI
+    convention for allocation selection. Liabilities, pledged indirect-
+    amortization assets AND direct real estate use the exact canonical
+    foundation series, so principal transfers cannot be mistaken for
+    consumption in total-scope goals.
+
+    PROPERTY-GOAL-BASIS-001 (Audit 2026-09-14, User-Entscheid 2026-09-16):
+    vorher wuchs die GESAMTE externe Bruttobasis (inkl. einer enthaltenen
+    Direktimmobilie) einheitlich mit CPI, obwohl `property_series_rappen`
+    dieselbe Immobilie bereits korrekt mit der vom Kunden eingegebenen
+    `asset_expected_return_bps` fortschreibt -- Zielentscheidung und
+    Gesamtvermoegens-Projektion konnten dadurch bei derselben Immobilie
+    unterschiedliche Werte fuer denselben Jahrgang zeigen. Fix: der
+    Immobilienanteil der Startbasis wird herausgerechnet und stattdessen mit
+    der kanonischen property_series_rappen fortgeschrieben (dieselbe Rendite,
+    die der Kunde fuer die Immobilie eingegeben hat -- 0% bleibt 0%, 2% bleibt
+    2%); nur der verbleibende, nicht-immobilien-basierte externe Anteil
+    (z.B. eine Beteiligung ohne eigene Renditeserie) waechst weiterhin
+    konservativ mit CPI. Beide Wachstumsraten sind deterministische Skalare
+    ohne Zufallskomponente -- die urspruengliche "KEIN MC-Drift"-Eigenschaft
+    von #83 (identisch ueber alle MC-Pfade addiert) bleibt erhalten.
     """
     horizon = max(0, int(horizon_years or 0))
     required_length = horizon + 1
+    property_series = list(
+        external_foundation_projection.get("property_series_rappen") or []
+    )
     liability_series = list(
         external_foundation_projection.get("liability_series_rappen") or []
     )
@@ -1078,7 +1111,8 @@ def _build_external_goal_funding_series(
         or []
     )
     if (
-        len(liability_series) != required_length
+        len(property_series) != required_length
+        or len(liability_series) != required_length
         or len(pledged_series) != required_length
     ):
         from services.optimizer.constraints import OptimizerInputError
@@ -1088,13 +1122,16 @@ def _build_external_goal_funding_series(
             "vollstaendig ab."
         )
     gross_start = max(0, int(external_gross_assets_rappen or 0))
+    property_start = max(0, int(property_series[0])) if property_series else 0
+    non_property_gross_start = max(0, gross_start - property_start)
     return [
         int(
             _external_assets_inflation_value(
-                gross_start,
+                non_property_gross_start,
                 year,
                 inflation_series_bps,
             )
+            + int(property_series[year])
             + int(pledged_series[year])
             - int(liability_series[year])
         )
@@ -1118,6 +1155,51 @@ def _summarize_positions(
         for key in BUCKET_FIELDS:
             amounts[key] += int(round(value_rappen * weights[key] / 10000))
     return PortfolioSummary(amounts_rappen=amounts, total_rappen=total_rappen)
+
+
+def _unlocked_other_assets_rappen(
+    all_positions: list[WealthPosition],
+    fx_source=None,
+    target_currency: str = "CHF",
+) -> int:
+    """Sprint B2: Anderes-Vermoegen-Schloss-Mechanismus. is_available_for_goal_
+    funding=1 erlaubt der Position, zur Reserve-Deckung herangezogen zu werden
+    (liquid: Verkauf, illiquid: Belehnung @ 100% LTV).
+
+    PROPERTY-COLLATERAL-001 (Audit 2026-09-14): eine freigegebene Direkt-
+    immobilie wurde bisher brutto angerechnet, auch wenn bereits eine aktive
+    Hypothek auf genau diese Immobilie (mortgage_linked_property_id) besteht.
+    Das absorbierte externen Reservebedarf Rappen fuer Rappen, obwohl ein Teil
+    der Immobilie bereits als Sicherheit fuer die bestehende Hypothek gebunden
+    ist. Fix: die verknuepfte aktive Hypothekenschuld wird pro Position
+    abgezogen (floor 0), bevor sie in den Reserve-/Goal-Funding-Pool zaehlt --
+    kein Doppelzaehlen von Beleihungskapazitaet, die die Hypothek schon nutzt.
+
+    Bewusst NICHT umgesetzt (voller Fixvertrag des Audits): expliziter
+    Funding-Modus sale/pledge/partial, Verkaufskosten/-steuer, Haircut, Rang,
+    Drawdown-Horizont. Das sind Owner-Decisions zur Bewertungs-/Verwertungs-
+    politik, keine additive Bugfix-Korrektur -- diese Funktion schliesst nur
+    die konkret reproduzierte Doppelzaehlung von bereits verpfaendetem Wert.
+    """
+    mortgage_debt_by_property: dict[str, int] = {}
+    for pos in all_positions:
+        if not is_mortgage_position(getattr(pos, "position_type", "")):
+            continue
+        linked_id = getattr(pos, "mortgage_linked_property_id", None)
+        if not linked_id:
+            continue
+        mortgage_debt_by_property[linked_id] = mortgage_debt_by_property.get(
+            linked_id, 0
+        ) + _convert_position_amount_to_target_currency(pos, fx_source, target_currency)
+
+    total = 0
+    for pos in all_positions:
+        if not _position_is_currently_unlocked_for_goal_funding(pos):
+            continue
+        gross = _convert_position_amount_to_target_currency(pos, fx_source, target_currency)
+        linked_debt = mortgage_debt_by_property.get(getattr(pos, "id", None), 0)
+        total += max(0, gross - linked_debt)
+    return total
 
 
 def _bps(amount_rappen: int, total_rappen: int) -> int:
@@ -2078,17 +2160,8 @@ def _load_allocation_inputs(
         for pos in liability_positions
     )
     total_wealth_rappen = max(0, total_summary.total_rappen - total_liabilities_rappen)
-    # Sprint B2 (2026-05-07): Anderes-Vermoegen-Schloss-Mechanismus.
-    # is_available_for_goal_funding=1 erlaubt der Position, zur Reserve-Deckung
-    # herangezogen zu werden (liquid: Verkauf, illiquid: Belehnung @ 100% LTV).
-    # PENSION-AVAILABILITY-001: nur Positionen ohne Vorsorge-Restriktion
-    # (unveraendert) oder mit bereits erreichtem liquidity_available_from
-    # zaehlen zum Schloss-Pool -- siehe
-    # _position_is_currently_unlocked_for_goal_funding().
-    unlocked_other_assets_rappen = sum(
-        _convert_position_amount_to_target_currency(pos, fx_source, target_currency)
-        for pos in all_positions
-        if _position_is_currently_unlocked_for_goal_funding(pos)
+    unlocked_other_assets_rappen = _unlocked_other_assets_rappen(
+        all_positions, fx_source=fx_source, target_currency=target_currency,
     )
 
     cashflow_rows = db.query(Cashflow).filter(
@@ -5664,14 +5737,8 @@ def build_target_payload_from_allocation(
     total_wealth_rappen = max(0, total_summary.total_rappen - total_liabilities_rappen)
     _validate_active_wealth_position_semantics(all_positions)
     # Sprint B2: Anderes-Vermoegen-Schloss-Pool fuer Reserve-Reduktion (rebuild path).
-    # PENSION-AVAILABILITY-001: nur Positionen ohne Vorsorge-Restriktion
-    # (unveraendert) oder mit bereits erreichtem liquidity_available_from
-    # zaehlen zum Schloss-Pool -- siehe
-    # _position_is_currently_unlocked_for_goal_funding().
-    unlocked_other_assets_rappen = sum(
-        _convert_position_amount_to_target_currency(pos, fx_source, target_currency)
-        for pos in all_positions
-        if _position_is_currently_unlocked_for_goal_funding(pos)
+    unlocked_other_assets_rappen = _unlocked_other_assets_rappen(
+        all_positions, fx_source=fx_source, target_currency=target_currency,
     )
 
     cashflow_rows = db.query(Cashflow).filter(
