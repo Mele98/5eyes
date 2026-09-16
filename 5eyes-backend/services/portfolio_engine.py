@@ -1076,13 +1076,33 @@ def _build_external_goal_funding_series(
 ) -> list[int]:
     """Build the optimizer's conservative external net-funding path.
 
-    External gross assets retain the established zero-real/CPI convention for
-    allocation selection. Liabilities and pledged indirect-amortization assets
-    use the exact canonical foundation series, so principal transfers cannot be
-    mistaken for consumption in total-scope goals.
+    Non-property external gross assets retain the established zero-real/CPI
+    convention for allocation selection. Liabilities, pledged indirect-
+    amortization assets AND direct real estate use the exact canonical
+    foundation series, so principal transfers cannot be mistaken for
+    consumption in total-scope goals.
+
+    PROPERTY-GOAL-BASIS-001 (Audit 2026-09-14, User-Entscheid 2026-09-16):
+    vorher wuchs die GESAMTE externe Bruttobasis (inkl. einer enthaltenen
+    Direktimmobilie) einheitlich mit CPI, obwohl `property_series_rappen`
+    dieselbe Immobilie bereits korrekt mit der vom Kunden eingegebenen
+    `asset_expected_return_bps` fortschreibt -- Zielentscheidung und
+    Gesamtvermoegens-Projektion konnten dadurch bei derselben Immobilie
+    unterschiedliche Werte fuer denselben Jahrgang zeigen. Fix: der
+    Immobilienanteil der Startbasis wird herausgerechnet und stattdessen mit
+    der kanonischen property_series_rappen fortgeschrieben (dieselbe Rendite,
+    die der Kunde fuer die Immobilie eingegeben hat -- 0% bleibt 0%, 2% bleibt
+    2%); nur der verbleibende, nicht-immobilien-basierte externe Anteil
+    (z.B. eine Beteiligung ohne eigene Renditeserie) waechst weiterhin
+    konservativ mit CPI. Beide Wachstumsraten sind deterministische Skalare
+    ohne Zufallskomponente -- die urspruengliche "KEIN MC-Drift"-Eigenschaft
+    von #83 (identisch ueber alle MC-Pfade addiert) bleibt erhalten.
     """
     horizon = max(0, int(horizon_years or 0))
     required_length = horizon + 1
+    property_series = list(
+        external_foundation_projection.get("property_series_rappen") or []
+    )
     liability_series = list(
         external_foundation_projection.get("liability_series_rappen") or []
     )
@@ -1091,7 +1111,8 @@ def _build_external_goal_funding_series(
         or []
     )
     if (
-        len(liability_series) != required_length
+        len(property_series) != required_length
+        or len(liability_series) != required_length
         or len(pledged_series) != required_length
     ):
         from services.optimizer.constraints import OptimizerInputError
@@ -1101,13 +1122,16 @@ def _build_external_goal_funding_series(
             "vollstaendig ab."
         )
     gross_start = max(0, int(external_gross_assets_rappen or 0))
+    property_start = max(0, int(property_series[0])) if property_series else 0
+    non_property_gross_start = max(0, gross_start - property_start)
     return [
         int(
             _external_assets_inflation_value(
-                gross_start,
+                non_property_gross_start,
                 year,
                 inflation_series_bps,
             )
+            + int(property_series[year])
             + int(pledged_series[year])
             - int(liability_series[year])
         )
