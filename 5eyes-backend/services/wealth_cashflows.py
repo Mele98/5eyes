@@ -198,9 +198,20 @@ def mortgage_interest_adjustment_series(
     (Zins_heute − Zins_Jahr_i). Positiv = weniger Zinslast (direkte Amortisation
     baut Schuld ab), negativ = mehr (Refinanzierung auf 3% nach Ablauf/SARON-Frist).
 
-    Der statische 'heutige' Hypothekarzins (= schedule[0]) steckt bereits im
-    Cashflow-Series; diese Serie korrigiert ihn jahresabhängig, ohne die
-    heutige Cashflow-Ansicht/Summe zu verändern."""
+    Der statische 'heutige' Hypothekarzins steckt bereits im Cashflow-Series
+    (derive_wealth_cashflows: _rate_amount(current_value_rappen,
+    mortgage_interest_rate_bps) — der EINGEGEBENE, gespeicherte Satz, nicht
+    der ggf. bereits verfallene Schedule-Satz); diese Serie korrigiert ihn
+    jahresabhängig, ohne die heutige Cashflow-Ansicht/Summe zu verändern.
+
+    MORTGAGE-REFINANCE-001 (Audit 2026-09-14): `base` MUSS exakt denselben
+    Betrag wie die statische Basis in derive_wealth_cashflows ergeben, nicht
+    schedule[0]. Ist die Laufzeit bereits vor start_year abgelaufen, liefert
+    schedule[0] bereits den Refinanzierungssatz (die Schedule kennt kein
+    "heute"), waehrend der abgeleitete Basis-Cashflow weiterhin den
+    eingegebenen Altsatz zeigt. Mit base=schedule[0] wurde die Korrektur in
+    diesem Fall faelschlich 0 und der wirksame Cashflow blieb dauerhaft beim
+    Altsatz stehen, obwohl die Schedule korrekt den Refi-Satz auswies."""
     n = max(0, int(horizon_years or 0))
     adj = [0] * n
     if n == 0:
@@ -223,7 +234,13 @@ def mortgage_interest_adjustment_series(
         )
         if not s:
             continue
-        base = s[0]  # entspricht dem statischen 'heutigen' Hypothekarzins
+        # Dieselbe Formel wie der statische Basis-Cashflow in
+        # derive_wealth_cashflows() -- NICHT s[0], das bei bereits
+        # abgelaufener Laufzeit schon den Refi-Satz enthalten kann.
+        base = _rate_amount(
+            getattr(pos, "current_value_rappen", 0),
+            getattr(pos, "mortgage_interest_rate_bps", 0),
+        )
         for i in range(n):
             adj[i] += _convert_position_rappen(
                 base - s[i],
