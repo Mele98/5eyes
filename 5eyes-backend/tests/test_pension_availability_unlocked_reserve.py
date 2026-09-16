@@ -249,3 +249,102 @@ def test_plain_liquid_other_assets_position_still_unlocked_end_to_end(session_fa
         - baseline["unlocked_other_assets_rappen"]
     )
     assert delta == 80_000_00
+
+
+# ============================================================================
+# 3) PROPERTY-COLLATERAL-001: freigegebene Immobilie netto der eigenen
+#    Hypothek, nicht brutto, angerechnet.
+# ============================================================================
+
+
+def test_property_with_active_linked_mortgage_counts_net_of_debt(session_factory):
+    """Audit-Repro (PROPERTY-COLLATERAL-001): eine freigegebene Direktimmobilie
+    mit einer aktiv verknuepften Hypothek darf den Schloss-Pool nur um ihren
+    NETTO-Wert (Bruttowert minus verknuepfte Hypothekenschuld) erhoehen --
+    vorher wurde sie brutto angerechnet und absorbierte damit bereits als
+    Hypothekar-Sicherheit gebundenen Wert ein zweites Mal."""
+    advisor_id, client_id, mandate_id, _aid, _gid = _seed_realistic_mandate(
+        session_factory, suffix=f"property-collateral-{uuid.uuid4().hex[:8]}",
+    )
+    with session_factory() as session:
+        mandate = session.query(Mandate).filter(Mandate.id == mandate_id).one()
+        _policy, cma = pe.ensure_runtime_reference_data(session, advisor_id)
+        baseline = pe._load_allocation_inputs(session, mandate, {}, cma=cma)
+
+        property_id = f"pos-property-{uuid.uuid4().hex[:8]}"
+        session.add(WealthPosition(
+            id=property_id,
+            client_id=client_id,
+            label="Ferienhaus Tessin",
+            position_type="Immobilien",
+            assignment="Anderes Vermögen",
+            current_value_rappen=1_000_000_00,
+            currency="CHF",
+            property_usage="Vermietet",
+            is_available_for_goal_funding=1,
+            is_active=1,
+            created_at=_now(),
+            updated_at=_now(),
+        ))
+        session.add(WealthPosition(
+            id=f"pos-mortgage-{uuid.uuid4().hex[:8]}",
+            client_id=client_id,
+            label="Hypothek Ferienhaus",
+            position_type="Hypothek",
+            assignment="Verbindlichkeit",
+            current_value_rappen=800_000_00,
+            currency="CHF",
+            mortgage_bank="UBS",
+            mortgage_type="Festhypothek",
+            mortgage_linked_property_id=property_id,
+            is_active=1,
+            created_at=_now(),
+            updated_at=_now(),
+        ))
+        session.flush()
+        with_property = pe._load_allocation_inputs(session, mandate, {}, cma=cma)
+
+    delta = (
+        with_property["unlocked_other_assets_rappen"]
+        - baseline["unlocked_other_assets_rappen"]
+    )
+    # Netto: CHF 1'000'000 Immobilie - CHF 800'000 verknuepfte Hypothek = CHF 200'000.
+    # Vor dem Fix waere delta == 1_000_000_00 (Brutto) gewesen.
+    assert delta == 200_000_00
+
+
+def test_property_without_mortgage_still_counts_gross(session_factory):
+    """Regressionsschutz: eine freigegebene Immobilie OHNE verknuepfte
+    Hypothek ist von PROPERTY-COLLATERAL-001 nicht betroffen und zaehlt
+    weiterhin brutto -- das Netting greift nur bei tatsaechlich verknuepfter
+    aktiver Hypothekenschuld."""
+    advisor_id, client_id, mandate_id, _aid, _gid = _seed_realistic_mandate(
+        session_factory, suffix=f"property-no-mortgage-{uuid.uuid4().hex[:8]}",
+    )
+    with session_factory() as session:
+        mandate = session.query(Mandate).filter(Mandate.id == mandate_id).one()
+        _policy, cma = pe.ensure_runtime_reference_data(session, advisor_id)
+        baseline = pe._load_allocation_inputs(session, mandate, {}, cma=cma)
+
+        session.add(WealthPosition(
+            id=f"pos-property-free-{uuid.uuid4().hex[:8]}",
+            client_id=client_id,
+            label="Chalet (unbelastet)",
+            position_type="Immobilien",
+            assignment="Anderes Vermögen",
+            current_value_rappen=500_000_00,
+            currency="CHF",
+            property_usage="Vermietet",
+            is_available_for_goal_funding=1,
+            is_active=1,
+            created_at=_now(),
+            updated_at=_now(),
+        ))
+        session.flush()
+        with_property = pe._load_allocation_inputs(session, mandate, {}, cma=cma)
+
+    delta = (
+        with_property["unlocked_other_assets_rappen"]
+        - baseline["unlocked_other_assets_rappen"]
+    )
+    assert delta == 500_000_00
