@@ -110,10 +110,25 @@ jobs:
         # Single-Threaded BLAS erzwingt deterministische Summationsreihenfolge.
         # Nur CI-Jobumgebung -- betrifft nie die ausgelieferte Windows-Electron-
         # Desktop-App des echten Kunden.
+        #
+        # Nachtrag (2026-09-16): derselbe Flake trat trotz Thread-Pinning auf
+        # mehreren unabhaengigen PRs erneut auf (immer dieselbe Fixture, immer
+        # kleine bps-Differenzen). Ursache Nummer zwei: `numpy.show_config()`
+        # zeigt "DYNAMIC_ARCH" fuer die installierte scipy-openblas-Wheel --
+        # OpenBLAS waehlt zur Laufzeit einen von mehreren einkompilierten
+        # Mikroarchitektur-Kerneln passend zur tatsaechlichen Runner-CPU (z.B.
+        # Haswell vs. Skylake vs. Zen). Zwei "ubuntu-latest"-Runs koennen auf
+        # unterschiedlicher physischer Hardware landen und deshalb einen
+        # anderen Kernel waehlen -- exakt dieselbe Rechnung rundet dann anders,
+        # obwohl Threads, Seed und Software-Versionen identisch sind.
+        # OPENBLAS_CORETYPE erzwingt IMMER denselben Kernel unabhaengig von der
+        # tatsaechlichen Runner-CPU. Haswell (AVX2+FMA3) ist seit ~2013 auf
+        # praktisch jeder x86-64-Cloud-CPU vorhanden und damit sicher portabel.
         env:
           OMP_NUM_THREADS: "1"
           OPENBLAS_NUM_THREADS: "1"
           MKL_NUM_THREADS: "1"
+          OPENBLAS_CORETYPE: "Haswell"
         run: |
           python -m pytest tests/ --tb=short --maxfail=5
 
@@ -129,6 +144,11 @@ jobs:
         working-directory: 5eyes-backend
         continue-on-error: true
         timeout-minutes: 60
+        env:
+          OMP_NUM_THREADS: "1"
+          OPENBLAS_NUM_THREADS: "1"
+          MKL_NUM_THREADS: "1"
+          OPENBLAS_CORETYPE: "Haswell"
         run: |
           python -m pytest tests/ --tb=short \
             --cov=services --cov=routers --cov=schemas --cov=models \
