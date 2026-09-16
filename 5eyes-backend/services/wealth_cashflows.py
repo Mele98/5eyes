@@ -298,7 +298,6 @@ def derive_wealth_cashflows(positions: list) -> list[DerivedCashflow]:
         cid = str(getattr(pos, "client_id", "") or "")
         label = str(getattr(pos, "label", "") or "").strip() or ptype or "Position"
         currency = str(getattr(pos, "currency", "") or "CHF")
-        vfrom = getattr(pos, "valuation_date", None)
         value = int(getattr(pos, "current_value_rappen", 0) or 0)
         assignment = str(getattr(pos, "assignment", "") or "").strip() or None
 
@@ -312,7 +311,21 @@ def derive_wealth_cashflows(positions: list) -> list[DerivedCashflow]:
                 label=text,
                 amount_rappen=amount,
                 currency=currency,
-                valid_from=vfrom,
+                # PROPERTY-VALUATION-001 (Audit 2026-09-14): valuation_date war
+                # hier bisher als valid_from verdrahtet -- der Bewertungsstichtag
+                # (WANN gilt current_value_rappen) wurde damit faelschlich zum
+                # Startdatum des abgeleiteten Cashflows (WANN beginnt Zins/Miete/
+                # Tilgung zu fliessen). Bei einer zukuenftig datierten Immobilie
+                # stand der Principal bereits ab Jahr 0 in der Bilanz
+                # (_build_external_foundation_projection zaehlt jede aktive
+                # Position unconditional ab Jahr 0), waehrend die Miete erst ab
+                # dem zukuenftigen valuation_date einsetzte -- widerspruechliche
+                # Wirtschaftlichkeit derselben Position. Es gibt aktuell kein
+                # separates Mietbeginn-/Erwerbsdatum-Feld (Fixvertrag Punkt 3,
+                # eigene Owner-Decision); bis dahin bleibt der abgeleitete
+                # Cashflow ohne kuenstliche Startbeschraenkung, konsistent mit
+                # der Bilanzwirkung ab Jahr 0.
+                valid_from=None,
                 is_inflation_linked=1 if inflation_linked else 0,
                 origin_position_id=pid,
                 origin_position_type=ptype,
