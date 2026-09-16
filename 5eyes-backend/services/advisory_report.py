@@ -3208,8 +3208,27 @@ def _recompute_reserve_reasoning(
     # _position_is_currently_unlocked_for_goal_funding) -- gesperrtes
     # Vorsorgekapital ohne erreichtes liquidity_available_from darf auch in
     # dieser Steuer-/Report-Nachrechnung nicht als heute verfuegbar zaehlen.
+    # PROPERTY-COLLATERAL-001: dieselbe Mortgage-Netting-Korrektur wie in
+    # portfolio_engine._unlocked_other_assets_rappen() (Single Source of
+    # Truth fuer diesen Schloss-Pool) -- eine freigegebene Direktimmobilie
+    # darf nicht brutto zaehlen, wenn bereits eine aktive Hypothek auf genau
+    # diese Immobilie verweist (mortgage_linked_property_id).
+    _mortgage_debt_by_property: dict[str, int] = {}
+    for _pos in positions:
+        if str(getattr(_pos, "position_type", "") or "") != "Hypothek":
+            continue
+        _linked_id = getattr(_pos, "mortgage_linked_property_id", None)
+        if not _linked_id:
+            continue
+        _mortgage_debt_by_property[_linked_id] = _mortgage_debt_by_property.get(
+            _linked_id, 0
+        ) + int(getattr(_pos, "current_value_rappen", 0) or 0)
     unlocked_other_assets_rappen = sum(
-        int(getattr(pos, "current_value_rappen", 0) or 0)
+        max(
+            0,
+            int(getattr(pos, "current_value_rappen", 0) or 0)
+            - _mortgage_debt_by_property.get(getattr(pos, "id", None), 0),
+        )
         for pos in positions
         if _position_is_currently_unlocked_for_goal_funding(pos)
     )

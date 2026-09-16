@@ -1120,6 +1120,51 @@ def _summarize_positions(
     return PortfolioSummary(amounts_rappen=amounts, total_rappen=total_rappen)
 
 
+def _unlocked_other_assets_rappen(
+    all_positions: list[WealthPosition],
+    fx_source=None,
+    target_currency: str = "CHF",
+) -> int:
+    """Sprint B2: Anderes-Vermoegen-Schloss-Mechanismus. is_available_for_goal_
+    funding=1 erlaubt der Position, zur Reserve-Deckung herangezogen zu werden
+    (liquid: Verkauf, illiquid: Belehnung @ 100% LTV).
+
+    PROPERTY-COLLATERAL-001 (Audit 2026-09-14): eine freigegebene Direkt-
+    immobilie wurde bisher brutto angerechnet, auch wenn bereits eine aktive
+    Hypothek auf genau diese Immobilie (mortgage_linked_property_id) besteht.
+    Das absorbierte externen Reservebedarf Rappen fuer Rappen, obwohl ein Teil
+    der Immobilie bereits als Sicherheit fuer die bestehende Hypothek gebunden
+    ist. Fix: die verknuepfte aktive Hypothekenschuld wird pro Position
+    abgezogen (floor 0), bevor sie in den Reserve-/Goal-Funding-Pool zaehlt --
+    kein Doppelzaehlen von Beleihungskapazitaet, die die Hypothek schon nutzt.
+
+    Bewusst NICHT umgesetzt (voller Fixvertrag des Audits): expliziter
+    Funding-Modus sale/pledge/partial, Verkaufskosten/-steuer, Haircut, Rang,
+    Drawdown-Horizont. Das sind Owner-Decisions zur Bewertungs-/Verwertungs-
+    politik, keine additive Bugfix-Korrektur -- diese Funktion schliesst nur
+    die konkret reproduzierte Doppelzaehlung von bereits verpfaendetem Wert.
+    """
+    mortgage_debt_by_property: dict[str, int] = {}
+    for pos in all_positions:
+        if not is_mortgage_position(getattr(pos, "position_type", "")):
+            continue
+        linked_id = getattr(pos, "mortgage_linked_property_id", None)
+        if not linked_id:
+            continue
+        mortgage_debt_by_property[linked_id] = mortgage_debt_by_property.get(
+            linked_id, 0
+        ) + _convert_position_amount_to_target_currency(pos, fx_source, target_currency)
+
+    total = 0
+    for pos in all_positions:
+        if not _position_is_currently_unlocked_for_goal_funding(pos):
+            continue
+        gross = _convert_position_amount_to_target_currency(pos, fx_source, target_currency)
+        linked_debt = mortgage_debt_by_property.get(getattr(pos, "id", None), 0)
+        total += max(0, gross - linked_debt)
+    return total
+
+
 def _bps(amount_rappen: int, total_rappen: int) -> int:
     if total_rappen <= 0:
         return 0
@@ -2078,17 +2123,8 @@ def _load_allocation_inputs(
         for pos in liability_positions
     )
     total_wealth_rappen = max(0, total_summary.total_rappen - total_liabilities_rappen)
-    # Sprint B2 (2026-05-07): Anderes-Vermoegen-Schloss-Mechanismus.
-    # is_available_for_goal_funding=1 erlaubt der Position, zur Reserve-Deckung
-    # herangezogen zu werden (liquid: Verkauf, illiquid: Belehnung @ 100% LTV).
-    # PENSION-AVAILABILITY-001: nur Positionen ohne Vorsorge-Restriktion
-    # (unveraendert) oder mit bereits erreichtem liquidity_available_from
-    # zaehlen zum Schloss-Pool -- siehe
-    # _position_is_currently_unlocked_for_goal_funding().
-    unlocked_other_assets_rappen = sum(
-        _convert_position_amount_to_target_currency(pos, fx_source, target_currency)
-        for pos in all_positions
-        if _position_is_currently_unlocked_for_goal_funding(pos)
+    unlocked_other_assets_rappen = _unlocked_other_assets_rappen(
+        all_positions, fx_source=fx_source, target_currency=target_currency,
     )
 
     cashflow_rows = db.query(Cashflow).filter(
@@ -5664,14 +5700,8 @@ def build_target_payload_from_allocation(
     total_wealth_rappen = max(0, total_summary.total_rappen - total_liabilities_rappen)
     _validate_active_wealth_position_semantics(all_positions)
     # Sprint B2: Anderes-Vermoegen-Schloss-Pool fuer Reserve-Reduktion (rebuild path).
-    # PENSION-AVAILABILITY-001: nur Positionen ohne Vorsorge-Restriktion
-    # (unveraendert) oder mit bereits erreichtem liquidity_available_from
-    # zaehlen zum Schloss-Pool -- siehe
-    # _position_is_currently_unlocked_for_goal_funding().
-    unlocked_other_assets_rappen = sum(
-        _convert_position_amount_to_target_currency(pos, fx_source, target_currency)
-        for pos in all_positions
-        if _position_is_currently_unlocked_for_goal_funding(pos)
+    unlocked_other_assets_rappen = _unlocked_other_assets_rappen(
+        all_positions, fx_source=fx_source, target_currency=target_currency,
     )
 
     cashflow_rows = db.query(Cashflow).filter(
