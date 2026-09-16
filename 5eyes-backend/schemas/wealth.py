@@ -58,9 +58,27 @@ class WealthPositionCreate(BaseModel):
         "BVG", "Säule 3a", "Freizügigkeit", "Säule 3b", "Lebensversicherung"
     ]] = None
     pension_institution: Optional[str] = None
-    pension_technical_rate_bps: Optional[int] = None
-    pension_retirement_age: Optional[int] = None
-    pension_payout_form: Optional[str] = None
+    # PENSION-POSITION-001 Option A (2026-09-15): technische Zinssaetze fuer
+    # BVG/Freizuegigkeit/3a liegen real im niedrigen Prozentbereich (Seed-Referenz
+    # foundation_example.py: 175 bps = 1.75%). ge=0/le=1000 (0-10%) ist grosszuegig
+    # genug fuer jede realistische Vorsorgeloesung, faengt aber Tippfehler wie den
+    # konkret reproduzierten 999999-bps-Fall ab.
+    pension_technical_rate_bps: Optional[int] = Field(default=None, ge=0, le=1000)
+    # Gleiche Konvention wie PlanningAssumption.retirement_age_primary/_partner
+    # (schemas/wealth.py, Zeile ~700): ge=40/le=100 erlaubt Frueh-/Spaetpensionierung,
+    # faengt aber Unsinn wie -999 oder dreistellige Tippfehler ab. Bleibt Untermenge
+    # des DB-CHECK (pension_retirement_age BETWEEN 0 AND 100).
+    pension_retirement_age: Optional[int] = Field(default=None, ge=40, le=100)
+    # Bugfix A3-Pilot-Nachtrag PENSION-POSITION-001 (2026-09-15): DB-CHECK
+    # (5eyes_schema_v4.0_FINAL.sql, ~Zeile 567) existierte bereits:
+    # pension_payout_form TEXT CHECK(pension_payout_form IN
+    # ('Rente','Kapital','Gemischt','Offen')) -- Pydantic liess bisher trotzdem
+    # jeden String durch (kam vor derselben A3-Pilot-Haertung fuer pension_type
+    # nicht mit). Werte 1:1 aus dem Frontend-Dropdown uebernommen
+    # (5eyes_v2.html, #maw-pension-payout: Rente/Kapital/Gemischt/Offen).
+    pension_payout_form: Optional[Literal[
+        "Rente", "Kapital", "Gemischt", "Offen"
+    ]] = None
     pension_wef_possible: bool = False
     # Hypothek
     mortgage_bank: Optional[str] = None
@@ -173,9 +191,13 @@ class WealthPositionUpdate(BaseModel):
     property_rental_inflation_linked: Optional[int] = None
     pension_type: Optional[str] = None
     pension_institution: Optional[str] = None
-    pension_technical_rate_bps: Optional[int] = None
-    pension_retirement_age: Optional[int] = None
-    pension_payout_form: Optional[str] = None
+    # PENSION-POSITION-001 Option A (2026-09-15): siehe WealthPositionCreate
+    # oben fuer Begruendung der Bounds/Werte -- identisch gehalten fuer Update.
+    pension_technical_rate_bps: Optional[int] = Field(default=None, ge=0, le=1000)
+    pension_retirement_age: Optional[int] = Field(default=None, ge=40, le=100)
+    pension_payout_form: Optional[Literal[
+        "Rente", "Kapital", "Gemischt", "Offen"
+    ]] = None
     pension_wef_possible: Optional[bool] = None
     mortgage_bank: Optional[str] = None
     mortgage_type: Optional[str] = None
@@ -226,6 +248,13 @@ class WealthPositionResponse(BaseResponse):
     property_rental_income_rappen: int
     property_rental_inflation_linked: int = 0
     pension_type: Optional[str]
+    # PENSION-POSITION-001 Option A (2026-09-15): fehlte hier komplett -- die
+    # API schrieb pension_technical_rate_bps klaglos, gab es aber nie zurueck
+    # (response_model streicht undeklarierte Felder). Das Frontend liest es
+    # beim Editieren zurueck (5eyes_v2.html, setInputValue('maw-pension-rate',
+    # formatInputPercent(pos.pension_technical_rate_bps))) -- Feld war also im
+    # Bearbeiten-Dialog immer leer, unabhaengig vom gespeicherten Wert.
+    pension_technical_rate_bps: Optional[int] = None
 
     @field_validator("property_rental_inflation_linked", mode="before")
     @classmethod
