@@ -23,6 +23,7 @@ from services.cashflow_timeline import SUPPORTED_FREQUENCIES, normalize_frequenc
 from services.data_classification import enforce_data_classification
 from services.wealth_position_semantics import (
     WealthPositionSemanticsError,
+    is_direct_real_estate_position,
     require_supported_mortgage_amortization,
     require_supported_position_assignment,
 )
@@ -530,6 +531,43 @@ def _validate_mortgage_link(client_id: str, data: dict, db: Session) -> None:
         )
 
 
+def _active_mortgages_linked_to_property(
+    property_id: str, client_id: str, db: Session,
+) -> list[WealthPosition]:
+    return db.query(WealthPosition).filter(
+        WealthPosition.client_id == client_id,
+        WealthPosition.position_type == "Hypothek",
+        WealthPosition.mortgage_linked_property_id == property_id,
+        WealthPosition.is_active == 1,
+        WealthPosition.deleted_at.is_(None),
+    ).all()
+
+
+def _block_if_property_has_active_linked_mortgages(
+    wp: WealthPosition, client_id: str, db: Session,
+) -> None:
+    """MORTGAGE-LINK-001: ein Write-time-Guard (_validate_mortgage_link) allein
+    verhindert keinen Orphan -- eine gueltig verknuepfte Immobilie kann
+    anschliessend soft-deleted oder deaktiviert werden, waehrend die Hypothek
+    aktiv bleibt und weiter auf die nicht mehr existente/aktive Immobilie
+    zeigt. Symmetrischer Guard: Deactivate/Delete einer Immobilie mit noch
+    aktiv verknuepfter Hypothek wird abgelehnt, statt still einen Orphan-Link
+    entstehen zu lassen."""
+    if not is_direct_real_estate_position(wp.position_type):
+        return
+    linked = _active_mortgages_linked_to_property(wp.id, client_id, db)
+    if linked:
+        labels = ", ".join(sorted({str(m.label or m.id) for m in linked}))
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Immobilie kann nicht deaktiviert/gelöscht werden: noch aktiv "
+                f"verknüpfte Hypothek(en) vorhanden ({labels}). Bitte zuerst die "
+                "Hypothek(en) umverknüpfen, deaktivieren oder löschen."
+            ),
+        )
+
+
 def _validate_goal_link(client_id: str, data: dict, db: Session) -> None:
     """PENSION-POSITION-001 Option A (2026-09-15): Goal.linked_position_id war
     bislang ein blankes Optional[str] ohne jede Validierung -- konnte auf eine
@@ -672,6 +710,12 @@ def update_wealth_position(
                 ),
             )
     _validate_mortgage_link(client_id, updates, db)
+    if (
+        "is_active" in updates
+        and not updates["is_active"]
+        and int(getattr(wp, "is_active", 1) or 0) == 1
+    ):
+        _block_if_property_has_active_linked_mortgages(wp, client_id, db)
     for field, value in updates.items():
         if isinstance(value, bool):
             value = 1 if value else 0
@@ -700,6 +744,7 @@ def delete_wealth_position(
     ).first()
     if not wp:
         raise HTTPException(status_code=404, detail="Vermögensposition nicht gefunden")
+    _block_if_property_has_active_linked_mortgages(wp, client_id, db)
     wp.deleted_at = _now()
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="wealth_positions", record_id=wp_id, action="DELETE",
