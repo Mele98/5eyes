@@ -157,6 +157,42 @@ def require_supported_mortgage_amortization(
         )
 
 
+# PROPERTY-RISK-MODEL-001 (Audit 2026-09-14): asset_expected_return_bps ist
+# ein geteiltes Feld (schemas/wealth.py: Field(gt=-10_000, le=100_000) --
+# bis 1000%/Jahr), das fuer "Alternative"-Positionen (Private Equity,
+# Venture Capital etc.) bewusst weit gefasst bleibt. Fuer Direktimmobilien
+# ("Immobilien") ist eine derart offene Domain nicht plausibel und wurde
+# vom Audit konkret reproduziert (1000% p.a. wurde klaglos akzeptiert und
+# von der Engine exponentiell fortgeschrieben).
+#
+# Fachentscheid (User, 2026-09-16): Direktimmobilien bleiben in der Monte-
+# Carlo-Simulation bewusst DETERMINISTISCH (nur "eine Indexierung oder
+# keine", keine Marktvolatilitaet) -- eine selbstbewohnte/direkt gehaltene
+# Liegenschaft wird nicht wie ein kotierter Index (SXI Real Estate,
+# 8.2% Vola in der bestehenden CMA-Korrelationsmatrix) gehandelt und
+# schwankt nicht wie eine Aktie. Dieser Vertrag bleibt unveraendert (siehe
+# services/portfolio_engine_mc_simulation.py: "Direct property and
+# mortgage principal are deterministic additions ... outside CMA and
+# rebalancing"). Diese Konstante schliesst nur die konkret reproduzierte
+# Extremwert-Luecke der EINGABE, baut kein neues Risikomodell.
+PROPERTY_EXPECTED_RETURN_BPS_MIN = -2_000  # -20% p.a.
+PROPERTY_EXPECTED_RETURN_BPS_MAX = 2_000  # +20% p.a.
+
+
+def require_plausible_property_expected_return(position_type, value) -> None:
+    if value is None:
+        return
+    if canonical_position_type(position_type) != DIRECT_REAL_ESTATE_POSITION_TYPE:
+        return
+    if not (PROPERTY_EXPECTED_RETURN_BPS_MIN <= int(value) <= PROPERTY_EXPECTED_RETURN_BPS_MAX):
+        raise WealthPositionSemanticsError(
+            "asset_expected_return_bps fuer Direktimmobilien muss zwischen "
+            f"{PROPERTY_EXPECTED_RETURN_BPS_MIN} und {PROPERTY_EXPECTED_RETURN_BPS_MAX} "
+            "bps liegen (-20% bis +20% p.a.) -- Immobilien werden deterministisch "
+            "indexiert, keine kotierte Marktschwankung."
+        )
+
+
 def require_supported_position_assignment(position_type, assignment) -> None:
     """Fail closed for classifications the allocation engine cannot model.
 

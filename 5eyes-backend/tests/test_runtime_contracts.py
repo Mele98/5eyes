@@ -2386,6 +2386,58 @@ def test_create_wealth_position_accepts_valid_mortgage_property_link(session_fac
     assert result.mortgage_linked_property_id == "property-1"
 
 
+def test_update_wealth_position_rejects_extreme_property_return_using_db_position_type(
+    session_factory, advisor_user,
+):
+    """PROPERTY-RISK-MODEL-001: WealthPositionUpdate kennt position_type
+    nicht (unveraenderlich); der Router muss die Domain-Grenze trotzdem mit
+    dem bestehenden position_type aus der DB durchsetzen. Audit-Repro:
+    100_000 bps (1000%) wurde bislang klaglos akzeptiert."""
+    client_id, _ = seed_client_and_mandate(session_factory, advisor_user)
+
+    with session_factory() as session:
+        session.add(
+            WealthPosition(
+                id="property-risk-1",
+                client_id=client_id,
+                label="Ferienhaus Tessin",
+                position_type="Immobilien",
+                assignment="Anderes Vermögen",
+                current_value_rappen=1_000_000_00,
+                currency="CHF",
+                property_usage="Ferienimmobilie",
+                is_active=1,
+                created_at="2026-03-27T00:00:00.000Z",
+                updated_at="2026-03-27T00:00:00.000Z",
+            )
+        )
+        session.commit()
+
+    with session_factory() as session:
+        with pytest.raises(HTTPException) as exc_info:
+            update_wealth_position(
+                client_id=client_id,
+                wp_id="property-risk-1",
+                body=WealthPositionUpdate(asset_expected_return_bps=100_000),
+                db=session,
+                current_user=advisor_user,
+            )
+    assert exc_info.value.status_code == 422
+    assert "Immobilien" in exc_info.value.detail
+
+    with session_factory() as session:
+        update_wealth_position(
+            client_id=client_id,
+            wp_id="property-risk-1",
+            body=WealthPositionUpdate(asset_expected_return_bps=150),
+            db=session,
+            current_user=advisor_user,
+        )
+    with session_factory() as session:
+        prop = session.query(WealthPosition).filter(WealthPosition.id == "property-risk-1").first()
+        assert prop.asset_expected_return_bps == 150
+
+
 def test_generate_target_allocation_reflects_cashflow_and_goal_constraints(session_factory, advisor_user):
     client_id, mandate_id = seed_client_and_mandate(session_factory, advisor_user)
 

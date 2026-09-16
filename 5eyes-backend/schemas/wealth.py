@@ -4,6 +4,7 @@ from schemas.common import BaseResponse
 from services.wealth_position_semantics import (
     require_supported_mortgage_amortization,
     require_supported_position_assignment,
+    require_plausible_property_expected_return,
 )
 
 
@@ -169,6 +170,9 @@ class WealthPositionCreate(BaseModel):
         if self.position_type == "Hypothek":
             if self.assignment != "Verbindlichkeit":
                 raise ValueError("Hypothek muss assignment='Verbindlichkeit' haben")
+        require_plausible_property_expected_return(
+            self.position_type, self.asset_expected_return_bps,
+        )
         return self
 
 
