@@ -1045,7 +1045,20 @@ def _build_external_foundation_projection(
                 # Indirect amortization transfers advisory cash into a pledged
                 # pension asset. It does not reduce the mortgage, but it is not
                 # consumption in the total-wealth view either.
-                pledged_asset_series[year] += min(value, amortization * year)
+                #
+                # MORTGAGE-INDIRECT-AMORTIZATION-001 (Audit 2026-09-14): the
+                # recurring derived amortization expense (wealth_cashflows.
+                # derive_wealth_cashflows) is deliberately NOT capped at the
+                # mortgage principal -- indirect amortization is an ongoing
+                # pension contribution, not debt repayment (see
+                # mortgage_amortization_adjustment_series docstring). Capping
+                # this pledged-asset series at `value` therefore made cash
+                # keep leaving the total-wealth view after the cap while its
+                # pledged counter-asset stopped growing, i.e. money vanished
+                # from the balance sheet. The pledged asset must grow exactly
+                # as far as the cash that funds it, with no artificial cap, so
+                # cash_out == pledged_asset_increase holds for every year.
+                pledged_asset_series[year] += amortization * year
 
     return {
         "property_series_rappen": property_series,
