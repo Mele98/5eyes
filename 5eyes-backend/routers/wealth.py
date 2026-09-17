@@ -24,6 +24,7 @@ from services.data_classification import enforce_data_classification
 from services.wealth_position_semantics import (
     WealthPositionSemanticsError,
     is_direct_real_estate_position,
+    require_plausible_property_expected_return,
     require_supported_mortgage_amortization,
     require_supported_position_assignment,
 )
@@ -40,6 +41,7 @@ def _validate_position_projection_or_422(
     assignment,
     amortization_rappen=0,
     amortization_type=None,
+    asset_expected_return_bps=None,
 ) -> None:
     try:
         require_supported_position_assignment(position_type, assignment)
@@ -47,6 +49,9 @@ def _validate_position_projection_or_422(
             position_type,
             amortization_rappen,
             amortization_type,
+        )
+        require_plausible_property_expected_return(
+            position_type, asset_expected_return_bps,
         )
     except WealthPositionSemanticsError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -752,6 +757,7 @@ def create_wealth_position(
         data.get("assignment"),
         data.get("mortgage_amortization_rappen"),
         data.get("mortgage_amortization_type"),
+        data.get("asset_expected_return_bps"),
     )
     client = get_client_for_user_or_404(client_id, db, current_user)
     now = _now()
@@ -815,6 +821,10 @@ def update_wealth_position(
         updates.get(
             "mortgage_amortization_type",
             wp.mortgage_amortization_type,
+        ),
+        updates.get(
+            "asset_expected_return_bps",
+            wp.asset_expected_return_bps,
         ),
     )
     # C10.2: exclude_unset erlaubt explizites Null-Setzen ("clear"). exclude_none

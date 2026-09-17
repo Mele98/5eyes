@@ -5,14 +5,23 @@ from schemas.common import BaseResponse
 from services.wealth_position_semantics import (
     require_supported_mortgage_amortization,
     require_supported_position_assignment,
+    require_plausible_property_expected_return,
 )
 
 
 def _require_valid_iso_date_or_none(value: Optional[str], *, field_name: str) -> Optional[str]:
-    """PROPERTY-VALUATION-001 (Audit 2026-09-14): valuation_date akzeptierte
-    bisher jeden String (z.B. "2099-not-a-date"). Schliesst nur die
-    Eingabevalidierung -- die Bedeutung von valuation_date selbst (Bewertungs-
-    stichtag) bleibt unveraendert."""
+    """Gemeinsamer Validator fuer zwei unabhaengige Audit-Befunde
+    (2026-09-14), beide als reine Eingabevalidierung ohne Aenderung an der
+    jeweiligen Feldbedeutung:
+
+    - MORTGAGE-TERMS-001: mortgage_maturity_date akzeptierte bisher jeden
+      String, dessen erste 4 Zeichen Ziffern sind (siehe
+      services/wealth_cashflows._year_of()) -- z.B. "2027-not-a-date" wurde
+      klaglos als Jahr 2027 interpretiert. _year_of() selbst bleibt
+      unveraendert (liest jetzt aber nur noch echte ISO-Daten oder None).
+    - PROPERTY-VALUATION-001: valuation_date akzeptierte bisher jeden String
+      (z.B. "2099-not-a-date"). Die Bedeutung von valuation_date selbst
+      (Bewertungsstichtag) bleibt unveraendert."""
     if value is None or value == "":
         return value
     try:
@@ -111,7 +120,15 @@ class WealthPositionCreate(BaseModel):
     mortgage_type: Optional[Literal[
         "Festhypothek", "SARON", "Gemischt"
     ]] = None
-    mortgage_interest_rate_bps: Optional[int] = None
+    # MORTGAGE-TERMS-001 (Audit 2026-09-14): ein negativer Hypothekarzins
+    # wurde bisher vom Schedule (mortgage_interest_schedule) weitergerechnet,
+    # vom abgeleiteten Basis-Cashflow (derive_wealth_cashflows, amount<=0
+    # verworfen) aber komplett ignoriert -- zwei inkonsistente Verhalten fuer
+    # denselben gespeicherten Wert. Fachentscheid (User, 2026-09-16): negative
+    # Hypothekarzinsen sind in CH praktisch nie real und werden abgelehnt;
+    # liquidity_interest_rate_bps (Bank-/Sparkonti) bleibt bewusst UNERAENDERT
+    # und weiterhin negativ zulaessig (dort real und wichtig).
+    mortgage_interest_rate_bps: Optional[int] = Field(default=None, ge=0, le=10_000)
     mortgage_maturity_date: Optional[str] = None
     # 2026-07-25 (Generalaudit): siehe current_value_rappen.
     mortgage_amortization_rappen: int = Field(default=0, ge=0, le=10_000_000_000_000)
@@ -159,6 +176,11 @@ class WealthPositionCreate(BaseModel):
     # die einzigen sensiblen Datensaetze, die das Phase-0-Gate umgehen konnten.
     data_classification: Literal["synthetic", "real"] = "synthetic"
 
+    @field_validator("mortgage_maturity_date")
+    @classmethod
+    def validate_mortgage_maturity_date(cls, value):
+        return _require_valid_iso_date_or_none(value, field_name="mortgage_maturity_date")
+
     @field_validator("valuation_date")
     @classmethod
     def validate_valuation_date(cls, value):
@@ -198,6 +220,9 @@ class WealthPositionCreate(BaseModel):
         if self.position_type == "Hypothek":
             if self.assignment != "Verbindlichkeit":
                 raise ValueError("Hypothek muss assignment='Verbindlichkeit' haben")
+        require_plausible_property_expected_return(
+            self.position_type, self.asset_expected_return_bps,
+        )
         return self
 
 
@@ -241,7 +266,9 @@ class WealthPositionUpdate(BaseModel):
     pension_wef_possible: Optional[bool] = None
     mortgage_bank: Optional[str] = None
     mortgage_type: Optional[str] = None
-    mortgage_interest_rate_bps: Optional[int] = None
+    # MORTGAGE-TERMS-001 (Audit 2026-09-14): siehe WealthPositionCreate oben
+    # fuer Begruendung -- identisch gehalten fuer Update.
+    mortgage_interest_rate_bps: Optional[int] = Field(default=None, ge=0, le=10_000)
     mortgage_maturity_date: Optional[str] = None
     mortgage_amortization_rappen: Optional[int] = Field(default=None, ge=0, le=10_000_000_000_000)
     mortgage_amortization_type: Optional[str] = None
@@ -264,6 +291,11 @@ class WealthPositionUpdate(BaseModel):
     notes: Optional[str] = None
     is_active: Optional[bool] = None
     data_classification: Optional[Literal["synthetic", "real"]] = None
+
+    @field_validator("mortgage_maturity_date")
+    @classmethod
+    def validate_mortgage_maturity_date(cls, value):
+        return _require_valid_iso_date_or_none(value, field_name="mortgage_maturity_date")
 
     @field_validator("valuation_date")
     @classmethod
