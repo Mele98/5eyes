@@ -1337,6 +1337,17 @@ def _run_allocation_monte_carlo(
         # Total paths simulate only financial assets when a position-derived
         # foundation is supplied. Direct property and mortgage principal are
         # deterministic additions below, outside CMA and rebalancing.
+        #
+        # PROPERTY-RISK-MODEL-001 (Audit 2026-09-14, User-Entscheid 2026-09-16):
+        # confirmed intentional, not a gap to close with a stochastic model.
+        # A directly held property (self-occupied or not) is not traded like
+        # the listed real-estate CMA bucket (SXI Real Estate, ~8.2% vol in the
+        # correlation matrix) and does not carry equity-like market volatility
+        # for planning purposes -- it simply carries an appreciation index (or
+        # none), which is exactly what foundation_property_series already is.
+        # schemas/wealth.py::require_plausible_property_expected_return()
+        # closes the actual reported gap instead: the return input itself was
+        # unbounded (1000%/year accepted and compounded exponentially here).
         if total_summary is not None:
             total_current_values = {
                 key: max(
