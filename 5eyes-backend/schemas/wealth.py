@@ -402,7 +402,20 @@ class CashflowCreate(BaseModel):
     amount_rappen: int = Field(ge=0)
     gross_amount_rappen: Optional[int] = None
     tax_amount_rappen: Optional[int] = None
-    timing_precision: Optional[str] = None
+    # WITHDRAWAL-TIMING-001 (Phase 0, Honesty-Fix): "day"/"month" ist eine reine
+    # Dokumentationsangabe zum gespeicherten Referenzdatum. Sie hat KEINE Wirkung
+    # auf die Projektionsrechnung -- contribution_for_year() (services/
+    # cashflow_timeline.py) prueft fuer einmalige Cashflows nur event_date.year
+    # == year; Tag/Monat werden fuer die Jahresprojektion ignoriert.
+    timing_precision: Optional[str] = Field(
+        default=None,
+        description=(
+            "Nur Dokumentationsangabe ('day'|'month') zum Referenzdatum eines "
+            "einmaligen Cashflows -- KEINE Wirkung auf die Projektionsrechnung. "
+            "Die Jahresprojektion verbucht den vollen Betrag im Kalenderjahr des "
+            "Datums (WITHDRAWAL-TIMING-001)."
+        ),
+    )
     currency: str = "CHF"
     frequency: str = "jährlich"
     nature: Literal["wiederkehrend", "einmalig"] = "wiederkehrend"
@@ -424,7 +437,17 @@ class CashflowUpdate(BaseModel):
     amount_rappen: Optional[int] = Field(default=None, ge=0)
     gross_amount_rappen: Optional[int] = None
     tax_amount_rappen: Optional[int] = None
-    timing_precision: Optional[str] = None
+    # WITHDRAWAL-TIMING-001: siehe CashflowCreate.timing_precision -- reine
+    # Dokumentationsangabe, keine Wirkung auf die Projektionsrechnung.
+    timing_precision: Optional[str] = Field(
+        default=None,
+        description=(
+            "Nur Dokumentationsangabe ('day'|'month') zum Referenzdatum eines "
+            "einmaligen Cashflows -- KEINE Wirkung auf die Projektionsrechnung. "
+            "Die Jahresprojektion verbucht den vollen Betrag im Kalenderjahr des "
+            "Datums (WITHDRAWAL-TIMING-001)."
+        ),
+    )
     currency: Optional[str] = None
     frequency: Optional[str] = None
     nature: Optional[str] = None
@@ -450,7 +473,15 @@ class CashflowResponse(BaseResponse):
     amount_rappen: int
     gross_amount_rappen: Optional[int]
     tax_amount_rappen: Optional[int]
-    timing_precision: Optional[str]
+    # WITHDRAWAL-TIMING-001: siehe CashflowCreate.timing_precision.
+    timing_precision: Optional[str] = Field(
+        description=(
+            "Nur Dokumentationsangabe ('day'|'month') zum Referenzdatum eines "
+            "einmaligen Cashflows -- KEINE Wirkung auf die Projektionsrechnung. "
+            "Die Jahresprojektion verbucht den vollen Betrag im Kalenderjahr des "
+            "Datums (WITHDRAWAL-TIMING-001)."
+        ),
+    )
     currency: str
     frequency: str
     nature: str

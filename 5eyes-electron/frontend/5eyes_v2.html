@@ -4562,7 +4562,7 @@ function _wireSollIstHover(){
         </div>
       </div>
       <div id="acf-date-hint" style="font-size:10px;color:var(--n5);margin-top:2px">
-        Laufende Cashflows können ein Start- und optional ein Enddatum haben. Einmalige Cashflows benötigen ein genaues Datum.
+        Laufende Cashflows können ein Start- und optional ein Enddatum haben. Einmalige Cashflows benötigen ein genaues Datum. Hinweis: Das Datum ist reine Dokumentation -- die Jahresprojektion verbucht den vollen Betrag im Kalenderjahr des Datums, unabhängig vom genauen Tag/Monat.
       </div>
       <div id="acf-inflation-block" style="display:none;margin-top:8px;padding:8px 10px;background:var(--bg);border:1px solid var(--b1);border-radius:var(--r)">
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:11px;font-weight:500;color:var(--n7)">
@@ -22243,7 +22243,12 @@ function cashflowTimingLabel(cashflow){
   if(cashflow&&cashflow.notes)parts.push(cashflow.notes);
   if(isOneOffCashflow(cashflow&&cashflow.frequency)){
     parts.push('einmalig');
-    if(start||end)parts.push((precision==='month'?'im ':'am ')+cashflowOneOffDateLabel(start||end,precision));
+    // WITHDRAWAL-TIMING-001 (Phase 0, Honesty-Fix): das gespeicherte Datum ist
+    // reine Dokumentation. contribution_for_year() prueft fuer einmalige
+    // Cashflows nur event_date.year == year -- Tag/Monat wirken sich NICHT auf
+    // die Jahresprojektion aus. Darum hier immer als Referenzdatum kennzeichnen,
+    // statt eine Tages-/Monatspraezision vorzutaeuschen, die das Modell nicht hat.
+    if(start||end)parts.push((precision==='month'?'im ':'am ')+cashflowOneOffDateLabel(start||end,precision)+' (Referenzdatum, ohne Wirkung auf die Jahresprojektion)');
   }else{
     parts.push(cashflowDisplayFrequency(cashflow&&cashflow.frequency||'jaehrlich'));
     if(start&&end)parts.push('ab '+formatDateSwiss(start)+' bis '+formatDateSwiss(end));
@@ -22849,6 +22854,14 @@ function syncCashflowModalState(){
     hint.textContent=timingPrecision==='month'
       ? 'Kapitalzufluss wird als einmaliger Nettozufluss mit Monat/Jahr geplant. Brutto und Kapitalbezugssteuer bleiben als Dokumentation sichtbar.'
       : 'Kapitalzufluss wird als einmaliger Nettozufluss geplant. Brutto und Kapitalbezugssteuer bleiben als Dokumentation sichtbar.';
+  }
+  // WITHDRAWAL-TIMING-001 (Phase 0, Honesty-Fix): fuer ALLE einmaligen
+  // Cashflows (Tag- und Monat-Praezision, inkl. Kapitalbezug) ergaenzend
+  // klarstellen, dass das Datum reine Dokumentation ist -- die Jahresprojektion
+  // verbucht den vollen Betrag im Kalenderjahr des Datums (per Jahresende,
+  // siehe future_value_with_cashflow_series), unabhaengig von Tag/Monat.
+  if(isOneOffCashflow(freq)&&hint){
+    hint.textContent+=' Hinweis: Das Datum ist reine Dokumentation -- die Jahresprojektion verbucht den vollen Betrag im Kalenderjahr des Datums, unabhängig vom genauen Tag/Monat.';
   }
   var inflationBlock=document.getElementById('acf-inflation-block');
   if(inflationBlock)inflationBlock.style.display=(cftype==='Expense'&&!isOneOffCashflow(freq))?'block':'none';
