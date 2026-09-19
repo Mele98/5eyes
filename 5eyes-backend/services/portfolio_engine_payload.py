@@ -406,46 +406,36 @@ def _goal_timing_label(goal: Goal, years: int) -> str:
 
 def _expected_death_year_offset_from_mandate(mandate) -> int | None:
     """Sprint U-P5 Fix H12: leitet aus Mandate-Feldern den erwarteten
-    Sterbe-Zeitpunkt als Years-from-now ab.
+    Sterbe-Zeitpunkt als Years-from-reference ab. Delegiert an
+    services.mortality.horizon.expected_death_year_offset_from_mandate, der
+    SELBEN Quelle, die seit dem Fix vom 2026-09-19 (Kontrollrunde Mortalitaet)
+    auch der Solver-Pfad nutzt -- verhindert eine Divergenz zwischen dem, was
+    im Report als Sterbe-Marker gezeigt wird, und dem, was die Simulation
+    tatsaechlich als Horizont-Cutoff verwendet.
+
     - Priorität 1: life_expectancy_year (manuell gepflegt im Mandate)
     - Priorität 2: BFS-Default basierend auf client_birth_year + client_sex
                    (median life expectancy aus BFS_2020_2022) -- NUR fuer
-                   CH-Mandate (siehe Jurisdiktions-Gate unten)
+                   CH-Mandate (siehe Jurisdiktions-Gate im Modul).
     - Sonst None (kein Cutoff)
 
     Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): BFS_2020_2022 ist eine Schweizer
     Sterbetafel. Fuer ein DE/AT-Mandat (mandate.jurisdiction != CH) haette
     sie das Sterbealter systematisch falsch geschaetzt und damit das
-    Verzehr-/Depletion-Risiko in der Monte-Carlo-Simulation verzerrt. Da
-    aktuell keine DE/AT-Sterbetafel vorliegt, ist "kein Cutoff" (konservativ,
-    unbefristeter Horizont) die richtige Wahl, statt eine falsche Zahl zu
-    zeigen. Bewusst NUR die direkte mandate.jurisdiction-Prüfung (wie an den
-    2 anderen bestehenden Stellen in dieser Codebase) -- NICHT der noch nicht
-    freigegebene services.jurisdiction.resolve-Resolver (siehe dessen
-    Modul-Docstring: WP2, exklusiver Schreibzugriff noetig).
+    Verzehr-/Depletion-Risiko in der Monte-Carlo-Simulation verzerrt. "Kein
+    Cutoff" (konservativ, unbefristeter Horizont) bleibt die richtige Wahl
+    statt einer falschen Zahl.
+
+    Diese Report-/Anzeige-Stelle faengt Fehler weiterhin ab und faellt auf
+    "kein Cutoff" zurueck (konservativ fuer eine reine Chart-Markierung) --
+    der Solver-Pfad tut das NICHT mehr (fail-closed fuer ein aktiviertes,
+    bereits validiertes Feature), siehe horizon.py-Docstring.
     """
-    from datetime import date as _date
-    today_year = _date.today().year
-    life_expectancy_year = int(getattr(mandate, "life_expectancy_year", 0) or 0)
-    if life_expectancy_year and life_expectancy_year > today_year:
-        return life_expectancy_year - today_year
-    jurisdiction = str(getattr(mandate, "jurisdiction", None) or "CH")
-    birth_year = int(getattr(mandate, "client_birth_year", 0) or 0)
-    sex = str(getattr(mandate, "client_sex", "") or "")
-    if jurisdiction == "CH" and birth_year and sex in ("M", "F"):
-        try:
-            from services.mortality.bfs import BFS_2020_2022
-            current_age = max(0, today_year - birth_year)
-            # Median life expectancy = remaining years until S(t)=0.5
-            survival = 1.0
-            for age_offset in range(BFS_2020_2022.max_age - current_age):
-                q = BFS_2020_2022.qx(current_age + age_offset, sex)
-                survival *= max(0.0, 1.0 - float(q))
-                if survival < 0.5:
-                    return max(1, age_offset + 1)
-        except Exception:
-            pass
-    return None
+    from services.mortality.horizon import expected_death_year_offset_from_mandate
+    try:
+        return expected_death_year_offset_from_mandate(mandate)
+    except Exception:
+        return None
 
 
 def _build_goal_analysis(

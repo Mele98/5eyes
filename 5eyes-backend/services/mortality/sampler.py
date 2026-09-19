@@ -33,9 +33,16 @@ def sample_age_at_death(
 
     Returns:
         ndarray shape (n_paths,) mit Sterbe-Alter (int)
-        Bereich: current_age+1 .. table.max_age+1
+        Bereich: current_age+1 .. table.max_age (inklusive; q(max_age)=1.0
+        garantiert, dass nie ein hoeheres Alter gesampelt wird)
 
     Beispiel: current_age=65, sex='M' → 10k Samples → mean ~84.5
+
+    Hinweis (Kontrollrunde 2026-09-19): der Solver nutzt diese Funktion seit
+    dem Fix in services/optimizer/solver.py NICHT mehr fuer die Haupt-
+    Monte-Carlo-Rechnung (siehe services.mortality.horizon fuer den jetzt
+    deterministischen, fuer alle Pfade identischen Cutoff). Diese Funktion
+    bleibt als eigenstaendiges, getestetes Sampling-Werkzeug erhalten.
     """
     if n_paths < 1:
         raise ValueError(f"n_paths must be >= 1, got {n_paths}")

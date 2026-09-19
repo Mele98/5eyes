@@ -6,8 +6,6 @@ and runtime boundaries instead of silently switching that component off.
 """
 from __future__ import annotations
 
-from datetime import date
-
 from services.tax.overrides import parse_overrides_json
 from services.mandate_preferences import (
     MandatePreferenceError,
@@ -57,7 +55,11 @@ def validate_mortality_model_inputs(
                 "Activated mortality simulation requires client_birth_year "
                 "in the supported BFS range and client_sex M/F."
             )
-        model_year = int(reference_year if reference_year is not None else date.today().year)
+        if reference_year is not None:
+            model_year = int(reference_year)
+        else:
+            from services.mortality.horizon import mandate_reference_year
+            model_year = mandate_reference_year(mandate)
         from services.mortality.bfs import BFS_2020_2022
 
         current_age = model_year - birth_year
@@ -117,15 +119,39 @@ def validate_mandate_model_inputs(
 
 
 def mortality_solver_kwargs_from_mandate(mandate) -> dict:
-    """Return complete mortality kwargs, or an empty dict when feature-off."""
+    """Return complete mortality kwargs, or an empty dict when feature-off.
+
+    Kontrollrunde 2026-09-19: mortality_fixed_offset_years carries the SAME
+    deterministic, mandate-anchored death-year offset the report already
+    shows as its "expected death" chart marker (services.mortality.horizon,
+    shared with services/portfolio_engine_payload.py). The solver applies
+    this identically to every Monte-Carlo path -- no more per-path random
+    death sampling, which previously let an early-death path trivially
+    satisfy any outflow_stream/cashflow_in_year goal regardless of whether
+    the spending plan was actually sustainable while the client was alive.
+
+    Computed here (not in the solver) so a resolution failure surfaces as
+    the same MandateModelInputError -> OptimizerInputError fail-closed path
+    as every other activated-feature validation in this module, rather than
+    a separate error class deep in the solver.
+    """
     validate_mortality_model_inputs(mandate)
     if not _feature_enabled(
         getattr(mandate, "use_mortality_simulation", 0),
         field_name="use_mortality_simulation",
     ):
         return {}
+    from services.mortality.horizon import expected_death_year_offset_from_mandate
+    try:
+        offset_years = expected_death_year_offset_from_mandate(mandate)
+    except Exception as exc:
+        raise MandateModelInputError(
+            "Activated mortality simulation could not resolve a death-year "
+            "offset from the mandate's data."
+        ) from exc
     return {
         "client_birth_year": int(mandate.client_birth_year),
         "client_sex": str(mandate.client_sex),
         "use_mortality_simulation": True,
+        "mortality_fixed_offset_years": offset_years,
     }

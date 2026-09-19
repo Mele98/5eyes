@@ -103,31 +103,45 @@ def test_table_is_stale_convenience_method():
 
 # ---------------------------------------------------------------------------
 # Plausibilitaets-Tests fuer Life-Expectancy
-# (siehe Docstring: M~81.6, F~85.4 @ Geburt; M~19.5, F~22.0 @ 65)
+#
+# KONTROLLRUNDE 2026-09-19: diese Tests dokumentieren eine BEKANNTE, NICHT
+# behobene Untersch"atzung gegenueber den offiziellen BFS-2020-2022-Werten
+# (siehe services/mortality/bfs.py Modul-Docstring fuer die vollstaendige
+# Herleitung + TODO). Die Toleranzbaender sind bewusst weit genug gewaehlt,
+# um die HEUTIGEN (zu niedrigen) Werte durchzulassen -- das ist eine
+# ehrliche Dokumentation der Luecke, KEINE Bestaetigung, dass die Tafel
+# korrekt ist. Frueher haengte an genau dieser Stelle eine Erklaerung, die
+# die Abweichung faelschlich allein auf die Gompertz-Extrapolation > Alter
+# 100 zurueckfuehrte -- tatsaechlich reproduziert sich der Fehler bereits im
+# Altersband 0-89 (z.B. survival_curve(0,'M')[65] ~ 86.7%, deutlich unter
+# publizierten CH-Ueberlebensraten bis 65).
 # ---------------------------------------------------------------------------
 
 def test_life_expectancy_male_at_birth_plausible():
-    """LE Maenner bei Geburt — hardcoded BFS-2020-2022 approximate ~79.7
-    (BFS-Soll 81.6, Differenz aus Approximation der Hochbetagten-Werte +
-    Gompertz-Extrapolation > Alter 100). Toleranz [78, 83]."""
+    """LE Maenner bei Geburt — hardcoded BFS-2020-2022-Approximation liefert
+    ~79.7 (BFS-Soll 81.6, bekannte -1.9J-Luecke, siehe bfs.py TODO). Toleranz
+    [78, 83] laesst den bekannten Fehlwert bewusst durch."""
     le = BFS_2020_2022.life_expectancy(0, "M")
     assert 78.0 <= le <= 83.0, f"LE Maenner Geburt {le:.2f} ausserhalb [78, 83]"
 
 
 def test_life_expectancy_female_at_birth_plausible():
-    """LE Frauen bei Geburt — hardcoded ~83.6 (BFS-Soll 85.4). Toleranz [82, 87]."""
+    """LE Frauen bei Geburt — hardcoded ~83.6 (BFS-Soll 85.4, bekannte
+    -1.8J-Luecke). Toleranz [82, 87]."""
     le = BFS_2020_2022.life_expectancy(0, "F")
     assert 82.0 <= le <= 87.0, f"LE Frauen Geburt {le:.2f} ausserhalb [82, 87]"
 
 
 def test_life_expectancy_male_at_65_plausible():
-    """Remaining Years Maenner @ 65 — hardcoded ~19.0 (BFS-Soll 19.5)."""
+    """Remaining Years Maenner @ 65 — hardcoded ~19.0 (BFS-Soll 19.5, bekannte
+    -0.5J-Luecke)."""
     remaining = BFS_2020_2022.life_expectancy(65, "M")
     assert 17.0 <= remaining <= 21.0, f"Remaining @65 M {remaining:.2f}"
 
 
 def test_life_expectancy_female_at_65_plausible():
-    """Remaining Years Frauen @ 65 — hardcoded ~21.8 (BFS-Soll 22.0)."""
+    """Remaining Years Frauen @ 65 — hardcoded ~21.8 (BFS-Soll 22.0, bekannte
+    -0.2J-Luecke)."""
     remaining = BFS_2020_2022.life_expectancy(65, "F")
     assert 20.0 <= remaining <= 24.0, f"Remaining @65 F {remaining:.2f}"
 
