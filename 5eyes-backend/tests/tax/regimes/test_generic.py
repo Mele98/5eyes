@@ -121,6 +121,21 @@ def test_with_overrides_ignores_unknown_keys():
     assert r is r2  # gleiche Instanz, weil nichts angewendet
 
 
+def test_with_overrides_audit_trail_excludes_unapplied_keys(ctx):
+    """TAX-OVERRIDES-AUDIT-001: used_overrides darf nur Keys zeigen, die
+    tatsaechlich auf das Regime gepatcht wurden. Ein Mix aus gueltigem und
+    unbekanntem Key darf den unbekannten Key nicht als 'applied' im Audit-
+    Trail zeigen, obwohl er keine Wirkung auf die berechnete Steuer hatte."""
+    r = GenericFlatRateRegime(wealth_tax_bps_pa=50.0)
+    r2 = r.with_overrides({
+        "wealth_tax_bps_pa": 100.0,
+        "unknown_typo_key": 999.0,
+    })
+    result = r2.annual_wealth_tax(ctx)
+    assert result.used_overrides == {"wealth_tax_bps_pa": 100.0}
+    assert "unknown_typo_key" not in result.used_overrides
+
+
 def test_with_overrides_empty_returns_same_instance():
     """Leeres Override-Dict → keine neue Instanz (Performance)."""
     r = GenericFlatRateRegime()

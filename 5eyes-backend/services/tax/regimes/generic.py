@@ -153,7 +153,17 @@ class GenericFlatRateRegime:
         applied = {k: float(v) for k, v in overrides.items() if k in valid_keys}
         if not applied:
             return self
-        return replace(self, **applied, overrides=dict(overrides))
+        # TAX-OVERRIDES-AUDIT-001: used_overrides (TaxResult's audit trail,
+        # see _make_result below) must reflect exactly what was patched onto
+        # the regime -- storing the full unfiltered input dict here would
+        # report an unknown/unsupported key as "applied" even though it had
+        # zero effect on the computed tax, since only keys in valid_keys are
+        # ever passed to replace(). Not reachable through either production
+        # caller today (both route through validate_tax_overrides, which
+        # rejects the whole set on any unsupported key) -- fixed as a
+        # correctness/audit-trail issue in the SDK's reference regime, which
+        # third-party plugins are documented to copy.
+        return replace(self, **applied, overrides=dict(applied))
 
     # ---- Internal ----
 

@@ -57,6 +57,36 @@ def test_enabled_tax_estimate_without_jurisdiction_fails_closed():
         derive_tax_cashflow(mandate, 1_000_000_00)
 
 
+def test_tax_context_carries_age_and_is_retired_like_solver_path(monkeypatch):
+    """TAX-CONTEXT-PARITY-001: derive_tax_cashflow's TaxContext must mirror
+    age/is_retired the same way the solver path (scenario_engine) does --
+    the module docstring promises the two paths 'wirken identisch'. No
+    shipped regime branches on these fields yet, so this is a source/wiring
+    parity check via a captured ctx, not an output-value check."""
+    from services.tax.regimes.generic import GenericFlatRateRegime
+
+    captured = {}
+    original = GenericFlatRateRegime.annual_wealth_tax
+
+    def _spy(self, ctx):
+        captured["ctx"] = ctx
+        return original(self, ctx)
+
+    monkeypatch.setattr(GenericFlatRateRegime, "annual_wealth_tax", _spy)
+
+    mandate = _mandate(
+        tax_jurisdiction="CH",
+        opened_at="2040-01-01",
+        client_birth_year=1975,
+        retirement_year=2038,
+    )
+    derive_tax_cashflow(mandate, 1_000_000_00)
+
+    ctx = captured["ctx"]
+    assert ctx.age == 65  # 2040 - 1975, mirrors _build_tax_solver_kwargs
+    assert ctx.is_retired is True  # 2040 >= 2038
+
+
 def test_ch_default_wealth_tax_computed_correctly():
     """CH-Pauschale wealth_tax_bps_pa=40 (0.4%) auf CHF 1'000'000 = CHF 4'000."""
     mandate = _mandate(tax_jurisdiction="CH")

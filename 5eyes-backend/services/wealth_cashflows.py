@@ -422,11 +422,20 @@ def derive_tax_cashflow(mandate, total_wealth_rappen: int) -> list[DerivedCashfl
         return []
     from services.tax.base import TaxContext
 
+    # TAX-CONTEXT-PARITY-001: mirror ALL context fields the solver path
+    # (services.optimizer.scenario_engine) derives from the same tax_kwargs,
+    # not just calendar_year -- the docstring above promises this path and
+    # the solver "wirken identisch". age/is_retired feed jurisdiction-specific
+    # exemptions (e.g. a future CH-Pillar-3a-aware regime, see base.py); no
+    # shipped regime currently branches on them, but leaving them at their
+    # dataclass defaults here would silently diverge the moment one does.
+    mandate_age_at_start = tax_kwargs.get("mandate_age_at_start")
     ctx = TaxContext(
         year_index=0,
         calendar_year=int(tax_kwargs.get("base_calendar_year", 0)) or 2026,
         wealth_rappen=float(wealth),
-        age=None,
+        age=int(mandate_age_at_start) if mandate_age_at_start is not None else None,
+        is_retired=bool(tax_kwargs.get("is_retired", False)),
     )
     result = regime.annual_wealth_tax(ctx)
     amount = int(round(result.amount_rappen))
