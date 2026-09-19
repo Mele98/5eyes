@@ -11,9 +11,12 @@ Schweiz-Spezifika:
   - Quellensteuer auf CH-Dividenden + CH-Real-Estate bleibt erhalten
 
 EU-Eingangsland-Spezifika (Beispiele):
-  - DE: § 6 AStG Wegzugsbesteuerung gilt nur bei wesentlichen
-    Beteiligungen (>= 1% an Kapitalgesellschaft, > 7 Jahre dort).
-    Fuer Beratungskunden meist NICHT relevant.
+  - DE: § 6 AStG Wegzugsbesteuerung greift nur beim VERLASSEN der
+    unbeschraenkten deutschen Steuerpflicht (Wegzug AUS Deutschland),
+    bei wesentlichen Beteiligungen (>= 1% an Kapitalgesellschaft,
+    >= 7 Jahre dort ansaessig). Fuer den CH->EU-Fall dieser Datei
+    (Zuzug NACH DE, nie zuvor deutsch steuerpflichtig) daher NIEMALS
+    einschlaegig -- kein DE-Exit-Tax-Posten in dieser Richtung.
   - DE: Marktwert bei Zuzug = neue Anschaffungskosten (Step-Up)
   - FR/IT/AT: aehnliche Step-Up-Regeln, aber Pruefung pro Land
 
@@ -114,20 +117,29 @@ def estimate_ch_eu_wegzug(
     target_country = target_country.strip().upper()
     notes: list[str] = []
 
-    # CH-Exit-Tax-Schaetzung
-    # Standard-Fall: Privatvermoegen ohne wesentliche Beteiligung -> 0
+    # CH-Exit-Tax: CH kennt fuer diese Richtung (Wegzug AUS der Schweiz)
+    # KEINE Exit-Tax auf unrealisierte Gewinne aus Privatvermoegen -- das
+    # gilt unabhaengig von Beteiligungshoehe/Aufenthaltsdauer, siehe
+    # Modul-Docstring. IMMER 0 in dieser Funktion.
+    #
+    # WEGZUG-DIRECTION-001: fruehere Versionen berechneten hier faelschlich
+    # eine "DE § 6 AStG Exit-Tax", ausgeloest durch ch_residence_years (Jahre
+    # in der SCHWEIZ) bei Zuzug NACH DE. § 6 AStG greift jedoch nur, wenn die
+    # UNBESCHRAENKTE DEUTSCHE Steuerpflicht endet -- also beim Wegzug AUS
+    # Deutschland, nie beim Zuzug. Eine Person, die von CH nach DE zieht, war
+    # nie deutsch steuerpflichtig und kann § 6 AStG damit gar nicht ausloesen.
+    # Diese Funktion modelliert ausschliesslich CH->EU (nie DE->X), daher gibt
+    # es in dieser Richtung keinen gueltigen DE-Exit-Tax-Fall zu berechnen.
     ch_exit_tax = 0
     if has_substantial_participation:
-        # CH hat KEINE klassische Exit-Tax, aber DE § 6 AStG triggert bei
-        # Wegzug nach DE und wesentlicher Beteiligung. Wir schaetzen
-        # konservativ 30% auf unrealisierte Gewinne (DE-Halbeinkuenfte-
-        # Verfahren ohne Splitting -> ueber den Daumen).
-        if target_country == "DE" and ch_residence_years >= DE_MIN_RESIDENCE_YEARS:
-            ch_exit_tax = int(unrealized_gains_rappen * 0.30)
-            notes.append(
-                "DE § 6 AStG: wesentliche Beteiligung + >=7J CH-Aufenthalt "
-                "-> Wegzugsbesteuerung auf unrealisierte Gewinne (geschaetzt 30%)."
-            )
+        notes.append(
+            "Wesentliche Beteiligung (>=1%) vorhanden: CH erhebt auch dafuer "
+            "keine Exit-Tax beim Wegzug. § 6 AStG (DE-Wegzugsbesteuerung) "
+            "greift nur beim Verlassen Deutschlands, nicht beim Zuzug -- "
+            "fuer diesen CH->EU-Fall nicht einschlaegig. Pruefen: allfaellige "
+            "EINGANGSSEITIGE Regeln des Zuziehlandes fuer wesentliche "
+            "Beteiligungen mit dem dortigen Steuerberater."
+        )
 
     # Eingangsland: jaehrliche Vermoegenssteuer (sehr grobe Schaetzung)
     target_annual = (wealth_rappen * target_country_annual_wealth_tax_bps) // 10000
