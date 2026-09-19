@@ -8,9 +8,27 @@ q(x) = einjaehrige Sterbewahrscheinlichkeit bei Alter x.
 Werte sind approximative BFS-2020-2022-Periode, gerundet auf 5 Nachkomma-
 stellen. Schluss-Tafel: q(119) = 1.0.
 
-Plausibilitaets-Check (siehe tests/test_bfs_mortality_stale_audit.py):
-- Lebenserwartung bei Geburt: Maenner ~81.6, Frauen ~85.4
-- Lebenserwartung bei 65: Maenner ~19.5, Frauen ~22.0
+BEKANNTE ABWEICHUNG (Kontrollrunde 2026-09-19, nicht behoben -- fehlende
+verifizierte Quelle, siehe unten): die tatsaechlich berechnete Lebens-
+erwartung dieser hartcodierten Werte liegt spuerbar UNTER den offiziellen
+BFS-2020-2022-Zielwerten:
+- Lebenserwartung bei Geburt: Maenner 79.7 (BFS-Soll 81.6, -1.9J),
+  Frauen 83.6 (BFS-Soll 85.4, -1.8J)
+- Lebenserwartung bei 65: Maenner 19.0 (BFS-Soll 19.5, -0.5J),
+  Frauen 21.8 (BFS-Soll 22.0, -0.2J)
+Praktische Konsequenz: der aus dieser Tafel abgeleitete Verzehrs-/Depletion-
+Horizont (services/mortality/horizon.py, services/portfolio_engine_payload.py)
+ist tendenziell zu KURZ -- eine Portfolio-Strategie koennte fuer weniger
+Entnahmejahre dimensioniert werden, als ein realer Kunde statistisch
+erwartbar braucht. tests/test_bfs_mortality_stale_audit.py deckt die Luecke
+mit bewusst aufgeweiteten Toleranzbaendern statt sie zu verstecken.
+TODO (Roadmap, noch nicht terminiert): _Q_MALE/_Q_FEMALE durch verifizierte
+Werte direkt vom Bundesamt fuer Statistik ersetzen -- idealerweise ueber
+einen automatisierten Abruf-Pfad analog zum bestehenden Markt-Daten-
+Aggregator (services/market_data/), statt erneut manuell abgetippter Werte
+ohne lueckenlose Quellenangabe. Fuer andere Jurisdiktionen (DE, AT, ...)
+gilt dasselbe Prinzip: Daten von der jeweils zustaendigen amtlichen Stelle,
+nicht geschaetzt.
 
 Sprint U-34 (2026-06-04) Update-Strategie
 -----------------------------------------

@@ -95,7 +95,9 @@ def test_mortality_off_returns_none_field():
 
 
 def test_mortality_active_produces_death_indices_array():
-    """Vollstaendige Mortality-Setup → death_indices ist ndarray shape (n_paths,)."""
+    """Vollstaendige Mortality-Setup -> death_indices ist ndarray shape
+    (n_paths,), seit Kontrollrunde 2026-09-19 deterministisch (fuer alle
+    Pfade identisch), nicht mehr pro Pfad stochastisch gesampelt."""
     from services.optimizer.solver import build_optimizer_context
 
     ctx = build_optimizer_context(
@@ -111,12 +113,59 @@ def test_mortality_active_produces_death_indices_array():
         client_birth_year=1960,  # ~65 Jahre alt 2026
         client_sex="M",
         use_mortality_simulation=True,
+        mortality_fixed_offset_years=15,
     )
     assert ctx.mortality_death_year_index_per_path is not None
     assert ctx.mortality_death_year_index_per_path.shape == (500,)
-    # Alle Werte in [1, horizon]
-    assert (ctx.mortality_death_year_index_per_path >= 1).all()
-    assert (ctx.mortality_death_year_index_per_path <= 20).all()
+    # Deterministisch: JEDER Pfad bekommt denselben Cutoff.
+    assert (ctx.mortality_death_year_index_per_path == 15).all()
+
+
+def test_mortality_offset_clipped_to_horizon():
+    """Ein Offset > horizon_years wird auf den Horizont geklemmt (Person
+    lebt ueber den simulierten Zeitraum hinaus -> kein Cutoff innerhalb)."""
+    from services.optimizer.solver import build_optimizer_context
+
+    ctx = build_optimizer_context(
+        cma=_MockCMA(),
+        goals=[],
+        house_matrix_row=_MockHouseMatrixRow(),
+        score_x10=50,
+        advisory_wealth_rappen=1_000_000_00,
+        cashflow_series_rappen=[0] * 10,
+        horizon_years=10,
+        n_paths=50,
+        seed=42,
+        client_birth_year=1980,
+        client_sex="F",
+        use_mortality_simulation=True,
+        mortality_fixed_offset_years=999,
+    )
+    assert (ctx.mortality_death_year_index_per_path == 10).all()
+
+
+def test_mortality_active_without_fixed_offset_yields_no_cutoff():
+    """use_mortality_simulation=True aber mortality_fixed_offset_years=None
+    (z.B. weil der Aufrufer keinen Offset ermitteln konnte) -> konservativ
+    kein Cutoff, NICHT stillschweigend ein geratener Wert."""
+    from services.optimizer.solver import build_optimizer_context
+
+    ctx = build_optimizer_context(
+        cma=_MockCMA(),
+        goals=[],
+        house_matrix_row=_MockHouseMatrixRow(),
+        score_x10=50,
+        advisory_wealth_rappen=1_000_000_00,
+        cashflow_series_rappen=[0] * 10,
+        horizon_years=10,
+        n_paths=50,
+        seed=42,
+        client_birth_year=1960,
+        client_sex="M",
+        use_mortality_simulation=True,
+        mortality_fixed_offset_years=None,
+    )
+    assert ctx.mortality_death_year_index_per_path is None
 
 
 def test_mortality_missing_sex_fails_closed():
@@ -163,37 +212,13 @@ def test_mortality_invalid_sex_fails_closed():
         )
 
 
-def test_mortality_sampler_error_fails_closed(monkeypatch):
-    """Ein defekter Sampler darf nicht unbemerkt Mortalitaet deaktivieren."""
-    from services.mortality import sampler
-    from services.optimizer.constraints import OptimizerInputError
-    from services.optimizer.solver import build_optimizer_context
-
-    def _broken_sampler(**_kwargs):
-        raise RuntimeError("mortality table unavailable")
-
-    monkeypatch.setattr(sampler, "sample_age_at_death", _broken_sampler)
-
-    with pytest.raises(
-        OptimizerInputError,
-        match="mortality simulation could not be evaluated",
-    ) as exc_info:
-        build_optimizer_context(
-            cma=_MockCMA(),
-            goals=[],
-            house_matrix_row=_MockHouseMatrixRow(),
-            score_x10=50,
-            advisory_wealth_rappen=1_000_000_00,
-            cashflow_series_rappen=[0] * 10,
-            horizon_years=10,
-            n_paths=100,
-            seed=42,
-            client_birth_year=1965,
-            client_sex="M",
-            use_mortality_simulation=True,
-        )
-
-    assert isinstance(exc_info.value.__cause__, RuntimeError)
+# Hinweis (Kontrollrunde 2026-09-19): der fruehere Test hier ("ein defekter
+# Sampler darf nicht unbemerkt Mortalitaet deaktivieren") pruefte build_
+# optimizer_context's eigenes Sampling. build_optimizer_context sampelt seit
+# dem Deterministik-Fix nicht mehr selbst -- das Ermitteln des Offsets (und
+# dessen Fail-Closed-Verhalten bei einem Fehler) passiert jetzt VORGELAGERT
+# in mandate_model_inputs.mortality_solver_kwargs_from_mandate. Siehe
+# tests/mortality/test_mortality_solver_kwargs.py fuer den aequivalenten Fall.
 
 
 def test_evaluate_weights_with_mortality_returns_different_terminal_wealth():
@@ -232,6 +257,7 @@ def test_evaluate_weights_with_mortality_returns_different_terminal_wealth():
         client_birth_year=1960,  # ~65 Jahre alt
         client_sex="M",
         use_mortality_simulation=True,
+        mortality_fixed_offset_years=15,  # deterministischer Cutoff bei Jahr 15
     )
 
     eval_no = evaluate_weights(ctx_no_mort, weights_bps)
@@ -239,7 +265,7 @@ def test_evaluate_weights_with_mortality_returns_different_terminal_wealth():
 
     # End-Wealth muss sich unterscheiden:
     # Ohne Mortality: alle Pfade ziehen 30 Jahre lang -30k ab → niedriger
-    # Mit Mortality: viele Pfade sterben frueh, Auszahlung stoppt → hoeher
+    # Mit Mortality: ALLE Pfade stoppen die Auszahlung einheitlich bei Jahr 15
+    # (deterministisch, kein Pfad "stirbt zufaellig frueher/spaeter") → hoeher
     assert eval_no.terminal_wealth_p50_rappen != eval_mort.terminal_wealth_p50_rappen
-    # Mit Mortality sollte End-Wealth tendenziell HOEHER sein (weniger Outflows)
     assert eval_mort.terminal_wealth_p50_rappen > eval_no.terminal_wealth_p50_rappen

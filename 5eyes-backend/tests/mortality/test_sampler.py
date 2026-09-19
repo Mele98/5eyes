@@ -34,10 +34,11 @@ def test_sample_ages_all_above_current_age():
 
 
 def test_sample_ages_within_max_age():
+    """q(max_age)=1.0 guarantees no sample ever exceeds max_age itself."""
     samples = sample_age_at_death(
         n_paths=1000, current_age=65, sex="M", table=BFS_2020_2022, seed=1
     )
-    assert (samples <= BFS_2020_2022.max_age + 1).all()
+    assert (samples <= BFS_2020_2022.max_age).all()
 
 
 def test_sample_mean_matches_life_expectancy_male_65():

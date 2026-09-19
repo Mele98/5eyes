@@ -163,11 +163,12 @@ class OptimizerContext:
     # Aktivierung: Caller (build_optimizer_context oder ext. Pfad) liefert
     # weights vom build_scenario_paths_with_weights-Wrapper.
     scenario_weights: np.ndarray | None = None
-    # Sprint 4 Phase 3 (2026-05-17): Optional mortalitaets-Sampling.
-    # Wenn None: keine Mortality (Backwards-Compat). Wenn gesetzt: shape
-    # (n_paths,) integer-Array, pro Pfad year_index ab dem cashflow=0.
-    # Aktivierung: Caller liefert den Array aus
-    # services.mortality.sample_age_at_death + death_year_index_from_age.
+    # Sprint 4 Phase 3 (2026-05-17), deterministisch seit Kontrollrunde
+    # 2026-09-19: Optionaler Mortalitaets-Cutoff. Wenn None: keine Mortality
+    # (Backwards-Compat). Wenn gesetzt: shape (n_paths,) integer-Array, pro
+    # Pfad year_index ab dem cashflow=0 -- seit dem Fix fuer ALLE Pfade
+    # identisch (services.mortality.horizon.expected_death_year_offset_from_mandate),
+    # nicht mehr pro Pfad stochastisch gesampelt (siehe build_optimizer_context).
     mortality_death_year_index_per_path: np.ndarray | None = None
     # Sprint U-P2 Fix C9 (2026-05-19): tax-aware Solver-Pfad. Vorher liefen
     # MC + Objective im Solver tax-naiv — Schweizer Vermoegenssteuer-Drag
@@ -340,6 +341,7 @@ def build_optimizer_context(
     client_birth_year: int | None = None,
     client_sex: str | None = None,
     use_mortality_simulation: bool = False,
+    mortality_fixed_offset_years: int | None = None,
     # Sprint U-P2 Fix C9: tax-aware Solver-Optionen
     tax_regime: object | None = None,
     dividend_yield_bps_per_bucket: np.ndarray | None = None,
@@ -522,7 +524,24 @@ def build_optimizer_context(
     return_paths = return_paths[:, :horizon_years, :]
     aggregated_liability = aggregate_liability_path(liabilities, horizon_years)
 
-    # Sprint 4 Phase 3: Mortalitaets-Sampling wenn aktiviert
+    # Sprint 4 Phase 3 / Kontrollrunde 2026-09-19: Mortalitaets-Cutoff wenn
+    # aktiviert. DETERMINISTISCH (identisch fuer alle Pfade), nicht mehr
+    # pro-Pfad stochastisch gesampelt: mortality_fixed_offset_years kommt aus
+    # services.mortality.horizon.expected_death_year_offset_from_mandate
+    # (services/mandate_model_inputs.py::mortality_solver_kwargs_from_mandate)
+    # -- derselben Quelle, die auch der Report als Sterbe-Marker anzeigt.
+    #
+    # Vorherige Version sampelte ein zufaelliges Sterbealter PRO PFAD; nach
+    # dem simulierten Tod wurde Cashflow=0 gesetzt, Vermoegen wuchs aber
+    # unveraendert weiter (Erbschafts-Fiktion). Damit genuegte jeder fruehe
+    # simulierte Tod automatisch als Zielerreichung fuer outflow_stream/
+    # cashflow_in_year-Ziele, unabhaengig davon ob der Entnahmeplan
+    # tatsaechlich getragen haette -- ohne dass der Report dies offenlegte.
+    # Ein fuer alle Pfade IDENTISCHER Horizont (Berater-Override oder
+    # BFS-Median) hat diese Pfad-individuelle Zufallsstreuung nicht mehr:
+    # Zielerreichung reagiert jetzt sauber darauf, WELCHEN Horizont der
+    # Berater waehlt (bis 70 vs. bis 100), nicht darauf, welcher einzelne
+    # Pfad zufaellig "glueck" mit einem fruehen simulierten Tod hatte.
     death_indices = None
     if use_mortality_simulation:
         if not client_birth_year or client_sex not in ("M", "F"):
@@ -530,30 +549,11 @@ def build_optimizer_context(
                 "Activated mortality simulation requires client_birth_year "
                 "and client_sex M/F."
             )
-        try:
-            from datetime import date as _date
-            from services.mortality.bfs import BFS_2020_2022
-            from services.mortality.sampler import (
-                death_year_index_from_age,
-                sample_age_at_death,
+        if mortality_fixed_offset_years is not None:
+            fixed_index = int(
+                np.clip(int(mortality_fixed_offset_years), 1, int(horizon_years))
             )
-            current_age = max(0, int(_date.today().year - int(client_birth_year)))
-            death_ages = sample_age_at_death(
-                n_paths=int(n_paths),
-                current_age=current_age,
-                sex=client_sex,
-                table=BFS_2020_2022,
-                seed=int(seed),
-            )
-            death_indices = death_year_index_from_age(
-                death_ages,
-                current_age=current_age,
-                horizon_years=int(horizon_years),
-            )
-        except Exception as exc:
-            raise OptimizerInputError(
-                "Activated mortality simulation could not be evaluated."
-            ) from exc
+            death_indices = np.full(int(n_paths), fixed_index, dtype=np.int32)
 
     return OptimizerContext(
         cma_id=cma_id_for_cache,
@@ -1185,6 +1185,7 @@ def run_solver(
     client_birth_year: int | None = None,
     client_sex: str | None = None,
     use_mortality_simulation: bool = False,
+    mortality_fixed_offset_years: int | None = None,
     # Sprint U-P2 Fix C9: tax-aware Solver-Optionen (Backwards-Compat: alle None)
     tax_regime: object | None = None,
     dividend_yield_bps_per_bucket: np.ndarray | None = None,
@@ -1236,6 +1237,7 @@ def run_solver(
             client_birth_year=client_birth_year,
             client_sex=client_sex,
             use_mortality_simulation=use_mortality_simulation,
+            mortality_fixed_offset_years=mortality_fixed_offset_years,
             # Sprint U-P2 Fix C9
             tax_regime=tax_regime,
             dividend_yield_bps_per_bucket=dividend_yield_bps_per_bucket,
