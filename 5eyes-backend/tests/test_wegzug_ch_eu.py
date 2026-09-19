@@ -86,8 +86,12 @@ def test_standard_case_step_up_country_no():
 # Wesentliche Beteiligung + DE-Wegzugsbesteuerung
 # ---------------------------------------------------------------------------
 
-def test_substantial_participation_de_triggers_exit_tax():
-    """DE § 6 AStG: wesentliche Beteiligung + 7+J CH -> Exit-Tax 30%."""
+def test_substantial_participation_to_de_does_not_trigger_ch_exit_tax():
+    """WEGZUG-DIRECTION-001: § 6 AStG greift nur beim Verlassen Deutschlands,
+    nie beim Zuzug -- eine Person, die von CH nach DE zieht, war nie deutsch
+    steuerpflichtig und kann § 6 AStG damit nicht ausloesen. CH selbst kennt
+    ohnehin keine Exit-Tax auf privates Vermoegen. estimated_ch_exit_tax_rappen
+    muss daher unabhaengig von Beteiligungshoehe/Aufenthaltsdauer 0 bleiben."""
     result = estimate_ch_eu_wegzug(
         wealth_rappen=1_000_000_00,
         target_country="DE",
@@ -95,8 +99,10 @@ def test_substantial_participation_de_triggers_exit_tax():
         has_substantial_participation=True,
         ch_residence_years=10,
     )
-    # 30% von 500'000 = 150'000 CHF = 15_000_000 Rappen
-    assert result.estimated_ch_exit_tax_rappen == 15_000_000
+    assert result.estimated_ch_exit_tax_rappen == 0
+    combined = " ".join(result.notes)
+    assert "§ 6 AStG" in combined
+    assert "nicht einschlaegig" in combined
 
 
 def test_substantial_participation_de_short_residence_no_trigger():
