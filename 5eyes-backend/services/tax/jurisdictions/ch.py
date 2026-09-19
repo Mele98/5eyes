@@ -33,6 +33,16 @@ _SINGLE_FEDERAL_BRACKETS: tuple[tuple[int, int], ...] = (
     (10**12, 1150),
 )
 
+# ACHTUNG -- grobe Naeherung, NICHT der offizielle ESTV-Verheiratetentarif:
+# der echte Tarif fuer Verheiratete bildet das Schweizer Ehegatten-Splitting
+# ab und ist als eigene, nicht-lineare Stufentabelle publiziert (u.a. ein
+# deutlich hoeherer Nullsatz-Einstieg als das schlichte Doppelte der
+# Einzeltarif-Schwellen). Dieses Modul ist bewusst ein Asset-Allocation-Tool,
+# kein Steuertool (siehe Modul-Docstring) -- Berater, die einen praezisen
+# Verheiratetensatz brauchen, sollen ihn ueber Mandate.tax_overrides_json
+# aus der eigenen Finanzplanung einspeisen statt sich auf diese Naeherung zu
+# verlassen. Null Testabdeckung gegen echte ESTV-Werte; nur die Monotonie/
+# Struktur ist getestet.
 _MARRIED_FEDERAL_BRACKETS: tuple[tuple[int, int], ...] = tuple(
     (upper * 2 if upper < 10**12 else upper, bps)
     for upper, bps in _SINGLE_FEDERAL_BRACKETS
@@ -132,11 +142,15 @@ class SwissTaxJurisdiction:
 
     def estimate_income_tax(self, profile: TaxProfileInput) -> TaxEstimateResult:
         region, params, assumptions = self._params_for(profile)
-        brackets = (
-            _MARRIED_FEDERAL_BRACKETS
-            if profile.marital_status in {"married", "partnership"}
-            else _SINGLE_FEDERAL_BRACKETS
-        )
+        is_married = profile.marital_status in {"married", "partnership"}
+        brackets = _MARRIED_FEDERAL_BRACKETS if is_married else _SINGLE_FEDERAL_BRACKETS
+        if is_married:
+            assumptions.append(
+                "Verheiratetentarif ist eine grobe Naeherung (verdoppelte "
+                "Einzeltarif-Schwellen), NICHT der offizielle ESTV-Splitting-"
+                "Tarif. Fuer einen praezisen Wert bitte ueber "
+                "Mandate.tax_overrides_json aus der Finanzplanung einspeisen."
+            )
         federal_tax, federal_marginal_bps = _progressive_tax_rappen(
             profile.taxable_income_rappen,
             brackets,
@@ -254,10 +268,23 @@ class SwissTaxJurisdiction:
             + wealth.wealth_tax_rappen
             + gains.capital_gains_tax_rappen
         )
-        total_basis = (
-            profile.taxable_income_rappen
-            + profile.taxable_wealth_rappen
-            + profile.capital_gains_rappen
+        # effective_tax_bps/marginal_tax_bps deliberately cover ONLY the flow
+        # bases (income + capital gains). Wealth tax is a stock levy (bps of
+        # net worth, not of income) with no coherent common unit with a
+        # flow-basis rate; blending it into one denominator dilutes the
+        # figure toward the (usually much larger) wealth stock and can
+        # understate the true flow tax burden by several multiples. The
+        # wealth-tax rate is reported on its own correct basis via
+        # wealth_tax_effective_bps / breakdown["wealth"].
+        flow_tax = income.income_tax_rappen + gains.capital_gains_tax_rappen
+        flow_basis = profile.taxable_income_rappen + profile.capital_gains_rappen
+        assumptions = _merge_component_assumptions(income, wealth, gains)
+        assumptions.append(
+            "effective_tax_bps/marginal_tax_bps decken nur Einkommen+Kapital"
+            "gewinne ab (Stromgroessen); die Vermoegenssteuer (Bestandsgroesse) "
+            "wird separat unter wealth_tax_effective_bps und breakdown.wealth "
+            "ausgewiesen, um beide Groessen nicht in einer bedeutungslosen "
+            "Mischrate zu verwaesseren."
         )
         return TaxEstimateResult(
             country_code="CH",
@@ -268,18 +295,15 @@ class SwissTaxJurisdiction:
             wealth_tax_rappen=wealth.wealth_tax_rappen,
             capital_gains_tax_rappen=gains.capital_gains_tax_rappen,
             total_tax_rappen=total,
-            effective_tax_bps=_effective_bps(total, total_basis),
-            marginal_tax_bps=max(
-                income.marginal_tax_bps,
-                wealth.marginal_tax_bps,
-                gains.marginal_tax_bps,
-            ),
+            effective_tax_bps=_effective_bps(flow_tax, flow_basis),
+            marginal_tax_bps=max(income.marginal_tax_bps, gains.marginal_tax_bps),
+            wealth_tax_effective_bps=wealth.effective_tax_bps,
             breakdown={
                 "income": income.breakdown,
                 "wealth": wealth.breakdown,
                 "capital_gains": gains.breakdown,
             },
-            assumptions=_merge_component_assumptions(income, wealth, gains),
+            assumptions=assumptions,
             tariff_version=self.version,
         )
 
