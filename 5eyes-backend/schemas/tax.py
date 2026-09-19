@@ -88,6 +88,16 @@ class TaxEstimateResult(BaseModel):
     total_tax_rappen: int = 0
     effective_tax_bps: int = 0
     marginal_tax_bps: int = 0
+    wealth_tax_effective_bps: int = Field(
+        default=0,
+        description=(
+            "Wealth tax (a stock levy) as bps of taxable wealth. Reported "
+            "separately from effective_tax_bps/marginal_tax_bps, which cover "
+            "only income+capital-gains (flow) tax on a flow basis -- blending "
+            "a stock levy into a flow-basis rate produces a number with no "
+            "coherent unit and materially understates the true flow burden."
+        ),
+    )
     breakdown: dict[str, Any] = Field(default_factory=dict)
     assumptions: list[str] = Field(default_factory=list)
     tariff_version: str
