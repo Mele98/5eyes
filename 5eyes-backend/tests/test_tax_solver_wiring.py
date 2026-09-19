@@ -129,6 +129,31 @@ def test_unknown_canton_fails_closed() -> None:
         _build_tax_solver_kwargs(_mandate(tax_jurisdiction="CH-XX"))
 
 
+def test_de_region_resolves_to_real_regime_not_zero_tax_fallback() -> None:
+    """TAX-DE-REGION-001: 'DE-BY' + ein beliebiger Override (z.B. wealth_tax_bps_pa,
+    der mit DE nichts zu tun hat) durfte den Loockup vorher NICHT auf
+    GenericFlatRateRegime (0% Dividenden-/Kapitalgewinnsteuer statt 26.375%)
+    zurueckfallen lassen -- das haette einen echten DE-Mandanten mit
+    irgendeinem gesetzten Override tax-frei auf Dividenden/Kursgewinne
+    modelliert, ohne Fehler oder Warnung."""
+    kw = _build_tax_solver_kwargs(
+        _mandate(
+            tax_jurisdiction="DE-BY",
+            tax_overrides_json='{"wealth_tax_bps_pa": 0}',
+        )
+    )
+    regime = kw["tax_regime"]
+    assert regime.country_code == "DE"
+    assert regime.dividend_tax_bps == 2637.5
+    assert regime.capital_gains_tax_bps == 2637.5
+
+
+def test_de_region_without_overrides_also_resolves_correctly() -> None:
+    kw = _build_tax_solver_kwargs(_mandate(tax_jurisdiction="DE-NW"))
+    assert kw["tax_regime"].country_code == "DE"
+    assert kw["tax_regime"].dividend_tax_bps == 2637.5
+
+
 def test_base_calendar_year_from_opened_at_not_hardcoded() -> None:
     """TAX-2: base_calendar_year kommt aus opened_at, nicht aus dem nie-existenten
     valid_from_year (das frueher immer 2026 ergab)."""
