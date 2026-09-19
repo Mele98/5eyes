@@ -17,6 +17,19 @@ def test_registry_resolves_de():
     assert resolve_regime_class("DE") is DETaxRegime
 
 
+def test_registry_resolves_de_region(ctx):
+    """TAX-DE-REGION-001: 'DE-BY' ist laut schemas/mandates.py ein
+    dokumentiert gueltiger tax_jurisdiction-Wert und muss auf DETaxRegime
+    aufloesen (nicht auf GenericFlatRateRegime mit 0%-Dividenden-/Kapital-
+    gewinnsteuer-Defaults zurueckfallen)."""
+    for jid in ("DE-BY", "DE-NW", "DE-XX"):
+        regime_cls = resolve_regime_class(jid)
+        assert regime_cls is DETaxRegime, jid
+        regime = regime_cls()
+        assert regime.dividend_tax_bps == 2637.5
+        assert regime.capital_gains_tax_bps == 2637.5
+
+
 def test_de_no_wealth_tax(ctx):
     """DE hat KEINE Vermoegenssteuer (seit 1997 ausgesetzt)."""
     regime = DETaxRegime()

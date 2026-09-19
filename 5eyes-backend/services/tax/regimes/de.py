@@ -19,9 +19,19 @@ from services.tax.registry import register_regime
 
 
 @register_regime("DE")
+@register_regime("DE-*")
 @dataclass(frozen=True)
 class DETaxRegime(GenericFlatRateRegime):
-    """Deutschland Pauschal-Steuer-Mittelwerte (ohne Kirchensteuer)."""
+    """Deutschland Pauschal-Steuer-Mittelwerte (ohne Kirchensteuer).
+
+    'DE-*' wird identisch zu 'DE' behandelt: Kapitalertragsteuer + Soli sind
+    bundeseinheitlich, es gibt (anders als bei CH-Kantonen) keine Bundesland-
+    Variation fuer diese Steuerarten. Ohne dieses Glob-Pattern faellt ein
+    regional qualifizierter Wert wie 'DE-BY' (von schemas/mandates.py als
+    gueltiger tax_jurisdiction-Wert dokumentiert) im Registry-Lookup auf
+    GenericFlatRateRegime (0% Dividenden-/Kapitalgewinnsteuer) zurueck,
+    sobald irgendein Tax-Override gesetzt ist -- siehe TAX-DE-REGION-001.
+    """
 
     id: str = "DE"
     country_code: str = "DE"
