@@ -2103,6 +2103,30 @@ from services.portfolio_engine_gesamtvermoegen import (  # noqa: F401,E402
 )
 
 
+def _tax_removal_wealth_basis_rappen(
+    candidate_wealth_rappen: int, total_wealth_rappen: int
+) -> int:
+    """Clamp the wealth basis used to compute a dynamic-tax removal (TAX-DEDUP-CLAMP-001).
+
+    The static reporting tax estimate is `derive_tax_cashflow(mandate,
+    total_wealth_rappen)` — it can never tax more than `total_wealth_rappen`.
+    Callers that remove an advisory/investable share of that static line from
+    the solver series must therefore never request tax on more wealth than
+    the static line itself was computed on, or the removal overshoots the
+    line it is meant to net against and injects phantom positive cashflow.
+
+    This can otherwise happen for a leveraged mandate: `total_wealth_rappen`
+    is net of ALL liabilities, while the advisory/investable candidate is not
+    netted against any liability, so a liability position not offset by an
+    equal-or-larger non-advisory asset makes candidate > total.  For this
+    module's flat-rate regimes, tax(min(candidate, total)) is exactly the
+    amount that keeps the removal consistent with the embedded static line
+    (algebraically: tax(total) - tax(candidate) == tax(max(0, total -
+    candidate)) only when candidate <= total).
+    """
+    return max(0, min(int(candidate_wealth_rappen or 0), int(total_wealth_rappen or 0)))
+
+
 def _project_estimated_wealth_tax_cashflow(
     mandate: Mandate,
     wealth_rappen: int,
@@ -2247,10 +2271,13 @@ def _load_allocation_inputs(
     # stochastic tax engine only grows and taxes the advised portfolio.  Only
     # remove the advisory share that is actually replaced dynamically; the
     # residual tax attributable to external wealth remains a genuine solver
-    # cash outflow.
+    # cash outflow. TAX-DEDUP-CLAMP-001: clamp to total_wealth_rappen so a
+    # leveraged mandate (liability not offset by a non-advisory asset, making
+    # advisory_wealth_rappen > total_wealth_rappen) cannot flip this into a
+    # fabricated positive cashflow addition.
     tax_projection = _project_estimated_wealth_tax_cashflow(
         mandate,
-        advisory_wealth_rappen,
+        _tax_removal_wealth_basis_rappen(advisory_wealth_rappen, total_wealth_rappen),
         projection_years,
         start_year=cashflow_totals["year"],
         inflation_series_bps=cf_inflation_series_bps,
@@ -3347,7 +3374,9 @@ def generate_target_allocation(
     if initially_replaced_tax_projection:
         effective_tax_projection = _project_estimated_wealth_tax_cashflow(
             mandate,
-            investable_advisory_wealth_rappen,
+            _tax_removal_wealth_basis_rappen(
+                investable_advisory_wealth_rappen, total_wealth_rappen
+            ),
             len(optimizer_cashflow_projection_series_rappen),
             start_year=cashflow_totals["year"],
             inflation_series_bps=list(
@@ -5310,7 +5339,9 @@ def evaluate_goal_sensitivity(
     if initially_replaced_sensitivity_tax:
         effective_sensitivity_tax = _project_estimated_wealth_tax_cashflow(
             mandate,
-            advisory_wealth_rappen,
+            _tax_removal_wealth_basis_rappen(
+                advisory_wealth_rappen, int(inputs["total_wealth_rappen"])
+            ),
             len(cashflow_projection_series_rappen),
             start_year=cashflow_totals["year"],
             inflation_series_bps=list(
@@ -6012,7 +6043,9 @@ def build_target_payload_from_allocation(
     )
     rebuild_effective_tax_projection = _project_estimated_wealth_tax_cashflow(
         mandate,
-        investable_advisory_wealth_rappen,
+        _tax_removal_wealth_basis_rappen(
+            investable_advisory_wealth_rappen, total_wealth_rappen
+        ),
         len(cashflow_projection_series_rappen),
         start_year=cashflow_totals["year"],
         inflation_series_bps=cf_inflation_series_bps,
