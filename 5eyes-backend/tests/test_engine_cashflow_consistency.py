@@ -228,6 +228,75 @@ def test_solver_removes_only_advisory_share_of_total_wealth_tax(
     assert persisted_reporting_tax.amount_rappen == total_tax_rappen
 
 
+def test_tax_dedup_clamped_when_liability_exceeds_advisory_wealth(
+    session_factory,
+):
+    """TAX-DEDUP-CLAMP-001: a liability not offset by a non-advisory asset must
+    not turn the solver's tax-dedup subtraction into a fabricated positive
+    cashflow.
+
+    Seed: 500k advisory depot (from _seed_realistic_mandate), no external
+    ('Anderes Vermögen') asset, plus a 600k liability. total_wealth_rappen is
+    net of ALL liabilities and floors at 0 -> total=0 here, while
+    advisory_wealth_rappen (gross of any liability) stays 500k. Before the
+    fix, the solver series subtracted tax(500k) from a series that only ever
+    had tax(0)=0 baked in, injecting a phantom +tax(500k) of cashflow despite
+    there being zero net wealth to tax.
+    """
+    advisor_id, client_id, mandate_id, _aid, _gid = _seed_realistic_mandate(
+        session_factory,
+        suffix="tax-clamp-leveraged",
+    )
+    with session_factory() as session:
+        session.add(WealthPosition(
+            id=f"pos-liability-{uuid.uuid4().hex[:8]}",
+            client_id=client_id,
+            label="Lombardkredit",
+            position_type="Depot",
+            assignment="Verbindlichkeit",
+            current_value_rappen=600_000_00,
+            currency="CHF",
+            valuation_date=datetime.date.today().isoformat(),
+            is_active=1,
+            created_at=_now(),
+            updated_at=_now(),
+        ))
+        mandate = session.query(Mandate).filter(Mandate.id == mandate_id).one()
+        mandate.tax_jurisdiction = "CH"
+        mandate.tax_overrides_json = None
+        mandate.tax_estimate_in_cashflow_enabled = 0
+        _policy, cma = pe.ensure_runtime_reference_data(session, advisor_id)
+        session.flush()
+        baseline = pe._load_allocation_inputs(session, mandate, {}, cma=cma)
+
+        assert baseline["advisory_wealth_rappen"] == 500_000_00
+        assert baseline["total_wealth_rappen"] == 0
+
+        mandate.tax_estimate_in_cashflow_enabled = 1
+        with_tax = pe._load_allocation_inputs(session, mandate, {}, cma=cma)
+
+    solver_delta = [
+        int(current) - int(original)
+        for current, original in zip(
+            with_tax["optimizer_cashflow_projection_series_rappen"],
+            baseline["optimizer_cashflow_projection_series_rappen"],
+        )
+    ]
+    # total_wealth_rappen is 0 -> no genuine wealth tax exists to remove or
+    # retain; the solver series must be unchanged, never a phantom addition.
+    assert solver_delta == [0] * len(solver_delta), solver_delta
+    # The reporting/advisory view still correctly shows zero estimated tax
+    # (derive_tax_cashflow(mandate, 0) has nothing to tax).
+    reporting_delta = [
+        int(current) - int(original)
+        for current, original in zip(
+            with_tax["cashflow_projection_series_rappen"],
+            baseline["cashflow_projection_series_rappen"],
+        )
+    ]
+    assert reporting_delta == [0] * len(reporting_delta), reporting_delta
+
+
 def _add_mortgage(session_factory, client_id, value=400_000_00, rate_bps=200,
                   amort_rappen=0, amort_type=None):
     with session_factory() as s:
