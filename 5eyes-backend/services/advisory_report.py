@@ -1307,6 +1307,19 @@ def _check_asset_allocation(dc: dict[str, Any], mandate: Mandate) -> dict[str, A
             "Keine Soll-Allokation hinterlegt.",
             "Strategische Asset Allocation berechnen und freigeben.",
         )
+    # Kontrollrunde 2026-09-20: eine Band-Uebereinstimmung gegen eine
+    # veraltete (nicht mehr zum aktuellen Risikoprofil passende)
+    # TargetAllocation ist nicht aussagekraeftig -- sonst kann diese
+    # Sektion "gruen" zeigen, waehrend Sektion 19 (Compliance-Audit,
+    # services/suitability_audit.py) dasselbe Mandat bereits als nicht-
+    # konform ausweist. Siehe depot_check.py::target_allocation_stale.
+    if dc.get("target_allocation_stale"):
+        return _verdict(
+            "Asset Allocation", "nicht_beurteilbar",
+            "Soll-Allokation basiert auf einem frueheren, nicht mehr "
+            "aktuellen Risikoprofil -- Band-Vergleich nicht aussagekraeftig.",
+            "Strategie neu berechnen (siehe Compliance-Audit, Sektion 19).",
+        )
     out_of_band = [
         (key, b) for key, b in buckets.items()
         if b.get("in_band") is False
@@ -1790,12 +1803,25 @@ def _build_asset_allocation(
         getattr(notes, "aa_anmerkungen", None) if notes is not None else None,
         default_anm,
     )
+    # Kontrollrunde 2026-09-20: dieselbe Staleness wie in _check_asset_
+    # allocation (Sektion 7) -- SOLL/Band-Werte hier stammen aus einer
+    # TargetAllocation, die nicht mehr zum aktuellen Risikoprofil passt.
+    # Berater-Anmerkungen ueberschreiben normalerweise den Auto-Text; der
+    # Staleness-Hinweis wird davon unabhaengig IMMER vorangestellt, damit er
+    # nicht versehentlich durch eine gepflegte Anmerkung verdeckt wird.
+    target_allocation_stale = bool(dc.get("target_allocation_stale"))
+    if target_allocation_stale:
+        anmerkungen = (
+            "Hinweis: Soll-Allokation basiert auf einem frueheren, nicht "
+            "mehr aktuellen Risikoprofil. " + str(anmerkungen or "")
+        ).strip()
     return {
         "items": items,
         "ist_bps": ist_bps,
         "soll_bps": soll_bps,
         "drift_bps": drift_bps,
         "ist_basiert_auf_soll": bool(ist_basiert_auf_soll),
+        "target_allocation_stale": target_allocation_stale,
         "anmerkungen": anmerkungen,
     }
 

@@ -27,6 +27,43 @@ _PROFILE_BAND = {
 }
 
 
+def target_allocation_predates_current_assessment(
+    target_allocation: Any, current_assessment_id: Any,
+) -> bool:
+    """True wenn target_allocation unter einem AELTEREN, nicht mehr aktuellen
+    RiskAssessment erstellt wurde als current_assessment_id.
+
+    Kontrollrunde 2026-09-20 (Depot-Check-Audit, direkte Folge von
+    SUITABILITY-ALLOCATION-STALENESS-001 vom selben Tag): dieser exakte
+    Identitaets-Check (based_on_assessment_id != aktuelles Profil) existierte
+    bisher in DREI unabhaengigen, potenziell divergierenden Kopien:
+    services/portfolio_engine.py::build_target_payload_from_allocation (harte
+    Exception, Live-Strategiepfad), services/suitability_audit.py::
+    audit_mandate_suitability (nicht-blockierender Compliance-Befund,
+    Report-Sektion 19), und -- bis zu diesem Fix -- GAR NICHT in
+    services/depot_check.py (Report-Sektionen 7/8), obwohl depot_check.py
+    dieselbe TargetAllocation fuer seine Band-Vergleiche liest. Das erlaubte
+    genau den Widerspruch, den dieser Helper jetzt an EINER Stelle fuer alle
+    Konsumenten verhindert: Sektion 7 zeigte "in Band, alles gruen" fuer eine
+    Allokation, die Sektion 19 im selben Report bereits als nicht-konform
+    (veraltetes Risikoprofil) auswies.
+
+    Nur fuer "modern_context"-Allokationen geprueft (context_artifacts_
+    required==1) -- identisches Gate wie im Live-Strategiepfad. Alt-
+    Allokationen ohne based_on_assessment_id bleiben aus Rueckwaertskompat-
+    Gruenden unangetastet (return False, nicht "unbekannt").
+    """
+    if target_allocation is None:
+        return False
+    modern_context = int(
+        getattr(target_allocation, "context_artifacts_required", 0) or 0
+    ) == 1
+    based_on = str(getattr(target_allocation, "based_on_assessment_id", "") or "")
+    if not modern_context or not based_on:
+        return False
+    return based_on != str(current_assessment_id or "")
+
+
 def _exact_int(
     value: Any,
     *,
