@@ -186,7 +186,10 @@ def _make_optimizer_policy(s, advisor_id: str = "adv-1") -> OptimizerPolicy:
     return pol
 
 
-def _make_rec_run(s, *, mandate_id: str, client_id: str, advisor_id: str = "adv-1") -> RecommendationRun:
+def _make_rec_run(
+    s, *, mandate_id: str, client_id: str, advisor_id: str = "adv-1",
+    result_status: str = "Draft", created_at: str | None = None,
+) -> RecommendationRun:
     pol = _make_optimizer_policy(s, advisor_id=advisor_id)
     run = RecommendationRun(
         id=str(uuid.uuid4()),
@@ -194,10 +197,10 @@ def _make_rec_run(s, *, mandate_id: str, client_id: str, advisor_id: str = "adv-
         client_id=client_id,
         policy_id=pol.id,
         run_type="Standard",
-        result_status="Draft",
+        result_status=result_status,
         created_by=advisor_id,
-        created_at=_now(),
-        updated_at=_now(),
+        created_at=created_at or _now(),
+        updated_at=created_at or _now(),
     )
     s.add(run)
     return run
@@ -459,6 +462,81 @@ def test_hhi_concentration_single_country_is_maximum(session_factory):
 # ---------------------------------------------------------------------------
 # 7. Kein RecommendationRun: SOLL bleibt leer (Fallback zu WealthPositions)
 # ---------------------------------------------------------------------------
+
+def test_newer_draft_run_does_not_override_older_final_run(session_factory):
+    """Kontrollrunde 2026-09-20: ein rein exploratorischer, nicht freige-
+    gebener Draft-Lauf, der CHRONOLOGISCH nach dem freigegebenen Final-Lauf
+    erstellt wurde, darf nicht als das tatsaechliche IST-Depot in den
+    Depot-Check einfliessen. Final-zuerst-Fallback wie bereits etabliert in
+    routers/review.py und services/review_engine.py."""
+    with session_factory() as s:
+        _make_user(s)
+        mandate = _make_mandate(s)
+
+        # Final-Lauf (aelter, aber der tatsaechlich freigegebene/gehaltene)
+        final_run = _make_rec_run(
+            s, mandate_id=mandate.id, client_id=mandate.client_id,
+            result_status="Final", created_at="2026-05-01T10:00:00.000Z",
+        )
+        s.flush()
+        final_prod = _make_product(
+            s, asset_class="Aktien",
+            country_exposure_json=json.dumps({"CH": 10000}),
+        )
+        s.flush()
+        _make_rec_position(
+            s, run_id=final_run.id, product_id=final_prod.id,
+            current_amount_rappen=1_000_000_00,
+        )
+
+        # Draft-Lauf (juenger, rein exploratorisch, nie freigegeben)
+        draft_run = _make_rec_run(
+            s, mandate_id=mandate.id, client_id=mandate.client_id,
+            result_status="Draft", created_at="2026-06-01T10:00:00.000Z",
+        )
+        s.flush()
+        draft_prod = _make_product(
+            s, asset_class="Alternative",
+            country_exposure_json=json.dumps({"US": 10000}),
+        )
+        s.flush()
+        _make_rec_position(
+            s, run_id=draft_run.id, product_id=draft_prod.id,
+            current_amount_rappen=9_000_000_00,  # deutlich anderer Betrag
+        )
+        s.commit()
+        result = compute_depot_check(s, mandate)
+
+    # Muss den Final-Lauf verwenden (CHF 1 Mio, 100% CH-Aktien), nicht den
+    # juengeren, aber nie freigegebenen Draft-Lauf (CHF 9 Mio, Alternative).
+    assert result["total_advisory_wealth_rappen"] == 1_000_000_00
+    assert result["country_exposure_bps"] == {"CH": 10000}
+    assert result["buckets"]["equities"]["ist_bps"] == 10000
+    assert result["buckets"]["alternatives"]["ist_bps"] == 0
+
+
+def test_draft_run_used_when_no_final_run_exists(session_factory):
+    """Kein Final-Lauf vorhanden -> Fallback auf den (juengsten) Draft-Lauf,
+    identisches Fallback-Muster wie routers/review.py. Kein Verhaltensbruch
+    fuer den haeufigen Fall 'noch nichts freigegeben'."""
+    with session_factory() as s:
+        _make_user(s)
+        mandate = _make_mandate(s)
+        run = _make_rec_run(
+            s, mandate_id=mandate.id, client_id=mandate.client_id,
+            result_status="Draft",
+        )
+        s.flush()
+        prod = _make_product(s, country_exposure_json=json.dumps({"CH": 10000}))
+        s.flush()
+        _make_rec_position(
+            s, run_id=run.id, product_id=prod.id,
+            current_amount_rappen=1_000_000_00,
+        )
+        s.commit()
+        result = compute_depot_check(s, mandate)
+    assert result["total_advisory_wealth_rappen"] == 1_000_000_00
+
 
 def test_no_recommendation_run_leaves_soll_empty(session_factory):
     """Ohne RecommendationRun greift WealthPosition-Fallback, aber SOLL-
