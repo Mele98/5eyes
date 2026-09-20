@@ -174,7 +174,31 @@ def _safe_int(value, default: int = 0) -> int:
 
 
 def _bucket_from_position_type(position_type: str | None) -> str:
-    """Fallback wenn eine WealthPosition kein Produkt referenziert."""
+    """Fallback wenn eine WealthPosition kein Produkt referenziert.
+
+    Kontrollrunde 2026-09-20: die DB-CHECK-Constraint auf WealthPosition.
+    position_type (5eyes_schema_v4.0_FINAL.sql) erlaubt exakt 7 Werte:
+    'Depot','Liquidität','Immobilien','Vorsorge','Alternative','Hypothek',
+    'Custom'. Von diesen fehlten 'Liquidität' (mit Umlaut) UND 'Custom'
+    bisher explizit im Alias-Dict und fielen beide still auf denselben
+    Bare-Fallback -- fuer 'Liquidität' zufaellig korrekt (der alte Fallback
+    war "liquidity"), fuer 'Custom' fachlich falsch: die Datenbank erlaubt
+    'Custom' explizit fuer Alternative-Positionen (siehe Frontend, das
+    'Custom' an zwei Stellen wie 'Alternative' behandelt), wurde hier aber
+    als "Liquidität" eingestuft -- eine echte Risikoposition verschwand
+    dadurch unsichtbar in der sichersten Kategorie, statt in der
+    Compliance-Ampel (services/advisory_report.py::_check_asset_allocation,
+    liest dc["buckets"] direkt) als Risiko zu erscheinen. 'Hypothek' ist
+    absichtlich nicht gemappt: Hypotheken sind assignment='Verbindlichkeit'
+    und erreichen ueber den assignment=='Beratungsvermögen'-Filter in
+    _load_positions diese Funktion nie.
+
+    Der verbleibende Bare-Fallback (fuer Werte ausserhalb der aktuellen
+    Schema-Constraint, z.B. Alt-Daten aus vor deren Einfuehrung) faellt
+    jetzt konsistent mit _bucket_key_from_product (Product-Pfad) auf
+    "alternatives" -- eine unklassifizierbare Position soll als Risiko
+    sichtbar bleiben, nicht in "Liquidität" verschwinden.
+    """
     raw = str(position_type or "").strip().lower()
     aliases = {
         "depot": "equities",
@@ -185,12 +209,15 @@ def _bucket_from_position_type(position_type: str | None) -> str:
         "alternative": "alternatives",
         "alternativen": "alternatives",
         "vorsorge": "alternatives",
+        "custom": "alternatives",
+        "liquidität": "liquidity",
+        "liquiditaet": "liquidity",
         "kontoguthaben": "liquidity",
         "konto": "liquidity",
         "cash": "liquidity",
         "geldmarktfonds": "liquidity",
     }
-    return aliases.get(raw, "liquidity")
+    return aliases.get(raw, "alternatives")
 
 
 def _init_result_dict(mandate: Mandate) -> dict:

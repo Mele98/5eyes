@@ -23,8 +23,59 @@ from services.depot_check import (
     _HHI_TOP_POSITIONS_WARNING_THRESHOLD,
     _ILLIQUID_WARNING_THRESHOLD_BPS,
     _aggregate_warnings,
+    _bucket_from_position_type,
+    _bucket_key_from_product,
     _init_result_dict,
 )
+
+
+# ---------------------------------------------------------------------------
+# Kontrollrunde 2026-09-20: _bucket_from_position_type -- alle 7 DB-CHECK-
+# permittierten WealthPosition.position_type-Werte muessen explizit gemappt
+# sein (5eyes_schema_v4.0_FINAL.sql:542-544: 'Depot','Liquidität',
+# 'Immobilien','Vorsorge','Alternative','Hypothek','Custom'). Vorher fielen
+# 'Liquidität' (mit Umlaut) UND 'Custom' beide still auf denselben Fallback
+# -- fuer 'Liquidität' zufaellig richtig, fuer 'Custom' (von der DB explizit
+# erlaubt, vom Frontend wie 'Alternative' behandelt) fachlich falsch: eine
+# echte Alternative-Risikoposition verschwand unsichtbar in "Liquiditaet".
+# ---------------------------------------------------------------------------
+
+def test_bucket_from_position_type_covers_all_schema_permitted_values():
+    assert _bucket_from_position_type("Depot") == "equities"
+    assert _bucket_from_position_type("Liquidität") == "liquidity"
+    assert _bucket_from_position_type("Immobilien") == "real_estate"
+    assert _bucket_from_position_type("Vorsorge") == "alternatives"
+    assert _bucket_from_position_type("Alternative") == "alternatives"
+    assert _bucket_from_position_type("Custom") == "alternatives"
+    # 'Hypothek' erreicht diese Funktion nie live (assignment='Verbindlichkeit'
+    # wird in _load_positions vorher ausgefiltert), aber falls doch: sollte
+    # nicht in "liquidity" verschwinden.
+    assert _bucket_from_position_type("Hypothek") != "liquidity"
+
+
+def test_bucket_from_position_type_custom_was_previously_misclassified_as_liquidity():
+    """Regression-Lock: 'Custom' darf NICHT mehr 'liquidity' ergeben."""
+    assert _bucket_from_position_type("Custom") == "alternatives"
+
+
+def test_bucket_from_position_type_unknown_value_falls_back_to_alternatives_not_liquidity():
+    """Ein unklassifizierbarer Wert soll als Risiko sichtbar bleiben (wie
+    beim Product-Pfad _bucket_key_from_product), nicht in 'liquidity'
+    verschwinden."""
+    assert _bucket_from_position_type("Voellig Unbekannt") == "alternatives"
+    assert _bucket_from_position_type(None) == "alternatives"
+
+
+def test_bucket_fallback_consistent_between_product_and_position_type_paths():
+    """Beide Fallback-Pfade (Product-Klassifikation vs. WealthPosition-
+    Klassifikation) muessen fuer einen unbekannten Wert dasselbe konservative
+    Bucket liefern -- keine Asymmetrie mehr zwischen den beiden Pfaden."""
+    unmapped = SimpleNamespace(
+        asset_class="Voellig Unbekannt", product_type="", sub_asset_class="",
+        product_name="",
+    )
+    assert _bucket_key_from_product(unmapped) == "alternatives"
+    assert _bucket_from_position_type("Voellig Unbekannt") == "alternatives"
 
 
 # ---------------------------------------------------------------------------
