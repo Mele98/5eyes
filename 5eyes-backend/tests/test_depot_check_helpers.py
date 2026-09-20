@@ -32,8 +32,14 @@ from services.depot_check import (
 # ---------------------------------------------------------------------------
 
 def test_warning_thresholds_match_original_magic_numbers():
-    """Schwellen muessen mit den Original-Magic-Numbers uebereinstimmen."""
-    assert _HHI_COUNTRY_WARNING_THRESHOLD == 5000
+    """Schwellen muessen mit den Original-Magic-Numbers uebereinstimmen.
+
+    Kontrollrunde 2026-09-20: _HHI_COUNTRY_WARNING_THRESHOLD 5000 -> 2500,
+    an die PDF-Compliance-Ampel angeglichen (services/advisory_report.py::
+    _check_diversifikation, "rot" bereits ab HHI>2500) -- war vorher
+    inkonsistent (Live-Screen "alles ok" bei einer Konzentration, die das
+    PDF bereits als "rot" auswies)."""
+    assert _HHI_COUNTRY_WARNING_THRESHOLD == 2500
     assert _HHI_SECTOR_WARNING_THRESHOLD == 2500
     assert _HHI_TOP_POSITIONS_WARNING_THRESHOLD == 1500
     assert _ILLIQUID_WARNING_THRESHOLD_BPS == 3000

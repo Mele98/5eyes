@@ -46,10 +46,25 @@ BUCKET_LABELS = {
 # Sprint U-39 (2026-06-06): Schwellen fuer Concentration- und
 # Drift-Warnings als benannte Konstanten — vorher als Magic-Numbers in
 # der grossen compute_depot_check-Funktion verstreut.
-_HHI_COUNTRY_WARNING_THRESHOLD = 5000  # > 5000 = single-country dominiert
+# Kontrollrunde 2026-09-20: 5000 -> 2500. War inkonsistent mit dem PDF-
+# Compliance-Ampel-System (services/advisory_report.py::_check_diversifikation,
+# "rot" bereits ab HHI>2500) -- dieselbe Laender-Konzentration konnte auf der
+# Live-Depot-Check-Seite "alles ok" zeigen, waehrend der gedruckte Bericht
+# fuer dasselbe Mandat bereits "rot" auswies. Jetzt identischer Schwellenwert
+# wie die PDF-Ampel (Sektor-Schwelle war bereits konsistent bei 2500).
+_HHI_COUNTRY_WARNING_THRESHOLD = 2500  # > 2500 = Single-Country-dominiert (= PDF-Ampel "rot")
 _HHI_SECTOR_WARNING_THRESHOLD = 2500   # > 2500 = wenig diversifiziert
 _HHI_TOP_POSITIONS_WARNING_THRESHOLD = 1500
 _ILLIQUID_WARNING_THRESHOLD_BPS = 3000
+# Kontrollrunde 2026-09-20: eine Position ohne klassifizierbare Liquiditaets-
+# Metadaten (weder Produktkatalog- noch WealthPosition-Heuristik greift)
+# landet in "unknown", das bisher NIRGENDS in eine Warnung einfloss. Ein
+# grosser unknown_bps-Anteil koennte echte, nur unklassifizierbare
+# Illiquiditaet verstecken -- absichtlich eine EIGENE, ehrliche Warnung
+# ("Daten unvollstaendig") statt unknown_bps stillschweigend zu
+# illiquid_bps zu addieren (das waere factually falsch: unbekannt heisst
+# nicht illiquide).
+_UNKNOWN_LIQUIDITY_WARNING_THRESHOLD_BPS = 3000
 _DRIFT_WARNING_THRESHOLD_BPS = 1500    # = 15 Prozentpunkte
 _LIQUIDITY_BUCKETS = ("daily", "weekly", "monthly", "illiquid", "unknown")
 
@@ -335,6 +350,14 @@ def _aggregate_warnings(result: dict) -> None:
             f"Illiquider Anteil = {result['liquidity_profile']['illiquid_bps']/100:.1f}% "
             f"(>{_ILLIQUID_WARNING_THRESHOLD_BPS//100}%)"
         )
+    if result["liquidity_profile"]["unknown_bps"] > _UNKNOWN_LIQUIDITY_WARNING_THRESHOLD_BPS:
+        result["warnings"].append(
+            f"Liquiditaets-Einstufung unklar fuer "
+            f"{result['liquidity_profile']['unknown_bps']/100:.1f}% des Depots "
+            f"(>{_UNKNOWN_LIQUIDITY_WARNING_THRESHOLD_BPS//100}%) -- Produkt-/"
+            "Positions-Metadaten pflegen, verdeckte Illiquiditaet kann "
+            "andernfalls unerkannt bleiben."
+        )
 
     # Bandbreiten-Verstoesse
     for bucket_info in result["buckets"].values():
@@ -349,7 +372,15 @@ def _aggregate_warnings(result: dict) -> None:
                 f"{ist_pct:.1f}% (Band: {band_text})"
             )
 
-    # Drift-Warnings fuer Country/Sector/Currency-Einzelpositionen
+    # Drift-Warnings fuer Country/Sector/Currency-Einzelpositionen.
+    # Kontrollrunde 2026-09-20: vorher wurde per max(..., key=abs) nur der
+    # EINE schlimmste Ausreisser pro Dimension gemeldet -- verletzten z.B.
+    # gleichzeitig CH (+18pp) UND US (-19pp) die Toleranz, erschien nur "US"
+    # in der Hinweisliste, "CH" blieb unsichtbar. Die PDF-Ampel selbst war
+    # davon nicht betroffen (rechnet unabhaengig ueber alle Buckets), aber
+    # die Live-Depot-Check-Hinweisliste unterschaetzte den Umfang des
+    # Handlungsbedarfs. Jetzt: ALLE Ausreisser pro Dimension, absteigend
+    # nach Betrag sortiert.
     for dimension_label, drift_key in (
         ("Land", "country_exposure_drift_bps"),
         ("Sektor", "sector_exposure_drift_bps"),
@@ -358,14 +389,18 @@ def _aggregate_warnings(result: dict) -> None:
         drift_map = result.get(drift_key) or {}
         if not drift_map:
             continue
-        worst_key, worst_value = max(
-            drift_map.items(), key=lambda kv: abs(int(kv[1] or 0))
+        offenders = sorted(
+            (
+                (key, value) for key, value in drift_map.items()
+                if abs(int(value or 0)) >= _DRIFT_WARNING_THRESHOLD_BPS
+            ),
+            key=lambda kv: -abs(int(kv[1] or 0)),
         )
-        if abs(int(worst_value)) >= _DRIFT_WARNING_THRESHOLD_BPS:
-            direction = "Überhang" if worst_value > 0 else "Unterhang"
+        for key, value in offenders:
+            direction = "Überhang" if value > 0 else "Unterhang"
             result["warnings"].append(
-                f"{dimension_label}-Drift {direction} bei '{worst_key}': "
-                f"{worst_value/100:+.1f} Prozentpunkte gegenüber Empfehlung."
+                f"{dimension_label}-Drift {direction} bei '{key}': "
+                f"{value/100:+.1f} Prozentpunkte gegenüber Empfehlung."
             )
 
 
@@ -410,7 +445,21 @@ def compute_depot_check(db: Session, mandate: Mandate) -> dict:
     liquidity_buckets = {"daily": 0, "weekly": 0, "monthly": 0, "illiquid": 0, "unknown": 0}
 
     for rec_pos, prod in positions_with_products:
-        amount = _safe_int(getattr(rec_pos, "current_amount_rappen", 0)) or _safe_int(getattr(rec_pos, "target_amount_rappen", 0))
+        # Kontrollrunde 2026-09-20: MUSS exakt dieselbe Fallback-Logik wie
+        # _load_positions() (oben, current_amount<=0 -> target_amount)
+        # verwenden, nicht das frueher hier stehende "or"-Idiom. Fuer einen
+        # (aktuell ueber keinen bekannten Schreibpfad erreichbaren, aber von
+        # keiner DB-Constraint verhinderten) NEGATIVEN current_amount_rappen
+        # ist ein Wert wie -100 in Python truthy -- "or" wuerde NICHT auf
+        # target_amount zurueckfallen, obwohl _load_positions das (per <=0)
+        # bereits getan und die Position deshalb ueberhaupt erst in
+        # total_rappen eingerechnet hat. Divergierende Fallback-Logik an
+        # zwei Stellen fuer dieselbe Position haette total_rappen (Nenner
+        # JEDER Prozentangabe im gesamten Depot-Check) von der Summe der
+        # tatsaechlich gebuckten Betraege abkoppeln koennen.
+        amount = _safe_int(getattr(rec_pos, "current_amount_rappen", 0))
+        if amount <= 0:
+            amount = _safe_int(getattr(rec_pos, "target_amount_rappen", 0))
         if amount <= 0:
             continue
         bucket = _bucket_key_from_product(prod)
