@@ -333,18 +333,22 @@ def _risk_assessment_has_current_questionnaire_answers(assessment: RiskAssessmen
 
 
 def _risk_override_profile_band(score_x10: int) -> int:
-    score = max(1, min(10, int(round((score_x10 or 10) / 10))))
-    if score <= 2:
-        return 0
-    if score <= 4:
-        return 1
-    if score <= 6:
-        return 2
-    if score <= 8:
-        return 3
-    if score == 9:
-        return 4
-    return 5
+    """Wie viele Profil-Baender (0=Kapitalschutz..5=Aktien) score_x10 belegt.
+
+    Kontrollrunde 2026-09-20: delegiert an profile_for_score_x10() +
+    _PROFILE_BAND statt eine dritte, unabhaengige Score->Band-Zuordnung zu
+    pflegen. Die vorherige eigene Implementierung nutzte Python's round()
+    (Banker's Rounding) und widersprach damit der bereits im selben File
+    dokumentierten #AA-9-Korrektur (_risk_score_bucket, einige hundert
+    Zeilen weiter unten): "round-half-up statt Banker's-round() -- sonst
+    bricht die Monotonie an .5-Grenzen (45->4 statt 5, 65->6 statt 7)".
+    Score_x10=45 landete hier dadurch auf Band 1 (Defensiv) statt korrekt
+    Band 2 (Ausgewogen) -- an genau den Grenzwerten 25/45/65/85, wo die
+    beiden Rundungskonventionen auseinanderlaufen.
+    """
+    from services.risk_assessment_semantics import _PROFILE_BAND
+    from services.risk_scoring import profile_for_score_x10
+    return _PROFILE_BAND[profile_for_score_x10(int(score_x10 or 10))]
 
 
 def _risk_assessment_has_documented_override(assessment: RiskAssessment) -> bool:
