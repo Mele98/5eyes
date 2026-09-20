@@ -99,6 +99,79 @@ def test_meaningful_words_handles_umlauts():
 
 
 # ---------------------------------------------------------------------------
+# Kontrollrunde 2026-09-21: Heuristik-Haertung -- Ziffern/Unterstrich/
+# Zeichen-Wiederholung zaehlten vorher faelschlich als "Wort".
+# ---------------------------------------------------------------------------
+
+def test_meaningful_words_excludes_pure_digit_tokens():
+    """BUG (vor Haertung): \\w matcht Ziffern -- reine Zahlenfolgen
+    zaehlten als 'bedeutungsvolle Worte'."""
+    assert _meaningful_word_count("111111 222222 333333") == 0
+
+
+def test_meaningful_words_excludes_pure_underscore_tokens():
+    """BUG (vor Haertung): \\w matcht Unterstrich -- reine Unterstrich-
+    Fuellung zaehlte als 'bedeutungsvolle Worte'."""
+    assert _meaningful_word_count("_______ _______ _______") == 0
+
+
+def test_meaningful_words_excludes_repeated_single_character_padding():
+    """BUG (vor Haertung): nur die Laenge wurde geprueft -- 'aaaa' (ein
+    einziges wiederholtes Zeichen) zaehlte als 'bedeutungsvolles Wort'."""
+    assert _meaningful_word_count("aaaa aaaa aaaa aaaa aaaa") == 0
+
+
+def test_meaningful_words_still_counts_real_short_words_with_repetition():
+    """Kein False-Positive: echte Worte mit natuerlicher Buchstaben-
+    Wiederholung (z.B. Doppel-Konsonanten) bleiben gueltig."""
+    assert _meaningful_word_count("Masse Kasse Klasse") == 3
+
+
+def test_numeric_padding_rejected_end_to_end():
+    with pytest.raises(OverrideReasonQualityError) as exc:
+        validate_override_reason_quality("111111 222222 333333")
+    assert exc.value.reason_code == REASON_CODE_INSUFFICIENT_WORDS
+
+
+def test_underscore_padding_rejected_end_to_end():
+    with pytest.raises(OverrideReasonQualityError) as exc:
+        validate_override_reason_quality("_______ _______ _______")
+    assert exc.value.reason_code == REASON_CODE_INSUFFICIENT_WORDS
+
+
+def test_repeated_character_padding_rejected_end_to_end():
+    with pytest.raises(OverrideReasonQualityError) as exc:
+        validate_override_reason_quality("aaaa aaaa aaaa aaaa aaaa")
+    assert exc.value.reason_code == REASON_CODE_INSUFFICIENT_WORDS
+
+
+def test_repeated_blacklisted_phrase_rejected_end_to_end():
+    """BUG (vor Haertung): der Exact-Match-Blacklist-Vergleich wurde durch
+    schlichtes Wiederholen der Floskel umgangen UND erfuellte durch die
+    Wiederholung zufaellig die Wortanzahl-Schwelle."""
+    with pytest.raises(OverrideReasonQualityError) as exc:
+        validate_override_reason_quality(
+            "kundenwunsch kundenwunsch kundenwunsch"
+        )
+    assert exc.value.reason_code == REASON_CODE_GENERIC_PHRASE
+
+
+def test_repeated_multi_word_blacklisted_phrase_rejected_end_to_end():
+    with pytest.raises(OverrideReasonQualityError) as exc:
+        validate_override_reason_quality("siehe oben siehe oben siehe oben")
+    assert exc.value.reason_code == REASON_CODE_GENERIC_PHRASE
+
+
+def test_blacklisted_phrase_followed_by_real_content_not_flagged_as_repetition():
+    """Kein False-Positive: die Floskel taucht auf, ist aber NICHT die
+    einzige Textkomponente -- muss normal weiterlaufen (hier: genug
+    echte Worte -> passiert die Pruefung)."""
+    validate_override_reason_quality(
+        "Kein kundenwunsch sondern nachweisliche Verlusttoleranz laut Gespraech"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Empty / None
 # ---------------------------------------------------------------------------
 
