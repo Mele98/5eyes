@@ -2169,10 +2169,37 @@ def _build_risikoprofilierung(db: Session, mandate: Mandate) -> dict[str, Any]:
             "risk_willingness_score_x10": None,
             "final_score_x10": None,
             "final_profile": "—",
+            "display_score_x10": None,
+            "display_profile": "—",
             "is_overridden": False,
             "override_reason": None,
             "questions": _default_risk_questions(),
         }
+
+    is_overridden = bool(_safe_int(getattr(ra, "is_overridden", 0)))
+    final_score_x10 = _safe_int(getattr(ra, "final_score_x10", 0))
+    final_profile = str(getattr(ra, "final_profile", "") or "—")
+    # Kontrollrunde 2026-09-20: display_score_x10/display_profile sind die
+    # Werte, die TATSAECHLICH die Allokation bestimmt haben (Override wenn
+    # gesetzt, siehe services.risk_assessment_semantics.validate_
+    # risk_assessment_model_input, das exakt dieser Prioritaet folgt) --
+    # nicht identisch mit final_score_x10/final_profile, sobald ein Override
+    # aktiv ist. Vorher zeigte die PDF-Kopfzeile hier IMMER final_profile/
+    # final_score_x10 (das VOR-Override-Profil), obwohl der Override die
+    # tatsaechlich empfohlene Allokation bestimmt -- ein Bericht, der ein
+    # anderes Risikoprofil nennt als das, auf dem die Empfehlung beruht.
+    # Selbe Prioritaets-Logik wie im bereits korrekten Sibling
+    # routers/pdf_reports.py (Zeilen ~461-476).
+    display_score_x10 = (
+        _safe_int(getattr(ra, "override_score_x10", None))
+        if is_overridden and getattr(ra, "override_score_x10", None) is not None
+        else final_score_x10
+    )
+    display_profile = (
+        (str(getattr(ra, "override_profile", "") or "") or None)
+        if is_overridden
+        else None
+    ) or final_profile
 
     return {
         "risky_fraction_bps": (
@@ -2185,9 +2212,11 @@ def _build_risikoprofilierung(db: Session, mandate: Mandate) -> dict[str, Any]:
         "risk_willingness_score_x10": _safe_int(
             getattr(ra, "risk_willingness_score_x10", 0)
         ),
-        "final_score_x10": _safe_int(getattr(ra, "final_score_x10", 0)),
-        "final_profile": str(getattr(ra, "final_profile", "") or "—"),
-        "is_overridden": bool(_safe_int(getattr(ra, "is_overridden", 0))),
+        "final_score_x10": final_score_x10,
+        "final_profile": final_profile,
+        "display_score_x10": display_score_x10,
+        "display_profile": display_profile,
+        "is_overridden": is_overridden,
         "override_reason": str(getattr(ra, "override_reason", "") or "") or None,
         "questions": _default_risk_questions(ra=ra),
     }

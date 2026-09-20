@@ -167,6 +167,89 @@ def test_no_mismatches_when_no_target_allocation(session_factory):
     assert warnings == []
 
 
+def _seed_house_matrix_bands(s, policy):
+    """Zwei HouseMatrix-Baender: 'Defensiv' (score 20-40, Cap 30%) und
+    'Wachstumsorientiert' (score 70-90, Cap 70%)."""
+    common = dict(
+        liq_min_bps=0, liq_target_bps=500, liq_max_bps=1000,
+        bonds_min_bps=3000, bonds_target_bps=4000, bonds_max_bps=5000,
+        equity_min_bps=0, equity_target_bps=1000, equity_max_bps=2000,
+        real_estate_min_bps=0, real_estate_target_bps=500, real_estate_max_bps=1000,
+        alt_min_bps=0, alt_target_bps=0, alt_max_bps=1000, equity_minimum_bps=0,
+        is_active=1, created_at=_NOW, updated_at=_NOW,
+    )
+    s.add(HouseMatrix(
+        id=str(uuid.uuid4()), policy_id=policy.id,
+        score_from=20, score_to=40, profile_name="Defensiv",
+        max_risky_fraction_bps=3000, **common,
+    ))
+    s.add(HouseMatrix(
+        id=str(uuid.uuid4()), policy_id=policy.id,
+        score_from=70, score_to=90, profile_name="Wachstumsorientiert",
+        max_risky_fraction_bps=7000, **common,
+    ))
+    s.commit()
+
+
+def _seed_risk_assessment(s, mandate, advisor, *, final_score_x10, is_overridden=0,
+                           override_score_x10=None):
+    s.add(RiskAssessment(
+        id=str(uuid.uuid4()), mandate_id=mandate.id, version=1, is_current=1,
+        valid_from=_NOW[:10],
+        q_income_points=2, q_obligations_points=2, q_savings_points=6, q_wealth_points=6,
+        risk_capacity_total=16, risk_capacity_profile="Ausgewogen",
+        investment_horizon_years=9, investment_horizon_label="8 bis 11 Jahre",
+        risk_capacity_score_x10=final_score_x10,
+        q_investment_goal_points=2, q_risk_preference_points=2, q_risk_behavior_points=2,
+        risk_willingness_total=6, risk_willingness_profile="Ausgewogen",
+        risk_willingness_score_x10=final_score_x10,
+        final_score_x10=final_score_x10, final_profile="Ausgewogen",
+        is_overridden=is_overridden, override_score_x10=override_score_x10,
+        override_profile="Wachstumsorientiert" if override_score_x10 and override_score_x10 >= 70
+        else ("Defensiv" if override_score_x10 else None),
+        assessed_at=_NOW, assessed_by=advisor.id,
+        created_at=_NOW, updated_at=_NOW,
+    ))
+    s.commit()
+
+
+def test_override_upward_no_longer_produces_false_positive_cap_warning(session_factory):
+    """Kontrollrunde 2026-09-20: berechnetes Profil Defensiv (Score 35, Cap
+    30%) wurde auf Wachstumsorientiert (Override-Score 75, Cap 70%)
+    uebersteuert. Allokation nutzt 60% Risiko-Anteil -- innerhalb des
+    (hoeheren) Override-Caps, aber ausserhalb des berechneten Caps. Vorher
+    (Vergleich gegen final_score_x10) erzeugte das eine spurious Warnung."""
+    with session_factory() as s:
+        advisor, mandate = _seed(s)
+        ta, policy = _seed_ta_within_budget(s, mandate, advisor, risky_bps=6000)
+        _seed_house_matrix_bands(s, policy)
+        _seed_risk_assessment(
+            s, mandate, advisor,
+            final_score_x10=35, is_overridden=1, override_score_x10=75,
+        )
+        warnings = detect_suitability_mismatches(s, mandate)
+    assert not any("HouseMatrix-Cap" in w for w in warnings)
+
+
+def test_override_downward_now_detects_real_cap_violation(session_factory):
+    """Kontrollrunde 2026-09-20: berechnetes Profil Wachstumsorientiert
+    (Score 75, Cap 70%) wurde auf Defensiv (Override-Score 35, Cap 30%)
+    uebersteuert. Allokation nutzt weiterhin 60% Risiko-Anteil -- innerhalb
+    des berechneten (nicht mehr gueltigen) Caps, aber ausserhalb des
+    tatsaechlichen Override-Caps. Vorher (Vergleich gegen final_score_x10)
+    wurde diese echte Ueberschreitung NIE erkannt (Fail-Open)."""
+    with session_factory() as s:
+        advisor, mandate = _seed(s)
+        ta, policy = _seed_ta_within_budget(s, mandate, advisor, risky_bps=6000)
+        _seed_house_matrix_bands(s, policy)
+        _seed_risk_assessment(
+            s, mandate, advisor,
+            final_score_x10=75, is_overridden=1, override_score_x10=35,
+        )
+        warnings = detect_suitability_mismatches(s, mandate)
+    assert any("HouseMatrix-Cap" in w for w in warnings)
+
+
 # ---------------------------------------------------------------------------
 # count_active_entries + get_latest_active_entry
 # ---------------------------------------------------------------------------
