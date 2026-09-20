@@ -2199,6 +2199,7 @@ def _build_risikoprofilierung(db: Session, mandate: Mandate) -> dict[str, Any]:
             "display_profile": "—",
             "is_overridden": False,
             "override_reason": None,
+            "override_reason_quality_issue": None,
             "questions": _default_risk_questions(),
         }
 
@@ -2227,6 +2228,31 @@ def _build_risikoprofilierung(db: Session, mandate: Mandate) -> dict[str, Any]:
         else None
     ) or final_profile
 
+    # Kontrollrunde 2026-09-21 (Override-Begruendungs-Audit): dieselbe
+    # FIDLEG-Art.-13-Qualitaetspruefung, die beim Schreiben (schemas/
+    # profiling.py) und beim Live-Engine-Lauf (services.risk_assessment_
+    # semantics.validate_risk_assessment_model_input) gilt, lief hier NIE --
+    # ein Altbestand-Override (vor Sprint U-28/U-29) oder ein Override,
+    # dessen RiskAssessment nie wieder einen Live-Engine-Lauf durchlaeuft,
+    # zeigte den rohen override_reason-Text ohne jeden Hinweis, selbst wenn
+    # er die Qualitaetsschwelle klar verfehlt (leer/Floskel/zu kurz). Nicht
+    # blockierend (Modul-Prinzip: Sichtbarkeit statt Sperre, wie die
+    # Allokations-Staleness-Warnung in Sektion 7/8) -- der PDF-Renderer
+    # (services/pdf/documents/advisory_report.py::_build_risikoprofil_
+    # flowables) zeigt diesen Hinweis zusaetzlich zum Override-Text an.
+    override_reason_quality_issue = None
+    if is_overridden:
+        from services.override_reason_quality import (
+            OverrideReasonQualityError,
+            validate_override_reason_quality,
+        )
+        try:
+            validate_override_reason_quality(
+                getattr(ra, "override_reason", None)
+            )
+        except OverrideReasonQualityError as exc:
+            override_reason_quality_issue = str(exc)
+
     return {
         "risky_fraction_bps": (
             _safe_int(getattr(ta, "risky_fraction_bps", 0)) or None
@@ -2244,6 +2270,7 @@ def _build_risikoprofilierung(db: Session, mandate: Mandate) -> dict[str, Any]:
         "display_profile": display_profile,
         "is_overridden": is_overridden,
         "override_reason": str(getattr(ra, "override_reason", "") or "") or None,
+        "override_reason_quality_issue": override_reason_quality_issue,
         "questions": _default_risk_questions(ra=ra),
     }
 
