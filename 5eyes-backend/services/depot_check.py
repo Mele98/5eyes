@@ -254,11 +254,29 @@ def _load_positions(
     wealth_only_positions: list[tuple[WealthPosition, str]] = []
     total_rappen = 0
 
-    latest_run = (
+    # Kontrollrunde 2026-09-20: RecommendationRun.result_status ist entweder
+    # "Draft" (vorgeschlagen, vom Berater noch nicht freigegeben), "Final"
+    # (freigegeben -- das, was der Kunde tatsaechlich haelt/halten soll) oder
+    # "Superseded" (durch eine neuere Final-Zeile abgeloest, siehe
+    # routers/review.py::finalize_recommendation). Die vorherige Version
+    # waehlte hier einfach die per created_at JUENGSTE Zeile, unabhaengig vom
+    # Status -- ein rein exploratorischer Draft-Lauf (z.B. "was waere wenn
+    # mehr Private Equity") konnte dadurch als das tatsaechliche IST-Depot in
+    # den Depot-Check (inkl. Liquiditaets-Warnung) einfliessen, obwohl der
+    # Kunde diesen Lauf nie hielt. Gleiches Final-zuerst-Fallback-Muster wie
+    # bereits etabliert in routers/review.py:2520-2524 und
+    # services/review_engine.py:396 -- EINE Quelle der Wahrheit fuer "welcher
+    # Lauf gilt gerade" statt einer vierten, divergierenden Auswahl-Logik.
+    runs = (
         db.query(RecommendationRun)
         .filter(RecommendationRun.mandate_id == mandate.id)
         .order_by(RecommendationRun.created_at.desc())
-        .first()
+        .all()
+    )
+    latest_run = (
+        next((r for r in runs if r.result_status == "Final"), None)
+        or next((r for r in runs if r.result_status == "Draft"), None)
+        or (runs[0] if runs else None)
     )
     if latest_run is not None:
         rec_positions = (
