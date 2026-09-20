@@ -169,6 +169,7 @@ def audit_mandate_suitability(
       'risk_assessment_signed_at': str|None,      # Kunden-Signatur (Doku, s.u.)
       'risk_assessment_signed_method': str|None,  # 'portal' | 'advisor_recorded'
       'allocation_issues': [ {target_allocation_id, based_on_assessment_id, reason}, ... ],
+      'override_reason_issues': [ {risk_assessment_id, reason_code, detail}, ... ],
       'is_compliant': bool,
       'fidleg_basis': 'Art. 10 / Art. 12 FIDLEG',
     }
@@ -193,6 +194,7 @@ def audit_mandate_suitability(
         "risk_assessment_signed_at": None,
         "risk_assessment_signed_method": None,
         "allocation_issues": [],
+        "override_reason_issues": [],
         "audit_degraded": False,
         "is_compliant": True,
         "fidleg_basis": "Art. 10 / Art. 12 FIDLEG",
@@ -263,6 +265,37 @@ def audit_mandate_suitability(
             "age_days": freshness["age_days"],
         })
         base["is_compliant"] = False
+
+    # Kontrollrunde 2026-09-21 (Override-Begruendungs-Audit): ein Berater-
+    # Override (is_overridden=1) verlangt eine FIDLEG-Art.-13-taugliche
+    # Begruendung (services.override_reason_quality). Diese wird beim
+    # SCHREIBEN via Pydantic erzwungen (schemas/profiling.py) und beim
+    # LIVE-ENGINE-Lauf erneut geprueft (services.risk_assessment_semantics.
+    # validate_risk_assessment_model_input, aufgerufen aus portfolio_engine
+    # /risk_matrix/advisory_log_service) -- ABER dieser Audit-Report las
+    # is_overridden/override_reason bisher gar nicht. Ein Altbestand-Override
+    # (vor der Qualitaets-Pruefung von Sprint U-28/U-29 am 2026-06-03
+    # angelegt) oder ein Override, dessen zugehoeriger RiskAssessment nie
+    # wieder einen Live-Engine-Lauf durchlaeuft, ging damit unentdeckt durch
+    # diesen Audit als "konform" -- weder hier noch in der PDF-Compliance-
+    # Sektion (services.advisory_report._build_suitability_compliance
+    # spiegelt diesen Audit 1:1) erschien ein Hinweis.
+    if int(getattr(ra, "is_overridden", 0) or 0) == 1:
+        from services.override_reason_quality import (
+            OverrideReasonQualityError,
+            validate_override_reason_quality,
+        )
+        try:
+            validate_override_reason_quality(
+                getattr(ra, "override_reason", None)
+            )
+        except OverrideReasonQualityError as exc:
+            base["override_reason_issues"].append({
+                "risk_assessment_id": base["risk_assessment_id"],
+                "reason_code": exc.reason_code,
+                "detail": str(exc),
+            })
+            base["is_compliant"] = False
 
     # Kontrollrunde 2026-09-20 (Risikoprofil-Audit): ein FRISCHES Risikoprofil
     # allein sagt nichts darueber aus, ob die AKTUELLE Soll-Allokation auch
