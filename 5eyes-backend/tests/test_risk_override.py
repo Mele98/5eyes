@@ -3,7 +3,12 @@ from unittest.mock import MagicMock
 import pytest
 
 from schemas.profiling import RiskAssessmentOverride
-from services.portfolio_engine import _risk_score_bucket, risk_assessment_ready_for_strategy
+from services.portfolio_engine import (
+    _risk_override_profile_band,
+    _risk_score_bucket,
+    risk_assessment_ready_for_strategy,
+)
+from services.risk_assessment_semantics import _PROFILE_BAND
 from services.risk_scoring import profile_for_score_x10
 
 
@@ -202,6 +207,33 @@ def test_small_or_downward_override_with_reason_is_strategy_ready():
         override_reason=VALID_OVERRIDE_REASON,
     )
     assert risk_assessment_ready_for_strategy(ra) is True
+
+
+@pytest.mark.parametrize("score_x10,expected_profile", [
+    (25, "Defensiv"),
+    (45, "Ausgewogen"),
+    (65, "Wachstumsorientiert"),
+    (85, "Dynamisch"),
+])
+def test_risk_override_profile_band_matches_round_half_up_at_half_boundaries(
+    score_x10, expected_profile,
+):
+    """Kontrollrunde 2026-09-20: _risk_override_profile_band nutzte vorher
+    Python's round() (Banker's Rounding). An den .5-Score-Grenzen (25/45/65/85
+    -> score/10 = x.5) widersprach das der bereits im selben File
+    dokumentierten #AA-9-Korrektur ("round-half-up statt Banker's-round()").
+    score_x10=45 z.B. landete vorher via round(4.5)=4 auf Band 1 (Defensiv)
+    statt korrekt Band 2 (Ausgewogen, via round-half-up 4.5->5)."""
+    assert profile_for_score_x10(score_x10) == expected_profile
+    assert _risk_override_profile_band(score_x10) == _PROFILE_BAND[expected_profile]
+
+
+def test_risk_override_profile_band_consistent_with_profile_for_score_x10_everywhere():
+    """_risk_override_profile_band darf nicht mehr unabhaengig von
+    profile_for_score_x10 divergieren -- fuer JEDEN Score 0-100."""
+    for score_x10 in range(0, 101):
+        expected_band = _PROFILE_BAND[profile_for_score_x10(score_x10)]
+        assert _risk_override_profile_band(score_x10) == expected_band, score_x10
 
 
 def _valid_override(**kwargs):
