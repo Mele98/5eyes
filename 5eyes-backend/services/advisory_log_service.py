@@ -370,7 +370,23 @@ def detect_suitability_mismatches(db: Session, mandate) -> list[str]:
 
     # Plus: vergleich mit aktueller HouseMatrix (kann sich nach Generate geaendert haben)
     if ra is not None:
-        score = _safe_int(getattr(ra, "final_score_x10", 0))
+        # Kontrollrunde 2026-09-20: override-bewusst -- die tatsaechliche
+        # Allokation (services.risk_assessment_semantics.
+        # validate_risk_assessment_model_input, ueber _risk_score_bucket)
+        # wird bei aktivem Override mit override_score_x10 gebudgetiert, nicht
+        # mit final_score_x10. Vorher verglich dieser FINMA-relevante Detektor
+        # IMMER gegen final_score_x10 (das Vor-Override-Budget): nach einem
+        # Override nach OBEN (z.B. Defensiv->Wachstumsorientiert) erzeugte das
+        # spurious "Cap ueberschritten"-Warnungen obwohl die Allokation korrekt
+        # innerhalb des (hoeheren) Override-Caps lag; nach einem Override nach
+        # UNTEN (konservativer) wurde umgekehrt eine echte Ueberschreitung des
+        # (niedrigeren) Override-Caps NIE erkannt (Fail-Open).
+        is_overridden = bool(_safe_int(getattr(ra, "is_overridden", 0)))
+        score = (
+            _safe_int(getattr(ra, "override_score_x10", 0))
+            if is_overridden
+            else _safe_int(getattr(ra, "final_score_x10", 0))
+        )
         policy = (
             db.query(OptimizerPolicy)
             .filter(OptimizerPolicy.is_current == 1)

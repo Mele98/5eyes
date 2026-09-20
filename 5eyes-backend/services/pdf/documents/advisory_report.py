@@ -1484,8 +1484,21 @@ def _build_risikoprofil_flowables(rp: dict, styles: dict) -> list[Any]:
     out.append(_hr())
     out.append(Spacer(1, 5 * mm))
 
-    profile_label = _safe_string(rp.get("final_profile"))
-    final_score = rp.get("final_score_x10")
+    # Kontrollrunde 2026-09-20: display_profile/display_score_x10 sind die
+    # Werte, die tatsaechlich die Allokation bestimmt haben (Override wenn
+    # aktiv) -- die Kopfzeile MUSS diese zeigen, nicht final_profile/
+    # final_score_x10 (das Vor-Override-Profil), sonst nennt der Bericht ein
+    # anderes Risikoprofil als das, auf dem die Empfehlung tatsaechlich
+    # beruht. Fallback auf final_* fuer altes, noch nicht neu berechnetes
+    # rp-Payload ohne die neuen Keys.
+    profile_label = _safe_string(
+        rp.get("display_profile") or rp.get("final_profile")
+    )
+    final_score = (
+        rp.get("display_score_x10")
+        if rp.get("display_score_x10") is not None
+        else rp.get("final_score_x10")
+    )
     capacity = rp.get("risk_capacity_score_x10")
     willingness = rp.get("risk_willingness_score_x10")
     risky_bps = rp.get("risky_fraction_bps")
@@ -1501,9 +1514,11 @@ def _build_risikoprofil_flowables(rp: dict, styles: dict) -> list[Any]:
 
     if is_overridden:
         out.append(Spacer(1, 3 * mm))
+        computed_profile = _safe_string(rp.get("final_profile"))
         text = (
-            "<b>Manuelle Übersteuerung:</b> "
-            + (_escape(override_reason) if override_reason else "ohne Begründung")
+            "<b>Manuelle Übersteuerung:</b> berechnetes Profil "
+            + f"„{computed_profile}“ wurde auf „{profile_label}“ angepasst. "
+            + (_escape(override_reason) if override_reason else "Ohne Begründung erfasst.")
         )
         out.append(Paragraph(
             text,

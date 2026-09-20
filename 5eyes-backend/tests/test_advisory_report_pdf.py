@@ -208,8 +208,13 @@ def _make_minimal_payload() -> dict:
             "risk_willingness_score_x10": 55,
             "final_score_x10": 62,
             "final_profile": "Defensiv",
+            # Kontrollrunde 2026-09-20: display_* sind das tatsaechlich
+            # verwendete (uebersteuerte) Profil, final_* bleibt das berechnete
+            # -- absichtlich unterschiedlich, um den Override-Fall real zu testen.
+            "display_score_x10": 78,
+            "display_profile": "Wachstumsorientiert",
             "is_overridden": True,
-            "override_reason": "Kunde wünscht defensiveres Profil als Score impliziert.",
+            "override_reason": "Kunde wünscht offensiveres Profil als Score impliziert.",
             "questions": [
                 {"key": "anlagehorizont", "frage": "Anlagehorizont", "points": 8},
                 {"key": "sparquote", "frage": "Sparquote", "points": 6},
@@ -1208,8 +1213,8 @@ def test_risikoprofil_section_shows_profile_score_and_questions():
     assert len(reader.pages) >= 12
     page_text = reader.pages[11].extract_text() or ""
     assert "Risikoprofilierung" in page_text
-    assert "Defensiv" in page_text
-    assert "62" in page_text  # final_score
+    assert "Wachstumsorientiert" in page_text  # display_profile (Override aktiv)
+    assert "78" in page_text  # display_score_x10
     assert "42.5 %" in page_text  # risky_fraction
     # Fragen erscheinen
     assert "Anlagehorizont" in page_text
@@ -1223,13 +1228,41 @@ def test_risikoprofil_section_shows_override_when_active():
     reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
     page_text = reader.pages[11].extract_text() or ""
     assert "Manuelle Übersteuerung" in page_text
-    assert "defensiveres Profil" in page_text
+    assert "offensiveres Profil" in page_text
+
+
+def test_risikoprofil_headline_shows_override_profile_not_computed_one():
+    """Kontrollrunde 2026-09-20: die Kopfzeile MUSS das tatsaechlich
+    verwendete (uebersteuerte) Profil zeigen -- nicht das berechnete, vor-
+    Override-Profil, das die Allokation gar nicht mehr bestimmt hat. Vorher
+    zeigte die Kopfzeile immer final_profile/final_score_x10, unabhaengig
+    vom Override."""
+    pypdf = pytest.importorskip("pypdf")
+    payload = _make_minimal_payload()
+    assert payload["risikoprofilierung"]["final_profile"] == "Defensiv"
+    assert payload["risikoprofilierung"]["display_profile"] == "Wachstumsorientiert"
+    pdf = render_advisory_report_pdf_from_payload(payload)
+    reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
+    page_text = reader.pages[11].extract_text() or ""
+    assert "Wachstumsorientiert" in page_text
+    # Das berechnete Profil bleibt sichtbar (im Override-Hinweis), aber nicht
+    # als Kopfzeilen-Headline.
+    assert "berechnetes Profil" in page_text
+    assert "Defensiv" in page_text
 
 
 def test_risikoprofil_section_omits_override_when_inactive():
     payload = _make_minimal_payload()
     payload["risikoprofilierung"]["is_overridden"] = False
     payload["risikoprofilierung"]["override_reason"] = None
+    # Ohne aktiven Override sind display_*/final_* in der Realitaet immer
+    # identisch (siehe _build_risikoprofilierung) -- Fixture konsistent halten.
+    payload["risikoprofilierung"]["display_profile"] = (
+        payload["risikoprofilierung"]["final_profile"]
+    )
+    payload["risikoprofilierung"]["display_score_x10"] = (
+        payload["risikoprofilierung"]["final_score_x10"]
+    )
     pdf = render_advisory_report_pdf_from_payload(payload)
     pypdf = pytest.importorskip("pypdf")
     reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
