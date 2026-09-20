@@ -406,7 +406,7 @@ def test_cache_aware_helpers_fall_back_when_no_cache_active(session_factory):
     from services.advisory_report import (
         _cached_latest_recommendation_run,
         _cached_current_ta,
-        _cached_current_ra,
+        _cached_current_ra_is_current,
         _cached_active_goals,
         _cached_active_cashflows,
     )
@@ -418,7 +418,7 @@ def test_cache_aware_helpers_fall_back_when_no_cache_active(session_factory):
         assert "_advisory_aggregator_call_cache" not in s.info
         run = _cached_latest_recommendation_run(s, mandate)
         ta = _cached_current_ta(s, mandate)
-        ra = _cached_current_ra(s, mandate)
+        ra = _cached_current_ra_is_current(s, mandate)
         goals = _cached_active_goals(s, mandate)
         cashflows = _cached_active_cashflows(s, client.id)
 
@@ -427,6 +427,45 @@ def test_cache_aware_helpers_fall_back_when_no_cache_active(session_factory):
     assert ra is not None
     assert len(goals) == 3
     assert len(cashflows) == 3
+
+
+def test_soft_deleted_risk_assessment_not_used_as_current(session_factory):
+    """Kontrollrunde 2026-09-20 (FIDLEG-STATE-003-Bugklasse, zweite Instanz):
+    ein soft-geloeschtes RiskAssessment (is_current=1, deleted_at gesetzt --
+    von der DB bewusst erlaubt, der partielle Unique-Index ux_risk_one_current
+    greift nur WHERE deleted_at IS NULL, siehe tests/test_risk_profile_signing.py)
+    darf in Sektion 4 (Profil-Label) und Sektion 7 (Ampel) NICHT mehr als
+    aktuelles Profil durchgehen. Vor dem Fix nutzten beide Sektionen (plus
+    Sektion 25) eine dritte, ungefilterte Query (`_cached_current_ra`), die
+    nur nach 'juengste per created_at' sortierte -- ohne is_current/deleted_at-
+    Filter."""
+    from services.advisory_report import (
+        _resolve_risk_profile_from_assessment,
+        _check_risikoprofil,
+    )
+    with session_factory() as s:
+        mandate, _client, _advisor = _seed_realistic_mandate(s)
+        s.commit()
+
+        # Das seed-RiskAssessment (final_profile="Ausgewogen") soft-loeschen,
+        # is_current aber (realistisch, siehe FIDLEG-STATE-003) auf 1 belassen.
+        ra = (
+            s.query(RiskAssessment)
+            .filter(RiskAssessment.mandate_id == mandate.id)
+            .one()
+        )
+        assert ra.final_profile == "Ausgewogen"
+        ra.deleted_at = _NOW
+        s.commit()
+
+        label = _resolve_risk_profile_from_assessment(s, mandate)
+        verdict = _check_risikoprofil(s, mandate)
+
+    # Profil-Label darf NICHT das geloeschte Profil zeigen.
+    assert label != "Ausgewogen"
+    assert label == "—"
+    # Ampel darf NICHT GRUEN sein (kein aktuelles Profil vorhanden).
+    assert verdict["bewertung"] != "gruen"
 
 
 def test_cache_is_isolated_between_calls(session_factory):
