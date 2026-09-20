@@ -201,6 +201,12 @@ def _init_result_dict(mandate: Mandate) -> dict:
     return {
         "mandate_id": str(getattr(mandate, "id", "") or ""),
         "total_advisory_wealth_rappen": 0,
+        # Kontrollrunde 2026-09-20: True wenn die fuer die Band-Vergleiche
+        # unten genutzte TargetAllocation unter einem AELTEREN, nicht mehr
+        # aktuellen Risikoprofil erstellt wurde. in_band/Ampel-Konsumenten
+        # muessen das beruecksichtigen statt eine veraltete Band-Uebereinstimmung
+        # als "alles in Ordnung" zu werten.
+        "target_allocation_stale": False,
         "buckets": {},  # bucket → {ist_bps, soll_bps, ist_rappen, drift_bps, in_band, band}
         "country_exposure_bps": {},
         "sector_exposure_bps": {},
@@ -314,6 +320,13 @@ def _aggregate_warnings(result: dict) -> None:
     Mutiert die uebergebene result-Dict (kein Return). Schwellen sind als
     Modul-Konstanten benannt (siehe oben), nicht mehr Magic-Numbers.
     """
+    if result.get("target_allocation_stale"):
+        result["warnings"].append(
+            "Soll-Allokation basiert auf einem frueheren, nicht mehr "
+            "aktuellen Risikoprofil -- Band-Vergleiche unten sind nicht "
+            "aussagekraeftig. Strategie neu berechnen."
+        )
+
     hhi = result["concentration_hhi"]
     if hhi["country"] > _HHI_COUNTRY_WARNING_THRESHOLD:
         result["warnings"].append(
@@ -485,6 +498,24 @@ def compute_depot_check(db: Session, mandate: Mandate) -> dict:
             TargetAllocation.deleted_at.is_(None),
         )
         .first()
+    )
+    # Kontrollrunde 2026-09-20 (direkte Folge von SUITABILITY-ALLOCATION-
+    # STALENESS-001 vom selben Tag): compute_depot_check las diese
+    # TargetAllocation bisher OHNE zu pruefen, ob sie noch unter dem
+    # AKTUELLEN Risikoprofil erstellt wurde -- exakt dieselbe Luecke, die
+    # der Compliance-Audit (services/suitability_audit.py, Report-Sektion 19)
+    # bereits erkennt. Ohne diesen Check konnte Sektion 7 "in Band, alles
+    # gruen" zeigen, waehrend Sektion 19 im selben Report bereits nicht-
+    # konform meldete -- ein intern widerspruechliches Dokument. Siehe
+    # services.risk_assessment_semantics.target_allocation_predates_current_
+    # assessment fuer die (jetzt EINE, geteilte) Pruef-Logik.
+    from services.portfolio_engine import _current_risk_assessment_or_none
+    from services.risk_assessment_semantics import (
+        target_allocation_predates_current_assessment,
+    )
+    current_ra = _current_risk_assessment_or_none(db, mandate.id)
+    result["target_allocation_stale"] = target_allocation_predates_current_assessment(
+        ta, getattr(current_ra, "id", None)
     )
     for bucket in BUCKET_LABELS:
         amount_rappen = bucket_amounts_rappen.get(bucket, 0)

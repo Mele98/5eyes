@@ -289,14 +289,15 @@ def audit_mandate_suitability(
         base["audit_degraded"] = True
         base["is_compliant"] = None
     if ta is not None:
-        modern_context = int(
-            getattr(ta, "context_artifacts_required", 0) or 0
-        ) == 1
-        based_on = str(getattr(ta, "based_on_assessment_id", "") or "")
-        if modern_context and based_on and based_on != str(base["risk_assessment_id"] or ""):
+        from services.risk_assessment_semantics import (
+            target_allocation_predates_current_assessment,
+        )
+        if target_allocation_predates_current_assessment(ta, base["risk_assessment_id"]):
             base["allocation_issues"].append({
                 "target_allocation_id": getattr(ta, "id", None),
-                "based_on_assessment_id": based_on,
+                "based_on_assessment_id": str(
+                    getattr(ta, "based_on_assessment_id", "") or ""
+                ),
                 "reason": "allocation_predates_current_risk_assessment",
             })
             base["is_compliant"] = False

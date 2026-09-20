@@ -35,6 +35,7 @@ configure_mappers()
 from models.allocation import OptimizerPolicy, TargetAllocation
 from models.clients import Client
 from models.mandates import Mandate
+from models.profiling import RiskAssessment
 from models.review import Product, RecommendationPosition, RecommendationRun
 from models.users import User
 from services.depot_check import _compute_drift, compute_depot_check
@@ -212,6 +213,8 @@ def _make_target_allocation(
     real_estate_bps: int = 1000,
     alternatives_bps: int = 500,
     liquidity_bps: int = 500,
+    context_artifacts_required: int = 0,
+    based_on_assessment_id: str | None = None,
 ) -> TargetAllocation:
     """Erstellt eine minimale TargetAllocation für SOLL-Bucket-Drift-Tests."""
     pol = _make_optimizer_policy(s, advisor_id=advisor_id)
@@ -238,11 +241,38 @@ def _make_target_allocation(
         policy_id=pol.id,
         set_by=advisor_id,
         set_at=_now(),
+        context_artifacts_required=context_artifacts_required,
+        based_on_assessment_id=based_on_assessment_id,
         created_at=_now(),
         updated_at=_now(),
     )
     s.add(ta)
     return ta
+
+
+def _make_risk_assessment(
+    s, *, mandate_id: str, advisor_id: str = "adv-1", is_current: int = 1,
+) -> RiskAssessment:
+    """Minimales RiskAssessment fuer den target_allocation_stale-Check
+    (Kontrollrunde 2026-09-20)."""
+    ra = RiskAssessment(
+        id=str(uuid.uuid4()), mandate_id=mandate_id, version=1,
+        is_current=is_current, valid_from=_now()[:10],
+        q_income_points=2, q_obligations_points=2,
+        q_savings_points=6, q_wealth_points=6,
+        risk_capacity_total=16, risk_capacity_profile="Ausgewogen",
+        investment_horizon_years=9, investment_horizon_label="8 bis 11 Jahre",
+        risk_capacity_score_x10=50,
+        q_investment_goal_points=2, q_risk_preference_points=2,
+        q_risk_behavior_points=2, risk_willingness_total=6,
+        risk_willingness_profile="Ausgewogen", risk_willingness_score_x10=50,
+        final_score_x10=50, final_profile="Ausgewogen",
+        assessed_at=_now(), assessed_by=advisor_id,
+        created_at=_now(), updated_at=_now(),
+    )
+    s.add(ra)
+    s.flush()
+    return ra
 
 
 # ---------------------------------------------------------------------------
@@ -535,6 +565,115 @@ def test_bucket_drift_against_target_allocation(session_factory):
     assert eq_bucket["in_band"] is False  # 100% > Band-Max (55%)
     # Out-of-band Warning
     assert any("Aktien außerhalb Toleranzband" in w for w in result["warnings"])
+    assert result["target_allocation_stale"] is False
+
+
+# ---------------------------------------------------------------------------
+# 9b. Kontrollrunde 2026-09-20: TargetAllocation-Staleness
+# ---------------------------------------------------------------------------
+
+def test_target_allocation_based_on_current_assessment_not_stale(session_factory):
+    """TargetAllocation basiert auf dem AKTUELLEN Risikoprofil -> nicht stale."""
+    with session_factory() as s:
+        _make_user(s)
+        mandate = _make_mandate(s)
+        ra = _make_risk_assessment(s, mandate_id=mandate.id)
+        s.flush()
+        run = _make_rec_run(s, mandate_id=mandate.id, client_id=mandate.client_id)
+        s.flush()
+        prod = _make_product(s, country_exposure_json=json.dumps({"CH": 10000}))
+        s.flush()
+        _make_rec_position(
+            s, run_id=run.id, product_id=prod.id,
+            current_amount_rappen=1_000_000_00,
+        )
+        _make_target_allocation(
+            s, mandate_id=mandate.id,
+            equities_bps=5000, bonds_bps=3000, real_estate_bps=1000,
+            alternatives_bps=500, liquidity_bps=500,
+            context_artifacts_required=1, based_on_assessment_id=ra.id,
+        )
+        s.commit()
+        result = compute_depot_check(s, mandate)
+    assert result["target_allocation_stale"] is False
+
+
+def test_target_allocation_predating_current_assessment_is_flagged_stale(session_factory):
+    """Kontrollrunde 2026-09-20: TargetAllocation wurde unter einem AELTEREN
+    Risikoprofil erstellt, ein neueres ist inzwischen aktuell -> stale. Vorher
+    zeigte compute_depot_check hierfuer 'in_band: True' ohne jeden Hinweis,
+    obwohl services.suitability_audit.audit_mandate_suitability dasselbe
+    Mandat bereits als non-compliant auswies (SUITABILITY-ALLOCATION-
+    STALENESS-001, selber Tag)."""
+    with session_factory() as s:
+        _make_user(s)
+        mandate = _make_mandate(s)
+        old_ra = _make_risk_assessment(s, mandate_id=mandate.id, is_current=0)
+        s.flush()
+        run = _make_rec_run(s, mandate_id=mandate.id, client_id=mandate.client_id)
+        s.flush()
+        eq_prod = _make_product(
+            s, asset_class="Aktien",
+            country_exposure_json=json.dumps({"CH": 10000}),
+        )
+        bond_prod = _make_product(
+            s, asset_class="Obligationen",
+            country_exposure_json=json.dumps({"CH": 10000}),
+        )
+        s.flush()
+        # 50/50 equities/bonds -> equities IST=50%, exakt im Band 45-55%.
+        _make_rec_position(
+            s, run_id=run.id, product_id=eq_prod.id,
+            current_amount_rappen=500_000_00,
+        )
+        _make_rec_position(
+            s, run_id=run.id, product_id=bond_prod.id,
+            current_amount_rappen=500_000_00,
+        )
+        _make_target_allocation(
+            s, mandate_id=mandate.id,
+            equities_bps=5000, bonds_bps=3000, real_estate_bps=1000,
+            alternatives_bps=500, liquidity_bps=500,
+            context_artifacts_required=1, based_on_assessment_id=old_ra.id,
+        )
+        # Neues, aktuelles Risikoprofil -- Mandat wurde re-profiliert, die
+        # Allokation aber nie neu berechnet.
+        new_ra = _make_risk_assessment(s, mandate_id=mandate.id, is_current=1)
+        s.commit()
+        result = compute_depot_check(s, mandate)
+    assert old_ra.id != new_ra.id
+    # Die rohe Band-Berechnung selbst bleibt unveraendert verfuegbar ...
+    assert result["buckets"]["equities"]["in_band"] is True
+    # ... aber der Staleness-Flag macht sie als Grundlage fuer eine
+    # Compliance-Aussage ungueltig.
+    assert result["target_allocation_stale"] is True
+    assert any("frueheren" in w and "Risikoprofil" in w for w in result["warnings"])
+
+
+def test_legacy_target_allocation_without_context_artifacts_not_flagged_stale(session_factory):
+    """Alt-Allokation ohne context_artifacts_required (vor Einfuehrung dieses
+    Feldes) wird aus Rueckwaertskompat-Gruenden NICHT als stale markiert --
+    identisches Gate wie im Live-Strategiepfad."""
+    with session_factory() as s:
+        _make_user(s)
+        mandate = _make_mandate(s)
+        _make_risk_assessment(s, mandate_id=mandate.id)
+        s.flush()
+        run = _make_rec_run(s, mandate_id=mandate.id, client_id=mandate.client_id)
+        s.flush()
+        prod = _make_product(s, country_exposure_json=json.dumps({"CH": 10000}))
+        s.flush()
+        _make_rec_position(
+            s, run_id=run.id, product_id=prod.id,
+            current_amount_rappen=1_000_000_00,
+        )
+        _make_target_allocation(
+            s, mandate_id=mandate.id,
+            context_artifacts_required=0, based_on_assessment_id=None,
+        )
+        s.commit()
+        result = compute_depot_check(s, mandate)
+    assert result["target_allocation_stale"] is False
 
 
 # ---------------------------------------------------------------------------

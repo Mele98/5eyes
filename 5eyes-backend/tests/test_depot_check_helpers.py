@@ -50,6 +50,9 @@ def test_init_result_dict_has_all_top_level_keys():
     expected_keys = {
         "mandate_id",
         "total_advisory_wealth_rappen",
+        # Kontrollrunde 2026-09-20: True wenn die TargetAllocation unter
+        # einem aelteren, nicht mehr aktuellen Risikoprofil erstellt wurde.
+        "target_allocation_stale",
         "buckets",
         "country_exposure_bps",
         "sector_exposure_bps",
