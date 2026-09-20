@@ -168,6 +168,7 @@ def audit_mandate_suitability(
       'risk_assessment_age_days': int|None,
       'risk_assessment_signed_at': str|None,      # Kunden-Signatur (Doku, s.u.)
       'risk_assessment_signed_method': str|None,  # 'portal' | 'advisor_recorded'
+      'allocation_issues': [ {target_allocation_id, based_on_assessment_id, reason}, ... ],
       'is_compliant': bool,
       'fidleg_basis': 'Art. 10 / Art. 12 FIDLEG',
     }
@@ -191,6 +192,7 @@ def audit_mandate_suitability(
         # is_compliant NICHT). None solange kein aktuelles Profil geladen/signiert.
         "risk_assessment_signed_at": None,
         "risk_assessment_signed_method": None,
+        "allocation_issues": [],
         "audit_degraded": False,
         "is_compliant": True,
         "fidleg_basis": "Art. 10 / Art. 12 FIDLEG",
@@ -261,5 +263,42 @@ def audit_mandate_suitability(
             "age_days": freshness["age_days"],
         })
         base["is_compliant"] = False
+
+    # Kontrollrunde 2026-09-20 (Risikoprofil-Audit): ein FRISCHES Risikoprofil
+    # allein sagt nichts darueber aus, ob die AKTUELLE Soll-Allokation auch
+    # unter DIESEM Profil erstellt wurde. Ohne diesen Check konnte ein Mandat
+    # nach einer Risikoprofil-Herabstufung (z.B. Wachstumsorientiert ->
+    # Defensiv) weiterhin eine alte, zu aggressive Allokation halten, und
+    # dieser Audit meldete trotzdem is_compliant=True (nur Existenz+Alter des
+    # Profils geprueft, nie ob es zur tatsaechlich verwendeten Allokation
+    # passt) -- die IST/SOLL-Band-Pruefung in services/depot_check.py liest
+    # die Baender zudem direkt von der persistierten TargetAllocation, nicht
+    # neu aus dem aktuellen Profil abgeleitet, haette den Widerspruch also
+    # ebenfalls nicht gefangen. Derselbe Identitaets-Check existiert bereits
+    # in services/portfolio_engine.py::build_target_payload_from_allocation
+    # (dort als harte Exception fuer den Live-Strategiepfad) -- hier als
+    # nicht-blockierender Compliance-Befund fuer den Audit-Report gespiegelt.
+    # Nur fuer "modern_context"-Allokationen geprueft (identisches Gate wie
+    # im Live-Pfad) -- Alt-Allokationen ohne based_on_assessment_id bleiben
+    # aus Rueckwaertskompat-Gruenden unangetastet.
+    try:
+        from services.portfolio_engine import _current_target_allocation_or_none
+        ta = _current_target_allocation_or_none(db, mandate.id)
+    except Exception:  # noqa: BLE001 — degraded statt fehlgedeutet, wie oben
+        ta = None
+        base["audit_degraded"] = True
+        base["is_compliant"] = None
+    if ta is not None:
+        modern_context = int(
+            getattr(ta, "context_artifacts_required", 0) or 0
+        ) == 1
+        based_on = str(getattr(ta, "based_on_assessment_id", "") or "")
+        if modern_context and based_on and based_on != str(base["risk_assessment_id"] or ""):
+            base["allocation_issues"].append({
+                "target_allocation_id": getattr(ta, "id", None),
+                "based_on_assessment_id": based_on,
+                "reason": "allocation_predates_current_risk_assessment",
+            })
+            base["is_compliant"] = False
 
     return base

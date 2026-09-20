@@ -172,14 +172,18 @@ def _stub_mandate(mid: str = "MX-TEST", mandate_type: str = "Anlageberatung"):
 
 
 def _stub_db(ra=None, *, advisory_log_count: int = 0, raise_on: str | None = None,
-             ra_list=None):
+             ra_list=None, ta=None, ta_list=None):
     """Stub-DB: AdvisoryLog.count() -> advisory_log_count; RiskAssessment-Query
     spiegelt die Kern-Resolver-Kette (services.portfolio_engine.
     _current_risk_assessment_or_none: .filter(...).all()) statt der frueheren
     .order_by(...).first(). raise_on='risk' laesst die RiskAssessment-Query
     werfen (Infra-Fehler); raise_on='all' laesst jede Query werfen. ra_list
     erlaubt mehrere ('mehrdeutige') Kandidaten-Zeilen fuer den Ambiguous-
-    Current-Anchor-Fall (der Kern-Resolver wirft dann ValueError)."""
+    Current-Anchor-Fall (der Kern-Resolver wirft dann ValueError). ta/ta_list
+    analog fuer TargetAllocation (services.portfolio_engine.
+    _current_target_allocation_or_none, Kontrollrunde 2026-09-20 Allokations-
+    Staleness-Check) -- default (kein ta/ta_list) = keine Soll-Allokation
+    vorhanden (leere Liste), NICHT 'Query fehlt'."""
     db = MagicMock()
 
     log_query = MagicMock()
@@ -194,6 +198,14 @@ def _stub_db(ra=None, *, advisory_log_count: int = 0, raise_on: str | None = Non
         candidates = ra_list if ra_list is not None else ([ra] if ra is not None else [])
         ra_query.all.return_value = candidates
 
+    ta_query = MagicMock()
+    ta_query.filter.return_value = ta_query
+    if raise_on in ("allocation", "all"):
+        ta_query.all.side_effect = RuntimeError("table missing")
+    else:
+        ta_candidates = ta_list if ta_list is not None else ([ta] if ta is not None else [])
+        ta_query.all.return_value = ta_candidates
+
     def query_router(model):
         if raise_on == "all":
             raise RuntimeError("db down")
@@ -202,6 +214,8 @@ def _stub_db(ra=None, *, advisory_log_count: int = 0, raise_on: str | None = Non
             return log_query
         if "RiskAssessment" in name:
             return ra_query
+        if "TargetAllocation" in name:
+            return ta_query
         return MagicMock()
     db.query.side_effect = query_router
     return db
@@ -238,6 +252,83 @@ def test_audit_fresh_risk_assessment_compliant():
     assert result["logs_with_suitability"] == 1
     assert result["freshness_issues"] == []
     assert result["is_compliant"] is True
+
+
+def _target_allocation(**overrides):
+    base = {
+        "id": "ta-001",
+        "mandate_id": "MX-TEST",
+        "is_current": 1,
+        "context_artifacts_required": 1,
+        "based_on_assessment_id": "ra-001",
+    }
+    base.update(overrides)
+    return MagicMock(**base)
+
+
+def test_audit_allocation_based_on_current_assessment_compliant():
+    """Soll-Allokation basiert auf dem aktuellen Risikoprofil -> keine
+    zusaetzliche Non-Compliance durch den Allokations-Staleness-Check."""
+    ra = _risk_assessment(id="ra-001", assessed_at=_days_ago(30))
+    ta = _target_allocation(based_on_assessment_id="ra-001")
+    db = _stub_db(ra=ra, ta=ta)
+    result = audit_mandate_suitability(db, _stub_mandate())
+    assert result["allocation_issues"] == []
+    assert result["is_compliant"] is True
+
+
+def test_audit_allocation_predates_current_risk_assessment_flags_violation():
+    """Kontrollrunde 2026-09-20: Soll-Allokation stammt von einem AELTEREN,
+    nicht mehr aktuellen Risikoprofil (z.B. nach einer Risikoprofil-
+    Herabstufung nie neu berechnet) -> Non-Compliance, obwohl das aktuelle
+    Risikoprofil selbst frisch ist. Vorher meldete der Audit hier faelschlich
+    is_compliant=True (nur Existenz+Alter des Profils geprueft)."""
+    ra = _risk_assessment(id="ra-002", assessed_at=_days_ago(5))
+    ta = _target_allocation(
+        id="ta-old", based_on_assessment_id="ra-001-superseded",
+    )
+    db = _stub_db(ra=ra, ta=ta)
+    result = audit_mandate_suitability(db, _stub_mandate())
+    assert len(result["allocation_issues"]) == 1
+    assert result["allocation_issues"][0]["reason"] == (
+        "allocation_predates_current_risk_assessment"
+    )
+    assert result["allocation_issues"][0]["target_allocation_id"] == "ta-old"
+    assert result["is_compliant"] is False
+
+
+def test_audit_legacy_allocation_without_modern_context_not_flagged():
+    """Alt-Allokation ohne context_artifacts_required (vor Einfuehrung dieses
+    Feldes) wird aus Rueckwaertskompat-Gruenden NICHT geprueft -- identisches
+    Gate wie im Live-Strategiepfad (build_target_payload_from_allocation)."""
+    ra = _risk_assessment(id="ra-003", assessed_at=_days_ago(5))
+    ta = _target_allocation(
+        context_artifacts_required=0, based_on_assessment_id="irrelevant",
+    )
+    db = _stub_db(ra=ra, ta=ta)
+    result = audit_mandate_suitability(db, _stub_mandate())
+    assert result["allocation_issues"] == []
+    assert result["is_compliant"] is True
+
+
+def test_audit_no_allocation_yet_not_flagged():
+    """Mandat mit frischem Risikoprofil aber noch ohne Soll-Allokation -> kein
+    Allokations-Befund (nichts zu vergleichen), weiterhin konform."""
+    ra = _risk_assessment(id="ra-004", assessed_at=_days_ago(5))
+    db = _stub_db(ra=ra)  # kein ta
+    result = audit_mandate_suitability(db, _stub_mandate())
+    assert result["allocation_issues"] == []
+    assert result["is_compliant"] is True
+
+
+def test_audit_allocation_query_error_is_degraded_not_falsely_compliant():
+    """Infra-/Schema-Fehler beim Laden der Soll-Allokation -> degraded, NICHT
+    stillschweigend als 'kein Problem' behandelt."""
+    ra = _risk_assessment(id="ra-005", assessed_at=_days_ago(5))
+    db = _stub_db(ra=ra, raise_on="allocation")
+    result = audit_mandate_suitability(db, _stub_mandate())
+    assert result["audit_degraded"] is True
+    assert result["is_compliant"] is None
 
 
 def test_audit_stale_risk_assessment_flags_freshness():
