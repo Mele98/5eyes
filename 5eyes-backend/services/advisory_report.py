@@ -140,26 +140,23 @@ def _cached_current_ta(db: Session, mandate: Mandate) -> Any:
     )
 
 
-def _cached_current_ra(db: Session, mandate: Mandate) -> Any:
-    """U-18: einmal pro compute() statt 4x (Sektionen 4, 7, 12)."""
-    from models.profiling import RiskAssessment
-    def _factory():
-        # Wir laden die JUENGSTE (created_at DESC), die _build_risikoprofilierung
-        # nutzt, UND fallen darunter auf is_current=1 zurueck wenn die juengste
-        # nicht current ist (Edge-Case wenn alte aktive Zeile noch da).
-        return (
-            db.query(RiskAssessment)
-            .filter(RiskAssessment.mandate_id == mandate.id)
-            .order_by(RiskAssessment.created_at.desc())
-            .first()
-        )
-    return _aggregator_cache_get(db, ("current_ra_latest", mandate.id), _factory)
-
-
 def _cached_current_ra_is_current(db: Session, mandate: Mandate) -> Any:
-    """Spezial-Variante mit is_current=1 + deleted_at IS NULL Filter.
-    _build_risikoprofilierung nutzt diese, _check_risikoprofil + _resolve
-    nutzen `_cached_current_ra`. Beide Wege werden gecached.
+    """U-18: einmal pro compute() statt 4x (Sektionen 4, 7, 12, 25), gecached.
+
+    Kontrollrunde 2026-09-20 (FIDLEG-STATE-003-Bugklasse, zweite Instanz):
+    vorher gab es HIER zwei Varianten -- eine mit is_current=1+deleted_at-
+    Filter (diese), und eine zweite, schwaechere `_cached_current_ra` (nur
+    "juengste per created_at", KEIN Filter), die 3 der 4 Konsumenten nutzten.
+    Ein soft-geloeschtes RiskAssessment (is_current=1, aber deleted_at
+    gesetzt -- von der DB bewusst erlaubt, der partielle Unique-Index greift
+    nur WHERE deleted_at IS NULL) konnte dadurch in Sektion 4 (Profil-Label),
+    Sektion 7 (Ampel) und Sektion 25 (Performance-Attribution-Benchmark)
+    faelschlich als aktuelles Profil durchgehen, obwohl Sektion 12 (die
+    bereits korrekt gefilterte Variante nutzte) und der FIDLEG-Compliance-
+    Audit (services/suitability_audit.py, seit demselben Bugfix-Precedent)
+    das Mandat korrekt als non-current/non-compliant auswiesen -- ein intern
+    widerspruechliches Dokument. Jetzt: EIN Weg, EINE Query, fuer alle 4
+    Konsumenten.
     """
     from models.profiling import RiskAssessment
     def _factory():
@@ -965,9 +962,12 @@ def _derive_liquidity_need(db: Session, mandate: Mandate) -> int:
 def _resolve_risk_profile_from_assessment(db: Session, mandate: Mandate) -> str:
     """Lookup risk profile label from the mandate's latest RiskAssessment.
 
-    U-18: nutzt _cached_current_ra (kein eigener DB-Roundtrip).
+    U-18: nutzt _cached_current_ra_is_current (kein eigener DB-Roundtrip).
+    Kontrollrunde 2026-09-20: vorher _cached_current_ra (kein deleted_at/
+    is_current-Filter) -- ein soft-geloeschtes Risikoprofil konnte hier als
+    aktuelles Profil-Label ausgewiesen werden (FIDLEG-STATE-003-Bugklasse).
     """
-    ra = _cached_current_ra(db, mandate)
+    ra = _cached_current_ra_is_current(db, mandate)
     if ra is None:
         return "—"
     label = str(
@@ -1248,10 +1248,13 @@ def _check_risikoprofil(db: Session, mandate: Mandate) -> dict[str, Any]:
     GELB: Assessment vorhanden, älter.
     ROT: kein Assessment.
 
-    U-18: nutzt _cached_current_ra (kein eigener DB-Roundtrip).
+    U-18: nutzt _cached_current_ra_is_current (kein eigener DB-Roundtrip).
+    Kontrollrunde 2026-09-20: vorher _cached_current_ra (kein deleted_at/
+    is_current-Filter) -- ein soft-geloeschtes Risikoprofil konnte hier
+    faelschlich GRUEN ("aktuell") ausweisen (FIDLEG-STATE-003-Bugklasse).
     """
     from datetime import date
-    ra = _cached_current_ra(db, mandate)
+    ra = _cached_current_ra_is_current(db, mandate)
     if ra is None:
         return _verdict(
             "Risikoprofil", "rot",
@@ -3700,7 +3703,6 @@ def _build_performance_attribution(
             OptimizerPolicy,
             TargetAllocation,
         )
-        from models.profiling import RiskAssessment
         from services.performance_attribution import (
             BUCKET_KEYS,
             compute_brinson_attribution,
@@ -3727,16 +3729,14 @@ def _build_performance_attribution(
             "liquidity": _safe_int(getattr(ta, "target_liquidity_bps", 0)),
         }
 
-        # Benchmark-Weights aus HouseMatrix fuer den Risk-Score des Mandats
-        ra = (
-            db.query(RiskAssessment)
-            .filter(
-                RiskAssessment.mandate_id == mandate.id,
-                RiskAssessment.is_current == 1,
-            )
-            .order_by(RiskAssessment.created_at.desc())
-            .first()
-        )
+        # Benchmark-Weights aus HouseMatrix fuer den Risk-Score des Mandats.
+        # Kontrollrunde 2026-09-20: nutzt _cached_current_ra_is_current statt
+        # einer eigenen dritten Query ohne deleted_at-Filter -- sonst haette
+        # ein soft-geloeschtes RiskAssessment (is_current=1, aber deleted_at
+        # gesetzt) hier als Benchmark-Basis durchgehen koennen (identische
+        # Bugklasse wie FIDLEG-STATE-003, siehe _cached_current_ra_is_current
+        # Docstring).
+        ra = _cached_current_ra_is_current(db, mandate)
         risk_score = _safe_int(getattr(ra, "final_score_x10", 0)) if ra else 0
         policy_id = getattr(ta, "policy_id", None)
         hm_row = None
