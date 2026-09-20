@@ -252,7 +252,9 @@ def _stub_mandate(mandate_type="Anlageberatung"):
 def _stub_db_with_ra(ra):
     """RiskAssessment-Query spiegelt den Kern-Resolver (services.portfolio_engine.
     _current_risk_assessment_or_none: .filter(...).all()), den suitability_audit.
-    _current_risk_assessment seit FIDLEG-STATE-003 wiederverwendet."""
+    _current_risk_assessment seit FIDLEG-STATE-003 wiederverwendet. TargetAllocation-
+    Query analog fuer den Allokations-Staleness-Check (Kontrollrunde 2026-09-20) --
+    default: keine Soll-Allokation vorhanden (leere Liste, kein Degraded-Fall)."""
     db = MagicMock()
     log_query = MagicMock()
     log_query.filter.return_value = log_query
@@ -260,6 +262,9 @@ def _stub_db_with_ra(ra):
     ra_query = MagicMock()
     ra_query.filter.return_value = ra_query
     ra_query.all.return_value = [ra] if ra is not None else []
+    ta_query = MagicMock()
+    ta_query.filter.return_value = ta_query
+    ta_query.all.return_value = []
 
     def router(model):
         name = getattr(model, "__name__", str(model))
@@ -267,6 +272,8 @@ def _stub_db_with_ra(ra):
             return log_query
         if "RiskAssessment" in name:
             return ra_query
+        if "TargetAllocation" in name:
+            return ta_query
         return MagicMock()
     db.query.side_effect = router
     return db
