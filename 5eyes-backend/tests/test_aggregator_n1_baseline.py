@@ -363,8 +363,13 @@ def test_specific_tables_are_queried_at_most_twice(session_factory):
         f"GOALS soll <=1, war {by_table.get('GOALS')}"
     )
     # Post-#163-Werte (Soll-Aggregator-Cache-v2-Sprint senkt diese)
-    assert by_table.get("TARGET_ALLOCATIONS", 0) <= 8, (
-        f"TARGET_ALLOCATIONS soll <=8, war {by_table.get('TARGET_ALLOCATIONS')}"
+    # Kontrollrunde 2026-09-20 (SUITABILITY-ALLOCATION-STALENESS-001): 8 -> 9.
+    # audit_mandate_suitability() (Sektion 19) laedt jetzt zusaetzlich die
+    # aktuelle TargetAllocation um zu pruefen, ob sie noch auf dem aktuellen
+    # Risikoprofil basiert -- bewusster, bounded +1-Query fuer einen echten
+    # Compliance-Fund (siehe services/suitability_audit.py), kein N+1-Wildwuchs.
+    assert by_table.get("TARGET_ALLOCATIONS", 0) <= 9, (
+        f"TARGET_ALLOCATIONS soll <=9, war {by_table.get('TARGET_ALLOCATIONS')}"
     )
     assert by_table.get("RISK_ASSESSMENTS", 0) <= 5, (
         f"RISK_ASSESSMENTS soll <=5, war {by_table.get('RISK_ASSESSMENTS')}"
