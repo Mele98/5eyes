@@ -459,6 +459,113 @@ def test_hhi_concentration_single_country_is_maximum(session_factory):
     assert any("Länder-Konzentration" in w for w in result["warnings"])
 
 
+def test_country_hhi_between_2500_and_5000_now_warns(session_factory):
+    """Kontrollrunde 2026-09-20: 3-Laender-Split 40/30/30 -> HHI=3400. War
+    vorher UNTER der alten 5000-Schwelle (keine Warnung), obwohl die PDF-
+    Compliance-Ampel (_check_diversifikation) dieselbe Konzentration bereits
+    als 'rot' (>2500) ausweist. Jetzt konsistent: Warnung ab >2500."""
+    with session_factory() as s:
+        _make_user(s)
+        mandate = _make_mandate(s)
+        run = _make_rec_run(s, mandate_id=mandate.id, client_id=mandate.client_id)
+        s.flush()
+        ch_prod = _make_product(s, country_exposure_json=json.dumps({"CH": 10000}))
+        us_prod = _make_product(s, country_exposure_json=json.dumps({"US": 10000}))
+        de_prod = _make_product(s, country_exposure_json=json.dumps({"DE": 10000}))
+        s.flush()
+        _make_rec_position(s, run_id=run.id, product_id=ch_prod.id, current_amount_rappen=400_000_00)
+        _make_rec_position(s, run_id=run.id, product_id=us_prod.id, current_amount_rappen=300_000_00)
+        _make_rec_position(s, run_id=run.id, product_id=de_prod.id, current_amount_rappen=300_000_00)
+        s.commit()
+        result = compute_depot_check(s, mandate)
+    assert result["concentration_hhi"]["country"] == 3400
+    assert any("Länder-Konzentration" in w for w in result["warnings"])
+
+
+def test_large_unknown_liquidity_share_produces_data_quality_warning(session_factory):
+    """Kontrollrunde 2026-09-20: unknown_bps (unklassifizierbare Liquiditaet)
+    floss vorher in KEINE Warnung ein und konnte echtes Risiko verstecken."""
+    with session_factory() as s:
+        _make_user(s)
+        mandate = _make_mandate(s)
+        run = _make_rec_run(s, mandate_id=mandate.id, client_id=mandate.client_id)
+        s.flush()
+        # product_type "Strukturiertes Produkt" bei bucket=equities matcht
+        # keine der _product_liquidity_tier-Heuristiken -> "unknown".
+        prod = _make_product(
+            s, asset_class="Aktien",
+            country_exposure_json=json.dumps({"CH": 10000}),
+            name_prefix="Strukt",
+        )
+        prod.product_type = "Strukturiertes Produkt"
+        s.flush()
+        _make_rec_position(
+            s, run_id=run.id, product_id=prod.id,
+            current_amount_rappen=1_000_000_00,
+        )
+        s.commit()
+        result = compute_depot_check(s, mandate)
+    assert result["liquidity_profile"]["unknown_bps"] == 10000
+    assert any("Liquiditaets-Einstufung unklar" in w for w in result["warnings"])
+
+
+def test_multiple_country_drift_offenders_all_listed_not_just_worst(session_factory):
+    """Kontrollrunde 2026-09-20: CH +18pp UND US -19pp gleichzeitig ausserhalb
+    der Toleranz -- vorher erschien nur der schlimmste (US) in der
+    Warnliste, CH blieb unsichtbar."""
+    with session_factory() as s:
+        _make_user(s)
+        mandate = _make_mandate(s)
+        run = _make_rec_run(s, mandate_id=mandate.id, client_id=mandate.client_id)
+        s.flush()
+        ch_prod = _make_product(s, country_exposure_json=json.dumps({"CH": 10000}))
+        us_prod = _make_product(s, country_exposure_json=json.dumps({"US": 10000}))
+        s.flush()
+        # IST: CH 58%, US 42%. SOLL (target_amount): CH 40%, US 61%.
+        _make_rec_position(
+            s, run_id=run.id, product_id=ch_prod.id,
+            current_amount_rappen=580_000_00, target_amount_rappen=400_000_00,
+        )
+        _make_rec_position(
+            s, run_id=run.id, product_id=us_prod.id,
+            current_amount_rappen=420_000_00, target_amount_rappen=610_000_00,
+        )
+        s.commit()
+        result = compute_depot_check(s, mandate)
+    ch_warnings = [w for w in result["warnings"] if "Land-Drift" in w and "'CH'" in w]
+    us_warnings = [w for w in result["warnings"] if "Land-Drift" in w and "'US'" in w]
+    assert len(ch_warnings) == 1
+    assert len(us_warnings) == 1
+
+
+def test_negative_current_amount_falls_back_to_target_consistently(session_factory):
+    """Kontrollrunde 2026-09-20: current_amount_rappen<0 (aktuell ueber keinen
+    bekannten Schreibpfad erreichbar, aber auch durch keine DB-Constraint
+    verhindert) darf nicht dazu fuehren, dass _load_positions und die
+    Haupt-Aggregation unterschiedliche Fallback-Entscheidungen treffen --
+    sonst summieren sich die Bucket-Prozente nicht mehr auf 100%."""
+    with session_factory() as s:
+        _make_user(s)
+        mandate = _make_mandate(s)
+        run = _make_rec_run(s, mandate_id=mandate.id, client_id=mandate.client_id)
+        s.flush()
+        prod = _make_product(s, country_exposure_json=json.dumps({"CH": 10000}))
+        s.flush()
+        pos = _make_rec_position(
+            s, run_id=run.id, product_id=prod.id,
+            current_amount_rappen=1,  # Platzhalter, unten ueberschrieben
+            target_amount_rappen=500_000_00,
+        )
+        pos.current_amount_rappen = -100  # negativ, nicht ueber die API erreichbar
+        s.commit()
+        result = compute_depot_check(s, mandate)
+    # total_rappen (Nenner) UND die Bucket-Aggregation muessen denselben
+    # Fallback-Betrag (target_amount) verwendet haben -> IST-Summe = 100%.
+    assert result["total_advisory_wealth_rappen"] == 500_000_00
+    total_ist_bps = sum(b["ist_bps"] for b in result["buckets"].values())
+    assert total_ist_bps == 10000
+
+
 # ---------------------------------------------------------------------------
 # 7. Kein RecommendationRun: SOLL bleibt leer (Fallback zu WealthPositions)
 # ---------------------------------------------------------------------------
