@@ -25,6 +25,28 @@ Doku der mathematischen Annahmen:
     tracking_error_vol. Wenn kein Benchmark uebergeben wird, verwenden
     wir die Risk-Free-Rate als degenerierten Benchmark (-> aequivalent
     zu Sharpe, aber expliziter Naming).
+
+Kontrollrunde 2026-09-21 (Risk-Metrics-KPI-Audit)
+--------------------------------------------------
+Zwei Korrekturen:
+  - Rundung: `int(round(x*100))` liess jeden ECHT berechneten Ratio-Wert
+    in (-0.5, 0.5) x100-Einheiten auf dieselbe 0-Sentinel kollabieren,
+    die dieses Modul fuer "nicht berechenbar" reserviert (Docstring oben)
+    -- der Aggregator zeigt dann faelschlich "—" statt eines echten,
+    kleinen Werts. Betrifft gerade konservative/Sicherheits-Profile
+    (net_return_bps ≈ risk_free_bps). Neuer Helper _round_ratio_x100
+    unterscheidet "exakt 0.0" (bleibt 0) von "echt ungleich 0, rundet
+    aber auf 0" (wird auf +-1 aufgerundet).
+  - Calmar-Drawdown-Schaetzung: die Brownian-Bound-Formel fuer
+    horizon_years >= 2 UND die flache 2x-Heuristik fuer horizon_years < 2
+    trafen sich nicht am Rand -- bei horizon_years=2 lieferte die Formel
+    einen KLEINEREN Wert als die 1-Jahr-Heuristik, wodurch der geschaetzte
+    Drawdown beim Uebergang 1->2 Jahre sank statt zu steigen (widerspricht
+    der eigenen Modell-Praemisse: laengerer Horizont = mehr Raum fuer eine
+    Brownsche Bewegung zum Wandern = nie kleinerer erwarteter Drawdown).
+    Fix: horizon_years wird vor der Formel auf mindestens 2 geklemmt --
+    dieselbe, bereits etablierte Formel liefert dann durchgehend monoton
+    wachsende Werte, ohne eine zweite, abweichende Heuristik zu erfinden.
 """
 from __future__ import annotations
 
@@ -34,6 +56,21 @@ import math
 # Faktor fuer Downside-Vol-Approximation unter Normalverteilung:
 # downside_vol ≈ vol / sqrt(2)
 _GAUSSIAN_DOWNSIDE_FACTOR = 1.0 / math.sqrt(2.0)
+
+
+def _round_ratio_x100(value: float) -> int:
+    """Rundet einen x100-skalierten Ratio-Wert, ohne einen ECHTEN (ungleich
+    0) Wert auf die "nicht berechenbar"-Sentinel 0 kollabieren zu lassen.
+    0 bedeutet in diesem Modul ausschliesslich "nicht berechenbar" (siehe
+    Divisions-Guards in den drei compute_*-Funktionen), nie "berechnet,
+    aber sehr klein". Ein echter Wert in (-0.5, 0.5) wird auf +-1 (kleinste
+    von 0 unterscheidbare Groesse) aufgerundet; exakt 0.0 bleibt 0."""
+    if value == 0:
+        return 0
+    rounded = int(round(value))
+    if rounded == 0:
+        return 1 if value > 0 else -1
+    return rounded
 
 
 def compute_sortino_ratio_x100(
@@ -65,7 +102,7 @@ def compute_sortino_ratio_x100(
     downside_vol = vol_bps * downside_factor
     if downside_vol <= 0:
         return 0
-    return int(round(((return_bps - risk_free_bps) / downside_vol) * 100))
+    return _round_ratio_x100(((return_bps - risk_free_bps) / downside_vol) * 100)
 
 
 def compute_calmar_ratio_x100(
@@ -96,14 +133,14 @@ def compute_calmar_ratio_x100(
     if dd is None:
         if vol_bps is None or vol_bps <= 0:
             return 0
-        if horizon_years < 2:
-            # ln(<2)/2 ist negativ oder 0 -> degenerierter Bound, nimm einfache 2x-Heuristik
-            dd = 2 * vol_bps
-        else:
-            dd = int(round(2 * vol_bps * math.sqrt(math.log(horizon_years) / 2)))
+        # horizon_years < 2 auf 2 geklemmt (siehe Modul-Docstring Kontrollrunde
+        # 2026-09-21): vermeidet den Bruch der Monotonie am Rand, ohne eine
+        # zweite, abweichende Drawdown-Heuristik einzufuehren.
+        effective_horizon = max(horizon_years, 2)
+        dd = int(round(2 * vol_bps * math.sqrt(math.log(effective_horizon) / 2)))
     if dd <= 0:
         return 0
-    return int(round((annual_return_bps / dd) * 100))
+    return _round_ratio_x100((annual_return_bps / dd) * 100)
 
 
 def compute_information_ratio_x100(
@@ -125,7 +162,7 @@ def compute_information_ratio_x100(
     if tracking_error_vol_bps <= 0:
         return 0
     excess = portfolio_return_bps - benchmark_return_bps
-    return int(round((excess / tracking_error_vol_bps) * 100))
+    return _round_ratio_x100((excess / tracking_error_vol_bps) * 100)
 
 
 def compute_extended_risk_metrics(

@@ -105,17 +105,43 @@ def test_calmar_no_dd_no_vol_returns_zero():
     assert out == 0
 
 
-def test_calmar_short_horizon_uses_2x_vol_fallback():
-    """horizon < 2 -> 2*vol Heuristik (Bound-Formula degeneriert)."""
+def test_calmar_short_horizon_clamped_to_horizon_2():
+    """Kontrollrunde 2026-09-21: horizon_years < 2 wird auf 2 geklemmt (statt
+    einer eigenen 2x-Heuristik), damit sich horizon=1 und horizon=2 am Rand
+    treffen -- siehe test_calmar_drawdown_estimate_monotonic_in_horizon."""
     return_bps, vol_bps = 600, 1000
-    out = compute_calmar_ratio_x100(
-        annual_return_bps=return_bps,
-        expected_max_drawdown_bps=None,
-        vol_bps=vol_bps,
-        horizon_years=1,
+    out_1y = compute_calmar_ratio_x100(
+        annual_return_bps=return_bps, expected_max_drawdown_bps=None,
+        vol_bps=vol_bps, horizon_years=1,
     )
-    expected = int(round((return_bps / (2 * vol_bps)) * 100))
-    assert out == expected
+    out_2y = compute_calmar_ratio_x100(
+        annual_return_bps=return_bps, expected_max_drawdown_bps=None,
+        vol_bps=vol_bps, horizon_years=2,
+    )
+    assert out_1y == out_2y
+    expected_dd = 2 * vol_bps * math.sqrt(math.log(2) / 2)
+    expected_calmar = int(round((return_bps / expected_dd) * 100))
+    assert out_1y == expected_calmar
+
+
+def test_calmar_drawdown_estimate_monotonic_in_horizon():
+    """BUG (vor Fix): die flache 2x-Heuristik fuer horizon<2 lieferte einen
+    GROESSEREN Drawdown (also KLEINEREN Calmar) als horizon=2-7 -- der
+    geschaetzte Drawdown sank beim Uebergang 1->2 Jahre, obwohl ein
+    laengerer Horizont nie einen kleineren erwarteten Drawdown ergeben darf
+    (Modell-Praemisse: mehr Zeit = mehr Raum fuer eine Brownsche Bewegung
+    zum Wandern). Calmar = return/dd, also muss Calmar mit steigendem
+    Horizont monoton FALLEN (oder gleich bleiben), nie steigen."""
+    return_bps, vol_bps = 600, 1000
+    values = [
+        compute_calmar_ratio_x100(
+            annual_return_bps=return_bps, expected_max_drawdown_bps=None,
+            vol_bps=vol_bps, horizon_years=h,
+        )
+        for h in (1, 2, 3, 5, 7, 10)
+    ]
+    for earlier, later in zip(values, values[1:]):
+        assert later <= earlier, values
 
 
 # ---------------------------------------------------------------------------
@@ -149,6 +175,55 @@ def test_information_ratio_with_risk_free_equals_sharpe():
     sharpe_x100 = int(round(((return_bps - rf) / vol_bps) * 100))
     ir = compute_information_ratio_x100(return_bps, rf, vol_bps)
     assert ir == sharpe_x100
+
+
+# ---------------------------------------------------------------------------
+# Kontrollrunde 2026-09-21: "nicht berechenbar"-Sentinel (0) durfte nicht mit
+# einem echt berechneten, sehr kleinen Ratio kollidieren.
+# ---------------------------------------------------------------------------
+
+def test_information_ratio_small_positive_value_not_confused_with_not_computable():
+    """BUG (vor Fix): wahre IR = 1/200 = 0.005 -> x100 = 0.5, int(round(0.5))
+    ist 0 (Python rundet 0.5 per Banker's-Rounding ab) -- kollidierte mit der
+    0-Sentinel fuer 'nicht berechenbar', obwohl der Wert echt berechnet ist."""
+    out = compute_information_ratio_x100(
+        portfolio_return_bps=101, benchmark_return_bps=100, tracking_error_vol_bps=200,
+    )
+    assert out != 0
+    assert out == 1
+
+
+def test_information_ratio_small_negative_value_not_confused_with_not_computable():
+    out = compute_information_ratio_x100(
+        portfolio_return_bps=99, benchmark_return_bps=100, tracking_error_vol_bps=200,
+    )
+    assert out != 0
+    assert out == -1
+
+
+def test_information_ratio_exact_zero_stays_zero():
+    """Kein False-Positive: ein ECHT exaktes 0 (Portfolio == Benchmark)
+    bleibt 0 -- nur ein von 0 verschiedener Wert wird auf +-1 angehoben."""
+    out = compute_information_ratio_x100(
+        portfolio_return_bps=100, benchmark_return_bps=100, tracking_error_vol_bps=200,
+    )
+    assert out == 0
+
+
+def test_sortino_small_value_not_confused_with_not_computable():
+    """Konservatives/Sicherheits-Profil: return_bps sehr nah an risk_free_bps
+    -> vorher faelschlich 0 ('—' im Aggregator) statt eines echten, kleinen
+    Sortino-Werts."""
+    out = compute_sortino_ratio_x100(return_bps=101, vol_bps=283, risk_free_bps=100)
+    assert out != 0
+
+
+def test_calmar_small_value_not_confused_with_not_computable():
+    out = compute_calmar_ratio_x100(
+        annual_return_bps=1, expected_max_drawdown_bps=200,
+    )
+    assert out != 0
+    assert out == 1
 
 
 # ---------------------------------------------------------------------------
