@@ -54,17 +54,23 @@ def life_expectancy_year_for(client: Any = None, mandate: Any = None) -> int | N
     if client is None and mandate is not None:
         client = getattr(mandate, "client", None)
 
+    # Kontrollrunde 2026-09-21: die client_sex-Fallback-Verzweigung war toter
+    # Code -- sie feuerte nur wenn primary_year None blieb, was ausschliesslich
+    # von der Geburtsjahr-Aufloesung abhaengt (nicht von salutation), und
+    # beide Aufrufe teilten sich denselben fallback_birth_year. Blieb die
+    # erste Aufloesung ohne Geburtsjahr, blieb auch die zweite ohne -- die
+    # Verzweigung konnte das Ergebnis nie aendern. Fix: mandate.client_sex
+    # greift jetzt korrekt genau dann, wenn client.salutation fehlt (nicht
+    # wenn das Geburtsjahr fehlt).
+    salutation = getattr(client, "salutation", None)
+    if not salutation and mandate is not None:
+        salutation = getattr(mandate, "client_sex", None)
+
     primary_year = _person_life_expectancy_year(
         getattr(client, "date_of_birth", None),
-        getattr(client, "salutation", None),
+        salutation,
         fallback_birth_year=getattr(mandate, "client_birth_year", None),
     )
-    if primary_year is None and mandate is not None:
-        primary_year = _person_life_expectancy_year(
-            None,
-            getattr(mandate, "client_sex", None),
-            fallback_birth_year=getattr(mandate, "client_birth_year", None),
-        )
 
     partner_year = _person_life_expectancy_year(
         getattr(client, "partner_date_of_birth", None),
