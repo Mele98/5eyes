@@ -187,17 +187,6 @@ def _refresh_asset_class_prices(db: Session, aggregator: Any, errors: list[dict]
             close_rappen = _bar_close_rappen(bar)
             if close_rappen is None or close_rappen <= 0:
                 raise ValueError("Provider lieferte keinen gueltigen Schlusskurs.")
-            written, _action = _upsert_price(
-                db,
-                asset_class=asset_class,
-                price_date=bar.date.isoformat(),
-                close_rappen=close_rappen,
-                currency=(str(getattr(bar, "currency", "") or "").upper() or None),
-                source=f"{DAILY_PRICE_SOURCE_PREFIX}:{symbol}",
-                overwrite=True,
-            )
-            if written:
-                rows_written += 1
         except Exception as exc:  # noqa: BLE001
             errors.append({
                 "scope": "asset_class",
@@ -205,6 +194,36 @@ def _refresh_asset_class_prices(db: Session, aggregator: Any, errors: list[dict]
                 "symbol": symbol,
                 "reason": str(exc),
             })
+            continue
+        # Kontrollrunde 2026-09-21: db.begin_nested() (SAVEPOINT) isoliert
+        # die Persistenz genau wie bereits bei _refresh_product_prices --
+        # ohne dieses SAVEPOINT flusht _upsert_price nie separat (Session
+        # ist autoflush=False), sodass ein Flush-/Commit-Zeit-Konflikt bei
+        # EINEM asset_class (z.B. Unique-Constraint-Kollision durch einen
+        # ueberlappenden Lauf) den kompletten Batch zurueckrollt, obwohl
+        # errors[] fuer die anderen asset_classes leer bleibt und
+        # rows_written faelschlich Erfolg vorspiegelt.
+        try:
+            with db.begin_nested():
+                written, _action = _upsert_price(
+                    db,
+                    asset_class=asset_class,
+                    price_date=bar.date.isoformat(),
+                    close_rappen=close_rappen,
+                    currency=(str(getattr(bar, "currency", "") or "").upper() or None),
+                    source=f"{DAILY_PRICE_SOURCE_PREFIX}:{symbol}",
+                    overwrite=True,
+                )
+        except Exception as exc:  # noqa: BLE001
+            errors.append({
+                "scope": "asset_class",
+                "asset_class": asset_class,
+                "symbol": symbol,
+                "reason": f"Persistenzfehler: {exc}",
+            })
+            continue
+        if written:
+            rows_written += 1
     return rows_written
 
 
@@ -226,15 +245,6 @@ def _refresh_fx_rates(
             rate = _bar_rate_to_chf_x10000(bar)
             if rate is None:
                 raise ValueError("Provider lieferte keinen gueltigen FX-Schlusskurs.")
-            if _upsert_fx(
-                db,
-                currency=currency,
-                price_date=bar.date.isoformat(),
-                rate_to_chf_x10000=rate,
-                source=f"{DAILY_PRICE_SOURCE_PREFIX}:{symbol}",
-                overwrite=True,
-            ):
-                rows_written += 1
         except Exception as exc:  # noqa: BLE001
             errors.append({
                 "scope": "fx",
@@ -242,6 +252,31 @@ def _refresh_fx_rates(
                 "symbol": symbol,
                 "reason": str(exc),
             })
+            continue
+        # Kontrollrunde 2026-09-21: siehe Kommentar in
+        # _refresh_asset_class_prices -- dasselbe SAVEPOINT-Muster wie
+        # _refresh_product_prices, isoliert einen Flush-/Commit-Zeit-
+        # Konflikt bei EINER Waehrung vom Rest des Batches.
+        try:
+            with db.begin_nested():
+                written = _upsert_fx(
+                    db,
+                    currency=currency,
+                    price_date=bar.date.isoformat(),
+                    rate_to_chf_x10000=rate,
+                    source=f"{DAILY_PRICE_SOURCE_PREFIX}:{symbol}",
+                    overwrite=True,
+                )
+        except Exception as exc:  # noqa: BLE001
+            errors.append({
+                "scope": "fx",
+                "currency": currency,
+                "symbol": symbol,
+                "reason": f"Persistenzfehler: {exc}",
+            })
+            continue
+        if written:
+            rows_written += 1
     return rows_written
 
 

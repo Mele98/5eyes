@@ -93,6 +93,86 @@ def test_service_reports_degraded_on_errors(session_factory, monkeypatch):
     assert result["errors"][0]["scope"] == "fx"
 
 
+# ---------------------------------------------------------------------------
+# Kontrollrunde 2026-09-21: Savepoint-Isolation -- ein Flush-/Commit-Zeit-
+# Konflikt bei EINER Waehrung darf den restlichen Batch nicht verlieren.
+# ---------------------------------------------------------------------------
+
+def test_one_colliding_currency_does_not_lose_the_others(session_factory, monkeypatch):
+    """Reproduziert den Audit-Fund: ohne db.begin_nested() loescht ein
+    Flush-/Commit-Zeit-Konflikt bei EINER Waehrung (hier: Primary-Key-
+    Kollision, simuliert via gefaketer uuid4) den kompletten Batch, obwohl
+    die anderen 3 Waehrungen fehlerfrei durchliefen (errors bleibt leer)."""
+    import uuid
+    from datetime import date
+    from decimal import Decimal
+
+    import services.market_data.asset_class_price_backfill as backfill_mod
+    import services.market_data_daily_refresh as mdr
+    from models.snapshots import AssetClassFxHistory
+
+    target_date = mdr._most_recent_business_day(date.today())
+    colliding_currency = "USD"  # erste Waehrung in sorted(DEFAULT_FX_CURRENCIES)
+
+    with session_factory() as seed:
+        # Vorab existierende Zeile mit fixer PK, aber ANDEREM
+        # (currency, price_date, source) -- _upsert_fx's Existenz-Lookup
+        # (filter_by currency/price_date/source) findet sie NICHT, haelt
+        # den Eintrag fuer neu und versucht dieselbe PK erneut zu INSERTen.
+        seed.add(AssetClassFxHistory(
+            id="fixed-pk-collision", currency="ZZZ", price_date="1999-01-01",
+            rate_to_chf_x10000=1, source="seed",
+            created_at="2026-01-01T00:00:00Z", updated_at="2026-01-01T00:00:00Z",
+        ))
+        seed.commit()
+
+    # Nur der ZWEITEN Waehrung in sorted({"USD","EUR","JPY","GBP"}) ==
+    # ["EUR","GBP","JPY","USD"] (also GBP) wird die kollidierende PK
+    # untergeschoben -- EUR/JPY/USD bekommen echte, eindeutige UUIDs.
+    # Simuliert den vom Audit beschriebenen Fall: alle 4 Waehrungen holen
+    # sauber Kursdaten (kein Provider-Fehler), aber GENAU EINE kollidiert
+    # beim Persistieren.
+    real_uuid4 = uuid.uuid4
+    call_count = {"n": 0}
+
+    def _fake_uuid4():
+        call_count["n"] += 1
+        if call_count["n"] == 2:
+            return "fixed-pk-collision"
+        return real_uuid4()
+
+    monkeypatch.setattr(backfill_mod, "uuid4", _fake_uuid4)
+
+    def _fake_get_eod(symbol, on_date):
+        return SimpleNamespace(date=target_date, close=Decimal("1.05"), adjusted_close=None)
+
+    fake_aggregator = SimpleNamespace(get_eod=_fake_get_eod)
+
+    with session_factory() as s:
+        errors: list[dict] = []
+        rows_written = mdr._refresh_fx_rates(s, fake_aggregator, errors)
+        s.commit()
+
+    with session_factory() as check:
+        persisted = (
+            check.query(AssetClassFxHistory)
+            .filter(AssetClassFxHistory.price_date == target_date.isoformat())
+            .count()
+        )
+    # OHNE Savepoint-Isolation: die GBP-Kollision reisst den kompletten
+    # db.commit() runter -> 0 von 4 Waehrungen ueberleben, obwohl 3 davon
+    # (EUR/JPY/USD) fehlerfrei verarbeitet wurden. MIT Isolation: nur GBP
+    # scheitert (eigenes SAVEPOINT rollt zurueck), die anderen 3 bleiben.
+    assert persisted == 3, (
+        f"Erwartet 3 ueberlebende Waehrungen (EUR/JPY/USD), gefunden: {persisted}"
+    )
+    assert rows_written == 3
+    assert len(errors) == 1
+    assert errors[0]["scope"] == "fx"
+    assert errors[0]["currency"] == "GBP"
+    assert errors[0]["reason"].startswith("Persistenzfehler:")
+
+
 def test_service_propagates_commit_failure(session_factory, monkeypatch):
     """Bei DB-Commit-Fehler -> rollback + Exception weitergereicht."""
     import services.market_data_daily_refresh as mdr
