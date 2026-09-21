@@ -19,6 +19,7 @@ from schemas.profiling import (
 )
 from services.auth import get_client_for_user_or_404, get_current_user, get_mandate_for_user_or_404, require_advisor
 from services.audit import log
+from services.advisory_report_cache import invalidate_mandate as invalidate_advisory_cache
 # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Quell-IP fuer FIDLEG-Eignungspruefungs-
 # Datensaetze (Risikoprofil, Signatur, Suitability-Check).
 from routers.auth import _extract_client_ip
@@ -325,6 +326,7 @@ def create_risk_assessment(
             status_code=409,
             detail="Ein anderes Risikoprofil wurde gleichzeitig gespeichert -- bitte Seite neu laden und erneut versuchen.",
         )
+    invalidate_advisory_cache(mandate_id)
     return db.query(RiskAssessment).options(
         selectinload(RiskAssessment.answers)
     ).filter(RiskAssessment.id == ra.id).one()
@@ -371,6 +373,7 @@ def override_risk_assessment(
         ip_address=_extract_client_ip(request))
     db.commit()
     db.refresh(ra)
+    invalidate_advisory_cache(mandate_id)
     return ra
 
 
@@ -411,6 +414,7 @@ def sign_risk_profile(
         mandate_id=mandate_id, client_id=mandate.client_id,
         ip_address=_extract_client_ip(request))
     db.commit()
+    invalidate_advisory_cache(mandate_id)
     return {
         "risk_assessment_id": ra.id,
         "client_signed_at": ra.client_signed_at,
@@ -535,4 +539,5 @@ def create_suitability_check(
         ip_address=_extract_client_ip(request))
     db.commit()
     db.refresh(check)
+    invalidate_advisory_cache(mandate_id)
     return check

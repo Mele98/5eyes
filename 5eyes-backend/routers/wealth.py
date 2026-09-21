@@ -19,6 +19,7 @@ from schemas.wealth import (
 )
 from services.auth import get_client_for_user_or_404, get_current_user, get_mandate_for_user_or_404, require_advisor
 from services.audit import log
+from services.advisory_report_cache import invalidate_mandate as invalidate_advisory_cache
 from services.cashflow_timeline import SUPPORTED_FREQUENCIES, normalize_frequency, normalize_nature
 from services.data_classification import enforce_data_classification
 from services.wealth_position_semantics import (
@@ -376,6 +377,23 @@ def _normalize_goal_payload(data: dict, existing: Goal | None = None) -> dict:
 
 def _get_mandate_or_404(mandate_id: str, db: Session, current_user: User) -> Mandate:
     return get_mandate_for_user_or_404(mandate_id, db, current_user)
+
+
+def _invalidate_advisory_cache_for_client(client_id: str, db: Session) -> None:
+    """Kontrollrunde 2026-09-21 (Advisory-Report-Cache-Audit): WealthPosition/
+    Cashflow/WealthInflow haengen an client_id, nicht mandate_id -- ein Client
+    kann mehrere Mandate haben, deren Advisory-Reports alle auf demselben
+    Gesamtvermoegen basieren (siehe project_5eyes_gesamtvermoegen_allokation).
+    Der Cache (services.advisory_report_cache) ist pro (mandate_id,
+    advisor_id) geschluesselt -- ohne diesen Aufruf blieb er bis zu
+    aggregator_cache_ttl_seconds (Default 60s) auf dem Stand VOR der
+    Vermoegens-/Cashflow-Aenderung stehen, fuer JEDES Mandat des Clients."""
+    mandate_ids = [
+        row[0] for row in
+        db.query(Mandate.id).filter(Mandate.client_id == client_id).all()
+    ]
+    for mandate_id in mandate_ids:
+        invalidate_advisory_cache(mandate_id)
 
 
 def _invalidate_achievement_scores_for_mandate(
@@ -784,6 +802,7 @@ def create_wealth_position(
         client_id=client_id)
     db.commit()
     db.refresh(wp)
+    _invalidate_advisory_cache_for_client(client_id, db)
     return wp
 
 
@@ -870,6 +889,7 @@ def update_wealth_position(
         client_id=client_id)
     db.commit()
     db.refresh(wp)
+    _invalidate_advisory_cache_for_client(client_id, db)
     return wp
 
 
@@ -893,6 +913,7 @@ def delete_wealth_position(
         table_name="wealth_positions", record_id=wp_id, action="DELETE",
         client_id=client_id)
     db.commit()
+    _invalidate_advisory_cache_for_client(client_id, db)
 
 
 # ── Cashflows ──────────────────────────────────────────────────────────────────
@@ -942,6 +963,7 @@ def create_cashflow(
         client_id=client_id)
     db.commit()
     db.refresh(cf)
+    _invalidate_advisory_cache_for_client(client_id, db)
     return cf
 
 
@@ -965,6 +987,7 @@ def delete_cashflow(
         table_name="cashflows", record_id=cf_id, action="DELETE",
         client_id=client_id)
     db.commit()
+    _invalidate_advisory_cache_for_client(client_id, db)
 
 
 @router.put("/clients/{client_id}/cashflows/{cf_id}", response_model=CashflowResponse)
@@ -996,6 +1019,7 @@ def update_cashflow(
         client_id=client_id)
     db.commit()
     db.refresh(cf)
+    _invalidate_advisory_cache_for_client(client_id, db)
     return cf
 
 
@@ -1051,6 +1075,7 @@ def create_goal(
         mandate_id=mandate_id, client_id=mandate.client_id)
     db.commit()
     db.refresh(goal)
+    invalidate_advisory_cache(mandate_id)
     return goal
 
 
@@ -1091,6 +1116,7 @@ def update_goal(
         mandate_id=mandate_id, client_id=mandate.client_id)
     db.commit()
     db.refresh(goal)
+    invalidate_advisory_cache(mandate_id)
     return goal
 
 
@@ -1117,6 +1143,7 @@ def delete_goal(
         table_name="goals", record_id=goal_id, action="DELETE",
         mandate_id=mandate_id, client_id=mandate.client_id)
     db.commit()
+    invalidate_advisory_cache(mandate_id)
 
 
 # ── Planning Assumptions ───────────────────────────────────────────────────────
@@ -1224,6 +1251,7 @@ def upsert_planning_assumptions(
             table_name="planning_assumptions", record_id=pa.id, action="CREATE",
             mandate_id=mandate_id, client_id=mandate.client_id)
         db.commit()
+        invalidate_advisory_cache(mandate_id)
         return {"ok": True, "inflation_assumption_bps": pa.inflation_assumption_bps}
 
     pa = PlanningAssumption(
@@ -1242,6 +1270,7 @@ def upsert_planning_assumptions(
         table_name="planning_assumptions", record_id=pa.id, action="CREATE",
         mandate_id=mandate_id, client_id=mandate.client_id)
     db.commit()
+    invalidate_advisory_cache(mandate_id)
     return {"ok": True, "inflation_assumption_bps": pa.inflation_assumption_bps}
 
 
@@ -1292,6 +1321,7 @@ def create_planning_assumptions(
         mandate_id=mandate_id, client_id=mandate.client_id)
     db.commit()
     db.refresh(pa)
+    invalidate_advisory_cache(mandate_id)
     return pa
 
 
@@ -1354,6 +1384,7 @@ def create_wealth_inflow(
         client_id=client_id, mandate_id=body.mandate_id)
     db.commit()
     db.refresh(inflow)
+    _invalidate_advisory_cache_for_client(client_id, db)
     return inflow
 
 
@@ -1396,6 +1427,7 @@ def update_wealth_inflow(
         client_id=inflow.client_id, mandate_id=inflow.mandate_id)
     db.commit()
     db.refresh(inflow)
+    _invalidate_advisory_cache_for_client(inflow.client_id, db)
     return inflow
 
 
@@ -1417,7 +1449,9 @@ def delete_wealth_inflow(
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="wealth_inflows", record_id=inflow.id, action="DELETE",
         client_id=inflow.client_id, mandate_id=inflow.mandate_id)
+    inflow_client_id = inflow.client_id
     db.commit()
+    _invalidate_advisory_cache_for_client(inflow_client_id, db)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

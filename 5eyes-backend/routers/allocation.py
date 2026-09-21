@@ -323,6 +323,7 @@ def create_target_allocation(
             detail="Eine andere Soll-Allokation wurde gleichzeitig gespeichert -- bitte Seite neu laden und erneut versuchen.",
         )
     db.refresh(ta)
+    invalidate_advisory_cache(mandate_id)
     return ta
 
 
@@ -628,6 +629,7 @@ def generate_target_allocation_endpoint(
             db.rollback()
             raise HTTPException(status_code=409, detail=str(exc))
         db.refresh(result["target_allocation"])
+        invalidate_advisory_cache(mandate_id)
         return result
 
 
