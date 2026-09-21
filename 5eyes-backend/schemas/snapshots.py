@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field, model_validator
-from typing import Optional
+from typing import Literal, Optional
 from schemas.common import BaseResponse
 
 
@@ -25,6 +25,10 @@ class StrategySnapshotCreate(BaseModel):
     band_alternatives_hi_bps: Optional[int] = None
     advisor_note: Optional[str] = None
     goals_summary_json: Optional[str] = None
+    # Kontrollrunde 2026-09-21 (Data-Classification-Gate-Coverage-Audit):
+    # dieser Endpunkt war nie an das Phase-0-Gate (enforce_data_classification)
+    # angeschlossen.
+    data_classification: Literal["synthetic", "real"] = "synthetic"
 
     @model_validator(mode="after")
     def check_bps_sum(self):

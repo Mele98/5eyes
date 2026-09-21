@@ -31,6 +31,7 @@ from services.auth import (
     enforce_cma_cross_tenant_read_scope,
 )
 from services.audit import log
+from services.data_classification import enforce_data_classification
 # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Quell-IP fuer CMA-/Policy-/Allokations-
 # Aenderungen im Audit-Log.
 from routers.auth import _extract_client_ip
@@ -289,6 +290,7 @@ def create_target_allocation(
         # version; database uniqueness is immediate, not deferred.
         db.flush()
     payload = body.model_dump()
+    enforce_data_classification(payload.pop("data_classification", None))
     if not payload.get("based_on_assessment_id"):
         payload["based_on_assessment_id"] = assessment.id
     ta = TargetAllocation(
@@ -824,6 +826,7 @@ def put_report_notes(
     read-only. Audit-Anchor (`last_edited_by` + `last_edited_at`) wird bei
     jedem PUT aktualisiert; das `created_at` bleibt beim ersten Insert.
     """
+    enforce_data_classification(body.data_classification)
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
     notes = (
         db.query(MandateReportNotes)

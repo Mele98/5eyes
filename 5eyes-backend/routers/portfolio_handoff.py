@@ -22,6 +22,7 @@ from models.portfolio_handoff import PortfolioHandoff
 from models.review import RecommendationRun
 from models.users import User
 from routers.auth import _extract_client_ip
+from services.data_classification import enforce_data_classification
 from schemas.portfolio_handoff import (
     PortfolioHandoffCancel,
     PortfolioHandoffCreate,
@@ -142,6 +143,7 @@ def create_portfolio_handoff(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor),
 ):
+    enforce_data_classification(body.data_classification)
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
     # mandate_type ist die Compliance-Untergrenze (identisches Prinzip wie
     # 5eyes_v2.html::_reviewIsDiscretionaryMandate() und

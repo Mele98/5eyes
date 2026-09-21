@@ -1329,6 +1329,11 @@ class ReportNotesUpdate(BaseModel):
     vorgehen_naechster_termin: Optional[str] = Field(default=None, max_length=500)
     vorgehen_todos: Optional[list[str]] = Field(default=None, max_length=200)
     vorgehen_dokumente: Optional[list[str]] = Field(default=None, max_length=200)
+    # Kontrollrunde 2026-09-21 (Data-Classification-Gate-Coverage-Audit):
+    # dieser Endpunkt war nie an das Phase-0-Gate (enforce_data_classification)
+    # angeschlossen -- Freitext, der explizit als "real" markiert wird, konnte
+    # das Gate umgehen, obwohl er in den kundenseitigen Advisory-Report fliesst.
+    data_classification: Optional[Literal["synthetic", "real"]] = None
 
     @field_validator(
         "vorgehen_offene_fragen", "vorgehen_todos", "vorgehen_dokumente",

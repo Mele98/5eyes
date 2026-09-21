@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -15,6 +15,11 @@ class PortfolioHandoffCreate(BaseModel):
     recipient_name: str = Field(min_length=2, max_length=200)
     recipient_channel: Optional[str] = Field(default=None, max_length=100)
     note: Optional[str] = Field(default=None, max_length=2000)
+    # Kontrollrunde 2026-09-21 (Data-Classification-Gate-Coverage-Audit):
+    # dieser Endpunkt war nie an das Phase-0-Gate (enforce_data_classification)
+    # angeschlossen -- persistiert eine echte Handelsanweisung an eine
+    # ausfuehrende Stelle.
+    data_classification: Literal["synthetic", "real"] = "synthetic"
 
     @field_validator("recipient_name")
     @classmethod
