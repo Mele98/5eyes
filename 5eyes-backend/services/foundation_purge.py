@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from fastapi import HTTPException
-from sqlalchemy import text
+from sqlalchemy import inspect as sa_inspect, text
 from sqlalchemy.orm import Session
 
 from config import settings
@@ -15,6 +15,20 @@ PRODUCTION_BLOCK_DETAIL = (
     "Foundation-/Demo-Daten-Purge ist in der Produktionsumgebung gesperrt "
     "(FINMA: Demo-Purge nur in regenerierbaren Nicht-Produktionsdatenbanken)."
 )
+
+# Kontrollrunde 2026-09-21 (Foundation-Purge-Audit): vorher NUR app_env==
+# "production" geblockt (Default ist "development" -- fail-open, wenn ein
+# Deployment APP_ENV schlicht vergisst zu setzen). config.py's eigene
+# security-relevante Validatoren (secret_key-Laenge, strict_tenant_isolation,
+# SMTP-TLS etc.) behandeln bereits "staging" als ebenso schutzwuerdig wie
+# "production" (siehe dortige app_env in {'staging','production'}-Checks) --
+# dieselbe, bereits etablierte Grenze wird hier uebernommen: ein irreversibler
+# Hard-Delete verdient mindestens denselben Schutz wie ein SMTP-TLS-Flag.
+# Behebt NICHT das tiefer liegende "APP_ENV wurde nie gesetzt"-Risiko fuer
+# die App als Ganzes (das ist eine separate, groessere Architekturfrage
+# ausserhalb des Scopes dieses Fixes) -- reduziert aber konkret die Flaeche
+# fuer GENAU diese eine irreversible Operation.
+_PURGE_BLOCKED_APP_ENVS = frozenset({"staging", "production"})
 
 
 @dataclass(frozen=True)
@@ -34,7 +48,7 @@ def purge_foundation_example_data(db: Session) -> dict[str, Any]:
     Normal clients keep the ordinary soft-delete lifecycle. This routine is
     intentionally scoped to the known Foundation marker only.
     """
-    if _app_env() == "production":
+    if _app_env() in _PURGE_BLOCKED_APP_ENVS:
         raise HTTPException(status_code=403, detail=PRODUCTION_BLOCK_DETAIL)
 
     scope = _load_scope(db)
@@ -68,6 +82,17 @@ def purge_foundation_example_data(db: Session) -> dict[str, Any]:
     _update_null(db, "advisory_log", "superseded_by_id", "mandate_id", scope.mandate_ids)
 
     # Recommendation chain and objects that may point at recommendation runs.
+    # Kontrollrunde 2026-09-21 (Foundation-Purge-Audit): portfolio_handoffs
+    # fehlte hier komplett -- PortfolioHandoff hat ZWEI FKs (mandate_id NOT
+    # NULL, recommendation_run_id NULLABLE, siehe models/portfolio_handoff.py).
+    # Mit SQLite-FK-Enforcement (database.py, immer aktiv) liess ein
+    # vorhandener Handoff sowohl DELETE FROM recommendation_runs (via
+    # recommendation_run_id) als auch spaeter DELETE FROM mandates (via
+    # mandate_id) mit IntegrityError scheitern -- der Purge war fuer jedes
+    # Foundation-Mandat, das je die Handoff-Funktion genutzt hat, dauerhaft
+    # unbenutzbar. Muss VOR recommendation_runs geloescht werden (wegen der
+    # recommendation_run_id-FK), nicht nur vor mandates.
+    _delete_in(deleted, db, "portfolio_handoffs", "mandate_id", scope.mandate_ids)
     _delete_in(deleted, db, "recommendation_holdings", "recommendation_position_id", scope.position_ids)
     _delete_in(deleted, db, "recommendation_holdings", "run_id", scope.run_ids)
     _delete_in(deleted, db, "advisory_log", "mandate_id", scope.mandate_ids)
@@ -133,7 +158,7 @@ def purge_demo_client_data(db: Session, client_id: str) -> dict[str, Any]:
 
 def assert_demo_client_purge_allowed(db: Session, client_id: str) -> None:
     """Validate that a client is the Foundation demo client before hard purge."""
-    if _app_env() == "production":
+    if _app_env() in _PURGE_BLOCKED_APP_ENVS:
         raise HTTPException(status_code=403, detail=PRODUCTION_BLOCK_DETAIL)
     if not _is_foundation_client(db, client_id):
         raise HTTPException(
@@ -178,21 +203,31 @@ def _load_scope(db: Session) -> _Scope:
 
 
 def _foundation_client_ids(db: Session) -> list[str]:
-    ids = _select_ids(
+    """Kontrollrunde 2026-09-21 (Foundation-Purge-Audit): identifiziert den
+    Foundation-Client NUR ueber client_number. Vorher wurde zusaetzlich
+    JEDE Mandate.client_id gemergt, deren mandate_number zufaellig/
+    fehlerhaft/absichtlich dem reservierten FOUNDATION_MANDATE_NUMBER
+    entsprach -- client_number und mandate_number sind unabhaengig
+    eindeutige, aber NICHT miteinander verknuepfte Felder auf getrennten
+    Tabellen. Ein echter Kunde, dessen Mandat versehentlich (Tippfehler,
+    Copy-Paste aus der Foundation-Doku) oder mutwillig diese Mandats-
+    nummer traegt, wurde dadurch als KOMPLETTER Foundation-Client
+    erkannt -- der naechste "Foundation-Demo-Purge" (routinemaessige
+    Hygiene vor dem ersten echten Kunden) haette dessen gesamte Kunden-
+    Historie (alle Mandate, Vermoegen, Cashflows, Ziele) unwiderruflich
+    geloescht, nicht nur das eine kollidierende Mandat.
+
+    Ein Mandat mit exakt dieser reservierten Nummer bleibt weiterhin Teil
+    des mandate_ids-Scopes (siehe _load_scope, eigener, unabhaengiger
+    Match auf mandate_number) -- nur die Ausweitung auf den GESAMTEN
+    besitzenden Client entfaellt."""
+    return _select_ids(
         db,
         "clients",
         "id",
         "client_number = :client_number",
         {"client_number": FOUNDATION_CLIENT_NUMBER},
     )
-    mandate_client_ids = _select_ids(
-        db,
-        "mandates",
-        "client_id",
-        "mandate_number = :mandate_number",
-        {"mandate_number": FOUNDATION_MANDATE_NUMBER},
-    )
-    return _merge_unique(ids, mandate_client_ids)
 
 
 def _is_foundation_client(db: Session, client_id: str) -> bool:
@@ -204,17 +239,20 @@ def _app_env() -> str:
 
 
 def _table_exists(db: Session, table: str) -> bool:
-    row = db.execute(
-        text("SELECT 1 FROM sqlite_master WHERE type='table' AND name=:table"),
-        {"table": table},
-    ).first()
-    return row is not None
+    """Kontrollrunde 2026-09-21 (Foundation-Purge-Audit): vorher direkt
+    gegen sqlite_master abgefragt -- crashte mit ProgrammingError auf jedem
+    Postgres-Backend (Tier 2/3 gemaess config.py fuer app_env in
+    {'staging','production'} vorausgesetzt, aber PRODUCTION_BLOCK_DETAIL
+    sagt explizit "Nicht-Produktionsdatenbanken", also z.B. eine lokale
+    Postgres-Entwicklungsinstanz). sqlalchemy.inspect() ist dialekt-
+    agnostisch und funktioniert identisch fuer SQLite UND Postgres."""
+    return table in sa_inspect(db.get_bind()).get_table_names()
 
 
 def _columns(db: Session, table: str) -> set[str]:
     if not _table_exists(db, table):
         return set()
-    return {str(row[1]) for row in db.execute(text(f"PRAGMA table_info({_quote_ident(table)})")).all()}
+    return {col["name"] for col in sa_inspect(db.get_bind()).get_columns(table)}
 
 
 def _select_ids(
