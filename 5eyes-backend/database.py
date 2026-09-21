@@ -1477,10 +1477,26 @@ def ensure_tenant_backfill(engine_to_use=None) -> None:
     Eigentum von 'main' erscheinen laesst (Bruch der Mandantentrennung durch
     die Migration selbst). Deshalb: in "multi" ueberspringen, NULL bleibt NULL.
 
+    Kontrollrunde 2026-09-21 (tier_config-Audit): der reine tenancy_mode-
+    String-Vergleich oben konnte "nie gesetzt" nicht von "explizit auf den
+    Default 'single' gesetzt" unterscheiden -- Settings.tenancy_mode hat den
+    Klassendefault "single" (config.py), nicht None. Ein Tier-2-Deployment,
+    das NUR deployment_tier=tier2 setzt (wie die Modul-Doku von
+    services/tier_config.py es verspricht) aber TENANCY_MODE nicht explizit
+    setzt, hatte tenancy_mode=="single" und lief damit durch DIESEN Guard,
+    obwohl es ein echtes Multi-Tenant-Deployment ist -- genau das oben
+    beschriebene Risiko (falsche 'main'-Zuordnung verwaister Zeilen) blieb
+    fuer diesen konkreten, dokumentierten Deployment-Pfad ungeschuetzt.
+    Fix: wiederverwendet services.auth._effective_strict_tenant_isolation
+    (bereits die kanonische "ist dieses Deployment mandantenfaehig?"-Pruefung,
+    inkl. deployment_tier=='tier2'-Fallback) statt eine dritte, abweichende
+    Kopie derselben Logik zu pflegen.
+
     Idempotent (zweiter Lauf trifft 0 Rows) und defensiv (pro Tabelle isoliert;
     fehlende Tabelle/Spalte wird uebersprungen; Boot wird nie abgebrochen).
     """
-    if str(getattr(settings, "tenancy_mode", "single") or "single").strip().lower() == "multi":
+    from services.auth import _effective_strict_tenant_isolation
+    if _effective_strict_tenant_isolation(settings):
         return
     eng = engine_to_use if engine_to_use is not None else engine
     try:
@@ -1760,11 +1776,12 @@ def init_db() -> None:
     # Schema, audit_log wird bewusst NIE automatisch zugewiesen (Audit-
     # Provenienz darf nicht geraten werden).
     #
-    # Gleiche tenancy_mode-Guard wie ensure_tenant_backfill(): in "multi"
-    # waere ein Blanket-'main'-Backfill (statt NULL-bleibt-NULL) das
-    # gleiche Risiko einer falschen Mandanten-Zuordnung durch die Migration
-    # selbst, das dort bereits dokumentiert ist.
-    if str(getattr(settings, "tenancy_mode", "single") or "single").strip().lower() != "multi":
+    # Gleicher Guard wie ensure_tenant_backfill() (Kontrollrunde 2026-09-21:
+    # ueber _effective_strict_tenant_isolation statt eigenem tenancy_mode-
+    # String-Vergleich, siehe dortiger Kommentar -- derselbe Tier-2-ohne-
+    # explizites-TENANCY_MODE-Luecke galt hier identisch).
+    from services.auth import _effective_strict_tenant_isolation
+    if not _effective_strict_tenant_isolation(settings):
         from services.postgres_rls import ensure_postgres_tenant_not_null
         ensure_postgres_tenant_not_null(
             engine, table_names=("users", "clients", "mandates", "protocol_bausteine"),
