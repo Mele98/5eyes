@@ -51,6 +51,21 @@ def test_verify_rejects_malformed():
     assert totp.verify("", "123456", 1) is False
 
 
+def test_verify_does_not_crash_near_epoch():
+    """Kontrollrunde 2026-09-21: bei timestamp < window*period (hier: 5s,
+    period=30, window=1) wird counter+w fuer w=-1 negativ -- struct.pack
+    warf vorher ungefangen struct.error statt False/True zu liefern."""
+    sec = totp.generate_secret()
+    code = totp.totp_at(sec, 5)  # counter=0
+    assert totp.verify(sec, code, timestamp=5) is True
+    assert totp.verify(sec, "000000" if code != "000000" else "111111", timestamp=5) is False
+
+
+def test_verify_at_timestamp_zero_does_not_crash():
+    sec = totp.generate_secret()
+    assert totp.verify(sec, "123456", timestamp=0) is False
+
+
 def test_provisioning_uri_format():
     uri = totp.provisioning_uri("ABC234", "advisor@firma.ch", issuer="5eyes")
     assert uri.startswith("otpauth://totp/")

@@ -50,6 +50,15 @@ def verify(secret_b32: str, code: str, timestamp: float | None = None,
         timestamp = time.time()
     counter = int(timestamp // period)
     for w in range(-window, window + 1):
+        # Kontrollrunde 2026-09-21: counter+w kann bei sehr kleinem
+        # timestamp (< window*period Sekunden seit Epoch) negativ werden --
+        # struct.pack(">Q", ...) akzeptiert nur 0..2**64-1 und wirft sonst
+        # ungefangen struct.error statt False zu liefern. Ein Verifikations-
+        # Gate darf beim eigenen dokumentierten Parameter-Wertebereich nie
+        # crashen, sondern muss dieses Fenster einfach als "kein Treffer"
+        # behandeln und die uebrigen Fenster weiter pruefen.
+        if counter + w < 0:
+            continue
         if hmac.compare_digest(_hotp(secret_b32, counter + w), code):
             return True
     return False
