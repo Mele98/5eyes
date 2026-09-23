@@ -48,6 +48,11 @@ from services.advisory_report_cache import (
 )
 from services.auth import get_current_user
 
+TESTS_ROOT = Path(__file__).resolve().parent
+if str(TESTS_ROOT) not in sys.path:
+    sys.path.insert(0, str(TESTS_ROOT))
+from test_runtime_contracts import complete_risk_questionnaire_answers as _complete_risk_questionnaire_answers
+
 
 _NOW = "2026-05-31T08:00:00.000Z"
 
@@ -354,6 +359,213 @@ def test_post_advisory_log_invalidates_cache(http_client):
     r2 = client.get(f"/mandates/{mid}/advisory-report")
     assert r2.json()["beratungsprotokoll"]["total_active"] == 1
     assert r2.json()["beratungsprotokoll"]["latest_entry"]["title"] == "Cache-Invalidation-Test"
+
+
+# ---------------------------------------------------------------------------
+# Kontrollrunde 2026-09-21 (Advisory-Report-Cache-Audit): Cache-Invalidierung
+# war nur an 2 von ~17 mutierenden Endpunkten verdrahtet (report-notes,
+# advisory-log, siehe Tests oben). WealthPosition/Cashflow/Goal/
+# PlanningAssumption/WealthInflow (routers/wealth.py, 14 Endpunkte),
+# RiskAssessment-Override/Create/Sign/SuitabilityCheck (routers/profiling.py)
+# und direkter Target-Allocation-POST + Engine-Generate-Pfad
+# (routers/allocation.py) liessen den Cache bis zu aggregator_cache_ttl_
+# seconds (Default 60s) auf dem alten Stand. Jeder Test unten prueft
+# repraesentativ EINEN Endpunkt pro betroffener Ressourcen-Art (create fuer
+# die meisten, plus je ein update/delete um zu zeigen dass diese Pfade
+# denselben Aufruf bekommen haben, nicht nur create).
+# ---------------------------------------------------------------------------
+
+def test_wealth_position_create_invalidates_cache(http_client):
+    client, seeded = http_client
+    mid, cid = seeded["mandate_id"], seeded["client_id"]
+
+    client.get(f"/mandates/{mid}/advisory-report")
+    stats_before = get_cache_stats()
+
+    resp = client.post(f"/clients/{cid}/wealth-positions", json={
+        "label": "Bankkonto Cache-Test",
+        "position_type": "Liquidität",
+        "current_value_rappen": 10_000_00,
+    })
+    assert resp.status_code == 201, resp.text
+
+    stats_after = get_cache_stats()
+    assert stats_after["invalidations"] > stats_before["invalidations"]
+    assert stats_after["current_size"] == 0
+
+
+def test_wealth_position_delete_invalidates_cache(http_client):
+    client, seeded = http_client
+    mid, cid = seeded["mandate_id"], seeded["client_id"]
+
+    created = client.post(f"/clients/{cid}/wealth-positions", json={
+        "label": "Bankkonto Cache-Test 2",
+        "position_type": "Liquidität",
+        "current_value_rappen": 10_000_00,
+    })
+    wp_id = created.json()["id"]
+    client.get(f"/mandates/{mid}/advisory-report")
+    stats_before = get_cache_stats()
+
+    resp = client.delete(f"/clients/{cid}/wealth-positions/{wp_id}")
+    assert resp.status_code == 204
+
+    stats_after = get_cache_stats()
+    assert stats_after["invalidations"] > stats_before["invalidations"]
+
+
+def test_cashflow_update_invalidates_cache(http_client):
+    client, seeded = http_client
+    mid, cid = seeded["mandate_id"], seeded["client_id"]
+
+    created = client.post(f"/clients/{cid}/cashflows", json={
+        "cashflow_type": "Income", "label": "Cache-Test-Lohn",
+        "amount_rappen": 10_000_00, "frequency": "jährlich",
+        "nature": "wiederkehrend",
+    })
+    assert created.status_code == 201, created.text
+    cf_id = created.json()["id"]
+    client.get(f"/mandates/{mid}/advisory-report")
+    stats_before = get_cache_stats()
+
+    resp = client.put(f"/clients/{cid}/cashflows/{cf_id}", json={"label": "Geaendert"})
+    assert resp.status_code == 200
+
+    stats_after = get_cache_stats()
+    assert stats_after["invalidations"] > stats_before["invalidations"]
+
+
+def test_goal_create_invalidates_cache(http_client):
+    client, seeded = http_client
+    mid = seeded["mandate_id"]
+
+    client.get(f"/mandates/{mid}/advisory-report")
+    stats_before = get_cache_stats()
+
+    resp = client.post(f"/mandates/{mid}/goals", json={
+        "goal_family": "Rendite", "goal_type": "Renditeziel",
+        "label": "Cache-Test-Ziel", "rank": 1,
+        "target_return_bps": 400, "hardness": "Primär",
+    })
+    assert resp.status_code == 201, resp.text
+
+    stats_after = get_cache_stats()
+    assert stats_after["invalidations"] > stats_before["invalidations"]
+
+
+def test_wealth_inflow_create_invalidates_cache(http_client):
+    client, seeded = http_client
+    mid, cid = seeded["mandate_id"], seeded["client_id"]
+
+    client.get(f"/mandates/{mid}/advisory-report")
+    stats_before = get_cache_stats()
+
+    resp = client.post(f"/clients/{cid}/wealth-inflows", json={
+        "label": "Cache-Test-Erbschaft", "source_type": "Erbschaft",
+        "amount_rappen": 50_000_00, "expected_year": 2035,
+    })
+    assert resp.status_code == 201, resp.text
+
+    stats_after = get_cache_stats()
+    assert stats_after["invalidations"] > stats_before["invalidations"]
+
+
+def test_planning_assumptions_upsert_invalidates_cache(http_client):
+    client, seeded = http_client
+    mid = seeded["mandate_id"]
+
+    client.get(f"/mandates/{mid}/advisory-report")
+    stats_before = get_cache_stats()
+
+    resp = client.put(f"/mandates/{mid}/planning-assumptions", json={
+        "inflation_assumption_bps": 150,
+    })
+    assert resp.status_code == 200, resp.text
+
+    stats_after = get_cache_stats()
+    assert stats_after["invalidations"] > stats_before["invalidations"]
+
+
+def test_risk_assessment_override_invalidates_cache(http_client):
+    """Hoechste Prioritaet laut Audit: echoet die Bugklasse, die diese
+    Session bereits einmal in advisory_report.py selbst gefixt hat (stale
+    RiskAssessment-Cache)."""
+    client, seeded = http_client
+    mid = seeded["mandate_id"]
+
+    created = client.post(f"/mandates/{mid}/risk-assessments", json={
+        "q_income_points": 4, "q_obligations_points": 4,
+        "q_savings_points": 12, "q_wealth_points": 12,
+        "investment_horizon_label": "Mehr als 12 Jahre",
+        "investment_horizon_years": 15,
+        "q_investment_goal_points": 4, "q_risk_preference_points": 4,
+        "q_risk_behavior_points": 4,
+        "answers": _complete_risk_questionnaire_answers(),
+    })
+    assert created.status_code == 201, created.text
+    ra_id = created.json()["id"]
+    client.get(f"/mandates/{mid}/advisory-report")
+    stats_before = get_cache_stats()
+
+    resp = client.post(f"/mandates/{mid}/risk-assessments/{ra_id}/override", json={
+        "override_score_x10": 70, "override_profile": "Wachstumsorientiert",
+        "override_reason": "Kunde hat umfangreiche Erfahrung und wuenscht bewusst mehr Risiko.",
+    })
+    assert resp.status_code == 200, resp.text
+
+    stats_after = get_cache_stats()
+    assert stats_after["invalidations"] > stats_before["invalidations"]
+
+
+def test_target_allocation_direct_create_invalidates_cache(http_client, session_factory, monkeypatch):
+    """Der direkte POST-Pfad (nicht der Engine-Generate-Pfad) war der
+    zweite von zwei Luecken in routers/allocation.py."""
+    from config import settings as _settings
+    from models.allocation import OptimizerPolicy
+
+    client, seeded = http_client
+    mid = seeded["mandate_id"]
+    monkeypatch.setattr(_settings, "optimizer_mode", "house_matrix")
+
+    created = client.post(f"/mandates/{mid}/risk-assessments", json={
+        "q_income_points": 4, "q_obligations_points": 4,
+        "q_savings_points": 12, "q_wealth_points": 12,
+        "investment_horizon_label": "Mehr als 12 Jahre",
+        "investment_horizon_years": 15,
+        "q_investment_goal_points": 4, "q_risk_preference_points": 4,
+        "q_risk_behavior_points": 4,
+        "answers": _complete_risk_questionnaire_answers(),
+    })
+    assert created.status_code == 201, created.text
+
+    with session_factory() as db:
+        db.add(OptimizerPolicy(
+            id="policy-cache-test", policy_name="Cache-Test", version=1,
+            is_current=1, valid_from="2026-09-21", optimizer_engine="goal_based_v1",
+            max_real_estate_bps=2000, max_alternatives_bps=1000, min_liquidity_bps=0,
+            allow_other_assets_for_goals=1, created_by=seeded["advisor_id"],
+            created_at=_NOW, updated_at=_NOW,
+        ))
+        db.commit()
+
+    client.get(f"/mandates/{mid}/advisory-report")
+    stats_before = get_cache_stats()
+
+    resp = client.post(f"/mandates/{mid}/target-allocation", json={
+        "target_equities_bps": 6000, "target_bonds_bps": 3000,
+        "target_real_estate_bps": 0, "target_alternatives_bps": 0,
+        "target_liquidity_bps": 1000,
+        "band_equities_min_bps": 5000, "band_equities_max_bps": 7000,
+        "band_bonds_min_bps": 2000, "band_bonds_max_bps": 4000,
+        "band_real_estate_min_bps": 0, "band_real_estate_max_bps": 0,
+        "band_alternatives_min_bps": 0, "band_alternatives_max_bps": 0,
+        "band_liquidity_min_bps": 0, "band_liquidity_max_bps": 2000,
+        "policy_id": "policy-cache-test",
+    })
+    assert resp.status_code == 201, resp.text
+
+    stats_after = get_cache_stats()
+    assert stats_after["invalidations"] > stats_before["invalidations"]
 
 
 def test_cache_stats_endpoint_helper_exposes_health_metrics():
