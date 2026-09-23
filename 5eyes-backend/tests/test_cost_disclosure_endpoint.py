@@ -43,7 +43,12 @@ from main import app
 from models.allocation import OptimizerPolicy, TargetAllocation
 from models.clients import Client
 from models.mandates import Mandate
-from models.review import Product, RecommendationPosition, RecommendationRun
+from models.review import (
+    ConflictOfInterestDisclosure,
+    Product,
+    RecommendationPosition,
+    RecommendationRun,
+)
 from models.users import User
 from services.auth import get_current_user
 
@@ -255,6 +260,48 @@ def test_endpoint_voll_befuellt_bei_recommendation_mit_ter(
 # mandate.base_currency -- ein EUR-/USD-Mandat zeigte den korrekten Betrag
 # mit falscher Waehrungs-Beschriftung im Kostenausweis.
 # ---------------------------------------------------------------------------
+
+def test_endpoint_returns_200_when_mandate_has_disclosed_retrocession(
+    auth_client, advisor_user, session_factory
+):
+    """Kontrollrunde 2026-09-23: CostItem.rate_bps war ein required int im
+    Response-Schema, aber services.cost_disclosure setzt rate_bps=None fuer
+    Retrozessions-Posten (absolute Betraege ohne Raten-Basis) -- FastAPIs
+    response_model-Validierung liess den Endpoint mit HTTP 500 abbrechen,
+    fuer genau die Mandate, die eine Retrozession offengelegt haben (der
+    Kern-Anwendungsfall von BGE 132 III 460)."""
+    mandate_id = _seed_mandate(session_factory, advisor_user)
+    _seed_recommendation_with_ter(
+        session_factory, advisor_user, mandate_id,
+        target_amount_rappen=1_000_000_00,
+        ter_bps=50,
+        fee_assumptions={"default_advisory_fee_bps": 25},
+    )
+    with session_factory() as db:
+        db.add(ConflictOfInterestDisclosure(
+            id="coi-cd",
+            mandate_id=mandate_id,
+            conflict_type="Retrozession",
+            description="Vertriebsentschaedigung Fondsanbieter",
+            inducement_provider="Fund Provider AG",
+            inducement_amount_rappen=50_000_00,
+            inducement_frequency="jährlich",
+            disclosed_to_client=1,
+            disclosed_at=_now(),
+            disclosed_by=advisor_user.id,
+            client_acknowledged=0,
+            reimbursed_to_client=0,
+            created_at=_now(),
+            updated_at=_now(),
+        ))
+        db.commit()
+
+    resp = auth_client.get(f"/mandates/{mandate_id}/cost-disclosure/ex-ante")
+    assert resp.status_code == 200, resp.text
+    keys = {item["key"]: item for item in resp.json()["cost_items"]}
+    assert "retrocession_disclosed" in keys
+    assert keys["retrocession_disclosed"]["rate_bps"] is None
+
 
 def test_endpoint_pending_reflects_mandate_base_currency(auth_client, advisor_user, session_factory):
     mandate_id = _seed_mandate(session_factory, advisor_user, base_currency="EUR")

@@ -307,7 +307,7 @@ def calculate_cost_disclosure(
             frequency="einmalig",
             rate_bps=rate,
             basis_rappen=advisory_wealth,
-            basis_label="Beratungsvermögen",
+            basis_label=advisory_basis_label,
             source="Gebührenmodell der Empfehlung",
             is_estimate=False,
         ))

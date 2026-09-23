@@ -17,7 +17,14 @@ class CostItem(BaseModel):
     label: str
     category: str
     frequency: str = Field(..., description="'einmalig' oder 'jaehrlich'")
-    rate_bps: int = Field(..., description="Satz in Basispunkten")
+    rate_bps: Optional[int] = Field(
+        None,
+        description=(
+            "Satz in Basispunkten, sofern ein fixer Prozentsatz auf eine Basis "
+            "angewendet wird. None fuer Positionen ohne Satzbezug (z.B. "
+            "Retrozessionen -- absolute, offengelegte Betraege ohne Raten-Basis)."
+        ),
+    )
     amount_rappen: int
     basis_rappen: int
     basis_label: str
