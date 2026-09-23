@@ -18,9 +18,13 @@ Dieses Modul liefert:
 - needs_rehash(hashed, target_rounds): True wenn Cost-Factor < target
 - audit_user_password_strength(db): Cluster-Audit ueber alle User
 
-Non-breaking: kein Auto-Rehash in verify_password (waere Breaking-
-Change im Auth-Pfad). Nur Sichtbarkeit + Helper. Wer Auto-Rehash
-will, ruft needs_rehash() im Login-Flow auf.
+Kontrollrunde 2026-09-21: needs_rehash() wird jetzt tatsaechlich im
+Login-Erfolgspfad aufgerufen (routers/auth.py::login) -- vorher
+existierte nur dieses Modul + Tests, aber KEIN Aufrufer im Live-Pfad,
+sodass ein bei niedrigeren rounds erstellter Hash (Alt-Import, oder ein
+kuenftig gesenkter BCRYPT_TARGET_ROUNDS-Verstoss) NIE erneuert wurde.
+Transparent fuer den Nutzer: kein Verhaltensunterschied ausser einem
+staerkeren Hash bei naechstem erfolgreichen Login.
 
 bcrypt-Hash-Format (PHC)
 -------------------------
@@ -54,11 +58,26 @@ _BCRYPT_HEADER_RE = re.compile(
 )
 
 
+def _normalize_hash_string(hashed: Any) -> str:
+    """Kontrollrunde 2026-09-21 (Mailer/Password-Audit-Welle): str(bytes)
+    liefert den Python-repr ("b'$2b$12$...'"), nicht den dekodierten Text --
+    ein gueltiger bcrypt-Hash als bytes (wie bcrypt.hashpw() ihn liefert)
+    wuerde damit faelschlich als invalides Format erkannt (und needs_rehash()
+    haette faelschlich True zurueckgegeben). Aktuell ueber den einzigen
+    Aufrufer (routers/auth.py, User.password_hash ist Column(String)) nicht
+    erreichbar, aber jetzt, wo dieses Modul in den Login-Pfad verdrahtet
+    wird, ist Robustheit gegen den eigenen dokumentierten `Any`-Parametertyp
+    angemessen."""
+    if isinstance(hashed, bytes):
+        return hashed.decode("utf-8", errors="replace").strip()
+    return str(hashed).strip()
+
+
 def get_bcrypt_rounds(hashed: Any) -> Optional[int]:
     """Liefert Cost-Factor aus bcrypt-Hash-String, None bei invalidem Format."""
     if hashed is None:
         return None
-    s = str(hashed).strip()
+    s = _normalize_hash_string(hashed)
     if not s:
         return None
     m = _BCRYPT_HEADER_RE.match(s)
@@ -74,7 +93,7 @@ def get_bcrypt_variant(hashed: Any) -> Optional[str]:
     """Liefert die bcrypt-Variante (2a/2b/2x/2y) aus dem Hash."""
     if hashed is None:
         return None
-    m = _BCRYPT_HEADER_RE.match(str(hashed).strip())
+    m = _BCRYPT_HEADER_RE.match(_normalize_hash_string(hashed))
     return m.group("variant") if m else None
 
 
