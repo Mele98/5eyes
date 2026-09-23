@@ -154,6 +154,13 @@ def _risk_assessment(**overrides):
         "valid_from": _days_ago(30)[:10],
         "assessed_at": _days_ago(30),
         "final_profile": "Ausgewogen",
+        # Explizit gesetzt (statt MagicMock-Auto-Attribut): int(MagicMock())
+        # ist per Default 1 (Magic-Method-Default), wuerde also OHNE diese
+        # Zeile bei JEDEM Test via _risk_assessment() faelschlich als
+        # is_overridden=1 durchgehen -- reales DB-Default ist 0
+        # (models/profiling.py: nullable=False, default=0).
+        "is_overridden": 0,
+        "override_reason": None,
     }
     base.update(overrides)
     return MagicMock(**base)
@@ -319,6 +326,61 @@ def test_audit_no_allocation_yet_not_flagged():
     result = audit_mandate_suitability(db, _stub_mandate())
     assert result["allocation_issues"] == []
     assert result["is_compliant"] is True
+
+
+def test_audit_non_overridden_assessment_no_override_issue():
+    """Kein Override (is_overridden=0, DB-Default) -> keine
+    Override-Begruendungs-Pruefung, weiterhin konform."""
+    ra = _risk_assessment(id="ra-006", assessed_at=_days_ago(5))
+    db = _stub_db(ra=ra)
+    result = audit_mandate_suitability(db, _stub_mandate())
+    assert result["override_reason_issues"] == []
+    assert result["is_compliant"] is True
+
+
+def test_audit_overridden_assessment_with_valid_reason_no_issue():
+    """Override mit FIDLEG-tauglicher Begruendung -> keine Beanstandung."""
+    ra = _risk_assessment(
+        id="ra-007", assessed_at=_days_ago(5), is_overridden=1,
+        override_reason=(
+            "Kunde hat umfangreiche Aktien-Erfahrung und wuenscht "
+            "bewusst ein aggressiveres Profil."
+        ),
+    )
+    db = _stub_db(ra=ra)
+    result = audit_mandate_suitability(db, _stub_mandate())
+    assert result["override_reason_issues"] == []
+    assert result["is_compliant"] is True
+
+
+def test_audit_overridden_assessment_with_missing_reason_flags_violation():
+    """Kontrollrunde 2026-09-21: Override OHNE Begruendung (z.B. Altbestand
+    vor Sprint U-28/U-29, oder Datenmigrations-Artefakt) ging bisher
+    unentdeckt durch diesen Audit -> jetzt Non-Compliance."""
+    ra = _risk_assessment(
+        id="ra-008", assessed_at=_days_ago(5),
+        is_overridden=1, override_reason=None,
+    )
+    db = _stub_db(ra=ra)
+    result = audit_mandate_suitability(db, _stub_mandate())
+    assert len(result["override_reason_issues"]) == 1
+    assert result["override_reason_issues"][0]["risk_assessment_id"] == "ra-008"
+    assert result["override_reason_issues"][0]["reason_code"] == "empty"
+    assert result["is_compliant"] is False
+
+
+def test_audit_overridden_assessment_with_generic_phrase_flags_violation():
+    """Override mit generischer Floskel (z.B. 'kundenwunsch') -> Non-
+    Compliance, exakt dieselbe Qualitaetsschwelle wie beim Schreiben."""
+    ra = _risk_assessment(
+        id="ra-009", assessed_at=_days_ago(5),
+        is_overridden=1, override_reason="kundenwunsch!!!!!!!!!!!!",
+    )
+    db = _stub_db(ra=ra)
+    result = audit_mandate_suitability(db, _stub_mandate())
+    assert len(result["override_reason_issues"]) == 1
+    assert result["override_reason_issues"][0]["reason_code"] == "generic_phrase"
+    assert result["is_compliant"] is False
 
 
 def test_audit_allocation_query_error_is_degraded_not_falsely_compliant():
