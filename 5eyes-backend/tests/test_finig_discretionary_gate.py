@@ -27,7 +27,7 @@ if str(BACKEND_ROOT) not in sys.path:
 from database import Base
 from models.clients import Client
 from models.mandates import Mandate
-from models.tenant import Tenant
+from models.tenant import DEFAULT_TENANT_ID, Tenant
 from models.users import User
 # Mehrere Modelle referenzieren einander per String-Relationship (z.B.
 # Mandate->RiskAssessment, Client->WealthPosition) -- alle muessen vor der
@@ -134,6 +134,40 @@ def test_create_mandate_403_for_unlicensed_tenant(session_factory):
             create_mandate(
                 client_id="client-1",
                 body=MandateCreate(mandate_number="M-1", mandate_type="Vermögensverwaltung"),
+                request=_FakeRequest(), db=session, current_user=advisor,
+            )
+        assert exc.value.status_code == 403
+
+
+def test_create_mandate_403_for_orphaned_client_and_advisor_without_tenant_id(session_factory):
+    """Kontrollrunde 2026-09-23: der Bootstrap-Admin jeder frischen
+    Installation (und jeder von einem super_admin ohne explizites tenant_id
+    angelegte User) hat tenant_id=None. Ohne DEFAULT_TENANT_ID-Fallback blieb
+    `tenant` in create_mandate() dann None -> enforce_discretionary_
+    management_license() faellt bei tenant=None bewusst fail-open, und der
+    FINIG-Lizenz-Check griff fuer diese Kette NIE, unabhaengig davon, ob die
+    tatsaechliche ("main") Firma freigeschaltet war oder nicht."""
+    with session_factory() as session:
+        _seed_tenant(session, DEFAULT_TENANT_ID, licensed=0)
+        advisor = User(
+            id="orphan-advisor", username="orphan-advisor", password_hash="hash",
+            full_name="Orphan Advisor", role="advisor", is_active=1, tenant_id=None,
+            created_at=_now(), updated_at=_now(),
+        )
+        session.add(advisor)
+        session.add(Client(
+            id="orphan-client", client_number="C-orphan", first_name="Max", last_name="Muster",
+            country_of_residence="CH", language="DE", household_type="Einzelperson",
+            client_classification="Privatkunde", is_professional_opt_out=0, is_qualified_investor=0,
+            advisor_id="orphan-advisor", tenant_id=None,
+            created_at=_now(), updated_at=_now(),
+        ))
+        session.commit()
+
+        with pytest.raises(HTTPException) as exc:
+            create_mandate(
+                client_id="orphan-client",
+                body=MandateCreate(mandate_number="M-orphan", mandate_type="Vermögensverwaltung"),
                 request=_FakeRequest(), db=session, current_user=advisor,
             )
         assert exc.value.status_code == 403
