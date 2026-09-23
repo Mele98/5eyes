@@ -262,6 +262,10 @@ class TargetAllocationCreate(BaseModel):
     risky_fraction_bps: Optional[int] = Field(default=None, ge=0, le=10000)
     based_on_assessment_id: Optional[str] = None
     policy_id: str
+    # Kontrollrunde 2026-09-21 (Data-Classification-Gate-Coverage-Audit):
+    # dieser Endpunkt war nie an das Phase-0-Gate (enforce_data_classification)
+    # angeschlossen.
+    data_classification: Literal["synthetic", "real"] = "synthetic"
 
     @model_validator(mode="after")
     def validate_alloc(self):

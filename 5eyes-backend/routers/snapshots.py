@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from database import get_db
 from services.auth import get_current_user, get_mandate_for_user_or_404, require_advisor
 from services.audit import log
+from services.data_classification import enforce_data_classification
 from routers.auth import _extract_client_ip
 from models.snapshots import StrategySnapshot, AssetClassAnnualReturn
 from models.mandates import Mandate
@@ -94,6 +95,7 @@ def create_snapshot(
     db: Session = Depends(get_db),
     current_user=Depends(require_advisor),
 ):
+    enforce_data_classification(body.data_classification)
     _get_mandate(mandate_id, db, current_user)
     now = _now()
     snap = StrategySnapshot(
