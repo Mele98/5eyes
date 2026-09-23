@@ -678,10 +678,23 @@ class CapitalMarketAssumptionCreate(BaseModel):
             "equity_home_vol_bps", "bonds_home_ig_vol_bps",
             "real_estate_home_vol_bps",
         )
+        # Kontrollrunde 2026-09-23: nur eine UNTERE Schranke war je Feld
+        # geprueft -- ein Tippfehler (Prozent statt Basispunkte, zusaetzliche
+        # Nullen, z.B. 500000 statt 500) passierte klaglos und floss
+        # unbegrenzt in jede nachfolgende Optimierung/Simulation ein.
+        # Grosszuegig genug fuer jede fachlich plausible 10-Jahres-Annahme,
+        # eng genug fuer eine zuverlaessige Tippfehler-Erkennung.
+        _RETURN_MAX_BPS = 10_000  # +100% p.a.
+        _VOL_MAX_BPS = 20_000  # 200% p.a.
         for f in _vol_fields:
             v = getattr(self, f, None)
             if v is not None and v < 0:
                 raise ValueError(f"{f} darf nicht negativ sein (Volatilität >= 0).")
+            if v is not None and v > _VOL_MAX_BPS:
+                raise ValueError(
+                    f"{f}={v} unplausibel hoch (Maximum {_VOL_MAX_BPS} bps / "
+                    "200%) -- Tippfehler pruefen."
+                )
         for field_name in type(self).model_fields:
             if not field_name.endswith("_return_bps"):
                 continue
@@ -689,6 +702,11 @@ class CapitalMarketAssumptionCreate(BaseModel):
             if value is not None and value <= -10_000:
                 raise ValueError(
                     f"{field_name} muss grösser als -100 % sein."
+                )
+            if value is not None and value > _RETURN_MAX_BPS:
+                raise ValueError(
+                    f"{field_name}={value} unplausibel hoch (Maximum "
+                    f"{_RETURN_MAX_BPS} bps / +100%) -- Tippfehler pruefen."
                 )
         if self.valid_until is not None and self.valid_from and self.valid_until < self.valid_from:
             raise ValueError("valid_until darf nicht vor valid_from liegen.")
