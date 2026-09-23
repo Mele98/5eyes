@@ -20,6 +20,7 @@ from models import (  # noqa: F401
     client_login,
     clients,
     mandates,
+    portfolio_handoff,
     profiling,
     protocol_bausteine,
     review,
@@ -445,3 +446,150 @@ def test_foundation_purge_is_blocked_in_production(admin_client, session_factory
     assert response.json()["detail"] == PRODUCTION_BLOCK_DETAIL
     with session_factory() as session:
         assert _scalar(session, "SELECT COUNT(*) FROM clients WHERE id='client-foundation'") == 1
+
+
+# ---------------------------------------------------------------------------
+# Kontrollrunde 2026-09-21 (Foundation-Purge-Audit): 4 Befunde.
+# ---------------------------------------------------------------------------
+
+def test_foundation_purge_is_blocked_in_staging(admin_client, session_factory, monkeypatch):
+    """BUG (vor Fix): der Guard blockte nur woertlich app_env=='production'
+    -- 'staging' (von config.py's eigenen security-relevanten Validatoren
+    laengst als ebenso schutzwuerdig behandelt, siehe secret_key/TLS/
+    strict_tenant_isolation-Checks dort) lief bisher unconditional durch."""
+    monkeypatch.setattr(system_router.settings, "app_env", "staging")
+    with session_factory() as session:
+        _seed_foundation_chain(session)
+
+    response = admin_client.post("/admin/system/foundation-example/purge")
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == PRODUCTION_BLOCK_DETAIL
+    with session_factory() as session:
+        assert _scalar(session, "SELECT COUNT(*) FROM clients WHERE id='client-foundation'") == 1
+
+
+def test_foundation_purge_must_not_delete_unrelated_real_client_sharing_mandate_number(
+    admin_client, session_factory,
+):
+    """BUG (vor Fix): _foundation_client_ids() mergte JEDEN Mandate.client_id,
+    dessen mandate_number zufaellig/versehentlich dem reservierten
+    FOUNDATION_MANDATE_NUMBER entsprach -- ein echter Kunde mit einem
+    (Tippfehler-/Copy-Paste-)Mandat dieser Nummer wurde damit komplett
+    (inkl. aller ANDEREN, unbeteiligten Mandate/Vermoegen/Cashflows)
+    mitgeloescht. Fix: Client-Identifikation ausschliesslich ueber
+    client_number; das kollidierende Mandat selbst darf weiterhin bereinigt
+    werden (eigener, unabhaengiger mandate_number-Match in _load_scope),
+    der BESITZENDE Client bleibt aber unangetastet."""
+    with session_factory() as session:
+        _seed_admin(session)
+        _exec(
+            session,
+            """
+            INSERT INTO clients (
+                id, client_number, first_name, last_name, country_of_residence,
+                language, household_type, client_classification,
+                is_professional_opt_out, is_qualified_investor,
+                advisor_id, created_at, updated_at
+            )
+            VALUES ('client-real-2', 'REAL-777', 'Real', 'Client2', 'CH',
+                    'DE', 'Einzelperson', 'Privatkunde', 0, 0,
+                    'admin-purge', :now, :now)
+            """,
+            {"now": NOW},
+        )
+        # Kollidierendes Mandat: traegt versehentlich die reservierte
+        # Foundation-Mandatsnummer, gehoert aber einem echten Kunden.
+        _exec(
+            session,
+            """
+            INSERT INTO mandates (
+                id, client_id, mandate_number, mandate_type, status, base_currency,
+                advisory_language, investment_universe, opened_at, created_at, updated_at
+            )
+            VALUES ('mandate-real-2', 'client-real-2', :mandate_number,
+                    'Anlageberatung', 'Aktiv', 'CHF', 'DE', 'Standard', :now, :now, :now)
+            """,
+            {"mandate_number": FOUNDATION_MANDATE_NUMBER, "now": NOW},
+        )
+        # Zweites, UNBETEILIGTES Mandat desselben Kunden -- der eigentliche
+        # Schadensnachweis: ueberlebt es den Purge?
+        _exec(
+            session,
+            """
+            INSERT INTO mandates (
+                id, client_id, mandate_number, mandate_type, status, base_currency,
+                advisory_language, investment_universe, opened_at, created_at, updated_at
+            )
+            VALUES ('mandate-real-2-untouched', 'client-real-2', 'REAL-M-777',
+                    'Anlageberatung', 'Aktiv', 'CHF', 'DE', 'Standard', :now, :now, :now)
+            """,
+            {"now": NOW},
+        )
+        session.commit()
+
+    response = admin_client.post("/admin/system/foundation-example/purge")
+    assert response.status_code == 200, response.text
+    # Kein Foundation-Client vorhanden -> "not_found", NICHT "purged" mit
+    # dem echten Client in client_ids.
+    assert response.json()["status"] == "not_found"
+
+    with session_factory() as session:
+        assert _scalar(session, "SELECT COUNT(*) FROM clients WHERE id='client-real-2'") == 1
+        assert _scalar(session, "SELECT COUNT(*) FROM mandates WHERE id='mandate-real-2-untouched'") == 1
+
+
+def test_foundation_purge_deletes_portfolio_handoff_without_integrity_error(
+    admin_client, session_factory,
+):
+    """BUG (vor Fix): PortfolioHandoff.mandate_id ist FK NOT NULL --
+    portfolio_handoffs fehlte in der Delete-Liste, sodass ein vorhandener
+    Handoff das DELETE FROM mandates mit IntegrityError scheitern liess
+    (SQLite-FK-Enforcement ist in database.py immer aktiv)."""
+    with session_factory() as session:
+        client_id = _seed_foundation_chain(session)
+        _exec(
+            session,
+            """
+            INSERT INTO portfolio_handoffs (
+                id, mandate_id, recommendation_run_id, trade_list_snapshot_json,
+                live_total_value_rappen, position_count, recipient_name, status,
+                created_by, created_at, updated_at
+            )
+            VALUES ('handoff-foundation', 'mandate-foundation', 'run-foundation', '[]',
+                    1000000, 1, 'UBS AG Zuerich', 'Gesendet',
+                    'admin-purge', :now, :now)
+            """,
+            {"now": NOW},
+        )
+        session.commit()
+
+    response = admin_client.post("/admin/system/foundation-example/purge")
+
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "purged"
+    assert response.json()["deleted"]["portfolio_handoffs"] == 1
+    with session_factory() as session:
+        assert _scalar(session, "SELECT COUNT(*) FROM portfolio_handoffs") == 0
+        assert _scalar(session, "SELECT COUNT(*) FROM mandates") == 0
+
+
+def test_table_exists_and_columns_use_dialect_agnostic_inspection(session_factory):
+    """BUG (vor Fix): _table_exists/_columns fragten sqlite_master/PRAGMA
+    table_info direkt ab -- crashte mit ProgrammingError auf Postgres. Der
+    Fix nutzt sqlalchemy.inspect(), dialekt-agnostisch. Dieser Test laeuft
+    gegen SQLite (kein Postgres-Testserver in dieser Umgebung verfuegbar,
+    siehe andere Postgres-Tests/POSTGRES_TEST_DATABASE_URL), verifiziert
+    aber, dass die NEUE Implementierung ueberhaupt noch korrekt gegen
+    SQLite funktioniert (Regressionsschutz) -- die Dialekt-Unabhaengigkeit
+    selbst folgt daraus, dass sqlalchemy.inspect() eine offizielle,
+    dialekt-uebergreifende SQLAlchemy-API ist, keine SQLite-spezifische."""
+    from services.foundation_purge import _columns, _table_exists
+
+    with session_factory() as session:
+        assert _table_exists(session, "clients") is True
+        assert _table_exists(session, "this_table_does_not_exist") is False
+        cols = _columns(session, "clients")
+        assert "client_number" in cols
+        assert "id" in cols
+        assert _columns(session, "this_table_does_not_exist") == set()
