@@ -78,9 +78,25 @@ def _seed_user(SF, uid, password, email=None):
         s.commit()
 
 
-def _headers(client, uid, pw, totp_secret=None):
+def _headers(client, uid, pw, totp_secret=None, monkeypatch=None):
     body = {"username": uid, "password": pw}
     if totp_secret:
+        # Kontrollrunde 2026-09-21: dieser Helper laeuft typischerweise
+        # unmittelbar nach _enable_2fa(), dessen Enable-Code (seit dem
+        # Anti-Replay-Fix in /2fa/enable) den aktuellen Server-Zeitschritt
+        # bereits als totp_last_counter hinterlegt hat (services.auth.
+        # _totp_replay_check_and_record berechnet den Zeitschritt aus der
+        # tatsaechlichen Request-Zeit, NICHT aus dem im Code kodierten
+        # Zeitschritt). Ein zweiter Login im selben Millisekunden-Abstand
+        # saehe denselben Zeitschritt und wuerde faelschlich als Replay
+        # gelten -- ein anderer Code-Offset allein loest das NICHT, es muss
+        # echte Zeit vergehen. Mit uebergebenem monkeypatch-Fixture wird die
+        # Zeit um einen vollen Zeitschritt vorgespult (bleibt dank der
+        # +/-1-Drift-Toleranz in services/totp.py::verify() weiterhin ein
+        # gueltiger Code).
+        if monkeypatch is not None:
+            future = time.time() + 30
+            monkeypatch.setattr(time, "time", lambda: future)
         body["totp_code"] = totp.totp_at(totp_secret, time.time())
     tok = client.post("/auth/login", json=body).json()["access_token"]
     return {"Authorization": f"Bearer {tok}"}
@@ -299,10 +315,10 @@ def test_login_with_recovery_code_works_and_is_single_use(client, session_factor
     assert r2.status_code == 401
 
 
-def test_regenerate_invalidates_old_codes(client, session_factory):
+def test_regenerate_invalidates_old_codes(client, session_factory, monkeypatch):
     _seed_user(session_factory, "u3", "pw")
     secret, codes = _enable_2fa(client, "u3", "pw")
-    h = _headers(client, "u3", "pw", secret)
+    h = _headers(client, "u3", "pw", secret, monkeypatch)
     new = client.post("/auth/2fa/recovery/regenerate", headers=h).json()["recovery_codes"]
     assert set(new).isdisjoint(set(codes))
     # Alter Code greift nicht mehr.
@@ -311,10 +327,10 @@ def test_regenerate_invalidates_old_codes(client, session_factory):
     assert client.post("/auth/login", json={"username": "u3", "password": "pw", "totp_code": new[0]}).status_code == 200
 
 
-def test_recovery_status_counts_remaining(client, session_factory):
+def test_recovery_status_counts_remaining(client, session_factory, monkeypatch):
     _seed_user(session_factory, "u4", "pw")
     secret, codes = _enable_2fa(client, "u4", "pw")
-    h = _headers(client, "u4", "pw", secret)
+    h = _headers(client, "u4", "pw", secret, monkeypatch)
     st = client.get("/auth/2fa/recovery/status", headers=h).json()
     assert st["enabled"] is True and st["remaining"] == 10
     # Einen verbrauchen -> remaining sinkt.
@@ -323,10 +339,16 @@ def test_recovery_status_counts_remaining(client, session_factory):
     assert st2["remaining"] == 9
 
 
-def test_disable_clears_recovery_codes(client, session_factory):
+def test_disable_clears_recovery_codes(client, session_factory, monkeypatch):
     _seed_user(session_factory, "u5", "pw")
     secret, codes = _enable_2fa(client, "u5", "pw")
-    h = _headers(client, "u5", "pw", secret)
+    h = _headers(client, "u5", "pw", secret, monkeypatch)
+    # Kontrollrunde 2026-09-21: weiterer Zeitschritt fuer den Disable-Code --
+    # totp_last_counter/-hash werden endpointuebergreifend (Login, 2fa/
+    # enable, 2fa/disable) auf demselben User-Feld verfolgt, sonst kollidiert
+    # dieser Code mit dem soeben von _headers() verwendeten Login-Code.
+    further = time.time() + 30
+    monkeypatch.setattr(time, "time", lambda: further)
     code = totp.totp_at(secret, time.time())
     assert client.post("/auth/2fa/disable", headers=h, json={"code": code}).status_code == 200
     with session_factory() as s:

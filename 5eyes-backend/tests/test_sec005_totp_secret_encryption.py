@@ -204,7 +204,7 @@ def test_load_returns_empty_string_when_enc_prefix_but_no_tenant_id(session_fact
 # Voller HTTP-Integrationsflow: Setup -> Enable -> Login mit Tenant-User.
 # ---------------------------------------------------------------------------
 
-def test_full_setup_enable_login_flow_with_tenant_scoped_encrypted_secret(session_factory):
+def test_full_setup_enable_login_flow_with_tenant_scoped_encrypted_secret(session_factory, monkeypatch):
     from fastapi.testclient import TestClient
     from database import get_db
     from main import app
@@ -240,15 +240,22 @@ def test_full_setup_enable_login_flow_with_tenant_scoped_encrypted_secret(sessio
                     "Persistierter Wert muss verschluesselt sein (tenant_id vorhanden)"
                 )
 
-            code = totp.totp_at(secret, time.time())
+            base_t = time.time()
+            code = totp.totp_at(secret, base_t)
             enable = client.post("/auth/2fa/enable", json={"code": code}, headers=headers)
             assert enable.status_code == 200
 
             # Voller Kreis: erneuter Login MIT 2FA-Code funktioniert -- das
             # entschluesselte Secret aus der DB matcht den echten Authenticator-Code.
+            # Kontrollrunde 2026-09-21: /2fa/enable nimmt jetzt (korrekt) am
+            # Anti-Replay-Schutz teil -- derselbe Code wie oben wuerde hier
+            # zurecht als Replay abgelehnt. Naechster Zeitschritt liefert
+            # einen frischen, aber weiterhin gueltigen Code.
+            future_t = base_t + 31
+            monkeypatch.setattr(time, "time", lambda: future_t)
             login2 = client.post(
                 "/auth/login",
-                json={"username": "tu1", "password": "pw", "totp_code": totp.totp_at(secret, time.time())},
+                json={"username": "tu1", "password": "pw", "totp_code": totp.totp_at(secret, future_t)},
             )
             assert login2.status_code == 200
     finally:

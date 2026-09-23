@@ -592,6 +592,14 @@ def twofa_enable(body: _TwoFACodeRequest, db: Session = Depends(get_db),
         failure = login_attempt_guard.register_failure(guard_key)
         headers = {"Retry-After": str(failure.retry_after_seconds)} if failure.retry_after_seconds else None
         raise HTTPException(status_code=401, detail="2FA-Code falsch", headers=headers)
+    # Kontrollrunde 2026-09-21: anders als /auth/login (AUTH-06) rief dieser
+    # Endpoint _totp_replay_check_and_record() bisher NICHT auf -- ein
+    # mitgelesener/geleakter Code konnte innerhalb des +/-1-Drift-Fensters
+    # erneut vorgelegt werden, um Recovery-Codes ein zweites Mal auszuloesen.
+    if _totp_replay_check_and_record(db, current_user, body.code):
+        failure = login_attempt_guard.register_failure(guard_key)
+        headers = {"Retry-After": str(failure.retry_after_seconds)} if failure.retry_after_seconds else None
+        raise HTTPException(status_code=401, detail="2FA-Code bereits verwendet", headers=headers)
     login_attempt_guard.register_success(guard_key)
     current_user.totp_enabled = 1
     current_user.updated_at = _now()
@@ -623,6 +631,11 @@ def twofa_disable(body: _TwoFACodeRequest, db: Session = Depends(get_db),
         failure = login_attempt_guard.register_failure(guard_key)
         headers = {"Retry-After": str(failure.retry_after_seconds)} if failure.retry_after_seconds else None
         raise HTTPException(status_code=401, detail="2FA-Code falsch", headers=headers)
+    # Kontrollrunde 2026-09-21: siehe /2fa/enable -- dieselbe Replay-Luecke.
+    if _totp_replay_check_and_record(db, current_user, body.code):
+        failure = login_attempt_guard.register_failure(guard_key)
+        headers = {"Retry-After": str(failure.retry_after_seconds)} if failure.retry_after_seconds else None
+        raise HTTPException(status_code=401, detail="2FA-Code bereits verwendet", headers=headers)
     login_attempt_guard.register_success(guard_key)
     current_user.totp_enabled = 0
     current_user.totp_secret = None
