@@ -33,26 +33,43 @@ from services.portfolio_engine_live_rebalancing import (
 
 def test_convert_price_rappen_applies_cross_rate():
     fx = FXRateSource()  # DEFAULT_FX_RATES: USD=0.88, CHF=1.0
-    result = _convert_price_rappen_to_target_currency(8800, "USD", fx, "CHF")
+    result, failed = _convert_price_rappen_to_target_currency(8800, "USD", fx, "CHF")
     assert result == 7744  # 8800 * 0.88
+    assert failed is False
 
 
 def test_convert_price_rappen_none_fx_source_is_noop():
     """Backwards-Compat: kein fx_source uebergeben -> unveraendert (alle
     Aufrufer, die diesen Parameter noch nicht kennen, bleiben unveraendert)."""
-    result = _convert_price_rappen_to_target_currency(8800, "USD", None, "CHF")
+    result, failed = _convert_price_rappen_to_target_currency(8800, "USD", None, "CHF")
     assert result == 8800
+    assert failed is False
 
 
 def test_convert_price_rappen_same_currency_is_noop():
     fx = FXRateSource()
-    result = _convert_price_rappen_to_target_currency(8800, "CHF", fx, "CHF")
+    result, failed = _convert_price_rappen_to_target_currency(8800, "CHF", fx, "CHF")
     assert result == 8800
+    assert failed is False
 
 
 def test_convert_price_rappen_none_price_passthrough():
     fx = FXRateSource()
-    assert _convert_price_rappen_to_target_currency(None, "USD", fx, "CHF") is None
+    result, failed = _convert_price_rappen_to_target_currency(None, "USD", fx, "CHF")
+    assert result is None
+    assert failed is False
+
+
+def test_convert_price_rappen_unsupported_currency_pair_reports_failure_not_raw_value():
+    """Kontrollrunde 2026-09-23: eine fehlgeschlagene Konvertierung (z.B.
+    PLN, ausserhalb DEFAULT_FX_RATES) gab bisher den unkonvertierten
+    Rohbetrag zurueck, ohne jedes Signal -- der Marktwert war dadurch um
+    den vollen FX-Faktor falsch, aber als "erfolgreich konvertiert"
+    markiert. Muss jetzt (None, True) zurueckgeben, NIE den Rohbetrag."""
+    fx = FXRateSource()
+    result, failed = _convert_price_rappen_to_target_currency(8800, "PLN", fx, "CHF")
+    assert result is None
+    assert failed is True
 
 
 # ===========================================================================
@@ -108,6 +125,40 @@ def test_usd_etf_holding_is_no_longer_overstated_without_fx_conversion():
     )
     assert entry["current_market_value_rappen"] == 1_760_000  # CHF 17'600.00, unkonvertiert
     assert entry["fx_converted"] is False
+
+
+def test_unsupported_currency_pair_reports_missing_price_not_wrong_market_value():
+    """Kontrollrunde 2026-09-23 (Finding A): VOR dem Fix wurde fx_converted
+    rein aus dem Waehrungs-Stringvergleich gesetzt, BEVOR die Konvertierung
+    ueberhaupt versucht wurde -- eine fehlgeschlagene Konvertierung (Produkt
+    in einer von FXRateSource nicht abgedeckten Waehrung, z.B. PLN) lieferte
+    den unkonvertierten Rohwert zurueck, ABER fx_converted=True (falsche
+    Behauptung, keine Warnung). Nach dem Fix wird ein Preis, der nicht
+    konvertiert werden konnte, wie ein fehlender Preis behandelt (MISSING_
+    PRICE), NIE als stillschweigend falscher Marktwert weitergereicht."""
+    product = _make_product(currency="PLN")
+    position = _make_position()
+    latest_price = _make_price(8800)  # PLN 88.00 -- Waehrung ausserhalb DEFAULT_FX_RATES
+    fx = FXRateSource()
+
+    entry, stats = _build_live_rebalancing_entry(
+        position=position, product=product, holding=None,
+        latest_price=latest_price, reference_price=None,
+        reference_recalibrated=False, target_amount_rappen=1_700_000,
+        target_weight_bps=1000, stale_after_days=5,
+        today=__import__("datetime").date(2026, 8, 3),
+        fx_source=fx, target_currency="CHF",
+    )
+    assert entry["latest_price_rappen"] is None
+    assert entry["fx_converted"] is False
+    assert entry["fx_conversion_failed"] is True
+    assert stats["fx_conversion_failed_count"] == 1
+    assert stats["fx_converted_positions_count"] == 0
+    # Kein Preis verfuegbar -> ohne Holding faellt current_market_value_rappen
+    # auf den STATED target_amount_rappen zurueck (konservativ "angenommen
+    # im Soll"), NICHT auf den unkonvertierten PLN-Rohwert (17'600.00
+    # faelschlich als CHF ausgewiesen waere die alte, falsche Ueberzeichnung).
+    assert entry["current_market_value_rappen"] == 1_700_000
 
 
 def test_usd_etf_holding_correctly_converted_to_chf_with_fx_source():
