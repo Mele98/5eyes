@@ -80,10 +80,12 @@ nicht garantiert ist. Modelle (`Goal`, `Mandate`, `OptimizerPolicy`,
 ausschliesslich als Typ-Annotationen bzw. fuer Attributzugriffe verwendet
 (nie fuer `isinstance`/Konstruktion) -- sie stehen daher nur unter
 `TYPE_CHECKING`, ergaenzt durch `from __future__ import annotations`, damit
-gar kein Laufzeit-Import noetig ist. `services.planning_horizon.
-life_expectancy_year_for` ist dagegen ein ganz normaler Modul-Top-Level-Import
--- das Modul haengt nicht von `services.portfolio_engine` ab, also kein
-Zyklus moeglich.
+gar kein Laufzeit-Import noetig ist. `services.mortality.horizon.
+life_expectancy_year_from_mandate` (Kontrollrunde 2026-09-23, Phase 2 der
+Mortalitaetsmodell-Vereinheitlichung -- ersetzt das vormals hier genutzte
+`services.planning_horizon.life_expectancy_year_for`) ist dagegen ein ganz
+normaler Modul-Top-Level-Import -- das Modul haengt nicht von
+`services.portfolio_engine` ab, also kein Zyklus moeglich.
 """
 from __future__ import annotations
 
@@ -95,7 +97,7 @@ from datetime import date
 from typing import TYPE_CHECKING
 
 from services.calendar_horizon import calendar_years_until
-from services.planning_horizon import life_expectancy_year_for
+from services.mortality.horizon import life_expectancy_year_from_mandate
 from services.return_moments import (
     arithmetic_moments_to_log_parameters,
     bounded_cornish_fisher,
@@ -146,7 +148,13 @@ def _simulation_horizon_years(
     if has_explicit_override:
         return max(7, requested, goal_horizon)
 
-    life_year = life_expectancy_year_for(mandate=mandate)
+    # Kontrollrunde 2026-09-23 (Phase 2, Mortalitaetsmodell-Vereinheitlichung):
+    # planning_horizon.life_expectancy_year_for() (flach, Geburtsjahr+
+    # Konstante) durch die genauere BFS-2020-2022-Sterbetafel (alters-
+    # bedingt) ersetzt, siehe Kontrollrunde-2026-09-21-Analyse.
+    life_year = life_expectancy_year_from_mandate(
+        mandate, client=getattr(mandate, "client", None),
+    )
     life_horizon = max(0, life_year - date.today().year + 1) if life_year else 0
     return max(7, requested, goal_horizon, life_horizon)
 

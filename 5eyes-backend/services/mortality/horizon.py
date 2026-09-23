@@ -202,3 +202,21 @@ def expected_death_year_offset_from_mandate(
                 offsets.append(partner_offset)
 
     return max(offsets) if offsets else None
+
+
+def life_expectancy_year_from_mandate(
+    mandate, *, client: Any = None, reference_year: int | None = None,
+) -> int | None:
+    """Kontrollrunde 2026-09-23 (Phase 2, Mortalitaetsmodell-Vereinheitlichung):
+    liefert dasselbe Rueckgabe-Format wie services.planning_horizon.
+    life_expectancy_year_for() (absolutes Kalenderjahr statt Offset-ab-
+    reference_year), damit interne Aufrufer, die bisher planning_horizon
+    nutzten, per Drop-in auf die genauere BFS-Sterbetafel umgestellt werden
+    koennen. Duenner Wrapper um expected_death_year_offset_from_mandate() --
+    keine eigene Logik, kein Verhaltensunterschied ausser der Rueckgabeform."""
+    if reference_year is None:
+        reference_year = mandate_reference_year(mandate)
+    offset = expected_death_year_offset_from_mandate(
+        mandate, reference_year=reference_year, client=client,
+    )
+    return reference_year + offset if offset is not None else None
