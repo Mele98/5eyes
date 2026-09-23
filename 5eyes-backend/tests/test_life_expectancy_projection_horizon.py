@@ -53,6 +53,25 @@ def test_unknown_salutation_uses_conservative_plus_85():
     assert life_expectancy_year_for(client=client) == 2045
 
 
+def test_missing_client_salutation_falls_back_to_mandate_client_sex():
+    """Kontrollrunde 2026-09-21: mandate.client_sex-Fallback war toter Code
+    (feuerte nur wenn kein Geburtsjahr aufloeste, nie wenn nur salutation
+    fehlte). client.salutation fehlt hier, mandate.client_sex="M" ist
+    gesetzt -> muss jetzt die Maenner-Konstante (+83 -> 2043) nutzen statt
+    der Default-Konstante (+85 -> 2045)."""
+    client = _client(date_of_birth="1960-03-20", salutation=None)
+    mandate = _mandate(client, client_sex="M")
+    assert life_expectancy_year_for(mandate=mandate) == 2043
+
+
+def test_client_salutation_takes_priority_over_mandate_client_sex():
+    """Wenn client.salutation vorhanden ist, bleibt es massgeblich, auch
+    wenn mandate.client_sex widersprechen wuerde."""
+    client = _client(date_of_birth="1960-03-20", salutation="Frau")
+    mandate = _mandate(client, client_sex="M")
+    assert life_expectancy_year_for(mandate=mandate) == 2045
+
+
 def test_manual_mandate_year_has_priority():
     client = _client(date_of_birth="1960-03-20", salutation="Herr")
     mandate = _mandate(client, life_expectancy_year=2050)
