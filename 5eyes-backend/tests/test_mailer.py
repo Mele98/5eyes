@@ -98,3 +98,41 @@ def test_mail_configured_flag(monkeypatch):
     assert mailer.mail_configured() is True
     monkeypatch.setattr(settings, "smtp_host", "")
     assert mailer.mail_configured() is False
+
+
+# ---------------------------------------------------------------------------
+# Kontrollrunde 2026-09-21: Envelope-Multi-Recipient-Injection via Komma +
+# unbehandelter Crash via CR/LF in to_email. mailer.py verliess sich bisher
+# vollstaendig auf Pydantic-EmailStr in den Aufruf-Schemas -- ein Aufrufer
+# ohne EmailStr (schemas/users.py::BootstrapAdminRequest.email war reiner
+# str) konnte beides durchreichen.
+# ---------------------------------------------------------------------------
+
+def test_comma_separated_recipient_is_rejected_not_silently_split(monkeypatch, fake_smtp):
+    """BUG (vor Fix): smtplib.send_message() ohne explizite to_addrs leitet
+    die Envelope-Empfaenger per email.utils.getaddresses() aus dem To-Header
+    ab -- eine Komma-Liste haette eine VERDECKTE Zweit-Zustellung erzeugt."""
+    _configure(monkeypatch)
+    evil_to = "victim@firma.test, attacker@evil.test"
+    assert mailer.send_invite_email(evil_to, "Max", "https://x/app?invite=T") is False
+    assert mailer.send_password_reset_email(evil_to, "Max", "https://x/reset?t=T") is False
+    assert _FakeSMTP.sent == []
+
+
+def test_crlf_in_recipient_returns_false_not_crash(monkeypatch, fake_smtp):
+    """BUG (vor Fix): EmailMessage.__setitem__ wirft bei rohem CR/LF ein
+    ungefangenes ValueError -- bricht die eigene 'nie ein 500'-Zusicherung
+    dieses Moduls (insb. den Anti-Enumeration-Response beim Passwort-Reset)."""
+    _configure(monkeypatch)
+    evil_to = "victim@firma.test\r\nBcc: attacker@evil.test"
+    assert mailer.send_invite_email(evil_to, "Max", "https://x/app?invite=T") is False
+    assert mailer.send_password_reset_email(evil_to, "Max", "https://x/reset?t=T") is False
+    assert _FakeSMTP.sent == []
+
+
+def test_plain_single_address_still_works(monkeypatch, fake_smtp):
+    """Kein False-Positive: normale Einzeladressen (inkl. Plus-Tags/Subdomains)
+    bleiben unveraendert versendbar."""
+    _configure(monkeypatch)
+    assert mailer.send_invite_email("max.muster+invite@sub.firma.test", "Max", "https://x/app?invite=T") is True
+    assert len(_FakeSMTP.sent) == 1

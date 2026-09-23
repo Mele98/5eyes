@@ -104,7 +104,15 @@ class BootstrapAdminRequest(BaseModel):
     username: str
     password: str
     full_name: str
-    email: Optional[str] = None
+    # Kontrollrunde 2026-09-21 (Mailer-Audit): war als reiner `str`
+    # deklariert, anders als jedes Schwester-Feld in dieser Datei --
+    # E-Mail-Header-/Envelope-Injection-relevante Zeichen (Komma, CR/LF)
+    # konnten dadurch bis in services/mailer.py durchgereicht werden (fuer
+    # spaetere send_password_reset_email/send_invite_email-Aufrufe ueber
+    # den daraus erstellten User). services/mailer.py haertet zusaetzlich
+    # defensiv (Verteidigung in der Tiefe), aber der korrekte Schema-Typ
+    # gehoert hierher.
+    email: Optional[EmailStr] = None
     # 2026-08-01 (Onboarding, Entscheid Auftraggeber): Firmenidentitaet/
     # -Standort werden bei der Ersteinrichtung erfasst, weil bis dahin die
     # Default-Tenant-Zeile ("Default Tenant", NULL-Jurisdiktion) sonst
