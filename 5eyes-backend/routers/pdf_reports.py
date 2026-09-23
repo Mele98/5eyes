@@ -979,6 +979,22 @@ def get_risikoprofil_pdf(
                 suitability_note = "Berater-Override wurde dokumentiert."
                 if override_reason:
                     suitability_note += f" Begruendung: {override_reason}"
+                # Kontrollrunde 2026-09-21 (Override-Begruendungs-Audit): diese
+                # dedizierte FINMA-W305-Risikoprofil-PDF liest override_reason
+                # bisher ohne jede Qualitaetspruefung -- ein Altbestand-Override
+                # (vor Sprint U-28/U-29) oder eine leere/generische Begruendung
+                # erschien unmarkiert wie eine gueltige. Nicht blockierend
+                # (Modul-Prinzip dieses Endpunkts: defensiv/best-effort, siehe
+                # umgebender try/except), aber sichtbar im PDF-Text.
+                try:
+                    from services.override_reason_quality import (
+                        validate_override_reason_quality,
+                    )
+                    validate_override_reason_quality(override_reason)
+                except Exception as quality_exc:
+                    suitability_note += (
+                        f" COMPLIANCE-HINWEIS: {quality_exc}"
+                    )
             else:
                 suitability_note = (
                     "Risikofaehigkeit, Risikobereitschaft, Anlagehorizont "

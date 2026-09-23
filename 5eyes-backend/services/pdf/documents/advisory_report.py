@@ -1504,6 +1504,9 @@ def _build_risikoprofil_flowables(rp: dict, styles: dict) -> list[Any]:
     risky_bps = rp.get("risky_fraction_bps")
     is_overridden = bool(rp.get("is_overridden"))
     override_reason = str(rp.get("override_reason") or "").strip()
+    override_reason_quality_issue = str(
+        rp.get("override_reason_quality_issue") or ""
+    ).strip()
 
     out.append(_risikoprofil_summary(
         profile_label, final_score, risky_bps, styles,
@@ -1524,6 +1527,14 @@ def _build_risikoprofil_flowables(rp: dict, styles: dict) -> list[Any]:
             text,
             _ar_paragraph_style(styles["caption"], color=COLOR_STATUS_NEUTRAL),
         ))
+        if override_reason_quality_issue:
+            out.append(Spacer(1, 2 * mm))
+            out.append(Paragraph(
+                "<b>Compliance-Hinweis:</b> " + _escape(
+                    override_reason_quality_issue
+                ),
+                _ar_paragraph_style(styles["caption"], color=COLOR_STATUS_ROT),
+            ))
 
     questions = rp.get("questions") or []
     if questions:
