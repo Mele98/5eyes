@@ -79,10 +79,33 @@ def test_manual_mandate_year_has_priority():
 
 
 def test_simulation_default_uses_derived_life_expectancy_inclusive():
+    """Kontrollrunde 2026-09-23 (Phase 2, Mortalitaetsmodell-
+    Vereinheitlichung): _simulation_horizon_years nutzt jetzt
+    services.mortality.horizon (BFS-2020-2022-Sterbetafel) statt
+    services.planning_horizon (flach) fuer diesen internen Modell-Floor --
+    siehe test_mortality_horizon_client_partner_support.py fuer die
+    Modell-Details. 1960 geboren, maennlich, reference_year=2026
+    (mandate.opened_at) -> Sterbejahr 2046 (bestaetigtes Audit-Beispiel),
+    nicht mehr 2043 (altes flaches Modell)."""
     client = _client(date_of_birth="1960-03-20", salutation="Herr")
-    mandate = _mandate(client)
-    expected = 2043 - date.today().year + 1
+    mandate = _mandate(client, opened_at="2026-01-01")
+    expected = 2046 - 2026 + 1
     assert _simulation_horizon_years({}, [], mandate) == max(10, expected)
+
+
+def test_simulation_horizon_de_mandate_falls_back_to_generic_floor():
+    """Kontrollrunde 2026-09-23 (Phase 2): die BFS-Sterbetafel ist CH-only
+    (bewusstes Jurisdiktions-Gate, siehe test_bfs_mortality_jurisdiction_
+    gate.py). Das alte flache Modell (planning_horizon) hatte KEINE
+    Jurisdiktions-Pruefung und wandte die CH-Konstanten (83/85) blind auch
+    auf DE/AT-Mandate an -- fachlich falsch. Nach dem Swap liefert ein DE-
+    Mandat keinen Lebenserwartungs-Floor mehr (None -> 0), der generische
+    7-Jahre-Minimum bleibt die einzige Untergrenze."""
+    from services.portfolio_engine import DEFAULT_SIMULATION_HORIZON_YEARS
+
+    client = _client(date_of_birth="1960-03-20", salutation="Herr")
+    mandate = _mandate(client, opened_at="2026-01-01", jurisdiction="DE")
+    assert _simulation_horizon_years({}, [], mandate) == max(7, DEFAULT_SIMULATION_HORIZON_YEARS)
 
 
 def test_explicit_simulation_horizon_has_priority_over_life_default():
