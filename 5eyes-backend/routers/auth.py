@@ -24,6 +24,7 @@ from services.auth import (
 )
 from services.login_guard import login_attempt_guard
 from services.audit import log
+from services.password_audit import needs_rehash
 from services.totp import (
     generate_secret, provisioning_uri, qr_svg_data_uri, verify as totp_verify,
     _PERIOD as _TOTP_PERIOD_SECONDS,
@@ -348,6 +349,15 @@ def login(body: LoginRequest, request: Request, db: Session = Depends(get_db)):
         )
         headers = {"Retry-After": str(failure.retry_after_seconds)} if failure.retry_after_seconds else None
         raise HTTPException(status_code=401, detail="Benutzername oder Passwort falsch", headers=headers)
+    # Kontrollrunde 2026-09-21 (Password-Audit-Nachtrag): lazy Rehash-on-
+    # Auth (services/password_audit.py existierte bereits seit Sprint U-57,
+    # war aber nie in diesen Login-Pfad verdrahtet -- ein mit niedrigeren
+    # bcrypt-rounds erstellter Hash (Alt-Import, kuenftig gesenkter Cost-
+    # Factor) wurde nie erneuert). Nur an dieser Stelle liegt das Klartext-
+    # Passwort ueberhaupt vor (verify_password hat es soeben bestaetigt).
+    # Transparent fuer den Nutzer, kein Verhaltensunterschied.
+    if needs_rehash(user.password_hash):
+        user.password_hash = hash_password(body.password)
     if not user.is_active:
         raise HTTPException(status_code=401, detail="Konto deaktiviert")
     # 2026-07-25 (Generalaudit, Wave 13): siehe tenant_access_block_reason()

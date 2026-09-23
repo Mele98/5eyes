@@ -84,6 +84,34 @@ def test_rounds_handles_whitespace_padded():
 
 
 # ---------------------------------------------------------------------------
+# Kontrollrunde 2026-09-21: str(bytes) liefert den Python-repr
+# ("b'$2b$12$...'"), nicht den dekodierten Hash -- ein gueltiger bcrypt-Hash
+# als bytes (wie bcrypt.hashpw() ihn roh liefert, VOR .decode()) wurde damit
+# faelschlich als invalides Format erkannt. Jetzt, wo needs_rehash() im
+# Login-Pfad verdrahtet ist, ist Robustheit gegen den eigenen dokumentierten
+# `Any`-Parametertyp angemessen (auch wenn der einzige Live-Aufrufer,
+# routers/auth.py, User.password_hash als str persistiert).
+# ---------------------------------------------------------------------------
+
+def test_rounds_parses_raw_bytes_hash_not_just_str():
+    raw_bytes = _bcrypt.hashpw(b"password", _bcrypt.gensalt(rounds=10))
+    assert isinstance(raw_bytes, bytes)
+    assert get_bcrypt_rounds(raw_bytes) == 10
+
+
+def test_variant_parses_raw_bytes_hash_not_just_str():
+    raw_bytes = _bcrypt.hashpw(b"password", _bcrypt.gensalt(rounds=10))
+    assert get_bcrypt_variant(raw_bytes) == "2b"
+
+
+def test_needs_rehash_correctly_evaluates_raw_bytes_hash():
+    low_cost_bytes = _bcrypt.hashpw(b"password", _bcrypt.gensalt(rounds=4))
+    assert needs_rehash(low_cost_bytes) is True
+    target_bytes = _bcrypt.hashpw(b"password", _bcrypt.gensalt(rounds=BCRYPT_TARGET_ROUNDS))
+    assert needs_rehash(target_bytes) is False
+
+
+# ---------------------------------------------------------------------------
 # get_bcrypt_variant
 # ---------------------------------------------------------------------------
 
