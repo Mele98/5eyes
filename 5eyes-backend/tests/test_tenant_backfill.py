@@ -108,3 +108,58 @@ def test_backfill_still_assigns_main_in_single_tenant_mode(tmp_path, monkeypatch
     with eng.connect() as c:
         tid = c.execute(text("SELECT tenant_id FROM clients WHERE id='null-client-single'")).scalar()
     assert tid == DEFAULT_TENANT_ID
+
+
+# ── Kontrollrunde 2026-09-21 (tier_config-Audit): settings.tenancy_mode hat
+# den Klassendefault "single" (config.py), nicht None -- ein Tier-2-Deployment,
+# das NUR deployment_tier=tier2 setzt (wie services/tier_config.py's Doku es
+# verspricht: "Lizenz-Nehmer setzen NUR deployment_tier, alles andere wird
+# abgeleitet") aber TENANCY_MODE nie explizit setzt, hatte tenancy_mode=="single"
+# und lief damit VOR dem Fix durch den Guard -- der Blanket-'main'-Backfill lief
+# unconditional trotz echtem Multi-Tenant-Deployment.
+
+def test_backfill_skips_blanket_main_assignment_for_tier2_without_explicit_tenancy_mode(
+    tmp_path, monkeypatch,
+):
+    """Nur deployment_tier=tier2 gesetzt (TENANCY_MODE bewusst NICHT gesetzt,
+    bleibt beim Klassendefault 'single') -- muss trotzdem als mandantenfaehig
+    erkannt werden und NULL-Rows unangetastet lassen."""
+    from config import settings
+    monkeypatch.setattr(settings, "deployment_tier", "tier2", raising=False)
+    assert str(getattr(settings, "tenancy_mode", "")).strip().lower() == "single", (
+        "Testannahme: Klassendefault ist 'single', nicht explizit gesetzt"
+    )
+
+    eng = _engine(tmp_path)
+    SF = sessionmaker(bind=eng, expire_on_commit=False)
+    _add_client(SF, "null-client-tier2-implicit", None)
+    _add_client(SF, "firma-a-client-tier2-implicit", "firma-a")
+
+    ensure_tenant_backfill(eng)
+
+    with eng.connect() as c:
+        rows = dict(c.execute(text("SELECT id, tenant_id FROM clients")).fetchall())
+    assert rows["null-client-tier2-implicit"] is None
+    assert rows["firma-a-client-tier2-implicit"] == "firma-a"
+
+
+def test_backfill_still_skips_when_tenancy_mode_explicitly_multi_regardless_of_tier(
+    tmp_path, monkeypatch,
+):
+    """Regression-Guard: explizit gesetztes tenancy_mode='multi' muss weiterhin
+    unabhaengig vom Tier greifen (nicht nur der neue Tier2-Fallback)."""
+    from config import settings
+    monkeypatch.setattr(settings, "deployment_tier", "tier1", raising=False)
+    monkeypatch.setattr(settings, "tenancy_mode", "multi", raising=False)
+
+    eng = _engine(tmp_path)
+    SF = sessionmaker(bind=eng, expire_on_commit=False)
+    _add_client(SF, "null-client-tier1-explicit-multi", None)
+
+    ensure_tenant_backfill(eng)
+
+    with eng.connect() as c:
+        tid = c.execute(
+            text("SELECT tenant_id FROM clients WHERE id='null-client-tier1-explicit-multi'")
+        ).scalar()
+    assert tid is None

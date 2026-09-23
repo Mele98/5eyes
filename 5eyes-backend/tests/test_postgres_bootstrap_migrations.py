@@ -148,6 +148,39 @@ def test_postgres_tenant_not_null_backfill_skipped_entirely_in_multi_tenancy_mod
     assert calls == []
 
 
+def test_postgres_tenant_not_null_backfill_skipped_for_tier2_without_explicit_tenancy_mode(monkeypatch):
+    """Kontrollrunde 2026-09-21 (tier_config-Audit): settings.tenancy_mode
+    hat den Klassendefault 'single', nicht None -- ein Tier-2-Deployment, das
+    NUR deployment_tier=tier2 setzt (wie services/tier_config.py's Doku es
+    verspricht), aber TENANCY_MODE nie explizit setzt, lief VOR dem Fix durch
+    diesen Guard (identisches Risiko wie test_..._skipped_entirely_in_multi_
+    tenancy_mode oben, nur ueber deployment_tier statt tenancy_mode ausgeloest)."""
+    postgres_url = "postgresql://migration-test:unused@localhost/unused"
+    calls: list = []
+
+    monkeypatch.setattr(database, "build_database_url", lambda **kwargs: postgres_url)
+    monkeypatch.setattr(database, "_create_or_migrate_schema", lambda url: None)
+    for name in (
+        "ensure_default_tenant", "ensure_default_ch_jurisdiction",
+        "ensure_default_de_jurisdiction", "ensure_client_login_user_tenant_backfill",
+        "ensure_tenant_backfill",
+    ):
+        monkeypatch.setattr(database, name, lambda: None)
+    monkeypatch.setattr(
+        postgres_rls, "ensure_postgres_tenant_not_null",
+        lambda engine, **kwargs: calls.append(kwargs),
+    )
+    monkeypatch.setattr(postgres_rls, "ensure_postgres_rls_policies", lambda engine: None)
+    monkeypatch.setattr(database.settings, "deployment_tier", "tier2")
+    assert str(getattr(database.settings, "tenancy_mode", "")).strip().lower() == "single", (
+        "Testannahme: Klassendefault ist 'single', nicht explizit gesetzt"
+    )
+
+    database.init_db()
+
+    assert calls == []
+
+
 def test_lazy_sqlite_schema_helpers_are_noops_for_postgres():
     class PostgresEngineWithoutConnections:
         dialect = SimpleNamespace(name="postgresql")
