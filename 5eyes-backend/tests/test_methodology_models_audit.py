@@ -101,6 +101,23 @@ def test_ns_inactive_when_one_field_missing():
     assert status["active"] is False
 
 
+def test_ns_inactive_when_lambda_invalid():
+    """Kontrollrunde 2026-09-21: alle 4 Felder gesetzt, aber lambda<=0 --
+    services.cma_validation.validate_nelson_siegel_parameters wirft dafuer
+    eine CMAValidationError (Live-Engine lehnt diesen CMA-Datensatz ab).
+    Vorher meldete der Audit hier faelschlich active=True (nur Presence
+    geprueft, nie Wertebereich)."""
+    cma = _cma(
+        bonds_ns_beta0_bps=400,
+        bonds_ns_beta1_bps=-200,
+        bonds_ns_beta2_bps=80,
+        bonds_ns_lambda_x100=0,  # ungueltig: muss > 0 sein
+    )
+    status = _build_ns_status(cma)
+    assert status["active"] is False
+    assert status["blocker_reason"] == "invalid_parameters"
+
+
 # ---------------------------------------------------------------------------
 # KGV-Mean-Reversion Status (U-73 Teil 2)
 # ---------------------------------------------------------------------------
@@ -128,6 +145,20 @@ def test_kgv_inactive_when_alpha_missing():
     cma = _cma(equity_kgv_current_x10=220, equity_kgv_fair_x10=170)
     status = _build_kgv_status(cma)
     assert status["active"] is False
+
+
+def test_kgv_inactive_when_alpha_out_of_range():
+    """Kontrollrunde 2026-09-21: alle 3 Felder gesetzt, aber alpha_x100
+    ausserhalb [0, 100] -- validate_equity_kgv_parameters wirft dafuer eine
+    CMAValidationError. Vorher faelschlich active=True."""
+    cma = _cma(
+        equity_kgv_current_x10=220,
+        equity_kgv_fair_x10=170,
+        equity_kgv_alpha_x100=101,  # ungueltig: muss in [0, 100] liegen
+    )
+    status = _build_kgv_status(cma)
+    assert status["active"] is False
+    assert status["blocker_reason"] == "invalid_parameters"
 
 
 # ---------------------------------------------------------------------------
@@ -226,6 +257,27 @@ def test_audit_all_three_active():
     assert len(result["methodology_notes"]) == 3
     # Alle 3 Modelle aktiv
     assert all(m["active"] for m in result["models"])
+
+
+def test_audit_risk_premia_inactive_when_ns_invalid_not_just_missing():
+    """Kontrollrunde 2026-09-21: NS-Felder alle GESETZT aber ungueltig
+    (lambda<=0) -> NS selbst inaktiv (siehe test_ns_inactive_when_lambda_
+    invalid), UND das haengt korrekt in risk_premia durch (nicht nur bei
+    komplett fehlenden NS-Feldern)."""
+    db = _stub_db(_cma(
+        bonds_ns_beta0_bps=400,
+        bonds_ns_beta1_bps=-200,
+        bonds_ns_beta2_bps=80,
+        bonds_ns_lambda_x100=0,  # ungueltig
+        real_estate_risk_premium_bps=200,
+    ))
+    result = audit_engine_models(db)
+    ns = next(m for m in result["models"] if m["model_key"] == "nelson_siegel")
+    rp = next(m for m in result["models"] if m["model_key"] == "risk_premia")
+    assert ns["active"] is False
+    assert rp["active"] is False
+    assert rp["blocker_reason"] == "nelson_siegel_required_as_base"
+    assert result["active_count"] == 0
 
 
 def test_audit_risk_premia_blocker_when_ns_missing():

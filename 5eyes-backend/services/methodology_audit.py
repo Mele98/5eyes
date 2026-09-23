@@ -23,12 +23,34 @@ Activation-Regeln (= Bedingungen damit das Modell den Run beeinflusst)
                      Nelson-Siegel aktiv (NS.short_rate ist Basis)
 
 Read-only — verändert KEIN Berechnungsverhalten, schafft nur Sicht.
+
+Kontrollrunde 2026-09-21 (Override-Begruendungs-Audit-Runde, Methodology-
+Audit-Fund): "aktiv" hiess hier bisher nur "alle Felder gesetzt"
+(presence-only). Der ECHTE Live-Engine-Gate (services.cma_validation.
+validate_nelson_siegel_parameters / validate_equity_kgv_parameters,
+aufgerufen aus services.portfolio_engine_cma._apply_cma_market_adjustments)
+prueft zusaetzlich Wertebereiche (z.B. bonds_ns_lambda_x100 > 0,
+equity_kgv_alpha_x100 im Bereich [0, 100]) und wirft eine
+CMAValidationError (fail-closed), statt nur "inaktiv" zu melden. Ein CMA-
+Datensatz konnte hier "Methodik aktiv" zeigen (PDF Sektion 20 + Client-
+Portal-Hinweis), obwohl der Optimizer/Backtest denselben Datensatz
+tatsaechlich ablehnt -- ein falscher, kundensichtbarer Methodik-Anspruch.
+_build_ns_status/_build_kgv_status rufen die Validatoren jetzt zusaetzlich
+auf und werten eine CMAValidationError als "nicht aktiv" (dieses Modul
+bleibt read-only/non-blocking, die Exception wird hier abgefangen, nicht
+weitergereicht).
 """
 from __future__ import annotations
 
 from typing import Any, Optional
 
 from sqlalchemy.orm import Session
+
+from services.cma_validation import (
+    CMAValidationError,
+    validate_equity_kgv_parameters,
+    validate_nelson_siegel_parameters,
+)
 
 
 # Beschreibungs-Texte fuer die UI (Berater-tauglich, FINMA-bewusst,
@@ -63,7 +85,14 @@ def _build_ns_status(cma: Any) -> dict[str, Any]:
     b2 = getattr(cma, "bonds_ns_beta2_bps", None)
     lam = getattr(cma, "bonds_ns_lambda_x100", None)
     active = _all_set(b0, b1, b2, lam)
-    return {
+    invalid_reason = None
+    if active:
+        try:
+            validate_nelson_siegel_parameters(cma)
+        except CMAValidationError as exc:
+            active = False
+            invalid_reason = str(exc)
+    result = {
         "model_key": "nelson_siegel",
         "label": "Nelson-Siegel Yield-Curve (Bonds)",
         "active": active,
@@ -75,8 +104,12 @@ def _build_ns_status(cma: Any) -> dict[str, Any]:
             "lambda_x100": lam,
         },
         "applies_to": "bonds",
-        "activation_rule": "alle 4 Felder gesetzt",
+        "activation_rule": "alle 4 Felder gesetzt UND wertebereichsgueltig",
     }
+    if invalid_reason is not None:
+        result["blocker_reason"] = "invalid_parameters"
+        result["invalid_detail"] = invalid_reason
+    return result
 
 
 def _build_kgv_status(cma: Any) -> dict[str, Any]:
@@ -85,7 +118,14 @@ def _build_kgv_status(cma: Any) -> dict[str, Any]:
     fair = getattr(cma, "equity_kgv_fair_x10", None)
     alpha = getattr(cma, "equity_kgv_alpha_x100", None)
     active = _all_set(cur, fair, alpha)
-    return {
+    invalid_reason = None
+    if active:
+        try:
+            validate_equity_kgv_parameters(cma)
+        except CMAValidationError as exc:
+            active = False
+            invalid_reason = str(exc)
+    result = {
         "model_key": "kgv_mean_reversion",
         "label": "KGV-Mean-Reversion (Equity)",
         "active": active,
@@ -96,8 +136,12 @@ def _build_kgv_status(cma: Any) -> dict[str, Any]:
             "alpha_x100": alpha,
         },
         "applies_to": "equity",
-        "activation_rule": "alle 3 Felder gesetzt",
+        "activation_rule": "alle 3 Felder gesetzt UND wertebereichsgueltig",
     }
+    if invalid_reason is not None:
+        result["blocker_reason"] = "invalid_parameters"
+        result["invalid_detail"] = invalid_reason
+    return result
 
 
 def _build_risk_premia_status(
