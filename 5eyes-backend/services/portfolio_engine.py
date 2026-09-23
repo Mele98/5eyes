@@ -66,7 +66,7 @@ from services.wealth_position_semantics import (
     require_supported_position_assignment,
 )
 from services.product_market_data import resolve_market_profile, validate_default_product_market_coverage
-from services.planning_horizon import life_expectancy_year_for
+from services.mortality.horizon import life_expectancy_year_from_mandate
 from services.jurisdiction.de_seed import (
     DE_DEFAULT_BONDS_DURATION,
     DE_DEFAULT_EQUITIES_GEO,
@@ -4879,7 +4879,15 @@ def evaluate_goal_sensitivity(
         # implementation minimum (7 years) and an explicit/lifecycle-derived
         # life-expectancy end remain real independent floors; unaffected goals
         # are already represented by unaffected_goal_horizon above.
-        life_year = life_expectancy_year_for(mandate=mandate)
+        # Kontrollrunde 2026-09-23 (Phase 2, Mortalitaetsmodell-
+        # Vereinheitlichung): planning_horizon.life_expectancy_year_for()
+        # (flach, Geburtsjahr+Konstante) durch die genauere BFS-2020-2022-
+        # Sterbetafel (alters-bedingt) ersetzt -- vermeidet den bis zu
+        # 6-Jahre-Unterschied, siehe Kontrollrunde-2026-09-21-Analyse. Reiner
+        # interner Modell-Floor, nicht direkt client-sichtbar.
+        life_year = life_expectancy_year_from_mandate(
+            mandate, client=getattr(mandate, "client", None),
+        )
         life_horizon = (
             max(0, int(life_year) - date.today().year + 1)
             if life_year is not None
