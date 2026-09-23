@@ -11,6 +11,23 @@ Post-U-28+29
 - validate_override_reason_quality(reason) raises auf 4 Codes
 
 FIDLEG Art. 13 verlangt nachvollziehbare Dokumentation.
+
+Kontrollrunde 2026-09-21 (Heuristik-Haertung)
+----------------------------------------------
+Der urspruengliche "meaningful word"-Test zaehlte jedes >= 4 Zeichen
+lange `\\w`-Token -- `\\w` matcht aber auch Ziffern und Unterstrich, nicht
+nur Buchstaben. Dadurch bestanden reine Ziffern-/Unterstrich-Fuellungen
+("111111 222222 333333", "_______ _______ _______") sowie reine
+Zeichen-Wiederholung ("aaaa aaaa aaaa") die Pruefung, obwohl sie keine
+einzige echte Silbe enthalten. Zusaetzlich pruefte der Blacklist-Check
+nur exakte Gleichheit mit einer Floskel -- eine Floskel drei Mal
+aneinandergereiht ("kundenwunsch kundenwunsch kundenwunsch") umging ihn
+und erfuellte gleichzeitig zufaellig die Wortanzahl-Schwelle. Fix:
+- Wort-Tokenizer zaehlt nur Buchstaben (`[^\\W\\d_]+`, keine Ziffern/
+  Unterstriche mehr), UND verlangt >= 2 verschiedene Zeichen pro Token
+  (blockt reine Wiederholung wie "aaaa").
+- Blacklist-Check erkennt zusaetzlich Text, der ausschliesslich aus
+  Wiederholungen EINER Blacklist-Floskel besteht.
 """
 from __future__ import annotations
 
@@ -51,9 +68,37 @@ def _normalize_for_phrase_check(text: str) -> str:
 
 
 def _meaningful_word_count(text: str) -> int:
-    """Anzahl Worte mit mindestens 4 Zeichen."""
-    tokens = re.findall(r"[\wäöüÄÖÜß]+", text, flags=re.UNICODE)
-    return sum(1 for t in tokens if len(t) >= 4)
+    """Anzahl Worte mit mindestens 4 Buchstaben UND mindestens 2
+    verschiedenen Zeichen.
+
+    `[^\\W\\d_]+` matcht Unicode-Buchstaben (inkl. Umlaute) und schliesst
+    Ziffern/Unterstrich aus -- reine Ziffern-/Unterstrich-Fuellungen
+    zaehlen damit nicht mehr als "Wort". Der Distinct-Zeichen-Check
+    blockt zusaetzlich reine Zeichen-Wiederholung ("aaaa"), die technisch
+    die Laengenschwelle erfuellt aber kein Wort ist.
+    """
+    tokens = re.findall(r"[^\W\d_]+", text, flags=re.UNICODE)
+    return sum(
+        1 for t in tokens
+        if len(t) >= 4 and len(set(t.lower())) >= 2
+    )
+
+
+def _is_pure_repetition_of_blacklisted_phrase(normalized: str) -> bool:
+    """True wenn der (bereits normalisierte) Text ausschliesslich aus
+    einer oder mehreren Wiederholungen EINER Floskel aus der Blacklist
+    besteht (z.B. "kundenwunsch kundenwunsch kundenwunsch") -- umgeht
+    sonst den reinen Exact-Match-Vergleich und erfuellt durch die
+    Wiederholung zufaellig auch die Wortanzahl-Schwelle."""
+    if not normalized:
+        return False
+    for phrase in GENERIC_PHRASE_BLACKLIST:
+        pattern = re.compile(
+            rf"(?:{re.escape(phrase)})(?:\s+{re.escape(phrase)})*"
+        )
+        if pattern.fullmatch(normalized):
+            return True
+    return False
 
 
 def validate_override_reason_quality(
@@ -86,7 +131,10 @@ def validate_override_reason_quality(
         )
 
     normalized = _normalize_for_phrase_check(text)
-    if normalized in GENERIC_PHRASE_BLACKLIST:
+    if (
+        normalized in GENERIC_PHRASE_BLACKLIST
+        or _is_pure_repetition_of_blacklisted_phrase(normalized)
+    ):
         raise OverrideReasonQualityError(
             f"override_reason '{text!r}' ist eine generische Floskel. "
             f"Bitte konkret begruenden warum das Profil vom Fragebogen "
