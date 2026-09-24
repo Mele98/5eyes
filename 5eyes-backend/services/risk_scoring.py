@@ -55,7 +55,14 @@ HORIZON_YEARS = {
     "1 bis 3 Jahre": 2,
     "3 bis 5 Jahre": 4,
     "5 bis 10 Jahre": 6,
-    "10 Jahre und mehr": 15,
+    # Kontrollrunde 2026-09-23: "10 Jahre und mehr" umfasst woertlich auch
+    # 10-11 Jahre, die NICHT "mehr als 12 Jahre" sind. Jedes andere Legacy-
+    # Label rundet konservativ AB in den naechstliegenden Bucket (z.B.
+    # "5 bis 10 Jahre" -> 6 statt 10) -- dieses Label rundete bisher als
+    # einziges AUF in den aggressivsten Bucket (15 statt 9), identisch zum
+    # bereits abgedeckten "12 Jahre und mehr". Konservativ korrekt ist
+    # "8 bis 11 Jahre" (9), das 10-11 Jahre tatsaechlich abdeckt.
+    "10 Jahre und mehr": 9,
 }
 
 CANONICAL_HORIZON_LABELS = {
@@ -71,7 +78,7 @@ CANONICAL_HORIZON_LABELS = {
     "1 bis 3 Jahre": "2 bis 3 Jahre",
     "3 bis 5 Jahre": "4 bis 5 Jahre",
     "5 bis 10 Jahre": "6 bis 7 Jahre",
-    "10 Jahre und mehr": "Mehr als 12 Jahre",
+    "10 Jahre und mehr": "8 bis 11 Jahre",
 }
 
 # Risk capacity profile → numeric band (1–5)

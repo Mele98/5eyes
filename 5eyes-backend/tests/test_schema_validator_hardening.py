@@ -249,3 +249,29 @@ def test_rt1_known_horizon_label_accepted():
         q_risk_behavior_points=2,
     )
     assert res is not None
+
+
+def test_rt1_10_jahre_und_mehr_maps_conservative_not_aggressive():
+    """Kontrollrunde 2026-09-23: "10 Jahre und mehr" deckt woertlich auch
+    10-11 Jahre ab, die NICHT "mehr als 12 Jahre" sind. Anders als jedes
+    andere Legacy-Label (das konservativ ABrundet, z.B. "5 bis 10 Jahre" ->
+    6 statt 10) rundete dieses Label bisher als einziges AUF in den
+    aggressivsten Bucket (15 statt 9 Jahre) -- identisch zu "12 Jahre und
+    mehr", obwohl es den Bucket "8 bis 11 Jahre" (9) uebersprang. Zwei
+    ansonsten identische Klienten durften dadurch in unterschiedlichsten
+    Profilen landen, je nachdem welches (fachlich ueberlappende)
+    Fragebogen-Label gewaehlt wurde."""
+    kwargs = dict(
+        q_income_points=4, q_obligations_points=0,
+        q_savings_points=12, q_wealth_points=12,
+        q_investment_goal_points=4, q_risk_preference_points=4,
+        q_risk_behavior_points=4,
+    )
+    conservative = compute_scores(investment_horizon_label="8 bis 11 Jahre", **kwargs)
+    legacy = compute_scores(investment_horizon_label="10 Jahre und mehr", **kwargs)
+    aggressive = compute_scores(investment_horizon_label="12 Jahre und mehr", **kwargs)
+
+    assert legacy.risk_capacity_score_x10 == conservative.risk_capacity_score_x10
+    assert legacy.final_profile == conservative.final_profile
+    assert legacy.risk_capacity_score_x10 != aggressive.risk_capacity_score_x10
+    assert legacy.final_profile != aggressive.final_profile
