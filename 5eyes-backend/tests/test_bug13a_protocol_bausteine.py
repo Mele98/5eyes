@@ -339,3 +339,87 @@ def test_mandate_selektion_400_bei_unbekannter_id(session_factory, advisor_user)
         )
         assert resp.status_code == 400
     app.dependency_overrides.clear()
+
+
+# ---------------------------------------------------------------------------
+# Kontrollrunde 2026-09-24: Audit-Log-Eintraege fuer Baustein-CRUD/Mandate-
+# Selektion wurden bisher per hand-gerolltem AuditLog(...)-Insert erzeugt,
+# OHNE sequence/previous_hash/integrity_hash (Hash-Chain, siehe services/
+# audit.py) und OHNE tenant_id. Diese Tests verifizieren, dass beide jetzt
+# korrekt gesetzt werden (canonical services.audit.log()-Pfad).
+# ---------------------------------------------------------------------------
+
+
+def test_baustein_create_writes_hash_chained_audit_entry(session_factory):
+    advisor = User(
+        id="advisor-audit", username="advisor-audit", password_hash="h",
+        full_name="Advisor Audit", role="advisor", is_active=1,
+        tenant_id="firm-A", created_at=_utc_now(), updated_at=_utc_now(),
+    )
+    with session_factory() as db:
+        db.add(advisor)
+        db.commit()
+
+    with _client_for(session_factory, advisor) as c:
+        resp = c.post(
+            "/protocol-bausteine",
+            json={"title": "Audit Test", "content_md": "x"},
+        )
+        assert resp.status_code == 201, resp.text
+        baustein_id = resp.json()["id"]
+    app.dependency_overrides.clear()
+
+    with session_factory() as db:
+        row = (
+            db.query(AuditLog)
+            .filter(AuditLog.table_name == "protocol_bausteine", AuditLog.record_id == baustein_id)
+            .one()
+        )
+        assert row.action == "CREATE"
+        # Kern des Funds: sequence/integrity_hash muessen gesetzt sein (der
+        # hand-gerollte Insert liess beide NULL -> von verify_audit_chain()
+        # dauerhaft ausgeschlossen).
+        assert row.sequence is not None
+        assert row.integrity_hash
+        # tenant_id muss vom Akteur uebernommen werden (vorher immer NULL ->
+        # fuer einen tenant-gebundenen Admin im Audit-Log unsichtbar).
+        assert row.tenant_id == "firm-A"
+
+
+def test_mandate_selection_replace_writes_mandate_and_client_scoped_audit_entry(
+    session_factory, advisor_user,
+):
+    mandate_id = _seed_mandate(session_factory, advisor_user)
+    with session_factory() as db:
+        db.add(ProtocolBaustein(
+            id="b-audit", advisor_id="advisor-1", title="A", content_md="aa",
+            sort_order=0, is_active=1, created_at=_utc_now(), updated_at=_utc_now(),
+        ))
+        db.commit()
+
+    with _client_for(session_factory, advisor_user) as c:
+        resp = c.put(
+            f"/mandates/{mandate_id}/protocol-bausteine",
+            json={"selections": [{"baustein_id": "b-audit", "sort_order": 0}]},
+        )
+        assert resp.status_code == 200, resp.text
+    app.dependency_overrides.clear()
+
+    with session_factory() as db:
+        row = (
+            db.query(AuditLog)
+            .filter(
+                AuditLog.table_name == "mandate_baustein_selections",
+                AuditLog.record_id == mandate_id,
+                AuditLog.action == "REPLACE",
+            )
+            .one()
+        )
+        assert row.sequence is not None
+        assert row.integrity_hash
+        # mandate_id/client_id muessen gesetzt sein, damit ein tenant-
+        # gebundener (nicht super_admin) Admin diesen Eintrag ueber die
+        # bestehende client_id/mandate_id-Sichtbarkeitsregel in
+        # routers/system.py::get_audit_log ueberhaupt sehen kann.
+        assert row.mandate_id == mandate_id
+        assert row.client_id == "cli-1"
