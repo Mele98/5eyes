@@ -121,7 +121,8 @@ def _provider_meta(name: str | None) -> dict[str, Any] | None:
             "api_key_optional": False,
             "api_key_present": None,
             "contract_required": False,
-            "configured": True,
+            "configured": False,
+            "recognized": False,
             "scope": None,
         }
     api_key_setting = entry.get("api_key_setting")
@@ -145,6 +146,7 @@ def _provider_meta(name: str | None) -> dict[str, Any] | None:
         "api_key_present": api_key_present,
         "contract_required": contract_required,
         "configured": configured,
+        "recognized": True,
         "scope": entry.get("scope"),
     }
 
@@ -186,6 +188,8 @@ def _role_payload(
 def _provider_requirement_issue(meta: dict[str, Any] | None) -> str | None:
     if not meta:
         return None
+    if not meta.get("recognized", True):
+        return "Provider-Name unbekannt (Tippfehler in Settings?)"
     if meta.get("contract_required") and not meta.get("api_key_present"):
         return "Vertrag/API-Key fehlt"
     if meta.get("api_key_required") and not meta.get("api_key_present"):

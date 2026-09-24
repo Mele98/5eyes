@@ -359,6 +359,53 @@ def test_openfigi_mapping_preview_normalizes_isin_candidates(monkeypatch):
     assert result["candidates"][0]["ticker"] == "IBM"
 
 
+def test_openfigi_mapping_preview_normalizes_space_separated_ticker(monkeypatch):
+    """Kontrollrunde 2026-09-23: OpenFIGI liefert fuer nicht-US-Listings den
+    Ticker im Bloomberg-Space-Format ("UBSG SW"). services.product_market_data
+    erkennt nur '.', ':', '/', '=' als expliziten Market-Suffix -- ein rohes
+    Leerzeichen fuehrt dazu, dass beim Preisabruf ein zweiter Suffix
+    angehaengt wird ("UBSG SW" + Exchange "SW" -> "UBSG SW.SW", fuer keinen
+    Provider aufloesbar). Der Kandidat muss daher bereits hier auf die
+    Yahoo-Style-Notation ("UBSG.SW") normalisiert werden, identisch zur
+    bereits korrekten Normalisierung in
+    services/market_data/providers/openfigi_provider.py."""
+    import services.openfigi_client as openfigi_client
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self):
+            return json.dumps(
+                [
+                    {
+                        "data": [
+                            {
+                                "figi": "BBG00ABCDEFG",
+                                "ticker": "UBSG SW",
+                                "name": "UBS GROUP AG",
+                                "exchCode": "SW",
+                                "compositeFIGI": "BBG00COMP",
+                                "securityType": "Common Stock",
+                            }
+                        ]
+                    }
+                ]
+            ).encode("utf-8")
+
+    def fake_urlopen(request, timeout=15):
+        return FakeResponse()
+
+    monkeypatch.setattr(openfigi_client, "urlopen", fake_urlopen)
+
+    result = preview_openfigi_mapping(isin="CH0244767585", currency="CHF")
+
+    assert result["candidates"][0]["ticker"] == "UBSG.SW"
+
+
 def test_openfigi_mapping_preview_requires_basis():
     with pytest.raises(ValueError):
         preview_openfigi_mapping()

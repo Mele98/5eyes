@@ -49,10 +49,27 @@ def _build_mapping_job(
     return job
 
 
+def _normalize_ticker(raw_ticker: Any) -> str | None:
+    """OpenFIGI liefert ticker fuer nicht-US-Listings als "UBSG SW"
+    (Bloomberg-Space-Notation). services/product_market_data.py erkennt
+    nur '.', ':', '/', '=' als expliziten Market-Suffix -- ein rohes
+    Leerzeichen wird NICHT erkannt, wodurch beim Preisabruf ein zweiter
+    Suffix angehaengt wird ("UBSG SW" + Exchange "SW" -> "UBSG SW.SW",
+    fuer keinen Provider aufloesbar). Analog zur bereits korrekten
+    Normalisierung in services/market_data/providers/openfigi_provider.py.
+    """
+    ticker = str(raw_ticker or "").strip() or None
+    if ticker and " " in ticker:
+        base, _sep, suffix = ticker.rpartition(" ")
+        if base and suffix:
+            ticker = f"{base}.{suffix}"
+    return ticker
+
+
 def _candidate_payload(item: dict[str, Any]) -> dict[str, Any]:
     return {
         "figi": item.get("figi"),
-        "ticker": item.get("ticker"),
+        "ticker": _normalize_ticker(item.get("ticker")),
         "name": item.get("name"),
         "exch_code": item.get("exchCode"),
         "composite_figi": item.get("compositeFIGI"),
