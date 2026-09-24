@@ -309,6 +309,18 @@ def test_absent_correlation_uses_same_canonical_default_in_both_engines():
             json.dumps({"Aktien Schweiz": {"expected_retrun_bps": 650}}),
             "unknown fields",
         ),
+        (
+            # Kontrollrunde 2026-09-24: Sub-Asset-Class-JSON hatte bisher
+            # NUR eine untere Schranke -- ein Tippfehler (Prozent statt
+            # Basispunkte) floss unbegrenzt in jede nachfolgende
+            # Optimierung ein.
+            json.dumps({"Aktien Schweiz": {"expected_return_bps": 500_000}}),
+            "unplausibel hoch",
+        ),
+        (
+            json.dumps({"Aktien Schweiz": {"expected_volatility_bps": 500_000}}),
+            "unplausibel hoch",
+        ),
     ],
 )
 def test_schema_rejects_invalid_sub_cma_payload(payload, error_fragment):
@@ -317,6 +329,32 @@ def test_schema_rejects_invalid_sub_cma_payload(payload, error_fragment):
             valid_from="2026-01-01",
             sub_asset_class_assumptions_json=payload,
         )
+
+
+def test_weighted_bucket_metrics_rejects_fat_finger_sub_cma_return():
+    """Kontrollrunde 2026-09-24: _weighted_bucket_metrics() (der tatsaech-
+    liche Runtime-Konsument der Sub-CMA-JSON, services/portfolio_engine_
+    cma.py) blendete einen unplausiblen Sub-Asset-Class-Return bisher
+    unbegrenzt in die Bucket-Metriken ein -- reproduziert das exakte
+    Audit-Beispiel (999999999 bps sollte VOR dieser Fix unrejected
+    durchgehen)."""
+    from services.cma_validation import CMAValidationError
+    from services.portfolio_engine_cma import _weighted_bucket_metrics
+
+    cma = _cma(
+        sub_asset_class_assumptions_json=json.dumps({
+            "Aktien Schweiz": {
+                "asset_class": "Aktien",
+                "expected_return_bps": 999_999_999,
+                "expected_volatility_bps": 100,
+            }
+        })
+    )
+    sub_allocations = [
+        {"asset_class": "Aktien", "sub_asset_class": "Aktien Schweiz", "target_weight_bps": 10_000}
+    ]
+    with pytest.raises(CMAValidationError, match="unplausibel hoch"):
+        _weighted_bucket_metrics(cma, sub_allocations)
 
 
 def test_sub_cma_explicit_zero_is_preserved_instead_of_defaulted():

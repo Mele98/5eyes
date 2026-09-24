@@ -524,6 +524,19 @@ def parse_sub_asset_class_assumptions_json(
                     f"sub_asset_class_assumptions_json[{label!r}]"
                     ".expected_return_bps must be greater than -100%."
                 )
+            # Kontrollrunde 2026-09-24: dieselbe Obergrenze wie fuer
+            # Bucket-Level-Felder (validate_runtime_cma_completeness,
+            # CapitalMarketAssumptionCreate) -- die Sub-Asset-Class-JSON
+            # hatte bisher NUR eine untere Schranke. Ein Tippfehler (Prozent
+            # statt Basispunkte) floss hier unbegrenzt in _weighted_bucket_
+            # metrics() und damit in jede nachfolgende Optimierung ein.
+            if return_bps > RUNTIME_RETURN_MAX_BPS:
+                raise CMAValidationError(
+                    f"sub_asset_class_assumptions_json[{label!r}]"
+                    f".expected_return_bps={return_bps} unplausibel hoch "
+                    f"(Maximum {RUNTIME_RETURN_MAX_BPS} bps / +100%) -- "
+                    "Tippfehler pruefen."
+                )
 
         if volatility_value is None:
             if require_complete:
@@ -544,6 +557,13 @@ def parse_sub_asset_class_assumptions_json(
                 raise CMAValidationError(
                     f"sub_asset_class_assumptions_json[{label!r}]"
                     ".expected_volatility_bps must be non-negative."
+                )
+            if volatility_bps > RUNTIME_VOL_MAX_BPS:
+                raise CMAValidationError(
+                    f"sub_asset_class_assumptions_json[{label!r}]"
+                    f".expected_volatility_bps={volatility_bps} unplausibel "
+                    f"hoch (Maximum {RUNTIME_VOL_MAX_BPS} bps / 200%) -- "
+                    "Tippfehler pruefen."
                 )
 
         # Schema validation may intentionally validate a partial historical
