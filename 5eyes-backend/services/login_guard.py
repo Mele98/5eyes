@@ -45,6 +45,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.schema import CreateIndex, CreateTable
 
 from config import settings
+from services.tenant_context import is_postgres_bind
 
 logger = logging.getLogger(__name__)
 
@@ -265,10 +266,30 @@ class LoginAttemptGuard:
 
         try:
             # EINE Transaktion: cleanup -> insert -> count -> (upsert lockout).
-            # Damit zaehlt register_failure auch unter parallelen Aufrufen
-            # korrekt (die Transaktion serialisiert die konkurrierenden
-            # Insert/Count-Sequenzen; SQLite sperrt beim Schreiben).
+            # Kontrollrunde 2026-09-24: der Kommentar "die Transaktion
+            # serialisiert die konkurrierenden Insert/Count-Sequenzen" gilt
+            # NUR fuer SQLite (Datei-Lock beim Schreiben). Unter PostgreSQLs
+            # Standard-Isolation (READ COMMITTED) sieht eine laufende
+            # Transaktion die INSERTs anderer, noch nicht committeter
+            # Transaktionen nicht -- mehrere gleichzeitige register_failure()-
+            # Aufrufe fuer denselben Key (z.B. ein paralleler Credential-
+            # Stuffing-Burst) koennen dadurch alle einen Count unterhalb des
+            # Limits sehen, obwohl die kumulierte Anzahl das Limit laengst
+            # ueberschritten hat -- der Lockout wird effektiv umgangen.
+            # pg_advisory_xact_lock() serialisiert konkurrierende Transaktionen
+            # mit demselben Key echt (blockiert bis zum Commit/Rollback der
+            # haltenden Transaktion, wird am Transaktionsende automatisch
+            # freigegeben) -- funktioniert auch OHNE eine bereits existierende
+            # Zeile zu sperren (anders als FOR UPDATE, das eine Zeile braucht).
+            # hashtext() bildet den beliebig langen Key auf eine int4-Lock-ID
+            # ab; SQLite kennt diese Funktion nicht und braucht sie wegen des
+            # Datei-Locks auch nicht.
             with self._bind().begin() as conn:
+                if is_postgres_bind(conn):
+                    conn.execute(
+                        text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
+                        {"key": normalized},
+                    )
                 self._ensure_tables(conn)
                 self._cleanup(conn, normalized, ws_iso, now_iso)
                 conn.execute(
