@@ -81,6 +81,34 @@ def test_create_support_bundle_redacts_sec001_previously_leaked_fields(tmp_path,
             assert leaked not in raw_json
 
 
+def test_create_support_bundle_redacts_backup_hmac_key(tmp_path, monkeypatch):
+    """Kontrollrunde 2026-09-24: backup_hmac_key (SEC-007, die HMAC-
+    Signierschluessel fuer Backup-Authentizitaet) fehlte in der Blocklist
+    -- landete im Klartext in JEDEM Support-Bundle. Ein Angreifer mit
+    Zugriff auf ein geteiltes Bundle haette damit ein manipuliertes Backup
+    so signieren koennen, dass die SEC-007-Pruefung es faelschlich als
+    authentisch akzeptiert."""
+    db_file = tmp_path / '5eyes.db'
+    db_file.write_text('placeholder', encoding='utf-8')
+    log_dir = tmp_path / 'logs'
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_file = log_dir / '5eyes-app.log'
+    log_file.write_text('no sensitive lines here\n', encoding='utf-8')
+
+    monkeypatch.setattr(settings, 'db_path', str(db_file))
+    monkeypatch.setattr(settings, 'backup_hmac_key', 'SUPER-SECRET-HMAC-KEY-1234567890')
+    monkeypatch.setattr('services.maintenance.resolve_log_file', lambda: log_file)
+
+    result = create_support_bundle()
+    bundle_path = Path(result['bundle_file'])
+
+    with zipfile.ZipFile(bundle_path, 'r') as zf:
+        payload = json.loads(zf.read('system-info.json').decode('utf-8'))
+        assert payload['settings']['backup_hmac_key'] == '***REDACTED***'
+        raw_json = zf.read('system-info.json').decode('utf-8')
+        assert 'SUPER-SECRET-HMAC-KEY-1234567890' not in raw_json
+
+
 def test_redact_log_lines_scrubs_invite_token_from_path():
     """PRIV-006 (Codex-Audit 2026-08-14): GET /auth/invite/{token} traegt das
     Einladungs-Token als rohen Pfad-Abschnitt (kein 'Bearer '-Praefix, kein
