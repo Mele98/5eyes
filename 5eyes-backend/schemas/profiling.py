@@ -200,6 +200,11 @@ class SuitabilityCheckCreate(BaseModel):
     document_id: Optional[str] = None
     recommendation_run_id: Optional[str] = None
     advisory_log_id: Optional[str] = None
+    # DATA-CLASSIFICATION-GATE-COVERAGE-002 (Kontrollrunde 2026-09-24):
+    # Phase-0-Gate fehlte fuer Eignungs-/Angemessenheitspruefungen --
+    # result_notes ist Freitext, identisches Muster wie AdvisoryLog/
+    # ContractDocument/ConflictDisclosure (Generalaudit 2026-07-25).
+    data_classification: Literal["synthetic", "real"] = "synthetic"
 
     @model_validator(mode="after")
     def validate_warning(self):
