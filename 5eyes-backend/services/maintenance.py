@@ -45,8 +45,19 @@ _SENSITIVE_SETTING_KEYS = {
     'tenant_master_kek',
     'market_data_alert_webhook_url',
     'telemetry_dsn',
+    # Kontrollrunde 2026-09-24: backup_hmac_key (SEC-007, 2026-08-26) ist die
+    # HMAC-Signierschluessel, die Backup-Authentizitaet garantiert -- exakt
+    # dieselbe Klasse Geheimnis wie secret_key/db_key oben, aber beim
+    # Einfuehren nie hier ergaenzt. Landete dadurch im Klartext in JEDEM
+    # Support-Bundle (build_redacted_settings_snapshot() wird direkt in
+    # system-info.json geschrieben); ein Angreifer mit Zugriff auf ein
+    # geteiltes Bundle koennte damit ein manipuliertes Backup so signieren,
+    # dass die SEC-007-Authentizitaetspruefung es faelschlich akzeptiert.
+    'backup_hmac_key',
 }
-_SENSITIVE_SETTING_SUBSTRINGS = ('password', 'secret', 'api_key', 'kek', 'webhook', 'dsn')
+# 'hmac' ergaenzt: deckt kuenftige *_hmac_*-Settings standardmaessig ab,
+# ohne dass jede neue Variante hier einzeln nachgetragen werden muss.
+_SENSITIVE_SETTING_SUBSTRINGS = ('password', 'secret', 'api_key', 'kek', 'webhook', 'dsn', 'hmac')
 # PRIV-006 (Codex-Audit 2026-08-14): GET /auth/invite/{token} (routers/auth.py)
 # traegt das Einladungs-Token als rohen URL-PFAD-Abschnitt (kein Query-Param,
 # kein Header). RequestContextMiddleware (core/middleware.py) loggt
