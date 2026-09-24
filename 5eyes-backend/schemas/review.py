@@ -868,11 +868,17 @@ class ProductImportResponse(BaseModel):
 class ProductUniverseEntryCreate(BaseModel):
     jurisdiction: str
     product_id: str
-    override_ter_bps: Optional[int] = None
+    # Kontrollrunde 2026-09-23: analog zum ter_bps-Fund (siehe oben) --
+    # override_ter_bps fliesst ebenso in den FIDLEG-Kostenausweis
+    # (services/cost_disclosure.py). Ohne Bounds wurde ein negativer Wert
+    # von _optional_non_negative_int() auf 0 geklemmt statt als "unbekannt"
+    # behandelt -- ein Produkt erschien dann faelschlich als vollstaendig
+    # bekannt UND kostenlos, ohne Warnung.
+    override_ter_bps: Optional[int] = Field(default=None, ge=0, le=1000)
 
 
 class ProductUniverseEntryUpdate(BaseModel):
-    override_ter_bps: Optional[int] = None
+    override_ter_bps: Optional[int] = Field(default=None, ge=0, le=1000)
 
 
 class ProductUniverseEntryResponse(BaseResponse):
