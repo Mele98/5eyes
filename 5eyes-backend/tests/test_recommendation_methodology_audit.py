@@ -59,13 +59,38 @@ def _stub_mandate(mid: str = "MX-TEST"):
     return m
 
 
-def _stub_db(runs):
+def _stub_db(runs, current_run_id=None):
+    """STALE-OPTIMIZER-RUN-MISATTRIBUTION-001 (Kontrollrunde 2026-09-24):
+    audit_recommendation_methodology() fragt jetzt zusaetzlich die AKTUELLE
+    TargetAllocation ab und nutzt deren optimization_run_id, um den
+    massgeblichen 'latest_active_run' zu bestimmen (statt blind den
+    juengsten OptimizerRun mit role='active'). Der Stub muss deshalb
+    zwischen den beiden Modell-Queries unterscheiden -- `current_run_id`
+    simuliert TargetAllocation.optimization_run_id der aktuellen Allokation
+    (None = house_matrix-/noch keine Allokation, kein Run massgeblich)."""
+    from models.allocation import OptimizerRun, TargetAllocation
+
+    runs_chain = MagicMock()
+    runs_chain.filter.return_value = runs_chain
+    runs_chain.order_by.return_value = runs_chain
+    runs_chain.all.return_value = runs
+
+    ta_chain = MagicMock()
+    ta_chain.filter.return_value = ta_chain
+    if current_run_id:
+        ta_stub = MagicMock()
+        ta_stub.optimization_run_id = current_run_id
+        ta_chain.first.return_value = ta_stub
+    else:
+        ta_chain.first.return_value = None
+
+    def _query(model, *args, **kwargs):
+        if model is TargetAllocation:
+            return ta_chain
+        return runs_chain
+
     db = MagicMock()
-    query_chain = MagicMock()
-    query_chain.filter.return_value = query_chain
-    query_chain.order_by.return_value = query_chain
-    query_chain.all.return_value = runs
-    db.query.return_value = query_chain
+    db.query.side_effect = _query
     return db
 
 
@@ -186,7 +211,7 @@ def test_audit_only_shadow_runs_is_compliant():
 def test_audit_active_converged_is_compliant():
     db = _stub_db([
         _run(role="active", status="converged"),
-    ])
+    ], current_run_id="run-001")
     result = audit_recommendation_methodology(db, _stub_mandate())
     assert result["active_count"] == 1
     assert result["latest_active_run"]["status"] == "converged"
@@ -197,7 +222,7 @@ def test_audit_active_diverged_is_NOT_compliant():
     """Aktiver Run divergiert -> Compliance-Verstoss (Berater muss reagieren)."""
     db = _stub_db([
         _run(role="active", status="diverged"),
-    ])
+    ], current_run_id="run-001")
     result = audit_recommendation_methodology(db, _stub_mandate())
     assert result["is_compliant"] is False
 
@@ -207,7 +232,7 @@ def test_audit_active_fallback_house_matrix_is_compliant():
     db = _stub_db([
         _run(role="active", status="fallback_house_matrix",
              method="fallback_house_matrix"),
-    ])
+    ], current_run_id="run-001")
     result = audit_recommendation_methodology(db, _stub_mandate())
     assert result["fallback_count"] == 1
     assert result["is_compliant"] is True
@@ -218,7 +243,7 @@ def test_audit_picks_latest_by_order():
     db = _stub_db([
         _run(id="r-newest", role="active", run_at="2026-06-01T15:00:00Z"),
         _run(id="r-older", role="active", run_at="2026-05-01T15:00:00Z"),
-    ])
+    ], current_run_id="r-newest")
     result = audit_recommendation_methodology(db, _stub_mandate())
     assert result["latest_run"]["run_id"] == "r-newest"
     assert result["latest_active_run"]["run_id"] == "r-newest"
@@ -259,6 +284,47 @@ def test_audit_no_runs_at_all_stays_compliant_and_not_degraded():
     assert result["total_runs"] == 0
     assert result["is_compliant"] is True
     assert result.get("audit_degraded") is not True
+
+
+# ---------------------------------------------------------------------------
+# STALE-OPTIMIZER-RUN-MISATTRIBUTION-001 (Kontrollrunde 2026-09-24)
+# ---------------------------------------------------------------------------
+
+def test_audit_does_not_attribute_stale_active_run_to_current_allocation():
+    """Kern-Repro: ein aelterer stochastic-Run mit role='active' existiert
+    noch (z.B. aus einer laengst superseded Allokation), aber die AKTUELLE
+    TargetAllocation zeigt auf gar keinen Run (house_matrix-Modus). Der
+    Audit darf den alten Run NICHT als Herleitung der aktuellen Empfehlung
+    ausweisen."""
+    db = _stub_db([
+        _run(id="stale-active-run", role="active", status="converged",
+             run_at="2026-01-01T00:00:00Z"),
+    ], current_run_id=None)
+    result = audit_recommendation_methodology(db, _stub_mandate())
+    assert result["latest_active_run"] is None
+    # latest_run (juengster Run ueberhaupt, unabhaengig von Zuordnung)
+    # bleibt zu Diagnosezwecken weiterhin sichtbar.
+    assert result["latest_run"]["run_id"] == "stale-active-run"
+    # Kein aktiver, der aktuellen Allokation zugeordneter Run -> weiterhin
+    # als "OK" gewertet (identisch zum Shadow-Only-Fall), NICHT als
+    # faelschlich konvergiert/fallback-akzeptabel ausgewiesen.
+    assert result["is_compliant"] is True
+
+
+def test_audit_attributes_correct_active_run_when_multiple_exist():
+    """Gegenprobe: existieren mehrere aktive Runs (Historie ueber mehrere
+    Stochastic-Zyklen), muss genau der Run zugeordnet werden, auf den die
+    AKTUELLE TargetAllocation zeigt -- nicht zwingend der zeitlich
+    juengste."""
+    db = _stub_db([
+        _run(id="r-newer-but-superseded", role="active", status="diverged",
+             run_at="2026-06-01T00:00:00Z"),
+        _run(id="r-actually-current", role="active", status="converged",
+             run_at="2026-05-01T00:00:00Z"),
+    ], current_run_id="r-actually-current")
+    result = audit_recommendation_methodology(db, _stub_mandate())
+    assert result["latest_active_run"]["run_id"] == "r-actually-current"
+    assert result["is_compliant"] is True
 
 
 # ---------------------------------------------------------------------------
