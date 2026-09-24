@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from models.mandates import Mandate
 from models.tenant import Tenant
 from models.users import User
+from services.tenant_context import is_postgres_bind
 
 QuotaKind = Literal["users", "mandates"]
 
@@ -22,12 +23,28 @@ def assert_within_quota(db: Session, tenant_id: str | None, kind: QuotaKind) -> 
     tid = str(tenant_id or "").strip()
     if not tid:
         return
-    tenant = (
-        db.query(Tenant)
-        .filter(Tenant.id == tid, Tenant.deleted_at.is_(None))
-        .first()
-    )
+    # Kontrollrunde 2026-09-24: FOR UPDATE auf der Tenant-Zeile serialisiert
+    # konkurrierende Aufrufe fuer denselben Tenant -- ohne diese Sperre
+    # koennten zwei gleichzeitige Requests beide den COUNT() VOR dem Insert
+    # des jeweils anderen lesen und beide die Pruefung bestehen, wodurch das
+    # Quota-Limit um beliebig viele Eintraege ueberschritten werden kann
+    # (identisches Race-Muster wie bereits an anderen Stellen in dieser
+    # Codebase mit with_for_update() geschlossen, z.B. services/
+    # tenant_crypto.py, routers/jurisdiction.py, routers/wealth.py). Auf
+    # SQLite (Single-Writer, serialisiert) ist die Sperre wirkungslos aber
+    # harmlos; is_postgres_bind() gated sie analog zum etablierten Muster.
+    tenant_query = db.query(Tenant).filter(Tenant.id == tid, Tenant.deleted_at.is_(None))
+    if is_postgres_bind(db):
+        tenant_query = tenant_query.with_for_update()
+    tenant = tenant_query.first()
     if tenant is None:
+        # Kein Tenant-Datensatz fuer diesen tenant_id (z.B. Tier-1/Legacy-
+        # Pfad ohne persistierte Tenant-Zeile) -- bleibt bewusst ein No-Op,
+        # identisch zum bisherigen Verhalten. Verifiziert reachable/
+        # legitim durch bestehende Tests (test_mandate_tenant_inheritance.py
+        # u.a.), die einen Mandate/User mit tenant_id OHNE zugehoerige
+        # Tenant-Zeile anlegen -- ein Fail-Closed hier wuerde diese
+        # etablierte, unterstuetzte Konfiguration brechen.
         return
     if kind == "users":
         limit = _quota_limit(getattr(tenant, "max_users", None))
