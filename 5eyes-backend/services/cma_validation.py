@@ -17,6 +17,16 @@ import numpy as np
 
 CORRELATION_DIMENSION = 5
 NELSON_SIEGEL_DEFAULT_MATURITY_YEARS = 5.0
+# Kontrollrunde 2026-09-23: validate_runtime_cma_completeness() pruefte bisher
+# nur eine UNTERE Schranke (Rendite > -100%, Volatilitaet >= 0) -- keine
+# Obergrenze. Ein Tippfehler bei der Eingabe (z.B. "5000%" statt "50%", oder
+# zusaetzliche Nullen) passierte damit klaglos und floss unbegrenzt in jede
+# nachfolgende Optimierung/Monte-Carlo-Simulation ein. Grosszuegig genug, um
+# jede fachlich plausible 10-Jahres-CMA-Annahme (auch fuer volatile
+# Alternative-Assets) nicht zu blockieren, aber eng genug, um eine
+# Dezimalstellen-/Prozent-vs-bps-Verwechslung zuverlaessig zu fangen.
+RUNTIME_RETURN_MAX_BPS = 10_000  # +100% p.a.
+RUNTIME_VOL_MAX_BPS = 20_000  # 200% p.a.
 _MATRIX_TOLERANCE = 1e-8
 _PSD_TOLERANCE = 1e-10
 _SUB_CMA_ENTRY_FIELDS = frozenset({
@@ -104,6 +114,12 @@ def validate_runtime_cma_completeness(cma: Any) -> None:
             raise CMAValidationError(
                 f"{field_name} muss groesser als -100 % sein."
             )
+        if value > RUNTIME_RETURN_MAX_BPS:
+            raise CMAValidationError(
+                f"{field_name}={value} unplausibel hoch (Maximum "
+                f"{RUNTIME_RETURN_MAX_BPS} bps / +100%) -- Tippfehler "
+                "(Prozent statt Basispunkte, zusaetzliche Nullen) pruefen."
+            )
     for field_name in volatility_fields:
         value = _finite_scaled_integer(
             getattr(cma, field_name), field_name=field_name
@@ -111,6 +127,12 @@ def validate_runtime_cma_completeness(cma: Any) -> None:
         if value < 0:
             raise CMAValidationError(
                 f"{field_name} darf nicht negativ sein."
+            )
+        if value > RUNTIME_VOL_MAX_BPS:
+            raise CMAValidationError(
+                f"{field_name}={value} unplausibel hoch (Maximum "
+                f"{RUNTIME_VOL_MAX_BPS} bps / 200%) -- Tippfehler "
+                "(Prozent statt Basispunkte, zusaetzliche Nullen) pruefen."
             )
 
 
