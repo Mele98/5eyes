@@ -357,6 +357,72 @@ def test_core_falls_back_to_bucket_defaults_when_cma_lacks_sub_asset_class(sessi
     assert result["data_pending"] is False
 
 
+# ---------------------------------------------------------------------------
+# REP-005 (Kontrollrunde 2026-09-25): der Fail-soft-Rueckfall auf Bucket-
+# Defaults darf NUR bei einer echten Sub-Asset-Class-Abdeckungsluecke
+# greifen -- nicht bei jeder beliebigen OptimizerInputError-Ursache.
+# ---------------------------------------------------------------------------
+
+def test_core_raises_on_asset_class_sub_asset_class_mismatch_instead_of_silently_falling_back(
+    session_factory,
+):
+    """Kern-Repro: ein sub_allocations-Eintrag deklariert eine Aktien-
+    Sub-Asset-Class ('Aktien Global', hat eine CMA-Kennzahl) faelschlich
+    unter asset_class='Obligationen'. Das ist echte Datenkorruption (kein
+    Abdeckungsluecke) -- vorher wurde das still auf Bucket-Defaults
+    zurueckgestuft (Aktienrisiko als Obligationen-Risiko gerechnet, ohne
+    jeden Hinweis im Report). Muss jetzt hart fehlschlagen."""
+    from services.optimizer.constraints import OptimizerInputError
+
+    with session_factory() as s:
+        advisor = _seed_advisor(s)
+        cma = _seed_cma(s, advisor)
+        s.commit()
+        weights = np.array([0.4, 0.35, 0.1, 0.1, 0.05])
+        with pytest.raises(OptimizerInputError):
+            _compute_paths_core(
+                initial_wealth_rappen=10_000_000, horizon_years=10,
+                weights=weights, cma=cma, cashflow_series=[0] * 10,
+                n_paths=200, seed=42,
+                sub_allocations=[
+                    {
+                        "asset_class": "Obligationen",
+                        "sub_asset_class": "Aktien Global",
+                        "target_weight_bps": 10000,
+                    },
+                ],
+            )
+
+
+def test_sub_allocations_missing_cma_coverage_true_only_for_genuine_gap(session_factory):
+    from services.monte_carlo_paths import _sub_allocations_missing_cma_coverage
+
+    with session_factory() as s:
+        advisor = _seed_advisor(s)
+        cma = _seed_cma(s, advisor)
+        s.commit()
+
+        # Echte Abdeckungsluecke -> True.
+        assert _sub_allocations_missing_cma_coverage(
+            cma,
+            [{"asset_class": "Aktien", "sub_asset_class": "Aktien Deutschland", "target_weight_bps": 10000}],
+        ) is True
+
+        # Bekannte Sub-Asset-Class, korrekt zugeordnet -> keine Luecke.
+        assert _sub_allocations_missing_cma_coverage(
+            cma,
+            [{"asset_class": "Aktien", "sub_asset_class": "Aktien Global", "target_weight_bps": 10000}],
+        ) is False
+
+        # Mismatch ist KEINE Abdeckungsluecke (die Sub-Asset-Class HAT eine
+        # CMA-Kennzahl -- sie ist nur falsch zugeordnet). Muss False bleiben,
+        # damit der Aufrufer die OptimizerInputError propagieren laesst.
+        assert _sub_allocations_missing_cma_coverage(
+            cma,
+            [{"asset_class": "Obligationen", "sub_asset_class": "Aktien Global", "target_weight_bps": 10000}],
+        ) is False
+
+
 def test_core_initial_value_matches_initial_wealth(session_factory):
     """wealth_paths[:, 0] == initial fuer ALLE Pfade -> alle Quantile bei
     t=0 sind initial_wealth."""
