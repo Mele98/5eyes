@@ -31,7 +31,6 @@ from models.protocol_bausteine import (
     MandateBausteinSelection,
     ProtocolBaustein,
 )
-from models.review import AuditLog
 from models.users import User
 from schemas.protocol_bausteine import (
     BausteinCreate,
@@ -56,17 +55,38 @@ def _now() -> str:
     return datetime.datetime.now(datetime.UTC).isoformat().replace("+00:00", "Z")
 
 
-def _log(db: Session, *, user: User, table: str, record_id: str, action: str) -> None:
-    db.add(
-        AuditLog(
-            id=str(uuid.uuid4()),
-            user_id=user.id,
-            user_name=user.full_name or user.username,
-            table_name=table,
-            record_id=record_id,
-            action=action,
-            created_at=_now(),
-        )
+def _log(
+    db: Session,
+    *,
+    user: User,
+    table: str,
+    record_id: str,
+    action: str,
+    mandate_id: str | None = None,
+    client_id: str | None = None,
+) -> None:
+    # Kontrollrunde 2026-09-24: hand-gerolltes AuditLog(...)-Insert liess
+    # sequence/previous_hash/integrity_hash (die Hash-Chain-Manipulations-
+    # erkennung, siehe services/audit.py) UND tenant_id komplett NULL --
+    # jede CREATE/UPDATE/DELETE/REPLACE-Aktion auf Beratungsprotokoll-
+    # Bausteinen war dadurch (a) dauerhaft von verify_audit_chain()
+    # ausgeschlossen (die nur sequence IS NOT NULL prueft) und (b) fuer
+    # einen tenant-gebundenen Admin im Audit-Log unsichtbar (get_audit_log()
+    # filtert non-super_admin auf tenant_id/client_id/mandate_id). Jeder
+    # andere mutierende Router in dieser Codebase nutzt services.audit.log()
+    # -- dieser Router war die einzige Ausnahme.
+    from services.audit import log as audit_log
+
+    audit_log(
+        db,
+        user_id=user.id,
+        user_name=user.full_name or user.username,
+        table_name=table,
+        record_id=record_id,
+        action=action,
+        mandate_id=mandate_id,
+        client_id=client_id,
+        tenant_id=getattr(user, "tenant_id", None),
     )
 
 
@@ -308,7 +328,7 @@ def replace_mandate_selections(
     enforce_data_classification(body.data_classification)
     # SECURITY (Mandanten-Trennung): kanonischer Helper validiert Ownership
     # (Client.advisor_id fuer non-admins) UND Tenant-Filter, statt nur id+deleted_at.
-    get_mandate_for_user_or_404(mandate_id, db, current_user)
+    mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
 
     # Bausteine validieren — alle muessen existieren und vom User sichtbar sein.
     requested_ids = [item.baustein_id for item in body.selections]
@@ -371,6 +391,8 @@ def replace_mandate_selections(
         table="mandate_baustein_selections",
         record_id=mandate_id,
         action="REPLACE",
+        mandate_id=mandate_id,
+        client_id=getattr(mandate, "client_id", None),
     )
     db.commit()
     return list_mandate_selections(
