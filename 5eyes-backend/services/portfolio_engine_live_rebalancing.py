@@ -171,7 +171,7 @@ def _convert_price_rappen_to_target_currency(
     product_currency: str | None,
     fx_source,
     target_currency: str,
-) -> int | None:
+) -> tuple[int | None, bool]:
     """Mega-Audit (2026-08-04): Preise aus PriceHistory/Marktdaten-Pipeline
     sind in product.currency notiert (z.B. USD fuer einen US-ETF), nicht
     zwingend im Mandats-Basiswaehrung. Diese Funktion wurde bisher NIE
@@ -190,20 +190,29 @@ def _convert_price_rappen_to_target_currency(
     Analog zu services.portfolio_engine._convert_position_amount_to_target_currency
     (WealthPosition-FX-Fix, 2026-07-27): fx_source=None -> Backwards-Compat,
     keine Konvertierung (Aufrufer kennt FX-Kontext nicht). Unbekannte/gleiche
-    Currency -> Betrag unveraendert. FX-Fehler -> defensiver Fallback auf
-    unkonvertierten Betrag, kein Crash.
+    Currency -> Betrag unveraendert.
+
+    Kontrollrunde 2026-09-23: eine fehlgeschlagene Konvertierung (Waehrung
+    ausserhalb der von fx_source abgedeckten Paare, z.B. PLN/TRY/ZAR/KRW)
+    gab bisher den UNKONVERTIERTEN Rohbetrag zurueck, OHNE jedes Signal an
+    den Aufrufer -- der Marktwert war dadurch um den vollen FX-Faktor falsch
+    (bis zu ~159x fuer JPY), floss aber unveraendert in Bucket-Drift und
+    BUY/SELL/HOLD-Entscheidung ein. Gibt jetzt (Wert, conversion_failed)
+    zurueck; der Aufrufer behandelt eine fehlgeschlagene Konvertierung wie
+    einen fehlenden Preis (konsistent mit dem bestehenden MISSING_PRICE-Pfad)
+    statt einen unbemerkt falschen Wert weiterzureichen.
     """
     if price_rappen is None or fx_source is None:
-        return price_rappen
+        return price_rappen, False
     source_ccy = str(product_currency or "CHF").upper().strip() or "CHF"
     target_ccy = str(target_currency or "CHF").upper().strip() or "CHF"
     if source_ccy == target_ccy:
-        return price_rappen
+        return price_rappen, False
     try:
         rate = fx_source.cross_rate(source_ccy, target_ccy)
     except (ValueError, AttributeError):
-        return price_rappen
-    return int(round(price_rappen * float(rate)))
+        return None, True
+    return int(round(price_rappen * float(rate))), False
 
 
 def _canonical_asset_class_label(value: str | None) -> str:
@@ -311,15 +320,21 @@ def _build_live_rebalancing_entry(
     # CHF-angenommene Berater-Eingabe, siehe Docstring von
     # _convert_price_rappen_to_target_currency, und wird bewusst NICHT
     # konvertiert).
+    latest_price_rappen, latest_fx_failed = _convert_price_rappen_to_target_currency(
+        latest_price_rappen, product.currency, fx_source, target_currency,
+    )
+    reference_price_rappen, reference_fx_failed = _convert_price_rappen_to_target_currency(
+        reference_price_rappen, product.currency, fx_source, target_currency,
+    )
+    fx_conversion_failed = latest_fx_failed or reference_fx_failed
+    # Kontrollrunde 2026-09-23: fx_converted meldet jetzt eine TATSAECHLICH
+    # erfolgreiche Konvertierung, nicht mehr nur "Waehrungen unterscheiden
+    # sich" -- eine fehlgeschlagene Konvertierung (oben auf None gesetzt)
+    # darf hier nicht als "konvertiert" durchgehen.
     fx_converted = bool(
         fx_source is not None
         and str(product.currency or "CHF").upper().strip() != str(target_currency or "CHF").upper().strip()
-    )
-    latest_price_rappen = _convert_price_rappen_to_target_currency(
-        latest_price_rappen, product.currency, fx_source, target_currency,
-    )
-    reference_price_rappen = _convert_price_rappen_to_target_currency(
-        reference_price_rappen, product.currency, fx_source, target_currency,
+        and not fx_conversion_failed
     )
 
     holding_present = False
@@ -416,6 +431,7 @@ def _build_live_rebalancing_entry(
         "current_market_value_rappen": current_market_value_rappen,
         "price_change_bps": price_change_bps,
         "fx_converted": fx_converted,
+        "fx_conversion_failed": fx_conversion_failed,
         "product_currency": product.currency,
     }
     stats = {
@@ -428,6 +444,7 @@ def _build_live_rebalancing_entry(
         "holding_positions_count": 1 if holding_present else 0,
         "implied_positions_count": 0 if holding_present else 1,
         "fx_converted_positions_count": 1 if fx_converted else 0,
+        "fx_conversion_failed_count": 1 if fx_conversion_failed else 0,
     }
     return entry, stats
 
@@ -589,6 +606,7 @@ def build_live_rebalancing_payload(
         "holding_positions_count": 0,
         "implied_positions_count": 0,
         "fx_converted_positions_count": 0,
+        "fx_conversion_failed_count": 0,
     }
 
     for position in recommendation_positions:
@@ -629,6 +647,7 @@ def build_live_rebalancing_payload(
         aggregate["as_of_dates"].extend(stats["as_of_dates"])
         aggregate["recalibrated_positions_count"] += stats["recalibrated_positions_count"]
         aggregate["fx_converted_positions_count"] += stats["fx_converted_positions_count"]
+        aggregate["fx_conversion_failed_count"] += stats["fx_conversion_failed_count"]
         aggregate["holding_positions_count"] += stats["holding_positions_count"]
         aggregate["implied_positions_count"] += stats["implied_positions_count"]
 
@@ -655,7 +674,15 @@ def build_live_rebalancing_payload(
             f"{aggregate['implied_positions_count']} Position(en) weiterhin implizit aus Zielbetrag und Referenzpreis zum Run-Zeitpunkt. "
             "Live-Werte aus dem letzten verfuegbaren Preis-Snapshot."
         ) + (" Referenzanker wurden fuer einzelne Proxy-/Synthetic-Positionen auf das aktuelle Preisregime rekalibriert." if aggregate["recalibrated_positions_count"] else "")
-        + (f" {aggregate['fx_converted_positions_count']} Position(en) mit Fremdwaehrungs-Kursen wurden auf {target_currency} umgerechnet." if aggregate["fx_converted_positions_count"] else ""),
+        + (f" {aggregate['fx_converted_positions_count']} Position(en) mit Fremdwaehrungs-Kursen wurden auf {target_currency} umgerechnet." if aggregate["fx_converted_positions_count"] else "")
+        + (
+            f" ACHTUNG: fuer {aggregate['fx_conversion_failed_count']} Position(en) konnte der "
+            f"Fremdwaehrungs-Kurs nicht auf {target_currency} umgerechnet werden (Waehrungspaar "
+            "nicht unterstuetzt) -- diese Positionen werden als 'Preis fehlt' statt mit falschem "
+            "Marktwert ausgewiesen."
+            if aggregate["fx_conversion_failed_count"]
+            else ""
+        ),
         "live_total_value_rappen": live_total_value_rappen,
         "priced_positions_count": aggregate["priced_positions_count"],
         "stale_positions_count": aggregate["stale_positions_count"],
@@ -668,6 +695,7 @@ def build_live_rebalancing_payload(
         "market_data_quality": sources["market_data_quality"],
         "recalibrated_positions_count": aggregate["recalibrated_positions_count"],
         "fx_converted_positions_count": aggregate["fx_converted_positions_count"],
+        "fx_conversion_failed_count": aggregate["fx_conversion_failed_count"],
         "bucket_drifts": bucket_drifts,
         "position_drifts": position_drifts,
     }
