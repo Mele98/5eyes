@@ -24,7 +24,7 @@ from models.profiling import RiskAssessment, SuitabilityCheck
 from models.tenant import Tenant
 from schemas.review import (
     ReviewTriggerCreate, ReviewTriggerResolve, ReviewTriggerResponse,
-    ReviewTriggerFrequencyUpdate,
+    ReviewTriggerFrequencyUpdate, CalendarFeedTokenResponse,
     normalize_trigger_frequency, trigger_frequency_months,
     AdvisoryLogCreate, AdvisoryLogUpdate, AdvisoryLogResponse,
     ContractDocumentCreate, ContractDocumentSign, ContractDocumentResponse,
@@ -70,6 +70,12 @@ from services.review_engine import (
     refresh_system_review_triggers,
 )
 from services.suitability_audit import audit_mandate_suitability
+from services.review_calendar_feed import (
+    build_ics_feed,
+    issue_calendar_feed_token,
+    resolve_user_by_calendar_feed_token,
+    revoke_calendar_feed_token,
+)
 
 router = APIRouter(tags=["Review & Dokumente"])
 products_router = APIRouter(prefix="/products", tags=["Produkte"])
@@ -865,6 +871,62 @@ def update_trigger_frequency(
     db.commit()
     db.refresh(trigger)
     return trigger
+
+
+# ── Kalender-Abo-Feed (REVIEW-CALENDAR-001, Kontrollrunde 2026-09-24) ───────────
+
+@router.post("/me/calendar-feed-token", response_model=CalendarFeedTokenResponse)
+def issue_my_calendar_feed_token(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_advisor),
+):
+    """Erzeugt (bzw. rotiert) den persoenlichen .ics-Abo-Token. Der Klartext
+    wird ausschliesslich in dieser Antwort zurueckgegeben -- der Berater muss
+    ihn direkt in Outlook als 'Internetkalender abonnieren' hinterlegen. Ein
+    bereits bestehendes Abo mit dem vorherigen Token wird durch die Rotation
+    invalidiert."""
+    user = db.query(User).filter(User.id == current_user.id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Benutzer nicht gefunden")
+    token = issue_calendar_feed_token(user)
+    db.commit()
+    return CalendarFeedTokenResponse(
+        feed_path=f"/calendar/reviews.ics?token={token}",
+        token=token,
+    )
+
+
+@router.delete("/me/calendar-feed-token", status_code=204)
+def revoke_my_calendar_feed_token(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_advisor),
+):
+    user = db.query(User).filter(User.id == current_user.id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Benutzer nicht gefunden")
+    revoke_calendar_feed_token(user)
+    db.commit()
+
+
+@router.get("/calendar/reviews.ics")
+def get_my_review_calendar_feed(
+    token: str,
+    db: Session = Depends(get_db),
+):
+    """Oeffentlicher (nicht per Bearer-Auth geschuetzter) Kalender-Feed-
+    Endpoint -- Outlook kann beim automatischen periodischen Abo-Refresh
+    keine interaktive Anmeldung durchfuehren, daher traegt die Abo-URL
+    selbst das Geheimnis (siehe services/review_calendar_feed.py-Docstring).
+    """
+    user = resolve_user_by_calendar_feed_token(db, token)
+    if not user:
+        raise HTTPException(status_code=404, detail="Ungültiger oder abgelaufener Kalender-Token")
+    ics_text = build_ics_feed(db, user)
+    return Response(
+        content=ics_text,
+        media_type="text/calendar; charset=utf-8",
+        headers={"Content-Disposition": "inline; filename=5eyes-reviews.ics"},
+    )
 
 
 # ── Advisory Log ───────────────────────────────────────────────────────────────

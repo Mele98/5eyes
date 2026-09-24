@@ -62,6 +62,15 @@ class User(Base):
     # Codes unabhaengig vom Zeitfenster. Laufzeit-Migration bestehender DBs:
     # database.ensure_runtime_columns.
     totp_last_code_hash = Column(String)
+    # REVIEW-CALENDAR-001 (Kontrollrunde 2026-09-24): opaker Feed-Token fuer
+    # den persoenlichen .ics-Kalender-Abo-Endpoint (GET /calendar/reviews.ics)
+    # -- Outlook kann keine interaktive Anmeldung durchfuehren, deshalb traegt
+    # die Abo-URL selbst ein Geheimnis (analog reset_token_hash/
+    # invite_token_hash: sha256(token) gespeichert, Klartext nur einmalig bei
+    # der Erzeugung zurueckgegeben). Laufzeit-Migration bestehender DBs:
+    # database.ensure_runtime_columns.
+    calendar_feed_token_hash = Column(String)
+    calendar_feed_token_created_at = Column(String)
 
     @property
     def invite_pending(self) -> bool:

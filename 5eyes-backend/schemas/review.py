@@ -217,6 +217,14 @@ class ReviewTriggerFrequencyUpdate(BaseModel):
         return canonical
 
 
+class CalendarFeedTokenResponse(BaseModel):
+    """REVIEW-CALENDAR-001: Klartext-Token wird NUR in dieser Antwort
+    zurueckgegeben (analog Passwort-Reset-Token) -- danach ist nur noch der
+    Hash gespeichert."""
+    feed_path: str
+    token: str
+
+
 class ReviewTriggerResponse(BaseResponse):
     id: str
     mandate_id: str

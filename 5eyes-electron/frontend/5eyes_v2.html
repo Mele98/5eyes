@@ -2115,9 +2115,15 @@ function arrMax(a){var m=-Infinity;for(var i=0;i<a.length;i++){var n=Number(a[i]
     <button class="t-btn" id="btn-prov" onclick="openProvisioning()" style="display:none;background:rgba(201,168,76,0.12);color:var(--g4)" title="Firmen & Mitarbeiter (Operator)">Firmen</button>
     <button class="t-btn" id="btn-team" onclick="openTeam()" style="display:none;background:rgba(201,168,76,0.12);color:var(--g4)" title="Mitarbeiter der eigenen Firma einladen & verwalten">Team</button>
     <button class="t-btn" id="btn-2fa" onclick="open2faSetup()" style="display:none;background:rgba(201,168,76,0.12);color:var(--g4)" title="Zwei-Faktor-Authentifizierung">2FA</button>
+    <button class="t-btn" id="btn-cal-feed" onclick="openCalendarFeedSetup()" style="display:none;background:rgba(201,168,76,0.12);color:var(--g4)" title="Review-Kalender in Outlook abonnieren">Kalender</button>
     <button class="t-btn" id="btn-logout" onclick="doLogout()" style="display:none;background:rgba(201,168,76,0.12);color:var(--g4)">Abmelden</button>
   </div>
 </header>
+<!-- REVIEW-CALENDAR-001 (Kontrollrunde 2026-09-24): Outlook-Kalenderabo-Setup -->
+<div id="m-cal-feed" class="overlay"><div class="modal" style="max-width:480px">
+  <div class="mhd"><div class="mtitle">Review-Kalender abonnieren</div><button class="mx" onclick="cm('m-cal-feed')">&#10005;</button></div>
+  <div class="mbody" id="m-cal-feed-body"><div style="font-size:11px;color:var(--n5)">Lädt…</div></div>
+</div></div>
 <!-- E1: 2FA-Setup-Modal -->
 <div id="m-2fa" class="overlay"><div class="modal" style="max-width:430px">
   <div class="mhd"><div class="mtitle">Zwei-Faktor-Authentifizierung</div><button class="mx" onclick="cm('m-2fa')">&#10005;</button></div>
@@ -2139,6 +2145,61 @@ async function enforce2faGate(){
     if(st.required){ open2faSetup(true); }
     else if(window.location && (window.location.protocol==='https:'||window.location.protocol==='http:')){ open2faSetup(false); }
   }catch(e){}
+}
+// REVIEW-CALENDAR-001 (Kontrollrunde 2026-09-24): Outlook-Kalenderabo fuer
+// faellige/bald faellige Review-Trigger. Kein Microsoft-Graph/OAuth noetig --
+// Outlook abonniert eine .ics-Feed-URL und aktualisiert sie selbststaendig
+// periodisch. Kostenlos, keine externe Kontoregistrierung erforderlich.
+async function openCalendarFeedSetup(){
+  try{ om('m-cal-feed'); }catch(e){}
+  renderCalendarFeedIntro();
+}
+function renderCalendarFeedIntro(){
+  var body=document.getElementById('m-cal-feed-body'); if(!body)return;
+  body.innerHTML=''
+   +'<div style="font-size:11px;color:var(--n6);line-height:1.6;margin-bottom:12px">Erzeugt eine persönliche Kalender-Adresse mit deinen fälligen/ausgelösten Review-Terminen (Jahresreview, Bandbreiten-/Ereignis-Trigger). Outlook ruft diese Adresse danach selbstständig alle paar Stunden ab und zeigt neue/verschobene Termine automatisch an — inkl. Erinnerung 14 Tage vor Fälligkeit. Kostenlos, keine Microsoft-Kontoregistrierung nötig.</div>'
+   +'<button class="btn-p" style="width:100%" onclick="doGenerateCalendarFeedToken()">Kalender-Adresse erzeugen</button>';
+}
+async function doGenerateCalendarFeedToken(){
+  var body=document.getElementById('m-cal-feed-body'); if(!body)return;
+  body.innerHTML='<div style="font-size:11px;color:var(--n5)">Erzeuge…</div>';
+  try{
+    var res=await API.post('/me/calendar-feed-token',{});
+    var base=await API.baseUrl();
+    var url=String(base||'').replace(/\/+$/,'')+res.feed_path;
+    renderCalendarFeedUrl(url);
+  }catch(e){
+    body.innerHTML='<div style="font-size:11px;color:var(--neg)">Fehler: '+escapeHtml(String(e.detail||e.message||e).slice(0,140))+'</div>';
+  }
+}
+function renderCalendarFeedUrl(url){
+  var body=document.getElementById('m-cal-feed-body'); if(!body)return;
+  window.__calFeedUrl=url;
+  body.innerHTML=''
+   +'<div style="font-size:12px;color:var(--pos);margin-bottom:8px">&#10003; Kalender-Adresse erzeugt.</div>'
+   +'<div style="display:flex;gap:6px;align-items:stretch;margin-bottom:4px"><div style="flex:1;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;background:var(--bg);border:1px solid var(--b1);border-radius:6px;padding:8px 10px;word-break:break-all">'+escapeHtml(url)+'</div><button class="btn" type="button" style="font-size:10px;white-space:nowrap" onclick="doCopyCalendarFeedUrl()">Kopieren</button></div>'
+   +'<div id="m-cal-feed-copymsg" style="font-size:10px;min-height:12px;margin-bottom:10px;color:var(--n4)"></div>'
+   +'<div style="font-size:11px;color:var(--n6);line-height:1.7;background:var(--bg);border:1px solid var(--b1);border-radius:6px;padding:10px 12px;margin-bottom:12px">In Outlook: <b>Kalender</b> &rarr; <b>Kalender hinzufügen</b> &rarr; <b>Aus dem Internet abonnieren</b> &rarr; obige Adresse einfügen. Die 5eyes-App muss beim Abruf laufen (lokaler Server) — läuft sie nicht, behält Outlook einfach den zuletzt abgerufenen Stand.</div>'
+   +'<div style="font-size:10px;color:var(--n4);line-height:1.6;margin-bottom:10px">Die Adresse enthält ein persönliches Geheimnis — nicht weitergeben. Bei Verdacht auf Missbrauch neu erzeugen (invalidiert die alte Adresse sofort).</div>'
+   +'<div style="display:flex;gap:6px"><button class="btn" style="flex:1" onclick="doGenerateCalendarFeedToken()">Neu erzeugen</button><button class="btn" style="flex:1;color:var(--neg)" onclick="doRevokeCalendarFeedToken()">Widerrufen</button></div>';
+}
+function doCopyCalendarFeedUrl(){
+  var url=String(window.__calFeedUrl||''); if(!url)return;
+  var msg=document.getElementById('m-cal-feed-copymsg');
+  try{ navigator.clipboard.writeText(url).then(
+    function(){ if(msg){msg.style.color='var(--pos)';msg.textContent='Adresse kopiert.';} },
+    function(){ if(msg){msg.style.color='var(--neg)';msg.textContent='Kopieren nicht möglich — manuell markieren.';} }); }
+  catch(e){ if(msg){msg.style.color='var(--neg)';msg.textContent='Kopieren nicht möglich — manuell markieren.';} }
+}
+async function doRevokeCalendarFeedToken(){
+  var body=document.getElementById('m-cal-feed-body'); if(!body)return;
+  try{
+    await API.delete('/me/calendar-feed-token');
+    window.__calFeedUrl=null;
+    renderCalendarFeedIntro();
+  }catch(e){
+    body.innerHTML='<div style="font-size:11px;color:var(--neg)">Fehler: '+escapeHtml(String(e.detail||e.message||e).slice(0,140))+'</div>';
+  }
 }
 async function open2faSetup(forced){
   window.__force2fa = !!forced;
@@ -5277,6 +5338,8 @@ function hideLogin() {
   if (logoutBtn) logoutBtn.style.display = 'inline-block';
   const twofaBtn = document.getElementById('btn-2fa');
   if (twofaBtn) twofaBtn.style.display = 'inline-block';
+  const calFeedBtn = document.getElementById('btn-cal-feed');
+  if (calFeedBtn) calFeedBtn.style.display = (currentUser && (currentUser.role === 'advisor' || currentUser.role === 'admin')) ? 'inline-block' : 'none';
   const provBtn = document.getElementById('btn-prov');
   if (provBtn) provBtn.style.display = (currentUser && currentUser.role === 'super_admin') ? 'inline-block' : 'none';
   const adminBtn = document.getElementById('btn-admin-open');
