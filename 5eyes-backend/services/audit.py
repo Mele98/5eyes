@@ -99,6 +99,74 @@ def _audit_integrity_payload(
     # Roadmap #21 (2026-08-08): tenant_id wird -- wie schon ip_address (siehe
     # Kommentar oben) -- ANS ENDE angehaengt, damit der Hash historischer
     # Eintraege (vor dieser Migration, ohne tenant_id) unveraendert bleibt.
+    #
+    # Kontrollrunde 2026-09-24: der Delimiter war bisher ein einfaches '|'
+    # -- ein normales, in Freitextfeldern (old_value/new_value/user_name,
+    # z.B. DSG-Loeschgruende in routers/clients.py) plausibles Zeichen. Da
+    # der Join nicht injektiv ist, konnten zwei UNTERSCHIEDLICHE Werte-Saetze
+    # denselben Payload-String (und damit denselben Hash) erzeugen, sobald
+    # ein '|' auf einer Feldgrenze landet (verifiziert: old_value='A|B',
+    # new_value='C' hasht identisch zu old_value='A', new_value='B|C') --
+    # das unterlaeuft die Manipulationserkennung genau fuer den Fall, den
+    # die Hash-Chain eigentlich abdecken soll. services/advisory_log_
+    # integrity.py hatte dieses Problem bereits korrekt geloest ('\x1f',
+    # Unit-Separator -- praktisch nie in echten Textfeldern).
+    #
+    # ANDERS als bei advisory_log (REC-007-Migration, siehe database.py::
+    # migrate_advisory_log_hash_scheme_cost_disclosure_snapshot) kann
+    # audit_log NICHT rueckwirkend umgehasht werden: trg_audit_log_no_update
+    # (database.py::ensure_audit_log_triggers) blockiert JEDES UPDATE auf
+    # bestehenden Zeilen hart auf DB-Ebene -- genau die Massnahme, die
+    # nachtraegliche Hash-Manipulation verhindern soll, verhindert hier auch
+    # eine legitime Migration. Der Fix gilt daher nur fuer NEUE Zeilen ab
+    # jetzt; verify_audit_chain() akzeptiert fuer Bestandszeilen weiterhin
+    # zusaetzlich das alte '|'-Schema (siehe _audit_integrity_payload_
+    # legacy_pipe_delimiter unten), damit deren Verifikation nicht durch
+    # diesen Fix selbst als "manipuliert" gemeldet wird.
+    return "\x1f".join(
+        [
+            str(entry_id or ""),
+            str(user_id or ""),
+            str(user_name or ""),
+            str(table_name or ""),
+            str(record_id or ""),
+            str(action or ""),
+            str(field_name or ""),
+            str(old_value if old_value is not None else ""),
+            str(new_value if new_value is not None else ""),
+            str(mandate_id or ""),
+            str(client_id or ""),
+            str(created_at),
+            str(previous_hash or ""),
+            str(ip_address or ""),
+            str(tenant_id or ""),
+        ]
+    )
+
+
+def _audit_integrity_payload_legacy_pipe_delimiter(
+    *,
+    entry_id: str,
+    user_id: str | None,
+    user_name: str | None,
+    table_name: str | None,
+    record_id: str | None,
+    action: str | None,
+    field_name: str | None,
+    old_value: str | None,
+    new_value: str | None,
+    mandate_id: str | None,
+    client_id: str | None,
+    created_at: str,
+    previous_hash: str,
+    ip_address: str | None = None,
+    tenant_id: str | None = None,
+) -> str:
+    """Frozen copy of the pre-2026-09-24 '|'-delimited payload, kept ONLY
+    so verify_audit_chain() can still verify rows written before the
+    delimiter fix (see _audit_integrity_payload's docstring -- audit_log's
+    immutability trigger makes retroactive rehashing impossible). Never
+    used for new writes; do not change."""
     return "|".join(
         [
             str(entry_id or ""),
@@ -255,7 +323,33 @@ def verify_audit_chain(db: Session) -> dict:
             tenant_id=row.tenant_id,
         )
         recomputed_hash = hashlib.sha256(recomputed_payload.encode("utf-8")).hexdigest()
-        if recomputed_hash != row.integrity_hash:
+        matches = recomputed_hash == row.integrity_hash
+        if not matches:
+            # Kontrollrunde 2026-09-24: Zeilen aus der Zeit vor dem
+            # Delimiter-Fix (siehe _audit_integrity_payload) wurden mit dem
+            # alten '|'-Schema gehasht und koennen wegen trg_audit_log_
+            # no_update nicht rueckwirkend umgehasht werden -- zusaetzlich
+            # gegen das alte Schema pruefen, bevor ein Fehler gemeldet wird.
+            legacy_payload = _audit_integrity_payload_legacy_pipe_delimiter(
+                entry_id=row.id,
+                user_id=row.user_id,
+                user_name=row.user_name,
+                table_name=row.table_name,
+                record_id=row.record_id,
+                action=row.action,
+                field_name=row.field_name,
+                old_value=row.old_value,
+                new_value=row.new_value,
+                mandate_id=row.mandate_id,
+                client_id=row.client_id,
+                created_at=row.created_at,
+                previous_hash=row.previous_hash or "",
+                ip_address=row.ip_address,
+                tenant_id=row.tenant_id,
+            )
+            legacy_hash = hashlib.sha256(legacy_payload.encode("utf-8")).hexdigest()
+            matches = legacy_hash == row.integrity_hash
+        if not matches:
             errors.append(
                 f"integrity_hash stimmt nicht mit Neuberechnung ueberein bei sequence={row.sequence} (id={row.id})"
             )
