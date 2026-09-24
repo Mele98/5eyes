@@ -200,6 +200,23 @@ class ReviewTriggerResolve(BaseModel):
     triggered_notes: Optional[str] = Field(default=None, max_length=10_000)
 
 
+class ReviewTriggerFrequencyUpdate(BaseModel):
+    """REVIEW-STATE-004 (Kontrollrunde 2026-09-24): erlaubt dem Berater, das
+    Wiederholungsintervall eines Zeit-Triggers explizit zu setzen (z.B.
+    "halbjährlich" statt des Default-"jährlich" bei erhöhtem Risiko), ohne
+    dass der naechste System-Trigger-Refresh es kommentarlos auf "jährlich"
+    zuruecksetzt."""
+    frequency: TriggerFrequency
+
+    @field_validator("frequency", mode="before")
+    @classmethod
+    def normalize_frequency(cls, value):
+        canonical = normalize_trigger_frequency(value)
+        if canonical is None:
+            raise ValueError(f"Unbekannte oder ungültige Trigger-Frequenz: {value!r}")
+        return canonical
+
+
 class ReviewTriggerResponse(BaseResponse):
     id: str
     mandate_id: str

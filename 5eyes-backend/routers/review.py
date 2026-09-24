@@ -24,6 +24,7 @@ from models.profiling import RiskAssessment, SuitabilityCheck
 from models.tenant import Tenant
 from schemas.review import (
     ReviewTriggerCreate, ReviewTriggerResolve, ReviewTriggerResponse,
+    ReviewTriggerFrequencyUpdate,
     normalize_trigger_frequency, trigger_frequency_months,
     AdvisoryLogCreate, AdvisoryLogUpdate, AdvisoryLogResponse,
     ContractDocumentCreate, ContractDocumentSign, ContractDocumentResponse,
@@ -813,6 +814,52 @@ def resolve_trigger(
         field_name="decision",
         old_value=previous_next_due_at,
         new_value=f"{body.decision} -> next_due_at={new_next_due_at}",
+        mandate_id=mandate_id,
+        ip_address=_extract_client_ip(request))
+    db.commit()
+    db.refresh(trigger)
+    return trigger
+
+
+@router.put("/mandates/{mandate_id}/triggers/{trigger_id}/frequency",
+            response_model=ReviewTriggerResponse)
+def update_trigger_frequency(
+    mandate_id: str, trigger_id: str,
+    body: ReviewTriggerFrequencyUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_advisor),
+):
+    """REVIEW-STATE-004 (Kontrollrunde 2026-09-24): erlaubt dem Berater, das
+    Intervall eines Zeit-Triggers (z.B. den System-Jahresreview auf
+    "halbjährlich" bei erhöhtem Risiko) explizit zu setzen. Ohne diesen
+    Endpoint gab es keine Moeglichkeit, ein Intervall dauerhaft zu aendern --
+    `refresh_system_review_triggers` hat den System-Review-Trigger vorher bei
+    JEDEM Refresh hart auf "jährlich" zurueckgesetzt.
+    """
+    _get_mandate_or_404(mandate_id, db, current_user)
+    trigger = _get_trigger_or_404(mandate_id, trigger_id, db)
+    if trigger.trigger_type != "Zeit":
+        raise HTTPException(
+            status_code=409,
+            detail="Nur Zeit-Trigger besitzen ein Wiederholungsintervall.",
+        )
+    if trigger.is_system == 1 and body.frequency == "einmalig":
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Der System-Review-Trigger muss wiederkehrend bleiben -- "
+                "'einmalig' ist hierfür nicht zulässig."
+            ),
+        )
+    old_frequency = trigger.frequency
+    trigger.frequency = body.frequency
+    trigger.updated_at = _now()
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="review_triggers", record_id=trigger_id, action="UPDATE",
+        field_name="frequency",
+        old_value=old_frequency,
+        new_value=body.frequency,
         mandate_id=mandate_id,
         ip_address=_extract_client_ip(request))
     db.commit()

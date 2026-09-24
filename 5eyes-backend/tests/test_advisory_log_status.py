@@ -21,6 +21,7 @@ from models.mandates import Mandate
 from models.review import AdvisoryLog, AuditLog, ContractDocument, RecommendationRun, ReviewTrigger
 from models.users import User
 from services.auth import get_current_user
+from services.review_engine import SYSTEM_TRIGGER_REVIEW
 
 
 def _utc_now_iso() -> str:
@@ -725,3 +726,182 @@ def test_advisory_log_create_rejects_client_signed_with_unsigned_document(sessio
     )
 
     assert response.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# REVIEW-STATE-004 (Kontrollrunde 2026-09-24): der automatische
+# System-Trigger-Refresh (laeuft bei jeder Allokations-Neuberechnung) durfte
+# eine bereits per PUT .../resolve dokumentierte Vorziehung der Faelligkeit
+# nicht mehr stillschweigend zuruecksetzen, nur weil (noch) kein passender
+# "Jahresreview"-Anker im Advisory-Log dokumentiert war. Ausserdem wurde das
+# Trigger-Intervall (frequency) bei jedem Refresh hart auf "jährlich"
+# zurueckgesetzt statt ein bewusst gesetztes Intervall zu respektieren.
+# ---------------------------------------------------------------------------
+
+
+def _seed_system_review_trigger(session_factory, mandate_id: str, **overrides) -> str:
+    defaults = dict(
+        id="trigger-state004-system-review",
+        mandate_id=mandate_id,
+        trigger_type="Zeit",
+        trigger_name=SYSTEM_TRIGGER_REVIEW,
+        frequency="jährlich",
+        status="Aktiv",
+        is_system=1,
+        next_due_at="2026-01-01",
+        created_at="2020-01-01T00:00:00.000Z",
+        updated_at="2020-01-01T00:00:00.000Z",
+    )
+    defaults.update(overrides)
+    with session_factory() as s:
+        s.add(ReviewTrigger(**defaults))
+        s.commit()
+    return defaults["id"]
+
+
+def _set_mandate_opened_at(session_factory, mandate_id: str, opened_at: str) -> None:
+    with session_factory() as s:
+        mandate = s.query(Mandate).filter(Mandate.id == mandate_id).one()
+        mandate.opened_at = opened_at
+        s.commit()
+
+
+def test_system_refresh_does_not_revert_resolved_due_date_without_matching_anchor(
+    session_factory, auth_client, advisor_user,
+):
+    """Kern-Repro: ein Berater loest den faelligen Jahres-Review-Trigger
+    korrekt per PUT .../resolve auf (Audit-Trail: resolved_by/resolved_at/
+    resolution_decision). Es existiert aber (noch) KEIN Advisory-Log-Eintrag
+    vom Typ 'Jahresreview'/'Initialer Beratungsabschluss' -- der einzige
+    Anker ist weiterhin mandate.opened_at, ein sehr altes Datum. Der
+    naechste System-Trigger-Refresh (routers/allocation.py bei jeder
+    Allokations-Neuberechnung; hier direkt via /triggers/system-refresh
+    reproduziert) darf die vom Resolve gesetzte Faelligkeit NICHT wieder
+    auf das alte Anker-Datum zuruecksetzen."""
+    mandate_id, _ = _seed_review_context(session_factory, advisor_user)
+    _set_mandate_opened_at(session_factory, mandate_id, "2020-01-01")
+    trigger_id = _seed_system_review_trigger(session_factory, mandate_id, next_due_at="2026-01-01")
+
+    resolve_response = auth_client.put(
+        f"/mandates/{mandate_id}/triggers/{trigger_id}/resolve",
+        json={"decision": "Kein Handlungsbedarf", "triggered_notes": "Kundengespraech gefuehrt"},
+    )
+    assert resolve_response.status_code == 200
+    resolved_due_at = resolve_response.json()["next_due_at"]
+    assert resolved_due_at == "2027-01-01"
+
+    refresh_response = auth_client.post(f"/mandates/{mandate_id}/triggers/system-refresh")
+    assert refresh_response.status_code == 200
+
+    with session_factory() as s:
+        row = s.query(ReviewTrigger).filter(ReviewTrigger.id == trigger_id).one()
+        # Vor dem Fix: row.next_due_at waere wieder auf "2021-01-01"
+        # (opened_at + 12 Monate) zurueckgefallen -- der Anker-Fallback
+        # (mandate.opened_at="2020-01-01") liegt weit VOR dem gerade
+        # dokumentierten Resolve-Ergebnis.
+        assert row.next_due_at == resolved_due_at == "2027-01-01"
+        assert row.status == "Aktiv"
+        assert row.resolution_decision == "Kein Handlungsbedarf"
+        assert row.resolved_by == advisor_user.id
+
+
+def test_system_refresh_still_advances_due_date_from_a_newer_documented_anchor(
+    session_factory, auth_client, advisor_user,
+):
+    """Gegenprobe: existiert ein NEUERER, gueltiger Jahresreview-Anker, muss
+    der Refresh die Faelligkeit weiterhin nach VORNE korrigieren duerfen --
+    der Fix darf den Anker-Mechanismus nicht lahmlegen, nur das Rueckwaerts-
+    Ueberschreiben einer dokumentierten Resolve-Entscheidung verhindern."""
+    mandate_id, _ = _seed_review_context(session_factory, advisor_user)
+    _set_mandate_opened_at(session_factory, mandate_id, "2020-01-01")
+    trigger_id = _seed_system_review_trigger(session_factory, mandate_id, next_due_at="2021-01-01")
+
+    entry_response = _create_advisory_entry(
+        auth_client,
+        mandate_id,
+        entry_type="Jahresreview",
+        title="Jahresreview 2026",
+        entry_date="2026-06-01",
+        entry_datetime="2026-06-01T14:00:00.000Z",
+        trigger_id=trigger_id,
+    )
+    assert entry_response.status_code == 201
+
+    refresh_response = auth_client.post(f"/mandates/{mandate_id}/triggers/system-refresh")
+    assert refresh_response.status_code == 200
+
+    with session_factory() as s:
+        row = s.query(ReviewTrigger).filter(ReviewTrigger.id == trigger_id).one()
+        assert row.next_due_at == "2027-06-01"
+
+
+def test_system_refresh_preserves_explicitly_configured_frequency(
+    session_factory, auth_client, advisor_user,
+):
+    """Vor dem Fix wurde `frequency` bei JEDEM Refresh hart auf 'jährlich'
+    zurueckgesetzt -- ein bewusst auf 'halbjährlich' gestelltes Intervall
+    (z.B. bei erhoehtem Risiko) ging beim naechsten Refresh verloren."""
+    mandate_id, _ = _seed_review_context(session_factory, advisor_user)
+    _set_mandate_opened_at(session_factory, mandate_id, "2026-01-01")
+    trigger_id = _seed_system_review_trigger(session_factory, mandate_id, next_due_at="2026-01-01")
+
+    freq_response = auth_client.put(
+        f"/mandates/{mandate_id}/triggers/{trigger_id}/frequency",
+        json={"frequency": "halbjährlich"},
+    )
+    assert freq_response.status_code == 200
+    assert freq_response.json()["frequency"] == "halbjährlich"
+
+    refresh_response = auth_client.post(f"/mandates/{mandate_id}/triggers/system-refresh")
+    assert refresh_response.status_code == 200
+
+    with session_factory() as s:
+        row = s.query(ReviewTrigger).filter(ReviewTrigger.id == trigger_id).one()
+        # Vor dem Fix: frequency waere wieder "jährlich" und next_due_at
+        # "2027-01-01" (12 statt 6 Monate ab dem Anker 2026-01-01).
+        assert row.frequency == "halbjährlich"
+        assert row.next_due_at == "2026-07-01"
+
+
+def test_update_trigger_frequency_rejects_einmalig_for_system_trigger(
+    session_factory, auth_client, advisor_user,
+):
+    mandate_id, _ = _seed_review_context(session_factory, advisor_user)
+    trigger_id = _seed_system_review_trigger(session_factory, mandate_id)
+
+    response = auth_client.put(
+        f"/mandates/{mandate_id}/triggers/{trigger_id}/frequency",
+        json={"frequency": "einmalig"},
+    )
+
+    assert response.status_code == 409
+
+
+def test_update_trigger_frequency_rejects_unknown_value(session_factory, auth_client, advisor_user):
+    mandate_id, _ = _seed_review_context(session_factory, advisor_user)
+    trigger_id = _seed_system_review_trigger(session_factory, mandate_id)
+
+    response = auth_client.put(
+        f"/mandates/{mandate_id}/triggers/{trigger_id}/frequency",
+        json={"frequency": "weekly"},
+    )
+
+    assert response.status_code == 422
+
+
+def test_update_trigger_frequency_rejects_non_zeit_trigger(session_factory, auth_client, advisor_user):
+    mandate_id, _ = _seed_review_context(session_factory, advisor_user)
+    trigger_id = _seed_time_trigger(
+        session_factory, mandate_id,
+        id="trigger-state004-markt",
+        trigger_type="Markt",
+        trigger_name="Bandbreitenverletzung (System)",
+        frequency=None,
+    )
+
+    response = auth_client.put(
+        f"/mandates/{mandate_id}/triggers/{trigger_id}/frequency",
+        json={"frequency": "quartalsweise"},
+    )
+
+    assert response.status_code == 409
