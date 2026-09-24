@@ -267,7 +267,13 @@ def set_optimizer_mode(
     body: dict,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    # Kontrollrunde 2026-09-24: optimizer_mode ist ein PROZESSWEITER Schalter
+    # (settings.optimizer_mode), nicht tenant-gebunden -- ein firmengebundener
+    # 'admin' konnte damit das aktive Optimierungsmodell fuer ALLE Tenants
+    # aendern. Gleicher Gate wie bereits fuer globale FX-Referenzdaten
+    # (AUTH-TEN-06): Tier-1 unveraendert, in Multi-Tenant-Installationen
+    # (strict_tenant_isolation) braucht es super_admin/portfolio_management.
+    current_user: User = Depends(require_admin_or_platform_scope_for_global_reference_data),
 ):
     requested = str(body.get('optimizer_mode') or '').strip().lower()
     if requested not in OPTIMIZER_MODE_VALUES:
@@ -372,7 +378,11 @@ def backfill_annual_returns_endpoint(
     to_year: int | None = None,
     overwrite: bool = True,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    # Kontrollrunde 2026-09-24: AssetClassAnnualReturn hat kein tenant_id --
+    # globale Referenzdaten, die jede Tenant's CMA/Optimizer/Backtest
+    # speisen. Gleicher Gate wie bereits fuer globale FX-Referenzdaten
+    # (AUTH-TEN-06).
+    current_user: User = Depends(require_admin_or_platform_scope_for_global_reference_data),
 ):
     """Sprint U-P11a (2026-05-22): Annual-Returns automatisch aus
     Marktdaten-Aggregator (yfinance + stooq) befüllen.
@@ -423,7 +433,9 @@ def upsert_annual_return(
     body: dict,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    # Kontrollrunde 2026-09-24: siehe backfill_annual_returns_endpoint oben --
+    # gleiche globale, nicht-tenant-gebundene Referenzdaten-Tabelle.
+    current_user: User = Depends(require_admin_or_platform_scope_for_global_reference_data),
 ):
     if asset_class not in _VALID_ASSET_CLASSES:
         raise HTTPException(status_code=400, detail=f"Ungültige Anlageklasse: {asset_class}")
@@ -513,7 +525,9 @@ def backfill_asset_class_prices_endpoint(
     to_year: int | None = None,
     overwrite: bool = True,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    # Kontrollrunde 2026-09-24: AssetClassPriceHistory hat ebenfalls kein
+    # tenant_id -- gleicher Gate wie annual-returns/backfill oben.
+    current_user: User = Depends(require_admin_or_platform_scope_for_global_reference_data),
 ):
     """Sprint U-P19: Tägliche EOD-Serie je Asset-Klasse aus dem Marktdaten-
     Aggregator (yfinance + stooq) befüllen — Foundation für den Daily-Backtest.
@@ -559,7 +573,12 @@ def backfill_asset_class_prices_endpoint(
 def refresh_market_data_now(
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    # Kontrollrunde 2026-09-24: run_daily_market_data_refresh() schreibt in
+    # dieselben globalen, nicht-tenant-gebundenen Tabellen wie der bereits
+    # gehaertete /fx-rates/refresh-now-Endpunkt (AUTH-TEN-06) -- diese
+    # breitere Variante (voller Marktdaten-Refresh statt nur FX) hatte den
+    # Gate bisher nicht mitbekommen.
+    current_user: User = Depends(require_admin_or_platform_scope_for_global_reference_data),
 ):
     """U-31: manueller Recovery-Trigger fuer den taeglichen Marktdaten-Refresh."""
     try:
@@ -645,7 +664,11 @@ def reset_provider_health_registry(
     request: Request,
     body: dict | None = None,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    # Kontrollrunde 2026-09-24: der Provider-Health-Zustand ist global
+    # (nicht tenant-gebunden) und steuert Primary/Fallback-Umschaltung fuer
+    # ALLE Tenants -- gleicher Gate wie die uebrigen globalen Referenzdaten-
+    # Ops-Endpoints in dieser Datei.
+    current_user: User = Depends(require_admin_or_platform_scope_for_global_reference_data),
 ):
     from services.market_data.provider_health_registry import reset_provider_health
 
