@@ -162,6 +162,27 @@ def test_build_protokoll_data_lieft_bausteine_mit_override(seeded_mandate, sessi
     assert by_title["Risikoaufklaerung"]["category"] == "Risiko"
 
 
+def test_build_protokoll_data_excludes_soft_deleted_baustein(seeded_mandate, session_factory):
+    """Kontrollrunde 2026-09-24: ein bereits ausgewaehlter Baustein, der
+    danach soft-geloescht wird, darf nicht mehr ins PDF gerendert werden --
+    identisches Muster wie GET /mandates/{id}/protocol-bausteine."""
+    from routers.pdf_reports import _build_protokoll_data
+
+    with session_factory() as db:
+        baustein = db.query(ProtocolBaustein).filter(ProtocolBaustein.id == "b-1").first()
+        baustein.deleted_at = _now()
+        baustein.is_active = 0
+        db.commit()
+
+        mandate = db.query(Mandate).filter(Mandate.id == "mdt-pdf").first()
+        data = _build_protokoll_data(mandate, db)
+
+    titles = {b["title"] for b in data.selected_bausteine}
+    assert "Risikoaufklaerung" not in titles
+    assert "Anlagephilosophie" in titles
+    assert len(data.selected_bausteine) == 1
+
+
 def test_build_protokoll_data_leere_liste_bei_keiner_selektion(session_factory):
     """Mandat ohne Selektion -> leere selected_bausteine, kein Crash."""
     from routers.pdf_reports import _build_protokoll_data
