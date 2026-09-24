@@ -2187,6 +2187,15 @@ def _load_allocation_inputs(
         _convert_position_amount_to_target_currency(pos, fx_source, target_currency)
         for pos in liability_positions
     )
+    # GESAMTVERMOEGEN-FOUNDATION-LIABILITY-SCOPE-001 (Kontrollrunde 2026-09-25):
+    # separat von total_liabilities_rappen (ALLE Verbindlichkeiten -- bleibt
+    # unveraendert fuer total_wealth_rappen/Simulationspfade, siehe unten),
+    # nur fuer die Fundament-Verrechnung in _build_total_wealth_allocation().
+    mortgage_liabilities_rappen = sum(
+        _convert_position_amount_to_target_currency(pos, fx_source, target_currency)
+        for pos in liability_positions
+        if is_mortgage_position(getattr(pos, "position_type", ""))
+    )
     total_wealth_rappen = max(0, total_summary.total_rappen - total_liabilities_rappen)
     unlocked_other_assets_rappen = _unlocked_other_assets_rappen(
         all_positions, fx_source=fx_source, target_currency=target_currency,
@@ -2412,6 +2421,7 @@ def _load_allocation_inputs(
         "advisory_wealth_rappen": advisory_wealth_rappen,
         "total_wealth_rappen": total_wealth_rappen,
         "total_liabilities_rappen": total_liabilities_rappen,
+        "mortgage_liabilities_rappen": mortgage_liabilities_rappen,
         "external_foundation_projection": external_foundation_projection,
         # C8: rohe Listen fuer input_snapshot_hash
         "all_positions": all_positions,
@@ -3301,6 +3311,7 @@ def generate_target_allocation(
     advisory_wealth_rappen = inputs["advisory_wealth_rappen"]
     total_wealth_rappen = inputs["total_wealth_rappen"]
     total_liabilities_rappen = inputs["total_liabilities_rappen"]
+    mortgage_liabilities_rappen = inputs["mortgage_liabilities_rappen"]
     external_foundation_projection = inputs[
         "external_foundation_projection"
     ]
@@ -4371,7 +4382,7 @@ def generate_target_allocation(
     )
 
     total_allocation_payload = _build_total_wealth_allocation(
-        total_summary, total_liabilities_rappen, total_wealth_rappen,
+        total_summary, mortgage_liabilities_rappen, total_wealth_rappen,
         {
             "equities": int(getattr(target_allocation, "target_equities_bps", 0) or 0),
             "bonds": int(getattr(target_allocation, "target_bonds_bps", 0) or 0),
@@ -5777,6 +5788,13 @@ def build_target_payload_from_allocation(
         _convert_position_amount_to_target_currency(pos, fx_source, target_currency)
         for pos in liability_positions
     )
+    # GESAMTVERMOEGEN-FOUNDATION-LIABILITY-SCOPE-001 (Kontrollrunde 2026-09-25):
+    # siehe Kommentar bei der analogen Berechnung im generate-Pfad oben.
+    mortgage_liabilities_rappen = sum(
+        _convert_position_amount_to_target_currency(pos, fx_source, target_currency)
+        for pos in liability_positions
+        if is_mortgage_position(getattr(pos, "position_type", ""))
+    )
     total_wealth_rappen = max(0, total_summary.total_rappen - total_liabilities_rappen)
     _validate_active_wealth_position_semantics(all_positions)
     # Sprint B2: Anderes-Vermoegen-Schloss-Pool fuer Reserve-Reduktion (rebuild path).
@@ -6390,7 +6408,7 @@ def build_target_payload_from_allocation(
         assessment,
     )
     total_allocation_payload = _build_total_wealth_allocation(
-        total_summary, total_liabilities_rappen, total_wealth_rappen, targets,
+        total_summary, mortgage_liabilities_rappen, total_wealth_rappen, targets,
         direct_property_rappen=external_foundation_projection[
             "property_series_rappen"
         ][0],
