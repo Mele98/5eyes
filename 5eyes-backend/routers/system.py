@@ -30,6 +30,7 @@ from services.maintenance import (
     create_support_bundle,
     database_paths,
     list_backups,
+    redact_log_lines,
     run_integrity_check,
     run_optimize,
     tail_app_log,
@@ -76,7 +77,18 @@ def get_recent_logs(
     lines: int = Query(default=120, ge=1, le=500),
     current_user: User = Depends(require_admin),
 ):
-    return tail_app_log(lines=lines)
+    # Kontrollrunde 2026-09-24: create_support_bundle() (services/
+    # maintenance.py) laesst dieselben tail_app_log()-Zeilen bereits durch
+    # redact_log_lines() (Bearer-Token/API-Key/Passwort-Muster + PRIV-006
+    # Invite-Token-Pfad), bevor sie in ein Bundle gepackt werden -- dieser
+    # Endpoint gab die Rohzeilen bisher UNREDIGIERT zurueck. Nur
+    # require_admin-gated (firmengebunden, nicht super_admin-only), und in
+    # einem Tier-2-Shared-Cloud-Deployment (ein Prozess/eine Logdatei fuer
+    # alle Tenants) haette ein Firmen-Admin damit Bearer-Tokens/Invite-
+    # Tokens auch anderer Tenants aus dem laufenden Log abgreifen koennen.
+    payload = tail_app_log(lines=lines)
+    payload['lines'] = redact_log_lines(list(payload.get('lines') or []))
+    return payload
 
 
 @router.get('/audit-log', response_model=AuditLogPage)
