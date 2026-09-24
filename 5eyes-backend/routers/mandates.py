@@ -6,7 +6,7 @@ from database import get_db, new_uuid
 from models.users import User
 from models.clients import Client
 from models.mandates import Mandate
-from models.tenant import Tenant
+from models.tenant import DEFAULT_TENANT_ID, Tenant
 from schemas.mandates import MandateCreate, MandateUpdate, MandateResponse
 from services.auth import get_client_for_user_or_404, get_current_user, get_mandate_for_user_or_404, require_advisor
 from services.audit import log
@@ -63,9 +63,21 @@ def create_mandate(
     # E1 (2026-06-12): tenant_id vom Parent-Client vererben (Fallback: Tenant des
     # anlegenden Users). Damit neue Mandate NIE NULL-tenant_id haben -> Vorbe-
     # dingung fuer spaetere NOT-NULL-Constraint + Entfernen der 'OR IS NULL'-Klausel.
-    mandate_tenant_id = getattr(client, "tenant_id", None) or getattr(current_user, "tenant_id", None)
+    # Kontrollrunde 2026-09-23 (FINIG-Gate-Audit): Client UND User koennen beide
+    # tenant_id=None haben (z.B. der Bootstrap-Admin jeder frischen Installation,
+    # oder ein super_admin-erstellter User ohne explizites tenant_id) -- ohne
+    # DEFAULT_TENANT_ID-Fallback blieb `tenant` dann None und
+    # enforce_discretionary_management_license() unten faellt bei tenant=None
+    # bewusst fail-open (siehe dortige Doku), was den FINIG-Lizenz-Check fuer
+    # genau diese (nicht seltenen) Faelle komplett umgangen hat. Analog zum
+    # etablierten Muster in services/auth.py::_resolve_tenant_id_for_user.
+    mandate_tenant_id = (
+        getattr(client, "tenant_id", None)
+        or getattr(current_user, "tenant_id", None)
+        or DEFAULT_TENANT_ID
+    )
     assert_within_quota(db, mandate_tenant_id, "mandates")
-    tenant = db.query(Tenant).filter(Tenant.id == mandate_tenant_id).first() if mandate_tenant_id else None
+    tenant = db.query(Tenant).filter(Tenant.id == mandate_tenant_id).first()
     # 2026-08-09 (FINIG-Gate): nur Firmen mit FINIG-Bewilligung/AO-Anschluss
     # duerfen mandate_type="Vermögensverwaltung" ueberhaupt waehlen, siehe
     # services/tenant_licensing.py.
@@ -166,8 +178,13 @@ def update_mandate(
     if "mandate_type" in updates:
         # 2026-08-09 (FINIG-Gate): auch beim nachtraeglichen Umstellen eines
         # Mandats auf Vermögensverwaltung greift die Firmen-Freischaltung,
-        # siehe services/tenant_licensing.py + create_mandate oben.
-        mandate_tenant = db.query(Tenant).filter(Tenant.id == mandate.tenant_id).first() if mandate.tenant_id else None
+        # siehe services/tenant_licensing.py + create_mandate oben. Analog zum
+        # DEFAULT_TENANT_ID-Fallback dort (Kontrollrunde 2026-09-23): ein
+        # bestehendes Mandat mit legacy NULL tenant_id soll den Gate nicht
+        # umgehen koennen, sondern auf die "main"-Firma pruefen.
+        mandate_tenant = (
+            db.query(Tenant).filter(Tenant.id == (mandate.tenant_id or DEFAULT_TENANT_ID)).first()
+        )
         enforce_discretionary_management_license(mandate_tenant, updates["mandate_type"])
     for field, value in updates.items():
         setattr(mandate, field, value)
