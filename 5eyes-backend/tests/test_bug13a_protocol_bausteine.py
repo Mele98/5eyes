@@ -341,6 +341,39 @@ def test_mandate_selektion_400_bei_unbekannter_id(session_factory, advisor_user)
     app.dependency_overrides.clear()
 
 
+def test_deleted_baustein_no_longer_appears_in_existing_mandate_selection(
+    session_factory, advisor_user,
+):
+    """Kontrollrunde 2026-09-24: ein Baustein, der VOR seiner Loeschung
+    bereits fuer ein Mandat ausgewaehlt war, muss nach dem Soft-Delete aus
+    GET /mandates/{id}/protocol-bausteine verschwinden -- Loeschen hatte
+    bisher fuer bereits selektierte Bausteine keinerlei Wirkung."""
+    mandate_id = _seed_mandate(session_factory, advisor_user)
+    with session_factory() as db:
+        db.add(ProtocolBaustein(
+            id="b-to-delete", advisor_id="advisor-1", title="Wird geloescht",
+            content_md="x", sort_order=0, is_active=1,
+            created_at=_utc_now(), updated_at=_utc_now(),
+        ))
+        db.commit()
+
+    with _client_for(session_factory, advisor_user) as c:
+        put_resp = c.put(
+            f"/mandates/{mandate_id}/protocol-bausteine",
+            json={"selections": [{"baustein_id": "b-to-delete", "sort_order": 0}]},
+        )
+        assert put_resp.status_code == 200
+        assert len(put_resp.json()) == 1
+
+        del_resp = c.delete("/protocol-bausteine/b-to-delete")
+        assert del_resp.status_code == 204
+
+        list_resp = c.get(f"/mandates/{mandate_id}/protocol-bausteine")
+        assert list_resp.status_code == 200
+        assert list_resp.json() == []
+    app.dependency_overrides.clear()
+
+
 # ---------------------------------------------------------------------------
 # Kontrollrunde 2026-09-24: Audit-Log-Eintraege fuer Baustein-CRUD/Mandate-
 # Selektion wurden bisher per hand-gerolltem AuditLog(...)-Insert erzeugt,

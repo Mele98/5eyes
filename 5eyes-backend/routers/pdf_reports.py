@@ -1491,7 +1491,14 @@ def _build_protokoll_data(mandate: Mandate, db: Session) -> ProtokollData:
                 ProtocolBaustein,
                 ProtocolBaustein.id == MandateBausteinSelection.baustein_id,
             )
-            .filter(MandateBausteinSelection.mandate_id == mandate.id)
+            .filter(
+                MandateBausteinSelection.mandate_id == mandate.id,
+                # Kontrollrunde 2026-09-24: identischer Fund/Fix wie
+                # routers/protocol_bausteine.py::list_mandate_selections --
+                # ein bereits ausgewaehlter, danach soft-geloeschter Baustein
+                # wurde sonst weiterhin unveraendert ins PDF gerendert.
+                ProtocolBaustein.deleted_at.is_(None),
+            )
             .order_by(MandateBausteinSelection.sort_order, ProtocolBaustein.title)
             .all()
         )
