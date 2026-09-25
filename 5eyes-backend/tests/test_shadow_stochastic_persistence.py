@@ -18,7 +18,7 @@ from main import app
 from models.allocation import TargetAllocation
 from models.mandates import Mandate
 from models.review import AuditLog
-from services.auth import require_admin
+from services.auth import get_current_user, require_admin
 from services.optimizer.solver import OptimizerResult
 from services.shadow_comparison import build_shadow_comparison_payload
 from test_optimizer_shadow_mode import _seed_realistic_mandate, session_factory
@@ -88,6 +88,10 @@ def _client_with_admin(session_factory, admin_id: str = "admin-stage5"):
     admin_user = SimpleNamespace(id=admin_id, full_name="Admin Stage5", email="admin@example.test", role="admin", tenant_id=None)
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[require_admin] = lambda: admin_user
+    # Kontrollrunde 2026-09-24: PUT /optimizer-mode haengt jetzt an
+    # require_admin_or_platform_scope_for_global_reference_data, das an
+    # get_current_user (nicht require_admin) haengt.
+    app.dependency_overrides[get_current_user] = lambda: admin_user
     return TestClient(app)
 
 

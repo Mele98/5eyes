@@ -24,7 +24,7 @@ from database import get_db
 from main import app
 from models.review import AuditLog
 from routers import system as system_router
-from services.auth import require_admin, require_advisor
+from services.auth import get_current_user, require_admin, require_advisor
 from test_optimizer_shadow_mode import session_factory  # noqa: F401
 
 
@@ -41,11 +41,18 @@ def _client(session_factory, admin_id: str = "admin-u102") -> TestClient:
             db.close()
 
     admin_user = SimpleNamespace(
-        id=admin_id, full_name="Admin U102", email="admin@example.test"
+        id=admin_id, full_name="Admin U102", email="admin@example.test",
+        # Kontrollrunde 2026-09-24: role="admin" noetig, seit mehrere
+        # Endpoints hier auf require_admin_or_platform_scope_for_global_
+        # reference_data umgestellt wurden -- diese Dependency haengt an
+        # get_current_user (nicht an require_admin) und liest current_user
+        # .role direkt.
+        role="admin",
     )
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[require_admin] = lambda: admin_user
     app.dependency_overrides[require_advisor] = lambda: admin_user
+    app.dependency_overrides[get_current_user] = lambda: admin_user
     return TestClient(app)
 
 
