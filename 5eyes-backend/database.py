@@ -287,6 +287,9 @@ def ensure_runtime_columns() -> None:
             # Code-Replay durch, sobald die Uhr ins naechste (per +/-1-Drift-
             # Toleranz weiterhin gueltige) Zeitfenster weiterrueckte.
             ('totp_last_code_hash', 'TEXT'),
+            # REVIEW-CALENDAR-001 (2026-09-24): siehe models/users.py.
+            ('calendar_feed_token_hash', 'TEXT'),
+            ('calendar_feed_token_created_at', 'TEXT'),
         ],
         'tenants': [
             ('encrypted_dek', 'TEXT'),
