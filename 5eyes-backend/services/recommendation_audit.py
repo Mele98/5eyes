@@ -88,8 +88,11 @@ def summarize_optimizer_run(run: Any) -> dict[str, Any]:
     }
 
 
+_TA_NOT_PASSED = object()
+
+
 def audit_recommendation_methodology(
-    db: Session, mandate: Any,
+    db: Session, mandate: Any, current_ta: Any = _TA_NOT_PASSED,
 ) -> dict[str, Any]:
     """Audit der Recommendation-Methodology pro Mandat.
 
@@ -98,6 +101,17 @@ def audit_recommendation_methodology(
     -- siehe STALE-OPTIMIZER-RUN-MISATTRIBUTION-001-Kommentar unten), damit
     Berater sieht ob die produktive Allokation aus Stochastic oder Fallback
     kommt.
+
+    `current_ta`: optional bereits geladene aktuelle TargetAllocation
+    (N1-BASELINE-001, Kontrollrunde 2026-09-25). Der einzige reale Aufrufer
+    (services/advisory_report.py::_build_recommendation_methodology, Teil
+    des 25-Sektionen-Aggregators) haelt bereits eine per-Request gecachte
+    Kopie ueber _cached_current_ta() vor -- eine zweite, identische Query
+    hier haette die TARGET_ALLOCATIONS-Query-Obergrenze des N+1-Regressions-
+    Guards (tests/test_aggregator_n1_baseline.py) gerissen. Ohne Argument
+    (Default-Sentinel) wird weiterhin selbst frisch abgefragt, fuer jeden
+    Aufrufer ausserhalb eines aktiven Aggregator-Request-Caches (z.B. Tests,
+    ein kuenftiger eigenstaendiger Endpoint).
 
     Output-Schema
     -------------
@@ -132,15 +146,16 @@ def audit_recommendation_methodology(
             .order_by(OptimizerRun.run_at.desc())
             .all()
         )
-        current_ta = (
-            db.query(TargetAllocation)
-            .filter(
-                TargetAllocation.mandate_id == mandate.id,
-                TargetAllocation.is_current == 1,
-                TargetAllocation.deleted_at.is_(None),
+        if current_ta is _TA_NOT_PASSED:
+            current_ta = (
+                db.query(TargetAllocation)
+                .filter(
+                    TargetAllocation.mandate_id == mandate.id,
+                    TargetAllocation.is_current == 1,
+                    TargetAllocation.deleted_at.is_(None),
+                )
+                .first()
             )
-            .first()
-        )
     except Exception:  # noqa: BLE001
         # Fail-closed (Mega-Audit 2026-08-04, analog Commit 23585cf): eine
         # DB-/Schema-Exception ist NICHT dasselbe wie "noch kein Run

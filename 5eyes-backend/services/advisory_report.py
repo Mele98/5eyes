@@ -3148,7 +3148,11 @@ def _build_recommendation_methodology(
     """
     try:
         from services.recommendation_audit import audit_recommendation_methodology
-        return audit_recommendation_methodology(db, mandate)
+        # N1-BASELINE-001 (Kontrollrunde 2026-09-25): bereits per-Request
+        # gecachte TA uebergeben statt audit_recommendation_methodology()
+        # eine zweite, identische TARGET_ALLOCATIONS-Query ausfuehren zu
+        # lassen (siehe Docstring dort).
+        return audit_recommendation_methodology(db, mandate, current_ta=_cached_current_ta(db, mandate))
     except Exception:  # noqa: BLE001
         # Fail-closed (2026-07-18): kein falsches 'compliant' bei Audit-Fehler.
         return {
