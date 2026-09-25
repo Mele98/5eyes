@@ -4,7 +4,6 @@ import sys
 from pathlib import Path
 
 import pytest
-from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -16,7 +15,7 @@ if str(BACKEND_ROOT) not in sys.path:
 from database import Base, get_db
 from main import app
 from models.users import User
-from services.auth import require_admin
+from services.auth import get_current_user
 
 
 @pytest.fixture()
@@ -55,7 +54,13 @@ def admin_client(session_factory, admin_user):
             yield session
 
     app.dependency_overrides[get_db] = override_get_db
-    app.dependency_overrides[require_admin] = lambda: admin_user
+    # SYSTEM-GLOBAL-REFDATA-UNDERSCOPED-ADMIN-GATE-001 (#492) haengte diesen
+    # Endpoint von require_admin auf require_admin_or_platform_scope_for_
+    # global_reference_data um, die ueber get_current_user (nicht mehr
+    # require_admin) aufloest -- Override muss dem folgen, sonst laeuft die
+    # echte (nicht ueberschriebene) Dependency-Kette ohne Auth-Header -> 401
+    # statt des erwarteten 200/500.
+    app.dependency_overrides[get_current_user] = lambda: admin_user
     with TestClient(app) as client:
         yield client
     app.dependency_overrides.clear()
@@ -84,11 +89,19 @@ def test_refresh_now_endpoint_requires_admin(session_factory):
         with session_factory() as session:
             yield session
 
-    def deny():
-        raise HTTPException(status_code=403, detail="admin required")
+    non_admin = User(
+        id="advisor-1",
+        username="advisor",
+        password_hash="hash",
+        full_name="Advisor User",
+        role="advisor",
+        is_active=1,
+        created_at="2026-06-04T00:00:00.000Z",
+        updated_at="2026-06-04T00:00:00.000Z",
+    )
 
     app.dependency_overrides[get_db] = override_get_db
-    app.dependency_overrides[require_admin] = deny
+    app.dependency_overrides[get_current_user] = lambda: non_admin
     try:
         with TestClient(app) as client:
             response = client.post("/admin/system/market-data/refresh-now")
