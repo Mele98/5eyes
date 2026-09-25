@@ -48,8 +48,33 @@ def _resolve_master_kek(master_kek: str | bytes | None = None) -> bytes:
         or getattr(settings, "tenant_master_kek", "")
     )
     if not raw:
-        if getattr(settings, "app_env", "development") in {"staging", "production"}:
-            raise TenantCryptoError("TENANT_MASTER_KEK fehlt fuer staging/production")
+        # Kontrollrunde 2026-09-24: der bisherige Gate ("nur bei explizit
+        # gesetztem app_env in {staging, production}") ist unabhaengig von
+        # hosting_tier/tenancy_mode -- ein Tier-2/3-Multi-Tenant-Deployment,
+        # das schlicht nie APP_ENV=production/staging setzt (ein leicht zu
+        # vergessender, von TENANT_MASTER_KEK komplett getrennter Schalter,
+        # app_env defaultet auf 'development'), lief bisher OHNE jede
+        # Warnung mit einem KEK, der deterministisch aus dem im Quellcode
+        # oeffentlich sichtbaren DEFAULT_SECRET_KEY (config.py) abgeleitet
+        # wird -- jeder kann diesen KEK vorab berechnen und damit jedes
+        # verschluesselte Feld jedes Tenants entschluesseln (aktuell: TOTP-
+        # Secrets, laut Modul-Docstring das generelle PII-Verschluesselungs-
+        # Interface fuer kuenftige Felder). Analog zum bereits etablierten
+        # Muster services.auth._effective_strict_tenant_isolation() greift
+        # der Fail-Closed-Pfad jetzt zusaetzlich, wenn das Deployment
+        # tatsaechlich multi-tenant ist, unabhaengig vom (separaten,
+        # leicht vergessenen) app_env-Flag.
+        from services.auth import _effective_strict_tenant_isolation
+
+        if (
+            getattr(settings, "app_env", "development") in {"staging", "production"}
+            or _effective_strict_tenant_isolation(settings)
+        ):
+            raise TenantCryptoError(
+                "TENANT_MASTER_KEK fehlt -- Pflicht fuer staging/production "
+                "und fuer jedes Multi-Tenant-Deployment (hosting_tier "
+                "tier2/tier3 bzw. tenancy_mode='multi')"
+            )
         raw = getattr(settings, "secret_key", "")
     if isinstance(raw, str):
         raw_bytes = raw.encode("utf-8")
