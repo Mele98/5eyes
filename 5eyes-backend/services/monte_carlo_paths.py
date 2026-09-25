@@ -337,6 +337,28 @@ def _annual_cashflow_series(
     return [annual_net for _ in range(horizon_years)]
 
 
+def _sub_allocations_missing_cma_coverage(
+    cma: Any, sub_allocations: list[dict],
+) -> bool:
+    """True nur, wenn mindestens ein sub_allocations-Eintrag eine
+    sub_asset_class benennt, fuer die die CMA schlicht KEINE Kennzahl
+    besitzt (das einzige Szenario, in dem `_compute_paths_core` fail-soft
+    auf Bucket-Defaults zurueckfallen darf, siehe REP-005-Kommentar dort).
+    Jede andere Fehlerursache (kaputte Eintraege, asset_class-Mismatch,
+    korrupte CMA-Basisdaten) ist NICHT hier abgedeckt -- der Aufrufer laesst
+    OptimizerInputError in diesen Faellen bewusst propagieren."""
+    from services.portfolio_engine_cma import _sub_asset_class_assumption_map
+
+    assumptions = _sub_asset_class_assumption_map(cma)
+    for item in sub_allocations:
+        if not isinstance(item, dict):
+            continue
+        sub_label = str(item.get("sub_asset_class") or "")
+        if sub_label and sub_label not in assumptions:
+            return True
+    return False
+
+
 def _compute_paths_core(
     *,
     initial_wealth_rappen: int,
@@ -358,20 +380,36 @@ def _compute_paths_core(
     try:
         inputs = scenario_inputs_from_cma(cma, sub_allocations)
     except ValueError:
-        if sub_allocations is None:
+        # REP-005 (Kontrollrunde 2026-09-25): dieser except-Zweig war vorher
+        # ein blindes `except ValueError`, das JEDE Fehlerursache aus
+        # scenario_inputs_from_cma() identisch behandelte -- inklusive
+        # OptimizerInputError, dessen eigener Docstring explizit sagt "must
+        # not become a silent fallback". scenario_inputs_from_cma() buendelt
+        # darin aber viele voellig unterschiedliche Ursachen in denselben
+        # Exception-Typ: eine fehlende Sub-Asset-Class-Abdeckung in der CMA
+        # (der einzige Fall, den dieser Fallback tatsaechlich abfedern soll),
+        # ABER AUCH echte Datenkorruption (falsch zugeordnete asset_class/
+        # sub_asset_class, kaputte Korrelationsmatrix, nicht-endliche
+        # CMA-Renditen). Ein Sub-Allocations-Eintrag, der z.B. eine Aktien-
+        # Position faelschlich als "Obligationen" deklariert, wurde bisher
+        # STILL auf Bucket-Defaults zurueckgestuft statt den Fehler zu
+        # melden -- das Risiko-Projektions-Ergebnis waere dadurch fachlich
+        # falsch (Aktienrisiko als Obligationen-Risiko gerechnet), ohne dass
+        # irgendetwas im Report darauf hinweist. Live reproduziert.
+        #
+        # Fix: nur noch der eine, tatsaechlich gemeinte Fall (eine benannte
+        # Sub-Asset-Class hat schlicht KEINE CMA-Kennzahl) loest den
+        # Fail-soft-Rueckfall aus -- explizit VORAB geprueft, nicht aus dem
+        # Exception-Typ erraten. Jede andere Ursache (Datenkorruption)
+        # propagiert weiterhin hart, wie es OptimizerInputError verlangt.
+        if sub_allocations is None or not _sub_allocations_missing_cma_coverage(
+            cma, sub_allocations,
+        ):
             raise
-        # REP-001 Fail-soft (Modul-Prinzip, siehe Docstring oben): eine
-        # persistierte sub_allocations_json kann Sub-Asset-Classes
-        # enthalten, fuer die die aktuelle CMA (noch) keine Kennzahlen hat
-        # -- z.B. waehrend eine Jurisdiktion (DE) sukzessive CMA-Abdeckung
-        # aufbaut. scenario_inputs_from_cma() validiert das im Strict-Modus
-        # hart (richtig fuer den Optimizer-Entscheidungspfad). Fuer diese
-        # Reporting-Sektion darf das aber nicht den kompletten Advisory-
-        # Report zum Absturz bringen -- Rueckfall auf die historischen
-        # Bucket-Defaults, exakt das Verhalten von vor diesem Fix.
         logger.warning(
-            "sub_allocations mit CMA nicht vereinbar (%s) -- Monte-Carlo "
-            "faellt auf Bucket-Defaults ohne Sub-Allokations-Gewichtung zurueck.",
+            "sub_allocations enthaelt Sub-Asset-Classes ohne CMA-Abdeckung "
+            "(%s) -- Monte-Carlo faellt auf Bucket-Defaults ohne "
+            "Sub-Allokations-Gewichtung zurueck.",
             sub_allocations,
         )
         inputs = scenario_inputs_from_cma(cma, None)
