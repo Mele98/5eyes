@@ -28,12 +28,34 @@ def is_postgres_bind(bind) -> bool:
 
 
 def _reset_dbapi_context(dbapi_connection) -> None:
+    """Run the GUC resets and close the implicit transaction they open.
+
+    TENANT-CONTEXT-IDLE-IN-TRANSACTION-001 (Kontrollrunde 2026-09-25): diese
+    Funktion laeuft direkt auf dem rohen DBAPI-Connection-Objekt (Pool-
+    Events, nicht die SQLAlchemy-Session) -- der Treiber steht dort per
+    Default NICHT im Autocommit-Modus. Jedes `cursor.execute(...)` startet
+    also implizit eine neue Transaktion. Ohne explizites commit()/rollback()
+    blieb diese Transaktion offen: beim `checkout`-Event lief die naechste
+    Session einfach in die bereits offene Transaktion hinein (meist
+    unbemerkt, da die Session i.d.R. selbst bald committet), aber beim
+    `checkin`-Event -- wenn die Verbindung NICHT weiterverwendet, sondern
+    einfach in den Pool zurueckgelegt wird -- blieb die Verbindung auf
+    Postgres-Seite dauerhaft "idle in transaction" (sichtbar in
+    pg_stat_activity), obwohl SQLAlchemy sie bereits als frei/verfuegbar
+    fuehrte. Bei Verbindungspools mit vielen selten genutzten Connections
+    haelt das unnoetig lange den Autovacuum-xmin-Horizont fest und kann bei
+    einem konfigurierten idle_in_transaction_session_timeout zum
+    unerwarteten Verbindungsabbruch fuehren. Fix: die Reset-Transaktion wird
+    hier sofort geschlossen, damit die Verbindung im Pool tatsaechlich idle
+    (nicht idle-in-transaction) ist.
+    """
     cursor = dbapi_connection.cursor()
     try:
         cursor.execute(f"RESET {TENANT_GUC}")
         cursor.execute(f"RESET {BYPASS_GUC}")
     finally:
         cursor.close()
+    dbapi_connection.commit()
 
 
 def attach_tenant_context_reset(target_engine: Engine) -> None:
