@@ -94,14 +94,33 @@ class AttributionResult:
         }
 
 
-def _weighted_total_bps(weights_bps: dict[str, int], returns_bps: dict[str, int]) -> int:
+def _weighted_total_bps(
+    weights_bps: dict[str, int],
+    returns_bps: dict[str, int],
+    *,
+    keys: tuple[str, ...] | None = None,
+) -> int:
     """Berechnet Σ w_i * r_i / 10000 (bps-konsistent).
 
     Beide Inputs in bps. Output in bps. Beispiel:
         w=5000 (50%), r=600 (6%) -> Beitrag = 5000*600/10000 = 300 bps (3%)
+
+    PERFORMANCE-ATTRIBUTION-BUCKET-KEYS-NOT-FILTERED-001 (Kontrollrunde
+    2026-09-25): `keys` (optional) beschraenkt die Summe auf genau diese
+    Schluessel statt auf ALLE Keys in `weights_bps`. Ohne diese Einschraenkung
+    summierte compute_brinson_attribution() seine Totals immer ueber JEDEN
+    Key in den uebergebenen Weight-Dicts -- unabhaengig vom `bucket_keys`-
+    Parameter, der die PRO-BUCKET-Tabelle filtert. Mit dem einzigen aktuellen
+    Aufrufer (services/advisory_report.py) sind beide Dicts hart auf exakt
+    die 5 Standard-Buckets kodiert, daher bisher nie beobachtbar -- aber ein
+    kuenftiger Aufrufer, der `bucket_keys` tatsaechlich zur Filterung nutzt
+    (der dokumentierte Zweck des Parameters), haette eine Tabelle bekommen,
+    deren Zeilensumme NICHT mit der angezeigten Gesamtsumme uebereinstimmt.
     """
     total = 0
     for key, w in weights_bps.items():
+        if keys is not None and key not in keys:
+            continue
         if w is None:
             continue
         r = int(returns_bps.get(key, 0) or 0)
@@ -180,8 +199,8 @@ def compute_brinson_attribution(
         alloc_numerator_total += alloc_numerator
         select_numerator_total += select_numerator
 
-    total_p = _weighted_total_bps(portfolio_weights_bps, portfolio_returns_bps)
-    total_b = _weighted_total_bps(benchmark_weights_bps, bench_returns)
+    total_p = _weighted_total_bps(portfolio_weights_bps, portfolio_returns_bps, keys=bucket_keys)
+    total_b = _weighted_total_bps(benchmark_weights_bps, bench_returns, keys=bucket_keys)
     total_excess = total_p - total_b
 
     # Bugfix 2026-08-07, Fortsetzung: alloc/select unabhaengig runden, aber
