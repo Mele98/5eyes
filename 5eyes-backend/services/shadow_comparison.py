@@ -58,14 +58,28 @@ def build_shadow_comparison_payload(db: Session, mandate_id: str) -> dict[str, A
     if active_risky is None:
         active_risky = _int_or_none(ta.risky_fraction_bps) or 0
     stochastic_risky = _int_or_none(shadow.get("risky_fraction_bps")) or 0
+    # SHADOW-ZERO-RISK-BUDGET-FALSY-001 (Kontrollrunde 2026-09-25): risk_budget
+    # wird bewusst NICHT mehr mit `or 0` auf einen Wert kollabiert -- ein
+    # HouseMatrix-Tier darf laut Schema (max_risky_fraction_bps: ge=0) legitim
+    # 0 bps Risikobudget haben (z.B. eine kuenftige/kundenspezifische
+    # Ultra-Kapitalschutz-Stufe). Vorher wurde risk_budget_bps==0 per Python-
+    # Truthiness identisch zu "kein Budget bekannt" behandelt -- ein Mandat mit
+    # echtem 0%-Risikobudget UND einer korrekt 0%-risky HouseMatrix-Allokation
+    # zeigte dadurch faelschlich "Budget-Konformitaet: Nein" in der Methodology-
+    # Sektion, obwohl 0<=0 tatsaechlich konform ist. Jetzt bleibt risk_budget
+    # `None`, wenn WEDER die Shadow-Payload NOCH die TargetAllocation je einen
+    # Wert dafuer gespeichert haben (echtes "unbekannt") -- nur DANN gilt die
+    # Konformitaet als nicht bestimmbar.
     risk_budget = _int_or_none(shadow.get("risk_budget_bps"))
     if risk_budget is None:
-        risk_budget = _int_or_none(ta.risk_budget_bps_at_generation) or 0
+        risk_budget = _int_or_none(ta.risk_budget_bps_at_generation)
     risky_drift_bps = abs(int(stochastic_risky) - int(active_risky))
 
-    budget_compliance_hm = bool(int(active_risky) <= int(risk_budget)) if risk_budget else False
+    budget_compliance_hm = (
+        bool(int(active_risky) <= int(risk_budget)) if risk_budget is not None else False
+    )
     budget_compliance_st = bool(shadow.get("budget_compliance"))
-    if "budget_compliance" not in shadow and risk_budget:
+    if "budget_compliance" not in shadow and risk_budget is not None:
         budget_compliance_st = bool(int(stochastic_risky) <= int(risk_budget))
 
     achievability = list(shadow.get("achievability") or [])
@@ -107,10 +121,10 @@ def build_shadow_comparison_payload(db: Session, mandate_id: str) -> dict[str, A
             "house_matrix": int(active_risky),
             "stochastic": int(stochastic_risky),
             "drift": int(risky_drift_bps),
-            "max_risky_fraction_bps": int(risk_budget),
+            "max_risky_fraction_bps": int(risk_budget) if risk_budget is not None else 0,
         },
         "risky_drift_bps": int(risky_drift_bps),
-        "risk_budget_bps": int(risk_budget),
+        "risk_budget_bps": int(risk_budget) if risk_budget is not None else 0,
         "budget_compliance": {
             "house_matrix": budget_compliance_hm,
             "stochastic": budget_compliance_st,
