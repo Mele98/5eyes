@@ -108,13 +108,27 @@ def test_classify_normal_below_hard_cap():
     assert classify_liquidity_stage(200) == STAGE_NORMAL
 
 
-def test_classify_normal_at_hard_cap_boundary():
-    """300 bps = genau am Hard-Cap -> noch normal (nicht eskaliert)."""
-    assert classify_liquidity_stage(300) == STAGE_NORMAL
+def test_classify_normal_just_below_hard_cap_boundary():
+    """299 bps = knapp unter dem Hard-Cap -> normal (nicht eskaliert)."""
+    assert classify_liquidity_stage(299) == STAGE_NORMAL
+
+
+def test_classify_hard_cap_at_exact_boundary():
+    """LIQUIDITY-CASCADE-HARD-CAP-DEAD-BRANCH-001 (Kontrollrunde 2026-09-25):
+    300 bps = exakt am Soll-Hard-Cap gedeckelt (Stage-2-Eskalation griff,
+    aber NICHT bis in den Emergency-Bereich getrieben) -> STAGE_HARD_CAP,
+    nicht STAGE_NORMAL. Vorher war STAGE_HARD_CAP unerreichbar (toter
+    Zweig); dieser exakte Grenzwert war faelschlich als STAGE_NORMAL
+    (keine Pflicht-Warnung) statt STAGE_EMERGENCY (Pflicht-Warnung)
+    eingeordnet -- fachlich mit dem Auftraggeber als korrekte, minimal-
+    invasive Grenze abgestimmt."""
+    assert classify_liquidity_stage(300) == STAGE_HARD_CAP
 
 
 def test_classify_emergency_above_hard_cap():
-    """Eine Einheit ueber Hard-Cap -> Emergency-Stage."""
+    """Eine Einheit ueber dem exakten Hard-Cap -> Emergency-Stage
+    (unveraendert -- nur der exakte Grenzwert 300 selbst wechselte von
+    STAGE_NORMAL zu STAGE_HARD_CAP, siehe test_classify_hard_cap_at_exact_boundary)."""
     assert classify_liquidity_stage(301) == STAGE_EMERGENCY
 
 
@@ -194,6 +208,20 @@ def test_audit_emergency_stage_triggers_warning():
     assert result["warning_required"] is True
     assert result["beratungsgespraech_pruefen"] is True
     assert result["over_hard_cap_by_bps"] == 500  # 800 - 300
+
+
+def test_audit_hard_cap_stage_does_not_trigger_mandatory_warning():
+    """LIQUIDITY-CASCADE-HARD-CAP-DEAD-BRANCH-001: exakt am Hard-Cap (300
+    bps) gedeckelt -> STAGE_HARD_CAP, KEINE Pflicht-Warnung (nur
+    STAGE_EMERGENCY loest warning_required/beratungsgespraech_pruefen
+    aus). Vorher wurde dieser exakte Grenzwert faelschlich als
+    STAGE_EMERGENCY mit Pflicht-Warnung gemeldet."""
+    db = _stub_db(_ta(liquidity_target_bps=300))
+    result = audit_mandate_liquidity_cascade(db, _mandate())
+    assert result["stage"] == STAGE_HARD_CAP
+    assert result["warning_required"] is False
+    assert result["beratungsgespraech_pruefen"] is False
+    assert result["over_hard_cap_by_bps"] is None
 
 
 def test_audit_exposes_correct_caps():

@@ -56,17 +56,31 @@ def classify_liquidity_stage(
     hard_cap_bps: int = LIQUIDITY_HARD_CAP_BPS,
     emergency_cap_bps: int = LIQUIDITY_EMERGENCY_CAP_BPS,
 ) -> str:
-    """Liefert Stage-Code basierend auf Liquiditaets-Wert in bps."""
+    """Liefert Stage-Code basierend auf Liquiditaets-Wert in bps.
+
+    LIQUIDITY-CASCADE-HARD-CAP-DEAD-BRANCH-001 (Kontrollrunde 2026-09-25):
+    STAGE_HARD_CAP war vorher unerreichbar -- jeder Wert > hard_cap_bps
+    (auch nur knapp darueber) wurde sofort als STAGE_EMERGENCY eingestuft
+    und loeste damit ungeprueft die Pflicht-Warnung "Beratungsgespraech
+    pruefen" aus (siehe audit_mandate_liquidity_cascade: nur
+    stage==STAGE_EMERGENCY setzt warning_required/beratungsgespraech_
+    pruefen). Fachlich abgestimmt (minimal-invasiv, aendert am wenigsten
+    am bestehenden Pflicht-Warnverhalten): nur der exakte Hard-Cap-Wert
+    selbst (bps == hard_cap_bps -- die Eskalation wurde auf den Soll-
+    Hard-Cap gedeckelt, aber NICHT in den Emergency-Bereich getrieben)
+    zaehlt als STAGE_HARD_CAP; jeder Wert darueber bleibt STAGE_EMERGENCY
+    wie zuvor.
+    """
     if liquidity_bps is None:
         return STAGE_UNKNOWN
     try:
         bps = int(liquidity_bps)
     except (TypeError, ValueError):
         return STAGE_UNKNOWN
-    if bps <= hard_cap_bps:
+    if bps < hard_cap_bps:
         return STAGE_NORMAL
-    if bps <= emergency_cap_bps:
-        return STAGE_EMERGENCY
+    if bps == hard_cap_bps:
+        return STAGE_HARD_CAP
     return STAGE_EMERGENCY
 
 
