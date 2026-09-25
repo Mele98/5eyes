@@ -57,9 +57,43 @@ _SCENARIOS: list[dict] = [
         "label": "Covid-Crash 2020",
         "period": "Feb 2020 – Mär 2020 (5 Wochen) + Erholung",
         "recovery_months": 5,
+        # Kontrollrunde 2026-09-24: vorher EIN einziger volljaehriger Netto-
+        # Eintrag (Crash+Erholung bereits zusammengefasst). _compute_scenario_
+        # path() vergleicht Peak/Trough nur ZWISCHEN den Eintraegen dieser
+        # Liste, nie innerhalb eines einzelnen Eintrags -- ein "Crash"-
+        # Szenario, dessen einziger Eintrag per saldo bereits positiv war
+        # (Vollerholung binnen desselben Kalenderjahres), zeigte dadurch
+        # max_drawdown_bps=0. Fuer ein Szenario, das explizit als "Crash"
+        # beworben wird (und in Beratungsgespraechen zur Risikoaufklaerung
+        # dient), fachlich irrefuehrend -- live reproduziert.
+        #
+        # Fix: in zwei Phasen aufgeteilt (Peak-to-Trough Feb-Maerz, dann
+        # Erholung bis Jahresende), damit der tatsaechliche Tiefpunkt erfasst
+        # wird. Die Crash-Phase nutzt oeffentlich dokumentierte Peak-to-
+        # Trough-Groessenordnungen (Equities: MSCI World/S&P500 ca. -34% vom
+        # 19.2. bis 23.3.2020; Real Estate/EPRA-NAREIT wurde ueberdurch-
+        # schnittlich hart getroffen, ca. -35%; Bonds/Global-Agg-Hedged nur
+        # moderat, ca. -3%; Alternatives/HFRX ca. -10%; Liquiditaet ~0%).
+        # Die Erholungsphase wird daraus RECHNERISCH abgeleitet, sodass der
+        # bereits zuvor bestehende (und nicht neu zu verifizierende)
+        # Jahresend-Nettostand JEDER Asset-Klasse exakt erhalten bleibt --
+        # nur der bisher unsichtbare Tiefpunkt waehrend des Jahres wird jetzt
+        # korrekt erfasst. Empfehlung: Crash-Phase-Werte vor produktivem
+        # Einsatz in echten Kundengespraechen gegen die eigene Datenquelle
+        # verifizieren.
         "annual_returns_bps": [
-            # Annualisiert: Crash Q1 -34%, dann Erholung — Netto +15% MSCI World
-            {"year": 2020, "equities": 1500, "bonds": 750, "real_estate": -800, "alternatives": 700, "liquidity": -10},
+            {
+                "year": 2020,
+                "period_label": "Feb–Mär 2020 (Crash, Peak-to-Trough)",
+                "equities": -3400, "bonds": -300, "real_estate": -3500,
+                "alternatives": -1000, "liquidity": -5,
+            },
+            {
+                "year": 2020,
+                "period_label": "Apr–Dez 2020 (Erholung)",
+                "equities": 7424, "bonds": 1082, "real_estate": 4154,
+                "alternatives": 1889, "liquidity": -5,
+            },
         ],
     },
     {
@@ -108,6 +142,7 @@ def _compute_scenario_path(
             max_dd = drawdown
         years_in_period.append({
             "year": int(year_entry.get("year", 0)),
+            "period_label": year_entry.get("period_label") or str(int(year_entry.get("year", 0))),
             "return_bps": int(round(annual_return * 10000)),
             "wealth_index": round(cumulative, 4),
         })
