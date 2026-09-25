@@ -17,9 +17,12 @@ Read-only Audit-Service:
 """
 from __future__ import annotations
 
+import logging
 from typing import Any, Optional
 
 from sqlalchemy.orm import Session
+
+logger = logging.getLogger(__name__)
 
 
 # Mirror der portfolio_engine-Konstanten. Drift-Test sichert Konsistenz.
@@ -137,12 +140,20 @@ def audit_mandate_liquidity_cascade(
             .filter(TargetAllocation.deleted_at.is_(None))
             .first()
         )
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
         # Mega-Audit (2026-08-04): "unknown"/warning_required=False war schon
         # vor diesem Fix ehrlich (keine falsche "normal"-Behauptung) -- aber
         # eine DB-Exception ist NICHT dasselbe wie "noch keine Allokation
         # vorhanden". audit_degraded macht diesen Unterschied fuer
         # nachgelagerte Konsumenten sichtbar.
+        # AUDIT-SILENT-DEGRADED-LOGGING-001 (Kontrollrunde 2026-09-25):
+        # vorher lief dieser Pfad komplett ohne Log-Eintrag.
+        logger.warning(
+            "audit_mandate_liquidity_cascade: TargetAllocation-Abfrage "
+            "fuer Mandat %s fehlgeschlagen -- Liquiditaets-Cascade-Stage "
+            "kann nicht bestimmt werden (audit_degraded=True). %s",
+            getattr(mandate, "id", "?"), exc,
+        )
         return {**empty, "audit_degraded": True}
 
     if active_ta is None:

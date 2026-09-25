@@ -221,6 +221,21 @@ def test_audit_db_error_returns_unknown_degraded():
     assert result["audit_degraded"] is True
 
 
+def test_audit_db_error_is_logged_with_mandate_id(caplog):
+    """AUDIT-SILENT-DEGRADED-LOGGING-001 (Kontrollrunde 2026-09-25): vorher
+    lief der degraded-Pfad komplett ohne Log-Eintrag."""
+    import logging
+
+    db = MagicMock()
+    db.query.side_effect = RuntimeError("table missing")
+    with caplog.at_level(logging.WARNING, logger="services.liquidity_cascade_audit"):
+        audit_mandate_liquidity_cascade(db, _mandate(mid="MX-LOG-TEST"))
+    assert any(
+        "MX-LOG-TEST" in record.getMessage() and "table missing" in record.getMessage()
+        for record in caplog.records
+    )
+
+
 # ---------------------------------------------------------------------------
 # Aggregator-Integration (Sektion 23)
 # ---------------------------------------------------------------------------
