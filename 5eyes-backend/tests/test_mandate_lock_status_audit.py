@@ -254,6 +254,22 @@ def test_db_error_returns_editable_degraded():
     assert result["lock_reasons"] == []
 
 
+def test_db_error_is_logged_with_mandate_id(caplog):
+    """AUDIT-SILENT-DEGRADED-LOGGING-001 (Kontrollrunde 2026-09-25): vorher
+    lief der degraded-Pfad komplett ohne Log-Eintrag -- ein Ops-Engineer
+    hatte keinerlei Spur, WARUM ein Mandat degraded war."""
+    import logging
+
+    db = MagicMock()
+    db.query.side_effect = RuntimeError("table missing")
+    with caplog.at_level(logging.WARNING, logger="services.mandate_lock_audit"):
+        audit_mandate_editability(db, _mandate(id="MX-LOG-TEST"))
+    assert any(
+        "MX-LOG-TEST" in record.getMessage() and "table missing" in record.getMessage()
+        for record in caplog.records
+    )
+
+
 def test_known_lock_reason_stays_locked_even_when_degraded():
     """Ein bereits bekannter Lock-Reason (z.B. soft-deleted) bleibt ein
     Lock-Reason, auch wenn eine ANDERE Teilabfrage fehlschlaegt -- degraded

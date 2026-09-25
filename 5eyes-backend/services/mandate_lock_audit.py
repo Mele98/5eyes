@@ -18,9 +18,12 @@ Read-only Audit-Layer, kein Breaking-Change im Edit-Pfad. Aggregator
 """
 from __future__ import annotations
 
+import logging
 from typing import Any, Optional
 
 from sqlalchemy.orm import Session
+
+logger = logging.getLogger(__name__)
 
 
 # Reason-Codes (stabile API fuer Frontend).
@@ -107,10 +110,20 @@ def audit_mandate_editability(
             latest_optimizer_status = getattr(latest, "status", None)
             if latest_optimizer_status in {"diverged", "diverged_infeasible"}:
                 lock_reasons.append(REASON_OPTIMIZER_DIVERGED)
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
         # Mega-Audit (2026-08-04): eine fehlgeschlagene Abfrage bedeutet
         # NICHT "kein Optimizer-Divergenz-Lock" -- wir wissen es schlicht
         # nicht. audit_degraded macht das sichtbar statt es zu verschweigen.
+        # AUDIT-SILENT-DEGRADED-LOGGING-001 (Kontrollrunde 2026-09-25):
+        # vorher lief dieser Pfad komplett ohne Log-Eintrag -- ein Ops-
+        # Engineer, der einer gemeldeten Lock-Status-Anomalie nachgeht,
+        # hatte keinerlei Spur, WARUM ein Mandat degraded war.
+        logger.warning(
+            "audit_mandate_editability: OptimizerRun-Abfrage fuer Mandat "
+            "%s fehlgeschlagen -- optimizer_diverged-Lock kann nicht "
+            "bestimmt werden (audit_degraded=True). %s",
+            getattr(mandate, "id", "?"), exc,
+        )
         latest_optimizer_status = None
         degraded = True
 
@@ -132,9 +145,16 @@ def audit_mandate_editability(
                         lock_reasons.append(REASON_RISK_BUDGET_VIOLATED)
                 except (TypeError, ValueError):
                     pass
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
         # Mega-Audit (2026-08-04): analog oben -- Risk-Budget-Verletzung
         # koennte unentdeckt geblieben sein, nicht stillschweigend verwerfen.
+        # AUDIT-SILENT-DEGRADED-LOGGING-001 (Kontrollrunde 2026-09-25).
+        logger.warning(
+            "audit_mandate_editability: TargetAllocation-Abfrage fuer "
+            "Mandat %s fehlgeschlagen -- risk_budget_violated-Lock kann "
+            "nicht bestimmt werden (audit_degraded=True). %s",
+            getattr(mandate, "id", "?"), exc,
+        )
         degraded = True
 
     # Dedupe (defensiv falls Quellen sich ueberlappen).
