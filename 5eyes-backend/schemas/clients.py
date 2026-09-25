@@ -138,6 +138,10 @@ class ClientErasureResponse(BaseModel):
 class NationalityCreate(BaseModel):
     country_code: str
     is_primary: bool = False
+    # DATA-CLASSIFICATION-GATE-COVERAGE-002 (Kontrollrunde 2026-09-24):
+    # Phase-0-Gate fehlte fuer Client-Nationalitaeten -- echte Personendaten,
+    # identisches Muster wie create_client/create_knowledge.
+    data_classification: Literal["synthetic", "real"] = "synthetic"
 
 
 class NationalityResponse(BaseResponse):
@@ -166,6 +170,10 @@ class OptHistoryCreate(BaseModel):
     client_requested: bool = True
     notes: Optional[str] = None
     document_id: Optional[str] = None
+    # DATA-CLASSIFICATION-GATE-COVERAGE-002 (Kontrollrunde 2026-09-24):
+    # Phase-0-Gate fehlte fuer Opt-History -- enthaelt Freitext (notes) und
+    # dokumentiert eine echte Klassifikations-Aenderung des Kunden.
+    data_classification: Literal["synthetic", "real"] = "synthetic"
 
 
 class OptHistoryResponse(BaseResponse):

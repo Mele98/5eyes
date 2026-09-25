@@ -494,6 +494,7 @@ def create_suitability_check(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor)
 ):
+    enforce_data_classification(body.data_classification)
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
     now = _now()
     # TEN-COMP-002 Teil 2: Evidence-Anker muessen alle zum SELBEN Mandat
