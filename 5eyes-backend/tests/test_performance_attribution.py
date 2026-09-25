@@ -265,6 +265,52 @@ def test_bucket_attribution_is_frozen():
 # NICHT ein -- ein Sweep-Test (unten) fand dabei noch 2bps Differenz.
 # ---------------------------------------------------------------------------
 
+def test_custom_bucket_keys_filters_totals_not_just_per_bucket_rows():
+    """PERFORMANCE-ATTRIBUTION-BUCKET-KEYS-NOT-FILTERED-001 (Kontrollrunde
+    2026-09-25): eine benutzerdefinierte bucket_keys-Teilmenge muss auch
+    die Totals (nicht nur die Pro-Bucket-Zeilen) filtern. Vorher wurden
+    Total_p/Total_b/Total_excess IMMER ueber ALLE Keys der Weight-Dicts
+    berechnet, unabhaengig von bucket_keys -- ein Bucket ausserhalb der
+    Teilmenge floss dann unsichtbar (keine eigene Zeile) in die Gesamtsumme
+    ein. Beim einzigen realen Aufrufer (services/advisory_report.py) sind
+    die Weight-Dicts hart auf exakt bucket_keys=BUCKET_KEYS kodiert, daher
+    bisher latent/nicht beobachtbar."""
+    portfolio_weights = {
+        "equities": 5000, "bonds": 3000, "real_estate": 1000,
+        "alternatives": 500, "liquidity": 500,
+    }
+    benchmark_weights = dict(portfolio_weights)
+    portfolio_returns = {
+        "equities": 700, "bonds": 200, "real_estate": 400,
+        "alternatives": 300, "liquidity": 80,
+    }
+    benchmark_returns = dict(portfolio_returns)
+    # "liquidity" bekommt im Benchmark eine stark abweichende Rendite --
+    # wird aber bewusst NICHT in die betrachtete Teilmenge aufgenommen.
+    benchmark_returns["liquidity"] = 9999
+
+    subset = ("equities", "bonds", "real_estate", "alternatives")
+    result = compute_brinson_attribution(
+        portfolio_weights_bps=portfolio_weights,
+        benchmark_weights_bps=benchmark_weights,
+        portfolio_returns_bps=portfolio_returns,
+        benchmark_returns_bps=benchmark_returns,
+        bucket_keys=subset,
+    )
+    assert [b.bucket for b in result.buckets] == list(subset)
+    # Vor dem Fix: total_excess_return_bps war ungleich 0 (liquidity floss
+    # trotz Ausschluss aus der Teilmenge in Total_b ein). Da Portfolio und
+    # Benchmark in der betrachteten Teilmenge identisch sind, muss der
+    # Excess exakt 0 sein.
+    assert result.total_excess_return_bps == 0
+    component_sum = (
+        result.total_allocation_effect_bps
+        + result.total_selection_effect_bps
+        + result.total_interaction_effect_bps
+    )
+    assert result.total_excess_return_bps == component_sum
+
+
 def test_totals_reconcile_with_total_excess_within_one_bp():
     portfolio_weights = {"equities": 3334, "bonds": 3333, "real_estate": 3333}
     benchmark_weights = {"equities": 3333, "bonds": 3334, "real_estate": 3333}

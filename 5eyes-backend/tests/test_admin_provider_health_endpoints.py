@@ -27,7 +27,7 @@ from models import (  # noqa: F401,E402
 )
 from models.review import AuditLog  # noqa: E402
 from models.users import User  # noqa: E402
-from services.auth import require_admin  # noqa: E402
+from services.auth import get_current_user, require_admin  # noqa: E402
 from services.market_data.provider_health_registry import (  # noqa: E402
     ProviderHealthRegistry,
     ensure_provider_health_table,
@@ -74,6 +74,11 @@ def admin_client(session_factory, admin_user):
 
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[require_admin] = lambda: admin_user
+    # Kontrollrunde 2026-09-24: /provider-health/reset haengt jetzt an
+    # require_admin_or_platform_scope_for_global_reference_data, das an
+    # get_current_user (nicht require_admin) haengt und current_user.role
+    # direkt liest.
+    app.dependency_overrides[get_current_user] = lambda: admin_user
     with TestClient(app) as client:
         yield client
     app.dependency_overrides.clear()
@@ -137,6 +142,9 @@ def test_provider_health_endpoints_require_admin(session_factory):
 
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[require_admin] = deny_admin
+    # Kontrollrunde 2026-09-24: siehe admin_client-Fixture oben -- POST
+    # .../reset prueft jetzt ueber get_current_user, nicht require_admin.
+    app.dependency_overrides[get_current_user] = deny_admin
     try:
         with TestClient(app) as client:
             get_response = client.get("/admin/system/market-data/provider-health")

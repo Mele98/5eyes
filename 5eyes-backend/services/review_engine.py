@@ -9,7 +9,11 @@ from models.mandates import Mandate
 from models.profiling import RiskAssessment
 from models.review import AdvisoryLog, RecommendationPosition, RecommendationRun, ReviewTrigger
 from price_updater import summarize_price_quality
-from schemas.review import ANNUAL_REVIEW_ANCHOR_ENTRY_TYPES
+from schemas.review import (
+    ANNUAL_REVIEW_ANCHOR_ENTRY_TYPES,
+    normalize_trigger_frequency,
+    trigger_frequency_months,
+)
 from services.portfolio_engine import (
     StaleAllocationInputError,
     _current_risk_assessment_or_none,
@@ -248,9 +252,47 @@ def refresh_system_review_triggers(
         trigger_name=SYSTEM_TRIGGER_REVIEW,
         now=now,
     )
-    review_trigger.frequency = "jährlich"
+    # REVIEW-STATE-004 (Kontrollrunde 2026-09-24): zwei Bugs behoben, die
+    # zusammen einen echten Compliance-Desync erzeugten:
+    #
+    # 1) `frequency` wurde HIER bei JEDEM Refresh (u.a. bei jeder Allokations-
+    #    Neuberechnung, routers/allocation.py) hart auf "jährlich"
+    #    zurückgesetzt -- ein vom Berater bewusst gewähltes kürzeres Intervall
+    #    (z.B. "halbjährlich" bei erhöhtem Risiko, siehe
+    #    PUT .../triggers/{id}/frequency) ging beim nächsten Refresh
+    #    kommentarlos wieder verloren. Jetzt: ein bereits gesetztes, gültiges
+    #    Intervall bleibt bestehen; nur ein neuer/leerer Trigger bekommt den
+    #    Default "jährlich".
+    #
+    # 2) `next_due_at` wurde HIER bedingungslos aus dem Advisory-Log-Anker neu
+    #    berechnet -- auch dann, wenn ein Berater den Trigger zuvor bereits
+    #    über PUT .../resolve korrekt (mit Audit-Trail: resolved_by/
+    #    resolved_at/resolution_decision) vorgezogen hatte, aber (noch) kein
+    #    passender Jahresreview-Anker im Advisory-Log dokumentiert war (z.B.
+    #    weil der frei formulierte Protokoll-Titel nicht als "Jahresreview"
+    #    erkannt wurde). Der naechste Refresh warf die Faelligkeit dann
+    #    stillschweigend zurueck auf das alte, ueberfaellige Datum, obwohl
+    #    resolved_at/resolution_decision weiterhin "aufgeloest" anzeigten --
+    #    ein live reproduzierter, widerspruechlicher Zustand. Jetzt: der
+    #    Anker-basierte Wert darf die Faelligkeit nur noch nach VORNE
+    #    korrigieren (ein neuer/spaeterer dokumentierter Review-Abschluss
+    #    gewinnt immer), nie zurueck hinter eine bereits dokumentierte
+    #    Resolve-Entscheidung.
+    canonical_frequency = normalize_trigger_frequency(review_trigger.frequency)
+    if canonical_frequency is None:
+        canonical_frequency = "jährlich"
+    months = trigger_frequency_months(canonical_frequency) or 12
+    review_trigger.frequency = canonical_frequency
     review_trigger.threshold_bps = None
-    review_trigger.next_due_at = _add_months(review_anchor, 12)
+    anchor_based_due_at = _add_months(review_anchor, months)
+    previous_due_at = review_trigger.next_due_at
+    if previous_due_at:
+        try:
+            if _parse_iso_date(previous_due_at) > _parse_iso_date(anchor_based_due_at):
+                anchor_based_due_at = previous_due_at
+        except ReviewAnchorDataError:
+            pass
+    review_trigger.next_due_at = anchor_based_due_at
     review_trigger.status = "Aktiv"
     review_trigger.triggered_value = None
     # review_anchor ist an dieser Stelle immer gesetzt und bereits als echtes

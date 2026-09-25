@@ -336,3 +336,49 @@ def test_compute_stress_for_weights_matches_existing_engine():
     assert by_id["dotcom_2000_2002"]["cumulative_return_bps"] < 0
     assert by_id["global_financial_crisis_2008"]["cumulative_return_bps"] < 0
     assert by_id["bonds_crash_2022"]["cumulative_return_bps"] < 0
+
+
+# ============================================================================
+# Kontrollrunde 2026-09-24: Covid-2020 zeigte max_drawdown_bps=0, weil der
+# Crash (Feb-Maerz) und die Erholung (bis Jahresende) vorher in EINEM
+# volljaehrigen Netto-Eintrag zusammengefasst waren -- die Drawdown-Logik
+# vergleicht Peak/Trough nur ZWISCHEN Eintraegen, nie innerhalb eines
+# einzelnen Eintrags. Fuer ein Szenario, das explizit als "Crash" beworben
+# wird, fachlich irrefuehrend. Fix: Crash- und Erholungsphase als zwei
+# separate Eintraege, deren Produkt weiterhin exakt den zuvor bestehenden
+# Jahresend-Nettostand ergibt.
+# ============================================================================
+
+
+def test_covid_2020_scenario_no_longer_masks_the_actual_drawdown():
+    from services.backtest_stress import compute_stress_for_weights
+    # 100% Aktien -- reinste Form, um die Crash-Phase sichtbar zu machen.
+    weights = {"equities": 10000, "bonds": 0, "real_estate": 0, "alternatives": 0, "liquidity": 0}
+    scenarios = compute_stress_for_weights(weights)
+    covid = next(s for s in scenarios if s["id"] == "covid_2020")
+    # Vor dem Fix: max_drawdown_bps == 0 (der Netto-Jahres-Eintrag war
+    # positiv, also nie unter dem Ausgangs-Peak von 1.0).
+    assert covid["max_drawdown_bps"] > 3000, (
+        f"Covid-Crash-Szenario zeigt weiterhin keinen echten Drawdown: {covid}"
+    )
+    assert len(covid["annual_breakdown"]) == 2
+    assert covid["annual_breakdown"][0]["period_label"].startswith("Feb")
+    assert covid["annual_breakdown"][0]["return_bps"] < 0
+
+
+def test_covid_2020_scenario_preserves_original_full_year_net_outcome():
+    """Der Zwei-Phasen-Split darf das bereits zuvor bestehende (und nicht neu
+    zu verifizierende) Jahresend-Nettoergebnis NICHT veraendern -- nur der
+    zuvor unsichtbare Tiefpunkt innerhalb des Jahres wird jetzt erfasst."""
+    from services.backtest_stress import compute_stress_for_weights
+    cases = [
+        ({"equities": 10000, "bonds": 0, "real_estate": 0, "alternatives": 0, "liquidity": 0}, 1500),
+        ({"equities": 0, "bonds": 10000, "real_estate": 0, "alternatives": 0, "liquidity": 0}, 750),
+        ({"equities": 0, "bonds": 0, "real_estate": 10000, "alternatives": 0, "liquidity": 0}, -800),
+        ({"equities": 0, "bonds": 0, "real_estate": 0, "alternatives": 10000, "liquidity": 0}, 700),
+        ({"equities": 0, "bonds": 0, "real_estate": 0, "alternatives": 0, "liquidity": 10000}, -10),
+    ]
+    for weights, expected_bps in cases:
+        scenarios = compute_stress_for_weights(weights)
+        covid = next(s for s in scenarios if s["id"] == "covid_2020")
+        assert covid["cumulative_return_bps"] == expected_bps, (weights, covid)

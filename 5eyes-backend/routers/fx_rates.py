@@ -126,37 +126,42 @@ def list_current_fx_rates(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Listet alle aktuellen FX-Rates (is_current=1). Fallback auf Default
-    wenn DB leer."""
+    """Listet alle aktuellen FX-Rates: DB-gepflegte Kurse (is_current=1) je
+    Waehrung, ergaenzt um Default-Kurse fuer jede Waehrung, die (noch) keine
+    DB-Zeile hat.
+
+    FX-CURRENT-LIST-DEFAULT-DROP-001 (Kontrollrunde 2026-09-24): vorher war
+    dies ein reines Entweder-Oder -- sobald AUCH NUR EINE Waehrung eine
+    DB-Zeile hatte, verschwanden alle uebrigen (noch nie manuell gepflegten)
+    Default-Waehrungen komplett aus der Liste, obwohl fuer sie weiterhin ein
+    gueltiger Default-Kurs existiert (und in der tatsaechlichen Konvertierung,
+    FXRateSource.from_db_for_model, bereits korrekt als Fallback verwendet
+    wird -- nur diese Listen-Ansicht war inkonsistent). Live reproduziert:
+    nach dem Setzen NUR einer einzelnen Waehrung zeigte das Beratertool
+    fuer alle anderen 12 Default-Waehrungen keinen Kurs mehr an."""
     rows = (
         db.query(FXRate)
         .filter(FXRate.is_current == 1, FXRate.valid_until.is_(None))
-        .order_by(FXRate.currency)
         .all()
     )
-    if rows:
-        return [
-            FXRateResponse(
-                currency=str(r.currency),
-                rate=float(r.rate_x10000) / 10000.0,
-                source=str(r.source or "Manual"),
-                valid_from=str(r.valid_from),
-                updated_at=str(r.updated_at),
-            )
-            for r in rows
-        ]
-    # DB leer → Defaults zurueckgeben (Berater sieht was er pflegen koennte)
     now = _now_iso()
-    return [
-        FXRateResponse(
-            currency=ccy,
-            rate=rate,
-            source="Default",
-            valid_from=now,
-            updated_at=now,
+    by_currency: dict[str, FXRateResponse] = {
+        ccy: FXRateResponse(
+            currency=ccy, rate=rate, source="Default",
+            valid_from=now, updated_at=now,
         )
-        for ccy, rate in sorted(DEFAULT_FX_RATES.items())
-    ]
+        for ccy, rate in DEFAULT_FX_RATES.items()
+    }
+    for r in rows:
+        ccy = str(r.currency)
+        by_currency[ccy] = FXRateResponse(
+            currency=ccy,
+            rate=float(r.rate_x10000) / 10000.0,
+            source=str(r.source or "Manual"),
+            valid_from=str(r.valid_from),
+            updated_at=str(r.updated_at),
+        )
+    return [by_currency[ccy] for ccy in sorted(by_currency)]
 
 
 def _sanitized_validation_detail(exc: ValidationError) -> list[dict]:

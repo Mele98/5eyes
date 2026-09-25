@@ -146,3 +146,67 @@ def test_dek_provisioning_survives_caller_rollback(session_factory):
         assert tenant.encrypted_dek, "DEK muss den Aufrufer-Rollback ueberleben"
         token = encrypt_for_tenant(check, "firm-R", b"payload", master_kek="m")
         assert decrypt_for_tenant(check, "firm-R", token, master_kek="m") == b"payload"
+
+
+# ---------------------------------------------------------------------------
+# Kontrollrunde 2026-09-24: der Fallback-auf-secret_key-Gate pruefte bisher
+# NUR settings.app_env in {staging, production} -- ein Tier-2/3-Multi-
+# Tenant-Deployment, das schlicht nie APP_ENV setzt (app_env defaultet auf
+# 'development', ein von TENANT_MASTER_KEK komplett getrennter Schalter),
+# lief bisher unbemerkt mit einem aus dem oeffentlich sichtbaren
+# DEFAULT_SECRET_KEY abgeleiteten KEK. Der Gate greift jetzt zusaetzlich,
+# wenn das Deployment tatsaechlich multi-tenant ist.
+# ---------------------------------------------------------------------------
+
+def test_missing_kek_raises_for_multi_tenant_deployment_even_in_dev_app_env(monkeypatch):
+    """Ein Tier-2-Deployment (hosting_tier via tenancy_mode='multi') OHNE
+    gesetzten TENANT_MASTER_KEK und OHNE explizit gesetztes APP_ENV muss
+    jetzt fehlschlagen, nicht mehr auf secret_key zurueckfallen."""
+    from config import settings
+    from services.tenant_crypto import TenantCryptoError, _resolve_master_kek
+
+    monkeypatch.setattr(settings, "app_env", "development", raising=False)
+    monkeypatch.setattr(settings, "tenancy_mode", "multi", raising=False)
+    monkeypatch.setattr(settings, "strict_tenant_isolation", False, raising=False)
+    monkeypatch.setattr(settings, "deployment_tier", "tier1", raising=False)
+    monkeypatch.setattr(settings, "tenant_master_kek", "", raising=False)
+    monkeypatch.delenv("TENANT_MASTER_KEK", raising=False)
+
+    with pytest.raises(TenantCryptoError, match="TENANT_MASTER_KEK fehlt"):
+        _resolve_master_kek(None)
+
+
+def test_missing_kek_raises_for_tier2_deployment_even_in_dev_app_env(monkeypatch):
+    """Gleiches Szenario, aber ueber deployment_tier='tier2' statt
+    tenancy_mode='multi' -- beide Wege muessen den Gate ausloesen (siehe
+    services.auth._effective_strict_tenant_isolation)."""
+    from config import settings
+    from services.tenant_crypto import TenantCryptoError, _resolve_master_kek
+
+    monkeypatch.setattr(settings, "app_env", "development", raising=False)
+    monkeypatch.setattr(settings, "tenancy_mode", "single", raising=False)
+    monkeypatch.setattr(settings, "strict_tenant_isolation", False, raising=False)
+    monkeypatch.setattr(settings, "deployment_tier", "tier2", raising=False)
+    monkeypatch.setattr(settings, "tenant_master_kek", "", raising=False)
+    monkeypatch.delenv("TENANT_MASTER_KEK", raising=False)
+
+    with pytest.raises(TenantCryptoError, match="TENANT_MASTER_KEK fehlt"):
+        _resolve_master_kek(None)
+
+
+def test_missing_kek_still_falls_back_for_genuine_tier1_dev_deployment(monkeypatch):
+    """Backwards-Compat: ein echtes Tier-1/Single-Tenant-Dev-Deployment
+    (kein Multi-Tenant-Kontext) faellt weiterhin auf secret_key zurueck --
+    das ist die etablierte, bewusst unveraenderte Tier-1-Semantik."""
+    from config import settings
+    from services.tenant_crypto import _resolve_master_kek
+
+    monkeypatch.setattr(settings, "app_env", "development", raising=False)
+    monkeypatch.setattr(settings, "tenancy_mode", "single", raising=False)
+    monkeypatch.setattr(settings, "strict_tenant_isolation", False, raising=False)
+    monkeypatch.setattr(settings, "deployment_tier", "tier1", raising=False)
+    monkeypatch.setattr(settings, "tenant_master_kek", "", raising=False)
+    monkeypatch.delenv("TENANT_MASTER_KEK", raising=False)
+
+    resolved = _resolve_master_kek(None)
+    assert resolved  # faellt auf secret_key zurueck, kein Raise

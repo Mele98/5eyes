@@ -17,9 +17,12 @@ Read-only Audit-Service:
 """
 from __future__ import annotations
 
+import logging
 from typing import Any, Optional
 
 from sqlalchemy.orm import Session
+
+logger = logging.getLogger(__name__)
 
 
 # Mirror der portfolio_engine-Konstanten. Drift-Test sichert Konsistenz.
@@ -56,17 +59,31 @@ def classify_liquidity_stage(
     hard_cap_bps: int = LIQUIDITY_HARD_CAP_BPS,
     emergency_cap_bps: int = LIQUIDITY_EMERGENCY_CAP_BPS,
 ) -> str:
-    """Liefert Stage-Code basierend auf Liquiditaets-Wert in bps."""
+    """Liefert Stage-Code basierend auf Liquiditaets-Wert in bps.
+
+    LIQUIDITY-CASCADE-HARD-CAP-DEAD-BRANCH-001 (Kontrollrunde 2026-09-25):
+    STAGE_HARD_CAP war vorher unerreichbar -- jeder Wert > hard_cap_bps
+    (auch nur knapp darueber) wurde sofort als STAGE_EMERGENCY eingestuft
+    und loeste damit ungeprueft die Pflicht-Warnung "Beratungsgespraech
+    pruefen" aus (siehe audit_mandate_liquidity_cascade: nur
+    stage==STAGE_EMERGENCY setzt warning_required/beratungsgespraech_
+    pruefen). Fachlich abgestimmt (minimal-invasiv, aendert am wenigsten
+    am bestehenden Pflicht-Warnverhalten): nur der exakte Hard-Cap-Wert
+    selbst (bps == hard_cap_bps -- die Eskalation wurde auf den Soll-
+    Hard-Cap gedeckelt, aber NICHT in den Emergency-Bereich getrieben)
+    zaehlt als STAGE_HARD_CAP; jeder Wert darueber bleibt STAGE_EMERGENCY
+    wie zuvor.
+    """
     if liquidity_bps is None:
         return STAGE_UNKNOWN
     try:
         bps = int(liquidity_bps)
     except (TypeError, ValueError):
         return STAGE_UNKNOWN
-    if bps <= hard_cap_bps:
+    if bps < hard_cap_bps:
         return STAGE_NORMAL
-    if bps <= emergency_cap_bps:
-        return STAGE_EMERGENCY
+    if bps == hard_cap_bps:
+        return STAGE_HARD_CAP
     return STAGE_EMERGENCY
 
 
@@ -137,12 +154,20 @@ def audit_mandate_liquidity_cascade(
             .filter(TargetAllocation.deleted_at.is_(None))
             .first()
         )
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
         # Mega-Audit (2026-08-04): "unknown"/warning_required=False war schon
         # vor diesem Fix ehrlich (keine falsche "normal"-Behauptung) -- aber
         # eine DB-Exception ist NICHT dasselbe wie "noch keine Allokation
         # vorhanden". audit_degraded macht diesen Unterschied fuer
         # nachgelagerte Konsumenten sichtbar.
+        # AUDIT-SILENT-DEGRADED-LOGGING-001 (Kontrollrunde 2026-09-25):
+        # vorher lief dieser Pfad komplett ohne Log-Eintrag.
+        logger.warning(
+            "audit_mandate_liquidity_cascade: TargetAllocation-Abfrage "
+            "fuer Mandat %s fehlgeschlagen -- Liquiditaets-Cascade-Stage "
+            "kann nicht bestimmt werden (audit_degraded=True). %s",
+            getattr(mandate, "id", "?"), exc,
+        )
         return {**empty, "audit_degraded": True}
 
     if active_ta is None:

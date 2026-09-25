@@ -248,6 +248,7 @@ def add_nationality(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor)
 ):
+    enforce_data_classification(body.data_classification)
     _get_client_or_404(client_id, db, current_user)
     if body.is_primary:
         # Clear existing primary
@@ -301,6 +302,7 @@ def add_opt_history(
     to_classification um. Ein stale/falscher from-Wert (z.B. durch eine
     zwischenzeitliche parallele Aenderung) wird jetzt mit 409 abgelehnt,
     statt eine fachlich unmoegliche History-Zeile zu erzeugen."""
+    enforce_data_classification(body.data_classification)
     client = _get_client_or_404(client_id, db, current_user)
     if body.from_classification != client.client_classification:
         raise HTTPException(

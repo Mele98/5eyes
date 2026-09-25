@@ -276,6 +276,21 @@ def test_audit_db_error_returns_degraded():
     assert result["fidleg_basis"] == "Art. 16 FIDLEG"
 
 
+def test_audit_db_error_is_logged_with_mandate_id(caplog):
+    """AUDIT-SILENT-DEGRADED-LOGGING-001 (Kontrollrunde 2026-09-25): vorher
+    lief der degraded-Pfad komplett ohne Log-Eintrag."""
+    import logging
+
+    db = MagicMock()
+    db.query.side_effect = RuntimeError("table missing")
+    with caplog.at_level(logging.WARNING, logger="services.recommendation_audit"):
+        audit_recommendation_methodology(db, _stub_mandate(mid="MX-LOG-TEST"))
+    assert any(
+        "MX-LOG-TEST" in record.getMessage() and "table missing" in record.getMessage()
+        for record in caplog.records
+    )
+
+
 def test_audit_no_runs_at_all_stays_compliant_and_not_degraded():
     """Gegenprobe: ein Mandat ohne jeden Run (legitimer Zustand, keine
     Exception) bleibt unveraendert is_compliant=True, NICHT degraded."""

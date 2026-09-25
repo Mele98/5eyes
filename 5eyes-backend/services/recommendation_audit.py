@@ -22,9 +22,12 @@ FINMA-Bezug
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any, Optional
 
 from sqlalchemy.orm import Session
+
+logger = logging.getLogger(__name__)
 
 
 # Status-Klassifikation fuer UI/Aggregator (Berater-tauglich).
@@ -156,7 +159,15 @@ def audit_recommendation_methodology(
                 )
                 .first()
             )
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        # AUDIT-SILENT-DEGRADED-LOGGING-001 (Kontrollrunde 2026-09-25):
+        # vorher lief dieser Pfad komplett ohne Log-Eintrag.
+        logger.warning(
+            "audit_recommendation_methodology: OptimizerRun-Abfrage fuer "
+            "Mandat %s fehlgeschlagen -- Methodology-Status kann nicht "
+            "bestimmt werden (audit_degraded=True). %s",
+            getattr(mandate, "id", "?"), exc,
+        )
         # Fail-closed (Mega-Audit 2026-08-04, analog Commit 23585cf): eine
         # DB-/Schema-Exception ist NICHT dasselbe wie "noch kein Run
         # vorhanden" -- hier wissen wir schlicht nichts, also KEINE

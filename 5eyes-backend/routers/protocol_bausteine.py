@@ -289,7 +289,17 @@ def list_mandate_selections(
             ProtocolBaustein,
             ProtocolBaustein.id == MandateBausteinSelection.baustein_id,
         )
-        .filter(MandateBausteinSelection.mandate_id == mandate_id)
+        .filter(
+            MandateBausteinSelection.mandate_id == mandate_id,
+            # Kontrollrunde 2026-09-24: der Schreibpfad (replace_mandate_
+            # selections) verbietet bereits die NEUE Auswahl eines geloeschten
+            # Bausteins (Zeile ~320), aber ein Baustein, der schon VOR seiner
+            # Loeschung ausgewaehlt war, wurde hier weiterhin unveraendert
+            # zurueckgegeben -- Soft-Delete hatte fuer bereits selektierte
+            # Bausteine keinerlei Wirkung, weder in dieser API-Antwort noch
+            # (identisches Muster) im PDF-Export (routers/pdf_reports.py).
+            ProtocolBaustein.deleted_at.is_(None),
+        )
         .order_by(MandateBausteinSelection.sort_order, ProtocolBaustein.title)
         .all()
     )

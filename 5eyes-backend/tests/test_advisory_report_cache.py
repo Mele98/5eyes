@@ -225,6 +225,43 @@ def test_invalidate_mandate_forces_fresh_compute(session_factory, seeded):
     assert spy.call_count == 2
 
 
+def test_race_invalidate_during_compute_does_not_cache_stale_result(session_factory, seeded):
+    """ADVISORY-REPORT-CACHE-INVALIDATE-BEFORE-POPULATE-RACE-001
+    (Kontrollrunde 2026-09-25): eine Invalidation, die WAEHREND der
+    Berechnung eintrifft (simuliert: der gemockte compute_advisory_report
+    ruft selbst invalidate_mandate() auf, bevor er zurueckkehrt -- genau
+    das Timing eines konkurrierenden Save-Endpoints), darf das
+    anschliessend zurueckgegebene (zu diesem Zeitpunkt bereits veraltete)
+    Ergebnis NICHT in den Cache schreiben. Vorher: der Cache war zum
+    Invalidations-Zeitpunkt noch leer (No-op), das veraltete Ergebnis
+    landete trotzdem im Cache und blieb dort bis zum naechsten TTL-Ablauf."""
+    with session_factory() as s:
+        mandate = s.query(Mandate).filter(Mandate.id == seeded["mandate_id"]).first()
+        advisor = s.query(User).filter(User.id == seeded["advisor_id"]).first()
+
+        real_compute = __import__(
+            "services.advisory_report", fromlist=["compute_advisory_report"],
+        ).compute_advisory_report
+
+        def _racy_compute(db, mandate_arg, *, advisor=None):
+            invalidate_mandate(seeded["mandate_id"])
+            return real_compute(db, mandate_arg, advisor=advisor)
+
+        with patch(
+            "services.advisory_report_cache.compute_advisory_report",
+            side_effect=_racy_compute,
+        ) as spy:
+            cached_compute_advisory_report(s, mandate, advisor=advisor)
+            # Vor dem Fix: dieser zweite Aufruf waere ein Cache-HIT (mit dem
+            # waehrend der Race-Invalidation berechneten, veralteten Wert).
+            cached_compute_advisory_report(s, mandate, advisor=advisor)
+
+    assert spy.call_count == 2, (
+        "Der zweite Aufruf haette ein Cache-Miss sein muessen -- das erste "
+        "Ergebnis durfte wegen der Race-Invalidation nicht gecacht werden."
+    )
+
+
 def test_invalidate_mandate_clears_all_advisor_views(session_factory, seeded):
     """invalidate_mandate(mid) muss Eintraege fuer ALLE Berater entfernen."""
     with session_factory() as s:
