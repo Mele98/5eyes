@@ -56,6 +56,7 @@ from services.auth import (
     get_client_for_user_or_404,
     get_mandate_for_user_or_404,
 )
+from routers.clients import _get_client_for_erasure_or_404
 
 
 def _utc_now_iso() -> str:
@@ -306,6 +307,26 @@ def test_admin_ohne_tenant_id_wird_im_strict_modus_bei_client_geblockt(session_f
         db.commit()
         with pytest.raises(HTTPException) as exc:
             get_client_for_user_or_404("c-foreign", db, admin)
+        assert exc.value.status_code == 404
+
+
+def test_admin_ohne_tenant_id_wird_im_strict_modus_bei_erasure_geblockt(session_factory, monkeypatch):
+    """Kontrollrunde 2026-09-24: routers/clients.py::_get_client_for_erasure_
+    or_404 (DSG-Art.-32-Loeschung) rief _apply_tenant_filter_to_client_query
+    bisher OHNE is_global_access auf -- anders als get_client_for_user_or_404
+    hat diese Query aber auch KEINEN advisor_id-Filter, wodurch der TEN-
+    COMP-001-Fail-Closed-Pfad hier NIE griff. Ein Admin ohne tenant_id (z.B.
+    der Bootstrap-Admin jeder Installation) konnte im Strict-Modus dadurch
+    Kunden eines FREMDEN Tenants unwiderruflich anonymisieren."""
+    from config import settings
+    monkeypatch.setattr(settings, "strict_tenant_isolation", True, raising=False)
+    with session_factory() as db:
+        admin = _make_user("admin-notenant-erasure", tenant_id=None, role="admin")
+        foreign_client = _make_client("c-foreign-erasure", advisor_id="u-other", tenant_id="firm-B")
+        db.add_all([admin, foreign_client])
+        db.commit()
+        with pytest.raises(HTTPException) as exc:
+            _get_client_for_erasure_or_404("c-foreign-erasure", db, admin)
         assert exc.value.status_code == 404
 
 

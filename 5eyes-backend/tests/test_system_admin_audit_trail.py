@@ -327,3 +327,45 @@ def test_audit_log_filter_rejects_unknown_action(session_factory):
             # Filter ignoriert unbekannte Action -> Liste ist alle Eintraege
     finally:
         app.dependency_overrides.clear()
+
+
+# ---------------------------------------------------------------------------
+# Kontrollrunde 2026-09-24: GET /admin/system/logs/recent gab Rohzeilen
+# zurueck, OHNE die redact_log_lines()-Filterung, die create_support_bundle()
+# fuer dieselben Zeilen bereits anwendet -- Bearer-Token/API-Key/Passwort-
+# Muster und der PRIV-006-Invite-Token-Pfad blieben im Klartext sichtbar.
+# ---------------------------------------------------------------------------
+
+def test_recent_logs_endpoint_redacts_bearer_token(session_factory, monkeypatch, tmp_path):
+    log_file = tmp_path / "5eyes-app.log"
+    log_file.write_text(
+        'INFO Request | path=/mandates/1 headers={"Authorization: Bearer supersecrettoken123"}\n'
+        "INFO normal log line with no secrets\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("services.maintenance.resolve_log_file", lambda: log_file)
+
+    with _client(session_factory) as client:
+        response = client.get("/admin/system/logs/recent")
+        assert response.status_code == 200
+        data = response.json()
+        joined = "\n".join(data["lines"])
+        assert "supersecrettoken123" not in joined
+        assert "***REDACTED***" in joined
+    app.dependency_overrides.clear()
+
+
+def test_recent_logs_endpoint_redacts_invite_token_path(session_factory, monkeypatch, tmp_path):
+    log_file = tmp_path / "5eyes-app.log"
+    log_file.write_text(
+        "INFO Request completed | method=GET path=/auth/invite/abc123SECRETTOKEN status=200\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("services.maintenance.resolve_log_file", lambda: log_file)
+
+    with _client(session_factory) as client:
+        response = client.get("/admin/system/logs/recent")
+        assert response.status_code == 200
+        joined = "\n".join(response.json()["lines"])
+        assert "abc123SECRETTOKEN" not in joined
+    app.dependency_overrides.clear()

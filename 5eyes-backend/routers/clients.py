@@ -173,9 +173,25 @@ def _get_client_for_erasure_or_404(client_id: str, db: Session, current_user: Us
     anfrage trifft haeufig gerade einen bereits (soft-)geloeschten
     Kunden, dessen Personendaten trotzdem noch vollstaendig in der DB
     liegen. Tenant-Scoping bleibt bestehen (kein globaler Admin darf
-    Kunden eines fremden Tenants anonymisieren)."""
+    Kunden eines fremden Tenants anonymisieren).
+
+    Kontrollrunde 2026-09-24: _apply_tenant_filter_to_client_query() wurde
+    bisher OHNE is_global_access aufgerufen (impliziter Default False) --
+    diese Query hat aber, anders als get_client_for_user_or_404(), NIE
+    einen vorgelagerten advisor_id-Filter. Die Funktion interpretiert
+    is_global_access=False als "schon durch einen anderen Filter
+    eingeschraenkt" und gibt bei fehlender/leerer tenant_id (z.B. der
+    Bootstrap-Admin jeder frischen Installation, tenant_id=None) die Query
+    UNGEFILTERT zurueck -- der TEN-COMP-001-Fail-Closed-Pfad (Strict-Modus
+    + is_global_access=True -> false()) griff dadurch fuer die Erasure NIE.
+    Ein role='admin'-User ohne tenant_id konnte so im Strict-Modus (Tier-2)
+    Kunden EINES FREMDEN TENANTS unwiderruflich anonymisieren. Jetzt
+    identisch zu get_client_for_user_or_404() aufgeloest."""
     query = db.query(Client).filter(Client.id == client_id)
-    query = _apply_tenant_filter_to_client_query(query, current_user)
+    is_global_access = has_global_client_access(current_user)
+    if not is_global_access:
+        query = query.filter(Client.advisor_id == current_user.id)
+    query = _apply_tenant_filter_to_client_query(query, current_user, is_global_access=is_global_access)
     client = query.first()
     if not client:
         raise HTTPException(status_code=404, detail="Kunde nicht gefunden")
@@ -232,6 +248,7 @@ def add_nationality(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor)
 ):
+    enforce_data_classification(body.data_classification)
     _get_client_or_404(client_id, db, current_user)
     if body.is_primary:
         # Clear existing primary
@@ -285,6 +302,7 @@ def add_opt_history(
     to_classification um. Ein stale/falscher from-Wert (z.B. durch eine
     zwischenzeitliche parallele Aenderung) wird jetzt mit 409 abgelehnt,
     statt eine fachlich unmoegliche History-Zeile zu erzeugen."""
+    enforce_data_classification(body.data_classification)
     client = _get_client_or_404(client_id, db, current_user)
     if body.from_classification != client.client_classification:
         raise HTTPException(

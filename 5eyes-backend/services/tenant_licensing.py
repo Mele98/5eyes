@@ -38,8 +38,18 @@ def enforce_discretionary_management_license(tenant: Tenant | None, mandate_type
     Vermoegensverwaltung waehlt, die lizenznehmende Firma dafuer aber nicht
     freigeschaltet ist. Kein Tenant-Kontext (None) -> fail-open (identisches
     Backwards-Compat-Muster wie ueberall bei nullable tenant_id in dieser
-    Codebase, z.B. Tenant.home_jurisdiction-Fallback) -- betrifft nur sehr
-    alte Datensaetze ohne tenant_id, nicht den Normalfall."""
+    Codebase, z.B. Tenant.home_jurisdiction-Fallback).
+
+    Kontrollrunde 2026-09-23 (FINIG-Gate-Audit): `tenant=None` bedeutete
+    KEINESWEGS nur "sehr alte Datensaetze" -- jeder Bootstrap-Admin einer
+    frischen Installation UND jeder von einem super_admin ohne explizites
+    tenant_id angelegte User hatten tenant_id=None, wodurch jedes Mandat, das
+    dieser Kette entstammt, den Gate komplett umging. Die Aufrufer
+    (routers/mandates.py) loesen `tenant` jetzt IMMER via DEFAULT_TENANT_ID-
+    Fallback auf einen echten Tenant auf, bevor sie hierher kommen -- `tenant
+    is None` sollte praktisch nie mehr eintreten, bleibt hier aber als
+    defensiver Fail-Open-Fallback (kein 500 bei unerwartet fehlendem
+    DEFAULT_TENANT_ID-Datensatz), nicht als beabsichtigter Bypass-Pfad."""
     if mandate_type != DISCRETIONARY_MANDATE_TYPE:
         return
     if tenant is None:

@@ -26,6 +26,7 @@ from routers.clients import create_client_login
 from routers.mandates import create_mandate
 from schemas.mandates import MandateCreate
 from schemas.users import UserCreate
+from services.quota import assert_within_quota
 
 
 def _now() -> str:
@@ -316,3 +317,32 @@ def test_client_login_counts_toward_advisor_user_quota(session_factory):
             create_user(_user_body("employee-a"), db=db, current_user=admin)
 
         assert exc.value.status_code == 409
+
+
+# ── Kontrollrunde 2026-09-24: TOCTOU-Race im Count-then-Insert-Muster ───────
+# (assert_within_quota und der Insert des Aufrufers liefen bisher ohne
+# gemeinsame Sperre -- zwei nahezu gleichzeitige Requests konnten beide den
+# COUNT() vor dem jeweils anderen Insert lesen und beide die Pruefung
+# bestehen. FOR UPDATE auf der Tenant-Zeile serialisiert das jetzt auf
+# Postgres. Ein echter Concurrency-Test braucht einen realen Postgres-
+# Connection-Pool (siehe tests/test_authten07_login_guard_postgres_ddl.py
+# fuer das etablierte Muster in dieser Codebase) -- hier nur der
+# Nicht-Regressions-Nachweis, dass ein unaufloesbarer/leerer tenant_id
+# weiterhin (unveraendert) ein No-Op bleibt.
+
+def test_assert_within_quota_still_noop_for_unresolvable_or_empty_tenant_id(session_factory):
+    """Ein tenant_id ohne zugehoerige Tenant-Zeile (nicht existent, soft-
+    deleted, oder leer) bleibt bewusst ein No-Op -- das ist eine etablierte,
+    von bestehenden Tests vorausgesetzte Konfiguration (z.B. Tier-1/Legacy-
+    Mandate/User mit tenant_id ohne persistierte Tenant-Zeile, siehe
+    test_mandate_tenant_inheritance.py), kein Bug."""
+    with session_factory() as db:
+        assert_within_quota(db, None, "users")
+        assert_within_quota(db, "", "users")
+        assert_within_quota(db, "tenant-does-not-exist", "users")
+
+        tenant = _tenant("firm-deleted", max_users=10)
+        tenant.deleted_at = _now()
+        db.add(tenant)
+        db.commit()
+        assert_within_quota(db, "firm-deleted", "users")
