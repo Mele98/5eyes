@@ -69,6 +69,19 @@ class _TTLCache:
         self._store: OrderedDict[Any, tuple[float, Any]] = OrderedDict()
         self._lock = threading.Lock()
         self.stats = _CacheStats()
+        # ADVISORY-REPORT-CACHE-INVALIDATE-BEFORE-POPULATE-RACE-001
+        # (Kontrollrunde 2026-09-25): pro Mandat ein monotoner Zaehler,
+        # siehe current_epoch()/bump_epoch() und cached_compute_advisory_
+        # report() weiter unten fuer die volle Begruendung.
+        self._epochs: dict[str, int] = {}
+
+    def current_epoch(self, mandate_id: str) -> int:
+        with self._lock:
+            return self._epochs.get(mandate_id, 0)
+
+    def bump_epoch(self, mandate_id: str) -> None:
+        with self._lock:
+            self._epochs[mandate_id] = self._epochs.get(mandate_id, 0) + 1
 
     def get(self, key: Any) -> Any | None:
         now = time.monotonic()
@@ -121,6 +134,7 @@ class _TTLCache:
         with self._lock:
             n = len(self._store)
             self._store.clear()
+            self._epochs.clear()
             return n
 
     def __len__(self) -> int:
@@ -161,18 +175,42 @@ def cached_compute_advisory_report(
 
     Wenn `aggregator_cache_enabled=False`, faellt durch zum Original
     ohne Cache-Lookup.
+
+    ADVISORY-REPORT-CACHE-INVALIDATE-BEFORE-POPULATE-RACE-001
+    (Kontrollrunde 2026-09-25): compute_advisory_report() laeuft mehrere
+    DB-Queries und braucht spuerbar Zeit. Lief bisher ein Save-Endpoint
+    (z.B. PUT report-notes) UND ruft dessen invalidate_mandate() WAEHREND
+    dieser Berechnung -- der Cache hat zu diesem Zeitpunkt noch KEINEN
+    Eintrag fuer dieses Mandat, invalidate_prefix() findet also nichts zu
+    loeschen (No-op) --, dann schrieb diese Funktion anschliessend trotzdem
+    ihr bereits veraltetes Ergebnis (Daten von VOR dem Save) in den Cache.
+    Die naechste GET-Anfrage sah dadurch bis zu TTL-Sekunden lang veraltete
+    Daten, OBWOHL invalidate_mandate() korrekt aufgerufen wurde. Fix: ein
+    monotoner Epoch-Zaehler pro Mandat (siehe _TTLCache.current_epoch/
+    bump_epoch); wird der Zaehler waehrend der Berechnung durch eine
+    zwischenzeitliche Invalidation veraendert, wird das frische (aber
+    potenziell schon wieder veraltete) Ergebnis NICHT gecacht -- die naechste
+    Anfrage berechnet dann direkt gegen den aktuellen DB-Stand neu.
     """
     if not settings.aggregator_cache_enabled:
         return compute_advisory_report(db, mandate, advisor=advisor)
 
-    key = _cache_key(str(mandate.id), advisor)
+    mandate_id = str(mandate.id)
+    key = _cache_key(mandate_id, advisor)
     cache = _get_cache()
     cached = cache.get(key)
     if cached is not None:
         return cached
 
+    epoch_before = cache.current_epoch(mandate_id)
     fresh = compute_advisory_report(db, mandate, advisor=advisor)
-    cache.set(key, fresh)
+    if cache.current_epoch(mandate_id) == epoch_before:
+        cache.set(key, fresh)
+    else:
+        logger.debug(
+            "Aggregator-Cache-Populate uebersprungen (Invalidation waehrend "
+            "Berechnung) | mandate_id=%s", mandate_id,
+        )
     return fresh
 
 
@@ -186,6 +224,11 @@ def invalidate_mandate(mandate_id: str) -> int:
         return 0
     cache = _get_cache()
     target = str(mandate_id)
+    # Bewusst UNBEDINGT (auch wenn aktuell nichts im Cache steht) -- ein
+    # in-flight compute_advisory_report()-Aufruf fuer dieses Mandat, der
+    # gerade erst noch laeuft, muss diese Invalidation nachtraeglich sehen
+    # koennen (siehe cached_compute_advisory_report()-Docstring).
+    cache.bump_epoch(target)
     count = cache.invalidate_prefix(lambda key: key[0] == target)
     if count > 0:
         logger.debug(
