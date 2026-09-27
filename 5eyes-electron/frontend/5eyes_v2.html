@@ -11798,16 +11798,32 @@ function adminToggleFundCreateForm(){
   if (!form) return;
   var willShow = form.style.display === 'none';
   form.style.display = willShow ? 'block' : 'none';
+  // Der "+ Neuen Fonds erfassen"-Umschalter oeffnet/schliesst IMMER im
+  // Neuanlage-Modus (adminEditFund() setzt display='block' direkt, ohne
+  // diese Funktion) -- Reset stellt sicher, dass weder ein vorheriger
+  // Abbruch mitten im Bearbeiten-Modus noch ein erneutes Oeffnen stale
+  // adminFundEditingId/Titel/Button-Beschriftung hinterlaesst.
+  adminResetFundForm();
   if (willShow) {
     var nameInput = document.getElementById('pf-name');
     if (nameInput) nameInput.focus();
   }
 }
+// FUND-EDIT-DELETE-UI-MISSING-001 (Kontrollrunde 2026-09-27): PUT /products/{id}
+// existiert im Backend seit U-P10 (schemas/review.py::ProductUpdate, inkl.
+// is_active-Deaktivierung), aber die Suchergebnis-Tabelle war rein lesend --
+// ein Berater konnte einen Tippfehler in einem erfassten Fonds (falsche ISIN,
+// falscher TER) nur ueber einen rohen API-Call oder erneuten CSV-Upload
+// korrigieren. adminFundSearchState cached die zuletzt geladenen Fonds, damit
+// "Bearbeiten" das Formular ohne einen zusaetzlichen GET befuellen kann.
+var adminFundSearchState = { products: [] };
+var adminFundEditingId = null;
+
 function adminRenderFundSearchTable(products){
   var tbody = document.getElementById('pf-search-tbody');
   if (!tbody) return;
   if (!products.length) {
-    tbody.innerHTML = '<tr><td colspan="5" style="color:var(--n4)">Keine Fonds gefunden.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" style="color:var(--n4)">Keine Fonds gefunden.</td></tr>';
     return;
   }
   var html = '';
@@ -11817,12 +11833,18 @@ function adminRenderFundSearchTable(products){
     var origin = p.tenant_id
       ? '<span class="tag ta" title="Nur fuer Ihre Verwaltung sichtbar">Eigener Fonds</span>'
       : '<span class="tag tn">Global</span>';
-    html += '<tr>'
-      + '<td>' + escapeHtml(p.product_name || '') + (isListed ? '' : ' <span style="font-size:9px;color:var(--n4)">(nicht kotiert)</span>') + '</td>'
+    var isActive = p.is_active === undefined || p.is_active === null || !!Number(p.is_active);
+    var pid = escapeHtml(String(p.id || ''));
+    html += '<tr' + (isActive ? '' : ' style="opacity:.55"') + '>'
+      + '<td>' + escapeHtml(p.product_name || '') + (isListed ? '' : ' <span style="font-size:9px;color:var(--n4)">(nicht kotiert)</span>') + (isActive ? '' : ' <span style="font-size:9px;color:var(--neg)">(deaktiviert)</span>') + '</td>'
       + '<td>' + escapeHtml(p.provider || '—') + '</td>'
       + '<td>' + escapeHtml(p.asset_class || '—') + '</td>'
       + '<td style="font-size:10px;color:var(--n5)">' + escapeHtml(idBits) + '</td>'
       + '<td>' + origin + '</td>'
+      + '<td style="white-space:nowrap">'
+      + '<button class="btn" style="font-size:10px;padding:3px 8px" onclick="adminEditFund(\'' + pid + '\')">Bearbeiten</button> '
+      + '<button class="btn" style="font-size:10px;padding:3px 8px;background:var(--bg2);color:var(--n6)" onclick="adminToggleFundActive(\'' + pid + '\',' + (isActive ? 'true' : 'false') + ')">' + (isActive ? 'Deaktivieren' : 'Aktivieren') + '</button>'
+      + '</td>'
       + '</tr>';
   });
   tbody.innerHTML = html;
@@ -11831,17 +11853,65 @@ async function adminSearchFunds(){
   var errBox = document.getElementById('pf-error');
   var tbody = document.getElementById('pf-search-tbody');
   if (errBox) { errBox.style.display = 'none'; errBox.textContent = ''; }
-  if (tbody) tbody.innerHTML = '<tr><td colspan="5">Suche laeuft...</td></tr>';
+  if (tbody) tbody.innerHTML = '<tr><td colspan="6">Suche laeuft...</td></tr>';
   var query = (document.getElementById('pf-search-input')||{}).value || '';
   try {
     var path = '/products' + (query.trim() ? ('?q=' + encodeURIComponent(query.trim())) : '');
     var products = await API.get(path);
     products = Array.isArray(products) ? products : [];
+    adminFundSearchState.products = products;
     adminRenderFundSearchTable(products);
   } catch(e) {
-    if (tbody) tbody.innerHTML = '<tr><td colspan="5">Fehler</td></tr>';
+    if (tbody) tbody.innerHTML = '<tr><td colspan="6">Fehler</td></tr>';
     if (errBox) { errBox.style.display = 'block'; errBox.textContent = parseApiError(e, 'Suche fehlgeschlagen.'); }
   }
+}
+function adminFillFundForm(p){
+  function setVal(id, value){ var el = document.getElementById(id); if (el) el.value = value || ''; }
+  setVal('pf-name', p.product_name);
+  setVal('pf-provider', p.provider);
+  setVal('pf-product-type', p.product_type || 'Fonds');
+  setVal('pf-asset-class', p.asset_class || 'Aktien');
+  setVal('pf-sub-asset-class', p.sub_asset_class);
+  setVal('pf-currency', p.currency || 'CHF');
+  setVal('pf-ter', p.ter_bps != null ? String(p.ter_bps) : '');
+  setVal('pf-isin', p.isin);
+  setVal('pf-symbol', p.symbol);
+}
+function adminEditFund(productId){
+  var product = adminFundSearchState.products.find(function(p){ return String(p.id) === String(productId); });
+  if (!product) return;
+  adminFundEditingId = productId;
+  adminFillFundForm(product);
+  var titleEl = document.getElementById('pf-form-title');
+  if (titleEl) titleEl.textContent = 'Fonds bearbeiten: ' + (product.product_name || '');
+  var btn = document.getElementById('btn-pf-create');
+  if (btn) btn.textContent = 'Aenderungen speichern';
+  var form = document.getElementById('pf-create-form');
+  if (form) form.style.display = 'block';
+  var nameInput = document.getElementById('pf-name');
+  if (nameInput) nameInput.focus();
+}
+async function adminToggleFundActive(productId, currentlyActive){
+  var errBox = document.getElementById('pf-error');
+  if (errBox) { errBox.style.display = 'none'; errBox.textContent = ''; }
+  try {
+    await API.put('/products/' + encodeURIComponent(productId), { is_active: currentlyActive ? 0 : 1 });
+    adminSearchFunds();
+  } catch(e) {
+    if (errBox) { errBox.style.display = 'block'; errBox.textContent = parseApiError(e, 'Status konnte nicht geaendert werden.'); }
+  }
+}
+function adminResetFundForm(){
+  adminFundEditingId = null;
+  ['pf-name','pf-provider','pf-sub-asset-class','pf-isin','pf-symbol','pf-ter'].forEach(function(id){
+    var el = document.getElementById(id); if (el) el.value = '';
+  });
+  var currencyEl = document.getElementById('pf-currency'); if (currencyEl) currencyEl.value = 'CHF';
+  var titleEl = document.getElementById('pf-form-title');
+  if (titleEl) titleEl.textContent = 'Neuen Fonds erfassen';
+  var btn = document.getElementById('btn-pf-create');
+  if (btn) btn.textContent = 'Fonds erfassen';
 }
 async function adminCreateFund(){
   var errBox = document.getElementById('pf-error');
@@ -11872,19 +11942,19 @@ async function adminCreateFund(){
     payload.ter_bps = terVal;
   }
   try {
-    var created = await API.post('/products', payload);
-    ['pf-name','pf-provider','pf-sub-asset-class','pf-isin','pf-symbol','pf-ter'].forEach(function(id){
-      var el = document.getElementById(id); if (el) el.value = '';
-    });
-    var currencyEl = document.getElementById('pf-currency'); if (currencyEl) currencyEl.value = 'CHF';
-    adminToggleFundCreateForm();
-    // Cache um den neu erfassten Fonds ergaenzen, damit er sofort im
-    // Positivlisten-Dropdown (pu-new-product) waehlbar ist, ohne Reload.
-    adminProductUniverseState.products.push(created);
-    adminPopulateProductUniverseProductSelect();
+    if (adminFundEditingId) {
+      await API.put('/products/' + encodeURIComponent(adminFundEditingId), payload);
+    } else {
+      var created = await API.post('/products', payload);
+      // Cache um den neu erfassten Fonds ergaenzen, damit er sofort im
+      // Positivlisten-Dropdown (pu-new-product) waehlbar ist, ohne Reload.
+      adminProductUniverseState.products.push(created);
+      adminPopulateProductUniverseProductSelect();
+    }
+    adminToggleFundCreateForm(); // schliesst + resettet (siehe dort)
     adminSearchFunds();
   } catch(e) {
-    if (errBox) { errBox.style.display = 'block'; errBox.textContent = parseApiError(e, 'Fonds konnte nicht erfasst werden.'); }
+    if (errBox) { errBox.style.display = 'block'; errBox.textContent = parseApiError(e, adminFundEditingId ? 'Fonds konnte nicht gespeichert werden.' : 'Fonds konnte nicht erfasst werden.'); }
   }
 }
 
@@ -26225,6 +26295,7 @@ function openStammdatenModal(){
             <button class="btn-p admin-primary-btn" onclick="adminToggleFundCreateForm()" id="btn-pf-toggle-create">+ Neuen Fonds erfassen</button>
           </div>
           <div id="pf-create-form" style="display:none;border:1px solid var(--b1);border-radius:var(--r2);padding:12px;background:var(--bg)">
+            <div id="pf-form-title" class="admin-section-title" style="font-size:12px;margin-bottom:6px">Neuen Fonds erfassen</div>
             <div class="admin-section-sub" style="margin-bottom:8px">ISIN und Symbol leer lassen fuer nicht-kotierte Fonds (kein automatischer Kurs-Refresh; Bestandswerte werden manuell im Mandat erfasst).</div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
               <div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Name*</label><input class="fi" id="pf-name" style="font-size:11px"></div>
@@ -26246,8 +26317,8 @@ function openStammdatenModal(){
           <div id="pf-error" style="display:none;color:var(--neg);font-size:10px"></div>
           <div id="pf-search-wrap" class="admin-tbl-wrap">
             <table class="admin-tbl">
-              <thead><tr><th>Name</th><th>Anbieter</th><th>Anlageklasse</th><th>ISIN/Symbol</th><th>Herkunft</th></tr></thead>
-              <tbody id="pf-search-tbody"><tr><td colspan="5" style="color:var(--n4)">Suchbegriff eingeben oder direkt suchen fuer den vollen Katalog.</td></tr></tbody>
+              <thead><tr><th>Name</th><th>Anbieter</th><th>Anlageklasse</th><th>ISIN/Symbol</th><th>Herkunft</th><th>Aktionen</th></tr></thead>
+              <tbody id="pf-search-tbody"><tr><td colspan="6" style="color:var(--n4)">Suchbegriff eingeben oder direkt suchen fuer den vollen Katalog.</td></tr></tbody>
             </table>
           </div>
 
