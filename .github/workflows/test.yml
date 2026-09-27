@@ -49,6 +49,25 @@ jobs:
       - name: Run security gate
         run: python scripts/security_gate.py
 
+  engine-line-budget-gate:
+    # ENGINE-LINE-BUDGET-RATCHET-001 (Kontrollrunde 2026-09-27): ADR-014
+    # (2026-08-03) reduzierte services/portfolio_engine.py von 8'820 auf
+    # ~3'671 Zeilen -- ohne Schutzmechanismus wuchs die Datei binnen 7,5
+    # Wochen wieder auf 7'215 Zeilen (+95%) an. Eigener, dependency-freier
+    # Job (reine Standardbibliothek, kein pip install) faellt in Sekunden,
+    # bevor der 90-Minuten-Backend-Lauf ueberhaupt startet.
+    # Single Source of Truth: scripts/check_engine_line_budget.py.
+    name: Engine Line Budget Gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Check portfolio_engine.py line budget
+        run: python3 scripts/check_engine_line_budget.py
+
   pytest:
     name: Backend Tests
     runs-on: ubuntu-latest
