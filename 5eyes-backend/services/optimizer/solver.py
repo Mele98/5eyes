@@ -646,7 +646,7 @@ def evaluate_weights(
         p10_i = p50_i = p90_i = None
 
     return OptimizerEvaluation(
-        weights_bps=_weights_to_bps_dict(w),
+        weights_bps=_weights_to_bps_dict(w, bounds=context.bounds),
         objective_value=float(objective),
         feasible=bool(feasible),
         constraint_violations=list(violations),
@@ -1475,7 +1475,7 @@ def run_solver(
             np.array([(lo + hi) / 2.0 for lo, hi in bounds]),
             bounds,
         )
-        weights_bps = _weights_to_bps_dict(mid)
+        weights_bps = _weights_to_bps_dict(mid, bounds=bounds)
         midpoint_w = _trusted_weights_bps_to_array(weights_bps)
         mid_wealth = _simulate_context_wealth(context, midpoint_w)
         _penalty, goal_achievability = chance_constraint_penalty(
@@ -1517,7 +1517,7 @@ def run_solver(
         final_w, bounds=bounds, constraints=scipy_constraints,
     )
 
-    weights_bps = _weights_to_bps_dict(final_w)
+    weights_bps = _weights_to_bps_dict(final_w, bounds=bounds)
     rounded_w = _trusted_weights_bps_to_array(weights_bps)
     rounded_feasible, rounded_violation_reasons = is_feasible(
         rounded_w,
@@ -1639,16 +1639,70 @@ def run_solver(
     )
 
 
-def _weights_to_bps_dict(weights: np.ndarray) -> dict[str, int]:
+def _weights_to_bps_dict(
+    weights: np.ndarray,
+    bounds: list[tuple[float, float]] | None = None,
+) -> dict[str, int]:
     """Konvertiert weight-array (0..1) in {bucket: bps}-dict.
 
-    Stellt sicher dass Summe genau 10000 ist (Rounding-Fix auf groesstes Bucket).
+    Stellt sicher dass Summe genau 10000 ist.
+
+    SOLVER-BPS-APPORTIONMENT-001 (Kontrollrunde 2026-09-28): die alte
+    Argmax-Korrektur gab den gesamten Rundungsrest immer dem groessten
+    Gewicht, unabhaengig von dessen Bounds. Das konnte einen kontinuierlich
+    zulaessigen Kandidaten an einer Cap-Grenze (z.B. 50% Aktien) kuenstlich
+    ueber die Cap heben, obwohl eine andere 10.000-bps-Verteilung existiert,
+    die alle Bounds einhaelt. Mit uebergebenen `bounds` wird der
+    Rundungsrest stattdessen floor-basiert per groesstem Nachkommaanteil
+    verteilt, wobei ein Bucket uebersprungen wird, sobald ihm der naechste
+    bps-Schritt seine Obergrenze verletzen wuerde. Ohne `bounds`
+    (Rueckwaertskompatibilitaet) bleibt die alte Argmax-Korrektur bestehen.
     """
     bps_floats = weights * 10000.0
-    bps_ints = [int(round(v)) for v in bps_floats]
-    diff = 10000 - sum(bps_ints)
-    if diff != 0:
-        # Korrektur auf den groessten Bucket
+    if bounds is None:
+        bps_ints = [int(round(v)) for v in bps_floats]
+        diff = 10000 - sum(bps_ints)
+        if diff != 0:
+            # Korrektur auf den groessten Bucket
+            max_idx = int(np.argmax(weights))
+            bps_ints[max_idx] += diff
+        return {bucket: bps_ints[i] for i, bucket in enumerate(BUCKET_ORDER)}
+
+    floor_bps = np.floor(bps_floats).astype(int)
+    remainder = int(10000 - int(floor_bps.sum()))
+    if remainder <= 0:
+        # Floating-Point-Randfall (floor summiert bereits >= 10000): alte
+        # Round+Argmax-Korrektur bleibt hier unveraendert das sicherste
+        # bekannte Verhalten.
+        bps_ints = [int(round(v)) for v in bps_floats]
+        diff = 10000 - sum(bps_ints)
+        if diff != 0:
+            max_idx = int(np.argmax(weights))
+            bps_ints[max_idx] += diff
+        return {bucket: bps_ints[i] for i, bucket in enumerate(BUCKET_ORDER)}
+
+    bps_ints = floor_bps.tolist()
+    n = len(weights)
+    upper_bps = [int(round(hi * 10000.0)) for _lo, hi in bounds]
+    fractional = bps_floats - floor_bps
+    # Groesster Nachkommaanteil zuerst (klassische Largest-Remainder-Methode),
+    # aber ein Bucket an seiner Obergrenze wird uebersprungen statt verletzt.
+    order = sorted(range(n), key=lambda i: fractional[i], reverse=True)
+    assigned = 0
+    attempts = 0
+    max_attempts = remainder * n + n
+    while assigned < remainder and attempts < max_attempts:
+        i = order[attempts % n]
+        if bps_ints[i] < upper_bps[i]:
+            bps_ints[i] += 1
+            assigned += 1
+        attempts += 1
+    if assigned < remainder:
+        # Pathologische Bounds (kein Bucket hat mehr Platz): alte
+        # Argmax-Korrektur als letzter Ausweg. Der nachgelagerte
+        # is_feasible()-Post-Round-Check faengt eine dadurch entstehende
+        # echte Constraint-Verletzung weiterhin korrekt als
+        # diverged_infeasible ab.
         max_idx = int(np.argmax(weights))
-        bps_ints[max_idx] += diff
-    return {bucket: bps_ints[i] for i, bucket in enumerate(BUCKET_ORDER)}
+        bps_ints[max_idx] += (remainder - assigned)
+    return {bucket: int(bps_ints[i]) for i, bucket in enumerate(BUCKET_ORDER)}

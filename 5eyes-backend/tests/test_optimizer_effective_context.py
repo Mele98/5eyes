@@ -337,7 +337,7 @@ def test_post_round_constraint_violation_cannot_remain_converged(monkeypatch):
     monkeypatch.setattr(
         solver_module,
         "_weights_to_bps_dict",
-        lambda _weights: {
+        lambda _weights, **_kwargs: {
             "equities": 2001,
             "bonds": 5999,
             "real_estate": 500,
