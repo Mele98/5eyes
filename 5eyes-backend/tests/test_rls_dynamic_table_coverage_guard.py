@@ -176,13 +176,58 @@ pytestmark_pg = pytest.mark.skipif(
     reason="POSTGRES_TEST_DATABASE_URL nicht gesetzt; SQLite-Suite ueberspringt Postgres-RLS",
 )
 
-_IDENTIFIER_RE = re.compile(r"^[a-z][a-z0-9_]*$")
+# RLS-COVERAGE-GUARD-NEGATIVE-CONTROL-IDENTIFIER-REGEX-001 (Kontrollrunde
+# 2026-09-27, gefunden beim erstmaligen echten CI-Lauf dieser Datei -- der
+# Guard lief zuvor nie in CI, siehe .github/workflows/test.yml): der
+# urspruengliche Regex verlangte einen fuehrenden Kleinbuchstaben und lehnte
+# damit legitime Postgres-Identifier mit fuehrendem Unterstrich ab (z.B.
+# genau den unten erzeugten marker_table = f"_forgotten_{...}"). Postgres
+# erlaubt einen fuehrenden Unterstrich fuer unquoted Identifier -- der Regex
+# ist eine reine SQL-Injection-Absicherung (Whitelist erlaubter Zeichen),
+# nicht ein Namenskonventions-Gate, und sollte deshalb die tatsaechliche
+# Postgres-Identifier-Grammatik abbilden statt sie enger zu fassen.
+_IDENTIFIER_RE = re.compile(r"^[a-z_][a-z0-9_]*$")
 
 
 def _qi(identifier: str) -> str:
     if not _IDENTIFIER_RE.match(identifier):
         raise ValueError(identifier)
     return f'"{identifier}"'
+
+
+# Pure Python, keine Postgres-Instanz noetig -- laeuft immer, damit dieser
+# konkrete Regressionsfall (leading-underscore-Identifier) unabhaengig von
+# der lokalen POSTGRES_TEST_DATABASE_URL-Verfuegbarkeit abgesichert bleibt.
+def test_qi_accepts_leading_underscore_identifiers():
+    """Regression: marker_table in test_guard_fails_loudly_when_a_policy_is_
+    genuinely_missing() beginnt mit einem Unterstrich -- ein gueltiger
+    Postgres-Identifier, den der urspruengliche Regex faelschlich ablehnte."""
+    assert _qi("_forgotten_c7ad4c89") == '"_forgotten_c7ad4c89"'
+    assert _qi("_leading_underscore") == '"_leading_underscore"'
+
+
+def test_qi_accepts_plain_lowercase_identifiers():
+    assert _qi("clients") == '"clients"'
+    assert _qi("rls_cov_abc123") == '"rls_cov_abc123"'
+
+
+@pytest.mark.parametrize(
+    "dangerous_identifier",
+    [
+        "1starts_with_digit",
+        "has space",
+        "has-dash",
+        "semicolon;drop table",
+        'quote"injection',
+        "UPPERCASE",
+        "",
+    ],
+)
+def test_qi_still_rejects_invalid_or_dangerous_identifiers(dangerous_identifier):
+    """Der Regex ist eine SQL-Injection-Absicherung -- die Lockerung fuer
+    fuehrende Unterstriche darf nichts anderes zusaetzlich erlauben."""
+    with pytest.raises(ValueError):
+        _qi(dangerous_identifier)
 
 
 @pytest.fixture(scope="module")
