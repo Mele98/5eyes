@@ -4524,6 +4524,18 @@ function _wireSollIstHover(){
           </select>
         </div>
       </div>
+      <div class="frow">
+        <div class="fg"><label class="fl">Basisw&auml;hrung</label>
+          <select class="fsel" id="nc-currency">
+            <option value="CHF">CHF – Schweizer Franken</option>
+            <option value="EUR">EUR – Euro</option>
+            <option value="USD">USD – US-Dollar</option>
+            <option value="GBP">GBP – Britisches Pfund</option>
+            <option value="JPY">JPY – Japanischer Yen</option>
+          </select>
+          <div style="font-size:9.5px;color:var(--n6);line-height:1.4;margin-top:2px">Referenzw&auml;hrung des Mandats (Kostenausweis, Verm&ouml;gens&uuml;bersicht). Nachtr&auml;glich nicht &auml;nderbar.</div>
+        </div>
+      </div>
       <div class="frow" style="border-top:1px solid var(--b1);padding-top:10px;margin-top:8px">
         <div class="fg"><label class="fl">Geschlecht (BFS-Mortalitaet)</label>
           <select class="fsel" id="nc-sex">
@@ -16381,10 +16393,19 @@ async function createNewMandate() {
     var yr=parseInt(dob.substring(0,4),10);
     if(yr>1900&&yr<2100)clientBirthYear=yr;
   }
+  // BASE-CURRENCY-HARDCODED-001 (Kontrollrunde 2026-09-27): war fest auf
+  // 'CHF' verdrahtet, obwohl das Backend base_currency frei pro Mandat
+  // entgegennimmt (routers/mandates.py) -- jedes ueber die Standard-UI
+  // angelegte Fremdwaehrungs-Mandat (z.B. EUR fuer ein DE-Mandat) blieb
+  // dadurch fuer immer auf CHF eingefroren, ohne jeden UI-Pfad zur
+  // Korrektur. currencyEl-Fallback auf 'CHF' erhaelt das Backwards-Compat-
+  // Verhalten, falls das Select-Element je fehlen sollte.
+  var currencyEl=document.getElementById('nc-currency');
+  var baseCurrency=(currencyEl&&currencyEl.value)?currencyEl.value:'CHF';
   var mandatePayload={
     mandate_number: mandateNum,
     mandate_type: mType,
-    base_currency: 'CHF',
+    base_currency: baseCurrency,
     advisory_language: 'DE'
   };
   if(clientBirthYear)mandatePayload.client_birth_year=clientBirthYear;
