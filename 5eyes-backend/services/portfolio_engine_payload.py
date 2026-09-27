@@ -746,7 +746,18 @@ def _product_matches_constraints(
         return False
     if geo_prefs.get("hedgingRequired") and not _product_is_chf_or_fx_hedged(product, home_currency):
         return False
-    if policy_prefs.get("esg") in ("best_in_class", "impact", "net_zero") and asset_class != "Liquiditaet":
+    # ESG-POLICY-PARTIAL-NOOP-001 (Kontrollrunde 2026-09-27): "esg_integration"
+    # war im Schema (schemas/allocation.py _VALID_POLICY_VALUES["esg"]) ein
+    # gueltiger, im PDF sichtbarer Wert, hatte hier aber KEINE Wirkung -- ein
+    # Berater, der ihn waehlte, bekam ein Dokument, das eine Umsetzung
+    # behauptet, die die Engine nicht vornahm. "ESG-Integration" (Beruecks-
+    # ichtigung von E/S-Merkmalen ohne volles Impact-Mandat) ist inhaltlich
+    # am naechsten an SFDR Art. 8 -- behandelt wie die bestehenden drei Werte,
+    # die bereits identisch auf denselben SFDR-8/9-Gate abgebildet sind.
+    if (
+        policy_prefs.get("esg") in ("best_in_class", "impact", "net_zero", "esg_integration")
+        and asset_class != "Liquiditaet"
+    ):
         if str(product.sfdr_class or "") not in ("8", "9"):
             return False
     if product.suitability and not ignore_suitability:
@@ -902,7 +913,18 @@ def _product_score(product: Product, sub_asset_class: str, prefs: dict, jurisdic
     }
     thematic_key = thematic_map.get(sub_asset_class)
     if thematic_key:
+        # ESG-POLICY-PARTIAL-NOOP-001 (Kontrollrunde 2026-09-27, User-Entscheid):
+        # "negative_screening" war ein gueltiger, im PDF sichtbarer Policy-
+        # Wert ohne jede Wirkung auf die Produktauswahl. Negative Screening
+        # ist konzeptionell kein SFDR-Artikel, sondern ein Sektor-Ausschluss
+        # -- dafuer existiert bereits dieses Themen-Tilt-System. Fachlicher
+        # Default (User-Entscheid): "negative_screening" setzt alle 6 Themen
+        # auf "exclude", AUSSER der Berater hat fuer dieses Thema bereits
+        # explizit einen abweichenden Tilt gesetzt -- ein expliziter Berater-
+        # Entscheid geht dem Policy-Default immer vor, nie umgekehrt.
         tilt_mode = tilts.get(thematic_key)
+        if tilt_mode is None and policy_prefs.get("esg") == "negative_screening":
+            tilt_mode = "exclude"
         if tilt_mode == "exclude":
             return -10000
         if tilt_mode == "underweight":
