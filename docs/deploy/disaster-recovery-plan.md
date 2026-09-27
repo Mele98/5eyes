@@ -56,9 +56,15 @@
 - **Ablauf:** Backup in eine **isolierte** Umgebung restoren, Health + Stichprobe,
   RTO/RPO messen, Abweichungen als Findings.
 - **Protokoll:** Datum, Backup-Stand, gemessene RTO/RPO, Befunde, Massnahmen.
+- **Werkzeug:** `python scripts/restore_drill.py` (RESTORE-DRILL-NEVER-PERFORMED-001,
+  2026-09-27) automatisiert den Zyklus Backup → simulierter Verlust → Restore
+  gegen dieselben Produktionsfunktionen (`services.backup.backup_database`,
+  `services.maintenance.restore_backup`) in einer isolierten Sandbox (nie gegen
+  echte Kunden-/Mandantendaten) und gibt eine fertige Protokollzeile aus.
 
 | Datum | Backup-Stand | RTO gemessen | RPO gemessen | Befunde |
 |---|---|---|---|---|
+| 2026-09-27 | Dev-Sandbox (synthetisch, `scripts/restore_drill.py`) | 15 ms (synthetische Mini-DB, nicht kapazitätsrelevant) | ~0 (sofortiger Restore nach Backup) | keine — Backup-/Restore-Mechanismus (atomarer Restore, SHA256-Integritätsprüfung, Datenerhalt) end-to-end verifiziert. **Offen:** echter Drill gegen einen Tier-2/3-Zielhost mit realer Infrastruktur (Postgres+PITR, Off-Site-Ziel-Host, siehe Abschnitt 7) und gegen eine realistisch grosse DB (Timing hier nicht kapazitätsrelevant). |
 | _…_ | _…_ | _…_ | _…_ | _…_ |
 
 ## 6. Rollen & Eskalation
