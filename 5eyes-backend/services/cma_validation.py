@@ -14,6 +14,8 @@ from typing import Any
 
 import numpy as np
 
+from services.optimizer.distributions import cornish_fisher_is_monotonic
+
 
 CORRELATION_DIMENSION = 5
 NELSON_SIEGEL_DEFAULT_MATURITY_YEARS = 5.0
@@ -45,6 +47,13 @@ _EQUITY_KGV_FIELDS = (
     "equity_kgv_fair_x10",
     "equity_kgv_alpha_x100",
 )
+# Bucket-Reihenfolge fuer die Skew/Kurtosis-Felder -- unabhaengig von der
+# CH/Nicht-CH-Verzweigung der Sub-Asset-Class-Rendite/Vola-Felder oben,
+# da Skew/Kurtosis nur auf Bucket-Ebene gepflegt werden (Optimizer-Phase 1,
+# 2026-05-05-Spec). Muss mit services.optimizer.scenario_engine.BUCKET_ORDER
+# uebereinstimmen -- hier lokal dupliziert statt importiert, da
+# scenario_engine.py umgekehrt aus diesem Modul importiert (Zirkularimport).
+_SKEW_KURT_BUCKETS = ("equities", "bonds", "real_estate", "alternatives", "liquidity")
 
 
 class CMAValidationError(ValueError):
@@ -133,6 +142,32 @@ def validate_runtime_cma_completeness(cma: Any) -> None:
                 f"{field_name}={value} unplausibel hoch (Maximum "
                 f"{RUNTIME_VOL_MAX_BPS} bps / 200%) -- Tippfehler "
                 "(Prozent statt Basispunkte, zusaetzliche Nullen) pruefen."
+            )
+
+    # CORNISH-FISHER-NON-MONOTONIC-CLAMP-BOUNDS-001 (Kontrollrunde 2026-09-27):
+    # Skew/Kurtosis sind optional (None = 0.0, keine Fat-Tail-Anpassung fuer
+    # diesen Bucket) und werden unabhaengig von der CH/Nicht-CH-Verzweigung
+    # oben gepflegt. Der bestehende Wertebereich (Clamp in
+    # services.optimizer.distributions) schliesst nicht-monotone
+    # Kombinationen NICHT aus -- z.B. skew=-1.0 mit excess_kurt=0.0 (beides
+    # innerhalb des Clamps) invertiert die Quantilfunktion ueber weite Teile
+    # der rechten Flanke. Eine solche Kombination wuerde P5/P25/Median-
+    # Perzentile und darauf aufbauende VaR/CVaR-Kennzahlen im FIDLEG-
+    # Pflichtdokument verfaelschen -- hier fail-closed statt spaeter in
+    # Optimizer/Report unbemerkt falsch zu rechnen.
+    for bucket in _SKEW_KURT_BUCKETS:
+        skew_field = f"{bucket}_skewness_bps"
+        kurt_field = f"{bucket}_excess_kurt_bps"
+        skew_bps = getattr(cma, skew_field, None) or 0
+        kurt_bps = getattr(cma, kurt_field, None) or 0
+        if not cornish_fisher_is_monotonic(
+            float(skew_bps) / 10_000.0, float(kurt_bps) / 10_000.0
+        ):
+            raise CMAValidationError(
+                f"{skew_field}={skew_bps} / {kurt_field}={kurt_bps} macht die "
+                "Cornish-Fisher-Transformation nicht-monoton (keine gueltige "
+                "Quantilfunktion mehr) -- Betrag der Schiefe reduzieren oder "
+                "Exzess-Kurtosis erhoehen."
             )
 
 

@@ -48,7 +48,7 @@ from services.return_moments import (
     bounded_cornish_fisher,
 )
 
-from .distributions import _MAX_EXCESS_KURT, _MAX_SKEW
+from .distributions import _MAX_EXCESS_KURT, _MAX_SKEW, cornish_fisher_is_monotonic
 
 
 # Konsistent zu services.portfolio_engine.BUCKET_FIELDS
@@ -645,6 +645,39 @@ def scenario_inputs_from_cma(cma, sub_allocations: list[dict] | None = None) -> 
         int(getattr(cma, f"{b}_excess_kurt_bps", 0) or 0)
         for b in BUCKET_ORDER
     ], dtype=np.float64)
+
+    # CORNISH-FISHER-NON-MONOTONIC-CLAMP-BOUNDS-001 (Kontrollrunde 2026-09-27):
+    # der Clamp allein (services.optimizer.distributions._clamp_skew/_clamp_kurt)
+    # schliesst nicht-monotone Kombinationen NICHT aus -- z.B. skew=-1.0 (der
+    # erlaubte Rand) mit excess_kurt=0.0 (der erlaubte Minimalwert) invertiert
+    # die transformierte Quantilfunktion ueber weite Teile der rechten Flanke.
+    # Die primaere, immer aktive Absicherung ist services.cma_validation.
+    # validate_runtime_cma_completeness() -- die _weighted_bucket_metrics()
+    # oben unconditional (auch mit sub_allocations) ueber _asset_class_
+    # expected_metrics() aufruft, bevor dieser Punkt ueberhaupt erreicht wird.
+    # Dieser zweite Guard ist bewusst redundant (Defense-in-Depth): er
+    # schuetzt gegen einen kuenftigen Refactor von _weighted_bucket_metrics,
+    # der diesen Aufruf entfernt, sowie gegen DB-Zeilen aus der Zeit vor
+    # diesem Fix, falls sie je einen Pfad erreichen, der die Reporting-
+    # Validierung umgeht. Ohne IRGENDEINEN dieser Guards wuerde ein
+    # kaputtes Bucket-Paar unbemerkt eine invertierte Ertragsverteilung in
+    # die Monte-Carlo-Pfaderzeugung einspeisen -- P5/P25/Median-Perzentile
+    # und darauf aufbauende VaR/CVaR-Kennzahlen waeren falsch.
+    for index, bucket in enumerate(BUCKET_ORDER):
+        if not cornish_fisher_is_monotonic(
+            float(skew_bps[index]) / 10_000.0,
+            float(excess_kurt_bps[index]) / 10_000.0,
+        ):
+            from .constraints import OptimizerInputError
+
+            raise OptimizerInputError(
+                f"CMA-Skew/Kurtosis fuer Bucket '{bucket}' "
+                f"(skew={skew_bps[index] / 10_000.0:.3f}, "
+                f"excess_kurt={excess_kurt_bps[index] / 10_000.0:.3f}) macht "
+                "die Cornish-Fisher-Transformation nicht-monoton (keine "
+                "gueltige Quantilfunktion mehr) -- Betrag der Schiefe "
+                "reduzieren oder Exzess-Kurtosis erhoehen."
+            )
 
     # Korrelations-Matrix
     try:
