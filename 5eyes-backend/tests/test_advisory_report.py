@@ -133,6 +133,9 @@ def test_compute_returns_expected_top_level_structure(session_factory):
         # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): immer verfuegbares
         # Top-Level-Feld fuer FX-korrekte Betrags-Beschriftung im PDF.
         "mandate_currency",
+        # Bugfix 2026-09-27 (PROVISORIK-WARNBANNER-JSON-001): ebenfalls
+        # immer verfuegbares Top-Level-Feld, siehe PROTECTED_REPORT_SECTIONS.
+        "provisional_data_warning",
         "cover", "disclaimer", "inhaltsverzeichnis", "ausgangslage",
         "positionen", "pruefpunkte", "erkenntnisse",
         "asset_allocation", "risikowaehrungen", "branchen",
@@ -1594,6 +1597,9 @@ def test_endpoint_returns_full_report_structure(session_factory):
     expected = [
         "schema_version", "mandate_id", "generated_at",
         "mandate_currency",
+        # Bugfix 2026-09-27 (PROVISORIK-WARNBANNER-JSON-001): ebenfalls
+        # immer verfuegbares Top-Level-Feld, siehe PROTECTED_REPORT_SECTIONS.
+        "provisional_data_warning",
         "cover", "disclaimer", "inhaltsverzeichnis", "ausgangslage",
         "positionen", "pruefpunkte", "erkenntnisse",
         "asset_allocation", "risikowaehrungen", "branchen",
