@@ -143,6 +143,16 @@ def _cornish_fisher_transform(z: float, skew: float, excess_kurt: float) -> floa
     einen Bereich, der jeden real beobachteten/plausiblen Markt-Skew/-Kurt
     weit uebersteigt (typische Aktien-Skew ~ -1..0, Exzess-Kurtosis ~ 1..10),
     aber grobe Fat-Finger-Fehler abfaengt.
+
+    CORNISH-FISHER-NON-MONOTONIC-CLAMP-BOUNDS-001 (Kontrollrunde 2026-09-27):
+    dieser Clamp allein GARANTIERT KEINE Monotonie -- z.B. skew=-1.0 (weit
+    innerhalb dieses Clamps) mit excess_kurt=0.0 invertiert die Transformation
+    ueber weite Teile der rechten Flanke, numerisch verifiziert. Diese
+    Funktion hat aktuell KEINE produktiven Aufrufer (nur eigene Tests) --
+    bevor sie reaktiviert wird, zuerst auf
+    services.optimizer.distributions.cornish_fisher_is_monotonic() pruefen,
+    genau wie es der aktive Pfad (services.optimizer.scenario_engine und
+    services.cma_validation.validate_runtime_cma_completeness) inzwischen tut.
     """
     skew = max(-3.0, min(3.0, skew))
     excess_kurt = max(-2.0, min(30.0, excess_kurt))
