@@ -230,7 +230,16 @@ jobs:
         working-directory: 5eyes-backend
         env:
           POSTGRES_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/fiveeyes_rls
-        run: python -m pytest tests/test_postgres_rls_adversarial.py tests/test_authten07_login_guard_postgres_ddl.py -q
+        # RLS-COVERAGE-GUARD-NOT-WIRED-IN-CI-001 (Kontrollrunde 2026-09-27):
+        # test_rls_dynamic_table_coverage_guard.py wurde am 2026-08-17 explizit
+        # als CI-Guard gebaut ("verhindert, dass eine neue tenant_id-Tabelle
+        # unbemerkt ohne RLS-Policy durchrutscht"), lief seither aber in
+        # KEINEM CI-Job -- nur lokal, wenn ein Entwickler manuell
+        # POSTGRES_TEST_DATABASE_URL setzt. Der selbst dokumentierte Zweck
+        # des Guards war damit in der Praxis nie durchgesetzt. Dieselbe
+        # Postgres-Instanz/dieselben Rechte wie die beiden bereits laufenden
+        # Testdateien (eigene, isolierte Schema pro Testlauf).
+        run: python -m pytest tests/test_postgres_rls_adversarial.py tests/test_authten07_login_guard_postgres_ddl.py tests/test_rls_dynamic_table_coverage_guard.py -q
 
   vitest:
     # Sprint U-53 (2026-06-04): Frontend Reporting Sub-App vitest in CI.

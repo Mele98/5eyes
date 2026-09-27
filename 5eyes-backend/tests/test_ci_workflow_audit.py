@@ -205,3 +205,36 @@ def test_workflow_triggers_on_pull_request_to_main(workflow_yaml):
     pr_branches = on_config["pull_request"]["branches"]
     assert "develop" in pr_branches
     assert "main" in pr_branches
+
+
+# ---------------------------------------------------------------------------
+# Postgres-RLS-Job -- alle Live-Postgres-Testdateien tatsaechlich verdrahtet
+# ---------------------------------------------------------------------------
+
+def _postgres_rls_run_command(workflow_yaml: dict) -> str:
+    job = workflow_yaml["jobs"]["postgres-rls"]
+    run_step = next(s for s in job["steps"] if "run" in s and "pytest" in s["run"])
+    return run_step["run"]
+
+
+def test_postgres_rls_job_exists(workflow_yaml):
+    assert "postgres-rls" in workflow_yaml["jobs"]
+
+
+def test_postgres_rls_adversarial_test_is_wired_in(workflow_yaml):
+    assert "tests/test_postgres_rls_adversarial.py" in _postgres_rls_run_command(workflow_yaml)
+
+
+def test_authten07_login_guard_test_is_wired_in(workflow_yaml):
+    assert "tests/test_authten07_login_guard_postgres_ddl.py" in _postgres_rls_run_command(workflow_yaml)
+
+
+def test_rls_dynamic_table_coverage_guard_is_wired_in(workflow_yaml):
+    """RLS-COVERAGE-GUARD-NOT-WIRED-IN-CI-001 (Kontrollrunde 2026-09-27):
+    dieser Guard wurde am 2026-08-17 explizit gebaut, um zu verhindern, dass
+    eine neue tenant_id-Tabelle unbemerkt ohne RLS-Policy durchrutscht --
+    lief seither aber in KEINEM CI-Job, nur lokal bei manuell gesetztem
+    POSTGRES_TEST_DATABASE_URL. Der selbst dokumentierte Zweck war damit nie
+    tatsaechlich durchgesetzt. Dieser Test schuetzt dagegen, dass die
+    Verdrahtung je wieder stillschweigend verschwindet."""
+    assert "tests/test_rls_dynamic_table_coverage_guard.py" in _postgres_rls_run_command(workflow_yaml)
