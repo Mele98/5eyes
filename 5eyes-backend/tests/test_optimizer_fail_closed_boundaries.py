@@ -164,6 +164,57 @@ def test_nonconverged_candidate_recheck_does_not_hide_objective_error():
         )
 
 
+def test_grossly_infeasible_raw_candidate_is_rejected_before_repair():
+    """SOLVER-CANDIDATE-ACCEPTANCE-001 (Kontrollrunde 2026-09-28,
+    docs/audits/2026-09-23-solver-goal-maximization-and-publication-
+    integrity-audit.md): ein Rohkandidat, bei dem ALLE SLSQP-/DE-Versuche
+    success=False melden, darf nicht ueber Clip+Renormierung zu einem
+    scheinbar "feasible" Kandidaten repariert und danach als
+    converged_robustified aktivierbar werden. x=[2,2,2,2,2] ist die exakte
+    Repro aus dem Audit: vor dem Fix normalisierte das auf [0.2]*5."""
+    result = solver_module.OptimizeResult(
+        x=np.array([2.0, 2.0, 2.0, 2.0, 2.0]),
+        fun=1.0, success=False, status=9,
+        message="all attempts non-success", nit=1,
+    )
+    out = solver_module._finite_feasible_candidate(
+        result, lambda w: float(np.sum(w)), [(0.0, 1.0)] * 5, [],
+    )
+    assert out is None
+
+
+def test_genuine_numerical_near_miss_is_still_accepted():
+    """Gegenprobe: ein Rohkandidat, der nur um numerisches SLSQP-Rauschen
+    (< 0.1%) von sum=1/Bounds abweicht -- die eigentlich beabsichtigte
+    "SLSQP meldet faelschlich success=False"-Rettung -- darf weiterhin
+    repariert und akzeptiert werden."""
+    x_near = np.array([0.5004, 0.2, 0.1, 0.1, 0.1])
+    result = solver_module.OptimizeResult(
+        x=x_near, fun=1.0, success=False, status=4,
+        message="Inequality constraints incompatible", nit=12,
+    )
+    out = solver_module._finite_feasible_candidate(
+        result, lambda w: float(np.sum(w)), [(0.0, 1.0)] * 5, [],
+    )
+    assert out is not None
+    weights, _objective = out
+    assert weights == pytest.approx([0.5, 0.2, 0.1, 0.1, 0.1], abs=1e-3)
+
+
+def test_raw_candidate_violation_beyond_repair_tolerance_is_rejected():
+    """Eine deutliche (2%) Verletzung -- oberhalb des numerischen
+    Rausch-Bereichs, aber weit unterhalb der Audit-Repro-Groessenordnung --
+    muss ebenfalls verworfen werden, nicht nur der Extremfall."""
+    x_larger = np.array([0.52, 0.2, 0.1, 0.1, 0.1])
+    result = solver_module.OptimizeResult(
+        x=x_larger, fun=1.0, success=False, status=4, message="", nit=12,
+    )
+    out = solver_module._finite_feasible_candidate(
+        result, lambda w: float(np.sum(w)), [(0.0, 1.0)] * 5, [],
+    )
+    assert out is None
+
+
 def test_robustification_does_not_hide_objective_error():
     selected = np.array([0.50, 0.20, 0.10, 0.05, 0.15])
 

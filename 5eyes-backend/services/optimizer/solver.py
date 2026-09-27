@@ -75,6 +75,14 @@ from .scenario_engine import (
 _ROBUSTIFIED_OBJECTIVE_TIE_REL_TOL = 0.05
 _ROBUSTIFIED_DERISK_REL_TOL = 0.10
 
+# SOLVER-CANDIDATE-ACCEPTANCE-001 (Kontrollrunde 2026-09-28): wie eng ein roher
+# Non-success-SciPy-Kandidat schon VOR jeder Reparatur an sum=1/Bounds liegen
+# muss, damit er als legitimer "SLSQP meldet faelschlich success=False"-
+# Grenzfall gilt. 1e-3 deckt echtes numerisches Rauschen (SLSQP-ftol-Bereich)
+# ab, verwirft aber grob infeasible Rohausgaben (z.B. x=[2,2,2,2,2]), die erst
+# durch Clip+Renormierung zufaellig "feasible" wuerden.
+_RAW_CANDIDATE_REPAIR_TOL = 1e-3
+
 
 class SolverTechnicalError(RuntimeError):
     """Explicitly classified technical failure of the numerical solver.
@@ -1060,6 +1068,15 @@ def _finite_feasible_candidate(
     "Inequality constraints incompatible" on non-smooth chance-constraint
     objectives. A candidate is accepted only after an independent strict
     feasibility check against bounds, sum-to-one and risk-cap constraints.
+
+    SOLVER-CANDIDATE-ACCEPTANCE-001 (Kontrollrunde 2026-09-28): die Reparatur
+    (Clip auf [0,1] + Renormierung auf sum=1) darf nur an einem Rohkandidaten
+    ansetzen, der VOR der Reparatur schon nahe an sum=1/Bounds liegt -- sonst
+    kann ein grob infeasibler Rohvektor (z.B. ein abgebrochener Solver-Versuch
+    mit x=[2,2,2,2,2]) durch die Reparatur zufaellig "feasible" werden und
+    faelschlich als `converged_robustified` aktivierbar sein, obwohl weder ein
+    erfolgreicher Solver noch ein von ihm gelieferter zulaessiger Kandidat
+    vorlag.
     """
     raw_x = getattr(result, "x", None)
     if raw_x is None:
@@ -1069,6 +1086,8 @@ def _finite_feasible_candidate(
     except (TypeError, ValueError):
         return None
     if x.shape != (len(bounds),) or not np.all(np.isfinite(x)):
+        return None
+    if not _is_within_bounds(x, bounds, tol=_RAW_CANDIDATE_REPAIR_TOL):
         return None
     candidate = _normalize_to_bounds(np.clip(x, 0.0, 1.0), bounds)
     feasible, _violations = is_feasible(
