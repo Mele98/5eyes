@@ -244,6 +244,19 @@ class Settings(BaseSettings):
     # ein Netzwerk-Hang darf den Backup-Scheduler nie blockieren.
     backup_offsite_timeout_seconds: int = 120
 
+    # BACKUP-FAILURE-SILENT-LOG-ONLY-001 (Kontrollrunde 2026-09-27): ein
+    # fehlgeschlagenes taegliches Backup landete bisher nur im Log
+    # (logger.exception) -- kein Mechanismus informierte den Betreiber aktiv.
+    # Bei einem Tier-1-Self-Hosted-Betrieb (kein zentrales Log-Monitoring)
+    # koennten Backups wochenlang ausfallen, ohne dass es jemand bemerkt.
+    # Wiederverwendet denselben opt-in Slack-/Discord-/generisch-Webhook-
+    # Mechanismus wie services/market_data/notifier.py (P22) -- dediziertes
+    # Setting statt Wiederverwendung von market_data_alert_webhook_url, da
+    # ein Betreiber Backup- und Marktdaten-Alerts an unterschiedliche Kanaele
+    # routen koennte. Default leer = no-op, kein Netzwerkverkehr.
+    backup_alert_webhook_url: str = ''
+    backup_alert_webhook_timeout_seconds: float = 5.0
+
     # U-19 — Aggregator-Cache (Roadmap-Punkt 19). compute_advisory_report
     # macht 17 Sektionen mit je mehreren DB-Queries; der Sub-App-User klickt
     # durch Sektionen und triggert pro Sektionsanzeige einen vollen Recompute.

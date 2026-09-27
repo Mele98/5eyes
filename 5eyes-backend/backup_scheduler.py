@@ -28,6 +28,33 @@ except ImportError:
 _scheduler: Any | None = None
 
 
+def _alert_backup_problem(*, text: str, detail: str) -> None:
+    """BACKUP-FAILURE-SILENT-LOG-ONLY-001 (Kontrollrunde 2026-09-27): postet
+    einen Alert an denselben opt-in Slack-/Discord-/generisch-Webhook-
+    Mechanismus wie services/market_data/notifier.py (P22) -- No-Op wenn
+    settings.backup_alert_webhook_url leer ist (Default). post_alert() ist
+    zwar bereits selbst defensiv (jeder HTTP-/Netzwerk-Fehler wird geloggt
+    und geschluckt), aber diese Funktion wird aus einem `except`-Block in
+    _run_backup_job() aufgerufen -- eine hier unerwartet auftretende
+    Exception (z.B. ein kuenftiger Bug in post_alert()) wuerde NICHT vom
+    umschliessenden Handler abgefangen und wuerde den Scheduler-Job doch
+    noch zum Absturz bringen. Eigenes try/except daher bewusst redundant,
+    nicht nur Stil."""
+    webhook_url = (settings.backup_alert_webhook_url or "").strip()
+    if not webhook_url:
+        return
+    try:
+        from services.market_data.notifier import post_alert
+
+        post_alert(
+            webhook_url,
+            {"text": text, "detail": detail},
+            timeout_seconds=settings.backup_alert_webhook_timeout_seconds,
+        )
+    except Exception:  # noqa: BLE001 — darf einen except-Block nie verlassen
+        logger.exception("Backup-Alert-Webhook-Versand fehlgeschlagen")
+
+
 def _run_backup_job() -> None:
     """APScheduler-Wrapper: lazy-import + Exceptions schlucken, damit ein
     Backup-Fehler den Scheduler nicht killt."""
@@ -67,8 +94,16 @@ def _run_backup_job() -> None:
                     "Scheduled offsite-backup-replication failed | target=%s detail=%s",
                     offsite.target, offsite.detail,
                 )
-    except Exception:  # noqa: BLE001 — Scheduler soll nicht crashen
+                _alert_backup_problem(
+                    text="5eyes: Offsite-Backup-Replikation fehlgeschlagen.",
+                    detail=f"target={offsite.target} detail={offsite.detail}",
+                )
+    except Exception as exc:  # noqa: BLE001 — Scheduler soll nicht crashen
         logger.exception("Scheduled DB-backup failed")
+        _alert_backup_problem(
+            text="5eyes: Geplantes Datenbank-Backup fehlgeschlagen.",
+            detail=f"{type(exc).__name__}: {exc}",
+        )
 
 
 def start_backup_scheduler() -> None:
