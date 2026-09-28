@@ -246,14 +246,25 @@ def _build_mandate_score(goal_analysis: list[dict]) -> dict:
 
     Liefert ZWEI Aggregate (PK-konsistent, ASIP §3.2):
     - weighted_score: gewichteter Mittelwert aller goal_scores nach
-      weight_bps * hardness_multiplier_bps. Strategie-Sicht. None wenn
-      keine Goals.
+      weight_bps. Strategie-Sicht. None wenn keine Goals.
     - weakest_hard_score: min(score) ueber Goals mit hardness=Hart.
       Compliance-Sicht. None wenn keine harten Goals.
 
     Methodisch: Mandate haben oft heterogene Goals (PK-Pflicht vs.
     ueberobligatorisch vs. Reisefonds). Pure Aggregation maskiert harte
     Verfehlungen; daher beide Sichten parallel.
+
+    GOAL-SCORE-001 (Kontrollrunde 2026-09-28,
+    docs/audits/2026-09-21-stochastic-optimizer-monte-carlo-asset-
+    allocation-and-goal-integrity-audit.md, Kontrollrunde 33):
+    `item["weight_bps"]` kommt aus `_goal_weight()`, das den Hardness-
+    Multiplier bereits einmal einpreist (Hart=2x, Opportunistisch=0.4x).
+    Diese Funktion darf den Multiplier deshalb NICHT ein zweites Mal
+    anwenden -- sonst wirkt Hardness quadratisch statt linear (Repro:
+    weighted_score=96 statt korrekt 83 bei einem Hart/Opportunistisch-Paar
+    mit identischem Basisgewicht). `weight_bps` wird hier daher direkt als
+    effektives Gewicht verwendet; dieselbe Interpretation nutzt bereits die
+    unabhaengige Frontend-Berechnung in 5eyes_v2.html (`scoreWeightTotal`).
     """
     if not goal_analysis:
         return {
@@ -263,21 +274,12 @@ def _build_mandate_score(goal_analysis: list[dict]) -> dict:
             "method": "weighted_avg + weakest_hard_min",
         }
 
-    # weighted: weight_bps * hardness multiplier
+    # weighted: weight_bps ist bereits hardness-adjustiert (_goal_weight()).
     weighted_sum = 0.0
     weight_sum = 0.0
     for item in goal_analysis:
         score = float(item.get("achievement_score") or 0)
-        base_weight = max(0, int(item.get("weight_bps") or 0))
-        hardness_raw = str(item.get("hardness") or "Primaer").strip().lower()
-        if hardness_raw == "hart":
-            hardness_key = "hart"
-        elif hardness_raw == "opportunistisch":
-            hardness_key = "opportunistisch"
-        else:
-            hardness_key = "primaer"
-        multiplier = _GOAL_HARDNESS_MULTIPLIER_BPS.get(hardness_key, 10000)
-        effective_weight = base_weight * multiplier
+        effective_weight = max(0, int(item.get("weight_bps") or 0))
         weighted_sum += score * effective_weight
         weight_sum += effective_weight
     weighted_score = int(round(weighted_sum / weight_sum)) if weight_sum > 0 else None

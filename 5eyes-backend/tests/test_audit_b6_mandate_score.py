@@ -10,8 +10,14 @@ Anspruchsklassen (z.B. PK-Pflichtteil vs. ueberobligatorisch) duerfen NICHT
 einfach aggregiert werden. Best Practice: ZWEI Aggregate liefern:
 
   weighted_score: gewichteter Mittelwert aller goal_scores nach
-    weight_bps * hardness_multiplier_bps. Strategie-Sicht: zeigt
-    Gesamterfolg.
+    weight_bps (bereits hardness-adjustiert via _goal_weight()). Strategie-
+    Sicht: zeigt Gesamterfolg.
+
+  GOAL-SCORE-001 (Kontrollrunde 2026-09-28, Kontrollrunde 33 vom
+  2026-09-21): `_build_mandate_score()` selbst wendet den Hardness-
+  Multiplier NICHT an -- `_goal_weight()` hat ihn bereits in `weight_bps`
+  eingepreist, BEVOR dieser Wert hier ankommt. Eine zweite Anwendung hier
+  wuerde Hardness quadratisch statt linear wirken lassen.
 
   weakest_hard_score: min(score) ueber alle Goals mit hardness=Hart.
     Compliance-Sicht: zeigt den schwaechsten Pflicht-Punkt; PK-konsistent
@@ -108,17 +114,57 @@ def test_b6_weakest_hard_none_when_no_hard_goals():
 # ============================================================================
 
 def test_b6_hardness_multiplier_in_weighted():
-    """Hartes Goal mit gleichem weight_bps zaehlt 2x staerker als primaer (Multiplier 20000 vs 10000),
-    opportunistisch zaehlt 0.4x (Multiplier 4000)."""
+    """GOAL-SCORE-001: `_build_mandate_score()` selbst wendet KEINEN
+    Hardness-Multiplier mehr an -- der `weight_bps`-Input kommt in Produktion
+    bereits hardness-adjustiert aus `_goal_weight()` (Hart=2x, Opp=0.4x
+    gegenueber Primaer). Dieser Test simuliert exakt diese bereits
+    adjustierten Werte, wie sie in `goal_analysis` tatsaechlich ankommen."""
     goals = [
-        # Hartes Goal mit Score 100, weight 1000 -> effective 1000*2 = 2000
-        {"goal_id": "g_hart", "achievement_score": 100, "weight_bps": 1000, "hardness": "Hart"},
-        # Opportunistisches Goal mit Score 0, weight 1000 -> effective 1000*0.4 = 400
-        {"goal_id": "g_opp", "achievement_score": 0, "weight_bps": 1000, "hardness": "Opportunistisch"},
+        # Hartes Goal, Score 100, bereits-adjustiertes weight_bps 1000*2=2000
+        {"goal_id": "g_hart", "achievement_score": 100, "weight_bps": 2000, "hardness": "Hart"},
+        # Opportunistisches Goal, Score 0, bereits-adjustiertes weight_bps 1000*0.4=400
+        {"goal_id": "g_opp", "achievement_score": 0, "weight_bps": 400, "hardness": "Opportunistisch"},
     ]
     score = _build_mandate_score(goals)
     # weighted = (100*2000 + 0*400) / 2400 = 200000/2400 ≈ 83.33 -> 83
     assert score["weighted_score"] == 83
+
+
+def test_b6_does_not_reapply_hardness_multiplier_to_already_adjusted_weight():
+    """Regression fuer die Doppel-Anwendung: mit UN-adjustierten (rohen)
+    weight_bps darf `_build_mandate_score()` selbst KEINEN Multiplier mehr
+    einrechnen -- sonst wirkt Hardness quadratisch. Gleiches rohes Gewicht,
+    unterschiedliche Hardness: das Ergebnis muss der reinen
+    weight_bps-Durchschnitt sein, NICHT von "hardness" beeinflusst, weil
+    diese Funktion die Hardness nicht mehr selbst gewichtet."""
+    goals = [
+        {"goal_id": "g_hart", "achievement_score": 100, "weight_bps": 1000, "hardness": "Hart"},
+        {"goal_id": "g_opp", "achievement_score": 0, "weight_bps": 1000, "hardness": "Opportunistisch"},
+    ]
+    score = _build_mandate_score(goals)
+    # weighted = (100*1000 + 0*1000) / 2000 = 50 -- reiner Durchschnitt, kein
+    # zusaetzlicher Hardness-Effekt innerhalb dieser Funktion.
+    assert score["weighted_score"] == 50
+
+
+def test_b6_goal_weight_and_mandate_score_compose_to_single_hardness_application():
+    """End-to-End-Regression fuer GOAL-SCORE-001 (Repro aus dem Audit: 96
+    statt 83): `_goal_weight()` gefolgt von `_build_mandate_score()` darf
+    Hardness nur EINMAL anwenden, nicht zweimal."""
+    from services.portfolio_engine import _goal_weight
+
+    hart_goal = Goal(rank=5, hardness="Hart", weight_bps=1000)
+    opp_goal = Goal(rank=5, hardness="Opportunistisch", weight_bps=1000)
+
+    goals = [
+        {"goal_id": "g_hart", "achievement_score": 100, "weight_bps": _goal_weight(hart_goal), "hardness": "Hart"},
+        {"goal_id": "g_opp", "achievement_score": 0, "weight_bps": _goal_weight(opp_goal), "hardness": "Opportunistisch"},
+    ]
+    score = _build_mandate_score(goals)
+    assert score["weighted_score"] == 83, (
+        "Doppelte Hardness-Anwendung wuerde hier 96 statt 83 ergeben "
+        "(siehe docs/audits/2026-09-21-...-goal-integrity-audit.md, GOAL-SCORE-001)."
+    )
 
 
 # ============================================================================

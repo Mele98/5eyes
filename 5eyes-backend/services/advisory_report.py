@@ -264,6 +264,10 @@ PROTECTED_REPORT_SECTIONS = frozenset({
     "suitability_compliance",
     "suitability_summary",
     "beratungsprotokoll",
+    # 2026-09-27 (PROVISORIK-WARNBANNER-JSON-001): darf niemals per
+    # hidden_report_sections versteckt werden -- sonst liesse sich genau die
+    # Compliance-Warnung wegkonfigurieren, die dieses Feld herstellen soll.
+    "provisional_data_warning",
 })
 
 
@@ -304,6 +308,17 @@ def _compute_advisory_report_inner(
     # (Erkenntnisse-Ampel, Asset Allocation, Währungen, Branchen).
     from services.depot_check import compute_depot_check
     dc = compute_depot_check(db, mandate) or {}
+    # PROVISORIK-WARNBANNER-JSON-001 (Kontrollrunde 2026-09-27): dieselbe
+    # Provisorik-Gate-Logik, die im PDF-Export laengst ein sichtbares
+    # "PROVISORISCH -- NICHT IC-FREIGEGEBEN"-Banner erzeugt, war im
+    # JSON-Aggregator (und damit auch im Kundenportal, das
+    # compute_advisory_report() 1:1 weiterreicht) nicht verdrahtet -- ein
+    # Kunde mit einem Nicht-CH-Mandat und noch nicht IC-freigegebenen
+    # Kapitalmarktannahmen sah in seinem eigenen Portal WENIGER Warnung als
+    # der Berater im PDF. Fuer CH (jurisdiction None/"CH") liefert der
+    # Resolver GARANTIERT None ohne jeden DB-Zugriff (Constraint 1).
+    from services.pdf.provisional_notice import resolve_pdf_provisional_notice
+    provisional_data_warning = resolve_pdf_provisional_notice(db, mandate)
     ist_basiert_auf_soll = _current_amounts_missing_for_latest_run(db, mandate)
     equity_sector_context = _build_equity_sector_context(db, mandate)
     # Sprint U-P28 PR B: Berater-Overrides werden EINMAL geladen und an die
@@ -321,6 +336,12 @@ def _compute_advisory_report_inner(
         # damit die PDF-Rendering-Schicht Betraege korrekt beschriften kann
         # statt hartcodiert "CHF" zu zeigen.
         "mandate_currency": str(getattr(mandate, "base_currency", "") or "CHF").upper().strip() or "CHF",
+        # Bugfix 2026-09-27 (PROVISORIK-WARNBANNER-JSON-001): wie
+        # mandate_currency ein immer verfuegbares Top-Level-Feld, NIE ueber
+        # hidden_report_sections ausblendbar (siehe PROTECTED_REPORT_SECTIONS)
+        # -- None fuer CH bzw. bereits IC-freigegebene Nicht-CH-CMA, sonst
+        # {jurisdiction, cma_status, message}.
+        "provisional_data_warning": provisional_data_warning,
         # --- Sektion 1
         "cover": _build_cover(mandate, client, advisor, generated_at),
         # --- Sektion 2
