@@ -31,10 +31,18 @@ routers.wealth.update_goal() merges payload fields via exclude_unset=True --
 and the wizard payload explicitly sets these fields (not omits them), so the
 explicit None/False values win over the goal's persisted, valid state.
 
-Once GOAL-RECURRING-EDITOR-CONTRACT-001 is fixed (discriminated GoalFormInput
-union on the frontend that round-trips amount/start/is_ongoing for
-recurring/pension goals through edit), these assertions will start passing
-and the ``xfail`` markers below must be removed.
+CORRECTION: the original framing asserted the broken no-op-edit payload
+should itself succeed (200). That tests the wrong layer -- the documented
+repair contract for this finding is entirely frontend-side (a discriminated
+GoalFormInput union that round-trips amount/start/is_ongoing). A correctly
+fixed wizard would never resend the nulled shape in the first place, so
+"this exact broken payload eventually returns 200" could only become true
+by loosening the backend guard, which is one of the audit's explicitly
+listed Scheinfixes. Rewritten as two positive-control tests per pillar: the
+broken wizard shape keeps 422ing (guards Positivkontrolle #1), and a no-op
+re-save using the SAME complete payload the goal was created with succeeds
+and preserves the amount (guards the backend half of the contract the
+frontend fix will rely on).
 """
 from __future__ import annotations
 
@@ -169,19 +177,11 @@ def _noop_edit_wizard_payload(pillar: str) -> dict:
 
 
 @pytest.mark.parametrize("pillar", PENSION_PILLARS)
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "GOAL-RECURRING-EDITOR-CONTRACT-001 -- round 38 red test, see "
-        "docs/audits/2026-10-03-recurring-goal-lifecycle-calendar-and-mc-validation-audit.md"
-    ),
-)
-def test_noop_edit_of_valid_pension_goal_422s_per_pillar(auth_client, advisor_user, pillar):
-    """Create a fully valid Pensionsausgabe goal for this pillar, then "save"
-    it again unchanged through the wizard's payload shape. The no-op edit
-    must succeed (nothing changed) -- but the real backend validator path
-    rejects it with 422 because the wizard payload explicitly nulls
-    amount/start_date and flips is_ongoing to False."""
+def test_noop_edit_with_broken_wizard_shape_keeps_422ing_per_pillar(auth_client, advisor_user, pillar):
+    """Positive control: create a fully valid Pensionsausgabe goal for this
+    pillar, then "save" it through the wizard's broken no-op payload shape
+    (nulled amount/start, is_ongoing flipped to False). This must keep
+    422ing -- it guards Positivkontrolle #1 against ever being loosened."""
     mandate_id = _setup_mandate(auth_client, advisor_user, pillar)
 
     create_resp = auth_client.post(
@@ -196,4 +196,27 @@ def test_noop_edit_of_valid_pension_goal_422s_per_pillar(auth_client, advisor_us
         f"/mandates/{mandate_id}/goals/{goal_id}",
         json=_noop_edit_wizard_payload(pillar),
     )
+    assert noop_resp.status_code == 422, noop_resp.text
+
+
+@pytest.mark.parametrize("pillar", PENSION_PILLARS)
+def test_noop_edit_with_complete_payload_preserves_amount_per_pillar(auth_client, advisor_user, pillar):
+    """Positive control: a no-op re-save using the SAME complete payload the
+    goal was created with (real amount/start/is_ongoing, as a correctly
+    fixed wizard would eventually resend) succeeds and preserves the
+    amount -- the backend half of the contract the frontend fix relies on."""
+    mandate_id = _setup_mandate(auth_client, advisor_user, pillar)
+
+    create_resp = auth_client.post(
+        f"/mandates/{mandate_id}/goals",
+        json=_valid_pension_payload(pillar),
+    )
+    assert create_resp.status_code == 201, create_resp.text
+    goal_id = create_resp.json()["id"]
+
+    noop_resp = auth_client.put(
+        f"/mandates/{mandate_id}/goals/{goal_id}",
+        json=_valid_pension_payload(pillar),
+    )
     assert noop_resp.status_code == 200, noop_resp.text
+    assert noop_resp.json()["target_amount_rappen"] == _valid_pension_payload(pillar)["target_amount_rappen"]
