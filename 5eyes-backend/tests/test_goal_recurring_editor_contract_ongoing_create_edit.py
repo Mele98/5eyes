@@ -31,6 +31,22 @@ no end date (`target_date=None`). The wizard still fails to collect/send
 
 Both assertions run the REAL FastAPI app (TestClient) against the REAL
 `create_goal`/`update_goal` endpoints -- no validator is mocked.
+
+CORRECTION (see sibling test_goal_recurring_editor_contract_finite_create_edit.py
+for the same fix applied to the finite variant): the backend correctly
+fail-closing on this literally-incomplete payload (no amount at all) is
+audit Positivkontrolle #1 and must NEVER change -- the documented repair
+contract for this finding is entirely frontend-side (GoalFormInput becomes a
+discriminated union that requires amount/start/end semantics before it ever
+reaches the backend). Asserting that THIS exact broken payload shape should
+one day return 201/200 tests the wrong layer: a correctly-fixed wizard would
+never send this payload in the first place, so that assertion could never
+become true without wrongly loosening the backend guard (one of the
+audit's explicitly listed "Scheinfixes"). These are therefore rewritten as
+positive-control tests: the broken shape keeps 422ing (regression guard on
+Positivkontrolle #1), and a COMPLETE payload for the same ongoing goal is
+accepted and preserved across a no-op edit (regression guard on the backend
+half of the contract the frontend fix will eventually rely on).
 """
 
 from __future__ import annotations
@@ -160,23 +176,13 @@ _VALID_ONGOING_RECURRING_PAYLOAD = {
 }
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "GOAL-RECURRING-EDITOR-CONTRACT-001 - round 38 red test, see "
-        "docs/audits/2026-10-03-recurring-goal-lifecycle-calendar-and-mc-validation-audit.md"
-    ),
-)
-def test_create_ongoing_recurring_goal_with_wizard_payload_shape_should_succeed(
+def test_create_ongoing_recurring_goal_with_wizard_payload_shape_is_rejected(
     auth_client, advisor_user,
 ):
-    """Repro 1 (ongoing variant): CREATE with the wizard's broken payload shape.
-
-    is_ongoing=True, target_date=None (open-ended), but amount/start were
-    never collected by the wizard. A correctly-fixed wizard contract would
-    have required them client-side and never reach the backend in this
-    shape; documenting the current (buggy) behaviour means asserting the
-    call that SHOULD succeed instead 422s.
+    """Repro 1 (ongoing variant), positive control: CREATE with the wizard's
+    broken payload shape (no amount, no start_date) must keep 422ing. This
+    guards Positivkontrolle #1 -- the backend must never be loosened to
+    accept this shape; the real fix is the frontend never sending it.
     """
     client_id = _create_client(auth_client, advisor_user)
     mandate_id = _create_mandate(auth_client, client_id, "GOAL-REC-ONGOING-CREATE")
@@ -186,31 +192,17 @@ def test_create_ongoing_recurring_goal_with_wizard_payload_shape_should_succeed(
         json=_BROKEN_ONGOING_RECURRING_PAYLOAD,
     )
 
-    assert response.status_code == 201, response.text
+    assert response.status_code == 422, response.text
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "GOAL-RECURRING-EDITOR-CONTRACT-001 - round 38 red test, see "
-        "docs/audits/2026-10-03-recurring-goal-lifecycle-calendar-and-mc-validation-audit.md"
-    ),
-)
-def test_noop_edit_of_valid_ongoing_recurring_goal_should_not_wipe_amount(
+def test_create_and_noop_edit_of_complete_ongoing_recurring_goal_preserves_amount(
     auth_client, advisor_user,
 ):
-    """Repro 1 (ongoing variant): a no-op EDIT must not break a valid goal.
-
-    First create a goal the normal (valid) way -- establishing a correctly
-    persisted ongoing recurring goal. Then simulate the wizard's "open
-    editor, change nothing, save" path: it rebuilds the full form state and
-    resends it, but buildGoalPayload() nulls target_amount_rappen/never
-    carries start_date, so the PUT explicitly includes
-    target_amount_rappen=None/start_date=None. A correctly-fixed editor
-    contract would resend the existing amount/start unchanged and the save
-    would succeed with the amount intact; documenting the current (buggy)
-    behaviour means asserting that expected outcome, which currently 422s
-    instead.
+    """Positive control: a COMPLETE ongoing recurring payload (real amount +
+    start_date) is accepted, and a no-op re-save of that same complete
+    payload preserves the amount. This is the backend half of the contract
+    a correctly-fixed wizard will rely on once it stops sending the broken
+    shape above.
     """
     client_id = _create_client(auth_client, advisor_user)
     mandate_id = _create_mandate(auth_client, client_id, "GOAL-REC-ONGOING-NOOP-EDIT")
@@ -222,10 +214,9 @@ def test_noop_edit_of_valid_ongoing_recurring_goal_should_not_wipe_amount(
     assert create_response.status_code == 201, create_response.text
     goal_id = create_response.json()["id"]
 
-    noop_edit_payload = dict(_BROKEN_ONGOING_RECURRING_PAYLOAD)
     update_response = auth_client.put(
         f"/mandates/{mandate_id}/goals/{goal_id}",
-        json=noop_edit_payload,
+        json=_VALID_ONGOING_RECURRING_PAYLOAD,
     )
 
     assert update_response.status_code == 200, update_response.text
