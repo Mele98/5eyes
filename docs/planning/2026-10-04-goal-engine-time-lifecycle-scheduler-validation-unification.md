@@ -3,13 +3,18 @@
 ## Meta
 
 - Titel: Vereinheitlichung von Bewertungsstichtag, Occurrence-Scheduler, Goal-Lifecycle, Monte-Carlo-Validierung, CMA-Gültigkeit und Policy-Versionsidentität
-- Datum: 2026-10-04 (ADR-6 bis ADR-8 ergänzt am 2026-10-04, nach Kontrollrunde 40)
+- Datum: 2026-10-04 (ADR-6 bis ADR-8 ergänzt am 2026-10-04 nach Kontrollrunde 40; ADR-9 bis ADR-12 ergänzt in der Nacht 2026-10-04/05 nach Kontrollrunden 36/37/47 plus dem neuen P2-Fund der Sensitivity-Common-Baseline)
 - Owner: Emanuele Konzelmann
 - Quelle Teil 1 (ADR-1 bis ADR-5): `docs/audits/2026-10-03-recurring-goal-lifecycle-calendar-and-mc-validation-audit.md` (Kontrollrunde 38), umgesetzt als 30 rote Tests in PR #521
 - Quelle Teil 2 (ADR-6 bis ADR-8): drei Folgeaudits vom 2026-10-04 (`2026-10-04-cma-inflation-domain-and-effective-date-integrity-audit.md`, `2026-10-04-goal-value-mode-inflation-and-publication-parity-audit.md`, `2026-10-04-optimizer-policy-version-and-activation-integrity-audit.md`, Kontrollrunde 39/40), umgesetzt als 13 rote Tests in PR #523
+- Quelle Teil 3 (ADR-9 bis ADR-10): zwei bislang nie committete Audits vom 2026-09-28 (`2026-09-28-goal-funding-priority-and-achievability-attribution-audit.md` Kontrollrunde 37, `2026-09-28-mixed-goal-sensitivity-objective-evidence-integrity-audit.md` Kontrollrunde 36), umgesetzt als 13 rote Tests in PR #525
+- Quelle Teil 4 (ADR-11): Folgeaudit `2026-10-04-goal-sensitivity-common-baseline-and-publication-integrity-audit.md` (Kontrollrunde 46 per Audit-eigener Nummerierung) plus Re-Bestätigung der Runde-36-Funde, 1 roter Test in PR #527
+- Quelle Teil 5 (ADR-12): `2026-10-04-equity-valuation-kgv-calibration-horizon-and-publication-integrity-audit.md` (Kontrollrunde 47 per Audit-eigener Nummerierung), 2 rote Tests in PR #527
 - Branch-Vorschlag: `docs/goal-engine-time-lifecycle-validation-adr`
 
 ## Ziel
+
+**Nachtrag 2026-10-04/05:** Dieses Dokument wurde um ADR-9 bis ADR-12 erweitert, nachdem zwei vollständige, nie committete Audit-Runden (Kontrollrunde 36/37, Goal-Funding/Sensitivity) sowie zwei brandneue Runden (Sensitivity-Common-Baseline, Equity-Valuation/KGV) im Ares-Worktree gefunden und mit derselben Sorgfalt verifiziert wurden. Die ursprüngliche Acht-Finde-Analyse unten (ADR-1 bis ADR-8) bleibt unverändert gültig; ADR-9 bis ADR-12 folgen demselben Format und Anspruch.
 
 Acht insgesamt bestätigte P1-Funde über zwei Audit-Wellen (Kontrollrunde 38: `GOAL-RECURRING-EDITOR-CONTRACT-001`, `GOAL-RECURRENCE-SCHEDULE-001`, `GOAL-PAST-DATE-LIFECYCLE-001`, `GOAL-CALENDAR-HORIZON-PARITY-001`, `OPTIMIZER-POST-SELECTION-CERTIFICATION-001`; Kontrollrunde 39/40: `CMA-INFLATION-PATH-DOMAIN-001`, `CMA-EFFECTIVE-DATE-001`, `GOAL-VALUE-MODE-ROUNDTRIP-001`, `GOAL-REAL-SPENDING-INFLATION-PARITY-001`, `POLICY-VERSION-IDENTITY-001`, `POLICY-ACTIVATION-COMPLETENESS-001`) teilen insgesamt sieben gemeinsame, bislang ungeklärte Grundsatzfragen, die VOR jeder Implementierung entschieden werden müssen. Dieses Dokument beantwortet jede Frage mit einer begründeten, fachlich/mathematisch/rechtlich hergeleiteten Empfehlung und markiert sie trotzdem explizit als `OWNER-DECISION` — die Entscheidung bleibt bei dir, aber du entscheidest auf Basis einer fertigen Analyse, nicht auf leerem Blatt.
 
@@ -31,6 +36,10 @@ Dieselbe Krankheit (unabhängige, inkonsistente Implementierungen derselben Grun
 - ADR-6: CMA-Inflationsdomäne und Effective-Date-Resolver
 - ADR-7: Goal-Value-Mode-Roundtrip und Inflations-Konsumenten-Parität — geringer Entscheidungsbedarf, analog zu ADR-5
 - ADR-8: Policy-Versionsidentität und Aktivierungs-Vollständigkeit
+- ADR-9: Goal-Funding-Priorität und Achievability-Attribution
+- ADR-10: Rang-vs-Härte-Identität (Classic UI, React, Hauptzielauswahl)
+- ADR-11: Goal-Sensitivity-Publikationsvertrag (Zieltyp, Objective-Präzision, Gewichtungsmodus, gemeinsame Baseline)
+- ADR-12: Equity-Valuation-/KGV-Mean-Reversion-Vertrag (Kalibrierung, Horizontbindung, Provenienz)
 
 ## Nicht-Scope
 
@@ -307,30 +316,166 @@ Zwei konsistente Varianten:
 
 ---
 
+## ADR-9: Goal-Funding-Priorität und Achievability-Attribution
+
+### Befund
+
+Verifiziert direkt gegen `develop` (nicht nur aus dem Audit übernommen): `services/optimizer/goal_liabilities.py::aggregate_liability_path()` summiert die Liability-Pfade ALLER Goals kommutativ zu einer einzigen Serie — Rang, Härte und Goal-ID wirken auf diese Summe nicht. Der reproduzierte Fall: CHF 100 Vermögen, ein hartes Vermögensziel (CHF 90, Jahr 2, Rang 1) und ein opportunistisches Einmalziel (CHF 20, Jahr 1, Rang 5) — ohne das Wunschziel ist das harte Ziel zu 100 % erreichbar, mit Wunschziel fällt es auf 0 % und löst die volle Chance-Penalty (640'000) aus. Der optionale Hardness-Gewichtungsmodus (`OPTIMIZER_GOAL_WEIGHTING=hardness`) ändert daran nichts — verifiziert bytegleich identische Werte in beiden Modi, weil `_effective_hardness_weight()` nur den bereits gemeinsam entstandenen Shortfall skaliert, nie die Ausführungsreihenfolge.
+
+Eng verwandt: derselbe gemeinsame Wealth-Pfad liefert für zwei simultan fällige Ziele unterschiedlicher Grösse (CHF 90 hart + CHF 20 opportunistisch, beide Jahr 1, CHF 100 Vermögen) identischen Shortfall/Probability (beide `(CHF 10)² = 100`, beide `P=0`), obwohl ihre Zielbeträge verschieden sind — verifiziert direkt an `shortfall_squared_per_path()`/`goal_probability_per_path()`. Die Konfliktklassifikation (`risk_matrix.classify_limiting_factor`) besitzt dafür keine Failure-Event-Identität (per `inspect.signature` bestätigt) und kann denselben gemeinsamen Fehlbetrag mehrfach als unabhängigen "Zielkonflikt" zählen.
+
+### Mathematische Einordnung
+
+Die Engine implementiert eine Zielgewichtung (wirkt auf die Objective-Funktion, also auf die BEWERTUNG eines bereits vollständig ausgeführten Plans), besitzt aber keine Ziel-FUNDING-Entscheidung (würde auf die AUSFÜHRUNG selbst wirken — welcher Betrag überhaupt abfliesst). Das sind zwei verschiedene mathematische Operationen auf verschiedenen Stufen der Berechnung; eine Gewichtung kann eine fehlende Funding-Priorisierung grundsätzlich nicht ersetzen, unabhängig vom gewählten Gewichtungsfaktor.
+
+### OWNER-DECISION 9a — Funding-Semantik (die wichtigste Einzelentscheidung in diesem Abschnitt)
+
+Das Audit selbst benennt zwei konsistente, sich gegenseitig ausschliessende Varianten:
+
+1. **Priorisiertes Goal Funding:** Spending-Goals sind finanzierbare Wünsche. Ein versionierter `GoalFundingPolicy`-Resolver verteilt pro Pfad/Fälligkeit das verfügbare Vermögen nach kanonischem Rang/Härte. Ein nicht finanziertes niedrigeres Ziel wird nicht so ausgeführt, dass es ein höheres Ziel nachträglich zerstört.
+2. **Unbedingter gemeinsamer Plan:** Jeder Outflow ist zwingend. Dann darf "opportunistisch" bei Spending-Goals nicht länger als "optional"/"nur mitgenommen" kommuniziert werden; die Engine veröffentlicht stattdessen eine gemeinsame Plan-Solvabilität statt einer Prioritätshierarchie.
+
+**Empfehlung: Variante 1 (priorisiertes Funding).** Begründung: Die bereits bestehende Produktdokumentation (`docs/planning/2026-05-23-stochastic-goal-engine-spec.md:216-241/288-306/607-609`, `docs/engine-spec.md:421`, `docs/methodology/5eyes-engine-whitepaper.md:85-91`) behauptet bereits HEUTE explizit, dass opportunistische Ziele nicht erzwungen werden und das Hauptziel nicht vom Nebenziel dominiert werden darf. Variante 1 ist damit keine neue Produktentscheidung, sondern die Korrektur einer Implementierung, die ihrer eigenen bereits dokumentierten Spezifikation widerspricht. Variante 2 wäre zulässig, erfordert aber eine bewusste, nach aussen kommunizierte Rücknahme dieser bestehenden Zusage.
+
+☐ Variante 1 (priorisiertes Funding, empfohlen) ☐ Variante 2 (unbedingter gemeinsamer Plan, erfordert Kommunikationsänderung)
+
+### OWNER-DECISION 9b — Gleichrang- und Teilfinanzierungsregel
+
+**Empfehlung:** Bei identischem kanonischem Rang: proportionale Aufteilung des verfügbaren Restvermögens nach Zielbetrag (einfachste, deterministische, ohne weitere Owner-Eingabe berechenbare Regel). Teilfinanzierung wird als expliziter Zustand (`amount_funded < amount_due`, `funded_fraction` persistiert) dargestellt, niemals stillschweigend auf "erreichbar" oder "nicht erreichbar" binär verdichtet.
+
+☐ Bestätigt (proportionale Gleichrang-Aufteilung, explizite Teilfinanzierung) ☐ Andere Regel: ______
+
+### OWNER-DECISION 9c — Evaluation-Scope-Discriminator
+
+**Empfehlung:** Jedes Goal-Resultat erhält ein Pflichtfeld `evaluation_scope` mit mindestens den Werten `priority_funded` (Erfolg kommt aus dem Funding-Ledger gemäss 9a), `joint_plan` (nur falls 9a Variante 2 gewählt wird) oder `legacy_aggregate_unknown` (für nicht replaybare Altdaten, Publikations-Quarantäne). Ein `probability`-Wert ohne diesen Scope wird als nicht publikationsfähig behandelt (fail-closed, konsistent mit ADR-3b/ADR-8c). Die Konfliktklassifikation gruppiert gemeinsame Failure-Events (gleiches Jahr, gleiche Ursache) und zählt nicht mehr allein die Anzahl roter Zeilen.
+
+☐ Bestätigt ☐ Abgelehnt
+
+---
+
+## ADR-10: Rang-vs-Härte-Identität
+
+### Befund
+
+Drei Verträge widersprechen sich, alle direkt gegen `develop` verifiziert: Backend (`services/goal_semantics.py`) und React (`GoalWizard.tsx`) behandeln `rank` und `hardness` als unabhängige Felder. Die Classic UI (`5eyes_v2.html`, `openGoalEditor()`) verwendet dagegen ein einziges Select, das beim Öffnen aus `hardness` (nicht aus dem persistierten `rank`) vorbelegt wird und beim Speichern BEIDE Felder aus demselben Wert schreibt. Reproduzierter Fall: ein inhaltlicher No-op-Edit eines Rang-2/Hart-Ziels sendet dadurch `rank=1`; der echte Backend-Rangresolver löst das auf `rank=4` auf (nicht einmal auf den ursprünglichen Wert 2), und `_weight_bps()` senkt das Default-Gewicht entsprechend von 5000 auf 1250 bps. Das Review (`mainGoalAchievability()`) sortiert zusätzlich Härte vor Rang — ein Rang-2/Hart-Ziel wird als "Hauptziel" gewählt, obwohl ein Rang-1/Primär-Ziel mit höherer Wahrscheinlichkeit existiert (per echter Node-Ausführung der extrahierten Funktion bestätigt). Drag-and-drop-Reorder verschiebt nur DOM-Knoten (`renum()`), ruft keinen Request auf und mutiert `currentGoals` nicht — bestätigt durch vollständige Durchsicht beider Funktionen, kein `fetch(`/`API.`-Aufruf vorhanden.
+
+### OWNER-DECISION 10a — Kanonische Bedeutung von `rank`
+
+**Empfehlung:** `rank` ist die kanonische Priorität (nicht nur eine UI-Sortierhilfe). Begründung: `_weight_bps()` leitet bereits heute ein rechenwirksames Optimizer-Gewicht aus `rank` ab (10000/5000/2500/1250/625 bps für Rang 1-5) — ein rein kosmetisches Feld würde niemals in eine Objective-Berechnung einfliessen. Diese Empfehlung ist damit die Bestätigung des bereits impliziten Status quo, nicht eine neue Entscheidung; sie wird hier nur explizit festgeschrieben, weil der Backend-Kommentar an einer Stelle (`routers/wealth.py`) `rank` fälschlich als "nur UI-Sortierhilfe" bezeichnet.
+
+☐ Bestätigt (rank = kanonische Priorität) ☐ Abgelehnt, rank ist tatsächlich nur Sortierung
+
+### OWNER-DECISION 10b — Getrennte Controls in Classic UI
+
+**Empfehlung:** Classic UI erhält, analog zum bereits korrekten React `GoalWizard`, zwei getrennte Controls für `rank` und `hardness`. Edit-Initialisierung liest jedes Feld ausschliesslich aus seinem eigenen persistierten Wert. Ein No-op-Edit muss bytegleich dieselben rechenwirksamen Felder (inkl. `weight_bps` und Goal-Hash) zurückschreiben. Reine Implementierungsfrage, kein Fachentscheid nötig, sobald 10a bestätigt ist.
+
+☐ Bestätigt ☐ Abgelehnt
+
+### OWNER-DECISION 10c — Hauptziel-Auswahl und Reorder
+
+**Empfehlung:** Das "Hauptziel" ist in JEDEM Kanal (Classic, React, API, PDF) ausschliesslich das aktive Ziel mit kanonischem Rang 1 — niemals eine Härte-vor-Rang-Sortierung. Härte wird separat angezeigt, überschreibt aber nie die Identität des Hauptziels. Drag-and-drop-Reorder wird durch eine atomare Backend-Operation ersetzt, die die vollständige Goal-Permutation validiert und lückenlose, eindeutige Ränge schreibt; bei Requestfehler rollt die UI sichtbar auf die zuletzt persistierte Reihenfolge zurück.
+
+☐ Bestätigt ☐ Abgelehnt
+
+---
+
+## ADR-11: Goal-Sensitivity-Publikationsvertrag
+
+### Befund
+
+Vier zusammenwirkende, unabhängig verifizierte Fehler entlang desselben Endpunkts:
+
+1. **Typfalsche Einheit:** Ein generisches Pflichtfeld (`target_amount_rappen_*`) wird per "erster truthy Wert"-Fallback bei Renditezielen mit dem rohen bps-Wert befüllt; die Classic UI teilt diesen Wert ungeprüft durch 100 und zeigt "CHF" an. Verifiziert: 500→600 bps wird als "CHF 6" statt "6.00 % p.a." dargestellt.
+2. **Statusblinde Richtungsbotschaft:** Ein `diverged_infeasible`-Solverstatus liefert trotzdem HTTP 200 mit einem normal aussehenden `delta_objective_pct` — kein Feld sperrt die Richtungsaussage. Verifiziert per echtem Endpunkt-Aufruf: `delta_objective_pct=100.0` trotz infeasible Gegenfaktum.
+3. **Verlustbehaftete Objective-Serialisierung:** `_objective_to_milli()` rundet via `int(round(value*1000))`. Verifiziert exakt: `0.0001→0.0002` (wahres Delta +100 %) wird zu `0→0` (Delta `None`); `0.0006→0.0014` (wahres Delta +133.33 %) wird zu `1→1` (Delta 0.00 %). Die Berechnung erfolgt nachweislich aus den gerundeten Integern (`evaluate_goal_sensitivity()`), nicht aus den rohen Floats — während eine benachbarte Funktion (`_build_allocation_method_comparison`) das Delta korrekt aus rohen Floats berechnet und nur für die Anzeige rundet. Die Fehlerquelle ist damit präzise eine einzelne Funktion, kein systemweites Muster.
+4. **Ungebundener Gewichtungsmodus:** `OPTIMIZER_GOAL_WEIGHTING` wird direkt aus `os.environ` gelesen; ein Tippfehler ("hardnes") fällt still auf Gleichgewichtung zurück (verifiziert: Ratio 1 identisch zu unset, kein Fehler). Der Modus ist nicht in `optimization_model_basis`, `allocation_context_hash` oder dem Sensitivity-`model_input_hash` gebunden (verifiziert: Hash bytegleich über beide Modi hinweg).
+5. **Fehlende gemeinsame Baseline (P2, neuester Fund):** Der Sensitivity-Seed wird via `deterministic_seed(..., target_delta_pct, horizon_delta_years)` gebildet — verifiziert direkt im Code. Jede der fünf sichtbaren Slider-Stufen erhält dadurch einen eigenen Zufallswürfel für ihren Baseline-Lauf, obwohl die Wirtschaftsdaten (CMA, Ziele, Score, Horizont) über alle Stufen identisch sind. Unterschiede zwischen Stufen enthalten dadurch zusätzliches Monte-Carlo-Stichprobenrauschen und sind keine saubere Common-Random-Numbers-Kurve.
+
+### OWNER-DECISION 11a — Discriminated Target-/Result-Union
+
+**Empfehlung:** Die Response wird typisiert nach Zielart (`kind = amount | wealth | return_rate | growth_utility`), mit einem expliziten `comparison.state = available | unavailable | invalid`. Nur `state=available` darf eine Richtungsaussage ("besser/schlechter erreichbar") tragen; ein nicht-konvergierter, nicht-feasible oder unsynchronisierter Fallback-Kandidat liefert ausschliesslich `unavailable`, nie eine Zahl mit Vorzeichen. Dies ist die direkte, bereits im Audit vollständig spezifizierte Lösung für Fehler 1 und 2 zusammen — beide Fehler teilen dieselbe Grundursache (fehlender typisierter, statusgebundener Vertrag).
+
+☐ Bestätigt ☐ Abgelehnt
+
+### OWNER-DECISION 11b — Verlustfreie Objective-Darstellung
+
+**Empfehlung:** Eine kanonische, verlustfreie Dezimal-/Scientific-String-Repräsentation ersetzt den historischen `*_milli`-Integer als Quelle der Wahrheit für jede Delta-Berechnung. Das alte `*_milli`-Feld bleibt nur als klar gekennzeichnetes Legacy-Anzeigefeld erhalten, niemals als Berechnungsgrundlage für neue Vergleiche. Begründung: ein neuer Fixed-Point-Integer mit anderer Skala hätte exakt dasselbe Kollaps-Problem bei einer anderen Grenze — nur eine verlustfreie Darstellung (oder eine nach Materialitätsschwelle explizit dokumentierte Präzision) eliminiert die Fehlerklasse grundsätzlich, statt sie nur zu verschieben.
+
+☐ Bestätigt (verlustfreie Dezimaldarstellung) ☐ Anderer Fixed-Point-Vertrag mit expliziter Präzisionsgrenze: ______
+
+### OWNER-DECISION 11c — Validierter Goal-Weighting-Vertrag
+
+**Empfehlung:** `OPTIMIZER_GOAL_WEIGHTING` wird ein zentral validiertes Setting (Enum `equal | hardness`, kein `os.environ`-Direktzugriff in `objective.py` mehr). Ein unbekannter Wert stoppt den Startup bzw. den Run fail-closed (konsistent mit dem bereits etablierten Fail-Closed-Prinzip dieses Dokuments, siehe ADR-3b/ADR-8c/ADR-9c). Der validierte Modus wird Teil eines versionierten `ObjectiveContract`, der in `optimization_model_basis`, `allocation_context_hash` und beide Sensitivity-Hashes eingeht — ein Moduswechsel muss jeden dieser Hashes sichtbar ändern, selbst wenn er zufällig dieselben numerischen Gewichte ergibt.
+
+☐ Bestätigt ☐ Abgelehnt
+
+### OWNER-DECISION 11d — Seed- und Baseline-Architektur
+
+**Empfehlung:** Der Seed wird ausschliesslich aus stabilen Baseline-Inputs abgeleitet (CMA-Basis, Goal-Snapshot, Score, Objective-Contract-Version, Szenario-Generator-Version, Pfadzahl) — Counterfactual-Werte (`target_delta_pct`, `horizon_delta_years`) dürfen NICHT Teil des Seeds sein. Mehrere angeforderte Slider-Stufen werden als ein serverseitiger Batch-Analysis-Vertrag (`GoalSensitivityAnalysis` mit `analysis_id`, gemeinsamem `scenario_artifact`, mehreren `counterfactuals[]`) behandelt statt als fünf unabhängige Requests. Horizont-Stufen verwenden weiterhin exakte Präfixe desselben maximalen Szenariowürfels (bestehender, korrekter Mechanismus — Positivkontrolle, muss erhalten bleiben).
+
+☐ Bestätigt ☐ Abgelehnt
+
+---
+
+## ADR-12: Equity-Valuation-/KGV-Mean-Reversion-Vertrag
+
+### Befund
+
+Drei unabhängige P1, alle direkt gegen `develop` verifiziert (Commit `23b5bfc`):
+
+1. **Kalibrierungswiderspruch:** Die aktive Sprint-7-Spezifikation (`docs/planning/2026-05-17-sprint-7-kgv-mean-reversion.md:27-37`) erwartet für `KGV 25 / fair 17 / alpha 0,15 / 10 Jahre` ungefähr `-100 bps p.a.`. Die produktive Formel UND ihr eigener Golden-Test liefern deterministisch `-494,117647 bps p.a.` — eine Abweichung von rund 394 bps. Der Code ist intern widerspruchsfrei (reproduziert sich selbst exakt); das Problem ist ein ungeklärter fachlicher Vertrag zwischen Spezifikation und Implementierung, keine numerische Instabilität.
+2. **Feste Horizontbindung:** `_compute_equity_kgv_adjustment()` verwendet unconditional `_KGV_DEFAULT_HORIZON_YEARS=10`; `scenario_inputs_from_cma(cma, sub_allocations=None)` besitzt keinen Horizont-Parameter (per echter Signatur-Introspektion bestätigt). Verifiziert exakt: derselbe Überbewertungsfall liefert horizontkorrekt `-600,00 bps` (5 Jahre), `-494,12 bps` (10 Jahre) und `-211,76 bps` (30 Jahre) — produktiv erhalten jedoch ALLE drei Horizonte denselben 10-Jahres-Wert.
+3. **Falsche Provenienz-Offenlegung:** `_build_kgv_status()` (`services/methodology_audit.py`) bestimmt Modellaktivität ausschliesslich aus drei strukturierten CMA-Feldern. Die Nicht-CH-Datenpipeline (`jurisdiction/data_pipeline.py`) kann den KGV-Effekt bereits direkt in `equity_home_return_bps` einrechnen, ohne diese drei Felder zu setzen (um Doppelanwendung zu vermeiden) — eine CMA mit tatsächlich aktivem KGV-Modell wird dadurch React/PDF/Advisory-Report gegenüber als "Inaktiv" bzw. mit "fixen Renditeerwartungen" gemeldet. Verifiziert per direkter Statusprobe: `active=False` trotz `source_detail_has_embedded_kgv=True`.
+
+### OWNER-DECISION 12a — Kanonische Formel, Einheit und Kalibrierung (keine Empfehlung — echte Investment-Committee-Entscheidung)
+
+**Bewusst KEINE Empfehlung für `-100` oder `-494,12`.** Dies unterscheidet sich fundamental von jeder anderen Entscheidung in diesem Dokument: Alle bisherigen `OWNER-DECISION`-Punkte hatten eine aus Software-Architektur, bestehender Dokumentation oder Mathematik ableitbare, begründbare Empfehlung. Hier gibt es keine — der Code ist selbstkonsistent, die Spezifikation ist selbstkonsistent, beide widersprechen sich nur gegenseitig. Welcher Wert das tatsächlich gewollte Markt-/Bewertungsmodell korrekt abbildet, ist eine Finanzmodell-Entscheidung, die nur das Investment Committee / der Model Owner treffen kann (z. B.: ist `alpha=0,15` als "15 % der Überbewertung pro Jahr" oder als "ein Drittel der Überbewertung pro Jahr, mit 0,15 als Platzhalter-Tippfehler" gemeint? Das Audit weist explizit auf genau diese Zweideutigkeit hin). Diese Entscheidung MUSS vor jeder KGV-aktivierten realen Beratung, Allocation, Recommendation, PDF, Signatur oder Handoff getroffen werden.
+
+☐ Spezifikation ist korrekt, Code wird auf `~-100 bps`-Kalibrierung angepasst ☐ Code ist korrekt, Spezifikation wird auf `~-494 bps`-Kalibrierung aktualisiert ☐ Weder/noch, neue Kalibrierung: ______ ☐ Modell bis zur Klärung deaktivieren (`active=False` für alle CMAs)
+
+### OWNER-DECISION 12b — Horizont-Semantik
+
+**Empfehlung:** Der konkrete Run-/Simulationshorizont (nicht ein separat zu pflegender "strategischer CMA-Horizont"). Begründung: konsistent mit ADR-1 (derselbe Stichtag/Horizont-Grundsatz: genau eine kanonische Quelle, nicht mehrere parallele Horizont-Konzepte) und erfordert kein zusätzliches, separat zu pflegendes Datenfeld auf der CMA. Bei Zielen mit unterschiedlichem Horizont innerhalb eines Mandats (Mehrziel-Fall) ist zusätzlich zu entscheiden, ob ein gemeinsamer Portfolio-Horizont oder zielbezogene Return-Annahmen gelten — diese Detailfrage wird erst nach 12a und 12b relevant und sollte zusammen mit der ADR-9-Funding-Policy entschieden werden, da beide dieselbe "gemeinsam vs. zielbezogen"-Grundfrage teilen.
+
+☐ Bestätigt (konkreter Run-Horizont) ☐ Zielbezogener Horizont ☐ Expliziter strategischer CMA-Horizont (separates Feld)
+
+### OWNER-DECISION 12c — Provenienz-Datenmodell
+
+**Empfehlung:** Rohkomponenten werden strukturiert persistiert (Risk-Free-Basis, `kgv_current`/`kgv_fair`/`alpha`, Formel-/Kalibrierungsversion), der effektive Return wird genau einmal pro Run materialisiert. Falls ein bereits adjustierter Return importiert wird (wie heute in der Nicht-CH-Pipeline), muss ein maschinenlesbares `return_includes_kgv=true`-Flag inklusive der eingebetteten Komponenten die erneute Anwendung verhindern UND die Methodology-Offenlegung korrekt speisen — exakt das vom Audit vorgeschlagene `EquityValuationEvidence`-Schema. Dies ist eine reine Datenmodell-/Implementierungsfrage, kein Fachentscheid, sobald 12a geklärt ist.
+
+☐ Bestätigt ☐ Abgelehnt
+
+---
+
 ## Betroffene Module / Dateien
 
 - Backend (ADR-1 bis ADR-4): `services/calendar_horizon.py`, `services/optimizer/goal_liabilities.py`, `services/cashflow_timeline.py`, `services/portfolio_engine_payload.py`, `services/portfolio_engine_mc_simulation.py`, `services/portfolio_engine.py` (Snapshot-Hash), `services/optimizer/objective.py`, `services/optimizer/solver.py`, `models/wealth.py` (Goal-Lifecycle-Spalten), `models/allocation.py` (OptimizerRun-Validierungs-Spalten), `routers/wealth.py`
 - Backend (ADR-6 bis ADR-8): `schemas/allocation.py` (CMA-Create-Validator, Policy-Create/Update-Schemas), `services/portfolio_engine_cma.py` (`_inflation_path_series`), `services/jurisdiction/resolve.py` (`resolve_cma_for_jurisdiction`), `models/allocation.py` (CMA `valid_from`/`valid_until` als echte Date-Typen, OptimizerPolicy-Identitätsmodell), `routers/allocation.py` (`update_optimizer_policy`, `_archive_policy_snapshot`, `create_optimizer_policy`, `clone_optimizer_policy`), `services/portfolio_engine_house_matrix.py`, `routers/pdf_reports.py` (`goal_analysis_json`-Korrektur)
-- Frontend: `reporting/src/sections/goals/GoalWizard.tsx`, `reporting/src/lib/goalForm.ts`, `reporting/src/lib/goalClassification.ts`, `5eyes_v2.html` (Classic-Parität)
-- Datenmodell: Migration für Goal-Lifecycle-Spalten + OptimizerRun-Validierungs-Spalten (ADR-1/3/4); CMA `valid_from`/`valid_until` auf echten `date`-Typ (ADR-6b); OptimizerPolicy-Identitätsmodell je nach ADR-8a-Entscheidung
-- Tests: die 30 roten Tests aus PR #521 (ADR-1 bis ADR-5) plus die 13 roten Tests aus PR #523 (ADR-6 bis ADR-8) dienen gemeinsam als Akzeptanzkriterium — sie müssen nach Implementierung grün werden (xfail-Marker entfernt, `strict=True` erzwingt das ohnehin als harten Fehler bei stillem Grünwerden ohne Entfernen des Markers). Zusätzlich muss `test_optimizer_policy_archive.py::test_put_policy_preserves_id_for_fk_integrity` bei Wahl von ADR-8a Variante 1 bewusst umgeschrieben werden (siehe ADR-8a).
+- Frontend: `reporting/src/sections/goals/GoalWizard.tsx`, `reporting/src/lib/goalForm.ts`, `reporting/src/lib/goalClassification.ts`, `5eyes_v2.html` (Classic-Parität, `openGoalEditor()`, `mainGoalAchievability()`, `setupDrag()`/`renum()`, Sensitivity-Slider-Rendering)
+- Backend (ADR-9 bis ADR-11): `services/optimizer/goal_liabilities.py` (`aggregate_liability_path`, neues Funding-Ledger), `services/optimizer/objective.py` (`shortfall_squared_per_path`, `goal_probability_per_path`, `_goal_weighting_mode`, `chance_constraint_penalty`), `services/risk_matrix.py` (`classify_limiting_factor`, Failure-Event-Dedup), `routers/wealth.py` (Rangresolver), `services/portfolio_engine.py` (`evaluate_goal_sensitivity`, Sensitivity-Seed/-Hash, `_objective_to_milli`-Ablösung), `services/portfolio_engine_optimizer_integration.py` (Goal-Driver-Serialisierung), `schemas/allocation.py` (discriminated Sensitivity-Result-Union)
+- Backend (ADR-12): `services/equity_valuation/mean_reversion.py` (Kalibrierung), `services/optimizer/scenario_engine.py` (`scenario_inputs_from_cma`, `_compute_equity_kgv_adjustment`, Horizontparameter), `services/methodology_audit.py` (`_build_kgv_status`), `services/jurisdiction/data_pipeline.py` (strukturierte KGV-Felder statt nur `source_detail`)
+- Datenmodell: Migration für Goal-Lifecycle-Spalten + OptimizerRun-Validierungs-Spalten (ADR-1/3/4); CMA `valid_from`/`valid_until` auf echten `date`-Typ (ADR-6b); OptimizerPolicy-Identitätsmodell je nach ADR-8a-Entscheidung; `GoalFundingPolicy`/`evaluation_scope`-Spalten (ADR-9); `ObjectiveContract`/`GoalSensitivityAnalysis`-Tabellen (ADR-11); `EquityValuationEvidence`-Snapshot (ADR-12)
+- Tests: die 30 roten Tests aus PR #521 (ADR-1 bis ADR-5), die 13 roten Tests aus PR #523 (ADR-6 bis ADR-8), die 13 roten Tests aus PR #525 (ADR-9 bis ADR-10) und die 3 roten Tests aus PR #527 (ADR-11 bis ADR-12) dienen gemeinsam als Akzeptanzkriterium — sie müssen nach Implementierung grün werden (xfail-Marker entfernt, `strict=True` erzwingt das ohnehin als harten Fehler bei stillem Grünwerden ohne Entfernen des Markers). Zusätzlich muss `test_optimizer_policy_archive.py::test_put_policy_preserves_id_for_fk_integrity` bei Wahl von ADR-8a Variante 1 bewusst umgeschrieben werden (siehe ADR-8a).
 
 ## Akzeptanzkriterien
 
-1. Alle acht ADRs (1-8) sind vom Owner entschieden (☐-Kästen oben ausgefüllt).
-2. Jede Entscheidung ist in genau einem zentralen Resolver-/Parser-Modul implementiert, nicht pro Caller dupliziert.
-3. Alle 30 roten Tests aus PR #521 UND alle 13 roten Tests aus PR #523 werden grün (xfail-Marker entfernt).
+1. Alle zwölf ADRs (1-12) sind vom Owner entschieden (☐-Kästen oben ausgefüllt) — mit der expliziten Ausnahme ADR-12a, die eine Investment-Committee-Entscheidung statt einer Software-Empfehlung erfordert.
+2. Jede Entscheidung ist in genau einem zentralen Resolver-/Parser-/Contract-Modul implementiert, nicht pro Caller dupliziert.
+3. Alle 30+13+13+3 = 59 roten Tests aus PR #521/#523/#525/#527 werden grün (xfail-Marker entfernt).
 4. Kein bestehender grüner Test regressiert (volle Backend- + Frontend-Suite) — mit der bewussten, dokumentierten Ausnahme von `test_put_policy_preserves_id_for_fk_integrity` (ADR-8a), falls Variante 1 gewählt wird.
-5. Legacy-Daten (bestehende Goals/Allocations/CMA-Zeilen/Policies ohne die neuen Felder bzw. mit dem alten Identitätsmodell) werden beim nächsten Zugriff repariert oder sichtbar als `historical_unknown`/`validation_unknown` markiert, nie stillschweigend als "neu gültig" interpretiert.
+5. Legacy-Daten (bestehende Goals/Allocations/CMA-Zeilen/Policies/Sensitivity-Evidence/KGV-Runs ohne die neuen Felder bzw. mit altem Identitätsmodell) werden beim nächsten Zugriff repariert oder sichtbar als `historical_unknown`/`validation_unknown`/`legacy_aggregate_unknown`/`legacy_precision_ambiguous` markiert, nie stillschweigend als "neu gültig" interpretiert.
 
 ## Risiken
 
-- UX-Reibung durch Fail-Closed-Overdue-Policy (ADR-3b) und Fail-Closed-Aktivierungs-Gate (ADR-8c) — bewusst in Kauf genommen, siehe Begründung dort.
+- UX-Reibung durch Fail-Closed-Overdue-Policy (ADR-3b), Fail-Closed-Aktivierungs-Gate (ADR-8c) und Fail-Closed-Goal-Funding/Evaluation-Scope (ADR-9c) — bewusst in Kauf genommen, siehe Begründung dort.
 - Migration bestehender Mandate mit bereits vergangenen/überfälligen Zielen erzeugt kurzfristig sichtbare Klärungsbedarfe im Berater-Alltag — sollte vor Rollout kommuniziert werden.
 - Validierungs-Cube (ADR-4) verdoppelt grob die Rechenzeit pro finaler Allokation (ein zusätzlicher MC-Lauf) — bei 20'000 Pfaden auf modernem Hardware im Sekundenbereich, nicht geschäftskritisch, aber im Performance-Budget-Test (`test_performance_budget.py`) zu berücksichtigen.
 - ADR-8a Variante 1 (content-addressed) ändert die Semantik eines bestehenden, dokumentierten Admin-Endpunkt-Verhaltens (`PUT /admin/optimizer-policies/{id}`) und erfordert das bewusste Umschreiben eines heute grünen Tests — Admin-Tooling/Dokumentation, die sich auf "PUT ändert dieselbe ID" verlässt, muss vor Rollout geprüft werden.
 - CMA-Wertebereich `[-1000, 3000]` bps (ADR-6a) könnte bestehende, bereits erfasste CMA-Zeilen mit Werten ausserhalb dieses Bereichs als ungültig markieren — vor Rollout eine Bestandsaufnahme der echten CMA-Daten empfehlenswert.
+- ADR-9a (priorisiertes Funding) ändert reale Goal-Achievability-Werte für JEDES Mandat mit mehr als einem Spending-Ziel — bestehende Kundenreports/PDFs mit der alten Aggregat-Logik werden nach dem Fix andere Zahlen zeigen; Kommunikation an bestehende Kunden vor Rollout empfehlenswert.
+- ADR-12a ist die einzige offene Entscheidung in diesem gesamten Dokument ohne Software-Empfehlung — bis zur Investment-Committee-Entscheidung bleibt jede KGV-aktivierte reale Allocation blockiert (Release-Hold, siehe Audit-Dokument). Das kann je nach Terminlage des Committees der zeitkritischste Punkt dieser gesamten Liste sein.
+- ADR-11d (Seed ohne Counterfactual-Delta) ändert die numerischen Sensitivity-Ergebnisse für JEDEN bereits gezeigten Slider-Vergleich — alte, dem Kunden bereits gezeigte Sensitivity-Zahlen werden nach dem Fix nicht mehr reproduzierbar sein (by design, da die alten Zahlen ohnehin methodisch verzerrt waren); dies sollte explizit als Qualitätsverbesserung, nicht als Fehler im neuen System kommuniziert werden.
 
 ## Offene Fragen an Owner
 
-Siehe die insgesamt 23 `OWNER-DECISION`-Markierungen oben (1a-1c, 2a-2c, 3a-3c, 4a-4d, 5a, 6a-6c, 7a-7c, 8a-8c). Jede trägt eine konkrete Empfehlung; die Kästen sind zum Ankreuzen/Kommentieren gedacht.
+Siehe die insgesamt 35 `OWNER-DECISION`-Markierungen oben (1a-1c, 2a-2c, 3a-3c, 4a-4d, 5a, 6a-6c, 7a-7c, 8a-8c, 9a-9c, 10a-10c, 11a-11d, 12a-12c). Jede trägt eine konkrete Empfehlung — mit der einzigen Ausnahme von 12a, die bewusst keine Empfehlung enthält, weil es sich um eine echte Investment-Committee-/Model-Owner-Entscheidung ohne software-seitig ableitbare richtige Antwort handelt. Die Kästen sind zum Ankreuzen/Kommentieren gedacht.
