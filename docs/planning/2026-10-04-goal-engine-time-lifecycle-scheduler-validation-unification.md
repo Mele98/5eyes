@@ -1,22 +1,25 @@
-# Goal-Engine: Valuation-Date, Occurrence-Scheduler, Lifecycle & MC-Validation Unification
+# Goal-Engine & CMA/Policy-Infrastruktur: Zeit-, Lifecycle-, Validierungs- und Identitäts-Unification
 
 ## Meta
 
-- Titel: Vereinheitlichung von Bewertungsstichtag, Occurrence-Scheduler, Goal-Lifecycle und Monte-Carlo-Validierung
-- Datum: 2026-10-04
+- Titel: Vereinheitlichung von Bewertungsstichtag, Occurrence-Scheduler, Goal-Lifecycle, Monte-Carlo-Validierung, CMA-Gültigkeit und Policy-Versionsidentität
+- Datum: 2026-10-04 (ADR-6 bis ADR-8 ergänzt am 2026-10-04, nach Kontrollrunde 40)
 - Owner: Emanuele Konzelmann
-- Quelle: `docs/audits/2026-10-03-recurring-goal-lifecycle-calendar-and-mc-validation-audit.md` (Kontrollrunde 38, paralleler Codex/GPT-Audit), umgesetzt als 30 rote Tests in PR #521
+- Quelle Teil 1 (ADR-1 bis ADR-5): `docs/audits/2026-10-03-recurring-goal-lifecycle-calendar-and-mc-validation-audit.md` (Kontrollrunde 38), umgesetzt als 30 rote Tests in PR #521
+- Quelle Teil 2 (ADR-6 bis ADR-8): drei Folgeaudits vom 2026-10-04 (`2026-10-04-cma-inflation-domain-and-effective-date-integrity-audit.md`, `2026-10-04-goal-value-mode-inflation-and-publication-parity-audit.md`, `2026-10-04-optimizer-policy-version-and-activation-integrity-audit.md`, Kontrollrunde 39/40), umgesetzt als 13 rote Tests in PR #523
 - Branch-Vorschlag: `docs/goal-engine-time-lifecycle-validation-adr`
 
 ## Ziel
 
-Die fünf in Kontrollrunde 38 bestätigten P1-Funde (`GOAL-RECURRING-EDITOR-CONTRACT-001`, `GOAL-RECURRENCE-SCHEDULE-001`, `GOAL-PAST-DATE-LIFECYCLE-001`, `GOAL-CALENDAR-HORIZON-PARITY-001`, `OPTIMIZER-POST-SELECTION-CERTIFICATION-001`) teilen vier gemeinsame, bislang ungeklärte Grundsatzfragen, die VOR jeder Implementierung entschieden werden müssen (Audit, "Empfohlene Implementierungsreihenfolge für Claude", Punkt 3: "Owner-ADR Time/Lifecycle"). Dieses Dokument beantwortet jede Frage mit einer begründeten, fachlich/mathematisch/rechtlich hergeleiteten Empfehlung und markiert sie trotzdem explizit als `OWNER-DECISION` — die Entscheidung bleibt bei dir, aber du entscheidest auf Basis einer fertigen Analyse, nicht auf leerem Blatt.
+Acht insgesamt bestätigte P1-Funde über zwei Audit-Wellen (Kontrollrunde 38: `GOAL-RECURRING-EDITOR-CONTRACT-001`, `GOAL-RECURRENCE-SCHEDULE-001`, `GOAL-PAST-DATE-LIFECYCLE-001`, `GOAL-CALENDAR-HORIZON-PARITY-001`, `OPTIMIZER-POST-SELECTION-CERTIFICATION-001`; Kontrollrunde 39/40: `CMA-INFLATION-PATH-DOMAIN-001`, `CMA-EFFECTIVE-DATE-001`, `GOAL-VALUE-MODE-ROUNDTRIP-001`, `GOAL-REAL-SPENDING-INFLATION-PARITY-001`, `POLICY-VERSION-IDENTITY-001`, `POLICY-ACTIVATION-COMPLETENESS-001`) teilen insgesamt sieben gemeinsame, bislang ungeklärte Grundsatzfragen, die VOR jeder Implementierung entschieden werden müssen. Dieses Dokument beantwortet jede Frage mit einer begründeten, fachlich/mathematisch/rechtlich hergeleiteten Empfehlung und markiert sie trotzdem explizit als `OWNER-DECISION` — die Entscheidung bleibt bei dir, aber du entscheidest auf Basis einer fertigen Analyse, nicht auf leerem Blatt.
 
 **Wichtiger Vorbehalt:** Ich bin kein zugelassener Schweizer Rechtsanwalt. Die rechtlichen Einordnungen unten sind Ingenieurs-Risikologik auf Basis bereits etablierter Projekt-Konventionen (siehe unten zitierte Memory-Einträge) und öffentlich bekannter FIDLEG/DSG/OR-Normtexte, keine Rechtsberatung. Vor Produktivsetzung sollte eine tatsächliche Rechtsprüfung (falls die Firma einen Rechtsbeistand hat) diese Annahmen bestätigen.
 
 ## Problem
 
-Vier Schichten des Goal-Engine (Router, Optimizer, Reporting-MC, UI/PDF) treffen unabhängig, mit unterschiedlichen Formeln, dieselben vier Grundentscheidungen: **(1)** welcher Stichtag gilt, **(2)** wie eine wiederkehrende Zahlung in Jahres-Buckets zerlegt wird, **(3)** was mit einem vergangenen/überfälligen Ziel wirtschaftlich passiert, **(4)** ob eine auf einem MC-Würfel ausgewählte Erfolgswahrscheinlichkeit ohne unabhängige Evidenz als "sicher" gelten darf. Die 30 roten Tests in PR #521 beweisen, dass alle vier Fragen heute inkonsistent beantwortet werden. Ohne eine verbindliche Antwort pro Frage kann keiner der fünf Funde korrekt (statt scheinbar) gefixt werden — siehe die expliziten "Nicht ausreichende Scheinfixes" im Audit.
+Vier Schichten des Goal-Engine (Router, Optimizer, Reporting-MC, UI/PDF) treffen unabhängig, mit unterschiedlichen Formeln, dieselben vier Grundentscheidungen: **(1)** welcher Stichtag gilt, **(2)** wie eine wiederkehrende Zahlung in Jahres-Buckets zerlegt wird, **(3)** was mit einem vergangenen/überfälligen Ziel wirtschaftlich passiert, **(4)** ob eine auf einem MC-Würfel ausgewählte Erfolgswahrscheinlichkeit ohne unabhängige Evidenz als "sicher" gelten darf. Die 30 roten Tests in PR #521 beweisen, dass alle vier Fragen heute inkonsistent beantwortet werden.
+
+Dieselbe Krankheit (unabhängige, inkonsistente Implementierungen derselben Grundfrage) betrifft zwei weitere, eng verwandte Bereiche: **(5)** welche CMA-Version an einem Stichtag tatsächlich gilt und ob ihr Inflationspfad überhaupt ökonomisch sinnvoll ist, **(6)** ob reale (inflationsbereinigte) Ausgabenziele konsistent über alle Konsumenten hinweg behandelt werden, **(7)** ob eine Policy-Version, auf die bestehende Allocations/Runs verweisen, tatsächlich unveränderlich bleibt. Die 13 roten Tests in PR #523 beweisen, dass auch diese drei Fragen heute inkonsistent beantwortet werden. Ohne eine verbindliche Antwort pro Frage kann keiner der acht Funde korrekt (statt scheinbar) gefixt werden — siehe die expliziten "Nicht ausreichende Scheinfixes" im Kontrollrunde-38-Audit, deren Logik unverändert auch für die Kontrollrunde-39/40-Funde gilt.
 
 ## Scope
 
@@ -25,12 +28,16 @@ Vier Schichten des Goal-Engine (Router, Optimizer, Reporting-MC, UI/PDF) treffen
 - ADR-3: Goal-Lifecycle (vergangen/überfällig/storniert/erfüllt)
 - ADR-4: Monte-Carlo Train/Validation-Vertrag für die Zielwahrscheinlichkeits-Zertifizierung
 - ADR-5: React-Goal-Editor-Vertrag (discriminated union) — geringer Entscheidungsbedarf, der Vollständigkeit halber aufgenommen
+- ADR-6: CMA-Inflationsdomäne und Effective-Date-Resolver
+- ADR-7: Goal-Value-Mode-Roundtrip und Inflations-Konsumenten-Parität — geringer Entscheidungsbedarf, analog zu ADR-5
+- ADR-8: Policy-Versionsidentität und Aktivierungs-Vollständigkeit
 
 ## Nicht-Scope
 
 - `GoalFundingPolicy` / `amount_funded` vs. `amount_due` (Runde 37, eigener, bereits offener Fund — dieses Dokument liefert nur den korrekten `amount_due`-Input dafür)
 - Unterjährige Zahlungs-Präzision innerhalb eines Jahres-Buckets (`WITHDRAWAL-TIMING-001`, bewusst als separater P2-Vertrag abgegrenzt)
-- Tatsächliche Implementierung der fünf Funde — folgt in eigenen PRs, nachdem dieses Dokument bestätigt ist
+- Stress-Inflationsszenarien (separate, typisierte Stress-Verträge außerhalb der Current-CMA-Baseline, siehe ADR-6a)
+- Tatsächliche Implementierung der acht Funde — folgt in eigenen PRs, nachdem dieses Dokument bestätigt ist
 
 ---
 
@@ -205,27 +212,125 @@ Geringer Entscheidungsbedarf — primär Software-Architektur, keine Fachentsche
 
 ---
 
+## ADR-6: CMA-Inflationsdomäne und Effective-Date-Resolver
+
+### Befund
+
+Verifiziert direkt gegen `develop` (nicht nur aus dem Audit übernommen): `services/portfolio_engine_cma.py::_inflation_path_series()` behandelt `inflation_path_json` als freien String — anders als `correlation_matrix_json`/`sub_asset_class_assumptions_json`, die einen strikten Shared-Parser durchlaufen (`schemas/allocation.py::_validate_cma`, Zeile ~669). Direkt reproduziert:
+
+- Malformed JSON (`"not-json"`) → stiller Fallback auf 70 bps (hartcodierte Konstante).
+- Ein JSON-Array statt eines Objekts → unbehandelter `AttributeError` im Runtime-Helper.
+- `{"2026": true}` → `int(True)==1`, 1 bps übernommen.
+- `{"2026": -20000}` (-200%/Jahr) → keine Wertebereichsprüfung; verkettet mit `goal_liabilities.py` dreht das die Liability eines realen Ausgabenziels ins Negative, die im Wealth-Pfad als Zufluss gebucht wird (`probability=1`, `status="erreichbar"`, `penalty=0` für eine tatsächlich ungedeckte Ausgabe — PR #523).
+- `{"2099":100,"2100":900}`, angefragt für 2026-2029 → Rückwärtsauffüllung aus dem **maximalen** (nicht dem frühesten) Jahr: alle vier Jahre erhalten 900, nicht 100.
+
+Separat: `services/jurisdiction/resolve.py::resolve_cma_for_jurisdiction()` filtert ausschließlich `is_current==1` und `deleted_at IS NULL` — kein `as_of`-Parameter, keine Prüfung von `valid_from`/`valid_until`. Verifiziert: eine Zeile mit `valid_from="2099-01-01"` wird heute sofort ausgewählt; eine seit Jahren abgelaufene ebenso.
+
+### OWNER-DECISION 6a — Shared-Parser und Wertebereich
+
+**Empfehlung:** `parse_inflation_path()` analog zu den bestehenden Parsern, verbindlich für Schema, Admin-API, Runtime und Legacy-Revalidierung. Jahre als kanonische vierstellige Integer, Werte als endliche Integer-bps, `bool` explizit verboten (gleiches Muster wie die bereits existierenden `_reject_boolean_market_inputs`/`_reject_boolean_advanced_model_parameters`-Validatoren in `schemas/allocation.py`). Wertebereich: **`[-1000, 3000]` bps** (-10 % bis +30 % pro Jahr) — kein willkürlich neuer Wert, sondern identisch zum bereits etablierten Präzedenzfall `schemas/wealth.py:829` (`inflation_assumption_bps: Optional[int] = Field(..., ge=-1000, le=3000)`), der exakt dasselbe ökonomische Konzept für Planning-Assumptions bereits einschränkt. Stress-Inflationsszenarien ausserhalb dieser Baseline-Domain gehören in einen separaten, typisierten Stress-Vertrag, niemals in die Current-CMA-Baseline.
+
+☐ Bestätigt (Bereich `[-1000, 3000]` bps) ☐ Anderer Bereich: ______
+
+### OWNER-DECISION 6b — Gültigkeitssemantik
+
+**Empfehlung:** Dies ist dieselbe Grundfrage wie ADR-1, nur auf die CMA statt auf Goals angewendet — und sollte deshalb symmetrisch gelöst werden: `resolve_cma_for_jurisdiction()` erhält ein PFLICHT-`as_of`-Argument (dasselbe gebundene `valuation_date` aus ADR-1b, nicht erneut `date.today()`), die Query ergänzt `valid_from <= as_of AND (valid_until IS NULL OR valid_until >= as_of)`. Von den beiden im Audit vorgeschlagenen Varianten ("Aktiv-now-Vertrag" vs. "Effective-Resolver") wird **"Effective-Resolver"** empfohlen: mehrere versionierte Zeilen (geplant, aktuell, historisch) dürfen koexistieren, der Resolver wählt pro `as_of` die inhaltlich passende — das ist konsistent mit dem bereits bestehenden `version`-Spalten-Muster der CMA-Tabelle und erfordert keine zusätzliche Draft/Scheduled-Zustandsmaschine.
+
+☐ Bestätigt (Effective-Resolver mit Pflicht-`as_of`) ☐ Aktiv-now-Vertrag stattdessen
+
+### OWNER-DECISION 6c — Jahresabdeckung
+
+**Empfehlung:** Keine Rückwärtsauffüllung aus irgendeinem anderen Jahr als dem frühesten real vorhandenen. Fehlt die Abdeckung vor dem ersten echten Datenpunkt, wird das explizit als "keine Abdeckung" behandelt (Fehler oder dokumentierter Baseline-Default von 0 bps), niemals aus einem späteren Jahr geraten — das eliminiert den Max-Jahr-Bug als Spezialfall einer allgemeineren, korrekten Regel, nicht durch eine gezielte Ausnahme.
+
+☐ Bestätigt ☐ Abgelehnt
+
+---
+
+## ADR-7: Goal-Value-Mode-Roundtrip und Inflations-Konsumenten-Parität
+
+### Befund
+
+Geringer Entscheidungsbedarf — primär Implementierungs-Konsistenz, keine neue Fachentscheidung. Verifiziert: `reporting/src/lib/goalForm.ts` Zeile ~194 überschreibt `value_mode` für jeden Nicht-Vermögenszieltyp hart auf `nominal` (`wealth ? (input.value_mode ?? 'nominal') : 'nominal'`), selbst wenn der geladene Datensatz `real` trägt — ein No-op-Speichern ändert so die Kaufkraftsemantik. Backend (`services/goal_semantics.py` Zeile ~160) akzeptiert `real` bereits korrekt für jeden Zieltyp (Positivkontrolle bestätigt, PR #523). Separat: der Optimizer inflationiert reale Ausgabenziele (`goal_liabilities.py`), Reserve/Deterministik/allgemeine MC tun das nicht — verifizierter Repro: dieselbe reale CHF-100-Ausgabe, 2 Jahre, 10 %/10 % Inflation, CHF 110 Vermögen → Optimizer `nicht_erreichbar`, Reserve `achievable=True`.
+
+### OWNER-DECISION 7a — Frontend-Fix
+
+**Empfehlung:** `goalForm.ts` entfernt die `wealth ?`-Gate für `value_mode`; der Wert wird für JEDEN Zieltyp aus `input.value_mode` übernommen (Default weiterhin `nominal`, wenn nicht gesetzt). Keine neue Fachentscheidung — das Backend-Vertrag existiert bereits, das Frontend muss ihn nur nicht mehr verschweigen.
+
+☐ Bestätigt ☐ Abgelehnt
+
+### OWNER-DECISION 7b — Konsolidierung der Inflations-Anwendung
+
+**Empfehlung:** Reserve, deterministische Zielanalyse und allgemeine Reporting-MC rufen dieselbe (bereits korrekte) Inflations-Helper-Funktion auf, die der Optimizer heute schon für reale Ausgabenziele nutzt (`_is_real_value_mode()` + `_inflate_at_year()` in `goal_liabilities.py`), statt den Rohbetrag unabhängig zu verwenden. Keine neue Formel nötig — dieselbe Konsolidierungslogik wie ADR-2c (gemeinsamer Scheduler-Kern), hier für die Inflations-Anwendung.
+
+☐ Bestätigt ☐ Abgelehnt
+
+### OWNER-DECISION 7c — `goal_analysis_json`-Korrektur
+
+**Befund:** `routers/pdf_reports.py` liest `TargetAllocation.goal_analysis_json`, ein Modellattribut, das nicht existiert (`getattr(..., None)` verhindert einen Crash, liefert aber immer `None`). Das real existierende, befüllte Schwesterfeld `goal_achievability_json` trägt vermutlich bereits den beabsichtigten Inhalt (verifiziert: hat eine echte Spalte, eine Alembic-Migration und echte Writer in `services/portfolio_engine.py`).
+
+**Empfehlung:** `pdf_reports.py` liest `goal_achievability_json` statt des nicht existierenden Feldnamens — mutmaßlich ein Tippfehler, keine fehlende Funktionalität. Eine neue, separate Spalte nur anlegen, falls `goal_achievability_json` inhaltlich tatsächlich etwas anderes abdecken soll (bei einer kurzen Durchsicht der beiden Konzepte nicht ersichtlich).
+
+☐ Bestätigt (Tippfehler-Korrektur auf `goal_achievability_json`) ☐ Separate neue Spalte nötig, weil: ______
+
+---
+
+## ADR-8: Policy-Versionsidentität und Aktivierungs-Vollständigkeit
+
+### Befund
+
+Verifiziert: `routers/allocation.py::update_optimizer_policy()` archiviert die bisherige Policy-Konfiguration unter einer **neuen** `id` (`_archive_policy_snapshot`, `id=new_uuid()`), mutiert aber danach das ORIGINALE ORM-Objekt (ALTE `id`) direkt mit den neuen Feldwerten. Bestehende `TargetAllocation.policy_id`/`RecommendationRun.policy_id` zeigen danach weiterhin formal gültig auf die alte ID — deren Inhalt ist aber jetzt Version N+1, nicht die Version N, unter der die Allocation/der Run tatsächlich berechnet wurde. Zusätzlich: `_archive_policy_snapshot()` kopiert nur die Policy-eigenen Skalarfelder, NICHT die zugehörigen `HouseMatrix`- oder `BuildingBlock`-Zeilen (beide per rotem Test in PR #523 bestätigt) — der "archivierte Snapshot" ist damit kein eigenständig lauffähiges Policy-Aggregat.
+
+**Wichtig — echter Zielkonflikt, keine einseitige Korrektur:** Ein bereits bestehender, grüner Test (`tests/test_optimizer_policy_archive.py::test_put_policy_preserves_id_for_fk_integrity`) bestätigt explizit das heutige Verhalten ("PUT ändert dieselbe ID, neuer Wert sofort unter dieser ID lesbar") als beabsichtigtes CRUD-Verhalten — und das ist für sich genommen eine vernünftige Eigenschaft eines einfachen "Policy bearbeiten"-Endpunkts. Der eigentliche Fehler ist, dass `policy_id` auf `TargetAllocation`/`RecommendationRun` ZWEI widersprüchliche Rollen gleichzeitig tragen soll: (a) "Zeiger auf die aktuell editierbare Live-Policy" (muss mutierbar sein) und (b) "Referenz auf die exakte historische Konfiguration, unter der dieser Run berechnet wurde" (muss unveränderlich sein). Eine einzelne ID kann mathematisch nicht beide Eigenschaften gleichzeitig erfüllen.
+
+### OWNER-DECISION 8a — Identitätsmodell (die wichtigste Einzelentscheidung in diesem Abschnitt)
+
+Zwei konsistente Varianten:
+
+1. **Content-addressed unveränderliche Versionen:** Jede Bearbeitung erzeugt eine komplett NEUE `id`; die ALTE `id` wird nie wieder mutiert (`is_current=0`, Werte bleiben für immer wie zum Archivierungszeitpunkt). "Aktuelle Policy für Name X abrufen" wird zu einer Abfrage nach `(policy_name, is_current=1)` statt nach einer stabilen `id` — eine kleine, gut eingegrenzte Änderung, da Aktivierung/Deaktivierung bereits heute über `policy_name`-Gruppen läuft. Bestehende `TargetAllocation.policy_id`/`RecommendationRun.policy_id`-Referenzen zeigen danach automatisch korrekt auf die zum Erstellungszeitpunkt eingefrorene, nie wieder veränderte Version.
+2. **Getrennter mutierbarer Zeiger + separate Versionstabelle:** `policy_id` bleibt ein stabiler "Slot" ("aktuell gültige Policy unter diesem Namen"); ein NEUES Feld (z. B. `policy_version_id`) auf `TargetAllocation`/`RecommendationRun` erfasst die konkrete, unveränderliche Version zum Erstellungszeitpunkt. Erfordert eine Migration (Backfill bestmöglich, sonst `historical_unknown` analog ADR-3a) und zwei statt einer Code-Stelle, die synchron gehalten werden müssen.
+
+**Empfehlung: Variante 1 (content-addressed).** Begründung: einfacher (ein ID-Raum statt zwei synchron zu haltenden Feldern), folgt demselben mathematischen Grundsatz wie ADR-1 (Stichtag-Bindung) und ADR-4 (persistierte Validierungs-Evidenz) — "eine Referenz auf historische Evidenz muss unveränderlich sein, sonst ist sie keine Evidenz". **Wichtig:** `test_put_policy_preserves_id_for_fk_integrity` muss dabei bewusst UMGESCHRIEBEN (nicht nur ignoriert) werden, da seine Prämisse genau das Verhalten ist, das abgeschafft wird — explizit hier vermerkt, damit das beim Umsetzen nicht übersehen wird.
+
+☐ Variante 1 (content-addressed, empfohlen) ☐ Variante 2 (getrennter Zeiger + Versionsfeld)
+
+### OWNER-DECISION 8b — Vollständige Versions-Snapshots
+
+**Empfehlung:** Unabhängig von 8a: jede neue unveränderliche Version (Archiv heute, neue ID unter Variante 1) muss ihre eigenen `HouseMatrix`- UND `BuildingBlock`-Zeilen erhalten, nicht nur die Policy-Skalarfelder. Durch zwei unabhängige rote Tests bestätigt (PR #523) — kein Interpretationsspielraum, beide Zeilentypen gehören zum Aggregat.
+
+☐ Bestätigt ☐ Abgelehnt
+
+### OWNER-DECISION 8c — Aktivierungs-Vollständigkeit (Readiness-Gate)
+
+**Empfehlung:** Create/Clone/Activate validieren ATOMAR, bevor die bisherige Current-Policy deaktiviert wird: (a) mindestens eine House-Matrix-Zeile pro vom Engine erwarteten Score-Bereich (verifiziert: `services/portfolio_engine_house_matrix.py::_house_matrix_or_default()` wirft sonst `"HouseMatrix unvollstaendig fuer Score {bucket}"` beim nächsten echten Strategielauf für JEDES Mandat), (b) Building-Block-Zeilen für jeden vom Engine benötigten Jurisdiktions-/Universums-Scope, (c) CMA-Kompatibilität unter dem ADR-6b-Resolver. Bei jedem Fehlschlag bleibt die bisherige Current-Policy aktiv, die Anfrage wird abgelehnt (fail-closed — dieselbe Begründungslogik wie ADR-3b: eine "aktuelle" Policy, mit der kein echter Strategielauf funktioniert, darf nie existieren).
+
+☐ Bestätigt ☐ Abgelehnt
+
+---
+
 ## Betroffene Module / Dateien
 
-- Backend: `services/calendar_horizon.py`, `services/optimizer/goal_liabilities.py`, `services/cashflow_timeline.py`, `services/portfolio_engine_payload.py`, `services/portfolio_engine_mc_simulation.py`, `services/portfolio_engine.py` (Snapshot-Hash), `services/optimizer/objective.py`, `services/optimizer/solver.py`, `models/wealth.py` (Goal-Lifecycle-Spalten), `models/allocation.py` (OptimizerRun-Validierungs-Spalten), `routers/wealth.py`
+- Backend (ADR-1 bis ADR-4): `services/calendar_horizon.py`, `services/optimizer/goal_liabilities.py`, `services/cashflow_timeline.py`, `services/portfolio_engine_payload.py`, `services/portfolio_engine_mc_simulation.py`, `services/portfolio_engine.py` (Snapshot-Hash), `services/optimizer/objective.py`, `services/optimizer/solver.py`, `models/wealth.py` (Goal-Lifecycle-Spalten), `models/allocation.py` (OptimizerRun-Validierungs-Spalten), `routers/wealth.py`
+- Backend (ADR-6 bis ADR-8): `schemas/allocation.py` (CMA-Create-Validator, Policy-Create/Update-Schemas), `services/portfolio_engine_cma.py` (`_inflation_path_series`), `services/jurisdiction/resolve.py` (`resolve_cma_for_jurisdiction`), `models/allocation.py` (CMA `valid_from`/`valid_until` als echte Date-Typen, OptimizerPolicy-Identitätsmodell), `routers/allocation.py` (`update_optimizer_policy`, `_archive_policy_snapshot`, `create_optimizer_policy`, `clone_optimizer_policy`), `services/portfolio_engine_house_matrix.py`, `routers/pdf_reports.py` (`goal_analysis_json`-Korrektur)
 - Frontend: `reporting/src/sections/goals/GoalWizard.tsx`, `reporting/src/lib/goalForm.ts`, `reporting/src/lib/goalClassification.ts`, `5eyes_v2.html` (Classic-Parität)
-- Datenmodell: Migration für Goal-Lifecycle-Spalten + OptimizerRun-Validierungs-Spalten
-- Tests: die 30 bereits in PR #521 vorhandenen roten Tests dienen als Akzeptanzkriterium — sie müssen nach Implementierung grün werden (xfail-Marker entfernt, `strict=True` erzwingt das ohnehin als harten Fehler bei stillem Grünwerden ohne Entfernen des Markers)
+- Datenmodell: Migration für Goal-Lifecycle-Spalten + OptimizerRun-Validierungs-Spalten (ADR-1/3/4); CMA `valid_from`/`valid_until` auf echten `date`-Typ (ADR-6b); OptimizerPolicy-Identitätsmodell je nach ADR-8a-Entscheidung
+- Tests: die 30 roten Tests aus PR #521 (ADR-1 bis ADR-5) plus die 13 roten Tests aus PR #523 (ADR-6 bis ADR-8) dienen gemeinsam als Akzeptanzkriterium — sie müssen nach Implementierung grün werden (xfail-Marker entfernt, `strict=True` erzwingt das ohnehin als harten Fehler bei stillem Grünwerden ohne Entfernen des Markers). Zusätzlich muss `test_optimizer_policy_archive.py::test_put_policy_preserves_id_for_fk_integrity` bei Wahl von ADR-8a Variante 1 bewusst umgeschrieben werden (siehe ADR-8a).
 
 ## Akzeptanzkriterien
 
-1. Alle vier ADRs (1-4) sind vom Owner entschieden (☐-Kästen oben ausgefüllt).
-2. Jede Entscheidung ist in genau einem zentralen Resolver-Modul implementiert, nicht pro Caller dupliziert.
-3. Alle 30 roten Tests aus PR #521 werden grün (xfail-Marker entfernt).
-4. Kein bestehender grüner Test regressiert (volle Backend- + Frontend-Suite).
-5. Legacy-Daten (bestehende Goals/Allocations ohne die neuen Felder) werden beim nächsten Zugriff repariert oder sichtbar als `historical_unknown`/`validation_unknown` markiert, nie stillschweigend als "neu gültig" interpretiert.
+1. Alle acht ADRs (1-8) sind vom Owner entschieden (☐-Kästen oben ausgefüllt).
+2. Jede Entscheidung ist in genau einem zentralen Resolver-/Parser-Modul implementiert, nicht pro Caller dupliziert.
+3. Alle 30 roten Tests aus PR #521 UND alle 13 roten Tests aus PR #523 werden grün (xfail-Marker entfernt).
+4. Kein bestehender grüner Test regressiert (volle Backend- + Frontend-Suite) — mit der bewussten, dokumentierten Ausnahme von `test_put_policy_preserves_id_for_fk_integrity` (ADR-8a), falls Variante 1 gewählt wird.
+5. Legacy-Daten (bestehende Goals/Allocations/CMA-Zeilen/Policies ohne die neuen Felder bzw. mit dem alten Identitätsmodell) werden beim nächsten Zugriff repariert oder sichtbar als `historical_unknown`/`validation_unknown` markiert, nie stillschweigend als "neu gültig" interpretiert.
 
 ## Risiken
 
-- UX-Reibung durch Fail-Closed-Overdue-Policy (ADR-3b) — bewusst in Kauf genommen, siehe Begründung dort.
+- UX-Reibung durch Fail-Closed-Overdue-Policy (ADR-3b) und Fail-Closed-Aktivierungs-Gate (ADR-8c) — bewusst in Kauf genommen, siehe Begründung dort.
 - Migration bestehender Mandate mit bereits vergangenen/überfälligen Zielen erzeugt kurzfristig sichtbare Klärungsbedarfe im Berater-Alltag — sollte vor Rollout kommuniziert werden.
 - Validierungs-Cube (ADR-4) verdoppelt grob die Rechenzeit pro finaler Allokation (ein zusätzlicher MC-Lauf) — bei 20'000 Pfaden auf modernem Hardware im Sekundenbereich, nicht geschäftskritisch, aber im Performance-Budget-Test (`test_performance_budget.py`) zu berücksichtigen.
+- ADR-8a Variante 1 (content-addressed) ändert die Semantik eines bestehenden, dokumentierten Admin-Endpunkt-Verhaltens (`PUT /admin/optimizer-policies/{id}`) und erfordert das bewusste Umschreiben eines heute grünen Tests — Admin-Tooling/Dokumentation, die sich auf "PUT ändert dieselbe ID" verlässt, muss vor Rollout geprüft werden.
+- CMA-Wertebereich `[-1000, 3000]` bps (ADR-6a) könnte bestehende, bereits erfasste CMA-Zeilen mit Werten ausserhalb dieses Bereichs als ungültig markieren — vor Rollout eine Bestandsaufnahme der echten CMA-Daten empfehlenswert.
 
 ## Offene Fragen an Owner
 
-Siehe die sechzehn `OWNER-DECISION`-Markierungen oben (1a-1c, 2a-2c, 3a-3c, 4a-4d, 5a). Jede trägt eine konkrete Empfehlung; die Kästen sind zum Ankreuzen/Kommentieren gedacht.
+Siehe die insgesamt 23 `OWNER-DECISION`-Markierungen oben (1a-1c, 2a-2c, 3a-3c, 4a-4d, 5a, 6a-6c, 7a-7c, 8a-8c). Jede trägt eine konkrete Empfehlung; die Kästen sind zum Ankreuzen/Kommentieren gedacht.
