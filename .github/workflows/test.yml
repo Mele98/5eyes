@@ -94,7 +94,22 @@ jobs:
     # (~20-25min) zurueck. Coverage laeuft als eigener, NICHT blockierender
     # Schritt danach (continue-on-error) mit eigenem Timeout, damit ein
     # erneuter Coverage-Haenger den PR nicht mehr blockieren kann.
-    timeout-minutes: 90
+    #
+    # Nachtrag (2026-10-05): der JOB-Timeout umklammert BEIDE Schritte
+    # (blockierender Correctness-Gate-Lauf + nicht-blockierender Coverage-
+    # Lauf mit eigenem 60min-Timeout). Correctness-Gate allein brauchte
+    # wiederholt ~28-31min (realistisch bei wachsender Testsuite, nicht nur
+    # die urspruenglich budgetierten ~20-25min). Setup+Install+28-31min+
+    # bis zu 60min Coverage kann die 90min-Jobgrenze knapp ueberschreiten --
+    # GitHub Actions cancelt dann den GESAMTEN Job (inkl. des bereits
+    # erfolgreich abgeschlossenen Correctness-Gate-Schritts!), was als
+    # "Backend Tests failed" erscheint, obwohl `pytest tests/` selbst 0
+    # Fehler hatte. Beobachtet an mehreren unabhaengigen PRs (#525, #527)
+    # mit identischem Muster: Hauptlauf 0 failed in den Logs, Job-Conclusion
+    # trotzdem "cancelled". Grosszuegigerer Puffer verhindert, dass der
+    # ohnehin nicht-blockierende Coverage-Schritt den mergebar-Status des
+    # PRs ueber die Jobgrenze hinweg gefaehrdet.
+    timeout-minutes: 150
 
     strategy:
       fail-fast: false
