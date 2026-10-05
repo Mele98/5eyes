@@ -111,8 +111,19 @@ def test_pytest_job_has_timeout(workflow_yaml):
     siehe .github/workflows/test.yml Job-Kommentar fuer die volle
     Root-Cause-Analyse (Coverage-Instrumentierung haengte reproduzierbar
     NUR auf dem Linux-CI-Runner, lokal dreimal bestaetigt unauffaellig).
+
+    2026-10-05 von 90 auf 150 erhoeht: der JOB-Timeout umklammert BEIDE
+    Schritte zusammen. Der blockierende Korrektheits-Lauf allein braucht
+    inzwischen beobachtet ~28-31min (weiter gewachsene Suite) statt der
+    urspruenglich budgetierten ~20-25min; zusammen mit Setup/Install und
+    bis zu 60min fuer den nicht-blockierenden Coverage-Schritt ueberschritt
+    die Summe wiederholt die 90min-Grenze. GitHub Actions cancelt dann den
+    GESAMTEN Job -- auch den laengst erfolgreich abgeschlossenen
+    Korrektheits-Lauf (beobachtet an PR #525/#527 mit identischem Muster:
+    "0 failed" in den Logs, Job-Conclusion trotzdem "cancelled"). Siehe
+    .github/workflows/test.yml Job-Kommentar.
     """
-    assert workflow_yaml["jobs"]["pytest"].get("timeout-minutes") == 90
+    assert workflow_yaml["jobs"]["pytest"].get("timeout-minutes") == 150
 
 
 def test_pytest_uses_python_3_12(workflow_yaml):
