@@ -3814,6 +3814,7 @@ def _build_performance_attribution(
             BUCKET_KEYS,
             compute_brinson_attribution,
         )
+        from services.risk_matrix import score_bucket_from_assessment
 
         ta = (
             db.query(TargetAllocation)
@@ -3844,7 +3845,16 @@ def _build_performance_attribution(
         # Bugklasse wie FIDLEG-STATE-003, siehe _cached_current_ra_is_current
         # Docstring).
         ra = _cached_current_ra_is_current(db, mandate)
+        # BENCHMARK-ATTRIBUTION-SCORE-001 (Core-Coverage-Audit 2026-10-05):
+        # final_score_x10 ist 0..100-skaliert; HouseMatrix.score_from/score_to
+        # sind 1..10-skaliert. Der Rohwert direkt verglichen fand fast nie eine
+        # passende Zeile und degradierte fuer die meisten gueltigen Scores auf
+        # _performance_attribution_empty(). score_bucket_from_assessment()
+        # macht exakt dieselbe 0..100 -> 1..10-Abbildung, die
+        # _depotcheck_house_matrix_benchmark() (routers/pdf_reports.py) fuer
+        # denselben fachlichen Vergleich bereits korrekt verwendet.
         risk_score = _safe_int(getattr(ra, "final_score_x10", 0)) if ra else 0
+        score_bucket = score_bucket_from_assessment(ra) if ra else 0
         policy_id = getattr(ta, "policy_id", None)
         hm_row = None
         if policy_id and risk_score > 0:
@@ -3853,8 +3863,8 @@ def _build_performance_attribution(
                 .filter(
                     HouseMatrix.policy_id == policy_id,
                     HouseMatrix.is_active == 1,
-                    HouseMatrix.score_from <= risk_score,
-                    HouseMatrix.score_to >= risk_score,
+                    HouseMatrix.score_from <= score_bucket,
+                    HouseMatrix.score_to >= score_bucket,
                 )
                 .first()
             )

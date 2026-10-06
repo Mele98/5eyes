@@ -1154,6 +1154,14 @@ def update_user(
     is_being_deactivated = "is_active" in updates and not updates["is_active"] and bool(user.is_active)
     is_role_changing = "role" in updates and updates["role"] != user.role
     needs_session_revocation = is_being_deactivated or is_role_changing
+    # IAM-JML-002 (B2B-Trust-Audit Runde 2, 2026-10-05): ein Rollenwechsel WEG
+    # von 'client' muss die 1:1-ClientLogin-Linkage deaktivieren -- sonst
+    # bleibt ein befoerderter Ex-Kunde dauerhaft als aktiver Kunden-Login
+    # verknuepft (get_linked_client_for_user_or_404 und der Duplikat-Guard in
+    # create_client_login lesen beide is_active==1). routers/tenants.py
+    # verhindert eine Tenant-Neuzuweisung bereits explizit, solange diese
+    # Linkage aktiv ist -- dieselbe Invariante galt bisher nicht hier.
+    is_leaving_client_role = is_role_changing and user.role == "client"
 
     for field, value in updates.items():
         if field == "is_active":
@@ -1164,6 +1172,13 @@ def update_user(
     if needs_session_revocation:
         user.token_revoked_before = _now()
         revoke_all_for_user(db, user.id)
+
+    if is_leaving_client_role:
+        from models.client_login import ClientLogin
+        db.query(ClientLogin).filter(
+            ClientLogin.user_id == user.id,
+            ClientLogin.is_active == 1,
+        ).update({"is_active": 0})
 
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="users", record_id=user_id, action="UPDATE")
