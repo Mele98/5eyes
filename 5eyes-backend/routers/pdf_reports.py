@@ -1650,7 +1650,18 @@ def _build_depotcheck_data(mandate: Mandate, db: Session) -> DepotCheckData:
         covered_share_bps=int(fc.get("covered_share_bps", 0) or 0),
         liquidity_profile_bps=dc.get("liquidity_profile") or {},
         stress_scenarios=list(sr.get("scenarios") or []),
-        warnings=_depotcheck_data_quality_warnings(costs, performance),
+        # DEPOT-E2E-WARNING-001 (docs/audits/2026-10-05-depotcheck-end-to-end-
+        # product-identity-and-publication-integrity-audit.md): compute_depot_check()'s
+        # own structured warnings (band-limit violations, country/sector/
+        # currency drift, concentration, missing-advisory-wealth, illiquid-
+        # position share, ...) must reach the PDF too, not just the cost/
+        # performance data-quality warnings -- the PDF must never show
+        # "clean" while the live Depot-Check view shows real warnings for
+        # the exact same depot.
+        warnings=list(dict.fromkeys(
+            [str(item) for item in dc.get("warnings") or [] if str(item).strip()]
+            + _depotcheck_data_quality_warnings(costs, performance)
+        )),
         cost_disclosure=costs,
         performance=performance,
         qualitative_assessment=_build_depotcheck_qualitative_assessment(
