@@ -2087,20 +2087,20 @@ function arrMax(a){var m=-Infinity;for(var i=0;i<a.length;i++){var n=Number(a[i]
     <div class="logo-m">5e</div>
     <div><div class="logo-n">WealthArchitekten</div><div class="logo-s">Advisory OS</div></div>
   </div>
-  <nav class="tnav">
-    <div class="tstep active" data-page="sd" onclick="go('sd',this)"><div class="sn">1</div>Stammdaten</div>
-    <div class="tsep">/</div>
-    <div class="tstep" data-page="vg" onclick="go('vg',this)"><div class="sn">2</div>Verm&ouml;gen</div>
-    <div class="tsep">/</div>
-    <div class="tstep" data-page="cf" onclick="go('cf',this)"><div class="sn">3</div>Cashflows &amp; Ziele</div>
-    <div class="tsep">/</div>
-    <div class="tstep" data-page="rp" onclick="go('rp',this)"><div class="sn">4</div>Risikoprofil</div>
-    <div class="tsep">/</div>
-    <div class="tstep" data-page="al" onclick="go('al',this)"><div class="sn">5</div>Asset Allokation</div>
-    <div class="tsep">/</div>
-    <div class="tstep" data-page="po" onclick="go('po',this)"><div class="sn">6</div>Portfolio</div>
-    <div class="tsep">/</div>
-    <div class="tstep" data-page="rv" onclick="go('rv',this)"><div class="sn">7</div>Review &amp; Abschluss</div>
+  <nav class="tnav" role="tablist" aria-label="Beratungsschritte">
+    <div class="tstep active" data-page="sd" role="tab" tabindex="0" aria-selected="true" onclick="go('sd',this)" onkeydown="handleTstepKeydown(event,'sd',this)"><div class="sn">1</div>Stammdaten</div>
+    <div class="tsep" aria-hidden="true">/</div>
+    <div class="tstep" data-page="vg" role="tab" tabindex="0" aria-selected="false" onclick="go('vg',this)" onkeydown="handleTstepKeydown(event,'vg',this)"><div class="sn">2</div>Verm&ouml;gen</div>
+    <div class="tsep" aria-hidden="true">/</div>
+    <div class="tstep" data-page="cf" role="tab" tabindex="0" aria-selected="false" onclick="go('cf',this)" onkeydown="handleTstepKeydown(event,'cf',this)"><div class="sn">3</div>Cashflows &amp; Ziele</div>
+    <div class="tsep" aria-hidden="true">/</div>
+    <div class="tstep" data-page="rp" role="tab" tabindex="0" aria-selected="false" onclick="go('rp',this)" onkeydown="handleTstepKeydown(event,'rp',this)"><div class="sn">4</div>Risikoprofil</div>
+    <div class="tsep" aria-hidden="true">/</div>
+    <div class="tstep" data-page="al" role="tab" tabindex="0" aria-selected="false" onclick="go('al',this)" onkeydown="handleTstepKeydown(event,'al',this)"><div class="sn">5</div>Asset Allokation</div>
+    <div class="tsep" aria-hidden="true">/</div>
+    <div class="tstep" data-page="po" role="tab" tabindex="0" aria-selected="false" onclick="go('po',this)" onkeydown="handleTstepKeydown(event,'po',this)"><div class="sn">6</div>Portfolio</div>
+    <div class="tsep" aria-hidden="true">/</div>
+    <div class="tstep" data-page="rv" role="tab" tabindex="0" aria-selected="false" onclick="go('rv',this)" onkeydown="handleTstepKeydown(event,'rv',this)"><div class="sn">7</div>Review &amp; Abschluss</div>
   </nav>
   <div class="tr">
     <span id="current-user-label" style="font-size:11px;color:var(--g3);margin-right:4px"></span>
@@ -6061,6 +6061,17 @@ async function ensureRiskProfileBeforeAllocationNavigation(targetPage){
   }
   return true;
 }
+// A11Y-GP-001 (B2B-Trust-Audit Runde 3, 2026-10-05): Golden-Path-Stepper
+// (.tnav .tstep) hatte keine native Tastatursemantik. handleTstepKeydown
+// aktiviert denselben go()-Aufruf wie onclick, wenn der fokussierte Tab
+// (role="tab", tabindex="0") per Enter oder Leertaste bedient wird.
+function handleTstepKeydown(event,p,el){
+  if(event.key==='Enter'||event.key===' '||event.key==='Spacebar'){
+    event.preventDefault();
+    go(p,el);
+  }
+}
+
 async function go(p,b){
   if(p==='ub')p='cf';
   if(p==='sr')p='rv';
@@ -6076,6 +6087,10 @@ async function go(p,b){
     if(stepIdx<idx){s.classList.add('done');if(sn)sn.textContent='OK';}
     else if(stepIdx===idx){s.classList.add('active');if(sn)sn.textContent=stepIdx+1;}
     else if(sn){sn.textContent=stepIdx+1;}
+    // A11Y-GP-001: aria-selected muss dem sichtbaren aktiven Schritt folgen,
+    // sonst behauptet der Tab-Status gegenueber Screenreadern weiterhin
+    // Schritt 1, egal wohin tatsaechlich navigiert wurde.
+    s.setAttribute('aria-selected',stepIdx===idx?'true':'false');
   });
   setTimeout(initCharts,80);
   if(p==='cf')setTimeout(function(){updateCfRiskContextSummary();},60);
