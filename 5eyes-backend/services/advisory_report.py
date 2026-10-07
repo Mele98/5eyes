@@ -3340,10 +3340,11 @@ def _recompute_reserve_reasoning(
     from services.portfolio_engine import (
         _allocation_snapshot_preferences,
         _compute_reserve_for_inputs,
+        _convert_position_amount_to_target_currency,
         _inflation_path_series,
         _normalize_preferences,
-        _position_is_currently_unlocked_for_goal_funding,
         _simulation_horizon_years,
+        _unlocked_other_assets_rappen,
         _wealth_inflow_series_rappen,
     )
     from services.wealth_cashflows import derive_tax_cashflow, derive_wealth_cashflows
@@ -3360,66 +3361,10 @@ def _recompute_reserve_reasoning(
         )
         .all()
     )
-    advisory_wealth_rappen = sum(
-        int(getattr(pos, "current_value_rappen", 0) or 0)
-        for pos in positions
-        if str(getattr(pos, "assignment", "")) == "Beratungsvermögen"
-    )
-    # Sprint B2 (portfolio_engine): Anderes-Vermoegen-Schloss-Pool, der die
-    # externe Reserve reduzieren kann.
-    # PENSION-AVAILABILITY-001: dieselbe Verfuegbarkeits-Pruefung wie in
-    # portfolio_engine.py (nicht nur is_available_for_goal_funding=1, siehe
-    # _position_is_currently_unlocked_for_goal_funding) -- gesperrtes
-    # Vorsorgekapital ohne erreichtes liquidity_available_from darf auch in
-    # dieser Steuer-/Report-Nachrechnung nicht als heute verfuegbar zaehlen.
-    # PROPERTY-COLLATERAL-001: dieselbe Mortgage-Netting-Korrektur wie in
-    # portfolio_engine._unlocked_other_assets_rappen() (Single Source of
-    # Truth fuer diesen Schloss-Pool) -- eine freigegebene Direktimmobilie
-    # darf nicht brutto zaehlen, wenn bereits eine aktive Hypothek auf genau
-    # diese Immobilie verweist (mortgage_linked_property_id).
-    _mortgage_debt_by_property: dict[str, int] = {}
-    for _pos in positions:
-        if str(getattr(_pos, "position_type", "") or "") != "Hypothek":
-            continue
-        _linked_id = getattr(_pos, "mortgage_linked_property_id", None)
-        if not _linked_id:
-            continue
-        _mortgage_debt_by_property[_linked_id] = _mortgage_debt_by_property.get(
-            _linked_id, 0
-        ) + int(getattr(_pos, "current_value_rappen", 0) or 0)
-    unlocked_other_assets_rappen = sum(
-        max(
-            0,
-            int(getattr(pos, "current_value_rappen", 0) or 0)
-            - _mortgage_debt_by_property.get(getattr(pos, "id", None), 0),
-        )
-        for pos in positions
-        if _position_is_currently_unlocked_for_goal_funding(pos)
-    )
-    # Roadmap #39 (2026-08-07): Gesamtvermoegen (netto, wie in portfolio_engine.py
-    # _load_allocation_inputs/build_target_payload_from_allocation) als Basis fuer
-    # die geschaetzte Vermoegenssteuer -- dieselbe Formel wie dort, damit diese
-    # "Nachrechnung" nicht von einer schmaleren Beratungsvermoegen-Basis ausgeht
-    # (haette die Steuer sonst unterschaetzt statt nur inkonsistent zu sein).
-    total_liabilities_rappen = sum(
-        int(getattr(pos, "current_value_rappen", 0) or 0)
-        for pos in positions
-        if str(getattr(pos, "assignment", "")) == "Verbindlichkeit"
-    )
-    total_assets_rappen = sum(
-        int(getattr(pos, "current_value_rappen", 0) or 0)
-        for pos in positions
-        if str(getattr(pos, "assignment", "")) != "Verbindlichkeit"
-    )
-    total_wealth_rappen = max(0, total_assets_rappen - total_liabilities_rappen)
 
-    cashflows = list(_cached_active_cashflows(db, str(mandate.client_id)))
-    cashflows = (
-        cashflows
-        + derive_wealth_cashflows(positions)
-        + derive_tax_cashflow(mandate, total_wealth_rappen)
-    )
-
+    # FX-DRIFT-001 (Audit-Finding, 2026-10-07): fx_source/target_currency
+    # mussten HIER (vor den Wealth-Summen) verfuegbar sein, nicht erst nach
+    # ihnen -- siehe untenstehende Korrektur der Summen selbst.
     # 2026-07-24 (Generalaudit): Fallback auf FXRateSource() statt None --
     # FXRateSource.from_db() faengt intern schon jeden Fehler ab und faellt
     # selbst auf Default-Kurse zurueck; dieser aeussere except greift
@@ -3432,6 +3377,54 @@ def _recompute_reserve_reasoning(
     except Exception:  # noqa: BLE001
         fx_source = FXRateSource()
     target_currency = str(getattr(mandate, "base_currency", "CHF") or "CHF").upper()
+
+    # FX-DRIFT-001 (Audit-Finding, 2026-10-07): diese Summen fielen bisher aus
+    # dem Rahmen ihres eigenen Docstrings ("repliziert portfolio_engine.py's
+    # Formel") -- sie summierten current_value_rappen roh, ohne die direkt
+    # darunter berechnete fx_source/target_currency ueberhaupt zu nutzen.
+    # Fuer jede Position in Fremdwaehrung (seit BASE-CURRENCY-HARDCODED-001
+    # moeglich) driftete das Ergebnis vom persistierten, korrekt konvertierten
+    # advisory_wealth_rappen ab -> faelschlicher drift_detected=True (siehe
+    # Aufrufer unten) rein wegen Waehrungsmix, nicht wegen echter Aenderung.
+    # Fix: dieselben Engine-Helfer wiederverwenden statt die Formel ein
+    # drittes Mal haendisch zu duplizieren (Single Source of Truth).
+    advisory_wealth_rappen = sum(
+        _convert_position_amount_to_target_currency(pos, fx_source, target_currency)
+        for pos in positions
+        if str(getattr(pos, "assignment", "")) == "Beratungsvermögen"
+    )
+    # Sprint B2 (portfolio_engine): Anderes-Vermoegen-Schloss-Pool, der die
+    # externe Reserve reduzieren kann. PENSION-AVAILABILITY-001 (Verfuegbarkeits-
+    # Pruefung) und PROPERTY-COLLATERAL-001 (Mortgage-Netting) sind beide schon
+    # in portfolio_engine._unlocked_other_assets_rappen() umgesetzt -- hier
+    # direkt wiederverwendet statt dupliziert (schliesst zugleich FX-DRIFT-001
+    # fuer diesen Pool, der vorher ebenfalls unkonvertiert summierte).
+    unlocked_other_assets_rappen = _unlocked_other_assets_rappen(
+        positions, fx_source=fx_source, target_currency=target_currency
+    )
+    # Roadmap #39 (2026-08-07): Gesamtvermoegen (netto, wie in portfolio_engine.py
+    # _load_allocation_inputs/build_target_payload_from_allocation) als Basis fuer
+    # die geschaetzte Vermoegenssteuer -- dieselbe Formel wie dort, damit diese
+    # "Nachrechnung" nicht von einer schmaleren Beratungsvermoegen-Basis ausgeht
+    # (haette die Steuer sonst unterschaetzt statt nur inkonsistent zu sein).
+    total_liabilities_rappen = sum(
+        _convert_position_amount_to_target_currency(pos, fx_source, target_currency)
+        for pos in positions
+        if str(getattr(pos, "assignment", "")) == "Verbindlichkeit"
+    )
+    total_assets_rappen = sum(
+        _convert_position_amount_to_target_currency(pos, fx_source, target_currency)
+        for pos in positions
+        if str(getattr(pos, "assignment", "")) != "Verbindlichkeit"
+    )
+    total_wealth_rappen = max(0, total_assets_rappen - total_liabilities_rappen)
+
+    cashflows = list(_cached_active_cashflows(db, str(mandate.client_id)))
+    cashflows = (
+        cashflows
+        + derive_wealth_cashflows(positions)
+        + derive_tax_cashflow(mandate, total_wealth_rappen)
+    )
 
     cma = (
         db.query(CapitalMarketAssumption)
