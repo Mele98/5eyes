@@ -76,7 +76,17 @@ export function validateClient(input: ClientFormInput): string[] {
   return errors;
 }
 
-/** Baut den ClientUpdate-Payload; leere optionale Strings → null. */
+/**
+ * Baut den ClientUpdate-Payload; leere optionale Strings → null.
+ *
+ * DUAL-STACK-01 (2026-10-Audit): client_classification, is_qualified_investor
+ * und is_professional_opt_out werden hier bewusst NICHT mehr mitgeschickt.
+ * schemas/clients.py ClientUpdate besitzt diese Felder seit FIDLEG-STATE-001
+ * nicht mehr (siehe Kommentar dort) -- sie wuerden vom Backend stillschweigend
+ * ignoriert (extra='ignore'), waehrend der Editor faelschlich "gespeichert"
+ * gemeldet hat. Die einzige gueltige Aenderung dieser Felder laeuft ueber
+ * POST /clients/{id}/opt-history (siehe CrmEditor.tsx Klassifikations-Panel).
+ */
 export function buildClientUpdatePayload(input: ClientFormInput): ClientUpdatePayload {
   const orNull = (v: string): string | null => (v.trim() === '' ? null : v.trim());
   return {
@@ -93,9 +103,6 @@ export function buildClientUpdatePayload(input: ClientFormInput): ClientUpdatePa
     employer: orNull(input.employer),
     language: input.language,
     household_type: input.household_type,
-    client_classification: input.client_classification,
-    is_qualified_investor: input.is_qualified_investor,
-    is_professional_opt_out: input.is_professional_opt_out,
     partner_salutation: input.partner_salutation === '' ? null : input.partner_salutation,
     partner_first_name: orNull(input.partner_first_name),
     partner_last_name: orNull(input.partner_last_name),

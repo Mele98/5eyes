@@ -171,10 +171,19 @@ def _days_ago(days: int) -> str:
     return (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
 
 
-def _stub_mandate(mid: str = "MX-TEST", mandate_type: str = "Anlageberatung"):
+def _stub_mandate(
+    mid: str = "MX-TEST", mandate_type: str = "Anlageberatung",
+    *, client_classification: str | None = None,
+):
     m = MagicMock()
     m.id = mid
     m.mandate_type = mandate_type
+    # CLASS-01-Fix (2026-10-07): explizit None statt MagicMock-Autospec, damit
+    # str(getattr(client, "client_classification", "")) deterministisch "None"
+    # bzw. der echte Klassifikations-String ist, nicht ein <MagicMock ...>-Repr.
+    client = MagicMock()
+    client.client_classification = client_classification
+    m.client = client
     return m
 
 
@@ -239,6 +248,41 @@ def test_audit_execution_only_mandate_exempt():
     assert result["requires_suitability"] is False
     assert result["suitability_basis"] == "execution_only_exempt"
     assert result["is_compliant"] is True
+
+
+def test_audit_institutional_client_mandate_exempt():
+    """CLASS-01-Fix (2026-10-07): institutioneller Kunde (Art. 13 Abs. 3
+    FIDLEG) -> Eignungspruefungspflicht entfaellt vollstaendig, eigener
+    suitability_basis + fidleg_basis (nicht identisch mit execution_only)."""
+    db = _stub_db(ra=None, advisory_log_count=3)
+    mandate = _stub_mandate(client_classification="Institutioneller Kunde")
+    result = audit_mandate_suitability(db, mandate)
+    assert result["requires_suitability"] is False
+    assert result["suitability_basis"] == "institutional_client_exempt"
+    assert result["fidleg_basis"] == "Art. 13 Abs. 3 FIDLEG"
+    assert result["is_compliant"] is True
+
+
+def test_audit_professional_client_still_requires_suitability():
+    """Professionelle Kunden sind NICHT von der Eignungspruefungspflicht
+    befreit (nur Kenntnis/Kapazitaet werden praesumiert, siehe Modul-
+    Docstring) -- ohne aktuelles Risikoprofil bleibt es ein Verstoss."""
+    db = _stub_db(ra=None, advisory_log_count=1)
+    mandate = _stub_mandate(client_classification="Professioneller Kunde")
+    result = audit_mandate_suitability(db, mandate)
+    assert result["requires_suitability"] is True
+    assert result["suitability_basis"] == "risk_assessment"
+    assert result["is_compliant"] is False
+
+
+def test_audit_privatkunde_classification_unaffected_regression():
+    """Regression: ein Privatkunde (Default, kein client_classification-Feld
+    gesetzt) verhaelt sich exakt wie vor dem CLASS-01-Fix."""
+    db = _stub_db(ra=None, advisory_log_count=1)
+    result = audit_mandate_suitability(db, _stub_mandate())
+    assert result["requires_suitability"] is True
+    assert result["suitability_basis"] == "risk_assessment"
+    assert result["is_compliant"] is False
 
 
 def test_audit_no_risk_assessment_flags_violation():

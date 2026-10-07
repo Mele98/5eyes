@@ -5,13 +5,18 @@ from sqlalchemy.exc import IntegrityError
 from datetime import datetime, timezone
 from database import get_db, new_uuid
 from models.users import User
-from models.clients import Client, ClientNationality, ClientOptHistory
+from models.clients import (
+    Client, ClientNationality, ClientOptHistory,
+    ClientDueDiligence, ClientTaxResidency,
+)
 from models.wealth import Cashflow, WealthPosition, WealthInflow
 from schemas.clients import (
     ClientCreate, ClientUpdate, ClientResponse,
     ClientErasureRequest, ClientErasureResponse,
     NationalityCreate, NationalityResponse,
     OptHistoryCreate, OptHistoryResponse,
+    ClientDueDiligenceCreate, ClientDueDiligenceUpdate, ClientDueDiligenceResponse,
+    ClientTaxResidencyCreate, ClientTaxResidencyResponse,
     WealthSummaryResponse, CashflowSummaryResponse,
     CashflowYearRow, CashflowProjectionResponse,
 )
@@ -392,6 +397,109 @@ def add_opt_history(
     db.commit()
     db.refresh(entry)
     return entry
+
+
+# ── Due Diligence (KYC-01: GwG Art. 3-6 / FINMA-RS 2016/7) ────────────────────
+
+@router.get("/{client_id}/due-diligence", response_model=ClientDueDiligenceResponse)
+def get_due_diligence(
+    client_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    _get_client_or_404(client_id, db, current_user)
+    record = db.query(ClientDueDiligence).filter(
+        ClientDueDiligence.client_id == client_id
+    ).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="Keine Sorgfaltspflicht-Erfassung vorhanden")
+    return record
+
+
+@router.put("/{client_id}/due-diligence", response_model=ClientDueDiligenceResponse)
+def upsert_due_diligence(
+    client_id: str,
+    body: ClientDueDiligenceUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_advisor)
+):
+    """1:1-Erfassung (GwG Art. 3-6 / FINMA-RS 2016/7 Sorgfaltspflichten) --
+    anders als Nationalitaeten/Opt-History keine Liste, sondern genau eine
+    Zeile pro Kunde. Upsert: legt die Zeile beim ersten Aufruf an, aktualisiert
+    sie bei jedem weiteren -- ein PUT-nur-Create haette erzwungen, dass der
+    Client vorher weiss, ob schon eine Erfassung existiert."""
+    enforce_data_classification(body.data_classification)
+    _get_client_or_404(client_id, db, current_user)
+    now = _now()
+    record = db.query(ClientDueDiligence).filter(
+        ClientDueDiligence.client_id == client_id
+    ).first()
+    action = "UPDATE" if record else "CREATE"
+    if record is None:
+        record = ClientDueDiligence(id=new_uuid(), client_id=client_id, created_at=now)
+        db.add(record)
+    record.pep_status = 1 if body.pep_status else 0
+    record.pep_details = body.pep_details
+    record.acting_for_own_account = 1 if body.acting_for_own_account else 0
+    record.beneficial_owner_name = body.beneficial_owner_name
+    record.source_of_wealth = body.source_of_wealth
+    record.id_document_type = body.id_document_type
+    record.id_document_number = body.id_document_number
+    record.id_document_issuing_country = body.id_document_issuing_country
+    record.id_document_expiry = body.id_document_expiry
+    record.fatca_crs_self_certified = 1 if body.fatca_crs_self_certified else 0
+    record.updated_at = now
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="client_due_diligence", record_id=record.id, action=action,
+        client_id=client_id)
+    db.commit()
+    db.refresh(record)
+    return record
+
+
+# ── Tax Residencies (FATCA/CRS) ────────────────────────────────────────────────
+
+@router.get("/{client_id}/tax-residencies", response_model=list[ClientTaxResidencyResponse])
+def list_tax_residencies(
+    client_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    _get_client_or_404(client_id, db, current_user)
+    return db.query(ClientTaxResidency).filter(
+        ClientTaxResidency.client_id == client_id
+    ).all()
+
+
+@router.post("/{client_id}/tax-residencies", response_model=ClientTaxResidencyResponse, status_code=201)
+def add_tax_residency(
+    client_id: str,
+    body: ClientTaxResidencyCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_advisor)
+):
+    enforce_data_classification(body.data_classification)
+    _get_client_or_404(client_id, db, current_user)
+    if body.is_primary:
+        # Clear existing primary -- analog add_nationality oben.
+        db.query(ClientTaxResidency).filter(
+            ClientTaxResidency.client_id == client_id,
+            ClientTaxResidency.is_primary == 1
+        ).update({"is_primary": 0})
+    residency = ClientTaxResidency(
+        id=new_uuid(), client_id=client_id,
+        country_code=body.country_code,
+        tax_id_number=body.tax_id_number,
+        is_primary=1 if body.is_primary else 0,
+        created_at=_now()
+    )
+    db.add(residency)
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="client_tax_residencies", record_id=residency.id, action="CREATE",
+        client_id=client_id)
+    db.commit()
+    db.refresh(residency)
+    return residency
 
 
 # ── Wealth & Cashflow Summary Views ───────────────────────────────────────────

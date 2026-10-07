@@ -208,6 +208,76 @@ class OptHistoryResponse(BaseResponse):
     to_qualified_investor: Optional[int] = None
 
 
+class ClientDueDiligenceBase(BaseModel):
+    pep_status: bool = False
+    pep_details: Optional[str] = None
+    acting_for_own_account: bool = True
+    beneficial_owner_name: Optional[str] = None
+    source_of_wealth: Optional[str] = None
+    id_document_type: Optional[str] = None
+    id_document_number: Optional[str] = None
+    id_document_issuing_country: Optional[str] = None
+    id_document_expiry: Optional[str] = None
+    fatca_crs_self_certified: bool = False
+
+    @model_validator(mode="after")
+    def _validate_beneficial_owner(self):
+        # GwG Art. 4: handelt der Kunde fuer einen Dritten (wirtschaftlich
+        # Berechtigten), MUSS dessen Identitaet festgehalten werden. Anders
+        # als pep_details (optional, kann spaeter ergaenzt werden) ist das
+        # hier eine gesetzliche Pflichtangabe -- siehe Design-Vorgabe.
+        if not self.acting_for_own_account and not (self.beneficial_owner_name or "").strip():
+            raise ValueError(
+                "beneficial_owner_name ist Pflicht, wenn acting_for_own_account=False "
+                "(GwG Art. 4: wirtschaftlich Berechtigter muss festgehalten werden)"
+            )
+        return self
+
+
+class ClientDueDiligenceCreate(ClientDueDiligenceBase):
+    # DATA-CLASSIFICATION-GATE (Phase-0-Gate): identisches Muster wie
+    # NationalityCreate/OptHistoryCreate -- GwG-Sorgfaltspflichtdaten sind
+    # ebenso echte Personendaten.
+    data_classification: Literal["synthetic", "real"] = "synthetic"
+
+
+class ClientDueDiligenceUpdate(ClientDueDiligenceBase):
+    data_classification: Literal["synthetic", "real"] = "synthetic"
+
+
+class ClientDueDiligenceResponse(BaseResponse):
+    id: str
+    client_id: str
+    pep_status: int
+    pep_details: Optional[str]
+    acting_for_own_account: int
+    beneficial_owner_name: Optional[str]
+    source_of_wealth: Optional[str]
+    id_document_type: Optional[str]
+    id_document_number: Optional[str]
+    id_document_issuing_country: Optional[str]
+    id_document_expiry: Optional[str]
+    fatca_crs_self_certified: int
+    created_at: str
+    updated_at: str
+
+
+class ClientTaxResidencyCreate(BaseModel):
+    country_code: str
+    tax_id_number: Optional[str] = None
+    is_primary: bool = False
+    data_classification: Literal["synthetic", "real"] = "synthetic"
+
+
+class ClientTaxResidencyResponse(BaseResponse):
+    id: str
+    client_id: str
+    country_code: str
+    tax_id_number: Optional[str]
+    is_primary: int
+    created_at: str
+
+
 class WealthSummaryResponse(BaseModel):
     client_id: str
     client_name: str
