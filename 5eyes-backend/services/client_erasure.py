@@ -373,6 +373,22 @@ def erase_client_personal_data(db: Session, client_id: str, *, reason: str) -> d
     )
     _apply("client_opt_history", "client_id", [client_id], marker_columns=["notes"])
 
+    # --- KYC-01: GwG/FINMA-Sorgfaltspflicht-Erfassung + Steuerdomizile ---
+    # pep_status/acting_for_own_account/fatca_crs_self_certified (Booleans)
+    # und id_document_type bleiben erhalten -- sie tragen kein Re-
+    # Identifikationsrisiko (kein Freitext/keine Personendaten), analog
+    # dazu, dass is_active/Flags auf anderen Tabellen hier ebenfalls nie
+    # angefasst werden. Die direkt identifizierenden Freitextfelder werden
+    # genullt.
+    _apply(
+        "client_due_diligence", "client_id", [client_id],
+        null_columns=[
+            "pep_details", "beneficial_owner_name", "source_of_wealth",
+            "id_document_number",
+        ],
+    )
+    _apply("client_tax_residencies", "client_id", [client_id], null_columns=["tax_id_number"])
+
     # --- Mandat: redundante PII-Kopien + Bankverbindung ---
     if mandate_ids:
         _apply(
