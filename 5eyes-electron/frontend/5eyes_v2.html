@@ -2984,9 +2984,24 @@ function _wireSollIstHover(){
     <div id="page-rp" class="page">
       <div class="ph"><div><div class="ph-t">Risikoprofilierung (FINMA Eignungspruefung)</div><div class="ph-s">Risikofähigkeit &middot; Risikobereitschaft &middot; FINMA Eignungspruefung</div></div><div class="ph-r"><button class="btn-g" id="btn-save-riskprofile" onclick="saveRiskProfile()">Risikoprofil speichern</button><button class="btn-p" onclick="goFromRiskProfileToAllocation()">Asset Allokation →</button><details class="ph-more"><summary title="Weitere Risikoprofil-Optionen" aria-label="Weitere Risikoprofil-Optionen">⋯</summary><div class="ph-more-menu"><button class="btn" id="btn-rp-server-pdf" onclick="downloadServerPdf('risikoprofil');this.closest('details').removeAttribute('open')" title="Risikoprofil-PDF erstellen">PDF</button><button class="btn" id="btn-rp-react-editor" onclick="openProfilingEditor();this.closest('details').removeAttribute('open')" title="Risikoprofil-Editor (React, Beta) in neuem Browser-Tab">Editor (Beta)</button></div></details></div></div>
       <div class="pad">
+        <!-- CLASS-01 (2026-10-07, FIDLEG Art. 13 Abs. 3): Klassifikations-Hinweise.
+             Default (Privatkunde / keine Klassifikation) zeigt beide Banner NICHT,
+             damit sich am bestehenden Verhalten nichts aendert. -->
+        <div id="rp-institutional-banner" style="display:none;margin-bottom:12px;padding:12px 14px;border:1px solid var(--g4,#b58b2a);border-radius:var(--r2);background:var(--bg2,var(--bg))">
+          <div style="font-weight:700;font-size:11.5px;color:var(--n8);margin-bottom:4px">Institutioneller Kunde</div>
+          <div style="font-size:11px;color:var(--n6);line-height:1.5">Die Eignungspr&uuml;fung ist gem&auml;ss <strong>Art.&nbsp;13 Abs.&nbsp;3 FIDLEG</strong> f&uuml;r institutionelle Kunden nicht erforderlich &mdash; Sie k&ouml;nnen direkt zur Anlagestrategie wechseln, ohne den Fragebogen auszuf&uuml;llen. Falls Sie dennoch reale Zahlen (Einkommen/Verpflichtungen/Vermögen) f&uuml;r die Portfoliogr&ouml;sse erfassen m&ouml;chten, k&ouml;nnen Sie dies optional unten tun.</div>
+          <label style="display:inline-flex;align-items:center;gap:6px;margin-top:8px;font-size:11px;color:var(--n7);cursor:pointer">
+            <input type="checkbox" id="rp-institutional-voluntary-toggle" onchange="toggleInstitutionalVoluntaryQuestionnaire(this.checked)" style="width:14px;height:14px;cursor:pointer">
+            Trotzdem ein Risikoprofil erfassen
+          </label>
+        </div>
+        <div id="rp-professional-banner" style="display:none;margin-bottom:12px;padding:10px 14px;border:1px solid var(--b1);border-radius:var(--r2);background:var(--bg2,var(--bg))">
+          <div style="font-weight:700;font-size:11.5px;color:var(--n8);margin-bottom:4px">Professioneller Kunde</div>
+          <div style="font-size:11px;color:var(--n6);line-height:1.5">Kenntnisse/Erfahrung und Risikof&auml;higkeit werden gem&auml;ss <strong>Art.&nbsp;13 Abs.&nbsp;3 FIDLEG</strong> vermutet. Anlageziele und Risikobereitschaft sind weiterhin zu erheben.</div>
+        </div>
         <div class="g2">
                     <div>
-            <div class="card">
+            <div class="card" id="rp-questionnaire-card">
               <div class="chd">
                 <span class="cht">Fragebogen FINMA Eignungspruefung</span>
                 <span style="font-size:9px;color:var(--n4)">Antworten direkt anklicken</span>
@@ -3001,6 +3016,19 @@ function _wireSollIstHover(){
                 <!-- TAB 1: KENNTNISSE & ERFAHRUNGEN (Eignungspruefung Seite 1) -->
                 <!-- Rein dokumentarisch / Compliance - KEIN Einfluss auf Score -->
                 <div id="r-ke" class="rpanel active">
+
+                  <!-- CLASS-01 (2026-10-07): Fuer professionelle Kunden wird dieser rein
+                       dokumentarische Block (knowledge_services_json/knowledge_instruments_json
+                       -- fliesst NIE in compute_scores()/final_score_x10 ein) per Default
+                       kollabiert und kann per Quick-Confirm pauschal bestaetigt werden, statt
+                       zeilenweise abgeklickt zu werden (Art. 13 Abs. 3 FIDLEG: Vermutung). -->
+                  <div id="rp-ke-presumed-notice" style="display:none;margin-bottom:10px;padding:9px 11px;border:1px dashed var(--b1);border-radius:var(--r);background:var(--bg)">
+                    <div style="font-size:10.5px;color:var(--n6);line-height:1.5;margin-bottom:7px">Kenntnisse &amp; Erfahrung werden bei professionellen Kunden vermutet &mdash; ein zeilenweises Abfragen ist nicht zwingend erforderlich.</div>
+                    <button type="button" class="btn-g" style="font-size:10px;padding:5px 9px" onclick="confirmPresumedKnowledgeExperience()">Kenntnisse &amp; Erfahrung best&auml;tigen (vermutet)</button>
+                    <button type="button" class="btn" style="font-size:10px;padding:5px 9px;margin-left:6px" onclick="toggleKeManualDetails()">Details anzeigen / manuell erfassen</button>
+                    <div id="rp-ke-confirmed-hint" style="display:none;margin-top:6px;font-size:10px;color:var(--g4,#8a6d1f)">Als vermutet bestätigt (alle Zeilen auf &laquo;bekannt&raquo;/&laquo;aufgekl&auml;rt&raquo;).</div>
+                  </div>
+                  <div id="rp-ke-tables-wrap">
 
                   <!-- TABELLE 1: Finanzdienstleistungen -->
                   <div class="qsec">
@@ -3065,6 +3093,8 @@ function _wireSollIstHover(){
                       </div>
                     </div>
                   </div>
+
+                  </div><!-- /rp-ke-tables-wrap -->
 
                 </div>
 
@@ -5797,6 +5827,17 @@ async function loadClientById(clientId) {
       currentClientId = c.id;
       currentMandateId = null;
       currentMandateData = null;
+      // CLASS-01-Fix (2026-10-07): Klassifikations-Banner sofort aktualisieren, falls
+      // ein Klientenwechsel passiert während die Risikoprofil-Seite schon sichtbar ist.
+      // Der "Trotzdem erfassen"-Toggle ist Klient-spezifischer UI-State und wird bei
+      // jedem echten Klientenwechsel zurückgesetzt (sonst würde er faelschlich vom
+      // vorigen institutionellen Klienten "mitgenommen").
+      try{
+        _rpKeManuallyExpanded=false;
+        var _rpVolToggle=document.getElementById('rp-institutional-voluntary-toggle');
+        if(_rpVolToggle)_rpVolToggle.checked=false;
+        renderRiskProfileClassificationUI();
+      }catch(_rpClsErr){}
       currentGoals = [];
       _currentGoalsLoadedOnce = false;
       riskHorizonTouched = false;
@@ -6046,8 +6087,99 @@ async function initApp() {
 // ─── PRINT / PDF REPORT ───
 // NAV
 const pages={sd:0,vg:1,cf:2,ub:3,rp:4,al:5,po:6,rv:7};
+// ════════════════════════════════════════════════════════════
+// CLASS-01-Fix (2026-10-07): Risikoprofil-Maske — FIDLEG Art. 13 Abs. 3
+// Kundenklassifikations-Konsequenzen (Rubrik-1-Stammdaten-Audit).
+// Backend-Gegenstueck: services/suitability_audit.py (_mandate_requires_suitability,
+// 'institutional_client_exempt'). Diese Funktionen lesen NUR currentPersona
+// (das vom Backend GET /clients/{id} gelieferte Client-Objekt, Feld
+// client_classification: 'Privatkunde'|'Professioneller Kunde'|'Institutioneller
+// Kunde' + is_professional_opt_out) — es gibt keinen separaten Fetch.
+// Privatkunde/unset bleibt exakt wie vorher (beide Banner bleiben verborgen,
+// keine Logik-Aenderung).
+// ════════════════════════════════════════════════════════════
+function rpClientClassification(){
+  return (typeof currentPersona!=='undefined'&&currentPersona&&currentPersona.client_classification)
+    ? String(currentPersona.client_classification)
+    : 'Privatkunde';
+}
+function isInstitutionalClientExempt(){
+  return rpClientClassification()==='Institutioneller Kunde';
+}
+function isProfessionalClientPresumed(){
+  if(isInstitutionalClientExempt())return false;
+  if(rpClientClassification()==='Professioneller Kunde')return true;
+  // is_professional_opt_out: Privatkunde mit Opt-out-Erklaerung gilt rechtlich
+  // ebenfalls als professionell (FIDLEG Art. 5 Abs. 5) -> dieselbe Vermutung.
+  return !!(typeof currentPersona!=='undefined'&&currentPersona
+    &&Number(currentPersona.is_professional_opt_out||0)===1);
+}
+// Steuert Sichtbarkeit der Banner + ob der Fragebogen (Karte) für institutionelle
+// Kunden standardmaessig ausgeblendet bleibt + ob die Kenntnisse&Erfahrungen-
+// Tabellen (rein dokumentarisch, siehe models/profiling.py) fuer professionelle
+// Kunden kollabiert hinter dem Quick-Confirm stehen. Wird bei jeder Navigation
+// zur Risikoprofil-Seite (go('rp')) und sofort nach Laden eines neuen Klienten
+// aufgerufen — idempotent, harmlos falls die Risikoprofil-Seite nicht sichtbar ist.
+function renderRiskProfileClassificationUI(){
+  var institutional=isInstitutionalClientExempt();
+  var professional=isProfessionalClientPresumed();
+
+  var instBanner=document.getElementById('rp-institutional-banner');
+  if(instBanner)instBanner.style.display=institutional?'':'none';
+  var profBanner=document.getElementById('rp-professional-banner');
+  if(profBanner)profBanner.style.display=professional?'':'none';
+
+  var voluntaryToggle=document.getElementById('rp-institutional-voluntary-toggle');
+  if(!institutional&&voluntaryToggle)voluntaryToggle.checked=false;
+  var voluntary=!!(voluntaryToggle&&voluntaryToggle.checked);
+  var card=document.getElementById('rp-questionnaire-card');
+  if(card)card.style.display=(institutional&&!voluntary)?'none':'';
+
+  var keNotice=document.getElementById('rp-ke-presumed-notice');
+  if(keNotice)keNotice.style.display=professional?'':'none';
+  var keTablesWrap=document.getElementById('rp-ke-tables-wrap');
+  if(keTablesWrap&&!professional)keTablesWrap.style.display='';
+  else if(keTablesWrap&&professional&&!_rpKeManuallyExpanded)keTablesWrap.style.display='none';
+}
+// Trotzdem-erfassen-Toggle (institutioneller Kunde, Art. 13 Abs. 3 ist eine
+// Befreiung von der PFLICHT, kein Verbot freiwilliger Datenerfassung — siehe
+// Modul-Kommentar oben + CLASS-01-Fix in services/suitability_audit.py).
+function toggleInstitutionalVoluntaryQuestionnaire(checked){
+  var card=document.getElementById('rp-questionnaire-card');
+  if(card)card.style.display=checked?'':'none';
+}
+// Kollaps-Status der Kenntnisse&Erfahrungen-Detailtabellen (nur UI-State, nicht
+// persistiert — die Werte selbst bleiben in den Checkboxen, auch waehrend kollabiert).
+var _rpKeManuallyExpanded=false;
+function toggleKeManualDetails(){
+  _rpKeManuallyExpanded=!_rpKeManuallyExpanded;
+  var wrap=document.getElementById('rp-ke-tables-wrap');
+  if(wrap)wrap.style.display=_rpKeManuallyExpanded?'':'none';
+}
+// Quick-Confirm fuer professionelle Kunden: setzt ALLE Kenntnisse&Erfahrungen-
+// Checkboxen (Finanzdienstleistungen + Finanzinstrumente) pauschal auf "bekannt"/
+// "aufgeklaert" -- siehe models/profiling.py Kommentar fuer das erwartete JSON-
+// Format ({"Vermögensverwaltung":{"known":1,"informed":1},...}), das
+// collectRiskAssessmentUiState()/buildRiskAssessmentPayloadFromUI() unveraendert
+// aus genau diesen Checkbox-Zustaenden baut. Betrifft AUSSCHLIESSLICH die rein
+// dokumentarischen knowledge_services_json/knowledge_instruments_json-Felder —
+// NIE die Risikokapazitaets-/Risikobereitschafts-Punktefragen (unveraendert fuer
+// alle Klassifikationen, siehe Scope-Grenze CLASS-01).
+function confirmPresumedKnowledgeExperience(){
+  document.querySelectorAll('input.ke-svc,input.ke-ins').forEach(function(cb){ cb.checked=true; });
+  riskAssessmentUiDirty=true;
+  var hint=document.getElementById('rp-ke-confirmed-hint');
+  if(hint)hint.style.display='';
+}
+
 async function ensureRiskProfileBeforeAllocationNavigation(targetPage){
   if(targetPage!=='al')return true;
+  // CLASS-01-Fix (2026-10-07, FIDLEG Art. 13 Abs. 3): institutionelle Kunden sind von
+  // der Eignungspruefungspflicht vollstaendig befreit (siehe services/suitability_audit.py
+  // _mandate_requires_suitability -> 'institutional_client_exempt'). Die Navigations-Sperre
+  // zur Asset-Allokation darf fuer sie daher nie greifen, unabhaengig davon ob sie den
+  // Fragebogen freiwillig ausgefuellt haben oder nicht.
+  if(isInstitutionalClientExempt())return true;
   var riskState=null;
   try{
     riskState=await ensureStrategyReadyRiskForMandate(getActiveMandateId());
@@ -6103,6 +6235,7 @@ async function go(p,b){
     }
   },140);
   if(p==='rp'){
+    renderRiskProfileClassificationUI();
     setTimeout(function(){applyGoalDerivedRiskHorizon(false);},60);
     setTimeout(function(){if(typeof calcRiskScore==='function')calcRiskScore();},120);
     if(currentMandateId&&!isDemoMandateId(currentMandateId)){
@@ -16356,6 +16489,11 @@ async function ensureStrategyReadyRiskForMandate(mandateId){
 }
 
 async function goFromRiskProfileToAllocation(){
+  // CLASS-01-Fix (2026-10-07): siehe ensureRiskProfileBeforeAllocationNavigation() —
+  // institutionelle Kunden duerfen immer direkt weiter, der "Weiter"-Button auf dieser
+  // Seite ruft sonst ensureStrategyReadyRiskForMandate() VOR go('al') auf und wuerde die
+  // zentrale Sperre umgehend wieder einfuehren, wenn er hier nicht ebenfalls bypassed wird.
+  if(isInstitutionalClientExempt()){ go('al'); return; }
   var riskState=null;
   try{
     riskState=await ensureStrategyReadyRiskForMandate(getActiveMandateId());
