@@ -2104,6 +2104,11 @@ function arrMax(a){var m=-Infinity;for(var i=0;i<a.length;i++){var n=Number(a[i]
   </nav>
   <div class="tr">
     <span id="current-user-label" style="font-size:11px;color:var(--g3);margin-right:4px"></span>
+    <!-- AKTUALISIEREN-001 (2026-10-07, Nutzer-Feedback): aktualisiert NUR die
+         Daten der gerade aktiven Seite (siehe refreshCurrentMask() weiter
+         unten im Script-Bereich) -- kein voller App-Neustart noetig, z.B.
+         um neu archivierte Dokumente im Stammdaten-Archiv ohne Umwege zu sehen. -->
+    <button class="t-btn" id="btn-mask-refresh" onclick="refreshCurrentMask()" style="background:rgba(201,168,76,0.12);color:var(--g4);padding:5px 9px" title="Aktuelle Ansicht aktualisieren (ohne App-Neustart)" aria-label="Aktuelle Ansicht aktualisieren">&#8635;</button>
     <!-- Roadmap #74: Dark-Mode-Toggle. Icon + Persistenz siehe toggleTheme() weiter unten im Script-Bereich. -->
     <button class="t-btn" id="btn-theme-toggle" onclick="toggleTheme()" style="background:rgba(201,168,76,0.12);color:var(--g4);padding:5px 9px" title="Dark Mode umschalten" aria-label="Dark Mode umschalten">&#9789;</button>
     <!-- HUD-Polish (2026-08-02): Wealthmanagement/Consulting-"Maske". Logik
@@ -6093,6 +6098,18 @@ async function go(p,b){
     s.setAttribute('aria-selected',stepIdx===idx?'true':'false');
   });
   setTimeout(initCharts,80);
+  // AKTUALISIEREN-001 (2026-10-07): das Stammdaten-Dokumentenarchiv
+  // (renderStammdatenDocumentArchive) haengt am State von refreshReviewUI(),
+  // das sonst nur beim Besuch der Review-Seite laeuft -- ohne diesen Block
+  // zeigte Stammdaten frisch archivierte Dokumente (z.B. nach automatischer
+  // Archivierung beim Speichern, siehe ARCHIV-AUTOSAVE-001) erst nach einem
+  // Umweg ueber Review, nicht beim direkten Besuch/Aktualisieren von Stammdaten.
+  if(p==='sd'&&currentMandateId&&!isDemoMandateId(currentMandateId)){
+    var sdMid=currentMandateId;
+    setTimeout(function(){
+      refreshReviewUI(sdMid).catch(function(e){console.warn('Stammdaten-Dokumentenarchiv-Refresh:',e);});
+    },60);
+  }
   if(p==='cf')setTimeout(function(){updateCfRiskContextSummary();},60);
   if(p==='cf')setTimeout(function(){
     if(strategyState&&strategyState.allocation&&!strategyState.dirty){
@@ -16272,6 +16289,10 @@ async function saveRiskProfile() {
       }
       clearRiskSaveFeedback();
       markStrategyDirty('Risikoprofil gespeichert: Strategie neu berechnen.', true);
+      // ARCHIV-AUTOSAVE-001: Speichern legt jetzt automatisch auch die
+      // archivierte PDF-Version an (siehe _silentlyArchiveServerPdf oben) --
+      // fire-and-forget, blockiert den bereits erfolgreichen Save nicht.
+      _silentlyArchiveServerPdf('risikoprofil');
       return true;
     } catch(e) {
       var errMsg = parseApiError(e, 'Risikoprofil konnte nicht gespeichert werden.');
@@ -18681,6 +18702,28 @@ function bindAllocationPreferenceControls(){
 function activePageKey(){
   var active=document.querySelector('.page.active');
   return active?String(active.id||'').replace('page-',''):'sd';
+}
+// AKTUALISIEREN-001 (2026-10-07, Nutzer-Feedback): "nur die Maske aktualisieren,
+// nicht die ganze Software". go(p) fuehrt bei Navigation bereits pro Seite
+// passende Nachlade-Schritte aus (rp/al/po/rv/cf, siehe go() weiter unten) --
+// ein erneuter Aufruf auf die bereits aktive Seite re-triggert exakt dieselben
+// Schritte, ohne die App neu zu laden. 'sd' hat in go() KEINEN eigenen Nachlade-
+// Block (das Dokumenten-Archiv dort haengt an refreshReviewUI(), das sonst nur
+// beim Besuch der Review-Seite laeuft) -- deshalb hier gezielt ergaenzt, sowohl
+// fuer den Button als auch fuer normale go('sd')-Navigation (siehe dort).
+async function refreshCurrentMask(){
+  var btn=document.getElementById('btn-mask-refresh');
+  if(btn){btn.disabled=true;btn.style.opacity='0.55';}
+  try{
+    var p=activePageKey();
+    await go(p);
+    try{if(window.showAppSuccess)showAppSuccess('Ansicht aktualisiert.');}catch(_e){}
+  }catch(e){
+    console.warn('refreshCurrentMask failed:',e);
+    try{if(window.showAppError)showAppError('Aktualisieren fehlgeschlagen: '+String((e&&(e.detail||e.message))||e||'?').slice(0,160));}catch(_e){}
+  }finally{
+    if(btn){btn.disabled=false;btn.style.opacity='';}
+  }
 }
 function setText(id,text){
   var el=document.getElementById(id);
@@ -21918,6 +21961,14 @@ async function refreshStrategyData(force,includeRecommendation,retriedAfterBandR
         return false;
       }
     }
+    // ARCHIV-AUTOSAVE-001 (2026-10-07): analog saveRiskProfile() -- eine
+    // erfolgreich berechnete Strategie landete bisher nur dann im Dokumenten-
+    // Archiv, wenn der Berater zusaetzlich den separaten, versteckten "PDF"-
+    // Button fuer Anlagestrategie fand und klickte. Fire-and-forget, blockiert
+    // die bereits erfolgreiche Berechnung nicht; archive_generated_pdf()s
+    // eigener Content-Hash-Vergleich verhindert Doppel-Eintraege, wenn sich
+    // die Allokation seit der letzten archivierten Version nicht aendert.
+    _silentlyArchiveServerPdf('anlagestrategie');
     if(strategyState.deferVisualApply){
       strategyState.pendingAllocation=allocationResult;
       strategyState.pendingRecommendation=recommendationResult;
@@ -22023,6 +22074,36 @@ function _pdfBtnLoading(btn, on, label){
     btn.classList.remove('is-loading');
     btn.removeAttribute('aria-busy');
     try { delete btn.dataset.pdfLoadingOrig; delete btn.dataset.pdfLoadingOrigDis; } catch(e){}
+  }
+}
+
+// ARCHIV-AUTOSAVE-001 (2026-10-07, Nutzer-Feedback): "Risikoprofil
+// speichern" (saveRiskProfile, POST .../risk-assessments) sichert nur die
+// Rohdaten -- das Dokumenten-Archiv (Stammdaten) wird ausschliesslich vom
+// SEPARATEN, in einem "weitere Optionen"-Menue versteckten "PDF"-Button
+// befuellt (downloadServerPdf -> GET .../reports/{type}.pdf, das
+// serverseitig via services/document_archive.py::archive_generated_pdf()
+// archiviert). Fuer den Nutzer sind "Speichern" und "im Archiv ablegen"
+// dadurch zwei unabhaengige, aber gleich aussehende Schritte -- ein Save
+// ohne den zusaetzlichen PDF-Klick taucht im Archiv nie auf.
+// Dieser Helper repliziert exakt denselben GET-Request wie downloadServerPdf,
+// OHNE den Browser-Download/-Blob-Teil: der einzige gewollte Seiteneffekt
+// ist archive_generated_pdf() auf dem Server. Bewusst fire-and-forget und
+// nicht-blockierend -- ein Archivierungsfehler darf den eigentlichen
+// Speichervorgang (die fachlich entscheidende Aktion) nicht verhindern
+// oder dessen Erfolgsmeldung verzoegern/verfaelschen.
+async function _silentlyArchiveServerPdf(reportType){
+  var mid=getActiveMandateId();
+  if(!mid||(typeof isDemoMandateId==='function'&&isDemoMandateId(mid)))return;
+  try{
+    var token=await API.getToken();
+    var headers={};
+    if(token)headers['Authorization']='Bearer '+token;
+    var base=await API.baseUrl();
+    var path='/mandates/'+encodeURIComponent(mid)+'/reports/'+reportType+'.pdf';
+    await fetch(base+path,{headers:headers});
+  }catch(e){
+    console.warn('ARCHIV-AUTOSAVE-001: silent post-save archiving failed (non-blocking):',reportType,e);
   }
 }
 
