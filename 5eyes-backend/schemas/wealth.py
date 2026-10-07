@@ -157,16 +157,31 @@ class WealthPositionCreate(BaseModel):
         le=100_000,
         strict=True,
     )
-    asset_liquidity: Optional[str] = None
-    asset_valuation_method: Optional[str] = None
+    # SCHEMA-ENUM-HARDENING-001 (Audit-Finding, 2026-10-07): asset_liquidity/
+    # asset_valuation_method/liquidity_instrument/goal_funding_method hatten
+    # je ein DB-CHECK (5eyes_schema_v4.0_FINAL.sql) aber WAREN hier Freitext --
+    # exakt dieselbe 500-statt-422-Luecke, die A3-Pilot (2026-08-17) bereits
+    # fuer pension_type/mortgage_type/property_usage geschlossen hat. Werte
+    # 1:1 aus dem jeweiligen DB-CHECK uebernommen.
+    asset_liquidity: Optional[Literal[
+        "Liquide (< 30 Tage)", "Eingeschränkt (30–180 Tage)",
+        "Illiquid (> 180 Tage)", "Gebunden"
+    ]] = None
+    asset_valuation_method: Optional[Literal[
+        "Selbstschätzung", "Fachgutachten", "Versicherungswert", "Marktpreis", "PK-Ausweis"
+    ]] = None
     asset_location: Optional[str] = None
     # Liquidität
-    liquidity_instrument: Optional[str] = None
+    liquidity_instrument: Optional[Literal[
+        "Kontoguthaben", "Sparkonto", "Festgeld", "Kassenobligation", "Geldmarktfonds"
+    ]] = None
     liquidity_interest_rate_bps: Optional[int] = None
     liquidity_available_from: Optional[str] = None
     # Goal Funding
     is_available_for_goal_funding: bool = False
-    goal_funding_method: Optional[str] = None
+    goal_funding_method: Optional[Literal[
+        "Verkauf", "Belehnung", "Ignorieren", "Automatisch"
+    ]] = None
     notes: Optional[str] = None
     # Phase-0-Datenklassifizierungs-Sperre (services/data_classification.py):
     # bislang FEHLTE dieses Feld auf WealthPositionCreate/-Update -> Pydantic
@@ -254,7 +269,13 @@ class WealthPositionUpdate(BaseModel):
     ]] = None
     property_rental_income_rappen: Optional[int] = Field(default=None, ge=0, le=10_000_000_000_000)
     property_rental_inflation_linked: Optional[int] = Field(default=None, ge=0, le=1)
-    pension_type: Optional[str] = None
+    # SCHEMA-ENUM-HARDENING-001 (Audit-Finding, 2026-10-07): an WealthPosition
+    # Create angeglichen (dort schon als Literal gehaertet, Bugfix A3-Pilot
+    # 2026-08-17, Begruendung siehe dort) -- Update erlaubte bisher jeden
+    # String und crashte erst beim db.commit() mit 500 statt 422.
+    pension_type: Optional[Literal[
+        "BVG", "Säule 3a", "Freizügigkeit", "Säule 3b", "Lebensversicherung"
+    ]] = None
     pension_institution: Optional[str] = None
     # PENSION-POSITION-001 Option A (2026-09-15): siehe WealthPositionCreate
     # oben fuer Begruendung der Bounds/Werte -- identisch gehalten fuer Update.
@@ -265,13 +286,21 @@ class WealthPositionUpdate(BaseModel):
     ]] = None
     pension_wef_possible: Optional[bool] = None
     mortgage_bank: Optional[str] = None
-    mortgage_type: Optional[str] = None
+    # SCHEMA-ENUM-HARDENING-001 (Audit-Finding, 2026-10-07): siehe pension_type
+    # oben -- dieselbe A3-Pilot-Haertung, bisher nur auf Create angewendet.
+    mortgage_type: Optional[Literal[
+        "Festhypothek", "SARON", "Gemischt"
+    ]] = None
     # MORTGAGE-TERMS-001 (Audit 2026-09-14): siehe WealthPositionCreate oben
     # fuer Begruendung -- identisch gehalten fuer Update.
     mortgage_interest_rate_bps: Optional[int] = Field(default=None, ge=0, le=10_000)
     mortgage_maturity_date: Optional[str] = None
     mortgage_amortization_rappen: Optional[int] = Field(default=None, ge=0, le=10_000_000_000_000)
-    mortgage_amortization_type: Optional[str] = None
+    # SCHEMA-ENUM-HARDENING-001: dieselbe Luecke wie pension_type/mortgage_type
+    # oben, hier zusaetzlich zur bereits gehaerteten Create-Seite gefunden.
+    mortgage_amortization_type: Optional[Literal[
+        "Direkt", "Indirekt (Säule 3a)", "Keine"
+    ]] = None
     mortgage_linked_property_id: Optional[str] = None
     asset_subtype: Optional[str] = None
     asset_expected_return_bps: Optional[int] = Field(
@@ -280,14 +309,23 @@ class WealthPositionUpdate(BaseModel):
         le=100_000,
         strict=True,
     )
-    asset_liquidity: Optional[str] = None
-    asset_valuation_method: Optional[str] = None
+    asset_liquidity: Optional[Literal[
+        "Liquide (< 30 Tage)", "Eingeschränkt (30–180 Tage)",
+        "Illiquid (> 180 Tage)", "Gebunden"
+    ]] = None
+    asset_valuation_method: Optional[Literal[
+        "Selbstschätzung", "Fachgutachten", "Versicherungswert", "Marktpreis", "PK-Ausweis"
+    ]] = None
     asset_location: Optional[str] = None
-    liquidity_instrument: Optional[str] = None
+    liquidity_instrument: Optional[Literal[
+        "Kontoguthaben", "Sparkonto", "Festgeld", "Kassenobligation", "Geldmarktfonds"
+    ]] = None
     liquidity_interest_rate_bps: Optional[int] = None
     liquidity_available_from: Optional[str] = None
     is_available_for_goal_funding: Optional[bool] = None
-    goal_funding_method: Optional[str] = None
+    goal_funding_method: Optional[Literal[
+        "Verkauf", "Belehnung", "Ignorieren", "Automatisch"
+    ]] = None
     notes: Optional[str] = None
     is_active: Optional[bool] = None
     data_classification: Optional[Literal["synthetic", "real"]] = None
