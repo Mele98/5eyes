@@ -268,6 +268,10 @@ PROTECTED_REPORT_SECTIONS = frozenset({
     # hidden_report_sections versteckt werden -- sonst liesse sich genau die
     # Compliance-Warnung wegkonfigurieren, die dieses Feld herstellen soll.
     "provisional_data_warning",
+    # TAX-01 (Audit-Finding, 2026-10-07): analoger Schutz -- der Steuersitz-
+    # Abgleichs-Hinweis darf nicht per hidden_report_sections wegkonfiguriert
+    # werden koennen.
+    "tax_domicile_mismatch_warning",
 })
 
 
@@ -342,6 +346,12 @@ def _compute_advisory_report_inner(
         # -- None fuer CH bzw. bereits IC-freigegebene Nicht-CH-CMA, sonst
         # {jurisdiction, cma_status, message}.
         "provisional_data_warning": provisional_data_warning,
+        # TAX-01 (Audit-Finding, 2026-10-07): wie provisional_data_warning ein
+        # immer verfuegbares, nicht-blockierendes Top-Level-Feld (NIE ueber
+        # hidden_report_sections ausblendbar, siehe PROTECTED_REPORT_SECTIONS)
+        # -- None wenn kein Abgleichs-Mismatch bzw. tax_jurisdiction NULL
+        # (steuer-naiv), sonst ein Hinweistext.
+        "tax_domicile_mismatch_warning": _build_tax_domicile_mismatch_warning(client, mandate),
         # --- Sektion 1
         "cover": _build_cover(mandate, client, advisor, generated_at),
         # --- Sektion 2
@@ -664,6 +674,38 @@ def _build_ausgangslage(
         "wealth_summary": wealth_summary,
         "key_metrics": key_metrics,
     }
+
+
+def _build_tax_domicile_mismatch_warning(client: Client, mandate: Mandate) -> str | None:
+    """TAX-01 (Audit-Finding, 2026-10-07): advisory-only Abgleich zwischen
+    Client.country_of_residence (im Report als "Steuerdomizil" angezeigt,
+    siehe _build_ausgangslage) und Mandate.tax_jurisdiction (vom
+    steuer-bewussten Monte-Carlo-/Cashflow-Pfad unabhaengig genutzt, siehe
+    services/tax/registry.py + services.wealth_cashflows.derive_tax_cashflow).
+    Bisher existierte KEIN Abgleich: zieht ein Kunde um, aktualisiert sich
+    das im Report angezeigte Steuerdomizil sofort, waehrend die
+    Projektions-Engine die alte tax_jurisdiction unveraendert weiterverwendet,
+    bis ein Berater sie manuell nachzieht.
+
+    Rein informativ/nicht-blockierend -- tax_jurisdiction bleibt bewusst
+    advisor-gesteuert und wird hier NIE automatisch angepasst. NULL/leere
+    tax_jurisdiction bedeutet "steuer-naiv" (Backwards-Compat) -- der Check
+    wird dann uebersprungen (kein Mismatch moeglich/sinnvoll).
+    tax_jurisdiction kann kantonal sein (z.B. "CH-ZH") -- es wird nur der
+    Laender-Praefix (Teil vor dem ersten "-") verglichen.
+    """
+    residence = str(getattr(client, "country_of_residence", "") or "").strip().upper()
+    jurisdiction_raw = str(getattr(mandate, "tax_jurisdiction", "") or "").strip().upper()
+    if not residence or not jurisdiction_raw:
+        return None
+    jurisdiction_country = jurisdiction_raw.split("-", 1)[0]
+    if not jurisdiction_country or jurisdiction_country == residence:
+        return None
+    return (
+        f"Steuersitz-Hinweis: Client-Wohnsitz ({residence}) weicht vom "
+        f"hinterlegten Steuerjurisdiktions-Code des Mandats ({jurisdiction_raw}) "
+        "ab -- bitte pruefen."
+    )
 
 
 def _build_wealth_summary(

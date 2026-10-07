@@ -136,6 +136,9 @@ def test_compute_returns_expected_top_level_structure(session_factory):
         # Bugfix 2026-09-27 (PROVISORIK-WARNBANNER-JSON-001): ebenfalls
         # immer verfuegbares Top-Level-Feld, siehe PROTECTED_REPORT_SECTIONS.
         "provisional_data_warning",
+        # TAX-01 (Audit-Finding, 2026-10-07): ebenfalls immer verfuegbares
+        # Top-Level-Feld, siehe PROTECTED_REPORT_SECTIONS.
+        "tax_domicile_mismatch_warning",
         "cover", "disclaimer", "inhaltsverzeichnis", "ausgangslage",
         "positionen", "pruefpunkte", "erkenntnisse",
         "asset_allocation", "risikowaehrungen", "branchen",
@@ -1600,6 +1603,9 @@ def test_endpoint_returns_full_report_structure(session_factory):
         # Bugfix 2026-09-27 (PROVISORIK-WARNBANNER-JSON-001): ebenfalls
         # immer verfuegbares Top-Level-Feld, siehe PROTECTED_REPORT_SECTIONS.
         "provisional_data_warning",
+        # TAX-01 (Audit-Finding, 2026-10-07): ebenfalls immer verfuegbares
+        # Top-Level-Feld, siehe PROTECTED_REPORT_SECTIONS.
+        "tax_domicile_mismatch_warning",
         "cover", "disclaimer", "inhaltsverzeichnis", "ausgangslage",
         "positionen", "pruefpunkte", "erkenntnisse",
         "asset_allocation", "risikowaehrungen", "branchen",
