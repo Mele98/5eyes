@@ -193,17 +193,34 @@ def _target_allocation_bands(ta_obj) -> dict[str, tuple[int, int]]:
 
 def _advisory_wealth_positions(mandate: Mandate, db: Session) -> tuple[list[dict], dict[str, int], int]:
     from models.wealth import WealthPosition
+    from services.currency.converter import convert_rappen
+    from services.wealth_position_semantics import canonical_assignment
 
+    # FX-DRIFT-001 (Audit-Finding, 2026-10-07): diese Beratungsvermoegen-Tabelle
+    # las current_value_rappen bisher roh, ohne JEDE FX-Konvertierung, obwohl
+    # sie in eine Spalte "Betrag ({base_currency})" gerendert wird -- das genaue
+    # Gegenteil des bereits 2026-08-07 gefixten Doppel-FX-Bugs (jener konvertierte
+    # zu VIEL, dieser gar nicht). Seit BASE-CURRENCY-HARDCODED-001 (2026-09-27)
+    # koennen Mandate eine Nicht-CHF-base_currency haben, wodurch Positionen in
+    # Fremdwaehrung real vorkommen. convert_rappen() nutzt ohne explizite
+    # `source` die bereits von _build_pdf_context() aktivierte Request-FX-Quelle
+    # (set_active_fx_source) -- kein zusaetzlicher DB-Query noetig.
+    target_currency = str(getattr(mandate, "base_currency", "CHF") or "CHF").upper()
     rows = (
         db.query(WealthPosition)
         .filter(
             WealthPosition.client_id == mandate.client_id,
             WealthPosition.is_active == 1,
             WealthPosition.deleted_at.is_(None),
-            WealthPosition.assignment == "Beratungsvermögen",
         )
         .all()
     )
+    # P2-3 (Audit-Finding, 2026-10-07): exaktes String-Match umging die
+    # Legacy-Alias-Normalisierung (canonical_assignment), die
+    # portfolio_engine.py fuer denselben Vergleich anwendet -- eine Position
+    # mit einem fruehen Legacy-Label (z.B. "Beratungsvermoegen" ohne Umlaut)
+    # haette hier gefehlt, obwohl die SAA-Engine sie korrekt zuordnet.
+    rows = [row for row in rows if canonical_assignment(getattr(row, "assignment", None)) == "Beratungsvermögen"]
     split_fields = {
         "equities": ("alloc_equities_bps", "Aktien"),
         "bonds": ("alloc_bonds_bps", "Obligationen"),
@@ -215,7 +232,8 @@ def _advisory_wealth_positions(mandate: Mandate, db: Session) -> tuple[list[dict
     current_amounts = {bucket: 0 for bucket in split_fields}
     total = 0
     for row in rows:
-        value = int(getattr(row, "current_value_rappen", 0) or 0)
+        raw_value = int(getattr(row, "current_value_rappen", 0) or 0)
+        value = int(round(convert_rappen(raw_value, str(getattr(row, "currency", "") or "CHF"), target_currency)))
         if value <= 0:
             continue
         total += value
@@ -245,6 +263,50 @@ def _advisory_wealth_positions(mandate: Mandate, db: Session) -> tuple[list[dict
         for bucket, amount in current_amounts.items()
     }
     return positions, current_bps, total
+
+
+def _other_wealth_positions(mandate: Mandate, db: Session) -> list[dict]:
+    """Nicht-Beratungsvermoegen-Positionen fuer die Anlagestrategie-PDF's
+    "Anderes Vermoegen"-Tabelle. Analoges FX-DRIFT-001/P2-3-Fix wie
+    _advisory_wealth_positions() oben (siehe deren Docstring) -- als eigene
+    Funktion extrahiert (statt inline in _build_anlagestrategie_data), damit
+    sie direkt unit-testbar ist, ohne die volle Strategie-Decision-Anchor-
+    Pipeline (TargetAllocation/CMA/RiskAssessment) mitzuseeden."""
+    from models.wealth import WealthPosition
+    from services.currency.converter import convert_rappen
+    from services.wealth_position_semantics import canonical_assignment
+
+    other_wealth_positions: list[dict] = []
+    client_id = getattr(mandate, "client_id", None)
+    if not client_id:
+        return other_wealth_positions
+    target_currency = str(getattr(mandate, "base_currency", "CHF") or "CHF").upper()
+    rows = (
+        db.query(WealthPosition)
+        .filter(
+            WealthPosition.client_id == client_id,
+            WealthPosition.is_active == 1,
+            WealthPosition.deleted_at.is_(None),
+        )
+        .all()
+    )
+    rows = [
+        wp for wp in rows
+        if canonical_assignment(getattr(wp, "assignment", None)) != "Beratungsvermögen"
+    ]
+    for wp in rows:
+        raw_amt = int(getattr(wp, "current_value_rappen", 0) or 0)
+        amt = int(round(convert_rappen(
+            raw_amt, str(getattr(wp, "currency", "") or "CHF"), target_currency,
+        )))
+        if amt == 0:
+            continue
+        other_wealth_positions.append({
+            "label": str(getattr(wp, "label", "—") or "—"),
+            "amount_rappen": amt,
+            "kind": str(getattr(wp, "position_type", "") or ""),
+        })
+    return other_wealth_positions
 
 
 def _latest_target_allocation(mandate: Mandate, db: Session):
@@ -537,28 +599,7 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
     # ---- Other Wealth (NICHT-Beratungsvermoegen) ----
     other_wealth_positions: list = []
     try:
-        from models.wealth import WealthPosition
-        client_id = getattr(mandate, "client_id", None)
-        if client_id:
-            other_q = (
-                db.query(WealthPosition)
-                .filter(
-                    WealthPosition.client_id == client_id,
-                    WealthPosition.is_active == 1,
-                    WealthPosition.deleted_at.is_(None),
-                    WealthPosition.assignment != "Beratungsvermögen",
-                )
-                .all()
-            )
-            for wp in other_q:
-                amt = int(getattr(wp, "current_value_rappen", 0) or 0)
-                if amt == 0:
-                    continue
-                other_wealth_positions.append({
-                    "label": str(getattr(wp, "label", "—") or "—"),
-                    "amount_rappen": amt,
-                    "kind": str(getattr(wp, "position_type", "") or ""),
-                })
+        other_wealth_positions = _other_wealth_positions(mandate, db)
     except Exception as exc:
         logger.warning(
             "PDF data-load other_wealth failed for mandate %s: %s",

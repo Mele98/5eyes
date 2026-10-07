@@ -238,3 +238,126 @@ def test_db_check_constraint_really_rejects_invalid_pension_type_when_bypassing_
                 updated_at=_utc_now_iso(),
             ))
             session.commit()
+
+
+# ---------------------------------------------------------------------------
+# 3. SCHEMA-ENUM-HARDENING-001 (Audit-Finding, 2026-10-07): dieselbe Luecke
+#    existierte auf dem UPDATE-Pfad (PUT) fuer pension_type/mortgage_type/
+#    mortgage_amortization_type (Create schon seit A3-Pilot 2026-08-17
+#    gehaertet, Update nicht) UND fuer vier weitere Felder mit DB-CHECK, die
+#    auf BEIDEN Seiten (Create+Update) noch nie als Literal typisiert waren:
+#    asset_liquidity, asset_valuation_method, liquidity_instrument,
+#    goal_funding_method.
+# ---------------------------------------------------------------------------
+
+
+def _create_wealth_position(auth_client: TestClient, client_id: str, payload: dict) -> str:
+    response = auth_client.post(f"/clients/{client_id}/wealth-positions", json=payload)
+    assert response.status_code == 201, response.text
+    return response.json()["id"]
+
+
+@pytest.mark.parametrize(
+    "field,invalid_value,seed_payload",
+    [
+        (
+            "pension_type", "3a",
+            {"label": "Vorsorgekonto", "position_type": "Vorsorge", "current_value_rappen": 5_000_000},
+        ),
+        (
+            "mortgage_type", "Hypothek-Fix",
+            {"label": "Hypothek", "position_type": "Hypothek", "assignment": "Verbindlichkeit",
+             "current_value_rappen": 78_000_000},
+        ),
+        (
+            "mortgage_amortization_type", "Indirekt",
+            {"label": "Hypothek", "position_type": "Hypothek", "assignment": "Verbindlichkeit",
+             "current_value_rappen": 78_000_000},
+        ),
+        (
+            "asset_liquidity", "Sofort verfuegbar",
+            {"label": "PE-Beteiligung", "position_type": "Alternative", "current_value_rappen": 10_000_000},
+        ),
+        (
+            "asset_valuation_method", "Schaetzung",
+            {"label": "PE-Beteiligung", "position_type": "Alternative", "current_value_rappen": 10_000_000},
+        ),
+        (
+            "liquidity_instrument", "Bargeld",
+            {"label": "Sparkonto", "position_type": "Liquidität", "current_value_rappen": 2_000_000},
+        ),
+        (
+            "goal_funding_method", "Teilverkauf",
+            {"label": "PE-Beteiligung", "position_type": "Alternative", "current_value_rappen": 10_000_000},
+        ),
+    ],
+)
+def test_invalid_enum_value_on_update_returns_422_not_500(
+    auth_client, advisor_user, field, invalid_value, seed_payload,
+):
+    """Bisher: ein ungueltiger Wert bei PUT fuer eines dieser sechs Felder
+    passierte Pydantic unbeanstandet und crashte erst beim db.commit() mit
+    einer unbehandelten IntegrityError (500). Jetzt: saubere 422."""
+    client_id = _create_client(auth_client, advisor_user, f"WP-ENUM-UPD-{field}")
+    wp_id = _create_wealth_position(auth_client, client_id, seed_payload)
+
+    response = auth_client.put(
+        f"/clients/{client_id}/wealth-positions/{wp_id}",
+        json={field: invalid_value},
+    )
+
+    assert response.status_code == 422, response.text
+    detail_text = str(response.json().get("detail"))
+    assert field in detail_text
+
+
+@pytest.mark.parametrize(
+    "field,valid_value,seed_payload",
+    [
+        (
+            "pension_type", "Freizügigkeit",
+            {"label": "Vorsorgekonto", "position_type": "Vorsorge", "current_value_rappen": 5_000_000},
+        ),
+        (
+            "mortgage_type", "Gemischt",
+            {"label": "Hypothek", "position_type": "Hypothek", "assignment": "Verbindlichkeit",
+             "current_value_rappen": 78_000_000},
+        ),
+        (
+            "mortgage_amortization_type", "Direkt",
+            {"label": "Hypothek", "position_type": "Hypothek", "assignment": "Verbindlichkeit",
+             "current_value_rappen": 78_000_000},
+        ),
+        (
+            "asset_liquidity", "Illiquid (> 180 Tage)",
+            {"label": "PE-Beteiligung", "position_type": "Alternative", "current_value_rappen": 10_000_000},
+        ),
+        (
+            "asset_valuation_method", "Fachgutachten",
+            {"label": "PE-Beteiligung", "position_type": "Alternative", "current_value_rappen": 10_000_000},
+        ),
+        (
+            "liquidity_instrument", "Festgeld",
+            {"label": "Sparkonto", "position_type": "Liquidität", "current_value_rappen": 2_000_000},
+        ),
+        (
+            "goal_funding_method", "Belehnung",
+            {"label": "PE-Beteiligung", "position_type": "Alternative", "current_value_rappen": 10_000_000},
+        ),
+    ],
+)
+def test_valid_enum_value_on_update_still_accepted(
+    auth_client, advisor_user, field, valid_value, seed_payload,
+):
+    """Regressionsschutz: die tatsaechlich erlaubten Werte duerfen NICHT
+    durch die Verschaerfung mit-abgelehnt werden -- auch auf dem Update-Pfad."""
+    client_id = _create_client(auth_client, advisor_user, f"WP-ENUM-UPD-OK-{field}")
+    wp_id = _create_wealth_position(auth_client, client_id, seed_payload)
+
+    response = auth_client.put(
+        f"/clients/{client_id}/wealth-positions/{wp_id}",
+        json={field: valid_value},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()[field] == valid_value

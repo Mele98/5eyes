@@ -23992,12 +23992,26 @@ function buildWealthPositionPayload(cat,typ,note){
   if(posType==='Depot'&&tot>0&&Math.abs(tot-100)>0.5){
     throw new Error('Allokation muss 100% ergeben (aktuell: '+Math.round(tot)+'%). Bitte auf 100% aufteilen oder alle Felder auf 0 lassen (dann wird automatisch 60% Aktien / 25% Obligationen angenommen).');
   }
+  // CURRENCY-CLOBBER-001 (Audit-Finding, 2026-10-07): war fest auf 'CHF'
+  // verdrahtet und ueberschrieb damit bei JEDEM Speichern (auch beim
+  // Bearbeiten!) die currency einer bestehenden Position -- seit
+  // BASE-CURRENCY-HARDCODED-001 (2026-09-27) kann mandate.base_currency frei
+  // gewaehlt werden, wodurch dieser Fall real vorkommt. Es gibt (noch) kein
+  // UI-Feld zur Waehrungswahl in dieser Maske -- Minimalfix: neue Positionen
+  // erhalten die Mandats-Basiswaehrung statt hart CHF, bestehende Positionen
+  // behalten beim Bearbeiten ihre eigene currency statt sie zu verlieren.
+  var existingWealthPos=currentWealthEditId
+    ?currentWealthPositions.find(function(item){return item&&String(item.id||'')===String(currentWealthEditId);})
+    :null;
+  var payloadCurrency=(existingWealthPos&&existingWealthPos.currency)
+    ||(currentMandateData&&currentMandateData.base_currency)
+    ||'CHF';
   var payload={
     label:'',
     position_type:posType,
     assignment:assignment,
     current_value_rappen:0,
-    currency:'CHF',
+    currency:payloadCurrency,
     notes:null,
     alloc_equities_bps:Math.round(akt*100),
     alloc_bonds_bps:Math.round(obl*100),
