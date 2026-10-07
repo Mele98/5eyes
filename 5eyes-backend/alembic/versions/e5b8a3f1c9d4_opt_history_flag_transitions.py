@@ -11,15 +11,13 @@ untouched (a pure reclassification without a flag change, or vice versa,
 both remain valid).
 
 Revision ID: e5b8a3f1c9d4
-Revises: a1c5e7f92b46
+Revises: d1a9c4b7e2f6
 Create Date: 2026-10-07
 
-Note: chains onto a1c5e7f92b46, the current develop head at the time this
-was written. PR #543 (KYC-01, revision d1a9c4b7e2f6) was opened against
-the SAME head concurrently in the same session -- whichever of the two
-PRs merges second must rebase its down_revision onto the other's revision
-id before merging, to keep a single linear Alembic chain (a routine,
-single-line fix; Alembic would otherwise see two heads).
+Note: originally chained onto a1c5e7f92b46 (the develop head at time of
+writing). PR #543 (KYC-01, revision d1a9c4b7e2f6) merged first -- rebased
+down_revision onto it to keep a single linear Alembic chain (Alembic would
+otherwise see two heads for a1c5e7f92b46).
 """
 from typing import Sequence, Union
 
@@ -28,7 +26,7 @@ import sqlalchemy as sa
 
 
 revision: str = "e5b8a3f1c9d4"
-down_revision: Union[str, Sequence[str], None] = "a1c5e7f92b46"
+down_revision: Union[str, Sequence[str], None] = "d1a9c4b7e2f6"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
