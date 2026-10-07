@@ -1,4 +1,5 @@
-from pydantic import BaseModel, model_validator
+from datetime import date as _date
+from pydantic import BaseModel, field_validator, model_validator
 from typing import Optional, Literal
 from schemas.common import BaseResponse
 
@@ -11,6 +12,63 @@ from schemas.common import BaseResponse
 ClientClassification = Literal[
     "Privatkunde", "Professioneller Kunde", "Institutioneller Kunde"
 ]
+
+# VALID-01 (Audit-Finding, 2026-10-07): einzige gueltige Werteliste der 26
+# Schweizer Kantonscodes. Geteilt zwischen ClientCreate und ClientUpdate
+# (analog zu ClientClassification oben), damit beide Einstiegspunkte
+# denselben Kanton-Freitext-Bug nicht reproduzieren koennen.
+SWISS_CANTON_CODES = frozenset({
+    "ZH", "BE", "LU", "UR", "SZ", "OW", "NW", "GL", "ZG", "FR",
+    "SO", "BS", "BL", "SH", "AR", "AI", "SG", "GR", "AG", "TG",
+    "TI", "VD", "VS", "NE", "GE", "JU",
+})
+
+
+def _validate_date_of_birth(value: Optional[str]) -> Optional[str]:
+    """VALID-01: Datenqualitaets-Guard, keine strenge Geschaeftsregel --
+    lehnt nur klar unplausible Werte ab (kaputtes Datum, Zukunft, Alter
+    ausserhalb [0, 120] Jahre). Leer/None bleibt zulaessig (Feld ist optional)."""
+    if value is None:
+        return value
+    raw = value.strip()
+    if not raw:
+        return value
+    try:
+        parsed = _date.fromisoformat(raw[:10])
+    except ValueError:
+        raise ValueError(
+            f"date_of_birth ist kein gueltiges ISO-Datum (YYYY-MM-DD): {value!r}"
+        )
+    today = _date.today()
+    if parsed > today:
+        raise ValueError("date_of_birth darf nicht in der Zukunft liegen")
+    age_years = today.year - parsed.year - (
+        (today.month, today.day) < (parsed.month, parsed.day)
+    )
+    if age_years > 120:
+        raise ValueError(
+            f"date_of_birth impliziert ein unplausibles Alter von {age_years} Jahren (> 120)"
+        )
+    if age_years < 0:
+        raise ValueError("date_of_birth impliziert ein negatives Alter")
+    return value
+
+
+def _validate_canton(value: Optional[str]) -> Optional[str]:
+    """VALID-01: normalisiert auf Grossbuchstaben und lehnt jeden Wert ab,
+    der keiner der 26 Schweizer Kantonscodes ist."""
+    if value is None:
+        return value
+    raw = value.strip()
+    if not raw:
+        return value
+    normalized = raw.upper()
+    if normalized not in SWISS_CANTON_CODES:
+        raise ValueError(
+            "canton muss einer der 26 Schweizer Kantonscodes sein "
+            f"(z.B. 'ZH'), erhalten: {value!r}"
+        )
+    return normalized
 
 
 class ClientCreate(BaseModel):
@@ -39,6 +97,11 @@ class ClientCreate(BaseModel):
     advisor_id: str
     notes: Optional[str] = None
     data_classification: Literal["synthetic", "real"] = "synthetic"
+
+    # VALID-01 (Audit-Finding, 2026-10-07): Datenqualitaets-Guards, siehe
+    # _validate_date_of_birth/_validate_canton oben.
+    _check_date_of_birth = field_validator("date_of_birth")(_validate_date_of_birth)
+    _check_canton = field_validator("canton")(_validate_canton)
 
 
 class ClientUpdate(BaseModel):
@@ -79,6 +142,11 @@ class ClientUpdate(BaseModel):
     advisor_id: Optional[str] = None
     notes: Optional[str] = None
     data_classification: Optional[Literal["synthetic", "real"]] = None
+
+    # VALID-01 (Audit-Finding, 2026-10-07): dieselben Datenqualitaets-Guards
+    # wie ClientCreate -- siehe _validate_date_of_birth/_validate_canton oben.
+    _check_date_of_birth = field_validator("date_of_birth")(_validate_date_of_birth)
+    _check_canton = field_validator("canton")(_validate_canton)
 
 
 class ClientResponse(BaseResponse):

@@ -373,6 +373,16 @@ def erase_client_personal_data(db: Session, client_id: str, *, reason: str) -> d
     )
     _apply("client_opt_history", "client_id", [client_id], marker_columns=["notes"])
 
+    # --- ERASE-01 (Audit-Finding, 2026-10-07): Staatsangehoerigkeiten ---
+    # client_nationalities wurde bislang von keiner Erasure-Stufe erfasst --
+    # country_code (ISO-Laendercode) blieb nach einer "Loeschung" unveraendert
+    # in der DB stehen. country_code ist NOT NULL (models/clients.py), daher
+    # marker_columns statt null_columns (wie bei den anderen direkt
+    # identifizierenden String-Spalten in dieser Funktion, z.B. depot_bank).
+    # is_primary/created_at tragen kein Re-Identifikationsrisiko (keine
+    # Personendaten) und bleiben deshalb erhalten.
+    _apply("client_nationalities", "client_id", [client_id], marker_columns=["country_code"])
+
     # --- KYC-01: GwG/FINMA-Sorgfaltspflicht-Erfassung + Steuerdomizile ---
     # pep_status/acting_for_own_account/fatca_crs_self_certified (Booleans)
     # und id_document_type bleiben erhalten -- sie tragen kein Re-
