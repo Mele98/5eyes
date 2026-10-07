@@ -35,7 +35,11 @@ from services.client_erasure import erase_client_personal_data
 from services.data_classification import enforce_data_classification
 from services.planning_horizon import life_expectancy_year_for
 from services.quota import assert_within_quota
-from services.wealth_cashflows import derive_wealth_cashflows, mortgage_interest_adjustment_series
+from services.wealth_cashflows import (
+    derive_wealth_cashflows,
+    mortgage_amortization_adjustment_series,
+    mortgage_interest_adjustment_series,
+)
 
 router = APIRouter(prefix="/clients", tags=["Kunden"])
 
@@ -705,16 +709,6 @@ def cashflow_projection(
     cashflows = list(cashflows) + _derived_cashflows_for_client(client_id, db)
     start_year = _date.today().year
     horizon = int(effective_horizon or 40)
-    # 2026-06-14 (#31 B-2): Hypothek-Amortisation/Refinanzierung jahresabhängig
-    # einrechnen — konsistent mit der Strategie-Engine. Positiv = weniger Zinslast
-    # (direkte Amortisation), negativ = mehr (3% nach Ablauf/5J-SARON).
-    _mort_positions = db.query(WealthPosition).filter(
-        WealthPosition.client_id == client_id,
-        WealthPosition.deleted_at.is_(None),
-        WealthPosition.is_active == 1,
-    ).all()
-    _mort_adj = mortgage_interest_adjustment_series(_mort_positions, horizon, start_year)
-
     # CF-1/CF-2 (2026-07-16): Cashflow-Ansicht mit der Strategie-Engine angleichen.
     # Vorher rief dieser Endpoint totals_for_year(cashflows, yr) OHNE Inflation/FX/
     # Inflows -> die dem Berater/Kunden gezeigte Tabelle divergierte von den
@@ -753,6 +747,49 @@ def cashflow_projection(
     except Exception:
         fx_source = FXRateSource()
     target_currency = "CHF"
+
+    # 2026-06-14 (#31 B-2): Hypothek-Amortisation/Refinanzierung jahresabhängig
+    # einrechnen — konsistent mit der Strategie-Engine. Positiv = weniger Zinslast
+    # (direkte Amortisation), negativ = mehr (3% nach Ablauf/5J-SARON).
+    #
+    # CASHFLOW-FX-MORTGAGE-001 (Audit-Finding, 2026-10-07): dieser Call stand
+    # bisher VOR der fx_source/target_currency-Ermittlung oben und lief daher
+    # immer mit den Funktions-Defaults (fx_source=None, target_currency="CHF").
+    # Fuer jede Hypothekenposition in Fremdwaehrung wirft
+    # _convert_position_rappen() dann einen harten ValueError (keine stille
+    # 1:1-Konvertierung zulaessig) -- der komplette Cashflow-Tab wurde fuer
+    # diesen Client unbenutzbar. portfolio_engine.py ruft dieselbe Funktion
+    # an allen Stellen bereits korrekt mit fx_source/target_currency auf;
+    # dieser Endpoint (laut eigenem CF-1/CF-2-Kommentar unten explizit "mit
+    # der Strategie-Engine angleichen") war die einzige Ausnahme.
+    #
+    # CASHFLOW-AMORTIZATION-CAP-001 (Audit-Finding, 2026-10-07): bislang wurde
+    # NUR mortgage_interest_adjustment_series() aufgerufen, nie
+    # mortgage_amortization_adjustment_series() -- eine direkte Amortisation
+    # wurde dadurch in dieser Ansicht (anders als in der Strategie-Engine,
+    # siehe portfolio_engine.py) auf ewig als laufende Ausgabe weitergezaehlt,
+    # auch nachdem die Restschuld bereits auf 0 getilgt war. Beide Serien
+    # nutzen dieselbe additive Vorzeichen-Konvention (positiv = Ausgabe um
+    # diesen Betrag reduzieren, siehe jeweilige Docstrings in
+    # services/wealth_cashflows.py) und werden daher elementweise summiert,
+    # bevor sie unten wie zuvor auf recurring_expense_rappen/net_rappen
+    # angewendet werden.
+    _mort_positions = db.query(WealthPosition).filter(
+        WealthPosition.client_id == client_id,
+        WealthPosition.deleted_at.is_(None),
+        WealthPosition.is_active == 1,
+    ).all()
+    _mort_interest_adj = mortgage_interest_adjustment_series(
+        _mort_positions, horizon, start_year,
+        fx_source=fx_source, target_currency=target_currency,
+    )
+    _mort_amortization_adj = mortgage_amortization_adjustment_series(
+        _mort_positions, horizon,
+        fx_source=fx_source, target_currency=target_currency,
+    )
+    _mort_adj = [
+        int(a) + int(b) for a, b in zip(_mort_interest_adj, _mort_amortization_adj)
+    ]
 
     cma = db.query(CapitalMarketAssumption).filter(
         CapitalMarketAssumption.is_current == 1,
