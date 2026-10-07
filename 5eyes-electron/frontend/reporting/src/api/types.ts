@@ -675,6 +675,10 @@ export interface AdvisoryReport {
   mandate_id: string;
   /** ISO-Timestamp YYYY-MM-DDTHH:MM:SS.SSSZ */
   generated_at: string;
+  /** TAX-01 (Audit-Finding, 2026-10-07): Hinweistext bei Steuerdomizil-Mismatch
+   * zwischen Client.country_of_residence und Mandate.tax_jurisdiction, sonst null.
+   * Rein informativ, NIE ueber hidden_report_sections ausblendbar. */
+  tax_domicile_mismatch_warning: string | null;
   cover: CoverData;
   disclaimer: DisclaimerData;
   inhaltsverzeichnis: InhaltsverzeichnisData;
