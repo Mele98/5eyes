@@ -223,3 +223,111 @@ def test_opt_history_valid_transition_updates_client_and_writes_history(session_
         ).all()
         assert len(history_rows) == 1
         assert history_rows[0].documented_by == advisor.id
+
+
+# ── 3. DUAL-STACK-01: Flag-Uebergaenge fuer opt-out/qualified-investor ────────
+
+def test_opt_history_can_change_qualified_investor_flag_without_reclassification(session_factory):
+    """Vor dem Fix gab es GAR KEINEN Pfad, um is_qualified_investor zu
+    aendern, nachdem ClientUpdate es ausschloss. Eine reine Flag-Aenderung
+    (gleiche Klassifikation, from==to) muss moeglich sein."""
+    with session_factory() as session:
+        advisor, client = _seed_advisor_and_client(session, classification="Privatkunde")
+
+        body = OptHistoryCreate(
+            event_type="qualified_investor_designation",
+            from_classification="Privatkunde",
+            to_classification="Privatkunde",
+            from_qualified_investor=False,
+            to_qualified_investor=True,
+            client_requested=True,
+            document_id="doc-kag-art10",
+            notes="KAG Art. 10 Abs. 3bis Erklaerung unterzeichnet, Beleg doc-kag-art10",
+        )
+        entry = add_opt_history(client_id=client.id, body=body, db=session, current_user=advisor)
+
+        session.refresh(client)
+        assert client.is_qualified_investor == 1
+        assert client.client_classification == "Privatkunde"  # unveraendert
+        assert entry.from_qualified_investor == 0
+        assert entry.to_qualified_investor == 1
+        assert entry.from_professional_opt_out is None
+        assert entry.to_professional_opt_out is None
+
+
+def test_opt_history_rejects_stale_from_professional_opt_out(session_factory):
+    with session_factory() as session:
+        advisor, client = _seed_advisor_and_client(session, classification="Privatkunde")
+        client.is_professional_opt_out = 1
+        session.commit()
+
+        body = OptHistoryCreate(
+            event_type="opt_out_withdrawal",
+            from_classification="Privatkunde",
+            to_classification="Privatkunde",
+            from_professional_opt_out=False,  # stale -- tatsaechlich bereits 1
+            to_professional_opt_out=False,
+            client_requested=True,
+            document_id="doc-2",
+        )
+        with pytest.raises(HTTPException) as excinfo:
+            add_opt_history(client_id=client.id, body=body, db=session, current_user=advisor)
+        assert excinfo.value.status_code == 409
+
+        session.refresh(client)
+        assert client.is_professional_opt_out == 1  # unveraendert
+        history_rows = session.query(ClientOptHistory).filter(
+            ClientOptHistory.client_id == client.id
+        ).count()
+        assert history_rows == 0
+
+
+def test_opt_history_classification_and_flag_change_together_atomic(session_factory):
+    """Reklassifikation UND Flag-Aenderung in derselben, append-only Zeile."""
+    with session_factory() as session:
+        advisor, client = _seed_advisor_and_client(session, classification="Privatkunde")
+
+        body = OptHistoryCreate(
+            event_type="reclassification",
+            from_classification="Privatkunde",
+            to_classification="Professioneller Kunde",
+            from_professional_opt_out=False,
+            to_professional_opt_out=True,
+            client_requested=True,
+            document_id="doc-3",
+            notes="Kundenantrag Professioneller-Kunde-Opt-out, Beleg doc-3",
+        )
+        entry = add_opt_history(client_id=client.id, body=body, db=session, current_user=advisor)
+
+        session.refresh(client)
+        assert client.client_classification == "Professioneller Kunde"
+        assert client.is_professional_opt_out == 1
+        assert entry.from_professional_opt_out == 0
+        assert entry.to_professional_opt_out == 1
+        history_rows = session.query(ClientOptHistory).filter(
+            ClientOptHistory.client_id == client.id
+        ).all()
+        assert len(history_rows) == 1
+
+
+def test_opt_history_without_flag_fields_leaves_flags_untouched(session_factory):
+    """Regression: eine reine Reklassifikation ohne Flag-Felder (wie der
+    bisherige CrmEditor-Flow) aendert is_professional_opt_out/
+    is_qualified_investor nicht."""
+    with session_factory() as session:
+        advisor, client = _seed_advisor_and_client(session, classification="Privatkunde")
+        client.is_qualified_investor = 1
+        session.commit()
+
+        body = OptHistoryCreate(
+            event_type="reclassification",
+            from_classification="Privatkunde",
+            to_classification="Institutioneller Kunde",
+            client_requested=True,
+            document_id="doc-4",
+        )
+        add_opt_history(client_id=client.id, body=body, db=session, current_user=advisor)
+
+        session.refresh(client)
+        assert client.client_classification == "Institutioneller Kunde"
+        assert client.is_qualified_investor == 1  # unveraendert, nicht zurueckgesetzt

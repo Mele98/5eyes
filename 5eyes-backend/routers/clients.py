@@ -301,7 +301,16 @@ def add_opt_history(
     tatsaechlichen Privatkunden) und stampfte den Client trotzdem auf
     to_classification um. Ein stale/falscher from-Wert (z.B. durch eine
     zwischenzeitliche parallele Aenderung) wird jetzt mit 409 abgelehnt,
-    statt eine fachlich unmoegliche History-Zeile zu erzeugen."""
+    statt eine fachlich unmoegliche History-Zeile zu erzeugen.
+
+    DUAL-STACK-01-Nachtrag (2026-10-07): derselbe Stale-Schutz gilt jetzt
+    auch fuer is_professional_opt_out/is_qualified_investor, die ansonsten
+    (seit ClientUpdate sie ausschliesst) gar keinen Aenderungspfad mehr
+    haetten. Beide Flag-Uebergaenge sind optional und unabhaengig von der
+    Klassifikationsaenderung -- eine reine Flag-Aenderung ohne
+    Klassifikationswechsel ist gueltig (from_classification ==
+    to_classification), ebenso eine reine Reklassifikation ohne
+    Flag-Aenderung (from_*/to_* fuer die Flags bleiben None)."""
     enforce_data_classification(body.data_classification)
     client = _get_client_or_404(client_id, db, current_user)
     if body.from_classification != client.client_classification:
@@ -312,6 +321,32 @@ def add_opt_history(
                 f"Klassifikationsstatus des Kunden ueberein "
                 f"(aktuell: '{client.client_classification}', "
                 f"angegeben: '{body.from_classification}')."
+            ),
+        )
+    current_opt_out = bool(client.is_professional_opt_out)
+    if (
+        body.from_professional_opt_out is not None
+        and body.from_professional_opt_out != current_opt_out
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "from_professional_opt_out stimmt nicht mit dem aktuellen "
+                f"Zustand des Kunden ueberein (aktuell: {current_opt_out}, "
+                f"angegeben: {body.from_professional_opt_out})."
+            ),
+        )
+    current_qualified = bool(client.is_qualified_investor)
+    if (
+        body.from_qualified_investor is not None
+        and body.from_qualified_investor != current_qualified
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "from_qualified_investor stimmt nicht mit dem aktuellen "
+                f"Zustand des Kunden ueberein (aktuell: {current_qualified}, "
+                f"angegeben: {body.from_qualified_investor})."
             ),
         )
     now = _now()
@@ -325,10 +360,31 @@ def add_opt_history(
         documented_at=now,
         document_id=body.document_id,
         notes=body.notes,
-        created_at=now
+        created_at=now,
+        from_professional_opt_out=(
+            None if body.from_professional_opt_out is None
+            else int(body.from_professional_opt_out)
+        ),
+        to_professional_opt_out=(
+            None if body.to_professional_opt_out is None
+            else int(body.to_professional_opt_out)
+        ),
+        from_qualified_investor=(
+            None if body.from_qualified_investor is None
+            else int(body.from_qualified_investor)
+        ),
+        to_qualified_investor=(
+            None if body.to_qualified_investor is None
+            else int(body.to_qualified_investor)
+        ),
     )
-    # Update classification on client
+    # Update classification + optional flags on client (atomic, same
+    # transaction/commit as the history row below).
     client.client_classification = body.to_classification
+    if body.to_professional_opt_out is not None:
+        client.is_professional_opt_out = 1 if body.to_professional_opt_out else 0
+    if body.to_qualified_investor is not None:
+        client.is_qualified_investor = 1 if body.to_qualified_investor else 0
     db.add(entry)
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="client_opt_history", record_id=entry.id, action="CREATE",
