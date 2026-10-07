@@ -7,7 +7,7 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import { ApiError } from '@/api/client';
-import { fetchClient, listClients, updateClient } from '@/api/crm';
+import { fetchClient, listClients, postOptHistory, updateClient } from '@/api/crm';
 import {
   CLIENT_CLASSIFICATIONS,
   CLIENT_LANGUAGES,
@@ -71,6 +71,17 @@ export function CrmEditor({ initialClientId }: CrmEditorProps) {
   const [statusMsg, setStatusMsg] = useState('');
   const [saving, setSaving] = useState(false);
 
+  // DUAL-STACK-01: Klassifikation/Opt-out/Qualifizierter-Anleger sind nicht
+  // mehr Teil des allgemeinen Speichern-Flows (siehe buildClientUpdatePayload).
+  // Eine Aenderung laeuft ueber dieses eigene, beleggebundene Panel und
+  // POST /clients/{id}/opt-history.
+  const [classifying, setClassifying] = useState(false);
+  const [targetClassification, setTargetClassification] = useState<ClientClassification>('Privatkunde');
+  const [classificationNotes, setClassificationNotes] = useState('');
+  const [classificationDocumentId, setClassificationDocumentId] = useState('');
+  const [classificationSaving, setClassificationSaving] = useState(false);
+  const [classificationError, setClassificationError] = useState('');
+
   const runSearch = useCallback(
     async (term: string, signal?: AbortSignal) => {
       setListState('loading');
@@ -93,6 +104,60 @@ export function CrmEditor({ initialClientId }: CrmEditorProps) {
     setForm(inputFromRecord(rec));
     setErrors([]);
     setStatusMsg('');
+    closeClassificationPanel();
+  }
+
+  function openClassificationPanel() {
+    if (!selected) return;
+    setTargetClassification(selected.client_classification as ClientClassification);
+    setClassificationNotes('');
+    setClassificationDocumentId('');
+    setClassificationError('');
+    setClassifying(true);
+  }
+
+  function closeClassificationPanel() {
+    setClassifying(false);
+    setClassificationNotes('');
+    setClassificationDocumentId('');
+    setClassificationError('');
+  }
+
+  async function onChangeClassification() {
+    if (!selected) return;
+    if (!classificationNotes.trim()) {
+      setClassificationError('Begründung ist erforderlich.');
+      return;
+    }
+    setClassificationSaving(true);
+    setClassificationError('');
+    try {
+      await postOptHistory(selected.id, {
+        event_type: 'reclassification',
+        from_classification: selected.client_classification as ClientClassification,
+        to_classification: targetClassification,
+        client_requested: true,
+        notes: classificationNotes.trim(),
+        document_id: classificationDocumentId.trim() || null,
+        data_classification: 'real',
+      });
+      const refreshed = await fetchClient(selected.id);
+      setSelected(refreshed);
+      setForm(inputFromRecord(refreshed));
+      setResults((prev) => prev.map((r) => (r.id === refreshed.id ? refreshed : r)));
+      setStatusMsg('Klassifikation geändert und gespeichert.');
+      closeClassificationPanel();
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 409) {
+        setClassificationError(
+          'Die Klassifikation wurde inzwischen von anderer Stelle geändert. Bitte Kundendaten neu laden und erneut versuchen.',
+        );
+      } else {
+        setClassificationError(err instanceof ApiError ? err.detail : 'Klassifikation konnte nicht geändert werden.');
+      }
+    } finally {
+      setClassificationSaving(false);
+    }
   }
 
   useEffect(() => {
@@ -216,6 +281,7 @@ export function CrmEditor({ initialClientId }: CrmEditorProps) {
           {!form || !selected ? (
             <p className="mt-2 text-body text-ink-muted">Einen Kunden aus der Liste wählen.</p>
           ) : (
+            <>
             <form
               className="mt-2 grid grid-cols-2 gap-3"
               aria-label="Kunden-Stammdaten"
@@ -276,20 +342,6 @@ export function CrmEditor({ initialClientId }: CrmEditorProps) {
                 </select>
               </label>
               <label className="block text-caption text-ink-muted">
-                Klassifizierung
-                <select value={form.client_classification} onChange={(e) => set('client_classification', e.target.value as ClientClassification)} className={inputClass}>
-                  {CLIENT_CLASSIFICATIONS.map((c) => <option key={c} value={c}>{c}</option>)}
-                </select>
-              </label>
-              <label className="flex items-center gap-2 text-caption text-ink-muted">
-                <input type="checkbox" checked={form.is_qualified_investor} onChange={(e) => set('is_qualified_investor', e.target.checked)} />
-                Qualifizierter Anleger
-              </label>
-              <label className="flex items-center gap-2 text-caption text-ink-muted">
-                <input type="checkbox" checked={form.is_professional_opt_out} onChange={(e) => set('is_professional_opt_out', e.target.checked)} />
-                Professional Opt-out
-              </label>
-              <label className="block text-caption text-ink-muted">
                 Anlagehorizont ab
                 <input type="date" value={form.investment_horizon_start} onChange={(e) => set('investment_horizon_start', e.target.value)} className={inputClass} />
               </label>
@@ -344,6 +396,98 @@ export function CrmEditor({ initialClientId }: CrmEditorProps) {
                 </button>
               </div>
             </form>
+
+            <div className="mt-4 rounded border border-rule p-3" aria-labelledby="classification-heading">
+              <p id="classification-heading" className="text-micro uppercase tracking-widest text-ink-subtle">
+                Klassifikation (FIDLEG)
+              </p>
+              <p className="mt-2 text-body text-ink">
+                Klassifikation: <strong>{form.client_classification}</strong>
+              </p>
+              <ul className="mt-1 flex flex-wrap gap-4 text-caption text-ink-muted">
+                <li aria-label={`Qualifizierter Anleger: ${form.is_qualified_investor ? 'ja' : 'nein'}`}>
+                  {form.is_qualified_investor ? '✓' : '✕'} Qualifizierter Anleger
+                </li>
+                <li aria-label={`Professional Opt-out: ${form.is_professional_opt_out ? 'ja' : 'nein'}`}>
+                  {form.is_professional_opt_out ? '✓' : '✕'} Professional Opt-out
+                </li>
+              </ul>
+              <p className="mt-2 text-caption text-ink-subtle">
+                Diese Felder sind nicht Teil des allgemeinen Speichern-Vorgangs. Eine Änderung der
+                Klassifikation ist nur beleggebunden über die Funktion unten möglich.
+              </p>
+              {!classifying && (
+                <button
+                  type="button"
+                  onClick={openClassificationPanel}
+                  className="mt-3 rounded border border-rule px-3 py-1 text-caption text-ink"
+                >
+                  Klassifikation ändern
+                </button>
+              )}
+
+              {classifying && (
+                <form
+                  aria-label="Klassifikation ändern"
+                  className="mt-3 grid gap-3"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    void onChangeClassification();
+                  }}
+                >
+                  <label className="block text-caption text-ink-muted">
+                    Neue Klassifikation
+                    <select
+                      value={targetClassification}
+                      onChange={(e) => setTargetClassification(e.target.value as ClientClassification)}
+                      className={inputClass}
+                    >
+                      {CLIENT_CLASSIFICATIONS.map((c) => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </label>
+                  <label className="block text-caption text-ink-muted">
+                    Begründung
+                    <textarea
+                      value={classificationNotes}
+                      onChange={(e) => setClassificationNotes(e.target.value)}
+                      rows={2}
+                      className={inputClass}
+                    />
+                  </label>
+                  <label className="block text-caption text-ink-muted">
+                    Beleg-/Dokument-Referenz (optional)
+                    <input
+                      type="text"
+                      value={classificationDocumentId}
+                      onChange={(e) => setClassificationDocumentId(e.target.value)}
+                      className={inputClass}
+                    />
+                  </label>
+
+                  {classificationError && (
+                    <p role="alert" className="text-caption text-status-rot">{classificationError}</p>
+                  )}
+
+                  <div className="flex justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={closeClassificationPanel}
+                      className="rounded border border-rule px-3 py-1 text-caption text-ink"
+                    >
+                      Abbrechen
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={classificationSaving}
+                      className="rounded bg-ink px-4 py-2 text-caption text-paper disabled:opacity-50"
+                    >
+                      {classificationSaving ? 'Speichere…' : 'Klassifikation speichern'}
+                    </button>
+                  </div>
+                </form>
+              )}
+            </div>
+            </>
           )}
         </section>
       </div>
