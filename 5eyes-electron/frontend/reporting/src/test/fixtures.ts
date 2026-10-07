@@ -566,6 +566,7 @@ export function makeAdvisoryReport(): AdvisoryReport {
     schema_version: 2,
     mandate_id: 'test-mandate-id',
     generated_at: '2026-05-27T14:32:00.000Z',
+    tax_domicile_mismatch_warning: null,
     cover: makeCover(),
     disclaimer: makeDisclaimer(),
     inhaltsverzeichnis: makeInhaltsverzeichnis(),
