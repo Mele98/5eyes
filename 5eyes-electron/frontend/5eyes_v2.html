@@ -15468,11 +15468,21 @@ function isoDateString(value){
 function todayIsoDateString(){
   return isoDateString(new Date());
 }
+// LEBENSERWARTUNG-01-Fix (2026-10-07, Rubrik-1-Stammdaten-Audit): diese
+// Funktion nutzte bisher Herr->85/Frau->87/sonst->86 -- eine EIGENE,
+// abweichende Konstanten-Wahl gegenueber der echten, vom Backend verwendeten
+// Herleitung (services/planning_horizon.py::_person_life_expectancy_year:
+// Mann->+83, sonst->+85, zusaetzlich Mandat-Override + "spaetere von zwei
+// Partnern"-Regel -- dieselbe 83/85-Konvention bereits korrekt gespiegelt in
+// _lifeExpectancyEndYear() weiter unten, genutzt von der Cashflow-Projektion).
+// Folge: die hier abgeleitete Stammdaten-/Risikoprofil-/SAA-Simulations-
+// Horizont-Vorschlag zeigte bei maennlichen Kunden 2 Jahre MEHR Lebens-
+// erwartung als das Backend tatsaechlich annimmt. Jetzt konsistent auf
+// dieselbe 83/85-Konvention umgestellt (Mandat-Override/Paar-Regel bleiben
+// backend-seitig vorbehalten, siehe Audit-Finding fuer den Hintergrund).
 function horizonLifeExpectancyAge(salutation){
   var normalized=String(salutation||'').trim().toLowerCase();
-  if(normalized==='herr')return 85;
-  if(normalized==='frau')return 87;
-  return 86;
+  return normalized==='herr'?83:85;
 }
 function deriveSuggestedMandateHorizonFromSource(source){
   var data=source||{};
@@ -15501,8 +15511,8 @@ function deriveSuggestedMandateHorizonFromSource(source){
   var end=isoDateString(chosen.endDate);
   var years=mandateHorizonYearsBetween(start,end);
   var basis=chosen.salutation==='Herr'
-    ? 'Mann bis Alter 85'
-    : (chosen.salutation==='Frau' ? 'Frau bis Alter 87' : 'Person bis Alter '+String(chosen.expectancyAge));
+    ? 'Mann bis Alter 83'
+    : (chosen.salutation==='Frau' ? 'Frau bis Alter 85' : 'Person bis Alter '+String(chosen.expectancyAge));
   return {
     start:start,
     end:end,
