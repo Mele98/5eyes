@@ -2937,7 +2937,7 @@ function _wireSollIstHover(){
           </div>
           </div>
         </div>
-      </div><div class="cnav"><span class="cni">Stammdaten vollständig</span><button class="btn-p" onclick="go('vg')">Verm&ouml;gen &rarr;</button></div>
+      </div><div class="cnav"><span class="cni" id="sd-completeness-label">Stammdaten vollständig</span><button class="btn-p" onclick="go('vg')">Verm&ouml;gen &rarr;</button></div>
     </div>
 
     <!-- PAGE: VERMOEGEN -->
@@ -24584,6 +24584,10 @@ function formatDocumentDate(iso){
 // seitig ueber den zwischengespeicherten Dokument-Bestand -- kein erneuter
 // Server-Roundtrip pro Tastenanschlag.
 var _sdArchiveDocsCache=[];
+// DOKUMENTARCHIV-01: haelt fest, ob der letzte /documents-Request fehlgeschlagen ist
+// (nicht nur "0 Dokumente"), damit Filter-only-Re-Renders (Suche/Chips, die das Flag
+// nicht erneut mitgeben) den Fehlerzustand nicht versehentlich wieder verwerfen.
+var _sdArchiveLoadFailed=false;
 var sdArchiveFilter={search:'',type:'all'};
 function onSdArchiveFilterChange(){
   var input=document.getElementById('sd-archive-search');
@@ -24613,10 +24617,20 @@ function renderSdArchiveTypeFilterChips(counts){
       +escapeHtml(c.label)+' <span style="opacity:.75">('+c.count+')</span></button>';
   }).join('');
 }
-function renderStammdatenDocumentArchive(documents){
+function renderStammdatenDocumentArchive(documents,options){
   var root=document.getElementById('sd-output-hub');
   if(!root)return;
   if(Array.isArray(documents))_sdArchiveDocsCache=documents;
+  if(options&&Object.prototype.hasOwnProperty.call(options,'loadFailed'))_sdArchiveLoadFailed=!!options.loadFailed;
+  if(_sdArchiveLoadFailed){
+    var retryMid=getActiveMandateId();
+    root.innerHTML='<div class="sd-archive-load-error" style="padding:12px;border:1px solid var(--danger,#c0392b);border-radius:var(--r2);background:rgba(192,57,43,.06)">'
+      +'<div style="font-weight:600;margin-bottom:6px">Dokumentenarchiv konnte nicht geladen werden.</div>'
+      +'<div style="font-size:12px;color:var(--n4);margin-bottom:8px">Bitte erneut versuchen. Die angezeigten Kategorien sind KEINE Aussage darueber, ob Dokumente existieren.</div>'
+      +'<button class="btn btn-sm" onclick="refreshReviewUI(\''+escapeHtml(String(retryMid||''))+'\')">Erneut versuchen</button>'
+      +'</div>';
+    return;
+  }
   var docs=_sdArchiveDocsCache;
   var searchTerm=sdArchiveFilter.search;
   var counts={};
@@ -24646,7 +24660,7 @@ function renderStammdatenDocumentArchive(documents){
             +'<span class="sd-archive-author">'+escapeHtml(d.created_by_name||'—')+'</span>'
             +'</div>'
             +'<div class="sd-archive-row-actions">'
-            +(canOpen?'<button class="btn btn-sm" onclick="downloadArchivedDocumentPdf(\''+escapeHtml(d.id)+'\',\''+cat.type+'\')">Öffnen</button>':'<span style="font-size:9px;color:var(--n4)">kein PDF hinterlegt</span>')
+            +(canOpen?'<button class="btn btn-sm" onclick="downloadArchivedDocumentPdf(\''+jsAttrArg(d.id)+'\',\''+cat.type+'\')">Öffnen</button>':'<span style="font-size:9px;color:var(--n4)">kein PDF hinterlegt</span>')
             +'</div></div>';
         }).join('')
       : '<div class="sd-archive-empty">Noch keine Version erzeugt.</div>';
@@ -25329,7 +25343,7 @@ function renderReviewState(state){
   renderAdvisoryLogList((state&&state.logs)||[]);
   renderReviewActionSummary(state||{});
   renderReviewOutputHub(state||{});
-  renderStammdatenDocumentArchive((state&&state.documents)||[]);
+  renderStammdatenDocumentArchive((state&&state.documents)||[],{loadFailed:!!(state&&state.documentsLoadFailed)});
   renderSrImplementationDecision(null);
   renderConflictDisclosurePanel(conflicts);
   renderSuitabilityChecks((state&&state.suitability)||[]);
@@ -25491,6 +25505,10 @@ async function refreshReviewUI(mid){
       triggers:results[0].status==='fulfilled'&&Array.isArray(results[0].value)?results[0].value:[],
       logs:results[1].status==='fulfilled'&&Array.isArray(results[1].value)?results[1].value:[],
       documents:results[2].status==='fulfilled'&&Array.isArray(results[2].value)?results[2].value:[],
+      // DOKUMENTARCHIV-01: ein fehlgeschlagener /documents-Request darf NICHT wie
+      // "Mandat hat 0 Dokumente" aussehen -- das Flag unterscheidet beide Faelle fuer
+      // renderStammdatenDocumentArchive().
+      documentsLoadFailed:results[2].status!=='fulfilled',
       conflicts:results[3].status==='fulfilled'&&Array.isArray(results[3].value)?results[3].value:[],
       suitability:results[4].status==='fulfilled'&&Array.isArray(results[4].value)?results[4].value:[],
       allocation:results[5].status==='fulfilled'?results[5].value:null,
@@ -25951,8 +25969,40 @@ function calculateAgeFromBirthdate(value){
   var hasBirthday=(today.getMonth()>parsed.getMonth())||(today.getMonth()===parsed.getMonth()&&today.getDate()>=parsed.getDate());
   return hasBirthday?age:(age-1);
 }
+// VOLLSTAENDIG-01: "Stammdaten vollständig" war bisher ein statischer Text,
+// nie aus dem geladenen Klienten berechnet -- ein Klient mit leerem Geburtsdatum/
+// Kanton/Zivilstand/Partnerdaten zeigte trotzdem unconditional "vollständig" an.
+// Bewusst NICHT ueberstreng: investment_horizon_start/-end bleiben aussen vor,
+// da dafuer an anderer Stelle eine Herleitungs-Fallback existiert (bestaetigt in
+// einem frueheren Audit) und ein fehlender Horizont hier keine echte Luecke ist.
+function computeStammdatenCompleteness(){
+  var p=currentPersona;
+  if(!p)return {complete:false,missing:['Klientendaten']};
+  var missing=[];
+  if(!p.date_of_birth)missing.push('Geburtsdatum');
+  if(!(p.canton||p.region))missing.push('Kanton');
+  if(!p.civil_status)missing.push('Zivilstand');
+  var hh=normalizeHouseholdValue(p.household_type||p.household||'Einzelperson');
+  if(!hh)missing.push('Haushaltstyp');
+  if(hh==='Paar'||hh==='Familie'){
+    if(!p.partner_first_name||!p.partner_last_name)missing.push('Partnername');
+  }
+  return {complete:missing.length===0,missing:missing};
+}
+function updateStammdatenCompletenessLabel(){
+  var el=document.getElementById('sd-completeness-label');
+  if(!el)return;
+  var result=computeStammdatenCompleteness();
+  if(result.complete){
+    el.textContent='Stammdaten vollständig';
+  }else{
+    var verb=result.missing.length===1?'fehlt':'fehlen';
+    el.textContent='Stammdaten unvollständig — '+result.missing.join(', ')+' '+verb;
+  }
+}
 function renderHouseholdGridFromCurrentPersona(){
   var hg=document.getElementById('hh-grid');
+  updateStammdatenCompletenessLabel();
   if(!hg)return;
   var p=currentPersona;
   // Mandanten-Trennung: ohne aktiven Klienten/Persona NICHT das (statische)
@@ -26007,6 +26057,10 @@ function updateStammdatenHeader(firstName,lastName,household,canton,isDemo){
   var activeName=document.querySelector('.client.active .client-n');
   if(activeName)activeName.textContent=firstName+' '+lastName;
 }
+// F5: Defense-in-depth-Validierung fuer Geburtsdatum/Kanton im Stammdaten-
+// Modal (ergaenzt einen parallel laufenden Backend-Validator, ersetzt ihn
+// nicht). Liste der 26 offiziellen Schweizer Kantonskuerzel.
+var SWISS_CANTON_CODES=['ZH','BE','LU','UR','SZ','OW','NW','GL','ZG','FR','SO','BS','BL','SH','AR','AI','SG','GR','AG','TG','TI','VD','VS','NE','GE','JU'];
 async function saveClientData(){
   ensureStammdatenPartnerFields();
   var salutation=(document.getElementById('es-salutation')||{value:''}).value||null;
@@ -26014,6 +26068,7 @@ async function saveClientData(){
   var ln=(document.getElementById('es-lastname')||{value:''}).value.trim();
   var dob=(document.getElementById('es-dob')||{value:''}).value||null;
   var can=(document.getElementById('es-canton')||{value:''}).value.trim()||null;
+  if(can)can=can.toUpperCase();
   var horizonStart=(document.getElementById('es-horizon-start')||{value:''}).value||null;
   var horizonEnd=(document.getElementById('es-horizon-end')||{value:''}).value||null;
   var hh=(document.getElementById('es-household')||{value:'Einzelperson'}).value||'Einzelperson';
@@ -26029,6 +26084,25 @@ async function saveClientData(){
   var partnerProfession=partnerVisible?((document.getElementById('es-partner-profession')||{value:''}).value.trim()||null):null;
   var btn=document.getElementById('btn-es-save');
   if(!fn||!ln){showModalFeedback('es-error',btn,'Bitte Vor- und Nachname eingeben.',true);return;}
+  if(dob){
+    var dobCheck=new Date(dob);
+    if(!isNaN(dobCheck.getTime())){
+      if(dobCheck.getTime()>Date.now()){
+        showModalFeedback('es-error',btn,'Geburtsdatum darf nicht in der Zukunft liegen.',true);
+        return;
+      }
+      var dobAgeYears=(Date.now()-dobCheck.getTime())/(365.2425*24*3600*1000);
+      if(dobAgeYears>120){
+        showModalFeedback('es-error',btn,'Geburtsdatum ist unplausibel (Alter über 120 Jahre).',true);
+        return;
+      }
+    }
+  }
+  if(can&&SWISS_CANTON_CODES.indexOf(can)===-1){
+    showModalFeedback('es-error',btn,'Kanton "'+can+'" ist kein gültiges Schweizer Kantonskürzel.',true);
+    return;
+  }
+  if(can)setInputValue('es-canton',can);
   if(!horizonStart||!horizonEnd){
     var suggestedHorizon=deriveSuggestedMandateHorizonFromModal();
     if(suggestedHorizon){
@@ -26040,7 +26114,7 @@ async function saveClientData(){
     }
   }
   if(horizonStart&&horizonEnd&&horizonEnd<horizonStart){showModalFeedback('es-error',btn,'Enddatum des Anlagehorizonts muss nach dem Start liegen.',true);return;}
-  if(hh==='Paar'&&(!partnerFirstName||!partnerLastName)){
+  if((hh==='Paar'||hh==='Familie')&&(!partnerFirstName||!partnerLastName)){
     showModalFeedback('es-error',btn,'Bitte Vorname und Nachname der Partnerperson erfassen.',true);
     return;
   }
