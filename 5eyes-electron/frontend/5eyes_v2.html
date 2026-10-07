@@ -27587,8 +27587,24 @@ async function saveGoal(options){
   var scope=getInputValue('nz-scope')||'Beratungsverm\u00f6gen';
   var amountRaw=getInputValue('nz-amount').trim();
   var returnRaw=getInputValue('nz-target-return-bps').trim();
-  var horizonRaw=parseInt(getInputValue('nz-horizon'),10);
-  var horizon=isFinite(horizonRaw)&&horizonRaw>0?horizonRaw:null;
+  // GOAL-HORIZON-STALE-001 (Audit-Finding, 2026-10-07): las bisher den
+  // rohen, nie nachgefuehrten Wert aus dem #nz-horizon-Eingabefeld, waehrend
+  // die live angezeigte Zielrendite-Kennzahl (updateGoalDerivedDiagnostics)
+  // bereits goalEditorHorizonYears() nutzt, das bei gesetztem Zieldatum
+  // korrekt daraus rechnet. Ergebnis: ein Ziel mit Zieldatum in z.B. 6 Jahren
+  // speicherte trotzdem horizon_years=10 (unveraenderter Default), obwohl das
+  // Eingabefeld selbst nie sichtbar aktualisiert wird ("der Zeithorizont
+  // wird daraus abgeleitet" stimmte nur fuer die Live-Diagnose, nicht fuers
+  // Speichern). Downstream nutzt services/portfolio_engine_mc_simulation.py
+  // _dated_goal_horizon() max(horizon_years, datums-abgeleitete-Jahre) als
+  // NULL-Sicherheitsnetz -- ein nicht-null-aber-veralteter, zu grosser Wert
+  // blaeht dadurch den Monte-Carlo-Horizont des GESAMTEN Mandats stillschweigend
+  // auf. Fix: dieselbe, bereits in der Live-Diagnose verwendete Funktion
+  // wiederverwenden statt den Rohwert unabhaengig neu zu lesen (Single Source
+  // of Truth -- was angezeigt wird, entspricht jetzt zwingend dem, was
+  // gespeichert wird).
+  var horizonFloat=goalEditorHorizonYears();
+  var horizon=horizonFloat>0?Math.max(1,Math.round(horizonFloat)):null;
   var startDate=normalizeCashflowDateValue(getInputValue('nz-start-date'));
   var targetDate=normalizeCashflowDateValue(getInputValue('nz-target-date'));
   var frequency=goalFrequencyKey(getInputValue('nz-frequency')||'jaehrlich');
