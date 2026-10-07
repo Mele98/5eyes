@@ -68,6 +68,23 @@ describe('buildClientUpdatePayload', () => {
   it('default Wohnsitzland CH bei leer', () => {
     expect(buildClientUpdatePayload(base({ country_of_residence: '' })).country_of_residence).toBe('CH');
   });
+
+  // DUAL-STACK-01 (2026-10-Audit): schemas/clients.py ClientUpdate besitzt
+  // client_classification/is_qualified_investor/is_professional_opt_out seit
+  // FIDLEG-STATE-001 nicht mehr -- der allgemeine PUT-Payload darf sie nie
+  // wieder mitschicken (Backend wuerde sie sonst stillschweigend ignorieren,
+  // waehrend der Editor "gespeichert" meldet). Aenderung laeuft nur noch ueber
+  // POST /clients/{id}/opt-history (siehe CrmEditor.tsx).
+  it('enthält client_classification/is_qualified_investor/is_professional_opt_out NICHT im Payload', () => {
+    const payload = buildClientUpdatePayload(base({
+      client_classification: 'Institutioneller Kunde',
+      is_qualified_investor: true,
+      is_professional_opt_out: true,
+    })) as Record<string, unknown>;
+    expect(payload).not.toHaveProperty('client_classification');
+    expect(payload).not.toHaveProperty('is_qualified_investor');
+    expect(payload).not.toHaveProperty('is_professional_opt_out');
+  });
 });
 
 describe('clientDisplayName', () => {

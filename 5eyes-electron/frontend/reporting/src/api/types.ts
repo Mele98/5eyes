@@ -1304,6 +1304,37 @@ export interface NationalityRecord {
 }
 
 // ---------------------------------------------------------------------------
+// Opt-History (DUAL-STACK-01, 2026-10-Audit).
+// Spiegelt schemas/clients.py: OptHistoryCreate (155-176), OptHistoryResponse
+// (179-189). Einziger gueltiger, beleggebundener Pfad fuer eine Aenderung von
+// client_classification (siehe ClientUpdate, die das Feld nicht mehr hat).
+// POST /clients/{id}/opt-history, GET /clients/{id}/opt-history.
+// ---------------------------------------------------------------------------
+
+export interface OptHistoryCreatePayload {
+  event_type: string;
+  from_classification: ClientClassification;
+  to_classification: ClientClassification;
+  client_requested?: boolean;
+  notes?: string | null;
+  document_id?: string | null;
+  data_classification: 'synthetic' | 'real';
+}
+
+export interface OptHistoryRecord {
+  id: string;
+  client_id: string;
+  event_type: string;
+  from_classification: string;
+  to_classification: string;
+  client_requested: number;
+  documented_by: string;
+  documented_at: string;
+  notes: string | null;
+  created_at: string;
+}
+
+// ---------------------------------------------------------------------------
 // Vermögenszuflüsse / WealthInflow-Editor (Roadmap #54, FE-React-Migration).
 // Spiegelt schemas/wealth.py: WealthInflowCreate (264-274), Update (286-296),
 // Response (299-314). Am CLIENT (/clients/{id}/wealth-inflows), Mutation via
