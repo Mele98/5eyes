@@ -170,6 +170,21 @@ class OptHistoryCreate(BaseModel):
     client_requested: bool = True
     notes: Optional[str] = None
     document_id: Optional[str] = None
+    # DUAL-STACK-01-Nachtrag (2026-10-07): is_professional_opt_out/
+    # is_qualified_investor hatten nach dem FIDLEG-STATE-001-Fix KEINEN
+    # gueltigen Aenderungspfad mehr (ClientUpdate schliesst sie bewusst aus,
+    # der Opt-History-Router transitionierte bis dahin ausschliesslich
+    # client_classification). Optional = None bedeutet "diese Transition
+    # aendert dieses Flag nicht" -- eine reine Reklassifikation ohne
+    # Flag-Wechsel bleibt moeglich, ebenso eine reine Flag-Aenderung ohne
+    # Klassifikationswechsel (from_classification == to_classification).
+    # Die serverseitige Pruefung, dass der jeweilige from_*-Wert mit dem
+    # tatsaechlichen Clientzustand uebereinstimmt (409 bei Stale-Zustand),
+    # erfolgt -- analog zu from_classification -- im Router.
+    from_professional_opt_out: Optional[bool] = None
+    to_professional_opt_out: Optional[bool] = None
+    from_qualified_investor: Optional[bool] = None
+    to_qualified_investor: Optional[bool] = None
     # DATA-CLASSIFICATION-GATE-COVERAGE-002 (Kontrollrunde 2026-09-24):
     # Phase-0-Gate fehlte fuer Opt-History -- enthaelt Freitext (notes) und
     # dokumentiert eine echte Klassifikations-Aenderung des Kunden.
@@ -187,6 +202,10 @@ class OptHistoryResponse(BaseResponse):
     documented_at: str
     notes: Optional[str]
     created_at: str
+    from_professional_opt_out: Optional[int] = None
+    to_professional_opt_out: Optional[int] = None
+    from_qualified_investor: Optional[int] = None
+    to_qualified_investor: Optional[int] = None
 
 
 class ClientDueDiligenceBase(BaseModel):

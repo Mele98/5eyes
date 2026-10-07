@@ -88,6 +88,19 @@ class ClientOptHistory(Base):
     document_id = Column(String)
     notes = Column(String)
     created_at = Column(String, nullable=False)
+    # DUAL-STACK-01-Nachtrag (2026-10-07): is_professional_opt_out/
+    # is_qualified_investor hatten -- nach dem FIDLEG-STATE-001-Fix, der den
+    # allgemeinen Client-PUT fuer diese Felder sperrte -- GAR KEINEN
+    # gueltigen Aenderungspfad mehr (der Opt-History-Router transitionierte
+    # bis dahin ausschliesslich client_classification). Diese vier Spalten
+    # erfassen optionale Flag-Uebergaenge in DERSELBEN append-only, beleg-
+    # gebundenen History-Zeile wie die Klassifikation -- NULL = diese
+    # Transition hat das jeweilige Flag nicht veraendert (reine
+    # Klassifikations-Aenderung ohne Flag-Wechsel bleibt moeglich).
+    from_professional_opt_out = Column(Integer)
+    to_professional_opt_out = Column(Integer)
+    from_qualified_investor = Column(Integer)
+    to_qualified_investor = Column(Integer)
 
     client = relationship("Client", back_populates="opt_history")
 
