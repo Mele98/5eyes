@@ -405,6 +405,17 @@ def ensure_runtime_columns() -> None:
             ('erased_at', 'TEXT'),
             ('erasure_reason', 'TEXT'),
         ],
+        # DUAL-STACK-01-Nachtrag (2026-10-07): siehe models/clients.py
+        # ClientOptHistory -- Flag-Uebergaenge fuer is_professional_opt_out/
+        # is_qualified_investor in derselben History-Zeile wie die
+        # Klassifikationsaenderung. NULL = Flag bei dieser Transition
+        # unveraendert.
+        'client_opt_history': [
+            ('from_professional_opt_out', 'INTEGER'),
+            ('to_professional_opt_out', 'INTEGER'),
+            ('from_qualified_investor', 'INTEGER'),
+            ('to_qualified_investor', 'INTEGER'),
+        ],
         # Sprint U-37 (2026-06-03): Notes-Versionierungs-Log.
         # Append-only JSON-Array von Edit-Snapshots fuer FINMA-Audit
         # (was-stand-zu-welchem-Zeitpunkt-im-Bericht).

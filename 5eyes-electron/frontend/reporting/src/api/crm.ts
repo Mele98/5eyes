@@ -7,14 +7,23 @@
  *   PUT    /clients/{id}                  (113) → ClientResponse
  *   DELETE /clients/{id}                  (138) → 204
  *   GET    /clients/{id}/nationalities    (154) → list[NationalityResponse]
+ *   GET    /clients/{id}/opt-history      (276) → list[OptHistoryResponse]
+ *   POST   /clients/{id}/opt-history      (288) → OptHistoryResponse
  *
  * Auth/Fehler aus ./client wiederverwendet; 422-Detail wird geflacht.
+ *
+ * DUAL-STACK-01 (2026-10-Audit): postOptHistory ist der einzige gueltige Weg,
+ * client_classification zu aendern (409 bei stale from_classification, siehe
+ * add_opt_history in routers/clients.py). updateClient/ClientUpdatePayload
+ * darf dieses Feld seit FIDLEG-STATE-001 nicht mehr enthalten.
  */
 import { ApiError, resolveAuthToken } from './client';
 import type {
   ClientRecord,
   ClientUpdatePayload,
   NationalityRecord,
+  OptHistoryCreatePayload,
+  OptHistoryRecord,
 } from './types';
 
 interface RequestOptions {
@@ -131,6 +140,25 @@ export async function deleteClient(
   if (!response.ok) {
     await raiseApiError(response);
   }
+}
+
+export async function postOptHistory(
+  clientId: string,
+  payload: OptHistoryCreatePayload,
+  options: RequestOptions = {},
+): Promise<OptHistoryRecord> {
+  const baseUrl = options.baseUrl ?? '';
+  const response = await request(
+    `${baseUrl}/clients/${encodeURIComponent(clientId)}/opt-history`,
+    {
+      method: 'POST',
+      headers: await authHeaders(),
+      body: JSON.stringify(payload),
+      signal: options.signal,
+    },
+  );
+  if (!response.ok) return raiseApiError(response);
+  return (await response.json()) as OptHistoryRecord;
 }
 
 export async function fetchNationalities(

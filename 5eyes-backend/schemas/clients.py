@@ -170,6 +170,21 @@ class OptHistoryCreate(BaseModel):
     client_requested: bool = True
     notes: Optional[str] = None
     document_id: Optional[str] = None
+    # DUAL-STACK-01-Nachtrag (2026-10-07): is_professional_opt_out/
+    # is_qualified_investor hatten nach dem FIDLEG-STATE-001-Fix KEINEN
+    # gueltigen Aenderungspfad mehr (ClientUpdate schliesst sie bewusst aus,
+    # der Opt-History-Router transitionierte bis dahin ausschliesslich
+    # client_classification). Optional = None bedeutet "diese Transition
+    # aendert dieses Flag nicht" -- eine reine Reklassifikation ohne
+    # Flag-Wechsel bleibt moeglich, ebenso eine reine Flag-Aenderung ohne
+    # Klassifikationswechsel (from_classification == to_classification).
+    # Die serverseitige Pruefung, dass der jeweilige from_*-Wert mit dem
+    # tatsaechlichen Clientzustand uebereinstimmt (409 bei Stale-Zustand),
+    # erfolgt -- analog zu from_classification -- im Router.
+    from_professional_opt_out: Optional[bool] = None
+    to_professional_opt_out: Optional[bool] = None
+    from_qualified_investor: Optional[bool] = None
+    to_qualified_investor: Optional[bool] = None
     # DATA-CLASSIFICATION-GATE-COVERAGE-002 (Kontrollrunde 2026-09-24):
     # Phase-0-Gate fehlte fuer Opt-History -- enthaelt Freitext (notes) und
     # dokumentiert eine echte Klassifikations-Aenderung des Kunden.
@@ -186,6 +201,80 @@ class OptHistoryResponse(BaseResponse):
     documented_by: str
     documented_at: str
     notes: Optional[str]
+    created_at: str
+    from_professional_opt_out: Optional[int] = None
+    to_professional_opt_out: Optional[int] = None
+    from_qualified_investor: Optional[int] = None
+    to_qualified_investor: Optional[int] = None
+
+
+class ClientDueDiligenceBase(BaseModel):
+    pep_status: bool = False
+    pep_details: Optional[str] = None
+    acting_for_own_account: bool = True
+    beneficial_owner_name: Optional[str] = None
+    source_of_wealth: Optional[str] = None
+    id_document_type: Optional[str] = None
+    id_document_number: Optional[str] = None
+    id_document_issuing_country: Optional[str] = None
+    id_document_expiry: Optional[str] = None
+    fatca_crs_self_certified: bool = False
+
+    @model_validator(mode="after")
+    def _validate_beneficial_owner(self):
+        # GwG Art. 4: handelt der Kunde fuer einen Dritten (wirtschaftlich
+        # Berechtigten), MUSS dessen Identitaet festgehalten werden. Anders
+        # als pep_details (optional, kann spaeter ergaenzt werden) ist das
+        # hier eine gesetzliche Pflichtangabe -- siehe Design-Vorgabe.
+        if not self.acting_for_own_account and not (self.beneficial_owner_name or "").strip():
+            raise ValueError(
+                "beneficial_owner_name ist Pflicht, wenn acting_for_own_account=False "
+                "(GwG Art. 4: wirtschaftlich Berechtigter muss festgehalten werden)"
+            )
+        return self
+
+
+class ClientDueDiligenceCreate(ClientDueDiligenceBase):
+    # DATA-CLASSIFICATION-GATE (Phase-0-Gate): identisches Muster wie
+    # NationalityCreate/OptHistoryCreate -- GwG-Sorgfaltspflichtdaten sind
+    # ebenso echte Personendaten.
+    data_classification: Literal["synthetic", "real"] = "synthetic"
+
+
+class ClientDueDiligenceUpdate(ClientDueDiligenceBase):
+    data_classification: Literal["synthetic", "real"] = "synthetic"
+
+
+class ClientDueDiligenceResponse(BaseResponse):
+    id: str
+    client_id: str
+    pep_status: int
+    pep_details: Optional[str]
+    acting_for_own_account: int
+    beneficial_owner_name: Optional[str]
+    source_of_wealth: Optional[str]
+    id_document_type: Optional[str]
+    id_document_number: Optional[str]
+    id_document_issuing_country: Optional[str]
+    id_document_expiry: Optional[str]
+    fatca_crs_self_certified: int
+    created_at: str
+    updated_at: str
+
+
+class ClientTaxResidencyCreate(BaseModel):
+    country_code: str
+    tax_id_number: Optional[str] = None
+    is_primary: bool = False
+    data_classification: Literal["synthetic", "real"] = "synthetic"
+
+
+class ClientTaxResidencyResponse(BaseResponse):
+    id: str
+    client_id: str
+    country_code: str
+    tax_id_number: Optional[str]
+    is_primary: int
     created_at: str
 
 

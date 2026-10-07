@@ -26,6 +26,31 @@ FIDLEG-Bezug
   (oder warnen + Auftrag dokumentieren)
 - Art. 16: Dokumentationspflicht
 - BVI/SBVg-Praxis: 12-Monats-Freshness als Industry-Standard
+
+CLASS-01-Fix (2026-10-07, Rubrik-1-Stammdaten-Audit, FIDLEG Art. 13 Abs. 3):
+Vorher war `Client.client_classification` eine reine Audit-Trail-Groesse
+("write-only") -- keine Suitability-/Advisory-Logik las sie je. Art. 13
+Abs. 3 FIDLEG saezt zwei konkrete, eindeutige Rechtsfolgen:
+1. Bei INSTITUTIONELLEN Kunden wird generelle Eignung fuer das angebotene
+   Service vermutet -- die Eignungspruefungspflicht entfaellt vollstaendig,
+   analog zu Execution-only (siehe `_mandate_requires_suitability()`).
+2. Bei PROFESSIONELLEN Kunden (client_classification ODER
+   is_professional_opt_out) wird NUR vermutet, dass Kenntnisse/Erfahrung und
+   die finanzielle Risikofaehigkeit vorhanden sind -- die Anlageziele
+   (Risikobereitschaft/Praeferenzen) bleiben individuell zu erheben, weil
+   Eignung sich final immer an den TATSAECHLICHEN Zielen des Kunden misst,
+   nicht an dessen Erfahrung. 5eyes' knowledge_services_json/
+   knowledge_instruments_json-Felder sind ohnehin bereits optional (fliessen
+   NIE in compute_scores()/final_score_x10 ein, siehe services/risk_scoring.py
+   -- rein dokumentarisch) und die Risikokapazitaets-Punkte (q_income/
+   q_obligations/q_savings/q_wealth) werden bewusst NICHT automatisch
+   hochgesetzt: die Art.-13-Vermutung befreit von der DOKUMENTATIONSPFLICHT,
+   sie darf NICHT die tatsaechliche, CAPM-relevante Risikokapazitaets-
+   Bemessung verzerren (ein professioneller Kunde mit realem Einkommen X
+   bleibt bei Einkommen X fuer die Portfoliokonstruktion massgeblich, auch
+   wenn die rechtliche Pruefpflicht entfaellt). Die Maskenseite
+   (Risikoprofil-UI-Anpassung fuer professionelle/institutionelle Kunden)
+   wird separat im Frontend umgesetzt.
 """
 from __future__ import annotations
 
@@ -61,9 +86,18 @@ def _mandate_requires_suitability(mandate: Any) -> bool:
     portfoliobezogene Anlageberatung oder Vermoegensverwaltung erbringt, muss
     eine Eignungspruefung durchfuehren. 5eyes erbringt genau das (SAA-/Portfolio-
     Methodik), daher verlangt praktisch jedes Mandat eine Eignungspruefung —
-    ausgenommen ausdrueckliches Execution-only (Art. 13)."""
+    ausgenommen ausdrueckliches Execution-only (Art. 13) ODER einen
+    Institutionellen Kunden (CLASS-01-Fix, 2026-10-07, siehe Modul-Docstring
+    "FIDLEG Art. 13 Abs. 3"-Nachtrag unten: bei institutionellen Kunden wird
+    Eignung generell vermutet, die Pruefpflicht entfaellt vollstaendig)."""
     mtype = str(getattr(mandate, "mandate_type", "") or "").strip().lower()
-    return mtype not in MANDATE_TYPES_EXEMPT_FROM_SUITABILITY
+    if mtype in MANDATE_TYPES_EXEMPT_FROM_SUITABILITY:
+        return False
+    client = getattr(mandate, "client", None)
+    classification = str(getattr(client, "client_classification", "") or "").strip()
+    if classification == "Institutioneller Kunde":
+        return False
+    return True
 
 
 def _current_risk_assessment(db: Session, mandate_id: Any):
@@ -160,7 +194,8 @@ def audit_mandate_suitability(
       'freshness_issues': [ {risk_assessment_id, reason, age_days}, ... ],
       'result_issues': [],
       'requires_suitability': bool,
-      'suitability_basis': 'risk_assessment' | 'execution_only_exempt' | None,
+      'suitability_basis': 'risk_assessment' | 'execution_only_exempt'
+                            | 'institutional_client_exempt' | None,
       'risk_assessment_id': str|None,
       'risk_assessment_version': int|None,
       'risk_assessment_date': str|None,
@@ -211,9 +246,18 @@ def audit_mandate_suitability(
     except Exception:  # noqa: BLE001 — robust gegen Schema-Mismatch
         base["total_advisory_logs"] = 0
 
-    # Execution-only (Art. 13): keine Eignungspruefung noetig -> konform.
+    # Execution-only (Art. 13) oder institutioneller Kunde (Art. 13 Abs. 3):
+    # keine Eignungspruefung noetig -> konform. Die beiden Ausnahmegruende
+    # werden unterschieden, damit Reporting/PDF den richtigen FIDLEG-Verweis
+    # zitieren (CLASS-01-Fix, 2026-10-07).
     if not _mandate_requires_suitability(mandate):
-        base["suitability_basis"] = "execution_only_exempt"
+        client = getattr(mandate, "client", None)
+        classification = str(getattr(client, "client_classification", "") or "").strip()
+        if classification == "Institutioneller Kunde":
+            base["suitability_basis"] = "institutional_client_exempt"
+            base["fidleg_basis"] = "Art. 13 Abs. 3 FIDLEG"
+        else:
+            base["suitability_basis"] = "execution_only_exempt"
         base["is_compliant"] = True
         return base
 
