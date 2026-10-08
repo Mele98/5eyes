@@ -171,6 +171,63 @@ def test_projection_reflects_direct_amortization_decline(auth_client, session_fa
     assert (years[3]["net_rappen"] - years[0]["net_rappen"]) >= 400_000
 
 
+def test_projection_caps_direct_amortization_expense_after_payoff(auth_client, session_factory, advisor_user):
+    """Regression fuer CASHFLOW-AMORTIZATION-CAP-001 (Audit-Finding, 2026-10-07):
+    mortgage_amortization_adjustment_series() wurde in diesem Endpoint bisher
+    NIE aufgerufen (nur mortgage_interest_adjustment_series). Eine direkte
+    Amortisation wird daher ueber den Horizont hinaus weiterhin voll als
+    laufende Ausgabe gezaehlt, auch nachdem die Restschuld bereits auf 0
+    getilgt ist. CHF 500'000 Schuld / CHF 100'000 Jahresamortisation zahlt
+    sich in genau 5 Jahren ab -- Jahr 5 und 6 (0-indiziert) muessen daher
+    WEDER Zins NOCH Amortisation mehr als Ausgabe zeigen. Der bestehende Test
+    oben deckt das nicht ab (Horizont dort nur 4 Jahre, Payoff tritt erst bei
+    Jahr 5 ein)."""
+    cid = _make_client(session_factory, advisor_user.id)
+    this_year = datetime.date.today().year
+    _add_position(session_factory, cid, label="Hypothek", position_type="Hypothek",
+                  assignment="Verbindlichkeit", current_value_rappen=500_000_00,
+                  mortgage_interest_rate_bps=200, mortgage_amortization_rappen=100_000_00,
+                  mortgage_amortization_type="Direkt", mortgage_type="Festhypothek",
+                  valuation_date=f"{this_year}-01-01")
+    years = auth_client.get(f"/clients/{cid}/cashflow-projection?horizon_years=7").json()["years"]
+    # Jahr 0-4: Schuld noch nicht (ganz) getilgt -> Zins + volle Amortisation
+    # weiterhin als Ausgabe sichtbar.
+    assert years[0]["recurring_expense_rappen"] == 110_000_00  # CHF 10'000 Zins + 100'000 Amortisation
+    # Jahr 5+6: Schuld = 0 (500k / 100k/Jahr = exakt 5 Jahre) -> weder Zins
+    # noch Amortisation duerfen noch als Ausgabe erscheinen.
+    assert years[5]["recurring_expense_rappen"] == 0
+    assert years[6]["recurring_expense_rappen"] == 0
+    assert years[5]["net_rappen"] > years[0]["net_rappen"]
+
+
+def test_projection_does_not_crash_for_non_chf_mortgage(auth_client, session_factory, advisor_user):
+    """Regression fuer CASHFLOW-FX-MORTGAGE-001 (Audit-Finding, 2026-10-07):
+    mortgage_interest_adjustment_series() wurde bisher VOR der fx_source/
+    target_currency-Ermittlung aufgerufen und lief daher immer mit den
+    Funktions-Defaults (fx_source=None). Fuer jede Hypothekenposition in
+    Fremdwaehrung wirft _convert_position_rappen() dann einen harten
+    ValueError (keine stille 1:1-Konvertierung zulaessig) -- der komplette
+    Cashflow-Tab war fuer diesen Client unbenutzbar."""
+    cid = _make_client(session_factory, advisor_user.id)
+    this_year = datetime.date.today().year
+    with session_factory() as s:
+        s.add(WealthPosition(
+            id=str(uuid.uuid4()), client_id=cid,
+            label="Hypothek EUR", position_type="Hypothek",
+            assignment="Verbindlichkeit", current_value_rappen=500_000_00,
+            currency="EUR",
+            mortgage_interest_rate_bps=200, mortgage_amortization_rappen=100_000_00,
+            mortgage_amortization_type="Direkt", mortgage_type="Festhypothek",
+            valuation_date=f"{this_year}-01-01",
+            is_active=1, created_at=_now(), updated_at=_now(),
+        ))
+        s.commit()
+    response = auth_client.get(f"/clients/{cid}/cashflow-projection?horizon_years=4")
+    assert response.status_code == 200, response.text
+    years = response.json()["years"]
+    assert len(years) == 4
+
+
 def test_projection_indirect_amortization_constant_interest(auth_client, session_factory, advisor_user):
     """Gegenprobe: indirekte Amortisation lässt die Schuld (und damit den Zins) konstant."""
     cid = _make_client(session_factory, advisor_user.id)
