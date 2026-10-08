@@ -13381,12 +13381,12 @@
     },
     {
       "declaration": "function",
-      "line": 28326,
+      "line": 28342,
       "name": "_reviewIsDiscretionaryMandate"
     },
     {
       "declaration": "function",
-      "line": 28322,
+      "line": 28338,
       "name": "_reviewIsIlliquidAssetClass"
     },
     {
@@ -13466,7 +13466,7 @@
     },
     {
       "declaration": "function",
-      "line": 27829,
+      "line": 27845,
       "name": "aaActionCardHtml"
     },
     {
@@ -15111,7 +15111,7 @@
     },
     {
       "declaration": "function",
-      "line": 27846,
+      "line": 27862,
       "name": "currentCashflowCoverageInfo"
     },
     {
@@ -15241,7 +15241,7 @@
     },
     {
       "declaration": "function",
-      "line": 27879,
+      "line": 27895,
       "name": "decumulationCapitalBridgeRows"
     },
     {
@@ -15896,7 +15896,7 @@
     },
     {
       "declaration": "function",
-      "line": 28448,
+      "line": 28464,
       "name": "getColor"
     },
     {
@@ -16011,7 +16011,7 @@
     },
     {
       "declaration": "function",
-      "line": 27824,
+      "line": 27840,
       "name": "goalEvaluationNoteHtml"
     },
     {
@@ -16406,7 +16406,7 @@
     },
     {
       "declaration": "function",
-      "line": 27753,
+      "line": 27769,
       "name": "loadPlanningAssumptions"
     },
     {
@@ -16416,7 +16416,7 @@
     },
     {
       "declaration": "function",
-      "line": 28493,
+      "line": 28509,
       "name": "loadReviewSpiegel"
     },
     {
@@ -17121,7 +17121,7 @@
     },
     {
       "declaration": "function",
-      "line": 27833,
+      "line": 27849,
       "name": "projectionRunwayInfo"
     },
     {
@@ -17201,7 +17201,7 @@
     },
     {
       "declaration": "var",
-      "line": 28245,
+      "line": 28261,
       "name": "pushCard"
     },
     {
@@ -17271,7 +17271,7 @@
     },
     {
       "declaration": "function",
-      "line": 27734,
+      "line": 27750,
       "name": "refreshGoalsUI"
     },
     {
@@ -17336,7 +17336,7 @@
     },
     {
       "declaration": "function",
-      "line": 28238,
+      "line": 28254,
       "name": "renderActionCards"
     },
     {
@@ -17416,7 +17416,7 @@
     },
     {
       "declaration": "function",
-      "line": 27937,
+      "line": 27953,
       "name": "renderAllocationMethodComparison"
     },
     {
@@ -17561,7 +17561,7 @@
     },
     {
       "declaration": "function",
-      "line": 28049,
+      "line": 28065,
       "name": "renderOptimizerPanel"
     },
     {
@@ -17661,7 +17661,7 @@
     },
     {
       "declaration": "function",
-      "line": 28498,
+      "line": 28514,
       "name": "renderReviewStrategyComparison"
     },
     {
@@ -17701,7 +17701,7 @@
     },
     {
       "declaration": "function",
-      "line": 28174,
+      "line": 28190,
       "name": "renderSensitivitySlidersForResult"
     },
     {
@@ -17746,7 +17746,7 @@
     },
     {
       "declaration": "function",
-      "line": 28134,
+      "line": 28150,
       "name": "renderStressTable"
     },
     {
@@ -17921,7 +17921,7 @@
     },
     {
       "declaration": "function",
-      "line": 28446,
+      "line": 28462,
       "name": "reviewAllocationPortraitHtml"
     },
     {
@@ -17931,7 +17931,7 @@
     },
     {
       "declaration": "function",
-      "line": 28340,
+      "line": 28356,
       "name": "reviewBandStateMeta"
     },
     {
@@ -17961,7 +17961,7 @@
     },
     {
       "declaration": "function",
-      "line": 28414,
+      "line": 28430,
       "name": "reviewImplementationHotspots"
     },
     {
@@ -17981,7 +17981,7 @@
     },
     {
       "declaration": "function",
-      "line": 28377,
+      "line": 28393,
       "name": "reviewStrategyComparisonRows"
     },
     {
@@ -18096,7 +18096,7 @@
     },
     {
       "declaration": "function",
-      "line": 28211,
+      "line": 28227,
       "name": "runSensitivityCall"
     },
     {
@@ -18211,7 +18211,7 @@
     },
     {
       "declaration": "function",
-      "line": 27768,
+      "line": 27784,
       "name": "savePlanningAssumptions"
     },
     {
@@ -18261,7 +18261,7 @@
     },
     {
       "declaration": "function",
-      "line": 28459,
+      "line": 28475,
       "name": "seg"
     },
     {
@@ -18401,7 +18401,7 @@
     },
     {
       "declaration": "function",
-      "line": 27910,
+      "line": 27926,
       "name": "setStatusPill"
     },
     {
@@ -18586,7 +18586,7 @@
     },
     {
       "declaration": "function",
-      "line": 28532,
+      "line": 28548,
       "name": "srAcColor2"
     },
     {
@@ -18636,7 +18636,7 @@
     },
     {
       "declaration": "function",
-      "line": 27813,
+      "line": 27829,
       "name": "strategyGoalTargetText"
     },
     {
@@ -19797,8 +19797,8 @@
     }
   ],
   "source_path": "5eyes-electron/frontend/5eyes_v2.html",
-  "source_sha256": "13f22126f2187643b570ebbdc41478acfa93d30d9d7aea73159efd7446032c51",
-  "source_size_bytes": 1742400,
+  "source_sha256": "91ddaf1c020551113bcec149f5137ce8389f9a339113ac43fd5122fd36387785",
+  "source_size_bytes": 1743562,
   "sub_sections": [
     {
       "class": "admin-sec-btn",
