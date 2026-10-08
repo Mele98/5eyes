@@ -387,6 +387,8 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 .inc-switch-input:checked+.inc-switch-track{background:var(--g4);}
 .inc-switch-input:checked+.inc-switch-track .inc-switch-thumb{left:13px;}
 .inc-switch-input:focus-visible+.inc-switch-track{outline:2px solid var(--g4);outline-offset:1px;}
+.inc-switch-input:disabled+.inc-switch-track{opacity:.55;}
+.inc-switch:has(.inc-switch-input:disabled){cursor:wait;}
 .cf-row.is-excluded,.goal.is-excluded{opacity:.45;}
 .cf-row.is-excluded .inc-switch,.goal.is-excluded .inc-switch{opacity:1;}
 .cfi{width:20px;height:20px;border-radius:3px;display:flex;align-items:center;justify-content:center;font-size:10px;flex-shrink:0;}
@@ -21063,6 +21065,17 @@ function toggleCashflowIncluded(input,cid){
   if(row)row.classList.toggle('is-excluded',!included);
   if(isDemo)return;
   if(!activeCid){console.error('toggleCashflowIncluded PUT skipped: no active client id');return;}
+  // RACE-FIX (2026-10-08, Nutzer-Meldung "kann nicht sauber ein-/ausschalten"):
+  // waehrend PUT+Refresh laufen (refreshCashflowsUI macht mehrere sequentielle
+  // API-Calls + Chart-Rebuild, kann spuerbar dauern) wird der Switch disabled,
+  // damit ein zweiter, ungeduldiger Klick in dieser Zeit NICHT den gerade
+  // gesendeten Toggle wieder rueckgaengig macht -- genau dieses Muster (zwei
+  // PUTs <1s auseinander, die sich gegenseitig aufheben) wurde live in den
+  // Backend-Logs beobachtet. Erfolgsfall: refreshCashflowsUI ersetzt die
+  // ganze Zeile inkl. Input durch ein frisches, automatisch enabled Element
+  // -- kein explizites Re-Enable noetig. Fehlerfall: dasselbe Input bleibt
+  // bestehen, muss explizit wieder enabled werden.
+  input.disabled=true;
   API.put('/clients/'+activeCid+'/cashflows/'+cfId,{is_included:included})
     .then(function(){
       currentCashflows=(currentCashflows||[]).map(function(c){
@@ -21077,6 +21090,7 @@ function toggleCashflowIncluded(input,cid){
       console.error('toggleCashflowIncluded PUT failed:',e.status,e.message);
       if(row)row.classList.toggle('is-excluded',included);
       input.checked=!included;
+      input.disabled=false;
     });
 }
 function dcf(btn){
@@ -21133,6 +21147,8 @@ function toggleGoalIncluded(input){
     return;
   }
   if(!mid){console.error('toggleGoalIncluded PUT skipped: no active mandate id');return;}
+  // RACE-FIX: siehe identischer Kommentar auf toggleCashflowIncluded.
+  input.disabled=true;
   API.put('/mandates/'+mid+'/goals/'+gId,{is_included:included})
     .then(async function(){
       currentGoals=(currentGoals||[]).map(function(goal){
@@ -21147,6 +21163,7 @@ function toggleGoalIncluded(input){
       console.error('toggleGoalIncluded PUT failed:',e.status,e.message);
       if(card)card.classList.toggle('is-excluded',included);
       input.checked=!included;
+      input.disabled=false;
     });
 }
 function renderPortfolioSections(positions){
