@@ -542,6 +542,7 @@ def cashflow_summary(
         Cashflow.client_id == client_id,
         Cashflow.deleted_at.is_(None),
         Cashflow.is_active == 1,
+        Cashflow.is_included == 1,
     ).all()
     # 2026-06-14: vermögensgetriebene Cashflows (Hypothekarzins, Amortisation,
     # Miet-/Zinserträge) zählen MIT in die Summe — sie sind echte Cashflows, nur
@@ -693,6 +694,7 @@ def cashflow_projection(
         Cashflow.client_id == client_id,
         Cashflow.deleted_at.is_(None),
         Cashflow.is_active == 1,
+        Cashflow.is_included == 1,
     ).all()
     # #Zeitraum-Fix (2026-06-12): ohne expliziten Override wird der Horizont aus
     # den Stammdaten + erfassten Cashflows bis zum Lebensende abgeleitet (statt

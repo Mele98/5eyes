@@ -627,6 +627,9 @@ CREATE TABLE IF NOT EXISTS cashflows (
     is_inflation_linked INTEGER NOT NULL DEFAULT 0 CHECK(is_inflation_linked IN (0,1)),
     notes           TEXT,
     is_active       INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0,1)),
+    -- CASHFLOW-GOAL-INCLUDE-TOGGLE-001 (2026-10-08): siehe models/wealth.py
+    -- Cashflow.is_included fuer Semantik (getrennt von is_active).
+    is_included     INTEGER NOT NULL DEFAULT 1 CHECK(is_included IN (0,1)),
     created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
     updated_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
     deleted_at      TEXT,
@@ -668,6 +671,9 @@ CREATE TABLE IF NOT EXISTS goals (
     linked_position_id  TEXT,
     notes               TEXT,
     is_active           INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0,1)),
+    -- CASHFLOW-GOAL-INCLUDE-TOGGLE-001 (2026-10-08): siehe models/wealth.py
+    -- Goal.is_included fuer Semantik (getrennt von is_active).
+    is_included         INTEGER NOT NULL DEFAULT 1 CHECK(is_included IN (0,1)),
     achievement_score   INTEGER CHECK(achievement_score BETWEEN 0 AND 100),
     last_scored_at      TEXT,
     created_at          TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),

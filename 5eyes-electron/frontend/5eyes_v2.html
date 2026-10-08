@@ -376,6 +376,19 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 .cf-sec{font-size:9px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:var(--n4);padding:7px 0 3px;border-bottom:1px solid var(--b1);margin-bottom:3px;}
 .cf-row{display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--b1);}
 .cf-row:last-of-type{border-bottom:none;}
+/* CASHFLOW-GOAL-INCLUDE-TOGGLE-001: Ein/Ausschalt-Switch fuer Einnahmen/
+   Ausgaben/Ziele (Berechnung ausschliessen ohne zu loeschen) + ausgegrauter
+   Zeilenzustand, wenn ausgeschlossen. Switch bleibt bei .is-excluded voll
+   sichtbar (eigene opacity:1-Ausnahme), damit er klar klickbar bleibt. */
+.inc-switch{display:inline-flex;align-items:center;cursor:pointer;flex-shrink:0;}
+.inc-switch-input{position:absolute;opacity:0;width:1px;height:1px;}
+.inc-switch-track{width:26px;height:15px;border-radius:8px;background:var(--n3);position:relative;display:inline-block;transition:background .15s ease;}
+.inc-switch-thumb{position:absolute;top:2px;left:2px;width:11px;height:11px;border-radius:50%;background:#fff;transition:left .15s ease;box-shadow:0 1px 2px rgba(0,0,0,.25);}
+.inc-switch-input:checked+.inc-switch-track{background:var(--g4);}
+.inc-switch-input:checked+.inc-switch-track .inc-switch-thumb{left:13px;}
+.inc-switch-input:focus-visible+.inc-switch-track{outline:2px solid var(--g4);outline-offset:1px;}
+.cf-row.is-excluded,.goal.is-excluded{opacity:.45;}
+.cf-row.is-excluded .inc-switch,.goal.is-excluded .inc-switch{opacity:1;}
 .cfi{width:20px;height:20px;border-radius:3px;display:flex;align-items:center;justify-content:center;font-size:10px;flex-shrink:0;}
 .cf-i{flex:1;}
 .cf-na{font-size:11px;font-weight:500;color:var(--n8);}
@@ -20978,6 +20991,44 @@ async function refreshLivePricesForMandate(){
   }
 }
 
+// CASHFLOW-GOAL-INCLUDE-TOGGLE-001: Switch neben jeder manuellen Cashflow-
+// Zeile ein-/ausschliesst sie aus allen Berechnungen (Summary/Projektion/
+// Engine/PDF), ohne sie zu loeschen -- Zeile bleibt sichtbar, nur ausgegraut
+// (siehe .is-excluded-CSS). Im Demo-Modus (kein echter Client) nur lokal am
+// DOM gespiegelt, da Demo-Zeilen kein Backend-Pendant haben.
+function wireCashflowIncludeSwitches(container,cid){
+  Array.prototype.forEach.call((container||document.createElement('div')).querySelectorAll('.cf-row[data-cfid] .inc-switch-input'),function(input){
+    input.onchange=function(){
+      toggleCashflowIncluded(input,cid);
+    };
+  });
+}
+function toggleCashflowIncluded(input,cid){
+  var row=input&&input.closest?input.closest('.cf-row[data-cfid]'):null;
+  var cfId=row?row.getAttribute('data-cfid'):null;
+  if(!cfId)return;
+  var included=!!input.checked;
+  var activeCid=cid||getActiveClientId();
+  var isDemo=isDemoClientId(cfId)||isDemoClientId(activeCid);
+  if(row)row.classList.toggle('is-excluded',!included);
+  if(isDemo)return;
+  if(!activeCid){console.error('toggleCashflowIncluded PUT skipped: no active client id');return;}
+  API.put('/clients/'+activeCid+'/cashflows/'+cfId,{is_included:included})
+    .then(function(){
+      currentCashflows=(currentCashflows||[]).map(function(c){
+        if(c&&String(c.id||'')===String(cfId))return Object.assign({},c,{is_included:included?1:0});
+        return c;
+      });
+      updateCfRiskContextSummary();
+      markStrategyDirty(included?'Cashflow wieder eingeschlossen: Ist-Pfad aktualisiert.':'Cashflow vorübergehend ausgeschlossen: Ist-Pfad aktualisiert.', false);
+      refreshCashflowsUI(activeCid);
+    })
+    .catch(function(e){
+      console.error('toggleCashflowIncluded PUT failed:',e.status,e.message);
+      if(row)row.classList.toggle('is-excluded',included);
+      input.checked=!included;
+    });
+}
 function dcf(btn){
   var row=btn&&btn.closest?btn.closest('.cf-row'):null,cfId=row?row.dataset.cfid:null;
   var cid=getActiveClientId();
@@ -21013,6 +21064,40 @@ function dg(btn){
     currentGoals=(currentGoals||[]).filter(function(goal){return String(goal.id||'')!==String(gId||'');});
     renderGoalList(currentGoals,true);
   }
+}
+// CASHFLOW-GOAL-INCLUDE-TOGGLE-001: siehe identischer Kommentar auf
+// toggleCashflowIncluded -- gleiche Semantik fuer Ziele.
+function toggleGoalIncluded(input){
+  var card=input&&input.closest?input.closest('.goal[data-goalid]'):null;
+  var gId=card?card.getAttribute('data-goalid'):null;
+  if(!gId)return;
+  var included=!!input.checked;
+  var mid=getActiveMandateId();
+  var isDemo=isDemoClientId(gId)||isDemoMandateId(mid);
+  if(card)card.classList.toggle('is-excluded',!included);
+  if(isDemo){
+    currentGoals=(currentGoals||[]).map(function(goal){
+      if(goal&&String(goal.id||'')===String(gId))return Object.assign({},goal,{is_included:included?1:0});
+      return goal;
+    });
+    return;
+  }
+  if(!mid){console.error('toggleGoalIncluded PUT skipped: no active mandate id');return;}
+  API.put('/mandates/'+mid+'/goals/'+gId,{is_included:included})
+    .then(async function(){
+      currentGoals=(currentGoals||[]).map(function(goal){
+        if(goal&&String(goal.id||'')===String(gId))return Object.assign({},goal,{is_included:included?1:0});
+        return goal;
+      });
+      updateCfRiskContextSummary();
+      markStrategyDirty(included?'Ziel wieder eingeschlossen: Zielsicht aktualisiert.':'Ziel vorübergehend ausgeschlossen: Zielsicht aktualisiert.', false);
+      await refreshGoalsUI(mid);
+    })
+    .catch(function(e){
+      console.error('toggleGoalIncluded PUT failed:',e.status,e.message);
+      if(card)card.classList.toggle('is-excluded',included);
+      input.checked=!included;
+    });
 }
 function renderPortfolioSections(positions){
   var wrap=document.getElementById('po-portfolio-sections');
@@ -23737,10 +23822,14 @@ async function refreshCashflowsUI(cid){
     // ALLE geladenen Cashflows inkl. eines vorigen Klienten).
     var breakdown=cashflowBreakdownFromSummary(summary)||cashflowBreakdownForYear(_scopedCf,summaryYear);
     var renderRow=function(c,isIncome){
-      return '<div class="cf-row" draggable="true" data-cfid="'+escapeHtml(c.id||'')+'">'+
+      var included=c.is_included!==0;
+      var incTitle=included?'In Berechnungen eingeschlossen — Klick zum vorübergehenden Ausschliessen':'Von Berechnungen ausgeschlossen — Klick zum Wieder-Einschliessen';
+      return '<div class="cf-row'+(included?'':' is-excluded')+'" draggable="true" data-cfid="'+escapeHtml(c.id||'')+'">'+
         '<div class="cfn"><div class="cfna">'+escapeHtml(c.label||'Cashflow')+'</div><div class="cfnd">'+escapeHtml(cashflowTimingLabel(c))+'</div></div>'+
         '<div class="cfa '+(isIncome?'ci':'co')+'">'+(isIncome?'+':'−')+fmt(c.amount_rappen||0)+'</div>'+
-        '<div><button class="btn-ico e" type="button" title="Bearbeiten" aria-label="Cashflow bearbeiten">&#9998;</button><button class="btn-ico d" type="button" title="L\u00f6schen" aria-label="Cashflow l\u00f6schen">&#10005;</button></div></div>';
+        '<div style="display:flex;align-items:center;gap:4px">'+
+        '<label class="inc-switch" title="'+incTitle+'"><input type="checkbox" class="inc-switch-input"'+(included?' checked':'')+'><span class="inc-switch-track"><span class="inc-switch-thumb"></span></span></label>'+
+        '<button class="btn-ico e" type="button" title="Bearbeiten" aria-label="Cashflow bearbeiten">&#9998;</button><button class="btn-ico d" type="button" title="Löschen" aria-label="Cashflow löschen">&#10005;</button></div></div>';
     };
     // 2026-06-14: abgeleitete (vermögensgetriebene) Zeile — schreibgeschützt, kein
     // data-cfid (Drag/Edit/Delete greifen nicht), Badge AUTO, Quelle im Tooltip.
@@ -23775,6 +23864,7 @@ async function refreshCashflowsUI(cid){
       var incHtml=renderCashflowGroups(inc,derInc,true,renderRow,renderDerivedRow,fmt);
       zf.innerHTML=(incHtml+derNote(derInc,true))||journeyEmptyHint('Noch keine Einnahmen. Erfassen Sie Lohn, AHV/Rente oder Mieteinnahmen — Basis für Cashflow-Planung und Vermögensverzehr.');
     }
+    wireCashflowIncludeSwitches(zf,cid);
     Array.prototype.forEach.call((zf||document.createElement('div')).querySelectorAll('.cf-row[data-cfid] .btn-ico'),function(btn){
       var row=btn.closest('.cf-row[data-cfid]');
       if(!row)return;
@@ -23798,6 +23888,7 @@ async function refreshCashflowsUI(cid){
       var expHtml=renderCashflowGroups(exp,derExp,false,renderRow,renderDerivedRow,fmt);
       af.innerHTML=(expHtml+derNote(derExp,false))||journeyEmptyHint('Noch keine Ausgaben. Erfassen Sie Lebenshaltung, Wohnen, Versicherungen und Steuern — damit der Vermögensverzehr realistisch wird.');
     }
+    wireCashflowIncludeSwitches(af,cid);
     Array.prototype.forEach.call((af||document.createElement('div')).querySelectorAll('.cf-row[data-cfid] .btn-ico'),function(btn){
       var row=btn.closest('.cf-row[data-cfid]');
       if(!row)return;
@@ -27522,12 +27613,14 @@ function renderGoalList(items,isDemo){
     var meta=[goalAmountSummary(goal),goalTimingLabel(goal)];
     if(isDemo)meta.push('Demo');
     var badges=goalBadgeHtml(goal);
-    return '<div class="goal" draggable="true" data-goalid="'+escapeHtml(goal.id||'')+'">'+
+    var goalIncluded=goal.is_included!==0;
+    var goalIncTitle=goalIncluded?'In Berechnungen eingeschlossen — Klick zum vorübergehenden Ausschliessen':'Von Berechnungen ausgeschlossen — Klick zum Wieder-Einschliessen';
+    return '<div class="goal'+(goalIncluded?'':' is-excluded')+'" draggable="true" data-goalid="'+escapeHtml(goal.id||'')+'">'+
       '<div class="pd '+(pc[goal.hardness]||'p2')+'">'+(index+1)+'</div>'+
-      '<div class="gi"><div class="gn" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span>'+escapeHtml(goal.label||'Ziel')+'</span>'+badges+'</div><div class="gd">'+escapeHtml(meta.filter(Boolean).join(' \u00b7 '))+'</div>'+(goal.notes?'<div class="gd" style="margin-top:3px;color:var(--n5)">'+escapeHtml(goal.notes)+'</div>':'')+goalEvaluationNoteHtml(goal,true)+'</div>'+
+      '<div class="gi"><div class="gn" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span>'+escapeHtml(goal.label||'Ziel')+'</span>'+badges+'</div><div class="gd">'+escapeHtml(meta.filter(Boolean).join(' · '))+'</div>'+(goal.notes?'<div class="gd" style="margin-top:3px;color:var(--n5)">'+escapeHtml(goal.notes)+'</div>':'')+goalEvaluationNoteHtml(goal,true)+'</div>'+
       '<span class="tag '+tagTone+'">'+tagLabel+'</span>'+
       '<div class="gbw"><div class="gp">'+(scored?Math.round(pct)+' %':'—')+'</div><div class="gb"><div class="gf '+tone+'" style="width:'+Math.max(0,Math.min(100,scored?Math.round(pct):0))+'%"></div></div></div>'+
-      '<div class="goal-actions"><button class="btn btn-sm goal-edit-action" type="button">Bearbeiten</button><button class="goal-delete-action" type="button">Entfernen</button></div></div>';
+      '<div class="goal-actions"><label class="inc-switch" title="'+goalIncTitle+'"><input type="checkbox" class="inc-switch-input goal-include-toggle"'+(goalIncluded?' checked':'')+'><span class="inc-switch-track"><span class="inc-switch-thumb"></span></span></label><button class="btn btn-sm goal-edit-action" type="button">Bearbeiten</button><button class="goal-delete-action" type="button">Entfernen</button></div></div>';
   }).join('');
   Array.prototype.forEach.call(zl.querySelectorAll('.goal[data-goalid] .goal-edit-action, .goal[data-goalid] .goal-delete-action'),function(btn){
     var card=btn.closest('.goal[data-goalid]');
@@ -27543,6 +27636,11 @@ function renderGoalList(items,isDemo){
         dg(btn);
       };
     }
+  });
+  Array.prototype.forEach.call(zl.querySelectorAll('.goal[data-goalid] .goal-include-toggle'),function(input){
+    input.onchange=function(){
+      toggleGoalIncluded(input);
+    };
   });
   setupDrag();
   updateCashflowsAndGoalsKpis(currentCashflowSummary||{});

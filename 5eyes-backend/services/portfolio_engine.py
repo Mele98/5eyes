@@ -2207,6 +2207,10 @@ def _load_allocation_inputs(
     ).all()
     cashflows = _strictly_active_rows(cashflow_rows, label="Cashflow")
     _validate_active_cashflow_inputs(cashflows)
+    # CASHFLOW-GOAL-INCLUDE-TOGGLE-001: vom Berater temporaer ausgeschlossene
+    # Cashflows (is_included=0) bleiben sichtbar (list_cashflows), fliessen
+    # aber in KEINE Berechnung ein.
+    cashflows = [cf for cf in cashflows if getattr(cf, "is_included", 1) == 1]
     # 2026-06-14: vermögensgetriebene Cashflows (Hypothekarzins, Amortisation,
     # Miet-/Zinserträge) auch in die Engine-Projektion/Reserve einspeisen, damit
     # Strategie-Verzehr und Cashflow-Ansicht 1:1 dieselben Posten sehen.
@@ -2224,6 +2228,10 @@ def _load_allocation_inputs(
     ).order_by(Goal.rank.asc()).all()
     goals = _strictly_active_rows(goal_rows, label="Ziel")
     _validate_active_goal_inputs(goals)
+    # CASHFLOW-GOAL-INCLUDE-TOGGLE-001: siehe identischer Kommentar oben bei
+    # den Cashflows -- is_included=0 bleibt sichtbar, fliesst aber in keine
+    # Berechnung ein.
+    goals = [g for g in goals if getattr(g, "is_included", 1) == 1]
     # Sprint A1: erwartete Vermoegenszufluesse (Erbschaft, Bonus, Saeule3b, ...)
     wealth_inflows = db.query(WealthInflow).filter(
         WealthInflow.client_id == mandate.client_id,
@@ -5808,6 +5816,10 @@ def build_target_payload_from_allocation(
     ).all()
     cashflows = _strictly_active_rows(cashflow_rows, label="Cashflow")
     _validate_active_cashflow_inputs(cashflows)
+    # CASHFLOW-GOAL-INCLUDE-TOGGLE-001: siehe identischer Kommentar in
+    # _load_allocation_inputs -- is_included=0 bleibt sichtbar, fliesst aber
+    # in keine Berechnung ein.
+    cashflows = [cf for cf in cashflows if getattr(cf, "is_included", 1) == 1]
     # 2026-06-14: vermögensgetriebene Cashflows (Hypothekarzins, Amortisation,
     # Miet-/Zinserträge) AUCH im Rebuild-/Recommendation-Pfad einspeisen — sonst
     # rechnete build_target_payload_from_allocation mit unvollständigen Cashflows
@@ -5828,6 +5840,10 @@ def build_target_payload_from_allocation(
     ).order_by(Goal.rank.asc()).all()
     goals = _strictly_active_rows(goal_rows, label="Ziel")
     _validate_active_goal_inputs(goals)
+    # CASHFLOW-GOAL-INCLUDE-TOGGLE-001: siehe identischer Kommentar in
+    # _load_allocation_inputs -- is_included=0 bleibt sichtbar, fliesst aber
+    # in keine Berechnung ein.
+    goals = [g for g in goals if getattr(g, "is_included", 1) == 1]
     cashflow_totals = totals_for_year(
         cashflows, fx_source=fx_source, target_currency=target_currency,
     )

@@ -637,6 +637,7 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
                 .filter(
                     Cashflow.client_id == client_id,
                     Cashflow.is_active == 1,
+                    Cashflow.is_included == 1,
                     Cashflow.deleted_at.is_(None),
                 )
                 .all()
@@ -678,6 +679,7 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
             .filter(
                 Goal.mandate_id == mandate.id,
                 Goal.is_active == 1,
+                Goal.is_included == 1,
                 Goal.deleted_at.is_(None),
             )
             .order_by(Goal.rank.asc())

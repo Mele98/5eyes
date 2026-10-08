@@ -179,7 +179,11 @@ def _cached_active_goals(db: Session, mandate: Mandate) -> list[Any]:
     def _factory():
         return (
             db.query(Goal)
-            .filter(Goal.mandate_id == mandate.id, Goal.is_active == 1)
+            .filter(
+                Goal.mandate_id == mandate.id,
+                Goal.is_active == 1,
+                Goal.is_included == 1,
+            )
             .all()
         )
     return _aggregator_cache_get(db, ("active_goals", mandate.id), _factory)
@@ -191,7 +195,11 @@ def _cached_active_cashflows(db: Session, client_id: str) -> list[Any]:
     def _factory():
         return (
             db.query(Cashflow)
-            .filter(Cashflow.client_id == client_id, Cashflow.is_active == 1)
+            .filter(
+                Cashflow.client_id == client_id,
+                Cashflow.is_active == 1,
+                Cashflow.is_included == 1,
+            )
             .all()
         )
     return _aggregator_cache_get(db, ("active_cashflows", client_id), _factory)
