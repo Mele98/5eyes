@@ -6737,7 +6737,17 @@ function setupDrag(){
   const list=document.getElementById('zl');if(!list)return;
   let drag=null;
   list.querySelectorAll('.goal').forEach(row=>{
-    row.addEventListener('dragstart',function(){drag=this;this.style.opacity='0.4';});
+    row.addEventListener('dragstart',function(e){
+      // CASHFLOW-GOAL-INCLUDE-TOGGLE-001-DRAG-FIX: siehe identischer Kommentar
+      // in setupCashflowDragList() -- ohne diesen Ausschluss hijackt ein Klick
+      // auf den Include-Switch (oder die Bearbeiten-/Entfernen-Buttons) der
+      // Zeilen-Drag den Klick, sobald sich die Maus dabei minimal bewegt.
+      if(e&&e.target&&e.target.closest&&e.target.closest('button,.inc-switch')){
+        e.preventDefault();
+        return;
+      }
+      drag=this;this.style.opacity='0.4';
+    });
     row.addEventListener('dragend',function(){this.style.opacity='1';});
     row.addEventListener('dragover',e=>e.preventDefault());
     row.addEventListener('drop',function(e){e.preventDefault();if(drag&&drag!==this){list.insertBefore(drag,this);renum();}});
@@ -6789,7 +6799,13 @@ function setupCashflowDragList(containerId,type){
     row.setAttribute('draggable','true');
     row.setAttribute('title','Ziehen, um die Reihenfolge zu \u00e4ndern');
     row.ondragstart=function(ev){
-      if(ev&&ev.target&&ev.target.closest&&ev.target.closest('button')){
+      // CASHFLOW-GOAL-INCLUDE-TOGGLE-001-DRAG-FIX: der Include-Switch ist ein
+      // <label>, kein <button> -- ohne diesen Ausschluss startete ein Klick auf
+      // den Switch (sobald die Maus sich dabei minimal bewegt, wie bei jedem
+      // echten Mausklick ueblich) stattdessen den HTML5-Drag der ganzen Zeile,
+      // was den click/change-Event auf der Checkbox unterdrueckt -- der Switch
+      // liess sich dadurch nicht zuverlaessig ein-/ausschalten.
+      if(ev&&ev.target&&ev.target.closest&&ev.target.closest('button,.inc-switch')){
         ev.preventDefault();
         return;
       }
@@ -23990,7 +24006,7 @@ async function refreshCashflowsUI(cid){
         '<div class="cfn"><div class="cfna">'+escapeHtml(c.label||'Cashflow')+'</div><div class="cfnd">'+escapeHtml(cashflowTimingLabel(c))+'</div></div>'+
         '<div class="cfa '+(isIncome?'ci':'co')+'">'+(isIncome?'+':'−')+fmt(c.amount_rappen||0)+'</div>'+
         '<div style="display:flex;align-items:center;gap:4px">'+
-        '<label class="inc-switch" title="'+incTitle+'"><input type="checkbox" class="inc-switch-input"'+(included?' checked':'')+'><span class="inc-switch-track"><span class="inc-switch-thumb"></span></span></label>'+
+        '<label class="inc-switch" draggable="false" title="'+incTitle+'"><input type="checkbox" class="inc-switch-input"'+(included?' checked':'')+'><span class="inc-switch-track"><span class="inc-switch-thumb"></span></span></label>'+
         '<button class="btn-ico e" type="button" title="Bearbeiten" aria-label="Cashflow bearbeiten">&#9998;</button><button class="btn-ico d" type="button" title="Löschen" aria-label="Cashflow löschen">&#10005;</button></div></div>';
     };
     // 2026-06-14: abgeleitete (vermögensgetriebene) Zeile — schreibgeschützt, kein
@@ -27784,7 +27800,7 @@ function renderGoalList(items,isDemo){
       '<div class="gi"><div class="gn" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span>'+escapeHtml(goal.label||'Ziel')+'</span>'+badges+'</div><div class="gd">'+escapeHtml(meta.filter(Boolean).join(' · '))+'</div>'+(goal.notes?'<div class="gd" style="margin-top:3px;color:var(--n5)">'+escapeHtml(goal.notes)+'</div>':'')+goalEvaluationNoteHtml(goal,true)+'</div>'+
       '<span class="tag '+tagTone+'">'+tagLabel+'</span>'+
       '<div class="gbw"><div class="gp">'+(scored?Math.round(pct)+' %':'—')+'</div><div class="gb"><div class="gf '+tone+'" style="width:'+Math.max(0,Math.min(100,scored?Math.round(pct):0))+'%"></div></div></div>'+
-      '<div class="goal-actions"><label class="inc-switch" title="'+goalIncTitle+'"><input type="checkbox" class="inc-switch-input goal-include-toggle"'+(goalIncluded?' checked':'')+'><span class="inc-switch-track"><span class="inc-switch-thumb"></span></span></label><button class="btn btn-sm goal-edit-action" type="button">Bearbeiten</button><button class="goal-delete-action" type="button">Entfernen</button></div></div>';
+      '<div class="goal-actions"><label class="inc-switch" draggable="false" title="'+goalIncTitle+'"><input type="checkbox" class="inc-switch-input goal-include-toggle"'+(goalIncluded?' checked':'')+'><span class="inc-switch-track"><span class="inc-switch-thumb"></span></span></label><button class="btn btn-sm goal-edit-action" type="button">Bearbeiten</button><button class="goal-delete-action" type="button">Entfernen</button></div></div>';
   }).join('');
   Array.prototype.forEach.call(zl.querySelectorAll('.goal[data-goalid] .goal-edit-action, .goal[data-goalid] .goal-delete-action'),function(btn){
     var card=btn.closest('.goal[data-goalid]');
