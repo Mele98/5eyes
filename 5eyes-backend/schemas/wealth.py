@@ -494,6 +494,8 @@ class CashflowUpdate(BaseModel):
     is_inflation_linked: Optional[bool] = None
     notes: Optional[str] = None
     is_active: Optional[bool] = None
+    # CASHFLOW-GOAL-INCLUDE-TOGGLE-001: siehe models/wealth.py::Cashflow.is_included.
+    is_included: Optional[bool] = None
     data_classification: Optional[Literal["synthetic", "real"]] = None
 
     @model_validator(mode="after")
@@ -528,6 +530,7 @@ class CashflowResponse(BaseResponse):
     is_inflation_linked: int
     notes: Optional[str]
     is_active: int
+    is_included: int
     created_at: str
     updated_at: str
 
@@ -811,6 +814,8 @@ class GoalUpdate(BaseModel):
     linked_position_id: Optional[str] = None
     notes: Optional[str] = None
     is_active: Optional[bool] = None
+    # CASHFLOW-GOAL-INCLUDE-TOGGLE-001: siehe models/wealth.py::Goal.is_included.
+    is_included: Optional[bool] = None
     data_classification: Optional[Literal["synthetic", "real"]] = None
 
     @model_validator(mode="after")
@@ -846,6 +851,7 @@ class GoalResponse(BaseResponse):
     linked_position_id: Optional[str]
     notes: Optional[str]
     is_active: int
+    is_included: int
     achievement_score: Optional[int]
     last_scored_at: Optional[str]
     created_at: str

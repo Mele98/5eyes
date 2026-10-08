@@ -473,6 +473,11 @@ def ensure_runtime_columns() -> None:
             ('gross_amount_rappen', 'INTEGER'),
             ('tax_amount_rappen', 'INTEGER'),
             ('timing_precision', 'TEXT'),
+            # CASHFLOW-GOAL-INCLUDE-TOGGLE-001 (Audit-Feedback, 2026-10-08):
+            # siehe models/wealth.py::Cashflow.is_included fuer die Semantik.
+            # int_default=1 -> Bestandszeilen bleiben "eingeschlossen"
+            # (unveraendertes Verhalten), rueckwaertskompatibel.
+            ('is_included', 'INTEGER', 1),
         ],
         'goals': [
             # Sprint B6 (2026-05-08): bedingte Goals — Eintrittswahrscheinlichkeit (0-100).
@@ -484,6 +489,8 @@ def ensure_runtime_columns() -> None:
             # Stochastic Goal Engine Stage 1 (2026-05-23): Renditeziel + Zielwahrscheinlichkeit.
             ('target_return_bps', 'INTEGER'),
             ('success_probability_min_x100', 'INTEGER'),
+            # CASHFLOW-GOAL-INCLUDE-TOGGLE-001: siehe models/wealth.py::Goal.is_included.
+            ('is_included', 'INTEGER', 1),
         ],
         'capital_market_assumptions': [
             ('correlation_matrix_json', 'TEXT'),

@@ -81,6 +81,20 @@ class Cashflow(Base):
     is_inflation_linked = Column(Integer, nullable=False, default=0)
     notes = Column(String)
     is_active = Column(Integer, nullable=False, default=1)
+    # CASHFLOW-GOAL-INCLUDE-TOGGLE-001 (Audit-Feedback, 2026-10-08): bewusst
+    # GETRENNT von is_active/deleted_at. is_active=0 bedeutet Soft-Delete
+    # (Zeile bleibt in list_cashflows UNSICHTBAR); is_included=0 bedeutet
+    # "Berater hat diesen Cashflow vorübergehend von allen Berechnungen
+    # ausgeschlossen, Zeile bleibt aber in der Liste sichtbar (ausgegraut)".
+    # Beide Flags sind unabhaengig: list_cashflows() filtert NUR is_active,
+    # jede Geldberechnung (cashflow_summary/-projection, Advisory-Report,
+    # portfolio_engine._load_allocation_inputs/build_target_payload_from_
+    # allocation) filtert ZUSAETZLICH is_included. Default 1 (eingeschlossen,
+    # rueckwaertskompatibel -- bestehende Zeilen aendern ihr Verhalten nicht).
+    # server_default="1": DB-seitiger Default, damit auch rohe SQL-Inserts
+    # (ohne diese Spalte, siehe property_rental_inflation_linked oben fuer
+    # denselben Grund) und Bestandszeilen 1 erhalten, nicht nur ORM-Inserts.
+    is_included = Column(Integer, nullable=False, server_default="1", default=1)
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
     deleted_at = Column(String)
@@ -151,6 +165,13 @@ class Goal(Base):
     linked_position_id = Column(String)
     notes = Column(String)
     is_active = Column(Integer, nullable=False, default=1)
+    # CASHFLOW-GOAL-INCLUDE-TOGGLE-001: siehe identischer Kommentar auf
+    # Cashflow.is_included (models/wealth.py, Klasse Cashflow) -- dieselbe
+    # Semantik, getrennt von is_active/deleted_at. list_goals() filtert NUR
+    # is_active; jede Geldberechnung filtert zusaetzlich is_included.
+    # server_default="1": siehe identischer Kommentar auf Cashflow.is_included
+    # (rohe SQL-Inserts ohne diese Spalte muessen 1 erhalten).
+    is_included = Column(Integer, nullable=False, server_default="1", default=1)
     achievement_score = Column(Integer)
     last_scored_at = Column(String)
     created_at = Column(String, nullable=False)
