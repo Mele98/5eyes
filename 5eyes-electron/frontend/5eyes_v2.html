@@ -387,6 +387,8 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 .inc-switch-input:checked+.inc-switch-track{background:var(--g4);}
 .inc-switch-input:checked+.inc-switch-track .inc-switch-thumb{left:13px;}
 .inc-switch-input:focus-visible+.inc-switch-track{outline:2px solid var(--g4);outline-offset:1px;}
+.inc-switch-input:disabled+.inc-switch-track{opacity:.55;}
+.inc-switch:has(.inc-switch-input:disabled){cursor:wait;}
 .cf-row.is-excluded,.goal.is-excluded{opacity:.45;}
 .cf-row.is-excluded .inc-switch,.goal.is-excluded .inc-switch{opacity:1;}
 .cfi{width:20px;height:20px;border-radius:3px;display:flex;align-items:center;justify-content:center;font-size:10px;flex-shrink:0;}
@@ -21063,6 +21065,17 @@ function toggleCashflowIncluded(input,cid){
   if(row)row.classList.toggle('is-excluded',!included);
   if(isDemo)return;
   if(!activeCid){console.error('toggleCashflowIncluded PUT skipped: no active client id');return;}
+  // RACE-FIX (2026-10-08, Nutzer-Meldung "kann nicht sauber ein-/ausschalten"):
+  // waehrend PUT+Refresh laufen (refreshCashflowsUI macht mehrere sequentielle
+  // API-Calls + Chart-Rebuild, kann spuerbar dauern) wird der Switch disabled,
+  // damit ein zweiter, ungeduldiger Klick in dieser Zeit NICHT den gerade
+  // gesendeten Toggle wieder rueckgaengig macht -- genau dieses Muster (zwei
+  // PUTs <1s auseinander, die sich gegenseitig aufheben) wurde live in den
+  // Backend-Logs beobachtet. Erfolgsfall: refreshCashflowsUI ersetzt die
+  // ganze Zeile inkl. Input durch ein frisches, automatisch enabled Element
+  // -- kein explizites Re-Enable noetig. Fehlerfall: dasselbe Input bleibt
+  // bestehen, muss explizit wieder enabled werden.
+  input.disabled=true;
   API.put('/clients/'+activeCid+'/cashflows/'+cfId,{is_included:included})
     .then(function(){
       currentCashflows=(currentCashflows||[]).map(function(c){
@@ -21077,6 +21090,7 @@ function toggleCashflowIncluded(input,cid){
       console.error('toggleCashflowIncluded PUT failed:',e.status,e.message);
       if(row)row.classList.toggle('is-excluded',included);
       input.checked=!included;
+      input.disabled=false;
     });
 }
 function dcf(btn){
@@ -21133,6 +21147,8 @@ function toggleGoalIncluded(input){
     return;
   }
   if(!mid){console.error('toggleGoalIncluded PUT skipped: no active mandate id');return;}
+  // RACE-FIX: siehe identischer Kommentar auf toggleCashflowIncluded.
+  input.disabled=true;
   API.put('/mandates/'+mid+'/goals/'+gId,{is_included:included})
     .then(async function(){
       currentGoals=(currentGoals||[]).map(function(goal){
@@ -21147,6 +21163,7 @@ function toggleGoalIncluded(input){
       console.error('toggleGoalIncluded PUT failed:',e.status,e.message);
       if(card)card.classList.toggle('is-excluded',included);
       input.checked=!included;
+      input.disabled=false;
     });
 }
 function renderPortfolioSections(positions){
@@ -23964,7 +23981,22 @@ function _renderCashflowDuplicateHint(manualRows, derivedRows){
   el.style.display='';
   el.innerHTML='<div style="font-size:10px;color:var(--g4);line-height:1.5;background:rgba(201,168,76,0.10);border:1px solid rgba(201,168,76,0.28);border-radius:8px;padding:8px 10px;margin-bottom:10px">&#9888; Mögliche Doppelerfassung: '+items+'. Diese Posten werden bereits automatisch aus dem Vermögen abgeleitet — prüfe, ob die manuelle Zeile doppelt zählt (beide fliessen in die Projektion).</div>';
 }
+var _cashflowsUiRefreshEpoch=0;
 async function refreshCashflowsUI(cid){
+  // STALE-REFRESH-RACE-FIX (2026-10-08, Nutzer-Meldung "Togle lässt sich
+  // nicht ein und ausschalten"): zwei Toggle-Klicks auf VERSCHIEDENEN Zeilen
+  // kurz hintereinander starten jeweils ihren eigenen refreshCashflowsUI-Lauf
+  // (4 parallele GETs). Ohne Sequenz-Schutz kann der AELTERE Lauf (z.B. durch
+  // Klick auf "Lohn 2") NACH dem NEUEREN Lauf (Klick auf "Lohn") fertig
+  // werden und dessen frisch gerenderte Zeilen mit einem veralteten Snapshot
+  // ueberschreiben -- der gerade umgeschaltete Switch "springt" optisch
+  // zurueck, obwohl der Server-Stand laengst korrekt ist. Live im Backend-Log
+  // bestaetigt: zwei PUTs auf denselben Cashflow ~500ms auseinander, weil der
+  // Nutzer nach dem optisch zurueckgesprungenen ersten Klick ein zweites Mal
+  // klickte. Fix: nur der zuletzt gestartete Lauf darf das DOM aktualisieren;
+  // jeder aeltere Lauf, der erst danach aufloest, wird stillschweigend
+  // verworfen (wie ein manuelles AbortController-Signal).
+  var __epoch=++_cashflowsUiRefreshEpoch;
   try{
     var results=await Promise.allSettled([
       API.get('/clients/'+cid+'/cashflows'),
@@ -23973,6 +24005,7 @@ async function refreshCashflowsUI(cid){
       API.get('/clients/'+cid+'/cashflows-derived')
     ]);
     if(String(cid)!==String(currentClientId||''))return;
+    if(__epoch!==_cashflowsUiRefreshEpoch)return;
     var items=results[0].status==='fulfilled'?results[0].value:[];
     var summary=results[1].status==='fulfilled'?results[1].value:{};
     var projection=results[2].status==='fulfilled'?results[2].value:null;
@@ -24102,6 +24135,7 @@ async function refreshCashflowsUI(cid){
     }
   }catch(e){
     if(String(cid)!==String(currentClientId||''))return;
+    if(__epoch!==_cashflowsUiRefreshEpoch)return;
     console.warn('refreshCashflowsUI:',e);
     currentCashflows=[];
     currentCashflowSummary=null;
@@ -28025,8 +28059,13 @@ async function saveGoal(options){
     return true;
   }
 }
+var _goalsUiRefreshEpoch=0;
 async function refreshGoalsUI(mid){
+  // STALE-REFRESH-RACE-FIX: siehe identischer Kommentar auf
+  // refreshCashflowsUI -- gleiches Muster fuer Ziel-Toggles.
+  var __epoch=++_goalsUiRefreshEpoch;
   if(!mid||isDemoMandateId(mid)){
+    if(__epoch!==_goalsUiRefreshEpoch)return;
     renderGoalList(currentGoals,true);
     syncAllocationPendingViews();
     _currentGoalsLoadedOnce=true;
@@ -28034,6 +28073,7 @@ async function refreshGoalsUI(mid){
   }
   try{
     var data=await API.get('/mandates/'+mid+'/goals');
+    if(__epoch!==_goalsUiRefreshEpoch)return;
     var items=Array.isArray(data)?data:(data.items||[]);
     currentGoals=items.slice();
     renderGoalList(currentGoals,false);
@@ -28041,6 +28081,7 @@ async function refreshGoalsUI(mid){
     updateCfRiskContextSummary();
     _currentGoalsLoadedOnce=true;
   }catch(e){
+    if(__epoch!==_goalsUiRefreshEpoch)return;
     console.warn('refreshGoalsUI:',e);
   }
 }
