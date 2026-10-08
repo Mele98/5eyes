@@ -930,6 +930,10 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 .fi:focus{border-color:var(--g4);background:#fff;}
 .fsel{width:100%;padding:6px 9px;border:1px solid var(--b2);border-radius:var(--r);font-family:var(--f-s);font-size:11px;color:var(--n8);background:var(--bg);outline:none;cursor:pointer;}
 .fta{width:100%;padding:6px 9px;border:1px solid var(--b2);border-radius:var(--r);font-family:var(--f-s);font-size:11px;color:var(--n8);background:var(--bg);outline:none;resize:vertical;}
+.date-group{display:grid;grid-template-columns:0.9fr 1.6fr 0.65fr;gap:4px;}
+.date-group .fsel{width:100%;}
+.date-group .fsel:disabled{opacity:.5;cursor:not-allowed;background:var(--bg2,#f3f3f3);}
+.fi.is-computed{opacity:.6;background:var(--bg2,#f3f3f3);cursor:not-allowed;}
 .cnav{background:var(--surface);border-top:1px solid var(--b1);padding:10px 24px;display:flex;justify-content:space-between;align-items:center;position:sticky;bottom:0;}
 .cni{font-size:10px;color:var(--n4);}
 ::-webkit-scrollbar{width:4px;height:4px;}
@@ -4649,11 +4653,21 @@ function _wireSollIstHover(){
       <div class="frow">
         <div class="fg" id="acf-start-wrap">
           <label class="fl" id="acf-start-label">Start ab</label>
-          <input class="fi" id="acf-valid-from" type="date">
+          <div class="date-group">
+            <select class="fsel dg-year" aria-label="Jahr" onchange="onDateGroupChange('acf-valid-from')"></select>
+            <select class="fsel dg-month" aria-label="Monat" onchange="onDateGroupChange('acf-valid-from')"></select>
+            <select class="fsel dg-day" aria-label="Tag" onchange="onDateGroupChange('acf-valid-from')"></select>
+            <input type="hidden" id="acf-valid-from" value="">
+          </div>
         </div>
         <div class="fg" id="acf-end-wrap">
           <label class="fl">Bis / Ende</label>
-          <input class="fi" id="acf-valid-until" type="date">
+          <div class="date-group">
+            <select class="fsel dg-year" aria-label="Jahr" onchange="onDateGroupChange('acf-valid-until')"></select>
+            <select class="fsel dg-month" aria-label="Monat" onchange="onDateGroupChange('acf-valid-until')"></select>
+            <select class="fsel dg-day" aria-label="Tag" onchange="onDateGroupChange('acf-valid-until')"></select>
+            <input type="hidden" id="acf-valid-until" value="">
+          </div>
         </div>
       </div>
       <div class="frow" id="acf-timing-wrap" style="display:none">
@@ -4876,11 +4890,21 @@ function _wireSollIstHover(){
       <div class="frow">
         <div class="fg m-acf-field" id="nz-start-wrap" data-goal-field="start-date">
           <label class="fl" id="nz-start-label">Start / Auslösung</label>
-          <input class="fi" id="nz-start-date" type="date" onchange="updateGoalDerivedDiagnostics()">
+          <div class="date-group">
+            <select class="fsel dg-year" aria-label="Jahr" onchange="onDateGroupChange('nz-start-date')"></select>
+            <select class="fsel dg-month" aria-label="Monat" onchange="onDateGroupChange('nz-start-date')"></select>
+            <select class="fsel dg-day" aria-label="Tag" onchange="onDateGroupChange('nz-start-date')"></select>
+            <input type="hidden" id="nz-start-date" value="">
+          </div>
         </div>
         <div class="fg m-acf-field" id="nz-target-wrap" data-goal-field="target-date" data-stage6-id="m-acf-target-date">
           <label class="fl" id="nz-target-label">Zieldatum</label>
-          <input class="fi" id="nz-target-date" type="date" onchange="updateGoalDerivedDiagnostics()">
+          <div class="date-group">
+            <select class="fsel dg-year" aria-label="Jahr" onchange="onDateGroupChange('nz-target-date')"></select>
+            <select class="fsel dg-month" aria-label="Monat" onchange="onDateGroupChange('nz-target-date')"></select>
+            <select class="fsel dg-day" aria-label="Tag" onchange="onDateGroupChange('nz-target-date')"></select>
+            <input type="hidden" id="nz-target-date" value="">
+          </div>
         </div>
       </div>
       <div class="frow">
@@ -18582,6 +18606,16 @@ function openAllocationPreferencesModal(){
   om('m-aa-pref');
 }
 function setInputValue(id,value){
+  // DATE-GROUP-001: die vier Jahr/Monat/Tag-Datumsfelder haben ein eigenes
+  // Hidden-Input + drei sichtbare <select>-Elemente -- ein reines .value=
+  // wuerde nur das Hidden-Feld setzen, ohne die sichtbaren Dropdowns zu
+  // synchronisieren. Bestehende Aufrufer (resetGoalModal/openGoalEditor/
+  // resetCashflowModal/openCashflowEditor) bleiben dadurch unveraendert
+  // funktionsfaehig.
+  if(typeof DATE_GROUP_FIELDS==='object'&&DATE_GROUP_FIELDS&&id in DATE_GROUP_FIELDS){
+    setDateGroupValue(id,value);
+    return;
+  }
   var el=document.getElementById(id);
   if(el)el.value=value==null?'':String(value);
 }
@@ -22584,6 +22618,134 @@ function cashflowFrequencyKey(value){
 function normalizeCashflowDateValue(value){
   var raw=String(value||'').trim().slice(0,10);
   return /^\d{4}-\d{2}-\d{2}$/.test(raw)?raw:'';
+}
+// DATE-GROUP-001 (Audit-Feedback, 2026-10-08): Jahr/Monat/Tag-Dropdowns statt
+// nativem <input type="date"> fuer Ziele/Cashflow-Datumsfelder. Grund: die
+// native Kalender-Popup-Navigation braucht fuer ein weit entferntes Datum
+// (z.B. 6 Jahre in der Zukunft) viele Klicks, und das vom Betriebssystem
+// gerenderte native Popup liegt ausserhalb der Seiten-DOM-Kontrolle -- ein
+// plausibler Grund fuer das gemeldete "Maske verschwindet manchmal beim
+// Tippen"-Verhalten (Interaktion mit dem Overlay-Click-Outside-Schliessen-
+// Handler, siehe die querySelectorAll('.overlay')-Bindung weiter oben).
+// Browser-native <select>-Elemente (bereits ueberall als .fsel verwendet)
+// haben kein eigenes, der Seite entzogenes Popup UND sind per Tastatur
+// direkt eintippbar (Browser-Standard-Type-Ahead) -- erfuellt zugleich die
+// Anforderung "oder selber eintippen koennen".
+var DATE_GROUP_MONTHS_DE=['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
+var DATE_GROUP_FIELDS={
+  'nz-target-date':{onChange:'onGoalDateGroupChange'},
+  'nz-start-date':{onChange:'updateGoalDerivedDiagnostics'},
+  'acf-valid-from':{onChange:null},
+  'acf-valid-until':{onChange:null}
+};
+function dateGroupDaysInMonth(year,month){
+  return new Date(year,month,0).getDate();
+}
+function buildDateGroupSelects(fieldId){
+  var hidden=document.getElementById(fieldId);
+  if(!hidden||hidden.dataset.dateGroupBuilt==='1')return;
+  var wrap=hidden.closest('.date-group');
+  if(!wrap)return;
+  var yearSel=wrap.querySelector('.dg-year');
+  var monthSel=wrap.querySelector('.dg-month');
+  var daySel=wrap.querySelector('.dg-day');
+  if(!yearSel||!monthSel||!daySel)return;
+  var nowYear=new Date().getFullYear();
+  var yearMin=nowYear-60,yearMax=nowYear+75;
+  var yearHtml='<option value="">Jahr</option>';
+  for(var y=yearMin;y<=yearMax;y++){yearHtml+='<option value="'+y+'">'+y+'</option>';}
+  yearSel.innerHTML=yearHtml;
+  var monthHtml='<option value="">Monat</option>';
+  DATE_GROUP_MONTHS_DE.forEach(function(name,idx){
+    var mm=String(idx+1).padStart(2,'0');
+    monthHtml+='<option value="'+mm+'">'+(idx+1)+' – '+name+'</option>';
+  });
+  monthSel.innerHTML=monthHtml;
+  dateGroupRebuildDaySelect(fieldId,null);
+  hidden.dataset.dateGroupBuilt='1';
+}
+function dateGroupRebuildDaySelect(fieldId,keepDay){
+  var hidden=document.getElementById(fieldId);
+  var wrap=hidden&&hidden.closest('.date-group');
+  if(!wrap)return;
+  var yearSel=wrap.querySelector('.dg-year');
+  var monthSel=wrap.querySelector('.dg-month');
+  var daySel=wrap.querySelector('.dg-day');
+  var year=parseInt(yearSel.value,10);
+  var month=parseInt(monthSel.value,10);
+  var maxDay=(isFinite(year)&&isFinite(month))?dateGroupDaysInMonth(year,month):31;
+  var prevDay=keepDay!=null?keepDay:parseInt(daySel.value,10);
+  var html='<option value="">Tag</option>';
+  for(var d=1;d<=maxDay;d++){
+    var dd=String(d).padStart(2,'0');
+    html+='<option value="'+dd+'">'+d+'</option>';
+  }
+  daySel.innerHTML=html;
+  if(isFinite(prevDay)&&prevDay<=maxDay){
+    daySel.value=String(prevDay).padStart(2,'0');
+  }
+}
+function onDateGroupChange(fieldId){
+  var hidden=document.getElementById(fieldId);
+  var wrap=hidden&&hidden.closest('.date-group');
+  if(!wrap)return;
+  dateGroupRebuildDaySelect(fieldId);
+  var yearSel=wrap.querySelector('.dg-year');
+  var monthSel=wrap.querySelector('.dg-month');
+  var daySel=wrap.querySelector('.dg-day');
+  var y=yearSel.value,m=monthSel.value,d=daySel.value;
+  hidden.value=(y&&m&&d)?(y+'-'+m+'-'+d):'';
+  var cfg=DATE_GROUP_FIELDS[fieldId];
+  if(cfg&&cfg.onChange&&typeof window[cfg.onChange]==='function'){
+    window[cfg.onChange]();
+  }
+}
+function setDateGroupValue(fieldId,isoValue){
+  var hidden=document.getElementById(fieldId);
+  var wrap=hidden&&hidden.closest('.date-group');
+  if(!wrap){if(hidden)hidden.value=isoValue||'';return;}
+  buildDateGroupSelects(fieldId);
+  var yearSel=wrap.querySelector('.dg-year');
+  var monthSel=wrap.querySelector('.dg-month');
+  var daySel=wrap.querySelector('.dg-day');
+  var iso=normalizeCashflowDateValue(isoValue);
+  if(!iso){
+    yearSel.value='';monthSel.value='';
+    dateGroupRebuildDaySelect(fieldId,null);
+    daySel.value='';
+    hidden.value='';
+    return;
+  }
+  var parts=iso.split('-');
+  yearSel.value=parts[0];
+  monthSel.value=parts[1];
+  dateGroupRebuildDaySelect(fieldId,parseInt(parts[2],10));
+  daySel.value=parts[2];
+  hidden.value=iso;
+}
+function onGoalDateGroupChange(){
+  // GOAL-HORIZON-REDUNDANCY-001 (Audit-Feedback, 2026-10-08): "Zeithorizont
+  // (Jahre)" ist bei gesetztem Zieldatum nur noch eine reine, nicht editierbare
+  // Anzeige (aus dem Datum abgeleitet via goalEditorHorizonYears() -- derselben
+  // Funktion, die auch saveGoal() seit GOAL-HORIZON-STALE-001 verwendet).
+  // Schliesst die Ursache jenes Bugs strukturell: die Maske kann nach diesem
+  // Fix gar nicht mehr zwei widersprüchliche Werte gleichzeitig anzeigen.
+  var horizonInput=document.getElementById('nz-horizon');
+  var targetDate=getInputValue('nz-target-date');
+  if(horizonInput){
+    if(targetDate){
+      var years=goalEditorHorizonYears();
+      horizonInput.value=years>0?String(Math.max(1,Math.round(years))):'';
+      horizonInput.readOnly=true;
+      horizonInput.classList.add('is-computed');
+      horizonInput.title='Wird aus dem Zieldatum berechnet.';
+    }else{
+      horizonInput.readOnly=false;
+      horizonInput.classList.remove('is-computed');
+      horizonInput.title='';
+    }
+  }
+  updateGoalDerivedDiagnostics();
 }
 function normalizeCashflowMonthValue(value){
   var raw=String(value||'').trim().slice(0,7);
@@ -27450,6 +27612,7 @@ function resetGoalModal(){
   if(err){err.style.display='none';err.textContent='';}
   bindGoalEditorTyping();
   syncGoalModalState();
+  onGoalDateGroupChange();
   setTimeout(function(){
     var labelInput=document.getElementById('nz-label');
     if(labelInput)labelInput.focus();
@@ -27492,6 +27655,7 @@ function openGoalEditor(goalId){
   if(err){err.style.display='none';err.textContent='';}
   bindGoalEditorTyping();
   syncGoalModalState();
+  onGoalDateGroupChange();
   if(legacyHardReturn){
     showModalFeedback(
       'nz-error',
