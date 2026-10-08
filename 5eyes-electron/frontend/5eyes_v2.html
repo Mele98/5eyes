@@ -23372,6 +23372,20 @@ async function saveCashflow(){
   }
   var cid=getActiveClientId();
   if(btn){btn._origText=isEdit?'Aktualisieren':'Speichern';btn.disabled=true;btn.textContent=isEdit?'Aktualisieren...':'Speichern...';}
+  // CURRENCY-CLOBBER-001 (Audit-Finding, 2026-10-07): war fest auf 'CHF'
+  // verdrahtet und ueberschrieb damit bei JEDEM Speichern (auch beim
+  // Bearbeiten!) die currency eines bestehenden Cashflows -- identisches
+  // Bugmuster wie bei den Vermoegenspositionen (siehe buildWealthPositionPayload),
+  // seit BASE-CURRENCY-HARDCODED-001 (2026-09-27) real relevant. Es gibt
+  // (noch) kein UI-Feld zur Waehrungswahl in dieser Maske -- Minimalfix:
+  // neue Cashflows erhalten die Mandats-Basiswaehrung statt hart CHF,
+  // bestehende behalten beim Bearbeiten ihre eigene currency.
+  var existingCashflow=currentCashflowEditId
+    ?currentCashflows.find(function(item){return item&&String(item.id||'')===String(currentCashflowEditId);})
+    :null;
+  var cashflowCurrency=(existingCashflow&&existingCashflow.currency)
+    ||(currentMandateData&&currentMandateData.base_currency)
+    ||'CHF';
   var payload={
     cashflow_type:cftype,
     label:label,
@@ -23379,7 +23393,7 @@ async function saveCashflow(){
     gross_amount_rappen:isCapitalWithdrawal?grossAmountRappen:null,
     tax_amount_rappen:isCapitalWithdrawal?taxAmountRappen:null,
     timing_precision:isOneOffCashflow(freqKey)?timingPrecision:null,
-    currency:'CHF',
+    currency:cashflowCurrency,
     frequency:normalizeFrequencyValue(freqKey),
     nature:isOneOffCashflow(freqKey)?'einmalig':'wiederkehrend',
     valid_from:validFrom||null,
