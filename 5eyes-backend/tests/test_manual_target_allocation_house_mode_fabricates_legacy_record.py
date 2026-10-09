@@ -210,14 +210,15 @@ def _add_advisory_position(session_factory, client_id: str, value_rappen: int):
         s.commit()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "TA-LEGACY-FABRICATION-001 — round 46 red test, see audit "
-        "2026-10-04-target-allocation-editor-context-and-release-lifecycle-"
-        "integrity-audit.md (not committed in this repo)"
-    ),
-)
+# TA-LEGACY-FABRICATION-001 fixed (CERT-TA-WRITE-LIFECYCLE-001, 2026-10-09):
+# routers/allocation.py::create_target_allocation now binds the current CMA,
+# recomputes risky_fraction_bps server-side from the new targets (never
+# trusts the client value), sets context_artifacts_required=1 with real
+# sub_allocations_json/allocation_context_hash/input_snapshot_hash, and sets
+# risky_fraction_bps_at_generation/risk_budget_bps_at_generation so
+# services.mandate_lock_audit's risk-budget check can fire. xfail removed
+# because this now genuinely passes (confirmed XPASS before removal);
+# IMPLEMENTED_NOT_VERIFIED pending Codex's independent re-gate, not CLOSED.
 def test_manual_house_mode_save_fabricates_legacy_looking_allocation(
     auth_client, session_factory, advisor_user
 ):

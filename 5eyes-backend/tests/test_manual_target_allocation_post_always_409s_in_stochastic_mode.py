@@ -185,14 +185,14 @@ def _valid_ta_body(policy_id, based_on_assessment_id, **overrides):
     return base
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "TA-EDITOR-WRITE-CONTRACT-001 — round 46 red test, see audit "
-        "2026-10-04-target-allocation-editor-context-and-release-lifecycle-"
-        "integrity-audit.md (not committed in this repo)"
-    ),
-)
+# TA-EDITOR-WRITE-CONTRACT-001 fixed (CERT-TA-WRITE-LIFECYCLE-001, 2026-10-09):
+# routers/allocation.py::create_target_allocation no longer 409s on
+# optimizer_mode alone -- the unconditional mode gate was removed and every
+# manual write (any mode) now goes through the same modern-context build
+# (CMA anchor, server-recomputed risky_fraction_bps, context artifacts) as
+# the engine Generate path. xfail removed because this now genuinely passes
+# (confirmed XPASS before removal); IMPLEMENTED_NOT_VERIFIED pending Codex's
+# independent re-gate, not CLOSED.
 def test_manual_target_allocation_post_always_409s_in_stochastic_mode(
     auth_client, session_factory, advisor, monkeypatch
 ):
