@@ -41,6 +41,13 @@ def build_kostenausweis_flowables(
     ``compact`` only tightens vertical spacing; the embedded Advisory-Report
     layout remains unchanged.
     """
+    # CERT-COST-PUBLICATION-001 (COST-RENDER-SEMANTICS-001, 2026-10-09): der
+    # Einleitungstext behauptete bisher UNABHAENGIG von data["currency"]
+    # immer "Schweizer Franken" -- fuer ein EUR-/USD-Mandat widersprach der
+    # Fliesstext damit den (bereits korrekt dynamischen) Zahlen weiter unten.
+    # _currency_intro_phrase() ist dieselbe Quelle wie _summary_metrics/
+    # _cost_table (data["currency"]), kein zweiter Berechnungsweg.
+    currency_for_intro = str((data or {}).get("currency") or "CHF").upper().strip() or "CHF"
     out: list[Any] = [
         Paragraph("FIDLEG KOSTENTRANSPARENZ", styles["kicker"]),
         Paragraph("Kostenausweis ex-ante", styles["h1"]),
@@ -50,8 +57,8 @@ def build_kostenausweis_flowables(
         Paragraph(
             "Voraussichtliche Kosten der empfohlenen Finanzdienstleistung "
             "und des Zielportfolios. Einmalige und laufende Kosten werden "
-            "getrennt sowie in Schweizer Franken und als Quote der "
-            "Berechnungsbasis ausgewiesen.",
+            f"getrennt sowie {_currency_intro_phrase(currency_for_intro)} und "
+            "als Quote der Berechnungsbasis ausgewiesen.",
             _style(styles["body"], color=COLOR_INK_MUTED),
         ),
         Spacer(1, (2 if compact else 4) * mm),
@@ -321,6 +328,26 @@ def _frequency_label(value: Any) -> str:
         "einmalig": "einmalig",
         "jährlich": "jährlich",
     }.get(str(value or ""), str(value or "—"))
+
+
+# CERT-COST-PUBLICATION-001 (COST-RENDER-SEMANTICS-001): ISO-4217-Code ->
+# deutsche Waehrungsbezeichnung fuer den Fliesstext. Nur Formatierung, keine
+# neue Kostenberechnung -- unbekannte Codes fallen ehrlich auf den Code
+# selbst zurueck statt eine falsche Waehrung zu behaupten.
+_CURRENCY_NAMES_DE: dict[str, str] = {
+    "CHF": "Schweizer Franken",
+    "EUR": "Euro",
+    "USD": "US-Dollar",
+    "GBP": "britischen Pfund",
+    "JPY": "japanischen Yen",
+}
+
+
+def _currency_intro_phrase(currency: str) -> str:
+    name = _CURRENCY_NAMES_DE.get(currency)
+    if name:
+        return f"in {name}"
+    return f"in {currency}"
 
 
 def _first_warning(data: dict) -> str:
