@@ -74,7 +74,8 @@ from services.pdf.components.kostenausweis import build_kostenausweis_flowables 
 # tests/test_provisional_pdf_gate.py importing from
 # tests/test_engine_de_jurisdiction_wiring.py).
 from test_cost_disclosure_pdf import (  # noqa: E402,F401
-    _seed_minimal_mandate, advisor_user, auth_client, session_factory,
+    _full_payload, _seed_minimal_mandate, advisor_user, auth_client,
+    session_factory,
 )
 from test_engine_de_jurisdiction_wiring import (  # noqa: E402,F401
     _seed_de_mandate, session_factory as de_session_factory,
@@ -146,46 +147,66 @@ def _render_kostenausweis_pdf(data: dict) -> bytes:
 
 
 # ---------------------------------------------------------------------------
-# COST-RENDER-SEMANTICS-001 (1/4) -- monolith _formatRappenChf hardcodes
-# "CHF " unconditionally; 5eyes_v2.html:13349-13353 never consults
-# payload.currency (it does not even take a currency parameter).
+# COST-RENDER-SEMANTICS-001 (1/4) -- monolith _formatRappenChf hardcoded
+# "CHF " unconditionally; 5eyes_v2.html:13349-13353 never consulted
+# payload.currency (it did not even take a currency parameter).
+#
+# FIXED (CERT-COST-PUBLICATION-001, 2026-10-09): _formatRappenChf() now takes
+# a real `currency` parameter, and every call site inside
+# renderCostDisclosure() threads `data.currency` through (the same payload
+# field already used correctly by the backend/PDF). The extraction below is
+# updated to the new two-parameter signature -- the Soll-assertion itself
+# ("EUR" must appear, not a hardcoded "CHF") is unchanged. xfail removed:
+# strict=True would otherwise report an unexpected XPASS once this is fixed.
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="COST-RENDER-SEMANTICS-001 -- CERT-COST-PUBLICATION-001 (currency)")
 def test_monolith_format_rappen_ignores_payload_currency():
     _require_node()
     html = _html()
-    fn_src = _extract_balanced_block(html, "function _formatRappenChf(rappen){")
-    assert "currency" not in fn_src, (
+    fn_src = _extract_balanced_block(html, "function _formatRappenChf(rappen, currency){")
+    assert "currency" in fn_src, (
         "Sanity: _formatRappenChf's signature/body changed shape -- update "
         "this extraction before trusting the assertion below"
     )
 
-    script = fn_src + "\nconsole.log(_formatRappenChf(400000000));"
+    script = fn_src + "\nconsole.log(_formatRappenChf(400000000, 'EUR'));"
     result = _run_node(script)
 
     # Soll: a EUR-denominated mandate's cost amounts must render with "EUR",
     # never a hardcoded "CHF" regardless of the actual contract currency.
     assert "EUR" in result, (
-        f"_formatRappenChf('CHF 400000000 Rappen') rendered {result!r} for what "
+        f"_formatRappenChf(400000000, 'EUR') rendered {result!r} for what "
         "is actually a EUR-denominated amount -- the formatter hardcodes "
         "'CHF ' unconditionally and has no currency parameter at all"
+    )
+    assert "CHF" not in result, (
+        f"_formatRappenChf(400000000, 'EUR') rendered {result!r} -- a "
+        "EUR-denominated amount must not also carry a CHF label"
     )
 
 
 # ---------------------------------------------------------------------------
 # COST-RENDER-SEMANTICS-001 (2/4) -- a null rate_bps (absolute retrocession,
-# no rate) renders as "0.00%" instead of "no rate at all".
+# no rate) rendered as "0.00%" instead of "no rate at all".
 # 5eyes_v2.html:13293 -- Number(item.rate_bps||0).
+#
+# FIXED (CERT-COST-PUBLICATION-001, 2026-10-09): the rate statement now
+# explicitly branches on `item.rate_bps==null` and renders an em-dash
+# instead of coercing null to 0. Extraction regex updated to the new
+# statement; the Soll-assertion (never literally "0.00%") is unchanged.
+# xfail removed: strict=True would otherwise report an unexpected XPASS.
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="COST-RENDER-SEMANTICS-001 -- CERT-COST-PUBLICATION-001 (null rate)")
 def test_monolith_null_rate_bps_renders_as_zero_percent_not_absent():
     _require_node()
     html = _html()
-    match = re.search(r"var rate=\(Number\(item\.rate_bps\|\|0\)/100\)\.toFixed\(2\)\+'%';", html)
+    match = re.search(
+        r"var rate=\(item\.rate_bps==null\)\?'—':"
+        r"\(Number\(item\.rate_bps\)/100\)\.toFixed\(2\)\+'%';",
+        html,
+    )
     assert match, (
         "rate derivation statement in renderCostDisclosure() moved/changed "
         "shape -- update this extraction before trusting the assertion below"
@@ -232,18 +253,25 @@ def test_monolith_null_rate_bps_renders_as_zero_percent_not_absent():
 
 
 # ---------------------------------------------------------------------------
-# COST-RENDER-SEMANTICS-001 (3/4) -- any non-"einmalig" frequency is shown
+# COST-RENDER-SEMANTICS-001 (3/4) -- any non-"einmalig" frequency was shown
 # as "p.a." (including monthly/quarterly/unknown).
 # 5eyes_v2.html:13295.
+#
+# FIXED (CERT-COST-PUBLICATION-001, 2026-10-09): the frequency statement now
+# passes through the backend's already-localized German frequency string
+# verbatim (einmalig/jährlich/monatlich/quartalsweise/...), falling back to
+# "nicht erfasst" only when truly empty -- never silently reinterpreted as
+# annual. Extraction regex updated; the Soll-assertion ("monatlich" must
+# render as "monatlich") is unchanged. xfail removed: strict=True would
+# otherwise report an unexpected XPASS.
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="COST-RENDER-SEMANTICS-001 -- CERT-COST-PUBLICATION-001 (turnus)")
 def test_monolith_frequency_collapses_non_einmalig_values_to_pa():
     _require_node()
     html = _html()
     match = re.search(
-        r"var freq=String\(item\.frequency\|\|''\)\.toLowerCase\(\)===" r"'einmalig'\?'einmalig':'p\.a\.';",
+        r"var freq=String\(item\.frequency\|\|''\)\.trim\(\)\|\|'nicht erfasst';",
         html,
     )
     assert match, (
@@ -270,13 +298,19 @@ def test_monolith_frequency_collapses_non_einmalig_values_to_pa():
 
 
 # ---------------------------------------------------------------------------
-# COST-RENDER-SEMANTICS-001 (4/4) -- the PDF's fixed intro paragraph claims
+# COST-RENDER-SEMANTICS-001 (4/4) -- the PDF's fixed intro paragraph claimed
 # "Schweizer Franken" even though the numeric amounts correctly use the
 # dynamic payload currency. services/pdf/components/kostenausweis.py:50-57.
+#
+# FIXED (CERT-COST-PUBLICATION-001, 2026-10-09): the intro paragraph now
+# derives its currency phrase from data["currency"] via
+# `_currency_intro_phrase()`, the SAME source already used for the dynamic
+# amounts -- xfail marker removed (strict=True would now report an
+# unexpected XPASS; this is intentionally a genuine green assertion, not a
+# weakened one).
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="COST-RENDER-SEMANTICS-001 -- CERT-COST-PUBLICATION-001 (pdf fixtext)")
 def test_pdf_intro_text_claims_chf_for_a_eur_mandate():
     disclosure = calculate_cost_disclosure(
         advisory_wealth_rappen=100_000_00,
@@ -303,19 +337,23 @@ def test_pdf_intro_text_claims_chf_for_a_eur_mandate():
 
 # ---------------------------------------------------------------------------
 # COST-PUBLICATION-GATE-001 (1/2) -- a pending (no recommendation yet)
-# mandate's standalone cost-disclosure.pdf is exportable as a plain HTTP-200
-# client PDF. routers/pdf_reports.py:2078-2112 (get_cost_disclosure_pdf)
-# calls the live builder and always returns a PDF Response -- no gate.
+# mandate's standalone cost-disclosure.pdf was exportable as a plain
+# HTTP-200 client PDF. routers/pdf_reports.py (get_cost_disclosure_pdf)
+# called the live builder and always returned a PDF Response -- no gate.
 #
-# The existing positive control
+# FIXED (CERT-COST-PUBLICATION-001, 2026-10-09): get_cost_disclosure_pdf()
+# now checks `payload["data_pending"]` and raises HTTPException(409, ...)
+# with a stable reason code before ever rendering. This is an intentional
+# BEHAVIOR CHANGE, not just a new test: the pre-existing positive control
 # tests/test_cost_disclosure_pdf.py::test_endpoint_pending_liefert_valides_pdf
-# asserts exactly this HTTP-200 behavior today and is NOT touched here; this
-# test documents that the same behavior is a certification gap under the
-# target "pending must never become client-ready" contract (spec Section 5.1).
+# encoded the OLD (now-certified-wrong) HTTP-200 behavior and has been
+# updated in the same commit to assert the new 409 contract instead --
+# see that file for the updated assertion and its own comment. xfail
+# marker removed here: strict=True would otherwise report an unexpected
+# XPASS.
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="COST-PUBLICATION-GATE-001 -- CERT-COST-PUBLICATION-001 (pending export)")
 def test_pending_cost_disclosure_must_not_export_as_client_ready_pdf(auth_client, advisor_user, session_factory):
     mandate_id = _seed_minimal_mandate(session_factory, advisor_user)
     resp = auth_client.get(f"/mandates/{mandate_id}/reports/cost-disclosure.pdf")
@@ -332,17 +370,23 @@ def test_pending_cost_disclosure_must_not_export_as_client_ready_pdf(auth_client
 
 # ---------------------------------------------------------------------------
 # COST-PUBLICATION-GATE-001 (2/2) -- a cost-disclosure calculation failure
-# is caught and replaced with a degraded/unavailable section, and the full
-# Advisory-Report PDF (incl. everything after it) still renders successfully.
+# was caught and replaced with a degraded/unavailable section, and the full
+# Advisory-Report PDF (incl. everything after it) still rendered successfully.
 # services/advisory_report.py::_build_cost_disclosure_section fails closed
 # into a dict (NOT falsy), so
 # services/pdf/documents/advisory_report.py:112-127's own fallback never
-# even triggers -- the report is simply built with audit_degraded=True and
+# even triggered -- the report was simply built with audit_degraded=True and
 # handed out as a normal, complete, client-ready PDF regardless.
+#
+# FIXED (CERT-COST-PUBLICATION-001, 2026-10-09):
+# render_advisory_report_pdf() now explicitly checks
+# payload["cost_disclosure"]["audit_degraded"] and returns None instead of
+# bytes when set; routers/pdf_reports.py::get_advisory_report_pdf() turns
+# that None into an HTTP 409 with a stable reason code. xfail removed:
+# strict=True would otherwise report an unexpected XPASS.
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="COST-PUBLICATION-GATE-001 -- CERT-COST-PUBLICATION-001 (degraded export)")
 def test_degraded_cost_disclosure_must_not_produce_client_ready_advisory_pdf(de_session_factory, monkeypatch):
     from models.mandates import Mandate
     from services.advisory_report import compute_advisory_report
@@ -393,15 +437,23 @@ def test_degraded_cost_disclosure_must_not_produce_client_ready_advisory_pdf(de_
 
 # ---------------------------------------------------------------------------
 # COST-DELIVERY-EVIDENCE-001 (1/2) -- the monolith's downloadCostDisclosurePdf()
-# fires the PDF download without awaiting it, then immediately logs an
+# fired the PDF download without awaiting it, then immediately logged an
 # AdvisoryLog entry claiming the document was "ausgehaendigt" -- regardless
-# of whether the download ever succeeds. 5eyes_v2.html:13309-13347.
+# of whether the download ever succeeded. 5eyes_v2.html:13309-13347.
 # The sibling React self-attestation assertion (free checkbox, no artifact
 # reference) lives in the frontend reporting-app test file.
+#
+# FIXED (CERT-COST-PUBLICATION-001, 2026-10-09): downloadCostDisclosurePdf()
+# now `await`s downloadServerPdf('cost-disclosure') (which itself now
+# returns a typed {status, byte_sha256} outcome from _fetchAndSavePdf) and
+# only fires the AdvisoryLog POST when that outcome is a confirmed
+# status==='saved' -- never on a merely-started, pending, or failed
+# download. The logged claim text was also changed from "ausgehaendigt" to
+# "lokal gespeichert" (spec Section 10 claim-contract). xfail removed:
+# strict=True would otherwise report an unexpected XPASS.
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="COST-DELIVERY-EVIDENCE-001 -- CERT-COST-PUBLICATION-001 (unawaited download)")
 def test_monolith_download_cost_disclosure_pdf_logs_handed_over_before_download_settles():
     _require_node()
     html = _html()
@@ -454,14 +506,35 @@ def test_monolith_download_cost_disclosure_pdf_logs_handed_over_before_download_
 
 # ---------------------------------------------------------------------------
 # COST-ARTIFACT-EVIDENCE-001 -- the standalone cost-disclosure PDF response
-# carries no snapshot/document/byte-hash identity at all.
+# carried no snapshot/document/byte-hash identity at all.
 # routers/pdf_reports.py:2078-2112.
+#
+# FIXED (CERT-COST-PUBLICATION-001, 2026-10-09): get_cost_disclosure_pdf()
+# now archives the rendered PDF once via the existing
+# services.document_archive (render-once/archive-once, same primitive
+# already used by the Anlagestrategie/Risikoprofil/Portfolio/Protokoll
+# endpoints) and returns X-Cost-Disclosure-Document-Id/-Version/
+# -Byte-Sha256/-Content-Hash/-Snapshot-Id headers. xfail removed: strict=True
+# would otherwise report an unexpected XPASS.
+#
+# Fixture note: the mandate here deliberately uses a monkeypatched
+# non-pending `build_cost_disclosure` return instead of
+# `_seed_minimal_mandate`'s natural pending state -- COST-PUBLICATION-GATE-001
+# (fixed above) now blocks a pending export with 409 before the artifact-
+# identity code path is even reached, and that pending-export behavior is
+# covered by its own dedicated test. This test is specifically about
+# artifact identity on an otherwise-successful client-ready export.
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="COST-ARTIFACT-EVIDENCE-001 -- CERT-COST-PUBLICATION-001")
-def test_cost_disclosure_pdf_response_carries_no_artifact_identity(auth_client, advisor_user, session_factory):
+def test_cost_disclosure_pdf_response_carries_no_artifact_identity(
+    auth_client, advisor_user, session_factory, monkeypatch,
+):
     mandate_id = _seed_minimal_mandate(session_factory, advisor_user)
+    monkeypatch.setattr(
+        "services.cost_disclosure.build_cost_disclosure",
+        lambda db, mandate: _full_payload(),
+    )
     resp = auth_client.get(f"/mandates/{mandate_id}/reports/cost-disclosure.pdf")
     assert resp.status_code == 200, resp.text  # unchanged positive behavior
 

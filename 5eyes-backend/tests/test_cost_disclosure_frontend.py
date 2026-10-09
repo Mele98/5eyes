@@ -85,10 +85,16 @@ def test_audit_auto_flag_setzt_cost_disclosure_given():
 
 def test_audit_flag_ist_non_blocking_bei_fehler():
     """Wenn der Audit-Eintrag scheitert, darf der PDF-Download-Flow
-    nicht crashen — try/catch + console.warn."""
+    nicht crashen — try/catch + console.warn.
+
+    Window bumped 2000 -> 3200 chars (CERT-COST-PUBLICATION-001,
+    2026-10-09): downloadCostDisclosurePdf() now awaits the download
+    outcome and only logs on a confirmed save, which legitimately grew the
+    function body before this try/catch block.
+    """
     text = _html()
     fn_start = text.find("async function downloadCostDisclosurePdf(")
-    block = text[fn_start:fn_start + 2000]
+    block = text[fn_start:fn_start + 3200]
     assert "console.warn" in block
     assert "Audit-Auto-Flag fehlgeschlagen" in block
 

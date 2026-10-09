@@ -15,6 +15,7 @@ import type {
   BranchenData,
   BuildingBlocksData,
   ConflictDisclosuresData,
+  CostDisclosureData,
   LiquidityCascadeData,
   ReserveExplainabilityData,
   MandateLockStatusData,
@@ -561,6 +562,66 @@ export function makeSuitabilitySummary(
   };
 }
 
+// CERT-COST-PUBLICATION-001 (COST-PUBLICATION-001, 2026-10-09): Pendant zum
+// Backend-Fixture in tests/test_cert_cost_publication_001_reproducers.py --
+// ein vollstaendiger, nicht-pending Kostenausweis mit einer absoluten
+// Retrozession (rate_bps=null) und einem monatlichen Kostenposten, damit
+// Golden-/Render-Tests beide COST-RENDER-SEMANTICS-001-Faelle abdecken.
+export function makeCostDisclosure(overrides: Partial<CostDisclosureData> = {}): CostDisclosureData {
+  return {
+    data_pending: false,
+    currency: 'CHF',
+    as_of: '2026-10-09T00:00:00.000Z',
+    source_run_id: 'run-cost-fixture-001',
+    fidleg_basis: 'Art. 8/9 FIDLEG; Art. 8/14 FIDLEV',
+    advisory_wealth_rappen: 1_000_000_00,
+    invested_amount_rappen: 1_000_000_00,
+    product_cost_coverage_bps: 10_000,
+    cost_items: [
+      {
+        key: 'default_advisory_fee_bps',
+        label: 'Beratungs-/Verwaltungsgebühr',
+        category: 'Dienstleistungskosten',
+        frequency: 'jährlich',
+        rate_bps: 80,
+        amount_rappen: 8_000_00,
+        basis_rappen: 1_000_000_00,
+        basis_label: 'Beratungsvermögen',
+        source: 'Gebührenmodell der Empfehlung',
+        is_estimate: false,
+        included_in_total: true,
+      },
+      {
+        key: 'retrocession_disclosed',
+        label: 'Vergütung von Dritten, einbehalten (Fondsanbieter X)',
+        category: 'Vergütungen von Dritten',
+        frequency: 'jährlich',
+        rate_bps: null,
+        amount_rappen: 500_00,
+        basis_rappen: 1_000_000_00,
+        basis_label: 'Beratungsvermögen',
+        source: 'Interessenkonflikt-Offenlegung (Retrozession, Verzicht dokumentiert)',
+        is_estimate: false,
+        included_in_total: false,
+      },
+    ],
+    totals: {
+      one_time_rappen: 0,
+      one_time_bps: 0,
+      annual_rappen: 8_000_00,
+      annual_bps: 80,
+      first_year_rappen: 8_000_00,
+      first_year_bps: 80,
+    },
+    is_complete: true,
+    has_estimates: false,
+    warnings: [
+      'Vergütung von Dritten (Fondsanbieter X) ist offengelegt, wird gemäss dokumentiertem Kundenverzicht aber vom Berater einbehalten und ist bereits Teil der ausgewiesenen Kosten -- nicht zusätzlich im Total.',
+    ],
+    ...overrides,
+  };
+}
+
 export function makeAdvisoryReport(): AdvisoryReport {
   return {
     schema_version: 2,
@@ -605,6 +666,7 @@ export function makeAdvisoryReport(): AdvisoryReport {
       warnings: [],
     },
     suitability_summary: makeSuitabilitySummary(),
+    cost_disclosure: makeCostDisclosure(),
   };
 }
 

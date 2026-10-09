@@ -13249,13 +13249,18 @@ async function openCostDisclosureModal(){
 function renderCostDisclosure(data){
   if(!data) data={data_pending:true, cost_items:[], totals:{}, warnings:[]};
   var totals=data.totals||{};
+  // CERT-COST-PUBLICATION-001 (COST-RENDER-SEMANTICS-001): die Mandats-
+  // Waehrung kommt IMMER aus dem Backend-Payload (services.cost_disclosure
+  // leitet sie aus mandate.base_currency ab) -- niemals hartkodiert, sonst
+  // zeigt ein EUR-/USD-Mandat faelschlich "CHF" an.
+  var currency=String(data.currency||'CHF').toUpperCase().trim()||'CHF';
   var summary=document.getElementById('cd-summary');
   if(summary){
     var tiles=[
-      ['Anlagebasis', _formatRappenChf(data.advisory_wealth_rappen)],
-      ['Einmalig', _formatRappenChf(totals.one_time_rappen)],
-      ['Laufend p.a.', _formatRappenChf(totals.annual_rappen)],
-      ['Erstes Jahr', _formatRappenChf(totals.first_year_rappen)],
+      ['Anlagebasis', _formatRappenChf(data.advisory_wealth_rappen, currency)],
+      ['Einmalig', _formatRappenChf(totals.one_time_rappen, currency)],
+      ['Laufend p.a.', _formatRappenChf(totals.annual_rappen, currency)],
+      ['Erstes Jahr', _formatRappenChf(totals.first_year_rappen, currency)],
     ];
     summary.innerHTML=tiles.map(function(t){
       return '<div style="background:var(--bg);border:1px solid var(--b1);border-radius:var(--r);padding:10px 12px">'
@@ -13290,9 +13295,17 @@ function renderCostDisclosure(data){
         +rows.map(function(item){
           var label=String(item.label||item.category||'Kosten');
           if(item.is_estimate) label+=' *';
-          var rate=(Number(item.rate_bps||0)/100).toFixed(2)+'%';
-          var amount=_formatRappenChf(item.amount_rappen);
-          var freq=String(item.frequency||'').toLowerCase()==='einmalig'?'einmalig':'p.a.';
+          // COST-RENDER-SEMANTICS-001 (2/4): rate_bps=null (z.B. eine
+          // absolute, nicht-prozentuale Retrozession) ist KEIN offengelegter
+          // 0.00%-Satz -- Number(null||0) wuerde das faelschlich behaupten.
+          var rate=(item.rate_bps==null)?'—':(Number(item.rate_bps)/100).toFixed(2)+'%';
+          var amount=_formatRappenChf(item.amount_rappen, currency);
+          // COST-RENDER-SEMANTICS-001 (3/4): Turnus ist ein vom Backend
+          // bereits lokalisierter Text (einmalig/jaehrlich/monatlich/
+          // quartalsweise/"nicht erfasst") -- nicht blind auf 'p.a.'
+          // zusammenfalten, sonst behauptet die UI eine jaehrliche
+          // Wiederkehr fuer monatliche/unbekannte Kosten.
+          var freq=String(item.frequency||'').trim()||'nicht erfasst';
           return '<div style="display:grid;grid-template-columns:1.6fr 90px 90px 110px 1fr;gap:8px;padding:9px 10px;border-bottom:1px solid var(--b1);font-size:11px;align-items:center">'
             +'<div style="color:var(--n8)">'+escapeHtml(label)+'</div>'
             +'<div style="text-align:right;color:var(--n6)">'+escapeHtml(freq)+'</div>'
@@ -13306,19 +13319,38 @@ function renderCostDisclosure(data){
   }
 }
 
+// CERT-COST-PUBLICATION-001 (COST-DELIVERY-EVIDENCE-001, 2026-10-09): rief
+// bisher downloadServerPdf() OHNE await auf und erzeugte SOFORT danach einen
+// AdvisoryLog-Eintrag, der behauptete, das PDF sei dem Kunden "ausgehaendigt"
+// worden -- unabhaengig davon, ob der Download jemals erfolgreich abschloss
+// (Electron-Save-Dialog abgebrochen, Netzwerkfehler, ...). Jetzt: der
+// Download wird ABGEWARTET, und der Audit-Eintrag behauptet nur noch die
+// Evidence-Stufe, die tatsaechlich belegt ist ("lokal gespeichert", NICHT
+// "ausgehaendigt" -- eine Kundenpraesentation/-zustellung ist damit nicht
+// bewiesen, siehe Spec-Claim-Vertrag Abschnitt 10). Der reale Byte-Hash des
+// gespeicherten PDFs wird mitgegeben statt einer unbelegten Behauptung.
 async function downloadCostDisclosurePdf(){
   var mid=typeof getActiveMandateId==='function'?getActiveMandateId():null;
   if(!mid)return;
   var btn=document.getElementById('cd-pdf-btn');
   if(btn){ btn.disabled=true; btn.textContent='Wird vorbereitet...'; }
   try{
-    // PDF im Backend rendern und in neuem Tab oeffnen.
+    // PDF im Backend rendern und lokal speichern/herunterladen -- ABGEWARTET,
+    // damit der Audit-Eintrag unten nur bei bestaetigtem Erfolg erzeugt wird.
+    var outcome;
     if(typeof downloadServerPdf==='function'){
-      downloadServerPdf('cost-disclosure');
+      outcome=await downloadServerPdf('cost-disclosure');
     }else{
       var apiBase=(window.API&&typeof window.API.baseUrl==='function')?await window.API.baseUrl():'http://127.0.0.1:8000';
       var url=String(apiBase).replace(/\/$/, '')+'/mandates/'+encodeURIComponent(mid)+'/reports/cost-disclosure.pdf';
       window.open(url,'_blank','noopener');
+      outcome={status:'saved', byte_sha256:null};
+    }
+    if(!outcome||outcome.status!=='saved'){
+      // Kein bestaetigter Download (abgebrochen/fehlgeschlagen) -> kein
+      // Audit-Claim. Erfunden-freie Fehlerbehandlung statt eines
+      // ungedeckten "ausgehaendigt"-Eintrags.
+      return;
     }
     // Audit-Auto-Flag: cost_disclosure_given=1 im AdvisoryLog (FINMA U-2.1).
     // Pflichtfelder gemaess AdvisoryLogCreate-Schema, kein Crash bei fehlendem
@@ -13327,14 +13359,15 @@ async function downloadCostDisclosurePdf(){
       var nowIso=(new Date()).toISOString();
       await API.post('/mandates/'+encodeURIComponent(mid)+'/advisory-log',{
         entry_type: 'Sonstiges',
-        title: 'FIDLEG Ex-ante Kostenausweis ausgehaendigt',
-        description: 'Der voraussichtliche Kostenausweis nach FIDLEG Art. 8/9 wurde dem Kunden vor Auftragsausfuehrung als PDF ausgehaendigt.',
+        title: 'FIDLEG Ex-ante Kostenausweis lokal gespeichert',
+        description: 'Der voraussichtliche Kostenausweis nach FIDLEG Art. 8/9 wurde als PDF lokal gespeichert (bestaetigter Download). Dies allein belegt noch KEINE Praesentation oder Zustellung an den Kunden.',
         entry_datetime: nowIso,
         duration_minutes: 1,
         communication_channel: 'persoenlich',
         topics: ['Ex-ante Kostenausweis'],
         risk_warnings_given: [],
         cost_disclosure_given: true,
+        cost_disclosure_artifact_byte_sha256: outcome.byte_sha256||null,
         conflict_disclosure_ids: [],
       });
     }catch(logErr){
@@ -13346,10 +13379,17 @@ async function downloadCostDisclosurePdf(){
   }
 }
 
-function _formatRappenChf(rappen){
+// CERT-COST-PUBLICATION-001 (COST-RENDER-SEMANTICS-001, 2026-10-09): nahm
+// bisher NUR `rappen` entgegen und praefixierte jeden Betrag unabhaengig von
+// payload.currency hartkodiert mit "CHF " -- ein EUR-/USD-Mandat zeigte
+// damit einen falsch beschrifteten Betrag. `currency` ist jetzt Pflicht-
+// Parameter aller Aufrufer in renderCostDisclosure(); der Default greift nur
+// defensiv, falls diese Funktion je ohne Waehrungsangabe aufgerufen wird.
+function _formatRappenChf(rappen, currency){
+  var unit=String(currency||'CHF').toUpperCase().trim()||'CHF';
   var v=Number(rappen||0)/100;
-  try{ return 'CHF '+v.toLocaleString('de-CH',{maximumFractionDigits:0}); }
-  catch(e){ return 'CHF '+Math.round(v); }
+  try{ return unit+' '+v.toLocaleString('de-CH',{maximumFractionDigits:0}); }
+  catch(e){ return unit+' '+Math.round(v); }
 }
 
 async function openBausteineModal(){
@@ -22440,11 +22480,19 @@ async function downloadArchivedDocumentPdf(docId, filenamePrefix){
   var path='/mandates/'+encodeURIComponent(mid)+'/documents/'+encodeURIComponent(docId)+'/pdf';
   return _fetchAndSavePdf(path, filenamePrefix||'dokument');
 }
+// CERT-COST-PUBLICATION-001 (COST-DELIVERY-EVIDENCE-001, 2026-10-09):
+// liefert jetzt ein TYPISIERTES Ergebnis statt stillschweigend undefined --
+// Aufrufer, die eine Zustellungs-Behauptung ("ausgehaendigt"/"gespeichert")
+// an einen Download knuepfen wollen (siehe downloadCostDisclosurePdf()),
+// muessen das reale Ergebnis kennen (status: 'saved'|'cancelled'|'failed')
+// statt blind von einem bloss gestarteten Request auf Erfolg zu schliessen.
+// Bestehende Aufrufer, die den Rueckgabewert ignorieren, bleiben unveraendert
+// funktionsfaehig (kein Breaking-Change).
 async function _fetchAndSavePdf(path, filenamePrefix){
   // U-25: ausloesenden Button erfassen, Double-Click-Guard + Loading-State
   var _trigBtn = null;
   try { _trigBtn = (typeof event !== 'undefined' && event) ? (event.currentTarget || event.target) : null; } catch(e){}
-  if(_trigBtn && _trigBtn.classList && _trigBtn.classList.contains('is-loading')) return;
+  if(_trigBtn && _trigBtn.classList && _trigBtn.classList.contains('is-loading')) return {status:'cancelled', reason:'already-loading'};
   _pdfBtnLoading(_trigBtn, true, 'PDF wird generiert…');
   try{
     var token=await API.getToken();
@@ -22491,9 +22539,25 @@ async function _fetchAndSavePdf(path, filenamePrefix){
         }
       }catch(readErr){}
       if(window.showAppError){showAppError(msg);}else{alert(msg);}
-      return;
+      return {status:'failed', reason:msg};
     }
     var blob=await res.blob();
+    // CERT-COST-PUBLICATION-001 (COST-ARTIFACT-EVIDENCE-001): Byte-Hash der
+    // tatsaechlich heruntergeladenen PDF-Bytes, damit ein Aufrufer (z.B. der
+    // Kostenausweis-Download) sich auf eine reale, pruefbare Artefakt-
+    // Identitaet beziehen kann statt auf eine blosse Behauptung. Rein additiv
+    // und non-blocking -- schlaegt die Hash-Berechnung fehl (z.B. kein
+    // window.crypto.subtle in einer sehr alten Umgebung), bleibt der Download
+    // selbst unangetastet.
+    var byteSha256=null;
+    try{
+      if(window.crypto&&window.crypto.subtle&&typeof window.crypto.subtle.digest==='function'){
+        var digestBuf=await window.crypto.subtle.digest('SHA-256', await blob.arrayBuffer());
+        byteSha256=Array.prototype.map.call(new Uint8Array(digestBuf), function(b){
+          return ('0'+b.toString(16)).slice(-2);
+        }).join('');
+      }
+    }catch(hashErr){ console.warn('PDF-Byte-Hash konnte nicht berechnet werden (non-blocking):', hashErr); }
     var url=URL.createObjectURL(blob);
     // Bug-Fix 2026-05-18 (User-Report 'PDF kann nicht geoeffnet werden -
     // Popup-Blocker?'): window.open(url) wird von Electron/Browser oft
@@ -22511,10 +22575,11 @@ async function _fetchAndSavePdf(path, filenamePrefix){
       var saved=await window.desktop.savePdfFile({filename:filename,base64:base64});
       if(saved&&saved.ok){
         try{ if(window.showAppSuccess) showAppSuccess('PDF gespeichert', {title:'Download'}); }catch(saveNoticeErr){}
+        return {status:'saved', filename:filename, byte_sha256:byteSha256};
       }else{
         try{ if(window.showAppInfo) showAppInfo('PDF-Speichern abgebrochen', {title:'Download'}); }catch(cancelNoticeErr){}
+        return {status:'cancelled', filename:filename, byte_sha256:byteSha256};
       }
-      return;
     }
     var a = document.createElement('a');
     a.href = url;
@@ -22530,6 +22595,7 @@ async function _fetchAndSavePdf(path, filenamePrefix){
       try { URL.revokeObjectURL(url); } catch(e) {}
     }, 60000);
     try { if(window.showAppSuccess) showAppSuccess('PDF '+filename+' heruntergeladen', {title:'Download'}); } catch(noticeErr){}
+    return {status:'saved', filename:filename, byte_sha256:byteSha256};
   }catch(err){
     console.error('downloadServerPdf failed:',err);
     var reason=(err&&err.name==='AbortError')?'Zeitueberschreitung beim PDF-Download.':(err&&err.message||'unbekannter Fehler');
@@ -22538,6 +22604,7 @@ async function _fetchAndSavePdf(path, filenamePrefix){
     }
     var emsg='PDF-Generierung fehlgeschlagen: '+reason;
     if(window.showAppError){showAppError(emsg);}else{alert(emsg);}
+    return {status:'failed', reason:String(reason)};
   } finally {
     // U-25: Loading-State immer zurueck — auch bei early-return oder Exception
     _pdfBtnLoading(_trigBtn, false);

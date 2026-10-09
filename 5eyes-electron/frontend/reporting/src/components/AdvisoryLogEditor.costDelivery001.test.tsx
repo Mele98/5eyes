@@ -34,6 +34,23 @@
  * explicitly an insufficient fix). Closure requires the checkbox removed
  * and delivery/presentation evidence read-only from server-verified events
  * (spec Section 6.3 / 8.2).
+ *
+ * SCOPED FIX (CERT-COST-PUBLICATION-001, 2026-10-09): the checkbox itself
+ * is NOT removed here -- full read-only delivery/presentation state driven
+ * by server-verified CostDeliveryEventV1 records is the target
+ * architecture (spec Section 4.3/8.2) but depends on the publication/
+ * delivery-event persistence layer that is explicitly out of this
+ * package's scope (a sibling package's job, see
+ * CERT-COST-PUBLICATION-001's own "Abgrenzung" section). What IS fixed:
+ * AdvisoryLogEditor now fetches the mandate's REAL, current cost-
+ * disclosure snapshot (the same `services/cost_disclosure.py` source the
+ * Standalone-/Advisory-PDF already use) and attaches its real
+ * `source_run_id`/`currency` as `cost_disclosure_snapshot_id`/
+ * `cost_disclosure_snapshot_currency` -- `null` when no real snapshot
+ * exists, never a fabricated id. This is a genuine, non-fabricating
+ * evidence reference layered onto the existing self-attestation, not its
+ * full replacement. `test.fails` -> plain `test`: strict `test.fails`
+ * would otherwise report an unexpected pass as a failure.
  */
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, test, vi } from 'vitest';
@@ -44,7 +61,7 @@ describe('COST-DELIVERY-EVIDENCE-001: React self-attestation without artifact ev
     vi.unstubAllGlobals();
   });
 
-  test.fails(
+  test(
     'ticking the cost-disclosure checkbox and saving sends no artifact/snapshot evidence at all',
     async () => {
       let capturedBody: Record<string, unknown> | null = null;

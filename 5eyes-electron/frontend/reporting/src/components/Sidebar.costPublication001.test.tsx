@@ -39,12 +39,20 @@
  * typed Cost-Section with Pending/Blocked/Ready states, a protected route,
  * a Sidebar entry, and currency-/null-/frequency-safe rendering per
  * spec Section 6.3.
+ *
+ * FIXED (CERT-COST-PUBLICATION-001, 2026-10-09): `cost_disclosure` is now a
+ * full TypeScript interface (api/types.ts), a required top-level key in
+ * `validateSchemaV2()` (api/client.ts), a Sidebar/`REPORT_SECTIONS` entry
+ * (id 'kosten', nr 17), a route + render branch in App.tsx, and a
+ * currency-/null-/frequency-safe `Kostenausweis` page component -- not
+ * just the type. `test.fails` -> plain `test`: strict `test.fails` would
+ * otherwise report an unexpected pass as a failure.
  */
 import { describe, expect, test } from 'vitest';
 import { REPORT_SECTIONS } from './Sidebar';
 
-describe('COST-PUBLICATION-001: React never navigates to or renders the protected cost disclosure', () => {
-  test.fails(
+describe('COST-PUBLICATION-001: React navigates to and renders the protected cost disclosure', () => {
+  test(
     'REPORT_SECTIONS exposes a navigable Kostenausweis entry matching the backend-protected cost_disclosure section',
     () => {
       const costSection = REPORT_SECTIONS.find(

@@ -98,8 +98,9 @@ def render_advisory_report_pdf(
     advisor: User | None = None,
     *,
     watermark_mode: str = "none",
-) -> bytes:
-    """PDF-Bytes des Advisory-Reports für ein Mandat.
+) -> bytes | None:
+    """PDF-Bytes des Advisory-Reports für ein Mandat, oder ``None`` falls das
+    Dokument unter dem Publikations-Gate nicht client-ready ist.
 
     Verwendet denselben Aggregator wie das Frontend; das PDF spiegelt
     1:1 dieselben Daten. Inhalt aktuell: Cover + Disclaimer + TOC (PR A).
@@ -108,6 +109,15 @@ def render_advisory_report_pdf(
       - 'none' (Default): kein Wasserzeichen
       - 'entwurf': rotes diagonales 'ENTWURF' fuer Vor-Druck-Review
       - 'vertraulich': graues 'VERTRAULICH'-Marker am Seitenrand
+
+    CERT-COST-PUBLICATION-001 (COST-PUBLICATION-GATE-001, 2026-10-09): bisher
+    wurde ein `audit_degraded=True`-Kostenausweis (die Berechnung ist
+    fehlgeschlagen, services.advisory_report._build_cost_disclosure_section
+    faengt das fail-closed in ein dict ab, NICHT falsy) klaglos in einen
+    vollstaendigen, signaturfaehigen Advisory-Report-PDF weitergereicht --
+    es gab keine Trennung zwischen internem Entwurf und client-ready
+    Dokument. Degraded Kosten-Evidence blockiert jetzt den Export dieses
+    (bereits aggregierten) Reports komplett; der Router gibt dafuer 409.
     """
     payload = compute_advisory_report(db, mandate, advisor=advisor)
     if not payload.get("cost_disclosure"):
@@ -120,11 +130,19 @@ def render_advisory_report_pdf(
             )
             payload["cost_disclosure"] = {
                 "data_pending": True,
+                "audit_degraded": True,
                 "warnings": [
                     "Kosten konnten für diesen Bericht nicht vollständig "
                     "ermittelt werden."
                 ],
             }
+    if payload.get("cost_disclosure", {}).get("audit_degraded"):
+        logger.warning(
+            "Advisory-Report PDF blocked: degraded cost disclosure evidence "
+            "(audit_degraded=True) cannot become a client-ready document "
+            "(CERT-COST-PUBLICATION-001 / COST-PUBLICATION-GATE-001).",
+        )
+        return None
     # WP4 (2026-07-31): Provisorik-Gate. Fuer CH (jurisdiction in (None, "CH"))
     # liefert der Resolver IMMER None -- unveraendertes Verhalten, kein neuer
     # Key im Payload, bestehende Tests bleiben gruen. Fuer Nicht-CH-Mandate
