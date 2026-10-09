@@ -173,11 +173,33 @@ def _apply_band_preferences(
     maximums: dict[str, int],
     reasoning: list[str],
 ) -> None:
+    """Applies a bands override, keeping hard Bounds and Target Intent
+    orthogonal (CERT-ALLOCATION-INTENT-001 / BAND-PARTIAL-OVERRIDE-001).
+
+    `min_bps`/`max_bps` are independent hard constraints: they are validated
+    against each other (0 <= min <= max <= 10000), NEVER against a stale
+    baseline `target_bps` the advisor did not even send in this request. A
+    bucket without an EXPLICIT `target_bps` in `bands` has no Target Intent
+    at all -- its pre-existing `targets[bucket]` value is treated purely as
+    a technical feasible seed (clamped into the possibly-narrowed bounds),
+    not as a published Soll/preference. Whether the resulting bounds can
+    actually be rebalanced to exactly 10000 bps is `_rebalance_to_total()`'s
+    job (called by every real caller right after this function, and already
+    raising its own clear error for a genuinely infeasible envelope) -- this
+    function only applies the delta and the per-bucket sanity that is
+    independent of what the OTHER buckets' bounds happen to be.
+
+    A bucket WITH an explicit `target_bps` is a genuine advisor-stated Soft
+    Preference and must itself respect that bucket's own (possibly just-
+    overridden) bounds -- violating that is a real, reported conflict, never
+    silently clamped away.
+    """
     from services.portfolio_engine import BUCKET_FIELDS, BUCKET_LABELS, _bucket_key, _coerce_band_bps
 
     if not bands:
         return
     applied = []
+    explicit_target_buckets: set[str] = set()
     for raw_key, override in bands.items():
         bucket = _bucket_key(raw_key)
         if not bucket or not isinstance(override, dict):
@@ -187,24 +209,54 @@ def _apply_band_preferences(
         maximum = _coerce_band_bps(override.get("max_bps"))
         if minimum is not None:
             minimums[bucket] = minimum
-        if target is not None:
-            targets[bucket] = target
         if maximum is not None:
             maximums[bucket] = maximum
+        if target is not None:
+            targets[bucket] = target
+            explicit_target_buckets.add(bucket)
         applied.append(BUCKET_LABELS[bucket])
     if not applied:
         return
+
+    # Hard bounds are orthogonal to Target Intent: per-bucket sanity,
+    # independent of any target value and of what other buckets' bounds are
+    # (spec Sec. 6.2). Cross-bucket sum-to-10000 feasibility is enforced by
+    # `_rebalance_to_total()` downstream, where it belongs: that is the step
+    # that actually needs the full bounds set to produce a concrete 10000-bps
+    # allocation, and it already fails loudly (no silent fallback) if none
+    # exists.
     for key in BUCKET_FIELDS:
-        values = (minimums[key], targets[key], maximums[key])
-        if min(values) < 0 or max(values) > 10000:
-            raise ValueError(f"Bandbreiten fuer {BUCKET_LABELS[key]} muessen zwischen 0% und 100% liegen.")
+        minimum, maximum = minimums[key], maximums[key]
+        if minimum < 0 or maximum > 10000 or minimum > maximum:
+            raise ValueError(
+                f"Bandbreiten fuer {BUCKET_LABELS[key]} sind inkonsistent: "
+                f"Min {minimum} / Max {maximum} (0..10000 bps, Min darf Max nicht ueberschreiten)."
+            )
+
+    # A bucket with an EXPLICIT Target Intent must itself respect that same
+    # bucket's bounds -- a real advisor-stated conflict, reported as such.
+    for key in explicit_target_buckets:
         if not (minimums[key] <= targets[key] <= maximums[key]):
             raise ValueError(
-                f"Bandbreiten fuer {BUCKET_LABELS[key]} sind inkonsistent: Min {minimums[key]} / Ziel {targets[key]} / Max {maximums[key]}."
+                f"Bandbreiten fuer {BUCKET_LABELS[key]} sind inkonsistent: "
+                f"Min {minimums[key]} / Ziel {targets[key]} / Max {maximums[key]}."
             )
-    total = sum(int(targets[key]) for key in BUCKET_FIELDS)
-    if total != 10000:
-        raise ValueError(f"Mandatsspezifische Zielquoten muessen 100% ergeben (aktuell {total / 100:.2f}%).")
+
+    # Every OTHER bucket keeps no Target Intent at all: its carried-over
+    # value is only a feasible seed for the deterministic rebalance every
+    # caller runs afterwards, clamped into the (possibly narrowed) bounds so
+    # it is itself a valid starting point -- never published as a Soll.
+    for key in BUCKET_FIELDS:
+        if key not in explicit_target_buckets:
+            targets[key] = max(minimums[key], min(maximums[key], targets[key]))
+
+    if explicit_target_buckets == set(BUCKET_FIELDS):
+        # A FULL explicit Target Intent set is itself a complete allocation
+        # and must sum to exactly 10000 bps (spec Sec. 6.3) -- unlike a
+        # partial Soft Preference, which legitimately need not.
+        total = sum(int(targets[key]) for key in BUCKET_FIELDS)
+        if total != 10000:
+            raise ValueError(f"Mandatsspezifische Zielquoten muessen 100% ergeben (aktuell {total / 100:.2f}%).")
     reasoning.append("Mandatsspezifische Soll-Quoten und Bandbreiten werden als Simulations-Constraint beruecksichtigt.")
 
 
