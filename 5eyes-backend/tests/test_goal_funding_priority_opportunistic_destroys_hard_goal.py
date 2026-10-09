@@ -170,13 +170,6 @@ def _simulate_wealth(liability_path_rappen: list[int]) -> np.ndarray:
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "GOAL-FUNDING-PRIORITY-001 -- round 47 red test, see audit "
-        "docs/audits/2026-09-28-goal-funding-priority-and-achievability-attribution-audit.md"
-    ),
-)
 def test_opportunistic_one_off_expense_destroys_hard_goal_achievability(monkeypatch):
     """Documents GOAL-FUNDING-PRIORITY-001: adding a lowest-rank opportunistic
     one-off expense (Goal B) must NOT be able to drag a rank-1 HARD goal's

@@ -26,7 +26,7 @@ Hochrechnung mit der CMA-Inflation. Konsistent zu B1 (cashflow_timeline).
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date
 from typing import Sequence
 
@@ -64,6 +64,28 @@ class GoalLiability:
     weight_bps: int = 312  # Fallback wenn goal.weight_bps None
     success_probability_min_x100: int | None = None
     evaluation_note: str | None = None
+    # GOAL-FUNDING-PRIORITY-001 (CERT-GOAL-FUNDING-001):
+    # `rank` ist die einzige Funding-Prioritaet (aufsteigend, 1 = hoechste
+    # Prioritaet). Default 1 nur fuer direkte Dataclass-Konstruktion ohne
+    # Goal-Kontext (z.B. in bestehenden Unit-Tests) -- der Produktionspfad
+    # (goal_to_liability/goals_to_liabilities) uebernimmt immer goal.rank.
+    rank: int = 1
+    # Kumulativer Prioritaets-Scope-Pfad (Spec Sec. 4.2: S_r = {h | rank(h) <=
+    # r}), vorberechnet von goals_to_liabilities() ueber den vollen Goal-Satz
+    # eines Aufrufs. None, wenn diese Liability ausserhalb eines Batch-Aufrufs
+    # (goal_to_liability() einzeln, oder direkte Dataclass-Konstruktion in
+    # Tests) entstanden ist -- dann existiert kein Geschwister-Kontext und es
+    # wird KEINE Priority-Protection angewendet (kein stiller Fallback auf
+    # eine erfundene Annahme).
+    priority_scope_liability_path_rappen: list[int] | None = None
+    # Der volle, ungeschuetzte gemeinsame Aggregat-Pfad (= aggregate_liability_
+    # path() ueber ALLE Goals desselben Batch-Aufrufs). Identisch fuer jede
+    # Liability im selben Batch. Wird benoetigt, um aus dem bereits realisierten
+    # (kontaminierten) Wealth-Pfad die Wachstumsfaktoren pro Jahr zurueckzurechnen
+    # und denselben Pfad mit dem priorisierten Liability-Scope neu aufzubauen --
+    # OHNE eine zweite Zufallsziehung und OHNE spaetere Returns anzusehen (die
+    # Returns sind durch den gegebenen wealth_paths bereits realisiert).
+    joint_liability_path_rappen: list[int] | None = None
 
 
 # ============================================================================
@@ -94,6 +116,24 @@ def _hardness_key(goal: Goal) -> str:
 # "konsistent"-Kommentar -> Goals wurden im Optimizer-Objective anders gewichtet als
 # in der Mandate-Score-Aggregation. Konsistenz via test_goal_rank_weight_parity.
 _DEFAULT_WEIGHT_BY_RANK = {1: 10000, 2: 5000, 3: 2500, 4: 1250, 5: 625}
+
+
+def _resolve_rank(goal: Goal) -> int:
+    """Liest goal.rank fuer GoalLiability.rank.
+
+    GOAL-FUNDING-PRIORITY-001: rank ist die einzige Funding-Prioritaet.
+    Produktions-Goal-Zeilen haben eine NOT-NULL `rank`-Spalte (models/wealth.py
+    Goal.rank); dieser Fallback greift nur fuer Alt-Aufrufer ausserhalb des
+    ORM-Modells. Strikte Fail-Closed-Validierung auf Eindeutigkeit/Gueltigkeit
+    ueber ein ganzes Mandat (Spec Sec. 4.1/11.4) ist bewusst NICHT Teil dieses
+    Pakets -- siehe PR-Beschreibung/Report fuer den verbleibenden Scope.
+    """
+    raw = getattr(goal, "rank", None)
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return 1
+    return value if value > 0 else 1
 
 
 def _weight_bps(goal: Goal) -> int:
@@ -565,29 +605,30 @@ def goal_to_liability(
     horizon_years = max(1, int(horizon_years))
 
     if _is_state_funded_pension(goal):
-        return _build_state_funded_pension(goal, horizon_years=horizon_years)
-
-    if goal_type == "Renditeziel":
-        return _build_renditeziel(goal, horizon_years=horizon_years)
-    if goal_type in ("Kapitalerhalt", "Vermoegensziel"):
-        return _build_wealth_target(
+        built = _build_state_funded_pension(goal, horizon_years=horizon_years)
+    elif goal_type == "Renditeziel":
+        built = _build_renditeziel(goal, horizon_years=horizon_years)
+    elif goal_type in ("Kapitalerhalt", "Vermoegensziel"):
+        built = _build_wealth_target(
             goal,
             horizon_years=horizon_years,
             inflation_series_bps=inflation_series_bps,
             external_wealth_rappen=external_wealth_rappen,
             external_wealth_series_rappen=external_wealth_series_rappen,
         )
-    if goal_type == "Einmalige_Ausgabe":
-        return _build_einmalige_ausgabe(
+    elif goal_type == "Einmalige_Ausgabe":
+        built = _build_einmalige_ausgabe(
             goal, horizon_years=horizon_years, inflation_series_bps=inflation_series_bps,
         )
-    if goal_type in ("Wiederkehrende_Ausgabe", "Pensionsausgabe"):
-        return _build_recurring_outflow(
+    elif goal_type in ("Wiederkehrende_Ausgabe", "Pensionsausgabe"):
+        built = _build_recurring_outflow(
             goal, horizon_years=horizon_years, inflation_series_bps=inflation_series_bps,
         )
-    if goal_type == "Maximierung":
-        return _build_maximierung(goal, horizon_years=horizon_years)
-    raise ValueError(f"Nicht unterstuetzter Zieltyp {goal_type!r}.")
+    elif goal_type == "Maximierung":
+        built = _build_maximierung(goal, horizon_years=horizon_years)
+    else:
+        raise ValueError(f"Nicht unterstuetzter Zieltyp {goal_type!r}.")
+    return replace(built, rank=_resolve_rank(goal))
 
 
 def goals_to_liabilities(
@@ -598,8 +639,25 @@ def goals_to_liabilities(
     external_wealth_rappen: int = 0,
     external_wealth_series_rappen: Sequence[int] | None = None,
 ) -> list[GoalLiability]:
-    """Konvertiert Goal-Liste in Liability-Liste."""
-    return [
+    """Konvertiert Goal-Liste in Liability-Liste.
+
+    GOAL-FUNDING-PRIORITY-001 (CERT-GOAL-FUNDING-001): zusaetzlich zur reinen
+    Typ-Konvertierung wird hier -- einmalig, ueber den ganzen Batch -- pro
+    Goal der kumulative Prioritaets-Scope-Pfad gebildet (Spec Sec. 4.2):
+
+        S_r = { h | rank(h) <= r }
+        L_r(t) = Summe liability_h(t) fuer h in S_r
+
+    sowie der volle, ungeschuetzte gemeinsame Aggregatpfad (identisch zu
+    aggregate_liability_path() ueber denselben Batch). Beide werden auf jeder
+    GoalLiability abgelegt, damit services.optimizer.objective
+    goal_probability_per_path() aus dem bereits realisierten (kontaminierten)
+    Wealth-Pfad die prioritaetsgeschuetzte Trajektorie je Goal zurueckrechnen
+    kann, ohne eine zweite Zufallsziehung zu benoetigen. Ties (gleicher Rang)
+    landen im selben Scope -- Permutation der Eingabeliste aendert weder
+    Scope-Zuordnung noch Rueckgabereihenfolge (Hard Invariant #2).
+    """
+    built = [
         goal_to_liability(
             goal,
             horizon_years=horizon_years,
@@ -609,6 +667,23 @@ def goals_to_liabilities(
         )
         for goal in goals
     ]
+    if not built:
+        return built
+    joint_path = aggregate_liability_path(built, horizon_years)
+    scoped: list[GoalLiability] = []
+    for liab in built:
+        scope_path = [0] * horizon_years
+        for sibling in built:
+            if sibling.rank > liab.rank:
+                continue
+            for i, value in enumerate(sibling.liability_path_rappen[:horizon_years]):
+                scope_path[i] += int(value)
+        scoped.append(replace(
+            liab,
+            priority_scope_liability_path_rappen=scope_path,
+            joint_liability_path_rappen=list(joint_path),
+        ))
+    return scoped
 
 
 def aggregate_liability_path(

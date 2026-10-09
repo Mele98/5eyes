@@ -280,13 +280,74 @@ def shortfall_squared_per_path(
     return np.zeros(n_paths, dtype=np.float64)
 
 
-def goal_probability_per_path(
+def _priority_protected_wealth_paths(
+    wealth_paths: np.ndarray,
+    goal: GoalLiability,
+) -> tuple[np.ndarray, bool]:
+    """Reconstruct `goal`'s priority-protected wealth trajectory.
+
+    GOAL-FUNDING-PRIORITY-001 (CERT-GOAL-FUNDING-001), Spec Sec. 4.2: a goal
+    with rank ``r`` must be evaluated on the cumulative scope
+    ``S_r = {h | rank(h) <= r}``, not on the unprotected joint aggregate of
+    every requested goal. ``goals_to_liabilities()`` precomputes, for every
+    goal in a batch, ``priority_scope_liability_path_rappen`` (the scope-r
+    cumulative outflow) and ``joint_liability_path_rappen`` (the full
+    unprotected aggregate -- what actually produced the given
+    ``wealth_paths``).
+
+    When both are present and differ, this derives the per-path, per-year
+    growth factor directly from the already-realized joint trajectory
+    (``simulate_wealth_paths`` applies growth before subtracting the
+    liability for that year) and re-applies that SAME realized growth to the
+    scope-protected liability path instead. This is mathematically identical
+    to re-running ``simulate_wealth_paths`` on the same scenario cube with a
+    different liability path (common random numbers, Hard Invariant #3) as
+    long as liability subtraction does not itself feed back into growth
+    (true when ``tax_regime`` is inactive; a known approximation otherwise,
+    see PR description). It is NOT path-wise lookahead: every return used
+    here already happened in the given ``wealth_paths``; no later year's
+    return is consulted to decide an earlier year's funding order.
+
+    Returns (wealth_paths_or_reconstruction, was_reconstructed).
+    """
+    scope_path = goal.priority_scope_liability_path_rappen
+    joint_path = goal.joint_liability_path_rappen
+    if not scope_path or not joint_path or list(scope_path) == list(joint_path):
+        return wealth_paths, False
+
+    n_cols = wealth_paths.shape[1]
+    horizon = n_cols - 1
+    protected = np.array(wealth_paths, dtype=np.float64, copy=True)
+    prev_joint = wealth_paths[:, 0]
+    prev_protected = protected[:, 0]
+    for t in range(horizon):
+        joint_next = wealth_paths[:, t + 1]
+        joint_liab_t = float(joint_path[t]) if t < len(joint_path) else 0.0
+        scope_liab_t = float(scope_path[t]) if t < len(scope_path) else 0.0
+        pre_liability_joint = joint_next + joint_liab_t
+        with np.errstate(divide="ignore", invalid="ignore"):
+            growth_factor = np.where(
+                prev_joint != 0.0, pre_liability_joint / prev_joint, 1.0
+            )
+        protected_next = prev_protected * growth_factor - scope_liab_t
+        protected[:, t + 1] = protected_next
+        prev_joint = joint_next
+        prev_protected = protected_next
+    return protected, True
+
+
+def _goal_probability_core(
     wealth_paths: np.ndarray,
     goal: GoalLiability,
     initial_value_rappen: int,
     annualized_return_bps_per_path: np.ndarray | None = None,
 ) -> np.ndarray:
-    """Returns an int array with 1 where the goal is achieved, else 0."""
+    """Returns an int array with 1 where the goal is achieved, else 0.
+
+    Pure function of the GIVEN wealth_paths (no priority-scope
+    reconstruction) -- used internally wherever the deliberately unprotected
+    joint-requested-plan view is required (``chance_constraint_penalty``).
+    """
     n_paths = wealth_paths.shape[0]
     if n_paths <= 0:
         return np.zeros(0, dtype=np.int8)
@@ -332,6 +393,36 @@ def goal_probability_per_path(
     return np.ones(n_paths, dtype=np.int8)
 
 
+def goal_probability_per_path(
+    wealth_paths: np.ndarray,
+    goal: GoalLiability,
+    initial_value_rappen: int,
+    annualized_return_bps_per_path: np.ndarray | None = None,
+) -> np.ndarray:
+    """Returns an int array with 1 where the goal is achieved, else 0.
+
+    GOAL-FUNDING-PRIORITY-001: when `goal` carries priority-scope evidence
+    (built via ``goals_to_liabilities()``), the goal is evaluated on its own
+    priority-protected wealth trajectory (Spec Sec. 4.2 ``P_protected(g)``),
+    not on the raw ``wealth_paths`` the caller supplies -- a lower-priority
+    (higher-rank) goal's outflow must not be able to drag a higher-priority
+    goal's achievability below what it would have been without it. Callers
+    that deliberately want the unprotected joint-requested-plan view (e.g.
+    ``chance_constraint_penalty`` below) use ``_goal_probability_core``
+    directly instead of this public wrapper.
+    """
+    protected_wealth_paths, reconstructed = _priority_protected_wealth_paths(
+        wealth_paths, goal
+    )
+    effective_twr = None if reconstructed else annualized_return_bps_per_path
+    return _goal_probability_core(
+        protected_wealth_paths,
+        goal,
+        initial_value_rappen,
+        annualized_return_bps_per_path=effective_twr,
+    )
+
+
 def chance_constraint_penalty(
     wealth_paths: np.ndarray,
     goal_liabilities: list[GoalLiability],
@@ -370,7 +461,16 @@ def chance_constraint_penalty(
         weights_arr = None
         weight_sum = None
     for goal in goal_liabilities:
-        per_path = goal_probability_per_path(
+        # Deliberately the UNPROTECTED joint-requested-plan view (Spec Sec.
+        # 4.2 `W_joint_requested`/`P_joint_requested`): this aggregator must
+        # keep publishing today's shared-aggregate achievability so existing
+        # callers (and the chance-constraint term feeding the SLSQP
+        # objective) are unaffected by GOAL-FUNDING-PRIORITY-001's fix. The
+        # priority-protected per-goal view lives in the public
+        # `goal_probability_per_path()` above; a future solver-level Scope
+        # evaluator (Spec Phase B/C) is expected to call that directly per
+        # rank-ordered scope rather than through this joint aggregator.
+        per_path = _goal_probability_core(
             wealth_paths,
             goal,
             initial_value_rappen,
