@@ -107,6 +107,7 @@ verglichen — 0 Abweichungen (siehe Task-Report).
 from __future__ import annotations
 
 import json
+import math
 import time
 from dataclasses import is_dataclass, replace
 from types import SimpleNamespace
@@ -722,6 +723,36 @@ def _weights_from_targets(targets: dict[str, int]) -> dict[str, int]:
     return {bucket: int(targets.get(bucket, 0) or 0) for bucket in _COMPARISON_BUCKETS}
 
 
+def _lossless_objective_evidence(value: float | None) -> tuple[str | None, str | None]:
+    """Lossless decimal-string + binary64-hex companion to _objective_to_milli.
+
+    CERT-OPTIMIZER-OBJECTIVE-001 / OPTIMIZER-OBJECTIVE-EVIDENCE-PRECISION-001
+    (certification spec Sec. 7.2/8): several materially different small
+    objective/goal-driver contributions collapse onto the same *_milli
+    integer (e.g. 0, 4e-12 and 4e-5 all round to 0). The existing *_milli
+    fields are intentionally left untouched -- other already-wired
+    consumers (TargetAllocation/OptimizerRun-level aggregates, Classic,
+    advisory_report.py, recommendation_audit.py) read them today and divide
+    by 1000 for display; silently rescaling that shared helper would
+    corrupt every value already persisted under that scale as well as
+    every consumer that assumes it, which is explicitly out of this
+    package's scope (full consumer/DB migration belongs to the
+    ObjectiveEvidenceV1 rollout the spec describes, Sec. 11-12).
+    This instead adds a strictly additive, genuinely lossless pair next to
+    the legacy field: ``repr(float)`` is the shortest decimal string that
+    round-trips the exact binary64 value (CPython >= 3.1), and
+    ``float.hex()`` is the bit-exact hex representation. Non-finite values
+    (NaN/+-inf) are an explicit unavailable state, never a fabricated
+    number -- callers must not treat ``(None, None)`` as zero.
+    """
+    if value is None:
+        return (None, None)
+    numeric = float(value)
+    if not math.isfinite(numeric):
+        return (None, None)
+    return (repr(numeric), numeric.hex())
+
+
 def _objective_to_milli(value: float | None) -> int | None:
     """Skaliert objective_value (Float) auf int milli mit Cap (matched _optimizer_audit_fields)."""
     # Lazy Import (Zirkular-Import-Haertung, siehe Modul-Docstring).
@@ -1194,14 +1225,26 @@ def _build_optimizer_explainability(
             ),
         )
         for rank, row in enumerate(contribution_rows, start=1):
+            contribution_decimal, contribution_binary64_hex = (
+                _lossless_objective_evidence(row.weighted_objective_contribution)
+            )
             drivers_payload.append({
                 "goal_id": row.goal_id,
                 "label": row.label,
                 "target_kind": row.target_kind,
                 "hardness_key": row.hardness_key,
                 "weight_bps": int(row.weight_bps),
+                # Legacy, deprecated: *1000 fixed-point, collapses small
+                # distinguishable contributions onto the same integer (incl.
+                # 0). Kept unchanged for backwards compatibility. New
+                # consumers must use the lossless decimal/binary64_hex pair
+                # below, not this field, for any decision or delta.
                 "weighted_objective_contribution_milli": _objective_to_milli(
                     row.weighted_objective_contribution
+                ),
+                "weighted_objective_contribution_decimal": contribution_decimal,
+                "weighted_objective_contribution_binary64_hex": (
+                    contribution_binary64_hex
                 ),
                 "rank": rank,
             })
