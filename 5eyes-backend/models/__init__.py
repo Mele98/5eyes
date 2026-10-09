@@ -25,3 +25,8 @@ from . import fx_rate  # noqa: F401,E402
 # Bootstrap-Singleton -- dito, Tabelle bootstrap_lock muss an Base.metadata
 # registriert sein.
 from . import bootstrap_lock  # noqa: F401,E402
+
+# CERT-PRODUCT-ELIGIBILITY-001 (2026-10-09): governed ProductEligibilityRule/
+# RuleSet/Snapshot/Decision/Override -- dito, neue Tabellen muessen an
+# Base.metadata registriert sein.
+from . import product_eligibility  # noqa: F401,E402
