@@ -81,14 +81,6 @@ def _baseline_house_matrix_and_policy() -> tuple[SimpleNamespace, SimpleNamespac
     return house_matrix, policy
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "BAND-PARTIAL-OVERRIDE-001 - round 46 red test, see audit "
-        "2026-10-04-manual-target-band-and-publication-semantics-integrity-audit.md "
-        "(not committed in this repo)"
-    ),
-)
 def test_binding_max_only_override_should_be_accepted_not_rejected_for_stale_target():
     house_matrix, policy = _baseline_house_matrix_and_policy()
     targets, minimums, maximums = _baseline_target_bands(house_matrix, policy)

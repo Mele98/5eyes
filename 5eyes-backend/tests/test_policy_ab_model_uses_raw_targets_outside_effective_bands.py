@@ -201,12 +201,6 @@ def _create_alt_capped_policy(session_factory, base_policy_id: str, *, max_alter
     return new_id
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="AB-MODEL-001 — round 46 red test, see audit "
-           "2026-10-04-house-matrix-policy-constraint-and-retirement-basis-integrity-audit.md "
-           "(not committed in this repo)",
-)
 def test_ab_backtest_uses_effective_band_not_raw_target_outside_it(session_factory):
     advisor_id, mid = _seed_mandate_with_assessment(session_factory)
     policy_a_id = _default_policy_id(session_factory)

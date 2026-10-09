@@ -97,14 +97,6 @@ def _data_with_contradictory_equities_target() -> AnlagestrategieData:
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "MANUAL-TARGET-PUBLICATION-001 -- round 46 red test, see audit "
-        "2026-10-04-manual-target-band-and-publication-semantics-integrity-audit.md "
-        "(not committed in this repo)"
-    ),
-)
 def test_strategy_pdf_does_not_label_ignored_manual_target_as_soll(ctx: PDFContext):
     data = _data_with_contradictory_equities_target()
     pdf_bytes = ReportLabRenderer().render_anlagestrategie(ctx, data)

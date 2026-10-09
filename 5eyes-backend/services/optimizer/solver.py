@@ -35,6 +35,12 @@ from scipy.optimize import OptimizeResult, differential_evolution, minimize
 
 from services.return_moments import ReturnMomentError
 
+from .allocation_intent import (
+    SOFT_PREFERENCE_PENALTY_LAMBDA_DEFAULT,
+    SOFT_PREFERENCE_POLICY_VERSION,
+    preference_deviation_bps,
+    preference_loss_from_array,
+)
 from .constraints import (
     DEFAULT_BUCKET_RISKY_FRACTION,
     HouseMatrixBands,
@@ -121,6 +127,11 @@ class OptimizerResult:
     goal_achievability: tuple[dict, ...] = ()
     robustification: dict[str, object] | None = None
     restart_results: tuple[dict, ...] = ()
+    # CERT-ALLOCATION-INTENT-001: per-bucket (effective - preferred) deviation
+    # in bps, populated only when the run had an explicit Soft-Preference
+    # Target Intent (see OptimizerContext.preferred_target_bps). None means
+    # "no Target Intent was given", not "0 deviation".
+    preference_deviation_bps: dict[str, int] | None = None
     # Exact owned run-context snapshot used by the solver. compare=False is
     # essential because OptimizerContext contains NumPy arrays whose equality
     # is not scalar-valued. The context is intentionally not persisted as JSON;
@@ -205,6 +216,17 @@ class OptimizerContext:
     # sensitivities set the same value and retain only their own prefix in
     # ``return_paths``.
     scenario_horizon_years: int | None = None
+    # CERT-ALLOCATION-INTENT-001: optional, PARTIAL Soft-Preference Target
+    # Intent -- orthogonal to the hard `bounds` above. None/empty means no
+    # Target Intent at all, never "treat the baseline/seed target as
+    # binding" (that conflation was MANUAL-TARGET-SEMANTICS-001). A bucket
+    # absent from the mapping carries zero preference penalty. Applied
+    # identically in `_objective_from_array` (solver optimization) and
+    # `evaluate_weights` (congruent post-round/external scoring) via
+    # `services.optimizer.allocation_intent.preference_loss_from_array`.
+    preferred_target_bps: dict[str, int] | None = None
+    preference_penalty_lambda: float = SOFT_PREFERENCE_PENALTY_LAMBDA_DEFAULT
+    soft_preference_policy_version: str = SOFT_PREFERENCE_POLICY_VERSION
 
 
 @dataclass(frozen=True)
@@ -217,6 +239,8 @@ class OptimizerEvaluation:
     terminal_wealth_p10_rappen: int | None = None
     terminal_wealth_p50_rappen: int | None = None
     terminal_wealth_p90_rappen: int | None = None
+    # CERT-ALLOCATION-INTENT-001: see OptimizerResult.preference_deviation_bps.
+    preference_deviation_bps: dict[str, int] | None = None
 
 
 def _trusted_weights_bps_to_array(weights_bps: Mapping[str, int]) -> np.ndarray:
@@ -356,6 +380,10 @@ def build_optimizer_context(
     base_calendar_year: int = 2026,
     mandate_age_at_start: int | None = None,
     is_retired: bool = False,
+    # CERT-ALLOCATION-INTENT-001: optional, partial Soft-Preference Target
+    # Intent -- see OptimizerContext.preferred_target_bps.
+    preferred_target_bps: Mapping[str, int] | None = None,
+    preference_penalty_lambda: float | None = None,
 ) -> OptimizerContext:
     """Baut den Solver-Context (Scenarios, Liabilities, Bounds, Constraints).
 
@@ -363,6 +391,28 @@ def build_optimizer_context(
     deterministische Seed aus `(cma_id, goal_ids, score_x10, horizon, n_paths)`
     abgeleitet — gleicher Pfad wie bisher in `run_solver`.
     """
+    validated_preferred_target_bps: dict[str, int] | None = None
+    if preferred_target_bps is not None:
+        if not isinstance(preferred_target_bps, Mapping):
+            raise OptimizerInputError(
+                "preferred_target_bps must be a mapping of optimizer bucket -> integer bps."
+            )
+        unknown_buckets = sorted(set(preferred_target_bps) - set(BUCKET_ORDER))
+        if unknown_buckets:
+            raise OptimizerInputError(
+                f"preferred_target_bps contains unknown buckets: {unknown_buckets}."
+            )
+        validated_preferred_target_bps = {}
+        for bucket, value in preferred_target_bps.items():
+            if isinstance(value, bool) or not isinstance(value, Integral):
+                raise OptimizerInputError(
+                    f"preferred_target_bps[{bucket!r}] must be an integer bps value."
+                )
+            if not 0 <= int(value) <= 10000:
+                raise OptimizerInputError(
+                    f"preferred_target_bps[{bucket!r}] must stay within 0..10000 bps."
+                )
+            validated_preferred_target_bps[bucket] = int(value)
     horizon_years = int(max(1, horizon_years))
     if scenario_horizon_years is not None and (
         isinstance(scenario_horizon_years, bool)
@@ -594,6 +644,12 @@ def build_optimizer_context(
         mandate_age_at_start=mandate_age_at_start,
         is_retired=bool(is_retired),
         bounds_collapse_warnings=tuple(collapse_warnings),
+        preferred_target_bps=validated_preferred_target_bps,
+        preference_penalty_lambda=(
+            float(preference_penalty_lambda)
+            if preference_penalty_lambda is not None
+            else SOFT_PREFERENCE_PENALTY_LAMBDA_DEFAULT
+        ),
     )
 
 
@@ -608,7 +664,7 @@ def _objective_from_array(context: OptimizerContext, w: np.ndarray) -> float:
     """
     wealth = _simulate_context_wealth(context, w)
     annualized_twr = _annualized_twr_bps_per_path(context, w)
-    return float(combined_objective_two_phase(
+    objective = float(combined_objective_two_phase(
         context.liabilities,
         wealth,
         initial_wealth_rappen=context.advisory_wealth_rappen,
@@ -616,6 +672,15 @@ def _objective_from_array(context: OptimizerContext, w: np.ndarray) -> float:
         weights=context.scenario_weights,
         annualized_return_bps_per_path=annualized_twr,
     ))
+    # CERT-ALLOCATION-INTENT-001 (MANUAL-TARGET-SEMANTICS-001): an explicit
+    # Soft-Preference Target Intent must actually influence the optimization,
+    # not just the derived bounds. Additive penalty computed entirely in this
+    # solver layer -- services/optimizer/objective.py stays untouched.
+    if context.preferred_target_bps:
+        objective += preference_loss_from_array(
+            w, context.preferred_target_bps, lam=context.preference_penalty_lambda,
+        )
+    return objective
 
 
 def evaluate_weights(
@@ -641,6 +706,20 @@ def evaluate_weights(
         weights=context.scenario_weights,
         annualized_return_bps_per_path=annualized_twr,
     )
+    # CERT-ALLOCATION-INTENT-001: same additive Soft-Preference penalty as
+    # `_objective_from_array`, so `evaluate_weights(ctx, result.weights_bps)
+    # .objective_value` stays congruent with what the solver itself optimized
+    # (same contract the pre-existing post-round re-evaluation in
+    # `run_solver` already relies on for the base objective).
+    weights_bps_out = _weights_to_bps_dict(w, bounds=context.bounds)
+    preference_deviation: dict[str, int] | None = None
+    if context.preferred_target_bps:
+        objective = float(objective) + preference_loss_from_array(
+            w, context.preferred_target_bps, lam=context.preference_penalty_lambda,
+        )
+        preference_deviation = preference_deviation_bps(
+            weights_bps_out, context.preferred_target_bps,
+        )
     feasible, violations = is_feasible(
         w, bounds=context.bounds, constraints=context.scipy_constraints,
     )
@@ -654,13 +733,14 @@ def evaluate_weights(
         p10_i = p50_i = p90_i = None
 
     return OptimizerEvaluation(
-        weights_bps=_weights_to_bps_dict(w, bounds=context.bounds),
+        weights_bps=weights_bps_out,
         objective_value=float(objective),
         feasible=bool(feasible),
         constraint_violations=list(violations),
         terminal_wealth_p10_rappen=p10_i,
         terminal_wealth_p50_rappen=p50_i,
         terminal_wealth_p90_rappen=p90_i,
+        preference_deviation_bps=preference_deviation,
     )
 
 
@@ -1216,6 +1296,14 @@ def run_solver(
     # Strict mandate-specific solver bounds. None keeps the legacy
     # House-Matrix extraction path byte-for-byte compatible.
     effective_bounds_bps: Mapping[str, tuple[int, int]] | None = None,
+    # CERT-ALLOCATION-INTENT-001: optional, partial Soft-Preference Target
+    # Intent -- forwarded into build_optimizer_context() when this call
+    # builds its own context (optimizer_context=None). When a pre-built
+    # context is supplied, that context's own preferred_target_bps is the
+    # single source of truth and these are accepted-but-unused, consistent
+    # with every other context-input kwarg in this signature.
+    preferred_target_bps: Mapping[str, int] | None = None,
+    preference_penalty_lambda: float | None = None,
     # Optional already-built source-of-truth context. Productive callers use
     # this to retain the exact context for validation/audited fallback and to
     # prevent any downstream rebuild with lost inputs.
@@ -1266,6 +1354,8 @@ def run_solver(
             # Sprint B1 (2026-06-07): Sub-Allocation
             sub_allocations=sub_allocations,
             effective_bounds_bps=effective_bounds_bps,
+            preferred_target_bps=preferred_target_bps,
+            preference_penalty_lambda=preference_penalty_lambda,
         )
     elif not isinstance(context, OptimizerContext):
         raise OptimizerInputError(
@@ -1506,6 +1596,28 @@ def run_solver(
                 context, midpoint_w
             ),
         )
+        fallback_preference_deviation = (
+            preference_deviation_bps(weights_bps, context.preferred_target_bps)
+            if context.preferred_target_bps
+            else None
+        )
+        fallback_reasoning = [
+            "Alle Solver-Multi-Starts divergierten und GA-Fallback ebenso. "
+            "Fallback auf House-Matrix-Mittelwert (siehe OWNER-DECISION OD-5)."
+        ] + list(context.bounds_collapse_warnings)
+        if fallback_preference_deviation is not None:
+            # CERT-ALLOCATION-INTENT-001 (spec Sec. 8): a Soft Preference is
+            # never silently promoted to an exactly-active value just because
+            # the solver fell back -- the fallback candidate is evaluated
+            # under the same preference, deviation is disclosed, nothing is
+            # published as if it matched the preference.
+            fallback_reasoning.append(
+                "Soft-Preference-Praeferenz (Policy "
+                f"{context.soft_preference_policy_version}) war aktiv; "
+                "der House-Matrix-Fallback wurde dagegen bewertet, nicht "
+                f"exakt uebernommen. Abweichung Effektiv-vs-Praeferenz (bps): "
+                f"{fallback_preference_deviation}."
+            )
         return OptimizerResult(
             weights_bps=weights_bps,
             objective_value=float("inf"),
@@ -1513,10 +1625,7 @@ def run_solver(
             seed=seed,
             status="fallback_house_matrix",
             method="fallback_house_matrix",
-            reasoning=[
-                "Alle Solver-Multi-Starts divergierten und GA-Fallback ebenso. "
-                "Fallback auf House-Matrix-Mittelwert (siehe OWNER-DECISION OD-5)."
-            ] + list(context.bounds_collapse_warnings),
+            reasoning=fallback_reasoning,
             n_paths=n_paths,
             n_starts_attempted=len(initials),
             goal_achievability=tuple(goal_achievability),
@@ -1527,6 +1636,7 @@ def run_solver(
                 "final_reason": "no_finite_feasible_candidate",
             },
             restart_results=tuple(attempt_summaries),
+            preference_deviation_bps=fallback_preference_deviation,
             context=context,
         )
 
@@ -1609,6 +1719,18 @@ def run_solver(
             "Solver-Run akzeptiert."
         )
     reasoning.append(f"Best objective L(w*) = {post_round_objective:.6e}")
+    final_preference_deviation = (
+        preference_deviation_bps(weights_bps, context.preferred_target_bps)
+        if context.preferred_target_bps
+        else None
+    )
+    if final_preference_deviation is not None:
+        reasoning.append(
+            "Soft-Preference-Praeferenz (Policy "
+            f"{context.soft_preference_policy_version}) im Objective "
+            "beruecksichtigt (CERT-ALLOCATION-INTENT-001). Abweichung "
+            f"Effektiv-vs-Praeferenz (bps): {final_preference_deviation}."
+        )
     if violation_reasons:
         reasoning.append("Constraint-Verletzungen am Optimum:")
         reasoning.extend(f"  - {r}" for r in violation_reasons)
@@ -1654,6 +1776,7 @@ def run_solver(
         goal_achievability=tuple(goal_achievability),
         robustification=robustification_payload,
         restart_results=tuple(attempt_summaries),
+        preference_deviation_bps=final_preference_deviation,
         context=context,
     )
 

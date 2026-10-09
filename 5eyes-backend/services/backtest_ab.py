@@ -32,6 +32,7 @@ from services.portfolio_engine import (
     _baseline_target_bands,
     _expected_metrics,
     _house_matrix_or_default,
+    _rebalance_to_total,
     _risk_score_bucket,
     require_strategy_ready_assessment,
 )
@@ -68,9 +69,19 @@ def _evaluate_policy(
 
     Liefert Bucket-Gewichtung, House-Matrix-Bands, Risk-Metriken und
     Stress-Replays. Keine Side-Effects.
+
+    AB-MODEL-001 (CERT-ALLOCATION-INTENT-001): die rohen HouseMatrix-
+    `*_target_bps`-Werte aus `_baseline_target_bands()` koennen eine Policy-
+    Band (z.B. ein verschaerftes `max_alternatives_bps`) selbst verletzen --
+    dieselbe Klemmung, die der echte Allokations-Pfad per
+    `_rebalance_to_total()` immer anwendet, bevor irgendeine Metrik/Stress
+    gerechnet wird, lief hier nie. `weights_bps`/Metriken/Stress muessen auf
+    der EFFEKTIVEN (in die eigenen Bounds projizierten) Allokation stehen,
+    nicht auf dem rohen, ggf. bandueberschreitenden HouseMatrix-Target.
     """
     hm: HouseMatrix = _house_matrix_or_default(db, policy, score_bucket)
-    targets, minimums, maximums = _baseline_target_bands(hm, policy)
+    raw_targets, minimums, maximums = _baseline_target_bands(hm, policy)
+    targets = _rebalance_to_total(raw_targets, minimums, maximums)
     metrics = _expected_metrics(targets, cma, sub_allocations=None, products=None)
     return {
         "policy_id": str(policy.id),
