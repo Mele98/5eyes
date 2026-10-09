@@ -56,6 +56,7 @@ from test_current_anchor_uniqueness import (  # noqa: E402
     _request_stub,
     _risk_payload,
     _seed_advisor_and_mandate,
+    _seed_building_blocks,
 )
 from routers.profiling import create_risk_assessment
 from models.allocation import OptimizerPolicy
@@ -146,6 +147,11 @@ def _seed_target_allocation_prereqs(orm_engine, monkeypatch, *, mandate_id="mand
         )
         session.add(OptimizerPolicy(**_policy_row("policy-dcgate", policy_name="DC-Gate")))
         session.commit()
+        # CERT-TA-WRITE-LIFECYCLE-001 (2026-10-09): create_target_allocation
+        # now recomputes risky_fraction_bps from real BuildingBlock rows
+        # (TA-LEGACY-FABRICATION-001) -- a bare policy with none would fail
+        # fast just like it would on the real engine Generate path.
+        _seed_building_blocks(session, "policy-dcgate")
     return mandate_id
 
 

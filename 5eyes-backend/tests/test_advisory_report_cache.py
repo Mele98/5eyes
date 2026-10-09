@@ -559,6 +559,7 @@ def test_target_allocation_direct_create_invalidates_cache(http_client, session_
     zweite von zwei Luecken in routers/allocation.py."""
     from config import settings as _settings
     from models.allocation import OptimizerPolicy
+    from test_current_anchor_uniqueness import _seed_building_blocks
 
     client, seeded = http_client
     mid = seeded["mandate_id"]
@@ -584,6 +585,12 @@ def test_target_allocation_direct_create_invalidates_cache(http_client, session_
             created_at=_NOW, updated_at=_NOW,
         ))
         db.commit()
+        # CERT-TA-WRITE-LIFECYCLE-001 (2026-10-09): create_target_allocation
+        # now recomputes risky_fraction_bps from real BuildingBlock rows and
+        # binds a real HouseMatrix-derived risk budget (TA-LEGACY-
+        # FABRICATION-001) -- a bare policy with neither would fail fast just
+        # like it would on the real engine Generate path.
+        _seed_building_blocks(db, "policy-cache-test")
 
     client.get(f"/mandates/{mid}/advisory-report")
     stats_before = get_cache_stats()

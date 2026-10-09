@@ -34,7 +34,12 @@ if str(BACKEND_ROOT) not in sys.path:
 from database import Base, ensure_current_anchor_unique_indexes  # noqa: E402
 import models.allocation  # noqa: E402,F401
 import models.profiling  # noqa: E402,F401
-from models.allocation import OptimizerPolicy, TargetAllocation  # noqa: E402
+from models.allocation import (  # noqa: E402
+    BuildingBlock,
+    HouseMatrix,
+    OptimizerPolicy,
+    TargetAllocation,
+)
 from models.clients import Client  # noqa: E402
 from models.mandates import Mandate  # noqa: E402
 from models.profiling import RiskAssessment  # noqa: E402
@@ -373,6 +378,46 @@ def _request_stub():
     )
 
 
+def _seed_building_blocks(session, policy_id: str) -> None:
+    """CERT-TA-WRITE-LIFECYCLE-001 (2026-10-09): create_target_allocation now
+    recomputes risky_fraction_bps server-side from real BuildingBlock rows
+    (TA-LEGACY-FABRICATION-001) instead of trusting the client, and binds a
+    real risk-budget cap via services.risk_matrix.max_risky_fraction_for_mandate
+    (HouseMatrix-derived). A bare OptimizerPolicy with neither -- which could
+    never be used by the real engine Generate path either -- now fails fast.
+    Give these bespoke test policies the same minimal, real BuildingBlock/
+    HouseMatrix basis any usable production policy has (HouseMatrix covers
+    the full score range 1-10 so any risk-assessment bucket resolves)."""
+    now = "2026-08-20T00:00:00Z"
+    session.add_all(
+        BuildingBlock(
+            id=f"{policy_id}-bb-{idx}", policy_id=policy_id,
+            asset_class=asset_class, sub_asset_class=f"{asset_class} Standard",
+            universe="Standard", advisory=1, risky_fraction_bps=rf_bps,
+            is_active=1, created_at=now, updated_at=now,
+        )
+        for idx, (asset_class, rf_bps) in enumerate([
+            ("Aktien", 8000),
+            ("Obligationen", 2500),
+            ("Immobilien", 6000),
+            ("Alternative", 6000),
+            ("Liquidität", 0),
+        ])
+    )
+    session.add(HouseMatrix(
+        id=f"{policy_id}-hm-1", policy_id=policy_id,
+        score_from=1, score_to=10, profile_name="Test-Profil",
+        liq_min_bps=0, liq_target_bps=1000, liq_max_bps=2000,
+        bonds_min_bps=2000, bonds_target_bps=3000, bonds_max_bps=4000,
+        equity_min_bps=5000, equity_target_bps=6000, equity_max_bps=7000,
+        real_estate_min_bps=0, real_estate_target_bps=0, real_estate_max_bps=1000,
+        alt_min_bps=0, alt_target_bps=0, alt_max_bps=1000,
+        equity_minimum_bps=0, max_risky_fraction_bps=9000,
+        is_active=1, created_at=now, updated_at=now,
+    ))
+    session.commit()
+
+
 def _seed_advisor_and_mandate(engine) -> None:
     now = "2026-08-20T00:00:00Z"
     with Session(engine) as session:
@@ -639,6 +684,7 @@ def test_direct_target_allocation_api_rollover_keeps_one_current_anchor(
         )
         session.add(OptimizerPolicy(**_policy_row("policy-anchor", policy_name="Anchor")))
         session.commit()
+        _seed_building_blocks(session, "policy-anchor")
 
         first = create_target_allocation(
             "mandate-anchor",
@@ -741,6 +787,7 @@ def test_create_target_allocation_returns_409_not_500_on_current_anchor_race(
         )
         session.add(OptimizerPolicy(**_policy_row("policy-anchor", policy_name="Anchor")))
         session.commit()
+        _seed_building_blocks(session, "policy-anchor")
         create_target_allocation(
             "mandate-anchor", _target_payload("policy-anchor"), _request_stub(),
             db=session, current_user=advisor,
