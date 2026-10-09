@@ -234,6 +234,14 @@ def _run_stochastic_optimizer_pass(
     external_wealth_rappen: int = 0,
     external_wealth_series_rappen: list[int] | None = None,
     mandate=None,  # Sprint 4 Phase 3: fuer BFS-Mortalitaets-Sampling
+    # CERT-ALLOCATION-INTENT-001 (MANUAL-TARGET-SEMANTICS-001): explicit,
+    # partial Soft-Preference Target Intent -- extracted by the caller via
+    # services.optimizer.allocation_intent.extract_soft_preference_bps from
+    # the advisor's OWN preferences["bands"] request, never from `targets`
+    # (which already carries baseline fill-ins and is not a reliable signal
+    # of "the advisor explicitly asked for this"). None/empty means no
+    # Target Intent at all.
+    preferred_target_bps: dict[str, int] | None = None,
 ):
     """Solver in Shadow- oder Stochastic-Modus aufrufen.
 
@@ -359,6 +367,7 @@ def _run_stochastic_optimizer_pass(
             max_risky_fraction_bps=int(house_matrix.max_risky_fraction_bps),
             sub_allocations=sub_allocations,
             effective_bounds_bps=effective_bounds_bps,
+            preferred_target_bps=preferred_target_bps,
             **mortality_kwargs,
             **tax_kwargs,
         )

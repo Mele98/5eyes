@@ -3313,6 +3313,16 @@ def generate_target_allocation(
     house_matrix = _house_matrix_or_default(db, policy, score_bucket)
     risk_budget_bps = int(house_matrix.max_risky_fraction_bps)
     manual_target_override = _has_manual_target_overrides(prefs["bands"])
+    # CERT-ALLOCATION-INTENT-001 (MANUAL-TARGET-SEMANTICS-001): capture the
+    # advisor's EXPLICIT per-bucket target_bps as a typed Soft-Preference
+    # Target Intent, separate from `targets` below (which is a baseline-
+    # filled feasible seed, not a reliable "the advisor asked for this"
+    # signal). Forwarded to the stochastic solver so a manual preference
+    # actually influences the converged objective, not just the derived
+    # bounds.
+    from services.optimizer.allocation_intent import extract_soft_preference_bps
+
+    manual_preferred_target_bps = extract_soft_preference_bps(prefs["bands"])
     inputs = _load_allocation_inputs(db, mandate, prefs["simulation"], cma=cma)
     advisory_summary = inputs["advisory_summary"]
     total_summary = inputs["total_summary"]
@@ -3663,6 +3673,7 @@ def generate_target_allocation(
         sub_allocations=optimizer_sub_allocation_plan,
         risky_fraction_per_bucket=optimizer_risky_fraction_per_bucket,
         effective_bounds_bps=effective_bounds_bps,
+        preferred_target_bps=manual_preferred_target_bps or None,
         external_wealth_rappen=max(
             0, int(total_wealth_rappen) - int(advisory_wealth_rappen)
         ),
