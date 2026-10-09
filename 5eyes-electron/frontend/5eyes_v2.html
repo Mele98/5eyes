@@ -27523,8 +27523,16 @@ function goalEditorHorizonYears(){
   if(dateRaw){
     var end=new Date(dateRaw+'T00:00:00');
     if(!isNaN(end.getTime())){
+      // GOAL-PAST-DATE-UI-001: ein gesetztes Zieldatum ist die massgebliche
+      // Quelle. Bei Datum in der Vergangenheit (years<=0) darf NICHT auf den
+      // u.U. veralteten #nz-horizon-Rohwert zurueckgefallen werden -- das
+      // taeuschte bisher einen plausiblen positiven Horizont vor (z.B. den
+      // beim Modal-Reset gesetzten Default 10) fuer ein Ziel, dessen Datum
+      // tatsaechlich in der Vergangenheit liegt. Live reproduziert: Zieldatum
+      // 01.01.2025 speicherte horizon_years=10, obwohl das Datum laengst
+      // vergangen war.
       var years=(end.getTime()-Date.now())/(365.25*24*60*60*1000);
-      if(years>0)return years;
+      return years>0?years:0;
     }
   }
   var raw=parseFloat(getInputValue('nz-horizon').replace(',','.'));
@@ -27983,6 +27991,14 @@ async function saveGoal(options){
     frequency='jaehrlich';
     isOngoing=false;
     if(isMaxGoalType(type))targetDate='';
+  }
+  // GOAL-PAST-DATE-UI-001: Zieldatum ist bei Zielen immer ein zukuenftiger
+  // Faelligkeits-/Bewertungsanker (im Gegensatz zu Cashflows, deren
+  // valid_until legitim in der Vergangenheit liegen darf). Live reproduziert:
+  // ein Renditeziel mit Zieldatum 01.01.2025 wurde bisher klaglos gespeichert.
+  if(targetDate&&targetDate<new Date().toISOString().slice(0,10)){
+    showModalFeedback('nz-error',btn,'Zieldatum darf nicht in der Vergangenheit liegen.',true);
+    return false;
   }
   var mid=getActiveMandateId();
   if(btn){btn._origText=isEdit?'Aktualisieren':'Speichern';btn.disabled=true;btn.textContent=isEdit?'Aktualisieren...':'Speichern...';}
