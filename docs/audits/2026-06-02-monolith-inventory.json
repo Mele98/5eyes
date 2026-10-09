@@ -13529,12 +13529,12 @@
     },
     {
       "declaration": "function",
-      "line": 28661,
+      "line": 28677,
       "name": "_reviewIsDiscretionaryMandate"
     },
     {
       "declaration": "function",
-      "line": 28657,
+      "line": 28673,
       "name": "_reviewIsIlliquidAssetClass"
     },
     {
@@ -13614,7 +13614,7 @@
     },
     {
       "declaration": "function",
-      "line": 28164,
+      "line": 28180,
       "name": "aaActionCardHtml"
     },
     {
@@ -14579,7 +14579,7 @@
     },
     {
       "declaration": "function",
-      "line": 27533,
+      "line": 27541,
       "name": "bindGoalEditorTyping"
     },
     {
@@ -14819,7 +14819,7 @@
     },
     {
       "declaration": "function",
-      "line": 27863,
+      "line": 27871,
       "name": "buildDemoGoalRecord"
     },
     {
@@ -15264,7 +15264,7 @@
     },
     {
       "declaration": "function",
-      "line": 28181,
+      "line": 28197,
       "name": "currentCashflowCoverageInfo"
     },
     {
@@ -15404,7 +15404,7 @@
     },
     {
       "declaration": "function",
-      "line": 28214,
+      "line": 28230,
       "name": "decumulationCapitalBridgeRows"
     },
     {
@@ -16059,7 +16059,7 @@
     },
     {
       "declaration": "function",
-      "line": 28783,
+      "line": 28799,
       "name": "getColor"
     },
     {
@@ -16134,7 +16134,7 @@
     },
     {
       "declaration": "function",
-      "line": 27577,
+      "line": 27585,
       "name": "goalAmountSummary"
     },
     {
@@ -16174,7 +16174,7 @@
     },
     {
       "declaration": "function",
-      "line": 28159,
+      "line": 28175,
       "name": "goalEvaluationNoteHtml"
     },
     {
@@ -16194,7 +16194,7 @@
     },
     {
       "declaration": "function",
-      "line": 27909,
+      "line": 27917,
       "name": "goalSaveErrorText"
     },
     {
@@ -16204,7 +16204,7 @@
     },
     {
       "declaration": "function",
-      "line": 27586,
+      "line": 27594,
       "name": "goalTimingLabel"
     },
     {
@@ -16569,7 +16569,7 @@
     },
     {
       "declaration": "function",
-      "line": 28088,
+      "line": 28104,
       "name": "loadPlanningAssumptions"
     },
     {
@@ -16579,7 +16579,7 @@
     },
     {
       "declaration": "function",
-      "line": 28828,
+      "line": 28844,
       "name": "loadReviewSpiegel"
     },
     {
@@ -16904,7 +16904,7 @@
     },
     {
       "declaration": "function",
-      "line": 27762,
+      "line": 27770,
       "name": "openGoalEditor"
     },
     {
@@ -17294,7 +17294,7 @@
     },
     {
       "declaration": "function",
-      "line": 28168,
+      "line": 28184,
       "name": "projectionRunwayInfo"
     },
     {
@@ -17374,7 +17374,7 @@
     },
     {
       "declaration": "var",
-      "line": 28580,
+      "line": 28596,
       "name": "pushCard"
     },
     {
@@ -17444,7 +17444,7 @@
     },
     {
       "declaration": "function",
-      "line": 28063,
+      "line": 28079,
       "name": "refreshGoalsUI"
     },
     {
@@ -17509,7 +17509,7 @@
     },
     {
       "declaration": "function",
-      "line": 28573,
+      "line": 28589,
       "name": "renderActionCards"
     },
     {
@@ -17589,7 +17589,7 @@
     },
     {
       "declaration": "function",
-      "line": 28272,
+      "line": 28288,
       "name": "renderAllocationMethodComparison"
     },
     {
@@ -17694,7 +17694,7 @@
     },
     {
       "declaration": "function",
-      "line": 27811,
+      "line": 27819,
       "name": "renderGoalList"
     },
     {
@@ -17734,7 +17734,7 @@
     },
     {
       "declaration": "function",
-      "line": 28384,
+      "line": 28400,
       "name": "renderOptimizerPanel"
     },
     {
@@ -17834,7 +17834,7 @@
     },
     {
       "declaration": "function",
-      "line": 28833,
+      "line": 28849,
       "name": "renderReviewStrategyComparison"
     },
     {
@@ -17874,7 +17874,7 @@
     },
     {
       "declaration": "function",
-      "line": 28509,
+      "line": 28525,
       "name": "renderSensitivitySlidersForResult"
     },
     {
@@ -17919,7 +17919,7 @@
     },
     {
       "declaration": "function",
-      "line": 28469,
+      "line": 28485,
       "name": "renderStressTable"
     },
     {
@@ -18024,7 +18024,7 @@
     },
     {
       "declaration": "function",
-      "line": 27727,
+      "line": 27735,
       "name": "resetGoalModal"
     },
     {
@@ -18094,7 +18094,7 @@
     },
     {
       "declaration": "function",
-      "line": 28781,
+      "line": 28797,
       "name": "reviewAllocationPortraitHtml"
     },
     {
@@ -18104,7 +18104,7 @@
     },
     {
       "declaration": "function",
-      "line": 28675,
+      "line": 28691,
       "name": "reviewBandStateMeta"
     },
     {
@@ -18134,7 +18134,7 @@
     },
     {
       "declaration": "function",
-      "line": 28749,
+      "line": 28765,
       "name": "reviewImplementationHotspots"
     },
     {
@@ -18154,7 +18154,7 @@
     },
     {
       "declaration": "function",
-      "line": 28712,
+      "line": 28728,
       "name": "reviewStrategyComparisonRows"
     },
     {
@@ -18269,7 +18269,7 @@
     },
     {
       "declaration": "function",
-      "line": 28546,
+      "line": 28562,
       "name": "runSensitivityCall"
     },
     {
@@ -18359,7 +18359,7 @@
     },
     {
       "declaration": "function",
-      "line": 27921,
+      "line": 27929,
       "name": "saveGoal"
     },
     {
@@ -18384,7 +18384,7 @@
     },
     {
       "declaration": "function",
-      "line": 28103,
+      "line": 28119,
       "name": "savePlanningAssumptions"
     },
     {
@@ -18434,7 +18434,7 @@
     },
     {
       "declaration": "function",
-      "line": 28794,
+      "line": 28810,
       "name": "seg"
     },
     {
@@ -18579,7 +18579,7 @@
     },
     {
       "declaration": "function",
-      "line": 28245,
+      "line": 28261,
       "name": "setStatusPill"
     },
     {
@@ -18764,7 +18764,7 @@
     },
     {
       "declaration": "function",
-      "line": 28867,
+      "line": 28883,
       "name": "srAcColor2"
     },
     {
@@ -18814,7 +18814,7 @@
     },
     {
       "declaration": "function",
-      "line": 28148,
+      "line": 28164,
       "name": "strategyGoalTargetText"
     },
     {
@@ -18894,7 +18894,7 @@
     },
     {
       "declaration": "function",
-      "line": 27613,
+      "line": 27621,
       "name": "syncGoalModalState"
     },
     {
@@ -19144,7 +19144,7 @@
     },
     {
       "declaration": "function",
-      "line": 27546,
+      "line": 27554,
       "name": "updateGoalDerivedDiagnostics"
     },
     {
@@ -19204,7 +19204,7 @@
     },
     {
       "declaration": "function",
-      "line": 27888,
+      "line": 27896,
       "name": "upsertSavedGoal"
     },
     {
@@ -19990,8 +19990,8 @@
     }
   ],
   "source_path": "5eyes-electron/frontend/5eyes_v2.html",
-  "source_sha256": "68e5131a47c4ee4ae15d230e43aaf8af76a7206bff99f68f65ef8e34c4935f7f",
-  "source_size_bytes": 1760798,
+  "source_sha256": "d4e91d7a800ea702cda5524cf33f1d2d15628af271508ff31327a073d1a0298c",
+  "source_size_bytes": 1761845,
   "sub_sections": [
     {
       "class": "admin-sec-btn",

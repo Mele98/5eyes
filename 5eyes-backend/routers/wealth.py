@@ -324,6 +324,18 @@ def _normalize_goal_payload(data: dict, existing: Goal | None = None) -> dict:
     parsed_target = _parse_goal_date(target_date)
     if parsed_start and parsed_target and parsed_target < parsed_start:
         raise HTTPException(status_code=422, detail="Zieldatum darf nicht vor dem Startdatum liegen")
+    # GOAL-PAST-DATE-UI-001: target_date ist bei Zielen immer ein zukuenftiger
+    # Faelligkeits-/Bewertungsanker, anders als cf.valid_until bei Cashflows.
+    # Scope bewusst auf diesen Create/Update-Pfad begrenzt (nicht auf
+    # services.goal_semantics.validate_goal_model_input, das auch von
+    # _validate_active_goal_inputs() fuer JEDES bereits bestehende aktive Ziel
+    # bei jeder Allocation-Berechnung erneut durchlaufen wird): ein bereits
+    # ueberfaelliges Ziel eines anderen Mandats soll dadurch nicht die
+    # Allokationsberechnung dieses Mandats blockieren (siehe
+    # GOAL-PAST-DATE-LIFECYCLE-001 im Audit vom 2026-10-03 -- der volle
+    # Lifecycle-Vertrag ist separat, dies ist nur die Dateneingabe-Sperre).
+    if parsed_target and parsed_target < date.today():
+        raise HTTPException(status_code=422, detail="Zieldatum darf nicht in der Vergangenheit liegen")
 
     if goal_type == "Einmalige_Ausgabe":
         payload["frequency"] = None
