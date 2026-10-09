@@ -86,7 +86,11 @@ describe('COST-DELIVERY-EVIDENCE-001: React self-attestation without artifact ev
 
       await waitFor(() => expect(capturedBody).not.toBeNull());
 
-      const body = capturedBody as Record<string, unknown>;
+      // capturedBody is only ever reassigned inside the fetch mock closure
+      // above, so TS's control-flow narrowing still sees it as the literal
+      // `null` from its initializer here, not the declared union type --
+      // casting through `unknown` sidesteps that (harmless) narrowing gap.
+      const body = capturedBody as unknown as Record<string, unknown>;
       expect(body.cost_disclosure_given).toBe(true); // sanity: the free flag really is set
 
       // Soll: a cost-disclosure attestation must reference a real,
