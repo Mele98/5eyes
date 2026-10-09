@@ -58,6 +58,15 @@ export interface AdvisoryLogCreatePayload {
   topics: string[];
   risk_warnings_given?: string[];
   cost_disclosure_given: boolean;
+  /** CERT-COST-PUBLICATION-001 (COST-DELIVERY-EVIDENCE-001, 2026-10-09):
+   * REAL, server-fetched reference to the mandate's current cost-
+   * disclosure snapshot (services/cost_disclosure.py::source_run_id) --
+   * `null` whenever no such snapshot exists (pending/unreachable), never
+   * fabricated. Replaces a bare `cost_disclosure_given` boolean with no
+   * evidence at all; full server-side persistence/binding of this
+   * reference is a sibling package's scope (COST-EVIDENCE-001). */
+  cost_disclosure_snapshot_id?: string | null;
+  cost_disclosure_snapshot_currency?: string | null;
   conflict_disclosure_ids?: string[];
   suitability_check_id?: string | null;
   status?: AdvisoryLogStatus;

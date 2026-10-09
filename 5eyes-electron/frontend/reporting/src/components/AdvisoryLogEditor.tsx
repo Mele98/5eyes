@@ -16,6 +16,10 @@
 import { useState, useEffect } from 'react';
 import { NotesDrawer } from './NotesDrawer';
 import { useAdvisoryLog } from '@/api/useAdvisoryLog';
+import {
+  fetchCostDisclosureSnapshotRef,
+  type CostDisclosureSnapshotRef,
+} from '@/api/costDisclosure';
 import type {
   AdvisoryEntryType,
   AdvisoryLogCreatePayload,
@@ -115,14 +119,31 @@ export function AdvisoryLogEditor({
   const { saving, saveError, create, reset } = useAdvisoryLog(mandateId);
   const [form, setForm] = useState<FormState>(() => buildInitialState(preFilled));
   const [validationError, setValidationError] = useState<string | null>(null);
+  // CERT-COST-PUBLICATION-001 (COST-DELIVERY-EVIDENCE-001, 2026-10-09): der
+  // Checkbox-Haken allein war bisher die EINZIGE "Evidence" fuer
+  // cost_disclosure_given -- kein Snapshot-, Dokument- oder Byte-Hash-
+  // Bezug. Diese Komponente laedt jetzt den REALEN, serverseitigen
+  // Kostenausweis-Snapshot (dieselbe Quelle wie Standalone-/Advisory-PDF)
+  // und haengt dessen echte Referenz an die Attestation -- `null`, wenn
+  // (noch) kein Snapshot existiert, statt einer erfundenen ID.
+  const [costSnapshot, setCostSnapshot] = useState<CostDisclosureSnapshotRef | null>(null);
 
   useEffect(() => {
     if (open) {
       setForm(buildInitialState(preFilled));
       setValidationError(null);
       reset();
+      setCostSnapshot(null);
+      if (mandateId) {
+        const controller = new AbortController();
+        fetchCostDisclosureSnapshotRef(mandateId, { signal: controller.signal })
+          .then((ref) => setCostSnapshot(ref))
+          .catch(() => setCostSnapshot(null));
+        return () => controller.abort();
+      }
     }
-  }, [open, preFilled, reset]);
+    return undefined;
+  }, [open, preFilled, reset, mandateId]);
 
   const update = <K extends keyof FormState>(key: K, value: FormState[K]) =>
     setForm((f) => ({ ...f, [key]: value }));
@@ -169,6 +190,15 @@ export function AdvisoryLogEditor({
         .map((w) => w.trim())
         .filter(Boolean),
       cost_disclosure_given: form.cost_disclosure_given,
+      // Real (possibly null) server-sourced snapshot reference -- never a
+      // fabricated id. `null` honestly means "no current snapshot found",
+      // not a false claim of evidence.
+      cost_disclosure_snapshot_id: form.cost_disclosure_given
+        ? costSnapshot?.source_run_id ?? null
+        : null,
+      cost_disclosure_snapshot_currency: form.cost_disclosure_given
+        ? costSnapshot?.currency ?? null
+        : null,
       conflict_disclosure_ids: [],
       status: form.status,
     };
@@ -329,6 +359,15 @@ export function AdvisoryLogEditor({
         />
         Ex-ante Kosten dem Kunden kommuniziert (FIDLEG-Pflicht).
       </label>
+      {form.cost_disclosure_given ? (
+        <p className="mt-1 text-micro text-ink-subtle">
+          {costSnapshot?.source_run_id
+            ? `Bezug auf aktuellen Kostenausweis-Snapshot ${costSnapshot.source_run_id}${
+                costSnapshot.as_of ? ` (${costSnapshot.as_of})` : ''
+              }.`
+            : 'Kein aktueller Kostenausweis-Snapshot gefunden -- diese Angabe bleibt ein reines Advisor-Attest ohne Artefakt-Bezug.'}
+        </p>
+      ) : null}
 
       {validationError ? (
         <p className="mt-block text-caption text-status-rot">{validationError}</p>
