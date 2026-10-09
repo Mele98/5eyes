@@ -228,14 +228,6 @@ _PREFS_HIGH_EQUITY = {
 }
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "MANUAL-TARGET-SEMANTICS-001 — round 46 red test, see audit "
-        "2026-10-04-manual-target-band-and-publication-semantics-integrity-audit.md "
-        "(not committed in this repo)"
-    ),
-)
 def test_contradictory_manual_target_bps_should_change_converged_allocation(
     session_factory, monkeypatch
 ):
