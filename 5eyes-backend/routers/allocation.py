@@ -4,6 +4,7 @@ from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 from datetime import date, datetime, timezone
 from typing import Optional
+import hashlib
 import json
 
 from config import settings
@@ -41,6 +42,7 @@ from services.jurisdiction.resolve import (
     resolve_mandate_jurisdiction,
 )
 from services.portfolio_engine import (
+    BUCKET_FIELDS,
     _current_risk_assessment_or_none,
     _current_target_allocation_or_none,
     build_target_payload_from_allocation,
@@ -49,7 +51,14 @@ from services.portfolio_engine import (
     generate_target_allocation,
     require_strategy_ready_assessment,
 )
-from services.portfolio_engine_house_matrix import _building_block_rows_for_policy
+from services.portfolio_engine_house_matrix import (
+    _building_block_rows_for_policy,
+    _build_sub_allocations,
+)
+from services.risk_matrix import (
+    compute_portfolio_risky_fraction_bps,
+    max_risky_fraction_for_mandate,
+)
 from services.advisory_report import compute_advisory_report
 from services.advisory_report_cache import (
     cached_compute_advisory_report,
@@ -261,16 +270,34 @@ def create_target_allocation(
             "based_on_assessment_id muss auf das aktuelle Risikoprofil zeigen "
             f"(erwartet {assessment.id})."
         ))
-    if settings.optimizer_mode != "house_matrix":
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                "Manuell erzeugte Soll-Allokationen sind im stochastischen Modus "
-                "nicht zulaessig. Bitte den Engine-Generate-Pfad verwenden; "
-                "manuelle Leitplanken werden dort als harte Bands uebergeben."
-            ),
-        )
+    # TA-EDITOR-WRITE-CONTRACT-001 (CERT-TA-WRITE-LIFECYCLE-001, 2026-10-09):
+    # the manual-save path used to 409 unconditionally outside house_matrix
+    # mode, making the visible editor unreachable in production (production
+    # enforces optimizer_mode == "stochastic", config.py). The hard mode gate
+    # is removed; a valid manual write is now accepted in every mode. What
+    # changed instead: every manual write -- regardless of mode -- now goes
+    # through the same modern-context build below (TA-LEGACY-FABRICATION-001)
+    # instead of a raw, largely-unvalidated passthrough of the request body.
     now = _now()
+    jurisdiction = resolve_mandate_jurisdiction(mandate)
+    # Resolve the CURRENT CMA for this mandate's jurisdiction/tenant the same
+    # way the engine Generate path does (ensure_runtime_reference_data).
+    # TA-LEGACY-FABRICATION-001 / TA-RECOMMENDATION-DEADEND-001: a manually
+    # saved allocation must carry a real CMA anchor, exactly like an engine-
+    # generated one, so Recommendation-Generate never has to build a Draft on
+    # an allocation that is guaranteed to fail Finalize's CMA check. There is
+    # no silent fallback here: if no current CMA/policy basis can be resolved
+    # for this mandate, the write is rejected instead of persisting a
+    # CMA-less "modern" row.
+    try:
+        _ref_policy, cma = ensure_runtime_reference_data(
+            db,
+            current_user.id,
+            jurisdiction=jurisdiction,
+            tenant_id=getattr(mandate, "tenant_id", None) or None,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     # Sprint U-P0 Fix C8: with_for_update verhindert Race-Condition (zwei
     # gleichzeitige POSTs → zwei is_current=1 Rows). Konsistent zur
     # generate_target_allocation-Pfad-Logik in portfolio_engine.py:5134.
@@ -293,6 +320,95 @@ def create_target_allocation(
     enforce_data_classification(payload.pop("data_classification", None))
     if not payload.get("based_on_assessment_id"):
         payload["based_on_assessment_id"] = assessment.id
+    # TA-LEGACY-FABRICATION-001: risky_fraction_bps is never trusted from the
+    # client -- the field stays on the wire schema for backward API
+    # compatibility, but any value the advisor's browser sends (typically a
+    # stale pre-fill copied from the previously active allocation) is
+    # discarded and recomputed below from the NEW targets actually being
+    # saved.
+    payload.pop("risky_fraction_bps", None)
+    new_targets_bps = {
+        "equities": int(payload["target_equities_bps"]),
+        "bonds": int(payload["target_bonds_bps"]),
+        "real_estate": int(payload["target_real_estate_bps"]),
+        "alternatives": int(payload["target_alternatives_bps"]),
+        "liquidity": int(payload["target_liquidity_bps"]),
+    }
+    new_bounds_bps = {
+        "equities": (int(payload["band_equities_min_bps"]), int(payload["band_equities_max_bps"])),
+        "bonds": (int(payload["band_bonds_min_bps"]), int(payload["band_bonds_max_bps"])),
+        "real_estate": (int(payload["band_real_estate_min_bps"]), int(payload["band_real_estate_max_bps"])),
+        "alternatives": (int(payload["band_alternatives_min_bps"]), int(payload["band_alternatives_max_bps"])),
+        "liquidity": (int(payload["band_liquidity_min_bps"]), int(payload["band_liquidity_max_bps"])),
+    }
+    # No silent fallback: a policy with no resolvable BuildingBlock basis for
+    # this mandate's jurisdiction/universe cannot support a real risky-
+    # fraction computation (it could never be used by the engine Generate
+    # path either), so the write is rejected with a clean 409 instead of an
+    # unhandled 500.
+    try:
+        building_block_rows = _building_block_rows_for_policy(
+            db, policy.id, getattr(mandate, "investment_universe", None), jurisdiction,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    risky_fraction_bps = compute_portfolio_risky_fraction_bps(new_targets_bps, building_block_rows)
+    # Same HouseMatrix-derived suitability cap the engine Generate path binds
+    # as risk_budget_bps_at_generation -- required so
+    # services.mandate_lock_audit.audit_mandate_editability's risk-budget
+    # check can ever fire for a manually-saved allocation (TA-LEGACY-
+    # FABRICATION-001c). No fallback: if the HouseMatrix is incomplete for
+    # this assessment's score bucket, the write is rejected.
+    try:
+        risk_budget_bps = max_risky_fraction_for_mandate(db, mandate, assessment, policy)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    try:
+        sub_allocations = _build_sub_allocations(new_targets_bps, None, jurisdiction=jurisdiction, db=db)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    sub_allocations_json = json.dumps(
+        sub_allocations, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+    )
+    effective_constraints_payload = {
+        "engine_version": "manual_override_v1",
+        "bounds_bps": {bucket: list(new_bounds_bps[bucket]) for bucket in BUCKET_FIELDS},
+        "risk_budget_bps": int(risk_budget_bps),
+        "active_method": "manual_override",
+        "active_status": "manual",
+    }
+    effective_constraints_json = json.dumps(
+        effective_constraints_payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+    )
+    input_snapshot_payload = {
+        "engine_version": "manual_override_v1",
+        "policy_id": str(policy.id),
+        "cma_id": str(cma.id),
+        "assessment_id": str(assessment.id),
+        "targets_bps": {bucket: int(new_targets_bps[bucket]) for bucket in BUCKET_FIELDS},
+        "bounds_bps": {bucket: list(new_bounds_bps[bucket]) for bucket in BUCKET_FIELDS},
+        "building_block_ids": sorted(str(getattr(bb, "id", "")) for bb in building_block_rows),
+    }
+    input_snapshot_hash = hashlib.sha256(
+        json.dumps(
+            input_snapshot_payload, sort_keys=True, separators=(",", ":"), default=str,
+        ).encode("utf-8")
+    ).hexdigest()
+    allocation_context_payload = {
+        "engine_version": "manual_override_v1",
+        "policy_id": str(policy.id),
+        "cma_id": str(cma.id),
+        "assessment_id": str(assessment.id),
+        "input_snapshot_hash": input_snapshot_hash,
+        "targets_bps": {bucket: int(new_targets_bps[bucket]) for bucket in BUCKET_FIELDS},
+        "sub_allocations": sub_allocations,
+        "effective_constraints": effective_constraints_payload,
+    }
+    allocation_context_hash = hashlib.sha256(
+        json.dumps(
+            allocation_context_payload, sort_keys=True, separators=(",", ":"), default=str,
+        ).encode("utf-8")
+    ).hexdigest()
     ta = TargetAllocation(
         id=new_uuid(),
         mandate_id=mandate_id,
@@ -302,6 +418,15 @@ def create_target_allocation(
         set_at=now,
         created_at=now,
         updated_at=now,
+        risky_fraction_bps=risky_fraction_bps,
+        risky_fraction_bps_at_generation=risky_fraction_bps,
+        risk_budget_bps_at_generation=risk_budget_bps,
+        sub_allocations_json=sub_allocations_json,
+        effective_constraints_json=effective_constraints_json,
+        allocation_context_hash=allocation_context_hash,
+        context_artifacts_required=1,
+        capital_market_assumptions_id=cma.id,
+        input_snapshot_hash=input_snapshot_hash,
         **payload
     )
     db.add(ta)
