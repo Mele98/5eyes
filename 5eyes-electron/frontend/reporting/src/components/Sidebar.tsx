@@ -27,13 +27,18 @@ export const REPORT_SECTIONS: ReportSectionLink[] = [
   { id: 'statement-pm', nr: 14, title: 'Statement PM', path: 'statement-pm' },
   { id: 'weiteres-vorgehen', nr: 15, title: 'Weiteres Vorgehen', path: 'weiteres-vorgehen' },
   { id: 'beratungsprotokoll', nr: 16, title: 'Beratungsprotokoll', path: 'beratungsprotokoll' },
+  // CERT-COST-PUBLICATION-001 (COST-PUBLICATION-001, 2026-10-09): derselbe
+  // geschuetzte FIDLEG-Kostenausweis, den Standalone- und Advisory-PDF
+  // bereits zeigen (services/advisory_report.py:411) -- vorher ohne jeden
+  // React-Navigationseintrag, Route oder Render-Branch.
+  { id: 'kosten', nr: 17, title: 'Kostenausweis', path: 'kosten' },
   // Sprint Compliance-Dashboard (2026-06-05): aggregiert die 5
   // Audit-Sektionen 19-23 (Suitability/Methodology/Recommendation/
   // MandateLock/LiquidityCascade) in einer Berater-Übersicht.
-  { id: 'compliance', nr: 17, title: 'Compliance-Audit', path: 'compliance' },
+  { id: 'compliance', nr: 18, title: 'Compliance-Audit', path: 'compliance' },
   // Sprint U-FINMA-3 (2026-05-29, re-architektiert 2026-06-09):
-  // SuitabilityCheck per Mandat (komplementaer zu Sektion 17).
-  { id: 'eignung', nr: 18, title: 'Eignung', path: 'eignung' },
+  // SuitabilityCheck per Mandat (komplementaer zu Sektion 18).
+  { id: 'eignung', nr: 19, title: 'Eignung', path: 'eignung' },
 ];
 
 interface SidebarProps {

@@ -157,6 +157,13 @@ function validateSchemaV2(data: unknown): asserts data is AdvisoryReport {
     'performance_attribution',
     'engine_configuration',
     'ab_backtest',
+    // CERT-COST-PUBLICATION-001 (COST-PUBLICATION-001, 2026-10-09): der
+    // Backend-Aggregator liefert cost_disclosure seit services/
+    // advisory_report.py:411 -- hier fehlte die Pflicht-Validierung
+    // komplett, ein Report ohne diese Sektion validierte trotzdem
+    // erfolgreich und die Reporting-App zeigte den geschuetzten
+    // Kostenausweis nirgends an.
+    'cost_disclosure',
   ] as const;
   for (const key of expectedKeys) {
     if (!(key in (data as Record<string, unknown>))) {

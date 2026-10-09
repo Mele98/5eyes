@@ -722,6 +722,70 @@ export interface AdvisoryReport {
   ab_backtest: AbBacktestData;
   /** U-FINMA-3 (re-architektiert 2026-06-09): SuitabilityCheck per Mandat */
   suitability_summary: SuitabilitySummaryData;
+  /** CERT-COST-PUBLICATION-001 (COST-PUBLICATION-001, 2026-10-09): FIDLEG
+   * Art. 8/9 Ex-ante-Kostenausweis -- derselbe geschuetzte Backend-Report
+   * wie im Standalone- und Advisory-PDF (services/advisory_report.py:411
+   * / services/cost_disclosure.py::calculate_cost_disclosure). Vorher gab
+   * es dafuer KEINEN React-Typ, KEINE Schema-Pflicht und KEINE Sektion --
+   * das PDF zeigte die Kosten, die Reporting-App verwarf sie komplett. */
+  cost_disclosure: CostDisclosureData;
+}
+
+/** CERT-COST-PUBLICATION-001 (COST-PUBLICATION-001 / COST-RENDER-SEMANTICS-001):
+ * 1:1 das Shape von services.cost_disclosure.calculate_cost_disclosure() /
+ * services.advisory_report._build_cost_disclosure_section() -- keine zweite
+ * Kostenberechnung in React, nur Typisierung + currency-/null-/frequency-
+ * sichere Darstellung derselben Zahlen. */
+export interface CostDisclosureItem {
+  key: string;
+  label: string;
+  category: string;
+  /** Lokalisierter Backend-Text ("einmalig" | "jährlich" | "monatlich" |
+   * "quartalsweise" | "nicht erfasst" | ...) -- NIE auf "p.a." zusammen-
+   * falten (COST-RENDER-SEMANTICS-001). */
+  frequency: string;
+  /** null = absoluter Betrag ohne Satz (z. B. eine Retrozession ohne
+   * Prozent-Angabe) -- muss als "—", NIE als "0.00%" dargestellt werden. */
+  rate_bps: number | null;
+  amount_rappen: number;
+  basis_rappen: number;
+  basis_label: string;
+  source: string;
+  is_estimate: boolean;
+  /** Fehlt bei aelteren/degraded Payloads -> Default true (siehe Backend). */
+  included_in_total?: boolean;
+}
+
+export interface CostDisclosureTotals {
+  one_time_rappen: number;
+  one_time_bps: number | null;
+  annual_rappen: number;
+  annual_bps: number | null;
+  first_year_rappen: number;
+  first_year_bps: number | null;
+}
+
+export interface CostDisclosureData {
+  data_pending: boolean;
+  /** ISO-4217, aus mandate.base_currency -- NIE hartkodiert als "CHF"
+   * annehmen (COST-RENDER-SEMANTICS-001). */
+  currency: string;
+  as_of: string | null;
+  source_run_id: string | null;
+  fidleg_basis: string;
+  advisory_wealth_rappen: number;
+  invested_amount_rappen: number;
+  product_cost_coverage_bps: number;
+  cost_items: CostDisclosureItem[];
+  totals: CostDisclosureTotals;
+  is_complete: boolean;
+  has_estimates: boolean;
+  warnings: string[];
+  /** Nur im Fehlerpfad von services/advisory_report.py::
+   * _build_cost_disclosure_section gesetzt (Berechnung fehlgeschlagen) --
+   * degraded Evidence darf nie als client-ready dargestellt werden
+   * (COST-PUBLICATION-GATE-001). */
+  audit_degraded?: boolean;
 }
 
 /** C2-Wiring (2026-06-07): Stub-Type fuer engine_configuration.

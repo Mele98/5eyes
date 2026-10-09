@@ -28,6 +28,7 @@ import { BuildingBlocks } from '@/pages/BuildingBlocks';
 import { StatementPm } from '@/pages/StatementPm';
 import { WeiteresVorgehen } from '@/pages/WeiteresVorgehen';
 import { Beratungsprotokoll } from '@/pages/Beratungsprotokoll';
+import { Kostenausweis } from '@/pages/Kostenausweis';
 import { Compliance } from '@/pages/Compliance';
 import { Eignung } from '@/pages/Eignung';
 import { ProfilingPage } from '@/sections/profiling/ProfilingPage';
@@ -444,6 +445,9 @@ function renderSection(
         onReload={reload}
       />
     );
+  }
+  if (sectionId === 'kosten') {
+    return <Kostenausweis data={data.cost_disclosure} />;
   }
   if (sectionId === 'compliance') {
     return (

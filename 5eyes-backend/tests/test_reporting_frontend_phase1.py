@@ -44,14 +44,16 @@ def test_inhaltsverzeichnis_page_renders_backend_chapters():
     assert "Inhaltsverzeichnis" in content
 
 
-def test_sidebar_lists_all_17_sections_and_active_state():
+def test_sidebar_lists_all_19_sections_and_active_state():
     content = _read("components/Sidebar.tsx")
     assert "data-testid=\"report-sidebar\"" in content
-    # Sektionen 1-16 = Standard-Report. Sektion 17 = Compliance-Audit
-    # (Sub-App-Aggregation der Backend-Sektionen 19-23). Sektion 18 =
-    # Eignung (SuitabilityCheck per Mandat, Sprint U-FINMA-3, re-arch
-    # 2026-06-09).
-    assert content.count("id: '") == 18
+    # Sektionen 1-16 = Standard-Report. Sektion 17 = Kostenausweis
+    # (CERT-COST-PUBLICATION-001 / COST-PUBLICATION-001, 2026-10-09 --
+    # derselbe geschuetzte FIDLEG-Kostenausweis wie im Standalone-/
+    # Advisory-PDF). Sektion 18 = Compliance-Audit (Sub-App-Aggregation
+    # der Backend-Sektionen 19-23). Sektion 19 = Eignung (SuitabilityCheck
+    # per Mandat, Sprint U-FINMA-3, re-arch 2026-06-09).
+    assert content.count("id: '") == 19
     for title in (
         "Titelblatt",
         "Disclaimer",
@@ -112,7 +114,8 @@ def test_no_third_party_brands_in_phase1_frontend():
 def test_sidebar_has_stable_section_numbers():
     content = _read("components/Sidebar.tsx")
     numbers = [int(value) for value in re.findall(r"nr: (\d+)", content)]
-    # Sektion 17 = Compliance-Audit (Sub-App-Aggregation der
-    # Backend-Sektionen 19-23, siehe PR #163 + #165). Sektion 18 =
+    # Sektion 17 = Kostenausweis (CERT-COST-PUBLICATION-001, 2026-10-09).
+    # Sektion 18 = Compliance-Audit (Sub-App-Aggregation der
+    # Backend-Sektionen 19-23, siehe PR #163 + #165). Sektion 19 =
     # Eignung (SuitabilityCheck per Mandat, Sprint U-FINMA-3).
-    assert numbers == list(range(1, 19))
+    assert numbers == list(range(1, 20))

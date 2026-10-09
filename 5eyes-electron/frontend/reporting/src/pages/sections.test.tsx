@@ -58,6 +58,7 @@ import { BuildingBlocks } from './BuildingBlocks';
 import { StatementPm } from './StatementPm';
 import { WeiteresVorgehen } from './WeiteresVorgehen';
 import { Beratungsprotokoll } from './Beratungsprotokoll';
+import { Kostenausweis } from './Kostenausweis';
 import { Eignung } from './Eignung';
 
 import {
@@ -65,6 +66,7 @@ import {
   makeAusgangslage,
   makeBranchen,
   makeBuildingBlocks,
+  makeCostDisclosure,
   makeCover,
   makeDisclaimer,
   makeErkenntnisse,
@@ -455,6 +457,48 @@ describe('Section 16: Beratungsprotokoll (U-FINMA-2.3)', () => {
     render(withRouter(<Beratungsprotokoll data={makeBeratungsprotokoll()} />));
     expect(screen.queryByText('Auto-Log')).not.toBeInTheDocument();
     expect(screen.queryByText('Neuer Eintrag')).not.toBeInTheDocument();
+  });
+});
+
+describe('Section 17: Kostenausweis (CERT-COST-PUBLICATION-001)', () => {
+  it('rendert Summary-Kacheln und Kostenposten in der Mandats-Waehrung', () => {
+    render(withRouter(<Kostenausweis data={makeCostDisclosure()} />));
+    expect(screen.getByText("CHF 1'000'000")).toBeInTheDocument();
+    expect(screen.getByText('Beratungs-/Verwaltungsgebühr')).toBeInTheDocument();
+  });
+
+  it('zeigt null rate_bps als Gedankenstrich, nie als 0.00 %', () => {
+    render(withRouter(<Kostenausweis data={makeCostDisclosure()} />));
+    const row = screen.getByText(/Vergütung von Dritten, einbehalten/).closest('tr');
+    expect(row).not.toBeNull();
+    expect(row).toHaveTextContent('—');
+    expect(row).not.toHaveTextContent('0.00');
+  });
+
+  it('nutzt die echte Mandats-Waehrung statt hartkodiertem CHF', () => {
+    render(withRouter(<Kostenausweis data={makeCostDisclosure({ currency: 'EUR' })} />));
+    expect(screen.getAllByText(/EUR /).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/CHF /)).not.toBeInTheDocument();
+  });
+
+  it('zeigt pending-Status statt erfundener Zahlen', () => {
+    render(
+      withRouter(
+        <Kostenausweis
+          data={makeCostDisclosure({ data_pending: true, cost_items: [], warnings: ['Noch keine Empfehlung.'] })}
+        />,
+      ),
+    );
+    expect(screen.getByText('Daten ausstehend')).toBeInTheDocument();
+  });
+
+  it('zeigt degraded-Status statt eines vollstaendigen Berichts (COST-PUBLICATION-GATE-001)', () => {
+    render(
+      withRouter(
+        <Kostenausweis data={makeCostDisclosure({ audit_degraded: true })} />,
+      ),
+    );
+    expect(screen.getByText('Kostenausweis nicht verfügbar')).toBeInTheDocument();
   });
 });
 
