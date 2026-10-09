@@ -6847,10 +6847,28 @@ def generate_recommendation_run(
                     "verfuegbar; bitte Strategie neu berechnen."
                 )
             cma = allocation_cma
-        elif getattr(allocation, "input_snapshot_hash", None):
+        else:
+            # TA-RECOMMENDATION-DEADEND-001 (CERT-TA-WRITE-LIFECYCLE-001,
+            # 2026-10-09): this used to only reject when
+            # input_snapshot_hash was also set, which let a CMA-less
+            # allocation (e.g. a manual save that never bound a CMA) fall
+            # through, bind the Draft to the CURRENT runtime CMA instead of
+            # the allocation's own, and persist a Draft that
+            # routers/review.py::_validate_recommendation_for_finalization
+            # then rejects deterministically on CMA mismatch -- a dead end
+            # that was knowingly created at Generate time. Every active
+            # allocation Generate is allowed to build on must carry its own
+            # CMA anchor; without one, fail fast here instead of ever
+            # persisting an unfinalizable Draft. (Manual saves created
+            # through routers/allocation.py::create_target_allocation after
+            # TA-LEGACY-FABRICATION-001's fix always bind a CMA, so this
+            # path is now reserved for genuinely legacy/pre-context rows
+            # that must be regenerated, not silently reused.)
             raise ValueError(
-                "Eine modern verankerte Soll-Allokation ohne CMA-Referenz ist "
-                "inkonsistent; bitte Strategie neu berechnen."
+                "Die Soll-Allokation referenziert keine Kapitalmarktannahmen "
+                "(CMA); eine Empfehlung kann daraus nicht erzeugt werden. "
+                "Bitte Strategie neu berechnen oder eine vollstaendige "
+                "Soll-Allokation speichern."
             )
         based_on_assessment_id = str(
             getattr(allocation, "based_on_assessment_id", "") or ""
