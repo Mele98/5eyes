@@ -7,6 +7,45 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 DEFAULT_SECRET_KEY = "CHANGE_ME_IN_PRODUCTION_USE_STRONG_RANDOM_KEY"
 
+# CERT-OPTIMIZER-OBJECTIVE-001 / OPTIMIZER-GOAL-WEIGHTING-EVIDENCE-001
+# (docs/audits/2026-10-08-optimizer-objective-evidence-and-goal-weighting-
+# certification-spec.md, Sec. 6.1): the goal-weighting mode that drives the
+# stochastic optimizer's objective mathematics (up to 50x between a "hart"
+# and an "opportunistisch" goal, see services/optimizer/objective.py
+# HARDNESS_WEIGHT) used to be read ad-hoc via
+# ``os.environ.get("OPTIMIZER_GOAL_WEIGHTING", "equal")`` with ANY
+# unrecognized value (typo, empty string, ...) silently collapsing to the
+# "equal" default -- no error, no warning, indistinguishable from an unset
+# variable. This is the single, centrally validated, fail-closed definition
+# of the allowed values; both the typed Settings field below and
+# services.optimizer.objective.resolve_goal_weighting_mode() call it so
+# there is exactly one place that decides what a legal value is.
+GOAL_WEIGHTING_MODES = ("equal", "hardness")
+
+
+def validate_goal_weighting_mode(raw: str | None) -> str:
+    """Normalize + fail-closed validate OPTIMIZER_GOAL_WEIGHTING.
+
+    - Unset (``None``) resolves to the documented default ``"equal"``.
+    - Any other value is trimmed and lower-cased before comparison, so
+      ``" EQUAL "`` / ``"HARDNESS"`` canonicalize to their lowercase form.
+    - Anything else -- including an explicit empty/whitespace-only string
+      and a typo such as ``"hardnes"`` -- raises ``ValueError`` instead of
+      silently falling back to ``"equal"``. A misconfiguration must be loud,
+      never indistinguishable from "unset".
+    """
+    if raw is None:
+        return "equal"
+    normalized = raw.strip().lower()
+    if normalized not in GOAL_WEIGHTING_MODES:
+        raise ValueError(
+            "OPTIMIZER_GOAL_WEIGHTING="
+            f"{raw!r} is not a recognized goal-weighting mode. Allowed: "
+            f"{', '.join(GOAL_WEIGHTING_MODES)} (leave unset for the "
+            "documented default 'equal')."
+        )
+    return normalized
+
 
 def resolve_env_file() -> str:
     env_override = Path.cwd() / '.env'
@@ -277,6 +316,18 @@ class Settings(BaseSettings):
     #   Initialisierung/Policy-Bounds und bleibt auditierter technischer Fallback.
     optimizer_mode: str = 'stochastic'
 
+    # CERT-OPTIMIZER-OBJECTIVE-001 (2026-10-08): typed, startup-validated
+    # counterpart to the env var the optimizer objective reads at run time
+    # (services.optimizer.objective.resolve_goal_weighting_mode). Declared
+    # here so deployment-config gates can assert the same fail-closed
+    # contract ("equal" | "hardness", unset -> "equal", everything else
+    # rejected) independently of any particular run. The objective module
+    # remains the per-run source of truth because a config change must take
+    # effect on the next optimizer run without a process restart; this field
+    # exists for startup/deployment validation parity, not as the runtime
+    # read path.
+    optimizer_goal_weighting: str = 'equal'
+
     # Mean-Shift Importance Sampling fuer Tail-Risk im stochastic Optimizer
     # (Phase 5 der Stochastic-Optimizer-Spec). Default OFF, opt-in via
     # MC_IMPORTANCE_SAMPLING_ENABLED=true. Bringt 5-10x Varianz-Reduktion
@@ -402,6 +453,11 @@ class Settings(BaseSettings):
         if normalized not in allowed:
             raise ValueError(f"optimizer_mode must be one of: {', '.join(sorted(allowed))}")
         return normalized
+
+    @field_validator('optimizer_goal_weighting')
+    @classmethod
+    def validate_optimizer_goal_weighting(cls, value: str) -> str:
+        return validate_goal_weighting_mode(value)
 
     @field_validator('sub_class_intra_correlation')
     @classmethod

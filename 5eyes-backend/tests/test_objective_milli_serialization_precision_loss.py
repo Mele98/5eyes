@@ -79,15 +79,6 @@ def test_objective_to_milli_preserves_distinguishable_small_values():
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "OPTIMIZER-OBJECTIVE-EVIDENCE-PRECISION-001 — round 47 red test "
-        "(milli-rappen serialization collapses dimensionless objective "
-        "precision), see docs/audits/"
-        "2026-09-28-mixed-goal-sensitivity-objective-evidence-integrity-audit.md"
-    ),
-)
 def test_evaluate_goal_sensitivity_delta_objective_pct_uses_collapsed_integers(
     session_factory, monkeypatch,
 ):

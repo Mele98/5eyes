@@ -30,6 +30,8 @@ from typing import Iterable
 
 import numpy as np
 
+from config import validate_goal_weighting_mode
+
 from .goal_liabilities import GoalLiability
 
 
@@ -48,14 +50,41 @@ HARDNESS_WEIGHT = {
 _PRIMARY_HARDNESS_KEYS = {"hart", "primaer", "primär"}
 
 
-def _goal_weighting_mode() -> str:
+def resolve_goal_weighting_mode() -> str:
     """3eyes-Methodik (Q&A iSAA): 'Alle Ziele sind gleich wichtig (Mittelung)'.
 
-    Default = 'equal' → jedes Ziel geht mit Gewicht 1.0 in die Zielfunktion ein.
-    Die Haertegrad-Gewichtung (hart 10x / primaer 1x / opportunistisch 0.2x)
-    bleibt als optionales Feature erhalten: OPTIMIZER_GOAL_WEIGHTING=hardness.
+    Default = 'equal' -> jedes Ziel geht mit Gewicht 1.0 in die Zielfunktion
+    ein. Die Haertegrad-Gewichtung (hart 10x / primaer 1x / opportunistisch
+    0.2x) bleibt als optionales Feature erhalten: OPTIMIZER_GOAL_WEIGHTING=hardness.
+
+    CERT-OPTIMIZER-OBJECTIVE-001 / OPTIMIZER-GOAL-WEIGHTING-EVIDENCE-001: this
+    used to normalize ANY unrecognized value (a typo, an empty string, ...)
+    silently to "equal" -- indistinguishable from an unset variable, with no
+    error and no evidence of the misconfiguration. It now delegates to the
+    single centrally validated definition in config.validate_goal_weighting_mode,
+    which raises ValueError fail-closed for anything other than "equal" or
+    "hardness" (unset -> documented default "equal"). This is the one call
+    site this module uses to resolve the mode; every objective/driver
+    function below calls this function (directly or via
+    _effective_hardness_weight), never os.environ, so there is a single
+    source of truth for "which mathematics produced this run".
+
+    This is intentionally still a live env read rather than a value frozen
+    once at process start: a config change must take effect on the very
+    next optimizer run without requiring a process restart. The remaining
+    architectural gap -- binding the resolved mode into one immutable
+    per-run ObjectiveContract so solver/reevaluation/driver/sensitivity/
+    replay are provably congruent even if the environment changes mid-run
+    -- is tracked as further work (see certification spec Sec. 6.2-6.3);
+    this fix closes the "silent fallback" and "not hashed" gaps, not that
+    larger contract-freeze gap.
     """
-    return (os.environ.get("OPTIMIZER_GOAL_WEIGHTING", "equal") or "equal").strip().lower()
+    return validate_goal_weighting_mode(os.environ.get("OPTIMIZER_GOAL_WEIGHTING"))
+
+
+def _goal_weighting_mode() -> str:
+    """Backwards-compatible internal alias for resolve_goal_weighting_mode()."""
+    return resolve_goal_weighting_mode()
 
 
 def _effective_hardness_weight(hardness_key: str | None) -> float:

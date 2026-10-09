@@ -84,14 +84,6 @@ def _hard_vs_opportunistic_ratio() -> float:
 # ============================================================================
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "OPTIMIZER-GOAL-WEIGHTING-EVIDENCE-001 -- round 47 red test "
-        "(unvalidated env var, typo silently falls back to equal weighting), "
-        "see audit docs/audits/2026-09-28-mixed-goal-sensitivity-objective-evidence-integrity-audit.md"
-    ),
-)
 def test_typo_in_goal_weighting_env_var_should_not_silently_equal_unset(monkeypatch):
     """A typo'd OPTIMIZER_GOAL_WEIGHTING value must be rejected/flagged, not
     silently treated as equivalent to 'unset' (equal weighting).

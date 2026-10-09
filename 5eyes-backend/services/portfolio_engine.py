@@ -3037,6 +3037,27 @@ def _build_allocation_model_basis(
             "direct_real_estate_scope": "external_total_wealth",
             "external_rent_treatment": "cashflow_only",
         }
+    # CERT-OPTIMIZER-OBJECTIVE-001 / OPTIMIZER-GOAL-WEIGHTING-EVIDENCE-001:
+    # the goal-weighting mode changes the solver's objective mathematics by
+    # up to 50x between a "hart" and an "opportunistisch" goal
+    # (services.optimizer.objective.HARDNESS_WEIGHT), but was never part of
+    # this model basis. Two runs that genuinely optimized different
+    # objective functions therefore persisted an identical basis (and, via
+    # effective_constraints_json, an identical allocation_context_hash) with
+    # no way to prove which mathematics produced which allocation. Bind the
+    # centrally validated mode (and its multipliers, when active) into the
+    # FRESH basis only -- a replayed/stored basis (handled below) must stay
+    # verbatim and must never be silently upgraded with the CURRENT
+    # environment's mode.
+    from services.optimizer.objective import (
+        HARDNESS_WEIGHT,
+        resolve_goal_weighting_mode,
+    )
+    goal_weighting_mode = resolve_goal_weighting_mode()
+    optimization_basis["goal_weighting_mode"] = goal_weighting_mode
+    optimization_basis["goal_weighting_hardness_multipliers"] = (
+        dict(HARDNESS_WEIGHT) if goal_weighting_mode == "hardness" else None
+    )
     if stored_optimization_basis is not None:
         if not isinstance(stored_optimization_basis, dict):
             raise ValueError(
@@ -5498,6 +5519,15 @@ def evaluate_goal_sensitivity(
             }
         return str(value)
 
+    # CERT-OPTIMIZER-OBJECTIVE-001 / OPTIMIZER-GOAL-WEIGHTING-EVIDENCE-001:
+    # same binding as _build_allocation_model_basis -- the sensitivity
+    # model_input_hash must change when the goal-weighting mode changes,
+    # even with every other input held constant, since the solver call
+    # below optimizes genuinely different objective mathematics under
+    # "equal" vs. "hardness".
+    from services.optimizer.objective import resolve_goal_weighting_mode
+    sensitivity_goal_weighting_mode = resolve_goal_weighting_mode()
+
     cma_snapshot = {
         column.name: _canonical_scalar(getattr(cma, column.name))
         for column in CapitalMarketAssumption.__table__.columns
@@ -5553,6 +5583,7 @@ def evaluate_goal_sensitivity(
     ) -> str:
         payload = {
             "version": "sensitivity_live_context_v3_complete",
+            "goal_weighting_mode": sensitivity_goal_weighting_mode,
             "cma": cma_snapshot,
             "seed": int(pinned_seed),
             "scenario_horizon_years": int(projection_horizon),
@@ -5660,9 +5691,33 @@ def evaluate_goal_sensitivity(
 
     obj_base = _obj_milli(baseline_result.objective_value)
     obj_new = _obj_milli(modified_result.objective_value)
+
+    # CERT-OPTIMIZER-OBJECTIVE-001 / OPTIMIZER-OBJECTIVE-EVIDENCE-PRECISION-001:
+    # delta_objective_pct used to be computed from obj_base/obj_new above --
+    # the already milli-rounded (*1000, int(round(...))) integers -- instead
+    # of the raw solver floats. Small but materially different objective
+    # values (e.g. 0.0006 -> 0.0014, a true +133.33% improvement) both round
+    # to the same milli integer (1), so the published delta collapsed to
+    # 0.00% even though the solver genuinely found a materially better (or
+    # worse) allocation. Compute the delta from the raw, lossless floats
+    # instead; the milli fields above remain published for backwards
+    # compatibility but no longer drive this decision-relevant number. A
+    # delta is only published when both raw values are finite and the
+    # baseline is non-zero (undefined otherwise), matching the comparability
+    # contract used by the shadow/active method comparison
+    # (_build_allocation_method_comparison in
+    # portfolio_engine_optimizer_integration.py).
+    raw_obj_base = baseline_result.objective_value
+    raw_obj_new = modified_result.objective_value
     delta_pct: float | None = None
-    if obj_base is not None and obj_new is not None and obj_base != 0:
-        delta_pct = round((obj_new - obj_base) / abs(obj_base) * 100.0, 2)
+    if (
+        raw_obj_base is not None
+        and raw_obj_new is not None
+        and math.isfinite(raw_obj_base)
+        and math.isfinite(raw_obj_new)
+        and raw_obj_base != 0.0
+    ):
+        delta_pct = round((raw_obj_new - raw_obj_base) / abs(raw_obj_base) * 100.0, 2)
 
     primary_baseline = baseline_amount or baseline_wealth or baseline_return_bps
     primary_new = (
