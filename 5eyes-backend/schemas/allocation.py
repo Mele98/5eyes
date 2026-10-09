@@ -259,6 +259,13 @@ class TargetAllocationCreate(BaseModel):
     band_alternatives_max_bps: int = Field(ge=0, le=10000)
     band_liquidity_min_bps: int = Field(ge=0, le=10000)
     band_liquidity_max_bps: int = Field(ge=0, le=10000)
+    # TA-LEGACY-FABRICATION-001 (CERT-TA-WRITE-LIFECYCLE-001, 2026-10-09): kept
+    # on the wire schema for backward API compatibility, but
+    # routers/allocation.py::create_target_allocation no longer persists this
+    # client-supplied value -- it is always discarded and recomputed
+    # server-side from the NEW targets actually being saved. A client value
+    # (e.g. a stale UI pre-fill from the previous allocation) must never be
+    # trusted as risk evidence.
     risky_fraction_bps: Optional[int] = Field(default=None, ge=0, le=10000)
     based_on_assessment_id: Optional[str] = None
     policy_id: str
