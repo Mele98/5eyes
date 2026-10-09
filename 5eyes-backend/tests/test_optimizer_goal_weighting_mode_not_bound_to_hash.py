@@ -200,15 +200,6 @@ def _seed_mixed_hardness_mandate(session_factory, suffix: str = ""):
 # ============================================================================
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "OPTIMIZER-GOAL-WEIGHTING-EVIDENCE-001 — round 47 red test "
-        "(goal-weighting mode not bound to model basis / context hash / "
-        "sensitivity input hash), see audit "
-        "docs/audits/2026-09-28-mixed-goal-sensitivity-objective-evidence-integrity-audit.md"
-    ),
-)
 def test_optimization_model_basis_identical_despite_differing_goal_weighting_mode(
     monkeypatch,
 ):
@@ -262,15 +253,6 @@ def test_optimization_model_basis_identical_despite_differing_goal_weighting_mod
 # ============================================================================
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "OPTIMIZER-GOAL-WEIGHTING-EVIDENCE-001 — round 47 red test "
-        "(goal-weighting mode not bound to model basis / context hash / "
-        "sensitivity input hash), see audit "
-        "docs/audits/2026-09-28-mixed-goal-sensitivity-objective-evidence-integrity-audit.md"
-    ),
-)
 def test_allocation_context_hash_identical_despite_differing_goal_weighting_mode(
     session_factory, monkeypatch,
 ):
@@ -344,15 +326,6 @@ def _fake_run_solver(monkeypatch) -> None:
     monkeypatch.setattr(optimizer_solver, "run_solver", fake_run_solver)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "OPTIMIZER-GOAL-WEIGHTING-EVIDENCE-001 — round 47 red test "
-        "(goal-weighting mode not bound to model basis / context hash / "
-        "sensitivity input hash), see audit "
-        "docs/audits/2026-09-28-mixed-goal-sensitivity-objective-evidence-integrity-audit.md"
-    ),
-)
 def test_sensitivity_model_input_hash_identical_despite_differing_goal_weighting_mode(
     session_factory, monkeypatch,
 ):
