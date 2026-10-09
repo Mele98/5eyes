@@ -98,6 +98,33 @@ def _hardness_key(value: str | None) -> str:
     return raw
 
 
+def _conflict_cause_signature(row: Mapping) -> object | None:
+    """Best-effort dedup signature for a `nicht_erreichbar` achievability row.
+
+    GOAL-ACHIEVABILITY-ATTRIBUTION-001 (CERT-GOAL-FUNDING-001), Spec Sec. 5.5:
+    a shared failure event must be deduplicated by typed cause fields
+    (``cause_kind``/``scope_id``/``first_failure_year``/resource pool), not by
+    free display text. The current `chance_constraint_penalty()` achievability
+    row shape (goal_id/label/target_kind/probability/tau/status/hardness) does
+    not yet carry those typed fields end-to-end (Phase D/E persistence +
+    solver wiring is tracked separately, see PR description) -- but callers
+    that already attach descriptive attribution keys (``due_year``,
+    ``shortfall_source``, or an explicit ``failure_event_id``) onto a row get
+    real deduplication today. Rows without any such key are, conservatively,
+    treated as their OWN independent cause (today's exact behaviour) so no
+    legacy caller silently gets merged into a shared-cause event it never
+    declared.
+    """
+    event_id = row.get("failure_event_id")
+    if event_id:
+        return ("failure_event_id", event_id)
+    due_year = row.get("due_year")
+    shortfall_source = row.get("shortfall_source")
+    if due_year is not None and shortfall_source:
+        return ("due_year", due_year, "shortfall_source", shortfall_source)
+    return None
+
+
 def classify_limiting_factor(
     allocation_bps: Mapping[str, int],
     risky_fraction: int,
@@ -116,7 +143,20 @@ def classify_limiting_factor(
         and _hardness_key(row.get("hardness")) in ("hart", "primär")
     ]
     if len(nicht_erreicht) >= 2:
-        return "zielkonflikt"
+        # GOAL-ACHIEVABILITY-ATTRIBUTION-001: do not double-count a single
+        # shared failure event as an independent multi-goal conflict. Rows
+        # without a recognizable cause signature are each counted as their
+        # own independent cause (unchanged legacy behaviour: len(...) >= 2 of
+        # UNKNOWN causes still means "at least 2 distinct problems").
+        distinct_causes: list[object] = []
+        for index, row in enumerate(nicht_erreicht):
+            signature = _conflict_cause_signature(row)
+            cause_key = signature if signature is not None else ("__unattributed__", index)
+            if cause_key not in distinct_causes:
+                distinct_causes.append(cause_key)
+        if len(distinct_causes) >= 2:
+            return "zielkonflikt"
+        return "gemeinsamer_engpass"
     if nicht_erreicht and int(risky_fraction) >= int(max_risky_fraction) - 50:
         return "risikoprofil"
     if int((allocation_bps or {}).get("liquidity", 0) or 0) <= int(min_liquidity_bps) + 1:
