@@ -966,7 +966,12 @@ CREATE TABLE IF NOT EXISTS contract_documents (
     document_type   TEXT NOT NULL CHECK(document_type IN (
                         'Beratungsvertrag','Anlagestrategie','Anlagerezept',
                         'Beratungsprotokoll','Risikoprofilierung',
-                        'Override-Zustimmung','Eignungsprüfung','Sonstiges')),
+                        'Override-Zustimmung','Eignungsprüfung','Sonstiges',
+                        -- CERT-COST-PUBLICATION-001 (COST-ARTIFACT-EVIDENCE-001,
+                        -- 2026-10-09): Standalone-Kostenausweis wird jetzt
+                        -- render-once/archive-once via archive_generated_pdf()
+                        -- archiviert, siehe schemas/review.py::ContractDocumentCreate.
+                        'Kostenausweis')),
     title           TEXT NOT NULL,
     content_json    TEXT CHECK(content_json IS NULL OR json_valid(content_json)),
     pdf_path        TEXT,

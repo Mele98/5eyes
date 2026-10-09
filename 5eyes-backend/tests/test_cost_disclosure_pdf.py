@@ -124,17 +124,32 @@ def test_endpoint_unknown_mandate_404(auth_client):
     assert resp.status_code == 404
 
 
-def test_endpoint_pending_liefert_valides_pdf(auth_client, advisor_user, session_factory):
-    """Auch ohne Empfehlung muss das PDF rendern (pending-State -> Hinweis)."""
+def test_endpoint_pending_liefert_409_statt_client_ready_pdf(auth_client, advisor_user, session_factory):
+    """CERT-COST-PUBLICATION-001 (COST-PUBLICATION-GATE-001, 2026-10-09):
+    diese Assertion wurde bewusst GEAENDERT, nicht abgeschwaecht.
+
+    Vorher behauptete dieser Test (unter dem Namen
+    `test_endpoint_pending_liefert_valides_pdf`), ein Mandat ohne Empfehlung
+    MUESSE trotzdem ein valides HTTP-200-Kunden-PDF erhalten. Genau dieses
+    Verhalten -- ein pending Kostenausweis, der ununterscheidbar von einem
+    zertifizierten Dokument an den Client ausgeliefert wird -- ist die
+    Ursache von COST-PUBLICATION-GATE-001 (siehe
+    docs/audits/2026-10-09-cost-publication-channel-delivery-artifact-
+    certification-spec.md Abschnitt 3.4 der Ares/Codex-Audit-Quelle, sowie
+    tests/test_cert_cost_publication_001_reproducers.py::
+    test_pending_cost_disclosure_must_not_export_as_client_ready_pdf).
+    Der Endpoint blockt jetzt mit 409 + stabilem Reason-Code; das PDF-Rendern
+    fuer den internen Entwurf bleibt ueber
+    services/pdf/documents/cost_disclosure.py::build_cost_disclosure_flowables
+    (siehe test_document_compose_pending_keine_exception unten) weiterhin
+    moeglich -- nur der Client-Export ist gesperrt.
+    """
     mandate_id = _seed_minimal_mandate(session_factory, advisor_user)
     resp = auth_client.get(f"/mandates/{mandate_id}/reports/cost-disclosure.pdf")
-    assert resp.status_code == 200, resp.text
-    assert resp.headers["content-type"] == "application/pdf"
-    # PDF-Magic
-    assert resp.content[:4] == b"%PDF"
-    # Filename folgt dem Mandate-Number-Pattern (vermindert Pollution in
-    # Download-Ordnern).
-    assert "kostenausweis-M_PDF_CD" in resp.headers["content-disposition"]
+    assert resp.status_code == 409, resp.text
+    detail = resp.json().get("detail")
+    assert isinstance(detail, dict)
+    assert detail.get("reason_code") == "COST_DISCLOSURE_PENDING"
 
 
 def test_endpoint_in_route_table():

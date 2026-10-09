@@ -507,7 +507,15 @@ class ContractDocumentCreate(BaseModel):
     document_type: Literal[
         "Beratungsvertrag", "Anlagestrategie", "Anlagerezept",
         "Beratungsprotokoll", "Risikoprofilierung",
-        "Override-Zustimmung", "Eignungsprüfung", "Sonstiges"
+        "Override-Zustimmung", "Eignungsprüfung", "Sonstiges",
+        # CERT-COST-PUBLICATION-001 (COST-ARTIFACT-EVIDENCE-001, 2026-10-09):
+        # der Standalone-Kostenausweis wird jetzt wie jedes andere PDF ueber
+        # services.document_archive.archive_generated_pdf() archiviert
+        # (render-once/archive-once + Byte-Hash) -- dafuer muss der
+        # document_type hier UND im CHECK-Constraint der Schema-SQL
+        # (5eyes_schema_v4.0_FINAL.sql) stehen, sonst crasht die Archivierung
+        # bzw. wird das Dokument clientseitig falsch validiert.
+        "Kostenausweis",
     ]
     title: str = Field(min_length=1, max_length=200)
     # RESOURCE-002 (Codex-Audit 2026-08-27): content_json hatte keine

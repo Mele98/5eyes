@@ -2059,6 +2059,22 @@ def get_advisory_report_pdf(
 
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
     pdf_bytes = render_advisory_report_pdf(db, mandate, current_user)
+    if pdf_bytes is None:
+        # CERT-COST-PUBLICATION-001 (COST-PUBLICATION-GATE-001): degraded
+        # cost-disclosure evidence blocks a client-ready export -- stable
+        # reason code instead of a yellow PDF indistinguishable from a
+        # certified one (spec Section 5.2).
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "reason_code": "COST_DISCLOSURE_DEGRADED",
+                "message": (
+                    "Advisory-Report kann nicht als client-ready PDF "
+                    "exportiert werden: der Kostenausweis konnte nicht "
+                    "vollstaendig berechnet werden (degraded evidence)."
+                ),
+            },
+        )
     safe_mandate = "".join(
         c if c.isalnum() else "_" for c in str(mandate.mandate_number or "mandate")
     )[:40]
@@ -2077,6 +2093,7 @@ def get_advisory_report_pdf(
 )
 def get_cost_disclosure_pdf(
     mandate_id: str,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -2087,19 +2104,73 @@ def get_cost_disclosure_pdf(
     Der DepotCheck-PDF enthaelt den Kostenausweis als Subsection — dieses
     PDF ist das eigenstaendige Dokument, das dem Kunden vor Auftrags-
     ausfuehrung ausgehaendigt werden kann.
+
+    CERT-COST-PUBLICATION-001 (2026-10-09):
+    - COST-PUBLICATION-GATE-001: ein pending Kostenausweis (keine Empfehlung
+      vorhanden) war bisher trotzdem als normales HTTP-200-Kunden-PDF
+      exportierbar, ununterscheidbar von einem zertifizierten Dokument.
+      Dieser Alias liefert jetzt 409 mit stabilem Reason-Code, solange keine
+      belastbare Kostenbasis existiert (spec Section 5.2).
+    - COST-ARTIFACT-EVIDENCE-001: render-once/archive-once ueber das bereits
+      bestehende services.document_archive (gleiches Muster wie
+      Anlagestrategie/Risikoprofil/Portfolio/Protokoll weiter oben in dieser
+      Datei) -- identische Fachdaten liefern dieselben archivierten Bytes
+      statt bei jedem GET frisch zu rendern; Response-Header tragen die
+      Dokument-/Snapshot-/Byte-Hash-Identitaet.
     """
+    import base64
+
+    from models.review import ContractDocument
     from services.cost_disclosure import build_cost_disclosure
 
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
+    payload = build_cost_disclosure(db, mandate)
+    if payload.get("data_pending"):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "reason_code": "COST_DISCLOSURE_PENDING",
+                "message": (
+                    "Kostenausweis ist noch nicht client-ready: es liegt "
+                    "noch keine Portfolioempfehlung mit belastbarer "
+                    "Kostenbasis vor."
+                ),
+            },
+        )
     ctx = _build_pdf_context(mandate, current_user, db)
     ctx = _attach_provisional_notice(ctx, db, mandate)
-    payload = build_cost_disclosure(db, mandate)
     data = CostDisclosurePDFData(
         mandate_number=str(getattr(mandate, "mandate_number", "") or "") or None,
         advisory_wealth_rappen=int(payload.get("advisory_wealth_rappen") or 0),
         payload=payload,
     )
-    pdf_bytes = ReportLabRenderer().render_cost_disclosure(ctx, data)
+    content_hash = content_hash_for(data)
+    existing = (
+        db.query(ContractDocument)
+        .filter(
+            ContractDocument.mandate_id == mandate.id,
+            ContractDocument.document_type == "Kostenausweis",
+            ContractDocument.deleted_at.is_(None),
+        )
+        .order_by(ContractDocument.version.desc())
+        .first()
+    )
+    if existing is not None and existing.content_hash == content_hash:
+        # Render-once: identischer Fachinhalt -> dieselben archivierten
+        # Bytes ausliefern statt erneut zu rendern (ReportLab bettet pro
+        # Rendering einen wechselnden Font-Subset-Tag ein, siehe
+        # services/document_archive.py-Docstring -- ein frischer Re-Render
+        # wuerde trotz identischem Inhalt einen anderen Byte-Hash ergeben).
+        doc = existing
+        pdf_bytes = base64.b64decode(doc.pdf_base64)
+    else:
+        pdf_bytes = ReportLabRenderer().render_cost_disclosure(ctx, data)
+        doc = archive_generated_pdf(
+            db, mandate_id=mandate.id, document_type="Kostenausweis",
+            title="Kostenausweis ex-ante", pdf_bytes=pdf_bytes,
+            content_hash=content_hash, current_user=current_user,
+            ip_address=_extract_client_ip(request),
+        )
     safe_mandate = "".join(
         c if c.isalnum() else "_" for c in str(mandate.mandate_number or "mandate")
     )[:40]
@@ -2107,5 +2178,15 @@ def get_cost_disclosure_pdf(
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
-        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+        headers={
+            "Content-Disposition": f'inline; filename="{filename}"',
+            # COST-ARTIFACT-EVIDENCE-001: nachweisbare Artefakt-Identitaet
+            # -- welches konkrete Dokument (Version + Byte-Hash) der Kunde
+            # tatsaechlich sah.
+            "X-Cost-Disclosure-Document-Id": doc.id,
+            "X-Cost-Disclosure-Document-Version": str(doc.version),
+            "X-Cost-Disclosure-Byte-Sha256": doc.checksum_sha256 or "",
+            "X-Cost-Disclosure-Content-Hash": doc.content_hash or "",
+            "X-Cost-Disclosure-Snapshot-Id": str(payload.get("source_run_id") or ""),
+        },
     )
