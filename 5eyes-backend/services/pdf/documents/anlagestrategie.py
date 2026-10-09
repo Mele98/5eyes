@@ -740,7 +740,14 @@ def _make_preferences_section(preferences, styles) -> list:
         if not isinstance(override, dict):
             continue
         parts = []
-        for field, label in (("min_bps", "Min"), ("target_bps", "Soll"), ("max_bps", "Max")):
+        # MANUAL-TARGET-PUBLICATION-001 (CERT-ALLOCATION-INTENT-001): dieser
+        # Wert ist eine advisorseitige Praeferenz, die der konvergierte
+        # Solver nur als weiche Zielgroesse (nicht als harte Vorgabe) sieht
+        # -- er darf nie dasselbe Wort "Soll" tragen wie die Soll-Allokation-
+        # Tabelle (saa_bar_table), die die tatsaechlich wirksame, freigegebene
+        # TargetAllocation zeigt. "Praeferenz" ist bewusst ASCII-only, siehe
+        # Konvention oben ("Festgehaltene Praeferenz").
+        for field, label in (("min_bps", "Min"), ("target_bps", "Praeferenz"), ("max_bps", "Max")):
             value = override.get(field)
             if value is not None:
                 parts.append(f"{label} {int(value) / 100:.1f}%")
