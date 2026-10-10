@@ -1537,6 +1537,7 @@ from services.portfolio_engine_cma import (  # noqa: F401,E402
     _inflation_path_series,
     _is_valid_cholesky,
     _portfolio_volatility_bps,
+    _sub_class_intra_correlation_x100,
     _portfolio_weighted_ter_bps,
     _real_series_from_nominal,
     _resolve_home_equity_label,
@@ -3022,6 +3023,9 @@ def _build_allocation_model_basis(
             "tail_calibration": (
                 "bounded_cornish_fisher_gauss_hermite_v2"
             ),
+            # SUBRISK-CONTEXT-REPLAY-001: Risikobasis in die Evidenz binden.
+            # Begruendung siehe _sub_class_intra_correlation_x100().
+            "sub_class_intra_correlation_x100": _sub_class_intra_correlation_x100(),
             "foundation_model_version": "external_foundation_v2",
             "external_property_goal_basis": (
                 "inflation_zero_real_plus_exact_liability_and_pledged_transfer_v2"
@@ -3084,6 +3088,9 @@ def _build_allocation_model_basis(
                 if reporting_tail
                 else "not_applicable"
             ),
+            # SUBRISK-CONTEXT-REPLAY-001: dieselbe Bindung wie im
+            # Entscheidungskanal -- gemeinsame Momentquelle beider Kanaele.
+            "sub_class_intra_correlation_x100": _sub_class_intra_correlation_x100(),
             "foundation_model_version": "external_foundation_v2",
             "total_scope_goal_basis": "exact_total_projection_path_v2",
             "indirect_amortization_treatment": "pledged_asset_transfer_v1",
@@ -5578,6 +5585,9 @@ def evaluate_goal_sensitivity(
             "version": "sensitivity_live_context_v3_complete",
             "goal_weighting_mode": sensitivity_goal_weighting_mode,
             "cma": cma_snapshot,
+            # SUBRISK-CONTEXT-REPLAY-001: liegt nicht auf der CMA-Zeile,
+            # `cma_snapshot` oben kann sie also nicht abdecken.
+            "sub_class_intra_correlation_x100": _sub_class_intra_correlation_x100(),
             "seed": int(pinned_seed),
             "scenario_horizon_years": int(projection_horizon),
             "horizon_years": int(run_horizon),
@@ -7029,13 +7039,17 @@ def generate_recommendation_run(
     from services.product_eligibility import derive_service_mode, is_eligible_candidate
     service_mode = derive_service_mode(mandate)
 
+    # Beide Praedikate sind schleifeninvariant (haengen nicht von `sub` ab).
+    # Vorher stand die Liste IN der Schleife: 351 statt 36 DB-Abfragen pro
+    # Generate-Lauf. Bit-identisch, byte-exakt per Golden-Snapshot verifiziert.
+    eligible_products = [
+        product for product in products
+        if _product_matches_constraints(product, prefs, score_bucket, jurisdiction_ctx=jurisdiction_ctx)
+        and is_eligible_candidate(db, product, service_mode=service_mode, score_bucket=score_bucket, jurisdiction=jurisdiction)
+    ]
+
     for sub in sub_allocations:
-        matching = [
-            product for product in products
-            if _product_matches_constraints(product, prefs, score_bucket, jurisdiction_ctx=jurisdiction_ctx)
-            and is_eligible_candidate(db, product, service_mode=service_mode, score_bucket=score_bucket, jurisdiction=jurisdiction)
-        ]
-        exact = [product for product in matching if str(product.sub_asset_class or "") == str(sub["sub_asset_class"])]
+        exact = [product for product in eligible_products if str(product.sub_asset_class or "") == str(sub["sub_asset_class"])]
         used_fallback = False
         suitability_block_hint = None
         if not exact:
@@ -7044,7 +7058,7 @@ def generate_recommendation_run(
             )
         candidates = exact
         if not candidates:
-            candidates = [product for product in matching if _norm_text(product.asset_class) == _norm_text(sub["asset_class"])]
+            candidates = [product for product in eligible_products if _norm_text(product.asset_class) == _norm_text(sub["asset_class"])]
             used_fallback = bool(candidates)
         if not candidates:
             warnings.append(f"Kein passendes Produkt fuer {sub['sub_asset_class']} gefunden.")

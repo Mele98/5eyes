@@ -7,19 +7,25 @@ laeuft (z.B. iterative Sensitivity-Analyse, Sub-Allocation-Tweaks, Re-Computes
 nach Goal-Edits), wuerde jedes Mal eine 2'000-Pfade × horizon × 5-Bucket
 ndarray neu erzeugt. Das ist mit ~0.5s pro Build der dominierende Cost.
 
-Diese Cache-Schicht erkennt Wiederholungen: gleiche cma_id + gleiche
-Parameter -> Returns identisches ndarray (gleicher Seed, gleiche Numpy-
-Generator, deterministisch).
+Diese Cache-Schicht erkennt Wiederholungen: gleiche effektive
+ScenarioInputs + gleiche Parameter -> Returns identisches ndarray (gleicher
+Seed, gleiche Numpy-Generator, deterministisch).
 
-Annahme: cma-Werte sind unter einer cma_id IMMUTABLE. 5eyes versioniert CMA
-durch neue UUID pro Update -> Annahme haelt. Bei Aenderung der CMA-Inhalte
-ohne ID-Aenderung wird der Cache stale; daher cmainvalidate() exposed.
+SCENARIO-CACHE-EFFECTIVE-INPUT-001 (2026-10-10): der Key hing vorher an
+`cma_id` als Proxy fuer mu/sigma/skew/kurt/cholesky, unter der Annahme
+"cma-Werte sind unter einer cma_id IMMUTABLE". Diese Annahme war falsch --
+die effektive Bucket-Sigma haengt zusaetzlich von Einstellungen AUSSERHALB
+der CMA-Zeile ab (`settings.sub_class_intra_correlation`). Der Key hasht
+jetzt die tatsaechlichen ScenarioInputs (siehe
+scenario_inputs_digest()); `cma_id` bleibt im Key, aber nur noch als
+Gruppierungsmerkmal fuer invalidate_cma().
 
 Cache-Size: 16 Eintraege Default. Bei n_paths=2000, horizon=30: ~2.4 MB
 pro Eintrag * 16 = ~38 MB Memory-Footprint. Vertraeglich fuer Desktop-App.
 """
 from __future__ import annotations
 
+import hashlib
 from collections import OrderedDict
 from dataclasses import dataclass
 
@@ -27,6 +33,42 @@ import numpy as np
 
 from .scenario_engine import ScenarioInputs, build_scenario_paths
 from services.return_moments import RETURN_MOMENT_MODEL_VERSION
+
+
+# ============================================================================
+# Effective-input digest (SCENARIO-CACHE-EFFECTIVE-INPUT-001)
+# ============================================================================
+
+_INPUT_DIGEST_FIELDS = ("mu_bps", "sigma_bps", "skew_bps", "excess_kurt_bps", "cholesky")
+
+
+def scenario_inputs_digest(inputs: ScenarioInputs) -> str:
+    """Deterministischer Hash ueber die TATSAECHLICHEN ScenarioInputs.
+
+    SCENARIO-CACHE-EFFECTIVE-INPUT-001 (2026-10-10): der Cache-Key nutzte
+    vorher nur `cma_id` als "Proxy fuer mu/sigma/skew/kurt/cholesky" unter
+    der Annahme "cma-Werte sind unter einer cma_id IMMUTABLE". Diese
+    Annahme haelt NICHT: `_weighted_bucket_metrics()` laesst die effektive
+    Bucket-Sigma von einer globalen Einstellung ausserhalb der CMA-Zeile
+    abhaengen (`settings.sub_class_intra_correlation`, siehe
+    SUBRISK-GLOBAL-RHO-MODEL-001). Bei identischer cma_id und geaendertem
+    effektivem Sigma lieferte der Cache die Pfade der ALTEN Inputs zurueck
+    -- also eine Monte-Carlo-Simulation unter stillschweigend falschen
+    Verteilungsannahmen.
+
+    `float64.tobytes()` ist die exakte Bit-Repraesentation und damit
+    deterministisch reproduzierbar (keine Repr-/Rundungs-Unschaerfe). Die
+    Feldreihenfolge ist fix, und jedes Feld geht mit Shape + Bytes ein,
+    damit zwei verschieden geformte Arrays mit gleichem Byte-Inhalt nicht
+    kollidieren koennen.
+    """
+    hasher = hashlib.sha256()
+    for field_name in _INPUT_DIGEST_FIELDS:
+        array = np.ascontiguousarray(getattr(inputs, field_name), dtype=np.float64)
+        hasher.update(field_name.encode("utf-8"))
+        hasher.update(repr(array.shape).encode("utf-8"))
+        hasher.update(array.tobytes())
+    return hasher.hexdigest()
 
 
 # ============================================================================
@@ -130,9 +172,11 @@ def build_scenario_paths_cached(
 ) -> np.ndarray:
     """Cache-aware Wrapper um build_scenario_paths (Standard-MC ohne IS).
 
-    Cache-Key umfasst alle Parameter die das Output beeinflussen:
-    cma_id (= proxy fuer mu/sigma/skew/kurt/cholesky), horizon, n_paths,
-    seed, antithetic.
+    Cache-Key umfasst alle Parameter die das Output beeinflussen: cma_id
+    (nur noch fuer invalidate_cma()-Gruppierung, NICHT als Proxy fuer die
+    Verteilungsparameter), der Digest der tatsaechlichen ScenarioInputs,
+    horizon, n_paths, seed, antithetic. Siehe scenario_inputs_digest() --
+    SCENARIO-CACHE-EFFECTIVE-INPUT-001.
 
     Wenn cache=None: nutze Module-Default-Cache. Caller kann eigenen
     ScenarioCache uebergeben (z.B. fuer Tests-Isolation).
@@ -143,7 +187,8 @@ def build_scenario_paths_cached(
         cache = _GLOBAL_CACHE
     # IS-aware key: 'STD' marker damit IS- und Non-IS-Eintraege getrennt
     # gecacht werden. build_scenario_paths_with_weights_cached nutzt ein
-    # anderes Marker-Praefix.
+    # anderes Marker-Praefix. cma_id bleibt an Position 1, damit
+    # invalidate_cma() weiterhin gruppieren kann.
     key = (
         "STD",
         str(cma_id),
@@ -152,6 +197,7 @@ def build_scenario_paths_cached(
         int(n_paths),
         int(seed),
         bool(antithetic),
+        scenario_inputs_digest(inputs),
     )
     cached = cache.get(key)
     if cached is not None:
@@ -217,12 +263,15 @@ def build_scenario_paths_with_weights_cached(
         )
         return paths, make_default_weights(n_paths)
 
-    # IS-aktiv: shift_vector als tuple zur Hash-Stabilitaet
+    # IS-aktiv: shift_vector als tuple zur Hash-Stabilitaet. Der
+    # Inputs-Digest ist hier aus demselben Grund Teil des Keys wie im
+    # STD-Pfad (SCENARIO-CACHE-EFFECTIVE-INPUT-001).
     shift_tuple = tuple(float(x) for x in np.asarray(shift_vector).reshape(-1))
     key = (
         "IS", str(cma_id), RETURN_MOMENT_MODEL_VERSION,
         int(horizon_years), int(n_paths), int(seed),
         bool(antithetic), shift_tuple,
+        scenario_inputs_digest(inputs),
     )
     cached = cache.get(key)
     if cached is not None:

@@ -116,12 +116,6 @@ from services.portfolio_engine import (  # noqa: E402
     generate_target_allocation,
 )
 
-_XFAIL_REASON = (
-    "SUBRISK-CONTEXT-REPLAY-001 — round 53 red test, see audit "
-    "docs/audits/2026-10-05-sub-asset-risk-aggregation-cache-and-replay-integrity-audit.md"
-)
-
-
 @pytest.fixture()
 def session_factory(tmp_path):
     engine = create_engine(
@@ -156,7 +150,6 @@ def _restore_optimizer_mode_and_rho():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason=_XFAIL_REASON)
 def test_model_basis_optimization_dict_identical_despite_rho_change():
     """Direct, DB-free call of the real model-basis builder.
 
@@ -213,7 +206,6 @@ def test_model_basis_optimization_dict_identical_despite_rho_change():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason=_XFAIL_REASON)
 def test_allocation_context_hash_identical_despite_rho_change(session_factory):
     """End-to-end generate_target_allocation() on the SAME mandate/cma/goals.
 
@@ -257,7 +249,6 @@ def test_allocation_context_hash_identical_despite_rho_change(session_factory):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason=_XFAIL_REASON)
 def test_sensitivity_model_input_hash_identical_despite_rho_change(session_factory):
     """End-to-end evaluate_goal_sensitivity() on the SAME persisted allocation.
 

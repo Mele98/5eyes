@@ -402,6 +402,23 @@ def _asset_class_expected_metrics(
     return returns, vols
 
 
+def _sub_class_intra_correlation_x100() -> int:
+    """Die effektiv wirksame Intra-Bucket-Korrelation als Ganzzahl (rho * 100).
+
+    SUBRISK-CONTEXT-REPLAY-001 (2026-10-10): wird in die Evidenz-Hashes
+    gebunden (Modellbasis beider Kanaele, transitiv der
+    allocation_context_hash, und der Sensitivitaets-model_input_hash).
+    Liegt bewusst hier, direkt neben `_weighted_bucket_metrics()` -- der
+    einzigen Stelle, die diese Einstellung tatsaechlich auswertet.
+
+    Ganzzahl statt Float, damit die Hash-Serialisierung nicht von der
+    Float-Repraesentation abhaengt; der Wert ist per config-Validator auf
+    [0.0, 1.0] begrenzt, zwei Dezimalstellen sind also verlustfrei genug
+    fuer die Unterscheidbarkeit zweier Laeufe.
+    """
+    return int(round(float(getattr(settings, "sub_class_intra_correlation", 1.0)) * 100))
+
+
 def _weighted_bucket_metrics(
     cma: CapitalMarketAssumption,
     sub_allocations: list[dict] | None,

@@ -41,7 +41,20 @@ ENGINE_FILE = REPO_ROOT / "5eyes-backend" / "services" / "portfolio_engine.py"
 # 7'215 Zeilen. Kleiner Puffer bis 7'300 faengt triviale Kommentar-/Docstring-
 # Ergaenzungen ab, ohne die eigentliche Absicht (kein unkontrolliertes
 # Wachstum mehr) aufzuweichen.
-MAX_LINES = 7_300
+#
+# 2026-10-10 bewusst von 7'300 auf 7'320 angehoben (der Docstring oben nennt
+# diesen Weg explizit als eine der zwei zulaessigen Antworten). Begruendung:
+# SUBRISK-CONTEXT-REPLAY-001 bindet die Intra-Bucket-Korrelation in die drei
+# Evidenz-Hash-Oberflaechen. Der Zuwachs in der Kern-Datei sind drei
+# einzeilige Dict-Eintraege plus Kommentare -- KEINE neue Fachlogik: die
+# eigentliche Helferfunktion `_sub_class_intra_correlation_x100()` liegt
+# bereits im richtigen Cluster-Submodul (portfolio_engine_cma.py, direkt
+# neben `_weighted_bucket_metrics()`, der einzigen Stelle, die die
+# Einstellung auswertet) und wird von hier nur re-exportiert. Der Puffer von
+# 7'300 war nach #575 praktisch aufgebraucht (7'293). Die Alternative waere
+# gewesen, eigene Begruendungs-Kommentare so lange zu kuerzen, bis es knapp
+# passt -- das haette das Gate umspielt statt respektiert.
+MAX_LINES = 7_320
 
 
 def count_lines(path: Path) -> int:

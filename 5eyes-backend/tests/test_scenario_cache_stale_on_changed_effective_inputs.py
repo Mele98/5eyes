@@ -37,7 +37,6 @@ call's stale paths instead of building new ones for the new inputs.
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from services.optimizer.scenario_cache import (
     ScenarioCache,
@@ -61,18 +60,6 @@ def _make_inputs(mu_bps: int = 500, sigma_bps: int = 1000) -> ScenarioInputs:
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "SCENARIO-CACHE-EFFECTIVE-INPUT-001 -- round 52 red test "
-        "(build_scenario_paths_cached's cache key hashes only cma_id as a "
-        "'proxy' for the actual ScenarioInputs; changing the effective "
-        "sigma/mu while keeping cma_id/horizon/n_paths/seed identical "
-        "returns stale cached paths from the OLD inputs instead of "
-        "building fresh ones), see audit "
-        "docs/audits/2026-10-05-sub-asset-risk-aggregation-cache-and-replay-integrity-audit.md"
-    ),
-)
 def test_cache_must_not_return_stale_paths_when_effective_inputs_change():
     """Same cma_id/horizon/n_paths/seed, but genuinely different
     ScenarioInputs (sigma changed from 1000 to 2000 bps, simulating e.g. a

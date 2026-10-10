@@ -5,6 +5,7 @@ import numpy as np
 import pytest
 
 import services.optimizer.objective as objective_module
+from services.optimizer.certification import wilson_lower_bound
 from services.optimizer.goal_liabilities import GoalLiability
 from services.optimizer.objective import (
     combined_objective_two_phase,
@@ -60,9 +61,22 @@ def test_primary_and_chance_terms_are_currency_scale_invariant():
         volatility_weight=0.0,
     )
 
-    # Primary = mean([0, (50/100)^2]) = 0.125. Chance is identical because
-    # both contexts have P(success)=0.5 and tau=0.8.
-    assert small == pytest.approx(0.125 + 1_000_000.0 * 0.3**2)
+    # Primary = mean([0, (50/100)^2]) = 0.125. Chance ist in beiden Kontexten
+    # identisch, weil beide P(success)=0.5 bei tau=0.8 haben.
+    #
+    # OPTIMIZER-POST-SELECTION-CERTIFICATION-001 (2026-10-10): der
+    # Chance-Term haengt jetzt an der unteren Konfidenzgrenze statt am
+    # Punktschaetzer (sonst optimiert der Solver gegen das Rauschen). Bei nur
+    # zwei Pfaden liegt die Grenze weit unter p_hat=0.5, der Term ist also
+    # deutlich groesser als die frueheren 1e6 * 0.3**2. Bewusst aus dem
+    # Produktions-Schaetzer abgeleitet statt als neue Magic Number
+    # eingetragen -- so dokumentiert die Zusicherung die Formel.
+    expected_chance_shortfall = 0.8 - wilson_lower_bound(0.5, small_paths.shape[0])
+    assert small == pytest.approx(
+        0.125 + 1_000_000.0 * expected_chance_shortfall ** 2
+    )
+    # Der eigentliche Vertrag dieses Tests: reine Einheiten-Skalierung darf
+    # die Zielfunktion nicht veraendern.
     assert large == pytest.approx(small)
 
 

@@ -142,13 +142,6 @@ def _reporting_kwargs(cma: CapitalMarketAssumption, simulation_prefs: dict | Non
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "CMA-TAIL-ACTIVATION-GOVERNANCE-001 — round 53 red test, see audit "
-        "docs/audits/2026-10-05-cma-correlation-tail-moment-and-runtime-parity-integrity-audit.md"
-    ),
-)
 def test_reporting_mc_applies_same_tail_model_as_optimizer_by_default():
     cma = _cma_with_tail_moments()
 

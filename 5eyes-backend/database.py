@@ -577,6 +577,12 @@ def ensure_runtime_columns() -> None:
             # Status/elapsed_ms/reason auditierbar persistieren.
             ('restart_results_json', 'TEXT'),
             ('robustification_json', 'TEXT'),
+            # OPTIMIZER-POST-SELECTION-CERTIFICATION-001 (2026-10-10): Anker
+            # der unabhaengigen Validierungsstichprobe, siehe
+            # models/allocation.py::OptimizerRun. NULL = nie validiert.
+            ('validation_seed', 'INTEGER'),
+            ('validation_cube_hash', 'TEXT'),
+            ('validation_n_paths', 'INTEGER'),
         ],
         'products': [
             ('lookup_mode_override', 'TEXT'),

@@ -111,13 +111,6 @@ def _reporting_mc_schedule(
     return total, path
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "GOAL-RECURRENCE-SCHEDULE-001 -- round 38 red test, see "
-        "docs/audits/2026-10-03-recurring-goal-lifecycle-calendar-and-mc-validation-audit.md"
-    ),
-)
 def test_solver_and_reporting_mc_agree_on_recurring_goal_schedule():
     goal = _make_recurring_goal()
     start_year = date.today().year

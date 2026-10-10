@@ -97,17 +97,6 @@ def test_positive_control_correlation_factor_is_deterministic_and_valid():
     assert np.allclose(np.diag(reconstructed), 1.0, atol=1e-6)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "CMA-TAIL-PARAMETER-DOMAIN-PARITY-001 -- round 51 red test "
-        "(optimizer path clamps skew to [-1,1]/excess-kurt to [0,8] before "
-        "bounded_cornish_fisher; main-MC path passes raw unclamped CMA "
-        "values to the same function, so identical stored tail moments "
-        "produce different innovations between consumers), see audit "
-        "docs/audits/2026-10-05-cma-correlation-tail-moment-and-runtime-parity-integrity-audit.md"
-    ),
-)
 def test_optimizer_and_main_mc_should_apply_same_tail_moment_domain():
     """The same persisted (skew, excess_kurt) pair must produce the SAME
     Cornish-Fisher innovation whether consumed by the stochastic optimizer

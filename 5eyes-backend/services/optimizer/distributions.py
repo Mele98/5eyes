@@ -42,13 +42,20 @@ import random
 from functools import lru_cache
 
 from services.return_moments import (
+    MAX_ABS_SKEW,
+    MAX_EXCESS_KURTOSIS,
     arithmetic_moments_to_log_parameters,
     bounded_cornish_fisher,
 )
 
 
-_MAX_SKEW = 1.0
-_MAX_EXCESS_KURT = 8.0
+# CMA-TAIL-PARAMETER-DOMAIN-PARITY-001 (2026-10-10): keine zweite Definition
+# mehr -- die kanonische Domaene lebt in services/return_moments.py (dort, wo
+# auch der bounded_cornish_fisher()-Primitiv liegt, der sie durchsetzt). Die
+# privaten Aliasse bleiben, damit die bestehenden Aufrufer in diesem Modul
+# unveraendert funktionieren.
+_MAX_SKEW = MAX_ABS_SKEW
+_MAX_EXCESS_KURT = MAX_EXCESS_KURTOSIS
 
 # Bereich + Aufloesung fuer den Monotonie-Check. +-10 Standardabweichungen
 # ueberdeckt jeden praktisch vorkommenden Pfad grosszuegig (P(|Z|>10) ~ 1e-23);

@@ -32,6 +32,12 @@ import numpy as np
 
 from config import validate_goal_weighting_mode
 
+from .certification import (
+    effective_sample_size,
+    ess_is_sufficient,
+    reliability_verdict,
+    wilson_lower_bound,
+)
 from .goal_liabilities import GoalLiability
 
 
@@ -460,6 +466,7 @@ def chance_constraint_penalty(
     *,
     weights: np.ndarray | None = None,
     annualized_return_bps_per_path: np.ndarray | None = None,
+    validation_seed: int | None = None,
 ) -> tuple[float, list[dict]]:
     """Return chance-constraint penalty and per-goal achievability rows.
 
@@ -474,6 +481,29 @@ def chance_constraint_penalty(
         WICHTIG: ohne diesen Parameter wuerde IS einen verzerrten
         Probability-Estimator liefern (alle Pfade aus shifted distribution
         gleich gewichtet) — die PDF-Achievability-Rows waeren falsch.
+    validation_seed : int | None
+        OPTIMIZER-POST-SELECTION-CERTIFICATION-001: Seed der UNABHAENGIGEN
+        Validierungsstichprobe, auf der dieses Ergebnis nachgeprueft wurde.
+        None bedeutet "auf demselben Cube zertifiziert, auf dem selektiert
+        wurde" -- dann kann das Verdikt hoechstens
+        `unvalidated_single_cube` werden, niemals `robust`. Das Fehlen der
+        Evidenz bleibt so sichtbar statt stillschweigend als gruen
+        durchzugehen.
+
+    Zertifizierungsregel (OPTIMIZER-POST-SELECTION-CERTIFICATION-001)
+    -----------------------------------------------------------------
+    "erreichbar" verlangt jetzt, dass die einseitige untere
+    Konfidenzgrenze (Wilson-Score, bei Importance Sampling auf Basis des
+    Kish-ESS) die Schwelle tau haelt -- nicht mehr der rohe
+    Punktschaetzer. Bei genau p_hat == tau liegt die wahre
+    Wahrscheinlichkeit mit rund 50 Prozent darunter; das ist keine
+    Zertifizierungsgrundlage.
+
+    Ebenso wichtig: die STRAFE haengt ebenfalls an der unteren Grenze. Sonst
+    wuerde der Solver weiterhin gegen den rauschbehafteten Punktschaetzer
+    optimieren und genau den Winner's-Curse-Effekt einsammeln, den diese
+    Aenderung adressiert -- er darf erst zufrieden sein, wenn die
+    ZERTIFIZIERTE Wahrscheinlichkeit die Schwelle haelt.
     """
     penalty = 0.0
     achievability: list[dict] = []
@@ -512,16 +542,54 @@ def chance_constraint_penalty(
         else:
             probability = float(np.sum(per_path.astype(np.float64) * weights_arr) / weight_sum)
         tau = _default_tau_x100(goal) / 10000.0
-        if probability >= tau:
+
+        # OPTIMIZER-POST-SELECTION-CERTIFICATION-001: schaetzer-bewusste
+        # Zertifizierung statt roher Punktschaetzer -- siehe
+        # services/optimizer/certification.py.
+        n_paths = int(per_path.size)
+        if weights_arr is None:
+            n_effective = float(n_paths)
+        else:
+            n_effective = effective_sample_size(weights_arr)
+        lower_bound = wilson_lower_bound(probability, n_effective)
+        ess_sufficient = ess_is_sufficient(n_effective, n_paths)
+
+        if ess_sufficient and lower_bound >= tau:
             status = "erreichbar"
+        elif not ess_sufficient and probability >= TAU_UNREACHABLE:
+            # Zu wenig unabhaengige Evidenz (z.B. degenerierte IS-Gewichtung),
+            # UND der Punktschaetzer deutet in Richtung erreichbar: dann
+            # laesst sich die Frage nicht beantworten -> nicht beurteilbar.
+            #
+            # Das Gate blockiert bewusst nur die ZERTIFIZIERUNG, nicht jede
+            # Aussage: liegt der Punktschaetzer klar unter der Schwelle, ist
+            # "nicht erreichbar" auch bei kleiner Stichprobe die korrekte und
+            # nuetzliche Antwort -- ein sicherer Negativbefund ist nicht
+            # unzuverlaessig, nur negativ. Wuerde das Gate auch den abdecken,
+            # bekaeme ein offensichtlich unerreichbares Ziel ein
+            # "nicht beurteilbar" statt einer klaren Absage.
+            status = "unreliable"
         elif probability >= TAU_UNREACHABLE:
             status = "knapp"
         else:
             status = "nicht_erreichbar"
+
+        verdict = reliability_verdict(
+            probability=probability,
+            lower_bound=lower_bound,
+            tau=tau,
+            ess_sufficient=ess_sufficient,
+            validation_seed=validation_seed,
+        )
+
         hardness = _hardness_key(getattr(goal, "hardness_key", None))
         applies_penalty = hardness in _PRIMARY_HARDNESS_KEYS and goal.target_kind != "maximize"
         if applies_penalty:
-            shortfall = max(0.0, tau - probability)
+            # Strafe an der unteren Grenze, nicht am Punktschaetzer (siehe
+            # Docstring). Bei kollabierendem ESS geht die Grenze gegen 0 und
+            # die Strafe entsprechend hoch -- eine unbelastbare
+            # Zertifizierung ist damit automatisch kein Freifahrtschein.
+            shortfall = max(0.0, tau - lower_bound)
             penalty += float(lambda_chance) * shortfall * shortfall
         achievability.append({
             "goal_id": str(goal.goal_id),
@@ -531,6 +599,10 @@ def chance_constraint_penalty(
             "tau": tau,
             "status": status,
             "hardness": _display_hardness(hardness),
+            "lower_confidence_bound": lower_bound,
+            "effective_sample_size": n_effective,
+            "validation_seed": validation_seed,
+            "reliability_verdict": verdict,
         })
     return float(penalty), achievability
 

@@ -83,8 +83,24 @@ def test_ahv_goal_no_longer_auto_covered_in_mc_path():
     summary = _summary_for(_ahv_pension_goal())
     assert summary["success_rate_pct"] == 0
     assert summary["score"] == 0
-    assert summary["funded_ratio_p50"] == 0.0109
-    assert summary["pessimistic_shortfall_rappen"] == 9_542_500
+    # GOAL-RECURRENCE-SCHEDULE-001 (2026-10-10): die gepinnten Absolutwerte
+    # haben sich geaendert, weil die Outflow-Dauer jetzt aus derselben
+    # Herleitung kommt wie beim Solver (4 -> 5 Jahre).
+    #
+    # Das Goal ist eine ab 2027-01-01 laufende, ongoing Pensionsausgabe bei
+    # 5-Jahres-Simulationshorizont ab 2026. Im Horizont werden damit 5
+    # Jahresrenten faellig (erster Outflow faellt auf Jahresindex 1), nicht
+    # 4. Die alte Reporting-Formel lieferte zudem das inkohaerente Paar
+    # (Auswertungsindex 1, Dauer 4) -- "belaste 4 Rentenjahre, pruefe das
+    # Vermoegen aber nach 1 Jahr". Jetzt: (Index 5, Dauer 5), also der
+    # kumulierte Strom bewertet am Ende des Stroms, identisch zum Solver.
+    #
+    # Die Kernaussage von PENSION-AHV-001 bleibt unberuehrt: das AHV-Label
+    # verschafft dem Ziel keine automatische Deckung (success/score = 0),
+    # und test_ahv_goal_mc_summary_matches_non_pillar_control() prueft
+    # weiterhin Feld-fuer-Feld Gleichheit zur Kontrollgruppe.
+    assert summary["funded_ratio_p50"] == 0.0088
+    assert summary["pessimistic_shortfall_rappen"] == 11_942_500
 
 
 def test_ahv_goal_mc_summary_matches_non_pillar_control():
@@ -117,8 +133,13 @@ def test_conditional_ahv_goal_is_not_silently_100_percent():
     # Formel-Wert) -- der MC-Pfad bewertet jetzt den tatsaechlichen
     # (schwachen) Portfolio-Pfad gegen das (wahrscheinlichkeitsgewichtete)
     # Ziel, konsistent zur Kontrollgruppe.
-    assert summary["funded_ratio_p50"] == 0.0219
-    assert summary["pessimistic_shortfall_rappen"] == 4_742_500
+    # GOAL-RECURRENCE-SCHEDULE-001 (2026-10-10): Dauer 4 -> 5 Jahre, siehe
+    # die ausfuehrliche Begruendung in
+    # test_ahv_goal_no_longer_auto_covered_in_mc_path(). Die hier gepruefte
+    # Eigenschaft (Wahrscheinlichkeitsgewichtung wirkt, ~2x der
+    # unbedingte Wert bei probability_pct=50) bleibt unveraendert.
+    assert summary["funded_ratio_p50"] == 0.0175
+    assert summary["pessimistic_shortfall_rappen"] == 5_942_500
     # Kontrollgruppe (kein pension_pillar) bei gleicher Wahrscheinlichkeit
     # muss identisch sein.
     control = _ahv_pension_goal(probability_pct=50)

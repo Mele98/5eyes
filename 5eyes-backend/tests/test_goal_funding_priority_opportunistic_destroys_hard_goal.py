@@ -152,14 +152,31 @@ def _opportunistic_one_off_expense() -> SimpleNamespace:
     )
 
 
+#: OPTIMIZER-POST-SELECTION-CERTIFICATION-001 (2026-10-10): dieser Test
+#: simulierte EINEN deterministischen Pfad. Die Zertifizierung ist seither
+#: schaetzer-bewusst (untere Wilson-Konfidenzgrenze, ESS-Schwelle), und ein
+#: einzelner Pfad ist dafuer keine verwertbare Stichprobe -- selbst ein
+#: strukturelles p=1.0 ergibt dort eine Untergrenze von nur ~0.27.
+#:
+#: Der Pfad wird deshalb auf eine aussagefaehige Stichprobe vervielfacht.
+#: Weil ALLE Pfade identisch sind, bleibt die Wahrscheinlichkeit exakt 0.0
+#: bzw. 1.0 -- die Aussage des Tests (Prioritaetsschutz) ist unveraendert,
+#: nur die Stichprobengroesse passt jetzt zur Zertifizierungsregel. Die im
+#: Audit dokumentierten Strafwerte gelten damit wieder exakt.
+DETERMINISTIC_PATH_REPLICAS = 2000
+
+
 def _simulate_wealth(liability_path_rappen: list[int]) -> np.ndarray:
-    """Simuliert EINEN deterministischen Pfad mit Return-Faktor 1.0 (kein Wachstum).
+    """Simuliert einen deterministischen Pfad mit Return-Faktor 1.0 (kein
+    Wachstum), vervielfacht auf DETERMINISTIC_PATH_REPLICAS identische Pfade.
 
     weights/return_paths sind hier irrelevant fuer den Wert (jeder Bucket hat
     Faktor 1.0), nur die Shapes muessen zur production API passen.
     """
     weights = np.full(N_BUCKETS, 1.0 / N_BUCKETS, dtype=np.float64)
-    return_paths = np.ones((1, HORIZON_YEARS, N_BUCKETS), dtype=np.float64)
+    return_paths = np.ones(
+        (DETERMINISTIC_PATH_REPLICAS, HORIZON_YEARS, N_BUCKETS), dtype=np.float64,
+    )
     cashflow_series_rappen = [0] * HORIZON_YEARS
     return simulate_wealth_paths(
         initial_wealth_rappen=INITIAL_WEALTH_RAPPEN,
@@ -196,7 +213,9 @@ def test_opportunistic_one_off_expense_destroys_hard_goal_achievability(monkeypa
     assert agg_without_b == [0, 0]
 
     wealth_without_b = _simulate_wealth(agg_without_b)
-    np.testing.assert_allclose(wealth_without_b, [[100.0, 100.0, 100.0]])
+    # np.unique prueft zusaetzlich, dass alle vervielfachten Pfade wirklich
+    # identisch sind (siehe DETERMINISTIC_PATH_REPLICAS).
+    np.testing.assert_allclose(np.unique(wealth_without_b, axis=0), [[100.0, 100.0, 100.0]])
 
     prob_a_without_b = float(
         goal_probability_per_path(
@@ -211,7 +230,7 @@ def test_opportunistic_one_off_expense_destroys_hard_goal_achievability(monkeypa
     assert agg_with_b == [20, 0]  # Goal B's outflow enters the SHARED path unconditionally
 
     wealth_with_b = _simulate_wealth(agg_with_b)
-    np.testing.assert_allclose(wealth_with_b, [[100.0, 80.0, 80.0]])
+    np.testing.assert_allclose(np.unique(wealth_with_b, axis=0), [[100.0, 80.0, 80.0]])
 
     goal_a_liability_with_b = liabilities_with_b[0]
     goal_b_liability_with_b = liabilities_with_b[1]
@@ -265,7 +284,7 @@ def test_positive_control_hard_goal_alone_is_fully_achievable():
     assert aggregated == [0, 0]
 
     wealth_paths = _simulate_wealth(aggregated)
-    np.testing.assert_allclose(wealth_paths, [[100.0, 100.0, 100.0]])
+    np.testing.assert_allclose(np.unique(wealth_paths, axis=0), [[100.0, 100.0, 100.0]])
 
     probability = float(
         goal_probability_per_path(

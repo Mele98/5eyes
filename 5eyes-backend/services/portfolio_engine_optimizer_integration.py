@@ -1392,6 +1392,13 @@ def _persist_optimizer_run(
         stress_evaluations_json=stress_evaluations_json,
         restart_results_json=restart_results_json,
         robustification_json=robustification_json,
+        # OPTIMIZER-POST-SELECTION-CERTIFICATION-001 (2026-10-10): Anker der
+        # unabhaengigen Validierungsstichprobe. None/NULL heisst "dieser Lauf
+        # wurde nie unabhaengig nachzertifiziert" und ist damit von einem
+        # validierten Lauf unterscheidbar -- kein erfundener Default.
+        validation_seed=getattr(optimizer_result, "validation_seed", None),
+        validation_cube_hash=getattr(optimizer_result, "validation_cube_hash", None),
+        validation_n_paths=getattr(optimizer_result, "validation_n_paths", None),
         set_by=user_id,
         created_at=now,
     )

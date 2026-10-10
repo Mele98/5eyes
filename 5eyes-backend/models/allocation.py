@@ -186,6 +186,19 @@ class OptimizerRun(Base):
     stress_evaluations_json = Column(String)  # JSON dict
     restart_results_json = Column(String)  # JSON list[dict] with Stage-9 start diagnostics
     robustification_json = Column(String)  # JSON effective/rejected candidate audit envelope
+    # OPTIMIZER-POST-SELECTION-CERTIFICATION-001 (2026-10-10): Anker der
+    # UNABHAENGIGEN Validierungsstichprobe. `seed`/`n_paths` oben beschreiben
+    # den Trainings-Cube, auf dem selektiert wurde; diese drei Spalten
+    # beschreiben den davon getrennten Cube, auf dem der Gewinner
+    # nachzertifiziert wurde.
+    #
+    # Bewusst nullable: NULL bedeutet "dieser Lauf wurde NIE unabhaengig
+    # validiert" und ist damit vom validierten Lauf unterscheidbar. Vorher
+    # existierte kein Feld, dessen NULL-heit das ausdruecken konnte -- ein
+    # nicht validierter Lauf war von einem validierten nicht zu trennen.
+    validation_seed = Column(Integer)
+    validation_cube_hash = Column(String)
+    validation_n_paths = Column(Integer)
     set_by = Column(String, ForeignKey("users.id"))
     created_at = Column(String, nullable=False)
 

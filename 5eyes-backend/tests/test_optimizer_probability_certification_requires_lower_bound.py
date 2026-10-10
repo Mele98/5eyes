@@ -89,13 +89,6 @@ def _wealth_paths(n_success: int, n_total: int) -> np.ndarray:
     return paths
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "OPTIMIZER-POST-SELECTION-CERTIFICATION-001 -- round 38 red test, see "
-        "docs/audits/2026-10-03-recurring-goal-lifecycle-calendar-and-mc-validation-audit.md"
-    ),
-)
 def test_exact_tau_boundary_is_not_certified_without_a_lower_bound():
     """Red: exactly 1600/2000 successes (phat == tau == 0.80) is currently
     certified "erreichbar" with zero penalty on the raw point estimate

@@ -31,7 +31,7 @@ from datetime import date
 from typing import Sequence
 
 from models.wealth import Goal
-from services.calendar_horizon import calendar_years_until
+from services.calendar_horizon import calendar_years_until, recurring_outflow_window
 from services.cashflow_timeline import normalize_frequency
 
 
@@ -490,13 +490,17 @@ def _build_recurring_outflow(
     weil sowohl Lohn- als auch Lebenshaltungs-Indizes mehrjaehrig wachsen.
     """
     annual = _annualize_amount_rappen(goal)
-    target_year = _resolve_target_year_index(
-        goal,
+    # GOAL-RECURRENCE-SCHEDULE-001 (2026-10-10): das Outflow-Fenster kommt
+    # jetzt aus der EINEN gemeinsamen Herleitung, die auch der Reporting-MC
+    # konsumiert (services/calendar_horizon.py::recurring_outflow_window).
+    # Verhalten dieser Seite bewusst unveraendert -- die Funktion
+    # reproduziert exakt die bisherige Solver-Semantik.
+    target_year, duration = recurring_outflow_window(
+        start_date=_parse_iso(goal.start_date),
+        target_date=_parse_iso(goal.target_date),
+        is_ongoing=bool(int(goal.is_ongoing or 0)),
+        fallback_horizon_years=goal.horizon_years,
         horizon_years=horizon_years,
-        clamp_to_horizon=False,
-    )
-    duration = _outflow_duration_years(
-        goal, target_year_index=target_year, horizon_years=horizon_years,
     )
     path = [0] * horizon_years
     is_real = _is_real_value_mode(goal)
