@@ -96,7 +96,7 @@ import random
 from datetime import date
 from typing import TYPE_CHECKING
 
-from services.calendar_horizon import calendar_years_until
+from services.calendar_horizon import calendar_years_until, recurring_outflow_window
 from services.mortality.horizon import life_expectancy_year_from_mandate
 from services.return_moments import (
     arithmetic_moments_to_log_parameters,
@@ -867,9 +867,54 @@ def _max_drawdown_bps(path_values: list[int]) -> int:
     return max_drawdown
 
 
+_RECURRING_GOAL_TYPES = ("Wiederkehrende_Ausgabe", "Pensionsausgabe")
+
+
+def _is_recurring_outflow_goal(goal: Goal) -> bool:
+    # Lazy Import (Zirkular-Import-Haertung, siehe Modul-Docstring).
+    from services.portfolio_engine import _norm_text
+
+    return _norm_text(goal.goal_type).strip() in _RECURRING_GOAL_TYPES
+
+
+def _shared_recurring_window(goal: Goal, horizon_years: int) -> tuple[int, int]:
+    """Das kanonische Outflow-Fenster, identisch zum Solver.
+
+    GOAL-RECURRENCE-SCHEDULE-001 (2026-10-10): siehe
+    services/calendar_horizon.py::recurring_outflow_window.
+    """
+    # Lazy Import (Zirkular-Import-Haertung, siehe Modul-Docstring).
+    from services.portfolio_engine import _parse_iso_date
+
+    return recurring_outflow_window(
+        start_date=_parse_iso_date(goal.start_date),
+        target_date=_parse_iso_date(goal.target_date),
+        is_ongoing=bool(int(goal.is_ongoing or 0)),
+        fallback_horizon_years=goal.horizon_years,
+        horizon_years=int(horizon_years),
+    )
+
+
 def _year_index_for_goal(goal: Goal, start_year: int, horizon_years: int) -> int:
     # Lazy Import (Zirkular-Import-Haertung, siehe Modul-Docstring).
     from services.portfolio_engine import _goal_projection_years
+
+    if _is_recurring_outflow_goal(goal):
+        # GOAL-RECURRENCE-SCHEDULE-001: der Auswertungsindex muss das LETZTE
+        # Outflow-Jahr des gemeinsamen Fensters sein -- dort muss der
+        # kumulierte Strom (target = annual * duration, siehe
+        # _monte_carlo_goal_summary) finanziert sein. Vorher kam der Index
+        # aus _goal_projection_years(), das fuer diese Zieltypen auf
+        # target_date ankert (invertierte Anker-Prioritaet) und mit
+        # Tageszaehlung statt Jahrestagen rundet -- dadurch belastete der
+        # Reporting-Pfad andere Kalenderjahre als der Solver.
+        first_year, duration = _shared_recurring_window(goal, horizon_years)
+        if duration > 0:
+            return max(1, min(first_year + duration - 1, int(horizon_years)))
+        # duration == 0 (Start jenseits des Horizonts): der Index ist fuer
+        # das Ergebnis irrelevant, _monte_carlo_goal_summary behandelt
+        # duration <= 0 separat. Geklammerter Startindex als stabiler Wert.
+        return max(1, min(first_year, int(horizon_years)))
 
     years = _goal_projection_years(goal)
     return max(1, min(int(years or 1), int(horizon_years)))
@@ -887,8 +932,17 @@ def _full_goal_duration_years(goal: Goal) -> int:
 
 
 def _goal_duration_years(goal: Goal, start_year: int, horizon_years: int) -> int:
+    """GOAL-RECURRENCE-SCHEDULE-001 (2026-10-10): fuer wiederkehrende Ziele
+    kommt die Dauer jetzt aus derselben Herleitung wie beim Solver, statt
+    aus einer eigenen Kalenderjahr-Overlap-Rechnung. Fuer alle anderen
+    Zieltypen bleibt das bisherige Verhalten unveraendert.
+    """
     # Lazy Import (Zirkular-Import-Haertung, siehe Modul-Docstring).
     from services.portfolio_engine import _parse_iso_date
+
+    if _is_recurring_outflow_goal(goal):
+        _first_year, duration = _shared_recurring_window(goal, horizon_years)
+        return duration
 
     start_date = _parse_iso_date(goal.start_date)
     target_date = _parse_iso_date(goal.target_date)
