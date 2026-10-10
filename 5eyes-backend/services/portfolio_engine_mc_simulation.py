@@ -226,12 +226,41 @@ def _simulation_crisis_strength(simulation_prefs: dict | None) -> float:
 
 
 def _simulation_use_tail_risk(simulation_prefs: dict | None) -> bool:
-    """Sprint U-P4 Fix M6: Default False (Backwards-Compat). Wenn True und
-    CMA Skewness/Kurtosis-Felder hat, wird Cornish-Fisher-Transform auf
-    die Normal-Samples angewendet."""
+    """Wendet die Tail-Momente der CMA an (Cornish-Fisher). Default: True.
+
+    CMA-TAIL-ACTIVATION-GOVERNANCE-001 (2026-10-10): der Default war vorher
+    False ("Sprint U-P4 Fix M6, Backwards-Compat"). Der stochastische
+    Optimizer (services/optimizer/scenario_engine.py) wendet Cornish-Fisher
+    aber BEDINGUNGSLOS auf jeden Bucket an. Gleiche CMA-Zeile, gleiche
+    (mu, sigma) aus `_weighted_bucket_metrics()`, gleiche
+    `arithmetic_moments_to_log_parameters()`-Kalibrierung -- nur dieses Flag
+    unterschied sich. Folge: der Optimizer entschied unter einer
+    fat-tail-Verteilung, waehrend die KUNDENSICHTBARE Projektion still auf
+    eine reine Lognormalverteilung zurueckfiel. Zwei verschiedene
+    Erfolgswahrscheinlichkeits-Modelle aus denselben Eingaben.
+
+    Skewness/Kurtosis sind KEINE Simulations-Praeferenz, sondern Teil der
+    (committee-freigegebenen) Kapitalmarktannahme. Eine Praeferenz darf
+    governance-freigegebene CMA-Daten in der Kundenprojektion nicht
+    stillschweigend verwerfen.
+
+    Auswirkung bewusst minimal: bei skew=0 UND excess_kurt=0 liefert
+    `arithmetic_moments_to_log_parameters()` mit und ohne Cornish-Fisher
+    bit-identische Parameter (verifiziert) -- die Umstellung aendert also
+    ausschliesslich Projektionen fuer CMA-Zeilen, die tatsaechlich
+    Tail-Momente tragen.
+
+    Ein EXPLIZIT gesetztes False wird weiterhin respektiert (bewusster
+    Berater-Entscheid), erzeugt dann aber eine dokumentierte Divergenz zum
+    Optimizer -- nur der stille Default-Fall ist gefixt.
+    """
     if not simulation_prefs:
-        return False
-    raw = simulation_prefs.get("tailRisk") or simulation_prefs.get("cornishFisher")
+        return True
+    raw = simulation_prefs.get("tailRisk")
+    if raw is None:
+        raw = simulation_prefs.get("cornishFisher")
+    if raw is None:
+        return True
     if isinstance(raw, bool):
         return raw
     return str(raw or "").strip().lower() in ("1", "true", "yes", "on")

@@ -18,9 +18,30 @@ import math
 import numpy as np
 
 
-RETURN_MOMENT_MODEL_VERSION = "arithmetic_lognormal_cf_v2"
+RETURN_MOMENT_MODEL_VERSION = "arithmetic_lognormal_cf_v3"
 _CF_INNOVATION_CLIP = 8.0
 _QUADRATURE_ORDER = 128
+
+# CMA-TAIL-PARAMETER-DOMAIN-PARITY-001 (2026-10-10): kanonische Gueltigkeits-
+# domaene der Tail-Momente, EINE Definition fuer alle Konsumenten.
+#
+# Vorher klammerte nur der Optimizer-Pfad (services/optimizer/distributions.py
+# ::_clamp_skew/_clamp_kurt, aufgerufen aus scenario_engine.cornish_fisher_
+# array und _log_parameters_for_inputs) auf diese Domaene, BEVOR er
+# bounded_cornish_fisher() aufrief. Der Reporting-MC-Pfad
+# (portfolio_engine_mc_simulation) gab die rohen CMA-Werte direkt in denselben
+# Primitiv. Dieselbe gespeicherte (skew, excess_kurt)-Kombination erzeugte
+# dadurch je Konsument eine ANDERE Renditeverteilung.
+#
+# Die Klammerung sitzt jetzt im Primitiv selbst -- damit ist die Divergenz
+# strukturell unmoeglich, und auch die Gauss-Hermite-Rekalibrierung in
+# _tail_quadrature() (die denselben Primitiv nutzt) arbeitet garantiert auf
+# derselben Domaene wie das Sampling. Fuer Werte INNERHALB der Domaene ist das
+# ein No-Op; es aendert nur Konsumenten, die vorher ungeklammerte Werte
+# durchliessen. Deshalb auch der Model-Version-Bump auf v3: in-memory
+# gecachte Pfade aus der alten Semantik werden so nicht mit neuen vermischt.
+MAX_ABS_SKEW = 1.0
+MAX_EXCESS_KURTOSIS = 8.0
 
 
 class ReturnMomentError(ValueError):
@@ -46,9 +67,19 @@ def bounded_cornish_fisher(
     skew: float,
     excess_kurtosis: float,
 ):
-    """Apply the shared, numerically bounded Cornish-Fisher innovation."""
-    skew_value = np.asarray(skew, dtype=np.float64)
-    kurtosis_value = np.asarray(excess_kurtosis, dtype=np.float64)
+    """Apply the shared, numerically bounded Cornish-Fisher innovation.
+
+    Die Eingabe-Momente werden auf die kanonische Domaene geklammert
+    (MAX_ABS_SKEW / MAX_EXCESS_KURTOSIS) -- siehe deren Kommentar:
+    CMA-TAIL-PARAMETER-DOMAIN-PARITY-001. Jeder Konsument erhaelt damit
+    zwangslaeufig dieselbe Verteilung fuer dieselben gespeicherten Momente.
+    """
+    skew_value = np.clip(
+        np.asarray(skew, dtype=np.float64), -MAX_ABS_SKEW, MAX_ABS_SKEW,
+    )
+    kurtosis_value = np.clip(
+        np.asarray(excess_kurtosis, dtype=np.float64), 0.0, MAX_EXCESS_KURTOSIS,
+    )
     value = (
         z
         + (skew_value / 6.0) * (z * z - 1.0)
