@@ -26,7 +26,7 @@ import hashlib
 import time
 from collections.abc import Mapping
 from copy import deepcopy
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from numbers import Integral
 from typing import Iterable
 
@@ -62,6 +62,7 @@ from .objective import chance_constraint_penalty, combined_objective_two_phase
 from .scenario_cache import (
     build_scenario_paths_cached,
     build_scenario_paths_with_weights_cached,
+    scenario_inputs_digest,
 )
 from .importance_sampling import (
     DEFAULT_TAIL_SHIFT_STRENGTH,
@@ -72,6 +73,7 @@ from .importance_sampling import (
 from .scenario_engine import (
     BUCKET_ORDER,
     N_BUCKETS,
+    ScenarioInputs,
     build_scenario_paths,
     scenario_inputs_from_cma,
     simulate_wealth_paths,
@@ -132,6 +134,14 @@ class OptimizerResult:
     # Target Intent (see OptimizerContext.preferred_target_bps). None means
     # "no Target Intent was given", not "0 deviation".
     preference_deviation_bps: dict[str, int] | None = None
+    # OPTIMIZER-POST-SELECTION-CERTIFICATION-001 (2026-10-10): Anker der
+    # unabhaengigen Validierungsstichprobe, auf der `goal_achievability`
+    # nachzertifiziert wurde. None bedeutet "nicht unabhaengig validiert"
+    # (z.B. weil keine ScenarioInputs im Context vorlagen) -- dann bleibt das
+    # reliability_verdict der Rows bei `unvalidated_single_cube`.
+    validation_seed: int | None = None
+    validation_cube_hash: str | None = None
+    validation_n_paths: int | None = None
     # Exact owned run-context snapshot used by the solver. compare=False is
     # essential because OptimizerContext contains NumPy arrays whose equality
     # is not scalar-valued. The context is intentionally not persisted as JSON;
@@ -146,6 +156,99 @@ class OptimizerResult:
 # denselben Szenarien, damit House-Matrix und Solver-Vorschlag Apples-to-
 # Apples bewertet werden koennen.
 # ============================================================================
+
+
+# OPTIMIZER-POST-SELECTION-CERTIFICATION-001 (2026-10-10)
+#
+# Grosse Primzahl als Seed-Offset fuer den Validierungs-Cube. Eine Primzahl
+# weit weg von kleinen Vielfachen haelt den PCG64-Stream des
+# Validierungs-Cubes unabhaengig vom Trainings-Stream; ein Offset von z.B. 1
+# oder 2 wuerde bei benachbarten Mandats-Seeds Ueberlappungen riskieren.
+VALIDATION_SEED_OFFSET = 1_000_003
+
+
+def _certify_on_independent_validation_cube(
+    context: "OptimizerContext",
+    weights_array: np.ndarray,
+    train_achievability: list[dict],
+) -> tuple[list[dict], int | None, str | None, int | None]:
+    """Zertifiziert den GEWINNER auf einem unabhaengigen Validierungs-Cube.
+
+    Der Solver waehlt den besten Kandidaten auf `context.return_paths` --
+    demselben Cube, auf dem die Zielerreichung danach bewertet wurde. Das
+    Maximum ueber mehrere rauschbehaftete Schaetzer ist systematisch zu
+    optimistisch (Winner's Curse): bei einem Ziel, dessen WAHRE
+    Wahrscheinlichkeit exakt auf der Schwelle liegt, zertifizierte die alte
+    Regel in ~97 Prozent der Faelle "erreichbar", wo ~50 Prozent korrekt
+    gewesen waeren.
+
+    Dieser Schritt baut einen zweiten Cube mit identischer Verteilung aber
+    anderem Seed und bewertet NUR den bereits gewaehlten Gewinner darauf
+    neu. Weil die Auswahl nicht von diesem Cube abhing, ist die Schaetzung
+    darauf selektionsfrei.
+
+    Returns ``(achievability, validation_seed, validation_cube_hash,
+    validation_n_paths)``. Ohne verwertbare ScenarioInputs im Context wird
+    das Trainings-Ergebnis unveraendert zurueckgegeben und der Anker bleibt
+    None -- die fehlende Validierung ist dann am
+    ``reliability_verdict`` der Rows sichtbar, statt stillschweigend als
+    validiert zu gelten.
+    """
+    inputs = getattr(context, "scenario_inputs", None)
+    if inputs is None:
+        return train_achievability, None, None, None
+
+    validation_seed = int(context.seed) + VALIDATION_SEED_OFFSET
+    scenario_horizon = int(
+        getattr(context, "scenario_horizon_years", None) or context.horizon_years
+    )
+    try:
+        validation_paths = build_scenario_paths(
+            inputs,
+            horizon_years=scenario_horizon,
+            n_paths=int(context.n_paths),
+            seed=validation_seed,
+            antithetic=True,
+        )
+    except (ReturnMomentError, ValueError):
+        # Ein fehlgeschlagener Validierungs-Cube darf den Lauf NICHT
+        # abbrechen -- aber er darf auch nicht als validiert gelten.
+        return train_achievability, None, None, None
+
+    validation_context = replace(
+        context, return_paths=validation_paths, scenario_weights=None,
+    )
+    validation_wealth = _simulate_context_wealth(validation_context, weights_array)
+    _penalty, validation_achievability = chance_constraint_penalty(
+        validation_wealth,
+        validation_context.liabilities,
+        validation_context.advisory_wealth_rappen,
+        weights=None,
+        annualized_return_bps_per_path=_annualized_twr_bps_per_path(
+            validation_context, weights_array
+        ),
+        validation_seed=validation_seed,
+    )
+    # Der Hash identifiziert den CUBE, nicht nur die Verteilung: derselbe
+    # Inputs-Digest mit anderem Seed ist ein anderer Cube. Wuerde hier nur
+    # der Inputs-Digest stehen, waeren Trainings- und Validierungs-Cube
+    # nicht unterscheidbar -- genau die Verwechslung, die dieser Anker
+    # ausschliessen soll.
+    cube_hash = hashlib.sha256(
+        "|".join([
+            scenario_inputs_digest(inputs),
+            str(scenario_horizon),
+            str(int(context.n_paths)),
+            str(validation_seed),
+            "antithetic=True",
+        ]).encode("utf-8")
+    ).hexdigest()
+    return (
+        validation_achievability,
+        validation_seed,
+        cube_hash,
+        int(context.n_paths),
+    )
 
 
 @dataclass(frozen=True)
@@ -176,6 +279,13 @@ class OptimizerContext:
     # bucket metrics and scenario paths. Tuple ownership prevents later caller
     # list mutations from changing the meaning of an already-built context.
     sub_allocations: tuple[dict, ...] = ()
+    # OPTIMIZER-POST-SELECTION-CERTIFICATION-001 (2026-10-10): die
+    # ScenarioInputs, aus denen `return_paths` gebaut wurde. Noetig, damit
+    # nach der Selektion ein UNABHAENGIGER Validierungs-Cube mit anderem
+    # Seed (aber identischer Verteilung) gebaut werden kann -- ohne diese
+    # Inputs liesse sich der Gewinner nur auf dem Trainings-Cube
+    # nachzertifizieren, auf dem er gerade ausgewaehlt wurde.
+    scenario_inputs: ScenarioInputs | None = None
     # Phase 5c: optional Likelihood-Weights aus Importance Sampling.
     # Wenn None: trivialer sample-mean (Backwards-Compat). Wenn gesetzt:
     # shortfall_objective + volatility_objective berechnen weighted Estimator.
@@ -634,6 +744,9 @@ def build_optimizer_context(
         risky_fraction_per_bucket=exact_risky_fractions,
         max_risky_fraction_bps=max_risky_fraction_bps,
         sub_allocations=canonical_sub_allocations,
+        # OPTIMIZER-POST-SELECTION-CERTIFICATION-001: Basis fuer den
+        # unabhaengigen Validierungs-Cube nach der Selektion.
+        scenario_inputs=inputs,
         # Sprint P1 (2026-06-06): IS-Likelihood-Weights
         scenario_weights=scenario_weights,
         mortality_death_year_index_per_path=death_indices,
@@ -1677,7 +1790,7 @@ def run_solver(
         context, rounded_w
     )
     final_wealth = _simulate_context_wealth(context, rounded_w)
-    _penalty, goal_achievability = chance_constraint_penalty(
+    _penalty, train_achievability = chance_constraint_penalty(
         final_wealth,
         context.liabilities,
         context.advisory_wealth_rappen,
@@ -1685,6 +1798,18 @@ def run_solver(
         annualized_return_bps_per_path=_annualized_twr_bps_per_path(
             context, rounded_w
         ),
+    )
+    # OPTIMIZER-POST-SELECTION-CERTIFICATION-001: der Gewinner wird auf einem
+    # UNABHAENGIGEN Cube nachzertifiziert. Was publiziert wird, ist die
+    # selektionsfreie Schaetzung -- nicht die des Cubes, auf dem gerade
+    # ausgewaehlt wurde.
+    (
+        goal_achievability,
+        validation_seed_used,
+        validation_cube_hash_used,
+        validation_n_paths_used,
+    ) = _certify_on_independent_validation_cube(
+        context, rounded_w, list(train_achievability),
     )
     reasoning: list[str] = list(context.bounds_collapse_warnings)
     method_used = "SLSQP+DE-Fallback" if used_ga_fallback else "SLSQP"
@@ -1777,6 +1902,9 @@ def run_solver(
         robustification=robustification_payload,
         restart_results=tuple(attempt_summaries),
         preference_deviation_bps=final_preference_deviation,
+        validation_seed=validation_seed_used,
+        validation_cube_hash=validation_cube_hash_used,
+        validation_n_paths=validation_n_paths_used,
         context=context,
     )
 

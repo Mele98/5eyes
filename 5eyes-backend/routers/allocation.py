@@ -45,6 +45,7 @@ from services.portfolio_engine import (
     BUCKET_FIELDS,
     _current_risk_assessment_or_none,
     _current_target_allocation_or_none,
+    _sub_class_intra_correlation_x100,
     build_target_payload_from_allocation,
     ensure_runtime_reference_data,
     evaluate_goal_sensitivity,
@@ -376,6 +377,13 @@ def create_target_allocation(
         "risk_budget_bps": int(risk_budget_bps),
         "active_method": "manual_override",
         "active_status": "manual",
+        # SUBRISK-CONTEXT-REPLAY-001 (2026-10-10): auch der Manual-Override
+        # bindet die globale Intra-Bucket-Korrelation in seine Evidenz. Die
+        # Zielquoten setzt hier der Berater, die Auswahl haengt also nicht an
+        # rho -- die ABGELEITETEN Bucket-Risikozahlen dieser Allokation
+        # schon. Nur den Solver-Pfad zu binden und diesen offen zu lassen
+        # waere eine halbe Absicherung derselben Luecke.
+        "sub_class_intra_correlation_x100": _sub_class_intra_correlation_x100(),
     }
     effective_constraints_json = json.dumps(
         effective_constraints_payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False,

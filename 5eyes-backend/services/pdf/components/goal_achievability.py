@@ -81,6 +81,15 @@ _STATUS_DISPLAY: dict[str, tuple[str, str]] = {
     "erreichbar":       ("erreichbar",       "#166534"),   # grün
     "knapp":            ("knapp",            "#92400e"),   # gelb-orange
     "nicht_erreichbar": ("nicht erreichbar", "#7f1d1d"),   # rot
+    # OPTIMIZER-POST-SELECTION-CERTIFICATION-001 (2026-10-10): die
+    # Zertifizierung ruhte auf zu wenig unabhaengiger Evidenz (effektives
+    # Stichprobenmass zu klein, siehe services/optimizer/certification.py).
+    # Fachlich ist das KEINE Aussage ueber die Erreichbarkeit, sondern das
+    # Eingestaendnis, dass sie sich nicht beurteilen laesst -- deshalb
+    # neutral-grau und nicht in der Ampel-Logik gruen/gelb/rot. Ohne diesen
+    # Eintrag landete das rohe englische Token "unreliable" im
+    # kundensichtbaren PDF (der .get()-Fallback zeigt den Status-String).
+    "unreliable":       ("nicht beurteilbar", "#475569"),  # neutral-grau
 }
 
 # Ziel-Typ-Anzeige (technische Goal-Type-Werte -> Berater-Sprache).
@@ -137,6 +146,10 @@ _AMPEL_STATUS_COLORS: dict[str, str] = {
     "erreichbar":       "#16a34a",  # gruen (tailwind green-600)
     "knapp":            "#eab308",  # gelb (tailwind yellow-500)
     "nicht_erreichbar": "#dc2626",  # rot (tailwind red-600)
+    # Siehe _STATUS_DISPLAY: "nicht beurteilbar" gehoert bewusst NICHT in die
+    # Ampel-Semantik -- neutral-grau statt einer Farbe, die eine Bewertung
+    # suggeriert, die es nicht gibt.
+    "unreliable":       "#64748b",  # neutral-grau (tailwind slate-500)
 }
 _AMPEL_BG_COLOR = "#e2e8f0"  # neutral hellgrau (tailwind slate-200)
 _AMPEL_BORDER_COLOR = "#cbd5e1"  # slate-300

@@ -682,8 +682,27 @@ def test_generate_and_reload_label_decision_and_implementation_model_bases(
         assert reporting["return_moment_mapping"] == (
             "arithmetic_mean_and_volatility_preserved_v2"
         )
-        assert reporting["tail_model"] == "lognormal_arithmetic_moments_v2"
-        assert reporting["tail_calibration"] == "not_applicable"
+        # CMA-TAIL-ACTIVATION-GOVERNANCE-001 (2026-10-10): dieser Vertrag
+        # pinnte vorher die DIVERGENZ -- Entscheidungskanal mit
+        # Cornish-Fisher, Reportingkanal mit reiner Lognormalverteilung, aus
+        # derselben CMA-Zeile. Skewness/Kurtosis sind aber Teil der
+        # (committee-freigegebenen) Kapitalmarktannahme und keine
+        # Simulations-Praeferenz; die kundensichtbare Projektion darf nicht
+        # unter einer anderen Verteilung laufen als die Entscheidung. Beide
+        # Kanaele melden jetzt dasselbe Tail-Modell.
+        #
+        # Die uebrigen Unterschiede zwischen den Kanaelen bleiben bewusst
+        # bestehen (purpose, portfolio_dynamics annual_constant_weight vs
+        # calendar, transaction_cost_bps 0 vs 23) -- das sind echte,
+        # gewollte Modellunterschiede zwischen Selektion und Umsetzung.
+        assert reporting["tail_model"] == optimization["tail_model"]
+        assert reporting["tail_model"] == (
+            "bounded_cornish_fisher_moment_calibrated_v2"
+        )
+        assert reporting["tail_calibration"] == optimization["tail_calibration"]
+        assert reporting["tail_calibration"] == (
+            "bounded_cornish_fisher_gauss_hermite_v2"
+        )
         assert reporting["foundation_model_version"] == "external_foundation_v2"
         assert reporting["total_scope_goal_basis"] == (
             "exact_total_projection_path_v2"

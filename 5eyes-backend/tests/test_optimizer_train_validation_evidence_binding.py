@@ -41,15 +41,6 @@ def _optimizer_run_column_names() -> set[str]:
     return {column.name for column in OptimizerRun.__table__.columns}
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "OPTIMIZER-POST-SELECTION-CERTIFICATION-001 -- round 38 red test, see "
-        "docs/audits/2026-10-03-recurring-goal-lifecycle-calendar-and-mc-validation-audit.md "
-        "(a) no persisted field distinguishes a training seed/cube from an "
-        "independent validation seed/cube on OptimizerRun"
-    ),
-)
 def test_optimizer_run_persists_a_distinct_validation_seed_and_cube_hash():
     """OptimizerRun has exactly one `seed` and one `n_paths` column -- there
     is no second, independent validation-cube seed/path-count/hash field at
@@ -69,15 +60,6 @@ def test_optimizer_run_persists_a_distinct_validation_seed_and_cube_hash():
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "OPTIMIZER-POST-SELECTION-CERTIFICATION-001 -- round 38 red test, see "
-        "docs/audits/2026-10-03-recurring-goal-lifecycle-calendar-and-mc-validation-audit.md "
-        "(b) nothing can detect or block on a missing validation anchor, "
-        "because no such anchor is ever persisted to check in the first place"
-    ),
-)
 def test_optimizer_run_with_missing_validation_anchor_cannot_even_be_represented():
     """A direct consequence of (a): since OptimizerRun has no
     validation-anchor column, a solver run that was never independently
@@ -96,15 +78,6 @@ def test_optimizer_run_with_missing_validation_anchor_cannot_even_be_represented
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "OPTIMIZER-POST-SELECTION-CERTIFICATION-001 -- round 38 red test, see "
-        "docs/audits/2026-10-03-recurring-goal-lifecycle-calendar-and-mc-validation-audit.md "
-        "(c) low-ESS/concentrated importance-sampling scenarios still go "
-        "through the same probability>=tau check with no reliability downgrade"
-    ),
-)
 def test_low_effective_sample_size_importance_sampling_yields_unreliable_not_green():
     """A heavily concentrated importance-sampling weight vector (99.9% of
     the total weight mass on a single path -- effective sample size close
@@ -149,15 +122,6 @@ def test_low_effective_sample_size_importance_sampling_yields_unreliable_not_gre
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "OPTIMIZER-POST-SELECTION-CERTIFICATION-001 -- round 38 red test, see "
-        "docs/audits/2026-10-03-recurring-goal-lifecycle-calendar-and-mc-validation-audit.md "
-        "(d) the achievability response exposes only a single point estimate, "
-        "no confidence interval or reliability field"
-    ),
-)
 def test_achievability_row_exposes_an_interval_and_reliability_verdict():
     """The per-goal achievability dict returned by chance_constraint_penalty()
     -- the structure that ultimately reaches API/UI/PDF -- only carries
