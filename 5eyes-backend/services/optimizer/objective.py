@@ -804,6 +804,8 @@ def combined_objective_two_phase(
     epsilon: float = 1e-12,
     weights: np.ndarray | None = None,
     annualized_return_bps_per_path: np.ndarray | None = None,
+    objective_mode: str | None = None,
+    portfolio_return_factors: np.ndarray | None = None,
 ) -> float:
     """Kombination Primary + tiny Volatility-Term.
 
@@ -816,14 +818,47 @@ def combined_objective_two_phase(
     volatility_weight: typischerweise 1e-12 weil Var(wealth) in rappen^2 sehr gross ist
     epsilon: numerische Nulltoleranz fuer den Phase-2-Switch; 1e-12 verhindert
              nach der Dimensionsnormalisierung ein vorzeitiges Umschalten.
+
+    OPTIMIZER-OBJECTIVE-VARIANTS-001: ``objective_mode`` tauscht den
+    PRIMAERTERM aus (siehe services/optimizer/objective_variants.py). Die
+    Chance-Penalty bleibt in jeder Variante aktiv und unveraendert -- sie ist
+    die Ziel-Untergrenze, nicht Teil des wechselbaren Teils.
+
+    Im Default-Modus ``goal_shortfall`` ist das Ergebnis bit-identisch zum
+    Verhalten vor der Variantenfaehigkeit: derselbe L(w)-Aufruf, derselbe
+    Phase-2-Vol-Term. Der winzige Vol-Term entfaellt in den Varianten
+    bewusst -- er war die Tiebreak-Regel fuer "alle Ziele erfuellt, nichts
+    mehr zu optimieren"; in einer Variante uebernimmt genau diese Rolle der
+    Primaerterm selbst, und bei ``min_volatility`` wuerde er die Kennzahl
+    doppelt zaehlen.
     """
+    from .objective_variants import (
+        OBJECTIVE_GOAL_SHORTFALL,
+        primary_objective,
+        resolve_objective_mode,
+    )
+
+    mode = resolve_objective_mode() if objective_mode is None else objective_mode
     liability_list = list(liabilities)
-    primary = shortfall_objective(
-        liability_list, wealth_paths,
-        initial_wealth_rappen=initial_wealth_rappen,
-        horizon_years=horizon_years,
+    is_goal_shortfall = mode == OBJECTIVE_GOAL_SHORTFALL
+    # L(w) nur berechnen, wenn es auch der Primaerterm ist -- in den Varianten
+    # waere es verworfene Arbeit in jeder einzelnen Solver-Iteration.
+    goal_shortfall_value = (
+        shortfall_objective(
+            liability_list, wealth_paths,
+            initial_wealth_rappen=initial_wealth_rappen,
+            horizon_years=horizon_years,
+            weights=weights,
+            annualized_return_bps_per_path=annualized_return_bps_per_path,
+        )
+        if is_goal_shortfall
+        else 0.0
+    )
+    primary = primary_objective(
+        mode,
+        goal_shortfall_value=goal_shortfall_value,
+        portfolio_return_factors=portfolio_return_factors,
         weights=weights,
-        annualized_return_bps_per_path=annualized_return_bps_per_path,
     )
     chance, _achievability = chance_constraint_penalty(
         wealth_paths,
@@ -838,5 +873,9 @@ def combined_objective_two_phase(
         weights=weights,
         annualized_return_bps_per_path=annualized_return_bps_per_path,
     )
-    vol = volatility_objective(wealth_paths, weights=weights) if primary + chance < float(epsilon) else 0.0
+    vol = (
+        volatility_objective(wealth_paths, weights=weights)
+        if is_goal_shortfall and primary + chance < float(epsilon)
+        else 0.0
+    )
     return primary_weight * primary + chance + volatility_weight * vol

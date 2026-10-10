@@ -426,14 +426,33 @@ def _simulate_context_wealth(context: OptimizerContext, w: np.ndarray) -> np.nda
     )
 
 
-def _annualized_twr_bps_per_path(
+def _portfolio_return_factors(
     context: OptimizerContext,
     w: np.ndarray,
 ) -> np.ndarray:
-    """Cashflow-neutral annualized portfolio return for every scenario path."""
-    portfolio_factors = np.einsum(
+    """Cashflow-neutrale Jahres-Wachstumsfaktoren des Portfolios, (pfade, jahre).
+
+    Einzige Ableitung dieser Groesse. Sowohl die annualisierte Rendite als
+    auch die Risikomass-Varianten der Zielfunktion (siehe
+    objective_variants.py) haengen daran; zwei getrennte einsum-Ableitungen
+    waeren genau die Divergenzklasse, die die MC-Paritaetsbefunde ausgeloest
+    hat (ein Kanal rechnet etwas anderes als der andere, ohne dass es
+    auffaellt).
+    """
+    return np.einsum(
         "phb,b->ph", context.return_paths, np.asarray(w, dtype=np.float64)
     )
+
+
+def _annualized_twr_bps_per_path(
+    context: OptimizerContext,
+    w: np.ndarray,
+    *,
+    portfolio_factors: np.ndarray | None = None,
+) -> np.ndarray:
+    """Cashflow-neutral annualized portfolio return for every scenario path."""
+    if portfolio_factors is None:
+        portfolio_factors = _portfolio_return_factors(context, w)
     safe_factors = np.maximum(portfolio_factors, 1e-12)
     annualized = np.exp(np.mean(np.log(safe_factors), axis=1)) - 1.0
     return annualized * 10000.0
@@ -776,7 +795,10 @@ def _objective_from_array(context: OptimizerContext, w: np.ndarray) -> float:
     wenn gesetzt. Bei scenario_weights=None: trivialer sample-mean wie zuvor.
     """
     wealth = _simulate_context_wealth(context, w)
-    annualized_twr = _annualized_twr_bps_per_path(context, w)
+    portfolio_factors = _portfolio_return_factors(context, w)
+    annualized_twr = _annualized_twr_bps_per_path(
+        context, w, portfolio_factors=portfolio_factors
+    )
     objective = float(combined_objective_two_phase(
         context.liabilities,
         wealth,
@@ -784,6 +806,10 @@ def _objective_from_array(context: OptimizerContext, w: np.ndarray) -> float:
         horizon_years=context.horizon_years,
         weights=context.scenario_weights,
         annualized_return_bps_per_path=annualized_twr,
+        # OPTIMIZER-OBJECTIVE-VARIANTS-001: die Risikomass-Varianten rechnen
+        # auf den cashflow-neutralen Faktoren, nicht auf `wealth` -- sonst
+        # wuerde geplanter Verzehr als Marktrisiko bewertet.
+        portfolio_return_factors=portfolio_factors,
     ))
     # CERT-ALLOCATION-INTENT-001 (MANUAL-TARGET-SEMANTICS-001): an explicit
     # Soft-Preference Target Intent must actually influence the optimization,
@@ -810,13 +836,21 @@ def evaluate_weights(
     w = _weights_bps_to_array(weights_bps)
     # Sprint U-P2 Fix C9: tax-aware Evaluation
     wealth = _simulate_context_wealth(context, w)
-    annualized_twr = _annualized_twr_bps_per_path(context, w)
+    portfolio_factors = _portfolio_return_factors(context, w)
+    annualized_twr = _annualized_twr_bps_per_path(
+        context, w, portfolio_factors=portfolio_factors
+    )
     objective = combined_objective_two_phase(
         context.liabilities,
         wealth,
         initial_wealth_rappen=context.advisory_wealth_rappen,
         horizon_years=context.horizon_years,
         weights=context.scenario_weights,
+        # OPTIMIZER-OBJECTIVE-VARIANTS-001: siehe _objective_from_array --
+        # beide Pfade muessen denselben Primaerterm sehen, sonst weicht
+        # `evaluate_weights(...).objective_value` von dem ab, was der Solver
+        # tatsaechlich optimiert hat.
+        portfolio_return_factors=portfolio_factors,
         annualized_return_bps_per_path=annualized_twr,
     )
     # CERT-ALLOCATION-INTENT-001: same additive Soft-Preference penalty as

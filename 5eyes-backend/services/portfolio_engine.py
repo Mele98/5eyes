@@ -38,8 +38,6 @@ from models.wealth import Cashflow, Goal, PlanningAssumption, WealthInflow, Weal
 from price_updater import latest_price_snapshot, parse_iso_date, summarize_price_quality
 from services.allocation_messages import WARN_FALLBACK, classify_messages, format_message
 from services.calendar_horizon import add_calendar_years, calendar_years_until
-from services.cma_correlation_provenance import bucket_correlation_provenance
-from services.drawdown_refinement import drawdown_time_grid_basis
 from services.goal_semantics import GoalInputError, validate_goal_model_input
 from services.cashflow_timeline import (
     SUPPORTED_FREQUENCIES,
@@ -2855,286 +2853,13 @@ def _compute_input_snapshot_hash(
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-def _build_allocation_model_basis(
-    *,
-    optimizer_mode: str,
-    optimizer_result,
-    allocation: TargetAllocation | None,
-    monte_carlo: dict,
-    simulation_prefs: dict | None,
-    mandate: Mandate,
-    cma: CapitalMarketAssumption | None = None,
-    stored_optimization_basis: dict | None = None,
-    reporting_tax_cashflow_present: bool | None = None,
-) -> dict[str, dict]:
-    """Describe decision and implementation models as two explicit views.
-
-    The stochastic optimizer selects the allocation under a constant-weight
-    decision model.  The reporting Monte Carlo then projects implementation
-    behaviour (drift, optional rebalancing and transaction costs).  They may
-    legitimately produce different goal probabilities, so the API must never
-    present them as an unlabeled single methodology.
-    """
-    context = getattr(optimizer_result, "context", None)
-    stored_method = (
-        getattr(allocation, "optimization_method", None)
-        if allocation is not None
-        else None
-    )
-    active_method = str(
-        getattr(optimizer_result, "method", None)
-        or stored_method
-        or ("house_matrix" if optimizer_mode == "house_matrix" else optimizer_mode)
-    )
-    # A status/method string alone is not proof that a stochastic context ever
-    # existed. In particular, an import/startup failure can produce an audited
-    # House fallback with ``context=None`` and no stochastic analytics.
-    has_stochastic_basis = context is not None
-    legacy_stochastic = bool(
-        context is None
-        and stored_optimization_basis is None
-        and allocation is not None
-        and stored_method == "stochastic"
-    )
-    legacy_shadow = bool(
-        context is None
-        and stored_optimization_basis is None
-        and allocation is not None
-        and stored_method is None
-        and getattr(allocation, "shadow_optimization_json", None)
-    )
-    if has_stochastic_basis and optimizer_mode == "shadow_stochastic":
-        optimization_basis_id = "stochastic_shadow_candidate_v2"
-        optimization_purpose = "candidate_comparison"
-    elif has_stochastic_basis:
-        optimization_basis_id = "stochastic_decision_v2"
-        optimization_purpose = "allocation_selection"
-    elif legacy_stochastic:
-        optimization_basis_id = "stochastic_legacy_unverified_v0"
-        optimization_purpose = "historical_provenance_unverified"
-    elif legacy_shadow:
-        optimization_basis_id = "stochastic_shadow_legacy_unverified_v0"
-        optimization_purpose = "historical_provenance_unverified"
-    elif active_method == "fallback_house_matrix":
-        optimization_basis_id = "house_matrix_fallback_v1"
-        optimization_purpose = "controlled_fallback"
-    else:
-        optimization_basis_id = "house_matrix_policy_v1"
-        optimization_purpose = "allocation_selection"
-    optimizer_seed = getattr(optimizer_result, "seed", None)
-    if optimizer_seed is None and allocation is not None:
-        optimizer_seed = getattr(allocation, "optimization_seed", None)
-    optimizer_n_paths = (
-        int(getattr(context, "n_paths", 0) or 0)
-        if context is not None
-        else int(getattr(optimizer_result, "n_paths", 0) or 0)
-    )
-    optimizer_horizon = (
-        int(getattr(context, "horizon_years", 0) or 0)
-        if context is not None
-        else int(monte_carlo.get("horizon_years", 0) or 0)
-    )
-    tax_regime = getattr(context, "tax_regime", None) if context is not None else None
-    dividend_yields = (
-        getattr(context, "dividend_yield_bps_per_bucket", None)
-        if context is not None
-        else None
-    )
-    has_dividend_tax_input = bool(
-        dividend_yields is not None
-        and any(float(value or 0) != 0.0 for value in dividend_yields)
-    )
-    has_effective_tax_component = bool(
-        tax_regime is not None
-        and (
-            bool(getattr(tax_regime, "supports_wealth_tax", False))
-            or has_dividend_tax_input
-        )
-    )
-    legacy_context_unknown = legacy_stochastic or legacy_shadow
-    reporting_tail = bool(_simulation_use_tail_risk(simulation_prefs))
-    # CMA-CORRELATION-JURISDICTION-PROVENANCE-001: welche Bucket-Korrelations-
-    # struktur gerechnet wurde und ob sie zur Jurisdiktion des Mandats passt.
-    # Fehlt der CMA-Payload, ist es der Schweizer Default -- auch fuer ein
-    # DE-Mandat; das stand bisher nirgends. Beide Kanaele fuehren denselben
-    # Block, weil beide dieselbe CMA-Spalte lesen.
-    bucket_correlation = bucket_correlation_provenance(cma)
-
-    optimization_basis = {
-            "basis_id": optimization_basis_id,
-            "purpose": optimization_purpose,
-            "active_method": active_method,
-            "portfolio_dynamics": (
-                "annual_constant_weight"
-                if has_stochastic_basis
-                else (
-                    "historical_context_unavailable"
-                    if legacy_context_unknown
-                    else "policy_matrix"
-                )
-            ),
-            "return_measure": "gross_twr_pre_transaction_cost",
-            "liquidity_yield": (
-                "cma_total_return"
-                if has_stochastic_basis
-                else (
-                    "historical_context_unavailable"
-                    if legacy_context_unknown
-                    else "not_applicable"
-                )
-            ),
-            "tail_model": (
-                "bounded_cornish_fisher_moment_calibrated_v2"
-                if has_stochastic_basis
-                else (
-                    "historical_context_unavailable"
-                    if legacy_context_unknown
-                    else "not_applicable"
-                )
-            ),
-            "importance_sampling": bool(
-                context is not None
-                and getattr(context, "scenario_weights", None) is not None
-            ),
-            "transaction_cost_bps": 0,
-            "seed": int(optimizer_seed) if optimizer_seed is not None else None,
-            "n_paths": optimizer_n_paths or None,
-            "horizon_years": optimizer_horizon or None,
-            "tax_basis": (
-                f"median_rate_{type(tax_regime).__name__}"
-                if has_effective_tax_component
-                else (
-                    f"none_effective_{type(tax_regime).__name__}"
-                    if tax_regime is not None
-                    else (
-                        "historical_context_unavailable"
-                        if legacy_context_unknown
-                        else "none"
-                    )
-                )
-            ),
-            "liability_basis": (
-                "goal_liability_paths"
-                if has_stochastic_basis
-                else (
-                    "historical_context_unavailable"
-                    if legacy_context_unknown
-                    else "policy_only"
-                )
-            ),
-            "real_estate_return_basis": (
-                "listed_real_estate_total_return_including_distributions_v1"
-            ),
-            "cma_mean_semantics": "arithmetic_expected_total_return_v1",
-            "return_moment_mapping": (
-                "arithmetic_mean_and_volatility_preserved_v2"
-            ),
-            "tail_calibration": (
-                "bounded_cornish_fisher_gauss_hermite_v2"
-            ),
-            # SUBRISK-CONTEXT-REPLAY-001: Risikobasis in die Evidenz binden.
-            # Begruendung siehe _sub_class_intra_correlation_x100().
-            "sub_class_intra_correlation_x100": _sub_class_intra_correlation_x100(),
-            "bucket_correlation": bucket_correlation,
-            "foundation_model_version": "external_foundation_v2",
-            "external_property_goal_basis": (
-                "inflation_zero_real_plus_exact_liability_and_pledged_transfer_v2"
-            ),
-            "indirect_amortization_treatment": "pledged_asset_transfer_v1",
-            "direct_real_estate_scope": "external_total_wealth",
-            "external_rent_treatment": "cashflow_only",
-        }
-    # CERT-OPTIMIZER-OBJECTIVE-001 / OPTIMIZER-GOAL-WEIGHTING-EVIDENCE-001:
-    # the goal-weighting mode changes the solver's objective mathematics by
-    # up to 50x between a "hart" and an "opportunistisch" goal
-    # (services.optimizer.objective.HARDNESS_WEIGHT), but was never part of
-    # this model basis. Two runs that genuinely optimized different
-    # objective functions therefore persisted an identical basis (and, via
-    # effective_constraints_json, an identical allocation_context_hash) with
-    # no way to prove which mathematics produced which allocation. Bind the
-    # centrally validated mode (and its multipliers, when active) into the
-    # FRESH basis only -- a replayed/stored basis (handled below) must stay
-    # verbatim and must never be silently upgraded with the CURRENT
-    # environment's mode.
-    from services.optimizer.objective import (
-        HARDNESS_WEIGHT,
-        resolve_goal_weighting_mode,
-    )
-    goal_weighting_mode = resolve_goal_weighting_mode()
-    optimization_basis["goal_weighting_mode"] = goal_weighting_mode
-    optimization_basis["goal_weighting_hardness_multipliers"] = (
-        dict(HARDNESS_WEIGHT) if goal_weighting_mode == "hardness" else None
-    )
-    if stored_optimization_basis is not None:
-        if not isinstance(stored_optimization_basis, dict):
-            raise ValueError(
-                "Persistierte Optimizer-Modellbasis muss ein Objekt sein."
-            )
-        # This snapshot is part of effective_constraints_json and therefore of
-        # allocation_context_hash. Returning it verbatim keeps persisted goal
-        # probabilities tied to the exact model that produced them.
-        optimization_basis = dict(stored_optimization_basis)
-
-    return {
-        "optimization": optimization_basis,
-        "reporting": {
-            "basis_id": "implementation_projection_v2",
-            "purpose": "post_selection_projection",
-            "portfolio_dynamics": _simulation_rebalance_mode(simulation_prefs),
-            "return_measure": "gross_twr_pre_rebalancing_cost",
-            "transaction_cost_bps": int(
-                _simulation_transaction_cost_bps(simulation_prefs)
-            ),
-            "liquidity_yield": "zero_bucket_plus_position_interest_cashflow",
-            "real_estate_return_basis": (
-                "listed_real_estate_total_return_including_distributions_v1"
-            ),
-            "cma_mean_semantics": "arithmetic_expected_total_return_v1",
-            "return_moment_mapping": (
-                "arithmetic_mean_and_volatility_preserved_v2"
-            ),
-            "tail_calibration": (
-                "bounded_cornish_fisher_gauss_hermite_v2"
-                if reporting_tail
-                else "not_applicable"
-            ),
-            # SUBRISK-CONTEXT-REPLAY-001: dieselbe Bindung wie im
-            # Entscheidungskanal -- gemeinsame Momentquelle beider Kanaele.
-            "sub_class_intra_correlation_x100": _sub_class_intra_correlation_x100(),
-            "bucket_correlation": bucket_correlation,
-            # DRAWDOWN-TIME-GRID-001: Methode hinter mc_max_drawdown_bps.
-            "max_drawdown_time_grid": drawdown_time_grid_basis(),
-            "foundation_model_version": "external_foundation_v2",
-            "total_scope_goal_basis": "exact_total_projection_path_v2",
-            "indirect_amortization_treatment": "pledged_asset_transfer_v1",
-            "direct_real_estate_scope": "external_total_wealth",
-            "external_rent_treatment": "cashflow_only",
-            "direct_real_estate_return_basis": (
-                "position_price_appreciation_plus_explicit_rent_v2"
-            ),
-            "tail_model": (
-                "bounded_cornish_fisher_moment_calibrated_v2"
-                if reporting_tail
-                else "lognormal_arithmetic_moments_v2"
-            ),
-            "stress_multiplier": float(
-                _simulation_stress_multiplier(simulation_prefs)
-            ),
-            "crisis_strength": float(
-                _simulation_crisis_strength(simulation_prefs)
-            ),
-            "seed": int(monte_carlo.get("seed", 0) or 0),
-            "n_paths": int(monte_carlo.get("simulations", 0) or 0),
-            "horizon_years": int(monte_carlo.get("horizon_years", 0) or 0),
-            "tax_basis": (
-                "estimated_wealth_tax_cashflow"
-                if bool(reporting_tax_cashflow_present)
-                else "configured_cashflows"
-            ),
-        },
-    }
-
-
+# ADR-014: der Modell-Basis-Block liegt jetzt im Cluster-Submodul
+# services/portfolio_engine_model_basis.py (288 Zeilen). Hier nur noch
+# re-exportiert, damit die bestehenden Aufrufstellen und Tests, die ihn
+# aus diesem Modul importieren, unveraendert bleiben.
+from services.portfolio_engine_model_basis import (  # noqa: E402
+    _build_allocation_model_basis,
+)
 def _strategy_drift_warnings(
     allocation: TargetAllocation,
     *,
@@ -5548,7 +5273,9 @@ def evaluate_goal_sensitivity(
     # below optimizes genuinely different objective mathematics under
     # "equal" vs. "hardness".
     from services.optimizer.objective import resolve_goal_weighting_mode
+    from services.optimizer.objective_variants import resolve_objective_mode
     sensitivity_goal_weighting_mode = resolve_goal_weighting_mode()
+    sensitivity_objective_mode = resolve_objective_mode()
 
     cma_snapshot = {
         column.name: _canonical_scalar(getattr(cma, column.name))
@@ -5606,6 +5333,9 @@ def evaluate_goal_sensitivity(
         payload = {
             "version": "sensitivity_live_context_v3_complete",
             "goal_weighting_mode": sensitivity_goal_weighting_mode,
+            # OPTIMIZER-OBJECTIVE-VARIANTS-001: der Primaerterm aendert die
+            # Solver-Mathematik, gehoert also wie die Gewichtung in den Hash.
+            "objective_mode": sensitivity_objective_mode,
             "cma": cma_snapshot,
             # SUBRISK-CONTEXT-REPLAY-001: liegt nicht auf der CMA-Zeile,
             # `cma_snapshot` oben kann sie also nicht abdecken.

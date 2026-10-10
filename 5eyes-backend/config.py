@@ -47,6 +47,49 @@ def validate_goal_weighting_mode(raw: str | None) -> str:
     return normalized
 
 
+# OPTIMIZER-OBJECTIVE-VARIANTS-001: zulaessige Primaerterme der Zielfunktion.
+# Gleiches Muster und derselbe Grund wie GOAL_WEIGHTING_MODES eine Ebene
+# hoeher -- genau eine Stelle entscheidet, was ein legaler Wert ist, und ein
+# Tippfehler ist laut, nicht stillschweigend der Default.
+#
+# "goal_shortfall" ist der dokumentierte Default und die Methodik, auf die
+# die gesamte Zielerreichungs-/Zertifizierungsschicht aufbaut. Die uebrigen
+# Varianten ERSETZEN nur den Primaerterm; die Goal-Chance-Penalty bleibt in
+# JEDER Variante aktiv (siehe services/optimizer/objective_variants.py), damit
+# eine Risikomass-Optimierung nie eine Allokation ohne Ziel-Untergrenze
+# liefert.
+OBJECTIVE_MODES = (
+    "goal_shortfall",
+    "cvar_return",
+    "max_drawdown",
+    "min_volatility",
+    "max_return",
+)
+
+
+def validate_objective_mode(raw: str | None) -> str:
+    """Normalize + fail-closed validate OPTIMIZER_OBJECTIVE.
+
+    - Unset (``None``) resolves to the documented default ``"goal_shortfall"``.
+    - Any other value is trimmed and lower-cased before comparison.
+    - Anything else -- including an explicit empty/whitespace-only string and
+      a typo such as ``"max_drowdown"`` -- raises ``ValueError`` instead of
+      silently falling back. Which mathematics produced an allocation must
+      never be indistinguishable from "unset".
+    """
+    if raw is None:
+        return "goal_shortfall"
+    normalized = raw.strip().lower()
+    if normalized not in OBJECTIVE_MODES:
+        raise ValueError(
+            "OPTIMIZER_OBJECTIVE="
+            f"{raw!r} is not a recognized objective mode. Allowed: "
+            f"{', '.join(OBJECTIVE_MODES)} (leave unset for the documented "
+            "default 'goal_shortfall')."
+        )
+    return normalized
+
+
 def resolve_env_file() -> str:
     env_override = Path.cwd() / '.env'
     candidates = []
