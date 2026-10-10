@@ -42,7 +42,12 @@ def make_risiko_metriken_section(
         ("Erwartete Rendite", _fmt_pct(expected_return_bps), "p.a. langfristig", COLOR_BORDER),
         ("Median CAGR", _fmt_pct(median_cagr_bps), "geometrisch", COLOR_BORDER),
         ("Volatilität", _fmt_pct(volatility_bps), "p.a. annualisiert", COLOR_BORDER),
-        ("Max. Drawdown", _fmt_pct(max_drawdown_bps, neg=True), "historisch", COLOR_BORDER_WARN),
+        # DRAWDOWN-TIME-GRID-001: die Quellenangabe lautete "historisch". Der
+        # Wert ist aber `target_max_drawdown_p50_bps` -- der Median der
+        # simulierten Max-Drawdown-Verteilung, in einem Abschnitt, der selbst
+        # "(Monte Carlo)" heisst. Kundensichtbar falsch etikettiert; keine
+        # historische Beobachtung fliesst hier ein.
+        ("Max. Drawdown", _fmt_pct(max_drawdown_bps, neg=True), "Median, simuliert", COLOR_BORDER_WARN),
         ("VaR 95%", _fmt_pct(var_95_bps, neg=True), "1-Jahres-Risiko", COLOR_BORDER_DANGER),
     ]
 
