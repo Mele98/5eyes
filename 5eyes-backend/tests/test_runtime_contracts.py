@@ -869,7 +869,9 @@ def test_runtime_reference_data_house_matrix_rows_are_self_consistent(session_fa
         ensure_runtime_reference_data(session, advisor_user.id)
         entries = session.query(HouseMatrix).order_by(HouseMatrix.score_from.asc()).all()
 
-    assert len(entries) == 6
+    # CERT-PRODUCT-ELIGIBILITY-001 (2026-10-10, Befund B): "Defensiv" ist
+    # jetzt 2 Zeilen (Score 3 und 4 getrennt) statt 1.
+    assert len(entries) == 7
     covered_scores = []
     for entry in entries:
         target_total = (

@@ -29,7 +29,6 @@ from models.profiling import RiskAssessment
 from models.review import (
     PriceHistory,
     Product,
-    ProductSuitability,
     ProductUniverseEntry,
     RecommendationHolding,
     RecommendationPosition,
@@ -1736,9 +1735,27 @@ def _ensure_runtime_reference_data_ch(db: Session, user_id: str) -> tuple[Optimi
     # die Mid-Allocation jedes Profils × BB.risky_fraction_bps darf NIE
     # den Cap überschreiten, sonst triggert der Engine-Fallback den
     # Liquiditäts-Cascade (siehe _SAA_LIQUIDITY_HARD_CAP_BPS-Block).
+    # CERT-PRODUCT-ELIGIBILITY-001 (2026-10-10, Befund B): Aktien/Immobilien
+    # sind -- schon seit dem urspruenglichen Default-Produktkatalog, nicht
+    # erst seit dieser Zertifizierung -- erst ab Score 4 geeignet (siehe
+    # services.product_eligibility.default_product_risk_band(): Aktien/
+    # Immobilien immer (4,10)). Die Scores 1-3 lagen trotzdem schon immer in
+    # EINER gemeinsamen Zeile mit Score 4 ("Kapitalschutz" 1-2, "Defensiv"
+    # 3-4) und bekamen dadurch denselben Aktien-/Immobilien-Zielanteil
+    # zugewiesen wie Score 4 -- ein Widerspruch zur eigenen Suitability-
+    # Politik der Firma, der frueher vom jetzt entfernten
+    # `ignore_suitability`-Fallback verschleiert wurde (Generate waehlte das
+    # Produkt trotzdem aus, "egal was das Risikoband sagt"). Jetzt, wo
+    # Generate das Risikoband korrekt durchsetzt, braucht Score 1-3 eine
+    # Zielallokation, die zur eigenen Politik passt: der komplette Aktien-/
+    # Immobilien-Anteil wird in Obligationen umgeschichtet (die konservativste
+    # verfuegbare Alternative), NICHT in Alternative/Liquiditaet. Score 4
+    # bekommt eine eigene Zeile mit EXAKT dem bisherigen "Defensiv"-Anteil --
+    # fuer Score-4-Mandate aendert sich nichts.
     defaults = _normalize_house_matrix_defaults([
-        (1, 2, "Kapitalschutz", 0, 300, 800, 6500, 7500, 8500, 500, 1200, 2000, 0, 500, 2000, 0, 500, 500, 3000, 0),
-        (3, 4, "Defensiv", 0, 200, 500, 5000, 6000, 7000, 1500, 2500, 3000, 500, 1000, 2000, 0, 300, 800, 4500, 0),
+        (1, 2, "Kapitalschutz", 0, 300, 800, 6500, 9200, 9500, 0, 0, 0, 0, 0, 0, 0, 500, 500, 3000, 0),
+        (3, 3, "Defensiv", 0, 200, 500, 5000, 9500, 9700, 0, 0, 0, 0, 0, 0, 0, 300, 800, 4500, 0),
+        (4, 4, "Defensiv", 0, 200, 500, 5000, 6000, 7000, 1500, 2500, 3000, 500, 1000, 2000, 0, 300, 800, 4500, 0),
         (5, 6, "Ausgewogen", 0, 200, 300, 2500, 3500, 4500, 4000, 4800, 5500, 500, 1000, 2000, 300, 500, 800, 6000, 0),
         (7, 8, "Wachstumsorientiert", 0, 150, 200, 1000, 1600, 2500, 6000, 6800, 7500, 500, 800, 2000, 300, 600, 1000, 8000, 6000),
         (9, 9, "Dynamisch", 0, 100, 200, 500, 800, 1500, 7500, 8000, 8500, 300, 700, 2000, 200, 400, 600, 9000, 7500),
@@ -1990,42 +2007,30 @@ def ensure_default_products(db: Session, jurisdiction: str = "CH") -> None:
         db.add(product)
         created.append(product)
     db.flush()
-    for product in created:
-        risk_band = _default_product_risk_band(product)
-        db.add(
-            ProductSuitability(
-                id=new_uuid(),
-                product_id=product.id,
-                profile_from=risk_band[0],
-                profile_to=risk_band[1],
-                advisory_allowed=1,
-                discretionary_allowed=1,
-                requires_appropriateness=0,
-                requires_override=0,
-                max_position_bps=2500 if product.asset_class == "Aktien" else 4000,
-                created_at=now,
-                updated_at=now,
-            )
-        )
-    db.flush()
+    # CERT-PRODUCT-ELIGIBILITY-001 (2026-10-09): legt die ProductSuitability-
+    # Zeile UND ihr governed ProductEligibilityRule-Gegenstueck an -- ohne
+    # letzteres kann das fail-closed is_eligible_candidate()-Gate in
+    # generate_recommendation_run() kein Produkt aus diesem frisch
+    # geseedeten Katalog auswaehlen.
+    from services.product_eligibility import seed_default_catalog_suitability_and_rules
+
+    seed_default_catalog_suitability_and_rules(
+        db, products=created, jurisdiction=jurisdiction or "CH", now=now,
+    )
 
 
 def _default_product_risk_band(product: "Product") -> tuple[int, int]:
-    """Suitability-Risikoband fuer den Default-Produktkatalog, gekeyed nach
-    sub_asset_class/asset_class -- geteilt zwischen ensure_default_products()
-    und ensure_hedged_product_variants(), damit ein CHF-gehedgtes Pendant
-    immer dasselbe Risikoband erhaelt wie sein unhedged Original."""
-    if product.sub_asset_class in ("Aktien Schwellenlaender", "Thema Verteidigung", "Thema Fossile Energie", "Thema Tabak", "Thema Alkohol", "Thema Gluecksspiel", "Thema Kernenergie"):
-        return (6, 10)
-    if product.sub_asset_class in ("Private Equity", "Krypto", "Hedge Funds"):
-        return (7, 10)
-    if product.asset_class == "Aktien":
-        return (4, 10)
-    if product.asset_class == "Immobilien":
-        return (4, 10)
-    if product.sub_asset_class == "Obligationen Emerging":
-        return (5, 10)
-    return (1, 10)
+    """Re-export (2026-10-09, CERT-PRODUCT-ELIGIBILITY-001): the actual
+    policy now lives in services.product_eligibility.default_product_risk_
+    band() so services.product_eligibility_unclassified_backfill.py can
+    reuse the exact same, already-reviewed heuristic for custom/tenant
+    products without duplicating it (and risking the two copies drifting
+    apart). Kept as a thin alias here -- unchanged name/signature -- so
+    ensure_default_products()/ensure_hedged_product_variants() below do not
+    need to change."""
+    from services.product_eligibility import default_product_risk_band
+
+    return default_product_risk_band(product)
 
 
 def ensure_hedged_product_variants(db: Session) -> None:
@@ -2072,24 +2077,12 @@ def ensure_hedged_product_variants(db: Session) -> None:
         db.add(product)
         created.append(product)
     db.flush()
-    for product in created:
-        risk_band = _default_product_risk_band(product)
-        db.add(
-            ProductSuitability(
-                id=new_uuid(),
-                product_id=product.id,
-                profile_from=risk_band[0],
-                profile_to=risk_band[1],
-                advisory_allowed=1,
-                discretionary_allowed=1,
-                requires_appropriateness=0,
-                requires_override=0,
-                max_position_bps=2500 if product.asset_class == "Aktien" else 4000,
-                created_at=now,
-                updated_at=now,
-            )
-        )
-    db.flush()
+    # CERT-PRODUCT-ELIGIBILITY-001 (2026-10-09): see ensure_default_products()
+    from services.product_eligibility import seed_default_catalog_suitability_and_rules
+
+    seed_default_catalog_suitability_and_rules(
+        db, products=created, jurisdiction="CH", now=now,
+    )
 
 
 # ADR-014 Schritt 1 (2026-08-02): Gesamtvermoegen-Cluster extrahiert nach
@@ -7027,14 +7020,23 @@ def generate_recommendation_run(
     # → wir wollen NICHT, dass die Summe der Positionen unbemerkt <100% liegt.
     missing_sub_classes: list[dict] = []
 
+    # CERT-PRODUCT-ELIGIBILITY-001 (2026-10-09, Schritt 6/7): service_mode
+    # wird serverseitig aus dem Mandat abgeleitet (nie vom Client), einmal
+    # pro Lauf, und bindet den governed-rule-Eligibility-Kern ein. Der
+    # der fruehere Suitability-Relaxation-Fallback-Pfad ist entfernt -- ein
+    # Produkt ausserhalb seines Risikobands/Service-Modus wird nicht mehr
+    # als letzter Ausweg wieder zum Kandidaten (Spec Section 9.2).
+    from services.product_eligibility import derive_service_mode, is_eligible_candidate
+    service_mode = derive_service_mode(mandate)
+
     for sub in sub_allocations:
         matching = [
             product for product in products
             if _product_matches_constraints(product, prefs, score_bucket, jurisdiction_ctx=jurisdiction_ctx)
+            and is_eligible_candidate(db, product, service_mode=service_mode, score_bucket=score_bucket, jurisdiction=jurisdiction)
         ]
         exact = [product for product in matching if str(product.sub_asset_class or "") == str(sub["sub_asset_class"])]
         used_fallback = False
-        used_suitability_override = False
         suitability_block_hint = None
         if not exact:
             suitability_block_hint = _suitability_block_hint(
@@ -7044,25 +7046,6 @@ def generate_recommendation_run(
         if not candidates:
             candidates = [product for product in matching if _norm_text(product.asset_class) == _norm_text(sub["asset_class"])]
             used_fallback = bool(candidates)
-        if not candidates:
-            relaxed_matching = [
-                product
-                for product in products
-                if _product_matches_constraints(
-                    product, prefs, score_bucket, ignore_suitability=True, jurisdiction_ctx=jurisdiction_ctx,
-                )
-            ]
-            candidates = [
-                product for product in relaxed_matching
-                if str(product.sub_asset_class or "") == str(sub["sub_asset_class"])
-            ]
-            if not candidates:
-                candidates = [
-                    product for product in relaxed_matching
-                    if _norm_text(product.asset_class) == _norm_text(sub["asset_class"])
-                ]
-                used_fallback = bool(candidates)
-            used_suitability_override = bool(candidates)
         if not candidates:
             warnings.append(f"Kein passendes Produkt fuer {sub['sub_asset_class']} gefunden.")
             missing_sub_classes.append({
@@ -7086,12 +7069,6 @@ def generate_recommendation_run(
                 warnings.append(f"{sub['sub_asset_class']}: exakte Produktumsetzung nicht moeglich. {suitability_block_hint}")
             else:
                 warnings.append(f"{sub['sub_asset_class']}: exakte Produktumsetzung nicht moeglich, Core-Fallback verwendet.")
-        if used_suitability_override:
-            rationale = rationale + "; Produkt-Suitability ausserhalb Standardband, Beratung/Override dokumentieren"
-            warnings.append(
-                f"{sub['sub_asset_class']}: Produkt-Suitability liegt ausserhalb des Standard-Risikobands; "
-                "Empfehlung nur mit dokumentierter Beratung/Override verwenden."
-            )
         if depot_bank:
             rationale = rationale + f"; Umsetzung ueber {depot_bank}"
         existing = aggregated_positions.get(best.id)

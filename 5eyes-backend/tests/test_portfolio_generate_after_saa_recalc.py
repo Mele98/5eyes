@@ -122,8 +122,22 @@ def test_default_ui_preferences_generate_a_portfolio(session_factory):
         assert len(result.get("positions") or []) > 0
 
 
-def test_low_risk_override_does_not_empty_existing_saa_portfolio(session_factory):
-    """Produkt-Suitability darf eine vorhandene SAA nicht komplett leer filtern."""
+def test_low_risk_override_does_not_silently_violate_the_overridden_risk_profile(session_factory):
+    """CERT-PRODUCT-ELIGIBILITY-001 (2026-10-10): dieser Test hiess frueher
+    `..._does_not_empty_existing_saa_portfolio` und erwartete, dass Generate
+    trotz eines Kapitalschutz-Overrides weiterhin Positionen liefert (mit
+    einer "Suitability"-Warnung statt eines Fehlers). Das wurde nur dadurch
+    erreicht, dass der jetzt entfernte `ignore_suitability=True`-Fallback
+    (services/portfolio_engine.py, siehe Commit 41b90fd) ein Produkt
+    AUSSERHALB seines Risikobands trotzdem auswaehlte -- fuer genau dieses
+    Szenario (ein auf Kapitalschutz heruntergestuftes Mandat mit einer noch
+    wachstumsorientierten Alt-SAA) haette das bedeutet, dem Kunden
+    stillschweigend ein ueberwiegend aktien-/immobilienlastiges Portfolio
+    zu empfehlen -- exakt die Lucke, die diese Zertifizierung schliesst
+    (Spec Section 9.2/19, ELIG-FALLBACK-001). Der jetzt korrekte, fail-
+    closed Vertrag: ein nicht aufloesbarer Konflikt zwischen einer
+    bestehenden SAA und einem neu heruntergestuften Risikoprofil muss einen
+    klaren Fehler werfen, nicht eine Falschempfehlung mit Warnhinweis."""
     with session_factory() as s:
         mandate = _seed_foundation(s)
         ta = s.query(TargetAllocation).filter(
@@ -140,25 +154,23 @@ def test_low_risk_override_does_not_empty_existing_saa_portfolio(session_factory
         assessment.override_reason = "Kundenseitig konservativer dokumentiert"
         s.commit()
 
-        result = generate_recommendation_run(
-            db=s,
-            mandate=mandate,
-            user_id="advisor-1",
-            preferences={
-                "policy": {"esg": "best_in_class", "homeBias": "ch_focus", "universe": "standard"},
-                "tilts": {"tobacco": "overweight", "alcohol": "overweight", "gaming": "overweight"},
-                "product": {"fundsOnly": False, "listedOnly": False, "noDerivatives": False, "noLeverage": False, "noStructured": False},
-                "limits": {},
-                "geo": {"chfOnly": False, "hedgingRequired": False, "noUsd": False},
-                "assetClasses": {"altsGold": True, "equitiesLargeCap": True, "realestateFunds": True},
-            },
-            target_allocation_id=ta.id,
-            run_type="Optimizer",
-            depot_bank="UBS AG ZÃ¼rich",
-        )
-
-    assert len(result.get("positions") or []) > 0
-    assert any("Suitability" in warning for warning in result.get("warnings") or [])
+        with pytest.raises(ValueError, match="Produktselektion unvollstaendig"):
+            generate_recommendation_run(
+                db=s,
+                mandate=mandate,
+                user_id="advisor-1",
+                preferences={
+                    "policy": {"esg": "best_in_class", "homeBias": "ch_focus", "universe": "standard"},
+                    "tilts": {"tobacco": "overweight", "alcohol": "overweight", "gaming": "overweight"},
+                    "product": {"fundsOnly": False, "listedOnly": False, "noDerivatives": False, "noLeverage": False, "noStructured": False},
+                    "limits": {},
+                    "geo": {"chfOnly": False, "hedgingRequired": False, "noUsd": False},
+                    "assetClasses": {"altsGold": True, "equitiesLargeCap": True, "realestateFunds": True},
+                },
+                target_allocation_id=ta.id,
+                run_type="Optimizer",
+                depot_bank="UBS AG ZÃ¼rich",
+            )
 
 
 def test_preference_hard_blocks_raise_clear_errors():

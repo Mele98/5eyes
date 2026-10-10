@@ -219,6 +219,22 @@ def _add_cheap_private_product(session_factory, *, product_id: str, tenant_id: s
             currency="CHF", ter_bps=1, sfdr_class="8", is_active=1, tenant_id=tenant_id,
             created_at=now, updated_at=now,
         ))
+        s.flush()
+        # CERT-PRODUCT-ELIGIBILITY-001 (2026-10-09): this simulates a
+        # private tenant product added before routers.review.create_product()
+        # started requiring a suitability band -- in reality this tenant
+        # would have run scripts/backfill_unclassified_product_eligibility.py
+        # once. Reproduce that here so the fixture represents an
+        # already-backfilled tenant catalog, not a fresh one (otherwise
+        # generate_recommendation_run()'s fail-closed eligibility gate
+        # correctly, but irrelevantly to what THIS test checks, excludes it).
+        from services.product_eligibility_unclassified_backfill import (
+            classify_and_backfill_unclassified_products,
+        )
+        classify_and_backfill_unclassified_products(
+            s, jurisdiction_fallback="CH", authored_by=f"backfill-authorizer-{tenant_id}",
+            dry_run=False, now=now,
+        )
         s.commit()
 
 

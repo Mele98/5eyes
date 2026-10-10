@@ -68,6 +68,10 @@ def _payload(**overrides) -> dict:
         "product_name": "Test Fund",
         "product_type": "Fonds",
         "asset_class": "Aktien",
+        # CERT-PRODUCT-ELIGIBILITY-001 (2026-10-09): seit create_product()
+        # ein Pflichtfeld, unabhaengig vom eigentlichen Testzweck hier.
+        "suitability_profile_from": 1,
+        "suitability_profile_to": 10,
     }
     base.update(overrides)
     return base

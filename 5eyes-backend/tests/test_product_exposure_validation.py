@@ -82,6 +82,10 @@ BASE_PRODUCT_PAYLOAD = {
     "product_type": "Fonds",
     "asset_class": "Aktien",
     "currency": "CHF",
+    # CERT-PRODUCT-ELIGIBILITY-001 (2026-10-09): seit create_product()
+    # ein Pflichtfeld, unabhaengig vom eigentlichen Testzweck hier.
+    "suitability_profile_from": 1,
+    "suitability_profile_to": 10,
 }
 
 

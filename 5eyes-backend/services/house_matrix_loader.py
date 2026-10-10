@@ -36,9 +36,14 @@ HOUSE_MATRIX_YAML_FIELDS = (
 
 # Hardcoded-Fallback identisch zu portfolio_engine. Wird bei YAML-Missing /
 # Error genutzt. NICHT entfernen — Last-Resort fuer Boot-Recovery.
+#
+# CERT-PRODUCT-ELIGIBILITY-001 (2026-10-10, Befund B): "Defensiv" ist jetzt
+# zwei Zeilen (Score 3 und 4 getrennt) -- siehe die identische Begruendung
+# in services/portfolio_engine.py._ensure_runtime_reference_data_ch().
 _HARDCODED_FALLBACK: tuple[tuple, ...] = (
-    (1, 2, "Kapitalschutz", 0, 300, 800, 6500, 7500, 8500, 500, 1200, 2000, 0, 500, 2000, 0, 500, 500, 3000, 0),
-    (3, 4, "Defensiv", 0, 200, 500, 5000, 6000, 7000, 1500, 2500, 3000, 500, 1000, 2000, 0, 300, 800, 4500, 0),
+    (1, 2, "Kapitalschutz", 0, 300, 800, 6500, 9200, 9500, 0, 0, 0, 0, 0, 0, 0, 500, 500, 3000, 0),
+    (3, 3, "Defensiv", 0, 200, 500, 5000, 9500, 9700, 0, 0, 0, 0, 0, 0, 0, 300, 800, 4500, 0),
+    (4, 4, "Defensiv", 0, 200, 500, 5000, 6000, 7000, 1500, 2500, 3000, 500, 1000, 2000, 0, 300, 800, 4500, 0),
     (5, 6, "Ausgewogen", 0, 200, 300, 2500, 3500, 4500, 4000, 4800, 5500, 500, 1000, 2000, 300, 500, 800, 6000, 0),
     (7, 8, "Wachstumsorientiert", 0, 150, 200, 1000, 1600, 2500, 6000, 6800, 7500, 500, 800, 2000, 300, 600, 1000, 8000, 6000),
     (9, 9, "Dynamisch", 0, 100, 200, 500, 800, 1500, 7500, 8000, 8500, 300, 700, 2000, 200, 400, 600, 9000, 7500),
@@ -124,9 +129,9 @@ def load_house_matrix_default_tuples(
         return _HARDCODED_FALLBACK
 
     profiles = data["profiles"]
-    if not isinstance(profiles, list) or len(profiles) != 6:
+    if not isinstance(profiles, list) or len(profiles) != 7:
         logger.error(
-            "HouseMatrix YAML %s: erwartet 6 Profile (gefunden: %s), fallback.",
+            "HouseMatrix YAML %s: erwartet 7 Profile (gefunden: %s), fallback.",
             path, len(profiles) if isinstance(profiles, list) else "?",
         )
         return _HARDCODED_FALLBACK

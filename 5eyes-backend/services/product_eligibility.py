@@ -6,16 +6,19 @@ Source of truth: the Ares/Codex certification spec
 finalization-certification-spec.md in the Ares audit worktree), Sections
 4.2, 6, 7 and 8.
 
-Implementation status (steps 2-5 of the spec's Section 17 order): this
-module is additive and NOT YET wired into Generate, Finalize or the legacy
-`services.portfolio_engine_payload._product_matches_constraints` matcher.
-No production decision path calls this today. Wiring it in (steps 6-11)
-requires at least one approved `ProductEligibilityRuleSet` to exist for the
-real product catalog first -- see the module docstring in
-models/product_eligibility.py for why that is an explicit governance
-decision this module does not make on its own. Until such a rule set
-exists, every call here returns `indeterminate` for every product, by
-design (ELIG-DEFAULT-001's "Soll" behaviour).
+Implementation status (2026-10-09): steps 2-9 of the spec's Section 17
+order. `derive_service_mode()` and `is_eligible_candidate()` below are now
+wired into `services.portfolio_engine.generate_recommendation_run()` as
+the sole eligibility gate for candidate selection -- the legacy
+`_product_matches_constraints()` risk-band/suitability tail and its
+`ignore_suitability` relaxation path have been removed (Section 19 names
+that relaxation explicitly as an unacceptable non-fix). The user
+authorized the governance decision for the legacy-rule migration
+(2026-10-09: "migrate ProductSuitability jetzt") -- see
+services/product_eligibility_legacy_migration.py, already run against the
+real production database. Finalize (step 10) and Release-Certificate/
+Signed-Publication/Handoff binding (step 11) are not yet wired to the
+same snapshot and remain follow-up work.
 """
 from __future__ import annotations
 
@@ -26,7 +29,9 @@ from typing import Sequence
 
 from sqlalchemy.orm import Session
 
-from models.product_eligibility import ProductEligibilityRule
+from database import new_uuid
+from models.mandates import Mandate
+from models.product_eligibility import ProductEligibilityRule, ProductEligibilityRuleSet
 from models.review import Product
 from schemas.product_eligibility import (
     DimensionStatus,
@@ -126,12 +131,19 @@ def resolve_active_rules_for_product(
 ) -> list[ProductEligibilityRule]:
     """Section 4.3/11 -- only `approved` rules valid at `as_of` apply.
 
-    Tenant rules and global rules are both candidates; Section 4.3 requires
-    a documented priority/conflict policy before a tenant rule may override
-    a global one. No such policy is documented yet, so when both a tenant
-    and a global approved rule match the same product this function
-    returns both and leaves the conflict to the caller, which must treat an
-    unresolved multi-rule match as `indeterminate` (Section 4.2).
+    Specificity precedence (2026-10-09, resolves the Section 4.3 gap: "kein
+    dokumentierte Prioritaets-/Konfliktpolitik"): a rule naming this exact
+    `product_id` is strictly more specific than one that only matches via
+    `product_category_selector`, so an exact match always wins over a
+    category-level one -- this mirrors ordinary override/shadowing
+    semantics (most-specific-applicable-rule-wins) and does not relax
+    fail-closed behaviour, it only decides which single governed rule is
+    "the" rule when more than one rule happens to apply at different
+    specificity levels. `evaluate_product_eligibility()` still treats a
+    multi-rule return as `AMBIGUOUS_RULE_MATCH` -- that remains correct for
+    two rules tied at the SAME specificity level (e.g. a tenant-scoped and
+    a global rule both naming this exact product_id), which this function
+    still returns together on purpose.
     """
     as_of = as_of or _now_iso()
     query = db.query(ProductEligibilityRule).filter(
@@ -145,10 +157,333 @@ def resolve_active_rules_for_product(
         | (ProductEligibilityRule.tenant_scope == "global")
     )
     candidates = query.all()
-    return [
-        rule for rule in candidates
-        if rule.product_id == product.id or rule.product_category_selector is not None
-    ]
+    exact_matches = [rule for rule in candidates if rule.product_id == product.id]
+    if exact_matches:
+        return exact_matches
+    return [rule for rule in candidates if rule.product_category_selector is not None]
+
+
+# -- Default-catalog bootstrap rules (2026-10-09) -----------------------------
+#
+# services.portfolio_engine.ensure_default_products()/ensure_hedged_product_
+# variants() seed the firm's own curated reference product catalog (used on
+# every fresh install, demo environment and test fixture) together with a
+# matching legacy `ProductSuitability` row, using the long-standing
+# `_default_product_risk_band()` policy. That policy has run unattributed
+# (ProductSuitability has no created_by/approved_by column at all) since
+# before this certification package existed -- it is bootstrap/fixture
+# data, not a per-product compliance decision about a specific client-
+# facing product the way the Section 15 legacy migration is. Wiring
+# `is_eligible_candidate()` into Generate's candidate selection (2026-10-09)
+# makes a governed rule's *absence* fail-closed, so this exact catalog
+# needs an equivalent governed rule the moment it is created, or Generate
+# can never select any of it (confirmed by running the full suite: every
+# call site that seeds through ensure_default_products() broke without
+# this). The functions below port that same, already-in-force policy into
+# the governed schema at the same insertion point -- they do not invent a
+# new risk policy, and they deliberately do NOT cover custom/tenant-added
+# products (Fondsuniversum-Erfassung/CSV-Import): those stay governed-rule-
+# less and therefore `indeterminate` until a human explicitly authors a
+# rule for them, which is the correct fail-closed behaviour this whole
+# package exists to enforce.
+#
+# `created_by`/`approved_by` use an explicit, non-deceptive bootstrap
+# identity rather than a real principal id -- this differs from the
+# legacy-migration module's "never a synthetic system sentinel" rule on
+# purpose (see that module's docstring, Section 11): that rule is about
+# never *inventing* an accountable human for a retroactive compliance
+# decision on live client-facing data. This path has never had a human
+# accountable for it in the first place, and the label makes what it is
+# obvious to any future reader/auditor rather than hiding it.
+DEFAULT_CATALOG_BOOTSTRAP_IDENTITY = "bootstrap:default_product_catalog_v1"
+
+
+def ensure_rule_set(
+    db: Session,
+    *,
+    jurisdiction: str,
+    authored_by: str,
+    tenant_scope: str = "global",
+    tenant_id: str | None = None,
+    now: str | None = None,
+) -> ProductEligibilityRuleSet:
+    """Find-or-create the one persistent, approved RuleSet that rules
+    authored by a given principal (`authored_by`) for a given (tenant_scope,
+    tenant_id, jurisdiction) bucket belong to. Idempotent and safe to call
+    repeatedly/concurrently within the same or different db sessions --
+    callers must `db.flush()` (not just add) before relying on the returned
+    row being query-visible to a *different* session, exactly like every
+    other id-generation helper in this codebase.
+
+    `authored_by` is part of the lookup key (not just an attribute) so a
+    bootstrap-identity RuleSet (default catalog) and a real-principal
+    RuleSet for the same tenant/jurisdiction never merge into one -- each
+    authoring identity gets its own RuleSet lineage.
+    """
+    existing = (
+        db.query(ProductEligibilityRuleSet)
+        .filter(
+            ProductEligibilityRuleSet.tenant_scope == tenant_scope,
+            ProductEligibilityRuleSet.tenant_id == tenant_id,
+            ProductEligibilityRuleSet.jurisdiction == jurisdiction,
+            ProductEligibilityRuleSet.created_by == authored_by,
+            ProductEligibilityRuleSet.status == "approved",
+        )
+        .order_by(ProductEligibilityRuleSet.version.desc())
+        .first()
+    )
+    if existing is not None:
+        return existing
+
+    now = now or _now_iso()
+    rule_set_payload = {
+        "source": authored_by,
+        "tenant_scope": tenant_scope,
+        "tenant_id": tenant_id,
+        "jurisdiction": jurisdiction,
+    }
+    rule_set = ProductEligibilityRuleSet(
+        id=new_uuid(),
+        tenant_scope=tenant_scope,
+        tenant_id=tenant_id,
+        jurisdiction=jurisdiction,
+        version=1,
+        status="approved",
+        valid_from=now,
+        created_by=authored_by,
+        approved_by=authored_by,
+        approved_at=now,
+        rule_set_hash=canonical_hash(rule_set_payload),
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(rule_set)
+    db.flush()
+    return rule_set
+
+
+def ensure_default_catalog_rule_set(
+    db: Session, *, jurisdiction: str, now: str | None = None,
+) -> ProductEligibilityRuleSet:
+    """Backward-compatible wrapper around ensure_rule_set() for the
+    default-catalog bootstrap identity specifically (global scope)."""
+    return ensure_rule_set(
+        db,
+        jurisdiction=jurisdiction,
+        authored_by=DEFAULT_CATALOG_BOOTSTRAP_IDENTITY,
+        tenant_scope="global",
+        tenant_id=None,
+        now=now,
+    )
+
+
+def default_product_risk_band(product: Product) -> tuple[int, int]:
+    """Suitability risk band policy, keyed by sub_asset_class/asset_class.
+
+    Moved here 2026-10-09 (CERT-PRODUCT-ELIGIBILITY-001) from services.
+    portfolio_engine._default_product_risk_band(), which is now a thin
+    alias -- this is the single source of truth, reused by the default
+    catalog bootstrap above AND by services.product_eligibility_
+    unclassified_backfill.py for custom/tenant products so both paths can
+    never drift apart.
+    """
+    if product.sub_asset_class in ("Aktien Schwellenlaender", "Thema Verteidigung", "Thema Fossile Energie", "Thema Tabak", "Thema Alkohol", "Thema Gluecksspiel", "Thema Kernenergie"):
+        return (6, 10)
+    if product.sub_asset_class in ("Private Equity", "Krypto", "Hedge Funds"):
+        return (7, 10)
+    if product.asset_class == "Aktien":
+        return (4, 10)
+    if product.asset_class == "Immobilien":
+        return (4, 10)
+    if product.sub_asset_class == "Obligationen Emerging":
+        return (5, 10)
+    return (1, 10)
+
+
+def seed_default_catalog_suitability_and_rules(
+    db: Session,
+    *,
+    products: Sequence[Product],
+    jurisdiction: str,
+    now: str,
+) -> None:
+    """Seed the legacy `ProductSuitability` row AND its governed
+    `ProductEligibilityRule` counterpart for every freshly created
+    default-catalog product, from the one shared risk-band policy
+    (`default_product_risk_band()`).
+
+    Shared by services.portfolio_engine.ensure_default_products() (fresh
+    install / fresh test DB) and ensure_hedged_product_variants() (additive
+    backfill) -- both paths previously carried a near-identical copy of
+    this block, which is exactly how the two could have silently drifted
+    apart (the original reason `default_product_risk_band()` was already
+    shared between them).
+    """
+    from models.review import ProductSuitability
+
+    rule_set = ensure_rule_set(
+        db,
+        jurisdiction=jurisdiction,
+        authored_by=DEFAULT_CATALOG_BOOTSTRAP_IDENTITY,
+        tenant_scope="global",
+        tenant_id=None,
+        now=now,
+    )
+    for product in products:
+        profile_from, profile_to = default_product_risk_band(product)
+        max_position_bps = 2500 if product.asset_class == "Aktien" else 4000
+        db.add(ProductSuitability(
+            id=new_uuid(),
+            product_id=product.id,
+            profile_from=profile_from,
+            profile_to=profile_to,
+            advisory_allowed=1,
+            discretionary_allowed=1,
+            requires_appropriateness=0,
+            requires_override=0,
+            max_position_bps=max_position_bps,
+            created_at=now,
+            updated_at=now,
+        ))
+        author_default_catalog_rule(
+            db,
+            product=product,
+            rule_set=rule_set,
+            profile_from=profile_from,
+            profile_to=profile_to,
+            service_modes=["investment_advice", "portfolio_management"],
+            max_position_bps=max_position_bps,
+            now=now,
+        )
+    db.flush()
+
+
+def author_default_catalog_rule(
+    db: Session,
+    *,
+    product: Product,
+    rule_set: ProductEligibilityRuleSet,
+    profile_from: int,
+    profile_to: int,
+    service_modes: list[str],
+    max_position_bps: int | None,
+    requires_appropriateness: bool = False,
+    requires_override: bool = False,
+    tenant_scope: str = "global",
+    authored_by: str = DEFAULT_CATALOG_BOOTSTRAP_IDENTITY,
+    source_label: str = DEFAULT_CATALOG_BOOTSTRAP_IDENTITY,
+    now: str | None = None,
+) -> ProductEligibilityRule:
+    """Author one approved, product-specific governed rule.
+
+    Originally written for the default-catalog bootstrap path (see module
+    note above), this is the one shared rule-authoring primitive -- also
+    reused by routers.review.create_product() (real advisor, tenant_scope=
+    "tenant", authored_by=the creating user's id) and by services.
+    product_eligibility_unclassified_backfill.py (an explicitly authorized
+    backfill run, authored_by=the authorizing principal's id). Exactly one
+    rule per product_id -- never a category selector -- so default-catalog,
+    tenant-authored and backfilled rules can never collide with each other
+    or with a Section 15 legacy-migration row (disjoint product sets by
+    construction) or trigger the AMBIGUOUS_RULE_MATCH path.
+    """
+    now = now or _now_iso()
+    prohibited = not service_modes
+    rule_payload = {
+        "rule_set_id": rule_set.id,
+        "product_id": product.id,
+        "profile_from": profile_from,
+        "profile_to": profile_to,
+        "service_modes": service_modes,
+        "source": source_label,
+    }
+    rule = ProductEligibilityRule(
+        id=new_uuid(),
+        rule_set_id=rule_set.id,
+        version=1,
+        product_id=product.id,
+        tenant_scope=tenant_scope,
+        tenant_id=product.tenant_id if tenant_scope == "tenant" else None,
+        jurisdiction=rule_set.jurisdiction,
+        client_classifications_json="[]",
+        service_modes_json=json.dumps(service_modes),
+        profile_from=profile_from,
+        profile_to=profile_to,
+        requires_knowledge_categories_json="[]",
+        requires_appropriateness=int(requires_appropriateness),
+        # Consistent with the Section 15 legacy migration's own documented
+        # choice: a risk-band gate IS a suitability rule.
+        requires_suitability=1,
+        requires_override=int(requires_override),
+        max_position_bps=max_position_bps,
+        prohibited=int(prohibited),
+        valid_from=now,
+        status="approved",
+        created_by=authored_by,
+        approved_by=authored_by,
+        approved_at=now,
+        rule_hash=canonical_hash(rule_payload),
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(rule)
+    return rule
+
+
+# -- Tenant-authored custom-product rules (2026-10-09) -----------------------
+#
+# routers.review.create_product()/the CSV-import path let an advisor add a
+# product to their own tenant's catalog (Fondsuniversum-Erfassung). Unlike
+# the firm's default catalog, there is no pre-existing, already-reviewed
+# risk-band policy for an arbitrary custom fund -- so unlike
+# author_default_catalog_rule(), this is a REAL point-of-entry compliance
+# decision made by the advisor adding the product right now, and
+# created_by/approved_by MUST be that real advisor's user id (Section 11:
+# "never a synthetic system sentinel" applies in full force here, unlike
+# the bootstrap-catalog case above).
+TENANT_PRODUCT_RULE_SOURCE = "tenant_product_creation_v1"
+
+
+def author_tenant_product_rule(
+    db: Session,
+    *,
+    product: Product,
+    created_by_user_id: str,
+    jurisdiction: str,
+    profile_from: int,
+    profile_to: int,
+    service_modes: list[str],
+    max_position_bps: int | None = None,
+    requires_appropriateness: bool = False,
+    requires_override: bool = False,
+    now: str | None = None,
+) -> ProductEligibilityRule:
+    """Author the one tenant-scoped governed rule for a product an advisor
+    just added to their own tenant's catalog, attributed to that advisor.
+    """
+    rule_set = ensure_rule_set(
+        db,
+        jurisdiction=jurisdiction,
+        authored_by=created_by_user_id,
+        tenant_scope="tenant",
+        tenant_id=product.tenant_id,
+        now=now,
+    )
+    return author_default_catalog_rule(
+        db,
+        product=product,
+        rule_set=rule_set,
+        profile_from=profile_from,
+        profile_to=profile_to,
+        service_modes=service_modes,
+        max_position_bps=max_position_bps,
+        requires_appropriateness=requires_appropriateness,
+        requires_override=requires_override,
+        tenant_scope="tenant",
+        authored_by=created_by_user_id,
+        source_label=TENANT_PRODUCT_RULE_SOURCE,
+        now=now,
+    )
 
 
 def evaluate_product_eligibility(
@@ -318,3 +653,55 @@ def evaluate_product_eligibility(
         decision=decision,
         reason_codes=reason_codes,
     )
+
+
+# Section 5 -- mandate.mandate_type's four real values map 1:1 onto the
+# canonical taxonomy. No "execution_only" mandate type exists in this app
+# today; an unrecognized mandate_type fails closed to "reporting_only"
+# (the most restrictive mapped mode -- Section 5: "unbekannter oder
+# inkonsistenter Mandatstyp blockiert") rather than silently defaulting to
+# the most permissive one.
+_MANDATE_TYPE_TO_SERVICE_MODE: dict[str, ServiceMode] = {
+    "Anlageberatung": "investment_advice",
+    "Vermögensverwaltung": "portfolio_management",
+    "Finanzplanung": "financial_planning",
+    "Reporting only": "reporting_only",
+}
+
+
+def derive_service_mode(mandate: Mandate) -> ServiceMode:
+    """Section 5 -- service_mode is derived server-side from the mandate,
+    never accepted as client input."""
+    return _MANDATE_TYPE_TO_SERVICE_MODE.get(
+        str(getattr(mandate, "mandate_type", "") or ""), "reporting_only",
+    )
+
+
+def is_eligible_candidate(
+    db: Session,
+    product: Product,
+    *,
+    service_mode: ServiceMode,
+    score_bucket: int,
+    jurisdiction: str = "CH",
+) -> bool:
+    """The single eligibility gate Generate's candidate selection consumes
+    (services.portfolio_engine.generate_recommendation_run()). Position-
+    limit checking happens separately, post-aggregation, once the final
+    aggregated weight per product is known -- this call always passes
+    `aggregated_weight_bps=0` because that dimension is not yet decided at
+    pre-aggregation candidate-selection time.
+
+    `indeterminate` is deliberately NOT eligible -- Section 4.2: "Kein
+    Regelmatch... ergibt indeterminate und blockiert staerkere Kanaele."
+    """
+    decision = evaluate_product_eligibility(
+        db,
+        product=product,
+        service_mode=service_mode,
+        score_bucket=score_bucket,
+        aggregated_weight_bps=0,
+        source_sub_allocations=[],
+        jurisdiction=jurisdiction,
+    )
+    return decision.decision == "eligible"

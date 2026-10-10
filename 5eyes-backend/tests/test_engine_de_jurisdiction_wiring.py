@@ -301,6 +301,21 @@ def _seed_de_mandate(session_factory, *, suffix: str, cma_status: str) -> tuple[
                 created_at=now,
             ))
         _seed_de_products(s)
+        s.flush()
+        # CERT-PRODUCT-ELIGIBILITY-001 (2026-10-09): _seed_de_products()
+        # simulates a DE catalog that predates both ensure_default_products()
+        # (CH-only) and the create_product() suitability capture -- in
+        # reality this tenant would have run
+        # scripts/backfill_unclassified_product_eligibility.py once before
+        # this cert's fail-closed gate shipped. Reproduce that here so this
+        # fixture represents an already-backfilled DE tenant, not a fresh
+        # one.
+        from services.product_eligibility_unclassified_backfill import (
+            classify_and_backfill_unclassified_products,
+        )
+        classify_and_backfill_unclassified_products(
+            s, jurisdiction_fallback=DE_CODE, authored_by=advisor_id, dry_run=False, now=now,
+        )
         s.commit()
     return advisor_id, mid, tenant_id
 
