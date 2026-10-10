@@ -43,8 +43,17 @@ if str(BACKEND_ROOT) not in sys.path:
 
 # BB-Risky-Fractions für die Mid-Konsistenz-Berechnung. Konservativ gewählt
 # (= unterer Bereich der DB-Werte), damit der Cap-Puffer real geprüft wird.
-# Quelle: 3eyes-Spec Page 17 (Aktien 79% / Obli 24.5% / Immo 60% / Alt 50% /
-# Liq 0%) — wir nehmen leicht konservativere Werte für defensive Sicherheit.
+#
+# Referenz-Risikoformel (2026-10-10 am Primaerdokument nachgeprueft):
+#   RF < %EQ*0.79 + %BONDS*0.245 + %RE*0.5 + %ALT*0.6
+# Hier stand vorher "Immo 60% / Alt 50%" -- Immobilien und Alternative waren
+# vertauscht. Die PRODUKTION ist davon nicht betroffen: dort kommen die
+# Risky-Fractions granular pro Sub-Anlageklasse aus den BuildingBlock-Zeilen
+# (Immobilien Schweiz = 5000 bps trifft die Referenz exakt), nicht aus dieser
+# Vier-Koeffizienten-Formel. Die Werte unten sind reine Test-Konstanten fuer
+# die Cap-Puffer-Pruefung und bleiben bewusst unveraendert -- sie sind in
+# BEIDEN Buckets konservativ (60% >= 50% bzw. 60% = 60%), die Zusicherung
+# wird durch die Korrektur also nicht schwaecher.
 BB_RISKY_FRACTION_BPS = {
     "equities":    7500,   # 75% — Mittel aus den DB-Werten (7000-10000)
     "bonds":       2250,   # 22.5% — leicht unter dem 3eyes-Wert
