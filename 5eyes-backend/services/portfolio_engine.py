@@ -1537,6 +1537,7 @@ from services.portfolio_engine_cma import (  # noqa: F401,E402
     _inflation_path_series,
     _is_valid_cholesky,
     _portfolio_volatility_bps,
+    _sub_class_intra_correlation_x100,
     _portfolio_weighted_ter_bps,
     _real_series_from_nominal,
     _resolve_home_equity_label,
@@ -2852,20 +2853,6 @@ def _compute_input_snapshot_hash(
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-def _sub_class_intra_correlation_x100() -> int:
-    """Die effektiv wirksame Intra-Bucket-Korrelation als Ganzzahl (rho * 100).
-
-    SUBRISK-CONTEXT-REPLAY-001 (2026-10-10): wird in die Evidenz-Hashes
-    gebunden (Modellbasis beider Kanaele, transitiv
-    allocation_context_hash, und der Sensitivitaets-model_input_hash).
-    Ganzzahl statt Float, damit die Hash-Serialisierung nicht von der
-    Float-Repraesentation abhaengt; der Wert ist per config-Validator auf
-    [0.0, 1.0] begrenzt, zwei Dezimalstellen sind also verlustfrei genug
-    fuer die Unterscheidbarkeit zweier Laeufe.
-    """
-    return int(round(float(getattr(settings, "sub_class_intra_correlation", 1.0)) * 100))
-
-
 def _build_allocation_model_basis(
     *,
     optimizer_mode: str,
@@ -3036,17 +3023,8 @@ def _build_allocation_model_basis(
             "tail_calibration": (
                 "bounded_cornish_fisher_gauss_hermite_v2"
             ),
-            # SUBRISK-CONTEXT-REPLAY-001 (2026-10-10): die globale
-            # Intra-Bucket-Korrelation veraendert die effektive Bucket-
-            # Volatilitaet materiell (bei zwei 50/50-Aktien-Sub-Klassen rund
-            # 40 Prozent Spanne zwischen rho=1.0 und rho=0.0, siehe
-            # _weighted_bucket_metrics). Sie lebt auf dem globalen Settings-
-            # Objekt, NICHT auf der CMA-Zeile -- und wurde deshalb von keinem
-            # der Evidenz-Hashes erfasst. Zwei Laeufe mit verschiedenen
-            # Korrelationsannahmen waren im Audit-Trail nicht
-            # unterscheidbar, obwohl der Solver unter anderem Risiko
-            # entschied. Als skalierte Ganzzahl gebunden, damit die
-            # Hash-Serialisierung nicht von Float-Repr abhaengt.
+            # SUBRISK-CONTEXT-REPLAY-001: Risikobasis in die Evidenz binden.
+            # Begruendung siehe _sub_class_intra_correlation_x100().
             "sub_class_intra_correlation_x100": _sub_class_intra_correlation_x100(),
             "foundation_model_version": "external_foundation_v2",
             "external_property_goal_basis": (
@@ -3111,9 +3089,7 @@ def _build_allocation_model_basis(
                 else "not_applicable"
             ),
             # SUBRISK-CONTEXT-REPLAY-001: dieselbe Bindung wie im
-            # Entscheidungskanal oben -- _weighted_bucket_metrics() ist die
-            # gemeinsame Momentquelle beider Kanaele, die Korrelations-
-            # annahme wirkt also auch auf die Reporting-Projektion.
+            # Entscheidungskanal -- gemeinsame Momentquelle beider Kanaele.
             "sub_class_intra_correlation_x100": _sub_class_intra_correlation_x100(),
             "foundation_model_version": "external_foundation_v2",
             "total_scope_goal_basis": "exact_total_projection_path_v2",
@@ -5609,12 +5585,8 @@ def evaluate_goal_sensitivity(
             "version": "sensitivity_live_context_v3_complete",
             "goal_weighting_mode": sensitivity_goal_weighting_mode,
             "cma": cma_snapshot,
-            # SUBRISK-CONTEXT-REPLAY-001 (2026-10-10): die Intra-Bucket-
-            # Korrelation lebt auf dem globalen Settings-Objekt, NICHT auf der
-            # CMA-Zeile -- `cma_snapshot` oben kann sie also nicht abdecken.
-            # Ohne diese Bindung verifizierte ein Sensitivitaets-Rerun seine
-            # Modellbasis erfolgreich, obwohl er mit einem anderen
-            # Bucket-Risiko gerechnet haette.
+            # SUBRISK-CONTEXT-REPLAY-001: liegt nicht auf der CMA-Zeile,
+            # `cma_snapshot` oben kann sie also nicht abdecken.
             "sub_class_intra_correlation_x100": _sub_class_intra_correlation_x100(),
             "seed": int(pinned_seed),
             "scenario_horizon_years": int(projection_horizon),
@@ -7067,15 +7039,9 @@ def generate_recommendation_run(
     from services.product_eligibility import derive_service_mode, is_eligible_candidate
     service_mode = derive_service_mode(mandate)
 
-    # Beide Praedikate sind schleifeninvariant: weder der Praeferenz-Filter
-    # noch die Eligibility haengen von `sub` ab (nur von Produkt, prefs,
-    # score_bucket, service_mode, jurisdiction). Vorher lag diese Liste IN
-    # der Schleife und wurde fuer jede Sub-Anlageklasse identisch neu
-    # berechnet -- inklusive einer DB-Abfrage pro Produkt und Durchlauf.
-    # Gemessen am realistischen Mandat: 351 Eligibility-Abfragen pro
-    # Generate-Lauf, wo die Produktzahl genuegt. Einmal vor der Schleife
-    # berechnet ist bit-identisch (der Golden-Snapshot-Test verifiziert das
-    # byte-exakt) und spart die ~14/15 redundanten Durchlaeufe.
+    # Beide Praedikate sind schleifeninvariant (haengen nicht von `sub` ab).
+    # Vorher stand die Liste IN der Schleife: 351 statt 36 DB-Abfragen pro
+    # Generate-Lauf. Bit-identisch, byte-exakt per Golden-Snapshot verifiziert.
     eligible_products = [
         product for product in products
         if _product_matches_constraints(product, prefs, score_bucket, jurisdiction_ctx=jurisdiction_ctx)
@@ -7083,8 +7049,7 @@ def generate_recommendation_run(
     ]
 
     for sub in sub_allocations:
-        matching = eligible_products
-        exact = [product for product in matching if str(product.sub_asset_class or "") == str(sub["sub_asset_class"])]
+        exact = [product for product in eligible_products if str(product.sub_asset_class or "") == str(sub["sub_asset_class"])]
         used_fallback = False
         suitability_block_hint = None
         if not exact:
@@ -7093,7 +7058,7 @@ def generate_recommendation_run(
             )
         candidates = exact
         if not candidates:
-            candidates = [product for product in matching if _norm_text(product.asset_class) == _norm_text(sub["asset_class"])]
+            candidates = [product for product in eligible_products if _norm_text(product.asset_class) == _norm_text(sub["asset_class"])]
             used_fallback = bool(candidates)
         if not candidates:
             warnings.append(f"Kein passendes Produkt fuer {sub['sub_asset_class']} gefunden.")
