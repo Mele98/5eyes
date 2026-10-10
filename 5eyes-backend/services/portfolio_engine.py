@@ -38,6 +38,7 @@ from models.wealth import Cashflow, Goal, PlanningAssumption, WealthInflow, Weal
 from price_updater import latest_price_snapshot, parse_iso_date, summarize_price_quality
 from services.allocation_messages import WARN_FALLBACK, classify_messages, format_message
 from services.calendar_horizon import add_calendar_years, calendar_years_until
+from services.cma_correlation_provenance import bucket_correlation_provenance
 from services.goal_semantics import GoalInputError, validate_goal_model_input
 from services.cashflow_timeline import (
     SUPPORTED_FREQUENCIES,
@@ -2861,6 +2862,7 @@ def _build_allocation_model_basis(
     monte_carlo: dict,
     simulation_prefs: dict | None,
     mandate: Mandate,
+    cma: CapitalMarketAssumption | None = None,
     stored_optimization_basis: dict | None = None,
     reporting_tax_cashflow_present: bool | None = None,
 ) -> dict[str, dict]:
@@ -2950,6 +2952,12 @@ def _build_allocation_model_basis(
     )
     legacy_context_unknown = legacy_stochastic or legacy_shadow
     reporting_tail = bool(_simulation_use_tail_risk(simulation_prefs))
+    # CMA-CORRELATION-JURISDICTION-PROVENANCE-001: welche Bucket-Korrelations-
+    # struktur gerechnet wurde und ob sie zur Jurisdiktion des Mandats passt.
+    # Fehlt der CMA-Payload, ist es der Schweizer Default -- auch fuer ein
+    # DE-Mandat; das stand bisher nirgends. Beide Kanaele fuehren denselben
+    # Block, weil beide dieselbe CMA-Spalte lesen.
+    bucket_correlation = bucket_correlation_provenance(cma)
 
     optimization_basis = {
             "basis_id": optimization_basis_id,
@@ -3026,6 +3034,7 @@ def _build_allocation_model_basis(
             # SUBRISK-CONTEXT-REPLAY-001: Risikobasis in die Evidenz binden.
             # Begruendung siehe _sub_class_intra_correlation_x100().
             "sub_class_intra_correlation_x100": _sub_class_intra_correlation_x100(),
+            "bucket_correlation": bucket_correlation,
             "foundation_model_version": "external_foundation_v2",
             "external_property_goal_basis": (
                 "inflation_zero_real_plus_exact_liability_and_pledged_transfer_v2"
@@ -3091,6 +3100,7 @@ def _build_allocation_model_basis(
             # SUBRISK-CONTEXT-REPLAY-001: dieselbe Bindung wie im
             # Entscheidungskanal -- gemeinsame Momentquelle beider Kanaele.
             "sub_class_intra_correlation_x100": _sub_class_intra_correlation_x100(),
+            "bucket_correlation": bucket_correlation,
             "foundation_model_version": "external_foundation_v2",
             "total_scope_goal_basis": "exact_total_projection_path_v2",
             "indirect_amortization_treatment": "pledged_asset_transfer_v1",
@@ -4067,6 +4077,7 @@ def generate_target_allocation(
         monte_carlo=monte_carlo,
         simulation_prefs=prefs["simulation"],
         mandate=mandate,
+        cma=cma,
         reporting_tax_cashflow_present=any(
             str(getattr(cashflow, "source", "") or "") == "tax_estimate"
             for cashflow in cashflows
@@ -6359,6 +6370,7 @@ def build_target_payload_from_allocation(
         monte_carlo=monte_carlo,
         simulation_prefs=prefs["simulation"],
         mandate=mandate,
+        cma=cma,
         stored_optimization_basis=(
             (_stored_constraints or {}).get("optimization_model_basis")
         ),
