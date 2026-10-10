@@ -7029,12 +7029,23 @@ def generate_recommendation_run(
     from services.product_eligibility import derive_service_mode, is_eligible_candidate
     service_mode = derive_service_mode(mandate)
 
+    # Beide Praedikate sind schleifeninvariant: weder der Praeferenz-Filter
+    # noch die Eligibility haengen von `sub` ab (nur von Produkt, prefs,
+    # score_bucket, service_mode, jurisdiction). Vorher lag diese Liste IN
+    # der Schleife und wurde fuer jede Sub-Anlageklasse identisch neu
+    # berechnet -- inklusive einer DB-Abfrage pro Produkt und Durchlauf.
+    # Gemessen am realistischen Mandat: 351 Eligibility-Abfragen pro
+    # Generate-Lauf, wo die Produktzahl genuegt. Einmal vor der Schleife
+    # berechnet ist bit-identisch (der Golden-Snapshot-Test verifiziert das
+    # byte-exakt) und spart die ~14/15 redundanten Durchlaeufe.
+    eligible_products = [
+        product for product in products
+        if _product_matches_constraints(product, prefs, score_bucket, jurisdiction_ctx=jurisdiction_ctx)
+        and is_eligible_candidate(db, product, service_mode=service_mode, score_bucket=score_bucket, jurisdiction=jurisdiction)
+    ]
+
     for sub in sub_allocations:
-        matching = [
-            product for product in products
-            if _product_matches_constraints(product, prefs, score_bucket, jurisdiction_ctx=jurisdiction_ctx)
-            and is_eligible_candidate(db, product, service_mode=service_mode, score_bucket=score_bucket, jurisdiction=jurisdiction)
-        ]
+        matching = eligible_products
         exact = [product for product in matching if str(product.sub_asset_class or "") == str(sub["sub_asset_class"])]
         used_fallback = False
         suitability_block_hint = None

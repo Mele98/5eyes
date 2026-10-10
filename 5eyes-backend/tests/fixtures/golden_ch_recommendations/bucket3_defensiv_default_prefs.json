@@ -5,10 +5,10 @@
     "score_x10": 30
   },
   "implementation_steps": [
-    "Obligationen aufbauen: ca. CHF 285'000",
+    "Obligationen aufbauen: ca. CHF 303'700",
     "Aktien reduzieren: ca. CHF 200'000",
-    "Liquiditaet reduzieren: ca. CHF 75'000",
-    "Alternative reduzieren: ca. CHF 10'000"
+    "Liquiditaet reduzieren: ca. CHF 78'400",
+    "Alternative reduzieren: ca. CHF 25'300"
   ],
   "positions": [
     {
@@ -21,8 +21,8 @@
         "Obligationen CHF IG"
       ],
       "sub_asset_class": "Obligationen CHF IG",
-      "target_amount_rappen": 26585000,
-      "target_weight_bps": 5317,
+      "target_amount_rappen": 27725000,
+      "target_weight_bps": 5545,
       "ter_bps": 32
     },
     {
@@ -35,8 +35,8 @@
         "Geldmarktfonds"
       ],
       "sub_asset_class": "Geldmarktfonds",
-      "target_amount_rappen": 2500000,
-      "target_weight_bps": 500,
+      "target_amount_rappen": 2160000,
+      "target_weight_bps": 432,
       "ter_bps": 8
     },
     {
@@ -49,8 +49,8 @@
         "Gold / Rohstoffe"
       ],
       "sub_asset_class": "Gold / Rohstoffe",
-      "target_amount_rappen": 4000000,
-      "target_weight_bps": 800,
+      "target_amount_rappen": 2470000,
+      "target_weight_bps": 494,
       "ter_bps": 40
     },
     {
@@ -63,8 +63,8 @@
         "Obligationen Global Hedged"
       ],
       "sub_asset_class": "Obligationen Global Hedged",
-      "target_amount_rappen": 16915000,
-      "target_weight_bps": 3383,
+      "target_amount_rappen": 17645000,
+      "target_weight_bps": 3529,
       "ter_bps": 10
     }
   ],
@@ -74,25 +74,25 @@
       "asset_class": "Alternative",
       "rationale": "Standardbaustein fuer Alternative Anlagen",
       "sub_asset_class": "Gold / Rohstoffe",
-      "target_weight_bps": 800
+      "target_weight_bps": 494
     },
     {
       "asset_class": "Liquiditaet",
       "rationale": "Liquiditaetsreserve gemaess Mandatsvorgabe",
       "sub_asset_class": "Geldmarktfonds",
-      "target_weight_bps": 500
+      "target_weight_bps": 432
     },
     {
       "asset_class": "Obligationen",
       "rationale": "Langfristiger CHF-Kern",
       "sub_asset_class": "Obligationen CHF IG",
-      "target_weight_bps": 5317
+      "target_weight_bps": 5545
     },
     {
       "asset_class": "Obligationen",
       "rationale": "Globale Diversifikation",
       "sub_asset_class": "Obligationen Global Hedged",
-      "target_weight_bps": 3383
+      "target_weight_bps": 3529
     }
   ],
   "target_allocation": {
@@ -120,8 +120,8 @@
       ]
     },
     "engine_version": "stochastic_core_v2",
-    "expected_return_bps": 205,
-    "expected_volatility_bps": 341,
+    "expected_return_bps": 209,
+    "expected_volatility_bps": 348,
     "external_reserve_rappen": 0,
     "house_matrix_profile": "Defensiv",
     "investable_advisory_wealth_rappen": 50000000,
@@ -129,13 +129,13 @@
     "optimization_method": "stochastic",
     "optimization_status": "converged",
     "reserve_needed_rappen": 0,
-    "risky_fraction_bps": 2549,
+    "risky_fraction_bps": 2386,
     "score_bucket": 3,
     "targets_bps": {
-      "alternatives": 800,
-      "bonds": 8700,
+      "alternatives": 494,
+      "bonds": 9074,
       "equities": 0,
-      "liquidity": 500,
+      "liquidity": 432,
       "real_estate": 0
     }
   },
@@ -144,8 +144,8 @@
     "advisory_wealth_rappen": 50000000,
     "average_ter_bps": 24,
     "average_ter_coverage_bps": 10000,
-    "expected_return_bps": 205,
-    "expected_volatility_bps": 341,
+    "expected_return_bps": 209,
+    "expected_volatility_bps": 348,
     "investable_advisory_wealth_rappen": 50000000,
     "missing_ter_positions_count": 0,
     "sum_target_amount_rappen": 50000000,

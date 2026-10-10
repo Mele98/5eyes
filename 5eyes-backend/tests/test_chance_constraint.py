@@ -29,6 +29,7 @@ from models.mandates import Mandate
 from models.profiling import RiskAssessment
 from models.users import User
 from models.wealth import Goal, WealthPosition
+from services.optimizer.certification import wilson_lower_bound
 from services.optimizer.goal_liabilities import GoalLiability
 from services.optimizer.objective import chance_constraint_penalty, goal_probability_per_path
 from services.optimizer.solver import OptimizerResult
@@ -90,7 +91,18 @@ def test_chance_penalty_full_shortfall_matches_lambda_tau_squared():
     assert penalty == pytest.approx(1_000_000.0 * 0.8 * 0.8)
 
 
-def test_chance_penalty_zero_when_probability_equals_tau():
+def test_exact_tau_boundary_is_not_certified_and_carries_penalty():
+    """OPTIMIZER-POST-SELECTION-CERTIFICATION-001 (2026-10-10): hiess
+    frueher `test_chance_penalty_zero_when_probability_equals_tau` und
+    forderte genau die Regel, die der Befund als falsch nachweist --
+    p_hat == tau wurde als "erreichbar" mit Strafe 0 zertifiziert.
+
+    Bei p_hat == tau liegt die WAHRE Wahrscheinlichkeit mit rund 50 Prozent
+    unter der Schwelle; das ist keine Zertifizierungsgrundlage. Zertifiziert
+    wird jetzt gegen die einseitige untere Wilson-Grenze, und die Strafe
+    haengt ebenfalls daran -- sonst wuerde der Solver weiter gegen den
+    rauschbehafteten Punktschaetzer optimieren.
+    """
     wealth_paths = np.full((2000, 11), 50_000_00, dtype=np.float64)
     wealth_paths[:1600, 5] = 100_000_00
     penalty, rows = chance_constraint_penalty(
@@ -98,7 +110,36 @@ def test_chance_penalty_zero_when_probability_equals_tau():
         [_liability(target_amount_rappen=100_000_00, tau_x100=8000)],
         initial_value_rappen=100_000_00,
     )
+    # Der Punktschaetzer selbst ist unveraendert -- nur seine Auslegung.
     assert rows[0]["probability"] == pytest.approx(0.8)
+
+    expected_lower_bound = wilson_lower_bound(0.8, 2000)
+    assert expected_lower_bound < 0.8, "Testaufbau: Grenze muss unter tau liegen"
+    assert rows[0]["lower_confidence_bound"] == pytest.approx(expected_lower_bound)
+
+    assert rows[0]["status"] == "knapp"
+    assert rows[0]["reliability_verdict"] == "uncertain_finite_sample"
+
+    expected_shortfall = 0.8 - expected_lower_bound
+    assert penalty == pytest.approx(1_000_000.0 * expected_shortfall ** 2)
+    assert penalty > 0.0
+
+
+def test_clearly_above_tau_is_certified_with_zero_penalty():
+    """Positivkontrolle zum Test oben: liegt der Punktschaetzer deutlich
+    ueber der Schwelle (hier 0.95 gegen tau 0.80), haelt auch die untere
+    Grenze -- dann bleibt es "erreichbar" mit Strafe 0. Die neue Regel ist
+    also keine pauschale Verschaerfung, sie verlangt nur echten Abstand zur
+    Schwelle."""
+    wealth_paths = np.full((2000, 11), 50_000_00, dtype=np.float64)
+    wealth_paths[:1900, 5] = 100_000_00
+    penalty, rows = chance_constraint_penalty(
+        wealth_paths,
+        [_liability(target_amount_rappen=100_000_00, tau_x100=8000)],
+        initial_value_rappen=100_000_00,
+    )
+    assert rows[0]["probability"] == pytest.approx(0.95)
+    assert wilson_lower_bound(0.95, 2000) >= 0.8
     assert rows[0]["status"] == "erreichbar"
     assert penalty == pytest.approx(0.0)
 
