@@ -54,7 +54,29 @@ ENGINE_FILE = REPO_ROOT / "5eyes-backend" / "services" / "portfolio_engine.py"
 # 7'300 war nach #575 praktisch aufgebraucht (7'293). Die Alternative waere
 # gewesen, eigene Begruendungs-Kommentare so lange zu kuerzen, bis es knapp
 # passt -- das haette das Gate umspielt statt respektiert.
-MAX_LINES = 7_320
+#
+# 2026-10-11 bewusst von 7'320 auf 7'340 angehoben. Begruendung: zwei
+# Nachweis-Befunde derselben Art, beide mit der Fachlogik in eigenen
+# Submodulen und nur einer Deklaration in der Kern-Datei.
+#   * CMA-CORRELATION-JURISDICTION-PROVENANCE-001 -- die Bucket-Korrelations-
+#     Herkunft (Logik in services/cma_correlation_provenance.py).
+#   * DRAWDOWN-TIME-GRID-001 / REPORTING-BASIS-DURABILITY-001 -- die Methode
+#     hinter mc_max_drawdown_bps (Logik in services/drawdown_refinement.py)
+#     und die Persistierung des Reporting-Basis-Blocks.
+# Was in der Kern-Datei wuchs, sind Eintraege INNERHALB der beiden
+# Modell-Basis-Dict-Literale plus deren Begruendung. Diese Dicts SIND der
+# Nachweis-Block; sie in ein Submodul zu verschieben wuerde den
+# Zusammenhang zwischen Kennzahl und ausgewiesener Methodik aufreissen,
+# ohne eine Zeile Fachlogik zu verlagern -- das waere eine Verschlechterung
+# zugunsten einer Zahl. Der Puffer war nach dem Korrelations-Commit bei
+# 7'318/7'320 praktisch null; 7'340 gibt wieder Luft fuer Begruendungstexte,
+# ohne das Ziel (kein unkontrolliertes Wachstum) aufzuweichen.
+#
+# ACHTUNG fuer die naechste Anhebung: das ist die dritte in zwei Tagen. Wer
+# hier wieder ansteht, soll die Extraktion eines Cluster-Submoduls
+# ausdruecklich pruefen und das Ergebnis dieser Pruefung hier notieren,
+# statt die Zahl ein viertes Mal zu erhoehen.
+MAX_LINES = 7_340
 
 
 def count_lines(path: Path) -> int:

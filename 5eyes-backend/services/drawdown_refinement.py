@@ -151,6 +151,24 @@ class DrawdownRefinement:
         return self.sub_steps > 1 and self.log_volatility > 0.0
 
 
+def drawdown_time_grid_basis(sub_steps: int = WEEKLY_SUB_STEPS) -> dict[str, Any]:
+    """Methodenbeschreibung fuer den Modell-Basis-Block.
+
+    Die Kennzahl selbst (``mc_max_drawdown_bps``) wird auf der
+    TargetAllocation persistiert, ihre Methode gehoerte bisher nirgendwohin:
+    die Nachweis-Felder im ``monte_carlo``-Payload sind live und ueberleben
+    den Reload nicht. Ein Jahr spaeter waere an einem gespeicherten Wert nicht
+    mehr erkennbar, auf welchem Zeitgitter er entstanden ist -- und die
+    Korrektur dieses Gitters bewegt die Zahl um 3 bis 10 Prozentpunkte.
+    """
+    return {
+        "model_version": DRAWDOWN_REFINEMENT_MODEL_VERSION,
+        "sub_steps_per_year": int(sub_steps),
+        "method": "brownian_bridge_refinement_of_annual_nodes",
+        "volatility_source": "pooled_cross_path_annual_log_increments",
+    }
+
+
 def bridge_seed(seed: int) -> int:
     """Leitet den unabhaengigen Bruecken-Seed vom Haupt-Seed ab.
 

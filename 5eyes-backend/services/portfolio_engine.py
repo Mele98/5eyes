@@ -39,6 +39,7 @@ from price_updater import latest_price_snapshot, parse_iso_date, summarize_price
 from services.allocation_messages import WARN_FALLBACK, classify_messages, format_message
 from services.calendar_horizon import add_calendar_years, calendar_years_until
 from services.cma_correlation_provenance import bucket_correlation_provenance
+from services.drawdown_refinement import drawdown_time_grid_basis
 from services.goal_semantics import GoalInputError, validate_goal_model_input
 from services.cashflow_timeline import (
     SUPPORTED_FREQUENCIES,
@@ -3101,6 +3102,8 @@ def _build_allocation_model_basis(
             # Entscheidungskanal -- gemeinsame Momentquelle beider Kanaele.
             "sub_class_intra_correlation_x100": _sub_class_intra_correlation_x100(),
             "bucket_correlation": bucket_correlation,
+            # DRAWDOWN-TIME-GRID-001: Methode hinter mc_max_drawdown_bps.
+            "max_drawdown_time_grid": drawdown_time_grid_basis(),
             "foundation_model_version": "external_foundation_v2",
             "total_scope_goal_basis": "exact_total_projection_path_v2",
             "indirect_amortization_treatment": "pledged_asset_transfer_v1",
@@ -4315,6 +4318,14 @@ def generate_target_allocation(
         # allocation. Reconstructing these fields from today's settings would
         # silently change seed/path/tax/IS disclosures on reload.
         "optimization_model_basis": dict(model_basis["optimization"]),
+        # REPORTING-BASIS-DURABILITY-001: derselbe Grund wie eine Zeile hoeher,
+        # aber fuer den Projektionskanal. Die Reporting-Kennzahlen werden auf
+        # der Zeile persistiert (mc_max_drawdown_bps, mc_var_95_bps, ...), ihre
+        # Methodik -- Tail-Modell, Rebalancing-Modus, Transaktionskosten,
+        # Stress-Multiplikator, Zeitgitter des Drawdown -- lebte nur im
+        # Live-Payload. Ein gespeicherter Wert war damit nicht mehr
+        # interpretierbar, und genau diese Methodik verschiebt ihn erheblich.
+        "reporting_model_basis": dict(model_basis["reporting"]),
     }
     effective_constraints_json = json.dumps(
         effective_constraints_payload,
