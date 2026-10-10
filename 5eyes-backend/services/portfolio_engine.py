@@ -2852,6 +2852,20 @@ def _compute_input_snapshot_hash(
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
+def _sub_class_intra_correlation_x100() -> int:
+    """Die effektiv wirksame Intra-Bucket-Korrelation als Ganzzahl (rho * 100).
+
+    SUBRISK-CONTEXT-REPLAY-001 (2026-10-10): wird in die Evidenz-Hashes
+    gebunden (Modellbasis beider Kanaele, transitiv
+    allocation_context_hash, und der Sensitivitaets-model_input_hash).
+    Ganzzahl statt Float, damit die Hash-Serialisierung nicht von der
+    Float-Repraesentation abhaengt; der Wert ist per config-Validator auf
+    [0.0, 1.0] begrenzt, zwei Dezimalstellen sind also verlustfrei genug
+    fuer die Unterscheidbarkeit zweier Laeufe.
+    """
+    return int(round(float(getattr(settings, "sub_class_intra_correlation", 1.0)) * 100))
+
+
 def _build_allocation_model_basis(
     *,
     optimizer_mode: str,
@@ -3022,6 +3036,18 @@ def _build_allocation_model_basis(
             "tail_calibration": (
                 "bounded_cornish_fisher_gauss_hermite_v2"
             ),
+            # SUBRISK-CONTEXT-REPLAY-001 (2026-10-10): die globale
+            # Intra-Bucket-Korrelation veraendert die effektive Bucket-
+            # Volatilitaet materiell (bei zwei 50/50-Aktien-Sub-Klassen rund
+            # 40 Prozent Spanne zwischen rho=1.0 und rho=0.0, siehe
+            # _weighted_bucket_metrics). Sie lebt auf dem globalen Settings-
+            # Objekt, NICHT auf der CMA-Zeile -- und wurde deshalb von keinem
+            # der Evidenz-Hashes erfasst. Zwei Laeufe mit verschiedenen
+            # Korrelationsannahmen waren im Audit-Trail nicht
+            # unterscheidbar, obwohl der Solver unter anderem Risiko
+            # entschied. Als skalierte Ganzzahl gebunden, damit die
+            # Hash-Serialisierung nicht von Float-Repr abhaengt.
+            "sub_class_intra_correlation_x100": _sub_class_intra_correlation_x100(),
             "foundation_model_version": "external_foundation_v2",
             "external_property_goal_basis": (
                 "inflation_zero_real_plus_exact_liability_and_pledged_transfer_v2"
@@ -3084,6 +3110,11 @@ def _build_allocation_model_basis(
                 if reporting_tail
                 else "not_applicable"
             ),
+            # SUBRISK-CONTEXT-REPLAY-001: dieselbe Bindung wie im
+            # Entscheidungskanal oben -- _weighted_bucket_metrics() ist die
+            # gemeinsame Momentquelle beider Kanaele, die Korrelations-
+            # annahme wirkt also auch auf die Reporting-Projektion.
+            "sub_class_intra_correlation_x100": _sub_class_intra_correlation_x100(),
             "foundation_model_version": "external_foundation_v2",
             "total_scope_goal_basis": "exact_total_projection_path_v2",
             "indirect_amortization_treatment": "pledged_asset_transfer_v1",
@@ -5578,6 +5609,13 @@ def evaluate_goal_sensitivity(
             "version": "sensitivity_live_context_v3_complete",
             "goal_weighting_mode": sensitivity_goal_weighting_mode,
             "cma": cma_snapshot,
+            # SUBRISK-CONTEXT-REPLAY-001 (2026-10-10): die Intra-Bucket-
+            # Korrelation lebt auf dem globalen Settings-Objekt, NICHT auf der
+            # CMA-Zeile -- `cma_snapshot` oben kann sie also nicht abdecken.
+            # Ohne diese Bindung verifizierte ein Sensitivitaets-Rerun seine
+            # Modellbasis erfolgreich, obwohl er mit einem anderen
+            # Bucket-Risiko gerechnet haette.
+            "sub_class_intra_correlation_x100": _sub_class_intra_correlation_x100(),
             "seed": int(pinned_seed),
             "scenario_horizon_years": int(projection_horizon),
             "horizon_years": int(run_horizon),
