@@ -49,8 +49,18 @@ from services.portfolio_engine import (  # noqa: E402
     ensure_hedged_product_variants,
 )
 
-# Die 10 Sub-Asset-Classes, die vor dem Fix ausschliesslich unhedged
+# Die Sub-Asset-Classes, die vor dem Fix ausschliesslich unhedged
 # (USD/EUR) Produkte im Default-Katalog hatten.
+#
+# HEDGED-ALKOHOL-GAP-001 (2026-10-10): "Thema Alkohol" fehlte in dieser
+# Liste, obwohl sein einziges Katalogprodukt ("Global Beverage Leaders ETF",
+# Amundi, EUR) genau dieselbe Eigenschaft hat wie die anderen fuenf Themen.
+# Der Test unten konnte die Luecke deshalb nie melden -- seine eigene
+# Erwartungsliste hatte denselben blinden Fleck wie der Katalog. Folge:
+# bei hedgingRequired=true hat "Thema Alkohol" NULL waehlbare Produkte, und
+# seit CERT-PRODUCT-ELIGIBILITY-001 (fail-closed, kein Relaxations-Fallback
+# mehr) bricht Generate fuer dieses Thema dann hart ab statt still ein
+# unpassendes Produkt zu nehmen.
 AFFECTED_SUB_ASSET_CLASSES = [
     "Aktien Global",
     "Aktien Europa",
@@ -58,6 +68,7 @@ AFFECTED_SUB_ASSET_CLASSES = [
     "Thema Verteidigung",
     "Thema Fossile Energie",
     "Thema Tabak",
+    "Thema Alkohol",
     "Thema Gluecksspiel",
     "Thema Kernenergie",
     "Obligationen Emerging",
@@ -79,6 +90,17 @@ def session_factory():
         engine.dispose()
 
 
+@pytest.mark.xfail(
+    reason=(
+        "HEDGED-ALKOHOL-GAP-001 (offen): 'Thema Alkohol' hat kein CHF-gehedgtes "
+        "Pendant im Default-Katalog. Der Fix ist KEINE Engineering-Entscheidung "
+        "-- es braucht einen real existierenden, investierbaren CHF-gehedgten "
+        "Fonds (Name/Anbieter/TER/SFDR), den Beratung/Compliance benennen muss. "
+        "Bis dahin: bei hedgingRequired=true hat dieses Thema null waehlbare "
+        "Produkte. Siehe Kommentar bei AFFECTED_SUB_ASSET_CLASSES."
+    ),
+    strict=True,
+)
 def test_hedged_product_variants_cover_all_affected_sub_asset_classes():
     covered = {entry[4] for entry in HEDGED_PRODUCT_VARIANTS}
     missing = [cls for cls in AFFECTED_SUB_ASSET_CLASSES if cls not in covered]
@@ -138,7 +160,22 @@ def test_backfill_is_idempotent(session_factory):
         assert after == before
 
 
-@pytest.mark.parametrize("sub_asset_class", AFFECTED_SUB_ASSET_CLASSES)
+@pytest.mark.parametrize("sub_asset_class", [
+    pytest.param(
+        cls,
+        marks=pytest.mark.xfail(
+            reason=(
+                "HEDGED-ALKOHOL-GAP-001 (offen): kein CHF-gehedgter Fonds fuer "
+                "'Thema Alkohol' im Katalog -- braucht einen real existierenden "
+                "Fonds von Beratung/Compliance, keine Engineering-Entscheidung. "
+                "Dieser Fall beweist die praktische Auswirkung: bei "
+                "hedgingRequired=true findet die Selektion null Produkte."
+            ),
+            strict=True,
+        ),
+    ) if cls == "Thema Alkohol" else cls
+    for cls in AFFECTED_SUB_ASSET_CLASSES
+])
 def test_hedging_required_selects_hedged_product_not_fallback(session_factory, sub_asset_class):
     """End-to-End-Kern des Bugs: mit hedgingRequired=true muss die exakte
     Sub-Asset-Class ein Produkt finden, das die Constraint-Pruefung besteht
