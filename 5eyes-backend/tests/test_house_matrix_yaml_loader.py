@@ -8,7 +8,8 @@ anpassen.
 
 Post-U-44
 ---------
-- config/house_matrix_defaults.yaml mit allen 6 Profilen
+- config/house_matrix_defaults.yaml mit allen 7 Profilen (Defensiv seit
+  CERT-PRODUCT-ELIGIBILITY-001, 2026-10-10, als 2 Zeilen)
 - services/house_matrix_loader.py mit load_house_matrix_default_tuples()
 - Fallback auf Hardcoded bei YAML-Fehler / Missing-File
 - Identitaets-Tests: YAML == Hardcoded (Drift-Schutz)
@@ -52,8 +53,9 @@ def test_yaml_fields_order_matches_hardcoded():
     assert HOUSE_MATRIX_YAML_FIELDS[-2:] == expected_end
 
 
-def test_hardcoded_fallback_has_6_profiles():
-    assert len(_HARDCODED_FALLBACK) == 6
+def test_hardcoded_fallback_has_7_profiles():
+    # CERT-PRODUCT-ELIGIBILITY-001 (2026-10-10, Befund B): Defensiv ist 2 Zeilen.
+    assert len(_HARDCODED_FALLBACK) == 7
 
 
 def test_hardcoded_fallback_each_profile_has_20_values():
@@ -63,7 +65,7 @@ def test_hardcoded_fallback_each_profile_has_20_values():
 
 def test_hardcoded_fallback_profile_names():
     expected = (
-        "Kapitalschutz", "Defensiv", "Ausgewogen",
+        "Kapitalschutz", "Defensiv", "Defensiv", "Ausgewogen",
         "Wachstumsorientiert", "Dynamisch", "Aktien",
     )
     actual = tuple(p[2] for p in _HARDCODED_FALLBACK)
@@ -79,9 +81,9 @@ def test_default_yaml_exists():
     assert _default_yaml_path().exists()
 
 
-def test_yaml_loads_6_profiles():
+def test_yaml_loads_7_profiles():
     tuples = load_house_matrix_default_tuples()
-    assert len(tuples) == 6
+    assert len(tuples) == 7
 
 
 def test_yaml_each_profile_has_20_values():
@@ -145,7 +147,7 @@ def test_yaml_without_profiles_key_falls_back(tmp_path):
 
 
 def test_yaml_wrong_profile_count_falls_back(tmp_path):
-    """5 Profile statt 6 -> fallback."""
+    """5 Profile statt 7 -> fallback."""
     bad = tmp_path / "five.yaml"
     bad.write_text(
         "profiles:\n  - name: a\n  - name: b\n  - name: c\n  - name: d\n  - name: e",
@@ -161,7 +163,7 @@ def test_yaml_missing_field_falls_back(tmp_path):
     yaml_content = """\
 profiles:
 """
-    for _ in range(6):
+    for _ in range(7):
         yaml_content += "  - name: x\n"
     bad.write_text(yaml_content, encoding="utf-8")
     tuples = load_house_matrix_default_tuples(bad)

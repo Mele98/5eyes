@@ -104,7 +104,15 @@ def _load_default_house_matrix():
             f"HouseMatrix-Tuple muss 20 Felder haben (war {len(tup)}): {tup}"
         )
         rows.append(tup)
-    assert len(rows) == 6, f"Erwartet 6 HM-Profile, gefunden {len(rows)}"
+    # CERT-PRODUCT-ELIGIBILITY-001 (2026-10-10, Befund B): "Defensiv" (3-4)
+    # ist jetzt in zwei Einzel-Score-Zeilen (3) und (4) aufgeteilt, weil
+    # Aktien/Immobilien erst ab Score 4 suitability-geeignet sind (siehe
+    # services/product_eligibility.py::default_product_risk_band()) --
+    # Score 3 und Score 4 in EINER Zeile hätten denselben Aktien-/Immobilien-
+    # Zielanteil bekommen, obwohl nur Score 4 ihn ueberhaupt halten darf.
+    # Beide Zeilen tragen weiterhin denselben Profilnamen "Defensiv" und
+    # denselben Cap -- daher 7 Zeilen, nicht mehr 6.
+    assert len(rows) == 7, f"Erwartet 7 HM-Profile (Defensiv jetzt 2 Zeilen), gefunden {len(rows)}"
     return rows
 
 
@@ -142,11 +150,18 @@ EXPECTED_CAPS = {
 }
 
 
+EXPECTED_PROFILE_SEQUENCE = [
+    "Kapitalschutz", "Defensiv", "Defensiv", "Ausgewogen",
+    "Wachstumsorientiert", "Dynamisch", "Aktien",
+]
+
+
 def test_house_matrix_defaults_loaded():
-    """Smoke-Test: 6 Profile, Schema korrekt, Namen wie erwartet."""
+    """Smoke-Test: 7 Zeilen (Defensiv doppelt, Score 3 und 4 getrennt),
+    Schema korrekt, Namen wie erwartet."""
     rows = _load_default_house_matrix()
     names = [r[2] for r in rows]
-    assert names == list(EXPECTED_CAPS.keys()), (
+    assert names == EXPECTED_PROFILE_SEQUENCE, (
         f"HouseMatrix-Profile in falscher Reihenfolge oder umbenannt: {names}"
     )
 
@@ -166,17 +181,20 @@ def test_house_matrix_caps_match_asip_convention():
     )
 
 
-@pytest.mark.parametrize("profile_name", list(EXPECTED_CAPS.keys()))
-def test_mid_risky_fraction_fits_within_cap_plus_tolerance(profile_name):
-    """Pro Profil: Mid-Allocation × BB-Risky-Fractions <= Cap + Toleranz.
+@pytest.mark.parametrize("row_index", range(len(EXPECTED_PROFILE_SEQUENCE)))
+def test_mid_risky_fraction_fits_within_cap_plus_tolerance(row_index):
+    """Pro HM-ZEILE (nicht nur pro eindeutigem Profilnamen -- "Defensiv"
+    hat seit Befund B zwei Zeilen mit unterschiedlichen Zielanteilen, siehe
+    EXPECTED_PROFILE_SEQUENCE): Mid-Allocation x BB-Risky-Fractions <= Cap +
+    Toleranz.
 
     Wenn die HM-Mid-Targets verschoben werden, ohne den Cap nachzuziehen,
     schlägt dieser Test fehl. Das verhindert dass der Engine in den
     Liquiditäts-Notfall-Cascade läuft (siehe _SAA_LIQUIDITY_HARD_CAP_BPS).
     """
     rows = _load_default_house_matrix()
-    row = next((r for r in rows if r[2] == profile_name), None)
-    assert row is not None, f"HM-Profil {profile_name!r} fehlt"
+    row = rows[row_index]
+    profile_name = row[2]
 
     mid_risky = _compute_mid_risky_bps(row)
     cap = row[18]
@@ -184,7 +202,7 @@ def test_mid_risky_fraction_fits_within_cap_plus_tolerance(profile_name):
     limit = cap + tolerance
 
     assert mid_risky <= limit, (
-        f"HouseMatrix-{profile_name}: Mid-Risky {mid_risky} bps > "
+        f"HouseMatrix-{profile_name} (Score {row[0]}-{row[1]}): Mid-Risky {mid_risky} bps > "
         f"Cap {cap} bps (+ Toleranz {tolerance} bps = {limit}).\n"
         f"Engine wird auf Liquiditaets-Cascade fallen.\n"
         f"Fix: entweder Cap anheben (U-P23.2/3-Pattern) ODER Mid-Targets "

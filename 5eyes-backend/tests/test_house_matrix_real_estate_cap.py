@@ -19,9 +19,32 @@ from services.portfolio_engine import _baseline_target_bands  # noqa: E402
 
 
 def test_all_default_profiles_allow_up_to_twenty_percent_real_estate():
+    """Owner-Entscheid 2026-06-14 gilt fuer jedes Profil, fuer das
+    ueberhaupt ein suitability-geeignetes Immobilien-Produkt existieren
+    kann. CERT-PRODUCT-ELIGIBILITY-001 (2026-10-10, Befund B) stellte fest,
+    dass Immobilien (wie Aktien) erst ab Score 4 geeignet ist (siehe
+    services/product_eligibility.py::default_product_risk_band()) --
+    Kapitalschutz (Score 1-2) und die Defensiv-Zeile fuer Score 3 bekommen
+    deshalb bewusst real_estate_max_bps=0 statt 2000: ein 20%-Band, das nie
+    mit einem eligible Produkt gefuellt werden kann, ist keine echte
+    Flexibilitaet, sondern eine garantierte Produktselektions-Luecke."""
     yaml_defaults = load_house_matrix_default_tuples()
-    assert all(profile[14] == 2000 for profile in yaml_defaults)
-    assert all(profile[14] == 2000 for profile in _HARDCODED_FALLBACK)
+    no_eligible_re_product = {(1, 2), (3, 3)}  # score_from, score_to
+    for profile in yaml_defaults:
+        score_range = (profile[0], profile[1])
+        if score_range in no_eligible_re_product:
+            assert profile[14] == 0, (
+                f"{profile[2]} (Score {score_range}) sollte real_estate_max_bps=0 haben "
+                f"(kein eligible Immobilien-Produkt unterhalb Score 4)."
+            )
+        else:
+            assert profile[14] == 2000, (
+                f"{profile[2]} (Score {score_range}) sollte real_estate_max_bps=2000 haben."
+            )
+    for profile in _HARDCODED_FALLBACK:
+        score_range = (profile[0], profile[1])
+        expected = 0 if score_range in no_eligible_re_product else 2000
+        assert profile[14] == expected
 
 
 def test_twenty_percent_is_a_band_cap_not_a_forced_target():

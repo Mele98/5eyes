@@ -170,6 +170,18 @@ def _seed_de_products_and_universe(s, *, tenant_id: str) -> None:
             id=f"pue-{tenant_id}-{pid}", tenant_id=tenant_id, jurisdiction=DE_CODE,
             product_id=pid, created_by="system:test", created_at=now, updated_at=now,
         ))
+    s.flush()
+    # CERT-PRODUCT-ELIGIBILITY-001 (2026-10-09): see the identical note in
+    # test_engine_de_jurisdiction_wiring.py::_seed_de_mandate() -- this
+    # fixture predates the fail-closed eligibility gate, so it needs the
+    # same one-time backfill a real DE tenant would have run.
+    from services.product_eligibility_unclassified_backfill import (
+        classify_and_backfill_unclassified_products,
+    )
+    classify_and_backfill_unclassified_products(
+        s, jurisdiction_fallback=DE_CODE, authored_by=f"backfill-authorizer-{tenant_id}",
+        dry_run=False, now=now,
+    )
 
 
 def _seed_de_building_blocks(s, policy_id: str) -> None:

@@ -765,6 +765,23 @@ class ProductCreate(BaseModel):
     credit_rating: Optional[str] = None
     esg_score_x10: Optional[int] = Field(default=None, ge=0, le=1000)
     liquidity_tier: Optional[str] = None
+    # CERT-PRODUCT-ELIGIBILITY-001 (2026-10-09): ein Custom-Produkt ohne
+    # jede Risikoband-Einstufung wird von generate_recommendation_run()
+    # fail-closed als `indeterminate` behandelt und nie ausgewaehlt (siehe
+    # services/product_eligibility.py, author_tenant_product_rule()) --
+    # das Fondsuniversum-Erfassung-Formular muss also ab sofort eine echte
+    # fachliche Einstufung einholen, bevor das Produkt in Generate landen
+    # kann. KEIN Default auf "passt fuer alle" -- genau das war die
+    # urspruengliche Luecke, die dieses Zertifizierungspaket schliesst.
+    suitability_profile_from: int = Field(ge=1, le=10)
+    suitability_profile_to: int = Field(ge=1, le=10)
+    suitability_service_modes: list[Literal[
+        "investment_advice", "portfolio_management", "financial_planning", "reporting_only",
+    ]] = Field(default_factory=lambda: ["investment_advice", "portfolio_management"])
+    suitability_prohibited: bool = False
+    suitability_requires_appropriateness: bool = False
+    suitability_requires_override: bool = False
+    suitability_max_position_bps: Optional[int] = Field(default=None, ge=0, le=10000)
 
     @field_validator("country_exposure_json", "sector_exposure_json", "currency_exposure_json")
     @classmethod
@@ -780,6 +797,20 @@ class ProductCreate(BaseModel):
     @classmethod
     def _validate_credit_rating_field(cls, v):
         return _validate_credit_rating(v)
+
+    @model_validator(mode="after")
+    def _validate_suitability_band(self):
+        if self.suitability_profile_to < self.suitability_profile_from:
+            raise ValueError(
+                "suitability_profile_to darf nicht kleiner als "
+                "suitability_profile_from sein."
+            )
+        if not self.suitability_prohibited and not self.suitability_service_modes:
+            raise ValueError(
+                "suitability_service_modes darf nur leer sein, wenn "
+                "suitability_prohibited=true gesetzt ist."
+            )
+        return self
 
 
 class ProductUpdate(BaseModel):

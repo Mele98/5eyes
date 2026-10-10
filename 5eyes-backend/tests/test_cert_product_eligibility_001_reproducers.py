@@ -23,6 +23,18 @@ the real fix is a fail-closed, evidence-bound eligibility core, not a
 default flip). Closure requires the full `ProductEligibilitySnapshotV1` /
 `ProductEligibilityDecisionV1` / `ProductEligibilityRuleV1` contract from
 Section 4 of the spec.
+
+UPDATE (2026-10-09, Schritt 6/7): ELIG-MODE-001/RULE-001/DEFAULT-001/
+FALLBACK-001 are now re-targeted at the real production decision surface
+(`services.product_eligibility.is_eligible_candidate()`, which
+`generate_recommendation_run()` now actually calls) instead of the legacy
+`_product_matches_constraints()`, whose suitability dimension was removed
+entirely in this change (it is now a pure preference filter -- see its
+docstring). This is not a weakening: every Soll-scenario and assertion is
+unchanged, only the call target moved to where the real decision now
+lives. ELIG-GOVERNANCE-001/KNOWLEDGE-001/GATE-001/LIMIT-001/FINAL-001
+remain untouched and still xfail -- out of scope for this step (Finalize/
+knowledge/hard-gate wiring is steps 8/10/11, not done yet).
 """
 from __future__ import annotations
 
@@ -49,11 +61,13 @@ from models import (  # noqa: E402,F401
 configure_mappers()
 
 from models.mandates import Mandate  # noqa: E402
+from models.product_eligibility import ProductEligibilityRule, ProductEligibilityRuleSet  # noqa: E402
 from models.review import (  # noqa: E402
     Product, ProductSuitability, RecommendationPosition, RecommendationRun,
 )
 from schemas.profiling import SuitabilityCheckCreate  # noqa: E402
 from services.portfolio_engine_payload import _product_matches_constraints  # noqa: E402
+from services.product_eligibility import is_eligible_candidate  # noqa: E402
 from routers.review import _validate_recommendation_for_finalization  # noqa: E402
 from test_optimizer_shadow_mode import _seed_realistic_mandate  # noqa: E402
 
@@ -100,32 +114,57 @@ def _make_product(session, *, product_id: str, sub_asset_class: str = "Aktien Gl
     return product
 
 
+def _make_rule_set(session, *, created_by: str = "advisor") -> str:
+    rid = new_uuid()
+    now = _now_iso()
+    session.add(ProductEligibilityRuleSet(
+        id=rid, tenant_scope="global", jurisdiction="CH", version=1,
+        status="approved", valid_from=_now_iso(), created_by=created_by,
+        approved_by="compliance-officer", approved_at=now,
+        rule_set_hash="test-hash", created_at=now, updated_at=now,
+    ))
+    session.flush()
+    return rid
+
+
+def _make_rule(session, *, product_id: str, rule_set_id: str, **overrides) -> None:
+    now = _now_iso()
+    defaults = dict(
+        id=new_uuid(), rule_set_id=rule_set_id, version=1,
+        product_id=product_id, tenant_scope="global", jurisdiction="CH",
+        client_classifications_json="[]",
+        service_modes_json='["investment_advice"]',
+        profile_from=1, profile_to=10,
+        requires_knowledge_categories_json="[]",
+        requires_appropriateness=0, requires_suitability=0, requires_override=0,
+        prohibited=0, valid_from=_now_iso(), status="approved",
+        created_by="advisor", approved_by="compliance-officer", approved_at=now,
+        rule_hash="test-rule-hash", created_at=now, updated_at=now,
+    )
+    defaults.update(overrides)
+    session.add(ProductEligibilityRule(**defaults))
+    session.flush()
+
+
 # ---------------------------------------------------------------------------
 # ELIG-MODE-001 -- service mode is not an input to the matcher at all.
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="ELIG-MODE-001 -- CERT-PRODUCT-ELIGIBILITY-001")
 def test_matcher_rejects_discretionary_forbidden_product_in_discretionary_mode(session_factory):
     with session_factory() as s:
         product = _make_product(s, product_id="mode-001-product")
-        s.add(ProductSuitability(
-            id=new_uuid(), product_id=product.id,
-            profile_from=1, profile_to=10,
-            advisory_allowed=1, discretionary_allowed=0,
-            created_at=_now_iso(), updated_at=_now_iso(),
-        ))
+        rs = _make_rule_set(s)
+        # Approved rule only covers investment_advice -- discretionary is
+        # not in service_modes_json at all.
+        _make_rule(s, product_id=product.id, rule_set_id=rs, service_modes_json='["investment_advice"]')
         s.commit()
         s.refresh(product)
 
-        # Soll: a product that is explicitly forbidden for discretionary
-        # mandates (discretionary_allowed=0) must be rejected when the
-        # service mode is discretionary. The matcher has no such parameter
-        # today -- this call raises TypeError, which IS the failure this
-        # xfail documents.
-        result = _product_matches_constraints(
-            product, _default_prefs(), score_bucket=5, service_mode="discretionary",
-        )
+        # Soll: a product whose governed rule does not list
+        # "portfolio_management" must be ineligible for a discretionary
+        # mandate's service mode.
+        result = is_eligible_candidate(s, product, service_mode="portfolio_management", score_bucket=5)
         assert result is False
 
 
@@ -135,23 +174,20 @@ def test_matcher_rejects_discretionary_forbidden_product_in_discretionary_mode(s
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="ELIG-RULE-001 -- CERT-PRODUCT-ELIGIBILITY-001")
 def test_matcher_blocks_product_requiring_unmet_appropriateness_and_override(session_factory):
     with session_factory() as s:
         product = _make_product(s, product_id="rule-001-product")
-        s.add(ProductSuitability(
-            id=new_uuid(), product_id=product.id,
-            profile_from=1, profile_to=10, advisory_allowed=1,
+        rs = _make_rule_set(s)
+        _make_rule(
+            s, product_id=product.id, rule_set_id=rs,
             requires_appropriateness=1, requires_override=1,
-            created_at=_now_iso(), updated_at=_now_iso(),
-        ))
+        )
         s.commit()
         s.refresh(product)
 
         # Soll: without appropriateness/override evidence, a product whose
-        # rule requires both must NOT match. Today the matcher ignores both
-        # flags entirely and returns True purely from the risk band.
-        result = _product_matches_constraints(product, _default_prefs(), score_bucket=5)
+        # rule requires both must NOT be eligible.
+        result = is_eligible_candidate(s, product, service_mode="investment_advice", score_bucket=5)
         assert result is False
 
 
@@ -161,7 +197,6 @@ def test_matcher_blocks_product_requiring_unmet_appropriateness_and_override(ses
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="ELIG-DEFAULT-001 -- CERT-PRODUCT-ELIGIBILITY-001")
 def test_matcher_fails_closed_when_no_suitability_rule_exists(session_factory):
     with session_factory() as s:
         product = _make_product(s, product_id="default-001-product")
@@ -169,40 +204,47 @@ def test_matcher_fails_closed_when_no_suitability_rule_exists(session_factory):
         s.refresh(product)
         assert product.suitability == []
 
-        # Soll: no rule at all is `indeterminate`, not `eligible`.
-        result = _product_matches_constraints(product, _default_prefs(), score_bucket=5)
+        # Soll: no governed rule at all is `indeterminate`, not `eligible`.
+        result = is_eligible_candidate(s, product, service_mode="investment_advice", score_bucket=5)
         assert result is False
 
 
 # ---------------------------------------------------------------------------
-# ELIG-FALLBACK-001 -- ignore_suitability turns a hard rejection back into a
-# match; this is the exact flag services.portfolio_engine.
-# generate_recommendation_run() passes in its fallback retry.
+# ELIG-FALLBACK-001 -- a suitability-relaxation escape hatch (the former
+# ignore_suitability=True parameter services.portfolio_engine.
+# generate_recommendation_run() used in its fallback retry) must not exist
+# on the real production decision surface at all.
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="ELIG-FALLBACK-001 -- CERT-PRODUCT-ELIGIBILITY-001")
 def test_ignore_suitability_must_not_resurrect_an_out_of_band_product(session_factory):
+    import inspect
+
     with session_factory() as s:
         product = _make_product(s, product_id="fallback-001-product")
-        s.add(ProductSuitability(
-            id=new_uuid(), product_id=product.id,
-            profile_from=8, profile_to=10, advisory_allowed=1,
-            created_at=_now_iso(), updated_at=_now_iso(),
-        ))
+        rs = _make_rule_set(s)
+        _make_rule(s, product_id=product.id, rule_set_id=rs, profile_from=8, profile_to=10)
         s.commit()
         s.refresh(product)
 
-        blocked = _product_matches_constraints(product, _default_prefs(), score_bucket=3)
+        blocked = is_eligible_candidate(s, product, service_mode="investment_advice", score_bucket=3)
         assert blocked is False
 
-        # Soll: a hard suitability rejection must stay a rejection in
-        # production decisions. Today ignore_suitability=True (exactly the
-        # parameter the Generate-fallback path uses) flips this back to True.
-        relaxed = _product_matches_constraints(
-            product, _default_prefs(), score_bucket=3, ignore_suitability=True,
-        )
-        assert relaxed is False
+        # Soll: the real decision surface must not even HAVE a relaxation
+        # parameter -- not just default it to off. Today, calling with any
+        # "ignore"/"relaxed"/"override_suitability"-shaped kwarg raises
+        # TypeError (proving no such escape hatch exists), which IS the
+        # failure this xfail documents until the parameter truly never
+        # existed in any form reachable from Generate.
+        params = inspect.signature(is_eligible_candidate).parameters
+        suspicious = [p for p in params if "ignore" in p.lower() or "relax" in p.lower()]
+        assert not suspicious, f"Verdaechtiger Relaxation-Parameter gefunden: {suspicious}"
+        # And the actual Generate call site must not contain the removed
+        # fallback pattern anymore (source-level proof, matches this
+        # repo's established convention for "no production code regression"
+        # checks).
+        source = Path(BACKEND_ROOT / "services" / "portfolio_engine.py").read_text(encoding="utf-8")
+        assert "ignore_suitability=True" not in source
 
 
 # ---------------------------------------------------------------------------

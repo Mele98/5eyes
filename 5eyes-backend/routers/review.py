@@ -1559,13 +1559,38 @@ def create_product(
                 detail=f"ISIN {body.isin} ist bereits einem Fonds zugeordnet.",
             )
     now = _now()
+    product_fields = body.model_dump(exclude={
+        "suitability_profile_from", "suitability_profile_to",
+        "suitability_service_modes", "suitability_prohibited",
+        "suitability_requires_appropriateness", "suitability_requires_override",
+        "suitability_max_position_bps",
+    })
     product = Product(
         id=new_uuid(), is_active=1,
         tenant_id=_resolve_tenant_id_for_user(current_user),
         created_at=now, updated_at=now,
-        **body.model_dump()
+        **product_fields
     )
     db.add(product)
+    db.flush()
+    # CERT-PRODUCT-ELIGIBILITY-001 (2026-10-09): ohne diese Zeile waere das
+    # frisch erfasste Produkt fuer generate_recommendation_run() sofort
+    # `indeterminate` und nie waehlbar -- siehe ProductCreate-Docstring in
+    # schemas/review.py und services/product_eligibility.py.
+    from services.product_eligibility import author_tenant_product_rule
+    author_tenant_product_rule(
+        db,
+        product=product,
+        created_by_user_id=current_user.id,
+        jurisdiction=product.jurisdiction or "CH",
+        profile_from=body.suitability_profile_from,
+        profile_to=body.suitability_profile_to,
+        service_modes=[] if body.suitability_prohibited else list(body.suitability_service_modes),
+        max_position_bps=body.suitability_max_position_bps,
+        requires_appropriateness=body.suitability_requires_appropriateness,
+        requires_override=body.suitability_requires_override,
+        now=now,
+    )
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="products", record_id=product.id, action="CREATE")
     db.commit()
@@ -1576,6 +1601,18 @@ def create_product(
 _PRODUCT_IMPORT_CSV_FIELDS = (
     "product_name", "provider", "product_type", "asset_class", "sub_asset_class",
     "currency", "isin", "symbol", "ter_bps", "sfdr_class", "esg_rating", "liquidity_tier",
+    # CERT-PRODUCT-ELIGIBILITY-001 (2026-10-09): ohne diese Spalten wuerde
+    # _normalize_csv_import_row() sie stillschweigend verwerfen und jede
+    # Zeile wuerde an ProductCreate's Pflichtfeldern scheitern (siehe
+    # create_product()-Docstring in schemas/review.py).
+    "suitability_profile_from", "suitability_profile_to", "suitability_service_modes",
+    "suitability_prohibited", "suitability_requires_appropriateness",
+    "suitability_requires_override", "suitability_max_position_bps",
+)
+_PRODUCT_IMPORT_SUITABILITY_FIELDS = (
+    "suitability_profile_from", "suitability_profile_to", "suitability_service_modes",
+    "suitability_prohibited", "suitability_requires_appropriateness",
+    "suitability_requires_override", "suitability_max_position_bps",
 )
 _PRODUCT_IMPORT_MAX_ROWS = 1000
 _PRODUCT_IMPORT_MAX_FILE_BYTES = 2 * 1024 * 1024
@@ -1607,6 +1644,13 @@ def _normalize_csv_import_row(raw: dict) -> dict:
             continue
         if isinstance(value, str):
             value = value.strip()
+        if field == "suitability_service_modes" and isinstance(value, str) and value:
+            # CSV-Zelle kann nur eine Liste nicht direkt abbilden -- Semikolon
+            # ODER Komma als Trenner zulassen (Komma ist bereits das
+            # Spalten-Trennzeichen bei Standard-CSV, daher Semikolon
+            # empfohlen; Komma wird fuer Semikolon-delimitierte Dateien --
+            # siehe import_products_csv() -- trotzdem unterstuetzt).
+            value = [part.strip() for part in value.replace(";", ",").split(",") if part.strip()]
         normalized[field] = value if value else None
     return normalized
 
@@ -1651,6 +1695,7 @@ def _import_products(rows: list[dict], db: Session, current_user: User) -> Produ
             ))
             continue
         payload = body.model_dump()
+        suitability = {k: payload.pop(k) for k in _PRODUCT_IMPORT_SUITABILITY_FIELDS}
         existing = None
         if payload.get("isin"):
             existing = db.query(Product).filter(
@@ -1710,6 +1755,24 @@ def _import_products(rows: list[dict], db: Session, current_user: User) -> Produ
             )
             db.add(product)
             db.flush()
+            # CERT-PRODUCT-ELIGIBILITY-001 (2026-10-09): siehe create_product()
+            from services.product_eligibility import author_tenant_product_rule
+            author_tenant_product_rule(
+                db,
+                product=product,
+                created_by_user_id=current_user.id,
+                jurisdiction=product.jurisdiction or "CH",
+                profile_from=suitability["suitability_profile_from"],
+                profile_to=suitability["suitability_profile_to"],
+                service_modes=(
+                    [] if suitability["suitability_prohibited"]
+                    else list(suitability["suitability_service_modes"])
+                ),
+                max_position_bps=suitability["suitability_max_position_bps"],
+                requires_appropriateness=suitability["suitability_requires_appropriateness"],
+                requires_override=suitability["suitability_requires_override"],
+                now=now,
+            )
             items.append(ProductImportResultItem(
                 row=idx, status="created", product_id=product.id, product_name=product.product_name,
             ))
@@ -1805,11 +1868,13 @@ def download_products_csv_template(
     header = ",".join(_PRODUCT_IMPORT_CSV_FIELDS)
     example_listed = (
         "Global Equity UCITS ETF,Beispiel Asset Management,Fonds,Aktien,"
-        "Global,CHF,IE00BEXAMPLE1,GEQC,25,8,AA,daily"
+        "Global,CHF,IE00BEXAMPLE1,GEQC,25,8,AA,daily,"
+        "4,10,investment_advice;portfolio_management,false,false,false,2500"
     )
     example_unlisted = (
         "Privatmarkt-Anlagestiftung,Beispiel Asset Management,Fonds,Alternative,"
-        "Private Equity,CHF,,,150,,,illiquid"
+        "Private Equity,CHF,,,150,,,illiquid,"
+        "7,10,investment_advice;portfolio_management,false,true,false,4000"
     )
     csv_content = "\n".join([header, example_listed, example_unlisted]) + "\n"
     return Response(

@@ -706,7 +706,6 @@ def _product_matches_constraints(
     prefs: dict,
     score_bucket: int,
     *,
-    ignore_suitability: bool = False,
     jurisdiction_ctx: dict | None = None,
 ) -> bool:
     """WP2 (Engine-Wiring Jurisdiktion, 2026-07-31): jurisdiction_ctx (siehe
@@ -714,7 +713,20 @@ def _product_matches_constraints(
     Pruefungen ueber home_currency statt hartcodiertem "CHF". Ohne
     jurisdiction_ctx (z.B. bestehende Aufrufer/Tests) wird
     _CH_JURISDICTION_CONTEXT verwendet -- home_currency="CHF", exakt das
-    bisherige Verhalten (Constraint 1: CH-Pfad byte-identisch)."""
+    bisherige Verhalten (Constraint 1: CH-Pfad byte-identisch).
+
+    CERT-PRODUCT-ELIGIBILITY-001 (2026-10-09, Schritt 6/7): dieser Filter
+    deckt ausschliesslich Anlagepraeferenzen ab (Universum, ESG, Hedging,
+    Leverage/Derivate/Struktur, CHF-only) -- NIE Eignung/Suitability. Die
+    fruehere score_bucket-/ProductSuitability-Pruefung und der
+    ignore_suitability-Relaxation-Pfad (Produktionsentscheid komplett ohne
+    Eignungspruefung) wurden entfernt und durch den zentralen, fail-closed
+    services.product_eligibility.evaluate_product_eligibility()-Kern
+    ersetzt -- siehe _eligible_candidates_for_generate() in
+    services/portfolio_engine.py, der diese Funktion UND den governed-rule-
+    Kern kombiniert aufruft. Ein hier "True" zurueckgegebenes Produkt ist
+    NICHT automatisch empfehlbar -- es hat lediglich die Praeferenzfilter
+    bestanden."""
     # Lazy Import (Zirkular-Import-Haertung, siehe Modul-Docstring).
     from services.portfolio_engine import _CH_JURISDICTION_CONTEXT, _norm_text
 
@@ -762,12 +774,6 @@ def _product_matches_constraints(
     ):
         if str(product.sfdr_class or "") not in ("8", "9"):
             return False
-    if product.suitability and not ignore_suitability:
-        allowed = [
-            rule for rule in product.suitability
-            if int(rule.profile_from or 1) <= score_bucket <= int(rule.profile_to or 10) and int(rule.advisory_allowed or 0) == 1
-        ]
-        return bool(allowed)
     return True
 
 
@@ -792,7 +798,7 @@ def _suitability_block_hint(
         product for product in products
         if str(product.sub_asset_class or "") == str(sub_asset_class)
         and _product_matches_constraints(
-            product, prefs, score_bucket, ignore_suitability=True, jurisdiction_ctx=jurisdiction_ctx,
+            product, prefs, score_bucket, jurisdiction_ctx=jurisdiction_ctx,
         )
     ]
     required_buckets = [

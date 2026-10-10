@@ -110,7 +110,10 @@ def test_fresh_bootstrap_first_target_allocation_generation_does_not_crash(tmp_p
         policy, cma = _ensure_runtime_reference_data_ch(session, "tester")
         session.commit()
         rows = session.query(HouseMatrix).filter(HouseMatrix.policy_id == policy.id).all()
-    assert len(rows) == 6
+    # CERT-PRODUCT-ELIGIBILITY-001 (2026-10-10, Befund B): "Defensiv" ist
+    # jetzt 2 Zeilen (Score 3 und 4 getrennt) statt 1 -- siehe
+    # tests/test_house_matrix_risk_budget_consistency.py.
+    assert len(rows) == 7
     assert any(r.profile_name == "Wachstumsorientiert" for r in rows)
 
 

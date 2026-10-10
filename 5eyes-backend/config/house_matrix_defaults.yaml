@@ -1,6 +1,8 @@
 # Sprint U-44 (2026-06-04): HouseMatrix-Defaults als YAML
 # ─────────────────────────────────────────────────────────
-# Single-Source-of-Truth fuer die 6 HouseMatrix-Risikoprofile.
+# Single-Source-of-Truth fuer die 7 HouseMatrix-Risikoprofile (Defensiv
+# ist seit CERT-PRODUCT-ELIGIBILITY-001, 2026-10-10, Befund B, zwei
+# Zeilen -- siehe Hinweis unten bei score_from: 3/4).
 # Berater/Compliance kann diese YAML ohne Code-Aenderung
 # anpassen — nach Reload werden die Werte vom portfolio_engine
 # konsumiert.
@@ -26,6 +28,14 @@
 # Immobilien duerfen profiluebergreifend bis maximal 20% reichen.
 # Die Zielquoten bleiben unveraendert; Risikobudget und alle anderen
 # Portfolio-Constraints gelten weiterhin.
+#
+# CERT-PRODUCT-ELIGIBILITY-001 (2026-10-10, Befund B) -- Ausnahme: gilt nur
+# fuer Profile, fuer die ueberhaupt ein suitability-geeignetes Immobilien-
+# Produkt existieren kann (Score >= 4, siehe default_product_risk_band() in
+# services/product_eligibility.py). Kapitalschutz (1-2) und die Defensiv-
+# Zeile fuer Score 3 haben real_estate_max=0 -- ein 20%-Band ohne
+# erreichbares Produkt ist keine Flexibilitaet, sondern eine garantierte
+# Produktselektions-Luecke.
 
 profiles:
   - score_from: 1
@@ -35,21 +45,52 @@ profiles:
     liquidity_target: 300
     liquidity_max: 800
     bonds_min: 6500
-    bonds_target: 7500
-    bonds_max: 8500
-    equities_min: 500
-    equities_target: 1200
-    equities_max: 2000
+    bonds_target: 9200
+    bonds_max: 9500
+    equities_min: 0
+    equities_target: 0
+    equities_max: 0
     real_estate_min: 0
-    real_estate_target: 500
-    real_estate_max: 2000
+    real_estate_target: 0
+    real_estate_max: 0
     alternatives_min: 0
     alternatives_target: 500
     alternatives_max: 500
     max_risky_fraction_bps: 3000
     equity_minimum_bps: 0
+    # CERT-PRODUCT-ELIGIBILITY-001 (2026-10-10, Befund B): Aktien/Immobilien
+    # sind erst ab Score 4 suitability-geeignet (default_product_risk_
+    # band() in services/product_eligibility.py) -- Score 1-2 bekommt daher
+    # keinen Aktien-/Immobilien-Zielanteil mehr, das Gewicht wandert in
+    # Obligationen (konservativste verfuegbare Alternative).
 
   - score_from: 3
+    score_to: 3
+    name: "Defensiv"
+    liquidity_min: 0
+    liquidity_target: 200
+    liquidity_max: 500
+    bonds_min: 5000
+    bonds_target: 9500
+    bonds_max: 9700
+    equities_min: 0
+    equities_target: 0
+    equities_max: 0
+    real_estate_min: 0
+    real_estate_target: 0
+    real_estate_max: 0
+    alternatives_min: 0
+    alternatives_target: 300
+    alternatives_max: 800
+    max_risky_fraction_bps: 4500
+    equity_minimum_bps: 0
+    # CERT-PRODUCT-ELIGIBILITY-001 (2026-10-10, Befund B): Score 3 liegt wie
+    # Score 1-2 unter der Aktien-/Immobilien-Eignungsschwelle -- dieselbe
+    # Begruendung wie bei Kapitalschutz oben. Score 4 (naechste Zeile)
+    # erreicht die Schwelle und behaelt deshalb den urspruenglichen
+    # Aktien-/Immobilien-Anteil unveraendert.
+
+  - score_from: 4
     score_to: 4
     name: "Defensiv"
     liquidity_min: 0
