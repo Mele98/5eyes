@@ -101,11 +101,72 @@ wiederkehrende Ziele nicht mehr als Begriff, weil ein Teiljahr ein Bucket ist,
 aber nicht ein Jahresbetrag; Abschneide-Offenlegungen weisen deshalb einen
 **Betrags-Anteil** aus statt einer Jahreszahl.
 
-**Offen geblieben, bewusst:** `target_year_index` für **Wealth**-Ziele
-(Vermögensziel, Kapitalerhalt, Renditeziel) bleibt jahrestagsbasiert. Das ist
-dieselbe Fehlerklasse auf derselben Achse, gehört aber zu ADR-1 und nicht zu
-ADR-2; eine Umstellung verschiebt jede Wealth-Ziel-Wahrscheinlichkeit und braucht
-einen eigenen, gemessenen Schritt. **Als neuer Punkt vorzumerken.**
+**Korrektur meiner eigenen Abgrenzung (2026-10-11, nach den Golden-Snapshots).**
+Ich hatte `target_year_index` für Wealth-Ziele als „bewusst nicht mitgemacht,
+ADR-1-Gebiet" abgelegt. Das war falsch, und die CH-Golden-Snapshots haben es
+aufgedeckt — bei 7455 grünen Tests. Gemessen:
+
+```
+Vermögensziel, Zieldatum 2036-10-08, Stichtag 2026-10-11
+  target_year_index = 10  ->  wealth_paths-Spalte 10  =  Ende Kalenderjahr 2035
+  ABWEICHUNG: ein Jahr ZU FRÜH bewertet
+```
+
+Vor der Umstellung traf Spalte 10 genau zehn Jahrestage, also das Zieldatum. Die
+Bucket-Bedeutung auf Kalenderjahre zu ändern und den Wealth-Index auf der
+Jahrestag-Skala zu lassen, zerreisst diese Entsprechung. Das ist keine
+Konventionsfrage, sondern eine Regression. **Behoben:** `_resolve_target_year_index`
+liefert jetzt den Kalenderjahr-Bucket; das Ziel wird am Ende von 2036 bewertet.
+
+**Zweiter Fund derselben Messung:** der Simulationshorizont war systematisch ein
+Jahr zu lang, weil er aus `end_date.year` statt aus der letzten tatsächlichen
+Fälligkeit kam:
+
+```
+Serie 2031-10-10 .. 2056-10-03, jährlich
+  letzte Fälligkeit 2055-10-10  ->  30 Buckets reichen
+  end_date.year = 2056          ->  31 Buckets gerechnet
+```
+
+Betroffen ist jedes Mandat, dessen Enddatum vor dem Anker-Tag liegt, also etwa
+die Hälfte. Ein zusätzliches Simulationsjahr ist nicht neutral: es gibt dem
+Optimizer mehr Wachstumszeit und verschiebt die Allokation Richtung Risiko.
+**Behoben** über `cashflow_timeline.required_calendar_buckets()`.
+
+### Dritte Fundstelle derselben Kategorie-Verwechslung
+
+Die Spec führt **Horizont-Länge** und **Bucket-Index** durchgehend als eine
+Grösse. Sie sind zwei, und beide sind richtig:
+
+| Frage | Antwort | Wer braucht sie |
+|---|---|---|
+| „Wie viele Jahre bis zum Ziel?" | `calendar_years_until` (ADR-1a) | Kunde, UI, PDF |
+| „In welchem Bucket liegt das Ziel?" | Kalenderjahr-Bucket (ADR-2) | Engine |
+
+Sie unterscheiden sich um 0 oder 1, weil Buckets am 1. Januar beginnen, der
+Stichtag aber unterjährig liegt — zwölf verstrichene Jahre erstrecken sich über
+dreizehn Kalenderjahre. `test_calendar_horizon_leap_anniversary_matrix.py`
+verlangte Parität aller **vier** Resolver und vermischte damit beides; es prüft
+jetzt Parität der drei kundenseitigen (die ADR-1a-Kernaussage, unverändert
+gültig) und die ±1-Beziehung zum Bucket.
+
+### Nebenwirkung, die zwei Test-Fixtures betraf
+
+Weil die Bucket-Auflösung die Wanduhr jetzt in `goal_liabilities` liest, griffen
+zwei „heute"-Pins nicht mehr (`test_calendar_horizon_leap_anniversary_matrix`,
+`test_calendar_horizon_replay_bytewise_stable_across_days`). Ein Reproducer wurde
+dadurch **grün, ohne dass der Befund behoben war** — der Pin war wirkungslos, also
+sahen beide Durchläufe dasselbe echte Heute. Beide Fixtures sind nachgezogen.
+
+Dass jedes neue Modul in jedem Pin nachgetragen werden muss, ist ein eigenes
+Argument für **ADR-1b**: solange der Stichtag nicht als Parameter durchgereicht
+wird, ist er an jeder Lesestelle ein verstecktes globales Eingangsdatum.
+
+**Teilweise behoben, nicht geschlossen:** die Replay-Instabilität ist von
+*täglich* auf *einmal im Jahr* geschrumpft (Kalenderjahr-Buckets springen nur
+zum Jahreswechsel). Gemessen: Stichtag 31.12. → Bucket 2, Stichtag 1.1. →
+Bucket 1, bei identischem Datensatz. Der Rest-Reproducer bleibt rot und zeigt
+auf ADR-1b.
 
 **Lifecycle-Grenzfall sichtbar gemacht:** ein Strom, dessen Fenster vollständig
 vor dem laufenden Kalenderjahr endet, hat jetzt keine In-Horizon-Verbindlichkeit

@@ -70,7 +70,24 @@ class _PinnedToday(date):
 
 @pytest.fixture()
 def pinned_calendar_horizon_today(monkeypatch):
+    """Pinnt die Wanduhr in JEDEM Modul, das sie fuer Ziel-Buckets liest.
+
+    NACHGEZOGEN am 2026-10-11 (ADR-2): vorher wurde nur
+    ``calendar_horizon.date`` gepatcht. Seit die Bucket-Auflösung in
+    ``services/optimizer/goal_liabilities.py`` selbst ``date.today()``
+    aufruft (Kalenderjahr-Achse), griff der Pin dort nicht mehr -- beide
+    Durchlaeufe sahen das ECHTE Heute, stimmten deshalb trivial ueberein,
+    und der Reproducer wurde gruen, OHNE dass der Befund behoben ist.
+
+    Der Befund ist unveraendert: ``goal_to_liability()`` nimmt keinen
+    ``as_of``-Parameter, der Stichtag kommt aus der Wanduhr. Das ist genau
+    ADR-1b (persistierter Bewertungsstichtag), noch offen. Mit korrektem
+    Pin bleibt der Test rot, wie er soll.
+    """
+    import services.optimizer.goal_liabilities as goal_liabilities
+
     monkeypatch.setattr(calendar_horizon, "date", _PinnedToday)
+    monkeypatch.setattr(goal_liabilities, "date", _PinnedToday)
     _PinnedToday.pinned = DAY_ONE
     yield _PinnedToday
 
@@ -112,21 +129,24 @@ def test_calendar_years_until_is_stable_when_as_of_is_explicit(pinned_calendar_h
     assert result_pinned_to_day_one == result_still_explicit_day_one == 2
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "GOAL-CALENDAR-HORIZON-PARITY-001 -- round 38 red test, see "
-        "docs/audits/2026-10-03-recurring-goal-lifecycle-calendar-and-mc-validation-audit.md"
-    ),
-)
-def test_goal_to_liability_replay_is_not_stable_across_real_calendar_days(
+def test_goal_to_liability_replay_is_stable_within_a_calendar_year(
     pinned_calendar_horizon_today,
 ):
-    """Red: `goal_to_liability()` never threads an explicit `as_of` through
-    to `calendar_years_until()`. Replaying the IDENTICAL stored goal record
-    "as if run on" two consecutive real calendar days (nothing about the
-    goal itself changes) currently produces two different resolved
-    target-year indices and liability schedules.
+    """Zwei aufeinanderfolgende Kalendertage liefern denselben Bucket.
+
+    GEFIXT am 2026-10-11 durch ADR-2 (Kalenderjahr-Buckets), aber nur
+    TEILWEISE -- siehe den Jahresgrenz-Test darunter, der weiterhin rot ist.
+
+    Vorher war der Index jahrestagsbasiert und sprang an JEDEM Tag:
+    Stichtag 2026-10-04 -> Index 2, Stichtag 2026-10-05 -> Index 1, fuer
+    dasselbe gespeicherte Ziel (Zieldatum 2027-10-05). Seit die Buckets
+    Kalenderjahre sind, aendert sich der Bucket nur noch zum Jahreswechsel.
+
+    Die Ursache ist damit NICHT behoben: ``goal_to_liability()`` nimmt
+    weiterhin keinen ``as_of``-Parameter, der Stichtag kommt aus der
+    Wanduhr. Das ist ADR-1b (persistierter Bewertungsstichtag), noch offen.
+    Die Instabilitaet ist von "taeglich" auf "einmal im Jahr" geschrumpft --
+    eine Verbesserung, keine Loesung.
     """
     goal = _make_wealth_goal()
 
@@ -143,3 +163,43 @@ def test_goal_to_liability_replay_is_not_stable_across_real_calendar_days(
     )
     assert liability_day_one.target_amount_rappen == liability_day_two.target_amount_rappen
     assert liability_day_one.liability_path_rappen == liability_day_two.liability_path_rappen
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "GOAL-CALENDAR-HORIZON-PARITY-001 / ADR-1b -- der Bewertungsstichtag "
+        "ist nicht gebunden: goal_to_liability() liest die Wanduhr. Seit "
+        "ADR-2 (Kalenderjahr-Buckets) springt der Index nicht mehr taeglich, "
+        "aber am Jahreswechsel weiterhin -- derselbe gespeicherte Datensatz "
+        "liefert am 31.12. und am 1.1. verschiedene Buckets."
+    ),
+)
+def test_goal_to_liability_replay_is_not_stable_across_the_year_boundary(
+    pinned_calendar_horizon_today,
+):
+    """Der Restbefund: ein Replay ueber den Jahreswechsel verschiebt alles.
+
+    Gemessen (Zieldatum 2027-10-05):
+        Stichtag 2026-12-31 -> Bucket 2
+        Stichtag 2027-01-01 -> Bucket 1
+
+    Nichts am gespeicherten Ziel hat sich geaendert. Ein PDF-Reprint oder
+    ein UI-Reload nach Neujahr zeigt damit eine andere wirtschaftliche
+    Aussage als der Originallauf -- genau die Audit-Trail-Luecke, die
+    ADR-1b schliesst (Stichtag beim Klick binden und persistieren, nie
+    erneut date.today() lesen).
+    """
+    goal = _make_wealth_goal()
+
+    _PinnedToday.pinned = date(2026, 12, 31)
+    before = goal_to_liability(goal, horizon_years=10)
+
+    _PinnedToday.pinned = date(2027, 1, 1)
+    after = goal_to_liability(goal, horizon_years=10)
+
+    assert before.target_year_index == after.target_year_index, (
+        "Replay ueber den Jahreswechsel verschob den Bucket von "
+        f"{before.target_year_index} auf {after.target_year_index}"
+    )
+    assert before.liability_path_rappen == after.liability_path_rappen

@@ -201,6 +201,7 @@ def recurring_occurrence_series(
     base_year: int,
     horizon_years: int,
     inflation_series_bps: list[int] | None = None,
+    probability_factor: float = 1.0,
 ) -> list[int]:
     """Occurrence-exakte Jahresbetraege einer wiederkehrenden Serie.
 
@@ -230,6 +231,24 @@ def recurring_occurrence_series(
     ``inflation_series_bps`` wird pro Bucket kumulativ angewandt, mit
     Faktor 1.0 im Bucket ``base_year`` (User-Eingaben sind heutige Rappen) --
     dieselbe B1-Konvention wie bei Cashflows.
+
+    ``probability_factor`` gewichtet bedingte Ziele (``probability_pct``) und
+    wird PRO BUCKET gerundet, weil der Liability-Pfad pro Jahr eine ganze
+    Rappenzahl sein muss. Der Gesamtbetrag ist damit per Konstruktion die
+    Summe des Pfads.
+
+    Dass diese Gewichtung hier sitzt und nicht beim Aufrufer, ist ein Fix,
+    nicht Geschmack (Befund aus dem Codex-Review vom 2026-10-11, selbst
+    nachgemessen): Solver und Reporting-MC wendeten sie unabhaengig an, mit
+    verschiedener Granularitaet UND verschiedenem Rundungsmodus --
+
+        Solver:    round(101 * 0.5) pro Bucket, dann summiert  -> 50+50 = 100
+        Reporting: Summe 202, dann * 0.5, dann int()            ->        101
+
+    Zwei jaehrliche Raten zu 101 Rappen bei 50 % ergaben so 100 gegen 101
+    Rappen. Das ist dieselbe Solver/Reporting-Paritaetsklasse, die PR #576
+    geschlossen hatte. Mit der Gewichtung im gemeinsamen Enumerator kann sie
+    nicht wieder aufgehen.
     """
     years = max(0, int(horizon_years))
     if years == 0:
@@ -262,8 +281,9 @@ def recurring_occurrence_series(
         )
 
     base = int(base_year)
+    weight = float(probability_factor if probability_factor is not None else 1.0)
     return [
-        contribution_for_year(
+        int(round(contribution_for_year(
             amount_rappen=amount,
             frequency=frequency,
             nature="wiederkehrend",
@@ -273,9 +293,62 @@ def recurring_occurrence_series(
             inflation_factor=_compound_inflation_factor(
                 inflation_series_bps, base, base + offset
             ),
-        )
+        ) * weight))
         for offset in range(years)
     ]
+
+
+def required_calendar_buckets(
+    *,
+    amount_per_occurrence_rappen: int,
+    frequency: str | None,
+    start_date: date | None,
+    end_date: date | None,
+    is_ongoing: bool,
+    base_year: int,
+) -> int:
+    """Anzahl Kalenderjahr-Buckets, die die LETZTE Faelligkeit noch fasst.
+
+    ADR-2 (2026-10-11): der Simulationshorizont muss lang genug sein, damit
+    kein Ziel aus dem Fenster faellt -- aber auch nicht laenger. Aus
+    ``end_date.year`` abgeleitet ist er systematisch EIN JAHR zu lang,
+    sobald Monat/Tag des Enddatums vor dem Anker-Tag der Serie liegen:
+
+        Serie 2031-10-10 .. 2056-10-03, jaehrlich
+        letzte Faelligkeit 2055-10-10  -> 30 Buckets reichen
+        end_date.year = 2056           -> 31 Buckets
+
+    Ein zu langer Horizont ist nicht neutral: er gibt dem Optimizer ein
+    zusaetzliches Wachstumsjahr und verschiebt damit die Allokation in
+    Richtung Risiko. Betroffen waere etwa jedes zweite Mandat (jedes, dessen
+    Enddatum vor dem Anker-Tag liegt).
+
+    Rueckgabe 0 heisst "dieses Ziel begrenzt den Horizont nicht" -- ein
+    laufender Strom ohne Enddatum laeuft per Definition bis zum Horizont und
+    kann ihn nicht bestimmen.
+    """
+    if is_ongoing and end_date is None:
+        return 0
+    if end_date is None:
+        anchor = start_date
+        return 0 if anchor is None else max(1, int(anchor.year) - int(base_year) + 1)
+
+    upper = max(1, int(end_date.year) - int(base_year) + 1)
+    series = recurring_occurrence_series(
+        amount_per_occurrence_rappen=max(1, int(amount_per_occurrence_rappen or 1)),
+        frequency=frequency,
+        start_date=start_date,
+        end_date=end_date,
+        is_ongoing=is_ongoing,
+        base_year=base_year,
+        horizon_years=upper,
+    )
+    paid = [i for i, value in enumerate(series) if value]
+    if not paid:
+        # Kein Zahlungstermin im Fenster (z.B. vollstaendig vergangen):
+        # das Ziel begrenzt den Horizont nicht.
+        return 0
+    return paid[-1] + 1
 
 
 def _convert_cf_amount_to_target_currency(

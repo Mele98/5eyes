@@ -1587,6 +1587,7 @@ from services.portfolio_engine_mc_simulation import (  # noqa: F401,E402
     _build_simulation_payload,
     _conditional_percentile_average,
     _goal_duration_years,
+    dated_goal_calendar_buckets,
     _recurring_outflow_total_rappen,
     _loss_bps,
     _max_drawdown_bps,
@@ -4553,7 +4554,7 @@ def evaluate_goal_sensitivity(
             candidates = [max(1, int(getattr(goal, "horizon_years", 0) or 1))]
             target_date = _parse_iso_date(getattr(goal, "target_date", None))
             if target_date is not None:
-                candidates.append(max(1, target_date.year - date.today().year + 1))
+                candidates.append(dated_goal_calendar_buckets(goal))
             if (
                 preserve_open_ended_baseline
                 and int(getattr(goal, "is_ongoing", 0) or 0)

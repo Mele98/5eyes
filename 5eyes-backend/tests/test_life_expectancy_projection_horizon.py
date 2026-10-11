@@ -115,11 +115,29 @@ def test_explicit_simulation_horizon_has_priority_over_life_default():
 
 
 def test_dated_pension_goal_extends_horizon_even_without_horizon_years():
+    """Ein datiertes Pensionsziel verlaengert den Horizont ueber den
+    Berater-Slider hinaus, auch ohne eigenes horizon_years.
+
+    ERGAENZT am 2026-10-11 (ADR-2): der Mock trug vorher nur drei Felder und
+    KEINEN goal_type -- er war damit gar kein Pensionsziel, obwohl der Test
+    so heisst. Seit der Horizont fuer wiederkehrende Stroeme aus der letzten
+    tatsaechlichen Faelligkeit kommt (statt aus target_date.year), liest die
+    Herleitung den Zieltyp, und die Luecke im Mock fiel auf.
+
+    Das Fenster 1.1.(heute+5) bis 31.12.(heute+30) ist jaehrlich: die letzte
+    Faelligkeit ist der 1.1.(heute+30), liegt also im Kalenderjahr
+    heute+30 -> 31 Buckets.
+    """
     future_year = date.today().year + 30
     goal = SimpleNamespace(
+        goal_type="Pensionsausgabe",
         horizon_years=None,
         start_date=f"{date.today().year + 5}-01-01",
         target_date=f"{future_year}-12-31",
+        is_ongoing=0,
+        frequency="jährlich",
+        target_amount_rappen=24_000_00,
     )
     horizon = _simulation_horizon_years({"horizonYears": "12"}, [goal], None)
+    assert horizon == future_year - date.today().year + 1
     assert horizon >= 30

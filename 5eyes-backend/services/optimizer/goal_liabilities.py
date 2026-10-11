@@ -44,6 +44,10 @@ from typing import Sequence
 
 from models.wealth import Goal
 from services.calendar_horizon import calendar_years_until
+from services.goal_lifecycle import (
+    is_economically_null,
+    resolve_lifecycle_state,
+)
 from services.cashflow_timeline import (
     normalize_frequency,
     recurring_occurrence_series,
@@ -101,6 +105,11 @@ class GoalLiability:
     # OHNE eine zweite Zufallsziehung und OHNE spaetere Returns anzusehen (die
     # Returns sind durch den gegebenen wealth_paths bereits realisiert).
     joint_liability_path_rappen: list[int] | None = None
+    # GOAL-PAST-DATE-LIFECYCLE-001 / ADR-3 (2026-10-11): typisierter
+    # Lifecycle-Zustand (services/goal_lifecycle.py). None nur fuer direkte
+    # Dataclass-Konstruktion in Alt-Tests; der Produktionspfad
+    # (goal_to_liability/goals_to_liabilities) setzt ihn immer.
+    lifecycle_status: str | None = None
 
 
 # ============================================================================
@@ -217,6 +226,21 @@ def _resolve_target_year_index(
 
     Diese Trennung ist wichtig fuer den Optimizer: bei Pensionsausgabe muss
     der Liability-Pfad ab dem Pensionsbeginn beginnen, nicht erst am Ende.
+
+    GOAL-RECURRENCE-SCHEDULE-001 / ADR-2 (2026-10-11): der Index ist jetzt
+    ein KALENDERJAHR-Bucket, nicht mehr ein Jahrestag-Mass.
+
+    Das ist keine Konventions-Kosmetik, sondern die Behebung einer
+    Regression, die die Bucket-Umstellung selbst erzeugt hat: Konsumenten
+    lesen ``wealth_paths[:, target_year_index]``, und Spalte t+1 ist das
+    Vermoegen am ENDE von Bucket t. Solange die Buckets Jahrestage waren,
+    traf ``calendar_years_until`` den Zielzeitpunkt. Seit die Buckets
+    Kalenderjahre sind, zeigt derselbe Wert ein Jahr zu FRUEH: ein
+    Vermoegensziel mit Zieldatum 2036-10-08 wurde bei Stichtag 2026-10-11
+    am Ende des Kalenderjahres 2035 bewertet.
+
+    Gefangen hat das kein Unit-Test, sondern die CH-Golden-Snapshots --
+    7455 gruene Tests haben es nicht gesehen.
     """
     target_date = _parse_iso(goal.target_date)
     start_date = _parse_iso(goal.start_date)
@@ -226,7 +250,7 @@ def _resolve_target_year_index(
     else:
         anchor = target_date
     if anchor:
-        years = max(1, calendar_years_until(anchor))
+        years = max(1, _calendar_bucket_index(anchor, date.today().year))
     else:
         years = max(1, int(goal.horizon_years or 1))
     years = max(1, years)
@@ -659,7 +683,10 @@ def _build_recurring_outflow(
     # Der Periodenbetrag, NICHT der annualisierte: die Annualisierung
     # entsteht im Enumerator aus der echten Anzahl Faelligkeiten pro Jahr.
     per_occurrence = int(goal.target_amount_rappen or 0)
-    raw_series = recurring_occurrence_series(
+    # Die Wahrscheinlichkeitsgewichtung sitzt IM Enumerator, nicht hier --
+    # sonst wenden Solver und Reporting-MC sie unabhaengig an und runden
+    # verschieden (Codex-Review 2026-10-11, nachgemessen: 100 vs. 101 Rp).
+    path = recurring_occurrence_series(
         amount_per_occurrence_rappen=per_occurrence,
         frequency=goal.frequency,
         start_date=start_date,
@@ -668,8 +695,8 @@ def _build_recurring_outflow(
         base_year=base_year,
         horizon_years=horizon_years,
         inflation_series_bps=inflation_series_bps if is_real else None,
+        probability_factor=prob_factor,
     )
-    path = [int(round(value * prob_factor)) for value in raw_series]
     cumulative_outflow = sum(path)
 
     # Auswertungsindex: 1-based Bucket des ersten tatsaechlichen Outflows.
@@ -776,6 +803,7 @@ def goal_to_liability(
     inflation_series_bps: list[int] | None = None,
     external_wealth_rappen: int = 0,
     external_wealth_series_rappen: Sequence[int] | None = None,
+    as_of: date | None = None,
 ) -> GoalLiability:
     """Dispatch: Goal-Objekt -> GoalLiability fuer Optimizer.
 
@@ -784,6 +812,10 @@ def goal_to_liability(
 
     inflation_series_bps: pro-Jahr Inflation in bps. Genutzt wenn
     goal.value_mode == "real". Default: kein Inflations-Adjustment.
+
+    as_of: Bewertungsstichtag fuer den Lifecycle-Zustand (ADR-3). Default
+    ``date.today()``; ADR-1b wird hier den persistierten Stichtag
+    durchreichen, ohne dass sich die Signatur erneut aendern muss.
     """
     goal_type = _norm_goal_type(goal.goal_type)
     horizon_years = max(1, int(horizon_years))
@@ -812,7 +844,60 @@ def goal_to_liability(
         built = _build_maximierung(goal, horizon_years=horizon_years)
     else:
         raise ValueError(f"Nicht unterstuetzter Zieltyp {goal_type!r}.")
-    return replace(built, rank=_resolve_rank(goal))
+
+    built = replace(built, rank=_resolve_rank(goal))
+    return _apply_lifecycle(goal, built, horizon_years=horizon_years, as_of=as_of)
+
+
+def _apply_lifecycle(
+    goal: Goal,
+    built: GoalLiability,
+    *,
+    horizon_years: int,
+    as_of: date | None,
+) -> GoalLiability:
+    """Setzt den typisierten Lifecycle-Zustand und erzwingt seine Folgen.
+
+    GOAL-PAST-DATE-LIFECYCLE-001 / ADR-3 (Owner-Entscheid 2026-10-11).
+
+    Zwei Dinge passieren hier, und beide gehoeren in DIESES Modul:
+
+    1. ``lifecycle_status`` wird gesetzt -- fuer jeden Zieltyp, unabhaengig
+       von der Bucket-Achse. Vorher liess sich ein ueberfaelliges Ziel von
+       einem echten Jahr-eins-Ziel nicht unterscheiden.
+    2. Wirtschaftlich erledigte Zustaende (erfuellt, storniert, inaktiv,
+       historical_unknown) werden auf NULL gezwungen.
+
+    Punkt 2 ist der Kern von Pflichttest 5: die einzige bisherige
+    Absicherung lag AUSSERHALB dieses Moduls, in
+    ``portfolio_engine._strictly_active_rows()``, die inaktive Ziele vor dem
+    Aufruf aus der Liste filtert. Wer ``goal_to_liability()`` direkt
+    aufrief -- oder diesen Upstream-Filter vergass -- bekam fuer ein
+    storniertes Ziel die VOLLE Verbindlichkeit. Eine Absicherung, die nur
+    greift, wenn ein anderer Codepfad daran denkt, ist keine.
+
+    Der Null-Pfad traegt einen Hinweis statt stumm zu sein: ein Ziel, das
+    aus der Rechnung verschwindet, muss sagen warum.
+    """
+    state = resolve_lifecycle_state(goal, as_of=as_of)
+    if not is_economically_null(state):
+        return replace(built, lifecycle_status=state)
+
+    note = (
+        f"Lifecycle-Zustand '{state}': keine Verbindlichkeit. "
+        "Das Ziel bleibt sichtbar und abfragbar, wirkt aber nicht auf die "
+        "Allokation."
+    )
+    existing = built.evaluation_note
+    return replace(
+        built,
+        lifecycle_status=state,
+        target_amount_rappen=0,
+        liability_path_rappen=[0] * int(horizon_years),
+        priority_scope_liability_path_rappen=None,
+        joint_liability_path_rappen=None,
+        evaluation_note=f"{existing} {note}" if existing else note,
+    )
 
 
 def goals_to_liabilities(
@@ -822,6 +907,7 @@ def goals_to_liabilities(
     inflation_series_bps: list[int] | None = None,
     external_wealth_rappen: int = 0,
     external_wealth_series_rappen: Sequence[int] | None = None,
+    as_of: date | None = None,
 ) -> list[GoalLiability]:
     """Konvertiert Goal-Liste in Liability-Liste.
 
@@ -848,6 +934,7 @@ def goals_to_liabilities(
             inflation_series_bps=inflation_series_bps,
             external_wealth_rappen=external_wealth_rappen,
             external_wealth_series_rappen=external_wealth_series_rappen,
+            as_of=as_of,
         )
         for goal in goals
     ]

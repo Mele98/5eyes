@@ -3,8 +3,11 @@
 See docs/audits/2026-10-03-recurring-goal-lifecycle-calendar-and-mc-validation-audit.md,
 finding GOAL-CALENDAR-HORIZON-PARITY-001 ("Repro 4").
 
-Four independent horizon resolvers exist in this codebase and are supposed to agree
-on "how many annual buckets lie between as_of and target_date":
+Vier Resolver existieren in dieser Codebase. DREI davon beantworten dieselbe
+Frage ("wie viele Jahre bis zum Ziel?") und muessen uebereinstimmen; der
+vierte (Optimizer) beantwortet seit ADR-2 eine ANDERE Frage ("in welchem
+Kalenderjahr-Bucket liegt das Ziel?") und darf um ein Jahr abweichen -- siehe
+``_assert_all_agree``. Die Resolver:
 
 - services.calendar_horizon.calendar_years_until  (canonical, calendar-anniversary based)
 - services.optimizer.goal_liabilities._resolve_target_year_index (optimizer path;
@@ -20,7 +23,7 @@ the leap days 2028-02-29, 2032-02-29 and 2036-02-29) -> router/reporting say 13,
 calendar_years_until/optimizer say 12.
 
 This test file pins "today" to each case's as_of date (via monkeypatching the `date`
-name each resolver module calls `.today()` on) and asserts all four resolvers agree.
+name each resolver module calls `.today()` on).
 
 GEFIXT am 2026-10-11 (ADR-1a, Owner-Entscheid): Router und Payload rufen jetzt
 `calendar_years_until` statt der Tage-Ceiling-Formel `(delta_days + 364) // 365`,
@@ -73,11 +76,27 @@ class _FrozenDate(date):
 
 @pytest.fixture
 def freeze_today(monkeypatch):
+    """Friert "heute" in JEDEM Modul ein, das die Wanduhr selbst liest.
+
+    NACHGEZOGEN am 2026-10-11 (ADR-2): ``goal_liabilities`` kam dazu. Seit
+    die Bucket-Auflösung dort ``date.today()`` aufruft (Kalenderjahr-Achse
+    statt Jahrestag ueber ``calendar_horizon``), rechnete der Optimizer-Wert
+    gegen das ECHTE Heute weiter, waehrend die anderen drei Resolver
+    eingefroren waren -- die Matrix verglich damit zwei verschiedene
+    Stichtage.
+
+    Dass jedes neue Modul hier nachgetragen werden muss, ist selbst ein
+    Argument fuer ADR-1b: solange der Stichtag nicht als Parameter
+    durchgereicht wird, muss jeder Test die Uhr an jeder Leseselle pinnen.
+    """
+    import services.optimizer.goal_liabilities as goal_liabilities
+
     def _freeze(as_of: date):
         frozen = type("_Frozen", (_FrozenDate,), {"_frozen": as_of})
         monkeypatch.setattr(wealth_router, "date", frozen)
         monkeypatch.setattr(portfolio_engine_payload, "date", frozen)
         monkeypatch.setattr(calendar_horizon, "date", frozen)
+        monkeypatch.setattr(goal_liabilities, "date", frozen)
 
     return _freeze
 
@@ -95,7 +114,7 @@ def _make_goal(target_date: date, *, start_date: date | None = None, goal_type: 
 
 
 def _resolve_all(as_of: date, target: date) -> dict[str, int]:
-    """Run all four resolvers for the same (as_of, target) pair and return their results.
+    """Run the resolvers for the same (as_of, target) pair and return their results.
 
     Assumes `date.today()` inside the router/reporting/calendar_horizon modules has
     already been frozen to `as_of` via the `freeze_today` fixture.
@@ -111,12 +130,42 @@ def _resolve_all(as_of: date, target: date) -> dict[str, int]:
 
 
 def _assert_all_agree(results: dict[str, int], expected: int) -> None:
-    assert results == {
+    """Die drei KUNDENSEITIGEN Resolver liefern verstrichene Jahre; der
+    Optimizer liefert einen Kalenderjahr-BUCKET.
+
+    ADR-2 (2026-10-11) hat hier eine Kategorie-Verwechslung offengelegt, die
+    diese Datei vorher als Parität geforderte. Es sind zwei verschiedene
+    Fragen, und beide werden richtig beantwortet:
+
+    * "wie viele Jahre bis zum Ziel?" -- das hoert der Kunde ("Ziel in 12
+      Jahren"). Kanonisch: ``calendar_years_until`` (ADR-1a).
+    * "in welchem Simulations-Bucket liegt das Ziel?" -- das braucht die
+      Engine. Buckets sind KALENDERJAHRE (ADR-2), beginnen also am
+      1. Januar, waehrend der Stichtag unterjaehrig liegt.
+
+    Zwoelf verstrichene Jahre erstrecken sich deshalb ueber dreizehn
+    Kalenderjahre. Der Unterschied ist 0 oder 1, nie mehr:
+
+        Stichtag 2026-10-11, Ziel 2038-10-11 -> 12 Jahre, 13 Buckets
+        Stichtag 2026-10-11, Ziel 2027-12-01 ->  2 Jahre,  2 Buckets
+
+    Die ADR-1a-Kernaussage bleibt unangetastet und wird hier weiter
+    geprueft: Router und Reporting rechnen dieselbe kanonische Formel wie
+    ``calendar_years_until`` -- genau das war der Fix (vorher Tage-Ceiling
+    mit Schalttag-Fehler).
+    """
+    client_facing = {k: v for k, v in results.items() if k != "optimizer"}
+    assert client_facing == {
         "calendar_years_until": expected,
-        "optimizer": expected,
         "router": expected,
         "reporting": expected,
-    }, results
+    }, client_facing
+
+    bucket = results["optimizer"]
+    assert bucket - expected in (0, 1), (
+        f"Optimizer-Bucket {bucket} und verstrichene Jahre {expected} duerfen "
+        "sich um hoechstens ein Kalenderjahr unterscheiden"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -237,9 +286,11 @@ def test_repro_4_exact_values_all_resolvers_say_twelve(freeze_today):
     goal = _make_goal(target)
 
     assert calendar_years_until(target, as_of=as_of) == 12
-    assert _resolve_target_year_index(goal, horizon_years=999, clamp_to_horizon=False) == 12
     assert wealth_router._goal_horizon_from_date(target) == 12
     assert portfolio_engine_payload._goal_projection_years(goal) == 12
+    # Der Optimizer zaehlt Kalenderjahr-Buckets (ADR-2): 2026..2038 = 13.
+    # Dieselbe Zeitspanne, andere Frage -- siehe _assert_all_agree.
+    assert _resolve_target_year_index(goal, horizon_years=999, clamp_to_horizon=False) == 13
 
     # Gegenprobe: die alte Formel ergibt hier nachweislich 13 -- so ist
     # dokumentiert, was korrigiert wurde, ohne sie noch zu verwenden.

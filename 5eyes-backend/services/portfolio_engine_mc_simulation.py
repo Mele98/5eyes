@@ -97,7 +97,10 @@ from datetime import date
 from typing import TYPE_CHECKING
 
 from services.calendar_horizon import calendar_years_until
-from services.cashflow_timeline import recurring_occurrence_series
+from services.cashflow_timeline import (
+    recurring_occurrence_series,
+    required_calendar_buckets,
+)
 from services.drawdown_refinement import (
     DRAWDOWN_REFINEMENT_MODEL_VERSION,
     refine_max_drawdowns,
@@ -115,6 +118,54 @@ if TYPE_CHECKING:
     from services.portfolio_engine import PortfolioSummary
 
 
+def dated_goal_calendar_buckets(goal) -> int:
+    """Benoetigte KALENDERJAHR-Buckets dieses Ziels.
+
+    GOAL-RECURRENCE-SCHEDULE-001 / ADR-2 (2026-10-11): in derselben
+    Einheit gezaehlt, in der die Buckets indiziert sind. Vorher stand
+    hier ``calendar_years_until()``, ein Jahrestag-Mass -- ein Ziel am
+    exakten 12-Jahres-Jahrestag verlangte 12 Buckets, lag aber im
+    Kalenderjahr-Bucket 13 und fiel damit aus dem simulierten Fenster
+    (Liability 0 statt Zielbetrag). ``life_horizon`` unten rechnete
+    schon immer ``life_year - today.year + 1``, also bereits in
+    Kalenderjahren.
+
+    Fuer wiederkehrende Stroeme zaehlt die LETZTE FAELLIGKEIT, nicht das
+    Kalenderjahr des Enddatums: aus ``end_date.year`` abgeleitet waere
+    der Horizont ein Jahr zu lang, sobald Monat/Tag des Enddatums vor
+    dem Anker-Tag liegen. Ein zu langer Horizont gibt dem Optimizer ein
+    zusaetzliches Wachstumsjahr und verschiebt die Allokation Richtung
+    Risiko.
+    """
+    base_year = date.today().year
+    candidates = [int(getattr(goal, "horizon_years", 0) or 0)]
+
+    if _is_recurring_outflow_goal(goal):
+        # Lazy Import (Zirkular-Import-Haertung, siehe Modul-Docstring).
+        from services.portfolio_engine import _parse_iso_date
+
+        candidates.append(required_calendar_buckets(
+            amount_per_occurrence_rappen=int(goal.target_amount_rappen or 0),
+            frequency=goal.frequency,
+            start_date=_parse_iso_date(goal.start_date),
+            end_date=_parse_iso_date(goal.target_date),
+            is_ongoing=bool(int(goal.is_ongoing or 0)),
+            base_year=base_year,
+        ))
+        return max(candidates)
+
+    for field in ("start_date", "target_date"):
+        raw_date = str(getattr(goal, field, "") or "").strip()[:10]
+        if not raw_date:
+            continue
+        try:
+            goal_date = date.fromisoformat(raw_date)
+        except ValueError:
+            continue
+        candidates.append(max(1, int(goal_date.year) - base_year + 1))
+    return max(candidates)
+
+
 def _simulation_horizon_years(
     simulation_prefs: dict | None,
     goals: list[Goal],
@@ -130,34 +181,13 @@ def _simulation_horizon_years(
     except (TypeError, ValueError):
         requested = DEFAULT_SIMULATION_HORIZON_YEARS
         has_explicit_override = False
-    def _dated_goal_horizon(goal) -> int:
-        candidates = [int(getattr(goal, "horizon_years", 0) or 0)]
-        for field in ("start_date", "target_date"):
-            raw_date = str(getattr(goal, field, "") or "").strip()[:10]
-            if not raw_date:
-                continue
-            try:
-                goal_date = date.fromisoformat(raw_date)
-            except ValueError:
-                continue
-            # GOAL-RECURRENCE-SCHEDULE-001 / ADR-2 (2026-10-11): die Anzahl
-            # benoetigter Buckets muss in DERSELBEN Einheit gezaehlt werden,
-            # in der die Buckets indiziert sind -- also in KALENDERJAHREN.
-            # Vorher stand hier calendar_years_until(), ein Jahrestag-Mass:
-            # ein Ziel am exakten 12-Jahres-Jahrestag verlangte 12 Buckets,
-            # lag aber im Kalenderjahr-Bucket 13 und fiel damit aus dem
-            # simulierten Fenster -- Liability 0 statt des Zielbetrags, nur
-            # mit einem "ausserhalb des Horizonts"-Hinweis.
-            #
-            # Die Zeile ist damit auch intern konsistent: life_horizon
-            # unten rechnet schon immer life_year - today.year + 1.
-            candidates.append(max(1, int(goal_date.year) - date.today().year + 1))
-        return max(candidates)
 
     # A dated liability must never be truncated merely because horizon_years
     # was left NULL. This is especially important for pension/recurring goals,
     # where target_date is the final due year rather than optional metadata.
-    goal_horizon = max((_dated_goal_horizon(goal) for goal in goals), default=0)
+    goal_horizon = max(
+        (dated_goal_calendar_buckets(goal) for goal in goals), default=0
+    )
 
     # Ein expliziter Berater-Horizont hat Vorrang vor der automatischen
     # Lebenserwartung. Zielhorizonte werden dennoch nicht abgeschnitten.
@@ -909,9 +939,19 @@ def _shared_recurring_series(
     Cashflow-Serie. Nominal: die Inflationsbehandlung des MC-Pfades steckt
     in ``_annualize_goal_amount``/``scaled_values`` und wird hier nicht
     verdoppelt.
+
+    Die Wahrscheinlichkeitsgewichtung wird IM Enumerator angewandt, damit
+    Solver und Reporting identisch runden (Codex-Review 2026-10-11): vorher
+    rundete der Solver pro Bucket und das Reporting die Gesamtsumme mit
+    ``int()``, was bei zwei Raten zu 101 Rappen und 50 % zu 100 gegen 101
+    Rappen fuehrte. Aufrufer duerfen den Faktor deshalb NICHT erneut
+    anwenden.
     """
     # Lazy Import (Zirkular-Import-Haertung, siehe Modul-Docstring).
     from services.portfolio_engine import _parse_iso_date
+
+    # Lazy Import (Zirkular-Import-Haertung, siehe Modul-Docstring).
+    from services.portfolio_engine import _goal_probability_factor
 
     return recurring_occurrence_series(
         amount_per_occurrence_rappen=int(goal.target_amount_rappen or 0),
@@ -921,6 +961,7 @@ def _shared_recurring_series(
         is_ongoing=bool(int(goal.is_ongoing or 0)),
         base_year=int(start_year),
         horizon_years=int(horizon_years),
+        probability_factor=_goal_probability_factor(goal),
     )
 
 
@@ -1134,8 +1175,12 @@ def _monte_carlo_goal_summary(
                 outside_simulation_horizon = True
                 evaluation_note = f"Ziel liegt ausserhalb des aktuellen Simulationshorizonts (Horizont: {horizon_years} Jahre)."
             else:
-                target = in_horizon_total * _goal_probability_factor(goal)
-                target = max(1, int(target))
+                # KEINE zweite Gewichtung: in_horizon_total kommt aus dem
+                # gemeinsamen Enumerator und traegt probability_pct bereits
+                # pro Bucket gerundet. Vorher wurde der Faktor hier erneut
+                # auf die Summe angewandt und mit int() abgeschnitten --
+                # daher die Divergenz 100 vs. 101 Rappen zum Solver.
+                target = max(1, in_horizon_total)
                 success_rate_pct = int(round(sum(1 for value in scaled_values if value >= target) / max(1, len(scaled_values)) * 100))
                 funded_ratio_p50 = round(p50 / target, 4)
                 funded_ratio_pct = max(0, min(200, int(round(funded_ratio_p50 * 100))))

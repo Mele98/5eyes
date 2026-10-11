@@ -169,16 +169,21 @@ def test_inactive_goal_remains_visible_and_not_deleted(session_factory):
         session.close()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "GOAL-PAST-DATE-LIFECYCLE-001 -- round 38 red test, see "
-        "docs/audits/2026-10-03-recurring-goal-lifecycle-calendar-and-mc-validation-audit.md "
-        "(Pflichttest 5): goal_liabilities.py kennt is_active ueberhaupt nicht "
-        "und berechnet fuer ein storniertes/erfuelltes Ziel dieselbe volle "
-        "Liability wie fuer ein aktives."
-    ),
-)
+# GEFIXT am 2026-10-11 (ADR-3 Etappe 1): goal_liabilities.py setzt den
+# Lifecycle-Zustand jetzt SELBST durch (services/goal_lifecycle.py ueber
+# goal_liabilities._apply_lifecycle). Das war der Kern von Pflichttest 5:
+# die einzige bisherige Absicherung lag AUSSERHALB des Moduls, in
+# portfolio_engine._strictly_active_rows(), die inaktive Ziele vor dem
+# Aufruf aus der Liste filtert. Ein direkter Aufruf -- oder ein Aufrufer,
+# der den Upstream-Filter vergisst -- bekam die VOLLE Liability. Eine
+# Absicherung, die nur greift, wenn ein anderer Codepfad daran denkt, ist
+# keine.
+#
+# Der Zustand heisst 'inactive', NICHT 'cancelled': is_active=0 sagt nicht,
+# ob erfuellt oder storniert, und diese Unterscheidung zu erfinden waere
+# eine Behauptung ueber einen Kundensachverhalt, den niemand erfasst hat.
+# Etappe 2 (Lifecycle-Spalte + Transitionsprotokoll) gibt dem Berater die
+# Mittel, das zu typisieren.
 def test_inactive_goal_contributes_zero_to_optimizer_liability():
     """Soll-Vertrag: ein storniertes/erfuelltes Ziel darf wirtschaftlich
     NICHTS mehr zur Optimizer-Liability beitragen -- auch dann nicht, wenn
