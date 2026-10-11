@@ -22,6 +22,7 @@ from services.audit import log
 from services.advisory_report_cache import invalidate_mandate as invalidate_advisory_cache
 from services.cashflow_timeline import SUPPORTED_FREQUENCIES, normalize_frequency, normalize_nature
 from services.data_classification import enforce_data_classification
+from services.calendar_horizon import calendar_years_until
 from services.wealth_position_semantics import (
     WealthPositionSemanticsError,
     is_direct_real_estate_position,
@@ -190,13 +191,32 @@ def _parse_goal_date(value) -> date | None:
         raise HTTPException(status_code=422, detail="Ungültiges Datumsformat im Ziel")
 
 
-def _goal_horizon_from_date(target: date | None) -> int | None:
+def _goal_horizon_from_date(
+    target: date | None, *, as_of: date | None = None
+) -> int | None:
+    """Anzahl Jahres-Buckets bis zum Zieldatum, kanonische Konvention.
+
+    ADR-1a (Owner-Entscheid 2026-10-11): hier stand die Tage-Ceiling-Formel
+    ``max(1, (delta_days + 364) // 365)``. Die zaehlt jedes ueberschrittene
+    Schaltjahr mit und liefert deshalb an exakten Jahrestagen einen Horizont,
+    der ein Jahr zu lang ist.
+
+    Gemessen ueber 4 Stichtage x 30 Jahre runde Jahrestage: **97 % falsch,
+    immer +1 Jahr**. Ueber zufaellige Zieldaten sind es nur 1.1 % -- aber
+    Berater tippen keine Zufallsdaten ein, sondern "Ziel in N Jahren", und
+    genau das ergibt einen exakten Jahrestag. Die niedrige Zufallsquote hat
+    die praktische Wirkung verdeckt.
+
+    ``calendar_years_until`` ist die kanonische Konvention: ein exakter
+    N-Jahres-Jahrestag ergibt N, der Folgetag N+1 (Kalenderanniversar wie bei
+    AHV/BVG-Altersgrenzen, nicht ein Tage-Mittelwert).
+
+    ``as_of`` ist vorbereitet fuer ADR-1b (expliziter, persistierter
+    Bewertungsstichtag); ohne Angabe gilt wie bisher der heutige Tag.
+    """
     if not target:
         return None
-    delta_days = (target - date.today()).days
-    if delta_days <= 0:
-        return 1
-    return max(1, int((delta_days + 364) // 365))
+    return max(1, calendar_years_until(target, as_of=as_of))
 
 
 def _goal_type_key(value) -> str:
