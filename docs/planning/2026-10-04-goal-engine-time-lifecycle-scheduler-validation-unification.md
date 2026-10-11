@@ -42,6 +42,103 @@ PR #580 als `GOAL-ANALYSIS-PDF-DEAD-SOURCE-001`. Jede weitere Empfehlung wird
 vor der Umsetzung gegen den Code geprüft; Abweichungen werden gemeldet, nicht
 stillschweigend umgesetzt.
 
+### Nachtrag ADR-2 (Umsetzung 2026-10-11): ein Widerspruch in der Spec, vom Code entschieden
+
+ADR-2 enthält **zwei unvereinbare Bucket-Definitionen**, und die Umsetzung musste
+sich für eine entscheiden:
+
+1. Die Formalisierung schreibt `bucket(d) = ⌊calendar_years_until(d, as_of)⌋`,
+   also **Jahrestag**-Buckets.
+2. Der nächste Satz behauptet, `contribution_for_year()` berechne genau das
+   bereits — diese Funktion bucketet aber nach **Kalenderjahr**
+   (`date(year,1,1)` … `date(year,12,31)`).
+
+Entschieden hat der Code, nicht die Entwicklung: **drei** weitere Serien liegen
+auf derselben Array-Achse `t` wie der Liability-Pfad und werden im
+Wealth-Rekursionsschritt mit ihm verrechnet
+(`wealth[:, t+1] = … + cashflow[t] − liability[t]`):
+
+| Serie | Bedeutung von Index `t` |
+|---|---|
+| `net_cashflow_series` | Kalenderjahr `cashflow_totals["year"] + t` |
+| Inflationspfad | `_inflation_path_series(cma, years, cashflow_totals["year"])` |
+| Steuern | `TaxContext.calendar_year = base_calendar_year + t` |
+| `liability_path_rappen` (vorher) | Jahrestag-Bucket `calendar_years_until(anchor)` |
+
+Eine Vereinheitlichung war damit erzwungen. Die Gegenrichtung (Cashflow-Achse auf
+Jahrestage umbauen) schliesst ADR-2b ausdrücklich aus, und ADR-2c verlangt den
+Aufruf des Kalenderjahr-Enumerators. **Kalenderjahr-Buckets gewinnen**; der
+Formelteil von ADR-2 beschrieb das abgelöste Verhalten, nicht das Ziel.
+
+**Zweiter, nicht in der Spec enthaltener Befund.** Aus derselben Messung fiel ein
+eigenständiger Fehler: weil der Startindex ein Jahrestag-Bucket war, lag der
+Outflow in **5 von 8** geprüften Startdaten **ein Jahr zu früh** auf der Achse.
+Eine Pensionsausgabe ab 2031-07-01 wurde gegen die Cashflows des Kalenderjahres
+2030 verrechnet. Der Audit nennt nur die Betragsüberzeichnung; die Fehlplatzierung
+ist neu und wurde mit demselben Fix behoben.
+
+**Gemessene Betragswirkung** (monatlich CHF 1'000, Fenster nicht auf
+Jahresgrenzen):
+
+| Frequenz | Fenster | korrekt | Label-Logik | Abweichung |
+|---|---|---|---|---|
+| monatlich | 2026-06-15 → 2028-03-15 | 22 Zahlungen | 36 | **+64 %** |
+| quartalsweise | 2026-11-01 → 2029-02-01 | 10 Zahlungen | 16 | **+60 %** |
+| monatlich | 2026-01-01 → 2026-12-31 | 12 | 12 | 0 % |
+| jährlich | 2026-07-01 → 2030-07-01 | 5 | 5 | 0 % |
+
+Nur Fenster auf Kalenderjahr-Grenzen waren unauffällig — der Grund, warum es
+lange unentdeckt blieb. Die Richtung ist nicht harmlos konservativ: eine um 64 %
+überbuchte Verbindlichkeit lässt den Kunden mehr zurücklegen oder mehr Risiko
+nehmen als nötig.
+
+**Ersatzlos entfernt** (ADR-2c): `goal_liabilities._outflow_duration_years`,
+`goal_liabilities._annualize_amount_rappen`,
+`calendar_horizon.recurring_outflow_window`,
+`portfolio_engine_mc_simulation._full_goal_duration_years` und der
+wiederkehrende Zweig von `_goal_duration_years`. „Dauer in Jahren" existiert für
+wiederkehrende Ziele nicht mehr als Begriff, weil ein Teiljahr ein Bucket ist,
+aber nicht ein Jahresbetrag; Abschneide-Offenlegungen weisen deshalb einen
+**Betrags-Anteil** aus statt einer Jahreszahl.
+
+**Offen geblieben, bewusst:** `target_year_index` für **Wealth**-Ziele
+(Vermögensziel, Kapitalerhalt, Renditeziel) bleibt jahrestagsbasiert. Das ist
+dieselbe Fehlerklasse auf derselben Achse, gehört aber zu ADR-1 und nicht zu
+ADR-2; eine Umstellung verschiebt jede Wealth-Ziel-Wahrscheinlichkeit und braucht
+einen eigenen, gemessenen Schritt. **Als neuer Punkt vorzumerken.**
+
+**Lifecycle-Grenzfall sichtbar gemacht:** ein Strom, dessen Fenster vollständig
+vor dem laufenden Kalenderjahr endet, hat jetzt keine In-Horizon-Verbindlichkeit
+mehr (vorher belebte `max(1, …)` ihn als neue Zahlungspflicht wieder, Audit
+Repro 3). Damit er nicht stillschweigend auf 0 verschwindet, trägt er eine
+explizite `evaluation_note`, die auf den fehlenden Lifecycle-Status (ADR-3)
+hinweist.
+
+**Neun Reproducer-Dateien umgestellt.** Davon hielten **vier** den Defekt als
+Vertrag fest, drei davon ausdrücklich als „positive control (already correct
+today)":
+
+- `test_same_year_window_books_exactly_one_bucket` verlangte den vollen
+  Jahresbetrag für das Fenster 1.3.–1.9. (sieben Monatsraten, nicht zwölf).
+- `test_month_end_anchor_within_same_calendar_year_label_is_correct` dasselbe für
+  31.1.–30.11. (elf Raten).
+- `test_positive_control_matching_window_does_not_overshoot_target_date` verglich
+  Kalenderjahr-Bucket gegen Jahrestag-Index — die Vermischung, die der Fix
+  beseitigt.
+- `test_monthly_goal_dec30_to_jan1_does_not_double_annualized_total` lehnte die
+  2×-Verdoppelung korrekt ab, verlangte aber die 12×-Überbuchung: ein voller
+  Jahresbetrag für ein **Zwei-Tage**-Fenster.
+
+Zwei weitere Testfehler, die ohne Nachrechnen als Regression durchgegangen wären:
+`test_exact_two_year_span_landing_on_jan1_books_two_buckets_not_three` widersprach
+dem bestätigten ADR-2a (inklusiver Endpunkt — die Rate am 1.1.2029 ist fällig,
+es sind echte drei Buckets), und das Property-Test-Orakel in
+`test_goal_liability_bucket_sum_equals_occurrence_sum` **driftete** selbst: es
+zählte `current = _add_months(current, step)` kumulativ, wodurch ein in den
+Februar geklemmter 29. dauerhaft auf dem 28. blieb und an der inklusiven
+Endgrenze eine Rate zu viel durchliess — exakt der Fehler, den der
+Produktions-Enumerator in seinem eigenen Kommentar als vermieden beschreibt.
+
 ---
 
 ## Ziel
@@ -138,6 +235,8 @@ amount_due[bucket(j)] = Σ { amount : t_k ∈ Jahr j }   mit bucket(d) = ⌊cale
 ```
 
 Dies ist exakt, was `contribution_for_year()` bereits berechnet. Der Fix besteht NICHT darin, eine neue Formel zu erfinden, sondern `goal_liabilities.py` auf den bestehenden, bereits korrekten Enumerator umzustellen.
+
+> **UMGESETZT am 2026-10-11** (PR #580). Zur Bucket-Definition, die dieser Absatz anders beschreibt als die Formel darüber, siehe den Nachtrag im Entscheidungsprotokoll oben.
 
 ### OWNER-DECISION 2a — Endpunkt-Inklusivität
 

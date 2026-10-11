@@ -314,8 +314,17 @@ def test_vermoegensziel_target_year_clamped_to_horizon():
 # ============================================================================
 
 
-def test_einmalige_ausgabe_places_outflow_in_correct_year():
-    """Goal in 4 Jahren -> liability_path[3] = amount, alles andere 0."""
+def test_einmalige_ausgabe_places_outflow_in_the_calendar_year_of_the_target_date():
+    """Der Outflow liegt im KALENDERJAHR des Zieldatums.
+
+    ADR-2 (2026-10-11): vorher kam der Index aus ``_resolve_target_year_index``
+    und war ein Jahrestag-Bucket. Eine Ausgabe, deren Zieldatum im
+    Kalenderjahr liegt, aber den Jahrestag des Stichtags noch nicht erreicht
+    hat, wurde dem VORJAHR belastet. Da dieser Pfad in dasselbe
+    ``liability_path_rappen`` schreibt wie die wiederkehrenden Stroeme und
+    aggregate_liability_path() beide summiert, waeren das zwei Konventionen
+    in einem Array gewesen.
+    """
     today = date.today()
     target = (today + timedelta(days=365 * 4)).isoformat()
     goal = _make_goal(
@@ -324,11 +333,13 @@ def test_einmalige_ausgabe_places_outflow_in_correct_year():
         target_date=target,
     )
     liab = goal_to_liability(goal, horizon_years=10)
+    bucket = date.fromisoformat(target).year - today.year
+
     assert liab.target_kind == "cashflow_in_year"
     assert liab.target_amount_rappen == 100_000_00
-    assert liab.target_year_index == 4
+    assert liab.target_year_index == bucket + 1
     expected_path = [0] * 10
-    expected_path[3] = 100_000_00
+    expected_path[bucket] = 100_000_00
     assert liab.liability_path_rappen == expected_path
 
 
@@ -342,8 +353,12 @@ def test_einmalige_ausgabe_real_value_mode_inflated():
         value_mode="real",
     )
     liab = goal_to_liability(goal, horizon_years=10, inflation_series_bps=[200] * 10)
-    expected = int(round(50_000_00 * (1.02 ** 5)))
-    assert liab.liability_path_rappen[4] == pytest.approx(expected, abs=10)
+    # ADR-2: Faktor 1.0 im laufenden Kalenderjahr, der Exponent ist also der
+    # Bucket-Index. Der Betrag liegt jetzt im Bucket des Zielkalenderjahres
+    # (vorher ein Jahrestag-Bucket frueher), der Exponent wandert mit.
+    bucket = date.fromisoformat(target).year - today.year
+    expected = int(round(50_000_00 * (1.02 ** bucket)))
+    assert liab.liability_path_rappen[bucket] == pytest.approx(expected, abs=10)
     assert liab.target_amount_rappen == pytest.approx(expected, abs=10)
 
 
@@ -357,7 +372,11 @@ def test_einmalige_ausgabe_beyond_horizon_is_not_pulled_into_last_year():
         target_date=target,
     )
     liab = goal_to_liability(goal, horizon_years=10)
-    assert liab.target_year_index == 15
+    # Der Index wird bewusst NICHT auf den Horizont geklemmt:
+    # target_year_index > horizon_years ist das Signal "ausserhalb".
+    bucket = date.fromisoformat(target).year - today.year
+    assert liab.target_year_index == bucket + 1
+    assert liab.target_year_index > 10
     assert liab.liability_path_rappen == [0] * 10
     assert "ausserhalb" in str(liab.evaluation_note).lower()
 
@@ -367,8 +386,23 @@ def test_einmalige_ausgabe_beyond_horizon_is_not_pulled_into_last_year():
 # ============================================================================
 
 
-def test_pensionsausgabe_yearly_outflow_for_duration():
-    """Pension 36k/J ab Jahr 5 fuer 5 Jahre, horizon=15 -> Outflow Jahre 5-9."""
+def test_pensionsausgabe_yearly_outflow_books_only_the_instalments_that_fall_due():
+    """Pension CHF 3'000/Monat, Fenster today+5J bis today+9J, horizon=15.
+
+    ADR-2 (Owner-Entscheid 2026-10-11) korrigiert hier zwei Dinge auf
+    einmal, und der alte Testname nannte den Fehler selbst: "ab Jahr 5 fuer
+    5 Jahre". Das Fenster ist VIER Jahre lang, nicht fuenf -- es beruehrt
+    nur fuenf Kalenderjahr-Labels, weil es unterjaehrig beginnt und endet.
+
+    * Betrag: 48 Monatsraten sind faellig (4 Jahre). Gebucht wurden 60,
+      weil in jedes beruehrte Label ein voller Jahresbetrag ging: +25 %.
+    * Platzierung: die Buckets sind jetzt Kalenderjahre, also beginnt der
+      Strom im Jahr des Startdatums und nicht ein Jahrestag-Bucket frueher.
+
+    Erstes und letztes Jahr sind Teiljahre und tragen entsprechend weniger:
+    3 Raten im Startjahr (Okt-Dez), 9 im Endjahr (Jan-Sep, weil der
+    Anker-Tag nach dem Enddatum liegt).
+    """
     today = date.today()
     start = (today + timedelta(days=365 * 5)).isoformat()
     end = (today + timedelta(days=365 * 9)).isoformat()
@@ -380,15 +414,26 @@ def test_pensionsausgabe_yearly_outflow_for_duration():
         target_date=end,
     )
     liab = goal_to_liability(goal, horizon_years=15)
+    monthly = 3_000_00
+    first_bucket = date.fromisoformat(start).year - today.year
+
     assert liab.target_kind == "outflow_stream"
-    assert liab.target_year_index == 5
-    annual = 3_000_00 * 12  # 36'000 CHF
-    # liability_path_rappen[4..8] (Jahr 5..9) sollten = annual sein
-    for offset in range(5):
-        assert liab.liability_path_rappen[4 + offset] == annual
-    # Vor und nach den Jahren = 0
-    for i in (0, 1, 2, 3, 9, 10, 14):
-        assert liab.liability_path_rappen[i] == 0
+    assert liab.target_year_index == first_bucket + 1
+
+    path = liab.liability_path_rappen
+    assert path[first_bucket] == 3 * monthly       # Teiljahr: Okt-Dez
+    for offset in (1, 2, 3):
+        assert path[first_bucket + offset] == 12 * monthly
+    assert path[first_bucket + 4] == 9 * monthly   # Teiljahr: Jan-Sep
+
+    # Insgesamt genau vier Jahre Monatsraten -- nicht fuenf.
+    assert sum(path) == 48 * monthly
+    assert liab.target_amount_rappen == 48 * monthly
+
+    for i in range(first_bucket):
+        assert path[i] == 0
+    for i in range(first_bucket + 5, 15):
+        assert path[i] == 0
 
 
 def test_pensionsausgabe_real_compounds_inflation_per_year():
@@ -405,13 +450,17 @@ def test_pensionsausgabe_real_compounds_inflation_per_year():
         value_mode="real",
     )
     liab = goal_to_liability(goal, horizon_years=10, inflation_series_bps=[200] * 10)
-    # Jahr 3: 12'000 * 1.02^3
-    expected_y3 = int(round(12_000_00 * (1.02 ** 3)))
-    expected_y4 = int(round(12_000_00 * (1.02 ** 4)))
-    expected_y5 = int(round(12_000_00 * (1.02 ** 5)))
-    assert liab.liability_path_rappen[2] == pytest.approx(expected_y3, abs=10)
-    assert liab.liability_path_rappen[3] == pytest.approx(expected_y4, abs=10)
-    assert liab.liability_path_rappen[4] == pytest.approx(expected_y5, abs=10)
+    # ADR-2: die Buckets sind Kalenderjahre, Faktor 1.0 im laufenden Jahr
+    # (User-Eingabe ist ein heutiger Wert, B1-Konvention wie bei Cashflows).
+    # Der Exponent bleibt damit an den Bucket-Index gekoppelt: Bucket i
+    # traegt 1.02^i. Die Zahlungen liegen in den Kalenderjahren
+    # today+3 .. today+5, also in den Buckets 3..5 -- vorher 2..4, weil der
+    # Startindex ein Jahrestag-Bucket war.
+    first_bucket = date.fromisoformat(start).year - date.today().year
+    for offset in range(3):
+        bucket = first_bucket + offset
+        expected = int(round(12_000_00 * (1.02 ** bucket)))
+        assert liab.liability_path_rappen[bucket] == pytest.approx(expected, abs=10)
 
 
 def test_pensionsausgabe_ongoing_runs_until_horizon():
@@ -426,11 +475,13 @@ def test_pensionsausgabe_ongoing_runs_until_horizon():
         is_ongoing=1,
     )
     liab = goal_to_liability(goal, horizon_years=10)
-    # Jahre 4..10 (Index 3..9) muessen Outflows haben
-    for i in range(3, 10):
+    # ADR-2: Buckets sind Kalenderjahre. Der Strom beginnt im Kalenderjahr
+    # des Startdatums (vorher ein Jahrestag-Bucket frueher) und laeuft bis
+    # zum Horizont-Ende.
+    first_bucket = date.fromisoformat(start).year - today.year
+    for i in range(first_bucket, 10):
         assert liab.liability_path_rappen[i] == 24_000_00
-    # Jahre 1..3 (Index 0..2) keine
-    for i in range(3):
+    for i in range(first_bucket):
         assert liab.liability_path_rappen[i] == 0
 
 
@@ -451,8 +502,15 @@ def test_pensionsausgabe_truncated_horizon_adds_evaluation_note():
     assert "Horizont" in liab.evaluation_note
 
 
-def test_wiederkehrende_ausgabe_quarterly_annualizes_to_4x():
-    """quartalsweise -> annual = 4x amount."""
+def test_wiederkehrende_ausgabe_quarterly_books_four_instalments_only_in_full_years():
+    """quartalsweise: vier Raten pro VOLLEM Jahr, weniger im Teiljahr.
+
+    Der Test hiess einmal ``..._annualizes_to_4x`` und prueft jetzt genau
+    die Einschraenkung, die im Namen fehlte: die Annualisierung auf 4x gilt
+    nur fuer ein volles Kalenderjahr. Das Fenster today+1J bis today+3J ist
+    zwei Jahre lang und beruehrt drei Kalenderjahre; faellig sind acht
+    Quartalsraten, gebucht wurden zwoelf (drei Labels x 4).
+    """
     today = date.today()
     start = (today + timedelta(days=365)).isoformat()
     end = (today + timedelta(days=365 * 3)).isoformat()
@@ -464,8 +522,13 @@ def test_wiederkehrende_ausgabe_quarterly_annualizes_to_4x():
         target_date=end,
     )
     liab = goal_to_liability(goal, horizon_years=10)
-    annual = 2_500_00 * 4  # 10k pro Jahr
-    assert liab.liability_path_rappen[0] == annual
+    quarterly = 2_500_00
+    first_bucket = date.fromisoformat(start).year - today.year
+
+    assert liab.liability_path_rappen[first_bucket] == 1 * quarterly      # Teiljahr
+    assert liab.liability_path_rappen[first_bucket + 1] == 4 * quarterly  # volles Jahr
+    assert liab.liability_path_rappen[first_bucket + 2] == 3 * quarterly  # Teiljahr
+    assert sum(liab.liability_path_rappen) == 8 * quarterly
 
 
 # ============================================================================
@@ -614,11 +677,12 @@ def test_aggregate_sums_outflows_per_year():
     )
     liabs = goals_to_liabilities([goal_a, goal_b], horizon_years=10)
     aggregated = aggregate_liability_path(liabs, 10)
-    # Jahr 3 (Index 2) sollte 80'000 CHF Total-Outflow haben
-    assert aggregated[2] == 80_000_00
-    # Andere Jahre = 0
-    for i in (0, 1, 3, 4, 5, 6, 7, 8, 9):
-        assert aggregated[i] == 0
+    # Beide Ziele fallen ins selbe Kalenderjahr -> ein Bucket mit 80'000.
+    bucket = date.fromisoformat(target_a).year - today.year
+    assert aggregated[bucket] == 80_000_00
+    for i in range(10):
+        if i != bucket:
+            assert aggregated[i] == 0
 
 
 def test_aggregate_combines_recurring_and_einmalig():
@@ -637,16 +701,27 @@ def test_aggregate_combines_recurring_and_einmalig():
     )
     liabs = goals_to_liabilities([pension, bullet], horizon_years=12)
     aggregated = aggregate_liability_path(liabs, 12)
-    # Jahr 5..9 (Index 4..8) Pension 24k
-    # Jahr 7 (Index 6) zusaetzlich 100k Bullet
-    assert aggregated[4] == 24_000_00
-    assert aggregated[5] == 24_000_00
-    assert aggregated[6] == 24_000_00 + 100_000_00
-    assert aggregated[7] == 24_000_00
-    assert aggregated[8] == 24_000_00
-    # Vor 5 und nach 9: 0
-    assert aggregated[3] == 0
-    assert aggregated[9] == 0
+
+    # ADR-2: wiederkehrende UND einmalige Outflows liegen jetzt beide auf
+    # der Kalenderjahr-Achse. Dieser Test ist die Stelle, an der das
+    # zaehlt: aggregate_liability_path() summiert sie in EIN Array, das vom
+    # Vermoegen auf demselben Index abgezogen wird. Lagen die beiden auf
+    # verschiedenen Achsen, war die Summe nicht nur verschoben, sondern
+    # inkonsistent verschoben.
+    pension_first = date.fromisoformat(pension_start).year - today.year
+    bullet_bucket = date.fromisoformat(bullet_target).year - today.year
+
+    # Das Pensionsfenster ist vier Jahre lang (today+5J bis today+9J) und
+    # jaehrlich, also vier Raten -- vorher fuenf, eine pro beruehrtem Label.
+    pension_buckets = [
+        i for i, value in enumerate(aggregated)
+        if value in (24_000_00, 24_000_00 + 100_000_00)
+    ]
+    assert pension_buckets == [pension_first + o for o in range(4)]
+    assert aggregated[bullet_bucket] == 24_000_00 + 100_000_00
+    assert aggregated[pension_first - 1] == 0
+    assert aggregated[pension_first + 4] == 0
+    assert sum(aggregated) == 4 * 24_000_00 + 100_000_00
 
 
 def test_goals_to_liabilities_empty_list_returns_empty():

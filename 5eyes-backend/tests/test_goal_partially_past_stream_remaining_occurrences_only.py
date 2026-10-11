@@ -87,14 +87,18 @@ def _make_goal(
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "GOAL-PAST-DATE-LIFECYCLE-001 -- round 38 red test, see "
-        "docs/audits/2026-10-03-recurring-goal-lifecycle-calendar-and-mc-validation-audit.md "
-        "(Repro 3, part-past monthly stream 2020-01-01..2028-12-31)"
-    ),
-)
+# GEFIXT am 2026-10-11 durch ADR-2 (GOAL-RECURRENCE-SCHEDULE-001), nicht
+# durch einen eigenen Lifecycle-Fix: seit die Liability-Buckets KALENDERJAHRE
+# sind, enumeriert der Occurrence-Enumerator fuer ein vergangenes Fenster
+# schlicht keine Faelligkeit mehr. Vorher hob ``max(1, calendar_years_until())``
+# jeden vergangenen Anker auf Bucket 1 und belebte den abgelaufenen Strom als
+# neue Zahlungspflicht wieder (Audit Repro 3).
+#
+# ADR-3 (Goal-Lifecycle) bleibt trotzdem offen und notwendig: es gibt weiterhin
+# keinen Zustand, der "abgelaufen, nie bestaetigt" von "erfuellt" oder
+# "storniert" unterscheidet. Damit die Luecke nicht als stille 0 verschwindet,
+# traegt ein solches Ziel jetzt eine explizite evaluation_note -- gepinnt in
+# tests/test_goal_liability_calendar_axis_parity.py.
 def test_partially_past_monthly_stream_charges_only_remaining_future_years():
     today = date.today()
     assert today >= date(2026, 10, 3), (

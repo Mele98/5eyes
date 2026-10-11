@@ -5,8 +5,9 @@ Master-Spec: docs/planning/2026-05-05-stochastic-optimizer-spec.md (Sec. 6)
 Jedes Goal wird in eine `GoalLiability` konvertiert, die der Optimizer als
 Constraint nutzen kann:
 
-- liability_path_rappen[i]: positiver Outflow im Jahr (start_year + i + 1)
-  fuer Spending-Goals (Einmalige_Ausgabe, Wiederkehrende, Pensionsausgabe).
+- liability_path_rappen[i]: positiver Outflow im KALENDERJAHR
+  (date.today().year + i) fuer Spending-Goals (Einmalige_Ausgabe,
+  Wiederkehrende, Pensionsausgabe).
   Fuer Wealth-Goals (Vermoegensziel, Kapitalerhalt) und Renditeziel ist der
   Pfad reine Nullen — die Bewertung erfolgt am target_year_index.
 
@@ -15,9 +16,20 @@ Constraint nutzen kann:
 
 - target_year_index: 1-based Jahr-Index ab dem das Goal bewertet wird.
 
-- liability_path_rappen: 0-based, list[0] = Outflow im naechsten Jahr,
+- liability_path_rappen: 0-based, list[0] = Outflow im LAUFENDEN Kalenderjahr,
   list[horizon_years - 1] = Outflow im letzten simulierten Jahr.
-  Konsistent zur Convention in services.cashflow_timeline.
+
+  GOAL-RECURRENCE-SCHEDULE-001 / ADR-2 (2026-10-11): list[0] war bis dahin
+  "Outflow im naechsten Jahr" und der Startindex ein Jahrestag-Bucket
+  (``calendar_years_until``), obwohl der Docstring schon damals Konsistenz
+  zu services.cashflow_timeline behauptete. Die Cashflow-Serie
+  (``net_cashflow_series``), der Inflationspfad und die Steuerjahre
+  (``TaxContext.calendar_year = base_calendar_year + t``) liegen aber alle
+  auf der KALENDERJAHR-Achse, und der Wealth-Schritt verrechnet sie mit
+  diesem Pfad auf demselben Index
+  (``wealth[:, t+1] = ... + cashflow[t] - liability[t]``). Der Outflow
+  landete deshalb in 5 von 8 geprueften Startdaten ein Jahr zu frueh.
+  Jetzt gilt die behauptete Konsistenz tatsaechlich.
 
 Inflation: wird angewendet wenn goal.value_mode == "real". Default: nominal.
 Spending-Goals werden ohne explizite real/nominal-Trennung behandelt — der
@@ -31,8 +43,11 @@ from datetime import date
 from typing import Sequence
 
 from models.wealth import Goal
-from services.calendar_horizon import calendar_years_until, recurring_outflow_window
-from services.cashflow_timeline import normalize_frequency
+from services.calendar_horizon import calendar_years_until
+from services.cashflow_timeline import (
+    normalize_frequency,
+    recurring_occurrence_series,
+)
 
 
 # ============================================================================
@@ -220,24 +235,13 @@ def _resolve_target_year_index(
     return years
 
 
-def _outflow_duration_years(goal: Goal, *, target_year_index: int, horizon_years: int) -> int:
-    """Anzahl Outflow-Jahre fuer wiederkehrende/Pensions-Goals innerhalb des Horizons.
-
-    - Wenn start_date + target_date gesetzt: overlap mit [target_year_index..horizon_years]
-    - Wenn is_ongoing: vom target_year_index bis horizon_years
-    - Sonst: 1 Jahr
-    """
-    start_date = _parse_iso(goal.start_date)
-    target_date = _parse_iso(goal.target_date)
-    if target_year_index > horizon_years:
-        return 0
-    if start_date and target_date and target_date >= start_date:
-        full_years = target_date.year - start_date.year + 1
-        # ab target_year_index laufen, max bis horizon_years
-        return max(0, min(full_years, horizon_years - target_year_index + 1))
-    if int(goal.is_ongoing or 0):
-        return max(1, horizon_years - target_year_index + 1)
-    return 1
+# GOAL-RECURRENCE-SCHEDULE-001 / ADR-2c (2026-10-11): _outflow_duration_years
+# ist ersatzlos ENTFERNT. Die Funktion beantwortete "wie viele Jahre zahlt
+# dieses Ziel" mit ``target_date.year - start_date.year + 1``, also mit der
+# Anzahl beruehrter Kalenderjahr-LABELS. Unter Occurrence-Semantik hat die
+# Frage keine sinnvolle Antwort mehr: ein Teiljahr ist ein Bucket, aber nicht
+# ein Jahresbetrag. Wer den Umfang eines Stroms braucht, nimmt die Summe des
+# Pfads aus recurring_occurrence_series() -- Geld, nicht Jahre.
 
 
 # ============================================================================
@@ -270,20 +274,11 @@ def _norm_goal_type(goal_type: str | None) -> str:
     return normalized
 
 
-def _annualize_amount_rappen(goal: Goal) -> int:
-    """Konvertiert frequency-spezifischen Betrag in Jahresbetrag.
-
-    Konsistent zu portfolio_engine._annualize_goal_amount.
-    """
-    amount = int(goal.target_amount_rappen or 0)
-    freq = normalize_frequency(goal.frequency)
-    if freq == "monatlich":
-        return amount * 12
-    if freq == "quartalsweise":
-        return amount * 4
-    if freq in ("halbjaehrlich", "halbjährlich"):
-        return amount * 2
-    return amount
+# GOAL-RECURRENCE-SCHEDULE-001 / ADR-2c (2026-10-11): _annualize_amount_rappen
+# ist ersatzlos ENTFERNT. "Betrag x 12" unterstellt zwoelf Faelligkeiten im
+# Jahr; in einem Teiljahr sind es weniger. Die Annualisierung entsteht jetzt
+# dort, wo sie hingehoert: aus der gezaehlten Anzahl Faelligkeiten pro
+# Kalenderjahr in recurring_occurrence_series().
 
 
 # ============================================================================
@@ -444,15 +439,32 @@ def _build_einmalige_ausgabe(
     horizon_years: int,
     inflation_series_bps: list[int] | None,
 ) -> GoalLiability:
-    """Einmalige_Ausgabe: Outflow im Zieljahr."""
+    """Einmalige_Ausgabe: Outflow im Kalenderjahr des Zieldatums.
+
+    GOAL-RECURRENCE-SCHEDULE-001 / ADR-2 (2026-10-11): auch dieser Outflow
+    liegt jetzt auf der KALENDERJAHR-Achse. Er landet im selben
+    ``liability_path_rappen``-Array wie die wiederkehrenden Stroeme und wird
+    vom Vermoegen auf demselben Index abgezogen wie Cashflows, Inflation und
+    Steuern; zwei Konventionen in EINEM Array (aggregate_liability_path
+    summiert sie) waeren schlechter als jede einzelne. Vorher kam der Index
+    aus ``_resolve_target_year_index`` und war damit ein Jahrestag-Bucket --
+    eine Ausgabe vom Februar wurde dem Vorjahr belastet.
+
+    Die Inflation zaehlt entsprechend ab dem laufenden Kalenderjahr: Faktor
+    1.0 im Bucket ``base_year`` (User-Eingabe ist ein heutiger Wert), wie
+    bei Cashflows (B1) und beim wiederkehrenden Pfad.
+    """
     amount = max(0, int(goal.target_amount_rappen or 0))
-    target_year = _resolve_target_year_index(
-        goal,
-        horizon_years=horizon_years,
-        clamp_to_horizon=False,
-    )
+    base_year = date.today().year
+    target_date = _parse_iso(goal.target_date)
+    if target_date is not None:
+        target_year = _calendar_bucket_index(target_date, base_year)
+    else:
+        # Kein Zieldatum: dieselbe Legacy-Lesart wie beim wiederkehrenden
+        # Pfad -- horizon_years als "in so vielen Jahren faellig".
+        target_year = max(1, int(goal.horizon_years or 1))
     if _is_real_value_mode(goal):
-        amount = _inflate_at_year(amount, target_year, inflation_series_bps)
+        amount = _inflate_at_year(amount, target_year - 1, inflation_series_bps)
     amount = int(round(amount * _goal_probability_factor(goal)))  # bedingte Goals pro-rata
     path = [0] * horizon_years
     if 1 <= target_year <= horizon_years:
@@ -478,55 +490,198 @@ def _build_einmalige_ausgabe(
     )
 
 
+def _calendar_bucket_index(anchor: date | None, base_year: int) -> int:
+    """1-based Kalenderjahr-Bucket eines Datums auf der Engine-Achse.
+
+    Bucket 1 ist das laufende Kalenderjahr (``base_year``) -- dieselbe
+    Achse wie ``net_cashflow_series`` (Index 0 = ``base_year``), nur
+    1-based wie ``target_year_index``.
+    """
+    if anchor is None:
+        return 1
+    return int(anchor.year) - int(base_year) + 1
+
+
+def _recurring_outflow_note(
+    goal: Goal,
+    *,
+    start_date: date | None,
+    target_date: date | None,
+    is_ongoing: bool,
+    base_year: int,
+    horizon_years: int,
+    in_horizon_total: int,
+    per_occurrence: int,
+    prob_factor: float,
+) -> str | None:
+    """Offenlegung, wenn der gebuchte Strom nicht der ganze Strom ist.
+
+    Die Dauer wird NICHT mehr in Jahren ausgewiesen, sondern als Betrag:
+    unter Occurrence-Semantik sind zwei "Jahre" verschieden viel Geld, wenn
+    eines ein Teiljahr ist. Eine Jahreszahl waere hier die Angabe, die den
+    Fehler ueberhaupt erst erzeugt hat.
+    """
+    last_bucket_year = int(base_year) + int(horizon_years) - 1
+
+    # ADR-3-Grenzfall, bewusst explizit: ein Strom, dessen Fenster
+    # vollstaendig vor dem laufenden Kalenderjahr endet, hat keine
+    # In-Horizon-Verbindlichkeit mehr. Vorher hob ``max(1, ...)`` den
+    # Startindex auf Jahr 1 und belebte den abgelaufenen Strom als neue
+    # Zahlungspflicht wieder (Audit Repro 3). Jetzt ist er null -- aber
+    # nicht stillschweigend: solange ADR-3 (Goal-Lifecycle) nicht
+    # implementiert ist, gibt es keinen Zustand, der "abgelaufen, nie
+    # bestaetigt" von "erfuellt" unterscheidet, und die Luecke muss am
+    # Ziel sichtbar sein statt als 0 zu verschwinden.
+    if (
+        not is_ongoing
+        and target_date is not None
+        and int(target_date.year) < int(base_year)
+    ):
+        return (
+            "Zahlungsfenster endete "
+            f"{target_date.isoformat()}, also vor dem laufenden "
+            f"Kalenderjahr {base_year}: keine In-Horizon-Verbindlichkeit. "
+            "Lifecycle-Status (erfuellt / storniert / ueberfaellig) ist "
+            "nicht erfasst -- Ziel vor der Beratung bestaetigen."
+        )
+
+    if start_date is not None and int(start_date.year) > last_bucket_year:
+        return (
+            "Zahlungsbeginn liegt ausserhalb des Optimizer-Horizonts "
+            f"(Horizont: {horizon_years} Jahre); keine In-Horizon-Liability."
+        )
+
+    # Horizont schneidet den Strom ab: vollen Strom gegenrechnen.
+    if (
+        target_date is not None
+        and int(target_date.year) > last_bucket_year
+        and per_occurrence
+    ):
+        full_years = int(target_date.year) - int(base_year) + 1
+        full_series = recurring_occurrence_series(
+            amount_per_occurrence_rappen=per_occurrence,
+            frequency=goal.frequency,
+            start_date=start_date,
+            end_date=target_date,
+            is_ongoing=is_ongoing,
+            base_year=base_year,
+            horizon_years=full_years,
+            inflation_series_bps=None,  # nominal, nur fuer das Verhaeltnis
+        )
+        full_total = int(round(sum(full_series) * prob_factor))
+        if full_total > 0 and in_horizon_total < full_total:
+            share = 100.0 * in_horizon_total / full_total
+            return (
+                f"Bewertet werden {share:.0f} % des Zahlungsstroms "
+                f"(bis {last_bucket_year}); der Strom laeuft bis "
+                f"{target_date.isoformat()}, also ueber den Horizont von "
+                f"{horizon_years} Jahren hinaus."
+            )
+    return None
+
+
 def _build_recurring_outflow(
     goal: Goal,
     *,
     horizon_years: int,
     inflation_series_bps: list[int] | None,
 ) -> GoalLiability:
-    """Wiederkehrende_Ausgabe / Pensionsausgabe: jaehrlicher Outflow ab Start.
+    """Wiederkehrende_Ausgabe / Pensionsausgabe: Outflow ab Start.
 
-    Annualized amount wird mit Inflation hochgerechnet PRO JAHR (kumulativ),
-    weil sowohl Lohn- als auch Lebenshaltungs-Indizes mehrjaehrig wachsen.
+    GOAL-RECURRENCE-SCHEDULE-001 / ADR-2 (Owner-Entscheid 2026-10-11): die
+    Betraege kommen jetzt aus dem kanonischen Occurrence-Enumerator
+    (services/cashflow_timeline.py::recurring_occurrence_series), nicht mehr
+    aus "annualisierter Betrag x Anzahl beruehrter Kalenderjahr-Labels".
+    Die alte Rechnung buchte in ein Teiljahr den VOLLEN Jahresbetrag und
+    ueberzeichnete die Verbindlichkeit damit um bis zu 64 % (gemessen:
+    monatlich 2026-06-15..2028-03-15 = 22 Zahlungen, gebucht wurden 36).
+
+    Zugleich ist der Bucket-Index jetzt das Kalenderjahr -- dieselbe Achse,
+    auf der Cashflow-, Inflations- und Steuerserie schon liegen und auf der
+    der Wealth-Schritt alle verrechnet. Vorher war der Startindex ein
+    Jahrestag-Bucket (``calendar_years_until``), wodurch der Outflow in
+    5 von 8 geprueften Startdaten ein Jahr zu FRUEH vom Vermoegen abgezogen
+    wurde.
+
+    Inflation (value_mode='real') wird pro Bucket kumulativ angewandt, mit
+    Faktor 1.0 im laufenden Kalenderjahr -- B1-Konvention, wie bei Cashflows.
     """
-    annual = _annualize_amount_rappen(goal)
-    # GOAL-RECURRENCE-SCHEDULE-001 (2026-10-10): das Outflow-Fenster kommt
-    # jetzt aus der EINEN gemeinsamen Herleitung, die auch der Reporting-MC
-    # konsumiert (services/calendar_horizon.py::recurring_outflow_window).
-    # Verhalten dieser Seite bewusst unveraendert -- die Funktion
-    # reproduziert exakt die bisherige Solver-Semantik.
-    target_year, duration = recurring_outflow_window(
-        start_date=_parse_iso(goal.start_date),
-        target_date=_parse_iso(goal.target_date),
-        is_ongoing=bool(int(goal.is_ongoing or 0)),
-        fallback_horizon_years=goal.horizon_years,
-        horizon_years=horizon_years,
-    )
-    path = [0] * horizon_years
+    start_date = _parse_iso(goal.start_date)
+    target_date = _parse_iso(goal.target_date)
+    is_ongoing = bool(int(goal.is_ongoing or 0))
+    base_year = date.today().year
+
+    # Legacy-Fallback OHNE Startdatum. start_date, target_date und
+    # horizon_years sind alle nullable (models/wealth.py), diese Zeilen-Form
+    # ist also erreichbar. Die abgeloeste Herleitung nahm hier
+    # ``first_year_index = max(1, goal.horizon_years)``, las also
+    # horizon_years als "in so vielen Jahren wird das Ziel faellig" -- fuer
+    # eine Pensionsausgabe der Pensionierungszeitpunkt. Diese Lesart bleibt
+    # erhalten und wird nur auf die Kalenderjahr-Achse uebersetzt.
+    #
+    # Sie NICHT zu erhalten waere keine Korrektur, sondern eine Erfindung in
+    # die andere Richtung: ohne Anker ab dem laufenden Jahr zu enumerieren
+    # haette die AHV-Verbindlichkeit im Regressionsfall verzehnfacht
+    # (3'000'000 -> 30'000'000 Rappen), ohne dass ein Feld das hergibt.
+    derived_start_from_horizon = False
+    if start_date is None and target_date is None:
+        offset_years = max(1, int(goal.horizon_years or 1)) - 1
+        start_date = date(base_year + offset_years, 1, 1)
+        derived_start_from_horizon = True
     is_real = _is_real_value_mode(goal)
     prob_factor = _goal_probability_factor(goal)  # bedingte Goals pro-rata
-    cumulative_outflow = 0
-    for offset in range(duration):
-        year_idx = target_year + offset  # 1-based
-        if year_idx > horizon_years:
-            break
-        amount = annual
-        if is_real:
-            amount = _inflate_at_year(annual, year_idx, inflation_series_bps)
-        amount = int(round(amount * prob_factor))
-        path[year_idx - 1] = amount
-        cumulative_outflow += amount
-    note = None
-    full_duration = _outflow_duration_years(
-        goal, target_year_index=1, horizon_years=99999,
+
+    # Der Periodenbetrag, NICHT der annualisierte: die Annualisierung
+    # entsteht im Enumerator aus der echten Anzahl Faelligkeiten pro Jahr.
+    per_occurrence = int(goal.target_amount_rappen or 0)
+    raw_series = recurring_occurrence_series(
+        amount_per_occurrence_rappen=per_occurrence,
+        frequency=goal.frequency,
+        start_date=start_date,
+        end_date=target_date,
+        is_ongoing=is_ongoing,
+        base_year=base_year,
+        horizon_years=horizon_years,
+        inflation_series_bps=inflation_series_bps if is_real else None,
     )
-    if target_year > horizon_years:
-        note = (
-            "Zahlungsbeginn liegt ausserhalb des Optimizer-Horizonts "
-            f"(Horizont: {horizon_years} Jahre); keine In-Horizon-Liability."
+    path = [int(round(value * prob_factor)) for value in raw_series]
+    cumulative_outflow = sum(path)
+
+    # Auswertungsindex: 1-based Bucket des ersten tatsaechlichen Outflows.
+    # Vorher war das der Jahrestag-Startindex, auch wenn in jenem Bucket
+    # gar keine Faelligkeit lag.
+    first_paid = next((i for i, value in enumerate(path) if value > 0), None)
+    if first_paid is not None:
+        target_year = first_paid + 1
+    else:
+        # Keine Faelligkeit im Horizont. Der Index wird hier NICHT auf den
+        # Horizont geklemmt: ``target_year_index > horizon_years`` ist das
+        # etablierte Signal "liegt ausserhalb des Horizonts", auf das
+        # Konsumenten pruefen. Ein geklemmter Wert haette ein Ziel jenseits
+        # des Horizonts wie ein Ziel im letzten Horizontjahr aussehen
+        # lassen.
+        target_year = max(1, _calendar_bucket_index(start_date or target_date, base_year))
+
+    note = _recurring_outflow_note(
+        goal,
+        start_date=start_date,
+        target_date=target_date,
+        is_ongoing=is_ongoing,
+        base_year=base_year,
+        horizon_years=horizon_years,
+        in_horizon_total=cumulative_outflow,
+        per_occurrence=per_occurrence,
+        prob_factor=prob_factor,
+    )
+    if derived_start_from_horizon and cumulative_outflow > 0:
+        # Der Zahlungsplan steht hier auf einer Annahme, nicht auf Daten.
+        disclosure = (
+            "Kein Start- und kein Enddatum erfasst; der Zahlungsbeginn ist "
+            f"aus horizon_years={goal.horizon_years} abgeleitet "
+            f"(Kalenderjahr {start_date.year}). Datum am Ziel erfassen, "
+            "damit der Strom nicht auf einer Annahme beruht."
         )
-    elif duration < full_duration:
-        note = f"Bewertet fuer {duration} von {full_duration} Jahren (Horizont: {horizon_years})."
+        note = f"{note} {disclosure}" if note else disclosure
     return GoalLiability(
         goal_id=str(goal.id),
         label=str(goal.label or ""),

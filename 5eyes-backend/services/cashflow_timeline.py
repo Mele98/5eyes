@@ -191,6 +191,93 @@ def _compound_inflation_factor(
     return factor
 
 
+def recurring_occurrence_series(
+    *,
+    amount_per_occurrence_rappen: int,
+    frequency: str | None,
+    start_date: date | None,
+    end_date: date | None,
+    is_ongoing: bool,
+    base_year: int,
+    horizon_years: int,
+    inflation_series_bps: list[int] | None = None,
+) -> list[int]:
+    """Occurrence-exakte Jahresbetraege einer wiederkehrenden Serie.
+
+    GOAL-RECURRENCE-SCHEDULE-001 / ADR-2 (Owner-Entscheid 2026-10-11): die
+    EINE Herleitung, die sowohl der Solver (services/optimizer/
+    goal_liabilities.py) als auch der Reporting-MC (services/
+    portfolio_engine_mc_simulation.py) fuer wiederkehrende Ziele benutzen.
+    Beide zaehlten vorher beruehrte Kalenderjahr-LABELS
+    (``target.year - start.year + 1``) und buchten in jedes Label den
+    VOLLEN Jahresbetrag -- ein Teiljahr am Anfang oder Ende wurde damit
+    wie ein voll bezahltes Jahr behandelt.
+
+    Rueckgabe: Liste der Laenge ``horizon_years``; Index ``i`` ist das
+    KALENDERJAHR ``base_year + i``. Das ist bewusst dieselbe Achse, die
+    ``net_cashflow_series``, der Inflationspfad und die Steuer-Jahre
+    (``TaxContext.calendar_year = base_calendar_year + t``) schon benutzen --
+    alle vier Serien werden im Wealth-Rekursionsschritt auf demselben Index
+    verrechnet (``wealth[:, t+1] = ... + cashflow[t] - liability[t]``), also
+    muessen sie dieselbe Bucket-Definition haben. ADR-2b schliesst die
+    Gegenrichtung (Cashflow-Architektur auf Jahrestag-Buckets umbauen)
+    ausdruecklich aus, ADR-2c verlangt den Aufruf dieses Enumerators.
+
+    ``amount_per_occurrence_rappen`` ist der PERIODENBETRAG (CHF pro Monat
+    bei monatlich), NICHT der annualisierte Betrag -- die Annualisierung
+    entsteht hier aus der tatsaechlichen Anzahl Faelligkeiten pro Jahr.
+
+    ``inflation_series_bps`` wird pro Bucket kumulativ angewandt, mit
+    Faktor 1.0 im Bucket ``base_year`` (User-Eingaben sind heutige Rappen) --
+    dieselbe B1-Konvention wie bei Cashflows.
+    """
+    years = max(0, int(horizon_years))
+    if years == 0:
+        return []
+    amount = int(amount_per_occurrence_rappen or 0)
+    if amount == 0:
+        return [0] * years
+
+    # Enddatum-Semantik, uebernommen aus recurring_outflow_window, damit
+    # sich an dieser Stelle NUR die Betragsrechnung aendert:
+    #   * Enddatum gesetzt -> es gewinnt, auch gegen is_ongoing.
+    #   * kein Enddatum, is_ongoing -> laeuft bis zum Horizont-Ende
+    #     (valid_until=None; contribution_for_year klemmt das effektive Ende
+    #     ohnehin auf das jeweilige Jahresende).
+    #   * kein Enddatum, nicht laufend -> genau ein Jahr ab Start.
+    effective_end = end_date
+    if end_date is None and not is_ongoing:
+        anchor = start_date or date(int(base_year), 1, 1)
+        effective_end = date(anchor.year, 12, 31)
+
+    # frequency='einmalig' wuerde in contribution_for_year den Einmalig-Zweig
+    # ziehen (normalize_nature leitet 'einmalig' aus der Frequenz ab, der
+    # nature-Parameter kann das nicht ueberstimmen). Fuer einen
+    # Einmalbetrag ist Einmalige_Ausgabe der eigene Zieltyp mit eigenem
+    # Builder; hier ist es ein Modellinputfehler und keine stille Annahme.
+    if normalize_frequency(frequency) == "einmalig":
+        raise ValueError(
+            "recurring_occurrence_series ist nur fuer wiederkehrende Serien "
+            "zulaessig; frequency='einmalig' gehoert zum Einmal-Builder."
+        )
+
+    base = int(base_year)
+    return [
+        contribution_for_year(
+            amount_rappen=amount,
+            frequency=frequency,
+            nature="wiederkehrend",
+            valid_from=start_date.isoformat() if start_date else None,
+            valid_until=effective_end.isoformat() if effective_end else None,
+            year=base + offset,
+            inflation_factor=_compound_inflation_factor(
+                inflation_series_bps, base, base + offset
+            ),
+        )
+        for offset in range(years)
+    ]
+
+
 def _convert_cf_amount_to_target_currency(
     cf,
     fx_source,

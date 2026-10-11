@@ -12,14 +12,24 @@ property tests in tests/test_cashflow_annualization_properties.py) instead
 walks the real occurrence dates inside the window per calendar year.
 
 For an identical (frequency, start, end/ongoing, amount) contract the two
-schedulers should describe the same per-period occurrence series. They
-currently do not: whenever a contract starts or ends off a year boundary (or
-spans very little real time while still touching several year labels), goal
-liabilities over- or under-counts relative to the real occurrence enumerator.
+schedulers must describe the same per-period occurrence series.
 
-This file builds several equivalent contracts, runs each one through BOTH
-schedulers and asserts parity. All assertions are expected to fail today;
-see the ``xfail`` marker below.
+GEFIXT am 2026-10-11 (ADR-2, Owner-Entscheid): sie tun es jetzt, weil es nur
+noch EINEN Scheduler gibt. ``goal_liabilities`` ruft
+``cashflow_timeline.recurring_occurrence_series()`` auf, das auf demselben
+``contribution_for_year()`` aufsetzt, gegen das diese Datei prueft -- die
+Paritaet ist damit strukturell und nicht mehr nur zugesichert.
+
+Vorher zaehlte die Goal-Seite beruehrte Kalenderjahr-LABELS
+(``target.year - start.year + 1``) und buchte in jedes Label den vollen
+annualisierten Betrag. Gemessen am Beispiel monatlich 2026-06-15..2028-03-15:
+22 tatsaechliche Zahlungen, gebucht wurden 36 (+64 %). Betroffen war jeder
+Vertrag, der nicht auf Kalenderjahr-Grenzen liegt -- also der Normalfall
+eines echten Mandats (Rente ab Juni, Schulgeld ab November). Verträge, die am
+1.1. beginnen und am 31.12. enden, stimmten zufaellig, weshalb es lange
+unentdeckt blieb.
+
+Die ``xfail``-Markierung dieser Datei ist entfernt.
 """
 from __future__ import annotations
 
@@ -43,15 +53,6 @@ configure_mappers()
 
 from services.optimizer.goal_liabilities import goal_to_liability
 from services.cashflow_timeline import contribution_for_year
-
-
-pytestmark = pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "GOAL-RECURRENCE-SCHEDULE-001 -- round 38 red test, see "
-        "docs/audits/2026-10-03-recurring-goal-lifecycle-calendar-and-mc-validation-audit.md"
-    ),
-)
 
 
 AMOUNT = 1_000_00  # CHF 1'000 pro Periode (vor Annualisierung)

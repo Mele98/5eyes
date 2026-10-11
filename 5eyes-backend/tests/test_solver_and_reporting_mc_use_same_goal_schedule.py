@@ -33,13 +33,13 @@ from types import SimpleNamespace
 
 import pytest
 
+from services.cashflow_timeline import contribution_for_year
 from services.optimizer.goal_liabilities import goal_to_liability
 from services.portfolio_engine import (
-    _annualize_goal_amount,
-    _goal_duration_years,
     _goal_probability_factor,
     _year_index_for_goal,
 )
+from services.portfolio_engine_mc_simulation import _shared_recurring_series
 
 HORIZON_YEARS = 15
 
@@ -82,33 +82,45 @@ def _make_recurring_goal() -> SimpleNamespace:
 def _reporting_mc_schedule(
     goal: SimpleNamespace, *, start_year: int, horizon_years: int
 ) -> tuple[int, list[int]]:
-    """Reconstruct the per-year liability schedule implied by the
-    reporting-MC path's own building blocks.
+    """Der Zahlungsplan, den der Reporting-MC-Pfad benutzt.
 
-    `_monte_carlo_goal_summary` (services/portfolio_engine_mc_simulation.py,
-    ~L904 and ~L972-995) does not materialize a liability_path itself -- it
-    only computes a cumulative `target` (annual_amount * duration) and
-    compares it against the simulated portfolio at a single evaluation
-    `index`. To compare it against the optimizer's explicit per-year
-    liability_path_rappen, we rebuild the implied path from the EXACT same
-    helpers `_monte_carlo_goal_summary` calls internally:
-    `_year_index_for_goal` (evaluation index), `_goal_duration_years`
-    (duration), `_annualize_goal_amount` and `_goal_probability_factor`
-    (per-year amount) -- i.e. the duration years run backwards from the
-    evaluation index, mirroring how the reporting path narrates "funded for
-    N of M years" against that index.
+    UMGESTELLT am 2026-10-11 (ADR-2c): vorher musste dieser Helfer den Plan
+    REKONSTRUIEREN, weil der Reporting-MC keinen Pfad materialisierte --
+    er rechnete nur ``annualisierter Betrag x Dauer in Jahres-Labels`` und
+    verglich das Ergebnis an einem einzigen Auswertungsindex. Genau diese
+    zweite, unabhaengige Implementierung ist jetzt entfernt; der
+    Reporting-MC liest den Plan aus derselben Funktion wie der Solver.
     """
-    index = _year_index_for_goal(goal, start_year, horizon_years)
-    duration = _goal_duration_years(goal, start_year, horizon_years)
-    annual = int(round(_annualize_goal_amount(goal) * _goal_probability_factor(goal)))
-    total = annual * duration
-    path = [0] * horizon_years
-    window_start = index - duration + 1
-    for offset in range(duration):
-        year_idx = window_start + offset
-        if 1 <= year_idx <= horizon_years:
-            path[year_idx - 1] = annual
-    return total, path
+    series = _shared_recurring_series(goal, start_year, horizon_years)
+    probability = _goal_probability_factor(goal)
+    path = [int(round(value * probability)) for value in series]
+    return sum(path), path
+
+
+def _independent_calendar_enumeration(
+    goal: SimpleNamespace, *, start_year: int, horizon_years: int
+) -> list[int]:
+    """Unabhaengige Referenz: direkt aus contribution_for_year().
+
+    Haette dieser Test nur die beiden Produktionsseiten gegeneinander
+    gestellt, waere er nach der Konsolidierung tautologisch geworden --
+    beide rufen jetzt dieselbe Funktion. Deshalb prueft er zusaetzlich
+    gegen eine Enumeration, die ohne die neue gemeinsame Schicht auskommt.
+    """
+    probability = _goal_probability_factor(goal)
+    return [
+        int(round(
+            contribution_for_year(
+                amount_rappen=int(goal.target_amount_rappen or 0),
+                frequency=goal.frequency,
+                nature="wiederkehrend",
+                valid_from=goal.start_date,
+                valid_until=goal.target_date,
+                year=start_year + offset,
+            ) * probability
+        ))
+        for offset in range(horizon_years)
+    ]
 
 
 def test_solver_and_reporting_mc_agree_on_recurring_goal_schedule():
@@ -122,14 +134,36 @@ def test_solver_and_reporting_mc_agree_on_recurring_goal_schedule():
         goal, start_year=start_year, horizon_years=HORIZON_YEARS,
     )
 
-    # Both consumers apply "annual_amount * inclusive_year_count" and, for
-    # this clean multi-year window, happen to agree on the aggregate total
-    # -- the bug is not that magnitudes always diverge, it is that the two
-    # independently-derived schedules need not describe the SAME years.
+    # GOAL-RECURRENCE-SCHEDULE-001 / ADR-2c: Solver und Reporting-MC
+    # belasten dieselben Kalenderjahre mit denselben Betraegen. Vorher
+    # ankerte der Solver auf start_date und der Reporting-MC auf
+    # target_date, mit zusaetzlich unterschiedlicher Rundung -- die
+    # Gesamtsummen hoben sich oft auf, die Jahre nie.
+    assert optimizer_liability.liability_path_rappen == mc_path
     assert optimizer_liability.target_amount_rappen == mc_total
 
-    # GOAL-RECURRENCE-SCHEDULE-001: solver and reporting-MC must charge the
-    # recurring outflow to the identical set of calendar years. Currently
-    # the optimizer's start_date-anchored window and the reporting-MC
-    # path's target_date-anchored window disagree on placement.
-    assert optimizer_liability.liability_path_rappen == mc_path
+    # Und beide stimmen mit einer Enumeration ueberein, die die gemeinsame
+    # Schicht nicht benutzt -- sonst wuerde dieser Test nur noch bestaetigen,
+    # dass eine Funktion sich selbst gleicht.
+    assert mc_path == _independent_calendar_enumeration(
+        goal, start_year=start_year, horizon_years=HORIZON_YEARS,
+    )
+
+
+def test_reporting_mc_evaluates_at_the_last_paid_bucket():
+    """Der Auswertungsindex ist das letzte Bucket mit einer Faelligkeit.
+
+    Vorher war es das letzte beruehrte Kalenderjahr-LABEL, also auch dann
+    ein Jahr spaeter, wenn dort gar keine Zahlung mehr anfiel -- der
+    kumulierte Strom wurde gegen ein Vermoegen geprueft, das ein
+    zusaetzliches Wachstumsjahr hinter sich hatte.
+    """
+    goal = _make_recurring_goal()
+    start_year = date.today().year
+
+    _total, path = _reporting_mc_schedule(
+        goal, start_year=start_year, horizon_years=HORIZON_YEARS,
+    )
+    expected = max(i for i, amount in enumerate(path) if amount) + 1
+
+    assert _year_index_for_goal(goal, start_year, HORIZON_YEARS) == expected

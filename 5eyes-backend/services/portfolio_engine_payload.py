@@ -30,7 +30,7 @@ einziger zusammenhaengender Block, sondern liegt in der aktuellen Datei
       Abhaengigkeit von `_goal_projection_years` (Zielliste dieses Schritts)
       und wird zusaetzlich bereits HEUTE von `services/
       portfolio_engine_mc_simulation.py` (`_year_index_for_goal`,
-      `_full_goal_duration_years`, `_goal_duration_years`) per Lazy-Import
+      `_recurring_outflow_total_rappen`, `_goal_duration_years`) per Lazy-Import
       aus `services.portfolio_engine` zurueckgeholt. Da sie nur von
       Payload-Bau-Funktionen direkt aufgerufen wird (kein anderer Cluster
       RUFT sie auf, andere Cluster importieren sie nur zurueck), wandert sie
@@ -55,7 +55,7 @@ Namen, die `services/portfolio_engine_reserve.py` per Lazy-Import aus
 Beim Draften dieses Schritts wurden per Grep ZUSAETZLICH VIER weitere Namen
 gefunden, die `services/portfolio_engine_mc_simulation.py`
 (`_monte_carlo_goal_summary`, `_year_index_for_goal`,
-`_full_goal_duration_years`, `_goal_duration_years`) per Lazy-Import aus
+`_recurring_outflow_total_rappen`, `_goal_duration_years`) per Lazy-Import aus
 `services.portfolio_engine` zurueckholt und die JETZT in dieses Modul
 verschoben werden:
 

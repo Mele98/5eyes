@@ -88,19 +88,28 @@ def _last_nonzero_bucket_index(liability_path_rappen: list[int]) -> int | None:
     return max(nonzero_positions) if nonzero_positions else None
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "GOAL-RECURRENCE-SCHEDULE-001 -- round 38 red test, see "
-        "docs/audits/2026-10-03-recurring-goal-lifecycle-calendar-and-mc-validation-audit.md"
-    ),
-)
+def _target_calendar_bucket(target_date: date) -> int:
+    """1-based Bucket des Kalenderjahres, in dem target_date liegt.
+
+    GEFIXT am 2026-10-11 (ADR-2): die Tests dieser Datei verglichen den
+    gebuchten Bucket vorher mit ``calendar_years_until(target_date)``, also
+    einen Kalenderjahr-Bucket mit einem JAHRESTAG-Index. Das sind zwei
+    verschiedene Konventionen, und ihre Vermischung war genau der zweite
+    Teil des Befunds. Die Invariante, die der Prosa-Text dieser Datei
+    beschreibt -- "es wird kein Outflow nach dem Ende des Ziels gebucht" --
+    ist auf der Kalenderjahr-Achse formuliert: das letzte belastete Bucket
+    darf nicht nach dem Kalenderjahr von target_date liegen.
+    """
+    return int(target_date.year) - date.today().year + 1
+
+
 def test_monthly_goal_ending_mid_month_does_not_book_a_year_past_target_date():
-    """start = today+375d, target = start+200d (ends mid-month, not on a
-    year/period boundary). Empirically verified against current develop:
-    the engine books a 2nd bucket whose year is one past where
-    ``calendar_years_until(target_date)`` itself resolves -- an invented
-    outflow year that starts after the goal's own end date.
+    """start = today+375d, target = start+200d (endet mitten im Monat, nicht
+    an einer Jahres- oder Periodengrenze).
+
+    Die alte Label-Rechnung buchte ein Bucket, das nach dem eigenen
+    Enddatum des Ziels beginnt -- ein erfundenes Outflow-Jahr. Jetzt endet
+    der Strom im Kalenderjahr von target_date.
     """
     today = date.today()
     start_date = today + timedelta(days=375)
@@ -110,29 +119,22 @@ def test_monthly_goal_ending_mid_month_does_not_book_a_year_past_target_date():
     liability = goal_to_liability(goal, horizon_years=HORIZON_YEARS)
 
     last_bucket = _last_nonzero_bucket_index(liability.liability_path_rappen)
-    target_own_anchor = calendar_years_until(target_date)
+    target_bucket = _target_calendar_bucket(target_date)
 
     assert last_bucket is not None
-    assert last_bucket <= target_own_anchor, (
-        f"booked a liability bucket at year-index {last_bucket}, but "
-        f"target_date {target_date.isoformat()} itself resolves to year-index "
-        f"{target_own_anchor} -- an outflow was invented for a year that "
-        "starts after the goal's own target_date"
+    assert last_bucket <= target_bucket, (
+        f"booked a liability bucket at calendar-year bucket {last_bucket}, "
+        f"but target_date {target_date.isoformat()} lies in bucket "
+        f"{target_bucket} -- an outflow was invented for a year that starts "
+        "after the goal's own target_date"
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "GOAL-RECURRENCE-SCHEDULE-001 -- round 38 red test, see "
-        "docs/audits/2026-10-03-recurring-goal-lifecycle-calendar-and-mc-validation-audit.md"
-    ),
-)
 def test_quarterly_goal_ending_mid_period_does_not_book_a_year_past_target_date():
-    """Same divergence as the monthly case above, reproduced at a different
-    frequency (quartalsweise) and a different offset (start=today+1840d,
-    target=start+200d) to show it is not specific to one frequency or one
-    arbitrary pair of dates.
+    """Dieselbe Abweichung wie im monatlichen Fall oben, an einer anderen
+    Frequenz (quartalsweise) und einem anderen Versatz (start=today+1840d,
+    target=start+200d) -- der Fehler war nicht an eine Frequenz oder an ein
+    einzelnes Datumspaar gebunden.
     """
     today = date.today()
     start_date = today + timedelta(days=1840)
@@ -142,23 +144,26 @@ def test_quarterly_goal_ending_mid_period_does_not_book_a_year_past_target_date(
     liability = goal_to_liability(goal, horizon_years=HORIZON_YEARS)
 
     last_bucket = _last_nonzero_bucket_index(liability.liability_path_rappen)
-    target_own_anchor = calendar_years_until(target_date)
+    target_bucket = _target_calendar_bucket(target_date)
 
     assert last_bucket is not None
-    assert last_bucket <= target_own_anchor, (
-        f"booked a liability bucket at year-index {last_bucket}, but "
-        f"target_date {target_date.isoformat()} itself resolves to year-index "
-        f"{target_own_anchor} -- an outflow was invented for a year that "
-        "starts after the goal's own target_date"
+    assert last_bucket <= target_bucket, (
+        f"booked a liability bucket at calendar-year bucket {last_bucket}, "
+        f"but target_date {target_date.isoformat()} lies in bucket "
+        f"{target_bucket} -- an outflow was invented for a year that starts "
+        "after the goal's own target_date"
     )
 
 
 def test_positive_control_matching_window_does_not_overshoot_target_date():
-    """Positive control (already correct today): start=today+830d,
-    target=start+395d. Empirically verified: the last booked bucket exactly
-    matches target_date's own resolved anchor year -- no overshoot. Proves
-    the duration formula is not uniformly wrong; it is boundary-dependent,
-    which is exactly why the bug in the two tests above is easy to miss.
+    """start=today+830d, target=start+395d -- der Strom endet genau im
+    Kalenderjahr von target_date, also exakt dort, wo er enden muss.
+
+    Dieser Test verglich vorher mit ``calendar_years_until(target_date)``
+    und war damit an die Jahrestag-Konvention gebunden; er ging nur
+    deshalb durch, weil der Defekt randabhaengig war. Jetzt prueft er
+    Gleichheit auf der Kalenderjahr-Achse -- derselben Achse, auf der die
+    Cashflow-Serie liegt.
     """
     today = date.today()
     start_date = today + timedelta(days=830)
@@ -168,6 +173,5 @@ def test_positive_control_matching_window_does_not_overshoot_target_date():
     liability = goal_to_liability(goal, horizon_years=HORIZON_YEARS)
 
     last_bucket = _last_nonzero_bucket_index(liability.liability_path_rappen)
-    target_own_anchor = calendar_years_until(target_date)
 
-    assert last_bucket == target_own_anchor
+    assert last_bucket == _target_calendar_bucket(target_date)

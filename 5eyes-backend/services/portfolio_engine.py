@@ -1586,8 +1586,8 @@ from services.portfolio_engine_mc_simulation import (  # noqa: F401,E402
     _apply_cashflow_to_bucket_values,
     _build_simulation_payload,
     _conditional_percentile_average,
-    _full_goal_duration_years,
     _goal_duration_years,
+    _recurring_outflow_total_rappen,
     _loss_bps,
     _max_drawdown_bps,
     _monte_carlo_goal_summary,
@@ -4549,11 +4549,11 @@ def evaluate_goal_sensitivity(
             *,
             preserve_open_ended_baseline: bool = True,
         ) -> int:
-            """Earliest horizon that still represents this goal completely."""
+            """Fruehester Horizont, der dieses Ziel voll abbildet -- in KALENDERJAHREN, der Bucket-Einheit (ADR-2)."""
             candidates = [max(1, int(getattr(goal, "horizon_years", 0) or 1))]
             target_date = _parse_iso_date(getattr(goal, "target_date", None))
             if target_date is not None:
-                candidates.append(max(1, calendar_years_until(target_date)))
+                candidates.append(max(1, target_date.year - date.today().year + 1))
             if (
                 preserve_open_ended_baseline
                 and int(getattr(goal, "is_ongoing", 0) or 0)
@@ -4617,9 +4617,11 @@ def evaluate_goal_sensitivity(
             original_start = _parse_iso_date(original_start_date)
             shifted_start = _parse_iso_date(new_start_date)
             if original_start is not None and shifted_start is not None:
+                # ADR-2: Kalenderjahr-Achse wie der Liability-Pfad --
+                # calendar_years_until() verschob die Dauer um ein Jahr.
                 original_start_index = max(
                     1,
-                    calendar_years_until(original_start),
+                    int(original_start.year) - date.today().year + 1,
                 )
                 stream_duration = max(
                     1,
