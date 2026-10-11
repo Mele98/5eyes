@@ -97,6 +97,10 @@ from datetime import date
 from typing import TYPE_CHECKING
 
 from services.calendar_horizon import calendar_years_until, recurring_outflow_window
+from services.drawdown_refinement import (
+    DRAWDOWN_REFINEMENT_MODEL_VERSION,
+    refine_max_drawdowns,
+)
 from services.mortality.horizon import life_expectancy_year_from_mandate
 from services.return_moments import (
     arithmetic_moments_to_log_parameters,
@@ -1405,12 +1409,18 @@ def _run_allocation_monte_carlo(
     target_annualized_returns: list[int] = []
     target_year_one_returns: list[int] = []
     target_year_one_losses: list[int] = []
-    target_max_drawdowns: list[int] = []
+    # DRAWDOWN-TIME-GRID-001: die Markt-Indexpfade werden gesammelt statt pro
+    # Pfad sofort zu einem Drawdown reduziert. Der Max-Drawdown wird nach der
+    # Schleife auf einem brueckenverfeinerten Zeitgitter gemessen (siehe
+    # services/drawdown_refinement.py) -- auf dem Jahresgitter allein
+    # unterschaetzt die Kennzahl den Peak-to-Trough-Verlust systematisch, und
+    # zwar umso staerker, je volatiler das Mandat ist.
+    target_market_paths: list[list[float]] = []
     # 2026-06-14: IST-Risiko symmetrisch zum SOLL erfassen, damit der Kennzahlen-
     # Vergleich (VaR/CVaR/Drawdown/Verlust-Wkeit/Vola) zweispaltig SOLL vs IST sein kann.
     current_year_one_returns: list[int] = []
     current_year_one_losses: list[int] = []
-    current_max_drawdowns: list[int] = []
+    current_market_paths: list[list[float]] = []
     # #96 Verzehr/Sequence-of-Returns: pro Pfad der Jahres-Offset der ERSTEN
     # Vermoegens-Erschoepfung (Pfad-Total <= 0) oder None.
     target_depletion_offsets: list[int | None] = []
@@ -1640,7 +1650,7 @@ def _run_allocation_monte_carlo(
         # auf target_path (der enthaelt die Entnahmen/Einzahlungen -- korrekt fuer
         # die Verzehr-Erschoepfung direkt darunter, aber falsch fuer eine reine
         # Marktrisiko-Kennzahl).
-        target_max_drawdowns.append(_max_drawdown_bps(target_market_path))
+        target_market_paths.append(target_market_path)
         # #96: erster Jahres-Offset mit aufgezehrtem Vermoegen (Pfad-Total <= 0).
         target_depletion_offsets.append(
             next((offset for offset, value in enumerate(target_path) if value <= 0), None)
@@ -1650,10 +1660,30 @@ def _run_allocation_monte_carlo(
             current_year_one_losses.append(_loss_bps(current_start, current_year1_market_value))
         current_path = [values[_simulation_idx] for values in current_by_year if values]
         # #AA-10: siehe target_market_path oben -- symmetrisch fuer IST.
-        current_max_drawdowns.append(_max_drawdown_bps(current_market_path))
+        current_market_paths.append(current_market_path)
         current_depletion_offsets.append(
             next((offset for offset, value in enumerate(current_path) if value <= 0), None)
         )
+
+    # DRAWDOWN-TIME-GRID-001: Zeitgitter-Verfeinerung des Max-Drawdown.
+    #
+    # Laeuft NACH der Simulationsschleife und auf einem eigenen Zufallsstrom
+    # (`bridge_seed(seed)`), damit `rng` exakt dieselbe Zahlenfolge liefert wie
+    # vorher -- jede andere Kennzahl dieses Laufs bleibt dadurch bit-identisch.
+    #
+    # SOLL und IST bekommen bewusst DENSELBEN Bruecken-Seed: das sind Common
+    # Random Numbers fuer den zweispaltigen Vergleich, die Varianz der
+    # ausgewiesenen SOLL-vs-IST-Differenz sinkt dadurch, ohne eine der beiden
+    # Kennzahlen zu verzerren (die Bruecke ist pro Pfad an dessen eigene
+    # Jahresinkremente gebunden).
+    target_drawdown_refinement = refine_max_drawdowns(
+        target_market_paths, seed=seed
+    )
+    current_drawdown_refinement = refine_max_drawdowns(
+        current_market_paths, seed=seed
+    )
+    target_max_drawdowns = target_drawdown_refinement.refined_bps
+    current_max_drawdowns = current_drawdown_refinement.refined_bps
 
     goal_summaries = [
         _monte_carlo_goal_summary(
@@ -1755,6 +1785,24 @@ def _run_allocation_monte_carlo(
         "target_volatility_1y_bps": _stddev_bps(target_year_one_returns),
         "current_volatility_1y_bps": _stddev_bps(current_year_one_returns),
         "target_max_drawdown_p95_bps": _percentile(target_max_drawdowns, 0.95),
+        # DRAWDOWN-TIME-GRID-001 Nachweis: Methodenkennung, Teilschrittzahl und
+        # die Kennzahl auf dem alten Jahresgitter. Damit ist fuer jeden Lauf
+        # pruefbar, wie gross die Zeitgitter-Korrektur war, statt dass die
+        # Methodenaenderung nur als Zahlensprung erscheint.
+        "max_drawdown_model_version": DRAWDOWN_REFINEMENT_MODEL_VERSION,
+        "max_drawdown_sub_steps_per_year": target_drawdown_refinement.sub_steps,
+        "max_drawdown_bridge_log_volatility_bps": int(
+            round(target_drawdown_refinement.log_volatility * 10000)
+        ),
+        "target_max_drawdown_annual_grid_p50_bps": _percentile(
+            target_drawdown_refinement.annual_bps, 0.50
+        ),
+        "target_max_drawdown_annual_grid_p95_bps": _percentile(
+            target_drawdown_refinement.annual_bps, 0.95
+        ),
+        "current_max_drawdown_annual_grid_p50_bps": _percentile(
+            current_drawdown_refinement.annual_bps, 0.50
+        ),
         "target_downside_probability_pct": downside_probability_pct,
         # #96 Verzehr/Sequence-of-Returns: Anteil Pfade mit aufgezehrtem Vermoegen
         # vor Horizontende + mittleres Erschoepfungsjahr (None = kein Verzehr-Risiko).

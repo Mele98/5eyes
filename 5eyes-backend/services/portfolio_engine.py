@@ -38,6 +38,8 @@ from models.wealth import Cashflow, Goal, PlanningAssumption, WealthInflow, Weal
 from price_updater import latest_price_snapshot, parse_iso_date, summarize_price_quality
 from services.allocation_messages import WARN_FALLBACK, classify_messages, format_message
 from services.calendar_horizon import add_calendar_years, calendar_years_until
+from services.cma_correlation_provenance import bucket_correlation_provenance
+from services.drawdown_refinement import drawdown_time_grid_basis
 from services.goal_semantics import GoalInputError, validate_goal_model_input
 from services.cashflow_timeline import (
     SUPPORTED_FREQUENCIES,
@@ -2861,6 +2863,7 @@ def _build_allocation_model_basis(
     monte_carlo: dict,
     simulation_prefs: dict | None,
     mandate: Mandate,
+    cma: CapitalMarketAssumption | None = None,
     stored_optimization_basis: dict | None = None,
     reporting_tax_cashflow_present: bool | None = None,
 ) -> dict[str, dict]:
@@ -2950,6 +2953,12 @@ def _build_allocation_model_basis(
     )
     legacy_context_unknown = legacy_stochastic or legacy_shadow
     reporting_tail = bool(_simulation_use_tail_risk(simulation_prefs))
+    # CMA-CORRELATION-JURISDICTION-PROVENANCE-001: welche Bucket-Korrelations-
+    # struktur gerechnet wurde und ob sie zur Jurisdiktion des Mandats passt.
+    # Fehlt der CMA-Payload, ist es der Schweizer Default -- auch fuer ein
+    # DE-Mandat; das stand bisher nirgends. Beide Kanaele fuehren denselben
+    # Block, weil beide dieselbe CMA-Spalte lesen.
+    bucket_correlation = bucket_correlation_provenance(cma)
 
     optimization_basis = {
             "basis_id": optimization_basis_id,
@@ -3026,6 +3035,7 @@ def _build_allocation_model_basis(
             # SUBRISK-CONTEXT-REPLAY-001: Risikobasis in die Evidenz binden.
             # Begruendung siehe _sub_class_intra_correlation_x100().
             "sub_class_intra_correlation_x100": _sub_class_intra_correlation_x100(),
+            "bucket_correlation": bucket_correlation,
             "foundation_model_version": "external_foundation_v2",
             "external_property_goal_basis": (
                 "inflation_zero_real_plus_exact_liability_and_pledged_transfer_v2"
@@ -3091,6 +3101,9 @@ def _build_allocation_model_basis(
             # SUBRISK-CONTEXT-REPLAY-001: dieselbe Bindung wie im
             # Entscheidungskanal -- gemeinsame Momentquelle beider Kanaele.
             "sub_class_intra_correlation_x100": _sub_class_intra_correlation_x100(),
+            "bucket_correlation": bucket_correlation,
+            # DRAWDOWN-TIME-GRID-001: Methode hinter mc_max_drawdown_bps.
+            "max_drawdown_time_grid": drawdown_time_grid_basis(),
             "foundation_model_version": "external_foundation_v2",
             "total_scope_goal_basis": "exact_total_projection_path_v2",
             "indirect_amortization_treatment": "pledged_asset_transfer_v1",
@@ -4067,6 +4080,7 @@ def generate_target_allocation(
         monte_carlo=monte_carlo,
         simulation_prefs=prefs["simulation"],
         mandate=mandate,
+        cma=cma,
         reporting_tax_cashflow_present=any(
             str(getattr(cashflow, "source", "") or "") == "tax_estimate"
             for cashflow in cashflows
@@ -4304,6 +4318,14 @@ def generate_target_allocation(
         # allocation. Reconstructing these fields from today's settings would
         # silently change seed/path/tax/IS disclosures on reload.
         "optimization_model_basis": dict(model_basis["optimization"]),
+        # REPORTING-BASIS-DURABILITY-001: derselbe Grund wie eine Zeile hoeher,
+        # aber fuer den Projektionskanal. Die Reporting-Kennzahlen werden auf
+        # der Zeile persistiert (mc_max_drawdown_bps, mc_var_95_bps, ...), ihre
+        # Methodik -- Tail-Modell, Rebalancing-Modus, Transaktionskosten,
+        # Stress-Multiplikator, Zeitgitter des Drawdown -- lebte nur im
+        # Live-Payload. Ein gespeicherter Wert war damit nicht mehr
+        # interpretierbar, und genau diese Methodik verschiebt ihn erheblich.
+        "reporting_model_basis": dict(model_basis["reporting"]),
     }
     effective_constraints_json = json.dumps(
         effective_constraints_payload,
@@ -6359,6 +6381,7 @@ def build_target_payload_from_allocation(
         monte_carlo=monte_carlo,
         simulation_prefs=prefs["simulation"],
         mandate=mandate,
+        cma=cma,
         stored_optimization_basis=(
             (_stored_constraints or {}).get("optimization_model_basis")
         ),
