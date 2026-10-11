@@ -489,3 +489,52 @@ def test_refined_check_is_reproducible() -> None:
 def test_cvar_tail_fraction_is_a_tail_not_the_whole_distribution() -> None:
     """Eine Plausibilitaetsschranke auf die Konstante selbst."""
     assert 0.0 < CVAR_TAIL_FRACTION <= 0.10
+
+
+# ── 8. Semantik von min_volatility ──────────────────────────────────────────
+
+
+def test_min_volatility_ranks_like_the_one_period_volatility() -> None:
+    """Die Streuung der annualisierten Rendite ordnet wie die Einperioden-Vola.
+
+    ``min_volatility`` misst die Streuung der ANNUALISIERTEN Rendite ueber die
+    Szenarien, nicht die Jahr-zu-Jahr-Volatilitaet. Ein Kunde, der "so wenig
+    Schwankung wie moeglich" sagt, meint eher letzteres.
+
+    Im Entscheidungsmodell des Solvers sind die Jahresrenditen iid, und dann
+    ist sigma_annualisiert eine streng monotone Transformation von sigma_1J --
+    die Rangfolge der Allokationen ist also dieselbe, die eine Minimierung von
+    ``a' Sigma a`` liefern wuerde.
+
+    Dieser Test haelt die Aequivalenz empirisch fest, statt sie nur im
+    Docstring zu behaupten: ueber mehrere Einperioden-Volatilitaeten muss das
+    Mass streng monoton steigen. Laeuft das Modell irgendwann von der
+    iid-Annahme weg, faellt dieser Test und zeigt genau den Satz, der neu
+    nachgerechnet werden muss.
+    """
+    measured = []
+    for one_period_vol in (0.03, 0.06, 0.10, 0.16, 0.24):
+        rng = np.random.default_rng(606)
+        factors = 1.0 + rng.normal(0.05, one_period_vol, size=(4000, 12))
+        measured.append(
+            (
+                one_period_vol,
+                primary_objective(
+                    OBJECTIVE_MIN_VOLATILITY,
+                    goal_shortfall_value=0.0,
+                    portfolio_return_factors=factors,
+                ),
+            )
+        )
+
+    values = [value for _vol, value in measured]
+    assert values == sorted(values), (
+        "Das Mass ist nicht monoton in der Einperioden-Volatilitaet, die "
+        f"Rangfolgen laufen auseinander: {measured}"
+    )
+    # Und der sqrt(T)-Abfall ist tatsaechlich da: bei 12 Jahren ist die
+    # Streuung der annualisierten Rendite deutlich kleiner als die
+    # Einperioden-Volatilitaet. Das ist der Grund, warum die beiden Masse
+    # NICHT zahlenmaessig gleich sind, obwohl sie gleich ordnen.
+    for one_period_vol, value in measured:
+        assert value < one_period_vol

@@ -57,6 +57,30 @@ Argument, ist das ein Fehler und kein Rueckfall auf die Vermoegenspfade.
 Die Ziele selbst bleiben korrekt auf den Vermoegenspfaden bewertet -- ein Ziel
 IST eine Frage an das Vermoegen inklusive Cashflows.
 
+Was ``min_volatility`` genau misst
+----------------------------------
+
+Gemessen wird die Streuung der **annualisierten** Portfoliorendite ueber die
+Szenarien, nicht die Jahr-zu-Jahr-Volatilitaet. Ein Kunde, der "so wenig
+Schwankung wie moeglich" sagt, meint eher letzteres -- die Unruhe des Verlaufs,
+nicht die Unsicherheit des Endergebnisses.
+
+Beide Lesarten fuehren hier zur **gleichen Rangfolge** der Allokationen, und
+zwar aus einem Modellgrund: im Entscheidungsmodell des Solvers sind die
+Jahresrenditen iid (in jedem Jahr dieselben Log-Parameter, unabhaengige
+Ziehungen, konstante Gewichte). Dann gilt
+``sigma_annualisiert ~ sigma_1J / sqrt(T)`` -- eine streng monotone
+Transformation, die die Ordnung erhaelt. Die Variante waehlt also dieselbe
+Allokation, die auch eine Minimierung der Einperioden-Varianz ``a' Sigma a``
+waehlen wuerde.
+
+Das ist eine Modellannahme und keine Selbstverstaendlichkeit. Sobald die
+Jahresrenditen nicht mehr iid sind -- eine Zinsstruktur statt eines konstanten
+mu pro Bucket, zeitvariable Volatilitaet, pfadabhaengiges Rebalancing im
+Entscheidungsmodell --, koennen die beiden Masse auseinanderlaufen und die
+Variante muss auf die gemeinte Groesse umgestellt werden. Dann ist diese
+Aequivalenz der Satz, den man zuerst wieder nachrechnet.
+
 Max-Drawdown: bewusst auf dem Jahresgitter
 ------------------------------------------
 
