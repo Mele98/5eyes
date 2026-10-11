@@ -78,15 +78,6 @@ def _force_diverged_infeasible_counterfactual(monkeypatch) -> None:
     monkeypatch.setattr(optimizer_solver, "run_solver", fake_run_solver)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "GOAL-SENSITIVITY-PUBLICATION-001 -- round 47 red test (diverged/"
-        "infeasible solver status does not gate sensitivity direction "
-        "claim), see audit docs/audits/2026-09-28-mixed-goal-sensitivity-"
-        "objective-evidence-integrity-audit.md"
-    ),
-)
 def test_sensitivity_endpoint_must_not_publish_delta_when_counterfactual_diverged_infeasible(
     session_factory, monkeypatch, cleanup_overrides,
 ):
@@ -127,4 +118,102 @@ def test_sensitivity_endpoint_must_not_publish_delta_when_counterfactual_diverge
         f"{body['status_new']!r} -- the solver's non-convergence/"
         "infeasibility must gate this directional claim, not be silently "
         "ignored (GOAL-SENSITIVITY-PUBLICATION-001)."
+    )
+
+    # Und die Zahl fehlt nicht stillschweigend: ein leeres Feld ohne
+    # Begruendung ist im Frontend von "0 % Veraenderung" nicht zu
+    # unterscheiden.
+    reason = body["delta_objective_unavailable_reason"]
+    assert reason, (
+        "Keine Begruendung ausgewiesen, warum die Richtungsaussage fehlt"
+    )
+    assert "diverged_infeasible" in reason, (
+        f"Die Begruendung nennt den ausloesenden Status nicht: {reason!r}"
+    )
+
+
+def test_sensitivity_publishes_a_delta_when_both_runs_converge(
+    session_factory, monkeypatch, cleanup_overrides,
+):
+    """Gegenprobe: bei zwei konvergierten Laeufen wird die Aussage publiziert.
+
+    Ohne diese Kontrolle waere das Gate auch erfuellt, wenn es JEDE
+    Richtungsaussage unterdrueckt -- die Kennzahl waere dann nicht
+    gegated, sondern abgeschafft.
+    """
+    import services.optimizer.solver as optimizer_solver
+
+    monkeypatch.setattr(pe.settings, "optimizer_mode", "stochastic")
+    calls: list[int] = []
+
+    def fake_run_solver(**kwargs):
+        calls.append(1)
+        return SimpleNamespace(
+            objective_value=1.0 if len(calls) == 1 else 2.0,
+            weights_bps={
+                "liquidity": 2000, "bonds": 3000, "equities": 4000,
+                "real_estate": 500, "alternatives": 500,
+            },
+            status="converged",
+        )
+
+    monkeypatch.setattr(optimizer_solver, "run_solver", fake_run_solver)
+    advisor_id, _cid, mid, _aid, gid = _seed_mandate(session_factory)
+    with session_factory() as s:
+        advisor = s.query(User).filter(User.id == advisor_id).first()
+    client = _client_with_user(session_factory, advisor)
+
+    resp = client.post(
+        f"/mandates/{mid}/target-allocation/sensitivity",
+        json={"goal_id": gid, "target_delta_pct": -10},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["status_baseline"] == "converged"
+    assert body["status_new"] == "converged"
+    # 1.0 -> 2.0 ist +100 %.
+    assert body["delta_objective_pct"] == pytest.approx(100.0)
+    assert body["delta_objective_unavailable_reason"] is None
+
+
+def test_non_converged_baseline_also_gates_the_claim(
+    session_factory, monkeypatch, cleanup_overrides,
+):
+    """Auch ein nicht konvergierter BASIS-Lauf muss die Aussage zurueckhalten.
+
+    Der Reproducer deckte nur den kontrafaktischen Lauf ab. Ohne belastbare
+    Vergleichsbasis ist die Richtungsaussage genauso wertlos -- die
+    Asymmetrie waere willkuerlich.
+    """
+    import services.optimizer.solver as optimizer_solver
+
+    monkeypatch.setattr(pe.settings, "optimizer_mode", "stochastic")
+    calls: list[int] = []
+
+    def fake_run_solver(**kwargs):
+        calls.append(1)
+        return SimpleNamespace(
+            objective_value=1.0 if len(calls) == 1 else 2.0,
+            weights_bps={
+                "liquidity": 2000, "bonds": 3000, "equities": 4000,
+                "real_estate": 500, "alternatives": 500,
+            },
+            status="fallback_house_matrix" if len(calls) == 1 else "converged",
+        )
+
+    monkeypatch.setattr(optimizer_solver, "run_solver", fake_run_solver)
+    advisor_id, _cid, mid, _aid, gid = _seed_mandate(session_factory)
+    with session_factory() as s:
+        advisor = s.query(User).filter(User.id == advisor_id).first()
+    client = _client_with_user(session_factory, advisor)
+
+    resp = client.post(
+        f"/mandates/{mid}/target-allocation/sensitivity",
+        json={"goal_id": gid, "target_delta_pct": -10},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["delta_objective_pct"] is None
+    assert "fallback_house_matrix" in (
+        body["delta_objective_unavailable_reason"] or ""
     )

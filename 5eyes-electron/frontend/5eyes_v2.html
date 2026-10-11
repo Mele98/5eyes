@@ -28639,12 +28639,26 @@ function runSensitivityCall(btn){
   API.post(url,{goal_id:gid,target_delta_pct:delta}).then(function(body){
     if(!resEl){return;}
     var dPct=body.delta_objective_pct;
-    var newAmt=Math.round(Number(body.target_amount_rappen_new||0)/100);
-    var msg='Neuer Zielwert: CHF '+newAmt.toLocaleString('de-CH');
+    // GOAL-SENSITIVITY-PUBLICATION-001: Der Zieltyp entscheidet die Einheit.
+    // Vorher wurde IMMER target_amount_rappen_new durch 100 geteilt und mit
+    // 'CHF' praefixt -- ein Renditeziel von 600 bps erschien dadurch als
+    // "CHF 6" statt "6.00% p.a.".
+    var msg;
+    var amtRappen=body.target_amount_rappen_new;
+    if(amtRappen==null&&body.target_return_bps_new!=null){
+      msg='Neues Renditeziel: '+(Number(body.target_return_bps_new)/100).toFixed(2)+'% p.a.';
+    }else{
+      var newAmt=Math.round(Number(amtRappen||0)/100);
+      msg='Neuer Zielwert: CHF '+newAmt.toLocaleString('de-CH');
+    }
     if(dPct!=null){
       var sign=Number(dPct)>=0?'+':'';
       var direction=Number(dPct)<0?' (besser erreichbar)':(Number(dPct)>0?' (schwerer erreichbar)':'');
       msg+=' | Objective '+sign+Number(dPct).toFixed(1)+'%'+direction;
+    }else if(body.delta_objective_unavailable_reason){
+      // Ohne diesen Zweig blieb das Feld einfach leer -- von "0 %
+      // Veraenderung" nicht zu unterscheiden.
+      msg+=' | Keine Richtungsaussage: '+body.delta_objective_unavailable_reason;
     }
     resEl.textContent=msg;
   }).catch(function(err){

@@ -1134,13 +1134,21 @@ class AllocationSensitivityResponse(BaseModel):
     horizon_years_new: Optional[int] = None
     solver_horizon_years_baseline: Optional[int] = None
     solver_horizon_years_new: Optional[int] = None
-    target_amount_rappen_baseline: int
-    target_amount_rappen_new: int
+    # GOAL-SENSITIVITY-PUBLICATION-001: Optional, weil ein reines Renditeziel
+    # keinen Zielbetrag hat. Vorher war das Feld Pflicht, und der Fallback in
+    # evaluate_goal_sensitivity() fuellte es fuer Renditeziele mit dem rohen
+    # bps-Wert -- die Classic-UI zeigte daraus "CHF 6" statt "6.00% p.a.".
+    target_amount_rappen_baseline: Optional[int] = None
+    target_amount_rappen_new: Optional[int] = None
     target_return_bps_baseline: Optional[int] = None
     target_return_bps_new: Optional[int] = None
     objective_value_milli_baseline: Optional[int]
     objective_value_milli_new: Optional[int]
     delta_objective_pct: Optional[float]
+    # GOAL-SENSITIVITY-PUBLICATION-001: warum keine Richtungsaussage vorliegt.
+    # Ein leeres delta_objective_pct ohne Begruendung ist im Frontend von
+    # "0 % Veraenderung" nicht zu unterscheiden.
+    delta_objective_unavailable_reason: Optional[str] = None
     weights_bps_baseline: dict[str, int]
     weights_bps_new: dict[str, int]
     status_baseline: str

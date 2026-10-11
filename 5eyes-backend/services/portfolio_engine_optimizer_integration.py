@@ -142,6 +142,64 @@ def _optimizer_status_is_converged(status: str | None) -> bool:
     return str(status or "").strip() in _CONVERGED_OPTIMIZER_STATUSES
 
 
+def sensitivity_delta_availability(
+    *,
+    baseline_status: str | None,
+    modified_status: str | None,
+    baseline_objective: float | None,
+    modified_objective: float | None,
+) -> tuple[float | None, str | None]:
+    """Entscheidet, ob eine gerichtete Sensitivitaets-Aussage publiziert wird.
+
+    GOAL-SENSITIVITY-PUBLICATION-001: ``delta_objective_pct`` wurde
+    ausschliesslich aus den beiden Objective-Werten berechnet, OHNE je den
+    Solver-Status zu lesen. Ein Berater sah damit eine gerichtete Aussage wie
+    "+100 % Zielerreichung", obwohl der kontrafaktische Lauf divergiert oder
+    infeasible war -- eine Zahl, die mehr behauptet, als ihr Zustandekommen
+    traegt.
+
+    Dass der Endpunkt bei nicht konvergiertem Status trotzdem HTTP 200 und die
+    Status-Felder liefert, ist dokumentierter Vertrag und bleibt so. Nur die
+    gerichtete Prozentzahl wird zurueckgehalten -- und der Grund wird
+    ausdruecklich mitgeliefert, statt das Feld stillschweigend leer zu lassen:
+    eine fehlende Zahl ohne Begruendung ist im Frontend von "0 %
+    Veraenderung" nicht zu unterscheiden.
+
+    Liefert ``(delta_pct, reason)``; genau eines von beiden ist gesetzt.
+    """
+    if not _optimizer_status_is_converged(baseline_status):
+        return None, (
+            "Der Basis-Lauf ist nicht konvergiert (Status "
+            f"{str(baseline_status or 'unbekannt')}); ohne belastbare "
+            "Vergleichsbasis wird keine Richtungsaussage ausgewiesen."
+        )
+    if not _optimizer_status_is_converged(modified_status):
+        return None, (
+            "Der Vergleichslauf ist nicht konvergiert (Status "
+            f"{str(modified_status or 'unbekannt')}); seine Zielfunktion ist "
+            "kein gueltiges Optimum und taugt nicht fuer eine "
+            "Richtungsaussage."
+        )
+    if (
+        baseline_objective is None
+        or modified_objective is None
+        or not math.isfinite(float(baseline_objective))
+        or not math.isfinite(float(modified_objective))
+    ):
+        return None, (
+            "Mindestens ein Zielfunktionswert ist nicht endlich; eine "
+            "relative Veraenderung ist nicht definiert."
+        )
+    base = float(baseline_objective)
+    if base == 0.0:
+        return None, (
+            "Der Basis-Zielfunktionswert ist 0; eine relative Veraenderung "
+            "ist nicht definiert."
+        )
+    delta = round((float(modified_objective) - base) / abs(base) * 100.0, 2)
+    return delta, None
+
+
 def _build_tax_solver_kwargs(mandate) -> dict:
     """Baut die tax-*-kwargs fuer run_solver aus dem Mandat (Sprint U-P2 Fix C9).
 

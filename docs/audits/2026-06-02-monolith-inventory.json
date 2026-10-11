@@ -13529,12 +13529,12 @@
     },
     {
       "declaration": "function",
-      "line": 28744,
+      "line": 28758,
       "name": "_reviewIsDiscretionaryMandate"
     },
     {
       "declaration": "function",
-      "line": 28740,
+      "line": 28754,
       "name": "_reviewIsIlliquidAssetClass"
     },
     {
@@ -16059,7 +16059,7 @@
     },
     {
       "declaration": "function",
-      "line": 28866,
+      "line": 28880,
       "name": "getColor"
     },
     {
@@ -16579,7 +16579,7 @@
     },
     {
       "declaration": "function",
-      "line": 28911,
+      "line": 28925,
       "name": "loadReviewSpiegel"
     },
     {
@@ -17374,7 +17374,7 @@
     },
     {
       "declaration": "var",
-      "line": 28663,
+      "line": 28677,
       "name": "pushCard"
     },
     {
@@ -17509,7 +17509,7 @@
     },
     {
       "declaration": "function",
-      "line": 28656,
+      "line": 28670,
       "name": "renderActionCards"
     },
     {
@@ -17834,7 +17834,7 @@
     },
     {
       "declaration": "function",
-      "line": 28916,
+      "line": 28930,
       "name": "renderReviewStrategyComparison"
     },
     {
@@ -18094,7 +18094,7 @@
     },
     {
       "declaration": "function",
-      "line": 28864,
+      "line": 28878,
       "name": "reviewAllocationPortraitHtml"
     },
     {
@@ -18104,7 +18104,7 @@
     },
     {
       "declaration": "function",
-      "line": 28758,
+      "line": 28772,
       "name": "reviewBandStateMeta"
     },
     {
@@ -18134,7 +18134,7 @@
     },
     {
       "declaration": "function",
-      "line": 28832,
+      "line": 28846,
       "name": "reviewImplementationHotspots"
     },
     {
@@ -18154,7 +18154,7 @@
     },
     {
       "declaration": "function",
-      "line": 28795,
+      "line": 28809,
       "name": "reviewStrategyComparisonRows"
     },
     {
@@ -18434,7 +18434,7 @@
     },
     {
       "declaration": "function",
-      "line": 28877,
+      "line": 28891,
       "name": "seg"
     },
     {
@@ -18764,7 +18764,7 @@
     },
     {
       "declaration": "function",
-      "line": 28950,
+      "line": 28964,
       "name": "srAcColor2"
     },
     {
@@ -19990,8 +19990,8 @@
     }
   ],
   "source_path": "5eyes-electron/frontend/5eyes_v2.html",
-  "source_sha256": "d23fba1f3530c1a8e0cf138112086fcfc1ee9de95b203a4786e412c967bf645f",
-  "source_size_bytes": 1766579,
+  "source_sha256": "6cc31d52614aedc05fce44ee0652972b7322fed8f21f7a0401d0282012c67117",
+  "source_size_bytes": 1767306,
   "sub_sections": [
     {
       "class": "admin-sec-btn",

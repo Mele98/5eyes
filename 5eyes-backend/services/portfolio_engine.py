@@ -2521,6 +2521,7 @@ from services.portfolio_engine_optimizer_integration import (  # noqa: F401,E402
     _objective_to_milli,
     _optimizer_audit_fields,
     _optimizer_status_is_converged,
+    sensitivity_delta_availability,
     _persist_optimizer_run,
     _run_stochastic_optimizer_pass,
     _synchronize_fallback_optimizer_result,
@@ -5499,24 +5500,23 @@ def evaluate_goal_sensitivity(
     # contract used by the shadow/active method comparison
     # (_build_allocation_method_comparison in
     # portfolio_engine_optimizer_integration.py).
-    raw_obj_base = baseline_result.objective_value
-    raw_obj_new = modified_result.objective_value
-    delta_pct: float | None = None
-    if (
-        raw_obj_base is not None
-        and raw_obj_new is not None
-        and math.isfinite(raw_obj_base)
-        and math.isfinite(raw_obj_new)
-        and raw_obj_base != 0.0
-    ):
-        delta_pct = round((raw_obj_new - raw_obj_base) / abs(raw_obj_base) * 100.0, 2)
-
-    primary_baseline = baseline_amount or baseline_wealth or baseline_return_bps
-    primary_new = (
-        new_amount
-        if baseline_amount
-        else (new_wealth if baseline_wealth else new_return_bps)
+    # GOAL-SENSITIVITY-PUBLICATION-001: das Gate liest jetzt AUCH den
+    # Solver-Status beider Laeufe, nicht nur die Zahlen. Logik und Begruendung
+    # in sensitivity_delta_availability().
+    delta_pct, delta_unavailable_reason = sensitivity_delta_availability(
+        baseline_status=getattr(baseline_result, "status", None),
+        modified_status=getattr(modified_result, "status", None),
+        baseline_objective=baseline_result.objective_value,
+        modified_objective=modified_result.objective_value,
     )
+
+    # GOAL-SENSITIVITY-PUBLICATION-001: der Fallback endete auf
+    # `or baseline_return_bps` und liess damit fuer ein reines Renditeziel den
+    # ROHEN bps-Wert ins Betragsfeld durchsickern (600 bps -> Classic-UI zeigte
+    # "CHF 6"). Ein Renditeziel hat keinen Zielbetrag; die Rendite steht in den
+    # target_return_bps_*-Feldern.
+    primary_baseline = baseline_amount or baseline_wealth or None
+    primary_new = new_amount if baseline_amount else (new_wealth or None)
 
     return {
         "goal_id": target_goal.id,
@@ -5550,13 +5550,14 @@ def evaluate_goal_sensitivity(
         "external_foundation_basis": (
             "live_cpi_gross_assets_exact_liability_and_pledged_transfer_v2"
         ),
-        "target_amount_rappen_baseline": int(primary_baseline),
-        "target_amount_rappen_new": int(primary_new),
+        "target_amount_rappen_baseline": None if primary_baseline is None else int(primary_baseline),
+        "target_amount_rappen_new": None if primary_new is None else int(primary_new),
         "target_return_bps_baseline": int(baseline_return_bps),
         "target_return_bps_new": int(new_return_bps),
         "objective_value_milli_baseline": obj_base,
         "objective_value_milli_new": obj_new,
         "delta_objective_pct": delta_pct,
+        "delta_objective_unavailable_reason": delta_unavailable_reason,
         "weights_bps_baseline": dict(baseline_result.weights_bps),
         "weights_bps_new": dict(modified_result.weights_bps),
         "status_baseline": baseline_result.status,
