@@ -1660,6 +1660,73 @@ def _reject_house_matrix_internal_band_inversion(house_matrix: HouseMatrix) -> N
             )
 
 
+APPROVED_ALLOCATION_BASIS = "approved_target_allocation"
+HOUSE_MATRIX_BASELINE_BASIS = "house_matrix_baseline_projected"
+
+
+def approved_or_baseline_targets(
+    allocation,
+    house_matrix: HouseMatrix,
+    policy: OptimizerPolicy,
+) -> tuple[dict[str, int], str]:
+    """Die Allokation, die tatsaechlich gilt -- plus woher sie kommt.
+
+    RETIREMENT-ALLOCATION-BASIS-001: mehrere Verbraucher leiteten ihre
+    Kennzahlen aus ``_baseline_target_bands()`` ab, also aus der ROHEN
+    Hausmatrix-Bandbreite des Risiko-Buckets, und haben die tatsaechlich
+    genehmigte ``TargetAllocation`` des Mandats nie geladen. Weicht die
+    freigegebene Strategie von der Baseline ab -- etwa weil eine
+    Aktien-Untergrenze gegriffen hat und Immobilien/Alternative gedeckelt
+    wurden --, rechnet der Verbraucher auf einer Allokation, die so nie
+    beschlossen wurde.
+
+    Zweiter, dabei auffallender Punkt: die rohen ``*_target_bps`` der
+    Hausmatrix koennen ihre EIGENEN Bandbreiten verletzen (dokumentiert als
+    AB-MODEL-001). Der Fallback projiziert sie deshalb mit
+    ``_rebalance_to_total()``, wie es der echte Allokations-Pfad immer tut.
+    Die rohen Werte ungeklemmt weiterzugeben hiesse, mit einer Allokation zu
+    rechnen, die das System in der Generierung nie zulassen wuerde.
+
+    Bewusst eine reine Funktion ohne DB-Zugriff: die eindeutige Auflösung des
+    aktuellen Strategieentscheids ist Sache von
+    ``_current_target_allocation_or_none()`` (das bei mehreren aktuellen
+    Zeilen abbricht statt eine zu waehlen). Hier wird nur entschieden, WELCHE
+    Zahlen gelten.
+
+    Liefert ``(targets_bps, basis_id)``.
+    """
+    if allocation is not None:
+        return (
+            {
+                "equities": int(allocation.target_equities_bps or 0),
+                "bonds": int(allocation.target_bonds_bps or 0),
+                "real_estate": int(allocation.target_real_estate_bps or 0),
+                "alternatives": int(allocation.target_alternatives_bps or 0),
+                "liquidity": int(allocation.target_liquidity_bps or 0),
+            },
+            APPROVED_ALLOCATION_BASIS,
+        )
+    raw_targets, minimums, maximums = _baseline_target_bands(house_matrix, policy)
+    return (
+        _rebalance_to_total(raw_targets, minimums, maximums),
+        HOUSE_MATRIX_BASELINE_BASIS,
+    )
+
+
+def allocation_basis_note(basis_id: str) -> str:
+    """Beraterlesbare Begruendung, auf welcher Allokation eine Zahl steht."""
+    if basis_id == APPROVED_ALLOCATION_BASIS:
+        return (
+            "Berechnungsbasis: die aktuell genehmigte Soll-Allokation dieses "
+            "Mandats."
+        )
+    return (
+        "Berechnungsbasis: die Hausmatrix-Bandbreite des Risikoprofils (in "
+        "die eigenen Bandbreiten projiziert) -- fuer dieses Mandat ist noch "
+        "keine Soll-Allokation freigegeben."
+    )
+
+
 def _house_matrix_mid_targets(house_matrix: HouseMatrix, policy: OptimizerPolicy) -> tuple[dict[str, int], dict[str, int], dict[str, int]]:
     from services.portfolio_engine import BUCKET_FIELDS
 
