@@ -71,6 +71,102 @@ class ScenarioInputs:
     skew_bps: np.ndarray  # shape (5,) - 0 wenn nicht gesetzt
     excess_kurt_bps: np.ndarray  # shape (5,) - 0 wenn nicht gesetzt
     cholesky: np.ndarray  # shape (5, 5) lower-triangular
+    # CMA-TAIL-MISSINGNESS-SEMANTICS-001: pro Bucket, ob das Tail-Moment am CMA
+    # tatsaechlich GESETZT war oder auf 0 defaultete. Beides erzeugt denselben
+    # Zahlenwert (und soll das auch), aber im Nachweis muessen die Faelle
+    # unterscheidbar sein -- siehe tail_moment_state().
+    #
+    # Default leeres Tupel, damit die vielen bestehenden
+    # ScenarioInputs(...)-Konstruktionen (Tests, Fixtures) unveraendert
+    # bleiben; "kein Zustand erfasst" ist dort die ehrliche Angabe.
+    skew_state: tuple[str, ...] = ()
+    excess_kurt_state: tuple[str, ...] = ()
+
+
+TAIL_MOMENT_EXPLICIT = "explicit"
+TAIL_MOMENT_DEFAULTED = "defaulted"
+
+
+def tail_moment_state(cma, field_name: str) -> str:
+    """War dieses Tail-Moment am CMA gesetzt, oder defaultete es auf 0?
+
+    CMA-TAIL-MISSINGNESS-SEMANTICS-001: beide Engines lesen die
+    Skew-/Kurtosis-Felder als ``getattr(cma, name, 0) or 0``. Damit erzeugen
+    ``None`` (nie geschaetzt) und eine ausdrueckliche ``0`` denselben
+    Laufzeitwert, und nichts weiter unten -- nicht ``ScenarioInputs``, nicht
+    die Log-Parameter der Haupt-MC, nicht das CMA-Objekt -- konnte die beiden
+    Faelle noch auseinanderhalten.
+
+    Fuer die RECHNUNG ist der Kollaps richtig: beides bedeutet
+    normalverteilt, und daran wird hier nichts geaendert. Verloren ging die
+    INFORMATION, ob jemand das Moment ueberhaupt angefasst hat.
+
+    Bewusst "explicit" und nicht "approved": es gibt im System kein
+    Freigabe-Flag pro Feld (geprueft in models/allocation.py,
+    schemas/allocation.py, database.py). Eine 0 in der Datenbank heisst
+    "gesetzt", nicht "von einem Modellverantwortlichen geprueft und
+    freigegeben". Diese Funktion stellt eine Datentatsache fest und
+    behauptet keine Governance, die es nicht gibt -- ein echtes
+    Review-/Freigabe-Attribut pro Tail-Moment bleibt ein eigener,
+    produktseitig zu entscheidender Schritt.
+    """
+    raw = getattr(cma, field_name, None)
+    return TAIL_MOMENT_DEFAULTED if raw is None else TAIL_MOMENT_EXPLICIT
+
+
+def tail_moment_provenance(cma) -> dict[str, object]:
+    """Nachweis-Block: fuer welche Buckets ist kein Tail-Moment geschaetzt?
+
+    Der Zustand in ``ScenarioInputs`` erreicht nur den Solver-Kanal. Dieser
+    Block gehoert in die Modellbasis und damit in den persistierten Nachweis,
+    weil die Haupt-MC dieselben Felder mit demselben Ausdruck liest -- die
+    Luecke bestand in BEIDEN Kanaelen.
+
+    Ausgewiesen werden die DEFAULTETEN Buckets, nicht alle Zustaende: das ist
+    die handlungsrelevante Information ("fuer diese Buckets hat nie jemand ein
+    Tail-Moment geschaetzt"), und der Block bleibt kompakt.
+
+    ``approval_flag_exists`` ist bewusst dabei und bewusst ``False``: es gibt
+    im System kein Review-/Freigabe-Attribut pro Tail-Moment. Ohne diese
+    Angabe koennte "explicit" als "von einem Modellverantwortlichen
+    freigegeben" gelesen werden, und das waere eine Governance-Behauptung, die
+    die Daten nicht tragen.
+    """
+    if cma is None:
+        # Ohne CMA-Zeile im Scope ist nichts feststellbar. Das wird
+        # ausgewiesen und nicht als "alles defaultet" geraten -- sonst
+        # behauptet der Nachweis einen Befund, den niemand geprueft hat.
+        return {
+            "basis": "unknown_no_cma_in_scope",
+            "skew_defaulted_buckets": None,
+            "excess_kurt_defaulted_buckets": None,
+            "all_tail_moments_defaulted": None,
+            "approval_flag_exists": False,
+        }
+    skew_states = {
+        bucket: tail_moment_state(cma, f"{bucket}_skewness_bps")
+        for bucket in BUCKET_ORDER
+    }
+    kurt_states = {
+        bucket: tail_moment_state(cma, f"{bucket}_excess_kurt_bps")
+        for bucket in BUCKET_ORDER
+    }
+    skew_defaulted = sorted(
+        b for b, s in skew_states.items() if s == TAIL_MOMENT_DEFAULTED
+    )
+    kurt_defaulted = sorted(
+        b for b, s in kurt_states.items() if s == TAIL_MOMENT_DEFAULTED
+    )
+    return {
+        "basis": "explicit_vs_defaulted_per_bucket_v1",
+        "skew_defaulted_buckets": skew_defaulted,
+        "excess_kurt_defaulted_buckets": kurt_defaulted,
+        "all_tail_moments_defaulted": (
+            len(skew_defaulted) == len(BUCKET_ORDER)
+            and len(kurt_defaulted) == len(BUCKET_ORDER)
+        ),
+        "approval_flag_exists": False,
+    }
 
 
 # ============================================================================
@@ -645,6 +741,16 @@ def scenario_inputs_from_cma(cma, sub_allocations: list[dict] | None = None) -> 
         int(getattr(cma, f"{b}_excess_kurt_bps", 0) or 0)
         for b in BUCKET_ORDER
     ], dtype=np.float64)
+    # CMA-TAIL-MISSINGNESS-SEMANTICS-001: derselbe Ausdruck laesst NULL und
+    # eine explizite 0 auf denselben Wert kollabieren -- das ist fuer die
+    # RECHNUNG richtig (beides heisst normalverteilt), aber der Zustand ging
+    # dabei verloren. Er wird hier mitgefuehrt, ohne die Zahlen anzutasten.
+    skew_state = tuple(
+        tail_moment_state(cma, f"{b}_skewness_bps") for b in BUCKET_ORDER
+    )
+    excess_kurt_state = tuple(
+        tail_moment_state(cma, f"{b}_excess_kurt_bps") for b in BUCKET_ORDER
+    )
 
     # CORNISH-FISHER-NON-MONOTONIC-CLAMP-BOUNDS-001 (Kontrollrunde 2026-09-27):
     # der Clamp allein (services.optimizer.distributions._clamp_skew/_clamp_kurt)
@@ -699,6 +805,8 @@ def scenario_inputs_from_cma(cma, sub_allocations: list[dict] | None = None) -> 
         skew_bps=skew_bps,
         excess_kurt_bps=excess_kurt_bps,
         cholesky=cholesky,
+        skew_state=skew_state,
+        excess_kurt_state=excess_kurt_state,
     )
 
 
