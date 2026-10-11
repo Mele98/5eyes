@@ -233,15 +233,6 @@ def _evaluate_500_to_600_bps_sensitivity(session_factory, monkeypatch) -> dict:
     return out
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "GOAL-SENSITIVITY-PUBLICATION-001 -- round 47 red test (return-goal "
-        "sensitivity rendered as CHF amount instead of percent), see audit "
-        "docs/audits/2026-09-28-mixed-goal-sensitivity-objective-evidence-"
-        "integrity-audit.md"
-    ),
-)
 def test_return_goal_sensitivity_does_not_leak_bps_into_amount_field(
     session_factory, monkeypatch,
 ):
@@ -292,15 +283,6 @@ def _extract_sensitivity_callback_js() -> str:
 
 
 @pytest.mark.skipif(_NODE is None, reason="node nicht im PATH verfuegbar")
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "GOAL-SENSITIVITY-PUBLICATION-001 -- round 47 red test (return-goal "
-        "sensitivity rendered as CHF amount instead of percent), see audit "
-        "docs/audits/2026-09-28-mixed-goal-sensitivity-objective-evidence-"
-        "integrity-audit.md"
-    ),
-)
 def test_return_goal_sensitivity_rendering_shows_percent_not_chf(
     session_factory, monkeypatch,
 ):
@@ -311,10 +293,14 @@ def test_return_goal_sensitivity_rendering_shows_percent_not_chf(
     'Neuer Zielwert: CHF 6', weil er target_amount_rappen_new hart durch 100
     teilt und 'CHF' prefixed, ohne je den Goal-Typ zu pruefen."""
     body = _evaluate_500_to_600_bps_sensitivity(session_factory, monkeypatch)
-    # Baseline-Reality-Check: der Bug aus Teil (a) muss in diesem Response-
-    # Body tatsaechlich vorhanden sein, sonst waere dieser Test kein echter
-    # Nachweis fuer die UI-Konsequenz des Bugs.
-    assert body["target_amount_rappen_new"] == 600
+    # Vorab-Check: der Response traegt KEINEN Zielbetrag (Renditeziel) und die
+    # Rendite in ihrem eigenen Feld. Vorher stand hier
+    #     assert body["target_amount_rappen_new"] == 600
+    # -- der Test setzte also den Backend-Bug voraus, um die UI-Folge zu
+    # belegen. Mit dem gefixten Backend ist das die Lage, die die UI korrekt
+    # darstellen muss.
+    assert body["target_amount_rappen_new"] is None
+    assert body["target_return_bps_new"] == 600
 
     callback_js = _extract_sensitivity_callback_js()
     script = (

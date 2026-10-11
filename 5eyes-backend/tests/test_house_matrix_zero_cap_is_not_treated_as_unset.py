@@ -13,14 +13,6 @@ if str(BACKEND_ROOT) not in sys.path:
 from services.portfolio_engine import _baseline_target_bands  # noqa: E402
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "ZERO-CONSTRAINT-SEMANTICS-001 — round 46 red test, see audit "
-        "2026-10-04-house-matrix-policy-constraint-and-retirement-basis-integrity-audit.md "
-        "(not committed in this repo)"
-    ),
-)
 def test_explicit_zero_policy_cap_means_true_exclusion_not_unset():
     """An explicit max_real_estate_bps=0 / max_alternatives_bps=0 on the policy
     means "exclude this asset class entirely" (cap = 0 bps). Today's code uses

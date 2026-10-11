@@ -947,8 +947,22 @@ def test_sensitivity_horizon_uses_common_scenario_prefix_and_full_cashflows(
 
     assert len(calls) == 2
     baseline, modified = calls
-    assert baseline["scenario_horizon_years"] == modified["horizon_years"]
-    assert modified["scenario_horizon_years"] == modified["horizon_years"]
+    # GOAL-SENSITIVITY-COMMON-BASELINE-001: hier stand
+    #     baseline["scenario_horizon_years"] == modified["horizon_years"]
+    # also die Gleichheit mit dem laengsten verglichenen Lauf. Genau diese
+    # Gleichheit war der Befund: der Szenario-Horizont haengte damit am Delta
+    # DIESES Schritts, und weil ein anderer Szenario-Horizont einen anderen
+    # Cube erzeugt, sass jeder Slider-Schritt auf einem eigenen Szenarioraum.
+    #
+    # Jetzt ist der Horizont schritt-unabhaengig (Baseline + maximal
+    # zulaessiges Delta), also eine OBERGRENZE statt einer Gleichheit. Die
+    # eigentliche Zusicherung dieses Tests -- beide Laeufe teilen ein
+    # gemeinsames Praefix und die Cashflows reichen bis zum vollen Horizont --
+    # bleibt unveraendert und wird darunter geprueft.
+    assert baseline["scenario_horizon_years"] >= modified["horizon_years"]
+    assert (
+        baseline["scenario_horizon_years"] == modified["scenario_horizon_years"]
+    ), "beide Laeufe muessen denselben gemeinsamen Szenarioraum benutzen"
     baseline_cf = baseline["cashflow_series_rappen"]
     modified_cf = modified["cashflow_series_rappen"]
     assert baseline_cf == modified_cf[: baseline["horizon_years"]]

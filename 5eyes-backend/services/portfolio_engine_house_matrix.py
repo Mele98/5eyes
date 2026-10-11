@@ -1465,7 +1465,125 @@ def _seed_building_blocks(db: Session, policy_id: str, building_blocks: list[tup
         )
 
 
+_POLICY_CAP_UNSET_BPS = 10000
+"""Ersatzwert fuer eine NICHT GESETZTE Policy-Obergrenze (= kein Cap)."""
+
+
+def _policy_value_or_unset(value, *, unset_default: int) -> int:
+    """Nur NULL heisst "nicht gesetzt" -- eine explizite 0 ist ein echter Wert.
+
+    ZERO-CONSTRAINT-SEMANTICS-001: hier stand ``policy.max_real_estate_bps or
+    10000``. Python behandelt die Zahl 0 als falsy, also wurde ein
+    ausdruecklich gesetztes Cap von 0 bps ("diese Anlageklasse ganz
+    ausschliessen") wie "kein Cap gesetzt" behandelt und durch 10000 (= 100 %,
+    also gar keine Begrenzung) ersetzt. Der Berater, der "0 % Alternative"
+    festlegt, bekam das Hausmatrix-Maximum.
+
+    Besonders eindeutig wird der Befund am Datenmodell:
+    ``max_real_estate_bps``, ``max_alternatives_bps`` und
+    ``min_liquidity_bps`` sind alle ``nullable=False`` **mit Default**. Der
+    Wert ist in der Datenbank also NIE NULL -- der ``or``-Zweig konnte
+    ueberhaupt nur fuer die 0 greifen. Er existierte nicht, um einen fehlenden
+    Wert abzufangen, sondern ausschliesslich, um explizite Nullen zu
+    zerstoeren.
+
+    Dieselbe Semantik wie ``_cma_value_or_default()`` im CMA-Cluster
+    ("Preserve an explicit 0 bps CMA; only NULL means 'use fallback'").
+    """
+    return int(unset_default if value is None else value)
+
+
+def policy_band_clamp_notes(
+    house_matrix: HouseMatrix, policy: OptimizerPolicy
+) -> list[str]:
+    """Beschreibt jede Bandgrenze, die eine Policy gegen die Hausmatrix verschiebt.
+
+    Die Aufloesung in ``_baseline_target_bands()`` ist deterministisch, aber
+    sie veraendert eine firmenweite Vorgabe fuer ein einzelnes Mandat. Das darf
+    nicht still geschehen: wer ein Hausmatrix-Minimum von 5 % auf 0 %
+    herunterzieht, weil das Mandat die Anlageklasse ausschliesst, soll das im
+    Nachweis lesen koennen.
+
+    Reine Funktion ohne Seiteneffekte, bewusst getrennt von
+    ``_baseline_target_bands()`` -- dessen Signatur hat fuenf Aufrufstellen und
+    eine dokumentierte Drei-Tupel-Konvention (AB-MODEL-001).
+    """
+    notes: list[str] = []
+    for bucket_label, house_min_attr, house_max_attr, cap_attr in (
+        ("Immobilien", "real_estate_min_bps", "real_estate_max_bps", "max_real_estate_bps"),
+        ("Alternative", "alt_min_bps", "alt_max_bps", "max_alternatives_bps"),
+    ):
+        cap = _policy_value_or_unset(
+            getattr(policy, cap_attr, None), unset_default=_POLICY_CAP_UNSET_BPS
+        )
+        house_max = int(getattr(house_matrix, house_max_attr))
+        house_min = int(getattr(house_matrix, house_min_attr))
+        effective_max = min(house_max, cap)
+        if cap < house_max:
+            notes.append(
+                f"{bucket_label}: Mandats-Policy begrenzt auf "
+                f"{cap / 100:.2f} % (Hausmatrix-Maximum "
+                f"{house_max / 100:.2f} %)."
+            )
+        if house_min > effective_max:
+            notes.append(
+                f"{bucket_label}: Hausmatrix-Minimum "
+                f"{house_min / 100:.2f} % wurde auf die Policy-Obergrenze "
+                f"{effective_max / 100:.2f} % herabgesetzt, damit die "
+                "Bandbreite nicht invertiert."
+            )
+    policy_liq_min = _policy_value_or_unset(
+        getattr(policy, "min_liquidity_bps", None), unset_default=0
+    )
+    house_liq_max = int(house_matrix.liq_max_bps)
+    if policy_liq_min > house_liq_max:
+        notes.append(
+            f"Liquiditaet: Policy-Mindestquote {policy_liq_min / 100:.2f} % "
+            f"liegt ueber dem Hausmatrix-Maximum {house_liq_max / 100:.2f} %; "
+            "das Maximum wurde angehoben, damit die Bandbreite nicht "
+            "invertiert."
+        )
+    return notes
+
+
 def _baseline_target_bands(house_matrix: HouseMatrix, policy: OptimizerPolicy) -> tuple[dict, dict, dict]:
+    """House-Matrix-Bands, durch die Mandats-Policy verschaerft.
+
+    Targets bleiben bewusst die ROHEN Hausmatrix-Werte -- sie koennen ihre
+    eigenen Bands verletzen. Jeder Konsument projiziert mit
+    ``_rebalance_to_total()`` (dokumentierte Konvention AB-MODEL-001); hier zu
+    klemmen wuerde diese Trennung aufweichen.
+
+    Auflösungsregel bei Konflikt zwischen Policy und Hausmatrix
+    -----------------------------------------------------------
+    POLICY-ACTIVATION-COMPLETENESS-001: eine Policy-Obergrenze UNTER dem
+    Hausmatrix-Minimum erzeugte eine invertierte Bandbreite (min > max). Das
+    Dict wurde so zurueckgegeben, und ``_rebalance_to_total()`` klemmt mit
+    ``max(min, min(max, wert))`` -- bei invertiertem Band gewinnt damit immer
+    das (hoehere) Minimum. Ergebnis: die Policy-Obergrenze wurde praktisch
+    ignoriert, und zwar lautlos.
+
+    Aufgeloest wird zugunsten der POLICY: sie ist die mandatsspezifische
+    Anweisung, die Hausmatrix die firmenweite Standard-Bandbreite. Ein
+    "dieser Kunde haelt keine Immobilien" ist eine legitime Weisung und kein
+    Konfigurationsfehler, also wird das Minimum auf die Obergrenze
+    herabgezogen.
+
+    Das ist hier unbedenklich, weil die ``OptimizerPolicy`` genau drei
+    Band-Felder hat -- ``max_real_estate_bps``, ``max_alternatives_bps``,
+    ``min_liquidity_bps``. Sie kann also ausschliesslich SATELLITEN
+    verschieben; die Aktien- und Obligationen-Untergrenzen, in denen die
+    Eignung sitzt, erreicht sie nicht, und das Risikobudget
+    (``max_risky_fraction_bps``) wird separat erzwungen.
+
+    Jede so verschobene Grenze ist ueber ``policy_band_clamp_notes()``
+    nachlesbar -- eine firmenweite Vorgabe fuer ein Mandat zu aendern darf
+    nicht still geschehen.
+
+    Eine hausmatrix-INTERNE Inversion (min > max in der Zeile selbst, ohne
+    Policy-Beteiligung) ist dagegen korrupte Referenzdaten und wird
+    abgelehnt, nicht geklemmt.
+    """
     targets = {
         "equities": int(house_matrix.equity_target_bps),
         "bonds": int(house_matrix.bonds_target_bps),
@@ -1473,21 +1591,73 @@ def _baseline_target_bands(house_matrix: HouseMatrix, policy: OptimizerPolicy) -
         "alternatives": int(house_matrix.alt_target_bps),
         "liquidity": int(house_matrix.liq_target_bps),
     }
+    real_estate_max = min(
+        int(house_matrix.real_estate_max_bps),
+        _policy_value_or_unset(
+            policy.max_real_estate_bps, unset_default=_POLICY_CAP_UNSET_BPS
+        ),
+    )
+    alternatives_max = min(
+        int(house_matrix.alt_max_bps),
+        _policy_value_or_unset(
+            policy.max_alternatives_bps, unset_default=_POLICY_CAP_UNSET_BPS
+        ),
+    )
+    policy_liquidity_min = _policy_value_or_unset(
+        policy.min_liquidity_bps, unset_default=0
+    )
+    liquidity_min = max(int(house_matrix.liq_min_bps), policy_liquidity_min)
     minimums = {
         "equities": max(int(house_matrix.equity_min_bps), int(house_matrix.equity_minimum_bps or 0)),
         "bonds": int(house_matrix.bonds_min_bps),
-        "real_estate": int(house_matrix.real_estate_min_bps),
-        "alternatives": int(house_matrix.alt_min_bps),
-        "liquidity": max(int(house_matrix.liq_min_bps), int(policy.min_liquidity_bps or 0)),
+        # Policy gewinnt: das Minimum folgt der Obergrenze nach unten.
+        "real_estate": min(int(house_matrix.real_estate_min_bps), real_estate_max),
+        "alternatives": min(int(house_matrix.alt_min_bps), alternatives_max),
+        "liquidity": liquidity_min,
     }
     maximums = {
         "equities": int(house_matrix.equity_max_bps),
         "bonds": int(house_matrix.bonds_max_bps),
-        "real_estate": min(int(house_matrix.real_estate_max_bps), int(policy.max_real_estate_bps or 10000)),
-        "alternatives": min(int(house_matrix.alt_max_bps), int(policy.max_alternatives_bps or 10000)),
-        "liquidity": int(house_matrix.liq_max_bps),
+        "real_estate": real_estate_max,
+        "alternatives": alternatives_max,
+        # Symmetrisch zur Regel oben: eine Policy-Mindestquote ueber dem
+        # Hausmatrix-Maximum hebt das Maximum an, statt zu invertieren. Fuer
+        # Liquiditaet ist die hoehere Quote die konservativere Richtung.
+        "liquidity": max(int(house_matrix.liq_max_bps), liquidity_min),
     }
+    _reject_house_matrix_internal_band_inversion(house_matrix)
     return targets, minimums, maximums
+
+
+def _reject_house_matrix_internal_band_inversion(house_matrix: HouseMatrix) -> None:
+    """Weist eine Hausmatrix-Zeile ab, deren Band schon ohne Policy invertiert ist.
+
+    Die Policy-Konflikte oben sind legitime Konfigurationen und werden nach
+    einer dokumentierten Regel aufgeloest. Ein ``min > max`` in der Zeile
+    selbst ist dagegen kein Konflikt, sondern korrupte Referenzdaten -- dafuer
+    gibt es keine sinnvolle Aufloesung, und still zu klemmen hiesse, eine
+    kaputte Bandbreite in eine Allokation zu uebersetzen.
+
+    Das Eingabe-Schema prueft das bereits (``schemas/allocation.py``: "min_bps
+    darf max_bps nicht ueberschreiten"); diese Pruefung faengt Zeilen, die
+    nicht ueber die API kamen -- YAML-Defaults, Migrationen, Altbestand.
+    """
+    for bucket_label, min_attr, max_attr in (
+        ("Aktien", "equity_min_bps", "equity_max_bps"),
+        ("Obligationen", "bonds_min_bps", "bonds_max_bps"),
+        ("Immobilien", "real_estate_min_bps", "real_estate_max_bps"),
+        ("Alternative", "alt_min_bps", "alt_max_bps"),
+        ("Liquiditaet", "liq_min_bps", "liq_max_bps"),
+    ):
+        lower = int(getattr(house_matrix, min_attr))
+        upper = int(getattr(house_matrix, max_attr))
+        if lower > upper:
+            raise ValueError(
+                f"Hausmatrix-Zeile hat eine invertierte Bandbreite fuer "
+                f"{bucket_label}: {min_attr}={lower} > {max_attr}={upper}. "
+                "Das sind korrupte Referenzdaten und keine "
+                "Policy-Verschaerfung -- die Zeile muss korrigiert werden."
+            )
 
 
 def _house_matrix_mid_targets(house_matrix: HouseMatrix, policy: OptimizerPolicy) -> tuple[dict[str, int], dict[str, int], dict[str, int]]:

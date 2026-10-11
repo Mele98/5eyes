@@ -142,6 +142,64 @@ def _optimizer_status_is_converged(status: str | None) -> bool:
     return str(status or "").strip() in _CONVERGED_OPTIMIZER_STATUSES
 
 
+def sensitivity_delta_availability(
+    *,
+    baseline_status: str | None,
+    modified_status: str | None,
+    baseline_objective: float | None,
+    modified_objective: float | None,
+) -> tuple[float | None, str | None]:
+    """Entscheidet, ob eine gerichtete Sensitivitaets-Aussage publiziert wird.
+
+    GOAL-SENSITIVITY-PUBLICATION-001: ``delta_objective_pct`` wurde
+    ausschliesslich aus den beiden Objective-Werten berechnet, OHNE je den
+    Solver-Status zu lesen. Ein Berater sah damit eine gerichtete Aussage wie
+    "+100 % Zielerreichung", obwohl der kontrafaktische Lauf divergiert oder
+    infeasible war -- eine Zahl, die mehr behauptet, als ihr Zustandekommen
+    traegt.
+
+    Dass der Endpunkt bei nicht konvergiertem Status trotzdem HTTP 200 und die
+    Status-Felder liefert, ist dokumentierter Vertrag und bleibt so. Nur die
+    gerichtete Prozentzahl wird zurueckgehalten -- und der Grund wird
+    ausdruecklich mitgeliefert, statt das Feld stillschweigend leer zu lassen:
+    eine fehlende Zahl ohne Begruendung ist im Frontend von "0 %
+    Veraenderung" nicht zu unterscheiden.
+
+    Liefert ``(delta_pct, reason)``; genau eines von beiden ist gesetzt.
+    """
+    if not _optimizer_status_is_converged(baseline_status):
+        return None, (
+            "Der Basis-Lauf ist nicht konvergiert (Status "
+            f"{str(baseline_status or 'unbekannt')}); ohne belastbare "
+            "Vergleichsbasis wird keine Richtungsaussage ausgewiesen."
+        )
+    if not _optimizer_status_is_converged(modified_status):
+        return None, (
+            "Der Vergleichslauf ist nicht konvergiert (Status "
+            f"{str(modified_status or 'unbekannt')}); seine Zielfunktion ist "
+            "kein gueltiges Optimum und taugt nicht fuer eine "
+            "Richtungsaussage."
+        )
+    if (
+        baseline_objective is None
+        or modified_objective is None
+        or not math.isfinite(float(baseline_objective))
+        or not math.isfinite(float(modified_objective))
+    ):
+        return None, (
+            "Mindestens ein Zielfunktionswert ist nicht endlich; eine "
+            "relative Veraenderung ist nicht definiert."
+        )
+    base = float(baseline_objective)
+    if base == 0.0:
+        return None, (
+            "Der Basis-Zielfunktionswert ist 0; eine relative Veraenderung "
+            "ist nicht definiert."
+        )
+    delta = round((float(modified_objective) - base) / abs(base) * 100.0, 2)
+    return delta, None
+
+
 def _build_tax_solver_kwargs(mandate) -> dict:
     """Baut die tax-*-kwargs fuer run_solver aus dem Mandat (Sprint U-P2 Fix C9).
 
@@ -463,7 +521,19 @@ def _run_stochastic_optimizer_pass(
                 candidate[bucket] * float(rf_per_bucket.get(bucket, 0.0))
                 for bucket in candidate
             )
-            cap = int(getattr(house_matrix, "max_risky_fraction_bps", 10000) or 10000)
+            # ZERO-CONSTRAINT-SEMANTICS-001: hier stand
+            #     int(getattr(house_matrix, "max_risky_fraction_bps", 10000) or 10000)
+            # Das `or 10000` behandelte die Zahl 0 als falsy, also wurde ein
+            # Risikobudget von 0 bps ("keine risikobehafteten Anlagen
+            # erlaubt") zu 10000 bps (= 100 % Risiko erlaubt). Von den drei
+            # Faellen dieser Befundklasse ist das der schwerste: es ist kein
+            # Satelliten-Cap, sondern das Risikobudget -- das Eignungs-Gate
+            # kippte genau in die unsichere Richtung und liess jede beliebig
+            # riskante Allokation durch die Abschlussvalidierung.
+            #
+            # Nur ein FEHLENDES Attribut heisst "kein Budget hinterlegt".
+            raw_cap = getattr(house_matrix, "max_risky_fraction_bps", None)
+            cap = 10000 if raw_cap is None else int(raw_cap)
             if realized_risk > cap + 1e-8:
                 activation_violations.append(
                     f"risky_fraction:{realized_risk:.6f}>{cap}bps"
@@ -489,6 +559,22 @@ def _run_stochastic_optimizer_pass(
             updates = {
                 "status": "fallback_house_matrix",
                 "method": "fallback_house_matrix",
+                # OPTIMIZER-REJECTED-WEIGHTS-EVIDENCE-001: `weights_bps` fehlte
+                # in diesen Updates, der verworfene Kandidat blieb also im
+                # Ergebnis stehen. Der aufrufende Allokations-Pfad war davon
+                # nicht betroffen (er liest `targets`, und das wird nur bei
+                # konvergiertem Status ueberschrieben) -- aber
+                # `_persist_optimizer_run()` schreibt
+                # `optimizer_result.weights_bps` mit Rolle "active" in den
+                # OptimizerRun. Der Audit-Datensatz wies damit die VERWORFENE
+                # Allokation als Ergebnis des aktiven Laufs aus, waehrend in
+                # Wahrheit die House-Matrix galt.
+                #
+                # Jetzt traegt das Ergebnis die Allokation, die tatsaechlich
+                # steht. Der verworfene Kandidat geht nicht verloren: er stand
+                # schon vorher als `rejected_weights_bps` in der
+                # Robustifizierung und ist dort auch korrekt benannt.
+                "weights_bps": dict(targets),
                 "constraint_violations": list(
                     getattr(result, "constraint_violations", []) or []
                 )

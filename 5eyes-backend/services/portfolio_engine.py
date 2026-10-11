@@ -1283,6 +1283,7 @@ from services.portfolio_engine_house_matrix import (  # noqa: F401,E402
     _apply_illiquid_cap,
     _asset_risky_weight_fallbacks,
     _baseline_target_bands,
+    policy_band_clamp_notes,
     _building_block_risky_map,
     _building_block_rows_for_policy,
     _build_stochastic_sub_allocation_plan,
@@ -2520,6 +2521,7 @@ from services.portfolio_engine_optimizer_integration import (  # noqa: F401,E402
     _objective_to_milli,
     _optimizer_audit_fields,
     _optimizer_status_is_converged,
+    sensitivity_delta_availability,
     _persist_optimizer_run,
     _run_stochastic_optimizer_pass,
     _synchronize_fallback_optimizer_result,
@@ -3124,6 +3126,12 @@ def generate_target_allocation(
         f"Das Risikoprofil deckelt die Risky Fraction auf {risk_budget_bps / 100:.0f}%.",
     ]
     warnings: list[dict] = []
+    # POLICY-ACTIVATION-COMPLETENESS-001: jede Bandgrenze, die die
+    # Mandats-Policy gegen die Hausmatrix verschiebt, wird ausgewiesen. Eine
+    # firmenweite Vorgabe fuer ein einzelnes Mandat zu aendern -- insbesondere
+    # ein Hausmatrix-Minimum herabzusetzen, weil das Mandat die Anlageklasse
+    # ausschliesst -- darf nicht still geschehen.
+    reasoning.extend(policy_band_clamp_notes(house_matrix, policy))
     if len(set(cashflow_projection_series_rappen[:min(len(cashflow_projection_series_rappen), 7)])) > 1:
         reasoning.append("Zeitlich datierte Cashflows werden jahresgenau in die Liquiditaets- und Zielprojektion einbezogen.")
     _apply_band_preferences(prefs["bands"], targets, minimums, maximums, reasoning)
@@ -4727,10 +4735,30 @@ def evaluate_goal_sensitivity(
         target_goal,
         baseline_solver_horizon,
     )
-    projection_horizon = max(
-        baseline_solver_horizon,
-        int(goal_state["modified_run_horizon"]),
-    )
+    # GOAL-SENSITIVITY-COMMON-BASELINE-001, Teil 2 von 2: der Szenario-Horizont
+    # muss schritt-UNABHAENGIG sein. Vorher `max(baseline, modified)` -- also
+    # abhaengig vom Delta DIESES Schritts. Das genuegt nicht fuer Common Random
+    # Numbers: ein mit identischem Seed, aber anderem Szenario-Horizont
+    # gebauter Cube liefert NICHT dasselbe Praefix (gemessen, siehe
+    # tests/test_goal_sensitivity_common_baseline_seed_leaks_delta.py). Da die
+    # API das Delta auf +/- MAX begrenzt, ist `baseline + MAX` die kleinste
+    # Obergrenze, die fuer jeden zulaessigen Schritt reicht und fuer alle
+    # dieselbe ist; jeder Lauf nimmt davon sein Praefix.
+    from schemas.allocation import MAX_SENSITIVITY_HORIZON_DELTA_YEARS
+
+    projection_horizon = baseline_solver_horizon + MAX_SENSITIVITY_HORIZON_DELTA_YEARS
+    modified_run_horizon_requested = int(goal_state["modified_run_horizon"])
+    if modified_run_horizon_requested > projection_horizon:
+        # Nur moeglich, wenn Schema-Grenze und Konstante auseinanderlaufen.
+        # Fail-closed statt den Cube still zu verlaengern -- ein
+        # schritt-abhaengiger Horizont waere genau der Befund zurueck.
+        raise ValueError(
+            f"Sensitivitaets-Horizont {modified_run_horizon_requested} "
+            f"ueberschreitet den gemeinsamen Szenario-Horizont "
+            f"{projection_horizon}; MAX_SENSITIVITY_HORIZON_DELTA_YEARS "
+            "(schemas/allocation.py) und die Eingabepruefung des "
+            "Horizont-Deltas sind nicht mehr konsistent."
+        )
     if len(natural_cashflow_series) < projection_horizon:
         # Re-project recurring cashflows, inflation, tax, FX and foundation to
         # the longest compared horizon. Padding a shorter series with zero
@@ -5187,9 +5215,19 @@ def evaluate_goal_sensitivity(
     # sind und das objektive Delta nur vom Goal-Shift kommt.
     cma_id = getattr(cma, "id", "no-cma")
     goal_ids = "|".join(str(getattr(g, "id", "?")) for g in goals)
+    # GOAL-SENSITIVITY-COMMON-BASELINE-001, Teil 1 von 2: `target_delta_pct`
+    # und `horizon_delta_years` standen hier mit in den Seed-Argumenten.
+    # `deterministic_seed()` ist ein reiner SHA-256 ueber alle Positionen, also
+    # bekam JEDER Slider-Schritt einen anderen Monte-Carlo-Cube fuer seinen
+    # BASELINE-Lauf -- obwohl die wirtschaftliche Baseline (CMA, Ziele, Score,
+    # Horizont) ueber alle Schritte byte-identisch ist. Die ausgewiesene Kurve
+    # enthielt damit Parametereffekt UND Szenario-Rauschen, untrennbar; eine
+    # Verletzung von Common Random Numbers derselben Klasse wie OPT-1.
+    # Verschiedene ZIELE bleiben getrennt, verschiedene SCHRITTE desselben
+    # Ziels teilen den Cube.
     pinned_seed = deterministic_seed(
         cma_id, goal_ids, score_x10, horizon, _OPTIMIZER_N_PATHS_DEFAULT,
-        "sensitivity", target_goal.id, target_delta_pct, horizon_delta_years,
+        "sensitivity", target_goal.id,
     )
 
     def _external_series_for_horizon(run_horizon: int) -> list[int]:
@@ -5462,24 +5500,23 @@ def evaluate_goal_sensitivity(
     # contract used by the shadow/active method comparison
     # (_build_allocation_method_comparison in
     # portfolio_engine_optimizer_integration.py).
-    raw_obj_base = baseline_result.objective_value
-    raw_obj_new = modified_result.objective_value
-    delta_pct: float | None = None
-    if (
-        raw_obj_base is not None
-        and raw_obj_new is not None
-        and math.isfinite(raw_obj_base)
-        and math.isfinite(raw_obj_new)
-        and raw_obj_base != 0.0
-    ):
-        delta_pct = round((raw_obj_new - raw_obj_base) / abs(raw_obj_base) * 100.0, 2)
-
-    primary_baseline = baseline_amount or baseline_wealth or baseline_return_bps
-    primary_new = (
-        new_amount
-        if baseline_amount
-        else (new_wealth if baseline_wealth else new_return_bps)
+    # GOAL-SENSITIVITY-PUBLICATION-001: das Gate liest jetzt AUCH den
+    # Solver-Status beider Laeufe, nicht nur die Zahlen. Logik und Begruendung
+    # in sensitivity_delta_availability().
+    delta_pct, delta_unavailable_reason = sensitivity_delta_availability(
+        baseline_status=getattr(baseline_result, "status", None),
+        modified_status=getattr(modified_result, "status", None),
+        baseline_objective=baseline_result.objective_value,
+        modified_objective=modified_result.objective_value,
     )
+
+    # GOAL-SENSITIVITY-PUBLICATION-001: der Fallback endete auf
+    # `or baseline_return_bps` und liess damit fuer ein reines Renditeziel den
+    # ROHEN bps-Wert ins Betragsfeld durchsickern (600 bps -> Classic-UI zeigte
+    # "CHF 6"). Ein Renditeziel hat keinen Zielbetrag; die Rendite steht in den
+    # target_return_bps_*-Feldern.
+    primary_baseline = baseline_amount or baseline_wealth or None
+    primary_new = new_amount if baseline_amount else (new_wealth or None)
 
     return {
         "goal_id": target_goal.id,
@@ -5513,13 +5550,14 @@ def evaluate_goal_sensitivity(
         "external_foundation_basis": (
             "live_cpi_gross_assets_exact_liability_and_pledged_transfer_v2"
         ),
-        "target_amount_rappen_baseline": int(primary_baseline),
-        "target_amount_rappen_new": int(primary_new),
+        "target_amount_rappen_baseline": None if primary_baseline is None else int(primary_baseline),
+        "target_amount_rappen_new": None if primary_new is None else int(primary_new),
         "target_return_bps_baseline": int(baseline_return_bps),
         "target_return_bps_new": int(new_return_bps),
         "objective_value_milli_baseline": obj_base,
         "objective_value_milli_new": obj_new,
         "delta_objective_pct": delta_pct,
+        "delta_objective_unavailable_reason": delta_unavailable_reason,
         "weights_bps_baseline": dict(baseline_result.weights_bps),
         "weights_bps_new": dict(modified_result.weights_bps),
         "status_baseline": baseline_result.status,

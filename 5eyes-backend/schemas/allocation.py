@@ -1077,6 +1077,16 @@ class TargetAllocationGenerateRequest(BaseModel):
 # OD-FE-2: nur 5 diskrete Stufen, +/-20% in 5%-Schritten = {-20,-10,0,10,20}.
 _ALLOWED_SENSITIVITY_DELTAS = (-20, -10, 0, 10, 20)
 
+# GOAL-SENSITIVITY-COMMON-BASELINE-001: die Obergrenze des Horizont-Deltas ist
+# nicht nur eine Eingabepruefung, sondern bestimmt den Szenario-Horizont, auf
+# dem die Engine den GEMEINSAMEN Monte-Carlo-Cube aller Slider-Schritte baut
+# (services/portfolio_engine.py::evaluate_goal_sensitivity). Deshalb eine
+# geteilte Konstante statt eines Literals an zwei Stellen: driften die beiden
+# auseinander, akzeptiert die API ein Delta, fuer das der Cube zu kurz ist --
+# und der Horizont-Slider wuerde wieder pro Schritt neu geseedet, genau der
+# Befund, den dieser Mechanismus behebt.
+MAX_SENSITIVITY_HORIZON_DELTA_YEARS = 10
+
 
 class AllocationSensitivityRequest(BaseModel):
     goal_id: str
@@ -1092,9 +1102,10 @@ class AllocationSensitivityRequest(BaseModel):
                 f"target_delta_pct muss einer von [{allowed}] sein "
                 f"(erhalten: {self.target_delta_pct})"
             )
-        if self.horizon_delta_years < -10 or self.horizon_delta_years > 10:
+        limit = MAX_SENSITIVITY_HORIZON_DELTA_YEARS
+        if self.horizon_delta_years < -limit or self.horizon_delta_years > limit:
             raise ValueError(
-                f"horizon_delta_years muss in [-10, +10] sein "
+                f"horizon_delta_years muss in [-{limit}, +{limit}] sein "
                 f"(erhalten: {self.horizon_delta_years})"
             )
         return self
@@ -1123,13 +1134,21 @@ class AllocationSensitivityResponse(BaseModel):
     horizon_years_new: Optional[int] = None
     solver_horizon_years_baseline: Optional[int] = None
     solver_horizon_years_new: Optional[int] = None
-    target_amount_rappen_baseline: int
-    target_amount_rappen_new: int
+    # GOAL-SENSITIVITY-PUBLICATION-001: Optional, weil ein reines Renditeziel
+    # keinen Zielbetrag hat. Vorher war das Feld Pflicht, und der Fallback in
+    # evaluate_goal_sensitivity() fuellte es fuer Renditeziele mit dem rohen
+    # bps-Wert -- die Classic-UI zeigte daraus "CHF 6" statt "6.00% p.a.".
+    target_amount_rappen_baseline: Optional[int] = None
+    target_amount_rappen_new: Optional[int] = None
     target_return_bps_baseline: Optional[int] = None
     target_return_bps_new: Optional[int] = None
     objective_value_milli_baseline: Optional[int]
     objective_value_milli_new: Optional[int]
     delta_objective_pct: Optional[float]
+    # GOAL-SENSITIVITY-PUBLICATION-001: warum keine Richtungsaussage vorliegt.
+    # Ein leeres delta_objective_pct ohne Begruendung ist im Frontend von
+    # "0 % Veraenderung" nicht zu unterscheiden.
+    delta_objective_unavailable_reason: Optional[str] = None
     weights_bps_baseline: dict[str, int]
     weights_bps_new: dict[str, int]
     status_baseline: str
