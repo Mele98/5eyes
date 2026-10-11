@@ -708,29 +708,33 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
             getattr(mandate, "id", "?"), exc,
         )
 
-    # ---- Goal-Analysis (defensive — Felder existieren je nach Optimizer-Run) ----
+    # ---- Goal-Analysis: ohne Datenquelle, bewusst leer ----
+    #
+    # GOAL-ANALYSIS-PDF-DEAD-SOURCE-001: hier stand ein Lesezugriff auf
+    # `ta_obj.goal_analysis_json`. Diese Spalte existiert auf
+    # `TargetAllocation` NICHT (nur `goal_achievability_json`, siehe
+    # models/allocation.py) -- der getattr lieferte also IMMER None, und weil
+    # der ganze Block in einem defensiven except liegt, blieb der
+    # Zielanalyse-Abschnitt des PDF stillschweigend leer.
+    #
+    # Die naheliegende Korrektur waere, stattdessen
+    # `goal_achievability_json` zu lesen. Das ist NACHGEPRUEFT FALSCH: die
+    # beiden Nutzlasten haben verschiedene Formen. Persistiert wird
+    # {goal_id, label, target_kind, probability, tau, status, hardness,
+    # lower_confidence_bound, effective_sample_size, validation_seed,
+    # reliability_verdict}; dieser Leser erwartete {rank, label,
+    # achievement_score, target_text, shortfall_rappen}. Nur `label`
+    # ueberlappt, und `shortfall_rappen` kommt in der Quelle gar nicht vor.
+    # Ein Umbenennen des Feldnamens wuerde eine Tabelle erzeugen, in der
+    # Rang, Erreichungsgrad, Zieltext und Fehlbetrag durchgaengig 0 bzw. leer
+    # sind -- also eine Falschaussage statt einer Luecke.
+    #
+    # Deshalb bleibt der Abschnitt leer, aber nicht mehr verdeckt durch
+    # toten Code, der funktionsfaehig aussieht. Damit er echte Daten zeigt,
+    # braucht es eine Produktentscheidung (was soll die Zielanalyse im PDF
+    # ausweisen?) und moeglicherweise zusaetzlich persistierte Felder --
+    # `shortfall_rappen` ist heute nirgends gespeichert.
     goal_analysis: list = []
-    try:
-        if ta_obj is not None:
-            goal_json = getattr(ta_obj, "goal_analysis_json", None)
-            if goal_json:
-                parsed = json.loads(goal_json)
-                if isinstance(parsed, list):
-                    for entry in parsed:
-                        if not isinstance(entry, dict):
-                            continue
-                        goal_analysis.append({
-                            "rank": int(entry.get("rank", 0) or 0),
-                            "label": str(entry.get("label", "") or ""),
-                            "achievement_score": float(entry.get("achievement_score", 0) or 0),
-                            "target_text": str(entry.get("target_text", "") or ""),
-                            "shortfall_rappen": int(entry.get("shortfall_rappen", 0) or 0),
-                        })
-    except Exception as exc:
-        logger.warning(
-            "PDF data-load section failed for mandate %s: %s",
-            getattr(mandate, "id", "?"), exc,
-        )
 
     # ---- Stress/MC-Werte (echte MC-Werte aus Engine-Payload) ----
     # Sprint U-P1 Fix C2: PDF las vorher `median_cagr_bps`/`var_95_bps`/

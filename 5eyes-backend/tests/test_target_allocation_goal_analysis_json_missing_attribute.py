@@ -138,57 +138,101 @@ def test_target_allocation_model_has_no_goal_analysis_json_column():
     assert "goal_achievability_json" in column_names
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "GOAL-REAL-SPENDING-INFLATION-PARITY-001 — round 40 red test, see "
-        "audit 2026-10-04-goal-value-mode-inflation-and-publication-parity-audit.md "
-        "(not committed in this repo)"
-    ),
-)
-def test_pdf_reports_goal_analysis_json_read_is_always_none_for_real_ta_row(session_factory):
-    """Replicates the exact `getattr` call from `routers/pdf_reports.py`
-    (line ~672) against a real, persisted `TargetAllocation` row and shows
-    it always yields `None` -- even though the row carries real per-goal
-    achievability data in the sibling `goal_achievability_json` column that
-    the very same function reads correctly a few lines later (line ~768).
+def test_pdf_goal_analysis_has_no_usable_source_in_the_persisted_row(session_factory):
+    """Die Zielanalyse im PDF hat keine verwendbare Quelle -- und das Umbenennen
+    des Feldes waere der FALSCHE Fix.
+
+    GOAL-ANALYSIS-PDF-DEAD-SOURCE-001. Dieser Test hiess
+    ``test_pdf_reports_goal_analysis_json_read_is_always_none_for_real_ta_row``
+    und verlangte, dass ``goal_json is not None`` wird -- mit der Empfehlung,
+    ersatzweise ``goal_achievability_json`` zu lesen. Seine Fixture schrieb
+    dazu eine Nutzlast in der ZIELANALYSE-Form nach
+    ``goal_achievability_json`` und unterstellte damit, die beiden Formen
+    seien gleich.
+
+    Sie sind es nicht. Produktion persistiert dort
+    ``{goal_id, label, target_kind, probability, tau, status, hardness,
+    lower_confidence_bound, effective_sample_size, validation_seed,
+    reliability_verdict}`` (services/optimizer/objective.py). Der PDF-Leser
+    erwartete ``{rank, label, achievement_score, target_text,
+    shortfall_rappen}``. Nur ``label`` ueberlappt, und ``shortfall_rappen``
+    kommt in der Quelle gar nicht vor.
+
+    Der alte Test waere also mit einem Fix gruen geworden, der im PDF eine
+    Tabelle mit durchgaengig Rang 0, Erreichungsgrad 0.0, leerem Zieltext und
+    Fehlbetrag 0 erzeugt -- eine Falschaussage statt einer Luecke. Er haette
+    den falschen Fix zertifiziert.
+
+    Dieser Test haelt stattdessen die tatsaechliche Lage fest, damit sie
+    nicht erneut falsch gelesen wird.
     """
-    achievability_payload = [
+    from services.optimizer.objective import chance_constraint_penalty  # noqa: F401
+
+    # Die ECHTE Produktions-Nutzlast, nicht die der alten Fixture.
+    production_payload = [
         {
-            "rank": 1,
+            "goal_id": "g-1",
             "label": "Hauskauf",
-            "achievement_score": 0.82,
-            "target_text": "CHF 250'000 bis 2032",
-            "shortfall_rappen": 0,
+            "target_kind": "wealth_at_t",
+            "probability": 0.82,
+            "tau": 0.8,
+            "status": "erreichbar",
+            "hardness": "primaer",
+            "lower_confidence_bound": 0.79,
+            "effective_sample_size": 2000.0,
+            "validation_seed": 12345,
+            "reliability_verdict": "robust",
         }
     ]
 
     with session_factory() as session:
         ta = _make_target_allocation(
-            goal_achievability_json=json.dumps(achievability_payload),
+            goal_achievability_json=json.dumps(production_payload),
         )
         session.add(ta)
         session.commit()
         session.refresh(ta)
 
-        # Exact code path from routers/pdf_reports.py:672.
-        goal_json = getattr(ta, "goal_analysis_json", None)
+        # 1) Die Spalte, die der PDF-Leser ansprach, existiert nicht.
+        assert getattr(ta, "goal_analysis_json", None) is None
 
-        # Sanity: the row genuinely has real per-goal data available --
-        # just not under the attribute name the PDF SOLL-section reads.
-        raw_achievability = getattr(ta, "goal_achievability_json", None)
-        assert raw_achievability is not None
-        assert json.loads(raw_achievability) == achievability_payload
+        # 2) Die Schwester-Spalte traegt echte Daten -- aber in einer anderen Form.
+        raw = getattr(ta, "goal_achievability_json", None)
+        assert raw is not None
+        entry = json.loads(raw)[0]
 
-        # This is the bug: `goal_json` must carry the same kind of
-        # non-None, real per-goal payload so the PDF's SOLL-goal-analysis
-        # section has something to render. Today it is always None.
-        assert goal_json is not None, (
-            "ta.goal_analysis_json is always None because no such column "
-            "exists on TargetAllocation -- the PDF SOLL-goal-analysis "
-            "section (routers/pdf_reports.py ~672-690) silently renders "
-            "empty for every mandate. Likely intended fix: read from the "
-            "sibling `goal_achievability_json` column instead (see module "
-            "docstring), or add+populate a real `goal_analysis_json` "
-            "column."
-        )
+        # 3) Genau diese Felder braeuchte der Zielanalyse-Abschnitt, und
+        #    genau sie fehlen. Faellt dieser Test, weil ein Feld dazugekommen
+        #    ist, dann ist ein echter Fix moeglich geworden -- und dieser Test
+        #    soll dann neu geschrieben werden, nicht geloescht.
+        for required in ("rank", "achievement_score", "target_text", "shortfall_rappen"):
+            assert required not in entry, (
+                f"{required!r} ist jetzt in goal_achievability_json vorhanden -- "
+                "die Zielanalyse im PDF koennte echte Daten bekommen. Diesen "
+                "Test neu fassen statt entfernen."
+            )
+
+        # 4) Nur das Label ueberlappt -- zu wenig fuer eine Tabelle mit vier
+        #    weiteren Spalten.
+        assert entry["label"] == "Hauskauf"
+
+
+def test_pdf_reports_no_longer_reads_the_nonexistent_column():
+    """Der tote Lesezugriff ist entfernt, nicht nur kommentiert.
+
+    Solange er dastand, sah der Zielanalyse-Abschnitt funktionsfaehig aus und
+    war in einem defensiven ``except`` begraben -- die naechste Person haette
+    ihn fuer funktionierend gehalten.
+    """
+    source = (BACKEND_ROOT / "routers" / "pdf_reports.py").read_text(encoding="utf-8")
+    code_lines = [
+        line for line in source.splitlines() if not line.lstrip().startswith("#")
+    ]
+    code = "\n".join(code_lines)
+    assert 'getattr(ta_obj, "goal_analysis_json"' not in code, (
+        "pdf_reports.py liest wieder die nicht existierende Spalte "
+        "goal_analysis_json"
+    )
+    assert "GOAL-ANALYSIS-PDF-DEAD-SOURCE-001" in source, (
+        "Die Begruendung, warum der Abschnitt leer bleibt, fehlt"
+    )
