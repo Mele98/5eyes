@@ -233,12 +233,25 @@ def test_ab_backtest_uses_effective_band_not_raw_target_outside_it(session_facto
     view_b = result["policy_b"]
     effective_max_alt = view_b["bands"]["alternatives"]["max_bps"]
 
-    # Bestaetigung des HEUTIGEN (fehlerhaften) Verhaltens: der A/B-Vergleich
-    # zeigt fuer Policy B ein alternatives-Gewicht, das die vom A/B-Modul
-    # selbst ausgewiesene effektive Max-Band sprengt.
-    assert view_b["weights_bps"]["alternatives"] > effective_max_alt, (
-        "Erwartung des heutigen (fehlerhaften) Zustands nicht erfuellt: "
-        "weights_bps sollte den rohen, bandueberschreitenden Zielwert zeigen."
+    # POLICY-ACTIVATION-COMPLETENESS-001 (gefixt 2026-10-11): hier stand die
+    # Bestaetigung des damaligen Zustands --
+    #     assert view_b["weights_bps"]["alternatives"] > effective_max_alt
+    # -- der A/B-Vergleich zeigte fuer Policy B ein alternatives-Gewicht, das
+    # die vom A/B-Modul selbst ausgewiesene effektive Max-Band sprengte.
+    #
+    # Die Ursache lag NICHT in backtest_ab (das ruft `_rebalance_to_total()`
+    # korrekt auf), sondern in `_baseline_target_bands()`: ein Policy-Cap
+    # unter dem Hausmatrix-Minimum erzeugte eine INVERTIERTE Bandbreite
+    # (min > max), und die Klemmung `max(min, min(max, wert))` loest dann
+    # immer zum hoeheren Minimum auf. Engine und A/B-Panel waren konsistent
+    # -- und beide ausserhalb der Bandbreite.
+    #
+    # Mit der aufgeloesten Bandbreite gilt jetzt das, was von Anfang an
+    # gelten sollte:
+    assert view_b["weights_bps"]["alternatives"] <= effective_max_alt, (
+        f"A/B-Panel zeigt {view_b['weights_bps']['alternatives']} bps "
+        f"Alternative, mehr als die eigene effektive Obergrenze "
+        f"{effective_max_alt} bps"
     )
 
     # GEWUENSCHTES Verhalten: _evaluate_policy() haette die Gewichte (und

@@ -49,14 +49,6 @@ RISKY_CANDIDATE = {
 }
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "ZERO-CONSTRAINT-SEMANTICS-001 -- round 46 red test, see audit "
-        "2026-10-04-house-matrix-policy-constraint-and-retirement-basis-"
-        "integrity-audit.md (not committed in this repo)"
-    ),
-)
 def test_zero_max_risky_fraction_bps_rejects_fully_risky_candidate(monkeypatch):
     """house_matrix.max_risky_fraction_bps=0 must mean 'no risky exposure
     allowed', not be treated as an unset/no-limit sentinel."""

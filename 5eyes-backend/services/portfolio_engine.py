@@ -1283,6 +1283,7 @@ from services.portfolio_engine_house_matrix import (  # noqa: F401,E402
     _apply_illiquid_cap,
     _asset_risky_weight_fallbacks,
     _baseline_target_bands,
+    policy_band_clamp_notes,
     _building_block_risky_map,
     _building_block_rows_for_policy,
     _build_stochastic_sub_allocation_plan,
@@ -3124,6 +3125,12 @@ def generate_target_allocation(
         f"Das Risikoprofil deckelt die Risky Fraction auf {risk_budget_bps / 100:.0f}%.",
     ]
     warnings: list[dict] = []
+    # POLICY-ACTIVATION-COMPLETENESS-001: jede Bandgrenze, die die
+    # Mandats-Policy gegen die Hausmatrix verschiebt, wird ausgewiesen. Eine
+    # firmenweite Vorgabe fuer ein einzelnes Mandat zu aendern -- insbesondere
+    # ein Hausmatrix-Minimum herabzusetzen, weil das Mandat die Anlageklasse
+    # ausschliesst -- darf nicht still geschehen.
+    reasoning.extend(policy_band_clamp_notes(house_matrix, policy))
     if len(set(cashflow_projection_series_rappen[:min(len(cashflow_projection_series_rappen), 7)])) > 1:
         reasoning.append("Zeitlich datierte Cashflows werden jahresgenau in die Liquiditaets- und Zielprojektion einbezogen.")
     _apply_band_preferences(prefs["bands"], targets, minimums, maximums, reasoning)

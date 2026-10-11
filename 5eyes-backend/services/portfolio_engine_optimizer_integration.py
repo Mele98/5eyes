@@ -463,7 +463,19 @@ def _run_stochastic_optimizer_pass(
                 candidate[bucket] * float(rf_per_bucket.get(bucket, 0.0))
                 for bucket in candidate
             )
-            cap = int(getattr(house_matrix, "max_risky_fraction_bps", 10000) or 10000)
+            # ZERO-CONSTRAINT-SEMANTICS-001: hier stand
+            #     int(getattr(house_matrix, "max_risky_fraction_bps", 10000) or 10000)
+            # Das `or 10000` behandelte die Zahl 0 als falsy, also wurde ein
+            # Risikobudget von 0 bps ("keine risikobehafteten Anlagen
+            # erlaubt") zu 10000 bps (= 100 % Risiko erlaubt). Von den drei
+            # Faellen dieser Befundklasse ist das der schwerste: es ist kein
+            # Satelliten-Cap, sondern das Risikobudget -- das Eignungs-Gate
+            # kippte genau in die unsichere Richtung und liess jede beliebig
+            # riskante Allokation durch die Abschlussvalidierung.
+            #
+            # Nur ein FEHLENDES Attribut heisst "kein Budget hinterlegt".
+            raw_cap = getattr(house_matrix, "max_risky_fraction_bps", None)
+            cap = 10000 if raw_cap is None else int(raw_cap)
             if realized_risk > cap + 1e-8:
                 activation_violations.append(
                     f"risky_fraction:{realized_risk:.6f}>{cap}bps"
@@ -489,6 +501,22 @@ def _run_stochastic_optimizer_pass(
             updates = {
                 "status": "fallback_house_matrix",
                 "method": "fallback_house_matrix",
+                # OPTIMIZER-REJECTED-WEIGHTS-EVIDENCE-001: `weights_bps` fehlte
+                # in diesen Updates, der verworfene Kandidat blieb also im
+                # Ergebnis stehen. Der aufrufende Allokations-Pfad war davon
+                # nicht betroffen (er liest `targets`, und das wird nur bei
+                # konvergiertem Status ueberschrieben) -- aber
+                # `_persist_optimizer_run()` schreibt
+                # `optimizer_result.weights_bps` mit Rolle "active" in den
+                # OptimizerRun. Der Audit-Datensatz wies damit die VERWORFENE
+                # Allokation als Ergebnis des aktiven Laufs aus, waehrend in
+                # Wahrheit die House-Matrix galt.
+                #
+                # Jetzt traegt das Ergebnis die Allokation, die tatsaechlich
+                # steht. Der verworfene Kandidat geht nicht verloren: er stand
+                # schon vorher als `rejected_weights_bps` in der
+                # Robustifizierung und ist dort auch korrekt benannt.
+                "weights_bps": dict(targets),
                 "constraint_violations": list(
                     getattr(result, "constraint_violations", []) or []
                 )
