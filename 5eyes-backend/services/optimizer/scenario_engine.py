@@ -805,19 +805,38 @@ def _compute_equity_kgv_adjustment(cma) -> float:
     return float(adjustment)
 
 
-def _compute_bonds_return_from_nelson_siegel(cma) -> float | None:
-    """Sprint 6 Phase 2: Bond-Return aus Nelson-Siegel-Curve falls vorhanden.
+def _compute_bonds_return_from_nelson_siegel(
+    cma, *, maturity_years: float | None = None
+) -> float | None:
+    """Kurvenwert (Niveau) an einer Laufzeit. KEIN Bond-Return.
 
-    Returns None wenn CMA NICHT alle 4 NS-Params hat → Caller faellt auf
-    fixed bonds_*_return_bps zurueck (Backwards-Compat).
+    Returns None wenn CMA NICHT alle 4 NS-Params hat.
 
-    Bei vollstaendigen NS-Params: berechnet yield_at(5J) als Bond-Return.
-    Spaeter Erweiterungs-Pfad: pro Bond-Bucket eigene Maturity (kurz/mittel/lang).
+    NS-BOND-SLEEVE-COLLAPSE-001: diese Funktion hiess einmal "Bond-Return aus
+    Nelson-Siegel" und ihr Ergebnis wurde dem Obligationen-Bucket direkt
+    zugewiesen. Das war falsch. Die Kurve ist eine Swap-/Staatskurve OHNE
+    Kreditaufschlag (die hinterlegte CHF-Kalibrierung: 50 bps bei 5 Jahren),
+    die CMA-Bond-Returns sind Basis-plus-Spread (CHF IG 180, Global Hedged
+    220, High Yield 420 bps). Die Zuweisung vernichtete also den gesamten
+    Kreditaufschlag und kollabierte zusaetzlich alle Sleeves auf einen Wert.
+
+    Das Niveau der Kurve gehoert deshalb NICHT in den Bond-Return. Was dort
+    hingehoert, ist die Differenz zweier Kurvenpunkte -- siehe
+    ``_compute_bonds_duration_tilt_bps()``. Diese Funktion bleibt als reine
+    Kurvenabfrage erhalten (Kalibrierungs-Diagnostik, Methodik-Audit,
+    strikter Runtime-Contract) und wird vom Return-Pfad nicht mehr benutzt.
     """
     parameters = validate_nelson_siegel_parameters(cma)
     if parameters is None:
         return None
     beta0, beta1, beta2, lambda_ = parameters
+    maturity = (
+        _BONDS_DEFAULT_MATURITY_YEARS if maturity_years is None else float(maturity_years)
+    )
+    if not np.isfinite(maturity) or maturity <= 0.0:
+        raise CMAValidationError(
+            f"Nelson-Siegel-Laufzeit muss positiv und endlich sein, erhalten: {maturity_years!r}."
+        )
     try:
         from services.rates.nelson_siegel import NelsonSiegelCurve
         curve = NelsonSiegelCurve(
@@ -826,7 +845,7 @@ def _compute_bonds_return_from_nelson_siegel(cma) -> float | None:
             beta2_bps=beta2,
             lambda_=lambda_,
         )
-        result = float(curve.yield_at(_BONDS_DEFAULT_MATURITY_YEARS))
+        result = float(curve.yield_at(maturity))
     except (ArithmeticError, TypeError, ValueError) as exc:
         raise CMAValidationError(
             f"Ungueltige vollstaendige Nelson-Siegel-CMA-Parameter: {exc}"
@@ -834,6 +853,42 @@ def _compute_bonds_return_from_nelson_siegel(cma) -> float | None:
     if not np.isfinite(result) or result <= -10_000.0:
         raise CMAValidationError(
             "Nelson-Siegel-CMA-Parameter erzeugen keinen endlichen, "
-            "fachlich gueltigen 5J-Return (> -100 %)."
+            f"fachlich gueltigen {maturity:g}J-Yield (> -100 %)."
         )
     return result
+
+
+def _compute_bonds_duration_tilt_bps(
+    cma, *, maturity_years: float | None = None
+) -> float | None:
+    """Termstruktur-Tilt in bps: ``y(laufzeit) - y(referenz)``.
+
+    Das ist der einzige Beitrag, den die NS-Kurve zum Obligationen-Return
+    leisten darf (Begruendung in services/rates/bond_duration.py). Additiv auf
+    den sleeve-gewichteten CMA-Return angewendet bleiben Kreditaufschlag UND
+    Sleeve-Differenzierung vollstaendig erhalten -- der Tilt ist fuer alle
+    Sleeves derselbe Betrag.
+
+    Returns None wenn die NS-Gruppe nicht vollstaendig ist (Caller laesst den
+    CMA-Return dann unangetastet). Liefert **exakt 0.0**, wenn die Laufzeit
+    der Referenzlaufzeit entspricht -- also fuer jedes Mandat ohne
+    Laufzeitpraeferenz.
+    """
+    from services.rates.bond_duration import CMA_REFERENCE_MATURITY_YEARS
+
+    target = _compute_bonds_return_from_nelson_siegel(
+        cma, maturity_years=maturity_years
+    )
+    if target is None:
+        return None
+    reference = _compute_bonds_return_from_nelson_siegel(
+        cma, maturity_years=CMA_REFERENCE_MATURITY_YEARS
+    )
+    if reference is None:  # pragma: no cover - dieselbe NS-Gruppe wie oben
+        return None
+    tilt = float(target) - float(reference)
+    if not np.isfinite(tilt):
+        raise CMAValidationError(
+            "Nelson-Siegel-Termstruktur-Tilt ist nicht endlich."
+        )
+    return tilt

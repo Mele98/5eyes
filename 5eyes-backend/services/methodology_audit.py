@@ -55,9 +55,20 @@ from services.cma_validation import (
 
 # Beschreibungs-Texte fuer die UI (Berater-tauglich, FINMA-bewusst,
 # keine Verkaufsargumente, keine Garantien).
+# NS-BOND-SLEEVE-COLLAPSE-001: dieser Text lautete "Bonds-Returns werden aus
+# der Yield-Curve (5-Jahres-Yield) STATT aus festen Renditeerwartungen
+# abgeleitet" und beschrieb damit das Ersetzen des Niveaus. Das war die
+# Beschreibung eines Befundes: die Kurve ist eine Swap-/Staatskurve ohne
+# Kreditaufschlag, die Renditeerwartungen sind Basis-plus-Spread -- das
+# Ersetzen vernichtete den Aufschlag und kollabierte alle Bond-Sleeves.
+# Die Kurve traegt jetzt nur die Termstruktur bei, und die Beschreibung muss
+# das sagen: sie landet ueber das Methodik-Audit beim Berater.
 NS_BASIS = (
-    "Bonds-Returns werden aus der Yield-Curve (5-Jahres-Yield) statt "
-    "aus festen Renditeerwartungen abgeleitet."
+    "Die Yield-Curve liefert einen Laufzeit-Zuschlag bzw. -Abschlag auf die "
+    "Renditeerwartungen der Obligationen-Sub-Anlageklassen (Differenz zum "
+    "5-Jahres-Punkt). Kreditaufschlaege und die Differenzierung der "
+    "Sub-Anlageklassen bleiben erhalten; ohne Laufzeitpraeferenz ist der "
+    "Effekt null."
 )
 KGV_BASIS = (
     "Aktien-Returns werden mit einem Shiller-CAPE-basierten Mean-"
