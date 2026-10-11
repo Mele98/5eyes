@@ -133,6 +133,29 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      # TEMPORAER (entfernt sobald das Artefakt abgeholt ist): regeneriert die
+      # golden CH-snapshot Fixtures auf dem echten CI-Runner, da SLSQP unter
+      # identischen numpy/scipy-Versionen zwischen Windows-Dev und Linux-CI
+      # trotzdem numerisch driftet (BLAS/LAPACK-Backend-Unterschied).
+      #
+      # Anlass: ADR-2 (GOAL-RECURRENCE-SCHEDULE-001) korrigiert die
+      # Ziel-Verbindlichkeiten occurrence-exakt. Im Golden-Fixture sinkt die
+      # Pensions-Liability von CHF 624'000 (26 Kalenderjahr-Labels) auf
+      # CHF 600'000 (25 tatsaechliche Faelligkeiten) und verschiebt sich um
+      # ein Bucket nach hinten (Rentenbeginn statt ein Jahr davor). Die
+      # Allokation aendert sich dadurch nachvollziehbar -- die Snapshots
+      # schlagen zu Recht an. Vorgehen wie bei 86b6771/d4b48a7.
+      - name: TEMP - regenerate golden CH snapshots on CI runner
+        working-directory: 5eyes-backend
+        run: python _ci_regen_golden.py
+
+      - name: TEMP - upload regenerated golden snapshots
+        uses: actions/upload-artifact@v6
+        with:
+          name: ci-regen-golden-snapshots
+          path: 5eyes-backend/_ci_regen_output/
+          retention-days: 3
+
       - name: Run pytest (correctness gate, no coverage)
         working-directory: 5eyes-backend
         # OMP/OPENBLAS/MKL_NUM_THREADS=1 (2026-09-09): golden-snapshot-Test
